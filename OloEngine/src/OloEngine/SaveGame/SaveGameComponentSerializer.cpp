@@ -5,6 +5,8 @@
 #include <cmath>
 
 #include "OloEngine/Animation/AnimatedMeshComponents.h"
+#include "OloEngine/Animation/IKTargetComponent.h"
+#include "OloEngine/Animation/MorphTargets/MorphTargetComponents.h"
 #include "OloEngine/Audio/AudioListener.h"
 #include "OloEngine/Audio/AudioSource.h"
 #include "OloEngine/Core/Hash.h"
@@ -18,8 +20,14 @@
 #include "OloEngine/Particle/ParticleTrail.h"
 #include "OloEngine/Particle/SubEmitter.h"
 #include "OloEngine/Physics3D/ColliderMaterial.h"
+#include "OloEngine/Renderer/Instancing/InstancedMeshComponent.h"
 #include "OloEngine/Renderer/LOD.h"
 #include "OloEngine/Renderer/Material.h"
+#include "OloEngine/AI/AIComponents.h"
+#include "OloEngine/Animation/AnimationGraphComponent.h"
+#include "OloEngine/Gameplay/Abilities/AbilityComponents.h"
+#include "OloEngine/Gameplay/Inventory/InventoryComponents.h"
+#include "OloEngine/Gameplay/Quest/QuestComponents.h"
 #include "OloEngine/Renderer/SphericalHarmonics.h"
 #include "OloEngine/Scene/Components.h"
 #include "OloEngine/Scene/SceneCamera.h"
@@ -1304,6 +1312,987 @@ namespace OloEngine
         ar << c.LoadRadius << c.UnloadRadius;
     }
 
+    void SaveGameComponentSerializer::Serialize(FArchive& /*ar*/, SkeletonComponent& /*c*/)
+    {
+        // Skeleton is a runtime Ref reconstructed from the model file on load
+        // (Ref<Skeleton>, tag cache, mutex are all rebuild-on-load state). The
+        // presence of the component is what we persist — actual bone data
+        // comes back when the associated Model / AnimationState reloads.
+        // Marker-only serializer; mirrors SceneSerializer.cpp:4589 which also
+        // emits an empty map for the component.
+    }
+
+    void SaveGameComponentSerializer::Serialize(FArchive& ar, LuaScriptComponent& c)
+    {
+        ar << c.ScriptFile;
+    }
+
+    void SaveGameComponentSerializer::Serialize(FArchive& ar, TileRendererComponent& c)
+    {
+        // TileMesh is a runtime Ref — rebuilt from MaterialIDs/Materials on load.
+        ar << c.Width << c.Height << c.TileSize;
+        ar << c.MaterialIDs;
+
+        // Materials: serialize base PBR factors only (full Material has runtime
+        // texture / shader state that the renderer rebuilds from MaterialIDs).
+        u64 materialCount = c.Materials.size();
+        ar << materialCount;
+        if (ar.IsLoading())
+            c.Materials.resize(materialCount);
+        for (u64 i = 0; i < materialCount; ++i)
+        {
+            if (ar.IsSaving())
+            {
+                auto base = c.Materials[i].GetBaseColorFactor();
+                auto metallic = c.Materials[i].GetMetallicFactor();
+                auto roughness = c.Materials[i].GetRoughnessFactor();
+                auto emissive = c.Materials[i].GetEmissiveFactor();
+                ar << base.x << base.y << base.z << base.w;
+                ar << metallic << roughness;
+                ar << emissive.x << emissive.y << emissive.z << emissive.w;
+            }
+            else
+            {
+                glm::vec4 base{};
+                glm::vec4 emissive{};
+                f32 metallic{};
+                f32 roughness{};
+                ar << base.x << base.y << base.z << base.w;
+                ar << metallic << roughness;
+                ar << emissive.x << emissive.y << emissive.z << emissive.w;
+                c.Materials[i].SetBaseColorFactor(base);
+                c.Materials[i].SetMetallicFactor(metallic);
+                c.Materials[i].SetRoughnessFactor(roughness);
+                c.Materials[i].SetEmissiveFactor(emissive);
+            }
+        }
+    }
+
+    void SaveGameComponentSerializer::Serialize(FArchive& ar, DialogueComponent& c)
+    {
+        ar << c.m_DialogueTree;
+        ar << c.m_AutoTrigger;
+        ar << c.m_TriggerRadius;
+        ar << c.m_TriggerOnce;
+        // m_HasTriggered is runtime-only — not persisted (resets on load).
+    }
+
+    void SaveGameComponentSerializer::Serialize(FArchive& ar, NavMeshBoundsComponent& c)
+    {
+        ar << c.m_Min.x << c.m_Min.y << c.m_Min.z;
+        ar << c.m_Max.x << c.m_Max.y << c.m_Max.z;
+    }
+
+    void SaveGameComponentSerializer::Serialize(FArchive& ar, NavAgentComponent& c)
+    {
+        ar << c.m_Radius << c.m_Height;
+        ar << c.m_MaxSpeed << c.m_Acceleration << c.m_StoppingDistance;
+        ar << c.m_AvoidancePriority;
+        ar << c.m_LockYAxis;
+        // Runtime path state intentionally excluded — recomputed by the nav system.
+    }
+
+    void SaveGameComponentSerializer::Serialize(FArchive& ar, NameplateComponent& c)
+    {
+        ar << c.m_Enabled << c.m_ShowHealthBar << c.m_ShowManaBar;
+        ar << c.m_WorldOffset.x << c.m_WorldOffset.y << c.m_WorldOffset.z;
+        ar << c.m_BarSize.x << c.m_BarSize.y;
+        ar << c.m_HealthBarColor.x << c.m_HealthBarColor.y << c.m_HealthBarColor.z << c.m_HealthBarColor.w;
+        ar << c.m_ManaBarColor.x << c.m_ManaBarColor.y << c.m_ManaBarColor.z << c.m_ManaBarColor.w;
+        ar << c.m_BarBackgroundColor.x << c.m_BarBackgroundColor.y << c.m_BarBackgroundColor.z << c.m_BarBackgroundColor.w;
+        ar << c.m_ManaBarGap;
+    }
+
+    void SaveGameComponentSerializer::Serialize(FArchive& ar, IKTargetComponent& c)
+    {
+        // --- Aim IK ---
+        ar << c.AimIKEnabled << c.AimBoneIndex;
+        ar << c.AimTarget.x << c.AimTarget.y << c.AimTarget.z;
+        ar << c.AimAxis.x << c.AimAxis.y << c.AimAxis.z;
+        ar << c.AimOffset.x << c.AimOffset.y << c.AimOffset.z;
+        ar << c.AimPoleVector.x << c.AimPoleVector.y << c.AimPoleVector.z;
+        ar << c.AimChainLength << c.AimChainFactor << c.AimWeight;
+        ar << c.AimTargetEntity;
+
+        // --- Limb IK ---
+        ar << c.LimbIKEnabled << c.LimbBoneIndex;
+        ar << c.LimbTarget.x << c.LimbTarget.y << c.LimbTarget.z;
+        ar << c.LimbChainLength << c.LimbWeight;
+        ar << c.LimbTargetEntity;
+    }
+
+    void SaveGameComponentSerializer::Serialize(FArchive& ar, UIWorldAnchorComponent& c)
+    {
+        ar << c.m_TargetEntity;
+        ar << c.m_WorldOffset.x << c.m_WorldOffset.y << c.m_WorldOffset.z;
+    }
+
+    void SaveGameComponentSerializer::Serialize(FArchive& ar, MorphTargetComponent& c)
+    {
+        // Ref<MorphTargetSet> + cached base data are runtime — not persisted.
+        // Weights map IS persisted so character poses survive save/load.
+        u64 weightCount = c.Weights.size();
+        ar << weightCount;
+        if (ar.IsSaving())
+        {
+            for (auto& [name, weight] : c.Weights)
+            {
+                std::string nameCopy = name; // ar << requires non-const reference
+                f32 weightCopy = weight;
+                ar << nameCopy << weightCopy;
+            }
+        }
+        else
+        {
+            c.Weights.clear();
+            for (u64 i = 0; i < weightCount; ++i)
+            {
+                std::string name;
+                f32 weight{};
+                ar << name << weight;
+                c.Weights[name] = weight;
+            }
+        }
+    }
+
+    // ========================================================================
+    // Helpers: Gameplay-component nested types
+    //
+    // These helpers serialize the persisted state only — runtime caches, asset
+    // refs, and modifier-fan-out are rebuilt on load by re-applying effects
+    // and re-resolving assets from the asset registry.
+    // ========================================================================
+
+    static void SerializeBlackboard(FArchive& ar, BTBlackboard& bb)
+    {
+        if (ar.IsSaving())
+        {
+            const auto& all = bb.GetAll();
+            u64 count = all.size();
+            ar << count;
+            for (auto& [key, value] : all)
+            {
+                std::string keyCopy = key;
+                ar << keyCopy;
+                u8 tag = static_cast<u8>(value.index());
+                ar << tag;
+                std::visit([&](auto& v)
+                           {
+                    using T = std::decay_t<decltype(v)>;
+                    if constexpr (std::is_same_v<T, UUID>)
+                    {
+                        u64 raw = static_cast<u64>(v);
+                        ar << raw;
+                    }
+                    else
+                    {
+                        T copy = v;
+                        ar << copy;
+                    } }, value);
+            }
+        }
+        else
+        {
+            bb.Clear();
+            u64 count{};
+            ar << count;
+            for (u64 i = 0; i < count; ++i)
+            {
+                std::string key;
+                ar << key;
+                u8 tag{};
+                ar << tag;
+                switch (tag)
+                {
+                    case 0:
+                    {
+                        bool b{};
+                        ar << b;
+                        bb.Set(key, b);
+                        break;
+                    }
+                    case 1:
+                    {
+                        i32 v{};
+                        ar << v;
+                        bb.Set(key, v);
+                        break;
+                    }
+                    case 2:
+                    {
+                        f32 v{};
+                        ar << v;
+                        bb.Set(key, v);
+                        break;
+                    }
+                    case 3:
+                    {
+                        std::string s;
+                        ar << s;
+                        bb.Set(key, s);
+                        break;
+                    }
+                    case 4:
+                    {
+                        glm::vec3 v{};
+                        ar << v;
+                        bb.Set(key, v);
+                        break;
+                    }
+                    case 5:
+                    {
+                        u64 raw{};
+                        ar << raw;
+                        bb.Set(key, UUID{ raw });
+                        break;
+                    }
+                    default:
+                        // Unknown tag means the stream layout has changed or the
+                        // save-file is corrupt. We MUST NOT just skip — the
+                        // variant payload is still in the stream, so dropping
+                        // it would misalign the cursor and corrupt every entry
+                        // after this one. Mark the archive in error and bail;
+                        // the caller (FArchive::IsError) aborts the wider load.
+                        OLO_CORE_ERROR("[SaveGame] Unknown blackboard variant tag {} — stream is misaligned, aborting load", tag);
+                        ar.SetError();
+                        return;
+                }
+            }
+        }
+    }
+
+    static void SerializeItemAffix(FArchive& ar, ItemAffix& a)
+    {
+        ar << a.DefinitionID;
+        ar << a.Type;
+        ar << a.Tier;
+        ar << a.Name;
+        ar << a.Attribute;
+        ar << a.Value;
+    }
+
+    static void SerializeItemInstance(FArchive& ar, ItemInstance& it)
+    {
+        ar << it.InstanceID;
+        ar << it.ItemDefinitionID;
+        ar << it.StackCount;
+        ar << it.Durability;
+        ar << it.MaxDurability;
+
+        u64 affixCount = it.Affixes.size();
+        ar << affixCount;
+        if (ar.IsLoading())
+        {
+            it.Affixes.resize(affixCount);
+        }
+        for (u64 i = 0; i < affixCount; ++i)
+        {
+            SerializeItemAffix(ar, it.Affixes[i]);
+        }
+
+        ar << it.CustomData;
+    }
+
+    static void SerializeOptionalItem(FArchive& ar, std::optional<ItemInstance>& slot)
+    {
+        bool hasItem = slot.has_value();
+        ar << hasItem;
+        if (hasItem)
+        {
+            if (ar.IsLoading() && !slot.has_value())
+            {
+                slot.emplace();
+            }
+            SerializeItemInstance(ar, *slot);
+        }
+        else if (ar.IsLoading())
+        {
+            slot.reset();
+        }
+    }
+
+    static void SerializeInventory(FArchive& ar, Inventory& inv)
+    {
+        if (ar.IsSaving())
+        {
+            i32 capacity = inv.GetCapacity();
+            ar << capacity;
+            ar << inv.MaxWeight;
+            const auto& slots = inv.GetSlots();
+            u64 slotCount = slots.size();
+            ar << slotCount;
+            for (auto const& s : slots)
+            {
+                std::optional<ItemInstance> copy = s;
+                SerializeOptionalItem(ar, copy);
+            }
+        }
+        else
+        {
+            i32 capacity{};
+            ar << capacity;
+            // Defensive clamp — a corrupt save-file could deliver a negative
+            // capacity, and a naive `static_cast<u64>(capacity)` below would
+            // wrap that to ~1.8e19 and admit out-of-bounds AddItemToSlot calls.
+            if (capacity < 0)
+            {
+                OLO_CORE_WARN("[SaveGame] Negative inventory capacity {} in stream — clamping to 0", capacity);
+                capacity = 0;
+            }
+            inv.SetCapacity(capacity);
+            ar << inv.MaxWeight;
+            u64 slotCount{};
+            ar << slotCount;
+            const u64 slotBound = static_cast<u64>(capacity);
+            for (u64 i = 0; i < slotCount; ++i)
+            {
+                std::optional<ItemInstance> loaded;
+                SerializeOptionalItem(ar, loaded);
+                if (loaded && i < slotBound)
+                {
+                    inv.AddItemToSlot(static_cast<i32>(i), *loaded);
+                }
+            }
+        }
+    }
+
+    static void SerializeEquipmentSlots(FArchive& ar, EquipmentSlots& eq)
+    {
+        constexpr u32 kSlotCount = static_cast<u32>(EquipmentSlots::Slot::Count);
+        for (u32 i = 0; i < kSlotCount; ++i)
+        {
+            const auto slot = static_cast<EquipmentSlots::Slot>(i);
+            if (ar.IsSaving())
+            {
+                const ItemInstance* eqItem = eq.GetEquipped(slot);
+                bool present = (eqItem != nullptr);
+                ar << present;
+                if (present)
+                {
+                    ItemInstance copy = *eqItem;
+                    SerializeItemInstance(ar, copy);
+                }
+            }
+            else
+            {
+                bool present{};
+                ar << present;
+                if (present)
+                {
+                    ItemInstance loaded;
+                    SerializeItemInstance(ar, loaded);
+                    eq.DirectEquip(slot, loaded);
+                }
+            }
+        }
+    }
+
+    static void SerializeAnimationParameter(FArchive& ar, AnimationParameter& p)
+    {
+        ar << p.Name;
+        ar << p.ParamType;
+        ar << p.FloatValue;
+        ar << p.IntValue;
+        ar << p.BoolValue;
+        ar << p.TriggerConsumed;
+    }
+
+    static void SerializeAnimationParameterSet(FArchive& ar, AnimationParameterSet& set)
+    {
+        if (ar.IsSaving())
+        {
+            const auto& all = set.GetAll();
+            u64 count = all.size();
+            ar << count;
+            for (auto const& [name, param] : all)
+            {
+                AnimationParameter copy = param;
+                SerializeAnimationParameter(ar, copy);
+            }
+        }
+        else
+        {
+            u64 count{};
+            ar << count;
+            for (u64 i = 0; i < count; ++i)
+            {
+                AnimationParameter p;
+                SerializeAnimationParameter(ar, p);
+                switch (p.ParamType)
+                {
+                    case AnimationParameterType::Float:
+                        set.DefineFloat(p.Name, p.FloatValue);
+                        break;
+                    case AnimationParameterType::Int:
+                        set.DefineInt(p.Name, p.IntValue);
+                        break;
+                    case AnimationParameterType::Bool:
+                        set.DefineBool(p.Name, p.BoolValue);
+                        break;
+                    case AnimationParameterType::Trigger:
+                        set.DefineTrigger(p.Name);
+                        if (!p.TriggerConsumed)
+                            set.SetTrigger(p.Name);
+                        break;
+                }
+            }
+        }
+    }
+
+    static void SerializeGameplayTag(FArchive& ar, GameplayTag& tag)
+    {
+        // Tag is uniquely identified by its string path; hash is derived on construction.
+        if (ar.IsSaving())
+        {
+            std::string path = tag.GetTagString();
+            ar << path;
+        }
+        else
+        {
+            std::string path;
+            ar << path;
+            tag = GameplayTag{ path };
+        }
+    }
+
+    static void SerializeGameplayTagContainer(FArchive& ar, GameplayTagContainer& container)
+    {
+        if (ar.IsSaving())
+        {
+            const auto& tags = container.GetTags();
+            u64 count = tags.size();
+            ar << count;
+            for (auto& t : tags)
+            {
+                GameplayTag copy = t;
+                SerializeGameplayTag(ar, copy);
+            }
+        }
+        else
+        {
+            container.Clear();
+            u64 count{};
+            ar << count;
+            for (u64 i = 0; i < count; ++i)
+            {
+                GameplayTag t{ "" };
+                SerializeGameplayTag(ar, t);
+                if (t.IsValid())
+                {
+                    container.AddTag(t);
+                }
+            }
+        }
+    }
+
+    static void SerializeAttributeModifier(FArchive& ar, AttributeModifier& m)
+    {
+        ar << m.Op;
+        ar << m.Magnitude;
+        SerializeGameplayTag(ar, m.Source);
+    }
+
+    static void SerializeAttributeSet(FArchive& ar, AttributeSet& set)
+    {
+        if (ar.IsSaving())
+        {
+            const auto names = set.GetAttributeNames();
+            u64 count = names.size();
+            ar << count;
+            for (auto& name : names)
+            {
+                std::string nameCopy = name;
+                ar << nameCopy;
+                f32 base = set.GetBaseValue(name);
+                ar << base;
+                const auto& mods = set.GetModifiers(name);
+                u64 modCount = mods.size();
+                ar << modCount;
+                for (auto& m : mods)
+                {
+                    AttributeModifier copy = m;
+                    SerializeAttributeModifier(ar, copy);
+                }
+            }
+        }
+        else
+        {
+            u64 count{};
+            ar << count;
+            for (u64 i = 0; i < count; ++i)
+            {
+                std::string name;
+                ar << name;
+                f32 base{};
+                ar << base;
+                u64 modCount{};
+                ar << modCount;
+                std::vector<AttributeModifier> mods(modCount);
+                for (u64 m = 0; m < modCount; ++m)
+                {
+                    SerializeAttributeModifier(ar, mods[m]);
+                }
+                set.RestoreFromSnapshot(name, base, mods);
+            }
+        }
+    }
+
+    static void SerializeGameplayEffect(FArchive& ar, GameplayEffect& fx)
+    {
+        ar << fx.Name;
+        ar << fx.Policy.DurationType;
+        ar << fx.Policy.DurationSeconds;
+        ar << fx.Policy.IsPeriodic;
+        ar << fx.Policy.PeriodSeconds;
+
+        u64 modCount = fx.Modifiers.size();
+        ar << modCount;
+        if (ar.IsLoading())
+            fx.Modifiers.resize(modCount);
+        for (u64 i = 0; i < modCount; ++i)
+        {
+            ar << fx.Modifiers[i].AttributeName;
+            ar << fx.Modifiers[i].Op;
+            ar << fx.Modifiers[i].Magnitude;
+        }
+
+        SerializeGameplayTagContainer(ar, fx.GrantedTags);
+        SerializeGameplayTagContainer(ar, fx.RequiredTags);
+        SerializeGameplayTagContainer(ar, fx.BlockedTags);
+        ar << fx.MaxStacks;
+        ar << fx.RefreshDurationOnStack;
+    }
+
+    static void SerializeActiveEffectsContainer(FArchive& ar, ActiveEffectsContainer& c)
+    {
+        if (ar.IsSaving())
+        {
+            const auto& effects = c.GetActiveEffects();
+            u64 effectCount = effects.size();
+            ar << effectCount;
+            for (auto const& e : effects)
+            {
+                GameplayEffect def = e.Definition;
+                SerializeGameplayEffect(ar, def);
+                f32 remaining = e.RemainingDuration;
+                f32 periodTimer = e.PeriodTimer;
+                i32 stacks = e.CurrentStacks;
+                GameplayTag source = e.SourceTag;
+                bool modsApplied = e.ModifiersApplied;
+                bool tagsApplied = e.TagsApplied;
+                ar << remaining << periodTimer << stacks;
+                SerializeGameplayTag(ar, source);
+                ar << modsApplied << tagsApplied;
+            }
+            const auto& grants = c.GetTagGrantCounts();
+            u64 grantCount = grants.size();
+            ar << grantCount;
+            for (auto& [tag, ref] : grants)
+            {
+                GameplayTag tagCopy = tag;
+                i32 refCopy = ref;
+                SerializeGameplayTag(ar, tagCopy);
+                ar << refCopy;
+            }
+        }
+        else
+        {
+            u64 effectCount{};
+            ar << effectCount;
+            std::vector<ActiveEffect> effects(effectCount);
+            for (u64 i = 0; i < effectCount; ++i)
+            {
+                SerializeGameplayEffect(ar, effects[i].Definition);
+                ar << effects[i].RemainingDuration;
+                ar << effects[i].PeriodTimer;
+                ar << effects[i].CurrentStacks;
+                SerializeGameplayTag(ar, effects[i].SourceTag);
+                ar << effects[i].ModifiersApplied;
+                ar << effects[i].TagsApplied;
+            }
+            u64 grantCount{};
+            ar << grantCount;
+            std::unordered_map<GameplayTag, i32> grants;
+            for (u64 i = 0; i < grantCount; ++i)
+            {
+                GameplayTag t{ "" };
+                SerializeGameplayTag(ar, t);
+                i32 ref{};
+                ar << ref;
+                grants[t] = ref;
+            }
+            c.RestoreFromSnapshot(std::move(effects), std::move(grants));
+        }
+    }
+
+    static void SerializeCooldownManager(FArchive& ar, CooldownManager& cm)
+    {
+        if (ar.IsSaving())
+        {
+            u64 count = cm.Size();
+            ar << count;
+            cm.ForEachCooldown([&](const GameplayTag& tag, f32 dur, f32 rem)
+                               {
+                GameplayTag tagCopy = tag;
+                f32 durCopy = dur;
+                f32 remCopy = rem;
+                SerializeGameplayTag(ar, tagCopy);
+                ar << durCopy << remCopy; });
+        }
+        else
+        {
+            cm.ResetAll();
+            u64 count{};
+            ar << count;
+            for (u64 i = 0; i < count; ++i)
+            {
+                GameplayTag t{ "" };
+                SerializeGameplayTag(ar, t);
+                f32 dur{}, rem{};
+                ar << dur << rem;
+                cm.RestoreFromSnapshot(t, dur, rem);
+            }
+        }
+    }
+
+    static void SerializeGameplayAbilityDef(FArchive& ar, GameplayAbilityDef& def)
+    {
+        ar << def.Name;
+        SerializeGameplayTag(ar, def.AbilityTag);
+        SerializeGameplayTagContainer(ar, def.RequiredTags);
+        SerializeGameplayTagContainer(ar, def.BlockedTags);
+        SerializeGameplayTagContainer(ar, def.ActivationGrantedTags);
+        ar << def.CooldownDuration << def.ResourceCost;
+        ar << def.CostAttribute;
+        u64 activationCount = def.ActivationEffects.size();
+        ar << activationCount;
+        if (ar.IsLoading())
+            def.ActivationEffects.resize(activationCount);
+        for (u64 i = 0; i < activationCount; ++i)
+            SerializeGameplayEffect(ar, def.ActivationEffects[i]);
+        u64 targetCount = def.TargetActivationEffects.size();
+        ar << targetCount;
+        if (ar.IsLoading())
+            def.TargetActivationEffects.resize(targetCount);
+        for (u64 i = 0; i < targetCount; ++i)
+            SerializeGameplayEffect(ar, def.TargetActivationEffects[i]);
+        ar << def.IsChanneled << def.IsToggled << def.ChannelDuration;
+    }
+
+    static void SerializeQuestObjective(FArchive& ar, QuestObjective& o)
+    {
+        ar << o.ObjectiveID << o.Description;
+        ar << o.ObjectiveType;
+        ar << o.TargetID;
+        ar << o.RequiredCount << o.CurrentCount;
+        ar << o.IsOptional << o.IsHidden << o.IsCompleted;
+    }
+
+    static void SerializeQuestRequirement(FArchive& ar, QuestRequirement& r)
+    {
+        ar << r.Type;
+        ar << r.Target;
+        ar << r.Value;
+        ar << r.Comparison;
+        u64 childCount = r.Children.size();
+        ar << childCount;
+        if (ar.IsLoading())
+            r.Children.resize(childCount);
+        for (u64 i = 0; i < childCount; ++i)
+            SerializeQuestRequirement(ar, r.Children[i]);
+        ar << r.Description;
+    }
+
+    static void SerializeQuestStage(FArchive& ar, QuestStage& s)
+    {
+        ar << s.StageID << s.Description;
+        u64 objCount = s.Objectives.size();
+        ar << objCount;
+        if (ar.IsLoading())
+            s.Objectives.resize(objCount);
+        for (u64 i = 0; i < objCount; ++i)
+            SerializeQuestObjective(ar, s.Objectives[i]);
+        ar << s.RequireAllObjectives;
+    }
+
+    static void SerializeQuestBranchChoice(FArchive& ar, QuestBranchChoice& c)
+    {
+        ar << c.ChoiceID << c.Description << c.NextQuestID;
+        ar << c.GrantedTags;
+    }
+
+    static void SerializeQuestRewards(FArchive& ar, QuestRewards& r)
+    {
+        ar << r.ExperiencePoints << r.Currency;
+        ar << r.ItemRewards;
+        ar << r.GrantedTags;
+    }
+
+    static void SerializeQuestDefinition(FArchive& ar, QuestDefinition& d)
+    {
+        ar << d.QuestID << d.Title << d.Description << d.Category;
+        u64 stageCount = d.Stages.size();
+        ar << stageCount;
+        if (ar.IsLoading())
+            d.Stages.resize(stageCount);
+        for (u64 i = 0; i < stageCount; ++i)
+            SerializeQuestStage(ar, d.Stages[i]);
+        u64 reqCount = d.Requirements.size();
+        ar << reqCount;
+        if (ar.IsLoading())
+            d.Requirements.resize(reqCount);
+        for (u64 i = 0; i < reqCount; ++i)
+            SerializeQuestRequirement(ar, d.Requirements[i]);
+        u64 choiceCount = d.CompletionChoices.size();
+        ar << choiceCount;
+        if (ar.IsLoading())
+            d.CompletionChoices.resize(choiceCount);
+        for (u64 i = 0; i < choiceCount; ++i)
+            SerializeQuestBranchChoice(ar, d.CompletionChoices[i]);
+        SerializeQuestRewards(ar, d.CompletionRewards);
+        ar << d.CanFail << d.TimeLimit;
+        ar << d.FailOnTags;
+        ar << d.IsRepeatable << d.RepeatCooldownSeconds;
+    }
+
+    static void SerializeActiveQuestState(FArchive& ar, QuestJournal::ActiveQuestState& s)
+    {
+        ar << s.QuestID;
+        ar << s.Status;
+        ar << s.CurrentStageIndex;
+        u64 objCount = s.ObjectiveStates.size();
+        ar << objCount;
+        if (ar.IsLoading())
+            s.ObjectiveStates.resize(objCount);
+        for (u64 i = 0; i < objCount; ++i)
+            SerializeQuestObjective(ar, s.ObjectiveStates[i]);
+        ar << s.ElapsedTime;
+        SerializeQuestDefinition(ar, s.Definition);
+    }
+
+    static void SerializeStringSet(FArchive& ar, std::unordered_set<std::string>& set)
+    {
+        if (ar.IsSaving())
+        {
+            u64 count = set.size();
+            ar << count;
+            for (auto& s : set)
+            {
+                std::string copy = s;
+                ar << copy;
+            }
+        }
+        else
+        {
+            set.clear();
+            u64 count{};
+            ar << count;
+            for (u64 i = 0; i < count; ++i)
+            {
+                std::string s;
+                ar << s;
+                set.insert(std::move(s));
+            }
+        }
+    }
+
+    void SaveGameComponentSerializer::Serialize(FArchive& ar, InstancedMeshComponent& c)
+    {
+        // MeshSource / OverrideMaterial / merge cache are runtime Refs — rebuilt
+        // from the primitive + placement asset handle on load.
+        ar << c.Primitive;
+        ar << c.PlacementAssetHandle;
+        ar << c.FrustumCullPerInstance << c.CastShadows;
+        ar << c.CullDistance;
+
+        // Inline placement list — round-trip the per-instance transforms.
+        u64 instanceCount = c.Instances.size();
+        ar << instanceCount;
+        if (ar.IsLoading())
+            c.Instances.resize(instanceCount);
+        for (u64 i = 0; i < instanceCount; ++i)
+        {
+            auto& inst = c.Instances[i];
+            for (int row = 0; row < 4; ++row)
+                for (int col = 0; col < 4; ++col)
+                    ar << inst.Transform[row][col];
+        }
+    }
+
+    // ========================================================================
+    // Gameplay component serializers
+    // ========================================================================
+
+    void SaveGameComponentSerializer::Serialize(FArchive& ar, AnimationGraphComponent& c)
+    {
+        ar << c.AnimationGraphAssetHandle;
+        SerializeAnimationParameterSet(ar, c.Parameters);
+        // RuntimeGraph is a Ref that gets lazy-loaded from the asset on first tick.
+    }
+
+    void SaveGameComponentSerializer::Serialize(FArchive& ar, BehaviorTreeComponent& c)
+    {
+        ar << c.BehaviorTreeAssetHandle;
+        SerializeBlackboard(ar, c.Blackboard);
+        // RuntimeTree + IsRunning are runtime state; the tick loop rebuilds them.
+    }
+
+    void SaveGameComponentSerializer::Serialize(FArchive& ar, StateMachineComponent& c)
+    {
+        ar << c.StateMachineAssetHandle;
+        SerializeBlackboard(ar, c.Blackboard);
+        // RuntimeFSM is a runtime Ref.
+    }
+
+    void SaveGameComponentSerializer::Serialize(FArchive& ar, InventoryComponent& c)
+    {
+        SerializeInventory(ar, c.PlayerInventory);
+        SerializeEquipmentSlots(ar, c.Equipment);
+        ar << c.Currency;
+    }
+
+    void SaveGameComponentSerializer::Serialize(FArchive& ar, ItemPickupComponent& c)
+    {
+        SerializeItemInstance(ar, c.Item);
+        ar << c.PickupRadius;
+        ar << c.AutoPickup;
+        ar << c.DespawnTimer;
+    }
+
+    void SaveGameComponentSerializer::Serialize(FArchive& ar, ItemContainerComponent& c)
+    {
+        SerializeInventory(ar, c.Contents);
+        ar << c.IsShop;
+        ar << c.LootTableID;
+        ar << c.HasBeenLooted;
+    }
+
+    void SaveGameComponentSerializer::Serialize(FArchive& ar, QuestJournalComponent& c)
+    {
+        auto& j = c.Journal;
+        if (ar.IsSaving())
+        {
+            // Active quests
+            const auto& active = j.GetActiveQuestStates();
+            u64 activeCount = active.size();
+            ar << activeCount;
+            for (auto& [id, state] : active)
+            {
+                std::string idCopy = id;
+                QuestJournal::ActiveQuestState stateCopy = state;
+                ar << idCopy;
+                SerializeActiveQuestState(ar, stateCopy);
+            }
+
+            // Completed & failed IDs
+            auto completedSet = j.GetCompletedQuestIDs();
+            SerializeStringSet(ar, completedSet);
+            auto failedSet = j.GetFailedQuestIDs();
+            SerializeStringSet(ar, failedSet);
+
+            // Tags
+            auto tagSet = j.GetTags();
+            SerializeStringSet(ar, tagSet);
+
+            // Branch choices for completed quests
+            auto branches = j.GetCompletedQuestBranches();
+            ar << branches;
+
+            // Cooldowns
+            auto cooldowns = j.GetQuestCooldowns();
+            ar << cooldowns;
+
+            // Player state
+            i32 level = j.GetPlayerLevel();
+            ar << level;
+            auto reputations = j.GetReputations();
+            ar << reputations;
+        }
+        else
+        {
+            // Clear current state. We don't expose Reset() on QuestJournal so we
+            // just write into a fresh component; the entt registry hands us one.
+            u64 activeCount{};
+            ar << activeCount;
+            for (u64 i = 0; i < activeCount; ++i)
+            {
+                std::string id;
+                ar << id;
+                QuestJournal::ActiveQuestState state;
+                SerializeActiveQuestState(ar, state);
+                j.SetActiveQuestState(id, std::move(state));
+            }
+
+            std::unordered_set<std::string> completedSet;
+            SerializeStringSet(ar, completedSet);
+            std::unordered_set<std::string> failedSet;
+            SerializeStringSet(ar, failedSet);
+            std::unordered_set<std::string> tagSet;
+            SerializeStringSet(ar, tagSet);
+
+            std::unordered_map<std::string, std::string> branches;
+            ar << branches;
+            for (auto const& id : completedSet)
+            {
+                auto branchIt = branches.find(id);
+                j.AddCompletedQuestID(id, branchIt != branches.end() ? branchIt->second : std::string{});
+            }
+            for (auto const& id : failedSet)
+            {
+                j.AddFailedQuestID(id);
+            }
+            for (auto const& tag : tagSet)
+            {
+                j.AddTag(tag);
+            }
+
+            std::unordered_map<std::string, f32> cooldowns;
+            ar << cooldowns;
+            for (auto& [id, remaining] : cooldowns)
+            {
+                j.SetQuestCooldown(id, remaining);
+            }
+
+            i32 level{};
+            ar << level;
+            j.SetPlayerLevel(level);
+            std::unordered_map<std::string, i32> reputations;
+            ar << reputations;
+            for (auto& [faction, value] : reputations)
+            {
+                j.SetReputation(faction, value);
+            }
+        }
+    }
+
+    void SaveGameComponentSerializer::Serialize(FArchive& ar, QuestGiverComponent& c)
+    {
+        ar << c.OfferedQuestIDs;
+        ar << c.TurnInQuestIDs;
+        ar << c.QuestMarkerIcon;
+    }
+
+    void SaveGameComponentSerializer::Serialize(FArchive& ar, AbilityComponent& c)
+    {
+        SerializeAttributeSet(ar, c.Attributes);
+        SerializeGameplayTagContainer(ar, c.OwnedTags);
+
+        u64 abilityCount = c.Abilities.size();
+        ar << abilityCount;
+        if (ar.IsLoading())
+            c.Abilities.resize(abilityCount);
+        for (u64 i = 0; i < abilityCount; ++i)
+        {
+            SerializeGameplayAbilityDef(ar, c.Abilities[i].Definition);
+            ar << c.Abilities[i].IsActive;
+            ar << c.Abilities[i].ActiveTime;
+            ar << c.Abilities[i].ChannelRemaining;
+        }
+
+        SerializeActiveEffectsContainer(ar, c.ActiveEffects);
+        SerializeCooldownManager(ar, c.Cooldowns);
+    }
+
     // ========================================================================
     // Registry
     // ========================================================================
@@ -1383,7 +2372,27 @@ namespace OloEngine
         REGISTER_SAVE_COMPONENT(MeshComponent);
         REGISTER_SAVE_COMPONENT(ModelComponent);
         REGISTER_SAVE_COMPONENT(AnimationStateComponent);
+        REGISTER_SAVE_COMPONENT(SkeletonComponent);
         REGISTER_SAVE_COMPONENT(StreamingVolumeComponent);
+        REGISTER_SAVE_COMPONENT(LuaScriptComponent);
+        REGISTER_SAVE_COMPONENT(TileRendererComponent);
+        REGISTER_SAVE_COMPONENT(DialogueComponent);
+        REGISTER_SAVE_COMPONENT(NavMeshBoundsComponent);
+        REGISTER_SAVE_COMPONENT(NavAgentComponent);
+        REGISTER_SAVE_COMPONENT(NameplateComponent);
+        REGISTER_SAVE_COMPONENT(IKTargetComponent);
+        REGISTER_SAVE_COMPONENT(UIWorldAnchorComponent);
+        REGISTER_SAVE_COMPONENT(MorphTargetComponent);
+        REGISTER_SAVE_COMPONENT(InstancedMeshComponent);
+        REGISTER_SAVE_COMPONENT(AnimationGraphComponent);
+        REGISTER_SAVE_COMPONENT(BehaviorTreeComponent);
+        REGISTER_SAVE_COMPONENT(StateMachineComponent);
+        REGISTER_SAVE_COMPONENT(InventoryComponent);
+        REGISTER_SAVE_COMPONENT(ItemPickupComponent);
+        REGISTER_SAVE_COMPONENT(ItemContainerComponent);
+        REGISTER_SAVE_COMPONENT(QuestJournalComponent);
+        REGISTER_SAVE_COMPONENT(QuestGiverComponent);
+        REGISTER_SAVE_COMPONENT(AbilityComponent);
 
         OLO_CORE_TRACE("[SaveGameComponentSerializer] Registered {} component serializers", s_Registry.size());
     }

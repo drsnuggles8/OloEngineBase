@@ -117,7 +117,7 @@ namespace OloEngine
             : m_Mutex(&Lock)
         {
             m_Mutex->LockShared(m_Link);
-            m_bLocked = true;
+            m_Locked = true;
         }
 
         [[nodiscard]] explicit TDynamicSharedLock(FSharedRecursiveMutex& Lock, FDeferLock)
@@ -126,38 +126,38 @@ namespace OloEngine
         }
 
         [[nodiscard]] TDynamicSharedLock(TDynamicSharedLock&& Other)
-            : m_Mutex(Other.m_Mutex), m_bLocked(Other.m_bLocked)
+            : m_Mutex(Other.m_Mutex), m_Locked(Other.m_Locked)
         {
-            if (m_bLocked)
+            if (m_Locked)
             {
                 m_Mutex->LockShared(m_Link);
                 m_Mutex->UnlockShared(Other.m_Link);
             }
             Other.m_Mutex = nullptr;
-            Other.m_bLocked = false;
+            Other.m_Locked = false;
         }
 
         TDynamicSharedLock& operator=(TDynamicSharedLock&& Other)
         {
-            if (m_bLocked)
+            if (m_Locked)
             {
                 m_Mutex->UnlockShared(m_Link);
             }
             m_Mutex = Other.m_Mutex;
-            m_bLocked = Other.m_bLocked;
-            if (m_bLocked)
+            m_Locked = Other.m_Locked;
+            if (m_Locked)
             {
                 m_Mutex->LockShared(m_Link);
                 m_Mutex->UnlockShared(Other.m_Link);
             }
             Other.m_Mutex = nullptr;
-            Other.m_bLocked = false;
+            Other.m_Locked = false;
             return *this;
         }
 
         ~TDynamicSharedLock()
         {
-            if (m_bLocked)
+            if (m_Locked)
             {
                 m_Mutex->UnlockShared(m_Link);
             }
@@ -165,30 +165,30 @@ namespace OloEngine
 
         [[nodiscard]] bool TryLock()
         {
-            OLO_CORE_ASSERT(!m_bLocked, "Already locked");
+            OLO_CORE_ASSERT(!m_Locked, "Already locked");
             OLO_CORE_ASSERT(m_Mutex, "No mutex");
-            m_bLocked = m_Mutex->TryLockShared(m_Link);
-            return m_bLocked;
+            m_Locked = m_Mutex->TryLockShared(m_Link);
+            return m_Locked;
         }
 
         void Lock()
         {
-            OLO_CORE_ASSERT(!m_bLocked, "Already locked");
+            OLO_CORE_ASSERT(!m_Locked, "Already locked");
             OLO_CORE_ASSERT(m_Mutex, "No mutex");
             m_Mutex->LockShared(m_Link);
-            m_bLocked = true;
+            m_Locked = true;
         }
 
         void Unlock()
         {
-            OLO_CORE_ASSERT(m_bLocked, "Not locked");
-            m_bLocked = false;
+            OLO_CORE_ASSERT(m_Locked, "Not locked");
+            m_Locked = false;
             m_Mutex->UnlockShared(m_Link);
         }
 
         [[nodiscard]] bool OwnsLock() const
         {
-            return m_bLocked;
+            return m_Locked;
         }
 
         explicit operator bool() const
@@ -199,7 +199,7 @@ namespace OloEngine
       private:
         FSharedRecursiveMutex* m_Mutex = nullptr;
         Private::FSharedRecursiveMutexLink m_Link;
-        bool m_bLocked = false;
+        bool m_Locked = false;
     };
 
 } // namespace OloEngine

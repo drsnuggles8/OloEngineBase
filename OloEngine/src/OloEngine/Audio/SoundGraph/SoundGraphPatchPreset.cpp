@@ -253,7 +253,15 @@ namespace OloEngine::Audio::SoundGraph
                 using VT = std::decay_t<decltype(v)>;
                 if constexpr (std::is_same_v<VT, bool>) return v;
                 else if constexpr (std::is_same_v<VT, i32>) return v != 0;
-                else if constexpr (std::is_same_v<VT, f32>) return v != 0.0f;
+                else if constexpr (std::is_same_v<VT, f32>) {
+                    // Patch "is non-zero" predicate. IEEE 754 treats +0.0f and
+                    // -0.0f as numerically equal, so std::fpclassify is what we
+                    // want here — a memcmp against +0.0f would call -0.0f
+                    // non-zero, which is wrong for a truthiness test
+                    // (cpp-coding-quality §2a: rule prohibits `==` on float;
+                    // fpclassify is the IEEE-aware way to ask "is this zero?").
+                    return std::fpclassify(v) != FP_ZERO;
+                }
                 else return fallback; }, pv);
         };
 

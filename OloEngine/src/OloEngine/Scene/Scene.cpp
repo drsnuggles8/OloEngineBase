@@ -75,7 +75,7 @@
 #include <ranges>
 
 // Box2D
-#include "box2d/box2d.h"
+#include <box2d/box2d.h>
 
 // Jolt Physics
 #include <Jolt/Jolt.h>
@@ -1283,7 +1283,7 @@ namespace OloEngine
 
                     // Compute parent velocity for velocity inheritance
                     glm::vec3 parentVelocity(0.0f);
-                    if (psc.System.VelocityInheritance != 0.0f && ts > 0.0f)
+                    if (std::abs(psc.System.VelocityInheritance) > 1e-6f && ts > 0.0f)
                     {
                         parentVelocity = (transform.Translation - psc.System.GetEmitterPosition()) / static_cast<f32>(ts);
                     }

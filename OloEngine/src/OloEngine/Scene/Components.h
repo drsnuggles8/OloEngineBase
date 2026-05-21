@@ -58,12 +58,19 @@ namespace OloEngine
 
         IDComponent() = default;
         IDComponent(const IDComponent&) = default;
+
+        // Manual operator== — UUID's implicit operator u64() causes C2666
+        // ambiguity with defaulted ==. Compare via explicit u64 conversion.
+        auto operator==(const IDComponent& other) const -> bool
+        {
+            return static_cast<u64>(ID) == static_cast<u64>(other.ID);
+        }
     };
 
     struct TagComponent
     {
         std::string Tag;
-        bool renaming = false;
+        bool renaming = false; // Transient editor flag — NOT authoring data.
 
         TagComponent() = default;
         TagComponent(const TagComponent& other) = default;
@@ -77,6 +84,14 @@ namespace OloEngine
         explicit operator const std::string&() const
         {
             return Tag;
+        }
+
+        // Authoring-only equality — `renaming` is a transient editor flag toggled
+        // while the user is mid-rename. Including it would treat start/end of an
+        // inline edit as a real change and pollute the undo stack.
+        auto operator==(const TagComponent& other) const -> bool
+        {
+            return Tag == other.Tag;
         }
     };
 
@@ -146,6 +161,13 @@ namespace OloEngine
             m_OverriddenComponents.clear();
             m_AddedComponents.clear();
             m_RemovedComponents.clear();
+        }
+
+        // Manual operator== — UUID members would trigger C2666 ambiguity with
+        // defaulted ==. Compare UUIDs via u64.
+        auto operator==(const PrefabComponent& other) const -> bool
+        {
+            return static_cast<u64>(m_PrefabID) == static_cast<u64>(other.m_PrefabID) && static_cast<u64>(m_PrefabEntityID) == static_cast<u64>(other.m_PrefabEntityID) && m_OverriddenComponents == other.m_OverriddenComponents && m_AddedComponents == other.m_AddedComponents && m_RemovedComponents == other.m_RemovedComponents;
         }
     };
 
@@ -253,6 +275,8 @@ namespace OloEngine
         {
             return glm::translate(glm::mat4(1.0f), Translation) * glm::toMat4(Rotation) * glm::scale(glm::mat4(1.0f), Scale);
         }
+
+        auto operator==(const TransformComponent&) const -> bool = default;
     };
 
     struct SpriteRendererComponent
@@ -267,6 +291,8 @@ namespace OloEngine
         SpriteRendererComponent(const SpriteRendererComponent&) = default;
         explicit SpriteRendererComponent(const glm::vec4& color)
             : Color(color) {}
+
+        auto operator==(const SpriteRendererComponent&) const -> bool = default;
     };
 
     struct CircleRendererComponent
@@ -280,6 +306,8 @@ namespace OloEngine
 
         CircleRendererComponent() = default;
         CircleRendererComponent(const CircleRendererComponent&) = default;
+
+        auto operator==(const CircleRendererComponent&) const -> bool = default;
     };
 
     struct CameraComponent
@@ -302,6 +330,49 @@ namespace OloEngine
 
         CameraComponent() = default;
         CameraComponent(const CameraComponent&) = default;
+
+        // Manual operator== — SceneCamera lacks defaulted ==. Compare the
+        // user-visible projection state via getters, which captures every
+        // serialized field. Other fields are POD and trivially compared.
+        auto operator==(const CameraComponent& other) const -> bool
+        {
+            if (Camera.GetProjectionType() != other.Camera.GetProjectionType())
+                return false;
+            const auto type = Camera.GetProjectionType();
+            if (type == SceneCamera::ProjectionType::Perspective)
+            {
+                const f32 fovL = Camera.GetPerspectiveVerticalFOV();
+                const f32 fovR = other.Camera.GetPerspectiveVerticalFOV();
+                const f32 nearL = Camera.GetPerspectiveNearClip();
+                const f32 nearR = other.Camera.GetPerspectiveNearClip();
+                const f32 farL = Camera.GetPerspectiveFarClip();
+                const f32 farR = other.Camera.GetPerspectiveFarClip();
+                if (std::memcmp(&fovL, &fovR, sizeof(f32)) != 0)
+                    return false;
+                if (std::memcmp(&nearL, &nearR, sizeof(f32)) != 0)
+                    return false;
+                if (std::memcmp(&farL, &farR, sizeof(f32)) != 0)
+                    return false;
+            }
+            else
+            {
+                const f32 sizeL = Camera.GetOrthographicSize();
+                const f32 sizeR = other.Camera.GetOrthographicSize();
+                const f32 nearL = Camera.GetOrthographicNearClip();
+                const f32 nearR = other.Camera.GetOrthographicNearClip();
+                const f32 farL = Camera.GetOrthographicFarClip();
+                const f32 farR = other.Camera.GetOrthographicFarClip();
+                if (std::memcmp(&sizeL, &sizeR, sizeof(f32)) != 0)
+                    return false;
+                if (std::memcmp(&nearL, &nearR, sizeof(f32)) != 0)
+                    return false;
+                if (std::memcmp(&farL, &farR, sizeof(f32)) != 0)
+                    return false;
+            }
+            const f32 flySpeedL = FlySpeed;
+            const f32 flySpeedR = other.FlySpeed;
+            return Primary == other.Primary && FixedAspectRatio == other.FixedAspectRatio && RuntimeControl == other.RuntimeControl && std::memcmp(&flySpeedL, &flySpeedR, sizeof(f32)) == 0;
+        }
     };
 
     // Physics
@@ -314,11 +385,15 @@ namespace OloEngine
             Dynamic,
             Kinematic
         };
+        OLO_PROPERTY(Name = "Type", Type = "int", Get = "static_cast<int>(comp.Type)", Set = "comp.Type = static_cast<Rigidbody2DComponent::BodyType>({v})")
         BodyType Type = BodyType::Static;
+        OLO_PROPERTY()
         bool FixedRotation = false;
 
         // Persisted velocity — snapshot from runtime before save, applied on body creation
+        OLO_PROPERTY()
         glm::vec2 LinearVelocity = { 0.0f, 0.0f };
+        OLO_PROPERTY()
         f32 AngularVelocity = 0.0f;
 
         // Storage for runtime
@@ -326,6 +401,15 @@ namespace OloEngine
 
         Rigidbody2DComponent() = default;
         Rigidbody2DComponent(const Rigidbody2DComponent&) = default;
+
+        // Compare only authored fields. RuntimeBody is a b2BodyId set by the
+        // physics system when entering Play mode; including it in equality
+        // would flag enter/exit-play as an authored change. Float fields use
+        // bit-exact memcmp per cpp-coding-quality §2a.
+        auto operator==(const Rigidbody2DComponent& other) const -> bool
+        {
+            return Type == other.Type && FixedRotation == other.FixedRotation && std::memcmp(&LinearVelocity, &other.LinearVelocity, sizeof(glm::vec2)) == 0 && std::memcmp(&AngularVelocity, &other.AngularVelocity, sizeof(f32)) == 0;
+        }
     };
 
     struct BoxCollider2DComponent
@@ -349,6 +433,13 @@ namespace OloEngine
 
         BoxCollider2DComponent() = default;
         BoxCollider2DComponent(const BoxCollider2DComponent&) = default;
+
+        // RuntimeFixture (void*) is a Box2D handle populated on Play; excluded
+        // from equality so play-mode enter/exit doesn't show as authored change.
+        auto operator==(const BoxCollider2DComponent& other) const -> bool
+        {
+            return std::memcmp(&Offset, &other.Offset, sizeof(glm::vec2)) == 0 && std::memcmp(&Size, &other.Size, sizeof(glm::vec2)) == 0 && std::memcmp(&Density, &other.Density, sizeof(f32)) == 0 && std::memcmp(&Friction, &other.Friction, sizeof(f32)) == 0 && std::memcmp(&Restitution, &other.Restitution, sizeof(f32)) == 0 && std::memcmp(&RestitutionThreshold, &other.RestitutionThreshold, sizeof(f32)) == 0;
+        }
     };
 
     struct CircleCollider2DComponent
@@ -372,6 +463,12 @@ namespace OloEngine
 
         CircleCollider2DComponent() = default;
         CircleCollider2DComponent(const CircleCollider2DComponent&) = default;
+
+        // RuntimeFixture (void*) is a Box2D handle populated on Play; excluded.
+        auto operator==(const CircleCollider2DComponent& other) const -> bool
+        {
+            return std::memcmp(&Offset, &other.Offset, sizeof(glm::vec2)) == 0 && std::memcmp(&Radius, &other.Radius, sizeof(f32)) == 0 && std::memcmp(&Density, &other.Density, sizeof(f32)) == 0 && std::memcmp(&Friction, &other.Friction, sizeof(f32)) == 0 && std::memcmp(&Restitution, &other.Restitution, sizeof(f32)) == 0 && std::memcmp(&RestitutionThreshold, &other.RestitutionThreshold, sizeof(f32)) == 0;
+        }
     };
 
     // 3D Physics Components
@@ -411,6 +508,13 @@ namespace OloEngine
 
         Rigidbody3DComponent() = default;
         Rigidbody3DComponent(const Rigidbody3DComponent&) = default;
+
+        // m_RuntimeBodyToken is a Jolt body ID assigned on Play; excluded from
+        // authored-state equality so play-mode enter/exit doesn't show as a change.
+        auto operator==(const Rigidbody3DComponent& other) const -> bool
+        {
+            return m_Type == other.m_Type && m_LayerID == other.m_LayerID && std::memcmp(&m_Mass, &other.m_Mass, sizeof(f32)) == 0 && std::memcmp(&m_LinearDrag, &other.m_LinearDrag, sizeof(f32)) == 0 && std::memcmp(&m_AngularDrag, &other.m_AngularDrag, sizeof(f32)) == 0 && m_DisableGravity == other.m_DisableGravity && m_IsTrigger == other.m_IsTrigger && m_LockedAxes == other.m_LockedAxes && std::memcmp(&m_InitialLinearVelocity, &other.m_InitialLinearVelocity, sizeof(glm::vec3)) == 0 && std::memcmp(&m_InitialAngularVelocity, &other.m_InitialAngularVelocity, sizeof(glm::vec3)) == 0 && std::memcmp(&m_MaxLinearVelocity, &other.m_MaxLinearVelocity, sizeof(f32)) == 0 && std::memcmp(&m_MaxAngularVelocity, &other.m_MaxAngularVelocity, sizeof(f32)) == 0;
+        }
     };
 
     struct BoxCollider3DComponent
@@ -425,6 +529,11 @@ namespace OloEngine
 
         BoxCollider3DComponent() = default;
         BoxCollider3DComponent(const BoxCollider3DComponent&) = default;
+
+        auto operator==(const BoxCollider3DComponent& other) const -> bool
+        {
+            return std::memcmp(this, &other, sizeof(BoxCollider3DComponent)) == 0;
+        }
     };
 
     struct SphereCollider3DComponent
@@ -439,6 +548,11 @@ namespace OloEngine
 
         SphereCollider3DComponent() = default;
         SphereCollider3DComponent(const SphereCollider3DComponent&) = default;
+
+        auto operator==(const SphereCollider3DComponent& other) const -> bool
+        {
+            return std::memcmp(this, &other, sizeof(SphereCollider3DComponent)) == 0;
+        }
     };
 
     struct CapsuleCollider3DComponent
@@ -455,6 +569,11 @@ namespace OloEngine
 
         CapsuleCollider3DComponent() = default;
         CapsuleCollider3DComponent(const CapsuleCollider3DComponent&) = default;
+
+        auto operator==(const CapsuleCollider3DComponent& other) const -> bool
+        {
+            return std::memcmp(this, &other, sizeof(CapsuleCollider3DComponent)) == 0;
+        }
     };
 
     struct MeshCollider3DComponent
@@ -472,6 +591,11 @@ namespace OloEngine
         MeshCollider3DComponent() = default;
         MeshCollider3DComponent(const MeshCollider3DComponent&) = default;
         explicit MeshCollider3DComponent(AssetHandle colliderAsset) : m_ColliderAsset(colliderAsset) {}
+
+        auto operator==(const MeshCollider3DComponent& other) const -> bool
+        {
+            return std::memcmp(this, &other, sizeof(MeshCollider3DComponent)) == 0;
+        }
     };
 
     struct ConvexMeshCollider3DComponent
@@ -490,6 +614,11 @@ namespace OloEngine
         ConvexMeshCollider3DComponent() = default;
         ConvexMeshCollider3DComponent(const ConvexMeshCollider3DComponent&) = default;
         explicit ConvexMeshCollider3DComponent(AssetHandle colliderAsset) : m_ColliderAsset(colliderAsset) {}
+
+        auto operator==(const ConvexMeshCollider3DComponent& other) const -> bool
+        {
+            return std::memcmp(this, &other, sizeof(ConvexMeshCollider3DComponent)) == 0;
+        }
     };
 
     struct TriangleMeshCollider3DComponent
@@ -506,6 +635,11 @@ namespace OloEngine
         TriangleMeshCollider3DComponent() = default;
         TriangleMeshCollider3DComponent(const TriangleMeshCollider3DComponent&) = default;
         explicit TriangleMeshCollider3DComponent(AssetHandle colliderAsset) : m_ColliderAsset(colliderAsset) {}
+
+        auto operator==(const TriangleMeshCollider3DComponent& other) const -> bool
+        {
+            return std::memcmp(this, &other, sizeof(TriangleMeshCollider3DComponent)) == 0;
+        }
     };
 
     struct CharacterController3DComponent
@@ -525,6 +659,11 @@ namespace OloEngine
 
         CharacterController3DComponent() = default;
         CharacterController3DComponent(const CharacterController3DComponent&) = default;
+
+        auto operator==(const CharacterController3DComponent& other) const -> bool
+        {
+            return std::memcmp(this, &other, sizeof(CharacterController3DComponent)) == 0;
+        }
     };
 
     struct TextComponent
@@ -552,6 +691,8 @@ namespace OloEngine
 
         ScriptComponent() = default;
         ScriptComponent(const ScriptComponent&) = default;
+
+        auto operator==(const ScriptComponent&) const -> bool = default;
     };
 
     struct LuaScriptComponent
@@ -628,6 +769,8 @@ namespace OloEngine
 
         AudioListenerComponent() = default;
         AudioListenerComponent(const AudioListenerComponent&) = default;
+
+        auto operator==(const AudioListenerComponent&) const -> bool = default;
     };
 
     // Note: SubmeshComponent, MeshComponent, AnimationStateComponent,
@@ -647,6 +790,31 @@ namespace OloEngine
         MaterialComponent() = default;
         MaterialComponent(const Material& material) : m_Material(material) {}
         MaterialComponent(const MaterialComponent&) = default;
+
+        // Manual operator== — Material lacks defaulted ==, AssetHandle/UUID
+        // triggers C2666. Compare the PBR factors bit-exactly via memcmp and
+        // the asset handle via u64. Texture references are not compared (they
+        // are loaded from disk and equal if the factors round-trip).
+        auto operator==(const MaterialComponent& other) const -> bool
+        {
+            const auto lhsBase = m_Material.GetBaseColorFactor();
+            const auto rhsBase = other.m_Material.GetBaseColorFactor();
+            if (std::memcmp(&lhsBase, &rhsBase, sizeof(lhsBase)) != 0)
+                return false;
+            const f32 lhsMetallic = m_Material.GetMetallicFactor();
+            const f32 rhsMetallic = other.m_Material.GetMetallicFactor();
+            if (std::memcmp(&lhsMetallic, &rhsMetallic, sizeof(f32)) != 0)
+                return false;
+            const f32 lhsRoughness = m_Material.GetRoughnessFactor();
+            const f32 rhsRoughness = other.m_Material.GetRoughnessFactor();
+            if (std::memcmp(&lhsRoughness, &rhsRoughness, sizeof(f32)) != 0)
+                return false;
+            const auto lhsEmissive = m_Material.GetEmissiveFactor();
+            const auto rhsEmissive = other.m_Material.GetEmissiveFactor();
+            if (std::memcmp(&lhsEmissive, &rhsEmissive, sizeof(lhsEmissive)) != 0)
+                return false;
+            return static_cast<u64>(m_ShaderGraphHandle) == static_cast<u64>(other.m_ShaderGraphHandle);
+        }
     };
 
     // 3D Light Components
@@ -670,6 +838,11 @@ namespace OloEngine
 
         DirectionalLightComponent() = default;
         DirectionalLightComponent(const DirectionalLightComponent&) = default;
+
+        auto operator==(const DirectionalLightComponent& other) const -> bool
+        {
+            return std::memcmp(this, &other, sizeof(DirectionalLightComponent)) == 0;
+        }
     };
 
     struct PointLightComponent
@@ -690,6 +863,11 @@ namespace OloEngine
 
         PointLightComponent() = default;
         PointLightComponent(const PointLightComponent&) = default;
+
+        auto operator==(const PointLightComponent& other) const -> bool
+        {
+            return std::memcmp(this, &other, sizeof(PointLightComponent)) == 0;
+        }
     };
 
     struct SpotLightComponent
@@ -715,6 +893,11 @@ namespace OloEngine
 
         SpotLightComponent() = default;
         SpotLightComponent(const SpotLightComponent&) = default;
+
+        auto operator==(const SpotLightComponent& other) const -> bool
+        {
+            return std::memcmp(this, &other, sizeof(SpotLightComponent)) == 0;
+        }
     };
 
     // Environment map component for skybox and IBL
@@ -744,6 +927,28 @@ namespace OloEngine
         EnvironmentMapComponent() = default;
         EnvironmentMapComponent(const EnvironmentMapComponent&) = default;
         explicit EnvironmentMapComponent(const std::string& filepath) : m_FilePath(filepath) {}
+
+        // Manual operator== — AssetHandle is UUID (implicit u64 → C2666);
+        // Ref<EnvironmentMap> compares by pointer which is what we want for
+        // undo (a different loaded cache means a real change).
+        auto operator==(const EnvironmentMapComponent& other) const -> bool
+        {
+            if (static_cast<u64>(m_EnvironmentMapAsset) != static_cast<u64>(other.m_EnvironmentMapAsset))
+                return false;
+            if (m_FilePath != other.m_FilePath)
+                return false;
+            if (m_EnvironmentMap.Raw() != other.m_EnvironmentMap.Raw())
+                return false;
+            const f32 rotL = m_Rotation;
+            const f32 rotR = other.m_Rotation;
+            const f32 expL = m_Exposure;
+            const f32 expR = other.m_Exposure;
+            const f32 blurL = m_BlurAmount;
+            const f32 blurR = other.m_BlurAmount;
+            const f32 iblL = m_IBLIntensity;
+            const f32 iblR = other.m_IBLIntensity;
+            return m_IsCubemapFolder == other.m_IsCubemapFolder && m_EnableSkybox == other.m_EnableSkybox && m_EnableIBL == other.m_EnableIBL && std::memcmp(&rotL, &rotR, sizeof(f32)) == 0 && std::memcmp(&expL, &expR, sizeof(f32)) == 0 && std::memcmp(&blurL, &blurR, sizeof(f32)) == 0 && std::memcmp(&iblL, &iblR, sizeof(f32)) == 0 && std::memcmp(&m_Tint, &other.m_Tint, sizeof(m_Tint)) == 0;
+        }
     };
 
     // Light probe component for a single standalone probe
@@ -759,6 +964,11 @@ namespace OloEngine
 
         LightProbeComponent() = default;
         LightProbeComponent(const LightProbeComponent&) = default;
+
+        auto operator==(const LightProbeComponent& other) const -> bool
+        {
+            return std::memcmp(this, &other, sizeof(LightProbeComponent)) == 0;
+        }
     };
 
     // Light probe volume for grid-based global illumination
@@ -799,6 +1009,11 @@ namespace OloEngine
 
         LightProbeVolumeComponent() = default;
         LightProbeVolumeComponent(const LightProbeVolumeComponent&) = default;
+
+        auto operator==(const LightProbeVolumeComponent& other) const -> bool
+        {
+            return std::memcmp(this, &other, sizeof(LightProbeVolumeComponent)) == 0;
+        }
     };
 
     // Entity relationship component for parent-child hierarchies (Hazel-style)
@@ -813,6 +1028,22 @@ namespace OloEngine
         RelationshipComponent& operator=(const RelationshipComponent&) = default;
         RelationshipComponent& operator=(RelationshipComponent&&) = default;
         explicit RelationshipComponent(UUID parent) : m_ParentHandle(parent) {}
+
+        // Manual operator== — UUID's implicit u64 conversion makes defaulted
+        // operator== ambiguous (C2666). Compare via u64 explicitly.
+        auto operator==(const RelationshipComponent& other) const -> bool
+        {
+            if (static_cast<u64>(m_ParentHandle) != static_cast<u64>(other.m_ParentHandle))
+                return false;
+            if (m_Children.size() != other.m_Children.size())
+                return false;
+            for (sizet i = 0; i < m_Children.size(); ++i)
+            {
+                if (static_cast<u64>(m_Children[i]) != static_cast<u64>(other.m_Children[i]))
+                    return false;
+            }
+            return true;
+        }
     };
 
     // ── UI Components ────────────────────────────────────────────────────
@@ -839,6 +1070,8 @@ namespace OloEngine
 
         UICanvasComponent() = default;
         UICanvasComponent(const UICanvasComponent&) = default;
+
+        auto operator==(const UICanvasComponent&) const -> bool = default;
     };
 
     struct UIRectTransformComponent
@@ -860,6 +1093,8 @@ namespace OloEngine
 
         UIRectTransformComponent() = default;
         UIRectTransformComponent(const UIRectTransformComponent&) = default;
+
+        auto operator==(const UIRectTransformComponent&) const -> bool = default;
     };
 
     // Transient per-frame component — resolved screen-pixel rect, NOT serialized
@@ -870,6 +1105,8 @@ namespace OloEngine
 
         UIResolvedRectComponent() = default;
         UIResolvedRectComponent(const UIResolvedRectComponent&) = default;
+
+        auto operator==(const UIResolvedRectComponent&) const -> bool = default;
     };
 
     enum class UITextAlignment : u8
@@ -903,6 +1140,8 @@ namespace OloEngine
 
         UIImageComponent() = default;
         UIImageComponent(const UIImageComponent&) = default;
+
+        auto operator==(const UIImageComponent&) const -> bool = default;
     };
 
     struct UIPanelComponent
@@ -913,6 +1152,8 @@ namespace OloEngine
 
         UIPanelComponent() = default;
         UIPanelComponent(const UIPanelComponent&) = default;
+
+        auto operator==(const UIPanelComponent&) const -> bool = default;
     };
 
     struct UITextComponent
@@ -932,6 +1173,8 @@ namespace OloEngine
 
         UITextComponent() = default;
         UITextComponent(const UITextComponent&) = default;
+
+        auto operator==(const UITextComponent&) const -> bool = default;
     };
 
     struct UIButtonComponent
@@ -953,6 +1196,8 @@ namespace OloEngine
 
         UIButtonComponent() = default;
         UIButtonComponent(const UIButtonComponent&) = default;
+
+        auto operator==(const UIButtonComponent&) const -> bool = default;
     };
 
     enum class UISliderDirection : u8
@@ -983,6 +1228,8 @@ namespace OloEngine
 
         UISliderComponent() = default;
         UISliderComponent(const UISliderComponent&) = default;
+
+        auto operator==(const UISliderComponent&) const -> bool = default;
     };
 
     struct UICheckboxComponent
@@ -997,6 +1244,8 @@ namespace OloEngine
 
         UICheckboxComponent() = default;
         UICheckboxComponent(const UICheckboxComponent&) = default;
+
+        auto operator==(const UICheckboxComponent&) const -> bool = default;
     };
 
     enum class UIFillMethod : u8
@@ -1019,6 +1268,8 @@ namespace OloEngine
 
         UIProgressBarComponent() = default;
         UIProgressBarComponent(const UIProgressBarComponent&) = default;
+
+        auto operator==(const UIProgressBarComponent&) const -> bool = default;
     };
 
     // Anchors a UI element's screen position to a world-space entity.
@@ -1032,6 +1283,12 @@ namespace OloEngine
 
         UIWorldAnchorComponent() = default;
         UIWorldAnchorComponent(const UIWorldAnchorComponent&) = default;
+
+        // Manual operator== — UUID's implicit u64 conversion (C2666).
+        auto operator==(const UIWorldAnchorComponent& other) const -> bool
+        {
+            return static_cast<u64>(m_TargetEntity) == static_cast<u64>(other.m_TargetEntity) && std::memcmp(&m_WorldOffset, &other.m_WorldOffset, sizeof(m_WorldOffset)) == 0;
+        }
     };
 
     struct UIInputFieldComponent
@@ -1057,6 +1314,8 @@ namespace OloEngine
 
         UIInputFieldComponent() = default;
         UIInputFieldComponent(const UIInputFieldComponent&) = default;
+
+        auto operator==(const UIInputFieldComponent&) const -> bool = default;
     };
 
     // --- Phase 4: Complex Widgets ---
@@ -1084,11 +1343,15 @@ namespace OloEngine
 
         UIScrollViewComponent() = default;
         UIScrollViewComponent(const UIScrollViewComponent&) = default;
+
+        auto operator==(const UIScrollViewComponent&) const -> bool = default;
     };
 
     struct UIDropdownOption
     {
         std::string m_Label;
+
+        auto operator==(const UIDropdownOption&) const -> bool = default;
     };
 
     struct UIDropdownComponent
@@ -1111,6 +1374,8 @@ namespace OloEngine
 
         UIDropdownComponent() = default;
         UIDropdownComponent(const UIDropdownComponent&) = default;
+
+        auto operator==(const UIDropdownComponent&) const -> bool = default;
     };
 
     enum class UIGridLayoutStartCorner : u8
@@ -1141,6 +1406,8 @@ namespace OloEngine
 
         UIGridLayoutComponent() = default;
         UIGridLayoutComponent(const UIGridLayoutComponent&) = default;
+
+        auto operator==(const UIGridLayoutComponent&) const -> bool = default;
     };
 
     struct UIToggleComponent
@@ -1155,6 +1422,8 @@ namespace OloEngine
 
         UIToggleComponent() = default;
         UIToggleComponent(const UIToggleComponent&) = default;
+
+        auto operator==(const UIToggleComponent&) const -> bool = default;
     };
 
     // ── Particle System ──────────────────────────────────────────────────
@@ -1175,6 +1444,11 @@ namespace OloEngine
 
         ParticleSystemComponent() = default;
         ParticleSystemComponent(const ParticleSystemComponent&) = default;
+
+        // Undo coverage: ParticleSystem itself does not implement operator==
+        // because its emitter / curve state is too large to bit-compare
+        // reliably. The editor falls through to the "no undo" tier per
+        // SceneHierarchyPanel::DrawComponent<T>; tracked as a follow-up.
     };
 
     // ── Terrain ──────────────────────────────────────────────────────────
@@ -1271,6 +1545,23 @@ namespace OloEngine
         }
         TerrainComponent(TerrainComponent&&) noexcept = default;
         TerrainComponent& operator=(TerrainComponent&&) noexcept = default;
+
+        // Compares the serialized fields only — runtime state is rebuild-on-load
+        // so it's intentionally not considered for undo equality.
+        auto operator==(const TerrainComponent& other) const -> bool
+        {
+            const f32 worldXL = m_WorldSizeX, worldXR = other.m_WorldSizeX;
+            const f32 worldZL = m_WorldSizeZ, worldZR = other.m_WorldSizeZ;
+            const f32 heightL = m_HeightScale, heightR = other.m_HeightScale;
+            const f32 freqL = m_ProceduralFrequency, freqR = other.m_ProceduralFrequency;
+            const f32 lacL = m_ProceduralLacunarity, lacR = other.m_ProceduralLacunarity;
+            const f32 persL = m_ProceduralPersistence, persR = other.m_ProceduralPersistence;
+            const f32 triL = m_TargetTriangleSize, triR = other.m_TargetTriangleSize;
+            const f32 morphL = m_MorphRegion, morphR = other.m_MorphRegion;
+            const f32 tileSizeL = m_TileWorldSize, tileSizeR = other.m_TileWorldSize;
+            const f32 voxL = m_VoxelSize, voxR = other.m_VoxelSize;
+            return m_HeightmapPath == other.m_HeightmapPath && std::memcmp(&worldXL, &worldXR, sizeof(f32)) == 0 && std::memcmp(&worldZL, &worldZR, sizeof(f32)) == 0 && std::memcmp(&heightL, &heightR, sizeof(f32)) == 0 && m_ProceduralEnabled == other.m_ProceduralEnabled && m_ProceduralSeed == other.m_ProceduralSeed && m_ProceduralResolution == other.m_ProceduralResolution && m_ProceduralOctaves == other.m_ProceduralOctaves && std::memcmp(&freqL, &freqR, sizeof(f32)) == 0 && std::memcmp(&lacL, &lacR, sizeof(f32)) == 0 && std::memcmp(&persL, &persR, sizeof(f32)) == 0 && m_TessellationEnabled == other.m_TessellationEnabled && std::memcmp(&triL, &triR, sizeof(f32)) == 0 && std::memcmp(&morphL, &morphR, sizeof(f32)) == 0 && m_StreamingEnabled == other.m_StreamingEnabled && m_TileDirectory == other.m_TileDirectory && m_TileFilePattern == other.m_TileFilePattern && std::memcmp(&tileSizeL, &tileSizeR, sizeof(f32)) == 0 && m_TileResolution == other.m_TileResolution && m_StreamingLoadRadius == other.m_StreamingLoadRadius && m_StreamingMaxTiles == other.m_StreamingMaxTiles && m_VoxelEnabled == other.m_VoxelEnabled && std::memcmp(&voxL, &voxR, sizeof(f32)) == 0;
+        }
     };
 
     struct FoliageComponent
@@ -1302,6 +1593,12 @@ namespace OloEngine
         }
         FoliageComponent(FoliageComponent&&) noexcept = default;
         FoliageComponent& operator=(FoliageComponent&&) noexcept = default;
+
+        // Compares serialized state only — runtime renderer is rebuild-on-load.
+        auto operator==(const FoliageComponent& other) const -> bool
+        {
+            return m_Layers == other.m_Layers && m_Enabled == other.m_Enabled;
+        }
     };
 
     // ── Water Surface ────────────────────────────────────────────────────
@@ -1517,6 +1814,11 @@ namespace OloEngine
         SnowDeformerComponent& operator=(const SnowDeformerComponent&) = default;
         SnowDeformerComponent(SnowDeformerComponent&&) noexcept = default;
         SnowDeformerComponent& operator=(SnowDeformerComponent&&) noexcept = default;
+
+        auto operator==(const SnowDeformerComponent& other) const -> bool
+        {
+            return std::memcmp(this, &other, sizeof(SnowDeformerComponent)) == 0;
+        }
     };
 
     // ── Local Fog Volume ─────────────────────────────────────────────────
@@ -1550,6 +1852,11 @@ namespace OloEngine
         FogVolumeComponent& operator=(const FogVolumeComponent&) = default;
         FogVolumeComponent(FogVolumeComponent&&) noexcept = default;
         FogVolumeComponent& operator=(FogVolumeComponent&&) noexcept = default;
+
+        auto operator==(const FogVolumeComponent& other) const -> bool
+        {
+            return std::memcmp(this, &other, sizeof(FogVolumeComponent)) == 0;
+        }
     };
 
     // ── Deferred Decal ───────────────────────────────────────────────────
@@ -1722,6 +2029,8 @@ namespace OloEngine
         NetworkIdentityComponent& operator=(const NetworkIdentityComponent&) = default;
         NetworkIdentityComponent(NetworkIdentityComponent&&) noexcept = default;
         NetworkIdentityComponent& operator=(NetworkIdentityComponent&&) noexcept = default;
+
+        auto operator==(const NetworkIdentityComponent&) const -> bool = default;
     };
 
     struct NetworkInterestComponent
@@ -1734,6 +2043,11 @@ namespace OloEngine
         NetworkInterestComponent& operator=(const NetworkInterestComponent&) = default;
         NetworkInterestComponent(NetworkInterestComponent&&) noexcept = default;
         NetworkInterestComponent& operator=(NetworkInterestComponent&&) noexcept = default;
+
+        auto operator==(const NetworkInterestComponent& other) const -> bool
+        {
+            return std::memcmp(this, &other, sizeof(NetworkInterestComponent)) == 0;
+        }
     };
 
     // ── MMO Networking Components ────────────────────────────────────
@@ -1749,6 +2063,8 @@ namespace OloEngine
         PhaseComponent& operator=(const PhaseComponent&) = default;
         PhaseComponent(PhaseComponent&&) noexcept = default;
         PhaseComponent& operator=(PhaseComponent&&) noexcept = default;
+
+        auto operator==(const PhaseComponent&) const -> bool = default;
     };
 
     // Instance portal — interaction triggers instance creation or join.
@@ -1763,6 +2079,8 @@ namespace OloEngine
         InstancePortalComponent& operator=(const InstancePortalComponent&) = default;
         InstancePortalComponent(InstancePortalComponent&&) noexcept = default;
         InstancePortalComponent& operator=(InstancePortalComponent&&) noexcept = default;
+
+        auto operator==(const InstancePortalComponent&) const -> bool = default;
     };
 
     // Per-entity network update detail level.
@@ -1783,6 +2101,8 @@ namespace OloEngine
         NetworkLODComponent& operator=(const NetworkLODComponent&) = default;
         NetworkLODComponent(NetworkLODComponent&&) noexcept = default;
         NetworkLODComponent& operator=(NetworkLODComponent&&) noexcept = default;
+
+        auto operator==(const NetworkLODComponent&) const -> bool = default;
     };
 
     // ----- Dialogue -----
@@ -1811,6 +2131,15 @@ namespace OloEngine
                 m_TriggerOnce = other.m_TriggerOnce;
             }
             return *this;
+        }
+
+        // Manual operator== — AssetHandle is UUID (C2666); runtime
+        // m_HasTriggered intentionally excluded so undo treats authoring
+        // changes as the only difference.
+        auto operator==(const DialogueComponent& other) const -> bool
+        {
+            const f32 radL = m_TriggerRadius, radR = other.m_TriggerRadius;
+            return static_cast<u64>(m_DialogueTree) == static_cast<u64>(other.m_DialogueTree) && m_AutoTrigger == other.m_AutoTrigger && std::memcmp(&radL, &radR, sizeof(f32)) == 0 && m_TriggerOnce == other.m_TriggerOnce;
         }
     };
 
@@ -1841,11 +2170,18 @@ namespace OloEngine
 
     struct NavMeshBoundsComponent
     {
+        OLO_PROPERTY()
         glm::vec3 m_Min = { -100.0f, -10.0f, -100.0f };
+        OLO_PROPERTY()
         glm::vec3 m_Max = { 100.0f, 50.0f, 100.0f };
 
         NavMeshBoundsComponent() = default;
         NavMeshBoundsComponent(const NavMeshBoundsComponent&) = default;
+
+        auto operator==(const NavMeshBoundsComponent& other) const -> bool
+        {
+            return std::memcmp(this, &other, sizeof(NavMeshBoundsComponent)) == 0;
+        }
     };
 
     struct NavAgentComponent
@@ -1924,6 +2260,18 @@ namespace OloEngine
             }
             return *this;
         }
+
+        // Compares serialized fields only — runtime navigation state is
+        // intentionally excluded (it's path-finder-managed, not authoring-visible).
+        auto operator==(const NavAgentComponent& other) const -> bool
+        {
+            const f32 rL = m_Radius, rR = other.m_Radius;
+            const f32 hL = m_Height, hR = other.m_Height;
+            const f32 sL = m_MaxSpeed, sR = other.m_MaxSpeed;
+            const f32 aL = m_Acceleration, aR = other.m_Acceleration;
+            const f32 stopL = m_StoppingDistance, stopR = other.m_StoppingDistance;
+            return std::memcmp(&rL, &rR, sizeof(f32)) == 0 && std::memcmp(&hL, &hR, sizeof(f32)) == 0 && std::memcmp(&sL, &sR, sizeof(f32)) == 0 && std::memcmp(&aL, &aR, sizeof(f32)) == 0 && std::memcmp(&stopL, &stopR, sizeof(f32)) == 0 && m_AvoidancePriority == other.m_AvoidancePriority && m_LockYAxis == other.m_LockYAxis;
+        }
     };
 
     // Renders a floating health/mana bar above an entity.
@@ -1951,6 +2299,11 @@ namespace OloEngine
 
         NameplateComponent() = default;
         NameplateComponent(const NameplateComponent&) = default;
+
+        auto operator==(const NameplateComponent& other) const -> bool
+        {
+            return std::memcmp(this, &other, sizeof(NameplateComponent)) == 0;
+        }
     };
 
     template<typename... Component>
@@ -2037,5 +2390,6 @@ namespace OloEngine
         QuestGiverComponent,
         AbilityComponent,
         NameplateComponent,
-        IKTargetComponent>;
+        IKTargetComponent,
+        InstancedMeshComponent>;
 } // namespace OloEngine

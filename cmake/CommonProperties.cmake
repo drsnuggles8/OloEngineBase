@@ -79,9 +79,20 @@ function(olo_set_compiler_options target_name)
             /Zc:inline        # Remove unreferenced COMDAT functions (reduces linker work)
             /bigobj           # Increase COFF section limit for large translation units
         )
-        # Use multi-threaded DLL runtime library
-        set_target_properties(${target_name} PROPERTIES
-            MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
+        # Use multi-threaded DLL runtime library.
+        # When ASan is on, force the release CRT for ALL configurations — MSVC
+        # ASan's runtime links against release CRT, and mixing /MDd with
+        # release-only third-party static libs (Vulkan SDK spirv-cross on CI
+        # without debug libs, etc.) causes _ITERATOR_DEBUG_LEVEL mismatches.
+        # Sanitizers.cmake also sets CMAKE_MSVC_RUNTIME_LIBRARY globally, but
+        # this per-target property would otherwise override it for Debug.
+        if(OLO_ENABLE_ASAN)
+            set_target_properties(${target_name} PROPERTIES
+                MSVC_RUNTIME_LIBRARY "MultiThreadedDLL")
+        else()
+            set_target_properties(${target_name} PROPERTIES
+                MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
+        endif()
     else()
         target_compile_options(${target_name} PRIVATE 
             -Wall 
@@ -98,10 +109,17 @@ function(olo_set_common_definitions target_name)
     target_compile_definitions(${target_name} PRIVATE
         $<$<CONFIG:Debug>:OLO_DEBUG>
         $<$<CONFIG:Release>:OLO_RELEASE>
-        $<$<CONFIG:Release>:TRACY_ENABLE>
-        $<$<CONFIG:Release>:TRACY_ON_DEMAND>
         $<$<CONFIG:Dist>:OLO_DIST>
     )
+    # Tracy: only define the macro when the CMake option is on. This lets the
+    # TSan preset turn Tracy off (-DTRACY_ENABLE=OFF) — Tracy's rpmalloc has a
+    # known static-init-order race that TSan flags, halting test discovery.
+    if(TRACY_ENABLE)
+        target_compile_definitions(${target_name} PRIVATE
+            $<$<CONFIG:Release>:TRACY_ENABLE>
+            $<$<CONFIG:Release>:TRACY_ON_DEMAND>
+        )
+    endif()
 endfunction()
 
 # Configure link options for all builds
@@ -124,17 +142,18 @@ function(olo_set_link_options target_name)
     endif()
 endfunction()
 
-# Complete setup for an application target (combines all the above)
+# Complete setup for an application target (combines all the above).
+# Pass PCH_HEADER <path/to/pch.h> to opt-in to PCH; omit it to skip PCH entirely.
 function(olo_configure_app target_name)
-    cmake_parse_arguments(PARSE_ARGV 1 ARG "NO_PCH" "PCH_HEADER" "")
-      olo_set_output_directories(${target_name})
+    cmake_parse_arguments(PARSE_ARGV 1 ARG "" "PCH_HEADER" "")
+    olo_set_output_directories(${target_name})
     olo_set_debugger_directory(${target_name})
     olo_enable_lto(${target_name})
     olo_set_compiler_options(${target_name})
     olo_set_common_definitions(${target_name})
     olo_set_link_options(${target_name})
-    
-    if(NOT ARG_NO_PCH AND DEFINED ARG_PCH_HEADER)
+
+    if(DEFINED ARG_PCH_HEADER)
         olo_enable_pch(${target_name} ${ARG_PCH_HEADER})
     endif()
 endfunction()

@@ -3,6 +3,7 @@
 #include "OloEngine/Core/Base.h"
 #include <algorithm>
 #include <cmath>
+#include <cstring>
 
 namespace OloEngine
 {
@@ -92,6 +93,14 @@ namespace OloEngine
             ValidateFriction();
             ValidateRestitution();
             SetDensity(m_Density); // Reuse density validation
+        }
+
+        /// @brief Bit-exact equality for undo/redo and serialization round-trip.
+        /// Direct float == on m_* would trip the cpp-coding-quality rule; this
+        /// uses memcmp to document bit-exact intent (see cpp-coding-quality §2a).
+        auto operator==(const ColliderMaterial& other) const -> bool
+        {
+            return std::memcmp(this, &other, sizeof(ColliderMaterial)) == 0;
         }
 
       private:

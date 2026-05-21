@@ -401,7 +401,11 @@ namespace OloEngine::Audio::DSP
         outSpeakerIndexes = { idx1, idx2 };
         outGains = { g1, g2 };
 
-        return ref != 0.0f;
+        // Bit-exact sentinel — `ref` is value-initialized to 0.0f and only
+        // overwritten via `ref = sqrtf(>0)`, so 0.0f means "no arch found".
+        // See cpp-coding-quality §2a.
+        constexpr float refSentinel = 0.0f;
+        return std::memcmp(&ref, &refSentinel, sizeof(float)) != 0;
     }
 
 } // namespace OloEngine::Audio::DSP

@@ -1058,12 +1058,12 @@ namespace OloEngine::Tasks
               public:
                 bool PushIfNotClosed(FTaskBase* NewItem)
                 {
-                    if (m_bIsClosed.load(std::memory_order_acquire))
+                    if (m_IsClosed.load(std::memory_order_acquire))
                     {
                         return false;
                     }
                     TUniqueLock<FMutex> Lock(m_Mutex);
-                    if (m_bIsClosed.load(std::memory_order_relaxed))
+                    if (m_IsClosed.load(std::memory_order_relaxed))
                     {
                         return false;
                     }
@@ -1074,18 +1074,18 @@ namespace OloEngine::Tasks
                 TArray<FTaskBase*, AllocatorType> Close()
                 {
                     TUniqueLock<FMutex> Lock(m_Mutex);
-                    m_bIsClosed.store(true, std::memory_order_release);
+                    m_IsClosed.store(true, std::memory_order_release);
                     return MoveTemp(m_Subsequents);
                 }
 
                 bool IsClosed() const
                 {
-                    return m_bIsClosed.load(std::memory_order_acquire);
+                    return m_IsClosed.load(std::memory_order_acquire);
                 }
 
               private:
                 TArray<FTaskBase*, AllocatorType> m_Subsequents;
-                std::atomic<bool> m_bIsClosed{ false };
+                std::atomic<bool> m_IsClosed{ false };
                 FMutex m_Mutex;
             };
 

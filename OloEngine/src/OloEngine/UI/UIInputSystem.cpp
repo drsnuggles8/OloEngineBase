@@ -262,7 +262,8 @@ namespace OloEngine
                     continue;
                 }
 
-                if (scrollDeltaY != 0.0f &&
+                constexpr f32 scrollEpsilon = 1e-6f;
+                if (std::abs(scrollDeltaY) > scrollEpsilon &&
                     (scrollView.m_ScrollDirection == UIScrollDirection::Vertical ||
                      scrollView.m_ScrollDirection == UIScrollDirection::Both))
                 {
@@ -270,7 +271,7 @@ namespace OloEngine
                     const f32 maxScrollY = glm::max(scrollView.m_ContentSize.y - resolved.m_Size.y, 0.0f);
                     scrollView.m_ScrollPosition.y = glm::clamp(scrollView.m_ScrollPosition.y, 0.0f, maxScrollY);
                 }
-                if (scrollDeltaX != 0.0f &&
+                if (std::abs(scrollDeltaX) > scrollEpsilon &&
                     (scrollView.m_ScrollDirection == UIScrollDirection::Horizontal ||
                      scrollView.m_ScrollDirection == UIScrollDirection::Both))
                 {

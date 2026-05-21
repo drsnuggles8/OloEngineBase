@@ -151,7 +151,7 @@ namespace OloEngine
          */
         bool IsRunning() const
         {
-            return m_bIsRunning.load(std::memory_order_acquire);
+            return m_IsRunning.load(std::memory_order_acquire);
         }
 
       protected:
@@ -189,11 +189,11 @@ namespace OloEngine
         u64 m_ThreadAffinityMask = 0;
         EThreadPriority m_ThreadPriority = EThreadPriority::TPri_Normal;
         u32 m_ThreadID = 0;
-        std::atomic<bool> m_bIsRunning{ false };
-        std::atomic<bool> m_bShouldStop{ false };
+        std::atomic<bool> m_IsRunning{ false };
+        std::atomic<bool> m_ShouldStop{ false };
         // True iff FRunnable::Init() returned true. Read by CreateInternal after
         // m_InitEvent.Notify() to decide whether thread creation succeeded.
-        std::atomic<bool> m_bInitSucceeded{ false };
+        std::atomic<bool> m_InitSucceeded{ false };
 
         // Platform-opaque native thread handle.
         // - On Windows: HANDLE (void*), reinterpret-cast to/from uptr in the .cpp.

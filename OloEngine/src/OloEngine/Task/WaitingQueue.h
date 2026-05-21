@@ -55,7 +55,7 @@ namespace OloEngine::LowLevelTasks::Private
         std::atomic<u64> m_State;
         std::atomic<u64> m_StandbyState;
         TAlignedArray<FWaitEvent>& m_NodesArray;
-        std::atomic<bool> m_bIsShuttingDown{ false };
+        std::atomic<bool> m_IsShuttingDown{ false };
         FOversubscriptionLimitReached& m_OversubscriptionLimitReachedEvent;
 
       public:

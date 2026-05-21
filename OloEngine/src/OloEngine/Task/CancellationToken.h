@@ -50,14 +50,14 @@ namespace OloEngine::Tasks
         // and honor the cancellation request.
         void Cancel()
         {
-            m_bCanceled.store(true, std::memory_order_relaxed);
+            m_Canceled.store(true, std::memory_order_relaxed);
         }
 
         // @brief Check if cancellation has been requested
         // @return true if Cancel() has been called
         bool IsCanceled() const
         {
-            return m_bCanceled.load(std::memory_order_relaxed);
+            return m_Canceled.load(std::memory_order_relaxed);
         }
 
         // @brief Reset the cancellation state
@@ -65,11 +65,11 @@ namespace OloEngine::Tasks
         // Allows reuse of the token for a new task.
         void Reset()
         {
-            m_bCanceled.store(false, std::memory_order_relaxed);
+            m_Canceled.store(false, std::memory_order_relaxed);
         }
 
       private:
-        std::atomic<bool> m_bCanceled{ false };
+        std::atomic<bool> m_Canceled{ false };
     };
 
     // @class FCancellationTokenScope
@@ -102,7 +102,7 @@ namespace OloEngine::Tasks
 
         ~FCancellationTokenScope()
         {
-            if (m_bHasActiveScope)
+            if (m_HasActiveScope)
             {
                 s_CurrentToken = nullptr;
             }
@@ -143,12 +143,12 @@ namespace OloEngine::Tasks
                     OLO_CORE_ASSERT(s_CurrentToken == nullptr,
                                     "Nested cancellation token scopes with different tokens are not supported");
                     s_CurrentToken = CancellationToken;
-                    m_bHasActiveScope = true;
+                    m_HasActiveScope = true;
                 }
             }
         }
 
-        bool m_bHasActiveScope = false;
+        bool m_HasActiveScope = false;
         static inline thread_local FCancellationToken* s_CurrentToken = nullptr;
     };
 

@@ -348,6 +348,17 @@ namespace OloEngine
 		internal static extern void NavAgentComponent_SetTargetPosition(ulong entityID, ref Vector3 value);
 		#endregion
 
+		#region NavMeshBoundsComponent
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void NavMeshBoundsComponent_GetMin(ulong entityID, out Vector3 value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void NavMeshBoundsComponent_SetMin(ulong entityID, ref Vector3 value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void NavMeshBoundsComponent_GetMax(ulong entityID, out Vector3 value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void NavMeshBoundsComponent_SetMax(ulong entityID, ref Vector3 value);
+		#endregion
+
 		#region ParticleSystemComponent
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern bool ParticleSystemComponent_GetPlaying(ulong entityID);
@@ -384,6 +395,25 @@ namespace OloEngine
 		internal static extern bool PointLightComponent_GetCastShadows(ulong entityID);
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern void PointLightComponent_SetCastShadows(ulong entityID, bool value);
+		#endregion
+
+		#region Rigidbody2DComponent
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern int Rigidbody2DComponent_GetType(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void Rigidbody2DComponent_SetType(ulong entityID, int value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool Rigidbody2DComponent_GetFixedRotation(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void Rigidbody2DComponent_SetFixedRotation(ulong entityID, bool value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void Rigidbody2DComponent_GetLinearVelocity(ulong entityID, out Vector2 value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void Rigidbody2DComponent_SetLinearVelocity(ulong entityID, ref Vector2 value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float Rigidbody2DComponent_GetAngularVelocity(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void Rigidbody2DComponent_SetAngularVelocity(ulong entityID, float value);
 		#endregion
 
 		#region Rigidbody3DComponent

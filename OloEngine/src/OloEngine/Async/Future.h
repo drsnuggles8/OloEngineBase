@@ -46,7 +46,7 @@ namespace OloEngine
          */
         bool IsComplete() const
         {
-            return m_bComplete.load(std::memory_order_acquire);
+            return m_Complete.load(std::memory_order_acquire);
         }
 
         /**
@@ -102,7 +102,7 @@ namespace OloEngine
             {
                 TUniqueLock<FMutex> Lock(m_Mutex);
                 Continuation = MoveTemp(m_CompletionCallback);
-                m_bComplete.store(true, std::memory_order_release);
+                m_Complete.store(true, std::memory_order_release);
             }
             m_CompletionEvent.Notify();
 
@@ -116,7 +116,7 @@ namespace OloEngine
         mutable FMutex m_Mutex;
         TUniqueFunction<void()> m_CompletionCallback;
         mutable FManualResetEvent m_CompletionEvent;
-        std::atomic<bool> m_bComplete{ false };
+        std::atomic<bool> m_Complete{ false };
     };
 
     /**
@@ -136,7 +136,7 @@ namespace OloEngine
 
         ~TFutureState()
         {
-            if (IsComplete() && m_bHasResult)
+            if (IsComplete() && m_HasResult)
             {
                 reinterpret_cast<ResultType*>(&m_Result)->~ResultType();
             }
@@ -148,7 +148,7 @@ namespace OloEngine
         ResultType& GetResult()
         {
             Wait();
-            OLO_CORE_ASSERT(m_bHasResult, "Future result not set");
+            OLO_CORE_ASSERT(m_HasResult, "Future result not set");
             return *reinterpret_cast<ResultType*>(&m_Result);
         }
 
@@ -164,13 +164,13 @@ namespace OloEngine
         void EmplaceResult(Args&&... InArgs)
         {
             new (&m_Result) ResultType(Forward<Args>(InArgs)...);
-            m_bHasResult = true;
+            m_HasResult = true;
             MarkComplete();
         }
 
       private:
         alignas(ResultType) u8 m_Result[sizeof(ResultType)];
-        bool m_bHasResult = false;
+        bool m_HasResult = false;
     };
 
     // Specialization for void

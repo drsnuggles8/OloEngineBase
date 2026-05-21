@@ -81,7 +81,7 @@ namespace OloEngine::LowLevelTasks::Private
         m_MaxThreadCount = InMaxThreadCount;
         m_CreateThread = MoveTemp(InCreateThread);
         m_Oversubscription = 0;
-        m_bIsShuttingDown = false;
+        m_IsShuttingDown = false;
         m_State = StackMask;
 
         // Store the external thread creations in the waiter bits which
@@ -240,7 +240,7 @@ namespace OloEngine::LowLevelTasks::Private
     {
         using namespace WaitingQueueImpl;
 
-        m_bIsShuttingDown = true;
+        m_IsShuttingDown = true;
 
         // Wake up all workers.
         NotifyInternal(m_NodesArray.Num());
@@ -268,7 +268,7 @@ namespace OloEngine::LowLevelTasks::Private
     {
         using namespace WaitingQueueImpl;
 
-        if (m_bIsShuttingDown.load(std::memory_order_relaxed))
+        if (m_IsShuttingDown.load(std::memory_order_relaxed))
         {
             return;
         }
@@ -382,7 +382,7 @@ namespace OloEngine::LowLevelTasks::Private
                     Node->Event->Trigger();
                     return true;
                 }
-                else if (m_bIsShuttingDown.load(std::memory_order_relaxed) == false)
+                else if (m_IsShuttingDown.load(std::memory_order_relaxed) == false)
                 {
                     m_CreateThread();
                     return true;

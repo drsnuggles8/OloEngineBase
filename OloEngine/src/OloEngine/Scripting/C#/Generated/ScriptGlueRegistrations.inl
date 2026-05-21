@@ -178,6 +178,12 @@ OLO_ADD_INTERNAL_CALL(NavAgentComponent_SetLockYAxis);
 OLO_ADD_INTERNAL_CALL(NavAgentComponent_GetTargetPosition);
 OLO_ADD_INTERNAL_CALL(NavAgentComponent_SetTargetPosition);
 
+// NavMeshBoundsComponent
+OLO_ADD_INTERNAL_CALL(NavMeshBoundsComponent_GetMin);
+OLO_ADD_INTERNAL_CALL(NavMeshBoundsComponent_SetMin);
+OLO_ADD_INTERNAL_CALL(NavMeshBoundsComponent_GetMax);
+OLO_ADD_INTERNAL_CALL(NavMeshBoundsComponent_SetMax);
+
 // ParticleSystemComponent
 OLO_ADD_INTERNAL_CALL(ParticleSystemComponent_GetPlaying);
 OLO_ADD_INTERNAL_CALL(ParticleSystemComponent_SetPlaying);
@@ -197,6 +203,16 @@ OLO_ADD_INTERNAL_CALL(PointLightComponent_GetRange);
 OLO_ADD_INTERNAL_CALL(PointLightComponent_SetRange);
 OLO_ADD_INTERNAL_CALL(PointLightComponent_GetCastShadows);
 OLO_ADD_INTERNAL_CALL(PointLightComponent_SetCastShadows);
+
+// Rigidbody2DComponent
+OLO_ADD_INTERNAL_CALL(Rigidbody2DComponent_GetType);
+OLO_ADD_INTERNAL_CALL(Rigidbody2DComponent_SetType);
+OLO_ADD_INTERNAL_CALL(Rigidbody2DComponent_GetFixedRotation);
+OLO_ADD_INTERNAL_CALL(Rigidbody2DComponent_SetFixedRotation);
+OLO_ADD_INTERNAL_CALL(Rigidbody2DComponent_GetLinearVelocity);
+OLO_ADD_INTERNAL_CALL(Rigidbody2DComponent_SetLinearVelocity);
+OLO_ADD_INTERNAL_CALL(Rigidbody2DComponent_GetAngularVelocity);
+OLO_ADD_INTERNAL_CALL(Rigidbody2DComponent_SetAngularVelocity);
 
 // Rigidbody3DComponent
 OLO_ADD_INTERNAL_CALL(Rigidbody3DComponent_GetBodyType);

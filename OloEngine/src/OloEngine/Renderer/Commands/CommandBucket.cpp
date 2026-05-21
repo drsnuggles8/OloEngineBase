@@ -648,12 +648,16 @@ namespace OloEngine
             // pressure on the typical scene.
             bool anyNonDefaultColor = false;
             bool anyNonDefaultCustom = false;
+            constexpr glm::vec4 defaultColor{ 1.0f };
+            constexpr f32 defaultCustom = 0.0f;
             for (u32 t = 0; t < totalInstances; ++t)
             {
                 auto const* meshCmd = m_Packets[indices[t]]->GetCommandData<DrawMeshCommand>();
-                if (meshCmd->color != glm::vec4(1.0f))
+                // Bit-exact comparison to detect any per-entity override — instance defaults
+                // are bit-exactly 1.0f / 0.0f, so memcmp catches anything else (see cpp-coding-quality §2a).
+                if (std::memcmp(&meshCmd->color, &defaultColor, sizeof(glm::vec4)) != 0)
                     anyNonDefaultColor = true;
-                if (meshCmd->custom != 0.0f)
+                if (std::memcmp(&meshCmd->custom, &defaultCustom, sizeof(f32)) != 0)
                     anyNonDefaultCustom = true;
                 if (anyNonDefaultColor && anyNonDefaultCustom)
                     break;

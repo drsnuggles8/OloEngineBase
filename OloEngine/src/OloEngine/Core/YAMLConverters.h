@@ -6,10 +6,26 @@
 #include <glm/glm.hpp>
 #include <yaml-cpp/yaml.h>
 
+#include <cmath>
+
 // Centralized YAML converter utility functions
 // Use these functions instead of template specializations to avoid ODR violations
 namespace OloEngine::YAMLUtils
 {
+    // Read a finite f32 from a YAML node. Returns false if the node is missing
+    // or if the value is NaN / Inf — callers should fail-fast and let the
+    // calling Decode return false, which propagates a parse error to yaml-cpp.
+    // See docs/agent-rules/cpp-coding-quality.md §2b.
+    inline bool TryReadFiniteF32(const YAML::Node& node, f32& out)
+    {
+        if (!node)
+            return false;
+        const auto value = node.as<f32>();
+        if (!std::isfinite(value))
+            return false;
+        out = value;
+        return true;
+    }
 
     // UUID conversion functions
     inline YAML::Node EncodeUUID(const UUID& uuid)
@@ -45,8 +61,10 @@ namespace OloEngine::YAMLUtils
         if ((!node.IsSequence()) || (node.size() != 2))
             return false;
 
-        v.x = node[0].as<f32>();
-        v.y = node[1].as<f32>();
+        if (!TryReadFiniteF32(node[0], v.x))
+            return false;
+        if (!TryReadFiniteF32(node[1], v.y))
+            return false;
         return true;
     }
 
@@ -66,9 +84,12 @@ namespace OloEngine::YAMLUtils
         if ((!node.IsSequence()) || (node.size() != 3))
             return false;
 
-        v.x = node[0].as<f32>();
-        v.y = node[1].as<f32>();
-        v.z = node[2].as<f32>();
+        if (!TryReadFiniteF32(node[0], v.x))
+            return false;
+        if (!TryReadFiniteF32(node[1], v.y))
+            return false;
+        if (!TryReadFiniteF32(node[2], v.z))
+            return false;
         return true;
     }
 
@@ -89,10 +110,14 @@ namespace OloEngine::YAMLUtils
         if ((!node.IsSequence()) || (node.size() != 4))
             return false;
 
-        v.x = node[0].as<f32>();
-        v.y = node[1].as<f32>();
-        v.z = node[2].as<f32>();
-        v.w = node[3].as<f32>();
+        if (!TryReadFiniteF32(node[0], v.x))
+            return false;
+        if (!TryReadFiniteF32(node[1], v.y))
+            return false;
+        if (!TryReadFiniteF32(node[2], v.z))
+            return false;
+        if (!TryReadFiniteF32(node[3], v.w))
+            return false;
         return true;
     }
 
@@ -142,7 +167,8 @@ namespace OloEngine::YAMLUtils
         {
             for (i32 j = 0; j < 3; ++j)
             {
-                m[i][j] = node[i * 3 + j].as<f32>();
+                if (!TryReadFiniteF32(node[i * 3 + j], m[i][j]))
+                    return false;
             }
         }
         return true;
@@ -172,7 +198,8 @@ namespace OloEngine::YAMLUtils
         {
             for (i32 j = 0; j < 4; ++j)
             {
-                m[i][j] = node[i * 4 + j].as<f32>();
+                if (!TryReadFiniteF32(node[i * 4 + j], m[i][j]))
+                    return false;
             }
         }
         return true;

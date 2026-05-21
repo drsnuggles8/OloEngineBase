@@ -63,6 +63,11 @@ olo_enable_lto(OloEngine)
 olo_enable_pch(OloEngine src/OloEnginePCH.h)
 olo_set_compiler_options(OloEngine)
 
+# Propagate C++23 as a transitive requirement so anything that links OloEngine
+# (apps, tests, scripting bindings) inherits the standard rather than relying
+# on the global CMAKE_CXX_STANDARD=23. Belt-and-braces with the global setting.
+target_compile_features(OloEngine PUBLIC cxx_std_23)
+
 # UE5.7-ported code (Containers/, Templates/, Serialization/, HAL/) triggers
 # warnings that don't apply to our codebase.  PUBLIC so consumers that
 # transitively include these headers (Scene.h -> Map.h, etc.) also compile
@@ -152,12 +157,20 @@ target_link_libraries(OloEngine
 	Recast
 	sol2
 	stb_image
-	TracyClient
 	yaml-cpp
 	GameNetworkingSockets_s
 	Vulkan::Vulkan
 	zlibstatic
 )
+
+# Tracy — only link the client library when profiling is on. Tracy's TracyClient.cpp
+# contains file-scope globals (Profiler, _memory_span_cache) whose constructors fire
+# unconditionally if the lib is linked, regardless of the TRACY_ENABLE compile def.
+# The TSan preset turns the option off so those globals never make it into the binary
+# (avoids tracy_rpmalloc.cpp's static-init-order race that TSan halts on).
+if(TRACY_ENABLE)
+	target_link_libraries(OloEngine TracyClient)
+endif()
 
 # OpenGL — platform-specific library name
 find_package(OpenGL REQUIRED)

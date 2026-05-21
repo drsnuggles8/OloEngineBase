@@ -6,14 +6,16 @@ Guidance for Claude Code (claude.ai/code) working in this repository.
 
 When you finish a task that touched code or assets:
 
-1. **Pre-commit is automatic.** A `Stop` hook in `.claude/settings.json` runs `pre-commit run` on your modified files at the end of every turn. If it reformats anything, the changes are already on disk — re-stage them before committing. Do **not** run `pre-commit` again manually unless it failed.
+1. **Pre-commit is automatic.** A `Stop` hook in `.claude/settings.json` runs `pre-commit run --all-files` at the end of every turn (the wrapper script at `scripts/claude-stop-hook.ps1` is the source of truth — it runs the whole repo, not just modified files, on purpose). If it reformats anything, the changes are already on disk — re-stage them before committing. Do **not** run `pre-commit` again manually unless it failed.
 2. **Test-catalogue regeneration** is enforced by the `test-catalogue-in-sync` hook above. If it fails, run `python OloEngine/tests/scripts/generate_test_catalogue.py` and re-stage.
-3. **Cross-binding check** — the pre-commit hook does **not** catch this. If you changed a component that scripting can see, you must update **all three** of:
-   - C# bindings (`OloEngine-ScriptCore/`)
-   - Lua bindings (`OloEngine-LuaScriptCore/`)
-   - YAML serialization (`OloEngine/src/OloEngine/Core/YAMLConverters.h`)
+3. **Cross-binding check** — the pre-commit hook does **not** catch this. If you added or changed an ECS component, you must update **all five** touch-points or scripting / scene saves / save-games / runtime copies will silently drop it:
+   - `Scene/Components.h` — the component struct itself **and** add it to the `AllComponents` tuple at the bottom of the file (scene copy, prefab instantiation, and `HasComponent<T>()` script registration all iterate this tuple).
+   - `Scene/SceneSerializer.cpp` — `SerializeEntity` (writes) and `DeserializeEntities` (reads). Validate every float with `std::isfinite`.
+   - `SaveGame/SaveGameComponentSerializer.{h,cpp}` — forward decl, `Serialize()` overload, and `RegisterAll()` registration. Save-games will not round-trip otherwise.
+   - `Scripting/C#/Generated/` is auto-generated from `OLO_PROPERTY` annotations by OloHeaderTool (see below) — add the annotations on the component fields. Don't hand-edit the generated `.inl` / `.cs`.
+   - `Scripting/Lua/LuaScriptGlue.cpp::RegisterAllTypes()` — Sol2 usertype registration. (`OloEngine-LuaScriptCore/` is the Mono-equivalent project target but the actual bindings live in `Scripting/Lua/`.)
 
-   Missing one causes silent script or scene failures.
+   Missing any one causes silent script or scene failures. Audit the existing list in `AllComponents` (`Scene/Components.h`, near the bottom of the file) as the source of truth for what's expected to round-trip.
 
 If you find yourself wanting to write "remember to run pre-commit" anywhere, don't — the hook owns that.
 
@@ -33,7 +35,7 @@ Read before doing anything non-trivial; do not duplicate their content here:
 
 ## Build & run
 
-CMake presets ([CMakePresets.json](CMakePresets.json)):
+CMake presets ([CMakePresets.json](CMakePresets.json)) — note all three require **CMake 4.2+** because the `msvc` preset's `Visual Studio 18 2026` generator only exists in CMake 4.2 and the others inherit / share the version requirement at the top of the file:
 
 - `msvc` (Visual Studio 18 2026, `build/`) — primary; default build dir.
 - `clangcl` (Ninja Multi-Config, `build-clang/`) — clang-cl warnings with MSVC ABI.
@@ -86,7 +88,8 @@ Special rebase modes: `OLOENGINE_GOLDEN_REBASE=1` for goldens, `OLOENGINE_PERF_R
 
 C++23 baseline, OpenGL 4.6 with DSA. Layout:
 
-- `OloEngine/src/OloEngine/<Subsystem>/` — engine library. Subsystems: `Renderer`, `Scene`, `Physics3D`, `Asset`, `Audio`, `Animation`, `Scripting`, `Networking`, `UI`, `Particle`, `Navigation`, `Precipitation`, `Snow`, `Wind`, `Terrain`, `Dialogue`, `SaveGame`, `Server`, `AI`, `Gameplay`, plus core `Core`, `Memory`, `Threading`, `Task`, `Async`, `Containers`, `Templates`, `Math`, `Events`, `Serialization`, `Project`, `Build`, `Debug`, `Misc`, `Utils`, `Platform`, `Algo`, `HAL`, `ImGui`.
+- `OloEngine/src/OloEngine/<Subsystem>/` — engine library. Subsystems: `Renderer`, `Scene`, `Physics3D`, `Asset`, `Audio`, `Animation`, `Scripting`, `Networking`, `UI`, `Particle`, `Navigation`, `Precipitation`, `Snow`, `Wind`, `Terrain`, `Dialogue`, `SaveGame`, `Server`, `AI`, `Gameplay`, plus core `Core`, `Memory`, `Threading`, `Task`, `Async`, `Containers`, `Templates`, `Math`, `Events`, `Serialization`, `Project`, `Build`, `Debug`, `Misc`, `Utils`, `Experimental`, `Algo`, `HAL`, `ImGui`.
+- `OloEngine/src/Platform/` — platform-specific implementations (sibling of `OloEngine/`, not under it). Per-OS / per-API glue lives here.
 - `OloEditor/` — ImGui editor. Panels under `src/`; runtime assets under `assets/`; sample game under `SandboxProject/`.
 - `OloRuntime/` — standalone game runtime that loads what the editor builds.
 - `OloServer/` — headless dedicated server (the only target that runs on WSL2).
@@ -139,7 +142,7 @@ Full coding rules in [docs/agent-rules/cpp-coding-quality.md](docs/agent-rules/c
 
 - **Wrong working directory** → missing shaders / Mono assemblies at startup.
 - **Editing under `OloEngine/vendor/`** → wiped on next CMake reconfigure.
-- **Adding a component without updating C# + Lua bindings + YAML serialization** → scenes don't persist or scripts break silently. The pre-commit hook can't catch this; see the Definition of done above.
+- **Adding a component without updating all five touch-points** (`AllComponents` tuple, `SceneSerializer.cpp`, `SaveGameComponentSerializer.{h,cpp}`, `LuaScriptGlue.cpp::RegisterAllTypes`, `OLO_PROPERTY` annotations) → scenes don't persist, save-games drop the component, scene copy / prefab instantiation silently skips it, scripts break silently. The pre-commit hook can't catch this; see the Definition of done above.
 - **Adding a `.cpp` under the test scan roots without registering it in `test_catalogue.json`** → pre-commit hook blocks the commit.
 - **Hand-editing the auto-catalogue blocks in [docs/testing.md](docs/testing.md)** → overwritten on next regenerate.
 - **Using golden images as the *primary* correctness check** → the testing rules require an L1–L5 contract test as well.
@@ -148,6 +151,5 @@ Full coding rules in [docs/agent-rules/cpp-coding-quality.md](docs/agent-rules/c
 
 ## Agent skills
 
-- **Issue tracker** — GitHub Issues at `drsnuggles8/OloEngineBase` via the `gh` CLI. See `docs/agents/issue-tracker.md`.
-- **Triage labels** — `needs-info`→`question`, `ready-for-human`→`help wanted`, `wontfix`→`wontfix`; `needs-triage` and `ready-for-agent` created on first use. See `docs/agents/triage-labels.md`.
-- **Domain docs** — single-context: one `CONTEXT.md` + `docs/adr/` at the repo root. Created lazily by `/grill-with-docs`. See `docs/agents/domain.md`.
+- **Issue tracker** — GitHub Issues at `drsnuggles8/OloEngineBase` via the `gh` CLI.
+- **ADRs** — architecture decisions live in `docs/adr/`. Read existing ones before proposing structural changes.

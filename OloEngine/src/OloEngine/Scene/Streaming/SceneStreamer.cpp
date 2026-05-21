@@ -10,7 +10,7 @@
 #include "OloEngine/Scripting/C#/ScriptEngine.h"
 
 // Box2D
-#include "box2d/box2d.h"
+#include <box2d/box2d.h>
 
 #include <algorithm>
 #include <filesystem>

@@ -1731,6 +1731,56 @@ static void NavAgentComponent_SetTargetPosition(UUID entityID, glm::vec3 const* 
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////
+// NavMeshBoundsComponent                                                         //
+///////////////////////////////////////////////////////////////////////////////////////////
+
+static void NavMeshBoundsComponent_GetMin(UUID entityID, glm::vec3* outValue)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<NavMeshBoundsComponent>();
+    *outValue = comp.m_Min;
+}
+
+static void NavMeshBoundsComponent_SetMin(UUID entityID, glm::vec3 const* value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<NavMeshBoundsComponent>();
+    for (glm::length_t i = 0; i < value->length(); ++i)
+        if (!std::isfinite((*value)[i]))
+            return;
+    comp.m_Min = *value;
+}
+
+static void NavMeshBoundsComponent_GetMax(UUID entityID, glm::vec3* outValue)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<NavMeshBoundsComponent>();
+    *outValue = comp.m_Max;
+}
+
+static void NavMeshBoundsComponent_SetMax(UUID entityID, glm::vec3 const* value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<NavMeshBoundsComponent>();
+    for (glm::length_t i = 0; i < value->length(); ++i)
+        if (!std::isfinite((*value)[i]))
+            return;
+    comp.m_Max = *value;
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////
 // ParticleSystemComponent                                                        //
 ///////////////////////////////////////////////////////////////////////////////////////////
 
@@ -1907,6 +1957,95 @@ static void PointLightComponent_SetCastShadows(UUID entityID, bool value)
     OLO_CORE_ASSERT(entity);
     auto& comp = entity.GetComponent<PointLightComponent>();
     comp.m_CastShadows = value;
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////
+// Rigidbody2DComponent                                                           //
+///////////////////////////////////////////////////////////////////////////////////////////
+
+static int Rigidbody2DComponent_GetType(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<Rigidbody2DComponent>();
+    return static_cast<int>(comp.Type);
+}
+
+static void Rigidbody2DComponent_SetType(UUID entityID, int value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<Rigidbody2DComponent>();
+    comp.Type = static_cast<Rigidbody2DComponent::BodyType>(value);
+}
+
+static bool Rigidbody2DComponent_GetFixedRotation(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<Rigidbody2DComponent>();
+    return comp.FixedRotation;
+}
+
+static void Rigidbody2DComponent_SetFixedRotation(UUID entityID, bool value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<Rigidbody2DComponent>();
+    comp.FixedRotation = value;
+}
+
+static void Rigidbody2DComponent_GetLinearVelocity(UUID entityID, glm::vec2* outValue)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<Rigidbody2DComponent>();
+    *outValue = comp.LinearVelocity;
+}
+
+static void Rigidbody2DComponent_SetLinearVelocity(UUID entityID, glm::vec2 const* value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<Rigidbody2DComponent>();
+    for (glm::length_t i = 0; i < value->length(); ++i)
+        if (!std::isfinite((*value)[i]))
+            return;
+    comp.LinearVelocity = *value;
+}
+
+static float Rigidbody2DComponent_GetAngularVelocity(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<Rigidbody2DComponent>();
+    return comp.AngularVelocity;
+}
+
+static void Rigidbody2DComponent_SetAngularVelocity(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<Rigidbody2DComponent>();
+    comp.AngularVelocity = value;
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////

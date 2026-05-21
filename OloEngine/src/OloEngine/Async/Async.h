@@ -80,7 +80,7 @@ namespace OloEngine
             SetPromise(m_Promise, m_Function);
 
             // Mark as complete so the thread can be cleaned up
-            m_bComplete.store(true, std::memory_order_release);
+            m_Complete.store(true, std::memory_order_release);
 
             return 0;
         }
@@ -93,7 +93,7 @@ namespace OloEngine
 
         bool IsComplete() const
         {
-            return m_bComplete.load(std::memory_order_acquire);
+            return m_Complete.load(std::memory_order_acquire);
         }
 
         void SetThread(FRunnableThread* InThread)
@@ -110,7 +110,7 @@ namespace OloEngine
         TUniqueFunction<ResultType()> m_Function;
         TPromise<ResultType> m_Promise;
         FRunnableThread* m_Thread = nullptr;
-        std::atomic<bool> m_bComplete{ false };
+        std::atomic<bool> m_Complete{ false };
     };
 
     namespace Private

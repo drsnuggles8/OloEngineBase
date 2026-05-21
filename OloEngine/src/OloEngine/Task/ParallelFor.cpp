@@ -4,6 +4,7 @@
 #include "OloEngine/Task/ParallelFor.h"
 #include "OloEngine/HAL/PlatformMisc.h"
 
+#include <mutex>
 #include <thread>
 #include <cstdlib>
 #include <cstring>
@@ -20,10 +21,14 @@ namespace OloEngine
 
     // Whether to use threading for performance-critical code paths
     // Can be disabled for debugging or on single-core systems
-    static bool s_bShouldUseThreadingForPerformance = true;
+    static bool s_ShouldUseThreadingForPerformance = true;
 
-    // Whether s_bShouldUseThreadingForPerformance has been initialized
-    static bool s_bThreadingForPerformanceInitialized = false;
+    // One-time initialization guard. ShouldUseThreadingForPerformance() is
+    // called from many worker threads concurrently; the previous ad-hoc
+    // `bool s_…Initialized` check was a data race. std::call_once provides
+    // the happens-before edges we need without each call paying a mutex cost
+    // after the first successful initialization.
+    static std::once_flag s_ThreadingInitFlag;
 
     // @brief Initialize threading configuration from environment/command line
     //
@@ -31,15 +36,9 @@ namespace OloEngine
     // command line parameters like -NoThreading, -ForceMultithread, etc.
     static void InitializeThreadingConfiguration()
     {
-        if (s_bThreadingForPerformanceInitialized)
-        {
-            return;
-        }
-        s_bThreadingForPerformanceInitialized = true;
-
         // Start with hardware-based decision
         const u32 NumCores = std::thread::hardware_concurrency();
-        s_bShouldUseThreadingForPerformance = (NumCores > 1);
+        s_ShouldUseThreadingForPerformance = (NumCores > 1);
 
         // Check environment variables for configuration
         // OLO_NO_THREADING=1 disables threading
@@ -47,7 +46,7 @@ namespace OloEngine
         {
             if (std::strcmp(EnvNoThreading, "1") == 0 || std::strcmp(EnvNoThreading, "true") == 0)
             {
-                s_bShouldUseThreadingForPerformance = false;
+                s_ShouldUseThreadingForPerformance = false;
             }
         }
 
@@ -56,7 +55,7 @@ namespace OloEngine
         {
             if (std::strcmp(EnvForceMultithread, "1") == 0 || std::strcmp(EnvForceMultithread, "true") == 0)
             {
-                s_bShouldUseThreadingForPerformance = true;
+                s_ShouldUseThreadingForPerformance = true;
             }
         }
 
@@ -82,12 +81,11 @@ namespace OloEngine
 
     bool ShouldUseThreadingForPerformance()
     {
-        // Lazy initialization on first call
-        if (!s_bThreadingForPerformanceInitialized)
-        {
-            InitializeThreadingConfiguration();
-        }
-        return s_bShouldUseThreadingForPerformance;
+        // Race-free lazy init. std::call_once both guarantees single execution
+        // and establishes a happens-before edge so the subsequent read of
+        // s_ShouldUseThreadingForPerformance sees the writes done inside.
+        std::call_once(s_ThreadingInitFlag, InitializeThreadingConfiguration);
+        return s_ShouldUseThreadingForPerformance;
     }
 
 } // namespace OloEngine

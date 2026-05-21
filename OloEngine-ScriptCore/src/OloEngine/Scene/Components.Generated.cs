@@ -566,6 +566,29 @@ namespace OloEngine
 		}
 	}
 
+	public partial class NavMeshBoundsComponent : Component
+	{
+		public Vector3 Min
+		{
+			get
+			{
+				InternalCalls.NavMeshBoundsComponent_GetMin(Entity.ID, out Vector3 value);
+				return value;
+			}
+			set => InternalCalls.NavMeshBoundsComponent_SetMin(Entity.ID, ref value);
+		}
+
+		public Vector3 Max
+		{
+			get
+			{
+				InternalCalls.NavMeshBoundsComponent_GetMax(Entity.ID, out Vector3 value);
+				return value;
+			}
+			set => InternalCalls.NavMeshBoundsComponent_SetMax(Entity.ID, ref value);
+		}
+	}
+
 	public partial class ParticleSystemComponent : Component
 	{
 		public bool Playing
@@ -621,6 +644,37 @@ namespace OloEngine
 		{
 			get => InternalCalls.PointLightComponent_GetCastShadows(Entity.ID);
 			set => InternalCalls.PointLightComponent_SetCastShadows(Entity.ID, value);
+		}
+	}
+
+	public partial class Rigidbody2DComponent : Component
+	{
+		public int Type
+		{
+			get => InternalCalls.Rigidbody2DComponent_GetType(Entity.ID);
+			set => InternalCalls.Rigidbody2DComponent_SetType(Entity.ID, value);
+		}
+
+		public bool FixedRotation
+		{
+			get => InternalCalls.Rigidbody2DComponent_GetFixedRotation(Entity.ID);
+			set => InternalCalls.Rigidbody2DComponent_SetFixedRotation(Entity.ID, value);
+		}
+
+		public Vector2 LinearVelocity
+		{
+			get
+			{
+				InternalCalls.Rigidbody2DComponent_GetLinearVelocity(Entity.ID, out Vector2 value);
+				return value;
+			}
+			set => InternalCalls.Rigidbody2DComponent_SetLinearVelocity(Entity.ID, ref value);
+		}
+
+		public float AngularVelocity
+		{
+			get => InternalCalls.Rigidbody2DComponent_GetAngularVelocity(Entity.ID);
+			set => InternalCalls.Rigidbody2DComponent_SetAngularVelocity(Entity.ID, value);
 		}
 	}
 

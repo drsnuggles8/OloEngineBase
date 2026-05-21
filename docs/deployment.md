@@ -4,8 +4,8 @@
 
 ### Prerequisites
 
-- CMake 3.27+
-- A C++23-compatible compiler (MSVC 19.38+ or GCC 13+ or Clang 17+)
+- CMake 3.25+ (or 4.2+ if you want to use `CMakePresets.json`)
+- A C++23-compatible compiler (MSVC 19.38+ or GCC 14+ or Clang 17+)
 - All engine dependencies (fetched automatically via CPM/FetchContent)
 
 ### Build Commands

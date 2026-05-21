@@ -70,4 +70,19 @@ namespace OloEngine
         m_Cooldowns.clear();
     }
 
+    void CooldownManager::RestoreFromSnapshot(const GameplayTag& abilityTag, f32 duration, f32 remaining)
+    {
+        // Match StartCooldown's contract: zero / negative duration or remaining
+        // means "no cooldown" — erase any stale entry. Otherwise clamp the
+        // remaining time into (0, duration] so a corrupted save can't produce
+        // a cooldown that ticks longer than its declared duration.
+        if (duration <= 0.0f || remaining <= 0.0f)
+        {
+            m_Cooldowns.erase(abilityTag);
+            return;
+        }
+        const f32 clampedRemaining = std::min(remaining, duration);
+        m_Cooldowns[abilityTag] = { duration, clampedRemaining };
+    }
+
 } // namespace OloEngine

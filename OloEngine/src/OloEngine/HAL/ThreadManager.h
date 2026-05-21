@@ -174,7 +174,7 @@ namespace OloEngine
         std::unordered_map<u32, FRunnableThread*> m_Threads;
 
         /** Helper variable for catching unexpected modification of the thread map/list */
-        bool m_bIsThreadListDirty = false;
+        bool m_IsThreadListDirty = false;
 
         /** Static empty string for unknown threads */
         inline static std::string s_UnknownThreadName = "UnknownThread";
@@ -226,7 +226,7 @@ namespace OloEngine
         FScopeLock Lock(&m_ThreadsCritical);
 
         // Reset dirty flag before iteration
-        m_bIsThreadListDirty = false;
+        m_IsThreadListDirty = false;
 
         for (auto& [ThreadId, Thread] : m_Threads)
         {
@@ -265,7 +265,7 @@ namespace OloEngine
     {
         FScopeLock Lock(&m_ThreadsCritical);
 
-        m_bIsThreadListDirty = false;
+        m_IsThreadListDirty = false;
 
         for (auto& [ThreadId, Thread] : m_Threads)
         {
@@ -306,12 +306,12 @@ namespace OloEngine
 
     inline bool FThreadManager::CheckThreadListSafeToContinueIteration()
     {
-        return !m_bIsThreadListDirty;
+        return !m_IsThreadListDirty;
     }
 
     inline void FThreadManager::OnThreadListModified()
     {
-        m_bIsThreadListDirty = true;
+        m_IsThreadListDirty = true;
     }
 
 #if OLO_SUPPORTS_ALL_THREAD_BACKTRACES

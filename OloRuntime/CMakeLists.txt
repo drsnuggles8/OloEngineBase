@@ -5,7 +5,7 @@ project(OloRuntime
 add_subdirectory(src)
 
 # Configure the OloRuntime target using our common properties
-olo_configure_app(OloRuntime NO_PCH)
+olo_configure_app(OloRuntime)
 
 # Set up common include directories
 olo_set_common_include_directories(OloRuntime)
@@ -14,7 +14,7 @@ target_link_libraries(OloRuntime
                     OloEngine
 )
 
-set_target_properties(OloRuntime PROPERTIES FOLDER "Applications")
+# FOLDER is assigned at the root CMakeLists.txt to keep app folder grouping in one place.
 
 # In Dist (distribution) builds, hide the console window — players should only
 # see the game window.  We keep the standard main() entry point via /ENTRY.

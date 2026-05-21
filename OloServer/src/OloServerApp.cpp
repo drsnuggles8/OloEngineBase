@@ -1,5 +1,5 @@
-#include <OloEngine.h>
-#include <OloEngine/Core/EntryPoint.h>
+#include "OloEngine.h"
+#include "OloEngine/Core/EntryPoint.h"
 
 #include "OloEngine/Server/ServerConsole.h"
 #include "OloEngine/Server/ServerConfig.h"

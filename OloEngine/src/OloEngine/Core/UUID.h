@@ -1,5 +1,7 @@
 #pragma once
 
+#include "OloEngine/Core/Base.h" // u64, sizet typedefs used in this header
+
 namespace OloEngine
 {
     class UUID

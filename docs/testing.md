@@ -432,8 +432,8 @@ via a dedicated probe shader.
 
 - [`OloEngine/tests/Rendering/PropertyTests/ShaderUnitTests.cpp`](../OloEngine/tests/Rendering/PropertyTests/ShaderUnitTests.cpp)
 - Probe shaders: `OloEditor/assets/shaders/tests/ShaderUnit_*.glsl`
-  (e.g. `ShaderUnit_SRGB.glsl`, `ShaderUnit_ToneMap.glsl`,
-  `ShaderUnit_GGX.glsl`, `ShaderUnit_Octahedral.glsl`,
+  (e.g. `ShaderUnit_SrgbRoundTrip.glsl`, `ShaderUnit_ToneMap.glsl`,
+  `ShaderUnit_GgxIntegral.glsl`, `ShaderUnit_OctNormal.glsl`,
   `ShaderUnit_Fog.glsl`, `ShaderUnit_SplatmapChannel.glsl`,
   `ShaderUnit_ShadowSelfShadow.glsl`, `ShaderUnit_DofCoc.glsl`).
 

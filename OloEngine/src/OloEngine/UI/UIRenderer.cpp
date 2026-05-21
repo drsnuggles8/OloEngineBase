@@ -36,9 +36,18 @@ namespace OloEngine
         s_CurrentProjection = projection;
         // Extract viewport height from the ortho projection for scissor Y-flip
         // ortho(0, w, h, 0, -1, 1) => projection[1][1] = -2/h => h = -2/projection[1][1]
-        if (projection[1][1] != 0.0f)
+        // Tolerance check guards against division-by-near-zero; an actual zero or
+        // any subnormal value here would be a degenerate projection. Reset to
+        // 0.0f on the degenerate path so a stale viewport height from a prior
+        // BeginScene can't leak into PushClipRect's Y-flip math.
+        constexpr f32 projectionEpsilon = 1e-6f;
+        if (std::abs(projection[1][1]) > projectionEpsilon)
         {
             s_ViewportHeight = glm::abs(-2.0f / projection[1][1]);
+        }
+        else
+        {
+            s_ViewportHeight = 0.0f;
         }
         Renderer2D::BeginScene(OloEngine::Camera(projection), glm::mat4(1.0f));
     }

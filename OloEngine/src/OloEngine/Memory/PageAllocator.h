@@ -126,7 +126,7 @@ namespace OloEngine
             // Register trim callback for memory pressure situations
             // Note: In a full implementation, this would hook into FCoreDelegates::GetMemoryTrimDelegate()
             // For now, we just mark that we've latched and enable trimming on demand.
-            m_bProtectedModeLatched = true;
+            m_ProtectedModeLatched = true;
 
             // The purgatory system (GMemStackProtection) is not implemented as it requires
             // virtual memory protection support and is primarily for debugging stale pointers.
@@ -135,7 +135,7 @@ namespace OloEngine
         // @brief Check if protected mode has been latched
         bool IsProtectedModeLatched() const
         {
-            return m_bProtectedModeLatched;
+            return m_ProtectedModeLatched;
         }
 
       private:
@@ -146,7 +146,7 @@ namespace OloEngine
         FPageAllocator& operator=(const FPageAllocator&) = delete;
 
         TPageAllocator m_TheAllocator;
-        bool m_bProtectedModeLatched = false;
+        bool m_ProtectedModeLatched = false;
     };
 
 } // namespace OloEngine

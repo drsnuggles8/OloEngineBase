@@ -14,20 +14,20 @@ OloEngine is primarily an early-stage cross-platform (Windows and Linux) interac
 
 ## Getting Started
 
-**Supported platforms:** Windows (Visual Studio 2022; Visual Studio 2026 experimental — requires CMake 4.2+), Linux (GCC 14+).
+**Supported platforms:** Windows (Visual Studio 2026 via the default `msvc` preset; Visual Studio 2022 also supported via `scripts/Win-GenerateProjectVS2022.bat`), Linux (GCC 14+).
 WSL can compile all targets and run OloServer, but OloEditor requires a native
 OpenGL 4.6 GPU (WSL2's software renderer only supports OpenGL 4.5).
 
 Requirements:
 - Python 3.10+, with the 'jinja2' package installed (needed for building glad2)
-- CMake 3.25+ (4.2+ required for Visual Studio 2026 support)
+- CMake 4.2+ (required by `CMakePresets.json`; the root `CMakeLists.txt` itself only requires 3.25, so plain `cmake -B build -G "Visual Studio 17 2022"` still works without presets)
 - Vulkan SDK (for SPIR-V shader compilation)
 
 You can clone the repository to a local destination using git:
 
 `git clone https://github.com/drsnuggles8/OloEngineBase`
 
-This project uses [CMake](https://cmake.org/download/) to build the project's solution files. There's a batch script `scripts/Win-GenerateProject.bat` that will generate the solution file for Visual Studio 2022.
+This project uses [CMake](https://cmake.org/download/) to build the project's solution files. The `scripts/` directory contains `Win-GenerateProjectVS2022.bat` and `Win-GenerateProjectVS2026.bat` helpers.
 
 **Visual Studio Code Users:** The project includes predefined VS Code tasks for building and running. Use tasks like `build-oloeditor-debug`, `run-oloeditor-release`, etc. from the Command Palette (Ctrl+Shift+P → "Tasks: Run Task").
 
@@ -69,31 +69,32 @@ CMake will also create the `build/` directory, which contains the Visual Studio 
 - **Audio Components**: Source and listener components for ECS integration
 
 ### UI System
-- **ECS-Based UI**: 14 widget component types (Canvas, RectTransform, Panel, Text, Image, Button, Slider, Checkbox, Toggle, Progress Bar, Input Field, Dropdown, Scroll View, Grid Layout)
+- **ECS-Based UI**: 16 widget component types (Canvas, RectTransform, ResolvedRect, Panel, Text, Image, Button, Slider, Checkbox, Toggle, Progress Bar, Input Field, Dropdown, Scroll View, Grid Layout, WorldAnchor)
 - **Anchor Layout**: RectTransform-style anchoring, pivot, and auto-layout via grid containers
 - **Editor Integration**: "Create UI" context menu, per-component property panels, editor-time preview in both 2D and 3D modes
 - **Scripting Support**: Full C# (Mono) and Lua (Sol2) bindings for all UI components
 
 ## Future Features
-- Procedural terrain and world generation
-- Advanced OpenGL (compute shaders, ARB)
-- Advanced AI systems
-- Networking capabilities
-- Enhanced particle systems
-- Advanced post-processing pipeline
-- Scripting debugger and hot-reload
-- Asset streaming and LOD systems
+
 - Advanced lighting (global illumination, ray tracing)
+- Scripting debugger and hot-reload
+- GPU-driven particle compute pipeline
+- Expanded post-processing pipeline (motion blur, additional AA modes)
 
 ## Dependencies
 
-All dependencies are automatically fetched via fetchcontent and CPM (CMake Package Manager, only used for Sol) and stored in `OloEngine/vendor/`:
+All dependencies are automatically fetched via FetchContent and CPM (CMake Package Manager — CPM hosts Sol2, choc, nlohmann/json, ImGui, and ImGuizmo; FetchContent hosts the rest) and stored in `OloEngine/vendor/`:
 
 ### Core Libraries
+
 * [entt](https://github.com/skypjack/entt) - Fast and reliable entity-component system (ECS)
 * [glm](https://github.com/g-truc/glm) - OpenGL Mathematics library for graphics transformations
 * [spdlog](https://github.com/gabime/spdlog) - Fast C++ logging library
 * [yaml-cpp](https://github.com/jbeder/yaml-cpp) - YAML parser and emitter for serialization
+* [nlohmann/json](https://github.com/nlohmann/json) - JSON parsing used for tools and IPC
+* [choc](https://github.com/Tracktion/choc) - Header-only C++ utility library (audio, threading, etc.)
+* [atomic_queue](https://github.com/max0x7ba/atomic_queue) - Lock-free MPMC queue
+* [meshoptimizer](https://github.com/zeux/meshoptimizer) - Mesh simplification and indexing
 
 ### Rendering & Graphics
 * [glad](https://github.com/Dav1dde/glad) - OpenGL loader and meta loader
@@ -105,6 +106,15 @@ All dependencies are automatically fetched via fetchcontent and CPM (CMake Packa
 ### Physics
 * [joltphysics](https://github.com/jrouwe/JoltPhysics) - Multi-platform 3D physics engine
 * [box2d](https://github.com/erincatto/Box2D) - 2D physics engine for games
+
+### Networking
+* [GameNetworkingSockets](https://github.com/ValveSoftware/GameNetworkingSockets) - Reliable UDP transport
+* [libsodium](https://doc.libsodium.org/) - Crypto primitives used by the transport
+* [protobuf](https://github.com/protocolbuffers/protobuf) - Wire format for snapshots / RPC
+
+### Navigation
+
+* [recastnavigation](https://github.com/recastnavigation/recastnavigation) - Navigation mesh generation
 
 ### Audio
 * [miniaudio](https://github.com/mackron/miniaudio) - Single-file audio playback and capture library

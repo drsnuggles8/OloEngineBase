@@ -42,7 +42,7 @@
 #include "OloEngine/Audio/AudioEvents/CommandID.h"
 #include "OloEngine/Scene/Streaming/SceneStreamer.h"
 
-#include "box2d/box2d.h"
+#include <box2d/box2d.h>
 
 #include <algorithm>
 #include <cmath>
@@ -659,6 +659,89 @@ namespace OloEngine
                                                                                  { return c.m_Scale; }, [](TriangleMeshCollider3DComponent& c, const glm::vec3& v)
                                                                                  { if (IsFiniteVec3(v) && v.x > 0.0f && v.y > 0.0f && v.z > 0.0f) c.m_Scale = v; }),
                                                           "material", &TriangleMeshCollider3DComponent::m_Material);
+
+        // --- WaterComponent ---
+        // Exposes the gameplay-relevant subset; texture / tessellation / SSR
+        // setup is editor-only and intentionally not scripted here.
+        lua.new_usertype<WaterComponent>("WaterComponent",
+                                         "enabled", &WaterComponent::m_Enabled,
+                                         "worldSizeX", sol::property([](const WaterComponent& w)
+                                                                     { return w.m_WorldSizeX; }, [](WaterComponent& w, f32 v)
+                                                                     { if (std::isfinite(v) && v > 0.0f) w.m_WorldSizeX = v; }),
+                                         "worldSizeZ", sol::property([](const WaterComponent& w)
+                                                                     { return w.m_WorldSizeZ; }, [](WaterComponent& w, f32 v)
+                                                                     { if (std::isfinite(v) && v > 0.0f) w.m_WorldSizeZ = v; }),
+                                         "waveAmplitude", sol::property([](const WaterComponent& w)
+                                                                        { return w.m_WaveAmplitude; }, [](WaterComponent& w, f32 v)
+                                                                        { if (std::isfinite(v) && v >= 0.0f) w.m_WaveAmplitude = v; }),
+                                         "waveFrequency", sol::property([](const WaterComponent& w)
+                                                                        { return w.m_WaveFrequency; }, [](WaterComponent& w, f32 v)
+                                                                        { if (std::isfinite(v) && v >= 0.0f) w.m_WaveFrequency = v; }),
+                                         "waveSpeed", sol::property([](const WaterComponent& w)
+                                                                    { return w.m_WaveSpeed; }, [](WaterComponent& w, f32 v)
+                                                                    { if (std::isfinite(v)) w.m_WaveSpeed = v; }),
+                                         "waterColor", sol::property([](const WaterComponent& w)
+                                                                     { return w.m_WaterColor; }, [](WaterComponent& w, const glm::vec3& v)
+                                                                     { if (IsFiniteVec3(v)) w.m_WaterColor = v; }),
+                                         "deepColor", sol::property([](const WaterComponent& w)
+                                                                    { return w.m_DeepColor; }, [](WaterComponent& w, const glm::vec3& v)
+                                                                    { if (IsFiniteVec3(v)) w.m_DeepColor = v; }),
+                                         "transparency", sol::property([](const WaterComponent& w)
+                                                                       { return w.m_Transparency; }, [](WaterComponent& w, f32 v)
+                                                                       { if (std::isfinite(v) && v >= 0.0f && v <= 1.0f) w.m_Transparency = v; }),
+                                         "reflectivity", sol::property([](const WaterComponent& w)
+                                                                       { return w.m_Reflectivity; }, [](WaterComponent& w, f32 v)
+                                                                       { if (std::isfinite(v) && v >= 0.0f && v <= 1.0f) w.m_Reflectivity = v; }));
+
+        // --- CharacterController3DComponent ---
+        lua.new_usertype<CharacterController3DComponent>("CharacterController3DComponent",
+                                                         "slopeLimitDeg", sol::property([](const CharacterController3DComponent& c)
+                                                                                        { return c.m_SlopeLimitDeg; }, [](CharacterController3DComponent& c, f32 v)
+                                                                                        { if (std::isfinite(v) && v >= 0.0f && v <= 90.0f) c.m_SlopeLimitDeg = v; }),
+                                                         "stepOffset", sol::property([](const CharacterController3DComponent& c)
+                                                                                     { return c.m_StepOffset; }, [](CharacterController3DComponent& c, f32 v)
+                                                                                     { if (std::isfinite(v) && v >= 0.0f) c.m_StepOffset = v; }),
+                                                         "jumpPower", sol::property([](const CharacterController3DComponent& c)
+                                                                                    { return c.m_JumpPower; }, [](CharacterController3DComponent& c, f32 v)
+                                                                                    { if (std::isfinite(v) && v >= 0.0f) c.m_JumpPower = v; }),
+                                                         "layerID", sol::property([](const CharacterController3DComponent& c)
+                                                                                  { return c.m_LayerID; }, [](CharacterController3DComponent& c, int v)
+                                                                                  { if (v >= 0) c.m_LayerID = static_cast<u32>(v); }),
+                                                         "disableGravity", &CharacterController3DComponent::m_DisableGravity,
+                                                         "controlMovementInAir", &CharacterController3DComponent::m_ControlMovementInAir,
+                                                         "controlRotationInAir", &CharacterController3DComponent::m_ControlRotationInAir);
+
+        // --- PrefabComponent ---
+        // Read-only window into prefab-instance identity & override state.
+        // Mutating the override sets from scripts is intentionally not exposed —
+        // that goes through the editor or the Prefab API.
+        lua.new_usertype<PrefabComponent>("PrefabComponent", sol::no_constructor,
+                                          "prefabID", sol::readonly_property([](const PrefabComponent& p)
+                                                                             { return static_cast<u64>(p.m_PrefabID); }),
+                                          "prefabEntityID", sol::readonly_property([](const PrefabComponent& p)
+                                                                                   { return static_cast<u64>(p.m_PrefabEntityID); }),
+                                          "isValid", sol::readonly_property(&PrefabComponent::IsValid),
+                                          "hasAnyOverrides", sol::readonly_property(&PrefabComponent::HasAnyOverrides),
+                                          "isComponentOverridden", &PrefabComponent::IsComponentOverridden,
+                                          "isComponentAdded", &PrefabComponent::IsComponentAdded,
+                                          "isComponentRemoved", &PrefabComponent::IsComponentRemoved);
+
+        // --- RelationshipComponent ---
+        // Read-only hierarchy view. Children come back as a Lua-side table
+        // of u64 UUIDs; scripts that need to walk the hierarchy can resolve
+        // each ID via Scene.FindEntityByUUID.
+        lua.new_usertype<RelationshipComponent>("RelationshipComponent", sol::no_constructor,
+                                                "parentHandle", sol::readonly_property([](const RelationshipComponent& r)
+                                                                                       { return static_cast<u64>(r.m_ParentHandle); }),
+                                                "childCount", sol::readonly_property([](const RelationshipComponent& r)
+                                                                                     { return r.m_Children.size(); }),
+                                                "children", sol::readonly_property([](const RelationshipComponent& r, sol::this_state s) -> sol::table
+                                                                                   {
+            sol::state_view lua_state(s);
+            sol::table t = lua_state.create_table(static_cast<int>(r.m_Children.size()), 0);
+            for (sizet i = 0; i < r.m_Children.size(); ++i)
+                t[i + 1] = static_cast<u64>(r.m_Children[i]);
+            return t; }));
 
         // --- TagComponent ---
         lua.new_usertype<TagComponent>("TagComponent",

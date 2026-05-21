@@ -709,7 +709,11 @@ namespace OloEngine
             }
         }
 
-        if (textureIndex == 0.0f)
+        // textureIndex == 0.0f is the "no match found in the loop above" sentinel.
+        // Bit-exact comparison because the loop assigns from integer indices —
+        // 0.0f appears only when nothing was assigned (see cpp-coding-quality §2a).
+        constexpr f32 noTextureSlotSentinel = 0.0f;
+        if (std::memcmp(&textureIndex, &noTextureSlotSentinel, sizeof(f32)) == 0)
         {
             if (s_Data.TextureSlotIndex >= Renderer2DData::MaxTextureSlots)
             {

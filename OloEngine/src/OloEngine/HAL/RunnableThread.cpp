@@ -140,7 +140,7 @@ namespace OloEngine
         // If FRunnable::Init() reported failure, surface it as a Create() failure.
         // The worker will still run Exit() and terminate cleanly; we just refuse
         // to hand back a "successfully created" thread to the caller.
-        if (!m_bInitSucceeded.load(std::memory_order_acquire))
+        if (!m_InitSucceeded.load(std::memory_order_acquire))
         {
             WaitForCompletion();
             return false;
@@ -227,7 +227,7 @@ namespace OloEngine
             }
         }
 
-        if (!m_bInitSucceeded.load(std::memory_order_acquire))
+        if (!m_InitSucceeded.load(std::memory_order_acquire))
         {
             WaitForCompletion();
             return false;
@@ -267,13 +267,13 @@ namespace OloEngine
         // CreateInternal observes the real success/failure result and can fail
         // thread creation if Init returned false.
         const bool initOk = (m_Runnable == nullptr) || m_Runnable->Init();
-        m_bInitSucceeded.store(initOk, std::memory_order_release);
+        m_InitSucceeded.store(initOk, std::memory_order_release);
 
         // Publish the running flag BEFORE Notify() so any thread woken from the
-        // init event observes m_bIsRunning == true (only if init succeeded).
+        // init event observes m_IsRunning == true (only if init succeeded).
         if (initOk)
         {
-            m_bIsRunning.store(true, std::memory_order_release);
+            m_IsRunning.store(true, std::memory_order_release);
         }
         m_InitEvent.Notify();
 
@@ -290,7 +290,7 @@ namespace OloEngine
             m_Runnable->Exit();
         }
 
-        m_bIsRunning.store(false, std::memory_order_release);
+        m_IsRunning.store(false, std::memory_order_release);
 
         // Clear TLS
         FreeTls();
@@ -372,7 +372,7 @@ namespace OloEngine
 
     bool FRunnableThread::Kill(bool bShouldWait)
     {
-        m_bShouldStop.store(true, std::memory_order_release);
+        m_ShouldStop.store(true, std::memory_order_release);
 
         if (m_Runnable)
         {

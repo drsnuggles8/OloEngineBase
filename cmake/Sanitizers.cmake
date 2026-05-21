@@ -36,6 +36,19 @@ if(OLO_ENABLE_TSAN AND OLO_ENABLE_ASAN)
     message(FATAL_ERROR "TSan and ASan cannot be used together. Disable one of them.")
 endif()
 
+# Tracy + TSan don't compose: Tracy's TracyClient.cpp has file-scope globals
+# (Profiler, _memory_span_cache) whose static-init order races between the
+# Profiler ctor (which spawns the sampling thread) and the rpmalloc global
+# cache. TSan correctly flags it and halts the binary, which trips
+# gtest_discover_tests at build time. Force Tracy off whenever TSan is on, so
+# direct `cmake -DOLO_ENABLE_TSAN=ON …` invocations get the right behaviour
+# without needing the matching `-DTRACY_ENABLE=OFF`. Setting the cache var
+# here (before OloEngine/vendor/CMakeLists.txt declares the option) ensures
+# the option() call leaves the cache value alone.
+if(OLO_ENABLE_TSAN)
+    set(TRACY_ENABLE OFF CACHE BOOL "Disabled automatically because OLO_ENABLE_TSAN=ON (Tracy's static-init races with TSan)." FORCE)
+endif()
+
 # --- Address Sanitizer ---
 if(OLO_ENABLE_ASAN)
     message(STATUS "Address Sanitizer (ASan) enabled")

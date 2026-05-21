@@ -31,6 +31,12 @@ namespace OloEngine
 
         [[nodiscard]] const std::vector<AttributeModifier>& GetModifiers(const std::string& attribute) const;
 
+        // For deserialization — restores base values + raw modifier list bypassing
+        // ApplyEffect / removal bookkeeping. Caller is responsible for ensuring the
+        // modifier source tags are still valid in the surrounding ability system.
+        void RestoreFromSnapshot(const std::string& attribute, f32 baseValue,
+                                 const std::vector<AttributeModifier>& modifiers);
+
         auto operator==(const AttributeSet& other) const -> bool;
 
       private:

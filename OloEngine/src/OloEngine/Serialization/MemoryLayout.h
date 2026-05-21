@@ -465,7 +465,7 @@ namespace OloEngine
       public:
         [[nodiscard]] bool Is32BitTarget() const
         {
-            return m_bIs32BitTarget;
+            return m_Is32BitTarget;
         }
 
         void WriteBytes([[maybe_unused]] const void* Data, [[maybe_unused]] sizet Size) {}
@@ -500,7 +500,7 @@ namespace OloEngine
         void WriteObjectArray([[maybe_unused]] const T* Data, [[maybe_unused]] const FTypeLayoutDesc& TypeDesc, [[maybe_unused]] i32 Count) {}
 
       private:
-        bool m_bIs32BitTarget = false;
+        bool m_Is32BitTarget = false;
     };
 
     // @struct FMemoryUnfreezeContent

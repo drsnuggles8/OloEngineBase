@@ -50,6 +50,22 @@ namespace OloEngine
             // Validate that mesh has a valid MeshSource
             OLO_CORE_ASSERT(m_Mesh->GetMeshSource(), "Mesh MeshSource is null!");
         }
+
+        // Manual operator== — UUID elements would trigger C2666 with the
+        // default vector== implementation. Compare UUIDs via u64.
+        auto operator==(const SubmeshComponent& other) const -> bool
+        {
+            if (m_Mesh != other.m_Mesh || m_SubmeshIndex != other.m_SubmeshIndex || m_Visible != other.m_Visible)
+                return false;
+            if (m_BoneEntityIds.size() != other.m_BoneEntityIds.size())
+                return false;
+            for (sizet i = 0; i < m_BoneEntityIds.size(); ++i)
+            {
+                if (static_cast<u64>(m_BoneEntityIds[i]) != static_cast<u64>(other.m_BoneEntityIds[i]))
+                    return false;
+            }
+            return true;
+        }
     };
 
     enum class MeshPrimitive : i32
@@ -77,6 +93,8 @@ namespace OloEngine
 
         MeshComponent() = default;
         explicit MeshComponent(const Ref<OloEngine::MeshSource>& meshSource) noexcept : m_MeshSource(meshSource) {}
+
+        auto operator==(const MeshComponent&) const -> bool = default;
     };
 
     /**
@@ -120,6 +138,8 @@ namespace OloEngine
         {
             return m_Model != nullptr && m_Model->GetMeshCount() > 0;
         }
+
+        auto operator==(const ModelComponent&) const -> bool = default;
     };
 
     /**

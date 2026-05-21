@@ -54,7 +54,7 @@ namespace OloEngine
             : m_Mutex(&Lock)
         {
             m_Mutex->Lock();
-            m_bLocked = true;
+            m_Locked = true;
         }
 
         // Wrap a mutex without locking it.
@@ -65,30 +65,30 @@ namespace OloEngine
 
         // Move from another lock, transferring any ownership to this lock.
         [[nodiscard]] OLO_FINLINE TDynamicUniqueLock(TDynamicUniqueLock&& Other)
-            : m_Mutex(Other.m_Mutex), m_bLocked(Other.m_bLocked)
+            : m_Mutex(Other.m_Mutex), m_Locked(Other.m_Locked)
         {
             Other.m_Mutex = nullptr;
-            Other.m_bLocked = false;
+            Other.m_Locked = false;
         }
 
         // Move from another lock, transferring any ownership to this lock, and unlocking the previous mutex if locked.
         OLO_FINLINE TDynamicUniqueLock& operator=(TDynamicUniqueLock&& Other)
         {
-            if (m_bLocked)
+            if (m_Locked)
             {
                 m_Mutex->Unlock();
             }
             m_Mutex = Other.m_Mutex;
-            m_bLocked = Other.m_bLocked;
+            m_Locked = Other.m_Locked;
             Other.m_Mutex = nullptr;
-            Other.m_bLocked = false;
+            Other.m_Locked = false;
             return *this;
         }
 
         // Unlock the mutex if locked.
         OLO_FINLINE ~TDynamicUniqueLock()
         {
-            if (m_bLocked)
+            if (m_Locked)
             {
                 m_Mutex->Unlock();
             }
@@ -97,24 +97,24 @@ namespace OloEngine
         // Lock the associated mutex. This lock must have a mutex and must not be locked.
         void Lock()
         {
-            OLO_CORE_ASSERT(!m_bLocked, "Lock is already locked");
+            OLO_CORE_ASSERT(!m_Locked, "Lock is already locked");
             OLO_CORE_ASSERT(m_Mutex != nullptr, "Lock has no associated mutex");
             m_Mutex->Lock();
-            m_bLocked = true;
+            m_Locked = true;
         }
 
         // Unlock the associated mutex. This lock must have a mutex and must be locked.
         void Unlock()
         {
-            OLO_CORE_ASSERT(m_bLocked, "Lock is not locked");
-            m_bLocked = false;
+            OLO_CORE_ASSERT(m_Locked, "Lock is not locked");
+            m_Locked = false;
             m_Mutex->Unlock();
         }
 
         // Returns true if this lock has its associated mutex locked.
         OLO_FINLINE bool OwnsLock() const
         {
-            return m_bLocked;
+            return m_Locked;
         }
 
         // Returns true if this lock has its associated mutex locked.
@@ -125,7 +125,7 @@ namespace OloEngine
 
       private:
         LockType* m_Mutex = nullptr;
-        bool m_bLocked = false;
+        bool m_Locked = false;
     };
 
     // Type alias for FMutex

@@ -13,7 +13,7 @@
 
 | Tool        | Minimum Version | Notes                                  |
 |-------------|-----------------|----------------------------------------|
-| CMake       | 3.25            | Required by root CMakeLists.txt        |
+| CMake       | 3.25 (raw) / **4.2+ for `CMakePresets.json`** | Root `CMakeLists.txt` requires 3.25. The shipped presets (`msvc`, `clangcl`, `clangcl-asan`) use the `Visual Studio 18 2026` generator and require CMake 4.2+. Plain `cmake -B build -G "Visual Studio 17 2022"` (no preset) still works at 3.25. |
 | Git         | 2.x             | FetchContent clones vendor deps        |
 | Vulkan SDK  | 1.3+            | `VULKAN_SDK` env var must be set       |
 | C++ compiler| C++23 support   | Known-working: MSVC 17.x / GCC 14+ / Clang 17+. CMake enforces `CMAKE_CXX_STANDARD = 23` (required) but does not enforce specific compiler versions; older compilers with full C++23 support may work but are untested. |
@@ -25,9 +25,10 @@ The Vulkan SDK must include `glslc` and `glslangValidator`.
 ## Windows
 
 ### Compiler
-Visual Studio 2022 (v17.x) is the primary supported IDE. Visual Studio 2026 is
-experimental — the generation script (`scripts/Win-GenerateProjectVS2026.bat`)
-exists but requires CMake 4.2+.
+Visual Studio 2026 is the default for the `msvc` CMake preset (`Visual Studio 18 2026`
+generator, requires CMake 4.2+). Visual Studio 2022 (v17.x) is also fully supported
+via `scripts/Win-GenerateProjectVS2022.bat`, which calls CMake directly without
+the preset and therefore only requires CMake 3.25+.
 
 ### Generate & Build
 ```batch
@@ -159,13 +160,16 @@ cd OloEditor && ../bin/Debug/OloEditor/OloEditor
 
 ## Build Targets
 
-| Target            | Description                                    |
-|-------------------|------------------------------------------------|
-| `OloEngine`       | Core engine static library                     |
-| `OloEditor`       | ImGui-based editor application                 |
-| `OloRuntime`      | Standalone game runtime                        |
-| `OloServer`       | Headless dedicated server                      |
-| `OloEngine-Tests` | GoogleTest test suite                          |
+| Target                    | Description                                                                |
+|---------------------------|----------------------------------------------------------------------------|
+| `OloEngine`               | Core engine static library                                                 |
+| `OloEditor`               | ImGui-based editor application                                             |
+| `OloRuntime`              | Standalone game runtime                                                    |
+| `OloServer`               | Headless dedicated server                                                  |
+| `OloEngine-Tests`         | GoogleTest test suite                                                      |
+| `OloEngine-LuaScriptCore` | Lua / Sol2 scripting bindings (built on all platforms)                     |
+| `OloEngine-ScriptCore`    | C# / Mono scripting bindings (Visual Studio generator only — Windows path) |
+| `GenerateBindings`        | Custom target that runs `OloHeaderTool` to regenerate C++ / C# glue        |
 
 ---
 

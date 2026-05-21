@@ -6,6 +6,7 @@
 #include "OloEngine/Gameplay/Abilities/Tags/GameplayTagContainer.h"
 
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 namespace OloEngine
@@ -41,9 +42,23 @@ namespace OloEngine
         {
             return m_ActiveEffects;
         }
+        [[nodiscard]] const std::unordered_map<GameplayTag, i32>& GetTagGrantCounts() const
+        {
+            return m_TagGrantCounts;
+        }
         [[nodiscard]] bool HasAnyEffects() const
         {
             return !m_ActiveEffects.empty();
+        }
+
+        // For deserialization — overwrites internal state. Caller must ensure the
+        // AttributeSet / GameplayTagContainer that consumes Tick() afterwards is
+        // already restored to a consistent base state.
+        void RestoreFromSnapshot(std::vector<ActiveEffect> effects,
+                                 std::unordered_map<GameplayTag, i32> tagGrantCounts)
+        {
+            m_ActiveEffects = std::move(effects);
+            m_TagGrantCounts = std::move(tagGrantCounts);
         }
 
         auto operator==(const ActiveEffectsContainer&) const -> bool = default;
