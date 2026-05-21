@@ -157,12 +157,20 @@ target_link_libraries(OloEngine
 	Recast
 	sol2
 	stb_image
-	TracyClient
 	yaml-cpp
 	GameNetworkingSockets_s
 	Vulkan::Vulkan
 	zlibstatic
 )
+
+# Tracy — only link the client library when profiling is on. Tracy's TracyClient.cpp
+# contains file-scope globals (Profiler, _memory_span_cache) whose constructors fire
+# unconditionally if the lib is linked, regardless of the TRACY_ENABLE compile def.
+# The TSan preset turns the option off so those globals never make it into the binary
+# (avoids tracy_rpmalloc.cpp's static-init-order race that TSan halts on).
+if(TRACY_ENABLE)
+	target_link_libraries(OloEngine TracyClient)
+endif()
 
 # OpenGL — platform-specific library name
 find_package(OpenGL REQUIRED)

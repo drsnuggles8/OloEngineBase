@@ -12,7 +12,10 @@ namespace OloEngine
 		public Entity Entity { get; internal set; }
 	}
 
-	public class Rigidbody2DComponent : Component
+	// `partial` so this hand-written impulse API merges with the generated
+	// property surface emitted by OloHeaderTool from the C++ OLO_PROPERTY
+	// annotations on Rigidbody2DComponent (Type / FixedRotation / velocities).
+	public partial class Rigidbody2DComponent : Component
 	{
 
 		public void ApplyLinearImpulse(Vector2 impulse, Vector2 worldPosition, bool wake)
