@@ -24,6 +24,19 @@ namespace OloEngine::Audio::SoundGraph
     // Use Flag utilities from OloEngine namespace
     using OloEngine::AtomicFlag;
 
+    class SoundGraphSource; // Forward decl for the custom miniaudio node.
+
+    // Custom miniaudio node that bridges miniaudio's pull-based audio thread into
+    // SoundGraphSource::ProcessSamples. `m_Base` MUST be the first member — miniaudio
+    // casts ma_node* to/from this struct via reinterpret_cast. The owner back-pointer
+    // is used by the static onProcess callback to dispatch into the right SoundGraphSource
+    // instance.
+    struct SoundGraphMiniaudioNode
+    {
+        ma_node_base m_Base;
+        SoundGraphSource* m_Owner = nullptr;
+    };
+
     //==============================================================================
     /// DataSourceContext - Manages wave asset readers for sound graph
     struct DataSourceContext
@@ -55,13 +68,13 @@ namespace OloEngine::Audio::SoundGraph
         /// miniaudio node integration
 
         /** Get output node for routing through miniaudio engine */
-        const ma_engine_node* GetEngineNode() const
+        const ma_node_base* GetEngineNode() const
         {
-            return &m_EngineNode;
+            return &m_Node.m_Base;
         }
-        ma_engine_node* GetEngineNode()
+        ma_node_base* GetEngineNode()
         {
-            return &m_EngineNode;
+            return &m_Node.m_Base;
         }
 
         //==============================================================================
@@ -93,6 +106,18 @@ namespace OloEngine::Audio::SoundGraph
         Ref<SoundGraph> GetGraph() const
         {
             return m_Graph;
+        }
+
+        /** Originating SoundGraphAsset handle this source was instantiated from. Set by the
+            owner (e.g. Scene during InitAudioRuntime) so the asset reload dispatcher can
+            identify which live sources to ReplaceGraph() when a graph asset changes on disk. */
+        void SetSourceAssetHandle(AssetHandle handle)
+        {
+            m_SourceAssetHandle = handle;
+        }
+        AssetHandle GetSourceAssetHandle() const
+        {
+            return m_SourceAssetHandle;
         }
 
         //==============================================================================
@@ -157,6 +182,13 @@ namespace OloEngine::Audio::SoundGraph
             m_OnGraphEvent = std::move(callback);
         }
 
+        /** Process audio samples - called from the custom miniaudio node's onProcess
+            callback on the audio thread. Public so the static vtable bridge in the
+            translation unit can dispatch into it without friending the anonymous
+            namespace. Thread-safe via the suspend/resume protocol; do not call directly
+            from gameplay code. */
+        void ProcessSamples(float** ppFramesOut, u32 frameCount);
+
       private:
         //==============================================================================
         /// Internal methods
@@ -169,9 +201,6 @@ namespace OloEngine::Audio::SoundGraph
 
         /** Called from audio thread to send updated parameters */
         void UpdateChangedParameters();
-
-        /** Process audio samples - called by external audio system */
-        void ProcessSamples(float** ppFramesOut, u32 frameCount);
 
         /** SoundGraph event handlers (called from audio thread) */
         static void HandleGraphEvent(void* context, u64 frameIndex, Identifier endpointID, const choc::value::ValueView& eventData);
@@ -189,7 +218,7 @@ namespace OloEngine::Audio::SoundGraph
         //============================================
         /// Audio engine and processing
         ma_engine* m_Engine = nullptr;
-        ma_engine_node m_EngineNode{};
+        SoundGraphMiniaudioNode m_Node{};
         bool m_IsInitialized = false;
 
         std::atomic<bool> m_Suspended{ false };
@@ -207,6 +236,7 @@ namespace OloEngine::Audio::SoundGraph
         //============================================
         /// Sound graph and data sources
         Ref<SoundGraph> m_Graph = nullptr;
+        AssetHandle m_SourceAssetHandle = 0;
         DataSourceContext m_DataSources;
 
         // Cached audio data for each wave source (keyed by AssetHandle)
@@ -245,6 +275,9 @@ namespace OloEngine::Audio::SoundGraph
 
         AtomicFlag m_PlayRequestFlag;
         bool m_PresetIsInitialized = false;
+        // One-shot trace gate so the per-callback ProcessSamples log only fires once per
+        // graph swap. Reset to false in ReplaceGraph.
+        std::atomic<bool> m_HasLoggedFirstProcess{ false };
 
         //============================================
         /// Event callbacks and thread-safe event handling

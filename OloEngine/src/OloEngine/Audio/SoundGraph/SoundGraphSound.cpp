@@ -7,6 +7,9 @@
 
 #include <choc/containers/choc_Value.h>
 #include <algorithm>
+// AudioEngine.h forward-declares ma_engine; we need the full miniaudio API surface here
+// for ma_engine_get_sample_rate (and the implicit pointer arithmetic on ma_engine*).
+#include <miniaudio.h>
 
 namespace OloEngine::Audio::SoundGraph
 {
@@ -38,6 +41,30 @@ namespace OloEngine::Audio::SoundGraph
     {
         OLO_PROFILE_FUNCTION();
         m_Source = CreateScope<Audio::SoundGraph::SoundGraphSource>();
+
+        // Hook the source's custom ma_node into miniaudio's node graph using the live
+        // AudioEngine instance. Without this, the source allocates the custom-node struct
+        // but ma_node_init never runs and the audio thread never pulls samples — i.e. the
+        // graph plays silently. We fetch the engine through the AudioEngine facade rather
+        // than threading it through every caller.
+        auto* engine = static_cast<ma_engine*>(AudioEngine::GetEngine());
+        if (!engine)
+        {
+            OLO_CORE_WARN("SoundGraphSound::InitializeAudioCallback - AudioEngine not initialized; source will not produce audio");
+            return true; // not fatal — the source still exists and ReplaceGraph etc. work
+        }
+
+        // ma_engine reports its native sample rate; using it keeps the source in lock-step
+        // with the engine's processing rate. Block size 1024 is the typical miniaudio
+        // default for engine nodes.
+        const u32 sampleRate = ma_engine_get_sample_rate(engine);
+        constexpr u32 kBlockSize = 1024;
+        if (!m_Source->Initialize(engine, sampleRate, kBlockSize, /*channelCount=*/2))
+        {
+            OLO_CORE_ERROR("SoundGraphSound::InitializeAudioCallback - SoundGraphSource::Initialize failed");
+            m_Source.reset();
+            return false;
+        }
         return true;
     }
 
@@ -169,6 +196,15 @@ namespace OloEngine::Audio::SoundGraph
 
         m_PlayState = SoundPlayState::Playing;
         m_IsFinished = false;
+
+        // Forward the Play trigger into the runtime graph. Without this the play state
+        // flips to Playing on the sound wrapper but the graph's "Play" event input is
+        // never raised, so any node listening for that event (WavePlayer, envelopes,
+        // trigger nodes) never fires — the audio callback runs but every node stays at
+        // its idle/silent default.
+        if (m_Source)
+            m_Source->SendPlayEvent();
+
         return true;
     }
 

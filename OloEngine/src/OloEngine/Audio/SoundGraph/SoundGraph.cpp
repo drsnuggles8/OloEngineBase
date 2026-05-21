@@ -55,16 +55,6 @@ namespace OloEngine::Audio::SoundGraph
                    { OnStop(value); });
     }
 
-    void SoundGraph::ProcessEvents()
-    {
-        // TODO(olbu): Process any internal events
-    }
-
-    void SoundGraph::ProcessConnections()
-    {
-        // TODO(olbu): Process all connections in the graph
-    }
-
     void SoundGraph::OnPlay(f32 value)
     {
         OLO_PROFILE_FUNCTION();
@@ -93,19 +83,6 @@ namespace OloEngine::Audio::SoundGraph
         m_HasFinished = true;
         m_IsPlaying = false;
         OLO_CORE_TRACE("[SoundGraph] Sound graph finished");
-    }
-
-    // TODO(olbu): This doesn't do anything yet, implement proper version
-    void SoundGraph::UpdateFromAssetData([[maybe_unused]] const SoundGraphAsset& asset)
-    {
-        OLO_PROFILE_FUNCTION();
-
-        // Clear existing state
-        m_IsPlaying = false;
-        m_HasFinished = false;
-        m_OutgoingEvents.Clear();
-        m_OutgoingMessages.Clear();
-        OLO_CORE_INFO("Updated sound graph from asset data");
     }
 
     bool SoundGraph::AddValueConnection(UUID sourceNodeID, const std::string& sourceEndpoint,

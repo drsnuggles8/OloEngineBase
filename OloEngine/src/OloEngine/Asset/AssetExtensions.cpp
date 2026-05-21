@@ -86,7 +86,7 @@ namespace OloEngine
         s_ExtensionMap["oloprefab"] = AssetType::Prefab;
         s_ExtensionMap["olosoundc"] = AssetType::SoundConfig;
         s_ExtensionMap["olomc"] = AssetType::MeshCollider;
-        s_ExtensionMap["olosoundgraph"] = AssetType::SoundGraphSound;
+        s_ExtensionMap["olosoundgraph"] = AssetType::SoundGraph;
         s_ExtensionMap["oloparticle"] = AssetType::ParticleSystem;
         s_ExtensionMap["oloprobe"] = AssetType::LightProbeVolume;
         s_ExtensionMap["olodialogue"] = AssetType::DialogueTree;

@@ -101,6 +101,22 @@ namespace OloEngine::Audio::SoundGraph
 
         out << YAML::EndSeq;
 
+        // Graph IO + local variables. Without these the editor's "Add Parameter" UI is
+        // a no-op past the first save: parameters live in m_GraphInputs, and connections
+        // can reference them by name, but if the map doesn't survive serialization the
+        // next load drops everything except the connection stubs (which then dangle
+        // because their endpoint name no longer exists in m_GraphInputs).
+        auto emitStringMap = [&out](const char* key, const std::unordered_map<std::string, std::string>& map)
+        {
+            out << YAML::Key << key << YAML::Value << YAML::BeginMap;
+            for (const auto& [k, v] : map)
+                out << YAML::Key << k << YAML::Value << v;
+            out << YAML::EndMap;
+        };
+        emitStringMap("GraphInputs", asset.m_GraphInputs);
+        emitStringMap("GraphOutputs", asset.m_GraphOutputs);
+        emitStringMap("LocalVariables", asset.m_LocalVariables);
+
         out << YAML::EndMap; // SoundGraph
         out << YAML::EndMap; // Root
 
@@ -205,6 +221,23 @@ namespace OloEngine::Audio::SoundGraph
                 }
             }
 
+            // Graph IO + local variables. Older YAML files written before these were
+            // serialized just skip these blocks; the maps stay empty and the asset behaves
+            // as it did before (no params, no graph-input routes).
+            auto loadStringMap = [](const YAML::Node& node, std::unordered_map<std::string, std::string>& out_map)
+            {
+                if (!node)
+                    return;
+                for (const auto& kv : node)
+                    out_map[kv.first.as<std::string>()] = kv.second.as<std::string>();
+            };
+            asset.m_GraphInputs.clear();
+            asset.m_GraphOutputs.clear();
+            asset.m_LocalVariables.clear();
+            loadStringMap(soundGraphNode["GraphInputs"], asset.m_GraphInputs);
+            loadStringMap(soundGraphNode["GraphOutputs"], asset.m_GraphOutputs);
+            loadStringMap(soundGraphNode["LocalVariables"], asset.m_LocalVariables);
+
             OLO_CORE_INFO("Successfully deserialized sound graph: {}", asset.m_Name);
             return true;
         }
@@ -232,6 +265,11 @@ namespace OloEngine::Audio::SoundGraph
         out << YAML::Key << "ID" << YAML::Value << nodeData.m_ID;
         out << YAML::Key << "Name" << YAML::Value << nodeData.m_Name;
         out << YAML::Key << "Type" << YAML::Value << nodeData.m_Type;
+        // Canvas position is editor UI state, not runtime data, but persisting it makes
+        // re-opening a saved graph look like what you saved instead of dumping every node
+        // back at (0,0). Defaults to 0 on load if the file pre-dates this field.
+        out << YAML::Key << "PosX" << YAML::Value << nodeData.m_PosX;
+        out << YAML::Key << "PosY" << YAML::Value << nodeData.m_PosY;
 
         // Serialize properties
         if (!nodeData.m_Properties.empty())
@@ -280,6 +318,14 @@ namespace OloEngine::Audio::SoundGraph
             nodeData.m_ID = UUID(node["ID"].as<u64>());
             nodeData.m_Name = node["Name"].as<std::string>();
             nodeData.m_Type = node["Type"].as<std::string>();
+
+            // Canvas position — optional for back-compat. Files written before this field was
+            // introduced don't have PosX/PosY, in which case the defaults from
+            // SoundGraphNodeData (0, 0) are kept.
+            if (node["PosX"])
+                nodeData.m_PosX = node["PosX"].as<f32>();
+            if (node["PosY"])
+                nodeData.m_PosY = node["PosY"].as<f32>();
 
             // Load properties if they exist
             if (node["Properties"])
@@ -451,7 +497,7 @@ namespace OloEngine::Audio::SoundGraph
             if (it != nodeData.m_Properties.end())
             {
                 // NOTE: WaveAsset is set through the parameter system, not a dedicated setter
-                // The m_InWaveAsset parameter is connected to the graph's parameter inputs
+                // The m_WaveAsset parameter is connected to the graph's parameter inputs
                 // during graph construction. Properties in the asset are metadata only.
                 // Actual parameter values are set via SoundGraph::SetParameter() at runtime.
                 OLO_CORE_INFO("SoundGraphSerializer: WaveAsset property '{}' will be set via parameter system", it->second);

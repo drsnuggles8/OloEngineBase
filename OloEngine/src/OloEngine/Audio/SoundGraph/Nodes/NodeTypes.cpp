@@ -2,6 +2,13 @@
 #include "NodeTypes.h"
 #include "ArrayNodes.h"
 #include "OloEngine/Audio/SoundGraph/NodeDescriptors.h"
+// MUST come before INIT_ENDPOINTS_FUNCS expansions below — the
+// DESCRIBE_NODE specializations have to be visible at the point each
+// EndpointUtilities::RegisterEndpoints<Node> is instantiated, otherwise
+// IsDescribedNode_v<Node> short-circuits and endpoint registration silently
+// no-ops (which manifests as std::out_of_range in EstablishConnections
+// the moment any node->graph wire is resolved at runtime).
+#include "OloEngine/Audio/SoundGraph/Nodes/NodeDescriptions.h"
 
 namespace OloEngine::Audio::SoundGraph
 {

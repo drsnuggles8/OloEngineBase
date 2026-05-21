@@ -2,9 +2,11 @@
 #include "GraphGeneration.h"
 
 #include "NodeProcessor.h"
+#include "NodeSchema.h"
 #include "SoundGraphFactory.h"
 #include "SoundGraphPrototype.h"
 #include "SoundGraph.h"
+#include "OloEngine/Asset/SoundGraphAsset.h"
 
 namespace OloEngine::Audio::SoundGraph
 {
@@ -311,6 +313,144 @@ namespace OloEngine::Audio::SoundGraph
     }
 
     //==============================================================================
+    // CompileAssetToPrototype — turn editor-side SoundGraphAsset data into an executable
+    // Prototype. The input prototype carries the asset's node + connection lists (with
+    // typed connection enum values), then ConstructPrototype does final validation,
+    // graph-IO setup, and wave-reference extraction.
+    //==============================================================================
+    Ref<Prototype> CompileAssetToPrototype(const SoundGraphAsset& asset, u32 numInChannels, u32 numOutChannels)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        if (asset.GetNodeCount() == 0)
+        {
+            OLO_CORE_WARN("CompileAssetToPrototype: asset '{}' has no nodes; skipping compile", asset.GetName());
+            return nullptr;
+        }
+
+        GraphGeneratorOptions options;
+        options.m_Name = asset.GetName();
+        options.m_NumInChannels = numInChannels;
+        options.m_NumOutChannels = numOutChannels;
+        options.m_GraphPrototype = Ref<Prototype>::Create();
+
+        // Translate asset nodes → Prototype::Node. For each node, look up the schema for
+        // its type to know which properties are typed parameters and what their type/default
+        // is, then build matching DefaultValuePlugs. Properties for unschemized node types
+        // are dropped (nodes use their hardcoded constructor defaults) — the editor's
+        // property panel only writes known properties anyway.
+        options.m_GraphPrototype->m_Nodes.reserve(asset.GetNodeCount());
+        for (const auto& assetNode : asset.GetNodes())
+        {
+            if (assetNode.m_Type.empty())
+            {
+                OLO_CORE_WARN("CompileAssetToPrototype: asset '{}' has a node with empty Type, skipping", asset.GetName());
+                continue;
+            }
+            Prototype::Node protoNode(Identifier(assetNode.m_Type), assetNode.m_ID);
+
+            if (const NodeSchema* schema = GetNodeSchema(assetNode.m_Type))
+            {
+                for (const auto& param : *schema)
+                {
+                    auto propIt = assetNode.m_Properties.find(param.Name);
+                    const std::string& valueStr = (propIt != assetNode.m_Properties.end()) ? propIt->second : std::string{};
+
+                    choc::value::Value plugValue;
+                    switch (param.Kind)
+                    {
+                        case NodeParamKind::Float:
+                            plugValue = choc::value::createFloat32(ParsePropertyFloat(param, valueStr));
+                            break;
+                        case NodeParamKind::Int:
+                            plugValue = choc::value::createInt32(ParsePropertyInt(param, valueStr));
+                            break;
+                        case NodeParamKind::Bool:
+                            plugValue = choc::value::createBool(ParsePropertyBool(param, valueStr));
+                            break;
+                        case NodeParamKind::AudioAsset:
+                            // Wave references travel as int64 plugs — ParseWaveReferences
+                            // picks them up and queues the corresponding audio files for
+                            // load before the graph starts processing.
+                            plugValue = choc::value::createInt64(static_cast<i64>(ParsePropertyAssetHandle(valueStr)));
+                            break;
+                    }
+
+                    protoNode.m_DefaultValuePlugs.emplace_back(Identifier(param.Name), plugValue);
+                }
+            }
+
+            options.m_GraphPrototype->m_Nodes.push_back(std::move(protoNode));
+        }
+
+        // Translate asset connections → Prototype::Connection. The "graph output" pseudo
+        // node uses UUID(0) as its node ID; we map source/dest having that ID to the
+        // appropriate Graph{Value,Event}_Node{Value,Event} / Node{Value,Event}_Graph{Value,Event}
+        // enum value. Node-to-node and event-vs-value are the standard cases.
+        options.m_GraphPrototype->m_Connections.reserve(asset.GetConnectionCount());
+        for (const auto& assetConn : asset.GetConnections())
+        {
+            Prototype::Connection::EndpointRef source{ assetConn.m_SourceNodeID, Identifier(assetConn.m_SourceEndpoint) };
+            Prototype::Connection::EndpointRef dest{ assetConn.m_TargetNodeID, Identifier(assetConn.m_TargetEndpoint) };
+
+            const bool srcIsGraph = (assetConn.m_SourceNodeID == kGraphPseudoNodeID);
+            const bool dstIsGraph = (assetConn.m_TargetNodeID == kGraphPseudoNodeID);
+
+            Prototype::Connection::EType type;
+            if (srcIsGraph && dstIsGraph)
+            {
+                // Pure graph-IO → graph-IO routing isn't a defined connection type.
+                OLO_CORE_WARN("CompileAssetToPrototype: connection has both endpoints on the graph (no-op), skipping");
+                continue;
+            }
+            else if (srcIsGraph)
+            {
+                type = assetConn.m_IsEvent ? Prototype::Connection::GraphEvent_NodeEvent
+                                           : Prototype::Connection::GraphValue_NodeValue;
+            }
+            else if (dstIsGraph)
+            {
+                type = assetConn.m_IsEvent ? Prototype::Connection::NodeEvent_GraphEvent
+                                           : Prototype::Connection::NodeValue_GraphValue;
+            }
+            else
+            {
+                type = assetConn.m_IsEvent ? Prototype::Connection::NodeEvent_NodeEvent
+                                           : Prototype::Connection::NodeValue_NodeValue;
+            }
+
+            options.m_GraphPrototype->m_Connections.emplace_back(source, dest, type);
+        }
+
+        std::vector<UUID> waveAssetsToLoad;
+        Ref<Prototype> prototype = ConstructPrototype(options, waveAssetsToLoad);
+        if (!prototype)
+        {
+            OLO_CORE_ERROR("CompileAssetToPrototype: ConstructPrototype failed for '{}'", asset.GetName());
+            return prototype;
+        }
+
+        // Append user-defined graph parameters as graph input endpoints. ConstructPrototype
+        // sets up the standard InLeft/InRight + Play stereo IO; we add the param endpoints
+        // on top so connections of type GraphValue_NodeValue (asset source UUID == 0) can
+        // resolve their endpoint identifier at instance-creation time. Unknown type strings
+        // fall back to Float so a typo doesn't kill the whole compile.
+        for (const auto& [paramName, paramType] : asset.GetGraphInputs())
+        {
+            choc::value::Value defaultValue;
+            if (paramType == "Int")
+                defaultValue = choc::value::createInt32(0);
+            else if (paramType == "Bool")
+                defaultValue = choc::value::createBool(false);
+            else
+                defaultValue = choc::value::createFloat32(0.0f);
+            prototype->m_Inputs.emplace_back(Identifier(paramName), defaultValue);
+        }
+
+        return prototype;
+    }
+
+    //==============================================================================
     // Helper functions for CreateInstance
 
     namespace
@@ -380,6 +520,17 @@ namespace OloEngine::Audio::SoundGraph
 
                         node->DefaultValuePlugs.push_back(std::move(defaultValuePlug));
                     }
+
+                    // Also overlay the asset's value onto the node's parameter storage.
+                    // The StreamWriter above only writes through its own m_DestinationView
+                    // copy of the InputStreams ValueView, but InitializeInputs builds the
+                    // node's `m_<Name>` pointer from m_ParameterStorage via GetParameter +
+                    // ParameterWrapper — a completely separate state bucket that the
+                    // StreamWriter path doesn't touch. Without this overlay the runtime
+                    // pointer reads whatever T{} default AddParameter seeded, instead of
+                    // the user-authored asset value (e.g. WavePlayer would always see a
+                    // zero WaveAsset handle regardless of which file is bound).
+                    node->ApplyAssetDefaultToParameter(defaultPlug.m_EndpointID, defaultPlug.m_DefaultValue);
                 }
 
                 graph->AddNode(std::move(node));

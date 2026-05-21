@@ -9,6 +9,12 @@
 #include "OloEngine/Dialogue/DialogueTreeSerializer.h"
 #include "OloEngine/Renderer/ShaderGraph/ShaderGraphAsset.h"
 #include "OloEngine/Renderer/ShaderGraph/ShaderGraphSerializer.h"
+#include "OloEngine/Asset/SoundGraphAsset.h"
+// SoundGraphAsset only forward-declares Prototype; the Ref<Prototype> destructor needs the
+// full type, which lives here. Without this include the inline ~SoundGraphAsset() fails to
+// compile in any TU that constructs a SoundGraphAsset.
+#include "OloEngine/Audio/SoundGraph/GraphGeneration.h"
+#include "OloEngine/Audio/SoundGraph/SoundGraphSerializer.h"
 #include "OloEngine/Renderer/ShaderGraph/ShaderGraphNode.h"
 #include "OloEngine/Asset/MeshCache.h"
 
@@ -1113,6 +1119,49 @@ namespace OloEngine
                     serializer.Serialize(metadata, sgAsset);
 
                     OLO_CORE_INFO("Created shader graph: {}", sgPath.string());
+                    SafeRefreshSubtree(m_CurrentDirectory);
+                    RebuildItemList();
+                    ImGui::CloseCurrentPopup();
+                }
+                ImGui::EndMenu();
+            }
+
+            if (ImGui::BeginMenu("Sound Graph"))
+            {
+                static char soundGraphName[256] = "NewSoundGraph";
+                ImGui::InputText("Name", soundGraphName, sizeof(soundGraphName));
+                if (ImGui::Button("Create##SoundGraph"))
+                {
+                    if (!IsValidLeafName(soundGraphName))
+                    {
+                        OLO_CORE_WARN("ContentBrowser: Invalid sound graph name '{}'", soundGraphName);
+                        ImGui::CloseCurrentPopup();
+                        ImGui::EndMenu();
+                        return;
+                    }
+                    std::filesystem::path currentDir =
+                        m_DirectoryTree.GetAssetRoot() / (m_CurrentDirectory ? m_CurrentDirectory->RelativePath : "");
+                    std::string baseName = soundGraphName;
+                    std::filesystem::path sgPath = currentDir / (baseName + ".olosoundgraph");
+                    int counter = 1;
+                    while (std::filesystem::exists(sgPath))
+                    {
+                        sgPath = currentDir / (baseName + "_" + std::to_string(counter++) + ".olosoundgraph");
+                    }
+
+                    // Empty graph; the user fills it in via the SoundGraph editor.
+                    auto sgAsset = Ref<SoundGraphAsset>::Create();
+                    sgAsset->SetName(baseName);
+
+                    if (!Audio::SoundGraph::SoundGraphSerializer::Serialize(*sgAsset, sgPath))
+                    {
+                        OLO_CORE_ERROR("ContentBrowser: Failed to serialize new sound graph to '{}'", sgPath.string());
+                        ImGui::CloseCurrentPopup();
+                        ImGui::EndMenu();
+                        return;
+                    }
+
+                    OLO_CORE_INFO("Created sound graph: {}", sgPath.string());
                     SafeRefreshSubtree(m_CurrentDirectory);
                     RebuildItemList();
                     ImGui::CloseCurrentPopup();

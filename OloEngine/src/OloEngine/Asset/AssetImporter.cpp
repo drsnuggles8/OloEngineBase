@@ -67,7 +67,7 @@ namespace OloEngine
             serializers[AssetType::Scene] = CreateScope<SceneAssetSerializer>();
             serializers[AssetType::Font] = CreateScope<FontSerializer>();
             serializers[AssetType::MeshCollider] = CreateScope<MeshColliderSerializer>();
-            serializers[AssetType::SoundGraphSound] = CreateScope<SoundGraphSerializer>();
+            serializers[AssetType::SoundGraph] = CreateScope<SoundGraphSerializer>();
             serializers[AssetType::AnimationClip] = CreateScope<AnimationAssetSerializer>();
             serializers[AssetType::AnimationGraph] = CreateScope<AnimationGraphAssetSerializer>();
             serializers[AssetType::ScriptFile] = CreateScope<ScriptFileSerializer>();

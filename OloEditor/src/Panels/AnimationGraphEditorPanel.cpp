@@ -8,12 +8,17 @@
 #include "OloEngine/Animation/AnimationLayer.h"
 #include "OloEngine/Animation/AnimationParameter.h"
 #include "OloEngine/Core/Log.h"
+#include "../UndoRedo/AnimationGraphCommands.h"
+#include "../UndoRedo/EditorCommand.h"
 
 #include <algorithm>
 #include <cstring>
 #include <imgui.h>
+#include <imgui_internal.h>
 #include <limits>
+#include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace OloEngine
@@ -31,6 +36,81 @@ namespace OloEngine
     void AnimationGraphEditorPanel::SetSelectedEntity(Entity entity)
     {
         m_SelectedEntity = entity;
+    }
+
+    Ref<AnimationGraph> AnimationGraphEditorPanel::SnapshotGraph() const
+    {
+        if (!m_CommandHistory || !m_SelectedEntity || !m_SelectedEntity.HasComponent<AnimationGraphComponent>())
+        {
+            return nullptr;
+        }
+
+        const auto& graphComp = m_SelectedEntity.GetComponent<AnimationGraphComponent>();
+        if (!graphComp.RuntimeGraph)
+        {
+            return nullptr;
+        }
+
+        return graphComp.RuntimeGraph->Clone();
+    }
+
+    void AnimationGraphEditorPanel::PushSnapshot(Ref<AnimationGraph> oldSnap, std::string description)
+    {
+        if (!m_CommandHistory || !oldSnap)
+        {
+            return;
+        }
+
+        Ref<AnimationGraph> newSnap = SnapshotGraph();
+        if (!newSnap)
+        {
+            return;
+        }
+
+        // Capture entity by value — Entity is a lightweight handle (UUID + scene ref). If
+        // the entity is destroyed before undo/redo fires, the HasComponent() check no-ops.
+        m_CommandHistory->PushAlreadyExecuted(
+            std::make_unique<AnimationGraphChangeCommand>(
+                std::move(oldSnap), std::move(newSnap),
+                // mutable: the captured Entity is by-value, and Entity::GetComponent has
+                // separate const/non-const overloads. The non-const one returns a writable
+                // reference (which we need to assign to RuntimeGraph). Without `mutable` the
+                // lambda's call operator is const, so the captured Entity is treated as const
+                // and we'd resolve to the const overload returning a const reference.
+                [entity = m_SelectedEntity](Ref<AnimationGraph> snap) mutable
+                {
+                    if (entity && entity.HasComponent<AnimationGraphComponent>())
+                    {
+                        entity.GetComponent<AnimationGraphComponent>().RuntimeGraph = snap;
+                    }
+                },
+                std::move(description)));
+    }
+
+    void AnimationGraphEditorPanel::BeginEditSession()
+    {
+        if (m_EditSessionActive)
+        {
+            return;
+        }
+        m_EditSessionSnapshot = SnapshotGraph();
+        m_EditSessionActive = (m_EditSessionSnapshot != nullptr);
+    }
+
+    void AnimationGraphEditorPanel::EndEditSession(const char* description)
+    {
+        if (!m_EditSessionActive)
+        {
+            return;
+        }
+        // Only flush once ImGui no longer has an active widget — collapses a slider drag
+        // (60+ frames of mutations) into one undo entry.
+        if (GImGui->ActiveId == 0)
+        {
+            PushSnapshot(std::move(m_EditSessionSnapshot), description);
+            m_EditSessionSnapshot = nullptr;
+            m_EditSessionActive = false;
+        }
     }
 
     void AnimationGraphEditorPanel::OnImGuiRender(bool* p_open)
@@ -205,8 +285,10 @@ namespace OloEngine
 
         if (!paramToRemove.empty())
         {
+            Ref<AnimationGraph> snap = SnapshotGraph();
             graph->Parameters.RemoveParameter(paramToRemove);
             graphComp.Parameters.RemoveParameter(paramToRemove);
+            PushSnapshot(std::move(snap), "Remove Parameter '" + paramToRemove + "'");
         }
 
         ImGui::Separator();
@@ -234,6 +316,7 @@ namespace OloEngine
             if (ImGui::Button("Create") && strlen(m_NewParamName) > 0)
             {
                 std::string name = m_NewParamName;
+                Ref<AnimationGraph> snap = SnapshotGraph();
                 switch (m_NewParamType)
                 {
                     case 0:
@@ -253,6 +336,7 @@ namespace OloEngine
                         graphComp.Parameters.DefineTrigger(name);
                         break;
                 }
+                PushSnapshot(std::move(snap), "Add Parameter '" + name + "'");
                 m_ShowNewParamDialog = false;
             }
             ImGui::SameLine();
@@ -359,6 +443,7 @@ namespace OloEngine
                 {
                     newState.Tree = Ref<BlendTree>::Create();
                 }
+                Ref<AnimationGraph> snap = SnapshotGraph();
                 sm->AddState(newState);
 
                 // Set as default if first state
@@ -366,6 +451,7 @@ namespace OloEngine
                 {
                     sm->SetDefaultState(newState.Name);
                 }
+                PushSnapshot(std::move(snap), "Add State '" + newState.Name + "'");
                 m_ShowNewStateDialog = false;
             }
             ImGui::SameLine();
@@ -410,8 +496,13 @@ namespace OloEngine
 
         ImGui::Text("Motion Type: %s",
                     state->Type == AnimationState::MotionType::SingleClip ? "Single Clip" : "Blend Tree");
+
+        // Snapshot once at the start of the slider/checkbox interaction; EndEditSession
+        // below flushes one undo entry when the user releases the widget.
+        BeginEditSession();
         ImGui::DragFloat("Speed", &state->Speed, 0.01f, 0.0f, 10.0f);
         ImGui::Checkbox("Looping", &state->Looping);
+        EndEditSession("Edit State Properties");
 
         if (state->Type == AnimationState::MotionType::SingleClip)
         {
@@ -420,13 +511,18 @@ namespace OloEngine
 
         if (ImGui::Button("Set as Default"))
         {
+            Ref<AnimationGraph> snap = SnapshotGraph();
             sm->SetDefaultState(m_SelectedStateName);
+            PushSnapshot(std::move(snap), "Set Default State '" + m_SelectedStateName + "'");
         }
         ImGui::SameLine();
         if (ImGui::Button("Remove State"))
         {
+            Ref<AnimationGraph> snap = SnapshotGraph();
+            std::string removedName = m_SelectedStateName;
             sm->RemoveState(m_SelectedStateName);
             m_SelectedStateName.clear();
+            PushSnapshot(std::move(snap), "Remove State '" + removedName + "'");
         }
     }
 
@@ -571,7 +667,12 @@ namespace OloEngine
                 newTransition.SourceState = m_NewTransitionSource;
                 newTransition.DestinationState = m_NewTransitionDest;
                 newTransition.BlendDuration = m_NewTransitionBlendDuration;
+                Ref<AnimationGraph> snap = SnapshotGraph();
                 sm->AddTransition(newTransition);
+                std::string desc = "Add Transition '" +
+                                   (newTransition.SourceState.empty() ? std::string("*") : newTransition.SourceState) +
+                                   " -> " + newTransition.DestinationState + "'";
+                PushSnapshot(std::move(snap), std::move(desc));
                 m_ShowNewTransitionDialog = false;
             }
             ImGui::SameLine();
@@ -726,10 +827,12 @@ namespace OloEngine
                             layer.Mode == AnimationLayer::BlendMode::Override ? "Override" : "Additive");
 
                 f32 weight = layer.Weight;
+                BeginEditSession();
                 if (ImGui::SliderFloat("Weight", &weight, 0.0f, 1.0f))
                 {
                     layer.Weight = weight;
                 }
+                EndEditSession("Edit Layer Weight");
 
                 ImGui::Text("Affected Bones: %s",
                             layer.AffectedBones.empty() ? "All" : std::to_string(layer.AffectedBones.size()).c_str());
@@ -752,7 +855,9 @@ namespace OloEngine
             AnimationLayer newLayer;
             newLayer.Name = "Layer " + std::to_string(graph->Layers.size());
             newLayer.StateMachine = Ref<AnimationStateMachine>::Create();
+            Ref<AnimationGraph> snap = SnapshotGraph();
             graph->Layers.push_back(newLayer);
+            PushSnapshot(std::move(snap), "Add Layer '" + newLayer.Name + "'");
         }
     }
 

@@ -1,322 +1,340 @@
 #pragma once
 
+// =============================================================================
+// NodeDescriptions.h — DESCRIBE_NODE specializations for every SoundGraph node
+//
+// These were previously in NodeDescriptions.cpp, which is a *separate TU* from
+// NodeTypes.cpp where `EndpointUtilities::RegisterEndpoints<Node>(...)` is
+// actually instantiated. Template specializations of `NodeDescription<Node>`
+// have to be VISIBLE at the point of instantiation, otherwise
+// `IsDescribedNode_v<Node>` falls back to the primary template's
+// `std::false_type` and the entire reflection-driven endpoint registration
+// silently short-circuits. The graph then has no InputStreams / OutputStreams
+// entries, and EstablishConnections throws std::out_of_range
+// ("invalid unordered_map<K, T> key") the moment any node-to-graph wire is
+// resolved at runtime.
+//
+// Putting the specializations in a header (and #including it from NodeTypes.cpp
+// before INIT_ENDPOINTS_FUNCS) makes them visible at the right point. The
+// static-inline const members the DESCRIBE_NODE macro expands to are C++17
+// inline variables, so multiple TUs including this header is ODR-safe.
+// =============================================================================
+
 #include "OloEngine/Audio/SoundGraph/NodeDescriptors.h"
-#include "WavePlayer.h"
-#include "GeneratorNodes.h"
-#include "MathNodes.h"
-#include "EnvelopeNodes.h"
-#include "TriggerNodes.h"
-#include "ArrayNodes.h"
-#include "MusicNodes.h"
+#include "OloEngine/Audio/SoundGraph/Nodes/WavePlayer.h"
+#include "OloEngine/Audio/SoundGraph/Nodes/GeneratorNodes.h"
+#include "OloEngine/Audio/SoundGraph/Nodes/MathNodes.h"
+#include "OloEngine/Audio/SoundGraph/Nodes/EnvelopeNodes.h"
+#include "OloEngine/Audio/SoundGraph/Nodes/TriggerNodes.h"
+#include "OloEngine/Audio/SoundGraph/Nodes/ArrayNodes.h"
+#include "OloEngine/Audio/SoundGraph/Nodes/MusicNodes.h"
 
-// Node descriptions for all implemented sound graph nodes
-// This enables automatic endpoint registration and initialization
+// NOTE: DESCRIBE_NODE macros must be at global scope (outside any namespace)
+// because they expand to template specializations in OloEngine::Core::Reflection.
 
-namespace OloEngine::Audio::SoundGraph
-{
-    //==============================================================================
-    // WavePlayer Node Description
-    //==============================================================================
-    DESCRIBE_NODE(WavePlayer,
-                  NODE_INPUTS(
-                      &WavePlayer::in_WaveAsset,
-                      &WavePlayer::in_StartTime,
-                      &WavePlayer::in_Loop,
-                      &WavePlayer::in_NumberOfLoops),
-                  NODE_OUTPUTS(
-                      &WavePlayer::out_OutLeft,
-                      &WavePlayer::out_OutRight,
-                      &WavePlayer::out_OnPlay,
-                      &WavePlayer::out_OnStop,
-                      &WavePlayer::out_OnFinished));
+namespace sg = OloEngine::Audio::SoundGraph;
 
-    //==============================================================================
-    // Generator Nodes Descriptions
-    //==============================================================================
-    DESCRIBE_NODE(SineOscillator,
-                  NODE_INPUTS(
-                      &SineOscillator::in_Frequency,
-                      &SineOscillator::in_Amplitude,
-                      &SineOscillator::in_Phase),
-                  NODE_OUTPUTS(
-                      &SineOscillator::out_Value));
+//==============================================================================
+// WavePlayer Node Description
+//==============================================================================
+DESCRIBE_NODE(sg::WavePlayer,
+              NODE_INPUTS(
+                  &sg::WavePlayer::m_WaveAsset,
+                  &sg::WavePlayer::m_StartTime,
+                  &sg::WavePlayer::m_Loop,
+                  &sg::WavePlayer::m_NumberOfLoops),
+              NODE_OUTPUTS(
+                  &sg::WavePlayer::m_OutLeft,
+                  &sg::WavePlayer::m_OutRight,
+                  &sg::WavePlayer::m_OnPlay,
+                  &sg::WavePlayer::m_OnStop,
+                  &sg::WavePlayer::m_OnFinished));
 
-    DESCRIBE_NODE(SquareOscillator,
-                  NODE_INPUTS(
-                      &SquareOscillator::in_Frequency,
-                      &SquareOscillator::in_Amplitude,
-                      &SquareOscillator::in_Phase,
-                      &SquareOscillator::in_PulseWidth),
-                  NODE_OUTPUTS(
-                      &SquareOscillator::out_Value));
+//==============================================================================
+// Generator Nodes Descriptions
+//==============================================================================
+DESCRIBE_NODE(sg::SineOscillator,
+              NODE_INPUTS(
+                  &sg::SineOscillator::m_Frequency,
+                  &sg::SineOscillator::m_Amplitude,
+                  &sg::SineOscillator::m_Phase),
+              NODE_OUTPUTS(
+                  &sg::SineOscillator::m_OutValue));
 
-    DESCRIBE_NODE(SawtoothOscillator,
-                  NODE_INPUTS(
-                      &SawtoothOscillator::in_Frequency,
-                      &SawtoothOscillator::in_Amplitude,
-                      &SawtoothOscillator::in_Phase),
-                  NODE_OUTPUTS(
-                      &SawtoothOscillator::out_Value));
+DESCRIBE_NODE(sg::SquareOscillator,
+              NODE_INPUTS(
+                  &sg::SquareOscillator::m_Frequency,
+                  &sg::SquareOscillator::m_Amplitude,
+                  &sg::SquareOscillator::m_Phase,
+                  &sg::SquareOscillator::m_PulseWidth),
+              NODE_OUTPUTS(
+                  &sg::SquareOscillator::m_OutValue));
 
-    DESCRIBE_NODE(TriangleOscillator,
-                  NODE_INPUTS(
-                      &TriangleOscillator::in_Frequency,
-                      &TriangleOscillator::in_Amplitude,
-                      &TriangleOscillator::in_Phase),
-                  NODE_OUTPUTS(
-                      &TriangleOscillator::out_Value));
+DESCRIBE_NODE(sg::SawtoothOscillator,
+              NODE_INPUTS(
+                  &sg::SawtoothOscillator::m_Frequency,
+                  &sg::SawtoothOscillator::m_Amplitude,
+                  &sg::SawtoothOscillator::m_Phase),
+              NODE_OUTPUTS(
+                  &sg::SawtoothOscillator::m_OutValue));
 
-    DESCRIBE_NODE(Noise,
-                  NODE_INPUTS(
-                      &Noise::in_Seed,
-                      &Noise::in_Type,
-                      &Noise::in_Amplitude),
-                  NODE_OUTPUTS(
-                      &Noise::out_Value));
+DESCRIBE_NODE(sg::TriangleOscillator,
+              NODE_INPUTS(
+                  &sg::TriangleOscillator::m_Frequency,
+                  &sg::TriangleOscillator::m_Amplitude,
+                  &sg::TriangleOscillator::m_Phase),
+              NODE_OUTPUTS(
+                  &sg::TriangleOscillator::m_OutValue));
 
-    //==============================================================================
-    // Math Nodes Descriptions - Template Specializations
-    //==============================================================================
+DESCRIBE_NODE(sg::Noise,
+              NODE_INPUTS(
+                  &sg::Noise::m_Seed,
+                  &sg::Noise::m_Type,
+                  &sg::Noise::m_Amplitude),
+              NODE_OUTPUTS(
+                  &sg::Noise::m_OutValue));
 
-    // Float specializations
-    DESCRIBE_NODE(Add<f32>,
-                  NODE_INPUTS(
-                      &Add<f32>::in_Value1,
-                      &Add<f32>::in_Value2),
-                  NODE_OUTPUTS(
-                      &Add<f32>::out_Out));
+//==============================================================================
+// Math Nodes Descriptions - Template Specializations
+//==============================================================================
 
-    DESCRIBE_NODE(Subtract<f32>,
-                  NODE_INPUTS(
-                      &Subtract<f32>::in_Value1,
-                      &Subtract<f32>::in_Value2),
-                  NODE_OUTPUTS(
-                      &Subtract<f32>::out_Out));
+// Float specializations
+DESCRIBE_NODE(sg::Add<f32>,
+              NODE_INPUTS(
+                  &sg::Add<f32>::m_Value1,
+                  &sg::Add<f32>::m_Value2),
+              NODE_OUTPUTS(
+                  &sg::Add<f32>::m_Out));
 
-    DESCRIBE_NODE(Multiply<f32>,
-                  NODE_INPUTS(
-                      &Multiply<f32>::in_Value,
-                      &Multiply<f32>::in_Multiplier),
-                  NODE_OUTPUTS(
-                      &Multiply<f32>::out_Out));
+DESCRIBE_NODE(sg::Subtract<f32>,
+              NODE_INPUTS(
+                  &sg::Subtract<f32>::m_Value1,
+                  &sg::Subtract<f32>::m_Value2),
+              NODE_OUTPUTS(
+                  &sg::Subtract<f32>::m_Out));
 
-    DESCRIBE_NODE(Divide<f32>,
-                  NODE_INPUTS(
-                      &Divide<f32>::in_Value,
-                      &Divide<f32>::in_Denominator),
-                  NODE_OUTPUTS(
-                      &Divide<f32>::out_Out));
+DESCRIBE_NODE(sg::Multiply<f32>,
+              NODE_INPUTS(
+                  &sg::Multiply<f32>::m_Value,
+                  &sg::Multiply<f32>::m_Multiplier),
+              NODE_OUTPUTS(
+                  &sg::Multiply<f32>::m_Out));
 
-    DESCRIBE_NODE(Min<f32>,
-                  NODE_INPUTS(
-                      &Min<f32>::in_Value1,
-                      &Min<f32>::in_Value2),
-                  NODE_OUTPUTS(
-                      &Min<f32>::out_Out));
+DESCRIBE_NODE(sg::Divide<f32>,
+              NODE_INPUTS(
+                  &sg::Divide<f32>::m_Value,
+                  &sg::Divide<f32>::m_Denominator),
+              NODE_OUTPUTS(
+                  &sg::Divide<f32>::m_Out));
 
-    DESCRIBE_NODE(Max<f32>,
-                  NODE_INPUTS(
-                      &Max<f32>::in_Value1,
-                      &Max<f32>::in_Value2),
-                  NODE_OUTPUTS(
-                      &Max<f32>::out_Out));
+DESCRIBE_NODE(sg::Min<f32>,
+              NODE_INPUTS(
+                  &sg::Min<f32>::m_Value1,
+                  &sg::Min<f32>::m_Value2),
+              NODE_OUTPUTS(
+                  &sg::Min<f32>::m_Out));
 
-    DESCRIBE_NODE(Clamp<f32>,
-                  NODE_INPUTS(
-                      &Clamp<f32>::in_Value,
-                      &Clamp<f32>::in_MinValue,
-                      &Clamp<f32>::in_MaxValue),
-                  NODE_OUTPUTS(
-                      &Clamp<f32>::out_Out));
+DESCRIBE_NODE(sg::Max<f32>,
+              NODE_INPUTS(
+                  &sg::Max<f32>::m_Value1,
+                  &sg::Max<f32>::m_Value2),
+              NODE_OUTPUTS(
+                  &sg::Max<f32>::m_Out));
 
-    DESCRIBE_NODE(MapRange<f32>,
-                  NODE_INPUTS(
-                      &MapRange<f32>::in_Value,
-                      &MapRange<f32>::in_FromMin,
-                      &MapRange<f32>::in_FromMax,
-                      &MapRange<f32>::in_ToMin,
-                      &MapRange<f32>::in_ToMax),
-                  NODE_OUTPUTS(
-                      &MapRange<f32>::out_Out));
+DESCRIBE_NODE(sg::Clamp<f32>,
+              NODE_INPUTS(
+                  &sg::Clamp<f32>::m_Value,
+                  &sg::Clamp<f32>::m_MinValue,
+                  &sg::Clamp<f32>::m_MaxValue),
+              NODE_OUTPUTS(
+                  &sg::Clamp<f32>::m_Out));
 
-    DESCRIBE_NODE(Power<f32>,
-                  NODE_INPUTS(
-                      &Power<f32>::in_Base,
-                      &Power<f32>::in_Exponent),
-                  NODE_OUTPUTS(
-                      &Power<f32>::out_Out));
+DESCRIBE_NODE(sg::MapRange<f32>,
+              NODE_INPUTS(
+                  &sg::MapRange<f32>::m_Value,
+                  &sg::MapRange<f32>::m_FromMin,
+                  &sg::MapRange<f32>::m_FromMax,
+                  &sg::MapRange<f32>::m_ToMin,
+                  &sg::MapRange<f32>::m_ToMax),
+              NODE_OUTPUTS(
+                  &sg::MapRange<f32>::m_Out));
 
-    DESCRIBE_NODE(Abs<f32>,
-                  NODE_INPUTS(
-                      &Abs<f32>::in_Value),
-                  NODE_OUTPUTS(
-                      &Abs<f32>::out_Out));
+DESCRIBE_NODE(sg::Power<f32>,
+              NODE_INPUTS(
+                  &sg::Power<f32>::m_Base,
+                  &sg::Power<f32>::m_Exponent),
+              NODE_OUTPUTS(
+                  &sg::Power<f32>::m_Out));
 
-    // Integer specializations
-    DESCRIBE_NODE(Add<i32>,
-                  NODE_INPUTS(
-                      &Add<i32>::in_Value1,
-                      &Add<i32>::in_Value2),
-                  NODE_OUTPUTS(
-                      &Add<i32>::out_Out));
+DESCRIBE_NODE(sg::Abs<f32>,
+              NODE_INPUTS(
+                  &sg::Abs<f32>::m_Value),
+              NODE_OUTPUTS(
+                  &sg::Abs<f32>::m_Out));
 
-    DESCRIBE_NODE(Subtract<i32>,
-                  NODE_INPUTS(
-                      &Subtract<i32>::in_Value1,
-                      &Subtract<i32>::in_Value2),
-                  NODE_OUTPUTS(
-                      &Subtract<i32>::out_Out));
+// Integer specializations
+DESCRIBE_NODE(sg::Add<i32>,
+              NODE_INPUTS(
+                  &sg::Add<i32>::m_Value1,
+                  &sg::Add<i32>::m_Value2),
+              NODE_OUTPUTS(
+                  &sg::Add<i32>::m_Out));
 
-    DESCRIBE_NODE(Multiply<i32>,
-                  NODE_INPUTS(
-                      &Multiply<i32>::in_Value,
-                      &Multiply<i32>::in_Multiplier),
-                  NODE_OUTPUTS(
-                      &Multiply<i32>::out_Out));
+DESCRIBE_NODE(sg::Subtract<i32>,
+              NODE_INPUTS(
+                  &sg::Subtract<i32>::m_Value1,
+                  &sg::Subtract<i32>::m_Value2),
+              NODE_OUTPUTS(
+                  &sg::Subtract<i32>::m_Out));
 
-    //==============================================================================
-    // Envelope Nodes Descriptions
-    //==============================================================================
-    DESCRIBE_NODE(ADEnvelope,
-                  NODE_INPUTS(
-                      &ADEnvelope::in_AttackTime,
-                      &ADEnvelope::in_DecayTime,
-                      &ADEnvelope::in_AttackCurve,
-                      &ADEnvelope::in_DecayCurve,
-                      &ADEnvelope::in_Looping),
-                  NODE_OUTPUTS(
-                      &ADEnvelope::out_OutEnvelope,
-                      &ADEnvelope::out_OnTrigger,
-                      &ADEnvelope::out_OnComplete));
+DESCRIBE_NODE(sg::Multiply<i32>,
+              NODE_INPUTS(
+                  &sg::Multiply<i32>::m_Value,
+                  &sg::Multiply<i32>::m_Multiplier),
+              NODE_OUTPUTS(
+                  &sg::Multiply<i32>::m_Out));
 
-    DESCRIBE_NODE(ADSREnvelope,
-                  NODE_INPUTS(
-                      &ADSREnvelope::in_AttackTime,
-                      &ADSREnvelope::in_DecayTime,
-                      &ADSREnvelope::in_SustainLevel,
-                      &ADSREnvelope::in_ReleaseTime,
-                      &ADSREnvelope::in_AttackCurve,
-                      &ADSREnvelope::in_DecayCurve,
-                      &ADSREnvelope::in_ReleaseCurve),
-                  NODE_OUTPUTS(
-                      &ADSREnvelope::out_OutEnvelope,
-                      &ADSREnvelope::out_OnTrigger,
-                      &ADSREnvelope::out_OnRelease,
-                      &ADSREnvelope::out_OnComplete));
+//==============================================================================
+// Envelope Nodes Descriptions
+//==============================================================================
+DESCRIBE_NODE(sg::ADEnvelope,
+              NODE_INPUTS(
+                  &sg::ADEnvelope::m_AttackTime,
+                  &sg::ADEnvelope::m_DecayTime,
+                  &sg::ADEnvelope::m_AttackCurve,
+                  &sg::ADEnvelope::m_DecayCurve,
+                  &sg::ADEnvelope::m_Looping),
+              NODE_OUTPUTS(
+                  &sg::ADEnvelope::m_OutEnvelope,
+                  &sg::ADEnvelope::m_OnTrigger,
+                  &sg::ADEnvelope::m_OnComplete));
 
-    //==============================================================================
-    // Trigger Nodes Descriptions
-    //==============================================================================
-    DESCRIBE_NODE(RepeatTrigger,
-                  NODE_INPUTS(
-                      &RepeatTrigger::in_Period),
-                  NODE_OUTPUTS(
-                      &RepeatTrigger::out_Trigger));
+DESCRIBE_NODE(sg::ADSREnvelope,
+              NODE_INPUTS(
+                  &sg::ADSREnvelope::m_AttackTime,
+                  &sg::ADSREnvelope::m_DecayTime,
+                  &sg::ADSREnvelope::m_SustainLevel,
+                  &sg::ADSREnvelope::m_ReleaseTime,
+                  &sg::ADSREnvelope::m_AttackCurve,
+                  &sg::ADSREnvelope::m_DecayCurve,
+                  &sg::ADSREnvelope::m_ReleaseCurve),
+              NODE_OUTPUTS(
+                  &sg::ADSREnvelope::m_OutEnvelope,
+                  &sg::ADSREnvelope::m_OnTrigger,
+                  &sg::ADSREnvelope::m_OnRelease,
+                  &sg::ADSREnvelope::m_OnComplete));
 
-    DESCRIBE_NODE(TriggerCounter,
-                  NODE_INPUTS(
-                      &TriggerCounter::in_StartValue,
-                      &TriggerCounter::in_StepSize,
-                      &TriggerCounter::in_ResetCount),
-                  NODE_OUTPUTS(
-                      &TriggerCounter::out_Count,
-                      &TriggerCounter::out_Value,
-                      &TriggerCounter::out_OnTrigger,
-                      &TriggerCounter::out_OnReset));
+//==============================================================================
+// Trigger Nodes Descriptions
+//==============================================================================
+DESCRIBE_NODE(sg::RepeatTrigger,
+              NODE_INPUTS(
+                  &sg::RepeatTrigger::m_Period),
+              NODE_OUTPUTS(
+                  &sg::RepeatTrigger::m_OutTrigger));
 
-    DESCRIBE_NODE(DelayedTrigger,
-                  NODE_INPUTS(
-                      &DelayedTrigger::in_DelayTime),
-                  NODE_OUTPUTS(
-                      &DelayedTrigger::out_DelayedTrigger,
-                      &DelayedTrigger::out_OnReset));
+DESCRIBE_NODE(sg::TriggerCounter,
+              NODE_INPUTS(
+                  &sg::TriggerCounter::m_StartValue,
+                  &sg::TriggerCounter::m_StepSize,
+                  &sg::TriggerCounter::m_ResetCount),
+              NODE_OUTPUTS(
+                  &sg::TriggerCounter::m_OutCount,
+                  &sg::TriggerCounter::m_OutValue,
+                  &sg::TriggerCounter::m_OnTrigger,
+                  &sg::TriggerCounter::m_OnReset));
 
-    //==============================================================================
-    // Array Nodes Descriptions
-    //==============================================================================
-    DESCRIBE_NODE(GetRandom<f32>,
-                  NODE_INPUTS(
-                      &GetRandom<f32>::in_Array,
-                      &GetRandom<f32>::in_Min,
-                      &GetRandom<f32>::in_Max,
-                      &GetRandom<f32>::in_Seed),
-                  NODE_OUTPUTS(
-                      &GetRandom<f32>::out_OnNext,
-                      &GetRandom<f32>::out_OnReset,
-                      &GetRandom<f32>::out_Element));
+DESCRIBE_NODE(sg::DelayedTrigger,
+              NODE_INPUTS(
+                  &sg::DelayedTrigger::m_DelayTime),
+              NODE_OUTPUTS(
+                  &sg::DelayedTrigger::m_OutDelayedTrigger,
+                  &sg::DelayedTrigger::m_OnReset));
 
-    DESCRIBE_NODE(GetRandom<i32>,
-                  NODE_INPUTS(
-                      &GetRandom<i32>::in_Array,
-                      &GetRandom<i32>::in_Min,
-                      &GetRandom<i32>::in_Max,
-                      &GetRandom<i32>::in_Seed),
-                  NODE_OUTPUTS(
-                      &GetRandom<i32>::out_OnNext,
-                      &GetRandom<i32>::out_OnReset,
-                      &GetRandom<i32>::out_Element));
+//==============================================================================
+// Array Nodes Descriptions
+//==============================================================================
+DESCRIBE_NODE(sg::GetRandom<f32>,
+              NODE_INPUTS(
+                  &sg::GetRandom<f32>::m_Array,
+                  &sg::GetRandom<f32>::m_Min,
+                  &sg::GetRandom<f32>::m_Max,
+                  &sg::GetRandom<f32>::m_Seed),
+              NODE_OUTPUTS(
+                  &sg::GetRandom<f32>::m_OnNext,
+                  &sg::GetRandom<f32>::m_OnReset,
+                  &sg::GetRandom<f32>::m_OutElement));
 
-    DESCRIBE_NODE(Get<f32>,
-                  NODE_INPUTS(
-                      &Get<f32>::in_Array,
-                      &Get<f32>::in_Index),
-                  NODE_OUTPUTS(
-                      &Get<f32>::out_OnTrigger,
-                      &Get<f32>::out_Element));
+DESCRIBE_NODE(sg::GetRandom<i32>,
+              NODE_INPUTS(
+                  &sg::GetRandom<i32>::m_Array,
+                  &sg::GetRandom<i32>::m_Min,
+                  &sg::GetRandom<i32>::m_Max,
+                  &sg::GetRandom<i32>::m_Seed),
+              NODE_OUTPUTS(
+                  &sg::GetRandom<i32>::m_OnNext,
+                  &sg::GetRandom<i32>::m_OnReset,
+                  &sg::GetRandom<i32>::m_OutElement));
 
-    DESCRIBE_NODE(Get<i32>,
-                  NODE_INPUTS(
-                      &Get<i32>::in_Array,
-                      &Get<i32>::in_Index),
-                  NODE_OUTPUTS(
-                      &Get<i32>::out_OnTrigger,
-                      &Get<i32>::out_Element));
+DESCRIBE_NODE(sg::Get<f32>,
+              NODE_INPUTS(
+                  &sg::Get<f32>::m_Array,
+                  &sg::Get<f32>::m_Index),
+              NODE_OUTPUTS(
+                  &sg::Get<f32>::m_OnTrigger,
+                  &sg::Get<f32>::m_OutElement));
 
-    DESCRIBE_NODE(Random<f32>,
-                  NODE_INPUTS(
-                      &Random<f32>::in_Min,
-                      &Random<f32>::in_Max,
-                      &Random<f32>::in_Seed),
-                  NODE_OUTPUTS(
-                      &Random<f32>::out_OnNext,
-                      &Random<f32>::out_OnReset,
-                      &Random<f32>::out_Value));
+DESCRIBE_NODE(sg::Get<i32>,
+              NODE_INPUTS(
+                  &sg::Get<i32>::m_Array,
+                  &sg::Get<i32>::m_Index),
+              NODE_OUTPUTS(
+                  &sg::Get<i32>::m_OnTrigger,
+                  &sg::Get<i32>::m_OutElement));
 
-    DESCRIBE_NODE(Random<i32>,
-                  NODE_INPUTS(
-                      &Random<i32>::in_Min,
-                      &Random<i32>::in_Max,
-                      &Random<i32>::in_Seed),
-                  NODE_OUTPUTS(
-                      &Random<i32>::out_OnNext,
-                      &Random<i32>::out_OnReset,
-                      &Random<i32>::out_Value));
+DESCRIBE_NODE(sg::Random<f32>,
+              NODE_INPUTS(
+                  &sg::Random<f32>::m_Min,
+                  &sg::Random<f32>::m_Max,
+                  &sg::Random<f32>::m_Seed),
+              NODE_OUTPUTS(
+                  &sg::Random<f32>::m_OnNext,
+                  &sg::Random<f32>::m_OnReset,
+                  &sg::Random<f32>::m_OutValue));
 
-    //==============================================================================
-    // Music Nodes Descriptions
-    //==============================================================================
-    DESCRIBE_NODE(BPMToSeconds,
-                  NODE_INPUTS(
-                      &BPMToSeconds::in_BPM),
-                  NODE_OUTPUTS(
-                      &BPMToSeconds::out_Seconds));
+DESCRIBE_NODE(sg::Random<i32>,
+              NODE_INPUTS(
+                  &sg::Random<i32>::m_Min,
+                  &sg::Random<i32>::m_Max,
+                  &sg::Random<i32>::m_Seed),
+              NODE_OUTPUTS(
+                  &sg::Random<i32>::m_OnNext,
+                  &sg::Random<i32>::m_OnReset,
+                  &sg::Random<i32>::m_OutValue));
 
-    DESCRIBE_NODE(NoteToFrequency<f32>,
-                  NODE_INPUTS(
-                      &NoteToFrequency<f32>::in_MIDINote),
-                  NODE_OUTPUTS(
-                      &NoteToFrequency<f32>::out_Frequency));
+//==============================================================================
+// Music Nodes Descriptions
+//==============================================================================
+DESCRIBE_NODE(sg::BPMToSeconds,
+              NODE_INPUTS(
+                  &sg::BPMToSeconds::m_BPM),
+              NODE_OUTPUTS(
+                  &sg::BPMToSeconds::m_OutSeconds));
 
-    DESCRIBE_NODE(NoteToFrequency<i32>,
-                  NODE_INPUTS(
-                      &NoteToFrequency<i32>::in_MIDINote),
-                  NODE_OUTPUTS(
-                      &NoteToFrequency<i32>::out_Frequency));
+DESCRIBE_NODE(sg::NoteToFrequency<f32>,
+              NODE_INPUTS(
+                  &sg::NoteToFrequency<f32>::m_MIDINote),
+              NODE_OUTPUTS(
+                  &sg::NoteToFrequency<f32>::m_OutFrequency));
 
-    DESCRIBE_NODE(FrequencyToNote,
-                  NODE_INPUTS(
-                      &FrequencyToNote::in_Frequency),
-                  NODE_OUTPUTS(
-                      &FrequencyToNote::out_MIDINote));
+DESCRIBE_NODE(sg::NoteToFrequency<i32>,
+              NODE_INPUTS(
+                  &sg::NoteToFrequency<i32>::m_MIDINote),
+              NODE_OUTPUTS(
+                  &sg::NoteToFrequency<i32>::m_OutFrequency));
 
-} // namespace OloEngine::Audio::SoundGraph
+DESCRIBE_NODE(sg::FrequencyToNote,
+              NODE_INPUTS(
+                  &sg::FrequencyToNote::m_Frequency),
+              NODE_OUTPUTS(
+                  &sg::FrequencyToNote::m_OutMIDINote));

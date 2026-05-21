@@ -82,7 +82,7 @@ namespace OloEngine
         }
 
         std::string yamlString = SerializeToYAML(dialogueAsset);
-        auto fullPath = Project::GetAssetDirectory() / metadata.FilePath;
+        auto fullPath = Project::GetProjectDirectory() / metadata.FilePath;
 
         std::error_code ec;
         std::filesystem::create_directories(fullPath.parent_path(), ec);
@@ -105,7 +105,7 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        auto path = Project::GetAssetDirectory() / metadata.FilePath;
+        auto path = Project::GetProjectDirectory() / metadata.FilePath;
         if (!std::filesystem::exists(path))
         {
             OLO_CORE_WARN("DialogueTreeSerializer::TryLoadData - File does not exist ({})", path.string());

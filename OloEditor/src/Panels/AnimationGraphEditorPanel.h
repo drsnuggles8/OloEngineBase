@@ -1,8 +1,11 @@
 #pragma once
 
+#include "OloEngine/Animation/AnimationGraph.h"
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Scene/Scene.h"
 #include "OloEngine/Scene/Entity.h"
+
+#include <string>
 
 namespace OloEngine
 {
@@ -32,10 +35,31 @@ namespace OloEngine
         void DrawLayerManager();
         void DrawLivePreview();
 
+        // Snapshot the current graph state for a discrete mutation. Returns a deep clone
+        // suitable for passing to PushSnapshot() after the mutation completes. Returns
+        // nullptr (and PushSnapshot will no-op) if there is no command history or no
+        // active runtime graph.
+        Ref<AnimationGraph> SnapshotGraph() const;
+
+        // Push an undo command capturing oldSnap (taken before the mutation) and the
+        // current post-mutation state. Safe to call with a nullptr oldSnap.
+        void PushSnapshot(Ref<AnimationGraph> oldSnap, std::string description);
+
+        // Session-style edit tracking for continuous-edit widgets (sliders, drag fields).
+        // BeginEditSession captures a snapshot when no edit is currently in flight;
+        // EndEditSession flushes the snapshot to the undo stack once ImGui reports that
+        // no widget is active anymore. This collapses a multi-frame slider drag into a
+        // single undo entry rather than 60-per-second.
+        void BeginEditSession();
+        void EndEditSession(const char* description);
+
         Ref<Scene> m_Context;
         Entity m_SelectedEntity;
-        // TODO: integrate m_CommandHistory->Push() at mutation sites (parameter/state/transition/layer CRUD)
         CommandHistory* m_CommandHistory = nullptr;
+
+        // Edit-session state for continuous widgets.
+        Ref<AnimationGraph> m_EditSessionSnapshot;
+        bool m_EditSessionActive = false;
 
         // Editor state
         std::string m_SelectedStateName;

@@ -117,6 +117,51 @@ namespace OloEngine
             return m_LocalVariables;
         }
 
+        // Graph-input parameter management (used by the editor's "Add Parameter" UI on the
+        // Graph Input pseudo-node). Type strings are loose right now — "Float" is the only
+        // type currently respected by the compiler, but we keep them as strings so future
+        // types (Int / Bool / Trigger) can slot in without an asset format change.
+        bool AddGraphInput(const std::string& name, const std::string& type = "Float")
+        {
+            if (name.empty() || m_GraphInputs.count(name) > 0)
+                return false;
+            m_GraphInputs[name] = type;
+            return true;
+        }
+
+        bool RemoveGraphInput(const std::string& name)
+        {
+            return m_GraphInputs.erase(name) > 0;
+        }
+
+        // Rename a graph input parameter, walking every connection in the asset to update
+        // m_SourceEndpoint strings that reference the old name. Returns false if the old
+        // name doesn't exist, the new name is empty, or the new name collides with an
+        // existing parameter. Only connections whose source is the graph itself
+        // (m_SourceNodeID == 0) are rewritten — node-to-node connections never touch a
+        // graph-input endpoint name.
+        bool RenameGraphInput(const std::string& oldName, const std::string& newName)
+        {
+            if (newName.empty() || oldName == newName)
+                return false;
+            auto it = m_GraphInputs.find(oldName);
+            if (it == m_GraphInputs.end())
+                return false;
+            if (m_GraphInputs.count(newName) > 0)
+                return false;
+
+            std::string type = it->second;
+            m_GraphInputs.erase(it);
+            m_GraphInputs[newName] = std::move(type);
+
+            for (auto& connection : m_Connections)
+            {
+                if (connection.m_SourceNodeID == UUID(0) && connection.m_SourceEndpoint == oldName)
+                    connection.m_SourceEndpoint = newName;
+            }
+            return true;
+        }
+
         // Runtime prototype accessors (non-inline due to incomplete type)
         const Ref<Audio::SoundGraph::Prototype>& GetCompiledPrototype() const;
         void SetCompiledPrototype(const Ref<Audio::SoundGraph::Prototype>& prototype);
@@ -152,6 +197,12 @@ namespace OloEngine
 
         // Rebuild the node ID map from m_Nodes (call after deserialization or batch modifications)
         void RebuildNodeIdMap();
+
+        // Deep-copy this asset into a new Ref. Used by the editor's undo/redo system to
+        // snapshot state before and after a mutation; the resulting clone has its own copies
+        // of all node + connection data and its own m_NodeIdMap. The compiled prototype is
+        // intentionally NOT copied — it's derived state that will be recompiled on next save.
+        [[nodiscard]] Ref<SoundGraphAsset> Clone() const;
 
         // Validation
         bool IsValid() const;

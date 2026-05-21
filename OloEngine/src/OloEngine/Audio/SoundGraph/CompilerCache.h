@@ -210,14 +210,6 @@ namespace OloEngine::Audio::SoundGraph
         /// Shutdown compiler cache system
         void ShutdownCompilerCache();
 
-        /// Compile with caching
-        CompilationResult CompileWithCache(const std::string& sourcePath, const std::string& compilerVersion = OLO_SOUND_GRAPH_COMPILER_VERSION);
-
-        /// Batch compilation utilities
-        std::vector<CompilationResult> BatchCompileWithCache(
-            const std::vector<std::string>& sourcePaths,
-            const std::string& compilerVersion = OLO_SOUND_GRAPH_COMPILER_VERSION);
-
         /// Cache maintenance
         void PerformMaintenanceTasks();
         void CleanupExpiredEntries();

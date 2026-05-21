@@ -208,7 +208,13 @@ namespace OloEngine::Core::Reflection
         using MemberListType = OloEngine::Core::Reflection::MemberList<__VA_ARGS__>;                                                    \
                                                                                                                                         \
       private:                                                                                                                          \
-        static inline const std::string_view s_MemberStr{ __VA_OPT__(#__VA_ARGS__) __VA_OPT__(, ) "" };                                 \
+        /* `#__VA_ARGS__` always produces a string literal (empty `""` when args are empty),                                            \
+           so we initialize the string_view from exactly one `const char*` argument. The earlier                                        \
+           `{ #__VA_ARGS__ , "" }` form passed TWO pointers, which in C++20 matches the                                                 \
+           iterator-pair constructor `string_view(It first, End last)` — the size then becomes                                        \
+           the byte distance between two unrelated literals and the data is whatever lies between                                       \
+           them in the binary (we've seen shader-source bytes leak in). */                                                              \
+        static inline const std::string_view s_MemberStr{ #__VA_ARGS__ };                                                               \
         static inline const std::string_view s_ClassStr{ #Class };                                                                      \
         static inline const std::string_view s_Delimiter{ "," };                                                                        \
         static constexpr sizet s_MemberCount = MemberListType::Count();                                                                 \

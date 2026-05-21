@@ -17,6 +17,7 @@
 #include "Panels/BehaviorTreeEditorPanel.h"
 #include "Panels/FSMEditorPanel.h"
 #include "Panels/ShaderGraphEditorPanel.h"
+#include "Panels/SoundGraphEditorPanel.h"
 #include "Panels/AnimationGraphEditorPanel.h"
 #include "Panels/SaveGamePanel.h"
 #include "Panels/StatisticsPanel.h"
@@ -215,6 +216,7 @@ namespace OloEngine
         EditorPreferencesPanel m_EditorPreferencesPanel;
         EditorPreferences m_Prefs;
         ShaderGraphEditorPanel m_ShaderGraphEditorPanel;
+        SoundGraphEditorPanel m_SoundGraphEditorPanel;
         AnimationGraphEditorPanel m_AnimationGraphEditorPanel;
         bool m_ShowConsolePanel = true;
         bool m_ShowStatistics = true;
@@ -233,6 +235,7 @@ namespace OloEngine
         FSMEditorPanel m_FSMEditorPanel;
         bool m_ShowFSMEditor = false;
         bool m_ShowShaderGraphEditor = false;
+        bool m_ShowSoundGraphEditor = false;
         bool m_ShowAnimationGraphEditor = false;
         SaveGamePanel m_SaveGamePanel;
         bool m_ShowSaveGamePanel = false;

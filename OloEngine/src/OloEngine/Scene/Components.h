@@ -6,6 +6,7 @@
 #include "OloEngine/Renderer/Font.h"
 #include "OloEngine/Audio/AudioSource.h"
 #include "OloEngine/Audio/AudioListener.h"
+#include "OloEngine/Audio/SoundGraph/SoundGraphSound.h"
 #include "OloEngine/Audio/AudioEvents/CommandID.h"
 #include "OloEngine/Animation/AnimatedMeshComponents.h"
 #include "OloEngine/Animation/AnimationGraphComponent.h"
@@ -771,6 +772,63 @@ namespace OloEngine
         AudioListenerComponent(const AudioListenerComponent&) = default;
 
         auto operator==(const AudioListenerComponent&) const -> bool = default;
+    };
+
+    // Plays a sound graph (.olosoundgraph) asset on an entity. Mirrors the AudioSourceComponent
+    // shape but is driven by SoundGraph's compute-graph audio runtime instead of a raw clip.
+    // Per-instance overrides (volume/pitch/loop) live inline on the component; the underlying
+    // graph topology comes from the referenced SoundGraphAsset.
+    struct AudioSoundGraphComponent
+    {
+        AssetHandle SoundGraphHandle = 0;
+        f32 VolumeMultiplier = 1.0f;
+        f32 PitchMultiplier = 1.0f;
+        bool Looping = false;
+        bool PlayOnAwake = true;
+
+        // Runtime-only state. Allocated by Scene::InitAudioRuntime; not serialized.
+        Ref<Audio::SoundGraph::SoundGraphSound> Sound = nullptr;
+
+        AudioSoundGraphComponent() = default;
+
+        AudioSoundGraphComponent(const AudioSoundGraphComponent& other)
+            : SoundGraphHandle(other.SoundGraphHandle),
+              VolumeMultiplier(other.VolumeMultiplier),
+              PitchMultiplier(other.PitchMultiplier),
+              Looping(other.Looping),
+              PlayOnAwake(other.PlayOnAwake),
+              Sound(nullptr) // Don't share live audio state across copies.
+        {
+        }
+
+        auto operator=(const AudioSoundGraphComponent& other) -> AudioSoundGraphComponent&
+        {
+            if (this != &other)
+            {
+                SoundGraphHandle = other.SoundGraphHandle;
+                VolumeMultiplier = other.VolumeMultiplier;
+                PitchMultiplier = other.PitchMultiplier;
+                Looping = other.Looping;
+                PlayOnAwake = other.PlayOnAwake;
+                Sound = nullptr;
+            }
+            return *this;
+        }
+
+        // Equality for undo/redo — compares serialized/editor-visible fields only.
+        auto operator==(const AudioSoundGraphComponent& other) const -> bool
+        {
+            return SoundGraphHandle == other.SoundGraphHandle && VolumeMultiplier == other.VolumeMultiplier && PitchMultiplier == other.PitchMultiplier && Looping == other.Looping && PlayOnAwake == other.PlayOnAwake;
+        }
+
+        // Gameplay-facing helpers to drive graph input parameters at runtime. Returns
+        // false if the component has no live Sound (e.g. graph not instantiated yet
+        // because PlayOnAwake was false and Play hasn't been called, or the asset failed
+        // to compile). Implementations live in AudioSoundGraphComponent.cpp to avoid
+        // pulling SoundGraphSource.h / miniaudio into this header.
+        bool SetParameter(const std::string& name, f32 value);
+        bool SetParameter(const std::string& name, i32 value);
+        bool SetParameter(const std::string& name, bool value);
     };
 
     // Note: SubmeshComponent, MeshComponent, AnimationStateComponent,
@@ -2333,6 +2391,7 @@ namespace OloEngine
         LuaScriptComponent,
         AudioSourceComponent,
         AudioListenerComponent,
+        AudioSoundGraphComponent,
         SubmeshComponent,
         MeshComponent,
         ModelComponent,

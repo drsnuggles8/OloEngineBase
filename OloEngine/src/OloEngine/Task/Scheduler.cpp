@@ -655,7 +655,7 @@ namespace OloEngine::LowLevelTasks
 #if PLATFORM_SUPPORTS_ASYMMETRIC_FENCES
         // Heavy barrier since bPendingWakeUp is only written to with a relaxed write,
         // we need all cores to flush their store buffer to memory
-        // FPlatformMisc::AsymmetricThreadFenceHeavy(); // TODO: Implement for ARM platforms
+        FPlatformMisc::AsymmetricThreadFenceHeavy();
         constexpr std::memory_order MemoryOrder = std::memory_order_relaxed;
 #else
         constexpr std::memory_order MemoryOrder = std::memory_order_acquire;
@@ -745,12 +745,12 @@ namespace OloEngine::LowLevelTasks
                 if (bExternalThread)
                 {
 #if PLATFORM_SUPPORTS_ASYMMETRIC_FENCES
-                    // FPlatformMisc::AsymmetricThreadFenceLight(); // TODO: Implement for ARM platforms
+                    FPlatformMisc::AsymmetricThreadFenceLight();
 #endif
                     LocalTlsValues.bPendingWakeUp.store(true, MemoryOrder);
 
 #if PLATFORM_SUPPORTS_ASYMMETRIC_FENCES
-                    // FPlatformMisc::AsymmetricThreadFenceLight(); // TODO: Implement for ARM platforms
+                    FPlatformMisc::AsymmetricThreadFenceLight();
 #endif
 
                     if (m_TemporaryShutdown.load(std::memory_order_acquire))
@@ -768,12 +768,12 @@ namespace OloEngine::LowLevelTasks
                 if (bExternalThread)
                 {
 #if PLATFORM_SUPPORTS_ASYMMETRIC_FENCES
-                    // FPlatformMisc::AsymmetricThreadFenceLight(); // TODO: Implement for ARM platforms
+                    FPlatformMisc::AsymmetricThreadFenceLight();
 #endif
                     LocalTlsValues.bPendingWakeUp.store(false, MemoryOrder);
 
 #if PLATFORM_SUPPORTS_ASYMMETRIC_FENCES
-                    // FPlatformMisc::AsymmetricThreadFenceLight(); // TODO: Implement for ARM platforms
+                    FPlatformMisc::AsymmetricThreadFenceLight();
 #endif
                 }
             }

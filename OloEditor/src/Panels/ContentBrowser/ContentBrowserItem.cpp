@@ -55,6 +55,8 @@ namespace OloEngine
         { ".olodialogue", ContentFileType::Dialogue },
         // Shader Graphs
         { ".olosg", ContentFileType::ShaderGraph },
+        // Sound Graphs
+        { ".olosoundgraph", ContentFileType::SoundGraph },
         // Save Games
         { ".olosave", ContentFileType::SaveGame },
     };

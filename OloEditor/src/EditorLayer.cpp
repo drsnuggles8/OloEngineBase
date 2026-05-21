@@ -34,6 +34,10 @@
 #include "OloEngine/Task/Task.h"
 #include "OloEngine/SaveGame/SaveGameManager.h"
 #include "OloEngine/Renderer/ShaderGraph/ShaderGraphAsset.h"
+#include "OloEngine/Asset/SoundGraphAsset.h"
+#include "OloEngine/Audio/SoundGraph/GraphGeneration.h"
+#include "OloEngine/Audio/SoundGraph/SoundGraph.h"
+#include "OloEngine/Audio/SoundGraph/SoundGraphSource.h"
 #include "OloEngine/Gameplay/Inventory/ItemDatabase.h"
 #include "OloEngine/Core/PerformanceProfiler.h"
 
@@ -1212,6 +1216,14 @@ namespace OloEngine
             m_ShowShaderGraphEditor = m_ShaderGraphEditorPanel.IsOpen();
         }
 
+        // Sound Graph Editor Panel
+        if (m_ShowSoundGraphEditor)
+        {
+            m_SoundGraphEditorPanel.SetOpen(true);
+            m_SoundGraphEditorPanel.OnImGuiRender();
+            m_ShowSoundGraphEditor = m_SoundGraphEditorPanel.IsOpen();
+        }
+
         // Animation Graph Editor Panel
         if (m_ShowAnimationGraphEditor)
         {
@@ -1823,6 +1835,29 @@ namespace OloEngine
                 m_ShaderGraphEditorPanel.OpenShaderGraph(path);
                 m_ShowShaderGraphEditor = true;
             }
+            else if (type == ContentFileType::SoundGraph)
+            {
+                if (m_SoundGraphEditorPanel.HasUnsavedChanges())
+                {
+                    auto const result = MessagePrompt::YesNoCancel(
+                        "Unsaved Sound Graph",
+                        "The current sound graph has unsaved changes. Do you want to save before opening a new one?");
+                    switch (result)
+                    {
+                        case MessagePromptResult::Yes:
+                            if (!m_SoundGraphEditorPanel.SaveIfNeeded())
+                                return;
+                            break;
+                        case MessagePromptResult::Cancel:
+                            return;
+                        case MessagePromptResult::No:
+                        default:
+                            break;
+                    }
+                }
+                m_SoundGraphEditorPanel.OpenSoundGraph(path);
+                m_ShowSoundGraphEditor = true;
+            }
             else if (type == ContentFileType::Shader)
             {
                 if (m_ShaderEditorPanel.HasUnsavedChanges())
@@ -2399,6 +2434,7 @@ namespace OloEngine
         m_DialogueEditorPanel.SetCommandHistory(&m_CommandHistory);
         m_AnimationGraphEditorPanel.SetContext(m_EditorScene);
         m_AnimationGraphEditorPanel.SetCommandHistory(&m_CommandHistory);
+        m_SoundGraphEditorPanel.SetCommandHistory(&m_CommandHistory);
         m_InputSettingsPanel.SetCommandHistory(&m_CommandHistory);
         m_AudioEventsPanel.SetActiveScene(m_EditorScene);
 
@@ -2882,6 +2918,64 @@ namespace OloEngine
                 reloadInScene(m_ActiveScene);
                 if (m_EditorScene && m_EditorScene != m_ActiveScene)
                     reloadInScene(m_EditorScene);
+                break;
+            }
+            case AssetType::SoundGraph:
+            {
+                // Sound graph reloaded on disk: re-fetch the updated SoundGraphAsset, cook a
+                // fresh prototype + instance, and ReplaceGraph() on every live source that was
+                // instantiated from this asset handle. The source-asset-handle field is set
+                // when Scene::InitAudioRuntime creates the SoundGraphSound; sources created
+                // some other way (e.g. tests) without that field set are skipped.
+                OLO_TRACE("   → Sound graph asset reloaded - refreshing live audio sources");
+                auto graphAsset = AssetManager::GetAsset<SoundGraphAsset>(e.GetHandle());
+                if (!graphAsset)
+                {
+                    OLO_WARN("SoundGraph reload: failed to fetch updated asset {}", static_cast<u64>(e.GetHandle()));
+                    break;
+                }
+                const Ref<Audio::SoundGraph::Prototype>& prototype = graphAsset->GetCompiledPrototype();
+                if (!prototype)
+                {
+                    OLO_WARN("SoundGraph reload: asset {} has no compiled prototype after reload", static_cast<u64>(e.GetHandle()));
+                    break;
+                }
+
+                auto refreshInScene = [&e, &prototype](Ref<Scene>& scene)
+                {
+                    if (!scene)
+                        return;
+                    auto view = scene->GetAllEntitiesWith<AudioSoundGraphComponent>();
+                    for (auto entityID : view)
+                    {
+                        auto& sgc = view.get<AudioSoundGraphComponent>(entityID);
+                        if (sgc.SoundGraphHandle != e.GetHandle() || !sgc.Sound)
+                            continue;
+
+                        auto* source = sgc.Sound->GetSource();
+                        if (!source || source->GetSourceAssetHandle() != e.GetHandle())
+                            continue;
+
+                        Ref<Audio::SoundGraph::SoundGraph> newInstance = Audio::SoundGraph::CreateInstance(prototype);
+                        if (!newInstance)
+                        {
+                            OLO_WARN("SoundGraph reload: CreateInstance returned null for asset {}", static_cast<u64>(e.GetHandle()));
+                            continue;
+                        }
+                        source->ReplaceGraph(newInstance);
+                        OLO_TRACE("SoundGraph reload: replaced graph on entity {} from asset {}",
+                                  static_cast<u64>(static_cast<entt::entity>(entityID)),
+                                  static_cast<u64>(e.GetHandle()));
+                    }
+                };
+                refreshInScene(m_ActiveScene);
+                if (m_EditorScene && m_EditorScene != m_ActiveScene)
+                    refreshInScene(m_EditorScene);
+
+                // Let the visual editor panel reconcile against the new on-disk version.
+                // If the user is in the middle of editing the same graph it'll prompt
+                // before clobbering their work; otherwise it just reloads.
+                m_SoundGraphEditorPanel.NotifyAssetReloaded(e.GetHandle(), e.GetPath());
                 break;
             }
             default:

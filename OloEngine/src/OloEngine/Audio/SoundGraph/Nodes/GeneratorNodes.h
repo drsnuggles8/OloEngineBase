@@ -27,9 +27,9 @@ namespace OloEngine::Audio::SoundGraph
         }
 
         // Input parameters
-        f32* m_InFrequency = nullptr; // Frequency in Hz
-        f32* m_InAmplitude = nullptr; // Amplitude (0.0 to 1.0)
-        f32* m_InPhase = nullptr;     // Phase offset in radians
+        f32* m_Frequency = nullptr; // Frequency in Hz
+        f32* m_Amplitude = nullptr; // Amplitude (0.0 to 1.0)
+        f32* m_Phase = nullptr;     // Phase offset in radians
 
         // Output
         f32 m_OutValue{ 0.0f };
@@ -43,16 +43,16 @@ namespace OloEngine::Audio::SoundGraph
 
             InitializeInputs();
             // Sample rate is now set by NodeProcessor base class
-            m_Phase = 0.0;
+            m_PhaseAccumulator = 0.0;
         }
 
         void Process() final
         {
             OLO_PROFILE_FUNCTION();
 
-            f32 frequency = glm::max(0.0f, *m_InFrequency);
-            f32 amplitude = glm::clamp(*m_InAmplitude, 0.0f, 1.0f);
-            f32 phaseOffset = *m_InPhase;
+            f32 frequency = glm::max(0.0f, *m_Frequency);
+            f32 amplitude = glm::clamp(*m_Amplitude, 0.0f, 1.0f);
+            f32 phaseOffset = *m_Phase;
 
             // Guard against zero or near-zero sample rate
             if (m_SampleRate <= 1e-6f)
@@ -64,13 +64,13 @@ namespace OloEngine::Audio::SoundGraph
 
             // Update phase using double precision for higher accuracy
             f64 deltaPhase = static_cast<f64>(frequency) / static_cast<f64>(m_SampleRate);
-            m_Phase += deltaPhase;
+            m_PhaseAccumulator += deltaPhase;
 
             // Robust phase wrapping to keep in [0, 1) - handles negative values correctly
-            m_Phase -= std::floor(m_Phase);
+            m_PhaseAccumulator -= std::floor(m_PhaseAccumulator);
 
             // Calculate sine with phase offset
-            f32 totalPhase = static_cast<f32>(m_Phase) + (phaseOffset / (2.0f * std::numbers::pi_v<f32>));
+            f32 totalPhase = static_cast<f32>(m_PhaseAccumulator) + (phaseOffset / (2.0f * std::numbers::pi_v<f32>));
             // Robust wrap to [0, 1) - handles large negative offsets correctly
             totalPhase = totalPhase - std::floor(totalPhase);
 
@@ -78,7 +78,7 @@ namespace OloEngine::Audio::SoundGraph
         }
 
       private:
-        f64 m_Phase{ 0.0 };
+        f64 m_PhaseAccumulator{ 0.0 };
     };
 
     //==============================================================================
@@ -92,10 +92,10 @@ namespace OloEngine::Audio::SoundGraph
         }
 
         // Input parameters
-        f32* m_InFrequency = nullptr;  // Frequency in Hz
-        f32* m_InAmplitude = nullptr;  // Amplitude (0.0 to 1.0)
-        f32* m_InPhase = nullptr;      // Phase offset in radians
-        f32* m_InPulseWidth = nullptr; // Pulse width (0.0 to 1.0, 0.5 = square)
+        f32* m_Frequency = nullptr;  // Frequency in Hz
+        f32* m_Amplitude = nullptr;  // Amplitude (0.0 to 1.0)
+        f32* m_Phase = nullptr;      // Phase offset in radians
+        f32* m_PulseWidth = nullptr; // Pulse width (0.0 to 1.0, 0.5 = square)
 
         // Output
         f32 m_OutValue{ 0.0f };
@@ -109,17 +109,17 @@ namespace OloEngine::Audio::SoundGraph
 
             InitializeInputs();
             // Sample rate is now set by NodeProcessor base class
-            m_Phase = 0.0;
+            m_PhaseAccumulator = 0.0;
         }
 
         void Process() final
         {
             OLO_PROFILE_FUNCTION();
 
-            f32 frequency = glm::max(0.0f, *m_InFrequency);
-            f32 amplitude = glm::clamp(*m_InAmplitude, 0.0f, 1.0f);
-            f32 phaseOffset = *m_InPhase;
-            f32 pulseWidth = glm::clamp(*m_InPulseWidth, 0.01f, 0.99f);
+            f32 frequency = glm::max(0.0f, *m_Frequency);
+            f32 amplitude = glm::clamp(*m_Amplitude, 0.0f, 1.0f);
+            f32 phaseOffset = *m_Phase;
+            f32 pulseWidth = glm::clamp(*m_PulseWidth, 0.01f, 0.99f);
 
             // Guard against zero or near-zero sample rate
             if (m_SampleRate <= 1e-6f)
@@ -131,13 +131,13 @@ namespace OloEngine::Audio::SoundGraph
 
             // Update phase using double precision for higher accuracy
             f64 deltaPhase = static_cast<f64>(frequency) / static_cast<f64>(m_SampleRate);
-            m_Phase += deltaPhase;
+            m_PhaseAccumulator += deltaPhase;
 
             // Robust phase wrapping to keep in [0, 1) - handles negative values correctly
-            m_Phase -= std::floor(m_Phase);
+            m_PhaseAccumulator -= std::floor(m_PhaseAccumulator);
 
             // Calculate square with phase offset and pulse width
-            f32 totalPhase = static_cast<f32>(m_Phase) + (phaseOffset / (2.0f * std::numbers::pi_v<f32>));
+            f32 totalPhase = static_cast<f32>(m_PhaseAccumulator) + (phaseOffset / (2.0f * std::numbers::pi_v<f32>));
             // Robust wrap to [0, 1) - handles large negative offsets correctly
             totalPhase = std::fmod(totalPhase, 1.0f);
             if (totalPhase < 0.0f)
@@ -147,7 +147,7 @@ namespace OloEngine::Audio::SoundGraph
         }
 
       private:
-        f64 m_Phase{ 0.0 };
+        f64 m_PhaseAccumulator{ 0.0 };
     };
 
     //==============================================================================
@@ -161,9 +161,9 @@ namespace OloEngine::Audio::SoundGraph
         }
 
         // Input parameters
-        f32* m_InFrequency = nullptr; // Frequency in Hz
-        f32* m_InAmplitude = nullptr; // Amplitude (0.0 to 1.0)
-        f32* m_InPhase = nullptr;     // Phase offset in radians
+        f32* m_Frequency = nullptr; // Frequency in Hz
+        f32* m_Amplitude = nullptr; // Amplitude (0.0 to 1.0)
+        f32* m_Phase = nullptr;     // Phase offset in radians
 
         // Output
         f32 m_OutValue{ 0.0f };
@@ -177,16 +177,16 @@ namespace OloEngine::Audio::SoundGraph
 
             InitializeInputs();
             // Sample rate is now set by NodeProcessor base class
-            m_Phase = 0.0;
+            m_PhaseAccumulator = 0.0;
         }
 
         void Process() final
         {
             OLO_PROFILE_FUNCTION();
 
-            f32 frequency = glm::max(0.0f, *m_InFrequency);
-            f32 amplitude = glm::clamp(*m_InAmplitude, 0.0f, 1.0f);
-            f32 phaseOffset = *m_InPhase;
+            f32 frequency = glm::max(0.0f, *m_Frequency);
+            f32 amplitude = glm::clamp(*m_Amplitude, 0.0f, 1.0f);
+            f32 phaseOffset = *m_Phase;
 
             // Guard against zero or near-zero sample rate
             if (m_SampleRate <= 1e-6f)
@@ -198,13 +198,13 @@ namespace OloEngine::Audio::SoundGraph
 
             // Update phase
             f64 deltaPhase = static_cast<f64>(frequency) / static_cast<f64>(m_SampleRate);
-            m_Phase += deltaPhase;
+            m_PhaseAccumulator += deltaPhase;
 
             // Robust phase wrapping to keep in [0, 1)
-            m_Phase = m_Phase - std::floor(m_Phase);
+            m_PhaseAccumulator = m_PhaseAccumulator - std::floor(m_PhaseAccumulator);
 
             // Calculate sawtooth with phase offset
-            f32 totalPhase = static_cast<f32>(m_Phase) + (phaseOffset / (2.0f * std::numbers::pi_v<f32>));
+            f32 totalPhase = static_cast<f32>(m_PhaseAccumulator) + (phaseOffset / (2.0f * std::numbers::pi_v<f32>));
             totalPhase = std::fmod(totalPhase + 1.0f, 1.0f); // Ensure positive
 
             // Convert [0,1] to [-1,1] sawtooth
@@ -212,7 +212,7 @@ namespace OloEngine::Audio::SoundGraph
         }
 
       private:
-        f64 m_Phase{ 0.0 };
+        f64 m_PhaseAccumulator{ 0.0 };
     };
 
     //==============================================================================
@@ -226,9 +226,9 @@ namespace OloEngine::Audio::SoundGraph
         }
 
         // Input parameters
-        f32* m_InFrequency = nullptr; // Frequency in Hz
-        f32* m_InAmplitude = nullptr; // Amplitude (0.0 to 1.0)
-        f32* m_InPhase = nullptr;     // Phase offset in radians
+        f32* m_Frequency = nullptr; // Frequency in Hz
+        f32* m_Amplitude = nullptr; // Amplitude (0.0 to 1.0)
+        f32* m_Phase = nullptr;     // Phase offset in radians
 
         // Output
         f32 m_OutValue{ 0.0f };
@@ -242,16 +242,16 @@ namespace OloEngine::Audio::SoundGraph
 
             InitializeInputs();
             // Sample rate is now set by NodeProcessor base class
-            m_Phase = 0.0f;
+            m_PhaseAccumulator = 0.0f;
         }
 
         void Process() final
         {
             OLO_PROFILE_FUNCTION();
 
-            f32 frequency = glm::max(0.0f, *m_InFrequency);
-            f32 amplitude = glm::clamp(*m_InAmplitude, 0.0f, 1.0f);
-            f32 phaseOffset = *m_InPhase;
+            f32 frequency = glm::max(0.0f, *m_Frequency);
+            f32 amplitude = glm::clamp(*m_Amplitude, 0.0f, 1.0f);
+            f32 phaseOffset = *m_Phase;
 
             // Guard against zero or near-zero sample rate
             if (m_SampleRate <= 1e-6f)
@@ -263,14 +263,14 @@ namespace OloEngine::Audio::SoundGraph
 
             // Update phase
             f64 deltaPhase = static_cast<f64>(frequency) / static_cast<f64>(m_SampleRate);
-            m_Phase += deltaPhase;
+            m_PhaseAccumulator += deltaPhase;
 
             // Wrap phase to [0, 1]
-            if (m_Phase >= 1.0)
-                m_Phase = std::fmod(m_Phase, 1.0);
+            if (m_PhaseAccumulator >= 1.0)
+                m_PhaseAccumulator = std::fmod(m_PhaseAccumulator, 1.0);
 
             // Calculate triangle with phase offset
-            f32 totalPhase = static_cast<f32>(m_Phase) + (phaseOffset / (2.0f * std::numbers::pi_v<f32>));
+            f32 totalPhase = static_cast<f32>(m_PhaseAccumulator) + (phaseOffset / (2.0f * std::numbers::pi_v<f32>));
             totalPhase = std::fmod(totalPhase + 1.0f, 1.0f); // Ensure positive
 
             // Convert [0,1] to [-1,1] triangle wave
@@ -284,7 +284,7 @@ namespace OloEngine::Audio::SoundGraph
         }
 
       private:
-        f64 m_Phase{ 0.0 };
+        f64 m_PhaseAccumulator{ 0.0 };
     };
 
     //==============================================================================
@@ -299,9 +299,9 @@ namespace OloEngine::Audio::SoundGraph
         }
 
         // Input parameters
-        i32* m_InSeed = nullptr;
-        i32* m_InType = nullptr;      // Noise type (0=White, 1=Pink, 2=Brown)
-        f32* m_InAmplitude = nullptr; // Output amplitude
+        i32* m_Seed = nullptr;
+        i32* m_Type = nullptr;      // Noise type (0=White, 1=Pink, 2=Brown)
+        f32* m_Amplitude = nullptr; // Output amplitude
 
         // Output
         f32 m_OutValue{ 0.0f };
@@ -371,7 +371,7 @@ namespace OloEngine::Audio::SoundGraph
             }
 
             f32 noiseValue = m_Generator.GetNextValue();
-            f32 amplitude = m_InAmplitude ? *m_InAmplitude : 1.0f;
+            f32 amplitude = m_Amplitude ? *m_Amplitude : 1.0f;
             m_OutValue = noiseValue * amplitude;
         }
 
@@ -388,9 +388,9 @@ namespace OloEngine::Audio::SoundGraph
         {
             OLO_PROFILE_FUNCTION();
 
-            if (m_InSeed && *m_InSeed != -1)
+            if (m_Seed && *m_Seed != -1)
             {
-                return *m_InSeed;
+                return *m_Seed;
             }
             else
             {
@@ -403,7 +403,7 @@ namespace OloEngine::Audio::SoundGraph
         {
             OLO_PROFILE_FUNCTION();
 
-            return (m_InType) ? static_cast<ENoiseType>(*m_InType) : WhiteNoise;
+            return (m_Type) ? static_cast<ENoiseType>(*m_Type) : WhiteNoise;
         }
 
         // Cached values to detect changes

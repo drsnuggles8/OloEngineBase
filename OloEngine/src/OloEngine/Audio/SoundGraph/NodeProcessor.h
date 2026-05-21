@@ -364,7 +364,38 @@ namespace OloEngine::Audio::SoundGraph
             info.m_DebugName = std::string(debugName);
             info.m_TypeName = typeid(T).name();
             ParameterInfos[id] = std::move(info);
-        };
+        }
+
+        // Write an asset-driven default into the parameter storage. AddParameter seeds the
+        // storage with `T{}` from reflection; the graph compiler then needs to overlay the
+        // user-authored value before InitializeInputs builds the ParameterWrapper that
+        // backs the node's `m_<Name>` pointer. Without this overlay the wrapper captures
+        // the bare default (zero handle, zero amplitude, etc.) regardless of what the asset
+        // file says — every WavePlayer ends up with no audio handle, every oscillator with
+        // zero amplitude, etc.
+        //
+        // Picks the std::any cell type based on the choc::value primitive type the compiler
+        // produced for this plug. Unsupported types are skipped silently — the parameter
+        // keeps its T{} default.
+        void ApplyAssetDefaultToParameter(Identifier id, const choc::value::Value& value)
+        {
+            TUniqueLock<FSharedMutex> lock(m_ParameterMutex);
+            auto it = m_ParameterStorage.find(id);
+            if (it == m_ParameterStorage.end())
+                return;
+
+            const auto& type = value.getType();
+            if (type.isFloat32())
+                it->second = static_cast<f32>(value.getFloat32());
+            else if (type.isFloat64())
+                it->second = static_cast<f32>(value.getFloat64());
+            else if (type.isInt32())
+                it->second = static_cast<i32>(value.getInt32());
+            else if (type.isInt64())
+                it->second = static_cast<i64>(value.getInt64());
+            else if (type.isBool())
+                it->second = static_cast<bool>(value.getBool());
+        }
     };
 
     //==============================================================================
@@ -373,7 +404,24 @@ namespace OloEngine::Audio::SoundGraph
     {
         template<typename T>
         explicit StreamWriter(const choc::value::ValueView& destination, T&& externalObjectOrDefaultValue, Identifier destinationID, UUID id = UUID()) noexcept
-            : NodeProcessor("Stream Writer", id), m_DestinationID(destinationID), m_OutputValue(std::forward<T>(externalObjectOrDefaultValue)), m_DestinationView(destination)
+            : NodeProcessor("Stream Writer", id),
+              m_DestinationID(destinationID),
+              // choc::value::Value has no implicit conversion from i32/i64/f32/bool, so we
+              // route primitives through createPrimitive (its overload set covers every
+              // supported primitive). For callers that already hand us a Value (e.g. the
+              // graph compiler in GraphGeneration.cpp), forward it directly. Anything else
+              // tries Value's normal constructors and the compiler will tell us if a new
+              // type slips through.
+              m_OutputValue([&]() -> choc::value::Value
+                            {
+                  using U = std::remove_cvref_t<T>;
+                  if constexpr (std::is_same_v<U, choc::value::Value>)
+                      return std::forward<T>(externalObjectOrDefaultValue);
+                  else if constexpr (std::is_arithmetic_v<U>)
+                      return choc::value::createPrimitive(std::forward<T>(externalObjectOrDefaultValue));
+                  else
+                      return choc::value::Value(std::forward<T>(externalObjectOrDefaultValue)); }()),
+              m_DestinationView(destination)
         {
             // Write the default value into the destination immediately
             m_DestinationView = m_OutputValue;
@@ -387,8 +435,9 @@ namespace OloEngine::Audio::SoundGraph
 
         inline void operator<<(f32 value) noexcept
         {
-            OLO_PROFILE_FUNCTION();
-
+            // Hot path: called from SoundGraph::Process per audio frame for every
+            // interpolated input parameter still ramping. OLO_PROFILE_FUNCTION removed for
+            // the same reason as SoundGraph::Process — see comment there.
             m_OutputValue = choc::value::Value(value);
             m_DestinationView = m_OutputValue;
         }
@@ -396,8 +445,6 @@ namespace OloEngine::Audio::SoundGraph
         template<typename T>
         inline void operator<<(T value) noexcept
         {
-            OLO_PROFILE_FUNCTION();
-
             m_OutputValue = choc::value::Value(value);
             m_DestinationView = m_OutputValue;
         }
