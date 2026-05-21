@@ -48,7 +48,7 @@ namespace OloEngine
         Shutdown();
     }
 
-    void EditorAssetManager::Initialize()
+    void EditorAssetManager::Initialize(bool startFileWatcher)
     {
         OLO_CORE_INFO("EditorAssetManager initialized");
 
@@ -96,8 +96,11 @@ namespace OloEngine
         }
 
 #if OLO_ASYNC_ASSETS
-        // Start real-time file watcher for the project directory
-        if (!m_ProjectPath.empty())
+        // Start real-time file watcher for the project directory.
+        // Opt-out path: callers that don't need hot-reload (test fixtures, headless
+        // tools) pass startFileWatcher=false so we don't spawn a background thread that
+        // outlives the test and races the FNamedThreadManager singleton's at-exit dtor.
+        if (startFileWatcher && !m_ProjectPath.empty())
         {
             OLO_CORE_INFO("Starting real-time file watcher for project: {}", m_ProjectPath.string());
             try

@@ -86,7 +86,11 @@ class MeshAssetSerializerYAMLTest : public ::testing::Test
             << "Project::Load failed for temp project at " << m_TempDir.string();
 
         m_AssetManager = Ref<EditorAssetManager>::Create();
-        m_AssetManager->Initialize();
+        // Skip the filewatch background thread: tests write files synchronously and
+        // never exercise hot-reload, but the watcher's callback thread races the
+        // FNamedThreadManager singleton's at-exit dtor under TSan (see CI failure
+        // 2026-05-21). Editor-runtime callers still get the watcher via the default arg.
+        m_AssetManager->Initialize(/*startFileWatcher=*/false);
         Project::SetAssetManager(m_AssetManager);
     }
 
