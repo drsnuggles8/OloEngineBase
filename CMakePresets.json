@@ -77,12 +77,11 @@
 		{
 			"name": "linux-tsan",
 			"displayName": "Linux GCC + TSan",
-			"description": "GCC Thread Sanitizer build (incompatible with ASan). Tracy is disabled here because its rpmalloc cache has a known static-init-order race (Profiler ctor spawns worker threads that touch _memory_span_cache before that global's ctor finishes). The race lives inside the Tracy library, not our code, but TSan halts the test binary on detection which trips gtest_discover_tests at build time.",
+			"description": "GCC Thread Sanitizer build (incompatible with ASan). cmake/Sanitizers.cmake force-disables Tracy when OLO_ENABLE_TSAN is on — Tracy's rpmalloc has a known static-init-order race that TSan halts on. So plain `cmake -DOLO_ENABLE_TSAN=ON` also gets the right behaviour, not just this preset.",
 			"inherits": "linux-gcc",
 			"binaryDir": "${sourceDir}/build-linux-tsan",
 			"cacheVariables": {
-				"OLO_ENABLE_TSAN": "ON",
-				"TRACY_ENABLE": "OFF"
+				"OLO_ENABLE_TSAN": "ON"
 			}
 		}
 	],
