@@ -50,6 +50,8 @@ namespace OloEngine
 
     void EditorAssetManager::Initialize(bool startFileWatcher)
     {
+        OLO_PROFILE_FUNCTION();
+
         OLO_CORE_INFO("EditorAssetManager initialized");
 
         // Initialize project path early to ensure proper path resolution
