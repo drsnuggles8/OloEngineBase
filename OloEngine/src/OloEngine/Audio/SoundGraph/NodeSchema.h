@@ -31,10 +31,10 @@ namespace OloEngine::Audio::SoundGraph
 
     struct NodeParamSchema
     {
-        std::string Name;        // Endpoint name (matches the node's m_In<Name> pointer).
+        std::string Name; // Endpoint name (matches the node's m_In<Name> pointer).
         NodeParamKind Kind;
-        f32 DefaultFloat = 0.0f; // Used when Kind == Float
-        i32 DefaultInt = 0;      // Used when Kind == Int
+        f32 DefaultFloat = 0.0f;  // Used when Kind == Float
+        i32 DefaultInt = 0;       // Used when Kind == Int
         bool DefaultBool = false; // Used when Kind == Bool
         f32 MinFloat = 0.0f;
         f32 MaxFloat = 1.0f;

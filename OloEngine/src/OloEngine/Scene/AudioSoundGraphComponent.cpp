@@ -21,7 +21,7 @@ namespace OloEngine
                 return nullptr;
             return comp.Sound->GetSource();
         }
-    }
+    } // namespace
 
     bool AudioSoundGraphComponent::SetParameter(const std::string& name, f32 value)
     {

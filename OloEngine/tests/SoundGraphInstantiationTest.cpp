@@ -48,7 +48,7 @@ namespace
         c.m_IsEvent = isEvent;
         asset.AddConnection(c);
     }
-}
+} // namespace
 
 TEST(SoundGraphInstantiation, NoiseToGraphOutputCompilesAndInstantiates)
 {
@@ -92,7 +92,7 @@ TEST(SoundGraphInstantiation, WavePlayerWithUnconfiguredAssetDoesNotCrash)
     player.m_ID = UUID();
     player.m_Type = "WavePlayer";
     player.m_Name = "Player";
-    player.m_Properties["WaveAsset"] = "0";        // explicit "no asset"
+    player.m_Properties["WaveAsset"] = "0"; // explicit "no asset"
     player.m_Properties["Loop"] = "false";
     player.m_Properties["NumberOfLoops"] = "-1";
     asset.AddNode(player);
@@ -101,7 +101,7 @@ TEST(SoundGraphInstantiation, WavePlayerWithUnconfiguredAssetDoesNotCrash)
     AddConn(asset, UUID(0), "Play", player.m_ID, "Play", /*isEvent=*/true);
 
     // WavePlayer stereo outs → graph OutLeft / OutRight (the actual crash path).
-    AddConn(asset, player.m_ID, "OutLeft",  UUID(0), "OutLeft",  /*isEvent=*/false);
+    AddConn(asset, player.m_ID, "OutLeft", UUID(0), "OutLeft", /*isEvent=*/false);
     AddConn(asset, player.m_ID, "OutRight", UUID(0), "OutRight", /*isEvent=*/false);
 
     Ref<Audio::SoundGraph::Prototype> prototype;

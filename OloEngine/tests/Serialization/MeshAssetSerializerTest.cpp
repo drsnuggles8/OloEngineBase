@@ -175,8 +175,9 @@ TEST_F(MeshAssetSerializerYAMLTest, ClampsOutOfRangeSubmeshIndexInsteadOfAsserti
     {
         std::ofstream out(yamlPath);
         out << "Mesh:\n"
-               "  MeshSource: " << static_cast<u64>(meshSourceHandle) << "\n"
-               "  SubmeshIndex: 99\n";
+               "  MeshSource: "
+            << static_cast<u64>(meshSourceHandle) << "\n"
+                                                     "  SubmeshIndex: 99\n";
     }
 
     MeshSerializer serializer;

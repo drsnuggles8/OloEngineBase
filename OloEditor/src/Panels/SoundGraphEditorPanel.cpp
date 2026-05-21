@@ -32,8 +32,8 @@ namespace OloEngine
         constexpr f32 kGraphOutputNodeWidth = 140.0f;
         constexpr f32 kGraphOutputNodeHeaderHeight = 26.0f;
         constexpr f32 kGraphOutputNodePinSpacing = 22.0f;
-    }
-}
+    } // namespace
+} // namespace OloEngine
 
 #include <imgui.h>
 #include <imgui_internal.h>
@@ -404,7 +404,7 @@ namespace OloEngine
             ImVec2 OutLeftPinPos;
             ImVec2 OutRightPinPos;
         };
-    }
+    } // namespace
 
     static GraphOutputGeometry ComputeGraphOutputGeometry(const ImVec2& nodeScreenPos, f32 zoom)
     {
@@ -783,8 +783,16 @@ namespace OloEngine
             }
             const ImVec2 outNodeScreen = WorldToScreen(m_GraphOutputNodePos, canvasOrigin);
             const GraphOutputGeometry g = ComputeGraphOutputGeometry(outNodeScreen, m_Zoom);
-            if (endpoint == "OutLeft")  { outPos = g.OutLeftPinPos;  return true; }
-            if (endpoint == "OutRight") { outPos = g.OutRightPinPos; return true; }
+            if (endpoint == "OutLeft")
+            {
+                outPos = g.OutLeftPinPos;
+                return true;
+            }
+            if (endpoint == "OutRight")
+            {
+                outPos = g.OutRightPinPos;
+                return true;
+            }
             return false;
         }
 
@@ -1070,8 +1078,12 @@ namespace OloEngine
                 const ImVec2 outNodeScreen = WorldToScreen(m_GraphOutputNodePos, canvasOrigin);
                 const GraphOutputGeometry g = ComputeGraphOutputGeometry(outNodeScreen, m_Zoom);
                 const f32 hitRadius = s_PinRadius * m_Zoom + 3.0f;
-                struct { const char* Name; ImVec2 Pos; } pinList[2] = {
-                    { "OutLeft",  g.OutLeftPinPos },
+                struct
+                {
+                    const char* Name;
+                    ImVec2 Pos;
+                } pinList[2] = {
+                    { "OutLeft", g.OutLeftPinPos },
                     { "OutRight", g.OutRightPinPos },
                 };
                 for (auto& p : pinList)
@@ -1401,8 +1413,12 @@ namespace OloEngine
                 const ImVec2 outNodeScreen = WorldToScreen(m_GraphOutputNodePos, canvasOrigin);
                 const GraphOutputGeometry g = ComputeGraphOutputGeometry(outNodeScreen, m_Zoom);
                 const f32 hitRadius = s_PinRadius * m_Zoom + 4.0f;
-                struct { const char* Name; ImVec2 Pos; } pinList[2] = {
-                    { "OutLeft",  g.OutLeftPinPos },
+                struct
+                {
+                    const char* Name;
+                    ImVec2 Pos;
+                } pinList[2] = {
+                    { "OutLeft", g.OutLeftPinPos },
                     { "OutRight", g.OutRightPinPos },
                 };
                 for (auto& p : pinList)
@@ -1696,7 +1712,8 @@ namespace OloEngine
                                 tip = param.Tooltip;
                             if (!fullPath.empty())
                             {
-                                if (!tip.empty()) tip += "\n\n";
+                                if (!tip.empty())
+                                    tip += "\n\n";
                                 tip += "Asset: " + fullPath;
                             }
                             if (tip.empty())
@@ -1983,7 +2000,8 @@ namespace OloEngine
 
             std::string filter = m_NodeSearchFilter;
             std::transform(filter.begin(), filter.end(), filter.begin(),
-                           [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+                           [](unsigned char c)
+                           { return static_cast<char>(std::tolower(c)); });
 
             const char* currentCategory = nullptr;
             for (const auto& entry : s_Palette)
@@ -1993,10 +2011,12 @@ namespace OloEngine
                 {
                     std::string nameLower = entry.TypeName;
                     std::transform(nameLower.begin(), nameLower.end(), nameLower.begin(),
-                                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+                                   [](unsigned char c)
+                                   { return static_cast<char>(std::tolower(c)); });
                     std::string categoryLower = entry.Category;
                     std::transform(categoryLower.begin(), categoryLower.end(), categoryLower.begin(),
-                                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+                                   [](unsigned char c)
+                                   { return static_cast<char>(std::tolower(c)); });
                     if (nameLower.find(filter) == std::string::npos && categoryLower.find(filter) == std::string::npos)
                         continue;
                 }
@@ -2477,14 +2497,14 @@ namespace OloEngine
     {
         // Group node types into categories for visual grouping. Cheap hash-based bucketing.
         static const std::unordered_map<std::string, ImU32> s_CategoryColors = {
-            { "SineOscillator",     IM_COL32(80, 140, 200, 255) },
-            { "SquareOscillator",   IM_COL32(80, 140, 200, 255) },
+            { "SineOscillator", IM_COL32(80, 140, 200, 255) },
+            { "SquareOscillator", IM_COL32(80, 140, 200, 255) },
             { "SawtoothOscillator", IM_COL32(80, 140, 200, 255) },
             { "TriangleOscillator", IM_COL32(80, 140, 200, 255) },
-            { "Noise",              IM_COL32(80, 140, 200, 255) },
-            { "WavePlayer",         IM_COL32(80, 180, 120, 255) },
-            { "ADEnvelope",         IM_COL32(200, 140, 80, 255) },
-            { "ADSREnvelope",       IM_COL32(200, 140, 80, 255) },
+            { "Noise", IM_COL32(80, 140, 200, 255) },
+            { "WavePlayer", IM_COL32(80, 180, 120, 255) },
+            { "ADEnvelope", IM_COL32(200, 140, 80, 255) },
+            { "ADSREnvelope", IM_COL32(200, 140, 80, 255) },
         };
         if (auto it = s_CategoryColors.find(type); it != s_CategoryColors.end())
             return it->second;

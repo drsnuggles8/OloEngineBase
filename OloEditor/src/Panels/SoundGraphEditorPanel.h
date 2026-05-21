@@ -21,7 +21,7 @@ namespace OloEngine::Audio::SoundGraph
     // Forward declaration so Ref<SoundGraphSound> compiles without dragging miniaudio into
     // the editor header. The .cpp pulls SoundGraphSound.h for the full definition.
     class SoundGraphSound;
-}
+} // namespace OloEngine::Audio::SoundGraph
 
 namespace OloEngine
 {

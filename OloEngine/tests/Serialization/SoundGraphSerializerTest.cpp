@@ -80,7 +80,7 @@ namespace
         asset.AddGraphInput("Volume", "Float");
         asset.AddGraphInput("Pitch", "Int");
     }
-}
+} // namespace
 
 TEST(SoundGraphSerializer, RoundTripPreservesNodesConnectionsAndGraphIO)
 {
@@ -123,7 +123,8 @@ TEST(SoundGraphSerializer, RoundTripPreservesNodesConnectionsAndGraphIO)
 
     // Connection list — both UUID(0) directions must survive. Match by source endpoint
     // since IDs are stable.
-    auto findConn = [&](const SoundGraphConnection& orig) -> const SoundGraphConnection* {
+    auto findConn = [&](const SoundGraphConnection& orig) -> const SoundGraphConnection*
+    {
         for (const auto& c : roundtripped.GetConnections())
         {
             if (c.m_SourceNodeID == orig.m_SourceNodeID &&
