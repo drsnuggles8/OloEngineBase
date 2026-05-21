@@ -31,6 +31,8 @@
 #include "OloEngine/Audio/SoundGraph/SoundGraphPrototype.h"
 #include "OloEngine/Core/UUID.h"
 
+#include <choc/containers/choc_Value.h>
+
 using namespace OloEngine; // NOLINT(google-build-using-namespace)
 
 namespace
@@ -111,4 +113,14 @@ TEST(SoundGraphInstantiation, WavePlayerWithUnconfiguredAssetDoesNotCrash)
     Ref<Audio::SoundGraph::SoundGraph> instance;
     ASSERT_NO_THROW(instance = Audio::SoundGraph::CreateInstance(prototype));
     ASSERT_NE(instance, nullptr);
+
+    // Drive the graph through a Play event and one Process tick. The WavePlayer
+    // null-guard contract (see UpdateWaveSourceIfNeeded / Process) says this must
+    // emit silence rather than crash. Pre-fix this would deref a null asset
+    // pointer; the assertion below is the regression net.
+    ASSERT_NO_THROW(instance->Init());
+    ASSERT_NO_THROW(instance->SendInputEvent(Audio::SoundGraph::SoundGraph::IDs::Play,
+                                             choc::value::createFloat32(1.0f)));
+    ASSERT_NO_THROW(instance->Process())
+        << "WavePlayer with no bound WaveAsset must emit silence, not crash";
 }

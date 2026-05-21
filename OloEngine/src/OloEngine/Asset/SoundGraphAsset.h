@@ -4,6 +4,7 @@
 #include "OloEngine/Core/UUID.h"
 #include "OloEngine/Core/Ref.h"
 
+#include <algorithm>
 #include <vector>
 #include <string>
 #include <unordered_map>
@@ -131,7 +132,22 @@ namespace OloEngine
 
         bool RemoveGraphInput(const std::string& name)
         {
-            return m_GraphInputs.erase(name) > 0;
+            if (m_GraphInputs.erase(name) == 0)
+                return false;
+
+            // Drop any graph-input wires that referenced this parameter. Connections
+            // whose source is UUID(0) (the graph itself) carry the input name in
+            // m_SourceEndpoint; any of those still pointing at the removed name would
+            // be dangling refs at compile time. Node-to-node connections don't use
+            // graph-input endpoint names, so they're left alone.
+            m_Connections.erase(
+                std::remove_if(m_Connections.begin(), m_Connections.end(),
+                               [&name](const SoundGraphConnection& conn)
+                               {
+                                   return conn.m_SourceNodeID == UUID(0) && conn.m_SourceEndpoint == name;
+                               }),
+                m_Connections.end());
+            return true;
         }
 
         // Rename a graph input parameter, walking every connection in the asset to update

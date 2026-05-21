@@ -153,6 +153,26 @@ TEST(SoundGraphSerializer, RoundTripPreservesNodesConnectionsAndGraphIO)
         ASSERT_NE(it, roundtripped.GetGraphInputs().end()) << "Graph input '" << name << "' missing after roundtrip";
         EXPECT_EQ(it->second, type);
     }
+
+    // Graph outputs and local variables share the IO regression class — pin them too so
+    // a future serializer change can't silently drop them without flipping the test.
+    EXPECT_EQ(roundtripped.GetGraphOutputs().size(), original.GetGraphOutputs().size())
+        << "Graph outputs were dropped on roundtrip";
+    for (const auto& [name, type] : original.GetGraphOutputs())
+    {
+        auto it = roundtripped.GetGraphOutputs().find(name);
+        ASSERT_NE(it, roundtripped.GetGraphOutputs().end()) << "Graph output '" << name << "' missing after roundtrip";
+        EXPECT_EQ(it->second, type);
+    }
+
+    EXPECT_EQ(roundtripped.GetLocalVariables().size(), original.GetLocalVariables().size())
+        << "Local variables were dropped on roundtrip";
+    for (const auto& [name, type] : original.GetLocalVariables())
+    {
+        auto it = roundtripped.GetLocalVariables().find(name);
+        ASSERT_NE(it, roundtripped.GetLocalVariables().end()) << "Local variable '" << name << "' missing after roundtrip";
+        EXPECT_EQ(it->second, type);
+    }
 }
 
 TEST(SoundGraphSerializer, EmptyGraphRoundTripsWithoutData)

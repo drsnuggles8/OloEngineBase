@@ -539,10 +539,13 @@ namespace OloEngine::Audio::SoundGraph
         // from under an in-flight ProcessSamples on the audio thread. SuspendProcessing
         // raises m_SuspendFlag; ProcessSamples observes it on its next call and writes
         // m_Suspended = true, at which point we know the audio thread is parked in the
-        // silence-output fast path and the swap is safe. We always resume afterwards even
-        // on the timeout-fallback path so a single hot-reload glitch doesn't permanently
-        // mute the source.
+        // silence-output fast path and the swap is safe. If we time out waiting for the
+        // ack we must NOT swap m_Graph — doing so races with the audio thread still
+        // holding a pointer into the old graph, which Ref<>'s decref would then free.
+        // On timeout we just resume and bail; the caller's newGraph goes out of scope and
+        // a future ReplaceGraph can try again.
         const bool wasInitialized = m_IsInitialized;
+        bool suspendAcked = !wasInitialized; // not-yet-initialized = no audio thread to worry about
         if (wasInitialized)
         {
             SuspendProcessing(true);
@@ -553,22 +556,26 @@ namespace OloEngine::Audio::SoundGraph
             {
                 std::this_thread::sleep_for(std::chrono::microseconds(100));
             }
-            if (!m_Suspended.load())
+            suspendAcked = m_Suspended.load();
+            if (!suspendAcked)
             {
-                OLO_CORE_WARN("[SoundGraphSource] ReplaceGraph: timed out waiting for audio thread to ack suspend; proceeding anyway");
+                OLO_CORE_WARN("[SoundGraphSource] ReplaceGraph: timed out waiting for audio thread to ack suspend; skipping swap (newGraph dropped)");
             }
         }
 
-        m_Graph = newGraph;
-
-        if (m_Graph)
+        if (suspendAcked)
         {
-            // Initialize the sound graph with our sample rate before we resume; the audio
-            // thread won't dereference m_Graph until SuspendProcessing(false) clears the
-            // suspend flag.
-            m_Graph->SetSampleRate(static_cast<f32>(m_SampleRate));
-            UpdateParameterSet();
-            OLO_CORE_INFO("[SoundGraphSource] Replaced sound graph");
+            m_Graph = newGraph;
+
+            if (m_Graph)
+            {
+                // Initialize the sound graph with our sample rate before we resume; the audio
+                // thread won't dereference m_Graph until SuspendProcessing(false) clears the
+                // suspend flag.
+                m_Graph->SetSampleRate(static_cast<f32>(m_SampleRate));
+                UpdateParameterSet();
+                OLO_CORE_INFO("[SoundGraphSource] Replaced sound graph");
+            }
         }
 
         if (wasInitialized)
@@ -592,28 +599,16 @@ namespace OloEngine::Audio::SoundGraph
 
     bool SoundGraphSource::SetParameter(u32 parameterID, const choc::value::Value& value)
     {
-        (void)parameterID;
-        (void)value;
-        auto it = m_ParameterHandles.find(parameterID);
-        if (it == m_ParameterHandles.end())
-        {
-            OLO_CORE_WARN("[SoundGraphSource] Parameter ID {0} not found", parameterID);
+        // m_ParameterHandles is populated by UpdateParameterSet, which is still a stub
+        // pending the full parameter-handle integration (see TODO inside that function).
+        // Until that lands, forward the write straight to the graph: SoundGraph::SendInputValue
+        // matches parameterID against its endpoint streams by the same FNV hash we use here
+        // (see SoundGraphSource::SetParameter(string_view) one frame up the stack). This keeps
+        // the AudioSoundGraphComponent::SetParameter scripting API functional today instead
+        // of always returning false because the handle map is empty.
+        if (!m_Graph)
             return false;
-        }
-
-        // For now, we'll apply parameters immediately
-        // In a full implementation, you'd want thread-safe parameter updates
-        if (m_Graph)
-        {
-            // This would need to be adapted to OloEngine's parameter system
-            // return m_Graph->SetParameterValue(it->second.m_Handle, value);
-
-            // Placeholder - needs integration with sound graph parameter system
-            OLO_CORE_TRACE("[SoundGraphSource] Setting parameter {0} to value", it->second.m_Name);
-            return true;
-        }
-
-        return false;
+        return m_Graph->SendInputValue(parameterID, value.getView(), /*interpolate=*/false);
     }
 
     bool SoundGraphSource::ApplyParameterPreset(const SoundGraphPatchPreset& preset)

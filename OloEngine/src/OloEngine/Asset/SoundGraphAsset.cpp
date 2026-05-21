@@ -175,11 +175,18 @@ namespace OloEngine
             nodeIds.insert(node.m_ID);
         }
 
-        // Validate all connections reference existing nodes
+        // Validate all connections reference existing nodes. UUID(0) is the graph-IO
+        // sentinel — source UUID(0) means "from graph input", target UUID(0) means "to
+        // graph output". AddConnection accepts these explicitly (see endpointResolves);
+        // treat them as valid here too so editor-drawable IO wires don't make the asset
+        // report itself invalid.
         for (const auto& connection : m_Connections)
         {
-            if (nodeIds.find(connection.m_SourceNodeID) == nodeIds.end() ||
-                nodeIds.find(connection.m_TargetNodeID) == nodeIds.end())
+            const bool sourceOk = connection.m_SourceNodeID == UUID(0) ||
+                                  nodeIds.find(connection.m_SourceNodeID) != nodeIds.end();
+            const bool targetOk = connection.m_TargetNodeID == UUID(0) ||
+                                  nodeIds.find(connection.m_TargetNodeID) != nodeIds.end();
+            if (!sourceOk || !targetOk)
                 return false;
         }
 
@@ -204,13 +211,14 @@ namespace OloEngine
             nodeIds.insert(node.m_ID);
         }
 
-        // Validate connections
+        // Validate connections. UUID(0) is the graph-IO sentinel — see the matching
+        // comment in IsValid() above. Don't flag it as a missing node.
         for (const auto& connection : m_Connections)
         {
-            if (!HasNode(connection.m_SourceNodeID))
+            if (connection.m_SourceNodeID != UUID(0) && !HasNode(connection.m_SourceNodeID))
                 errors.push_back("Connection references non-existent source node: " + std::to_string(static_cast<u64>(connection.m_SourceNodeID)));
 
-            if (!HasNode(connection.m_TargetNodeID))
+            if (connection.m_TargetNodeID != UUID(0) && !HasNode(connection.m_TargetNodeID))
                 errors.push_back("Connection references non-existent target node: " + std::to_string(static_cast<u64>(connection.m_TargetNodeID)));
         }
 

@@ -502,6 +502,7 @@ namespace OloEngine
         // SoundGraphSource is not wired yet — this builds the lifecycle scaffolding (asset load,
         // per-entity ownership, ReplaceGraph) so hot-reload and editor wiring have something
         // concrete to swap against once the callback work lands.
+        OLO_PROFILE_SCOPE("Scene::InitAudioRuntime - SoundGraph startup");
         for (auto soundGraphView = m_Registry.view<AudioSoundGraphComponent>(); auto entityID : soundGraphView)
         {
             auto& sgc = soundGraphView.get<AudioSoundGraphComponent>(entityID);
@@ -5263,7 +5264,18 @@ namespace OloEngine
     OLO_ON_COMPONENT_REMOVED_NOOP(TriangleMeshCollider3DComponent)
     OLO_ON_COMPONENT_REMOVED_NOOP(AudioSourceComponent)
     OLO_ON_COMPONENT_REMOVED_NOOP(AudioListenerComponent)
-    OLO_ON_COMPONENT_REMOVED_NOOP(AudioSoundGraphComponent)
+    template<>
+    void Scene::OnComponentRemoved<AudioSoundGraphComponent>(Entity, AudioSoundGraphComponent& component)
+    {
+        // Stop the live sound graph and drop the Sound ref so the audio thread doesn't
+        // keep pulling samples from a graph whose entity is about to disappear. Previously
+        // this was a no-op, which let the source linger until something else cleaned it up.
+        if (component.Sound)
+        {
+            component.Sound->Stop();
+            component.Sound = nullptr;
+        }
+    }
     OLO_ON_COMPONENT_REMOVED_NOOP(PrefabComponent)
     OLO_ON_COMPONENT_REMOVED_NOOP(UICanvasComponent)
     OLO_ON_COMPONENT_REMOVED_NOOP(UIRectTransformComponent)

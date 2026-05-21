@@ -213,6 +213,23 @@ namespace OloEngine::Audio::SoundGraph
                 return;
             }
 
+            // Recompute m_StartSample from the current StartTime each Play so runtime
+            // changes to the StartTime input plug are respected. m_StartSample is cached
+            // at load time (CheckAsyncLoadCompletion) but the plug can be written
+            // afterwards via parameter automation or the editor's property panel; without
+            // this each Play would replay from whatever StartTime was at load.
+            if (m_StartTime && *m_StartTime > 0.0f && m_AudioData.m_SampleRate > 0)
+            {
+                const f64 sampleRate = m_AudioData.m_SampleRate;
+                m_StartSample = static_cast<i64>((*m_StartTime) * sampleRate);
+                const i64 maxSample = (m_TotalFrames > 0 ? m_TotalFrames - 1 : 0);
+                m_StartSample = glm::min(m_StartSample, maxSample);
+            }
+            else
+            {
+                m_StartSample = 0;
+            }
+
             // Set playback frame counters to start sample (respects start-time offset).
             m_FrameNumber = m_StartSample;
             m_WaveSource.m_ReadPosition = m_FrameNumber;
@@ -236,6 +253,14 @@ namespace OloEngine::Audio::SoundGraph
             m_LoopCount = 0;
             m_FrameNumber = m_StartSample;
             m_WaveSource.m_ReadPosition = m_FrameNumber;
+
+            // Drain the circular buffer and reset the source refill cursor. Otherwise
+            // ForceRefillBuffer on the next Play would see leftover samples sitting at
+            // or above the low-watermark and short-circuit before topping up — replay
+            // would emit the tail of the previous run from the stale buffer instead
+            // of priming fresh from m_StartSample.
+            m_WaveSource.m_Channels.Clear();
+            m_NextRefillFrame = m_StartSample;
 
             // Check for completed async loads (in case asset changed while playing)
             CheckAsyncLoadCompletion();

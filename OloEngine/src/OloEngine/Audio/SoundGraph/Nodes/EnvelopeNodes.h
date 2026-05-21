@@ -15,6 +15,17 @@
 
 namespace OloEngine::Audio::SoundGraph
 {
+    // Tolerance for "did the user actually change this parameter?" checks below. We
+    // recompute attack/decay/release rates when any input differs from its cached value;
+    // bit-exact != on f32 makes us recompute every block whenever the producer chain
+    // introduces sub-ULP rounding (interpolation ramps, accumulating sums, etc.). 1e-6
+    // is small enough that any human-meaningful change still flips the check.
+    inline constexpr f32 kEnvelopeParamEpsilon = 1e-6f;
+    inline bool EnvelopeParamChanged(f32 a, f32 b) noexcept
+    {
+        return std::fabs(a - b) > kEnvelopeParamEpsilon;
+    }
+
     //==============================================================================
     // Attack-Decay Envelope Generator
     //==============================================================================
@@ -55,11 +66,11 @@ namespace OloEngine::Audio::SoundGraph
 
             // Check for parameter changes and recalculate rates if needed
             if (m_AttackTime && m_DecayTime && m_AttackCurve && m_DecayCurve &&
-                (*m_AttackTime != m_CachedAttackTime ||
-                 *m_DecayTime != m_CachedDecayTime ||
-                 *m_AttackCurve != m_CachedAttackCurve ||
-                 *m_DecayCurve != m_CachedDecayCurve ||
-                 m_SampleRate != m_CachedSampleRate))
+                (EnvelopeParamChanged(*m_AttackTime, m_CachedAttackTime) ||
+                 EnvelopeParamChanged(*m_DecayTime, m_CachedDecayTime) ||
+                 EnvelopeParamChanged(*m_AttackCurve, m_CachedAttackCurve) ||
+                 EnvelopeParamChanged(*m_DecayCurve, m_CachedDecayCurve) ||
+                 EnvelopeParamChanged(m_SampleRate, m_CachedSampleRate)))
             {
                 RecalculateRates();
                 m_CachedAttackTime = *m_AttackTime;
@@ -266,13 +277,13 @@ namespace OloEngine::Audio::SoundGraph
             // Check for parameter changes and recalculate rates if needed
             if (m_AttackTime && m_DecayTime && m_ReleaseTime &&
                 m_AttackCurve && m_DecayCurve && m_ReleaseCurve &&
-                (*m_AttackTime != m_CachedAttackTime ||
-                 *m_DecayTime != m_CachedDecayTime ||
-                 *m_ReleaseTime != m_CachedReleaseTime ||
-                 *m_AttackCurve != m_CachedAttackCurve ||
-                 *m_DecayCurve != m_CachedDecayCurve ||
-                 *m_ReleaseCurve != m_CachedReleaseCurve ||
-                 m_SampleRate != m_CachedSampleRate))
+                (EnvelopeParamChanged(*m_AttackTime, m_CachedAttackTime) ||
+                 EnvelopeParamChanged(*m_DecayTime, m_CachedDecayTime) ||
+                 EnvelopeParamChanged(*m_ReleaseTime, m_CachedReleaseTime) ||
+                 EnvelopeParamChanged(*m_AttackCurve, m_CachedAttackCurve) ||
+                 EnvelopeParamChanged(*m_DecayCurve, m_CachedDecayCurve) ||
+                 EnvelopeParamChanged(*m_ReleaseCurve, m_CachedReleaseCurve) ||
+                 EnvelopeParamChanged(m_SampleRate, m_CachedSampleRate)))
             {
                 RecalculateRates();
                 m_CachedAttackTime = *m_AttackTime;

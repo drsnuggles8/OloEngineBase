@@ -81,7 +81,16 @@ namespace OloEngine
                 {
                     if (entity && entity.HasComponent<AnimationGraphComponent>())
                     {
-                        entity.GetComponent<AnimationGraphComponent>().RuntimeGraph = snap;
+                        auto& comp = entity.GetComponent<AnimationGraphComponent>();
+                        comp.RuntimeGraph = snap;
+                        // Resync the component's exposed parameter set with the snapshot.
+                        // Without this the component still references the pre-edit parameter
+                        // map (different defaults, possibly different parameter names), so
+                        // scripts driving the graph through AnimationGraphComponent::Parameters
+                        // would write to entries that no longer exist or have been renamed in
+                        // the restored graph.
+                        if (snap)
+                            comp.Parameters = snap->Parameters;
                     }
                 },
                 std::move(description)));

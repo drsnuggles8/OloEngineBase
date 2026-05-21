@@ -3073,9 +3073,34 @@ namespace OloEngine
         out << YAML::EndMap;
         out << YAML::EndMap;
 
+        // Ensure parent dir exists. When EditorAssetManager registers a brand-new
+        // .olomesh under Assets/<some>/<sub>/foo.olomesh and the subfolder hasn't been
+        // created yet (e.g. via duplicate from another folder), the ofstream silently
+        // fails. Surface the failure instead of dropping the save.
+        std::error_code ec;
+        if (auto parent = filepath.parent_path(); !parent.empty())
+        {
+            std::filesystem::create_directories(parent, ec);
+            if (ec)
+            {
+                OLO_CORE_ERROR("MeshSerializer::Serialize - Failed to create parent directory '{}': {}", parent.string(), ec.message());
+                return;
+            }
+        }
+
         std::ofstream fout(filepath);
+        if (!fout.is_open())
+        {
+            OLO_CORE_ERROR("MeshSerializer::Serialize - Failed to open file for writing: {}", filepath.string());
+            return;
+        }
         fout << out.c_str();
         fout.close();
+        if (fout.fail())
+        {
+            OLO_CORE_ERROR("MeshSerializer::Serialize - Write failed for: {}", filepath.string());
+            return;
+        }
 
         OLO_CORE_TRACE("MeshSerializer::Serialize - Serialized mesh to {} (MeshSource: {}, SubmeshIndex: {})",
                        filepath.string(), meshSourceHandle, mesh->GetSubmeshIndex());

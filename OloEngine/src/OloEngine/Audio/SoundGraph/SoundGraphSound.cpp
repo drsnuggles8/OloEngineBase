@@ -50,8 +50,15 @@ namespace OloEngine::Audio::SoundGraph
         auto* engine = static_cast<ma_engine*>(AudioEngine::GetEngine());
         if (!engine)
         {
-            OLO_CORE_WARN("SoundGraphSound::InitializeAudioCallback - AudioEngine not initialized; source will not produce audio");
-            return true; // not fatal — the source still exists and ReplaceGraph etc. work
+            // Return failure so callers don't mark the sound "ready" while it's
+            // actually unattached to ma_engine. Previously this returned true, which
+            // let Play() proceed silently and made debugging "no sound" turn into a
+            // hunt through every other layer. The source object is half-initialized
+            // here (Initialize() never ran), so we also reset it to release any
+            // partial state.
+            OLO_CORE_WARN("SoundGraphSound::InitializeAudioCallback - AudioEngine not initialized; source not attached");
+            m_Source.reset();
+            return false;
         }
 
         // ma_engine reports its native sample rate; using it keeps the source in lock-step

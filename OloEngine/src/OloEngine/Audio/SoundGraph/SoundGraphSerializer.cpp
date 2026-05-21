@@ -321,11 +321,24 @@ namespace OloEngine::Audio::SoundGraph
 
             // Canvas position — optional for back-compat. Files written before this field was
             // introduced don't have PosX/PosY, in which case the defaults from
-            // SoundGraphNodeData (0, 0) are kept.
+            // SoundGraphNodeData (0, 0) are kept. Non-finite (NaN/Inf) values would corrupt
+            // ImNodes layout math and cascade into the entire editor canvas; drop them.
             if (node["PosX"])
-                nodeData.m_PosX = node["PosX"].as<f32>();
+            {
+                const f32 tmpX = node["PosX"].as<f32>(0.0f);
+                if (std::isfinite(tmpX))
+                    nodeData.m_PosX = tmpX;
+                else
+                    OLO_CORE_WARN("SoundGraphSerializer: dropping non-finite PosX for node '{}'", nodeData.m_Name);
+            }
             if (node["PosY"])
-                nodeData.m_PosY = node["PosY"].as<f32>();
+            {
+                const f32 tmpY = node["PosY"].as<f32>(0.0f);
+                if (std::isfinite(tmpY))
+                    nodeData.m_PosY = tmpY;
+                else
+                    OLO_CORE_WARN("SoundGraphSerializer: dropping non-finite PosY for node '{}'", nodeData.m_Name);
+            }
 
             // Load properties if they exist
             if (node["Properties"])

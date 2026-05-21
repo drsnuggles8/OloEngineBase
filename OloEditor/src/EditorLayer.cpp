@@ -2507,6 +2507,31 @@ namespace OloEngine
             }
         }
 
+        // Check sound graph unsaved changes — mirrors the shader graph flow above
+        if (m_SoundGraphEditorPanel.HasUnsavedChanges())
+        {
+            auto const result = MessagePrompt::YesNoCancel(
+                "Unsaved Sound Graph",
+                "The current sound graph has unsaved changes. Do you want to save before closing?");
+
+            switch (result)
+            {
+                case MessagePromptResult::Yes:
+                    if (!m_SoundGraphEditorPanel.SaveIfNeeded())
+                    {
+                        Application::Get().CancelClose();
+                        return true;
+                    }
+                    break;
+                case MessagePromptResult::Cancel:
+                    Application::Get().CancelClose();
+                    return true;
+                case MessagePromptResult::No:
+                default:
+                    break;
+            }
+        }
+
         // Check shader editor unsaved changes
         if (m_ShaderEditorPanel.HasUnsavedChanges())
         {

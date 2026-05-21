@@ -64,7 +64,7 @@ namespace OloEngine
             if (m_OutputStream.is_open())
             {
                 m_CurrentSession = new InstrumentationSession({ name });
-                m_SessionActive.store(true, std::memory_order_release);
+                s_SessionActive.store(true, std::memory_order_release);
                 WriteHeader();
             }
             else
@@ -89,7 +89,7 @@ namespace OloEngine
             // tens of kHz, e.g. per-audio-frame profiling) allocates a stringstream and
             // formats a JSON record only to throw it away. That overhead alone was enough
             // to push the audio thread from 100 Hz callbacks down to ~13-16 Hz.
-            if (!m_SessionActive.load(std::memory_order_acquire))
+            if (!s_SessionActive.load(std::memory_order_acquire))
                 return;
 
             std::stringstream json;
@@ -120,12 +120,13 @@ namespace OloEngine
         }
 
         // Lock-free fast path for InstrumentationTimer: if no session is active, the
-        // timer can skip the steady_clock::now() calls entirely. Reading an inline static
-        // atomic avoids the function-static initialization guard that Get() emits, which
-        // matters when this gets hit ~100,000 times per second from audio DSP paths.
+        // timer can skip the steady_clock::now() calls entirely. Returns the class-static
+        // atomic directly — no Get() call, no function-static initialisation guard
+        // branch, which matters when this gets hit ~100,000 times per second from audio
+        // DSP paths.
         static std::atomic<bool>& SessionActiveRef() noexcept
         {
-            return Get().m_SessionActive;
+            return s_SessionActive;
         }
 
       private:
@@ -161,17 +162,20 @@ namespace OloEngine
                 m_OutputStream.close();
                 delete m_CurrentSession;
                 m_CurrentSession = nullptr;
-                m_SessionActive.store(false, std::memory_order_release);
+                s_SessionActive.store(false, std::memory_order_release);
             }
         }
+
+      public:
+        // Class-static so InstrumentationTimer can read it without going through Get().
+        // Get() would emit a function-static initialisation guard branch on every call;
+        // at ~100,000 calls/sec from audio DSP that adds up. Defined inline so a single
+        // declaration suffices (no separate .cpp).
+        inline static std::atomic<bool> s_SessionActive{ false };
 
       private:
         FMutex m_Mutex;
         InstrumentationSession* m_CurrentSession{ nullptr };
-        // Lock-free hint read by WriteProfile to skip stringstream + JSON formatting when
-        // no session is open. Always written under m_Mutex so the heavyweight path stays
-        // race-free with BeginSession / EndSession.
-        std::atomic<bool> m_SessionActive{ false };
         std::ofstream m_OutputStream;
     };
 
@@ -187,7 +191,7 @@ namespace OloEngine
             // steady_clock::now() on Windows is a QueryPerformanceCounter call, which is
             // cheap but not free at that rate. With m_Stopped pre-flagged, the dtor also
             // short-circuits Stop().
-            if (!Instrumentor::SessionActiveRef().load(std::memory_order_acquire))
+            if (!Instrumentor::s_SessionActive.load(std::memory_order_acquire))
             {
                 m_Stopped = true;
                 return;

@@ -242,7 +242,13 @@ namespace OloEngine::Audio::SoundGraph
             return schema.DefaultFloat;
         try
         {
-            return std::stof(valueStr);
+            const f32 parsed = std::stof(valueStr);
+            // std::stof happily parses "nan" / "inf"; reject those so a hand-edited or
+            // corrupt asset can't poison downstream DSP math (NaN propagates through
+            // every audio frame it touches).
+            if (!std::isfinite(parsed))
+                return schema.DefaultFloat;
+            return parsed;
         }
         catch (...)
         {

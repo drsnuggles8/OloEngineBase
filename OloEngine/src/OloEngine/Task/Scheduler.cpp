@@ -649,6 +649,8 @@ namespace OloEngine::LowLevelTasks
 
     bool FSchedulerTls::HasPendingWakeUp() const
     {
+        OLO_PROFILE_FUNCTION();
+
         FUniqueLock ScopedLock(FImpl::s_ThreadTlsValuesMutex);
         FImpl::ProcessPendingTlsValuesNoLock();
 
@@ -691,6 +693,8 @@ namespace OloEngine::LowLevelTasks
 
     void FScheduler::LaunchInternal(FTask& Task, EQueuePreference QueuePreference, bool bWakeUpWorker)
     {
+        OLO_PROFILE_FUNCTION();
+
         if (m_ActiveWorkers.load(std::memory_order_relaxed) || m_TemporaryShutdown.load(std::memory_order_acquire))
         {
             FTlsValues& LocalTlsValues = GetTlsValuesRef();

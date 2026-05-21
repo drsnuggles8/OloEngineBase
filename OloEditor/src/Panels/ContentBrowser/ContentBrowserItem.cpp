@@ -99,6 +99,8 @@ namespace OloEngine
                 return "CONTENT_BROWSER_SAVEGAME";
             case ContentFileType::ShaderGraph:
                 return "CONTENT_BROWSER_SHADERGRAPH";
+            case ContentFileType::SoundGraph:
+                return "CONTENT_BROWSER_SOUNDGRAPH";
             default:
                 return "CONTENT_BROWSER_ITEM";
         }
