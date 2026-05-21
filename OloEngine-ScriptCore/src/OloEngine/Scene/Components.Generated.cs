@@ -2,6 +2,33 @@
 
 namespace OloEngine
 {
+	public partial class AudioSoundGraphComponent : Component
+	{
+		public float Volume
+		{
+			get => InternalCalls.AudioSoundGraphComponent_GetVolume(Entity.ID);
+			set => InternalCalls.AudioSoundGraphComponent_SetVolume(Entity.ID, value);
+		}
+
+		public float Pitch
+		{
+			get => InternalCalls.AudioSoundGraphComponent_GetPitch(Entity.ID);
+			set => InternalCalls.AudioSoundGraphComponent_SetPitch(Entity.ID, value);
+		}
+
+		public bool Looping
+		{
+			get => InternalCalls.AudioSoundGraphComponent_GetLooping(Entity.ID);
+			set => InternalCalls.AudioSoundGraphComponent_SetLooping(Entity.ID, value);
+		}
+
+		public bool PlayOnAwake
+		{
+			get => InternalCalls.AudioSoundGraphComponent_GetPlayOnAwake(Entity.ID);
+			set => InternalCalls.AudioSoundGraphComponent_SetPlayOnAwake(Entity.ID, value);
+		}
+	}
+
 	public partial class AudioSourceComponent : Component
 	{
 		public float Volume

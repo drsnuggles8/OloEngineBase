@@ -2,6 +2,94 @@
 // Re-generate with: cmake --build build --target GenerateBindings
 
 ///////////////////////////////////////////////////////////////////////////////////////////
+// AudioSoundGraphComponent                                                       //
+///////////////////////////////////////////////////////////////////////////////////////////
+
+static float AudioSoundGraphComponent_GetVolume(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<AudioSoundGraphComponent>();
+    return comp.VolumeMultiplier;
+}
+
+static void AudioSoundGraphComponent_SetVolume(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<AudioSoundGraphComponent>();
+    comp.VolumeMultiplier = value;
+}
+
+static float AudioSoundGraphComponent_GetPitch(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<AudioSoundGraphComponent>();
+    return comp.PitchMultiplier;
+}
+
+static void AudioSoundGraphComponent_SetPitch(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<AudioSoundGraphComponent>();
+    comp.PitchMultiplier = value;
+}
+
+static bool AudioSoundGraphComponent_GetLooping(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<AudioSoundGraphComponent>();
+    return comp.Looping;
+}
+
+static void AudioSoundGraphComponent_SetLooping(UUID entityID, bool value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<AudioSoundGraphComponent>();
+    comp.Looping = value;
+}
+
+static bool AudioSoundGraphComponent_GetPlayOnAwake(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<AudioSoundGraphComponent>();
+    return comp.PlayOnAwake;
+}
+
+static void AudioSoundGraphComponent_SetPlayOnAwake(UUID entityID, bool value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<AudioSoundGraphComponent>();
+    comp.PlayOnAwake = value;
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////
 // AudioSourceComponent                                                           //
 ///////////////////////////////////////////////////////////////////////////////////////////
 

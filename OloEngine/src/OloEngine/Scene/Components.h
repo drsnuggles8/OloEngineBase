@@ -780,6 +780,10 @@ namespace OloEngine
     // graph topology comes from the referenced SoundGraphAsset.
     struct AudioSoundGraphComponent
     {
+        OLO_PROPERTY(Name = "Volume", Type = "float", Get = "comp.VolumeMultiplier", Set = "comp.VolumeMultiplier = {v}")
+        OLO_PROPERTY(Name = "Pitch", Type = "float", Get = "comp.PitchMultiplier", Set = "comp.PitchMultiplier = {v}")
+        OLO_PROPERTY(Name = "Looping", Type = "bool", Get = "comp.Looping", Set = "comp.Looping = {v}")
+        OLO_PROPERTY(Name = "PlayOnAwake", Type = "bool", Get = "comp.PlayOnAwake", Set = "comp.PlayOnAwake = {v}")
         AssetHandle SoundGraphHandle = 0;
         f32 VolumeMultiplier = 1.0f;
         f32 PitchMultiplier = 1.0f;

@@ -97,12 +97,18 @@ class MeshAssetSerializerYAMLTest : public ::testing::Test
         fs::remove_all(m_TempDir, ec);
     }
 
+    // AssetMetadata::FilePath is the project-root-relative path *including* the "Assets/"
+    // prefix — that is the form EditorAssetManager::GetRelativePath emits, and every
+    // serializer joins it against Project::GetProjectDirectory(). Pre-fix the test stored a
+    // bare filename here, so MeshSerializer wrote the YAML one level above the Assets
+    // folder while the test looked for it inside Assets/, and the round-trip case silently
+    // failed (file-not-found in place of "does the round-trip survive").
     AssetMetadata MakeMetadata(AssetHandle handle, const fs::path& relativePath) const
     {
         AssetMetadata md;
         md.Handle = handle;
         md.Type = AssetType::Mesh;
-        md.FilePath = relativePath;
+        md.FilePath = fs::path("Assets") / relativePath;
         return md;
     }
 
@@ -125,7 +131,7 @@ TEST_F(MeshAssetSerializerYAMLTest, RoundTripsMeshSourceHandleAndSubmeshIndex)
 
     serializer.Serialize(metadata, originalMesh);
 
-    const auto yamlPath = Project::GetAssetDirectory() / metadata.FilePath;
+    const auto yamlPath = Project::GetProjectDirectory() / metadata.FilePath;
     ASSERT_TRUE(fs::exists(yamlPath)) << "Serialize did not write the YAML file";
 
     Ref<Asset> loadedAsset;
@@ -149,7 +155,7 @@ TEST_F(MeshAssetSerializerYAMLTest, FailsWhenMeshSourceHandleIsMissing)
 
     // Hand-write a YAML file with a zero MeshSource handle, simulating either
     // a corrupted asset on disk or a Mesh whose MeshSource was deleted.
-    const auto yamlPath = Project::GetAssetDirectory() / metadata.FilePath;
+    const auto yamlPath = Project::GetProjectDirectory() / metadata.FilePath;
     {
         std::ofstream out(yamlPath);
         out << "Mesh:\n"
@@ -171,7 +177,7 @@ TEST_F(MeshAssetSerializerYAMLTest, ClampsOutOfRangeSubmeshIndexInsteadOfAsserti
     const AssetHandle meshSourceHandle = AssetManager::AddMemoryOnlyAsset<MeshSource>(meshSource);
 
     AssetMetadata metadata = MakeMetadata(AssetHandle(), "stale_index.olomesh");
-    const auto yamlPath = Project::GetAssetDirectory() / metadata.FilePath;
+    const auto yamlPath = Project::GetProjectDirectory() / metadata.FilePath;
     {
         std::ofstream out(yamlPath);
         out << "Mesh:\n"

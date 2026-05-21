@@ -747,33 +747,6 @@ namespace OloEngine::Audio::SoundGraph
     {
         OLO_PROFILE_FUNCTION();
 
-        // One-shot diagnostic to pin down the "audio plays ~10x slower than expected"
-        // bug. Logs once on the very first callback (frameCount, channel count, configured
-        // rate) and once again after ~100 callbacks (delta wall time, total frames
-        // produced). Together these answer: is the audio thread actually being pulled at
-        // ~100 Hz × 480 frames, or at some other rate that explains the perceived stretch?
-        // Static counter is benign here — ProcessSamples is single-threaded by miniaudio.
-        static u32 s_DiagCallbackCount = 0;
-        static std::chrono::steady_clock::time_point s_DiagStart;
-        static u64 s_DiagTotalFrames = 0;
-        if (s_DiagCallbackCount == 0)
-        {
-            s_DiagStart = std::chrono::steady_clock::now();
-            OLO_CORE_INFO("[SGSDiag] First ProcessSamples: frameCount={} channels={} configuredRate={} configuredBlockSize={}",
-                          frameCount, m_ChannelCount, m_SampleRate, m_BlockSize);
-        }
-        s_DiagTotalFrames += frameCount;
-        ++s_DiagCallbackCount;
-        if (s_DiagCallbackCount == 100)
-        {
-            const auto elapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(
-                                       std::chrono::steady_clock::now() - s_DiagStart)
-                                       .count();
-            OLO_CORE_INFO("[SGSDiag] After 100 ProcessSamples calls: elapsed={}ms totalFrames={} effectiveRateHz={}",
-                          elapsedMs, s_DiagTotalFrames,
-                          elapsedMs > 0 ? (s_DiagTotalFrames * 1000) / static_cast<u64>(elapsedMs) : 0);
-        }
-
         // Handle suspension
         if (m_SuspendFlag.CheckAndResetIfDirty())
         {

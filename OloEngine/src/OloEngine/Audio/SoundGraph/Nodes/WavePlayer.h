@@ -537,20 +537,6 @@ namespace OloEngine::Audio::SoundGraph
             if (!m_AudioData.IsValid())
                 return false;
 
-            // One-shot diagnostic: prints once on the first successful refill, exposing
-            // the actual source rate / channel count / frame count so we can correlate
-            // with the SoundGraphSource SGSDiag callback rate. If the source is at a
-            // different rate than the engine, that's the slowdown.
-            static thread_local bool s_DiagLoggedThisInstance = false;
-            if (!s_DiagLoggedThisInstance)
-            {
-                s_DiagLoggedThisInstance = true;
-                OLO_CORE_INFO("[WPDiag] First Refill: source numFrames={} numChannels={} sampleRate={} duration={:.3f}s | WavePlayer m_TotalFrames={} m_StartSample={} m_SampleRate={}",
-                              m_AudioData.m_NumFrames, m_AudioData.m_NumChannels,
-                              m_AudioData.m_SampleRate, m_AudioData.m_Duration,
-                              m_TotalFrames, m_StartSample, m_SampleRate);
-            }
-
             // Use m_NextRefillFrame as the source-of-truth read pointer rather than
             // source.m_ReadPosition, so both refill paths (ForceRefillBuffer at block
             // boundaries and the lazy refill from ReadNextFrame when the buffer empties)
