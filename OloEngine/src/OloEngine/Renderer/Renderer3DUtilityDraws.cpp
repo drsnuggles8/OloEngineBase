@@ -345,7 +345,7 @@ namespace OloEngine
         }
         else
         {
-            OLO_CORE_WARN("Renderer3D::DrawSphere: No sphere mesh available, using fallback");
+            OLO_CORE_WARN("Renderer3D::DrawSphere: No sphere mesh available; returning nullptr");
             return nullptr;
         }
 
