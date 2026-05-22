@@ -5316,12 +5316,16 @@ namespace OloEngine
     template<>
     void Scene::OnComponentRemoved<AudioSoundGraphComponent>(Entity, AudioSoundGraphComponent& component)
     {
-        // Stop the live sound graph and drop the Sound ref so the audio thread doesn't
-        // keep pulling samples from a graph whose entity is about to disappear. Previously
-        // this was a no-op, which let the source linger until something else cleaned it up.
+        // Mirror the runtime-stop teardown sequence (Scene.cpp ~L781:
+        // Stop → ReleaseResources → null). Without ReleaseResources the
+        // SoundGraphSource stays attached to ma_engine until the Ref destructor
+        // drops it, which races against the audio callback. Explicit teardown
+        // detaches the source synchronously before the registry erases the
+        // component struct.
         if (component.Sound)
         {
             component.Sound->Stop();
+            component.Sound->ReleaseResources();
             component.Sound = nullptr;
         }
     }
