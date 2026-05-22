@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Renderer/Renderer2D.h"
+#include "OloEngine/Core/UTF8.h"
 
 #include "OloEngine/Renderer/VertexArray.h"
 #include "OloEngine/Renderer/Shader.h"
@@ -905,23 +906,79 @@ namespace OloEngine
         const auto* spaceGlyph = slugData->GetGlyph(' ');
         const f32 spaceGlyphAdvance = spaceGlyph ? spaceGlyph->AdvanceWidth : 0.25f;
 
+        // textParams.RightToLeft is wired through from the active locale
+        // via LocalizationSystem, but visual reversal is NOT applied here —
+        // doing it correctly requires the Unicode Bidirectional Algorithm
+        // for mixed-direction text and glyph joining for Arabic, neither of
+        // which we ship. The field is currently a documented no-op that
+        // future BiDi work can hang itself on.
+        (void)textParams.RightToLeft;
+
+        // Codepoint → (sourceFont, glyph) resolver. Returns the primary font's
+        // glyph when present, else walks the fallback chain. When a fallback
+        // hits, the emit loop swaps Slug textures to that font's atlas before
+        // pushing geometry — a `NextBatch()` flush bounded per font change.
+        const Font* primaryFont = font.Raw();
+        const auto resolveGlyph = [primaryFont](u32 cp) -> Font::GlyphLookup
+        {
+            return primaryFont ? primaryFont->FindGlyphWithFallback(cp) : Font::GlyphLookup{};
+        };
+
+        // Per-codepoint advance helper. When both `cp` and `next` resolve
+        // against the primary font we honour the kerning pair; cross-font
+        // pairs fall back to the source font's `AdvanceWidth` (kerning across
+        // fonts isn't meaningfully defined).
+        const auto resolveAdvance = [&](u32 cp, u32 next, const Font::GlyphLookup& lookup) -> f32
+        {
+            if (!lookup.Glyph)
+                return spaceGlyphAdvance;
+            if (lookup.SourceFont == primaryFont && next != 0u)
+            {
+                if (auto nextLookup = resolveGlyph(next); nextLookup.SourceFont == primaryFont)
+                    return slugData->GetAdvance(cp, next);
+            }
+            return lookup.Glyph->AdvanceWidth;
+        };
+
         // Small margin to expand glyph bounding box (prevents edge clipping).
         constexpr f32 kGlyphMargin = 0.02f;
 
-        // First pass: compute word-wrap line breaks when MaxWidth > 0
+        // First pass: compute word-wrap line breaks when MaxWidth > 0.
+        // Iteration is over Unicode codepoints, not raw bytes — the glyph
+        // map is keyed by codepoint, and the cursor advance must be charged
+        // exactly once per visible character regardless of UTF-8 length.
+        // Wrap-break / lastSpace positions are still BYTE indices because
+        // codepoint boundaries always coincide with byte boundaries, and
+        // the render-pass second loop indexes the same string by byte too.
+        const auto peekNextCodepoint = [&string](sizet pos) -> u32
+        {
+            if (pos >= string.size())
+                return 0u;
+            u32 cp = 0;
+            sizet adv = 0;
+            UTF8::DecodeCodepoint(string, pos, cp, adv);
+            return cp;
+        };
+
         std::vector<sizet> wrapBreaks;
         std::vector<bool> wrapIsMidWord;
         if (textParams.MaxWidth > 0.0f)
         {
             double wx = 0.0;
             sizet lastSpace = std::string::npos;
-            for (sizet i = 0; i < string.size(); i++)
+            sizet i = 0;
+            while (i < string.size())
             {
-                auto character = static_cast<unsigned char>(string[i]);
+                u32 character = 0;
+                sizet adv = 0;
+                UTF8::DecodeCodepoint(string, i, character, adv);
+                const sizet next = i + adv;
+
                 if (character == '\n' || character == '\r')
                 {
                     wx = 0.0;
                     lastSpace = std::string::npos;
+                    i = next;
                     continue;
                 }
 
@@ -929,11 +986,10 @@ namespace OloEngine
                 {
                     lastSpace = i;
                     f32 advance = spaceGlyphAdvance;
-                    if (i < string.size() - 1)
-                    {
-                        advance = slugData->GetAdvance(static_cast<u32>(character), static_cast<u32>(static_cast<unsigned char>(string[i + 1])));
-                    }
+                    if (next < string.size())
+                        advance = slugData->GetAdvance(character, peekNextCodepoint(next));
                     wx += (fsScale * advance) + textParams.Kerning;
+                    i = next;
                     continue;
                 }
 
@@ -941,14 +997,19 @@ namespace OloEngine
                 {
                     lastSpace = i;
                     wx += 4.0 * ((fsScale * spaceGlyphAdvance) + textParams.Kerning);
+                    i = next;
                     continue;
                 }
 
-                auto* glyph = slugData->GetGlyph(static_cast<u32>(character));
-                if (!glyph)
-                    glyph = slugData->GetGlyph('?');
-                if (!glyph)
+                auto lookup = resolveGlyph(character);
+                if (!lookup.Glyph)
+                    lookup = resolveGlyph('?');
+                if (!lookup.Glyph)
+                {
+                    i = next;
                     continue;
+                }
+                const auto* glyph = lookup.Glyph;
 
                 f32 quadMaxX = glyph->PlaneBoundsRight * static_cast<f32>(fsScale) + static_cast<f32>(wx);
 
@@ -956,11 +1017,13 @@ namespace OloEngine
                 {
                     if (lastSpace != std::string::npos)
                     {
-                        i = lastSpace;
                         wrapBreaks.push_back(lastSpace);
                         wrapIsMidWord.push_back(false);
+                        i = lastSpace;
                         lastSpace = std::string::npos;
                         wx = 0.0;
+                        // Restart loop from the space position; the next
+                        // iteration will re-decode and skip past it.
                         continue;
                     }
 
@@ -970,21 +1033,27 @@ namespace OloEngine
                     wx = 0.0;
                 }
 
-                f32 advance = glyph->AdvanceWidth;
-                if (i < string.size() - 1)
-                    advance = slugData->GetAdvance(static_cast<u32>(character), static_cast<u32>(static_cast<unsigned char>(string[i + 1])));
+                const u32 nextCp = (next < string.size()) ? peekNextCodepoint(next) : 0u;
+                f32 advance = resolveAdvance(character, nextCp, lookup);
                 wx += (fsScale * advance) + textParams.Kerning;
+                i = next;
             }
         }
 
-        // Second pass: render with wrap breaks
+        // Second pass: render with wrap breaks. Same UTF-8 iteration rules
+        // as the first pass — `wrapBreaks` holds byte indices that fall on
+        // codepoint boundaries by construction.
         sizet wrapIdx = 0;
         double x = 0.0;
         double y = 0.0;
 
-        for (sizet i = 0; i < string.size(); i++)
+        sizet i = 0;
+        while (i < string.size())
         {
-            auto character = static_cast<unsigned char>(string[i]);
+            u32 character = 0;
+            sizet adv = 0;
+            UTF8::DecodeCodepoint(string, i, character, adv);
+            const sizet next = i + adv;
 
             if (wrapIdx < wrapBreaks.size() && i == wrapBreaks[wrapIdx])
             {
@@ -993,11 +1062,15 @@ namespace OloEngine
                 bool midWord = wrapIsMidWord[wrapIdx];
                 ++wrapIdx;
                 if (!midWord)
+                {
+                    i = next;
                     continue;
+                }
             }
 
             if (character == '\r')
             {
+                i = next;
                 continue;
             }
 
@@ -1005,46 +1078,73 @@ namespace OloEngine
             {
                 x = 0;
                 y -= (fsScale * metrics.LineHeight) + textParams.LineSpacing;
+                i = next;
                 continue;
             }
 
             if (character == ' ')
             {
                 f32 advance = spaceGlyphAdvance;
-                if (i < (string.size() - 1))
-                {
-                    advance = slugData->GetAdvance(static_cast<u32>(character), static_cast<u32>(static_cast<unsigned char>(string[i + 1])));
-                }
-
+                if (next < string.size())
+                    advance = slugData->GetAdvance(character, peekNextCodepoint(next));
                 x += (fsScale * advance) + textParams.Kerning;
+                i = next;
                 continue;
             }
 
             if (character == '\t')
             {
                 x += 4.0f * ((fsScale * spaceGlyphAdvance) + textParams.Kerning);
+                i = next;
                 continue;
             }
 
-            auto* glyph = slugData->GetGlyph(static_cast<u32>(character));
-            if (!glyph)
+            auto lookup = resolveGlyph(character);
+            if (!lookup.Glyph)
+                lookup = resolveGlyph('?');
+            if (!lookup.Glyph)
             {
-                glyph = slugData->GetGlyph('?');
-            }
-            if (!glyph)
-            {
+                i = next;
                 continue;
             }
+            const auto* glyph = lookup.Glyph;
+            const u32 nextCp = (next < string.size()) ? peekNextCodepoint(next) : 0u;
 
             // Only emit geometry for glyphs with Slug curve data.
             if (!glyph->HasCurves)
             {
-                if (i < (string.size() - 1))
+                if (next < string.size())
                 {
-                    f32 advance = slugData->GetAdvance(static_cast<u32>(character), static_cast<u32>(static_cast<unsigned char>(string[i + 1])));
+                    f32 advance = resolveAdvance(character, nextCp, lookup);
                     x += (fsScale * advance) + textParams.Kerning;
                 }
+                i = next;
                 continue;
+            }
+
+            // Atlas swap for fallback-font glyphs: the per-glyph render data
+            // is sampled against a *specific* font's curve/band textures, so
+            // we flush the current batch and rebind whenever the source font
+            // changes mid-string. The common single-script case never
+            // triggers this branch — only mixed scripts (e.g. Latin + CJK).
+            if (lookup.SourceFont && lookup.SourceFont != primaryFont)
+            {
+                auto fallbackCurve = lookup.SourceFont->GetCurveTexture();
+                auto fallbackBand = lookup.SourceFont->GetBandTexture();
+                if (s_Data.TextIndexCount > 0 && (s_Data.SlugCurveTexture != fallbackCurve || s_Data.SlugBandTexture != fallbackBand))
+                    NextBatch();
+                s_Data.SlugCurveTexture = fallbackCurve;
+                s_Data.SlugBandTexture = fallbackBand;
+            }
+            else if (lookup.SourceFont == primaryFont)
+            {
+                // Bouncing back to the primary after a fallback run requires
+                // the same flush, otherwise primary glyphs would sample the
+                // fallback atlas they're still bound to.
+                if (s_Data.TextIndexCount > 0 && (s_Data.SlugCurveTexture != curveTexture || s_Data.SlugBandTexture != bandTexture))
+                    NextBatch();
+                s_Data.SlugCurveTexture = curveTexture;
+                s_Data.SlugBandTexture = bandTexture;
             }
 
             const auto& rd = glyph->RenderData;
@@ -1116,17 +1216,21 @@ namespace OloEngine
             s_Data.TextIndexCount += 6;
             ++s_Data.Stats.QuadCount;
 
-            if (i < (string.size() - 1))
-            {
-                f32 advance = slugData->GetAdvance(static_cast<u32>(character), static_cast<u32>(static_cast<unsigned char>(string[i + 1])));
-                x += (fsScale * advance) + textParams.Kerning;
-            }
+            f32 advance = resolveAdvance(character, nextCp, lookup);
+            x += (fsScale * advance) + textParams.Kerning;
+            i = next;
         }
     }
 
     void Renderer2D::DrawString(const std::string& string, const glm::mat4& transform, const TextComponent& component, int entityID)
     {
-        DrawString(string, component.FontAsset, transform, { component.Color, component.Kerning, component.LineSpacing, component.MaxWidth }, entityID);
+        // Currently TextComponent carries no per-entity RTL flag — the
+        // localization layer threads direction via the active locale,
+        // which a future RTL pass will read off LocalizationManager at
+        // emit time. Default to false here so existing scenes render
+        // unchanged.
+        TextParams params{ component.Color, component.Kerning, component.LineSpacing, component.MaxWidth, /*RightToLeft*/ false };
+        DrawString(string, component.FontAsset, transform, params, entityID);
     }
 
     f32 Renderer2D::GetLineWidth()

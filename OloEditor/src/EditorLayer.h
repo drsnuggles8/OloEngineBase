@@ -19,6 +19,7 @@
 #include "Panels/ShaderGraphEditorPanel.h"
 #include "Panels/SoundGraphEditorPanel.h"
 #include "Panels/AnimationGraphEditorPanel.h"
+#include "Panels/LocalizationPanel.h"
 #include "Panels/SaveGamePanel.h"
 #include "Panels/StatisticsPanel.h"
 #include "Panels/EditorPreferencesPanel.h"
@@ -239,6 +240,8 @@ namespace OloEngine
         bool m_ShowAnimationGraphEditor = false;
         SaveGamePanel m_SaveGamePanel;
         bool m_ShowSaveGamePanel = false;
+        LocalizationPanel m_LocalizationPanel;
+        bool m_ShowLocalizationPanel = false;
         GamepadDebugPanel m_GamepadDebugPanel;
         bool m_ShowGamepadDebug = false;
         ShaderEditorPanel m_ShaderEditorPanel;

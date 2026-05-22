@@ -84,10 +84,10 @@ namespace OloEngine::Tests
             u32 m_IndexCount = 0;
             u32 m_SubmeshCount = 0;
             u32 m_MaterialCount = 0;
-            u32 m_VertexCRC = 0;     // CRC32 over the raw vertex bytes
-            u32 m_TopologyCRC = 0;   // CRC32 over the canonicalised, sorted triangle list. See the
-                                     // file header for why a raw-index CRC is the wrong invariant.
-            u32 m_TextureCRC = 0;    // CRC32 over the albedo texture's RGBA pixels
+            u32 m_VertexCRC = 0;   // CRC32 over the raw vertex bytes
+            u32 m_TopologyCRC = 0; // CRC32 over the canonicalised, sorted triangle list. See the
+                                   // file header for why a raw-index CRC is the wrong invariant.
+            u32 m_TextureCRC = 0;  // CRC32 over the albedo texture's RGBA pixels
             u32 m_TextureWidth = 0;
             u32 m_TextureHeight = 0;
             std::string m_AlbedoPath; // Source path of the albedo texture
@@ -108,10 +108,10 @@ namespace OloEngine::Tests
         CanonicalTriangle CanonicalizeTriangle(u32 a, u32 b, u32 c)
         {
             if (a <= b && a <= c)
-                return {a, b, c};
+                return { a, b, c };
             if (b <= a && b <= c)
-                return {b, c, a};
-            return {c, a, b};
+                return { b, c, a };
+            return { c, a, b };
         }
 
         // Build a CRC of the canonical triangle list. Triangles with index count

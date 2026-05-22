@@ -18,6 +18,8 @@
 #include "OloEngine/Core/GamepadManager.h"
 #include "OloEngine/Dialogue/DialogueSystem.h"
 #include "OloEngine/Dialogue/DialogueVariables.h"
+#include "OloEngine/Localization/LocalizationManager.h"
+#include "OloEngine/Localization/TextFormatter.h"
 #include "OloEngine/Scene/Scene.h"
 #include "OloEngine/Scene/Entity.h"
 #include "OloEngine/Scripting/C#/ScriptEngine.h"
@@ -2805,6 +2807,142 @@ namespace OloEngine
         {
             if (Scene* scene = ScriptEngine::GetSceneContext())
                 scene->SetPendingReload(true);
+        };
+
+        // --- Localization ---
+        // Mirrors LocalizationManager's static API. Keys are arbitrary strings;
+        // `Localization.Format` takes an optional Lua table whose entries are
+        // forwarded as the formatter's named-parameter map.
+        auto localizationTable = lua.create_named_table("Localization");
+        localizationTable["Get"] = [](const std::string& key) -> std::string
+        {
+            OLO_PROFILE_SCOPE("Lua::Localization::Get");
+            return LocalizationManager::Get(key);
+        };
+        localizationTable["Format"] = [](const std::string& key, sol::optional<sol::table> params) -> std::string
+        {
+            OLO_PROFILE_SCOPE("Lua::Localization::Format");
+            TextFormatter::ParamMap pm;
+            if (params)
+            {
+                for (const auto& kv : *params)
+                {
+                    // Skip keys/values that aren't strings — Lua callers
+                    // sometimes pass numbers; we coerce those via tostring.
+                    std::string keyStr;
+                    if (kv.first.is<std::string>())
+                        keyStr = kv.first.as<std::string>();
+                    else
+                        continue;
+
+                    std::string valStr;
+                    if (kv.second.is<std::string>())
+                        valStr = kv.second.as<std::string>();
+                    else if (kv.second.is<i32>())
+                        valStr = std::to_string(kv.second.as<i32>());
+                    else if (kv.second.is<f64>())
+                        valStr = std::to_string(kv.second.as<f64>());
+                    else if (kv.second.is<bool>())
+                        valStr = kv.second.as<bool>() ? "true" : "false";
+                    else
+                        continue;
+
+                    pm.emplace(std::move(keyStr), std::move(valStr));
+                }
+            }
+            return LocalizationManager::Format(key, pm);
+        };
+        localizationTable["FormatPlural"] = [](const std::string& key, const std::string& countParam, i32 count, sol::optional<sol::table> params) -> std::string
+        {
+            OLO_PROFILE_SCOPE("Lua::Localization::FormatPlural");
+            TextFormatter::ParamMap pm;
+            if (params)
+            {
+                for (const auto& kv : *params)
+                {
+                    if (!kv.first.is<std::string>())
+                        continue;
+                    std::string keyStr = kv.first.as<std::string>();
+                    std::string valStr;
+                    if (kv.second.is<std::string>())
+                        valStr = kv.second.as<std::string>();
+                    else if (kv.second.is<i32>())
+                        valStr = std::to_string(kv.second.as<i32>());
+                    else if (kv.second.is<f64>())
+                        valStr = std::to_string(kv.second.as<f64>());
+                    else if (kv.second.is<bool>())
+                        valStr = kv.second.as<bool>() ? "true" : "false";
+                    else
+                        continue;
+                    pm.emplace(std::move(keyStr), std::move(valStr));
+                }
+            }
+            return LocalizationManager::FormatPlural(key, countParam, count, std::move(pm));
+        };
+        localizationTable["SetLocale"] = [](const std::string& localeCode) -> bool
+        {
+            OLO_PROFILE_SCOPE("Lua::Localization::SetLocale");
+            return LocalizationManager::SetCurrentLocale(localeCode);
+        };
+        localizationTable["GetCurrentLocale"] = []() -> std::string
+        {
+            return LocalizationManager::GetCurrentLocale();
+        };
+        localizationTable["HasKey"] = [](const std::string& key) -> bool
+        {
+            return LocalizationManager::HasKey(key);
+        };
+        // ResolveLocalizedText: pass any string; if it starts with the "@key:"
+        // prefix the rest is treated as a localization key. Use this when
+        // displaying quest titles, item names, etc. — anywhere a single
+        // string field might host either a literal or a translation key.
+        localizationTable["ResolveLocalizedText"] = [](const std::string& value) -> std::string
+        {
+            return LocalizationManager::ResolveLocalizedText(value);
+        };
+        localizationTable["FormatNumber"] = [](sol::object value, sol::optional<i32> decimals, sol::optional<std::string> localeCode) -> std::string
+        {
+            // Two overloads via Lua's dynamic dispatch: integer-shaped values
+            // route through the i64 overload (no decimal section), anything
+            // else stringifies through the f64 overload with caller-supplied
+            // precision (default 2).
+            const std::string loc = localeCode.value_or(std::string{});
+            if (value.is<i32>() || value.is<i64>())
+                return LocalizationManager::FormatNumber(static_cast<i64>(value.as<f64>()), loc);
+            return LocalizationManager::FormatNumber(value.as<f64>(), decimals.value_or(2), loc);
+        };
+        localizationTable["GetMissingKeys"] = [](sol::this_state s) -> sol::table
+        {
+            sol::state_view luaState(s);
+            const auto missing = LocalizationManager::GetMissingKeysSnapshot();
+            sol::table out = luaState.create_table(static_cast<int>(missing.size()), 0);
+            int idx = 1;
+            for (const auto& k : missing)
+                out[idx++] = k;
+            return out;
+        };
+        localizationTable["ClearMissingKeys"] = []()
+        {
+            LocalizationManager::ClearMissingKeys();
+        };
+        localizationTable["GeneratePseudoLocale"] = [](sol::optional<std::string> source, sol::optional<std::string> pseudoCode) -> bool
+        {
+            return LocalizationManager::GeneratePseudoLocale(source.value_or("en"), pseudoCode.value_or("pseudo"));
+        };
+        localizationTable["GetAvailableLocales"] = [](sol::this_state s) -> sol::table
+        {
+            sol::state_view luaState(s);
+            const auto locales = LocalizationManager::GetAvailableLocales();
+            sol::table out = luaState.create_table(static_cast<int>(locales.size()), 0);
+            int idx = 1;
+            for (const auto& loc : locales)
+            {
+                sol::table entry = luaState.create_table(0, 2);
+                entry["code"] = loc.Code;
+                entry["name"] = loc.Name;
+                out[idx++] = entry;
+            }
+            return out;
         };
     }
 } // namespace OloEngine

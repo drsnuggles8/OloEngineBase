@@ -21,6 +21,7 @@
 #include "OloEngine/Scene/SceneSerializer.h"
 #include "OloEngine/Scene/Prefab.h"
 #include "OloEngine/Core/FileSystem.h"
+#include "OloEngine/Localization/LocalizationManager.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
 #include "OloEngine/Utils/PlatformUtils.h"
 #include "OloEngine/Asset/AssetManager.h"
@@ -162,6 +163,12 @@ namespace OloEngine
 
         ShutdownEntityPicking();
         SaveGameManager::Shutdown();
+
+        // Persist the active locale across editor sessions. Best-effort —
+        // failures are logged inside SaveActiveLocaleToFile and don't block
+        // shutdown, since the next launch will fall back to OS negotiation.
+        if (!LocalizationManager::GetCurrentLocale().empty())
+            (void)LocalizationManager::SaveActiveLocaleToFile("userprefs/locale.yaml");
     }
 
     void EditorLayer::InitEntityPicking()
@@ -756,6 +763,7 @@ namespace OloEngine
             ImGui::MenuItem("Shader Graph Editor", nullptr, &m_ShowShaderGraphEditor);
             ImGui::MenuItem("Animation Graph Editor", nullptr, &m_ShowAnimationGraphEditor);
             ImGui::MenuItem("Save Game Panel", nullptr, &m_ShowSaveGamePanel);
+            ImGui::MenuItem("Localization", nullptr, &m_ShowLocalizationPanel);
             ImGui::MenuItem("Gamepad Debug", nullptr, &m_ShowGamepadDebug);
             ImGui::MenuItem("Shader Editor", nullptr, &m_ShowShaderEditor);
             ImGui::MenuItem("Audio Events", nullptr, &m_ShowAudioEventsPanel);
@@ -1235,6 +1243,31 @@ namespace OloEngine
         if (m_ShowSaveGamePanel)
         {
             m_SaveGamePanel.OnImGuiRender(&m_ShowSaveGamePanel);
+        }
+
+        // Localization Panel — lazy-init the locale set on first open so the
+        // editor doesn't pay the directory scan unless the user opens it.
+        if (m_ShowLocalizationPanel)
+        {
+            static bool s_LocalizationScanRequested = false;
+            if (!s_LocalizationScanRequested)
+            {
+                m_LocalizationPanel.SetDirectory("assets/localization");
+                s_LocalizationScanRequested = true;
+
+                // Restore the previously-selected locale or, on first launch,
+                // negotiate against the OS preference list. Persistence file
+                // lives under userprefs/ — separate from save games so it
+                // survives Save → New Game.
+                const std::filesystem::path prefsPath = "userprefs/locale.yaml";
+                if (!LocalizationManager::LoadActiveLocaleFromFile(prefsPath))
+                {
+                    const std::string negotiated = LocalizationManager::NegotiateLocale();
+                    if (!negotiated.empty())
+                        (void)LocalizationManager::SetCurrentLocale(negotiated);
+                }
+            }
+            m_LocalizationPanel.OnImGuiRender(&m_ShowLocalizationPanel);
         }
 
         // NavMesh Panel

@@ -8,6 +8,7 @@
 		"OloEngine/InternalCalls.Generated.cs"
 		"OloEngine/ISaveable.cs"
 		"OloEngine/KeyCode.cs"
+		"OloEngine/Localization.cs"
 		"OloEngine/NetworkManager.cs"
 		"OloEngine/Physics.cs"
 		"OloEngine/SaveGame.cs"

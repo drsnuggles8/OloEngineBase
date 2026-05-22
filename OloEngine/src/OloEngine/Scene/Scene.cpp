@@ -34,6 +34,8 @@
 #include "OloEngine/UI/UIRenderer.h"
 #include "OloEngine/UI/UIInputSystem.h"
 #include "OloEngine/Dialogue/DialogueSystem.h"
+#include "OloEngine/Localization/LocalizationSystem.h"
+#include "OloEngine/Localization/LocalizedTextComponent.h"
 #include "OloEngine/Particle/ParticleRenderer.h"
 #include "OloEngine/Particle/ParticleBatchRenderer.h"
 #include "OloEngine/Particle/TrailRenderer.h"
@@ -961,6 +963,9 @@ namespace OloEngine
             perfProfiler = app->GetPerformanceProfiler();
         }
         OLO_PERF_SCOPE("Scene::OnUpdateRuntime", perfProfiler);
+        // Refresh LocalizedTextComponent → TextComponent.TextString if the
+        // active locale changed since last frame. Cheap when no change.
+        LocalizationSystem::UpdateLocalizedText(*this);
         // Scene streaming update (runs even when paused to finish pending loads)
         if (m_SceneStreamer)
         {
@@ -1757,6 +1762,9 @@ namespace OloEngine
             perfProfiler = app->GetPerformanceProfiler();
         }
         OLO_PERF_SCOPE("Scene::OnUpdateEditor", perfProfiler);
+        // Refresh LocalizedTextComponent → TextComponent.TextString so the
+        // editor reflects locale changes in real time.
+        LocalizationSystem::UpdateLocalizedText(*this);
         // Scene streaming update (editor preview)
         if (m_SceneStreamer)
         {
@@ -5024,6 +5032,15 @@ void OloEngine::Scene::OnComponentAdded<OloEngine::TextComponent>([[maybe_unused
 }
 
 template<>
+void OloEngine::Scene::OnComponentAdded<OloEngine::LocalizedTextComponent>([[maybe_unused]] OloEngine::Entity entity, [[maybe_unused]] OloEngine::LocalizedTextComponent& component)
+{
+    // Force a re-sync on the next LocalizationSystem tick so a freshly-added
+    // component picks up the active locale's text without waiting for a
+    // locale change.
+    m_LocalizationGeneration = 0;
+}
+
+template<>
 void OloEngine::Scene::OnComponentAdded<OloEngine::AudioSourceComponent>([[maybe_unused]] OloEngine::Entity entity, [[maybe_unused]] OloEngine::AudioSourceComponent& component)
 {
 }
@@ -5260,6 +5277,7 @@ namespace OloEngine
     OLO_ON_COMPONENT_REMOVED_NOOP(SpriteRendererComponent)
     OLO_ON_COMPONENT_REMOVED_NOOP(CircleRendererComponent)
     OLO_ON_COMPONENT_REMOVED_NOOP(TextComponent)
+    OLO_ON_COMPONENT_REMOVED_NOOP(LocalizedTextComponent)
     OLO_ON_COMPONENT_REMOVED_NOOP(MeshComponent)
     OLO_ON_COMPONENT_REMOVED_NOOP(InstancedMeshComponent)
     OLO_ON_COMPONENT_REMOVED_NOOP(ModelComponent)

@@ -30,6 +30,14 @@ namespace OloEngine
         {
             if (s == "other-only" || s == "OtherOnly" || s == "none")
                 return PluralRule::OtherOnly;
+            if (s == "french" || s == "FrenchLike" || s == "one-other-zero")
+                return PluralRule::FrenchLike;
+            if (s == "polish" || s == "PolishLike")
+                return PluralRule::PolishLike;
+            if (s == "russian" || s == "RussianLike" || s == "slavic")
+                return PluralRule::RussianLike;
+            if (s == "arabic" || s == "ArabicLike")
+                return PluralRule::ArabicLike;
             return PluralRule::OneOther;
         }
 
@@ -60,6 +68,24 @@ namespace OloEngine
             if (const YAML::Node pluralNode = root["plural_rule"]; pluralNode && pluralNode.IsScalar())
                 outLocale.Plural = ParsePluralRule(pluralNode.as<std::string>());
 
+            if (const YAML::Node ts = root["thousand_separator"]; ts && ts.IsScalar())
+                outLocale.ThousandSeparator = ts.as<std::string>();
+            if (const YAML::Node ds = root["decimal_separator"]; ds && ds.IsScalar())
+                outLocale.DecimalSeparator = ds.as<std::string>();
+
+            if (const YAML::Node fp = root["font"]; fp && fp.IsScalar())
+                outLocale.FontPath = fp.as<std::string>();
+            if (const YAML::Node fb = root["font_fallbacks"]; fb && fb.IsSequence())
+            {
+                outLocale.FontFallbacks.clear();
+                outLocale.FontFallbacks.reserve(fb.size());
+                for (const auto& entry : fb)
+                {
+                    if (entry.IsScalar())
+                        outLocale.FontFallbacks.push_back(entry.as<std::string>());
+                }
+            }
+
             const YAML::Node stringsNode = root["strings"];
             if (!stringsNode || !stringsNode.IsMap())
             {
@@ -68,13 +94,62 @@ namespace OloEngine
             }
 
             outStrings.reserve(stringsNode.size());
+            // Strings can be authored two ways:
+            //   ui.button.play: "Play"
+            // or, with translator metadata:
+            //   ui.button.play:
+            //     value: "Play"
+            //     context: "Main menu primary CTA"
+            //     max_length: 16
+            // The richer form is opt-in per key — un-extended keys still
+            // round-trip cleanly through the simple shape.
             for (const auto& kv : stringsNode)
             {
-                if (!kv.first.IsScalar() || !kv.second.IsScalar())
+                if (!kv.first.IsScalar())
                     continue;
-                outStrings.emplace(kv.first.as<std::string>(), kv.second.as<std::string>());
+                const auto key = kv.first.as<std::string>();
+                if (kv.second.IsScalar())
+                {
+                    outStrings.emplace(key, kv.second.as<std::string>());
+                    continue;
+                }
+                if (kv.second.IsMap())
+                {
+                    const YAML::Node valueNode = kv.second["value"];
+                    if (!valueNode || !valueNode.IsScalar())
+                        continue; // missing required `value:` inside the map — skip
+                    outStrings.emplace(key, valueNode.as<std::string>());
+                    // Metadata is parsed and stored back on the StringTable by
+                    // the caller — see StringTable::LoadFromYAMLString.
+                }
             }
             return true;
+        }
+
+        // Second pass: pluck per-key metadata out of the same map shape so
+        // we can hand it back to StringTable after the values have been
+        // merged. Returns empty when no per-key maps were authored.
+        std::unordered_map<std::string, StringEntryMetadata> ExtractMetadata(const YAML::Node& root)
+        {
+            std::unordered_map<std::string, StringEntryMetadata> out;
+            if (!root || !root.IsMap())
+                return out;
+            const YAML::Node stringsNode = root["strings"];
+            if (!stringsNode || !stringsNode.IsMap())
+                return out;
+            for (const auto& kv : stringsNode)
+            {
+                if (!kv.first.IsScalar() || !kv.second.IsMap())
+                    continue;
+                StringEntryMetadata md;
+                if (auto ctxNode = kv.second["context"]; ctxNode && ctxNode.IsScalar())
+                    md.Context = ctxNode.as<std::string>();
+                if (auto lenNode = kv.second["max_length"]; lenNode && lenNode.IsScalar())
+                    md.MaxLength = lenNode.as<u32>();
+                if (!md.Context.empty() || md.MaxLength != 0u)
+                    out.emplace(kv.first.as<std::string>(), std::move(md));
+            }
+            return out;
         }
     } // namespace
 
@@ -100,8 +175,10 @@ namespace OloEngine
             std::unordered_map<std::string, std::string> newStrings;
             if (!ParseInto(root, newLocale, newStrings))
                 return false;
+            auto newMetadata = ExtractMetadata(root);
             m_Locale = std::move(newLocale);
             m_Strings = std::move(newStrings);
+            m_Metadata = std::move(newMetadata);
             return true;
         }
         catch (const YAML::Exception& e)
@@ -141,5 +218,26 @@ namespace OloEngine
     void StringTable::Clear()
     {
         m_Strings.clear();
+        m_Metadata.clear();
+    }
+
+    StringEntryMetadata StringTable::GetMetadata(const std::string& key) const
+    {
+        const auto it = m_Metadata.find(key);
+        if (it == m_Metadata.end())
+            return {};
+        return it->second;
+    }
+
+    void StringTable::SetMetadata(const std::string& key, StringEntryMetadata md)
+    {
+        if (md.Context.empty() && md.MaxLength == 0u)
+        {
+            // Drop empty metadata so GetMetadata's "no entry" path keeps
+            // returning a default-constructed struct.
+            m_Metadata.erase(key);
+            return;
+        }
+        m_Metadata.insert_or_assign(key, std::move(md));
     }
 } // namespace OloEngine

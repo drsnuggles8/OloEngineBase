@@ -22,6 +22,8 @@
 #include "OloEngine/Dialogue/DialogueSystem.h"
 #include "OloEngine/Dialogue/DialogueVariables.h"
 #include "OloEngine/SaveGame/SaveGameManager.h"
+#include "OloEngine/Localization/LocalizationManager.h"
+#include "OloEngine/Localization/TextFormatter.h"
 #include "OloEngine/Animation/AnimationGraphComponent.h"
 #include "OloEngine/Animation/IKTargetComponent.h"
 #include "OloEngine/Animation/AnimatedMeshComponents.h"
@@ -2887,6 +2889,134 @@ namespace OloEngine
         }
     }
 
+    ///////////////////////////////////////////////////////////////////////////////////////////
+    // Localization ///////////////////////////////////////////////////////////////////////////
+    ///////////////////////////////////////////////////////////////////////////////////////////
+
+    static MonoString* Localization_Get(MonoString* key)
+    {
+        OLO_PROFILE_FUNCTION();
+        if (!key)
+            return ScriptEngine::CreateString("");
+        const std::string keyStr = Utils::MonoStringToString(key);
+        return ScriptEngine::CreateString(LocalizationManager::Get(keyStr).c_str());
+    }
+
+    // Format() / FormatPlural() take parameter dictionaries which Mono can't
+    // marshal cheaply across the boundary. The managed-side wrapper flattens
+    // its Dictionary<string,string> into two MonoArrays (keys + values) of
+    // equal length; we zip them back into a ParamMap here.
+    static MonoString* Localization_Format(MonoString* key, MonoArray* keys, MonoArray* values)
+    {
+        OLO_PROFILE_FUNCTION();
+        if (!key)
+            return ScriptEngine::CreateString("");
+        const std::string keyStr = Utils::MonoStringToString(key);
+
+        TextFormatter::ParamMap params;
+        if (keys && values)
+        {
+            const uintptr_t keyCount = mono_array_length(keys);
+            const uintptr_t valCount = mono_array_length(values);
+            const uintptr_t paired = std::min(keyCount, valCount);
+            params.reserve(paired);
+            for (uintptr_t i = 0; i < paired; ++i)
+            {
+                MonoString* k = mono_array_get(keys, MonoString*, i);
+                MonoString* v = mono_array_get(values, MonoString*, i);
+                if (!k)
+                    continue;
+                std::string ks = Utils::MonoStringToString(k);
+                std::string vs = v ? Utils::MonoStringToString(v) : std::string{};
+                params.emplace(std::move(ks), std::move(vs));
+            }
+        }
+
+        return ScriptEngine::CreateString(LocalizationManager::Format(keyStr, params).c_str());
+    }
+
+    static MonoString* Localization_FormatPlural(MonoString* key, MonoString* countParam, i32 count, MonoArray* keys, MonoArray* values)
+    {
+        OLO_PROFILE_FUNCTION();
+        if (!key || !countParam)
+            return ScriptEngine::CreateString("");
+        const std::string keyStr = Utils::MonoStringToString(key);
+        const std::string countParamStr = Utils::MonoStringToString(countParam);
+
+        TextFormatter::ParamMap params;
+        if (keys && values)
+        {
+            const uintptr_t keyCount = mono_array_length(keys);
+            const uintptr_t valCount = mono_array_length(values);
+            const uintptr_t paired = std::min(keyCount, valCount);
+            params.reserve(paired);
+            for (uintptr_t i = 0; i < paired; ++i)
+            {
+                MonoString* k = mono_array_get(keys, MonoString*, i);
+                MonoString* v = mono_array_get(values, MonoString*, i);
+                if (!k)
+                    continue;
+                std::string ks = Utils::MonoStringToString(k);
+                std::string vs = v ? Utils::MonoStringToString(v) : std::string{};
+                params.emplace(std::move(ks), std::move(vs));
+            }
+        }
+
+        return ScriptEngine::CreateString(LocalizationManager::FormatPlural(keyStr, countParamStr, count, std::move(params)).c_str());
+    }
+
+    static bool Localization_SetLocale(MonoString* localeCode)
+    {
+        OLO_PROFILE_FUNCTION();
+        if (!localeCode)
+            return false;
+        return LocalizationManager::SetCurrentLocale(Utils::MonoStringToString(localeCode));
+    }
+
+    static MonoString* Localization_GetCurrentLocale()
+    {
+        return ScriptEngine::CreateString(LocalizationManager::GetCurrentLocale().c_str());
+    }
+
+    static bool Localization_HasKey(MonoString* key)
+    {
+        if (!key)
+            return false;
+        return LocalizationManager::HasKey(Utils::MonoStringToString(key));
+    }
+
+    static MonoString* Localization_ResolveLocalizedText(MonoString* value)
+    {
+        if (!value)
+            return ScriptEngine::CreateString("");
+        const std::string s = Utils::MonoStringToString(value);
+        return ScriptEngine::CreateString(LocalizationManager::ResolveLocalizedText(s).c_str());
+    }
+
+    static MonoString* Localization_FormatInt(i64 value, MonoString* localeCode)
+    {
+        const std::string loc = localeCode ? Utils::MonoStringToString(localeCode) : std::string{};
+        return ScriptEngine::CreateString(LocalizationManager::FormatNumber(value, loc).c_str());
+    }
+
+    static MonoString* Localization_FormatFloat(f64 value, i32 decimals, MonoString* localeCode)
+    {
+        const std::string loc = localeCode ? Utils::MonoStringToString(localeCode) : std::string{};
+        return ScriptEngine::CreateString(LocalizationManager::FormatNumber(value, decimals, loc).c_str());
+    }
+
+    static void Localization_ClearMissingKeys()
+    {
+        LocalizationManager::ClearMissingKeys();
+    }
+
+    static bool Localization_GeneratePseudoLocale(MonoString* source, MonoString* pseudoCode)
+    {
+        const std::string srcStr = source ? Utils::MonoStringToString(source) : std::string{ "en" };
+        const std::string pseudoStr = pseudoCode ? Utils::MonoStringToString(pseudoCode) : std::string{ "pseudo" };
+        return LocalizationManager::GeneratePseudoLocale(srcStr, pseudoStr);
+    }
+
     void ScriptGlue::RegisterComponents()
     {
         RegisterComponent(AllComponents{});
@@ -3252,6 +3382,21 @@ namespace OloEngine
         // Scene //////////////////////////////////////////////////////
         ///////////////////////////////////////////////////////////////
         OLO_ADD_INTERNAL_CALL(Scene_ReloadCurrentScene);
+
+        ///////////////////////////////////////////////////////////////
+        // Localization ///////////////////////////////////////////////
+        ///////////////////////////////////////////////////////////////
+        OLO_ADD_INTERNAL_CALL(Localization_Get);
+        OLO_ADD_INTERNAL_CALL(Localization_Format);
+        OLO_ADD_INTERNAL_CALL(Localization_FormatPlural);
+        OLO_ADD_INTERNAL_CALL(Localization_SetLocale);
+        OLO_ADD_INTERNAL_CALL(Localization_GetCurrentLocale);
+        OLO_ADD_INTERNAL_CALL(Localization_HasKey);
+        OLO_ADD_INTERNAL_CALL(Localization_ResolveLocalizedText);
+        OLO_ADD_INTERNAL_CALL(Localization_FormatInt);
+        OLO_ADD_INTERNAL_CALL(Localization_FormatFloat);
+        OLO_ADD_INTERNAL_CALL(Localization_ClearMissingKeys);
+        OLO_ADD_INTERNAL_CALL(Localization_GeneratePseudoLocale);
     }
 
 } // namespace OloEngine

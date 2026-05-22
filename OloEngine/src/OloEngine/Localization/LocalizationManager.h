@@ -5,11 +5,14 @@
 #include "OloEngine/Localization/StringTable.h"
 #include "OloEngine/Localization/TextFormatter.h"
 
+#include <atomic>
 #include <filesystem>
 #include <functional>
 #include <shared_mutex>
 #include <string>
+#include <string_view>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 namespace OloEngine
@@ -59,6 +62,46 @@ namespace OloEngine
         // event instead.
         static bool ReloadCurrentLocale();
 
+        // Persist the active locale code to a tiny YAML file (e.g.
+        // <project>/userprefs/locale.yaml). The shape is `{ locale: <code> }`
+        // — intentionally separate from full SaveGame state so it survives
+        // savegame deletions / new playthroughs. Returns false on I/O error.
+        [[nodiscard]] static bool SaveActiveLocaleToFile(const std::filesystem::path& path);
+
+        // Restore the active locale from a file written by SaveActiveLocaleToFile.
+        // Silently no-ops (returns false) if the file doesn't exist or the
+        // recorded locale isn't loaded. Use this on game boot after Initialize.
+        [[nodiscard]] static bool LoadActiveLocaleFromFile(const std::filesystem::path& path);
+
+        // Pick the best loaded locale for a BCP-47-style preference list,
+        // following standard negotiation:
+        //   1. Exact match (e.g. "de-AT" → "de-AT" if loaded)
+        //   2. Language-only match (e.g. "de-AT" → "de")
+        //   3. Reverse: any loaded locale starting with the same language
+        //      tag (e.g. preference "de" matches loaded "de-AT")
+        //   4. Returns empty if nothing matches.
+        // Does NOT switch — caller is expected to feed the result into
+        // SetCurrentLocale(). Pass an empty list to negotiate against the
+        // OS user locale (via GetSystemPreferredLocales).
+        [[nodiscard("Store this!")]] static std::string NegotiateLocale(const std::vector<std::string>& preferences = {});
+
+        // Query the OS for the user's preferred locale codes, in priority
+        // order. Implementation per-platform:
+        //   - Windows: GetUserDefaultLocaleName + the registered fallback chain
+        //   - Linux/macOS: $LANG and $LC_* parsed (no full ICU integration)
+        // The strings come back as BCP-47 ("en-US", "de-DE", ...). Empty
+        // list if the OS doesn't expose anything sensible.
+        [[nodiscard("Store this!")]] static std::vector<std::string> GetSystemPreferredLocales();
+
+        // Locale-aware number formatting. Uses the active locale's
+        // ThousandSeparator / DecimalSeparator (or the named locale if
+        // `localeCode` is non-empty). `FormatNumber(i64)` groups by thousands;
+        // `FormatNumber(f64, decimals)` rounds + appends a decimal section.
+        // Empty thousand_separator suppresses grouping. Negative numbers
+        // keep their leading `-` separately from the grouping pass.
+        [[nodiscard("Store this!")]] static std::string FormatNumber(i64 value, const std::string& localeCode = {});
+        [[nodiscard("Store this!")]] static std::string FormatNumber(f64 value, i32 decimals = 2, const std::string& localeCode = {});
+
         // Looked-up text for `key` in the current locale. Returns the fallback
         // string ("???" by default) if the key isn't in the active table or
         // no locale is currently active. Returned by value (not by ref) so
@@ -83,6 +126,83 @@ namespace OloEngine
 
         [[nodiscard("Store this!")]] static bool HasKey(const std::string& key);
 
+        // Generic "resolve if prefixed" helper for legacy single-string
+        // fields (Quest.Title, Item.DisplayName, dialogue choice ports,
+        // etc.). If `value` starts with the prefix `@key:`, the rest is
+        // treated as a localization key and looked up in the active locale;
+        // otherwise `value` is returned verbatim. Lets POD data structures
+        // host either a literal string or a translation key in a single
+        // field without restructuring every consumer.
+        [[nodiscard("Store this!")]] static std::string ResolveLocalizedText(const std::string& value);
+        static constexpr std::string_view kLocalizationPrefix = "@key:";
+
+        // Locale-aware asset lookup. Given a base path like
+        // `assets/ui/logo.png`, returns the locale-specific variant
+        // `assets/ui/logo.de.png` when it exists on disk for the active
+        // locale (or any explicit `localeCode` override), otherwise the
+        // base path unchanged.
+        //
+        // Convention: `<dir>/<stem>.<localeCode>.<ext>`. Used for art
+        // assets with baked-in text, localized voice-over audio, etc.
+        // Game code calls this opt-in — most assets don't need
+        // localisation and the helper isn't routed through the asset
+        // manager automatically to avoid a stat per load.
+        [[nodiscard("Store this!")]] static std::filesystem::path ResolveLocalizedAssetPath(const std::filesystem::path& basePath, const std::string& localeCode = {});
+
+        // Per-locale accessors. Bypass the active-locale concept entirely —
+        // intended for editor tooling that needs to compare locales side by
+        // side (e.g. "is this key missing in 'de' compared to 'en'?"). All
+        // three return the missing-key fallback / empty / false when the
+        // locale code itself isn't loaded.
+        [[nodiscard("Store this!")]] static std::string Get(const std::string& key, const std::string& localeCode);
+        [[nodiscard("Store this!")]] static bool HasKey(const std::string& key, const std::string& localeCode);
+        [[nodiscard("Store this!")]] static std::vector<std::string> GetAllKeys(const std::string& localeCode);
+
+        // Forward to StringTable::GetMetadata for the named locale. Returns
+        // a default-constructed struct when the locale or key isn't loaded.
+        // Used by the editor panel to show context tooltips and by the
+        // lint pass to validate translations against the source locale's
+        // max_length budget.
+        [[nodiscard("Store this!")]] static StringEntryMetadata GetMetadata(const std::string& key, const std::string& localeCode);
+
+        // Insert or overwrite a single key in `localeCode`'s table. Returns
+        // false if the locale isn't loaded. Bumps the generation on success
+        // so observers pick up the change. Intended for editor tooling (CSV
+        // import, hot edits) — the YAML files on disk are the source of
+        // truth for shipped content.
+        static bool SetKey(const std::string& localeCode, const std::string& key, const std::string& value);
+
+        // Generate (and register) a pseudo-locale by transforming every value
+        // of `sourceLocaleCode`'s table with `[!! ... !!]` markers and ASCII→
+        // diacritic substitution. The pseudo locale is registered under
+        // `pseudoCode` (default "pseudo") and can be switched into via
+        // SetCurrentLocale("pseudo"). Used during development to surface:
+        //   - Hardcoded strings (any text NOT wrapped in `[!! ... !!]`
+        //     wasn't going through LocalizationManager).
+        //   - Length-expansion bugs (the pseudo text is ~30 % longer than
+        //     the source, matching the typical English→German ratio).
+        // Re-call with the same `pseudoCode` to refresh the snapshot after
+        // editing the source locale. Returns false if the source locale
+        // isn't loaded.
+        static bool GeneratePseudoLocale(const std::string& sourceLocaleCode = "en",
+                                         const std::string& pseudoCode = "pseudo");
+
+        // Persist a single locale's in-memory table back to its `.ololocale`
+        // YAML on disk (the source path remembered at load time, or `pathOverride`
+        // when supplied). Used by the editor panel's edit-in-place flow.
+        // Returns false if the locale isn't loaded or the file can't be written.
+        // Always writes the locale-metadata block + a `strings:` section
+        // containing every key currently in the table.
+        [[nodiscard]] static bool SaveLocaleToFile(const std::string& localeCode, const std::filesystem::path& pathOverride = {});
+
+        // Accumulator-style reporting for runtime translation gaps. Every
+        // Get/Format/HasKey miss against the active locale appends to an
+        // internal set; tooling (editor panel, CI lint pass) snapshots and
+        // clears the set on its own cadence. Empty until Get/Format actually
+        // hits a missing key — no overhead in the happy path.
+        [[nodiscard("Store this!")]] static std::vector<std::string> GetMissingKeysSnapshot();
+        static void ClearMissingKeys();
+
         // Override the string returned when a key is missing. Default: "???".
         // The "???" sentinel is deliberately ugly so missing translations are
         // visible during testing.
@@ -92,6 +212,14 @@ namespace OloEngine
         // subscription id; pass it to Unsubscribe() to remove the listener.
         static u64 Subscribe(LocaleChangedListener listener);
         static void Unsubscribe(u64 subscriptionId);
+
+        // Monotonically increasing counter that bumps every time the active
+        // locale changes, the active locale's table is reloaded, or a new
+        // table is loaded. Lets pull-based consumers (LocalizationSystem,
+        // editor inspectors) detect "anything localization-relevant changed"
+        // in O(1) without subscribing to events. Reads are lock-free and
+        // safe from any thread.
+        [[nodiscard("Store this!")]] static u64 GetGeneration();
 
         // Test-only: wipe every piece of static state. Distinct from Shutdown
         // because Initialize is allowed to re-populate from the same dir; in
@@ -105,9 +233,15 @@ namespace OloEngine
             std::unordered_map<std::string, StringTable> Tables;
             std::unordered_map<std::string, std::filesystem::path> SourcePaths;
             std::string CurrentLocale;
-            std::string MissingKeyFallback{"???"};
+            std::string MissingKeyFallback{ "???" };
             std::unordered_map<u64, LocaleChangedListener> Listeners;
             u64 NextSubscriptionId = 1;
+            std::atomic<u64> Generation{ 0 };
+            // Accumulator for unique keys that missed lookup in the active
+            // locale. Guarded by the manager's main shared_mutex (writes are
+            // rare relative to successful lookups; we take a unique_lock on
+            // the miss path).
+            std::unordered_set<std::string> MissingKeys;
         };
 
         static State& GetState();

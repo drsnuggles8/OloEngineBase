@@ -378,6 +378,30 @@ namespace OloEngine::Tests
     }
 
     // -------------------------------------------------------------------------
+    // LocalizedTextComponent — keys-only tag component that auto-localizes
+    // the entity's TextComponent. Round-trip must preserve the lookup key.
+    // -------------------------------------------------------------------------
+    TEST(ComponentRoundTrip, LocalizedTextComponentSurvivesYAMLRoundTrip)
+    {
+        const std::string expectedKey = "ui.main_menu.play";
+        std::string yaml;
+        {
+            auto scene = Scene::Create();
+            Entity entity = scene->CreateEntity(kTestTag);
+            entity.AddComponent<LocalizedTextComponent>(expectedKey);
+            yaml = SceneSerializer(scene).SerializeToYAML();
+        }
+
+        auto reloaded = Scene::Create();
+        ASSERT_TRUE(SceneSerializer(reloaded).DeserializeFromYAML(yaml));
+
+        Entity restored = FindByTag(*reloaded, kTestTag);
+        ASSERT_TRUE(static_cast<bool>(restored));
+        ASSERT_TRUE(restored.HasComponent<LocalizedTextComponent>());
+        EXPECT_EQ(restored.GetComponent<LocalizedTextComponent>().LocalizationKey, expectedKey);
+    }
+
+    // -------------------------------------------------------------------------
     // Rigidbody2DComponent — exercises the physics-flavor serializer.
     // -------------------------------------------------------------------------
     TEST(ComponentRoundTrip, Rigidbody2DComponentSurvivesYAMLRoundTrip)

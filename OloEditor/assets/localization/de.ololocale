@@ -2,6 +2,8 @@ locale: de
 name: Deutsch
 direction: ltr
 plural_rule: one-other
+thousand_separator: "."
+decimal_separator: ","
 
 strings:
   ui.main_menu.play: "Spielen"

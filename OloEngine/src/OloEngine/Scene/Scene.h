@@ -491,6 +491,11 @@ namespace OloEngine
         int m_StepFrames = 0;
         u64 m_TerrainFrameCounter = 0;
         u64 m_StreamingFrameCounter = 0;
+        // Last-observed LocalizationManager generation. LocalizationSystem
+        // compares against this to skip the LocalizedTextComponent sweep when
+        // nothing's changed. Starts at 0 so the first tick always refreshes.
+        u64 m_LocalizationGeneration = 0;
+        friend class LocalizationSystem;
         bool m_Is3DModeEnabled = false;                        // Toggle for 3D rendering mode
         bool m_RenderingEnabled = true;                        // Skip rendering when throttled
         bool m_ShowGrid = true;                                // Viewport grid visibility

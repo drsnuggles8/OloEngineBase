@@ -595,5 +595,35 @@ namespace OloEngine
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern void Scene_ReloadCurrentScene();
 		#endregion
+
+		#region Localization
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern string Localization_Get(string key);
+		// Format / FormatPlural take a flattened key/value pair of arrays
+		// instead of a Dictionary<string,string> because Mono can't marshal
+		// generic dictionaries across the boundary without expensive
+		// reflection. The managed wrapper in Localization.cs splits a
+		// caller-supplied dictionary into two arrays before calling.
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern string Localization_Format(string key, string[] paramKeys, string[] paramValues);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern string Localization_FormatPlural(string key, string countParam, int count, string[] paramKeys, string[] paramValues);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool Localization_SetLocale(string localeCode);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern string Localization_GetCurrentLocale();
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool Localization_HasKey(string key);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern string Localization_ResolveLocalizedText(string value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern string Localization_FormatInt(long value, string localeCode);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern string Localization_FormatFloat(double value, int decimals, string localeCode);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void Localization_ClearMissingKeys();
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool Localization_GeneratePseudoLocale(string sourceCode, string pseudoCode);
+		#endregion
 	}
 }

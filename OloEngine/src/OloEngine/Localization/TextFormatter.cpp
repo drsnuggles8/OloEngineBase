@@ -2,6 +2,7 @@
 #include "OloEngine/Localization/TextFormatter.h"
 
 #include <charconv>
+#include <optional>
 #include <string_view>
 
 namespace OloEngine
@@ -36,6 +37,57 @@ namespace OloEngine
                 return false;
             const auto res = std::from_chars(s.data(), s.data() + s.size(), out);
             return res.ec == std::errc{} && res.ptr == s.data() + s.size();
+        }
+
+        // Map a string value to a gender form-index when it names a known
+        // category. Lets `{gender:le|la}` route to "le" when params["gender"]
+        // is "masculine" / "M" / "m", and to "la" when it's "feminine" / "F"
+        // / "f". Unrecognised values yield std::nullopt so the formatter
+        // falls back to its "leave token literal" path.
+        std::optional<u32> TryParseGender(std::string_view s) noexcept
+        {
+            if (s.empty())
+                return std::nullopt;
+            // Case-insensitive single-letter shorthand.
+            if (s.size() == 1)
+            {
+                switch (s[0])
+                {
+                    case 'm':
+                    case 'M':
+                        return 0u;
+                    case 'f':
+                    case 'F':
+                        return 1u;
+                    case 'n':
+                    case 'N':
+                        return 2u;
+                    default:
+                        return std::nullopt;
+                }
+            }
+            const auto eqi = [](std::string_view a, std::string_view b) noexcept -> bool
+            {
+                if (a.size() != b.size())
+                    return false;
+                for (sizet i = 0; i < a.size(); ++i)
+                {
+                    const char ac = a[i];
+                    const char bc = b[i];
+                    const char ai = (ac >= 'A' && ac <= 'Z') ? static_cast<char>(ac + 32) : ac;
+                    const char bi = (bc >= 'A' && bc <= 'Z') ? static_cast<char>(bc + 32) : bc;
+                    if (ai != bi)
+                        return false;
+                }
+                return true;
+            };
+            if (eqi(s, "masculine") || eqi(s, "male"))
+                return 0u;
+            if (eqi(s, "feminine") || eqi(s, "female"))
+                return 1u;
+            if (eqi(s, "neuter") || eqi(s, "none") || eqi(s, "other"))
+                return 2u;
+            return std::nullopt;
         }
     } // namespace
 
@@ -93,14 +145,25 @@ namespace OloEngine
                     else
                     {
                         i32 count = 0;
-                        if (!TryParseInt(it->second, count))
+                        if (TryParseInt(it->second, count))
                         {
-                            out.append(pattern, i, closing - i + 1);
+                            // Numeric value → plural selection.
+                            const u32 idx = ResolvePluralIndex(rule, count);
+                            out.append(SelectPluralForm(forms, idx));
+                        }
+                        else if (auto genderIdx = TryParseGender(it->second))
+                        {
+                            // String value naming a gender → gender selection
+                            // against the same positional form list. Authors
+                            // write `{gender:le|la|leur}` and the engine picks
+                            // by index 0/1/2 for masculine/feminine/neuter.
+                            out.append(SelectPluralForm(forms, *genderIdx));
                         }
                         else
                         {
-                            const u32 idx = ResolvePluralIndex(rule, count);
-                            out.append(SelectPluralForm(forms, idx));
+                            // Unrecognised value → leave the literal token so
+                            // the bug is visible during testing.
+                            out.append(pattern, i, closing - i + 1);
                         }
                     }
                 }

@@ -1278,6 +1278,19 @@ namespace OloEngine::Tests
             { "ibl",
               std::regex(R"([0-9a-fA-F]+_(irradiance|prefilter|brdf)\.iblcache)"),
               "<hash>_{irradiance|prefilter|brdf}.iblcache" },
+            // Mesh cache (MeshCache::GetMeshCachePath):
+            // `<sanitized_prefix>_<prefixFnv16hex><sourcePathFnv16hex>.omesh`.
+            // Sanitized prefix can be empty (for the default static cache), so
+            // the leading group permits zero characters; the two hashes are
+            // each 16 uppercase hex digits.
+            { "mesh",
+              std::regex(R"([A-Za-z0-9_-]*_[0-9A-F]{32}\.omesh)"),
+              "[<prefix>]_<prefix-hash><path-hash>.omesh" },
+            // Animation cache (MeshCache::GetAnimationCachePath): just the
+            // source-path hash with the .oanim extension.
+            { "animation",
+              std::regex(R"([0-9A-F]{16}\.oanim)"),
+              "<path-hash>.oanim" },
             // physics/ and shapes/ are reserved for future caches. Until they
             // grow content with a stable filename pattern, any file appearing
             // there is unclassified and fails the test below.

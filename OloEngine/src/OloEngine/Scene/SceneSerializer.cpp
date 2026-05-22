@@ -4,6 +4,7 @@
 
 #include "OloEngine/Scene/Entity.h"
 #include "OloEngine/Scene/Components.h"
+#include "OloEngine/Localization/LocalizedTextComponent.h"
 #include "OloEngine/Scripting/C#/ScriptEngine.h"
 #include "OloEngine/Core/UUID.h"
 #include "OloEngine/Project/Project.h"
@@ -1666,6 +1667,13 @@ namespace OloEngine
                 if (!std::isfinite(tc.ShadowColor[ci]))
                     tc.ShadowColor[ci] = (ci == 3) ? 1.0f : 0.0f;
             }
+        }
+
+        if (auto localizedTextComponent = entity["LocalizedTextComponent"]; localizedTextComponent)
+        {
+            auto& ltc = deserializedEntity.AddComponent<LocalizedTextComponent>();
+            if (localizedTextComponent["LocalizationKey"])
+                ltc.LocalizationKey = localizedTextComponent["LocalizationKey"].as<std::string>();
         }
 
         if (auto meshComponent = entity["MeshComponent"]; meshComponent)
@@ -3493,6 +3501,15 @@ namespace OloEngine
             out << YAML::Key << "ShadowColor" << YAML::Value << textComponent.ShadowColor;
 
             out << YAML::EndMap; // TextComponent
+        }
+
+        if (entity.HasComponent<LocalizedTextComponent>())
+        {
+            out << YAML::Key << "LocalizedTextComponent";
+            out << YAML::BeginMap;
+            const auto& ltc = entity.GetComponent<LocalizedTextComponent>();
+            out << YAML::Key << "LocalizationKey" << YAML::Value << ltc.LocalizationKey;
+            out << YAML::EndMap;
         }
 
         if (entity.HasComponent<MeshComponent>())
