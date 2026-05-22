@@ -2,6 +2,9 @@
 #include "JoltJobSystemAdapter.h"
 #include "OloEngine/Core/Log.h"
 
+#include <chrono>
+#include <thread>
+
 namespace OloEngine
 {
     JoltJobSystemAdapter::JoltJobSystemAdapter(u32 inMaxJobs, u32 inMaxBarriers)
@@ -15,7 +18,29 @@ namespace OloEngine
         OLO_CORE_INFO("JoltJobSystemAdapter initialized - MaxJobs: {0}, MaxBarriers: {1}", inMaxJobs, inMaxBarriers);
     }
 
-    JoltJobSystemAdapter::~JoltJobSystemAdapter() = default;
+    JoltJobSystemAdapter::~JoltJobSystemAdapter()
+    {
+        // Wait for any scheduler-queued QueueJob lambdas to fully return before letting
+        // m_Jobs destruct. Jolt's PhysicsSystem::Update barrier-waits on Job::Execute()
+        // returning, but our lambda runs `inJob->Release()` after Execute, and Release
+        // can call back into FreeJob(this) → m_Jobs.DestructObject. If the destructor
+        // tears down m_Jobs first, the worker thread dereferences freed Job memory —
+        // exactly the TSan race that bit MultipleScenesCoexistTest, SceneStepAdvances*,
+        // TriggerEndEvent*, and CharacterControllerJumps* on Linux CI.
+        using clock = std::chrono::steady_clock;
+        constexpr auto kTimeout = std::chrono::seconds(5);
+        const auto deadline = clock::now() + kTimeout;
+        while (m_OutstandingTasks.load(std::memory_order_acquire) > 0)
+        {
+            if (clock::now() > deadline)
+            {
+                OLO_CORE_ERROR("JoltJobSystemAdapter: timed out waiting for {} pending tasks during shutdown",
+                               m_OutstandingTasks.load(std::memory_order_relaxed));
+                break;
+            }
+            std::this_thread::yield();
+        }
+    }
 
     i32 JoltJobSystemAdapter::GetMaxConcurrency() const
     {
@@ -49,17 +74,28 @@ namespace OloEngine
         // Add reference since we're queuing the job
         inJob->AddRef();
 
-        // Launch as a high-priority task (physics is critical)
-        // Capture inJob by value (ref-counted pointer) to keep it alive
+        // Bump the outstanding-tasks counter BEFORE Tasks::Launch — the destructor's
+        // wait must observe every in-flight lambda, and the counter has to be live by
+        // the time the destructor checks. Decrement happens at the lambda end, after
+        // every member access through `this` is done.
+        m_OutstandingTasks.fetch_add(1, std::memory_order_release);
+
+        // Launch as a high-priority task (physics is critical).
+        // Capture inJob by value (ref-counted pointer) to keep it alive; `this` is
+        // kept alive by the destructor wait above.
         Tasks::Launch(
             "JoltPhysicsJob",
-            [inJob]()
+            [inJob, this]()
             {
                 // Execute the Jolt job
                 inJob->Execute();
 
-                // Release our reference
+                // Release our reference. This can call back into FreeJob(this) →
+                // m_Jobs, so it must complete before the destructor releases m_Jobs;
+                // the outstanding-tasks counter is decremented strictly AFTER this.
                 inJob->Release();
+
+                m_OutstandingTasks.fetch_sub(1, std::memory_order_release);
             },
             LowLevelTasks::ETaskPriority::High);
     }
