@@ -111,6 +111,10 @@ namespace OloEngine
         OLO_CORE_INFO("CommandDispatch system initialized.");
 
         s_Data.CubeMesh = MeshPrimitives::CreateCube();
+        // Icosphere at subdivision level 2 (320 triangles) — uniform triangle
+        // distribution gives clean joint markers and is cheap enough to reuse
+        // for every DrawSphere call.
+        s_Data.SphereMesh = MeshPrimitives::CreateIcosphere(1.0f, 2);
         s_Data.QuadMesh = MeshPrimitives::CreatePlane(1.0f, 1.0f);
         s_Data.SkyboxMesh = MeshPrimitives::CreateSkyboxCube();
         // Cached unit line quad (length 1 along +X, centered on X with half-thickness of 0.5 on Y)

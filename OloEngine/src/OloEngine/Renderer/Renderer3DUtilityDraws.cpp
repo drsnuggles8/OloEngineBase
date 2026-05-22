@@ -339,11 +339,9 @@ namespace OloEngine
 
         CommandPacket* packet = nullptr;
 
-        // Use the cube mesh as a simple sphere approximation for now
-        // TODO: Create a proper sphere mesh in the renderer data
-        if (s_Data.CubeMesh)
+        if (s_Data.SphereMesh)
         {
-            packet = DrawMesh(s_Data.CubeMesh, transform, material);
+            packet = DrawMesh(s_Data.SphereMesh, transform, material);
         }
         else
         {
