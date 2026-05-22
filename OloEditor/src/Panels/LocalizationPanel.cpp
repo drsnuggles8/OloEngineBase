@@ -110,8 +110,10 @@ namespace OloEngine
         ImGui::SameLine();
         // Save edits writes every locale whose buffer was touched back to
         // its source .ololocale file. Greyed out when there's nothing to save.
-        if (!m_HasUnsavedEdits)
-            ImGui::BeginDisabled();
+        // ImGui's disabled stack must be balanced — using the bool-arg
+        // overload keeps Begin/End paired even when the click handler flips
+        // m_HasUnsavedEdits inside the block.
+        ImGui::BeginDisabled(!m_HasUnsavedEdits);
         if (ImGui::Button("Save edits to disk"))
         {
             std::set<std::string> touchedLocales;
@@ -132,8 +134,7 @@ namespace OloEngine
             m_EditBuffers.clear();
             m_HasUnsavedEdits = false;
         }
-        if (!m_HasUnsavedEdits)
-            ImGui::EndDisabled();
+        ImGui::EndDisabled();
 
         ImGui::SameLine();
         // Generate / refresh the synthetic pseudo locale from the source locale.

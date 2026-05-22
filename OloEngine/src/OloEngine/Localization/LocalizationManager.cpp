@@ -1162,10 +1162,12 @@ namespace OloEngine
             if (s == "C" || s == "POSIX")
                 continue;
             // Drop encoding suffix (".UTF-8") and modifier ("@euro").
+            // resize() truncates in place; substr() would needlessly
+            // allocate a temporary for the same effect.
             if (auto dot = s.find('.'); dot != std::string::npos)
-                s = s.substr(0, dot);
+                s.resize(dot);
             if (auto at = s.find('@'); at != std::string::npos)
-                s = s.substr(0, at);
+                s.resize(at);
             // Normalise "_" to "-" for BCP-47 shape.
             std::replace(s.begin(), s.end(), '_', '-');
             if (!s.empty())

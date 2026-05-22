@@ -387,23 +387,34 @@ namespace OloEngine
                 if (std::filesystem::is_directory(srcDir, ec))
                 {
                     auto dstDir = settings.m_OutputPath.parent_path() / "assets" / "localization";
-                    std::filesystem::create_directories(dstDir, ec);
+                    std::error_code ecMkdir;
+                    std::filesystem::create_directories(dstDir, ecMkdir);
                     u32 copied = 0;
-                    for (const auto& entry : std::filesystem::directory_iterator(srcDir, ec))
+                    // Use a separate error_code for the iterator and yet
+                    // another for each copy so a failure on one entry doesn't
+                    // poison the rest of the loop — sharing `ec` across
+                    // operations would silently skip every subsequent file
+                    // once the first failure left `ec` set.
+                    std::error_code ecIter;
+                    for (const auto& entry : std::filesystem::directory_iterator(srcDir, ecIter))
                     {
-                        if (ec || !entry.is_regular_file())
+                        if (ecIter)
+                            break;
+                        std::error_code ecEntry;
+                        if (!entry.is_regular_file(ecEntry) || ecEntry)
                             continue;
                         if (entry.path().extension() != ".ololocale")
                             continue;
+                        std::error_code ecCopy;
                         std::filesystem::copy_file(
                             entry.path(),
                             dstDir / entry.path().filename(),
                             std::filesystem::copy_options::overwrite_existing,
-                            ec);
-                        if (!ec)
+                            ecCopy);
+                        if (!ecCopy)
                             ++copied;
                         else
-                            OLO_CORE_WARN("AssetPackBuilder: failed to copy '{}': {}", entry.path().string(), ec.message());
+                            OLO_CORE_WARN("AssetPackBuilder: failed to copy '{}': {}", entry.path().string(), ecCopy.message());
                     }
                     OLO_CORE_INFO("AssetPackBuilder: bundled {} .ololocale file(s) to '{}'", copied, dstDir.string());
                 }

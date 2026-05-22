@@ -196,6 +196,7 @@ key-resolved value when the prefix is present and the literal otherwise.
 Both bindings mirror the C++ surface 1:1.
 
 **Lua:**
+
 ```lua
 Localization.Get(key)
 Localization.Format(key, { damage = 42 })
@@ -217,6 +218,7 @@ Localization.GeneratePseudoLocale()
 ```
 
 **C#:**
+
 ```csharp
 Localization.Get(key)
 Localization.Format(key, new Dictionary<string,string>{ ["damage"]="42" })

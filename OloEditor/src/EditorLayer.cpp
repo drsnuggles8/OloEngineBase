@@ -1245,15 +1245,20 @@ namespace OloEngine
             m_SaveGamePanel.OnImGuiRender(&m_ShowSaveGamePanel);
         }
 
-        // Localization Panel — lazy-init the locale set on first open so the
-        // editor doesn't pay the directory scan unless the user opens it.
+        // Localization Panel — lazy-init the locale set on first open, and
+        // re-init whenever the active project changes (so opening a second
+        // project picks up its own assets/localization/ tree rather than
+        // sticking with the first project's locales). The gate is the
+        // identity of Project::GetActive(); a process-lifetime `static bool`
+        // would silently break the second-project case.
         if (m_ShowLocalizationPanel)
         {
-            static bool s_LocalizationScanRequested = false;
-            if (!s_LocalizationScanRequested)
+            static const Project* s_LastLocalizationProject = reinterpret_cast<const Project*>(0x1);
+            const Project* activeProject = Project::GetActive().Raw();
+            if (activeProject != s_LastLocalizationProject)
             {
                 m_LocalizationPanel.SetDirectory("assets/localization");
-                s_LocalizationScanRequested = true;
+                s_LastLocalizationProject = activeProject;
 
                 // Restore the previously-selected locale or, on first launch,
                 // negotiate against the OS preference list. Persistence file

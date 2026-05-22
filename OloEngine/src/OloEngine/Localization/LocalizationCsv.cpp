@@ -54,6 +54,13 @@ namespace OloEngine
         // Returns the index of the byte AFTER the record terminator (or
         // `content.size()` when the row was the last in the file). Fields
         // are appended to `outRow`.
+        // Returns the index of the byte AFTER the consumed record. The
+        // sentinel `kParseRowError` signals an unterminated quoted field
+        // (the file ran out of bytes while we were still inside `"..."`);
+        // callers must treat that as a hard parse failure rather than
+        // silently flushing the partial field.
+        inline constexpr sizet kParseRowError = static_cast<sizet>(-1);
+
         sizet ParseRow(const std::string& content, sizet start, std::vector<std::string>& outRow)
         {
             outRow.clear();
@@ -117,7 +124,17 @@ namespace OloEngine
                 fieldStarted = true;
                 ++i;
             }
-            // EOF mid-row: flush whatever's in the buffer as the last field.
+            if (inQuotes)
+            {
+                // Unterminated quoted field — the file ended while we were
+                // still inside `"..."`. Silently flushing would mask data
+                // corruption (e.g. a translator's quote-in-value that lost
+                // its closing pair).
+                outRow.clear();
+                return kParseRowError;
+            }
+            // EOF mid-row, not inside quotes — flush the trailing field as
+            // the final record of the file.
             outRow.push_back(std::move(field));
             return i;
         }
@@ -188,6 +205,11 @@ namespace OloEngine
 
         std::vector<std::string> header;
         cursor = ParseRow(content, cursor, header);
+        if (cursor == kParseRowError)
+        {
+            result.Warnings.push_back("unterminated quoted field in CSV header — aborting import");
+            return result;
+        }
         if (header.empty() || header[0] != "key")
         {
             result.Warnings.push_back("missing or malformed header row (first column must be 'key')");
@@ -218,6 +240,11 @@ namespace OloEngine
         while (cursor < content.size())
         {
             cursor = ParseRow(content, cursor, row);
+            if (cursor == kParseRowError)
+            {
+                result.Warnings.push_back("unterminated quoted field in CSV body — aborting at row " + std::to_string(result.RowsImported + 1));
+                break;
+            }
             if (row.empty() || row[0].empty())
                 continue; // blank line — skip without flagging
             const std::string& key = row[0];

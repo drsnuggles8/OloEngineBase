@@ -89,7 +89,13 @@ namespace OloEngine
     // semantics per rule are spelled out alongside PluralRule above.
     inline u32 ResolvePluralIndex(PluralRule rule, i32 count) noexcept
     {
-        const u32 n = static_cast<u32>(std::abs(count));
+        // `std::abs(INT32_MIN)` is undefined behaviour because the positive
+        // value isn't representable in i32. Promote to i64 first so the
+        // negation can't overflow; the result fits in u32 for any legal
+        // i32 input.
+        const u32 n = (count >= 0)
+                          ? static_cast<u32>(count)
+                          : static_cast<u32>(-static_cast<i64>(count));
         const u32 mod10 = n % 10u;
         const u32 mod100 = n % 100u;
 

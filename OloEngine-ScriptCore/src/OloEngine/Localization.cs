@@ -29,9 +29,11 @@ namespace OloEngine
         }
 
         // Substitute named parameters AND resolve `{count:singular|plural}`
-        // tokens against the active locale's plural rule. `countParam`
-        // identifies which key in `parameters` (or the auto-injected one if
-        // omitted) carries the count value.
+        // tokens against the active locale's plural rule. `countParam` is
+        // required — it names which key in the template (and in the
+        // optional `parameters` map) the engine should write `count` into
+        // before resolving plural forms. Throws ArgumentException if
+        // `key` or `countParam` is null or empty.
         public static string FormatPlural(string key, string countParam, int count, IDictionary<string, string> parameters = null)
         {
             if (string.IsNullOrEmpty(key))

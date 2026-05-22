@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 
 #include "Components.h"
 #include "Prefab.h"
@@ -5036,8 +5037,12 @@ void OloEngine::Scene::OnComponentAdded<OloEngine::LocalizedTextComponent>([[may
 {
     // Force a re-sync on the next LocalizationSystem tick so a freshly-added
     // component picks up the active locale's text without waiting for a
-    // locale change.
-    m_LocalizationGeneration = 0;
+    // locale change. UINT64_MAX is a guaranteed-mismatch sentinel: the
+    // LocalizationManager generation starts at 0 and only bumps forward,
+    // so it can never equal max() in any realistic run. Setting to 0 here
+    // would silently fail when the manager itself is still at 0 (fresh
+    // state, nothing has triggered a bump yet).
+    m_LocalizationGeneration = std::numeric_limits<u64>::max();
 }
 
 template<>

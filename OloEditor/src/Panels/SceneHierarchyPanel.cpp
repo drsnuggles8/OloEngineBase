@@ -2114,15 +2114,21 @@ namespace OloEngine
             ImGui::InputText("Localization Key", &component.LocalizationKey);
             if (!component.LocalizationKey.empty())
             {
-                const bool exists = LocalizationManager::HasKey(component.LocalizationKey);
-                const std::string resolved = LocalizationManager::Get(component.LocalizationKey);
+                // Gate Get() on HasKey() to avoid spamming the missing-key
+                // accumulator every frame the inspector is open on a key
+                // the active locale doesn't have. The inspector is a
+                // diagnostic surface — its lookups shouldn't show up in
+                // the editor panel's "missing keys at runtime" report.
                 ImGui::TextDisabled("Locale: %s", LocalizationManager::GetCurrentLocale().c_str());
-                if (exists)
+                if (LocalizationManager::HasKey(component.LocalizationKey))
+                {
+                    const std::string resolved = LocalizationManager::Get(component.LocalizationKey);
                     ImGui::TextWrapped("Resolved: %s", resolved.c_str());
+                }
                 else
                 {
                     ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.55f, 0.55f, 1.0f));
-                    ImGui::TextWrapped("Key missing in active locale (will show fallback '%s').", resolved.c_str());
+                    ImGui::TextWrapped("Key missing in active locale (will show fallback at runtime).");
                     ImGui::PopStyleColor();
                 }
             } });

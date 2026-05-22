@@ -3,6 +3,8 @@
 #include "OloEngine/Localization/LocalizationManager.h"
 #include "OloEngine/Core/UTF8.h"
 
+#include <algorithm>
+
 namespace OloEngine
 {
     std::unordered_set<std::string> LocalizationLint::ExtractParameters(const std::string& value)
@@ -83,12 +85,22 @@ namespace OloEngine
                 issue.SourceLocale = source;
                 issue.TargetLocale = targetCode;
 
+                // Sort the token lists into stable order before formatting.
+                // `unordered_set` iteration order is implementation-defined
+                // and would make the lint output noisy in diffs / CI logs.
+                auto sortedTokens = [](const std::unordered_set<std::string>& src)
+                {
+                    std::vector<std::string> v(src.begin(), src.end());
+                    std::sort(v.begin(), v.end());
+                    return v;
+                };
+
                 std::string desc = "parameter drift: ";
                 if (!issue.MissingTokens.empty())
                 {
                     desc += "missing {";
                     bool first = true;
-                    for (const auto& t : issue.MissingTokens)
+                    for (const auto& t : sortedTokens(issue.MissingTokens))
                     {
                         if (!first)
                             desc += ", ";
@@ -103,7 +115,7 @@ namespace OloEngine
                         desc += "; ";
                     desc += "extra {";
                     bool first = true;
-                    for (const auto& t : issue.ExtraTokens)
+                    for (const auto& t : sortedTokens(issue.ExtraTokens))
                     {
                         if (!first)
                             desc += ", ";

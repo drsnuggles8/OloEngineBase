@@ -2908,9 +2908,16 @@ namespace OloEngine
             // route through the i64 overload (no decimal section), anything
             // else stringifies through the f64 overload with caller-supplied
             // precision (default 2).
+            //
+            // Read integer values via their native sol type — going through
+            // f64 first would silently truncate the >2^53 range that an i64
+            // is allowed to hold (rare in practice but plenty of game
+            // scoring/economy code uses 64-bit counters).
             const std::string loc = localeCode.value_or(std::string{});
-            if (value.is<i32>() || value.is<i64>())
-                return LocalizationManager::FormatNumber(static_cast<i64>(value.as<f64>()), loc);
+            if (value.is<i64>())
+                return LocalizationManager::FormatNumber(value.as<i64>(), loc);
+            if (value.is<i32>())
+                return LocalizationManager::FormatNumber(static_cast<i64>(value.as<i32>()), loc);
             return LocalizationManager::FormatNumber(value.as<f64>(), decimals.value_or(2), loc);
         };
         localizationTable["GetMissingKeys"] = [](sol::this_state s) -> sol::table

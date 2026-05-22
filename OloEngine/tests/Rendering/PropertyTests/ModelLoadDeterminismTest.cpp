@@ -107,11 +107,21 @@ namespace OloEngine::Tests
 
         CanonicalTriangle CanonicalizeTriangle(u32 a, u32 b, u32 c)
         {
-            if (a <= b && a <= c)
-                return { a, b, c };
-            if (b <= a && b <= c)
-                return { b, c, a };
-            return { c, a, b };
+            // Three rotations of the same triangle; we want winding-preserving
+            // selection of the lexicographically smallest among them. Picking
+            // "first index whose value equals the min" breaks on repeated
+            // minima — (1,1,2) and (1,2,1) are the same triangle but the
+            // naive rule emits different tuples for them.
+            const CanonicalTriangle rotations[3] = {
+                { a, b, c },
+                { b, c, a },
+                { c, a, b },
+            };
+            const CanonicalTriangle* best = &rotations[0];
+            for (int i = 1; i < 3; ++i)
+                if (rotations[i] < *best)
+                    best = &rotations[i];
+            return *best;
         }
 
         // Build a CRC of the canonical triangle list. Triangles with index count
