@@ -193,7 +193,11 @@ key-resolved value when the prefix is present and the literal otherwise.
 
 ## Scripting API
 
-Both bindings mirror the C++ surface 1:1.
+Both bindings cover the gameplay surface (lookup, formatting, locale
+switching, runtime QA). The Lua binding additionally exposes
+`GetAvailableLocales` / `GetMissingKeys` for editor-style tooling written in
+Lua; the C# wrapper omits those today — call the C++ `LocalizationManager`
+directly if you need them from C# scripts.
 
 **Lua:**
 
@@ -262,7 +266,7 @@ quotes / newlines inside cell content. UTF-8 BOM tolerated.
 
 ### Editor
 
-`Tools → Localization` opens [LocalizationPanel](../OloEditor/src/Panels/LocalizationPanel.cpp). It provides:
+`Window → Localization` opens [LocalizationPanel](../OloEditor/src/Panels/LocalizationPanel.cpp). It provides:
 
 - Active-locale dropdown
 - Source-locale dropdown (the reference for missing-key highlighting)

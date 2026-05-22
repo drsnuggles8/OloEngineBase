@@ -1257,7 +1257,16 @@ namespace OloEngine
             const Project* activeProject = Project::GetActive().Raw();
             if (activeProject != s_LastLocalizationProject)
             {
-                m_LocalizationPanel.SetDirectory("assets/localization");
+                // Resolve the project's asset root + "localization" subdir
+                // into an absolute path. The hard-coded "assets/localization"
+                // only worked when the editor was launched from a CWD that
+                // happened to sit one level above the project's assets/
+                // directory — opening a project at a different path silently
+                // failed to find any locale files.
+                const std::filesystem::path localizationDir = activeProject
+                                                                  ? Project::GetAssetFileSystemPath("localization")
+                                                                  : std::filesystem::path{ "assets/localization" };
+                m_LocalizationPanel.SetDirectory(localizationDir);
                 s_LastLocalizationProject = activeProject;
 
                 // Restore the previously-selected locale or, on first launch,

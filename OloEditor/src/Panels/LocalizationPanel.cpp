@@ -78,6 +78,10 @@ namespace OloEngine
             m_EditBuffers.clear();
             m_HasUnsavedEdits = false;
         }
+        // Runtime misses don't bump the generation, so refresh the
+        // missing-key snapshot every frame — it's a cheap sorted copy
+        // from the manager's internal set under a shared lock.
+        m_MissingKeysCache = LocalizationManager::GetMissingKeysSnapshot();
 
         RenderKeyTable();
         ImGui::Separator();
@@ -123,16 +127,43 @@ namespace OloEngine
                 if (sep != std::string::npos)
                     touchedLocales.insert(kv.first.substr(0, sep));
             }
-            u32 savedCount = 0;
+            // Track which locales saved successfully so we keep failed
+            // ones in m_EditBuffers (the user can retry without losing
+            // their unsaved edits). m_HasUnsavedEdits only clears when
+            // every touched locale wrote OK.
+            std::set<std::string> savedLocales;
             for (const auto& loc : touchedLocales)
             {
                 if (LocalizationManager::SaveLocaleToFile(loc))
-                    ++savedCount;
+                    savedLocales.insert(loc);
             }
-            m_StatusMessage = "Saved " + std::to_string(savedCount) + " / " + std::to_string(touchedLocales.size()) + " locale file(s).";
+            const u32 savedCount = static_cast<u32>(savedLocales.size());
+            const u32 totalCount = static_cast<u32>(touchedLocales.size());
+            if (savedCount == totalCount)
+            {
+                m_EditBuffers.clear();
+                m_HasUnsavedEdits = false;
+                m_StatusMessage = "Saved " + std::to_string(savedCount) + " locale file(s).";
+            }
+            else
+            {
+                // Drop only the buffers for successfully-saved locales; leave
+                // the rest in place so the user sees their pending edits and
+                // can retry the "Save edits to disk" button.
+                for (auto it = m_EditBuffers.begin(); it != m_EditBuffers.end();)
+                {
+                    const auto sep = it->first.find('|');
+                    const std::string locCode = (sep != std::string::npos) ? it->first.substr(0, sep) : std::string{};
+                    if (savedLocales.contains(locCode))
+                        it = m_EditBuffers.erase(it);
+                    else
+                        ++it;
+                }
+                // m_HasUnsavedEdits stays true so the button keeps offering
+                // a retry.
+                m_StatusMessage = "Saved " + std::to_string(savedCount) + " / " + std::to_string(totalCount) + " locale file(s) — " + std::to_string(totalCount - savedCount) + " failed; retry?";
+            }
             m_StatusTimer = 4.0f;
-            m_EditBuffers.clear();
-            m_HasUnsavedEdits = false;
         }
         ImGui::EndDisabled();
 

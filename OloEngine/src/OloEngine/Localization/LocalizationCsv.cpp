@@ -55,7 +55,9 @@ namespace OloEngine
         // `content.size()` when the row was the last in the file). Fields
         // are appended to `outRow`.
         // Returns the index of the byte AFTER the consumed record. The
-        // sentinel `kParseRowError` signals an unterminated quoted field
+        // sentinel `kParseRowError` signals a malformed quoted field (either
+        // unterminated at EOF, or with garbage characters after the closing
+        // quote like `"hello"x`)
         // (the file ran out of bytes while we were still inside `"..."`);
         // callers must treat that as a hard parse failure rather than
         // silently flushing the partial field.
@@ -82,7 +84,21 @@ namespace OloEngine
                             i += 2;
                             continue;
                         }
-                        inQuotes = false; // closing quote
+                        // Closing quote — what follows must be a field /
+                        // record terminator (comma, CR, LF) or end of input.
+                        // Anything else (e.g. `"hello"x`) is malformed and
+                        // would otherwise be silently appended to the field
+                        // by the non-quoted branch on the next iteration.
+                        if (i + 1 < content.size())
+                        {
+                            const char after = content[i + 1];
+                            if (after != ',' && after != '\r' && after != '\n')
+                            {
+                                outRow.clear();
+                                return kParseRowError;
+                            }
+                        }
+                        inQuotes = false;
                         ++i;
                     }
                     else
@@ -207,7 +223,7 @@ namespace OloEngine
         cursor = ParseRow(content, cursor, header);
         if (cursor == kParseRowError)
         {
-            result.Warnings.push_back("unterminated quoted field in CSV header — aborting import");
+            result.Warnings.push_back("malformed quoted field in CSV header — aborting import");
             return result;
         }
         if (header.empty() || header[0] != "key")
@@ -242,7 +258,7 @@ namespace OloEngine
             cursor = ParseRow(content, cursor, row);
             if (cursor == kParseRowError)
             {
-                result.Warnings.push_back("unterminated quoted field in CSV body — aborting at row " + std::to_string(result.RowsImported + 1));
+                result.Warnings.push_back("malformed quoted field in CSV body — aborting at row " + std::to_string(result.RowsImported + 1));
                 break;
             }
             if (row.empty() || row[0].empty())

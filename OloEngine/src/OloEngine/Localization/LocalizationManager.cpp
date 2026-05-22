@@ -185,9 +185,29 @@ namespace OloEngine
         if (!fresh.LoadFromYAML(sourcePath.string()))
             return false;
 
+        // If the file's `locale:` field was edited to a different code, we
+        // need to migrate the entry rather than reinsert under the stale
+        // one. Otherwise we'd have two tables referring to the same file
+        // (one keyed by the original code, one by the new code) and the
+        // editor's "active locale" would silently stop matching the file
+        // on disk.
+        const std::string newCode = fresh.GetLocaleInfo().Code;
+
         std::unique_lock lock(GetMutex());
         State& state = GetState();
-        state.Tables.insert_or_assign(code, std::move(fresh));
+        if (!newCode.empty() && newCode != code)
+        {
+            state.Tables.erase(code);
+            state.SourcePaths.erase(code);
+            state.SourcePaths[newCode] = sourcePath;
+            if (state.CurrentLocale == code)
+                state.CurrentLocale = newCode;
+            state.Tables.insert_or_assign(newCode, std::move(fresh));
+        }
+        else
+        {
+            state.Tables.insert_or_assign(code, std::move(fresh));
+        }
         state.Generation.fetch_add(1, std::memory_order_release);
         return true;
     }
@@ -1083,7 +1103,24 @@ namespace OloEngine
         const std::string keyBase = std::string("time.relative.") + unit->Key + (past ? "_past" : "_future");
         if (!code.empty() && HasKey(keyBase, code))
         {
-            return FormatPlural(keyBase, "count", static_cast<i32>(unitCount));
+            // Resolve the plural template against `code`, not the active
+            // locale. FormatPlural(key, ...) only consults the active
+            // locale's table / rule; for explicit-locale formatting we
+            // pull the template + rule for `code` manually and feed them
+            // to TextFormatter directly.
+            const std::string pattern = Get(keyBase, code);
+            PluralRule rule = PluralRule::OneOther;
+            for (const auto& loc : GetAvailableLocales())
+            {
+                if (loc.Code == code)
+                {
+                    rule = loc.Plural;
+                    break;
+                }
+            }
+            TextFormatter::ParamMap pm;
+            pm["count"] = std::to_string(unitCount);
+            return TextFormatter::Format(pattern, pm, rule);
         }
         // English fallback path. Pick singular vs plural by raw count
         // since we don't have the locale's plural rule loaded here.
@@ -1106,10 +1143,22 @@ namespace OloEngine
         const f64 magnitude = negative ? -value : value;
         // `%.*f` rounds half-to-even on MSVC's CRT (which differs from
         // half-away-from-zero on glibc) — both acceptable for UI display.
+        //
+        // snprintf returns the number of bytes it WOULD have written
+        // (excluding the null terminator). If our 64-byte buffer wasn't
+        // big enough, retry once with the exact size — large magnitudes
+        // (close to f64::max) or high `decimals` can exceed 64 chars.
         std::string formatted(64, '\0');
-        const int n = std::snprintf(formatted.data(), formatted.size(), "%.*f", decimals, magnitude);
+        int n = std::snprintf(formatted.data(), formatted.size(), "%.*f", decimals, magnitude);
         if (n < 0)
             return "0";
+        if (static_cast<sizet>(n) >= formatted.size())
+        {
+            formatted.assign(static_cast<sizet>(n) + 1, '\0');
+            n = std::snprintf(formatted.data(), formatted.size(), "%.*f", decimals, magnitude);
+            if (n < 0)
+                return "0";
+        }
         formatted.resize(static_cast<sizet>(n));
         // Split integer / fractional halves around the C-locale '.' that
         // snprintf produced, then re-glue with locale separators.

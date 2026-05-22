@@ -389,6 +389,16 @@ namespace OloEngine
                     auto dstDir = settings.m_OutputPath.parent_path() / "assets" / "localization";
                     std::error_code ecMkdir;
                     std::filesystem::create_directories(dstDir, ecMkdir);
+                    if (ecMkdir)
+                    {
+                        // Failing to create the destination dir means every
+                        // subsequent copy_file would fail too — bail with one
+                        // diagnostic rather than spamming N per-file warnings.
+                        OLO_CORE_WARN("AssetPackBuilder: cannot create localization output dir '{}': {} — skipping locale bundling",
+                                      dstDir.string(), ecMkdir.message());
+                    }
+                    else
+                    {
                     u32 copied = 0;
                     // Use a separate error_code for the iterator and yet
                     // another for each copy so a failure on one entry doesn't
@@ -417,6 +427,7 @@ namespace OloEngine
                             OLO_CORE_WARN("AssetPackBuilder: failed to copy '{}': {}", entry.path().string(), ecCopy.message());
                     }
                     OLO_CORE_INFO("AssetPackBuilder: bundled {} .ololocale file(s) to '{}'", copied, dstDir.string());
+                    }
                 }
                 else
                 {
