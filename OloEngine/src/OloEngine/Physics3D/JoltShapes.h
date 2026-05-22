@@ -54,6 +54,16 @@ namespace OloEngine
     // triangle) with their fourth vertex at the local-space origin.  Works
     // exactly for closed (watertight) meshes regardless of where the mesh sits
     // in local space; for open meshes the result is approximate.
+    //
+    // Why this exists alongside Jolt: Jolt's primitive shapes (Box/Sphere/Capsule/
+    // ConvexHull) already expose `Shape::GetVolume()` and produce correct mass
+    // properties internally, so this helper adds nothing for convex bodies.
+    // But `MeshShape` returns `GetVolume() == 0` and `GetMassProperties()` flagged
+    // invalid by design ("we cannot calculate the volume for an arbitrary mesh"),
+    // and `MeshShape::GetSubmergedVolume` asserts `false, "Not supported"`.
+    // So anything that wants a real volume / centroid / density-driven mass for a
+    // triangle-mesh body — or wants to build wave-buoyancy on triangle meshes —
+    // has to provide its own integration.  This is the building block for that.
     struct MeshMassProperties
     {
         // Total mesh volume in local space (after applying the input scale).
