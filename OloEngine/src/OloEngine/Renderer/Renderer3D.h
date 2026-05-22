@@ -1151,6 +1151,7 @@ namespace OloEngine
             ~Renderer3DData();
 
             Ref<Mesh> CubeMesh;
+            Ref<Mesh> SphereMesh; // Unit-radius icosphere for DrawSphere / joint markers
             Ref<Mesh> QuadMesh;
             Ref<Mesh> SkyboxMesh;
             Ref<Mesh> LineQuadMesh; // Cached unit-length quad for debug lines
