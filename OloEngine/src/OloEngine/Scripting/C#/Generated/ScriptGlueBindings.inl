@@ -89,6 +89,26 @@ static void AudioSoundGraphComponent_SetPlayOnAwake(UUID entityID, bool value)
     comp.PlayOnAwake = value;
 }
 
+static u64 AudioSoundGraphComponent_GetSoundGraphHandle(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<AudioSoundGraphComponent>();
+    return comp.SoundGraphHandle;
+}
+
+static void AudioSoundGraphComponent_SetSoundGraphHandle(UUID entityID, u64 value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<AudioSoundGraphComponent>();
+    comp.SoundGraphHandle = value;
+}
+
 ///////////////////////////////////////////////////////////////////////////////////////////
 // AudioSourceComponent                                                           //
 ///////////////////////////////////////////////////////////////////////////////////////////

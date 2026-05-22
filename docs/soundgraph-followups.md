@@ -11,26 +11,7 @@ connections, flat operator list).
 
 ---
 
-## 1. `AudioSoundGraphComponent::SoundGraphHandle` exposed to scripting
-
-**State:** the C# binding for `AudioSoundGraphComponent` exposes
-`Volume` / `Pitch` / `Looping` / `PlayOnAwake` via `OLO_PROPERTY`, but not the
-`SoundGraphHandle` asset reference.
-
-**Why deferred:** `OloHeaderTool`'s type mapper
-([tools/OloHeaderTool/main.cpp:58-77](../tools/OloHeaderTool/main.cpp#L58-L77))
-only supports `float`/`bool`/`int`/`uint`/`vec2-4`/`string`. There's no
-`u64`/`AssetHandle` mapping. `AudioSourceComponent` follows the same pattern
-(its audio clip handle has no `OLO_PROPERTY` either — set by the editor, not
-scripts).
-
-**Fix sketch:** extend `OloHeaderTool` to handle `AssetHandle`/`u64`, mapping
-them to `ulong` on the C# side. Wire that into `Components.h` for both
-`AudioSoundGraphComponent` and `AudioSourceComponent`.
-
----
-
-## 2. `AudioSoundGraphComponent::operator==` bitwise float comparison
+## 1. `AudioSoundGraphComponent::operator==` bitwise float comparison
 
 **State:** the equality operator uses direct `==` on `VolumeMultiplier` and
 `PitchMultiplier`. Project convention is to avoid float `==` (see
@@ -51,7 +32,7 @@ so this is a sweep, not a one-line fix.
 
 ---
 
-## 3. `AnimationGraphEditorPanel` no-op undo entries
+## 2. `AnimationGraphEditorPanel` no-op undo entries
 
 **State:** `BeginEditSession` always takes a snapshot, and `EndEditSession`
 flushes it once `GImGui->ActiveId == 0`. If a session is bracketed without
@@ -78,7 +59,7 @@ the top of the panel render and gate it on `GImGui->ActiveId != 0`.
 
 ---
 
-## 4. `WavePlayer::Tasks::Launch` lambda lifetime / UAF risk
+## 3. `WavePlayer::Tasks::Launch` lambda lifetime / UAF risk
 
 **State:** [`WavePlayer::StartAsyncLoad`](../OloEngine/src/OloEngine/Audio/SoundGraph/Nodes/WavePlayer.h)
 launches a background task whose lambda captures raw `this`. The destructor
@@ -119,7 +100,7 @@ node ownership — covered by Phase 3 of the
 
 ---
 
-## 5. `Scene::OnComponentAdded<AudioSoundGraphComponent>` runtime init
+## 4. `Scene::OnComponentAdded<AudioSoundGraphComponent>` runtime init
 
 **State:** the `OnComponentAdded<AudioSoundGraphComponent>` hook is a no-op,
 so components added during runtime (script-spawned entities, networked actors

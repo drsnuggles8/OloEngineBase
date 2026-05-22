@@ -27,6 +27,12 @@ namespace OloEngine
 			get => InternalCalls.AudioSoundGraphComponent_GetPlayOnAwake(Entity.ID);
 			set => InternalCalls.AudioSoundGraphComponent_SetPlayOnAwake(Entity.ID, value);
 		}
+
+		public ulong SoundGraphHandle
+		{
+			get => InternalCalls.AudioSoundGraphComponent_GetSoundGraphHandle(Entity.ID);
+			set => InternalCalls.AudioSoundGraphComponent_SetSoundGraphHandle(Entity.ID, value);
+		}
 	}
 
 	public partial class AudioSourceComponent : Component

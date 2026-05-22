@@ -30,6 +30,7 @@ enum class PropType
     Bool,
     Int,
     UInt,
+    U64,
     Vec2,
     Vec3,
     Vec4,
@@ -65,6 +66,12 @@ static PropType CppTypeToPropType(const std::string& t)
         return PropType::Int;
     if (t == "u32")
         return PropType::UInt;
+    // AssetHandle is a UUID typedef (u64 wrapper) with implicit operator u64() /
+    // implicit ctor(u64), so getter/setter codegen can treat it as a plain 64-bit
+    // scalar. UUID itself isn't mapped here — entity IDs cross the Mono boundary
+    // separately and exposing them as authored properties would be a footgun.
+    if (t == "u64" || t == "AssetHandle")
+        return PropType::U64;
     if (t == "glm::vec2")
         return PropType::Vec2;
     if (t == "glm::vec3")
@@ -86,6 +93,8 @@ static PropType StringToPropType(const std::string& s)
         return PropType::Int;
     if (s == "uint")
         return PropType::UInt;
+    if (s == "ulong" || s == "u64" || s == "AssetHandle")
+        return PropType::U64;
     if (s == "vec2")
         return PropType::Vec2;
     if (s == "vec3")
@@ -99,7 +108,7 @@ static PropType StringToPropType(const std::string& s)
 
 static bool IsScalar(PropType t)
 {
-    return t == PropType::Float || t == PropType::Bool || t == PropType::Int || t == PropType::UInt;
+    return t == PropType::Float || t == PropType::Bool || t == PropType::Int || t == PropType::UInt || t == PropType::U64;
 }
 
 static std::string CppReturnType(PropType t)
@@ -114,6 +123,8 @@ static std::string CppReturnType(PropType t)
             return "int";
         case PropType::UInt:
             return "unsigned int";
+        case PropType::U64:
+            return "u64";
         default:
             return "void";
     }
@@ -146,6 +157,8 @@ static std::string CsType(PropType t)
             return "int";
         case PropType::UInt:
             return "uint";
+        case PropType::U64:
+            return "ulong";
         case PropType::Vec2:
             return "Vector2";
         case PropType::Vec3:
