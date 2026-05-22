@@ -8,13 +8,16 @@
 #include "OloEngine/Project/Project.h"
 #include "OloEngine/Task/Task.h"
 
-#include <chrono>
+#include <algorithm>
 #include <array>
-#include <type_traits>
+#include <atomic>
+#include <chrono>
 #include <thread>
+#include <type_traits>
+#include <vector>
+
 #include "OloEngine/Threading/Mutex.h"
 #include "OloEngine/Threading/UniqueLock.h"
-#include <atomic>
 
 #define LOG_DBG_MESSAGES 0
 
@@ -57,14 +60,31 @@ namespace OloEngine::Audio::SoundGraph
 
         ~WavePlayer()
         {
-            // Mark as shutting down to prevent new loads from completing
+            // Mark as shutting down so the launched lambdas early-return at their
+            // next gate check. CancelAsyncLoad bumps the generation counter, which
+            // achieves the same thing for any task that hasn't reached its first
+            // gate yet.
             m_ShuttingDown.store(true, std::memory_order_release);
-
-            // Cancel any pending load
             CancelAsyncLoad();
 
-            // Note: Task System manages task lifecycle - no explicit wait needed
-            // Tasks will complete naturally but results will be ignored due to m_ShuttingDown flag
+            // Wait for any in-flight load lambda to finish before our members
+            // (m_LoadResultMutex, m_LoadResult, the atomics it reads) are
+            // destroyed. The gate checks above don't close the window between
+            // gate-check and member access; only joining the task does.
+            //
+            // We block unconditionally rather than time-bounding the wait:
+            // AudioLoader::LoadAudioFile is the only slow step and it's bounded
+            // by disk I/O. A timeout that fires would re-open the UAF window
+            // this whole hook exists to close.
+            std::vector<Tasks::TTask<void>> tasksToJoin;
+            {
+                TUniqueLock<FMutex> lock(m_LoadTasksMutex);
+                tasksToJoin = std::move(m_LoadTasks);
+            }
+            for (auto& task : tasksToJoin)
+            {
+                task.Wait();
+            }
         }
 
         // Input parameters. The `m_<Name>` convention (no `In` prefix) is the engine-wide
@@ -322,14 +342,36 @@ namespace OloEngine::Audio::SoundGraph
 
         void StartAsyncLoad(u64 waveAsset)
         {
+            // Fast-path early-out for the common case (graph hot-reload after
+            // shutdown began). The mutex-protected re-check below closes the
+            // window between this load and Tasks::Launch.
+            if (m_ShuttingDown.load(std::memory_order_acquire))
+            {
+                return;
+            }
+
             // Mark as loading
             m_LoadState.store(LoadState::Loading, std::memory_order_release);
             m_LoadGeneration.fetch_add(1, std::memory_order_relaxed);
             u32 currentGeneration = m_LoadGeneration.load(std::memory_order_relaxed);
 
-            // Start async load using Task System
-            Tasks::Launch("WavePlayerAudioLoad", [this, waveAsset, currentGeneration]()
-                          {
+            // Hold m_LoadTasksMutex across Tasks::Launch + push so that any
+            // concurrent ~WavePlayer either (a) hasn't drained m_LoadTasks yet
+            // — it will block on the mutex until we push, then see and join
+            // this task; or (b) has already set m_ShuttingDown and we bail out
+            // before launching, so the destructor can't miss a task that
+            // would otherwise touch dead this.
+            TUniqueLock<FMutex> lock(m_LoadTasksMutex);
+            if (m_ShuttingDown.load(std::memory_order_acquire))
+            {
+                return;
+            }
+
+            // Start async load using Task System. We keep the returned handle so
+            // ~WavePlayer can join the lambda; otherwise the lambda's post-gate
+            // member accesses can land after our atomics/mutex are destroyed.
+            Tasks::TTask<void> loadTask = Tasks::Launch("WavePlayerAudioLoad", [this, waveAsset, currentGeneration]()
+                                                        {
                 // Check if this load is still relevant
                 if (m_ShuttingDown.load(std::memory_order_acquire) ||
                     currentGeneration != m_LoadGeneration.load(std::memory_order_relaxed))
@@ -382,6 +424,16 @@ namespace OloEngine::Audio::SoundGraph
                     m_LoadResult = std::move(result);
                     m_LoadResultReady.store(true, std::memory_order_release);
                 } }, Tasks::ETaskPriority::BackgroundNormal);
+
+            // Park the handle so the destructor can join. Opportunistically
+            // prune completed handles so the vector doesn't grow unbounded
+            // across repeated SetWaveAsset calls. Mutex is already held from
+            // the launch-guard above.
+            m_LoadTasks.erase(std::remove_if(m_LoadTasks.begin(), m_LoadTasks.end(),
+                                             [](const Tasks::TTask<void>& t)
+                                             { return t.IsCompleted(); }),
+                              m_LoadTasks.end());
+            m_LoadTasks.push_back(std::move(loadTask));
         }
 
         void CheckAsyncLoadCompletion()
@@ -621,6 +673,16 @@ namespace OloEngine::Audio::SoundGraph
         FMutex m_LoadResultMutex;
         std::optional<AudioData> m_LoadResult;
         std::atomic<bool> m_LoadResultReady{ false };
+
+        // Outstanding load tasks. The destructor joins these so the lambda
+        // body always observes a live object — m_ShuttingDown and
+        // m_LoadGeneration gate the lambda but don't close the window between
+        // gate-check and member access. Access serialised on m_LoadTasksMutex
+        // because StartAsyncLoad can run on the audio thread (via
+        // UpdateWaveSourceIfNeeded → StartPlayback → Process) while another
+        // caller is in destruction; contention is rare (just push + prune).
+        FMutex m_LoadTasksMutex;
+        std::vector<Tasks::TTask<void>> m_LoadTasks;
 
         // Flag system for events (like Hazel)
         Flag m_PlayFlag;

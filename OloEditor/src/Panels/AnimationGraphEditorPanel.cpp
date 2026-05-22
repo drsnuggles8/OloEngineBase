@@ -1,6 +1,7 @@
 #include "AnimationGraphEditorPanel.h"
 #include "OloEngine/Animation/AnimationGraphComponent.h"
 #include "OloEngine/Animation/AnimationGraph.h"
+#include "OloEngine/Animation/AnimationGraphSerializer.h"
 #include "OloEngine/Animation/AnimationStateMachine.h"
 #include "OloEngine/Animation/AnimationState.h"
 #include "OloEngine/Animation/AnimationTransition.h"
@@ -104,6 +105,12 @@ namespace OloEngine
         }
         m_EditSessionSnapshot = SnapshotGraph();
         m_EditSessionActive = (m_EditSessionSnapshot != nullptr);
+        m_EditSessionDirty = false;
+    }
+
+    void AnimationGraphEditorPanel::MarkEditSessionDirty()
+    {
+        m_EditSessionDirty = true;
     }
 
     void AnimationGraphEditorPanel::EndEditSession(const char* description)
@@ -114,12 +121,43 @@ namespace OloEngine
         }
         // Only flush once ImGui no longer has an active widget — collapses a slider drag
         // (60+ frames of mutations) into one undo entry.
-        if (GImGui->ActiveId == 0)
+        if (GImGui->ActiveId != 0)
         {
-            PushSnapshot(std::move(m_EditSessionSnapshot), description);
+            return;
+        }
+
+        // Cheap path: no widget reported a mutation this session, so we can skip
+        // the snapshot clone + double YAML serialization entirely.
+        if (!m_EditSessionDirty)
+        {
             m_EditSessionSnapshot = nullptr;
             m_EditSessionActive = false;
+            return;
         }
+
+        // Dirty path: a widget did report a mutation, but the user could still
+        // have scrubbed the slider back to its original value before release.
+        // Compare via YAML to drop those no-op entries — AnimationGraph carries
+        // skeleton/animation refs that aren't trivially comparable, and the
+        // serializer already canonicalises the shape we care about for undo.
+        // Cost is bounded by graph size and only fires on dirty widget release.
+        if (Ref<AnimationGraph> currentGraph = SnapshotGraph(); currentGraph && m_EditSessionSnapshot)
+        {
+            const std::string before = AnimationGraphSerializer::SerializeToString(m_EditSessionSnapshot);
+            const std::string after = AnimationGraphSerializer::SerializeToString(currentGraph);
+            if (before == after)
+            {
+                m_EditSessionSnapshot = nullptr;
+                m_EditSessionActive = false;
+                m_EditSessionDirty = false;
+                return;
+            }
+        }
+
+        PushSnapshot(std::move(m_EditSessionSnapshot), description);
+        m_EditSessionSnapshot = nullptr;
+        m_EditSessionActive = false;
+        m_EditSessionDirty = false;
     }
 
     void AnimationGraphEditorPanel::OnImGuiRender(bool* p_open)
@@ -509,8 +547,14 @@ namespace OloEngine
         // Snapshot once at the start of the slider/checkbox interaction; EndEditSession
         // below flushes one undo entry when the user releases the widget.
         BeginEditSession();
-        ImGui::DragFloat("Speed", &state->Speed, 0.01f, 0.0f, 10.0f);
-        ImGui::Checkbox("Looping", &state->Looping);
+        if (ImGui::DragFloat("Speed", &state->Speed, 0.01f, 0.0f, 10.0f))
+        {
+            MarkEditSessionDirty();
+        }
+        if (ImGui::Checkbox("Looping", &state->Looping))
+        {
+            MarkEditSessionDirty();
+        }
         EndEditSession("Edit State Properties");
 
         if (state->Type == AnimationState::MotionType::SingleClip)
@@ -840,6 +884,7 @@ namespace OloEngine
                 if (ImGui::SliderFloat("Weight", &weight, 0.0f, 1.0f))
                 {
                     layer.Weight = weight;
+                    MarkEditSessionDirty();
                 }
                 EndEditSession("Edit Layer Weight");
 
