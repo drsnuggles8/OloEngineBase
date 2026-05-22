@@ -95,6 +95,23 @@ namespace OloEngine
 		internal static extern void AudioSourceComponent_Stop(ulong entityID);
 		#endregion
 
+		#region AudioSoundGraphComponent (hand-written action methods only)
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void AudioSoundGraphComponent_IsPlaying(ulong entityID, out bool v);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void AudioSoundGraphComponent_Play(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void AudioSoundGraphComponent_Stop(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void AudioSoundGraphComponent_Pause(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool AudioSoundGraphComponent_SetParameterFloat(ulong entityID, string paramName, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool AudioSoundGraphComponent_SetParameterInt(ulong entityID, string paramName, int value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool AudioSoundGraphComponent_SetParameterBool(ulong entityID, string paramName, bool value);
+		#endregion
+
 		#region AudioEvents
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern ulong AudioEvents_PostTrigger(string eventName, ulong objectID);

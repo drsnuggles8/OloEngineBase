@@ -110,6 +110,11 @@ namespace OloEngine
 
                 //==============================================================================
                 /// Initialization
+                /** Allocate the internal SoundGraphSource. Must be called before any of the
+                    InitializeFromGraph / InitializeDataSource overloads. Exposed publicly so
+                    Scene::InitAudioRuntime (and other owners) can drive the lifecycle. */
+                bool InitializeAudioCallback();
+
                 /** Initialize from SoundGraph instance */
                 bool InitializeFromGraph(const Ref<Audio::SoundGraph::SoundGraph>& soundGraph);
 
@@ -222,7 +227,6 @@ namespace OloEngine
                 i32 StopNow(StopOptions options = StopOptions::None);
 
                 void InitializeEffects(const Ref<SoundConfig>& config);
-                bool InitializeAudioCallback();
 
                 // Audio frequency conversion utilities
                 static f32 NormalizedToFrequency(f32 normalizedValue);

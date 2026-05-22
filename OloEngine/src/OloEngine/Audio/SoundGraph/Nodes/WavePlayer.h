@@ -5,6 +5,7 @@
 #include "OloEngine/Asset/AssetManager.h"
 #include "OloEngine/Asset/Asset.h"
 #include "OloEngine/Audio/AudioLoader.h"
+#include "OloEngine/Project/Project.h"
 #include "OloEngine/Task/Task.h"
 
 #include <chrono>
@@ -66,21 +67,26 @@ namespace OloEngine::Audio::SoundGraph
             // Tasks will complete naturally but results will be ignored due to m_ShuttingDown flag
         }
 
-        // Input parameters
-        i64* m_InWaveAsset = nullptr;     // Asset handle for wave file
-        f32* m_InStartTime = nullptr;     // Start time offset in seconds
-        bool* m_InLoop = nullptr;         // Enable looping playback
-        i32* m_InNumberOfLoops = nullptr; // Number of loops (-1 = infinite)
+        // Input parameters. The `m_<Name>` convention (no `In` prefix) is the engine-wide
+        // pattern for reflection-cleaned endpoint names; RemovePrefixAndSuffix strips only
+        // the `m_`, so the runtime endpoint identifier ends up bare (e.g. "WaveAsset").
+        // Schema property keys in NodeSchema.cpp and connection endpoints in saved
+        // .olosoundgraph files must match these cleaned names.
+        i64* m_WaveAsset = nullptr;     // Asset handle for wave file
+        f32* m_StartTime = nullptr;     // Start time offset in seconds
+        bool* m_Loop = nullptr;         // Enable looping playback
+        i32* m_NumberOfLoops = nullptr; // Number of loops (-1 = infinite)
 
-        // Output audio channels
-        f32 m_OutOutLeft{ 0.0f };
-        f32 m_OutOutRight{ 0.0f };
+        // Output audio channels. Endpoint identifiers become "OutLeft" / "OutRight".
+        f32 m_OutLeft{ 0.0f };
+        f32 m_OutRight{ 0.0f };
 
-        // Output events
-        OutputEvent m_OutOnPlay{ *this };
-        OutputEvent m_OutOnStop{ *this };
-        OutputEvent m_OutOnFinished{ *this };
-        OutputEvent m_OutOnLooped{ *this };
+        // Output events. Endpoint identifiers become "OnPlay" / "OnStop" / etc., matching
+        // common event-naming conventions for hooks the user wires consumers into.
+        OutputEvent m_OnPlay{ *this };
+        OutputEvent m_OnStop{ *this };
+        OutputEvent m_OnFinished{ *this };
+        OutputEvent m_OnLooped{ *this };
 
         void RegisterEndpoints();
         void InitializeInputs();
@@ -96,6 +102,7 @@ namespace OloEngine::Audio::SoundGraph
             m_StartSample = 0;
             m_LoopCount = 0;
             m_TotalFrames = 0;
+            m_NextRefillFrame = 0;
 
             // Initialize buffer and wave source
             m_WaveSource.Clear();
@@ -107,7 +114,19 @@ namespace OloEngine::Audio::SoundGraph
 
         void Process() final
         {
-            OLO_PROFILE_FUNCTION();
+            // Intentionally no OLO_PROFILE_FUNCTION: called once per audio frame from
+            // SoundGraph::Process. The Debug-mode InstrumentationTimer overhead is on the
+            // order of a microsecond per call, which is fatal at 48 kHz. See the matching
+            // comment in SoundGraph::Process for the full reasoning.
+
+            // If parameter wiring is incomplete, stay silent rather than crash. This can
+            // happen for a node added by the editor that hasn't had its inputs configured
+            // and whose endpoint registration didn't establish the expected parameter map.
+            if (!m_WaveAsset || !m_Loop || !m_NumberOfLoops)
+            {
+                OutputSilence();
+                return;
+            }
 
             // Check for completed async loads (non-blocking, audio thread safe)
             CheckAsyncLoadCompletion();
@@ -124,22 +143,26 @@ namespace OloEngine::Audio::SoundGraph
                 // Check if we've reached the end
                 if (m_FrameNumber >= m_TotalFrames)
                 {
-                    if (*m_InLoop)
+                    if (*m_Loop)
                     {
                         ++m_LoopCount;
-                        m_OutOnLooped(2.0f);
+                        m_OnLooped(2.0f);
 
                         // Check if we've completed all loops
-                        if (*m_InNumberOfLoops >= 0 && m_LoopCount > *m_InNumberOfLoops)
+                        if (*m_NumberOfLoops >= 0 && m_LoopCount > *m_NumberOfLoops)
                         {
                             StopPlayback(true);
                             OutputSilence();
                         }
                         else
                         {
-                            // Loop back to start - reset play head before fetching next frame
+                            // Loop back to start - reset play head before fetching next frame.
+                            // Also rewind m_NextRefillFrame so the post-loop refills start
+                            // reading from the file beginning instead of past-the-end.
                             m_FrameNumber = m_StartSample;
                             m_WaveSource.m_ReadPosition = m_FrameNumber;
+                            m_NextRefillFrame = m_StartSample;
+                            m_WaveSource.m_Channels.Clear();
                             ReadNextFrame();
                             m_FrameNumber++;
                             m_WaveSource.m_ReadPosition = m_FrameNumber;
@@ -178,7 +201,7 @@ namespace OloEngine::Audio::SoundGraph
             // Check if we have a valid asset
             if (!m_WaveSource.m_WaveHandle)
             {
-                DBG("WavePlayer: Invalid wave asset handle, cannot start playback");
+                OLO_CORE_WARN("[WavePlayer] StartPlayback: no wave asset handle bound — bailing");
                 StopPlayback(false);
                 return;
             }
@@ -186,21 +209,40 @@ namespace OloEngine::Audio::SoundGraph
             // Only start if audio data is ready
             if (!m_AudioData.IsValid())
             {
-                DBG("WavePlayer: Audio data not ready yet, playback delayed");
                 m_PendingPlayback.store(true, std::memory_order_relaxed); // Will start when load completes
                 return;
             }
 
-            // Set playback frame counters to start sample (respects start-time offset)
+            // Recompute m_StartSample from the current StartTime each Play so runtime
+            // changes to the StartTime input plug are respected. m_StartSample is cached
+            // at load time (CheckAsyncLoadCompletion) but the plug can be written
+            // afterwards via parameter automation or the editor's property panel; without
+            // this each Play would replay from whatever StartTime was at load.
+            if (m_StartTime && *m_StartTime > 0.0f && m_AudioData.m_SampleRate > 0)
+            {
+                const f64 sampleRate = m_AudioData.m_SampleRate;
+                m_StartSample = static_cast<i64>((*m_StartTime) * sampleRate);
+                const i64 maxSample = (m_TotalFrames > 0 ? m_TotalFrames - 1 : 0);
+                m_StartSample = glm::min(m_StartSample, maxSample);
+            }
+            else
+            {
+                m_StartSample = 0;
+            }
+
+            // Set playback frame counters to start sample (respects start-time offset).
             m_FrameNumber = m_StartSample;
             m_WaveSource.m_ReadPosition = m_FrameNumber;
+            m_NextRefillFrame = m_StartSample;
 
-            // Prime the buffer unconditionally when transitioning into playback
+            // Prime the buffer unconditionally when transitioning into playback. The
+            // first call always fills (buffer is empty after StopPlayback / Clear),
+            // and m_NextRefillFrame advances accordingly inside ForceRefillBuffer.
             ForceRefillBuffer();
 
             m_IsPlaying = true;
             m_PendingPlayback.store(false, std::memory_order_relaxed);
-            m_OutOnPlay(2.0f);
+            m_OnPlay(2.0f);
             DBG("WavePlayer: Started playing");
         }
 
@@ -212,20 +254,45 @@ namespace OloEngine::Audio::SoundGraph
             m_FrameNumber = m_StartSample;
             m_WaveSource.m_ReadPosition = m_FrameNumber;
 
+            // Drain the circular buffer and reset the source refill cursor. Otherwise
+            // ForceRefillBuffer on the next Play would see leftover samples sitting at
+            // or above the low-watermark and short-circuit before topping up — replay
+            // would emit the tail of the previous run from the stale buffer instead
+            // of priming fresh from m_StartSample.
+            m_WaveSource.m_Channels.Clear();
+            m_NextRefillFrame = m_StartSample;
+
             // Check for completed async loads (in case asset changed while playing)
             CheckAsyncLoadCompletion();
 
             if (notifyOnFinish)
-                m_OutOnFinished(2.0f); // Natural completion
+                m_OnFinished(2.0f); // Natural completion
             else
-                m_OutOnStop(2.0f); // Manual stop or error
+                m_OnStop(2.0f); // Manual stop or error
 
             DBG("WavePlayer: Stopped playing");
         }
 
         void UpdateWaveSourceIfNeeded()
         {
-            u64 waveAsset = static_cast<u64>(*m_InWaveAsset);
+            // m_WaveAsset is wired up by InitializeInputs against the node's parameter
+            // table; if registration failed (parameter name mismatch, missing description,
+            // etc.) it stays at its default nullptr and dereferencing it crashes. Treat
+            // that case as "no asset configured" so the node just stays silent.
+            if (!m_WaveAsset)
+            {
+                if (m_WaveSource.m_WaveHandle != 0)
+                {
+                    CancelAsyncLoad();
+                    m_WaveSource.m_WaveHandle = 0;
+                    m_TotalFrames = 0;
+                    m_AudioData.Clear();
+                }
+                m_IsInitialized = false;
+                return;
+            }
+
+            u64 waveAsset = static_cast<u64>(*m_WaveAsset);
 
             if (m_WaveSource.m_WaveHandle != waveAsset)
             {
@@ -270,16 +337,23 @@ namespace OloEngine::Audio::SoundGraph
                     return; // Load was cancelled or superseded
                 }
 
-                // Integrate with OloEngine's AssetManager
+                // Integrate with OloEngine's AssetManager. AssetMetadata::FilePath stores
+                // the path *relative to the project root* — see
+                // EditorAssetManager::GetRelativePath which calls
+                // std::filesystem::relative against m_ProjectPath. So the stored value for
+                // ding.wav is "Assets/Audio/ding.wav" (with the Assets/ prefix). Joining
+                // that against GetAssetDirectory() doubles the Assets segment; the correct
+                // base is GetProjectDirectory().
                 AssetHandle assetHandle = static_cast<AssetHandle>(waveAsset);
                 AssetMetadata metadata = AssetManager::GetAssetMetadata(assetHandle);
 
                 std::optional<AudioData> result;
                 if (metadata.IsValid() && !metadata.FilePath.empty())
                 {
+                    const std::filesystem::path absolutePath = Project::GetProjectDirectory() / metadata.FilePath;
                     // Load audio data using AudioLoader (on background thread)
                     AudioData audioData;
-                    if (AudioLoader::LoadAudioFile(metadata.FilePath, audioData))
+                    if (AudioLoader::LoadAudioFile(absolutePath, audioData))
                     {
                         OLO_CORE_INFO("WavePlayer: Loaded audio asset - {} channels, {} Hz, {:.2f}s duration",
                                      audioData.m_NumChannels, audioData.m_SampleRate, audioData.m_Duration);
@@ -287,7 +361,7 @@ namespace OloEngine::Audio::SoundGraph
                     }
                     else
                     {
-                        OLO_CORE_ERROR("WavePlayer: Failed to load audio file: {}", metadata.FilePath.string());
+                        OLO_CORE_ERROR("WavePlayer: Failed to load audio file: {}", absolutePath.string());
                     }
                 }
                 else
@@ -344,10 +418,10 @@ namespace OloEngine::Audio::SoundGraph
                 m_LoadState.store(LoadState::Ready, std::memory_order_relaxed);
 
                 // Apply start time offset now that we have the data
-                if (m_InStartTime && *m_InStartTime > 0.0f)
+                if (m_StartTime && *m_StartTime > 0.0f)
                 {
                     f64 sampleRate = m_AudioData.m_SampleRate;
-                    m_StartSample = static_cast<i64>(*m_InStartTime * sampleRate);
+                    m_StartSample = static_cast<i64>(*m_StartTime * sampleRate);
                     i64 maxSample = (m_TotalFrames > 0 ? m_TotalFrames - 1 : 0);
                     m_StartSample = glm::min(m_StartSample, maxSample);
                 }
@@ -398,11 +472,33 @@ namespace OloEngine::Audio::SoundGraph
       public:
         void ForceRefillBuffer()
         {
-            if (m_WaveSource.m_WaveHandle && m_WaveSource.m_OnRefill)
-            {
-                m_WaveSource.m_ReadPosition = m_FrameNumber;
-                [[maybe_unused]] bool refillSuccess = m_WaveSource.Refill();
-            }
+            if (!m_WaveSource.m_WaveHandle || !m_WaveSource.m_OnRefill)
+                return;
+
+            // Per-block topup. The naive version re-pushed 1024 frames starting at the
+            // reader's current frame number every single block — but only ~480 frames of
+            // buffered data drains per block, so most of those pushes land on samples that
+            // are still sitting in the circular buffer from the previous push. The buffer
+            // accumulates duplicate samples (same frames pushed multiple times), the reader
+            // consumes them in arrival order, and the perceived playback rate ends up
+            // ~12× slower than real time.
+            //
+            // Two-part fix:
+            //  1. Only push more data when the buffer is actually running low. Once it has
+            //     at least one block's worth of read-ahead (we use the buffer capacity / 2
+            //     as the threshold), there's no need to re-fill yet.
+            //  2. When we do refill, start *past* the highest sample index we've already
+            //     pushed (m_NextRefillFrame), not at the reader position. That keeps each
+            //     sample from m_AudioData entering the buffer exactly once.
+            const i32 currentAvail = m_WaveSource.m_Channels.Available();
+            constexpr i32 kLowWatermarkSamples = 1920; // half of the 3840-sample buffer (= 960 stereo frames)
+            if (currentAvail >= kLowWatermarkSamples)
+                return;
+
+            // FillBufferFromAudioData reads from m_NextRefillFrame and advances it on
+            // success, so we don't need to touch source.m_ReadPosition for the source
+            // index any more.
+            [[maybe_unused]] bool refillSuccess = m_WaveSource.Refill();
         }
 
         Audio::WaveSource& GetWaveSource()
@@ -425,16 +521,16 @@ namespace OloEngine::Audio::SoundGraph
                 if (m_WaveSource.m_Channels.Available() >= 2) // Stereo frame
                 {
                     // Read interleaved stereo data
-                    m_OutOutLeft = m_WaveSource.m_Channels.Get();
-                    m_OutOutRight = m_WaveSource.m_Channels.Get();
+                    m_OutLeft = m_WaveSource.m_Channels.Get();
+                    m_OutRight = m_WaveSource.m_Channels.Get();
                     return; // Successfully read data
                 }
                 else if (m_WaveSource.m_Channels.Available() >= 1) // Mono frame
                 {
                     // Mono - duplicate to both channels
                     float sample = m_WaveSource.m_Channels.Get();
-                    m_OutOutLeft = sample;
-                    m_OutOutRight = sample;
+                    m_OutLeft = sample;
+                    m_OutRight = sample;
                     return; // Successfully read data
                 }
                 else
@@ -457,8 +553,8 @@ namespace OloEngine::Audio::SoundGraph
 
         void OutputSilence()
         {
-            m_OutOutLeft = 0.0f;
-            m_OutOutRight = 0.0f;
+            m_OutLeft = 0.0f;
+            m_OutRight = 0.0f;
         }
 
         bool FillBufferFromAudioData(Audio::WaveSource& source)
@@ -466,9 +562,13 @@ namespace OloEngine::Audio::SoundGraph
             if (!m_AudioData.IsValid())
                 return false;
 
+            // Use m_NextRefillFrame as the source-of-truth read pointer rather than
+            // source.m_ReadPosition, so both refill paths (ForceRefillBuffer at block
+            // boundaries and the lazy refill from ReadNextFrame when the buffer empties)
+            // produce a single non-overlapping stream of pushes.
             const u32 framesToRead = 1024; // Read chunk size
-            u64 startFrame = source.m_ReadPosition;
-            u64 endFrame = glm::min(startFrame + framesToRead, static_cast<u64>(m_AudioData.m_NumFrames));
+            const u64 startFrame = static_cast<u64>(m_NextRefillFrame);
+            const u64 endFrame = glm::min(startFrame + framesToRead, static_cast<u64>(m_AudioData.m_NumFrames));
 
             if (startFrame >= m_AudioData.m_NumFrames)
                 return false;
@@ -484,6 +584,9 @@ namespace OloEngine::Audio::SoundGraph
                 }
             }
 
+            // Advance the "next frame to push" so subsequent refills pick up where we left off.
+            m_NextRefillFrame = static_cast<i64>(endFrame);
+
             return true;
         }
 
@@ -494,6 +597,10 @@ namespace OloEngine::Audio::SoundGraph
         i64 m_StartSample{ 0 };
         i64 m_LoopCount{ 0 };
         i64 m_TotalFrames{ 0 };
+        // Next frame index in m_AudioData that ForceRefillBuffer will push from. Each
+        // successful refill advances this so we never re-push samples that are still in
+        // the circular buffer. Reset on Init / StartPlayback (and on loop wrap).
+        i64 m_NextRefillFrame{ 0 };
 
         // Async loading state
         enum class LoadState

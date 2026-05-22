@@ -7,6 +7,8 @@
 		"UndoRedo/EntityCommands.h"
 		"UndoRedo/ComponentCommands.h"
 		"UndoRedo/SpecializedCommands.h"
+		"UndoRedo/AnimationGraphCommands.h"
+		"UndoRedo/SoundGraphCommands.h"
 		
 		"Panels/AnimationPanel.cpp"
 		"Panels/AnimationPanel.h"
@@ -49,6 +51,8 @@
 		"Panels/SaveGamePanel.h"
 		"Panels/ShaderGraphEditorPanel.cpp"
 		"Panels/ShaderGraphEditorPanel.h"
+		"Panels/SoundGraphEditorPanel.cpp"
+		"Panels/SoundGraphEditorPanel.h"
 		"Panels/GamepadDebugPanel.cpp"
 		"Panels/GamepadDebugPanel.h"
 		"Panels/NavMeshPanel.cpp"

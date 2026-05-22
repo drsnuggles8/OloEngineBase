@@ -90,6 +90,68 @@ namespace OloEngine
 		}
 	}
 
+	public partial class AudioSoundGraphComponent : Component
+	{
+		/// <summary>
+		/// Is the sound graph currently producing audio?
+		/// </summary>
+		public bool IsPlaying()
+		{
+			InternalCalls.AudioSoundGraphComponent_IsPlaying(Entity.ID, out bool v);
+			return v;
+		}
+
+		/// <summary>
+		/// Starts (or restarts) the sound graph.
+		/// </summary>
+		public void Play()
+		{
+			InternalCalls.AudioSoundGraphComponent_Play(Entity.ID);
+		}
+
+		/// <summary>
+		/// Stops the sound graph.
+		/// </summary>
+		public void Stop()
+		{
+			InternalCalls.AudioSoundGraphComponent_Stop(Entity.ID);
+		}
+
+		/// <summary>
+		/// Pauses the sound graph. Call Play() to resume.
+		/// </summary>
+		public void Pause()
+		{
+			InternalCalls.AudioSoundGraphComponent_Pause(Entity.ID);
+		}
+
+		/// <summary>
+		/// Sets a named float input parameter on the graph. Returns false when the graph has
+		/// not yet been instantiated (e.g. PlayOnAwake was false and Play has not been called)
+		/// or when the named parameter does not exist on the graph.
+		/// </summary>
+		public bool SetParameter(string name, float value)
+		{
+			return InternalCalls.AudioSoundGraphComponent_SetParameterFloat(Entity.ID, name, value);
+		}
+
+		/// <summary>
+		/// Sets a named int input parameter on the graph.
+		/// </summary>
+		public bool SetParameter(string name, int value)
+		{
+			return InternalCalls.AudioSoundGraphComponent_SetParameterInt(Entity.ID, name, value);
+		}
+
+		/// <summary>
+		/// Sets a named bool input parameter on the graph.
+		/// </summary>
+		public bool SetParameter(string name, bool value)
+		{
+			return InternalCalls.AudioSoundGraphComponent_SetParameterBool(Entity.ID, name, value);
+		}
+	}
+
 	// ── UI Components ────────────────────────────────────────────────────
 	// (All UI property classes are fully generated in Components.Generated.cs)
 

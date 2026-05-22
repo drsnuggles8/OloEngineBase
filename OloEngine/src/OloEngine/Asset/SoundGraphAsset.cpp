@@ -101,8 +101,16 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        // Validate nodes exist
-        if (HasNode(connection.m_SourceNodeID) && HasNode(connection.m_TargetNodeID))
+        // Endpoint must either resolve to a real node, or be the graph-IO sentinel
+        // (UUID(0) on the source side = "from graph input", UUID(0) on the target side =
+        // "to graph output"). Rejecting UUID(0) here would diverge from the serializer
+        // path — which simply appends to m_Connections — and silently drop every
+        // node↔graph-IO wire the user can draw in the editor.
+        auto endpointResolves = [this](const UUID& id)
+        {
+            return id == UUID(0) || HasNode(id);
+        };
+        if (endpointResolves(connection.m_SourceNodeID) && endpointResolves(connection.m_TargetNodeID))
         {
             m_Connections.push_back(connection);
             return true;
@@ -167,11 +175,18 @@ namespace OloEngine
             nodeIds.insert(node.m_ID);
         }
 
-        // Validate all connections reference existing nodes
+        // Validate all connections reference existing nodes. UUID(0) is the graph-IO
+        // sentinel — source UUID(0) means "from graph input", target UUID(0) means "to
+        // graph output". AddConnection accepts these explicitly (see endpointResolves);
+        // treat them as valid here too so editor-drawable IO wires don't make the asset
+        // report itself invalid.
         for (const auto& connection : m_Connections)
         {
-            if (nodeIds.find(connection.m_SourceNodeID) == nodeIds.end() ||
-                nodeIds.find(connection.m_TargetNodeID) == nodeIds.end())
+            const bool sourceOk = connection.m_SourceNodeID == UUID(0) ||
+                                  nodeIds.find(connection.m_SourceNodeID) != nodeIds.end();
+            const bool targetOk = connection.m_TargetNodeID == UUID(0) ||
+                                  nodeIds.find(connection.m_TargetNodeID) != nodeIds.end();
+            if (!sourceOk || !targetOk)
                 return false;
         }
 
@@ -196,13 +211,14 @@ namespace OloEngine
             nodeIds.insert(node.m_ID);
         }
 
-        // Validate connections
+        // Validate connections. UUID(0) is the graph-IO sentinel — see the matching
+        // comment in IsValid() above. Don't flag it as a missing node.
         for (const auto& connection : m_Connections)
         {
-            if (!HasNode(connection.m_SourceNodeID))
+            if (connection.m_SourceNodeID != UUID(0) && !HasNode(connection.m_SourceNodeID))
                 errors.push_back("Connection references non-existent source node: " + std::to_string(static_cast<u64>(connection.m_SourceNodeID)));
 
-            if (!HasNode(connection.m_TargetNodeID))
+            if (connection.m_TargetNodeID != UUID(0) && !HasNode(connection.m_TargetNodeID))
                 errors.push_back("Connection references non-existent target node: " + std::to_string(static_cast<u64>(connection.m_TargetNodeID)));
         }
 
@@ -218,6 +234,26 @@ namespace OloEngine
         {
             m_NodeIdMap[m_Nodes[i].m_ID] = i;
         }
+    }
+
+    Ref<SoundGraphAsset> SoundGraphAsset::Clone() const
+    {
+        OLO_PROFILE_FUNCTION();
+
+        auto clone = Ref<SoundGraphAsset>::Create();
+        clone->m_Name = m_Name;
+        clone->m_Description = m_Description;
+        clone->m_Nodes = m_Nodes;
+        clone->m_Connections = m_Connections;
+        clone->m_GraphInputs = m_GraphInputs;
+        clone->m_GraphOutputs = m_GraphOutputs;
+        clone->m_LocalVariables = m_LocalVariables;
+        clone->m_WaveSources = m_WaveSources;
+        clone->m_Version = m_Version;
+        clone->m_NodeIdMap = m_NodeIdMap;
+        // Compiled prototype is derived state — leave null so the next save/compile cycle
+        // produces a fresh one matching the snapshot's topology.
+        return clone;
     }
 
     const Ref<Audio::SoundGraph::Prototype>& SoundGraphAsset::GetCompiledPrototype() const

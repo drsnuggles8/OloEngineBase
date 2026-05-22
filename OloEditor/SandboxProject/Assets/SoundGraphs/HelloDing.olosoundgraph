@@ -1,0 +1,36 @@
+SoundGraph:
+  Name: HelloDing
+  Handle: 0
+  Nodes:
+    - ID: 9000000000000001
+      Name: Player
+      Type: WavePlayer
+      Properties:
+        WaveAsset: "1"
+        StartTime: "0"
+        Loop: "false"
+        NumberOfLoops: "-1"
+  Connections:
+    # Trigger: graph-level "Play" event fan-out into the WavePlayer's Play event input.
+    - SourceNodeID: 0
+      SourceEndpoint: Play
+      TargetNodeID: 9000000000000001
+      TargetEndpoint: Play
+      IsEvent: true
+    # Audio: WavePlayer's stereo outs into the graph-output OutLeft/OutRight buses.
+    - SourceNodeID: 9000000000000001
+      SourceEndpoint: OutLeft
+      TargetNodeID: 0
+      TargetEndpoint: OutLeft
+      IsEvent: false
+    - SourceNodeID: 9000000000000001
+      SourceEndpoint: OutRight
+      TargetNodeID: 0
+      TargetEndpoint: OutRight
+      IsEvent: false
+  GraphInputs:
+    {}
+  GraphOutputs:
+    {}
+  LocalVariables:
+    {}

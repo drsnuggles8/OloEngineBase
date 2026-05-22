@@ -21,7 +21,11 @@ namespace OloEngine
             return;
         }
 
-        auto filepath = Project::GetAssetDirectory() / metadata.FilePath;
+        // metadata.FilePath is project-root-relative (see
+        // EditorAssetManager::GetRelativePath) — it already starts with "Assets/", so we
+        // resolve against GetProjectDirectory(). Joining onto GetAssetDirectory() would
+        // double the Assets segment and the file open would fail.
+        auto filepath = Project::GetProjectDirectory() / metadata.FilePath;
 
         YAML::Emitter out;
         out << YAML::BeginMap;
@@ -64,7 +68,9 @@ namespace OloEngine
 
     bool LightProbeVolumeSerializer::TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const
     {
-        auto filepath = Project::GetAssetDirectory() / metadata.FilePath;
+        // See Serialize() above for why this resolves against GetProjectDirectory() —
+        // metadata.FilePath is project-root-relative.
+        auto filepath = Project::GetProjectDirectory() / metadata.FilePath;
 
         std::ifstream fin(filepath, std::ios::binary);
         if (!fin.is_open())

@@ -50,7 +50,7 @@ namespace OloEngine::Tests
             AssetType::SpatializationConfig, // audio runtime config; no asset file yet
             AssetType::Terrain,              // procedural — generated, not imported
             AssetType::NavMesh,              // baked at runtime from scene geometry
-            AssetType::SoundGraph,           // runtime sound graph; the asset file uses `SoundGraphSound`
+            AssetType::SoundGraphSound,      // runtime audio source instance — built from a `SoundGraph` (.olosoundgraph) asset; no on-disk format of its own
             AssetType::TextureCube,          // built at runtime from 6 .png faces (or an HDR equirect → cubemap conversion); no dedicated extension
         };
 

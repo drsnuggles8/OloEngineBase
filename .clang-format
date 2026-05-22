@@ -38,6 +38,10 @@ ColumnLimit: 0
 SortIncludes: false
 SpaceAfterTemplateKeyword: false
 
-# Line Endings (Note: Clang-format doesn't enforce CRLF as well as EditorConfig,
-# but we can set the line ending style)
-LineEnding: CRLF
+# Line Endings: preserve whatever's in the file. CRLF here would force clang-format
+# to rewrite every source file on Linux CI (where Git checks out LF) — the rewrite
+# trips the pre-commit hook and turns CI red even though locally on Windows it
+# silently passes (autocrlf=true means the working tree is already CRLF). DeriveLF
+# picks LF unless the file already starts with CRLF, so Windows and Linux both end
+# up no-op. Real EOL policy lives in .gitattributes (`* text=auto`).
+LineEnding: DeriveLF

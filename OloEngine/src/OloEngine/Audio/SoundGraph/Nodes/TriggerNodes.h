@@ -60,13 +60,16 @@ namespace OloEngine::Audio::SoundGraph
             {
                 m_Counter += m_FrameTime;
 
-                // Guard against zero/negative/non-finite period to prevent infinite loop
+                // Guard against zero/negative/non-finite period to prevent infinite loop.
+                // If the input plug never got bound (m_Period == nullptr) treat it as
+                // "use default" rather than crashing — the editor can leave a freshly
+                // dropped node with unbound inputs until the user wires them up.
                 static constexpr f32 kMinPeriod = 0.001f; // 1ms minimum period (1000 Hz max frequency)
                 f32 safePeriod;
-                if (!std::isfinite(*m_InPeriod) || *m_InPeriod < kMinPeriod)
+                if (!m_Period || !std::isfinite(*m_Period) || *m_Period < kMinPeriod)
                     safePeriod = kMinPeriod;
                 else
-                    safePeriod = *m_InPeriod;
+                    safePeriod = *m_Period;
 
                 // Handle multiple periods if frame time exceeds period, preserving overshoot
                 while (m_Counter >= safePeriod)
@@ -79,7 +82,7 @@ namespace OloEngine::Audio::SoundGraph
 
         //==========================================================================
         /// NodeProcessor setup
-        f32* m_InPeriod = nullptr;
+        f32* m_Period = nullptr;
         OutputEvent m_OutTrigger{ *this };
 
       private:
@@ -142,7 +145,10 @@ namespace OloEngine::Audio::SoundGraph
             InitializeInputs();
 
             m_OutCount = 0;
-            m_OutValue = (*m_InStartValue);
+            // Inputs may not be wired yet (editor can leave plugs unbound until the user
+            // connects them); fall through with 0 in that case instead of dereferencing
+            // a nullptr.
+            m_OutValue = m_StartValue ? (*m_StartValue) : 0.0f;
         }
 
         void Process() final
@@ -169,15 +175,15 @@ namespace OloEngine::Audio::SoundGraph
 
         //==========================================================================
         /// NodeProcessor setup
-        f32* m_InStartValue = nullptr;
-        f32* m_InStepSize = nullptr;
-        i32* m_InResetCount = nullptr;
+        f32* m_StartValue = nullptr;
+        f32* m_StepSize = nullptr;
+        i32* m_ResetCount = nullptr;
 
         i32 m_OutCount = 0;
         f32 m_OutValue = 0.0f;
 
-        OutputEvent m_OutOnTrigger{ *this };
-        OutputEvent m_OutOnReset{ *this };
+        OutputEvent m_OnTrigger{ *this };
+        OutputEvent m_OnReset{ *this };
 
       private:
         Flag m_TriggerFlag;
@@ -191,13 +197,21 @@ namespace OloEngine::Audio::SoundGraph
         {
             OLO_PROFILE_FUNCTION();
 
-            ++m_OutCount;
-            m_OutValue = (*m_InStepSize) * m_OutCount + (*m_InStartValue);
+            // Unbound plugs (editor hasn't wired the input yet) fall back to defaults:
+            // step = 1 (count-up), start = 0, reset = 0 (no auto-reset). Dereferencing
+            // nullptr here used to crash the editor as soon as you dropped a
+            // TriggerCounter and fired its input event without binding the inputs.
+            const f32 step = m_StepSize ? *m_StepSize : 1.0f;
+            const f32 start = m_StartValue ? *m_StartValue : 0.0f;
+            const i32 resetCount = m_ResetCount ? *m_ResetCount : 0;
 
-            m_OutOnTrigger(1.0f);
+            ++m_OutCount;
+            m_OutValue = step * m_OutCount + start;
+
+            m_OnTrigger(1.0f);
 
             // Auto-reset if we've reached the reset count (defer to end of frame)
-            if ((*m_InResetCount) > 0 && m_OutCount >= (*m_InResetCount))
+            if (resetCount > 0 && m_OutCount >= resetCount)
             {
                 m_PendingAutoReset = true;
             }
@@ -207,9 +221,9 @@ namespace OloEngine::Audio::SoundGraph
         {
             OLO_PROFILE_FUNCTION();
 
-            m_OutValue = (*m_InStartValue);
+            m_OutValue = m_StartValue ? (*m_StartValue) : 0.0f;
             m_OutCount = 0;
-            m_OutOnReset(1.0f);
+            m_OnReset(1.0f);
             m_PendingAutoReset = false;
         }
     };
@@ -259,7 +273,10 @@ namespace OloEngine::Audio::SoundGraph
             if (m_ResetFlag.CheckAndResetIfDirty())
                 ProcessReset();
 
-            if (m_Waiting && (m_Counter += m_FrameTime) >= (*m_InDelayTime))
+            // Unbound delay → behave like zero-delay passthrough. Guards against the
+            // editor-not-yet-wired case the rest of these nodes already handle.
+            const f32 delay = m_DelayTime ? *m_DelayTime : 0.0f;
+            if (m_Waiting && (m_Counter += m_FrameTime) >= delay)
             {
                 m_Waiting = false;
                 m_Counter = 0.0f;
@@ -269,9 +286,9 @@ namespace OloEngine::Audio::SoundGraph
 
         //==========================================================================
         /// NodeProcessor setup
-        f32* m_InDelayTime = nullptr;
+        f32* m_DelayTime = nullptr;
         OutputEvent m_OutDelayedTrigger{ *this };
-        OutputEvent m_OutOnReset{ *this };
+        OutputEvent m_OnReset{ *this };
 
       private:
         bool m_Waiting = false;
@@ -298,7 +315,7 @@ namespace OloEngine::Audio::SoundGraph
 
             m_Waiting = false;
             m_Counter = 0.0f;
-            m_OutOnReset(1.0f);
+            m_OnReset(1.0f);
         }
     };
 

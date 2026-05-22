@@ -20,6 +20,9 @@
 #include "OloEngine/Scripting/Lua/LuaScriptEngine.h"
 #include "OloEngine/Animation/BoneEntityUtils.h"
 #include "OloEngine/Animation/AnimationSystem.h"
+#include "OloEngine/Asset/SoundGraphAsset.h"
+#include "OloEngine/Audio/SoundGraph/GraphGeneration.h"
+#include "OloEngine/Audio/SoundGraph/SoundGraph.h"
 #include "OloEngine/Animation/MorphTargets/MorphTargetSystem.h"
 #include "OloEngine/Animation/AnimationGraphComponent.h"
 #include "OloEngine/Animation/AnimationGraphAsset.h"
@@ -492,6 +495,76 @@ namespace OloEngine
                 }
             }
         }
+
+        // Sound graph components: load the referenced graph asset, compile a prototype via the
+        // SoundGraphCache, instantiate a runnable graph, and hand it to a SoundGraphSound wrapper
+        // for this entity. The miniaudio callback bridge that actually outputs audio from a
+        // SoundGraphSource is not wired yet — this builds the lifecycle scaffolding (asset load,
+        // per-entity ownership, ReplaceGraph) so hot-reload and editor wiring have something
+        // concrete to swap against once the callback work lands.
+        OLO_PROFILE_SCOPE("Scene::InitAudioRuntime - SoundGraph startup");
+        for (auto soundGraphView = m_Registry.view<AudioSoundGraphComponent>(); auto entityID : soundGraphView)
+        {
+            auto& sgc = soundGraphView.get<AudioSoundGraphComponent>(entityID);
+            if (sgc.SoundGraphHandle == 0)
+            {
+                continue;
+            }
+
+            auto graphAsset = AssetManager::GetAsset<SoundGraphAsset>(sgc.SoundGraphHandle);
+            if (!graphAsset)
+            {
+                OLO_CORE_WARN("Scene::InitAudioRuntime - AudioSoundGraphComponent references missing graph asset {}", sgc.SoundGraphHandle);
+                continue;
+            }
+
+            Ref<Audio::SoundGraph::Prototype> prototype = graphAsset->GetCompiledPrototype();
+            if (!prototype)
+            {
+                // Lazy compile — first runtime use of an asset that wasn't saved through the
+                // editor (or was saved by an old build that didn't compile). Cache the result
+                // back on the asset so subsequent entities sharing this graph skip the work.
+                prototype = Audio::SoundGraph::CompileAssetToPrototype(*graphAsset);
+                if (!prototype)
+                {
+                    OLO_CORE_WARN("Scene::InitAudioRuntime - SoundGraphAsset {} compile failed; not playable", sgc.SoundGraphHandle);
+                    continue;
+                }
+                graphAsset->SetCompiledPrototype(prototype);
+            }
+
+            Ref<Audio::SoundGraph::SoundGraph> graphInstance = Audio::SoundGraph::CreateInstance(prototype);
+            if (!graphInstance)
+            {
+                OLO_CORE_WARN("Scene::InitAudioRuntime - CreateInstance returned null for SoundGraphAsset {}", sgc.SoundGraphHandle);
+                continue;
+            }
+
+            sgc.Sound = Ref<Audio::SoundGraph::SoundGraphSound>::Create();
+            sgc.Sound->InitializeAudioCallback();
+            if (!sgc.Sound->InitializeFromGraph(graphInstance))
+            {
+                OLO_CORE_WARN("Scene::InitAudioRuntime - SoundGraphSound::InitializeFromGraph failed for asset {}", sgc.SoundGraphHandle);
+                sgc.Sound = nullptr;
+                continue;
+            }
+
+            // Stash the originating asset handle so the asset-reload dispatcher can find
+            // this source when its graph asset is edited on disk and call ReplaceGraph().
+            if (auto* source = sgc.Sound->GetSource())
+            {
+                source->SetSourceAssetHandle(sgc.SoundGraphHandle);
+            }
+
+            sgc.Sound->SetVolume(sgc.VolumeMultiplier);
+            sgc.Sound->SetPitch(sgc.PitchMultiplier);
+            sgc.Sound->SetLooping(sgc.Looping);
+
+            if (sgc.PlayOnAwake)
+            {
+                sgc.Sound->Play();
+            }
+        }
     }
 
     void Scene::OnRuntimeStart()
@@ -669,6 +742,16 @@ namespace OloEngine
             if (ac.Source)
                 ac.Source->Stop();
             ac.ActiveEventID = 0;
+        }
+
+        for (auto view = m_Registry.view<AudioSoundGraphComponent>(); auto&& [e, sgc] : view.each())
+        {
+            if (sgc.Sound)
+            {
+                sgc.Sound->Stop();
+                sgc.Sound->ReleaseResources();
+                sgc.Sound = nullptr;
+            }
         }
 
         // Shut down audio events system
@@ -1971,6 +2054,8 @@ namespace OloEngine
     void Scene::OnComponentAdded<StateMachineComponent>(Entity, StateMachineComponent&) {}
     template<>
     void Scene::OnComponentAdded<TileRendererComponent>(Entity, TileRendererComponent&) {}
+    template<>
+    void Scene::OnComponentAdded<AudioSoundGraphComponent>(Entity, AudioSoundGraphComponent&) {}
 
     template<>
     void Scene::OnComponentAdded<Rigidbody3DComponent>(Entity entity, Rigidbody3DComponent& component)
@@ -5179,6 +5264,18 @@ namespace OloEngine
     OLO_ON_COMPONENT_REMOVED_NOOP(TriangleMeshCollider3DComponent)
     OLO_ON_COMPONENT_REMOVED_NOOP(AudioSourceComponent)
     OLO_ON_COMPONENT_REMOVED_NOOP(AudioListenerComponent)
+    template<>
+    void Scene::OnComponentRemoved<AudioSoundGraphComponent>(Entity, AudioSoundGraphComponent& component)
+    {
+        // Stop the live sound graph and drop the Sound ref so the audio thread doesn't
+        // keep pulling samples from a graph whose entity is about to disappear. Previously
+        // this was a no-op, which let the source linger until something else cleaned it up.
+        if (component.Sound)
+        {
+            component.Sound->Stop();
+            component.Sound = nullptr;
+        }
+    }
     OLO_ON_COMPONENT_REMOVED_NOOP(PrefabComponent)
     OLO_ON_COMPONENT_REMOVED_NOOP(UICanvasComponent)
     OLO_ON_COMPONENT_REMOVED_NOOP(UIRectTransformComponent)

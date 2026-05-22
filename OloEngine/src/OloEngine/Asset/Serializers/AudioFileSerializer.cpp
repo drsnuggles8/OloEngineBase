@@ -21,8 +21,12 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        // Get the file path for this asset
-        auto filePath = Project::GetAssetDirectory() / metadata.FilePath;
+        // AssetMetadata::FilePath is stored relative to the *project* root (via
+        // EditorAssetManager::GetRelativePath, which uses std::filesystem::relative
+        // against m_ProjectPath). It already includes the "Assets/" segment, so joining
+        // it onto GetAssetDirectory() would double the Assets folder and the OS would
+        // report file-not-found. The right base is GetProjectDirectory().
+        auto filePath = Project::GetProjectDirectory() / metadata.FilePath;
 
         if (!std::filesystem::exists(filePath))
         {
@@ -94,8 +98,11 @@ namespace OloEngine
             return false;
         }
 
-        // Get the file path for this asset
-        auto path = Project::GetAssetDirectory() / Project::GetAssetManager()->GetAssetMetadata(handle).FilePath;
+        // Get the file path for this asset. metadata.FilePath is project-root-relative
+        // (see TryLoadData above), so we resolve via GetProjectDirectory(); then we
+        // serialize the *asset-directory-relative* form (drops the "Assets/" prefix) so
+        // the runtime side of the asset pack treats it the same as other content paths.
+        auto path = Project::GetProjectDirectory() / Project::GetAssetManager()->GetAssetMetadata(handle).FilePath;
         auto relativePath = std::filesystem::relative(path, Project::GetAssetDirectory());
 
         std::string filePath;

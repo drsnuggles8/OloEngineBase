@@ -50,8 +50,13 @@ namespace OloEngine
         EditorAssetManager();
         virtual ~EditorAssetManager();
 
-        // AssetManagerBase interface implementation
-        virtual void Initialize();
+        // AssetManagerBase interface implementation.
+        // `startFileWatcher = true` is the editor-runtime default and spawns the
+        // background filewatch::FileWatch thread for hot-reload. Test fixtures and
+        // headless contexts should pass `false`: the watcher's callback thread
+        // enqueues onto the FNamedThreadManager singleton, which races its global
+        // destructor at process exit (caught by TSan on Linux CI).
+        virtual void Initialize(bool startFileWatcher = true);
         virtual void Shutdown() noexcept override;
 
         virtual AssetType GetAssetType(AssetHandle assetHandle) const noexcept override;

@@ -107,9 +107,20 @@ namespace OloEngine::Audio::SoundGraph
 
                                 if constexpr (std::is_pointer_v<ValueType>)
                                 {
-                                    // Pointer members - these will be connected to input streams
+                                    // Pointer members - these will be connected to input streams.
+                                    // The parameter system only supports primitive value types
+                                    // (the ones choc::value::Value can hold): bool / int32 /
+                                    // int64 / float / double. Non-primitive pointer members
+                                    // (e.g. `std::vector<T>* m_Array` on Array nodes) aren't
+                                    // expressible as a Value, so they stay unregistered here
+                                    // and the node is responsible for null-checking. This
+                                    // matches the de-facto pre-existing behavior where the
+                                    // entire reflection path was silently no-op'd.
                                     using UnderlyingType = std::remove_pointer_t<ValueType>;
-                                    node->template AddParameter<UnderlyingType>(OloEngine::Identifier(cleanName.c_str()), cleanName, UnderlyingType{});
+                                    if constexpr (std::is_arithmetic_v<UnderlyingType>)
+                                    {
+                                        node->template AddParameter<UnderlyingType>(OloEngine::Identifier(cleanName.c_str()), cleanName, UnderlyingType{});
+                                    }
                                     return true;
                                 }
                                 else
@@ -159,18 +170,28 @@ namespace OloEngine::Audio::SoundGraph
                                 // Get reference to the OutputEvent member
                                 NodeProcessor::OutputEvent& outputEvent = node->*memberPtr;
 
-                                // Register the output event with the node
-                                // OutEvents stores reference_wrapper<OutputEvent> to avoid copying
-                                node->OutEvents[OloEngine::Identifier(cleanName.c_str())] = std::ref(outputEvent);
+                                // Register the output event with the node. OutEvents stores
+                                // reference_wrapper<OutputEvent> which has no default ctor, so
+                                // `operator[]` won't compile — try_emplace constructs the
+                                // value in place from the std::ref argument.
+                                node->OutEvents.try_emplace(OloEngine::Identifier(cleanName.c_str()),
+                                                            std::ref(outputEvent));
 
                                 return true;
                             }
                             else
                             {
-                                // Handle output parameters (always direct values for outputs)
-                                using ValueType = typename Core::Reflection::MemberPointer::ReturnType<decltype(memberPtr)>::Type;
-                                // Output values are registered but not added as parameters since they're computed
-                                // The processing function will set their values directly
+                                // Output value (f32 / i32 / bool member). Register a ValueView
+                                // into OutputStreams pointing at the member's storage so that
+                                // downstream wiring (NodeValue_NodeValue and NodeValue_GraphValue
+                                // connections) can resolve `node->OutValue(id)` via OutputStreams.at(id).
+                                // Without this registration, `OutputStreams.at` throws
+                                // out_of_range ("invalid unordered_map<K, T> key") the moment any
+                                // graph wires this output anywhere.
+                                using MemberValueType = std::remove_reference_t<decltype(node->*memberPtr)>;
+                                node->template AddOutStream<MemberValueType>(
+                                    OloEngine::Identifier(cleanName.c_str()),
+                                    node->*memberPtr);
                                 return true;
                             }
                     };

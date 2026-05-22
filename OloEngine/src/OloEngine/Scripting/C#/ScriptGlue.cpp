@@ -42,6 +42,7 @@
 #include "OloEngine/Physics3D/JoltScene.h"
 #include "OloEngine/Audio/AudioEvents/AudioPlayback.h"
 #include "OloEngine/Audio/AudioEvents/CommandID.h"
+#include "OloEngine/Audio/SoundGraph/SoundGraphSound.h"
 
 #include <mono/metadata/object.h>
 #include <mono/metadata/reflection.h>
@@ -284,6 +285,77 @@ namespace OloEngine
         {
             component.Source->Stop();
         }
+    }
+
+    ///////////////////////////////////////////////////////////////////////////////////////////
+    // Audio Sound Graph //////////////////////////////////////////////////////////////////////
+    ///////////////////////////////////////////////////////////////////////////////////////////
+
+    // Sound is allocated by Scene::InitAudioRuntime after the graph compiles. Before that
+    // (graph not yet instantiated, or asset failed to compile) the actions silently no-op
+    // and IsPlaying returns false — gameplay code can poll without crashing on early-frame
+    // calls.
+    void AudioSoundGraphComponent_IsPlaying(u64 entityID, bool* outIsPlaying)
+    {
+        const auto& component = GetEntity(entityID).GetComponent<AudioSoundGraphComponent>();
+        *outIsPlaying = component.Sound && component.Sound->IsPlaying();
+    }
+
+    void AudioSoundGraphComponent_Play(u64 entityID)
+    {
+        auto& component = GetEntity(entityID).GetComponent<AudioSoundGraphComponent>();
+        if (component.Sound)
+            component.Sound->Play();
+    }
+
+    void AudioSoundGraphComponent_Stop(u64 entityID)
+    {
+        auto& component = GetEntity(entityID).GetComponent<AudioSoundGraphComponent>();
+        if (component.Sound)
+            component.Sound->Stop();
+    }
+
+    void AudioSoundGraphComponent_Pause(u64 entityID)
+    {
+        auto& component = GetEntity(entityID).GetComponent<AudioSoundGraphComponent>();
+        if (component.Sound)
+            component.Sound->Pause();
+    }
+
+    // Three typed SetParameter entry points because Mono cannot dispatch the C++
+    // overload set across the P/Invoke boundary by argument type alone. The C# side
+    // exposes a single `SetParameter` with overloads that pick the right call.
+    static bool AudioSoundGraphComponent_SetParameterFloat(UUID entityID, MonoString* paramName, f32 value)
+    {
+        if (!paramName)
+            return false;
+        auto& component = GetEntity(entityID).GetComponent<AudioSoundGraphComponent>();
+        char* name = mono_string_to_utf8(paramName);
+        bool result = component.SetParameter(std::string(name), value);
+        mono_free(name);
+        return result;
+    }
+
+    static bool AudioSoundGraphComponent_SetParameterInt(UUID entityID, MonoString* paramName, i32 value)
+    {
+        if (!paramName)
+            return false;
+        auto& component = GetEntity(entityID).GetComponent<AudioSoundGraphComponent>();
+        char* name = mono_string_to_utf8(paramName);
+        bool result = component.SetParameter(std::string(name), value);
+        mono_free(name);
+        return result;
+    }
+
+    static bool AudioSoundGraphComponent_SetParameterBool(UUID entityID, MonoString* paramName, bool value)
+    {
+        if (!paramName)
+            return false;
+        auto& component = GetEntity(entityID).GetComponent<AudioSoundGraphComponent>();
+        char* name = mono_string_to_utf8(paramName);
+        bool result = component.SetParameter(std::string(name), value);
+        mono_free(name);
+        return result;
     }
 
     ///////////////////////////////////////////////////////////////////////////////////////////
@@ -2872,6 +2944,14 @@ namespace OloEngine
         OLO_ADD_INTERNAL_CALL(AudioSourceComponent_Pause);
         OLO_ADD_INTERNAL_CALL(AudioSourceComponent_UnPause);
         OLO_ADD_INTERNAL_CALL(AudioSourceComponent_Stop);
+
+        OLO_ADD_INTERNAL_CALL(AudioSoundGraphComponent_IsPlaying);
+        OLO_ADD_INTERNAL_CALL(AudioSoundGraphComponent_Play);
+        OLO_ADD_INTERNAL_CALL(AudioSoundGraphComponent_Stop);
+        OLO_ADD_INTERNAL_CALL(AudioSoundGraphComponent_Pause);
+        OLO_ADD_INTERNAL_CALL(AudioSoundGraphComponent_SetParameterFloat);
+        OLO_ADD_INTERNAL_CALL(AudioSoundGraphComponent_SetParameterInt);
+        OLO_ADD_INTERNAL_CALL(AudioSoundGraphComponent_SetParameterBool);
 
         ///////////////////////////////////////////////////////////////
         // Audio Events ///////////////////////////////////////////////

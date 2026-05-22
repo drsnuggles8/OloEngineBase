@@ -67,20 +67,20 @@ namespace OloEngine::Audio::SoundGraph
             EndpointUtilities::InitializeInputs(this);
         }
 
-        T* m_InValue1 = nullptr;
-        T* m_InValue2 = nullptr;
-        T m_OutOut{ 0 };
+        T* m_Value1 = nullptr;
+        T* m_Value2 = nullptr;
+        T m_Out{ 0 };
 
         void Process() final
         {
             OLO_PROFILE_FUNCTION();
 
-            if (!m_InValue1 || !m_InValue2)
+            if (!m_Value1 || !m_Value2)
             {
-                m_OutOut = T(0);
+                m_Out = T(0);
                 return;
             }
-            m_OutOut = (*m_InValue1) + (*m_InValue2);
+            m_Out = (*m_Value1) + (*m_Value2);
         }
     };
 
@@ -110,20 +110,20 @@ namespace OloEngine::Audio::SoundGraph
             EndpointUtilities::InitializeInputs(this);
         }
 
-        T* m_InValue1 = nullptr;
-        T* m_InValue2 = nullptr;
-        T m_OutOut{ 0 };
+        T* m_Value1 = nullptr;
+        T* m_Value2 = nullptr;
+        T m_Out{ 0 };
 
         void Process() final
         {
             OLO_PROFILE_FUNCTION();
 
-            if (!m_InValue1 || !m_InValue2)
+            if (!m_Value1 || !m_Value2)
             {
-                m_OutOut = T(0);
+                m_Out = T(0);
                 return;
             }
-            m_OutOut = (*m_InValue1) - (*m_InValue2);
+            m_Out = (*m_Value1) - (*m_Value2);
         }
     };
 
@@ -153,20 +153,20 @@ namespace OloEngine::Audio::SoundGraph
             EndpointUtilities::InitializeInputs(this);
         }
 
-        T* m_InValue = nullptr;
-        T* m_InMultiplier = nullptr;
-        T m_OutOut{ 0 };
+        T* m_Value = nullptr;
+        T* m_Multiplier = nullptr;
+        T m_Out{ 0 };
 
         void Process() final
         {
             OLO_PROFILE_FUNCTION();
 
-            if (!m_InValue || !m_InMultiplier)
+            if (!m_Value || !m_Multiplier)
             {
-                m_OutOut = T(0);
+                m_Out = T(0);
                 return;
             }
-            m_OutOut = (*m_InValue) * (*m_InMultiplier);
+            m_Out = (*m_Value) * (*m_Multiplier);
         }
     };
 
@@ -196,22 +196,22 @@ namespace OloEngine::Audio::SoundGraph
             EndpointUtilities::InitializeInputs(this);
         }
 
-        T* m_InValue = nullptr;
-        T* m_InDenominator = nullptr;
-        T m_OutOut{ 0 };
+        T* m_Value = nullptr;
+        T* m_Denominator = nullptr;
+        T m_Out{ 0 };
 
         void Process() final
         {
             OLO_PROFILE_FUNCTION();
 
-            if (!m_InValue || !m_InDenominator)
+            if (!m_Value || !m_Denominator)
             {
-                m_OutOut = T(0);
+                m_Out = T(0);
                 return;
             }
 
             // Protect against division by zero
-            T denominator = *m_InDenominator;
+            T denominator = *m_Denominator;
             if constexpr (std::is_floating_point_v<T>)
             {
                 if (glm::abs(denominator) < std::numeric_limits<T>::epsilon())
@@ -223,7 +223,7 @@ namespace OloEngine::Audio::SoundGraph
                     denominator = T(1);
             }
 
-            m_OutOut = (*m_InValue) / denominator;
+            m_Out = (*m_Value) / denominator;
         }
     };
 
@@ -253,20 +253,20 @@ namespace OloEngine::Audio::SoundGraph
             EndpointUtilities::InitializeInputs(this);
         }
 
-        T* m_InValue1 = nullptr;
-        T* m_InValue2 = nullptr;
-        T m_OutOut{ 0 };
+        T* m_Value1 = nullptr;
+        T* m_Value2 = nullptr;
+        T m_Out{ 0 };
 
         void Process() final
         {
             OLO_PROFILE_FUNCTION();
 
-            if (!m_InValue1 || !m_InValue2)
+            if (!m_Value1 || !m_Value2)
             {
-                m_OutOut = T(0);
+                m_Out = T(0);
                 return;
             }
-            m_OutOut = glm::min(*m_InValue1, *m_InValue2);
+            m_Out = glm::min(*m_Value1, *m_Value2);
         }
     };
 
@@ -296,20 +296,20 @@ namespace OloEngine::Audio::SoundGraph
             EndpointUtilities::InitializeInputs(this);
         }
 
-        T* m_InValue1 = nullptr;
-        T* m_InValue2 = nullptr;
-        T m_OutOut{ 0 };
+        T* m_Value1 = nullptr;
+        T* m_Value2 = nullptr;
+        T m_Out{ 0 };
 
         void Process() final
         {
             OLO_PROFILE_FUNCTION();
 
-            if (!m_InValue1 || !m_InValue2)
+            if (!m_Value1 || !m_Value2)
             {
-                m_OutOut = T(0);
+                m_Out = T(0);
                 return;
             }
-            m_OutOut = glm::max(*m_InValue1, *m_InValue2);
+            m_Out = glm::max(*m_Value1, *m_Value2);
         }
     };
 
@@ -339,29 +339,29 @@ namespace OloEngine::Audio::SoundGraph
             EndpointUtilities::InitializeInputs(this);
         }
 
-        T* m_InValue = nullptr;
-        T* m_InMinValue = nullptr;
-        T* m_InMaxValue = nullptr;
-        T m_OutOut{ 0 };
+        T* m_Value = nullptr;
+        T* m_MinValue = nullptr;
+        T* m_MaxValue = nullptr;
+        T m_Out{ 0 };
 
         void Process() final
         {
             OLO_PROFILE_FUNCTION();
 
-            if (!m_InValue || !m_InMinValue || !m_InMaxValue)
+            if (!m_Value || !m_MinValue || !m_MaxValue)
             {
-                m_OutOut = T(0);
+                m_Out = T(0);
                 return;
             }
 
-            T minVal = *m_InMinValue;
-            T maxVal = *m_InMaxValue;
+            T minVal = *m_MinValue;
+            T maxVal = *m_MaxValue;
 
             // Ensure min <= max
             if (minVal > maxVal)
                 std::swap(minVal, maxVal);
 
-            m_OutOut = glm::clamp(*m_InValue, minVal, maxVal);
+            m_Out = glm::clamp(*m_Value, minVal, maxVal);
         }
     };
 
@@ -391,27 +391,27 @@ namespace OloEngine::Audio::SoundGraph
             EndpointUtilities::InitializeInputs(this);
         }
 
-        T* m_InValue = nullptr;
-        T* m_InFromMin = nullptr;
-        T* m_InFromMax = nullptr;
-        T* m_InToMin = nullptr;
-        T* m_InToMax = nullptr;
-        T m_OutOut{ 0 };
+        T* m_Value = nullptr;
+        T* m_FromMin = nullptr;
+        T* m_FromMax = nullptr;
+        T* m_ToMin = nullptr;
+        T* m_ToMax = nullptr;
+        T m_Out{ 0 };
 
         void Process() final
         {
             OLO_PROFILE_FUNCTION();
 
-            if (!m_InValue || !m_InFromMin || !m_InFromMax || !m_InToMin || !m_InToMax)
+            if (!m_Value || !m_FromMin || !m_FromMax || !m_ToMin || !m_ToMax)
             {
-                m_OutOut = T(0);
+                m_Out = T(0);
                 return;
             }
 
-            T fromMin = *m_InFromMin;
-            T fromMax = *m_InFromMax;
-            T toMin = *m_InToMin;
-            T toMax = *m_InToMax;
+            T fromMin = *m_FromMin;
+            T fromMax = *m_FromMax;
+            T toMin = *m_ToMin;
+            T toMax = *m_ToMax;
 
             // Use wider floating-point type to avoid integer overflow and division truncation
             using CalcType = std::conditional_t<std::is_integral_v<T>, f64, T>;
@@ -424,7 +424,7 @@ namespace OloEngine::Audio::SoundGraph
             {
                 if (glm::abs(fromRange) < std::numeric_limits<CalcType>::epsilon())
                 {
-                    m_OutOut = toMin;
+                    m_Out = toMin;
                     return;
                 }
             }
@@ -432,20 +432,20 @@ namespace OloEngine::Audio::SoundGraph
             {
                 if (fromRange == CalcType(0))
                 {
-                    m_OutOut = toMin;
+                    m_Out = toMin;
                     return;
                 }
             }
 
             // Linear interpolation: normalize to [0,1] then scale to target range
             // Cast all operands to CalcType before arithmetic to prevent overflow
-            CalcType valueCast = static_cast<CalcType>(*m_InValue);
+            CalcType valueCast = static_cast<CalcType>(*m_Value);
             CalcType fromMinCast = static_cast<CalcType>(fromMin);
             CalcType toMinCast = static_cast<CalcType>(toMin);
             CalcType toMaxCast = static_cast<CalcType>(toMax);
 
             CalcType normalized = (valueCast - fromMinCast) / fromRange;
-            m_OutOut = static_cast<T>(toMinCast + normalized * (toMaxCast - toMinCast));
+            m_Out = static_cast<T>(toMinCast + normalized * (toMaxCast - toMinCast));
         }
     };
 
@@ -475,49 +475,49 @@ namespace OloEngine::Audio::SoundGraph
             EndpointUtilities::InitializeInputs(this);
         }
 
-        T* m_InBase = nullptr;
-        T* m_InExponent = nullptr;
-        T m_OutOut{ 0 };
+        T* m_Base = nullptr;
+        T* m_Exponent = nullptr;
+        T m_Out{ 0 };
 
         void Process() final
         {
             OLO_PROFILE_FUNCTION();
 
-            if (!m_InBase || !m_InExponent)
+            if (!m_Base || !m_Exponent)
             {
-                m_OutOut = T(0);
+                m_Out = T(0);
                 return;
             }
 
             if constexpr (std::is_floating_point_v<T>)
             {
-                m_OutOut = glm::pow(*m_InBase, *m_InExponent);
+                m_Out = glm::pow(*m_Base, *m_Exponent);
             }
             else
             {
                 // For integer types, use safe fast exponentiation with overflow protection
-                T base = *m_InBase;
-                i32 exponent = static_cast<i32>(*m_InExponent);
+                T base = *m_Base;
+                i32 exponent = static_cast<i32>(*m_Exponent);
 
                 if (exponent == 0)
                 {
-                    m_OutOut = T(1);
+                    m_Out = T(1);
                 }
                 else if (exponent < 0)
                 {
                     // Handle negative exponents: return 0 for all bases except ±1
                     if (base == T(1))
                     {
-                        m_OutOut = T(1); // 1^(-n) = 1
+                        m_Out = T(1); // 1^(-n) = 1
                     }
                     else if (base == T(-1))
                     {
                         // (-1)^(-n) = (-1)^n, so check parity of exponent
-                        m_OutOut = ((-exponent) % 2 == 0) ? T(1) : T(-1);
+                        m_Out = ((-exponent) % 2 == 0) ? T(1) : T(-1);
                     }
                     else
                     {
-                        m_OutOut = T(0); // All other integer bases with negative exponent
+                        m_Out = T(0); // All other integer bases with negative exponent
                     }
                 }
                 else
@@ -529,13 +529,13 @@ namespace OloEngine::Audio::SoundGraph
                     {
                         // For very large exponents, result will be 0 (overflow) or ±1/0 for base ±1/0
                         if (base == T(0))
-                            m_OutOut = T(0);
+                            m_Out = T(0);
                         else if (base == T(1))
-                            m_OutOut = T(1);
+                            m_Out = T(1);
                         else if (base == T(-1))
-                            m_OutOut = (exponent % 2 == 0) ? T(1) : T(-1);
+                            m_Out = (exponent % 2 == 0) ? T(1) : T(-1);
                         else
-                            m_OutOut = T(0); // Overflow for other bases
+                            m_Out = T(0); // Overflow for other bases
                         return;
                     }
 
@@ -554,7 +554,7 @@ namespace OloEngine::Audio::SoundGraph
                                 T maxDiv = std::numeric_limits<T>::max() / detail::sat_abs(currentBase);
                                 if (detail::sat_abs(result) > maxDiv)
                                 {
-                                    m_OutOut = T(0); // Overflow
+                                    m_Out = T(0); // Overflow
                                     return;
                                 }
                             }
@@ -571,9 +571,9 @@ namespace OloEngine::Audio::SoundGraph
                                 if (detail::sat_abs(currentBase) > maxSqrt)
                                 {
                                     if (result == T(1)) // Only first iteration, so base^1 is still valid
-                                        m_OutOut = currentBase;
+                                        m_Out = currentBase;
                                     else
-                                        m_OutOut = T(0); // Overflow
+                                        m_Out = T(0); // Overflow
                                     return;
                                 }
                             }
@@ -581,7 +581,7 @@ namespace OloEngine::Audio::SoundGraph
                         }
                     }
 
-                    m_OutOut = result;
+                    m_Out = result;
                 }
             }
         }
@@ -613,19 +613,19 @@ namespace OloEngine::Audio::SoundGraph
             EndpointUtilities::InitializeInputs(this);
         }
 
-        T* m_InValue = nullptr;
-        T m_OutOut{ 0 };
+        T* m_Value = nullptr;
+        T m_Out{ 0 };
 
         void Process() final
         {
             OLO_PROFILE_FUNCTION();
 
-            if (!m_InValue)
+            if (!m_Value)
             {
-                m_OutOut = T(0);
+                m_Out = T(0);
                 return;
             }
-            m_OutOut = detail::sat_abs(*m_InValue);
+            m_Out = detail::sat_abs(*m_Value);
         }
     };
 

@@ -206,7 +206,12 @@
 		"OloEngine/Audio/SoundGraph/Nodes/GeneratorNodes.h"
 		"OloEngine/Audio/SoundGraph/Nodes/MathNodes.h"
 		"OloEngine/Audio/SoundGraph/Nodes/MusicNodes.h"
-		"OloEngine/Audio/SoundGraph/Nodes/NodeDescriptions.cpp"
+		# NodeDescriptions.cpp deliberately *not* in the build — the DESCRIBE_NODE
+		# specializations live in NodeDescriptions.h and are pulled into NodeTypes.cpp,
+		# the only TU that needs them at template-instantiation time. Compiling both as
+		# separate TUs duplicates the inline-variable definitions and the linker can
+		# pick either copy's instance, which manifests as string_view-into-the-wrong-
+		# literal corruption when it picks the wrong one.
 		"OloEngine/Audio/SoundGraph/Nodes/NodeDescriptions.h"
 		"OloEngine/Audio/SoundGraph/Nodes/NodeDescriptors.cpp"
 		"OloEngine/Audio/SoundGraph/Nodes/NodeTypeImpls.h"
@@ -221,6 +226,9 @@
 		"OloEngine/Audio/SoundGraph/GraphGeneration.cpp"
 		"OloEngine/Audio/SoundGraph/GraphGeneration.h"
 		"OloEngine/Audio/SoundGraph/NodeDescriptors.h"
+		"OloEngine/Audio/SoundGraph/NodeSchema.cpp"
+		"OloEngine/Audio/SoundGraph/NodeSchema.h"
+		"OloEngine/Scene/AudioSoundGraphComponent.cpp"
 		"OloEngine/Audio/SoundGraph/NodeProcessor.h"
 		"OloEngine/Audio/SoundGraph/SoundGraph.cpp"
 		"OloEngine/Audio/SoundGraph/SoundGraph.h"

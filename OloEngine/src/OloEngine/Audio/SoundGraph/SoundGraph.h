@@ -184,6 +184,14 @@ namespace OloEngine::Audio::SoundGraph
         /// Output channel values
         std::vector<float> m_OutChannels;
 
+        /// Cached pointers to the endpoint output ValueViews, parallel to m_OutChannels /
+        /// m_OutputChannelIDs. Rebuilt lazily on first Process() after Init() so the
+        /// per-frame sync loop can read each output without doing an unordered_map::find
+        /// — which in Debug (_ITERATOR_DEBUG_LEVEL=2) cost ~1µs per call and at 96 000
+        /// lookups/sec (2 channels × 48 kHz) was a primary cause of the audio thread
+        /// failing to keep real-time.
+        std::vector<const choc::value::ValueView*> m_OutputChannelViews;
+
         //==============================================================================
         /// Graph Construction Public API
 
@@ -441,6 +449,9 @@ namespace OloEngine::Audio::SoundGraph
             // Rebuild node lookup map and find wave players
             m_NodeLookup.clear();
             m_WavePlayers.clear();
+            // Drop the cached endpoint-view pointers; Process() will rebuild them on
+            // its next call once the freshly-(re)wired endpoint map is stable.
+            m_OutputChannelViews.clear();
 
             for (auto& node : m_Nodes)
             {
@@ -474,7 +485,12 @@ namespace OloEngine::Audio::SoundGraph
 
         void Process() final
         {
-            OLO_PROFILE_FUNCTION();
+            // Intentionally no OLO_PROFILE_FUNCTION: this runs once per audio frame
+            // (48000 Hz). In Debug, OLO_PROFILE_FUNCTION resolves to InstrumentationTimer,
+            // which performs two steady_clock::now() calls per invocation regardless of
+            // session state — at 48 kHz that alone is enough to push the audio thread
+            // below real-time. If we ever need per-frame profiling here, gate it behind
+            // a sampled (e.g. 1-in-N) macro instead of an unconditional one.
 
             // Process parameter interpolations
             for (auto& [id, interpValue] : m_InterpInputs)
@@ -483,6 +499,40 @@ namespace OloEngine::Audio::SoundGraph
             // Process all nodes in graph
             for (auto& node : m_Nodes)
                 node->Process();
+
+            // Sample the graph's output channels through m_EndpointOutputStreams. Per-channel
+            // wiring works by aliasing: AddConnection(source, destination) makes destination
+            // point at source's storage. AddGraphOutputStream initially aliases each endpoint
+            // stream to m_OutChannels[i], but AddToGraphOutputConnection then re-aliases it to
+            // the actual producing node's output (e.g. WavePlayer's m_OutLeft). The graph's
+            // m_OutChannels slot itself is never reassigned by those later aliases, so reading
+            // m_OutChannels directly produces the zero default forever. We resolve it through
+            // the (possibly re-aliased) endpoint view here, every frame, so the sample the
+            // engine reads matches what the connected node produced this Process() call.
+            //
+            // Lookup is cached in m_OutputChannelViews on first hit — at 96 000 lookups/sec
+            // in Debug an unordered_map::find was burning ~50 ms per audio second, pushing
+            // the per-frame loop past real-time. The ValueView object lives inside the map's
+            // node and is not moved by AddConnection (which only re-assigns the view's
+            // internal data pointer), so the cached pointer stays valid for the life of the
+            // graph.
+            if (m_OutputChannelViews.size() != m_OutputChannelIDs.size()) [[unlikely]]
+            {
+                m_OutputChannelViews.clear();
+                m_OutputChannelViews.reserve(m_OutputChannelIDs.size());
+                for (const auto& id : m_OutputChannelIDs)
+                {
+                    auto it = m_EndpointOutputStreams.InputStreams.find(id);
+                    m_OutputChannelViews.push_back(it != m_EndpointOutputStreams.InputStreams.end() ? &it->second : nullptr);
+                }
+            }
+            const sizet channelCount = std::min(m_OutChannels.size(), m_OutputChannelViews.size());
+            for (sizet i = 0; i < channelCount; ++i)
+            {
+                const auto* view = m_OutputChannelViews[i];
+                if (view && view->getType().isFloat32())
+                    m_OutChannels[i] = view->getFloat32();
+            }
 
             ++m_CurrentFrame;
         }
@@ -507,21 +557,13 @@ namespace OloEngine::Audio::SoundGraph
             return m_IsInitialized;
         }
 
-        /// Missing method declarations
         void InitializeEndpoints();
-        void ProcessEvents();
         void OnPlay(f32 value);
         void OnStop(f32 value);
+        void OnFinished(f32 value);
         void Play();
         void Stop();
-
-        // Additional methods found in implementation
-        std::queue<GraphEvent> GetPendingEvents();
         void TriggerGraphEvent(std::string_view eventName, f32 value);
-        void ProcessConnections();
-        void OnFinished(f32 value);
-        SoundGraphAsset CreateAssetData() const;
-        void UpdateFromAssetData(const SoundGraphAsset& asset);
 
         //==============================================================================
         /// Event and Message Handling

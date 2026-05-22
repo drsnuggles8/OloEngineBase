@@ -649,13 +649,15 @@ namespace OloEngine::LowLevelTasks
 
     bool FSchedulerTls::HasPendingWakeUp() const
     {
+        OLO_PROFILE_FUNCTION();
+
         FUniqueLock ScopedLock(FImpl::s_ThreadTlsValuesMutex);
         FImpl::ProcessPendingTlsValuesNoLock();
 
 #if PLATFORM_SUPPORTS_ASYMMETRIC_FENCES
         // Heavy barrier since bPendingWakeUp is only written to with a relaxed write,
         // we need all cores to flush their store buffer to memory
-        // FPlatformMisc::AsymmetricThreadFenceHeavy(); // TODO: Implement for ARM platforms
+        FPlatformMisc::AsymmetricThreadFenceHeavy();
         constexpr std::memory_order MemoryOrder = std::memory_order_relaxed;
 #else
         constexpr std::memory_order MemoryOrder = std::memory_order_acquire;
@@ -691,6 +693,8 @@ namespace OloEngine::LowLevelTasks
 
     void FScheduler::LaunchInternal(FTask& Task, EQueuePreference QueuePreference, bool bWakeUpWorker)
     {
+        OLO_PROFILE_FUNCTION();
+
         if (m_ActiveWorkers.load(std::memory_order_relaxed) || m_TemporaryShutdown.load(std::memory_order_acquire))
         {
             FTlsValues& LocalTlsValues = GetTlsValuesRef();
@@ -745,12 +749,12 @@ namespace OloEngine::LowLevelTasks
                 if (bExternalThread)
                 {
 #if PLATFORM_SUPPORTS_ASYMMETRIC_FENCES
-                    // FPlatformMisc::AsymmetricThreadFenceLight(); // TODO: Implement for ARM platforms
+                    FPlatformMisc::AsymmetricThreadFenceLight();
 #endif
                     LocalTlsValues.bPendingWakeUp.store(true, MemoryOrder);
 
 #if PLATFORM_SUPPORTS_ASYMMETRIC_FENCES
-                    // FPlatformMisc::AsymmetricThreadFenceLight(); // TODO: Implement for ARM platforms
+                    FPlatformMisc::AsymmetricThreadFenceLight();
 #endif
 
                     if (m_TemporaryShutdown.load(std::memory_order_acquire))
@@ -768,12 +772,12 @@ namespace OloEngine::LowLevelTasks
                 if (bExternalThread)
                 {
 #if PLATFORM_SUPPORTS_ASYMMETRIC_FENCES
-                    // FPlatformMisc::AsymmetricThreadFenceLight(); // TODO: Implement for ARM platforms
+                    FPlatformMisc::AsymmetricThreadFenceLight();
 #endif
                     LocalTlsValues.bPendingWakeUp.store(false, MemoryOrder);
 
 #if PLATFORM_SUPPORTS_ASYMMETRIC_FENCES
-                    // FPlatformMisc::AsymmetricThreadFenceLight(); // TODO: Implement for ARM platforms
+                    FPlatformMisc::AsymmetricThreadFenceLight();
 #endif
                 }
             }

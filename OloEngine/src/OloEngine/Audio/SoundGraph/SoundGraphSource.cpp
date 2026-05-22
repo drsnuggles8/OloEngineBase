@@ -10,6 +10,47 @@
 
 namespace OloEngine::Audio::SoundGraph
 {
+    namespace
+    {
+        // Static vtable for the custom miniaudio node that pulls samples from a SoundGraph.
+        // The node has zero input buses (the graph is a generator) and one output bus whose
+        // channel count is fixed at SoundGraphSource::Initialize time.
+        void SoundGraphMiniaudioNode_OnProcess(ma_node* pNode,
+                                               const float** ppFramesIn,
+                                               ma_uint32* pFrameCountIn,
+                                               float** ppFramesOut,
+                                               ma_uint32* pFrameCountOut)
+        {
+            (void)ppFramesIn;
+            (void)pFrameCountIn;
+
+            auto* customNode = reinterpret_cast<SoundGraphMiniaudioNode*>(pNode);
+            const ma_uint32 frameCount = *pFrameCountOut;
+            if (customNode && customNode->m_Owner)
+            {
+                customNode->m_Owner->ProcessSamples(ppFramesOut, frameCount);
+            }
+            else if (ppFramesOut)
+            {
+                // No owner — emit silence to avoid producing junk audio.
+                // Channel count is not directly available here without an owner, so silence
+                // the channels miniaudio reports it allocated for us. miniaudio always
+                // provides at least bus[0]; we silence what's there defensively.
+                if (ppFramesOut[0])
+                    std::memset(ppFramesOut[0], 0, sizeof(float) * frameCount);
+            }
+            *pFrameCountOut = frameCount;
+        }
+
+        const ma_node_vtable s_SoundGraphNodeVtable = {
+            SoundGraphMiniaudioNode_OnProcess,
+            nullptr, // onGetRequiredInputFrameCount — not a resampler
+            0,       // 0 input buses (graph generates audio from internal data sources)
+            1,       // 1 output bus
+            0        // flags
+        };
+    } // namespace
+
     //==============================================================================
     /// DataSourceContext Implementation
 
@@ -67,7 +108,7 @@ namespace OloEngine::Audio::SoundGraph
         AssetMetadata metadata = AssetManager::GetAssetMetadata(handle);
         if (metadata.IsValid())
         {
-            std::filesystem::path filePath = Project::GetAssetDirectory() / metadata.FilePath;
+            std::filesystem::path filePath = Project::GetProjectDirectory() / metadata.FilePath;
             if (std::filesystem::exists(filePath))
             {
                 auto cachedAudioData = std::make_shared<Audio::AudioData>();
@@ -299,40 +340,46 @@ namespace OloEngine::Audio::SoundGraph
         m_BlockSize = maxBlockSize;
         m_ChannelCount = channelCount;
 
-        // Set up miniaudio engine node
-        ma_engine_node_config nodeConfig = ma_engine_node_config_init(
-            engine,
-            ma_engine_node_type_group,
-            MA_SOUND_FLAG_NO_SPATIALIZATION);
+        // Set up the custom miniaudio node. We use a bare ma_node (not ma_engine_node) so we
+        // can install our own vtable whose onProcess callback pulls samples from this
+        // SoundGraphSource. The vtable declares 0 input buses + 1 output bus; we set the
+        // output bus channel count via pOutputChannels.
+        m_Node.m_Owner = this;
 
-        // Configure channels based on parameter (default is stereo)
-        nodeConfig.channelsIn = channelCount;
-        nodeConfig.channelsOut = channelCount;
+        ma_node_config nodeConfig = ma_node_config_init();
+        nodeConfig.vtable = &s_SoundGraphNodeVtable;
+        nodeConfig.pOutputChannels = &channelCount;
 
-        ma_result result = ma_engine_node_init(&nodeConfig, nullptr, &m_EngineNode);
+        ma_node_graph* nodeGraph = ma_engine_get_node_graph(engine);
+        ma_result result = ma_node_init(nodeGraph, &nodeConfig, nullptr, &m_Node.m_Base);
         if (result != MA_SUCCESS)
         {
-            OLO_CORE_ERROR("[SoundGraphSource] Failed to initialize engine node: {0}", (int)result);
+            OLO_CORE_ERROR("[SoundGraphSource] Failed to initialize miniaudio node: {0}", (int)result);
+            m_Node.m_Owner = nullptr;
             return false;
         }
 
-        // Store reference to this instance in the node for callback access
-        // Note: This approach needs to be integrated with a proper miniaudio data source
-        // For now, we'll handle processing through external calls
-
-        // Attach to the engine's endpoint for output
-        result = ma_node_attach_output_bus(&m_EngineNode, 0, &engine->nodeGraph.endpoint, 0);
+        // Attach to the engine's endpoint so the audio thread actually pulls from us.
+        result = ma_node_attach_output_bus(&m_Node.m_Base, 0, ma_node_graph_get_endpoint(nodeGraph), 0);
         if (result != MA_SUCCESS)
         {
             OLO_CORE_ERROR("[SoundGraphSource] Failed to attach output bus: {0}", (int)result);
-            ma_engine_node_uninit(&m_EngineNode, nullptr);
+            ma_node_uninit(&m_Node.m_Base, nullptr);
+            m_Node.m_Owner = nullptr;
             return false;
         }
 
         m_IsInitialized = true;
 
-        OLO_CORE_INFO("[SoundGraphSource] Initialized with sample rate: {0}, block size: {1}, channels: {2}",
-                      sampleRate, maxBlockSize, channelCount);
+        // Dump the actual rates miniaudio sees so we can spot any mismatch with the engine.
+        // Output bus sample rate must match the node graph / engine rate or miniaudio will
+        // resample our output (and pull from us at the wrong rate to compensate).
+        OLO_CORE_INFO("[SoundGraphSource] Initialized with sample rate: {0}, block size: {1}, channels: {2} | engine sampleRate={3} nodeGraphChannels={4} nodeGraphProcessingSize={5} ourOutputChannels={6}",
+                      sampleRate, maxBlockSize, channelCount,
+                      ma_engine_get_sample_rate(engine),
+                      ma_node_graph_get_channels(nodeGraph),
+                      ma_node_graph_get_processing_size_in_frames(nodeGraph),
+                      ma_node_get_output_channels(&m_Node.m_Base, 0));
         return true;
     }
 
@@ -364,7 +411,8 @@ namespace OloEngine::Audio::SoundGraph
 
         UninitializeDataSources();
 
-        ma_engine_node_uninit(&m_EngineNode, nullptr);
+        ma_node_uninit(&m_Node.m_Base, nullptr);
+        m_Node.m_Owner = nullptr;
 
         m_Engine = nullptr;
         m_Graph = nullptr;
@@ -487,21 +535,52 @@ namespace OloEngine::Audio::SoundGraph
         if (newGraph == m_Graph)
             return;
 
-        m_Graph = newGraph;
-
-        if (m_Graph)
+        // Swap the live graph reference under the suspend protocol so we don't tear it out
+        // from under an in-flight ProcessSamples on the audio thread. SuspendProcessing
+        // raises m_SuspendFlag; ProcessSamples observes it on its next call and writes
+        // m_Suspended = true, at which point we know the audio thread is parked in the
+        // silence-output fast path and the swap is safe. If we time out waiting for the
+        // ack we must NOT swap m_Graph — doing so races with the audio thread still
+        // holding a pointer into the old graph, which Ref<>'s decref would then free.
+        // On timeout we just resume and bail; the caller's newGraph goes out of scope and
+        // a future ReplaceGraph can try again.
+        const bool wasInitialized = m_IsInitialized;
+        bool suspendAcked = !wasInitialized; // not-yet-initialized = no audio thread to worry about
+        if (wasInitialized)
         {
-            // Set up wave source refill callback
-            // Note: This is a simplified approach - in a full implementation you'd need
-            // to properly integrate with the sound graph's wave player system
+            SuspendProcessing(true);
+            constexpr auto timeout = std::chrono::milliseconds(50);
+            const auto startTime = std::chrono::steady_clock::now();
+            while (!m_Suspended.load() &&
+                   (std::chrono::steady_clock::now() - startTime) < timeout)
+            {
+                std::this_thread::sleep_for(std::chrono::microseconds(100));
+            }
+            suspendAcked = m_Suspended.load();
+            if (!suspendAcked)
+            {
+                OLO_CORE_WARN("[SoundGraphSource] ReplaceGraph: timed out waiting for audio thread to ack suspend; skipping swap (newGraph dropped)");
+            }
+        }
 
-            // Initialize the sound graph with our sample rate
-            m_Graph->SetSampleRate(static_cast<f32>(m_SampleRate));
+        if (suspendAcked)
+        {
+            m_Graph = newGraph;
 
-            // Update parameter mappings
-            UpdateParameterSet();
+            if (m_Graph)
+            {
+                // Initialize the sound graph with our sample rate before we resume; the audio
+                // thread won't dereference m_Graph until SuspendProcessing(false) clears the
+                // suspend flag.
+                m_Graph->SetSampleRate(static_cast<f32>(m_SampleRate));
+                UpdateParameterSet();
+                OLO_CORE_INFO("[SoundGraphSource] Replaced sound graph");
+            }
+        }
 
-            OLO_CORE_INFO("[SoundGraphSource] Replaced sound graph");
+        if (wasInitialized)
+        {
+            SuspendProcessing(false);
         }
     }
 
@@ -520,28 +599,16 @@ namespace OloEngine::Audio::SoundGraph
 
     bool SoundGraphSource::SetParameter(u32 parameterID, const choc::value::Value& value)
     {
-        (void)parameterID;
-        (void)value;
-        auto it = m_ParameterHandles.find(parameterID);
-        if (it == m_ParameterHandles.end())
-        {
-            OLO_CORE_WARN("[SoundGraphSource] Parameter ID {0} not found", parameterID);
+        // m_ParameterHandles is populated by UpdateParameterSet, which is still a stub
+        // pending the full parameter-handle integration (see TODO inside that function).
+        // Until that lands, forward the write straight to the graph: SoundGraph::SendInputValue
+        // matches parameterID against its endpoint streams by the same FNV hash we use here
+        // (see SoundGraphSource::SetParameter(string_view) one frame up the stack). This keeps
+        // the AudioSoundGraphComponent::SetParameter scripting API functional today instead
+        // of always returning false because the handle map is empty.
+        if (!m_Graph)
             return false;
-        }
-
-        // For now, we'll apply parameters immediately
-        // In a full implementation, you'd want thread-safe parameter updates
-        if (m_Graph)
-        {
-            // This would need to be adapted to OloEngine's parameter system
-            // return m_Graph->SetParameterValue(it->second.m_Handle, value);
-
-            // Placeholder - needs integration with sound graph parameter system
-            OLO_CORE_TRACE("[SoundGraphSource] Setting parameter {0} to value", it->second.m_Name);
-            return true;
-        }
-
-        return false;
+        return m_Graph->SendInputValue(parameterID, value.getView(), /*interpolate=*/false);
     }
 
     bool SoundGraphSource::ApplyParameterPreset(const SoundGraphPatchPreset& preset)
@@ -658,13 +725,13 @@ namespace OloEngine::Audio::SoundGraph
 
     void SoundGraphSource::SilenceOutputBuffers(float** ppFramesOut, u32 frameCount)
     {
-        // Silence each channel independently for planar buffers
-        for (u32 channel = 0; channel < m_ChannelCount; ++channel)
+        // Our ma_node_vtable declares 1 output bus. miniaudio passes the bus buffer at
+        // ppFramesOut[0] (frameCount * channels floats, interleaved); any higher index is
+        // uninitialized stack from miniaudio's internal MA_MAX_NODE_BUS_COUNT array and
+        // dereferencing it crashes. Silence the whole bus in one call.
+        if (ppFramesOut && ppFramesOut[0])
         {
-            if (ppFramesOut[channel])
-            {
-                ma_silence_pcm_frames(ppFramesOut[channel], frameCount, ma_format_f32, 1);
-            }
+            ma_silence_pcm_frames(ppFramesOut[0], frameCount, ma_format_f32, m_ChannelCount);
         }
     }
 
@@ -706,7 +773,6 @@ namespace OloEngine::Audio::SoundGraph
         // Handle play requests
         if (m_PlayRequestFlag.CheckAndResetIfDirty())
         {
-            // Send play event to sound graph
             if (m_Graph->SendInputEvent(SoundGraph::IDs::Play, choc::value::createFloat32(1.0f)))
             {
                 m_CurrentFrame.store(0);
@@ -721,28 +787,30 @@ namespace OloEngine::Audio::SoundGraph
             // Begin processing block (refill wave player buffers)
             m_Graph->BeginProcessBlock();
 
-            // Process each frame
-            for (u32 frame = 0; frame < frameCount; ++frame)
+            // miniaudio gives us a single interleaved bus buffer at ppFramesOut[0]
+            // (frameCount * m_ChannelCount floats). Higher indices are uninitialized stack
+            // memory — writing through them crashes. Address samples by
+            // ppFramesOut[0][frame * m_ChannelCount + channel].
+            float* const busOut = (ppFramesOut && ppFramesOut[0]) ? ppFramesOut[0] : nullptr;
+            if (busOut)
             {
-                // Process the graph for this frame
-                m_Graph->Process();
-
-                // Copy output channels to the output buffer
-                u32 outputChannels = std::min(m_ChannelCount, static_cast<u32>(m_Graph->m_OutChannels.size()));
-                for (u32 channel = 0; channel < outputChannels; ++channel)
+                for (u32 frame = 0; frame < frameCount; ++frame)
                 {
-                    ppFramesOut[channel][frame] = m_Graph->m_OutChannels[channel];
-                }
+                    m_Graph->Process();
 
-                // Handle mono to stereo conversion if needed
-                if (outputChannels == 1 && m_ChannelCount > 1)
-                {
-                    for (u32 channel = 1; channel < m_ChannelCount; ++channel)
+                    const u32 outputChannels = std::min(m_ChannelCount, static_cast<u32>(m_Graph->m_OutChannels.size()));
+                    const sizet base = static_cast<sizet>(frame) * m_ChannelCount;
+                    for (u32 channel = 0; channel < outputChannels; ++channel)
                     {
-                        if (ppFramesOut[channel])
-                        {
-                            ppFramesOut[channel][frame] = ppFramesOut[0][frame];
-                        }
+                        busOut[base + channel] = m_Graph->m_OutChannels[channel];
+                    }
+
+                    // Mono → stereo (and wider) fan-out: copy channel 0 to remaining channels.
+                    if (outputChannels >= 1 && outputChannels < m_ChannelCount)
+                    {
+                        const f32 sample = busOut[base + 0];
+                        for (u32 channel = outputChannels; channel < m_ChannelCount; ++channel)
+                            busOut[base + channel] = sample;
                     }
                 }
             }

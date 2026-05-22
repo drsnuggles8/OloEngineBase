@@ -34,8 +34,10 @@ namespace OloEngine::Audio
         /// Push a single sample (for single-channel buffers)
         inline void Push(T x) noexcept
         {
-            OLO_PROFILE_FUNCTION();
-
+            // Hot path: called once per source sample during refill (tens of thousands of
+            // times per audio second). OLO_PROFILE_FUNCTION removed for the same reason as
+            // SoundGraph::Process — even the cheap "no session" early-bail costs an atomic
+            // load per call that's noticeable in Debug at these rates.
             static_assert(NumChannels == 1, "Use PushFrame for multi-channel buffers");
 
             // Write sample at current position
@@ -93,8 +95,8 @@ namespace OloEngine::Audio
         /// Get a single sample (for single-channel buffers)
         inline T Get() noexcept
         {
-            OLO_PROFILE_FUNCTION();
-
+            // Hot path: called twice per audio frame (stereo) → ~96 kHz call rate. See
+            // the matching comment on Push() for why OLO_PROFILE_FUNCTION is omitted.
             static_assert(NumChannels == 1, "Use GetFrame for multi-channel buffers");
 
             OLO_CORE_ASSERT(m_Avail > 0);

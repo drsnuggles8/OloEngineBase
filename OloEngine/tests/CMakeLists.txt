@@ -30,6 +30,7 @@ add_executable(OloEngine-Tests
 		PostProcessTest.cpp
 		LightCullingTest.cpp
 		SoundGraphBasicTest.cpp
+		SoundGraphInstantiationTest.cpp
 		AudioEventQueueTest.cpp
 		AudioDSPTest.cpp
 		AudioSpatializerTest.cpp
@@ -150,6 +151,8 @@ add_executable(OloEngine-Tests
 		# Serialization Tests
 		Serialization/ArchiveExtensionsTest.cpp
 		Serialization/MeshBinarySerializerTest.cpp
+		Serialization/MeshAssetSerializerTest.cpp
+		Serialization/SoundGraphSerializerTest.cpp
 		# SaveGame Tests
 		SaveGame/SaveGameFileTest.cpp
 		SaveGame/SaveGameManagerTest.cpp

@@ -1579,6 +1579,17 @@ namespace OloEngine
             TrySet(src.Config.ConeOuterGain, audioListenerComponent["ConeOuterGain"]);
         }
 
+        if (const auto& soundGraphComponent = entity["AudioSoundGraphComponent"])
+        {
+            auto& sgc = deserializedEntity.AddComponent<AudioSoundGraphComponent>();
+            if (auto handleNode = soundGraphComponent["SoundGraphHandle"])
+                sgc.SoundGraphHandle = handleNode.as<u64>(0);
+            TrySet(sgc.VolumeMultiplier, soundGraphComponent["VolumeMultiplier"]);
+            TrySet(sgc.PitchMultiplier, soundGraphComponent["PitchMultiplier"]);
+            TrySet(sgc.Looping, soundGraphComponent["Looping"]);
+            TrySet(sgc.PlayOnAwake, soundGraphComponent["PlayOnAwake"]);
+        }
+
         if (auto spriteRendererComponent = entity["SpriteRendererComponent"]; spriteRendererComponent)
         {
             auto& src = deserializedEntity.AddComponent<SpriteRendererComponent>();
@@ -3372,6 +3383,21 @@ namespace OloEngine
             out << YAML::Key << "ConeOuterGain" << YAML::Value << audioListenerComponent.Config.ConeOuterGain;
 
             out << YAML::EndMap; // AudioListenerComponent
+        }
+
+        if (entity.HasComponent<AudioSoundGraphComponent>())
+        {
+            out << YAML::Key << "AudioSoundGraphComponent";
+            out << YAML::BeginMap; // AudioSoundGraphComponent
+
+            const auto& sgc = entity.GetComponent<AudioSoundGraphComponent>();
+            out << YAML::Key << "SoundGraphHandle" << YAML::Value << static_cast<u64>(sgc.SoundGraphHandle);
+            out << YAML::Key << "VolumeMultiplier" << YAML::Value << sgc.VolumeMultiplier;
+            out << YAML::Key << "PitchMultiplier" << YAML::Value << sgc.PitchMultiplier;
+            out << YAML::Key << "Looping" << YAML::Value << sgc.Looping;
+            out << YAML::Key << "PlayOnAwake" << YAML::Value << sgc.PlayOnAwake;
+
+            out << YAML::EndMap; // AudioSoundGraphComponent
         }
 
         if (entity.HasComponent<SpriteRendererComponent>())

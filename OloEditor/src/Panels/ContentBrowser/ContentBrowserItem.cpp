@@ -55,6 +55,8 @@ namespace OloEngine
         { ".olodialogue", ContentFileType::Dialogue },
         // Shader Graphs
         { ".olosg", ContentFileType::ShaderGraph },
+        // Sound Graphs
+        { ".olosoundgraph", ContentFileType::SoundGraph },
         // Save Games
         { ".olosave", ContentFileType::SaveGame },
     };
@@ -97,6 +99,8 @@ namespace OloEngine
                 return "CONTENT_BROWSER_SAVEGAME";
             case ContentFileType::ShaderGraph:
                 return "CONTENT_BROWSER_SHADERGRAPH";
+            case ContentFileType::SoundGraph:
+                return "CONTENT_BROWSER_SOUNDGRAPH";
             default:
                 return "CONTENT_BROWSER_ITEM";
         }

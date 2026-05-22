@@ -23,6 +23,7 @@ namespace OloEngine
         StreamingRegion,
         Dialogue,
         ShaderGraph,
+        SoundGraph,
         SaveGame
     };
 

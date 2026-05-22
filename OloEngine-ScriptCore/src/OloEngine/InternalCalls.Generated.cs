@@ -6,6 +6,25 @@ namespace OloEngine
 {
 	public static partial class InternalCalls
 	{
+		#region AudioSoundGraphComponent
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float AudioSoundGraphComponent_GetVolume(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void AudioSoundGraphComponent_SetVolume(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float AudioSoundGraphComponent_GetPitch(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void AudioSoundGraphComponent_SetPitch(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool AudioSoundGraphComponent_GetLooping(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void AudioSoundGraphComponent_SetLooping(ulong entityID, bool value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool AudioSoundGraphComponent_GetPlayOnAwake(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void AudioSoundGraphComponent_SetPlayOnAwake(ulong entityID, bool value);
+		#endregion
+
 		#region AudioSourceComponent
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern float AudioSourceComponent_GetVolume(ulong entityID);

@@ -39,6 +39,7 @@
 #include "OloEngine/Physics3D/SceneQueries.h"
 #include "OloEngine/Physics3D/JoltScene.h"
 #include "OloEngine/Audio/AudioEvents/AudioPlayback.h"
+#include "OloEngine/Audio/SoundGraph/SoundGraphSound.h"
 #include "OloEngine/Audio/AudioEvents/CommandID.h"
 #include "OloEngine/Scene/Streaming/SceneStreamer.h"
 
@@ -157,6 +158,7 @@ namespace OloEngine
             REGISTER_COMPONENT(CircleCollider2DComponent),
             REGISTER_COMPONENT(AudioSourceComponent),
             REGISTER_COMPONENT(AudioListenerComponent),
+            REGISTER_COMPONENT(AudioSoundGraphComponent),
             REGISTER_COMPONENT(ParticleSystemComponent),
             REGISTER_COMPONENT(NavAgentComponent),
             REGISTER_COMPONENT(AbilityComponent),
@@ -1456,6 +1458,33 @@ namespace OloEngine
         // --- AudioListenerComponent ---
         lua.new_usertype<AudioListenerComponent>("AudioListenerComponent",
                                                  "active", &AudioListenerComponent::Active);
+
+        // --- AudioSoundGraphComponent ---
+        // The graph runtime (`Sound`) is allocated by Scene::InitAudioRuntime after the asset
+        // compiles. Before that the actions silently no-op and `isPlaying` returns false, so
+        // Lua scripts can poll without crashing on early-frame calls.
+        lua.new_usertype<AudioSoundGraphComponent>("AudioSoundGraphComponent", "volume", sol::property([](const AudioSoundGraphComponent& c)
+                                                                                                       { return c.VolumeMultiplier; }, [](AudioSoundGraphComponent& c, f32 v)
+                                                                                                       {
+                if (!std::isfinite(v)) v = 1.0f;
+                v = std::clamp(v, 0.0f, 2.0f);
+                c.VolumeMultiplier = v; }),
+                                                   "pitch", sol::property([](const AudioSoundGraphComponent& c)
+                                                                          { return c.PitchMultiplier; }, [](AudioSoundGraphComponent& c, f32 v)
+                                                                          {
+                if (!std::isfinite(v)) v = 1.0f;
+                v = std::clamp(v, 0.1f, 3.0f);
+                c.PitchMultiplier = v; }),
+                                                   "looping", &AudioSoundGraphComponent::Looping, "playOnAwake", &AudioSoundGraphComponent::PlayOnAwake, "isPlaying", [](const AudioSoundGraphComponent& c) -> bool
+                                                   { return c.Sound && c.Sound->IsPlaying(); }, "Play", [](AudioSoundGraphComponent& c)
+                                                   { if (c.Sound) c.Sound->Play(); }, "Stop", [](AudioSoundGraphComponent& c)
+                                                   { if (c.Sound) c.Sound->Stop(); }, "Pause", [](AudioSoundGraphComponent& c)
+                                                   { if (c.Sound) c.Sound->Pause(); },
+                                                   // Single Lua `SetParameter` dispatches across f32 / i32 / bool via sol::overload.
+                                                   "SetParameter", sol::overload([](AudioSoundGraphComponent& c, const std::string& name, f32 value)
+                                                                                 { return c.SetParameter(name, value); }, [](AudioSoundGraphComponent& c, const std::string& name, i32 value)
+                                                                                 { return c.SetParameter(name, value); }, [](AudioSoundGraphComponent& c, const std::string& name, bool value)
+                                                                                 { return c.SetParameter(name, value); }));
 
         // --- AudioEvents (global table) ---
         auto audioEventsTable = lua.create_named_table("AudioEvents");

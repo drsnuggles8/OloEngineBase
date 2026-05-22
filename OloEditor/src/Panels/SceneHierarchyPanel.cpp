@@ -1670,6 +1670,7 @@ namespace OloEngine
             // Audio Components
             DisplayAddComponentEntry<AudioSourceComponent>("Audio Source");
             DisplayAddComponentEntry<AudioListenerComponent>("Audio Listener");
+            DisplayAddComponentEntry<AudioSoundGraphComponent>("Audio Sound Graph");
 
             ImGui::Separator();
 
@@ -3431,6 +3432,56 @@ namespace OloEngine
             ImGui::DragFloat("Inner Angle##AudioListener", &component.Config.ConeInnerAngle, 1.0f, 0.0f, 360.0f);
             ImGui::DragFloat("Outer Angle##AudioListener", &component.Config.ConeOuterAngle, 1.0f, 0.0f, 360.0f);
             ImGui::DragFloat("Outer Gain##AudioListener", &component.Config.ConeOuterGain, 0.01f, 0.0f, 1.0f); });
+
+        DrawComponent<AudioSoundGraphComponent>("Audio Sound Graph", entity, [](auto& component)
+                                                {
+            // Asset display + drag-drop target. Until a content browser SOUNDGRAPH payload
+            // type lands, we accept the generic CONTENT_BROWSER_ITEM and filter on AssetType
+            // after import so dropping the wrong file produces a warning instead of silent
+            // misbinding.
+            std::string handleLabel = component.SoundGraphHandle != 0
+                ? "Asset: " + std::to_string(static_cast<u64>(component.SoundGraphHandle))
+                : "Asset: <none — drag a .olosoundgraph here>";
+            ImGui::Button(handleLabel.c_str(), ImVec2(-1.0f, 0.0f));
+            if (ImGui::BeginDragDropTarget())
+            {
+                if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("CONTENT_BROWSER_ITEM"))
+                {
+                    std::filesystem::path assetPath = PathFromUtf8Payload(*payload);
+                    if (auto assetManager = Project::GetAssetManager().As<EditorAssetManager>())
+                    {
+                        AssetHandle handle = assetManager->ImportAsset(assetPath);
+                        if (handle != 0 && AssetManager::GetAssetType(handle) == AssetType::SoundGraph)
+                        {
+                            component.SoundGraphHandle = handle;
+                        }
+                        else if (handle != 0)
+                        {
+                            OLO_WARN("Drag-dropped asset is not a SoundGraph (type: {0})",
+                                     AssetUtils::AssetTypeToString(AssetManager::GetAssetType(handle)));
+                        }
+                    }
+                }
+                ImGui::EndDragDropTarget();
+            }
+
+            if (component.SoundGraphHandle != 0)
+            {
+                ImGui::SameLine();
+                if (ImGui::SmallButton("Clear##SoundGraph"))
+                {
+                    component.SoundGraphHandle = 0;
+                }
+            }
+
+            ImGui::Separator();
+            ImGui::DragFloat("Volume##SoundGraph", &component.VolumeMultiplier, 0.01f, 0.0f, 4.0f);
+            ImGui::DragFloat("Pitch##SoundGraph", &component.PitchMultiplier, 0.01f, 0.1f, 4.0f);
+            ImGui::Checkbox("Looping##SoundGraph", &component.Looping);
+            ImGui::Checkbox("Play On Awake##SoundGraph", &component.PlayOnAwake);
+
+            ImGui::Separator();
+            ImGui::Text("Runtime Sound: %s", component.Sound ? "Active" : "Not playing"); });
 
         // Animation Components
         DrawComponent<AnimationStateComponent>("Animation State", entity, [](auto& component)
