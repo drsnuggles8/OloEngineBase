@@ -50,7 +50,11 @@ namespace OloEngine
         // EndEditSession flushes the snapshot to the undo stack once ImGui reports that
         // no widget is active anymore. This collapses a multi-frame slider drag into a
         // single undo entry rather than 60-per-second.
+        // MarkEditSessionDirty is called by widget call sites when ImGui reports an
+        // actual mutation; without it, EndEditSession would clone+serialize the graph
+        // on every widget release just to discover nothing changed.
         void BeginEditSession();
+        void MarkEditSessionDirty();
         void EndEditSession(const char* description);
 
         Ref<Scene> m_Context;
@@ -60,6 +64,7 @@ namespace OloEngine
         // Edit-session state for continuous widgets.
         Ref<AnimationGraph> m_EditSessionSnapshot;
         bool m_EditSessionActive = false;
+        bool m_EditSessionDirty = false;
 
         // Editor state
         std::string m_SelectedStateName;

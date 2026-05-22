@@ -559,6 +559,10 @@ namespace OloEngine
         if (!sgc.Sound->InitializeFromGraph(graphInstance))
         {
             OLO_CORE_WARN("Scene::InitializeAudioSoundGraph - SoundGraphSound::InitializeFromGraph failed for asset {}", sgc.SoundGraphHandle);
+            // Paired teardown: InitializeAudioCallback attached the source to the
+            // live ma_engine. Mirror the runtime-stop path (ReleaseResources +
+            // null) so the half-initialised source detaches before the Ref drops.
+            sgc.Sound->ReleaseResources();
             sgc.Sound = nullptr;
             return;
         }
@@ -570,8 +574,23 @@ namespace OloEngine
             source->SetSourceAssetHandle(sgc.SoundGraphHandle);
         }
 
-        sgc.Sound->SetVolume(sgc.VolumeMultiplier);
-        sgc.Sound->SetPitch(sgc.PitchMultiplier);
+        // Sanitise floats before forwarding to the audio runtime. SceneSerializer
+        // round-trips these through YAML (SceneSerializer.cpp ~L1587), so NaN/Inf
+        // from a hand-edited scene or a future network-spawn path could land here.
+        // Per cpp-coding-quality §2b: substitute the default rather than passing
+        // garbage to the audio engine.
+        const f32 safeVolume = std::isfinite(sgc.VolumeMultiplier) ? sgc.VolumeMultiplier : 1.0f;
+        const f32 safePitch = std::isfinite(sgc.PitchMultiplier) ? sgc.PitchMultiplier : 1.0f;
+        if (!std::isfinite(sgc.VolumeMultiplier))
+        {
+            OLO_CORE_WARN("Scene::InitializeAudioSoundGraph - non-finite VolumeMultiplier on asset {}; using 1.0", sgc.SoundGraphHandle);
+        }
+        if (!std::isfinite(sgc.PitchMultiplier))
+        {
+            OLO_CORE_WARN("Scene::InitializeAudioSoundGraph - non-finite PitchMultiplier on asset {}; using 1.0", sgc.SoundGraphHandle);
+        }
+        sgc.Sound->SetVolume(safeVolume);
+        sgc.Sound->SetPitch(safePitch);
         sgc.Sound->SetLooping(sgc.Looping);
 
         if (sgc.PlayOnAwake)

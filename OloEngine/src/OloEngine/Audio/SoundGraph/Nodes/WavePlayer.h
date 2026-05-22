@@ -342,10 +342,30 @@ namespace OloEngine::Audio::SoundGraph
 
         void StartAsyncLoad(u64 waveAsset)
         {
+            // Fast-path early-out for the common case (graph hot-reload after
+            // shutdown began). The mutex-protected re-check below closes the
+            // window between this load and Tasks::Launch.
+            if (m_ShuttingDown.load(std::memory_order_acquire))
+            {
+                return;
+            }
+
             // Mark as loading
             m_LoadState.store(LoadState::Loading, std::memory_order_release);
             m_LoadGeneration.fetch_add(1, std::memory_order_relaxed);
             u32 currentGeneration = m_LoadGeneration.load(std::memory_order_relaxed);
+
+            // Hold m_LoadTasksMutex across Tasks::Launch + push so that any
+            // concurrent ~WavePlayer either (a) hasn't drained m_LoadTasks yet
+            // — it will block on the mutex until we push, then see and join
+            // this task; or (b) has already set m_ShuttingDown and we bail out
+            // before launching, so the destructor can't miss a task that
+            // would otherwise touch dead this.
+            TUniqueLock<FMutex> lock(m_LoadTasksMutex);
+            if (m_ShuttingDown.load(std::memory_order_acquire))
+            {
+                return;
+            }
 
             // Start async load using Task System. We keep the returned handle so
             // ~WavePlayer can join the lambda; otherwise the lambda's post-gate
@@ -407,15 +427,13 @@ namespace OloEngine::Audio::SoundGraph
 
             // Park the handle so the destructor can join. Opportunistically
             // prune completed handles so the vector doesn't grow unbounded
-            // across repeated SetWaveAsset calls.
-            {
-                TUniqueLock<FMutex> lock(m_LoadTasksMutex);
-                m_LoadTasks.erase(std::remove_if(m_LoadTasks.begin(), m_LoadTasks.end(),
-                                                 [](const Tasks::TTask<void>& t)
-                                                 { return t.IsCompleted(); }),
-                                  m_LoadTasks.end());
-                m_LoadTasks.push_back(std::move(loadTask));
-            }
+            // across repeated SetWaveAsset calls. Mutex is already held from
+            // the launch-guard above.
+            m_LoadTasks.erase(std::remove_if(m_LoadTasks.begin(), m_LoadTasks.end(),
+                                             [](const Tasks::TTask<void>& t)
+                                             { return t.IsCompleted(); }),
+                              m_LoadTasks.end());
+            m_LoadTasks.push_back(std::move(loadTask));
         }
 
         void CheckAsyncLoadCompletion()
