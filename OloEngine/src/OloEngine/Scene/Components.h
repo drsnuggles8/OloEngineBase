@@ -824,9 +824,10 @@ namespace OloEngine
         }
 
         // Equality for undo/redo — compares serialized/editor-visible fields only.
+        // Float fields use bit-exact memcmp per cpp-coding-quality §2a.
         auto operator==(const AudioSoundGraphComponent& other) const -> bool
         {
-            return SoundGraphHandle == other.SoundGraphHandle && VolumeMultiplier == other.VolumeMultiplier && PitchMultiplier == other.PitchMultiplier && Looping == other.Looping && PlayOnAwake == other.PlayOnAwake;
+            return static_cast<u64>(SoundGraphHandle) == static_cast<u64>(other.SoundGraphHandle) && std::memcmp(&VolumeMultiplier, &other.VolumeMultiplier, sizeof(f32)) == 0 && std::memcmp(&PitchMultiplier, &other.PitchMultiplier, sizeof(f32)) == 0 && Looping == other.Looping && PlayOnAwake == other.PlayOnAwake;
         }
 
         // Gameplay-facing helpers to drive graph input parameters at runtime. Returns

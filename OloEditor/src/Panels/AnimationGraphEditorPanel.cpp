@@ -1,6 +1,7 @@
 #include "AnimationGraphEditorPanel.h"
 #include "OloEngine/Animation/AnimationGraphComponent.h"
 #include "OloEngine/Animation/AnimationGraph.h"
+#include "OloEngine/Animation/AnimationGraphSerializer.h"
 #include "OloEngine/Animation/AnimationStateMachine.h"
 #include "OloEngine/Animation/AnimationState.h"
 #include "OloEngine/Animation/AnimationTransition.h"
@@ -114,12 +115,35 @@ namespace OloEngine
         }
         // Only flush once ImGui no longer has an active widget — collapses a slider drag
         // (60+ frames of mutations) into one undo entry.
-        if (GImGui->ActiveId == 0)
+        if (GImGui->ActiveId != 0)
         {
-            PushSnapshot(std::move(m_EditSessionSnapshot), description);
-            m_EditSessionSnapshot = nullptr;
-            m_EditSessionActive = false;
+            return;
         }
+
+        // Drop sessions where the user didn't actually change anything (focused
+        // a widget without modifying it, or scrubbed back to the original value
+        // before releasing). Without this, undo gets a stack of indistinguishable
+        // no-op entries the user has to mash through.
+        //
+        // We compare via YAML rather than operator==: AnimationGraph carries
+        // skeleton/animation refs that aren't trivially comparable, and the
+        // serializer already canonicalises the shape we care about for undo.
+        // Cost is bounded by graph size and only fires on widget release.
+        if (Ref<AnimationGraph> currentGraph = SnapshotGraph(); currentGraph && m_EditSessionSnapshot)
+        {
+            const std::string before = AnimationGraphSerializer::SerializeToString(m_EditSessionSnapshot);
+            const std::string after = AnimationGraphSerializer::SerializeToString(currentGraph);
+            if (before == after)
+            {
+                m_EditSessionSnapshot = nullptr;
+                m_EditSessionActive = false;
+                return;
+            }
+        }
+
+        PushSnapshot(std::move(m_EditSessionSnapshot), description);
+        m_EditSessionSnapshot = nullptr;
+        m_EditSessionActive = false;
     }
 
     void AnimationGraphEditorPanel::OnImGuiRender(bool* p_open)

@@ -34,6 +34,7 @@ namespace OloEngine
     class JoltScene;
     class SceneStreamer;
     struct IKTargetComponent;
+    struct AudioSoundGraphComponent;
     class DialogueSystem;
 
     namespace Audio
@@ -194,6 +195,14 @@ namespace OloEngine
         // harnesses that need a working AudioEventsManager + position
         // resolver without depending on Application::Get().
         void InitAudioRuntime();
+
+        // Per-entity SoundGraph startup. Shared between InitAudioRuntime (loops
+        // over every AudioSoundGraphComponent at OnRuntimeStart) and the
+        // OnComponentAdded<AudioSoundGraphComponent> specialisation (runtime-
+        // spawned entities — script-spawned, networked actors arriving mid-
+        // session). Without this shared entry point, components added after
+        // OnRuntimeStart stay silent until the next InitAudioRuntime.
+        void InitializeAudioSoundGraph(AudioSoundGraphComponent& sgc);
 
         // DialogueSystem instantiation. Production code reaches this via
         // OnRuntimeStart. Exposed for headless test harnesses that drive
