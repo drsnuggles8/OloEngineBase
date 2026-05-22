@@ -23,6 +23,10 @@ namespace OloEngine
 		internal static extern bool AudioSoundGraphComponent_GetPlayOnAwake(ulong entityID);
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern void AudioSoundGraphComponent_SetPlayOnAwake(ulong entityID, bool value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern ulong AudioSoundGraphComponent_GetSoundGraphHandle(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void AudioSoundGraphComponent_SetSoundGraphHandle(ulong entityID, ulong value);
 		#endregion
 
 		#region AudioSourceComponent

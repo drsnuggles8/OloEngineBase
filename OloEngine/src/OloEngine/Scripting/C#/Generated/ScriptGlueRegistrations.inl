@@ -9,6 +9,8 @@ OLO_ADD_INTERNAL_CALL(AudioSoundGraphComponent_GetLooping);
 OLO_ADD_INTERNAL_CALL(AudioSoundGraphComponent_SetLooping);
 OLO_ADD_INTERNAL_CALL(AudioSoundGraphComponent_GetPlayOnAwake);
 OLO_ADD_INTERNAL_CALL(AudioSoundGraphComponent_SetPlayOnAwake);
+OLO_ADD_INTERNAL_CALL(AudioSoundGraphComponent_GetSoundGraphHandle);
+OLO_ADD_INTERNAL_CALL(AudioSoundGraphComponent_SetSoundGraphHandle);
 
 // AudioSourceComponent
 OLO_ADD_INTERNAL_CALL(AudioSourceComponent_GetVolume);

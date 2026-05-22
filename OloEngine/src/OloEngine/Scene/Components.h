@@ -784,6 +784,10 @@ namespace OloEngine
         OLO_PROPERTY(Name = "Pitch", Type = "float", Get = "comp.PitchMultiplier", Set = "comp.PitchMultiplier = {v}")
         OLO_PROPERTY(Name = "Looping", Type = "bool", Get = "comp.Looping", Set = "comp.Looping = {v}")
         OLO_PROPERTY(Name = "PlayOnAwake", Type = "bool", Get = "comp.PlayOnAwake", Set = "comp.PlayOnAwake = {v}")
+        // Exposed as ulong so scripts can swap the graph at runtime (e.g. pick
+        // a stinger per gameplay state). The bound Sound is not torn down here;
+        // it rebinds on next Play().
+        OLO_PROPERTY()
         AssetHandle SoundGraphHandle = 0;
         f32 VolumeMultiplier = 1.0f;
         f32 PitchMultiplier = 1.0f;
