@@ -117,4 +117,4 @@ namespace
         b.Y = 8;
         EXPECT_FALSE(BitwiseEqual(a, b));
     }
-}
+} // namespace

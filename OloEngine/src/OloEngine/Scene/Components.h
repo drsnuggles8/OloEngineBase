@@ -1049,9 +1049,16 @@ namespace OloEngine
         LightProbeVolumeComponent() = default;
         LightProbeVolumeComponent(const LightProbeVolumeComponent&) = default;
 
+        // m_Dirty is set transiently by the property setters above and cleared
+        // by the bake pipeline; it is not authored data and not persisted by
+        // SceneSerializer. Including it in equality would make any bake / edit
+        // cycle look like an authored change to undo and scene-equality
+        // consumers. Compare the persisted fields field-wise instead — floats
+        // via Math::BitwiseEqual per cpp-coding-quality §2a, the asset handle
+        // via u64 to dodge UUID's C2666 ambiguity.
         auto operator==(const LightProbeVolumeComponent& other) const -> bool
         {
-            return Math::BitwiseEqual(*this, other);
+            return Math::BitwiseEqual(m_BoundsMin, other.m_BoundsMin) && Math::BitwiseEqual(m_BoundsMax, other.m_BoundsMax) && m_Resolution == other.m_Resolution && Math::BitwiseEqual(m_Spacing, other.m_Spacing) && Math::BitwiseEqual(m_Intensity, other.m_Intensity) && m_Active == other.m_Active && m_ShowDebugProbes == other.m_ShowDebugProbes && static_cast<u64>(m_BakedDataAsset) == static_cast<u64>(other.m_BakedDataAsset);
         }
     };
 
