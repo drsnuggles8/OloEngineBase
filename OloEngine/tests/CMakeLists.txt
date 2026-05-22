@@ -186,6 +186,8 @@ add_executable(OloEngine-Tests
 		PerformanceProfilerTest.cpp
 		# TransformComponent Tests
 		TransformComponentTest.cpp
+		# Physics3D mesh mass-properties (divergence-theorem volume + centroid)
+		JoltShapesMeshMassPropertiesTest.cpp
 		# Gameplay Ability Tests
 		Gameplay/GameplayAbilityTest.cpp
 		# Content Browser Tests

@@ -5,7 +5,6 @@
 #include "OloEngine/Scene/Components.h"
 #include "OloEngine/Asset/AssetManager.h"
 #include "OloEngine/Asset/MeshColliderAsset.h"
-#include "OloEngine/Renderer/MeshSource.h"
 #include "MeshColliderCache.h"
 
 #include <atomic>
@@ -571,6 +570,102 @@ namespace OloEngine
     }
 
     // Private helper implementations
+
+    MeshMassProperties JoltShapes::ComputeTriangleMeshMassProperties(std::span<const Vertex> vertices,
+                                                                     std::span<const u32> indices,
+                                                                     const glm::vec3& scale)
+    {
+        MeshMassProperties result;
+
+        // Need at least one full triangle.  Indices that aren't a multiple of 3
+        // mean a malformed mesh — drop the trailing partial triangle silently.
+        const sizet triangleCount = indices.size() / 3;
+        if (vertices.empty() || triangleCount == 0)
+        {
+            return result;
+        }
+
+        const u32 vertexCount = static_cast<u32>(vertices.size());
+
+        // Accumulate in double precision: a typical engine mesh has thousands of
+        // small contributions, and the dot/cross products can have wildly varying
+        // magnitudes once translation pushes the mesh away from the origin.
+        // Single-precision accumulation visibly drifts on large meshes.
+        f64 volumeAccumulator = 0.0;
+        glm::dvec3 centroidAccumulator{ 0.0 };
+
+        for (sizet t = 0; t < triangleCount; ++t)
+        {
+            const u32 i0 = indices[t * 3 + 0];
+            const u32 i1 = indices[t * 3 + 1];
+            const u32 i2 = indices[t * 3 + 2];
+            if (i0 >= vertexCount || i1 >= vertexCount || i2 >= vertexCount)
+            {
+                // Bad index — skip the triangle so we don't blow up on cooked
+                // meshes that pass through here with stale data.
+                continue;
+            }
+
+            const glm::dvec3 v0(vertices[i0].Position);
+            const glm::dvec3 v1(vertices[i1].Position);
+            const glm::dvec3 v2(vertices[i2].Position);
+
+            // Signed volume of the tetrahedron (origin, v0, v1, v2) is
+            //   (1/6) * v0 . (v1 x v2)
+            // and its centroid (uniform density) is (v0 + v1 + v2) / 4
+            // because the fourth vertex is at the origin.
+            const f64 signedVolume6 = glm::dot(v0, glm::cross(v1, v2));
+            const glm::dvec3 centroid4 = v0 + v1 + v2;
+
+            volumeAccumulator += signedVolume6;
+            centroidAccumulator += signedVolume6 * centroid4;
+        }
+
+        // Divide out the per-tetrahedron normalisers we left out of the loop
+        // (1/6 for volume, 1/4 for tetrahedron centroid) in one shot.
+        const f64 signedVolume = volumeAccumulator * (1.0 / 6.0);
+        if (!std::isfinite(signedVolume) || std::abs(signedVolume) < 1e-12)
+        {
+            // Mesh isn't watertight, has self-cancelling triangles, or overflowed:
+            // give the caller a fallback signal instead of returning bogus data.
+            return result;
+        }
+
+        // Centroid is integral / volume.  The 1/4 factor and the 1/6 factor on
+        // signedVolume cancel into a single 1/4 ÷ 6 -> 1/24 because both numerator
+        // and denominator carried the unnormalised forms.  Rewriting:
+        //   centroid = (sum(signedVolume6 * centroid4)) / (4 * sum(signedVolume6))
+        const glm::dvec3 centroidLocal = centroidAccumulator / (4.0 * volumeAccumulator);
+
+        // Apply the requested local-space scale.  Volume scales by |det(diag(scale))|;
+        // an axis with negative scale mirrors the geometry but should not flip the
+        // physical (positive) volume.
+        const f64 sx = static_cast<f64>(scale.x);
+        const f64 sy = static_cast<f64>(scale.y);
+        const f64 sz = static_cast<f64>(scale.z);
+        const f64 scaledVolume = std::abs(signedVolume) * std::abs(sx * sy * sz);
+        const glm::dvec3 scaledCentroid{ centroidLocal.x * sx,
+                                         centroidLocal.y * sy,
+                                         centroidLocal.z * sz };
+
+        if (!std::isfinite(scaledVolume) || scaledVolume <= 0.0)
+        {
+            return result;
+        }
+
+        result.Volume = static_cast<f32>(scaledVolume);
+        result.Centroid = glm::vec3(scaledCentroid);
+        result.IsValid = std::isfinite(result.Centroid.x) &&
+                         std::isfinite(result.Centroid.y) &&
+                         std::isfinite(result.Centroid.z);
+        if (!result.IsValid)
+        {
+            // Guard against NaN sneaking through if vertex data was poisoned.
+            result.Volume = 0.0f;
+            result.Centroid = glm::vec3(0.0f);
+        }
+        return result;
+    }
 
     JPH::Ref<JPH::Shape> JoltShapes::CreateBoxShapeInternal(const glm::vec3& halfExtents)
     {
