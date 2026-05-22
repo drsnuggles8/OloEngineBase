@@ -9,6 +9,9 @@
 		"UndoRedo/SpecializedCommands.h"
 		"UndoRedo/AnimationGraphCommands.h"
 		"UndoRedo/SoundGraphCommands.h"
+
+		"Preview/AssetThumbnailCache.cpp"
+		"Preview/AssetThumbnailCache.h"
 		
 		"Panels/AnimationPanel.cpp"
 		"Panels/AnimationPanel.h"

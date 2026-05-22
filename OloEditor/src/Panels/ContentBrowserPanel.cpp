@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 #include "ContentBrowserPanel.h"
+#include "OloEngine/Asset/AssetManager/EditorAssetManager.h"
 #include "OloEngine/Project/Project.h"
 #include "OloEngine/Renderer/MeshPrimitives.h"
 #include "OloEngine/Renderer/Mesh.h"
@@ -924,8 +925,65 @@ namespace OloEngine
             return m_FileIcon;
         }
 
+        // Materials and meshes get a live PBR-sphere or per-mesh
+        // thumbnail when the preview renderer is available. The
+        // thumbnail cache is keyed by AssetHandle, so a rename of the
+        // backing file does not invalidate the entry. Falls through to
+        // the generic icon when the asset manager is not running (e.g.
+        // before a project has finished loading) or the preview render
+        // fails.
+        const bool isMaterial = (fileType == ContentFileType::Material);
+        const bool isMesh = (fileType == ContentFileType::Model3D);
+        if (isMaterial || isMesh)
+        {
+            if (auto editorManager = Project::GetAssetManager().As<EditorAssetManager>())
+            {
+                const AssetHandle handle = editorManager->GetAssetHandleFromFilePath(filepath);
+                if (handle)
+                {
+                    Ref<Texture2D> thumbnail = isMaterial
+                                                   ? m_ThumbnailCache.GetMaterialThumbnail(handle)
+                                                   : m_ThumbnailCache.GetMeshThumbnail(handle);
+                    if (thumbnail)
+                    {
+                        auto& cached = m_ImageIcons[filepath] = thumbnail;
+                        return cached;
+                    }
+                }
+            }
+        }
+
         auto it = m_FileTypeIconMap.find(fileType);
         return (it != m_FileTypeIconMap.end()) ? *it->second : m_FileIcon;
+    }
+
+    void ContentBrowserPanel::InvalidateThumbnail(AssetHandle handle, const std::filesystem::path& path)
+    {
+        if (!handle && path.empty())
+            return;
+
+        if (handle)
+            m_ThumbnailCache.Invalidate(handle);
+
+        // m_ImageIcons is the panel's fast path: it caches whichever
+        // texture GetFileIcon last returned, keyed by *file path*. Even
+        // after invalidating the handle-keyed cache, the next GetFileIcon
+        // would short-circuit on m_ImageIcons.contains(path) and hand
+        // back the stale Texture2D. Drop the path entry too so the
+        // next call re-runs the dispatch.
+        if (!path.empty())
+            m_ImageIcons.erase(path);
+    }
+
+    void ContentBrowserPanel::ClearThumbnails()
+    {
+        m_ThumbnailCache.Clear();
+        // Drop the path-keyed icon cache as well — same staleness
+        // argument as `InvalidateThumbnail`. Note this also evicts
+        // direct image-asset thumbnails (`.png`/`.jpg`); they re-load
+        // from disk on the next GetFileIcon so the only cost is a few
+        // image decodes spread over upcoming paints.
+        m_ImageIcons.clear();
     }
 
     // =========================================================================

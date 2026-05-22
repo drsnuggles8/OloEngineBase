@@ -2,6 +2,7 @@
 #include "EditorLayer.h"
 #include "Panels/AssetPackBuilderPanel.h"
 #include "Panels/BuildGamePanel.h"
+#include "OloEngine/Renderer/Preview/AssetPreviewRenderer.h"
 #include "UndoRedo/EntityCommands.h"
 #include "UndoRedo/ComponentCommands.h"
 #include "OloEngine/Math/Math.h"
@@ -160,6 +161,7 @@ namespace OloEngine
             OnSceneStop();
         }
 
+        AssetPreviewRenderer::Shutdown();
         ShutdownEntityPicking();
         SaveGameManager::Shutdown();
     }
@@ -1317,6 +1319,7 @@ namespace OloEngine
         OLO_CORE_INFO("Initializing Renderer3D for 3D mode...");
         Renderer3D::SetSelectionOutlineEnabled(true);
         Renderer3D::Init(&Application::Get().GetWindow());
+        AssetPreviewRenderer::Initialize();
         RendererProfiler::GetInstance().IncrementCounter(RendererProfiler::MetricType::StateChanges, 1);
 
         // Resize to current viewport size
@@ -2850,6 +2853,28 @@ namespace OloEngine
         // Notify the rendering system so it can log generation changes
         // and verify next-frame refresh is clean.
         Renderer3D::OnAssetReloaded(e);
+
+        // Invalidate any cached Content Browser thumbnail for the
+        // reloaded asset. Materials get re-rendered with their new
+        // factors / textures on the next panel paint; meshes after a
+        // re-import similarly re-fetch a fresh icosphere render. We
+        // also speculatively invalidate when a *Texture2D* changes,
+        // because a material thumbnail may depend on it — without a
+        // per-material dependency graph the cheap fix is "if a texture
+        // reloads, blow away material previews too." Materials live
+        // bounded (256 entries max) so the re-render cost is small.
+        if (m_ContentBrowserPanel)
+        {
+            const AssetType type = e.GetAssetType();
+            if (type == AssetType::Material || type == AssetType::Mesh)
+            {
+                m_ContentBrowserPanel->InvalidateThumbnail(e.GetHandle(), e.GetPath());
+            }
+            else if (type == AssetType::Texture2D)
+            {
+                m_ContentBrowserPanel->ClearThumbnails();
+            }
+        }
 
         OLO_TRACE("🔄 Asset Reloaded Event Received!");
         OLO_TRACE("   Handle: {}", static_cast<u64>(e.GetHandle()));
