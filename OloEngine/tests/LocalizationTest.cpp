@@ -1154,14 +1154,14 @@ TEST(TextFormatter, SelectTokenDispatchesByLabelWithElseFallback)
 {
     const std::string pattern = "{role:warrior=knight|mage=wizard|else=hero} appears";
 
-    EXPECT_EQ(TextFormatter::Format(pattern, {{"role", "warrior"}}), "knight appears");
-    EXPECT_EQ(TextFormatter::Format(pattern, {{"role", "mage"}}),    "wizard appears");
+    EXPECT_EQ(TextFormatter::Format(pattern, { { "role", "warrior" } }), "knight appears");
+    EXPECT_EQ(TextFormatter::Format(pattern, { { "role", "mage" } }), "wizard appears");
     // Unknown label hits the `else` fallback.
-    EXPECT_EQ(TextFormatter::Format(pattern, {{"role", "rogue"}}),   "hero appears");
+    EXPECT_EQ(TextFormatter::Format(pattern, { { "role", "rogue" } }), "hero appears");
 
     // Without an else=, an unknown label leaves the token literal.
     const std::string noFallback = "{role:warrior=knight|mage=wizard}";
-    EXPECT_EQ(TextFormatter::Format(noFallback, {{"role", "rogue"}}), "{role:warrior=knight|mage=wizard}");
+    EXPECT_EQ(TextFormatter::Format(noFallback, { { "role", "rogue" } }), "{role:warrior=knight|mage=wizard}");
 }
 
 TEST_F(LocalizationFixture, FormatCurrencyHonoursLocaleSymbolAndPlacement)
@@ -1169,7 +1169,10 @@ TEST_F(LocalizationFixture, FormatCurrencyHonoursLocaleSymbolAndPlacement)
     auto enPath = std::filesystem::temp_directory_path() / "olo_en_cur.ololocale";
     auto dePath = std::filesystem::temp_directory_path() / "olo_de_cur.ololocale";
     auto jpPath = std::filesystem::temp_directory_path() / "olo_jp_cur.ololocale";
-    { std::ofstream out(enPath); out << kEnglishYAML; }
+    {
+        std::ofstream out(enPath);
+        out << kEnglishYAML;
+    }
     {
         std::ofstream out(dePath);
         out << "locale: de\nthousand_separator: \".\"\ndecimal_separator: \",\"\n"
@@ -1190,7 +1193,8 @@ TEST_F(LocalizationFixture, FormatCurrencyHonoursLocaleSymbolAndPlacement)
     // → 1234 at 0 decimals. That's the same convention every accounting
     // system uses; we adopt whatever the C runtime gives us rather than
     // re-implementing rounding policy here.
-    EXPECT_EQ(LocalizationManager::FormatCurrency(1234.5, "ja"), "\xC2\xA5" "1,234");
+    EXPECT_EQ(LocalizationManager::FormatCurrency(1234.5, "ja"), "\xC2\xA5"
+                                                                 "1,234");
     // Symbol override (multi-currency game showing prices in a third currency).
     EXPECT_EQ(LocalizationManager::FormatCurrency(50.0, "en", "GP "), "GP 50.00");
 
@@ -1203,7 +1207,10 @@ TEST_F(LocalizationFixture, FormatListJoinsWithLocaleJoiners)
 {
     auto enPath = std::filesystem::temp_directory_path() / "olo_en_list.ololocale";
     auto dePath = std::filesystem::temp_directory_path() / "olo_de_list.ololocale";
-    { std::ofstream out(enPath); out << kEnglishYAML; }
+    {
+        std::ofstream out(enPath);
+        out << kEnglishYAML;
+    }
     {
         std::ofstream out(dePath);
         out << "locale: de\nlist_joiner: \", \"\nlist_last_joiner: \" und \"\nstrings: { dummy: \"x\" }\n";
@@ -1212,10 +1219,10 @@ TEST_F(LocalizationFixture, FormatListJoinsWithLocaleJoiners)
     ASSERT_TRUE(LocalizationManager::LoadLocale(dePath));
 
     EXPECT_EQ(LocalizationManager::FormatList({}, "en"), "");
-    EXPECT_EQ(LocalizationManager::FormatList({"apples"}, "en"), "apples");
-    EXPECT_EQ(LocalizationManager::FormatList({"apples", "oranges"}, "en"), "apples, and oranges");
-    EXPECT_EQ(LocalizationManager::FormatList({"apples", "oranges", "pears"}, "en"), "apples, oranges, and pears");
-    EXPECT_EQ(LocalizationManager::FormatList({"a", "b", "c", "d"}, "de"), "a, b, c und d");
+    EXPECT_EQ(LocalizationManager::FormatList({ "apples" }, "en"), "apples");
+    EXPECT_EQ(LocalizationManager::FormatList({ "apples", "oranges" }, "en"), "apples, and oranges");
+    EXPECT_EQ(LocalizationManager::FormatList({ "apples", "oranges", "pears" }, "en"), "apples, oranges, and pears");
+    EXPECT_EQ(LocalizationManager::FormatList({ "a", "b", "c", "d" }, "de"), "a, b, c und d");
 
     std::filesystem::remove(enPath);
     std::filesystem::remove(dePath);
@@ -1224,14 +1231,17 @@ TEST_F(LocalizationFixture, FormatListJoinsWithLocaleJoiners)
 TEST_F(LocalizationFixture, FormatDateUsesDefaultPatternsAndCustomOverrides)
 {
     auto enPath = std::filesystem::temp_directory_path() / "olo_en_date.ololocale";
-    { std::ofstream out(enPath); out << kEnglishYAML; }
+    {
+        std::ofstream out(enPath);
+        out << kEnglishYAML;
+    }
     ASSERT_TRUE(LocalizationManager::LoadLocale(enPath));
 
     // Construct a known calendar time so the test isn't tz/locale-dependent
     // beyond the local-time conversion that's identical on every machine.
     std::tm tm{};
-    tm.tm_year = 126;   // 2026
-    tm.tm_mon = 2;      // March (0-indexed)
+    tm.tm_year = 126; // 2026
+    tm.tm_mon = 2;    // March (0-indexed)
     tm.tm_mday = 5;
     tm.tm_hour = 14;
     tm.tm_min = 30;
@@ -1258,7 +1268,10 @@ TEST_F(LocalizationFixture, FormatDateUsesDefaultPatternsAndCustomOverrides)
 TEST_F(LocalizationFixture, FormatRelativeTimePicksLargestUnit)
 {
     auto enPath = std::filesystem::temp_directory_path() / "olo_en_rel.ololocale";
-    { std::ofstream out(enPath); out << kEnglishYAML; }
+    {
+        std::ofstream out(enPath);
+        out << kEnglishYAML;
+    }
     ASSERT_TRUE(LocalizationManager::LoadLocale(enPath));
 
     using namespace std::chrono_literals;

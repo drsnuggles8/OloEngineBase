@@ -25,9 +25,9 @@ namespace OloEngine
         struct Issue
         {
             std::string Key;
-            std::string SourceLocale;   // e.g. "en"
-            std::string TargetLocale;   // e.g. "de"
-            std::string Description;    // human-readable summary for the editor
+            std::string SourceLocale;                      // e.g. "en"
+            std::string TargetLocale;                      // e.g. "de"
+            std::string Description;                       // human-readable summary for the editor
             std::unordered_set<std::string> MissingTokens; // present in source, absent in target
             std::unordered_set<std::string> ExtraTokens;   // present in target, absent in source
         };

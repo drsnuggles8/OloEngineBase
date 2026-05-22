@@ -866,7 +866,7 @@ namespace OloEngine
             const int year = tm.tm_year + 1900;
             const int hour24 = tm.tm_hour;
             const int hour12 = ((hour24 % 12) == 0) ? 12 : (hour24 % 12);
-            for (sizet i = 0; i < pattern.size(); )
+            for (sizet i = 0; i < pattern.size();)
             {
                 if (pattern[i] != '{')
                 {
@@ -947,10 +947,14 @@ namespace OloEngine
             // reasonable US-English default per style.
             switch (style)
             {
-                case LocalizationManager::DateStyle::Short:  return "{M}/{d}/{yy}";
-                case LocalizationManager::DateStyle::Medium: return "{MMM} {d}, {yyyy}";
-                case LocalizationManager::DateStyle::Long:   return "{MMMM} {d}, {yyyy}";
-                case LocalizationManager::DateStyle::Full:   return "{EEEE}, {MMMM} {d}, {yyyy}";
+                case LocalizationManager::DateStyle::Short:
+                    return "{M}/{d}/{yy}";
+                case LocalizationManager::DateStyle::Medium:
+                    return "{MMM} {d}, {yyyy}";
+                case LocalizationManager::DateStyle::Long:
+                    return "{MMMM} {d}, {yyyy}";
+                case LocalizationManager::DateStyle::Full:
+                    return "{EEEE}, {MMMM} {d}, {yyyy}";
             }
             return "{MMM} {d}, {yyyy}";
         }
@@ -959,8 +963,10 @@ namespace OloEngine
         {
             switch (style)
             {
-                case LocalizationManager::TimeStyle::Short:  return "{HH}:{mm}";
-                case LocalizationManager::TimeStyle::Medium: return "{HH}:{mm}:{ss}";
+                case LocalizationManager::TimeStyle::Short:
+                    return "{HH}:{mm}";
+                case LocalizationManager::TimeStyle::Medium:
+                    return "{HH}:{mm}:{ss}";
             }
             return "{HH}:{mm}";
         }
@@ -972,15 +978,23 @@ namespace OloEngine
         const char* styleSuffix = nullptr;
         switch (style)
         {
-            case DateStyle::Short:  styleSuffix = "short"; break;
-            case DateStyle::Medium: styleSuffix = "medium"; break;
-            case DateStyle::Long:   styleSuffix = "long"; break;
-            case DateStyle::Full:   styleSuffix = "full"; break;
+            case DateStyle::Short:
+                styleSuffix = "short";
+                break;
+            case DateStyle::Medium:
+                styleSuffix = "medium";
+                break;
+            case DateStyle::Long:
+                styleSuffix = "long";
+                break;
+            case DateStyle::Full:
+                styleSuffix = "full";
+                break;
         }
         const std::string patternKey = std::string("date.format.") + styleSuffix;
         const std::string pattern = (!code.empty() && HasKey(patternKey, code))
-            ? Get(patternKey, code)
-            : DateStyleDefaultPattern(style);
+                                        ? Get(patternKey, code)
+                                        : DateStyleDefaultPattern(style);
         return ApplyDateTimePattern(pattern, ToLocalTm(tp), code);
     }
 
@@ -990,8 +1004,8 @@ namespace OloEngine
         const char* styleSuffix = (style == TimeStyle::Medium) ? "medium" : "short";
         const std::string patternKey = std::string("time.format.") + styleSuffix;
         const std::string pattern = (!code.empty() && HasKey(patternKey, code))
-            ? Get(patternKey, code)
-            : TimeStyleDefaultPattern(style);
+                                        ? Get(patternKey, code)
+                                        : TimeStyleDefaultPattern(style);
         return ApplyDateTimePattern(pattern, ToLocalTm(tp), code);
     }
 
@@ -1015,18 +1029,18 @@ namespace OloEngine
             const char* EnglishFuturePlural;
         };
         constexpr Unit kUnits[] = {
-            { 60,           "second",
-              "{count} second ago",   "{count} seconds ago",
-              "in {count} second",    "in {count} seconds" },
-            { 60 * 60,      "minute",
-              "{count} minute ago",   "{count} minutes ago",
-              "in {count} minute",    "in {count} minutes" },
+            { 60, "second",
+              "{count} second ago", "{count} seconds ago",
+              "in {count} second", "in {count} seconds" },
+            { 60 * 60, "minute",
+              "{count} minute ago", "{count} minutes ago",
+              "in {count} minute", "in {count} minutes" },
             { 60 * 60 * 24, "hour",
-              "{count} hour ago",     "{count} hours ago",
-              "in {count} hour",      "in {count} hours" },
+              "{count} hour ago", "{count} hours ago",
+              "in {count} hour", "in {count} hours" },
             { 60ll * 60 * 24 * 30, "day",
-              "{count} day ago",      "{count} days ago",
-              "in {count} day",       "in {count} days" },
+              "{count} day ago", "{count} days ago",
+              "in {count} day", "in {count} days" },
         };
         const Unit* unit = nullptr;
         i64 unitCount = 0;

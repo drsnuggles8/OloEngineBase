@@ -2956,20 +2956,20 @@ namespace OloEngine
         localizationTable["FormatDate"] = [](i64 epochSeconds, sol::optional<i32> style, sol::optional<std::string> localeCode) -> std::string
         {
             const auto tp = (epochSeconds == 0)
-                ? std::chrono::system_clock::now()
-                : std::chrono::system_clock::from_time_t(static_cast<std::time_t>(epochSeconds));
+                                ? std::chrono::system_clock::now()
+                                : std::chrono::system_clock::from_time_t(static_cast<std::time_t>(epochSeconds));
             return LocalizationManager::FormatDate(tp,
-                static_cast<LocalizationManager::DateStyle>(style.value_or(static_cast<i32>(LocalizationManager::DateStyle::Medium))),
-                localeCode.value_or(std::string{}));
+                                                   static_cast<LocalizationManager::DateStyle>(style.value_or(static_cast<i32>(LocalizationManager::DateStyle::Medium))),
+                                                   localeCode.value_or(std::string{}));
         };
         localizationTable["FormatTime"] = [](i64 epochSeconds, sol::optional<i32> style, sol::optional<std::string> localeCode) -> std::string
         {
             const auto tp = (epochSeconds == 0)
-                ? std::chrono::system_clock::now()
-                : std::chrono::system_clock::from_time_t(static_cast<std::time_t>(epochSeconds));
+                                ? std::chrono::system_clock::now()
+                                : std::chrono::system_clock::from_time_t(static_cast<std::time_t>(epochSeconds));
             return LocalizationManager::FormatTime(tp,
-                static_cast<LocalizationManager::TimeStyle>(style.value_or(static_cast<i32>(LocalizationManager::TimeStyle::Short))),
-                localeCode.value_or(std::string{}));
+                                                   static_cast<LocalizationManager::TimeStyle>(style.value_or(static_cast<i32>(LocalizationManager::TimeStyle::Short))),
+                                                   localeCode.value_or(std::string{}));
         };
         localizationTable["FormatRelativeTime"] = [](i64 epochSeconds, sol::optional<std::string> localeCode) -> std::string
         {

@@ -84,7 +84,7 @@ namespace OloEngine::UTF8
             (need == 3 && cp < 0x800u) ||
             (need == 4 && cp < 0x10000u);
         const bool surrogate = (cp >= 0xD800u && cp <= 0xDFFFu);
-        const bool tooLarge  = (cp > 0x10FFFFu);
+        const bool tooLarge = (cp > 0x10FFFFu);
         if (overlong || surrogate || tooLarge)
         {
             outCodepoint = 0xFFFDu;
