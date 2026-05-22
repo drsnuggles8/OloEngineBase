@@ -291,3 +291,22 @@ TEST(JoltShapesMeshMassProperties, ReversedWindingProducesPositiveVolume)
     EXPECT_TRUE(mass.IsValid);
     EXPECT_NEAR(mass.Volume, 1.0f, 1e-5f);
 }
+
+// f64→f32 narrowing safety: an extreme scale produces a finite f64 volume that
+// overflows when cast to f32. The helper must catch this post-cast and fall back
+// to IsValid=false rather than handing back +inf Volume.
+TEST(JoltShapesMeshMassProperties, ExtremeScaleOverflowToInfReportsInvalid)
+{
+    std::vector<Vertex> v;
+    std::vector<u32> i;
+    BuildUnitCube(glm::vec3(0.0f), v, i);
+
+    // (1e15)^3 = 1e45 — finite as f64 (max ≈ 1.8e308), but f32 max ≈ 3.4e38, so the
+    // cast overflows to +inf. A correct implementation rejects this rather than
+    // reporting a poisoned Volume.
+    const glm::vec3 monsterScale(1.0e15f);
+    const MeshMassProperties mass = JoltShapes::ComputeTriangleMeshMassProperties(v, i, monsterScale);
+
+    EXPECT_FALSE(mass.IsValid);
+    EXPECT_FLOAT_EQ(mass.Volume, 0.0f);
+}

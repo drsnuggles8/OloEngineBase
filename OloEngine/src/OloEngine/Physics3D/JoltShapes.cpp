@@ -575,6 +575,8 @@ namespace OloEngine
                                                                      std::span<const u32> indices,
                                                                      const glm::vec3& scale)
     {
+        OLO_PROFILE_FUNCTION();
+
         MeshMassProperties result;
 
         // Need at least one full triangle.  Indices that aren't a multiple of 3
@@ -655,12 +657,17 @@ namespace OloEngine
 
         result.Volume = static_cast<f32>(scaledVolume);
         result.Centroid = glm::vec3(scaledCentroid);
-        result.IsValid = std::isfinite(result.Centroid.x) &&
+        // The f64→f32 narrowing for Volume can overflow to +inf even when scaledVolume
+        // is a finite double (e.g. extreme scale on a large mesh), so re-validate after
+        // the cast — not only on the centroid components.
+        result.IsValid = std::isfinite(result.Volume) &&
+                         std::isfinite(result.Centroid.x) &&
                          std::isfinite(result.Centroid.y) &&
                          std::isfinite(result.Centroid.z);
         if (!result.IsValid)
         {
-            // Guard against NaN sneaking through if vertex data was poisoned.
+            // Guard against inf/NaN sneaking through if vertex data was poisoned
+            // or the cast overflowed.
             result.Volume = 0.0f;
             result.Centroid = glm::vec3(0.0f);
         }
