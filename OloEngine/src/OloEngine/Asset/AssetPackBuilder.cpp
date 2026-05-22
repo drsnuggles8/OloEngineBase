@@ -399,34 +399,34 @@ namespace OloEngine
                     }
                     else
                     {
-                    u32 copied = 0;
-                    // Use a separate error_code for the iterator and yet
-                    // another for each copy so a failure on one entry doesn't
-                    // poison the rest of the loop — sharing `ec` across
-                    // operations would silently skip every subsequent file
-                    // once the first failure left `ec` set.
-                    std::error_code ecIter;
-                    for (const auto& entry : std::filesystem::directory_iterator(srcDir, ecIter))
-                    {
-                        if (ecIter)
-                            break;
-                        std::error_code ecEntry;
-                        if (!entry.is_regular_file(ecEntry) || ecEntry)
-                            continue;
-                        if (entry.path().extension() != ".ololocale")
-                            continue;
-                        std::error_code ecCopy;
-                        std::filesystem::copy_file(
-                            entry.path(),
-                            dstDir / entry.path().filename(),
-                            std::filesystem::copy_options::overwrite_existing,
-                            ecCopy);
-                        if (!ecCopy)
-                            ++copied;
-                        else
-                            OLO_CORE_WARN("AssetPackBuilder: failed to copy '{}': {}", entry.path().string(), ecCopy.message());
-                    }
-                    OLO_CORE_INFO("AssetPackBuilder: bundled {} .ololocale file(s) to '{}'", copied, dstDir.string());
+                        u32 copied = 0;
+                        // Use a separate error_code for the iterator and yet
+                        // another for each copy so a failure on one entry doesn't
+                        // poison the rest of the loop — sharing `ec` across
+                        // operations would silently skip every subsequent file
+                        // once the first failure left `ec` set.
+                        std::error_code ecIter;
+                        for (const auto& entry : std::filesystem::directory_iterator(srcDir, ecIter))
+                        {
+                            if (ecIter)
+                                break;
+                            std::error_code ecEntry;
+                            if (!entry.is_regular_file(ecEntry) || ecEntry)
+                                continue;
+                            if (entry.path().extension() != ".ololocale")
+                                continue;
+                            std::error_code ecCopy;
+                            std::filesystem::copy_file(
+                                entry.path(),
+                                dstDir / entry.path().filename(),
+                                std::filesystem::copy_options::overwrite_existing,
+                                ecCopy);
+                            if (!ecCopy)
+                                ++copied;
+                            else
+                                OLO_CORE_WARN("AssetPackBuilder: failed to copy '{}': {}", entry.path().string(), ecCopy.message());
+                        }
+                        OLO_CORE_INFO("AssetPackBuilder: bundled {} .ololocale file(s) to '{}'", copied, dstDir.string());
                     }
                 }
                 else
