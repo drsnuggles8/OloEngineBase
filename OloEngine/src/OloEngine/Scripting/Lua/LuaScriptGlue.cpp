@@ -48,7 +48,9 @@
 #include <box2d/box2d.h>
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
+#include <ctime>
 #include <string>
 #include <string_view>
 #include <tuple>
@@ -2928,6 +2930,51 @@ namespace OloEngine
         localizationTable["GeneratePseudoLocale"] = [](sol::optional<std::string> source, sol::optional<std::string> pseudoCode) -> bool
         {
             return LocalizationManager::GeneratePseudoLocale(source.value_or("en"), pseudoCode.value_or("pseudo"));
+        };
+        localizationTable["FormatCurrency"] = [](f64 amount, sol::optional<std::string> localeCode, sol::optional<std::string> symbolOverride) -> std::string
+        {
+            return LocalizationManager::FormatCurrency(amount, localeCode.value_or(std::string{}), symbolOverride.value_or(std::string{}));
+        };
+        localizationTable["FormatList"] = [](sol::table items, sol::optional<std::string> localeCode) -> std::string
+        {
+            // Lua array tables iterate via ipairs (1-based). We collect into
+            // a vector<string> rather than trying to share storage so each
+            // entry is cleanly owned by the C++ side regardless of Lua GC.
+            std::vector<std::string> v;
+            v.reserve(items.size());
+            for (auto& kv : items)
+            {
+                if (kv.second.is<std::string>())
+                    v.push_back(kv.second.as<std::string>());
+            }
+            return LocalizationManager::FormatList(v, localeCode.value_or(std::string{}));
+        };
+        // FormatDate / FormatTime / FormatRelativeTime take a Unix epoch
+        // seconds value from Lua (Lua doesn't have a portable time_point
+        // type). 0 means "use now()". Style is an integer matching the
+        // DateStyle / TimeStyle enum order.
+        localizationTable["FormatDate"] = [](i64 epochSeconds, sol::optional<i32> style, sol::optional<std::string> localeCode) -> std::string
+        {
+            const auto tp = (epochSeconds == 0)
+                ? std::chrono::system_clock::now()
+                : std::chrono::system_clock::from_time_t(static_cast<std::time_t>(epochSeconds));
+            return LocalizationManager::FormatDate(tp,
+                static_cast<LocalizationManager::DateStyle>(style.value_or(static_cast<i32>(LocalizationManager::DateStyle::Medium))),
+                localeCode.value_or(std::string{}));
+        };
+        localizationTable["FormatTime"] = [](i64 epochSeconds, sol::optional<i32> style, sol::optional<std::string> localeCode) -> std::string
+        {
+            const auto tp = (epochSeconds == 0)
+                ? std::chrono::system_clock::now()
+                : std::chrono::system_clock::from_time_t(static_cast<std::time_t>(epochSeconds));
+            return LocalizationManager::FormatTime(tp,
+                static_cast<LocalizationManager::TimeStyle>(style.value_or(static_cast<i32>(LocalizationManager::TimeStyle::Short))),
+                localeCode.value_or(std::string{}));
+        };
+        localizationTable["FormatRelativeTime"] = [](i64 epochSeconds, sol::optional<std::string> localeCode) -> std::string
+        {
+            const auto tp = std::chrono::system_clock::from_time_t(static_cast<std::time_t>(epochSeconds));
+            return LocalizationManager::FormatRelativeTime(tp, localeCode.value_or(std::string{}));
         };
         localizationTable["GetAvailableLocales"] = [](sol::this_state s) -> sol::table
         {

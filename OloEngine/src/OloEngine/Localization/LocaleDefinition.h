@@ -63,6 +63,25 @@ namespace OloEngine
         // a glyph. A typical setup is "primary Latin + CJK fallback +
         // emoji fallback". Same path resolution as FontPath.
         std::vector<std::string> FontFallbacks;
+
+        // Currency formatting. Per-locale defaults so the same i32 price
+        // ("250 gold") renders as "$2.50" / "2,50 €" / "￥250" without
+        // every UI surface re-coding the convention. `CurrencySymbol` is
+        // the glyph; `CurrencySymbolBefore` controls whether it goes before
+        // or after the amount; `CurrencyDecimals` overrides the default
+        // 2-decimal-places (e.g. JPY uses 0). Real games typically don't
+        // pay for ICU's full currency tables — these few knobs cover the
+        // 90 % case.
+        std::string CurrencySymbol = "$";
+        bool CurrencySymbolBefore = true;
+        i32 CurrencyDecimals = 2;
+
+        // List formatting separators. `ListJoiner` glues all-but-last items
+        // (", " in most languages); `ListLastJoiner` glues the last pair
+        // (", and " in English, " und " in German, " et " in French).
+        // Pure positional separators — no Oxford-comma toggle today.
+        std::string ListJoiner = ", ";
+        std::string ListLastJoiner = ", and ";
     };
 
     // Resolve a count to a plural-form index suitable for indexing into the

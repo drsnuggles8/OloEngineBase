@@ -89,6 +89,39 @@ namespace OloEngine
                 return 2u;
             return std::nullopt;
         }
+
+        // Labelled-form selection for the `select` token shape:
+        //   {role:warrior=knight|mage=wizard|else=hero}
+        //
+        // Each segment is `<label>=<form>`. Returns the form whose label
+        // matches `value` exactly. If no segment matches, looks for the
+        // optional `else=<form>` fallback. Returns std::nullopt when there
+        // is no match and no `else` clause, so the formatter can leave the
+        // token literal — making author errors visible.
+        std::optional<std::string> ResolveSelectForm(std::string_view forms, std::string_view value)
+        {
+            std::optional<std::string> elseForm;
+            sizet start = 0;
+            for (sizet i = 0; i <= forms.size(); ++i)
+            {
+                if (i == forms.size() || forms[i] == '|')
+                {
+                    const std::string_view segment = forms.substr(start, i - start);
+                    const sizet eq = segment.find('=');
+                    if (eq != std::string_view::npos)
+                    {
+                        const std::string_view label = segment.substr(0, eq);
+                        const std::string_view form = segment.substr(eq + 1);
+                        if (label == value)
+                            return std::string(form);
+                        if (label == "else")
+                            elseForm = std::string(form);
+                    }
+                    start = i + 1;
+                }
+            }
+            return elseForm;
+        }
     } // namespace
 
     std::string TextFormatter::Format(const std::string& pattern, const ParamMap& params, PluralRule rule)
@@ -144,26 +177,45 @@ namespace OloEngine
                     }
                     else
                     {
-                        i32 count = 0;
-                        if (TryParseInt(it->second, count))
+                        // Disambiguate the form syntax. If any segment
+                        // contains '=' it's a labelled `select` token
+                        // (`{role:warrior=knight|mage=wizard|else=hero}`),
+                        // otherwise it's positional (plurals / gender).
+                        // Labelled mode is more verbose but generalises any
+                        // enum-typed dispatch — gender just happens to be
+                        // the most common case authors write positionally.
+                        const bool labelled = forms.find('=') != std::string_view::npos;
+                        if (labelled)
                         {
-                            // Numeric value → plural selection.
-                            const u32 idx = ResolvePluralIndex(rule, count);
-                            out.append(SelectPluralForm(forms, idx));
-                        }
-                        else if (auto genderIdx = TryParseGender(it->second))
-                        {
-                            // String value naming a gender → gender selection
-                            // against the same positional form list. Authors
-                            // write `{gender:le|la|leur}` and the engine picks
-                            // by index 0/1/2 for masculine/feminine/neuter.
-                            out.append(SelectPluralForm(forms, *genderIdx));
+                            const auto selected = ResolveSelectForm(forms, it->second);
+                            if (selected)
+                                out.append(*selected);
+                            else
+                                out.append(pattern, i, closing - i + 1);
                         }
                         else
                         {
-                            // Unrecognised value → leave the literal token so
-                            // the bug is visible during testing.
-                            out.append(pattern, i, closing - i + 1);
+                            i32 count = 0;
+                            if (TryParseInt(it->second, count))
+                            {
+                                // Numeric value → plural selection.
+                                const u32 idx = ResolvePluralIndex(rule, count);
+                                out.append(SelectPluralForm(forms, idx));
+                            }
+                            else if (auto genderIdx = TryParseGender(it->second))
+                            {
+                                // String value naming a gender → gender selection
+                                // against the same positional form list. Authors
+                                // write `{gender:le|la|leur}` and the engine picks
+                                // by index 0/1/2 for masculine/feminine/neuter.
+                                out.append(SelectPluralForm(forms, *genderIdx));
+                            }
+                            else
+                            {
+                                // Unrecognised value → leave the literal token so
+                                // the bug is visible during testing.
+                                out.append(pattern, i, closing - i + 1);
+                            }
                         }
                     }
                 }

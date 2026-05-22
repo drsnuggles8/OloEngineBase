@@ -86,6 +86,18 @@ namespace OloEngine
                 }
             }
 
+            if (const YAML::Node cs = root["currency_symbol"]; cs && cs.IsScalar())
+                outLocale.CurrencySymbol = cs.as<std::string>();
+            if (const YAML::Node csb = root["currency_symbol_before"]; csb && csb.IsScalar())
+                outLocale.CurrencySymbolBefore = csb.as<bool>();
+            if (const YAML::Node cd = root["currency_decimals"]; cd && cd.IsScalar())
+                outLocale.CurrencyDecimals = cd.as<i32>();
+
+            if (const YAML::Node lj = root["list_joiner"]; lj && lj.IsScalar())
+                outLocale.ListJoiner = lj.as<std::string>();
+            if (const YAML::Node llj = root["list_last_joiner"]; llj && llj.IsScalar())
+                outLocale.ListLastJoiner = llj.as<std::string>();
+
             const YAML::Node stringsNode = root["strings"];
             if (!stringsNode || !stringsNode.IsMap())
             {

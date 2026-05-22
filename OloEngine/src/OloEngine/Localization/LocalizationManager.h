@@ -6,6 +6,7 @@
 #include "OloEngine/Localization/TextFormatter.h"
 
 #include <atomic>
+#include <chrono>
 #include <filesystem>
 #include <functional>
 #include <shared_mutex>
@@ -101,6 +102,47 @@ namespace OloEngine
         // keep their leading `-` separately from the grouping pass.
         [[nodiscard("Store this!")]] static std::string FormatNumber(i64 value, const std::string& localeCode = {});
         [[nodiscard("Store this!")]] static std::string FormatNumber(f64 value, i32 decimals = 2, const std::string& localeCode = {});
+
+        // Locale-aware currency formatting. Uses the active locale's
+        // CurrencySymbol / CurrencySymbolBefore / CurrencyDecimals + the
+        // same thousand / decimal separators FormatNumber honours. Pass
+        // `symbolOverride` to force a specific currency glyph (e.g. for
+        // multi-currency games where the active locale's symbol isn't
+        // what you want for this particular price).
+        [[nodiscard("Store this!")]] static std::string FormatCurrency(f64 amount, const std::string& localeCode = {}, const std::string& symbolOverride = {});
+
+        // Glue a list of pieces together with the active locale's joiners.
+        // "apples, oranges, and pears" (en) / "apples, oranges und pears" (de).
+        // Empty list → empty string; single item passes through unchanged.
+        [[nodiscard("Store this!")]] static std::string FormatList(const std::vector<std::string>& items, const std::string& localeCode = {});
+
+        // Date / time formatting. We deliberately keep the API minimal —
+        // every full ICU-style formatter we'd need lives behind a wrapper
+        // call here and uses the locale's month/day name tables (stored as
+        // regular translation keys, prefixed `date.month.long.<N>` etc.)
+        // plus a small pattern syntax. See LocalizationManager.cpp for
+        // the supported pattern tokens.
+        enum class DateStyle : u8
+        {
+            Short = 0,  // "3/5/26"
+            Medium = 1, // "Mar 5, 2026"
+            Long = 2,   // "March 5, 2026"
+            Full = 3,   // "Saturday, March 5, 2026"
+        };
+        enum class TimeStyle : u8
+        {
+            Short = 0, // "14:30" or "2:30 PM"
+            Medium = 1 // "14:30:15"
+        };
+
+        [[nodiscard("Store this!")]] static std::string FormatDate(std::chrono::system_clock::time_point tp, DateStyle style = DateStyle::Medium, const std::string& localeCode = {});
+        [[nodiscard("Store this!")]] static std::string FormatTime(std::chrono::system_clock::time_point tp, TimeStyle style = TimeStyle::Short, const std::string& localeCode = {});
+
+        // Relative time — "3 minutes ago" / "in 5 hours". Picks the largest
+        // unit whose magnitude is >= 1 and resolves a per-locale plural-
+        // aware template (`time.relative.minutes_past` / `..._future`).
+        // Falls back to the absolute date when the delta exceeds 30 days.
+        [[nodiscard("Store this!")]] static std::string FormatRelativeTime(std::chrono::system_clock::time_point tp, const std::string& localeCode = {});
 
         // Looked-up text for `key` in the current locale. Returns the fallback
         // string ("???" by default) if the key isn't in the active table or

@@ -99,6 +99,41 @@ namespace OloEngine
         public static bool GeneratePseudoLocale(string sourceCode = "en", string pseudoCode = "pseudo")
             => InternalCalls.Localization_GeneratePseudoLocale(sourceCode ?? "en", pseudoCode ?? "pseudo");
 
+        // Locale-aware currency formatting. Uses the active locale's
+        // currency symbol + thousands/decimal separators + decimal-count
+        // unless `symbolOverride` is non-null (multi-currency UI in a
+        // single-locale game).
+        public static string FormatCurrency(double amount, string localeCode = null, string symbolOverride = null)
+            => InternalCalls.Localization_FormatCurrency(amount, localeCode ?? string.Empty, symbolOverride ?? string.Empty);
+
+        // List joiner. "apples, oranges, and pears" in English; the active
+        // locale's list_joiner / list_last_joiner govern the separators.
+        public static string FormatList(System.Collections.Generic.IEnumerable<string> items, string localeCode = null)
+        {
+            if (items == null)
+                return string.Empty;
+            var array = new System.Collections.Generic.List<string>(items).ToArray();
+            return InternalCalls.Localization_FormatList(array, localeCode ?? string.Empty);
+        }
+
+        public enum DateStyle  { Short = 0, Medium = 1, Long = 2, Full = 3 }
+        public enum TimeStyle  { Short = 0, Medium = 1 }
+
+        // Locale-aware date / time formatting. C# DateTime values are
+        // converted to Unix seconds before crossing the Mono boundary —
+        // a single deterministic round-trip rather than DateTime <->
+        // System.DateTime marshalling games.
+        public static string FormatDate(System.DateTimeOffset when, DateStyle style = DateStyle.Medium, string localeCode = null)
+            => InternalCalls.Localization_FormatDate(when.ToUnixTimeSeconds(), (int)style, localeCode ?? string.Empty);
+
+        public static string FormatTime(System.DateTimeOffset when, TimeStyle style = TimeStyle.Short, string localeCode = null)
+            => InternalCalls.Localization_FormatTime(when.ToUnixTimeSeconds(), (int)style, localeCode ?? string.Empty);
+
+        // Relative time: "3 minutes ago" / "in 5 hours". Falls back to an
+        // absolute date when the delta exceeds 30 days.
+        public static string FormatRelativeTime(System.DateTimeOffset when, string localeCode = null)
+            => InternalCalls.Localization_FormatRelativeTime(when.ToUnixTimeSeconds(), localeCode ?? string.Empty);
+
         // Split a key->value dictionary into two arrays of equal length —
         // the marshaling shape the engine expects (see InternalCalls.cs and
         // ScriptGlue.cpp for the rationale).

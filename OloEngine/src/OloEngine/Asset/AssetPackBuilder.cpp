@@ -371,6 +371,48 @@ namespace OloEngine
                 return result;
             }
 
+            // Copy localization files alongside the .olopack as loose files.
+            // They aren't asset-manager assets (LocalizationManager owns
+            // them directly), so they need a side-channel into the shipped
+            // game's working directory. The convention is:
+            //   <project>/assets/localization/*.ololocale
+            //     → <output dir>/assets/localization/*.ololocale
+            // Failures are logged but don't fail the overall build —
+            // localization is shippable in isolation if the user catches
+            // the warning.
+            if (settings.m_IncludeLocalizationFiles)
+            {
+                auto srcDir = Project::GetAssetDirectory() / "localization";
+                std::error_code ec;
+                if (std::filesystem::is_directory(srcDir, ec))
+                {
+                    auto dstDir = settings.m_OutputPath.parent_path() / "assets" / "localization";
+                    std::filesystem::create_directories(dstDir, ec);
+                    u32 copied = 0;
+                    for (const auto& entry : std::filesystem::directory_iterator(srcDir, ec))
+                    {
+                        if (ec || !entry.is_regular_file())
+                            continue;
+                        if (entry.path().extension() != ".ololocale")
+                            continue;
+                        std::filesystem::copy_file(
+                            entry.path(),
+                            dstDir / entry.path().filename(),
+                            std::filesystem::copy_options::overwrite_existing,
+                            ec);
+                        if (!ec)
+                            ++copied;
+                        else
+                            OLO_CORE_WARN("AssetPackBuilder: failed to copy '{}': {}", entry.path().string(), ec.message());
+                    }
+                    OLO_CORE_INFO("AssetPackBuilder: bundled {} .ololocale file(s) to '{}'", copied, dstDir.string());
+                }
+                else
+                {
+                    OLO_CORE_INFO("AssetPackBuilder: no localization directory at '{}' — skipping locale bundling", srcDir.string());
+                }
+            }
+
             progress = 1.0f;
 
             // Success!

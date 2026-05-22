@@ -3017,6 +3017,57 @@ namespace OloEngine
         return LocalizationManager::GeneratePseudoLocale(srcStr, pseudoStr);
     }
 
+    static MonoString* Localization_FormatCurrency(f64 amount, MonoString* localeCode, MonoString* symbolOverride)
+    {
+        const std::string loc = localeCode ? Utils::MonoStringToString(localeCode) : std::string{};
+        const std::string sym = symbolOverride ? Utils::MonoStringToString(symbolOverride) : std::string{};
+        return ScriptEngine::CreateString(LocalizationManager::FormatCurrency(amount, loc, sym).c_str());
+    }
+
+    static MonoString* Localization_FormatList(MonoArray* items, MonoString* localeCode)
+    {
+        std::vector<std::string> v;
+        if (items)
+        {
+            const uintptr_t n = mono_array_length(items);
+            v.reserve(n);
+            for (uintptr_t i = 0; i < n; ++i)
+            {
+                MonoString* s = mono_array_get(items, MonoString*, i);
+                if (s)
+                    v.push_back(Utils::MonoStringToString(s));
+            }
+        }
+        const std::string loc = localeCode ? Utils::MonoStringToString(localeCode) : std::string{};
+        return ScriptEngine::CreateString(LocalizationManager::FormatList(v, loc).c_str());
+    }
+
+    // Date / time: take Unix epoch seconds (i64) since System.DateTime
+    // marshalling through Mono is awkward. The managed wrapper converts
+    // via DateTimeOffset.ToUnixTimeSeconds before calling.
+    static MonoString* Localization_FormatDate(i64 epochSeconds, i32 style, MonoString* localeCode)
+    {
+        const auto tp = std::chrono::system_clock::from_time_t(static_cast<std::time_t>(epochSeconds));
+        const std::string loc = localeCode ? Utils::MonoStringToString(localeCode) : std::string{};
+        return ScriptEngine::CreateString(
+            LocalizationManager::FormatDate(tp, static_cast<LocalizationManager::DateStyle>(style), loc).c_str());
+    }
+
+    static MonoString* Localization_FormatTime(i64 epochSeconds, i32 style, MonoString* localeCode)
+    {
+        const auto tp = std::chrono::system_clock::from_time_t(static_cast<std::time_t>(epochSeconds));
+        const std::string loc = localeCode ? Utils::MonoStringToString(localeCode) : std::string{};
+        return ScriptEngine::CreateString(
+            LocalizationManager::FormatTime(tp, static_cast<LocalizationManager::TimeStyle>(style), loc).c_str());
+    }
+
+    static MonoString* Localization_FormatRelativeTime(i64 epochSeconds, MonoString* localeCode)
+    {
+        const auto tp = std::chrono::system_clock::from_time_t(static_cast<std::time_t>(epochSeconds));
+        const std::string loc = localeCode ? Utils::MonoStringToString(localeCode) : std::string{};
+        return ScriptEngine::CreateString(LocalizationManager::FormatRelativeTime(tp, loc).c_str());
+    }
+
     void ScriptGlue::RegisterComponents()
     {
         RegisterComponent(AllComponents{});
@@ -3397,6 +3448,11 @@ namespace OloEngine
         OLO_ADD_INTERNAL_CALL(Localization_FormatFloat);
         OLO_ADD_INTERNAL_CALL(Localization_ClearMissingKeys);
         OLO_ADD_INTERNAL_CALL(Localization_GeneratePseudoLocale);
+        OLO_ADD_INTERNAL_CALL(Localization_FormatCurrency);
+        OLO_ADD_INTERNAL_CALL(Localization_FormatList);
+        OLO_ADD_INTERNAL_CALL(Localization_FormatDate);
+        OLO_ADD_INTERNAL_CALL(Localization_FormatTime);
+        OLO_ADD_INTERNAL_CALL(Localization_FormatRelativeTime);
     }
 
 } // namespace OloEngine

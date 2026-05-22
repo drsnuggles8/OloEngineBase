@@ -624,6 +624,16 @@ namespace OloEngine
 		internal static extern void Localization_ClearMissingKeys();
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern bool Localization_GeneratePseudoLocale(string sourceCode, string pseudoCode);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern string Localization_FormatCurrency(double amount, string localeCode, string symbolOverride);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern string Localization_FormatList(string[] items, string localeCode);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern string Localization_FormatDate(long epochSeconds, int style, string localeCode);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern string Localization_FormatTime(long epochSeconds, int style, string localeCode);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern string Localization_FormatRelativeTime(long epochSeconds, string localeCode);
 		#endregion
 	}
 }

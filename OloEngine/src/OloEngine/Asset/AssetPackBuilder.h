@@ -42,6 +42,12 @@ namespace OloEngine
             bool m_CompressAssets = true;
             bool m_IncludeScriptModule = true;
             bool m_ValidateAssets = true;
+            // Copy `.ololocale` files from `assets/localization/` into the
+            // output dir alongside the pack. Localization files aren't
+            // registered as asset-manager assets (they're configuration
+            // that LocalizationManager owns directly), so they need a
+            // side-channel into the shipped game's working directory.
+            bool m_IncludeLocalizationFiles = true;
         };
 
       public:
