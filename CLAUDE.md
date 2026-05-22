@@ -2,6 +2,16 @@
 
 Guidance for Claude Code (claude.ai/code) working in this repository.
 
+## Don't commit on your own initiative — the user owns git history
+
+**Never run `git commit`, `git commit --amend`, `git push`, `git push --force`, `git merge`, `git rebase`, `git reset --hard`, or `gh pr create` unless the user explicitly tells you to in the current turn.** "Commit this", "push the branch", "open a PR" are clear, explicit instructions and you may proceed. Anything less direct is not: don't infer commit intent from "we're done", "looks good", "wrap it up", a `/done`-style closing message, or your own judgement that the work is in a good state. When in doubt, stop and ask.
+
+What you may always do without asking: edit files, create branches with `git checkout -b`, stage with `git add`, run `git status` / `git diff` / `git log`, and report what's ready.
+
+The default is **stop at a clean working tree and hand back**. Commits are a deliberate, opt-in step from the user.
+
+---
+
 ## Definition of done — before you hand back to the user
 
 When you finish a task that touched code or assets:

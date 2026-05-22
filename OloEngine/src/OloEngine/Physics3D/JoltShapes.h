@@ -18,9 +18,12 @@
 #include "Physics3DTypes.h"
 #include "JoltUtils.h"
 #include "OloEngine/Core/Base.h"
+#include "OloEngine/Renderer/Vertex.h"
 #include "OloEngine/Scene/Entity.h"
 #include "OloEngine/Scene/Components.h"
 #include "MeshColliderCache.h"
+
+#include <span>
 
 #include <Jolt/Jolt.h>
 #include <Jolt/Physics/Collision/Shape/Shape.h>
@@ -44,6 +47,41 @@
 
 namespace OloEngine
 {
+
+    // @brief Mass properties for a triangle mesh under uniform density.
+    //
+    // Computed via the divergence theorem applied to signed tetrahedra (one per
+    // triangle) with their fourth vertex at the local-space origin.  Works
+    // exactly for closed (watertight) meshes regardless of where the mesh sits
+    // in local space; for open meshes the result is approximate.
+    //
+    // Why this exists alongside Jolt: Jolt's primitive shapes (Box/Sphere/Capsule/
+    // ConvexHull) already expose `Shape::GetVolume()` and produce correct mass
+    // properties internally, so this helper adds nothing for convex bodies.
+    // But `MeshShape` returns `GetVolume() == 0` and `GetMassProperties()` flagged
+    // invalid by design ("we cannot calculate the volume for an arbitrary mesh"),
+    // and `MeshShape::GetSubmergedVolume` asserts `false, "Not supported"`.
+    // So anything that wants a real volume / centroid / density-driven mass for a
+    // triangle-mesh body — or wants to build wave-buoyancy on triangle meshes —
+    // has to provide its own integration.  This is the building block for that.
+    struct MeshMassProperties
+    {
+        // Total mesh volume in local space (after applying the input scale).
+        // Always non-negative — if the surface is wound inwards the signed
+        // volume is negative and we take the absolute value.
+        f32 Volume = 0.0f;
+
+        // Centroid (center of mass for uniform density) in local space,
+        // i.e. relative to the mesh's own origin and scaled by the same
+        // scale that was applied to `Volume`.
+        glm::vec3 Centroid{ 0.0f };
+
+        // True when the input had at least one valid triangle and the
+        // accumulated signed volume was finite and non-zero.  When false,
+        // `Volume` is 0 and `Centroid` is the zero vector; callers should
+        // fall back to an AABB-based approximation.
+        bool IsValid = false;
+    };
 
     class JoltShapes
     {
@@ -90,6 +128,23 @@ namespace OloEngine
 
         // Helper functions
         static bool IsShapeValid(const JPH::Shape* shape);
+
+        // @brief Compute volume + centroid for a triangle list using the divergence theorem.
+        //
+        // Each triple of indices is interpreted as a triangle whose three vertices form
+        // a signed tetrahedron with the local origin.  The exact result (for watertight,
+        // outward-wound meshes) is the mesh volume and the centroid of uniform-density
+        // mass distribution.
+        //
+        // `scale` is applied to each axis independently; volume scales by |sx*sy*sz| and
+        // the centroid scales component-wise.  Negative components are allowed (they
+        // mirror the geometry) — the absolute value of the determinant is used for
+        // volume so a negative scale does not produce a negative volume.
+        //
+        // The function is pure and asset-independent so it can be unit-tested directly.
+        static MeshMassProperties ComputeTriangleMeshMassProperties(std::span<const Vertex> vertices,
+                                                                    std::span<const u32> indices,
+                                                                    const glm::vec3& scale = glm::vec3(1.0f));
 
         // Shape type utilities
         static ShapeType GetShapeType(const JPH::Shape* shape);
