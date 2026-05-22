@@ -1,6 +1,7 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Renderer/Renderer2D.h"
 
+#include "OloEngine/Math/Math.h"
 #include "OloEngine/Renderer/VertexArray.h"
 #include "OloEngine/Renderer/Shader.h"
 #include "OloEngine/Renderer/Buffer.h"
@@ -713,7 +714,7 @@ namespace OloEngine
         // Bit-exact comparison because the loop assigns from integer indices —
         // 0.0f appears only when nothing was assigned (see cpp-coding-quality §2a).
         constexpr f32 noTextureSlotSentinel = 0.0f;
-        if (std::memcmp(&textureIndex, &noTextureSlotSentinel, sizeof(f32)) == 0)
+        if (Math::BitwiseEqual(textureIndex, noTextureSlotSentinel))
         {
             if (s_Data.TextureSlotIndex >= Renderer2DData::MaxTextureSlots)
             {

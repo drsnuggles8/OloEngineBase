@@ -1,9 +1,9 @@
 #pragma once
 
 #include "OloEngine/Core/Base.h"
+#include "OloEngine/Math/Math.h"
 #include <algorithm>
 #include <cmath>
-#include <cstring>
 
 namespace OloEngine
 {
@@ -97,10 +97,10 @@ namespace OloEngine
 
         /// @brief Bit-exact equality for undo/redo and serialization round-trip.
         /// Direct float == on m_* would trip the cpp-coding-quality rule; this
-        /// uses memcmp to document bit-exact intent (see cpp-coding-quality §2a).
+        /// uses Math::BitwiseEqual to document bit-exact intent (see cpp-coding-quality §2a).
         auto operator==(const ColliderMaterial& other) const -> bool
         {
-            return std::memcmp(this, &other, sizeof(ColliderMaterial)) == 0;
+            return Math::BitwiseEqual(*this, other);
         }
 
       private:

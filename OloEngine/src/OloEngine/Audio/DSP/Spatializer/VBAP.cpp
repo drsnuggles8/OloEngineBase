@@ -1,9 +1,9 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Audio/DSP/Spatializer/VBAP.h"
+#include "OloEngine/Math/Math.h"
 
 #include <algorithm>
 #include <cmath>
-#include <cstring>
 
 #include <glm/glm.hpp>
 
@@ -405,7 +405,7 @@ namespace OloEngine::Audio::DSP
         // overwritten via `ref = sqrtf(>0)`, so 0.0f means "no arch found".
         // See cpp-coding-quality §2a.
         constexpr float refSentinel = 0.0f;
-        return std::memcmp(&ref, &refSentinel, sizeof(float)) != 0;
+        return !Math::BitwiseEqual(ref, refSentinel);
     }
 
 } // namespace OloEngine::Audio::DSP

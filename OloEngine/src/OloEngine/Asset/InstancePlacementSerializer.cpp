@@ -2,6 +2,7 @@
 #include "OloEngine/Asset/AssetSerializer.h"
 #include "OloEngine/Asset/InstancePlacementAsset.h"
 #include "OloEngine/Asset/AssetManager.h"
+#include "OloEngine/Math/Math.h"
 #include "OloEngine/Project/Project.h"
 #include "OloEngine/Scene/Scene.h" // AssetSerializer.h forward-declares Scene; pulling it in here resolves Ref<Scene>::~Ref instantiation triggered by template instantiation chains.
 
@@ -32,7 +33,7 @@ namespace OloEngine
             // sentinel comparison per cpp-coding-quality §2a.
             {
                 constexpr f32 defaultCustom = 0.0f;
-                if (std::memcmp(&inst.Custom, &defaultCustom, sizeof(f32)) != 0)
+                if (!Math::BitwiseEqual(inst.Custom, defaultCustom))
                     out << YAML::Key << "Custom" << YAML::Value << inst.Custom;
             }
             out << YAML::EndMap;

@@ -9,6 +9,7 @@ add_executable(OloEngine-Tests
 		PrecipitationEmitterTest.cpp
 		PrecipitationSystemTest.cpp
 		CoreUtilitiesTest.cpp
+		MathTest.cpp
 		SlugFontRenderingTest.cpp
 		AssetCreationTest.cpp
 		AssetBinaryIntegrityTest.cpp

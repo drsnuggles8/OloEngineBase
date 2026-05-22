@@ -2,6 +2,7 @@
 #include "OloEngine/Scene/SceneSerializer.h"
 #include "OloEngine/Core/YAMLConverters.h"
 
+#include "OloEngine/Math/Math.h"
 #include "OloEngine/Scene/Entity.h"
 #include "OloEngine/Scene/Components.h"
 #include "OloEngine/Scripting/C#/ScriptEngine.h"
@@ -3564,7 +3565,7 @@ namespace OloEngine
                 // because the loader assigns the literal 0.0f default (see cpp-coding-quality §2a).
                 {
                     constexpr f32 defaultCustom = 0.0f;
-                    if (std::memcmp(&inst.Custom, &defaultCustom, sizeof(f32)) != 0)
+                    if (!Math::BitwiseEqual(inst.Custom, defaultCustom))
                         out << YAML::Key << "Custom" << YAML::Value << inst.Custom;
                 }
                 out << YAML::EndMap;

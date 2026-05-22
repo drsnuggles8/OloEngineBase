@@ -2,10 +2,10 @@
 
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Core/Ref.h"
+#include "OloEngine/Math/Math.h"
 #include "OloEngine/Renderer/Texture.h"
 
 #include <glm/glm.hpp>
-#include <cstring>
 #include <string>
 
 namespace OloEngine
@@ -55,11 +55,11 @@ namespace OloEngine
         // Manual operator== — excludes the runtime AlbedoTexture (a re-load of
         // the same asset hands out a different Ref pointer, which would
         // spuriously flag layers as changed). Float / glm::vec3 fields use
-        // bit-exact memcmp per cpp-coding-quality §2a; AlbedoPath identifies
+        // Math::BitwiseEqual per cpp-coding-quality §2a; AlbedoPath identifies
         // the texture authoritatively for equality purposes.
         auto operator==(const FoliageLayer& other) const -> bool
         {
-            return Name == other.Name && MeshPath == other.MeshPath && AlbedoPath == other.AlbedoPath && std::memcmp(&Density, &other.Density, sizeof(f32)) == 0 && SplatmapChannel == other.SplatmapChannel && std::memcmp(&MinSlopeAngle, &other.MinSlopeAngle, sizeof(f32)) == 0 && std::memcmp(&MaxSlopeAngle, &other.MaxSlopeAngle, sizeof(f32)) == 0 && std::memcmp(&MinScale, &other.MinScale, sizeof(f32)) == 0 && std::memcmp(&MaxScale, &other.MaxScale, sizeof(f32)) == 0 && std::memcmp(&MinHeight, &other.MinHeight, sizeof(f32)) == 0 && std::memcmp(&MaxHeight, &other.MaxHeight, sizeof(f32)) == 0 && RandomRotation == other.RandomRotation && std::memcmp(&ViewDistance, &other.ViewDistance, sizeof(f32)) == 0 && std::memcmp(&FadeStartDistance, &other.FadeStartDistance, sizeof(f32)) == 0 && std::memcmp(&WindStrength, &other.WindStrength, sizeof(f32)) == 0 && std::memcmp(&WindSpeed, &other.WindSpeed, sizeof(f32)) == 0 && std::memcmp(&BaseColor, &other.BaseColor, sizeof(glm::vec3)) == 0 && std::memcmp(&Roughness, &other.Roughness, sizeof(f32)) == 0 && std::memcmp(&AlphaCutoff, &other.AlphaCutoff, sizeof(f32)) == 0 && Enabled == other.Enabled;
+            return Name == other.Name && MeshPath == other.MeshPath && AlbedoPath == other.AlbedoPath && Math::BitwiseEqual(Density, other.Density) && SplatmapChannel == other.SplatmapChannel && Math::BitwiseEqual(MinSlopeAngle, other.MinSlopeAngle) && Math::BitwiseEqual(MaxSlopeAngle, other.MaxSlopeAngle) && Math::BitwiseEqual(MinScale, other.MinScale) && Math::BitwiseEqual(MaxScale, other.MaxScale) && Math::BitwiseEqual(MinHeight, other.MinHeight) && Math::BitwiseEqual(MaxHeight, other.MaxHeight) && RandomRotation == other.RandomRotation && Math::BitwiseEqual(ViewDistance, other.ViewDistance) && Math::BitwiseEqual(FadeStartDistance, other.FadeStartDistance) && Math::BitwiseEqual(WindStrength, other.WindStrength) && Math::BitwiseEqual(WindSpeed, other.WindSpeed) && Math::BitwiseEqual(BaseColor, other.BaseColor) && Math::BitwiseEqual(Roughness, other.Roughness) && Math::BitwiseEqual(AlphaCutoff, other.AlphaCutoff) && Enabled == other.Enabled;
         }
     };
 

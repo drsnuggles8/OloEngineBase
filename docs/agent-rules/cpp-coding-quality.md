@@ -46,16 +46,29 @@ constexpr f32 epsilon = 1e-6f;
 if (std::abs(distance) > epsilon) { ... }
 ```
 
-- **Bitwise-exact comparison** (undo/redo change detection, serialization round-trip): use `std::memcmp`.
+- **Bitwise-exact comparison** (undo/redo change detection, serialization round-trip): use `Math::BitwiseEqual` from `OloEngine/Math/Math.h`. It wraps `std::memcmp` with a `std::is_trivially_copyable_v` static_assert so misuse is a compile error.
 
 ```cpp
 // BAD
 if (a.GetBaseColorFactor() != b.GetBaseColorFactor()) return false;
 
-// GOOD — explicit bitwise, documents intent
+// BAD — verbose, easy to get sizeof wrong
 auto lhs = a.GetBaseColorFactor();
 auto rhs = b.GetBaseColorFactor();
 if (std::memcmp(&lhs, &rhs, sizeof(lhs)) != 0) return false;
+
+// GOOD — explicit bitwise, documents intent, size derived from the type
+if (!Math::BitwiseEqual(a.GetBaseColorFactor(), b.GetBaseColorFactor()))
+    return false;
+```
+
+For whole-struct bit-exact comparison (e.g. trivially-copyable POD components), call it with `*this` and `other`:
+
+```cpp
+auto operator==(const FogVolumeComponent& other) const -> bool
+{
+    return Math::BitwiseEqual(*this, other);
+}
 ```
 
 ### 2b. Validate deserialized / external floats
@@ -152,7 +165,7 @@ auto operator==(const MyComponent&) const -> bool = default;
 
 Plain `bool operator==(const MyComponent&) const = default;` works too on MSVC, but `auto operator==(...) const = default;` (no trailing return) does **not**.
 
-When the component contains a type without `operator==` (e.g., `Material`), write a manual implementation using `std::memcmp` for float members (rule 2).
+When the component contains a type without `operator==` (e.g., `Material`), write a manual implementation using `Math::BitwiseEqual` for float members (rule 2).
 
 `UUID` has implicit `operator u64()`. That causes **C2666 ambiguity** with any member `operator==`. In a manual `operator==`, compare UUIDs via `static_cast<u64>()` to disambiguate.
 

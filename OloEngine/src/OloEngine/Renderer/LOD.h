@@ -3,10 +3,10 @@
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Core/Ref.h"
 #include "OloEngine/Asset/Asset.h"
+#include "OloEngine/Math/Math.h"
 
 #include <glm/mat4x4.hpp>
 #include <glm/vec3.hpp>
-#include <cstring>
 #include <vector>
 
 namespace OloEngine
@@ -22,10 +22,11 @@ namespace OloEngine
         LODLevel(AssetHandle meshHandle, f32 maxDistance, u32 triangleCount = 0)
             : MeshHandle(meshHandle), MaxDistance(maxDistance), TriangleCount(triangleCount) {}
 
-        // Bitwise-exact comparison for undo/redo change detection (memcmp for float per rule 2b).
+        // Bitwise-exact comparison for undo/redo change detection — float field
+        // uses Math::BitwiseEqual per cpp-coding-quality §2a.
         auto operator==(const LODLevel& other) const -> bool
         {
-            return MeshHandle == other.MeshHandle && std::memcmp(&MaxDistance, &other.MaxDistance, sizeof(f32)) == 0 && TriangleCount == other.TriangleCount;
+            return MeshHandle == other.MeshHandle && Math::BitwiseEqual(MaxDistance, other.MaxDistance) && TriangleCount == other.TriangleCount;
         }
     };
 
@@ -39,7 +40,7 @@ namespace OloEngine
 
         auto operator==(const LODGroup& other) const -> bool
         {
-            return Levels == other.Levels && std::memcmp(&Bias, &other.Bias, sizeof(f32)) == 0;
+            return Levels == other.Levels && Math::BitwiseEqual(Bias, other.Bias);
         }
 
         // Returns the index of the appropriate LODLevel for the given distance.
