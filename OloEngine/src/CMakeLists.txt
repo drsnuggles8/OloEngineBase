@@ -1031,6 +1031,16 @@
 		"OloEngine/Dialogue/DialogueUIController.h"
 		"OloEngine/Dialogue/DialogueUIController.cpp"
 
+		"OloEngine/Localization/LocaleDefinition.h"
+		"OloEngine/Localization/LocalizationEvents.h"
+		"OloEngine/Localization/LocalizedTextComponent.h"
+		"OloEngine/Localization/StringTable.h"
+		"OloEngine/Localization/StringTable.cpp"
+		"OloEngine/Localization/TextFormatter.h"
+		"OloEngine/Localization/TextFormatter.cpp"
+		"OloEngine/Localization/LocalizationManager.h"
+		"OloEngine/Localization/LocalizationManager.cpp"
+
 		"OloEngine/Gameplay/Inventory/AffixDefinition.h"
 		"OloEngine/Gameplay/Inventory/AffixDatabase.h"
 		"OloEngine/Gameplay/Inventory/AffixDatabase.cpp"

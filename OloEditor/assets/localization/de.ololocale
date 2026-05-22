@@ -1,0 +1,15 @@
+locale: de
+name: Deutsch
+direction: ltr
+plural_rule: one-other
+
+strings:
+  ui.main_menu.play: "Spielen"
+  ui.main_menu.settings: "Einstellungen"
+  ui.main_menu.quit: "Beenden"
+
+  combat.damage_dealt: "Du hast {target} {damage} Schaden zugefügt."
+  combat.kills: "Du hast {count} {count:Feind|Feinde} besiegt."
+
+  item.sword_iron.name: "Eisenschwert"
+  item.sword_iron.desc: "Eine robuste Eisenklinge."

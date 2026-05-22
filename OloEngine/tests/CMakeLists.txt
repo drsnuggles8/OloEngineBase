@@ -139,6 +139,8 @@ add_executable(OloEngine-Tests
 		Networking/ChatTest.cpp
 		Networking/PersistenceTest.cpp
 		Networking/MMOOptimizationTest.cpp
+		# Localization tests
+		LocalizationTest.cpp
 		# Dialogue system tests
 		DialogueVariablesTest.cpp
 		DialogueTreeSerializationTest.cpp
