@@ -1,6 +1,7 @@
 #include "OloEnginePCH.h"
 #include "AnimatedModel.h"
 #include "OloEngine/Core/Log.h"
+#include "OloEngine/Math/Math.h"
 #include "OloEngine/Asset/MeshCache.h"
 #include "OloEngine/Renderer/MeshOptimization.h"
 #include "OloEngine/Animation/MorphTargets/MorphTarget.h"
@@ -1004,7 +1005,7 @@ namespace OloEngine
                 for (u32 i = 0; i < 4; ++i)
                 {
                     const f32 currentWeight = outBoneInfluences[vertexId].m_Weights[i];
-                    if (std::memcmp(&currentWeight, &emptySlotSentinel, sizeof(f32)) == 0)
+                    if (Math::BitwiseEqual(currentWeight, emptySlotSentinel))
                     {
                         outBoneInfluences[vertexId].SetBoneData(i, skeletonBoneId, weight);
                         slotFound = true;

@@ -2,6 +2,7 @@
 #include "CommandBucket.h"
 #include "FrameDataBuffer.h"
 #include "RenderCommand.h"
+#include "OloEngine/Math/Math.h"
 #include "OloEngine/Renderer/RendererAPI.h"
 #include "OloEngine/Renderer/Debug/GPUTimerQueryPool.h"
 #include "OloEngine/Task/ParallelFor.h"
@@ -9,7 +10,6 @@
 #include <algorithm>
 #include <array>
 #include <chrono>
-#include <cstring>
 #include <unordered_set>
 
 namespace OloEngine
@@ -654,10 +654,10 @@ namespace OloEngine
             {
                 auto const* meshCmd = m_Packets[indices[t]]->GetCommandData<DrawMeshCommand>();
                 // Bit-exact comparison to detect any per-entity override — instance defaults
-                // are bit-exactly 1.0f / 0.0f, so memcmp catches anything else (see cpp-coding-quality §2a).
-                if (std::memcmp(&meshCmd->color, &defaultColor, sizeof(glm::vec4)) != 0)
+                // are bit-exactly 1.0f / 0.0f, so BitwiseEqual catches anything else (see cpp-coding-quality §2a).
+                if (!Math::BitwiseEqual(meshCmd->color, defaultColor))
                     anyNonDefaultColor = true;
-                if (std::memcmp(&meshCmd->custom, &defaultCustom, sizeof(f32)) != 0)
+                if (!Math::BitwiseEqual(meshCmd->custom, defaultCustom))
                     anyNonDefaultCustom = true;
                 if (anyNonDefaultColor && anyNonDefaultCustom)
                     break;

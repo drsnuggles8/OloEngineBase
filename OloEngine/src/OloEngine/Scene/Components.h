@@ -2,6 +2,7 @@
 #include "OloEngine/Scene/SceneCamera.h"
 #include "OloEngine/Core/UUID.h"
 #include "OloEngine/Renderer/Texture.h"
+#include "OloEngine/Math/Math.h"
 #include "OloEngine/Renderer/Material.h"
 #include "OloEngine/Renderer/Font.h"
 #include "OloEngine/Audio/AudioSource.h"
@@ -334,7 +335,8 @@ namespace OloEngine
 
         // Manual operator== — SceneCamera lacks defaulted ==. Compare the
         // user-visible projection state via getters, which captures every
-        // serialized field. Other fields are POD and trivially compared.
+        // serialized field. Float members go through Math::BitwiseEqual
+        // (cpp-coding-quality §2a). Other fields are POD and trivially compared.
         auto operator==(const CameraComponent& other) const -> bool
         {
             if (Camera.GetProjectionType() != other.Camera.GetProjectionType())
@@ -342,37 +344,23 @@ namespace OloEngine
             const auto type = Camera.GetProjectionType();
             if (type == SceneCamera::ProjectionType::Perspective)
             {
-                const f32 fovL = Camera.GetPerspectiveVerticalFOV();
-                const f32 fovR = other.Camera.GetPerspectiveVerticalFOV();
-                const f32 nearL = Camera.GetPerspectiveNearClip();
-                const f32 nearR = other.Camera.GetPerspectiveNearClip();
-                const f32 farL = Camera.GetPerspectiveFarClip();
-                const f32 farR = other.Camera.GetPerspectiveFarClip();
-                if (std::memcmp(&fovL, &fovR, sizeof(f32)) != 0)
+                if (!Math::BitwiseEqual(Camera.GetPerspectiveVerticalFOV(), other.Camera.GetPerspectiveVerticalFOV()))
                     return false;
-                if (std::memcmp(&nearL, &nearR, sizeof(f32)) != 0)
+                if (!Math::BitwiseEqual(Camera.GetPerspectiveNearClip(), other.Camera.GetPerspectiveNearClip()))
                     return false;
-                if (std::memcmp(&farL, &farR, sizeof(f32)) != 0)
+                if (!Math::BitwiseEqual(Camera.GetPerspectiveFarClip(), other.Camera.GetPerspectiveFarClip()))
                     return false;
             }
             else
             {
-                const f32 sizeL = Camera.GetOrthographicSize();
-                const f32 sizeR = other.Camera.GetOrthographicSize();
-                const f32 nearL = Camera.GetOrthographicNearClip();
-                const f32 nearR = other.Camera.GetOrthographicNearClip();
-                const f32 farL = Camera.GetOrthographicFarClip();
-                const f32 farR = other.Camera.GetOrthographicFarClip();
-                if (std::memcmp(&sizeL, &sizeR, sizeof(f32)) != 0)
+                if (!Math::BitwiseEqual(Camera.GetOrthographicSize(), other.Camera.GetOrthographicSize()))
                     return false;
-                if (std::memcmp(&nearL, &nearR, sizeof(f32)) != 0)
+                if (!Math::BitwiseEqual(Camera.GetOrthographicNearClip(), other.Camera.GetOrthographicNearClip()))
                     return false;
-                if (std::memcmp(&farL, &farR, sizeof(f32)) != 0)
+                if (!Math::BitwiseEqual(Camera.GetOrthographicFarClip(), other.Camera.GetOrthographicFarClip()))
                     return false;
             }
-            const f32 flySpeedL = FlySpeed;
-            const f32 flySpeedR = other.FlySpeed;
-            return Primary == other.Primary && FixedAspectRatio == other.FixedAspectRatio && RuntimeControl == other.RuntimeControl && std::memcmp(&flySpeedL, &flySpeedR, sizeof(f32)) == 0;
+            return Primary == other.Primary && FixedAspectRatio == other.FixedAspectRatio && RuntimeControl == other.RuntimeControl && Math::BitwiseEqual(FlySpeed, other.FlySpeed);
         }
     };
 
@@ -406,10 +394,10 @@ namespace OloEngine
         // Compare only authored fields. RuntimeBody is a b2BodyId set by the
         // physics system when entering Play mode; including it in equality
         // would flag enter/exit-play as an authored change. Float fields use
-        // bit-exact memcmp per cpp-coding-quality §2a.
+        // Math::BitwiseEqual per cpp-coding-quality §2a.
         auto operator==(const Rigidbody2DComponent& other) const -> bool
         {
-            return Type == other.Type && FixedRotation == other.FixedRotation && std::memcmp(&LinearVelocity, &other.LinearVelocity, sizeof(glm::vec2)) == 0 && std::memcmp(&AngularVelocity, &other.AngularVelocity, sizeof(f32)) == 0;
+            return Type == other.Type && FixedRotation == other.FixedRotation && Math::BitwiseEqual(LinearVelocity, other.LinearVelocity) && Math::BitwiseEqual(AngularVelocity, other.AngularVelocity);
         }
     };
 
@@ -439,7 +427,7 @@ namespace OloEngine
         // from equality so play-mode enter/exit doesn't show as authored change.
         auto operator==(const BoxCollider2DComponent& other) const -> bool
         {
-            return std::memcmp(&Offset, &other.Offset, sizeof(glm::vec2)) == 0 && std::memcmp(&Size, &other.Size, sizeof(glm::vec2)) == 0 && std::memcmp(&Density, &other.Density, sizeof(f32)) == 0 && std::memcmp(&Friction, &other.Friction, sizeof(f32)) == 0 && std::memcmp(&Restitution, &other.Restitution, sizeof(f32)) == 0 && std::memcmp(&RestitutionThreshold, &other.RestitutionThreshold, sizeof(f32)) == 0;
+            return Math::BitwiseEqual(Offset, other.Offset) && Math::BitwiseEqual(Size, other.Size) && Math::BitwiseEqual(Density, other.Density) && Math::BitwiseEqual(Friction, other.Friction) && Math::BitwiseEqual(Restitution, other.Restitution) && Math::BitwiseEqual(RestitutionThreshold, other.RestitutionThreshold);
         }
     };
 
@@ -468,7 +456,7 @@ namespace OloEngine
         // RuntimeFixture (void*) is a Box2D handle populated on Play; excluded.
         auto operator==(const CircleCollider2DComponent& other) const -> bool
         {
-            return std::memcmp(&Offset, &other.Offset, sizeof(glm::vec2)) == 0 && std::memcmp(&Radius, &other.Radius, sizeof(f32)) == 0 && std::memcmp(&Density, &other.Density, sizeof(f32)) == 0 && std::memcmp(&Friction, &other.Friction, sizeof(f32)) == 0 && std::memcmp(&Restitution, &other.Restitution, sizeof(f32)) == 0 && std::memcmp(&RestitutionThreshold, &other.RestitutionThreshold, sizeof(f32)) == 0;
+            return Math::BitwiseEqual(Offset, other.Offset) && Math::BitwiseEqual(Radius, other.Radius) && Math::BitwiseEqual(Density, other.Density) && Math::BitwiseEqual(Friction, other.Friction) && Math::BitwiseEqual(Restitution, other.Restitution) && Math::BitwiseEqual(RestitutionThreshold, other.RestitutionThreshold);
         }
     };
 
@@ -514,7 +502,7 @@ namespace OloEngine
         // authored-state equality so play-mode enter/exit doesn't show as a change.
         auto operator==(const Rigidbody3DComponent& other) const -> bool
         {
-            return m_Type == other.m_Type && m_LayerID == other.m_LayerID && std::memcmp(&m_Mass, &other.m_Mass, sizeof(f32)) == 0 && std::memcmp(&m_LinearDrag, &other.m_LinearDrag, sizeof(f32)) == 0 && std::memcmp(&m_AngularDrag, &other.m_AngularDrag, sizeof(f32)) == 0 && m_DisableGravity == other.m_DisableGravity && m_IsTrigger == other.m_IsTrigger && m_LockedAxes == other.m_LockedAxes && std::memcmp(&m_InitialLinearVelocity, &other.m_InitialLinearVelocity, sizeof(glm::vec3)) == 0 && std::memcmp(&m_InitialAngularVelocity, &other.m_InitialAngularVelocity, sizeof(glm::vec3)) == 0 && std::memcmp(&m_MaxLinearVelocity, &other.m_MaxLinearVelocity, sizeof(f32)) == 0 && std::memcmp(&m_MaxAngularVelocity, &other.m_MaxAngularVelocity, sizeof(f32)) == 0;
+            return m_Type == other.m_Type && m_LayerID == other.m_LayerID && Math::BitwiseEqual(m_Mass, other.m_Mass) && Math::BitwiseEqual(m_LinearDrag, other.m_LinearDrag) && Math::BitwiseEqual(m_AngularDrag, other.m_AngularDrag) && m_DisableGravity == other.m_DisableGravity && m_IsTrigger == other.m_IsTrigger && m_LockedAxes == other.m_LockedAxes && Math::BitwiseEqual(m_InitialLinearVelocity, other.m_InitialLinearVelocity) && Math::BitwiseEqual(m_InitialAngularVelocity, other.m_InitialAngularVelocity) && Math::BitwiseEqual(m_MaxLinearVelocity, other.m_MaxLinearVelocity) && Math::BitwiseEqual(m_MaxAngularVelocity, other.m_MaxAngularVelocity);
         }
     };
 
@@ -533,7 +521,7 @@ namespace OloEngine
 
         auto operator==(const BoxCollider3DComponent& other) const -> bool
         {
-            return std::memcmp(this, &other, sizeof(BoxCollider3DComponent)) == 0;
+            return Math::BitwiseEqual(*this, other);
         }
     };
 
@@ -552,7 +540,7 @@ namespace OloEngine
 
         auto operator==(const SphereCollider3DComponent& other) const -> bool
         {
-            return std::memcmp(this, &other, sizeof(SphereCollider3DComponent)) == 0;
+            return Math::BitwiseEqual(*this, other);
         }
     };
 
@@ -573,7 +561,7 @@ namespace OloEngine
 
         auto operator==(const CapsuleCollider3DComponent& other) const -> bool
         {
-            return std::memcmp(this, &other, sizeof(CapsuleCollider3DComponent)) == 0;
+            return Math::BitwiseEqual(*this, other);
         }
     };
 
@@ -595,7 +583,7 @@ namespace OloEngine
 
         auto operator==(const MeshCollider3DComponent& other) const -> bool
         {
-            return std::memcmp(this, &other, sizeof(MeshCollider3DComponent)) == 0;
+            return Math::BitwiseEqual(*this, other);
         }
     };
 
@@ -618,7 +606,7 @@ namespace OloEngine
 
         auto operator==(const ConvexMeshCollider3DComponent& other) const -> bool
         {
-            return std::memcmp(this, &other, sizeof(ConvexMeshCollider3DComponent)) == 0;
+            return Math::BitwiseEqual(*this, other);
         }
     };
 
@@ -639,7 +627,7 @@ namespace OloEngine
 
         auto operator==(const TriangleMeshCollider3DComponent& other) const -> bool
         {
-            return std::memcmp(this, &other, sizeof(TriangleMeshCollider3DComponent)) == 0;
+            return Math::BitwiseEqual(*this, other);
         }
     };
 
@@ -663,7 +651,7 @@ namespace OloEngine
 
         auto operator==(const CharacterController3DComponent& other) const -> bool
         {
-            return std::memcmp(this, &other, sizeof(CharacterController3DComponent)) == 0;
+            return Math::BitwiseEqual(*this, other);
         }
     };
 
@@ -757,7 +745,7 @@ namespace OloEngine
         // Equality for undo/redo — compares serialized/editor-visible fields only
         auto operator==(const AudioSourceComponent& other) const -> bool
         {
-            return std::memcmp(&Config, &other.Config, sizeof(Config)) == 0 && StartEvent == other.StartEvent && StartCommandID == other.StartCommandID && UseEventSystem == other.UseEventSystem;
+            return Math::BitwiseEqual(Config, other.Config) && StartEvent == other.StartEvent && StartCommandID == other.StartCommandID && UseEventSystem == other.UseEventSystem;
         }
     };
 
@@ -824,10 +812,10 @@ namespace OloEngine
         }
 
         // Equality for undo/redo — compares serialized/editor-visible fields only.
-        // Float fields use bit-exact memcmp per cpp-coding-quality §2a.
+        // Float fields use Math::BitwiseEqual per cpp-coding-quality §2a.
         auto operator==(const AudioSoundGraphComponent& other) const -> bool
         {
-            return static_cast<u64>(SoundGraphHandle) == static_cast<u64>(other.SoundGraphHandle) && std::memcmp(&VolumeMultiplier, &other.VolumeMultiplier, sizeof(f32)) == 0 && std::memcmp(&PitchMultiplier, &other.PitchMultiplier, sizeof(f32)) == 0 && Looping == other.Looping && PlayOnAwake == other.PlayOnAwake;
+            return static_cast<u64>(SoundGraphHandle) == static_cast<u64>(other.SoundGraphHandle) && Math::BitwiseEqual(VolumeMultiplier, other.VolumeMultiplier) && Math::BitwiseEqual(PitchMultiplier, other.PitchMultiplier) && Looping == other.Looping && PlayOnAwake == other.PlayOnAwake;
         }
 
         // Gameplay-facing helpers to drive graph input parameters at runtime. Returns
@@ -859,26 +847,18 @@ namespace OloEngine
         MaterialComponent(const MaterialComponent&) = default;
 
         // Manual operator== — Material lacks defaulted ==, AssetHandle/UUID
-        // triggers C2666. Compare the PBR factors bit-exactly via memcmp and
-        // the asset handle via u64. Texture references are not compared (they
+        // triggers C2666. Compare the PBR factors bit-exactly via Math::BitwiseEqual
+        // and the asset handle via u64. Texture references are not compared (they
         // are loaded from disk and equal if the factors round-trip).
         auto operator==(const MaterialComponent& other) const -> bool
         {
-            const auto lhsBase = m_Material.GetBaseColorFactor();
-            const auto rhsBase = other.m_Material.GetBaseColorFactor();
-            if (std::memcmp(&lhsBase, &rhsBase, sizeof(lhsBase)) != 0)
+            if (!Math::BitwiseEqual(m_Material.GetBaseColorFactor(), other.m_Material.GetBaseColorFactor()))
                 return false;
-            const f32 lhsMetallic = m_Material.GetMetallicFactor();
-            const f32 rhsMetallic = other.m_Material.GetMetallicFactor();
-            if (std::memcmp(&lhsMetallic, &rhsMetallic, sizeof(f32)) != 0)
+            if (!Math::BitwiseEqual(m_Material.GetMetallicFactor(), other.m_Material.GetMetallicFactor()))
                 return false;
-            const f32 lhsRoughness = m_Material.GetRoughnessFactor();
-            const f32 rhsRoughness = other.m_Material.GetRoughnessFactor();
-            if (std::memcmp(&lhsRoughness, &rhsRoughness, sizeof(f32)) != 0)
+            if (!Math::BitwiseEqual(m_Material.GetRoughnessFactor(), other.m_Material.GetRoughnessFactor()))
                 return false;
-            const auto lhsEmissive = m_Material.GetEmissiveFactor();
-            const auto rhsEmissive = other.m_Material.GetEmissiveFactor();
-            if (std::memcmp(&lhsEmissive, &rhsEmissive, sizeof(lhsEmissive)) != 0)
+            if (!Math::BitwiseEqual(m_Material.GetEmissiveFactor(), other.m_Material.GetEmissiveFactor()))
                 return false;
             return static_cast<u64>(m_ShaderGraphHandle) == static_cast<u64>(other.m_ShaderGraphHandle);
         }
@@ -908,7 +888,7 @@ namespace OloEngine
 
         auto operator==(const DirectionalLightComponent& other) const -> bool
         {
-            return std::memcmp(this, &other, sizeof(DirectionalLightComponent)) == 0;
+            return Math::BitwiseEqual(*this, other);
         }
     };
 
@@ -933,7 +913,7 @@ namespace OloEngine
 
         auto operator==(const PointLightComponent& other) const -> bool
         {
-            return std::memcmp(this, &other, sizeof(PointLightComponent)) == 0;
+            return Math::BitwiseEqual(*this, other);
         }
     };
 
@@ -963,7 +943,7 @@ namespace OloEngine
 
         auto operator==(const SpotLightComponent& other) const -> bool
         {
-            return std::memcmp(this, &other, sizeof(SpotLightComponent)) == 0;
+            return Math::BitwiseEqual(*this, other);
         }
     };
 
@@ -1006,15 +986,7 @@ namespace OloEngine
                 return false;
             if (m_EnvironmentMap.Raw() != other.m_EnvironmentMap.Raw())
                 return false;
-            const f32 rotL = m_Rotation;
-            const f32 rotR = other.m_Rotation;
-            const f32 expL = m_Exposure;
-            const f32 expR = other.m_Exposure;
-            const f32 blurL = m_BlurAmount;
-            const f32 blurR = other.m_BlurAmount;
-            const f32 iblL = m_IBLIntensity;
-            const f32 iblR = other.m_IBLIntensity;
-            return m_IsCubemapFolder == other.m_IsCubemapFolder && m_EnableSkybox == other.m_EnableSkybox && m_EnableIBL == other.m_EnableIBL && std::memcmp(&rotL, &rotR, sizeof(f32)) == 0 && std::memcmp(&expL, &expR, sizeof(f32)) == 0 && std::memcmp(&blurL, &blurR, sizeof(f32)) == 0 && std::memcmp(&iblL, &iblR, sizeof(f32)) == 0 && std::memcmp(&m_Tint, &other.m_Tint, sizeof(m_Tint)) == 0;
+            return m_IsCubemapFolder == other.m_IsCubemapFolder && m_EnableSkybox == other.m_EnableSkybox && m_EnableIBL == other.m_EnableIBL && Math::BitwiseEqual(m_Rotation, other.m_Rotation) && Math::BitwiseEqual(m_Exposure, other.m_Exposure) && Math::BitwiseEqual(m_BlurAmount, other.m_BlurAmount) && Math::BitwiseEqual(m_IBLIntensity, other.m_IBLIntensity) && Math::BitwiseEqual(m_Tint, other.m_Tint);
         }
     };
 
@@ -1034,7 +1006,7 @@ namespace OloEngine
 
         auto operator==(const LightProbeComponent& other) const -> bool
         {
-            return std::memcmp(this, &other, sizeof(LightProbeComponent)) == 0;
+            return Math::BitwiseEqual(*this, other);
         }
     };
 
@@ -1079,7 +1051,7 @@ namespace OloEngine
 
         auto operator==(const LightProbeVolumeComponent& other) const -> bool
         {
-            return std::memcmp(this, &other, sizeof(LightProbeVolumeComponent)) == 0;
+            return Math::BitwiseEqual(*this, other);
         }
     };
 
@@ -1354,7 +1326,7 @@ namespace OloEngine
         // Manual operator== — UUID's implicit u64 conversion (C2666).
         auto operator==(const UIWorldAnchorComponent& other) const -> bool
         {
-            return static_cast<u64>(m_TargetEntity) == static_cast<u64>(other.m_TargetEntity) && std::memcmp(&m_WorldOffset, &other.m_WorldOffset, sizeof(m_WorldOffset)) == 0;
+            return static_cast<u64>(m_TargetEntity) == static_cast<u64>(other.m_TargetEntity) && Math::BitwiseEqual(m_WorldOffset, other.m_WorldOffset);
         }
     };
 
@@ -1617,17 +1589,7 @@ namespace OloEngine
         // so it's intentionally not considered for undo equality.
         auto operator==(const TerrainComponent& other) const -> bool
         {
-            const f32 worldXL = m_WorldSizeX, worldXR = other.m_WorldSizeX;
-            const f32 worldZL = m_WorldSizeZ, worldZR = other.m_WorldSizeZ;
-            const f32 heightL = m_HeightScale, heightR = other.m_HeightScale;
-            const f32 freqL = m_ProceduralFrequency, freqR = other.m_ProceduralFrequency;
-            const f32 lacL = m_ProceduralLacunarity, lacR = other.m_ProceduralLacunarity;
-            const f32 persL = m_ProceduralPersistence, persR = other.m_ProceduralPersistence;
-            const f32 triL = m_TargetTriangleSize, triR = other.m_TargetTriangleSize;
-            const f32 morphL = m_MorphRegion, morphR = other.m_MorphRegion;
-            const f32 tileSizeL = m_TileWorldSize, tileSizeR = other.m_TileWorldSize;
-            const f32 voxL = m_VoxelSize, voxR = other.m_VoxelSize;
-            return m_HeightmapPath == other.m_HeightmapPath && std::memcmp(&worldXL, &worldXR, sizeof(f32)) == 0 && std::memcmp(&worldZL, &worldZR, sizeof(f32)) == 0 && std::memcmp(&heightL, &heightR, sizeof(f32)) == 0 && m_ProceduralEnabled == other.m_ProceduralEnabled && m_ProceduralSeed == other.m_ProceduralSeed && m_ProceduralResolution == other.m_ProceduralResolution && m_ProceduralOctaves == other.m_ProceduralOctaves && std::memcmp(&freqL, &freqR, sizeof(f32)) == 0 && std::memcmp(&lacL, &lacR, sizeof(f32)) == 0 && std::memcmp(&persL, &persR, sizeof(f32)) == 0 && m_TessellationEnabled == other.m_TessellationEnabled && std::memcmp(&triL, &triR, sizeof(f32)) == 0 && std::memcmp(&morphL, &morphR, sizeof(f32)) == 0 && m_StreamingEnabled == other.m_StreamingEnabled && m_TileDirectory == other.m_TileDirectory && m_TileFilePattern == other.m_TileFilePattern && std::memcmp(&tileSizeL, &tileSizeR, sizeof(f32)) == 0 && m_TileResolution == other.m_TileResolution && m_StreamingLoadRadius == other.m_StreamingLoadRadius && m_StreamingMaxTiles == other.m_StreamingMaxTiles && m_VoxelEnabled == other.m_VoxelEnabled && std::memcmp(&voxL, &voxR, sizeof(f32)) == 0;
+            return m_HeightmapPath == other.m_HeightmapPath && Math::BitwiseEqual(m_WorldSizeX, other.m_WorldSizeX) && Math::BitwiseEqual(m_WorldSizeZ, other.m_WorldSizeZ) && Math::BitwiseEqual(m_HeightScale, other.m_HeightScale) && m_ProceduralEnabled == other.m_ProceduralEnabled && m_ProceduralSeed == other.m_ProceduralSeed && m_ProceduralResolution == other.m_ProceduralResolution && m_ProceduralOctaves == other.m_ProceduralOctaves && Math::BitwiseEqual(m_ProceduralFrequency, other.m_ProceduralFrequency) && Math::BitwiseEqual(m_ProceduralLacunarity, other.m_ProceduralLacunarity) && Math::BitwiseEqual(m_ProceduralPersistence, other.m_ProceduralPersistence) && m_TessellationEnabled == other.m_TessellationEnabled && Math::BitwiseEqual(m_TargetTriangleSize, other.m_TargetTriangleSize) && Math::BitwiseEqual(m_MorphRegion, other.m_MorphRegion) && m_StreamingEnabled == other.m_StreamingEnabled && m_TileDirectory == other.m_TileDirectory && m_TileFilePattern == other.m_TileFilePattern && Math::BitwiseEqual(m_TileWorldSize, other.m_TileWorldSize) && m_TileResolution == other.m_TileResolution && m_StreamingLoadRadius == other.m_StreamingLoadRadius && m_StreamingMaxTiles == other.m_StreamingMaxTiles && m_VoxelEnabled == other.m_VoxelEnabled && Math::BitwiseEqual(m_VoxelSize, other.m_VoxelSize);
         }
     };
 
@@ -1884,7 +1846,7 @@ namespace OloEngine
 
         auto operator==(const SnowDeformerComponent& other) const -> bool
         {
-            return std::memcmp(this, &other, sizeof(SnowDeformerComponent)) == 0;
+            return Math::BitwiseEqual(*this, other);
         }
     };
 
@@ -1922,7 +1884,7 @@ namespace OloEngine
 
         auto operator==(const FogVolumeComponent& other) const -> bool
         {
-            return std::memcmp(this, &other, sizeof(FogVolumeComponent)) == 0;
+            return Math::BitwiseEqual(*this, other);
         }
     };
 
@@ -2051,23 +2013,18 @@ namespace OloEngine
             if (TileMesh != other.TileMesh || Width != other.Width ||
                 Height != other.Height || MaterialIDs != other.MaterialIDs)
                 return false;
-            if (std::memcmp(&TileSize, &other.TileSize, sizeof(f32)) != 0)
+            if (!Math::BitwiseEqual(TileSize, other.TileSize))
                 return false;
-            if (Materials.size() != other.Materials.size())
+            const auto materialCount = Materials.size();
+            if (materialCount != other.Materials.size())
                 return false;
-            for (sizet i = 0; i < Materials.size(); ++i)
+            for (sizet i = 0; i < materialCount; ++i)
             {
-                auto lhs = Materials[i].GetBaseColorFactor();
-                auto rhs = other.Materials[i].GetBaseColorFactor();
-                if (std::memcmp(&lhs, &rhs, sizeof(lhs)) != 0)
+                if (!Math::BitwiseEqual(Materials[i].GetBaseColorFactor(), other.Materials[i].GetBaseColorFactor()))
                     return false;
-                auto lm = Materials[i].GetMetallicFactor();
-                auto rm = other.Materials[i].GetMetallicFactor();
-                if (std::memcmp(&lm, &rm, sizeof(lm)) != 0)
+                if (!Math::BitwiseEqual(Materials[i].GetMetallicFactor(), other.Materials[i].GetMetallicFactor()))
                     return false;
-                auto lr = Materials[i].GetRoughnessFactor();
-                auto rr = other.Materials[i].GetRoughnessFactor();
-                if (std::memcmp(&lr, &rr, sizeof(lr)) != 0)
+                if (!Math::BitwiseEqual(Materials[i].GetRoughnessFactor(), other.Materials[i].GetRoughnessFactor()))
                     return false;
                 if (Materials[i].GetFlags() != other.Materials[i].GetFlags())
                     return false;
@@ -2113,7 +2070,7 @@ namespace OloEngine
 
         auto operator==(const NetworkInterestComponent& other) const -> bool
         {
-            return std::memcmp(this, &other, sizeof(NetworkInterestComponent)) == 0;
+            return Math::BitwiseEqual(*this, other);
         }
     };
 
@@ -2205,8 +2162,7 @@ namespace OloEngine
         // changes as the only difference.
         auto operator==(const DialogueComponent& other) const -> bool
         {
-            const f32 radL = m_TriggerRadius, radR = other.m_TriggerRadius;
-            return static_cast<u64>(m_DialogueTree) == static_cast<u64>(other.m_DialogueTree) && m_AutoTrigger == other.m_AutoTrigger && std::memcmp(&radL, &radR, sizeof(f32)) == 0 && m_TriggerOnce == other.m_TriggerOnce;
+            return static_cast<u64>(m_DialogueTree) == static_cast<u64>(other.m_DialogueTree) && m_AutoTrigger == other.m_AutoTrigger && Math::BitwiseEqual(m_TriggerRadius, other.m_TriggerRadius) && m_TriggerOnce == other.m_TriggerOnce;
         }
     };
 
@@ -2247,7 +2203,7 @@ namespace OloEngine
 
         auto operator==(const NavMeshBoundsComponent& other) const -> bool
         {
-            return std::memcmp(this, &other, sizeof(NavMeshBoundsComponent)) == 0;
+            return Math::BitwiseEqual(*this, other);
         }
     };
 
@@ -2332,12 +2288,7 @@ namespace OloEngine
         // intentionally excluded (it's path-finder-managed, not authoring-visible).
         auto operator==(const NavAgentComponent& other) const -> bool
         {
-            const f32 rL = m_Radius, rR = other.m_Radius;
-            const f32 hL = m_Height, hR = other.m_Height;
-            const f32 sL = m_MaxSpeed, sR = other.m_MaxSpeed;
-            const f32 aL = m_Acceleration, aR = other.m_Acceleration;
-            const f32 stopL = m_StoppingDistance, stopR = other.m_StoppingDistance;
-            return std::memcmp(&rL, &rR, sizeof(f32)) == 0 && std::memcmp(&hL, &hR, sizeof(f32)) == 0 && std::memcmp(&sL, &sR, sizeof(f32)) == 0 && std::memcmp(&aL, &aR, sizeof(f32)) == 0 && std::memcmp(&stopL, &stopR, sizeof(f32)) == 0 && m_AvoidancePriority == other.m_AvoidancePriority && m_LockYAxis == other.m_LockYAxis;
+            return Math::BitwiseEqual(m_Radius, other.m_Radius) && Math::BitwiseEqual(m_Height, other.m_Height) && Math::BitwiseEqual(m_MaxSpeed, other.m_MaxSpeed) && Math::BitwiseEqual(m_Acceleration, other.m_Acceleration) && Math::BitwiseEqual(m_StoppingDistance, other.m_StoppingDistance) && m_AvoidancePriority == other.m_AvoidancePriority && m_LockYAxis == other.m_LockYAxis;
         }
     };
 
@@ -2369,7 +2320,7 @@ namespace OloEngine
 
         auto operator==(const NameplateComponent& other) const -> bool
         {
-            return std::memcmp(this, &other, sizeof(NameplateComponent)) == 0;
+            return Math::BitwiseEqual(*this, other);
         }
     };
 

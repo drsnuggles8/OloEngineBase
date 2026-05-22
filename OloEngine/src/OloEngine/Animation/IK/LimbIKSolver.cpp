@@ -1,6 +1,7 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Animation/IK/LimbIKSolver.h"
 #include "OloEngine/Animation/BlendUtils.h"
+#include "OloEngine/Math/Math.h"
 
 #define GLM_ENABLE_EXPERIMENTAL
 #include <glm/gtx/norm.hpp>
@@ -9,7 +10,6 @@
 
 #include <algorithm>
 #include <cmath>
-#include <cstring>
 
 namespace OloEngine::Animation
 {
@@ -166,7 +166,7 @@ namespace OloEngine::Animation
             if (idx < preTransforms.size())
             {
                 static constexpr glm::mat4 kIdentity{ 1.0f };
-                if (std::memcmp(&preTransforms[idx], &kIdentity, sizeof(glm::mat4)) != 0)
+                if (!Math::BitwiseEqual(preTransforms[idx], kIdentity))
                 {
                     return BlendUtils::DecomposeMatrix(preTransforms[idx]);
                 }

@@ -1,9 +1,9 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Animation/BlendUtils.h"
+#include "OloEngine/Math/Math.h"
 
 #include <algorithm>
 #include <cmath>
-#include <cstring>
 #include <glm/gtc/matrix_inverse.hpp>
 #include <glm/gtx/matrix_decompose.hpp>
 
@@ -84,7 +84,7 @@ namespace OloEngine::Animation::BlendUtils
             if (i < preTransforms.size())
             {
                 static constexpr glm::mat4 kIdentity{ 1.0f };
-                if (std::memcmp(&preTransforms[i], &kIdentity, sizeof(glm::mat4)) != 0)
+                if (!Math::BitwiseEqual(preTransforms[i], kIdentity))
                 {
                     auto pre = DecomposeMatrix(preTransforms[i]);
                     effectiveLocal = MultiplyTransforms(pre, localPose[i]);
@@ -120,7 +120,7 @@ namespace OloEngine::Animation::BlendUtils
             if (idx < preTransforms.size())
             {
                 static constexpr glm::mat4 kIdentity{ 1.0f };
-                if (std::memcmp(&preTransforms[idx], &kIdentity, sizeof(glm::mat4)) != 0)
+                if (!Math::BitwiseEqual(preTransforms[idx], kIdentity))
                 {
                     return MultiplyTransforms(DecomposeMatrix(preTransforms[idx]), localPose[idx]);
                 }
