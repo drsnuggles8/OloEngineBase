@@ -80,13 +80,12 @@ jobs:
           Write-Host "Resolved clang_rt dir: $rtDir"
 
       - name: Build fuzzers
-        shell: pwsh
-        run: |
-          $rtDir = (Get-Content build/olo_clang_rt_dir.txt -Raw).Trim()
-          # Prepend so it wins against MSVC's & standalone LLVM's same-named
-          # DLLs that are already on PATH at lower priority.
-          $env:PATH = "$rtDir;$env:PATH"
-          cmake --build build --target OloEngine-FuzzSmoke --config Release --parallel
+        # No PATH dance needed for the build itself: OloHeaderTool / protoc
+        # are NOT sanitised (only OloEngine + harnesses are — see
+        # cmake/Fuzzing.cmake), so they don't reference the ASan DLL at run
+        # time. The PATH-prepend happens in the "Run fuzz smoke" step below,
+        # where the harnesses actually need the DLL to start.
+        run: cmake --build build --target OloEngine-FuzzSmoke --config Release --parallel
 
       - name: Run fuzz smoke (per-target 30s)
         working-directory: OloEditor

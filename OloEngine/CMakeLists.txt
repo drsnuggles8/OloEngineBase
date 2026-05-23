@@ -274,3 +274,11 @@ else()
 		${CMAKE_DL_LIBS}
 	)
 endif()
+
+# When fuzzing is enabled, instrument OloEngine with ASan/UBSan. Helper is
+# defined in cmake/Fuzzing.cmake and is a no-op when OLO_ENABLE_FUZZING=OFF
+# (so this is safe to call unconditionally). PUBLIC linkage of the sanitiser
+# runtime libs propagates to downstream consumers (OloEditor / OloRuntime /
+# OloServer / fuzz harnesses), which need the asan_dynamic.lib import lib at
+# link time but don't need to be instrumented themselves.
+olo_apply_fuzz_sanitizer(OloEngine)
