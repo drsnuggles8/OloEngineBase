@@ -2,6 +2,7 @@
 
 #include <filesystem>
 #include <string>
+#include <vector>
 
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Renderer/Texture.h"
@@ -12,11 +13,40 @@
 
 namespace OloEngine
 {
+    // Inclusive codepoint range loaded into the font's glyph map. Most fonts
+    // only ship glyphs for a subset of Unicode; loading every possible block
+    // would be wasteful, so callers declare what they actually render.
+    struct FontCodepointRange
+    {
+        u32 First = 0u;
+        u32 Last = 0u;
+
+        constexpr FontCodepointRange() = default;
+        constexpr FontCodepointRange(u32 f, u32 l) : First(f), Last(l) {}
+    };
+
+    namespace FontCodepointRanges
+    {
+        // Curated Unicode blocks for common locales. Add more as needed —
+        // each block is small and selective; loading "everything" is a
+        // memory + curve-texture cost we don't pay unless asked.
+        inline constexpr FontCodepointRange Latin1{ 0x0020, 0x00FF }; // matches the legacy default
+        inline constexpr FontCodepointRange LatinExtA{ 0x0100, 0x017F };
+        inline constexpr FontCodepointRange LatinExtB{ 0x0180, 0x024F };
+        inline constexpr FontCodepointRange Cyrillic{ 0x0400, 0x04FF };
+        inline constexpr FontCodepointRange Greek{ 0x0370, 0x03FF };
+        inline constexpr FontCodepointRange Hebrew{ 0x0590, 0x05FF };
+        inline constexpr FontCodepointRange ArabicBasic{ 0x0600, 0x06FF };
+        inline constexpr FontCodepointRange Hiragana{ 0x3040, 0x309F };
+        inline constexpr FontCodepointRange Katakana{ 0x30A0, 0x30FF };
+        inline constexpr FontCodepointRange CJKUnifiedHan{ 0x4E00, 0x9FBF };
+    } // namespace FontCodepointRanges
 
     class Font : public RendererResource
     {
       public:
         explicit Font(const std::filesystem::path& font);
+        Font(const std::filesystem::path& font, const std::vector<FontCodepointRange>& ranges);
         ~Font() override;
 
         [[nodiscard("Store this!")]] const SlugFontData* GetSlugData() const
@@ -69,12 +99,44 @@ namespace OloEngine
 
         static Ref<Font> GetDefault();
         static Ref<Font> Create(const std::filesystem::path& font);
+        static Ref<Font> Create(const std::filesystem::path& font, const std::vector<FontCodepointRange>& ranges);
+
+        // Fallback chain: when this font lacks a glyph for some codepoint,
+        // the renderer walks the chain in order. Each fallback should
+        // typically be loaded with the codepoint range it covers (e.g. a
+        // primary Latin font + a CJK fallback). The chain is consulted
+        // glyph-by-glyph, so a single string can render correctly across
+        // multiple scripts.
+        void SetFallbackFonts(std::vector<Ref<Font>> fallbacks)
+        {
+            m_FallbackFonts = std::move(fallbacks);
+        }
+        [[nodiscard]] const std::vector<Ref<Font>>& GetFallbackFonts() const
+        {
+            return m_FallbackFonts;
+        }
+
+        // Walk this font and its fallback chain for `codepoint`. Returns
+        // both the matching font (so the renderer can swap textures) and
+        // the glyph data. Returns {nullptr, nullptr} if no font in the
+        // chain has the glyph.
+        struct GlyphLookup
+        {
+            const Font* SourceFont = nullptr;
+            const SlugGlyphData* Glyph = nullptr;
+        };
+        [[nodiscard]] GlyphLookup FindGlyphWithFallback(u32 codepoint) const;
 
       private:
+        // Common initialization path shared by both constructors. Loads
+        // glyphs for every codepoint in `ranges` from the on-disk font file.
+        void LoadFromFile(const std::filesystem::path& font, const std::vector<FontCodepointRange>& ranges);
+
         Scope<SlugFontData> m_Data;
         std::string m_Name;
         std::string m_Path;
         bool m_IsLoaded = false;
+        std::vector<Ref<Font>> m_FallbackFonts;
 
       public:
         [[nodiscard]] bool IsLoaded() const

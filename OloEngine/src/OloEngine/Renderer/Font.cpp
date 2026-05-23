@@ -13,6 +13,19 @@ namespace OloEngine
     Font::Font(const std::filesystem::path& filepath)
         : m_Data(CreateScope<SlugFontData>())
     {
+        // Default codepoint coverage: Latin-1 — preserves the original
+        // behaviour for fonts loaded through the no-range constructor.
+        LoadFromFile(filepath, { FontCodepointRanges::Latin1 });
+    }
+
+    Font::Font(const std::filesystem::path& filepath, const std::vector<FontCodepointRange>& ranges)
+        : m_Data(CreateScope<SlugFontData>())
+    {
+        LoadFromFile(filepath, ranges);
+    }
+
+    void Font::LoadFromFile(const std::filesystem::path& filepath, const std::vector<FontCodepointRange>& ranges)
+    {
         m_Name = filepath.filename().stem().string();
         m_Path = filepath.string();
 
@@ -80,38 +93,36 @@ namespace OloEngine
         m_Data->Metrics.LineHeight = static_cast<f32>(ascent - descent + lineGap) * emScale;
         m_Data->Metrics.UnitsPerEm = unitsPerEm;
 
-        // Load glyph metrics for ASCII printable range (matches previous MSDF charset)
-        constexpr u32 charsetBegin = 0x0020;
-        constexpr u32 charsetEnd = 0x00FF;
+        // Walk every requested codepoint range and pull glyph metrics for
+        // each glyph stb_truetype recognises. Ranges that overlap (e.g. a
+        // caller supplying both Latin1 and ArabicBasic) are de-duplicated
+        // by `Glyphs[codepoint] = glyph` overwriting in place — cheap.
         int glyphCount = 0;
-
-        for (u32 codepoint = charsetBegin; codepoint <= charsetEnd; ++codepoint)
+        for (const auto& range : ranges)
         {
-            const int glyphIndex = ::stbtt_FindGlyphIndex(&fontInfo, static_cast<int>(codepoint));
-            if (glyphIndex == 0 && codepoint != ' ')
+            for (u32 codepoint = range.First; codepoint <= range.Last; ++codepoint)
             {
-                continue; // glyph not present in font
+                const int glyphIndex = ::stbtt_FindGlyphIndex(&fontInfo, static_cast<int>(codepoint));
+                if (glyphIndex == 0 && codepoint != ' ')
+                    continue; // glyph not present in font
+
+                int advanceWidth{};
+                int leftSideBearing{};
+                ::stbtt_GetGlyphHMetrics(&fontInfo, glyphIndex, &advanceWidth, &leftSideBearing);
+
+                int x0{}, y0{}, x1{}, y1{};
+                ::stbtt_GetGlyphBox(&fontInfo, glyphIndex, &x0, &y0, &x1, &y1);
+
+                SlugGlyphData glyph;
+                glyph.AdvanceWidth = static_cast<f32>(advanceWidth) * emScale;
+                glyph.PlaneBoundsLeft = static_cast<f32>(x0) * emScale;
+                glyph.PlaneBoundsBottom = static_cast<f32>(y0) * emScale;
+                glyph.PlaneBoundsRight = static_cast<f32>(x1) * emScale;
+                glyph.PlaneBoundsTop = static_cast<f32>(y1) * emScale;
+
+                m_Data->Glyphs[codepoint] = glyph;
+                ++glyphCount;
             }
-
-            int advanceWidth{};
-            int leftSideBearing{};
-            ::stbtt_GetGlyphHMetrics(&fontInfo, glyphIndex, &advanceWidth, &leftSideBearing);
-
-            int x0{};
-            int y0{};
-            int x1{};
-            int y1{};
-            ::stbtt_GetGlyphBox(&fontInfo, glyphIndex, &x0, &y0, &x1, &y1);
-
-            SlugGlyphData glyph;
-            glyph.AdvanceWidth = static_cast<f32>(advanceWidth) * emScale;
-            glyph.PlaneBoundsLeft = static_cast<f32>(x0) * emScale;
-            glyph.PlaneBoundsBottom = static_cast<f32>(y0) * emScale;
-            glyph.PlaneBoundsRight = static_cast<f32>(x1) * emScale;
-            glyph.PlaneBoundsTop = static_cast<f32>(y1) * emScale;
-
-            m_Data->Glyphs[codepoint] = glyph;
-            ++glyphCount;
         }
 
         // Load kerning pairs — use codepoint-based lookup to match GetAdvance().
@@ -123,12 +134,13 @@ namespace OloEngine
             // Multiple codepoints can share the same glyph index (aliases),
             // so store all codepoints per glyph to emit kerning for every pair.
             std::unordered_map<int, std::vector<u32>> glyphIndexToCodepoints;
-            for (u32 cp = charsetBegin; cp <= charsetEnd; ++cp)
+            for (const auto& range : ranges)
             {
-                const int gi = ::stbtt_FindGlyphIndex(&fontInfo, static_cast<int>(cp));
-                if (gi != 0 || cp == ' ')
+                for (u32 cp = range.First; cp <= range.Last; ++cp)
                 {
-                    glyphIndexToCodepoints[gi].push_back(cp);
+                    const int gi = ::stbtt_FindGlyphIndex(&fontInfo, static_cast<int>(cp));
+                    if (gi != 0 || cp == ' ')
+                        glyphIndexToCodepoints[gi].push_back(cp);
                 }
             }
 
@@ -235,5 +247,34 @@ namespace OloEngine
             s_FontCache[canonical] = newFont;
         }
         return newFont;
+    }
+
+    Ref<Font> Font::Create(const std::filesystem::path& font, const std::vector<FontCodepointRange>& ranges)
+    {
+        // No cache for ranged variants — the cache key would need to fold
+        // the range list in, and the typical use (one ranged load per
+        // game-locale at startup) doesn't benefit from sharing.
+        return Ref<Font>::Create(std::filesystem::weakly_canonical(font).string(), ranges);
+    }
+
+    Font::GlyphLookup Font::FindGlyphWithFallback(u32 codepoint) const
+    {
+        if (m_Data)
+        {
+            if (const auto* g = m_Data->GetGlyph(codepoint))
+                return { this, g };
+        }
+        for (const auto& fallback : m_FallbackFonts)
+        {
+            if (!fallback)
+                continue;
+            // Recursive fallback walk lets chains nest (Latin → CJK → Emoji).
+            // Cycles aren't expected — the typical chain is short and authored
+            // by the locale config — so we don't track visited fonts.
+            auto inner = fallback->FindGlyphWithFallback(codepoint);
+            if (inner.Glyph)
+                return inner;
+        }
+        return {};
     }
 } // namespace OloEngine

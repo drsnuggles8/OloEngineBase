@@ -2,6 +2,7 @@
 #include "OloEngine/Dialogue/DialogueSystem.h"
 #include "OloEngine/Dialogue/DialogueTreeAsset.h"
 #include "OloEngine/Dialogue/DialogueVariables.h"
+#include "OloEngine/Localization/LocalizationManager.h"
 #include "OloEngine/Scene/Scene.h"
 #include "OloEngine/Scene/Entity.h"
 #include "OloEngine/Scene/Components.h"
@@ -257,20 +258,33 @@ namespace OloEngine
 
         if (node->Type == "dialogue")
         {
-            // Extract text and speaker from properties
+            // Extract text and speaker from properties.
+            //
+            // Localization: if the node has a `text_key` / `speaker_key`
+            // property, resolve it via LocalizationManager. Otherwise fall
+            // back to the literal `text` / `speaker` strings. This lets a
+            // single dialogue tree drive multiple languages without
+            // duplicating the structure — only the localization YAML changes.
             state.m_CurrentText.clear();
             state.m_CurrentSpeaker.clear();
 
-            if (auto it = node->Properties.find("text"); it != node->Properties.end())
+            auto resolveLocalized = [&](const char* keyProp, const char* literalProp) -> std::string
             {
-                if (auto* str = std::get_if<std::string>(&it->second))
-                    state.m_CurrentText = *str;
-            }
-            if (auto it = node->Properties.find("speaker"); it != node->Properties.end())
-            {
-                if (auto* str = std::get_if<std::string>(&it->second))
-                    state.m_CurrentSpeaker = *str;
-            }
+                if (auto it = node->Properties.find(keyProp); it != node->Properties.end())
+                {
+                    if (auto* str = std::get_if<std::string>(&it->second); str && !str->empty())
+                        return LocalizationManager::Get(*str);
+                }
+                if (auto it = node->Properties.find(literalProp); it != node->Properties.end())
+                {
+                    if (auto* str = std::get_if<std::string>(&it->second))
+                        return *str;
+                }
+                return {};
+            };
+
+            state.m_CurrentText = resolveLocalized("text_key", "text");
+            state.m_CurrentSpeaker = resolveLocalized("speaker_key", "speaker");
 
             state.m_AvailableChoices.clear();
             state.m_TextRevealProgress = 0.0f;
@@ -282,6 +296,22 @@ namespace OloEngine
             auto connections = dialogueTree->GetConnectionsFrom(nodeID);
             state.m_AvailableChoices.clear();
 
+            // Resolve a raw label by checking for the `@key:` localization
+            // prefix. Authors can either put a literal string into the port
+            // / node name (legacy / single-language path) or write
+            // "@key:dialogue.choice.cancel" to defer the text to the active
+            // locale's table.
+            auto resolveChoiceLabel = [](const std::string& raw) -> std::string
+            {
+                constexpr std::string_view kKeyPrefix = "@key:";
+                if (raw.size() > kKeyPrefix.size() && raw.starts_with(kKeyPrefix))
+                {
+                    const std::string key(raw.substr(kKeyPrefix.size()));
+                    return LocalizationManager::Get(key);
+                }
+                return raw;
+            };
+
             for (const auto& conn : connections)
             {
                 const auto* targetNode = dialogueTree->FindNode(conn.TargetNodeID);
@@ -291,11 +321,11 @@ namespace OloEngine
                 // Use the source port as the choice label, or get from target node name
                 if (!conn.SourcePort.empty() && conn.SourcePort != "output")
                 {
-                    choice.Text = conn.SourcePort;
+                    choice.Text = resolveChoiceLabel(conn.SourcePort);
                 }
                 else if (targetNode)
                 {
-                    choice.Text = targetNode->Name;
+                    choice.Text = resolveChoiceLabel(targetNode->Name);
                 }
                 else
                 {

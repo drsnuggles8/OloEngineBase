@@ -30,6 +30,7 @@
 #include "OloEngine/Renderer/SphericalHarmonics.h"
 #include "OloEngine/Scene/Streaming/StreamingVolumeComponent.h"
 #include "OloEngine/Dialogue/DialogueTypes.h"
+#include "OloEngine/Localization/LocalizedTextComponent.h"
 #include "OloEngine/AI/AIComponents.h"
 #include "OloEngine/Gameplay/Inventory/InventoryComponents.h"
 #include "OloEngine/Gameplay/Quest/QuestComponents.h"
@@ -2385,6 +2386,7 @@ namespace OloEngine
         UIDropdownComponent,
         UIGridLayoutComponent,
         UIToggleComponent,
+        LocalizedTextComponent,
         ParticleSystemComponent,
         TerrainComponent,
         FoliageComponent,

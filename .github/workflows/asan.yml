@@ -222,7 +222,14 @@ jobs:
       # (asan.yml above) and the Linux TSan job (tsan.yml) already exclude
       # as too slow under sanitizer instrumentation — hits the 120 s timeout
       # in CI. Pre-existing flakiness, unrelated to PR contents.
-      run: ctest --output-on-failure --timeout 120 --exclude-regex '^NetworkIntegrationTest\.|^WorkerRestartTest\.'
+      #
+      # --timeout 600: ShaderReflectionBinding.AllProductionShaderBindingsMatchCppLayout
+      # walks every production .glsl (~100 files × ~3 stages), invoking
+      # shaderc to compile each to SPIR-V and spirv-cross to reflect the
+      # bindings. Under ASan instrumentation shaderc is 3-5× slower per
+      # compile, and the cumulative work blows past the default 120 s.
+      # 600 s gives reasonable headroom without masking actual hangs.
+      run: ctest --output-on-failure --timeout 600 --exclude-regex '^NetworkIntegrationTest\.|^WorkerRestartTest\.'
       env:
         ASAN_OPTIONS: halt_on_error=1:detect_leaks=1
         LSAN_OPTIONS: suppressions=${{github.workspace}}/.github/sanitizer-suppressions/lsan.txt
@@ -296,7 +303,14 @@ jobs:
 
     - name: Run tests under UBSan
       working-directory: ${{github.workspace}}/build/OloEngine/tests
-      run: ctest --output-on-failure --timeout 120 --exclude-regex '^NetworkIntegrationTest\.|^NetworkManagerTest\.|^NetworkThreadDispatchTest\.|^TaskConcurrencyLimiterTest\.|^LowLevelTaskUserDataTest\.'
+      # WorkerRestartTest.RestartWorkersAndOversubscription joins the
+      # exclude list (matching ASan + TSan) — 100 iterations of a full
+      # worker-pool teardown/recreate are too slow under any sanitizer.
+      #
+      # --timeout 600: same rationale as the ASan + LSan step above —
+      # ShaderReflectionBinding compiles ~100 shaders × ~3 stages via
+      # shaderc, which is 3-5× slower under UBSan instrumentation.
+      run: ctest --output-on-failure --timeout 600 --exclude-regex '^NetworkIntegrationTest\.|^NetworkManagerTest\.|^NetworkThreadDispatchTest\.|^TaskConcurrencyLimiterTest\.|^LowLevelTaskUserDataTest\.|^WorkerRestartTest\.'
       env:
         UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
         GTEST_OUTPUT: xml:${{github.workspace}}/test_results/
@@ -370,14 +384,18 @@ jobs:
 
     - name: Run tests under TSan
       working-directory: ${{github.workspace}}/build/OloEngine/tests
-      # --timeout 300: AssetContentValidity.SandboxAssetRegistryDeserialisesAndPathsResolve
-      # and AssetContentValidity.EverySupportedAssetOnDiskIsInTheRegistry walk the
-      # sandbox project's asset tree under TSan instrumentation (≥10× slowdown on
-      # the per-file stat / Deserialize hot path) and have been observed to exceed
-      # the 180s default in CI. Every other test in the suite finishes in single-
-      # digit seconds, so this only bites the known-slow filesystem-bound cases —
-      # not a fig leaf over hangs.
-      run: ctest --output-on-failure --timeout 300 --exclude-regex '^NetworkIntegrationTest\.|^WorkerRestartTest\.'
+      # --timeout 600: covers two known-slow buckets under TSan instrumentation:
+      #   1. AssetContentValidity.SandboxAssetRegistryDeserialisesAndPathsResolve
+      #      and AssetContentValidity.EverySupportedAssetOnDiskIsInTheRegistry
+      #      walk the sandbox project's asset tree (≥10× slowdown on per-file
+      #      stat / Deserialize) — exceeded the 180 s default historically.
+      #   2. ShaderReflectionBinding.AllProductionShaderBindingsMatchCppLayout
+      #      compiles ~100 .glsl files × ~3 stages through shaderc and reflects
+      #      via spirv-cross. TSan's happens-before tracking makes shaderc
+      #      especially heavy — even 300 s wasn't enough in practice.
+      # Every other test finishes in single-digit seconds, so the headroom
+      # only bites the known-slow cases — not a fig leaf over hangs.
+      run: ctest --output-on-failure --timeout 600 --exclude-regex '^NetworkIntegrationTest\.|^WorkerRestartTest\.'
       env:
         TSAN_OPTIONS: halt_on_error=1:second_deadlock_stack=1
         GTEST_OUTPUT: xml:${{github.workspace}}/test_results/

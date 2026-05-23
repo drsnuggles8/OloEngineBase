@@ -1,0 +1,15 @@
+locale: en
+name: English
+direction: ltr
+plural_rule: one-other
+
+strings:
+  ui.main_menu.play: "Play"
+  ui.main_menu.settings: "Settings"
+  ui.main_menu.quit: "Quit"
+
+  combat.damage_dealt: "You dealt {damage} damage to {target}."
+  combat.kills: "You have slain {count} {count:enemy|enemies}."
+
+  item.sword_iron.name: "Iron Sword"
+  item.sword_iron.desc: "A sturdy iron blade."

@@ -63,6 +63,13 @@ namespace OloEngine
             f32 Kerning = 0.0f;
             f32 LineSpacing = 0.0f;
             f32 MaxWidth = 0.0f; // 0 = no wrapping
+            // When true, the codepoint sequence is laid out right-to-left.
+            // This is a visual-order reversal only — for pure RTL scripts
+            // (Hebrew, Arabic word order) it produces correct results; full
+            // Unicode BiDi for mixed-direction text and Arabic letter
+            // joining are not implemented. Driven by the active locale's
+            // TextDirection via LocalizationSystem.
+            bool RightToLeft = false;
         };
         static void DrawString(const std::string& string, Ref<Font> font, const glm::mat4& transform, const TextParams& textParams, int entityID = -1);
         static void DrawString(const std::string& string, const glm::mat4& transform, const TextComponent& component, int entityID = -1);

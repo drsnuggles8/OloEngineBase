@@ -3,6 +3,7 @@
 #include "OloEngine/Asset/AssetImporter.h"
 #include "OloEngine/Asset/AssetExtensions.h"
 #include "OloEngine/Asset/PlaceholderAsset.h"
+#include "OloEngine/Localization/LocalizationManager.h"
 #include "OloEngine/Core/Application.h"
 #include "OloEngine/Core/Timer.h"
 #include "OloEngine/Core/Ref.h"
@@ -1043,6 +1044,22 @@ namespace OloEngine
         auto extension = filePath.extension();
         if (extension.empty())
             return;
+
+        // Localization files don't go through the AssetManager / serializer
+        // path — they're configuration owned by LocalizationManager. We still
+        // route them through the existing filewatch so editors and games
+        // hot-pick up translation edits without restarting. The reload bumps
+        // LocalizationManager::GetGeneration(), which the per-scene
+        // LocalizationSystem and the LocalizationPanel both poll.
+        if (extension == ".ololocale")
+        {
+            const auto absolutePath = m_ProjectPath / filePath;
+            if (LocalizationManager::LoadLocale(absolutePath))
+            {
+                OLO_CORE_INFO("🌐 Hot-reloaded locale '{}'", absolutePath.filename().string());
+            }
+            return;
+        }
 
         auto assetType = AssetExtensions::GetAssetTypeFromExtension(extension.string());
         if (assetType == AssetType::None)

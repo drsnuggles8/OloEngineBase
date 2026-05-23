@@ -39,6 +39,7 @@ namespace OloEngine
         GamepadDisconnected,
         // Editor/Engine custom events
         AssetReloaded,
+        LocaleChanged,
     };
 
     enum class EventCategory

@@ -371,6 +371,77 @@ namespace OloEngine
                 return result;
             }
 
+            // Copy localization files alongside the .olopack as loose files.
+            // They aren't asset-manager assets (LocalizationManager owns
+            // them directly), so they need a side-channel into the shipped
+            // game's working directory. The convention is:
+            //   <project>/assets/localization/*.ololocale
+            //     → <output dir>/assets/localization/*.ololocale
+            // Failures are logged but don't fail the overall build —
+            // localization is shippable in isolation if the user catches
+            // the warning.
+            if (settings.m_IncludeLocalizationFiles)
+            {
+                auto srcDir = Project::GetAssetDirectory() / "localization";
+                std::error_code ec;
+                if (std::filesystem::is_directory(srcDir, ec))
+                {
+                    auto dstDir = settings.m_OutputPath.parent_path() / "assets" / "localization";
+                    std::error_code ecMkdir;
+                    std::filesystem::create_directories(dstDir, ecMkdir);
+                    if (ecMkdir)
+                    {
+                        // Failing to create the destination dir means every
+                        // subsequent copy_file would fail too — bail with one
+                        // diagnostic rather than spamming N per-file warnings.
+                        OLO_CORE_WARN("AssetPackBuilder: cannot create localization output dir '{}': {} — skipping locale bundling",
+                                      dstDir.string(), ecMkdir.message());
+                    }
+                    else
+                    {
+                        u32 copied = 0;
+                        // Use a separate error_code for the iterator and yet
+                        // another for each copy so a failure on one entry doesn't
+                        // poison the rest of the loop — sharing `ec` across
+                        // operations would silently skip every subsequent file
+                        // once the first failure left `ec` set.
+                        std::error_code ecIter;
+                        for (const auto& entry : std::filesystem::directory_iterator(srcDir, ecIter))
+                        {
+                            if (ecIter)
+                                break;
+                            std::error_code ecEntry;
+                            if (!entry.is_regular_file(ecEntry) || ecEntry)
+                                continue;
+                            if (entry.path().extension() != ".ololocale")
+                                continue;
+                            std::error_code ecCopy;
+                            std::filesystem::copy_file(
+                                entry.path(),
+                                dstDir / entry.path().filename(),
+                                std::filesystem::copy_options::overwrite_existing,
+                                ecCopy);
+                            if (!ecCopy)
+                                ++copied;
+                            else
+                                OLO_CORE_WARN("AssetPackBuilder: failed to copy '{}': {}", entry.path().string(), ecCopy.message());
+                        }
+                        // Distinguish "0 files" from "iteration failed". The
+                        // loop's `if (ecIter) break;` exits on the first
+                        // iterator error, but the success summary below
+                        // would otherwise hide the failure.
+                        if (ecIter)
+                            OLO_CORE_WARN("AssetPackBuilder: directory iteration over '{}' failed: {} — partial bundle ({} file(s)) emitted",
+                                          srcDir.string(), ecIter.message(), copied);
+                        OLO_CORE_INFO("AssetPackBuilder: bundled {} .ololocale file(s) to '{}'", copied, dstDir.string());
+                    }
+                }
+                else
+                {
+                    OLO_CORE_INFO("AssetPackBuilder: no localization directory at '{}' — skipping locale bundling", srcDir.string());
+                }
+            }
+
             progress = 1.0f;
 
             // Success!

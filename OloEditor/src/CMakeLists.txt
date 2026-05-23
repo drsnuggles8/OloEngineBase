@@ -49,6 +49,8 @@
 		"Panels/NetworkDebugPanel.h"
 		"Panels/SaveGamePanel.cpp"
 		"Panels/SaveGamePanel.h"
+		"Panels/LocalizationPanel.cpp"
+		"Panels/LocalizationPanel.h"
 		"Panels/ShaderGraphEditorPanel.cpp"
 		"Panels/ShaderGraphEditorPanel.h"
 		"Panels/SoundGraphEditorPanel.cpp"

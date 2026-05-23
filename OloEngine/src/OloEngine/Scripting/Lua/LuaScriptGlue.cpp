@@ -18,6 +18,8 @@
 #include "OloEngine/Core/GamepadManager.h"
 #include "OloEngine/Dialogue/DialogueSystem.h"
 #include "OloEngine/Dialogue/DialogueVariables.h"
+#include "OloEngine/Localization/LocalizationManager.h"
+#include "OloEngine/Localization/TextFormatter.h"
 #include "OloEngine/Scene/Scene.h"
 #include "OloEngine/Scene/Entity.h"
 #include "OloEngine/Scripting/C#/ScriptEngine.h"
@@ -46,7 +48,9 @@
 #include <box2d/box2d.h>
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
+#include <ctime>
 #include <string>
 #include <string_view>
 #include <tuple>
@@ -2805,6 +2809,194 @@ namespace OloEngine
         {
             if (Scene* scene = ScriptEngine::GetSceneContext())
                 scene->SetPendingReload(true);
+        };
+
+        // --- Localization ---
+        // Mirrors LocalizationManager's static API. Keys are arbitrary strings;
+        // `Localization.Format` takes an optional Lua table whose entries are
+        // forwarded as the formatter's named-parameter map.
+        auto localizationTable = lua.create_named_table("Localization");
+        localizationTable["Get"] = [](const std::string& key) -> std::string
+        {
+            OLO_PROFILE_SCOPE("Lua::Localization::Get");
+            return LocalizationManager::Get(key);
+        };
+        localizationTable["Format"] = [](const std::string& key, sol::optional<sol::table> params) -> std::string
+        {
+            OLO_PROFILE_SCOPE("Lua::Localization::Format");
+            TextFormatter::ParamMap pm;
+            if (params)
+            {
+                for (const auto& kv : *params)
+                {
+                    // Skip keys/values that aren't strings — Lua callers
+                    // sometimes pass numbers; we coerce those via tostring.
+                    std::string keyStr;
+                    if (kv.first.is<std::string>())
+                        keyStr = kv.first.as<std::string>();
+                    else
+                        continue;
+
+                    std::string valStr;
+                    if (kv.second.is<std::string>())
+                        valStr = kv.second.as<std::string>();
+                    else if (kv.second.is<i32>())
+                        valStr = std::to_string(kv.second.as<i32>());
+                    else if (kv.second.is<f64>())
+                        valStr = std::to_string(kv.second.as<f64>());
+                    else if (kv.second.is<bool>())
+                        valStr = kv.second.as<bool>() ? "true" : "false";
+                    else
+                        continue;
+
+                    pm.emplace(std::move(keyStr), std::move(valStr));
+                }
+            }
+            return LocalizationManager::Format(key, pm);
+        };
+        localizationTable["FormatPlural"] = [](const std::string& key, const std::string& countParam, i32 count, sol::optional<sol::table> params) -> std::string
+        {
+            OLO_PROFILE_SCOPE("Lua::Localization::FormatPlural");
+            TextFormatter::ParamMap pm;
+            if (params)
+            {
+                for (const auto& kv : *params)
+                {
+                    if (!kv.first.is<std::string>())
+                        continue;
+                    std::string keyStr = kv.first.as<std::string>();
+                    std::string valStr;
+                    if (kv.second.is<std::string>())
+                        valStr = kv.second.as<std::string>();
+                    else if (kv.second.is<i32>())
+                        valStr = std::to_string(kv.second.as<i32>());
+                    else if (kv.second.is<f64>())
+                        valStr = std::to_string(kv.second.as<f64>());
+                    else if (kv.second.is<bool>())
+                        valStr = kv.second.as<bool>() ? "true" : "false";
+                    else
+                        continue;
+                    pm.emplace(std::move(keyStr), std::move(valStr));
+                }
+            }
+            return LocalizationManager::FormatPlural(key, countParam, count, std::move(pm));
+        };
+        localizationTable["SetLocale"] = [](const std::string& localeCode) -> bool
+        {
+            OLO_PROFILE_SCOPE("Lua::Localization::SetLocale");
+            return LocalizationManager::SetCurrentLocale(localeCode);
+        };
+        localizationTable["GetCurrentLocale"] = []() -> std::string
+        {
+            return LocalizationManager::GetCurrentLocale();
+        };
+        localizationTable["HasKey"] = [](const std::string& key) -> bool
+        {
+            return LocalizationManager::HasKey(key);
+        };
+        // ResolveLocalizedText: pass any string; if it starts with the "@key:"
+        // prefix the rest is treated as a localization key. Use this when
+        // displaying quest titles, item names, etc. — anywhere a single
+        // string field might host either a literal or a translation key.
+        localizationTable["ResolveLocalizedText"] = [](const std::string& value) -> std::string
+        {
+            return LocalizationManager::ResolveLocalizedText(value);
+        };
+        localizationTable["FormatNumber"] = [](sol::object value, sol::optional<i32> decimals, sol::optional<std::string> localeCode) -> std::string
+        {
+            // Two overloads via Lua's dynamic dispatch: integer-shaped values
+            // route through the i64 overload (no decimal section), anything
+            // else stringifies through the f64 overload with caller-supplied
+            // precision (default 2).
+            //
+            // Read integer values via their native sol type — going through
+            // f64 first would silently truncate the >2^53 range that an i64
+            // is allowed to hold (rare in practice but plenty of game
+            // scoring/economy code uses 64-bit counters).
+            const std::string loc = localeCode.value_or(std::string{});
+            if (value.is<i64>())
+                return LocalizationManager::FormatNumber(value.as<i64>(), loc);
+            if (value.is<i32>())
+                return LocalizationManager::FormatNumber(static_cast<i64>(value.as<i32>()), loc);
+            return LocalizationManager::FormatNumber(value.as<f64>(), decimals.value_or(2), loc);
+        };
+        localizationTable["GetMissingKeys"] = [](sol::this_state s) -> sol::table
+        {
+            sol::state_view luaState(s);
+            const auto missing = LocalizationManager::GetMissingKeysSnapshot();
+            sol::table out = luaState.create_table(static_cast<int>(missing.size()), 0);
+            int idx = 1;
+            for (const auto& k : missing)
+                out[idx++] = k;
+            return out;
+        };
+        localizationTable["ClearMissingKeys"] = []()
+        {
+            LocalizationManager::ClearMissingKeys();
+        };
+        localizationTable["GeneratePseudoLocale"] = [](sol::optional<std::string> source, sol::optional<std::string> pseudoCode) -> bool
+        {
+            return LocalizationManager::GeneratePseudoLocale(source.value_or("en"), pseudoCode.value_or("pseudo"));
+        };
+        localizationTable["FormatCurrency"] = [](f64 amount, sol::optional<std::string> localeCode, sol::optional<std::string> symbolOverride) -> std::string
+        {
+            return LocalizationManager::FormatCurrency(amount, localeCode.value_or(std::string{}), symbolOverride.value_or(std::string{}));
+        };
+        localizationTable["FormatList"] = [](sol::table items, sol::optional<std::string> localeCode) -> std::string
+        {
+            // Lua array tables iterate via ipairs (1-based). We collect into
+            // a vector<string> rather than trying to share storage so each
+            // entry is cleanly owned by the C++ side regardless of Lua GC.
+            std::vector<std::string> v;
+            v.reserve(items.size());
+            for (auto& kv : items)
+            {
+                if (kv.second.is<std::string>())
+                    v.push_back(kv.second.as<std::string>());
+            }
+            return LocalizationManager::FormatList(v, localeCode.value_or(std::string{}));
+        };
+        // FormatDate / FormatTime / FormatRelativeTime take a Unix epoch
+        // seconds value from Lua (Lua doesn't have a portable time_point
+        // type). 0 means "use now()". Style is an integer matching the
+        // DateStyle / TimeStyle enum order.
+        localizationTable["FormatDate"] = [](i64 epochSeconds, sol::optional<i32> style, sol::optional<std::string> localeCode) -> std::string
+        {
+            const auto tp = (epochSeconds == 0)
+                                ? std::chrono::system_clock::now()
+                                : std::chrono::system_clock::from_time_t(static_cast<std::time_t>(epochSeconds));
+            return LocalizationManager::FormatDate(tp,
+                                                   static_cast<LocalizationManager::DateStyle>(style.value_or(static_cast<i32>(LocalizationManager::DateStyle::Medium))),
+                                                   localeCode.value_or(std::string{}));
+        };
+        localizationTable["FormatTime"] = [](i64 epochSeconds, sol::optional<i32> style, sol::optional<std::string> localeCode) -> std::string
+        {
+            const auto tp = (epochSeconds == 0)
+                                ? std::chrono::system_clock::now()
+                                : std::chrono::system_clock::from_time_t(static_cast<std::time_t>(epochSeconds));
+            return LocalizationManager::FormatTime(tp,
+                                                   static_cast<LocalizationManager::TimeStyle>(style.value_or(static_cast<i32>(LocalizationManager::TimeStyle::Short))),
+                                                   localeCode.value_or(std::string{}));
+        };
+        localizationTable["FormatRelativeTime"] = [](i64 epochSeconds, sol::optional<std::string> localeCode) -> std::string
+        {
+            const auto tp = std::chrono::system_clock::from_time_t(static_cast<std::time_t>(epochSeconds));
+            return LocalizationManager::FormatRelativeTime(tp, localeCode.value_or(std::string{}));
+        };
+        localizationTable["GetAvailableLocales"] = [](sol::this_state s) -> sol::table
+        {
+            sol::state_view luaState(s);
+            const auto locales = LocalizationManager::GetAvailableLocales();
+            sol::table out = luaState.create_table(static_cast<int>(locales.size()), 0);
+            int idx = 1;
+            for (const auto& loc : locales)
+            {
+                sol::table entry = luaState.create_table(0, 2);
+                entry["code"] = loc.Code;
+                entry["name"] = loc.Name;
+                out[idx++] = entry;
+            }
+            return out;
         };
     }
 } // namespace OloEngine

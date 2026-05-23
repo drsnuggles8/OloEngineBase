@@ -2,15 +2,29 @@
 // ModelLoadDeterminismTest.cpp
 //
 // Diagnostic test: load a Model twice (first run: fresh from Assimp + write
-// cache; second run: read from cache) and verify the deserialized geometry
-// data + bound texture content are bit-identical between the two paths.
+// cache; second run: read from cache) and verify that the two loads produce
+// the SAME MESH and the SAME bound texture content.
 //
-// If the cache round-trip is broken (vertices/UVs/indices shuffled, or the
-// cache-load texture pipeline produces different GPU data than the fresh
-// load), this test catches it without requiring a manual screenshot
+// If the cache round-trip is broken (UVs/positions/normals scrambled, or
+// the cache-load texture pipeline produces different GPU data than the
+// fresh load), this test catches it without requiring a manual screenshot
 // comparison. Each load also writes the loaded albedo texture pixels to
 // PNG under `OloEditor/assets/tests/captures/ModelLoadDeterminism/` so the
 // human reviewer can sanity-check visually.
+//
+// Topology is compared via a CANONICALISED triangle-set CRC, not a byte
+// CRC of the raw index buffer. The cache write path runs the index buffer
+// through `meshopt_encodeIndexBuffer`, whose codec is intentionally not
+// byte-faithful — the decoded buffer is topologically equivalent (same
+// triangles, same winding) but triangles may be reordered and each
+// triangle's three vertices may be cyclically rotated relative to the
+// pre-encode buffer (e.g. (1,3,2) ↔ (2,1,3) ↔ (3,2,1)). A naïve byte CRC
+// would therefore flag every cache round-trip as a difference even when
+// the mesh is correct. To stay strict about UV/normal/winding regressions
+// (which the codec does NOT alter) while ignoring the codec's legitimate
+// rotation, we canonicalise each triangle by cyclically rotating it so its
+// smallest vertex appears first, then sort the resulting triangle list,
+// then CRC.
 // =============================================================================
 
 #include "OloEnginePCH.h"
@@ -33,6 +47,8 @@
 
 #include <stb_image/stb_image_write.h>
 
+#include <algorithm>
+#include <compare>
 #include <cstring>
 #include <filesystem>
 #include <string>
@@ -68,13 +84,64 @@ namespace OloEngine::Tests
             u32 m_IndexCount = 0;
             u32 m_SubmeshCount = 0;
             u32 m_MaterialCount = 0;
-            u32 m_VertexCRC = 0;  // CRC32 over the raw vertex bytes
-            u32 m_IndexCRC = 0;   // CRC32 over the raw index bytes
-            u32 m_TextureCRC = 0; // CRC32 over the albedo texture's RGBA pixels
+            u32 m_VertexCRC = 0;   // CRC32 over the raw vertex bytes
+            u32 m_TopologyCRC = 0; // CRC32 over the canonicalised, sorted triangle list. See the
+                                   // file header for why a raw-index CRC is the wrong invariant.
+            u32 m_TextureCRC = 0;  // CRC32 over the albedo texture's RGBA pixels
             u32 m_TextureWidth = 0;
             u32 m_TextureHeight = 0;
             std::string m_AlbedoPath; // Source path of the albedo texture
         };
+
+        // Rotate (a,b,c) so its smallest element appears first while preserving
+        // winding. (1,3,2), (3,2,1), (2,1,3) all collapse to (1,3,2). The reverse
+        // winding (1,2,3) stays distinct from (1,3,2) — important, because the
+        // mesh codec preserves winding even when it rotates triangles, so we
+        // *do* want to flag a winding flip as a topology change.
+        struct CanonicalTriangle
+        {
+            u32 A, B, C;
+
+            auto operator<=>(const CanonicalTriangle&) const = default;
+        };
+
+        CanonicalTriangle CanonicalizeTriangle(u32 a, u32 b, u32 c)
+        {
+            // Three rotations of the same triangle; we want winding-preserving
+            // selection of the lexicographically smallest among them. Picking
+            // "first index whose value equals the min" breaks on repeated
+            // minima — (1,1,2) and (1,2,1) are the same triangle but the
+            // naive rule emits different tuples for them.
+            const CanonicalTriangle rotations[3] = {
+                { a, b, c },
+                { b, c, a },
+                { c, a, b },
+            };
+            const CanonicalTriangle* best = &rotations[0];
+            for (int i = 1; i < 3; ++i)
+                if (rotations[i] < *best)
+                    best = &rotations[i];
+            return *best;
+        }
+
+        // Build a CRC of the canonical triangle list. Triangles with index count
+        // not divisible by 3 are skipped at the tail (shouldn't happen for valid
+        // triangle-list meshes, but we don't want to crash on malformed input).
+        u32 ComputeTopologyCRC(const TArray<u32>& indices)
+        {
+            const i32 triCount = indices.Num() / 3;
+            std::vector<CanonicalTriangle> tris;
+            tris.reserve(static_cast<sizet>(triCount));
+            for (i32 i = 0; i < triCount; ++i)
+            {
+                const u32 a = indices[i * 3 + 0];
+                const u32 b = indices[i * 3 + 1];
+                const u32 c = indices[i * 3 + 2];
+                tris.push_back(CanonicalizeTriangle(a, b, c));
+            }
+            std::sort(tris.begin(), tris.end());
+            return Hash::CRC32(reinterpret_cast<const u8*>(tris.data()), tris.size() * sizeof(CanonicalTriangle));
+        }
 
         // Read back the GPU pixels of a Texture2D into a CPU buffer and CRC them.
         // Returns false (and leaves the buffer empty) if readback fails — a
@@ -151,8 +218,7 @@ namespace OloEngine::Tests
                     s.m_IndexCount = static_cast<u32>(indices.Num());
                     s.m_VertexCRC = Hash::CRC32(reinterpret_cast<const u8*>(verts.GetData()),
                                                 static_cast<sizet>(verts.Num()) * sizeof(Vertex));
-                    s.m_IndexCRC = Hash::CRC32(reinterpret_cast<const u8*>(indices.GetData()),
-                                               static_cast<sizet>(indices.Num()) * sizeof(u32));
+                    s.m_TopologyCRC = ComputeTopologyCRC(indices);
                 }
             }
 
@@ -194,11 +260,11 @@ namespace OloEngine::Tests
 
         void Dump(const char* label, const LoadedSnapshot& s)
         {
-            std::printf("[%s] verts=%u indices=%u submeshes=%u materials=%u vCRC=0x%08x iCRC=0x%08x tex=%ux%u tCRC=0x%08x albedo='%s'\n",
+            std::printf("[%s] verts=%u indices=%u submeshes=%u materials=%u vCRC=0x%08x topoCRC=0x%08x tex=%ux%u tCRC=0x%08x albedo='%s'\n",
                         label,
                         s.m_VertexCount, s.m_IndexCount,
                         s.m_SubmeshCount, s.m_MaterialCount,
-                        s.m_VertexCRC, s.m_IndexCRC,
+                        s.m_VertexCRC, s.m_TopologyCRC,
                         s.m_TextureWidth, s.m_TextureHeight,
                         s.m_TextureCRC,
                         s.m_AlbedoPath.c_str());
@@ -278,7 +344,10 @@ namespace OloEngine::Tests
         EXPECT_EQ(fresh.m_SubmeshCount, cached.m_SubmeshCount) << "Submesh count drifted.";
         EXPECT_EQ(fresh.m_MaterialCount, cached.m_MaterialCount) << "Material count drifted.";
         EXPECT_EQ(fresh.m_VertexCRC, cached.m_VertexCRC) << "Vertex DATA differs — UVs/positions/normals scrambled across the cache round-trip.";
-        EXPECT_EQ(fresh.m_IndexCRC, cached.m_IndexCRC) << "Index DATA differs across the cache round-trip.";
+        EXPECT_EQ(fresh.m_TopologyCRC, cached.m_TopologyCRC)
+            << "Triangle topology differs across the cache round-trip — at least one triangle in the cache load "
+               "references a different vertex set, or has opposite winding, compared to the fresh load. "
+               "(Cyclic vertex rotation within a triangle is NOT a difference — see the file header.)";
         EXPECT_EQ(fresh.m_AlbedoPath, cached.m_AlbedoPath) << "Albedo texture path differs.";
         EXPECT_EQ(fresh.m_TextureWidth, cached.m_TextureWidth);
         EXPECT_EQ(fresh.m_TextureHeight, cached.m_TextureHeight);

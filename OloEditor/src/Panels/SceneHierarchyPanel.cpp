@@ -1,5 +1,6 @@
 #include "SceneHierarchyPanel.h"
 #include "OloEngine/Scene/Components.h"
+#include "OloEngine/Localization/LocalizationManager.h"
 #include "OloEngine/Renderer/Instancing/InstancedMeshComponent.h"
 
 #include <random>
@@ -1638,6 +1639,7 @@ namespace OloEngine
             DisplayAddComponentEntry<BoxCollider2DComponent>("Box Collider 2D");
             DisplayAddComponentEntry<CircleCollider2DComponent>("Circle Collider 2D");
             DisplayAddComponentEntry<TextComponent>("Text Component");
+            DisplayAddComponentEntry<LocalizedTextComponent>("Localized Text");
 
             ImGui::Separator();
 
@@ -2102,6 +2104,33 @@ namespace OloEngine
             {
                 ImGui::DragFloat("Shadow Distance", &component.ShadowDistance, 0.001f, 0.0f, 1.0f);
                 ImGui::ColorEdit4("Shadow Color", glm::value_ptr(component.ShadowColor));
+            } });
+
+        DrawComponent<LocalizedTextComponent>("Localized Text", entity, [](auto& component)
+                                              {
+            // Auto-localizes the entity's TextComponent.TextString. The
+            // resolved string + a small "RESOLVED:" preview is shown so the
+            // user can verify their key lookup without flipping locales.
+            ImGui::InputText("Localization Key", &component.LocalizationKey);
+            if (!component.LocalizationKey.empty())
+            {
+                // Gate Get() on HasKey() to avoid spamming the missing-key
+                // accumulator every frame the inspector is open on a key
+                // the active locale doesn't have. The inspector is a
+                // diagnostic surface — its lookups shouldn't show up in
+                // the editor panel's "missing keys at runtime" report.
+                ImGui::TextDisabled("Locale: %s", LocalizationManager::GetCurrentLocale().c_str());
+                if (LocalizationManager::HasKey(component.LocalizationKey))
+                {
+                    const std::string resolved = LocalizationManager::Get(component.LocalizationKey);
+                    ImGui::TextWrapped("Resolved: %s", resolved.c_str());
+                }
+                else
+                {
+                    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.55f, 0.55f, 1.0f));
+                    ImGui::TextWrapped("Key missing in active locale (will show fallback at runtime).");
+                    ImGui::PopStyleColor();
+                }
             } });
 
         // 3D Components
