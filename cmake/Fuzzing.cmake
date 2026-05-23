@@ -136,6 +136,23 @@ if(WIN32)
     link_libraries(${_OLO_SAN_RT_LIBS})
     add_link_options(${_OLO_SAN_LINK_FLAGS})
 
+    # Echo the runtime DLL location to status output. Build-time tools
+    # (OloHeaderTool, protoc) AND the fuzz harnesses themselves all need
+    # `clang_rt.asan_dynamic-x86_64.dll` discoverable via Windows's DLL
+    # search at runtime — otherwise they exit with
+    # STATUS_ENTRYPOINT_NOT_FOUND (0xC0000139) the moment they're invoked.
+    # The simplest way to satisfy that is to prepend this directory to PATH
+    # before running `cmake --build`. CI does this in `.github/workflows/
+    # fuzz.yml`; local devs should do the same in their build shell.
+    if(NOT EXISTS "${_OLO_CLANG_RT_DIR}/clang_rt.asan_dynamic-x86_64.dll")
+        message(FATAL_ERROR "OloEngine fuzzing: expected ASan runtime DLL at "
+            "'${_OLO_CLANG_RT_DIR}/clang_rt.asan_dynamic-x86_64.dll' but it "
+            "isn't there. Install the LLVM compiler-rt component.")
+    endif()
+    message(STATUS "OloEngine fuzzing: prepend this directory to PATH before "
+                   "building/running fuzz harnesses:")
+    message(STATUS "                   ${_OLO_CLANG_RT_DIR}")
+
     function(olo_apply_fuzzer_link _target)
         # libFuzzer instrumentation is per-harness (NOT propagated globally —
         # we don't want the fuzzer coverage hooks in non-fuzz binaries).

@@ -51,6 +51,30 @@ jobs:
                 -DPython_EXECUTABLE="${{ steps.py.outputs.python-path }}" `
                 -DOLO_ENABLE_FUZZING=ON
 
+      - name: Add clang_rt runtime dir to PATH
+        # Every binary in this build (build-time tools like OloHeaderTool /
+        # protoc, plus the fuzz harnesses themselves) links against
+        # clang_rt.asan_dynamic-x86_64.dll. That DLL lives in LLVM's
+        # compiler-rt install dir, which isn't on PATH by default. CMake's
+        # add_custom_command(POST_BUILD …) can't copy it next to every .exe
+        # cleanly across directories (CMake same-directory restriction), so
+        # we hand-prepend the directory to $GITHUB_PATH for every subsequent
+        # step. Without this, MSBuild fails on the first tool invocation
+        # with STATUS_ENTRYPOINT_NOT_FOUND (0xC0000139).
+        shell: pwsh
+        run: |
+          $clangCl = (Get-Command clang-cl).Source
+          $llvmRoot = Split-Path (Split-Path $clangCl)
+          $clangLib = Join-Path $llvmRoot 'lib\clang'
+          $ver = (Get-ChildItem $clangLib -Directory | Where-Object { $_.Name -match '^\d+$' } | Sort-Object { [int]$_.Name } -Descending | Select-Object -First 1).Name
+          $rtDir = Join-Path $clangLib "$ver\lib\windows"
+          if (-not (Test-Path $rtDir)) {
+            Write-Error "clang_rt runtime dir not found at $rtDir"
+            exit 1
+          }
+          Write-Host "Adding to PATH: $rtDir"
+          Add-Content -Path $env:GITHUB_PATH -Value $rtDir
+
       - name: Build fuzzers
         run: cmake --build build --target OloEngine-FuzzSmoke --config Release --parallel
 
