@@ -104,31 +104,43 @@ if(WIN32)
     endif()
     message(STATUS "OloEngine fuzzing: clang runtime dir = ${_OLO_CLANG_RT_DIR}")
 
-    # Required runtime libs for libFuzzer + ASan (dynamic) + UBSan on
-    # Windows ClangCL. Names match LLVM's compiler-rt output on Windows
-    # (clang_rt.<sanitizer>[-<arch>].lib).
-    set(_OLO_FUZZ_RT_LIBS
-        "${_OLO_CLANG_RT_DIR}/clang_rt.fuzzer-x86_64.lib"
+    # Required runtime libs for ASan (dynamic) + UBSan on Windows ClangCL.
+    # Names match LLVM's compiler-rt output on Windows
+    # (clang_rt.<sanitizer>[-<arch>].lib). These need to link into EVERY
+    # final binary because the global -fsanitize=address,undefined compile
+    # flag instruments every TU — without the runtime, every link step
+    # (OloHeaderTool, protoc, OloEditor, fuzz harnesses, …) reports
+    # undefined __asan_* / __ubsan_* symbols.
+    set(_OLO_SAN_RT_LIBS
         "${_OLO_CLANG_RT_DIR}/clang_rt.asan_dynamic-x86_64.lib"
         "${_OLO_CLANG_RT_DIR}/clang_rt.ubsan_standalone-x86_64.lib"
         "${_OLO_CLANG_RT_DIR}/clang_rt.ubsan_standalone_cxx-x86_64.lib"
-        CACHE INTERNAL "Fuzzer + sanitizer runtime libs (Windows ClangCL)"
     )
     # The asan_dynamic_runtime_thunk must be linked with /wholearchive so its
     # interceptors register at load time. lld-link's MSVC-compatible flag.
-    set(_OLO_FUZZ_RT_LINK_FLAGS
+    set(_OLO_SAN_LINK_FLAGS
         "/wholearchive:${_OLO_CLANG_RT_DIR}/clang_rt.asan_dynamic_runtime_thunk-x86_64.lib"
         # Skip MSVC's auto-inferred ASan libs (incompatible with clang_rt).
         "/INFERASANLIBS:NO"
-        CACHE INTERNAL "Fuzzer + sanitizer link flags (Windows ClangCL)"
     )
+    # Stash the libFuzzer lib for the per-harness step (not in the global
+    # link set — non-fuzz binaries don't need the fuzzer driver).
+    set(_OLO_FUZZER_RT_LIB
+        "${_OLO_CLANG_RT_DIR}/clang_rt.fuzzer-x86_64.lib"
+        CACHE INTERNAL "libFuzzer runtime lib (Windows ClangCL)"
+    )
+
+    # Apply globally — every executable/DLL link picks these up. Static
+    # libs ignore link_libraries() inputs in terms of linkage but record
+    # them as INTERFACE deps that propagate to downstream consumers.
+    link_libraries(${_OLO_SAN_RT_LIBS})
+    add_link_options(${_OLO_SAN_LINK_FLAGS})
 
     function(olo_apply_fuzzer_link _target)
         # libFuzzer instrumentation is per-harness (NOT propagated globally —
         # we don't want the fuzzer coverage hooks in non-fuzz binaries).
         target_compile_options(${_target} PRIVATE -fsanitize=fuzzer)
-        target_link_libraries(${_target} PRIVATE ${_OLO_FUZZ_RT_LIBS})
-        target_link_options(${_target} PRIVATE ${_OLO_FUZZ_RT_LINK_FLAGS})
+        target_link_libraries(${_target} PRIVATE ${_OLO_FUZZER_RT_LIB})
     endfunction()
 else()
     # Linux/macOS: clang drives the link, so `-fsanitize=...` is honoured and
