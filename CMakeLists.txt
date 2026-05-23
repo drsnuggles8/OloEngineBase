@@ -33,6 +33,12 @@ option(OLO_ENABLE_UNITY_BUILD "Enable Unity (Jumbo) Builds for faster compilatio
 include(cmake/SetupConfigurations.cmake)
 include(cmake/CommonProperties.cmake)
 include(cmake/Sanitizers.cmake)
+# Fuzzing.cmake must be included BEFORE add_subdirectory(OloEngine) so its
+# global add_compile_options() (ASan/UBSan instrumentation) propagates to the
+# OloEngine static lib. Otherwise the harnesses fail to link with a `/failif
+# mismatch: annotate_string` ABI error because the lib was compiled without
+# the sanitizer's STL annotations and the harness was compiled with them.
+include(cmake/Fuzzing.cmake)
 
 # Default FetchContent downloads to PROJECT_SOURCE_DIR/OloEngine/vendor so vendor
 # libraries live in a predictable location alongside the checked-in vendor tree.
