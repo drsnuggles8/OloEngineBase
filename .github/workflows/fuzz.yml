@@ -51,24 +51,21 @@ jobs:
                 -DPython_EXECUTABLE="${{ steps.py.outputs.python-path }}" `
                 -DOLO_ENABLE_FUZZING=ON
 
-      - name: Add clang_rt runtime dir to PATH
-        # Every binary in this build (build-time tools like OloHeaderTool /
-        # protoc, plus the fuzz harnesses themselves) links against
-        # clang_rt.asan_dynamic-x86_64.dll. That DLL lives in LLVM's
-        # compiler-rt install dir, which isn't on PATH by default. CMake's
-        # add_custom_command(POST_BUILD …) can't copy it next to every .exe
-        # cleanly across directories (CMake same-directory restriction), so
-        # we hand-prepend the directory to $GITHUB_PATH for every subsequent
-        # step. Without this, MSBuild fails on the first tool invocation
-        # with STATUS_ENTRYPOINT_NOT_FOUND (0xC0000139).
+      - name: Verify clang_rt runtime dir
+        # cmake/Fuzzing.cmake's find_path resolved the directory containing
+        # the ASan / libFuzzer runtime libs that lld-link linked against,
+        # and wrote it to build/olo_clang_rt_dir.txt. We confirm the
+        # matching DLL is in there; the build step then prepends this dir
+        # to $env:PATH so OloHeaderTool / protoc / fuzz harnesses load the
+        # *correct* clang_rt.asan_dynamic-x86_64.dll at run time.
         #
-        # The exact directory is whatever cmake/Fuzzing.cmake's find_path
-        # resolved during configure — it writes that to build/olo_clang_rt_
-        # dir.txt. We re-read it here instead of recomputing via
-        # `Get-Command clang-cl`, because on GitHub runners there can be
-        # multiple LLVM installs (VS2022-bundled vs standalone) and the
-        # standalone one's DLL has a different ABI than the bundled one
-        # the `-T ClangCL` toolset compiled against.
+        # Why prepend in the run step rather than via $GITHUB_PATH: the
+        # runner APPENDS $GITHUB_PATH entries, and the runner image already
+        # has MSVC's and the standalone LLVM's directories on PATH — each
+        # of which ships a *differently-versioned* DLL by the same name.
+        # If ours isn't first, Windows loads MSVC's DLL whose exports don't
+        # match what the LLVM-19-bundled .lib imported, and every binary
+        # exits with STATUS_ENTRYPOINT_NOT_FOUND (0xC0000139) on launch.
         shell: pwsh
         run: |
           $rtDir = (Get-Content build/olo_clang_rt_dir.txt -Raw).Trim()
@@ -80,15 +77,26 @@ jobs:
             Write-Error "clang_rt.asan_dynamic-x86_64.dll missing from $rtDir"
             exit 1
           }
-          Write-Host "Adding to PATH: $rtDir"
-          Add-Content -Path $env:GITHUB_PATH -Value $rtDir
+          Write-Host "Resolved clang_rt dir: $rtDir"
 
       - name: Build fuzzers
-        run: cmake --build build --target OloEngine-FuzzSmoke --config Release --parallel
+        shell: pwsh
+        run: |
+          $rtDir = (Get-Content build/olo_clang_rt_dir.txt -Raw).Trim()
+          # Prepend so it wins against MSVC's & standalone LLVM's same-named
+          # DLLs that are already on PATH at lower priority.
+          $env:PATH = "$rtDir;$env:PATH"
+          cmake --build build --target OloEngine-FuzzSmoke --config Release --parallel
 
       - name: Run fuzz smoke (per-target 30s)
         working-directory: OloEditor
+        shell: pwsh
         run: |
+          # Same DLL-search rationale as the build step: prepend the clang_rt
+          # dir so the fuzz harnesses load the right ASan runtime.
+          $rtDir = (Get-Content ../build/olo_clang_rt_dir.txt -Raw).Trim()
+          $env:PATH = "$rtDir;$env:PATH"
+
           # Explicit harness -> corpus mapping. A heuristic would be neat but
           # every one-off (YAML suffix, acronyms) would need a special case.
           $harnesses = @(
