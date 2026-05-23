@@ -16,6 +16,12 @@
 
 #include "OloEngine/Serialization/MeshBinarySerializer.h"
 
+// MeshBinarySerializer.h forward-declares AnimationClip, but `Read()` returns
+// `std::vector<Ref<AnimationClip>>` and the destructor of `Ref<AnimationClip>`
+// needs the complete type (same situation as FuzzMeshBinary.cpp). Without
+// this include the harness fails to compile under clang-cl.
+#include "OloEngine/Animation/AnimationClip.h"
+
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>

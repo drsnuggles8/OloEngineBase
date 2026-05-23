@@ -54,18 +54,9 @@ jobs:
       - name: Verify clang_rt runtime dir
         # cmake/Fuzzing.cmake's find_path resolved the directory containing
         # the ASan / libFuzzer runtime libs that lld-link linked against,
-        # and wrote it to build/olo_clang_rt_dir.txt. We confirm the
-        # matching DLL is in there; the build step then prepends this dir
-        # to $env:PATH so OloHeaderTool / protoc / fuzz harnesses load the
+        # and wrote it to build/olo_clang_rt_dir.txt. The run step below
+        # prepends this dir to $env:PATH so the fuzz harnesses load the
         # *correct* clang_rt.asan_dynamic-x86_64.dll at run time.
-        #
-        # Why prepend in the run step rather than via $GITHUB_PATH: the
-        # runner APPENDS $GITHUB_PATH entries, and the runner image already
-        # has MSVC's and the standalone LLVM's directories on PATH — each
-        # of which ships a *differently-versioned* DLL by the same name.
-        # If ours isn't first, Windows loads MSVC's DLL whose exports don't
-        # match what the LLVM-19-bundled .lib imported, and every binary
-        # exits with STATUS_ENTRYPOINT_NOT_FOUND (0xC0000139) on launch.
         shell: pwsh
         run: |
           $rtDir = (Get-Content build/olo_clang_rt_dir.txt -Raw).Trim()
@@ -78,6 +69,8 @@ jobs:
             exit 1
           }
           Write-Host "Resolved clang_rt dir: $rtDir"
+          Write-Host "Contents:"
+          Get-ChildItem $rtDir | Format-Table Name, Length
 
       - name: Build fuzzers
         # No PATH dance needed for the build itself: OloHeaderTool / protoc
