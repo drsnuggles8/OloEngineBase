@@ -555,6 +555,7 @@ namespace OloEngine
         static constexpr u32 UBO_ANIMATION_PREV = 31;       // Previous-frame bone matrices (Deferred G-Buffer per-bone velocity)
         static constexpr u32 UBO_TAA = 32;                  // Temporal Anti-Aliasing parameters
         static constexpr u32 UBO_DRS = 33;                  // Dynamic Resolution Scaling bounds
+        static constexpr u32 UBO_PREVIEW = 34;              // Content-browser asset thumbnail preview (matrices + material factors)
 
         // =============================================================================
         // TEXTURE SAMPLER BINDINGS
@@ -760,6 +761,8 @@ namespace OloEngine
                 case UBO_DRS:
                     return name.contains("DRS") || name.contains("DynamicResolution") ||
                            name.contains("dynamicResolution");
+                case UBO_PREVIEW:
+                    return name.contains("Preview") || name.contains("preview");
                 default:
                     return false;
             }

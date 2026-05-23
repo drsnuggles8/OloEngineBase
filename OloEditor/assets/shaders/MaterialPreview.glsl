@@ -16,10 +16,10 @@
 // The engine's shader pipeline cross-compiles GLSL → SPIR-V → GLSL, and
 // SPIR-V forbids non-opaque uniforms outside a uniform block — so all
 // scalar / vector / matrix uniforms here live inside `PreviewBlock`.
-// Texture samplers stay as opaque uniforms (allowed). Binding 50 sits
-// well above the engine's documented UBO range (0..33 per
-// `ShaderBindingLayout.h`) so we never collide with anything Renderer3D
-// might leave bound when the preview is invoked between frames.
+// Texture samplers stay as opaque uniforms (allowed). All bindings
+// match `ShaderBindingLayout.h`: UBO 34 (UBO_PREVIEW), albedo at
+// TEX_DIFFUSE (0), roughness at TEX_ROUGHNESS (6), metallic at
+// TEX_METALLIC (7). `ShaderReflectionBinding` enforces this round-trip.
 // =============================================================================
 
 #type vertex
@@ -29,7 +29,7 @@ layout(location = 0) in vec3 a_Position;
 layout(location = 1) in vec3 a_Normal;
 layout(location = 2) in vec2 a_TexCoord;
 
-layout(std140, binding = 50) uniform PreviewBlock
+layout(std140, binding = 34) uniform PreviewBlock
 {
     mat4 u_Model;
     mat4 u_View;
@@ -70,7 +70,7 @@ layout(location = 2) in vec2 v_TexCoord;
 
 layout(location = 0) out vec4 o_Color;
 
-layout(std140, binding = 50) uniform PreviewBlock
+layout(std140, binding = 34) uniform PreviewBlock
 {
     mat4 u_Model;
     mat4 u_View;
@@ -89,9 +89,16 @@ layout(std140, binding = 50) uniform PreviewBlock
     int _pad3;
 };
 
+// Sampler slots match the engine's documented PBR layout
+// (ShaderBindingLayout.h TEX_DIFFUSE / TEX_ROUGHNESS / TEX_METALLIC) so
+// `ShaderReflectionBinding` recognises them. The metallic sampler is
+// named `u_MetallicMap` (not `u_MetalnessMap`) to match TEX_METALLIC's
+// validator pattern — the engine uses "Metallic" everywhere; the API
+// data side still calls the parameter "Metalness" (per glTF 2.0's
+// metallic-roughness convention).
 layout(binding = 0) uniform sampler2D u_AlbedoMap;
-layout(binding = 1) uniform sampler2D u_MetalnessMap;
-layout(binding = 2) uniform sampler2D u_RoughnessMap;
+layout(binding = 6) uniform sampler2D u_RoughnessMap;
+layout(binding = 7) uniform sampler2D u_MetallicMap;
 
 // Three-point rig for the preview turntable. Key is warm, fill is
 // cool and softer, rim hits from behind to give the silhouette a
@@ -170,7 +177,7 @@ void main()
 
     float metallic = u_MetallicFactor;
     if (u_UseMetalnessMap != 0)
-        metallic = clamp(texture(u_MetalnessMap, v_TexCoord).r * u_MetallicFactor, 0.0, 1.0);
+        metallic = clamp(texture(u_MetallicMap, v_TexCoord).r * u_MetallicFactor, 0.0, 1.0);
 
     float roughness = u_RoughnessFactor;
     if (u_UseRoughnessMap != 0)

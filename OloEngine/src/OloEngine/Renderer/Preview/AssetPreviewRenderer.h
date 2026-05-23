@@ -103,8 +103,11 @@ namespace OloEngine
         };
         static_assert(sizeof(PreviewBlock) % 16 == 0, "PreviewBlock must be 16-byte aligned for std140");
 
-        static void EnsureSphereMesh();
-        static void EnsureDefaultWhiteTexture();
+        // Build the unit-icosphere and 1×1 white default-texture. Return
+        // true on success so `Initialize()` can refuse to mark the
+        // renderer as ready when a fallback resource failed to allocate.
+        [[nodiscard]] static bool EnsureSphereMesh();
+        [[nodiscard]] static bool EnsureDefaultWhiteTexture();
         static Ref<Texture2D> CreateTargetTexture();
         static void FillMaterialBlock(const Ref<MaterialAsset>& material, PreviewBlock& block);
         static void FillDefaultMaterialBlock(PreviewBlock& block);

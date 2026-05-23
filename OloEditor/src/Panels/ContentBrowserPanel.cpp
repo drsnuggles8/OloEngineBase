@@ -601,7 +601,7 @@ namespace OloEngine
         for (auto& file : m_CurrentDirectory->Files)
         {
             ContentFileType type = GetFileTypeFromExtension(file);
-            Ref<Texture2D>& icon = GetFileIcon(file);
+            Ref<Texture2D> icon = GetFileIcon(file);
             m_Items.emplace_back(file, type, icon);
         }
 
@@ -675,7 +675,7 @@ namespace OloEngine
             }
             else
             {
-                Ref<Texture2D>& icon = GetFileIcon(path);
+                Ref<Texture2D> icon = GetFileIcon(path);
                 m_Items.emplace_back(path, type, icon);
             }
         }
@@ -902,9 +902,14 @@ namespace OloEngine
     // Icon Resolution
     // =========================================================================
 
-    Ref<Texture2D>& ContentBrowserPanel::GetFileIcon(const std::filesystem::path& filepath)
+    Ref<Texture2D> ContentBrowserPanel::GetFileIcon(const std::filesystem::path& filepath)
     {
-        // Check cached image thumbnails
+        // `m_ImageIcons` is the path-keyed cache for raw image previews
+        // loaded via `Texture2D::Create` — those have no separate owner so
+        // the panel itself owns them. Material / mesh thumbnails are NOT
+        // stored here; they live in `m_ThumbnailCache`, which manages its
+        // own LRU + eviction. Caching them under a strong-ref path key
+        // would keep evicted entries alive and defeat the LRU.
         if (m_ImageIcons.contains(filepath))
             return m_ImageIcons[filepath];
 
@@ -918,8 +923,8 @@ namespace OloEngine
                 auto imageIcon = Texture2D::Create(filepath.string());
                 if (imageIcon && imageIcon->IsLoaded())
                 {
-                    auto& icon = m_ImageIcons[filepath] = imageIcon;
-                    return icon;
+                    m_ImageIcons[filepath] = imageIcon;
+                    return imageIcon;
                 }
             }
             return m_FileIcon;
@@ -945,10 +950,7 @@ namespace OloEngine
                                                    ? m_ThumbnailCache.GetMaterialThumbnail(handle)
                                                    : m_ThumbnailCache.GetMeshThumbnail(handle);
                     if (thumbnail)
-                    {
-                        auto& cached = m_ImageIcons[filepath] = thumbnail;
-                        return cached;
-                    }
+                        return thumbnail;
                 }
             }
         }

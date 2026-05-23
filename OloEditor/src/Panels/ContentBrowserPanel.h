@@ -82,8 +82,12 @@ namespace OloEngine
         void DeleteSelectedItems();
         void HandleKeyboardShortcuts();
 
-        // Existing helpers
-        Ref<Texture2D>& GetFileIcon(const std::filesystem::path& filepath);
+        // Existing helpers. Returns by value (cheap — a `Ref<>` copy is
+        // an atomic refcount bump) so the call site does not hold a
+        // long-lived reference into `m_ImageIcons` or the thumbnail
+        // cache; that lets `AssetThumbnailCache` evict its LRU entries
+        // without leaving a dangling reference inside the panel.
+        Ref<Texture2D> GetFileIcon(const std::filesystem::path& filepath);
         void DrawCreateMenu();
         void CreateMeshPrimitiveFile(const std::string& primitiveType);
 

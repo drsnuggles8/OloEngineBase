@@ -8,9 +8,12 @@
 #include "OloEngine/Renderer/MeshPrimitives.h"
 #include "OloEngine/Renderer/RenderCommand.h"
 #include "OloEngine/Renderer/RendererAPI.h"
+#include "OloEngine/Renderer/ShaderBindingLayout.h"
 #include "OloEngine/Renderer/VertexArray.h"
 
 #include <glm/gtc/matrix_transform.hpp>
+
+#include <cmath>
 
 namespace OloEngine
 {
@@ -21,12 +24,11 @@ namespace OloEngine
     Ref<Texture2D> AssetPreviewRenderer::s_DefaultWhite;
     bool AssetPreviewRenderer::s_Initialised = false;
 
-    // Bound to `binding = 50` in `MaterialPreview.glsl::PreviewBlock`.
-    // The engine's `ShaderBindingLayout` enumerates UBO slots 0..33 for
-    // various renderer subsystems; pick a slot well above that range so
-    // we can't collide with anything Renderer3D might leave bound when
-    // the preview is invoked between frames.
-    static constexpr u32 kPreviewUBOBindPoint = 50;
+    // Bound to `binding = 34` in `MaterialPreview.glsl::PreviewBlock`,
+    // documented as `ShaderBindingLayout::UBO_PREVIEW`. Keep this in
+    // sync with both — `ShaderReflectionBinding` enforces the C++ ↔ GLSL
+    // round-trip.
+    static constexpr u32 kPreviewUBOBindPoint = 34;
 
     // Camera + transform for a single preview render. Bundled so the
     // sphere and arbitrary-mesh paths can share `RenderInto`.
@@ -144,8 +146,23 @@ namespace OloEngine
             return;
         }
 
-        EnsureSphereMesh();
-        EnsureDefaultWhiteTexture();
+        if (!EnsureSphereMesh())
+        {
+            OLO_CORE_ERROR("AssetPreviewRenderer: failed to build unit sphere mesh");
+            s_Framebuffer = nullptr;
+            s_Shader = nullptr;
+            s_PreviewUBO = nullptr;
+            return;
+        }
+        if (!EnsureDefaultWhiteTexture())
+        {
+            OLO_CORE_ERROR("AssetPreviewRenderer: failed to build default white texture");
+            s_Framebuffer = nullptr;
+            s_Shader = nullptr;
+            s_PreviewUBO = nullptr;
+            s_SphereMesh = nullptr;
+            return;
+        }
         s_Initialised = true;
     }
 
@@ -164,22 +181,23 @@ namespace OloEngine
         return s_Initialised;
     }
 
-    void AssetPreviewRenderer::EnsureSphereMesh()
+    bool AssetPreviewRenderer::EnsureSphereMesh()
     {
         if (s_SphereMesh && s_SphereMesh->IsValid())
-            return;
+            return true;
         // Renderer3D's shared icosphere lives behind a static API but is
         // only valid after Renderer3D::Init, which a host may or may not
         // have done by the time a thumbnail is first requested. Build our
         // own unit icosphere up front so the preview path is independent
         // of the main renderer's lifecycle.
         s_SphereMesh = MeshPrimitives::CreateIcosphere(1.0f, 2);
+        return s_SphereMesh && s_SphereMesh->IsValid();
     }
 
-    void AssetPreviewRenderer::EnsureDefaultWhiteTexture()
+    bool AssetPreviewRenderer::EnsureDefaultWhiteTexture()
     {
         if (s_DefaultWhite)
-            return;
+            return true;
         TextureSpecification spec;
         spec.Width = 1;
         spec.Height = 1;
@@ -188,9 +206,10 @@ namespace OloEngine
         spec.MipLevels = 1;
         s_DefaultWhite = Texture2D::Create(spec);
         if (!s_DefaultWhite)
-            return;
+            return false;
         const u8 white[4] = { 0xFF, 0xFF, 0xFF, 0xFF };
         s_DefaultWhite->SetData(const_cast<u8*>(white), sizeof(white));
+        return true;
     }
 
     Ref<Texture2D> AssetPreviewRenderer::CreateTargetTexture()
@@ -219,11 +238,16 @@ namespace OloEngine
         // crash or sample garbage from a slot with no texture, even if
         // the shader's branch wouldn't read it. The 1×1 white texture
         // is the cheap "definitely complete" stand-in.
+        //
+        // Slot numbers match `ShaderBindingLayout`:
+        //   0 = TEX_DIFFUSE   (albedo)
+        //   6 = TEX_ROUGHNESS (roughness)
+        //   7 = TEX_METALLIC  (metallic)
         if (s_DefaultWhite)
         {
-            s_DefaultWhite->Bind(0);
-            s_DefaultWhite->Bind(1);
-            s_DefaultWhite->Bind(2);
+            s_DefaultWhite->Bind(ShaderBindingLayout::TEX_DIFFUSE);
+            s_DefaultWhite->Bind(ShaderBindingLayout::TEX_ROUGHNESS);
+            s_DefaultWhite->Bind(ShaderBindingLayout::TEX_METALLIC);
         }
     }
 
@@ -237,10 +261,27 @@ namespace OloEngine
 
         // Factors come from `MaterialAsset`'s public accessor (the official
         // asset API; uses the underlying Material's generic uniform map).
-        block.AlbedoFactor = material->GetAlbedoColor();
-        block.MetallicFactor = material->GetMetalness();
-        block.RoughnessFactor = material->GetRoughness();
-        block.EmissiveFactor = material->GetEmission();
+        //
+        // Each factor is validated with `std::isfinite` before going into
+        // the UBO so a NaN/Inf left behind by a malformed .olomaterial
+        // or a scripting glitch can't poison the shader math (cpp-coding-
+        // quality §2). The fallback values match `FillDefaultMaterialBlock`
+        // (neutral grey, non-metallic, mid-roughness, no emission), so a
+        // dirty material renders as the standard default sphere rather
+        // than a NaN-coloured blob.
+        const auto safeF = [](f32 v, f32 fallback) noexcept
+        {
+            return std::isfinite(v) ? v : fallback;
+        };
+        const auto safeV3 = [&](const glm::vec3& v, const glm::vec3& fallback) noexcept
+        {
+            return glm::vec3(safeF(v.x, fallback.x), safeF(v.y, fallback.y), safeF(v.z, fallback.z));
+        };
+
+        block.AlbedoFactor = safeV3(material->GetAlbedoColor(), glm::vec3(0.7f, 0.7f, 0.72f));
+        block.MetallicFactor = glm::clamp(safeF(material->GetMetalness(), 0.0f), 0.0f, 1.0f);
+        block.RoughnessFactor = glm::clamp(safeF(material->GetRoughness(), 0.45f), 0.0f, 1.0f);
+        block.EmissiveFactor = glm::max(0.0f, safeF(material->GetEmission(), 0.0f));
 
         // Textures are pulled directly off the underlying `Material` rather
         // than through `MaterialAsset::GetAlbedoMap()` and friends. The
@@ -261,19 +302,23 @@ namespace OloEngine
         // Bind a real texture on every sampler slot. For unused slots
         // we fall back to the 1×1 white default so the GL state machine
         // always sees a complete texture there — see FillDefaultMaterialBlock
-        // for the rationale.
+        // for the rationale. Slot numbers match `ShaderBindingLayout`'s
+        // documented PBR layout.
+        const u32 albedoSlot = ShaderBindingLayout::TEX_DIFFUSE;
+        const u32 roughSlot = ShaderBindingLayout::TEX_ROUGHNESS;
+        const u32 metalSlot = ShaderBindingLayout::TEX_METALLIC;
         if (albedoMap)
-            albedoMap->Bind(0);
+            albedoMap->Bind(albedoSlot);
         else if (s_DefaultWhite)
-            s_DefaultWhite->Bind(0);
+            s_DefaultWhite->Bind(albedoSlot);
         if (metalMap)
-            metalMap->Bind(1);
+            metalMap->Bind(metalSlot);
         else if (s_DefaultWhite)
-            s_DefaultWhite->Bind(1);
+            s_DefaultWhite->Bind(metalSlot);
         if (roughMap)
-            roughMap->Bind(2);
+            roughMap->Bind(roughSlot);
         else if (s_DefaultWhite)
-            s_DefaultWhite->Bind(2);
+            s_DefaultWhite->Bind(roughSlot);
     }
 
     Ref<Texture2D> AssetPreviewRenderer::RenderInto(const Ref<Mesh>& mesh,
@@ -359,8 +404,7 @@ namespace OloEngine
         }
         if (!material)
             return nullptr;
-        EnsureSphereMesh();
-        if (!s_SphereMesh)
+        if (!EnsureSphereMesh())
             return nullptr;
 
         PreviewBlock block;
