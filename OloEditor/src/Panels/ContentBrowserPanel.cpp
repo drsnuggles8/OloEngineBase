@@ -980,6 +980,16 @@ namespace OloEngine
         // next call re-runs the dispatch.
         if (!path.empty())
             m_ImageIcons.erase(path);
+
+        // m_Items holds Ref<Texture2D> snapshots taken at the last
+        // RebuildItemList / UpdateSearchResults; dropping the caches
+        // alone doesn't repaint the grid because those refs are still
+        // alive in the items. Force a list rebuild so the next paint
+        // re-resolves icons through GetFileIcon and picks up the
+        // freshly-rendered thumbnail. Asset-reload events arrive on the
+        // main thread (EditorAssetManager dispatches via the main-thread
+        // task queue), so a synchronous refresh is safe here.
+        RefreshVisibleItems();
     }
 
     void ContentBrowserPanel::ClearThumbnails()
@@ -991,6 +1001,9 @@ namespace OloEngine
         // from disk on the next GetFileIcon so the only cost is a few
         // image decodes spread over upcoming paints.
         m_ImageIcons.clear();
+        // Same m_Items staleness story as `InvalidateThumbnail` — rebuild
+        // the visible list so the new textures actually paint.
+        RefreshVisibleItems();
     }
 
     // =========================================================================
