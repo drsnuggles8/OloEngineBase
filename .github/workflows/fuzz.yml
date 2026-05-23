@@ -61,15 +61,23 @@ jobs:
         # we hand-prepend the directory to $GITHUB_PATH for every subsequent
         # step. Without this, MSBuild fails on the first tool invocation
         # with STATUS_ENTRYPOINT_NOT_FOUND (0xC0000139).
+        #
+        # The exact directory is whatever cmake/Fuzzing.cmake's find_path
+        # resolved during configure — it writes that to build/olo_clang_rt_
+        # dir.txt. We re-read it here instead of recomputing via
+        # `Get-Command clang-cl`, because on GitHub runners there can be
+        # multiple LLVM installs (VS2022-bundled vs standalone) and the
+        # standalone one's DLL has a different ABI than the bundled one
+        # the `-T ClangCL` toolset compiled against.
         shell: pwsh
         run: |
-          $clangCl = (Get-Command clang-cl).Source
-          $llvmRoot = Split-Path (Split-Path $clangCl)
-          $clangLib = Join-Path $llvmRoot 'lib\clang'
-          $ver = (Get-ChildItem $clangLib -Directory | Where-Object { $_.Name -match '^\d+$' } | Sort-Object { [int]$_.Name } -Descending | Select-Object -First 1).Name
-          $rtDir = Join-Path $clangLib "$ver\lib\windows"
+          $rtDir = (Get-Content build/olo_clang_rt_dir.txt -Raw).Trim()
           if (-not (Test-Path $rtDir)) {
-            Write-Error "clang_rt runtime dir not found at $rtDir"
+            Write-Error "clang_rt runtime dir from CMake doesn't exist: $rtDir"
+            exit 1
+          }
+          if (-not (Test-Path (Join-Path $rtDir 'clang_rt.asan_dynamic-x86_64.dll'))) {
+            Write-Error "clang_rt.asan_dynamic-x86_64.dll missing from $rtDir"
             exit 1
           }
           Write-Host "Adding to PATH: $rtDir"

@@ -153,6 +153,16 @@ if(WIN32)
                    "building/running fuzz harnesses:")
     message(STATUS "                   ${_OLO_CLANG_RT_DIR}")
 
+    # CI reads this file (fuzz.yml step "Add clang_rt runtime dir to PATH")
+    # to learn the exact directory CMake resolved. Necessary because on
+    # GitHub runners there can be multiple LLVM installs (VS2022 bundled vs
+    # standalone) and `Get-Command clang-cl` from the workflow may resolve a
+    # different one than CMake's `-T ClangCL` toolset selected — leading to
+    # an ABI-mismatched ASan DLL on PATH. Writing the path out keeps the
+    # workflow in lock-step with whatever CMake actually links against.
+    file(WRITE "${CMAKE_BINARY_DIR}/olo_clang_rt_dir.txt"
+         "${_OLO_CLANG_RT_DIR}\n")
+
     function(olo_apply_fuzzer_link _target)
         # libFuzzer instrumentation is per-harness (NOT propagated globally —
         # we don't want the fuzzer coverage hooks in non-fuzz binaries).
