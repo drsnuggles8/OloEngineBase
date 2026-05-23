@@ -961,10 +961,15 @@ namespace OloEngine
 
     void ContentBrowserPanel::InvalidateThumbnail(AssetHandle handle, const std::filesystem::path& path)
     {
-        if (!handle && path.empty())
+        // `AssetHandle` is a UUID wrapper with `operator u64()` but no
+        // `operator bool()`. Use an explicit `== 0` comparison so the
+        // bool conversion happens through `==` rather than `!`, which
+        // SonarQube flags as "operand of `!` should be of type bool".
+        const u64 handleValue = static_cast<u64>(handle);
+        if (handleValue == 0 && path.empty())
             return;
 
-        if (handle)
+        if (handleValue != 0)
             m_ThumbnailCache.Invalidate(handle);
 
         // m_ImageIcons is the panel's fast path: it caches whichever

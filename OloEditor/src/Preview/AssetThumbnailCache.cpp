@@ -11,7 +11,11 @@ namespace OloEngine
 {
     Ref<Texture2D> AssetThumbnailCache::GetMaterialThumbnail(AssetHandle materialHandle)
     {
-        if (!materialHandle)
+        // `AssetHandle` is a UUID wrapper with `operator u64()` but no
+        // `operator bool()` — compare against zero explicitly so the
+        // truthiness conversion goes through `==`, not the SonarQube-
+        // flagged "operand of `!` should be of type bool" path.
+        if (static_cast<u64>(materialHandle) == 0)
             return nullptr;
 
         if (auto it = m_Entries.find(materialHandle); it != m_Entries.end())
@@ -36,7 +40,8 @@ namespace OloEngine
 
     Ref<Texture2D> AssetThumbnailCache::GetMeshThumbnail(AssetHandle meshHandle)
     {
-        if (!meshHandle)
+        // See `GetMaterialThumbnail` for why this isn't `if (!meshHandle)`.
+        if (static_cast<u64>(meshHandle) == 0)
             return nullptr;
 
         if (auto it = m_Entries.find(meshHandle); it != m_Entries.end())
