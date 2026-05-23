@@ -944,7 +944,7 @@ namespace OloEngine
             if (auto editorManager = Project::GetAssetManager().As<EditorAssetManager>())
             {
                 const AssetHandle handle = editorManager->GetAssetHandleFromFilePath(filepath);
-                if (handle)
+                if (static_cast<u64>(handle) != 0)
                 {
                     Ref<Texture2D> thumbnail = isMaterial
                                                    ? m_ThumbnailCache.GetMaterialThumbnail(handle)
