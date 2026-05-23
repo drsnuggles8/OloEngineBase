@@ -24,12 +24,6 @@ namespace OloEngine
     Ref<Texture2D> AssetPreviewRenderer::s_DefaultWhite;
     bool AssetPreviewRenderer::s_Initialised = false;
 
-    // Bound to `binding = 34` in `MaterialPreview.glsl::PreviewBlock`,
-    // documented as `ShaderBindingLayout::UBO_PREVIEW`. Keep this in
-    // sync with both — `ShaderReflectionBinding` enforces the C++ ↔ GLSL
-    // round-trip.
-    static constexpr u32 kPreviewUBOBindPoint = 34;
-
     // Camera + transform for a single preview render. Bundled so the
     // sphere and arbitrary-mesh paths can share `RenderInto`.
     struct PreviewCameraRig
@@ -137,7 +131,7 @@ namespace OloEngine
             return;
         }
 
-        s_PreviewUBO = UniformBuffer::Create(sizeof(PreviewBlock), kPreviewUBOBindPoint);
+        s_PreviewUBO = UniformBuffer::Create(sizeof(PreviewBlock), ShaderBindingLayout::UBO_PREVIEW);
         if (!s_PreviewUBO)
         {
             OLO_CORE_ERROR("AssetPreviewRenderer: failed to create preview UBO");
