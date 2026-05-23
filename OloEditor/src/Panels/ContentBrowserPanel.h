@@ -2,6 +2,7 @@
 
 #include "ContentBrowser/ContentBrowserItem.h"
 #include "ContentBrowser/DirectoryTree.h"
+#include "Preview/AssetThumbnailCache.h"
 #include "OloEngine/Renderer/Texture.h"
 
 #include <filesystem>
@@ -21,6 +22,23 @@ namespace OloEngine
         ~ContentBrowserPanel();
 
         void OnImGuiRender();
+
+        // Invalidate any cached preview thumbnail bound to this asset
+        // handle. Also drops the corresponding file-path entry from the
+        // panel's icon cache so the next render re-resolves through the
+        // thumbnail cache and triggers a fresh PBR-sphere render.
+        //
+        // Called from EditorLayer's `OnAssetReloaded` so material edits
+        // (texture re-imports, factor tweaks via the editor inspector,
+        // etc.) propagate visually without restarting the editor.
+        void InvalidateThumbnail(AssetHandle handle, const std::filesystem::path& path);
+
+        // Drop every preview thumbnail — both the handle-keyed cache
+        // and the path-keyed fast path. Called when a *texture* changes
+        // because we don't track which materials reference which
+        // textures; the cheap fix is to invalidate all material
+        // thumbnails and re-render lazily on next paint.
+        void ClearThumbnails();
 
         // Callback for when an asset is activated (double-click)
         using AssetSelectedCallback = std::function<void(const std::filesystem::path&, ContentFileType)>;
@@ -64,8 +82,12 @@ namespace OloEngine
         void DeleteSelectedItems();
         void HandleKeyboardShortcuts();
 
-        // Existing helpers
-        Ref<Texture2D>& GetFileIcon(const std::filesystem::path& filepath);
+        // Existing helpers. Returns by value (cheap — a `Ref<>` copy is
+        // an atomic refcount bump) so the call site does not hold a
+        // long-lived reference into `m_ImageIcons` or the thumbnail
+        // cache; that lets `AssetThumbnailCache` evict its LRU entries
+        // without leaving a dangling reference inside the panel.
+        Ref<Texture2D> GetFileIcon(const std::filesystem::path& filepath);
         void DrawCreateMenu();
         void CreateMeshPrimitiveFile(const std::string& primitiveType);
 
@@ -129,6 +151,18 @@ namespace OloEngine
         Ref<Texture2D> m_SaveGameIcon;
         std::unordered_map<std::filesystem::path, Ref<Texture2D>> m_ImageIcons;
         std::unordered_map<ContentFileType, Ref<Texture2D>*> m_FileTypeIconMap;
+
+        // Live previews for assets that can be rendered (materials today;
+        // meshes deferred). Keyed by `AssetHandle` so a rename of the
+        // backing file doesn't invalidate the entry.
+        AssetThumbnailCache m_ThumbnailCache;
+
+        // Set by `InvalidateThumbnail` / `ClearThumbnails` when the cache
+        // changes; checked in `RefreshIfDirty` (top of OnImGuiRender)
+        // which calls `RefreshVisibleItems` once per frame. Coalesces
+        // bursts of asset-reload events (texture re-import dispatches
+        // one event per touched texture) into a single grid rebuild.
+        bool m_PendingVisibleItemsRefresh = false;
 
         AssetSelectedCallback m_AssetSelectedCallback;
     };

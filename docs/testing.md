@@ -1005,6 +1005,7 @@ new `.cpp` under `OloEngine/tests/Rendering/`, `ShaderGraph/`,
 
 | File | Tests | Cases |
 |---|---:|---|
+| [AssetPreviewRendererTest.cpp](../OloEngine/tests/Rendering/PropertyTests/AssetPreviewRendererTest.cpp) | 5 | **AssetPreviewRendererTest** &mdash; `InitializeAndShutdownAreIdempotent`, `RenderMaterialPreviewReturnsCorrectlySizedTexture`, `RenderMaterialPreviewWithNullMaterialReturnsNull`, `RenderMeshPreviewWithoutMaterialUsesDefaultAndProducesTexture`, `RenderingBeforeInitializeReturnsNullWithoutCrashing` |
 | [RendererValidateTest.cpp](../OloEngine/tests/Rendering/PropertyTests/RendererValidateTest.cpp) | 5 | **RendererValidateTest** &mdash; `CleanFramebufferPassesValidation`, `NanPixelsAreDetected`, `InfPixelsAreDetected`, `Fp16OverflowIsDetected`, `RejectsUnsupportedFormatsGracefully` |
 
 #### L8 — Golden image
@@ -1080,7 +1081,7 @@ new `.cpp` under `OloEngine/tests/Rendering/`, `ShaderGraph/`,
 |---|---:|---|
 | [TestFailureCaptureTest.cpp](../OloEngine/tests/Rendering/PropertyTests/TestFailureCaptureTest.cpp) | 6 | **TestFailureCaptureTest** &mdash; `DirectoryForSanitizesNames`, `MetadataIsWrittenWithoutGlContext`, `LatestFrameSummaryIsNoOpWithoutCaptures`, `GLStateSnapshotIsWrittenWhenGpuAvailable`, `FboPngIsWrittenWhenGpuAvailable`, `CaptureAllProducesExpectedArtefacts` |
 
-**Totals.** 62 renderer-scope test files, 1053 TEST / TEST_F / TEST_P declarations across all layers.
+**Totals.** 63 renderer-scope test files, 1058 TEST / TEST_F / TEST_P declarations across all layers.
 
 <!-- END: renderer-catalogue -->
 

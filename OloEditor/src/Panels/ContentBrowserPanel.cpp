@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 #include "ContentBrowserPanel.h"
+#include "OloEngine/Asset/AssetManager/EditorAssetManager.h"
 #include "OloEngine/Project/Project.h"
 #include "OloEngine/Renderer/MeshPrimitives.h"
 #include "OloEngine/Renderer/Mesh.h"
@@ -600,7 +601,7 @@ namespace OloEngine
         for (auto& file : m_CurrentDirectory->Files)
         {
             ContentFileType type = GetFileTypeFromExtension(file);
-            Ref<Texture2D>& icon = GetFileIcon(file);
+            Ref<Texture2D> icon = GetFileIcon(file);
             m_Items.emplace_back(file, type, icon);
         }
 
@@ -623,6 +624,19 @@ namespace OloEngine
         {
             SafeRefreshSubtree(m_CurrentDirectory);
             RefreshVisibleItems();
+            // Directory rescan already rebuilt the list — no need to do
+            // it twice this frame.
+            m_PendingVisibleItemsRefresh = false;
+            return;
+        }
+
+        // No filesystem change, but the thumbnail cache was invalidated
+        // (asset reload, material edit, etc.) — rebuild m_Items so the
+        // grid picks up the new textures on the next paint.
+        if (m_PendingVisibleItemsRefresh)
+        {
+            RefreshVisibleItems();
+            m_PendingVisibleItemsRefresh = false;
         }
     }
 
@@ -674,7 +688,7 @@ namespace OloEngine
             }
             else
             {
-                Ref<Texture2D>& icon = GetFileIcon(path);
+                Ref<Texture2D> icon = GetFileIcon(path);
                 m_Items.emplace_back(path, type, icon);
             }
         }
@@ -901,9 +915,14 @@ namespace OloEngine
     // Icon Resolution
     // =========================================================================
 
-    Ref<Texture2D>& ContentBrowserPanel::GetFileIcon(const std::filesystem::path& filepath)
+    Ref<Texture2D> ContentBrowserPanel::GetFileIcon(const std::filesystem::path& filepath)
     {
-        // Check cached image thumbnails
+        // `m_ImageIcons` is the path-keyed cache for raw image previews
+        // loaded via `Texture2D::Create` — those have no separate owner so
+        // the panel itself owns them. Material / mesh thumbnails are NOT
+        // stored here; they live in `m_ThumbnailCache`, which manages its
+        // own LRU + eviction. Caching them under a strong-ref path key
+        // would keep evicted entries alive and defeat the LRU.
         if (m_ImageIcons.contains(filepath))
             return m_ImageIcons[filepath];
 
@@ -917,15 +936,87 @@ namespace OloEngine
                 auto imageIcon = Texture2D::Create(filepath.string());
                 if (imageIcon && imageIcon->IsLoaded())
                 {
-                    auto& icon = m_ImageIcons[filepath] = imageIcon;
-                    return icon;
+                    m_ImageIcons[filepath] = imageIcon;
+                    return imageIcon;
                 }
             }
             return m_FileIcon;
         }
 
+        // Materials and meshes get a live PBR-sphere or per-mesh
+        // thumbnail when the preview renderer is available. The
+        // thumbnail cache is keyed by AssetHandle, so a rename of the
+        // backing file does not invalidate the entry. Falls through to
+        // the generic icon when the asset manager is not running (e.g.
+        // before a project has finished loading) or the preview render
+        // fails.
+        const bool isMaterial = (fileType == ContentFileType::Material);
+        const bool isMesh = (fileType == ContentFileType::Model3D);
+        if (isMaterial || isMesh)
+        {
+            if (auto editorManager = Project::GetAssetManager().As<EditorAssetManager>())
+            {
+                const AssetHandle handle = editorManager->GetAssetHandleFromFilePath(filepath);
+                if (static_cast<u64>(handle) != 0)
+                {
+                    Ref<Texture2D> thumbnail = isMaterial
+                                                   ? m_ThumbnailCache.GetMaterialThumbnail(handle)
+                                                   : m_ThumbnailCache.GetMeshThumbnail(handle);
+                    if (thumbnail)
+                        return thumbnail;
+                }
+            }
+        }
+
         auto it = m_FileTypeIconMap.find(fileType);
         return (it != m_FileTypeIconMap.end()) ? *it->second : m_FileIcon;
+    }
+
+    void ContentBrowserPanel::InvalidateThumbnail(AssetHandle handle, const std::filesystem::path& path)
+    {
+        // `AssetHandle` is a UUID wrapper with `operator u64()` but no
+        // `operator bool()`. Use an explicit `== 0` comparison so the
+        // bool conversion happens through `==` rather than `!`, which
+        // SonarQube flags as "operand of `!` should be of type bool".
+        const u64 handleValue = static_cast<u64>(handle);
+        if (handleValue == 0 && path.empty())
+            return;
+
+        if (handleValue != 0)
+            m_ThumbnailCache.Invalidate(handle);
+
+        // m_ImageIcons is the panel's fast path: it caches whichever
+        // texture GetFileIcon last returned, keyed by *file path*. Even
+        // after invalidating the handle-keyed cache, the next GetFileIcon
+        // would short-circuit on m_ImageIcons.contains(path) and hand
+        // back the stale Texture2D. Drop the path entry too so the
+        // next call re-runs the dispatch.
+        if (!path.empty())
+            m_ImageIcons.erase(path);
+
+        // m_Items holds Ref<Texture2D> snapshots taken at the last
+        // RebuildItemList / UpdateSearchResults; dropping the caches
+        // alone doesn't repaint the grid because those refs are still
+        // alive in the items. Defer the rebuild to the next frame via
+        // `m_PendingVisibleItemsRefresh` so a burst of asset-reload
+        // events (e.g. re-importing a texture pack) collapses into one
+        // grid rebuild instead of N.
+        m_PendingVisibleItemsRefresh = true;
+    }
+
+    void ContentBrowserPanel::ClearThumbnails()
+    {
+        m_ThumbnailCache.Clear();
+        // Drop the path-keyed icon cache as well — same staleness
+        // argument as `InvalidateThumbnail`. Note this also evicts
+        // direct image-asset thumbnails (`.png`/`.jpg`); they re-load
+        // from disk on the next GetFileIcon so the only cost is a few
+        // image decodes spread over upcoming paints.
+        m_ImageIcons.clear();
+        // Same m_Items staleness story as `InvalidateThumbnail`; defer
+        // via the flag so back-to-back invalidations collapse into one
+        // rebuild per frame.
+        m_PendingVisibleItemsRefresh = true;
     }
 
     // =========================================================================

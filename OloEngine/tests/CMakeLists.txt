@@ -105,6 +105,7 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/DeferredOverlayPassTests.cpp
 		Rendering/PropertyTests/OITPropertyTests.cpp
 		Rendering/PropertyTests/ShaderCompilationTest.cpp
+		Rendering/PropertyTests/AssetPreviewRendererTest.cpp
 		Rendering/PropertyTests/RendererAttachedTest.cpp
 		Rendering/PropertyTests/RendererAttachedSmokeTest.cpp
 		Rendering/PropertyTests/TestFailureCapture.cpp

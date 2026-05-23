@@ -1,0 +1,17 @@
+Material:
+  Shader: DefaultPBR
+  Textures: {}
+  Properties:
+    u_MaterialUniforms.AlbedoColor:
+      type: vec3
+      value: [0.12, 0.12, 0.14]
+    u_MaterialUniforms.Metalness:
+      type: float
+      value: 0.0
+    u_MaterialUniforms.Roughness:
+      type: float
+      value: 0.85
+    u_MaterialUniforms.Emission:
+      type: float
+      value: 0.0
+  MaterialFlags: 0
