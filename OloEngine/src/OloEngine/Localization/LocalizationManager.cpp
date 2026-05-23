@@ -197,6 +197,18 @@ namespace OloEngine
         State& state = GetState();
         if (!newCode.empty() && newCode != code)
         {
+            // Rename collision: another file already owns `newCode`. We
+            // refuse to clobber it — the user almost certainly edited
+            // `locale:` accidentally, and silently overwriting their German
+            // translations with the English file's contents would be a
+            // catastrophic, hard-to-diagnose data loss. Keep the existing
+            // `code` mapping intact and surface the error.
+            if (state.Tables.contains(newCode) || state.SourcePaths.contains(newCode))
+            {
+                OLO_CORE_ERROR("LocalizationManager::ReloadCurrentLocale: '{}' was renamed to '{}' on disk, but '{}' is already loaded — refusing to overwrite. Fix the YAML's `locale:` field or unload the existing entry first.",
+                               code, newCode, newCode);
+                return false;
+            }
             state.Tables.erase(code);
             state.SourcePaths.erase(code);
             state.SourcePaths[newCode] = sourcePath;

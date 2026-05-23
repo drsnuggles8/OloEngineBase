@@ -426,6 +426,13 @@ namespace OloEngine
                             else
                                 OLO_CORE_WARN("AssetPackBuilder: failed to copy '{}': {}", entry.path().string(), ecCopy.message());
                         }
+                        // Distinguish "0 files" from "iteration failed". The
+                        // loop's `if (ecIter) break;` exits on the first
+                        // iterator error, but the success summary below
+                        // would otherwise hide the failure.
+                        if (ecIter)
+                            OLO_CORE_WARN("AssetPackBuilder: directory iteration over '{}' failed: {} — partial bundle ({} file(s)) emitted",
+                                          srcDir.string(), ecIter.message(), copied);
                         OLO_CORE_INFO("AssetPackBuilder: bundled {} .ololocale file(s) to '{}'", copied, dstDir.string());
                     }
                 }
