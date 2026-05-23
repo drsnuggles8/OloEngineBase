@@ -157,6 +157,7 @@ add_executable(OloEngine-Tests
 		Serialization/MeshBinarySerializerTest.cpp
 		Serialization/MeshAssetSerializerTest.cpp
 		Serialization/SoundGraphSerializerTest.cpp
+		Serialization/EnvironmentSerializerTest.cpp
 		# SaveGame Tests
 		SaveGame/SaveGameFileTest.cpp
 		SaveGame/SaveGameManagerTest.cpp
