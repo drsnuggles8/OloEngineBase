@@ -51,44 +51,17 @@ jobs:
                 -DPython_EXECUTABLE="${{ steps.py.outputs.python-path }}" `
                 -DOLO_ENABLE_FUZZING=ON
 
-      - name: Verify clang_rt runtime dir
-        # cmake/Fuzzing.cmake's find_path resolved the directory containing
-        # the ASan / libFuzzer runtime libs that lld-link linked against,
-        # and wrote it to build/olo_clang_rt_dir.txt. The run step below
-        # prepends this dir to $env:PATH so the fuzz harnesses load the
-        # *correct* clang_rt.asan_dynamic-x86_64.dll at run time.
-        shell: pwsh
-        run: |
-          $rtDir = (Get-Content build/olo_clang_rt_dir.txt -Raw).Trim()
-          if (-not (Test-Path $rtDir)) {
-            Write-Error "clang_rt runtime dir from CMake doesn't exist: $rtDir"
-            exit 1
-          }
-          if (-not (Test-Path (Join-Path $rtDir 'clang_rt.asan_dynamic-x86_64.dll'))) {
-            Write-Error "clang_rt.asan_dynamic-x86_64.dll missing from $rtDir"
-            exit 1
-          }
-          Write-Host "Resolved clang_rt dir: $rtDir"
-          Write-Host "Contents:"
-          Get-ChildItem $rtDir | Format-Table Name, Length
-
       - name: Build fuzzers
-        # No PATH dance needed for the build itself: OloHeaderTool / protoc
-        # are NOT sanitised (only OloEngine + harnesses are — see
-        # cmake/Fuzzing.cmake), so they don't reference the ASan DLL at run
-        # time. The PATH-prepend happens in the "Run fuzz smoke" step below,
-        # where the harnesses actually need the DLL to start.
+        # Fuzz harnesses link the static ASan + libFuzzer libs from VS2022's
+        # bundled LLVM (clang_rt.asan-x86_64.lib, asan_cxx, asan-preinit,
+        # ubsan_standalone[+_cxx], fuzzer-x86_64). No DLL needed at runtime,
+        # so no PATH manipulation either — see cmake/Fuzzing.cmake.
         run: cmake --build build --target OloEngine-FuzzSmoke --config Release --parallel
 
       - name: Run fuzz smoke (per-target 30s)
         working-directory: OloEditor
         shell: pwsh
         run: |
-          # Same DLL-search rationale as the build step: prepend the clang_rt
-          # dir so the fuzz harnesses load the right ASan runtime.
-          $rtDir = (Get-Content ../build/olo_clang_rt_dir.txt -Raw).Trim()
-          $env:PATH = "$rtDir;$env:PATH"
-
           # Explicit harness -> corpus mapping. A heuristic would be neat but
           # every one-off (YAML suffix, acronyms) would need a special case.
           $harnesses = @(
