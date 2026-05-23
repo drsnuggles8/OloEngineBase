@@ -104,7 +104,7 @@ namespace OloEngine::Audio::DSP
     // Audio callback
 
     void spatializer_node_process_pcm_frames(ma_node* pNode, const float** ppFramesIn, ma_uint32* pFrameCountIn,
-                                             float** ppFramesOut, ma_uint32* pFrameCountOut)
+                                             float** ppFramesOut, [[maybe_unused]] ma_uint32* pFrameCountOut)
     {
         const float* pFramesIn_0 = ppFramesIn[0];
         float* pFramesOut_0 = ppFramesOut[0];
@@ -342,7 +342,7 @@ namespace OloEngine::Audio::DSP
         auto [it, success] = m_Sources.try_emplace(sourceID);
         auto& source = it->second;
 
-        auto abortIfFailed = [&](ma_result result, const char* errorMessage)
+        auto abortIfFailed = [&](ma_result result, [[maybe_unused]] const char* errorMessage)
         {
             if (result != MA_SUCCESS)
             {

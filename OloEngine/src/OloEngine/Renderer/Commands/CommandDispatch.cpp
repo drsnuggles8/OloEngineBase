@@ -1147,7 +1147,6 @@ namespace OloEngine
                 modelData._paddingEntity[2] = 0;
                 modelData.PrevModel = cmd->prevTransform;
 
-                constexpr u32 expectedSize = ShaderBindingLayout::ModelUBO::GetSize();
                 UploadModelInstance(modelData, s_Data.ModelInstanceBuffer);
                 // Legacy ModelMatrixUBO binding retired — all shaders now read transforms from the InstanceBuffer SSBO at binding 15.
             }

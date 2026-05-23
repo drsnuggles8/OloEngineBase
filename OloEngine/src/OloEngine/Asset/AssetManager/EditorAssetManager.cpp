@@ -412,13 +412,19 @@ namespace OloEngine
         Tasks::EnqueueGameThreadTask(
             [this, assetHandle]()
             {
-                ReloadData(assetHandle);
+                if (!ReloadData(assetHandle))
+                {
+                    OLO_CORE_WARN_TAG("AssetManager", "Async reload failed for asset {}", static_cast<u64>(assetHandle));
+                }
                 m_ActiveReloadTasks.fetch_sub(1, std::memory_order_relaxed);
             },
             "AssetReloadAsync");
 #else
         // Synchronous fallback when async assets are disabled
-        ReloadData(assetHandle);
+        if (!ReloadData(assetHandle))
+        {
+            OLO_CORE_WARN_TAG("AssetManager", "Reload failed for asset {}", static_cast<u64>(assetHandle));
+        }
 #endif
     }
 

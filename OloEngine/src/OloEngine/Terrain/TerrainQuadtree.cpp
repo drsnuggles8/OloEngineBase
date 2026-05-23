@@ -257,7 +257,6 @@ namespace OloEngine
             f32 cx = (node.MinX + node.MaxX) * 0.5f;
             f32 cz = (node.MinZ + node.MaxZ) * 0.5f;
             f32 halfW = (node.MaxX - node.MinX) * 0.5f;
-            f32 halfH = (node.MaxZ - node.MinZ) * 0.5f;
             f32 eps = halfW * 0.1f; // Small offset into neighbor
 
             // +X neighbor

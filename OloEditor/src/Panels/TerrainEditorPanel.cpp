@@ -29,13 +29,8 @@ namespace OloEngine
         }
 
         // Check if any terrain exists in scene
-        bool hasTerrain = false;
         auto terrainView = m_Context->GetAllEntitiesWith<TransformComponent, TerrainComponent>();
-        for ([[maybe_unused]] auto entity : terrainView)
-        {
-            hasTerrain = true;
-            break;
-        }
+        const bool hasTerrain = terrainView.begin() != terrainView.end();
 
         if (!hasTerrain)
         {

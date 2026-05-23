@@ -315,7 +315,7 @@ namespace OloEngine
     bool GameBuildPipeline::CopyDependencyDLLs(
         const GameBuildSettings& settings,
         const std::filesystem::path& outputDir,
-        std::string& errorMessage)
+        [[maybe_unused]] std::string& errorMessage)
     {
         OLO_PROFILE_FUNCTION();
 

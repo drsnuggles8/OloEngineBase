@@ -1566,7 +1566,7 @@ namespace OloEngine
             m_CompilationStatus = ShaderCompilationStatus::Failed;
         }
 
-        const bool success = (m_CompilationStatus == ShaderCompilationStatus::Ready);
+        [[maybe_unused]] const bool success = (m_CompilationStatus == ShaderCompilationStatus::Ready);
         OLO_SHADER_RELOAD_END(m_RendererID, success);
     }
 

@@ -318,13 +318,13 @@ namespace OloEngine
 
     namespace Detail
     {
-        [[noreturn]] inline void OnInvalidAlignedHeapAllocatorNum(i32 NewNum, sizet NumBytesPerElement)
+        [[noreturn]] inline void OnInvalidAlignedHeapAllocatorNum([[maybe_unused]] i32 NewNum, [[maybe_unused]] sizet NumBytesPerElement)
         {
             OLO_CORE_ASSERT(false, "Invalid heap allocator num: NewNum={}, NumBytesPerElement={}", NewNum, NumBytesPerElement);
             std::abort(); // In case asserts are disabled
         }
 
-        [[noreturn]] inline void OnInvalidSizedHeapAllocatorNum(i32 IndexSize, i64 NewNum, sizet NumBytesPerElement)
+        [[noreturn]] inline void OnInvalidSizedHeapAllocatorNum([[maybe_unused]] i32 IndexSize, [[maybe_unused]] i64 NewNum, [[maybe_unused]] sizet NumBytesPerElement)
         {
             OLO_CORE_ASSERT(false, "Invalid sized heap allocator num: IndexSize={}, NewNum={}, NumBytesPerElement={}",
                             IndexSize, NewNum, NumBytesPerElement);

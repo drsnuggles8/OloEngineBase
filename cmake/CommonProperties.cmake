@@ -70,8 +70,11 @@ endfunction()
 # Configure common compiler options
 function(olo_set_compiler_options target_name)
     if(MSVC)
-        target_compile_options(${target_name} PRIVATE 
+        target_compile_options(${target_name} PRIVATE
             /W4
+            /wd4324   # 'X': structure padded due to alignment specifier — alignas() is intentional.
+                      # Fires across Task/, Containers/, Audio/ for every cache-line-aligned struct
+                      # we deliberately request; the padding is the point, not a defect.
             /MP       # Multi-processor compilation (parallel file compilation)
             /FS       # Force synchronous PDB writes (fixes PDB contention with /MP)
             /utf-8    # Enable UTF-8 encoding for source files

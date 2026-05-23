@@ -468,20 +468,20 @@ namespace OloEngine
                     // TerrainRaycast hit. The normal is needed for slope
                     // filtering (§1.4) and align-to-normal (§1.5 style).
                     auto view = m_ActiveScene->GetAllEntitiesWith<TransformComponent, TerrainComponent>();
-                    for (auto entityID : view)
+                    if (auto it = view.begin(); it != view.end())
                     {
-                        Entity terrainEntity(entityID, m_ActiveScene.get());
+                        Entity terrainEntity(*it, m_ActiveScene.get());
                         const auto& tc = terrainEntity.GetComponent<TerrainComponent>();
                         const auto& tx = terrainEntity.GetComponent<TransformComponent>();
-                        if (!tc.m_TerrainData || tc.m_WorldSizeX <= 0.0f || tc.m_WorldSizeZ <= 0.0f)
-                            break;
-                        const f32 normX = (hitPos.x - tx.Translation.x) / tc.m_WorldSizeX;
-                        const f32 normZ = (hitPos.z - tx.Translation.z) / tc.m_WorldSizeZ;
-                        surfaceNormal = tc.m_TerrainData->GetNormalAt(
-                            glm::clamp(normX, 0.0f, 1.0f),
-                            glm::clamp(normZ, 0.0f, 1.0f),
-                            tc.m_WorldSizeX, tc.m_WorldSizeZ, tc.m_HeightScale);
-                        break;
+                        if (tc.m_TerrainData && tc.m_WorldSizeX > 0.0f && tc.m_WorldSizeZ > 0.0f)
+                        {
+                            const f32 normX = (hitPos.x - tx.Translation.x) / tc.m_WorldSizeX;
+                            const f32 normZ = (hitPos.z - tx.Translation.z) / tc.m_WorldSizeZ;
+                            surfaceNormal = tc.m_TerrainData->GetNormalAt(
+                                glm::clamp(normX, 0.0f, 1.0f),
+                                glm::clamp(normZ, 0.0f, 1.0f),
+                                tc.m_WorldSizeX, tc.m_WorldSizeZ, tc.m_HeightScale);
+                        }
                     }
                 }
                 const bool mouseDown = Input::IsMouseButtonPressed(Mouse::ButtonLeft) &&
@@ -2624,10 +2624,9 @@ namespace OloEngine
         // Find a terrain entity in the active scene
         Entity terrainEntity;
         auto view = m_ActiveScene->GetAllEntitiesWith<TransformComponent, TerrainComponent>();
-        for (auto entityID : view)
+        if (auto it = view.begin(); it != view.end())
         {
-            terrainEntity = Entity(entityID, m_ActiveScene.get());
-            break;
+            terrainEntity = Entity(*it, m_ActiveScene.get());
         }
         if (!terrainEntity || !terrainEntity.GetComponent<TerrainComponent>().m_TerrainData)
         {

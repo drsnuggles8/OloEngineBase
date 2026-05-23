@@ -60,9 +60,9 @@ namespace OloEngine
             bool anyFound = false;
             for (auto ancestor = relativePath.parent_path(); !ancestor.empty() && ancestor != "."; ancestor = ancestor.parent_path())
             {
-                if (auto* dir = FindDirectory(ancestor))
+                if (auto* ancestorDir = FindDirectory(ancestor))
                 {
-                    for (auto* d = dir; d != nullptr; d = d->Parent)
+                    for (auto* d = ancestorDir; d != nullptr; d = d->Parent)
                         d->NeedsRefresh = true;
                     anyFound = true;
                     break;

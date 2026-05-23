@@ -157,8 +157,11 @@ namespace OloEngine
                                                       {
                                                           return;
                                                       }
-                                                      s_ServerInputHandler.ProcessInput(*s_ActiveScene, senderClientID,
-                                                                                        data, size);
+                                                      if (!s_ServerInputHandler.ProcessInput(*s_ActiveScene, senderClientID,
+                                                                                             data, size))
+                                                      {
+                                                          OLO_CORE_WARN_TAG("Networking", "Server rejected input from client {}", senderClientID);
+                                                      }
                                                   });
 
         return true;

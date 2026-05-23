@@ -1599,7 +1599,6 @@ namespace OloEngine
                             // like "Textures/Characters" and case mismatches ("textures/" vs "Textures/").
                             if (discovered.empty())
                             {
-                                auto parentPath = filenamePath.parent_path();
                                 std::filesystem::path resolvedDir = m_Directory;
                                 bool resolved = true;
 

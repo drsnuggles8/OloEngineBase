@@ -120,8 +120,8 @@ TEST_F(AudioCommandRegistryTest, RemoveActionOutOfRange)
 
 TEST_F(AudioCommandRegistryTest, Clear)
 {
-    m_Registry.AddTrigger("A");
-    m_Registry.AddTrigger("B");
+    (void)m_Registry.AddTrigger("A");
+    (void)m_Registry.AddTrigger("B");
     m_Registry.Clear();
     EXPECT_EQ(m_Registry.GetTriggerCount(), 0u);
 }
@@ -167,9 +167,9 @@ TEST_F(AudioCommandRegistryTest, DeserializeNonExistentFile)
 
 TEST_F(AudioCommandRegistryTest, MultipleTriggersRoundTrip)
 {
-    m_Registry.AddTrigger("Play_Gunshot");
-    m_Registry.AddTrigger("Stop_Music");
-    m_Registry.AddTrigger("Pause_Ambience");
+    (void)m_Registry.AddTrigger("Play_Gunshot");
+    (void)m_Registry.AddTrigger("Stop_Music");
+    (void)m_Registry.AddTrigger("Pause_Ambience");
 
     ScopedTempFile tmp("MultiTriggers");
     ASSERT_TRUE(m_Registry.Serialize(tmp.Path));
@@ -227,7 +227,7 @@ TEST_F(AudioCommandRegistryTest, DeserializeSanitizesInvalidMultipliers)
 
 TEST_F(AudioCommandRegistryTest, SerializeReturnsFalseOnBadPath)
 {
-    m_Registry.AddTrigger("Test");
+    (void)m_Registry.AddTrigger("Test");
     // Construct a guaranteed-missing directory under temp
     auto badPath = std::filesystem::temp_directory_path() / "olo_test_SerializeBadPath_8f3a1b" / "impossible.yaml";
     EXPECT_FALSE(m_Registry.Serialize(badPath));

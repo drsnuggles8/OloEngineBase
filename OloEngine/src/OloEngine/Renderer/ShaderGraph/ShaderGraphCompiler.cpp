@@ -282,7 +282,7 @@ namespace OloEngine
             pinVarNames[static_cast<u64>(node.FindPinByName("RGBA", ShaderGraphPinDirection::Output)->ID)] = sampleVar;
 
             // Derive sub-outputs
-            auto emitDerived = [&](const std::string& name, const std::string& swizzle, ShaderGraphPinType type)
+            auto emitDerived = [&](const std::string& name, const std::string& swizzle, [[maybe_unused]] ShaderGraphPinType type)
             {
                 const auto* pin = node.FindPinByName(name, ShaderGraphPinDirection::Output);
                 if (pin)

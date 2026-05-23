@@ -282,8 +282,8 @@ namespace OloEngine
     }
 
     void FoliageRenderer::Render(
-        const Frustum& frustum,
-        const glm::vec3& cameraPos,
+        [[maybe_unused]] const Frustum& frustum,
+        [[maybe_unused]] const glm::vec3& cameraPos,
         const Ref<Shader>& shader)
     {
         OLO_PROFILE_FUNCTION();
