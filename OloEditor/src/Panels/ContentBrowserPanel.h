@@ -157,6 +157,13 @@ namespace OloEngine
         // backing file doesn't invalidate the entry.
         AssetThumbnailCache m_ThumbnailCache;
 
+        // Set by `InvalidateThumbnail` / `ClearThumbnails` when the cache
+        // changes; checked in `RefreshIfDirty` (top of OnImGuiRender)
+        // which calls `RefreshVisibleItems` once per frame. Coalesces
+        // bursts of asset-reload events (texture re-import dispatches
+        // one event per touched texture) into a single grid rebuild.
+        bool m_PendingVisibleItemsRefresh = false;
+
         AssetSelectedCallback m_AssetSelectedCallback;
     };
 

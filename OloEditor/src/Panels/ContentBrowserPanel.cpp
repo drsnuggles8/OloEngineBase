@@ -624,6 +624,19 @@ namespace OloEngine
         {
             SafeRefreshSubtree(m_CurrentDirectory);
             RefreshVisibleItems();
+            // Directory rescan already rebuilt the list — no need to do
+            // it twice this frame.
+            m_PendingVisibleItemsRefresh = false;
+            return;
+        }
+
+        // No filesystem change, but the thumbnail cache was invalidated
+        // (asset reload, material edit, etc.) — rebuild m_Items so the
+        // grid picks up the new textures on the next paint.
+        if (m_PendingVisibleItemsRefresh)
+        {
+            RefreshVisibleItems();
+            m_PendingVisibleItemsRefresh = false;
         }
     }
 
@@ -984,12 +997,11 @@ namespace OloEngine
         // m_Items holds Ref<Texture2D> snapshots taken at the last
         // RebuildItemList / UpdateSearchResults; dropping the caches
         // alone doesn't repaint the grid because those refs are still
-        // alive in the items. Force a list rebuild so the next paint
-        // re-resolves icons through GetFileIcon and picks up the
-        // freshly-rendered thumbnail. Asset-reload events arrive on the
-        // main thread (EditorAssetManager dispatches via the main-thread
-        // task queue), so a synchronous refresh is safe here.
-        RefreshVisibleItems();
+        // alive in the items. Defer the rebuild to the next frame via
+        // `m_PendingVisibleItemsRefresh` so a burst of asset-reload
+        // events (e.g. re-importing a texture pack) collapses into one
+        // grid rebuild instead of N.
+        m_PendingVisibleItemsRefresh = true;
     }
 
     void ContentBrowserPanel::ClearThumbnails()
@@ -1001,9 +1013,10 @@ namespace OloEngine
         // from disk on the next GetFileIcon so the only cost is a few
         // image decodes spread over upcoming paints.
         m_ImageIcons.clear();
-        // Same m_Items staleness story as `InvalidateThumbnail` — rebuild
-        // the visible list so the new textures actually paint.
-        RefreshVisibleItems();
+        // Same m_Items staleness story as `InvalidateThumbnail`; defer
+        // via the flag so back-to-back invalidations collapse into one
+        // rebuild per frame.
+        m_PendingVisibleItemsRefresh = true;
     }
 
     // =========================================================================
