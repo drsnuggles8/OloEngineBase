@@ -153,8 +153,12 @@ if(WIN32)
     # macros we don't have (e.g. extend_path from base-config-ix.cmake),
     # so FetchContent_MakeAvailable would try to add_subdirectory and
     # error immediately.
-    set(_OLO_FUZZER_DIR "${FETCHCONTENT_BASE_DIR}/compiler-rt-19.1.7.src")
-    set(_OLO_FUZZER_TARBALL "${FETCHCONTENT_BASE_DIR}/compiler-rt-19.1.7.src.tar.xz")
+    # Normalise FETCHCONTENT_BASE_DIR — CI passes it with native Windows
+    # backslashes (`D:\a\…`) and CMake later trips on the `\a` escape when
+    # the path appears inside an `add_library(... ${src})` source list.
+    file(TO_CMAKE_PATH "${FETCHCONTENT_BASE_DIR}" _OLO_FETCH_BASE)
+    set(_OLO_FUZZER_DIR "${_OLO_FETCH_BASE}/compiler-rt-19.1.7.src")
+    set(_OLO_FUZZER_TARBALL "${_OLO_FETCH_BASE}/compiler-rt-19.1.7.src.tar.xz")
     if(NOT EXISTS "${_OLO_FUZZER_DIR}/lib/fuzzer/FuzzerLoop.cpp")
         message(STATUS "OloEngine fuzzing: downloading compiler-rt 19.1.7 source")
         file(DOWNLOAD
