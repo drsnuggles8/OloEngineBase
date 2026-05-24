@@ -52,12 +52,20 @@ jobs:
           arch: x64
 
       - name: Configure CMake (standalone clang-cl via Ninja Multi-Config)
-        # Switch from `-T ClangCL` (VS2022-bundled LLVM 19) to standalone
-        # clang-cl on PATH, which is LLVM 20 on `windows-latest`. LLVM 19's
-        # ASan runtime trips on newer Windows API prologues with
-        # `interception_win: unhandled instruction at 0x...` and the harness
-        # exits before LLVMFuzzerTestOneInput runs; LLVM 20's interceptor
-        # handles those prologues.
+        # Use the STANDALONE LLVM at `C:\Program Files\LLVM\` (LLVM 20 on
+        # `windows-latest`), not VS2022's bundled clang-cl (LLVM 19). LLVM 19
+        # has two problems we hit otherwise:
+        #   - Its ASan runtime trips on newer Windows API prologues with
+        #     `interception_win: unhandled instruction at 0x…` and the
+        #     harness exits before `LLVMFuzzerTestOneInput` runs.
+        #   - Its `clang_rt.asan_dynamic_runtime_thunk` and
+        #     `clang_rt.ubsan_standalone` both define `__start___sancov_*`
+        #     section markers — duplicate-symbol link errors.
+        # LLVM 20 fixes both. We pass explicit absolute paths for the
+        # compiler and linker because the previous step
+        # (`ilammy/msvc-dev-cmd`) put VS2022's `Llvm\x64\bin` first on PATH,
+        # so unqualified `clang-cl` / `lld-link` would still resolve to
+        # LLVM 19.
         #
         # We replicate the `clangcl` CMake preset's settings inline instead
         # of using `cmake --preset clangcl`, because the runner's bundled
@@ -66,7 +74,9 @@ jobs:
         run: |
           cmake -S . -B build-clang `
                 -G "Ninja Multi-Config" `
-                "-DCMAKE_TOOLCHAIN_FILE=${{ github.workspace }}/cmake/ClangCLToolchain.cmake" `
+                "-DCMAKE_C_COMPILER=C:/Program Files/LLVM/bin/clang-cl.exe" `
+                "-DCMAKE_CXX_COMPILER=C:/Program Files/LLVM/bin/clang-cl.exe" `
+                "-DCMAKE_LINKER=C:/Program Files/LLVM/bin/lld-link.exe" `
                 "-DFETCHCONTENT_BASE_DIR=${{ github.workspace }}/OloEngine/vendor/clang" `
                 -DBUILD_TESTS=ON `
                 "-DPython_EXECUTABLE=${{ steps.py.outputs.python-path }}" `
