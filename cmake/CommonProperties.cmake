@@ -87,9 +87,15 @@ function(olo_set_compiler_options target_name)
         # ASan's runtime links against release CRT, and mixing /MDd with
         # release-only third-party static libs (Vulkan SDK spirv-cross on CI
         # without debug libs, etc.) causes _ITERATOR_DEBUG_LEVEL mismatches.
-        # Sanitizers.cmake also sets CMAKE_MSVC_RUNTIME_LIBRARY globally, but
-        # this per-target property would otherwise override it for Debug.
-        if(OLO_ENABLE_ASAN)
+        # When fuzzing is on, force the static CRT (/MT) for ALL configs —
+        # stock LLVM's libFuzzer (clang_rt.fuzzer-x86_64.lib) is built /MT,
+        # so /MD anywhere in the link causes /failifmismatch: RuntimeLibrary.
+        # Sanitizers.cmake / Fuzzing.cmake also set CMAKE_MSVC_RUNTIME_LIBRARY
+        # globally, but this per-target property would otherwise override it.
+        if(OLO_ENABLE_FUZZING)
+            set_target_properties(${target_name} PROPERTIES
+                MSVC_RUNTIME_LIBRARY "MultiThreaded")
+        elseif(OLO_ENABLE_ASAN)
             set_target_properties(${target_name} PROPERTIES
                 MSVC_RUNTIME_LIBRARY "MultiThreadedDLL")
         else()
