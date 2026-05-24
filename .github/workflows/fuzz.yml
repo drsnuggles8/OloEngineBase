@@ -55,8 +55,12 @@ jobs:
         # OloEngine + fuzz harnesses are sanitised (dynamic ASan: see
         # cmake/Fuzzing.cmake); build-time tools (OloHeaderTool, protoc) are
         # not, so the build itself doesn't need clang_rt.asan_dynamic-x86_64.dll
-        # on PATH. The harnesses do need it at run time — handled below.
-        run: cmake --build build --target OloEngine-FuzzSmoke --config Release --parallel
+        # on PATH. Use the `OloEngine-Fuzz` target (build-only) rather than
+        # `OloEngine-FuzzSmoke` — the smoke variant *invokes* every harness
+        # during `cmake --build` as part of its custom-command, which would
+        # need the DLL on PATH at build time. The "Run fuzz smoke" step below
+        # handles the actual harness execution with the right PATH set.
+        run: cmake --build build --target OloEngine-Fuzz --config Release --parallel
 
       - name: Run fuzz smoke (per-target 30s)
         working-directory: OloEditor
