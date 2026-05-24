@@ -53,6 +53,18 @@
 
 option(OLO_ENABLE_FUZZING "Build libFuzzer harnesses (Clang only)" OFF)
 
+# Which sanitiser the fuzz harnesses link against. We can't link ASan and
+# UBSan together on Windows: compiler-rt ships
+# `sanitizer_coverage_win_sections.cpp.obj` (defining the `__start___sancov_*`
+# / `__stop___sancov_*` section markers) inside BOTH
+# `clang_rt.asan_dynamic_runtime_thunk-x86_64.lib` AND
+# `clang_rt.ubsan_standalone-x86_64.lib`, so a combined link line trips
+# lld-link duplicate-symbol errors (LLVM 19 and LLVM 20 both affected).
+# CI runs the harnesses twice — once with `asan` and once with `ubsan`
+# (matrix in fuzz.yml) — so each link line only references one of the libs.
+set(OLO_FUZZ_SANITIZER "asan" CACHE STRING "Which sanitiser fuzz harnesses link against (asan|ubsan)")
+set_property(CACHE OLO_FUZZ_SANITIZER PROPERTY STRINGS asan ubsan)
+
 if(NOT OLO_ENABLE_FUZZING)
     # Define the helpers as no-ops so callers don't have to gate every call.
     function(olo_apply_fuzz_sanitizer _target)
@@ -73,7 +85,12 @@ if(NOT CMAKE_CXX_COMPILER_ID MATCHES "Clang")
     return()
 endif()
 
-message(STATUS "OloEngine fuzzing: enabled (Clang/libFuzzer)")
+if(NOT OLO_FUZZ_SANITIZER MATCHES "^(asan|ubsan)$")
+    message(FATAL_ERROR "OloEngine fuzzing: OLO_FUZZ_SANITIZER must be 'asan' or "
+        "'ubsan', got '${OLO_FUZZ_SANITIZER}'.")
+endif()
+
+message(STATUS "OloEngine fuzzing: enabled (Clang/libFuzzer + ${OLO_FUZZ_SANITIZER})")
 
 # Force-disable MSVC STL container annotations across the whole build so the
 # `annotate_string` ABI flag stays the same value in every TU regardless of
@@ -222,51 +239,91 @@ if(WIN32)
     # elsewhere, and CMake forbids mixing plain and keyword forms on the
     # same target. Plain-signature link libs propagate transitively to
     # consumers.
-    function(olo_apply_fuzz_sanitizer _target)
-        target_compile_options(${_target} PRIVATE
-            -fsanitize=address,undefined -fno-omit-frame-pointer
-        )
-        target_link_libraries(${_target}
-            "${_OLO_CLANG_RT_DIR}/clang_rt.asan_dynamic-x86_64.lib"
-            "${_OLO_CLANG_RT_DIR}/clang_rt.ubsan_standalone-x86_64.lib"
-            "${_OLO_CLANG_RT_DIR}/clang_rt.ubsan_standalone_cxx-x86_64.lib"
-        )
-        # target_link_options has no plain form — must use a keyword. INTERFACE
-        # so the flags only attach to consumers' link line, not to OloEngine's
-        # archive step (static libs aren't linked, so PRIVATE would do nothing
-        # useful; PUBLIC would duplicate at the lib step).
-        target_link_options(${_target} INTERFACE
-            "/wholearchive:${_OLO_CLANG_RT_DIR}/clang_rt.asan_dynamic_runtime_thunk-x86_64.lib"
-            "/INFERASANLIBS:NO"
-        )
-    endfunction()
+    #
+    # Branches on `OLO_FUZZ_SANITIZER`: the per-build choice is ASan OR
+    # UBSan, never both — see the header note on the
+    # `sanitizer_coverage_win_sections.cpp.obj` duplicate-symbol issue.
+    if(OLO_FUZZ_SANITIZER STREQUAL "asan")
+        function(olo_apply_fuzz_sanitizer _target)
+            target_compile_options(${_target} PRIVATE
+                -fsanitize=address -fno-omit-frame-pointer
+            )
+            target_link_libraries(${_target}
+                "${_OLO_CLANG_RT_DIR}/clang_rt.asan_dynamic-x86_64.lib"
+            )
+            # target_link_options has no plain form — must use a keyword.
+            # INTERFACE so the flags only attach to consumers' link line, not
+            # to OloEngine's archive step (static libs aren't linked, so
+            # PRIVATE would do nothing useful; PUBLIC would duplicate at the
+            # lib step).
+            target_link_options(${_target} INTERFACE
+                "/wholearchive:${_OLO_CLANG_RT_DIR}/clang_rt.asan_dynamic_runtime_thunk-x86_64.lib"
+                "/INFERASANLIBS:NO"
+            )
+        endfunction()
 
-    function(olo_apply_fuzzer_link _target)
-        # Harnesses want full ASan/UBSan + libFuzzer coverage instrumentation
-        # on their own translation unit.
-        target_compile_options(${_target} PRIVATE
-            -fsanitize=fuzzer,address,undefined -fno-omit-frame-pointer
-        )
-        target_link_libraries(${_target} PRIVATE olo_libfuzzer)
-        # ASan/UBSan runtime libs come in via OloEngine's plain-signature
-        # transitive linkage when the harness `target_link_libraries(...
-        # OloEngine)` is processed.
-    endfunction()
+        function(olo_apply_fuzzer_link _target)
+            target_compile_options(${_target} PRIVATE
+                -fsanitize=fuzzer,address -fno-omit-frame-pointer
+            )
+            target_link_libraries(${_target} PRIVATE olo_libfuzzer)
+        endfunction()
+    else() # ubsan
+        # UBSan on Windows is statically linked — no DLL deployment dance.
+        # `-fno-sanitize-recover=undefined` makes every check fatal so
+        # libFuzzer's death callback fires on a real UB hit, otherwise UBSan
+        # would log and continue and the fuzzer would never see the crash.
+        function(olo_apply_fuzz_sanitizer _target)
+            target_compile_options(${_target} PRIVATE
+                -fsanitize=undefined -fno-sanitize-recover=undefined
+                -fno-omit-frame-pointer
+            )
+            target_link_libraries(${_target}
+                "${_OLO_CLANG_RT_DIR}/clang_rt.ubsan_standalone-x86_64.lib"
+                "${_OLO_CLANG_RT_DIR}/clang_rt.ubsan_standalone_cxx-x86_64.lib"
+            )
+        endfunction()
+
+        function(olo_apply_fuzzer_link _target)
+            target_compile_options(${_target} PRIVATE
+                -fsanitize=fuzzer,undefined -fno-sanitize-recover=undefined
+                -fno-omit-frame-pointer
+            )
+            target_link_libraries(${_target} PRIVATE olo_libfuzzer)
+        endfunction()
+    endif()
 else()
     # Linux/macOS: clang drives the link, so `-fsanitize=...` is honoured and
-    # picks up the right libclang_rt.* automatically. No from-source libFuzzer
-    # build needed — stock clang ships it CRT-compatible on those platforms.
-    function(olo_apply_fuzz_sanitizer _target)
-        target_compile_options(${_target} PRIVATE
-            -fsanitize=address,undefined -fno-omit-frame-pointer
-        )
-        target_link_options(${_target} INTERFACE -fsanitize=address,undefined)
-    endfunction()
-
-    function(olo_apply_fuzzer_link _target)
-        target_compile_options(${_target} PRIVATE
-            -fsanitize=fuzzer,address,undefined -fno-omit-frame-pointer
-        )
-        target_link_options(${_target} PRIVATE -fsanitize=fuzzer,address,undefined)
-    endfunction()
+    # picks up the right libclang_rt.* automatically. No duplicate-symbol
+    # mess (the Windows packaging bug doesn't apply), so OLO_FUZZ_SANITIZER
+    # just selects which compile/link flag we pass.
+    if(OLO_FUZZ_SANITIZER STREQUAL "asan")
+        function(olo_apply_fuzz_sanitizer _target)
+            target_compile_options(${_target} PRIVATE
+                -fsanitize=address -fno-omit-frame-pointer
+            )
+            target_link_options(${_target} INTERFACE -fsanitize=address)
+        endfunction()
+        function(olo_apply_fuzzer_link _target)
+            target_compile_options(${_target} PRIVATE
+                -fsanitize=fuzzer,address -fno-omit-frame-pointer
+            )
+            target_link_options(${_target} PRIVATE -fsanitize=fuzzer,address)
+        endfunction()
+    else() # ubsan
+        function(olo_apply_fuzz_sanitizer _target)
+            target_compile_options(${_target} PRIVATE
+                -fsanitize=undefined -fno-sanitize-recover=undefined
+                -fno-omit-frame-pointer
+            )
+            target_link_options(${_target} INTERFACE -fsanitize=undefined)
+        endfunction()
+        function(olo_apply_fuzzer_link _target)
+            target_compile_options(${_target} PRIVATE
+                -fsanitize=fuzzer,undefined -fno-sanitize-recover=undefined
+                -fno-omit-frame-pointer
+            )
+            target_link_options(${_target} PRIVATE -fsanitize=fuzzer,undefined)
+        endfunction()
+    endif()
 endif()

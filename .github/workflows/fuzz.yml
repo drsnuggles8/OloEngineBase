@@ -23,8 +23,19 @@ concurrency:
 
 jobs:
   fuzz:
-    name: Fuzz smoke (ClangCL + libFuzzer)
+    # Two parallel jobs — `asan` and `ubsan` — because compiler-rt's Windows
+    # packaging ships `sanitizer_coverage_win_sections.cpp.obj` (defining the
+    # `__start___sancov_*` section markers) in BOTH `clang_rt.asan_dynamic_
+    # runtime_thunk-x86_64.lib` AND `clang_rt.ubsan_standalone-x86_64.lib`,
+    # so a single binary linked against both fires lld-link duplicate-symbol
+    # errors. Splitting the matrix gives each link line exactly one of the
+    # runtime libs, and we keep both axes of sanitiser coverage.
+    name: Fuzz smoke (${{ matrix.sanitizer }})
     runs-on: windows-latest
+    strategy:
+      fail-fast: false  # asan failing doesn't cancel ubsan and vice versa
+      matrix:
+        sanitizer: [asan, ubsan]
     steps:
       - uses: actions/checkout@v6
 
@@ -81,25 +92,27 @@ jobs:
                 "-DFETCHCONTENT_BASE_DIR=${{ github.workspace }}/OloEngine/vendor/clang" `
                 -DBUILD_TESTS=ON `
                 "-DPython_EXECUTABLE=${{ steps.py.outputs.python-path }}" `
-                -DOLO_ENABLE_FUZZING=ON
+                -DOLO_ENABLE_FUZZING=ON `
+                -DOLO_FUZZ_SANITIZER=${{ matrix.sanitizer }}
 
       - name: Build fuzzers
-        # OloEngine + fuzz harnesses are sanitised (dynamic ASan: see
-        # cmake/Fuzzing.cmake); build-time tools (OloHeaderTool, protoc) are
-        # not, so the build itself doesn't need clang_rt.asan_dynamic-x86_64.dll
-        # on PATH. Use the `OloEngine-Fuzz` target (build-only) rather than
-        # `OloEngine-FuzzSmoke` — the smoke variant *invokes* every harness
-        # during `cmake --build` as part of its custom-command, which would
-        # need the DLL on PATH at build time. The "Run fuzz smoke" step below
-        # handles the actual harness execution with the right PATH set.
+        # OloEngine + fuzz harnesses are sanitised (see cmake/Fuzzing.cmake);
+        # build-time tools (OloHeaderTool, protoc) are not. Use the
+        # `OloEngine-Fuzz` target (build-only) rather than `OloEngine-Fuzz
+        # Smoke` — the smoke variant *invokes* every harness during
+        # `cmake --build` as part of its custom-command, which on the asan
+        # path would need the DLL on PATH at build time. The "Run fuzz smoke"
+        # step below handles the actual harness execution.
         run: cmake --build build-clang --target OloEngine-Fuzz --config Release --parallel
 
       - name: Run fuzz smoke (per-target 30s)
         working-directory: OloEditor
         shell: pwsh
         run: |
-          # Prepend the clang_rt dir CMake resolved at configure time so the
-          # fuzz harnesses load the matching clang_rt.asan_dynamic-x86_64.dll.
+          # On the asan path, prepend the clang_rt dir CMake resolved at
+          # configure time so harnesses load the matching
+          # clang_rt.asan_dynamic-x86_64.dll. On the ubsan path it's a no-op
+          # (UBSan is statically linked, no DLL needed) but harmless.
           # We prepend $env:PATH directly (not $GITHUB_PATH which APPENDS and
           # would lose to MSVC's same-named DLL already on PATH).
           $rtDir = (Get-Content ../build-clang/olo_clang_rt_dir.txt -Raw).Trim()
@@ -145,7 +158,10 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v7
         with:
-          name: fuzz_crashes
+          # Per-sanitizer name so the asan and ubsan jobs don't try to
+          # upload to the same artifact (actions/upload-artifact@v7
+          # rejects collisions).
+          name: fuzz_crashes_${{ matrix.sanitizer }}
           path: |
             OloEditor/crash-*
             OloEditor/leak-*
