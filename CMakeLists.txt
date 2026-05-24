@@ -33,12 +33,6 @@ option(OLO_ENABLE_UNITY_BUILD "Enable Unity (Jumbo) Builds for faster compilatio
 include(cmake/SetupConfigurations.cmake)
 include(cmake/CommonProperties.cmake)
 include(cmake/Sanitizers.cmake)
-# Fuzzing.cmake must be included BEFORE add_subdirectory(OloEngine) so its
-# global add_compile_options() (ASan/UBSan instrumentation) propagates to the
-# OloEngine static lib. Otherwise the harnesses fail to link with a `/failif
-# mismatch: annotate_string` ABI error because the lib was compiled without
-# the sanitizer's STL annotations and the harness was compiled with them.
-include(cmake/Fuzzing.cmake)
 
 # Default FetchContent downloads to PROJECT_SOURCE_DIR/OloEngine/vendor so vendor
 # libraries live in a predictable location alongside the checked-in vendor tree.
@@ -49,6 +43,16 @@ include(cmake/Fuzzing.cmake)
 if(NOT DEFINED CACHE{FETCHCONTENT_BASE_DIR})
 	set(FETCHCONTENT_BASE_DIR "${PROJECT_SOURCE_DIR}/OloEngine/vendor" CACHE PATH "" FORCE)
 endif()
+
+# Fuzzing.cmake must be included BEFORE add_subdirectory(OloEngine) so its
+# add_compile_definitions(_DISABLE_VECTOR_ANNOTATION …) propagates to the
+# OloEngine static lib. Otherwise the harnesses fail to link with a /failif
+# mismatch: annotate_string ABI error because the lib was compiled with one
+# STL annotation flag and the harness was compiled with another. Must also
+# be included AFTER the FETCHCONTENT_BASE_DIR setting above — Fuzzing.cmake's
+# file(DOWNLOAD) call for the compiler-rt tarball builds its destination path
+# from FETCHCONTENT_BASE_DIR.
+include(cmake/Fuzzing.cmake)
 
 include(cmake/CPM.cmake)
 
