@@ -92,6 +92,15 @@ endif()
 
 message(STATUS "OloEngine fuzzing: enabled (Clang/libFuzzer + ${OLO_FUZZ_SANITIZER})")
 
+# Force Tracy off in fuzz builds. Tracy's static-init iterates its string-
+# interning section in .rdata, which under ASan + global redzones reads past
+# the end of empty-string globals into the poison-byte redzone and trips
+# `global-buffer-overflow`. The same pattern already disables Tracy under
+# TSan (see cmake/Sanitizers.cmake) — we need it for ASan-fuzz too. Setting
+# the cache var here (before OloEngine/vendor's `option(TRACY_ENABLE …)` is
+# evaluated) ensures the option() call leaves this value alone.
+set(TRACY_ENABLE OFF CACHE BOOL "Disabled automatically because OLO_ENABLE_FUZZING=ON (Tracy's .rdata scans trip ASan global-buffer-overflow on empty-string globals)." FORCE)
+
 # Force-disable MSVC STL container annotations across the whole build so the
 # `annotate_string` ABI flag stays the same value in every TU regardless of
 # whether `-fsanitize=address` was passed. Without this, linking a sanitised
