@@ -233,6 +233,33 @@ if(WIN32)
         FOLDER "Test/Fuzzing"
     )
 
+    # --- Build minimal UBSan runtime from compiler-rt source ---
+    # The stock `clang_rt.ubsan_standalone-x86_64.lib` is /MT and pulls in
+    # `sanitizer_coverage_win_sections.cpp.obj`, which conflicts with our
+    # libFuzzer setup. compiler-rt also ships a "minimal" UBSan runtime in
+    # `lib/ubsan_minimal/` — a single self-contained file that defines all
+    # the `__ubsan_handle_*_minimal[_abort]` ABI entry points and aborts on
+    # the abort variants. We build that one ourselves with /MD.
+    #
+    # Pair it with `-fsanitize=undefined -fsanitize-minimal-runtime` on the
+    # consumer's compile flags so clang emits calls to the `_minimal[_abort]`
+    # entry points rather than the full standalone API. The `win_compat/`
+    # include dir provides a `<unistd.h>` shim that maps `write` to MSVC's
+    # `_write` (the source's only Windows-portability gap).
+    set(_OLO_UBSAN_MIN_SRC "${_OLO_FUZZER_DIR}/lib/ubsan_minimal/ubsan_minimal_handlers.cpp")
+    if(EXISTS "${_OLO_UBSAN_MIN_SRC}")
+        add_library(olo_libubsan_minimal STATIC ${_OLO_UBSAN_MIN_SRC})
+        target_include_directories(olo_libubsan_minimal PRIVATE
+            "${_OLO_FUZZER_DIR}/lib"
+            "${CMAKE_SOURCE_DIR}/OloEngine/tests/Fuzzing/win_compat"
+        )
+        target_compile_features(olo_libubsan_minimal PRIVATE cxx_std_17)
+        set_target_properties(olo_libubsan_minimal PROPERTIES
+            MSVC_RUNTIME_LIBRARY "MultiThreadedDLL"
+            FOLDER "Test/Fuzzing"
+        )
+    endif()
+
     # Per-target sanitiser application. Linkage of the runtime libs uses
     # the plain `target_link_libraries(target ...)` signature (no PUBLIC /
     # PRIVATE keyword) because OloEngine's CMakeLists.txt uses plain calls
@@ -269,27 +296,33 @@ if(WIN32)
             target_link_libraries(${_target} PRIVATE olo_libfuzzer)
         endfunction()
     else() # ubsan
-        # UBSan on Windows is statically linked — no DLL deployment dance.
+        # UBSan minimal runtime — we build `olo_libubsan_minimal` from source
+        # (above) because stock `clang_rt.ubsan_standalone-x86_64.lib` is
+        # /MT-built and trips /failifmismatch against our /MD build, AND it
+        # bundles `sanitizer_coverage_win_sections.cpp.obj` which would
+        # double-define section markers against our libFuzzer.
+        #
+        # `-fsanitize-minimal-runtime` switches clang's emitted handler calls
+        # from the full `__ubsan_handle_*` API to the lightweight
+        # `__ubsan_handle_*_minimal[_abort]` API that our minimal lib defines.
         # `-fno-sanitize-recover=undefined` makes every check fatal so
-        # libFuzzer's death callback fires on a real UB hit, otherwise UBSan
-        # would log and continue and the fuzzer would never see the crash.
+        # libFuzzer's death callback fires on a real UB hit.
         function(olo_apply_fuzz_sanitizer _target)
             target_compile_options(${_target} PRIVATE
-                -fsanitize=undefined -fno-sanitize-recover=undefined
-                -fno-omit-frame-pointer
+                -fsanitize=undefined -fsanitize-minimal-runtime
+                -fno-sanitize-recover=undefined -fno-omit-frame-pointer
             )
-            target_link_libraries(${_target}
-                "${_OLO_CLANG_RT_DIR}/clang_rt.ubsan_standalone-x86_64.lib"
-                "${_OLO_CLANG_RT_DIR}/clang_rt.ubsan_standalone_cxx-x86_64.lib"
-            )
+            target_link_libraries(${_target} olo_libubsan_minimal)
         endfunction()
 
         function(olo_apply_fuzzer_link _target)
             target_compile_options(${_target} PRIVATE
-                -fsanitize=fuzzer,undefined -fno-sanitize-recover=undefined
-                -fno-omit-frame-pointer
+                -fsanitize=fuzzer,undefined -fsanitize-minimal-runtime
+                -fno-sanitize-recover=undefined -fno-omit-frame-pointer
             )
             target_link_libraries(${_target} PRIVATE olo_libfuzzer)
+            # olo_libubsan_minimal flows in via OloEngine's plain-signature
+            # transitive linkage.
         endfunction()
     endif()
 else()

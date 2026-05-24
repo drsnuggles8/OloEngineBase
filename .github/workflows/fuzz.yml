@@ -118,6 +118,15 @@ jobs:
           $rtDir = (Get-Content ../build-clang/olo_clang_rt_dir.txt -Raw).Trim()
           $env:PATH = "$rtDir;$env:PATH"
 
+          # Suppress ASan's ODR-violation check. clang-cl + MSVC STL spuriously
+          # registers narrow `"d"` and wide `L"d"` literals under the same
+          # global-symbol name (different sizes — 2 vs 4 bytes), which ASan
+          # flags as an ODR violation and aborts on. ASan's own output prints
+          # this exact env-var as the suppression hint. Real ODR bugs in our
+          # code aren't hidden by this — duplicate definitions still fail at
+          # link time.
+          $env:ASAN_OPTIONS = "detect_odr_violation=0"
+
           # Explicit harness -> corpus mapping. A heuristic would be neat but
           # every one-off (YAML suffix, acronyms) would need a special case.
           $harnesses = @(
