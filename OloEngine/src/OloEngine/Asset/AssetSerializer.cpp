@@ -693,8 +693,14 @@ namespace OloEngine
             return false;
         }
 
-        // Load HDR environment map
-        auto environment = EnvironmentMap::Create(EnvironmentMapSpecification{}); // TODO: Load from file path
+        // The .hdr / .exr -> EnvMap extension mapping (see AssetExtensions.cpp)
+        // means we always receive a single equirectangular file here. Cubemap-
+        // folder loading is handled by EnvironmentMapComponent at scene-render
+        // time, not by the asset-registry path.
+        EnvironmentMapSpecification spec;
+        spec.FilePath = path.string();
+
+        auto environment = EnvironmentMap::Create(spec);
         if (!environment)
         {
             OLO_CORE_ERROR("EnvironmentSerializer::TryLoadData - Failed to load environment: {}", path.string());
