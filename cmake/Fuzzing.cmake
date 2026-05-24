@@ -5,39 +5,48 @@
 #
 #   1. Globally defines `_DISABLE_VECTOR_ANNOTATION` / `_DISABLE_STRING_
 #      ANNOTATION`. The MSVC STL flips its container ABI between
-#      sanitised and non-sanitised TUs (the `annotate_string` /
-#      `annotate_vector` flag); when only some targets are sanitised the
+#      sanitised and non-sanitised TUs (`annotate_string` /
+#      `annotate_vector`); when only some targets are sanitised the
 #      linker fires `/failifmismatch` errors. Forcing the flag off
-#      uniformly keeps the STL ABI consistent across the whole build,
-#      regardless of which targets we end up instrumenting.
+#      uniformly keeps the STL ABI consistent across the whole build.
 #
-#   2. Exposes two per-target helpers:
+#   2. Builds libFuzzer from compiler-rt source (LLVM 19.1.7 release
+#      tarball) into a static `olo_libfuzzer` target. We can't use stock
+#      `clang_rt.fuzzer-x86_64.lib` because LLVM only ships it built /MT,
+#      while the Vulkan SDK's prebuilt spirv-cross / shaderc are /MD —
+#      switching the whole build to /MT to match libFuzzer would force
+#      us to rebuild those vendor libs too. Building libFuzzer ourselves
+#      with the project's /MD CRT is the smallest deviation.
+#
+#   3. Exposes two per-target helpers:
 #        - `olo_apply_fuzz_sanitizer(TARGET)` — adds `-fsanitize=address,
 #          undefined` instrumentation to the target, plus the runtime
 #          libs (`clang_rt.asan_dynamic-x86_64.lib`, ubsan_standalone)
 #          and `/wholearchive:asan_dynamic_runtime_thunk` link option.
-#          Linkage is PUBLIC, so downstream consumers (OloEditor /
-#          OloRuntime / fuzz harnesses) inherit the asan import lib at
-#          link time without us having to instrument them too.
+#          Linkage of runtime libs uses the plain `target_link_libraries`
+#          signature so OloEngine's CMakeLists doesn't refuse to mix
+#          keyword + plain forms; that propagates to consumers
+#          (OloEditor / OloRuntime / fuzz harnesses) so their link line
+#          gets the import lib without needing the consumer to be
+#          instrumented.
 #        - `olo_apply_fuzzer_link(TARGET)` — for fuzz harnesses, on top
 #          of `olo_apply_fuzz_sanitizer`: adds `-fsanitize=fuzzer`
-#          coverage instrumentation and links `clang_rt.fuzzer-x86_64.lib`.
+#          coverage instrumentation and links our `olo_libfuzzer`.
 #
 # Why per-target instead of `add_compile_options(-fsanitize=...)` globally:
-# build-time tools (OloHeaderTool, protoc) need to *run* during the build,
-# and instrumenting them means every invocation has to find the matching
-# `clang_rt.asan_dynamic-x86_64.dll`. On GitHub-hosted runners that DLL
-# name collides with MSVC's bundled ASan DLL on PATH, and Windows resolves
-# the wrong one → STATUS_ENTRYPOINT_NOT_FOUND (0xC0000139). Limiting
-# instrumentation to OloEngine (the lib actually fuzzed through) and the
-# harnesses themselves means tools stay clean and only the fuzz binaries
-# need DLL discovery — which we handle in `.github/workflows/fuzz.yml`
-# (and developers can replicate by prepending the runtime dir to PATH).
+# build-time tools (OloHeaderTool, protoc) run during the build; if they
+# were instrumented they'd also need `clang_rt.asan_dynamic-x86_64.dll`
+# discoverable at run time. On GitHub-hosted runners that DLL name
+# collides with MSVC's bundled ASan DLL on PATH (different exports →
+# STATUS_ENTRYPOINT_NOT_FOUND, 0xC0000139). Limiting instrumentation to
+# OloEngine and the harnesses keeps tools clean. Fuzz harnesses still
+# need the DLL at run time; `.github/workflows/fuzz.yml` prepends the
+# clang_rt dir to PATH in the run step, and devs can do the same locally.
 #
 # On non-Windows (clang on Linux/macOS), CMake drives the link via clang,
 # so the per-target helpers just pass `-fsanitize=...` and the right
 # libclang_rt.* gets picked up automatically — no clang_rt path lookup,
-# no PATH dance.
+# no PATH dance, no from-source libFuzzer build.
 #
 # This module is a no-op when `OLO_ENABLE_FUZZING=OFF` (the default).
 # =============================================================================
@@ -74,15 +83,10 @@ message(STATUS "OloEngine fuzzing: enabled (Clang/libFuzzer)")
 add_compile_definitions(_DISABLE_VECTOR_ANNOTATION _DISABLE_STRING_ANNOTATION)
 
 if(WIN32)
-    # Force the static CRT (/MT) so OloEngine + fuzz harnesses +
-    # clang_rt.fuzzer-x86_64.lib all share the same RuntimeLibrary tag. Stock
-    # LLVM Windows distributions only ship a `/MT`-built libFuzzer
-    # (clang_rt.fuzzer-x86_64.lib's .obj files are tagged `MT_StaticRelease`);
-    # under /MD, lld-link fires `/failifmismatch: RuntimeLibrary` and refuses
-    # the link. VS2022's bundled LLVM 19 ships static ASan libs
-    # (clang_rt.asan-x86_64.lib, asan_cxx, asan-preinit), so we can match the
-    # CRT without losing ASan coverage.
-    set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded")
+    # MSVC ASan runtime requires the release dynamic CRT (/MD). Mixing with
+    # /MDd (debug CRT) causes `_ITERATOR_DEBUG_LEVEL` mismatches against the
+    # shipped clang_rt.asan_dynamic-x86_64.lib, which is built /MD-only.
+    set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreadedDLL")
 
     # ASan is incompatible with /RTC1 and /ZI (Edit-and-Continue). Strip the
     # offenders out of the default Debug flags. Fuzzing.cmake is include()-d
@@ -96,15 +100,14 @@ if(WIN32)
     endforeach()
     add_link_options(/INCREMENTAL:NO)
 
-    # Locate the directory containing `clang_rt.fuzzer-x86_64.lib`. The clang
-    # installation can use either of two layouts on Windows:
+    # Locate the directory containing the ASan runtime libs. clang-cl
+    # installations can use either of two layouts on Windows:
     #   - new per-target:  <prefix>/lib/clang/<ver>/lib/<triple>/
     #     (reported by `clang-cl -print-runtime-dir`, LLVM ≥ 16)
     #   - legacy per-arch: <prefix>/lib/clang/<ver>/lib/windows/
-    #     (still where LLVM's Windows installer / VS-bundled clang-cl puts
-    #     the .lib files as of LLVM 21)
-    # `find_path` walks both candidates and reports whichever wins, so we
-    # don't have to hardcode either.
+    #     (where LLVM's Windows installer / VS2022-bundled clang-cl puts
+    #     them through at least LLVM 21)
+    # find_path walks both candidates so we don't hardcode either.
     execute_process(
         COMMAND "${CMAKE_CXX_COMPILER}" -print-runtime-dir
         OUTPUT_VARIABLE _OLO_CLANG_RT_DIR_HINT
@@ -114,85 +117,145 @@ if(WIN32)
     set(_OLO_CLANG_RT_LEGACY_HINT "${_OLO_CLANG_RT_DIR_HINT}/../windows")
 
     find_path(_OLO_CLANG_RT_DIR
-        NAMES clang_rt.fuzzer-x86_64.lib
+        NAMES clang_rt.asan_dynamic-x86_64.lib
         HINTS "${_OLO_CLANG_RT_DIR_HINT}" "${_OLO_CLANG_RT_LEGACY_HINT}"
         NO_DEFAULT_PATH
     )
     if(NOT _OLO_CLANG_RT_DIR)
         message(FATAL_ERROR "OloEngine fuzzing: failed to locate "
-            "clang_rt.fuzzer-x86_64.lib near `${_OLO_CLANG_RT_DIR_HINT}`. "
+            "clang_rt.asan_dynamic-x86_64.lib near `${_OLO_CLANG_RT_DIR_HINT}`. "
             "Install the Clang compiler-rt libraries (`compiler-rt` component "
             "in the LLVM installer / `Clang-cl runtime` in Visual Studio).")
     endif()
-    # Static ASan requires three libs:
-    #   - clang_rt.asan-x86_64.lib       : the runtime itself.
-    #   - clang_rt.asan_cxx-x86_64.lib   : C++-specific overloads (new/delete).
-    #   - clang_rt.asan-preinit-x86_64.lib : preinit hook; must be linked
-    #     /WHOLEARCHIVE so its preinitializer runs at startup.
-    foreach(_required IN ITEMS
-            clang_rt.asan-x86_64.lib
-            clang_rt.asan_cxx-x86_64.lib
-            clang_rt.asan-preinit-x86_64.lib)
-        if(NOT EXISTS "${_OLO_CLANG_RT_DIR}/${_required}")
-            message(FATAL_ERROR "OloEngine fuzzing: expected static ASan lib "
-                "'${_OLO_CLANG_RT_DIR}/${_required}' is missing. Standalone "
-                "LLVM Windows installs only ship the dynamic ASan libs — use "
-                "the clang-cl that ships with Visual Studio 2022 instead.")
-        endif()
-    endforeach()
+    if(NOT EXISTS "${_OLO_CLANG_RT_DIR}/clang_rt.asan_dynamic-x86_64.dll")
+        message(FATAL_ERROR "OloEngine fuzzing: expected ASan runtime DLL at "
+            "'${_OLO_CLANG_RT_DIR}/clang_rt.asan_dynamic-x86_64.dll' but it "
+            "isn't there. Install the LLVM compiler-rt component.")
+    endif()
     message(STATUS "OloEngine fuzzing: clang runtime dir = ${_OLO_CLANG_RT_DIR}")
+
+    # CI's "Run fuzz smoke" step reads this file to learn the exact dir
+    # CMake resolved, then prepends it to $env:PATH so the harnesses load
+    # the matching ASan DLL at run time. Critical because GitHub runners
+    # have multiple LLVMs on PATH whose `clang_rt.asan_dynamic-x86_64.dll`
+    # files are name-collision-but-ABI-mismatched.
+    file(WRITE "${CMAKE_BINARY_DIR}/olo_clang_rt_dir.txt"
+         "${_OLO_CLANG_RT_DIR}\n")
+
+    # --- Build libFuzzer from compiler-rt source ---
+    # LLVM's stock `clang_rt.fuzzer-x86_64.lib` is built /MT; our build is
+    # /MD (to match Vulkan SDK prebuilts) so the prebuilt lib trips
+    # /failifmismatch: RuntimeLibrary. We compile the fuzzer sources
+    # ourselves with our CRT settings to dodge that.
+    #
+    # Use file(DOWNLOAD) + file(ARCHIVE_EXTRACT) instead of FetchContent —
+    # compiler-rt's own CMakeLists.txt has dependencies on LLVM helper
+    # macros we don't have (e.g. extend_path from base-config-ix.cmake),
+    # so FetchContent_MakeAvailable would try to add_subdirectory and
+    # error immediately.
+    set(_OLO_FUZZER_DIR "${FETCHCONTENT_BASE_DIR}/compiler-rt-19.1.7.src")
+    set(_OLO_FUZZER_TARBALL "${FETCHCONTENT_BASE_DIR}/compiler-rt-19.1.7.src.tar.xz")
+    if(NOT EXISTS "${_OLO_FUZZER_DIR}/lib/fuzzer/FuzzerLoop.cpp")
+        message(STATUS "OloEngine fuzzing: downloading compiler-rt 19.1.7 source")
+        file(DOWNLOAD
+            https://github.com/llvm/llvm-project/releases/download/llvmorg-19.1.7/compiler-rt-19.1.7.src.tar.xz
+            "${_OLO_FUZZER_TARBALL}"
+            EXPECTED_HASH SHA256=c12b6e764202c615c1a3af9a13d477846878757ae0e29e5f8979215a6958fffc
+            SHOW_PROGRESS
+        )
+        file(ARCHIVE_EXTRACT
+            INPUT "${_OLO_FUZZER_TARBALL}"
+            DESTINATION "${FETCHCONTENT_BASE_DIR}"
+        )
+    endif()
+    set(_OLO_FUZZER_SRC "${_OLO_FUZZER_DIR}/lib/fuzzer")
+
+    # Windows-only source list (FuzzerIOPosix.cpp, FuzzerUtilLinux.cpp etc.
+    # only compile on their respective platforms).
+    set(_OLO_FUZZER_SOURCES
+        ${_OLO_FUZZER_SRC}/FuzzerCrossOver.cpp
+        ${_OLO_FUZZER_SRC}/FuzzerDataFlowTrace.cpp
+        ${_OLO_FUZZER_SRC}/FuzzerDriver.cpp
+        ${_OLO_FUZZER_SRC}/FuzzerExtFunctionsWindows.cpp
+        ${_OLO_FUZZER_SRC}/FuzzerExtraCounters.cpp
+        ${_OLO_FUZZER_SRC}/FuzzerExtraCountersWindows.cpp
+        ${_OLO_FUZZER_SRC}/FuzzerFork.cpp
+        ${_OLO_FUZZER_SRC}/FuzzerIO.cpp
+        ${_OLO_FUZZER_SRC}/FuzzerIOWindows.cpp
+        ${_OLO_FUZZER_SRC}/FuzzerLoop.cpp
+        ${_OLO_FUZZER_SRC}/FuzzerMain.cpp
+        ${_OLO_FUZZER_SRC}/FuzzerMerge.cpp
+        ${_OLO_FUZZER_SRC}/FuzzerMutate.cpp
+        ${_OLO_FUZZER_SRC}/FuzzerSHA1.cpp
+        ${_OLO_FUZZER_SRC}/FuzzerTracePC.cpp
+        ${_OLO_FUZZER_SRC}/FuzzerUtil.cpp
+        ${_OLO_FUZZER_SRC}/FuzzerUtilWindows.cpp
+    )
+
+    add_library(olo_libfuzzer STATIC ${_OLO_FUZZER_SOURCES})
+    target_include_directories(olo_libfuzzer PRIVATE ${_OLO_FUZZER_SRC})
+    # libFuzzer's own code is C++17; the engine is C++23 but that doesn't
+    # matter for this isolated static lib.
+    target_compile_features(olo_libfuzzer PRIVATE cxx_std_17)
+    # NEVER instrument libFuzzer with -fsanitize=fuzzer — that would
+    # recursively coverage-trace the fuzzer itself. We also skip ASan/UBSan
+    # on libFuzzer so its allocations don't get tracked (the fuzzer needs
+    # to own the input buffer without ASan poisoning).
+    target_compile_definitions(olo_libfuzzer PRIVATE
+        # libFuzzer expects to detect ASan at runtime via __asan_default_options;
+        # nothing for us to define here.
+    )
+    set_target_properties(olo_libfuzzer PROPERTIES
+        # Inherit the project's /MD CRT (set above) so the .obj files have
+        # `MD_DynamicRelease` and match the rest of the link.
+        MSVC_RUNTIME_LIBRARY "MultiThreadedDLL"
+        FOLDER "Test/Fuzzing"
+    )
 
     # Per-target sanitiser application. Linkage of the runtime libs uses
     # the plain `target_link_libraries(target ...)` signature (no PUBLIC /
     # PRIVATE keyword) because OloEngine's CMakeLists.txt uses plain calls
     # elsewhere, and CMake forbids mixing plain and keyword forms on the
     # same target. Plain-signature link libs propagate transitively to
-    # consumers — equivalent to PUBLIC for our purposes — so downstream
-    # consumers (OloEditor / OloRuntime / harnesses) inherit the asan
-    # libs at link time without needing to be instrumented themselves;
-    # their .obj files have no __asan_* refs of their own, the refs come
-    # from OloEngine's .obj files inside the static archive.
+    # consumers.
     function(olo_apply_fuzz_sanitizer _target)
         target_compile_options(${_target} PRIVATE
             -fsanitize=address,undefined -fno-omit-frame-pointer
         )
         target_link_libraries(${_target}
-            "${_OLO_CLANG_RT_DIR}/clang_rt.asan-x86_64.lib"
-            "${_OLO_CLANG_RT_DIR}/clang_rt.asan_cxx-x86_64.lib"
+            "${_OLO_CLANG_RT_DIR}/clang_rt.asan_dynamic-x86_64.lib"
             "${_OLO_CLANG_RT_DIR}/clang_rt.ubsan_standalone-x86_64.lib"
             "${_OLO_CLANG_RT_DIR}/clang_rt.ubsan_standalone_cxx-x86_64.lib"
         )
         # target_link_options has no plain form — must use a keyword. INTERFACE
         # so the flags only attach to consumers' link line, not to OloEngine's
         # archive step (static libs aren't linked, so PRIVATE would do nothing
-        # useful; PUBLIC would duplicate).
+        # useful; PUBLIC would duplicate at the lib step).
         target_link_options(${_target} INTERFACE
-            "/wholearchive:${_OLO_CLANG_RT_DIR}/clang_rt.asan-preinit-x86_64.lib"
+            "/wholearchive:${_OLO_CLANG_RT_DIR}/clang_rt.asan_dynamic_runtime_thunk-x86_64.lib"
             "/INFERASANLIBS:NO"
         )
     endfunction()
 
     function(olo_apply_fuzzer_link _target)
         # Harnesses want full ASan/UBSan + libFuzzer coverage instrumentation
-        # on their own translation unit too (it's a thin wrapper around the
-        # engine's deserialiser, but if it has a bug we want ASan to find it).
+        # on their own translation unit.
         target_compile_options(${_target} PRIVATE
             -fsanitize=fuzzer,address,undefined -fno-omit-frame-pointer
         )
-        target_link_libraries(${_target} PRIVATE
-            "${_OLO_CLANG_RT_DIR}/clang_rt.fuzzer-x86_64.lib"
-        )
-        # ASan/UBSan runtime libs come in via OloEngine's PUBLIC linkage
-        # when the harness's `target_link_libraries(... OloEngine)` runs.
+        target_link_libraries(${_target} PRIVATE olo_libfuzzer)
+        # ASan/UBSan runtime libs come in via OloEngine's plain-signature
+        # transitive linkage when the harness `target_link_libraries(...
+        # OloEngine)` is processed.
     endfunction()
 else()
     # Linux/macOS: clang drives the link, so `-fsanitize=...` is honoured and
-    # picks up the right libclang_rt.* automatically.
+    # picks up the right libclang_rt.* automatically. No from-source libFuzzer
+    # build needed — stock clang ships it CRT-compatible on those platforms.
     function(olo_apply_fuzz_sanitizer _target)
         target_compile_options(${_target} PRIVATE
             -fsanitize=address,undefined -fno-omit-frame-pointer
         )
-        # INTERFACE: propagate to consumers only (static lib itself isn't linked).
         target_link_options(${_target} INTERFACE -fsanitize=address,undefined)
     endfunction()
 

@@ -52,16 +52,23 @@ jobs:
                 -DOLO_ENABLE_FUZZING=ON
 
       - name: Build fuzzers
-        # Fuzz harnesses link the static ASan + libFuzzer libs from VS2022's
-        # bundled LLVM (clang_rt.asan-x86_64.lib, asan_cxx, asan-preinit,
-        # ubsan_standalone[+_cxx], fuzzer-x86_64). No DLL needed at runtime,
-        # so no PATH manipulation either — see cmake/Fuzzing.cmake.
+        # OloEngine + fuzz harnesses are sanitised (dynamic ASan: see
+        # cmake/Fuzzing.cmake); build-time tools (OloHeaderTool, protoc) are
+        # not, so the build itself doesn't need clang_rt.asan_dynamic-x86_64.dll
+        # on PATH. The harnesses do need it at run time — handled below.
         run: cmake --build build --target OloEngine-FuzzSmoke --config Release --parallel
 
       - name: Run fuzz smoke (per-target 30s)
         working-directory: OloEditor
         shell: pwsh
         run: |
+          # Prepend the clang_rt dir CMake resolved at configure time so the
+          # fuzz harnesses load the matching clang_rt.asan_dynamic-x86_64.dll.
+          # We prepend $env:PATH directly (not $GITHUB_PATH which APPENDS and
+          # would lose to MSVC's same-named DLL already on PATH).
+          $rtDir = (Get-Content ../build/olo_clang_rt_dir.txt -Raw).Trim()
+          $env:PATH = "$rtDir;$env:PATH"
+
           # Explicit harness -> corpus mapping. A heuristic would be neat but
           # every one-off (YAML suffix, acronyms) would need a special case.
           $harnesses = @(
