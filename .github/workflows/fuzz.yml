@@ -42,12 +42,26 @@ jobs:
       - name: Setup Vulkan SDK
         uses: ./.github/actions/setup-vulkan
 
-      - name: Configure CMake (ClangCL)
-        # ClangCL is bundled with VS2022. It exposes the MSVC-compatible
-        # ABI while supporting `-fsanitize=fuzzer`, which is what
-        # `tests/Fuzzing/CMakeLists.txt` requires.
+      - name: Setup MSVC dev environment
+        # The clangcl preset uses Ninja + standalone clang-cl. lld-link still
+        # needs the Windows SDK libpath and MSVC's CRT import libs, which
+        # come from MSVC's vcvars setup. ilammy/msvc-dev-cmd loads them
+        # into the job env for every subsequent step.
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Configure CMake (standalone clang-cl via Ninja Multi-Config)
+        # Switch from `-T ClangCL` (VS2022-bundled LLVM 19) to the `clangcl`
+        # preset (Ninja Multi-Config + standalone clang-cl on PATH, which
+        # is LLVM 20 on `windows-latest`). LLVM 19's ASan runtime trips on
+        # newer Windows API prologues with `interception_win: unhandled
+        # instruction at 0x... ` and the harness exits before
+        # LLVMFuzzerTestOneInput runs. LLVM 20's interceptor handles those
+        # prologues. Side effect: the build dir changes from `build/` to
+        # `build-clang/` (set by the preset).
         run: |
-          cmake -S . -B build -T ClangCL `
+          cmake --preset clangcl `
                 -DPython_EXECUTABLE="${{ steps.py.outputs.python-path }}" `
                 -DOLO_ENABLE_FUZZING=ON
 
@@ -60,7 +74,7 @@ jobs:
         # during `cmake --build` as part of its custom-command, which would
         # need the DLL on PATH at build time. The "Run fuzz smoke" step below
         # handles the actual harness execution with the right PATH set.
-        run: cmake --build build --target OloEngine-Fuzz --config Release --parallel
+        run: cmake --build build-clang --target OloEngine-Fuzz --config Release --parallel
 
       - name: Run fuzz smoke (per-target 30s)
         working-directory: OloEditor
@@ -70,7 +84,7 @@ jobs:
           # fuzz harnesses load the matching clang_rt.asan_dynamic-x86_64.dll.
           # We prepend $env:PATH directly (not $GITHUB_PATH which APPENDS and
           # would lose to MSVC's same-named DLL already on PATH).
-          $rtDir = (Get-Content ../build/olo_clang_rt_dir.txt -Raw).Trim()
+          $rtDir = (Get-Content ../build-clang/olo_clang_rt_dir.txt -Raw).Trim()
           $env:PATH = "$rtDir;$env:PATH"
 
           # Explicit harness -> corpus mapping. A heuristic would be neat but
@@ -84,18 +98,29 @@ jobs:
             @{ Name = 'FuzzAssimpMesh';       Corpus = 'assimp_mesh'       },
             @{ Name = 'FuzzSpirvCross';       Corpus = 'spirv_cross'       }
           )
+          # Don't bail on the first harness failure — run all 7 and report a
+          # summary so one broken corpus doesn't hide the state of the others.
+          $failed = @()
           foreach ($h in $harnesses) {
-            $exe = "..\build\OloEngine\tests\Fuzzing\Release\$($h.Name).exe"
+            $exe = "..\build-clang\OloEngine\tests\Fuzzing\Release\$($h.Name).exe"
             $corpusDir = "..\OloEngine\tests\Fuzzing\corpus\$($h.Corpus)"
             if (-not (Test-Path $corpusDir)) {
               Write-Host "::error::required corpus directory '$corpusDir' is missing; refusing to run $($h.Name) without seeds"
-              exit 1
+              $failed += $h.Name
+              continue
             }
+            Write-Host "::group::$($h.Name)"
             & $exe -max_total_time=30 -print_final_stats=1 $corpusDir
-            if ($LASTEXITCODE -ne 0) {
-              Write-Host "::error::$($h.Name) found a crash"
-              exit $LASTEXITCODE
+            $rc = $LASTEXITCODE
+            Write-Host "::endgroup::"
+            if ($rc -ne 0) {
+              Write-Host "::error::$($h.Name) exited with code $rc"
+              $failed += $h.Name
             }
+          }
+          if ($failed.Count -gt 0) {
+            Write-Host "::error::$($failed.Count) of $($harnesses.Count) harnesses failed: $($failed -join ', ')"
+            exit 1
           }
 
       - name: Upload crash artifacts
