@@ -287,6 +287,8 @@ namespace OloEngine
         if (line.empty())
             return 0.0f;
 
+        OLO_PROFILE_FUNCTION();
+
         // Mirrors the advancement pattern in Renderer2D::DrawString: UTF-8
         // codepoint iteration, fallback resolution, primary-font kerning.
         // Space-glyph advance is captured up front so empty fallback rows
