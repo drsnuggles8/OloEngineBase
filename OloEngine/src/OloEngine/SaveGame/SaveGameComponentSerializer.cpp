@@ -771,6 +771,11 @@ namespace OloEngine
         ar << c.m_CastShadows << c.m_ShadowBias << c.m_ShadowNormalBias;
     }
 
+    void SaveGameComponentSerializer::Serialize(FArchive& ar, SphereAreaLightComponent& c)
+    {
+        ar << c.m_Color << c.m_Intensity << c.m_Radius << c.m_Range << c.m_CastShadows;
+    }
+
     void SaveGameComponentSerializer::Serialize(FArchive& ar, EnvironmentMapComponent& c)
     {
         ar << c.m_EnvironmentMapAsset << c.m_FilePath;
@@ -2338,6 +2343,7 @@ namespace OloEngine
         REGISTER_SAVE_COMPONENT(DirectionalLightComponent);
         REGISTER_SAVE_COMPONENT(PointLightComponent);
         REGISTER_SAVE_COMPONENT(SpotLightComponent);
+        REGISTER_SAVE_COMPONENT(SphereAreaLightComponent);
         REGISTER_SAVE_COMPONENT(EnvironmentMapComponent);
         REGISTER_SAVE_COMPONENT(LightProbeComponent);
         REGISTER_SAVE_COMPONENT(LightProbeVolumeComponent);

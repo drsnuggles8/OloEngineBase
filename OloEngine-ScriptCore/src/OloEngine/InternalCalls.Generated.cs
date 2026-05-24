@@ -466,6 +466,29 @@ namespace OloEngine
 		internal static extern void Rigidbody3DComponent_SetIsTrigger(ulong entityID, bool value);
 		#endregion
 
+		#region SphereAreaLightComponent
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void SphereAreaLightComponent_GetColor(ulong entityID, out Vector3 value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void SphereAreaLightComponent_SetColor(ulong entityID, ref Vector3 value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float SphereAreaLightComponent_GetIntensity(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void SphereAreaLightComponent_SetIntensity(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float SphereAreaLightComponent_GetRadius(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void SphereAreaLightComponent_SetRadius(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float SphereAreaLightComponent_GetRange(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void SphereAreaLightComponent_SetRange(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool SphereAreaLightComponent_GetCastShadows(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void SphereAreaLightComponent_SetCastShadows(ulong entityID, bool value);
+		#endregion
+
 		#region SphereCollider3DComponent
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern float SphereCollider3DComponent_GetRadius(ulong entityID);

@@ -114,6 +114,7 @@ namespace OloEngine
     MACRO(DirectionalLightComponent, "DirectionalLightComponent")             \
     MACRO(PointLightComponent, "PointLightComponent")                         \
     MACRO(SpotLightComponent, "SpotLightComponent")                           \
+    MACRO(SphereAreaLightComponent, "SphereAreaLightComponent")               \
     MACRO(EnvironmentMapComponent, "EnvironmentMapComponent")                 \
     MACRO(LightProbeComponent, "LightProbeComponent")                         \
     MACRO(LightProbeVolumeComponent, "LightProbeVolumeComponent")             \

@@ -28,15 +28,23 @@ struct GPUSpotLight
     vec4 SpotParams;           // x = cos(innerAngle), y = falloff, zw = 0
 };
 
+struct GPUSphereAreaLight
+{
+    vec4 PositionAndRadius;    // xyz = world pos, w = emitter sphere radius
+    vec4 ColorAndIntensity;    // xyz = color, w = intensity
+    vec4 RangeAndPadding;      // x = range (falloff), yzw = reserved
+};
+
 // ---------------------------------------------------------------------------
 // SSBOs — bindings match ShaderBindingLayout constants
 // ---------------------------------------------------------------------------
 
-layout(std430, binding = 9)  readonly buffer PointLightBuf  { GPUPointLight pointLights[]; };
-layout(std430, binding = 10) readonly buffer SpotLightBuf   { GPUSpotLight  spotLights[];  };
-layout(std430, binding = 11) writeonly buffer LightIndexBuf  { uint lightIndices[];         };
-layout(std430, binding = 12) buffer LightGridBuf            { uvec2 grid[];                }; // (offset, count)
-layout(std430, binding = 13) buffer GlobalIndexBuf          { uint globalIndex;            };
+layout(std430, binding = 9)  readonly buffer PointLightBuf       { GPUPointLight pointLights[];           };
+layout(std430, binding = 10) readonly buffer SpotLightBuf        { GPUSpotLight  spotLights[];            };
+layout(std430, binding = 11) writeonly buffer LightIndexBuf      { uint lightIndices[];                   };
+layout(std430, binding = 12) buffer LightGridBuf                 { uvec2 grid[];                          }; // (offset, count)
+layout(std430, binding = 13) buffer GlobalIndexBuf               { uint globalIndex;                      };
+layout(std430, binding = 18) readonly buffer SphereAreaLightBuf  { GPUSphereAreaLight sphereAreaLights[]; };
 
 // ---------------------------------------------------------------------------
 // Uniforms
@@ -48,8 +56,19 @@ uniform uint  u_ScreenWidth;
 uniform uint  u_ScreenHeight;
 uniform uint  u_PointLightCount;
 uniform uint  u_SpotLightCount;
+uniform uint  u_SphereAreaLightCount;
 uniform uint  u_TileSizePixels;
 uniform uint  u_MaxLightsPerTile;
+
+// ---------------------------------------------------------------------------
+// Packed light-index encoding
+//   bits 31..30 — type tag: 0 = point, 1 = sphere area, 2 = spot
+//   bits 29..0  — index into the corresponding SSBO
+// Mirrors ForwardPlusCommon.glsl's decoder.
+// ---------------------------------------------------------------------------
+#define TYPE_TAG_POINT       (0u << 30)
+#define TYPE_TAG_SPHERE_AREA (1u << 30)
+#define TYPE_TAG_SPOT        (2u << 30)
 
 // Depth buffer for min/max depth per tile
 layout(binding = 0) uniform sampler2D u_DepthTexture;
@@ -225,8 +244,26 @@ void main()
             uint slot = atomicAdd(s_TileLightCount, 1u);
             if (slot < min(u_MaxLightsPerTile, MAX_SHARED_LIGHTS))
             {
-                // High bit marks spot lights
-                s_TileLightIndices[slot] = i | 0x80000000u;
+                s_TileLightIndices[slot] = i | TYPE_TAG_SPOT;
+            }
+        }
+    }
+
+    // Sphere area lights — culled by range (matches how the BRDF evaluator
+    // early-outs). Emitter radius is for shading only, not bounding-sphere size.
+    for (uint i = localIndex; i < u_SphereAreaLightCount; i += threadCount)
+    {
+        vec3 worldPos = sphereAreaLights[i].PositionAndRadius.xyz;
+        float range   = sphereAreaLights[i].RangeAndPadding.x;
+
+        vec3 viewPos = (u_ViewMatrix * vec4(worldPos, 1.0)).xyz;
+
+        if (sphereInTileFrustum(viewPos, range, frustumPlanes, nearZ, farZ))
+        {
+            uint slot = atomicAdd(s_TileLightCount, 1u);
+            if (slot < min(u_MaxLightsPerTile, MAX_SHARED_LIGHTS))
+            {
+                s_TileLightIndices[slot] = i | TYPE_TAG_SPHERE_AREA;
             }
         }
     }

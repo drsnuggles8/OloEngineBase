@@ -339,6 +339,47 @@ namespace OloEngine::Tests
     }
 
     // -------------------------------------------------------------------------
+    // SphereAreaLightComponent
+    // -------------------------------------------------------------------------
+    TEST(ComponentRoundTrip, SphereAreaLightComponentSurvivesYAMLRoundTrip)
+    {
+        const glm::vec3 expectedColor{ 0.85f, 0.12f, 0.93f };
+        const f32 expectedIntensity = 2.5f;
+        const f32 expectedRadius = 0.42f;
+        const f32 expectedRange = 17.0f;
+        const bool expectedCastShadows = true;
+
+        std::string yaml;
+        {
+            auto scene = Scene::Create();
+            Entity entity = scene->CreateEntity(kTestTag);
+            auto& al = entity.AddComponent<SphereAreaLightComponent>();
+            al.m_Color = expectedColor;
+            al.m_Intensity = expectedIntensity;
+            al.m_Radius = expectedRadius;
+            al.m_Range = expectedRange;
+            al.m_CastShadows = expectedCastShadows;
+            yaml = SceneSerializer(scene).SerializeToYAML();
+        }
+
+        auto reloaded = Scene::Create();
+        ASSERT_TRUE(SceneSerializer(reloaded).DeserializeFromYAML(yaml));
+
+        Entity restored = FindByTag(*reloaded, kTestTag);
+        ASSERT_TRUE(static_cast<bool>(restored));
+        ASSERT_TRUE(restored.HasComponent<SphereAreaLightComponent>());
+
+        const auto& al = restored.GetComponent<SphereAreaLightComponent>();
+        EXPECT_NEAR(al.m_Color.r, expectedColor.r, kFloatEpsilon);
+        EXPECT_NEAR(al.m_Color.g, expectedColor.g, kFloatEpsilon);
+        EXPECT_NEAR(al.m_Color.b, expectedColor.b, kFloatEpsilon);
+        EXPECT_NEAR(al.m_Intensity, expectedIntensity, kFloatEpsilon);
+        EXPECT_NEAR(al.m_Radius, expectedRadius, kFloatEpsilon);
+        EXPECT_NEAR(al.m_Range, expectedRange, kFloatEpsilon);
+        EXPECT_EQ(al.m_CastShadows, expectedCastShadows);
+    }
+
+    // -------------------------------------------------------------------------
     // TextComponent — has a defaulted operator==() so we can compare in one
     // shot after round-trip.
     // -------------------------------------------------------------------------
@@ -1949,6 +1990,14 @@ namespace OloEngine::Tests
                 l.m_Color = { 0.5f, 0.5f, 0.9f };
                 l.m_InnerCutoff = 12.0f;
                 l.m_OuterCutoff = 22.0f;
+            }
+            Entity al = scene->CreateEntity("SphereArea");
+            {
+                auto& l = al.AddComponent<SphereAreaLightComponent>();
+                l.m_Color = { 0.95f, 0.7f, 0.3f };
+                l.m_Intensity = 2.25f;
+                l.m_Radius = 0.6f;
+                l.m_Range = 12.0f;
             }
 
             // 2D renderers

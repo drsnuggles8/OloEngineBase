@@ -57,7 +57,8 @@ namespace OloEngine
 
         const u32 pointLightCount = lightBuffer.GetPointLightCount();
         const u32 spotLightCount = lightBuffer.GetSpotLightCount();
-        if (pointLightCount == 0 && spotLightCount == 0)
+        const u32 sphereAreaLightCount = lightBuffer.GetSphereAreaLightCount();
+        if (pointLightCount == 0 && spotLightCount == 0 && sphereAreaLightCount == 0)
         {
             // Clear stale grid data from the previous frame
             grid.ClearLightGrid();
@@ -86,6 +87,7 @@ namespace OloEngine
         m_CullingShader->SetUint("u_ScreenHeight", grid.GetScreenHeight());
         m_CullingShader->SetUint("u_PointLightCount", pointLightCount);
         m_CullingShader->SetUint("u_SpotLightCount", spotLightCount);
+        m_CullingShader->SetUint("u_SphereAreaLightCount", sphereAreaLightCount);
         m_CullingShader->SetUint("u_TileSizePixels", grid.GetTileSizePixels());
         m_CullingShader->SetUint("u_MaxLightsPerTile", grid.GetMaxLightsPerTile());
 

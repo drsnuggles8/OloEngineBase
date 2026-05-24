@@ -300,6 +300,20 @@ namespace OloEngine
                                        const glm::vec3& color = glm::vec3(1.0f, 0.8f, 0.2f));
 
         /**
+         * @brief Draw a sphere area light gizmo (emissive sphere at radius + wireframe range sphere)
+         * @param position World position of the light
+         * @param radius Emitter sphere radius
+         * @param range Falloff range
+         * @param color Light color
+         * @param intensity Light intensity (drives emissive brightness on the icon)
+         */
+        static void DrawSphereAreaLightGizmo(const glm::vec3& position,
+                                             f32 radius,
+                                             f32 range,
+                                             const glm::vec3& color = glm::vec3(1.0f, 0.8f, 0.2f),
+                                             f32 intensity = 1.0f);
+
+        /**
          * @brief Draw an audio source range gizmo (spheres showing min/max distance)
          * @param position World position of the audio source
          * @param minDistance Minimum attenuation distance

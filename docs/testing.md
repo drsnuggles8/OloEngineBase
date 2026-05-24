@@ -1062,7 +1062,7 @@ new `.cpp` under `OloEngine/tests/Rendering/`, `ShaderGraph/`,
 
 | File | Tests | Cases |
 |---|---:|---|
-| [LightCullingTest.cpp](../OloEngine/tests/LightCullingTest.cpp) | 12 | **ForwardPlus** &mdash; `GPUPointLightSize`, `GPUSpotLightSize`, `ForwardPlusUBOSize`, `DefaultGridConfig`, `TileCountCalculation`, `TileCountCalculationNonMultiple`, `TileCountWith32pxTiles`, `SSBOBindingsDontConflict`, `UBOBindingIsUnique`, `ModeEnumValues`, `PointLightPacking`, `SpotLightPacking` |
+| [LightCullingTest.cpp](../OloEngine/tests/LightCullingTest.cpp) | 15 | **ForwardPlus** &mdash; `GPUPointLightSize`, `GPUSpotLightSize`, `GPUSphereAreaLightSize`, `ForwardPlusUBOSize`, `DefaultGridConfig`, `TileCountCalculation`, `TileCountCalculationNonMultiple`, `TileCountWith32pxTiles`, `SSBOBindingsDontConflict`, `UBOBindingIsUnique`, `ModeEnumValues`, `PointLightPacking`, `SpotLightPacking`, `SphereAreaLightPacking`, `LightIndexEncodingLayout` |
 | [MorphTargetTest.cpp](../OloEngine/tests/MorphTargetTest.cpp) | 27 | **MorphTargetTest** &mdash; `DefaultConstruction`, `NamedConstruction`, `ConvertToSparse`, `ConvertToDense`<br/>**MorphTargetSetTest** &mdash; `AddAndFindTarget`, `GetVertexCount`<br/>**MorphTargetEvaluatorTest** &mdash; `ZeroWeightsReturnBase`, `SingleTargetFullWeight`, `HalfWeight`, `MultipleTargetsAdditive`, `SparseEvaluation`<br/>**MorphTargetComponentTest** &mdash; `SetAndGetWeight`, `WeightClamping`, `ResetAllWeights`, `HasActiveWeights`, `GetOrderedWeights`<br/>**FacialExpressionLibraryTest** &mdash; `RegisterAndApply`, `ApplyWithBlend`, `BlendBetweenExpressions`<br/>**MorphTargetKeyframeTest** &mdash; `AnimationClipStoresMorphKeyframes`<br/>**MorphTargetSystemTest** &mdash; `SampleMorphKeyframesAtExactKeys`, `SampleMorphKeyframesInterpolated`, `SampleMorphKeyframesMultipleTargets`, `EmptyClipDoesNotCrash`, `EvaluateMorphTargetsReturnsFalseWithNoActiveWeights`, `EvaluateMorphTargetsAppliesWeights`<br/>**MorphTargetGPUvsCPUTest** &mdash; `CPUReferenceMatchesExpected` |
 | [PostProcessTest.cpp](../OloEngine/tests/PostProcessTest.cpp) | 15 | **PostProcessSettings** &mdash; `DefaultsAreReasonable`, `BloomParameterRanges`, `DOFParameterRanges`, `MotionBlurParameterRanges`<br/>**PostProcessUBOData** &mdash; `SizeIs80Bytes`, `DefaultsMatchSettings`, `FieldOffsets_Std140Compatible`<br/>**MotionBlurUBOData** &mdash; `SizeIs128Bytes`, `DefaultsAreIdentityMatrices`<br/>**ShadowUBO** &mdash; `SizeConsistency`, `FieldLayout`<br/>**TonemapOperator** &mdash; `ValuesMatchGLSLDefines`<br/>**ShaderBindingLayout** &mdash; `PostProcessUBOSlot`, `PostProcessTextureSlots`, `MotionBlurUBOSlot` |
 | [DeccerCubesLoadingTest.cpp](../OloEngine/tests/Rendering/DeccerCubesLoadingTest.cpp) | 1 | **DeccerCubesLoaderFixture** &mdash; `LoadsWithMeshesAndFiniteBounds`<br/>*Parametrised via 1 `INSTANTIATE_TEST_SUITE_P`* |
@@ -1081,7 +1081,7 @@ new `.cpp` under `OloEngine/tests/Rendering/`, `ShaderGraph/`,
 |---|---:|---|
 | [TestFailureCaptureTest.cpp](../OloEngine/tests/Rendering/PropertyTests/TestFailureCaptureTest.cpp) | 6 | **TestFailureCaptureTest** &mdash; `DirectoryForSanitizesNames`, `MetadataIsWrittenWithoutGlContext`, `LatestFrameSummaryIsNoOpWithoutCaptures`, `GLStateSnapshotIsWrittenWhenGpuAvailable`, `FboPngIsWrittenWhenGpuAvailable`, `CaptureAllProducesExpectedArtefacts` |
 
-**Totals.** 63 renderer-scope test files, 1065 TEST / TEST_F / TEST_P declarations across all layers.
+**Totals.** 63 renderer-scope test files, 1068 TEST / TEST_F / TEST_P declarations across all layers.
 
 <!-- END: renderer-catalogue -->
 
