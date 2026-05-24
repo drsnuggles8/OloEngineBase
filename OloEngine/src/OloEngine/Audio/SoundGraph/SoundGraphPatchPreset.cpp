@@ -739,7 +739,10 @@ namespace OloEngine::Audio::SoundGraph
             {
                 return v ? "true" : "false";
             }
-            return ""; }, value);
+            else
+            {
+                static_assert(!sizeof(T*), "Unhandled ParameterValue alternative in SerializeParameterValue");
+            } }, value);
     }
 
     ParameterValue SoundGraphPatchPreset::DeserializeParameterValue(const std::string& valueStr, const ParameterValue& defaultValue) const
@@ -764,7 +767,10 @@ namespace OloEngine::Audio::SoundGraph
             {
                 return valueStr == "true" || valueStr == "1";
             }
-            return defaultVal; }, defaultValue);
+            else
+            {
+                static_assert(!sizeof(T*), "Unhandled ParameterValue alternative in DeserializeParameterValue");
+            } }, defaultValue);
     }
 
     //==============================================================================

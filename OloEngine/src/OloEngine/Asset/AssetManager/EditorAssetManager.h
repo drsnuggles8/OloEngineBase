@@ -250,12 +250,12 @@ namespace OloEngine
                 UpdateDependencies(metadata.Handle);
                 IncrementAssetGeneration(metadata.Handle);
                 // Dispatch AssetReloadedEvent on main thread so UI layers can handle it safely
-                auto handle = metadata.Handle;
-                auto type = metadata.Type;
-                auto path = metadata.FilePath;
-                Tasks::EnqueueGameThreadTask([handle, type, path]() mutable
+                auto reloadHandle = metadata.Handle;
+                auto reloadType = metadata.Type;
+                auto reloadPath = metadata.FilePath;
+                Tasks::EnqueueGameThreadTask([reloadHandle, reloadType, reloadPath]() mutable
                                              {
-                    AssetReloadedEvent evt(handle, type, path);
+                    AssetReloadedEvent evt(reloadHandle, reloadType, reloadPath);
                     Application::Get().OnEvent(evt); }, "AssetReloadedEvent");
             }
 

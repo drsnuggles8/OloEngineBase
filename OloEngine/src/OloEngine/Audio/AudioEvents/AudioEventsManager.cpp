@@ -53,7 +53,7 @@ namespace OloEngine::Audio
         return eventID;
     }
 
-    void AudioEventsManager::Update(Timestep ts)
+    void AudioEventsManager::Update([[maybe_unused]] Timestep ts)
     {
         if (!m_Registry)
         {

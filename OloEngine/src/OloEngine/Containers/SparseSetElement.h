@@ -77,7 +77,7 @@ namespace OloEngine
     namespace SparseSetPrivate
     {
         /** Error handler for invalid set operations */
-        [[noreturn]] inline void OnInvalidSetNum(u64 NewNum)
+        [[noreturn]] inline void OnInvalidSetNum([[maybe_unused]] u64 NewNum)
         {
             OLO_CORE_ASSERT(false, "Invalid set size: {}", NewNum);
             std::abort();

@@ -23,3 +23,8 @@ target_include_directories(OloEditor PRIVATE
 target_link_libraries(OloEditor
                     OloEngine
 )
+
+# Suppress MSVC's "use the _s variant" CRT warnings (C4996 on strncpy/sscanf/etc.).
+# OloEngine already adopts the same stance for the engine library; matching here
+# keeps the editor consistent and avoids per-call-site noise across the panels.
+target_compile_definitions(OloEditor PRIVATE _CRT_SECURE_NO_WARNINGS)

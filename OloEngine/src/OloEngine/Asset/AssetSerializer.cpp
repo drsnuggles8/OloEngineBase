@@ -1888,7 +1888,8 @@ namespace OloEngine
         const auto& vertices = meshSource->GetVertices();
         const auto& indices = meshSource->GetIndices();
         const auto& submeshes = meshSource->GetSubmeshes();
-        const auto& materials = meshSource->GetMaterials();
+        // Use the const overload to read materials — the non-const overload is deprecated.
+        const auto& materials = std::as_const(*meshSource).GetMaterials();
 
         auto vertexCount = static_cast<u32>(vertices.Num());
         auto indexCount = static_cast<u32>(indices.Num());

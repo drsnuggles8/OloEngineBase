@@ -479,7 +479,7 @@ namespace OloEngine
     // Input handling
     // =========================================================================
 
-    void ShaderGraphEditorPanel::HandleCanvasInput(const ImVec2& canvasOrigin, const ImVec2& canvasSize)
+    void ShaderGraphEditorPanel::HandleCanvasInput([[maybe_unused]] const ImVec2& canvasOrigin, [[maybe_unused]] const ImVec2& canvasSize)
     {
         bool const isHovered = ImGui::IsItemHovered();
 

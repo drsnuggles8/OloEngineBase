@@ -79,7 +79,7 @@ namespace OloEngine
         u32 weightsSSBO,
         u32 outputVertexSSBO,
         u32 vertexCount,
-        u32 targetCount)
+        [[maybe_unused]] u32 targetCount)
     {
         OLO_PROFILE_FUNCTION();
 

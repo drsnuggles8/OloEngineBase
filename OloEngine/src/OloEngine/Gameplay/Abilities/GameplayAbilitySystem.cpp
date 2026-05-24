@@ -164,7 +164,7 @@ namespace OloEngine
         return true;
     }
 
-    void GameplayAbilitySystem::CancelAbility(Scene* scene, Entity owner, const GameplayTag& abilityTag)
+    void GameplayAbilitySystem::CancelAbility([[maybe_unused]] Scene* scene, Entity owner, const GameplayTag& abilityTag)
     {
         if (!owner.HasComponent<AbilityComponent>())
         {
@@ -187,7 +187,7 @@ namespace OloEngine
         }
     }
 
-    void GameplayAbilitySystem::ApplyDamage(Scene* scene, const DamageEvent& event)
+    void GameplayAbilitySystem::ApplyDamage([[maybe_unused]] Scene* scene, const DamageEvent& event)
     {
         Entity target = event.Target;
         if (!target || !target.HasComponent<AbilityComponent>())

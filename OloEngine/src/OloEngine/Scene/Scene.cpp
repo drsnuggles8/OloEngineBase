@@ -1027,7 +1027,6 @@ namespace OloEngine
                         // Sample morph target keyframes from the current animation clip
                         if (!animState.m_CurrentClip->MorphKeyframes.empty())
                         {
-                            Entity entity = { e, this };
                             if (entity.HasComponent<MorphTargetComponent>())
                             {
                                 auto& morphComp = entity.GetComponent<MorphTargetComponent>();

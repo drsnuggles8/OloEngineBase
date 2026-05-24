@@ -55,7 +55,7 @@ namespace OloEngine
         }
     }
 
-    void SnapshotInterpolator::Interpolate(Scene& scene, f32 dt)
+    void SnapshotInterpolator::Interpolate(Scene& scene, [[maybe_unused]] f32 dt)
     {
         OLO_PROFILE_FUNCTION();
 
