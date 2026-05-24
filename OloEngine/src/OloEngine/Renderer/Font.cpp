@@ -3,6 +3,8 @@
 #include "SlugData.h"
 #include "SlugFontProcessor.h"
 
+#include "OloEngine/Core/UTF8.h"
+
 #define STB_TRUETYPE_IMPLEMENTATION
 #include <stb_image/stb_truetype.h>
 
@@ -276,5 +278,94 @@ namespace OloEngine
                 return inner;
         }
         return {};
+    }
+
+    f32 Font::MeasureLine(std::string_view line, f32 fsScale, f32 kerning) const
+    {
+        if (!m_IsLoaded || !m_Data)
+            return 0.0f;
+        if (line.empty())
+            return 0.0f;
+
+        // Mirrors the advancement pattern in Renderer2D::DrawString: UTF-8
+        // codepoint iteration, fallback resolution, primary-font kerning.
+        // Space-glyph advance is captured up front so empty fallback rows
+        // don't pay a per-iteration map lookup.
+        const auto* spaceGlyph = m_Data->GetGlyph(' ');
+        const f32 spaceAdvance = spaceGlyph ? spaceGlyph->AdvanceWidth : 0.25f;
+
+        const auto peekNextCodepoint = [&line](sizet pos) -> u32
+        {
+            if (pos >= line.size())
+                return 0u;
+            u32 cp = 0;
+            sizet adv = 0;
+            UTF8::DecodeCodepoint(line, pos, cp, adv);
+            return cp;
+        };
+
+        // Kerning across fonts isn't meaningfully defined — only honour
+        // the kerning table when both `cp` and `next` resolve against the
+        // primary font.
+        const auto resolveAdvance = [&](u32 cp, u32 next, const GlyphLookup& lookup) -> f32
+        {
+            if (!lookup.Glyph)
+                return spaceAdvance;
+            if (lookup.SourceFont == this && next != 0u)
+            {
+                if (auto nextLookup = FindGlyphWithFallback(next); nextLookup.SourceFont == this)
+                    return m_Data->GetAdvance(cp, next);
+            }
+            return lookup.Glyph->AdvanceWidth;
+        };
+
+        double x = 0.0;
+        sizet i = 0;
+        while (i < line.size())
+        {
+            u32 character = 0;
+            sizet adv = 0;
+            UTF8::DecodeCodepoint(line, i, character, adv);
+            const sizet next = i + adv;
+
+            if (character == '\r')
+            {
+                i = next;
+                continue;
+            }
+
+            if (character == ' ')
+            {
+                f32 advance = spaceAdvance;
+                if (next < line.size())
+                    advance = m_Data->GetAdvance(character, peekNextCodepoint(next));
+                x += static_cast<double>(fsScale) * advance + kerning;
+                i = next;
+                continue;
+            }
+
+            if (character == '\t')
+            {
+                x += 4.0 * (static_cast<double>(fsScale) * spaceAdvance + kerning);
+                i = next;
+                continue;
+            }
+
+            auto lookup = FindGlyphWithFallback(character);
+            if (!lookup.Glyph)
+                lookup = FindGlyphWithFallback('?');
+            if (!lookup.Glyph)
+            {
+                i = next;
+                continue;
+            }
+
+            const u32 nextCp = (next < line.size()) ? peekNextCodepoint(next) : 0u;
+            const f32 advance = resolveAdvance(character, nextCp, lookup);
+            x += static_cast<double>(fsScale) * advance + kerning;
+            i = next;
+        }
+
+        return static_cast<f32>(x);
     }
 } // namespace OloEngine
