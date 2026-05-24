@@ -3,9 +3,11 @@
 
 #include "OloEngine/Physics3D/MeshCookingFactory.h"
 
+#include <atomic>
 #include <chrono>
 #include <filesystem>
 #include <fstream>
+#include <sstream>
 #include <system_error>
 #include <thread>
 
@@ -13,15 +15,25 @@ using namespace OloEngine;
 
 namespace
 {
-    // Picks a unique scratch directory under the system temp area so two
-    // test runs in parallel (or a leaked previous run) cannot collide.
+    // Picks a freshly-created, never-reused scratch directory under the system
+    // temp area. The base parent stays as `temp/OloEngineTests/<tag>` for easy
+    // post-mortem cleanup; each invocation appends a per-process timestamp + a
+    // monotonically-increasing counter so concurrent `OloEngine-Tests.exe`
+    // instances cannot delete or overwrite each other's working state.
     std::filesystem::path MakeUniqueScratchDir(const char* tag)
     {
+        static std::atomic<u64> s_Counter{ 0 };
         const auto base = std::filesystem::temp_directory_path() / "OloEngineTests" / tag;
-        std::error_code ec;
-        std::filesystem::remove_all(base, ec); // best-effort cleanup of leftovers
-        std::filesystem::create_directories(base);
-        return base;
+
+        const auto nanos = std::chrono::steady_clock::now().time_since_epoch().count();
+        const auto seq = s_Counter.fetch_add(1, std::memory_order_relaxed);
+
+        std::ostringstream suffix;
+        suffix << std::hex << nanos << "_" << seq;
+
+        const auto unique = base / suffix.str();
+        std::filesystem::create_directories(unique);
+        return unique;
     }
 
     void TouchFile(const std::filesystem::path& path)
@@ -33,7 +45,7 @@ namespace
     {
         std::filesystem::last_write_time(path, t);
     }
-}
+} // namespace
 
 // IsCacheValid is the boundary the cooker uses to decide whether to reuse a
 // previously cooked .omc file. Wiring it into CookMeshType means that any bug
