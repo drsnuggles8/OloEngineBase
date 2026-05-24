@@ -52,17 +52,24 @@ jobs:
           arch: x64
 
       - name: Configure CMake (standalone clang-cl via Ninja Multi-Config)
-        # Switch from `-T ClangCL` (VS2022-bundled LLVM 19) to the `clangcl`
-        # preset (Ninja Multi-Config + standalone clang-cl on PATH, which
-        # is LLVM 20 on `windows-latest`). LLVM 19's ASan runtime trips on
-        # newer Windows API prologues with `interception_win: unhandled
-        # instruction at 0x... ` and the harness exits before
-        # LLVMFuzzerTestOneInput runs. LLVM 20's interceptor handles those
-        # prologues. Side effect: the build dir changes from `build/` to
-        # `build-clang/` (set by the preset).
+        # Switch from `-T ClangCL` (VS2022-bundled LLVM 19) to standalone
+        # clang-cl on PATH, which is LLVM 20 on `windows-latest`. LLVM 19's
+        # ASan runtime trips on newer Windows API prologues with
+        # `interception_win: unhandled instruction at 0x...` and the harness
+        # exits before LLVMFuzzerTestOneInput runs; LLVM 20's interceptor
+        # handles those prologues.
+        #
+        # We replicate the `clangcl` CMake preset's settings inline instead
+        # of using `cmake --preset clangcl`, because the runner's bundled
+        # CMake is 3.x and the presets file declares
+        # `cmakeMinimumRequired = 4.2.0` (a hard error from `cmake --preset`).
         run: |
-          cmake --preset clangcl `
-                -DPython_EXECUTABLE="${{ steps.py.outputs.python-path }}" `
+          cmake -S . -B build-clang `
+                -G "Ninja Multi-Config" `
+                "-DCMAKE_TOOLCHAIN_FILE=${{ github.workspace }}/cmake/ClangCLToolchain.cmake" `
+                "-DFETCHCONTENT_BASE_DIR=${{ github.workspace }}/OloEngine/vendor/clang" `
+                -DBUILD_TESTS=ON `
+                "-DPython_EXECUTABLE=${{ steps.py.outputs.python-path }}" `
                 -DOLO_ENABLE_FUZZING=ON
 
       - name: Build fuzzers
