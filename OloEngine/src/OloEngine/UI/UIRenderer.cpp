@@ -216,68 +216,11 @@ namespace OloEngine
         }
     }
 
-    // Measure the width of a single line of text in local (pre-transform) coordinates.
-    // Mirrors the advancement logic from Renderer2D::DrawString — keep in sync.
-    // TODO: Extract shared glyph-advancement logic into a Font utility to avoid drift.
-    static f32 MeasureLineWidth(std::string_view line, const SlugFontData& fontData,
-                                double fsScale, f32 kerning)
-    {
-        OLO_PROFILE_FUNCTION();
-
-        if (line.empty())
-        {
-            return 0.0f;
-        }
-
-        double x = 0.0;
-        const auto* spaceGlyph = fontData.GetGlyph(' ');
-        const f32 spaceAdvance = spaceGlyph ? spaceGlyph->AdvanceWidth : 0.0f;
-
-        for (sizet i = 0; i < line.size(); i++)
-        {
-            const auto ch = static_cast<u32>(static_cast<u8>(line[i]));
-            if (ch == '\r')
-            {
-                continue;
-            }
-
-            if (ch == ' ')
-            {
-                f32 advance = spaceAdvance;
-                if (i < line.size() - 1)
-                {
-                    advance = fontData.GetAdvance(ch, static_cast<u32>(static_cast<u8>(line[i + 1])));
-                }
-                x += fsScale * advance + kerning;
-                continue;
-            }
-
-            if (ch == '\t')
-            {
-                x += 4.0 * (fsScale * spaceAdvance + kerning);
-                continue;
-            }
-
-            auto* glyph = fontData.GetGlyph(ch);
-            if (!glyph)
-            {
-                glyph = fontData.GetGlyph('?');
-            }
-            if (!glyph)
-            {
-                continue;
-            }
-
-            f32 advance = glyph->AdvanceWidth;
-            if (i < line.size() - 1)
-            {
-                advance = fontData.GetAdvance(ch, static_cast<u32>(static_cast<u8>(line[i + 1])));
-            }
-            x += fsScale * advance + kerning;
-        }
-
-        return static_cast<f32>(x);
-    }
+    // Line width is delegated to Font::MeasureLine — that helper iterates UTF-8
+    // codepoints (not bytes) and walks the font-fallback chain, matching the
+    // glyph-emission path in Renderer2D::DrawString. The previous local helper
+    // measured byte-by-byte and lacked fallback, so any non-ASCII line drifted
+    // out of alignment.
 
     void UIRenderer::DrawUIText(const glm::vec2& position, const glm::vec2& size, const UITextComponent& text, int entityID)
     {
@@ -351,7 +294,7 @@ namespace OloEngine
                     line = line.substr(0, line.size() - 1);
                 }
                 lines.emplace_back(line);
-                lineWidths.push_back(MeasureLineWidth(line, *slugData, fsScale, text.m_Kerning) * scale);
+                lineWidths.push_back(fontAsset->MeasureLine(line, static_cast<f32>(fsScale), text.m_Kerning) * scale);
                 start = end + 1;
             }
         }

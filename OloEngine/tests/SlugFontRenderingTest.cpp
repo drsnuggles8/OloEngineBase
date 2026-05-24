@@ -1,6 +1,7 @@
 #include "OloEnginePCH.h"
 #include <gtest/gtest.h>
 
+#include "OloEngine/Renderer/Font.h"
 #include "OloEngine/Renderer/SlugData.h"
 #include "OloEngine/Renderer/SlugFontProcessor.h"
 
@@ -234,4 +235,163 @@ TEST(SlugCurveTest, ControlPointStorage)
     EXPECT_FLOAT_EQ(curve.P1.x, 0.0f);
     EXPECT_FLOAT_EQ(curve.P2.y, 1.0f);
     EXPECT_FLOAT_EQ(curve.P3.x, 1.0f);
+}
+
+// ---------------------------------------------------------------------------
+// Font::MeasureLine — UTF-8-aware line-width measurement.
+// Mirrors Renderer2D::DrawString's advancement logic. The previous in-house
+// helper in UIRenderer iterated bytes instead of codepoints, which silently
+// double-charged the width of every non-ASCII character — these tests pin
+// the UTF-8 / fallback / whitespace contract that fix relies on.
+// ---------------------------------------------------------------------------
+
+namespace
+{
+    // Try to load the default font. Returns null if no on-disk candidate
+    // path matches the current working directory.
+    Ref<Font> TryLoadDefaultFont()
+    {
+        // Font::GetDefault searches a small set of candidate paths internally
+        // (the same set as the engine uses), so we can rely on it for the
+        // test runner whether it's launched from the repo root or another
+        // working directory.
+        auto font = Font::GetDefault();
+        return (font && font->IsLoaded()) ? font : Ref<Font>{};
+    }
+
+    // The fsScale factor (em → local space) used by Renderer2D::DrawString.
+    f32 FsScaleFromMetrics(const SlugFontMetrics& metrics)
+    {
+        const double span = static_cast<double>(metrics.AscenderY) - static_cast<double>(metrics.DescenderY);
+        return std::abs(span) > 1e-6 ? static_cast<f32>(1.0 / span) : 1.0f;
+    }
+} // namespace
+
+TEST(FontMeasureLineTest, EmptyStringReturnsZero)
+{
+    auto font = TryLoadDefaultFont();
+    if (!font)
+    {
+        GTEST_SKIP() << "Default font unavailable in CWD";
+    }
+    EXPECT_FLOAT_EQ(font->MeasureLine("", 1.0f, 0.0f), 0.0f);
+}
+
+TEST(FontMeasureLineTest, AsciiMeasurementIsPositive)
+{
+    auto font = TryLoadDefaultFont();
+    if (!font)
+    {
+        GTEST_SKIP() << "Default font unavailable in CWD";
+    }
+    const auto* data = font->GetSlugData();
+    ASSERT_NE(data, nullptr);
+    const f32 fsScale = FsScaleFromMetrics(data->Metrics);
+
+    EXPECT_GT(font->MeasureLine("hello", fsScale, 0.0f), 0.0f);
+}
+
+TEST(FontMeasureLineTest, Utf8CharCountsAsOneGlyph)
+{
+    // Regression guard for the UIRenderer byte-iteration bug:
+    // 'é' is U+00E9, encoded as 0xC3 0xA9 in UTF-8. A byte-iterating
+    // measurer charges TWO Latin-1 glyphs (Ã + ©) instead of one.
+    // The codepoint-aware path must measure roughly one glyph wide.
+    auto font = TryLoadDefaultFont();
+    if (!font)
+    {
+        GTEST_SKIP() << "Default font unavailable in CWD";
+    }
+    const auto* data = font->GetSlugData();
+    ASSERT_NE(data, nullptr);
+    const f32 fsScale = FsScaleFromMetrics(data->Metrics);
+
+    const f32 widthAccented = font->MeasureLine("\xC3\xA9", fsScale, 0.0f); // "é"
+    const f32 widthTwoLatin = font->MeasureLine("ee", fsScale, 0.0f);
+    ASSERT_GT(widthAccented, 0.0f);
+    ASSERT_GT(widthTwoLatin, 0.0f);
+
+    // One 'é' must be clearly narrower than two ASCII glyphs.
+    EXPECT_LT(widthAccented, widthTwoLatin * 0.75f)
+        << "'é' (2 bytes UTF-8) measured as " << widthAccented
+        << ", expected < " << (widthTwoLatin * 0.75f)
+        << " — looks like a byte-iteration regression";
+}
+
+TEST(FontMeasureLineTest, CarriageReturnIsSkipped)
+{
+    auto font = TryLoadDefaultFont();
+    if (!font)
+    {
+        GTEST_SKIP() << "Default font unavailable in CWD";
+    }
+    const auto* data = font->GetSlugData();
+    ASSERT_NE(data, nullptr);
+    const f32 fsScale = FsScaleFromMetrics(data->Metrics);
+
+    EXPECT_FLOAT_EQ(font->MeasureLine("hi", fsScale, 0.0f),
+                    font->MeasureLine("h\ri", fsScale, 0.0f));
+}
+
+TEST(FontMeasureLineTest, TabExpandsToFourSpaces)
+{
+    auto font = TryLoadDefaultFont();
+    if (!font)
+    {
+        GTEST_SKIP() << "Default font unavailable in CWD";
+    }
+    const auto* data = font->GetSlugData();
+    ASSERT_NE(data, nullptr);
+    const f32 fsScale = FsScaleFromMetrics(data->Metrics);
+
+    const f32 widthTab = font->MeasureLine("\t", fsScale, 0.0f);
+    const f32 widthFourSpaces = font->MeasureLine("    ", fsScale, 0.0f);
+    // Tab is defined as exactly 4 × (fsScale * spaceAdvance + kerning).
+    // With kerning=0 and a fixed space advance these should match closely;
+    // a small absolute tolerance covers any FP rounding difference.
+    EXPECT_NEAR(widthTab, widthFourSpaces, 1e-4f);
+}
+
+TEST(FontMeasureLineTest, MissingGlyphFallsBackToQuestion)
+{
+    auto font = TryLoadDefaultFont();
+    if (!font)
+    {
+        GTEST_SKIP() << "Default font unavailable in CWD";
+    }
+    const auto* data = font->GetSlugData();
+    ASSERT_NE(data, nullptr);
+    if (!data->GetGlyph('?'))
+    {
+        GTEST_SKIP() << "Default font lacks '?' — fallback target unavailable";
+    }
+    const f32 fsScale = FsScaleFromMetrics(data->Metrics);
+
+    // U+4E2D ('中', CJK) is outside the default Latin-1 range, so the font
+    // has no glyph. With no fallback chain configured, Font::MeasureLine
+    // must substitute '?'.
+    const f32 widthCJK = font->MeasureLine("\xE4\xB8\xAD", fsScale, 0.0f);
+    const f32 widthQuestion = font->MeasureLine("?", fsScale, 0.0f);
+    EXPECT_FLOAT_EQ(widthCJK, widthQuestion);
+}
+
+TEST(FontMeasureLineTest, MultipleCodepointsAccumulate)
+{
+    auto font = TryLoadDefaultFont();
+    if (!font)
+    {
+        GTEST_SKIP() << "Default font unavailable in CWD";
+    }
+    const auto* data = font->GetSlugData();
+    ASSERT_NE(data, nullptr);
+    const f32 fsScale = FsScaleFromMetrics(data->Metrics);
+
+    // Longer strings must measure strictly wider than shorter prefixes
+    // (assuming the font has the glyphs and no negative kerning swings it
+    // negative — true for OpenSans on this test set).
+    const f32 widthA = font->MeasureLine("A", fsScale, 0.0f);
+    const f32 widthAB = font->MeasureLine("AB", fsScale, 0.0f);
+    const f32 widthABC = font->MeasureLine("ABC", fsScale, 0.0f);
+    EXPECT_LT(widthA, widthAB);
+    EXPECT_LT(widthAB, widthABC);
 }

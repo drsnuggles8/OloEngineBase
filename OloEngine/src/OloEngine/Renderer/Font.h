@@ -2,6 +2,7 @@
 
 #include <filesystem>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include "OloEngine/Core/Base.h"
@@ -126,6 +127,25 @@ namespace OloEngine
             const SlugGlyphData* Glyph = nullptr;
         };
         [[nodiscard]] GlyphLookup FindGlyphWithFallback(u32 codepoint) const;
+
+        // Measure the local-space width of a single line of text.
+        //
+        // Iterates UTF-8 codepoints (not bytes), consults the fallback
+        // chain for missing glyphs, and honours kerning pairs when both
+        // characters resolve against the same source font. Whitespace
+        // handling mirrors Renderer2D::DrawString:
+        //   '\r' -> skipped
+        //   ' '  -> uses space-glyph advance (kerned to next char if any)
+        //   '\t' -> 4 × (space advance + kerning)
+        //
+        // Missing glyphs fall back to '?'; if that's also missing they
+        // are skipped (matches Renderer2D::DrawString). `line` is treated
+        // as a single line — split on `\n` before calling.
+        //
+        // `fsScale` is the em-space-to-local-space factor (1 / metricSpan,
+        // i.e. 1 / (AscenderY - DescenderY)). `kerning` is added per
+        // advance, before scaling. Returns 0.0 if the font is not loaded.
+        [[nodiscard]] f32 MeasureLine(std::string_view line, f32 fsScale, f32 kerning) const;
 
       private:
         // Common initialization path shared by both constructors. Loads
