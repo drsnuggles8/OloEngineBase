@@ -200,6 +200,12 @@ namespace OloEngine
         std::string GenerateCacheKey(Ref<MeshColliderAsset> colliderAsset, EMeshColliderType type);
         std::filesystem::path GetCacheDirectory();
 
+        // Resolves the absolute filesystem path of the source mesh referenced
+        // by the collider asset. Returns an empty path for memory-only assets,
+        // missing metadata, or when no project is active — callers use that as
+        // a signal to skip timestamp-based cache invalidation.
+        std::filesystem::path ResolveSourceMeshPath(AssetHandle meshHandle);
+
         // Error handling
         void LogCookingError(const std::string& operation, const std::string& error);
 

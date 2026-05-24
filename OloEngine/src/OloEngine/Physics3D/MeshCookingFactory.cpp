@@ -4,6 +4,7 @@
 #include "OloEngine/Core/Application.h"
 #include "OloEngine/Core/Log.h"
 #include "OloEngine/Asset/AssetManager.h"
+#include "OloEngine/Project/Project.h"
 #include "OloEngine/Renderer/Mesh.h"
 #include "OloEngine/Renderer/MeshSource.h"
 
@@ -123,8 +124,20 @@ namespace OloEngine
             cacheFilePath = GetCacheFilePath(colliderAsset, type);
             if (!invalidateOld && std::filesystem::exists(cacheFilePath))
             {
-                // TODO: Add timestamp checking against source mesh
-                return ECookingResult::AlreadyExists;
+                // Resolve the source mesh's filesystem path so we can compare
+                // modification times. When the source has no backing file
+                // (memory-only assets, missing metadata, or no active project),
+                // preserve the legacy behavior of treating an existing cache as
+                // authoritative — re-cooking every load would be worse than a
+                // potentially-stale cache in that case.
+                std::filesystem::path sourcePath = ResolveSourceMeshPath(colliderAsset->m_ColliderMesh);
+                if (sourcePath.empty() || IsCacheValid(cacheFilePath, sourcePath))
+                {
+                    return ECookingResult::AlreadyExists;
+                }
+
+                OLO_CORE_INFO("MeshCookingFactory: Source mesh '{}' is newer than cached collider '{}', re-cooking",
+                              sourcePath.string(), cacheFilePath.string());
             }
         }
 
@@ -1066,6 +1079,31 @@ namespace OloEngine
         // Generate a unique cache key based on asset handle and type
         std::string typeString = (type == EMeshColliderType::Triangle) ? "tri" : "cvx";
         return fmt::format("{}_{}", static_cast<u64>(colliderAsset->GetHandle()), typeString);
+    }
+
+    std::filesystem::path MeshCookingFactory::ResolveSourceMeshPath(AssetHandle meshHandle)
+    {
+        // We cannot attribute a filesystem path without an active project +
+        // asset manager (e.g. headless unit tests). The caller treats an
+        // empty result as "skip timestamp check" and preserves the legacy
+        // cache-exists-is-authoritative behavior.
+        if (static_cast<u64>(meshHandle) == 0)
+            return {};
+        if (!Project::GetActive())
+            return {};
+
+        AssetMetadata metadata = AssetManager::GetAssetMetadata(meshHandle);
+        if (!metadata.IsValid() || metadata.FilePath.empty())
+            return {};
+
+        if (metadata.FilePath.is_absolute())
+            return metadata.FilePath;
+
+        const auto& projectDir = Project::GetProjectDirectory();
+        if (projectDir.empty())
+            return {};
+
+        return projectDir / metadata.FilePath;
     }
 
     std::filesystem::path MeshCookingFactory::GetCacheDirectory()
