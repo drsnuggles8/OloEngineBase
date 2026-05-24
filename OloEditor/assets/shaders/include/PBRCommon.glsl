@@ -13,6 +13,12 @@
 #define DIRECTIONAL_LIGHT 0
 #define POINT_LIGHT 1
 #define SPOT_LIGHT 2
+// Sphere area lights reuse the MultiLightData layout: SpotParams.z encodes the
+// emitter sphere radius and the standard Position/Range fields drive distance
+// falloff. Specular is shaded via the Karis 2013 representative-point trick;
+// diffuse uses a solid-angle correction that collapses to a point light as
+// the radius approaches zero.
+#define SPHERE_AREA_LIGHT 3
 
 // =============================================================================
 // MATHEMATICAL CONSTANTS
@@ -496,6 +502,100 @@ vec3 calculateAreaLightContribution(vec3 N, vec3 V, vec3 lightPos, vec3 lightSiz
 }
 
 // =============================================================================
+// SPHERE AREA LIGHT (Karis 2013 representative point)
+// =============================================================================
+
+// Compute the representative light direction for a sphere area light's specular
+// term. Conceptually: find the point on the emitter sphere that the surface's
+// reflection ray would hit, then shade as if the light were that point.
+// fragPos     — surface position (world space)
+// N           — surface normal (world space)
+// V           — view vector (world space, from surface to camera)
+// lightPos    — sphere center (world space)
+// sphereRadius — physical emitter radius
+//
+// Reference: Karis, "Real Shading in Unreal Engine 4", SIGGRAPH 2013, eq. 12.
+vec3 calculateSphereAreaLightRepresentativePoint(vec3 fragPos, vec3 N, vec3 V,
+                                                  vec3 lightPos, float sphereRadius)
+{
+    vec3 r = reflect(-V, N);
+    vec3 L = lightPos - fragPos;
+    vec3 centerToRay = dot(L, r) * r - L;
+    vec3 closestPoint = L + centerToRay * clamp(sphereRadius / max(length(centerToRay), EPSILON), 0.0, 1.0);
+    return normalize(closestPoint);
+}
+
+// Energy-conservation rescale for the GGX normalization when the light has
+// a physical radius. Without this, larger radii produce brighter highlights.
+// (Karis 2013, eq. 14 — derived from the analytic solid angle of a sphere.)
+float sphereAreaLightNormalization(float roughness, float distance, float sphereRadius)
+{
+    float alpha = roughness * roughness;
+    float alphaPrime = clamp(alpha + sphereRadius / max(2.0 * distance, EPSILON), 0.0, 1.0);
+    // Squared ratio so the BRDF integrates to 1 as radius -> 0 (point light).
+    float ratio = alpha / max(alphaPrime, EPSILON);
+    return ratio * ratio;
+}
+
+// Evaluate a sphere area light at the surface.
+// Returns the radiance contribution (radiance * NdotL * BRDF).
+vec3 calculateSphereAreaLightContribution(vec3 N, vec3 V, vec3 lightPos, float sphereRadius,
+                                           vec3 lightColor, float lightIntensity, float range,
+                                           vec3 albedo, float metallic, float roughness, vec3 worldPos)
+{
+    vec3 toLight = lightPos - worldPos;
+    float distance = length(toLight);
+
+    // Early-out: outside range. Range is measured from the centre, matching
+    // the way light culling treats the bounding sphere.
+    if (distance > range) return vec3(0.0);
+
+    // Standard L for diffuse — use the light centre, not the representative
+    // point (the diffuse term integrates over the full hemisphere already).
+    vec3 Ldiff = toLight / max(distance, EPSILON);
+    float NdotL = max(dot(N, Ldiff), 0.0);
+    if (NdotL <= EPSILON) return vec3(0.0);
+
+    // Smooth distance attenuation matching the Forward+ point-light falloff.
+    float distRatio = distance / max(range, EPSILON);
+    float distAtten = max(1.0 - distRatio * distRatio, 0.0);
+    distAtten = distAtten * distAtten / (distance * distance + 1.0);
+
+    // Representative point for specular. Closer-to-zero radius converges to
+    // the centre direction, recovering point-light behaviour.
+    vec3 Lspec = calculateSphereAreaLightRepresentativePoint(worldPos, N, V, lightPos, sphereRadius);
+
+    // Split BRDF: diffuse uses Ldiff (centre), specular uses Lspec (rep point).
+    // We compute diffuse + specular separately to avoid double-counting fresnel
+    // off the wrong half-vector.
+    vec3 H = normalize(V + Lspec);
+    float NdotV = max(dot(N, V), 0.0);
+    float NdotLspec = max(dot(N, Lspec), 0.0);
+    float NdotH = max(dot(N, H), 0.0);
+    float VdotH = max(dot(V, H), 0.0);
+
+    vec3 F0 = mix(vec3(DEFAULT_DIELECTRIC_F0), albedo, metallic);
+    float D = distributionGGX(N, H, roughness);
+    float G = geometrySmith(N, V, Lspec, roughness);
+    vec3  F = fresnelSchlick(VdotH, F0);
+
+    // Energy-conservation rescale (Karis eq. 14).
+    float normFactor = sphereAreaLightNormalization(roughness, distance, sphereRadius);
+    D *= normFactor;
+
+    vec3 specular = (D * G * F) / max(4.0 * NdotV * NdotLspec, EPSILON);
+
+    // Diffuse uses the centre direction; energy lost to specular is removed.
+    vec3 kS = F;
+    vec3 kD = (vec3(1.0) - kS) * (1.0 - metallic);
+    vec3 diffuse = kD * albedo * INV_PI;
+
+    vec3 radiance = lightColor * lightIntensity * distAtten;
+    // Diffuse term scales by NdotL (Lambertian); specular by NdotLspec.
+    return (diffuse * NdotL + specular * NdotLspec) * radiance;
+}
+
+// =============================================================================
 // MULTI-LIGHT CALCULATION
 // =============================================================================
 
@@ -506,6 +606,18 @@ vec3 calculateLightContribution(LightData light, vec3 N, vec3 V, vec3 albedo,
     int lightType = int(light.position.w);
     vec3 lightColor = light.color.rgb;
     float lightIntensity = light.color.w;
+
+    // Sphere area lights take a dedicated evaluator — the representative-point
+    // trick splits the BRDF differently, so we cannot route it through the
+    // common L + cookTorranceBRDF path below.
+    if (lightType == SPHERE_AREA_LIGHT)
+    {
+        float sphereRadius = light.spotParams.z;       // Packed by Scene::ProcessScene3DSharedLogic
+        float range        = light.attenuationParams.w;
+        return calculateSphereAreaLightContribution(N, V, light.position.xyz, sphereRadius,
+                                                    lightColor, lightIntensity, range,
+                                                    albedo, metallic, roughness, worldPos);
+    }
 
     vec3 L;
     float attenuation = 1.0;
@@ -553,6 +665,16 @@ vec3 calculateLightContributionEnhanced(LightData light, vec3 N, vec3 V, vec3 al
     int lightType = int(light.position.w);
     vec3 lightColor = light.color.rgb;
     float lightIntensity = light.color.w;
+
+    // Sphere area lights split the BRDF differently; use the dedicated evaluator.
+    if (lightType == SPHERE_AREA_LIGHT)
+    {
+        float sphereRadius = light.spotParams.z;
+        float range        = light.attenuationParams.w;
+        return calculateSphereAreaLightContribution(N, V, light.position.xyz, sphereRadius,
+                                                    lightColor, lightIntensity, range,
+                                                    albedo, metallic, roughness, worldPos);
+    }
 
     vec3 L;
     float attenuation = 1.0;

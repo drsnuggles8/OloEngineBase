@@ -10,7 +10,7 @@
 #define FORWARD_PLUS_COMMON_GLSL
 
 // ---------------------------------------------------------------------------
-// GPU light structures (must match C++ GPUPointLight / GPUSpotLight)
+// GPU light structures (must match C++ GPUPointLight / GPUSpotLight / GPUSphereAreaLight)
 // ---------------------------------------------------------------------------
 
 struct FPlusPointLight
@@ -27,14 +27,40 @@ struct FPlusSpotLight
     vec4 SpotParams;           // x = cos(innerAngle), y = falloff, zw = 0
 };
 
+struct FPlusSphereAreaLight
+{
+    vec4 PositionAndRadius;    // xyz = world pos, w = emitter sphere radius
+    vec4 ColorAndIntensity;    // xyz = color, w = intensity
+    vec4 RangeAndPadding;      // x = range (falloff), yzw = reserved
+};
+
 // ---------------------------------------------------------------------------
 // SSBOs — bindings match ShaderBindingLayout constants
 // ---------------------------------------------------------------------------
 
-layout(std430, binding = 9)  readonly buffer FPlusPointLightBuf  { FPlusPointLight fplusPointLights[]; };
-layout(std430, binding = 10) readonly buffer FPlusSpotLightBuf   { FPlusSpotLight  fplusSpotLights[];  };
-layout(std430, binding = 11) readonly buffer FPlusLightIndexBuf  { uint fplusLightIndices[];           };
-layout(std430, binding = 12) readonly buffer FPlusLightGridBuf   { uvec2 fplusGrid[];                  };
+layout(std430, binding = 9)  readonly buffer FPlusPointLightBuf       { FPlusPointLight fplusPointLights[];           };
+layout(std430, binding = 10) readonly buffer FPlusSpotLightBuf        { FPlusSpotLight  fplusSpotLights[];            };
+layout(std430, binding = 11) readonly buffer FPlusLightIndexBuf       { uint fplusLightIndices[];                     };
+layout(std430, binding = 12) readonly buffer FPlusLightGridBuf        { uvec2 fplusGrid[];                            };
+layout(std430, binding = 18) readonly buffer FPlusSphereAreaLightBuf  { FPlusSphereAreaLight fplusSphereAreaLights[]; };
+
+// ---------------------------------------------------------------------------
+// Packed light-index encoding written by LightCulling.comp
+//
+//   bits 31..30 — type tag: 0 = point, 1 = sphere area, 2 = spot
+//   bits 29..0  — index into the corresponding SSBO
+//
+// The legacy spot encoding (0x80000000 high-bit) maps to type tag 2, so old
+// shaders that only checked the top bit for "isSpot" stay correct as long as
+// no sphere area lights are present. Once any are present, callers MUST use
+// the 2-bit decoder below.
+// ---------------------------------------------------------------------------
+#define FPLUS_TYPE_TAG_POINT        0u
+#define FPLUS_TYPE_TAG_SPHERE_AREA  1u
+#define FPLUS_TYPE_TAG_SPOT         2u
+#define FPLUS_TYPE_TAG_MASK         0xC0000000u
+#define FPLUS_INDEX_MASK            0x3FFFFFFFu
+#define FPLUS_TYPE_TAG_SHIFT        30u
 
 // ---------------------------------------------------------------------------
 // UBO — matches C++ ForwardPlusUBO (binding = 25)
@@ -77,13 +103,11 @@ vec3 fplusEvaluateTileLights(vec3 N, vec3 V, vec3 worldPos,
     {
         uint packedIdx = fplusLightIndices[offset + i];
 
-        // High bit set = spot light (see LightCulling.comp encoding)
-        bool isSpot = (packedIdx & 0x80000000u) != 0u;
-        uint idx = packedIdx & 0x7FFFFFFFu;
+        uint typeTag = (packedIdx >> FPLUS_TYPE_TAG_SHIFT) & 0x3u;
+        uint idx     = packedIdx & FPLUS_INDEX_MASK;
 
-        if (!isSpot)
+        if (typeTag == FPLUS_TYPE_TAG_POINT)
         {
-            // Point light
             FPlusPointLight pl = fplusPointLights[idx];
             vec3 lightPos   = pl.PositionAndRadius.xyz;
             float range     = pl.PositionAndRadius.w;
@@ -102,9 +126,21 @@ vec3 fplusEvaluateTileLights(vec3 N, vec3 V, vec3 worldPos,
             vec3 radiance = lightColor * atten;
             Lo += cookTorranceBRDF(N, V, L, albedo, metallic, roughness) * radiance;
         }
-        else
+        else if (typeTag == FPLUS_TYPE_TAG_SPHERE_AREA)
         {
-            // Spot light
+            FPlusSphereAreaLight sl = fplusSphereAreaLights[idx];
+            vec3 lightPos      = sl.PositionAndRadius.xyz;
+            float sphereRadius = sl.PositionAndRadius.w;
+            vec3 lightColor    = sl.ColorAndIntensity.xyz;
+            float intensity    = sl.ColorAndIntensity.w;
+            float range        = sl.RangeAndPadding.x;
+
+            Lo += calculateSphereAreaLightContribution(N, V, lightPos, sphereRadius,
+                                                       lightColor, intensity, range,
+                                                       albedo, metallic, roughness, worldPos);
+        }
+        else // FPLUS_TYPE_TAG_SPOT
+        {
             FPlusSpotLight sl = fplusSpotLights[idx];
             vec3 lightPos     = sl.PositionAndRadius.xyz;
             float range       = sl.PositionAndRadius.w;

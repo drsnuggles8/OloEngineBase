@@ -2012,6 +2012,24 @@ namespace OloEngine
             spotLight.m_ShadowNormalBias = spotLightComponent["ShadowNormalBias"].as<f32>(spotLight.m_ShadowNormalBias);
         }
 
+        if (auto sphereAreaLightComponent = entity["SphereAreaLightComponent"]; sphereAreaLightComponent)
+        {
+            auto& areaLight = deserializedEntity.AddComponent<SphereAreaLightComponent>();
+            const auto color = sphereAreaLightComponent["Color"].as<glm::vec3>(areaLight.m_Color);
+            if (std::isfinite(color.x) && std::isfinite(color.y) && std::isfinite(color.z))
+                areaLight.m_Color = color;
+            const f32 intensity = sphereAreaLightComponent["Intensity"].as<f32>(areaLight.m_Intensity);
+            if (std::isfinite(intensity) && intensity >= 0.0f)
+                areaLight.m_Intensity = intensity;
+            const f32 radius = sphereAreaLightComponent["Radius"].as<f32>(areaLight.m_Radius);
+            if (std::isfinite(radius) && radius >= 0.0f)
+                areaLight.m_Radius = radius;
+            const f32 range = sphereAreaLightComponent["Range"].as<f32>(areaLight.m_Range);
+            if (std::isfinite(range) && range >= 0.0f)
+                areaLight.m_Range = range;
+            areaLight.m_CastShadows = sphereAreaLightComponent["CastShadows"].as<bool>(areaLight.m_CastShadows);
+        }
+
         if (auto envMapComponent = entity["EnvironmentMapComponent"]; envMapComponent)
         {
             auto& envMap = deserializedEntity.AddComponent<EnvironmentMapComponent>();
@@ -3723,6 +3741,21 @@ namespace OloEngine
             out << YAML::Key << "ShadowNormalBias" << YAML::Value << spotLight.m_ShadowNormalBias;
 
             out << YAML::EndMap; // SpotLightComponent
+        }
+
+        if (entity.HasComponent<SphereAreaLightComponent>())
+        {
+            out << YAML::Key << "SphereAreaLightComponent";
+            out << YAML::BeginMap; // SphereAreaLightComponent
+
+            auto const& areaLight = entity.GetComponent<SphereAreaLightComponent>();
+            out << YAML::Key << "Color" << YAML::Value << areaLight.m_Color;
+            out << YAML::Key << "Intensity" << YAML::Value << areaLight.m_Intensity;
+            out << YAML::Key << "Radius" << YAML::Value << areaLight.m_Radius;
+            out << YAML::Key << "Range" << YAML::Value << areaLight.m_Range;
+            out << YAML::Key << "CastShadows" << YAML::Value << areaLight.m_CastShadows;
+
+            out << YAML::EndMap; // SphereAreaLightComponent
         }
 
         if (entity.HasComponent<EnvironmentMapComponent>())

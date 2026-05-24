@@ -10,21 +10,23 @@ namespace OloEngine
 {
     // @brief Manages GPU light data SSBOs for Forward+ rendering.
     //
-    // Packs scene point lights and spot lights into separate SSBOs
-    // that the light culling compute shader reads from. Directional lights
-    // bypass culling and are still handled via UBO (they affect all tiles).
+    // Packs scene point lights, spot lights, and sphere area lights into
+    // separate SSBOs that the light culling compute shader reads from.
+    // Directional lights bypass culling and are still handled via UBO (they
+    // affect all tiles).
     class LightCullingBuffer
     {
       public:
         LightCullingBuffer() = default;
         ~LightCullingBuffer() = default;
 
-        void Initialize(u32 maxPointLights = 1024, u32 maxSpotLights = 256);
+        void Initialize(u32 maxPointLights = 1024, u32 maxSpotLights = 256, u32 maxSphereAreaLights = 64);
         void Shutdown();
 
         // Upload light arrays to GPU SSBOs
         void Update(const std::vector<GPUPointLight>& pointLights,
-                    const std::vector<GPUSpotLight>& spotLights);
+                    const std::vector<GPUSpotLight>& spotLights,
+                    const std::vector<GPUSphereAreaLight>& sphereAreaLights);
 
         void Bind() const;
         void Unbind() const;
@@ -37,6 +39,10 @@ namespace OloEngine
         {
             return m_SpotLightCount;
         }
+        [[nodiscard]] u32 GetSphereAreaLightCount() const
+        {
+            return m_SphereAreaLightCount;
+        }
         [[nodiscard]] const Ref<StorageBuffer>& GetPointLightSSBO() const
         {
             return m_PointLightSSBO;
@@ -44,6 +50,10 @@ namespace OloEngine
         [[nodiscard]] const Ref<StorageBuffer>& GetSpotLightSSBO() const
         {
             return m_SpotLightSSBO;
+        }
+        [[nodiscard]] const Ref<StorageBuffer>& GetSphereAreaLightSSBO() const
+        {
+            return m_SphereAreaLightSSBO;
         }
         [[nodiscard]] bool IsInitialized() const
         {
@@ -53,10 +63,13 @@ namespace OloEngine
       private:
         Ref<StorageBuffer> m_PointLightSSBO;
         Ref<StorageBuffer> m_SpotLightSSBO;
+        Ref<StorageBuffer> m_SphereAreaLightSSBO;
         u32 m_PointLightCount = 0;
         u32 m_SpotLightCount = 0;
+        u32 m_SphereAreaLightCount = 0;
         u32 m_MaxPointLights = 1024;
         u32 m_MaxSpotLights = 256;
+        u32 m_MaxSphereAreaLights = 64;
         bool m_Initialized = false;
     };
 } // namespace OloEngine

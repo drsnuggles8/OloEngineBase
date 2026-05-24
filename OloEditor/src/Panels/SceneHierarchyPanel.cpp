@@ -1653,6 +1653,7 @@ namespace OloEngine
             DisplayAddComponentEntry<DirectionalLightComponent>("Directional Light");
             DisplayAddComponentEntry<PointLightComponent>("Point Light");
             DisplayAddComponentEntry<SpotLightComponent>("Spot Light");
+            DisplayAddComponentEntry<SphereAreaLightComponent>("Sphere Area Light");
             DisplayAddComponentEntry<EnvironmentMapComponent>("Environment Map (Skybox/IBL)");
 
             ImGui::Separator();
@@ -3095,6 +3096,25 @@ namespace OloEngine
                 ImGui::Indent();
                 ImGui::DragFloat("Shadow Bias##SpotLight", &component.m_ShadowBias, 0.0001f, 0.0f, 0.05f, "%.4f");
                 ImGui::DragFloat("Normal Bias##SpotLight", &component.m_ShadowNormalBias, 0.001f, 0.0f, 0.1f, "%.3f");
+                ImGui::Unindent();
+            } });
+
+        DrawComponent<SphereAreaLightComponent>("Sphere Area Light", entity, [](auto& component)
+                                                {
+            ImGui::ColorEdit3("Color##SphereArea", glm::value_ptr(component.m_Color));
+            ImGui::DragFloat("Intensity##SphereArea", &component.m_Intensity, 0.1f, 0.0f, 10.0f);
+            ImGui::DragFloat("Radius##SphereArea", &component.m_Radius, 0.01f, 0.0f, 10.0f);
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Physical emitter radius. 0 collapses to a point light.");
+            ImGui::DragFloat("Range##SphereArea", &component.m_Range, 0.1f, 0.0f, 100.0f);
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Falloff distance (lighting contribution clamps to zero beyond).");
+            ImGui::Checkbox("Cast Shadows##SphereArea", &component.m_CastShadows);
+            if (component.m_CastShadows)
+            {
+                ImGui::Indent();
+                ImGui::TextColored(ImVec4(0.8f, 0.7f, 0.3f, 1.0f),
+                                   "Note: soft shadows from area lights are not implemented yet.");
                 ImGui::Unindent();
             } });
 

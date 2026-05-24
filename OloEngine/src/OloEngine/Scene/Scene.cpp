@@ -2057,6 +2057,8 @@ namespace OloEngine
     template<>
     void Scene::OnComponentAdded<PointLightComponent>(Entity, PointLightComponent&) {}
     template<>
+    void Scene::OnComponentAdded<SphereAreaLightComponent>(Entity, SphereAreaLightComponent&) {}
+    template<>
     void Scene::OnComponentAdded<SpotLightComponent>(Entity, SpotLightComponent&) {}
     template<>
     void Scene::OnComponentAdded<EnvironmentMapComponent>(Entity, EnvironmentMapComponent&) {}
@@ -3037,6 +3039,29 @@ namespace OloEngine
                 {
                     data.Direction = glm::vec4(spotLight.m_Direction, -1.0f);
                 }
+
+                ++lightIndex;
+            }
+
+            // Collect sphere area lights. Packed into MultiLightData with the
+            // SPHERE_AREA_LIGHT type tag (w=3) and the emitter sphere radius
+            // stored in SpotParams.z — see PBRCommon.glsl for the decoder side.
+            auto sphereAreaLightView = m_Registry.view<TransformComponent, SphereAreaLightComponent>();
+            for (auto entity : sphereAreaLightView)
+            {
+                if (lightIndex >= static_cast<i32>(UBOStructures::MultiLightUBO::MAX_LIGHTS))
+                {
+                    break;
+                }
+
+                const auto& [transform, areaLight] = sphereAreaLightView.get<TransformComponent, SphereAreaLightComponent>(entity);
+
+                auto& data = multiLightData.Lights[lightIndex];
+                data.Position = glm::vec4(transform.Translation, 3.0f); // w=3 for sphere area
+                data.Direction = glm::vec4(0.0f, -1.0f, 0.0f, -1.0f);   // no shadow path yet
+                data.Color = glm::vec4(areaLight.m_Color, areaLight.m_Intensity);
+                data.AttenuationParams = glm::vec4(1.0f, 0.0f, 0.0f, areaLight.m_Range);
+                data.SpotParams = glm::vec4(0.0f, 0.0f, areaLight.m_Radius, 3.0f); // type = SPHERE_AREA_LIGHT = 3
 
                 ++lightIndex;
             }
@@ -4541,6 +4566,20 @@ namespace OloEngine
                         spotLight.m_Color);
                 }
             }
+            {
+                auto view = m_Registry.view<TransformComponent, SphereAreaLightComponent>();
+                for (auto entity : view)
+                {
+                    const auto& [tc, areaLight] = view.get<TransformComponent, SphereAreaLightComponent>(entity);
+
+                    Renderer3D::DrawSphereAreaLightGizmo(
+                        tc.Translation,
+                        areaLight.m_Radius,
+                        areaLight.m_Range,
+                        areaLight.m_Color,
+                        areaLight.m_Intensity);
+                }
+            }
         }
 
         // Draw audio source gizmos
@@ -5293,6 +5332,7 @@ namespace OloEngine
     OLO_ON_COMPONENT_REMOVED_NOOP(DirectionalLightComponent)
     OLO_ON_COMPONENT_REMOVED_NOOP(PointLightComponent)
     OLO_ON_COMPONENT_REMOVED_NOOP(SpotLightComponent)
+    OLO_ON_COMPONENT_REMOVED_NOOP(SphereAreaLightComponent)
     OLO_ON_COMPONENT_REMOVED_NOOP(EnvironmentMapComponent)
     OLO_ON_COMPONENT_REMOVED_NOOP(TerrainComponent)
     OLO_ON_COMPONENT_REMOVED_NOOP(FoliageComponent)

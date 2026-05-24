@@ -1363,6 +1363,36 @@ TEST_F(LuaBindingTest, SpotLightComponent_RejectsInvalidInputs)
     EXPECT_FLOAT_EQ(sl.m_Intensity, 1.0f);
 }
 
+TEST_F(LuaBindingTest, SphereAreaLightComponent_PropertyRoundTrip)
+{
+    SphereAreaLightComponent al;
+    lua["al"] = &al;
+
+    lua.script("al.radius = 0.75; al.range = 25.0; al.intensity = 4.5; al.castShadows = true");
+    EXPECT_FLOAT_EQ(al.m_Radius, 0.75f);
+    EXPECT_FLOAT_EQ(al.m_Range, 25.0f);
+    EXPECT_FLOAT_EQ(al.m_Intensity, 4.5f);
+    EXPECT_TRUE(al.m_CastShadows);
+}
+
+TEST_F(LuaBindingTest, SphereAreaLightComponent_RejectsInvalidInputs)
+{
+    SphereAreaLightComponent al;
+    lua["al"] = &al;
+
+    al.m_Radius = 0.5f;
+    lua.script("al.radius = -1.0"); // negative radius rejected
+    EXPECT_FLOAT_EQ(al.m_Radius, 0.5f);
+
+    al.m_Range = 10.0f;
+    lua.script("al.range = 0.0/0.0"); // NaN rejected
+    EXPECT_FLOAT_EQ(al.m_Range, 10.0f);
+
+    al.m_Intensity = 2.0f;
+    lua.script("al.intensity = -3.0"); // negative rejected
+    EXPECT_FLOAT_EQ(al.m_Intensity, 2.0f);
+}
+
 TEST_F(LuaBindingTest, TagComponent_PropertyRoundTrip)
 {
     TagComponent tc("Hello");

@@ -948,6 +948,82 @@ namespace OloEngine
         }
     }
 
+    // Three-orthogonal-circle wireframe sphere helper. Matches the visual
+    // language used by DrawPointLightGizmo and DrawSphereColliderGizmo so the
+    // editor stays consistent when multiple light types share a scene.
+    static void DrawWireframeSphereGizmo(const glm::vec3& position,
+                                         f32 sphereRadius,
+                                         const glm::vec3& color,
+                                         f32 lineThickness,
+                                         i32 segments)
+    {
+        for (i32 axis = 0; axis < 3; ++axis)
+        {
+            for (i32 i = 0; i < segments; ++i)
+            {
+                f32 angle1 = (f32(i) / f32(segments)) * glm::two_pi<f32>();
+                f32 angle2 = (f32(i + 1) / f32(segments)) * glm::two_pi<f32>();
+
+                glm::vec3 offset1, offset2;
+                if (axis == 0) // XY plane
+                {
+                    offset1 = glm::vec3(std::cos(angle1), std::sin(angle1), 0.0f) * sphereRadius;
+                    offset2 = glm::vec3(std::cos(angle2), std::sin(angle2), 0.0f) * sphereRadius;
+                }
+                else if (axis == 1) // XZ plane
+                {
+                    offset1 = glm::vec3(std::cos(angle1), 0.0f, std::sin(angle1)) * sphereRadius;
+                    offset2 = glm::vec3(std::cos(angle2), 0.0f, std::sin(angle2)) * sphereRadius;
+                }
+                else // YZ plane
+                {
+                    offset1 = glm::vec3(0.0f, std::cos(angle1), std::sin(angle1)) * sphereRadius;
+                    offset2 = glm::vec3(0.0f, std::cos(angle2), std::sin(angle2)) * sphereRadius;
+                }
+
+                auto* seg = Renderer3D::DrawLine(position + offset1, position + offset2, color, lineThickness);
+                if (seg)
+                    Renderer3D::SubmitPacket(seg);
+            }
+        }
+    }
+
+    void Renderer3D::DrawSphereAreaLightGizmo(const glm::vec3& position,
+                                              f32 radius,
+                                              f32 range,
+                                              const glm::vec3& color,
+                                              f32 intensity)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        if (!s_Data.Pipeline->FrameCorePasses.Scene)
+        {
+            return;
+        }
+
+        const f32 lineThickness = 1.5f;
+        const i32 emitterSegments = 16;
+        const i32 rangeSegments = 24;
+
+        // Emitter sphere: bright, sized to the physical emitter radius. We scale
+        // perceived intensity into the wireframe brightness so the editor preview
+        // tracks dimmer/brighter lights without forcing the gizmo through the
+        // lit material path.
+        const f32 brightness = glm::clamp(0.6f + 0.4f * intensity, 0.0f, 4.0f);
+        const glm::vec3 emitterColor = color * brightness;
+        const f32 emitterRadius = glm::max(radius, 0.01f); // Avoid degenerate zero-radius
+        DrawWireframeSphereGizmo(position, emitterRadius, emitterColor, lineThickness, emitterSegments);
+
+        // Range sphere: dimmer wireframe at falloff distance. Only draw if range
+        // is meaningfully larger than the emitter — otherwise it overlaps.
+        if (range > emitterRadius * 1.01f)
+        {
+            const f32 visualRange = glm::min(range, 30.0f); // Clamp for visualization
+            const glm::vec3 dimColor = color * 0.3f;
+            DrawWireframeSphereGizmo(position, visualRange, dimColor, lineThickness * 0.5f, rangeSegments);
+        }
+    }
+
     void Renderer3D::DrawSpotLightGizmo(const glm::vec3& position,
                                         const glm::vec3& direction,
                                         f32 range,

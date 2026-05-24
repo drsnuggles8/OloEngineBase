@@ -206,6 +206,7 @@ namespace OloEngine
             REGISTER_COMPONENT(DirectionalLightComponent),
             REGISTER_COMPONENT(PointLightComponent),
             REGISTER_COMPONENT(SpotLightComponent),
+            REGISTER_COMPONENT(SphereAreaLightComponent),
             REGISTER_COMPONENT(LightProbeComponent),
             REGISTER_COMPONENT(LightProbeVolumeComponent),
             // Streaming
@@ -1835,6 +1836,22 @@ namespace OloEngine
                                              "shadowNormalBias", sol::property([](const SpotLightComponent& l)
                                                                                { return l.m_ShadowNormalBias; }, [](SpotLightComponent& l, f32 v)
                                                                                { if (std::isfinite(v) && v >= 0.0f) l.m_ShadowNormalBias = v; }));
+
+        // --- SphereAreaLightComponent ---
+        lua.new_usertype<SphereAreaLightComponent>("SphereAreaLightComponent",
+                                                   "color", sol::property([](const SphereAreaLightComponent& l)
+                                                                          { return l.m_Color; }, [](SphereAreaLightComponent& l, const glm::vec3& v)
+                                                                          { if (IsFiniteVec3(v)) l.m_Color = v; }),
+                                                   "intensity", sol::property([](const SphereAreaLightComponent& l)
+                                                                              { return l.m_Intensity; }, [](SphereAreaLightComponent& l, f32 v)
+                                                                              { if (std::isfinite(v) && v >= 0.0f) l.m_Intensity = v; }),
+                                                   "radius", sol::property([](const SphereAreaLightComponent& l)
+                                                                           { return l.m_Radius; }, [](SphereAreaLightComponent& l, f32 v)
+                                                                           { if (std::isfinite(v) && v >= 0.0f) l.m_Radius = v; }),
+                                                   "range", sol::property([](const SphereAreaLightComponent& l)
+                                                                          { return l.m_Range; }, [](SphereAreaLightComponent& l, f32 v)
+                                                                          { if (std::isfinite(v) && v >= 0.0f) l.m_Range = v; }),
+                                                   "castShadows", &SphereAreaLightComponent::m_CastShadows);
 
         // --- NavAgentComponent ---
         lua.new_usertype<NavAgentComponent>("NavAgentComponent",

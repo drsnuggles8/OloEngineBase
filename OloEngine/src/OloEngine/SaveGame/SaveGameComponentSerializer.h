@@ -43,6 +43,7 @@ namespace OloEngine
     struct DirectionalLightComponent;
     struct PointLightComponent;
     struct SpotLightComponent;
+    struct SphereAreaLightComponent;
     struct EnvironmentMapComponent;
     struct LightProbeComponent;
     struct LightProbeVolumeComponent;
@@ -138,6 +139,7 @@ namespace OloEngine
         static void Serialize(FArchive& ar, DirectionalLightComponent& c);
         static void Serialize(FArchive& ar, PointLightComponent& c);
         static void Serialize(FArchive& ar, SpotLightComponent& c);
+        static void Serialize(FArchive& ar, SphereAreaLightComponent& c);
         static void Serialize(FArchive& ar, EnvironmentMapComponent& c);
         static void Serialize(FArchive& ar, LightProbeComponent& c);
         static void Serialize(FArchive& ar, LightProbeVolumeComponent& c);

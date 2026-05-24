@@ -750,6 +750,43 @@ namespace OloEngine
 		}
 	}
 
+	public partial class SphereAreaLightComponent : Component
+	{
+		public Vector3 Color
+		{
+			get
+			{
+				InternalCalls.SphereAreaLightComponent_GetColor(Entity.ID, out Vector3 value);
+				return value;
+			}
+			set => InternalCalls.SphereAreaLightComponent_SetColor(Entity.ID, ref value);
+		}
+
+		public float Intensity
+		{
+			get => InternalCalls.SphereAreaLightComponent_GetIntensity(Entity.ID);
+			set => InternalCalls.SphereAreaLightComponent_SetIntensity(Entity.ID, value);
+		}
+
+		public float Radius
+		{
+			get => InternalCalls.SphereAreaLightComponent_GetRadius(Entity.ID);
+			set => InternalCalls.SphereAreaLightComponent_SetRadius(Entity.ID, value);
+		}
+
+		public float Range
+		{
+			get => InternalCalls.SphereAreaLightComponent_GetRange(Entity.ID);
+			set => InternalCalls.SphereAreaLightComponent_SetRange(Entity.ID, value);
+		}
+
+		public bool CastShadows
+		{
+			get => InternalCalls.SphereAreaLightComponent_GetCastShadows(Entity.ID);
+			set => InternalCalls.SphereAreaLightComponent_SetCastShadows(Entity.ID, value);
+		}
+	}
+
 	public partial class SphereCollider3DComponent : Component
 	{
 		public float Radius

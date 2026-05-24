@@ -771,6 +771,30 @@ namespace OloEngine
         ar << c.m_CastShadows << c.m_ShadowBias << c.m_ShadowNormalBias;
     }
 
+    void SaveGameComponentSerializer::Serialize(FArchive& ar, SphereAreaLightComponent& c)
+    {
+        ar << c.m_Color << c.m_Intensity << c.m_Radius << c.m_Range << c.m_CastShadows;
+
+        if (ar.IsLoading())
+        {
+            // Sanitize untrusted on-disk floats so the renderer never sees
+            // NaN / inf / negative magnitudes (which would poison the UBO and
+            // the BRDF). Mirrors the AudioSourceConfig pattern further up in
+            // this file.
+            for (int i = 0; i < 3; ++i)
+            {
+                if (!std::isfinite(c.m_Color[i]) || c.m_Color[i] < 0.0f)
+                    c.m_Color[i] = 1.0f;
+            }
+            if (!std::isfinite(c.m_Intensity) || c.m_Intensity < 0.0f)
+                c.m_Intensity = 1.0f;
+            if (!std::isfinite(c.m_Radius) || c.m_Radius < 0.0f)
+                c.m_Radius = 0.5f;
+            if (!std::isfinite(c.m_Range) || c.m_Range < 0.0f)
+                c.m_Range = 10.0f;
+        }
+    }
+
     void SaveGameComponentSerializer::Serialize(FArchive& ar, EnvironmentMapComponent& c)
     {
         ar << c.m_EnvironmentMapAsset << c.m_FilePath;
@@ -2338,6 +2362,7 @@ namespace OloEngine
         REGISTER_SAVE_COMPONENT(DirectionalLightComponent);
         REGISTER_SAVE_COMPONENT(PointLightComponent);
         REGISTER_SAVE_COMPONENT(SpotLightComponent);
+        REGISTER_SAVE_COMPONENT(SphereAreaLightComponent);
         REGISTER_SAVE_COMPONENT(EnvironmentMapComponent);
         REGISTER_SAVE_COMPONENT(LightProbeComponent);
         REGISTER_SAVE_COMPONENT(LightProbeVolumeComponent);

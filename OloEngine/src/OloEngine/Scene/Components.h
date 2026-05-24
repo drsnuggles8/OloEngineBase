@@ -948,6 +948,32 @@ namespace OloEngine
         }
     };
 
+    // Sphere area light: a light with a physical radius producing soft specular
+    // highlights via the Karis 2013 representative-point technique. Diffuse uses
+    // a solid-angle correction so the BRDF stays energy-conserving as radius -> 0
+    // (matches a point light).
+    struct SphereAreaLightComponent
+    {
+        OLO_PROPERTY()
+        glm::vec3 m_Color = { 1.0f, 1.0f, 1.0f };
+        OLO_PROPERTY()
+        f32 m_Intensity = 1.0f;
+        OLO_PROPERTY()
+        f32 m_Radius = 0.5f; // Physical emitter radius (world units)
+        OLO_PROPERTY()
+        f32 m_Range = 10.0f; // Falloff range
+        OLO_PROPERTY()
+        bool m_CastShadows = false; // Soft shadows from area lights are a follow-up
+
+        SphereAreaLightComponent() = default;
+        SphereAreaLightComponent(const SphereAreaLightComponent&) = default;
+
+        auto operator==(const SphereAreaLightComponent& other) const -> bool
+        {
+            return Math::BitwiseEqual(*this, other);
+        }
+    };
+
     // Environment map component for skybox and IBL
     struct EnvironmentMapComponent
     {
@@ -2369,6 +2395,7 @@ namespace OloEngine
         DirectionalLightComponent,
         PointLightComponent,
         SpotLightComponent,
+        SphereAreaLightComponent,
         EnvironmentMapComponent,
         RelationshipComponent,
         UICanvasComponent,

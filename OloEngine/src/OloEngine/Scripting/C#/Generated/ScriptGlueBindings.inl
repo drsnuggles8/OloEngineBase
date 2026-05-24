@@ -2287,6 +2287,119 @@ static void Rigidbody3DComponent_SetIsTrigger(UUID entityID, bool value)
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////
+// SphereAreaLightComponent                                                       //
+///////////////////////////////////////////////////////////////////////////////////////////
+
+static void SphereAreaLightComponent_GetColor(UUID entityID, glm::vec3* outValue)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<SphereAreaLightComponent>();
+    *outValue = comp.m_Color;
+}
+
+static void SphereAreaLightComponent_SetColor(UUID entityID, glm::vec3 const* value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<SphereAreaLightComponent>();
+    for (glm::length_t i = 0; i < value->length(); ++i)
+        if (!std::isfinite((*value)[i]))
+            return;
+    comp.m_Color = *value;
+}
+
+static float SphereAreaLightComponent_GetIntensity(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<SphereAreaLightComponent>();
+    return comp.m_Intensity;
+}
+
+static void SphereAreaLightComponent_SetIntensity(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<SphereAreaLightComponent>();
+    comp.m_Intensity = value;
+}
+
+static float SphereAreaLightComponent_GetRadius(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<SphereAreaLightComponent>();
+    return comp.m_Radius;
+}
+
+static void SphereAreaLightComponent_SetRadius(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<SphereAreaLightComponent>();
+    comp.m_Radius = value;
+}
+
+static float SphereAreaLightComponent_GetRange(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<SphereAreaLightComponent>();
+    return comp.m_Range;
+}
+
+static void SphereAreaLightComponent_SetRange(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<SphereAreaLightComponent>();
+    comp.m_Range = value;
+}
+
+static bool SphereAreaLightComponent_GetCastShadows(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<SphereAreaLightComponent>();
+    return comp.m_CastShadows;
+}
+
+static void SphereAreaLightComponent_SetCastShadows(UUID entityID, bool value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<SphereAreaLightComponent>();
+    comp.m_CastShadows = value;
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////
 // SphereCollider3DComponent                                                      //
 ///////////////////////////////////////////////////////////////////////////////////////////
 

@@ -484,8 +484,50 @@ namespace OloEngine
         glm::vec4 SpotParams;        // x = cos(innerAngle), y = falloff, z = 0, w = 0
     };
 
+    // @brief GPU-packed sphere area light for Forward+ SSBO (matches GLSL std430 layout)
+    // The Karis 2013 representative-point technique consumes Position + Radius for
+    // specular and uses Range for the standard distance falloff.
+    struct GPUSphereAreaLight
+    {
+        glm::vec4 PositionAndRadius; // xyz = world position, w = emitter sphere radius
+        glm::vec4 ColorAndIntensity; // xyz = color, w = intensity
+        glm::vec4 RangeAndPadding;   // x = range (falloff), y/z/w = reserved
+    };
+
     static_assert(sizeof(GPUPointLight) == 32, "GPUPointLight must be 32 bytes for std430");
     static_assert(sizeof(GPUSpotLight) == 64, "GPUSpotLight must be 64 bytes for std430");
+    static_assert(sizeof(GPUSphereAreaLight) == 48, "GPUSphereAreaLight must be 48 bytes for std430");
+
+    // -------------------------------------------------------------------------
+    // Forward+ light-index packing
+    //
+    // LightCulling.comp packs a 2-bit type tag in the top bits of each tile's
+    // light index; ForwardPlusCommon.glsl reads it back. Mirrored here so C++
+    // code, tests, and shaders share a single source of truth.
+    //
+    //   bits 31..30 — type tag
+    //   bits 29..0  — index into the corresponding SSBO
+    //
+    // The legacy single-bit spot encoding (0x80000000) maps to tag SPOT (= 2),
+    // so any shader that hasn't been recompiled keeps shading correctly until
+    // a sphere-area light appears in the tile.
+    // -------------------------------------------------------------------------
+    namespace ForwardPlusLightIndex
+    {
+        inline constexpr u32 TYPE_TAG_SHIFT = 30u;
+        inline constexpr u32 TYPE_TAG_POINT = 0u << TYPE_TAG_SHIFT;
+        inline constexpr u32 TYPE_TAG_SPHERE_AREA = 1u << TYPE_TAG_SHIFT;
+        inline constexpr u32 TYPE_TAG_SPOT = 2u << TYPE_TAG_SHIFT;
+        inline constexpr u32 TYPE_TAG_MASK = 0xC0000000u;
+        inline constexpr u32 INDEX_MASK = 0x3FFFFFFFu;
+
+        static_assert(TYPE_TAG_SPOT == 0x80000000u,
+                      "Spot tag must keep the legacy 0x80000000 high-bit encoding");
+        static_assert((TYPE_TAG_POINT | TYPE_TAG_SPHERE_AREA | TYPE_TAG_SPOT) == 0xC0000000u,
+                      "Type tags must occupy only the top two bits");
+        static_assert(INDEX_MASK == (1u << TYPE_TAG_SHIFT) - 1u,
+                      "Index mask must cover all bits below the tag");
+    } // namespace ForwardPlusLightIndex
 
     // Alignment/size checks for terrain UBO structs (must match GLSL std140 layout)
     static_assert(sizeof(UBOStructures::TerrainUBO) % 16 == 0, "TerrainUBO size must be 16-byte aligned for std140");
@@ -645,15 +687,16 @@ namespace OloEngine
         static constexpr u32 SSBO_LIGHT_PROBES = 8;      // Light probe SH coefficient data
 
         // Forward+ light culling SSBOs
-        static constexpr u32 SSBO_FPLUS_POINT_LIGHTS = 9;      // Forward+ point light data array
-        static constexpr u32 SSBO_FPLUS_SPOT_LIGHTS = 10;      // Forward+ spot light data array
-        static constexpr u32 SSBO_FPLUS_LIGHT_INDICES = 11;    // Forward+ per-tile light index list
-        static constexpr u32 SSBO_FPLUS_LIGHT_GRID = 12;       // Forward+ per-tile (offset, count) pairs
-        static constexpr u32 SSBO_FPLUS_GLOBAL_INDEX = 13;     // Forward+ atomic counter for light index append
-        static constexpr u32 SSBO_GPU_PARTICLES_PREV = 14;     // GPU particle previous-frame positions (vec4[maxParticles]) for motion vectors
-        static constexpr u32 SSBO_INSTANCE_DATA = 15;          // Per-instance transform/color/entity data indexed by gl_InstanceIndex
-        static constexpr u32 SSBO_INSTANCE_CULL_INPUT = 16;    // Full InstanceData[] input to the GPU frustum-cull compute (output goes back to SSBO_INSTANCE_DATA)
-        static constexpr u32 SSBO_INSTANCE_DRAW_INDIRECT = 17; // DrawElementsIndirectCommand populated by the cull compute, read by glDrawElementsIndirect
+        static constexpr u32 SSBO_FPLUS_POINT_LIGHTS = 9;        // Forward+ point light data array
+        static constexpr u32 SSBO_FPLUS_SPOT_LIGHTS = 10;        // Forward+ spot light data array
+        static constexpr u32 SSBO_FPLUS_LIGHT_INDICES = 11;      // Forward+ per-tile light index list
+        static constexpr u32 SSBO_FPLUS_LIGHT_GRID = 12;         // Forward+ per-tile (offset, count) pairs
+        static constexpr u32 SSBO_FPLUS_GLOBAL_INDEX = 13;       // Forward+ atomic counter for light index append
+        static constexpr u32 SSBO_GPU_PARTICLES_PREV = 14;       // GPU particle previous-frame positions (vec4[maxParticles]) for motion vectors
+        static constexpr u32 SSBO_INSTANCE_DATA = 15;            // Per-instance transform/color/entity data indexed by gl_InstanceIndex
+        static constexpr u32 SSBO_INSTANCE_CULL_INPUT = 16;      // Full InstanceData[] input to the GPU frustum-cull compute (output goes back to SSBO_INSTANCE_DATA)
+        static constexpr u32 SSBO_INSTANCE_DRAW_INDIRECT = 17;   // DrawElementsIndirectCommand populated by the cull compute, read by glDrawElementsIndirect
+        static constexpr u32 SSBO_FPLUS_SPHERE_AREA_LIGHTS = 18; // Forward+ sphere area light data array (Karis 2013 representative-point)
 
         // =============================================================================
         // TYPE ALIASES FOR CONVENIENCE

@@ -14,7 +14,7 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
 
         m_LightGrid.Initialize(screenWidth, screenHeight, m_GridConfig);
-        m_LightBuffer.Initialize(1024, 256);
+        m_LightBuffer.Initialize(1024, 256, 64);
         m_CullingPass.Initialize();
 
         m_ForwardPlusUBO = UniformBuffer::Create(
@@ -63,11 +63,22 @@ namespace OloEngine
             return;
         }
 
+        // Reserve up-front so the hot per-frame path allocates at most once
+        // per vector. size_hint() is the standard EnTT-view-on-Scene idiom
+        // already used elsewhere in the engine (see Scene.cpp deformerView /
+        // fogVolumeView / psView reserves).
+        auto pointLightView = scene.GetAllEntitiesWith<TransformComponent, PointLightComponent>();
+        auto spotLightView = scene.GetAllEntitiesWith<TransformComponent, SpotLightComponent>();
+        auto sphereAreaLightView = scene.GetAllEntitiesWith<TransformComponent, SphereAreaLightComponent>();
+
         std::vector<GPUPointLight> pointLights;
         std::vector<GPUSpotLight> spotLights;
+        std::vector<GPUSphereAreaLight> sphereAreaLights;
+        pointLights.reserve(pointLightView.size_hint());
+        spotLights.reserve(spotLightView.size_hint());
+        sphereAreaLights.reserve(sphereAreaLightView.size_hint());
 
         // Gather point lights
-        auto pointLightView = scene.GetAllEntitiesWith<TransformComponent, PointLightComponent>();
         for (auto entity : pointLightView)
         {
             auto& transform = pointLightView.template get<TransformComponent>(entity);
@@ -80,7 +91,6 @@ namespace OloEngine
         }
 
         // Gather spot lights
-        auto spotLightView = scene.GetAllEntitiesWith<TransformComponent, SpotLightComponent>();
         for (auto entity : spotLightView)
         {
             auto& transform = spotLightView.template get<TransformComponent>(entity);
@@ -99,11 +109,24 @@ namespace OloEngine
             spotLights.push_back(gpu);
         }
 
+        // Gather sphere area lights
+        for (auto entity : sphereAreaLightView)
+        {
+            auto& transform = sphereAreaLightView.template get<TransformComponent>(entity);
+            auto& light = sphereAreaLightView.template get<SphereAreaLightComponent>(entity);
+
+            GPUSphereAreaLight gpu;
+            gpu.PositionAndRadius = glm::vec4(transform.Translation, light.m_Radius);
+            gpu.ColorAndIntensity = glm::vec4(light.m_Color, light.m_Intensity);
+            gpu.RangeAndPadding = glm::vec4(light.m_Range, 0.0f, 0.0f, 0.0f);
+            sphereAreaLights.push_back(gpu);
+        }
+
         // Upload to GPU
-        m_LightBuffer.Update(pointLights, spotLights);
+        m_LightBuffer.Update(pointLights, spotLights, sphereAreaLights);
 
         // Decide if Forward+ should be active
-        const u32 totalLights = static_cast<u32>(pointLights.size() + spotLights.size());
+        const u32 totalLights = static_cast<u32>(pointLights.size() + spotLights.size() + sphereAreaLights.size());
         switch (m_Mode)
         {
             case ForwardPlusMode::Always:
