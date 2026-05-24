@@ -302,11 +302,18 @@ if(WIN32)
         # bundles `sanitizer_coverage_win_sections.cpp.obj` which would
         # double-define section markers against our libFuzzer.
         #
-        # `-fsanitize-minimal-runtime` switches clang's emitted handler calls
-        # from the full `__ubsan_handle_*` API to the lightweight
-        # `__ubsan_handle_*_minimal[_abort]` API that our minimal lib defines.
+        # IMPORTANT: clang refuses `-fsanitize=fuzzer` AND
+        # `-fsanitize-minimal-runtime` on the same compile line ("invalid
+        # argument '-fsanitize-minimal-runtime' not allowed with
+        # '-fsanitize=fuzzer'"). So we split the scope:
+        #   - OloEngine TUs get UBSan instrumentation + minimal-runtime →
+        #     emit calls to `__ubsan_handle_*_minimal[_abort]`, provided by
+        #     `olo_libubsan_minimal`.
+        #   - Harness TUs get only `-fsanitize=fuzzer` (sancov coverage) —
+        #     no UBSan, no minimal-runtime, no conflict. The deserialiser
+        #     code we actually fuzz lives in OloEngine and IS UBSan-checked.
         # `-fno-sanitize-recover=undefined` makes every check fatal so
-        # libFuzzer's death callback fires on a real UB hit.
+        # libFuzzer's signal handler catches the abort.
         function(olo_apply_fuzz_sanitizer _target)
             target_compile_options(${_target} PRIVATE
                 -fsanitize=undefined -fsanitize-minimal-runtime
@@ -317,12 +324,13 @@ if(WIN32)
 
         function(olo_apply_fuzzer_link _target)
             target_compile_options(${_target} PRIVATE
-                -fsanitize=fuzzer,undefined -fsanitize-minimal-runtime
-                -fno-sanitize-recover=undefined -fno-omit-frame-pointer
+                -fsanitize=fuzzer -fno-omit-frame-pointer
             )
             target_link_libraries(${_target} PRIVATE olo_libfuzzer)
             # olo_libubsan_minimal flows in via OloEngine's plain-signature
-            # transitive linkage.
+            # transitive linkage; harness .obj files have no __ubsan_*
+            # refs of their own because we didn't pass `-fsanitize=undefined`
+            # here.
         endfunction()
     endif()
 else()
