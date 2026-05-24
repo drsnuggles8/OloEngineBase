@@ -167,11 +167,20 @@ Currently tessellation factor is purely distance-based. Better: also consider
 the displacement map's local gradient magnitude. Flat areas get minimal
 tessellation; rough areas (wave crests) get maximum.
 
-### 4.3 GPU Tessellation with Hull Shader Culling
+### 4.3 GPU Tessellation with Hull Shader Culling — **shipped**
 
-Add frustum and back-face culling in the TCS (hull shader) to output
-`gl_TessLevelOuter = 0` for patches outside the view frustum. Cheap and
-effective optimization.
+Frustum culling in the TCS lands in
+[`Water.glsl`](../OloEditor/assets/shaders/Water.glsl) — patches whose
+displacement-inflated AABB lies entirely outside any of the six view-frustum
+planes are skipped by setting `gl_TessLevelOuter[*]` to 0. The displacement
+margin is derived in-shader from the per-frame wave parameters so wave crests
+at the edges of off-screen patches don't pop into view. CPU mirror tests in
+[`WaterRenderingTest.cpp`](../OloEngine/tests/Rendering/WaterRenderingTest.cpp)
+pin the math against the actual Gerstner amplitudes.
+
+Back-face culling for water is **not** added: the water plane is double-sided
+(camera goes underwater) so a back-face reject would punch holes when looking
+up through the surface. Frustum culling is the cleaner standalone win.
 
 ---
 

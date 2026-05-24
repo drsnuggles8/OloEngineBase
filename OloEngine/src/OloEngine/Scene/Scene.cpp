@@ -3824,11 +3824,17 @@ namespace OloEngine
                         water.m_SSRMaxDistance,
                         water.m_SSRThickness);
 
-                    // Tessellation params: x=factor (0=disabled), y=minDist, z=maxDist
+                    // Tessellation params: x=factor (0=disabled), y=minDist,
+                    // z=maxDist, w=frustumCullEnable (1.0=on, 0.0=off legacy).
+                    // The TCS frustum-cull path skips Gerstner-displaced
+                    // patches that lie wholly outside the view frustum; it's
+                    // always on at the moment, but the channel is exposed so
+                    // the C++ side can disable it without recompiling the
+                    // shader if a future debug toggle wants it.
                     waterParams.tessParams = glm::vec4(
                         water.m_TessellationEnabled ? water.m_TessellationFactor : 0.0f,
                         water.m_TessMinDistance,
-                        water.m_TessMaxDistance, 0.0f);
+                        water.m_TessMaxDistance, 1.0f);
 
                     // Feature toggles
                     waterParams.refractionEnabled = water.m_RefractionEnabled;

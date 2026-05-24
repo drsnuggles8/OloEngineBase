@@ -888,7 +888,7 @@ namespace OloEngine
         glm::vec4 foamParams2 = glm::vec4(0.0f);           // foamAngleExponent, shorelineFoamPower, sssIntensity
         glm::vec4 sssColor = glm::vec4(0.0f);              // rgb = SSS color
         glm::vec4 ssrParams = glm::vec4(0.0f);             // maxSteps, stepSize, maxDistance, thickness
-        glm::vec4 tessParams = glm::vec4(0.0f);            // tessellationFactor, minDist, maxDist
+        glm::vec4 tessParams = glm::vec4(0.0f);            // tessellationFactor, minDist, maxDist, frustumCullEnable
 
         // Normal map / noise texture IDs
         RendererID normalMap0ID = 0;
