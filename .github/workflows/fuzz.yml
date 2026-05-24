@@ -74,6 +74,7 @@ jobs:
         run: |
           cmake -S . -B build-clang `
                 -G "Ninja Multi-Config" `
+                "-DCMAKE_TOOLCHAIN_FILE=${{ github.workspace }}/cmake/ClangCLToolchain.cmake" `
                 "-DCMAKE_C_COMPILER=C:/Program Files/LLVM/bin/clang-cl.exe" `
                 "-DCMAKE_CXX_COMPILER=C:/Program Files/LLVM/bin/clang-cl.exe" `
                 "-DCMAKE_LINKER=C:/Program Files/LLVM/bin/lld-link.exe" `
