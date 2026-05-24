@@ -2019,7 +2019,7 @@ namespace OloEngine
             if (std::isfinite(color.x) && std::isfinite(color.y) && std::isfinite(color.z))
                 areaLight.m_Color = color;
             const f32 intensity = sphereAreaLightComponent["Intensity"].as<f32>(areaLight.m_Intensity);
-            if (std::isfinite(intensity))
+            if (std::isfinite(intensity) && intensity >= 0.0f)
                 areaLight.m_Intensity = intensity;
             const f32 radius = sphereAreaLightComponent["Radius"].as<f32>(areaLight.m_Radius);
             if (std::isfinite(radius) && radius >= 0.0f)

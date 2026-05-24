@@ -178,14 +178,12 @@ TEST(ForwardPlus, SphereAreaLightPacking)
 // Light-index encoding contract: the LightCulling.comp packs a 2-bit type tag
 // in the top bits of each index. Decoder lives in ForwardPlusCommon.glsl.
 // Pinning the bit layout here so a future shader edit that breaks it shows up
-// as a test failure rather than as silently mis-shaded lights.
+// as a test failure rather than as silently mis-shaded lights. Uses the
+// canonical OloEngine::ForwardPlusLightIndex constants so the test validates
+// the real shared contract, not a local copy.
 TEST(ForwardPlus, LightIndexEncodingLayout)
 {
-    constexpr u32 TYPE_TAG_POINT = 0u << 30;
-    constexpr u32 TYPE_TAG_SPHERE_AREA = 1u << 30;
-    constexpr u32 TYPE_TAG_SPOT = 2u << 30;
-    constexpr u32 TYPE_TAG_MASK = 0xC0000000u;
-    constexpr u32 INDEX_MASK = 0x3FFFFFFFu;
+    using namespace OloEngine::ForwardPlusLightIndex;
 
     // Tags must be distinct and within the top 2 bits
     EXPECT_EQ(TYPE_TAG_POINT & TYPE_TAG_MASK, TYPE_TAG_POINT);
@@ -210,5 +208,5 @@ TEST(ForwardPlus, LightIndexEncodingLayout)
     EXPECT_EQ(0x80000000u, TYPE_TAG_SPOT);
 
     // Max usable index = 2^30 - 1 (≈ 1 billion). Comfortable for any scene.
-    EXPECT_EQ(INDEX_MASK, (1u << 30) - 1u);
+    EXPECT_EQ(INDEX_MASK, (1u << TYPE_TAG_SHIFT) - 1u);
 }

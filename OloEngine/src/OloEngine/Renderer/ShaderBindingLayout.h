@@ -498,6 +498,37 @@ namespace OloEngine
     static_assert(sizeof(GPUSpotLight) == 64, "GPUSpotLight must be 64 bytes for std430");
     static_assert(sizeof(GPUSphereAreaLight) == 48, "GPUSphereAreaLight must be 48 bytes for std430");
 
+    // -------------------------------------------------------------------------
+    // Forward+ light-index packing
+    //
+    // LightCulling.comp packs a 2-bit type tag in the top bits of each tile's
+    // light index; ForwardPlusCommon.glsl reads it back. Mirrored here so C++
+    // code, tests, and shaders share a single source of truth.
+    //
+    //   bits 31..30 — type tag
+    //   bits 29..0  — index into the corresponding SSBO
+    //
+    // The legacy single-bit spot encoding (0x80000000) maps to tag SPOT (= 2),
+    // so any shader that hasn't been recompiled keeps shading correctly until
+    // a sphere-area light appears in the tile.
+    // -------------------------------------------------------------------------
+    namespace ForwardPlusLightIndex
+    {
+        inline constexpr u32 TYPE_TAG_SHIFT = 30u;
+        inline constexpr u32 TYPE_TAG_POINT = 0u << TYPE_TAG_SHIFT;
+        inline constexpr u32 TYPE_TAG_SPHERE_AREA = 1u << TYPE_TAG_SHIFT;
+        inline constexpr u32 TYPE_TAG_SPOT = 2u << TYPE_TAG_SHIFT;
+        inline constexpr u32 TYPE_TAG_MASK = 0xC0000000u;
+        inline constexpr u32 INDEX_MASK = 0x3FFFFFFFu;
+
+        static_assert(TYPE_TAG_SPOT == 0x80000000u,
+                      "Spot tag must keep the legacy 0x80000000 high-bit encoding");
+        static_assert((TYPE_TAG_POINT | TYPE_TAG_SPHERE_AREA | TYPE_TAG_SPOT) == 0xC0000000u,
+                      "Type tags must occupy only the top two bits");
+        static_assert(INDEX_MASK == (1u << TYPE_TAG_SHIFT) - 1u,
+                      "Index mask must cover all bits below the tag");
+    } // namespace ForwardPlusLightIndex
+
     // Alignment/size checks for terrain UBO structs (must match GLSL std140 layout)
     static_assert(sizeof(UBOStructures::TerrainUBO) % 16 == 0, "TerrainUBO size must be 16-byte aligned for std140");
     static_assert(sizeof(UBOStructures::BrushPreviewUBO) % 16 == 0, "BrushPreviewUBO size must be 16-byte aligned for std140");

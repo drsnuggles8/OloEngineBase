@@ -63,12 +63,22 @@ namespace OloEngine
             return;
         }
 
+        // Reserve up-front so the hot per-frame path allocates at most once
+        // per vector. size_hint() is the standard EnTT-view-on-Scene idiom
+        // already used elsewhere in the engine (see Scene.cpp deformerView /
+        // fogVolumeView / psView reserves).
+        auto pointLightView = scene.GetAllEntitiesWith<TransformComponent, PointLightComponent>();
+        auto spotLightView = scene.GetAllEntitiesWith<TransformComponent, SpotLightComponent>();
+        auto sphereAreaLightView = scene.GetAllEntitiesWith<TransformComponent, SphereAreaLightComponent>();
+
         std::vector<GPUPointLight> pointLights;
         std::vector<GPUSpotLight> spotLights;
         std::vector<GPUSphereAreaLight> sphereAreaLights;
+        pointLights.reserve(pointLightView.size_hint());
+        spotLights.reserve(spotLightView.size_hint());
+        sphereAreaLights.reserve(sphereAreaLightView.size_hint());
 
         // Gather point lights
-        auto pointLightView = scene.GetAllEntitiesWith<TransformComponent, PointLightComponent>();
         for (auto entity : pointLightView)
         {
             auto& transform = pointLightView.template get<TransformComponent>(entity);
@@ -81,7 +91,6 @@ namespace OloEngine
         }
 
         // Gather spot lights
-        auto spotLightView = scene.GetAllEntitiesWith<TransformComponent, SpotLightComponent>();
         for (auto entity : spotLightView)
         {
             auto& transform = spotLightView.template get<TransformComponent>(entity);
@@ -101,7 +110,6 @@ namespace OloEngine
         }
 
         // Gather sphere area lights
-        auto sphereAreaLightView = scene.GetAllEntitiesWith<TransformComponent, SphereAreaLightComponent>();
         for (auto entity : sphereAreaLightView)
         {
             auto& transform = sphereAreaLightView.template get<TransformComponent>(entity);
