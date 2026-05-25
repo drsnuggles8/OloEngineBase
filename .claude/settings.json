@@ -3,7 +3,8 @@
   "permissions": {
     "allow": [
       "Bash(build/OloEngine/tests/Debug/OloEngine-Tests.exe --gtest_filter=\"SHProjectionTest.*\")",
-      "Bash(git add *)"
+      "Bash(git add *)",
+      "Bash(cmake --build build --target OloEngine OloEngine-Tests OloEditor --config Debug --parallel)"
     ]
   },
   "hooks": {

@@ -3221,12 +3221,12 @@ namespace OloEngine
                         "  Off (default): Monte-Carlo cubemap convolution\n"
                         "                 (~1024 samples per output texel)\n"
                         "  On:            L2 spherical-harmonics projection\n"
-                        "                 (9 coefficients, ~100x faster generation)\n\n"
-                        "Output is bit-compatible — the irradiance cubemap binding\n"
-                        "all PBR shaders sample doesn't change. SH-L2 captures the\n"
-                        "low-frequency diffuse content perfectly; very sharp\n"
-                        "sky/ground transitions read as slightly softer in the\n"
-                        "indirect diffuse term.");
+                        "                 (9 coefficients, ~3-10x faster vs 1024-sample Monte-Carlo)\n\n"
+                        "Outputs are binding/format compatible (same RGBA32F\n"
+                        "irradiance cubemap at the same texture binding) — not\n"
+                        "guaranteed bit-identical. SH-L2 captures the low-frequency\n"
+                        "diffuse content; very sharp sky/ground transitions read\n"
+                        "as slightly softer in the indirect diffuse term.");
                 }
             } });
 

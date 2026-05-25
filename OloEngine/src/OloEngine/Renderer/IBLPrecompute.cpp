@@ -17,6 +17,7 @@
 #include <glad/gl.h>
 
 #include <chrono>
+#include <cstring>
 
 namespace OloEngine
 {
@@ -580,10 +581,17 @@ namespace OloEngine
                 {
                     if (bytes.size() < pixelCount * 16)
                         return false;
-                    const f32* src = reinterpret_cast<const f32*>(bytes.data());
+                    // Use memcpy rather than `reinterpret_cast<const f32*>` to
+                    // avoid the strict-aliasing UB of reading floats through
+                    // an unrelated pointer type — the alignment of the byte
+                    // buffer is not guaranteed to match `f32`, and the
+                    // standard does not let us punning-read through a
+                    // mismatched type.
                     for (u32 i = 0; i < pixelCount; ++i)
                     {
-                        outPixels[i] = glm::vec3(src[i * 4 + 0], src[i * 4 + 1], src[i * 4 + 2]);
+                        f32 rgb[3];
+                        std::memcpy(rgb, bytes.data() + i * 16, sizeof(rgb));
+                        outPixels[i] = glm::vec3(rgb[0], rgb[1], rgb[2]);
                     }
                     return true;
                 }
@@ -591,10 +599,11 @@ namespace OloEngine
                 {
                     if (bytes.size() < pixelCount * 12)
                         return false;
-                    const f32* src = reinterpret_cast<const f32*>(bytes.data());
                     for (u32 i = 0; i < pixelCount; ++i)
                     {
-                        outPixels[i] = glm::vec3(src[i * 3 + 0], src[i * 3 + 1], src[i * 3 + 2]);
+                        f32 rgb[3];
+                        std::memcpy(rgb, bytes.data() + i * 12, sizeof(rgb));
+                        outPixels[i] = glm::vec3(rgb[0], rgb[1], rgb[2]);
                     }
                     return true;
                 }
