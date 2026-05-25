@@ -484,6 +484,10 @@ namespace OloEngine::Audio::SoundGraph
             // block size before the audio thread starts pulling samples.
             EnsureOutputBuffersCapacity(kDefaultMaxBlockSize);
 
+            // Pre-build the endpoint-view cache off the audio thread (was previously rebuilt
+            // lazily inside Process() — that path is allocation-prone on the audio thread).
+            RebuildOutputChannelViewsCache();
+
             m_IsInitialized = true;
         }
 
@@ -494,6 +498,11 @@ namespace OloEngine::Audio::SoundGraph
         void SetMaxBlockSize(u32 maxBlockSize)
         {
             EnsureOutputBuffersCapacity(maxBlockSize);
+            // Endpoint wiring may have completed *after* Init() in some construction paths
+            // (e.g. SoundGraphSource::ReplaceGraph rewires before resuming). Refresh the
+            // cache here too so Process() can always observe a valid cache without doing
+            // the rebuild itself.
+            RebuildOutputChannelViewsCache();
         }
 
         void BeginProcessBlock()
@@ -526,22 +535,12 @@ namespace OloEngine::Audio::SoundGraph
             // per-sample hot path called from this method still avoids OLO_PROFILE_FUNCTION.
             OLO_PROFILE_FUNCTION();
 
-            // Lazy rebuild of the endpoint-view cache (see member-doc on m_OutputChannelViews).
-            if (m_OutputChannelViews.size() != m_OutputChannelIDs.size()) [[unlikely]]
-            {
-                m_OutputChannelViews.clear();
-                m_OutputChannelViews.reserve(m_OutputChannelIDs.size());
-                for (const auto& id : m_OutputChannelIDs)
-                {
-                    auto it = m_EndpointOutputStreams.InputStreams.find(id);
-                    m_OutputChannelViews.push_back(it != m_EndpointOutputStreams.InputStreams.end() ? &it->second : nullptr);
-                }
-            }
-
-            // Block buffers were pre-allocated to capacity by Init() and (optionally)
-            // SetMaxBlockSize() off the audio thread. The assert below is the contract:
-            // if it ever fires we'd be a missed off-thread reserve away from a heap
-            // allocation in the audio callback.
+            // The endpoint-view cache and per-channel block buffers were both pre-built off
+            // the audio thread (in Init() and SetMaxBlockSize()). The asserts below are the
+            // RT-safety contract: if any of them fire we'd be a missed off-thread setup
+            // call away from a heap allocation in the audio callback.
+            OLO_CORE_ASSERT(m_OutputChannelViews.size() == m_OutputChannelIDs.size(),
+                            "SoundGraph::Process: view cache is stale; call SetMaxBlockSize/Init off-thread after wiring");
             OLO_CORE_ASSERT(m_OutputBuffers.size() >= m_OutChannels.size(),
                             "SoundGraph::Process: output buffer count is short of channel count; call SetMaxBlockSize off-thread");
             for ([[maybe_unused]] auto& buf : m_OutputBuffers)
@@ -770,6 +769,21 @@ namespace OloEngine::Audio::SoundGraph
             {
                 if (buf.size() < capacity)
                     buf.resize(capacity);
+            }
+        }
+
+        /// (Re-)build the endpoint-view pointer cache used by Process() to read the
+        /// graph's output channel values without an unordered_map::find per sample.
+        /// MUST be called off the audio thread (clear + reserve + push_back can allocate).
+        /// Safe to call repeatedly when wiring changes.
+        void RebuildOutputChannelViewsCache()
+        {
+            m_OutputChannelViews.clear();
+            m_OutputChannelViews.reserve(m_OutputChannelIDs.size());
+            for (const auto& id : m_OutputChannelIDs)
+            {
+                auto it = m_EndpointOutputStreams.InputStreams.find(id);
+                m_OutputChannelViews.push_back(it != m_EndpointOutputStreams.InputStreams.end() ? &it->second : nullptr);
             }
         }
 

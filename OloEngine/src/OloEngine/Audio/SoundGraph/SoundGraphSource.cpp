@@ -806,20 +806,31 @@ namespace OloEngine::Audio::SoundGraph
                 m_Graph->Process(frameCount);
 
                 const u32 outputChannels = std::min(m_ChannelCount, static_cast<u32>(m_Graph->m_OutputBuffers.size()));
-                for (u32 frame = 0; frame < frameCount; ++frame)
+                if (outputChannels == 0)
                 {
-                    const sizet base = static_cast<sizet>(frame) * m_ChannelCount;
-                    for (u32 channel = 0; channel < outputChannels; ++channel)
+                    // Graph has no wired output channels (broken/empty graph). The
+                    // copy loop below would no-op and leave busOut holding whatever
+                    // miniaudio handed us — which is not guaranteed to be silent.
+                    // Zero the bus explicitly so we never emit junk audio.
+                    ma_silence_pcm_frames(busOut, frameCount, ma_format_f32, m_ChannelCount);
+                }
+                else
+                {
+                    for (u32 frame = 0; frame < frameCount; ++frame)
                     {
-                        busOut[base + channel] = m_Graph->m_OutputBuffers[channel][frame];
-                    }
+                        const sizet base = static_cast<sizet>(frame) * m_ChannelCount;
+                        for (u32 channel = 0; channel < outputChannels; ++channel)
+                        {
+                            busOut[base + channel] = m_Graph->m_OutputBuffers[channel][frame];
+                        }
 
-                    // Mono → stereo (and wider) fan-out: copy channel 0 to remaining channels.
-                    if (outputChannels >= 1 && outputChannels < m_ChannelCount)
-                    {
-                        const f32 sample = busOut[base + 0];
-                        for (u32 channel = outputChannels; channel < m_ChannelCount; ++channel)
-                            busOut[base + channel] = sample;
+                        // Mono → stereo (and wider) fan-out: copy channel 0 to remaining channels.
+                        if (outputChannels < m_ChannelCount)
+                        {
+                            const f32 sample = busOut[base + 0];
+                            for (u32 channel = outputChannels; channel < m_ChannelCount; ++channel)
+                                busOut[base + channel] = sample;
+                        }
                     }
                 }
             }
