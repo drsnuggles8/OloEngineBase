@@ -39,7 +39,8 @@ namespace OloEngine::Tests
         bool DeserializeBytes(std::string_view bytes)
         {
             auto scene = OloEngine::Scene::Create();
-            if (!scene) return false;
+            if (!scene)
+                return false;
             OloEngine::SceneSerializer serializer(scene);
             return serializer.DeserializeFromYAML(std::string(bytes));
         }
