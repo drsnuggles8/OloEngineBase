@@ -2041,6 +2041,7 @@ namespace OloEngine
             envMap.m_BlurAmount = envMapComponent["BlurAmount"].as<f32>(envMap.m_BlurAmount);
             envMap.m_EnableIBL = envMapComponent["EnableIBL"].as<bool>(envMap.m_EnableIBL);
             envMap.m_IBLIntensity = envMapComponent["IBLIntensity"].as<f32>(envMap.m_IBLIntensity);
+            envMap.m_UseSphericalHarmonics = envMapComponent["UseSphericalHarmonics"].as<bool>(envMap.m_UseSphericalHarmonics);
             envMap.m_Tint = envMapComponent["Tint"].as<glm::vec3>(envMap.m_Tint);
         }
 
@@ -3772,6 +3773,7 @@ namespace OloEngine
             out << YAML::Key << "BlurAmount" << YAML::Value << envMap.m_BlurAmount;
             out << YAML::Key << "EnableIBL" << YAML::Value << envMap.m_EnableIBL;
             out << YAML::Key << "IBLIntensity" << YAML::Value << envMap.m_IBLIntensity;
+            out << YAML::Key << "UseSphericalHarmonics" << YAML::Value << envMap.m_UseSphericalHarmonics;
             out << YAML::Key << "Tint" << YAML::Value << envMap.m_Tint;
 
             out << YAML::EndMap; // EnvironmentMapComponent

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "OloEngine/Core/Base.h"
+#include "OloEngine/Renderer/SphericalHarmonics.h"
 #include "OloEngine/Renderer/TextureCubemap.h"
 #include "OloEngine/Renderer/Texture.h"
 #include "OloEngine/Renderer/Shader.h"
@@ -27,6 +28,31 @@ namespace OloEngine
                                                   const Ref<TextureCubemap>& irradianceMap,
                                                   ShaderLibrary& shaderLibrary,
                                                   const IBLConfiguration& config);
+
+        // Spherical-harmonics path for the IBL diffuse irradiance map.
+        //
+        // Reads back the source cubemap on the CPU, projects it to a 9-coefficient
+        // L2 SH basis (Ramamoorthi-Hanrahan "An Efficient Representation for
+        // Irradiance Environment Maps"), applies the analytic cosine-lobe band
+        // scaling to convert radiance SH into irradiance SH, uploads the
+        // coefficients to UBO_SH_COEFFICIENTS, and rasterises the output cubemap
+        // via the IrradianceFromSH shader — bit-compatible output layout with
+        // the Monte-Carlo convolution path so no PBR shader changes are needed.
+        //
+        // Returns the irradiance-scaled SH so callers (tests) can validate.
+        // Returns a zeroed SHCoefficients on failure.
+        static SHCoefficients GenerateIrradianceMapFromSH(const Ref<TextureCubemap>& environmentMap,
+                                                          const Ref<TextureCubemap>& irradianceMap,
+                                                          ShaderLibrary& shaderLibrary,
+                                                          const IBLConfiguration& config);
+
+        // Helper: read back a cubemap's mip-0 face data and project to L2 SH.
+        // Returned coefficients are *radiance* SH (no cosine-lobe scaling) so
+        // they match LightProbeBaker::ProjectToSH semantics. Callers that need
+        // irradiance must apply Ramamoorthi's per-band constants themselves.
+        // Exposed here (rather than as a private detail of GenerateIrradianceMapFromSH)
+        // because the projection is independently testable without a render context.
+        static SHCoefficients ProjectCubemapToSH(const Ref<TextureCubemap>& environmentMap);
         static void GeneratePrefilterMapAdvanced(const Ref<TextureCubemap>& environmentMap,
                                                  const Ref<TextureCubemap>& prefilterMap,
                                                  ShaderLibrary& shaderLibrary,

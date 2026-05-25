@@ -800,7 +800,7 @@ namespace OloEngine
         ar << c.m_EnvironmentMapAsset << c.m_FilePath;
         ar << c.m_IsCubemapFolder << c.m_EnableSkybox;
         ar << c.m_Rotation << c.m_Exposure << c.m_BlurAmount;
-        ar << c.m_EnableIBL << c.m_IBLIntensity << c.m_Tint;
+        ar << c.m_EnableIBL << c.m_IBLIntensity << c.m_UseSphericalHarmonics << c.m_Tint;
         // Ref<EnvironmentMap> is runtime — not serialized
     }
 

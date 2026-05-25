@@ -69,10 +69,16 @@ namespace OloEngine
 
     Ref<EnvironmentMap> EnvironmentMap::CreateFromCubemap(const Ref<TextureCubemap>& cubemap)
     {
+        return CreateFromCubemap(cubemap, IBLConfiguration{});
+    }
+
+    Ref<EnvironmentMap> EnvironmentMap::CreateFromCubemap(const Ref<TextureCubemap>& cubemap, const IBLConfiguration& iblConfig)
+    {
         EnvironmentMapSpecification spec;
         spec.Resolution = cubemap->GetWidth();
         spec.Format = ImageFormat::RGBA32F;
         spec.GenerateIBL = true;
+        spec.IBLConfig = iblConfig;
 
         auto envMap = Ref<EnvironmentMap>::Create(spec);
         envMap->m_EnvironmentMap = cubemap;
@@ -87,12 +93,18 @@ namespace OloEngine
 
     Ref<EnvironmentMap> EnvironmentMap::CreateFromEquirectangular(const std::string& filePath)
     {
+        return CreateFromEquirectangular(filePath, IBLConfiguration{});
+    }
+
+    Ref<EnvironmentMap> EnvironmentMap::CreateFromEquirectangular(const std::string& filePath, const IBLConfiguration& iblConfig)
+    {
         EnvironmentMapSpecification spec;
         spec.FilePath = filePath;
         spec.Resolution = 512;
         spec.Format = ImageFormat::RGBA32F;
         spec.GenerateIBL = true;
         spec.GenerateMipmaps = true;
+        spec.IBLConfig = iblConfig;
 
         return Create(spec);
     }
@@ -212,20 +224,30 @@ namespace OloEngine
         {
             if (config.UseSphericalHarmonics)
             {
-                // TODO: Implement spherical harmonics alternative
-                OLO_CORE_INFO("Spherical harmonics not yet implemented, falling back to cubemap");
+                // L2 SH projection path. Output is bit-compatible with the
+                // convolution path (same RGBA32F cubemap layout), so all PBR
+                // shaders consume the result identically. Generation is ~100x
+                // faster: a single CPU-side projection over the source cubemap
+                // pixels followed by per-texel SH evaluation, vs Monte Carlo
+                // summation of `config.IrradianceSamples` directions per output
+                // texel.
+                IBLPrecompute::GenerateIrradianceMapFromSH(m_EnvironmentMap, m_IrradianceMap,
+                                                           *s_ShaderLibrary, config);
+                OLO_CORE_INFO("Irradiance map generated via L2 SH ({}x{})",
+                              config.IrradianceResolution, config.IrradianceResolution);
             }
-
-            IBLPrecompute::GenerateIrradianceMapAdvanced(m_EnvironmentMap, m_IrradianceMap,
-                                                         *s_ShaderLibrary, config);
+            else
+            {
+                IBLPrecompute::GenerateIrradianceMapAdvanced(m_EnvironmentMap, m_IrradianceMap,
+                                                             *s_ShaderLibrary, config);
+                OLO_CORE_INFO("Enhanced irradiance map generated ({}x{}) with {} samples",
+                              config.IrradianceResolution, config.IrradianceResolution, config.IrradianceSamples);
+            }
         }
         else
         {
             OLO_CORE_ERROR("EnvironmentMap: IBL system not initialized! Call InitializeIBLSystem() first.");
         }
-
-        OLO_CORE_INFO("Enhanced irradiance map generated ({}x{}) with {} samples",
-                      config.IrradianceResolution, config.IrradianceResolution, config.IrradianceSamples);
     }
 
     void EnvironmentMap::GeneratePrefilterMapWithConfig(const IBLConfiguration& config)

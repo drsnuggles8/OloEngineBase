@@ -64,7 +64,9 @@ namespace OloEngine
         // Load environment map from HDR file
         static Ref<EnvironmentMap> Create(const EnvironmentMapSpecification& spec);
         static Ref<EnvironmentMap> CreateFromCubemap(const Ref<TextureCubemap>& cubemap);
+        static Ref<EnvironmentMap> CreateFromCubemap(const Ref<TextureCubemap>& cubemap, const IBLConfiguration& iblConfig);
         static Ref<EnvironmentMap> CreateFromEquirectangular(const std::string& filePath);
+        static Ref<EnvironmentMap> CreateFromEquirectangular(const std::string& filePath, const IBLConfiguration& iblConfig);
 
         // Get textures
         const Ref<TextureCubemap>& GetEnvironmentMap() const

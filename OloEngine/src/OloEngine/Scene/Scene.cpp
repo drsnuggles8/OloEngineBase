@@ -2827,6 +2827,13 @@ namespace OloEngine
         {
             auto& envMapComp = view.get<EnvironmentMapComponent>(entity);
 
+            // Pull the editor-toggled flags onto an IBLConfiguration that
+            // gets forwarded into the loader helpers. Defaults stay otherwise
+            // identical to the previous behaviour; only fields the component
+            // surfaces are overridden.
+            IBLConfiguration iblConfig;
+            iblConfig.UseSphericalHarmonics = envMapComp.m_UseSphericalHarmonics;
+
             // Lazy load environment map from file path if not already loaded
             if (!envMapComp.m_EnvironmentMap && !envMapComp.m_FilePath.empty())
             {
@@ -2849,12 +2856,12 @@ namespace OloEngine
                     auto skyboxCubemap = TextureCubemap::Create(skyboxFaces);
                     if (skyboxCubemap)
                     {
-                        envMapComp.m_EnvironmentMap = EnvironmentMap::CreateFromCubemap(skyboxCubemap);
+                        envMapComp.m_EnvironmentMap = EnvironmentMap::CreateFromCubemap(skyboxCubemap, iblConfig);
                     }
                 }
                 else
                 {
-                    envMapComp.m_EnvironmentMap = EnvironmentMap::CreateFromEquirectangular(envMapComp.m_FilePath);
+                    envMapComp.m_EnvironmentMap = EnvironmentMap::CreateFromEquirectangular(envMapComp.m_FilePath, iblConfig);
                 }
             }
 

@@ -1,6 +1,7 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Renderer/IBLPrecompute.h"
 #include "OloEngine/Renderer/EnvironmentMap.h" // For IBLConfiguration
+#include "OloEngine/Renderer/LightProbeBaker.h"
 #include "OloEngine/Renderer/MeshPrimitives.h"
 #include "OloEngine/Renderer/Renderer.h"
 #include "OloEngine/Renderer/RenderCommand.h"
@@ -13,6 +14,9 @@
 #include <stb_image/stb_image.h>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
+#include <glad/gl.h>
+
+#include <chrono>
 
 namespace OloEngine
 {
@@ -325,6 +329,23 @@ namespace OloEngine
         return s_CubeMesh;
     }
 
+    namespace
+    {
+        // Force a GPU sync so the elapsed-time log lines actually reflect the
+        // generator's GPU cost rather than just CPU-side command submission.
+        // Both paths funnel through here so the numbers are apples-to-apples.
+        f64 MeasureMillisecondsWithGPUSync(auto&& work)
+        {
+            const auto start = std::chrono::steady_clock::now();
+            work();
+            // Sync — flushes the GL command queue so the elapsed time covers
+            // the actual rasterisation work, not just submission.
+            ::glFinish();
+            const auto end = std::chrono::steady_clock::now();
+            return std::chrono::duration<f64, std::milli>(end - start).count();
+        }
+    } // namespace
+
     // Enhanced IBL generation methods implementation
     void IBLPrecompute::GenerateIrradianceMapAdvanced(const Ref<TextureCubemap>& environmentMap,
                                                       const Ref<TextureCubemap>& irradianceMap,
@@ -380,10 +401,13 @@ namespace OloEngine
         // Bind environment map
         environmentMap->Bind(ShaderBindingLayout::TEX_ENVIRONMENT);
 
-        // Use enhanced rendering with configuration
-        RenderToCubemapAdvanced(irradianceMap, shader, GetCubeMesh(), config);
+        const f64 elapsedMs = MeasureMillisecondsWithGPUSync([&]()
+                                                             {
+            // Use enhanced rendering with configuration
+            RenderToCubemapAdvanced(irradianceMap, shader, GetCubeMesh(), config); });
 
-        OLO_CORE_INFO("Enhanced irradiance map generation complete");
+        OLO_CORE_INFO("Enhanced irradiance map generation complete ({:.2f} ms, Monte-Carlo, {} samples)",
+                      elapsedMs, config.IrradianceSamples);
     }
 
     void IBLPrecompute::GeneratePrefilterMapAdvanced(const Ref<TextureCubemap>& environmentMap,
@@ -536,5 +560,207 @@ namespace OloEngine
         //   Goal: Use config.Quality to select multi-pass accumulation, higher-precision intermediate
         //   formats, or progressive refinement for Ultra quality.
         //   Acceptance: Measurable quality improvement at Ultra vs Medium; no regression at Low/Medium.
+    }
+
+    namespace
+    {
+        // Convert one row of raw bytes into vec3 pixels based on the cubemap
+        // format. The IBL pipeline normalises every loaded HDR to RGBA32F via
+        // EnvironmentMap::ConvertEquirectangularToCubemap, so RGBA32F is the
+        // expected hot path; the other branches cover hand-authored cubemaps
+        // that bypass the HDR conversion (face-list constructors etc.).
+        bool DecodeCubemapBytesToVec3(const std::vector<u8>& bytes,
+                                      ImageFormat format,
+                                      u32 pixelCount,
+                                      glm::vec3* outPixels)
+        {
+            switch (format)
+            {
+                case ImageFormat::RGBA32F:
+                {
+                    if (bytes.size() < pixelCount * 16)
+                        return false;
+                    const f32* src = reinterpret_cast<const f32*>(bytes.data());
+                    for (u32 i = 0; i < pixelCount; ++i)
+                    {
+                        outPixels[i] = glm::vec3(src[i * 4 + 0], src[i * 4 + 1], src[i * 4 + 2]);
+                    }
+                    return true;
+                }
+                case ImageFormat::RGB32F:
+                {
+                    if (bytes.size() < pixelCount * 12)
+                        return false;
+                    const f32* src = reinterpret_cast<const f32*>(bytes.data());
+                    for (u32 i = 0; i < pixelCount; ++i)
+                    {
+                        outPixels[i] = glm::vec3(src[i * 3 + 0], src[i * 3 + 1], src[i * 3 + 2]);
+                    }
+                    return true;
+                }
+                case ImageFormat::RGBA8:
+                {
+                    if (bytes.size() < pixelCount * 4)
+                        return false;
+                    constexpr f32 inv255 = 1.0f / 255.0f;
+                    for (u32 i = 0; i < pixelCount; ++i)
+                    {
+                        outPixels[i] = glm::vec3(bytes[i * 4 + 0], bytes[i * 4 + 1], bytes[i * 4 + 2]) * inv255;
+                    }
+                    return true;
+                }
+                case ImageFormat::RGB8:
+                {
+                    if (bytes.size() < pixelCount * 3)
+                        return false;
+                    constexpr f32 inv255 = 1.0f / 255.0f;
+                    for (u32 i = 0; i < pixelCount; ++i)
+                    {
+                        outPixels[i] = glm::vec3(bytes[i * 3 + 0], bytes[i * 3 + 1], bytes[i * 3 + 2]) * inv255;
+                    }
+                    return true;
+                }
+                default:
+                    OLO_CORE_ERROR("DecodeCubemapBytesToVec3: unsupported cubemap format ({})", static_cast<u32>(format));
+                    return false;
+            }
+        }
+    } // anonymous namespace
+
+    SHCoefficients IBLPrecompute::ProjectCubemapToSH(const Ref<TextureCubemap>& environmentMap)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        SHCoefficients zero;
+        zero.Zero();
+
+        if (!environmentMap)
+        {
+            OLO_CORE_ERROR("IBLPrecompute::ProjectCubemapToSH: null environment map");
+            return zero;
+        }
+
+        const u32 width = environmentMap->GetWidth();
+        const u32 height = environmentMap->GetHeight();
+        if (width == 0 || width != height)
+        {
+            OLO_CORE_ERROR("IBLPrecompute::ProjectCubemapToSH: cubemap must be square (got {}x{})", width, height);
+            return zero;
+        }
+
+        const auto& spec = environmentMap->GetCubemapSpecification();
+        const u32 faceTexels = width * height;
+
+        std::vector<glm::vec3> pixels;
+        pixels.resize(static_cast<sizet>(6) * faceTexels);
+
+        std::vector<u8> faceBytes;
+        for (u32 face = 0; face < 6; ++face)
+        {
+            faceBytes.clear();
+            if (!environmentMap->GetFaceData(face, faceBytes, /*mipLevel=*/0))
+            {
+                OLO_CORE_ERROR("IBLPrecompute::ProjectCubemapToSH: GetFaceData failed for face {}", face);
+                return zero;
+            }
+
+            glm::vec3* faceDst = pixels.data() + static_cast<sizet>(face) * faceTexels;
+            if (!DecodeCubemapBytesToVec3(faceBytes, spec.Format, faceTexels, faceDst))
+            {
+                OLO_CORE_ERROR("IBLPrecompute::ProjectCubemapToSH: byte decode failed for face {}", face);
+                return zero;
+            }
+        }
+
+        return LightProbeBaker::ProjectToSH(pixels, width);
+    }
+
+    SHCoefficients IBLPrecompute::GenerateIrradianceMapFromSH(const Ref<TextureCubemap>& environmentMap,
+                                                              const Ref<TextureCubemap>& irradianceMap,
+                                                              ShaderLibrary& shaderLibrary,
+                                                              [[maybe_unused]] const IBLConfiguration& config)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        SHCoefficients zero;
+        zero.Zero();
+
+        if (!environmentMap || !irradianceMap)
+        {
+            OLO_CORE_ERROR("IBLPrecompute::GenerateIrradianceMapFromSH: null inputs");
+            return zero;
+        }
+
+        if (!shaderLibrary.Exists("IrradianceFromSH"))
+        {
+            OLO_CORE_ERROR("IBLPrecompute::GenerateIrradianceMapFromSH: IrradianceFromSH shader not found");
+            return zero;
+        }
+
+        OLO_CORE_INFO("Generating irradiance map via L2 SH projection (no convolution)");
+
+        const auto pathStart = std::chrono::steady_clock::now();
+
+        // 1. Project the source cubemap onto the L2 SH basis. The result is
+        //    radiance SH; we will convert to irradiance SH next.
+        SHCoefficients radianceSH = ProjectCubemapToSH(environmentMap);
+
+        // 2. Apply Ramamoorthi-Hanrahan per-band cosine-lobe scaling, divided
+        //    by π to match the convention IrradianceConvolution.glsl outputs.
+        //    The Ramamoorthi-Hanrahan analytic cosine-lobe constants are
+        //    (π, 2π/3, π/4) — those produce the *raw* Lambertian irradiance
+        //    integral E(n) = ∫ L(ω) max(N·ω, 0) dω, which for uniform-white
+        //    L=1 evaluates to π. But the production convolution shader divides
+        //    by π so the stored cubemap reads as 1.0 for uniform-white input
+        //    (see `PbrIrradianceTest.UniformWhiteYieldsNormalisedUnity`); the
+        //    PBR pipeline then does `diffuse = irradiance * albedo` *without*
+        //    re-dividing by π. To stay bit-compatible with that convention
+        //    every coefficient is divided by π here:
+        //       a_0 = 1            (was π)
+        //       a_1 = 2/3          (was 2π/3)
+        //       a_2 = 1/4          (was π/4)
+        //    Output for uniform-white input is now 1.0, identical to the
+        //    convolution path. A previous version of this code used the raw
+        //    constants and over-brightened SH-mode by π× — visible as a
+        //    ~3x exposure bump on every diffuse surface.
+        constexpr f32 kCosineLobeA0 = 1.0f;
+        constexpr f32 kCosineLobeA1 = 2.0f / 3.0f;
+        constexpr f32 kCosineLobeA2 = 1.0f / 4.0f;
+
+        SHCoefficients irradianceSH = radianceSH;
+        irradianceSH.Coefficients[0] *= kCosineLobeA0;
+        for (u32 i = 1; i <= 3; ++i)
+            irradianceSH.Coefficients[i] *= kCosineLobeA1;
+        for (u32 i = 4; i <= 8; ++i)
+            irradianceSH.Coefficients[i] *= kCosineLobeA2;
+
+        // 3. Upload to the shader's UBO. The GenerateIrradianceMapFromSH path
+        //    runs at most once per environment-map regen, so a fresh ad-hoc
+        //    UBO (released when the local Ref drops) is fine — no need to
+        //    cache it across calls.
+        UBOStructures::SHCoefficientsUBO uboData;
+        for (u32 i = 0; i < SH_COEFFICIENT_COUNT; ++i)
+        {
+            uboData.Coefficients[i] = glm::vec4(irradianceSH.Coefficients[i], 0.0f);
+        }
+        uboData.Coefficients[0].w = 1.0f; // validity flag
+        auto shUBO = UniformBuffer::Create(UBOStructures::SHCoefficientsUBO::GetSize(),
+                                           ShaderBindingLayout::UBO_SH_COEFFICIENTS);
+        shUBO->SetData(&uboData, UBOStructures::SHCoefficientsUBO::GetSize());
+        shUBO->Bind();
+
+        // 4. Rasterise the irradiance cubemap with the SH-eval shader. Output
+        //    layout matches the convolution path (per-face render -> copy to
+        //    cubemap face), so callers consume the result identically.
+        auto shader = shaderLibrary.Get("IrradianceFromSH");
+        RenderToCubemap(irradianceMap, shader, GetCubeMesh());
+
+        // Sync so the elapsed-time measurement covers GPU work, not just
+        // command submission — matches MeasureMillisecondsWithGPUSync above.
+        ::glFinish();
+        const auto pathEnd = std::chrono::steady_clock::now();
+        const f64 elapsedMs = std::chrono::duration<f64, std::milli>(pathEnd - pathStart).count();
+        OLO_CORE_INFO("SH-based irradiance map generation complete ({:.2f} ms, L2 SH, 9 coefficients)", elapsedMs);
+        return irradianceSH;
     }
 } // namespace OloEngine

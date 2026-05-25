@@ -462,6 +462,22 @@ namespace OloEngine
                 return sizeof(JumpFloodUBO);
             }
         };
+
+        // @brief L2 spherical-harmonics coefficients for one IBL probe.
+        // Used by the SH-based irradiance generator (IBL diffuse path) when
+        // IBLConfiguration::UseSphericalHarmonics is enabled, and reusable by
+        // any single-probe SH shader that wants a 9-coefficient lookup.
+        // Layout mirrors SHCoefficients::ToGPULayout: 9 vec4 (= 144 B).
+        // The first element's .w stores the validity flag (1.0 = valid).
+        struct SHCoefficientsUBO
+        {
+            glm::vec4 Coefficients[9] = {};
+
+            static constexpr u32 GetSize()
+            {
+                return sizeof(SHCoefficientsUBO);
+            }
+        };
     } // namespace UBOStructures
 
     // =============================================================================
@@ -552,6 +568,8 @@ namespace OloEngine
     static_assert(sizeof(UBOStructures::GTAOUBO) == 160, "GTAOUBO unexpected size — update GLSL layout");
     static_assert(sizeof(UBOStructures::JumpFloodUBO) % 16 == 0, "JumpFloodUBO size must be 16-byte aligned for std140");
     static_assert(sizeof(UBOStructures::JumpFloodUBO) == 48, "JumpFloodUBO unexpected size — update GLSL layout");
+    static_assert(sizeof(UBOStructures::SHCoefficientsUBO) % 16 == 0, "SHCoefficientsUBO size must be 16-byte aligned for std140");
+    static_assert(sizeof(UBOStructures::SHCoefficientsUBO) == 144, "SHCoefficientsUBO unexpected size — update GLSL layout (expect 9 vec4)");
 
     // Standardized shader binding layout for consistent resource sharing
     // across all shaders in the engine. This ensures efficient data sharing
@@ -598,6 +616,7 @@ namespace OloEngine
         static constexpr u32 UBO_TAA = 32;                  // Temporal Anti-Aliasing parameters
         static constexpr u32 UBO_DRS = 33;                  // Dynamic Resolution Scaling bounds
         static constexpr u32 UBO_PREVIEW = 34;              // Content-browser asset thumbnail preview (matrices + material factors)
+        static constexpr u32 UBO_SH_COEFFICIENTS = 35;      // L2 spherical-harmonics coefficients (9 vec4) for SH-based IBL irradiance
 
         // =============================================================================
         // TEXTURE SAMPLER BINDINGS
@@ -806,6 +825,9 @@ namespace OloEngine
                            name.contains("dynamicResolution");
                 case UBO_PREVIEW:
                     return name.contains("Preview") || name.contains("preview");
+                case UBO_SH_COEFFICIENTS:
+                    return name.contains("SHCoefficient") || name.contains("shCoefficient") ||
+                           name.contains("SHCoeff") || name.contains("shCoeff");
                 default:
                     return false;
             }

@@ -995,6 +995,16 @@ namespace OloEngine
         bool m_EnableIBL = true;
         f32 m_IBLIntensity = 1.0f;
 
+        // Diffuse-irradiance generator selection. False = Monte-Carlo cubemap
+        // convolution (production default — IrradianceConvolution.glsl, ~1024
+        // samples per output texel). True = L2 spherical-harmonics projection
+        // (IrradianceFromSH.glsl, 9 coefficients, ~100x faster generation).
+        // Output texture is the same RGBA32F irradiance cubemap in both cases
+        // so no PBR shader cares which path produced it.
+        // Editor-toggled at runtime; flipping the value drops the cached
+        // EnvironmentMap and forces a regen on the next OnUpdateRuntime tick.
+        bool m_UseSphericalHarmonics = false;
+
         // Tint/color adjustment
         glm::vec3 m_Tint = glm::vec3(1.0f);
 
@@ -1013,7 +1023,7 @@ namespace OloEngine
                 return false;
             if (m_EnvironmentMap.Raw() != other.m_EnvironmentMap.Raw())
                 return false;
-            return m_IsCubemapFolder == other.m_IsCubemapFolder && m_EnableSkybox == other.m_EnableSkybox && m_EnableIBL == other.m_EnableIBL && Math::BitwiseEqual(m_Rotation, other.m_Rotation) && Math::BitwiseEqual(m_Exposure, other.m_Exposure) && Math::BitwiseEqual(m_BlurAmount, other.m_BlurAmount) && Math::BitwiseEqual(m_IBLIntensity, other.m_IBLIntensity) && Math::BitwiseEqual(m_Tint, other.m_Tint);
+            return m_IsCubemapFolder == other.m_IsCubemapFolder && m_EnableSkybox == other.m_EnableSkybox && m_EnableIBL == other.m_EnableIBL && m_UseSphericalHarmonics == other.m_UseSphericalHarmonics && Math::BitwiseEqual(m_Rotation, other.m_Rotation) && Math::BitwiseEqual(m_Exposure, other.m_Exposure) && Math::BitwiseEqual(m_BlurAmount, other.m_BlurAmount) && Math::BitwiseEqual(m_IBLIntensity, other.m_IBLIntensity) && Math::BitwiseEqual(m_Tint, other.m_Tint);
         }
     };
 
