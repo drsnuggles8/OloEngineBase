@@ -73,6 +73,7 @@ add_executable(OloEngine-Tests
 		Rendering/InstanceDataLayoutTest.cpp
 		Rendering/GPUFrustumCullParityTest.cpp
 		Rendering/ScatterBrushMathTest.cpp
+		Rendering/SphereAreaLightMathTest.cpp
 		Rendering/CommandPacketTest.cpp
 		Rendering/CommandAllocatorTest.cpp
 		Rendering/CommandBucketTest.cpp
