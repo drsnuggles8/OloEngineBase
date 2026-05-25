@@ -101,11 +101,14 @@ namespace OloEngine
 
         Application::Get().GetWindow().SetTitle("Test");
 
-        m_IconPlay = Texture2D::Create("Resources/Icons/PlayButton.png");
-        m_IconPause = Texture2D::Create("Resources/Icons/PauseButton.png");
-        m_IconSimulate = Texture2D::Create("Resources/Icons/SimulateButton.png");
-        m_IconStep = Texture2D::Create("Resources/Icons/StepButton.png");
-        m_IconStop = Texture2D::Create("Resources/Icons/StopButton.png");
+        // Toolbar icons are authored colour bitmaps — load as sRGB so the GPU
+        // linearises them on sample, matching how every other colour texture
+        // in the engine is treated.
+        m_IconPlay = Texture2D::Create("Resources/Icons/PlayButton.png", /*srgb=*/true);
+        m_IconPause = Texture2D::Create("Resources/Icons/PauseButton.png", /*srgb=*/true);
+        m_IconSimulate = Texture2D::Create("Resources/Icons/SimulateButton.png", /*srgb=*/true);
+        m_IconStep = Texture2D::Create("Resources/Icons/StepButton.png", /*srgb=*/true);
+        m_IconStop = Texture2D::Create("Resources/Icons/StopButton.png", /*srgb=*/true);
 
         FramebufferSpecification fbSpec;
         fbSpec.Attachments = { FramebufferTextureFormat::RGBA8, FramebufferTextureFormat::RED_INTEGER, FramebufferTextureFormat::Depth };
@@ -867,7 +870,8 @@ namespace OloEngine
                 else if (m_SceneState == SceneState::Edit && [&ext]
                          { static constexpr std::string_view kImageExts[] = {".png", ".jpeg", ".jpg"}; return std::ranges::find(kImageExts, ext) != std::ranges::end(kImageExts); }() && m_HoveredEntity && m_HoveredEntity.HasComponent<SpriteRendererComponent>()) // Load texture
                 {
-                    const Ref<Texture2D> texture = Texture2D::Create(path.string());
+                    // Sprite art is colour content, treat the dropped image as sRGB.
+                    const Ref<Texture2D> texture = Texture2D::Create(path.string(), /*srgb=*/true);
                     if (texture->IsLoaded())
                     {
                         auto oldComponent = m_HoveredEntity.GetComponent<SpriteRendererComponent>();

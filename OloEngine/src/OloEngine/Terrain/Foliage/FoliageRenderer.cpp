@@ -157,10 +157,11 @@ namespace OloEngine
             renderData.BaseColor = layer.BaseColor;
             renderData.AlphaCutoff = layer.AlphaCutoff;
 
-            // Load albedo texture if needed
+            // Load albedo texture if needed — foliage albedo is authored
+            // colour and needs sRGB->linear conversion on sample.
             if (!layer.AlbedoPath.empty() && !renderData.AlbedoTexture)
             {
-                renderData.AlbedoTexture = Texture2D::Create(layer.AlbedoPath);
+                renderData.AlbedoTexture = Texture2D::Create(layer.AlbedoPath, /*srgb=*/true);
             }
 
             // Calculate grid spacing from density
