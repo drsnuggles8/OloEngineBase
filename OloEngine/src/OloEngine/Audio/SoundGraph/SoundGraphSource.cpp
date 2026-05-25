@@ -573,6 +573,11 @@ namespace OloEngine::Audio::SoundGraph
                 // thread won't dereference m_Graph until SuspendProcessing(false) clears the
                 // suspend flag.
                 m_Graph->SetSampleRate(static_cast<f32>(m_SampleRate));
+                // Pre-allocate the graph's per-channel block-output buffers up to the
+                // miniaudio block size so the audio thread doesn't trigger any heap
+                // allocation when it first calls Process(frameCount). Safe to call here
+                // because we're off the audio thread (graph is suspended).
+                m_Graph->SetMaxBlockSize(m_BlockSize);
                 UpdateParameterSet();
                 OLO_CORE_INFO("[SoundGraphSource] Replaced sound graph");
             }

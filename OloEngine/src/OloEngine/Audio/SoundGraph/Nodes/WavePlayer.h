@@ -134,11 +134,17 @@ namespace OloEngine::Audio::SoundGraph
 
         void Process(u32 numFrames) final
         {
-            // Intentionally no OLO_PROFILE_FUNCTION at sample rate: this used to run once
-            // per audio frame (48 kHz). With Phase 1 block processing, the function is
-            // called once per block (~94 Hz at 48 kHz / 512-frame block), so we could
-            // afford a profile macro here now — but leaving it off keeps the hot path
-            // uniform with the comment in SoundGraph::Process.
+            // Intentionally no OLO_PROFILE_FUNCTION: SoundGraph::Process still calls each
+            // node Process(1) per sample step in Phase 1A (the ValueView wiring between
+            // nodes is scalar — see the note in SoundGraph::Process), so this body runs
+            // at sample rate (48 kHz). In Debug, OLO_PROFILE_FUNCTION resolves to an
+            // InstrumentationTimer that does two steady_clock::now() calls per invocation,
+            // and at 48 kHz that alone pushes the audio thread below real time.
+            //
+            // The setup-once / loop-per-sample structure below is intentionally positioned
+            // for Phase 2: once typed AudioBufferRef wiring lets SoundGraph call us with
+            // the whole block, the per-block setup (Check/Flag calls) amortises across
+            // numFrames instead of running at sample rate.
 
             // If parameter wiring is incomplete, stay silent rather than crash.
             if (!m_WaveAsset || !m_Loop || !m_NumberOfLoops)
@@ -147,10 +153,8 @@ namespace OloEngine::Audio::SoundGraph
                 return;
             }
 
-            // Block-rate setup. These used to run at 48 kHz inside the per-sample loop;
-            // they only need to happen once per block. Pre-Phase-1 measurements showed
-            // these atomic / flag operations were a primary contributor to the audio
-            // thread missing real time in Debug.
+            // Block-rate setup — see the Phase 2 note above; in Phase 1A this still runs
+            // per Process(1) call, but the code is shape-ready for the block-rate switch.
             CheckAsyncLoadCompletion();
             if (m_PlayFlag.CheckAndResetIfDirty())
                 StartPlayback();
@@ -161,7 +165,7 @@ namespace OloEngine::Audio::SoundGraph
             // (the scalar outputs the existing ValueView wiring is aliased to). Phase 2
             // introduces a buffer-rate output so downstream consumers can read the whole
             // block at once; until then SoundGraph still samples this node's scalar output
-            // once per frame, but the expensive setup above is amortised across the block.
+            // once per frame.
             for (u32 frame = 0; frame < numFrames; ++frame)
             {
                 if (!m_IsPlaying)

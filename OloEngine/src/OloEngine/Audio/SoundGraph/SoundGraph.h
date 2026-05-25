@@ -185,11 +185,11 @@ namespace OloEngine::Audio::SoundGraph
         std::vector<float> m_OutChannels;
 
         /// Per-channel block-output buffers, parallel to m_OutChannels / m_OutputChannelIDs.
-        /// Sized to numFrames on first Process(numFrames) call and re-sized only if the
-        /// block size changes. Each entry [c][i] is the i-th sample of channel c produced
-        /// during this block. SoundGraphSource bulk-copies these into the miniaudio
-        /// output bus.
-        std::vector<std::vector<float>> m_OutputBuffers;
+        /// Capacity is reserved off the audio thread via SetMaxBlockSize so that
+        /// Process(numFrames) on the audio thread only adjusts the logical size (no heap
+        /// allocation). Each entry [c][i] is the i-th sample of channel c produced during
+        /// this block. SoundGraphSource bulk-copies these into the miniaudio output bus.
+        std::vector<std::vector<f32>> m_OutputBuffers;
 
         /// Cached pointers to the endpoint output ValueViews, parallel to m_OutChannels /
         /// m_OutputChannelIDs. Rebuilt lazily on first Process() after Init() so the
@@ -477,7 +477,23 @@ namespace OloEngine::Audio::SoundGraph
                 node->Init();
             }
 
+            // Pre-allocate per-channel block buffers to a sensible default block size so
+            // even consumers that drive Process() directly (instantiation tests, future
+            // offline render paths) don't trigger heap allocations on the audio thread.
+            // SoundGraphSource overrides this via SetMaxBlockSize() with the real miniaudio
+            // block size before the audio thread starts pulling samples.
+            EnsureOutputBuffersCapacity(kDefaultMaxBlockSize);
+
             m_IsInitialized = true;
+        }
+
+        /// Pre-allocates per-channel block-buffer capacity *off* the audio thread. Call
+        /// after graph construction (all AddGraphOutputStream calls complete) and before
+        /// any audio-thread Process(numFrames) call. Safe to call again with a larger
+        /// value; never shrinks. Idempotent for sizes already covered.
+        void SetMaxBlockSize(u32 maxBlockSize)
+        {
+            EnsureOutputBuffersCapacity(maxBlockSize);
         }
 
         void BeginProcessBlock()
@@ -505,6 +521,11 @@ namespace OloEngine::Audio::SoundGraph
         // we get the real perf win documented in docs/soundgraph-metasounds-refactor.md.
         void Process(u32 numFrames) final
         {
+            // Block-rate entry point (~100 Hz at 48 kHz / 480-frame block) — profile macro
+            // is fine here. The matching note in WavePlayer::Process explains why the
+            // per-sample hot path called from this method still avoids OLO_PROFILE_FUNCTION.
+            OLO_PROFILE_FUNCTION();
+
             // Lazy rebuild of the endpoint-view cache (see member-doc on m_OutputChannelViews).
             if (m_OutputChannelViews.size() != m_OutputChannelIDs.size()) [[unlikely]]
             {
@@ -517,13 +538,16 @@ namespace OloEngine::Audio::SoundGraph
                 }
             }
 
-            // Ensure per-channel block buffers exist and are sized for this block.
-            if (m_OutputBuffers.size() != m_OutChannels.size())
-                m_OutputBuffers.resize(m_OutChannels.size());
-            for (auto& buf : m_OutputBuffers)
+            // Block buffers were pre-allocated to capacity by Init() and (optionally)
+            // SetMaxBlockSize() off the audio thread. The assert below is the contract:
+            // if it ever fires we'd be a missed off-thread reserve away from a heap
+            // allocation in the audio callback.
+            OLO_CORE_ASSERT(m_OutputBuffers.size() >= m_OutChannels.size(),
+                            "SoundGraph::Process: output buffer count is short of channel count; call SetMaxBlockSize off-thread");
+            for ([[maybe_unused]] auto& buf : m_OutputBuffers)
             {
-                if (buf.size() < numFrames)
-                    buf.resize(numFrames);
+                OLO_CORE_ASSERT(buf.capacity() >= numFrames,
+                                "SoundGraph::Process: block buffer capacity insufficient for numFrames; call SetMaxBlockSize off-thread");
             }
 
             const sizet channelCount = std::min(m_OutChannels.size(), m_OutputChannelViews.size());
@@ -730,6 +754,25 @@ namespace OloEngine::Audio::SoundGraph
         }
 
       private:
+        // Default per-channel block-buffer capacity used by Init() when SoundGraphSource
+        // hasn't yet called SetMaxBlockSize. Sized generously so direct-Process callers
+        // (tests, offline render) don't trip the capacity assert in Process.
+        static constexpr u32 kDefaultMaxBlockSize = 4096;
+
+        /// Ensure m_OutputBuffers has one entry per output channel and each entry has
+        /// `capacity` valid storage slots. Both .size() and .capacity() end up >= capacity.
+        /// MUST be called off the audio thread.
+        void EnsureOutputBuffersCapacity(u32 capacity)
+        {
+            if (m_OutputBuffers.size() < m_OutChannels.size())
+                m_OutputBuffers.resize(m_OutChannels.size());
+            for (auto& buf : m_OutputBuffers)
+            {
+                if (buf.size() < capacity)
+                    buf.resize(capacity);
+            }
+        }
+
         bool m_IsInitialized = false;
         f32 m_SampleRate = 48000.0f;
 
