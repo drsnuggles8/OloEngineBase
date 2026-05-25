@@ -92,14 +92,14 @@ endif()
 
 message(STATUS "OloEngine fuzzing: enabled (Clang/libFuzzer + ${OLO_FUZZ_SANITIZER})")
 
-# Force Tracy off in fuzz builds. Tracy's static-init iterates its string-
-# interning section in .rdata, which under ASan + global redzones reads past
-# the end of empty-string globals into the poison-byte redzone and trips
-# `global-buffer-overflow`. The same pattern already disables Tracy under
-# TSan (see cmake/Sanitizers.cmake) — we need it for ASan-fuzz too. Setting
-# the cache var here (before OloEngine/vendor's `option(TRACY_ENABLE …)` is
-# evaluated) ensures the option() call leaves this value alone.
-set(TRACY_ENABLE OFF CACHE BOOL "Disabled automatically because OLO_ENABLE_FUZZING=ON (Tracy's .rdata scans trip ASan global-buffer-overflow on empty-string globals)." FORCE)
+# Force Tracy off in fuzz builds. Tracy's static-init does a lot of static-
+# global registration / interning that interacts badly with ASan and UBSan
+# instrumentation — empirically, turning it off moved UBSan from 5/7 to 3/7
+# failures and fixed FuzzSpirvCross's ASan startup crash. Mirrors the
+# existing TSan guard in cmake/Sanitizers.cmake. Setting the cache var here
+# (before OloEngine/vendor's `option(TRACY_ENABLE …)` is evaluated) ensures
+# the option() call leaves this value alone.
+set(TRACY_ENABLE OFF CACHE BOOL "Disabled automatically because OLO_ENABLE_FUZZING=ON (Tracy's static-init globals conflict with ASan/UBSan instrumentation)." FORCE)
 
 # Force-disable MSVC STL container annotations across the whole build so the
 # `annotate_string` ABI flag stays the same value in every TU regardless of
@@ -125,6 +125,21 @@ if(WIN32)
         string(REPLACE "/ZI"   "/Zi" ${_flag} "${${_flag}}")
     endforeach()
     add_link_options(/INCREMENTAL:NO)
+
+    # Disable lld-link's Identical COMDAT Folding for fuzz builds. ASan's
+    # global instrumentation emits a per-translation-unit descriptor in the
+    # `__asan_globals` section listing each global's address and size. ICF
+    # merges identical small globals across TUs (especially the size-1 `""`
+    # empty-string literal that compiler-emitted format helpers / inline
+    # template instantiations leave in many TUs). After ICF, the descriptors
+    # from multiple TUs all point at the same surviving global, and ASan's
+    # redzone bookkeeping ends up poisoning the global itself rather than
+    # the padding around it — every 1-byte read of `""` triggers
+    # `global-buffer-overflow` at startup before any test runs (observed in
+    # FuzzAnimationBinary / FuzzMeshBinary / FuzzSceneYaml during the
+    # restore on this branch). Cost of /OPT:NOICF is a slightly larger
+    # binary; harmless for a fuzz-only build.
+    add_link_options(/OPT:NOICF)
 
     # Locate the directory containing the ASan runtime libs. clang-cl
     # installations can use either of two layouts on Windows:

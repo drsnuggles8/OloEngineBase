@@ -140,6 +140,11 @@ jobs:
           )
           # Don't bail on the first harness failure — run all 7 and report a
           # summary so one broken corpus doesn't hide the state of the others.
+          # Any non-zero exit (libFuzzer crashing on an input, ASan/UBSan
+          # aborting, a sanitiser startup failure, etc.) gates CI. Bugs
+          # detected by the fuzzer ARE supposed to fail this workflow — that
+          # is the point of running it. Triage and fix the bugs; do not
+          # whitelist failing harnesses here.
           $failed = @()
           foreach ($h in $harnesses) {
             $exe = "..\build-clang\OloEngine\tests\Fuzzing\Release\$($h.Name).exe"
