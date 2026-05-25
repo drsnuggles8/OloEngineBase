@@ -121,6 +121,6 @@ TEST(SoundGraphInstantiation, WavePlayerWithUnconfiguredAssetDoesNotCrash)
     ASSERT_NO_THROW(instance->Init());
     ASSERT_NO_THROW(instance->SendInputEvent(Audio::SoundGraph::SoundGraph::IDs::Play,
                                              choc::value::createFloat32(1.0f)));
-    ASSERT_NO_THROW(instance->Process())
+    ASSERT_NO_THROW(instance->Process(/*numFrames=*/1))
         << "WavePlayer with no bound WaveAsset must emit silence, not crash";
 }

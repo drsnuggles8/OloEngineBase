@@ -794,15 +794,19 @@ namespace OloEngine::Audio::SoundGraph
             float* const busOut = (ppFramesOut && ppFramesOut[0]) ? ppFramesOut[0] : nullptr;
             if (busOut)
             {
+                // Phase 1: a single block-rate Process call replaces the old per-sample
+                // inner loop. The graph fills m_OutputBuffers[c][i] with `frameCount`
+                // samples per channel; we deinterleave-to-interleave-copy them into the
+                // miniaudio output bus below.
+                m_Graph->Process(frameCount);
+
+                const u32 outputChannels = std::min(m_ChannelCount, static_cast<u32>(m_Graph->m_OutputBuffers.size()));
                 for (u32 frame = 0; frame < frameCount; ++frame)
                 {
-                    m_Graph->Process();
-
-                    const u32 outputChannels = std::min(m_ChannelCount, static_cast<u32>(m_Graph->m_OutChannels.size()));
                     const sizet base = static_cast<sizet>(frame) * m_ChannelCount;
                     for (u32 channel = 0; channel < outputChannels; ++channel)
                     {
-                        busOut[base + channel] = m_Graph->m_OutChannels[channel];
+                        busOut[base + channel] = m_Graph->m_OutputBuffers[channel][frame];
                     }
 
                     // Mono → stereo (and wider) fan-out: copy channel 0 to remaining channels.
@@ -813,6 +817,12 @@ namespace OloEngine::Audio::SoundGraph
                             busOut[base + channel] = sample;
                     }
                 }
+            }
+            else
+            {
+                // No output bus from miniaudio — still drive the graph forward so timing,
+                // events, and the OnFinished signal don't stall.
+                m_Graph->Process(frameCount);
             }
 
             // Handle outgoing events and messages

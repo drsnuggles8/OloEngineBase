@@ -181,8 +181,15 @@ namespace OloEngine::Audio::SoundGraph
         /// Output channel identifiers
         std::vector<Identifier> m_OutputChannelIDs;
 
-        /// Output channel values
+        /// Output channel values (scalar, last-sample of the block)
         std::vector<float> m_OutChannels;
+
+        /// Per-channel block-output buffers, parallel to m_OutChannels / m_OutputChannelIDs.
+        /// Sized to numFrames on first Process(numFrames) call and re-sized only if the
+        /// block size changes. Each entry [c][i] is the i-th sample of channel c produced
+        /// during this block. SoundGraphSource bulk-copies these into the miniaudio
+        /// output bus.
+        std::vector<std::vector<float>> m_OutputBuffers;
 
         /// Cached pointers to the endpoint output ValueViews, parallel to m_OutChannels /
         /// m_OutputChannelIDs. Rebuilt lazily on first Process() after Init() so the
@@ -483,39 +490,22 @@ namespace OloEngine::Audio::SoundGraph
             }
         }
 
-        void Process() final
+        // Phase 1 block-rate entry point. Replaces the old per-sample Process() (which was
+        // called 48 000 times/sec from SoundGraphSource::ProcessSamples). The per-sample
+        // iteration is now hoisted INTO the graph so SoundGraphSource can hand us a whole
+        // block in a single call.
+        //
+        // Phase 1 scope: SoundGraphSource overhead (function dispatch, OLO_PROFILE_FUNCTION
+        // entry, ppFramesOut bounds-check) collapses from per-sample to per-block. The
+        // per-sample iteration inside this method still walks all nodes once per sample,
+        // because the ValueView wiring between nodes is scalar — moving the loop one level
+        // out without changing wiring would only deliver the LAST sample of the block to
+        // downstream consumers. Phase 2 introduces typed AudioBufferRef wiring; once that
+        // lands, this loop can collapse to a single per-node Process(numFrames) call and
+        // we get the real perf win documented in docs/soundgraph-metasounds-refactor.md.
+        void Process(u32 numFrames) final
         {
-            // Intentionally no OLO_PROFILE_FUNCTION: this runs once per audio frame
-            // (48000 Hz). In Debug, OLO_PROFILE_FUNCTION resolves to InstrumentationTimer,
-            // which performs two steady_clock::now() calls per invocation regardless of
-            // session state — at 48 kHz that alone is enough to push the audio thread
-            // below real-time. If we ever need per-frame profiling here, gate it behind
-            // a sampled (e.g. 1-in-N) macro instead of an unconditional one.
-
-            // Process parameter interpolations
-            for (auto& [id, interpValue] : m_InterpInputs)
-                interpValue.Process();
-
-            // Process all nodes in graph
-            for (auto& node : m_Nodes)
-                node->Process();
-
-            // Sample the graph's output channels through m_EndpointOutputStreams. Per-channel
-            // wiring works by aliasing: AddConnection(source, destination) makes destination
-            // point at source's storage. AddGraphOutputStream initially aliases each endpoint
-            // stream to m_OutChannels[i], but AddToGraphOutputConnection then re-aliases it to
-            // the actual producing node's output (e.g. WavePlayer's m_OutLeft). The graph's
-            // m_OutChannels slot itself is never reassigned by those later aliases, so reading
-            // m_OutChannels directly produces the zero default forever. We resolve it through
-            // the (possibly re-aliased) endpoint view here, every frame, so the sample the
-            // engine reads matches what the connected node produced this Process() call.
-            //
-            // Lookup is cached in m_OutputChannelViews on first hit — at 96 000 lookups/sec
-            // in Debug an unordered_map::find was burning ~50 ms per audio second, pushing
-            // the per-frame loop past real-time. The ValueView object lives inside the map's
-            // node and is not moved by AddConnection (which only re-assigns the view's
-            // internal data pointer), so the cached pointer stays valid for the life of the
-            // graph.
+            // Lazy rebuild of the endpoint-view cache (see member-doc on m_OutputChannelViews).
             if (m_OutputChannelViews.size() != m_OutputChannelIDs.size()) [[unlikely]]
             {
                 m_OutputChannelViews.clear();
@@ -526,15 +516,53 @@ namespace OloEngine::Audio::SoundGraph
                     m_OutputChannelViews.push_back(it != m_EndpointOutputStreams.InputStreams.end() ? &it->second : nullptr);
                 }
             }
-            const sizet channelCount = std::min(m_OutChannels.size(), m_OutputChannelViews.size());
-            for (sizet i = 0; i < channelCount; ++i)
+
+            // Ensure per-channel block buffers exist and are sized for this block.
+            if (m_OutputBuffers.size() != m_OutChannels.size())
+                m_OutputBuffers.resize(m_OutChannels.size());
+            for (auto& buf : m_OutputBuffers)
             {
-                const auto* view = m_OutputChannelViews[i];
-                if (view && view->getType().isFloat32())
-                    m_OutChannels[i] = view->getFloat32();
+                if (buf.size() < numFrames)
+                    buf.resize(numFrames);
             }
 
-            ++m_CurrentFrame;
+            const sizet channelCount = std::min(m_OutChannels.size(), m_OutputChannelViews.size());
+
+            for (u32 frame = 0; frame < numFrames; ++frame)
+            {
+                // Per-sample parameter interpolation (10 ms ramps in SendInputValue).
+                for (auto& [id, interpValue] : m_InterpInputs)
+                    interpValue.Process();
+
+                // Walk the node graph. Phase 1 passes numFrames=1 here: each node produces
+                // one sample, downstream consumers read the scalar via ValueView, the chain
+                // works. Phase 2 swaps in typed buffer connections and lifts this call out
+                // of the per-sample loop.
+                for (auto& node : m_Nodes)
+                    node->Process(1);
+
+                // Sample each graph output channel from its (possibly re-aliased) endpoint
+                // view into the per-channel block buffer. The view points at the producing
+                // node's storage — see the original comment preserved on m_OutputChannelViews.
+                for (sizet c = 0; c < channelCount; ++c)
+                {
+                    const auto* view = m_OutputChannelViews[c];
+                    if (view && view->getType().isFloat32())
+                        m_OutputBuffers[c][frame] = view->getFloat32();
+                    else
+                        m_OutputBuffers[c][frame] = 0.0f;
+                }
+
+                ++m_CurrentFrame;
+            }
+
+            // Mirror the final sample into the scalar m_OutChannels for any consumer that
+            // reads it directly (debug UIs, telemetry). The block buffer is the real output.
+            for (sizet c = 0; c < channelCount; ++c)
+            {
+                if (numFrames > 0)
+                    m_OutChannels[c] = m_OutputBuffers[c][numFrames - 1];
+            }
         }
 
         // Reset nodes to their initial state

@@ -132,35 +132,44 @@ namespace OloEngine::Audio::SoundGraph
             m_IsInitialized = true;
         }
 
-        void Process() final
+        void Process(u32 numFrames) final
         {
-            // Intentionally no OLO_PROFILE_FUNCTION: called once per audio frame from
-            // SoundGraph::Process. The Debug-mode InstrumentationTimer overhead is on the
-            // order of a microsecond per call, which is fatal at 48 kHz. See the matching
-            // comment in SoundGraph::Process for the full reasoning.
+            // Intentionally no OLO_PROFILE_FUNCTION at sample rate: this used to run once
+            // per audio frame (48 kHz). With Phase 1 block processing, the function is
+            // called once per block (~94 Hz at 48 kHz / 512-frame block), so we could
+            // afford a profile macro here now — but leaving it off keeps the hot path
+            // uniform with the comment in SoundGraph::Process.
 
-            // If parameter wiring is incomplete, stay silent rather than crash. This can
-            // happen for a node added by the editor that hasn't had its inputs configured
-            // and whose endpoint registration didn't establish the expected parameter map.
+            // If parameter wiring is incomplete, stay silent rather than crash.
             if (!m_WaveAsset || !m_Loop || !m_NumberOfLoops)
             {
                 OutputSilence();
                 return;
             }
 
-            // Check for completed async loads (non-blocking, audio thread safe)
+            // Block-rate setup. These used to run at 48 kHz inside the per-sample loop;
+            // they only need to happen once per block. Pre-Phase-1 measurements showed
+            // these atomic / flag operations were a primary contributor to the audio
+            // thread missing real time in Debug.
             CheckAsyncLoadCompletion();
-
-            // Handle events using Flag system like Hazel
             if (m_PlayFlag.CheckAndResetIfDirty())
                 StartPlayback();
-
             if (m_StopFlag.CheckAndResetIfDirty())
                 StopPlayback(false);
 
-            if (m_IsPlaying)
+            // Per-sample loop. Each iteration produces one sample on m_OutLeft / m_OutRight
+            // (the scalar outputs the existing ValueView wiring is aliased to). Phase 2
+            // introduces a buffer-rate output so downstream consumers can read the whole
+            // block at once; until then SoundGraph still samples this node's scalar output
+            // once per frame, but the expensive setup above is amortised across the block.
+            for (u32 frame = 0; frame < numFrames; ++frame)
             {
-                // Check if we've reached the end
+                if (!m_IsPlaying)
+                {
+                    OutputSilence();
+                    continue;
+                }
+
                 if (m_FrameNumber >= m_TotalFrames)
                 {
                     if (*m_Loop)
@@ -168,7 +177,6 @@ namespace OloEngine::Audio::SoundGraph
                         ++m_LoopCount;
                         m_OnLooped(2.0f);
 
-                        // Check if we've completed all loops
                         if (*m_NumberOfLoops >= 0 && m_LoopCount > *m_NumberOfLoops)
                         {
                             StopPlayback(true);
@@ -176,9 +184,7 @@ namespace OloEngine::Audio::SoundGraph
                         }
                         else
                         {
-                            // Loop back to start - reset play head before fetching next frame.
-                            // Also rewind m_NextRefillFrame so the post-loop refills start
-                            // reading from the file beginning instead of past-the-end.
+                            // Loop back to start.
                             m_FrameNumber = m_StartSample;
                             m_WaveSource.m_ReadPosition = m_FrameNumber;
                             m_NextRefillFrame = m_StartSample;
@@ -190,22 +196,16 @@ namespace OloEngine::Audio::SoundGraph
                     }
                     else
                     {
-                        // No looping - stop playback
                         StopPlayback(true);
                         OutputSilence();
                     }
                 }
                 else
                 {
-                    // Read next frame of audio data
                     ReadNextFrame();
                     m_FrameNumber++;
                     m_WaveSource.m_ReadPosition = m_FrameNumber;
                 }
-            }
-            else
-            {
-                OutputSilence();
             }
         }
 

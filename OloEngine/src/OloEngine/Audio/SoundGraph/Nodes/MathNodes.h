@@ -71,8 +71,13 @@ namespace OloEngine::Audio::SoundGraph
         T* m_Value2 = nullptr;
         T m_Out{ 0 };
 
-        void Process() final
+        void Process(u32 numFrames) final
         {
+            // Stateless: output depends only on current input values, so per-call
+            // cost is independent of numFrames. The graph still drives this once per
+            // sample-step in Phase 1 (numFrames == 1); when block-rate wiring lands
+            // in Phase 2, callers will pass the whole block here unchanged.
+            (void)numFrames;
             OLO_PROFILE_FUNCTION();
 
             if (!m_Value1 || !m_Value2)
@@ -114,8 +119,13 @@ namespace OloEngine::Audio::SoundGraph
         T* m_Value2 = nullptr;
         T m_Out{ 0 };
 
-        void Process() final
+        void Process(u32 numFrames) final
         {
+            // Stateless: output depends only on current input values, so per-call
+            // cost is independent of numFrames. The graph still drives this once per
+            // sample-step in Phase 1 (numFrames == 1); when block-rate wiring lands
+            // in Phase 2, callers will pass the whole block here unchanged.
+            (void)numFrames;
             OLO_PROFILE_FUNCTION();
 
             if (!m_Value1 || !m_Value2)
@@ -157,8 +167,13 @@ namespace OloEngine::Audio::SoundGraph
         T* m_Multiplier = nullptr;
         T m_Out{ 0 };
 
-        void Process() final
+        void Process(u32 numFrames) final
         {
+            // Stateless: output depends only on current input values, so per-call
+            // cost is independent of numFrames. The graph still drives this once per
+            // sample-step in Phase 1 (numFrames == 1); when block-rate wiring lands
+            // in Phase 2, callers will pass the whole block here unchanged.
+            (void)numFrames;
             OLO_PROFILE_FUNCTION();
 
             if (!m_Value || !m_Multiplier)
@@ -200,8 +215,13 @@ namespace OloEngine::Audio::SoundGraph
         T* m_Denominator = nullptr;
         T m_Out{ 0 };
 
-        void Process() final
+        void Process(u32 numFrames) final
         {
+            // Stateless: output depends only on current input values, so per-call
+            // cost is independent of numFrames. The graph still drives this once per
+            // sample-step in Phase 1 (numFrames == 1); when block-rate wiring lands
+            // in Phase 2, callers will pass the whole block here unchanged.
+            (void)numFrames;
             OLO_PROFILE_FUNCTION();
 
             if (!m_Value || !m_Denominator)
@@ -257,8 +277,13 @@ namespace OloEngine::Audio::SoundGraph
         T* m_Value2 = nullptr;
         T m_Out{ 0 };
 
-        void Process() final
+        void Process(u32 numFrames) final
         {
+            // Stateless: output depends only on current input values, so per-call
+            // cost is independent of numFrames. The graph still drives this once per
+            // sample-step in Phase 1 (numFrames == 1); when block-rate wiring lands
+            // in Phase 2, callers will pass the whole block here unchanged.
+            (void)numFrames;
             OLO_PROFILE_FUNCTION();
 
             if (!m_Value1 || !m_Value2)
@@ -300,8 +325,13 @@ namespace OloEngine::Audio::SoundGraph
         T* m_Value2 = nullptr;
         T m_Out{ 0 };
 
-        void Process() final
+        void Process(u32 numFrames) final
         {
+            // Stateless: output depends only on current input values, so per-call
+            // cost is independent of numFrames. The graph still drives this once per
+            // sample-step in Phase 1 (numFrames == 1); when block-rate wiring lands
+            // in Phase 2, callers will pass the whole block here unchanged.
+            (void)numFrames;
             OLO_PROFILE_FUNCTION();
 
             if (!m_Value1 || !m_Value2)
@@ -344,8 +374,13 @@ namespace OloEngine::Audio::SoundGraph
         T* m_MaxValue = nullptr;
         T m_Out{ 0 };
 
-        void Process() final
+        void Process(u32 numFrames) final
         {
+            // Stateless: output depends only on current input values, so per-call
+            // cost is independent of numFrames. The graph still drives this once per
+            // sample-step in Phase 1 (numFrames == 1); when block-rate wiring lands
+            // in Phase 2, callers will pass the whole block here unchanged.
+            (void)numFrames;
             OLO_PROFILE_FUNCTION();
 
             if (!m_Value || !m_MinValue || !m_MaxValue)
@@ -398,8 +433,13 @@ namespace OloEngine::Audio::SoundGraph
         T* m_ToMax = nullptr;
         T m_Out{ 0 };
 
-        void Process() final
+        void Process(u32 numFrames) final
         {
+            // Stateless: output depends only on current input values, so per-call
+            // cost is independent of numFrames. The graph still drives this once per
+            // sample-step in Phase 1 (numFrames == 1); when block-rate wiring lands
+            // in Phase 2, callers will pass the whole block here unchanged.
+            (void)numFrames;
             OLO_PROFILE_FUNCTION();
 
             if (!m_Value || !m_FromMin || !m_FromMax || !m_ToMin || !m_ToMax)
@@ -479,8 +519,13 @@ namespace OloEngine::Audio::SoundGraph
         T* m_Exponent = nullptr;
         T m_Out{ 0 };
 
-        void Process() final
+        void Process(u32 numFrames) final
         {
+            // Stateless: output depends only on current input values, so per-call
+            // cost is independent of numFrames. The graph still drives this once per
+            // sample-step in Phase 1 (numFrames == 1); when block-rate wiring lands
+            // in Phase 2, callers will pass the whole block here unchanged.
+            (void)numFrames;
             OLO_PROFILE_FUNCTION();
 
             if (!m_Base || !m_Exponent)
@@ -616,8 +661,13 @@ namespace OloEngine::Audio::SoundGraph
         T* m_Value = nullptr;
         T m_Out{ 0 };
 
-        void Process() final
+        void Process(u32 numFrames) final
         {
+            // Stateless: output depends only on current input values, so per-call
+            // cost is independent of numFrames. The graph still drives this once per
+            // sample-step in Phase 1 (numFrames == 1); when block-rate wiring lands
+            // in Phase 2, callers will pass the whole block here unchanged.
+            (void)numFrames;
             OLO_PROFILE_FUNCTION();
 
             if (!m_Value)

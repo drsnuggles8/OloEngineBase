@@ -60,11 +60,11 @@ namespace OloEngine::Audio::SoundGraph
             m_State = Idle;
         }
 
-        void Process() final
+        void Process(u32 numFrames) final
         {
             OLO_PROFILE_FUNCTION();
 
-            // Check for parameter changes and recalculate rates if needed
+            // Parameter check + recalc: block-rate (inputs are stable across the block).
             if (m_AttackTime && m_DecayTime && m_AttackCurve && m_DecayCurve &&
                 (EnvelopeParamChanged(*m_AttackTime, m_CachedAttackTime) ||
                  EnvelopeParamChanged(*m_DecayTime, m_CachedDecayTime) ||
@@ -80,30 +80,30 @@ namespace OloEngine::Audio::SoundGraph
                 m_CachedSampleRate = m_SampleRate;
             }
 
-            // Handle trigger events
+            // Handle trigger events: block boundary is acceptable for now (Phase 4 adds
+            // sample-offset triggers when sample accuracy matters).
             if (m_TriggerFlag.IsDirty())
             {
                 m_TriggerFlag.CheckAndResetIfDirty();
                 StartAttack();
             }
 
-            // Process envelope state
-            switch (m_State)
+            // State machine advances one sample per iteration.
+            for (u32 frame = 0; frame < numFrames; ++frame)
             {
-                case Idle:
-                    // Do nothing, value remains at 0
-                    break;
-
-                case Attack:
-                    ProcessAttack();
-                    break;
-
-                case Decay:
-                    ProcessDecay();
-                    break;
+                switch (m_State)
+                {
+                    case Idle:
+                        break;
+                    case Attack:
+                        ProcessAttack();
+                        break;
+                    case Decay:
+                        ProcessDecay();
+                        break;
+                }
+                m_OutEnvelope = m_Value;
             }
-
-            m_OutEnvelope = m_Value;
         }
 
         // Input parameters
@@ -270,11 +270,11 @@ namespace OloEngine::Audio::SoundGraph
             m_State = Idle;
         }
 
-        void Process() final
+        void Process(u32 numFrames) final
         {
             OLO_PROFILE_FUNCTION();
 
-            // Check for parameter changes and recalculate rates if needed
+            // Parameter check + recalc: block-rate.
             if (m_AttackTime && m_DecayTime && m_ReleaseTime &&
                 m_AttackCurve && m_DecayCurve && m_ReleaseCurve &&
                 (EnvelopeParamChanged(*m_AttackTime, m_CachedAttackTime) ||
@@ -295,7 +295,6 @@ namespace OloEngine::Audio::SoundGraph
                 m_CachedSampleRate = m_SampleRate;
             }
 
-            // Handle trigger and release events
             if (m_TriggerFlag.IsDirty())
             {
                 m_TriggerFlag.CheckAndResetIfDirty();
@@ -308,33 +307,28 @@ namespace OloEngine::Audio::SoundGraph
                 StartRelease();
             }
 
-            // Process envelope state
-            switch (m_State)
+            for (u32 frame = 0; frame < numFrames; ++frame)
             {
-                case Idle:
-                    // Value remains at 0
-                    break;
-
-                case Attack:
-                    ProcessAttack();
-                    break;
-
-                case Decay:
-                    ProcessDecay();
-                    break;
-
-                case Sustain:
-                    // Value remains at sustain level
-                    if (m_SustainLevel)
-                        m_Value = *m_SustainLevel;
-                    break;
-
-                case Release:
-                    ProcessRelease();
-                    break;
+                switch (m_State)
+                {
+                    case Idle:
+                        break;
+                    case Attack:
+                        ProcessAttack();
+                        break;
+                    case Decay:
+                        ProcessDecay();
+                        break;
+                    case Sustain:
+                        if (m_SustainLevel)
+                            m_Value = *m_SustainLevel;
+                        break;
+                    case Release:
+                        ProcessRelease();
+                        break;
+                }
+                m_OutEnvelope = m_Value;
             }
-
-            m_OutEnvelope = m_Value;
         }
 
         // Input parameters
