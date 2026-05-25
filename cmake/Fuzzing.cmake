@@ -245,11 +245,9 @@ if(WIN32)
     # NEVER instrument libFuzzer with -fsanitize=fuzzer — that would
     # recursively coverage-trace the fuzzer itself. We also skip ASan/UBSan
     # on libFuzzer so its allocations don't get tracked (the fuzzer needs
-    # to own the input buffer without ASan poisoning).
-    target_compile_definitions(olo_libfuzzer PRIVATE
-        # libFuzzer expects to detect ASan at runtime via __asan_default_options;
-        # nothing for us to define here.
-    )
+    # to own the input buffer without ASan poisoning). libFuzzer detects
+    # ASan at runtime via the `__asan_default_options` weak symbol, so no
+    # compile-time defines are required here.
     set_target_properties(olo_libfuzzer PROPERTIES
         # Inherit the project's /MD CRT (set above) so the .obj files have
         # `MD_DynamicRelease` and match the rest of the link.
