@@ -3203,6 +3203,31 @@ namespace OloEngine
             if (component.m_EnableIBL)
             {
                 ImGui::DragFloat("IBL Intensity##EnvMap", &component.m_IBLIntensity, 0.01f, 0.0f, 5.0f);
+
+                // Diffuse generator selection. Drops the cached env map on
+                // change so Scene::RenderScene3D regenerates it with the
+                // freshly-selected IBLConfiguration on the next tick. The
+                // IBLCache hashes UseSphericalHarmonics into its key, so
+                // round-tripping between the two paths is cache-fast after
+                // the first regen of each.
+                if (ImGui::Checkbox("Use Spherical Harmonics (L2)##EnvMap", &component.m_UseSphericalHarmonics))
+                {
+                    component.m_EnvironmentMap = nullptr;
+                }
+                if (ImGui::IsItemHovered())
+                {
+                    ImGui::SetTooltip(
+                        "Diffuse-irradiance generator:\n"
+                        "  Off (default): Monte-Carlo cubemap convolution\n"
+                        "                 (~1024 samples per output texel)\n"
+                        "  On:            L2 spherical-harmonics projection\n"
+                        "                 (9 coefficients, ~3-10x faster vs 1024-sample Monte-Carlo)\n\n"
+                        "Outputs are binding/format compatible (same RGBA32F\n"
+                        "irradiance cubemap at the same texture binding) — not\n"
+                        "guaranteed bit-identical. SH-L2 captures the low-frequency\n"
+                        "diffuse content; very sharp sky/ground transitions read\n"
+                        "as slightly softer in the indirect diffuse term.");
+                }
             } });
 
         DrawComponent<Rigidbody3DComponent>("Rigidbody 3D", entity, [](auto& component)

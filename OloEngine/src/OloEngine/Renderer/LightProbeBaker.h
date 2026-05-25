@@ -37,6 +37,14 @@ namespace OloEngine
             u32 cubemapResolution = 64,
             const ProbeBakeProgressCallback& progress = nullptr);
 
+        // Project cubemap pixel data (faces laid out +X, -X, +Y, -Y, +Z, -Z;
+        // each face stored row-major at the given per-face resolution) onto
+        // the L2 SH basis. Reusable by IBL irradiance generation, scene-baked
+        // light probes, and any future SH-based ambient path.
+        static SHCoefficients ProjectToSH(
+            const std::vector<glm::vec3>& cubemapPixels,
+            u32 resolution);
+
       private:
         // Render the scene into a cubemap FBO at the given position
         static void RenderCubemapAtPosition(
@@ -44,10 +52,5 @@ namespace OloEngine
             const glm::vec3& position,
             u32 resolution,
             std::vector<glm::vec3>& outPixels);
-
-        // Project cubemap pixel data onto L2 SH basis
-        static SHCoefficients ProjectToSH(
-            const std::vector<glm::vec3>& cubemapPixels,
-            u32 resolution);
     };
 } // namespace OloEngine

@@ -958,6 +958,9 @@ namespace OloEngine::Tests
         const bool expectedEnableSkybox = false; // non-default
         const bool expectedEnableIBL = false;    // non-default
         const f32 expectedIBLIntensity = 1.75f;
+        // Flip to non-default so a missing serializer entry would surface as
+        // the field reverting to false on reload.
+        const bool expectedUseSH = true;
         const glm::vec3 expectedTint{ 0.8f, 0.9f, 1.0f };
 
         std::string yaml;
@@ -971,6 +974,7 @@ namespace OloEngine::Tests
             em.m_EnableSkybox = expectedEnableSkybox;
             em.m_EnableIBL = expectedEnableIBL;
             em.m_IBLIntensity = expectedIBLIntensity;
+            em.m_UseSphericalHarmonics = expectedUseSH;
             em.m_Tint = expectedTint;
             yaml = SceneSerializer(scene).SerializeToYAML();
         }
@@ -989,6 +993,7 @@ namespace OloEngine::Tests
         EXPECT_EQ(em.m_EnableSkybox, expectedEnableSkybox);
         EXPECT_EQ(em.m_EnableIBL, expectedEnableIBL);
         EXPECT_NEAR(em.m_IBLIntensity, expectedIBLIntensity, kFloatEpsilon);
+        EXPECT_EQ(em.m_UseSphericalHarmonics, expectedUseSH);
         EXPECT_NEAR(em.m_Tint.r, expectedTint.r, kFloatEpsilon);
         EXPECT_NEAR(em.m_Tint.g, expectedTint.g, kFloatEpsilon);
         EXPECT_NEAR(em.m_Tint.b, expectedTint.b, kFloatEpsilon);

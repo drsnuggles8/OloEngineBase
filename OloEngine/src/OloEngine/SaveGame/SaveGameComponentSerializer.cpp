@@ -801,6 +801,22 @@ namespace OloEngine
         ar << c.m_IsCubemapFolder << c.m_EnableSkybox;
         ar << c.m_Rotation << c.m_Exposure << c.m_BlurAmount;
         ar << c.m_EnableIBL << c.m_IBLIntensity << c.m_Tint;
+        // m_UseSphericalHarmonics was added in the SH-IBL irradiance feature.
+        // It is appended *after* m_Tint (which legacy archives ended with) so
+        // older save files round-trip cleanly — we probe AtEnd() on load and
+        // default to false when the field is absent. Mirrors the same pattern
+        // used for DecalComponent::m_Transparent above.
+        if (ar.IsLoading())
+        {
+            if (ar.AtEnd())
+                c.m_UseSphericalHarmonics = false;
+            else
+                ar << c.m_UseSphericalHarmonics;
+        }
+        else
+        {
+            ar << c.m_UseSphericalHarmonics;
+        }
         // Ref<EnvironmentMap> is runtime — not serialized
     }
 
