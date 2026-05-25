@@ -1531,7 +1531,7 @@ namespace OloEngine
                 std::filesystem::path texturePath = PathFromUtf8Payload(*payload);
                 // Particle sprites are authored colour content.
                 Ref<Texture2D> const texture = Texture2D::Create(texturePath.string(), /*srgb=*/true);
-                if (texture->IsLoaded())
+                if (texture && texture->IsLoaded())
                 {
                     component.Texture = texture;
                 }
@@ -2033,7 +2033,7 @@ namespace OloEngine
                     std::filesystem::path texturePath = PathFromUtf8Payload(*payload);
                     // Sprite art is authored colour, treat as sRGB.
                     Ref<Texture2D> const texture = Texture2D::Create(texturePath.string(), /*srgb=*/true);
-                    if (texture->IsLoaded())
+                    if (texture && texture->IsLoaded())
                     {
                         component.Texture = texture;
                     }
@@ -3742,7 +3742,7 @@ namespace OloEngine
                     std::filesystem::path texturePath = PathFromUtf8Payload(*payload);
                     // UI images are authored colour, treat as sRGB.
                     Ref<Texture2D> texture = Texture2D::Create(texturePath.string(), /*srgb=*/true);
-                    if (texture->IsLoaded())
+                    if (texture && texture->IsLoaded())
                         component.m_Texture = texture;
                 }
                 ImGui::EndDragDropTarget();
@@ -4873,7 +4873,7 @@ namespace OloEngine
                         {
                             std::filesystem::path texturePath = PathFromUtf8Payload(*payload);
                             Ref<Texture2D> const texture = Texture2D::Create(texturePath.string(), srgb);
-                            if (texture->IsLoaded())
+                            if (texture && texture->IsLoaded())
                             {
                                 slot = texture;
                             }

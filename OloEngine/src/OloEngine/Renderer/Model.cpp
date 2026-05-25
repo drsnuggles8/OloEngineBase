@@ -842,6 +842,12 @@ namespace OloEngine
         const bool srgb = (type == aiTextureType_DIFFUSE ||
                            type == aiTextureType_BASE_COLOR ||
                            type == aiTextureType_EMISSIVE);
+        // Cache key suffix: the colour-space is part of the texture's GPU
+        // identity, so two callers asking for the same on-disk path under
+        // different sRGB intents must not share the cached Ref. Suffix lives
+        // alongside the path in the key, not as a separate map, so the rest
+        // of the cache logic stays unchanged.
+        const std::string_view srgbSuffix = srgb ? "|srgb" : "|linear";
 
         for (u32 i = 0; i < mat->GetTextureCount(type); i++)
         {
@@ -858,7 +864,7 @@ namespace OloEngine
             {
                 if (const aiTexture* embedded = scene->GetEmbeddedTexture(str.C_Str()))
                 {
-                    const std::string cacheKey = std::string{ "embedded|" } + str.C_Str();
+                    const std::string cacheKey = std::string{ "embedded|" } + str.C_Str() + std::string(srgbSuffix);
                     if (auto it = m_LoadedTextures.find(cacheKey); it != m_LoadedTextures.end())
                     {
                         textures.push_back(it->second);
@@ -878,11 +884,11 @@ namespace OloEngine
 
             std::filesystem::path relativePath = str.C_Str();
             std::filesystem::path texturePath = std::filesystem::path(m_Directory) / relativePath;
-            std::string texturePathStr = texturePath.string();
+            const std::string texturePathStr = texturePath.string() + std::string(srgbSuffix);
 
             if (!m_LoadedTextures.contains(texturePathStr))
             {
-                Ref<Texture2D> texture = Texture2D::Create(texturePathStr, srgb);
+                Ref<Texture2D> texture = Texture2D::Create(texturePath.string(), srgb);
 
                 if (texture && texture->IsLoaded())
                 {
@@ -895,15 +901,15 @@ namespace OloEngine
                     // that don't match the filesystem. Try just the filename in the model directory.
                     std::filesystem::path filenameOnly = relativePath.filename();
                     std::filesystem::path fallbackPath = std::filesystem::path(m_Directory) / filenameOnly;
-                    std::string fallbackPathStr = fallbackPath.string();
+                    const std::string fallbackPathStr = fallbackPath.string() + std::string(srgbSuffix);
 
                     bool loaded = false;
 
                     if (fallbackPathStr != texturePathStr && !m_LoadedTextures.contains(fallbackPathStr))
                     {
                         OLO_CORE_WARN("Model::LoadMaterialTextures: '{}' not found, trying fallback '{}'",
-                                      texturePathStr, fallbackPathStr);
-                        auto fallbackTexture = Texture2D::Create(fallbackPathStr, srgb);
+                                      texturePath.string(), fallbackPath.string());
+                        auto fallbackTexture = Texture2D::Create(fallbackPath.string(), srgb);
                         if (fallbackTexture && fallbackTexture->IsLoaded())
                         {
                             m_LoadedTextures[fallbackPathStr] = fallbackTexture;
@@ -924,9 +930,9 @@ namespace OloEngine
                         auto discovered = FindTextureInDirectory(std::filesystem::path(m_Directory), filenameOnly);
                         if (!discovered.empty())
                         {
-                            std::string discoveredStr = discovered.string();
+                            const std::string discoveredStr = discovered.string() + std::string(srgbSuffix);
                             OLO_CORE_WARN("Model::LoadMaterialTextures: Discovered '{}' via directory scan for '{}'",
-                                          discoveredStr, filenameOnly.string());
+                                          discovered.string(), filenameOnly.string());
                             if (m_LoadedTextures.contains(discoveredStr))
                             {
                                 textures.push_back(m_LoadedTextures[discoveredStr]);
@@ -934,7 +940,7 @@ namespace OloEngine
                             }
                             else
                             {
-                                auto discoveredTexture = Texture2D::Create(discoveredStr, srgb);
+                                auto discoveredTexture = Texture2D::Create(discovered.string(), srgb);
                                 if (discoveredTexture && discoveredTexture->IsLoaded())
                                 {
                                     m_LoadedTextures[discoveredStr] = discoveredTexture;
@@ -948,7 +954,7 @@ namespace OloEngine
                     if (!loaded)
                     {
                         OLO_CORE_WARN("Model::LoadMaterialTextures: Failed to load texture '{}' (tried original, filename-only, and directory scan)",
-                                      texturePathStr);
+                                      texturePath.string());
                     }
                 }
             }
@@ -1026,19 +1032,25 @@ namespace OloEngine
         std::filesystem::path albedoFilename;
         const auto modelDirectory = std::filesystem::path(m_Directory);
 
-        const auto loadTextureFromPath = [this](const std::filesystem::path& texturePath) -> Ref<Texture2D>
+        // Cache key includes the sRGB intent so a path loaded as linear here
+        // doesn't collide with the same path loaded as sRGB by
+        // LoadMaterialTextures (or vice versa). Today's call sites both pass
+        // srgb=false (auto-discovered normal / AO companions); the parameter
+        // exists so future callers can opt in without changing the lambda.
+        const auto loadTextureFromPath = [this](const std::filesystem::path& texturePath, bool srgb = false) -> Ref<Texture2D>
         {
             if (texturePath.empty())
                 return nullptr;
 
             const auto texturePathStr = texturePath.string();
-            if (auto it = m_LoadedTextures.find(texturePathStr); it != m_LoadedTextures.end())
+            const std::string cacheKey = texturePathStr + (srgb ? "|srgb" : "|linear");
+            if (auto it = m_LoadedTextures.find(cacheKey); it != m_LoadedTextures.end())
                 return it->second;
 
-            auto texture = Texture2D::Create(texturePathStr);
+            auto texture = Texture2D::Create(texturePathStr, srgb);
             if (texture && texture->IsLoaded())
             {
-                m_LoadedTextures[texturePathStr] = texture;
+                m_LoadedTextures[cacheKey] = texture;
                 return texture;
             }
 

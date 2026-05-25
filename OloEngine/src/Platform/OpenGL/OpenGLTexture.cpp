@@ -544,7 +544,6 @@ namespace OloEngine
             case 1:
                 internalFormat = GL_R8;
                 dataFormat = GL_RED;
-                m_Specification.Format = ImageFormat::R8;
                 OLO_CORE_TRACE("Texture channel count is 1. Internal format is: {}. Data Format is: {}.", internalFormat, dataFormat);
                 break;
             case 2:
@@ -555,13 +554,11 @@ namespace OloEngine
             case 3:
                 internalFormat = useSrgb ? GL_SRGB8 : GL_RGB8;
                 dataFormat = GL_RGB;
-                m_Specification.Format = ImageFormat::RGB8;
                 OLO_CORE_TRACE("Texture channel count is 3. Internal format is: {}. Data Format is: {}.", internalFormat, dataFormat);
                 break;
             case 4:
                 internalFormat = useSrgb ? GL_SRGB8_ALPHA8 : GL_RGBA8;
                 dataFormat = GL_RGBA;
-                m_Specification.Format = ImageFormat::RGBA8;
                 OLO_CORE_TRACE("Texture channel count is 4. Internal format is: {}. Data Format is: {}.", internalFormat, dataFormat);
                 break;
             default:

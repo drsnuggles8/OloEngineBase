@@ -872,7 +872,7 @@ namespace OloEngine
                 {
                     // Sprite art is colour content, treat the dropped image as sRGB.
                     const Ref<Texture2D> texture = Texture2D::Create(path.string(), /*srgb=*/true);
-                    if (texture->IsLoaded())
+                    if (texture && texture->IsLoaded())
                     {
                         auto oldComponent = m_HoveredEntity.GetComponent<SpriteRendererComponent>();
                         m_HoveredEntity.GetComponent<SpriteRendererComponent>().Texture = texture;

@@ -313,6 +313,12 @@ namespace OloEngine
         auto timestamp = std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()).count();
         stream.WriteRaw<i64>(timestamp);
 
+        // Persist the sRGB flag so the pack round-trip preserves colour-space.
+        // Without this the deserializer falls back to the linear default and
+        // every albedo / emissive shipped through an .olopack loses its
+        // GL_SRGB8_ALPHA8 conversion.
+        stream.WriteRaw<bool>(spec.SRGB);
+
         outInfo.Size = stream.GetStreamPosition() - outInfo.Offset;
         return true;
     }
@@ -345,18 +351,39 @@ namespace OloEngine
         stream.ReadRaw(isLoaded);
         stream.ReadRaw(timestamp);
 
+        // Read the sRGB flag. End-of-stream tolerance: packs written before
+        // this field existed don't carry the byte at all; fall back to the
+        // filename heuristic so legacy packs still get colour textures
+        // tagged correctly instead of silently demoting every albedo to
+        // linear. AssetPackFile::AssetInfo carries the packed byte length,
+        // so we only read when the cursor hasn't already consumed the whole
+        // record.
+        bool srgb = false;
+        const u64 packedEnd = assetInfo.PackedOffset + assetInfo.PackedSize;
+        if (stream.GetStreamPosition() + sizeof(bool) <= packedEnd)
+        {
+            stream.ReadRaw(srgb);
+        }
+        else if (!path.empty())
+        {
+            srgb = IsLikelyColorTextureByName(std::filesystem::path(path).filename().string());
+        }
+
         // Create texture specification
         TextureSpecification spec;
         spec.Width = width;
         spec.Height = height;
         spec.Format = format;
         spec.GenerateMips = generateMips;
+        spec.SRGB = srgb;
 
-        // Create texture from path if available, otherwise from specification
+        // Create texture from path if available, otherwise from specification.
+        // The path-based load takes srgb as an explicit argument; the
+        // spec-based load reads it off the spec we just populated.
         Ref<Texture2D> texture;
         if (!path.empty())
         {
-            texture = Texture2D::Create(path);
+            texture = Texture2D::Create(path, srgb);
         }
         else
         {
