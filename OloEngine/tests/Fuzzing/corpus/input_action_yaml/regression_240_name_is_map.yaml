@@ -1,0 +1,7 @@
+InputActionMap:
+  Name: Test
+  Actions:
+    - Name: {nested: thing}
+      Bindings:
+        - Type: Keyboard
+          Code: 65

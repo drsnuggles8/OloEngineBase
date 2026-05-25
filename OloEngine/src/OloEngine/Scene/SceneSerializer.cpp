@@ -5524,108 +5524,160 @@ namespace OloEngine
         {
             data = YAML::LoadFile(filepath.string());
         }
-        catch (const YAML::ParserException& e)
+        catch (const YAML::Exception& e)
+        {
+            // Catch the base class — yaml-cpp may throw RepresentationException
+            // or other non-Parser subclasses on malformed top-level docs.
+            OLO_CORE_ERROR("Failed to load .olo file '{0}'\n     {1}", filepath, e.what());
+            return false;
+        }
+        catch (const std::exception& e)
         {
             OLO_CORE_ERROR("Failed to load .olo file '{0}'\n     {1}", filepath, e.what());
             return false;
         }
 
-        if (!data["Scene"])
+        if (!data || !data.IsMap())
         {
             return false;
         }
 
-        auto sceneName = data["Scene"].as<std::string>();
+        auto sceneNameNode = data["Scene"];
+        if (!sceneNameNode || !sceneNameNode.IsScalar())
+        {
+            return false;
+        }
+
+        std::string sceneName;
+        try
+        {
+            sceneName = sceneNameNode.as<std::string>();
+        }
+        catch (const YAML::Exception&)
+        {
+            return false;
+        }
+
         OLO_CORE_TRACE("Deserializing scene '{0}'", sceneName);
         m_Scene->SetName(sceneName);
 
-        if (auto ppNode = data["PostProcessSettings"]; ppNode)
+        try
         {
-            auto& pp = m_Scene->GetPostProcessSettings();
-            TrySetEnum(pp.Tonemap, ppNode["TonemapOperator"]);
-            TrySet(pp.Exposure, ppNode["Exposure"]);
-            TrySet(pp.Gamma, ppNode["Gamma"]);
-            TrySet(pp.BloomEnabled, ppNode["BloomEnabled"]);
-            TrySet(pp.BloomThreshold, ppNode["BloomThreshold"]);
-            TrySet(pp.BloomIntensity, ppNode["BloomIntensity"]);
-            TrySet(pp.BloomIterations, ppNode["BloomIterations"]);
-            TrySet(pp.VignetteEnabled, ppNode["VignetteEnabled"]);
-            TrySet(pp.VignetteIntensity, ppNode["VignetteIntensity"]);
-            TrySet(pp.VignetteSmoothness, ppNode["VignetteSmoothness"]);
-            TrySet(pp.ChromaticAberrationEnabled, ppNode["ChromaticAberrationEnabled"]);
-            TrySet(pp.ChromaticAberrationIntensity, ppNode["ChromaticAberrationIntensity"]);
-            TrySet(pp.FXAAEnabled, ppNode["FXAAEnabled"]);
-            TrySet(pp.DOFEnabled, ppNode["DOFEnabled"]);
-            TrySet(pp.DOFFocusDistance, ppNode["DOFFocusDistance"]);
-            TrySet(pp.DOFFocusRange, ppNode["DOFFocusRange"]);
-            TrySet(pp.DOFBokehRadius, ppNode["DOFBokehRadius"]);
-            TrySet(pp.MotionBlurEnabled, ppNode["MotionBlurEnabled"]);
-            TrySet(pp.MotionBlurStrength, ppNode["MotionBlurStrength"]);
-            TrySet(pp.MotionBlurSamples, ppNode["MotionBlurSamples"]);
-            TrySet(pp.ColorGradingEnabled, ppNode["ColorGradingEnabled"]);
-            TrySet(pp.SSAOEnabled, ppNode["SSAOEnabled"]);
-            TrySet(pp.SSAORadius, ppNode["SSAORadius"]);
-            TrySet(pp.SSAOBias, ppNode["SSAOBias"]);
-            TrySet(pp.SSAOIntensity, ppNode["SSAOIntensity"]);
-            TrySet(pp.SSAOSamples, ppNode["SSAOSamples"]);
-            TrySet(pp.SSAODebugView, ppNode["SSAODebugView"]);
-        }
-
-        DeserializeSnowSettings(data, m_Scene->GetSnowSettings());
-        DeserializeFogSettings(data, m_Scene->GetFogSettings());
-        DeserializeWindSettings(data, m_Scene->GetWindSettings());
-        DeserializeSnowAccumulationSettings(data, m_Scene->GetSnowAccumulationSettings());
-        DeserializeSnowEjectaSettings(data, m_Scene->GetSnowEjectaSettings());
-        DeserializePrecipitationSettings(data, m_Scene->GetPrecipitationSettings());
-
-        if (auto ssNode = data["StreamingSettings"]; ssNode)
-        {
-            auto& ss = m_Scene->GetStreamingSettings();
-            TrySet(ss.Enabled, ssNode["Enabled"]);
-            TrySet(ss.DefaultLoadRadius, ssNode["DefaultLoadRadius"]);
-            TrySet(ss.DefaultUnloadRadius, ssNode["DefaultUnloadRadius"]);
-            TrySet(ss.MaxLoadedRegions, ssNode["MaxLoadedRegions"]);
-            TrySet(ss.RegionDirectory, ssNode["RegionDirectory"]);
-
-            SanitizeStreamingSettings(ss);
-        }
-
-        if (const auto entities = data["Entities"]; entities)
-        {
-            u32 entityCount = 0;
-            u32 failedCount = 0;
-
-            for (auto entity : entities)
+            if (auto ppNode = data["PostProcessSettings"]; ppNode && ppNode.IsMap())
             {
-                try
-                {
-                    auto uuid = entity["Entity"].as<u64>();
+                auto& pp = m_Scene->GetPostProcessSettings();
+                TrySetEnum(pp.Tonemap, ppNode["TonemapOperator"]);
+                TrySet(pp.Exposure, ppNode["Exposure"]);
+                TrySet(pp.Gamma, ppNode["Gamma"]);
+                TrySet(pp.BloomEnabled, ppNode["BloomEnabled"]);
+                TrySet(pp.BloomThreshold, ppNode["BloomThreshold"]);
+                TrySet(pp.BloomIntensity, ppNode["BloomIntensity"]);
+                TrySet(pp.BloomIterations, ppNode["BloomIterations"]);
+                TrySet(pp.VignetteEnabled, ppNode["VignetteEnabled"]);
+                TrySet(pp.VignetteIntensity, ppNode["VignetteIntensity"]);
+                TrySet(pp.VignetteSmoothness, ppNode["VignetteSmoothness"]);
+                TrySet(pp.ChromaticAberrationEnabled, ppNode["ChromaticAberrationEnabled"]);
+                TrySet(pp.ChromaticAberrationIntensity, ppNode["ChromaticAberrationIntensity"]);
+                TrySet(pp.FXAAEnabled, ppNode["FXAAEnabled"]);
+                TrySet(pp.DOFEnabled, ppNode["DOFEnabled"]);
+                TrySet(pp.DOFFocusDistance, ppNode["DOFFocusDistance"]);
+                TrySet(pp.DOFFocusRange, ppNode["DOFFocusRange"]);
+                TrySet(pp.DOFBokehRadius, ppNode["DOFBokehRadius"]);
+                TrySet(pp.MotionBlurEnabled, ppNode["MotionBlurEnabled"]);
+                TrySet(pp.MotionBlurStrength, ppNode["MotionBlurStrength"]);
+                TrySet(pp.MotionBlurSamples, ppNode["MotionBlurSamples"]);
+                TrySet(pp.ColorGradingEnabled, ppNode["ColorGradingEnabled"]);
+                TrySet(pp.SSAOEnabled, ppNode["SSAOEnabled"]);
+                TrySet(pp.SSAORadius, ppNode["SSAORadius"]);
+                TrySet(pp.SSAOBias, ppNode["SSAOBias"]);
+                TrySet(pp.SSAOIntensity, ppNode["SSAOIntensity"]);
+                TrySet(pp.SSAOSamples, ppNode["SSAOSamples"]);
+                TrySet(pp.SSAODebugView, ppNode["SSAODebugView"]);
+            }
 
-                    std::string name;
-                    if (auto tagComponent = entity["TagComponent"]; tagComponent)
+            DeserializeSnowSettings(data, m_Scene->GetSnowSettings());
+            DeserializeFogSettings(data, m_Scene->GetFogSettings());
+            DeserializeWindSettings(data, m_Scene->GetWindSettings());
+            DeserializeSnowAccumulationSettings(data, m_Scene->GetSnowAccumulationSettings());
+            DeserializeSnowEjectaSettings(data, m_Scene->GetSnowEjectaSettings());
+            DeserializePrecipitationSettings(data, m_Scene->GetPrecipitationSettings());
+
+            if (auto ssNode = data["StreamingSettings"]; ssNode && ssNode.IsMap())
+            {
+                auto& ss = m_Scene->GetStreamingSettings();
+                TrySet(ss.Enabled, ssNode["Enabled"]);
+                TrySet(ss.DefaultLoadRadius, ssNode["DefaultLoadRadius"]);
+                TrySet(ss.DefaultUnloadRadius, ssNode["DefaultUnloadRadius"]);
+                TrySet(ss.MaxLoadedRegions, ssNode["MaxLoadedRegions"]);
+                TrySet(ss.RegionDirectory, ssNode["RegionDirectory"]);
+
+                SanitizeStreamingSettings(ss);
+            }
+
+            if (const auto entities = data["Entities"]; entities && entities.IsSequence())
+            {
+                u32 entityCount = 0;
+                u32 failedCount = 0;
+
+                for (auto entity : entities)
+                {
+                    try
                     {
-                        name = tagComponent["Tag"].as<std::string>();
+                        if (!entity.IsMap())
+                        {
+                            OLO_CORE_WARN("SceneSerializer: Skipping non-map entity entry");
+                            ++failedCount;
+                            continue;
+                        }
+
+                        auto entityIdNode = entity["Entity"];
+                        if (!entityIdNode || !entityIdNode.IsScalar())
+                        {
+                            OLO_CORE_WARN("SceneSerializer: Skipping entity with missing or non-scalar 'Entity' id");
+                            ++failedCount;
+                            continue;
+                        }
+                        auto uuid = entityIdNode.as<u64>();
+
+                        std::string name;
+                        if (auto tagComponent = entity["TagComponent"]; tagComponent && tagComponent.IsMap())
+                        {
+                            if (auto tagNode = tagComponent["Tag"]; tagNode && tagNode.IsScalar())
+                            {
+                                name = tagNode.as<std::string>();
+                            }
+                        }
+
+                        OLO_CORE_TRACE("Deserialized entity with ID = {0}, name = {1}", uuid, name);
+
+                        DeserializeEntity(uuid, name, entity);
+                        ++entityCount;
                     }
-
-                    OLO_CORE_TRACE("Deserialized entity with ID = {0}, name = {1}", uuid, name);
-
-                    DeserializeEntity(uuid, name, entity);
-                    ++entityCount;
+                    catch (const std::exception& e)
+                    {
+                        OLO_CORE_ERROR("SceneSerializer: Failed to deserialize entity — {}", e.what());
+                        ++failedCount;
+                    }
                 }
-                catch (const std::exception& e)
+
+                OLO_CORE_INFO("SceneSerializer: Deserialized {} entities ({} failed)", entityCount, failedCount);
+
+                if (failedCount > 0)
                 {
-                    OLO_CORE_ERROR("SceneSerializer: Failed to deserialize entity — {}", e.what());
-                    ++failedCount;
+                    OLO_CORE_ERROR("SceneSerializer: {} entities failed to deserialize — aborting", failedCount);
+                    return false;
                 }
             }
-
-            OLO_CORE_INFO("SceneSerializer: Deserialized {} entities ({} failed)", entityCount, failedCount);
-
-            if (failedCount > 0)
-            {
-                OLO_CORE_ERROR("SceneSerializer: {} entities failed to deserialize — aborting", failedCount);
-                return false;
-            }
+        }
+        catch (const YAML::Exception& e)
+        {
+            OLO_CORE_ERROR("SceneSerializer::Deserialize: YAML exception during deserialise: {}", e.what());
+            return false;
+        }
+        catch (const std::exception& e)
+        {
+            OLO_CORE_ERROR("SceneSerializer::Deserialize: Exception during deserialise: {}", e.what());
+            return false;
         }
 
         m_Scene->SetName(std::filesystem::path(filepath).filename().string());
@@ -5720,107 +5772,155 @@ namespace OloEngine
         {
             data = YAML::Load(yamlString);
         }
-        catch (YAML::ParserException& e)
+        catch (const YAML::Exception& e)
+        {
+            // Fuzz-derived inputs hit non-ParserException paths too
+            // (RepresentationException, BadConversion at top-level, …).
+            // Catch the base class so a malformed document tears the
+            // call down instead of propagating out of this entry point.
+            OLO_CORE_ERROR("Failed to load scene...\n     {0}", e.what());
+            return false;
+        }
+        catch (const std::exception& e)
         {
             OLO_CORE_ERROR("Failed to load scene...\n     {0}", e.what());
             return false;
         }
-        catch (YAML::BadFile&)
-        {
-            OLO_CORE_ERROR("Failed to load scene from string");
-            return false;
-        }
 
-        if (!data["Scene"])
+        if (!data || !data.IsMap())
         {
             return false;
         }
 
-        std::string sceneName = data["Scene"].as<std::string>();
+        auto sceneNameNode = data["Scene"];
+        if (!sceneNameNode || !sceneNameNode.IsScalar())
+        {
+            return false;
+        }
+
+        std::string sceneName;
+        try
+        {
+            sceneName = sceneNameNode.as<std::string>();
+        }
+        catch (const YAML::Exception&)
+        {
+            return false;
+        }
         OLO_CORE_TRACE("Deserializing scene '{0}'", sceneName);
 
-        if (auto ppNode = data["PostProcessSettings"]; ppNode)
+        // Top-level guard for the schema-walk: fuzz inputs that pass the
+        // "is map + Scene scalar" check above can still hit `.as<T>()`
+        // throws or null derefs deep in settings/entity helpers.
+        try
         {
-            auto& pp = m_Scene->GetPostProcessSettings();
-            TrySetEnum(pp.Tonemap, ppNode["TonemapOperator"]);
-            TrySet(pp.Exposure, ppNode["Exposure"]);
-            TrySet(pp.Gamma, ppNode["Gamma"]);
-            TrySet(pp.BloomEnabled, ppNode["BloomEnabled"]);
-            TrySet(pp.BloomThreshold, ppNode["BloomThreshold"]);
-            TrySet(pp.BloomIntensity, ppNode["BloomIntensity"]);
-            TrySet(pp.BloomIterations, ppNode["BloomIterations"]);
-            TrySet(pp.VignetteEnabled, ppNode["VignetteEnabled"]);
-            TrySet(pp.VignetteIntensity, ppNode["VignetteIntensity"]);
-            TrySet(pp.VignetteSmoothness, ppNode["VignetteSmoothness"]);
-            TrySet(pp.ChromaticAberrationEnabled, ppNode["ChromaticAberrationEnabled"]);
-            TrySet(pp.ChromaticAberrationIntensity, ppNode["ChromaticAberrationIntensity"]);
-            TrySet(pp.FXAAEnabled, ppNode["FXAAEnabled"]);
-            TrySet(pp.DOFEnabled, ppNode["DOFEnabled"]);
-            TrySet(pp.DOFFocusDistance, ppNode["DOFFocusDistance"]);
-            TrySet(pp.DOFFocusRange, ppNode["DOFFocusRange"]);
-            TrySet(pp.DOFBokehRadius, ppNode["DOFBokehRadius"]);
-            TrySet(pp.MotionBlurEnabled, ppNode["MotionBlurEnabled"]);
-            TrySet(pp.MotionBlurStrength, ppNode["MotionBlurStrength"]);
-            TrySet(pp.MotionBlurSamples, ppNode["MotionBlurSamples"]);
-            TrySet(pp.ColorGradingEnabled, ppNode["ColorGradingEnabled"]);
-            TrySet(pp.SSAOEnabled, ppNode["SSAOEnabled"]);
-            TrySet(pp.SSAORadius, ppNode["SSAORadius"]);
-            TrySet(pp.SSAOBias, ppNode["SSAOBias"]);
-            TrySet(pp.SSAOIntensity, ppNode["SSAOIntensity"]);
-            TrySet(pp.SSAOSamples, ppNode["SSAOSamples"]);
-            TrySet(pp.SSAODebugView, ppNode["SSAODebugView"]);
-        }
-
-        DeserializeSnowSettings(data, m_Scene->GetSnowSettings());
-        DeserializeFogSettings(data, m_Scene->GetFogSettings());
-        DeserializeWindSettings(data, m_Scene->GetWindSettings());
-        DeserializeSnowAccumulationSettings(data, m_Scene->GetSnowAccumulationSettings());
-        DeserializeSnowEjectaSettings(data, m_Scene->GetSnowEjectaSettings());
-        DeserializePrecipitationSettings(data, m_Scene->GetPrecipitationSettings());
-
-        if (auto ssNode = data["StreamingSettings"]; ssNode)
-        {
-            auto& ss = m_Scene->GetStreamingSettings();
-            TrySet(ss.Enabled, ssNode["Enabled"]);
-            TrySet(ss.DefaultLoadRadius, ssNode["DefaultLoadRadius"]);
-            TrySet(ss.DefaultUnloadRadius, ssNode["DefaultUnloadRadius"]);
-            TrySet(ss.MaxLoadedRegions, ssNode["MaxLoadedRegions"]);
-            TrySet(ss.RegionDirectory, ssNode["RegionDirectory"]);
-
-            SanitizeStreamingSettings(ss);
-        }
-
-        auto entities = data["Entities"];
-        if (entities)
-        {
-            for (auto entity : entities)
+            if (auto ppNode = data["PostProcessSettings"]; ppNode && ppNode.IsMap())
             {
-                try
-                {
-                    u64 uuid = entity["Entity"].as<u64>();
+                auto& pp = m_Scene->GetPostProcessSettings();
+                TrySetEnum(pp.Tonemap, ppNode["TonemapOperator"]);
+                TrySet(pp.Exposure, ppNode["Exposure"]);
+                TrySet(pp.Gamma, ppNode["Gamma"]);
+                TrySet(pp.BloomEnabled, ppNode["BloomEnabled"]);
+                TrySet(pp.BloomThreshold, ppNode["BloomThreshold"]);
+                TrySet(pp.BloomIntensity, ppNode["BloomIntensity"]);
+                TrySet(pp.BloomIterations, ppNode["BloomIterations"]);
+                TrySet(pp.VignetteEnabled, ppNode["VignetteEnabled"]);
+                TrySet(pp.VignetteIntensity, ppNode["VignetteIntensity"]);
+                TrySet(pp.VignetteSmoothness, ppNode["VignetteSmoothness"]);
+                TrySet(pp.ChromaticAberrationEnabled, ppNode["ChromaticAberrationEnabled"]);
+                TrySet(pp.ChromaticAberrationIntensity, ppNode["ChromaticAberrationIntensity"]);
+                TrySet(pp.FXAAEnabled, ppNode["FXAAEnabled"]);
+                TrySet(pp.DOFEnabled, ppNode["DOFEnabled"]);
+                TrySet(pp.DOFFocusDistance, ppNode["DOFFocusDistance"]);
+                TrySet(pp.DOFFocusRange, ppNode["DOFFocusRange"]);
+                TrySet(pp.DOFBokehRadius, ppNode["DOFBokehRadius"]);
+                TrySet(pp.MotionBlurEnabled, ppNode["MotionBlurEnabled"]);
+                TrySet(pp.MotionBlurStrength, ppNode["MotionBlurStrength"]);
+                TrySet(pp.MotionBlurSamples, ppNode["MotionBlurSamples"]);
+                TrySet(pp.ColorGradingEnabled, ppNode["ColorGradingEnabled"]);
+                TrySet(pp.SSAOEnabled, ppNode["SSAOEnabled"]);
+                TrySet(pp.SSAORadius, ppNode["SSAORadius"]);
+                TrySet(pp.SSAOBias, ppNode["SSAOBias"]);
+                TrySet(pp.SSAOIntensity, ppNode["SSAOIntensity"]);
+                TrySet(pp.SSAOSamples, ppNode["SSAOSamples"]);
+                TrySet(pp.SSAODebugView, ppNode["SSAODebugView"]);
+            }
 
-                    std::string name;
-                    auto tagComponent = entity["TagComponent"];
-                    if (tagComponent)
+            DeserializeSnowSettings(data, m_Scene->GetSnowSettings());
+            DeserializeFogSettings(data, m_Scene->GetFogSettings());
+            DeserializeWindSettings(data, m_Scene->GetWindSettings());
+            DeserializeSnowAccumulationSettings(data, m_Scene->GetSnowAccumulationSettings());
+            DeserializeSnowEjectaSettings(data, m_Scene->GetSnowEjectaSettings());
+            DeserializePrecipitationSettings(data, m_Scene->GetPrecipitationSettings());
+
+            if (auto ssNode = data["StreamingSettings"]; ssNode && ssNode.IsMap())
+            {
+                auto& ss = m_Scene->GetStreamingSettings();
+                TrySet(ss.Enabled, ssNode["Enabled"]);
+                TrySet(ss.DefaultLoadRadius, ssNode["DefaultLoadRadius"]);
+                TrySet(ss.DefaultUnloadRadius, ssNode["DefaultUnloadRadius"]);
+                TrySet(ss.MaxLoadedRegions, ssNode["MaxLoadedRegions"]);
+                TrySet(ss.RegionDirectory, ssNode["RegionDirectory"]);
+
+                SanitizeStreamingSettings(ss);
+            }
+
+            auto entities = data["Entities"];
+            if (entities && entities.IsSequence())
+            {
+                for (auto entity : entities)
+                {
+                    try
                     {
-                        name = tagComponent["Tag"].as<std::string>();
+                        if (!entity.IsMap())
+                        {
+                            OLO_CORE_WARN("SceneSerializer::DeserializeFromYAML: Skipping non-map entity entry");
+                            continue;
+                        }
+
+                        auto entityIdNode = entity["Entity"];
+                        if (!entityIdNode || !entityIdNode.IsScalar())
+                        {
+                            OLO_CORE_WARN("SceneSerializer::DeserializeFromYAML: Skipping entity with missing or non-scalar 'Entity' id");
+                            continue;
+                        }
+                        u64 uuid = entityIdNode.as<u64>();
+
+                        std::string name;
+                        if (auto tagComponent = entity["TagComponent"]; tagComponent && tagComponent.IsMap())
+                        {
+                            if (auto tagNode = tagComponent["Tag"]; tagNode && tagNode.IsScalar())
+                            {
+                                name = tagNode.as<std::string>();
+                            }
+                        }
+
+                        OLO_CORE_TRACE("Deserialized entity with ID = {0}, name = {1}", uuid, name);
+
+                        DeserializeEntity(uuid, name, entity);
                     }
-
-                    OLO_CORE_TRACE("Deserialized entity with ID = {0}, name = {1}", uuid, name);
-
-                    DeserializeEntity(uuid, name, entity);
-                }
-                catch (const std::exception& e)
-                {
-                    OLO_CORE_ERROR("SceneSerializer::DeserializeFromYAML: Failed to deserialize entity — {}", e.what());
-                    return false;
-                }
-                catch (...)
-                {
-                    OLO_CORE_ERROR("SceneSerializer::DeserializeFromYAML: Failed to deserialize entity (unknown exception)");
-                    return false;
+                    catch (const std::exception& e)
+                    {
+                        OLO_CORE_ERROR("SceneSerializer::DeserializeFromYAML: Failed to deserialize entity — {}", e.what());
+                        return false;
+                    }
+                    catch (...)
+                    {
+                        OLO_CORE_ERROR("SceneSerializer::DeserializeFromYAML: Failed to deserialize entity (unknown exception)");
+                        return false;
+                    }
                 }
             }
+        }
+        catch (const YAML::Exception& e)
+        {
+            OLO_CORE_ERROR("SceneSerializer::DeserializeFromYAML: YAML exception during deserialise: {}", e.what());
+            return false;
+        }
+        catch (const std::exception& e)
+        {
+            OLO_CORE_ERROR("SceneSerializer::DeserializeFromYAML: Exception during deserialise: {}", e.what());
+            return false;
         }
 
         return true;
