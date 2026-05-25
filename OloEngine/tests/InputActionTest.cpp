@@ -5,8 +5,10 @@
 #include "OloEngine/Core/InputActionManager.h"
 #include "OloEngine/Core/InputActionSerializer.h"
 
+#include <cmath>
 #include <filesystem>
 #include <fstream>
+#include <string_view>
 #include <unordered_set>
 
 using namespace OloEngine;
@@ -355,6 +357,166 @@ InputActionMap:
     EXPECT_EQ(action->Bindings.size(), 1u);
     EXPECT_EQ(action->Bindings[0].Type, InputBindingType::Keyboard);
     EXPECT_EQ(action->Bindings[0].Code, Key::W);
+}
+
+// ============================================================================
+// Fuzz-derived regression tests — `Deserialize` must never crash on
+// arbitrary bytes. yaml-cpp can throw non-ParserException subclasses and
+// `.as<T>()` on a wrong-typed node throws TypedBadConversion; both must
+// fall through to a `nullopt` return rather than escape the function.
+// Tracks GH issue #240 (Bug 1).
+// ============================================================================
+namespace
+{
+    void WriteBytes(const std::filesystem::path& p, std::string_view bytes)
+    {
+        std::ofstream fout(p, std::ios::binary | std::ios::trunc);
+        if (bytes.empty())
+            return;
+        fout.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
+    }
+} // namespace
+
+TEST_F(InputActionSerializerTest, FuzzRegression_RootIsScalar)
+{
+    // Plain scalar at root — `data["InputActionMap"]` is undefined,
+    // pre-fix code hit a TypedBadConversion deeper in. Now logs and returns.
+    auto filepath = m_TempDir / "scalar_root.yaml";
+    WriteBytes(filepath, "just a string");
+    auto result = InputActionSerializer::Deserialize(filepath);
+    EXPECT_FALSE(result.has_value());
+}
+
+TEST_F(InputActionSerializerTest, FuzzRegression_RootIsSequence)
+{
+    auto filepath = m_TempDir / "seq_root.yaml";
+    WriteBytes(filepath, "[a, b, c]\n");
+    auto result = InputActionSerializer::Deserialize(filepath);
+    EXPECT_FALSE(result.has_value());
+}
+
+TEST_F(InputActionSerializerTest, FuzzRegression_InputActionMapIsNull)
+{
+    auto filepath = m_TempDir / "null_root.yaml";
+    WriteBytes(filepath, "InputActionMap: ~\n");
+    auto result = InputActionSerializer::Deserialize(filepath);
+    EXPECT_FALSE(result.has_value());
+}
+
+TEST_F(InputActionSerializerTest, FuzzRegression_InputActionMapIsScalar)
+{
+    auto filepath = m_TempDir / "scalar_iam.yaml";
+    WriteBytes(filepath, "InputActionMap: not_a_map\n");
+    auto result = InputActionSerializer::Deserialize(filepath);
+    EXPECT_FALSE(result.has_value());
+}
+
+TEST_F(InputActionSerializerTest, FuzzRegression_ActionsContainsNonMap)
+{
+    // Sequence elements aren't maps; pre-fix `actionNode["Name"]` was UB-ish
+    // on a non-map node.
+    auto filepath = m_TempDir / "non_map_actions.yaml";
+    WriteBytes(filepath,
+               "InputActionMap:\n"
+               "  Name: Test\n"
+               "  Actions:\n"
+               "    - just_a_scalar\n"
+               "    - [1, 2, 3]\n"
+               "    - Name: Valid\n"
+               "      Bindings:\n"
+               "        - Type: Keyboard\n"
+               "          Code: 65\n");
+    auto result = InputActionSerializer::Deserialize(filepath);
+    ASSERT_TRUE(result.has_value());
+    EXPECT_EQ(result->Name, "Test");
+    EXPECT_EQ(result->Actions.size(), 1u);
+    EXPECT_NE(result->GetAction("Valid"), nullptr);
+}
+
+TEST_F(InputActionSerializerTest, FuzzRegression_ActionNameIsMap)
+{
+    // `.as<std::string>()` on a map-shaped Name throws — must be caught.
+    auto filepath = m_TempDir / "name_is_map.yaml";
+    WriteBytes(filepath,
+               "InputActionMap:\n"
+               "  Name: Test\n"
+               "  Actions:\n"
+               "    - Name: {nested: thing}\n"
+               "      Bindings:\n"
+               "        - Type: Keyboard\n"
+               "          Code: 65\n");
+    auto result = InputActionSerializer::Deserialize(filepath);
+    ASSERT_TRUE(result.has_value());
+    // The broken action is skipped, but the map still loads.
+    EXPECT_EQ(result->Name, "Test");
+}
+
+TEST_F(InputActionSerializerTest, FuzzRegression_BindingTypeIsSequence)
+{
+    auto filepath = m_TempDir / "type_is_seq.yaml";
+    WriteBytes(filepath,
+               "InputActionMap:\n"
+               "  Name: Test\n"
+               "  Actions:\n"
+               "    - Name: Foo\n"
+               "      Bindings:\n"
+               "        - Type: [Keyboard, Mouse]\n"
+               "          Code: 65\n");
+    auto result = InputActionSerializer::Deserialize(filepath);
+    ASSERT_TRUE(result.has_value());
+    auto* action = result->GetAction("Foo");
+    ASSERT_NE(action, nullptr);
+    EXPECT_TRUE(action->Bindings.empty());
+}
+
+TEST_F(InputActionSerializerTest, FuzzRegression_CodeFieldIsNonScalar)
+{
+    auto filepath = m_TempDir / "code_is_map.yaml";
+    WriteBytes(filepath,
+               "InputActionMap:\n"
+               "  Name: Test\n"
+               "  Actions:\n"
+               "    - Name: Foo\n"
+               "      Bindings:\n"
+               "        - Type: Keyboard\n"
+               "          Code: {x: 1}\n");
+    auto result = InputActionSerializer::Deserialize(filepath);
+    ASSERT_TRUE(result.has_value());
+    auto* action = result->GetAction("Foo");
+    ASSERT_NE(action, nullptr);
+    EXPECT_TRUE(action->Bindings.empty());
+}
+
+TEST_F(InputActionSerializerTest, FuzzRegression_AxisThresholdIsNaN)
+{
+    auto filepath = m_TempDir / "nan_threshold.yaml";
+    WriteBytes(filepath,
+               "InputActionMap:\n"
+               "  Name: Test\n"
+               "  Actions:\n"
+               "    - Name: Move\n"
+               "      Bindings:\n"
+               "        - Type: GamepadAxis\n"
+               "          Axis: LeftX\n"
+               "          Threshold: .nan\n"
+               "          Positive: true\n");
+    auto result = InputActionSerializer::Deserialize(filepath);
+    ASSERT_TRUE(result.has_value());
+    auto* action = result->GetAction("Move");
+    ASSERT_NE(action, nullptr);
+    ASSERT_EQ(action->Bindings.size(), 1u);
+    EXPECT_TRUE(std::isfinite(action->Bindings[0].AxisThreshold))
+        << "AxisThreshold must be sanitized when YAML provides NaN";
+}
+
+TEST_F(InputActionSerializerTest, FuzzRegression_RawGarbage)
+{
+    // Random binary bytes — yaml-cpp may parse to something weird or throw;
+    // either way the deserializer must not crash.
+    auto filepath = m_TempDir / "garbage.yaml";
+    WriteBytes(filepath, std::string_view("\x00\x01\x02\xff\xfe garbage \n\t \r", 18));
+    auto result = InputActionSerializer::Deserialize(filepath);
+    EXPECT_FALSE(result.has_value());
 }
 
 // ============================================================================
