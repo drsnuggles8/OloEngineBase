@@ -545,8 +545,13 @@ namespace OloEngine::Audio::SoundGraph
                             "SoundGraph::Process: output buffer count is short of channel count; call SetMaxBlockSize off-thread");
             for ([[maybe_unused]] auto& buf : m_OutputBuffers)
             {
-                OLO_CORE_ASSERT(buf.capacity() >= numFrames,
-                                "SoundGraph::Process: block buffer capacity insufficient for numFrames; call SetMaxBlockSize off-thread");
+                // Check size(), not capacity() — operator[] writes below are bounds-checked
+                // against size() by MSVC Debug iterators (and are simply UB past size() in
+                // Release). EnsureOutputBuffersCapacity uses resize() so size == capacity in
+                // practice, but checking the dimension that actually gates operator[] keeps
+                // the contract honest.
+                OLO_CORE_ASSERT(buf.size() >= numFrames,
+                                "SoundGraph::Process: block buffer size insufficient for numFrames; call SetMaxBlockSize off-thread");
             }
 
             const sizet channelCount = std::min(m_OutChannels.size(), m_OutputChannelViews.size());
