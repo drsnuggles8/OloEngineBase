@@ -62,33 +62,53 @@ jobs:
         with:
           arch: x64
 
-      - name: Configure CMake (standalone clang-cl via Ninja Multi-Config)
-        # Use the STANDALONE LLVM at `C:\Program Files\LLVM\` (LLVM 20 on
-        # `windows-latest`), not VS2022's bundled clang-cl (LLVM 19). LLVM 19
-        # has two problems we hit otherwise:
-        #   - Its ASan runtime trips on newer Windows API prologues with
-        #     `interception_win: unhandled instruction at 0x…` and the
-        #     harness exits before `LLVMFuzzerTestOneInput` runs.
-        #   - Its `clang_rt.asan_dynamic_runtime_thunk` and
-        #     `clang_rt.ubsan_standalone` both define `__start___sancov_*`
-        #     section markers — duplicate-symbol link errors.
-        # LLVM 20 fixes both. We pass explicit absolute paths for the
-        # compiler and linker because the previous step
-        # (`ilammy/msvc-dev-cmd`) put VS2022's `Llvm\x64\bin` first on PATH,
-        # so unqualified `clang-cl` / `lld-link` would still resolve to
-        # LLVM 19.
+      - name: Install LLVM (pinned)
+        # Pin the LLVM toolchain version explicitly instead of relying on
+        # whatever `clang-cl` happens to be preinstalled in `C:\Program
+        # Files\LLVM\` on the current `windows-latest` runner image. This
+        # protects the fuzz pipeline from silent breakage when GitHub updates
+        # the image (LLVM 19 had two bugs we hit — see below — and any future
+        # version jump on the image could re-surface similar issues without
+        # warning).
         #
+        # Why not the runner's bundled VS2022 clang-cl (LLVM 19): its ASan
+        # runtime trips on newer Windows API prologues with
+        # `interception_win: unhandled instruction at 0x…` (harness exits
+        # before `LLVMFuzzerTestOneInput` runs); and its
+        # `clang_rt.asan_dynamic_runtime_thunk` and
+        # `clang_rt.ubsan_standalone` both define `__start___sancov_*`
+        # section markers (duplicate-symbol link errors). LLVM 20.x fixes
+        # both.
+        #
+        # `KyleMayes/install-llvm-action` exports `LLVM_PATH` pointing at the
+        # install root (so binaries live at `$LLVM_PATH/bin`) and caches the
+        # download via actions/cache. Pinned to a specific 20.1.x release so
+        # we don't drift with the action's "latest 20.x" interpretation.
+        uses: KyleMayes/install-llvm-action@v2
+        with:
+          version: "20.1.8"
+          cached: true
+
+      - name: Configure CMake (standalone clang-cl via Ninja Multi-Config)
         # We replicate the `clangcl` CMake preset's settings inline instead
         # of using `cmake --preset clangcl`, because the runner's bundled
         # CMake is 3.x and the presets file declares
         # `cmakeMinimumRequired = 4.2.0` (a hard error from `cmake --preset`).
+        #
+        # Explicit compiler/linker paths via `$env:LLVM_PATH` (set by the
+        # install step above): `ilammy/msvc-dev-cmd` puts VS2022's
+        # `Llvm\x64\bin` first on PATH, so unqualified `clang-cl` /
+        # `lld-link` would still resolve to whatever LLVM ships with VS2022
+        # — not the pinned LLVM we just installed.
         run: |
+          $clang = "$env:LLVM_PATH/bin/clang-cl.exe" -replace '\\','/'
+          $lld = "$env:LLVM_PATH/bin/lld-link.exe" -replace '\\','/'
           cmake -S . -B build-clang `
                 -G "Ninja Multi-Config" `
                 "-DCMAKE_TOOLCHAIN_FILE=${{ github.workspace }}/cmake/ClangCLToolchain.cmake" `
-                "-DCMAKE_C_COMPILER=C:/Program Files/LLVM/bin/clang-cl.exe" `
-                "-DCMAKE_CXX_COMPILER=C:/Program Files/LLVM/bin/clang-cl.exe" `
-                "-DCMAKE_LINKER=C:/Program Files/LLVM/bin/lld-link.exe" `
+                "-DCMAKE_C_COMPILER=$clang" `
+                "-DCMAKE_CXX_COMPILER=$clang" `
+                "-DCMAKE_LINKER=$lld" `
                 "-DFETCHCONTENT_BASE_DIR=${{ github.workspace }}/OloEngine/vendor/clang" `
                 -DBUILD_TESTS=ON `
                 "-DPython_EXECUTABLE=${{ steps.py.outputs.python-path }}" `
