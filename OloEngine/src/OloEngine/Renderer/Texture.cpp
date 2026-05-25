@@ -25,7 +25,7 @@ namespace OloEngine
         return nullptr;
     }
 
-    Ref<Texture2D> Texture2D::Create(const std::string& path)
+    Ref<Texture2D> Texture2D::Create(const std::string& path, bool srgb)
     {
         switch (Renderer::GetAPI())
         {
@@ -36,7 +36,7 @@ namespace OloEngine
             }
             case RendererAPI::API::OpenGL:
             {
-                return Ref<OpenGLTexture2D>::Create(path);
+                return Ref<OpenGLTexture2D>::Create(path, srgb);
             }
         }
 

@@ -304,7 +304,9 @@ namespace OloEngine
         // (mWidth/mHeight = dimensions). The on-disk loader flips rows for
         // OpenGL's bottom-left origin, so we flip embedded data the same way
         // to keep UVs consistent between embedded and external assets.
-        Ref<Texture2D> CreateTextureFromEmbedded(const aiTexture* embedded)
+        // srgb mirrors Texture2D::Create(path, srgb) — pass true for albedo /
+        // base-color / emissive so the GPU converts samples to linear.
+        Ref<Texture2D> CreateTextureFromEmbedded(const aiTexture* embedded, bool srgb = false)
         {
             if (!embedded || !embedded->pcData)
                 return nullptr;
@@ -387,6 +389,7 @@ namespace OloEngine
             spec.Format = ImageFormat::RGBA8;
             spec.GenerateMips = true;
             spec.MipLevels = 0;
+            spec.SRGB = srgb;
 
             auto texture = Texture2D::Create(spec);
             if (!texture || !texture->IsLoaded())
@@ -832,6 +835,14 @@ namespace OloEngine
 
         std::vector<Ref<Texture2D>> textures;
 
+        // Albedo/base-color/emissive textures encode authored colour in sRGB;
+        // the GPU should convert to linear on sample. Normal / metallic /
+        // roughness / AO / height maps store linear-space data already and
+        // must stay non-sRGB or the PBR math would be off by a gamma curve.
+        const bool srgb = (type == aiTextureType_DIFFUSE ||
+                           type == aiTextureType_BASE_COLOR ||
+                           type == aiTextureType_EMISSIVE);
+
         for (u32 i = 0; i < mat->GetTextureCount(type); i++)
         {
             aiString str;
@@ -852,7 +863,7 @@ namespace OloEngine
                     {
                         textures.push_back(it->second);
                     }
-                    else if (auto decoded = CreateTextureFromEmbedded(embedded); decoded && decoded->IsLoaded())
+                    else if (auto decoded = CreateTextureFromEmbedded(embedded, srgb); decoded && decoded->IsLoaded())
                     {
                         m_LoadedTextures[cacheKey] = decoded;
                         textures.push_back(decoded);
@@ -871,7 +882,7 @@ namespace OloEngine
 
             if (!m_LoadedTextures.contains(texturePathStr))
             {
-                Ref<Texture2D> texture = Texture2D::Create(texturePathStr);
+                Ref<Texture2D> texture = Texture2D::Create(texturePathStr, srgb);
 
                 if (texture && texture->IsLoaded())
                 {
@@ -892,7 +903,7 @@ namespace OloEngine
                     {
                         OLO_CORE_WARN("Model::LoadMaterialTextures: '{}' not found, trying fallback '{}'",
                                       texturePathStr, fallbackPathStr);
-                        auto fallbackTexture = Texture2D::Create(fallbackPathStr);
+                        auto fallbackTexture = Texture2D::Create(fallbackPathStr, srgb);
                         if (fallbackTexture && fallbackTexture->IsLoaded())
                         {
                             m_LoadedTextures[fallbackPathStr] = fallbackTexture;
@@ -923,7 +934,7 @@ namespace OloEngine
                             }
                             else
                             {
-                                auto discoveredTexture = Texture2D::Create(discoveredStr);
+                                auto discoveredTexture = Texture2D::Create(discoveredStr, srgb);
                                 if (discoveredTexture && discoveredTexture->IsLoaded())
                                 {
                                     m_LoadedTextures[discoveredStr] = discoveredTexture;
@@ -1045,7 +1056,7 @@ namespace OloEngine
         // Albedo/Diffuse textures
         if (m_TextureOverride && !m_TextureOverride->AlbedoPath.empty())
         {
-            auto overrideTexture = Texture2D::Create(m_TextureOverride->AlbedoPath);
+            auto overrideTexture = Texture2D::Create(m_TextureOverride->AlbedoPath, /*srgb=*/true);
             if (overrideTexture && overrideTexture->IsLoaded())
             {
                 materialRef->SetAlbedoMap(overrideTexture);
@@ -1264,7 +1275,7 @@ namespace OloEngine
         // Emissive textures
         if (m_TextureOverride && !m_TextureOverride->EmissivePath.empty())
         {
-            auto overrideTexture = Texture2D::Create(m_TextureOverride->EmissivePath);
+            auto overrideTexture = Texture2D::Create(m_TextureOverride->EmissivePath, /*srgb=*/true);
             if (overrideTexture && overrideTexture->IsLoaded())
             {
                 materialRef->SetEmissiveMap(overrideTexture);

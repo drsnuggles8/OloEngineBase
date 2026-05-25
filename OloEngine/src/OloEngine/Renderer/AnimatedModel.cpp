@@ -1511,6 +1511,13 @@ namespace OloEngine
     {
         std::vector<Ref<Texture2D>> textures;
 
+        // Colour textures (albedo / base-color / emissive) live in sRGB space
+        // and need GPU linearisation. Data textures (normal / metallic /
+        // roughness / AO / height) are linear and must NOT be flagged sRGB.
+        const bool srgb = (type == aiTextureType_DIFFUSE ||
+                           type == aiTextureType_BASE_COLOR ||
+                           type == aiTextureType_EMISSIVE);
+
         for (u32 i = 0; i < mat->GetTextureCount(type); i++)
         {
             aiString str;
@@ -1552,7 +1559,7 @@ namespace OloEngine
             }
             else
             {
-                auto texture = Texture2D::Create(path.string());
+                auto texture = Texture2D::Create(path.string(), srgb);
                 if (texture && texture->IsLoaded())
                 {
                     textures.push_back(texture);
@@ -1660,7 +1667,7 @@ namespace OloEngine
                                 }
                                 else
                                 {
-                                    auto discoveredTexture = Texture2D::Create(discoveredStr);
+                                    auto discoveredTexture = Texture2D::Create(discoveredStr, srgb);
                                     if (discoveredTexture && discoveredTexture->IsLoaded())
                                     {
                                         m_LoadedTextures[discoveredStr] = discoveredTexture;
@@ -1687,7 +1694,7 @@ namespace OloEngine
                         {
                             OLO_CORE_WARN("AnimatedModel::LoadMaterialTextures: '{}' not found, trying fallback '{}'",
                                           path.string(), fallbackPathStr);
-                            auto fallbackTexture = Texture2D::Create(fallbackPathStr);
+                            auto fallbackTexture = Texture2D::Create(fallbackPathStr, srgb);
                             if (fallbackTexture && fallbackTexture->IsLoaded())
                             {
                                 textures.push_back(fallbackTexture);
@@ -1714,7 +1721,7 @@ namespace OloEngine
                             }
                             else
                             {
-                                auto discoveredTexture = Texture2D::Create(discoveredStr);
+                                auto discoveredTexture = Texture2D::Create(discoveredStr, srgb);
                                 if (discoveredTexture && discoveredTexture->IsLoaded())
                                 {
                                     m_LoadedTextures[discoveredStr] = discoveredTexture;

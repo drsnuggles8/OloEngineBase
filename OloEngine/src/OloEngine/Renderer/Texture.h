@@ -39,6 +39,13 @@ namespace OloEngine
         // Sample count. Values > 1 create multisample storage and force a
         // single mip level.
         u32 Samples = 1;
+        // True for color textures (albedo, emissive, UI) — selects an sRGB
+        // internal format so the GPU automatically converts sample data from
+        // sRGB to linear. Leave false for data textures (normal, metallic,
+        // roughness, AO) where the bytes already encode linear values.
+        // Only meaningful for 8-bit color formats (RGB8 / RGBA8); ignored
+        // for float / integer / depth formats.
+        bool SRGB = false;
     };
 
     class Texture : public RendererResource
@@ -96,7 +103,11 @@ namespace OloEngine
         virtual void Resize(u32 width, u32 height) = 0;
 
         static Ref<Texture2D> Create(const TextureSpecification& specification);
-        static Ref<Texture2D> Create(const std::string& path);
+        // Load a texture from disk. Pass srgb=true for color textures (albedo,
+        // emissive, UI) so the GPU converts samples from sRGB to linear on
+        // read. Leave srgb=false (default) for data textures (normal map,
+        // metallic-roughness, AO, heightmap) where bytes are already linear.
+        static Ref<Texture2D> Create(const std::string& path, bool srgb = false);
 
         // Asset interface
         static constexpr AssetType GetStaticType() noexcept
