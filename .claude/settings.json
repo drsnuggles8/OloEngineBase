@@ -7,7 +7,8 @@
       "Bash(cmake --build build --target OloEngine OloEngine-Tests OloEditor --config Debug --parallel)",
       "Bash(cmake --build d:/repos/OloEngineBase/build --target OloEngine-Tests --config Debug --parallel)",
       "Bash(d:/repos/OloEngineBase/build/OloEngine/tests/Debug/OloEngine-Tests.exe --gtest_filter=\"ForwardPlus.*:ShaderCrossConsistency.*:ShaderStageContract.*:ShaderStageInterface.*\")",
-      "Bash(d:/repos/OloEngineBase/build/OloEngine/tests/Debug/OloEngine-Tests.exe --gtest_filter=\"ShaderCompilation.*:ShaderUBOSize.*:ShaderBindingLayout.*\")"
+      "Bash(d:/repos/OloEngineBase/build/OloEngine/tests/Debug/OloEngine-Tests.exe --gtest_filter=\"ShaderCompilation.*:ShaderUBOSize.*:ShaderBindingLayout.*\")",
+      "Bash(d:/repos/OloEngineBase/build/OloEngine/tests/Debug/OloEngine-Tests.exe --gtest_filter=\"SphereAreaLightMath.*\")"
     ]
   },
   "hooks": {

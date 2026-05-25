@@ -1013,6 +1013,7 @@ new `.cpp` under `OloEngine/tests/Rendering/`, `ShaderGraph/`,
 | File | Tests | Cases |
 |---|---:|---|
 | [GoldenImageTests.cpp](../OloEngine/tests/Rendering/PropertyTests/GoldenImageTests.cpp) | 8 | **GoldenImageSsimTest** &mdash; `IdenticalImagesYieldSsimOne`, `TinyUniformShiftKeepsSsimHigh`, `StructuralDestructionCollapsesSsim`, `SsimIsSymmetric`<br/>**GoldenImageTest** &mdash; `ReinhardHdrRampGolden`, `FxaaHardEdgeGolden`, `SceneShadowIntegrationGolden`, `SceneSplatmapIntegrationGolden` |
+| [SphereAreaLightVisualTest.cpp](../OloEngine/tests/Rendering/PropertyTests/SphereAreaLightVisualTest.cpp) | 1 | **SphereAreaLightVisual** &mdash; `RendersAndProducesPng` |
 
 #### plumbing — Pipeline plumbing (command bucket, dispatch, frame data)
 
@@ -1082,7 +1083,7 @@ new `.cpp` under `OloEngine/tests/Rendering/`, `ShaderGraph/`,
 |---|---:|---|
 | [TestFailureCaptureTest.cpp](../OloEngine/tests/Rendering/PropertyTests/TestFailureCaptureTest.cpp) | 6 | **TestFailureCaptureTest** &mdash; `DirectoryForSanitizesNames`, `MetadataIsWrittenWithoutGlContext`, `LatestFrameSummaryIsNoOpWithoutCaptures`, `GLStateSnapshotIsWrittenWhenGpuAvailable`, `FboPngIsWrittenWhenGpuAvailable`, `CaptureAllProducesExpectedArtefacts` |
 
-**Totals.** 64 renderer-scope test files, 1091 TEST / TEST_F / TEST_P declarations across all layers.
+**Totals.** 65 renderer-scope test files, 1092 TEST / TEST_F / TEST_P declarations across all layers.
 
 <!-- END: renderer-catalogue -->
 

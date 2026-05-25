@@ -268,8 +268,8 @@ namespace OloEngine::Tests
         const f32 roughness = 0.4f;
         const f32 sphereRadius = 1.0f;
         const f32 nClose = SphereAreaNormalization(roughness, 1.0f, sphereRadius);
-        const f32 nMid   = SphereAreaNormalization(roughness, 10.0f, sphereRadius);
-        const f32 nFar   = SphereAreaNormalization(roughness, 1000.0f, sphereRadius);
+        const f32 nMid = SphereAreaNormalization(roughness, 10.0f, sphereRadius);
+        const f32 nFar = SphereAreaNormalization(roughness, 1000.0f, sphereRadius);
 
         EXPECT_LT(nClose, nMid);
         EXPECT_LT(nMid, nFar);
