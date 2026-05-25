@@ -36,8 +36,9 @@ namespace OloEngine::Audio::SoundGraph
             UpdateSeconds();
         }
 
-        void Process() final
+        void Process(u32 numFrames) final
         {
+            (void)numFrames; // Stateless control-rate node; result is independent of block size.
             OLO_PROFILE_FUNCTION();
             UpdateSeconds();
         }
@@ -106,8 +107,9 @@ namespace OloEngine::Audio::SoundGraph
             CalculateFrequency();
         }
 
-        void Process() final
+        void Process(u32 numFrames) final
         {
+            (void)numFrames; // Stateless control-rate node; result is independent of block size.
             OLO_PROFILE_FUNCTION();
             CalculateFrequency();
         }
@@ -168,8 +170,9 @@ namespace OloEngine::Audio::SoundGraph
             CalculateNote();
         }
 
-        void Process() final
+        void Process(u32 numFrames) final
         {
+            (void)numFrames; // Stateless control-rate node; result is independent of block size.
             OLO_PROFILE_FUNCTION();
             CalculateNote();
         }

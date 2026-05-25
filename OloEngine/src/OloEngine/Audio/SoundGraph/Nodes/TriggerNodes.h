@@ -47,31 +47,32 @@ namespace OloEngine::Audio::SoundGraph
             m_Playing = false;
         }
 
-        void Process() final
+        void Process(u32 numFrames) final
         {
             OLO_PROFILE_FUNCTION();
 
+            // Start/Stop flags fire at most once per audio thread iteration; checking them
+            // at block boundary is the same semantics as before (events are queued
+            // externally and observed at most once per Process call).
             if (m_StartFlag.CheckAndResetIfDirty())
                 StartTrigger();
             if (m_StopFlag.CheckAndResetIfDirty())
                 StopTrigger();
 
-            if (m_Playing)
+            if (!m_Playing)
+                return;
+
+            // Hoist period resolution out of the inner loop — input is stable across the block.
+            static constexpr f32 kMinPeriod = 0.001f;
+            f32 safePeriod;
+            if (!m_Period || !std::isfinite(*m_Period) || *m_Period < kMinPeriod)
+                safePeriod = kMinPeriod;
+            else
+                safePeriod = *m_Period;
+
+            for (u32 frame = 0; frame < numFrames; ++frame)
             {
                 m_Counter += m_FrameTime;
-
-                // Guard against zero/negative/non-finite period to prevent infinite loop.
-                // If the input plug never got bound (m_Period == nullptr) treat it as
-                // "use default" rather than crashing — the editor can leave a freshly
-                // dropped node with unbound inputs until the user wires them up.
-                static constexpr f32 kMinPeriod = 0.001f; // 1ms minimum period (1000 Hz max frequency)
-                f32 safePeriod;
-                if (!m_Period || !std::isfinite(*m_Period) || *m_Period < kMinPeriod)
-                    safePeriod = kMinPeriod;
-                else
-                    safePeriod = *m_Period;
-
-                // Handle multiple periods if frame time exceeds period, preserving overshoot
                 while (m_Counter >= safePeriod)
                 {
                     m_Counter -= safePeriod;
@@ -151,8 +152,9 @@ namespace OloEngine::Audio::SoundGraph
             m_OutValue = m_StartValue ? (*m_StartValue) : 0.0f;
         }
 
-        void Process() final
+        void Process(u32 numFrames) final
         {
+            (void)numFrames; // Event-driven counter; block size doesn't affect semantics.
             OLO_PROFILE_FUNCTION();
 
             if (m_TriggerFlag.CheckAndResetIfDirty())
@@ -263,7 +265,7 @@ namespace OloEngine::Audio::SoundGraph
             m_Waiting = false;
         }
 
-        void Process() final
+        void Process(u32 numFrames) final
         {
             OLO_PROFILE_FUNCTION();
 
@@ -276,11 +278,15 @@ namespace OloEngine::Audio::SoundGraph
             // Unbound delay → behave like zero-delay passthrough. Guards against the
             // editor-not-yet-wired case the rest of these nodes already handle.
             const f32 delay = m_DelayTime ? *m_DelayTime : 0.0f;
-            if (m_Waiting && (m_Counter += m_FrameTime) >= delay)
+
+            for (u32 frame = 0; frame < numFrames; ++frame)
             {
-                m_Waiting = false;
-                m_Counter = 0.0f;
-                m_OutDelayedTrigger(1.0f);
+                if (m_Waiting && (m_Counter += m_FrameTime) >= delay)
+                {
+                    m_Waiting = false;
+                    m_Counter = 0.0f;
+                    m_OutDelayedTrigger(1.0f);
+                }
             }
         }
 

@@ -209,7 +209,16 @@ namespace OloEngine::Audio::SoundGraph
             m_SampleRate = sampleRate;
         }
         virtual void Init() {}
-        virtual void Process() {}
+        // Block-rate process entry. Derived nodes produce `numFrames` samples per call.
+        // Most node bodies stay per-sample internally — they wrap their existing work
+        // in `for (u32 frame = 0; frame < numFrames; ++frame) { ... }`. Leaf audio
+        // generators (e.g. WavePlayer) override this to amortise per-block setup
+        // (event-flag checks, async-load polling) across the whole block instead of
+        // paying it 48 000 times per second.
+        virtual void Process(u32 numFrames)
+        {
+            (void)numFrames;
+        }
 
         //==============================================================================
         /// Endpoint access

@@ -573,6 +573,11 @@ namespace OloEngine::Audio::SoundGraph
                 // thread won't dereference m_Graph until SuspendProcessing(false) clears the
                 // suspend flag.
                 m_Graph->SetSampleRate(static_cast<f32>(m_SampleRate));
+                // Pre-allocate the graph's per-channel block-output buffers up to the
+                // miniaudio block size so the audio thread doesn't trigger any heap
+                // allocation when it first calls Process(frameCount). Safe to call here
+                // because we're off the audio thread (graph is suspended).
+                m_Graph->SetMaxBlockSize(m_BlockSize);
                 UpdateParameterSet();
                 OLO_CORE_INFO("[SoundGraphSource] Replaced sound graph");
             }
@@ -794,25 +799,46 @@ namespace OloEngine::Audio::SoundGraph
             float* const busOut = (ppFramesOut && ppFramesOut[0]) ? ppFramesOut[0] : nullptr;
             if (busOut)
             {
-                for (u32 frame = 0; frame < frameCount; ++frame)
+                // Phase 1: a single block-rate Process call replaces the old per-sample
+                // inner loop. The graph fills m_OutputBuffers[c][i] with `frameCount`
+                // samples per channel; we deinterleave-to-interleave-copy them into the
+                // miniaudio output bus below.
+                m_Graph->Process(frameCount);
+
+                const u32 outputChannels = std::min(m_ChannelCount, static_cast<u32>(m_Graph->m_OutputBuffers.size()));
+                if (outputChannels == 0)
                 {
-                    m_Graph->Process();
-
-                    const u32 outputChannels = std::min(m_ChannelCount, static_cast<u32>(m_Graph->m_OutChannels.size()));
-                    const sizet base = static_cast<sizet>(frame) * m_ChannelCount;
-                    for (u32 channel = 0; channel < outputChannels; ++channel)
+                    // Graph has no wired output channels (broken/empty graph). The
+                    // copy loop below would no-op and leave busOut holding whatever
+                    // miniaudio handed us — which is not guaranteed to be silent.
+                    // Zero the bus explicitly so we never emit junk audio.
+                    ma_silence_pcm_frames(busOut, frameCount, ma_format_f32, m_ChannelCount);
+                }
+                else
+                {
+                    for (u32 frame = 0; frame < frameCount; ++frame)
                     {
-                        busOut[base + channel] = m_Graph->m_OutChannels[channel];
-                    }
+                        const sizet base = static_cast<sizet>(frame) * m_ChannelCount;
+                        for (u32 channel = 0; channel < outputChannels; ++channel)
+                        {
+                            busOut[base + channel] = m_Graph->m_OutputBuffers[channel][frame];
+                        }
 
-                    // Mono → stereo (and wider) fan-out: copy channel 0 to remaining channels.
-                    if (outputChannels >= 1 && outputChannels < m_ChannelCount)
-                    {
-                        const f32 sample = busOut[base + 0];
-                        for (u32 channel = outputChannels; channel < m_ChannelCount; ++channel)
-                            busOut[base + channel] = sample;
+                        // Mono → stereo (and wider) fan-out: copy channel 0 to remaining channels.
+                        if (outputChannels < m_ChannelCount)
+                        {
+                            const f32 sample = busOut[base + 0];
+                            for (u32 channel = outputChannels; channel < m_ChannelCount; ++channel)
+                                busOut[base + channel] = sample;
+                        }
                     }
                 }
+            }
+            else
+            {
+                // No output bus from miniaudio — still drive the graph forward so timing,
+                // events, and the OnFinished signal don't stall.
+                m_Graph->Process(frameCount);
             }
 
             // Handle outgoing events and messages

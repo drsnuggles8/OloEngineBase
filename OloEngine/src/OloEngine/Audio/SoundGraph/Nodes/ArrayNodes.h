@@ -74,8 +74,9 @@ namespace OloEngine::Audio::SoundGraph
             m_OutElement = T{};
         }
 
-        void Process() final
+        void Process(u32 numFrames) final
         {
+            (void)numFrames; // Event-driven array node; trigger flags drive output, not block size.
             OLO_PROFILE_FUNCTION();
 
             if (m_NextFlag.CheckAndResetIfDirty())
@@ -192,8 +193,9 @@ namespace OloEngine::Audio::SoundGraph
             m_OutElement = T{};
         }
 
-        void Process() final
+        void Process(u32 numFrames) final
         {
+            (void)numFrames; // Event-driven array node; trigger flags drive output, not block size.
             OLO_PROFILE_FUNCTION();
 
             if (m_TriggerFlag.CheckAndResetIfDirty())
@@ -297,8 +299,9 @@ namespace OloEngine::Audio::SoundGraph
             m_OutValue = T{};
         }
 
-        void Process() final
+        void Process(u32 numFrames) final
         {
+            (void)numFrames; // Event-driven array node; trigger flags drive output, not block size.
             OLO_PROFILE_FUNCTION();
 
             if (m_NextFlag.CheckAndResetIfDirty())

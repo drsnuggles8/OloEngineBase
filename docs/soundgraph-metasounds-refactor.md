@@ -62,6 +62,32 @@ JUCE).
 
 **Goal:** the ding plays correctly in Debug. Foundation for later phases.
 
+> **Status (2026-05-25):** Phase 1A — *signature change and structural rework* —
+> has landed. `SoundGraphSource::ProcessSamples` now makes a single
+> `m_Graph->Process(frameCount)` call per block and bulk-copies from per-channel
+> output buffers into the miniaudio bus. Every `NodeProcessor` override carries
+> the new `Process(u32 numFrames)` signature; stateful nodes (oscillators,
+> envelopes, WavePlayer, time-counting triggers) wrap their per-sample body in
+> a for-loop and hoist input reads / event-flag checks to block rate. The
+> existing SoundGraph instantiation + serializer tests pass under the new API.
+>
+> What did **not** land: the perf metric below (effective rate ≈ 48 kHz in
+> Debug). Because Phase 1's non-goal is to "leave `choc::value::ValueView`
+> wiring in place", the per-node `Process(...)` calls still have to happen
+> once per sample inside `SoundGraph::Process` — calling each node once per
+> block would deliver only the *last* sample of the block to the next ValueView
+> consumer down the chain. The amortisation work in WavePlayer (block-rate
+> async-load / play-flag checks) is in place but unused until SoundGraph can
+> hand it the whole block. That switch lands as part of **Phase 2** when typed
+> `AudioBufferRef` connections replace the scalar `ValueView` wiring.
+>
+> Concretely, after Phase 1A:
+>
+> - ✓ `ProcessSamples` does one `m_Graph->Process(frameCount)` call.
+> - ✓ Existing SoundGraph instantiation + serializer tests pass.
+> - ⏳ HelloDing Debug perf — still per-sample chain inside the graph; gated on
+>   Phase 2 buffer-rate wiring.
+
 ### Signature change
 
 ```cpp

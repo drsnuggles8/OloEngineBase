@@ -181,8 +181,15 @@ namespace OloEngine::Audio::SoundGraph
         /// Output channel identifiers
         std::vector<Identifier> m_OutputChannelIDs;
 
-        /// Output channel values
+        /// Output channel values (scalar, last-sample of the block)
         std::vector<float> m_OutChannels;
+
+        /// Per-channel block-output buffers, parallel to m_OutChannels / m_OutputChannelIDs.
+        /// Capacity is reserved off the audio thread via SetMaxBlockSize so that
+        /// Process(numFrames) on the audio thread only adjusts the logical size (no heap
+        /// allocation). Each entry [c][i] is the i-th sample of channel c produced during
+        /// this block. SoundGraphSource bulk-copies these into the miniaudio output bus.
+        std::vector<std::vector<f32>> m_OutputBuffers;
 
         /// Cached pointers to the endpoint output ValueViews, parallel to m_OutChannels /
         /// m_OutputChannelIDs. Rebuilt lazily on first Process() after Init() so the
@@ -470,7 +477,32 @@ namespace OloEngine::Audio::SoundGraph
                 node->Init();
             }
 
+            // Pre-allocate per-channel block buffers to a sensible default block size so
+            // even consumers that drive Process() directly (instantiation tests, future
+            // offline render paths) don't trigger heap allocations on the audio thread.
+            // SoundGraphSource overrides this via SetMaxBlockSize() with the real miniaudio
+            // block size before the audio thread starts pulling samples.
+            EnsureOutputBuffersCapacity(kDefaultMaxBlockSize);
+
+            // Pre-build the endpoint-view cache off the audio thread (was previously rebuilt
+            // lazily inside Process() — that path is allocation-prone on the audio thread).
+            RebuildOutputChannelViewsCache();
+
             m_IsInitialized = true;
+        }
+
+        /// Pre-allocates per-channel block-buffer capacity *off* the audio thread. Call
+        /// after graph construction (all AddGraphOutputStream calls complete) and before
+        /// any audio-thread Process(numFrames) call. Safe to call again with a larger
+        /// value; never shrinks. Idempotent for sizes already covered.
+        void SetMaxBlockSize(u32 maxBlockSize)
+        {
+            EnsureOutputBuffersCapacity(maxBlockSize);
+            // Endpoint wiring may have completed *after* Init() in some construction paths
+            // (e.g. SoundGraphSource::ReplaceGraph rewires before resuming). Refresh the
+            // cache here too so Process() can always observe a valid cache without doing
+            // the rebuild itself.
+            RebuildOutputChannelViewsCache();
         }
 
         void BeginProcessBlock()
@@ -483,58 +515,82 @@ namespace OloEngine::Audio::SoundGraph
             }
         }
 
-        void Process() final
+        // Phase 1 block-rate entry point. Replaces the old per-sample Process() (which was
+        // called 48 000 times/sec from SoundGraphSource::ProcessSamples). The per-sample
+        // iteration is now hoisted INTO the graph so SoundGraphSource can hand us a whole
+        // block in a single call.
+        //
+        // Phase 1 scope: SoundGraphSource overhead (function dispatch, OLO_PROFILE_FUNCTION
+        // entry, ppFramesOut bounds-check) collapses from per-sample to per-block. The
+        // per-sample iteration inside this method still walks all nodes once per sample,
+        // because the ValueView wiring between nodes is scalar — moving the loop one level
+        // out without changing wiring would only deliver the LAST sample of the block to
+        // downstream consumers. Phase 2 introduces typed AudioBufferRef wiring; once that
+        // lands, this loop can collapse to a single per-node Process(numFrames) call and
+        // we get the real perf win documented in docs/soundgraph-metasounds-refactor.md.
+        void Process(u32 numFrames) final
         {
-            // Intentionally no OLO_PROFILE_FUNCTION: this runs once per audio frame
-            // (48000 Hz). In Debug, OLO_PROFILE_FUNCTION resolves to InstrumentationTimer,
-            // which performs two steady_clock::now() calls per invocation regardless of
-            // session state — at 48 kHz that alone is enough to push the audio thread
-            // below real-time. If we ever need per-frame profiling here, gate it behind
-            // a sampled (e.g. 1-in-N) macro instead of an unconditional one.
+            // Block-rate entry point (~100 Hz at 48 kHz / 480-frame block) — profile macro
+            // is fine here. The matching note in WavePlayer::Process explains why the
+            // per-sample hot path called from this method still avoids OLO_PROFILE_FUNCTION.
+            OLO_PROFILE_FUNCTION();
 
-            // Process parameter interpolations
-            for (auto& [id, interpValue] : m_InterpInputs)
-                interpValue.Process();
-
-            // Process all nodes in graph
-            for (auto& node : m_Nodes)
-                node->Process();
-
-            // Sample the graph's output channels through m_EndpointOutputStreams. Per-channel
-            // wiring works by aliasing: AddConnection(source, destination) makes destination
-            // point at source's storage. AddGraphOutputStream initially aliases each endpoint
-            // stream to m_OutChannels[i], but AddToGraphOutputConnection then re-aliases it to
-            // the actual producing node's output (e.g. WavePlayer's m_OutLeft). The graph's
-            // m_OutChannels slot itself is never reassigned by those later aliases, so reading
-            // m_OutChannels directly produces the zero default forever. We resolve it through
-            // the (possibly re-aliased) endpoint view here, every frame, so the sample the
-            // engine reads matches what the connected node produced this Process() call.
-            //
-            // Lookup is cached in m_OutputChannelViews on first hit — at 96 000 lookups/sec
-            // in Debug an unordered_map::find was burning ~50 ms per audio second, pushing
-            // the per-frame loop past real-time. The ValueView object lives inside the map's
-            // node and is not moved by AddConnection (which only re-assigns the view's
-            // internal data pointer), so the cached pointer stays valid for the life of the
-            // graph.
-            if (m_OutputChannelViews.size() != m_OutputChannelIDs.size()) [[unlikely]]
+            // The endpoint-view cache and per-channel block buffers were both pre-built off
+            // the audio thread (in Init() and SetMaxBlockSize()). The asserts below are the
+            // RT-safety contract: if any of them fire we'd be a missed off-thread setup
+            // call away from a heap allocation in the audio callback.
+            OLO_CORE_ASSERT(m_OutputChannelViews.size() == m_OutputChannelIDs.size(),
+                            "SoundGraph::Process: view cache is stale; call SetMaxBlockSize/Init off-thread after wiring");
+            OLO_CORE_ASSERT(m_OutputBuffers.size() >= m_OutChannels.size(),
+                            "SoundGraph::Process: output buffer count is short of channel count; call SetMaxBlockSize off-thread");
+            for ([[maybe_unused]] auto& buf : m_OutputBuffers)
             {
-                m_OutputChannelViews.clear();
-                m_OutputChannelViews.reserve(m_OutputChannelIDs.size());
-                for (const auto& id : m_OutputChannelIDs)
-                {
-                    auto it = m_EndpointOutputStreams.InputStreams.find(id);
-                    m_OutputChannelViews.push_back(it != m_EndpointOutputStreams.InputStreams.end() ? &it->second : nullptr);
-                }
+                // Check size(), not capacity() — operator[] writes below are bounds-checked
+                // against size() by MSVC Debug iterators (and are simply UB past size() in
+                // Release). EnsureOutputBuffersCapacity uses resize() so size == capacity in
+                // practice, but checking the dimension that actually gates operator[] keeps
+                // the contract honest.
+                OLO_CORE_ASSERT(buf.size() >= numFrames,
+                                "SoundGraph::Process: block buffer size insufficient for numFrames; call SetMaxBlockSize off-thread");
             }
+
             const sizet channelCount = std::min(m_OutChannels.size(), m_OutputChannelViews.size());
-            for (sizet i = 0; i < channelCount; ++i)
+
+            for (u32 frame = 0; frame < numFrames; ++frame)
             {
-                const auto* view = m_OutputChannelViews[i];
-                if (view && view->getType().isFloat32())
-                    m_OutChannels[i] = view->getFloat32();
+                // Per-sample parameter interpolation (10 ms ramps in SendInputValue).
+                for (auto& [id, interpValue] : m_InterpInputs)
+                    interpValue.Process();
+
+                // Walk the node graph. Phase 1 passes numFrames=1 here: each node produces
+                // one sample, downstream consumers read the scalar via ValueView, the chain
+                // works. Phase 2 swaps in typed buffer connections and lifts this call out
+                // of the per-sample loop.
+                for (auto& node : m_Nodes)
+                    node->Process(1);
+
+                // Sample each graph output channel from its (possibly re-aliased) endpoint
+                // view into the per-channel block buffer. The view points at the producing
+                // node's storage — see the original comment preserved on m_OutputChannelViews.
+                for (sizet c = 0; c < channelCount; ++c)
+                {
+                    const auto* view = m_OutputChannelViews[c];
+                    if (view && view->getType().isFloat32())
+                        m_OutputBuffers[c][frame] = view->getFloat32();
+                    else
+                        m_OutputBuffers[c][frame] = 0.0f;
+                }
+
+                ++m_CurrentFrame;
             }
 
-            ++m_CurrentFrame;
+            // Mirror the final sample into the scalar m_OutChannels for any consumer that
+            // reads it directly (debug UIs, telemetry). The block buffer is the real output.
+            for (sizet c = 0; c < channelCount; ++c)
+            {
+                if (numFrames > 0)
+                    m_OutChannels[c] = m_OutputBuffers[c][numFrames - 1];
+            }
         }
 
         // Reset nodes to their initial state
@@ -702,6 +758,40 @@ namespace OloEngine::Audio::SoundGraph
         }
 
       private:
+        // Default per-channel block-buffer capacity used by Init() when SoundGraphSource
+        // hasn't yet called SetMaxBlockSize. Sized generously so direct-Process callers
+        // (tests, offline render) don't trip the capacity assert in Process.
+        static constexpr u32 kDefaultMaxBlockSize = 4096;
+
+        /// Ensure m_OutputBuffers has one entry per output channel and each entry has
+        /// `capacity` valid storage slots. Both .size() and .capacity() end up >= capacity.
+        /// MUST be called off the audio thread.
+        void EnsureOutputBuffersCapacity(u32 capacity)
+        {
+            if (m_OutputBuffers.size() < m_OutChannels.size())
+                m_OutputBuffers.resize(m_OutChannels.size());
+            for (auto& buf : m_OutputBuffers)
+            {
+                if (buf.size() < capacity)
+                    buf.resize(capacity);
+            }
+        }
+
+        /// (Re-)build the endpoint-view pointer cache used by Process() to read the
+        /// graph's output channel values without an unordered_map::find per sample.
+        /// MUST be called off the audio thread (clear + reserve + push_back can allocate).
+        /// Safe to call repeatedly when wiring changes.
+        void RebuildOutputChannelViewsCache()
+        {
+            m_OutputChannelViews.clear();
+            m_OutputChannelViews.reserve(m_OutputChannelIDs.size());
+            for (const auto& id : m_OutputChannelIDs)
+            {
+                auto it = m_EndpointOutputStreams.InputStreams.find(id);
+                m_OutputChannelViews.push_back(it != m_EndpointOutputStreams.InputStreams.end() ? &it->second : nullptr);
+            }
+        }
+
         bool m_IsInitialized = false;
         f32 m_SampleRate = 48000.0f;
 
