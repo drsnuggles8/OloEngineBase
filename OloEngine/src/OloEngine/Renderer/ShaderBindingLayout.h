@@ -356,7 +356,7 @@ namespace OloEngine
             glm::vec4 FoamParams2;           // x = foamAngleExponent, y = shorelineFoamPower, z = sssIntensity, w = unused
             glm::vec4 SSSColor;              // rgb = subsurface scattering color, w = unused
             glm::vec4 SSRParams;             // x = maxSteps (0=disabled), y = stepSize, z = maxDistance, w = thickness
-            glm::vec4 TessParams;            // x = tessellationFactor (0=disabled), y = minTessDistance, z = maxTessDistance, w = unused
+            glm::vec4 TessParams;            // x = tessellationFactor (0=disabled), y = minTessDistance, z = maxTessDistance, w = frustumCullEnable (1=on, 0=off)
 
             static constexpr u32 GetSize()
             {
@@ -1132,7 +1132,7 @@ layout(std140, binding = 23) uniform WaterParams {
     vec4 u_FoamParams2;             // x = foamAngleExponent, y = shorelineFoamPower, z = sssIntensity, w = unused
     vec4 u_SSSColor;                // rgb = subsurface scattering color, w = unused
     vec4 u_SSRParams;               // x = maxSteps, y = stepSize, z = maxDistance, w = thickness
-    vec4 u_TessParams;              // x = tessellationFactor (0 = disabled), y = minDist, z = maxDist, w = unused
+    vec4 u_TessParams;              // x = tessellationFactor (0 = disabled), y = minDist, z = maxDist, w = frustumCullEnable (1=on, 0=off)
 };)";
         }
 
