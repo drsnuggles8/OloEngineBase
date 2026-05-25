@@ -23,8 +23,19 @@ concurrency:
 
 jobs:
   fuzz:
-    name: Fuzz smoke (ClangCL + libFuzzer)
+    # Two parallel jobs — `asan` and `ubsan` — because compiler-rt's Windows
+    # packaging ships `sanitizer_coverage_win_sections.cpp.obj` (defining the
+    # `__start___sancov_*` section markers) in BOTH `clang_rt.asan_dynamic_
+    # runtime_thunk-x86_64.lib` AND `clang_rt.ubsan_standalone-x86_64.lib`,
+    # so a single binary linked against both fires lld-link duplicate-symbol
+    # errors. Splitting the matrix gives each link line exactly one of the
+    # runtime libs, and we keep both axes of sanitiser coverage.
+    name: Fuzz smoke (${{ matrix.sanitizer }})
     runs-on: windows-latest
+    strategy:
+      fail-fast: false  # asan failing doesn't cancel ubsan and vice versa
+      matrix:
+        sanitizer: [asan, ubsan]
     steps:
       - uses: actions/checkout@v6
 
@@ -42,21 +53,100 @@ jobs:
       - name: Setup Vulkan SDK
         uses: ./.github/actions/setup-vulkan
 
-      - name: Configure CMake (ClangCL)
-        # ClangCL is bundled with VS2022. It exposes the MSVC-compatible
-        # ABI while supporting `-fsanitize=fuzzer`, which is what
-        # `tests/Fuzzing/CMakeLists.txt` requires.
+      - name: Setup MSVC dev environment
+        # The clangcl preset uses Ninja + standalone clang-cl. lld-link still
+        # needs the Windows SDK libpath and MSVC's CRT import libs, which
+        # come from MSVC's vcvars setup. ilammy/msvc-dev-cmd loads them
+        # into the job env for every subsequent step.
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Install LLVM (pinned)
+        # Pin the LLVM toolchain version explicitly instead of relying on
+        # whatever `clang-cl` happens to be preinstalled in `C:\Program
+        # Files\LLVM\` on the current `windows-latest` runner image. This
+        # protects the fuzz pipeline from silent breakage when GitHub updates
+        # the image (LLVM 19 had two bugs we hit — see below — and any future
+        # version jump on the image could re-surface similar issues without
+        # warning).
+        #
+        # Why not the runner's bundled VS2022 clang-cl (LLVM 19): its ASan
+        # runtime trips on newer Windows API prologues with
+        # `interception_win: unhandled instruction at 0x…` (harness exits
+        # before `LLVMFuzzerTestOneInput` runs); and its
+        # `clang_rt.asan_dynamic_runtime_thunk` and
+        # `clang_rt.ubsan_standalone` both define `__start___sancov_*`
+        # section markers (duplicate-symbol link errors). LLVM 20.x fixes
+        # both.
+        #
+        # `KyleMayes/install-llvm-action` exports `LLVM_PATH` pointing at the
+        # install root (so binaries live at `$LLVM_PATH/bin`) and caches the
+        # download via actions/cache. Pinned to a specific 20.1.x release so
+        # we don't drift with the action's "latest 20.x" interpretation.
+        uses: KyleMayes/install-llvm-action@v2
+        with:
+          version: "20.1.8"
+          cached: true
+
+      - name: Configure CMake (standalone clang-cl via Ninja Multi-Config)
+        # We replicate the `clangcl` CMake preset's settings inline instead
+        # of using `cmake --preset clangcl`, because the runner's bundled
+        # CMake is 3.x and the presets file declares
+        # `cmakeMinimumRequired = 4.2.0` (a hard error from `cmake --preset`).
+        #
+        # Explicit compiler/linker paths via `$env:LLVM_PATH` (set by the
+        # install step above): `ilammy/msvc-dev-cmd` puts VS2022's
+        # `Llvm\x64\bin` first on PATH, so unqualified `clang-cl` /
+        # `lld-link` would still resolve to whatever LLVM ships with VS2022
+        # — not the pinned LLVM we just installed.
         run: |
-          cmake -S . -B build -T ClangCL `
-                -DPython_EXECUTABLE="${{ steps.py.outputs.python-path }}" `
-                -DOLO_ENABLE_FUZZING=ON
+          $clang = "$env:LLVM_PATH/bin/clang-cl.exe" -replace '\\','/'
+          $lld = "$env:LLVM_PATH/bin/lld-link.exe" -replace '\\','/'
+          cmake -S . -B build-clang `
+                -G "Ninja Multi-Config" `
+                "-DCMAKE_TOOLCHAIN_FILE=${{ github.workspace }}/cmake/ClangCLToolchain.cmake" `
+                "-DCMAKE_C_COMPILER=$clang" `
+                "-DCMAKE_CXX_COMPILER=$clang" `
+                "-DCMAKE_LINKER=$lld" `
+                "-DFETCHCONTENT_BASE_DIR=${{ github.workspace }}/OloEngine/vendor/clang" `
+                -DBUILD_TESTS=ON `
+                "-DPython_EXECUTABLE=${{ steps.py.outputs.python-path }}" `
+                -DOLO_ENABLE_FUZZING=ON `
+                -DOLO_FUZZ_SANITIZER=${{ matrix.sanitizer }}
 
       - name: Build fuzzers
-        run: cmake --build build --target OloEngine-FuzzSmoke --config Release --parallel
+        # OloEngine + fuzz harnesses are sanitised (see cmake/Fuzzing.cmake);
+        # build-time tools (OloHeaderTool, protoc) are not. Use the
+        # `OloEngine-Fuzz` target (build-only) rather than `OloEngine-Fuzz
+        # Smoke` — the smoke variant *invokes* every harness during
+        # `cmake --build` as part of its custom-command, which on the asan
+        # path would need the DLL on PATH at build time. The "Run fuzz smoke"
+        # step below handles the actual harness execution.
+        run: cmake --build build-clang --target OloEngine-Fuzz --config Release --parallel
 
       - name: Run fuzz smoke (per-target 30s)
         working-directory: OloEditor
+        shell: pwsh
         run: |
+          # On the asan path, prepend the clang_rt dir CMake resolved at
+          # configure time so harnesses load the matching
+          # clang_rt.asan_dynamic-x86_64.dll. On the ubsan path it's a no-op
+          # (UBSan is statically linked, no DLL needed) but harmless.
+          # We prepend $env:PATH directly (not $GITHUB_PATH which APPENDS and
+          # would lose to MSVC's same-named DLL already on PATH).
+          $rtDir = (Get-Content ../build-clang/olo_clang_rt_dir.txt -Raw).Trim()
+          $env:PATH = "$rtDir;$env:PATH"
+
+          # Suppress ASan's ODR-violation check. clang-cl + MSVC STL spuriously
+          # registers narrow `"d"` and wide `L"d"` literals under the same
+          # global-symbol name (different sizes — 2 vs 4 bytes), which ASan
+          # flags as an ODR violation and aborts on. ASan's own output prints
+          # this exact env-var as the suppression hint. Real ODR bugs in our
+          # code aren't hidden by this — duplicate definitions still fail at
+          # link time.
+          $env:ASAN_OPTIONS = "detect_odr_violation=0"
+
           # Explicit harness -> corpus mapping. A heuristic would be neat but
           # every one-off (YAML suffix, acronyms) would need a special case.
           $harnesses = @(
@@ -68,25 +158,44 @@ jobs:
             @{ Name = 'FuzzAssimpMesh';       Corpus = 'assimp_mesh'       },
             @{ Name = 'FuzzSpirvCross';       Corpus = 'spirv_cross'       }
           )
+          # Don't bail on the first harness failure — run all 7 and report a
+          # summary so one broken corpus doesn't hide the state of the others.
+          # Any non-zero exit (libFuzzer crashing on an input, ASan/UBSan
+          # aborting, a sanitiser startup failure, etc.) gates CI. Bugs
+          # detected by the fuzzer ARE supposed to fail this workflow — that
+          # is the point of running it. Triage and fix the bugs; do not
+          # whitelist failing harnesses here.
+          $failed = @()
           foreach ($h in $harnesses) {
-            $exe = "..\build\OloEngine\tests\Fuzzing\Release\$($h.Name).exe"
+            $exe = "..\build-clang\OloEngine\tests\Fuzzing\Release\$($h.Name).exe"
             $corpusDir = "..\OloEngine\tests\Fuzzing\corpus\$($h.Corpus)"
             if (-not (Test-Path $corpusDir)) {
               Write-Host "::error::required corpus directory '$corpusDir' is missing; refusing to run $($h.Name) without seeds"
-              exit 1
+              $failed += $h.Name
+              continue
             }
+            Write-Host "::group::$($h.Name)"
             & $exe -max_total_time=30 -print_final_stats=1 $corpusDir
-            if ($LASTEXITCODE -ne 0) {
-              Write-Host "::error::$($h.Name) found a crash"
-              exit $LASTEXITCODE
+            $rc = $LASTEXITCODE
+            Write-Host "::endgroup::"
+            if ($rc -ne 0) {
+              Write-Host "::error::$($h.Name) exited with code $rc"
+              $failed += $h.Name
             }
+          }
+          if ($failed.Count -gt 0) {
+            Write-Host "::error::$($failed.Count) of $($harnesses.Count) harnesses failed: $($failed -join ', ')"
+            exit 1
           }
 
       - name: Upload crash artifacts
         if: failure()
         uses: actions/upload-artifact@v7
         with:
-          name: fuzz_crashes
+          # Per-sanitizer name so the asan and ubsan jobs don't try to
+          # upload to the same artifact (actions/upload-artifact@v7
+          # rejects collisions).
+          name: fuzz_crashes_${{ matrix.sanitizer }}
           path: |
             OloEditor/crash-*
             OloEditor/leak-*

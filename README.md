@@ -1,4 +1,13 @@
 # OloEngine
+
+[![Windows](https://github.com/drsnuggles8/OloEngineBase/actions/workflows/Windows.yml/badge.svg?branch=master)](https://github.com/drsnuggles8/OloEngineBase/actions/workflows/Windows.yml)
+[![Sanitizers](https://github.com/drsnuggles8/OloEngineBase/actions/workflows/asan.yml/badge.svg?branch=master)](https://github.com/drsnuggles8/OloEngineBase/actions/workflows/asan.yml)
+[![Cross-Vendor Conformance](https://github.com/drsnuggles8/OloEngineBase/actions/workflows/cross-vendor.yml/badge.svg?branch=master)](https://github.com/drsnuggles8/OloEngineBase/actions/workflows/cross-vendor.yml)
+[![Fuzz Smoke](https://github.com/drsnuggles8/OloEngineBase/actions/workflows/fuzz.yml/badge.svg?branch=master)](https://github.com/drsnuggles8/OloEngineBase/actions/workflows/fuzz.yml)
+[![CodeQL](https://github.com/drsnuggles8/OloEngineBase/actions/workflows/codeql.yml/badge.svg?branch=master)](https://github.com/drsnuggles8/OloEngineBase/actions/workflows/codeql.yml)
+[![SonarCloud Scan](https://github.com/drsnuggles8/OloEngineBase/actions/workflows/SonarCloud.yml/badge.svg?branch=master)](https://github.com/drsnuggles8/OloEngineBase/actions/workflows/SonarCloud.yml)
+[![Pre-commit checks](https://github.com/drsnuggles8/OloEngineBase/actions/workflows/pre-commit.yml/badge.svg?branch=master)](https://github.com/drsnuggles8/OloEngineBase/actions/workflows/pre-commit.yml)
+
 OloEngine is primarily an early-stage cross-platform (Windows and Linux) interactive application and rendering engine based on [Hazel](https://github.com/TheCherno/Hazel/).
 
 ## Screenshots

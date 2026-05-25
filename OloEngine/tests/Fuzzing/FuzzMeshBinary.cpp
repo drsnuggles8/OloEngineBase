@@ -13,6 +13,12 @@
 
 #include "OloEngine/Serialization/MeshBinarySerializer.h"
 
+// MeshBinarySerializer.h forward-declares MeshSource, but `Read()` returns a
+// `Ref<MeshSource>` whose destructor (called when the temporary is discarded
+// below) needs the complete type to call DecRefCount / delete. Without this
+// include the harness fails to compile under clang-cl with -Wdelete-incomplete.
+#include "OloEngine/Renderer/MeshSource.h"
+
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>

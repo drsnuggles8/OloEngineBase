@@ -83,13 +83,16 @@ function(olo_set_compiler_options target_name)
             /bigobj           # Increase COFF section limit for large translation units
         )
         # Use multi-threaded DLL runtime library.
-        # When ASan is on, force the release CRT for ALL configurations — MSVC
-        # ASan's runtime links against release CRT, and mixing /MDd with
-        # release-only third-party static libs (Vulkan SDK spirv-cross on CI
-        # without debug libs, etc.) causes _ITERATOR_DEBUG_LEVEL mismatches.
-        # Sanitizers.cmake also sets CMAKE_MSVC_RUNTIME_LIBRARY globally, but
-        # this per-target property would otherwise override it for Debug.
-        if(OLO_ENABLE_ASAN)
+        # When ASan or fuzzing is on, force the release CRT (/MD) for ALL
+        # configurations — MSVC ASan's runtime links against release CRT,
+        # and mixing /MDd with release-only third-party static libs (Vulkan
+        # SDK spirv-cross on CI without debug libs, etc.) causes
+        # _ITERATOR_DEBUG_LEVEL mismatches. Fuzzing uses dynamic ASan +
+        # builds libFuzzer from source so it can also use /MD (stock LLVM
+        # ships only /MT-built clang_rt.fuzzer-x86_64.lib).
+        # Sanitizers.cmake / Fuzzing.cmake also set CMAKE_MSVC_RUNTIME_LIBRARY
+        # globally, but this per-target property would otherwise override it.
+        if(OLO_ENABLE_ASAN OR OLO_ENABLE_FUZZING)
             set_target_properties(${target_name} PROPERTIES
                 MSVC_RUNTIME_LIBRARY "MultiThreadedDLL")
         else()
