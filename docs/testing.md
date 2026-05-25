@@ -1013,6 +1013,7 @@ new `.cpp` under `OloEngine/tests/Rendering/`, `ShaderGraph/`,
 | File | Tests | Cases |
 |---|---:|---|
 | [GoldenImageTests.cpp](../OloEngine/tests/Rendering/PropertyTests/GoldenImageTests.cpp) | 8 | **GoldenImageSsimTest** &mdash; `IdenticalImagesYieldSsimOne`, `TinyUniformShiftKeepsSsimHigh`, `StructuralDestructionCollapsesSsim`, `SsimIsSymmetric`<br/>**GoldenImageTest** &mdash; `ReinhardHdrRampGolden`, `FxaaHardEdgeGolden`, `SceneShadowIntegrationGolden`, `SceneSplatmapIntegrationGolden` |
+| [SphereAreaLightVisualTest.cpp](../OloEngine/tests/Rendering/PropertyTests/SphereAreaLightVisualTest.cpp) | 1 | **SphereAreaLightVisual** &mdash; `RendersAndProducesPng` |
 
 #### plumbing — Pipeline plumbing (command bucket, dispatch, frame data)
 
@@ -1053,6 +1054,7 @@ new `.cpp` under `OloEngine/tests/Rendering/`, `ShaderGraph/`,
 | [ShaderStageContractTest.cpp](../OloEngine/tests/Rendering/ShaderStageContractTest.cpp) | 2 | **ShaderStageContract** &mdash; `EveryFragmentShaderDeclaresAtLeastOneOutput`, `EveryVertexShaderWritesGlPosition` |
 | [ShaderStageInterfaceTest.cpp](../OloEngine/tests/Rendering/ShaderStageInterfaceTest.cpp) | 1 | **ShaderStageInterface** &mdash; `VertexOutputsMatchFragmentInputs` |
 | [ShaderUBOSizeConsistencyTest.cpp](../OloEngine/tests/Rendering/ShaderUBOSizeConsistencyTest.cpp) | 3 | **ShaderUBOSizeConsistency** &mdash; `GlslBlockSizeNeverExceedsCppStruct`, `CrossStageUBOLayoutAgreesWithinShader`, `CrossShaderUBOMemberOffsetsAgree` |
+| [SphereAreaLightMathTest.cpp](../OloEngine/tests/Rendering/SphereAreaLightMathTest.cpp) | 9 | **SphereAreaLightMath** &mdash; `RepresentativePointReducesToCentreWhenRadiusZero`, `RepresentativePointLiesOnOrInsideSphereSurface`, `RepresentativePointStaysOnTheReflectionSideWhenRayMissesSphere`, `ReflectionRayHitsSphereCentre_RepresentativePointEqualsCentre`, `NormalisationIsExactlyOneAtZeroRadius`, `NormalisationBoundedInUnitInterval`, `NormalisationShrinksAsRadiusGrows`, `NormalisationGrowsTowardOneAsDistanceIncreases`, `NormalisationMatchesKarisAnalyticAtKnownSample` |
 | [ShaderGraphCommandTest.cpp](../OloEngine/tests/ShaderGraph/ShaderGraphCommandTest.cpp) | 11 | **ShaderGraphCommandTest** &mdash; `AddNodeExecuteAddsNode`, `AddNodeUndoRemovesNode`, `AddNodeRedoRestoresNode`, `RemoveNodeUndoRestoresNodeAndLinks`, `AddLinkUndoRemovesLink`, `RemoveLinkUndoRestoresLink`, `MoveNodeUndoRestoresPosition`, `HistoryCanUndoCanRedo`, `NewCommandClearsRedoStack`, `HistoryClearResetsStacks`, `MultipleUndoRedoCycles` |
 | [ShaderGraphCompilerTest.cpp](../OloEngine/tests/ShaderGraph/ShaderGraphCompilerTest.cpp) | 13 | **ShaderGraphCompilerTest** &mdash; `EmptyGraphFailsCompilation`, `MinimalGraphCompiles`, `OutputContainsVertexAndFragmentSections`, `OutputContainsMRTLayout`, `FloatParameterExposed`, `UBOBlockGenerated`, `MathNodeGeneratesCode`, `TextureSamplerBindingGenerated`, `MinimalComputeGraphCompiles`, `ComputeGraphWithBuffersCompiles`, `ComputeGraphCustomWorkgroupSize`, `ComputeGraphIsNotPBR`, `PBRGraphIsNotCompute` |
 | [ShaderGraphSerializationTest.cpp](../OloEngine/tests/ShaderGraph/ShaderGraphSerializationTest.cpp) | 12 | **ShaderGraphSerializationTest** &mdash; `SerializeProducesNonEmptyYAML`, `RoundTripPreservesGraphName`, `RoundTripPreservesNodeCount`, `RoundTripPreservesLinkCount`, `RoundTripPreservesParameterName`, `RoundTripPreservesNodeTypes`, `DeserializeInvalidYAMLReturnsFalse`, `DeserializeMissingRootNodeReturnsFalse`, `DeserializedGraphIsDirty`, `DeserializedGraphCanCompile`, `RoundTripPreservesComputeWorkgroupSize`, `RoundTripPreservesBufferBinding` |
@@ -1081,7 +1083,7 @@ new `.cpp` under `OloEngine/tests/Rendering/`, `ShaderGraph/`,
 |---|---:|---|
 | [TestFailureCaptureTest.cpp](../OloEngine/tests/Rendering/PropertyTests/TestFailureCaptureTest.cpp) | 6 | **TestFailureCaptureTest** &mdash; `DirectoryForSanitizesNames`, `MetadataIsWrittenWithoutGlContext`, `LatestFrameSummaryIsNoOpWithoutCaptures`, `GLStateSnapshotIsWrittenWhenGpuAvailable`, `FboPngIsWrittenWhenGpuAvailable`, `CaptureAllProducesExpectedArtefacts` |
 
-**Totals.** 63 renderer-scope test files, 1082 TEST / TEST_F / TEST_P declarations across all layers.
+**Totals.** 65 renderer-scope test files, 1092 TEST / TEST_F / TEST_P declarations across all layers.
 
 <!-- END: renderer-catalogue -->
 
