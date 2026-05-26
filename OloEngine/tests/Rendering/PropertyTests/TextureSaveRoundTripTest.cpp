@@ -65,7 +65,10 @@ namespace OloEngine::Tests
             }
             ScopedTexture(const ScopedTexture&) = delete;
             ScopedTexture& operator=(const ScopedTexture&) = delete;
-            operator GLuint() const { return m_Id; }
+            operator GLuint() const
+            {
+                return m_Id;
+            }
         };
 
         struct ScopedFile
@@ -203,7 +206,8 @@ namespace OloEngine::Tests
         {
             std::error_code ec;
             auto base = std::filesystem::temp_directory_path(ec);
-            if (ec) base = std::filesystem::current_path();
+            if (ec)
+                base = std::filesystem::current_path();
             return base / ("olo_gpu_inspector_test_" + filename);
         }
     } // namespace
@@ -290,14 +294,70 @@ namespace OloEngine::Tests
         // Mix in-range, out-of-range, and negative values so the clamp + quantise
         // path is exercised end-to-end.
         std::vector<f32> src{
-            0.00f, 0.00f, 0.00f, 1.0f,    1.00f, 1.00f, 1.00f, 1.0f,
-            0.50f, 0.25f, 0.75f, 1.0f,    2.00f, -0.5f, 0.50f, 1.0f,
-            0.10f, 0.20f, 0.30f, 1.0f,    0.40f, 0.50f, 0.60f, 1.0f,
-            0.70f, 0.80f, 0.90f, 1.0f,    1.00f, 0.00f, 0.50f, 1.0f,
-            0.05f, 0.95f, 0.05f, 1.0f,    0.95f, 0.05f, 0.95f, 1.0f,
-            0.33f, 0.66f, 0.99f, 1.0f,    0.11f, 0.22f, 0.44f, 1.0f,
-            0.50f, 0.50f, 0.50f, 1.0f,    0.25f, 0.75f, 0.50f, 1.0f,
-            0.99f, 0.01f, 0.49f, 1.0f,    0.51f, 0.99f, 0.01f, 1.0f,
+            0.00f,
+            0.00f,
+            0.00f,
+            1.0f,
+            1.00f,
+            1.00f,
+            1.00f,
+            1.0f,
+            0.50f,
+            0.25f,
+            0.75f,
+            1.0f,
+            2.00f,
+            -0.5f,
+            0.50f,
+            1.0f,
+            0.10f,
+            0.20f,
+            0.30f,
+            1.0f,
+            0.40f,
+            0.50f,
+            0.60f,
+            1.0f,
+            0.70f,
+            0.80f,
+            0.90f,
+            1.0f,
+            1.00f,
+            0.00f,
+            0.50f,
+            1.0f,
+            0.05f,
+            0.95f,
+            0.05f,
+            1.0f,
+            0.95f,
+            0.05f,
+            0.95f,
+            1.0f,
+            0.33f,
+            0.66f,
+            0.99f,
+            1.0f,
+            0.11f,
+            0.22f,
+            0.44f,
+            1.0f,
+            0.50f,
+            0.50f,
+            0.50f,
+            1.0f,
+            0.25f,
+            0.75f,
+            0.50f,
+            1.0f,
+            0.99f,
+            0.01f,
+            0.49f,
+            1.0f,
+            0.51f,
+            0.99f,
+            0.01f,
+            1.0f,
         };
 
         GLuint id = static_cast<GLuint>(CreateFloatTexture2D(W, H, src.data()));
@@ -407,9 +467,9 @@ namespace OloEngine::Tests
             for (u32 c = 0; c < 3; ++c)
             {
                 f32 expected = src[i * 4 + c];
-                f32 got      = loaded[i * 3 + c];
-                f32 absErr   = std::fabs(got - expected);
-                f32 tol      = std::max(0.01f, std::fabs(expected) * 0.01f);
+                f32 got = loaded[i * 3 + c];
+                f32 absErr = std::fabs(got - expected);
+                f32 tol = std::max(0.01f, std::fabs(expected) * 0.01f);
                 EXPECT_LE(absErr, tol)
                     << "pixel " << i << " channel " << c
                     << " expected=" << expected << " got=" << got;
@@ -511,7 +571,8 @@ namespace OloEngine::Tests
         // Cubemap face out of range
         {
             std::vector<std::vector<u8>> faces(6);
-            for (auto& f : faces) f.assign(4 * 4 * 4, 0u);
+            for (auto& f : faces)
+                f.assign(4 * 4 * 4, 0u);
             GLuint id = UploadRgba8Cubemap(4, faces);
             ScopedTexture texOwner{ id };
             GPUResourceInspector::TextureInfo info{};
