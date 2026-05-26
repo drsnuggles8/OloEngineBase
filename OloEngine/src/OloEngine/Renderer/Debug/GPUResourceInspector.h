@@ -139,6 +139,7 @@ namespace OloEngine
         {
             u32 m_TextureID = 0;
             u32 m_MipLevel = 0;
+            u32 m_FaceIndex = 0; // Cubemap face (0..5 = +X,-X,+Y,-Y,+Z,-Z); ignored for Texture2D
             u32 m_PBO = 0;
             GLsync m_Fence = nullptr; // Modern OpenGL 3.2+ sync object for completion detection
             bool m_InProgress = false;
@@ -236,7 +237,7 @@ namespace OloEngine
         void QueryTextureCubemapInfo(TextureInfo& info);
         void QueryBufferInfo(BufferInfo& info);
         void QueryFramebufferInfo(FramebufferInfo& info);
-        void RequestTextureDownload(TextureInfo& info, u32 mipLevel);
+        void RequestTextureDownload(TextureInfo& info, u32 mipLevel, u32 faceIndex = 0);
         void ProcessTextureDownloads();
         void CompleteTextureDownload(TextureInfo& info, const TextureDownloadRequest& request);
         void UpdateTexturePreview(TextureInfo& info);

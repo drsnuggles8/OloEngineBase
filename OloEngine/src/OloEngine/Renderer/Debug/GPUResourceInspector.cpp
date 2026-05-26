@@ -615,14 +615,42 @@ namespace OloEngine
         }
         const bool wantFloatOutput = (encoder == TextureSaveEncoder::Hdr);
 
-        // Always read in the source texture's native precision. Mixing a float
-        // internal format (e.g. R32F, RGBA16F) with GL_UNSIGNED_BYTE produces
-        // GL_INVALID_OPERATION on most drivers — the spec only allows that
-        // implicit conversion for normalised/integer internal formats. We
-        // convert to the encoder's expected precision in software below.
-        const bool sourceIsFloat = (info.m_DataType == GL_FLOAT || info.m_DataType == GL_HALF_FLOAT);
-        const GLenum readType = sourceIsFloat ? GL_FLOAT : GL_UNSIGNED_BYTE;
-        const sizet readBytesPerChannel = sourceIsFloat ? sizeof(f32) : sizeof(u8);
+        // Pick the readback precision from the source's native data type rather
+        // than hardcoding GL_UNSIGNED_BYTE for everything non-float — that
+        // would silently quantise depth (GL_UNSIGNED_INT) to 8 bits and is
+        // outright invalid against true integer internal formats.
+        //
+        // Strategy: 8-bit normalised → read as u8; everything else float-ish
+        // or wider-than-byte → read as GL_FLOAT (drivers promote depth/half/
+        // 24-bit-depth to normalised float). `sourceIsFloat` then triggers the
+        // existing float→u8 clamp path below for PNG output.
+        GLenum readType;
+        sizet readBytesPerChannel;
+        bool sourceIsFloat;
+        switch (info.m_DataType)
+        {
+            case GL_UNSIGNED_BYTE:
+                readType = GL_UNSIGNED_BYTE;
+                readBytesPerChannel = sizeof(u8);
+                sourceIsFloat = false;
+                break;
+            case GL_HALF_FLOAT:
+            case GL_FLOAT:
+            case GL_UNSIGNED_INT: // depth-as-uint → promote to normalised float
+                readType = GL_FLOAT;
+                readBytesPerChannel = sizeof(f32);
+                sourceIsFloat = true;
+                break;
+            default:
+                // Packed depth-stencil (GL_UNSIGNED_INT_24_8 /
+                // GL_FLOAT_32_UNSIGNED_INT_24_8_REV) is already rejected by
+                // ChannelsFromGLFormat. Anything else here is an integer
+                // texture format (R8I, RGBA16UI, …) which QueryTextureInfo
+                // doesn't currently classify — bail rather than guess.
+                OLO_CORE_ERROR("[GPUResourceInspector] SaveTextureToFile: unsupported pixel data type 0x{:X}",
+                               info.m_DataType);
+                return false;
+        }
         const sizet readRowStride = static_cast<sizet>(width) * static_cast<sizet>(channels) * readBytesPerChannel;
         const sizet readBufferBytes = readRowStride * static_cast<sizet>(height);
 
@@ -996,12 +1024,13 @@ namespace OloEngine
         }
     }
 
-    void GPUResourceInspector::RequestTextureDownload(TextureInfo& info, u32 mipLevel)
+    void GPUResourceInspector::RequestTextureDownload(TextureInfo& info, u32 mipLevel, u32 faceIndex)
     {
-        // Check if there's already a pending download for this texture
+        // Check if there's already a pending download for this texture/mip/face combo
         for (const auto& download : m_TextureDownloads)
         {
-            if (download.m_TextureID == info.m_RendererID && download.m_MipLevel == mipLevel)
+            if (download.m_TextureID == info.m_RendererID && download.m_MipLevel == mipLevel &&
+                download.m_FaceIndex == faceIndex)
                 return;
         }
 
@@ -1024,9 +1053,12 @@ namespace OloEngine
         // Use modern immutable buffer storage (OpenGL 4.4+)
         glBufferStorage(GL_PIXEL_PACK_BUFFER, dataSize, nullptr, GL_MAP_READ_BIT | GL_DYNAMIC_STORAGE_BIT);
 
-        // Modern OpenGL 4.5+ DSA: Direct texture access without state changes
-        // Use DSA - no texture binding required!
-        glGetTextureSubImage(info.m_RendererID, mipLevel, 0, 0, 0, width, height, 1,
+        // Modern OpenGL 4.5+ DSA: Direct texture access without state changes.
+        // For cubemaps the z-offset selects the face (0..5 = +X,-X,+Y,-Y,+Z,-Z);
+        // for 2D textures it must be 0. SaveTextureToFile uses the same convention.
+        const bool isCubemap = (info.m_Type == ResourceType::TextureCubemap);
+        const GLint zOffset = isCubemap ? static_cast<GLint>(faceIndex) : 0;
+        glGetTextureSubImage(info.m_RendererID, mipLevel, 0, 0, zOffset, width, height, 1,
                              GL_RGBA, GL_UNSIGNED_BYTE, static_cast<GLsizei>(dataSize), nullptr);
 
         // Unbind PBO
@@ -1049,6 +1081,7 @@ namespace OloEngine
         TextureDownloadRequest request;
         request.m_TextureID = info.m_RendererID;
         request.m_MipLevel = mipLevel;
+        request.m_FaceIndex = faceIndex;
         request.m_PBO = pbo;
         request.m_Fence = fence;
         request.m_InProgress = true;
@@ -1056,17 +1089,20 @@ namespace OloEngine
 
         m_TextureDownloads.push_back(request);
 
-        OLO_CORE_TRACE("Requested async texture download for texture {} mip level {}", info.m_RendererID, mipLevel);
+        OLO_CORE_TRACE("Requested async texture download for texture {} mip {} face {}",
+                       info.m_RendererID, mipLevel, faceIndex);
     }
     void GPUResourceInspector::UpdateTexturePreview(TextureInfo& info)
     {
         if (info.m_PreviewDataValid)
             return;
 
-        // Check if there's already a pending download for this texture and mip level
+        // Check if there's already a pending download for this texture / mip / face combo
+        const u32 faceIndex = (info.m_Type == ResourceType::TextureCubemap) ? info.m_SelectedCubemapFace : 0u;
         for (const auto& download : m_TextureDownloads)
         {
-            if (download.m_TextureID == info.m_RendererID && download.m_MipLevel == info.m_SelectedMipLevel)
+            if (download.m_TextureID == info.m_RendererID && download.m_MipLevel == info.m_SelectedMipLevel &&
+                download.m_FaceIndex == faceIndex)
             {
                 // Download already in progress, just wait
                 return;
@@ -1083,7 +1119,7 @@ namespace OloEngine
         }
 
         // Start async download instead of blocking
-        RequestTextureDownload(info, info.m_SelectedMipLevel);
+        RequestTextureDownload(info, info.m_SelectedMipLevel, faceIndex);
     }
 
     void GPUResourceInspector::UpdateBufferPreview(BufferInfo& info)
@@ -1255,6 +1291,31 @@ namespace OloEngine
         const std::string path = FileDialogs::SaveFile(filter);
         if (path.empty())
             return;
+
+        // The dialog blocks the UI thread, but background threads can have
+        // unregistered & re-registered resources during the wait. Re-check
+        // that the snapshot's RendererID is still tracked AND still refers
+        // to the same texture type before doing the GL readback — otherwise
+        // a GL name reused for a different resource (or no resource at all)
+        // would silently produce a garbage file.
+        if (snapshot.m_RendererID == 0)
+            return;
+        {
+            TUniqueLock<FMutex> lock(m_ResourceMutex);
+            auto it = m_Resources.find(snapshot.m_RendererID);
+            if (it == m_Resources.end())
+            {
+                OLO_CORE_WARN("[GPUResourceInspector] Save aborted: texture {} was unregistered during the file dialog",
+                              snapshot.m_RendererID);
+                return;
+            }
+            if (it->second->m_Type != snapshot.m_Type)
+            {
+                OLO_CORE_WARN("[GPUResourceInspector] Save aborted: GL name {} now refers to a different resource type",
+                              snapshot.m_RendererID);
+                return;
+            }
+        }
 
         if (SaveTextureToFile(snapshot, path, snapshot.m_SelectedMipLevel, snapshot.m_SelectedCubemapFace))
         {
@@ -1445,7 +1506,8 @@ namespace OloEngine
 
         ImGui::Separator();
 
-        if (ImGui::Button("Refresh Preview"))
+        const bool refreshClicked = ImGui::Button("Refresh Preview");
+        if (refreshClicked)
         {
             info.m_PreviewDataValid = false;
         }
@@ -1463,7 +1525,11 @@ namespace OloEngine
             m_PendingSaveRequest.m_Active = true;
             m_PendingSaveRequest.m_Info = info;
         }
-        if (m_AutoUpdatePreviews || ImGui::IsItemClicked())
+        // Trigger preview update in auto mode OR when Refresh was just clicked.
+        // (Previously this read ImGui::IsItemClicked() which always referred to
+        // the LAST item — the Save button — silently kicking a preview download
+        // every time the user tried to save.)
+        if (m_AutoUpdatePreviews || refreshClicked)
         {
             // Only try to update preview if we have valid dimensions
             if (info.m_Width > 0 && info.m_Height > 0 && info.m_SelectedMipLevel < info.m_MipLevels)

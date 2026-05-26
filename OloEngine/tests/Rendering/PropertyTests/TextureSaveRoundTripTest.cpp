@@ -468,6 +468,64 @@ namespace OloEngine::Tests
         ::stbi_image_free(loaded);
     }
 
+    TEST(TextureSaveRoundTripTest, DepthAsUnsignedIntPromotesToFloatReadback)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+
+        // Regression: with GL_DEPTH_COMPONENT24 / GL_UNSIGNED_INT, the old code
+        // hardcoded readType=GL_UNSIGNED_BYTE for any non-float source, which
+        // would either error or quantise 24-bit depth to 8 bits silently. The
+        // fix promotes GL_UNSIGNED_INT to GL_FLOAT (normalised [0,1]) so depth
+        // textures save as meaningful grayscale.
+        constexpr u32 W = 4;
+        constexpr u32 H = 2;
+        // Depth values uploaded via glTextureSubImage as floats — GL normalises
+        // them into the depth texel storage. Mid/edge values so the output is
+        // recognisable after quantise.
+        const std::vector<f32> src{ 0.0f, 0.25f, 0.5f, 1.0f,
+                                    0.1f, 0.75f, 1.0f, 0.5f };
+
+        GLuint id = 0;
+        ::glCreateTextures(GL_TEXTURE_2D, 1, &id);
+        ::glTextureStorage2D(id, 1, GL_DEPTH_COMPONENT24, static_cast<GLsizei>(W), static_cast<GLsizei>(H));
+        GLint prevUnpack = 4;
+        ::glGetIntegerv(GL_UNPACK_ALIGNMENT, &prevUnpack);
+        ::glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+        ::glTextureSubImage2D(id, 0, 0, 0, static_cast<GLsizei>(W), static_cast<GLsizei>(H),
+                              GL_DEPTH_COMPONENT, GL_FLOAT, src.data());
+        ::glPixelStorei(GL_UNPACK_ALIGNMENT, prevUnpack);
+        ScopedTexture texOwner{ id };
+
+        // Match the format/type combo QueryTextureInfo populates for
+        // GL_DEPTH_COMPONENT16/24/32: format=GL_DEPTH_COMPONENT, type=GL_UNSIGNED_INT.
+        auto info = MakeTexture2DInfo(id, W, H, GL_DEPTH_COMPONENT24, GL_DEPTH_COMPONENT, GL_UNSIGNED_INT);
+        auto path = MakeTempPath("depth_to_png.png");
+        ScopedFile fileOwner{ path };
+
+        ASSERT_TRUE(GPUResourceInspector::GetInstance().SaveTextureToFile(info, path.string(), 0))
+            << "Depth save must succeed (previously hardcoded readType=GL_UNSIGNED_BYTE).";
+
+        ::stbi_set_flip_vertically_on_load(0);
+        ::stbi_set_flip_vertically_on_load_thread(0);
+        int rw = 0, rh = 0, rc = 0;
+        u8* loaded = ::stbi_load(path.string().c_str(), &rw, &rh, &rc, 1);
+        ASSERT_NE(loaded, nullptr) << ::stbi_failure_reason();
+        ASSERT_EQ(rw, static_cast<int>(W));
+        ASSERT_EQ(rh, static_cast<int>(H));
+
+        // Verify the depth->grayscale mapping: read-back via GL_FLOAT promotes
+        // the 24-bit depth into [0,1], then float→u8 clamp+quantise gives us
+        // round(src * 255). Allow ±1 to absorb 24→8 bit precision loss.
+        for (u32 i = 0; i < src.size(); ++i)
+        {
+            const u8 expected = static_cast<u8>(std::clamp(src[i], 0.0f, 1.0f) * 255.0f + 0.5f);
+            const int diff = std::abs(static_cast<int>(loaded[i]) - static_cast<int>(expected));
+            EXPECT_LE(diff, 1) << "texel " << i << " expected=" << static_cast<int>(expected)
+                               << " got=" << static_cast<int>(loaded[i]);
+        }
+        ::stbi_image_free(loaded);
+    }
+
     TEST(TextureSaveRoundTripTest, R32FTextureSavesAsPngClampedToGrayscale)
     {
         OLO_ENSURE_GPU_OR_SKIP();
