@@ -407,12 +407,24 @@ namespace OloEngine::Tests
         constexpr u32 W = 4;
         constexpr u32 H = 1;
         const f32 qnan = std::numeric_limits<f32>::quiet_NaN();
-        const f32 inf  = std::numeric_limits<f32>::infinity();
+        const f32 inf = std::numeric_limits<f32>::infinity();
         const std::vector<f32> src{
-            qnan, 0.0f, 0.5f, 1.0f,   // pixel 0: NaN R channel
-            inf, -inf, qnan, 0.0f,    // pixel 1: +Inf R, -Inf G, NaN B
-            0.25f, 0.5f, 0.75f, 1.0f, // pixel 2: well-formed
-            -1.0f, 2.0f, -2.0f, 0.5f, // pixel 3: out-of-range (existing clamp path)
+            qnan,
+            0.0f,
+            0.5f,
+            1.0f, // pixel 0: NaN R channel
+            inf,
+            -inf,
+            qnan,
+            0.0f, // pixel 1: +Inf R, -Inf G, NaN B
+            0.25f,
+            0.5f,
+            0.75f,
+            1.0f, // pixel 2: well-formed
+            -1.0f,
+            2.0f,
+            -2.0f,
+            0.5f, // pixel 3: out-of-range (existing clamp path)
         };
 
         GLuint id = static_cast<GLuint>(CreateFloatTexture2D(W, H, src.data()));
@@ -434,17 +446,25 @@ namespace OloEngine::Tests
         ASSERT_EQ(rh, static_cast<int>(H));
 
         // Pixel 0: NaN R → 0, then well-formed channels
-        EXPECT_EQ(loaded[0],   0u);   EXPECT_EQ(loaded[1],   0u);
-        EXPECT_EQ(loaded[2], 128u);   EXPECT_EQ(loaded[3], 255u);
+        EXPECT_EQ(loaded[0], 0u);
+        EXPECT_EQ(loaded[1], 0u);
+        EXPECT_EQ(loaded[2], 128u);
+        EXPECT_EQ(loaded[3], 255u);
         // Pixel 1: +Inf R → 255, -Inf G → 0, NaN B → 0
-        EXPECT_EQ(loaded[4], 255u);   EXPECT_EQ(loaded[5],   0u);
-        EXPECT_EQ(loaded[6],   0u);   EXPECT_EQ(loaded[7],   0u);
+        EXPECT_EQ(loaded[4], 255u);
+        EXPECT_EQ(loaded[5], 0u);
+        EXPECT_EQ(loaded[6], 0u);
+        EXPECT_EQ(loaded[7], 0u);
         // Pixel 2: well-formed → round(x * 255)
-        EXPECT_EQ(loaded[8],  64u);   EXPECT_EQ(loaded[9], 128u);
-        EXPECT_EQ(loaded[10], 191u);  EXPECT_EQ(loaded[11], 255u);
+        EXPECT_EQ(loaded[8], 64u);
+        EXPECT_EQ(loaded[9], 128u);
+        EXPECT_EQ(loaded[10], 191u);
+        EXPECT_EQ(loaded[11], 255u);
         // Pixel 3: out-of-range clamps to {0, 255, 0, 128}
-        EXPECT_EQ(loaded[12],   0u);  EXPECT_EQ(loaded[13], 255u);
-        EXPECT_EQ(loaded[14],   0u);  EXPECT_EQ(loaded[15], 128u);
+        EXPECT_EQ(loaded[12], 0u);
+        EXPECT_EQ(loaded[13], 255u);
+        EXPECT_EQ(loaded[14], 0u);
+        EXPECT_EQ(loaded[15], 128u);
         ::stbi_image_free(loaded);
     }
 
