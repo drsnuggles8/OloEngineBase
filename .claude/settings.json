@@ -4,7 +4,19 @@
     "allow": [
       "Bash(build/OloEngine/tests/Debug/OloEngine-Tests.exe --gtest_filter=\"SHProjectionTest.*\")",
       "Bash(git add *)",
-      "Bash(cmake --build build --target OloEngine OloEngine-Tests OloEditor --config Debug --parallel)"
+      "Bash(cmake --build build --target OloEngine OloEngine-Tests OloEditor --config Debug --parallel)",
+      "Bash(gh run *)",
+      "PowerShell(gh run view --log 26398523350 --job 77704864894 2>&1)",
+      "PowerShell(gh api repos/drsnuggles8/OloEngineBase/actions/jobs/77704864894/logs --header \"Accept: application/vnd.github+json\" 2>&1)",
+      "Bash(build/OloEngine/tests/Debug/OloEngine-Tests.exe --gtest_filter=TextureSaveRoundTripTest.*)",
+      "Bash(git worktree *)",
+      "Read(//e/repos/OloEngineBaseTwo-fix-fb-leak/OloEngine/src/OloEngine/Renderer/**)",
+      "Read(//e/repos/OloEngineBaseTwo-fix-fb-leak/OloEngine/tests/Rendering/**)",
+      "Bash(cmake --build /e/repos/OloEngineBaseTwo-fix-fb-leak/build --target OloEngine-Tests --config Debug --parallel)"
+    ],
+    "additionalDirectories": [
+      "\\tmp",
+      "e:\\repos\\OloEngineBaseTwo-fix-fb-leak\\OloEngine\\tests\\Rendering"
     ]
   },
   "hooks": {

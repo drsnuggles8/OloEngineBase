@@ -113,6 +113,7 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/TestFailureCaptureTest.cpp
 		Rendering/PropertyTests/ModelLoadDeterminismTest.cpp
 		Rendering/PropertyTests/DrawIndexedRawOffsetTest.cpp
+		Rendering/PropertyTests/TextureSaveRoundTripTest.cpp
 		Streaming/SceneStreamingTest.cpp
 		InputActionTest.cpp
 		GamepadTest.cpp

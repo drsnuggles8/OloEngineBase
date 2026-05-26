@@ -5,15 +5,68 @@
 #include "OloEngine/Utils/PlatformUtils.h"
 #include "OloEngine/Threading/UniqueLock.h"
 
+#include <stb_image/stb_image_write.h>
+
+#include <filesystem>
 #include <fstream>
 #include <sstream>
 #include <iomanip>
 #include <chrono>
 #include <cstring>
 #include <algorithm>
+#include <cctype>
 
 namespace OloEngine
 {
+    namespace
+    {
+        // Encoder selection for SaveTextureToFile. PNG covers .png/.bmp/.jpg/.tga/.jpeg by way of
+        // stb_image_write's 8-bit encoders; HDR (Radiance .hdr) takes float input. Unknown
+        // extensions fall back to PNG so the user gets a usable file rather than a hard error.
+        enum class TextureSaveEncoder
+        {
+            Png,
+            Hdr
+        };
+
+        TextureSaveEncoder PickEncoderFromExtension(const std::string& filePath)
+        {
+            std::filesystem::path p(filePath);
+            std::string ext = p.extension().string();
+            std::transform(ext.begin(), ext.end(), ext.begin(),
+                           [](unsigned char c)
+                           { return static_cast<char>(std::tolower(c)); });
+            if (ext == ".hdr")
+                return TextureSaveEncoder::Hdr;
+            return TextureSaveEncoder::Png;
+        }
+
+        // Map a GL format token to the number of channels stb_image_write should receive.
+        // Returns 0 for unsupported formats (depth/stencil packed types, etc.). Callers should
+        // log and bail when 0 is returned. The RG case is widened to RGB for PNG output because
+        // libpng-style 2-channel encoding isn't universally readable by external image tools.
+        i32 ChannelsFromGLFormat(GLenum glFormat)
+        {
+            switch (glFormat)
+            {
+                case GL_RED:
+                case GL_DEPTH_COMPONENT:
+                    return 1;
+                case GL_RG:
+                    return 2;
+                case GL_RGB:
+                case GL_BGR:
+                    return 3;
+                case GL_RGBA:
+                case GL_BGRA:
+                    return 4;
+                default:
+                    return 0;
+            }
+        }
+
+    } // namespace
+
     GPUResourceInspector::GPUResourceInspector()
     {
         m_ResourceCounts.fill(0);
@@ -541,6 +594,172 @@ namespace OloEngine
                                                                  info.m_InternalFormat,
                                                                  info.m_Width, info.m_Height,
                                                                  info.m_MipLevels);
+    }
+
+    bool GPUResourceInspector::SaveTextureToFile(const TextureInfo& info, const std::string& filePath,
+                                                 u32 mipLevel, u32 faceIndex)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        if (info.m_RendererID == 0)
+        {
+            OLO_CORE_ERROR("[GPUResourceInspector] SaveTextureToFile: invalid texture ID");
+            return false;
+        }
+        if (mipLevel >= info.m_MipLevels)
+        {
+            OLO_CORE_ERROR("[GPUResourceInspector] SaveTextureToFile: mip level {} out of range (max {})",
+                           mipLevel, info.m_MipLevels - 1);
+            return false;
+        }
+        const bool isCubemap = (info.m_Type == ResourceType::TextureCubemap);
+        if (isCubemap && faceIndex >= 6)
+        {
+            OLO_CORE_ERROR("[GPUResourceInspector] SaveTextureToFile: cubemap face index {} out of range", faceIndex);
+            return false;
+        }
+
+        const i32 channels = ChannelsFromGLFormat(info.m_Format);
+        if (channels == 0)
+        {
+            OLO_CORE_ERROR("[GPUResourceInspector] SaveTextureToFile: unsupported pixel format 0x{:X} "
+                           "(packed depth/stencil and compressed formats can't be exported directly)",
+                           info.m_Format);
+            return false;
+        }
+
+        // Dimensions at the requested mip level (cubemap faces are square and share the same chain).
+        const u32 width = std::max(1u, info.m_Width >> mipLevel);
+        const u32 height = std::max(1u, info.m_Height >> mipLevel);
+
+        const TextureSaveEncoder encoder = PickEncoderFromExtension(filePath);
+        const bool wantFloatOutput = (encoder == TextureSaveEncoder::Hdr);
+
+        // Always read in the source texture's native precision. Mixing a float
+        // internal format (e.g. R32F, RGBA16F) with GL_UNSIGNED_BYTE produces
+        // GL_INVALID_OPERATION on most drivers — the spec only allows that
+        // implicit conversion for normalised/integer internal formats. We
+        // convert to the encoder's expected precision in software below.
+        const bool sourceIsFloat = (info.m_DataType == GL_FLOAT || info.m_DataType == GL_HALF_FLOAT);
+        const GLenum readType = sourceIsFloat ? GL_FLOAT : GL_UNSIGNED_BYTE;
+        const sizet readBytesPerChannel = sourceIsFloat ? sizeof(f32) : sizeof(u8);
+        const sizet readRowStride = static_cast<sizet>(width) * static_cast<sizet>(channels) * readBytesPerChannel;
+        const sizet readBufferBytes = readRowStride * static_cast<sizet>(height);
+
+        std::vector<u8> readBuffer(readBufferBytes);
+
+        // DSA glGetTextureSubImage: for cubemaps the layer (z) selects the face in the
+        // order +X, -X, +Y, -Y, +Z, -Z — same as TEXTURE_CUBE_MAP_POSITIVE_X..NEGATIVE_Z.
+        const GLint zOffset = isCubemap ? static_cast<GLint>(faceIndex) : 0;
+        // Tight packing — glPixelStore alignment defaults to 4 which would pad odd-width
+        // 3-channel rows; force 1 so the buffer matches our row stride calculation.
+        GLint prevPackAlignment = 4;
+        glGetIntegerv(GL_PACK_ALIGNMENT, &prevPackAlignment);
+        glPixelStorei(GL_PACK_ALIGNMENT, 1);
+
+        glGetTextureSubImage(info.m_RendererID,
+                             static_cast<GLint>(mipLevel),
+                             0, 0, zOffset,
+                             static_cast<GLsizei>(width),
+                             static_cast<GLsizei>(height),
+                             1,
+                             info.m_Format,
+                             readType,
+                             static_cast<GLsizei>(readBufferBytes),
+                             readBuffer.data());
+
+        glPixelStorei(GL_PACK_ALIGNMENT, prevPackAlignment);
+
+        if (GLenum err = glGetError(); err != GL_NO_ERROR)
+        {
+            OLO_CORE_ERROR("[GPUResourceInspector] SaveTextureToFile: glGetTextureSubImage failed (GL 0x{:X})", err);
+            return false;
+        }
+
+        // No vertical flip — the file is the raw byte layout from GPU memory
+        // (GL bottom-left origin). This matches RenderDoc / Nsight semantics:
+        // an inspector tool reports what's there, it doesn't reinterpret. Note
+        // that Texture2Ds loaded through OpenGLTexture2D are pre-flipped on
+        // upload (`stbi_set_flip_vertically_on_load_thread(1)`), so a saved
+        // file opened directly will look right-side-up; cubemap faces (loaded
+        // without flip) will look upside-down — which is exactly the inversion
+        // that exists in GPU memory.
+
+        // Convert to encoder precision when source and output disagree. Float→PNG
+        // clamps to [0,1] and quantises to 8-bit; uint→HDR normalises by 255.
+        // HDR float values outside [0,1] are preserved (that's the point of HDR).
+        std::vector<u8> convertBuffer;
+        const void* encoderPixels = readBuffer.data();
+        sizet encoderRowStride = readRowStride;
+        const sizet pixelChannelCount = static_cast<sizet>(width) * static_cast<sizet>(height) * static_cast<sizet>(channels);
+
+        if (sourceIsFloat && !wantFloatOutput)
+        {
+            convertBuffer.resize(pixelChannelCount * sizeof(u8));
+            const f32* src = reinterpret_cast<const f32*>(readBuffer.data());
+            for (sizet i = 0; i < pixelChannelCount; ++i)
+            {
+                const f32 clamped = std::clamp(src[i], 0.0f, 1.0f);
+                convertBuffer[i] = static_cast<u8>(clamped * 255.0f + 0.5f);
+            }
+            encoderPixels = convertBuffer.data();
+            encoderRowStride = static_cast<sizet>(width) * static_cast<sizet>(channels);
+        }
+        else if (!sourceIsFloat && wantFloatOutput)
+        {
+            convertBuffer.resize(pixelChannelCount * sizeof(f32));
+            f32* dst = reinterpret_cast<f32*>(convertBuffer.data());
+            for (sizet i = 0; i < pixelChannelCount; ++i)
+            {
+                dst[i] = static_cast<f32>(readBuffer[i]) / 255.0f;
+            }
+            encoderPixels = convertBuffer.data();
+            encoderRowStride = static_cast<sizet>(width) * static_cast<sizet>(channels) * sizeof(f32);
+        }
+
+        // Ensure the destination directory exists.
+        std::error_code ec;
+        std::filesystem::path outPath(filePath);
+        if (outPath.has_parent_path())
+        {
+            std::filesystem::create_directories(outPath.parent_path(), ec);
+            if (ec)
+            {
+                OLO_CORE_ERROR("[GPUResourceInspector] SaveTextureToFile: cannot create directory '{}': {}",
+                               outPath.parent_path().string(), ec.message());
+                return false;
+            }
+        }
+
+        int writeResult = 0;
+        const std::string pathStr = outPath.string();
+        if (encoder == TextureSaveEncoder::Hdr)
+        {
+            writeResult = stbi_write_hdr(pathStr.c_str(),
+                                         static_cast<int>(width),
+                                         static_cast<int>(height),
+                                         channels,
+                                         reinterpret_cast<const float*>(encoderPixels));
+        }
+        else
+        {
+            writeResult = stbi_write_png(pathStr.c_str(),
+                                         static_cast<int>(width),
+                                         static_cast<int>(height),
+                                         channels,
+                                         encoderPixels,
+                                         static_cast<int>(encoderRowStride));
+        }
+
+        if (writeResult == 0)
+        {
+            OLO_CORE_ERROR("[GPUResourceInspector] SaveTextureToFile: encoder rejected '{}' "
+                           "(check file permissions and disk space)",
+                           pathStr);
+            return false;
+        }
+
+        return true;
     }
 
     GLenum GPUResourceInspector::GetBufferBindingQuery(GLenum target)
@@ -1173,11 +1392,11 @@ namespace OloEngine
 
             // Face selection for cubemaps
             const char* faceNames[] = { "+X", "-X", "+Y", "-Y", "+Z", "-Z" };
-            static int selectedFace = 0;
+            int selectedFace = static_cast<int>(info.m_SelectedCubemapFace);
             if (ImGui::Combo("Face", &selectedFace, faceNames, 6))
             {
+                info.m_SelectedCubemapFace = static_cast<u32>(std::clamp(selectedFace, 0, 5));
                 info.m_PreviewDataValid = false; // Force refresh for new face
-                // Store selected face in a custom field (could extend TextureInfo for this)
             }
         }
 
@@ -1200,8 +1419,22 @@ namespace OloEngine
         ImGui::SameLine();
         if (ImGui::Button("Save to File"))
         {
-            // TODO: Implement texture save functionality
-            OLO_CORE_INFO("Texture save functionality not yet implemented");
+            // Filter pairs are "Label\0pattern\0..." per the existing FileDialogs convention.
+            // The Windows backend pulls the default extension from the first pattern (the byte
+            // after the first NUL of the wildcard), so order the float-format option first when
+            // the texture is float so the user gets a sensible default.
+            const bool isFloat = (info.m_DataType == GL_FLOAT || info.m_DataType == GL_HALF_FLOAT);
+            const char* filter = isFloat
+                                     ? "Radiance HDR (*.hdr)\0*.hdr\0PNG (*.png)\0*.png\0"
+                                     : "PNG (*.png)\0*.png\0Radiance HDR (*.hdr)\0*.hdr\0";
+            std::string path = FileDialogs::SaveFile(filter);
+            if (!path.empty())
+            {
+                if (SaveTextureToFile(info, path, info.m_SelectedMipLevel, info.m_SelectedCubemapFace))
+                {
+                    OLO_CORE_INFO("[GPUResourceInspector] Texture {} saved to '{}'", info.m_RendererID, path);
+                }
+            }
         }
         if (m_AutoUpdatePreviews || ImGui::IsItemClicked())
         {

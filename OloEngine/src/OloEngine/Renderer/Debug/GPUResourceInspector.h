@@ -105,6 +105,7 @@ namespace OloEngine
             std::vector<u8> m_PreviewData;
             bool m_PreviewDataValid = false;
             u32 m_SelectedMipLevel = 0;
+            u32 m_SelectedCubemapFace = 0; // 0..5 = +X,-X,+Y,-Y,+Z,-Z (cubemaps only)
             ImTextureID m_ImGuiTextureID = 0;
         };
 
@@ -207,6 +208,16 @@ namespace OloEngine
         // @brief Export resource information to CSV
         // @param filename Output filename
         void ExportToCSV(const std::string& filename);
+
+        // @brief Save a tracked texture to an image file (PNG for 8-bit formats, HDR for float formats).
+        //        Extension on `filePath` selects the encoder. For cubemaps, `faceIndex` (0..5 = +X,-X,+Y,-Y,+Z,-Z)
+        //        picks the face to write; ignored for Texture2D. Requires an active OpenGL 4.5+ context.
+        //        Pixels are written in raw GPU memory order (GL bottom-left origin, no software flip) so
+        //        the file faithfully represents what's in the texture — Texture2Ds loaded through
+        //        OpenGLTexture2D are pre-flipped on upload and so will appear right-side-up when opened,
+        //        while cubemap faces (loaded without that flip) will look vertically mirrored.
+        // @return true on success; false if the texture is invalid, the format is unsupported, or the file write fails.
+        bool SaveTextureToFile(const TextureInfo& info, const std::string& filePath, u32 mipLevel, u32 faceIndex = 0);
 
         // @brief Get total number of tracked resources
         u32 GetResourceCount() const

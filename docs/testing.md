@@ -978,6 +978,7 @@ new `.cpp` under `OloEngine/tests/Rendering/`, `ShaderGraph/`,
 |---|---:|---|
 | [DataRoundTripTests.cpp](../OloEngine/tests/Rendering/PropertyTests/DataRoundTripTests.cpp) | 7 | **DataRoundTripTest** &mdash; `Rgba32FGpuBitIdentity`, `Rgba8GpuByteIdentity`, `BackpackLegacyObjImportsPbrCompanionMaps`, `BackpackLegacyObjFlipsUvsToMatchTextureUploads`, `IblCacheCubemapRoundTripPreservesAllMips`, `RandomisedRgba32FStressRoundTrip`, `RandomisedRgba8StressRoundTrip` |
 | [ModelLoadDeterminismTest.cpp](../OloEngine/tests/Rendering/PropertyTests/ModelLoadDeterminismTest.cpp) | 1 | **ModelLoadDeterminism** &mdash; `Backpack_FreshVsCache` |
+| [TextureSaveRoundTripTest.cpp](../OloEngine/tests/Rendering/PropertyTests/TextureSaveRoundTripTest.cpp) | 5 | **TextureSaveRoundTripTest** &mdash; `Rgba8Texture2DToPngIsByteIdentical`, `Rgb8Texture2DToPngHandlesOddWidthAlignment`, `Rgba32FTexture2DToHdrRoundTripsWithinRGBETolerance`, `CubemapFaceSelectsCorrectLayer`, `InvalidInputsAreRejected` |
 
 #### L4 — GPU state validation
 
@@ -1081,7 +1082,7 @@ new `.cpp` under `OloEngine/tests/Rendering/`, `ShaderGraph/`,
 |---|---:|---|
 | [TestFailureCaptureTest.cpp](../OloEngine/tests/Rendering/PropertyTests/TestFailureCaptureTest.cpp) | 6 | **TestFailureCaptureTest** &mdash; `DirectoryForSanitizesNames`, `MetadataIsWrittenWithoutGlContext`, `LatestFrameSummaryIsNoOpWithoutCaptures`, `GLStateSnapshotIsWrittenWhenGpuAvailable`, `FboPngIsWrittenWhenGpuAvailable`, `CaptureAllProducesExpectedArtefacts` |
 
-**Totals.** 63 renderer-scope test files, 1082 TEST / TEST_F / TEST_P declarations across all layers.
+**Totals.** 64 renderer-scope test files, 1087 TEST / TEST_F / TEST_P declarations across all layers.
 
 <!-- END: renderer-catalogue -->
 
