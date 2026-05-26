@@ -48,6 +48,7 @@
     "OloEngine/tests/Rendering/PropertyTests/DataRoundTripTests.cpp": "L3",
     "OloEngine/tests/Rendering/PropertyTests/TextureSaveRoundTripTest.cpp": "L3",
     "OloEngine/tests/Rendering/PropertyTests/DrawIndexedRawOffsetTest.cpp": "L1",
+    "OloEngine/tests/Rendering/PropertyTests/HZBGeneratorResizeTest.cpp": "L1",
     "OloEngine/tests/Rendering/PropertyTests/GLStateGuardTest.cpp": "L4",
     "OloEngine/tests/Rendering/PropertyTests/ModelLoadDeterminismTest.cpp": "L3",
     "OloEngine/tests/Rendering/RenderGraphTest.cpp": "L5",

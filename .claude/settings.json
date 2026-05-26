@@ -7,7 +7,12 @@
       "Bash(cmake --build build --target OloEngine OloEngine-Tests OloEditor --config Debug --parallel)",
       "Bash(gh run *)",
       "Bash(git worktree *)",
-      "Bash(build/OloEngine/tests/Debug/OloEngine-Tests.exe --gtest_filter=TextureSaveRoundTripTest.*)"
+      "Bash(build/OloEngine/tests/Debug/OloEngine-Tests.exe --gtest_filter=TextureSaveRoundTripTest.*)",
+      "Bash(build/OloEngine/tests/Debug/OloEngine-Tests.exe)",
+      "Bash(tasklist)",
+      "Bash(git rebase --abort)",
+      "Bash(git rebase --continue)",
+      "Bash(git rebase --skip)"
     ],
     "additionalDirectories": [
       "\\tmp"

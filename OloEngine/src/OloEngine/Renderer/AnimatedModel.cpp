@@ -1511,6 +1511,17 @@ namespace OloEngine
     {
         std::vector<Ref<Texture2D>> textures;
 
+        // Colour textures (albedo / base-color / emissive) live in sRGB space
+        // and need GPU linearisation. Data textures (normal / metallic /
+        // roughness / AO / height) are linear and must NOT be flagged sRGB.
+        const bool srgb = (type == aiTextureType_DIFFUSE ||
+                           type == aiTextureType_BASE_COLOR ||
+                           type == aiTextureType_EMISSIVE);
+        // Cache key suffix: colour-space is part of the texture's GPU
+        // identity. Two callers sharing the same on-disk path under
+        // different sRGB intents must not share a cached Ref.
+        const std::string_view srgbSuffix = srgb ? "|srgb" : "|linear";
+
         for (u32 i = 0; i < mat->GetTextureCount(type); i++)
         {
             aiString str;
@@ -1544,19 +1555,20 @@ namespace OloEngine
             }
 
             std::filesystem::path path = std::filesystem::path(m_Directory) / filename;
+            const std::string pathKey = path.string() + std::string(srgbSuffix);
 
             // Check if texture was loaded before
-            if (m_LoadedTextures.find(path.string()) != m_LoadedTextures.end())
+            if (m_LoadedTextures.find(pathKey) != m_LoadedTextures.end())
             {
-                textures.push_back(m_LoadedTextures[path.string()]);
+                textures.push_back(m_LoadedTextures[pathKey]);
             }
             else
             {
-                auto texture = Texture2D::Create(path.string());
+                auto texture = Texture2D::Create(path.string(), srgb);
                 if (texture && texture->IsLoaded())
                 {
                     textures.push_back(texture);
-                    m_LoadedTextures[path.string()] = texture;
+                    m_LoadedTextures[pathKey] = texture;
                 }
                 else
                 {
@@ -1652,18 +1664,18 @@ namespace OloEngine
 
                             if (!discovered.empty())
                             {
-                                std::string discoveredStr = discovered.string();
-                                if (m_LoadedTextures.find(discoveredStr) != m_LoadedTextures.end())
+                                const std::string discoveredKey = discovered.string() + std::string(srgbSuffix);
+                                if (m_LoadedTextures.find(discoveredKey) != m_LoadedTextures.end())
                                 {
-                                    textures.push_back(m_LoadedTextures[discoveredStr]);
+                                    textures.push_back(m_LoadedTextures[discoveredKey]);
                                     loaded = true;
                                 }
                                 else
                                 {
-                                    auto discoveredTexture = Texture2D::Create(discoveredStr);
+                                    auto discoveredTexture = Texture2D::Create(discovered.string(), srgb);
                                     if (discoveredTexture && discoveredTexture->IsLoaded())
                                     {
-                                        m_LoadedTextures[discoveredStr] = discoveredTexture;
+                                        m_LoadedTextures[discoveredKey] = discoveredTexture;
                                         textures.push_back(discoveredTexture);
                                         loaded = true;
                                     }
@@ -1676,22 +1688,23 @@ namespace OloEngine
                     if (!loaded)
                     {
                         std::filesystem::path fallbackPath = std::filesystem::path(m_Directory) / filenameOnly;
-                        std::string fallbackPathStr = fallbackPath.string();
+                        const std::string fallbackPathStr = fallbackPath.string();
+                        const std::string fallbackKey = fallbackPathStr + std::string(srgbSuffix);
 
-                        if (fallbackPathStr != path.string() && m_LoadedTextures.find(fallbackPathStr) != m_LoadedTextures.end())
+                        if (fallbackPathStr != path.string() && m_LoadedTextures.find(fallbackKey) != m_LoadedTextures.end())
                         {
-                            textures.push_back(m_LoadedTextures[fallbackPathStr]);
+                            textures.push_back(m_LoadedTextures[fallbackKey]);
                             loaded = true;
                         }
                         else if (fallbackPathStr != path.string())
                         {
                             OLO_CORE_WARN("AnimatedModel::LoadMaterialTextures: '{}' not found, trying fallback '{}'",
                                           path.string(), fallbackPathStr);
-                            auto fallbackTexture = Texture2D::Create(fallbackPathStr);
+                            auto fallbackTexture = Texture2D::Create(fallbackPathStr, srgb);
                             if (fallbackTexture && fallbackTexture->IsLoaded())
                             {
                                 textures.push_back(fallbackTexture);
-                                m_LoadedTextures[fallbackPathStr] = fallbackTexture;
+                                m_LoadedTextures[fallbackKey] = fallbackTexture;
                                 loaded = true;
                             }
                         }
@@ -1704,20 +1717,21 @@ namespace OloEngine
                         auto discovered = FindTextureInDirectory(std::filesystem::path(m_Directory), filenameOnly);
                         if (!discovered.empty())
                         {
-                            std::string discoveredStr = discovered.string();
+                            const std::string discoveredStr = discovered.string();
+                            const std::string discoveredKey = discoveredStr + std::string(srgbSuffix);
                             OLO_CORE_WARN("AnimatedModel::LoadMaterialTextures: Discovered '{}' via directory scan for '{}'",
                                           discoveredStr, filenameOnly.string());
-                            if (m_LoadedTextures.find(discoveredStr) != m_LoadedTextures.end())
+                            if (m_LoadedTextures.find(discoveredKey) != m_LoadedTextures.end())
                             {
-                                textures.push_back(m_LoadedTextures[discoveredStr]);
+                                textures.push_back(m_LoadedTextures[discoveredKey]);
                                 loaded = true;
                             }
                             else
                             {
-                                auto discoveredTexture = Texture2D::Create(discoveredStr);
+                                auto discoveredTexture = Texture2D::Create(discoveredStr, srgb);
                                 if (discoveredTexture && discoveredTexture->IsLoaded())
                                 {
-                                    m_LoadedTextures[discoveredStr] = discoveredTexture;
+                                    m_LoadedTextures[discoveredKey] = discoveredTexture;
                                     textures.push_back(discoveredTexture);
                                     loaded = true;
                                 }

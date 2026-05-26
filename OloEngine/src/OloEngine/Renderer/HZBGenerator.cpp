@@ -65,17 +65,29 @@ namespace OloEngine
         u32 hzbW = NextPowerOfTwo(viewportWidth);
         u32 hzbH = NextPowerOfTwo(viewportHeight);
 
+        // UV factor: viewport → HZB texture coordinate mapping. MUST be
+        // recomputed every Resize() even when the HZB texture itself is
+        // reused: a viewport drag from e.g. 4584×2515 to 4578×2515 stays
+        // inside the same power-of-2 bucket (8192×4096), so the texture
+        // really doesn't need re-creating — but the UV scale viewport/hzb
+        // *does* change. Leaving m_UVFactor at its previous value makes GTAO
+        // sample the HZB at the *old* viewport-to-HZB ratio while normals
+        // sample at the correct live viewport ratio. The mismatch lands the
+        // AO mask offset from the geometry along the resized axis (resize Y
+        // → AO offset in Y; resize X → offset in X) and persists for the
+        // rest of the session because every subsequent same-bucket resize
+        // hits the early-return below without refreshing the factor. This
+        // is the post-resize "ghost halo" reported in the bug tracker.
+        m_UVFactor = glm::vec2(static_cast<f32>(viewportWidth) / static_cast<f32>(hzbW),
+                               static_cast<f32>(viewportHeight) / static_cast<f32>(hzbH));
+
         if (hzbW == m_HZBWidth && hzbH == m_HZBHeight && m_HZBTexture)
         {
-            return; // No change
+            return; // No change to HZB texture; UVFactor refresh above is sufficient.
         }
 
         m_HZBWidth = hzbW;
         m_HZBHeight = hzbH;
-
-        // UV factor: viewport → HZB texture coordinate mapping
-        m_UVFactor = glm::vec2(static_cast<f32>(viewportWidth) / static_cast<f32>(hzbW),
-                               static_cast<f32>(viewportHeight) / static_cast<f32>(hzbH));
 
         // Create or resize HZB texture with full mip chain
         TextureSpecification spec;

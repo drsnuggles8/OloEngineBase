@@ -85,7 +85,13 @@ namespace OloEngine::Tests
 
             void Draw()
             {
-                GLStateGuard guard("SphereAreaLightVisualHarness::Draw");
+                // Policy::Restore auto-rolls-back viewport / blend / depth /
+                // cull / FBO / active program / VAO on scope exit so the
+                // probe shader bind + fullscreen-tri VAO + viewport change
+                // don't leak into whichever test runs next. Without this the
+                // probe would dump 5+ ERROR lines through OloEngine.log on
+                // every test invocation (see GLStateGuard::Policy::Log).
+                GLStateGuard guard("SphereAreaLightVisualHarness::Draw", GLStateGuard::Policy::Restore);
                 m_Fb->Bind();
                 ::glViewport(0, 0, static_cast<GLsizei>(kWidth), static_cast<GLsizei>(kHeight));
                 ::glDisable(GL_BLEND);

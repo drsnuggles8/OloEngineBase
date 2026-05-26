@@ -149,33 +149,30 @@ namespace OloEngine
 
         sizet memoryUsage = textureInfo->m_MemoryUsage;
 
-        // Check for duplicate registration
+        // m_Resources is a single flat map keyed by raw GL renderer ID, but
+        // OpenGL textures / framebuffers / buffers each live in their own ID
+        // namespace — a Texture2D with GL ID 32 and a Framebuffer with GL ID
+        // 32 are different objects that coexist legitimately and collide in
+        // this map. Capture oldType / oldMemory *before* the move-assign so
+        // the accounting decrements the right bucket; reading
+        // existingIt->second after the move would see the newly-installed
+        // resource's type instead of the one being replaced.
         auto existingIt = m_Resources.find(rendererID);
-        bool isDuplicate = (existingIt != m_Resources.end());
+        const bool hadExisting = (existingIt != m_Resources.end());
+        const ResourceType oldType = hadExisting ? existingIt->second->m_Type : ResourceType::COUNT;
+        const sizet oldMemory = hadExisting ? existingIt->second->m_MemoryUsage : 0u;
+
+        if (hadExisting)
+        {
+            m_MemoryUsageByType[static_cast<sizet>(oldType)] -= oldMemory;
+            if (oldType != ResourceType::Texture2D)
+                m_ResourceCounts[static_cast<sizet>(oldType)]--;
+        }
 
         m_Resources[rendererID] = std::move(textureInfo);
-        // Handle resource counting for new registrations and type changes
-        if (!isDuplicate)
-        {
+        m_MemoryUsageByType[static_cast<sizet>(ResourceType::Texture2D)] += memoryUsage;
+        if (!hadExisting || oldType != ResourceType::Texture2D)
             m_ResourceCounts[static_cast<sizet>(ResourceType::Texture2D)]++;
-            m_MemoryUsageByType[static_cast<sizet>(ResourceType::Texture2D)] += memoryUsage;
-        }
-        else
-        {
-            // For duplicates, update memory tracking and handle type changes
-            ResourceType oldType = existingIt->second->m_Type;
-            sizet oldMemory = existingIt->second->m_MemoryUsage;
-            m_MemoryUsageByType[static_cast<sizet>(oldType)] -= oldMemory;
-            m_MemoryUsageByType[static_cast<sizet>(ResourceType::Texture2D)] += memoryUsage;
-
-            // Handle resource count changes when type differs
-            if (oldType != ResourceType::Texture2D)
-            {
-                m_ResourceCounts[static_cast<sizet>(oldType)]--;
-                m_ResourceCounts[static_cast<sizet>(ResourceType::Texture2D)]++;
-            }
-            OLO_CORE_TRACE("Registered DUPLICATE texture: {} (ID: {}) - replacing existing", name, rendererID);
-        }
     }
 
     void GPUResourceInspector::RegisterTextureCubemap(u32 rendererID, const std::string& name, const std::string& debugName)
@@ -196,35 +193,24 @@ namespace OloEngine
 
         sizet memoryUsage = textureInfo->m_MemoryUsage;
 
-        // Check for duplicate registration
+        // See notes in RegisterTexture above re cross-namespace ID reuse and
+        // why oldType / oldMemory are captured before the move.
         auto existingIt = m_Resources.find(rendererID);
-        bool isDuplicate = (existingIt != m_Resources.end());
+        const bool hadExisting = (existingIt != m_Resources.end());
+        const ResourceType oldType = hadExisting ? existingIt->second->m_Type : ResourceType::COUNT;
+        const sizet oldMemory = hadExisting ? existingIt->second->m_MemoryUsage : 0u;
+
+        if (hadExisting)
+        {
+            m_MemoryUsageByType[static_cast<sizet>(oldType)] -= oldMemory;
+            if (oldType != ResourceType::TextureCubemap)
+                m_ResourceCounts[static_cast<sizet>(oldType)]--;
+        }
 
         m_Resources[rendererID] = std::move(textureInfo);
-        // Handle resource counting for new registrations and type changes
-        if (!isDuplicate)
-        {
+        m_MemoryUsageByType[static_cast<sizet>(ResourceType::TextureCubemap)] += memoryUsage;
+        if (!hadExisting || oldType != ResourceType::TextureCubemap)
             m_ResourceCounts[static_cast<sizet>(ResourceType::TextureCubemap)]++;
-            m_MemoryUsageByType[static_cast<sizet>(ResourceType::TextureCubemap)] += memoryUsage;
-        }
-        else
-        {
-            // For duplicates, update memory tracking and handle type changes
-            ResourceType oldType = existingIt->second->m_Type;
-            sizet oldMemory = existingIt->second->m_MemoryUsage;
-            m_MemoryUsageByType[static_cast<sizet>(oldType)] -= oldMemory;
-            m_MemoryUsageByType[static_cast<sizet>(ResourceType::TextureCubemap)] += memoryUsage;
-
-            // Handle resource count changes when type differs
-            if (oldType != ResourceType::TextureCubemap)
-            {
-                m_ResourceCounts[static_cast<sizet>(oldType)]--;
-                m_ResourceCounts[static_cast<sizet>(ResourceType::TextureCubemap)]++;
-            }
-            OLO_CORE_TRACE("Registered DUPLICATE cubemap: {} (ID: {}) - replacing existing", name, rendererID);
-        }
-
-        OLO_CORE_TRACE("Registered texture cubemap: {} (ID: {})", name, rendererID);
     }
 
     void GPUResourceInspector::RegisterBuffer(u32 rendererID, GLenum target, const std::string& name, const std::string& debugName)
@@ -263,33 +249,23 @@ namespace OloEngine
 
         ResourceType bufferType = bufferInfo->m_Type;
         sizet memoryUsage = bufferInfo->m_MemoryUsage;
-        // Check for duplicate registration
+        // See notes in RegisterTexture above. Buffers cover Vertex/Index/Uniform target kinds.
         auto existingIt = m_Resources.find(rendererID);
-        bool isDuplicate = (existingIt != m_Resources.end());
+        const bool hadExisting = (existingIt != m_Resources.end());
+        const ResourceType oldType = hadExisting ? existingIt->second->m_Type : ResourceType::COUNT;
+        const sizet oldMemory = hadExisting ? existingIt->second->m_MemoryUsage : 0u;
+
+        if (hadExisting)
+        {
+            m_MemoryUsageByType[static_cast<sizet>(oldType)] -= oldMemory;
+            if (oldType != bufferType)
+                m_ResourceCounts[static_cast<sizet>(oldType)]--;
+        }
 
         m_Resources[rendererID] = std::move(bufferInfo);
-        // Handle resource counting for new registrations and type changes
-        if (!isDuplicate)
-        {
+        m_MemoryUsageByType[static_cast<sizet>(bufferType)] += memoryUsage;
+        if (!hadExisting || oldType != bufferType)
             m_ResourceCounts[static_cast<sizet>(bufferType)]++;
-            m_MemoryUsageByType[static_cast<sizet>(bufferType)] += memoryUsage;
-        }
-        else
-        {
-            // For duplicates, update memory tracking and handle type changes
-            ResourceType oldType = existingIt->second->m_Type;
-            sizet oldMemory = existingIt->second->m_MemoryUsage;
-            m_MemoryUsageByType[static_cast<sizet>(oldType)] -= oldMemory;
-            m_MemoryUsageByType[static_cast<sizet>(bufferType)] += memoryUsage;
-
-            // Handle resource count changes when type differs
-            if (oldType != bufferType)
-            {
-                m_ResourceCounts[static_cast<sizet>(oldType)]--;
-                m_ResourceCounts[static_cast<sizet>(bufferType)]++;
-            }
-            OLO_CORE_TRACE("Registered DUPLICATE buffer: {} (ID: {}, Target: 0x{:X}) - replacing existing", name, rendererID, target);
-        }
     }
 
     void GPUResourceInspector::RegisterFramebuffer(u32 rendererID, const std::string& name, const std::string& debugName)
@@ -310,33 +286,24 @@ namespace OloEngine
 
         sizet memoryUsage = framebufferInfo->m_MemoryUsage;
 
-        // Check for duplicate registration
+        // See notes in RegisterTexture above. Framebuffer GL IDs live in their
+        // own namespace and may legitimately match the ID of a live texture / buffer.
         auto existingIt = m_Resources.find(rendererID);
-        bool isDuplicate = (existingIt != m_Resources.end());
+        const bool hadExisting = (existingIt != m_Resources.end());
+        const ResourceType oldType = hadExisting ? existingIt->second->m_Type : ResourceType::COUNT;
+        const sizet oldMemory = hadExisting ? existingIt->second->m_MemoryUsage : 0u;
+
+        if (hadExisting)
+        {
+            m_MemoryUsageByType[static_cast<sizet>(oldType)] -= oldMemory;
+            if (oldType != ResourceType::Framebuffer)
+                m_ResourceCounts[static_cast<sizet>(oldType)]--;
+        }
 
         m_Resources[rendererID] = std::move(framebufferInfo);
-        // Handle resource counting for new registrations and type changes
-        if (!isDuplicate)
-        {
+        m_MemoryUsageByType[static_cast<sizet>(ResourceType::Framebuffer)] += memoryUsage;
+        if (!hadExisting || oldType != ResourceType::Framebuffer)
             m_ResourceCounts[static_cast<sizet>(ResourceType::Framebuffer)]++;
-            m_MemoryUsageByType[static_cast<sizet>(ResourceType::Framebuffer)] += memoryUsage;
-        }
-        else
-        {
-            // For duplicates, update memory tracking and handle type changes
-            ResourceType oldType = existingIt->second->m_Type;
-            sizet oldMemory = existingIt->second->m_MemoryUsage;
-            m_MemoryUsageByType[static_cast<sizet>(oldType)] -= oldMemory;
-            m_MemoryUsageByType[static_cast<sizet>(ResourceType::Framebuffer)] += memoryUsage;
-
-            // Handle resource count changes when type differs
-            if (oldType != ResourceType::Framebuffer)
-            {
-                m_ResourceCounts[static_cast<sizet>(oldType)]--;
-                m_ResourceCounts[static_cast<sizet>(ResourceType::Framebuffer)]++;
-            }
-            OLO_CORE_TRACE("Registered DUPLICATE framebuffer: {} (ID: {}) - replacing existing", name, rendererID);
-        }
     }
 
     void GPUResourceInspector::UnregisterResource(u32 rendererID)

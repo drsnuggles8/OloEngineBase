@@ -1,6 +1,7 @@
 #pragma once
 
 #include <string>
+#include <string_view>
 #include <filesystem>
 #include <variant>
 #include "AssetMetadata.h"
@@ -133,6 +134,14 @@ namespace OloEngine
 
         [[nodiscard]] virtual bool SerializeToAssetPack(AssetHandle handle, FileStreamWriter& stream, AssetSerializationInfo& outInfo) const override;
         virtual Ref<Asset> DeserializeFromAssetPack(FileStreamReader& stream, const AssetPackFile::AssetInfo& assetInfo) const override;
+
+        // Filename-based sRGB heuristic for the path-load path. The model
+        // loaders (Model.cpp / AnimatedModel.cpp) pick sRGB explicitly per
+        // aiTextureType, but standalone .png drag-drops through the asset
+        // pipeline only see a path — use the filename to decide whether the
+        // bytes encode colour (albedo / emissive) or linear data (normal /
+        // metallic / roughness / AO / height). Returns true for colour.
+        [[nodiscard]] static bool IsLikelyColorTextureByName(std::string_view filename);
     };
 
     class FontSerializer : public AssetSerializer

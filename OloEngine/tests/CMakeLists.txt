@@ -15,6 +15,7 @@ add_executable(OloEngine-Tests
 		AssetBinaryIntegrityTest.cpp
 		AssetContentValidityTest.cpp
 		AssetExtensionsCoverageTest.cpp
+		SRGBTextureSupportTest.cpp
 		AssetSceneLoadTest.cpp
 		AssetGenerationTest.cpp
 		AssetLuaScriptValidityTest.cpp
@@ -94,6 +95,7 @@ add_executable(OloEngine-Tests
 		Rendering/DeccerCubesLoadingTest.cpp
 		# Rendering property tests (require GL 4.5+ context; skip gracefully if unavailable)
 		Rendering/PropertyTests/RenderPropertyTest.cpp
+		Rendering/PropertyTests/HZBGeneratorResizeTest.cpp
 		Rendering/PropertyTests/PostProcessPropertyTests.cpp
 		Rendering/PropertyTests/PbrPropertyTests.cpp
 		Rendering/PropertyTests/GLStateGuardTest.cpp
