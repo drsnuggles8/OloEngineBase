@@ -244,11 +244,14 @@ namespace OloEngine
         spec.SRGB = texData.SRGB;
 
         // Determine format based on channel count
-        // Note: The engine currently only supports R8, RGB8, RGBA8 and a few other formats
+        // Note: The engine currently only supports R8, RG8, RGB8, RGBA8 and a few other formats
         switch (texData.Channels)
         {
             case 1:
                 spec.Format = ImageFormat::R8;
+                break;
+            case 2:
+                spec.Format = ImageFormat::RG8;
                 break;
             case 3:
                 spec.Format = ImageFormat::RGB8;

@@ -25,7 +25,9 @@ namespace OloEngine
         RGB32F,  // Unsupported
         DEPTH24STENCIL8,
         RG16F, // Keep appended to preserve legacy serialized enum values
-        R32I
+        R32I,
+        RG8 // 2-channel 8-bit (normal-map xy, two-channel masks). Appended to
+            // preserve legacy serialised enum integer values used in asset packs.
     };
 
     struct TextureSpecification

@@ -33,6 +33,8 @@ namespace OloEngine
                     return GL_RG_INTEGER;
                 case ImageFormat::RG16F:
                     return GL_RG;
+                case ImageFormat::RG8:
+                    return GL_RG;
                 case ImageFormat::RGB8:
                     return GL_RGB;
                 case ImageFormat::RGBA8:
@@ -71,6 +73,9 @@ namespace OloEngine
                     return GL_RG16UI;
                 case ImageFormat::RG16F:
                     return GL_RG16F;
+                case ImageFormat::RG8:
+                    // sRGB doesn't apply to 2-channel data textures.
+                    return GL_RG8;
                 case ImageFormat::RGB8:
                     // sRGB only applies to 8-bit color formats; the GPU converts
                     // sample reads from sRGB to linear automatically.
@@ -169,6 +174,9 @@ namespace OloEngine
                 bytesPerPixel = 1;
                 break;
             case ImageFormat::R16UI:
+                bytesPerPixel = 2;
+                break;
+            case ImageFormat::RG8:
                 bytesPerPixel = 2;
                 break;
             case ImageFormat::RG16UI:
@@ -342,6 +350,9 @@ namespace OloEngine
             case ImageFormat::R16UI:
                 bytesPerPixel = 2;
                 break;
+            case ImageFormat::RG8:
+                bytesPerPixel = 2;
+                break;
             case ImageFormat::RG16UI:
                 bytesPerPixel = 4;
                 break;
@@ -419,6 +430,10 @@ namespace OloEngine
             case ImageFormat::R16UI:
                 bpp = 2;
                 dataType = GL_UNSIGNED_SHORT;
+                break;
+            case ImageFormat::RG8:
+                bpp = 2;
+                dataType = GL_UNSIGNED_BYTE;
                 break;
             case ImageFormat::RG16UI:
                 bpp = 4;
@@ -554,9 +569,7 @@ namespace OloEngine
             case 2:
                 internalFormat = GL_RG8;
                 dataFormat = GL_RG;
-                // No ImageFormat::RG8 enum yet; spec.Format keeps its prior
-                // value so HasAlphaChannel still routes through m_DataFormat
-                // (which is correct at GL_RG).
+                m_Specification.Format = ImageFormat::RG8;
                 OLO_CORE_TRACE("Texture channel count is 2. Internal format is: {}. Data Format is: {}.", internalFormat, dataFormat);
                 break;
             case 3:
@@ -650,6 +663,10 @@ namespace OloEngine
             case ImageFormat::R16UI:
                 bytesPerPixel = 2;
                 dataType = GL_UNSIGNED_SHORT;
+                break;
+            case ImageFormat::RG8:
+                bytesPerPixel = 2;
+                dataType = GL_UNSIGNED_BYTE;
                 break;
             case ImageFormat::RG16UI:
                 bytesPerPixel = 4;
