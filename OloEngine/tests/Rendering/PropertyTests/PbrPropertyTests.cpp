@@ -75,7 +75,11 @@ namespace OloEngine::Tests
             {
                 // Restore FBO/blend/depth/cull bindings on scope exit so
                 // tests don't leak state into the harness that runs next.
-                GLStateGuard guard("PbrProbeHarness::Draw");
+                // Policy::Restore auto-rolls-back via GLStateSnapshot::ApplyCore;
+                // without it the default Policy::Log would only detect the
+                // viewport / shader / VAO mutations and dump them as ERROR
+                // through OloEngine.log on every test invocation.
+                GLStateGuard guard("PbrProbeHarness::Draw", GLStateGuard::Policy::Restore);
                 m_OutputFB->Bind();
                 ::glViewport(0, 0, static_cast<GLsizei>(m_Width), static_cast<GLsizei>(m_Height));
                 ::glDisable(GL_BLEND);
@@ -560,8 +564,10 @@ namespace OloEngine::Tests
         std::vector<f32> pixels;
         {
             // Restore FBO / blend / depth / cull on assertion failure or scope
-            // exit — mirrors PbrProbeHarness::Draw.
-            GLStateGuard stateGuard("PbrNormalMapTest::FlatNormal");
+            // exit — mirrors PbrProbeHarness::Draw. Policy::Restore actually
+            // rolls back via GLStateSnapshot::ApplyCore; the default
+            // Policy::Log would only detect leaks and dump them as ERROR.
+            GLStateGuard stateGuard("PbrNormalMapTest::FlatNormal", GLStateGuard::Policy::Restore);
             fb->Bind();
             ::glViewport(0, 0, kSize, kSize);
             ::glDisable(GL_BLEND);
