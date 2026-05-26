@@ -2945,12 +2945,31 @@ namespace OloEngine
     void RenderGraph::Resize(u32 width, u32 height)
     {
         OLO_PROFILE_FUNCTION();
+        const bool dimensionsChanged = (width != m_PhysicalWidth) || (height != m_PhysicalHeight);
         m_PhysicalWidth = width;
         m_PhysicalHeight = height;
 
         for (auto& [name, node] : m_NodeLookup)
         {
             node->ResizeFramebuffer(width, height);
+        }
+
+        // Evict cached transient framebuffers / textures whose dimensions are
+        // now stale. The pool keys by full spec (incl. width/height), so on a
+        // viewport resize the post-resize Acquire calls all miss into fresh
+        // buckets and the old buckets sit around forever — both leaking GPU
+        // memory (each orphaned FB carries its color+depth attachments) AND
+        // letting the alias-group resolver hand a stale-size sibling to a
+        // downstream pass, which then blits old-size content into the new-size
+        // target and produces visible "duplicated, offset" ghost geometry.
+        //
+        // Clear() also wipes any acquired-but-not-yet-released items. That is
+        // safe here because Resize() runs in OnUpdate before the frame's
+        // rendering begins; the previous frame's ReleaseAll has already
+        // returned everything to the pool.
+        if (dimensionsChanged)
+        {
+            m_TransientPool.Clear();
         }
 
         // Physical resize resets render viewport overrides on all FBOs.

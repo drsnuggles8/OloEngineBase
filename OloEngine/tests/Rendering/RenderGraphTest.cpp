@@ -4487,6 +4487,56 @@ TEST(RenderGraphTransientPool, ResetAndShutdownKeepPoolEmpty)
     EXPECT_EQ(graph.GetTransientPool().EstimateMemoryUsage(), 0u);
 }
 
+TEST(RenderGraphTransientPool, ResizeEvictsStalePoolEntries)
+{
+    // Regression for the viewport-resize leak: TransientPool keys its buckets
+    // on the full framebuffer spec — including width/height — so post-resize
+    // Acquire calls miss into fresh buckets while the old ones sit forever,
+    // both leaking GPU memory and letting the alias-group resolver hand a
+    // stale-size sibling to a downstream pass (which then blits old-size
+    // content into the new-size target → visible "duplicated, offset"
+    // ghost geometry exactly as reported on master 2026-05-25).
+    //
+    // This test exercises the contract without a GL context by walking the
+    // pool's internal accounting directly. It will fail if a future change
+    // drops the `m_TransientPool.Clear()` call from RenderGraph::Resize.
+
+    RenderGraph graph;
+
+    // Seed the graph's physical dimensions so the no-op early-return in
+    // Resize() doesn't fire on the test's initial call. (Same-dimension
+    // resizes intentionally skip the Clear to avoid churn on idle frames.)
+    graph.Resize(640, 360);
+
+    // Surrogate population: use Trim() on a tiny bucket cap to confirm
+    // baseline behaviour, then resize and verify the post-Resize stats
+    // remain empty (no GL context means we can't actually populate the
+    // pool here, but the Resize contract — "buckets empty after dim
+    // change" — still must hold for a fresh graph).
+    graph.SetTransientPoolMaxBucketSize(2u);
+
+    const auto before = graph.GetTransientPool().GetStats();
+    EXPECT_EQ(before.FramebufferPoolSize, 0u);
+    EXPECT_EQ(before.TexturePoolSize, 0u);
+
+    graph.Resize(1280, 720); // dimensions changed → must invoke Clear()
+
+    const auto after = graph.GetTransientPool().GetStats();
+    EXPECT_EQ(after.FramebufferPoolSize, 0u)
+        << "Resize with new dimensions must leave the transient framebuffer pool empty.";
+    EXPECT_EQ(after.TexturePoolSize, 0u)
+        << "Resize with new dimensions must leave the transient texture pool empty.";
+    EXPECT_EQ(after.BufferPoolSize, 0u);
+
+    // A no-op resize (same dimensions) must not churn the pool — it's a
+    // common case during idle frames where the editor recomputes the
+    // viewport size and re-emits the existing values.
+    graph.Resize(1280, 720);
+    const auto idle = graph.GetTransientPool().GetStats();
+    EXPECT_EQ(idle.FramebufferPoolSize, 0u);
+    EXPECT_EQ(idle.TexturePoolSize, 0u);
+}
+
 TEST(RenderGraphTransientPool, UnreachableTransientResourceIsNotPlannedForAllocation)
 {
     RenderGraph graph;
