@@ -399,6 +399,7 @@ namespace OloEngine
             return nullptr;
         }
 
+        texture->SetHandle(assetInfo.Handle);
         return texture;
     }
 
