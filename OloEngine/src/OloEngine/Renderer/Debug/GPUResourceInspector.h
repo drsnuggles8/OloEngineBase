@@ -105,6 +105,7 @@ namespace OloEngine
             std::vector<u8> m_PreviewData;
             bool m_PreviewDataValid = false;
             u32 m_SelectedMipLevel = 0;
+            u32 m_SelectedCubemapFace = 0; // 0..5 = +X,-X,+Y,-Y,+Z,-Z (cubemaps only)
             ImTextureID m_ImGuiTextureID = 0;
         };
 
@@ -138,6 +139,7 @@ namespace OloEngine
         {
             u32 m_TextureID = 0;
             u32 m_MipLevel = 0;
+            u32 m_FaceIndex = 0; // Cubemap face (0..5 = +X,-X,+Y,-Y,+Z,-Z); ignored for Texture2D
             u32 m_PBO = 0;
             GLsync m_Fence = nullptr; // Modern OpenGL 3.2+ sync object for completion detection
             bool m_InProgress = false;
@@ -208,6 +210,16 @@ namespace OloEngine
         // @param filename Output filename
         void ExportToCSV(const std::string& filename);
 
+        // @brief Save a tracked texture to an image file (PNG for 8-bit formats, HDR for float formats).
+        //        Extension on `filePath` selects the encoder. For cubemaps, `faceIndex` (0..5 = +X,-X,+Y,-Y,+Z,-Z)
+        //        picks the face to write; ignored for Texture2D. Requires an active OpenGL 4.5+ context.
+        //        Pixels are written in raw GPU memory order (GL bottom-left origin, no software flip) so
+        //        the file faithfully represents what's in the texture — Texture2Ds loaded through
+        //        OpenGLTexture2D are pre-flipped on upload and so will appear right-side-up when opened,
+        //        while cubemap faces (loaded without that flip) will look vertically mirrored.
+        // @return true on success; false if the texture is invalid, the format is unsupported, or the file write fails.
+        bool SaveTextureToFile(const TextureInfo& info, const std::string& filePath, u32 mipLevel, u32 faceIndex = 0);
+
         // @brief Get total number of tracked resources
         u32 GetResourceCount() const
         {
@@ -225,7 +237,7 @@ namespace OloEngine
         void QueryTextureCubemapInfo(TextureInfo& info);
         void QueryBufferInfo(BufferInfo& info);
         void QueryFramebufferInfo(FramebufferInfo& info);
-        void RequestTextureDownload(TextureInfo& info, u32 mipLevel);
+        void RequestTextureDownload(TextureInfo& info, u32 mipLevel, u32 faceIndex = 0);
         void ProcessTextureDownloads();
         void CompleteTextureDownload(TextureInfo& info, const TextureDownloadRequest& request);
         void UpdateTexturePreview(TextureInfo& info);
@@ -257,6 +269,18 @@ namespace OloEngine
         static GLenum GetBufferBindingQuery(GLenum target);
 
       private:
+        // Deferred Save-to-File request. The Save button populates this snapshot
+        // under m_ResourceMutex; RenderDebugView processes it AFTER the mutex
+        // is released so the modal file dialog + GL readback can't block
+        // background registrations / unregistrations.
+        struct PendingSaveRequest
+        {
+            bool m_Active = false;
+            TextureInfo m_Info{}; // member-wise copy; safe to use without the mutex
+        };
+        void ProcessPendingSaveRequest();
+
+      private:
         std::unordered_map<u32, std::unique_ptr<ResourceInfo>> m_Resources;
         std::vector<TextureDownloadRequest> m_TextureDownloads;
 
@@ -266,6 +290,7 @@ namespace OloEngine
         std::string m_SearchFilter;
         bool m_ShowInactiveResources = true;
         bool m_AutoUpdatePreviews = true;
+        PendingSaveRequest m_PendingSaveRequest;
 
         // Statistics
         std::array<u32, static_cast<sizet>(ResourceType::COUNT)> m_ResourceCounts{};

@@ -5,15 +5,17 @@
       "Bash(build/OloEngine/tests/Debug/OloEngine-Tests.exe --gtest_filter=\"SHProjectionTest.*\")",
       "Bash(git add *)",
       "Bash(cmake --build build --target OloEngine OloEngine-Tests OloEditor --config Debug --parallel)",
-      "Bash(cmake --build d:/repos/OloEngineBase/build --target OloEngine-Tests --config Debug --parallel)",
-      "Bash(d:/repos/OloEngineBase/build/OloEngine/tests/Debug/OloEngine-Tests.exe --gtest_filter=\"ForwardPlus.*:ShaderCrossConsistency.*:ShaderStageContract.*:ShaderStageInterface.*\")",
-      "Bash(d:/repos/OloEngineBase/build/OloEngine/tests/Debug/OloEngine-Tests.exe --gtest_filter=\"ShaderCompilation.*:ShaderUBOSize.*:ShaderBindingLayout.*\")",
-      "Bash(d:/repos/OloEngineBase/build/OloEngine/tests/Debug/OloEngine-Tests.exe --gtest_filter=\"SphereAreaLightMath.*\")",
-      "Bash(tasklist)",
+      "Bash(gh run *)",
+      "Bash(git worktree *)",
+      "Bash(build/OloEngine/tests/Debug/OloEngine-Tests.exe --gtest_filter=TextureSaveRoundTripTest.*)",
       "Bash(build/OloEngine/tests/Debug/OloEngine-Tests.exe)",
+      "Bash(tasklist)",
       "Bash(git rebase --abort)",
       "Bash(git rebase --continue)",
       "Bash(git rebase --skip)"
+    ],
+    "additionalDirectories": [
+      "\\tmp"
     ]
   },
   "hooks": {
