@@ -222,6 +222,18 @@ void main()
                                       u_LightPosition.xyz, u_LightDirection.xyz,
                                       u_LightDiffuse.rgb, u_LightAttParams, u_LightSpotParams);
     }
+    else if (lightType == SPHERE_AREA_LIGHT)
+    {
+        // Single-light packing mirrors Scene::ProcessScene3DSharedLogic's
+        // MultiLight layout: emitter radius in u_LightSpotParams.z, range in
+        // u_LightAttParams.w. Intensity is already baked into u_LightDiffuse,
+        // so pass 1.0 to keep the BRDF energy-conservation factor intact.
+        float sphereRadius = u_LightSpotParams.z;
+        float range        = u_LightAttParams.w;
+        Lo = calculateSphereAreaLightContribution(N, V, u_LightPosition.xyz, sphereRadius,
+                                                  u_LightDiffuse.rgb, 1.0, range,
+                                                  albedo, metallic, roughness, v_WorldPos);
+    }
 
     // Calculate ambient lighting
     vec3 ambient = vec3(0.0);

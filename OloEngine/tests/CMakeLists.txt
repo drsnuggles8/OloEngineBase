@@ -74,6 +74,7 @@ add_executable(OloEngine-Tests
 		Rendering/InstanceDataLayoutTest.cpp
 		Rendering/GPUFrustumCullParityTest.cpp
 		Rendering/ScatterBrushMathTest.cpp
+		Rendering/SphereAreaLightMathTest.cpp
 		Rendering/CommandPacketTest.cpp
 		Rendering/CommandAllocatorTest.cpp
 		Rendering/CommandBucketTest.cpp
@@ -101,6 +102,7 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/PerfRegressionTests.cpp
 		Rendering/PropertyTests/DataRoundTripTests.cpp
 		Rendering/PropertyTests/GoldenImageTests.cpp
+		Rendering/PropertyTests/SphereAreaLightVisualTest.cpp
 		Rendering/PropertyTests/ShadowTerrainPropertyTests.cpp
 		Rendering/PropertyTests/DeferredPropertyTests.cpp
 		Rendering/PropertyTests/DeferredOverlayPassTests.cpp
