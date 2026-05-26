@@ -883,6 +883,32 @@ namespace OloEngine
             }
 
             std::filesystem::path relativePath = str.C_Str();
+
+            // Reject absolute paths and parent-traversal ("..") components
+            // before any load attempt — same guard pattern AnimatedModel uses,
+            // so malformed model files can't reach outside m_Directory.
+            if (relativePath.is_absolute())
+            {
+                OLO_CORE_WARN("Model::LoadMaterialTextures: Rejecting absolute texture path '{}'", relativePath.string());
+                continue;
+            }
+            {
+                bool safe = true;
+                for (const auto& comp : relativePath)
+                {
+                    if (comp == "..")
+                    {
+                        safe = false;
+                        break;
+                    }
+                }
+                if (!safe)
+                {
+                    OLO_CORE_WARN("Model::LoadMaterialTextures: Rejecting texture path with traversal '{}'", relativePath.string());
+                    continue;
+                }
+            }
+
             std::filesystem::path texturePath = std::filesystem::path(m_Directory) / relativePath;
             const std::string texturePathStr = texturePath.string() + std::string(srgbSuffix);
 

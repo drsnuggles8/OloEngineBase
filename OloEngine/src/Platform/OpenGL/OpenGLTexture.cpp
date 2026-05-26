@@ -532,6 +532,10 @@ namespace OloEngine
         m_IsLoaded = true;
         m_Width = width;
         m_Height = height;
+        // Mirror the decoded dimensions onto the spec so GetSpecification()
+        // reports the real bitmap, not the default-constructed 1x1 spec.
+        m_Specification.Width = width;
+        m_Specification.Height = height;
 
         GLenum internalFormat = 0;
         GLenum dataFormat = 0;
@@ -544,21 +548,27 @@ namespace OloEngine
             case 1:
                 internalFormat = GL_R8;
                 dataFormat = GL_RED;
+                m_Specification.Format = ImageFormat::R8;
                 OLO_CORE_TRACE("Texture channel count is 1. Internal format is: {}. Data Format is: {}.", internalFormat, dataFormat);
                 break;
             case 2:
                 internalFormat = GL_RG8;
                 dataFormat = GL_RG;
+                // No ImageFormat::RG8 enum yet; spec.Format keeps its prior
+                // value so HasAlphaChannel still routes through m_DataFormat
+                // (which is correct at GL_RG).
                 OLO_CORE_TRACE("Texture channel count is 2. Internal format is: {}. Data Format is: {}.", internalFormat, dataFormat);
                 break;
             case 3:
                 internalFormat = useSrgb ? GL_SRGB8 : GL_RGB8;
                 dataFormat = GL_RGB;
+                m_Specification.Format = ImageFormat::RGB8;
                 OLO_CORE_TRACE("Texture channel count is 3. Internal format is: {}. Data Format is: {}.", internalFormat, dataFormat);
                 break;
             case 4:
                 internalFormat = useSrgb ? GL_SRGB8_ALPHA8 : GL_RGBA8;
                 dataFormat = GL_RGBA;
+                m_Specification.Format = ImageFormat::RGBA8;
                 OLO_CORE_TRACE("Texture channel count is 4. Internal format is: {}. Data Format is: {}.", internalFormat, dataFormat);
                 break;
             default:
