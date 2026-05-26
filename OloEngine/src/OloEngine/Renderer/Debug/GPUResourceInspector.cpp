@@ -12,6 +12,7 @@
 #include <sstream>
 #include <iomanip>
 #include <chrono>
+#include <cmath>
 #include <cstring>
 #include <algorithm>
 #include <cctype>
@@ -723,7 +724,15 @@ namespace OloEngine
             const f32* src = reinterpret_cast<const f32*>(readBuffer.data());
             for (sizet i = 0; i < pixelChannelCount; ++i)
             {
-                const f32 clamped = std::clamp(src[i], 0.0f, 1.0f);
+                // Substitute NaN with 0 before the float→u8 cast:
+                // static_cast<u8>(NaN) is undefined behavior per [conv.fpint],
+                // and std::clamp(NaN, 0, 1) propagates the NaN on all major
+                // standard libraries. ±Inf is fine — std::clamp handles those
+                // (+Inf → 1, -Inf → 0), preserving directional information
+                // when an inspection target legitimately contains Inf (e.g. a
+                // velocity buffer post-divide-by-zero).
+                const f32 safe = std::isnan(src[i]) ? 0.0f : src[i];
+                const f32 clamped = std::clamp(safe, 0.0f, 1.0f);
                 convertBuffer[i] = static_cast<u8>(clamped * 255.0f + 0.5f);
             }
             encoderPixels = convertBuffer.data();
