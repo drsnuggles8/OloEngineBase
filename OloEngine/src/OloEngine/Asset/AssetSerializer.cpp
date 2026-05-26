@@ -54,9 +54,88 @@ namespace OloEngine
     // TextureSerializer
     //////////////////////////////////////////////////////////////////////////////////
 
+    bool TextureSerializer::IsLikelyColorTextureByName(std::string_view filename)
+    {
+        std::string lower(filename);
+        std::ranges::transform(lower, lower.begin(),
+                               [](unsigned char c)
+                               { return static_cast<char>(std::tolower(c)); });
+
+        // Data-texture keywords trump colour keywords — e.g. "Diffuse_AO.png"
+        // is an AO map even though it carries "Diffuse" in the name, because
+        // the explicit "_AO" suffix is the meaningful tag.
+        constexpr std::string_view dataKeywords[] = {
+            "normal",
+            "_n.",
+            "_n_",
+            "norm",
+            "metal",
+            "_m.",
+            "_m_",
+            "metallic",
+            "rough",
+            "_r.",
+            "_r_",
+            "roughness",
+            "_ao.",
+            "_ao_",
+            "ambient_occlusion",
+            "ambientocclusion",
+            "occlusion",
+            "height",
+            "_h.",
+            "_h_",
+            "displace",
+            "disp",
+            "spec",
+            "_s.",
+            "bump",
+            "_orm.",
+            "_arm.",
+            "_orm_",
+            "_arm_",
+        };
+        for (const auto& kw : dataKeywords)
+        {
+            if (lower.find(kw) != std::string::npos)
+                return false;
+        }
+
+        constexpr std::string_view colorKeywords[] = {
+            "albedo",
+            "_a.",
+            "_a_",
+            "basecolor",
+            "base_color",
+            "diffuse",
+            "_d.",
+            "_d_",
+            "color",
+            "colour",
+            "emissive",
+            "emission",
+            "_e.",
+            "_e_",
+        };
+        for (const auto& kw : colorKeywords)
+        {
+            if (lower.find(kw) != std::string::npos)
+                return true;
+        }
+
+        // Ambiguous filename: be conservative and treat as linear. The model
+        // loader's per-aiTextureType path already tags colour textures
+        // explicitly, so the asset-pipeline path only kicks in for standalone
+        // .png drag-drops where the safer default is "do not double-decode
+        // gamma."
+        return false;
+    }
+
     bool TextureSerializer::TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const
     {
-        Ref<Texture2D> texture = Texture2D::Create(metadata.FilePath.string());
+        const std::string filename = metadata.FilePath.filename().string();
+        const bool srgb = IsLikelyColorTextureByName(filename);
+        Ref<Texture2D> texture = Texture2D::Create(metadata.FilePath.string(), srgb);
         if (!texture)
         {
             OLO_CORE_ERROR("TextureSerializer::TryLoadData - Failed to create texture: {}", metadata.FilePath.string());
@@ -110,7 +189,14 @@ namespace OloEngine
         rawData.Handle = metadata.Handle;
         rawData.DebugName = metadata.FilePath.filename().string();
         rawData.GenerateMipmaps = true;
-        rawData.SRGB = false; // TODO: Could be determined from asset metadata
+        // Filename heuristic: model loaders (Model.cpp / AnimatedModel.cpp)
+        // pass sRGB explicitly per aiTextureType, but the asset pipeline
+        // round-trips textures by path with no type hint. The shipped naming
+        // convention is consistent enough that suffix matching is reliable:
+        // diffuse/albedo/basecolor/emissive → sRGB, everything else linear.
+        // If a future asset metadata schema adds an explicit IsColorTexture
+        // bit, prefer that over this heuristic.
+        rawData.SRGB = IsLikelyColorTextureByName(rawData.DebugName);
 
         // Copy the pixel data
         sizet dataSize = static_cast<sizet>(width) * height * channels;
@@ -152,13 +238,20 @@ namespace OloEngine
         spec.Width = texData.Width;
         spec.Height = texData.Height;
         spec.GenerateMips = texData.GenerateMipmaps;
+        // Honour the sRGB flag set by the loader. The OpenGL backend ignores
+        // it for single/dual-channel data formats and for float/integer
+        // formats, so it's safe to forward unconditionally here.
+        spec.SRGB = texData.SRGB;
 
         // Determine format based on channel count
-        // Note: The engine currently only supports R8, RGB8, RGBA8 and a few other formats
+        // Note: The engine currently only supports R8, RG8, RGB8, RGBA8 and a few other formats
         switch (texData.Channels)
         {
             case 1:
                 spec.Format = ImageFormat::R8;
+                break;
+            case 2:
+                spec.Format = ImageFormat::RG8;
                 break;
             case 3:
                 spec.Format = ImageFormat::RGB8;
@@ -223,6 +316,12 @@ namespace OloEngine
         auto timestamp = std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()).count();
         stream.WriteRaw<i64>(timestamp);
 
+        // Persist the sRGB flag so the pack round-trip preserves colour-space.
+        // Without this the deserializer falls back to the linear default and
+        // every albedo / emissive shipped through an .olopack loses its
+        // GL_SRGB8_ALPHA8 conversion.
+        stream.WriteRaw<bool>(spec.SRGB);
+
         outInfo.Size = stream.GetStreamPosition() - outInfo.Offset;
         return true;
     }
@@ -255,18 +354,39 @@ namespace OloEngine
         stream.ReadRaw(isLoaded);
         stream.ReadRaw(timestamp);
 
+        // Read the sRGB flag. End-of-stream tolerance: packs written before
+        // this field existed don't carry the byte at all; fall back to the
+        // filename heuristic so legacy packs still get colour textures
+        // tagged correctly instead of silently demoting every albedo to
+        // linear. AssetPackFile::AssetInfo carries the packed byte length,
+        // so we only read when the cursor hasn't already consumed the whole
+        // record.
+        bool srgb = false;
+        const u64 packedEnd = assetInfo.PackedOffset + assetInfo.PackedSize;
+        if (stream.GetStreamPosition() + sizeof(bool) <= packedEnd)
+        {
+            stream.ReadRaw(srgb);
+        }
+        else if (!path.empty())
+        {
+            srgb = IsLikelyColorTextureByName(std::filesystem::path(path).filename().string());
+        }
+
         // Create texture specification
         TextureSpecification spec;
         spec.Width = width;
         spec.Height = height;
         spec.Format = format;
         spec.GenerateMips = generateMips;
+        spec.SRGB = srgb;
 
-        // Create texture from path if available, otherwise from specification
+        // Create texture from path if available, otherwise from specification.
+        // The path-based load takes srgb as an explicit argument; the
+        // spec-based load reads it off the spec we just populated.
         Ref<Texture2D> texture;
         if (!path.empty())
         {
-            texture = Texture2D::Create(path);
+            texture = Texture2D::Create(path, srgb);
         }
         else
         {
@@ -279,6 +399,7 @@ namespace OloEngine
             return nullptr;
         }
 
+        texture->SetHandle(assetInfo.Handle);
         return texture;
     }
 

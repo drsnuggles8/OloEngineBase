@@ -101,11 +101,26 @@ namespace OloEngine
 
         Application::Get().GetWindow().SetTitle("Test");
 
-        m_IconPlay = Texture2D::Create("Resources/Icons/PlayButton.png");
-        m_IconPause = Texture2D::Create("Resources/Icons/PauseButton.png");
-        m_IconSimulate = Texture2D::Create("Resources/Icons/SimulateButton.png");
-        m_IconStep = Texture2D::Create("Resources/Icons/StepButton.png");
-        m_IconStop = Texture2D::Create("Resources/Icons/StopButton.png");
+        // Toolbar icons are authored colour bitmaps — load as sRGB so the GPU
+        // linearises them on sample, matching how every other colour texture
+        // in the engine is treated. Each load gets a 1x1 spec-based fallback
+        // so toolbar code paths that later dereference m_Icon*->GetRendererID()
+        // never see a null Ref, mirroring ContentBrowserPanel's pattern.
+        auto loadToolbarIcon = [](const char* path) -> Ref<Texture2D>
+        {
+            auto tex = Texture2D::Create(path, /*srgb=*/true);
+            if (!tex || !tex->IsLoaded())
+            {
+                OLO_CORE_ERROR("EditorLayer: Failed to load toolbar icon '{}' — using 1x1 fallback", path);
+                return Texture2D::Create(TextureSpecification{});
+            }
+            return tex;
+        };
+        m_IconPlay = loadToolbarIcon("Resources/Icons/PlayButton.png");
+        m_IconPause = loadToolbarIcon("Resources/Icons/PauseButton.png");
+        m_IconSimulate = loadToolbarIcon("Resources/Icons/SimulateButton.png");
+        m_IconStep = loadToolbarIcon("Resources/Icons/StepButton.png");
+        m_IconStop = loadToolbarIcon("Resources/Icons/StopButton.png");
 
         FramebufferSpecification fbSpec;
         fbSpec.Attachments = { FramebufferTextureFormat::RGBA8, FramebufferTextureFormat::RED_INTEGER, FramebufferTextureFormat::Depth };
@@ -867,8 +882,9 @@ namespace OloEngine
                 else if (m_SceneState == SceneState::Edit && [&ext]
                          { static constexpr std::string_view kImageExts[] = {".png", ".jpeg", ".jpg"}; return std::ranges::find(kImageExts, ext) != std::ranges::end(kImageExts); }() && m_HoveredEntity && m_HoveredEntity.HasComponent<SpriteRendererComponent>()) // Load texture
                 {
-                    const Ref<Texture2D> texture = Texture2D::Create(path.string());
-                    if (texture->IsLoaded())
+                    // Sprite art is colour content, treat the dropped image as sRGB.
+                    const Ref<Texture2D> texture = Texture2D::Create(path.string(), /*srgb=*/true);
+                    if (texture && texture->IsLoaded())
                     {
                         auto oldComponent = m_HoveredEntity.GetComponent<SpriteRendererComponent>();
                         m_HoveredEntity.GetComponent<SpriteRendererComponent>().Texture = texture;

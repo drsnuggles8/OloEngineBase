@@ -58,9 +58,9 @@ namespace OloEngine
         m_DirectoryTree.Build(assetDir);
         m_CurrentDirectory = m_DirectoryTree.GetRoot();
 
-        // Load icons
-        m_DirectoryIcon = Texture2D::Create("Resources/Icons/ContentBrowser/DirectoryIcon.png");
-        m_FileIcon = Texture2D::Create("Resources/Icons/ContentBrowser/FileIcon.png");
+        // Load icons — authored colour PNGs, so they're sRGB-encoded.
+        m_DirectoryIcon = Texture2D::Create("Resources/Icons/ContentBrowser/DirectoryIcon.png", /*srgb=*/true);
+        m_FileIcon = Texture2D::Create("Resources/Icons/ContentBrowser/FileIcon.png", /*srgb=*/true);
 
         if (!m_DirectoryIcon || !m_DirectoryIcon->IsLoaded())
         {
@@ -76,7 +76,7 @@ namespace OloEngine
         // Load specialized icons (fallback to file icon if not found)
         auto loadIcon = [this](const char* path) -> Ref<Texture2D>
         {
-            auto tex = Texture2D::Create(path);
+            auto tex = Texture2D::Create(path, /*srgb=*/true);
             if (!tex || !tex->IsLoaded())
                 return m_FileIcon;
             return tex;
@@ -933,7 +933,10 @@ namespace OloEngine
         {
             if (m_ImageIcons.size() < 200)
             {
-                auto imageIcon = Texture2D::Create(filepath.string());
+                // Content-browser image previews show the asset as-authored;
+                // the user expects WYSIWYG so we treat them as sRGB the same
+                // way the asset pipeline would once the file is imported.
+                auto imageIcon = Texture2D::Create(filepath.string(), /*srgb=*/true);
                 if (imageIcon && imageIcon->IsLoaded())
                 {
                     m_ImageIcons[filepath] = imageIcon;

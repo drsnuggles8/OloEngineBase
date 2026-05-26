@@ -1529,8 +1529,9 @@ namespace OloEngine
             if (ImGuiPayload const* const payload = ImGui::AcceptDragDropPayload("CONTENT_BROWSER_ITEM"))
             {
                 std::filesystem::path texturePath = PathFromUtf8Payload(*payload);
-                Ref<Texture2D> const texture = Texture2D::Create(texturePath.string());
-                if (texture->IsLoaded())
+                // Particle sprites are authored colour content.
+                Ref<Texture2D> const texture = Texture2D::Create(texturePath.string(), /*srgb=*/true);
+                if (texture && texture->IsLoaded())
                 {
                     component.Texture = texture;
                 }
@@ -2030,8 +2031,9 @@ namespace OloEngine
             if (ImGuiPayload const* const payload = ImGui::AcceptDragDropPayload("CONTENT_BROWSER_ITEM"))
                 {
                     std::filesystem::path texturePath = PathFromUtf8Payload(*payload);
-                    Ref<Texture2D> const texture = Texture2D::Create(texturePath.string());
-                    if (texture->IsLoaded())
+                    // Sprite art is authored colour, treat as sRGB.
+                    Ref<Texture2D> const texture = Texture2D::Create(texturePath.string(), /*srgb=*/true);
+                    if (texture && texture->IsLoaded())
                     {
                         component.Texture = texture;
                     }
@@ -3738,8 +3740,9 @@ namespace OloEngine
                 if (auto const* payload = ImGui::AcceptDragDropPayload("CONTENT_BROWSER_ITEM"))
                 {
                     std::filesystem::path texturePath = PathFromUtf8Payload(*payload);
-                    Ref<Texture2D> texture = Texture2D::Create(texturePath.string());
-                    if (texture->IsLoaded())
+                    // UI images are authored colour, treat as sRGB.
+                    Ref<Texture2D> texture = Texture2D::Create(texturePath.string(), /*srgb=*/true);
+                    if (texture && texture->IsLoaded())
                         component.m_Texture = texture;
                 }
                 ImGui::EndDragDropTarget();
@@ -4857,7 +4860,10 @@ namespace OloEngine
                                       "forward decals are already transparent overlays.");
                 }
 
-                auto drawTextureSlot = [](const char* label, Ref<Texture2D>& slot)
+                // srgb selects the GPU colour-space conversion: albedo and
+                // emissive are authored colour (true), normal/RMA are linear
+                // data (false).
+                auto drawTextureSlot = [](const char* label, Ref<Texture2D>& slot, bool srgb)
                 {
                     ImGui::PushID(label);
                     ImGui::Button(label, ImVec2(100.0f, 0.0f));
@@ -4866,8 +4872,8 @@ namespace OloEngine
                         if (ImGuiPayload const* const payload = ImGui::AcceptDragDropPayload("CONTENT_BROWSER_ITEM"))
                         {
                             std::filesystem::path texturePath = PathFromUtf8Payload(*payload);
-                            Ref<Texture2D> const texture = Texture2D::Create(texturePath.string());
-                            if (texture->IsLoaded())
+                            Ref<Texture2D> const texture = Texture2D::Create(texturePath.string(), srgb);
+                            if (texture && texture->IsLoaded())
                             {
                                 slot = texture;
                             }
@@ -4888,10 +4894,10 @@ namespace OloEngine
                     ImGui::PopID();
                 };
 
-                drawTextureSlot("Albedo Texture", component.m_AlbedoTexture);
-                drawTextureSlot("Normal Texture", component.m_NormalTexture);
-                drawTextureSlot("RMA Texture", component.m_RMATexture);
-                drawTextureSlot("Emissive Texture", component.m_EmissiveTexture); });
+                drawTextureSlot("Albedo Texture", component.m_AlbedoTexture, /*srgb=*/true);
+                drawTextureSlot("Normal Texture", component.m_NormalTexture, /*srgb=*/false);
+                drawTextureSlot("RMA Texture", component.m_RMATexture, /*srgb=*/false);
+                drawTextureSlot("Emissive Texture", component.m_EmissiveTexture, /*srgb=*/true); });
 
         DrawComponent<LightProbeComponent>("Light Probe", entity, [](auto& component)
                                            {

@@ -112,12 +112,17 @@ Wave crests that fold or exceed a steepness threshold can emit GPU particles:
 
 ## 3. Lighting & Shading (Medium Impact / Low–Medium Effort)
 
-### 3.1 Proper sRGB Albedo Sampling
+### 3.1 Proper sRGB Albedo Sampling — **shipped**
 
-Known issue: `OpenGLTexture2D` uses `GL_RGBA8` instead of `GL_SRGB8_ALPHA8`
-for color textures. This means any sRGB texture data (including water
-environment maps) isn't correctly linearized by the hardware. Fixing the texture
-format pipeline would improve color accuracy globally, not just for water.
+`TextureSpecification::SRGB` (and a corresponding `srgb` parameter on
+`Texture2D::Create(path)`) now selects `GL_SRGB8` / `GL_SRGB8_ALPHA8` for
+colour textures, letting the GPU do the sRGB→linear conversion that the
+PBR shaders already assumed. `Model::LoadMaterialTextures` and
+`AnimatedModel::LoadMaterialTextures` tag `aiTextureType_DIFFUSE` /
+`BASE_COLOR` / `EMISSIVE` as sRGB; normal / metallic-roughness / AO /
+height maps stay linear. The asset-pipeline drag-drop path goes through
+`TextureSerializer::IsLikelyColorTextureByName` for the same decision.
+Pinned by `SRGBTextureSupportTest.cpp`.
 
 ### 3.2 Atmospheric Scattering / Sky Integration
 

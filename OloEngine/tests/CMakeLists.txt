@@ -15,6 +15,7 @@ add_executable(OloEngine-Tests
 		AssetBinaryIntegrityTest.cpp
 		AssetContentValidityTest.cpp
 		AssetExtensionsCoverageTest.cpp
+		SRGBTextureSupportTest.cpp
 		AssetSceneLoadTest.cpp
 		AssetGenerationTest.cpp
 		AssetLuaScriptValidityTest.cpp

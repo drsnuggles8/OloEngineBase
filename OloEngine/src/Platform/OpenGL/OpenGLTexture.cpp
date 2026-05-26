@@ -33,6 +33,8 @@ namespace OloEngine
                     return GL_RG_INTEGER;
                 case ImageFormat::RG16F:
                     return GL_RG;
+                case ImageFormat::RG8:
+                    return GL_RG;
                 case ImageFormat::RGB8:
                     return GL_RGB;
                 case ImageFormat::RGBA8:
@@ -57,7 +59,7 @@ namespace OloEngine
             return 0;
         }
 
-        [[nodiscard("Store this!")]] static GLenum OloEngineImageFormatToGLInternalFormat(ImageFormat format)
+        [[nodiscard("Store this!")]] static GLenum OloEngineImageFormatToGLInternalFormat(ImageFormat format, bool srgb = false)
         {
             switch (format)
             {
@@ -71,10 +73,15 @@ namespace OloEngine
                     return GL_RG16UI;
                 case ImageFormat::RG16F:
                     return GL_RG16F;
+                case ImageFormat::RG8:
+                    // sRGB doesn't apply to 2-channel data textures.
+                    return GL_RG8;
                 case ImageFormat::RGB8:
-                    return GL_RGB8;
+                    // sRGB only applies to 8-bit color formats; the GPU converts
+                    // sample reads from sRGB to linear automatically.
+                    return srgb ? GL_SRGB8 : GL_RGB8;
                 case ImageFormat::RGBA8:
-                    return GL_RGBA8;
+                    return srgb ? GL_SRGB8_ALPHA8 : GL_RGBA8;
                 case ImageFormat::RGBA16F:
                     return GL_RGBA16F;
                 case ImageFormat::R32F:
@@ -134,7 +141,7 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
 
         m_Specification.Samples = std::max(m_Specification.Samples, 1u);
-        m_InternalFormat = Utils::OloEngineImageFormatToGLInternalFormat(m_Specification.Format);
+        m_InternalFormat = Utils::OloEngineImageFormatToGLInternalFormat(m_Specification.Format, m_Specification.SRGB);
         m_DataFormat = Utils::OloEngineImageFormatToGLDataFormat(m_Specification.Format);
 
         if (m_Specification.Samples > 1u)
@@ -167,6 +174,9 @@ namespace OloEngine
                 bytesPerPixel = 1;
                 break;
             case ImageFormat::R16UI:
+                bytesPerPixel = 2;
+                break;
+            case ImageFormat::RG8:
                 bytesPerPixel = 2;
                 break;
             case ImageFormat::RG16UI:
@@ -228,9 +238,14 @@ namespace OloEngine
         m_IsLoaded = true;
     }
 
-    OpenGLTexture2D::OpenGLTexture2D(const std::string& path)
+    OpenGLTexture2D::OpenGLTexture2D(const std::string& path, bool srgb)
     {
         OLO_PROFILE_FUNCTION();
+
+        // Stash the sRGB choice on the spec so InvalidateImpl picks the right
+        // GL internal format. Reusing m_Specification.SRGB keeps the path-load
+        // and spec constructors converging on a single source of truth.
+        m_Specification.SRGB = srgb;
 
         int width = 0;
         int height = 0;
@@ -248,6 +263,7 @@ namespace OloEngine
             OLO_PROFILE_SCOPE("stbi_load - OpenGLTexture2D::OpenGLTexture2D(const std::string&)");
             data = ::stbi_load(path.c_str(), &width, &height, &channels, 0);
         }
+        ::stbi_set_flip_vertically_on_load_thread(0); // reset thread-local flag to avoid polluting later stbi calls
 
         if (!data)
         {
@@ -335,6 +351,9 @@ namespace OloEngine
             case ImageFormat::R16UI:
                 bytesPerPixel = 2;
                 break;
+            case ImageFormat::RG8:
+                bytesPerPixel = 2;
+                break;
             case ImageFormat::RG16UI:
                 bytesPerPixel = 4;
                 break;
@@ -412,6 +431,10 @@ namespace OloEngine
             case ImageFormat::R16UI:
                 bpp = 2;
                 dataType = GL_UNSIGNED_SHORT;
+                break;
+            case ImageFormat::RG8:
+                bpp = 2;
+                dataType = GL_UNSIGNED_BYTE;
                 break;
             case ImageFormat::RG16UI:
                 bpp = 4;
@@ -525,29 +548,41 @@ namespace OloEngine
         m_IsLoaded = true;
         m_Width = width;
         m_Height = height;
+        // Mirror the decoded dimensions onto the spec so GetSpecification()
+        // reports the real bitmap, not the default-constructed 1x1 spec.
+        m_Specification.Width = width;
+        m_Specification.Height = height;
 
         GLenum internalFormat = 0;
         GLenum dataFormat = 0;
+        // SRGB internal formats are only defined for 3- and 4-channel color
+        // textures. Single- and dual-channel data textures (heightmaps, mask
+        // channels) remain linear regardless of the flag.
+        const bool useSrgb = m_Specification.SRGB && (channels == 3 || channels == 4);
         switch (channels)
         {
             case 1:
                 internalFormat = GL_R8;
                 dataFormat = GL_RED;
+                m_Specification.Format = ImageFormat::R8;
                 OLO_CORE_TRACE("Texture channel count is 1. Internal format is: {}. Data Format is: {}.", internalFormat, dataFormat);
                 break;
             case 2:
                 internalFormat = GL_RG8;
                 dataFormat = GL_RG;
+                m_Specification.Format = ImageFormat::RG8;
                 OLO_CORE_TRACE("Texture channel count is 2. Internal format is: {}. Data Format is: {}.", internalFormat, dataFormat);
                 break;
             case 3:
-                internalFormat = GL_RGB8;
+                internalFormat = useSrgb ? GL_SRGB8 : GL_RGB8;
                 dataFormat = GL_RGB;
+                m_Specification.Format = ImageFormat::RGB8;
                 OLO_CORE_TRACE("Texture channel count is 3. Internal format is: {}. Data Format is: {}.", internalFormat, dataFormat);
                 break;
             case 4:
-                internalFormat = GL_RGBA8;
+                internalFormat = useSrgb ? GL_SRGB8_ALPHA8 : GL_RGBA8;
                 dataFormat = GL_RGBA;
+                m_Specification.Format = ImageFormat::RGBA8;
                 OLO_CORE_TRACE("Texture channel count is 4. Internal format is: {}. Data Format is: {}.", internalFormat, dataFormat);
                 break;
             default:
@@ -629,6 +664,10 @@ namespace OloEngine
             case ImageFormat::R16UI:
                 bytesPerPixel = 2;
                 dataType = GL_UNSIGNED_SHORT;
+                break;
+            case ImageFormat::RG8:
+                bytesPerPixel = 2;
+                dataType = GL_UNSIGNED_BYTE;
                 break;
             case ImageFormat::RG16UI:
                 bytesPerPixel = 4;

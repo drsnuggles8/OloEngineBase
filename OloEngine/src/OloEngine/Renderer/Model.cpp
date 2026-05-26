@@ -304,7 +304,9 @@ namespace OloEngine
         // (mWidth/mHeight = dimensions). The on-disk loader flips rows for
         // OpenGL's bottom-left origin, so we flip embedded data the same way
         // to keep UVs consistent between embedded and external assets.
-        Ref<Texture2D> CreateTextureFromEmbedded(const aiTexture* embedded)
+        // srgb mirrors Texture2D::Create(path, srgb) — pass true for albedo /
+        // base-color / emissive so the GPU converts samples to linear.
+        Ref<Texture2D> CreateTextureFromEmbedded(const aiTexture* embedded, bool srgb = false)
         {
             if (!embedded || !embedded->pcData)
                 return nullptr;
@@ -387,6 +389,7 @@ namespace OloEngine
             spec.Format = ImageFormat::RGBA8;
             spec.GenerateMips = true;
             spec.MipLevels = 0;
+            spec.SRGB = srgb;
 
             auto texture = Texture2D::Create(spec);
             if (!texture || !texture->IsLoaded())
@@ -832,6 +835,20 @@ namespace OloEngine
 
         std::vector<Ref<Texture2D>> textures;
 
+        // Albedo/base-color/emissive textures encode authored colour in sRGB;
+        // the GPU should convert to linear on sample. Normal / metallic /
+        // roughness / AO / height maps store linear-space data already and
+        // must stay non-sRGB or the PBR math would be off by a gamma curve.
+        const bool srgb = (type == aiTextureType_DIFFUSE ||
+                           type == aiTextureType_BASE_COLOR ||
+                           type == aiTextureType_EMISSIVE);
+        // Cache key suffix: the colour-space is part of the texture's GPU
+        // identity, so two callers asking for the same on-disk path under
+        // different sRGB intents must not share the cached Ref. Suffix lives
+        // alongside the path in the key, not as a separate map, so the rest
+        // of the cache logic stays unchanged.
+        const std::string_view srgbSuffix = srgb ? "|srgb" : "|linear";
+
         for (u32 i = 0; i < mat->GetTextureCount(type); i++)
         {
             aiString str;
@@ -847,12 +864,12 @@ namespace OloEngine
             {
                 if (const aiTexture* embedded = scene->GetEmbeddedTexture(str.C_Str()))
                 {
-                    const std::string cacheKey = std::string{ "embedded|" } + str.C_Str();
+                    const std::string cacheKey = std::string{ "embedded|" } + str.C_Str() + std::string(srgbSuffix);
                     if (auto it = m_LoadedTextures.find(cacheKey); it != m_LoadedTextures.end())
                     {
                         textures.push_back(it->second);
                     }
-                    else if (auto decoded = CreateTextureFromEmbedded(embedded); decoded && decoded->IsLoaded())
+                    else if (auto decoded = CreateTextureFromEmbedded(embedded, srgb); decoded && decoded->IsLoaded())
                     {
                         m_LoadedTextures[cacheKey] = decoded;
                         textures.push_back(decoded);
@@ -866,12 +883,38 @@ namespace OloEngine
             }
 
             std::filesystem::path relativePath = str.C_Str();
+
+            // Reject absolute paths and parent-traversal ("..") components
+            // before any load attempt — same guard pattern AnimatedModel uses,
+            // so malformed model files can't reach outside m_Directory.
+            if (relativePath.is_absolute())
+            {
+                OLO_CORE_WARN("Model::LoadMaterialTextures: Rejecting absolute texture path '{}'", relativePath.string());
+                continue;
+            }
+            {
+                bool safe = true;
+                for (const auto& comp : relativePath)
+                {
+                    if (comp == "..")
+                    {
+                        safe = false;
+                        break;
+                    }
+                }
+                if (!safe)
+                {
+                    OLO_CORE_WARN("Model::LoadMaterialTextures: Rejecting texture path with traversal '{}'", relativePath.string());
+                    continue;
+                }
+            }
+
             std::filesystem::path texturePath = std::filesystem::path(m_Directory) / relativePath;
-            std::string texturePathStr = texturePath.string();
+            const std::string texturePathStr = texturePath.string() + std::string(srgbSuffix);
 
             if (!m_LoadedTextures.contains(texturePathStr))
             {
-                Ref<Texture2D> texture = Texture2D::Create(texturePathStr);
+                Ref<Texture2D> texture = Texture2D::Create(texturePath.string(), srgb);
 
                 if (texture && texture->IsLoaded())
                 {
@@ -884,15 +927,15 @@ namespace OloEngine
                     // that don't match the filesystem. Try just the filename in the model directory.
                     std::filesystem::path filenameOnly = relativePath.filename();
                     std::filesystem::path fallbackPath = std::filesystem::path(m_Directory) / filenameOnly;
-                    std::string fallbackPathStr = fallbackPath.string();
+                    const std::string fallbackPathStr = fallbackPath.string() + std::string(srgbSuffix);
 
                     bool loaded = false;
 
                     if (fallbackPathStr != texturePathStr && !m_LoadedTextures.contains(fallbackPathStr))
                     {
                         OLO_CORE_WARN("Model::LoadMaterialTextures: '{}' not found, trying fallback '{}'",
-                                      texturePathStr, fallbackPathStr);
-                        auto fallbackTexture = Texture2D::Create(fallbackPathStr);
+                                      texturePath.string(), fallbackPath.string());
+                        auto fallbackTexture = Texture2D::Create(fallbackPath.string(), srgb);
                         if (fallbackTexture && fallbackTexture->IsLoaded())
                         {
                             m_LoadedTextures[fallbackPathStr] = fallbackTexture;
@@ -913,9 +956,9 @@ namespace OloEngine
                         auto discovered = FindTextureInDirectory(std::filesystem::path(m_Directory), filenameOnly);
                         if (!discovered.empty())
                         {
-                            std::string discoveredStr = discovered.string();
+                            const std::string discoveredStr = discovered.string() + std::string(srgbSuffix);
                             OLO_CORE_WARN("Model::LoadMaterialTextures: Discovered '{}' via directory scan for '{}'",
-                                          discoveredStr, filenameOnly.string());
+                                          discovered.string(), filenameOnly.string());
                             if (m_LoadedTextures.contains(discoveredStr))
                             {
                                 textures.push_back(m_LoadedTextures[discoveredStr]);
@@ -923,7 +966,7 @@ namespace OloEngine
                             }
                             else
                             {
-                                auto discoveredTexture = Texture2D::Create(discoveredStr);
+                                auto discoveredTexture = Texture2D::Create(discovered.string(), srgb);
                                 if (discoveredTexture && discoveredTexture->IsLoaded())
                                 {
                                     m_LoadedTextures[discoveredStr] = discoveredTexture;
@@ -937,7 +980,7 @@ namespace OloEngine
                     if (!loaded)
                     {
                         OLO_CORE_WARN("Model::LoadMaterialTextures: Failed to load texture '{}' (tried original, filename-only, and directory scan)",
-                                      texturePathStr);
+                                      texturePath.string());
                     }
                 }
             }
@@ -1015,19 +1058,25 @@ namespace OloEngine
         std::filesystem::path albedoFilename;
         const auto modelDirectory = std::filesystem::path(m_Directory);
 
-        const auto loadTextureFromPath = [this](const std::filesystem::path& texturePath) -> Ref<Texture2D>
+        // Cache key includes the sRGB intent so a path loaded as linear here
+        // doesn't collide with the same path loaded as sRGB by
+        // LoadMaterialTextures (or vice versa). Today's call sites both pass
+        // srgb=false (auto-discovered normal / AO companions); the parameter
+        // exists so future callers can opt in without changing the lambda.
+        const auto loadTextureFromPath = [this](const std::filesystem::path& texturePath, bool srgb = false) -> Ref<Texture2D>
         {
             if (texturePath.empty())
                 return nullptr;
 
             const auto texturePathStr = texturePath.string();
-            if (auto it = m_LoadedTextures.find(texturePathStr); it != m_LoadedTextures.end())
+            const std::string cacheKey = texturePathStr + (srgb ? "|srgb" : "|linear");
+            if (auto it = m_LoadedTextures.find(cacheKey); it != m_LoadedTextures.end())
                 return it->second;
 
-            auto texture = Texture2D::Create(texturePathStr);
+            auto texture = Texture2D::Create(texturePathStr, srgb);
             if (texture && texture->IsLoaded())
             {
-                m_LoadedTextures[texturePathStr] = texture;
+                m_LoadedTextures[cacheKey] = texture;
                 return texture;
             }
 
@@ -1045,7 +1094,7 @@ namespace OloEngine
         // Albedo/Diffuse textures
         if (m_TextureOverride && !m_TextureOverride->AlbedoPath.empty())
         {
-            auto overrideTexture = Texture2D::Create(m_TextureOverride->AlbedoPath);
+            auto overrideTexture = Texture2D::Create(m_TextureOverride->AlbedoPath, /*srgb=*/true);
             if (overrideTexture && overrideTexture->IsLoaded())
             {
                 materialRef->SetAlbedoMap(overrideTexture);
@@ -1264,7 +1313,7 @@ namespace OloEngine
         // Emissive textures
         if (m_TextureOverride && !m_TextureOverride->EmissivePath.empty())
         {
-            auto overrideTexture = Texture2D::Create(m_TextureOverride->EmissivePath);
+            auto overrideTexture = Texture2D::Create(m_TextureOverride->EmissivePath, /*srgb=*/true);
             if (overrideTexture && overrideTexture->IsLoaded())
             {
                 materialRef->SetEmissiveMap(overrideTexture);
