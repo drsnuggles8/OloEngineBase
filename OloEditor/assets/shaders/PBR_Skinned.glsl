@@ -223,6 +223,16 @@ void main()
                                       u_LightPosition.xyz, u_LightDirection.xyz,
                                       u_LightDiffuse.rgb, u_LightAttParams, u_LightSpotParams);
     }
+    else if (lightType == SPHERE_AREA_LIGHT)
+    {
+        // Mirrors the PBR.glsl single-light packing: radius in spotParams.z,
+        // range in attenuationParams.w (see Scene::ProcessScene3DSharedLogic).
+        float sphereRadius = u_LightSpotParams.z;
+        float range        = u_LightAttParams.w;
+        Lo = calculateSphereAreaLightContribution(N, V, u_LightPosition.xyz, sphereRadius,
+                                                  u_LightDiffuse.rgb, 1.0, range,
+                                                  albedo, metallic, roughness, v_WorldPos);
+    }
 
     // Calculate ambient lighting
     vec3 ambient = vec3(0.0);
