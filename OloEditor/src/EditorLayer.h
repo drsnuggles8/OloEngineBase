@@ -178,7 +178,9 @@ namespace OloEngine
         bool m_ShowGPUResourceInspector = false;
         bool m_ShowCommandBucketInspector = false;
         bool m_ShowRendererProfiler = false;
-        bool m_ShowRenderGraphDebugger = true;
+        // Off by default — the debugger sits in OnImGuiRender every frame and
+        // tanks FPS while open. User opens it from the Window menu when needed.
+        bool m_ShowRenderGraphDebugger = false;
         bool m_ShowAssetPackBuilder = false;
         bool m_ShowBuildGame = false;
 
