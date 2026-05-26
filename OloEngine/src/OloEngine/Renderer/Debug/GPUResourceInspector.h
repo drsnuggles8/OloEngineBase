@@ -268,6 +268,18 @@ namespace OloEngine
         static GLenum GetBufferBindingQuery(GLenum target);
 
       private:
+        // Deferred Save-to-File request. The Save button populates this snapshot
+        // under m_ResourceMutex; RenderDebugView processes it AFTER the mutex
+        // is released so the modal file dialog + GL readback can't block
+        // background registrations / unregistrations.
+        struct PendingSaveRequest
+        {
+            bool m_Active = false;
+            TextureInfo m_Info{}; // member-wise copy; safe to use without the mutex
+        };
+        void ProcessPendingSaveRequest();
+
+      private:
         std::unordered_map<u32, std::unique_ptr<ResourceInfo>> m_Resources;
         std::vector<TextureDownloadRequest> m_TextureDownloads;
 
@@ -277,6 +289,7 @@ namespace OloEngine
         std::string m_SearchFilter;
         bool m_ShowInactiveResources = true;
         bool m_AutoUpdatePreviews = true;
+        PendingSaveRequest m_PendingSaveRequest;
 
         // Statistics
         std::array<u32, static_cast<sizet>(ResourceType::COUNT)> m_ResourceCounts{};

@@ -20,13 +20,15 @@ namespace OloEngine
 {
     namespace
     {
-        // Encoder selection for SaveTextureToFile. PNG covers .png/.bmp/.jpg/.tga/.jpeg by way of
-        // stb_image_write's 8-bit encoders; HDR (Radiance .hdr) takes float input. Unknown
-        // extensions fall back to PNG so the user gets a usable file rather than a hard error.
+        // Encoder selection for SaveTextureToFile. We only emit PNG (for 8-bit
+        // outputs) and Radiance HDR (for float outputs). Other extensions like
+        // .bmp / .jpg / .tga used to silently fall through to PNG bytes in a
+        // misnamed file — return Unsupported instead so the caller errors out.
         enum class TextureSaveEncoder
         {
             Png,
-            Hdr
+            Hdr,
+            Unsupported
         };
 
         TextureSaveEncoder PickEncoderFromExtension(const std::string& filePath)
@@ -38,7 +40,9 @@ namespace OloEngine
                            { return static_cast<char>(std::tolower(c)); });
             if (ext == ".hdr")
                 return TextureSaveEncoder::Hdr;
-            return TextureSaveEncoder::Png;
+            if (ext == ".png")
+                return TextureSaveEncoder::Png;
+            return TextureSaveEncoder::Unsupported;
         }
 
         // Map a GL format token to the number of channels stb_image_write should receive.
@@ -633,6 +637,14 @@ namespace OloEngine
         const u32 height = std::max(1u, info.m_Height >> mipLevel);
 
         const TextureSaveEncoder encoder = PickEncoderFromExtension(filePath);
+        if (encoder == TextureSaveEncoder::Unsupported)
+        {
+            const std::string ext = std::filesystem::path(filePath).extension().string();
+            OLO_CORE_ERROR("[GPUResourceInspector] SaveTextureToFile: unsupported file extension '{}' "
+                           "(only .png and .hdr are supported)",
+                           ext.empty() ? "<none>" : ext);
+            return false;
+        }
         const bool wantFloatOutput = (encoder == TextureSaveEncoder::Hdr);
 
         // Always read in the source texture's native precision. Mixing a float
@@ -657,6 +669,16 @@ namespace OloEngine
         glGetIntegerv(GL_PACK_ALIGNMENT, &prevPackAlignment);
         glPixelStorei(GL_PACK_ALIGNMENT, 1);
 
+        // Unbind any GL_PIXEL_PACK_BUFFER while reading into a CPU pointer.
+        // If a PBO is bound (e.g. mid-RequestTextureDownload), the readBuffer
+        // pointer would be reinterpreted as a byte offset into the PBO instead
+        // of an address, producing garbage or a crash. Save/restore mirrors the
+        // pattern used for PACK_ALIGNMENT above.
+        GLint prevPackPBO = 0;
+        glGetIntegerv(GL_PIXEL_PACK_BUFFER_BINDING, &prevPackPBO);
+        if (prevPackPBO != 0)
+            glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
+
         glGetTextureSubImage(info.m_RendererID,
                              static_cast<GLint>(mipLevel),
                              0, 0, zOffset,
@@ -668,6 +690,8 @@ namespace OloEngine
                              static_cast<GLsizei>(readBufferBytes),
                              readBuffer.data());
 
+        if (prevPackPBO != 0)
+            glBindBuffer(GL_PIXEL_PACK_BUFFER, static_cast<GLuint>(prevPackPBO));
         glPixelStorei(GL_PACK_ALIGNMENT, prevPackAlignment);
 
         if (GLenum err = glGetError(); err != GL_NO_ERROR)
@@ -1226,6 +1250,40 @@ namespace OloEngine
         ImGui::EndChild();
 
         ImGui::End();
+
+        // Run any deferred Save-to-File now that m_ResourceMutex (held inside
+        // RenderResourceDetails) is released. The dialog blocks the UI thread
+        // but no longer blocks the background-thread registration paths.
+        ProcessPendingSaveRequest();
+    }
+
+    void GPUResourceInspector::ProcessPendingSaveRequest()
+    {
+        if (!m_PendingSaveRequest.m_Active)
+            return;
+
+        // Move the snapshot out so a re-entrant Save click during the dialog
+        // (theoretical: dialogs spin a message loop) can't stomp it.
+        const TextureInfo snapshot = m_PendingSaveRequest.m_Info;
+        m_PendingSaveRequest.m_Active = false;
+        m_PendingSaveRequest.m_Info = {};
+
+        // Filter pairs are "Label\0pattern\0..." per the existing FileDialogs convention.
+        // The Windows backend pulls the default extension from the first pattern (the byte
+        // after the first NUL of the wildcard), so order the float-format option first when
+        // the texture is float so the user gets a sensible default.
+        const bool isFloat = (snapshot.m_DataType == GL_FLOAT || snapshot.m_DataType == GL_HALF_FLOAT);
+        const char* filter = isFloat
+                                 ? "Radiance HDR (*.hdr)\0*.hdr\0PNG (*.png)\0*.png\0"
+                                 : "PNG (*.png)\0*.png\0Radiance HDR (*.hdr)\0*.hdr\0";
+        const std::string path = FileDialogs::SaveFile(filter);
+        if (path.empty())
+            return;
+
+        if (SaveTextureToFile(snapshot, path, snapshot.m_SelectedMipLevel, snapshot.m_SelectedCubemapFace))
+        {
+            OLO_CORE_INFO("[GPUResourceInspector] Texture {} saved to '{}'", snapshot.m_RendererID, path);
+        }
     }
 
     void GPUResourceInspector::RenderResourceTree()
@@ -1419,22 +1477,15 @@ namespace OloEngine
         ImGui::SameLine();
         if (ImGui::Button("Save to File"))
         {
-            // Filter pairs are "Label\0pattern\0..." per the existing FileDialogs convention.
-            // The Windows backend pulls the default extension from the first pattern (the byte
-            // after the first NUL of the wildcard), so order the float-format option first when
-            // the texture is float so the user gets a sensible default.
-            const bool isFloat = (info.m_DataType == GL_FLOAT || info.m_DataType == GL_HALF_FLOAT);
-            const char* filter = isFloat
-                                     ? "Radiance HDR (*.hdr)\0*.hdr\0PNG (*.png)\0*.png\0"
-                                     : "PNG (*.png)\0*.png\0Radiance HDR (*.hdr)\0*.hdr\0";
-            std::string path = FileDialogs::SaveFile(filter);
-            if (!path.empty())
-            {
-                if (SaveTextureToFile(info, path, info.m_SelectedMipLevel, info.m_SelectedCubemapFace))
-                {
-                    OLO_CORE_INFO("[GPUResourceInspector] Texture {} saved to '{}'", info.m_RendererID, path);
-                }
-            }
+            // Defer the actual save until after RenderResourceDetails returns.
+            // Doing the modal FileDialogs::SaveFile() + GL readback here would
+            // hold m_ResourceMutex across the dialog — any background thread
+            // calling RegisterTexture / UnregisterResource would block until
+            // the user dismissed the dialog. Snapshot the TextureInfo now
+            // (cheap memberwise copy) and let ProcessPendingSaveRequest()
+            // pick it up below.
+            m_PendingSaveRequest.m_Active = true;
+            m_PendingSaveRequest.m_Info = info;
         }
         if (m_AutoUpdatePreviews || ImGui::IsItemClicked())
         {

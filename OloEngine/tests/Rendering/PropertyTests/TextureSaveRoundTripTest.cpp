@@ -240,8 +240,10 @@ namespace OloEngine::Tests
         ::stbi_set_flip_vertically_on_load_thread(0);
         u8* loaded = ::stbi_load(path.string().c_str(), &rw, &rh, &rc, 4);
         ASSERT_NE(loaded, nullptr) << "Failed to reload PNG: " << ::stbi_failure_reason();
-        EXPECT_EQ(rw, static_cast<int>(W));
-        EXPECT_EQ(rh, static_cast<int>(H));
+        // ASSERT on dimensions: the memcmp below would OOB-read if the reloaded
+        // image is smaller than expected.
+        ASSERT_EQ(rw, static_cast<int>(W));
+        ASSERT_EQ(rh, static_cast<int>(H));
 
         const sizet expected = static_cast<sizet>(W) * H * 4;
         EXPECT_EQ(0, std::memcmp(loaded, src.data(), expected));
@@ -269,10 +271,15 @@ namespace OloEngine::Tests
         ASSERT_TRUE(GPUResourceInspector::GetInstance().SaveTextureToFile(info, path.string(), 0));
 
         int rw = 0, rh = 0, rc = 0;
+        // Reset stbi flip flags before reload — production paths (OpenGLTexture.cpp,
+        // AssetSerializer.cpp) leave the thread-local flag set, which would return
+        // the pixels vertically flipped relative to src and fail the comparison.
+        ::stbi_set_flip_vertically_on_load(0);
+        ::stbi_set_flip_vertically_on_load_thread(0);
         u8* loaded = ::stbi_load(path.string().c_str(), &rw, &rh, &rc, 3);
         ASSERT_NE(loaded, nullptr) << "Failed to reload PNG: " << ::stbi_failure_reason();
-        EXPECT_EQ(rw, static_cast<int>(W));
-        EXPECT_EQ(rh, static_cast<int>(H));
+        ASSERT_EQ(rw, static_cast<int>(W));
+        ASSERT_EQ(rh, static_cast<int>(H));
 
         const sizet expected = static_cast<sizet>(W) * H * 3;
         EXPECT_EQ(0, std::memcmp(loaded, src.data(), expected));
@@ -375,8 +382,8 @@ namespace OloEngine::Tests
         int rw = 0, rh = 0, rc = 0;
         u8* loaded = ::stbi_load(path.string().c_str(), &rw, &rh, &rc, 4);
         ASSERT_NE(loaded, nullptr) << ::stbi_failure_reason();
-        EXPECT_EQ(rw, static_cast<int>(W));
-        EXPECT_EQ(rh, static_cast<int>(H));
+        ASSERT_EQ(rw, static_cast<int>(W));
+        ASSERT_EQ(rh, static_cast<int>(H));
 
         // Verify the clamp+quantise: each pixel matches round(clamp(src,0,1)*255).
         for (u32 i = 0; i < static_cast<u32>(W) * H * 4; ++i)
@@ -404,9 +411,14 @@ namespace OloEngine::Tests
         GLuint id = 0;
         ::glCreateTextures(GL_TEXTURE_2D, 1, &id);
         ::glTextureStorage2D(id, 1, GL_R32F, static_cast<GLsizei>(W), static_cast<GLsizei>(H));
+        // Save/restore GL_UNPACK_ALIGNMENT so we don't pollute subsequent
+        // tests in the same process with our tight-packed setting.
+        GLint prevUnpack = 4;
+        ::glGetIntegerv(GL_UNPACK_ALIGNMENT, &prevUnpack);
         ::glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
         ::glTextureSubImage2D(id, 0, 0, 0, static_cast<GLsizei>(W), static_cast<GLsizei>(H),
                               GL_RED, GL_FLOAT, src.data());
+        ::glPixelStorei(GL_UNPACK_ALIGNMENT, prevUnpack);
         ScopedTexture texOwner{ id };
 
         auto info = MakeTexture2DInfo(id, W, H, GL_R32F, GL_RED, GL_FLOAT);
@@ -421,8 +433,8 @@ namespace OloEngine::Tests
         // Force-load as 1 channel; saved PNG is grayscale.
         u8* loaded = ::stbi_load(path.string().c_str(), &rw, &rh, &rc, 1);
         ASSERT_NE(loaded, nullptr) << ::stbi_failure_reason();
-        EXPECT_EQ(rw, static_cast<int>(W));
-        EXPECT_EQ(rh, static_cast<int>(H));
+        ASSERT_EQ(rw, static_cast<int>(W));
+        ASSERT_EQ(rh, static_cast<int>(H));
 
         for (u32 i = 0; i < src.size(); ++i)
         {
@@ -457,8 +469,8 @@ namespace OloEngine::Tests
         ::stbi_set_flip_vertically_on_load_thread(0);
         f32* loaded = ::stbi_loadf(path.string().c_str(), &rw, &rh, &rc, 3);
         ASSERT_NE(loaded, nullptr) << "Failed to reload HDR: " << ::stbi_failure_reason();
-        EXPECT_EQ(rw, static_cast<int>(W));
-        EXPECT_EQ(rh, static_cast<int>(H));
+        ASSERT_EQ(rw, static_cast<int>(W));
+        ASSERT_EQ(rh, static_cast<int>(H));
 
         // RGBE shares one 8-bit exponent across RGB → max relative error per
         // channel is ~1/256 of the shared mantissa peak. 1% tolerance is safe.
@@ -531,8 +543,8 @@ namespace OloEngine::Tests
         ::stbi_set_flip_vertically_on_load_thread(0);
         u8* loaded = ::stbi_load(path.string().c_str(), &rw, &rh, &rc, 4);
         ASSERT_NE(loaded, nullptr) << "Failed to reload cubemap PNG: " << ::stbi_failure_reason();
-        EXPECT_EQ(rw, static_cast<int>(SIZE));
-        EXPECT_EQ(rh, static_cast<int>(SIZE));
+        ASSERT_EQ(rw, static_cast<int>(SIZE));
+        ASSERT_EQ(rh, static_cast<int>(SIZE));
 
         const sizet bytes = static_cast<sizet>(SIZE) * SIZE * 4;
         EXPECT_EQ(0, std::memcmp(loaded, faces[FACE].data(), bytes))
@@ -599,6 +611,21 @@ namespace OloEngine::Tests
             auto path = MakeTempPath("invalid_packed.png");
             ScopedFile fileOwner{ path };
             EXPECT_FALSE(inspector.SaveTextureToFile(info, path.string(), 0));
+            EXPECT_FALSE(std::filesystem::exists(path));
+        }
+
+        // Unsupported extension — .jpg/.bmp/.tga used to silently get PNG
+        // bytes written under the wrong name. Now we reject them up front.
+        for (const char* badExt : { ".jpg", ".bmp", ".tga", "" })
+        {
+            std::vector<u8> src = MakeRgba8Pattern(4, 4);
+            GLuint id = static_cast<GLuint>(CreateRgba8Texture2D(4, 4, src.data()));
+            ScopedTexture texOwner{ id };
+            auto info = MakeTexture2DInfo(id, 4, 4, GL_RGBA8, GL_RGBA, GL_UNSIGNED_BYTE);
+            auto path = MakeTempPath(std::string("invalid_ext") + badExt);
+            ScopedFile fileOwner{ path };
+            EXPECT_FALSE(inspector.SaveTextureToFile(info, path.string(), 0))
+                << "Extension '" << badExt << "' should be rejected";
             EXPECT_FALSE(std::filesystem::exists(path));
         }
     }
