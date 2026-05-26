@@ -4497,9 +4497,16 @@ TEST(RenderGraphTransientPool, ResizeEvictsStalePoolEntries)
     // content into the new-size target → visible "duplicated, offset"
     // ghost geometry exactly as reported on master 2026-05-25).
     //
-    // This test exercises the contract without a GL context by walking the
-    // pool's internal accounting directly. It will fail if a future change
-    // drops the `m_TransientPool.Clear()` call from RenderGraph::Resize.
+    // We populate the pool with real Acquire+ReleaseAll cycles (which
+    // requires a live GL backend) so the post-Resize stats actually
+    // discriminate the bug: with Clear() removed from RenderGraph::Resize,
+    // those buckets would survive the dimension change.
+
+    if (RendererAPI::GetAPI() == RendererAPI::API::None)
+        GTEST_SKIP() << "TransientPool resize eviction requires an active rendering backend";
+
+    OloEngine::Tests::RenderPropertyFixture::IsGpuAvailable();
+    OLO_ENSURE_GPU_OR_SKIP();
 
     RenderGraph graph;
 
@@ -4507,17 +4514,35 @@ TEST(RenderGraphTransientPool, ResizeEvictsStalePoolEntries)
     // Resize() doesn't fire on the test's initial call. (Same-dimension
     // resizes intentionally skip the Clear to avoid churn on idle frames.)
     graph.Resize(640, 360);
-
-    // Surrogate population: use Trim() on a tiny bucket cap to confirm
-    // baseline behaviour, then resize and verify the post-Resize stats
-    // remain empty (no GL context means we can't actually populate the
-    // pool here, but the Resize contract — "buckets empty after dim
-    // change" — still must hold for a fresh graph).
     graph.SetTransientPoolMaxBucketSize(2u);
 
+    // Populate both pool buckets via real Acquire calls, then ReleaseAll
+    // so the resources are returned to their per-spec buckets (Acquire
+    // pulls from the bucket into m_AcquiredX; only ReleaseAll moves them
+    // back to the bucket where GetStats can see them).
+    {
+        TransientPool& pool = graph.GetTransientPool();
+
+        TextureSpecification texSpec;
+        texSpec.Width = 640;
+        texSpec.Height = 360;
+        texSpec.Format = ImageFormat::RGBA8;
+        (void)pool.AcquireTexture(texSpec);
+
+        FramebufferSpecification fbSpec;
+        fbSpec.Width = 640;
+        fbSpec.Height = 360;
+        fbSpec.Attachments = { FramebufferTextureFormat::RGBA8 };
+        (void)pool.AcquireFramebuffer(fbSpec);
+
+        pool.ReleaseAll();
+    }
+
     const auto before = graph.GetTransientPool().GetStats();
-    EXPECT_EQ(before.FramebufferPoolSize, 0u);
-    EXPECT_EQ(before.TexturePoolSize, 0u);
+    EXPECT_GT(before.FramebufferPoolSize, 0u)
+        << "Sanity: ReleaseAll should have parked the framebuffer in its bucket.";
+    EXPECT_GT(before.TexturePoolSize, 0u)
+        << "Sanity: ReleaseAll should have parked the texture in its bucket.";
 
     graph.Resize(1280, 720); // dimensions changed → must invoke Clear()
 

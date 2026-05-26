@@ -179,12 +179,27 @@ namespace OloEngine::Tests
 
         HZBGenerator gen;
 
-        constexpr u32 kHeights[] = { 1080u, 1054u, 1040u, 1024u, 1020u, 1010u };
+        // Every value must be strictly greater than 1024 so NextPow2(h) is
+        // 2048 for the whole walk — the test name says "same-bucket", and
+        // 1024u is itself a power of two (NextPow2(1024) == 1024) so any
+        // value ≤ 1024 would drop into a different bucket and trigger the
+        // texture-re-create path instead of exercising the early-return.
+        constexpr u32 kHeights[] = { 1080u, 1054u, 1040u, 1030u, 1027u, 1025u };
+        constexpr u32 kExpectedBucket = NextPow2(kHeights[0]);
         for (const u32 h : kHeights)
         {
+            ASSERT_EQ(NextPow2(h), kExpectedBucket)
+                << "kHeights must all land in the same power-of-2 bucket; "
+                   "h="
+                << h << " maps to " << NextPow2(h)
+                << " but the chain expects " << kExpectedBucket;
+
             gen.Resize(1920u, h);
 
-            EXPECT_EQ(gen.GetHZBHeight(), NextPow2(h));
+            EXPECT_EQ(gen.GetHZBHeight(), kExpectedBucket)
+                << "Same-bucket resize must not re-create the HZB texture; "
+                   "h="
+                << h;
             const auto expected = ExpectedUVFactor(1920u, h);
             const auto actual = gen.GetUVFactor();
             EXPECT_FLOAT_EQ(actual.x, expected.x) << "viewport height " << h;
