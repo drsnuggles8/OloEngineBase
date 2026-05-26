@@ -4555,11 +4555,40 @@ TEST(RenderGraphTransientPool, ResizeEvictsStalePoolEntries)
 
     // A no-op resize (same dimensions) must not churn the pool — it's a
     // common case during idle frames where the editor recomputes the
-    // viewport size and re-emits the existing values.
+    // viewport size and re-emits the existing values. Re-populate the
+    // pool at the post-resize dimensions so the assertion can actually
+    // discriminate eviction from a steady state.
+    {
+        TransientPool& pool = graph.GetTransientPool();
+
+        TextureSpecification texSpec;
+        texSpec.Width = 1280;
+        texSpec.Height = 720;
+        texSpec.Format = ImageFormat::RGBA8;
+        (void)pool.AcquireTexture(texSpec);
+
+        FramebufferSpecification fbSpec;
+        fbSpec.Width = 1280;
+        fbSpec.Height = 720;
+        fbSpec.Attachments = { FramebufferTextureFormat::RGBA8 };
+        (void)pool.AcquireFramebuffer(fbSpec);
+
+        pool.ReleaseAll();
+    }
+
+    const auto beforeNoOp = graph.GetTransientPool().GetStats();
+    ASSERT_GT(beforeNoOp.FramebufferPoolSize, 0u)
+        << "Sanity: re-populated framebuffer pool should be non-empty before the no-op resize.";
+    ASSERT_GT(beforeNoOp.TexturePoolSize, 0u)
+        << "Sanity: re-populated texture pool should be non-empty before the no-op resize.";
+
     graph.Resize(1280, 720);
     const auto idle = graph.GetTransientPool().GetStats();
-    EXPECT_EQ(idle.FramebufferPoolSize, 0u);
-    EXPECT_EQ(idle.TexturePoolSize, 0u);
+    EXPECT_EQ(idle.FramebufferPoolSize, beforeNoOp.FramebufferPoolSize)
+        << "Same-dimension resize must not churn the framebuffer pool.";
+    EXPECT_EQ(idle.TexturePoolSize, beforeNoOp.TexturePoolSize)
+        << "Same-dimension resize must not churn the texture pool.";
+    EXPECT_EQ(idle.BufferPoolSize, beforeNoOp.BufferPoolSize);
 }
 
 TEST(RenderGraphTransientPool, UnreachableTransientResourceIsNotPlannedForAllocation)
