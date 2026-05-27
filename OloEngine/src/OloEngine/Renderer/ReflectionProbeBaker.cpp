@@ -20,7 +20,7 @@
 namespace OloEngine
 {
     i32 SelectDominantReflectionProbe(const glm::vec3& cameraPosition,
-                                       std::span<const ReflectionProbeRef> probes)
+                                      std::span<const ReflectionProbeRef> probes)
     {
         f32 bestDistSq = std::numeric_limits<f32>::max();
         i32 bestIndex = -1;
@@ -72,74 +72,74 @@ namespace OloEngine
                                                                   const glm::vec3& position,
                                                                   u32 resolution)
     {
-            OLO_PROFILE_FUNCTION();
+        OLO_PROFILE_FUNCTION();
 
-            CubemapSpecification cubemapSpec;
-            cubemapSpec.Width = resolution;
-            cubemapSpec.Height = resolution;
-            cubemapSpec.Format = ImageFormat::RGBA32F;
-            cubemapSpec.GenerateMips = true;
-            auto cubemap = TextureCubemap::Create(cubemapSpec);
-            if (!cubemap)
-            {
-                OLO_CORE_ERROR("ReflectionProbeBaker: failed to allocate cubemap ({}x{} RGBA32F)", resolution, resolution);
-                return nullptr;
-            }
+        CubemapSpecification cubemapSpec;
+        cubemapSpec.Width = resolution;
+        cubemapSpec.Height = resolution;
+        cubemapSpec.Format = ImageFormat::RGBA32F;
+        cubemapSpec.GenerateMips = true;
+        auto cubemap = TextureCubemap::Create(cubemapSpec);
+        if (!cubemap)
+        {
+            OLO_CORE_ERROR("ReflectionProbeBaker: failed to allocate cubemap ({}x{} RGBA32F)", resolution, resolution);
+            return nullptr;
+        }
 
-            FramebufferSpecification fbSpec;
-            fbSpec.Width = resolution;
-            fbSpec.Height = resolution;
-            fbSpec.Attachments = { FramebufferTextureFormat::RGBA32F, FramebufferTextureFormat::Depth };
-            auto fbo = Framebuffer::Create(fbSpec);
-            if (!fbo)
-            {
-                OLO_CORE_ERROR("ReflectionProbeBaker: failed to allocate capture framebuffer");
-                return nullptr;
-            }
+        FramebufferSpecification fbSpec;
+        fbSpec.Width = resolution;
+        fbSpec.Height = resolution;
+        fbSpec.Attachments = { FramebufferTextureFormat::RGBA32F, FramebufferTextureFormat::Depth };
+        auto fbo = Framebuffer::Create(fbSpec);
+        if (!fbo)
+        {
+            OLO_CORE_ERROR("ReflectionProbeBaker: failed to allocate capture framebuffer");
+            return nullptr;
+        }
 
-            // 90° FOV per face — 6 faces cover the full sphere with no overlap.
-            // Far plane is generous; near plane small enough to capture nearby
-            // walls when the probe sits inside an enclosed room.
-            Camera const captureCamera(glm::perspective(glm::radians(90.0f), 1.0f, 0.1f, 1000.0f));
+        // 90° FOV per face — 6 faces cover the full sphere with no overlap.
+        // Far plane is generous; near plane small enough to capture nearby
+        // walls when the probe sits inside an enclosed room.
+        Camera const captureCamera(glm::perspective(glm::radians(90.0f), 1.0f, 0.1f, 1000.0f));
 
-            // Preallocate readback buffer — 4 floats per pixel (RGBA32F).
-            sizet const faceBytes = static_cast<sizet>(resolution) * resolution * 4u * sizeof(f32);
-            std::vector<f32> pixelBuffer(faceBytes / sizeof(f32));
+        // Preallocate readback buffer — 4 floats per pixel (RGBA32F).
+        sizet const faceBytes = static_cast<sizet>(resolution) * resolution * 4u * sizeof(f32);
+        std::vector<f32> pixelBuffer(faceBytes / sizeof(f32));
 
-            for (u32 face = 0; face < 6; ++face)
-            {
-                glm::mat4 const view = glm::lookAt(position, position + s_FaceTargets[face], s_FaceUps[face]);
-                glm::mat4 const transform = glm::inverse(view);
+        for (u32 face = 0; face < 6; ++face)
+        {
+            glm::mat4 const view = glm::lookAt(position, position + s_FaceTargets[face], s_FaceUps[face]);
+            glm::mat4 const transform = glm::inverse(view);
 
-                fbo->Bind();
-                RenderCommand::SetViewport(0, 0, resolution, resolution);
-                fbo->ClearAllAttachments(glm::vec4(0.0f, 0.0f, 0.0f, 1.0f));
+            fbo->Bind();
+            RenderCommand::SetViewport(0, 0, resolution, resolution);
+            fbo->ClearAllAttachments(glm::vec4(0.0f, 0.0f, 0.0f, 1.0f));
 
-                scene->RenderScene3D(captureCamera, transform);
+            scene->RenderScene3D(captureCamera, transform);
 
-                // Read back the rendered face. Using glGetTextureImage avoids
-                // the FBO-bound restriction of glReadPixels and lets the driver
-                // pick its preferred path.
-                u32 const colorAttachmentID = fbo->GetColorAttachmentRendererID(0);
-                glGetTextureImage(colorAttachmentID, 0, GL_RGBA, GL_FLOAT,
-                                  static_cast<GLsizei>(faceBytes),
-                                  pixelBuffer.data());
+            // Read back the rendered face. Using glGetTextureImage avoids
+            // the FBO-bound restriction of glReadPixels and lets the driver
+            // pick its preferred path.
+            u32 const colorAttachmentID = fbo->GetColorAttachmentRendererID(0);
+            glGetTextureImage(colorAttachmentID, 0, GL_RGBA, GL_FLOAT,
+                              static_cast<GLsizei>(faceBytes),
+                              pixelBuffer.data());
 
-                fbo->Unbind();
+            fbo->Unbind();
 
-                // Upload into the cubemap face. SetFaceData triggers
-                // glGenerateTextureMipmap on every call; redundant on faces
-                // 0-4 but harmless and keeps the API surface small. Bake is an
-                // editor-time interactive action so the cost is acceptable.
-                cubemap->SetFaceData(face, pixelBuffer.data(), static_cast<u32>(faceBytes));
-            }
+            // Upload into the cubemap face. SetFaceData triggers
+            // glGenerateTextureMipmap on every call; redundant on faces
+            // 0-4 but harmless and keeps the API surface small. Bake is an
+            // editor-time interactive action so the cost is acceptable.
+            cubemap->SetFaceData(face, pixelBuffer.data(), static_cast<u32>(faceBytes));
+        }
 
         return cubemap;
     }
 
     bool ReflectionProbeBaker::BakeProbe(Ref<Scene>& scene,
-                                          const glm::vec3& position,
-                                          ReflectionProbeComponent& probe)
+                                         const glm::vec3& position,
+                                         ReflectionProbeComponent& probe)
     {
         OLO_PROFILE_FUNCTION();
 
