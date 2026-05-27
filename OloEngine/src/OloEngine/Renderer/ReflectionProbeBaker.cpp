@@ -74,9 +74,18 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
+        // Defense in depth: BakeProbe already clamps, but this is private and
+        // any future caller could pass 0 (GL undefined) or huge values (OOM).
+        // Literal bounds match BakeProbe and SceneSerializer's deserialize clamp.
+        u32 const clampedResolution = std::clamp(resolution, 16u, 2048u);
+        if (clampedResolution != resolution)
+        {
+            OLO_CORE_WARN("ReflectionProbeBaker::CaptureSceneCubemap: resolution {} clamped to {}", resolution, clampedResolution);
+        }
+
         CubemapSpecification cubemapSpec;
-        cubemapSpec.Width = resolution;
-        cubemapSpec.Height = resolution;
+        cubemapSpec.Width = clampedResolution;
+        cubemapSpec.Height = clampedResolution;
         cubemapSpec.Format = ImageFormat::RGBA32F;
         cubemapSpec.GenerateMips = true;
         auto cubemap = TextureCubemap::Create(cubemapSpec);
@@ -87,8 +96,8 @@ namespace OloEngine
         }
 
         FramebufferSpecification fbSpec;
-        fbSpec.Width = resolution;
-        fbSpec.Height = resolution;
+        fbSpec.Width = clampedResolution;
+        fbSpec.Height = clampedResolution;
         fbSpec.Attachments = { FramebufferTextureFormat::RGBA32F, FramebufferTextureFormat::Depth };
         auto fbo = Framebuffer::Create(fbSpec);
         if (!fbo)
@@ -103,7 +112,7 @@ namespace OloEngine
         Camera const captureCamera(glm::perspective(glm::radians(90.0f), 1.0f, 0.1f, 1000.0f));
 
         // Preallocate readback buffer — 4 floats per pixel (RGBA32F).
-        sizet const faceBytes = static_cast<sizet>(resolution) * resolution * 4u * sizeof(f32);
+        sizet const faceBytes = static_cast<sizet>(clampedResolution) * clampedResolution * 4u * sizeof(f32);
         std::vector<f32> pixelBuffer(faceBytes / sizeof(f32));
 
         for (u32 face = 0; face < 6; ++face)
@@ -112,7 +121,7 @@ namespace OloEngine
             glm::mat4 const transform = glm::inverse(view);
 
             fbo->Bind();
-            RenderCommand::SetViewport(0, 0, resolution, resolution);
+            RenderCommand::SetViewport(0, 0, clampedResolution, clampedResolution);
             fbo->ClearAllAttachments(glm::vec4(0.0f, 0.0f, 0.0f, 1.0f));
 
             scene->RenderScene3D(captureCamera, transform);
