@@ -132,6 +132,7 @@ namespace OloEngine
             AppendChange(changes, "ShowLightGizmos", before.ShowLightGizmos, after.ShowLightGizmos);
             AppendChange(changes, "ShowWorldAxisHelper", before.ShowWorldAxisHelper, after.ShowWorldAxisHelper);
             AppendChange(changes, "ShowCameraFrustums", before.ShowCameraFrustums, after.ShowCameraFrustums);
+            AppendChange(changes, "ShowBoundingBoxes", before.ShowBoundingBoxes, after.ShowBoundingBoxes);
             AppendChange(changes, "DebugVelocityOverlayForward", before.DebugVelocityOverlayForward, after.DebugVelocityOverlayForward);
 
             SettingsChangeLog::EmitLog("RendererSettingsPanel", changes);
@@ -686,6 +687,10 @@ namespace OloEngine
                 m_DebugSettingsChanged = true;
             }
             if (ImGui::Checkbox("Show Camera Frustums", &settings.ShowCameraFrustums))
+            {
+                m_DebugSettingsChanged = true;
+            }
+            if (ImGui::Checkbox("Show Bounding Boxes", &settings.ShowBoundingBoxes))
             {
                 m_DebugSettingsChanged = true;
             }

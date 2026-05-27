@@ -4824,6 +4824,56 @@ namespace OloEngine
             }
         }
 
+        // Draw world-space AABB gizmos around mesh entities. Same box the
+        // frustum culler uses, so a missing wireframe here means the entity
+        // also fails the visibility test.
+        if (Renderer3D::GetRendererSettings().ShowBoundingBoxes)
+        {
+            const glm::vec3 bboxColor(0.3f, 0.9f, 1.0f);
+            const glm::quat noRotation(1.0f, 0.0f, 0.0f, 0.0f);
+
+            auto drawWorldAABB = [&](const BoundingBox& worldAABB)
+            {
+                // Skip degenerate boxes — any non-positive axis means either a
+                // default-constructed box, a flat-plane mesh (one zero axis),
+                // a line/point (two or three zero axes), or an inverted box.
+                // None render as a meaningful wireframe. A flat plane's "AABB"
+                // is just the plane itself, so hiding it costs nothing useful.
+                const glm::vec3 size = worldAABB.GetSize();
+                if (size.x <= 0.0f || size.y <= 0.0f || size.z <= 0.0f)
+                    return;
+                Renderer3D::DrawBoxColliderGizmo(worldAABB.GetCenter(), worldAABB.GetExtents(), noRotation, bboxColor);
+            };
+
+            // Static MeshComponent entities — animated ones (SkeletonComponent)
+            // are skipped because their bone gizmos already convey extents,
+            // and their pre-skinning AABB doesn't reflect the posed silhouette.
+            {
+                auto view = m_Registry.view<TransformComponent, MeshComponent>();
+                for (auto entity : view)
+                {
+                    if (m_Registry.all_of<SkeletonComponent>(entity))
+                        continue;
+                    const auto& [tc, mc] = view.get<TransformComponent, MeshComponent>(entity);
+                    if (!mc.m_MeshSource)
+                        continue;
+                    drawWorldAABB(mc.m_MeshSource->GetBoundingBox().Transform(tc.GetTransform()));
+                }
+            }
+
+            // ModelComponent entities
+            {
+                auto view = m_Registry.view<TransformComponent, ModelComponent>();
+                for (auto entity : view)
+                {
+                    const auto& [tc, modelComp] = view.get<TransformComponent, ModelComponent>(entity);
+                    if (!modelComp.m_Model || !modelComp.m_Visible)
+                        continue;
+                    drawWorldAABB(modelComp.m_Model->GetTransformedBoundingBox(tc.GetTransform()));
+                }
+            }
+        }
+
         // Set particle render callback — executed by ParticleRenderPass during graph execution
         Renderer3D::SetParticleRenderCallback([this, &camera]()
                                               {

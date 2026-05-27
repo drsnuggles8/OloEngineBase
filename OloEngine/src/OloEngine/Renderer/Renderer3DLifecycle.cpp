@@ -117,18 +117,32 @@ namespace OloEngine
         s_Data.SphereMesh = MeshPrimitives::CreateIcosphere(1.0f, 2);
         s_Data.QuadMesh = MeshPrimitives::CreatePlane(1.0f, 1.0f);
         s_Data.SkyboxMesh = MeshPrimitives::CreateSkyboxCube();
-        // Cached unit line quad (length 1 along +X, centered on X with half-thickness of 0.5 on Y)
-        // We'll scale/rotate/translate this via a transform in DrawLine.
+        // Cached unit line mesh — a perpendicular cross of two quads (XY plane + XZ plane),
+        // both length 1 along +X with half-extent 0.5 on the cross axes. A single planar
+        // quad would vanish when the camera's view direction is parallel to the quad's
+        // normal (the typical "I rotated to look down an axis and the AABB disappeared"
+        // failure). The cross has visible area from every direction perpendicular to the
+        // line, at the cost of doubling vertex/index count per line draw — negligible for
+        // debug gizmos. DrawLine scales both Y and Z by worldThickness so the cross-section
+        // stays thin in world units.
         {
             std::vector<Vertex> verts;
-            verts.reserve(4);
-            // Define a unit line along +X from 0 to 1, quad thickness 1 in Y (will be scaled by desired thickness)
+            verts.reserve(8);
+            // Quad 1: XY plane (thickness in Y)
             verts.emplace_back(glm::vec3(0.0f, -0.5f, 0.0f), glm::vec3(0.0f), glm::vec2(0.0f));
             verts.emplace_back(glm::vec3(0.0f, 0.5f, 0.0f), glm::vec3(0.0f), glm::vec2(1.0f, 0.0f));
             verts.emplace_back(glm::vec3(1.0f, 0.5f, 0.0f), glm::vec3(0.0f), glm::vec2(1.0f));
             verts.emplace_back(glm::vec3(1.0f, -0.5f, 0.0f), glm::vec3(0.0f), glm::vec2(0.0f, 1.0f));
+            // Quad 2: XZ plane (thickness in Z)
+            verts.emplace_back(glm::vec3(0.0f, 0.0f, -0.5f), glm::vec3(0.0f), glm::vec2(0.0f));
+            verts.emplace_back(glm::vec3(0.0f, 0.0f, 0.5f), glm::vec3(0.0f), glm::vec2(1.0f, 0.0f));
+            verts.emplace_back(glm::vec3(1.0f, 0.0f, 0.5f), glm::vec3(0.0f), glm::vec2(1.0f));
+            verts.emplace_back(glm::vec3(1.0f, 0.0f, -0.5f), glm::vec3(0.0f), glm::vec2(0.0f, 1.0f));
 
-            std::vector<u32> inds = { 0, 1, 2, 2, 3, 0 };
+            std::vector<u32> inds = {
+                0, 1, 2, 2, 3, 0, // XY quad
+                4, 5, 6, 6, 7, 4  // XZ quad
+            };
 
             auto src = Ref<MeshSource>::Create(verts, inds);
             Submesh sm;

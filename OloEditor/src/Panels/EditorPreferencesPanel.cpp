@@ -108,6 +108,7 @@ namespace OloEngine
         ImGui::Checkbox("3D Mode", &m_Draft.Is3DMode);
         ImGui::Checkbox("Show Physics Colliders", &m_Draft.ShowPhysicsColliders);
         ImGui::Checkbox("Show Light Gizmos", &m_Draft.ShowLightGizmos);
+        ImGui::Checkbox("Show Bounding Boxes", &m_Draft.ShowBoundingBoxes);
 
         ImGui::Spacing();
         ImGui::Text("Transform Snapping");
@@ -240,6 +241,7 @@ namespace OloEngine
         out << YAML::Key << "CameraFlySpeed" << YAML::Value << prefs.CameraFlySpeed;
         out << YAML::Key << "ShowPhysicsColliders" << YAML::Value << prefs.ShowPhysicsColliders;
         out << YAML::Key << "ShowLightGizmos" << YAML::Value << prefs.ShowLightGizmos;
+        out << YAML::Key << "ShowBoundingBoxes" << YAML::Value << prefs.ShowBoundingBoxes;
         out << YAML::Key << "Is3DMode" << YAML::Value << prefs.Is3DMode;
         out << YAML::Key << "CapturePhysicsOnPlay" << YAML::Value << prefs.CapturePhysicsOnPlay;
         out << YAML::Key << "ThrottleEditMode" << YAML::Value << prefs.ThrottleEditMode;
@@ -329,6 +331,8 @@ namespace OloEngine
                 prefs.ShowPhysicsColliders = node["ShowPhysicsColliders"].as<bool>();
             if (node["ShowLightGizmos"])
                 prefs.ShowLightGizmos = node["ShowLightGizmos"].as<bool>();
+            if (node["ShowBoundingBoxes"])
+                prefs.ShowBoundingBoxes = node["ShowBoundingBoxes"].as<bool>();
             if (node["Is3DMode"])
                 prefs.Is3DMode = node["Is3DMode"].as<bool>();
             if (node["CapturePhysicsOnPlay"])

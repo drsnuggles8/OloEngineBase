@@ -150,14 +150,9 @@ namespace OloEngine
         ImGui::Checkbox("Physics Colliders", &settings.ShowPhysicsColliders);
         ImGui::Checkbox("Light Gizmos", &settings.ShowLightGizmos);
         ImGui::Checkbox("Grid", &settings.ShowGrid);
+        ImGui::Checkbox("Bounding Boxes", &settings.ShowBoundingBoxes);
 
         ImGui::BeginDisabled();
-        bool showBoundingBoxes = false;
-        ImGui::Checkbox("Bounding Boxes", &showBoundingBoxes);
-        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-        {
-            ImGui::SetTooltip("Not yet implemented");
-        }
         bool showEntityNames = false;
         ImGui::Checkbox("Entity Names", &showEntityNames);
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))

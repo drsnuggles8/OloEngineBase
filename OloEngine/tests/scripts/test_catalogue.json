@@ -76,6 +76,7 @@
     "OloEngine/tests/Rendering/FrustumCullingTest.cpp": "cullinglod",
     "OloEngine/tests/Rendering/LODTest.cpp": "cullinglod",
     "OloEngine/tests/Rendering/MeshOptimizationTest.cpp": "cullinglod",
+    "OloEngine/tests/Rendering/MeshSourceBoundsTest.cpp": "cullinglod",
     "OloEngine/tests/Rendering/OcclusionIntegrationTest.cpp": "cullinglod",
     "OloEngine/tests/Rendering/OcclusionStateTest.cpp": "cullinglod",
     "OloEngine/tests/Rendering/ShaderBindingLayoutTest.cpp": "shaderpipe",
