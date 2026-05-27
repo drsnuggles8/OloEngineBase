@@ -46,7 +46,7 @@ namespace
     // across millions of `LLVMFuzzerTestOneInput` calls.
     struct SpvValidatorContext
     {
-        spv_context Context;
+        spv_context m_Context;
 
         SpvValidatorContext()
             // SPV_ENV_VULKAN_1_0 matches shaderc's default target in
@@ -54,12 +54,12 @@ namespace
             // bumps shaderc's `SetTargetEnvironment` call, bump this too — they
             // need to stay in lockstep so the harness accepts exactly what
             // production produces.
-            : Context(spvContextCreate(SPV_ENV_VULKAN_1_0))
+            : m_Context(spvContextCreate(SPV_ENV_VULKAN_1_0))
         {
         }
         ~SpvValidatorContext()
         {
-            spvContextDestroy(Context);
+            spvContextDestroy(m_Context);
         }
     };
 
@@ -95,7 +95,7 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size)
     // input, drop it — production code never sees invalid SPIR-V either.
     spv_diagnostic diagnostic = nullptr;
     const spv_result_t validation = spvValidateBinary(
-        Validator().Context,
+        Validator().m_Context,
         words.data(),
         words.size(),
         &diagnostic);
