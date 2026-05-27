@@ -23,6 +23,7 @@
 #include "OloEngine/Core/FastRandom.h"
 #include "OloEngine/Renderer/LightProbeBaker.h"
 #include "OloEngine/Renderer/LightProbeVolumeAsset.h"
+#include "OloEngine/Renderer/ReflectionProbeBaker.h"
 #include "OloEngine/Renderer/MeshOptimization.h"
 #include "OloEngine/Scene/Streaming/StreamingRegionSerializer.h"
 #include "OloEngine/Renderer/ShaderGraph/ShaderGraphAsset.h"
@@ -1750,6 +1751,7 @@ namespace OloEngine
             DisplayAddComponentEntry<UIToggleComponent>("UI Toggle");
             DisplayAddComponentEntry<LightProbeComponent>("Light Probe");
             DisplayAddComponentEntry<LightProbeVolumeComponent>("Light Probe Volume");
+            DisplayAddComponentEntry<ReflectionProbeComponent>("Reflection Probe");
             DisplayAddComponentEntry<StreamingVolumeComponent>("Streaming Volume");
 
             ImGui::Separator();
@@ -4980,6 +4982,51 @@ namespace OloEngine
                     ImGui::SameLine();
                     ImGui::TextColored(ImVec4(0.2f, 0.8f, 0.2f, 1.0f), "Complete!");
                 } });
+
+        DrawComponent<ReflectionProbeComponent>("Reflection Probe", entity, [this, entity](auto& component)
+                                                {
+            if (ImGui::DragFloat("Influence Radius", &component.m_InfluenceRadius, 0.1f, 0.1f, 1000.0f, "%.2f"))
+            {
+                component.m_NeedsBake = true;
+            }
+            ImGui::DragFloat("Blend Distance", &component.m_BlendDistance, 0.05f, 0.0f, 100.0f, "%.2f");
+            ImGui::DragFloat("Intensity##ReflectionProbe", &component.m_Intensity, 0.01f, 0.0f, 10.0f, "%.2f");
+            i32 resolution = static_cast<i32>(component.m_Resolution);
+            if (ImGui::SliderInt("Resolution##ReflectionProbe", &resolution, 16, 1024))
+            {
+                component.m_Resolution = static_cast<u32>(std::clamp(resolution, 16, 2048));
+                component.m_NeedsBake = true;
+            }
+            ImGui::Checkbox("Active##ReflectionProbe", &component.m_Active);
+
+            ImGui::Separator();
+
+            bool const hasBake = component.m_BakedEnvironment && component.m_BakedEnvironment->HasIBL();
+            ImGui::Text("Baked: %s", hasBake ? "Yes" : "No");
+            if (component.m_NeedsBake && hasBake)
+            {
+                ImGui::SameLine();
+                ImGui::TextColored(ImVec4(0.9f, 0.7f, 0.2f, 1.0f), "(stale)");
+            }
+
+            if (ImGui::Button("Bake Reflection Probe"))
+            {
+                OLO_PROFILE_SCOPE("Bake Reflection Probe");
+                glm::vec3 position(0.0f);
+                if (entity.template HasComponent<TransformComponent>())
+                {
+                    position = entity.template GetComponent<TransformComponent>().Translation;
+                }
+                bool const ok = ReflectionProbeBaker::BakeProbe(m_Context, position, component);
+                if (ok)
+                {
+                    OLO_CORE_INFO("Reflection probe baked at ({}, {}, {})", position.x, position.y, position.z);
+                }
+                else
+                {
+                    OLO_CORE_ERROR("Reflection probe bake failed");
+                }
+            } });
 
         DrawComponent<StreamingVolumeComponent>("Streaming Volume", entity, [](auto& component)
                                                 {

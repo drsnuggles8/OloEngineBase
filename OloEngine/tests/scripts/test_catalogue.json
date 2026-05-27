@@ -74,6 +74,7 @@
     "OloEngine/tests/Rendering/RenderStateTest.cpp": "L4",
     "OloEngine/tests/Rendering/BoundingVolumeTest.cpp": "cullinglod",
     "OloEngine/tests/Rendering/FrustumCullingTest.cpp": "cullinglod",
+    "OloEngine/tests/Rendering/ReflectionProbeSelectionTest.cpp": "L1",
     "OloEngine/tests/Rendering/LODTest.cpp": "cullinglod",
     "OloEngine/tests/Rendering/MeshOptimizationTest.cpp": "cullinglod",
     "OloEngine/tests/Rendering/MeshSourceBoundsTest.cpp": "cullinglod",

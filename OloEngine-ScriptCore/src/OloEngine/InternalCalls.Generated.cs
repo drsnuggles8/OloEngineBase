@@ -420,6 +420,29 @@ namespace OloEngine
 		internal static extern void PointLightComponent_SetCastShadows(ulong entityID, bool value);
 		#endregion
 
+		#region ReflectionProbeComponent
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float ReflectionProbeComponent_GetInfluenceRadius(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void ReflectionProbeComponent_SetInfluenceRadius(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float ReflectionProbeComponent_GetBlendDistance(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void ReflectionProbeComponent_SetBlendDistance(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern uint ReflectionProbeComponent_GetResolution(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void ReflectionProbeComponent_SetResolution(ulong entityID, uint value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float ReflectionProbeComponent_GetIntensity(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void ReflectionProbeComponent_SetIntensity(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool ReflectionProbeComponent_GetActive(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void ReflectionProbeComponent_SetActive(ulong entityID, bool value);
+		#endregion
+
 		#region Rigidbody2DComponent
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern int Rigidbody2DComponent_GetType(ulong entityID);

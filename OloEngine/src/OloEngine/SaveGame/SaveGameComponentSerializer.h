@@ -47,6 +47,7 @@ namespace OloEngine
     struct EnvironmentMapComponent;
     struct LightProbeComponent;
     struct LightProbeVolumeComponent;
+    struct ReflectionProbeComponent;
     struct UICanvasComponent;
     struct UIRectTransformComponent;
     struct UIImageComponent;
@@ -143,6 +144,7 @@ namespace OloEngine
         static void Serialize(FArchive& ar, EnvironmentMapComponent& c);
         static void Serialize(FArchive& ar, LightProbeComponent& c);
         static void Serialize(FArchive& ar, LightProbeVolumeComponent& c);
+        static void Serialize(FArchive& ar, ReflectionProbeComponent& c);
         static void Serialize(FArchive& ar, UICanvasComponent& c);
         static void Serialize(FArchive& ar, UIRectTransformComponent& c);
         static void Serialize(FArchive& ar, UIImageComponent& c);

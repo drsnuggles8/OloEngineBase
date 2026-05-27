@@ -680,6 +680,39 @@ namespace OloEngine
 		}
 	}
 
+	public partial class ReflectionProbeComponent : Component
+	{
+		public float InfluenceRadius
+		{
+			get => InternalCalls.ReflectionProbeComponent_GetInfluenceRadius(Entity.ID);
+			set => InternalCalls.ReflectionProbeComponent_SetInfluenceRadius(Entity.ID, value);
+		}
+
+		public float BlendDistance
+		{
+			get => InternalCalls.ReflectionProbeComponent_GetBlendDistance(Entity.ID);
+			set => InternalCalls.ReflectionProbeComponent_SetBlendDistance(Entity.ID, value);
+		}
+
+		public uint Resolution
+		{
+			get => InternalCalls.ReflectionProbeComponent_GetResolution(Entity.ID);
+			set => InternalCalls.ReflectionProbeComponent_SetResolution(Entity.ID, value);
+		}
+
+		public float Intensity
+		{
+			get => InternalCalls.ReflectionProbeComponent_GetIntensity(Entity.ID);
+			set => InternalCalls.ReflectionProbeComponent_SetIntensity(Entity.ID, value);
+		}
+
+		public bool Active
+		{
+			get => InternalCalls.ReflectionProbeComponent_GetActive(Entity.ID);
+			set => InternalCalls.ReflectionProbeComponent_SetActive(Entity.ID, value);
+		}
+	}
+
 	public partial class Rigidbody2DComponent : Component
 	{
 		public int Type

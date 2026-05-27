@@ -260,6 +260,7 @@ namespace OloEngine
             SnapshotComponentIfExists<LODGroupComponent>(entity);
             SnapshotComponentIfExists<LightProbeComponent>(entity);
             SnapshotComponentIfExists<LightProbeVolumeComponent>(entity);
+            SnapshotComponentIfExists<ReflectionProbeComponent>(entity);
             SnapshotComponentIfExists<StreamingVolumeComponent>(entity);
             SnapshotComponentIfExists<NetworkIdentityComponent>(entity);
             SnapshotComponentIfExists<DialogueComponent>(entity);

@@ -834,6 +834,13 @@ namespace OloEngine
         ar << c.m_BakedDataAsset;
     }
 
+    void SaveGameComponentSerializer::Serialize(FArchive& ar, ReflectionProbeComponent& c)
+    {
+        ar << c.m_InfluenceRadius << c.m_BlendDistance;
+        ar << c.m_Resolution << c.m_Intensity << c.m_Active;
+        // Ref<EnvironmentMap> + m_NeedsBake are runtime — author rebakes on load
+    }
+
     // ========================================================================
     // UI Components
     // ========================================================================
@@ -2382,6 +2389,7 @@ namespace OloEngine
         REGISTER_SAVE_COMPONENT(EnvironmentMapComponent);
         REGISTER_SAVE_COMPONENT(LightProbeComponent);
         REGISTER_SAVE_COMPONENT(LightProbeVolumeComponent);
+        REGISTER_SAVE_COMPONENT(ReflectionProbeComponent);
         REGISTER_SAVE_COMPONENT(UICanvasComponent);
         REGISTER_SAVE_COMPONENT(UIRectTransformComponent);
         REGISTER_SAVE_COMPONENT(UIImageComponent);

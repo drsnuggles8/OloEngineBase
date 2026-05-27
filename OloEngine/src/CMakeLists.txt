@@ -506,6 +506,8 @@
 		"OloEngine/Renderer/LightProbeVolumeAsset.h"
 		"OloEngine/Renderer/LightProbeBaker.h"
 		"OloEngine/Renderer/LightProbeBaker.cpp"
+		"OloEngine/Renderer/ReflectionProbeBaker.h"
+		"OloEngine/Renderer/ReflectionProbeBaker.cpp"
 		"OloEngine/Renderer/RendererAPI.cpp"
 		"OloEngine/Renderer/RendererAPI.h"
 		"OloEngine/Renderer/RGCommandContext.cpp"
