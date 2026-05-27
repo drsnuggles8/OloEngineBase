@@ -827,8 +827,15 @@ namespace OloEngine::CrashReporterPlatform
                  << (freeRam / oneMiB) << " MB free\n";
             info << "Swap:            " << (totalSwap / oneMiB) << " MB total, "
                  << (freeSwap / oneMiB) << " MB free\n";
-            info << "Uptime: " << si.uptime << "s, load 1m=" << si.loads[0]
-                 << " 5m=" << si.loads[1] << " 15m=" << si.loads[2] << "\n";
+            // si.loads[] are fixed-point — divide by (1 << SI_LOAD_SHIFT) to
+            // get the real load average. SI_LOAD_SHIFT is 16 on Linux, so a
+            // load of 1.00 would otherwise print as 65536.
+            constexpr double kLoadScale = static_cast<double>(1u << SI_LOAD_SHIFT);
+            const double load1 = static_cast<double>(si.loads[0]) / kLoadScale;
+            const double load5 = static_cast<double>(si.loads[1]) / kLoadScale;
+            const double load15 = static_cast<double>(si.loads[2]) / kLoadScale;
+            info << fmt::format("Uptime: {}s, load 1m={:.2f} 5m={:.2f} 15m={:.2f}\n",
+                                static_cast<long>(si.uptime), load1, load5, load15);
         }
 
         return info.str();
