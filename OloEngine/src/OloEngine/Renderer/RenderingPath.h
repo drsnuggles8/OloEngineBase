@@ -110,6 +110,10 @@ namespace OloEngine
         // Yellow/cyan frustum wireframe drawn at every CameraComponent's transform. Useful when
         // composing scene cameras, noisy when you're just walking around the editor camera.
         bool ShowCameraFrustums = true;
+        // Wireframe AABBs around every MeshComponent / ModelComponent entity. Drawn in
+        // world space (axis-aligned to world axes, not the entity transform) so the box
+        // is the same one used for frustum culling, not a per-instance OBB.
+        bool ShowBoundingBoxes = false;
         // Visualise the per-object screen-space velocity buffer in Forward
         // and Forward+ paths. Ignored in Deferred (which has its own
         // G-Buffer velocity debug channel — DeferredSettings::DebugChannel

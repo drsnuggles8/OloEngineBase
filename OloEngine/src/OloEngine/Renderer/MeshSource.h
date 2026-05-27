@@ -315,7 +315,23 @@ namespace OloEngine
         // Check if this mesh has bone influences for animation
         bool HasBoneInfluences() const
         {
-            return !m_BoneInfluences.IsEmpty();
+            // Constructors pre-allocate m_BoneInfluences to vertices.Num() so callers
+            // can later SetVertexBoneData(index, ...). A non-empty array therefore says
+            // nothing about whether real skinning data is present — for a static mesh
+            // every entry is default-constructed with all-zero weights. Detect real
+            // influence by finding at least one non-zero weight; static meshes report
+            // false, animated meshes report true. Bounds calculation relies on this
+            // to skip the 200% expansion intended for skeletal extension.
+            // Bone weights are non-negative (they're a convex combination), so any
+            // weight > 0 means real bone data was set. Default-constructed entries
+            // have all weights at exactly 0.
+            for (i32 i = 0, n = m_BoneInfluences.Num(); i < n; ++i)
+            {
+                const auto& w = m_BoneInfluences[i].m_Weights;
+                if (w[0] > 0.0f || w[1] > 0.0f || w[2] > 0.0f || w[3] > 0.0f)
+                    return true;
+            }
+            return false;
         }
 
         // Utility methods

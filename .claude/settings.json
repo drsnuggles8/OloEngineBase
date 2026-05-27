@@ -12,7 +12,8 @@
       "Bash(tasklist)",
       "Bash(git rebase --abort)",
       "Bash(git rebase --continue)",
-      "Bash(git rebase --skip)"
+      "Bash(git rebase --skip)",
+      "Bash(build/OloEngine/tests/Debug/OloEngine-Tests.exe --gtest_filter=\"BoundingBox.*:BoundingSphere.*:BoundingVolume.*:FrustumCulling.*:MeshBinarySerializer.*\")"
     ],
     "additionalDirectories": [
       "\\tmp"

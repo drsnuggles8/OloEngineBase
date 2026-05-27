@@ -1407,6 +1407,7 @@ namespace OloEngine
         m_ScaleSnap = m_Prefs.ScaleSnap;
         debugSettings.ShowPhysicsColliders = m_Prefs.ShowPhysicsColliders;
         debugSettings.ShowLightGizmos = m_Prefs.ShowLightGizmos;
+        debugSettings.ShowBoundingBoxes = m_Prefs.ShowBoundingBoxes;
         m_Is3DMode = m_Prefs.Is3DMode;
         m_EditorCamera.SetFlySpeed(m_Prefs.CameraFlySpeed);
         m_ThrottleEditMode = m_Prefs.ThrottleEditMode;
@@ -1444,6 +1445,7 @@ namespace OloEngine
         m_Prefs.ScaleSnap = m_ScaleSnap;
         m_Prefs.ShowPhysicsColliders = debugSettings.ShowPhysicsColliders;
         m_Prefs.ShowLightGizmos = debugSettings.ShowLightGizmos;
+        m_Prefs.ShowBoundingBoxes = debugSettings.ShowBoundingBoxes;
         m_Prefs.Is3DMode = m_Is3DMode;
         m_Prefs.CameraFlySpeed = m_EditorCamera.GetFlySpeed();
         m_Prefs.CapturePhysicsOnPlay = Physics3DSystem::GetSettings().m_CaptureOnPlay;

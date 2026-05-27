@@ -289,8 +289,10 @@ namespace OloEngine
                 rot = glm::rotate(glm::mat4(1.0f), angle, axis);
             }
         }
-        // Scale: X=length, Y=worldThickness, Z=1
-        glm::mat4 scale = glm::scale(glm::mat4(1.0f), glm::vec3(length, worldThickness, 1.0f));
+        // Scale: X=length, Y=Z=worldThickness. LineQuadMesh is a perpendicular
+        // cross (XY + XZ quads) so it stays visible when viewed edge-on along
+        // any axis — both cross arms need the same thin world thickness.
+        glm::mat4 scale = glm::scale(glm::mat4(1.0f), glm::vec3(length, worldThickness, worldThickness));
         glm::mat4 transform = glm::translate(glm::mat4(1.0f), start) * rot * scale;
 
         auto* packet = DrawMesh(s_Data.LineQuadMesh, transform, material);
