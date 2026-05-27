@@ -4834,10 +4834,13 @@ namespace OloEngine
 
             auto drawWorldAABB = [&](const BoundingBox& worldAABB)
             {
-                // Skip default-constructed / inverted boxes — they'd render as
-                // 12 zero-length lines at the origin.
+                // Skip degenerate boxes — any non-positive axis means either a
+                // default-constructed box, a flat-plane mesh (one zero axis),
+                // a line/point (two or three zero axes), or an inverted box.
+                // None render as a meaningful wireframe. A flat plane's "AABB"
+                // is just the plane itself, so hiding it costs nothing useful.
                 const glm::vec3 size = worldAABB.GetSize();
-                if (size.x <= 0.0f && size.y <= 0.0f && size.z <= 0.0f)
+                if (size.x <= 0.0f || size.y <= 0.0f || size.z <= 0.0f)
                     return;
                 Renderer3D::DrawBoxColliderGizmo(worldAABB.GetCenter(), worldAABB.GetExtents(), noRotation, bboxColor);
             };
