@@ -475,6 +475,10 @@ namespace OloEngine
                                        const glm::vec3& cameraPosition,
                                        f32 cameraNearClip, f32 cameraFarClip);
         void LoadAndRenderSkybox();
+        // Override the global IBL when a baked reflection probe contains the
+        // camera. Falls through (no-op) when no probe applies, leaving the
+        // EnvironmentMapComponent IBL set by LoadAndRenderSkybox in place.
+        void ApplyReflectionProbeOverride(const glm::vec3& cameraPosition);
         void RenderParticleSystems(const glm::vec3& camPos, f32 nearClip, f32 farClip);
         void RenderUIOverlay();
         void ProcessSnowDeformers(Timestep ts, TMap<u64, glm::vec3>& prevPositions);
@@ -552,6 +556,7 @@ namespace OloEngine
         friend class SceneStreamer;
         friend class SceneHierarchyPanel;
         friend class LightProbeBaker;
+        friend class ReflectionProbeBaker;
         friend class SaveGameSerializer;
     };
 } // namespace OloEngine

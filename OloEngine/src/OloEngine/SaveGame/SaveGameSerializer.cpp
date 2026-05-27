@@ -297,6 +297,7 @@ namespace OloEngine
             SAVE_COMPONENT(EnvironmentMapComponent, entity, writer);
             SAVE_COMPONENT(LightProbeComponent, entity, writer);
             SAVE_COMPONENT(LightProbeVolumeComponent, entity, writer);
+            SAVE_COMPONENT(ReflectionProbeComponent, entity, writer);
             SAVE_COMPONENT(UICanvasComponent, entity, writer);
             SAVE_COMPONENT(UIRectTransformComponent, entity, writer);
             SAVE_COMPONENT(UIImageComponent, entity, writer);
@@ -498,6 +499,7 @@ namespace OloEngine
                 TRY_LOAD_COMPONENT(EnvironmentMapComponent);
                 TRY_LOAD_COMPONENT(LightProbeComponent);
                 TRY_LOAD_COMPONENT(LightProbeVolumeComponent);
+                TRY_LOAD_COMPONENT(ReflectionProbeComponent);
                 TRY_LOAD_COMPONENT(UICanvasComponent);
                 TRY_LOAD_COMPONENT(UIRectTransformComponent);
                 TRY_LOAD_COMPONENT(UIImageComponent);

@@ -2068,6 +2068,116 @@ static void PointLightComponent_SetCastShadows(UUID entityID, bool value)
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////
+// ReflectionProbeComponent                                                       //
+///////////////////////////////////////////////////////////////////////////////////////////
+
+static float ReflectionProbeComponent_GetInfluenceRadius(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<ReflectionProbeComponent>();
+    return comp.m_InfluenceRadius;
+}
+
+static void ReflectionProbeComponent_SetInfluenceRadius(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<ReflectionProbeComponent>();
+    comp.m_InfluenceRadius = value;
+}
+
+static float ReflectionProbeComponent_GetBlendDistance(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<ReflectionProbeComponent>();
+    return comp.m_BlendDistance;
+}
+
+static void ReflectionProbeComponent_SetBlendDistance(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<ReflectionProbeComponent>();
+    comp.m_BlendDistance = value;
+}
+
+static unsigned int ReflectionProbeComponent_GetResolution(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<ReflectionProbeComponent>();
+    return comp.m_Resolution;
+}
+
+static void ReflectionProbeComponent_SetResolution(UUID entityID, unsigned int value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<ReflectionProbeComponent>();
+    comp.m_Resolution = value;
+}
+
+static float ReflectionProbeComponent_GetIntensity(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<ReflectionProbeComponent>();
+    return comp.m_Intensity;
+}
+
+static void ReflectionProbeComponent_SetIntensity(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<ReflectionProbeComponent>();
+    comp.m_Intensity = value;
+}
+
+static bool ReflectionProbeComponent_GetActive(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<ReflectionProbeComponent>();
+    return comp.m_Active;
+}
+
+static void ReflectionProbeComponent_SetActive(UUID entityID, bool value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<ReflectionProbeComponent>();
+    comp.m_Active = value;
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////
 // Rigidbody2DComponent                                                           //
 ///////////////////////////////////////////////////////////////////////////////////////////
 

@@ -118,6 +118,7 @@ namespace OloEngine
     MACRO(EnvironmentMapComponent, "EnvironmentMapComponent")                 \
     MACRO(LightProbeComponent, "LightProbeComponent")                         \
     MACRO(LightProbeVolumeComponent, "LightProbeVolumeComponent")             \
+    MACRO(ReflectionProbeComponent, "ReflectionProbeComponent")               \
     MACRO(UICanvasComponent, "UICanvasComponent")                             \
     MACRO(UIRectTransformComponent, "UIRectTransformComponent")               \
     MACRO(UIImageComponent, "UIImageComponent")                               \

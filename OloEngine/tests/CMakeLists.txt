@@ -62,6 +62,7 @@ add_executable(OloEngine-Tests
 		Rendering/DrawKeyTest.cpp
 		Rendering/BoundingVolumeTest.cpp
 		Rendering/FrustumCullingTest.cpp
+		Rendering/ReflectionProbeSelectionTest.cpp
 		Rendering/LODTest.cpp
 		Rendering/MeshOptimizationTest.cpp
 		Rendering/MeshSourceBoundsTest.cpp

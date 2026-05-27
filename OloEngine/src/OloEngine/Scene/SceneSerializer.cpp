@@ -2615,6 +2615,37 @@ namespace OloEngine
             }
         }
 
+        if (auto rpComponent = entity["ReflectionProbeComponent"]; rpComponent)
+        {
+            auto& rp = deserializedEntity.AddComponent<ReflectionProbeComponent>();
+            rp.m_InfluenceRadius = rpComponent["InfluenceRadius"].as<f32>(rp.m_InfluenceRadius);
+            rp.m_BlendDistance = rpComponent["BlendDistance"].as<f32>(rp.m_BlendDistance);
+            rp.m_Resolution = rpComponent["Resolution"].as<u32>(rp.m_Resolution);
+            rp.m_Intensity = rpComponent["Intensity"].as<f32>(rp.m_Intensity);
+            rp.m_Active = rpComponent["Active"].as<bool>(rp.m_Active);
+
+            // Sanitize deserialized values — never trust file input
+            if (!std::isfinite(rp.m_InfluenceRadius) || rp.m_InfluenceRadius <= 0.0f)
+            {
+                rp.m_InfluenceRadius = 10.0f;
+            }
+            if (!std::isfinite(rp.m_BlendDistance) || rp.m_BlendDistance < 0.0f)
+            {
+                rp.m_BlendDistance = 1.0f;
+            }
+            if (!std::isfinite(rp.m_Intensity) || rp.m_Intensity < 0.0f)
+            {
+                rp.m_Intensity = 1.0f;
+            }
+            // Clamp Resolution to a power-of-two-ish sane range; 0 / huge values
+            // would either no-op or OOM the bake step.
+            rp.m_Resolution = std::clamp(rp.m_Resolution, 16u, 2048u);
+
+            // Captured cubemap + IBL chain are not persisted — author needs to
+            // rebake after load (UI surfaces this via m_NeedsBake).
+            rp.m_NeedsBake = true;
+        }
+
         if (auto svComponent = entity["StreamingVolumeComponent"]; svComponent)
         {
             auto& sv = deserializedEntity.AddComponent<StreamingVolumeComponent>();
@@ -4750,6 +4781,23 @@ namespace OloEngine
             out << YAML::Key << "Intensity" << YAML::Value << lpv.m_Intensity;
             out << YAML::Key << "Active" << YAML::Value << lpv.m_Active;
             out << YAML::Key << "BakedDataAsset" << YAML::Value << lpv.m_BakedDataAsset;
+
+            out << YAML::EndMap;
+        }
+
+        if (entity.HasComponent<ReflectionProbeComponent>())
+        {
+            out << YAML::Key << "ReflectionProbeComponent";
+            out << YAML::BeginMap;
+
+            auto const& rp = entity.GetComponent<ReflectionProbeComponent>();
+            out << YAML::Key << "InfluenceRadius" << YAML::Value << rp.m_InfluenceRadius;
+            out << YAML::Key << "BlendDistance" << YAML::Value << rp.m_BlendDistance;
+            out << YAML::Key << "Resolution" << YAML::Value << rp.m_Resolution;
+            out << YAML::Key << "Intensity" << YAML::Value << rp.m_Intensity;
+            out << YAML::Key << "Active" << YAML::Value << rp.m_Active;
+
+            // m_BakedEnvironment + m_NeedsBake are runtime-only; rebake on load.
 
             out << YAML::EndMap;
         }

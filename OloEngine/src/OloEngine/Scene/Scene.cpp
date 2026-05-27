@@ -16,6 +16,7 @@
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/Light.h"
 #include "OloEngine/Renderer/EnvironmentMap.h"
+#include "OloEngine/Renderer/ReflectionProbeBaker.h"
 #include "OloEngine/Renderer/TextureCubemap.h"
 #include "OloEngine/Scripting/C#/ScriptEngine.h"
 #include "OloEngine/Scripting/Lua/LuaScriptEngine.h"
@@ -2081,6 +2082,8 @@ namespace OloEngine
     template<>
     void Scene::OnComponentAdded<LightProbeVolumeComponent>(Entity, LightProbeVolumeComponent&) {}
     template<>
+    void Scene::OnComponentAdded<ReflectionProbeComponent>(Entity, ReflectionProbeComponent&) {}
+    template<>
     void Scene::OnComponentAdded<DialogueComponent>(Entity, DialogueComponent&) {}
     template<>
     void Scene::OnComponentAdded<DialogueStateComponent>(Entity, DialogueStateComponent&) {}
@@ -2898,6 +2901,47 @@ namespace OloEngine
 
             return; // Only use first environment map
         }
+    }
+
+    void Scene::ApplyReflectionProbeOverride(const glm::vec3& cameraPosition)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        // Collect probe geometry + parallel pointer array. The pure selection
+        // function lives in ReflectionProbeBaker.h so it can be unit-tested
+        // without a scene; this loop is just the runtime view-iteration side.
+        auto view = m_Registry.view<TransformComponent, ReflectionProbeComponent>();
+
+        std::vector<ReflectionProbeRef> probeRefs;
+        std::vector<const ReflectionProbeComponent*> probePtrs;
+        probeRefs.reserve(8);
+        probePtrs.reserve(8);
+
+        for (auto entity : view)
+        {
+            auto const& [transform, probe] = view.get<TransformComponent, ReflectionProbeComponent>(entity);
+            if (!probe.m_Active || !probe.m_BakedEnvironment || !probe.m_BakedEnvironment->HasIBL())
+            {
+                continue;
+            }
+            probeRefs.push_back({ transform.Translation, probe.m_InfluenceRadius });
+            probePtrs.push_back(&probe);
+        }
+
+        i32 const winner = SelectDominantReflectionProbe(cameraPosition, probeRefs);
+        if (winner < 0)
+        {
+            return; // no probe applies — keep env-map IBL
+        }
+
+        auto const* bestProbe = probePtrs[static_cast<sizet>(winner)];
+        auto const& envMap = bestProbe->m_BakedEnvironment;
+        Renderer3D::SetGlobalIBL(
+            envMap->GetIrradianceMap() ? envMap->GetIrradianceMap()->GetRendererID() : 0,
+            envMap->GetPrefilterMap() ? envMap->GetPrefilterMap()->GetRendererID() : 0,
+            envMap->GetBRDFLutMap() ? envMap->GetBRDFLutMap()->GetRendererID() : 0,
+            envMap->GetEnvironmentMap() ? envMap->GetEnvironmentMap()->GetRendererID() : 0,
+            bestProbe->m_Intensity);
     }
 
     // Helper: obtain the shadow VAO RendererID from a Mesh (returns 0 if unavailable).
@@ -4512,6 +4556,7 @@ namespace OloEngine
 
         // Render skybox from EnvironmentMapComponent (first one found)
         LoadAndRenderSkybox();
+        ApplyReflectionProbeOverride(camera.GetPosition());
 
         ProcessScene3DSharedLogic(
             camera.GetViewMatrix(),
@@ -4591,6 +4636,36 @@ namespace OloEngine
                         areaLight.m_Range,
                         areaLight.m_Color,
                         areaLight.m_Intensity);
+                }
+            }
+            {
+                // Reflection probe gizmos: a small marker sphere at the probe
+                // position + a wireframe sphere at the influence radius.
+                // Colour-codes baked state: cyan = baked, dim grey = pending.
+                auto view = m_Registry.view<TransformComponent, ReflectionProbeComponent>();
+                for (auto entity : view)
+                {
+                    const auto& [tc, probe] = view.get<TransformComponent, ReflectionProbeComponent>(entity);
+                    if (!probe.m_Active)
+                    {
+                        continue;
+                    }
+
+                    bool const hasBake = probe.m_BakedEnvironment && probe.m_BakedEnvironment->HasIBL();
+                    glm::vec3 const markerColor = hasBake
+                                                      ? glm::vec3(0.3f, 0.9f, 1.0f)  // cyan: baked
+                                                      : glm::vec3(0.5f, 0.5f, 0.5f); // grey: not yet baked
+                    glm::vec3 const influenceColor = hasBake
+                                                         ? glm::vec3(0.3f, 0.9f, 1.0f) * 0.6f
+                                                         : glm::vec3(0.5f, 0.5f, 0.5f) * 0.6f;
+
+                    // Small marker at probe origin (0.3m matches the issue
+                    // spec; the actual chrome-PBR sphere reuse of s_Data.SphereMesh
+                    // is deferred — wireframe is enough to indicate position).
+                    Renderer3D::DrawSphereColliderGizmo(tc.Translation, 0.3f, markerColor);
+                    // Influence radius — wireframe so it doesn't occlude the
+                    // contained geometry.
+                    Renderer3D::DrawSphereColliderGizmo(tc.Translation, probe.m_InfluenceRadius, influenceColor);
                 }
             }
         }
@@ -4928,6 +5003,7 @@ namespace OloEngine
 
         // Render skybox from EnvironmentMapComponent (first one found)
         LoadAndRenderSkybox();
+        ApplyReflectionProbeOverride(cameraPosition);
 
         ProcessScene3DSharedLogic(
             viewMatrix,
@@ -5406,6 +5482,7 @@ namespace OloEngine
     OLO_ON_COMPONENT_REMOVED_NOOP(LODGroupComponent)
     OLO_ON_COMPONENT_REMOVED_NOOP(LightProbeComponent)
     OLO_ON_COMPONENT_REMOVED_NOOP(LightProbeVolumeComponent)
+    OLO_ON_COMPONENT_REMOVED_NOOP(ReflectionProbeComponent)
     OLO_ON_COMPONENT_REMOVED_NOOP(DialogueComponent)
     OLO_ON_COMPONENT_REMOVED_NOOP(DialogueStateComponent)
     OLO_ON_COMPONENT_REMOVED_NOOP(NavMeshBoundsComponent)

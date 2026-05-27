@@ -943,6 +943,48 @@ namespace OloEngine::Tests
     }
 
     // -------------------------------------------------------------------------
+    // ReflectionProbeComponent
+    // -------------------------------------------------------------------------
+    TEST(ComponentRoundTrip, ReflectionProbeComponentSurvivesYAMLRoundTrip)
+    {
+        const f32 expectedRadius = 8.25f;
+        const f32 expectedBlend = 0.75f;
+        const u32 expectedResolution = 512u;
+        const f32 expectedIntensity = 1.4f;
+        const bool expectedActive = false; // non-default
+
+        std::string yaml;
+        {
+            auto scene = Scene::Create();
+            Entity entity = scene->CreateEntity(kTestTag);
+            auto& rp = entity.AddComponent<ReflectionProbeComponent>();
+            rp.m_InfluenceRadius = expectedRadius;
+            rp.m_BlendDistance = expectedBlend;
+            rp.m_Resolution = expectedResolution;
+            rp.m_Intensity = expectedIntensity;
+            rp.m_Active = expectedActive;
+            yaml = SceneSerializer(scene).SerializeToYAML();
+        }
+
+        auto reloaded = Scene::Create();
+        ASSERT_TRUE(SceneSerializer(reloaded).DeserializeFromYAML(yaml));
+
+        Entity restored = FindByTag(*reloaded, kTestTag);
+        ASSERT_TRUE(static_cast<bool>(restored));
+        ASSERT_TRUE(restored.HasComponent<ReflectionProbeComponent>());
+
+        const auto& rp = restored.GetComponent<ReflectionProbeComponent>();
+        EXPECT_NEAR(rp.m_InfluenceRadius, expectedRadius, kFloatEpsilon);
+        EXPECT_NEAR(rp.m_BlendDistance, expectedBlend, kFloatEpsilon);
+        EXPECT_EQ(rp.m_Resolution, expectedResolution);
+        EXPECT_NEAR(rp.m_Intensity, expectedIntensity, kFloatEpsilon);
+        EXPECT_EQ(rp.m_Active, expectedActive);
+        // m_BakedEnvironment is runtime — must come back null with rebake pending.
+        EXPECT_FALSE(static_cast<bool>(rp.m_BakedEnvironment));
+        EXPECT_TRUE(rp.m_NeedsBake);
+    }
+
+    // -------------------------------------------------------------------------
     // EnvironmentMapComponent — exercises the scalar/bool fields (Rotation,
     // Exposure, BlurAmount, EnableSkybox, EnableIBL, Tint). The
     // m_FilePath / m_EnvironmentMapAsset fields are paths/handles that

@@ -1172,6 +1172,23 @@ namespace OloEngine
                                                     "dirty", &LightProbeVolumeComponent::m_Dirty,
                                                     "getTotalProbeCount", &LightProbeVolumeComponent::GetTotalProbeCount);
 
+        // --- ReflectionProbeComponent ---
+        lua.new_usertype<ReflectionProbeComponent>("ReflectionProbeComponent",
+                                                   "influenceRadius", sol::property([](const ReflectionProbeComponent& c)
+                                                                                    { return c.m_InfluenceRadius; }, [](ReflectionProbeComponent& c, f32 v)
+                                                                                    { if (std::isfinite(v) && v > 0.0f) c.m_InfluenceRadius = v; }),
+                                                   "blendDistance", sol::property([](const ReflectionProbeComponent& c)
+                                                                                  { return c.m_BlendDistance; }, [](ReflectionProbeComponent& c, f32 v)
+                                                                                  { if (std::isfinite(v) && v >= 0.0f) c.m_BlendDistance = v; }),
+                                                   "intensity", sol::property([](const ReflectionProbeComponent& c)
+                                                                              { return c.m_Intensity; }, [](ReflectionProbeComponent& c, f32 v)
+                                                                              { if (std::isfinite(v) && v >= 0.0f) c.m_Intensity = v; }),
+                                                   "resolution", sol::property([](const ReflectionProbeComponent& c)
+                                                                               { return c.m_Resolution; }, [](ReflectionProbeComponent& c, u32 v)
+                                                                               { if (v >= 16 && v <= 2048) c.m_Resolution = v; }),
+                                                   "active", &ReflectionProbeComponent::m_Active,
+                                                   "needsBake", &ReflectionProbeComponent::m_NeedsBake);
+
         // --- UIWorldAnchorComponent ---
         lua.new_usertype<UIWorldAnchorComponent>("UIWorldAnchorComponent",
                                                  "targetEntity", sol::property([](const UIWorldAnchorComponent& c)
