@@ -2913,6 +2913,8 @@ namespace OloEngine
 
     bool EditorLayer::OnAssetLoaded(AssetLoadedEvent const& e)
     {
+        OLO_PROFILE_FUNCTION();
+
         // First-time async-load completion. Unlike OnAssetReloaded we do NOT
         // patch in-scene references: a newly loaded asset wasn't present in
         // any cache yet, so the very next frame's normal resolution path will

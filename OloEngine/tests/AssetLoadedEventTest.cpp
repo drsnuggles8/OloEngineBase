@@ -4,6 +4,7 @@
 #include "OloEngine/Events/Event.h"
 #include "OloEngine/Asset/AssetTypes.h"
 
+#include <algorithm>
 #include <filesystem>
 
 using namespace OloEngine;
@@ -45,9 +46,16 @@ TEST(AssetLoadedEventTest, ToStringContainsPayload)
 
     const std::string s = evt.ToString();
 
+    // Normalize path separators: std::filesystem::path::string() returns the
+    // native format, which on Windows can yield backslashes depending on how
+    // the path was constructed. The handle/name assertions don't care, but
+    // the path substring check would be brittle without normalization.
+    std::string sNormalized = s;
+    std::replace(sNormalized.begin(), sNormalized.end(), '\\', '/');
+
     EXPECT_NE(s.find("AssetLoadedEvent"), std::string::npos);
     EXPECT_NE(s.find(std::to_string(handle)), std::string::npos);
-    EXPECT_NE(s.find("meshes/character.olomesh"), std::string::npos);
+    EXPECT_NE(sNormalized.find("meshes/character.olomesh"), std::string::npos);
 }
 
 TEST(AssetLoadedEventTest, DispatcherInvokesMatchingHandler)
