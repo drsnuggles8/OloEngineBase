@@ -1510,6 +1510,7 @@ namespace OloEngine
         EventDispatcher dispatcher(e);
         dispatcher.Dispatch<KeyPressedEvent>(OLO_BIND_EVENT_FN(EditorLayer::OnKeyPressed));
         dispatcher.Dispatch<MouseButtonPressedEvent>(OLO_BIND_EVENT_FN(EditorLayer::OnMouseButtonPressed));
+        dispatcher.Dispatch<AssetLoadedEvent>(OLO_BIND_EVENT_FN(EditorLayer::OnAssetLoaded));
         dispatcher.Dispatch<AssetReloadedEvent>(OLO_BIND_EVENT_FN(EditorLayer::OnAssetReloaded));
         dispatcher.Dispatch<WindowCloseEvent>(OLO_BIND_EVENT_FN(EditorLayer::OnWindowClose));
     }
@@ -2908,6 +2909,42 @@ namespace OloEngine
                     std::make_unique<InvertedCommand>(std::move(compound)));
             }
         }
+    }
+
+    bool EditorLayer::OnAssetLoaded(AssetLoadedEvent const& e)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        // First-time async-load completion. Unlike OnAssetReloaded we do NOT
+        // patch in-scene references: a newly loaded asset wasn't present in
+        // any cache yet, so the very next frame's normal resolution path will
+        // pick it up. The only thing worth doing here is dropping any
+        // placeholder thumbnail the Content Browser may have shown while the
+        // asset was still streaming in — the panel will then re-resolve and
+        // render the real preview on its next paint.
+        if (m_ContentBrowserPanel)
+        {
+            const AssetType type = e.GetAssetType();
+            if (type == AssetType::Material || type == AssetType::Mesh)
+            {
+                m_ContentBrowserPanel->InvalidateThumbnail(e.GetHandle(), e.GetPath());
+            }
+            else if (type == AssetType::Texture2D)
+            {
+                // Same reasoning as OnAssetReloaded: without a per-material
+                // dependency graph, a newly available texture might be
+                // referenced by any cached material thumbnail. Cheapest fix
+                // is to drop them all and re-render lazily on next paint.
+                m_ContentBrowserPanel->ClearThumbnails();
+            }
+        }
+
+        OLO_TRACE("📦 Asset Loaded Event Received!");
+        OLO_TRACE("   Handle: {}", static_cast<u64>(e.GetHandle()));
+        OLO_TRACE("   Type: {}", (int)e.GetAssetType());
+        OLO_TRACE("   Path: {}", e.GetPath().string());
+
+        return false; // Don't consume — other listeners may want this too.
     }
 
     bool EditorLayer::OnAssetReloaded(AssetReloadedEvent const& e)

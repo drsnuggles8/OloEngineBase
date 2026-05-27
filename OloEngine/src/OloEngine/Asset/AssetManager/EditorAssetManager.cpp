@@ -755,6 +755,16 @@ namespace OloEngine
 
         OLO_PROFILER_SCOPE("EditorAssetManager::SyncWithAssetThread");
 
+        // Events collected during integration are dispatched after locks are released,
+        // so listeners can call back into the asset manager without risking deadlock.
+        struct PendingLoadEvent
+        {
+            AssetHandle Handle;
+            AssetType Type;
+            std::filesystem::path Path;
+        };
+        std::vector<PendingLoadEvent> loadedEvents;
+
         // First, process raw assets that need GPU finalization (main thread work)
         std::vector<PendingRawAsset> rawAssets;
         if (m_AssetThread->RetrievePendingRawAssets(rawAssets))
@@ -780,6 +790,8 @@ namespace OloEngine
                             m_AssetRegistry.UpdateMetadata(pending.Metadata.Handle, metadata);
                         }
                     }
+
+                    loadedEvents.push_back({ pending.Metadata.Handle, pending.Metadata.Type, pending.Metadata.FilePath });
 
                     OLO_CORE_TRACE("SyncWithAssetThread: Finalized GPU resources for asset {}",
                                    (u64)pending.Metadata.Handle);
@@ -821,12 +833,27 @@ namespace OloEngine
                             }
                         }
 
-                        // TODO: Fire AssetLoadedEvent for listeners
+                        loadedEvents.push_back({ response.Metadata.Handle, response.Metadata.Type, response.Metadata.FilePath });
                     }
                 }
             }
 
             OLO_CORE_TRACE("SyncWithAssetThread: Integrated {} assets from async loading", freshAssets.size());
+        }
+
+        // Fire AssetLoadedEvent for listeners — done after locks release so handlers
+        // can safely call back into the asset manager. SyncWithAssetThread is already
+        // running on the main thread, so the dispatch is in-line (no task hop).
+        if (!loadedEvents.empty())
+        {
+            if (Application* app = Application::TryGet())
+            {
+                for (const auto& evtData : loadedEvents)
+                {
+                    AssetLoadedEvent evt(evtData.Handle, evtData.Type, evtData.Path);
+                    app->OnEvent(evt);
+                }
+            }
         }
 
         // Log telemetry information
