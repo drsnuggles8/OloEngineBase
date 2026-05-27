@@ -12,7 +12,8 @@
       "Bash(tasklist)",
       "Bash(git rebase --abort)",
       "Bash(git rebase --continue)",
-      "Bash(git rebase --skip)"
+      "Bash(git rebase --skip)",
+      "Bash(git branch *)"
     ],
     "additionalDirectories": [
       "\\tmp"

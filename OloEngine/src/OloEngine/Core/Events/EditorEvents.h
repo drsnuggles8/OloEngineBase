@@ -65,6 +65,53 @@ namespace OloEngine
     };
 
     /**
+     * @brief Engine event fired after an asset has been newly loaded into the manager.
+     *
+     * Mirrors `AssetReloadedEvent`, but for the first-time load path: the
+     * async asset thread or main-thread GPU finalization step has just
+     * brought a previously-unloaded asset into the cache. Listeners can
+     * react (e.g., resolve deferred references, refresh inspectors)
+     * without waiting for a hot-reload to fire.
+     *
+     * Dispatched on the main thread by `EditorAssetManager::SyncWithAssetThread`.
+     */
+    class AssetLoadedEvent : public Event
+    {
+      public:
+        AssetLoadedEvent(AssetHandle handle, AssetType type, const std::filesystem::path& path)
+            : m_Handle(handle), m_Type(type), m_Path(path) {}
+
+        EVENT_CLASS_TYPE(AssetLoaded)
+        EVENT_CLASS_CATEGORY(EventCategory::Application)
+
+        AssetHandle GetHandle() const
+        {
+            return m_Handle;
+        }
+        AssetType GetAssetType() const
+        {
+            return m_Type;
+        }
+        const std::filesystem::path& GetPath() const
+        {
+            return m_Path;
+        }
+
+        std::string ToString() const override
+        {
+            return std::format("AssetLoadedEvent: handle={}, type={}, path={}",
+                               static_cast<u64>(m_Handle),
+                               static_cast<int>(m_Type),
+                               m_Path.string());
+        }
+
+      private:
+        AssetHandle m_Handle = 0;
+        AssetType m_Type = AssetType::None;
+        std::filesystem::path m_Path;
+    };
+
+    /**
      * @brief Engine event fired after an asset has been successfully reloaded/replaced
      *
      * This integrates with the engine's Event system so editor/runtime layers can

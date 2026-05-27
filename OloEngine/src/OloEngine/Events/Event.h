@@ -38,6 +38,7 @@ namespace OloEngine
         GamepadConnected,
         GamepadDisconnected,
         // Editor/Engine custom events
+        AssetLoaded,
         AssetReloaded,
         LocaleChanged,
     };

@@ -22,6 +22,7 @@ add_executable(OloEngine-Tests
 		AssetCSharpScriptValidityTest.cpp
 		AssetPackTest.cpp
 		AssetRegistryInvariantsTest.cpp
+		AssetLoadedEventTest.cpp
 		ComponentRoundTripTest.cpp
 		ComponentSerializerCoverageTest.cpp
 		SceneSerializerFuzzRegressionTest.cpp
