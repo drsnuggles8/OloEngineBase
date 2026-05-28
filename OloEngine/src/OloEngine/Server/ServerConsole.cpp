@@ -4,6 +4,7 @@
 #include "OloEngine/Core/Application.h"
 #include "OloEngine/Core/Log.h"
 #include "OloEngine/Server/ServerConsolePlatform.h"
+#include "OloEngine/Threading/UniqueLock.h"
 
 #include <algorithm>
 #include <cctype>
@@ -50,7 +51,8 @@ namespace OloEngine
 
         // Launch background thread that blocks on std::getline
         m_InputThreadRunning = true;
-        m_InputThread = std::thread(&ServerConsole::InputThreadFunc, this);
+        m_InputThread = FThread("ServerConsoleInput", [this]()
+                                { InputThreadFunc(); });
 
         OLO_CORE_INFO("[ServerConsole] Initialized. Type 'help' for available commands.");
     }
@@ -73,9 +75,9 @@ namespace OloEngine
             ServerConsolePlatform::Signal(*m_AbortState);
         }
 
-        if (m_InputThread.joinable())
+        if (m_InputThread.IsJoinable())
         {
-            m_InputThread.join();
+            m_InputThread.Join();
         }
 
         // Release platform abort state (closes pipes on POSIX).
@@ -86,7 +88,7 @@ namespace OloEngine
 
         m_Commands.clear();
         {
-            std::lock_guard lock(m_InputQueueMutex);
+            TUniqueLock<FMutex> lock(m_InputQueueMutex);
             std::queue<std::string> empty;
             std::swap(m_InputQueue, empty);
         }
@@ -125,7 +127,7 @@ namespace OloEngine
 
             if (!line.empty())
             {
-                std::lock_guard lock(m_InputQueueMutex);
+                TUniqueLock<FMutex> lock(m_InputQueueMutex);
                 m_InputQueue.push(std::move(line));
                 line = {}; // reset after move
             }
@@ -140,7 +142,7 @@ namespace OloEngine
         std::queue<std::string> pending;
         {
             OLO_PROFILE_SCOPE("ServerConsole::ProcessInputDrain");
-            std::lock_guard lock(m_InputQueueMutex);
+            TUniqueLock<FMutex> lock(m_InputQueueMutex);
             std::swap(pending, m_InputQueue);
         }
 
@@ -179,7 +181,7 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        std::lock_guard lock(m_InputQueueMutex);
+        TUniqueLock<FMutex> lock(m_InputQueueMutex);
         m_InputQueue.push(line);
     }
 

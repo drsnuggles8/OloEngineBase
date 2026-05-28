@@ -2,6 +2,8 @@
 #include "OloEngine/Localization/LocalizationManager.h"
 #include "OloEngine/Localization/LocalizationEvents.h"
 #include "OloEngine/Core/Log.h"
+#include "OloEngine/Threading/SharedLock.h"
+#include "OloEngine/Threading/UniqueLock.h"
 
 #include <yaml-cpp/yaml.h>
 
@@ -23,9 +25,9 @@ namespace OloEngine
         return s_State;
     }
 
-    std::shared_mutex& LocalizationManager::GetMutex()
+    FSharedMutex& LocalizationManager::GetMutex()
     {
-        static std::shared_mutex s_Mutex;
+        static FSharedMutex s_Mutex;
         return s_Mutex;
     }
 
@@ -72,7 +74,7 @@ namespace OloEngine
         }
 
         {
-            std::unique_lock lock(GetMutex());
+            TUniqueLock<FSharedMutex> lock(GetMutex());
             state.Tables = std::move(newTables);
             state.SourcePaths = std::move(newSources);
 
@@ -101,7 +103,7 @@ namespace OloEngine
 
     void LocalizationManager::Shutdown()
     {
-        std::unique_lock lock(GetMutex());
+        TUniqueLock<FSharedMutex> lock(GetMutex());
         State& state = GetState();
         state.Tables.clear();
         state.SourcePaths.clear();
@@ -122,7 +124,7 @@ namespace OloEngine
             return false;
         }
 
-        std::unique_lock lock(GetMutex());
+        TUniqueLock<FSharedMutex> lock(GetMutex());
         State& state = GetState();
         state.SourcePaths[code] = filePath;
         state.Tables.insert_or_assign(code, std::move(table));
@@ -138,7 +140,7 @@ namespace OloEngine
         std::string previous;
 
         {
-            std::unique_lock lock(GetMutex());
+            TUniqueLock<FSharedMutex> lock(GetMutex());
             State& state = GetState();
             if (!state.Tables.contains(localeCode))
             {
@@ -170,7 +172,7 @@ namespace OloEngine
         std::filesystem::path sourcePath;
         std::string code;
         {
-            std::shared_lock lock(GetMutex());
+            TSharedLock<FSharedMutex> lock(GetMutex());
             const State& state = GetState();
             if (state.CurrentLocale.empty())
                 return false;
@@ -193,7 +195,7 @@ namespace OloEngine
         // on disk.
         const std::string newCode = fresh.GetLocaleInfo().Code;
 
-        std::unique_lock lock(GetMutex());
+        TUniqueLock<FSharedMutex> lock(GetMutex());
         State& state = GetState();
         if (!newCode.empty() && newCode != code)
         {
@@ -228,7 +230,7 @@ namespace OloEngine
     {
         // Fast path: shared lock, look up, return if present.
         {
-            std::shared_lock lock(GetMutex());
+            TSharedLock<FSharedMutex> lock(GetMutex());
             const State& state = GetState();
             if (state.CurrentLocale.empty())
             {
@@ -242,7 +244,7 @@ namespace OloEngine
         }
         // Slow path: record the miss under a unique lock.
         {
-            std::unique_lock lock(GetMutex());
+            TUniqueLock<FSharedMutex> lock(GetMutex());
             State& state = GetState();
             state.MissingKeys.insert(key);
             return state.MissingKeyFallback;
@@ -256,7 +258,7 @@ namespace OloEngine
         std::string fallback;
         bool hit = false;
         {
-            std::shared_lock lock(GetMutex());
+            TSharedLock<FSharedMutex> lock(GetMutex());
             const State& state = GetState();
             fallback = state.MissingKeyFallback;
             if (state.CurrentLocale.empty())
@@ -271,7 +273,7 @@ namespace OloEngine
         }
         if (!hit)
         {
-            std::unique_lock lock(GetMutex());
+            TUniqueLock<FSharedMutex> lock(GetMutex());
             GetState().MissingKeys.insert(key);
             return fallback;
         }
@@ -286,13 +288,13 @@ namespace OloEngine
 
     std::string LocalizationManager::GetCurrentLocale()
     {
-        std::shared_lock lock(GetMutex());
+        TSharedLock<FSharedMutex> lock(GetMutex());
         return GetState().CurrentLocale;
     }
 
     std::vector<LocaleDefinition> LocalizationManager::GetAvailableLocales()
     {
-        std::shared_lock lock(GetMutex());
+        TSharedLock<FSharedMutex> lock(GetMutex());
         const State& state = GetState();
         std::vector<LocaleDefinition> out;
         out.reserve(state.Tables.size());
@@ -305,7 +307,7 @@ namespace OloEngine
 
     bool LocalizationManager::HasKey(const std::string& key)
     {
-        std::shared_lock lock(GetMutex());
+        TSharedLock<FSharedMutex> lock(GetMutex());
         const State& state = GetState();
         if (state.CurrentLocale.empty())
             return false;
@@ -317,7 +319,7 @@ namespace OloEngine
 
     std::string LocalizationManager::Get(const std::string& key, const std::string& localeCode)
     {
-        std::shared_lock lock(GetMutex());
+        TSharedLock<FSharedMutex> lock(GetMutex());
         const State& state = GetState();
         const auto it = state.Tables.find(localeCode);
         if (it == state.Tables.end() || !it->second.Has(key))
@@ -327,7 +329,7 @@ namespace OloEngine
 
     bool LocalizationManager::HasKey(const std::string& key, const std::string& localeCode)
     {
-        std::shared_lock lock(GetMutex());
+        TSharedLock<FSharedMutex> lock(GetMutex());
         const State& state = GetState();
         const auto it = state.Tables.find(localeCode);
         if (it == state.Tables.end())
@@ -337,7 +339,7 @@ namespace OloEngine
 
     std::vector<std::string> LocalizationManager::GetAllKeys(const std::string& localeCode)
     {
-        std::shared_lock lock(GetMutex());
+        TSharedLock<FSharedMutex> lock(GetMutex());
         const State& state = GetState();
         const auto it = state.Tables.find(localeCode);
         if (it == state.Tables.end())
@@ -347,7 +349,7 @@ namespace OloEngine
 
     StringEntryMetadata LocalizationManager::GetMetadata(const std::string& key, const std::string& localeCode)
     {
-        std::shared_lock lock(GetMutex());
+        TSharedLock<FSharedMutex> lock(GetMutex());
         const State& state = GetState();
         const auto it = state.Tables.find(localeCode);
         if (it == state.Tables.end())
@@ -398,7 +400,7 @@ namespace OloEngine
 
     bool LocalizationManager::SetKey(const std::string& localeCode, const std::string& key, const std::string& value)
     {
-        std::unique_lock lock(GetMutex());
+        TUniqueLock<FSharedMutex> lock(GetMutex());
         State& state = GetState();
         const auto it = state.Tables.find(localeCode);
         if (it == state.Tables.end())
@@ -464,7 +466,7 @@ namespace OloEngine
         // we don't hold the mutex while running PseudoifyAscii on every value.
         std::vector<std::pair<std::string, std::string>> source;
         {
-            std::shared_lock lock(GetMutex());
+            TSharedLock<FSharedMutex> lock(GetMutex());
             const State& state = GetState();
             const auto it = state.Tables.find(sourceLocaleCode);
             if (it == state.Tables.end())
@@ -487,7 +489,7 @@ namespace OloEngine
             pseudo.Set(k, "[!! " + PseudoifyAscii(v) + " !!]");
         }
 
-        std::unique_lock lock(GetMutex());
+        TUniqueLock<FSharedMutex> lock(GetMutex());
         State& state = GetState();
         state.Tables.insert_or_assign(pseudoCode, std::move(pseudo));
         state.Generation.fetch_add(1, std::memory_order_release);
@@ -496,7 +498,7 @@ namespace OloEngine
 
     std::vector<std::string> LocalizationManager::GetMissingKeysSnapshot()
     {
-        std::shared_lock lock(GetMutex());
+        TSharedLock<FSharedMutex> lock(GetMutex());
         const State& state = GetState();
         std::vector<std::string> out(state.MissingKeys.begin(), state.MissingKeys.end());
         std::sort(out.begin(), out.end());
@@ -505,7 +507,7 @@ namespace OloEngine
 
     void LocalizationManager::ClearMissingKeys()
     {
-        std::unique_lock lock(GetMutex());
+        TUniqueLock<FSharedMutex> lock(GetMutex());
         GetState().MissingKeys.clear();
     }
 
@@ -514,7 +516,7 @@ namespace OloEngine
         StringTable snapshot;
         std::filesystem::path resolvedPath = pathOverride;
         {
-            std::shared_lock lock(GetMutex());
+            TSharedLock<FSharedMutex> lock(GetMutex());
             const State& state = GetState();
             const auto it = state.Tables.find(localeCode);
             if (it == state.Tables.end())
@@ -640,7 +642,7 @@ namespace OloEngine
     {
         std::string locale;
         {
-            std::shared_lock lock(GetMutex());
+            TSharedLock<FSharedMutex> lock(GetMutex());
             locale = GetState().CurrentLocale;
         }
 
@@ -690,7 +692,7 @@ namespace OloEngine
         if (prefs.empty())
             return {};
 
-        std::shared_lock lock(GetMutex());
+        TSharedLock<FSharedMutex> lock(GetMutex());
         const State& state = GetState();
         if (state.Tables.empty())
             return {};
@@ -1243,7 +1245,7 @@ namespace OloEngine
 
     void LocalizationManager::SetMissingKeyFallback(const std::string& fallback)
     {
-        std::unique_lock lock(GetMutex());
+        TUniqueLock<FSharedMutex> lock(GetMutex());
         GetState().MissingKeyFallback = fallback;
     }
 
@@ -1251,7 +1253,7 @@ namespace OloEngine
     {
         if (!listener)
             return 0;
-        std::unique_lock lock(GetMutex());
+        TUniqueLock<FSharedMutex> lock(GetMutex());
         State& state = GetState();
         const u64 id = state.NextSubscriptionId++;
         state.Listeners.emplace(id, std::move(listener));
@@ -1262,7 +1264,7 @@ namespace OloEngine
     {
         if (subscriptionId == 0)
             return;
-        std::unique_lock lock(GetMutex());
+        TUniqueLock<FSharedMutex> lock(GetMutex());
         GetState().Listeners.erase(subscriptionId);
     }
 
@@ -1276,7 +1278,7 @@ namespace OloEngine
 
     void LocalizationManager::ResetForTesting()
     {
-        std::unique_lock lock(GetMutex());
+        TUniqueLock<FSharedMutex> lock(GetMutex());
         State& state = GetState();
         state.Tables.clear();
         state.SourcePaths.clear();

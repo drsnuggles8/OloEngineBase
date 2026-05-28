@@ -1,8 +1,9 @@
 #pragma once
 
 #include "OloEngine/Core/Timer.h"
+#include "OloEngine/Threading/Mutex.h"
+#include "OloEngine/Threading/UniqueLock.h"
 
-#include <mutex>
 #include <string>
 #include <unordered_map>
 
@@ -19,7 +20,7 @@ namespace OloEngine
       public:
         void SetPerFrameTiming(const char* name, f32 timeMs)
         {
-            std::scoped_lock lock(m_Mutex);
+            TUniqueLock<FMutex> lock(m_Mutex);
             auto& data = m_CurrentFrameData[std::string(name)];
             data.Time += timeMs;
             ++data.Samples;
@@ -29,7 +30,7 @@ namespace OloEngine
         // Call once per frame from the main loop.
         void EndFrame()
         {
-            std::scoped_lock lock(m_Mutex);
+            TUniqueLock<FMutex> lock(m_Mutex);
             m_PreviousFrameData.swap(m_CurrentFrameData);
             m_CurrentFrameData.clear();
         }
@@ -42,13 +43,13 @@ namespace OloEngine
 
         void Clear()
         {
-            std::scoped_lock lock(m_Mutex);
+            TUniqueLock<FMutex> lock(m_Mutex);
             m_CurrentFrameData.clear();
             m_PreviousFrameData.clear();
         }
 
       private:
-        std::mutex m_Mutex;
+        FMutex m_Mutex;
         std::unordered_map<std::string, PerFrameData> m_CurrentFrameData;
         std::unordered_map<std::string, PerFrameData> m_PreviousFrameData;
     };

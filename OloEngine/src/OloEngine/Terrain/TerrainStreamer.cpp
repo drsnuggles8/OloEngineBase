@@ -1,6 +1,8 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Terrain/TerrainStreamer.h"
 #include "OloEngine/Terrain/TerrainMaterial.h"
+#include "OloEngine/Threading/SharedLock.h"
+#include "OloEngine/Threading/UniqueLock.h"
 
 #include <algorithm>
 #include <cstdio>
@@ -41,31 +43,37 @@ namespace OloEngine
 
         i32 radius = static_cast<i32>(m_Config.LoadRadius);
 
-        // Mark all tiles in the load radius as needed
-        for (i32 dz = -radius; dz <= radius; ++dz)
+        // Mark all tiles in the load radius as needed. One exclusive lock spans the
+        // whole scan; the loop body is fast and the per-iteration lock the previous
+        // implementation took had no concurrency benefit.
         {
-            for (i32 dx = -radius; dx <= radius; ++dx)
+            TUniqueLock<FSharedMutex> lock(m_TileMutex);
+            for (i32 dz = -radius; dz <= radius; ++dz)
             {
-                i32 gx = cameraTileX + dx;
-                i32 gz = cameraTileZ + dz;
-                TileCoord coord{ gx, gz };
+                for (i32 dx = -radius; dx <= radius; ++dx)
+                {
+                    i32 gx = cameraTileX + dx;
+                    i32 gz = cameraTileZ + dz;
+                    TileCoord coord{ gx, gz };
 
-                std::lock_guard lock(m_TileMutex);
-                auto it = m_Tiles.find(coord);
-                if (it != m_Tiles.end())
-                {
-                    // Tile exists — update LRU timestamp
-                    it->second->LastUsedFrame = frameNumber;
-                }
-                else
-                {
-                    // Need to load this tile
-                    RequestTileLoad(gx, gz);
+                    auto it = m_Tiles.find(coord);
+                    if (it != m_Tiles.end())
+                    {
+                        // Tile exists — update LRU timestamp
+                        it->second->LastUsedFrame = frameNumber;
+                    }
+                    else
+                    {
+                        // Need to load this tile
+                        RequestTileLoad(gx, gz);
+                    }
                 }
             }
         }
 
-        // Process completed async loads (GPU upload on main thread)
+        // Process completed async loads (GPU upload on main thread). Takes its own
+        // exclusive lock when committing the new tile; must run with the scan lock
+        // released so we don't recursively acquire FSharedMutex.
         ProcessCompletedLoads();
 
         // Evict tiles over budget
@@ -95,8 +103,10 @@ namespace OloEngine
                         tile->SetMaterial(m_SharedMaterial);
                     }
 
-                    std::lock_guard lock(m_TileMutex);
-                    m_Tiles[it->Coord] = tile;
+                    {
+                        TUniqueLock<FSharedMutex> lock(m_TileMutex);
+                        m_Tiles[it->Coord] = tile;
+                    }
 
                     OLO_CORE_TRACE("TerrainStreamer: Tile[{},{}] ready", it->Coord.X, it->Coord.Z);
                 }
@@ -116,7 +126,7 @@ namespace OloEngine
 
     void TerrainStreamer::GetReadyTiles(std::vector<Ref<TerrainTile>>& outTiles) const
     {
-        std::lock_guard lock(m_TileMutex);
+        TSharedLock<FSharedMutex> lock(m_TileMutex);
         outTiles.clear();
         outTiles.reserve(m_Tiles.size());
         for (auto& [coord, tile] : m_Tiles)
@@ -130,7 +140,7 @@ namespace OloEngine
 
     void TerrainStreamer::SetMaterial(const Ref<TerrainMaterial>& material)
     {
-        std::lock_guard lock(m_TileMutex);
+        TUniqueLock<FSharedMutex> lock(m_TileMutex);
         m_SharedMaterial = material;
         for (auto& [coord, tile] : m_Tiles)
         {
@@ -142,7 +152,11 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        std::lock_guard lock(m_TileMutex);
+        // StitchEdge mutates the tile's GPU mesh, but the read-side aliasing here is
+        // safe: tile pointers are stable for the lifetime of the entry in m_Tiles, and
+        // the only writers (ProcessCompletedLoads / EvictOverBudget / UnloadAll) take
+        // an exclusive lock that excludes this scan.
+        TSharedLock<FSharedMutex> lock(m_TileMutex);
         for (auto& [coord, tile] : m_Tiles)
         {
             if (tile->GetState() != TerrainTile::State::Ready)
@@ -168,7 +182,7 @@ namespace OloEngine
 
     u32 TerrainStreamer::GetLoadedTileCount() const
     {
-        std::lock_guard lock(m_TileMutex);
+        TSharedLock<FSharedMutex> lock(m_TileMutex);
         u32 count = 0;
         for (auto& [coord, tile] : m_Tiles)
         {
@@ -187,7 +201,7 @@ namespace OloEngine
 
     Ref<TerrainTile> TerrainStreamer::GetTile(i32 gridX, i32 gridZ) const
     {
-        std::lock_guard lock(m_TileMutex);
+        TSharedLock<FSharedMutex> lock(m_TileMutex);
         auto it = m_Tiles.find({ gridX, gridZ });
         if (it != m_Tiles.end())
         {
@@ -207,7 +221,7 @@ namespace OloEngine
         }
         m_PendingLoads.clear();
 
-        std::lock_guard lock(m_TileMutex);
+        TUniqueLock<FSharedMutex> lock(m_TileMutex);
         for (auto& [coord, tile] : m_Tiles)
         {
             tile->Unload();
@@ -281,7 +295,7 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        std::lock_guard lock(m_TileMutex);
+        TUniqueLock<FSharedMutex> lock(m_TileMutex);
 
         if (m_Tiles.size() <= m_Config.MaxLoadedTiles)
         {

@@ -8,6 +8,7 @@
 #include "OloEngine/Scene/SceneSerializer.h"
 #include "OloEngine/Physics3D/JoltScene.h"
 #include "OloEngine/Scripting/C#/ScriptEngine.h"
+#include "OloEngine/Threading/UniqueLock.h"
 
 // Box2D
 #include <box2d/box2d.h>
@@ -67,7 +68,7 @@ namespace OloEngine
         // Unload all ready regions
         std::vector<RegionID> toUnload;
         {
-            std::lock_guard lock(m_RegionMutex);
+            TUniqueLock<FMutex> lock(m_RegionMutex);
             for (auto& [id, region] : m_Regions)
             {
                 if (region->m_State == StreamingRegion::State::Ready)
@@ -82,7 +83,7 @@ namespace OloEngine
             UnloadRegion(id);
         }
 
-        std::lock_guard lock(m_RegionMutex);
+        TUniqueLock<FMutex> lock(m_RegionMutex);
         m_Regions.clear();
         m_Scene = nullptr;
     }
@@ -103,7 +104,7 @@ namespace OloEngine
             return;
         }
 
-        std::lock_guard lock(m_RegionMutex);
+        TUniqueLock<FMutex> lock(m_RegionMutex);
 
         for (const auto& entry : std::filesystem::directory_iterator(regionDir))
         {
@@ -171,7 +172,7 @@ namespace OloEngine
 
             RegionID regionId(static_cast<u64>(vol.RegionAssetHandle));
 
-            std::unique_lock lock(m_RegionMutex);
+            TDynamicUniqueLock<FMutex> lock(m_RegionMutex);
             auto it = m_Regions.find(regionId);
             if (it == m_Regions.end())
             {
@@ -188,7 +189,7 @@ namespace OloEngine
             else if (distSq > vol.UnloadRadius * vol.UnloadRadius && region->m_State == StreamingRegion::State::Ready)
             {
                 // Release lock before UnloadRegion (it acquires lock internally)
-                lock.unlock();
+                lock.Unlock();
                 UnloadRegion(regionId);
                 vol.IsLoaded = false;
             }
@@ -205,7 +206,7 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        std::lock_guard lock(m_RegionMutex);
+        TUniqueLock<FMutex> lock(m_RegionMutex);
         auto it = m_Regions.find(regionId);
         if (it == m_Regions.end())
         {
@@ -225,7 +226,7 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        std::lock_guard lock(m_RegionMutex);
+        TUniqueLock<FMutex> lock(m_RegionMutex);
         auto it = m_Regions.find(regionId);
         if (it == m_Regions.end() || it->second->m_State != StreamingRegion::State::Ready)
         {
@@ -291,7 +292,7 @@ namespace OloEngine
 
     u32 SceneStreamer::GetLoadedRegionCount() const
     {
-        std::lock_guard lock(m_RegionMutex);
+        TUniqueLock<FMutex> lock(m_RegionMutex);
         u32 count = 0;
         for (auto& [id, region] : m_Regions)
         {
@@ -331,7 +332,7 @@ namespace OloEngine
                 {
                     return false;
                 }
-                std::lock_guard lock(mutex);
+                TUniqueLock<FMutex> lock(mutex);
                 region->m_RawData = std::move(data);
                 region->m_State = StreamingRegion::State::Loaded;
                 return true;
@@ -367,7 +368,7 @@ namespace OloEngine
             StreamingRegion::State regionState;
             YAML::Node rawData;
             {
-                std::lock_guard lock(m_RegionMutex);
+                TUniqueLock<FMutex> lock(m_RegionMutex);
                 regionState = region->m_State;
                 rawData = std::move(region->m_RawData);
             }
@@ -388,7 +389,7 @@ namespace OloEngine
                 InitializeStreamedEntities(region->m_EntityUUIDs);
 
                 {
-                    std::lock_guard lock(m_RegionMutex);
+                    TUniqueLock<FMutex> lock(m_RegionMutex);
                     region->m_State = StreamingRegion::State::Ready;
                 }
 
@@ -408,7 +409,7 @@ namespace OloEngine
             else if (!success)
             {
                 OLO_CORE_ERROR("SceneStreamer: Failed to load region '{0}'", region->m_Name);
-                std::lock_guard lock(m_RegionMutex);
+                TUniqueLock<FMutex> lock(m_RegionMutex);
                 region->m_State = StreamingRegion::State::Unloaded;
             }
 
@@ -420,7 +421,7 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        std::unique_lock lock(m_RegionMutex);
+        TDynamicUniqueLock<FMutex> lock(m_RegionMutex);
 
         // Count ready regions
         u32 readyCount = 0;
@@ -457,9 +458,9 @@ namespace OloEngine
         for (u32 i = 0; i < toEvict && i < static_cast<u32>(sortedRegions.size()); ++i)
         {
             // Release lock before UnloadRegion (it acquires lock internally)
-            lock.unlock();
+            lock.Unlock();
             UnloadRegion(sortedRegions[i].first);
-            lock.lock();
+            lock.Lock();
         }
     }
 

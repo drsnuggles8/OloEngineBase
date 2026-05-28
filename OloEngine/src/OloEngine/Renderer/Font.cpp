@@ -4,6 +4,8 @@
 #include "SlugFontProcessor.h"
 
 #include "OloEngine/Core/UTF8.h"
+#include "OloEngine/Threading/Mutex.h"
+#include "OloEngine/Threading/UniqueLock.h"
 
 #define STB_TRUETYPE_IMPLEMENTATION
 #include <stb_image/stb_truetype.h>
@@ -226,12 +228,14 @@ namespace OloEngine
 
     Ref<Font> Font::Create(const std::filesystem::path& font)
     {
+        OLO_PROFILE_FUNCTION();
+
         auto canonical = std::filesystem::weakly_canonical(font).string();
         static std::unordered_map<std::string, WeakRef<Font>> s_FontCache;
-        static std::mutex s_FontCacheMutex;
+        static FMutex s_FontCacheMutex;
 
         {
-            std::lock_guard lock(s_FontCacheMutex);
+            TUniqueLock<FMutex> lock(s_FontCacheMutex);
             auto it = s_FontCache.find(canonical);
             if (it != s_FontCache.end())
             {
@@ -245,7 +249,17 @@ namespace OloEngine
 
         if (newFont->IsLoaded())
         {
-            std::lock_guard lock(s_FontCacheMutex);
+            // Double-checked: another thread may have loaded and cached the same
+            // font while we were loading outside the lock. Re-check and reuse its
+            // entry so concurrent callers share a single Font instance.
+            TUniqueLock<FMutex> lock(s_FontCacheMutex);
+            auto it = s_FontCache.find(canonical);
+            if (it != s_FontCache.end())
+            {
+                if (auto cached = it->second.Lock())
+                    return cached;
+                s_FontCache.erase(it);
+            }
             s_FontCache[canonical] = newFont;
         }
         return newFont;

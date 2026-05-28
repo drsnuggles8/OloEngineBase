@@ -4,10 +4,11 @@
 #include "OloEngine/Core/Ref.h"
 #include "OloEngine/Core/UUID.h"
 #include "OloEngine/Task/Task.h"
+#include "OloEngine/Threading/Mutex.h"
+#include "OloEngine/Threading/UniqueLock.h"
 #include "StreamingRegion.h"
 
 #include <glm/glm.hpp>
-#include <mutex>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -58,7 +59,7 @@ namespace OloEngine
         [[nodiscard]] u32 GetPendingLoadCount() const;
         [[nodiscard]] std::unordered_map<RegionID, Ref<StreamingRegion>> GetRegions() const
         {
-            std::lock_guard lock(m_RegionMutex);
+            TUniqueLock<FMutex> lock(m_RegionMutex);
             return m_Regions;
         }
 
@@ -84,7 +85,7 @@ namespace OloEngine
         };
         std::vector<PendingLoad> m_PendingLoads;
 
-        mutable std::mutex m_RegionMutex; // Protects m_Regions
+        mutable FMutex m_RegionMutex; // Protects m_Regions
         u64 m_CurrentFrame = 0;
         UUID m_ActivationEntityId{}; // 0 = use primary camera
     };

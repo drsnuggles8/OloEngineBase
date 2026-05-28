@@ -1,5 +1,6 @@
 #include "ConsolePanel.h"
 #include "OloEngine/Debug/Profiler.h"
+#include "OloEngine/Threading/UniqueLock.h"
 
 #include <imgui.h>
 #include <spdlog/sinks/callback_sink.h>
@@ -84,7 +85,7 @@ namespace OloEngine
 
     void ConsolePanel::PushMessage(const std::string& message, Log::Level level, Log::Type source)
     {
-        std::lock_guard lock(m_Mutex);
+        TUniqueLock<FMutex> lock(m_Mutex);
         if (m_Entries.size() >= s_MaxEntries)
         {
             m_Entries.pop_front();
@@ -94,7 +95,7 @@ namespace OloEngine
 
     void ConsolePanel::Clear()
     {
-        std::lock_guard lock(m_Mutex);
+        TUniqueLock<FMutex> lock(m_Mutex);
         m_Entries.clear();
     }
 
@@ -148,7 +149,7 @@ namespace OloEngine
         // Log entries
         ImGui::BeginChild("LogEntries", ImVec2(0, 0), ImGuiChildFlags_None, ImGuiWindowFlags_HorizontalScrollbar);
         {
-            std::lock_guard lock(m_Mutex);
+            TUniqueLock<FMutex> lock(m_Mutex);
 
             std::string_view filterStr(m_FilterText);
 

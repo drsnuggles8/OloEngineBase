@@ -4,12 +4,12 @@
 #include "OloEngine/Core/Ref.h"
 #include "OloEngine/Terrain/TerrainTile.h"
 #include "OloEngine/Task/Task.h"
+#include "OloEngine/Threading/SharedMutex.h"
 
 #include <glm/glm.hpp>
 #include <string>
 #include <unordered_map>
 #include <vector>
-#include <mutex>
 
 namespace OloEngine
 {
@@ -131,8 +131,11 @@ namespace OloEngine
         };
         std::vector<PendingLoad> m_PendingLoads;
 
-        // Protects m_Tiles during async load completion
-        mutable std::mutex m_TileMutex;
+        // Protects m_Tiles and m_SharedMaterial during async load completion.
+        // Reader/writer separation: GetReadyTiles / GetTile / GetLoadedTileCount /
+        // StitchLoadedTiles take shared locks; ProcessCompletedLoads / SetMaterial /
+        // EvictOverBudget / UnloadAll and the camera-tile scan in Update take exclusive locks.
+        mutable FSharedMutex m_TileMutex;
 
         // Current frame number for LRU tracking of newly requested tiles
         u64 m_CurrentFrame = 0;

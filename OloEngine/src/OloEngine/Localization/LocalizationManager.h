@@ -4,12 +4,12 @@
 #include "OloEngine/Localization/LocaleDefinition.h"
 #include "OloEngine/Localization/StringTable.h"
 #include "OloEngine/Localization/TextFormatter.h"
+#include "OloEngine/Threading/SharedMutex.h"
 
 #include <atomic>
 #include <chrono>
 #include <filesystem>
 #include <functional>
-#include <shared_mutex>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -287,6 +287,6 @@ namespace OloEngine
         };
 
         static State& GetState();
-        static std::shared_mutex& GetMutex();
+        static FSharedMutex& GetMutex();
     };
 } // namespace OloEngine
