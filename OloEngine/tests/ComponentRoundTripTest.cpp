@@ -2236,4 +2236,48 @@ namespace OloEngine::Tests
         EXPECT_EQ(parentRel.m_Children[0], expectedChild1UUID);
         EXPECT_EQ(parentRel.m_Children[1], expectedChild2UUID);
     }
+
+    // -------------------------------------------------------------------------
+    // WaterComponent — underwater rendering fields (WATER_FUTURE_IMPROVEMENTS.md §7.2)
+    //
+    // Focused on the newly-added underwater fields rather than the full
+    // WaterComponent surface: those three fields are the only ones added in
+    // this change, so a missing read/write on any of them is what this test
+    // is here to catch.
+    // -------------------------------------------------------------------------
+    TEST(ComponentRoundTrip, WaterComponentUnderwaterFieldsSurviveYAMLRoundTrip)
+    {
+        // Non-default, recognisable values so a dropped read or write is visible.
+        const glm::vec3 expectedFogColor{ 0.12f, 0.34f, 0.56f };
+        const f32 expectedFogDensity = 0.275f;
+        const bool expectedRenderFromBelow = false; // default is true
+
+        std::string yaml;
+        {
+            auto scene = Scene::Create();
+            Entity entity = scene->CreateEntity(kTestTag);
+            auto& water = entity.AddComponent<WaterComponent>();
+            water.m_UnderwaterFogColor = expectedFogColor;
+            water.m_UnderwaterFogDensity = expectedFogDensity;
+            water.m_RenderFromBelow = expectedRenderFromBelow;
+
+            yaml = SceneSerializer(scene).SerializeToYAML();
+        }
+
+        ASSERT_FALSE(yaml.empty());
+
+        auto reloaded = Scene::Create();
+        ASSERT_TRUE(SceneSerializer(reloaded).DeserializeFromYAML(yaml));
+
+        Entity restored = FindByTag(*reloaded, kTestTag);
+        ASSERT_TRUE(static_cast<bool>(restored));
+        ASSERT_TRUE(restored.HasComponent<WaterComponent>());
+
+        const auto& water = restored.GetComponent<WaterComponent>();
+        EXPECT_NEAR(water.m_UnderwaterFogColor.r, expectedFogColor.r, kFloatEpsilon);
+        EXPECT_NEAR(water.m_UnderwaterFogColor.g, expectedFogColor.g, kFloatEpsilon);
+        EXPECT_NEAR(water.m_UnderwaterFogColor.b, expectedFogColor.b, kFloatEpsilon);
+        EXPECT_NEAR(water.m_UnderwaterFogDensity, expectedFogDensity, kFloatEpsilon);
+        EXPECT_EQ(water.m_RenderFromBelow, expectedRenderFromBelow);
+    }
 } // namespace OloEngine::Tests

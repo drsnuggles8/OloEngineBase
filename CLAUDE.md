@@ -94,6 +94,18 @@ The decision tree, per-layer reference, and anti-patterns all live in [docs/agen
 
 Special rebase modes: `OLOENGINE_GOLDEN_REBASE=1` for goldens, `OLOENGINE_PERF_REBASE=1` for perf baselines — only after a deliberate visual change or a hardware/optimisation move.
 
+### Rendering changes MUST be visually verified — unit tests are not enough
+
+A renderer change can pass every CPU/contract test and still look completely broken on screen (transparent water, foam wash, fog flooding the frame, z-fighting, a hard seam at the waterline). **Math/contract tests prove the formula; they do not prove the frame looks right.** So for any change that affects what the screen shows — shaders, render passes, materials, post-processing, culling, blending, a new visual component — do **all** of:
+
+1. **Pin the math with CPU/contract tests** (the cheapest layer that proves the formula) — e.g. the fog/opacity/face-selection logic in [WaterRenderingTest.cpp](OloEngine/tests/Rendering/WaterRenderingTest.cpp). These run in CI.
+2. **Capture screenshot evidence from multiple camera angles and actually look at the pixels.** Follow the visual-probe pattern in [SphereAreaLightVisualTest.cpp](OloEngine/tests/Rendering/PropertyTests/SphereAreaLightVisualTest.cpp) and [WaterVisualEvidenceTest.cpp](OloEngine/tests/Rendering/PropertyTests/WaterVisualEvidenceTest.cpp): render the real pipeline to a framebuffer, read it back, `stbi_write_png` to `OloEditor/assets/tests/visual/`, and **read the PNGs back** to confirm the result. Cover the cases where the effect is most likely to break — for water that meant *from the side*, *straddling the waterline*, *fully submerged*, and *looking down from above*. Don't trust "the test passed"; trust the image.
+3. **Run the change in the editor** (`run-oloeditor-debug`, scene under `OloEditor/SandboxProject/Assets/Scenes/`) and check the `OloEngine.log` for shader compile/link errors. Add a representative test scene if one doesn't exist.
+
+Do not report a rendering change as done on the strength of unit tests alone — that produced multiple "tests green, screen wrong" rounds. If you cannot capture/inspect a frame for a given change, say so explicitly.
+
+**Known gap (raise its priority):** the `RendererAttachedTest` fixture deliberately leaves `SetRenderingEnabled(false)` because driving a full-pipeline render in a test corrupts Renderer3D global GL state for later tests in the same process. That's why `WaterVisualEvidenceTest` has to be `DISABLED_` (run on demand) instead of guarding every commit in CI. Until that coupling is untangled, screenshot tests can't gate CI — see [issue #258](https://github.com/drsnuggles8/OloEngineBase/issues/258). Treat untangling it as higher priority than it has been: it's the thing standing between us and automated visual regression coverage for the whole renderer.
+
 ---
 
 ## Architecture

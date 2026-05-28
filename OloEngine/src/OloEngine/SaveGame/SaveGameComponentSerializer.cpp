@@ -1170,6 +1170,7 @@ namespace OloEngine
         ar << c.m_SSRMaxSteps << c.m_SSRStepSize << c.m_SSRMaxDistance << c.m_SSRThickness;
         ar << c.m_SSREnabled;
         ar << c.m_TessellationEnabled << c.m_TessellationFactor << c.m_TessMinDistance << c.m_TessMaxDistance;
+        ar << c.m_UnderwaterFogColor << c.m_UnderwaterFogDensity << c.m_RenderFromBelow;
 
         if (ar.IsLoading())
         {
@@ -1253,6 +1254,8 @@ namespace OloEngine
             sanitizeColor(c.m_DeepColor, glm::vec3(0.0f, 0.1f, 0.2f));
             sanitizeColor(c.m_RefractionColor, glm::vec3(0.0f, 0.05f, 0.1f));
             sanitizeColor(c.m_SSSColor, glm::vec3(0.0f, 0.5f, 0.4f));
+            sanitizeColor(c.m_UnderwaterFogColor, glm::vec3(0.05f, 0.15f, 0.25f));
+            sanitize(c.m_UnderwaterFogDensity, 0.0f, 10.0f, 0.08f);
         }
     }
 

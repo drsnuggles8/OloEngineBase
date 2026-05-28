@@ -699,7 +699,14 @@ namespace OloEngine
                                                                        { if (std::isfinite(v) && v >= 0.0f && v <= 1.0f) w.m_Transparency = v; }),
                                          "reflectivity", sol::property([](const WaterComponent& w)
                                                                        { return w.m_Reflectivity; }, [](WaterComponent& w, f32 v)
-                                                                       { if (std::isfinite(v) && v >= 0.0f && v <= 1.0f) w.m_Reflectivity = v; }));
+                                                                       { if (std::isfinite(v) && v >= 0.0f && v <= 1.0f) w.m_Reflectivity = v; }),
+                                         "underwaterFogColor", sol::property([](const WaterComponent& w)
+                                                                             { return w.m_UnderwaterFogColor; }, [](WaterComponent& w, const glm::vec3& v)
+                                                                             { if (std::isfinite(v.x) && std::isfinite(v.y) && std::isfinite(v.z)) w.m_UnderwaterFogColor = glm::clamp(v, glm::vec3(0.0f), glm::vec3(1.0f)); }),
+                                         "underwaterFogDensity", sol::property([](const WaterComponent& w)
+                                                                               { return w.m_UnderwaterFogDensity; }, [](WaterComponent& w, f32 v)
+                                                                               { if (std::isfinite(v) && v >= 0.0f && v <= 10.0f) w.m_UnderwaterFogDensity = v; }),
+                                         "renderFromBelow", &WaterComponent::m_RenderFromBelow);
 
         // --- CharacterController3DComponent ---
         lua.new_usertype<CharacterController3DComponent>("CharacterController3DComponent",

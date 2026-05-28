@@ -1330,6 +1330,12 @@ namespace OloEngine
         water.m_TessellationFactor = waterComponent["TessellationFactor"].as<f32>(water.m_TessellationFactor);
         water.m_TessMinDistance = waterComponent["TessMinDistance"].as<f32>(water.m_TessMinDistance);
         water.m_TessMaxDistance = waterComponent["TessMaxDistance"].as<f32>(water.m_TessMaxDistance);
+        water.m_UnderwaterFogColor = waterComponent["UnderwaterFogColor"].as<glm::vec3>(water.m_UnderwaterFogColor);
+        water.m_UnderwaterFogDensity = waterComponent["UnderwaterFogDensity"].as<f32>(water.m_UnderwaterFogDensity);
+        if (auto const renderFromBelow = waterComponent["RenderFromBelow"])
+        {
+            water.m_RenderFromBelow = renderFromBelow.as<bool>(water.m_RenderFromBelow);
+        }
 
         // Clamp grid resolution to safe bounds
         water.m_GridResolutionX = std::clamp(water.m_GridResolutionX, 1u, 1024u);
@@ -1394,6 +1400,8 @@ namespace OloEngine
         // Enforce ordering: max must exceed min by at least 1.0
         if (water.m_TessMaxDistance < water.m_TessMinDistance + 1.0f)
             water.m_TessMaxDistance = water.m_TessMinDistance + 1.0f;
+        SanitizeVec3(water.m_UnderwaterFogColor, { 0.05f, 0.15f, 0.25f });
+        SanitizeFloat(water.m_UnderwaterFogDensity, 0.0f, 10.0f, 0.08f);
 
         water.m_NeedsRebuild = true;
     }
@@ -4656,6 +4664,9 @@ namespace OloEngine
             out << YAML::Key << "TessellationFactor" << YAML::Value << water.m_TessellationFactor;
             out << YAML::Key << "TessMinDistance" << YAML::Value << water.m_TessMinDistance;
             out << YAML::Key << "TessMaxDistance" << YAML::Value << water.m_TessMaxDistance;
+            out << YAML::Key << "UnderwaterFogColor" << YAML::Value << water.m_UnderwaterFogColor;
+            out << YAML::Key << "UnderwaterFogDensity" << YAML::Value << water.m_UnderwaterFogDensity;
+            out << YAML::Key << "RenderFromBelow" << YAML::Value << water.m_RenderFromBelow;
 
             out << YAML::EndMap; // WaterComponent
         }

@@ -511,6 +511,7 @@ namespace OloEngine
         {
             // ToneMap always runs; m_Enabled stays true.
             PostProcessPasses.ToneMap->SetPostProcessUBO(data.PostProcessGPU.PostProcess);
+            PostProcessPasses.ToneMap->SetUnderwaterFogUBO(data.UnderwaterFogBuffer);
         }
         if (PostProcessPasses.Vignette)
         {

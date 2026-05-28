@@ -63,6 +63,7 @@
     "OloEngine/tests/Rendering/PropertyTests/SphereAreaLightVisualTest.cpp": "L8",
     "OloEngine/tests/Rendering/PropertyTests/ProceduralSkyBakeTest.cpp": "L8",
     "OloEngine/tests/Rendering/PropertyTests/ProceduralSkyVisualTest.cpp": "L8",
+    "OloEngine/tests/Rendering/PropertyTests/WaterVisualEvidenceTest.cpp": "L8",
     "OloEngine/tests/Rendering/PropertyTests/TestFailureCaptureTest.cpp": "meta",
     "OloEngine/tests/Rendering/CommandAllocatorTest.cpp": "plumbing",
     "OloEngine/tests/Rendering/CommandBucketTest.cpp": "plumbing",

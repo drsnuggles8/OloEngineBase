@@ -110,10 +110,13 @@ Entities:
       Transparency: 0.6
       Reflectivity: 0.5
       FresnelPower: 5
-      SpecularIntensity: 1
+      SpecularIntensity: 0.4
       GridResolutionX: 128
       GridResolutionZ: 128
       Enabled: true
+      UnderwaterFogColor: [0.04, 0.18, 0.3]
+      UnderwaterFogDensity: 0.08
+      RenderFromBelow: true
   - Entity: 900000000000003
     TagComponent:
       Tag: Backpack
@@ -124,3 +127,121 @@ Entities:
     ModelComponent:
       FilePath: assets/backpack/backpack.obj
       Visible: true
+  # ── Seafloor (plane 20m below the surface) ──
+  - Entity: 900000000000004
+    TagComponent:
+      Tag: Seafloor
+    TransformComponent:
+      Translation: [0, -20, 0]
+      Rotation: [0, 0, 0]
+      Scale: [60, 1, 60]
+    MeshComponent:
+      Primitive: 3
+    MaterialComponent:
+      AlbedoColor: [0.35, 0.3, 0.22]
+      Metallic: 0
+      Roughness: 0.95
+  # ── Pillars that break the surface (visible above AND below water) ──
+  - Entity: 900000000000005
+    TagComponent:
+      Tag: Pillar A
+    TransformComponent:
+      Translation: [8, -9, 5]
+      Rotation: [0, 0, 0]
+      Scale: [1.5, 22, 1.5]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.6, 0.6, 0.62]
+      Metallic: 0
+      Roughness: 0.7
+  - Entity: 900000000000006
+    TagComponent:
+      Tag: Pillar B
+    TransformComponent:
+      Translation: [-10, -9, -6]
+      Rotation: [0, 0, 0]
+      Scale: [1.5, 22, 1.5]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.6, 0.6, 0.62]
+      Metallic: 0
+      Roughness: 0.7
+  # ── Depth-graded underwater landmarks (near → far shows the fog falloff) ──
+  - Entity: 900000000000007
+    TagComponent:
+      Tag: Near Sphere (red)
+    TransformComponent:
+      Translation: [3, -4, 6]
+      Rotation: [0, 0, 0]
+      Scale: [2, 2, 2]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.9, 0.15, 0.15]
+      Metallic: 0
+      Roughness: 0.4
+  - Entity: 900000000000008
+    TagComponent:
+      Tag: Mid Cube (green)
+    TransformComponent:
+      Translation: [-6, -6, -14]
+      Rotation: [0, 0.6, 0]
+      Scale: [2.5, 2.5, 2.5]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.15, 0.8, 0.2]
+      Metallic: 0
+      Roughness: 0.5
+  - Entity: 900000000000009
+    TagComponent:
+      Tag: Far Sphere (yellow)
+    TransformComponent:
+      Translation: [22, -8, -30]
+      Rotation: [0, 0, 0]
+      Scale: [3, 3, 3]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.9, 0.85, 0.1]
+      Metallic: 0
+      Roughness: 0.5
+  # ── Primary camera positioned underwater (for Play-mode testing) ──
+  - Entity: 900000000000010
+    TagComponent:
+      Tag: Underwater Camera
+    TransformComponent:
+      Translation: [0, -6, 24]
+      Rotation: [-0.2, 0, 0]
+      Scale: [1, 1, 1]
+    CameraComponent:
+      Camera:
+        ProjectionType: 0
+        PerspectiveFOV: 0.785398185
+        PerspectiveNear: 0.01
+        PerspectiveFar: 1000
+        OrthographicSize: 10
+        OrthographicNear: -1
+        OrthographicFar: 1
+      Primary: true
+      FixedAspectRatio: false
+  # ── Skybox / environment map (gives the water something to reflect) ──
+  - Entity: 900000000000011
+    TagComponent:
+      Tag: Skybox
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    EnvironmentMapComponent:
+      FilePath: assets/textures/Skybox
+      IsCubemapFolder: true
+      EnableSkybox: true
+      Rotation: 0
+      Exposure: 1
+      BlurAmount: 0
+      EnableIBL: true
+      IBLIntensity: 0.3
+      Tint: [1, 1, 1]

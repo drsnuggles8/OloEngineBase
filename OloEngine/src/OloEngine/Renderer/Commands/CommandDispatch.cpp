@@ -2115,6 +2115,14 @@ namespace OloEngine
         BindTrackedTexture(cmd->noiseTextureID, ShaderBindingLayout::TEX_WATER_NOISE, GL_TEXTURE_2D);
         BindTrackedTexture(cmd->foamTextureID, ShaderBindingLayout::TEX_WATER_FOAM, GL_TEXTURE_2D);
 
+        // Bind the global environment cubemap for water reflections (binding 9).
+        // The water pass doesn't otherwise touch this slot, so bind it explicitly
+        // instead of relying on a prior pass having left the skybox bound there —
+        // without this, grazing-angle water reflects an unbound (black/grey)
+        // cubemap and looks see-through rather than reflective.
+        if (const auto envMapID = Renderer3D::GetGlobalEnvironmentMapID(); envMapID != 0)
+            BindTrackedTexture(envMapID, ShaderBindingLayout::TEX_ENVIRONMENT, GL_TEXTURE_CUBE_MAP);
+
         // Bind VAO (cached) and draw water.
         // Water.glsl includes tessellation control / evaluation stages. With
         // TES active, OpenGL requires GL_PATCHES

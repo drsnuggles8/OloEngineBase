@@ -37,6 +37,7 @@
 
 #include "ShaderHarness.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
+#include "OloEngine/Renderer/PostProcessSettings.h"
 
 #include <array>
 #include <sstream>
@@ -59,7 +60,7 @@ namespace OloEngine::Tests
 
         // Block names that production shaders use, mapped to their
         // canonical C++ struct size. Aliases are listed explicitly.
-        const std::array<KnownBlock, 21> kKnownBlocks = { {
+        const std::array<KnownBlock, 22> kKnownBlocks = { {
             { "CameraMatrices", sizeof(UBOStructures::CameraUBO) },
             { "Camera", sizeof(UBOStructures::CameraUBO) },
             { "LightProperties", sizeof(UBOStructures::LightUBO) },
@@ -81,6 +82,7 @@ namespace OloEngine::Tests
             { "SelectionOutlineUBO", sizeof(UBOStructures::SelectionOutlineUBO) },
             { "JumpFloodUBO", sizeof(UBOStructures::JumpFloodUBO) },
             { "IBLParameters", sizeof(UBOStructures::IBLParametersUBO) },
+            { "UnderwaterFogBlock", sizeof(UnderwaterFogUBOData) },
         } };
 
         const KnownBlock* FindKnownBlock(std::string_view glslName)

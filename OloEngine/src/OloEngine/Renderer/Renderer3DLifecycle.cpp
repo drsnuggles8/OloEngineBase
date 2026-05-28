@@ -345,6 +345,7 @@ namespace OloEngine
         s_Data.DecalUBO = UniformBuffer::Create(ShaderBindingLayout::DecalUBO::GetSize(), ShaderBindingLayout::UBO_DECAL);
         s_Data.LightProbeVolumeUBO = UniformBuffer::Create(ShaderBindingLayout::LightProbeVolumeUBO::GetSize(), ShaderBindingLayout::UBO_LIGHT_PROBES);
         s_Data.SceneEffectsGPU.DRS = UniformBuffer::Create(DRSUBOData::GetSize(), ShaderBindingLayout::UBO_DRS);
+        s_Data.UnderwaterFogBuffer = UniformBuffer::Create(UnderwaterFogUBOData::GetSize(), ShaderBindingLayout::UBO_UNDERWATER);
 
         // Initialize light probe UBO with disabled state and create a small zeroed SSBO
         // so shaders always have valid bindings at SSBO_LIGHT_PROBES
@@ -493,6 +494,7 @@ namespace OloEngine
         s_Data.LightProbeVolumeUBO.Reset();
         s_Data.LightProbeSHBuffer.Reset();
         s_Data.PrevBoneMatricesUBO.Reset();
+        s_Data.UnderwaterFogBuffer.Reset();
 
         MeshPrimitives::Shutdown();
 

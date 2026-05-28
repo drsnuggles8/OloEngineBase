@@ -91,6 +91,28 @@
 
 namespace OloEngine
 {
+    // Underwater test (WATER_FUTURE_IMPROVEMENTS.md §7.2). True when `cameraPos`
+    // lies inside the water plane's XZ footprint; writes the signed vertical gap
+    // (still-surface Y − camera Y; positive = camera below the surface) to
+    // `outGap`. Works in the water plane's local space so translated / rotated /
+    // scaled grids are handled uniformly (grid is centred on local origin,
+    // spanning ±size/2 in X/Z at local Y = 0).
+    static bool GetWaterCameraFootprintGap(const glm::mat4& modelMat, const WaterComponent& water,
+                                           const glm::vec3& cameraPos, f32& outGap)
+    {
+        const glm::mat4 invModel = glm::inverse(modelMat);
+        const glm::vec4 localCam = invModel * glm::vec4(cameraPos, 1.0f);
+        if (!std::isfinite(localCam.x) || !std::isfinite(localCam.y) || !std::isfinite(localCam.z))
+            return false;
+        const f32 halfX = std::clamp(water.m_WorldSizeX, 0.1f, 10000.0f) * 0.5f;
+        const f32 halfZ = std::clamp(water.m_WorldSizeZ, 0.1f, 10000.0f) * 0.5f;
+        if (localCam.x < -halfX || localCam.x > halfX || localCam.z < -halfZ || localCam.z > halfZ)
+            return false;
+        const glm::vec4 surfaceWorld = modelMat * glm::vec4(localCam.x, 0.0f, localCam.z, 1.0f);
+        outGap = surfaceWorld.y - cameraPos.y;
+        return true;
+    }
+
     static void DrawTextWithShadow(const TextComponent& text, const TransformComponent& transform, int entityID)
     {
         if (text.DropShadow)
@@ -3975,6 +3997,9 @@ namespace OloEngine
                     // Feature toggles
                     waterParams.refractionEnabled = water.m_RefractionEnabled;
                     waterParams.ssrEnabled = water.m_SSREnabled;
+                    // Double-sided when enabled; the shader's per-fragment
+                    // waterline discard keeps the correct side (§7.2).
+                    waterParams.renderFromBelow = water.m_RenderFromBelow;
 
                     // Sanitize all scalar UBO fields — defence-in-depth against NaN/Inf reaching the GPU
                     auto const safeF = [](f32 v, f32 fallback)
@@ -4109,6 +4134,61 @@ namespace OloEngine
                         Renderer3D::SubmitWaterPacket(packet);
                     }
                 }
+            }
+
+            // Underwater fog (WATER_FUTURE_IMPROVEMENTS.md §7.2). The tone-map
+            // pass fogs each pixel by the length of its view ray that passes
+            // below the water plane, so the waterline is handled per pixel. Here
+            // we just pick the relevant water volume and hand over its plane /
+            // fog params + the reconstruction matrix.
+            //
+            // Activation is gated to at/below the waterline (within a wave-height
+            // margin above the surface). Above that, the water surface's own
+            // reflection / refraction owns the look — fogging there would wrongly
+            // darken the sky reflection seen from above.
+            {
+                UnderwaterFogState underwater{};
+                f32 bestSurfaceDist = std::numeric_limits<f32>::max();
+                auto waterView = m_Registry.view<TransformComponent, WaterComponent>();
+                for (auto entity : waterView)
+                {
+                    auto const& [transform, water] = waterView.get<TransformComponent, WaterComponent>(entity);
+                    if (!water.m_Enabled)
+                        continue;
+
+                    f32 gap = 0.0f; // surfaceY - cameraY (positive = camera below)
+                    if (!GetWaterCameraFootprintGap(transform.GetTransform(), water, cameraPosition, gap))
+                        continue;
+
+                    // Only activate when the camera is genuinely submerged
+                    // (below the surface). This post pass can't tell a
+                    // water-surface pixel from the seafloor behind it (the
+                    // surface writes no depth), so when the camera is ABOVE the
+                    // water it would wrongly fog the whole surface based on the
+                    // deep seafloor behind it, flooding the view with flat fog.
+                    // Above-water looking-down is the water shader's own
+                    // refraction / depth tint, not this pass. The smallest
+                    // positive gap selects the immediate ceiling when volumes
+                    // overlap.
+                    if (gap > 0.0f && gap < bestSurfaceDist)
+                    {
+                        bestSurfaceDist = gap;
+                        underwater.Active = true;
+                        underwater.FogColor = glm::clamp(water.m_UnderwaterFogColor, glm::vec3(0.0f), glm::vec3(1.0f));
+                        underwater.Density = std::isfinite(water.m_UnderwaterFogDensity)
+                                                 ? std::clamp(water.m_UnderwaterFogDensity, 0.0f, 10.0f)
+                                                 : 0.08f;
+                        underwater.WaterSurfaceY = cameraPosition.y + gap;
+                    }
+                }
+
+                Renderer3D::SetUnderwaterFogState(underwater);
+                UnderwaterFogUBOData uwData{};
+                uwData.ColorAndDensity = glm::vec4(underwater.FogColor, underwater.Density);
+                uwData.Flags = glm::vec4(underwater.Active ? 1.0f : 0.0f, underwater.WaterSurfaceY, 0.0f, 0.0f);
+                uwData.CameraPos = glm::vec4(cameraPosition, 0.0f);
+                uwData.InverseViewProjection = glm::inverse(viewProjection);
+                Renderer3D::UploadUnderwaterFogUBO(uwData);
             }
 
             // Submit decal draw commands to the DecalRenderPass command bucket

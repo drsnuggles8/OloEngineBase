@@ -702,6 +702,48 @@ namespace OloEngine
         }
     };
 
+    // Underwater rendering state. Populated each frame by the scene when the
+    // camera sits inside a water volume (WATER_FUTURE_IMPROVEMENTS.md §7.2).
+    // `Active == false` short-circuits the underwater fog pass; the pass
+    // itself decides whether to skip or just pass through the input texture
+    // unchanged so render-graph wiring stays stable.
+    struct UnderwaterFogState
+    {
+        bool Active = false; // Camera is below an enabled water surface
+        glm::vec3 FogColor = glm::vec3(0.05f, 0.15f, 0.25f);
+        f32 Density = 0.08f;      // Per-metre exponential absorption coefficient
+        f32 WaterSurfaceY = 0.0f; // World-Y of the dominant water plane (debug / depth-fade tuning)
+
+        bool operator==(const UnderwaterFogState&) const = default;
+    };
+
+    // GPU-side UBO layout for underwater fog (std140, binding 36).
+    // Drives the per-pixel water-volume fog in the tone-map pass: it fogs the
+    // portion of each pixel's view ray that passes below the water plane, so
+    // the waterline is handled per-pixel (underwater half fogged, above-water
+    // half clear) rather than as a full-screen toggle.
+    struct UnderwaterFogUBOData
+    {
+        // vec4(FogColor.rgb, Density)
+        glm::vec4 ColorAndDensity = glm::vec4(0.05f, 0.15f, 0.25f, 0.08f);
+        // vec4(Active, WaterSurfaceY, pad, pad). Active is a float for
+        // straightforward branch-free GLSL evaluation; tested as > 0.5.
+        glm::vec4 Flags = glm::vec4(0.0f);
+        // vec4(CameraPos.xyz, pad) — ray origin for the underwater-segment test.
+        glm::vec4 CameraPos = glm::vec4(0.0f);
+        // Reconstructs world position from depth (NDC → world). Avoids a
+        // per-fragment matrix inverse in the shader.
+        glm::mat4 InverseViewProjection = glm::mat4(1.0f);
+
+        static constexpr u32 GetSize()
+        {
+            return sizeof(UnderwaterFogUBOData);
+        }
+    };
+
+    static_assert(sizeof(UnderwaterFogUBOData) % 16 == 0, "UnderwaterFogUBOData must be 16-byte aligned for std140");
+    static_assert(sizeof(UnderwaterFogUBOData) == 112, "UnderwaterFogUBOData unexpected size — update GLSL layout");
+
     // Local fog volume shape type (matches FogVolumeShape enum in Components.h)
     static constexpr i32 FOG_VOLUME_SHAPE_BOX = 0;
     static constexpr i32 FOG_VOLUME_SHAPE_SPHERE = 1;
