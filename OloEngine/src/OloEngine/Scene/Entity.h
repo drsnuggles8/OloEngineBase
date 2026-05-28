@@ -232,8 +232,7 @@ namespace OloEngine
 
             UUID childId = child.GetUUID();
             std::vector<UUID>& children = GetOrCreateChildren();
-            auto it = std::find(children.begin(), children.end(), childId);
-            if (it != children.end())
+            if (auto it = std::find(children.begin(), children.end(), childId); it != children.end())
             {
                 // Verify that the child's recorded parent UUID matches this entity's UUID
                 // This prevents mistakenly modifying unrelated entities

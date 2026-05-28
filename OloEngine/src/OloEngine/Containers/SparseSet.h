@@ -693,8 +693,7 @@ namespace OloEngine
          */
         [[nodiscard]] inline ElementType* Find(KeyInitType Key)
         {
-            i32 ElementIndex = FindIndexByHash(KeyFuncs::GetKeyHash(Key), Key);
-            if (ElementIndex != INDEX_NONE)
+            if (i32 ElementIndex = FindIndexByHash(KeyFuncs::GetKeyHash(Key), Key); ElementIndex != INDEX_NONE)
             {
                 return &Elements[ElementIndex].Value;
             }
@@ -715,8 +714,7 @@ namespace OloEngine
         template<typename ComparableKey>
         [[nodiscard]] ElementType* FindByHash(u32 KeyHash, const ComparableKey& Key)
         {
-            i32 ElementIndex = FindIndexByHash(KeyHash, Key);
-            if (ElementIndex != INDEX_NONE)
+            if (i32 ElementIndex = FindIndexByHash(KeyHash, Key); ElementIndex != INDEX_NONE)
             {
                 return &Elements[ElementIndex].Value;
             }

@@ -30,8 +30,7 @@ namespace OloEngine
         if (vaoID != 0 && shaderID != 0)
             return true;
 
-        static std::atomic<u64> s_InvalidRendererIDWarnCount{ 0 };
-        if (s_InvalidRendererIDWarnCount.fetch_add(1, std::memory_order_relaxed) < 1)
+        if (static std::atomic<u64> s_InvalidRendererIDWarnCount{ 0 }; s_InvalidRendererIDWarnCount.fetch_add(1, std::memory_order_relaxed) < 1)
         {
             OLO_CORE_WARN("{}: Dropping draw with invalid renderer IDs (VAO={}, Shader={})",
                           context, vaoID, shaderID);
@@ -201,8 +200,7 @@ namespace OloEngine
 
         // LOD selection.
         Ref<Mesh> meshToUse;
-        auto lodResult = SelectLODMesh(mesh, modelMatrix, s_Data.ViewPos, lodGroup, meshToUse);
-        if (lodResult.SelectedLODIndex >= 0)
+        if (auto lodResult = SelectLODMesh(mesh, modelMatrix, s_Data.ViewPos, lodGroup, meshToUse); lodResult.SelectedLODIndex >= 0)
         {
             if (lodResult.SelectedLODIndex >= static_cast<i32>(s_Data.Stats.ObjectsPerLODLevel.size()))
             {
@@ -924,8 +922,7 @@ namespace OloEngine
         // Entity ID for picking.
         cmd->entityID = entityID;
 
-        static bool s_LoggedBoneMatrices = false;
-        if (!s_LoggedBoneMatrices && !boneMatrices.empty())
+        if (static bool s_LoggedBoneMatrices = false; !s_LoggedBoneMatrices && !boneMatrices.empty())
         {
             OLO_CORE_INFO("DrawAnimatedMesh: Storing {} bone matrices at offset {} in FrameDataBuffer", boneCount, boneBufferOffset);
             s_LoggedBoneMatrices = true;
@@ -962,8 +959,7 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        static bool s_FirstRun = true;
-        if (s_FirstRun)
+        if (static bool s_FirstRun = true; s_FirstRun)
         {
             OLO_CORE_INFO("Renderer3D::RenderAnimatedMeshes: Starting animated mesh rendering");
             s_FirstRun = false;
@@ -1257,8 +1253,7 @@ namespace OloEngine
 
         // LOD selection.
         Ref<Mesh> meshToUse;
-        const auto lodResult = SelectLODMesh(mesh, modelMatrix, ctx.SceneContext->ViewPosition, lodGroup, meshToUse);
-        if (lodResult.SelectedLODIndex >= 0)
+        if (const auto lodResult = SelectLODMesh(mesh, modelMatrix, ctx.SceneContext->ViewPosition, lodGroup, meshToUse); lodResult.SelectedLODIndex >= 0)
         {
             if (lodResult.SelectedLODIndex >= static_cast<i32>(ctx.ObjectsPerLODLevel.size()))
             {
@@ -1480,8 +1475,7 @@ namespace OloEngine
         if (s_Data.Settings.Path == RenderingPath::Deferred &&
             !IsDeferredCapableShader(shaderToUse))
         {
-            static std::atomic<u64> s_WarnCount{ 0 };
-            if (s_WarnCount.fetch_add(1, std::memory_order_relaxed) < 8)
+            if (static std::atomic<u64> s_WarnCount{ 0 }; s_WarnCount.fetch_add(1, std::memory_order_relaxed) < 8)
             {
                 OLO_CORE_WARN("Renderer3D::DrawAnimatedMeshParallel: forward-only skinned shader on Deferred path — draw dropped (use serial DrawAnimatedMesh for overlay reroute)");
             }

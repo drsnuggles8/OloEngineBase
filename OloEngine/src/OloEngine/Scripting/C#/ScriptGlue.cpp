@@ -2212,8 +2212,7 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
         auto entity = GetEntity(entityID);
         OLO_CORE_ASSERT(entity.HasComponent<StateMachineComponent>());
-        auto& smc = entity.GetComponent<StateMachineComponent>();
-        if (smc.RuntimeFSM && smc.RuntimeFSM->IsStarted())
+        if (auto& smc = entity.GetComponent<StateMachineComponent>(); smc.RuntimeFSM && smc.RuntimeFSM->IsStarted())
         {
             return ScriptEngine::CreateString(smc.RuntimeFSM->GetCurrentStateID().c_str());
         }

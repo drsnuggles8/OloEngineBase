@@ -978,8 +978,7 @@ namespace OloEngine
                 if (downloadComplete)
                 {
                     // Find the corresponding texture and complete the download
-                    auto resourceIt = m_Resources.find(it->m_TextureID);
-                    if (resourceIt != m_Resources.end() && resourceIt->second->m_Type == ResourceType::Texture2D)
+                    if (auto resourceIt = m_Resources.find(it->m_TextureID); resourceIt != m_Resources.end() && resourceIt->second->m_Type == ResourceType::Texture2D)
                     {
                         auto* texInfo = static_cast<TextureInfo*>(resourceIt->second.get());
                         CompleteTextureDownload(*texInfo, *it);
@@ -1139,8 +1138,7 @@ namespace OloEngine
         info.m_ContentPreview.resize(previewSize);
 
         // Map buffer and copy data
-        void* data = glMapBuffer(info.m_Target, GL_READ_ONLY);
-        if (data)
+        if (void* data = glMapBuffer(info.m_Target, GL_READ_ONLY); data)
         {
             memcpy(info.m_ContentPreview.data(), static_cast<const u8*>(data) + info.m_PreviewOffset, previewSize);
             glUnmapBuffer(info.m_Target);
@@ -1218,15 +1216,13 @@ namespace OloEngine
         ImGui::SameLine();
 
         const char* typeNames[] = { "All", "Textures", "Cubemaps", "Vertex Buffers", "Index Buffers", "Uniform Buffers", "Framebuffers" };
-        int currentFilter = static_cast<int>(m_FilterType) + 1;
-        if (ImGui::Combo("Type", &currentFilter, typeNames, IM_ARRAYSIZE(typeNames)))
+        if (int currentFilter = static_cast<int>(m_FilterType) + 1; ImGui::Combo("Type", &currentFilter, typeNames, IM_ARRAYSIZE(typeNames)))
         {
             m_FilterType = (currentFilter == 0) ? ResourceType::COUNT : static_cast<ResourceType>(currentFilter - 1);
         }
 
         ImGui::SameLine(); // Create a buffer for InputText (ImGui needs a char buffer)
-        static char searchBuffer[256] = "";
-        if (ImGui::InputText("Search", searchBuffer, sizeof(searchBuffer)))
+        if (static char searchBuffer[256] = ""; ImGui::InputText("Search", searchBuffer, sizeof(searchBuffer)))
         {
             m_SearchFilter = std::string(searchBuffer);
         }
@@ -2156,9 +2152,7 @@ namespace OloEngine
         sizet dataSize = width * height * bytesPerPixel;
 
         // Map the buffer to read the data
-        void* data = glMapBufferRange(GL_PIXEL_PACK_BUFFER, 0, dataSize, GL_MAP_READ_BIT);
-
-        if (data != nullptr)
+        if (void* data = glMapBufferRange(GL_PIXEL_PACK_BUFFER, 0, dataSize, GL_MAP_READ_BIT); data != nullptr)
         {
             // Calculate preview size (limit to reasonable size for UI)
             u32 previewWidth = std::min(width, 256u);

@@ -378,8 +378,7 @@ namespace OloEngine
                 // Phase 2: main-thread entity instantiation
                 Ref<Scene> sceneRef{ m_Scene };
                 SceneSerializer serializer{ sceneRef };
-                auto entitiesNode = rawData["Entities"];
-                if (entitiesNode)
+                if (auto entitiesNode = rawData["Entities"])
                 {
                     auto createdUUIDs = serializer.DeserializeAdditive(entitiesNode);
                     region->m_EntityUUIDs = std::move(createdUUIDs);

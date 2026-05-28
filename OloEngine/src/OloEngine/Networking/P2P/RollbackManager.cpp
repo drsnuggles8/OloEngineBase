@@ -73,8 +73,7 @@ namespace OloEngine
         }
 
         // Try exact tick
-        auto tickIt = peerIt->second.find(tick);
-        if (tickIt != peerIt->second.end())
+        if (auto tickIt = peerIt->second.find(tick); tickIt != peerIt->second.end())
         {
             return tickIt->second;
         }

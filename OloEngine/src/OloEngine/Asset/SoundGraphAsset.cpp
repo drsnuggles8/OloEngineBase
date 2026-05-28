@@ -21,8 +21,7 @@ namespace OloEngine
         OLO_CORE_ASSERT(m_NodeIdMap.size() == m_Nodes.size(),
                         "Node ID map out of sync with nodes vector - did you modify m_Nodes directly without calling RebuildNodeIdMap()?");
 
-        auto it = m_NodeIdMap.find(nodeId);
-        if (it != m_NodeIdMap.end())
+        if (auto it = m_NodeIdMap.find(nodeId); it != m_NodeIdMap.end())
         {
             OLO_CORE_ASSERT(it->second < m_Nodes.size(), "Node ID map contains invalid index");
             return &m_Nodes[it->second];
@@ -38,8 +37,7 @@ namespace OloEngine
         OLO_CORE_ASSERT(m_NodeIdMap.size() == m_Nodes.size(),
                         "Node ID map out of sync with nodes vector - did you modify m_Nodes directly without calling RebuildNodeIdMap()?");
 
-        auto it = m_NodeIdMap.find(nodeId);
-        if (it != m_NodeIdMap.end())
+        if (auto it = m_NodeIdMap.find(nodeId); it != m_NodeIdMap.end())
         {
             OLO_CORE_ASSERT(it->second < m_Nodes.size(), "Node ID map contains invalid index");
             return &m_Nodes[it->second];

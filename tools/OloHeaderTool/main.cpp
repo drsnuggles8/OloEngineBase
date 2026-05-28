@@ -357,8 +357,7 @@ static std::vector<ComponentDef> ParseHeaders(const fs::path& scanDir)
     {
         if (!entry.is_regular_file())
             continue;
-        auto ext = entry.path().extension().string();
-        if (ext != ".h" && ext != ".hpp")
+        if (auto ext = entry.path().extension().string(); ext != ".h" && ext != ".hpp")
             continue;
 
         std::ifstream file(entry.path());
@@ -453,11 +452,9 @@ static std::vector<ComponentDef> ParseHeaders(const fs::path& scanDir)
             }
 
             // Check for OLO_PROPERTY(...) — skip if inside a line comment
-            auto propPos = trimmed.find("OLO_PROPERTY(");
-            if (propPos != std::string::npos)
+            if (auto propPos = trimmed.find("OLO_PROPERTY("); propPos != std::string::npos)
             {
-                auto commentPos = trimmed.find("//");
-                if (commentPos != std::string::npos && commentPos < propPos)
+                if (auto commentPos = trimmed.find("//"); commentPos != std::string::npos && commentPos < propPos)
                 {
                     continue; // OLO_PROPERTY is inside a comment — ignore
                 }
@@ -802,9 +799,8 @@ static void EmitCsComponents(std::ostream& out, const std::vector<ComponentDef>&
         {
             auto const& prop = comp.properties[i];
             std::string cs = CsType(prop.type);
-            bool scalar = IsScalar(prop.type);
 
-            if (scalar || prop.type == PropType::String)
+            if (bool scalar = IsScalar(prop.type); scalar || prop.type == PropType::String)
             {
                 out << "\t\tpublic " << cs << " " << prop.scriptName << "\n";
                 out << "\t\t{\n";

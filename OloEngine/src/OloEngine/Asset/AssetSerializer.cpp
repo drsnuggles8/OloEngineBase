@@ -362,8 +362,7 @@ namespace OloEngine
         // so we only read when the cursor hasn't already consumed the whole
         // record.
         bool srgb = false;
-        const u64 packedEnd = assetInfo.PackedOffset + assetInfo.PackedSize;
-        if (stream.GetStreamPosition() + sizeof(bool) <= packedEnd)
+        if (const u64 packedEnd = assetInfo.PackedOffset + assetInfo.PackedSize; stream.GetStreamPosition() + sizeof(bool) <= packedEnd)
         {
             stream.ReadRaw(srgb);
         }
@@ -521,8 +520,7 @@ namespace OloEngine
         stream.ReadString(yamlString);
 
         Ref<MaterialAsset> materialAsset;
-        bool result = DeserializeFromYAML(yamlString, materialAsset, assetInfo.Handle);
-        if (!result)
+        if (bool result = DeserializeFromYAML(yamlString, materialAsset, assetInfo.Handle); !result)
         {
             OLO_CORE_ERROR("MaterialAssetSerializer::DeserializeFromAssetPack - Failed to deserialize material from YAML");
             return nullptr;
@@ -539,8 +537,7 @@ namespace OloEngine
         {
             out << YAML::BeginMap;
 
-            auto material = materialAsset->GetMaterial();
-            if (material)
+            if (auto material = materialAsset->GetMaterial())
             {
                 // Serialize shader name
                 out << YAML::Key << "Shader" << YAML::Value << material->GetShader()->GetName();
@@ -996,8 +993,7 @@ namespace OloEngine
 
         outInfo.Offset = stream.GetStreamPosition();
 
-        Ref<AudioFile> audioFile = AssetManager::GetAsset<AudioFile>(handle);
-        if (!audioFile)
+        if (Ref<AudioFile> audioFile = AssetManager::GetAsset<AudioFile>(handle); !audioFile)
         {
             OLO_CORE_ERROR("AudioFileSourceSerializer: Failed to get AudioFile asset for handle {0}", handle);
             return false;
@@ -1128,8 +1124,7 @@ namespace OloEngine
         if (fmtFound && dataSize > 0)
         {
             // Calculate duration: dataSize / (sampleRate * channels * (bitDepth/8))
-            u32 bytesPerSample = (bitDepth / 8) * numChannels;
-            if (bytesPerSample > 0 && samplingRate > 0)
+            if (u32 bytesPerSample = (bitDepth / 8) * numChannels; bytesPerSample > 0 && samplingRate > 0)
             {
                 duration = static_cast<double>(dataSize) / (samplingRate * bytesPerSample);
             }
@@ -1226,8 +1221,7 @@ namespace OloEngine
         stream.close();
 
         Ref<Prefab> prefab = Ref<Prefab>::Create();
-        bool success = DeserializeFromYAML(strStream.str(), prefab);
-        if (!success)
+        if (bool success = DeserializeFromYAML(strStream.str(), prefab); !success)
         {
             OLO_CORE_ERROR("PrefabSerializer::TryLoadData - Failed to deserialize prefab from YAML");
             return false;
@@ -1261,8 +1255,7 @@ namespace OloEngine
         stream.ReadString(yamlString);
 
         Ref<Prefab> prefab = Ref<Prefab>::Create();
-        bool result = DeserializeFromYAML(yamlString, prefab);
-        if (!result)
+        if (bool result = DeserializeFromYAML(yamlString, prefab); !result)
         {
             OLO_CORE_ERROR("PrefabSerializer::DeserializeFromAssetPack - Failed to deserialize prefab from YAML");
             return nullptr;
@@ -1325,8 +1318,7 @@ namespace OloEngine
         }
 
         // Deserialize the scene content
-        auto sceneNode = prefabNode["Scene"];
-        if (sceneNode)
+        if (auto sceneNode = prefabNode["Scene"])
         {
             std::string sceneYamlString = sceneNode.as<std::string>();
             SceneSerializer sceneSerializer(scene);
@@ -1342,8 +1334,7 @@ namespace OloEngine
         prefab->m_Scene = scene;
 
         // Find the root entity (assuming it's the first entity in the scene)
-        auto entities = scene->GetAllEntitiesWith<IDComponent>();
-        if (!entities.empty())
+        if (auto entities = scene->GetAllEntitiesWith<IDComponent>(); !entities.empty())
         {
             auto firstEntity = entities.front();
             prefab->m_Entity = Entity{ firstEntity, scene.get() };
@@ -1372,9 +1363,7 @@ namespace OloEngine
     bool SceneAssetSerializer::TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const
     {
         Ref<Scene> scene = Ref<Scene>(new Scene());
-        SceneSerializer serializer(scene);
-
-        if (serializer.Deserialize(metadata.FilePath))
+        if (SceneSerializer serializer(scene); serializer.Deserialize(metadata.FilePath))
         {
             scene->m_Handle = metadata.Handle;
             asset = scene; // Direct assignment - Ref<Scene> should convert to Ref<Asset>
@@ -1562,8 +1551,7 @@ namespace OloEngine
             return false;
         }
 
-        auto colliderNode = data["MeshCollider"];
-        if (!colliderNode)
+        if (auto colliderNode = data["MeshCollider"]; !colliderNode)
         {
             OLO_CORE_ERROR("MeshColliderSerializer::TryLoadData - No MeshCollider node found");
             return false;
@@ -1572,8 +1560,7 @@ namespace OloEngine
         auto meshCollider = Ref<MeshColliderAsset>::Create();
 
         // Use the YAML deserializer to load the data
-        bool success = DeserializeFromYAML(strStream.str(), meshCollider);
-        if (!success)
+        if (bool success = DeserializeFromYAML(strStream.str(), meshCollider); !success)
         {
             OLO_CORE_ERROR("MeshColliderSerializer::TryLoadData - Failed to deserialize from YAML");
             return false;
@@ -1617,9 +1604,7 @@ namespace OloEngine
         stream.ReadString(yamlString);
 
         Ref<MeshColliderAsset> meshCollider = Ref<MeshColliderAsset>::Create();
-        bool success = DeserializeFromYAML(yamlString, meshCollider);
-
-        if (!success)
+        if (bool success = DeserializeFromYAML(yamlString, meshCollider); !success)
         {
             OLO_CORE_ERROR("MeshColliderSerializer: Failed to deserialize MeshCollider from YAML - Handle: {0}", assetInfo.Handle);
             return nullptr;
@@ -1849,9 +1834,7 @@ namespace OloEngine
         strStream << file.rdbuf();
 
         Ref<ScriptFileAsset> scriptAsset = Ref<ScriptFileAsset>::Create();
-        bool success = DeserializeFromYAML(strStream.str(), scriptAsset);
-
-        if (!success)
+        if (bool success = DeserializeFromYAML(strStream.str(), scriptAsset); !success)
         {
             OLO_CORE_ERROR("ScriptFileSerializer::TryLoadData - Failed to deserialize from YAML");
             return false;
@@ -1895,9 +1878,7 @@ namespace OloEngine
         stream.ReadString(yamlString);
 
         Ref<ScriptFileAsset> scriptAsset = Ref<ScriptFileAsset>::Create();
-        bool success = DeserializeFromYAML(yamlString, scriptAsset);
-
-        if (!success)
+        if (bool success = DeserializeFromYAML(yamlString, scriptAsset); !success)
         {
             OLO_CORE_ERROR("ScriptFileSerializer: Failed to deserialize ScriptFile from YAML - Handle: {0}", assetInfo.Handle);
             return nullptr;
@@ -2242,10 +2223,9 @@ namespace OloEngine
                                    i);
                     return false;
                 }
-                const auto& bb = sub.m_BoundingBox;
-                if (!std::isfinite(bb.Min.x) || !std::isfinite(bb.Min.y) || !std::isfinite(bb.Min.z) ||
-                    !std::isfinite(bb.Max.x) || !std::isfinite(bb.Max.y) || !std::isfinite(bb.Max.z) ||
-                    bb.Min.x > bb.Max.x || bb.Min.y > bb.Max.y || bb.Min.z > bb.Max.z)
+                if (const auto& bb = sub.m_BoundingBox; !std::isfinite(bb.Min.x) || !std::isfinite(bb.Min.y) || !std::isfinite(bb.Min.z) ||
+                                                        !std::isfinite(bb.Max.x) || !std::isfinite(bb.Max.y) || !std::isfinite(bb.Max.z) ||
+                                                        bb.Min.x > bb.Max.x || bb.Min.y > bb.Max.y || bb.Min.z > bb.Max.z)
                 {
                     OLO_CORE_ERROR("MeshSourceSerializer::SerializeToAssetPack - Submesh {} has non-finite "
                                    "or inverted bounding box, rejecting before write",
@@ -3435,8 +3415,7 @@ namespace OloEngine
             out << YAML::Key << "GenerateColliders" << YAML::Value << staticMesh->ShouldGenerateColliders();
 
             // Serialize submesh indices if not using all submeshes
-            const auto& submeshIndices = staticMesh->GetSubmeshes();
-            if (!submeshIndices.IsEmpty())
+            if (const auto& submeshIndices = staticMesh->GetSubmeshes(); !submeshIndices.IsEmpty())
             {
                 out << YAML::Key << "Submeshes" << YAML::Value;
                 out << YAML::BeginSeq;
@@ -3561,8 +3540,7 @@ namespace OloEngine
             YAML::Node meshNode = yamlData["StaticMesh"];
 
             // Register mesh source dependency
-            AssetHandle meshSourceHandle = meshNode["MeshSource"].as<u64>(0);
-            if (meshSourceHandle != 0)
+            if (AssetHandle meshSourceHandle = meshNode["MeshSource"].as<u64>(0); meshSourceHandle != 0)
             {
                 AssetManager::RegisterDependency(meshSourceHandle, metadata.Handle);
                 OLO_CORE_TRACE("StaticMeshSerializer: Registered MeshSource dependency - StaticMesh {0} depends on MeshSource {1}", metadata.Handle, meshSourceHandle);
@@ -3818,8 +3796,7 @@ namespace OloEngine
         std::string yamlString = buffer.str();
 
         Ref<AnimationAsset> animationAsset;
-        bool result = DeserializeFromYAML(yamlString, animationAsset);
-        if (!result)
+        if (bool result = DeserializeFromYAML(yamlString, animationAsset); !result)
         {
             OLO_CORE_ERROR("AnimationAssetSerializer::TryLoadData - Failed to deserialize animation asset");
             return false;
@@ -3871,8 +3848,7 @@ namespace OloEngine
         stream.ReadString(yamlString);
 
         Ref<AnimationAsset> animationAsset;
-        bool result = DeserializeFromYAML(yamlString, animationAsset);
-        if (!result)
+        if (bool result = DeserializeFromYAML(yamlString, animationAsset); !result)
         {
             OLO_CORE_ERROR("AnimationAssetSerializer::DeserializeFromAssetPack - Failed to deserialize animation asset");
             return nullptr;
@@ -3986,8 +3962,7 @@ namespace OloEngine
         // Resolve absolute path by anchoring to project asset directory
         std::filesystem::path absolutePath = Project::GetProjectDirectory() / metadata.FilePath;
 
-        std::filesystem::path parentDir = absolutePath.parent_path();
-        if (!parentDir.empty())
+        if (std::filesystem::path parentDir = absolutePath.parent_path(); !parentDir.empty())
         {
             std::error_code ec;
             if (!std::filesystem::create_directories(parentDir, ec) && ec)
@@ -4011,9 +3986,7 @@ namespace OloEngine
         Ref<SoundGraphAsset> soundGraphAsset = Ref<SoundGraphAsset>::Create();
 
         // Resolve absolute path by anchoring to project asset directory
-        std::filesystem::path absolutePath = Project::GetProjectDirectory() / metadata.FilePath;
-
-        if (!Audio::SoundGraph::SoundGraphSerializer::Deserialize(*soundGraphAsset, absolutePath))
+        if (std::filesystem::path absolutePath = Project::GetProjectDirectory() / metadata.FilePath; !Audio::SoundGraph::SoundGraphSerializer::Deserialize(*soundGraphAsset, absolutePath))
         {
             OLO_CORE_ERROR("SoundGraphSerializer::TryLoadData - Failed to deserialize SoundGraph from '{}'", absolutePath.string());
             return false;

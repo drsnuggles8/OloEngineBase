@@ -125,8 +125,7 @@ namespace OloEngine
             FormatTimestamp(save.Metadata.TimestampUTC, timeStr, sizeof(timeStr));
 
             // Save entry
-            std::string label = save.Metadata.DisplayName + " (" + timeStr + ")";
-            if (ImGui::TreeNode(label.c_str()))
+            if (std::string label = save.Metadata.DisplayName + " (" + timeStr + ")"; ImGui::TreeNode(label.c_str()))
             {
                 ImGui::Text("Scene: %s", save.Metadata.SceneName.c_str());
                 ImGui::Text("Entities: %u", save.Metadata.EntityCount);

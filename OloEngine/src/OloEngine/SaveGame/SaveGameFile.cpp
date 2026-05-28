@@ -169,8 +169,7 @@ namespace OloEngine
         }
 
         // Reject suspiciously large metadata (1 MB cap)
-        static constexpr u64 kMaxMetadataSize = 1ULL << 20;
-        if (outHeader.MetadataSize > kMaxMetadataSize)
+        if (static constexpr u64 kMaxMetadataSize = 1ULL << 20; outHeader.MetadataSize > kMaxMetadataSize)
         {
             OLO_CORE_ERROR("[SaveGameFile] MetadataSize {} exceeds cap", outHeader.MetadataSize);
             return false;
@@ -184,8 +183,7 @@ namespace OloEngine
 
         // Bounds check: metadata must fit within the file (overflow-safe)
         file.seekg(0, std::ios::end);
-        auto actualFileSize = static_cast<u64>(file.tellg());
-        if (outHeader.MetadataSize > actualFileSize || outHeader.MetadataOffset > actualFileSize - outHeader.MetadataSize)
+        if (auto actualFileSize = static_cast<u64>(file.tellg()); outHeader.MetadataSize > actualFileSize || outHeader.MetadataOffset > actualFileSize - outHeader.MetadataSize)
         {
             OLO_CORE_ERROR("[SaveGameFile] Metadata region exceeds file size");
             return false;
@@ -227,8 +225,7 @@ namespace OloEngine
         }
 
         // Reject suspiciously large thumbnails (64 MB cap)
-        static constexpr u64 kMaxThumbnailSize = 64ULL << 20;
-        if (header.ThumbnailSize > kMaxThumbnailSize)
+        if (static constexpr u64 kMaxThumbnailSize = 64ULL << 20; header.ThumbnailSize > kMaxThumbnailSize)
         {
             OLO_CORE_ERROR("[SaveGameFile] ThumbnailSize {} exceeds cap", header.ThumbnailSize);
             return false;
@@ -242,8 +239,7 @@ namespace OloEngine
 
         // Bounds check: thumbnail must fit within the file (overflow-safe)
         file.seekg(0, std::ios::end);
-        auto actualFileSize = static_cast<u64>(file.tellg());
-        if (header.ThumbnailSize > actualFileSize || header.ThumbnailOffset > actualFileSize - header.ThumbnailSize)
+        if (auto actualFileSize = static_cast<u64>(file.tellg()); header.ThumbnailSize > actualFileSize || header.ThumbnailOffset > actualFileSize - header.ThumbnailSize)
         {
             OLO_CORE_ERROR("[SaveGameFile] Thumbnail region exceeds file size");
             return false;
@@ -277,8 +273,7 @@ namespace OloEngine
         }
 
         // Reject suspiciously large compressed payloads (1 GB cap)
-        static constexpr u64 kMaxCompressedPayloadSize = 1ULL << 30;
-        if (header.PayloadSize > kMaxCompressedPayloadSize)
+        if (static constexpr u64 kMaxCompressedPayloadSize = 1ULL << 30; header.PayloadSize > kMaxCompressedPayloadSize)
         {
             OLO_CORE_ERROR("[SaveGameFile] PayloadSize {} exceeds cap", header.PayloadSize);
             return false;
@@ -292,8 +287,7 @@ namespace OloEngine
 
         // Bounds check: payload must fit within the file (overflow-safe)
         file.seekg(0, std::ios::end);
-        auto actualFileSize = static_cast<u64>(file.tellg());
-        if (header.PayloadSize > actualFileSize || header.PayloadOffset > actualFileSize - header.PayloadSize)
+        if (auto actualFileSize = static_cast<u64>(file.tellg()); header.PayloadSize > actualFileSize || header.PayloadOffset > actualFileSize - header.PayloadSize)
         {
             OLO_CORE_ERROR("[SaveGameFile] Payload region exceeds file size");
             return false;
@@ -312,8 +306,7 @@ namespace OloEngine
         if (header.GetCompression() == SaveGameCompression::Zlib)
         {
             // Cap uncompressed size to prevent excessive allocation (1 GB)
-            static constexpr u64 kMaxUncompressedSize = 1ULL << 30;
-            if (header.PayloadUncompressedSize > kMaxUncompressedSize)
+            if (static constexpr u64 kMaxUncompressedSize = 1ULL << 30; header.PayloadUncompressedSize > kMaxUncompressedSize)
             {
                 OLO_CORE_ERROR("[SaveGameFile] PayloadUncompressedSize {} exceeds cap", header.PayloadUncompressedSize);
                 return false;

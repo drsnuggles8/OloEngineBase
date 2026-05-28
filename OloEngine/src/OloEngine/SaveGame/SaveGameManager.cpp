@@ -413,8 +413,7 @@ namespace OloEngine
             return false;
         }
 
-        SaveGameHeader header;
-        if (!SaveGameFile::ReadMetadata(path, header, outInfo.Metadata))
+        if (SaveGameHeader header; !SaveGameFile::ReadMetadata(path, header, outInfo.Metadata))
         {
             return false;
         }

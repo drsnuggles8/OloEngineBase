@@ -33,8 +33,7 @@ namespace OloEngine
     {
         // Protect against overflow: check if Index is small enough that Index * 2 + 1 won't overflow
         // The threshold is (max_value - 1) / 2
-        constexpr IndexType MaxSafeIndex = (std::numeric_limits<IndexType>::max() - 1) / 2;
-        if (Index > MaxSafeIndex)
+        if (constexpr IndexType MaxSafeIndex = (std::numeric_limits<IndexType>::max() - 1) / 2; Index > MaxSafeIndex)
         {
             // Return sentinel value to indicate overflow/invalid input
             return std::numeric_limits<IndexType>::max();

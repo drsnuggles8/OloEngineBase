@@ -176,8 +176,7 @@ namespace OloEngine
     void* FMallocAnsi::TryMalloc(sizet Size, u32 Alignment)
     {
 #if !defined(OLO_DIST)
-        u64 LocalMaxSingleAlloc = MaxSingleAlloc.load(std::memory_order_relaxed);
-        if (LocalMaxSingleAlloc != 0 && Size > LocalMaxSingleAlloc)
+        if (u64 LocalMaxSingleAlloc = MaxSingleAlloc.load(std::memory_order_relaxed); LocalMaxSingleAlloc != 0 && Size > LocalMaxSingleAlloc)
         {
             return nullptr;
         }
@@ -205,8 +204,7 @@ namespace OloEngine
     void* FMallocAnsi::TryRealloc(void* Ptr, sizet NewSize, u32 Alignment)
     {
 #if !defined(OLO_DIST)
-        u64 LocalMaxSingleAlloc = MaxSingleAlloc.load(std::memory_order_relaxed);
-        if (LocalMaxSingleAlloc != 0 && NewSize > LocalMaxSingleAlloc)
+        if (u64 LocalMaxSingleAlloc = MaxSingleAlloc.load(std::memory_order_relaxed); LocalMaxSingleAlloc != 0 && NewSize > LocalMaxSingleAlloc)
         {
             return nullptr;
         }

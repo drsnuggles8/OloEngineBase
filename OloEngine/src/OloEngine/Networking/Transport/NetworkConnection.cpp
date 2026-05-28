@@ -89,8 +89,7 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        ISteamNetworkingSockets* pInterface = SteamNetworkingSockets();
-        if (pInterface)
+        if (ISteamNetworkingSockets* pInterface = SteamNetworkingSockets(); pInterface)
         {
             pInterface->CloseConnection(m_Handle, reason, debug, false);
         }

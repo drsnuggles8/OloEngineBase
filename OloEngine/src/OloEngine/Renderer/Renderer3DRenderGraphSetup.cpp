@@ -101,8 +101,7 @@ namespace OloEngine
         // declarations. We still require an acyclic topology here so the
         // frame can compile later, but authoritative resource validation now
         // happens from compiled RGBuilder accesses in EndScene().
-        const bool topologyValid = s_Data.RGraph->ValidateExecutionTopology();
-        if (!topologyValid)
+        if (const bool topologyValid = s_Data.RGraph->ValidateExecutionTopology(); !topologyValid)
         {
             OLO_CORE_ERROR("Renderer3D: RenderGraph dependency cycle detected.");
             OLO_CORE_ASSERT(topologyValid, "RenderGraph dependency cycle detected. Break the cycle and retry.");

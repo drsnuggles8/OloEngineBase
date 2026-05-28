@@ -421,9 +421,7 @@ namespace OloEngine
                       config.PrefilterSamples, config.UseImportanceSampling);
 
         Ref<Shader> shader = nullptr;
-        const std::string preferredShader = config.UseImportanceSampling ? "IBLPrefilterImportance" : "IBLPrefilter";
-
-        if (shaderLibrary.Exists(preferredShader))
+        if (const std::string preferredShader = config.UseImportanceSampling ? "IBLPrefilterImportance" : "IBLPrefilter"; shaderLibrary.Exists(preferredShader))
         {
             shader = shaderLibrary.Get(preferredShader);
         }

@@ -222,8 +222,7 @@ namespace OloEngine
         ImGui::Spacing();
         ImGui::TextDisabled("Ambient Occlusion");
         static const char* aoItems[] = { "None", "SSAO", "GTAO" };
-        int aoIdx = std::clamp(static_cast<int>(qt.AO), 0, 2);
-        if (ImGui::Combo("AO Technique##qt", &aoIdx, aoItems, IM_ARRAYSIZE(aoItems)))
+        if (int aoIdx = std::clamp(static_cast<int>(qt.AO), 0, 2); ImGui::Combo("AO Technique##qt", &aoIdx, aoItems, IM_ARRAYSIZE(aoItems)))
         {
             qt.AO = static_cast<AOTechnique>(aoIdx);
             changed = true;
@@ -334,8 +333,7 @@ namespace OloEngine
                 "Forward+",
                 "Deferred"
             };
-            int currentPath = static_cast<int>(settings.Path);
-            if (ImGui::Combo("Active Path", &currentPath, pathItems, IM_ARRAYSIZE(pathItems)))
+            if (int currentPath = static_cast<int>(settings.Path); ImGui::Combo("Active Path", &currentPath, pathItems, IM_ARRAYSIZE(pathItems)))
             {
                 settings.Path = static_cast<RenderingPath>(currentPath);
                 Renderer3D::ApplyRendererSettings();
@@ -351,8 +349,7 @@ namespace OloEngine
 
                 if (settings.ForwardPlusAutoSwitch)
                 {
-                    int threshold = static_cast<int>(settings.ForwardPlusLightThreshold);
-                    if (ImGui::SliderInt("Light Threshold", &threshold, 1, 64))
+                    if (int threshold = static_cast<int>(settings.ForwardPlusLightThreshold); ImGui::SliderInt("Light Threshold", &threshold, 1, 64))
                     {
                         settings.ForwardPlusLightThreshold = static_cast<u32>(threshold);
                         // Keep the downgrade floor < upgrade threshold (allow 0 when threshold == 1).

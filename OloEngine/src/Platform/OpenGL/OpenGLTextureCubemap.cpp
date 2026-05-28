@@ -537,8 +537,7 @@ namespace OloEngine
             outData.data()                   // buffer
         );
 
-        GLenum error = glGetError();
-        if (error != GL_NO_ERROR)
+        if (GLenum error = glGetError(); error != GL_NO_ERROR)
         {
             OLO_CORE_ERROR("OpenGLTextureCubemap::GetFaceData: GL error {}", error);
             return false;

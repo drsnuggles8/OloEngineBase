@@ -292,8 +292,7 @@ namespace OloEngine
             }
         }
 
-        int outputCount = pbrCount + computeCount;
-        if (outputCount == 0)
+        if (int outputCount = pbrCount + computeCount; outputCount == 0)
         {
             result.IsValid = false;
             result.Errors.push_back("Graph must have exactly one output node (PBROutput or ComputeOutput)");
@@ -340,8 +339,7 @@ namespace OloEngine
         }
 
         // Check for cycles via topological sort
-        auto order = GetTopologicalOrder();
-        if (order.empty() && !m_Nodes.empty())
+        if (auto order = GetTopologicalOrder(); order.empty() && !m_Nodes.empty())
         {
             result.IsValid = false;
             result.Errors.push_back("Graph contains a cycle");
@@ -424,8 +422,7 @@ namespace OloEngine
             u64 current = frontier.front();
             frontier.pop();
 
-            const auto* node = FindNode(UUID(current));
-            if (node)
+            if (const auto* node = FindNode(UUID(current)); node)
                 sorted.push_back(node);
 
             if (auto it = adjacency.find(current); it != adjacency.end())

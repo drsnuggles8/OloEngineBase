@@ -112,8 +112,7 @@ namespace OloEngine::Tests::ShaderHarness
             const std::size_t nextTypePos = src.find(kToken, next);
             const std::size_t end = (nextTypePos == std::string::npos) ? src.size() : nextTypePos;
 
-            const shaderc_shader_kind kind = StageFromToken(tok);
-            if (kind != static_cast<shaderc_shader_kind>(-1))
+            if (const shaderc_shader_kind kind = StageFromToken(tok); kind != static_cast<shaderc_shader_kind>(-1))
                 out.emplace_back(kind, src.substr(next, end - next));
             pos = nextTypePos;
         }
@@ -138,8 +137,7 @@ namespace OloEngine::Tests::ShaderHarness
 
             fs::path resolved;
             std::error_code ec;
-            const fs::path reqDir = fs::path(requesting_source).parent_path();
-            if (!reqDir.empty())
+            if (const fs::path reqDir = fs::path(requesting_source).parent_path(); !reqDir.empty())
             {
                 const fs::path candidate = reqDir / requested_source;
                 if (fs::exists(candidate, ec))
@@ -205,8 +203,7 @@ namespace OloEngine::Tests::ShaderHarness
             if (entry.path().extension() != ".glsl")
                 continue;
 
-            const std::string rel = fs::relative(entry.path(), root).generic_string();
-            if (rel.starts_with("include/") || rel.starts_with("tests/"))
+            if (const std::string rel = fs::relative(entry.path(), root).generic_string(); rel.starts_with("include/") || rel.starts_with("tests/"))
                 continue;
 
             out.push_back(entry.path());

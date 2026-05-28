@@ -206,8 +206,7 @@ namespace OloEngine
                     continue;
                 }
 
-                auto bindingsNode = actionNode["Bindings"];
-                if (bindingsNode && bindingsNode.IsSequence())
+                if (auto bindingsNode = actionNode["Bindings"]; bindingsNode && bindingsNode.IsSequence())
                 {
                     for (const auto& bindingNode : bindingsNode)
                     {

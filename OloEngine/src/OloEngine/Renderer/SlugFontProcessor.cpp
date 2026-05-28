@@ -191,8 +191,7 @@ namespace OloEngine
                 OLO_CORE_ERROR("SlugFontProcessor::PackCurves: contour {} has {} texels, exceeds row width {}", contourIdx, contourTexels, kBandTextureWidth);
                 continue;
             }
-            auto currentCol = curveTexelCount % kBandTextureWidth;
-            if (currentCol + contourTexels > kBandTextureWidth)
+            if (auto currentCol = curveTexelCount % kBandTextureWidth; currentCol + contourTexels > kBandTextureWidth)
             {
                 auto padding = kBandTextureWidth - currentCol;
                 curveTexelData.resize(curveTexelData.size() + static_cast<sizet>(padding) * 4, 0.0f);
@@ -402,8 +401,7 @@ namespace OloEngine
         // The shader reads headers at (glyphLoc.x + bandIdx, glyphLoc.y)
         // without row-wrap logic, so all headers must stay in one row.
         auto totalHeaders = hbandCount + vbandCount;
-        auto currentCol = bandTexelCount % kBandTextureWidth;
-        if (currentCol + totalHeaders > kBandTextureWidth)
+        if (auto currentCol = bandTexelCount % kBandTextureWidth; currentCol + totalHeaders > kBandTextureWidth)
         {
             auto padding = kBandTextureWidth - currentCol;
             bandTexelData.resize(bandTexelData.size() + static_cast<sizet>(padding) * 2, 0);

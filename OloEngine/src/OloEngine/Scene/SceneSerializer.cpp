@@ -245,8 +245,7 @@ namespace OloEngine
             GameplayEffect ge;
             ge.Name = effectNode["Name"].as<std::string>("");
 
-            std::string durType = effectNode["DurationType"].as<std::string>("Instant");
-            if (durType == "HasDuration")
+            if (std::string durType = effectNode["DurationType"].as<std::string>("Instant"); durType == "HasDuration")
                 ge.Policy.DurationType = GameplayEffectPolicy::Duration::HasDuration;
             else if (durType == "Infinite")
                 ge.Policy.DurationType = GameplayEffectPolicy::Duration::Infinite;
@@ -263,8 +262,7 @@ namespace OloEngine
                 {
                     GameplayEffect::AttributeMod mod;
                     mod.AttributeName = modNode["Attribute"].as<std::string>("");
-                    std::string op = modNode["Operation"].as<std::string>("Add");
-                    if (op == "Multiply")
+                    if (std::string op = modNode["Operation"].as<std::string>("Add"); op == "Multiply")
                         mod.Op = AttributeModifier::Operation::Multiply;
                     else if (op == "Override")
                         mod.Op = AttributeModifier::Operation::Override;
@@ -1687,8 +1685,7 @@ namespace OloEngine
             }
             if (meshComponent["Primitive"])
             {
-                const auto primitiveInt = meshComponent["Primitive"].as<i32>();
-                if (primitiveInt >= static_cast<i32>(MeshPrimitive::None) && primitiveInt <= static_cast<i32>(MeshPrimitive::Torus))
+                if (const auto primitiveInt = meshComponent["Primitive"].as<i32>(); primitiveInt >= static_cast<i32>(MeshPrimitive::None) && primitiveInt <= static_cast<i32>(MeshPrimitive::Torus))
                 {
                     mc.m_Primitive = static_cast<MeshPrimitive>(primitiveInt);
                 }
@@ -2015,17 +2012,13 @@ namespace OloEngine
         if (auto sphereAreaLightComponent = entity["SphereAreaLightComponent"]; sphereAreaLightComponent)
         {
             auto& areaLight = deserializedEntity.AddComponent<SphereAreaLightComponent>();
-            const auto color = sphereAreaLightComponent["Color"].as<glm::vec3>(areaLight.m_Color);
-            if (std::isfinite(color.x) && std::isfinite(color.y) && std::isfinite(color.z))
+            if (const auto color = sphereAreaLightComponent["Color"].as<glm::vec3>(areaLight.m_Color); std::isfinite(color.x) && std::isfinite(color.y) && std::isfinite(color.z))
                 areaLight.m_Color = color;
-            const f32 intensity = sphereAreaLightComponent["Intensity"].as<f32>(areaLight.m_Intensity);
-            if (std::isfinite(intensity) && intensity >= 0.0f)
+            if (const f32 intensity = sphereAreaLightComponent["Intensity"].as<f32>(areaLight.m_Intensity); std::isfinite(intensity) && intensity >= 0.0f)
                 areaLight.m_Intensity = intensity;
-            const f32 radius = sphereAreaLightComponent["Radius"].as<f32>(areaLight.m_Radius);
-            if (std::isfinite(radius) && radius >= 0.0f)
+            if (const f32 radius = sphereAreaLightComponent["Radius"].as<f32>(areaLight.m_Radius); std::isfinite(radius) && radius >= 0.0f)
                 areaLight.m_Radius = radius;
-            const f32 range = sphereAreaLightComponent["Range"].as<f32>(areaLight.m_Range);
-            if (std::isfinite(range) && range >= 0.0f)
+            if (const f32 range = sphereAreaLightComponent["Range"].as<f32>(areaLight.m_Range); std::isfinite(range) && range >= 0.0f)
                 areaLight.m_Range = range;
             areaLight.m_CastShadows = sphereAreaLightComponent["CastShadows"].as<bool>(areaLight.m_CastShadows);
         }
@@ -3084,8 +3077,7 @@ namespace OloEngine
                     }
 
                     // Try to load the definition from database
-                    const auto* def = QuestDatabase::Get(state.QuestID);
-                    if (def)
+                    if (const auto* def = QuestDatabase::Get(state.QuestID); def)
                     {
                         state.Definition = *def;
                     }

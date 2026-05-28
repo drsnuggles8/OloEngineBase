@@ -292,8 +292,7 @@ namespace OloEngine
 
     bool InputActionManager::IsActionJustPressed(std::string_view actionName)
     {
-        auto currentIt = s_CurrentState.find(actionName);
-        if (currentIt == s_CurrentState.end() || !currentIt->second)
+        if (auto currentIt = s_CurrentState.find(actionName); currentIt == s_CurrentState.end() || !currentIt->second)
         {
             return false;
         }
@@ -304,8 +303,7 @@ namespace OloEngine
     bool InputActionManager::IsActionJustReleased(std::string_view actionName)
     {
         auto currentIt = s_CurrentState.find(actionName);
-        bool currentlyPressed = (currentIt != s_CurrentState.end()) && currentIt->second;
-        if (currentlyPressed)
+        if (bool currentlyPressed = (currentIt != s_CurrentState.end()) && currentIt->second)
         {
             return false;
         }

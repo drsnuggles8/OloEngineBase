@@ -75,8 +75,7 @@ namespace OloEngine
         }
 
         // Update last player time
-        auto infoIt = m_InstanceInfos.find(instanceID);
-        if (infoIt != m_InstanceInfos.end())
+        if (auto infoIt = m_InstanceInfos.find(instanceID); infoIt != m_InstanceInfos.end())
         {
             infoIt->second.LastPlayerTime = std::chrono::steady_clock::now();
         }

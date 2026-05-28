@@ -290,9 +290,7 @@ namespace OloEngine
         GLsync sync = reinterpret_cast<GLsync>(static_cast<uptr>(fenceId));
 
         constexpr GLuint64 TIMEOUT_NS = 1000000000ULL; // 1 second
-        GLenum result = glClientWaitSync(sync, GL_SYNC_FLUSH_COMMANDS_BIT, TIMEOUT_NS);
-
-        if (result == GL_TIMEOUT_EXPIRED)
+        if (GLenum result = glClientWaitSync(sync, GL_SYNC_FLUSH_COMMANDS_BIT, TIMEOUT_NS); result == GL_TIMEOUT_EXPIRED)
         {
             OLO_CORE_WARN("FrameResourceManager::WaitForFence: Fence wait timed out!");
             return false;

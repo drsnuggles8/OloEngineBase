@@ -31,8 +31,7 @@ namespace OloEngine
             OLO_CORE_WARN("[LagCompensator] tickRateHz is 0, cannot compute rewind duration");
             return false;
         }
-        f32 const rewindMs = (static_cast<f32>(tickDelta) / static_cast<f32>(tickRateHz)) * 1000.0f;
-        if (rewindMs > m_MaxRewindMs)
+        if (f32 const rewindMs = (static_cast<f32>(tickDelta) / static_cast<f32>(tickRateHz)) * 1000.0f; rewindMs > m_MaxRewindMs)
         {
             OLO_CORE_WARN("[LagCompensator] Rewind {}ms exceeds max {}ms, rejecting", rewindMs, m_MaxRewindMs);
             return false;

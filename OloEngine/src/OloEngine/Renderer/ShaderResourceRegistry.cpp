@@ -254,8 +254,7 @@ namespace OloEngine
 
     Ref<UniformBuffer> ShaderResourceRegistry::GetUniformBuffer(const std::string& name) const
     {
-        auto it = m_Bindings.find(name);
-        if (it != m_Bindings.end())
+        if (auto it = m_Bindings.find(name); it != m_Bindings.end())
         {
             if (std::holds_alternative<Ref<UniformBuffer>>(it->second.Resource))
             {
@@ -267,8 +266,7 @@ namespace OloEngine
 
     ShaderResource ShaderResourceRegistry::GetResource(const std::string& name) const
     {
-        auto it = m_Bindings.find(name);
-        if (it != m_Bindings.end())
+        if (auto it = m_Bindings.find(name); it != m_Bindings.end())
         {
             return it->second.Resource;
         }

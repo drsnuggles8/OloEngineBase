@@ -80,8 +80,7 @@ namespace OloEngine
 
         if (inputColorTextureID == 0u || !m_BlitShader)
         {
-            static u32 s_MissingFinalInputWarnings = 0;
-            if (s_MissingFinalInputWarnings++ < 10)
+            if (static u32 s_MissingFinalInputWarnings = 0; s_MissingFinalInputWarnings++ < 10)
             {
                 OLO_CORE_WARN("FinalRenderPass: missing input texture ({}) or blit shader ({})",
                               inputColorTextureID != 0u, m_BlitShader != nullptr);

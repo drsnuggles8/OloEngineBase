@@ -95,9 +95,7 @@ namespace OloEngine
                     continue;
                 }
 
-                const bool hovered = PointInRect(mousePos, resolved.m_Position, resolved.m_Size);
-
-                if (!consumed && mousePressed && hovered)
+                if (const bool hovered = PointInRect(mousePos, resolved.m_Position, resolved.m_Size); !consumed && mousePressed && hovered)
                 {
                     slider.m_IsDragging = true;
                     consumed = true;

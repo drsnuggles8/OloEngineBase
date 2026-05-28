@@ -19,8 +19,7 @@ namespace OloEngine
         int channels = 0;
 
         stbi_set_flip_vertically_on_load_thread(0);
-        stbi_us* data16 = stbi_load_16(path.c_str(), &width, &height, &channels, 1);
-        if (data16)
+        if (stbi_us* data16 = stbi_load_16(path.c_str(), &width, &height, &channels, 1); data16)
         {
             if (width != height)
             {
@@ -46,8 +45,7 @@ namespace OloEngine
         }
 
         // Fallback: try 8-bit
-        stbi_uc* data8 = stbi_load(path.c_str(), &width, &height, &channels, 1);
-        if (data8)
+        if (stbi_uc* data8 = stbi_load(path.c_str(), &width, &height, &channels, 1); data8)
         {
             if (width != height)
             {
@@ -126,8 +124,7 @@ namespace OloEngine
         }
 
         // Normalize to [0, 1]
-        f32 range = maxH - minH;
-        if (range > 1e-6f)
+        if (f32 range = maxH - minH; range > 1e-6f)
         {
             f32 invRange = 1.0f / range;
             for (auto& h : m_Heights)
@@ -184,8 +181,7 @@ namespace OloEngine
         f32 dx = 2.0f * worldSizeX * texelSize;
         f32 dz = 2.0f * worldSizeZ * texelSize;
 
-        constexpr f32 epsilon = 1e-6f;
-        if (dx < epsilon || dz < epsilon)
+        if (constexpr f32 epsilon = 1e-6f; dx < epsilon || dz < epsilon)
             return { 0.0f, 1.0f, 0.0f };
 
         glm::vec3 normal(

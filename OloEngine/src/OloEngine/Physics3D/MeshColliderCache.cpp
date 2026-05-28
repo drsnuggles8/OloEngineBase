@@ -498,8 +498,7 @@ namespace OloEngine
     {
         TUniqueLock<FMutex> lock(m_CacheMutex);
 
-        auto it = m_CachedData.find(handle);
-        if (it != m_CachedData.end())
+        if (auto it = m_CachedData.find(handle); it != m_CachedData.end())
         {
             return it->second;
         }
@@ -511,8 +510,7 @@ namespace OloEngine
     std::optional<CachedColliderData> MeshColliderCache::TryGetFromCache(AssetHandle handle)
     {
         TUniqueLock<FMutex> lock(m_CacheMutex);
-        auto it = m_CachedData.find(handle);
-        if (it != m_CachedData.end() && it->second.m_IsValid)
+        if (auto it = m_CachedData.find(handle); it != m_CachedData.end() && it->second.m_IsValid)
         {
             m_CacheHits.fetch_add(1, std::memory_order_relaxed);
             return it->second;
@@ -590,9 +588,7 @@ namespace OloEngine
         }
 
         // If primary failed, try cooking the secondary type synchronously as fallback
-        ECookingResult secondaryResult = CookMeshImmediate(colliderAsset, secondaryType, false);
-
-        if (secondaryResult == ECookingResult::Success)
+        if (ECookingResult secondaryResult = CookMeshImmediate(colliderAsset, secondaryType, false); secondaryResult == ECookingResult::Success)
         {
             CachedColliderData loadedData = LoadFromCache(colliderAsset);
             if (loadedData.m_IsValid)

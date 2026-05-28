@@ -263,8 +263,7 @@ namespace OloEngine
                 return Buffer();
             }
 
-            JoltBinaryStreamWriter writer;
-            if (SerializeShape(shape, writer))
+            if (JoltBinaryStreamWriter writer; SerializeShape(shape, writer))
             {
                 return writer.CreateBuffer();
             }

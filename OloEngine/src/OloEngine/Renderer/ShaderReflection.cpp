@@ -140,8 +140,7 @@ namespace OloEngine
 
     const ShaderReflection::UniformBlockInfo* ShaderReflection::GetUniformBlock(const std::string& name) const
     {
-        auto it = m_BlockNameToIndex.find(name);
-        if (it != m_BlockNameToIndex.end())
+        if (auto it = m_BlockNameToIndex.find(name); it != m_BlockNameToIndex.end())
         {
             return &m_UniformBlocks[it->second];
         }

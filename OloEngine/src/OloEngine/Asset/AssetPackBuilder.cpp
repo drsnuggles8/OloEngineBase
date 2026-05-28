@@ -24,8 +24,7 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        auto project = Project::GetActive();
-        if (!project)
+        if (auto project = Project::GetActive(); !project)
         {
             OLO_CORE_ERROR("AssetPackBuilder::BuildFromActiveProject - No active project");
             return { false, "No active project loaded", 0, 0, {} };
@@ -325,8 +324,7 @@ namespace OloEngine
                 if (std::filesystem::exists(tempFilePath))
                 {
                     // Read the temporary file and write its contents to the main pack file
-                    std::ifstream tempFile(tempFilePath, std::ios::binary);
-                    if (tempFile.is_open())
+                    if (std::ifstream tempFile(tempFilePath, std::ios::binary); tempFile.is_open())
                     {
                         // Get file size
                         tempFile.seekg(0, std::ios::end);
@@ -410,8 +408,7 @@ namespace OloEngine
                         {
                             if (ecIter)
                                 break;
-                            std::error_code ecEntry;
-                            if (!entry.is_regular_file(ecEntry) || ecEntry)
+                            if (std::error_code ecEntry; !entry.is_regular_file(ecEntry) || ecEntry)
                                 continue;
                             if (entry.path().extension() != ".ololocale")
                                 continue;
@@ -568,8 +565,7 @@ namespace OloEngine
             assetInfo.PackedOffset = currentOffset;
 
             // Serialize the asset
-            AssetSerializationInfo serializationInfo;
-            if (AssetImporter::SerializeToAssetPack(assetInfo.Handle, tempWriter, serializationInfo))
+            if (AssetSerializationInfo serializationInfo; AssetImporter::SerializeToAssetPack(assetInfo.Handle, tempWriter, serializationInfo))
             {
                 assetInfo.PackedSize = serializationInfo.Size;
                 tempAssetFiles.emplace_back(assetInfo.Handle, tempPath);

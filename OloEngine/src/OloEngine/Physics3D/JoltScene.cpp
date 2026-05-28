@@ -111,10 +111,9 @@ namespace OloEngine
 
         // Prevent "spiral of death" by capping simulation steps per frame
         u32 stepsExecuted = 0;
-        f32 maxAccumulator = static_cast<f32>(s_MaxStepsPerFrame) * m_FixedTimeStep;
 
         // If accumulator exceeds maximum, clamp it and log the skip
-        if (m_Accumulator > maxAccumulator)
+        if (f32 maxAccumulator = static_cast<f32>(s_MaxStepsPerFrame) * m_FixedTimeStep; m_Accumulator > maxAccumulator)
         {
             f32 skippedTime = m_Accumulator - maxAccumulator;
             m_Accumulator = maxAccumulator;
@@ -234,8 +233,7 @@ namespace OloEngine
             }
 
             // Remove from sync list
-            auto syncIt = std::find(m_BodiesToSync.begin(), m_BodiesToSync.end(), it->second);
-            if (syncIt != m_BodiesToSync.end())
+            if (auto syncIt = std::find(m_BodiesToSync.begin(), m_BodiesToSync.end(), it->second); syncIt != m_BodiesToSync.end())
             {
                 m_BodiesToSync.erase(syncIt);
             }
@@ -262,8 +260,7 @@ namespace OloEngine
     Entity JoltScene::GetEntityByBodyID(const JPH::BodyID& bodyID)
     {
         // Use efficient reverse lookup instead of O(n) linear search
-        auto it = m_BodyIDToEntity.find(bodyID);
-        if (it != m_BodyIDToEntity.end())
+        if (auto it = m_BodyIDToEntity.find(bodyID); it != m_BodyIDToEntity.end())
         {
             // Found the entity UUID, get Entity from scene
             return m_Scene->GetEntityByUUID(it->second);
@@ -281,8 +278,7 @@ namespace OloEngine
         UUID entityID = entity.GetUUID();
 
         // Check if character controller already exists
-        auto it = m_CharacterControllers.find(entityID);
-        if (it != m_CharacterControllers.end())
+        if (auto it = m_CharacterControllers.find(entityID); it != m_CharacterControllers.end())
         {
             OLO_CORE_WARN("Character controller already exists for entity {0}", (u64)entityID);
             return it->second;
@@ -309,8 +305,7 @@ namespace OloEngine
         if (it != m_CharacterControllers.end())
         {
             // Remove from update list
-            auto updateIt = std::find(m_CharacterControllersToUpdate.begin(), m_CharacterControllersToUpdate.end(), it->second);
-            if (updateIt != m_CharacterControllersToUpdate.end())
+            if (auto updateIt = std::find(m_CharacterControllersToUpdate.begin(), m_CharacterControllersToUpdate.end(), it->second); updateIt != m_CharacterControllersToUpdate.end())
             {
                 m_CharacterControllersToUpdate.erase(updateIt);
             }
@@ -970,8 +965,7 @@ namespace OloEngine
                 hitInfo.m_Position = JoltUtils::FromJoltVector(body.GetPosition());
 
                 // Get body from our map for reference
-                auto it = m_Bodies.find(hitInfo.m_HitEntity);
-                if (it != m_Bodies.end())
+                if (auto it = m_Bodies.find(hitInfo.m_HitEntity); it != m_Bodies.end())
                 {
                     hitInfo.m_HitBody = it->second;
                 }

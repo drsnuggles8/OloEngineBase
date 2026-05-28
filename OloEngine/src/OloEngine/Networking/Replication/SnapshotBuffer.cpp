@@ -58,9 +58,7 @@ namespace OloEngine
         for (u32 i = 0; i < m_Count; ++i)
         {
             u32 const idx = (m_Head + m_Capacity - 1 - i) % m_Capacity;
-            const Entry& entry = m_Entries[idx];
-
-            if (entry.Tick <= tick && !before)
+            if (const Entry& entry = m_Entries[idx]; entry.Tick <= tick && !before)
             {
                 before = &entry;
             }

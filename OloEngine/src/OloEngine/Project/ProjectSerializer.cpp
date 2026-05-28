@@ -474,8 +474,7 @@ namespace OloEngine
             }
 
             // Check if the resolved path exists and log a warning if it doesn't
-            std::error_code ec;
-            if (!std::filesystem::exists(output, ec))
+            if (std::error_code ec; !std::filesystem::exists(output, ec))
             {
                 if (ec)
                 {
@@ -514,8 +513,7 @@ namespace OloEngine
             }
 
             // Check if the resolved path exists and log a warning if it doesn't
-            std::error_code ec;
-            if (!std::filesystem::exists(output, ec))
+            if (std::error_code ec; !std::filesystem::exists(output, ec))
             {
                 if (ec)
                 {
@@ -754,8 +752,7 @@ namespace OloEngine
             deserializeField("AllowSleeping", physicsSettings.m_AllowSleeping);
 
             // Physics layers deserialization
-            auto physicsLayers = physicsNode["Layers"];
-            if (physicsLayers)
+            if (auto physicsLayers = physicsNode["Layers"]; physicsLayers)
             {
                 // Clear existing layers
                 PhysicsLayerManager::ClearLayers();

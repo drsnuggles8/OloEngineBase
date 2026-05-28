@@ -253,8 +253,7 @@ namespace OloEngine
             return 0.0f;
 
         const auto& bodyLockInterface = GetBodyLockInterface();
-        JPH::BodyLockRead lock(bodyLockInterface, m_BodyID);
-        if (lock.Succeeded())
+        if (JPH::BodyLockRead lock(bodyLockInterface, m_BodyID); lock.Succeeded())
         {
             const JPH::Body& body = lock.GetBody();
             const JPH::MotionProperties* motionProperties = body.GetMotionProperties();
@@ -272,8 +271,7 @@ namespace OloEngine
             return;
 
         const auto& bodyLockInterface = GetBodyLockInterface();
-        JPH::BodyLockWrite lock(bodyLockInterface, m_BodyID);
-        if (lock.Succeeded())
+        if (JPH::BodyLockWrite lock(bodyLockInterface, m_BodyID); lock.Succeeded())
         {
             JPH::Body& body = lock.GetBody();
             JPH::MotionProperties* motionProperties = body.GetMotionProperties();
@@ -297,8 +295,7 @@ namespace OloEngine
             return;
 
         const auto& bodyLockInterface = GetBodyLockInterface();
-        JPH::BodyLockWrite lock(bodyLockInterface, m_BodyID);
-        if (lock.Succeeded())
+        if (JPH::BodyLockWrite lock(bodyLockInterface, m_BodyID); lock.Succeeded())
         {
             JPH::Body& body = lock.GetBody();
             JPH::MotionProperties* motionProperties = body.GetMotionProperties();
@@ -322,8 +319,7 @@ namespace OloEngine
             return 0.0f;
 
         const auto& bodyLockInterface = GetBodyLockInterface();
-        JPH::BodyLockRead lock(bodyLockInterface, m_BodyID);
-        if (lock.Succeeded())
+        if (JPH::BodyLockRead lock(bodyLockInterface, m_BodyID); lock.Succeeded())
         {
             const JPH::Body& body = lock.GetBody();
             const JPH::MotionProperties* motionProperties = body.GetMotionProperties();
@@ -341,8 +337,7 @@ namespace OloEngine
             return;
 
         const auto& bodyLockInterface = GetBodyLockInterface();
-        JPH::BodyLockWrite lock(bodyLockInterface, m_BodyID);
-        if (lock.Succeeded())
+        if (JPH::BodyLockWrite lock(bodyLockInterface, m_BodyID); lock.Succeeded())
         {
             JPH::Body& body = lock.GetBody();
             JPH::MotionProperties* motionProperties = body.GetMotionProperties();
@@ -366,8 +361,7 @@ namespace OloEngine
             return 0.0f;
 
         const auto& bodyLockInterface = GetBodyLockInterface();
-        JPH::BodyLockRead lock(bodyLockInterface, m_BodyID);
-        if (lock.Succeeded())
+        if (JPH::BodyLockRead lock(bodyLockInterface, m_BodyID); lock.Succeeded())
         {
             const JPH::Body& body = lock.GetBody();
             const JPH::MotionProperties* motionProperties = body.GetMotionProperties();
@@ -425,8 +419,7 @@ namespace OloEngine
             return 0.0f;
 
         const auto& bodyLockInterface = GetBodyLockInterface();
-        JPH::BodyLockRead lock(bodyLockInterface, m_BodyID);
-        if (lock.Succeeded())
+        if (JPH::BodyLockRead lock(bodyLockInterface, m_BodyID); lock.Succeeded())
         {
             const JPH::Body& body = lock.GetBody();
             const JPH::MotionProperties* motionProperties = body.GetMotionProperties();
@@ -444,8 +437,7 @@ namespace OloEngine
             return;
 
         const auto& bodyLockInterface = GetBodyLockInterface();
-        JPH::BodyLockWrite lock(bodyLockInterface, m_BodyID);
-        if (lock.Succeeded())
+        if (JPH::BodyLockWrite lock(bodyLockInterface, m_BodyID); lock.Succeeded())
         {
             JPH::Body& body = lock.GetBody();
             JPH::MotionProperties* motionProperties = body.GetMotionProperties();
@@ -469,8 +461,7 @@ namespace OloEngine
             return 0.0f;
 
         const auto& bodyLockInterface = GetBodyLockInterface();
-        JPH::BodyLockRead lock(bodyLockInterface, m_BodyID);
-        if (lock.Succeeded())
+        if (JPH::BodyLockRead lock(bodyLockInterface, m_BodyID); lock.Succeeded())
         {
             const JPH::Body& body = lock.GetBody();
             const JPH::MotionProperties* motionProperties = body.GetMotionProperties();
@@ -488,8 +479,7 @@ namespace OloEngine
             return;
 
         const auto& bodyLockInterface = GetBodyLockInterface();
-        JPH::BodyLockWrite lock(bodyLockInterface, m_BodyID);
-        if (lock.Succeeded())
+        if (JPH::BodyLockWrite lock(bodyLockInterface, m_BodyID); lock.Succeeded())
         {
             JPH::Body& body = lock.GetBody();
             JPH::MotionProperties* motionProperties = body.GetMotionProperties();

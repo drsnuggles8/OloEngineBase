@@ -491,8 +491,7 @@ namespace OloEngine::Audio::SoundGraph
 
     Scope<NodeProcessor> SoundGraphFactory::CreateNode(const std::string& typeName, const std::string& name, Identifier id)
     {
-        auto it = s_NodeCreators.find(typeName);
-        if (it != s_NodeCreators.end())
+        if (auto it = s_NodeCreators.find(typeName); it != s_NodeCreators.end())
         {
             return it->second(name, id);
         }

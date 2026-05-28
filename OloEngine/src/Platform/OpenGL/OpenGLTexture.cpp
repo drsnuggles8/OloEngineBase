@@ -717,8 +717,7 @@ namespace OloEngine
         glGetTextureImage(m_RendererID, static_cast<GLint>(mipLevel), m_DataFormat, dataType,
                           static_cast<GLsizei>(dataSize), outData.data());
 
-        GLenum error = glGetError();
-        if (error != GL_NO_ERROR)
+        if (GLenum error = glGetError(); error != GL_NO_ERROR)
         {
             OLO_CORE_ERROR("OpenGLTexture2D::GetData: GL error {}", error);
             return false;

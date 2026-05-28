@@ -714,8 +714,7 @@ namespace OloEngine
         // textureIndex == 0.0f is the "no match found in the loop above" sentinel.
         // Bit-exact comparison because the loop assigns from integer indices —
         // 0.0f appears only when nothing was assigned (see cpp-coding-quality §2a).
-        constexpr f32 noTextureSlotSentinel = 0.0f;
-        if (Math::BitwiseEqual(textureIndex, noTextureSlotSentinel))
+        if (constexpr f32 noTextureSlotSentinel = 0.0f; Math::BitwiseEqual(textureIndex, noTextureSlotSentinel))
         {
             if (s_Data.TextureSlotIndex >= Renderer2DData::MaxTextureSlots)
             {
@@ -1012,9 +1011,7 @@ namespace OloEngine
                 }
                 const auto* glyph = lookup.Glyph;
 
-                f32 quadMaxX = glyph->PlaneBoundsRight * static_cast<f32>(fsScale) + static_cast<f32>(wx);
-
-                if (quadMaxX > textParams.MaxWidth)
+                if (f32 quadMaxX = glyph->PlaneBoundsRight * static_cast<f32>(fsScale) + static_cast<f32>(wx); quadMaxX > textParams.MaxWidth)
                 {
                     if (lastSpace != std::string::npos)
                     {

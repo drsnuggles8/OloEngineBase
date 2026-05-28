@@ -71,8 +71,7 @@ namespace OloEngine::Animation
             TRSFrame result = { glm::vec3(0.0f), glm::quat(1.0f, 0.0f, 0.0f, 0.0f), glm::vec3(1.0f) };
             if (!clip)
                 return result;
-            const auto* boneAnim = cachedBoneAnim ? cachedBoneAnim : clip->FindBoneAnimation(boneName);
-            if (boneAnim)
+            if (const auto* boneAnim = cachedBoneAnim ? cachedBoneAnim : clip->FindBoneAnimation(boneName); boneAnim)
             {
                 // Sample each channel separately using the new optimized functions
                 result.translation = AnimatedModel::SampleBonePosition(boneAnim->PositionKeys, time);

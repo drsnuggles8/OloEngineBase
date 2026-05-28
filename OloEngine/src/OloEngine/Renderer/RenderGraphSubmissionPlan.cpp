@@ -258,10 +258,8 @@ namespace OloEngine::RenderGraphSubmissionPlan
         {
             const auto batchIt = passToBatch.find(passName);
             const bool inBatch = (batchIt != passToBatch.end());
-            const u32 batchIdx = inBatch ? batchIt->second : std::numeric_limits<u32>::max();
-
             // Batch-boundary open.
-            if (inBatch && batchIdx != currentBatch)
+            if (const u32 batchIdx = inBatch ? batchIt->second : std::numeric_limits<u32>::max(); inBatch && batchIdx != currentBatch)
             {
                 // Close the previous batch (if any) before opening a new one.
                 if (currentBatch != std::numeric_limits<u32>::max())

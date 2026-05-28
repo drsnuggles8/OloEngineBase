@@ -355,8 +355,7 @@ namespace OloEngine
             // Sort each group independently
             for (auto& [start, end] : groupRanges)
             {
-                sizet groupSize = end - start;
-                if (groupSize <= 1)
+                if (sizet groupSize = end - start; groupSize <= 1)
                     continue;
 
                 // Create temporary sub-arrays for the group
@@ -493,8 +492,7 @@ namespace OloEngine
                 return false;
             }
 
-            const glm::mat4* existingTransforms = frameBuffer.GetTransformPtr(instancedCmd->transformBufferOffset);
-            if (existingTransforms)
+            if (const glm::mat4* existingTransforms = frameBuffer.GetTransformPtr(instancedCmd->transformBufferOffset))
             {
                 frameBuffer.WriteTransforms(newOffset, existingTransforms, instancedCmd->transformCount);
             }
@@ -533,8 +531,7 @@ namespace OloEngine
                 return false;
             }
 
-            const glm::mat4* existingTransforms = frameBuffer.GetTransformPtr(instancedCmd->transformBufferOffset);
-            if (existingTransforms)
+            if (const glm::mat4* existingTransforms = frameBuffer.GetTransformPtr(instancedCmd->transformBufferOffset))
             {
                 frameBuffer.WriteTransforms(newOffset, existingTransforms, instancedCmd->transformCount);
             }
@@ -982,8 +979,7 @@ namespace OloEngine
         u32 batchStart = m_NextBatchStart.fetch_add(TLS_BATCH_SIZE, std::memory_order_relaxed);
 
         // Grow the parallel commands array if needed
-        u32 requiredCapacity = batchStart + TLS_BATCH_SIZE;
-        if (requiredCapacity > m_ParallelCommands.size())
+        if (u32 requiredCapacity = batchStart + TLS_BATCH_SIZE; requiredCapacity > m_ParallelCommands.size())
         {
             TUniqueLock<FMutex> lock(m_Mutex);
             if (requiredCapacity > m_ParallelCommands.size())
@@ -1043,8 +1039,7 @@ namespace OloEngine
             return;
         }
 
-        u32 totalCommands = m_ParallelCommandCount.load(std::memory_order_acquire);
-        if (totalCommands == 0)
+        if (u32 totalCommands = m_ParallelCommandCount.load(std::memory_order_acquire); totalCommands == 0)
         {
             m_ParallelSubmissionActive = false;
             return;

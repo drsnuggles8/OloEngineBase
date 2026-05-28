@@ -170,8 +170,7 @@ namespace OloEngine
         }
 
         // Wait for any pending async reload tasks
-        u32 remainingReloads = m_ActiveReloadTasks.load(std::memory_order_acquire);
-        if (remainingReloads > 0)
+        if (u32 remainingReloads = m_ActiveReloadTasks.load(std::memory_order_acquire); remainingReloads > 0)
         {
             OLO_CORE_INFO("EditorAssetManager: Waiting for {} async reload tasks to complete...", remainingReloads);
             while (m_ActiveReloadTasks.load(std::memory_order_acquire) > 0)
@@ -220,8 +219,7 @@ namespace OloEngine
             TSharedLock<FSharedMutex> lock(m_AssetsMutex);
 
             // Check if it's a memory asset first
-            auto memoryIt = m_MemoryAssets.find(assetHandle);
-            if (memoryIt != m_MemoryAssets.end())
+            if (auto memoryIt = m_MemoryAssets.find(assetHandle); memoryIt != m_MemoryAssets.end())
                 return memoryIt->second;
 
             // Check if already loaded
@@ -247,8 +245,7 @@ namespace OloEngine
             TSharedLock<FSharedMutex> lock(m_AssetsMutex);
 
             // Check memory assets
-            auto memoryIt = m_MemoryAssets.find(assetHandle);
-            if (memoryIt != m_MemoryAssets.end())
+            if (auto memoryIt = m_MemoryAssets.find(assetHandle); memoryIt != m_MemoryAssets.end())
                 return AsyncAssetResult<Asset>{ memoryIt->second, true };
 
             // Check loaded assets
@@ -719,8 +716,7 @@ namespace OloEngine
         std::filesystem::path relativePath = GetRelativePath(filepath);
 
         // Check if already imported
-        AssetHandle existingHandle = m_AssetRegistry.GetHandleFromPath(relativePath);
-        if (existingHandle != 0)
+        if (AssetHandle existingHandle = m_AssetRegistry.GetHandleFromPath(relativePath); existingHandle != 0)
         {
             OLO_CORE_TRACE("Asset already imported: {}", relativePath.string());
             return existingHandle;
@@ -880,8 +876,7 @@ namespace OloEngine
             return AssetManager::GetPlaceholderAsset(metadata.Type);
         }
 
-        auto absolutePath = m_ProjectPath / metadata.FilePath;
-        if (!std::filesystem::exists(absolutePath))
+        if (auto absolutePath = m_ProjectPath / metadata.FilePath; !std::filesystem::exists(absolutePath))
         {
             OLO_CORE_ERROR("Cannot load asset: file does not exist: {}", metadata.FilePath.string());
             SetAssetStatus(metadata.Handle, AssetStatus::Missing);
@@ -1086,8 +1081,7 @@ namespace OloEngine
         // LocalizationSystem and the LocalizationPanel both poll.
         if (extension == ".ololocale")
         {
-            const auto absolutePath = m_ProjectPath / filePath;
-            if (LocalizationManager::LoadLocale(absolutePath))
+            if (const auto absolutePath = m_ProjectPath / filePath; LocalizationManager::LoadLocale(absolutePath))
             {
                 OLO_CORE_INFO("🌐 Hot-reloaded locale '{}'", absolutePath.filename().string());
             }

@@ -97,8 +97,7 @@ namespace OloEngine
                 continue;
             }
 
-            const ItemDefinition* def = ItemDatabase::Get(slot->ItemDefinitionID);
-            if (def)
+            if (const ItemDefinition* def = ItemDatabase::Get(slot->ItemDefinitionID); def)
             {
                 for (auto const& mod : def->AttributeModifiers)
                 {

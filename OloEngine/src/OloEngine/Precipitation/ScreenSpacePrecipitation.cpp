@@ -58,8 +58,7 @@ namespace OloEngine
         // --- Update streak parameters ---
         if (settings.ScreenStreaksEnabled)
         {
-            f32 windLen = glm::length(windDirScreen);
-            if (windLen > 0.001f)
+            if (f32 windLen = glm::length(windDirScreen); windLen > 0.001f)
             {
                 s_Data.m_StreakDirection = windDirScreen / windLen;
             }

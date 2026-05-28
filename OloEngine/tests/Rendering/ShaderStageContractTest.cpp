@@ -77,8 +77,7 @@ namespace OloEngine::Tests
             //      rendered with color writes disabled.
             // Both write depth via the rasterizer and don't need a colour
             // attachment.
-            const std::string fileName = path.filename().generic_string();
-            if (fileName.contains("Depth") || fileName == "OcclusionProxy.glsl")
+            if (const std::string fileName = path.filename().generic_string(); fileName.contains("Depth") || fileName == "OcclusionProxy.glsl")
                 continue;
 
             const std::string source = SH::ReadWholeFile(path);

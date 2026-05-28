@@ -124,8 +124,7 @@ namespace OloEngine
 
         // Validate IndexOffset is valid and within file bounds
         // Check for invalid offset (should be after header, which is at least sizeof(AssetPackFile::Header))
-        const u64 minimumValidOffset = sizeof(AssetPackFile::Header);
-        if (m_AssetPackFile.Header.IndexOffset < minimumValidOffset)
+        if (const u64 minimumValidOffset = sizeof(AssetPackFile::Header); m_AssetPackFile.Header.IndexOffset < minimumValidOffset)
         {
             OLO_CORE_ERROR("AssetPack::Load - Index offset ({}) is too small (minimum: {})",
                            m_AssetPackFile.Header.IndexOffset, minimumValidOffset);
@@ -156,8 +155,7 @@ namespace OloEngine
         }
 
         // Verify we're at the expected position
-        u64 currentPosition = stream.GetStreamPosition();
-        if (currentPosition != m_AssetPackFile.Header.IndexOffset)
+        if (u64 currentPosition = stream.GetStreamPosition(); currentPosition != m_AssetPackFile.Header.IndexOffset)
         {
             OLO_CORE_ERROR("AssetPack::Load - Seek to index offset failed. Expected: {}, Actual: {}",
                            m_AssetPackFile.Header.IndexOffset, currentPosition);
@@ -448,8 +446,7 @@ namespace OloEngine
         if (!m_IsLoaded)
             return AssetType::None;
 
-        auto it = m_AssetLookupMap.find(handle);
-        if (it != m_AssetLookupMap.end())
+        if (auto it = m_AssetLookupMap.find(handle); it != m_AssetLookupMap.end())
             return it->second.Type;
 
         return AssetType::None;
@@ -460,8 +457,7 @@ namespace OloEngine
         if (!m_IsLoaded)
             return std::nullopt;
 
-        auto it = m_AssetLookupMap.find(handle);
-        if (it != m_AssetLookupMap.end())
+        if (auto it = m_AssetLookupMap.find(handle); it != m_AssetLookupMap.end())
             return it->second;
 
         return std::nullopt;

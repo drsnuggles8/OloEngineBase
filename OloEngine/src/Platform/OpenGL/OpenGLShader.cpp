@@ -124,8 +124,7 @@ namespace OloEngine
 
         [[nodiscard("Store this!")]] static const char* GetCacheDirectory()
         {
-            const std::filesystem::path assetsDirectory = "assets";
-            if (!std::filesystem::exists(assetsDirectory))
+            if (const std::filesystem::path assetsDirectory = "assets"; !std::filesystem::exists(assetsDirectory))
             {
                 OLO_CORE_ERROR("The assets directory does not exist.");
                 return nullptr;
@@ -560,8 +559,7 @@ namespace OloEngine
             return true; // Cannot stat cache file → treat as stale
 
         // Check the main shader file
-        auto const shaderTime = std::filesystem::last_write_time(m_FilePath, ec);
-        if (ec || shaderTime > cacheTime)
+        if (auto const shaderTime = std::filesystem::last_write_time(m_FilePath, ec); ec || shaderTime > cacheTime)
             return true;
 
         // Check every transitively included file
@@ -688,8 +686,7 @@ namespace OloEngine
                 result.CachePath = cachedPath;
 
                 // Try to load from cache first
-                std::ifstream in(cachedPath, std::ios::in | std::ios::binary);
-                if (in.is_open() && !disableCache)
+                if (std::ifstream in(cachedPath, std::ios::in | std::ios::binary); in.is_open() && !disableCache)
                 {
                     in.seekg(0, std::ios::end);
                     const auto size = in.tellg();
@@ -825,8 +822,7 @@ namespace OloEngine
                 result.CachePath = cachedPath;
 
                 // Try to load from cache first
-                std::ifstream in(cachedPath, std::ios::in | std::ios::binary);
-                if (in.is_open() && !disableCache)
+                if (std::ifstream in(cachedPath, std::ios::in | std::ios::binary); in.is_open() && !disableCache)
                 {
                     if (!IsCacheStale(cachedPath))
                     {

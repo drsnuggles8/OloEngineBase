@@ -50,8 +50,7 @@ namespace OloEngine
             return;
         }
 
-        u32 last = m_AliveCount - 1;
-        if (index != last)
+        if (u32 last = m_AliveCount - 1; index != last)
         {
             SwapParticles(index, last);
         }

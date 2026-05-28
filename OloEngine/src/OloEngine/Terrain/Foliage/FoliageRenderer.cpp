@@ -213,8 +213,8 @@ namespace OloEngine
 
                     // Slope check
                     glm::vec3 normal = terrainData.GetNormalAt(nx, nz, worldSizeX, worldSizeZ, heightScale);
-                    f32 upDot = normal.y; // dot(normal, up)
-                    if (upDot < cosMinSlope || upDot > cosMaxSlope)
+                    // dot(normal, up)
+                    if (f32 upDot = normal.y; upDot < cosMinSlope || upDot > cosMaxSlope)
                         continue;
 
                     // Splatmap density check

@@ -498,8 +498,7 @@ namespace OloEngine::LowLevelTasks::Private
         }
 
         Node->Event->Reset();
-        EWaitState Target = EWaitState::NotSignaled;
-        if (Node->State.compare_exchange_strong(Target, EWaitState::Waiting, std::memory_order_relaxed, std::memory_order_relaxed))
+        if (EWaitState Target = EWaitState::NotSignaled; Node->State.compare_exchange_strong(Target, EWaitState::Waiting, std::memory_order_relaxed, std::memory_order_relaxed))
         {
             // Fall through to the wait function
         }

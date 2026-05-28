@@ -275,8 +275,7 @@ namespace OloEngine
             {
                 queryPool.Initialize(1024);
             }
-            auto& culler = OcclusionCuller::GetInstance();
-            if (!culler.IsInitialized())
+            if (auto& culler = OcclusionCuller::GetInstance(); !culler.IsInitialized())
             {
                 culler.Initialize();
             }

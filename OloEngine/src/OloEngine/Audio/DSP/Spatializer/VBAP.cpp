@@ -80,8 +80,7 @@ namespace OloEngine::Audio::DSP
     {
         u32 gainSmoothTimeInFrames = 360; // ~7.5ms at 48kHz
         ma_gainer_config gainerConfig = ma_gainer_config_init(numberOfOutputChannels, gainSmoothTimeInFrames);
-        ma_result result = ma_gainer_init(&gainerConfig, nullptr, &Gainer);
-        if (result != MA_SUCCESS)
+        if (ma_result result = ma_gainer_init(&gainerConfig, nullptr, &Gainer); result != MA_SUCCESS)
         {
             OLO_CORE_ERROR("[VBAP] ma_gainer_init failed: {}", static_cast<int>(result));
             return;

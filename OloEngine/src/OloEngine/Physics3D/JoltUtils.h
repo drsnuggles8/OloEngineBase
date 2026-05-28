@@ -209,8 +209,7 @@ namespace OloEngine
                 // Apply Gram-Schmidt orthogonalization
                 // Keep col0 as reference, orthogonalize col1 and col2
                 col1 = col1 - glm::dot(col1, col0) * col0;
-                f32 len1_ortho = glm::length(col1);
-                if (len1_ortho < kNormalizationEpsilon)
+                if (f32 len1_ortho = glm::length(col1); len1_ortho < kNormalizationEpsilon)
                 {
                     // col1 is parallel to col0, construct perpendicular vector
                     glm::vec3 arbitrary = (glm::abs(col0.x) < 0.9f) ? glm::vec3(1.0f, 0.0f, 0.0f) : glm::vec3(0.0f, 1.0f, 0.0f);

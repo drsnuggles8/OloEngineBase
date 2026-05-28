@@ -226,8 +226,7 @@ namespace OloEngine
                 // x_ndc = P[0][0]*x + P[2][0]*z + P[3][0]. Instead, add the
                 // jitter to the translation row so every fragment gets the
                 // same sub-pixel shift independent of depth.
-                const bool isOrthographic = glm::abs(data.ProjectionMatrix[3][3] - 1.0f) < 1e-5f;
-                if (isOrthographic)
+                if (const bool isOrthographic = glm::abs(data.ProjectionMatrix[3][3] - 1.0f) < 1e-5f; isOrthographic)
                 {
                     data.ProjectionMatrix[3][0] += jitterNdcX;
                     data.ProjectionMatrix[3][1] += jitterNdcY;
@@ -725,8 +724,7 @@ namespace OloEngine
             // Derive sun direction from the scene's primary directional light
             // Guard against zero-length direction to prevent NaN from normalize
             glm::vec3 sunDir(0.0f, -1.0f, 0.0f);
-            const f32 dirLen2 = glm::dot(data.SceneLight.Direction, data.SceneLight.Direction);
-            if (std::isfinite(dirLen2) && dirLen2 > 1e-8f)
+            if (const f32 dirLen2 = glm::dot(data.SceneLight.Direction, data.SceneLight.Direction); std::isfinite(dirLen2) && dirLen2 > 1e-8f)
             {
                 sunDir = glm::normalize(data.SceneLight.Direction);
             }
@@ -1858,9 +1856,7 @@ namespace OloEngine
         // (`if (board.OIT.OITAccum.IsValid())` is already guarded), so the
         // graph never sees write edges into a buffer that nothing reads.
         // OITPreparePass and OITResolvePass also self-skip via `m_Enabled`.
-        const bool oitActive = data.Settings.OITEnabled &&
-                               pipeline.SceneCompositePasses.OITResolve;
-        if (oitActive)
+        if (const bool oitActive = data.Settings.OITEnabled && pipeline.SceneCompositePasses.OITResolve; oitActive)
         {
             // Declare as a shared transient MRT framebuffer (RT0 = RGBA16F
             // accumulation, RT1 = RG16F revealage, depth = DEPTH24_STENCIL8).

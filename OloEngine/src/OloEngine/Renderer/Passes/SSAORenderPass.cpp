@@ -219,8 +219,7 @@ namespace OloEngine
         DrawFullscreenTriangle();
         blurFB->Unbind();
 
-        const u32 blurredAOTextureID = blurFB->GetColorAttachmentRendererID(0);
-        if (blurredAOTextureID != 0 && blurredAOTextureID != aoOutputTexID)
+        if (const u32 blurredAOTextureID = blurFB->GetColorAttachmentRendererID(0); blurredAOTextureID != 0 && blurredAOTextureID != aoOutputTexID)
         {
             glCopyImageSubData(
                 blurredAOTextureID, GL_TEXTURE_2D, 0, 0, 0, 0,

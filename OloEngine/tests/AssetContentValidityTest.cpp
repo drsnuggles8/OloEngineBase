@@ -874,8 +874,7 @@ namespace OloEngine::Tests
             // AssetExtensions::IsExtensionSupported takes a normalised
             // string (with or without leading dot). The std::filesystem
             // extension() returns it with the leading dot.
-            const std::string ext = entry.path().extension().string();
-            if (!AssetExtensions::IsExtensionSupported(ext))
+            if (const std::string ext = entry.path().extension().string(); !AssetExtensions::IsExtensionSupported(ext))
                 continue;
 
             // Path the registry stores: project-relative, forward
@@ -960,8 +959,7 @@ namespace OloEngine::Tests
                 bool foundExact = false;
                 bool foundCaseInsensitive = false;
                 std::string actualName;
-                std::error_code ec;
-                if (fs::is_directory(accumulated, ec))
+                if (std::error_code ec; fs::is_directory(accumulated, ec))
                 {
                     for (auto& entry : fs::directory_iterator(accumulated, ec))
                     {
@@ -1418,8 +1416,7 @@ namespace OloEngine::Tests
                     break;
                 if (!entry.is_regular_file())
                     continue;
-                const std::string ext = entry.path().extension().generic_string();
-                if (ext != ".cpp" && ext != ".h" && ext != ".hpp" && ext != ".inl")
+                if (const std::string ext = entry.path().extension().generic_string(); ext != ".cpp" && ext != ".h" && ext != ".hpp" && ext != ".inl")
                     continue;
                 std::ifstream in(entry.path(), std::ios::binary);
                 if (!in)
@@ -1636,8 +1633,7 @@ namespace OloEngine::Tests
                                                   ? fullName
                                                   : fullName.substr(dot + 1);
                 const fs::path csFile = sourceDir / (className + ".cs");
-                std::error_code ec;
-                if (!fs::exists(csFile, ec))
+                if (std::error_code ec; !fs::exists(csFile, ec))
                     continue;
 
                 std::ifstream sf(csFile, std::ios::binary);

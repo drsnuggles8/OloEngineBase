@@ -36,8 +36,7 @@ namespace OloEngine
         State& state = GetState();
 
         std::vector<std::filesystem::path> files;
-        std::error_code ec;
-        if (std::filesystem::is_directory(localizationDir, ec))
+        if (std::error_code ec; std::filesystem::is_directory(localizationDir, ec))
         {
             for (const auto& entry : std::filesystem::directory_iterator(localizationDir, ec))
             {
@@ -662,8 +661,7 @@ namespace OloEngine
 
     bool LocalizationManager::LoadActiveLocaleFromFile(const std::filesystem::path& path)
     {
-        std::error_code ec;
-        if (!std::filesystem::exists(path, ec))
+        if (std::error_code ec; !std::filesystem::exists(path, ec))
             return false;
         std::ifstream in(path);
         if (!in.is_open())
@@ -914,8 +912,7 @@ namespace OloEngine
                     out.append(pattern.substr(i));
                     break;
                 }
-                const std::string_view tok = pattern.substr(i + 1, end - i - 1);
-                if (tok == "yyyy")
+                if (const std::string_view tok = pattern.substr(i + 1, end - i - 1); tok == "yyyy")
                     out += ZeroPad(year, 4);
                 else if (tok == "yy")
                     out += ZeroPad(year % 100, 2);
@@ -1114,8 +1111,7 @@ namespace OloEngine
             return FormatDate(tp, DateStyle::Medium, localeCode);
 
         const std::string code = localeCode.empty() ? GetCurrentLocale() : localeCode;
-        const std::string keyBase = std::string("time.relative.") + unit->Key + (past ? "_past" : "_future");
-        if (!code.empty() && HasKey(keyBase, code))
+        if (const std::string keyBase = std::string("time.relative.") + unit->Key + (past ? "_past" : "_future"); !code.empty() && HasKey(keyBase, code))
         {
             // Resolve the plural template against `code`, not the active
             // locale. FormatPlural(key, ...) only consults the active
@@ -1198,8 +1194,7 @@ namespace OloEngine
         std::vector<std::string> out;
 #ifdef _WIN32
         // GetUserDefaultLocaleName returns the BCP-47 form already.
-        wchar_t buffer[LOCALE_NAME_MAX_LENGTH] = {};
-        if (::GetUserDefaultLocaleName(buffer, LOCALE_NAME_MAX_LENGTH) > 0)
+        if (wchar_t buffer[LOCALE_NAME_MAX_LENGTH] = {}; ::GetUserDefaultLocaleName(buffer, LOCALE_NAME_MAX_LENGTH) > 0)
         {
             // Narrow ASCII conversion: locale codes are always ASCII per BCP-47.
             std::string narrow;

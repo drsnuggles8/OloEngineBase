@@ -114,8 +114,7 @@ namespace OloEngine
         {
             OLO_CORE_INFO("[Server] Loading scene: {}", scenePath);
             auto tempScene = Scene::Create();
-            SceneSerializer serializer(tempScene);
-            if (serializer.Deserialize(scenePath))
+            if (SceneSerializer serializer(tempScene); serializer.Deserialize(scenePath))
             {
                 tempScene->OnRuntimeStart();
 

@@ -25,8 +25,7 @@ namespace OloEngine
                 continue;
             }
 
-            Entity childEnt{ static_cast<entt::entity>(*childOpt), &scene };
-            if (childEnt.HasComponent<UIResolvedRectComponent>())
+            if (Entity childEnt{ static_cast<entt::entity>(*childOpt), &scene }; childEnt.HasComponent<UIResolvedRectComponent>())
             {
                 childEnt.GetComponent<UIResolvedRectComponent>().m_Position += delta;
             }

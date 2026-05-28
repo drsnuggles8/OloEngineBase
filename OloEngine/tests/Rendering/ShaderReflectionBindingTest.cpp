@@ -69,8 +69,7 @@ namespace OloEngine::Tests
         std::string ResolveBlockName(const spirv_cross::Compiler& compiler,
                                      const spirv_cross::Resource& resource)
         {
-            std::string baseTypeName = compiler.get_name(resource.base_type_id);
-            if (!baseTypeName.empty())
+            if (std::string baseTypeName = compiler.get_name(resource.base_type_id); !baseTypeName.empty())
                 return baseTypeName;
             return resource.name;
         }

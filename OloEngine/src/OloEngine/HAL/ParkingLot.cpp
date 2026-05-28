@@ -750,8 +750,7 @@ namespace OloEngine::ParkingLot
             FBucket* Bucket = BucketPtr.load(std::memory_order_acquire);
             if (OLO_UNLIKELY(!Bucket))
             {
-                FBucket* NewBucket = BucketAllocator();
-                if (BucketPtr.compare_exchange_strong(Bucket, NewBucket, std::memory_order_release, std::memory_order_acquire))
+                if (FBucket* NewBucket = BucketAllocator(); BucketPtr.compare_exchange_strong(Bucket, NewBucket, std::memory_order_release, std::memory_order_acquire))
                 {
                     Bucket = NewBucket;
                 }

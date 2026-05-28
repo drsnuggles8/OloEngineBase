@@ -139,8 +139,7 @@ namespace OloEngine
         m_CullShader->SetFloat4("u_LocalBoundingSphere", localBoundingSphere);
         m_CullShader->SetFloat("u_RadiusExpansion", radiusExpansion);
 
-        const u32 groups = (inputCount + kCullWorkgroupSize - 1) / kCullWorkgroupSize;
-        if (groups > 0)
+        if (const u32 groups = (inputCount + kCullWorkgroupSize - 1) / kCullWorkgroupSize; groups > 0)
             RenderCommand::DispatchCompute(groups, 1, 1);
 
         // ── 4. Barrier — the draw must see the compacted output AND the

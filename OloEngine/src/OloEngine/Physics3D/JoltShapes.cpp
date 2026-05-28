@@ -130,8 +130,7 @@ namespace OloEngine
     std::filesystem::path JoltShapes::GetDefaultCacheDirectory()
     {
         // Check environment variable first
-        const char* envCacheDir = std::getenv("OLO_PHYSICS_CACHE_DIR");
-        if (envCacheDir && strlen(envCacheDir) > 0)
+        if (const char* envCacheDir = std::getenv("OLO_PHYSICS_CACHE_DIR"); envCacheDir && strlen(envCacheDir) > 0)
         {
             return std::filesystem::path(envCacheDir);
         }
@@ -432,8 +431,7 @@ namespace OloEngine
             // Insert with unique lock (write access)
             TUniqueLock<FSharedMutex> writeLock(s_ShapeCacheMutex);
             // Check again in case another thread inserted while we were creating
-            auto it = s_ShapeCache.find(cacheKey);
-            if (it != s_ShapeCache.end())
+            if (auto it = s_ShapeCache.find(cacheKey); it != s_ShapeCache.end())
             {
                 return it->second; // Another thread beat us to it
             }
@@ -953,8 +951,7 @@ namespace OloEngine
                 // Insert loaded shape with unique lock
                 TUniqueLock<FSharedMutex> writeLock(s_ShapeCacheMutex);
                 // Check again in case another thread inserted while we were loading
-                auto it = s_ShapeCache.find(cacheKey);
-                if (it != s_ShapeCache.end())
+                if (auto it = s_ShapeCache.find(cacheKey); it != s_ShapeCache.end())
                 {
                     return it->second; // Another thread beat us to it
                 }
@@ -971,8 +968,7 @@ namespace OloEngine
             {
                 TUniqueLock<FSharedMutex> writeLock(s_ShapeCacheMutex);
                 // Check again in case another thread inserted while we were creating
-                auto it = s_ShapeCache.find(cacheKey);
-                if (it != s_ShapeCache.end())
+                if (auto it = s_ShapeCache.find(cacheKey); it != s_ShapeCache.end())
                 {
                     return it->second; // Another thread beat us to it
                 }
@@ -1059,8 +1055,7 @@ namespace OloEngine
                 bool syncSuccess = false;
 #ifdef _WIN32
                 // On Windows, use _open and _commit for guaranteed persistence
-                int fd = _open(tempFilePath.string().c_str(), _O_WRONLY);
-                if (fd != -1)
+                if (int fd = _open(tempFilePath.string().c_str(), _O_WRONLY); fd != -1)
                 {
                     if (_commit(fd) == 0)
                     {
@@ -1230,8 +1225,7 @@ namespace OloEngine
 
         try
         {
-            std::filesystem::path cacheDir = GetPersistentCacheDirectory();
-            if (std::filesystem::exists(cacheDir))
+            if (std::filesystem::path cacheDir = GetPersistentCacheDirectory(); std::filesystem::exists(cacheDir))
             {
                 for (const auto& entry : std::filesystem::directory_iterator(cacheDir))
                 {

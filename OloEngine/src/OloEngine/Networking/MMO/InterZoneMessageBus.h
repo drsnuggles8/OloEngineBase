@@ -72,8 +72,7 @@ namespace OloEngine
             std::queue<InterZoneMessage> remaining;
             while (!snapshot.empty())
             {
-                auto& msg = snapshot.front();
-                if (msg.TargetZoneID == zoneID)
+                if (auto& msg = snapshot.front(); msg.TargetZoneID == zoneID)
                 {
                     // Targeted message — consume (move to result, don't put back)
                     result.push_back(std::move(msg));

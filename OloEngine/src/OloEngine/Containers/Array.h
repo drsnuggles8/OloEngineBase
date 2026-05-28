@@ -1208,8 +1208,7 @@ namespace OloEngine
                 DestructItems(Data + Index, Count);
 
                 // Move remaining elements
-                const SizeType NumToMove = m_ArrayNum - Index - Count;
-                if (NumToMove > 0)
+                if (const SizeType NumToMove = m_ArrayNum - Index - Count; NumToMove > 0)
                 {
                     RelocateConstructItems<ElementType>(Data + Index, Data + Index + Count, NumToMove);
                 }
@@ -1237,8 +1236,7 @@ namespace OloEngine
                 DestructItems(Data + Index, Count);
 
                 // Move elements from the end to fill the gap
-                const SizeType NumToMove = std::min(Count, m_ArrayNum - Index - Count);
-                if (NumToMove > 0)
+                if (const SizeType NumToMove = std::min(Count, m_ArrayNum - Index - Count); NumToMove > 0)
                 {
                     RelocateConstructItems<ElementType>(Data + Index, Data + m_ArrayNum - NumToMove, NumToMove);
                 }
@@ -1588,8 +1586,7 @@ namespace OloEngine
          */
         SizeType RemoveSingle(const ElementType& Item)
         {
-            const SizeType Index = Find(Item);
-            if (Index != INDEX_NONE)
+            if (const SizeType Index = Find(Item); Index != INDEX_NONE)
             {
                 RemoveAt(Index);
                 return 1;
@@ -1669,8 +1666,7 @@ namespace OloEngine
          */
         SizeType RemoveSingleSwap(const ElementType& Item, EAllowShrinking AllowShrinking = EAllowShrinking::Yes)
         {
-            const SizeType Index = Find(Item);
-            if (Index != INDEX_NONE)
+            if (const SizeType Index = Find(Item); Index != INDEX_NONE)
             {
                 RemoveAtSwap(Index, 1, AllowShrinking);
                 return 1;

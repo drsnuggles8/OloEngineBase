@@ -29,8 +29,7 @@ namespace OloEngine::PlatformMemoryBackend
             outStats.AvailableVirtual = memStatus.ullAvailVirtual;
         }
 
-        PROCESS_MEMORY_COUNTERS pmc{};
-        if (GetProcessMemoryInfo(GetCurrentProcess(), &pmc, sizeof(pmc)))
+        if (PROCESS_MEMORY_COUNTERS pmc{}; GetProcessMemoryInfo(GetCurrentProcess(), &pmc, sizeof(pmc)))
         {
             outStats.UsedPhysical = pmc.WorkingSetSize;
             outStats.PeakUsedPhysical = pmc.PeakWorkingSetSize;

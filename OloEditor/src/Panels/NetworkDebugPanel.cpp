@@ -93,8 +93,7 @@ namespace OloEngine
         }
 
         // Statistics
-        auto stats = NetworkManager::GetStats();
-        if (stats)
+        if (auto stats = NetworkManager::GetStats(); stats)
         {
             ImGui::Separator();
             if (ImGui::CollapsingHeader("Statistics", ImGuiTreeNodeFlags_DefaultOpen))

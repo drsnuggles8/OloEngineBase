@@ -430,8 +430,7 @@ namespace OloEngine
             {
                 if (renaming)
                 {
-                    std::string newName(item.GetRenameBuffer());
-                    if (newName != item.GetDisplayName())
+                    if (std::string newName(item.GetRenameBuffer()); newName != item.GetDisplayName())
                     {
                         auto& mutableItem = m_Items[i];
                         auto parentPath = std::filesystem::relative(mutableItem.GetPath().parent_path(), m_DirectoryTree.GetAssetRoot());
@@ -876,8 +875,7 @@ namespace OloEngine
             OLO_CORE_ERROR("OpenInExplorer: canonical failed for '{}': {}", path.string(), ecCanonical.message());
             return;
         }
-        std::error_code ecExists;
-        if (!std::filesystem::exists(canonical, ecExists))
+        if (std::error_code ecExists; !std::filesystem::exists(canonical, ecExists))
         {
             OLO_CORE_ERROR("OpenInExplorer: path does not exist '{}': {}", canonical.string(), ecExists.message());
             return;
@@ -899,8 +897,7 @@ namespace OloEngine
             OLO_CORE_ERROR("OpenExternally: canonical failed for '{}': {}", path.string(), ecCanonical.message());
             return;
         }
-        std::error_code ecIsFile;
-        if (!std::filesystem::is_regular_file(canonical, ecIsFile))
+        if (std::error_code ecIsFile; !std::filesystem::is_regular_file(canonical, ecIsFile))
         {
             OLO_CORE_ERROR("OpenExternally: not a regular file '{}': {}", canonical.string(), ecIsFile.message());
             return;

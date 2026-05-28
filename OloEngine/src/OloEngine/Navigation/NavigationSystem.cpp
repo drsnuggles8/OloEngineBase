@@ -33,8 +33,7 @@ namespace OloEngine
             // If using crowd manager, sync from crowd
             if (crowdMgr && crowdMgr->IsValid() && agent.m_CrowdAgentId >= 0)
             {
-                glm::vec3 pos;
-                if (crowdMgr->GetAgentPosition(agent.m_CrowdAgentId, pos))
+                if (glm::vec3 pos; crowdMgr->GetAgentPosition(agent.m_CrowdAgentId, pos))
                 {
                     if (agent.m_LockYAxis)
                         pos.y = transform.Translation.y;

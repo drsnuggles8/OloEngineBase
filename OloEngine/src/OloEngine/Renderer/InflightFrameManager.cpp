@@ -37,8 +37,7 @@ namespace OloEngine
         auto& currentFrame = m_Frames[m_CurrentFrameIndex];
 
         // Check if we already have a buffer allocation for this name
-        auto it = currentFrame.BufferAllocations.find(name);
-        if (it != currentFrame.BufferAllocations.end())
+        if (auto it = currentFrame.BufferAllocations.find(name); it != currentFrame.BufferAllocations.end())
         {
             u32 bufferIndex = it->second;
             if (bufferIndex < currentFrame.UniformBuffers.size())

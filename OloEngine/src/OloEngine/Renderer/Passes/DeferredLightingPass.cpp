@@ -47,9 +47,7 @@ namespace OloEngine
             return;
 
         m_UseMSAAShading = m_PerSampleLighting && m_GBuffer->GetSampleCount() > 1u && static_cast<bool>(m_ShaderMSAA);
-        const bool useMSAAShading = m_UseMSAAShading;
-
-        if (useMSAAShading)
+        if (const bool useMSAAShading = m_UseMSAAShading)
         {
             m_SelectedInputs.GBufferAlbedo = blackboard.GBuffer.GBufferAlbedoMS;
             m_SelectedInputs.GBufferNormal = blackboard.GBuffer.GBufferNormalMS;
@@ -370,8 +368,7 @@ namespace OloEngine
         // the same depth values deferred geometry wrote. Without this the
         // scene FB depth attachment remains at whatever clear value it had
         // and downstream depth tests/samples are meaningless in Deferred.
-        auto const& samplingFB = m_GBuffer->GetSamplingFramebuffer();
-        if (samplingFB)
+        if (auto const& samplingFB = m_GBuffer->GetSamplingFramebuffer())
         {
             const u32 samplingFBID = samplingFB->GetRendererID();
             glBlitNamedFramebuffer(

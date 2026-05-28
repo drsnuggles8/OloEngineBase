@@ -195,8 +195,7 @@ namespace OloEngine
         Ref<T2> As() const
         {
             static_assert(std::is_base_of_v<RefCounted, T2>, "T2 must inherit from RefCounted");
-            T2* cast_result = dynamic_cast<T2*>(m_Instance);
-            if (cast_result)
+            if (T2* cast_result = dynamic_cast<T2*>(m_Instance); cast_result)
             {
                 Ref<T2> result;
                 result.m_Instance = cast_result;

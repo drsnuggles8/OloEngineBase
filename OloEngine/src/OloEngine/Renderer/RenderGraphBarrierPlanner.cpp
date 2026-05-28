@@ -119,8 +119,7 @@ namespace OloEngine::RenderGraphBarrierPlanner
                     const auto writerIt = lastWriterByResource.find(access.ResourceName);
                     if (writerIt == lastWriterByResource.end() || writerIt->second.empty())
                     {
-                        const auto allWritersIt = allWriterPassesByResource.find(access.ResourceName);
-                        if (allWritersIt == allWriterPassesByResource.end() || allWritersIt->second.empty())
+                        if (const auto allWritersIt = allWriterPassesByResource.find(access.ResourceName); allWritersIt == allWriterPassesByResource.end() || allWritersIt->second.empty())
                         {
                             result.Diagnostics.push_back(RenderGraph::BarrierDiagnostic{
                                 .Kind = RenderGraph::BarrierDiagnosticKind::MissingProducer,
@@ -341,8 +340,7 @@ namespace OloEngine::RenderGraphBarrierPlanner
             t.ProducerPass = "external";
             t.FromUsage = RGWriteUsage::RenderTarget;
 
-            const auto consumerIdxIt = passOrderIdx.find(barrier.BeforePass);
-            if (consumerIdxIt != passOrderIdx.end())
+            if (const auto consumerIdxIt = passOrderIdx.find(barrier.BeforePass); consumerIdxIt != passOrderIdx.end())
             {
                 const std::size_t consumerIdx = consumerIdxIt->second;
                 if (const auto writersIt = writersByResource.find(barrier.Resource);

@@ -1048,8 +1048,7 @@ namespace OloEngine
 
                     // Advance time for morph-only entities
                     animState.m_CurrentTime += ts.GetSeconds();
-                    const float duration = animState.m_CurrentClip->Duration;
-                    if (duration > 0.0f && animState.m_CurrentTime > duration)
+                    if (const float duration = animState.m_CurrentClip->Duration; duration > 0.0f && animState.m_CurrentTime > duration)
                     {
                         animState.m_CurrentTime -= static_cast<int>(animState.m_CurrentTime / duration) * duration;
                     }
@@ -4242,8 +4241,7 @@ namespace OloEngine
                     for (i32 i = 0; i < mesh.m_MeshSource->GetSubmeshes().Num(); ++i)
                     {
                         auto submesh = Ref<Mesh>::Create(mesh.m_MeshSource, i);
-                        auto* packet = Renderer3D::DrawMesh(submesh, transform.GetTransform(), material, true, entityID, lodGroup);
-                        if (packet)
+                        if (auto* packet = Renderer3D::DrawMesh(submesh, transform.GetTransform(), material, true, entityID, lodGroup); packet)
                             Renderer3D::SubmitPacket(packet);
 
                         // Shadow caster for this submesh
@@ -4418,8 +4416,7 @@ namespace OloEngine
                     }
                 }
 
-                auto* packet = Renderer3D::DrawMesh(submesh.m_Mesh, transform.GetTransform(), material, true, entityID, lodGroup);
-                if (packet)
+                if (auto* packet = Renderer3D::DrawMesh(submesh.m_Mesh, transform.GetTransform(), material, true, entityID, lodGroup); packet)
                     Renderer3D::SubmitPacket(packet);
 
                 // Shadow caster for this submesh entity
@@ -4466,8 +4463,7 @@ namespace OloEngine
                         if (!submesh)
                             continue;
 
-                        const u32 matIdx = submesh->GetSubmesh().m_MaterialIndex;
-                        if (matIdx < materials.size() && materials[matIdx])
+                        if (const u32 matIdx = submesh->GetSubmesh().m_MaterialIndex; matIdx < materials.size() && materials[matIdx])
                         {
                             const auto& mat = *materials[matIdx];
                             if (mat.GetFlag(MaterialFlag::DisableShadowCasting))
@@ -4606,8 +4602,7 @@ namespace OloEngine
                             baseTransform,
                             glm::vec3(static_cast<f32>(x) * tileComp.TileSize, 0.0f, static_cast<f32>(z) * tileComp.TileSize));
 
-                        auto* packet = Renderer3D::DrawMesh(tileComp.TileMesh, tileTransform, material, true, entityID, nullptr);
-                        if (packet)
+                        if (auto* packet = Renderer3D::DrawMesh(tileComp.TileMesh, tileTransform, material, true, entityID, nullptr); packet)
                             Renderer3D::SubmitPacket(packet);
 
                         // Shadow caster for this tile — Opaque only, see
@@ -4910,8 +4905,7 @@ namespace OloEngine
                 // aspect so the gizmo matches what the camera would actually
                 // render into the main viewport.
                 f32 aspectRatio;
-                const f32 cameraAspect = sceneCamera.GetAspectRatio();
-                if (cameraComp.FixedAspectRatio && cameraAspect > 0.0f)
+                if (const f32 cameraAspect = sceneCamera.GetAspectRatio(); cameraComp.FixedAspectRatio && cameraAspect > 0.0f)
                 {
                     aspectRatio = cameraAspect;
                 }
@@ -4996,8 +4990,7 @@ namespace OloEngine
                 // a line/point (two or three zero axes), or an inverted box.
                 // None render as a meaningful wireframe. A flat plane's "AABB"
                 // is just the plane itself, so hiding it costs nothing useful.
-                const glm::vec3 size = worldAABB.GetSize();
-                if (size.x <= 0.0f || size.y <= 0.0f || size.z <= 0.0f)
+                if (const glm::vec3 size = worldAABB.GetSize(); size.x <= 0.0f || size.y <= 0.0f || size.z <= 0.0f)
                     return;
                 Renderer3D::DrawBoxColliderGizmo(worldAABB.GetCenter(), worldAABB.GetExtents(), noRotation, bboxColor);
             };

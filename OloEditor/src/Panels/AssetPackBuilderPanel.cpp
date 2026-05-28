@@ -50,8 +50,7 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
 
         // One-time initialization of UI buffers from settings
-        static bool s_UIInitialized = false;
-        if (!s_UIInitialized)
+        if (static bool s_UIInitialized = false; !s_UIInitialized)
         {
             SyncUIFromSettings();
             s_UIInitialized = true;
@@ -113,16 +112,13 @@ namespace OloEngine
             // Output path
             ImGui::Text("Output Path:");
             ImGui::SameLine();
-            bool pathChanged = ImGui::InputText("##OutputPath", m_OutputPathBuffer.data(), m_OutputPathBuffer.size());
-
             // Validate path on change
-            if (pathChanged)
+            if (bool pathChanged = ImGui::InputText("##OutputPath", m_OutputPathBuffer.data(), m_OutputPathBuffer.size()); pathChanged)
             {
                 std::string inputPath = m_OutputPathBuffer.data();
 
                 // Automatically append .olopack extension if missing
-                std::filesystem::path fsPath(inputPath);
-                if (fsPath.extension() != ".olopack")
+                if (std::filesystem::path fsPath(inputPath); fsPath.extension() != ".olopack")
                 {
                     inputPath += ".olopack";
                     // Update buffer with corrected path
@@ -387,8 +383,7 @@ namespace OloEngine
         }
 
         // Check for invalid filename characters (Windows and Unix common restrictions)
-        std::regex invalidChars(R"([<>:"|?*\x00-\x1f])");
-        if (std::regex_search(path, invalidChars))
+        if (std::regex invalidChars(R"([<>:"|?*\x00-\x1f])"); std::regex_search(path, invalidChars))
         {
             errorMessage = "Path contains invalid characters (< > : \" | ? * or control characters)";
             return false;

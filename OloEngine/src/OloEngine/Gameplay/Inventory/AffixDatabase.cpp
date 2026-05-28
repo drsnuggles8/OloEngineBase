@@ -41,8 +41,7 @@ namespace OloEngine
     const AffixDefinition* AffixDatabase::Get(const std::string& affixId)
     {
         auto& defs = GetDefinitions();
-        auto it = defs.find(affixId);
-        if (it != defs.end())
+        if (auto it = defs.find(affixId); it != defs.end())
         {
             return &it->second;
         }
@@ -52,8 +51,7 @@ namespace OloEngine
     const AffixPool* AffixDatabase::GetPool(const std::string& poolId)
     {
         auto& pools = GetPools();
-        auto it = pools.find(poolId);
-        if (it != pools.end())
+        if (auto it = pools.find(poolId); it != pools.end())
         {
             return &it->second;
         }

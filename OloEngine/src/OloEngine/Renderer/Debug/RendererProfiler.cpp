@@ -1195,8 +1195,7 @@ namespace OloEngine
                 ImGui::TableSetColumnIndex(1);
                 ImGui::Text("%.2fms", frame1.m_FrameData.m_FrameTime);
                 ImGui::TableSetColumnIndex(2);
-                f64 frameTimeDiff = frame2.m_FrameData.m_FrameTime - frame1.m_FrameData.m_FrameTime;
-                if (frameTimeDiff > 0.5f)
+                if (f64 frameTimeDiff = frame2.m_FrameData.m_FrameTime - frame1.m_FrameData.m_FrameTime; frameTimeDiff > 0.5f)
                     ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "%.2fms (+%.2f)", frame2.m_FrameData.m_FrameTime, frameTimeDiff);
                 else if (frameTimeDiff < -0.5f)
                     ImGui::TextColored(ImVec4(0.4f, 1.0f, 0.4f, 1.0f), "%.2fms (%.2f)", frame2.m_FrameData.m_FrameTime, frameTimeDiff);
@@ -1210,8 +1209,7 @@ namespace OloEngine
                 ImGui::TableSetColumnIndex(1);
                 ImGui::Text("%u", frame1.m_FrameData.m_DrawCalls);
                 ImGui::TableSetColumnIndex(2);
-                i32 drawCallDiff = (i32)frame2.m_FrameData.m_DrawCalls - (i32)frame1.m_FrameData.m_DrawCalls;
-                if (drawCallDiff > 0)
+                if (i32 drawCallDiff = (i32)frame2.m_FrameData.m_DrawCalls - (i32)frame1.m_FrameData.m_DrawCalls; drawCallDiff > 0)
                     ImGui::TextColored(ImVec4(1.0f, 0.6f, 0.4f, 1.0f), "%u (+%d)", frame2.m_FrameData.m_DrawCalls, drawCallDiff);
                 else if (drawCallDiff < 0)
                     ImGui::TextColored(ImVec4(0.4f, 1.0f, 0.4f, 1.0f), "%u (%d)", frame2.m_FrameData.m_DrawCalls, drawCallDiff);
@@ -1225,8 +1223,7 @@ namespace OloEngine
                 ImGui::TableSetColumnIndex(1);
                 ImGui::Text("%u", frame1.m_FrameData.m_VerticesRendered);
                 ImGui::TableSetColumnIndex(2);
-                i32 vertexDiff = (i32)frame2.m_FrameData.m_VerticesRendered - (i32)frame1.m_FrameData.m_VerticesRendered;
-                if (vertexDiff > 0)
+                if (i32 vertexDiff = (i32)frame2.m_FrameData.m_VerticesRendered - (i32)frame1.m_FrameData.m_VerticesRendered; vertexDiff > 0)
                     ImGui::TextColored(ImVec4(1.0f, 0.6f, 0.4f, 1.0f), "%u (+%d)", frame2.m_FrameData.m_VerticesRendered, vertexDiff);
                 else if (vertexDiff < 0)
                     ImGui::TextColored(ImVec4(0.4f, 1.0f, 0.4f, 1.0f), "%u (%d)", frame2.m_FrameData.m_VerticesRendered, vertexDiff);
@@ -1259,8 +1256,7 @@ namespace OloEngine
             "list refreshes every frame while enabled.");
         ImGui::Spacing();
 
-        bool recording = m_RecordInstancedDraws;
-        if (ImGui::Checkbox("Record Instanced Draws", &recording))
+        if (bool recording = m_RecordInstancedDraws; ImGui::Checkbox("Record Instanced Draws", &recording))
         {
             m_RecordInstancedDraws = recording;
             if (!recording)

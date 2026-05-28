@@ -36,8 +36,7 @@ namespace OloEngine
             }
 
             // Check if the updated dependency is one we actually depend on
-            bool isRelevantDependency = (handle == m_AnimationSource || handle == m_Mesh);
-            if (!isRelevantDependency)
+            if (bool isRelevantDependency = (handle == m_AnimationSource || handle == m_Mesh); !isRelevantDependency)
             {
                 OLO_CORE_TRACE("AnimationAsset dependency {} not relevant to animation asset {}",
                                static_cast<u64>(handle), static_cast<u64>(GetHandle()));

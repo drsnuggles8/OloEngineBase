@@ -542,10 +542,8 @@ namespace OloEngine
         const JPH::Body& otherBody = bodyLock.GetBody();
 
         // Check if the collision layers should interact
-        u32 otherLayer = otherBody.GetObjectLayer();
-
         // Check if this layer should be ignored using configurable bitmask
-        if (m_IgnoreCollisionLayers & (1u << otherLayer))
+        if (u32 otherLayer = otherBody.GetObjectLayer(); m_IgnoreCollisionLayers & (1u << otherLayer))
             return false;
 
         // Allow collision with all other layers (Static, Dynamic, Kinematic, other Characters)
@@ -563,9 +561,8 @@ namespace OloEngine
 
         // Determine collision flags based on contact normal
         JPH::Vec3 up = JPH::Vec3(0, 1, 0);
-        f32 dotUp = inContact.mContactNormal.Dot(up);
 
-        if (dotUp > kCollisionAngleDotThreshold) // Roughly 45 degrees
+        if (f32 dotUp = inContact.mContactNormal.Dot(up); dotUp > kCollisionAngleDotThreshold) // Roughly 45 degrees
         {
             m_CollisionFlags = static_cast<ECollisionFlags>(static_cast<u8>(m_CollisionFlags) | static_cast<u8>(ECollisionFlags::Below));
         }

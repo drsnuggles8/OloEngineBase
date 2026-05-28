@@ -111,8 +111,7 @@ namespace OloEngine
         TUniqueLock<FSharedMutex> lock(s_LayersMutex);
 
         // Check if the layer exists before attempting removal
-        auto layerIndexIt = s_LayerIndexMap.find(layerId);
-        if (layerIndexIt == s_LayerIndexMap.end())
+        if (auto layerIndexIt = s_LayerIndexMap.find(layerId); layerIndexIt == s_LayerIndexMap.end())
         {
             // Layer doesn't exist, nothing to remove
             return;
@@ -161,8 +160,7 @@ namespace OloEngine
         if (indexIt == s_LayerIndexMap.end())
             return; // Invalid layer ID
 
-        sizet index = indexIt->second;
-        if (index >= s_Layers.size() || s_Layers[index].m_LayerID != layerId)
+        if (sizet index = indexIt->second; index >= s_Layers.size() || s_Layers[index].m_LayerID != layerId)
             return; // Invalid or corrupted layer mapping
 
         // Check if name already exists in a different layer
@@ -457,8 +455,7 @@ namespace OloEngine
     const PhysicsLayer& PhysicsLayerManager::GetLayerImpl(u32 layerId)
     {
         // O(1) lookup using index map
-        auto indexIt = s_LayerIndexMap.find(layerId);
-        if (indexIt != s_LayerIndexMap.end())
+        if (auto indexIt = s_LayerIndexMap.find(layerId); indexIt != s_LayerIndexMap.end())
         {
             sizet index = indexIt->second;
             // Bounds check for safety

@@ -130,8 +130,7 @@ namespace OloEngine::Audio::SoundGraph
         entry.m_AccessCount = 1;
 
         // Remove existing entry if it exists
-        auto it = m_CacheEntries.find(sourcePath);
-        if (it != m_CacheEntries.end())
+        if (auto it = m_CacheEntries.find(sourcePath); it != m_CacheEntries.end())
         {
             m_CurrentMemoryUsage -= CalculateGraphMemoryUsage(it->second.m_CachedGraph);
             RemoveFromLRU(sourcePath);
@@ -409,8 +408,7 @@ namespace OloEngine::Audio::SoundGraph
         OLO_PROFILE_FUNCTION();
         TDynamicUniqueLock<FMutex> Lock(m_Mutex);
 
-        auto it = m_CacheEntries.find(sourcePath);
-        if (it != m_CacheEntries.end())
+        if (auto it = m_CacheEntries.find(sourcePath); it != m_CacheEntries.end())
         {
             return it->second; // Return a copy
         }

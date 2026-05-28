@@ -45,8 +45,7 @@ namespace OloEngine
             Project::SetAssetManager(runtimeAssetManager);
 
             // Load the asset pack (textures, meshes, etc.)
-            const std::filesystem::path packPath = "Assets/AssetPack.olopack";
-            if (std::filesystem::exists(packPath))
+            if (const std::filesystem::path packPath = "Assets/AssetPack.olopack"; std::filesystem::exists(packPath))
             {
                 if (!runtimeAssetManager->LoadAssetPack(packPath))
                 {
@@ -75,8 +74,7 @@ namespace OloEngine
             m_ScenePath = startScenePath;
 
             m_ActiveScene = Ref<Scene>::Create();
-            SceneSerializer serializer(m_ActiveScene);
-            if (!serializer.Deserialize(startScenePath.string()))
+            if (SceneSerializer serializer(m_ActiveScene); !serializer.Deserialize(startScenePath.string()))
             {
                 OLO_CORE_ERROR("[Runtime] Failed to deserialize scene: {}", startScenePath.string());
                 Application::Get().Close();
@@ -84,8 +82,7 @@ namespace OloEngine
             }
 
             // Validate the scene has a primary camera
-            Entity cameraEntity = m_ActiveScene->GetPrimaryCameraEntity();
-            if (!cameraEntity)
+            if (Entity cameraEntity = m_ActiveScene->GetPrimaryCameraEntity(); !cameraEntity)
             {
                 OLO_CORE_ERROR("[Runtime] Start scene has no primary camera. "
                                "Add an entity with CameraComponent (Primary = true) in the editor before building.");
@@ -218,8 +215,7 @@ namespace OloEngine
         [[nodiscard]] static std::filesystem::path FindStartScene()
         {
             // 1. Check game.manifest for an explicit start scene
-            const std::filesystem::path manifestPath = "game.manifest";
-            if (std::filesystem::exists(manifestPath))
+            if (const std::filesystem::path manifestPath = "game.manifest"; std::filesystem::exists(manifestPath))
             {
                 try
                 {
@@ -233,8 +229,7 @@ namespace OloEngine
                             return startScene;
                         }
                         // Try under Scenes/ in case it's just a filename
-                        std::filesystem::path scenePath = "Scenes" / std::filesystem::path(startScene);
-                        if (std::filesystem::exists(scenePath))
+                        if (std::filesystem::path scenePath = "Scenes" / std::filesystem::path(startScene); std::filesystem::exists(scenePath))
                         {
                             return scenePath;
                         }
@@ -327,8 +322,7 @@ namespace OloEngine
             m_ActiveScene->OnRuntimeStop();
 
             m_ActiveScene = Ref<Scene>::Create();
-            SceneSerializer serializer(m_ActiveScene);
-            if (!serializer.Deserialize(m_ScenePath.string()))
+            if (SceneSerializer serializer(m_ActiveScene); !serializer.Deserialize(m_ScenePath.string()))
             {
                 OLO_CORE_ERROR("[Runtime] Failed to reload scene");
                 Application::Get().Close();
@@ -383,8 +377,7 @@ namespace OloEngine
         // Setting PreferredRenderer to Renderer3D here would cause Renderer::Init
         // to skip Renderer2D initialization while Scene always needs it for 2D
         // sprite/text overlays.
-        const std::filesystem::path manifestPath = "game.manifest";
-        if (std::filesystem::exists(manifestPath))
+        if (const std::filesystem::path manifestPath = "game.manifest"; std::filesystem::exists(manifestPath))
         {
             try
             {

@@ -96,8 +96,7 @@ namespace OloEngine::Tests
                 for (int i = 0; i < 6; ++i)
                 {
                     auto editorDir = candidate / "OloEditor";
-                    auto shadersDir = editorDir / "assets" / "shaders";
-                    if (std::filesystem::exists(shadersDir, ec) && std::filesystem::is_directory(shadersDir, ec))
+                    if (auto shadersDir = editorDir / "assets" / "shaders"; std::filesystem::exists(shadersDir, ec) && std::filesystem::is_directory(shadersDir, ec))
                     {
                         std::filesystem::current_path(editorDir, ec);
                         return !ec;

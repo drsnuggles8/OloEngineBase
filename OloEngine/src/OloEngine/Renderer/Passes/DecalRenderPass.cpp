@@ -176,9 +176,7 @@ namespace OloEngine
         if (m_OITEnabled && m_SelectedOITFramebuffer.IsValid())
             oitFramebuffer = context.ResolveFramebuffer(m_SelectedOITFramebuffer);
 
-        const bool useOIT = m_OITEnabled && oitFramebuffer && m_OITShader;
-
-        if (useOIT)
+        if (const bool useOIT = m_OITEnabled && oitFramebuffer && m_OITShader; useOIT)
         {
             // Weighted-blended OIT forward-decal path. Decal draws accumulate
             // into the shared graph-owned OIT framebuffer (RGBA16F accum + RG16F revealage) with

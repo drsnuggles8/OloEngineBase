@@ -79,8 +79,7 @@ namespace OloEngine
         SteamNetworkingUtils()->SetGlobalCallback_SteamNetConnectionStatusChanged(
             GNSConnectionStatusCallback);
 
-        SteamDatagramErrMsg errMsg;
-        if (!GameNetworkingSockets_Init(nullptr, errMsg))
+        if (SteamDatagramErrMsg errMsg; !GameNetworkingSockets_Init(nullptr, errMsg))
         {
             OLO_CORE_ERROR("GameNetworkingSockets_Init failed: {}", errMsg);
             return false;
@@ -419,8 +418,7 @@ namespace OloEngine
             if (!snapshot.empty())
             {
                 // Try delta against baseline
-                const auto* baseline = s_SnapshotBuffer.GetLatest();
-                if (baseline)
+                if (const auto* baseline = s_SnapshotBuffer.GetLatest(); baseline)
                 {
                     auto delta = EntitySnapshot::CaptureDelta(*s_ActiveScene, baseline->Data);
                     if (!delta.empty())

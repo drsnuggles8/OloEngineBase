@@ -229,6 +229,29 @@ sonar.issue.ignore.multicriteria.s3776.resourceKey=OloEngine/src/OloEngine/Rende
 
 ---
 
+## High-volume rules to deactivate or scope (full-corpus histogram)
+
+A full-corpus facet query (≈31,800 open issues) surfaced four very high-count rules that are **MISRA / stylistic rules fighting idiomatic modern C++**. These dwarf everything else and are the reason the raw issue count looks alarming. "Fixing" them mechanically would be harmful or pointless; the right move is to deactivate (or tightly scope) them in the C++ Quality Profile.
+
+| rule | count | why it's a poor fit |
+|---|---|---|
+| `cpp:S5536` | 2,981 | "Remove unused functions." The rule text itself exempts *library codebases* — and an engine **is** one. Vast amounts of public API are invoked by games, scripts, reflection, serialization, and tests, none of which the analyzer sees. "Fixing" = deleting live API. |
+| `cpp:S1271` | 2,004 | "Use `::` to access globals." Prefixing every free-function/global access with `::` across a 312k-LOC engine is enormous churn for negligible readability gain. |
+| `cpp:S1712` | 1,017 | "No default parameters." Default arguments are idiomatic, well-understood C++; the rule wants you to hand-write overload chains instead. High-risk refactor, negative ergonomics. |
+| `cpp:S909` | 797 | "No `continue`." MISRA C:2004 14.5. `continue` is a normal, often *more* readable control-flow tool; restructuring 797 loops risks behavior changes. |
+
+### `cpp:S5536` — "remove unused functions"
+
+The single biggest contributor (2,981). Per its own description: *"Unless you are in a library codebase context, functions that are declared but never executed are dead code."* OloEngine ships a static library (`OloEngine`) consumed by `OloEditor`, `OloRuntime`, `OloServer`, the test binary, C#/Lua scripting bindings, and `OLO_PROPERTY` reflection. The analyzer only sees intra-TU call graphs, so it flags huge swaths of legitimately-public API.
+
+**Action:** deactivate `cpp:S5536` in the Quality Profile. (Its subset `cpp:S1144` — unused *private* members — is safer and could stay active; private members genuinely unused within their own class are real dead code.)
+
+### `cpp:S1271`, `cpp:S1712`, `cpp:S909`
+
+**Action:** deactivate all three in the Quality Profile. They encode MISRA safety-critical-C conventions that don't match this codebase's modern-C++23 style. If any are wanted for a *specific* safety-critical subsystem later, scope them narrowly rather than project-wide.
+
+---
+
 ## What we are NOT recommending
 
 For completeness, some rules that *look* noisy but are worth keeping at their current threshold:
@@ -242,6 +265,7 @@ For completeness, some rules that *look* noisy but are worth keeping at their cu
 
 ## Open items
 
-- Sample is page-1 of 7,462 issues. A full-corpus paginated sweep would refine these counts and may surface additional false-positive-prone rules (`cpp:S3656` on `noexcept`, `cpp:M23_404` on identifier conventions, etc.) not yet visible.
+- Full-corpus histogram (≈31,800 open issues) obtained via the SonarCloud `facets=rules` API. The four rules in the "High-volume" section above account for ≈6,800 issues on their own; deactivating them would roughly halve the raw count without touching a line of code.
+- `cpp:S6004` (if/switch init-statement, 835 hits) was swept and fixed in bulk — it aligns with the project's own [coding standard §1](agent-rules/cpp-coding-quality.md) rather than being a false positive.
 - Once the recommended path-scopes are applied, re-run the quality-gate check to confirm the false-positive concentration in `Math.h` and `tests/**` has dropped.
 - Coverage is reported as **0%** in SonarCloud despite an extensive GoogleTest suite. The CI scan isn't picking up coverage XML — separate problem from rule tuning, but worth fixing for the maintainability dashboard to make sense.

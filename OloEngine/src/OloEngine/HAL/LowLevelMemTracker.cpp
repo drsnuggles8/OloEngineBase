@@ -65,8 +65,7 @@ namespace OloEngine
             bool Remove(const void* Ptr, FAllocationInfo& OutInfo)
             {
                 TUniqueLock<FMutex> Lock(m_Mutex);
-                auto It = m_Map.find(Ptr);
-                if (It != m_Map.end())
+                if (auto It = m_Map.find(Ptr); It != m_Map.end())
                 {
                     OutInfo = It->second;
                     m_Map.erase(It);
@@ -316,8 +315,7 @@ namespace OloEngine
 
     i64 FLowLevelMemTracker::GetTagSize(ELLMTag Tag) const
     {
-        u8 Index = static_cast<u8>(Tag);
-        if (Index < LLM_TAG_COUNT)
+        if (u8 Index = static_cast<u8>(Tag); Index < LLM_TAG_COUNT)
         {
             return m_TagData[Index].CurrentSize.load(std::memory_order_relaxed);
         }
@@ -326,8 +324,7 @@ namespace OloEngine
 
     i64 FLowLevelMemTracker::GetTagPeakSize(ELLMTag Tag) const
     {
-        u8 Index = static_cast<u8>(Tag);
-        if (Index < LLM_TAG_COUNT)
+        if (u8 Index = static_cast<u8>(Tag); Index < LLM_TAG_COUNT)
         {
             return m_TagData[Index].PeakSize.load(std::memory_order_relaxed);
         }

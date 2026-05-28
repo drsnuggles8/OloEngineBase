@@ -654,8 +654,7 @@ namespace OloEngine::Tasks
                     ExchangeCurrentTask(PrevTask);
 
                     // Check for pending nested tasks
-                    u32 LocalNumLocks = m_NumLocks.fetch_sub(1, std::memory_order_acq_rel) - 1;
-                    if (LocalNumLocks == ExecutionFlag)
+                    if (u32 LocalNumLocks = m_NumLocks.fetch_sub(1, std::memory_order_acq_rel) - 1; LocalNumLocks == ExecutionFlag)
                     {
                         Close();
                         Release();
@@ -721,8 +720,7 @@ namespace OloEngine::Tasks
                 ExchangeCurrentTask(PrevTask);
 
                 // Check for pending nested tasks
-                u32 LocalNumLocks = m_NumLocks.fetch_sub(1, std::memory_order_acq_rel) - 1;
-                if (LocalNumLocks == ExecutionFlag)
+                if (u32 LocalNumLocks = m_NumLocks.fetch_sub(1, std::memory_order_acq_rel) - 1; LocalNumLocks == ExecutionFlag)
                 {
                     Close();
                     Release();
@@ -770,8 +768,7 @@ namespace OloEngine::Tasks
                     // Pre-execution: try to schedule
                     OLO_CORE_ASSERT(PrevNumLocks != 0, "Task is not locked");
 
-                    bool bPrerequisitesCompleted = LocalPipe == nullptr ? LocalNumLocks == 0 : LocalNumLocks <= 1;
-                    if (!bPrerequisitesCompleted)
+                    if (bool bPrerequisitesCompleted = LocalPipe == nullptr ? LocalNumLocks == 0 : LocalNumLocks <= 1; !bPrerequisitesCompleted)
                     {
                         return false;
                     }
@@ -782,8 +779,7 @@ namespace OloEngine::Tasks
                         bool bFirstPipingAttempt = LocalNumLocks == 1;
                         if (bFirstPipingAttempt)
                         {
-                            FTaskBase* PrevPipedTask = TryPushIntoPipe();
-                            if (PrevPipedTask != nullptr)
+                            if (FTaskBase* PrevPipedTask = TryPushIntoPipe(); PrevPipedTask != nullptr)
                             {
                                 m_Prerequisites.Push(PrevPipedTask);
                                 return false;

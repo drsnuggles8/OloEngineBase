@@ -48,8 +48,7 @@ namespace OloEngine
                         return str == "true";
                     case ShaderGraphPinType::Vec2:
                     {
-                        auto comma = str.find(',');
-                        if (comma != std::string::npos)
+                        if (auto comma = str.find(','); comma != std::string::npos)
                             return glm::vec2(std::stof(str.substr(0, comma)), std::stof(str.substr(comma + 1)));
                         return glm::vec2(0.0f);
                     }
@@ -247,8 +246,7 @@ namespace OloEngine
                     out << YAML::Key << "Name" << YAML::Value << pin.Name;
                     out << YAML::Key << "Type" << YAML::Value << PinTypeToString(pin.Type);
 
-                    std::string valStr = PinValueToYAMLString(pin.DefaultValue);
-                    if (!valStr.empty())
+                    if (std::string valStr = PinValueToYAMLString(pin.DefaultValue); !valStr.empty())
                         out << YAML::Key << "DefaultValue" << YAML::Value << valStr;
 
                     out << YAML::EndMap;

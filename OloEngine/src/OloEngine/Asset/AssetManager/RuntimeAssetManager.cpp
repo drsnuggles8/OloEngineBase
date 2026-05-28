@@ -79,15 +79,13 @@ namespace OloEngine
             TSharedLock<FSharedMutex> lock(m_AssetsMutex);
 
             // Check loaded assets first
-            auto it = m_LoadedAssets.find(assetHandle);
-            if (it != m_LoadedAssets.end() && it->second)
+            if (auto it = m_LoadedAssets.find(assetHandle); it != m_LoadedAssets.end() && it->second)
             {
                 return it->second->GetAssetType();
             }
 
             // Check memory assets
-            auto memIt = m_MemoryAssets.find(assetHandle);
-            if (memIt != m_MemoryAssets.end() && memIt->second)
+            if (auto memIt = m_MemoryAssets.find(assetHandle); memIt != m_MemoryAssets.end() && memIt->second)
             {
                 return memIt->second->GetAssetType();
             }
@@ -102,8 +100,7 @@ namespace OloEngine
         TSharedLock<FSharedMutex> lock(m_PacksMutex);
 
         // Return copy of metadata from the loaded packs storage
-        auto it = m_AssetMetadata.find(handle);
-        if (it != m_AssetMetadata.end())
+        if (auto it = m_AssetMetadata.find(handle); it != m_AssetMetadata.end())
         {
             return it->second; // Return copy
         }
@@ -122,13 +119,11 @@ namespace OloEngine
             TSharedLock<FSharedMutex> lock(m_AssetsMutex);
 
             // Check loaded assets first
-            auto it = m_LoadedAssets.find(assetHandle);
-            if (it != m_LoadedAssets.end())
+            if (auto it = m_LoadedAssets.find(assetHandle); it != m_LoadedAssets.end())
                 return it->second;
 
             // Check memory assets
-            auto memIt = m_MemoryAssets.find(assetHandle);
-            if (memIt != m_MemoryAssets.end())
+            if (auto memIt = m_MemoryAssets.find(assetHandle); memIt != m_MemoryAssets.end())
                 return memIt->second;
         }
 
@@ -137,13 +132,11 @@ namespace OloEngine
             TDynamicUniqueLock<FSharedMutex> lock(m_AssetsMutex);
 
             // Second check: verify asset wasn't loaded by another thread while we waited for the lock
-            auto it = m_LoadedAssets.find(assetHandle);
-            if (it != m_LoadedAssets.end())
+            if (auto it = m_LoadedAssets.find(assetHandle); it != m_LoadedAssets.end())
                 return it->second;
 
             // Check memory assets again
-            auto memIt = m_MemoryAssets.find(assetHandle);
-            if (memIt != m_MemoryAssets.end())
+            if (auto memIt = m_MemoryAssets.find(assetHandle); memIt != m_MemoryAssets.end())
                 return memIt->second;
 
             // Asset still not loaded, safe to load it now
@@ -157,8 +150,7 @@ namespace OloEngine
                 lock.Lock();
 
                 // Final check: ensure no other thread loaded it while we were loading
-                auto finalIt = m_LoadedAssets.find(assetHandle);
-                if (finalIt != m_LoadedAssets.end())
+                if (auto finalIt = m_LoadedAssets.find(assetHandle); finalIt != m_LoadedAssets.end())
                 {
                     // Another thread loaded it, return that instance
                     return finalIt->second;
@@ -452,8 +444,7 @@ namespace OloEngine
     Ref<Asset> RuntimeAssetManager::LoadAssetFromPack(AssetHandle handle)
     {
         // Check if we have metadata for this asset
-        auto metadataIt = m_AssetMetadata.find(handle);
-        if (metadataIt == m_AssetMetadata.end())
+        if (auto metadataIt = m_AssetMetadata.find(handle); metadataIt == m_AssetMetadata.end())
         {
             OLO_CORE_ERROR("RuntimeAssetManager::LoadAssetFromPack - No metadata found for asset: {}", handle);
             return nullptr;

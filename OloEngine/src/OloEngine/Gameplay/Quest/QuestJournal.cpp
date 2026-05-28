@@ -309,8 +309,7 @@ namespace OloEngine
 
     QuestStatus QuestJournal::GetQuestStatus(const std::string& questId) const
     {
-        auto it = m_ActiveQuests.find(questId);
-        if (it != m_ActiveQuests.end())
+        if (auto it = m_ActiveQuests.find(questId); it != m_ActiveQuests.end())
         {
             return it->second.Status;
         }

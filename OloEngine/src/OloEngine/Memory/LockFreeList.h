@@ -1004,8 +1004,7 @@ namespace OloEngine
         [[nodiscard]] static i32 FindThreadToWake(TLinkPtr Ptr)
         {
             i32 Result = -1;
-            uptr Test = uptr(Ptr);
-            if (Test)
+            if (uptr Test = uptr(Ptr); Test)
             {
                 Result = 0;
                 while (!(Test & 1))

@@ -179,8 +179,7 @@ namespace OloEngine
     {
         for (const auto& [name, shader] : m_Shaders)
         {
-            auto status = shader->GetCompilationStatus();
-            if (status == ShaderCompilationStatus::Compiling || status == ShaderCompilationStatus::Pending)
+            if (auto status = shader->GetCompilationStatus(); status == ShaderCompilationStatus::Compiling || status == ShaderCompilationStatus::Pending)
                 return true;
             if (shader->IsReady())
             {

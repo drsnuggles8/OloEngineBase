@@ -692,8 +692,7 @@ namespace OloEngine
             return nullptr;
         }
 
-        dtStatus status = navMesh->init(navData, navDataSize, DT_TILE_FREE_DATA);
-        if (dtStatusFailed(status))
+        if (dtStatus status = navMesh->init(navData, navDataSize, DT_TILE_FREE_DATA); dtStatusFailed(status))
         {
             dtFree(navData);
             dtFreeNavMesh(navMesh);

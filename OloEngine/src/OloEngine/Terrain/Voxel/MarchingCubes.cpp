@@ -472,8 +472,7 @@ namespace OloEngine
         {
             auto& chunk = voxels.GetChunks()[coord];
 
-            VoxelMesh mesh;
-            if (GenerateMesh(chunk, coord, voxels.GetVoxelSize(), mesh))
+            if (VoxelMesh mesh; GenerateMesh(chunk, coord, voxels.GetVoxelSize(), mesh))
             {
                 meshes[coord] = std::move(mesh);
             }

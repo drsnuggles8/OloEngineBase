@@ -109,8 +109,7 @@ namespace OloEngine
 
             // Handle user-defined physics layers (>= NUM_LAYERS)
             // User-defined layers are dynamic by nature, so map them to MOVING broad phase
-            u32 userIndex = static_cast<u32>(inLayer) - ObjectLayers::NUM_LAYERS;
-            if (PhysicsLayerManager::IsLayerValid(userIndex))
+            if (u32 userIndex = static_cast<u32>(inLayer) - ObjectLayers::NUM_LAYERS; PhysicsLayerManager::IsLayerValid(userIndex))
             {
                 return BroadPhaseLayers::MOVING;
             }

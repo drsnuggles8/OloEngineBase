@@ -351,8 +351,7 @@ namespace OloEngine
         auto oldMap = InputActionManager::GetActionMap();
 
         auto& map = InputActionManager::GetActionMap();
-        auto* action = map.GetAction(m_RebindActionName);
-        if (action)
+        if (auto* action = map.GetAction(m_RebindActionName); action)
         {
             // Conflict detection — remove this binding from any other action
             for (auto& [name, act] : map.Actions)
@@ -469,8 +468,7 @@ namespace OloEngine
                 if (ImGui::Selectable(axisNames[i]))
                 {
                     auto& map = InputActionManager::GetActionMap();
-                    auto* action = map.GetAction(m_GamepadAxisActionName);
-                    if (action)
+                    if (auto* action = map.GetAction(m_GamepadAxisActionName); action)
                     {
                         auto oldMap = InputActionManager::GetActionMap();
                         action->Bindings.push_back(InputBinding::GamepadAx(axes[i], 0.5f, true));

@@ -42,8 +42,7 @@ class AudioEventsSceneIntegrationTest : public ::testing::Test
     {
         m_Manager.SetPositionResolver([this](u64 objectID, glm::vec3& outPos) -> bool
                                       {
-			auto entity = m_Scene->TryGetEntityWithUUID(UUID(objectID));
-			if (entity && entity->HasComponent<TransformComponent>())
+			if (auto entity = m_Scene->TryGetEntityWithUUID(UUID(objectID)); entity && entity->HasComponent<TransformComponent>())
 			{
 				outPos = entity->GetComponent<TransformComponent>().Translation;
 				return true;
@@ -79,8 +78,7 @@ TEST_F(AudioEventsSceneIntegrationTest, PositionResolverFindsEntityByUUID)
     glm::vec3 resolvedPos{};
     AudioEventsManager::PositionResolver resolver = [this, &resolverCalled, &resolvedPos](u64 objectID, glm::vec3& outPos) -> bool
     {
-        auto entity = m_Scene->TryGetEntityWithUUID(UUID(objectID));
-        if (entity && entity->HasComponent<TransformComponent>())
+        if (auto entity = m_Scene->TryGetEntityWithUUID(UUID(objectID)); entity && entity->HasComponent<TransformComponent>())
         {
             outPos = entity->GetComponent<TransformComponent>().Translation;
             resolverCalled = true;
@@ -116,8 +114,7 @@ TEST_F(AudioEventsSceneIntegrationTest, PositionResolverReturnsFalseForMissingEn
     bool resolverCalled = false;
     AudioEventsManager::PositionResolver resolver = [this, &resolverCalled](u64 objectID, glm::vec3& outPos) -> bool
     {
-        auto entity = m_Scene->TryGetEntityWithUUID(UUID(objectID));
-        if (entity && entity->HasComponent<TransformComponent>())
+        if (auto entity = m_Scene->TryGetEntityWithUUID(UUID(objectID)); entity && entity->HasComponent<TransformComponent>())
         {
             outPos = entity->GetComponent<TransformComponent>().Translation;
             resolverCalled = true;
@@ -154,8 +151,7 @@ TEST_F(AudioEventsSceneIntegrationTest, PositionResolverReflectsMovedEntity)
     // Store resolver locally to invoke directly and verify updated position
     AudioEventsManager::PositionResolver resolver = [this](u64 objectID, glm::vec3& outPos) -> bool
     {
-        auto e = m_Scene->TryGetEntityWithUUID(UUID(objectID));
-        if (e && e->HasComponent<TransformComponent>())
+        if (auto e = m_Scene->TryGetEntityWithUUID(UUID(objectID)); e && e->HasComponent<TransformComponent>())
         {
             outPos = e->GetComponent<TransformComponent>().Translation;
             return true;

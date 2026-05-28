@@ -390,8 +390,7 @@ namespace OloEngine
         }
 
         // Playhead
-        f32 playheadX = timelinePos.x + (animState.m_CurrentTime - m_TimelineOffset) * pixelsPerSecond;
-        if (playheadX >= timelinePos.x && playheadX <= timelinePos.x + timelineSize.x)
+        if (f32 playheadX = timelinePos.x + (animState.m_CurrentTime - m_TimelineOffset) * pixelsPerSecond; playheadX >= timelinePos.x && playheadX <= timelinePos.x + timelineSize.x)
         {
             drawList->AddLine(
                 ImVec2(playheadX, timelinePos.y),

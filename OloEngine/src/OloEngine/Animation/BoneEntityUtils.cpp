@@ -228,9 +228,7 @@ namespace OloEngine
             return glm::mat4(1.0f);
 
         glm::mat4 transform = glm::mat4(1.0f);
-        auto rootBoneEntityOpt = scene->TryGetEntityWithUUID(boneEntityIds.front());
-
-        if (rootBoneEntityOpt)
+        if (auto rootBoneEntityOpt = scene->TryGetEntityWithUUID(boneEntityIds.front()))
         {
             std::unordered_set<UUID> visitedParents; // Track visited entities to prevent cycles
             Entity parentEntity = rootBoneEntityOpt->GetParent();

@@ -58,8 +58,7 @@ namespace OloEngine
     std::optional<CapturedFrameData> FrameCaptureManager::GetSelectedFrame() const
     {
         TUniqueLock<FMutex> lock(m_Mutex);
-        i32 idx = m_SelectedFrameIndex.load(std::memory_order_acquire);
-        if (idx >= 0 && idx < static_cast<i32>(m_CapturedFrames.size()))
+        if (i32 idx = m_SelectedFrameIndex.load(std::memory_order_acquire); idx >= 0 && idx < static_cast<i32>(m_CapturedFrames.size()))
         {
             return m_CapturedFrames[idx];
         }
@@ -153,8 +152,7 @@ namespace OloEngine
 
         // Populate GPU timing from the previous frame's readback
         // (GPU timer uses double-buffered queries; results lag by one frame)
-        auto& gpuTimer = GPUTimerQueryPool::GetInstance();
-        if (gpuTimer.IsInitialized() && gpuTimer.GetReadableQueryCount() > 0)
+        if (auto& gpuTimer = GPUTimerQueryPool::GetInstance(); gpuTimer.IsInitialized() && gpuTimer.GetReadableQueryCount() > 0)
         {
             // Apply to post-sort commands (the execution order)
             auto& timedCommands = m_HasPendingPostBatch

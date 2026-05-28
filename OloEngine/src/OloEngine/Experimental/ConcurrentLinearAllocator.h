@@ -346,8 +346,7 @@ namespace OloEngine
         AllocateNewItem:
             if constexpr (SupportsFastPath)
             {
-                uptr AlignedOffset = Align(Header->NextAllocationPtr, static_cast<uptr>(Alignment));
-                if (AlignedOffset + Size <= reinterpret_cast<uptr>(Header) + BlockAllocationTag::BlockSize)
+                if (uptr AlignedOffset = Align(Header->NextAllocationPtr, static_cast<uptr>(Alignment)); AlignedOffset + Size <= reinterpret_cast<uptr>(Header) + BlockAllocationTag::BlockSize)
                 {
                     Header->NextAllocationPtr = AlignedOffset + Size;
                     Header->Num++;
@@ -375,8 +374,7 @@ namespace OloEngine
             }
             else
             {
-                uptr AlignedOffset = Align(Header->NextAllocationPtr, static_cast<uptr>(Alignment));
-                if (AlignedOffset + Size <= reinterpret_cast<uptr>(Header) + BlockAllocationTag::BlockSize)
+                if (uptr AlignedOffset = Align(Header->NextAllocationPtr, static_cast<uptr>(Alignment)); AlignedOffset + Size <= reinterpret_cast<uptr>(Header) + BlockAllocationTag::BlockSize)
                 {
                     Header->NextAllocationPtr = AlignedOffset + Size + sizeof(FAllocationHeader);
                     Header->Num++;
@@ -414,10 +412,9 @@ namespace OloEngine
 
             // Allocation of a new block
             Header->NextAllocationPtr = reinterpret_cast<uptr>(Header) + BlockAllocationTag::BlockSize;
-            const u32 DeltaCount = UINT_MAX - Header->Num;
 
             // Single atomic to reduce contention with deletions
-            if (Header->NumAllocations.FetchSub(DeltaCount, std::memory_order_acq_rel) == DeltaCount)
+            if (const u32 DeltaCount = UINT_MAX - Header->Num; Header->NumAllocations.FetchSub(DeltaCount, std::memory_order_acq_rel) == DeltaCount)
             {
                 // All allocations already freed, reuse the block
                 Header->~FBlockHeader();

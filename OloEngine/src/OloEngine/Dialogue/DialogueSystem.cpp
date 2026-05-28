@@ -303,8 +303,7 @@ namespace OloEngine
             // locale's table.
             auto resolveChoiceLabel = [](const std::string& raw) -> std::string
             {
-                constexpr std::string_view kKeyPrefix = "@key:";
-                if (raw.size() > kKeyPrefix.size() && raw.starts_with(kKeyPrefix))
+                if (constexpr std::string_view kKeyPrefix = "@key:"; raw.size() > kKeyPrefix.size() && raw.starts_with(kKeyPrefix))
                 {
                     const std::string key(raw.substr(kKeyPrefix.size()));
                     return LocalizationManager::Get(key);

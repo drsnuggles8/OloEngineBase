@@ -75,8 +75,7 @@ namespace OloEngine
     void JoltContactListener::ProcessContactEvents()
     {
         // Check if there are events to process before acquiring lock
-        const sizet queueSize = m_QueueSize.load(std::memory_order_relaxed);
-        if (queueSize == 0)
+        if (const sizet queueSize = m_QueueSize.load(std::memory_order_relaxed); queueSize == 0)
         {
             return; // Early exit if no events to process
         }
@@ -146,10 +145,8 @@ namespace OloEngine
 
     [[nodiscard]] u32 JoltContactListener::GetPhysicsLayerFromBody(const JPH::Body& body) noexcept
     {
-        JPH::ObjectLayer objectLayer = body.GetObjectLayer();
-
         // Check if this is a custom physics layer (offset by NUM_LAYERS)
-        if (objectLayer >= ObjectLayers::NUM_LAYERS)
+        if (JPH::ObjectLayer objectLayer = body.GetObjectLayer(); objectLayer >= ObjectLayers::NUM_LAYERS)
         {
             u32 customLayerIndex = static_cast<u32>(objectLayer) - ObjectLayers::NUM_LAYERS;
 

@@ -102,8 +102,7 @@ namespace OloEngine::Tests
             fs::path cwd = fs::current_path();
             for (int i = 0; i < 8; ++i)
             {
-                fs::path candidate = cwd / relFromRoot;
-                if (fs::exists(candidate))
+                if (fs::path candidate = cwd / relFromRoot; fs::exists(candidate))
                     return candidate;
                 if (!cwd.has_parent_path() || cwd == cwd.parent_path())
                     break;
@@ -116,8 +115,7 @@ namespace OloEngine::Tests
         static std::unordered_map<std::string, u64>& PerfBaselineCache()
         {
             static std::unordered_map<std::string, u64> cache;
-            static bool loaded = false;
-            if (!loaded)
+            if (static bool loaded = false; !loaded)
             {
                 loaded = true;
                 fs::path path = PerfBaselinePath();
@@ -128,8 +126,7 @@ namespace OloEngine::Tests
                     while (std::getline(in, line))
                     {
                         // Strip comments and whitespace.
-                        auto hash = line.find('#');
-                        if (hash != std::string::npos)
+                        if (auto hash = line.find('#'); hash != std::string::npos)
                             line.erase(hash);
                         std::istringstream ls(line);
                         std::string key;
@@ -554,8 +551,7 @@ namespace OloEngine::Tests
             if (it == PerfBaselineCache().end() || it->second == 0 || PerfShouldRebase())
                 return first;
 
-            const f32 ratio = static_cast<f32>(first) / static_cast<f32>(it->second);
-            if (ratio < kPerfWarnRatio)
+            if (const f32 ratio = static_cast<f32>(first) / static_cast<f32>(it->second); ratio < kPerfWarnRatio)
                 return first;
 
             // Retry once — pick the faster of the two attempts. If noise is
@@ -705,8 +701,7 @@ namespace OloEngine::Tests
         // Anti-flake: measure twice, keep the faster sample if the first one
         // exceeds the warn threshold.
         u64 first = MeasureWholeFramePostprocessNs(512, 512);
-        auto it = PerfBaselineCache().find("whole_frame_postprocess_512x512");
-        if (it != PerfBaselineCache().end() && it->second != 0 && !PerfShouldRebase())
+        if (auto it = PerfBaselineCache().find("whole_frame_postprocess_512x512"); it != PerfBaselineCache().end() && it->second != 0 && !PerfShouldRebase())
         {
             const f32 ratio = static_cast<f32>(first) / static_cast<f32>(it->second);
             if (ratio >= kPerfWarnRatio)
@@ -879,8 +874,7 @@ namespace OloEngine::Tests
         u32 draws = 0, shaderBinds = 0, textureBinds = 0;
         u64 first = MeasureSceneDrawBurstNs(512, 512, draws, shaderBinds, textureBinds);
 
-        auto it = PerfBaselineCache().find("scene_draw_burst_512x512");
-        if (it != PerfBaselineCache().end() && it->second != 0 && !PerfShouldRebase())
+        if (auto it = PerfBaselineCache().find("scene_draw_burst_512x512"); it != PerfBaselineCache().end() && it->second != 0 && !PerfShouldRebase())
         {
             const f32 ratio = static_cast<f32>(first) / static_cast<f32>(it->second);
             if (ratio >= kPerfWarnRatio)

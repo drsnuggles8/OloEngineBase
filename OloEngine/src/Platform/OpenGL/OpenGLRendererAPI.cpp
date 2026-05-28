@@ -433,8 +433,7 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
 
         // Only track state change if the value actually changes
-        static bool s_BlendEnabled = false;
-        if (s_BlendEnabled != value)
+        if (static bool s_BlendEnabled = false; s_BlendEnabled != value)
         {
             RendererProfiler::GetInstance().IncrementCounter(RendererProfiler::MetricType::StateChanges, 1);
             s_BlendEnabled = value;
@@ -524,8 +523,7 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
 
         // Only track state change if not already enabled
-        static bool s_ScissorEnabled = false;
-        if (!s_ScissorEnabled)
+        if (static bool s_ScissorEnabled = false; !s_ScissorEnabled)
         {
             RendererProfiler::GetInstance().IncrementCounter(RendererProfiler::MetricType::StateChanges, 1);
             s_ScissorEnabled = true;
@@ -538,8 +536,7 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
 
         // Only track state change if currently enabled
-        static bool s_ScissorEnabled = false;
-        if (s_ScissorEnabled)
+        if (static bool s_ScissorEnabled = false; s_ScissorEnabled)
         {
             RendererProfiler::GetInstance().IncrementCounter(RendererProfiler::MetricType::StateChanges, 1);
             s_ScissorEnabled = false;
@@ -847,9 +844,7 @@ namespace OloEngine
 
         GLint maxDrawBuffers = 0;
         glGetIntegerv(GL_MAX_DRAW_BUFFERS, &maxDrawBuffers);
-        u32 maxBuf = static_cast<u32>(maxDrawBuffers);
-
-        if (colorAttachmentCount > maxBuf)
+        if (u32 maxBuf = static_cast<u32>(maxDrawBuffers); colorAttachmentCount > maxBuf)
         {
             OLO_CORE_WARN("OpenGLRendererAPI::RestoreAllDrawBuffers - count {} exceeds GL_MAX_DRAW_BUFFERS {}, clamping",
                           colorAttachmentCount, maxBuf);

@@ -295,8 +295,7 @@ namespace OloEngine
             tv.tv_sec = 0;
             tv.tv_usec = static_cast<long>(remaining.count());
 
-            int ready = select(static_cast<int>(sock + 1), &readSet, nullptr, nullptr, &tv);
-            if (ready <= 0)
+            if (int ready = select(static_cast<int>(sock + 1), &readSet, nullptr, nullptr, &tv); ready <= 0)
             {
                 break; // Timeout or error — done collecting
             }
@@ -340,8 +339,7 @@ namespace OloEngine
             // Read lobby name from remaining bytes
             std::string name;
             i64 const remainingBytes = reader.TotalSize() - reader.Tell();
-            u8 const actualNameLen = static_cast<u8>(std::min<i64>(nameLen, remainingBytes));
-            if (actualNameLen > 0)
+            if (u8 const actualNameLen = static_cast<u8>(std::min<i64>(nameLen, remainingBytes)); actualNameLen > 0)
             {
                 name.assign(reinterpret_cast<const char*>(raw + reader.Tell()), actualNameLen);
             }

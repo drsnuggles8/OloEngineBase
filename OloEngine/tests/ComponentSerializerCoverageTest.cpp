@@ -177,8 +177,7 @@ namespace OloEngine::Tests
         std::set<std::string> allDeclared;
         for (const auto& path : componentHeaderRoots)
         {
-            std::error_code ec;
-            if (!fs::exists(path, ec))
+            if (std::error_code ec; !fs::exists(path, ec))
                 continue; // header path may have moved; tolerate
             const std::string src = ReadFile(path);
             for (auto it = std::sregex_iterator(src.begin(), src.end(), structPat);

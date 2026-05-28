@@ -471,8 +471,7 @@ namespace OloEngine
                 ImGui::TableSetColumnIndex(5);
                 // Extract filename from full path
                 std::string filename = info.m_File;
-                sizet lastSlash = filename.find_last_of("/\\");
-                if (lastSlash != std::string::npos)
+                if (sizet lastSlash = filename.find_last_of("/\\"); lastSlash != std::string::npos)
                     filename = filename.substr(lastSlash + 1);
                 ImGui::Text("%s:%u", filename.c_str(), info.m_Line);
                 ImGui::TableSetColumnIndex(6);
@@ -529,8 +528,7 @@ namespace OloEngine
         TUniqueLock<FMutex> lock(m_Mutex);
 
         ImGui::Text("Leak Detection Settings:");
-        f32 threshold = static_cast<f32>(m_LeakDetectionThreshold);
-        if (ImGui::SliderFloat("Detection Threshold", &threshold, 1.0f, 300.0f, "%.1f seconds"))
+        if (f32 threshold = static_cast<f32>(m_LeakDetectionThreshold); ImGui::SliderFloat("Detection Threshold", &threshold, 1.0f, 300.0f, "%.1f seconds"))
         {
             m_LeakDetectionThreshold = static_cast<f64>(threshold);
         }

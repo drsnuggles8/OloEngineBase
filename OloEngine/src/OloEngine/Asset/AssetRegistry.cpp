@@ -22,8 +22,7 @@ namespace OloEngine
         }
 
         // Check for existing asset with same handle
-        auto handleIt = m_AssetMetadata.find(metadata.Handle);
-        if (handleIt != m_AssetMetadata.end())
+        if (auto handleIt = m_AssetMetadata.find(metadata.Handle); handleIt != m_AssetMetadata.end())
         {
             // Handle already exists - log warning about potential overwrite
             if (handleIt->second.FilePath != metadata.FilePath || handleIt->second.Type != metadata.Type)
@@ -98,8 +97,7 @@ namespace OloEngine
     {
         TSharedLock<FSharedMutex> lock(m_Mutex);
 
-        auto it = m_PathToHandle.find(path);
-        if (it != m_PathToHandle.end())
+        if (auto it = m_PathToHandle.find(path); it != m_PathToHandle.end())
         {
             auto metaIt = m_AssetMetadata.find(it->second);
             if (metaIt != m_AssetMetadata.end())
@@ -212,8 +210,7 @@ namespace OloEngine
         if (!updatedMetadata.FilePath.empty())
         {
             // Check if the new path is already mapped to a different handle
-            auto pathIt = m_PathToHandle.find(updatedMetadata.FilePath);
-            if (pathIt != m_PathToHandle.end() && pathIt->second != handle)
+            if (auto pathIt = m_PathToHandle.find(updatedMetadata.FilePath); pathIt != m_PathToHandle.end() && pathIt->second != handle)
             {
                 OLO_CORE_WARN("AssetRegistry::UpdateMetadata - Path {} already mapped to different handle {} (current handle: {}). Overwriting existing path mapping.",
                               updatedMetadata.FilePath.string(), pathIt->second, handle);

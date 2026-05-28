@@ -321,8 +321,7 @@ namespace OloEngine::RenderGraphTransientPlanner
                   [&aliasGroupHashByResource](const RenderGraph::TransientPlanEntry& lhs, const RenderGraph::TransientPlanEntry& rhs)
                   {
                       const auto lhsHash = aliasGroupHashByResource.at(lhs.Resource);
-                      const auto rhsHash = aliasGroupHashByResource.at(rhs.Resource);
-                      if (lhsHash != rhsHash)
+                      if (const auto rhsHash = aliasGroupHashByResource.at(rhs.Resource); lhsHash != rhsHash)
                           return lhsHash < rhsHash;
                       if (lhs.FirstPassIndex != rhs.FirstPassIndex)
                           return lhs.FirstPassIndex < rhs.FirstPassIndex;

@@ -104,8 +104,7 @@ namespace OloEngine
                 return;
             }
 
-            u64 remaining = totalSize - m_ReadBytes;
-            if (inNumBytes > remaining)
+            if (u64 remaining = totalSize - m_ReadBytes; inNumBytes > remaining)
             {
                 OLO_CORE_ERROR("JoltBinaryStreamReader: Requested {} bytes but only {} remaining (total size: {}, already read: {})",
                                inNumBytes, remaining, totalSize, m_ReadBytes);

@@ -12,8 +12,7 @@ namespace OloEngine::JoltCapturePlatform
     CapturePaths GetDefaultCapturePaths()
     {
         CapturePaths result;
-        const char* appData = std::getenv("APPDATA");
-        if (appData != nullptr)
+        if (const char* appData = std::getenv("APPDATA"); appData != nullptr)
         {
             result.CapturesPath = std::filesystem::path(appData) / "OloEngine" / "Captures";
             result.ExpectedRoot = std::filesystem::path(appData);
@@ -29,8 +28,7 @@ namespace OloEngine::JoltCapturePlatform
     std::vector<std::filesystem::path> GetAllowedBasePaths()
     {
         std::vector<std::filesystem::path> result;
-        const char* appData = std::getenv("APPDATA");
-        if (appData != nullptr)
+        if (const char* appData = std::getenv("APPDATA"); appData != nullptr)
         {
             try
             {

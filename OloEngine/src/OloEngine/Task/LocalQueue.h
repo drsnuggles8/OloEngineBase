@@ -46,9 +46,7 @@ namespace OloEngine::LowLevelTasks
                 OLO_CORE_ASSERT(Item != uptr(ESlotState::Taken), "Cannot put Taken sentinel");
 
                 u32 Idx = (m_Head + 1) % NumItems;
-                uptr Slot = m_ItemSlots[Idx].Value.load(std::memory_order_acquire);
-
-                if (Slot == uptr(ESlotState::Free))
+                if (uptr Slot = m_ItemSlots[Idx].Value.load(std::memory_order_acquire); Slot == uptr(ESlotState::Free))
                 {
                     m_ItemSlots[Idx].Value.store(Item, std::memory_order_release);
                     m_Head++;
@@ -62,9 +60,7 @@ namespace OloEngine::LowLevelTasks
             OLO_FINLINE bool Get(uptr& Item)
             {
                 u32 Idx = m_Head % NumItems;
-                uptr Slot = m_ItemSlots[Idx].Value.load(std::memory_order_acquire);
-
-                if (Slot > uptr(ESlotState::Taken) && m_ItemSlots[Idx].Value.compare_exchange_strong(Slot, uptr(ESlotState::Free), std::memory_order_acq_rel))
+                if (uptr Slot = m_ItemSlots[Idx].Value.load(std::memory_order_acquire); Slot > uptr(ESlotState::Taken) && m_ItemSlots[Idx].Value.compare_exchange_strong(Slot, uptr(ESlotState::Free), std::memory_order_acq_rel))
                 {
                     m_Head--;
                     OLO_CORE_ASSERT((m_Head + 1) % NumItems == Idx, "Head index mismatch after Get");
@@ -303,8 +299,7 @@ namespace OloEngine::LowLevelTasks
                         m_CachedRandomIndex = Rand();
                     }
 
-                    FTask* Result = m_Registry->StealItem(m_CachedRandomIndex, m_CachedPriorityIndex, GetBackGroundTasks);
-                    if (Result)
+                    if (FTask* Result = m_Registry->StealItem(m_CachedRandomIndex, m_CachedPriorityIndex, GetBackGroundTasks))
                     {
                         return Result;
                     }
@@ -370,8 +365,7 @@ namespace OloEngine::LowLevelTasks
                     {
                         for (u32 PriorityIndex = 0; PriorityIndex < MaxPriority; PriorityIndex++)
                         {
-                            FTask* Item;
-                            if (LocalQueue->m_LocalQueues[PriorityIndex].Steal(Item))
+                            if (FTask* Item; LocalQueue->m_LocalQueues[PriorityIndex].Steal(Item))
                             {
                                 return Item;
                             }
@@ -414,8 +408,7 @@ namespace OloEngine::LowLevelTasks
             {
                 u32 CachedRandomIndex = Rand();
                 u32 CachedPriorityIndex = 0;
-                FTask* Result = StealItem(CachedRandomIndex, CachedPriorityIndex, GetBackGroundTasks);
-                if (Result)
+                if (FTask* Result = StealItem(CachedRandomIndex, CachedPriorityIndex, GetBackGroundTasks))
                 {
                     return Result;
                 }

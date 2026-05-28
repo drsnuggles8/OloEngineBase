@@ -354,8 +354,7 @@ namespace OloEngine
 
         // 6. Accumulation bridge — feed landed particles to snow depth clipmap
         //    Only snow and sleet contribute to accumulation
-        bool typeCanAccumulate = (settings.Type == PrecipitationType::Snow || settings.Type == PrecipitationType::Sleet);
-        if (settings.FeedAccumulation && typeCanAccumulate && s_Data.m_FeedShader && SnowAccumulationSystem::IsInitialized())
+        if (bool typeCanAccumulate = (settings.Type == PrecipitationType::Snow || settings.Type == PrecipitationType::Sleet); settings.FeedAccumulation && typeCanAccumulate && s_Data.m_FeedShader && SnowAccumulationSystem::IsInitialized())
         {
             s_Data.m_FeedShader->Bind();
             s_Data.m_FeedShader->SetFloat("u_AccumulationFeedRate", settings.AccumulationFeedRate);

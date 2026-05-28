@@ -90,8 +90,7 @@ namespace OloEngine::RenderGraphResourceRegistry
             }
 
             const auto declaredKind = handle.Type;
-            const auto existingKind = info.Desc.Kind;
-            if (existingKind == ResourceHandle::Kind::Unknown && declaredKind != ResourceHandle::Kind::Unknown)
+            if (const auto existingKind = info.Desc.Kind; existingKind == ResourceHandle::Kind::Unknown && declaredKind != ResourceHandle::Kind::Unknown)
             {
                 info.Desc.Kind = declaredKind;
             }

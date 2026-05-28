@@ -1324,8 +1324,7 @@ namespace OloEngine
         {
             if (Num > 0)
             {
-                const i64 NumBytesToAdd = Offset + Num - static_cast<i64>(Bytes.size());
-                if (NumBytesToAdd > 0)
+                if (const i64 NumBytesToAdd = Offset + Num - static_cast<i64>(Bytes.size()); NumBytesToAdd > 0)
                 {
                     Bytes.resize(Bytes.size() + static_cast<sizet>(NumBytesToAdd));
                 }

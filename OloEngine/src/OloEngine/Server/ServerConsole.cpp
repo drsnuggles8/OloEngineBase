@@ -115,8 +115,7 @@ namespace OloEngine
             // old poll+std::getline race where a redirected stdin could hand
             // out bytes without a newline and leave std::getline blocked past
             // Signal().
-            auto result = ServerConsolePlatform::ReadLine(*m_AbortState, line);
-            if (result != ServerConsolePlatform::ReadResult::Line)
+            if (auto result = ServerConsolePlatform::ReadLine(*m_AbortState, line); result != ServerConsolePlatform::ReadResult::Line)
             {
                 break; // Aborted or EndOfStream
             }

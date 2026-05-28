@@ -63,8 +63,7 @@ namespace OloEngine
         bool VerifySectionBoundary(std::istream& payload, u64 seekBase, u64 sectionEnd,
                                    const char* sectionName, const std::filesystem::path& path)
         {
-            auto const pos = static_cast<u64>(payload.tellg()) - seekBase;
-            if (pos > sectionEnd)
+            if (auto const pos = static_cast<u64>(payload.tellg()) - seekBase; pos > sectionEnd)
             {
                 OLO_CORE_ERROR("MeshBinarySerializer::Read: {} section read past boundary "
                                "(pos={}, sectionEnd={}) in '{}'",
@@ -124,8 +123,7 @@ namespace OloEngine
             }
             // Guard against corrupt length values — mesh string fields (bone/node
             // names, paths) should never exceed 64 KiB.
-            constexpr u32 MAX_STRING_LENGTH = 65536;
-            if (len > MAX_STRING_LENGTH)
+            if (constexpr u32 MAX_STRING_LENGTH = 65536; len > MAX_STRING_LENGTH)
             {
                 OLO_CORE_ERROR("ReadString: suspicious string length {} (max {}), stream likely corrupt", len, MAX_STRING_LENGTH);
                 in.setstate(std::ios::failbit);
@@ -184,8 +182,7 @@ namespace OloEngine
             }
 
             // Guard against corrupt headers claiming unreasonable sizes
-            constexpr sizet MAX_UNCOMPRESSED_SIZE = 512u * 1024u * 1024u; // 512 MiB
-            if (uncompressedSize > MAX_UNCOMPRESSED_SIZE)
+            if (constexpr sizet MAX_UNCOMPRESSED_SIZE = 512u * 1024u * 1024u; uncompressedSize > MAX_UNCOMPRESSED_SIZE) // 512 MiB
             {
                 OLO_CORE_ERROR("ZlibDecompress: claimed uncompressed size {} exceeds limit {}", uncompressedSize, MAX_UNCOMPRESSED_SIZE);
                 return {};

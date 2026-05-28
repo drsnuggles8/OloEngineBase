@@ -64,8 +64,7 @@ namespace OloEngine
             {
                 LayerID layerID = partyIt->second;
                 // Validate the cached layer belongs to the requested zone
-                auto infoIt = m_LayerInfos.find(layerID);
-                if (infoIt != m_LayerInfos.end() && infoIt->second.ZoneTemplateID == zoneID)
+                if (auto infoIt = m_LayerInfos.find(layerID); infoIt != m_LayerInfos.end() && infoIt->second.ZoneTemplateID == zoneID)
                 {
                     auto* server = GetLayerServer(layerID);
                     if (server && server->AddPlayer(clientID))
@@ -81,8 +80,7 @@ namespace OloEngine
         }
 
         // Find a layer for this zone that isn't at soft cap
-        auto zoneLayers = m_ZoneLayers.find(zoneID);
-        if (zoneLayers != m_ZoneLayers.end())
+        if (auto zoneLayers = m_ZoneLayers.find(zoneID); zoneLayers != m_ZoneLayers.end())
         {
             for (LayerID layerID : zoneLayers->second)
             {
@@ -121,14 +119,12 @@ namespace OloEngine
         }
 
         LayerID layerID = it->second;
-        auto* server = GetLayerServer(layerID);
-        if (server)
+        if (auto* server = GetLayerServer(layerID); server)
         {
             server->RemovePlayer(clientID);
         }
 
-        auto infoIt = m_LayerInfos.find(layerID);
-        if (infoIt != m_LayerInfos.end() && infoIt->second.PlayerCount > 0)
+        if (auto infoIt = m_LayerInfos.find(layerID); infoIt != m_LayerInfos.end() && infoIt->second.PlayerCount > 0)
         {
             infoIt->second.PlayerCount--;
         }
@@ -298,8 +294,7 @@ namespace OloEngine
                 targetInfoIt->second.PlayerCount += sourceInfoIt->second.PlayerCount;
 
                 // Destroy source layer
-                auto sourceIt = m_Layers.find(source);
-                if (sourceIt != m_Layers.end())
+                if (auto sourceIt = m_Layers.find(source); sourceIt != m_Layers.end())
                 {
                     sourceIt->second.Stop();
                     m_Layers.erase(sourceIt);

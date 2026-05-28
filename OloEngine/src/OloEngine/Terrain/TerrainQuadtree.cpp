@@ -23,8 +23,7 @@ namespace OloEngine
         m_Nodes.clear();
         m_SelectedNodes.clear();
 
-        u32 resolution = terrainData.GetResolution();
-        if (resolution == 0 || terrainData.GetHeightData().size() < static_cast<sizet>(resolution) * resolution)
+        if (u32 resolution = terrainData.GetResolution(); resolution == 0 || terrainData.GetHeightData().size() < static_cast<sizet>(resolution) * resolution)
         {
             OLO_CORE_ERROR("TerrainQuadtree::Build: Invalid terrain data (resolution={}, heights={})",
                            resolution, terrainData.GetHeightData().size());
@@ -192,10 +191,8 @@ namespace OloEngine
 
         // Calculate screen-space error to decide whether to use this node
         // or recurse into children
-        f32 screenError = CalculateScreenSpaceError(node, cameraPos, viewProjection, viewportHeight);
-
         // If error is below threshold, this node is fine — render at this LOD
-        if (screenError < m_Config.TargetTriangleSize)
+        if (f32 screenError = CalculateScreenSpaceError(node, cameraPos, viewProjection, viewportHeight); screenError < m_Config.TargetTriangleSize)
         {
             node.LODLevel = node.Depth;
 

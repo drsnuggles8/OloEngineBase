@@ -108,8 +108,7 @@ namespace OloEngine
 
     const std::vector<AttributeModifier>& AttributeSet::GetModifiers(const std::string& attribute) const
     {
-        auto it = m_Attributes.find(attribute);
-        if (it != m_Attributes.end())
+        if (auto it = m_Attributes.find(attribute); it != m_Attributes.end())
         {
             return it->second.Modifiers;
         }

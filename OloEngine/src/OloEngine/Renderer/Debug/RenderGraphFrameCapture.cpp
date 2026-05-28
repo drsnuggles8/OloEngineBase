@@ -196,8 +196,7 @@ namespace OloEngine
     u32 RenderGraphFrameCapture::AcquireTexture(const std::string& passName, Source source, u32 width, u32 height)
     {
         const CacheKey key{ passName, source };
-        auto it = m_TextureCache.find(key);
-        if (it != m_TextureCache.end())
+        if (auto it = m_TextureCache.find(key); it != m_TextureCache.end())
         {
             // Reuse if dimensions match, otherwise reallocate.
             if (it->second.Width == width && it->second.Height == height && it->second.TextureID != 0)
@@ -293,8 +292,7 @@ namespace OloEngine
                                0, 0, static_cast<GLint>(width), static_cast<GLint>(height),
                                GL_COLOR_BUFFER_BIT, GL_NEAREST);
 
-        const GLenum blitErr = glGetError();
-        if (blitErr != GL_NO_ERROR)
+        if (const GLenum blitErr = glGetError(); blitErr != GL_NO_ERROR)
         {
             OLO_CORE_WARN("RenderGraphFrameCapture[{}|{}:{}]: glBlitNamedFramebuffer GL error 0x{:x} (src tex {}, {}x{})",
                           passName, SourceName(source), resourceName, blitErr, sourceTextureID, width, height);
@@ -345,8 +343,7 @@ namespace OloEngine
         glNamedFramebufferTexture(dstFBO, GL_COLOR_ATTACHMENT0, dstTexture, 0);
         glNamedFramebufferDrawBuffer(dstFBO, GL_COLOR_ATTACHMENT0);
 
-        const GLenum dstStatus = glCheckNamedFramebufferStatus(dstFBO, GL_DRAW_FRAMEBUFFER);
-        if (dstStatus != GL_FRAMEBUFFER_COMPLETE)
+        if (const GLenum dstStatus = glCheckNamedFramebufferStatus(dstFBO, GL_DRAW_FRAMEBUFFER); dstStatus != GL_FRAMEBUFFER_COMPLETE)
         {
             OLO_CORE_WARN("RenderGraphFrameCapture[{}|{}:{}]: default-FB capture destination incomplete (dst=0x{:x})",
                           passName, SourceName(source), resourceName, dstStatus);
@@ -388,8 +385,7 @@ namespace OloEngine
                                0, 0, static_cast<GLint>(width), static_cast<GLint>(height),
                                GL_COLOR_BUFFER_BIT, GL_NEAREST);
 
-        const GLenum blitErr = glGetError();
-        if (blitErr != GL_NO_ERROR)
+        if (const GLenum blitErr = glGetError(); blitErr != GL_NO_ERROR)
         {
             OLO_CORE_WARN("RenderGraphFrameCapture[{}|{}:{}]: default-FB blit GL error 0x{:x} ({}x{})",
                           passName, SourceName(source), resourceName, blitErr, width, height);

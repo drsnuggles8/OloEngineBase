@@ -160,9 +160,7 @@ namespace OloEngine
             const auto& submesh = submeshes[i];
 
             SubmeshColliderData submeshData;
-            ECookingResult result = ProcessSubmesh(submesh, meshSource, glm::mat4(1.0f), type, submeshData);
-
-            if (result != ECookingResult::Success)
+            if (ECookingResult result = ProcessSubmesh(submesh, meshSource, glm::mat4(1.0f), type, submeshData); result != ECookingResult::Success)
             {
                 LogCookingError("CookMeshType", fmt::format("Failed to process submesh {}", i));
                 return result;
@@ -393,9 +391,7 @@ namespace OloEngine
         {
             // Simplify vertices for convex hull (already have positions)
             std::vector<glm::vec3> hullVertices;
-            ECookingResult simplifyResult = SimplifyMeshForConvex(vertices, indices, hullVertices, m_ConvexSimplificationRatio);
-
-            if (simplifyResult != ECookingResult::Success)
+            if (ECookingResult simplifyResult = SimplifyMeshForConvex(vertices, indices, hullVertices, m_ConvexSimplificationRatio); simplifyResult != ECookingResult::Success)
             {
                 return simplifyResult;
             }
@@ -416,9 +412,7 @@ namespace OloEngine
 
             // Generate convex hull
             std::vector<glm::vec3> finalHullVertices;
-            ECookingResult hullResult = GenerateConvexHull(hullVertices, finalHullVertices);
-
-            if (hullResult != ECookingResult::Success)
+            if (ECookingResult hullResult = GenerateConvexHull(hullVertices, finalHullVertices); hullResult != ECookingResult::Success)
             {
                 return hullResult;
             }
@@ -502,9 +496,7 @@ namespace OloEngine
             JPH::ConvexHullBuilder builder(joltVertices);
 
             const char* error = nullptr;
-            JPH::ConvexHullBuilder::EResult result = builder.Initialize(i32_max, 1e-5f, error);
-
-            if (result != JPH::ConvexHullBuilder::EResult::Success)
+            if (JPH::ConvexHullBuilder::EResult result = builder.Initialize(i32_max, 1e-5f, error); result != JPH::ConvexHullBuilder::EResult::Success)
             {
                 std::string errorMsg = error ? error : "Unknown error";
                 LogCookingError("GenerateConvexHull", "Convex hull generation failed: " + errorMsg);

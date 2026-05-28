@@ -224,8 +224,7 @@ namespace OloEngine
                 m_FailedCompilations++;
 
             // Remove from pending compilations
-            auto pendingIt = m_PendingCompilations.find(info.m_Name);
-            if (pendingIt != m_PendingCompilations.end())
+            if (auto pendingIt = m_PendingCompilations.find(info.m_Name); pendingIt != m_PendingCompilations.end())
             {
                 info.m_FilePath = pendingIt->second.m_FilePath;
                 m_PendingCompilations.erase(pendingIt);
@@ -1101,8 +1100,7 @@ namespace OloEngine
         if (ImGui::BeginTabBar("SourceTabs"))
         {
             // Original source
-            auto originalIt = shaderInfo.m_OriginalSource.find(stage);
-            if (originalIt != shaderInfo.m_OriginalSource.end() && ImGui::BeginTabItem("Original"))
+            if (auto originalIt = shaderInfo.m_OriginalSource.find(stage); originalIt != shaderInfo.m_OriginalSource.end() && ImGui::BeginTabItem("Original"))
             {
                 // Use InputTextMultiline for selectable/copyable text
                 const std::string& sourceText = originalIt->second;
@@ -1115,8 +1113,7 @@ namespace OloEngine
             }
 
             // Generated GLSL
-            auto generatedIt = shaderInfo.m_GeneratedGLSL.find(stage);
-            if (generatedIt != shaderInfo.m_GeneratedGLSL.end() && ImGui::BeginTabItem("Generated GLSL"))
+            if (auto generatedIt = shaderInfo.m_GeneratedGLSL.find(stage); generatedIt != shaderInfo.m_GeneratedGLSL.end() && ImGui::BeginTabItem("Generated GLSL"))
             {
                 // Use InputTextMultiline for selectable/copyable text
                 const std::string& sourceText = generatedIt->second;
@@ -1129,8 +1126,7 @@ namespace OloEngine
             }
 
             // SPIR-V hex dump
-            auto spirvIt = shaderInfo.m_SPIRVBinary.find(stage);
-            if (spirvIt != shaderInfo.m_SPIRVBinary.end() && ImGui::BeginTabItem("SPIR-V Binary"))
+            if (auto spirvIt = shaderInfo.m_SPIRVBinary.find(stage); spirvIt != shaderInfo.m_SPIRVBinary.end() && ImGui::BeginTabItem("SPIR-V Binary"))
             {
                 ImGui::Text("Size: %s", DebugUtils::FormatMemorySize(spirvIt->second.size()).c_str());
                 ImGui::Separator();
@@ -1783,8 +1779,7 @@ namespace OloEngine
             }
 
             // Check for entry points
-            const auto entryPoints = compiler.get_entry_points_and_stages();
-            if (entryPoints.size() > 1)
+            if (const auto entryPoints = compiler.get_entry_points_and_stages(); entryPoints.size() > 1)
             {
                 OLO_CORE_INFO("Multiple entry points detected ({0}). Ensure correct usage.", entryPoints.size());
             }

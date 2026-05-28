@@ -63,8 +63,7 @@ namespace OloEngine
 
     ContentFileType GetFileTypeFromExtension(const std::filesystem::path& filepath)
     {
-        std::error_code ec;
-        if (std::filesystem::is_directory(filepath, ec))
+        if (std::error_code ec; std::filesystem::is_directory(filepath, ec))
             return ContentFileType::Directory;
 
         std::string ext = filepath.extension().string();
@@ -72,8 +71,7 @@ namespace OloEngine
                        [](unsigned char c)
                        { return static_cast<char>(std::tolower(c)); });
 
-        auto it = s_ExtensionToFileType.find(ext);
-        if (it != s_ExtensionToFileType.end())
+        if (auto it = s_ExtensionToFileType.find(ext); it != s_ExtensionToFileType.end())
             return it->second;
 
         return ContentFileType::Unknown;

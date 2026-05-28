@@ -155,8 +155,7 @@ namespace OloEngine
     Ref<Texture2D> MaterialAsset::GetAlbedoMap() const
     {
         OLO_CORE_VERIFY(m_Material, "Material instance is null");
-        auto texture = m_Material->TryGetTexture2D(s_AlbedoMapUniform);
-        if (texture)
+        if (auto texture = m_Material->TryGetTexture2D(s_AlbedoMapUniform); texture)
             return texture;
 
         // Fall back to placeholder using centralized helper logic
@@ -173,8 +172,7 @@ namespace OloEngine
     Ref<Texture2D> MaterialAsset::GetNormalMap() const
     {
         OLO_CORE_VERIFY(m_Material, "Material instance is null");
-        auto texture = m_Material->TryGetTexture2D(s_NormalMapUniform);
-        if (texture)
+        if (auto texture = m_Material->TryGetTexture2D(s_NormalMapUniform); texture)
             return texture;
 
         // Fall back to placeholder using centralized helper logic
@@ -224,8 +222,7 @@ namespace OloEngine
     Ref<Texture2D> MaterialAsset::GetMetalnessMap() const
     {
         OLO_CORE_VERIFY(m_Material, "Material instance is null");
-        auto texture = m_Material->TryGetTexture2D(s_MetalnessMapUniform);
-        if (texture)
+        if (auto texture = m_Material->TryGetTexture2D(s_MetalnessMapUniform); texture)
             return texture;
 
         // Fall back to placeholder using centralized helper logic
@@ -242,8 +239,7 @@ namespace OloEngine
     Ref<Texture2D> MaterialAsset::GetRoughnessMap() const
     {
         OLO_CORE_VERIFY(m_Material, "Material instance is null");
-        auto texture = m_Material->TryGetTexture2D(s_RoughnessMapUniform);
-        if (texture)
+        if (auto texture = m_Material->TryGetTexture2D(s_RoughnessMapUniform); texture)
             return texture;
 
         // Fall back to placeholder using centralized helper logic

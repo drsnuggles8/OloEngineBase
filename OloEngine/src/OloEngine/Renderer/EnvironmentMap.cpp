@@ -190,9 +190,7 @@ namespace OloEngine
             cacheKey.clear();
         }
 
-        IBLCache::CachedIBL cached;
-
-        if (!cacheKey.empty() && IBLCache::TryLoad(cacheKey, config, cached))
+        if (IBLCache::CachedIBL cached; !cacheKey.empty() && IBLCache::TryLoad(cacheKey, config, cached))
         {
             // Use cached IBL textures
             m_IrradianceMap = cached.Irradiance;

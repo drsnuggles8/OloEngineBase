@@ -131,10 +131,8 @@ namespace OloEngine
 
             // Try to get memory from the current chunk
             u8* Result = Align(m_Top, Alignment);
-            u8* NewTop = Result + AllocSize;
-
             // Make sure we didn't overflow
-            if (NewTop <= m_End)
+            if (u8* NewTop = Result + AllocSize; NewTop <= m_End)
             {
                 m_Top = NewTop;
             }

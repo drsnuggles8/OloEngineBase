@@ -607,10 +607,9 @@ namespace OloEngine
             Emitter.Update(scaledDt, m_Pool, emitPos, m_LODSpawnRateMultiplier, emitterRotation);
         }
         u32 newAlive = m_Pool.GetAliveCount();
-        u32 newCount = newAlive - prevAlive;
 
         // Convert newly emitted CPU particles to GPU format and upload
-        if (newCount > 0)
+        if (u32 newCount = newAlive - prevAlive; newCount > 0)
         {
             std::vector<GPUParticle> gpuParticles(newCount);
             for (u32 i = 0; i < newCount; ++i)

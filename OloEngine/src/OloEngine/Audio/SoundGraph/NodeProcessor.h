@@ -311,8 +311,7 @@ namespace OloEngine::Audio::SoundGraph
             TUniqueLock<FSharedMutex> lock(m_ParameterMutex);
 
             // Double-check: another thread might have created it while we were waiting for the lock
-            auto wrapperIt = m_ParameterWrappers.find(id);
-            if (wrapperIt != m_ParameterWrappers.end())
+            if (auto wrapperIt = m_ParameterWrappers.find(id); wrapperIt != m_ParameterWrappers.end())
             {
                 return std::static_pointer_cast<ParameterWrapper<T>>(wrapperIt->second);
             }

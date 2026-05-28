@@ -48,8 +48,7 @@ namespace OloEngine::RenderGraphHandleAllocator
                 continue;
             }
 
-            const auto staleHandle = it->second;
-            if (staleHandle.IsValid() && staleHandle.Index < slots.size())
+            if (const auto staleHandle = it->second; staleHandle.IsValid() && staleHandle.Index < slots.size())
             {
                 auto& slot = slots[staleHandle.Index];
                 slot.Alive = false;

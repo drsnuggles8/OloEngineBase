@@ -1062,8 +1062,7 @@ namespace OloEngine
         ImGui::Text("ID: %llu", static_cast<unsigned long long>(node.ID));
 
         // Root node toggle
-        bool isRoot = (node.ID == m_RootNodeID);
-        if (ImGui::Checkbox("Root Node", &isRoot))
+        if (bool isRoot = (node.ID == m_RootNodeID); ImGui::Checkbox("Root Node", &isRoot))
         {
             if (isRoot)
             {
@@ -1191,8 +1190,7 @@ namespace OloEngine
 
                 char labelBuf[256];
                 std::snprintf(labelBuf, sizeof(labelBuf), "%s", conn.SourcePort.c_str());
-                std::string inputLabel = "##choice_" + std::to_string(static_cast<u64>(conn.TargetNodeID));
-                if (ImGui::InputText(inputLabel.c_str(), labelBuf, sizeof(labelBuf)))
+                if (std::string inputLabel = "##choice_" + std::to_string(static_cast<u64>(conn.TargetNodeID)); ImGui::InputText(inputLabel.c_str(), labelBuf, sizeof(labelBuf)))
                 {
                     conn.SourcePort = labelBuf;
                     m_IsDirty = true;
@@ -1254,8 +1252,7 @@ namespace OloEngine
 
                 ImGui::Text("%s", label.c_str());
                 ImGui::SameLine();
-                std::string delLabel = "X##conn_" + std::to_string(connIdx);
-                if (ImGui::SmallButton(delLabel.c_str()))
+                if (std::string delLabel = "X##conn_" + std::to_string(connIdx); ImGui::SmallButton(delLabel.c_str()))
                 {
                     DeleteConnection(i);
                     break;
@@ -1806,8 +1803,7 @@ namespace OloEngine
         // Create a default start node
         m_RootNodeID = CreateNode("dialogue", { 100.0f, 200.0f });
 
-        auto* startNode = FindNodeMutable(m_RootNodeID);
-        if (startNode)
+        if (auto* startNode = FindNodeMutable(m_RootNodeID); startNode)
         {
             startNode->Name = "Start";
             startNode->Properties["speaker"] = std::string("NPC");
@@ -1930,8 +1926,7 @@ namespace OloEngine
         UUID newID = CreateNode(srcType, srcPos);
         m_CommandHistory = savedHistory;
 
-        auto* newNode = FindNodeMutable(newID);
-        if (newNode)
+        if (auto* newNode = FindNodeMutable(newID); newNode)
         {
             newNode->Name = std::move(srcName);
             newNode->Properties = std::move(srcProperties);

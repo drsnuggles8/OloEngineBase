@@ -362,8 +362,7 @@ namespace OloEngine
                 OLO_PROFILE_FRAMEMARK_END("LayerStack OnUpdate");
 
                 // Tick budget warning
-                const f32 tickDuration = tickTimer.Elapsed();
-                if (tickDuration > tickInterval)
+                if (const f32 tickDuration = tickTimer.Elapsed(); tickDuration > tickInterval)
                 {
                     OLO_CORE_WARN("Server tick exceeded budget: {:.2f} ms (budget: {:.2f} ms)",
                                   tickDuration * 1000.0f, tickInterval * 1000.0f);

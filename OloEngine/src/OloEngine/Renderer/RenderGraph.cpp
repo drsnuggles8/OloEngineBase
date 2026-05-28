@@ -1036,8 +1036,7 @@ namespace OloEngine
             return {};
         }
 
-        const auto parentMipCount = std::max(parentInfo->Desc.MipLevels, 1u);
-        if (mipLevel >= parentMipCount)
+        if (const auto parentMipCount = std::max(parentInfo->Desc.MipLevels, 1u); mipLevel >= parentMipCount)
         {
             OLO_CORE_ERROR("RenderGraph::CreateTextureMipView: mip level {} is out of range for '{}' (mipCount={})",
                            mipLevel,
@@ -1103,8 +1102,7 @@ namespace OloEngine
             return {};
         }
 
-        const auto parentLayerCount = std::max(parentInfo->Desc.DepthOrLayers, 1u);
-        if (layerIndex >= parentLayerCount)
+        if (const auto parentLayerCount = std::max(parentInfo->Desc.DepthOrLayers, 1u); layerIndex >= parentLayerCount)
         {
             OLO_CORE_ERROR("RenderGraph::CreateTextureArrayLayerView: layer index {} is out of range for '{}' (layerCount={})",
                            layerIndex,
@@ -1816,8 +1814,7 @@ namespace OloEngine
                 continue;
             }
 
-            const auto resourceName = GetResourceName(extract.Handle);
-            if (!diagnoseExtractionResource(resourceName, "<extract-texture>"))
+            if (const auto resourceName = GetResourceName(extract.Handle); !diagnoseExtractionResource(resourceName, "<extract-texture>"))
                 continue;
             extract.Callback(ResolveTexture(extract.Handle));
         }
@@ -1890,8 +1887,7 @@ namespace OloEngine
                 continue;
             }
 
-            const auto resourceName = GetResourceName(extract.Handle);
-            if (!diagnoseExtractionResource(resourceName, "<extract-framebuffer>"))
+            if (const auto resourceName = GetResourceName(extract.Handle); !diagnoseExtractionResource(resourceName, "<extract-framebuffer>"))
                 continue;
             extract.Callback(ResolveFramebuffer(extract.Handle));
         }
@@ -2518,8 +2514,7 @@ namespace OloEngine
             OLO_CORE_TRACE("Adding execution dependency (ordering only): {} -> {}", beforePass, afterPass);
 
         // Only add dependency for execution ordering, no framebuffer piping (avoid duplicates)
-        auto& deps = m_Dependencies[afterPass];
-        if (std::find(deps.begin(), deps.end(), beforePass) == deps.end())
+        if (auto& deps = m_Dependencies[afterPass]; std::find(deps.begin(), deps.end(), beforePass) == deps.end())
         {
             deps.push_back(beforePass);
         }
@@ -4180,8 +4175,7 @@ namespace OloEngine
                 attributes.emplace_back("peripheries=2");
 
             const bool hasReachabilityData = !m_ReachablePasses.empty();
-            const bool isCulled = hasReachabilityData && !m_ReachablePasses.contains(name);
-            if (isCulled)
+            if (const bool isCulled = hasReachabilityData && !m_ReachablePasses.contains(name); isCulled)
             {
                 attributes.emplace_back("fillcolor=\"#f2f2f2\"");
                 attributes.emplace_back("style=\"rounded,dashed,filled\"");
@@ -4768,8 +4762,7 @@ namespace OloEngine
 
         for (const auto& passName : m_InsertionOrder)
         {
-            const auto node = TryGetGraphEntryNode(passName, m_NodeLookup);
-            if (!node)
+            if (const auto node = TryGetGraphEntryNode(passName, m_NodeLookup); !node)
                 continue;
 
             passAuthoringRows.push_back(PassAuthoringRow{
@@ -5942,8 +5935,7 @@ namespace OloEngine
                 return false;
             }
 
-            auto& deps = m_Dependencies[afterPass];
-            if (std::find(deps.begin(), deps.end(), beforePass) != deps.end())
+            if (auto& deps = m_Dependencies[afterPass]; std::find(deps.begin(), deps.end(), beforePass) != deps.end())
                 return false;
 
             // Avoid introducing a derived edge that would close a cycle.

@@ -416,9 +416,9 @@ namespace OloEngine::Audio::DSP
 
         // Initialize VBAP
         source.SpatializerNode.vbap = CreateScope<VBAPData>();
-        bool res = VBAP::InitVBAP(source.SpatializerNode.vbap.get(), sourceChannels, source.InternalChannelCount,
-                                  source.SourceChannelMap, source.InternalChannelMap);
-        if (abortIfFailed(res ? MA_SUCCESS : MA_INVALID_ARGS, "VBAP init failed"))
+        if (bool res = VBAP::InitVBAP(source.SpatializerNode.vbap.get(), sourceChannels, source.InternalChannelCount,
+                                      source.SourceChannelMap, source.InternalChannelMap);
+            abortIfFailed(res ? MA_SUCCESS : MA_INVALID_ARGS, "VBAP init failed"))
         {
             return false;
         }

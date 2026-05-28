@@ -126,8 +126,7 @@ namespace OloEngine
         {
             if (static_cast<u64>(uuid) != 0)
             {
-                Entity ent = scene.GetEntityByUUID(uuid);
-                if (ent)
+                if (Entity ent = scene.GetEntityByUUID(uuid))
                     scene.DestroyEntity(ent);
                 uuid = 0;
             }
@@ -243,8 +242,7 @@ namespace OloEngine
         else if (state.m_State == DialogueState::WaitingForChoice)
         {
             // Arrow keys to navigate choices
-            i32 const choiceCount = static_cast<i32>(state.m_AvailableChoices.size());
-            if (choiceCount > 0)
+            if (i32 const choiceCount = static_cast<i32>(state.m_AvailableChoices.size()); choiceCount > 0)
             {
                 if (Input::IsKeyPressed(Key::Up) && !m_ArrowKeyWasPressed)
                 {

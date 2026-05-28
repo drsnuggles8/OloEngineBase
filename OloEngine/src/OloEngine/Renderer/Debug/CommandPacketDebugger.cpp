@@ -277,8 +277,7 @@ namespace OloEngine
         auto& captureManager = FrameCaptureManager::GetInstance();
 
         // Refresh cached frames only when generation changes
-        u64 currentGen = captureManager.GetCaptureGeneration();
-        if (currentGen != m_CachedGeneration)
+        if (u64 currentGen = captureManager.GetCaptureGeneration(); currentGen != m_CachedGeneration)
         {
             m_CachedFrames = captureManager.GetCapturedFramesCopy();
             m_CachedFrameCount = m_CachedFrames.size();

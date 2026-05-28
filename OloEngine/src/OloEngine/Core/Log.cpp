@@ -118,8 +118,7 @@ namespace OloEngine
     Log::TagDetails Log::GetTagDetails(std::string_view tag) const
     {
         // fast-path: snapshot current tags (no locks)
-        auto current = m_Tags.load(std::memory_order_acquire);
-        if (current)
+        if (auto current = m_Tags.load(std::memory_order_acquire); current)
         {
             if (auto it = current->find(std::string(tag)); it != current->end())
             {

@@ -321,8 +321,7 @@ namespace OloEngine::Audio::SoundGraph
         f32 clampedVolume = glm::clamp(volume, 0.0f, 2.0f);
 
         // Apply the master volume to the underlying miniaudio engine first
-        ma_result result = ma_engine_set_volume(m_Engine, clampedVolume);
-        if (result != MA_SUCCESS)
+        if (ma_result result = ma_engine_set_volume(m_Engine, clampedVolume); result != MA_SUCCESS)
         {
             OLO_CORE_ERROR("[SoundGraphPlayer] Failed to set master volume on audio engine: {}", ma_result_description(result));
             return;

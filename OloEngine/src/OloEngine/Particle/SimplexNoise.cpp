@@ -156,8 +156,7 @@ namespace OloEngine
         // Calculate contributions from the four corners
         f32 n0, n1, n2, n3;
 
-        f32 t0 = 0.6f - x0 * x0 - y0 * y0 - z0 * z0;
-        if (t0 < 0.0f)
+        if (f32 t0 = 0.6f - x0 * x0 - y0 * y0 - z0 * z0; t0 < 0.0f)
         {
             n0 = 0.0f;
         }
@@ -167,8 +166,7 @@ namespace OloEngine
             n0 = t0 * t0 * Dot3(s_Grad3[gi0], x0, y0, z0);
         }
 
-        f32 t1 = 0.6f - x1 * x1 - y1 * y1 - z1 * z1;
-        if (t1 < 0.0f)
+        if (f32 t1 = 0.6f - x1 * x1 - y1 * y1 - z1 * z1; t1 < 0.0f)
         {
             n1 = 0.0f;
         }
@@ -178,8 +176,7 @@ namespace OloEngine
             n1 = t1 * t1 * Dot3(s_Grad3[gi1], x1, y1, z1);
         }
 
-        f32 t2 = 0.6f - x2 * x2 - y2 * y2 - z2 * z2;
-        if (t2 < 0.0f)
+        if (f32 t2 = 0.6f - x2 * x2 - y2 * y2 - z2 * z2; t2 < 0.0f)
         {
             n2 = 0.0f;
         }
@@ -189,8 +186,7 @@ namespace OloEngine
             n2 = t2 * t2 * Dot3(s_Grad3[gi2], x2, y2, z2);
         }
 
-        f32 t3 = 0.6f - x3 * x3 - y3 * y3 - z3 * z3;
-        if (t3 < 0.0f)
+        if (f32 t3 = 0.6f - x3 * x3 - y3 * y3 - z3 * z3; t3 < 0.0f)
         {
             n3 = 0.0f;
         }

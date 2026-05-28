@@ -1106,8 +1106,7 @@ namespace OloEngine
         // Validate POD renderer IDs
         if (cmd->vertexArrayID == 0 || mat.shaderRendererID == 0)
         {
-            static std::atomic<u64> s_InvalidDrawMeshLogCount{ 0 };
-            if (s_InvalidDrawMeshLogCount.fetch_add(1, std::memory_order_relaxed) < 16)
+            if (static std::atomic<u64> s_InvalidDrawMeshLogCount{ 0 }; s_InvalidDrawMeshLogCount.fetch_add(1, std::memory_order_relaxed) < 16)
             {
                 OLO_CORE_WARN("CommandDispatch::DrawMesh: Skipping draw with invalid IDs (VAO={}, Shader={})",
                               cmd->vertexArrayID, mat.shaderRendererID);
@@ -1249,8 +1248,7 @@ namespace OloEngine
         // Validate POD renderer IDs
         if (cmd->vertexArrayID == 0 || mat.shaderRendererID == 0)
         {
-            static std::atomic<u64> s_InvalidDrawMeshInstancedLogCount{ 0 };
-            if (s_InvalidDrawMeshInstancedLogCount.fetch_add(1, std::memory_order_relaxed) < 16)
+            if (static std::atomic<u64> s_InvalidDrawMeshInstancedLogCount{ 0 }; s_InvalidDrawMeshInstancedLogCount.fetch_add(1, std::memory_order_relaxed) < 16)
             {
                 OLO_CORE_WARN("CommandDispatch::DrawMeshInstanced: Skipping draw with invalid IDs (VAO={}, Shader={})",
                               cmd->vertexArrayID, mat.shaderRendererID);
@@ -1288,8 +1286,7 @@ namespace OloEngine
         // surviving count into `cullIndirectBufferID`. Skip the FrameDataBuffer
         // -> InstanceData scratch loop and the upload; bind the pre-populated
         // output buffer at SSBO_INSTANCE_DATA and draw indirect.
-        const bool useGPUCull = cmd->cullIndirectBufferID != 0 && cmd->cullOutputInstanceBufferID != 0;
-        if (useGPUCull)
+        if (const bool useGPUCull = cmd->cullIndirectBufferID != 0 && cmd->cullOutputInstanceBufferID != 0; useGPUCull)
         {
             // Rebind slot 15 to the per-submission output buffer. The engine-
             // wide `s_Data.ModelInstanceBuffer` is unchanged so it can be
@@ -1613,8 +1610,7 @@ namespace OloEngine
         }
 
         // Set grid scale uniform if the shader supports it
-        GLint gridScaleLoc = glGetUniformLocation(cmd->shaderRendererID, "u_GridScale");
-        if (gridScaleLoc != -1)
+        if (GLint gridScaleLoc = glGetUniformLocation(cmd->shaderRendererID, "u_GridScale"); gridScaleLoc != -1)
         {
             glUniform1f(gridScaleLoc, cmd->gridScale);
         }
@@ -1703,8 +1699,7 @@ namespace OloEngine
         }
 
         // Upload terrain UBO (per-chunk data with tess factors)
-        auto terrainUBO = Renderer3D::GetTerrainUBO();
-        if (terrainUBO)
+        if (auto terrainUBO = Renderer3D::GetTerrainUBO(); terrainUBO)
         {
             terrainUBO->SetData(&cmd->terrainUBOData, ShaderBindingLayout::TerrainUBO::GetSize());
             glBindBufferBase(GL_UNIFORM_BUFFER, ShaderBindingLayout::UBO_TERRAIN, terrainUBO->GetRendererID());
@@ -1915,8 +1910,7 @@ namespace OloEngine
         }
 
         // Upload decal UBO
-        auto decalUBO = Renderer3D::GetDecalUBO();
-        if (decalUBO)
+        if (auto decalUBO = Renderer3D::GetDecalUBO(); decalUBO)
         {
             ShaderBindingLayout::DecalUBO decalData{};
             decalData.InverseDecalTransform = cmd->inverseDecalTransform;
@@ -1999,8 +1993,7 @@ namespace OloEngine
         }
 
         // Upload foliage UBO (per-layer parameters)
-        auto foliageUBO = Renderer3D::GetFoliageUBO();
-        if (foliageUBO)
+        if (auto foliageUBO = Renderer3D::GetFoliageUBO(); foliageUBO)
         {
             ShaderBindingLayout::FoliageUBO foliageData{};
             foliageData.Time = cmd->time;
@@ -2067,8 +2060,7 @@ namespace OloEngine
         }
 
         // Upload water UBO
-        auto waterUBO = Renderer3D::GetWaterUBO();
-        if (waterUBO)
+        if (auto waterUBO = Renderer3D::GetWaterUBO(); waterUBO)
         {
             const f32 viewportWidth = static_cast<f32>(s_Data.CurrentViewportWidth);
             const f32 viewportHeight = static_cast<f32>(s_Data.CurrentViewportHeight);

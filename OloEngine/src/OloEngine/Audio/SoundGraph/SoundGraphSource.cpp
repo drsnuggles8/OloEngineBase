@@ -105,8 +105,7 @@ namespace OloEngine::Audio::SoundGraph
 
         // Preload audio data to avoid blocking file I/O in audio thread
         // This is done during initialization on the main thread
-        AssetMetadata metadata = AssetManager::GetAssetMetadata(handle);
-        if (metadata.IsValid())
+        if (AssetMetadata metadata = AssetManager::GetAssetMetadata(handle); metadata.IsValid())
         {
             std::filesystem::path filePath = Project::GetProjectDirectory() / metadata.FilePath;
             if (std::filesystem::exists(filePath))
@@ -796,8 +795,7 @@ namespace OloEngine::Audio::SoundGraph
             // (frameCount * m_ChannelCount floats). Higher indices are uninitialized stack
             // memory — writing through them crashes. Address samples by
             // ppFramesOut[0][frame * m_ChannelCount + channel].
-            float* const busOut = (ppFramesOut && ppFramesOut[0]) ? ppFramesOut[0] : nullptr;
-            if (busOut)
+            if (float* const busOut = (ppFramesOut && ppFramesOut[0]) ? ppFramesOut[0] : nullptr; busOut)
             {
                 // Phase 1: a single block-rate Process call replaces the old per-sample
                 // inner loop. The graph fills m_OutputBuffers[c][i] with `frameCount`
@@ -916,8 +914,7 @@ namespace OloEngine::Audio::SoundGraph
     {
         OLO_PROFILE_FUNCTION();
 
-        auto* source = static_cast<SoundGraphSource*>(userData);
-        if (!source)
+        if (auto* source = static_cast<SoundGraphSource*>(userData); !source)
             return false;
 
         if (waveSource.m_WaveHandle == 0)
@@ -932,8 +929,7 @@ namespace OloEngine::Audio::SoundGraph
         {
             // Audio data not preloaded or corrupted - this is a critical error but don't block
             // Log once per wave source to avoid spam using thread-safe atomic flag
-            bool expectedFalse = false;
-            if (waveSource.m_MissingDataLogged.compare_exchange_strong(expectedFalse, true, std::memory_order_relaxed))
+            if (bool expectedFalse = false; waveSource.m_MissingDataLogged.compare_exchange_strong(expectedFalse, true, std::memory_order_relaxed))
             {
                 OLO_CORE_ERROR("[SoundGraphSource] No preloaded audio data for handle: {} - Audio will underrun",
                                waveSource.m_WaveHandle);

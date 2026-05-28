@@ -80,16 +80,14 @@ namespace OloEngine
                     bool reloaded = false;
 
                     // Reload in Renderer3D's library
-                    auto& library3D = Renderer3D::GetShaderLibrary();
-                    if (library3D.Exists(shaderName))
+                    if (auto& library3D = Renderer3D::GetShaderLibrary(); library3D.Exists(shaderName))
                     {
                         library3D.Get(shaderName)->Reload();
                         reloaded = true;
                     }
 
                     // Reload in Renderer2D's library
-                    auto& library2D = Renderer2D::GetShaderLibrary();
-                    if (library2D.Exists(shaderName))
+                    if (auto& library2D = Renderer2D::GetShaderLibrary(); library2D.Exists(shaderName))
                     {
                         library2D.Get(shaderName)->Reload();
                         reloaded = true;
@@ -132,8 +130,7 @@ namespace OloEngine
         }
 
         // Text editor area — use InputTextMultiline with std::string overload (imgui_stdlib)
-        ImVec2 const availSize = ImGui::GetContentRegionAvail();
-        if (ImGui::InputTextMultiline("##ShaderSource", &m_SourceCode, availSize))
+        if (ImVec2 const availSize = ImGui::GetContentRegionAvail(); ImGui::InputTextMultiline("##ShaderSource", &m_SourceCode, availSize))
         {
             m_Dirty = true;
         }

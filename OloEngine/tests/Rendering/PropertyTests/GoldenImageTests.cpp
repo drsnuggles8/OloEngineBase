@@ -219,8 +219,7 @@ namespace OloEngine::Tests
         static fs::path GoldenBaselineDir()
         {
             fs::path base = fs::path("assets") / "tests" / "golden";
-            const char* vendor = std::getenv("OLOENGINE_GOLDEN_VENDOR");
-            if (vendor != nullptr && vendor[0] != '\0')
+            if (const char* vendor = std::getenv("OLOENGINE_GOLDEN_VENDOR"); vendor != nullptr && vendor[0] != '\0')
             {
                 base /= vendor;
             }
@@ -425,8 +424,7 @@ namespace OloEngine::Tests
 
             // Guard all subsequent stbi_write_png / memcmp paths: a mis-sized
             // buffer would cause out-of-bounds reads against actualRgba.data().
-            const std::size_t expectedBytes = static_cast<std::size_t>(width) * height * 4;
-            if (actualRgba.size() != expectedBytes)
+            if (const std::size_t expectedBytes = static_cast<std::size_t>(width) * height * 4; actualRgba.size() != expectedBytes)
             {
                 result.m_Message = "actualRgba size mismatch: expected " +
                                    std::to_string(expectedBytes) + " bytes for " +
@@ -441,9 +439,7 @@ namespace OloEngine::Tests
             fs::path baselinePath = dir / (name + ".png");
 
             const bool rebase = ShouldRebase();
-            const bool baselineExists = fs::exists(baselinePath);
-
-            if (!baselineExists && !rebase)
+            if (const bool baselineExists = fs::exists(baselinePath); !baselineExists && !rebase)
             {
                 // Fail loudly instead of silently bootstrapping a missing
                 // baseline: a disappeared golden is a regression we want to
@@ -1058,8 +1054,7 @@ namespace OloEngine::Tests
                 f32 w1 = std::max(0.0f, 1.0f - 2.0f * v);
                 f32 w2 = std::max(0.0f, 2.0f * u - 1.0f);
                 f32 w3 = std::max(0.0f, 2.0f * v - 1.0f);
-                const f32 sum = w0 + w1 + w2 + w3;
-                if (sum > 0.0f)
+                if (const f32 sum = w0 + w1 + w2 + w3; sum > 0.0f)
                 {
                     w0 /= sum;
                     w1 /= sum;

@@ -666,9 +666,7 @@ namespace OloEngine
             ImGui::InputTextWithHint("##NodeSearch", "Search nodes...", m_NodeSearchFilter, sizeof(m_NodeSearchFilter));
             ImGui::Separator();
 
-            bool hasFilter = m_NodeSearchFilter[0] != '\0';
-
-            if (hasFilter)
+            if (bool hasFilter = m_NodeSearchFilter[0] != '\0'; hasFilter)
             {
                 // Flat filtered list when searching
                 std::string filterLower = m_NodeSearchFilter;
@@ -1157,8 +1155,7 @@ namespace OloEngine
         std::unordered_map<u64, glm::vec2> newPositions;
 
         // BFS from output node backwards
-        const auto* outputNode = graph.FindOutputNode();
-        if (!outputNode)
+        if (const auto* outputNode = graph.FindOutputNode(); !outputNode)
         {
             // No output node — just lay out linearly
             f32 x = 0.0f;

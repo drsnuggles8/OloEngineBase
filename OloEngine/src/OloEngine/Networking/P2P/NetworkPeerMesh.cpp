@@ -278,9 +278,7 @@ namespace OloEngine
             i32 numMsgs = m_Interface->ReceiveMessagesOnPollGroup(m_PollGroup, &pIncomingMsg, 1);
             while (numMsgs > 0)
             {
-                u32 const msgSize = pIncomingMsg->m_cbSize;
-
-                if (msgSize >= NetworkMessageHeader::kSerializedSize)
+                if (u32 const msgSize = pIncomingMsg->m_cbSize; msgSize >= NetworkMessageHeader::kSerializedSize)
                 {
                     auto const* rawData = static_cast<const u8*>(pIncomingMsg->m_pData);
                     FMemoryReader reader(rawData, static_cast<i64>(msgSize));

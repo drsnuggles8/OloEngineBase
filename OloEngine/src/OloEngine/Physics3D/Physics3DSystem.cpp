@@ -116,8 +116,7 @@ namespace OloEngine
     JPH::BroadPhaseLayer OloBPLayerInterfaceImpl::GetBroadPhaseLayer(JPH::ObjectLayer inLayer) const
     {
         // For now, map object layers directly to broadphase layers (1:1 mapping)
-        u32 layerIndex = static_cast<u32>(inLayer);
-        if (layerIndex < GetNumBroadPhaseLayers())
+        if (u32 layerIndex = static_cast<u32>(inLayer); layerIndex < GetNumBroadPhaseLayers())
             return JPH::BroadPhaseLayer(static_cast<JPH::BroadPhaseLayer::Type>(layerIndex));
 
         // Default to first layer if invalid
@@ -153,9 +152,7 @@ namespace OloEngine
             cachedLayerNames.assign(layerNames.begin(), layerNames.end());
         }
 
-        u32 customLayerIndex = layerIndex - BroadPhaseLayers::NUM_LAYERS;
-
-        if (customLayerIndex < cachedLayerNames.size())
+        if (u32 customLayerIndex = layerIndex - BroadPhaseLayers::NUM_LAYERS; customLayerIndex < cachedLayerNames.size())
         {
             return cachedLayerNames[customLayerIndex].c_str();
         }
@@ -175,10 +172,8 @@ namespace OloEngine
     {
         // Convert broadphase layer back to object layer for collision checking
         // Since we use 1:1 mapping, this is straightforward
-        JPH::ObjectLayer objectLayer2 = static_cast<JPH::ObjectLayer>(inLayer2.GetValue());
-
         // If both layers are user-defined physics layers, map to custom layer IDs and check
-        if (inLayer1 >= OloEngine::ObjectLayers::NUM_LAYERS && objectLayer2 >= OloEngine::ObjectLayers::NUM_LAYERS)
+        if (JPH::ObjectLayer objectLayer2 = static_cast<JPH::ObjectLayer>(inLayer2.GetValue()); inLayer1 >= OloEngine::ObjectLayers::NUM_LAYERS && objectLayer2 >= OloEngine::ObjectLayers::NUM_LAYERS)
         {
             u32 layer1 = static_cast<u32>(inLayer1) - OloEngine::ObjectLayers::NUM_LAYERS;
             u32 layer2 = static_cast<u32>(objectLayer2) - OloEngine::ObjectLayers::NUM_LAYERS;

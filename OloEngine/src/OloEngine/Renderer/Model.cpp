@@ -87,9 +87,7 @@ namespace OloEngine
                 }
 
                 const auto& entryPath = entry.path();
-                std::string entryStem = ToLowerCopy(entryPath.stem().string());
-
-                if (entryStem != targetStem)
+                if (std::string entryStem = ToLowerCopy(entryPath.stem().string()); entryStem != targetStem)
                 {
                     continue;
                 }
@@ -792,8 +790,7 @@ namespace OloEngine
         submesh.m_VertexCount = static_cast<u32>(vertexCount);
 
         // Use mapped material index with bounds checking
-        auto mapIt = m_MaterialIndexMap.find(mesh->mMaterialIndex);
-        if (mapIt != m_MaterialIndexMap.end() && mapIt->second < m_Materials.size())
+        if (auto mapIt = m_MaterialIndexMap.find(mesh->mMaterialIndex); mapIt != m_MaterialIndexMap.end() && mapIt->second < m_Materials.size())
         {
             submesh.m_MaterialIndex = mapIt->second;
         }
@@ -1025,8 +1022,7 @@ namespace OloEngine
         // glTF alpha mode + cutoff. Assimp surfaces these from the gltf2 importer
         // via dedicated keys; legacy formats simply don't set them, leaving the
         // material at the Opaque default.
-        aiString alphaModeStr;
-        if (mat->Get(AI_MATKEY_GLTF_ALPHAMODE, alphaModeStr) == AI_SUCCESS)
+        if (aiString alphaModeStr; mat->Get(AI_MATKEY_GLTF_ALPHAMODE, alphaModeStr) == AI_SUCCESS)
         {
             std::string_view mode(alphaModeStr.C_Str(), alphaModeStr.length);
             if (mode == "MASK")
@@ -1040,15 +1036,13 @@ namespace OloEngine
             }
         }
 
-        f32 alphaCutoff = 0.5f;
-        if (mat->Get(AI_MATKEY_GLTF_ALPHACUTOFF, alphaCutoff) == AI_SUCCESS)
+        if (f32 alphaCutoff = 0.5f; mat->Get(AI_MATKEY_GLTF_ALPHACUTOFF, alphaCutoff) == AI_SUCCESS)
         {
             materialRef->SetAlphaCutoff(alphaCutoff);
         }
 
         // Double-sided: glTF "doubleSided": true maps to assimp's TWOSIDED key.
-        i32 twoSided = 0;
-        if (mat->Get(AI_MATKEY_TWOSIDED, twoSided) == AI_SUCCESS && twoSided != 0)
+        if (i32 twoSided = 0; mat->Get(AI_MATKEY_TWOSIDED, twoSided) == AI_SUCCESS && twoSided != 0)
         {
             materialRef->SetFlag(MaterialFlag::TwoSided, true);
         }
@@ -1073,8 +1067,7 @@ namespace OloEngine
             if (auto it = m_LoadedTextures.find(cacheKey); it != m_LoadedTextures.end())
                 return it->second;
 
-            auto texture = Texture2D::Create(texturePathStr, srgb);
-            if (texture && texture->IsLoaded())
+            if (auto texture = Texture2D::Create(texturePathStr, srgb); texture && texture->IsLoaded())
             {
                 m_LoadedTextures[cacheKey] = texture;
                 return texture;
@@ -1558,8 +1551,7 @@ namespace OloEngine
         // Static default material
         static Material s_DefaultMaterial = []() -> Material
         {
-            auto defaultMaterialRef = Material::CreatePBR("Default PBR", glm::vec3(0.8f), 0.0f, 0.5f);
-            if (defaultMaterialRef)
+            if (auto defaultMaterialRef = Material::CreatePBR("Default PBR", glm::vec3(0.8f), 0.0f, 0.5f); defaultMaterialRef)
             {
                 return *defaultMaterialRef;
             }

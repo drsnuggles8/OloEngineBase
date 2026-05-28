@@ -8224,8 +8224,7 @@ TEST(RenderGraphDumpDot, ComputePassColoredDifferentlyToGraphics)
     ASSERT_NE(gfxPos, std::string::npos);
     // The graphics pass node entry (double-ring final) should not contain #fff3cd
     // — search the attribute block that follows "GfxPass" up to the next semicolon
-    const auto semiPos = dot.find(';', gfxPos);
-    if (semiPos != std::string::npos)
+    if (const auto semiPos = dot.find(';', gfxPos); semiPos != std::string::npos)
     {
         const auto nodeEntry = dot.substr(gfxPos, semiPos - gfxPos);
         EXPECT_EQ(nodeEntry.find("#fff3cd"), std::string::npos)

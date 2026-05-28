@@ -178,8 +178,7 @@ namespace OloEngine
                     {
                         continue;
                     }
-                    FNode* LocalNext = LocalTail->Next.load();
-                    if (LocalNext == nullptr)
+                    if (FNode* LocalNext = LocalTail->Next.load(); LocalNext == nullptr)
                     {
                         FNode* NewNode = new FNode(Item);
                         if (LocalTail->CasNext(nullptr, NewNode))

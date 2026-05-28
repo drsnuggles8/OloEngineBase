@@ -101,8 +101,7 @@ namespace OloEngine
             return result;
         }
 
-        auto const expectedPixels = static_cast<size_t>(6) * resolution * resolution;
-        if (cubemapPixels.size() < expectedPixels)
+        if (auto const expectedPixels = static_cast<size_t>(6) * resolution * resolution; cubemapPixels.size() < expectedPixels)
         {
             OLO_CORE_ERROR("LightProbeBaker::ProjectToSH: cubemapPixels size {} < expected {}", cubemapPixels.size(), expectedPixels);
             return result;

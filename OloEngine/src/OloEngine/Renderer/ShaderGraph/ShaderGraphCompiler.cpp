@@ -274,8 +274,7 @@ namespace OloEngine
 
             // If the Texture input is unconnected, tex resolves to a non-sampler fallback — emit zero
             const auto* texPin = node.FindPinByName("Texture", ShaderGraphPinDirection::Input);
-            bool texConnected = texPin && graph.GetLinkForInputPin(texPin->ID);
-            if (texConnected)
+            if (bool texConnected = texPin && graph.GetLinkForInputPin(texPin->ID))
                 code << "    vec4 " << sampleVar << " = texture(" << tex << ", " << uv << ");\n";
             else
                 code << "    vec4 " << sampleVar << " = vec4(0.0);\n";
@@ -302,8 +301,7 @@ namespace OloEngine
             std::string var = MakeVarName(node, *node.FindPinByName("Normal", ShaderGraphPinDirection::Output));
 
             const auto* texPin = node.FindPinByName("Texture", ShaderGraphPinDirection::Input);
-            bool texConnected = texPin && graph.GetLinkForInputPin(texPin->ID);
-            if (texConnected)
+            if (bool texConnected = texPin && graph.GetLinkForInputPin(texPin->ID))
             {
                 code << "    vec3 " << var << " = normalize(texture(" << tex << ", " << uv << ").rgb * 2.0 - 1.0);\n";
                 code << "    " << var << ".xy *= " << strength << ";\n";
@@ -566,8 +564,7 @@ void main()
         }
 
         // Emit texture samplers (GL 4.6 guarantees 80 combined units; engine uses 0-31)
-        constexpr int maxShaderGraphTextures = 48; // slots 32-79
-        if (static_cast<int>(textureParams.size()) > maxShaderGraphTextures)
+        if (constexpr int maxShaderGraphTextures = 48 /* slots 32-79 */; static_cast<int>(textureParams.size()) > maxShaderGraphTextures)
         {
             OLO_CORE_ERROR("ShaderGraphCompiler: Too many texture parameters ({}, max {})", textureParams.size(), maxShaderGraphTextures);
             return {};

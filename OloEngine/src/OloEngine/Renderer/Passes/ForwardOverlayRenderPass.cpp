@@ -107,9 +107,7 @@ namespace OloEngine
         std::array<GLenum, 3> drawBufs = {
             GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1, GL_COLOR_ATTACHMENT2
         };
-        const GLsizei overlayDrawBufCount =
-            static_cast<GLsizei>(std::min<u32>(sceneColorAttachmentCount, static_cast<u32>(drawBufs.size())));
-        if (overlayDrawBufCount > 0)
+        if (const GLsizei overlayDrawBufCount = static_cast<GLsizei>(std::min<u32>(sceneColorAttachmentCount, static_cast<u32>(drawBufs.size()))); overlayDrawBufCount > 0)
             glNamedFramebufferDrawBuffers(sceneFBID, overlayDrawBufCount, drawBufs.data());
 
         auto& rendererAPI = RenderCommand::GetRendererAPI();

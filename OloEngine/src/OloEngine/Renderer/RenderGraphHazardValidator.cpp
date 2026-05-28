@@ -68,8 +68,7 @@ namespace OloEngine::RenderGraphHazardValidator
         {
             std::unordered_set<std::string>& cls = closure[passName];
             std::vector<std::string> frontier;
-            auto depsIt = input.Dependencies.find(passName);
-            if (depsIt != input.Dependencies.end())
+            if (auto depsIt = input.Dependencies.find(passName); depsIt != input.Dependencies.end())
             {
                 frontier.insert(frontier.end(), depsIt->second.begin(), depsIt->second.end());
             }

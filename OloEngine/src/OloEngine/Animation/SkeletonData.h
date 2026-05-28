@@ -91,8 +91,7 @@ namespace OloEngine
          */
         void RotateBoneHistory()
         {
-            const sizet boneCount = m_FinalBoneMatrices.size();
-            if (m_PrevFinalBoneMatrices.size() != boneCount)
+            if (const sizet boneCount = m_FinalBoneMatrices.size(); m_PrevFinalBoneMatrices.size() != boneCount)
             {
                 m_PrevFinalBoneMatrices.assign(m_FinalBoneMatrices.begin(), m_FinalBoneMatrices.end());
                 return;

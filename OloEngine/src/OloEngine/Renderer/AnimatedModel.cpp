@@ -224,15 +224,14 @@ namespace OloEngine
                 const auto* src = combined->GetSkeleton();
 
                 // Verify all skeleton arrays share the same bone count
-                auto const expectedBoneCount = src->m_ParentIndices.size();
-                if (src->m_BoneNames.size() != expectedBoneCount ||
-                    src->m_LocalTransforms.size() != expectedBoneCount ||
-                    src->m_GlobalTransforms.size() != expectedBoneCount ||
-                    src->m_FinalBoneMatrices.size() != expectedBoneCount ||
-                    src->m_BindPoseMatrices.size() != expectedBoneCount ||
-                    src->m_InverseBindPoses.size() != expectedBoneCount ||
-                    src->m_BindPoseLocalTransforms.size() != expectedBoneCount ||
-                    src->m_BonePreTransforms.size() != expectedBoneCount)
+                if (auto const expectedBoneCount = src->m_ParentIndices.size(); src->m_BoneNames.size() != expectedBoneCount ||
+                                                                                src->m_LocalTransforms.size() != expectedBoneCount ||
+                                                                                src->m_GlobalTransforms.size() != expectedBoneCount ||
+                                                                                src->m_FinalBoneMatrices.size() != expectedBoneCount ||
+                                                                                src->m_BindPoseMatrices.size() != expectedBoneCount ||
+                                                                                src->m_InverseBindPoses.size() != expectedBoneCount ||
+                                                                                src->m_BindPoseLocalTransforms.size() != expectedBoneCount ||
+                                                                                src->m_BonePreTransforms.size() != expectedBoneCount)
                 {
                     OLO_CORE_ERROR("AnimatedModel::SplitCombinedMeshSource - Skeleton array size mismatch "
                                    "(expected {} bones), rejecting cache",
@@ -1150,8 +1149,7 @@ namespace OloEngine
             BoneInfo boneInfo;
             boneInfo.Id = static_cast<u32>(i);
 
-            auto it = boneOffsetMatrices.find(boneName);
-            if (it != boneOffsetMatrices.end())
+            if (auto it = boneOffsetMatrices.find(boneName); it != boneOffsetMatrices.end())
             {
                 // Use the offset matrix from the mesh bone as the inverse bind pose
                 boneInfo.Offset = it->second;
@@ -1788,8 +1786,7 @@ namespace OloEngine
         }
 
         // glTF alpha mode + cutoff + double-sided (mirrors Model::ProcessMaterial).
-        aiString alphaModeStr;
-        if (mat->Get(AI_MATKEY_GLTF_ALPHAMODE, alphaModeStr) == AI_SUCCESS)
+        if (aiString alphaModeStr; mat->Get(AI_MATKEY_GLTF_ALPHAMODE, alphaModeStr) == AI_SUCCESS)
         {
             std::string_view mode(alphaModeStr.C_Str(), alphaModeStr.length);
             if (mode == "MASK")
@@ -1803,14 +1800,12 @@ namespace OloEngine
             }
         }
 
-        f32 alphaCutoff = 0.5f;
-        if (mat->Get(AI_MATKEY_GLTF_ALPHACUTOFF, alphaCutoff) == AI_SUCCESS)
+        if (f32 alphaCutoff = 0.5f; mat->Get(AI_MATKEY_GLTF_ALPHACUTOFF, alphaCutoff) == AI_SUCCESS)
         {
             material.SetAlphaCutoff(alphaCutoff);
         }
 
-        i32 twoSided = 0;
-        if (mat->Get(AI_MATKEY_TWOSIDED, twoSided) == AI_SUCCESS && twoSided != 0)
+        if (i32 twoSided = 0; mat->Get(AI_MATKEY_TWOSIDED, twoSided) == AI_SUCCESS && twoSided != 0)
         {
             material.SetFlag(MaterialFlag::TwoSided, true);
         }
@@ -1827,26 +1822,22 @@ namespace OloEngine
             material.SetAlbedoMap(albedoMaps[0]);
         }
 
-        auto metallicRoughnessMaps = LoadMaterialTextures(mat, aiTextureType_METALNESS);
-        if (!metallicRoughnessMaps.empty())
+        if (auto metallicRoughnessMaps = LoadMaterialTextures(mat, aiTextureType_METALNESS); !metallicRoughnessMaps.empty())
         {
             material.SetMetallicRoughnessMap(metallicRoughnessMaps[0]);
         }
 
-        auto normalMaps = LoadMaterialTextures(mat, aiTextureType_NORMALS);
-        if (!normalMaps.empty())
+        if (auto normalMaps = LoadMaterialTextures(mat, aiTextureType_NORMALS); !normalMaps.empty())
         {
             material.SetNormalMap(normalMaps[0]);
         }
 
-        auto aoMaps = LoadMaterialTextures(mat, aiTextureType_AMBIENT_OCCLUSION);
-        if (!aoMaps.empty())
+        if (auto aoMaps = LoadMaterialTextures(mat, aiTextureType_AMBIENT_OCCLUSION); !aoMaps.empty())
         {
             material.SetAOMap(aoMaps[0]);
         }
 
-        auto emissiveMaps = LoadMaterialTextures(mat, aiTextureType_EMISSIVE);
-        if (!emissiveMaps.empty())
+        if (auto emissiveMaps = LoadMaterialTextures(mat, aiTextureType_EMISSIVE); !emissiveMaps.empty())
         {
             material.SetEmissiveMap(emissiveMaps[0]);
         }
@@ -1940,8 +1931,7 @@ namespace OloEngine
 
     u32 AnimatedModel::FindBoneIndex(const std::string& boneName)
     {
-        auto it = m_BoneInfoMap.find(boneName);
-        if (it != m_BoneInfoMap.end())
+        if (auto it = m_BoneInfoMap.find(boneName); it != m_BoneInfoMap.end())
         {
             return it->second.Id;
         }

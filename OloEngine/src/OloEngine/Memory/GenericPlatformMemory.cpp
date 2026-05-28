@@ -126,8 +126,7 @@ namespace OloEngine
     {
         FPlatformMemoryStats Stats;
 
-        PlatformMemoryBackend::BackendStats BackendStats;
-        if (PlatformMemoryBackend::QueryStats(BackendStats))
+        if (PlatformMemoryBackend::BackendStats BackendStats; PlatformMemoryBackend::QueryStats(BackendStats))
         {
             Stats.TotalPhysical = BackendStats.TotalPhysical;
             Stats.TotalVirtual = BackendStats.TotalVirtual;
@@ -389,8 +388,7 @@ namespace OloEngine
 
         // Count trailing zeros to find common alignment
         u32 CommonAlignment = 3u; // Default to 8-byte alignment
-        uptr AlignmentDiff = Union1.PtrUint - Union2.PtrUint;
-        if (AlignmentDiff != 0)
+        if (uptr AlignmentDiff = Union1.PtrUint - Union2.PtrUint; AlignmentDiff != 0)
         {
             u32 TrailingZeros = 0;
             while ((AlignmentDiff & 1) == 0 && TrailingZeros < 3)

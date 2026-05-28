@@ -168,8 +168,7 @@ namespace OloEngine
         size_t offset = 0;
 
         // Version header
-        u32 version = 0;
-        if (!ReadValue(data, offset, version) || version != NAVMESH_FORMAT_VERSION)
+        if (u32 version = 0; !ReadValue(data, offset, version) || version != NAVMESH_FORMAT_VERSION)
             return false;
 
         // Settings — per-field (read into local, commit only on full success)

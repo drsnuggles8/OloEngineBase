@@ -89,8 +89,7 @@ namespace OloEngine
         {
             if (it->Task.IsCompleted())
             {
-                auto& tile = it->Tile;
-                if (tile->GetState() == TerrainTile::State::Loaded)
+                if (auto& tile = it->Tile; tile->GetState() == TerrainTile::State::Loaded)
                 {
                     // Build GPU resources on main thread
                     tile->BuildGPUResources(
@@ -165,8 +164,7 @@ namespace OloEngine
             }
 
             // Stitch +X neighbor
-            auto itPX = m_Tiles.find({ coord.X + 1, coord.Z });
-            if (itPX != m_Tiles.end() && itPX->second->GetState() == TerrainTile::State::Ready)
+            if (auto itPX = m_Tiles.find({ coord.X + 1, coord.Z }); itPX != m_Tiles.end() && itPX->second->GetState() == TerrainTile::State::Ready)
             {
                 tile->StitchEdge(*itPX->second, 0);
             }
@@ -202,8 +200,7 @@ namespace OloEngine
     Ref<TerrainTile> TerrainStreamer::GetTile(i32 gridX, i32 gridZ) const
     {
         TSharedLock<FSharedMutex> lock(m_TileMutex);
-        auto it = m_Tiles.find({ gridX, gridZ });
-        if (it != m_Tiles.end())
+        if (auto it = m_Tiles.find({ gridX, gridZ }); it != m_Tiles.end())
         {
             return it->second;
         }

@@ -112,8 +112,7 @@ namespace OloEngine
         if (inputColorTextureID == 0u || !outputFramebuffer)
         {
             m_Target = nullptr;
-            static u32 s_MissingInputOrOutputWarnings = 0;
-            if (s_MissingInputOrOutputWarnings++ < 10)
+            if (static u32 s_MissingInputOrOutputWarnings = 0; s_MissingInputOrOutputWarnings++ < 10)
             {
                 OLO_CORE_WARN("AOApplyRenderPass: missing input/output (inputTex={}, outputFB={}, aoTex={}, depthTex={})",
                               inputColorTextureID,
@@ -125,12 +124,10 @@ namespace OloEngine
             return;
         }
 
-        const bool shaderReady = m_SSAOApplyShader && m_SSAOApplyShader->IsReady();
-        if (!shaderReady || aoTextureID == 0 || sceneDepthID == 0)
+        if (const bool shaderReady = m_SSAOApplyShader && m_SSAOApplyShader->IsReady(); !shaderReady || aoTextureID == 0 || sceneDepthID == 0)
         {
             m_Target = nullptr;
-            static u32 s_InvalidExecutionStateWarnings = 0;
-            if (s_InvalidExecutionStateWarnings++ < 10)
+            if (static u32 s_InvalidExecutionStateWarnings = 0; s_InvalidExecutionStateWarnings++ < 10)
             {
                 OLO_CORE_WARN("AOApplyRenderPass: enabled without complete execution state (shaderReady={}, aoTex={}, depthTex={})",
                               shaderReady, aoTextureID, sceneDepthID);

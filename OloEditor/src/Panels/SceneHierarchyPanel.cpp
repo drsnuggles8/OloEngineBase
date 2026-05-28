@@ -141,8 +141,7 @@ namespace OloEngine
                     if (droppedOpt && droppedOpt->GetParentUUID() != UUID(0))
                     {
                         UUID oldParent = droppedOpt->GetParentUUID();
-                        Entity parent = droppedOpt->GetParent();
-                        if (parent)
+                        if (Entity parent = droppedOpt->GetParent(); parent)
                         {
                             parent.RemoveChild(*droppedOpt);
                         }
@@ -570,8 +569,7 @@ namespace OloEngine
                 if (ImGui::MenuItem("Unparent"))
                 {
                     UUID oldParentUUID = entity.GetParentUUID();
-                    Entity parent = entity.GetParent();
-                    if (parent)
+                    if (Entity parent = entity.GetParent(); parent)
                     {
                         parent.RemoveChild(entity);
                     }
@@ -1418,8 +1416,7 @@ namespace OloEngine
         ImGui::ColorEdit4("Initial Color", glm::value_ptr(emitter.InitialColor));
 
         const char* shapeItems[] = { "Point", "Sphere", "Box", "Cone", "Ring", "Edge", "Mesh" };
-        int shapeIdx = static_cast<int>(GetEmissionShapeType(emitter.Shape));
-        if (ImGui::Combo("Emission Shape", &shapeIdx, shapeItems, 7))
+        if (int shapeIdx = static_cast<int>(GetEmissionShapeType(emitter.Shape)); ImGui::Combo("Emission Shape", &shapeIdx, shapeItems, 7))
         {
             switch (static_cast<EmissionShapeType>(shapeIdx))
             {
@@ -1473,8 +1470,7 @@ namespace OloEngine
             ImGui::DragFloat("Edge Length", &edge->Length, 0.1f, 0.0f, 100.0f);
         if (auto* mesh = std::get_if<EmitMesh>(&emitter.Shape))
         {
-            int primIdx = mesh->PrimitiveType;
-            if (ImGui::Combo("Mesh Primitive", &primIdx, EmitMeshPrimitiveNames, EmitMeshPrimitiveCount))
+            if (int primIdx = mesh->PrimitiveType; ImGui::Combo("Mesh Primitive", &primIdx, EmitMeshPrimitiveNames, EmitMeshPrimitiveCount))
             {
                 BuildEmitMeshFromPrimitive(*mesh, primIdx);
             }
@@ -1491,14 +1487,12 @@ namespace OloEngine
 
         // Blend mode
         const char* blendModes[] = { "Alpha", "Additive", "Premultiplied Alpha" };
-        int blendIdx = static_cast<int>(sys.BlendMode);
-        if (ImGui::Combo("Blend Mode", &blendIdx, blendModes, 3))
+        if (int blendIdx = static_cast<int>(sys.BlendMode); ImGui::Combo("Blend Mode", &blendIdx, blendModes, 3))
             sys.BlendMode = static_cast<ParticleBlendMode>(blendIdx);
 
         // Render mode
         const char* renderModes[] = { "Billboard", "Stretched Billboard", "Mesh" };
-        int renderIdx = static_cast<int>(sys.RenderMode);
-        if (ImGui::Combo("Render Mode", &renderIdx, renderModes, 3))
+        if (int renderIdx = static_cast<int>(sys.RenderMode); ImGui::Combo("Render Mode", &renderIdx, renderModes, 3))
             sys.RenderMode = static_cast<ParticleRenderMode>(renderIdx);
 
         ImGui::Checkbox("Depth Sort", &sys.DepthSortEnabled);
@@ -1902,8 +1896,7 @@ namespace OloEngine
             {
                 const auto& entityClasses = ScriptEngine::GetEntityClasses();
                 static std::vector<std::string> cachedClassNames;
-                static size_t cachedSize = 0;
-                if (entityClasses.size() != cachedSize)
+                if (static size_t cachedSize = 0; entityClasses.size() != cachedSize)
                 {
                     cachedClassNames.clear();
                     cachedClassNames.reserve(entityClasses.size());
@@ -2802,8 +2795,7 @@ namespace OloEngine
                 }
 
                 auto baseColor = mat.GetBaseColorFactor();
-                glm::vec3 albedo(baseColor.r, baseColor.g, baseColor.b);
-                if (ImGui::ColorEdit3("Albedo", glm::value_ptr(albedo)))
+                if (glm::vec3 albedo(baseColor.r, baseColor.g, baseColor.b); ImGui::ColorEdit3("Albedo", glm::value_ptr(albedo)))
                 {
                     mat.SetBaseColorFactor(glm::vec4(albedo, 1.0f));
                 }
@@ -2902,8 +2894,7 @@ namespace OloEngine
                                          {
             // Material Presets Dropdown
             const char* presets[] = { "Custom", "Default", "Metallic", "Rough Plastic", "Polished Metal", "Rubber", "Glass", "Gold", "Silver", "Copper", "Wood", "Marble" };
-            static int currentPreset = 0;
-            if (ImGui::Combo("Preset", &currentPreset, presets, IM_ARRAYSIZE(presets)))
+            if (static int currentPreset = 0; ImGui::Combo("Preset", &currentPreset, presets, IM_ARRAYSIZE(presets)))
             {
                 switch (currentPreset)
                 {
@@ -2971,16 +2962,13 @@ namespace OloEngine
             ImGui::Separator();
 
             auto baseColor = component.m_Material.GetBaseColorFactor();
-            glm::vec3 albedo(baseColor.r, baseColor.g, baseColor.b);
-            if (ImGui::ColorEdit3("Albedo", glm::value_ptr(albedo)))
+            if (glm::vec3 albedo(baseColor.r, baseColor.g, baseColor.b); ImGui::ColorEdit3("Albedo", glm::value_ptr(albedo)))
                 component.m_Material.SetBaseColorFactor(glm::vec4(albedo, baseColor.a));
 
-            f32 metallic = component.m_Material.GetMetallicFactor();
-            if (ImGui::DragFloat("Metallic", &metallic, 0.01f, 0.0f, 1.0f))
+            if (f32 metallic = component.m_Material.GetMetallicFactor(); ImGui::DragFloat("Metallic", &metallic, 0.01f, 0.0f, 1.0f))
                 component.m_Material.SetMetallicFactor(metallic);
 
-            f32 roughness = component.m_Material.GetRoughnessFactor();
-            if (ImGui::DragFloat("Roughness", &roughness, 0.01f, 0.0f, 1.0f))
+            if (f32 roughness = component.m_Material.GetRoughnessFactor(); ImGui::DragFloat("Roughness", &roughness, 0.01f, 0.0f, 1.0f))
                 component.m_Material.SetRoughnessFactor(roughness);
 
             ImGui::Separator();
@@ -3331,8 +3319,7 @@ namespace OloEngine
         DrawComponent<Rigidbody3DComponent>("Rigidbody 3D", entity, [](auto& component)
                                             {
             const char* bodyTypeStrings[] = { "Static", "Dynamic", "Kinematic" };
-            const char* currentBodyTypeString = bodyTypeStrings[static_cast<int>(component.m_Type)];
-            if (ImGui::BeginCombo("Body Type", currentBodyTypeString))
+            if (const char* currentBodyTypeString = bodyTypeStrings[static_cast<int>(component.m_Type)]; ImGui::BeginCombo("Body Type", currentBodyTypeString))
             {
                 for (int i = 0; i < 3; ++i)
                 {
@@ -3356,11 +3343,9 @@ namespace OloEngine
                                               {
             DrawVec3Control("Half Extents##BoxCollider3D", component.m_HalfExtents);
             DrawVec3Control("Offset##BoxCollider3D", component.m_Offset);
-            f32 staticFriction = component.m_Material.GetStaticFriction();
-            if (ImGui::DragFloat("Static Friction##BoxCollider3D", &staticFriction, 0.01f, 0.0f, 2.0f))
+            if (f32 staticFriction = component.m_Material.GetStaticFriction(); ImGui::DragFloat("Static Friction##BoxCollider3D", &staticFriction, 0.01f, 0.0f, 2.0f))
                 component.m_Material.SetStaticFriction(staticFriction);
-            f32 dynamicFriction = component.m_Material.GetDynamicFriction();
-            if (ImGui::DragFloat("Dynamic Friction##BoxCollider3D", &dynamicFriction, 0.01f, 0.0f, 2.0f))
+            if (f32 dynamicFriction = component.m_Material.GetDynamicFriction(); ImGui::DragFloat("Dynamic Friction##BoxCollider3D", &dynamicFriction, 0.01f, 0.0f, 2.0f))
                 component.m_Material.SetDynamicFriction(dynamicFriction);
             f32 restitution = component.m_Material.GetRestitution();
             if (ImGui::DragFloat("Restitution##BoxCollider3D", &restitution, 0.01f, 0.0f, 1.0f))
@@ -3370,11 +3355,9 @@ namespace OloEngine
                                                  {
             ImGui::DragFloat("Radius##SphereCollider3D", &component.m_Radius, 0.01f, 0.01f, 100.0f);
             DrawVec3Control("Offset##SphereCollider3D", component.m_Offset);
-            f32 staticFriction = component.m_Material.GetStaticFriction();
-            if (ImGui::DragFloat("Static Friction##SphereCollider3D", &staticFriction, 0.01f, 0.0f, 2.0f))
+            if (f32 staticFriction = component.m_Material.GetStaticFriction(); ImGui::DragFloat("Static Friction##SphereCollider3D", &staticFriction, 0.01f, 0.0f, 2.0f))
                 component.m_Material.SetStaticFriction(staticFriction);
-            f32 dynamicFriction = component.m_Material.GetDynamicFriction();
-            if (ImGui::DragFloat("Dynamic Friction##SphereCollider3D", &dynamicFriction, 0.01f, 0.0f, 2.0f))
+            if (f32 dynamicFriction = component.m_Material.GetDynamicFriction(); ImGui::DragFloat("Dynamic Friction##SphereCollider3D", &dynamicFriction, 0.01f, 0.0f, 2.0f))
                 component.m_Material.SetDynamicFriction(dynamicFriction);
             f32 restitution = component.m_Material.GetRestitution();
             if (ImGui::DragFloat("Restitution##SphereCollider3D", &restitution, 0.01f, 0.0f, 1.0f))
@@ -3385,11 +3368,9 @@ namespace OloEngine
             ImGui::DragFloat("Radius##CapsuleCollider3D", &component.m_Radius, 0.01f, 0.01f, 100.0f);
             ImGui::DragFloat("Half Height##CapsuleCollider3D", &component.m_HalfHeight, 0.01f, 0.01f, 100.0f);
             DrawVec3Control("Offset##CapsuleCollider3D", component.m_Offset);
-            f32 staticFriction = component.m_Material.GetStaticFriction();
-            if (ImGui::DragFloat("Static Friction##CapsuleCollider3D", &staticFriction, 0.01f, 0.0f, 2.0f))
+            if (f32 staticFriction = component.m_Material.GetStaticFriction(); ImGui::DragFloat("Static Friction##CapsuleCollider3D", &staticFriction, 0.01f, 0.0f, 2.0f))
                 component.m_Material.SetStaticFriction(staticFriction);
-            f32 dynamicFriction = component.m_Material.GetDynamicFriction();
-            if (ImGui::DragFloat("Dynamic Friction##CapsuleCollider3D", &dynamicFriction, 0.01f, 0.0f, 2.0f))
+            if (f32 dynamicFriction = component.m_Material.GetDynamicFriction(); ImGui::DragFloat("Dynamic Friction##CapsuleCollider3D", &dynamicFriction, 0.01f, 0.0f, 2.0f))
                 component.m_Material.SetDynamicFriction(dynamicFriction);
             f32 restitution = component.m_Material.GetRestitution();
             if (ImGui::DragFloat("Restitution##CapsuleCollider3D", &restitution, 0.01f, 0.0f, 1.0f))
@@ -3401,11 +3382,9 @@ namespace OloEngine
             DrawVec3Control("Offset##MeshCollider3D", component.m_Offset);
             DrawVec3Control("Scale##MeshCollider3D", component.m_Scale, 1.0f);
             ImGui::Checkbox("Use Complex As Simple##MeshCollider3D", &component.m_UseComplexAsSimple);
-            f32 staticFriction = component.m_Material.GetStaticFriction();
-            if (ImGui::DragFloat("Static Friction##MeshCollider3D", &staticFriction, 0.01f, 0.0f, 2.0f))
+            if (f32 staticFriction = component.m_Material.GetStaticFriction(); ImGui::DragFloat("Static Friction##MeshCollider3D", &staticFriction, 0.01f, 0.0f, 2.0f))
                 component.m_Material.SetStaticFriction(staticFriction);
-            f32 dynamicFriction = component.m_Material.GetDynamicFriction();
-            if (ImGui::DragFloat("Dynamic Friction##MeshCollider3D", &dynamicFriction, 0.01f, 0.0f, 2.0f))
+            if (f32 dynamicFriction = component.m_Material.GetDynamicFriction(); ImGui::DragFloat("Dynamic Friction##MeshCollider3D", &dynamicFriction, 0.01f, 0.0f, 2.0f))
                 component.m_Material.SetDynamicFriction(dynamicFriction);
             f32 restitution = component.m_Material.GetRestitution();
             if (ImGui::DragFloat("Restitution##MeshCollider3D", &restitution, 0.01f, 0.0f, 1.0f))
@@ -3417,14 +3396,11 @@ namespace OloEngine
             DrawVec3Control("Offset##ConvexMeshCollider3D", component.m_Offset);
             DrawVec3Control("Scale##ConvexMeshCollider3D", component.m_Scale, 1.0f);
             ImGui::DragFloat("Convex Radius##ConvexMeshCollider3D", &component.m_ConvexRadius, 0.01f, 0.0f, 1.0f);
-            int maxVertices = static_cast<int>(component.m_MaxVertices);
-            if (ImGui::DragInt("Max Vertices##ConvexMeshCollider3D", &maxVertices, 1, 4, 256))
+            if (int maxVertices = static_cast<int>(component.m_MaxVertices); ImGui::DragInt("Max Vertices##ConvexMeshCollider3D", &maxVertices, 1, 4, 256))
                 component.m_MaxVertices = static_cast<u32>(maxVertices);
-            f32 staticFriction = component.m_Material.GetStaticFriction();
-            if (ImGui::DragFloat("Static Friction##ConvexMeshCollider3D", &staticFriction, 0.01f, 0.0f, 2.0f))
+            if (f32 staticFriction = component.m_Material.GetStaticFriction(); ImGui::DragFloat("Static Friction##ConvexMeshCollider3D", &staticFriction, 0.01f, 0.0f, 2.0f))
                 component.m_Material.SetStaticFriction(staticFriction);
-            f32 dynamicFriction = component.m_Material.GetDynamicFriction();
-            if (ImGui::DragFloat("Dynamic Friction##ConvexMeshCollider3D", &dynamicFriction, 0.01f, 0.0f, 2.0f))
+            if (f32 dynamicFriction = component.m_Material.GetDynamicFriction(); ImGui::DragFloat("Dynamic Friction##ConvexMeshCollider3D", &dynamicFriction, 0.01f, 0.0f, 2.0f))
                 component.m_Material.SetDynamicFriction(dynamicFriction);
             f32 restitution = component.m_Material.GetRestitution();
             if (ImGui::DragFloat("Restitution##ConvexMeshCollider3D", &restitution, 0.01f, 0.0f, 1.0f))
@@ -3436,11 +3412,9 @@ namespace OloEngine
             ImGui::TextWrapped("Note: Triangle mesh colliders are always static.");
             DrawVec3Control("Offset##TriangleMeshCollider3D", component.m_Offset);
             DrawVec3Control("Scale##TriangleMeshCollider3D", component.m_Scale, 1.0f);
-            f32 staticFriction = component.m_Material.GetStaticFriction();
-            if (ImGui::DragFloat("Static Friction##TriangleMeshCollider3D", &staticFriction, 0.01f, 0.0f, 2.0f))
+            if (f32 staticFriction = component.m_Material.GetStaticFriction(); ImGui::DragFloat("Static Friction##TriangleMeshCollider3D", &staticFriction, 0.01f, 0.0f, 2.0f))
                 component.m_Material.SetStaticFriction(staticFriction);
-            f32 dynamicFriction = component.m_Material.GetDynamicFriction();
-            if (ImGui::DragFloat("Dynamic Friction##TriangleMeshCollider3D", &dynamicFriction, 0.01f, 0.0f, 2.0f))
+            if (f32 dynamicFriction = component.m_Material.GetDynamicFriction(); ImGui::DragFloat("Dynamic Friction##TriangleMeshCollider3D", &dynamicFriction, 0.01f, 0.0f, 2.0f))
                 component.m_Material.SetDynamicFriction(dynamicFriction);
             f32 restitution = component.m_Material.GetRestitution();
             if (ImGui::DragFloat("Restitution##TriangleMeshCollider3D", &restitution, 0.01f, 0.0f, 1.0f))
@@ -3451,8 +3425,7 @@ namespace OloEngine
             ImGui::DragFloat("Slope Limit (deg)##CharacterController3D", &component.m_SlopeLimitDeg, 1.0f, 0.0f, 90.0f);
             ImGui::DragFloat("Step Offset##CharacterController3D", &component.m_StepOffset, 0.01f, 0.0f, 2.0f);
             ImGui::DragFloat("Jump Power##CharacterController3D", &component.m_JumpPower, 0.1f, 0.0f, 50.0f);
-            int layerID = static_cast<int>(component.m_LayerID);
-            if (ImGui::DragInt("Layer ID##CharacterController3D", &layerID, 1, 0, 31))
+            if (int layerID = static_cast<int>(component.m_LayerID); ImGui::DragInt("Layer ID##CharacterController3D", &layerID, 1, 0, 31))
                 component.m_LayerID = static_cast<u32>(layerID);
             ImGui::Checkbox("Disable Gravity##CharacterController3D", &component.m_DisableGravity);
             ImGui::Checkbox("Control Movement In Air##CharacterController3D", &component.m_ControlMovementInAir);
@@ -3479,8 +3452,7 @@ namespace OloEngine
             if (component.Config.Spatialization)
             {
                 const char* attenuationModels[] = { "None", "Inverse", "Linear", "Exponential" };
-                int currentModel = static_cast<int>(component.Config.AttenuationModel);
-                if (ImGui::Combo("Attenuation Model##AudioSource", &currentModel, attenuationModels, IM_ARRAYSIZE(attenuationModels)))
+                if (int currentModel = static_cast<int>(component.Config.AttenuationModel); ImGui::Combo("Attenuation Model##AudioSource", &currentModel, attenuationModels, IM_ARRAYSIZE(attenuationModels)))
                     component.Config.AttenuationModel = static_cast<AttenuationModelType>(currentModel);
 
                 ImGui::DragFloat("Roll Off##AudioSource", &component.Config.RollOff, 0.1f, 0.0f, 10.0f);
@@ -3659,8 +3631,7 @@ namespace OloEngine
         DrawComponent<AnimationStateComponent>("Animation State", entity, [](auto& component)
                                                {
             const char* stateStrings[] = { "Idle", "Bounce", "Custom" };
-            int currentState = static_cast<int>(component.m_State);
-            if (ImGui::Combo("State##AnimationState", &currentState, stateStrings, IM_ARRAYSIZE(stateStrings)))
+            if (int currentState = static_cast<int>(component.m_State); ImGui::Combo("State##AnimationState", &currentState, stateStrings, IM_ARRAYSIZE(stateStrings)))
                 component.m_State = static_cast<AnimationStateComponent::State>(currentState);
 
             ImGui::Text("Current Clip: %s", component.m_CurrentClip ? "Loaded" : "None");
@@ -3710,8 +3681,7 @@ namespace OloEngine
         DrawComponent<SubmeshComponent>("Submesh", entity, [](auto& component)
                                         {
             ImGui::Text("Mesh: %s", component.m_Mesh ? "Loaded" : "None");
-            int submeshIndex = static_cast<int>(component.m_SubmeshIndex);
-            if (ImGui::DragInt("Submesh Index##Submesh", &submeshIndex, 1, 0, 255))
+            if (int submeshIndex = static_cast<int>(component.m_SubmeshIndex); ImGui::DragInt("Submesh Index##Submesh", &submeshIndex, 1, 0, 255))
                 component.m_SubmeshIndex = static_cast<u32>(submeshIndex);
             ImGui::Checkbox("Visible##Submesh", &component.m_Visible);
             ImGui::Text("Bone Entities: %zu", component.m_BoneEntityIds.size()); });
@@ -3936,8 +3906,7 @@ namespace OloEngine
             ImGui::ColorEdit4("Text Color", glm::value_ptr(component.m_TextColor));
             ImGui::ColorEdit4("Placeholder Color", glm::value_ptr(component.m_PlaceholderColor));
             ImGui::ColorEdit4("Background Color", glm::value_ptr(component.m_BackgroundColor));
-            int charLimit = component.m_CharacterLimit;
-            if (ImGui::DragInt("Character Limit", &charLimit, 1, 0, 10000))
+            if (int charLimit = component.m_CharacterLimit; ImGui::DragInt("Character Limit", &charLimit, 1, 0, 10000))
                 component.m_CharacterLimit = charLimit;
             ImGui::Checkbox("Interactable", &component.m_Interactable); });
 
@@ -3967,8 +3936,7 @@ namespace OloEngine
 
         DrawComponent<UIDropdownComponent>("UI Dropdown", entity, [](auto& component)
                                            {
-            int selectedIndex = component.m_SelectedIndex;
-            if (ImGui::DragInt("Selected Index", &selectedIndex, 1, -1, static_cast<int>(component.m_Options.size()) - 1))
+            if (int selectedIndex = component.m_SelectedIndex; ImGui::DragInt("Selected Index", &selectedIndex, 1, -1, static_cast<int>(component.m_Options.size()) - 1))
                 component.m_SelectedIndex = selectedIndex;
 
             ImGui::Text("Options (%zu):", component.m_Options.size());
@@ -4061,14 +4029,12 @@ namespace OloEngine
             ImGui::DragFloat("Playback Speed", &sys.PlaybackSpeed, 0.01f, 0.0f, 10.0f);
             ImGui::DragFloat("Warm Up Time", &sys.WarmUpTime, 0.1f, 0.0f, 10.0f);
 
-            int maxP = static_cast<int>(sys.GetMaxParticles());
-            if (ImGui::DragInt("Max Particles", &maxP, 10, 1, 100000))
+            if (int maxP = static_cast<int>(sys.GetMaxParticles()); ImGui::DragInt("Max Particles", &maxP, 10, 1, 100000))
                 sys.SetMaxParticles(static_cast<u32>(maxP));
             ImGui::Text("Alive: %u", sys.GetAliveCount());
 
             const char* spaceItems[] = { "Local", "World" };
-            int spaceIdx = static_cast<int>(sys.SimulationSpace);
-            if (ImGui::Combo("Simulation Space", &spaceIdx, spaceItems, 2))
+            if (int spaceIdx = static_cast<int>(sys.SimulationSpace); ImGui::Combo("Simulation Space", &spaceIdx, spaceItems, 2))
                 sys.SimulationSpace = static_cast<ParticleSpace>(spaceIdx);
 
             // Emission
@@ -4093,8 +4059,7 @@ namespace OloEngine
                     if (ImGui::DragInt("Total Frames", &totalFrames, 1, 1, 4096))
                         sys.TextureSheetModule.TotalFrames = static_cast<u32>(totalFrames);
                     const char* sheetModes[] = { "Over Lifetime", "By Speed" };
-                    int sheetIdx = static_cast<int>(sys.TextureSheetModule.Mode);
-                    if (ImGui::Combo("Animation Mode", &sheetIdx, sheetModes, 2))
+                    if (int sheetIdx = static_cast<int>(sys.TextureSheetModule.Mode); ImGui::Combo("Animation Mode", &sheetIdx, sheetModes, 2))
                         sys.TextureSheetModule.Mode = static_cast<TextureSheetAnimMode>(sheetIdx);
                     if (sys.TextureSheetModule.Mode == TextureSheetAnimMode::BySpeed)
                         ImGui::DragFloat("Speed Range", &sys.TextureSheetModule.SpeedRange, 0.1f, 0.1f, 100.0f);
@@ -4155,8 +4120,7 @@ namespace OloEngine
             {
                 ImGui::Checkbox("Collision Enabled", &sys.CollisionModule.Enabled);
                 const char* collisionModes[] = { "World Plane", "Scene Raycast" };
-                int modeIdx = static_cast<int>(sys.CollisionModule.Mode);
-                if (ImGui::Combo("Collision Mode", &modeIdx, collisionModes, 2))
+                if (int modeIdx = static_cast<int>(sys.CollisionModule.Mode); ImGui::Combo("Collision Mode", &modeIdx, collisionModes, 2))
                     sys.CollisionModule.Mode = static_cast<CollisionMode>(modeIdx);
                 if (sys.CollisionModule.Mode == CollisionMode::WorldPlane)
                 {
@@ -4178,12 +4142,10 @@ namespace OloEngine
                 {
                     auto& ff = sys.ForceFields[fi];
                     ImGui::PushID(static_cast<int>(fi));
-                    std::string label = "Force Field " + std::to_string(fi);
-                    if (ImGui::TreeNode(label.c_str()))
+                    if (std::string label = "Force Field " + std::to_string(fi); ImGui::TreeNode(label.c_str()))
                     {
                         ImGui::Checkbox("Enabled", &ff.Enabled);
-                        int ffIdx = static_cast<int>(ff.Type);
-                        if (ImGui::Combo("Force Type", &ffIdx, ffTypes, 3))
+                        if (int ffIdx = static_cast<int>(ff.Type); ImGui::Combo("Force Type", &ffIdx, ffTypes, 3))
                             ff.Type = static_cast<ForceFieldType>(ffIdx);
                         ImGui::DragFloat3("Position", glm::value_ptr(ff.Position), 0.1f);
                         ImGui::DragFloat("Strength", &ff.Strength, 0.1f, 0.0f, 1000.0f);
@@ -4215,8 +4177,7 @@ namespace OloEngine
             if (ImGui::CollapsingHeader("Trail"))
             {
                 ImGui::Checkbox("Trail Enabled", &sys.TrailModule.Enabled);
-                int maxPts = static_cast<int>(sys.TrailModule.MaxTrailPoints);
-                if (ImGui::DragInt("Max Trail Points", &maxPts, 1, 2, 128))
+                if (int maxPts = static_cast<int>(sys.TrailModule.MaxTrailPoints); ImGui::DragInt("Max Trail Points", &maxPts, 1, 2, 128))
                     sys.TrailModule.MaxTrailPoints = static_cast<u32>(maxPts);
                 ImGui::DragFloat("Trail Lifetime", &sys.TrailModule.TrailLifetime, 0.01f, 0.01f, 10.0f);
                 ImGui::DragFloat("Min Vertex Distance", &sys.TrailModule.MinVertexDistance, 0.01f, 0.001f, 10.0f);
@@ -4259,15 +4220,13 @@ namespace OloEngine
                 if (ImGui::DragInt("Seed", &component.m_ProceduralSeed, 1))
                     component.m_NeedsRebuild = true;
 
-                int procRes = static_cast<int>(component.m_ProceduralResolution);
-                if (ImGui::DragInt("Resolution", &procRes, 1, 64, 2048))
+                if (int procRes = static_cast<int>(component.m_ProceduralResolution); ImGui::DragInt("Resolution", &procRes, 1, 64, 2048))
                 {
                     component.m_ProceduralResolution = static_cast<u32>(procRes);
                     component.m_NeedsRebuild = true;
                 }
 
-                int procOctaves = static_cast<int>(component.m_ProceduralOctaves);
-                if (ImGui::DragInt("Octaves", &procOctaves, 1, 1, 12))
+                if (int procOctaves = static_cast<int>(component.m_ProceduralOctaves); ImGui::DragInt("Octaves", &procOctaves, 1, 1, 12))
                 {
                     component.m_ProceduralOctaves = static_cast<u32>(procOctaves);
                     component.m_NeedsRebuild = true;
@@ -4464,22 +4423,19 @@ namespace OloEngine
                 if (ImGui::DragFloat("Tile World Size", &component.m_TileWorldSize, 1.0f, 32.0f, 4096.0f))
                     component.m_NeedsRebuild = true;
 
-                int tileRes = static_cast<int>(component.m_TileResolution);
-                if (ImGui::DragInt("Tile Resolution", &tileRes, 1, 65, 2049))
+                if (int tileRes = static_cast<int>(component.m_TileResolution); ImGui::DragInt("Tile Resolution", &tileRes, 1, 65, 2049))
                 {
                     component.m_TileResolution = static_cast<u32>(tileRes);
                     component.m_NeedsRebuild = true;
                 }
 
-                int loadRadius = static_cast<int>(component.m_StreamingLoadRadius);
-                if (ImGui::DragInt("Load Radius (tiles)", &loadRadius, 1, 1, 10))
+                if (int loadRadius = static_cast<int>(component.m_StreamingLoadRadius); ImGui::DragInt("Load Radius (tiles)", &loadRadius, 1, 1, 10))
                 {
                     component.m_StreamingLoadRadius = static_cast<u32>(loadRadius);
                     component.m_NeedsRebuild = true;
                 }
 
-                int maxTiles = static_cast<int>(component.m_StreamingMaxTiles);
-                if (ImGui::DragInt("Max Loaded Tiles", &maxTiles, 1, 1, 100))
+                if (int maxTiles = static_cast<int>(component.m_StreamingMaxTiles); ImGui::DragInt("Max Loaded Tiles", &maxTiles, 1, 1, 100))
                 {
                     component.m_StreamingMaxTiles = static_cast<u32>(maxTiles);
                     component.m_NeedsRebuild = true;
@@ -4664,14 +4620,12 @@ namespace OloEngine
                 if (ImGui::DragFloat("World Size Z", &component.m_WorldSizeZ, 1.0f, 0.1f, 100000.0f))
                     component.m_NeedsRebuild = true;
 
-                i32 resX = static_cast<i32>(component.m_GridResolutionX);
-                if (ImGui::DragInt("Grid Resolution X", &resX, 1, 2, 512))
+                if (i32 resX = static_cast<i32>(component.m_GridResolutionX); ImGui::DragInt("Grid Resolution X", &resX, 1, 2, 512))
                 {
                     component.m_GridResolutionX = static_cast<u32>(resX);
                     component.m_NeedsRebuild = true;
                 }
-                i32 resZ = static_cast<i32>(component.m_GridResolutionZ);
-                if (ImGui::DragInt("Grid Resolution Z", &resZ, 1, 2, 512))
+                if (i32 resZ = static_cast<i32>(component.m_GridResolutionZ); ImGui::DragInt("Grid Resolution Z", &resZ, 1, 2, 512))
                 {
                     component.m_GridResolutionZ = static_cast<u32>(resZ);
                     component.m_NeedsRebuild = true;
@@ -4897,8 +4851,7 @@ namespace OloEngine
                 ImGui::Checkbox("Enabled##FogVolume", &component.m_Enabled);
 
                 const char* shapeNames[] = { "Box", "Sphere", "Cylinder" };
-                int shape = static_cast<int>(component.m_Shape);
-                if (ImGui::Combo("Shape##FogVolume", &shape, shapeNames, IM_ARRAYSIZE(shapeNames)))
+                if (int shape = static_cast<int>(component.m_Shape); ImGui::Combo("Shape##FogVolume", &shape, shapeNames, IM_ARRAYSIZE(shapeNames)))
                     component.m_Shape = static_cast<FogVolumeShape>(shape);
 
                 if (component.m_Shape == FogVolumeShape::Sphere)
@@ -4939,8 +4892,7 @@ namespace OloEngine
 
                 // Deferred G-Buffer target channel.
                 static const char* kDecalModes[] = { "Albedo", "Normal", "RMA", "Emissive" };
-                i32 currentMode = static_cast<i32>(component.m_Mode);
-                if (ImGui::Combo("Mode##Decal", &currentMode, kDecalModes, IM_ARRAYSIZE(kDecalModes)))
+                if (i32 currentMode = static_cast<i32>(component.m_Mode); ImGui::Combo("Mode##Decal", &currentMode, kDecalModes, IM_ARRAYSIZE(kDecalModes)))
                 {
                     component.m_Mode = static_cast<DecalMode>(currentMode);
                 }
@@ -5013,8 +4965,7 @@ namespace OloEngine
                         component.m_Dirty = true;
                     }
                 }
-                i32 res[3] = { component.m_Resolution.x, component.m_Resolution.y, component.m_Resolution.z };
-                if (ImGui::DragInt3("Resolution", res, 1, 1, 64))
+                if (i32 res[3] = { component.m_Resolution.x, component.m_Resolution.y, component.m_Resolution.z }; ImGui::DragInt3("Resolution", res, 1, 1, 64))
                 {
                     component.m_Resolution = glm::ivec3(res[0], res[1], res[2]);
                     component.m_Dirty = true;
@@ -5085,8 +5036,7 @@ namespace OloEngine
             }
             ImGui::DragFloat("Blend Distance", &component.m_BlendDistance, 0.05f, 0.0f, 100.0f, "%.2f");
             ImGui::DragFloat("Intensity##ReflectionProbe", &component.m_Intensity, 0.01f, 0.0f, 10.0f, "%.2f");
-            i32 resolution = static_cast<i32>(component.m_Resolution);
-            if (ImGui::SliderInt("Resolution##ReflectionProbe", &resolution, 16, 1024))
+            if (i32 resolution = static_cast<i32>(component.m_Resolution); ImGui::SliderInt("Resolution##ReflectionProbe", &resolution, 16, 1024))
             {
                 component.m_Resolution = static_cast<u32>(std::clamp(resolution, 16, 2048));
                 component.m_NeedsBake = true;
@@ -5159,8 +5109,7 @@ namespace OloEngine
 
             // Activation mode combo
             const char* modeNames[] = { "Proximity", "Manual" };
-            int currentMode = static_cast<int>(component.ActivationMode);
-            if (ImGui::Combo("Activation Mode", &currentMode, modeNames, IM_ARRAYSIZE(modeNames)))
+            if (int currentMode = static_cast<int>(component.ActivationMode); ImGui::Combo("Activation Mode", &currentMode, modeNames, IM_ARRAYSIZE(modeNames)))
             {
                 component.ActivationMode = static_cast<StreamingActivationMode>(currentMode);
             }
@@ -5181,8 +5130,7 @@ namespace OloEngine
             ImGui::DragScalar("Owner Client ID", ImGuiDataType_U32, &component.OwnerClientID);
 
             const char* authorityStrings[] = { "Server", "Client", "Shared" };
-            int currentAuthority = static_cast<int>(component.Authority);
-            if (ImGui::Combo("Authority", &currentAuthority, authorityStrings, IM_ARRAYSIZE(authorityStrings)))
+            if (int currentAuthority = static_cast<int>(component.Authority); ImGui::Combo("Authority", &currentAuthority, authorityStrings, IM_ARRAYSIZE(authorityStrings)))
             {
                 component.Authority = static_cast<ENetworkAuthority>(currentAuthority);
             }
@@ -5406,8 +5354,7 @@ namespace OloEngine
 
         DrawComponent<InventoryComponent>("Inventory", entity, [](auto& component)
                                           {
-            i32 capacity = component.PlayerInventory.GetCapacity();
-            if (ImGui::DragInt("Capacity", &capacity, 1, 1, 1000))
+            if (i32 capacity = component.PlayerInventory.GetCapacity(); ImGui::DragInt("Capacity", &capacity, 1, 1, 1000))
                 component.PlayerInventory.SetCapacity(capacity);
 
             ImGui::DragFloat("Max Weight", &component.PlayerInventory.MaxWeight, 0.1f, 0.0f, 10000.0f);
@@ -5474,8 +5421,7 @@ namespace OloEngine
             // Attribute summary
             if (ImGui::TreeNode("Equipment Bonuses"))
             {
-                auto modifiers = component.Equipment.GetAllAttributeModifiers();
-                if (modifiers.empty())
+                if (auto modifiers = component.Equipment.GetAllAttributeModifiers(); modifiers.empty())
                 {
                     ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "No bonuses");
                 }
@@ -5506,8 +5452,7 @@ namespace OloEngine
 
         DrawComponent<ItemContainerComponent>("Item Container", entity, [](auto& component)
                                               {
-            i32 capacity = component.Contents.GetCapacity();
-            if (ImGui::DragInt("Capacity", &capacity, 1, 1, 1000))
+            if (i32 capacity = component.Contents.GetCapacity(); ImGui::DragInt("Capacity", &capacity, 1, 1, 1000))
                 component.Contents.SetCapacity(capacity);
 
             ImGui::Checkbox("Is Shop", &component.IsShop);
@@ -5549,8 +5494,7 @@ namespace OloEngine
                         ImGui::Text("Stage: %d", component.Journal.GetCurrentStageIndex(questId));
 
                         auto const& states = component.Journal.GetActiveQuestStates();
-                        auto it = states.find(questId);
-                        if (it != states.end())
+                        if (auto it = states.find(questId); it != states.end())
                         {
                             for (auto const& obj : it->second.ObjectiveStates)
                             {
@@ -5784,8 +5728,7 @@ namespace OloEngine
                         drawTagList("Activation Granted Tags", ability.Definition.ActivationGrantedTags, "actTag");
 
                         // Activation Effects
-                        std::string effectsTreeId = "Activation Effects##abilEffects" + std::to_string(i);
-                        if (ImGui::TreeNode(effectsTreeId.c_str(), "Activation Effects (%zu)", ability.Definition.ActivationEffects.size()))
+                        if (std::string effectsTreeId = "Activation Effects##abilEffects" + std::to_string(i); ImGui::TreeNode(effectsTreeId.c_str(), "Activation Effects (%zu)", ability.Definition.ActivationEffects.size()))
                         {
                             for (size_t e = 0; e < ability.Definition.ActivationEffects.size(); ++e)
                             {
@@ -5796,8 +5739,7 @@ namespace OloEngine
                                 {
                                     ImGui::InputText("Name", &effect.Name);
                                     int durType = static_cast<int>(effect.Policy.DurationType);
-                                    const char* durTypes[] = { "Instant", "HasDuration", "Infinite" };
-                                    if (ImGui::Combo("Duration Type", &durType, durTypes, 3))
+                                    if (const char* durTypes[] = { "Instant", "HasDuration", "Infinite" }; ImGui::Combo("Duration Type", &durType, durTypes, 3))
                                     {
                                         effect.Policy.DurationType = static_cast<GameplayEffectPolicy::Duration>(durType);
                                     }
@@ -5858,8 +5800,7 @@ namespace OloEngine
                         }
 
                         // Target Activation Effects
-                        std::string targetEffectsTreeId = "Target Effects##abilTargetEffects" + std::to_string(i);
-                        if (ImGui::TreeNode(targetEffectsTreeId.c_str(), "Target Effects (%zu)", ability.Definition.TargetActivationEffects.size()))
+                        if (std::string targetEffectsTreeId = "Target Effects##abilTargetEffects" + std::to_string(i); ImGui::TreeNode(targetEffectsTreeId.c_str(), "Target Effects (%zu)", ability.Definition.TargetActivationEffects.size()))
                         {
                             ImGui::TextDisabled("Applied to the target (via TryActivateAbilityOnTarget).");
                             ImGui::TextDisabled("If empty, ActivationEffects are used instead.");
@@ -5872,8 +5813,7 @@ namespace OloEngine
                                 {
                                     ImGui::InputText("Name", &effect.Name);
                                     int durType = static_cast<int>(effect.Policy.DurationType);
-                                    const char* durTypes[] = { "Instant", "HasDuration", "Infinite" };
-                                    if (ImGui::Combo("Duration Type", &durType, durTypes, 3))
+                                    if (const char* durTypes[] = { "Instant", "HasDuration", "Infinite" }; ImGui::Combo("Duration Type", &durType, durTypes, 3))
                                     {
                                         effect.Policy.DurationType = static_cast<GameplayEffectPolicy::Duration>(durType);
                                     }
@@ -5941,8 +5881,7 @@ namespace OloEngine
                         }
 
                         ImGui::SameLine();
-                        std::string removeLabel = "X##removeAbility" + std::to_string(i);
-                        if (ImGui::SmallButton(removeLabel.c_str()))
+                        if (std::string removeLabel = "X##removeAbility" + std::to_string(i); ImGui::SmallButton(removeLabel.c_str()))
                         {
                             if (ability.IsActive)
                             {

@@ -282,8 +282,7 @@ namespace OloEngine
             {
                 case AnimationParameterType::Float:
                 {
-                    f32 val = param.FloatValue;
-                    if (ImGui::DragFloat("##val", &val, 0.01f))
+                    if (f32 val = param.FloatValue; ImGui::DragFloat("##val", &val, 0.01f))
                     {
                         graph->Parameters.SetFloat(name, val);
                         graphComp.Parameters.SetFloat(name, val);
@@ -292,8 +291,7 @@ namespace OloEngine
                 }
                 case AnimationParameterType::Int:
                 {
-                    i32 val = param.IntValue;
-                    if (ImGui::DragInt("##val", &val))
+                    if (i32 val = param.IntValue; ImGui::DragInt("##val", &val))
                     {
                         graph->Parameters.SetInt(name, val);
                         graphComp.Parameters.SetInt(name, val);
@@ -302,8 +300,7 @@ namespace OloEngine
                 }
                 case AnimationParameterType::Bool:
                 {
-                    bool val = param.BoolValue;
-                    if (ImGui::Checkbox("##val", &val))
+                    if (bool val = param.BoolValue; ImGui::Checkbox("##val", &val))
                     {
                         graph->Parameters.SetBool(name, val);
                         graphComp.Parameters.SetBool(name, val);
@@ -671,8 +668,7 @@ namespace OloEngine
             std::sort(stateNames.begin(), stateNames.end());
 
             // Source: "Any State (*)" plus all state names
-            std::string sourcePreview = strlen(m_NewTransitionSource) > 0 ? m_NewTransitionSource : "Any State (*)";
-            if (ImGui::BeginCombo("Source", sourcePreview.c_str()))
+            if (std::string sourcePreview = strlen(m_NewTransitionSource) > 0 ? m_NewTransitionSource : "Any State (*)"; ImGui::BeginCombo("Source", sourcePreview.c_str()))
             {
                 if (ImGui::Selectable("Any State (*)", strlen(m_NewTransitionSource) == 0))
                 {
@@ -690,8 +686,7 @@ namespace OloEngine
             }
 
             // Destination: only valid state names
-            std::string destPreview = strlen(m_NewTransitionDest) > 0 ? m_NewTransitionDest : "<select>";
-            if (ImGui::BeginCombo("Destination", destPreview.c_str()))
+            if (std::string destPreview = strlen(m_NewTransitionDest) > 0 ? m_NewTransitionDest : "<select>"; ImGui::BeginCombo("Destination", destPreview.c_str()))
             {
                 for (auto const& name : stateNames)
                 {
@@ -951,8 +946,7 @@ namespace OloEngine
             {
                 case AnimationParameterType::Float:
                 {
-                    f32 val = param.FloatValue;
-                    if (ImGui::DragFloat(name.c_str(), &val, 0.01f))
+                    if (f32 val = param.FloatValue; ImGui::DragFloat(name.c_str(), &val, 0.01f))
                     {
                         graphComp.Parameters.SetFloat(name, val);
                     }
@@ -960,8 +954,7 @@ namespace OloEngine
                 }
                 case AnimationParameterType::Int:
                 {
-                    i32 val = param.IntValue;
-                    if (ImGui::DragInt(name.c_str(), &val))
+                    if (i32 val = param.IntValue; ImGui::DragInt(name.c_str(), &val))
                     {
                         graphComp.Parameters.SetInt(name, val);
                     }
@@ -969,8 +962,7 @@ namespace OloEngine
                 }
                 case AnimationParameterType::Bool:
                 {
-                    bool val = param.BoolValue;
-                    if (ImGui::Checkbox(name.c_str(), &val))
+                    if (bool val = param.BoolValue; ImGui::Checkbox(name.c_str(), &val))
                     {
                         graphComp.Parameters.SetBool(name, val);
                     }

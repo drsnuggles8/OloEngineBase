@@ -40,8 +40,7 @@ namespace OloEngine
         // any subnormal value here would be a degenerate projection. Reset to
         // 0.0f on the degenerate path so a stale viewport height from a prior
         // BeginScene can't leak into PushClipRect's Y-flip math.
-        constexpr f32 projectionEpsilon = 1e-6f;
-        if (std::abs(projection[1][1]) > projectionEpsilon)
+        if (constexpr f32 projectionEpsilon = 1e-6f; std::abs(projection[1][1]) > projectionEpsilon)
         {
             s_ViewportHeight = glm::abs(-2.0f / projection[1][1]);
         }

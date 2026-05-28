@@ -42,8 +42,7 @@ namespace OloEngine::Audio
                 return false;
 
             // Validate duration consistency
-            const f64 expectedDuration = static_cast<f64>(m_NumFrames) / m_SampleRate;
-            if (!std::isfinite(m_Duration) || std::abs(m_Duration - expectedDuration) > 0.001)
+            if (const f64 expectedDuration = static_cast<f64>(m_NumFrames) / m_SampleRate; !std::isfinite(m_Duration) || std::abs(m_Duration - expectedDuration) > 0.001)
                 return false;
 
             const sizet expectedSampleCount = static_cast<sizet>(m_NumFrames) * static_cast<sizet>(m_NumChannels);

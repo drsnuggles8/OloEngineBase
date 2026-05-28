@@ -15,8 +15,7 @@ namespace OloEngine::Animation
 {
     static glm::vec3 SafeNormalize(const glm::vec3& v)
     {
-        f32 len2 = glm::length2(v);
-        if (len2 > 1e-12f)
+        if (f32 len2 = glm::length2(v); len2 > 1e-12f)
         {
             return v * glm::inversesqrt(len2);
         }

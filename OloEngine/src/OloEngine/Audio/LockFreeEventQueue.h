@@ -68,8 +68,7 @@ namespace OloEngine::Audio
             }
 
             // Copy the raw data into our storage
-            const void* sourceData = source.getRawData();
-            if (sourceData && m_DataSize > 0)
+            if (const void* sourceData = source.getRawData(); sourceData && m_DataSize > 0)
             {
                 std::memcpy(m_Storage, sourceData, m_DataSize);
             }

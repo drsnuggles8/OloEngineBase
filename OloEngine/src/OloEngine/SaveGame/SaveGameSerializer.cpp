@@ -399,8 +399,7 @@ namespace OloEngine
             return false;
         }
 
-        static constexpr u32 kMaxEntityCount = 1'000'000;
-        if (entityCount > kMaxEntityCount)
+        if (static constexpr u32 kMaxEntityCount = 1'000'000; entityCount > kMaxEntityCount)
         {
             OLO_CORE_ERROR("[SaveGameSerializer] Entity count {} exceeds maximum {}", entityCount, kMaxEntityCount);
             return false;

@@ -153,9 +153,7 @@ namespace OloEngine
         // Check subdirectories
         for (const auto& subDir : dir.SubDirectories)
         {
-            std::string nameLower = ToLowerCopy(subDir->Name);
-
-            if (nameLower.find(queryLower) != std::string::npos)
+            if (std::string nameLower = ToLowerCopy(subDir->Name); nameLower.find(queryLower) != std::string::npos)
                 results.push_back(m_AssetRoot / subDir->RelativePath);
 
             // Always recurse into subdirectories

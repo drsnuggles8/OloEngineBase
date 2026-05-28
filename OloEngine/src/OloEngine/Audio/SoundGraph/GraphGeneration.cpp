@@ -509,8 +509,7 @@ namespace OloEngine::Audio::SoundGraph
                 for (const auto& defaultPlug : nodeDesc.m_DefaultValuePlugs)
                 {
                     // Find the corresponding input stream in the node and set default value
-                    auto inputIt = node->InputStreams.find(defaultPlug.m_EndpointID);
-                    if (inputIt != node->InputStreams.end())
+                    if (auto inputIt = node->InputStreams.find(defaultPlug.m_EndpointID); inputIt != node->InputStreams.end())
                     {
                         // Create a default value plug for this input
                         auto defaultValuePlug = CreateScope<StreamWriter>(

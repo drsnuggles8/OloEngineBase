@@ -421,8 +421,7 @@ namespace OloEngine
                     if (m_PickingReadPending)
                     {
                         glBindBuffer(GL_PIXEL_PACK_BUFFER, readPBO);
-                        const auto* mapped = static_cast<const int*>(glMapBuffer(GL_PIXEL_PACK_BUFFER, GL_READ_ONLY));
-                        if (mapped)
+                        if (const auto* mapped = static_cast<const int*>(glMapBuffer(GL_PIXEL_PACK_BUFFER, GL_READ_ONLY)); mapped)
                         {
                             pixelData = *mapped;
                             glUnmapBuffer(GL_PIXEL_PACK_BUFFER);
@@ -431,8 +430,7 @@ namespace OloEngine
                     }
 
                     // Step 2: Issue async read for this frame into the write PBO
-                    auto framebuffer = Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::SceneColor);
-                    if (framebuffer)
+                    if (auto framebuffer = Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::SceneColor); framebuffer)
                     {
                         glBindFramebuffer(GL_READ_FRAMEBUFFER, framebuffer->GetRendererID());
                         glReadBuffer(GL_COLOR_ATTACHMENT0 + 1); // Entity ID attachment
@@ -1093,8 +1091,7 @@ namespace OloEngine
         if (hasPlayButton)
         {
             using enum OloEngine::EditorLayer::SceneState;
-            Ref<Texture2D> const icon = ((m_SceneState == Edit) || (m_SceneState == Simulate)) ? m_IconPlay : m_IconStop;
-            if (ImGui::ImageButton("##play_stop_icon", static_cast<u64>(icon->GetRendererID()), btnSize, ImVec2(0, 0), ImVec2(1, 1), ImVec4(0, 0, 0, 0), tintColor) && toolbarEnabled)
+            if (Ref<Texture2D> const icon = ((m_SceneState == Edit) || (m_SceneState == Simulate)) ? m_IconPlay : m_IconStop; ImGui::ImageButton("##play_stop_icon", static_cast<u64>(icon->GetRendererID()), btnSize, ImVec2(0, 0), ImVec2(1, 1), ImVec4(0, 0, 0, 0), tintColor) && toolbarEnabled)
             {
                 if ((m_SceneState == Edit) || (m_SceneState == Simulate))
                 {
@@ -1112,8 +1109,7 @@ namespace OloEngine
         if (hasSimulateButton)
         {
             using enum OloEngine::EditorLayer::SceneState;
-            Ref<Texture2D> const icon = ((m_SceneState == Edit) || (m_SceneState == Play)) ? m_IconSimulate : m_IconStop;
-            if (ImGui::ImageButton("##simulate_stop_icon", static_cast<u64>(icon->GetRendererID()), btnSize, ImVec2(0, 0), ImVec2(1, 1), ImVec4(0, 0, 0, 0), tintColor) && toolbarEnabled)
+            if (Ref<Texture2D> const icon = ((m_SceneState == Edit) || (m_SceneState == Play)) ? m_IconSimulate : m_IconStop; ImGui::ImageButton("##simulate_stop_icon", static_cast<u64>(icon->GetRendererID()), btnSize, ImVec2(0, 0), ImVec2(1, 1), ImVec4(0, 0, 0, 0), tintColor) && toolbarEnabled)
             {
                 if ((m_SceneState == Edit) || (m_SceneState == Play))
                 {
@@ -1130,8 +1126,7 @@ namespace OloEngine
         // Pause button
         if (hasPauseButton)
         {
-            Ref<Texture2D> const icon = m_IconPause;
-            if (ImGui::ImageButton("##pause_icon", static_cast<u64>(icon->GetRendererID()), btnSize, ImVec2(0, 0), ImVec2(1, 1), ImVec4(0, 0, 0, 0), tintColor) && toolbarEnabled)
+            if (Ref<Texture2D> const icon = m_IconPause; ImGui::ImageButton("##pause_icon", static_cast<u64>(icon->GetRendererID()), btnSize, ImVec2(0, 0), ImVec2(1, 1), ImVec4(0, 0, 0, 0), tintColor) && toolbarEnabled)
             {
                 m_ActiveScene->SetPaused(!isPaused);
             }
@@ -1272,8 +1267,7 @@ namespace OloEngine
         if (m_ShowLocalizationPanel)
         {
             static const Project* s_LastLocalizationProject = reinterpret_cast<const Project*>(0x1);
-            const Project* activeProject = Project::GetActive().Raw();
-            if (activeProject != s_LastLocalizationProject)
+            if (const Project* activeProject = Project::GetActive().Raw(); activeProject != s_LastLocalizationProject)
             {
                 // Resolve the project's asset root + "localization" subdir
                 // into an absolute path. The hard-coded "assets/localization"
@@ -1766,8 +1760,7 @@ namespace OloEngine
         }
 
         // Entity outline
-        const auto& selectedEntities = m_SceneHierarchyPanel.GetSelectedEntities();
-        if (!selectedEntities.empty())
+        if (const auto& selectedEntities = m_SceneHierarchyPanel.GetSelectedEntities(); !selectedEntities.empty())
         {
             Renderer2D::SetLineWidth(4.0f);
 
@@ -2010,8 +2003,7 @@ namespace OloEngine
 
             // Load item definitions before opening scene so deserialization can resolve items
             ItemDatabase::Clear();
-            auto itemsDir = Project::GetAssetFileSystemPath("Items");
-            if (std::filesystem::exists(itemsDir))
+            if (auto itemsDir = Project::GetAssetFileSystemPath("Items"); std::filesystem::exists(itemsDir))
             {
                 ItemDatabase::LoadFromDirectory(itemsDir.string());
             }
@@ -2029,8 +2021,7 @@ namespace OloEngine
                                                    { return SaveScene(); });
 
             // Load input action map if one exists for this project
-            auto inputMapPath = Project::GetInputActionMapPath();
-            if (std::filesystem::exists(inputMapPath))
+            if (auto inputMapPath = Project::GetInputActionMapPath(); std::filesystem::exists(inputMapPath))
             {
                 auto loadedMap = InputActionSerializer::Deserialize(inputMapPath);
                 if (loadedMap)
@@ -2095,8 +2086,7 @@ namespace OloEngine
             OnSceneStop();
         }
 
-        auto const ext = LowercaseExtension(path);
-        if (ext != ".olo" && ext != ".scene")
+        if (auto const ext = LowercaseExtension(path); ext != ".olo" && ext != ".scene")
         {
             OLO_WARN("Could not load {0} - not a scene file", path.filename().string());
             return false;

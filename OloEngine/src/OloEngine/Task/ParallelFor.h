@@ -86,9 +86,7 @@ namespace OloEngine
             i32 NumThreadTasks = 0;
 
             // Check if multithreading should be used for performance (matches UE5.7 FApp::ShouldUseThreadingForPerformance())
-            const bool bIsMultithread = ShouldUseThreadingForPerformance() || FForkProcessHelper::IsForkedMultithreadInstance();
-
-            if (Num > 1 && (Flags & EParallelForFlags::ForceSingleThread) == EParallelForFlags::None && bIsMultithread)
+            if (const bool bIsMultithread = ShouldUseThreadingForPerformance() || FForkProcessHelper::IsForkedMultithreadInstance(); Num > 1 && (Flags & EParallelForFlags::ForceSingleThread) == EParallelForFlags::None && bIsMultithread)
             {
                 NumThreadTasks = FMath::Min(
                     static_cast<i32>(LowLevelTasks::FScheduler::Get().GetNumWorkers()),
@@ -159,9 +157,7 @@ namespace OloEngine
             // Calculate batch sizes
             i32 BatchSize = 1;
             i32 NumBatches = Num;
-            const bool bIsUnbalanced = (Flags & EParallelForFlags::Unbalanced) != EParallelForFlags::None;
-
-            if (!bIsUnbalanced)
+            if (const bool bIsUnbalanced = (Flags & EParallelForFlags::Unbalanced) != EParallelForFlags::None; !bIsUnbalanced)
             {
                 for (i32 Div = 6; Div; Div--)
                 {
@@ -413,9 +409,7 @@ namespace OloEngine
             // Help with the parallel-for to prevent deadlocks
             // Master thread uses NumWorkers as its worker index (the "extra" slot)
             FParallelExecutor LocalExecutor(MoveTemp(Data), NumWorkers);
-            const bool bFinishedLast = LocalExecutor(true);
-
-            if (!bFinishedLast)
+            if (const bool bFinishedLast = LocalExecutor(true); !bFinishedLast)
             {
                 OLO_PROFILE_SCOPE("ParallelFor.Wait");
 

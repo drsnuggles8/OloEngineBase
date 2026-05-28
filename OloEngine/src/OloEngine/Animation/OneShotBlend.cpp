@@ -71,8 +71,7 @@ namespace OloEngine::Animation
                     break;
                 case Phase::Playing:
                 {
-                    f32 blendOutStart = Clip->Duration - BlendOutDuration;
-                    if (m_PlaybackTime >= blendOutStart)
+                    if (f32 blendOutStart = Clip->Duration - BlendOutDuration; m_PlaybackTime >= blendOutStart)
                     {
                         m_Phase = Phase::BlendOut;
                         m_PhaseTime = m_PlaybackTime - blendOutStart;

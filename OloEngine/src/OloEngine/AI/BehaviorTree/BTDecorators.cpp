@@ -148,8 +148,7 @@ namespace OloEngine
 
         // Compare the variant values
         auto const& allData = blackboard.GetAll();
-        auto it = allData.find(BlackboardKey);
-        if (it == allData.end() || it->second != ExpectedValue)
+        if (auto it = allData.find(BlackboardKey); it == allData.end() || it->second != ExpectedValue)
         {
             if (!Children.empty())
             {

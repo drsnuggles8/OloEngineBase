@@ -73,8 +73,7 @@ namespace OloEngine
                     if (entityOpt.has_value() && entityOpt->HasComponent<TransformComponent>())
                     {
                         auto& transform = entityOpt->GetComponent<TransformComponent>();
-                        f32 const error = glm::length(transform.Translation - preTransform.Translation);
-                        if (m_HardSnapThreshold > 0.0f && error >= m_HardSnapThreshold)
+                        if (f32 const error = glm::length(transform.Translation - preTransform.Translation); m_HardSnapThreshold > 0.0f && error >= m_HardSnapThreshold)
                         {
                             // Error exceeds threshold — keep the post-resimulation state (hard snap)
                             continue;
