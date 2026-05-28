@@ -26,8 +26,8 @@ namespace OloEngine
         outNormals.resize(vertexCount);
 
         // Start with base mesh data
-        std::copy(basePositions.begin(), basePositions.end(), outPositions.begin());
-        std::copy(baseNormals.begin(), baseNormals.end(), outNormals.begin());
+        std::ranges::copy(basePositions, outPositions.begin());
+        std::ranges::copy(baseNormals, outNormals.begin());
 
         const u32 targetCount = morphTargets.GetTargetCount();
         const u32 weightCount = static_cast<u32>(weights.size());

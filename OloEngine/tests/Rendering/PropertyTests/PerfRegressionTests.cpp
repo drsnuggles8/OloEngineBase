@@ -178,7 +178,7 @@ namespace OloEngine::Tests
             keys.reserve(baselines.size());
             for (const auto& [k, _] : baselines)
                 keys.push_back(k);
-            std::sort(keys.begin(), keys.end());
+            std::ranges::sort(keys);
             for (const auto& k : keys)
                 out << k << " " << baselines.at(k) << "\n";
         }
@@ -447,7 +447,7 @@ namespace OloEngine::Tests
             samples.push_back(timer.GetElapsedNs());
         }
 
-        std::sort(samples.begin(), samples.end());
+        std::ranges::sort(samples);
         // Use minimum across iterations: for pure GPU microbenchmarks the
         // minimum is the most stable metric (thermal/scheduling jitter only
         // ever lengthens timings; the "fastest run" is the purest signal).
@@ -530,7 +530,7 @@ namespace OloEngine::Tests
 
             ::glDeleteTextures(1, &inputTex);
 
-            std::sort(samples.begin(), samples.end());
+            std::ranges::sort(samples);
             // Minimum across iterations — see rationale in ToneMap test.
             return samples.front();
         }
@@ -689,7 +689,7 @@ namespace OloEngine::Tests
 
             ::glDeleteTextures(1, &inputTex);
 
-            std::sort(samples.begin(), samples.end());
+            std::ranges::sort(samples);
             return samples.front();
         }
     } // namespace
@@ -856,7 +856,7 @@ namespace OloEngine::Tests
             for (u32 i = 0; i < kSceneTextures; ++i)
                 ::glDeleteTextures(1, &textures[i]);
 
-            std::sort(samples.begin(), samples.end());
+            std::ranges::sort(samples);
 
             // Divide counters by kMeasure so they represent per-frame cost,
             // matching the per-frame timing sample above.

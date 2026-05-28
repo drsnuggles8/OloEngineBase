@@ -1834,9 +1834,9 @@ namespace OloEngine
                 }
 
                 // Ensure levels are sorted by distance
-                std::sort(lodComp.m_LODGroup.Levels.begin(), lodComp.m_LODGroup.Levels.end(),
-                          [](const LODLevel& a, const LODLevel& b)
-                          { return a.MaxDistance < b.MaxDistance; });
+                std::ranges::sort(lodComp.m_LODGroup.Levels,
+                                  [](const LODLevel& a, const LODLevel& b)
+                                  { return a.MaxDistance < b.MaxDistance; });
             }
         }
 
@@ -3928,7 +3928,7 @@ namespace OloEngine
             if (!prefabComponent.m_OverriddenComponents.empty())
             {
                 std::vector<std::string> sorted(prefabComponent.m_OverriddenComponents.begin(), prefabComponent.m_OverriddenComponents.end());
-                std::sort(sorted.begin(), sorted.end());
+                std::ranges::sort(sorted);
                 out << YAML::Key << "OverriddenComponents" << YAML::Value << YAML::BeginSeq;
                 for (const auto& name : sorted)
                     out << name;
@@ -3938,7 +3938,7 @@ namespace OloEngine
             if (!prefabComponent.m_AddedComponents.empty())
             {
                 std::vector<std::string> sorted(prefabComponent.m_AddedComponents.begin(), prefabComponent.m_AddedComponents.end());
-                std::sort(sorted.begin(), sorted.end());
+                std::ranges::sort(sorted);
                 out << YAML::Key << "AddedComponents" << YAML::Value << YAML::BeginSeq;
                 for (const auto& name : sorted)
                     out << name;
@@ -3948,7 +3948,7 @@ namespace OloEngine
             if (!prefabComponent.m_RemovedComponents.empty())
             {
                 std::vector<std::string> sorted(prefabComponent.m_RemovedComponents.begin(), prefabComponent.m_RemovedComponents.end());
-                std::sort(sorted.begin(), sorted.end());
+                std::ranges::sort(sorted);
                 out << YAML::Key << "RemovedComponents" << YAML::Value << YAML::BeginSeq;
                 for (const auto& name : sorted)
                     out << name;
@@ -4780,7 +4780,7 @@ namespace OloEngine
             sortedNames.reserve(morphComp.Weights.size());
             for (const auto& [name, weight] : morphComp.Weights)
                 sortedNames.push_back(name);
-            std::sort(sortedNames.begin(), sortedNames.end());
+            std::ranges::sort(sortedNames);
             for (const auto& name : sortedNames)
             {
                 out << YAML::Key << name << YAML::Value << morphComp.Weights.at(name);
@@ -5201,7 +5201,7 @@ namespace OloEngine
             {
                 out << YAML::Key << "Tags" << YAML::Value << YAML::BeginSeq;
                 std::vector<std::string> sortedTags(qjc.Journal.GetTags().begin(), qjc.Journal.GetTags().end());
-                std::sort(sortedTags.begin(), sortedTags.end());
+                std::ranges::sort(sortedTags);
                 for (auto const& tag : sortedTags)
                 {
                     out << tag;
@@ -5223,7 +5223,7 @@ namespace OloEngine
             {
                 out << YAML::Key << "Reputations" << YAML::Value << YAML::BeginMap;
                 std::vector<std::pair<std::string, i32>> sortedReps(qjc.Journal.GetReputations().begin(), qjc.Journal.GetReputations().end());
-                std::sort(sortedReps.begin(), sortedReps.end());
+                std::ranges::sort(sortedReps);
                 for (auto const& [factionId, value] : sortedReps)
                 {
                     out << YAML::Key << factionId << YAML::Value << value;
@@ -5234,7 +5234,7 @@ namespace OloEngine
             {
                 out << YAML::Key << "Items" << YAML::Value << YAML::BeginMap;
                 std::vector<std::pair<std::string, i32>> sortedItems(qjc.Journal.GetItems().begin(), qjc.Journal.GetItems().end());
-                std::sort(sortedItems.begin(), sortedItems.end());
+                std::ranges::sort(sortedItems);
                 for (auto const& [itemId, count] : sortedItems)
                 {
                     out << YAML::Key << itemId << YAML::Value << count;
@@ -5245,7 +5245,7 @@ namespace OloEngine
             {
                 out << YAML::Key << "Stats" << YAML::Value << YAML::BeginMap;
                 std::vector<std::pair<std::string, i32>> sortedStats(qjc.Journal.GetStats().begin(), qjc.Journal.GetStats().end());
-                std::sort(sortedStats.begin(), sortedStats.end());
+                std::ranges::sort(sortedStats);
                 for (auto const& [statName, value] : sortedStats)
                 {
                     out << YAML::Key << statName << YAML::Value << value;
@@ -5257,7 +5257,7 @@ namespace OloEngine
             {
                 out << YAML::Key << "CompletedQuests" << YAML::Value << YAML::BeginSeq;
                 std::vector<std::string> sortedCompleted(qjc.Journal.GetCompletedQuestIDs().begin(), qjc.Journal.GetCompletedQuestIDs().end());
-                std::sort(sortedCompleted.begin(), sortedCompleted.end());
+                std::ranges::sort(sortedCompleted);
                 for (auto const& id : sortedCompleted)
                 {
                     out << YAML::BeginMap;
@@ -5272,7 +5272,7 @@ namespace OloEngine
             {
                 out << YAML::Key << "FailedQuests" << YAML::Value << YAML::BeginSeq;
                 std::vector<std::string> sortedFailed(qjc.Journal.GetFailedQuestIDs().begin(), qjc.Journal.GetFailedQuestIDs().end());
-                std::sort(sortedFailed.begin(), sortedFailed.end());
+                std::ranges::sort(sortedFailed);
                 for (auto const& id : sortedFailed)
                 {
                     out << id;
@@ -5288,7 +5288,7 @@ namespace OloEngine
                 {
                     sortedActiveIds.push_back(questId);
                 }
-                std::sort(sortedActiveIds.begin(), sortedActiveIds.end());
+                std::ranges::sort(sortedActiveIds);
                 for (auto const& questId : sortedActiveIds)
                 {
                     auto const& state = qjc.Journal.GetActiveQuestStates().at(questId);
@@ -5325,7 +5325,7 @@ namespace OloEngine
             {
                 out << YAML::Key << "QuestCooldowns" << YAML::Value << YAML::BeginMap;
                 std::vector<std::pair<std::string, f32>> sortedCooldowns(qjc.Journal.GetQuestCooldowns().begin(), qjc.Journal.GetQuestCooldowns().end());
-                std::sort(sortedCooldowns.begin(), sortedCooldowns.end());
+                std::ranges::sort(sortedCooldowns);
                 for (auto const& [questId, remaining] : sortedCooldowns)
                 {
                     out << YAML::Key << questId << YAML::Value << remaining;

@@ -97,7 +97,7 @@ namespace OloEngine
                 return;
             }
             // std::copy lets the compiler pick the best vectorised path for POD mat4 data.
-            std::copy(m_FinalBoneMatrices.begin(), m_FinalBoneMatrices.end(), m_PrevFinalBoneMatrices.begin());
+            std::ranges::copy(m_FinalBoneMatrices, m_PrevFinalBoneMatrices.begin());
         }
     };
 } // namespace OloEngine

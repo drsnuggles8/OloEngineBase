@@ -668,11 +668,11 @@ namespace OloEngine
                 return depth;
             };
 
-            std::sort(toDestroy.begin(), toDestroy.end(),
-                      [&getDepth](Entity& a, Entity& b)
-                      {
-                          return getDepth(a) > getDepth(b);
-                      });
+            std::ranges::sort(toDestroy,
+                              [&getDepth](Entity& a, Entity& b)
+                              {
+                                  return getDepth(a) > getDepth(b);
+                              });
 
             for (auto& entity : toDestroy)
             {

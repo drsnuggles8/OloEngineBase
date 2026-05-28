@@ -244,9 +244,9 @@ namespace OloEngine::Audio::DSP
 
             // RMS normalization with distance attenuation
             const u32 numVirtualSources = static_cast<u32>(chg.VirtualSourceIDs.size());
-            std::for_each(gainsLocal.begin(), gainsLocal.end(),
-                          [numVirtualSources, gainAttenuation](float& g)
-                          { g = std::sqrt(g / static_cast<float>(numVirtualSources)) * gainAttenuation; });
+            std::ranges::for_each(gainsLocal,
+                                  [numVirtualSources, gainAttenuation](float& g)
+                                  { g = std::sqrt(g / static_cast<float>(numVirtualSources)) * gainAttenuation; });
 
             // Convert intermediate surround channel gains to output format
             ChannelGains gainsOut = ConvertChannelGains(gainsLocal, converter);
@@ -268,18 +268,18 @@ namespace OloEngine::Audio::DSP
             sorted.push_back({ speakerVectors.at(i), static_cast<u32>(i) });
         }
 
-        std::sort(sorted.begin(), sorted.end(),
-                  [](const auto& p1, const auto& p2)
-                  {
-                      float ang1 = VectorAngle({ p1.first.x, p1.first.y });
-                      float ang2 = VectorAngle({ p2.first.x, p2.first.y });
-                      constexpr float circle = glm::radians(360.0f);
-                      if (ang1 < 0.0f)
-                          ang1 = circle + ang1;
-                      if (ang2 < 0.0f)
-                          ang2 = circle + ang2;
-                      return ang1 < ang2;
-                  });
+        std::ranges::sort(sorted,
+                          [](const auto& p1, const auto& p2)
+                          {
+                              float ang1 = VectorAngle({ p1.first.x, p1.first.y });
+                              float ang2 = VectorAngle({ p2.first.x, p2.first.y });
+                              constexpr float circle = glm::radians(360.0f);
+                              if (ang1 < 0.0f)
+                                  ang1 = circle + ang1;
+                              if (ang2 < 0.0f)
+                                  ang2 = circle + ang2;
+                              return ang1 < ang2;
+                          });
     }
 
     ChannelGains VBAP::ConvertChannelGains(const ChannelGains& channelGainsIn, const ma_channel_converter& converter)
@@ -345,7 +345,7 @@ namespace OloEngine::Audio::DSP
         std::pair<float, float> speakerGains;
         if (FindActiveArch(vbap, azimuthRadians, speakers, speakerGains))
         {
-            std::fill(gains.begin(), gains.end(), 0.0f);
+            std::ranges::fill(gains, 0.0f);
             gains[static_cast<sizet>(speakers.first)] = speakerGains.first;
             gains[static_cast<sizet>(speakers.second)] = speakerGains.second;
         }

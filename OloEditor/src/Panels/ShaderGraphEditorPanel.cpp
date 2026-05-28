@@ -670,14 +670,14 @@ namespace OloEngine
             {
                 // Flat filtered list when searching
                 std::string filterLower = m_NodeSearchFilter;
-                std::transform(filterLower.begin(), filterLower.end(), filterLower.begin(), ::tolower);
+                std::ranges::transform(filterLower, filterLower.begin(), ::tolower);
 
                 auto allTypes = GetAllNodeTypeNames();
                 for (const auto& type : allTypes)
                 {
                     // Case-insensitive substring match
                     std::string typeLower = type;
-                    std::transform(typeLower.begin(), typeLower.end(), typeLower.begin(), ::tolower);
+                    std::ranges::transform(typeLower, typeLower.begin(), ::tolower);
 
                     if (typeLower.find(filterLower) != std::string::npos)
                     {

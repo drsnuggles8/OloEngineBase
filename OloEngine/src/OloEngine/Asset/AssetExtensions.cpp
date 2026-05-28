@@ -45,7 +45,7 @@ namespace OloEngine
                 extensions.push_back("." + ext);
         }
 
-        std::sort(extensions.begin(), extensions.end());
+        std::ranges::sort(extensions);
         return extensions;
     }
 
@@ -61,7 +61,7 @@ namespace OloEngine
             extensions.push_back("." + ext);
         }
 
-        std::sort(extensions.begin(), extensions.end());
+        std::ranges::sort(extensions);
         return extensions;
     }
 
@@ -138,9 +138,9 @@ namespace OloEngine
             normalized = normalized.substr(1);
 
         // Convert to lowercase
-        std::transform(normalized.begin(), normalized.end(), normalized.begin(),
-                       [](unsigned char c)
-                       { return std::tolower(c); });
+        std::ranges::transform(normalized, normalized.begin(),
+                               [](unsigned char c)
+                               { return std::tolower(c); });
 
         return normalized;
     }

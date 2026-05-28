@@ -655,11 +655,11 @@ namespace OloEngine::Audio::SoundGraph
         bool SendInputValue(u32 endpointID, choc::value::ValueView value, bool interpolate)
         {
             // Find endpoint by searching through the map (still O(n) due to u32 lookup, but rare case)
-            auto endpointIt = std::find_if(m_EndpointInputStreams.begin(), m_EndpointInputStreams.end(),
-                                           [endpointID](const auto& pair)
-                                           {
-                                               return (u32)pair.second->m_DestinationID == endpointID;
-                                           });
+            auto endpointIt = std::ranges::find_if(m_EndpointInputStreams,
+                                                   [endpointID](const auto& pair)
+                                                   {
+                                                       return (u32)pair.second->m_DestinationID == endpointID;
+                                                   });
             if (endpointIt == m_EndpointInputStreams.end())
                 return false;
 

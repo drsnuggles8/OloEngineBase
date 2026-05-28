@@ -41,9 +41,9 @@ namespace OloEngine
             }
             for (auto& [name, keys] : m_MorphTrackCache)
             {
-                std::sort(keys.begin(), keys.end(),
-                          [](const auto& a, const auto& b)
-                          { return a.first < b.first; });
+                std::ranges::sort(keys,
+                                  [](const auto& a, const auto& b)
+                                  { return a.first < b.first; });
             }
             m_MorphTrackCacheInitialized = true;
         }

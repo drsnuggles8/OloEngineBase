@@ -61,7 +61,7 @@ namespace OloEngine::Tests
                 if (entry.path().extension() == ".cs")
                     out.push_back(entry.path());
             }
-            std::sort(out.begin(), out.end());
+            std::ranges::sort(out);
             return out;
         }
 

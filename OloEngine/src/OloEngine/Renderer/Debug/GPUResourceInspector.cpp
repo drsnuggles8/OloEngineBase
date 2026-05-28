@@ -36,9 +36,9 @@ namespace OloEngine
         {
             std::filesystem::path p(filePath);
             std::string ext = p.extension().string();
-            std::transform(ext.begin(), ext.end(), ext.begin(),
-                           [](unsigned char c)
-                           { return static_cast<char>(std::tolower(c)); });
+            std::ranges::transform(ext, ext.begin(),
+                                   [](unsigned char c)
+                                   { return static_cast<char>(std::tolower(c)); });
             if (ext == ".hdr")
                 return TextureSaveEncoder::Hdr;
             if (ext == ".png")
@@ -1359,10 +1359,10 @@ namespace OloEngine
             if (!m_SearchFilter.empty())
             {
                 std::string searchLower = m_SearchFilter;
-                std::transform(searchLower.begin(), searchLower.end(), searchLower.begin(), ::tolower);
+                std::ranges::transform(searchLower, searchLower.begin(), ::tolower);
 
                 std::string nameLower = resource->m_Name;
-                std::transform(nameLower.begin(), nameLower.end(), nameLower.begin(), ::tolower);
+                std::ranges::transform(nameLower, nameLower.begin(), ::tolower);
 
                 if (nameLower.find(searchLower) == std::string::npos)
                     continue;

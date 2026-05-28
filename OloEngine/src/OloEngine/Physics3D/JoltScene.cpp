@@ -233,7 +233,7 @@ namespace OloEngine
             }
 
             // Remove from sync list
-            if (auto syncIt = std::find(m_BodiesToSync.begin(), m_BodiesToSync.end(), it->second); syncIt != m_BodiesToSync.end())
+            if (auto syncIt = std::ranges::find(m_BodiesToSync, it->second); syncIt != m_BodiesToSync.end())
             {
                 m_BodiesToSync.erase(syncIt);
             }
@@ -305,7 +305,7 @@ namespace OloEngine
         if (it != m_CharacterControllers.end())
         {
             // Remove from update list
-            if (auto updateIt = std::find(m_CharacterControllersToUpdate.begin(), m_CharacterControllersToUpdate.end(), it->second); updateIt != m_CharacterControllersToUpdate.end())
+            if (auto updateIt = std::ranges::find(m_CharacterControllersToUpdate, it->second); updateIt != m_CharacterControllersToUpdate.end())
             {
                 m_CharacterControllersToUpdate.erase(updateIt);
             }

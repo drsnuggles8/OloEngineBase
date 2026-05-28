@@ -8,9 +8,9 @@ namespace
     // Returns a lowercased copy of the input string for case-insensitive comparison.
     std::string ToLowerCopy(std::string s)
     {
-        std::transform(s.begin(), s.end(), s.begin(),
-                       [](unsigned char c)
-                       { return static_cast<char>(std::tolower(c)); });
+        std::ranges::transform(s, s.begin(),
+                               [](unsigned char c)
+                               { return static_cast<char>(std::tolower(c)); });
         return s;
     }
 } // namespace
@@ -137,14 +137,14 @@ namespace OloEngine
         }
 
         // Sort subdirectories alphabetically (case-insensitive)
-        std::sort(dir.SubDirectories.begin(), dir.SubDirectories.end(),
-                  [](const std::unique_ptr<DirectoryInfo>& a, const std::unique_ptr<DirectoryInfo>& b)
-                  { return ToLowerCopy(a->Name) < ToLowerCopy(b->Name); });
+        std::ranges::sort(dir.SubDirectories,
+                          [](const std::unique_ptr<DirectoryInfo>& a, const std::unique_ptr<DirectoryInfo>& b)
+                          { return ToLowerCopy(a->Name) < ToLowerCopy(b->Name); });
 
         // Sort files alphabetically (case-insensitive, by filename)
-        std::sort(dir.Files.begin(), dir.Files.end(),
-                  [](const std::filesystem::path& a, const std::filesystem::path& b)
-                  { return ToLowerCopy(a.filename().string()) < ToLowerCopy(b.filename().string()); });
+        std::ranges::sort(dir.Files,
+                          [](const std::filesystem::path& a, const std::filesystem::path& b)
+                          { return ToLowerCopy(a.filename().string()) < ToLowerCopy(b.filename().string()); });
     }
 
     void DirectoryTree::SearchRecursive(const DirectoryInfo& dir, const std::string& queryLower,

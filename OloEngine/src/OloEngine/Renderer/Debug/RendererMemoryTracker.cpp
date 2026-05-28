@@ -101,10 +101,10 @@ namespace OloEngine
         m_PeakCPUMemory = 0;
 
         // Reset history arrays
-        std::fill(m_MemoryHistory.begin(), m_MemoryHistory.end(), 0.0f);
-        std::fill(m_AllocationHistory.begin(), m_AllocationHistory.end(), 0.0f);
-        std::fill(m_GPUMemoryHistory.begin(), m_GPUMemoryHistory.end(), 0.0f);
-        std::fill(m_CPUMemoryHistory.begin(), m_CPUMemoryHistory.end(), 0.0f);
+        std::ranges::fill(m_MemoryHistory, 0.0f);
+        std::ranges::fill(m_AllocationHistory, 0.0f);
+        std::ranges::fill(m_GPUMemoryHistory, 0.0f);
+        std::ranges::fill(m_CPUMemoryHistory, 0.0f);
 
         m_HistoryIndex = 0;
         m_LastUpdateTime = DebugUtils::GetCurrentTimeSeconds();

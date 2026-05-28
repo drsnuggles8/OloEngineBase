@@ -116,7 +116,7 @@ namespace OloEngine::Tests
                 scripts.push_back(entry.path());
         }
         ASSERT_FALSE(scripts.empty()) << "No .py files in " << scriptsDir.string();
-        std::sort(scripts.begin(), scripts.end());
+        std::ranges::sort(scripts);
 
         struct Failure
         {

@@ -294,7 +294,7 @@ namespace OloEngine
             m_RecentCapture = capturePath;
 
             // Add to captures list if not already present
-            if (std::find(m_Captures.begin(), m_Captures.end(), capturePath) == m_Captures.end())
+            if (std::ranges::find(m_Captures, capturePath) == m_Captures.end())
             {
                 m_Captures.push_back(capturePath);
             }
@@ -454,7 +454,7 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        auto it = std::find(m_Captures.begin(), m_Captures.end(), capturePath);
+        auto it = std::ranges::find(m_Captures, capturePath);
         if (it != m_Captures.end())
         {
             try
@@ -542,8 +542,8 @@ namespace OloEngine
             }
 
             // Sort captures by last write time (newest first)
-            std::sort(m_Captures.begin(), m_Captures.end(), [](const std::filesystem::path& a, const std::filesystem::path& b)
-                      {
+            std::ranges::sort(m_Captures, [](const std::filesystem::path& a, const std::filesystem::path& b)
+                              {
 				std::filesystem::file_time_type timeA, timeB;
 
 				try

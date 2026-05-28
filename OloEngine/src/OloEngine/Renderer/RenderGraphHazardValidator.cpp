@@ -233,7 +233,7 @@ namespace OloEngine::RenderGraphHazardValidator
         {
             if (resourceName.empty())
                 return;
-            if (std::find(names.begin(), names.end(), resourceName) == names.end())
+            if (std::ranges::find(names, resourceName) == names.end())
                 names.emplace_back(resourceName);
         };
 

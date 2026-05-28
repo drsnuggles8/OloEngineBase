@@ -218,7 +218,7 @@ TEST_F(MpscQueueTest, MultipleProducers)
     ASSERT_EQ(ConsumedItems.size(), ProducerCount * ItemsPerProducer);
 
     // Sort and verify all values are present
-    std::sort(ConsumedItems.begin(), ConsumedItems.end());
+    std::ranges::sort(ConsumedItems);
     for (i32 i = 0; i < ProducerCount * ItemsPerProducer; ++i)
     {
         EXPECT_EQ(ConsumedItems[i], i);
@@ -321,7 +321,7 @@ TEST_F(ClosableMpscQueueTest, MultipleProducersBeforeClose)
     ASSERT_EQ(Items.size(), ProducerCount * ItemsPerProducer);
 
     // Sort and verify all values are present
-    std::sort(Items.begin(), Items.end());
+    std::ranges::sort(Items);
     for (i32 i = 0; i < ProducerCount * ItemsPerProducer; ++i)
     {
         EXPECT_EQ(Items[i], i);

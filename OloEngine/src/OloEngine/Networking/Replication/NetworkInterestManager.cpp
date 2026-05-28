@@ -183,7 +183,7 @@ namespace OloEngine
                     if (m_SpatialGrid.GetEntityCount() > 0)
                     {
                         auto nearby = m_SpatialGrid.QueryRadius(clientPos, interest.RelevanceRadius);
-                        if (std::find(nearby.begin(), nearby.end(), uuid) == nearby.end())
+                        if (std::ranges::find(nearby, uuid) == nearby.end())
                         {
                             return false;
                         }

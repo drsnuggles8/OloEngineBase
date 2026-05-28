@@ -138,11 +138,11 @@ namespace OloEngine::RenderGraphTransientPlanner
                 {
                     return desc.Width > 0 &&
                            desc.Height > 0 &&
-                           std::any_of(desc.Attachments.begin(), desc.Attachments.end(),
-                                       [](const RGResourceFormat fmt)
-                                       {
-                                           return RenderGraph::ToFramebufferFormat(fmt) != FramebufferTextureFormat::None;
-                                       });
+                           std::ranges::any_of(desc.Attachments,
+                                               [](const RGResourceFormat fmt)
+                                               {
+                                                   return RenderGraph::ToFramebufferFormat(fmt) != FramebufferTextureFormat::None;
+                                               });
                 }
                 return desc.Width > 0 &&
                        desc.Height > 0 &&
@@ -184,11 +184,11 @@ namespace OloEngine::RenderGraphTransientPlanner
                 // MRT path: a non-empty Attachments list replaces Format.
                 if (!desc.Attachments.empty())
                 {
-                    const bool anyValid = std::any_of(desc.Attachments.begin(), desc.Attachments.end(),
-                                                      [](const RGResourceFormat fmt)
-                                                      {
-                                                          return RenderGraph::ToFramebufferFormat(fmt) != FramebufferTextureFormat::None;
-                                                      });
+                    const bool anyValid = std::ranges::any_of(desc.Attachments,
+                                                              [](const RGResourceFormat fmt)
+                                                              {
+                                                                  return RenderGraph::ToFramebufferFormat(fmt) != FramebufferTextureFormat::None;
+                                                              });
                     if (!anyValid)
                         return "unsupported-framebuffer-format";
                     return "descriptor-incomplete";
@@ -317,16 +317,16 @@ namespace OloEngine::RenderGraphTransientPlanner
         // 3. Canonical sort: by alias-group hash, then by first-use pass
         //    index, then by resource name (deterministic across rebuilds).
         //    The hash lookup replaces an O(L) string compare per probe.
-        std::sort(plan.begin(), plan.end(),
-                  [&aliasGroupHashByResource](const RenderGraph::TransientPlanEntry& lhs, const RenderGraph::TransientPlanEntry& rhs)
-                  {
-                      const auto lhsHash = aliasGroupHashByResource.at(lhs.Resource);
-                      if (const auto rhsHash = aliasGroupHashByResource.at(rhs.Resource); lhsHash != rhsHash)
-                          return lhsHash < rhsHash;
-                      if (lhs.FirstPassIndex != rhs.FirstPassIndex)
-                          return lhs.FirstPassIndex < rhs.FirstPassIndex;
-                      return lhs.Resource < rhs.Resource;
-                  });
+        std::ranges::sort(plan,
+                          [&aliasGroupHashByResource](const RenderGraph::TransientPlanEntry& lhs, const RenderGraph::TransientPlanEntry& rhs)
+                          {
+                              const auto lhsHash = aliasGroupHashByResource.at(lhs.Resource);
+                              if (const auto rhsHash = aliasGroupHashByResource.at(rhs.Resource); lhsHash != rhsHash)
+                                  return lhsHash < rhsHash;
+                              if (lhs.FirstPassIndex != rhs.FirstPassIndex)
+                                  return lhs.FirstPassIndex < rhs.FirstPassIndex;
+                              return lhs.Resource < rhs.Resource;
+                          });
 
         // 4. Alias-slot assignment per alias group: non-overlapping lifetimes
         //    share a slot, otherwise allocate a new one. Keyed by hash, not

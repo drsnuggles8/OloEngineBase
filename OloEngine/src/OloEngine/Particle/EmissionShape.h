@@ -204,7 +204,7 @@ namespace OloEngine
 
                 // Weighted random triangle selection via CDF
                 f32 r = rng.GetFloat32InRange(0.0f, s.TotalArea);
-                auto it = std::lower_bound(s.CumulativeAreas.begin(), s.CumulativeAreas.end(), r);
+                auto it = std::ranges::lower_bound(s.CumulativeAreas, r);
                 u32 triIdx = static_cast<u32>(std::distance(s.CumulativeAreas.begin(), it));
                 if (triIdx >= static_cast<u32>(s.Triangles.size()))
                     triIdx = static_cast<u32>(s.Triangles.size()) - 1;
@@ -293,7 +293,7 @@ namespace OloEngine
 
                 // Pick a random triangle weighted by area and use its face normal
                 f32 r = rng.GetFloat32InRange(0.0f, s.TotalArea);
-                auto it = std::lower_bound(s.CumulativeAreas.begin(), s.CumulativeAreas.end(), r);
+                auto it = std::ranges::lower_bound(s.CumulativeAreas, r);
                 u32 triIdx = static_cast<u32>(std::distance(s.CumulativeAreas.begin(), it));
                 if (triIdx >= static_cast<u32>(s.Triangles.size()))
                     triIdx = static_cast<u32>(s.Triangles.size()) - 1;
@@ -324,7 +324,7 @@ namespace OloEngine
         {
             auto& rng = RandomUtils::GetGlobalRandom();
             f32 r = rng.GetFloat32InRange(0.0f, mesh->TotalArea);
-            auto it = std::lower_bound(mesh->CumulativeAreas.begin(), mesh->CumulativeAreas.end(), r);
+            auto it = std::ranges::lower_bound(mesh->CumulativeAreas, r);
             u32 triIdx = static_cast<u32>(std::distance(mesh->CumulativeAreas.begin(), it));
             if (triIdx >= static_cast<u32>(mesh->Triangles.size()))
                 triIdx = static_cast<u32>(mesh->Triangles.size()) - 1;

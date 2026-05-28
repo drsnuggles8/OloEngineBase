@@ -389,11 +389,11 @@ namespace OloEngine
         }
 
         // Sort by timestamp, most recent first
-        std::sort(saves.begin(), saves.end(),
-                  [](const SaveFileInfo& a, const SaveFileInfo& b)
-                  {
-                      return a.Metadata.TimestampUTC > b.Metadata.TimestampUTC;
-                  });
+        std::ranges::sort(saves,
+                          [](const SaveFileInfo& a, const SaveFileInfo& b)
+                          {
+                              return a.Metadata.TimestampUTC > b.Metadata.TimestampUTC;
+                          });
 
         return saves;
     }

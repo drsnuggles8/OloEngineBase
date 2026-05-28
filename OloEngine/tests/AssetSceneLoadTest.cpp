@@ -162,7 +162,7 @@ namespace OloEngine::Tests
                 scenes.push_back(entry.path());
         }
         ASSERT_FALSE(scenes.empty()) << "No scenes found under " << scenesDir.string();
-        std::sort(scenes.begin(), scenes.end());
+        std::ranges::sort(scenes);
 
         struct Failure
         {

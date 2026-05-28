@@ -48,13 +48,12 @@ namespace OloEngine
                    declaration.Range.SliceCount == range.SliceCount;
         };
 
-        if (const auto existingIt = std::find_if(m_DeclaredFeedbacks.begin(),
-                                                 m_DeclaredFeedbacks.end(),
-                                                 [resourceName, &sameRange](const RGFeedbackDeclaration& declaration)
-                                                 {
-                                                     return declaration.ResourceName == resourceName &&
-                                                            sameRange(declaration);
-                                                 });
+        if (const auto existingIt = std::ranges::find_if(m_DeclaredFeedbacks,
+                                                         [resourceName, &sameRange](const RGFeedbackDeclaration& declaration)
+                                                         {
+                                                             return declaration.ResourceName == resourceName &&
+                                                                    sameRange(declaration);
+                                                         });
             existingIt != m_DeclaredFeedbacks.end())
         {
             return;
@@ -71,9 +70,7 @@ namespace OloEngine
         if (passName.empty())
             return;
 
-        if (const auto alreadyDeclared = std::find(m_DeclaredPassDependencies.begin(),
-                                                   m_DeclaredPassDependencies.end(),
-                                                   passName);
+        if (const auto alreadyDeclared = std::ranges::find(m_DeclaredPassDependencies, passName);
             alreadyDeclared == m_DeclaredPassDependencies.end())
         {
             m_DeclaredPassDependencies.emplace_back(passName);
@@ -101,7 +98,7 @@ namespace OloEngine
         if (resourceName.empty())
             return;
 
-        if (const auto alreadyDeclared = std::find(m_DeclaredReads.begin(), m_DeclaredReads.end(), resourceName); alreadyDeclared == m_DeclaredReads.end())
+        if (const auto alreadyDeclared = std::ranges::find(m_DeclaredReads, resourceName); alreadyDeclared == m_DeclaredReads.end())
             m_DeclaredReads.emplace_back(resourceName);
 
         m_DeclaredAccesses.push_back(RGAccessDeclaration{
@@ -122,7 +119,7 @@ namespace OloEngine
         if (resourceName.empty())
             return;
 
-        if (const auto alreadyDeclared = std::find(m_DeclaredWrites.begin(), m_DeclaredWrites.end(), resourceName); alreadyDeclared == m_DeclaredWrites.end())
+        if (const auto alreadyDeclared = std::ranges::find(m_DeclaredWrites, resourceName); alreadyDeclared == m_DeclaredWrites.end())
             m_DeclaredWrites.emplace_back(resourceName);
 
         m_DeclaredAccesses.push_back(RGAccessDeclaration{

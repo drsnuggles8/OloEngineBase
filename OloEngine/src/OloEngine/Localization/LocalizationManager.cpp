@@ -88,7 +88,7 @@ namespace OloEngine
                     codes.reserve(state.Tables.size());
                     for (const auto& kv : state.Tables)
                         codes.push_back(kv.first);
-                    std::sort(codes.begin(), codes.end());
+                    std::ranges::sort(codes);
                     state.CurrentLocale = codes.front();
                 }
                 else
@@ -299,8 +299,8 @@ namespace OloEngine
         out.reserve(state.Tables.size());
         for (const auto& kv : state.Tables)
             out.push_back(kv.second.GetLocaleInfo());
-        std::sort(out.begin(), out.end(), [](const LocaleDefinition& a, const LocaleDefinition& b)
-                  { return a.Code < b.Code; });
+        std::ranges::sort(out, [](const LocaleDefinition& a, const LocaleDefinition& b)
+                          { return a.Code < b.Code; });
         return out;
     }
 
@@ -500,7 +500,7 @@ namespace OloEngine
         TSharedLock<FSharedMutex> lock(GetMutex());
         const State& state = GetState();
         std::vector<std::string> out(state.MissingKeys.begin(), state.MissingKeys.end());
-        std::sort(out.begin(), out.end());
+        std::ranges::sort(out);
         return out;
     }
 
@@ -629,7 +629,7 @@ namespace OloEngine
         out << "\nstrings:\n";
 
         auto keys = snapshot.GetAllKeys();
-        std::sort(keys.begin(), keys.end());
+        std::ranges::sort(keys);
         for (const auto& key : keys)
         {
             out << "  " << key << ": " << yamlQuote(snapshot.Get(key)) << "\n";

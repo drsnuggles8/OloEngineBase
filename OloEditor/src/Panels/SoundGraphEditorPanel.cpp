@@ -482,7 +482,7 @@ namespace OloEngine
             sortedNames.reserve(inputs.size());
             for (const auto& [name, _] : inputs)
                 sortedNames.push_back(name);
-            std::sort(sortedNames.begin(), sortedNames.end());
+            std::ranges::sort(sortedNames);
             const ImU32 pinFill = IM_COL32(180, 140, 230, 255);
             const ImU32 pinBorder = IM_COL32(200, 200, 200, 255);
             const f32 labelFont = 11.0f * m_Zoom;
@@ -590,8 +590,8 @@ namespace OloEngine
         sorted.reserve(inputs.size());
         for (const auto& [n, _] : inputs)
             sorted.push_back(n);
-        std::sort(sorted.begin(), sorted.end());
-        auto it = std::find(sorted.begin(), sorted.end(), name);
+        std::ranges::sort(sorted);
+        auto it = std::ranges::find(sorted, name);
         if (it == sorted.end())
             return false;
         const sizet idx = static_cast<sizet>(std::distance(sorted.begin(), it));
@@ -1130,7 +1130,7 @@ namespace OloEngine
                     sorted.reserve(inputs.size());
                     for (const auto& [n, _] : inputs)
                         sorted.push_back(n);
-                    std::sort(sorted.begin(), sorted.end());
+                    std::ranges::sort(sorted);
                     for (sizet i = 0; i < sorted.size(); ++i)
                     {
                         const f32 py = inNodeScreen.y + (kGraphOutputNodeHeaderHeight + (static_cast<f32>(i) + 1.0f) * kGraphOutputNodePinSpacing) * m_Zoom;
@@ -1856,7 +1856,7 @@ namespace OloEngine
                     sorted.reserve(inputs.size());
                     for (const auto& [name, _] : inputs)
                         sorted.push_back(name);
-                    std::sort(sorted.begin(), sorted.end());
+                    std::ranges::sort(sorted);
                     for (const auto& name : sorted)
                     {
                         if (ImGui::BeginMenu(name.c_str()))
@@ -1986,9 +1986,9 @@ namespace OloEngine
             ImGui::InputTextWithHint("##sgrnodefilter", "Filter...", m_NodeSearchFilter, sizeof(m_NodeSearchFilter));
 
             std::string filter = m_NodeSearchFilter;
-            std::transform(filter.begin(), filter.end(), filter.begin(),
-                           [](unsigned char c)
-                           { return static_cast<char>(std::tolower(c)); });
+            std::ranges::transform(filter, filter.begin(),
+                                   [](unsigned char c)
+                                   { return static_cast<char>(std::tolower(c)); });
 
             const char* currentCategory = nullptr;
             for (const auto& entry : s_Palette)
@@ -1997,13 +1997,13 @@ namespace OloEngine
                 if (!filter.empty())
                 {
                     std::string nameLower = entry.TypeName;
-                    std::transform(nameLower.begin(), nameLower.end(), nameLower.begin(),
-                                   [](unsigned char c)
-                                   { return static_cast<char>(std::tolower(c)); });
+                    std::ranges::transform(nameLower, nameLower.begin(),
+                                           [](unsigned char c)
+                                           { return static_cast<char>(std::tolower(c)); });
                     std::string categoryLower = entry.Category;
-                    std::transform(categoryLower.begin(), categoryLower.end(), categoryLower.begin(),
-                                   [](unsigned char c)
-                                   { return static_cast<char>(std::tolower(c)); });
+                    std::ranges::transform(categoryLower, categoryLower.begin(),
+                                           [](unsigned char c)
+                                           { return static_cast<char>(std::tolower(c)); });
                     if (nameLower.find(filter) == std::string::npos && categoryLower.find(filter) == std::string::npos)
                         continue;
                 }

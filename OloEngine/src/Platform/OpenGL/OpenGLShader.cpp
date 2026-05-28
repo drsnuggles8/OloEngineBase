@@ -626,7 +626,7 @@ namespace OloEngine
             m_IncludedFilePaths.insert(m_IncludedFilePaths.end(), stageIncludes.begin(), stageIncludes.end());
         }
         // Deduplicate (order doesn't matter for cache invalidation)
-        std::sort(m_IncludedFilePaths.begin(), m_IncludedFilePaths.end());
+        std::ranges::sort(m_IncludedFilePaths);
         m_IncludedFilePaths.erase(std::unique(m_IncludedFilePaths.begin(), m_IncludedFilePaths.end()), m_IncludedFilePaths.end());
 
         return shaderSources;
@@ -876,7 +876,7 @@ namespace OloEngine
                 // Log before compilation so crashes leave a breadcrumb
                 OLO_CORE_TRACE("[OpenGL SPIR-V] Compiling '{}' stage {} ({} lines of cross-compiled GLSL)",
                                m_FilePath, Utils::GLShaderStageToString(stage),
-                               std::count(result.GlslSource.begin(), result.GlslSource.end(), '\n'));
+                               std::ranges::count(result.GlslSource, '\n'));
 
                 // Compile GLSL to OpenGL SPIR-V
                 shaderc::Compiler compiler;

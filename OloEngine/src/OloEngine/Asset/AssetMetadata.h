@@ -173,9 +173,9 @@ namespace OloEngine
         inline AssetStatus AssetStatusFromString(const std::string& statusStr)
         {
             std::string lowerStr = statusStr;
-            std::transform(lowerStr.begin(), lowerStr.end(), lowerStr.begin(),
-                           [](unsigned char c)
-                           { return std::tolower(c); });
+            std::ranges::transform(lowerStr, lowerStr.begin(),
+                                   [](unsigned char c)
+                                   { return std::tolower(c); });
 
             if (lowerStr == "none")
                 return AssetStatus::None;

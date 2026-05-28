@@ -665,7 +665,7 @@ namespace OloEngine
             {
                 stateNames.push_back(name);
             }
-            std::sort(stateNames.begin(), stateNames.end());
+            std::ranges::sort(stateNames);
 
             // Source: "Any State (*)" plus all state names
             if (std::string sourcePreview = strlen(m_NewTransitionSource) > 0 ? m_NewTransitionSource : "Any State (*)"; ImGui::BeginCombo("Source", sourcePreview.c_str()))

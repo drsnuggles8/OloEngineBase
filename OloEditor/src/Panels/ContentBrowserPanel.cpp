@@ -614,7 +614,7 @@ namespace OloEngine
         for (auto* d = m_CurrentDirectory; d != nullptr; d = d->Parent)
             m_BreadcrumbTrail.push_back(d);
 
-        std::reverse(m_BreadcrumbTrail.begin(), m_BreadcrumbTrail.end());
+        std::ranges::reverse(m_BreadcrumbTrail);
     }
 
     void ContentBrowserPanel::RefreshIfDirty()
@@ -708,7 +708,7 @@ namespace OloEngine
 
     bool ContentBrowserPanel::IsSelected(const std::filesystem::path& path) const
     {
-        return std::find(m_SelectedItems.begin(), m_SelectedItems.end(), path) != m_SelectedItems.end();
+        return std::ranges::find(m_SelectedItems, path) != m_SelectedItems.end();
     }
 
     void ContentBrowserPanel::Select(const std::filesystem::path& path)
@@ -719,7 +719,7 @@ namespace OloEngine
 
     void ContentBrowserPanel::Deselect(const std::filesystem::path& path)
     {
-        auto it = std::find(m_SelectedItems.begin(), m_SelectedItems.end(), path);
+        auto it = std::ranges::find(m_SelectedItems, path);
         if (it != m_SelectedItems.end())
             m_SelectedItems.erase(it);
     }

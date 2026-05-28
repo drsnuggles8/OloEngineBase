@@ -90,7 +90,7 @@ namespace OloEngine
                 auto sortedTokens = [](const std::unordered_set<std::string>& src)
                 {
                     std::vector<std::string> v(src.begin(), src.end());
-                    std::sort(v.begin(), v.end());
+                    std::ranges::sort(v);
                     return v;
                 };
 

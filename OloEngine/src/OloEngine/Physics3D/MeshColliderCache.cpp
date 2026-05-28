@@ -403,8 +403,8 @@ namespace OloEngine
         }
 
         // Sort by last accessed time (oldest first)
-        std::sort(entries.begin(), entries.end(), [](const auto& lhs, const auto& rhs)
-                  { return lhs.second < rhs.second; });
+        std::ranges::sort(entries, [](const auto& lhs, const auto& rhs)
+                          { return lhs.second < rhs.second; });
 
         // Remove oldest entries until we reach target size
         for (const auto& [handle, time] : entries)

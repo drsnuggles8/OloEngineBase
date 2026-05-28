@@ -524,7 +524,7 @@ namespace OloEngine
 
         GraphMetadata metadata;
         const auto& passOrder = graph.GetExecutionOrder();
-        if (const auto it = std::find(passOrder.begin(), passOrder.end(), passName); it != passOrder.end())
+        if (const auto it = std::ranges::find(passOrder, passName); it != passOrder.end())
         {
             metadata.PassOrderIndex = static_cast<u32>(std::distance(passOrder.begin(), it));
         }
@@ -534,9 +534,9 @@ namespace OloEngine
 
         const auto passIndexOf = [&passOrder](std::string_view name) -> u32
         {
-            const auto it = std::find_if(passOrder.begin(), passOrder.end(),
-                                         [name](const std::string& candidate)
-                                         { return std::string_view(candidate) == name; });
+            const auto it = std::ranges::find_if(passOrder,
+                                                 [name](const std::string& candidate)
+                                                 { return std::string_view(candidate) == name; });
             if (it == passOrder.end())
                 return std::numeric_limits<u32>::max();
             return static_cast<u32>(std::distance(passOrder.begin(), it));

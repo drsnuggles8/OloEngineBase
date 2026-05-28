@@ -174,12 +174,12 @@ namespace OloEngine
                                           !m_VoxelCasters.empty();
                 if (!hasUnbounded)
                 {
-                    const bool anyMesh = std::any_of(m_MeshCasters.begin(), m_MeshCasters.end(),
-                                                     [&](const ShadowMeshCaster& c)
-                                                     { return !ShouldCull(c.WorldBounds, cascadeFrustum); });
-                    const bool anySkinned = !anyMesh && std::any_of(m_SkinnedCasters.begin(), m_SkinnedCasters.end(),
-                                                                    [&](const ShadowSkinnedCaster& c)
-                                                                    { return !ShouldCull(c.WorldBounds, cascadeFrustum); });
+                    const bool anyMesh = std::ranges::any_of(m_MeshCasters,
+                                                             [&](const ShadowMeshCaster& c)
+                                                             { return !ShouldCull(c.WorldBounds, cascadeFrustum); });
+                    const bool anySkinned = !anyMesh && std::ranges::any_of(m_SkinnedCasters,
+                                                                            [&](const ShadowSkinnedCaster& c)
+                                                                            { return !ShouldCull(c.WorldBounds, cascadeFrustum); });
                     if (!anyMesh && !anySkinned)
                         continue; // No work for this cascade — skip all GL state changes
                 }
@@ -324,10 +324,10 @@ namespace OloEngine
                     inst.PrevTransform = caster.transform;
                     inst.EntityID = -1;
 
-                    auto it = std::find_if(batches.begin(), batches.end(),
-                                           [&](const ShadowMeshBatch& b)
-                                           { return b.drawVao == drawVao && b.indexCount == caster.indexCount &&
-                                                    b.baseIndex == caster.baseIndex; });
+                    auto it = std::ranges::find_if(batches,
+                                                   [&](const ShadowMeshBatch& b)
+                                                   { return b.drawVao == drawVao && b.indexCount == caster.indexCount &&
+                                                            b.baseIndex == caster.baseIndex; });
                     if (it == batches.end())
                     {
                         batches.push_back({ drawVao, caster.indexCount, caster.baseIndex, { inst } });

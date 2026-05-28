@@ -619,14 +619,14 @@ namespace OloEngine::Audio::DSP
         }
 
         // Update attenuation + VBAP for all sources
-        std::for_each(m_Sources.begin(), m_Sources.end(),
-                      [this](std::pair<const u32, Source>& pair)
-                      {
-                          auto& source = pair.second;
-                          UpdatePositionalData(source, &m_Engine->listeners[0], m_ListenerVelocity);
-                          UpdateVBAP(source);
-                          FlagRealtimeForUpdate(source);
-                      });
+        std::ranges::for_each(m_Sources,
+                              [this](std::pair<const u32, Source>& pair)
+                              {
+                                  auto& source = pair.second;
+                                  UpdatePositionalData(source, &m_Engine->listeners[0], m_ListenerVelocity);
+                                  UpdateVBAP(source);
+                                  FlagRealtimeForUpdate(source);
+                              });
     }
 
 } // namespace OloEngine::Audio::DSP

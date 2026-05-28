@@ -74,7 +74,7 @@ namespace OloEngine::Tests
                 if (entry.path().extension() == extension)
                     out.push_back(entry.path());
             }
-            std::sort(out.begin(), out.end());
+            std::ranges::sort(out);
             return out;
         }
 
@@ -1315,9 +1315,9 @@ namespace OloEngine::Tests
             const std::string kindName = firstComponent.generic_string();
             const std::string filename = entry.path().filename().generic_string();
 
-            auto it = std::find_if(std::begin(known), std::end(known),
-                                   [&](const KnownCacheKind& k)
-                                   { return k.Subdir == kindName; });
+            auto it = std::ranges::find_if(known,
+                                           [&](const KnownCacheKind& k)
+                                           { return k.Subdir == kindName; });
             if (it == std::end(known))
             {
                 unclassified.push_back({

@@ -736,7 +736,7 @@ namespace OloEngine
                 }
 
                 // Sort by distance (furthest first)
-                std::sort(distanceIndices.begin(), distanceIndices.end(), std::greater<>());
+                std::ranges::sort(distanceIndices, std::greater<>());
 
                 // Add the furthest vertices until we reach the limit
                 for (const auto& [distance, index] : distanceIndices)

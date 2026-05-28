@@ -224,7 +224,7 @@ namespace OloEngine
             std::vector<const RenderGraph::ResourceInfo*> writtenResources;
             for (const auto& info : resources)
             {
-                if (std::find(info.Producers.begin(), info.Producers.end(), passName) != info.Producers.end())
+                if (std::ranges::find(info.Producers, passName) != info.Producers.end())
                 {
                     writtenResources.push_back(&info);
                 }
@@ -324,7 +324,7 @@ namespace OloEngine
                 {
                     std::unordered_set<std::string> culledSet(culledPasses.begin(), culledPasses.end());
                     std::vector<std::string> sortedCulled(culledPasses.begin(), culledPasses.end());
-                    std::sort(sortedCulled.begin(), sortedCulled.end());
+                    std::ranges::sort(sortedCulled);
                     for (const auto& passName : sortedCulled)
                     {
                         const auto reason = DeriveCullReason(graph, passName, culledSet);
@@ -1134,7 +1134,7 @@ namespace OloEngine
         }
 
         const auto& culledPasses = graph->GetCulledPasses();
-        const bool culled = std::find(culledPasses.begin(), culledPasses.end(), m_SelectedPassName) != culledPasses.end();
+        const bool culled = std::ranges::find(culledPasses, m_SelectedPassName) != culledPasses.end();
         const bool enabled = node->IsEnabled();
         const bool ready = node->IsReadyForExecution();
 
@@ -1196,13 +1196,13 @@ namespace OloEngine
         std::vector<std::string> writes;
         for (const auto& res : graph->GetRegisteredResources())
         {
-            if (std::find(res.Producers.begin(), res.Producers.end(), m_SelectedPassName) != res.Producers.end())
+            if (std::ranges::find(res.Producers, m_SelectedPassName) != res.Producers.end())
                 writes.push_back(res.Name);
-            if (std::find(res.Consumers.begin(), res.Consumers.end(), m_SelectedPassName) != res.Consumers.end())
+            if (std::ranges::find(res.Consumers, m_SelectedPassName) != res.Consumers.end())
                 reads.push_back(res.Name);
         }
-        std::sort(reads.begin(), reads.end());
-        std::sort(writes.begin(), writes.end());
+        std::ranges::sort(reads);
+        std::ranges::sort(writes);
 
         if (const std::string readsHeader = "Reads (" + std::to_string(reads.size()) + ")"; ImGui::TreeNodeEx(readsHeader.c_str(), reads.empty() ? ImGuiTreeNodeFlags_Leaf : ImGuiTreeNodeFlags_DefaultOpen))
         {

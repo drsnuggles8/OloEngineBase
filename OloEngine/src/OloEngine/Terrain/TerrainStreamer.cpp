@@ -307,9 +307,9 @@ namespace OloEngine
             sortedTiles.push_back({ coord, tile->LastUsedFrame });
         }
 
-        std::sort(sortedTiles.begin(), sortedTiles.end(),
-                  [](const auto& a, const auto& b)
-                  { return a.second < b.second; });
+        std::ranges::sort(sortedTiles,
+                          [](const auto& a, const auto& b)
+                          { return a.second < b.second; });
 
         // Evict oldest tiles until under budget
         sizet toEvict = m_Tiles.size() - m_Config.MaxLoadedTiles;

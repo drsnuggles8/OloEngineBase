@@ -946,7 +946,7 @@ namespace OloEngine
 
         // Basic audio file format detection and analysis
         std::string extension = filePath.extension().string();
-        std::transform(extension.begin(), extension.end(), extension.begin(), ::tolower);
+        std::ranges::transform(extension, extension.begin(), ::tolower);
 
         if (extension == ".wav")
         {

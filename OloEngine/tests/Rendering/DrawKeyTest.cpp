@@ -93,7 +93,7 @@ TEST(DrawKey, OpaqueBeforeTransparent)
         DrawKey transparent = DrawKey::CreateTransparent(0, ViewLayerType::ThreeD, shader, material, depth);
 
         std::vector<DrawKey> keys = { transparent, opaque };
-        std::sort(keys.begin(), keys.end());
+        std::ranges::sort(keys);
 
         // Opaque (lower raw key) must sort before transparent
         EXPECT_EQ(keys[0].GetRenderMode(), RenderMode::Opaque)
@@ -119,7 +119,7 @@ TEST(DrawKey, OpaqueDepthFrontToBack)
     DrawKey farKey = DrawKey::CreateOpaque(0, ViewLayerType::ThreeD, 1, 1, 1000);
 
     std::vector<DrawKey> keys = { farKey, nearKey };
-    std::sort(keys.begin(), keys.end());
+    std::ranges::sort(keys);
 
     // Near (depth=100) has lower raw key → sorts first → front-to-back
     EXPECT_EQ(keys[0].GetDepth(), 100u)
@@ -147,7 +147,7 @@ TEST(DrawKey, TransparentDepthBackToFront)
     DrawKey farKey = DrawKey::CreateTransparent(0, ViewLayerType::ThreeD, 1, 1, 1000);
 
     std::vector<DrawKey> keys = { nearKey, farKey };
-    std::sort(keys.begin(), keys.end());
+    std::ranges::sort(keys);
 
     // Far object (lower stored depth) sorts first
     EXPECT_LT(farKey.GetDepth(), nearKey.GetDepth())
@@ -182,7 +182,7 @@ TEST(DrawKey, TotalOrdering)
     }
 
     // Sort should not throw or crash
-    ASSERT_NO_FATAL_FAILURE(std::sort(keys.begin(), keys.end()));
+    ASSERT_NO_FATAL_FAILURE(std::ranges::sort(keys));
 
     // Verify strict weak ordering: no adjacent pair violates the order
     for (sizet i = 1; i < keys.size(); ++i)
@@ -210,9 +210,9 @@ TEST(DrawKey, SortStability)
     }
 
     // Stable sort should preserve insertion order for equal keys
-    std::stable_sort(keysWithIndex.begin(), keysWithIndex.end(),
-                     [](const auto& a, const auto& b)
-                     { return a.first < b.first; });
+    std::ranges::stable_sort(keysWithIndex,
+                             [](const auto& a, const auto& b)
+                             { return a.first < b.first; });
 
     for (int i = 0; i < 10; ++i)
     {
@@ -338,7 +338,7 @@ TEST(DrawKey, HigherViewportSortsLast)
     DrawKey vp7 = DrawKey::CreateOpaque(7, ViewLayerType::ThreeD, 1, 1, 100);
 
     std::vector<DrawKey> keys = { vp7, vp0 };
-    std::sort(keys.begin(), keys.end());
+    std::ranges::sort(keys);
 
     // Lower viewport ID sorts first in ascending order
     EXPECT_EQ(keys[0].GetViewportID(), 0u)
@@ -361,7 +361,7 @@ TEST(DrawKey, ViewLayerOrderingWithinViewport)
     DrawKey skybox = DrawKey::CreateOpaque(0, ViewLayerType::Skybox, 1, 1, 100);
 
     std::vector<DrawKey> keys = { twoD, skybox, threeD, ui };
-    std::sort(keys.begin(), keys.end());
+    std::ranges::sort(keys);
 
     // Lower ViewLayer enum value sorts first (ascending)
     EXPECT_EQ(keys[0].GetViewLayer(), ViewLayerType::ThreeD);
@@ -384,7 +384,7 @@ TEST(DrawKey, SameShaderGroupsTogether)
         keys.push_back(DrawKey::CreateOpaque(0, ViewLayerType::ThreeD, shader, 1, i));
     }
 
-    std::sort(keys.begin(), keys.end());
+    std::ranges::sort(keys);
 
     // After sorting, all commands with the same shader should be contiguous
     u32 prevShader = keys[0].GetShaderID();

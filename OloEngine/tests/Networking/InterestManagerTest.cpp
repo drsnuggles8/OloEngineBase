@@ -28,7 +28,7 @@ TEST_F(InterestManagerTest, EntitiesWithoutInterestComponentAreAlwaysRelevant)
     nic.IsReplicated = true;
 
     auto relevant = m_Manager.GetRelevantEntities(1, *m_Scene);
-    bool found = std::find(relevant.begin(), relevant.end(), 100u) != relevant.end();
+    bool found = std::ranges::find(relevant, 100u) != relevant.end();
     EXPECT_TRUE(found);
 }
 
@@ -42,7 +42,7 @@ TEST_F(InterestManagerTest, ZeroRadiusIsAlwaysRelevant)
 
     m_Manager.SetClientPosition(1, { 9999.0f, 0.0f, 0.0f });
     auto relevant = m_Manager.GetRelevantEntities(1, *m_Scene);
-    bool found = std::find(relevant.begin(), relevant.end(), 100u) != relevant.end();
+    bool found = std::ranges::find(relevant, 100u) != relevant.end();
     EXPECT_TRUE(found);
 }
 
@@ -59,13 +59,13 @@ TEST_F(InterestManagerTest, DistanceFilteringWorks)
     // Client is at origin — entity is 10 units away, radius is 5
     m_Manager.SetClientPosition(1, { 0.0f, 0.0f, 0.0f });
     auto relevant = m_Manager.GetRelevantEntities(1, *m_Scene);
-    bool found = std::find(relevant.begin(), relevant.end(), 100u) != relevant.end();
+    bool found = std::ranges::find(relevant, 100u) != relevant.end();
     EXPECT_FALSE(found); // Too far
 
     // Move client closer
     m_Manager.SetClientPosition(1, { 8.0f, 0.0f, 0.0f });
     relevant = m_Manager.GetRelevantEntities(1, *m_Scene);
-    found = std::find(relevant.begin(), relevant.end(), 100u) != relevant.end();
+    found = std::ranges::find(relevant, 100u) != relevant.end();
     EXPECT_TRUE(found); // Within 5 units
 }
 
@@ -80,13 +80,13 @@ TEST_F(InterestManagerTest, GroupFilteringWorks)
     // Client not subscribed to group 5
     m_Manager.SetClientInterestGroups(1, { 1, 2 });
     auto relevant = m_Manager.GetRelevantEntities(1, *m_Scene);
-    bool found = std::find(relevant.begin(), relevant.end(), 100u) != relevant.end();
+    bool found = std::ranges::find(relevant, 100u) != relevant.end();
     EXPECT_FALSE(found);
 
     // Subscribe client to group 5
     m_Manager.SetClientInterestGroups(1, { 1, 5 });
     relevant = m_Manager.GetRelevantEntities(1, *m_Scene);
-    found = std::find(relevant.begin(), relevant.end(), 100u) != relevant.end();
+    found = std::ranges::find(relevant, 100u) != relevant.end();
     EXPECT_TRUE(found);
 }
 
@@ -100,7 +100,7 @@ TEST_F(InterestManagerTest, DefaultGroupIsAlwaysIncluded)
 
     // Client has no explicit group subscriptions
     auto relevant = m_Manager.GetRelevantEntities(1, *m_Scene);
-    bool found = std::find(relevant.begin(), relevant.end(), 100u) != relevant.end();
+    bool found = std::ranges::find(relevant, 100u) != relevant.end();
     EXPECT_TRUE(found);
 }
 
@@ -111,7 +111,7 @@ TEST_F(InterestManagerTest, NonReplicatedEntitiesAreExcluded)
     nic.IsReplicated = false;
 
     auto relevant = m_Manager.GetRelevantEntities(1, *m_Scene);
-    bool found = std::find(relevant.begin(), relevant.end(), 100u) != relevant.end();
+    bool found = std::ranges::find(relevant, 100u) != relevant.end();
     EXPECT_FALSE(found);
 }
 

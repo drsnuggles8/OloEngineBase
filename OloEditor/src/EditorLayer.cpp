@@ -70,9 +70,9 @@ namespace
     [[nodiscard]] std::string LowercaseExtension(const std::filesystem::path& p)
     {
         std::string ext = p.extension().string();
-        std::transform(ext.begin(), ext.end(), ext.begin(),
-                       [](unsigned char c)
-                       { return static_cast<char>(std::tolower(c)); });
+        std::ranges::transform(ext, ext.begin(),
+                               [](unsigned char c)
+                               { return static_cast<char>(std::tolower(c)); });
         return ext;
     }
 } // namespace

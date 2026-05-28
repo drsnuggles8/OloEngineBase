@@ -111,7 +111,7 @@ namespace OloEngine
 
         m_WriteQueryCount = 0;
         // Clear issued flags for the new write buffer
-        std::fill(m_QueryIssued[m_WriteBuffer].begin(), m_QueryIssued[m_WriteBuffer].end(), false);
+        std::ranges::fill(m_QueryIssued[m_WriteBuffer], false);
         m_Active = true;
         m_FirstFrame = false;
 

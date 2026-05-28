@@ -447,8 +447,8 @@ namespace OloEngine
         }
 
         // Sort draw calls by shader and textures
-        std::sort(drawCalls.begin(), drawCalls.end(), [](const DrawCall& a, const DrawCall& b)
-                  {
+        std::ranges::sort(drawCalls, [](const DrawCall& a, const DrawCall& b)
+                          {
 			if (a.Shader != b.Shader)
 				return a.Shader < b.Shader;
 			return a.Textures < b.Textures; });

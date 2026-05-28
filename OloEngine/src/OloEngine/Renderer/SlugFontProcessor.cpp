@@ -358,9 +358,9 @@ namespace OloEngine
             }
 
             // Sort curves in descending order by max x coordinate.
-            std::sort(hbandCurves[band].begin(), hbandCurves[band].end(),
-                      [&curveBounds](u32 a, u32 b)
-                      { return curveBounds[a].MaxX > curveBounds[b].MaxX; });
+            std::ranges::sort(hbandCurves[band],
+                              [&curveBounds](u32 a, u32 b)
+                              { return curveBounds[a].MaxX > curveBounds[b].MaxX; });
         }
 
         // Vertical bands (indexed by x position).
@@ -385,9 +385,9 @@ namespace OloEngine
             }
 
             // Sort curves in descending order by max y coordinate.
-            std::sort(vbandCurves[band].begin(), vbandCurves[band].end(),
-                      [&curveBounds](u32 a, u32 b)
-                      { return curveBounds[a].MaxY > curveBounds[b].MaxY; });
+            std::ranges::sort(vbandCurves[band],
+                              [&curveBounds](u32 a, u32 b)
+                              { return curveBounds[a].MaxY > curveBounds[b].MaxY; });
         }
 
         // --- Pack into band texture ---

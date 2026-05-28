@@ -334,9 +334,9 @@ namespace OloEngine
             ShaderInfo& info = it->second;
 
             // Find or create uniform info
-            auto uniformIt = std::find_if(info.m_Uniforms.begin(), info.m_Uniforms.end(),
-                                          [&name](const UniformInfo& uniform)
-                                          { return uniform.m_Name == name; });
+            auto uniformIt = std::ranges::find_if(info.m_Uniforms,
+                                                  [&name](const UniformInfo& uniform)
+                                                  { return uniform.m_Name == name; });
 
             if (uniformIt != info.m_Uniforms.end())
             {
@@ -751,11 +751,11 @@ namespace OloEngine
         {
             // Find existing binding or create new one
             auto& bindings = it->second.m_ResourceBindings;
-            auto bindingIt = std::find_if(bindings.begin(), bindings.end(),
-                                          [&resourceName](const ResourceBindingInfo& binding)
-                                          {
-                                              return binding.m_Name == resourceName;
-                                          });
+            auto bindingIt = std::ranges::find_if(bindings,
+                                                  [&resourceName](const ResourceBindingInfo& binding)
+                                                  {
+                                                      return binding.m_Name == resourceName;
+                                                  });
 
             if (bindingIt != bindings.end())
             {
@@ -900,12 +900,12 @@ namespace OloEngine
                 const std::string searchLower = [this]()
                 {
                     std::string s(m_SearchFilter);
-                    std::transform(s.begin(), s.end(), s.begin(), ::tolower);
+                    std::ranges::transform(s, s.begin(), ::tolower);
                     return s;
                 }();
 
                 std::string nameLower = info.m_Name;
-                std::transform(nameLower.begin(), nameLower.end(), nameLower.begin(), ::tolower);
+                std::ranges::transform(nameLower, nameLower.begin(), ::tolower);
 
                 if (nameLower.find(searchLower) == std::string::npos)
                     continue;

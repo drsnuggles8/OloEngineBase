@@ -24,9 +24,9 @@ namespace OloEngine
                 continue;
 
             // Binary search for the first key with time >= 'time'
-            auto it = std::lower_bound(keys.begin(), keys.end(), time,
-                                       [](const std::pair<f64, f32>& key, f64 t)
-                                       { return key.first < t; });
+            auto it = std::ranges::lower_bound(keys, time,
+                                               [](const std::pair<f64, f32>& key, f64 t)
+                                               { return key.first < t; });
 
             f32 weight = 0.0f;
             if (it == keys.end())

@@ -28,7 +28,7 @@ namespace OloEngine::Audio
             m_Avail = 0;
             m_ReadPos = 0;
             m_WritePos = 0;
-            std::fill(m_Buf.begin(), m_Buf.end(), T(0));
+            std::ranges::fill(m_Buf, T(0));
         }
 
         /// Push a single sample (for single-channel buffers)

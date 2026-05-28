@@ -134,9 +134,9 @@ namespace OloEngine
         s_LayerNames.erase(layerId);
 
         // Mark the layer as invalid (create a gap that can be reused)
-        auto layerIt = std::find_if(s_Layers.begin(), s_Layers.end(),
-                                    [layerId](const PhysicsLayer& layer)
-                                    { return layer.m_LayerID == layerId; });
+        auto layerIt = std::ranges::find_if(s_Layers,
+                                            [layerId](const PhysicsLayer& layer)
+                                            { return layer.m_LayerID == layerId; });
         if (layerIt != s_Layers.end())
         {
             // Mark as invalid to create a reusable gap

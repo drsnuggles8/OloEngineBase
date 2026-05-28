@@ -542,11 +542,11 @@ class TestGraphNode : public RenderGraphNode
 
     void DeclareRead(std::string_view name, ResourceHandle::Kind kind = ResourceHandle::Kind::Unknown)
     {
-        if (const auto it = std::find_if(m_Reads.begin(), m_Reads.end(),
-                                         [name](const ResourceHandle& handle)
-                                         {
-                                             return handle.Name == name;
-                                         });
+        if (const auto it = std::ranges::find_if(m_Reads,
+                                                 [name](const ResourceHandle& handle)
+                                                 {
+                                                     return handle.Name == name;
+                                                 });
             it != m_Reads.end())
         {
             return;
@@ -557,11 +557,11 @@ class TestGraphNode : public RenderGraphNode
 
     void DeclareWrite(std::string_view name, ResourceHandle::Kind kind = ResourceHandle::Kind::Unknown)
     {
-        if (const auto it = std::find_if(m_Writes.begin(), m_Writes.end(),
-                                         [name](const ResourceHandle& handle)
-                                         {
-                                             return handle.Name == name;
-                                         });
+        if (const auto it = std::ranges::find_if(m_Writes,
+                                                 [name](const ResourceHandle& handle)
+                                                 {
+                                                     return handle.Name == name;
+                                                 });
             it != m_Writes.end())
         {
             return;
@@ -825,13 +825,13 @@ TEST(RenderGraph, NodeSubmissionInfoReportsResourceDeclarations)
     const auto info = graph.GetNodeSubmissionInfo();
     ASSERT_EQ(info.size(), 2u);
 
-    const auto bucketIt = std::find_if(info.begin(), info.end(), [](const RenderGraph::NodeSubmissionInfo& entry)
-                                       { return entry.NodeName == "BucketPass"; });
+    const auto bucketIt = std::ranges::find_if(info, [](const RenderGraph::NodeSubmissionInfo& entry)
+                                               { return entry.NodeName == "BucketPass"; });
     ASSERT_NE(bucketIt, info.end());
     EXPECT_FALSE(bucketIt->DeclaresResources);
 
-    const auto immediateIt = std::find_if(info.begin(), info.end(), [](const RenderGraph::NodeSubmissionInfo& entry)
-                                          { return entry.NodeName == "ImmediatePass"; });
+    const auto immediateIt = std::ranges::find_if(info, [](const RenderGraph::NodeSubmissionInfo& entry)
+                                                  { return entry.NodeName == "ImmediatePass"; });
     ASSERT_NE(immediateIt, info.end());
     EXPECT_TRUE(immediateIt->DeclaresResources);
 }
@@ -853,19 +853,19 @@ TEST(RenderGraph, GraphNodeStaticDeclarationsPopulateRegistryAndSubmissionInfo)
     EXPECT_TRUE(hazards.empty());
 
     const auto submissionInfo = graph.GetNodeSubmissionInfo();
-    const auto producerIt = std::find_if(submissionInfo.begin(), submissionInfo.end(),
-                                         [](const RenderGraph::NodeSubmissionInfo& entry)
-                                         {
-                                             return entry.NodeName == "GraphProducer";
-                                         });
+    const auto producerIt = std::ranges::find_if(submissionInfo,
+                                                 [](const RenderGraph::NodeSubmissionInfo& entry)
+                                                 {
+                                                     return entry.NodeName == "GraphProducer";
+                                                 });
     ASSERT_NE(producerIt, submissionInfo.end());
     EXPECT_TRUE(producerIt->DeclaresResources);
 
-    const auto finalIt = std::find_if(submissionInfo.begin(), submissionInfo.end(),
-                                      [](const RenderGraph::NodeSubmissionInfo& entry)
-                                      {
-                                          return entry.NodeName == "GraphFinal";
-                                      });
+    const auto finalIt = std::ranges::find_if(submissionInfo,
+                                              [](const RenderGraph::NodeSubmissionInfo& entry)
+                                              {
+                                                  return entry.NodeName == "GraphFinal";
+                                              });
     ASSERT_NE(finalIt, submissionInfo.end());
     EXPECT_TRUE(finalIt->DeclaresResources);
 
@@ -915,8 +915,8 @@ TEST(RenderGraph, CompiledHazardValidationReportsDynamicFeedbackHazards)
     graph.BuildFrameGraph();
 
     const auto hazards = graph.ValidateCompiledResourceHazards();
-    const bool hasFeedbackHazard = std::any_of(
-        hazards.begin(), hazards.end(),
+    const bool hasFeedbackHazard = std::ranges::any_of(
+        hazards,
         [](const RenderGraph::Hazard& hazard)
         {
             return hazard.Kind == RenderGraph::HazardKind::FeedbackWithoutDeclaration &&
@@ -2447,9 +2447,9 @@ TEST(RenderGraph, GraphNodeSetupAndExecuteUseCanonicalSubmissionPath)
     EXPECT_EQ(node->GetObservedContextPassName(), "GraphNodeExecute");
 
     const auto plan = graph.GetSubmissionPlan();
-    const auto nodeCommand = std::find_if(plan.begin(), plan.end(), [](const RenderGraph::SubmissionCommand& command)
-                                          { return command.CommandKind == RenderGraph::SubmissionCommand::Kind::Pass &&
-                                                   command.NodeName == "GraphNodeExecute"; });
+    const auto nodeCommand = std::ranges::find_if(plan, [](const RenderGraph::SubmissionCommand& command)
+                                                  { return command.CommandKind == RenderGraph::SubmissionCommand::Kind::Pass &&
+                                                           command.NodeName == "GraphNodeExecute"; });
     ASSERT_NE(nodeCommand, plan.end());
     EXPECT_NE(nodeCommand->NodePointer, nullptr);
 }
@@ -2489,17 +2489,17 @@ TEST(RenderGraph, GraphNodesDeriveProducerConsumerDependencyFromDeclarations)
     graph.Execute();
 
     const auto connections = graph.GetConnections();
-    const auto derivedEdge = std::find_if(connections.begin(), connections.end(),
-                                          [](const RenderGraph::ConnectionInfo& connection)
-                                          {
-                                              return connection.OutputPass == "GraphNodeProducer" &&
-                                                     connection.InputPass == "GraphNodeConsumer";
-                                          });
+    const auto derivedEdge = std::ranges::find_if(connections,
+                                                  [](const RenderGraph::ConnectionInfo& connection)
+                                                  {
+                                                      return connection.OutputPass == "GraphNodeProducer" &&
+                                                             connection.InputPass == "GraphNodeConsumer";
+                                                  });
     EXPECT_NE(derivedEdge, connections.end());
 
     const auto& order = graph.GetExecutionOrder();
-    const auto producerIt = std::find(order.begin(), order.end(), "GraphNodeProducer");
-    const auto consumerIt = std::find(order.begin(), order.end(), "GraphNodeConsumer");
+    const auto producerIt = std::ranges::find(order, "GraphNodeProducer");
+    const auto consumerIt = std::ranges::find(order, "GraphNodeConsumer");
     ASSERT_NE(producerIt, order.end());
     ASSERT_NE(consumerIt, order.end());
     EXPECT_LT(std::distance(order.begin(), producerIt), std::distance(order.begin(), consumerIt));
@@ -2555,7 +2555,7 @@ TEST(RenderGraph, GraphNodeReachabilityCullsUnusedNode)
     graph.Execute();
 
     const auto& culled = graph.GetCulledPasses();
-    EXPECT_NE(std::find(culled.begin(), culled.end(), "UnusedGraphNode"), culled.end());
+    EXPECT_NE(std::ranges::find(culled, "UnusedGraphNode"), culled.end());
     EXPECT_EQ(producer->GetExecuteCount(), 1u);
     EXPECT_EQ(consumer->GetExecuteCount(), 1u);
     EXPECT_EQ(unused->GetExecuteCount(), 0u);
@@ -2594,18 +2594,18 @@ TEST(RenderGraph, GraphNodeFlagsDriveSubmissionMetadata)
     EXPECT_TRUE(submissionInfo[0].AsyncComputeCandidate);
 
     const auto plan = graph.GetSubmissionPlan();
-    const auto nodeCommand = std::find_if(plan.begin(), plan.end(), [](const RenderGraph::SubmissionCommand& command)
-                                          { return command.CommandKind == RenderGraph::SubmissionCommand::Kind::Pass &&
-                                                   command.NodeName == "ComputeGraphNode"; });
+    const auto nodeCommand = std::ranges::find_if(plan, [](const RenderGraph::SubmissionCommand& command)
+                                                  { return command.CommandKind == RenderGraph::SubmissionCommand::Kind::Pass &&
+                                                           command.NodeName == "ComputeGraphNode"; });
     ASSERT_NE(nodeCommand, plan.end());
     EXPECT_EQ(nodeCommand->WorkType, RenderGraphPassWorkType::Compute);
     EXPECT_EQ(nodeCommand->Lane, RenderGraph::QueueLane::Compute);
     EXPECT_NE(nodeCommand->NodePointer, nullptr);
 
-    const auto batchBegin = std::find_if(plan.begin(), plan.end(), [](const RenderGraph::SubmissionCommand& command)
-                                         { return command.CommandKind == RenderGraph::SubmissionCommand::Kind::BatchBegin; });
-    const auto batchEnd = std::find_if(plan.begin(), plan.end(), [](const RenderGraph::SubmissionCommand& command)
-                                       { return command.CommandKind == RenderGraph::SubmissionCommand::Kind::BatchEnd; });
+    const auto batchBegin = std::ranges::find_if(plan, [](const RenderGraph::SubmissionCommand& command)
+                                                 { return command.CommandKind == RenderGraph::SubmissionCommand::Kind::BatchBegin; });
+    const auto batchEnd = std::ranges::find_if(plan, [](const RenderGraph::SubmissionCommand& command)
+                                               { return command.CommandKind == RenderGraph::SubmissionCommand::Kind::BatchEnd; });
     EXPECT_NE(batchBegin, plan.end());
     EXPECT_NE(batchEnd, plan.end());
     EXPECT_EQ(node->GetExecuteCount(), 1u);
@@ -2711,12 +2711,12 @@ TEST(RenderGraph, PlansBarrierFromWriterToReaderTransition)
     graph.Execute();
 
     const auto& plannedBarriers = graph.GetPlannedBarriers();
-    const auto barrierIt = std::find_if(plannedBarriers.begin(), plannedBarriers.end(),
-                                        [](const RenderGraph::PlannedBarrier& barrier)
-                                        {
-                                            return barrier.BeforePass == "Consumer" &&
-                                                   barrier.Resource == "SharedBuffer";
-                                        });
+    const auto barrierIt = std::ranges::find_if(plannedBarriers,
+                                                [](const RenderGraph::PlannedBarrier& barrier)
+                                                {
+                                                    return barrier.BeforePass == "Consumer" &&
+                                                           barrier.Resource == "SharedBuffer";
+                                                });
 
     ASSERT_NE(barrierIt, plannedBarriers.end());
     const auto expectedFlags = MemoryBarrierFlags::ShaderStorage;
@@ -2761,12 +2761,12 @@ TEST(RenderGraph, PlansFramebufferAndTextureFetchBarrierForRenderTargetToSample)
     graph.Execute();
 
     const auto& plannedBarriers = graph.GetPlannedBarriers();
-    const auto barrierIt = std::find_if(plannedBarriers.begin(), plannedBarriers.end(),
-                                        [](const RenderGraph::PlannedBarrier& barrier)
-                                        {
-                                            return barrier.BeforePass == "PostRead" &&
-                                                   barrier.Resource == "SceneColorTex";
-                                        });
+    const auto barrierIt = std::ranges::find_if(plannedBarriers,
+                                                [](const RenderGraph::PlannedBarrier& barrier)
+                                                {
+                                                    return barrier.BeforePass == "PostRead" &&
+                                                           barrier.Resource == "SceneColorTex";
+                                                });
 
     ASSERT_NE(barrierIt, plannedBarriers.end());
     const auto expected = MemoryBarrierFlags::Framebuffer | MemoryBarrierFlags::TextureFetch;
@@ -2796,13 +2796,13 @@ TEST(RenderGraph, ReportsMissingProducerDiagnosticForReadOnlyResource)
     graph.Execute();
 
     const auto& diagnostics = graph.GetBarrierDiagnostics();
-    const auto diagIt = std::find_if(diagnostics.begin(), diagnostics.end(),
-                                     [](const RenderGraph::BarrierDiagnostic& diagnostic)
-                                     {
-                                         return diagnostic.Kind == RenderGraph::BarrierDiagnosticKind::MissingProducer &&
-                                                diagnostic.PassName == "ConsumerOnly" &&
-                                                diagnostic.Resource == "OrphanResource";
-                                     });
+    const auto diagIt = std::ranges::find_if(diagnostics,
+                                             [](const RenderGraph::BarrierDiagnostic& diagnostic)
+                                             {
+                                                 return diagnostic.Kind == RenderGraph::BarrierDiagnosticKind::MissingProducer &&
+                                                        diagnostic.PassName == "ConsumerOnly" &&
+                                                        diagnostic.Resource == "OrphanResource";
+                                             });
     ASSERT_NE(diagIt, diagnostics.end());
 }
 
@@ -2875,16 +2875,16 @@ TEST(RenderGraph, DerivedDependenciesAreRebuiltFromCurrentFrameDeclarations)
     graph.Execute();
 
     const auto& culledPasses = graph.GetCulledPasses();
-    EXPECT_NE(std::find(culledPasses.begin(), culledPasses.end(), "OptionalPost"), culledPasses.end())
+    EXPECT_NE(std::ranges::find(culledPasses, "OptionalPost"), culledPasses.end())
         << "Derived edges from the enabled frame must not keep a disabled pass reachable";
 
     const auto connections = graph.GetConnections();
-    const auto staleEdge = std::find_if(connections.begin(), connections.end(),
-                                        [](const RenderGraph::ConnectionInfo& connection)
-                                        {
-                                            return connection.OutputPass == "OptionalPost" ||
-                                                   connection.InputPass == "OptionalPost";
-                                        });
+    const auto staleEdge = std::ranges::find_if(connections,
+                                                [](const RenderGraph::ConnectionInfo& connection)
+                                                {
+                                                    return connection.OutputPass == "OptionalPost" ||
+                                                           connection.InputPass == "OptionalPost";
+                                                });
     EXPECT_EQ(staleEdge, connections.end()) << "Disabled pass should not keep stale derived dependencies";
 
     EXPECT_EQ(scene->GetExecuteCount(), 2u);
@@ -2913,11 +2913,11 @@ TEST(RenderGraph, ReportsStaleExtractionHandleDiagnostic)
     graph.Execute();
 
     const auto& diagnostics = graph.GetBarrierDiagnostics();
-    const auto diagIt = std::find_if(diagnostics.begin(), diagnostics.end(),
-                                     [](const RenderGraph::BarrierDiagnostic& diagnostic)
-                                     {
-                                         return diagnostic.Kind == RenderGraph::BarrierDiagnosticKind::StaleExtractionHandle;
-                                     });
+    const auto diagIt = std::ranges::find_if(diagnostics,
+                                             [](const RenderGraph::BarrierDiagnostic& diagnostic)
+                                             {
+                                                 return diagnostic.Kind == RenderGraph::BarrierDiagnosticKind::StaleExtractionHandle;
+                                             });
 
     ASSERT_NE(diagIt, diagnostics.end());
     EXPECT_FALSE(extractionCalled);
@@ -2970,12 +2970,12 @@ TEST(RenderGraph, ReportsExtractionOfCulledResourceDiagnostic)
     graph.Execute();
 
     const auto& diagnostics = graph.GetBarrierDiagnostics();
-    const auto diagIt = std::find_if(diagnostics.begin(), diagnostics.end(),
-                                     [](const RenderGraph::BarrierDiagnostic& diagnostic)
-                                     {
-                                         return diagnostic.Kind == RenderGraph::BarrierDiagnosticKind::ExtractionOfCulledResource &&
-                                                diagnostic.Resource == "CulledColor";
-                                     });
+    const auto diagIt = std::ranges::find_if(diagnostics,
+                                             [](const RenderGraph::BarrierDiagnostic& diagnostic)
+                                             {
+                                                 return diagnostic.Kind == RenderGraph::BarrierDiagnosticKind::ExtractionOfCulledResource &&
+                                                        diagnostic.Resource == "CulledColor";
+                                             });
 
     ASSERT_NE(diagIt, diagnostics.end());
     EXPECT_FALSE(extractionCalled);
@@ -3026,7 +3026,7 @@ TEST(RenderGraph, ExtractTextureBeforeBuildRootsProducerAndInvokesCallback)
     graph.BuildFrameGraph();
 
     const auto& culledPasses = graph.GetCulledPasses();
-    EXPECT_EQ(std::find(culledPasses.begin(), culledPasses.end(), "ExtractOnlyProducer"), culledPasses.end());
+    EXPECT_EQ(std::ranges::find(culledPasses, "ExtractOnlyProducer"), culledPasses.end());
 
     graph.Execute();
 
@@ -3034,12 +3034,12 @@ TEST(RenderGraph, ExtractTextureBeforeBuildRootsProducerAndInvokesCallback)
     EXPECT_EQ(extractedID, 11u);
 
     const auto& diagnostics = graph.GetBarrierDiagnostics();
-    const auto diagIt = std::find_if(diagnostics.begin(), diagnostics.end(),
-                                     [](const RenderGraph::BarrierDiagnostic& diagnostic)
-                                     {
-                                         return diagnostic.Kind == RenderGraph::BarrierDiagnosticKind::ExtractionOfCulledResource &&
-                                                diagnostic.Resource == "ExtractedColor";
-                                     });
+    const auto diagIt = std::ranges::find_if(diagnostics,
+                                             [](const RenderGraph::BarrierDiagnostic& diagnostic)
+                                             {
+                                                 return diagnostic.Kind == RenderGraph::BarrierDiagnosticKind::ExtractionOfCulledResource &&
+                                                        diagnostic.Resource == "ExtractedColor";
+                                             });
     EXPECT_EQ(diagIt, diagnostics.end());
 }
 
@@ -3089,19 +3089,19 @@ TEST(RenderGraph, ExtractFramebufferBeforeBuildRootsProducerAndInvokesCallback)
     graph.BuildFrameGraph();
 
     const auto& culledPasses = graph.GetCulledPasses();
-    EXPECT_EQ(std::find(culledPasses.begin(), culledPasses.end(), "ExtractOnlyProducer"), culledPasses.end());
+    EXPECT_EQ(std::ranges::find(culledPasses, "ExtractOnlyProducer"), culledPasses.end());
 
     graph.Execute();
 
     EXPECT_TRUE(extractionCalled);
 
     const auto& diagnostics = graph.GetBarrierDiagnostics();
-    const auto diagIt = std::find_if(diagnostics.begin(), diagnostics.end(),
-                                     [](const RenderGraph::BarrierDiagnostic& diagnostic)
-                                     {
-                                         return diagnostic.Kind == RenderGraph::BarrierDiagnosticKind::ExtractionOfCulledResource &&
-                                                diagnostic.Resource == "ExtractedFramebuffer";
-                                     });
+    const auto diagIt = std::ranges::find_if(diagnostics,
+                                             [](const RenderGraph::BarrierDiagnostic& diagnostic)
+                                             {
+                                                 return diagnostic.Kind == RenderGraph::BarrierDiagnosticKind::ExtractionOfCulledResource &&
+                                                        diagnostic.Resource == "ExtractedFramebuffer";
+                                             });
     EXPECT_EQ(diagIt, diagnostics.end());
 }
 
@@ -3282,7 +3282,7 @@ TEST(RenderGraph, BuilderExtractTextureRootsProducerAndInvokesCallback)
     graph.BuildFrameGraph();
 
     const auto& culledPasses = graph.GetCulledPasses();
-    EXPECT_EQ(std::find(culledPasses.begin(), culledPasses.end(), "BuilderExtractProducer"), culledPasses.end());
+    EXPECT_EQ(std::ranges::find(culledPasses, "BuilderExtractProducer"), culledPasses.end());
 
     graph.Execute();
 
@@ -3336,7 +3336,7 @@ TEST(RenderGraph, BuilderExtractFramebufferRootsProducerAndInvokesCallback)
     graph.BuildFrameGraph();
 
     const auto& culledPasses = graph.GetCulledPasses();
-    EXPECT_EQ(std::find(culledPasses.begin(), culledPasses.end(), "BuilderExtractProducer"), culledPasses.end());
+    EXPECT_EQ(std::ranges::find(culledPasses, "BuilderExtractProducer"), culledPasses.end());
 
     graph.Execute();
 
@@ -3381,7 +3381,7 @@ TEST(RenderGraphExternalTextureSinks, BuilderRegisteredTextureSinkRootsProducerA
     graph.BuildFrameGraph();
 
     const auto& culledPasses = graph.GetCulledPasses();
-    EXPECT_EQ(std::find(culledPasses.begin(), culledPasses.end(), "ExternalSinkProducer"), culledPasses.end());
+    EXPECT_EQ(std::ranges::find(culledPasses, "ExternalSinkProducer"), culledPasses.end());
 
     const auto& contracts = graph.GetExternalTextureSinkContracts();
     ASSERT_EQ(contracts.size(), 1u);
@@ -3436,7 +3436,7 @@ TEST(RenderGraphExternalTextureSinks, BuilderRegisteredFramebufferSinkRootsProdu
     graph.BuildFrameGraph();
 
     const auto& culledPasses = graph.GetCulledPasses();
-    EXPECT_EQ(std::find(culledPasses.begin(), culledPasses.end(), "ExternalSinkProducer"), culledPasses.end());
+    EXPECT_EQ(std::ranges::find(culledPasses, "ExternalSinkProducer"), culledPasses.end());
 
     const auto& contracts = graph.GetExternalTextureSinkContracts();
     ASSERT_EQ(contracts.size(), 1u);
@@ -3528,9 +3528,9 @@ TEST(RenderGraph, LinearChainOrder)
     ASSERT_EQ(order.size(), 3u);
 
     // A must appear before B, and B before C
-    auto posA = std::find(order.begin(), order.end(), "A") - order.begin();
-    auto posB = std::find(order.begin(), order.end(), "B") - order.begin();
-    auto posC = std::find(order.begin(), order.end(), "C") - order.begin();
+    auto posA = std::ranges::find(order, "A") - order.begin();
+    auto posB = std::ranges::find(order, "B") - order.begin();
+    auto posC = std::ranges::find(order, "C") - order.begin();
 
     EXPECT_LT(posA, posB) << "A must execute before B";
     EXPECT_LT(posB, posC) << "B must execute before C";
@@ -3559,10 +3559,10 @@ TEST(RenderGraph, DiamondDependency)
     const auto& order = graph.GetExecutionOrder();
     ASSERT_EQ(order.size(), 4u);
 
-    auto posA = std::find(order.begin(), order.end(), "A") - order.begin();
-    auto posB = std::find(order.begin(), order.end(), "B") - order.begin();
-    auto posC = std::find(order.begin(), order.end(), "C") - order.begin();
-    auto posD = std::find(order.begin(), order.end(), "D") - order.begin();
+    auto posA = std::ranges::find(order, "A") - order.begin();
+    auto posB = std::ranges::find(order, "B") - order.begin();
+    auto posC = std::ranges::find(order, "C") - order.begin();
+    auto posD = std::ranges::find(order, "D") - order.begin();
 
     EXPECT_LT(posA, posB);
     EXPECT_LT(posA, posC);
@@ -3588,8 +3588,8 @@ TEST(RenderGraph, ExecutionDependencyOrdering)
     const auto& order = graph.GetExecutionOrder();
     ASSERT_EQ(order.size(), 2u);
 
-    auto posShadow = std::find(order.begin(), order.end(), "Shadow") - order.begin();
-    auto posScene = std::find(order.begin(), order.end(), "Scene") - order.begin();
+    auto posShadow = std::ranges::find(order, "Shadow") - order.begin();
+    auto posScene = std::ranges::find(order, "Scene") - order.begin();
 
     EXPECT_LT(posShadow, posScene) << "Shadow must execute before Scene";
 }
@@ -3738,7 +3738,7 @@ TEST(RenderGraphStructural, ProductionPassOrderingAlwaysRespected)
     const auto& order = graph.GetExecutionOrder();
     auto posOf = [&](const std::string& n)
     {
-        return std::find(order.begin(), order.end(), n) - order.begin();
+        return std::ranges::find(order, n) - order.begin();
     };
     const auto shadowPos = posOf("ShadowPass");
     const auto scenePos = posOf("ScenePass");
@@ -3785,7 +3785,7 @@ TEST(RenderGraphStructural, FinalPresentSinkUsesOrderingOnly)
     const auto& order = graph.GetExecutionOrder();
     auto posOf = [&](const std::string& n)
     {
-        return std::find(order.begin(), order.end(), n) - order.begin();
+        return std::ranges::find(order, n) - order.begin();
     };
     const auto uiPos = posOf("UICompositePass");
     const auto finalPos = posOf("FinalPass");
@@ -3897,11 +3897,11 @@ TEST(RenderGraphStructural, DerivedEdgeDoesNotIntroduceReverseCycle)
     graph.BuildFrameGraph();
 
     const auto hazards = graph.ValidateResourceHazards();
-    const auto hasCycle = std::any_of(hazards.begin(), hazards.end(),
-                                      [](const RenderGraph::Hazard& h)
-                                      {
-                                          return h.Kind == RenderGraph::HazardKind::Cycle;
-                                      });
+    const auto hasCycle = std::ranges::any_of(hazards,
+                                              [](const RenderGraph::Hazard& h)
+                                              {
+                                                  return h.Kind == RenderGraph::HazardKind::Cycle;
+                                              });
     EXPECT_FALSE(hasCycle) << "Derived edge insertion must not create cycles";
     EXPECT_EQ(graph.GetExecutionOrder().size(), 2u)
         << "Cycle guard must preserve a valid two-pass topological order";
@@ -3955,17 +3955,17 @@ TEST(RenderGraphStructural, BuilderPassDependenciesOverrideReverseRegistrationOr
     graph.BuildFrameGraph();
 
     const auto hazards = graph.ValidateResourceHazards();
-    const auto hasCycle = std::any_of(hazards.begin(), hazards.end(),
-                                      [](const RenderGraph::Hazard& h)
-                                      {
-                                          return h.Kind == RenderGraph::HazardKind::Cycle;
-                                      });
+    const auto hasCycle = std::ranges::any_of(hazards,
+                                              [](const RenderGraph::Hazard& h)
+                                              {
+                                                  return h.Kind == RenderGraph::HazardKind::Cycle;
+                                              });
     EXPECT_FALSE(hasCycle) << "Builder pass dependencies must stay cycle-free";
 
     const auto& order = graph.GetExecutionOrder();
     auto posOf = [&order](const char* name)
     {
-        return std::find(order.begin(), order.end(), name) - order.begin();
+        return std::ranges::find(order, name) - order.begin();
     };
 
     EXPECT_LT(posOf("ShadowPass"), posOf("ScenePass"));
@@ -4071,7 +4071,7 @@ TEST(RenderGraphStructural, DerivedEdgesSatisfyDeferredCoreWithoutManualEdges)
     const auto& order = graph.GetExecutionOrder();
     auto posOf = [&](const char* name)
     {
-        return std::find(order.begin(), order.end(), name) - order.begin();
+        return std::ranges::find(order, name) - order.begin();
     };
     EXPECT_LT(posOf("ScenePass"), posOf("DeferredOpaqueDecalPass"));
     EXPECT_LT(posOf("DeferredOpaqueDecalPass"), posOf("DeferredLightingPass"));
@@ -4629,11 +4629,11 @@ TEST(RenderGraphTransientPool, UnreachableTransientResourceIsNotPlannedForAlloca
     graph.Execute();
 
     const auto& transientPlan = graph.GetTransientPlan();
-    const auto planIt = std::find_if(transientPlan.begin(), transientPlan.end(),
-                                     [](const RenderGraph::TransientPlanEntry& entry)
-                                     {
-                                         return entry.Resource == "UnusedTransient";
-                                     });
+    const auto planIt = std::ranges::find_if(transientPlan,
+                                             [](const RenderGraph::TransientPlanEntry& entry)
+                                             {
+                                                 return entry.Resource == "UnusedTransient";
+                                             });
 
     ASSERT_NE(planIt, transientPlan.end());
     EXPECT_FALSE(planIt->Reachable);
@@ -4723,11 +4723,11 @@ TEST(RenderGraphTransientPool, NonOverlappingTransientResourcesReuseAliasSlot)
     const auto& transientPlan = graph.GetTransientPlan();
     const auto findPlan = [&transientPlan](const std::string& resource) -> const RenderGraph::TransientPlanEntry*
     {
-        const auto it = std::find_if(transientPlan.begin(), transientPlan.end(),
-                                     [&resource](const RenderGraph::TransientPlanEntry& entry)
-                                     {
-                                         return entry.Resource == resource;
-                                     });
+        const auto it = std::ranges::find_if(transientPlan,
+                                             [&resource](const RenderGraph::TransientPlanEntry& entry)
+                                             {
+                                                 return entry.Resource == resource;
+                                             });
         return it == transientPlan.end() ? nullptr : &(*it);
     };
 
@@ -4787,11 +4787,11 @@ TEST(RenderGraphTransientPool, UnsupportedFramebufferFormatIsNotPlannedForAlloca
     graph.BuildFrameGraph();
 
     const auto& transientPlan = graph.GetTransientPlan();
-    const auto planIt = std::find_if(transientPlan.begin(), transientPlan.end(),
-                                     [](const RenderGraph::TransientPlanEntry& entry)
-                                     {
-                                         return entry.Resource == "UnsupportedTransientFB";
-                                     });
+    const auto planIt = std::ranges::find_if(transientPlan,
+                                             [](const RenderGraph::TransientPlanEntry& entry)
+                                             {
+                                                 return entry.Resource == "UnsupportedTransientFB";
+                                             });
 
     ASSERT_NE(planIt, transientPlan.end());
     EXPECT_TRUE(planIt->Reachable);
@@ -4825,9 +4825,9 @@ TEST(RenderGraphTransientPool, PhaseD_RG16FFramebufferFormatIsNowAllocatable)
     graph.BuildFrameGraph();
 
     const auto& plan = graph.GetTransientPlan();
-    const auto it = std::find_if(plan.begin(), plan.end(),
-                                 [](const RenderGraph::TransientPlanEntry& e)
-                                 { return e.Resource == "PhaseD_RG16FFB"; });
+    const auto it = std::ranges::find_if(plan,
+                                         [](const RenderGraph::TransientPlanEntry& e)
+                                         { return e.Resource == "PhaseD_RG16FFB"; });
 
     ASSERT_NE(it, plan.end());
     EXPECT_TRUE(it->WillAllocate) << "RG16F FB must be allocatable after Phase D fix";
@@ -4869,9 +4869,9 @@ TEST(RenderGraphTransientPool, PhaseD_SSAOPassDeclaresTransientRawFramebuffer)
 
     // SSAORaw should be reachable and planned for allocation
     const auto& plan = graph.GetTransientPlan();
-    const auto it = std::find_if(plan.begin(), plan.end(),
-                                 [](const RenderGraph::TransientPlanEntry& e)
-                                 { return e.Resource == "SSAORaw"; });
+    const auto it = std::ranges::find_if(plan,
+                                         [](const RenderGraph::TransientPlanEntry& e)
+                                         { return e.Resource == "SSAORaw"; });
 
     ASSERT_NE(it, plan.end()) << "SSAORaw not found in transient plan";
     EXPECT_TRUE(it->Reachable) << "SSAORaw must be reachable";
@@ -4916,9 +4916,9 @@ TEST(RenderGraphTransientPool, PhaseD_SSAOAOBufferDeclaredAsTransientTexture)
     graph.BuildFrameGraph();
 
     const auto& plan = graph.GetTransientPlan();
-    const auto it = std::find_if(plan.begin(), plan.end(),
-                                 [](const RenderGraph::TransientPlanEntry& entry)
-                                 { return entry.Resource == ResourceNames::AOBuffer; });
+    const auto it = std::ranges::find_if(plan,
+                                         [](const RenderGraph::TransientPlanEntry& entry)
+                                         { return entry.Resource == ResourceNames::AOBuffer; });
 
     ASSERT_NE(it, plan.end()) << "AOBuffer not found in transient plan";
     EXPECT_TRUE(it->Reachable) << "AOBuffer must be reachable";
@@ -4961,9 +4961,9 @@ TEST(RenderGraphTransientPool, PhaseD_SSAOBlurFramebufferDeclaredAsTransientFram
     graph.BuildFrameGraph();
 
     const auto& plan = graph.GetTransientPlan();
-    const auto it = std::find_if(plan.begin(), plan.end(),
-                                 [](const RenderGraph::TransientPlanEntry& entry)
-                                 { return entry.Resource == ResourceNames::SSAOBlur; });
+    const auto it = std::ranges::find_if(plan,
+                                         [](const RenderGraph::TransientPlanEntry& entry)
+                                         { return entry.Resource == ResourceNames::SSAOBlur; });
 
     ASSERT_NE(it, plan.end()) << "SSAOBlur not found in transient plan";
     EXPECT_TRUE(it->Reachable) << "SSAOBlur must be reachable";
@@ -5000,9 +5000,9 @@ TEST(RenderGraphTransientPool, PhaseD_RGBA32FFramebufferFormatIsAllocatable)
     graph.BuildFrameGraph();
 
     const auto& plan = graph.GetTransientPlan();
-    const auto it = std::find_if(plan.begin(), plan.end(),
-                                 [](const RenderGraph::TransientPlanEntry& e)
-                                 { return e.Resource == "PhaseD_RGBA32FFB"; });
+    const auto it = std::ranges::find_if(plan,
+                                         [](const RenderGraph::TransientPlanEntry& e)
+                                         { return e.Resource == "PhaseD_RGBA32FFB"; });
 
     ASSERT_NE(it, plan.end());
     EXPECT_TRUE(it->WillAllocate) << "RGBA32F FB must be allocatable after Phase D Slice 2 fix";
@@ -5050,9 +5050,9 @@ TEST(RenderGraphTransientPool, PhaseD_SelectionOutlinePassDeclaresPingPongJFAFra
 
     for (const char* name : { "JFAPing", "JFAPong" })
     {
-        const auto it = std::find_if(plan.begin(), plan.end(),
-                                     [name](const RenderGraph::TransientPlanEntry& e)
-                                     { return e.Resource == name; });
+        const auto it = std::ranges::find_if(plan,
+                                             [name](const RenderGraph::TransientPlanEntry& e)
+                                             { return e.Resource == name; });
 
         ASSERT_NE(it, plan.end()) << name << " not found in transient plan";
         EXPECT_TRUE(it->Reachable) << name << " must be reachable";
@@ -5066,12 +5066,12 @@ TEST(RenderGraphTransientPool, PhaseD_SelectionOutlinePassDeclaresPingPongJFAFra
     // Both JFA framebuffers have identical descriptors — they should alias into
     // the same alias slot (non-overlapping lifetimes are not guaranteed here,
     // but at minimum both should be planned).
-    const auto pingIt = std::find_if(plan.begin(), plan.end(),
-                                     [](const RenderGraph::TransientPlanEntry& e)
-                                     { return e.Resource == "JFAPing"; });
-    const auto pongIt = std::find_if(plan.begin(), plan.end(),
-                                     [](const RenderGraph::TransientPlanEntry& e)
-                                     { return e.Resource == "JFAPong"; });
+    const auto pingIt = std::ranges::find_if(plan,
+                                             [](const RenderGraph::TransientPlanEntry& e)
+                                             { return e.Resource == "JFAPing"; });
+    const auto pongIt = std::ranges::find_if(plan,
+                                             [](const RenderGraph::TransientPlanEntry& e)
+                                             { return e.Resource == "JFAPong"; });
     ASSERT_NE(pingIt, plan.end());
     ASSERT_NE(pongIt, plan.end());
     // Both must report the same descriptor (same size + format = alias-compatible)
@@ -5128,9 +5128,9 @@ TEST(RenderGraphTransientPool, PhaseD_BloomMipChainDeclaredAsTransientFramebuffe
     for (u32 i = 0; i < 5u; ++i)
     {
         const std::string mipName = "BloomMip" + std::to_string(i);
-        const auto it = std::find_if(plan.begin(), plan.end(),
-                                     [&mipName](const RenderGraph::TransientPlanEntry& e)
-                                     { return e.Resource == mipName; });
+        const auto it = std::ranges::find_if(plan,
+                                             [&mipName](const RenderGraph::TransientPlanEntry& e)
+                                             { return e.Resource == mipName; });
 
         ASSERT_NE(it, plan.end()) << mipName << " not found in transient plan";
         EXPECT_TRUE(it->Reachable) << mipName << " must be reachable";
@@ -5142,12 +5142,12 @@ TEST(RenderGraphTransientPool, PhaseD_BloomMipChainDeclaredAsTransientFramebuffe
     }
 
     // Mip 0 should be larger than mip 1 (halving each level).
-    const auto mip0It = std::find_if(plan.begin(), plan.end(),
-                                     [](const RenderGraph::TransientPlanEntry& e)
-                                     { return e.Resource == "BloomMip0"; });
-    const auto mip1It = std::find_if(plan.begin(), plan.end(),
-                                     [](const RenderGraph::TransientPlanEntry& e)
-                                     { return e.Resource == "BloomMip1"; });
+    const auto mip0It = std::ranges::find_if(plan,
+                                             [](const RenderGraph::TransientPlanEntry& e)
+                                             { return e.Resource == "BloomMip0"; });
+    const auto mip1It = std::ranges::find_if(plan,
+                                             [](const RenderGraph::TransientPlanEntry& e)
+                                             { return e.Resource == "BloomMip1"; });
     ASSERT_NE(mip0It, plan.end());
     ASSERT_NE(mip1It, plan.end());
     EXPECT_GT(mip0It->EstimatedBytes, mip1It->EstimatedBytes)
@@ -5187,9 +5187,9 @@ TEST(RenderGraphTransientPool, PhaseD_GTAOEdgeTextureDeclaredAsTransientTexture)
     graph.BuildFrameGraph();
 
     const auto& plan = graph.GetTransientPlan();
-    const auto it = std::find_if(plan.begin(), plan.end(),
-                                 [](const RenderGraph::TransientPlanEntry& e)
-                                 { return e.Resource == "GTAOEdge"; });
+    const auto it = std::ranges::find_if(plan,
+                                         [](const RenderGraph::TransientPlanEntry& e)
+                                         { return e.Resource == "GTAOEdge"; });
 
     ASSERT_NE(it, plan.end()) << "GTAOEdge not found in transient plan";
     EXPECT_TRUE(it->Reachable) << "GTAOEdge must be reachable";
@@ -5236,9 +5236,9 @@ TEST(RenderGraphTransientPool, PhaseD_GTAOAOBufferDeclaredAsTransientTexture)
     graph.BuildFrameGraph();
 
     const auto& plan = graph.GetTransientPlan();
-    const auto it = std::find_if(plan.begin(), plan.end(),
-                                 [](const RenderGraph::TransientPlanEntry& entry)
-                                 { return entry.Resource == ResourceNames::AOBuffer; });
+    const auto it = std::ranges::find_if(plan,
+                                         [](const RenderGraph::TransientPlanEntry& entry)
+                                         { return entry.Resource == ResourceNames::AOBuffer; });
 
     ASSERT_NE(it, plan.end()) << "AOBuffer not found in transient plan";
     EXPECT_TRUE(it->Reachable) << "AOBuffer must be reachable";
@@ -5290,9 +5290,9 @@ TEST(RenderGraphTransientPool, PhaseD_GTAODenoisePingPongDeclaredAsTransientText
     const auto& plan = graph.GetTransientPlan();
     for (const auto resourceName : { ResourceNames::GTAODenoisePing, ResourceNames::GTAODenoisePong })
     {
-        const auto it = std::find_if(plan.begin(), plan.end(),
-                                     [resourceName](const RenderGraph::TransientPlanEntry& entry)
-                                     { return entry.Resource == resourceName; });
+        const auto it = std::ranges::find_if(plan,
+                                             [resourceName](const RenderGraph::TransientPlanEntry& entry)
+                                             { return entry.Resource == resourceName; });
 
         ASSERT_NE(it, plan.end()) << resourceName << " not found in transient plan";
         EXPECT_TRUE(it->Reachable) << resourceName << " must be reachable";
@@ -5343,9 +5343,9 @@ TEST(RenderGraphTransientPool, PhaseD_HZBDepthDeclaredAsTransientMipChainTexture
     graph.BuildFrameGraph();
 
     const auto& plan = graph.GetTransientPlan();
-    const auto it = std::find_if(plan.begin(), plan.end(),
-                                 [](const RenderGraph::TransientPlanEntry& e)
-                                 { return e.Resource == "HZBDepth"; });
+    const auto it = std::ranges::find_if(plan,
+                                         [](const RenderGraph::TransientPlanEntry& e)
+                                         { return e.Resource == "HZBDepth"; });
 
     ASSERT_NE(it, plan.end()) << "HZBDepth not found in transient plan";
     EXPECT_TRUE(it->Reachable) << "HZBDepth must be reachable";
@@ -5393,9 +5393,9 @@ TEST(RenderGraphTransientPool, PhaseD_WaterRefractionDeclaredAsTransientTexture)
     graph.BuildFrameGraph();
 
     const auto& plan = graph.GetTransientPlan();
-    const auto it = std::find_if(plan.begin(), plan.end(),
-                                 [](const RenderGraph::TransientPlanEntry& e)
-                                 { return e.Resource == "WaterRefraction"; });
+    const auto it = std::ranges::find_if(plan,
+                                         [](const RenderGraph::TransientPlanEntry& e)
+                                         { return e.Resource == "WaterRefraction"; });
 
     ASSERT_NE(it, plan.end()) << "WaterRefraction not found in transient plan";
     EXPECT_TRUE(it->Reachable) << "WaterRefraction must be reachable";
@@ -5449,11 +5449,11 @@ TEST(RenderGraphTransientPool, RG16FloatTextureIsPlannedForAllocation)
     graph.BuildFrameGraph();
 
     const auto& transientPlan = graph.GetTransientPlan();
-    const auto planIt = std::find_if(transientPlan.begin(), transientPlan.end(),
-                                     [](const RenderGraph::TransientPlanEntry& entry)
-                                     {
-                                         return entry.Resource == "VelocityTransient";
-                                     });
+    const auto planIt = std::ranges::find_if(transientPlan,
+                                             [](const RenderGraph::TransientPlanEntry& entry)
+                                             {
+                                                 return entry.Resource == "VelocityTransient";
+                                             });
 
     ASSERT_NE(planIt, transientPlan.end());
     EXPECT_TRUE(planIt->Reachable);
@@ -5502,11 +5502,11 @@ TEST(RenderGraphTransientPool, UnsupportedImageFormatIsNotPlannedForAllocation)
     graph.BuildFrameGraph();
 
     const auto& transientPlan = graph.GetTransientPlan();
-    const auto planIt = std::find_if(transientPlan.begin(), transientPlan.end(),
-                                     [](const RenderGraph::TransientPlanEntry& entry)
-                                     {
-                                         return entry.Resource == "UnsupportedTransientTex";
-                                     });
+    const auto planIt = std::ranges::find_if(transientPlan,
+                                             [](const RenderGraph::TransientPlanEntry& entry)
+                                             {
+                                                 return entry.Resource == "UnsupportedTransientTex";
+                                             });
 
     ASSERT_NE(planIt, transientPlan.end());
     EXPECT_TRUE(planIt->Reachable);
@@ -5554,11 +5554,11 @@ TEST(RenderGraphTransientPool, MissingDimensionsTextureIsNotPlannedForAllocation
     graph.BuildFrameGraph();
 
     const auto& transientPlan = graph.GetTransientPlan();
-    const auto planIt = std::find_if(transientPlan.begin(), transientPlan.end(),
-                                     [](const RenderGraph::TransientPlanEntry& entry)
-                                     {
-                                         return entry.Resource == "MissingDimensionsTex";
-                                     });
+    const auto planIt = std::ranges::find_if(transientPlan,
+                                             [](const RenderGraph::TransientPlanEntry& entry)
+                                             {
+                                                 return entry.Resource == "MissingDimensionsTex";
+                                             });
 
     ASSERT_NE(planIt, transientPlan.end());
     EXPECT_TRUE(planIt->Reachable);
@@ -5606,11 +5606,11 @@ TEST(RenderGraphTransientPool, MissingDimensionsFramebufferIsNotPlannedForAlloca
     graph.BuildFrameGraph();
 
     const auto& transientPlan = graph.GetTransientPlan();
-    const auto planIt = std::find_if(transientPlan.begin(), transientPlan.end(),
-                                     [](const RenderGraph::TransientPlanEntry& entry)
-                                     {
-                                         return entry.Resource == "MissingDimensionsFB";
-                                     });
+    const auto planIt = std::ranges::find_if(transientPlan,
+                                             [](const RenderGraph::TransientPlanEntry& entry)
+                                             {
+                                                 return entry.Resource == "MissingDimensionsFB";
+                                             });
 
     ASSERT_NE(planIt, transientPlan.end());
     EXPECT_TRUE(planIt->Reachable);
@@ -5654,11 +5654,11 @@ TEST(RenderGraphTransientPool, ZeroSizeTransientBufferIsNotPlannedForAllocation)
     graph.BuildFrameGraph();
 
     const auto& transientPlan = graph.GetTransientPlan();
-    const auto planIt = std::find_if(transientPlan.begin(), transientPlan.end(),
-                                     [](const RenderGraph::TransientPlanEntry& entry)
-                                     {
-                                         return entry.Resource == "ZeroByteTransientBuffer";
-                                     });
+    const auto planIt = std::ranges::find_if(transientPlan,
+                                             [](const RenderGraph::TransientPlanEntry& entry)
+                                             {
+                                                 return entry.Resource == "ZeroByteTransientBuffer";
+                                             });
 
     ASSERT_NE(planIt, transientPlan.end());
     EXPECT_TRUE(planIt->Reachable);
@@ -5802,11 +5802,11 @@ TEST(RenderGraphTransientPool, MaterializationEnabledIsSafeForNonAllocatableTran
     graph.BuildFrameGraph();
 
     const auto& transientPlan = graph.GetTransientPlan();
-    const auto planIt = std::find_if(transientPlan.begin(), transientPlan.end(),
-                                     [](const RenderGraph::TransientPlanEntry& entry)
-                                     {
-                                         return entry.Resource == "NonAllocatableTransient";
-                                     });
+    const auto planIt = std::ranges::find_if(transientPlan,
+                                             [](const RenderGraph::TransientPlanEntry& entry)
+                                             {
+                                                 return entry.Resource == "NonAllocatableTransient";
+                                             });
 
     ASSERT_NE(planIt, transientPlan.end()) << "Transient should exist in the plan";
     EXPECT_TRUE(planIt->Reachable) << "Transient should still participate in the frame graph";
@@ -5867,11 +5867,11 @@ TEST(RenderGraphTransientPool, TransientTextureIsAllocatedFromPoolWhenMaterializ
     graph.BuildFrameGraph();
     // Verify the resource exists in the transient plan and was allocated
     const auto& transientPlan = graph.GetTransientPlan();
-    const auto planIt = std::find_if(transientPlan.begin(), transientPlan.end(),
-                                     [](const RenderGraph::TransientPlanEntry& entry)
-                                     {
-                                         return entry.Resource == "RuntimeTransientColor";
-                                     });
+    const auto planIt = std::ranges::find_if(transientPlan,
+                                             [](const RenderGraph::TransientPlanEntry& entry)
+                                             {
+                                                 return entry.Resource == "RuntimeTransientColor";
+                                             });
 
     ASSERT_NE(planIt, transientPlan.end()) << "Transient should exist in the plan";
     EXPECT_TRUE(planIt->Reachable) << "Transient should be reachable";
@@ -5909,11 +5909,11 @@ TEST(RenderGraphTransientPool, MaterializedTransientExtractionReturnsValidTextur
     graph.BuildFrameGraph();
 
     const auto& transientPlan = graph.GetTransientPlan();
-    const auto planIt = std::find_if(transientPlan.begin(), transientPlan.end(),
-                                     [](const RenderGraph::TransientPlanEntry& entry)
-                                     {
-                                         return entry.Resource == "GpuReadbackTransient";
-                                     });
+    const auto planIt = std::ranges::find_if(transientPlan,
+                                             [](const RenderGraph::TransientPlanEntry& entry)
+                                             {
+                                                 return entry.Resource == "GpuReadbackTransient";
+                                             });
     ASSERT_NE(planIt, transientPlan.end()) << "Transient should exist in the plan";
     EXPECT_TRUE(planIt->Reachable) << "Transient should be reachable";
     EXPECT_TRUE(planIt->WillAllocate) << "Transient should be marked allocatable in plan";
@@ -5961,11 +5961,11 @@ TEST(RenderGraphTransientPool, NonAllocatableTransientExtractionInvokesCallbackW
     graph.BuildFrameGraph();
 
     const auto& transientPlan = graph.GetTransientPlan();
-    const auto planIt = std::find_if(transientPlan.begin(), transientPlan.end(),
-                                     [](const RenderGraph::TransientPlanEntry& entry)
-                                     {
-                                         return entry.Resource == "NonAllocatableReadbackTransient";
-                                     });
+    const auto planIt = std::ranges::find_if(transientPlan,
+                                             [](const RenderGraph::TransientPlanEntry& entry)
+                                             {
+                                                 return entry.Resource == "NonAllocatableReadbackTransient";
+                                             });
     ASSERT_NE(planIt, transientPlan.end()) << "Transient should exist in the plan";
     EXPECT_TRUE(planIt->Reachable) << "Transient should still participate in the frame graph";
     EXPECT_FALSE(planIt->WillAllocate) << "Unknown-format transient must not be materialized";
@@ -6058,9 +6058,9 @@ TEST(RenderGraphTransientPool, PhaseD_OITBufferDeclaredAsSharedTransientMRTFrame
 
     // Resource must appear in the transient plan and be planned for allocation.
     const auto& plan = graph.GetTransientPlan();
-    const auto it = std::find_if(plan.begin(), plan.end(),
-                                 [](const RenderGraph::TransientPlanEntry& e)
-                                 { return e.Resource == std::string(ResourceNames::OITBuffer); });
+    const auto it = std::ranges::find_if(plan,
+                                         [](const RenderGraph::TransientPlanEntry& e)
+                                         { return e.Resource == std::string(ResourceNames::OITBuffer); });
 
     ASSERT_NE(it, plan.end()) << "OITBuffer not found in transient plan";
     EXPECT_TRUE(it->Reachable) << "OITBuffer must be reachable";
@@ -6321,41 +6321,41 @@ TEST(RenderGraphTypedHandles, ExternallyBackedTransientFramebufferViewsResolveBa
     EXPECT_TRUE(depthInfo->HasExternalBacking);
 
     const auto& transientPlan = graph.GetTransientPlan();
-    const auto planIt = std::find_if(transientPlan.begin(), transientPlan.end(),
-                                     [](const RenderGraph::TransientPlanEntry& entry)
-                                     {
-                                         return entry.Resource == "ExternallyBackedGBuffer";
-                                     });
+    const auto planIt = std::ranges::find_if(transientPlan,
+                                             [](const RenderGraph::TransientPlanEntry& entry)
+                                             {
+                                                 return entry.Resource == "ExternallyBackedGBuffer";
+                                             });
     ASSERT_NE(planIt, transientPlan.end());
     EXPECT_TRUE(planIt->Reachable);
     EXPECT_FALSE(planIt->WillAllocate);
     EXPECT_EQ(planIt->SkipReason, "external-backing");
 
     const auto lifetimes = graph.GetResourceLifetimes();
-    const auto lifetimeIt = std::find_if(lifetimes.begin(), lifetimes.end(),
-                                         [](const RenderGraph::ResourceLifetime& lifetime)
-                                         {
-                                             return lifetime.ResourceName == "ExternallyBackedGBuffer";
-                                         });
+    const auto lifetimeIt = std::ranges::find_if(lifetimes,
+                                                 [](const RenderGraph::ResourceLifetime& lifetime)
+                                                 {
+                                                     return lifetime.ResourceName == "ExternallyBackedGBuffer";
+                                                 });
     ASSERT_NE(lifetimeIt, lifetimes.end());
     EXPECT_FALSE(lifetimeIt->IsImported);
     EXPECT_TRUE(lifetimeIt->IsTransient);
 
-    const auto normalLifetimeIt = std::find_if(lifetimes.begin(), lifetimes.end(),
-                                               [](const RenderGraph::ResourceLifetime& lifetime)
-                                               {
-                                                   return lifetime.ResourceName == "ExternallyBackedGBufferNormal";
-                                               });
+    const auto normalLifetimeIt = std::ranges::find_if(lifetimes,
+                                                       [](const RenderGraph::ResourceLifetime& lifetime)
+                                                       {
+                                                           return lifetime.ResourceName == "ExternallyBackedGBufferNormal";
+                                                       });
     ASSERT_NE(normalLifetimeIt, lifetimes.end());
     EXPECT_FALSE(normalLifetimeIt->IsImported);
     EXPECT_TRUE(normalLifetimeIt->IsTransient);
     EXPECT_TRUE(normalLifetimeIt->HasExternalBacking);
 
-    const auto depthLifetimeIt = std::find_if(lifetimes.begin(), lifetimes.end(),
-                                              [](const RenderGraph::ResourceLifetime& lifetime)
-                                              {
-                                                  return lifetime.ResourceName == "ExternallyBackedGBufferDepth";
-                                              });
+    const auto depthLifetimeIt = std::ranges::find_if(lifetimes,
+                                                      [](const RenderGraph::ResourceLifetime& lifetime)
+                                                      {
+                                                          return lifetime.ResourceName == "ExternallyBackedGBufferDepth";
+                                                      });
     ASSERT_NE(depthLifetimeIt, lifetimes.end());
     EXPECT_FALSE(depthLifetimeIt->IsImported);
     EXPECT_TRUE(depthLifetimeIt->IsTransient);
@@ -6450,21 +6450,21 @@ TEST(RenderGraphTypedHandles, ExternallyBackedTransientTextureViewsResolveBackin
     EXPECT_TRUE(faceInfo->HasExternalBacking);
 
     const auto& transientPlan = graph.GetTransientPlan();
-    const auto csmPlanIt = std::find_if(transientPlan.begin(), transientPlan.end(),
-                                        [](const RenderGraph::TransientPlanEntry& entry)
-                                        {
-                                            return entry.Resource == "ExternallyBackedShadowCSM";
-                                        });
+    const auto csmPlanIt = std::ranges::find_if(transientPlan,
+                                                [](const RenderGraph::TransientPlanEntry& entry)
+                                                {
+                                                    return entry.Resource == "ExternallyBackedShadowCSM";
+                                                });
     ASSERT_NE(csmPlanIt, transientPlan.end());
     EXPECT_TRUE(csmPlanIt->Reachable);
     EXPECT_FALSE(csmPlanIt->WillAllocate);
     EXPECT_EQ(csmPlanIt->SkipReason, "external-backing");
 
-    const auto pointPlanIt = std::find_if(transientPlan.begin(), transientPlan.end(),
-                                          [](const RenderGraph::TransientPlanEntry& entry)
-                                          {
-                                              return entry.Resource == "ExternallyBackedShadowPoint";
-                                          });
+    const auto pointPlanIt = std::ranges::find_if(transientPlan,
+                                                  [](const RenderGraph::TransientPlanEntry& entry)
+                                                  {
+                                                      return entry.Resource == "ExternallyBackedShadowPoint";
+                                                  });
     ASSERT_NE(pointPlanIt, transientPlan.end());
     EXPECT_TRUE(pointPlanIt->Reachable);
     EXPECT_FALSE(pointPlanIt->WillAllocate);
@@ -6473,11 +6473,11 @@ TEST(RenderGraphTypedHandles, ExternallyBackedTransientTextureViewsResolveBackin
     const auto lifetimes = graph.GetResourceLifetimes();
     const auto expectLifetime = [&lifetimes](std::string_view resourceName)
     {
-        const auto lifetimeIt = std::find_if(lifetimes.begin(), lifetimes.end(),
-                                             [resourceName](const RenderGraph::ResourceLifetime& lifetime)
-                                             {
-                                                 return lifetime.ResourceName == resourceName;
-                                             });
+        const auto lifetimeIt = std::ranges::find_if(lifetimes,
+                                                     [resourceName](const RenderGraph::ResourceLifetime& lifetime)
+                                                     {
+                                                         return lifetime.ResourceName == resourceName;
+                                                     });
         ASSERT_NE(lifetimeIt, lifetimes.end());
         EXPECT_FALSE(lifetimeIt->IsImported);
         EXPECT_TRUE(lifetimeIt->IsTransient);
@@ -6757,8 +6757,8 @@ TEST(RenderGraphTypedHandles, MultisampleParentWriterFeedsResolveViewReaderAcros
     graph.BuildFrameGraph();
 
     const auto& executionOrder = graph.GetExecutionOrder();
-    const auto writerIt = std::find(executionOrder.begin(), executionOrder.end(), "ResolveSourceWriterPass");
-    const auto readerIt = std::find(executionOrder.begin(), executionOrder.end(), "ResolveViewReaderPass");
+    const auto writerIt = std::ranges::find(executionOrder, "ResolveSourceWriterPass");
+    const auto readerIt = std::ranges::find(executionOrder, "ResolveViewReaderPass");
     ASSERT_NE(writerIt, executionOrder.end());
     ASSERT_NE(readerIt, executionOrder.end());
     EXPECT_LT(writerIt, readerIt);
@@ -6767,13 +6767,13 @@ TEST(RenderGraphTypedHandles, MultisampleParentWriterFeedsResolveViewReaderAcros
     EXPECT_TRUE(hazards.empty());
 
     const auto transitions = graph.GetResourceTransitions();
-    const auto transitionIt = std::find_if(transitions.begin(), transitions.end(),
-                                           [](const RenderGraph::ResourceTransition& transition)
-                                           {
-                                               return transition.ResourceName == "AliasedResolveTexture" &&
-                                                      transition.ProducerPass == "ResolveSourceWriterPass" &&
-                                                      transition.ConsumerPass == "ResolveViewReaderPass";
-                                           });
+    const auto transitionIt = std::ranges::find_if(transitions,
+                                                   [](const RenderGraph::ResourceTransition& transition)
+                                                   {
+                                                       return transition.ResourceName == "AliasedResolveTexture" &&
+                                                              transition.ProducerPass == "ResolveSourceWriterPass" &&
+                                                              transition.ConsumerPass == "ResolveViewReaderPass";
+                                                   });
     EXPECT_NE(transitionIt, transitions.end());
 }
 
@@ -6812,8 +6812,8 @@ TEST(RenderGraphTypedHandles, ParentFramebufferWriterFeedsAttachmentViewReaderAc
     graph.BuildFrameGraph();
 
     const auto& executionOrder = graph.GetExecutionOrder();
-    const auto writerIt = std::find(executionOrder.begin(), executionOrder.end(), "FramebufferWriterPass");
-    const auto readerIt = std::find(executionOrder.begin(), executionOrder.end(), "AttachmentViewReaderPass");
+    const auto writerIt = std::ranges::find(executionOrder, "FramebufferWriterPass");
+    const auto readerIt = std::ranges::find(executionOrder, "AttachmentViewReaderPass");
     ASSERT_NE(writerIt, executionOrder.end());
     ASSERT_NE(readerIt, executionOrder.end());
     EXPECT_LT(writerIt, readerIt);
@@ -6822,16 +6822,16 @@ TEST(RenderGraphTypedHandles, ParentFramebufferWriterFeedsAttachmentViewReaderAc
     EXPECT_TRUE(hazards.empty());
 
     const auto& culledPasses = graph.GetCulledPasses();
-    EXPECT_TRUE(std::find(culledPasses.begin(), culledPasses.end(), "FramebufferWriterPass") == culledPasses.end());
+    EXPECT_TRUE(std::ranges::find(culledPasses, "FramebufferWriterPass") == culledPasses.end());
 
     const auto transitions = graph.GetResourceTransitions();
-    const auto transitionIt = std::find_if(transitions.begin(), transitions.end(),
-                                           [](const RenderGraph::ResourceTransition& transition)
-                                           {
-                                               return transition.ResourceName == "AliasedFramebufferTexture" &&
-                                                      transition.ProducerPass == "FramebufferWriterPass" &&
-                                                      transition.ConsumerPass == "AttachmentViewReaderPass";
-                                           });
+    const auto transitionIt = std::ranges::find_if(transitions,
+                                                   [](const RenderGraph::ResourceTransition& transition)
+                                                   {
+                                                       return transition.ResourceName == "AliasedFramebufferTexture" &&
+                                                              transition.ProducerPass == "FramebufferWriterPass" &&
+                                                              transition.ConsumerPass == "AttachmentViewReaderPass";
+                                                   });
     EXPECT_NE(transitionIt, transitions.end());
 }
 
@@ -6869,8 +6869,8 @@ TEST(RenderGraphTypedHandles, ParentTextureWriterFeedsMipViewReaderAcrossCompile
     graph.BuildFrameGraph();
 
     const auto& executionOrder = graph.GetExecutionOrder();
-    const auto writerIt = std::find(executionOrder.begin(), executionOrder.end(), "TextureWriterPass");
-    const auto readerIt = std::find(executionOrder.begin(), executionOrder.end(), "MipViewReaderPass");
+    const auto writerIt = std::ranges::find(executionOrder, "TextureWriterPass");
+    const auto readerIt = std::ranges::find(executionOrder, "MipViewReaderPass");
     ASSERT_NE(writerIt, executionOrder.end());
     ASSERT_NE(readerIt, executionOrder.end());
     EXPECT_LT(writerIt, readerIt);
@@ -6913,8 +6913,8 @@ TEST(RenderGraphTypedHandles, MipViewWriterFeedsParentTextureReaderAcrossCompile
     graph.BuildFrameGraph();
 
     const auto& executionOrder = graph.GetExecutionOrder();
-    const auto writerIt = std::find(executionOrder.begin(), executionOrder.end(), "MipViewWriterPass");
-    const auto readerIt = std::find(executionOrder.begin(), executionOrder.end(), "TextureReaderPass");
+    const auto writerIt = std::ranges::find(executionOrder, "MipViewWriterPass");
+    const auto readerIt = std::ranges::find(executionOrder, "TextureReaderPass");
     ASSERT_NE(writerIt, executionOrder.end());
     ASSERT_NE(readerIt, executionOrder.end());
     EXPECT_LT(writerIt, readerIt);
@@ -6957,8 +6957,8 @@ TEST(RenderGraphTypedHandles, ParentTextureWriterFeedsArrayLayerViewReaderAcross
     graph.BuildFrameGraph();
 
     const auto& executionOrder = graph.GetExecutionOrder();
-    const auto writerIt = std::find(executionOrder.begin(), executionOrder.end(), "LayerTextureWriterPass");
-    const auto readerIt = std::find(executionOrder.begin(), executionOrder.end(), "LayerViewReaderPass");
+    const auto writerIt = std::ranges::find(executionOrder, "LayerTextureWriterPass");
+    const auto readerIt = std::ranges::find(executionOrder, "LayerViewReaderPass");
     ASSERT_NE(writerIt, executionOrder.end());
     ASSERT_NE(readerIt, executionOrder.end());
     EXPECT_LT(writerIt, readerIt);
@@ -7002,8 +7002,8 @@ TEST(RenderGraphTypedHandles, ArrayLayerViewWriterFeedsParentTextureReaderAcross
     graph.BuildFrameGraph();
 
     const auto& executionOrder = graph.GetExecutionOrder();
-    const auto writerIt = std::find(executionOrder.begin(), executionOrder.end(), "LayerViewWriterPass");
-    const auto readerIt = std::find(executionOrder.begin(), executionOrder.end(), "LayerTextureReaderPass");
+    const auto writerIt = std::ranges::find(executionOrder, "LayerViewWriterPass");
+    const auto readerIt = std::ranges::find(executionOrder, "LayerTextureReaderPass");
     ASSERT_NE(writerIt, executionOrder.end());
     ASSERT_NE(readerIt, executionOrder.end());
     EXPECT_LT(writerIt, readerIt);
@@ -7049,8 +7049,8 @@ TEST(RenderGraphTypedHandles, ParentTextureWriterFeedsCubeFaceViewReaderAcrossCo
     graph.BuildFrameGraph();
 
     const auto& executionOrder = graph.GetExecutionOrder();
-    const auto writerIt = std::find(executionOrder.begin(), executionOrder.end(), "CubeTextureWriterPass");
-    const auto readerIt = std::find(executionOrder.begin(), executionOrder.end(), "CubeFaceViewReaderPass");
+    const auto writerIt = std::ranges::find(executionOrder, "CubeTextureWriterPass");
+    const auto readerIt = std::ranges::find(executionOrder, "CubeFaceViewReaderPass");
     ASSERT_NE(writerIt, executionOrder.end());
     ASSERT_NE(readerIt, executionOrder.end());
     EXPECT_LT(writerIt, readerIt);
@@ -7096,8 +7096,8 @@ TEST(RenderGraphTypedHandles, CubeFaceViewWriterFeedsParentTextureReaderAcrossCo
     graph.BuildFrameGraph();
 
     const auto& executionOrder = graph.GetExecutionOrder();
-    const auto writerIt = std::find(executionOrder.begin(), executionOrder.end(), "CubeFaceViewWriterPass");
-    const auto readerIt = std::find(executionOrder.begin(), executionOrder.end(), "CubeTextureReaderPass");
+    const auto writerIt = std::ranges::find(executionOrder, "CubeFaceViewWriterPass");
+    const auto readerIt = std::ranges::find(executionOrder, "CubeTextureReaderPass");
     ASSERT_NE(writerIt, executionOrder.end());
     ASSERT_NE(readerIt, executionOrder.end());
     EXPECT_LT(writerIt, readerIt);
@@ -7186,9 +7186,9 @@ TEST(RenderGraphTransientPool, PhaseD_MRTEstimatedBytesAreCorrect)
     graph.BuildFrameGraph();
 
     const auto& plan = graph.GetTransientPlan();
-    const auto it = std::find_if(plan.begin(), plan.end(),
-                                 [](const RenderGraph::TransientPlanEntry& e)
-                                 { return e.Resource == "MRTEstimate"; });
+    const auto it = std::ranges::find_if(plan,
+                                         [](const RenderGraph::TransientPlanEntry& e)
+                                         { return e.Resource == "MRTEstimate"; });
     ASSERT_NE(it, plan.end());
     EXPECT_EQ(it->EstimatedBytes, (8ull + 4ull + 4ull) * 1280ull * 720ull)
         << "RGBA16F+RG16F+Depth MRT estimated bytes must sum to 16 bytes/px";
@@ -7234,9 +7234,9 @@ TEST(RenderGraphTransientPool, PhaseD_VelocityDeclaredAsTransientTexture)
     graph.BuildFrameGraph();
 
     const auto& plan = graph.GetTransientPlan();
-    const auto it = std::find_if(plan.begin(), plan.end(),
-                                 [](const RenderGraph::TransientPlanEntry& entry)
-                                 { return entry.Resource == ResourceNames::Velocity; });
+    const auto it = std::ranges::find_if(plan,
+                                         [](const RenderGraph::TransientPlanEntry& entry)
+                                         { return entry.Resource == ResourceNames::Velocity; });
 
     ASSERT_NE(it, plan.end()) << "Velocity not found in transient plan";
     EXPECT_TRUE(it->Reachable) << "Velocity must be reachable";
@@ -7282,9 +7282,9 @@ TEST(RenderGraphTransientPool, PhaseD_SceneDepthDeclaredAsTransientTexture)
     graph.BuildFrameGraph();
 
     const auto& plan = graph.GetTransientPlan();
-    const auto it = std::find_if(plan.begin(), plan.end(),
-                                 [](const RenderGraph::TransientPlanEntry& entry)
-                                 { return entry.Resource == ResourceNames::SceneDepth; });
+    const auto it = std::ranges::find_if(plan,
+                                         [](const RenderGraph::TransientPlanEntry& entry)
+                                         { return entry.Resource == ResourceNames::SceneDepth; });
 
     ASSERT_NE(it, plan.end()) << "SceneDepth not found in transient plan";
     EXPECT_TRUE(it->Reachable) << "SceneDepth must be reachable";
@@ -7330,9 +7330,9 @@ TEST(RenderGraphTransientPool, PhaseD_SceneNormalsDeclaredAsTransientTexture)
     graph.BuildFrameGraph();
 
     const auto& plan = graph.GetTransientPlan();
-    const auto it = std::find_if(plan.begin(), plan.end(),
-                                 [](const RenderGraph::TransientPlanEntry& entry)
-                                 { return entry.Resource == ResourceNames::SceneNormals; });
+    const auto it = std::ranges::find_if(plan,
+                                         [](const RenderGraph::TransientPlanEntry& entry)
+                                         { return entry.Resource == ResourceNames::SceneNormals; });
 
     ASSERT_NE(it, plan.end()) << "SceneNormals not found in transient plan";
     EXPECT_TRUE(it->Reachable) << "SceneNormals must be reachable";
@@ -7406,9 +7406,9 @@ TEST(RenderGraphTransientPool, PhaseD_DeferredGBufferRootsDeclaredAsTransientTex
     const auto& plan = graph.GetTransientPlan();
     for (const auto& resource : expected)
     {
-        const auto it = std::find_if(plan.begin(), plan.end(),
-                                     [&resource](const RenderGraph::TransientPlanEntry& entry)
-                                     { return entry.Resource == resource.Name; });
+        const auto it = std::ranges::find_if(plan,
+                                             [&resource](const RenderGraph::TransientPlanEntry& entry)
+                                             { return entry.Resource == resource.Name; });
 
         ASSERT_NE(it, plan.end()) << resource.Name << " not found in transient plan";
         EXPECT_TRUE(it->Reachable) << resource.Name << " must be reachable";
@@ -7489,9 +7489,9 @@ TEST(RenderGraphTransientPool, PhaseD_DeferredMSCompanionsDeclaredAsTransientTex
     const auto& plan = graph.GetTransientPlan();
     for (const auto& resource : expected)
     {
-        const auto it = std::find_if(plan.begin(), plan.end(),
-                                     [&resource](const RenderGraph::TransientPlanEntry& entry)
-                                     { return entry.Resource == resource.Name; });
+        const auto it = std::ranges::find_if(plan,
+                                             [&resource](const RenderGraph::TransientPlanEntry& entry)
+                                             { return entry.Resource == resource.Name; });
 
         ASSERT_NE(it, plan.end()) << resource.Name << " not found in transient plan";
         EXPECT_TRUE(it->Reachable) << resource.Name << " must be reachable";
@@ -7545,9 +7545,9 @@ TEST(RenderGraphTransientPool, PhaseD_SceneColorDeclaredAsTransientMRTFramebuffe
     graph.BuildFrameGraph();
 
     const auto& plan = graph.GetTransientPlan();
-    const auto it = std::find_if(plan.begin(), plan.end(),
-                                 [](const RenderGraph::TransientPlanEntry& entry)
-                                 { return entry.Resource == ResourceNames::SceneColor; });
+    const auto it = std::ranges::find_if(plan,
+                                         [](const RenderGraph::TransientPlanEntry& entry)
+                                         { return entry.Resource == ResourceNames::SceneColor; });
 
     ASSERT_NE(it, plan.end()) << "SceneColor not found in transient plan";
     EXPECT_TRUE(it->Reachable) << "SceneColor must be reachable";
@@ -7599,9 +7599,9 @@ TEST(RenderGraphTransientPool, PhaseD_PostProcessChainRGBA16FOutputsDeclaredAsTr
         graph.BuildFrameGraph();
 
         const auto& plan = graph.GetTransientPlan();
-        const auto it = std::find_if(plan.begin(), plan.end(),
-                                     [&](const RenderGraph::TransientPlanEntry& e)
-                                     { return e.Resource == name; });
+        const auto it = std::ranges::find_if(plan,
+                                             [&](const RenderGraph::TransientPlanEntry& e)
+                                             { return e.Resource == name; });
         ASSERT_NE(it, plan.end()) << name << " must appear in the transient plan";
         EXPECT_TRUE(it->WillAllocate) << name << " must have WillAllocate = true";
         // RGBA16F: 8 bytes/texel
@@ -7644,9 +7644,9 @@ TEST(RenderGraphTransientPool, PhaseD_PostProcessChainRGBA8OutputsDeclaredAsTran
         graph.BuildFrameGraph();
 
         const auto& plan = graph.GetTransientPlan();
-        const auto it = std::find_if(plan.begin(), plan.end(),
-                                     [&](const RenderGraph::TransientPlanEntry& e)
-                                     { return e.Resource == name; });
+        const auto it = std::ranges::find_if(plan,
+                                             [&](const RenderGraph::TransientPlanEntry& e)
+                                             { return e.Resource == name; });
         ASSERT_NE(it, plan.end()) << name << " must appear in the transient plan";
         EXPECT_TRUE(it->WillAllocate) << name << " must have WillAllocate = true";
         // RGBA8UNorm: 4 bytes/texel
@@ -7720,9 +7720,9 @@ TEST(RenderGraphTransientPool, PhaseD_PostProcessTransientNotInImportedResources
     const auto lifetimes = graph.GetResourceLifetimes();
     for (const auto& s : specs)
     {
-        const auto it = std::find_if(lifetimes.begin(), lifetimes.end(),
-                                     [&](const RenderGraph::ResourceLifetime& l)
-                                     { return l.ResourceName == s.Name; });
+        const auto it = std::ranges::find_if(lifetimes,
+                                             [&](const RenderGraph::ResourceLifetime& l)
+                                             { return l.ResourceName == s.Name; });
         if (it != lifetimes.end())
         {
             EXPECT_FALSE(it->IsImported)
@@ -7859,9 +7859,9 @@ TEST(RenderGraphTransientPool, PhaseH_ScratchTransientsRemainGraphOwned)
     const auto lifetimes = graph.GetResourceLifetimes();
     for (const auto& spec : specs)
     {
-        const auto it = std::find_if(lifetimes.begin(), lifetimes.end(),
-                                     [&](const RenderGraph::ResourceLifetime& lifetime)
-                                     { return lifetime.ResourceName == spec.Name; });
+        const auto it = std::ranges::find_if(lifetimes,
+                                             [&](const RenderGraph::ResourceLifetime& lifetime)
+                                             { return lifetime.ResourceName == spec.Name; });
         ASSERT_NE(it, lifetimes.end()) << spec.Name << " must appear in lifetime records";
         EXPECT_FALSE(it->IsImported) << spec.Name << " must remain graph-owned, not imported";
         EXPECT_TRUE(it->IsTransient) << spec.Name << " must remain transient";
@@ -8042,9 +8042,9 @@ TEST(RenderGraphComputeHoist, IndependentComputePassIsHoistedToFront)
     const auto& order = graph.GetExecutionOrder();
     ASSERT_EQ(order.size(), 3u);
     // C must be scheduled before both graphics passes.
-    const auto posC = std::find(order.begin(), order.end(), "C") - order.begin();
-    const auto posG1 = std::find(order.begin(), order.end(), "G1") - order.begin();
-    const auto posG2 = std::find(order.begin(), order.end(), "G2") - order.begin();
+    const auto posC = std::ranges::find(order, "C") - order.begin();
+    const auto posG1 = std::ranges::find(order, "G1") - order.begin();
+    const auto posG2 = std::ranges::find(order, "G2") - order.begin();
     EXPECT_LT(posC, posG1) << "Compute pass should be hoisted before G1";
     EXPECT_LT(posC, posG2) << "Compute pass should be hoisted before G2";
 }
@@ -8066,8 +8066,8 @@ TEST(RenderGraphComputeHoist, DependentComputePassRemainsAfterDependency)
 
     const auto& order = graph.GetExecutionOrder();
     ASSERT_EQ(order.size(), 2u);
-    const auto posG1 = std::find(order.begin(), order.end(), "G1") - order.begin();
-    const auto posC = std::find(order.begin(), order.end(), "C") - order.begin();
+    const auto posG1 = std::ranges::find(order, "G1") - order.begin();
+    const auto posC = std::ranges::find(order, "C") - order.begin();
     EXPECT_LT(posG1, posC) << "G1 must still precede its dependent compute pass";
 }
 
@@ -8092,9 +8092,9 @@ TEST(RenderGraphComputeHoist, MultipleComputePassesAllHoisted)
 
     const auto& order = graph.GetExecutionOrder();
     ASSERT_EQ(order.size(), 3u);
-    const auto posG1 = std::find(order.begin(), order.end(), "G1") - order.begin();
-    const auto posC1 = std::find(order.begin(), order.end(), "C1") - order.begin();
-    const auto posC2 = std::find(order.begin(), order.end(), "C2") - order.begin();
+    const auto posG1 = std::ranges::find(order, "G1") - order.begin();
+    const auto posC1 = std::ranges::find(order, "C1") - order.begin();
+    const auto posC2 = std::ranges::find(order, "C2") - order.begin();
     EXPECT_LT(posC1, posG1) << "C1 must be hoisted before G1";
     EXPECT_LT(posC2, posG1) << "C2 must be hoisted before G1";
 }
@@ -8383,8 +8383,8 @@ namespace
     u32 CountKind(const std::vector<RenderGraph::SubmissionCommand>& plan, SCKind kind)
     {
         return static_cast<u32>(
-            std::count_if(plan.begin(), plan.end(), [kind](const RenderGraph::SubmissionCommand& c)
-                          { return c.CommandKind == kind; }));
+            std::ranges::count_if(plan, [kind](const RenderGraph::SubmissionCommand& c)
+                                  { return c.CommandKind == kind; }));
     }
 
     // Helper: collect PassNames for Pass commands in order.
@@ -8450,22 +8450,22 @@ TEST(RenderGraphSubmissionPlan, ComputePassWrappedInBatchBeginEnd)
     EXPECT_EQ(CountKind(plan, SCKind::Pass), 2u);
 
     // BatchBegin must appear before the compute Pass, BatchEnd after it but before GfxFinal
-    auto beginIt = std::find_if(plan.begin(), plan.end(),
-                                [](const auto& c)
-                                { return c.CommandKind == SCKind::BatchBegin; });
-    auto endIt = std::find_if(plan.begin(), plan.end(),
-                              [](const auto& c)
-                              { return c.CommandKind == SCKind::BatchEnd; });
-    auto computeIt = std::find_if(plan.begin(), plan.end(),
-                                  [](const auto& c)
-                                  {
-                                      return c.CommandKind == SCKind::Pass && c.NodeName == "ComputePass";
-                                  });
-    auto gfxIt = std::find_if(plan.begin(), plan.end(),
-                              [](const auto& c)
-                              {
-                                  return c.CommandKind == SCKind::Pass && c.NodeName == "GfxFinal";
-                              });
+    auto beginIt = std::ranges::find_if(plan,
+                                        [](const auto& c)
+                                        { return c.CommandKind == SCKind::BatchBegin; });
+    auto endIt = std::ranges::find_if(plan,
+                                      [](const auto& c)
+                                      { return c.CommandKind == SCKind::BatchEnd; });
+    auto computeIt = std::ranges::find_if(plan,
+                                          [](const auto& c)
+                                          {
+                                              return c.CommandKind == SCKind::Pass && c.NodeName == "ComputePass";
+                                          });
+    auto gfxIt = std::ranges::find_if(plan,
+                                      [](const auto& c)
+                                      {
+                                          return c.CommandKind == SCKind::Pass && c.NodeName == "GfxFinal";
+                                      });
 
     ASSERT_NE(beginIt, plan.end());
     ASSERT_NE(endIt, plan.end());
@@ -8557,9 +8557,9 @@ TEST(RenderGraphSubmissionPlan, BatchBeginCarriesWaitAndInputResources)
     graph.Execute();
 
     const auto plan = graph.GetSubmissionPlan();
-    const auto beginIt = std::find_if(plan.begin(), plan.end(),
-                                      [](const auto& c)
-                                      { return c.CommandKind == SCKind::BatchBegin; });
+    const auto beginIt = std::ranges::find_if(plan,
+                                              [](const auto& c)
+                                              { return c.CommandKind == SCKind::BatchBegin; });
     ASSERT_NE(beginIt, plan.end());
     EXPECT_EQ(beginIt->Lane, RenderGraph::QueueLane::Compute)
         << "BatchBegin lane should be compute";
@@ -8611,9 +8611,9 @@ TEST(RenderGraphSubmissionPlan, BatchEndCarriesSignalAndOutputResources)
     graph.Execute();
 
     const auto plan = graph.GetSubmissionPlan();
-    const auto endIt = std::find_if(plan.begin(), plan.end(),
-                                    [](const auto& c)
-                                    { return c.CommandKind == SCKind::BatchEnd; });
+    const auto endIt = std::ranges::find_if(plan,
+                                            [](const auto& c)
+                                            { return c.CommandKind == SCKind::BatchEnd; });
     ASSERT_NE(endIt, plan.end());
     EXPECT_EQ(endIt->Lane, RenderGraph::QueueLane::Compute)
         << "BatchEnd lane should be compute";
@@ -8951,7 +8951,7 @@ TEST(RenderGraphTemporalHistoryContracts, BuilderDeclaredHistoryExtractionRootsP
     graph.BuildFrameGraph();
 
     const auto& culledPasses = graph.GetCulledPasses();
-    const auto culledIt = std::find(culledPasses.begin(), culledPasses.end(), "HistoryProducer");
+    const auto culledIt = std::ranges::find(culledPasses, "HistoryProducer");
     EXPECT_EQ(culledIt, culledPasses.end()) << "Builder-declared history extraction should root producer reachability";
 
     const auto sourceHandle = graph.GetTextureHandle("CurrentFrameColor");
@@ -9059,12 +9059,12 @@ TEST(RenderGraphTemporalHistoryContracts, InvalidHistoryContractReportsDiagnosti
     graph.Execute();
 
     const auto& diagnostics = graph.GetBarrierDiagnostics();
-    const auto diagIt = std::find_if(diagnostics.begin(), diagnostics.end(),
-                                     [](const RenderGraph::BarrierDiagnostic& diagnostic)
-                                     {
-                                         return diagnostic.Kind == RenderGraph::BarrierDiagnosticKind::InvalidHistoryContract &&
-                                                diagnostic.Resource == "MissingHistory";
-                                     });
+    const auto diagIt = std::ranges::find_if(diagnostics,
+                                             [](const RenderGraph::BarrierDiagnostic& diagnostic)
+                                             {
+                                                 return diagnostic.Kind == RenderGraph::BarrierDiagnosticKind::InvalidHistoryContract &&
+                                                        diagnostic.Resource == "MissingHistory";
+                                             });
 
     ASSERT_NE(diagIt, diagnostics.end());
     EXPECT_FALSE(callbackCalled);
@@ -9554,9 +9554,9 @@ TEST(RenderGraphResourceTransitions, ProducerIsLastWriterBeforeConsumer)
     graph.Execute();
 
     const auto transitions = graph.GetResourceTransitions();
-    const auto it = std::find_if(transitions.begin(), transitions.end(),
-                                 [](const RenderGraph::ResourceTransition& t)
-                                 { return t.ResourceName == "Tex" && t.ConsumerPass == "Consumer"; });
+    const auto it = std::ranges::find_if(transitions,
+                                         [](const RenderGraph::ResourceTransition& t)
+                                         { return t.ResourceName == "Tex" && t.ConsumerPass == "Consumer"; });
     ASSERT_NE(it, transitions.end()) << "Expected a transition record for Tex->Consumer";
     EXPECT_EQ(it->ProducerPass, "Writer2")
         << "Producer must be the LAST writer before the consumer";
@@ -9718,9 +9718,9 @@ TEST(RenderGraphResourceLifetimes, TransientResourceHasCorrectFirstAndLastPass)
     const auto lifetimes = graph.GetResourceLifetimes();
     ASSERT_FALSE(lifetimes.empty());
 
-    const auto it = std::find_if(lifetimes.begin(), lifetimes.end(),
-                                 [](const RenderGraph::ResourceLifetime& lt)
-                                 { return lt.ResourceName == "Color"; });
+    const auto it = std::ranges::find_if(lifetimes,
+                                         [](const RenderGraph::ResourceLifetime& lt)
+                                         { return lt.ResourceName == "Color"; });
     ASSERT_NE(it, lifetimes.end()) << "Color resource must appear in lifetimes";
 
     EXPECT_EQ(it->FirstWritePass, "PassA");
@@ -9757,9 +9757,9 @@ TEST(RenderGraphResourceLifetimes, ImportedResourceHasExternalFirstWrite)
     graph.Execute();
 
     const auto lifetimes = graph.GetResourceLifetimes();
-    const auto it = std::find_if(lifetimes.begin(), lifetimes.end(),
-                                 [](const RenderGraph::ResourceLifetime& lt)
-                                 { return lt.ResourceName == "ExtTex"; });
+    const auto it = std::ranges::find_if(lifetimes,
+                                         [](const RenderGraph::ResourceLifetime& lt)
+                                         { return lt.ResourceName == "ExtTex"; });
     ASSERT_NE(it, lifetimes.end());
 
     EXPECT_EQ(it->FirstWritePass, "external")
@@ -9793,9 +9793,9 @@ TEST(RenderGraphResourceLifetimes, WriteOnlyResourceHasEmptyLastRead)
     graph.Execute();
 
     const auto lifetimes = graph.GetResourceLifetimes();
-    const auto it = std::find_if(lifetimes.begin(), lifetimes.end(),
-                                 [](const RenderGraph::ResourceLifetime& lt)
-                                 { return lt.ResourceName == "SinkTex"; });
+    const auto it = std::ranges::find_if(lifetimes,
+                                         [](const RenderGraph::ResourceLifetime& lt)
+                                         { return lt.ResourceName == "SinkTex"; });
     ASSERT_NE(it, lifetimes.end());
 
     EXPECT_NE(it->FirstWritePass, "external")
@@ -9915,9 +9915,9 @@ TEST(RenderGraphSubresourceRange, FullRangeByDefaultWhenNoRangeSpecified)
     graph.Execute();
 
     const auto transitions = graph.GetResourceTransitions();
-    const auto it = std::find_if(transitions.begin(), transitions.end(),
-                                 [](const RenderGraph::ResourceTransition& t)
-                                 { return t.ResourceName == "ColorTex"; });
+    const auto it = std::ranges::find_if(transitions,
+                                         [](const RenderGraph::ResourceTransition& t)
+                                         { return t.ResourceName == "ColorTex"; });
     ASSERT_NE(it, transitions.end()) << "Expected a transition record for ColorTex";
 
     const auto& range = it->Range;
@@ -9965,9 +9965,9 @@ TEST(RenderGraphSubresourceRange, MipRangePreservedInTransition)
     graph.Execute();
 
     const auto transitions = graph.GetResourceTransitions();
-    const auto it = std::find_if(transitions.begin(), transitions.end(),
-                                 [](const RenderGraph::ResourceTransition& t)
-                                 { return t.ResourceName == "MipTex"; });
+    const auto it = std::ranges::find_if(transitions,
+                                         [](const RenderGraph::ResourceTransition& t)
+                                         { return t.ResourceName == "MipTex"; });
     ASSERT_NE(it, transitions.end()) << "Expected a transition record for MipTex";
 
     EXPECT_EQ(it->Range.BaseMip, 2u) << "BaseMip must match the declared mip";
@@ -10013,9 +10013,9 @@ TEST(RenderGraphSubresourceRange, LayerRangePreservedInTransition)
     graph.Execute();
 
     const auto transitions = graph.GetResourceTransitions();
-    const auto it = std::find_if(transitions.begin(), transitions.end(),
-                                 [](const RenderGraph::ResourceTransition& t)
-                                 { return t.ResourceName == "LayerTex"; });
+    const auto it = std::ranges::find_if(transitions,
+                                         [](const RenderGraph::ResourceTransition& t)
+                                         { return t.ResourceName == "LayerTex"; });
     ASSERT_NE(it, transitions.end()) << "Expected a transition record for LayerTex";
 
     EXPECT_EQ(it->Range.BaseLayer, 3u) << "BaseLayer must match the declared layer";
@@ -10067,8 +10067,8 @@ TEST(RenderGraphSubresourceRange, MultiLayerDeclarationsProducePerLayerTransitio
     const auto transitions = graph.GetResourceTransitions();
     for (u32 cascade = 0; cascade < 4u; ++cascade)
     {
-        const auto layerIt = std::find_if(
-            transitions.begin(), transitions.end(),
+        const auto layerIt = std::ranges::find_if(
+            transitions,
             [cascade](const RenderGraph::ResourceTransition& transition)
             {
                 return transition.ResourceName == "ShadowCSM" &&
@@ -10121,11 +10121,11 @@ TEST(RenderGraphSubresourceRange, SliceRangePreservedInTransition)
     graph.Execute();
 
     const auto transitions = graph.GetResourceTransitions();
-    const auto it = std::find_if(transitions.begin(), transitions.end(),
-                                 [](const RenderGraph::ResourceTransition& transition)
-                                 {
-                                     return transition.ResourceName == "ShadowPoint0";
-                                 });
+    const auto it = std::ranges::find_if(transitions,
+                                         [](const RenderGraph::ResourceTransition& transition)
+                                         {
+                                             return transition.ResourceName == "ShadowPoint0";
+                                         });
     ASSERT_NE(it, transitions.end()) << "Expected a transition record for ShadowPoint0";
 
     EXPECT_EQ(it->Range.BaseSlice, 4u);
@@ -10170,9 +10170,9 @@ TEST(RenderGraphSubresourceRange, PlannedBarrierCarriesRange)
     graph.Execute();
 
     const auto& barriers = graph.GetPlannedBarriers();
-    const auto it = std::find_if(barriers.begin(), barriers.end(),
-                                 [](const RenderGraph::PlannedBarrier& b)
-                                 { return b.Resource == "BaTex" && b.BeforePass == "BarrierReader"; });
+    const auto it = std::ranges::find_if(barriers,
+                                         [](const RenderGraph::PlannedBarrier& b)
+                                         { return b.Resource == "BaTex" && b.BeforePass == "BarrierReader"; });
     ASSERT_NE(it, barriers.end()) << "Expected a planned barrier for BaTex before BarrierReader";
 
     EXPECT_EQ(it->Range.BaseMip, 1u) << "PlannedBarrier.Range.BaseMip must match Read() declaration";
@@ -10333,12 +10333,12 @@ TEST(RenderGraphCrossLaneSync, ComputeToGraphicsTransitionIsCrossLane)
     graph.Execute();
 
     const auto transitions = graph.GetResourceTransitions();
-    const auto it = std::find_if(transitions.begin(), transitions.end(),
-                                 [](const RenderGraph::ResourceTransition& t)
-                                 {
-                                     return t.ResourceName == "ComputeResult" &&
-                                            t.ConsumerPass == "GfxReader";
-                                 });
+    const auto it = std::ranges::find_if(transitions,
+                                         [](const RenderGraph::ResourceTransition& t)
+                                         {
+                                             return t.ResourceName == "ComputeResult" &&
+                                                    t.ConsumerPass == "GfxReader";
+                                         });
     ASSERT_NE(it, transitions.end())
         << "Expected a transition record for ComputeResult -> GfxReader";
 
@@ -10523,8 +10523,8 @@ TEST(RenderGraphQueueAwareScheduler, ForbiddenOverlapComputeWritesAfterGraphicsR
     graph.BuildFrameGraph();
 
     const auto hazards = graph.ValidateResourceHazards();
-    const bool hasWriteAfterRead = std::any_of(
-        hazards.begin(), hazards.end(),
+    const bool hasWriteAfterRead = std::ranges::any_of(
+        hazards,
         [](const RenderGraph::Hazard& h)
         {
             return h.Kind == RenderGraph::HazardKind::WriteAfterRead &&
@@ -10568,9 +10568,9 @@ TEST(RenderGraphQueueAwareScheduler, OrderingPreservedAfterComputeHoist)
     const auto& order = graph.GetExecutionOrder();
     ASSERT_EQ(order.size(), 3u);
 
-    const auto posA = std::find(order.begin(), order.end(), "GfxA") - order.begin();
-    const auto posB = std::find(order.begin(), order.end(), "ComputeB") - order.begin();
-    const auto posC = std::find(order.begin(), order.end(), "GfxC") - order.begin();
+    const auto posA = std::ranges::find(order, "GfxA") - order.begin();
+    const auto posB = std::ranges::find(order, "ComputeB") - order.begin();
+    const auto posC = std::ranges::find(order, "GfxC") - order.begin();
 
     EXPECT_LT(posA, posB) << "GfxA must come before ComputeB in the hoisted order";
     EXPECT_LT(posB, posC) << "ComputeB must come before GfxC in the hoisted order";
@@ -10621,8 +10621,8 @@ TEST(RenderGraphQueueAwareScheduler, GTAOStyleComputeToGraphicsCrossLaneTransiti
 
     // The AO transition must be flagged as cross-lane.
     const auto transitions = graph.GetResourceTransitions();
-    const auto it = std::find_if(
-        transitions.begin(), transitions.end(),
+    const auto it = std::ranges::find_if(
+        transitions,
         [](const RenderGraph::ResourceTransition& tr)
         {
             return tr.ResourceName == "AOTexture" && tr.ConsumerPass == "LightingPass";
@@ -10698,10 +10698,10 @@ TEST(RenderGraphQueueAwareScheduler, HazardValidatorRemainsGreenAfterComputeHois
         << "Hazard validator must remain green after compute hoist on multi-compute graph";
 
     const auto& order = graph.GetExecutionOrder();
-    const auto posGTAO = std::find(order.begin(), order.end(), "ComputeGTAO") - order.begin();
-    const auto posSSGI = std::find(order.begin(), order.end(), "ComputeSSGI") - order.begin();
+    const auto posGTAO = std::ranges::find(order, "ComputeGTAO") - order.begin();
+    const auto posSSGI = std::ranges::find(order, "ComputeSSGI") - order.begin();
     const auto posLighting =
-        std::find(order.begin(), order.end(), "DeferredLighting") - order.begin();
+        std::ranges::find(order, "DeferredLighting") - order.begin();
 
     EXPECT_LT(posGTAO, posLighting)
         << "ComputeGTAO must precede DeferredLighting after hoist";
@@ -10728,20 +10728,20 @@ TEST(RenderGraphResolveFailureTelemetry, InvalidTypedHandleResolvesAreRecorded)
     ASSERT_FALSE(failures.empty())
         << "Invalid typed-handle resolves should emit resolve-failure telemetry";
 
-    const auto hasInvalidTexture = std::any_of(failures.begin(), failures.end(),
-                                               [](const RenderGraph::ResolveFailure& failure)
-                                               {
-                                                   return failure.PassName == "ProbePass" &&
-                                                          failure.Reason == "invalid-texture-handle" &&
-                                                          failure.Count >= 1u;
-                                               });
-    const auto hasInvalidFramebuffer = std::any_of(failures.begin(), failures.end(),
-                                                   [](const RenderGraph::ResolveFailure& failure)
-                                                   {
-                                                       return failure.PassName == "ProbePass" &&
-                                                              failure.Reason == "invalid-framebuffer-handle" &&
-                                                              failure.Count >= 1u;
-                                                   });
+    const auto hasInvalidTexture = std::ranges::any_of(failures,
+                                                       [](const RenderGraph::ResolveFailure& failure)
+                                                       {
+                                                           return failure.PassName == "ProbePass" &&
+                                                                  failure.Reason == "invalid-texture-handle" &&
+                                                                  failure.Count >= 1u;
+                                                       });
+    const auto hasInvalidFramebuffer = std::ranges::any_of(failures,
+                                                           [](const RenderGraph::ResolveFailure& failure)
+                                                           {
+                                                               return failure.PassName == "ProbePass" &&
+                                                                      failure.Reason == "invalid-framebuffer-handle" &&
+                                                                      failure.Count >= 1u;
+                                                           });
 
     EXPECT_TRUE(hasInvalidTexture);
     EXPECT_TRUE(hasInvalidFramebuffer);
@@ -10769,14 +10769,14 @@ TEST(RenderGraphResolveFailureTelemetry, ValidTextureResolveDoesNotEmitTextureFa
     EXPECT_EQ(probe->GetLastResolvedTexture(), 123u);
 
     const auto& failures = graph.GetResolveFailures();
-    const auto hasTextureFailure = std::any_of(failures.begin(), failures.end(),
-                                               [](const RenderGraph::ResolveFailure& failure)
-                                               {
-                                                   return failure.PassName == "ProbePass" &&
-                                                          (failure.Reason == "invalid-texture-handle" ||
-                                                           failure.Reason == "stale-texture-handle" ||
-                                                           failure.Reason == "texture-resolve-zero");
-                                               });
+    const auto hasTextureFailure = std::ranges::any_of(failures,
+                                                       [](const RenderGraph::ResolveFailure& failure)
+                                                       {
+                                                           return failure.PassName == "ProbePass" &&
+                                                                  (failure.Reason == "invalid-texture-handle" ||
+                                                                   failure.Reason == "stale-texture-handle" ||
+                                                                   failure.Reason == "texture-resolve-zero");
+                                                       });
     EXPECT_FALSE(hasTextureFailure)
         << "Valid texture resolve should not emit texture resolve-failure telemetry";
 }
@@ -10876,9 +10876,9 @@ TEST(RenderGraphSceneColorChain, RMWChainDrivesRAWEdgesViaBuilderCallbacks)
 
     // Execution order must reflect the derived RAW chain: ScenePass first, DecalPass last.
     const auto& order = graph.GetExecutionOrder();
-    const auto scenePos = std::find(order.begin(), order.end(), "ScenePass") - order.begin();
-    const auto foliagePos = std::find(order.begin(), order.end(), "FoliagePass") - order.begin();
-    const auto decalPos = std::find(order.begin(), order.end(), "DecalPass") - order.begin();
+    const auto scenePos = std::ranges::find(order, "ScenePass") - order.begin();
+    const auto foliagePos = std::ranges::find(order, "FoliagePass") - order.begin();
+    const auto decalPos = std::ranges::find(order, "DecalPass") - order.begin();
 
     EXPECT_LT(scenePos, foliagePos)
         << "ScenePass must execute before FoliagePass (derived from SceneColor Read on FoliagePass)";
@@ -10948,11 +10948,11 @@ TEST(RenderGraphSceneColorChain, DeferredSceneColorRMWChainViaBuilderCallbacksIs
     // Execution order must reflect the derived chain.
     const auto& order = graph.GetExecutionOrder();
     const auto lightingPos =
-        std::find(order.begin(), order.end(), "DeferredLightingPass") - order.begin();
+        std::ranges::find(order, "DeferredLightingPass") - order.begin();
     const auto overlayPos =
-        std::find(order.begin(), order.end(), "ForwardOverlayPass") - order.begin();
+        std::ranges::find(order, "ForwardOverlayPass") - order.begin();
     const auto foliagePos =
-        std::find(order.begin(), order.end(), "FoliagePass") - order.begin();
+        std::ranges::find(order, "FoliagePass") - order.begin();
 
     EXPECT_LT(lightingPos, overlayPos)
         << "DeferredLightingPass must precede ForwardOverlayPass (derived from SceneColor Read)";
@@ -11042,13 +11042,13 @@ TEST(RenderGraphSceneColorChain, RmwPassRemainsReachableWhenAllOptionalRmwChainS
 
     // ForwardOverlayPass must NOT be culled.
     const auto& culled = graph.GetCulledPasses();
-    EXPECT_TRUE(std::find(culled.begin(), culled.end(), "ForwardOverlayPass") == culled.end())
+    EXPECT_TRUE(std::ranges::find(culled, "ForwardOverlayPass") == culled.end())
         << "ForwardOverlayPass must remain reachable when no optional RMW step pins the SceneColor chain";
 
     const auto& order = graph.GetExecutionOrder();
-    const auto overlayPos = std::find(order.begin(), order.end(), "ForwardOverlayPass");
-    const auto downstreamPos = std::find(order.begin(), order.end(), "DownstreamReaderPass");
-    const auto lightingPos = std::find(order.begin(), order.end(), "DeferredLightingPass");
+    const auto overlayPos = std::ranges::find(order, "ForwardOverlayPass");
+    const auto downstreamPos = std::ranges::find(order, "DownstreamReaderPass");
+    const auto lightingPos = std::ranges::find(order, "DeferredLightingPass");
 
     ASSERT_NE(overlayPos, order.end()) << "ForwardOverlayPass missing from execution order";
     ASSERT_NE(downstreamPos, order.end()) << "DownstreamReaderPass missing from execution order";
@@ -11140,18 +11140,18 @@ TEST(RenderGraphSceneColorChain, EarlierRmwPassRemainsReachableWhenLaterRmwPassO
 
     // Both RMW passes must remain reachable.
     const auto& culled = graph.GetCulledPasses();
-    EXPECT_TRUE(std::find(culled.begin(), culled.end(), "ForwardOverlayPass") == culled.end())
+    EXPECT_TRUE(std::ranges::find(culled, "ForwardOverlayPass") == culled.end())
         << "ForwardOverlayPass must stay reachable even when ParticlePass overwrites the latest SceneColor version";
-    EXPECT_TRUE(std::find(culled.begin(), culled.end(), "ParticlePass") == culled.end())
+    EXPECT_TRUE(std::ranges::find(culled, "ParticlePass") == culled.end())
         << "ParticlePass must stay reachable (it writes the latest SceneColor version)";
 
     // Verify chain ordering: DeferredLighting → ForwardOverlay → Particle → Downstream.
     const auto& order = graph.GetExecutionOrder();
     auto posOf = [&order](const char* name)
-    { return std::find(order.begin(), order.end(), name) - order.begin(); };
+    { return std::ranges::find(order, name) - order.begin(); };
 
-    ASSERT_NE(std::find(order.begin(), order.end(), "ForwardOverlayPass"), order.end());
-    ASSERT_NE(std::find(order.begin(), order.end(), "ParticlePass"), order.end());
+    ASSERT_NE(std::ranges::find(order, "ForwardOverlayPass"), order.end());
+    ASSERT_NE(std::ranges::find(order, "ParticlePass"), order.end());
 
     EXPECT_LT(posOf("DeferredLightingPass"), posOf("ForwardOverlayPass"));
     EXPECT_LT(posOf("ForwardOverlayPass"), posOf("ParticlePass"))
@@ -11238,17 +11238,17 @@ TEST(RenderGraphSceneColorChain, RmwContributorsRemainReachableWhenConsumerReads
     graph.BuildFrameGraph();
 
     const auto& culled = graph.GetCulledPasses();
-    EXPECT_TRUE(std::find(culled.begin(), culled.end(), "ContributorA") == culled.end())
+    EXPECT_TRUE(std::ranges::find(culled, "ContributorA") == culled.end())
         << "ContributorA must be reachable through base-name Read on consumer (not just the original clear writer)";
-    EXPECT_TRUE(std::find(culled.begin(), culled.end(), "ContributorB") == culled.end())
+    EXPECT_TRUE(std::ranges::find(culled, "ContributorB") == culled.end())
         << "ContributorB must be reachable through base-name Read on consumer";
 
     const auto& order = graph.GetExecutionOrder();
     auto posOf = [&order](const char* name)
-    { return std::find(order.begin(), order.end(), name) - order.begin(); };
+    { return std::ranges::find(order, name) - order.begin(); };
 
-    ASSERT_NE(std::find(order.begin(), order.end(), "ContributorA"), order.end());
-    ASSERT_NE(std::find(order.begin(), order.end(), "ContributorB"), order.end());
+    ASSERT_NE(std::ranges::find(order, "ContributorA"), order.end());
+    ASSERT_NE(std::ranges::find(order, "ContributorB"), order.end());
 
     EXPECT_LT(posOf("ClearPass"), posOf("ContributorA"));
     EXPECT_LT(posOf("ContributorA"), posOf("ContributorB"));
@@ -11347,8 +11347,8 @@ TEST(RenderGraphBuildDiagnostics, ExplicitDependencyRemovesRegistrationOrderSens
         << "An explicit semantic ordering edge must eliminate registration-order-sensitive derived edges.";
 
     const auto& order = graph.GetExecutionOrder();
-    const auto earlyPos = std::find(order.begin(), order.end(), "EarlyPass") - order.begin();
-    const auto latePos = std::find(order.begin(), order.end(), "LatePass") - order.begin();
+    const auto earlyPos = std::ranges::find(order, "EarlyPass") - order.begin();
+    const auto latePos = std::ranges::find(order, "LatePass") - order.begin();
     EXPECT_LT(earlyPos, latePos);
 }
 
@@ -11394,8 +11394,8 @@ TEST(RenderGraphBuildDiagnostics, SetupDeclaredPassDependencyRemovesRegistration
         << "A setup-declared semantic ordering edge must eliminate registration-order-sensitive derived edges.";
 
     const auto& order = graph.GetExecutionOrder();
-    const auto earlyPos = std::find(order.begin(), order.end(), "EarlyPass") - order.begin();
-    const auto latePos = std::find(order.begin(), order.end(), "LatePass") - order.begin();
+    const auto earlyPos = std::ranges::find(order, "EarlyPass") - order.begin();
+    const auto latePos = std::ranges::find(order, "LatePass") - order.begin();
     EXPECT_LT(earlyPos, latePos);
 }
 
@@ -11456,9 +11456,9 @@ TEST(RenderGraphBuildDiagnostics, TransitiveSetupDependenciesSuppressRedundantRe
         << "Redundant direct edges that do not change the final semantic ordering must not count as registration-order sensitivity.";
 
     const auto& order = graph.GetExecutionOrder();
-    const auto firstPos = std::find(order.begin(), order.end(), "FirstPass") - order.begin();
-    const auto middlePos = std::find(order.begin(), order.end(), "MiddlePass") - order.begin();
-    const auto lastPos = std::find(order.begin(), order.end(), "LastPass") - order.begin();
+    const auto firstPos = std::ranges::find(order, "FirstPass") - order.begin();
+    const auto middlePos = std::ranges::find(order, "MiddlePass") - order.begin();
+    const auto lastPos = std::ranges::find(order, "LastPass") - order.begin();
     EXPECT_LT(firstPos, middlePos);
     EXPECT_LT(middlePos, lastPos);
 }
@@ -11525,7 +11525,7 @@ TEST(RenderGraphBuildDiagnostics, SceneColorRMWChainIsRegistrationOrderIndepende
     chainPositions.reserve(chainNames.size());
     for (const auto* name : chainNames)
     {
-        const auto it = std::find(order.begin(), order.end(), name);
+        const auto it = std::ranges::find(order, name);
         ASSERT_NE(it, order.end()) << "Chain pass missing from execution order: " << name;
         chainPositions.push_back(static_cast<size_t>(it - order.begin()));
     }
@@ -11623,9 +11623,9 @@ TEST(RenderGraphBuildDiagnostics, OITAccumContributorChainIsRegistrationOrderInd
         << "Pinned OIT contributor chain must not emit RegistrationOrderSensitivity diagnostics.";
 
     const auto& order = graph.GetExecutionOrder();
-    const auto preparePos = std::find(order.begin(), order.end(), "OITPreparePass") - order.begin();
-    const auto decalPos = std::find(order.begin(), order.end(), "DecalPass") - order.begin();
-    const auto particlePos = std::find(order.begin(), order.end(), "ParticlePass") - order.begin();
+    const auto preparePos = std::ranges::find(order, "OITPreparePass") - order.begin();
+    const auto decalPos = std::ranges::find(order, "DecalPass") - order.begin();
+    const auto particlePos = std::ranges::find(order, "ParticlePass") - order.begin();
     EXPECT_LT(preparePos, decalPos) << "OITPreparePass must execute before any contributor (derived from Clear → RenderTargetRead).";
     EXPECT_LT(preparePos, particlePos);
     EXPECT_LT(decalPos, particlePos) << "ParticlePass must execute after DecalPass (pinned by explicit DependsOnPass).";

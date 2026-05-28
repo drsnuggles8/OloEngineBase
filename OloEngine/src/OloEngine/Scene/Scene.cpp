@@ -2581,25 +2581,25 @@ namespace OloEngine
         {
             uiEntities.push_back(entity);
         }
-        std::sort(uiEntities.begin(), uiEntities.end(),
-                  [this](entt::entity a, entt::entity b)
-                  {
-                      i32 sortA = 0;
-                      i32 sortB = 0;
-                      if (m_Registry.all_of<UICanvasComponent>(a))
-                      {
-                          sortA = m_Registry.get<UICanvasComponent>(a).m_SortOrder;
-                      }
-                      if (m_Registry.all_of<UICanvasComponent>(b))
-                      {
-                          sortB = m_Registry.get<UICanvasComponent>(b).m_SortOrder;
-                      }
-                      if (sortA != sortB)
-                      {
-                          return sortA < sortB;
-                      }
-                      return std::to_underlying(a) < std::to_underlying(b);
-                  });
+        std::ranges::sort(uiEntities,
+                          [this](entt::entity a, entt::entity b)
+                          {
+                              i32 sortA = 0;
+                              i32 sortB = 0;
+                              if (m_Registry.all_of<UICanvasComponent>(a))
+                              {
+                                  sortA = m_Registry.get<UICanvasComponent>(a).m_SortOrder;
+                              }
+                              if (m_Registry.all_of<UICanvasComponent>(b))
+                              {
+                                  sortB = m_Registry.get<UICanvasComponent>(b).m_SortOrder;
+                              }
+                              if (sortA != sortB)
+                              {
+                                  return sortA < sortB;
+                              }
+                              return std::to_underlying(a) < std::to_underlying(b);
+                          });
 
         for (const auto entity : uiEntities)
         {
@@ -3368,8 +3368,8 @@ namespace OloEngine
             }
 
             // Sort by priority (higher priority processed last for consistent blending)
-            std::sort(entries.begin(), entries.end(), [](const VolumeEntry& a, const VolumeEntry& b)
-                      { return a.priority < b.priority; });
+            std::ranges::sort(entries, [](const VolumeEntry& a, const VolumeEntry& b)
+                              { return a.priority < b.priority; });
 
             u32 volumeIdx = 0;
             for (const auto& entry : entries)
@@ -5118,9 +5118,9 @@ namespace OloEngine
             f32 dist = glm::length2(glm::vec3(tc.Translation) - camPos);
             sortedSystems.emplace_back(dist, entity);
         }
-        std::sort(sortedSystems.begin(), sortedSystems.end(),
-                  [](const auto& a, const auto& b)
-                  { return a.first > b.first; });
+        std::ranges::sort(sortedSystems,
+                          [](const auto& a, const auto& b)
+                          { return a.first > b.first; });
 
         for (auto& [dist, entity] : sortedSystems)
         {

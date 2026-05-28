@@ -601,9 +601,9 @@ static std::vector<ComponentDef> ParseHeaders(const fs::path& scanDir)
     }
 
     // Sort by component name for deterministic output
-    std::sort(components.begin(), components.end(),
-              [](const ComponentDef& a, const ComponentDef& b)
-              { return a.name < b.name; });
+    std::ranges::sort(components,
+                      [](const ComponentDef& a, const ComponentDef& b)
+                      { return a.name < b.name; });
 
     return components;
 }

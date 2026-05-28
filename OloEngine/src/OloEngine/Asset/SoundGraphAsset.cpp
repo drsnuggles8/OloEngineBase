@@ -122,15 +122,15 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        auto it = std::find_if(m_Connections.begin(), m_Connections.end(),
-                               [&](const SoundGraphConnection& conn)
-                               {
-                                   return conn.m_SourceNodeID == sourceNodeId &&
-                                          conn.m_SourceEndpoint == sourceEndpoint &&
-                                          conn.m_TargetNodeID == targetNodeId &&
-                                          conn.m_TargetEndpoint == targetEndpoint &&
-                                          conn.m_IsEvent == isEvent;
-                               });
+        auto it = std::ranges::find_if(m_Connections,
+                                       [&](const SoundGraphConnection& conn)
+                                       {
+                                           return conn.m_SourceNodeID == sourceNodeId &&
+                                                  conn.m_SourceEndpoint == sourceEndpoint &&
+                                                  conn.m_TargetNodeID == targetNodeId &&
+                                                  conn.m_TargetEndpoint == targetEndpoint &&
+                                                  conn.m_IsEvent == isEvent;
+                                       });
 
         if (it != m_Connections.end())
         {

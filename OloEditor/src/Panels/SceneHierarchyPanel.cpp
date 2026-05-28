@@ -2680,7 +2680,7 @@ namespace OloEngine
 
             if (needsResort && component.m_LODGroup.Levels.size() > 1)
             {
-                std::sort(component.m_LODGroup.Levels.begin(), component.m_LODGroup.Levels.end(),
+                std::ranges::sort(component.m_LODGroup.Levels,
                           [](const LODLevel& a, const LODLevel& b) { return a.MaxDistance < b.MaxDistance; });
             }
 

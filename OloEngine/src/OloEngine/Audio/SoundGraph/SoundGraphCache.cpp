@@ -399,7 +399,7 @@ namespace OloEngine::Audio::SoundGraph
             }
         }
 
-        std::sort(paths.begin(), paths.end());
+        std::ranges::sort(paths);
         return paths;
     }
 

@@ -25,11 +25,11 @@ namespace OloEngine
                 MirrorRead(builder, read);
             for (const auto& write : m_TestWrites)
             {
-                const bool sameResourceRead = std::any_of(m_TestReads.begin(), m_TestReads.end(),
-                                                          [&write](const ResourceHandle& read)
-                                                          {
-                                                              return read.Name == write.Name;
-                                                          });
+                const bool sameResourceRead = std::ranges::any_of(m_TestReads,
+                                                                  [&write](const ResourceHandle& read)
+                                                                  {
+                                                                      return read.Name == write.Name;
+                                                                  });
                 MirrorWrite(builder, write, sameResourceRead);
             }
         }
@@ -60,11 +60,11 @@ namespace OloEngine
                                     std::string_view name,
                                     ResourceHandle::Kind kind)
         {
-            if (const auto it = std::find_if(resources.begin(), resources.end(),
-                                             [name](const ResourceHandle& resource)
-                                             {
-                                                 return resource.Name == name;
-                                             });
+            if (const auto it = std::ranges::find_if(resources,
+                                                     [name](const ResourceHandle& resource)
+                                                     {
+                                                         return resource.Name == name;
+                                                     });
                 it != resources.end())
             {
                 return;

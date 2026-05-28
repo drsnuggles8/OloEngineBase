@@ -177,7 +177,7 @@ namespace OloEngine
                 {
                     auto& parentChildren = parent.GetOrCreateChildren();
                     UUID uuid = GetUUID();
-                    if (std::find(parentChildren.begin(), parentChildren.end(), uuid) == parentChildren.end())
+                    if (std::ranges::find(parentChildren, uuid) == parentChildren.end())
                         parentChildren.emplace_back(uuid);
                 }
                 return;
@@ -194,7 +194,7 @@ namespace OloEngine
             {
                 auto& parentChildren = parent.GetOrCreateChildren();
                 UUID uuid = GetUUID();
-                if (std::find(parentChildren.begin(), parentChildren.end(), uuid) == parentChildren.end())
+                if (std::ranges::find(parentChildren, uuid) == parentChildren.end())
                     parentChildren.emplace_back(uuid);
             }
         }
@@ -233,7 +233,7 @@ namespace OloEngine
 
             UUID childId = child.GetUUID();
             std::vector<UUID>& children = GetOrCreateChildren();
-            if (auto it = std::find(children.begin(), children.end(), childId); it != children.end())
+            if (auto it = std::ranges::find(children, childId); it != children.end())
             {
                 // Verify that the child's recorded parent UUID matches this entity's UUID
                 // This prevents mistakenly modifying unrelated entities

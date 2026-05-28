@@ -135,7 +135,7 @@ namespace OloEngine
         {
             sortedPeers.push_back(peerID);
         }
-        std::sort(sortedPeers.begin(), sortedPeers.end());
+        std::ranges::sort(sortedPeers);
 
         for (u32 tick = toTick + 1; tick <= originalTick; ++tick)
         {

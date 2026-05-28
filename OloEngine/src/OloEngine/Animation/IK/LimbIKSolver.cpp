@@ -73,7 +73,7 @@ namespace OloEngine::Animation
         }
 
         // Reverse so indices go root-to-tip (ascending from chain root to end-effector)
-        std::reverse(boneIndices.begin(), boneIndices.end());
+        std::ranges::reverse(boneIndices);
 
         // Save original rotations for chain bones only (for final weight blending)
         // Must be captured AFTER reverse so indices align with the blend loop order.

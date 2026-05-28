@@ -448,9 +448,9 @@ namespace OloEngine
             }
         }
 
-        std::sort(sortedRegions.begin(), sortedRegions.end(),
-                  [](const auto& a, const auto& b)
-                  { return a.second < b.second; });
+        std::ranges::sort(sortedRegions,
+                          [](const auto& a, const auto& b)
+                          { return a.second < b.second; });
 
         // Evict oldest until under budget
         u32 toEvict = readyCount - m_Config.MaxLoadedRegions;

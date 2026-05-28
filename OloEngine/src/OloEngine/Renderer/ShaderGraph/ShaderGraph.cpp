@@ -157,9 +157,9 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        auto it = std::find_if(m_Links.begin(), m_Links.end(),
-                               [linkID](const ShaderGraphLink& link)
-                               { return link.ID == linkID; });
+        auto it = std::ranges::find_if(m_Links,
+                                       [linkID](const ShaderGraphLink& link)
+                                       { return link.ID == linkID; });
         if (it == m_Links.end())
             return false;
         m_Links.erase(it);

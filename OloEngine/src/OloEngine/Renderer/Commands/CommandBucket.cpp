@@ -365,8 +365,8 @@ namespace OloEngine
                 ParallelRadixSort64(groupKeys, groupPackets);
 
                 // Copy sorted results back
-                std::copy(groupKeys.begin(), groupKeys.end(), m_Keys.begin() + start);
-                std::copy(groupPackets.begin(), groupPackets.end(), m_Packets.begin() + start);
+                std::ranges::copy(groupKeys, m_Keys.begin() + start);
+                std::ranges::copy(groupPackets, m_Packets.begin() + start);
             }
         }
 

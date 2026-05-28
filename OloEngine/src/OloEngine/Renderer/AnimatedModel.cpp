@@ -189,14 +189,14 @@ namespace OloEngine
             // skips OptimizeMesh on reload (mirrors SplitCombinedMeshSource).
             // Only mark the bundle as pre-optimized when every non-null source mesh is.
             // Null entries are ignored rather than causing the flag to be false.
-            if (auto anyNonNull = std::any_of(meshes.begin(), meshes.end(),
-                                              [](const Ref<MeshSource>& s)
-                                              { return static_cast<bool>(s); });
+            if (auto anyNonNull = std::ranges::any_of(meshes,
+                                                      [](const Ref<MeshSource>& s)
+                                                      { return static_cast<bool>(s); });
                 anyNonNull)
             {
-                if (auto allPreOpt = std::all_of(meshes.begin(), meshes.end(),
-                                                 [](const Ref<MeshSource>& src)
-                                                 { return !src || src->IsPreOptimized(); });
+                if (auto allPreOpt = std::ranges::all_of(meshes,
+                                                         [](const Ref<MeshSource>& src)
+                                                         { return !src || src->IsPreOptimized(); });
                     allPreOpt)
                 {
                     combined->SetPreOptimized(true);

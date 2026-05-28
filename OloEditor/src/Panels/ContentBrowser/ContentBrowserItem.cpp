@@ -67,9 +67,9 @@ namespace OloEngine
             return ContentFileType::Directory;
 
         std::string ext = filepath.extension().string();
-        std::transform(ext.begin(), ext.end(), ext.begin(),
-                       [](unsigned char c)
-                       { return static_cast<char>(std::tolower(c)); });
+        std::ranges::transform(ext, ext.begin(),
+                               [](unsigned char c)
+                               { return static_cast<char>(std::tolower(c)); });
 
         if (auto it = s_ExtensionToFileType.find(ext); it != s_ExtensionToFileType.end())
             return it->second;
@@ -366,24 +366,24 @@ namespace OloEngine
 
     void SortContentBrowserItems(std::vector<ContentBrowserItem>& items)
     {
-        std::sort(items.begin(), items.end(),
-                  [](const ContentBrowserItem& a, const ContentBrowserItem& b)
-                  {
-                      // Directories first
-                      if (a.IsDirectory() != b.IsDirectory())
-                          return a.IsDirectory();
+        std::ranges::sort(items,
+                          [](const ContentBrowserItem& a, const ContentBrowserItem& b)
+                          {
+                              // Directories first
+                              if (a.IsDirectory() != b.IsDirectory())
+                                  return a.IsDirectory();
 
-                      // Then alphabetical (case-insensitive)
-                      std::string aName = a.GetDisplayName();
-                      std::string bName = b.GetDisplayName();
-                      std::transform(aName.begin(), aName.end(), aName.begin(),
-                                     [](unsigned char c)
-                                     { return static_cast<char>(std::tolower(c)); });
-                      std::transform(bName.begin(), bName.end(), bName.begin(),
-                                     [](unsigned char c)
-                                     { return static_cast<char>(std::tolower(c)); });
-                      return aName < bName;
-                  });
+                              // Then alphabetical (case-insensitive)
+                              std::string aName = a.GetDisplayName();
+                              std::string bName = b.GetDisplayName();
+                              std::ranges::transform(aName, aName.begin(),
+                                                     [](unsigned char c)
+                                                     { return static_cast<char>(std::tolower(c)); });
+                              std::ranges::transform(bName, bName.begin(),
+                                                     [](unsigned char c)
+                                                     { return static_cast<char>(std::tolower(c)); });
+                              return aName < bName;
+                          });
     }
 
 } // namespace OloEngine

@@ -194,8 +194,8 @@ namespace OloEngine
 
         // Sort by time descending for readability
         std::vector<std::pair<std::string, PerFrameData>> sorted(frameData.begin(), frameData.end());
-        std::sort(sorted.begin(), sorted.end(), [](const auto& a, const auto& b)
-                  { return a.second.Time > b.second.Time; });
+        std::ranges::sort(sorted, [](const auto& a, const auto& b)
+                          { return a.second.Time > b.second.Time; });
 
         // Table header
         if (ImGui::BeginTable("PerfTable", 3, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_Resizable))

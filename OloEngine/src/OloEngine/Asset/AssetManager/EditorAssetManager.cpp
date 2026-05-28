@@ -1120,8 +1120,8 @@ namespace OloEngine
                     std::string registryPath = metadata.FilePath.generic_string();
 
                     // Windows is case-insensitive, so compare lowercase
-                    std::transform(pathStr.begin(), pathStr.end(), pathStr.begin(), ::tolower);
-                    std::transform(registryPath.begin(), registryPath.end(), registryPath.begin(), ::tolower);
+                    std::ranges::transform(pathStr, pathStr.begin(), ::tolower);
+                    std::ranges::transform(registryPath, registryPath.begin(), ::tolower);
 
                     if (pathStr == registryPath)
                     {

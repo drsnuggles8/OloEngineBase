@@ -368,10 +368,10 @@ namespace OloEngine::Audio
     {
         // Convert to lowercase for case-insensitive comparison
         std::string lowerExt = extension;
-        std::transform(lowerExt.begin(), lowerExt.end(), lowerExt.begin(), [](unsigned char c)
-                       { return static_cast<char>(std::tolower(c)); });
+        std::ranges::transform(lowerExt, lowerExt.begin(), [](unsigned char c)
+                               { return static_cast<char>(std::tolower(c)); });
 
-        return std::find(s_SupportedExtensions.begin(), s_SupportedExtensions.end(), lowerExt) != s_SupportedExtensions.end();
+        return std::ranges::find(s_SupportedExtensions, lowerExt) != s_SupportedExtensions.end();
     }
 
     const std::vector<std::string>& AudioLoader::GetSupportedExtensions()

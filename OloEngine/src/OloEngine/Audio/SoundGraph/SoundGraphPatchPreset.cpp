@@ -50,7 +50,7 @@ namespace OloEngine::Audio::SoundGraph
             ids.push_back(id);
         }
 
-        std::sort(ids.begin(), ids.end());
+        std::ranges::sort(ids);
         return ids;
     }
 
@@ -115,11 +115,11 @@ namespace OloEngine::Audio::SoundGraph
         }
 
         // Sort by ID for consistent ordering
-        std::sort(descriptors.begin(), descriptors.end(),
-                  [](const ParameterDescriptor& a, const ParameterDescriptor& b)
-                  {
-                      return a.ID < b.ID;
-                  });
+        std::ranges::sort(descriptors,
+                          [](const ParameterDescriptor& a, const ParameterDescriptor& b)
+                          {
+                              return a.ID < b.ID;
+                          });
 
         return descriptors;
     }
@@ -189,7 +189,7 @@ namespace OloEngine::Audio::SoundGraph
             names.push_back(name);
         }
 
-        std::sort(names.begin(), names.end());
+        std::ranges::sort(names);
         return names;
     }
 
