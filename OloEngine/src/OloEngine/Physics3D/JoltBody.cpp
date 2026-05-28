@@ -932,8 +932,8 @@ namespace OloEngine
         if (!m_BodyID.IsInvalid())
             return; // Already created
 
-        auto& rigidBodyComponent = m_Entity.GetComponent<Rigidbody3DComponent>();
-        auto& transformComponent = m_Entity.GetComponent<TransformComponent>();
+        const auto& rigidBodyComponent = m_Entity.GetComponent<Rigidbody3DComponent>();
+        const auto& transformComponent = m_Entity.GetComponent<TransformComponent>();
 
         // Create shape for the entity
         JPH::Ref<JPH::Shape> shape = CreateShapeForBody();

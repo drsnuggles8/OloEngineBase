@@ -1082,7 +1082,7 @@ namespace OloEngine
                     { "OutLeft", g.OutLeftPinPos },
                     { "OutRight", g.OutRightPinPos },
                 };
-                for (auto& p : pinList)
+                for (const auto& p : pinList)
                 {
                     const f32 dx = mousePos.x - p.Pos.x;
                     const f32 dy = mousePos.y - p.Pos.y;
@@ -1415,7 +1415,7 @@ namespace OloEngine
                     { "OutLeft", g.OutLeftPinPos },
                     { "OutRight", g.OutRightPinPos },
                 };
-                for (auto& p : pinList)
+                for (const auto& p : pinList)
                 {
                     const f32 dx = m_DragEndPos.x - p.Pos.x;
                     if (const f32 dy = m_DragEndPos.y - p.Pos.y; dx * dx + dy * dy > hitRadius * hitRadius)

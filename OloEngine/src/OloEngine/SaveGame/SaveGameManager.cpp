@@ -115,14 +115,14 @@ namespace OloEngine
         // enqueued to the game thread after Shutdown returns.
         auto allDrained = []()
         {
-            for (auto& flag : s_QuickSaveInFlight)
+            for (const auto& flag : s_QuickSaveInFlight)
             {
                 if (flag.load(std::memory_order_acquire))
                 {
                     return false;
                 }
             }
-            for (auto& flag : s_AutoSaveInFlight)
+            for (const auto& flag : s_AutoSaveInFlight)
             {
                 if (flag.load(std::memory_order_acquire))
                 {

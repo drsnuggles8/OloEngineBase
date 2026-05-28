@@ -107,7 +107,7 @@ namespace OloEngine
         }
         else
         {
-            auto& existingState = entity.GetComponent<DialogueStateComponent>();
+            const auto& existingState = entity.GetComponent<DialogueStateComponent>();
             if (existingState.m_State != DialogueState::Inactive)
             {
                 OLO_CORE_WARN("DialogueSystem::StartDialogue - Dialogue already active, resetting");
@@ -150,7 +150,7 @@ namespace OloEngine
         }
 
         // Follow the default connection from current node
-        auto& dialogueComp = entity.GetComponent<DialogueComponent>();
+        const auto& dialogueComp = entity.GetComponent<DialogueComponent>();
         auto dialogueTree = AssetManager::GetAsset<DialogueTreeAsset>(dialogueComp.m_DialogueTree);
         if (!dialogueTree)
         {
@@ -237,7 +237,7 @@ namespace OloEngine
             return;
         }
 
-        auto& dialogueComp = entity.GetComponent<DialogueComponent>();
+        const auto& dialogueComp = entity.GetComponent<DialogueComponent>();
         auto dialogueTree = AssetManager::GetAsset<DialogueTreeAsset>(dialogueComp.m_DialogueTree);
         if (!dialogueTree)
         {

@@ -152,7 +152,7 @@ namespace OloEngine
 
         // Populate GPU timing from the previous frame's readback
         // (GPU timer uses double-buffered queries; results lag by one frame)
-        if (auto& gpuTimer = GPUTimerQueryPool::GetInstance(); gpuTimer.IsInitialized() && gpuTimer.GetReadableQueryCount() > 0)
+        if (const auto& gpuTimer = GPUTimerQueryPool::GetInstance(); gpuTimer.IsInitialized() && gpuTimer.GetReadableQueryCount() > 0)
         {
             // Apply to post-sort commands (the execution order)
             auto& timedCommands = m_HasPendingPostBatch
@@ -175,7 +175,7 @@ namespace OloEngine
         // Snapshot render state and material data tables so the debugger can inspect
         // the exact data from this frame rather than reading the live FrameDataBuffer.
         {
-            auto& fdb = FrameDataBufferManager::Get();
+            const auto& fdb = FrameDataBufferManager::Get();
             u16 rsCount = fdb.GetRenderStateCount();
             m_PendingFrame.RenderStateSnapshot.resize(rsCount);
             for (u16 i = 0; i < rsCount; ++i)

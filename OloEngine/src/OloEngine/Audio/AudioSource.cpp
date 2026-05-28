@@ -328,7 +328,7 @@ namespace OloEngine
         // Uninitialize in reverse order
         if (m_SplitterNode)
         {
-            auto* engine = static_cast<ma_engine*>(AudioEngine::GetEngine());
+            const auto* engine = static_cast<ma_engine*>(AudioEngine::GetEngine());
             ma_splitter_node_uninit(AsSplitter(m_SplitterNode),
                                     engine ? &engine->pResourceManager->config.allocationCallbacks : nullptr);
             delete AsSplitter(m_SplitterNode);

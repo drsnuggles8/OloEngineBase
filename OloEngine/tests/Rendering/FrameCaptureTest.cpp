@@ -683,7 +683,7 @@ TEST_F(FrameExportTest, ExportToCSVCreatesValidFile)
     CaptureAndSelectFrame(5);
 
     auto csvPath = (m_TestOutputDir / "test_export.csv").string();
-    auto& debugger = CommandPacketDebugger::GetInstance();
+    const auto& debugger = CommandPacketDebugger::GetInstance();
 
     bool success = debugger.ExportToCSV(csvPath);
     ASSERT_TRUE(success) << "ExportToCSV should succeed";
@@ -721,7 +721,7 @@ TEST_F(FrameExportTest, ExportToMarkdownCreatesValidFile)
     CaptureAndSelectFrame(5);
 
     auto mdPath = (m_TestOutputDir / "test_export.md").string();
-    auto& debugger = CommandPacketDebugger::GetInstance();
+    const auto& debugger = CommandPacketDebugger::GetInstance();
 
     bool success = debugger.ExportToMarkdown(mdPath);
     ASSERT_TRUE(success) << "ExportToMarkdown should succeed";
@@ -757,7 +757,7 @@ TEST_F(FrameExportTest, ExportToCSVWithNoSelectedFrameFails)
     mgr.SetSelectedFrameIndex(-1);
 
     auto csvPath = (m_TestOutputDir / "should_not_exist.csv").string();
-    auto& debugger = CommandPacketDebugger::GetInstance();
+    const auto& debugger = CommandPacketDebugger::GetInstance();
 
     bool success = debugger.ExportToCSV(csvPath);
     EXPECT_FALSE(success) << "ExportToCSV should fail without a selected frame";
@@ -770,7 +770,7 @@ TEST_F(FrameExportTest, ExportToMarkdownWithNoSelectedFrameFails)
     mgr.SetSelectedFrameIndex(-1);
 
     auto mdPath = (m_TestOutputDir / "should_not_exist.md").string();
-    auto& debugger = CommandPacketDebugger::GetInstance();
+    const auto& debugger = CommandPacketDebugger::GetInstance();
 
     bool success = debugger.ExportToMarkdown(mdPath);
     EXPECT_FALSE(success) << "ExportToMarkdown should fail without a selected frame";
@@ -791,7 +791,7 @@ TEST_F(FrameExportTest, CSVContainsCorrectSortKeyData)
     CaptureAndSelectFrame(3);
 
     auto csvPath = (m_TestOutputDir / "key_check.csv").string();
-    auto& debugger = CommandPacketDebugger::GetInstance();
+    const auto& debugger = CommandPacketDebugger::GetInstance();
 
     bool success = debugger.ExportToCSV(csvPath);
     ASSERT_TRUE(success);
@@ -823,7 +823,7 @@ TEST_F(FrameExportTest, MarkdownSortAnalysisPresent)
     CaptureAndSelectFrame(10); // More commands for interesting sort analysis
 
     auto mdPath = (m_TestOutputDir / "sort_analysis.md").string();
-    auto& debugger = CommandPacketDebugger::GetInstance();
+    const auto& debugger = CommandPacketDebugger::GetInstance();
 
     bool success = debugger.ExportToMarkdown(mdPath);
     ASSERT_TRUE(success);

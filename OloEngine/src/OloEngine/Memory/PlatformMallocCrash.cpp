@@ -401,7 +401,7 @@ namespace OloEngine
         {
             return false;
         }
-        u8* BytePtr = static_cast<u8*>(Ptr);
+        const u8* BytePtr = static_cast<u8*>(Ptr);
         return BytePtr >= SmallMemoryPool && BytePtr < SmallMemoryPool + SmallMemoryPoolSize;
     }
 
@@ -411,7 +411,7 @@ namespace OloEngine
         {
             return false;
         }
-        u8* BytePtr = static_cast<u8*>(Ptr);
+        const u8* BytePtr = static_cast<u8*>(Ptr);
         return BytePtr >= LargeMemoryPool && BytePtr < LargeMemoryPool + LARGE_MEMORYPOOL_SIZE;
     }
 

@@ -470,7 +470,7 @@ namespace OloEngine
 
         for (const auto& coord : dirtyCoords)
         {
-            auto& chunk = voxels.GetChunks()[coord];
+            const auto& chunk = voxels.GetChunks()[coord];
 
             if (VoxelMesh mesh; GenerateMesh(chunk, coord, voxels.GetVoxelSize(), mesh))
             {

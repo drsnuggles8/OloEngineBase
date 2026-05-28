@@ -56,7 +56,7 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
 
         // Wait for pending loads to complete
-        for (auto& pending : m_PendingLoads)
+        for (const auto& pending : m_PendingLoads)
         {
             if (pending.Task.IsValid())
             {
@@ -531,7 +531,7 @@ namespace OloEngine
                 auto& ac = entity.GetComponent<AudioSourceComponent>();
                 if (ac.Source)
                 {
-                    auto& tc = entity.GetComponent<TransformComponent>();
+                    const auto& tc = entity.GetComponent<TransformComponent>();
                     ac.Source->SetConfig(ac.Config);
                     ac.Source->SetPosition(tc.Translation);
                     if (ac.Config.PlayOnAwake)

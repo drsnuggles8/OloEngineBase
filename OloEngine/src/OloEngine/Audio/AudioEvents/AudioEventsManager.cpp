@@ -66,7 +66,7 @@ namespace OloEngine::Audio
 
         for (const auto& eventInfo : pendingCopy)
         {
-            auto* cmd = m_Registry->GetTrigger(eventInfo.Command);
+            const auto* cmd = m_Registry->GetTrigger(eventInfo.Command);
             if (!cmd)
             {
                 OLO_CORE_WARN("AudioEventsManager: No trigger found for CommandID {}", eventInfo.Command.ID);
@@ -78,7 +78,7 @@ namespace OloEngine::Audio
             active.EventID = eventInfo.EventID;
             active.ObjectID = eventInfo.ObjectID;
 
-            for (auto& action : cmd->Actions)
+            for (const auto& action : cmd->Actions)
             {
                 ExecuteAction(action, eventInfo.ObjectID, eventInfo.EventID);
 
@@ -119,7 +119,7 @@ namespace OloEngine::Audio
         // Update spatial positions for active event sources
         if (m_PositionResolver)
         {
-            for (auto& [id, active] : m_ActiveEvents)
+            for (const auto& [id, active] : m_ActiveEvents)
             {
                 if (active.ObjectID == 0)
                 {
@@ -156,7 +156,7 @@ namespace OloEngine::Audio
 
             case ActionType::Stop:
             {
-                for (auto& [id, active] : m_ActiveEvents)
+                for (const auto& [id, active] : m_ActiveEvents)
                 {
                     if (action.Context == ActionContext::GameObject && active.ObjectID != objectID)
                     {
@@ -176,7 +176,7 @@ namespace OloEngine::Audio
 
             case ActionType::Pause:
             {
-                for (auto& [id, active] : m_ActiveEvents)
+                for (const auto& [id, active] : m_ActiveEvents)
                 {
                     if (action.Context == ActionContext::GameObject && active.ObjectID != objectID)
                     {
@@ -196,7 +196,7 @@ namespace OloEngine::Audio
 
             case ActionType::Resume:
             {
-                for (auto& [id, active] : m_ActiveEvents)
+                for (const auto& [id, active] : m_ActiveEvents)
                 {
                     if (action.Context == ActionContext::GameObject && active.ObjectID != objectID)
                     {
@@ -261,7 +261,7 @@ namespace OloEngine::Audio
 
     void AudioEventsManager::StopAllEvents()
     {
-        for (auto& [id, active] : m_ActiveEvents)
+        for (const auto& [id, active] : m_ActiveEvents)
         {
             for (const auto& entry : active.Sources)
             {

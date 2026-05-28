@@ -200,14 +200,14 @@ namespace OloEngine::RenderGraphSubmissionPlan
             }
 
             batch.InputResources.reserve(inputByResource.size());
-            for (auto& [res, externalNode] : inputByResource)
+            for (const auto& [res, externalNode] : inputByResource)
                 batch.InputResources.push_back({ res, externalNode });
             std::ranges::sort(batch.InputResources,
                               [](const BatchResourceDependency& a, const BatchResourceDependency& b)
                               { return a.ResourceName < b.ResourceName; });
 
             batch.OutputResources.reserve(outputByResource.size());
-            for (auto& [res, externalNode] : outputByResource)
+            for (const auto& [res, externalNode] : outputByResource)
                 batch.OutputResources.push_back({ res, externalNode });
             std::ranges::sort(batch.OutputResources,
                               [](const BatchResourceDependency& a, const BatchResourceDependency& b)

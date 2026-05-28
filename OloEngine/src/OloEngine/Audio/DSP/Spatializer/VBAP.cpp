@@ -122,8 +122,8 @@ namespace OloEngine::Audio::DSP
         // Pre-compute inverse matrices for each sorted speaker pair
         for (sizet i = 0; i < vbap->spPosSorted.size(); i++)
         {
-            auto& [p, idx] = vbap->spPosSorted.at(i);
-            auto& [p2, idx2] = vbap->spPosSorted.at((i + 1) % vbap->spPosSorted.size());
+            const auto& [p, idx] = vbap->spPosSorted.at(i);
+            const auto& [p2, idx2] = vbap->spPosSorted.at((i + 1) % vbap->spPosSorted.size());
 
             const glm::mat2 L(glm::vec2(p.x, p.y), glm::vec2(p2.x, p2.y));
             vbap->InverseMats.push_back(glm::inverse(L));
@@ -157,7 +157,7 @@ namespace OloEngine::Audio::DSP
 
         for (u32 i = 0; i < numOfInputs; i++)
         {
-            auto& [pos, id] = inputChannelsSorted[i];
+            const auto& [pos, id] = inputChannelsSorted[i];
 
             // Assign centre angle of the equal section of the input plane
             float channelAngle = inputPlaneSection * static_cast<float>(i);
@@ -235,7 +235,7 @@ namespace OloEngine::Audio::DSP
 
             for (auto& vsID : chg.VirtualSourceIDs)
             {
-                auto& vsGains = vbap->VirtualSources[static_cast<sizet>(vsID)].Gains;
+                const auto& vsGains = vbap->VirtualSources[static_cast<sizet>(vsID)].Gains;
                 for (sizet i = 0; i < gainsLocal.size(); ++i)
                 {
                     gainsLocal[i] += vsGains[i] * vsGains[i];

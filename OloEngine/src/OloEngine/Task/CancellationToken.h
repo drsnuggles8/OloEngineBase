@@ -126,7 +126,7 @@ namespace OloEngine::Tasks
         // @return true if there's a current token and it has been canceled
         static bool IsCurrentWorkCanceled()
         {
-            if (FCancellationToken* CurrentToken = GetCurrentCancellationToken())
+            if (const FCancellationToken* CurrentToken = GetCurrentCancellationToken())
             {
                 return CurrentToken->IsCanceled();
             }

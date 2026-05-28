@@ -402,7 +402,7 @@ namespace OloEngine
         // Bind environment map
         environmentMap->Bind(ShaderBindingLayout::TEX_ENVIRONMENT);
 
-        const f64 elapsedMs = MeasureMillisecondsWithGPUSync([this, &irradianceMap, &shader, &config]()
+        const f64 elapsedMs = MeasureMillisecondsWithGPUSync([&irradianceMap, &shader, &config]()
                                                              {
             // Use enhanced rendering with configuration
             RenderToCubemapAdvanced(irradianceMap, shader, GetCubeMesh(), config); });

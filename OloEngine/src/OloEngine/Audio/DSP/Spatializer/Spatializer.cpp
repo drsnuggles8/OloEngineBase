@@ -353,7 +353,7 @@ namespace OloEngine::Audio::DSP
             return false;
         };
 
-        auto* allocationCallbacks = &m_Engine->pResourceManager->config.allocationCallbacks;
+        const auto* allocationCallbacks = &m_Engine->pResourceManager->config.allocationCallbacks;
 
         // Base node setup
         source.InternalChannelCount = 4; // Quad virtual speaker layout
@@ -474,7 +474,7 @@ namespace OloEngine::Audio::DSP
         {
             ma_node_set_state(&source.SpatializerNode, ma_node_state_stopped);
 
-            auto* allocationCallbacks = &m_Engine->pResourceManager->config.allocationCallbacks;
+            const auto* allocationCallbacks = &m_Engine->pResourceManager->config.allocationCallbacks;
             if (!allocationCallbacks->onFree)
             {
                 allocationCallbacks = nullptr;

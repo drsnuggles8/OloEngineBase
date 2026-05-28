@@ -433,7 +433,7 @@ namespace OloEngine
             auto headerDataIdx = static_cast<sizet>(headerIdx) * 2;
             auto curveListOffset = bandTexelCount - headerStart; // relative to glyphLoc
 
-            auto& bandCurves = hbandCurves[band];
+            const auto& bandCurves = hbandCurves[band];
 
             // Ensure enough room.
             bandTexelData.resize(static_cast<sizet>(bandTexelCount + bandCurves.size()) * 2, 0);
@@ -466,7 +466,7 @@ namespace OloEngine
             auto headerDataIdx = static_cast<sizet>(headerIdx) * 2;
             auto curveListOffset = bandTexelCount - headerStart; // relative to glyphLoc
 
-            auto& bandCurves = vbandCurves[band];
+            const auto& bandCurves = vbandCurves[band];
 
             bandTexelData.resize(static_cast<sizet>(bandTexelCount + bandCurves.size()) * 2, 0);
 

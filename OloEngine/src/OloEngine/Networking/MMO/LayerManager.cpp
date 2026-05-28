@@ -180,7 +180,7 @@ namespace OloEngine
 
         u32 mergeCount = 0;
 
-        for (auto& [zoneID, layerIDs] : m_ZoneLayers)
+        for (const auto& [zoneID, layerIDs] : m_ZoneLayers)
         {
             if (layerIDs.size() < 2)
             {
@@ -236,7 +236,7 @@ namespace OloEngine
                 }
 
                 std::vector<u32> playersToMove;
-                for (auto& [clientID, layerID] : m_PlayerLayerMap)
+                for (const auto& [clientID, layerID] : m_PlayerLayerMap)
                 {
                     if (layerID == source)
                     {

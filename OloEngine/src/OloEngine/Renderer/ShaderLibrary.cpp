@@ -117,7 +117,7 @@ namespace OloEngine
             // but whose registry was never initialized.
             else if (shader->IsReady())
             {
-                if (auto* reg = shader->GetResourceRegistry(); reg && !reg->IsInitialized())
+                if (const auto* reg = shader->GetResourceRegistry(); reg && !reg->IsInitialized())
                 {
                     auto* glShader = static_cast<OpenGLShader*>(shader.get());
                     glShader->InitializeResourceRegistry(shader);
@@ -146,7 +146,7 @@ namespace OloEngine
             // Same guard as PollPendingShaders — catch ready-but-uninitialized.
             else if (shader->IsReady())
             {
-                if (auto* reg = shader->GetResourceRegistry(); reg && !reg->IsInitialized())
+                if (const auto* reg = shader->GetResourceRegistry(); reg && !reg->IsInitialized())
                 {
                     auto* glShader = static_cast<OpenGLShader*>(shader.get());
                     glShader->InitializeResourceRegistry(shader);

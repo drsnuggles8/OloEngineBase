@@ -118,7 +118,7 @@ namespace OloEngine
 
                 if (hasFilter)
                 {
-                    auto& tag = entity.GetComponent<TagComponent>().Tag;
+                    const auto& tag = entity.GetComponent<TagComponent>().Tag;
                     if (!caseInsensitiveFind(tag, m_FilterText))
                     {
                         return;
@@ -585,7 +585,7 @@ namespace OloEngine
 
             if (ImGui::MenuItem("Save as Prefab"))
             {
-                auto& entityTag = entity.GetComponent<TagComponent>().Tag;
+                const auto& entityTag = entity.GetComponent<TagComponent>().Tag;
                 std::filesystem::path prefabDir = Project::GetAssetDirectory() / "prefabs";
                 std::filesystem::create_directories(prefabDir);
                 std::filesystem::path prefabPath = prefabDir / (entityTag + ".oloprefab");
@@ -1067,7 +1067,7 @@ namespace OloEngine
             { "Blue", &curve.B, IM_COL32(80, 130, 255, 255) },
             { "Alpha", &curve.A, IM_COL32(200, 200, 200, 255) },
         };
-        for (auto& [name, ch, color] : channels)
+        for (const auto& [name, ch, color] : channels)
         {
             if (ImGui::TreeNode(name))
             {
@@ -1503,7 +1503,7 @@ namespace OloEngine
         {
             ImGui::SameLine();
             ImGui::TextDisabled("(Billboard only)");
-            if (auto* gpu = sys.GetGPUSystem())
+            if (const auto* gpu = sys.GetGPUSystem())
             {
                 ImGui::Text("GPU Alive: %u", gpu->GetAliveCount());
             }

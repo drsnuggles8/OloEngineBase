@@ -222,7 +222,7 @@ namespace OloEngine
 
     void StatisticsPanel::DrawMemoryTab()
     {
-        auto& tracker = RendererMemoryTracker::GetInstance();
+        const auto& tracker = RendererMemoryTracker::GetInstance();
 
         sizet const totalMemory = tracker.GetTotalMemoryUsage();
         ImGui::Text("Total GPU/CPU Tracked: %s", DebugUtils::FormatMemorySize(totalMemory).c_str());

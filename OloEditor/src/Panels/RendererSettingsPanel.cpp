@@ -509,7 +509,7 @@ namespace OloEngine
 
             // Show active path status
             ImGui::Separator();
-            auto& fplus = Renderer3D::GetForwardPlus();
+            const auto& fplus = Renderer3D::GetForwardPlus();
             if (settings.Path == RenderingPath::Deferred)
             {
                 ImGui::TextColored(ImVec4(0.3f, 1.0f, 0.3f, 1.0f), "Active: Deferred");
@@ -575,7 +575,7 @@ namespace OloEngine
     void RendererSettingsPanel::DrawForwardPlusSection()
     {
         auto& settings = Renderer3D::GetRendererSettings();
-        auto& fplus = Renderer3D::GetForwardPlus();
+        const auto& fplus = Renderer3D::GetForwardPlus();
 
         if (ImGui::CollapsingHeader("Forward+ Settings"))
         {

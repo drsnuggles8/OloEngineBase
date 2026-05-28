@@ -568,7 +568,7 @@ TEST(RenderState, OpaqueBeforeTransparentSortInvariant)
     keys.push_back(DrawKey::CreateOpaque(0, ViewLayerType::ThreeD, 1, 1, 500));
 
     // Sort ascending (matching radix sort)
-    std::ranges::sort(keys);
+    std::sort(keys.begin(), keys.end());
 
     // All opaques should come first
     bool seenTransparent = false;

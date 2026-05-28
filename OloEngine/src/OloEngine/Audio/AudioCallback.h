@@ -290,7 +290,7 @@ namespace OloEngine::Audio
             {
                 // Clear output buffer to prevent stale samples when callback is null or suspended
                 // Real-time safety: Use pre-allocated buffers and clear only the needed frames
-                for (auto& channelBuffer : outBuffer)
+                for (const auto& channelBuffer : outBuffer)
                 {
                     // Verify buffer was pre-allocated to sufficient size
                     OLO_CORE_ASSERT(channelBuffer.getSize().numFrames >= numFramesRequested,

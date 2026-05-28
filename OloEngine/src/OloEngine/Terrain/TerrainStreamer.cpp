@@ -212,7 +212,7 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
 
         // Wait for all pending loads to finish
-        for (auto& pending : m_PendingLoads)
+        for (const auto& pending : m_PendingLoads)
         {
             pending.Task.Wait();
         }

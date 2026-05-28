@@ -63,7 +63,7 @@ class GameplayEffectExpiresAndRevertsAttributeTest : public FunctionalTest
 
 TEST_F(GameplayEffectExpiresAndRevertsAttributeTest, DurationEffectModifiesCurrentValueThenRevertsOnExpiry)
 {
-    auto& ac = m_Target.GetComponent<AbilityComponent>();
+    const auto& ac = m_Target.GetComponent<AbilityComponent>();
 
     // Before any tick: ApplyEffect added the entry but Tick hasn't run yet,
     // so the modifier hasn't been pushed onto the AttributeSet stack.

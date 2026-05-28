@@ -199,7 +199,7 @@ namespace OloEngine
 
     u32 ZoneManager::BeginHandoff(u32 clientID, ZoneID targetZoneID, const PlayerStatePacket& state)
     {
-        if (auto* target = GetZone(targetZoneID); !target || !target->IsRunning())
+        if (const auto* target = GetZone(targetZoneID); !target || !target->IsRunning())
         {
             return 0;
         }
@@ -249,7 +249,7 @@ namespace OloEngine
             return false;
         }
 
-        if (auto* target = GetZone(tx.TargetZoneID); !target || target->IsFull())
+        if (const auto* target = GetZone(tx.TargetZoneID); !target || target->IsFull())
         {
             RejectHandoff(transactionID);
             return false;

@@ -320,7 +320,7 @@ namespace OloEngine::Audio::SoundGraph
         std::filesystem::path targetDir(directoryPath);
         targetDir = targetDir.lexically_normal();
 
-        for (auto& [path, entry] : m_CacheEntries)
+        for (const auto& [path, entry] : m_CacheEntries)
         {
             std::filesystem::path entryPath(path);
             entryPath = entryPath.lexically_normal();

@@ -28,7 +28,7 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
 
         // Remove all links connected to this node's pins
-        auto* node = FindNode(nodeID);
+        const auto* node = FindNode(nodeID);
         if (!node)
             return false;
 
@@ -51,7 +51,7 @@ namespace OloEngine
 
     ShaderGraphNode* ShaderGraph::FindNode(UUID nodeID)
     {
-        for (auto& node : m_Nodes)
+        for (const auto& node : m_Nodes)
         {
             if (node->ID == nodeID)
                 return node.get();
@@ -71,7 +71,7 @@ namespace OloEngine
 
     ShaderGraphPin* ShaderGraph::FindPin(UUID pinID)
     {
-        for (auto& node : m_Nodes)
+        for (const auto& node : m_Nodes)
         {
             if (auto* pin = node->FindPin(pinID))
                 return pin;
@@ -91,7 +91,7 @@ namespace OloEngine
 
     ShaderGraphNode* ShaderGraph::FindNodeByPinID(UUID pinID)
     {
-        for (auto& node : m_Nodes)
+        for (const auto& node : m_Nodes)
         {
             if (node->FindPin(pinID))
                 return node.get();

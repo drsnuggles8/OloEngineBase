@@ -140,8 +140,8 @@ namespace OloEngine
         static inline bool MemIsZero(const void* Ptr, sizet Count)
         {
             // first pass implementation
-            u8* Start = (u8*)Ptr;
-            u8* End = Start + Count;
+            const u8* Start = (const u8*)Ptr;
+            const u8* End = Start + Count;
             while (Start < End)
             {
                 if ((*Start++) != 0)

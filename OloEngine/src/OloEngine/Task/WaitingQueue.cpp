@@ -250,7 +250,7 @@ namespace OloEngine::LowLevelTasks::Private
         u64 LocalState = m_StandbyState;
         while ((LocalState & StackMask) != StackMask)
         {
-            FWaitEvent* Node = &m_NodesArray[LocalState & StackMask];
+            const FWaitEvent* Node = &m_NodesArray[LocalState & StackMask];
             Node->Event->Trigger();
             LocalState = Node->Next;
         }
@@ -363,7 +363,7 @@ namespace OloEngine::LowLevelTasks::Private
             u64 NewState = NewEpoch | (LocalState & WaiterMask) + WaiterInc;
             if ((LocalState & StackMask) != StackMask)
             {
-                FWaitEvent* Node = &m_NodesArray[LocalState & StackMask];
+                const FWaitEvent* Node = &m_NodesArray[LocalState & StackMask];
                 u64 Next = Node->Next.load(std::memory_order_relaxed);
                 NewState |= Next & StackMask;
             }
@@ -378,7 +378,7 @@ namespace OloEngine::LowLevelTasks::Private
                 if ((LocalState & StackMask) != StackMask)
                 {
                     // We got an existing node, wake it from standby
-                    FWaitEvent* Node = &m_NodesArray[LocalState & StackMask];
+                    const FWaitEvent* Node = &m_NodesArray[LocalState & StackMask];
                     Node->Event->Trigger();
                     return true;
                 }
@@ -434,7 +434,7 @@ namespace OloEngine::LowLevelTasks::Private
                 else
                 {
                     // Pop a waiter from list and unpark it.
-                    FWaitEvent* Node = &m_NodesArray[LocalState & StackMask];
+                    const FWaitEvent* Node = &m_NodesArray[LocalState & StackMask];
                     u64 Next = Node->Next.load(std::memory_order_relaxed);
                     NewState = (LocalState & (WaiterMask | SignalMask)) | (Next & StackMask) | NewEpoch;
                 }

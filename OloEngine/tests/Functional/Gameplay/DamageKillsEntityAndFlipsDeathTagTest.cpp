@@ -62,7 +62,7 @@ class DamageKillsEntityAndFlipsDeathTagTest : public FunctionalTest
 TEST_F(DamageKillsEntityAndFlipsDeathTagTest, OverkillDamageDropsHealthAndScheduleNextTickFlipsTags)
 {
     // Sanity preconditions.
-    auto& goblinAC = m_Goblin.GetComponent<AbilityComponent>();
+    const auto& goblinAC = m_Goblin.GetComponent<AbilityComponent>();
     ASSERT_NEAR(goblinAC.Attributes.GetCurrentValue("Health"), 50.0f, 1e-3f);
     ASSERT_TRUE(goblinAC.OwnedTags.HasTagExact(m_AliveTag));
     ASSERT_FALSE(goblinAC.OwnedTags.HasTagExact(m_DeadTag));
@@ -98,7 +98,7 @@ TEST_F(DamageKillsEntityAndFlipsDeathTagTest, OverkillDamageDropsHealthAndSchedu
            "block is incomplete (removes one tag without adding the other).";
 
     // Player wasn't damaged, so its tags should be untouched.
-    auto& playerAC = m_Player.GetComponent<AbilityComponent>();
+    const auto& playerAC = m_Player.GetComponent<AbilityComponent>();
     EXPECT_TRUE(playerAC.OwnedTags.HasTagExact(m_AliveTag));
     EXPECT_FALSE(playerAC.OwnedTags.HasTagExact(m_DeadTag));
     EXPECT_NEAR(playerAC.Attributes.GetCurrentValue("Health"), 100.0f, 1e-3f);

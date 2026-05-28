@@ -98,7 +98,7 @@ namespace OloEngine
         for (auto e : boundsView)
         {
             Entity entity = { e, m_Context.Raw() };
-            auto& bounds = entity.GetComponent<NavMeshBoundsComponent>();
+            const auto& bounds = entity.GetComponent<NavMeshBoundsComponent>();
             if (firstBounds)
             {
                 boundsMin = bounds.m_Min;

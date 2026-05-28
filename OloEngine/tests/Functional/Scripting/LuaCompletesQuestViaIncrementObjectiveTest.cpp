@@ -117,7 +117,7 @@ return script
 
 TEST_F(LuaCompletesQuestViaIncrementObjectiveTest, LuaIncrementObjectiveByThreeAutoCompletesSingleStageQuest)
 {
-    auto& jc = m_Player.GetComponent<QuestJournalComponent>();
+    const auto& jc = m_Player.GetComponent<QuestJournalComponent>();
     ASSERT_TRUE(jc.Journal.IsQuestActive(kQuestID));
 
     RunFrames(1);

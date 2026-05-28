@@ -117,7 +117,7 @@ namespace OloEngine
             return;
         }
 
-        PhysicsLayer& layerInfo = GetLayerMutableUnsafe(layerId);
+        const PhysicsLayer& layerInfo = GetLayerMutableUnsafe(layerId);
 
         for (auto& otherLayer : s_Layers)
         {

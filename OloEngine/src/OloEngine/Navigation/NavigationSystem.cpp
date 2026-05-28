@@ -13,7 +13,7 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
 
         auto* crowdMgr = scene->GetCrowdManager();
-        auto* navQuery = scene->GetNavMeshQuery();
+        const auto* navQuery = scene->GetNavMeshQuery();
 
         if (!navQuery || !navQuery->IsValid())
             return;

@@ -1272,7 +1272,7 @@ namespace OloEngine
                 return INDEX_NONE;
             }
 
-            FSetElementId* HashPtr = reinterpret_cast<FSetElementId*>(Hash.GetAllocation());
+            const FSetElementId* HashPtr = reinterpret_cast<FSetElementId*>(Hash.GetAllocation());
             i32 ElementIndex = HashPtr[KeyHash & (HashSize - 1)].AsInteger();
 
             while (ElementIndex != INDEX_NONE)
@@ -1425,7 +1425,7 @@ namespace OloEngine
         {
             i32 NumRemovedElements = 0;
 
-            FSetElementId* NextElementId = &GetTypedHash(KeyHash);
+            const FSetElementId* NextElementId = &GetTypedHash(KeyHash);
             while (NextElementId->IsValidId())
             {
                 const i32 ElementIndex = NextElementId->AsInteger();

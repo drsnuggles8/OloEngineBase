@@ -647,7 +647,7 @@ namespace OloEngine
 
         // Upload post-process settings to GPU
         {
-            auto& pp = data.PostProcess;
+            const auto& pp = data.PostProcess;
             auto& gpu = data.PostProcessGPU.PostProcessData;
             gpu.TonemapOperator = std::to_underlying(pp.Tonemap);
             gpu.Exposure = pp.Exposure;
@@ -683,7 +683,7 @@ namespace OloEngine
         // Upload snow settings to GPU
         if (data.Snow.Enabled)
         {
-            auto& snow = data.Snow;
+            const auto& snow = data.Snow;
             auto& gpu = data.SceneEffectsGPU.SnowData;
             gpu.CoverageParams = glm::vec4(snow.HeightStart, snow.HeightFull, snow.SlopeStart, snow.SlopeFull);
             gpu.AlbedoAndRoughness = glm::vec4(snow.Albedo, snow.Roughness);
@@ -715,7 +715,7 @@ namespace OloEngine
         // Upload fog & atmospheric scattering settings to GPU
         if (data.Fog.Enabled)
         {
-            auto& fog = data.Fog;
+            const auto& fog = data.Fog;
             auto& gpu = data.SceneEffectsGPU.FogData;
             gpu.ColorAndDensity = glm::vec4(fog.Color, fog.Density);
             gpu.DistanceParams = glm::vec4(fog.Start, fog.End, fog.HeightFalloff, fog.HeightOffset);

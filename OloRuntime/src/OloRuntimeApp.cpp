@@ -104,7 +104,7 @@ namespace OloEngine
                 // Always ensure proper initial resize — this must run even if
                 // Renderer3D was already initialized (e.g. via Renderer::Init
                 // with PreferredRenderer == Renderer3D).
-                auto& window = Application::Get().GetWindow();
+                const auto& window = Application::Get().GetWindow();
                 u32 fbWidth = window.GetFramebufferWidth();
                 u32 fbHeight = window.GetFramebufferHeight();
                 if (fbWidth > 0 && fbHeight > 0)
@@ -116,7 +116,7 @@ namespace OloEngine
             // Start the runtime (physics, scripts, audio, animations)
             m_ActiveScene->SetIs3DModeEnabled(m_Is3DMode);
             {
-                auto& win = Application::Get().GetWindow();
+                const auto& win = Application::Get().GetWindow();
                 u32 vpW = win.GetFramebufferWidth();
                 u32 vpH = win.GetFramebufferHeight();
                 if (vpW > 0 && vpH > 0)
@@ -146,7 +146,7 @@ namespace OloEngine
             }
 
             // Handle window resize
-            auto& window = Application::Get().GetWindow();
+            const auto& window = Application::Get().GetWindow();
             u32 width = window.GetFramebufferWidth();
             u32 height = window.GetFramebufferHeight();
 
@@ -183,7 +183,7 @@ namespace OloEngine
         bool OnWindowResize([[maybe_unused]] WindowResizeEvent const& e)
         {
             // Event carries logical pixels; query real framebuffer size
-            auto& window = Application::Get().GetWindow();
+            const auto& window = Application::Get().GetWindow();
             u32 width = window.GetFramebufferWidth();
             u32 height = window.GetFramebufferHeight();
 
@@ -331,7 +331,7 @@ namespace OloEngine
 
             m_ActiveScene->SetIs3DModeEnabled(m_Is3DMode);
 
-            auto& window = Application::Get().GetWindow();
+            const auto& window = Application::Get().GetWindow();
             u32 w = window.GetFramebufferWidth();
             u32 h = window.GetFramebufferHeight();
             if (w > 0 && h > 0)

@@ -72,7 +72,7 @@ namespace OloEngine
         OLO_CORE_INFO("Shutting down JoltScene");
 
         // Destroy all bodies
-        for (auto& [entityID, body] : m_Bodies)
+        for (const auto& [entityID, body] : m_Bodies)
         {
             // Body destructor will handle Jolt cleanup
         }
@@ -81,7 +81,7 @@ namespace OloEngine
         m_BodiesToSync.clear();
 
         // Destroy all character controllers
-        for (auto& [entityID, characterController] : m_CharacterControllers)
+        for (const auto& [entityID, characterController] : m_CharacterControllers)
         {
             // Character controller destructor will handle Jolt cleanup
         }
@@ -346,7 +346,7 @@ namespace OloEngine
         OLO_CORE_INFO("JoltScene stopping runtime");
 
         // Destroy all bodies
-        for (auto& [entityID, body] : m_Bodies)
+        for (const auto& [entityID, body] : m_Bodies)
         {
             // Body destructor will handle cleanup
         }
@@ -669,7 +669,7 @@ namespace OloEngine
     void JoltScene::SynchronizeTransforms()
     {
         // Synchronize transforms for all bodies that need it
-        for (auto& body : m_BodiesToSync)
+        for (const auto& body : m_BodiesToSync)
         {
             if (body)
             {

@@ -201,7 +201,7 @@ TEST_F(VBAPTest, GainSumApproximatelyOne)
         VBAP::UpdateVBAP(&vbapData, updateData, converter, true);
 
         // For each channel group, sum of squared gains should be <= 1 (normalized)
-        for (auto& chg : vbapData.ChannelGroups)
+        for (const auto& chg : vbapData.ChannelGroups)
         {
             const auto& gains = chg.Gains.Read();
             float sumSq = 0.0f;

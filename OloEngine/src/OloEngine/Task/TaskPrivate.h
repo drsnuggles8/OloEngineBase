@@ -759,7 +759,7 @@ namespace OloEngine::Tasks
           private:
             bool TryUnlock(bool& bWakeUpWorker)
             {
-                FPipe* LocalPipe = GetPipe();
+                const FPipe* LocalPipe = GetPipe();
 
                 u32 PrevNumLocks = m_NumLocks.fetch_sub(1, std::memory_order_acq_rel);
                 u32 LocalNumLocks = PrevNumLocks - 1;

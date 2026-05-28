@@ -460,7 +460,7 @@ namespace OloEngine::Audio::SoundGraph
             // its next call once the freshly-(re)wired endpoint map is stable.
             m_OutputChannelViews.clear();
 
-            for (auto& node : m_Nodes)
+            for (const auto& node : m_Nodes)
             {
                 // Rebuild lookup map
                 m_NodeLookup[node->m_ID] = node.get();
@@ -471,7 +471,7 @@ namespace OloEngine::Audio::SoundGraph
             }
 
             // Initialize all nodes in order, passing sample rate
-            for (auto& node : m_Nodes)
+            for (const auto& node : m_Nodes)
             {
                 node->SetSampleRate(m_SampleRate);
                 node->Init();
@@ -543,7 +543,7 @@ namespace OloEngine::Audio::SoundGraph
                             "SoundGraph::Process: view cache is stale; call SetMaxBlockSize/Init off-thread after wiring");
             OLO_CORE_ASSERT(m_OutputBuffers.size() >= m_OutChannels.size(),
                             "SoundGraph::Process: output buffer count is short of channel count; call SetMaxBlockSize off-thread");
-            for ([[maybe_unused]] auto& buf : m_OutputBuffers)
+            for ([[maybe_unused]] const auto& buf : m_OutputBuffers)
             {
                 // Check size(), not capacity() — operator[] writes below are bounds-checked
                 // against size() by MSVC Debug iterators (and are simply UB past size() in
@@ -566,7 +566,7 @@ namespace OloEngine::Audio::SoundGraph
                 // one sample, downstream consumers read the scalar via ValueView, the chain
                 // works. Phase 2 swaps in typed buffer connections and lifts this call out
                 // of the per-sample loop.
-                for (auto& node : m_Nodes)
+                for (const auto& node : m_Nodes)
                     node->Process(1);
 
                 // Sample each graph output channel from its (possibly re-aliased) endpoint
@@ -601,7 +601,7 @@ namespace OloEngine::Audio::SoundGraph
             m_OutgoingEvents.Clear();
             m_OutgoingMessages.Clear();
 
-            for (auto& node : m_Nodes)
+            for (const auto& node : m_Nodes)
                 node->Init();
         }
 
@@ -663,7 +663,7 @@ namespace OloEngine::Audio::SoundGraph
             if (endpointIt == m_EndpointInputStreams.end())
                 return false;
 
-            auto& endpoint = endpointIt->second;
+            const auto& endpoint = endpointIt->second;
 
             if (value.isFloat32())
             {

@@ -18,7 +18,7 @@ namespace OloEngine::Audio::DSP
                                     float** ppFramesOut, unsigned int* pFrameCountOut)
     {
         auto* node = static_cast<Reverb::ReverbNode*>(pNode);
-        auto* pNodeBase = &node->base;
+        const auto* pNodeBase = &node->base;
         u32 outBuses = ma_node_get_output_bus_count(pNodeBase);
 
         // If no input connected, silence the output

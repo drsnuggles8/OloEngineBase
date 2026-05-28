@@ -168,7 +168,7 @@ namespace OloEngine
         {
             // Count directories in selection
             size_t dirCount = 0;
-            for (auto& path : m_SelectedItems)
+            for (const auto& path : m_SelectedItems)
             {
                 std::error_code ec;
                 if (std::filesystem::is_directory(path, ec))
@@ -355,7 +355,7 @@ namespace OloEngine
 
         if (isOpen)
         {
-            for (auto& child : dir->SubDirectories)
+            for (const auto& child : dir->SubDirectories)
             {
                 DrawDirectoryTreeNode(child.get());
             }
@@ -590,7 +590,7 @@ namespace OloEngine
             return;
 
         // Add subdirectories
-        for (auto& subDir : m_CurrentDirectory->SubDirectories)
+        for (const auto& subDir : m_CurrentDirectory->SubDirectories)
         {
             std::filesystem::path absPath = m_DirectoryTree.GetAssetRoot() / subDir->RelativePath;
             m_Items.emplace_back(absPath, ContentFileType::Directory, m_DirectoryIcon);
@@ -750,7 +750,7 @@ namespace OloEngine
 
     void ContentBrowserPanel::DeleteSelectedItems()
     {
-        for (auto& path : m_SelectedItems)
+        for (const auto& path : m_SelectedItems)
         {
             std::error_code ec;
             std::filesystem::remove_all(path, ec);
@@ -794,7 +794,7 @@ namespace OloEngine
         if (!ImGui::IsWindowFocused(ImGuiFocusedFlags_ChildWindows))
             return;
 
-        auto& io = ImGui::GetIO();
+        const auto& io = ImGui::GetIO();
 
         // Don't process shortcuts while a text input owns the keyboard
         if (io.WantTextInput)
@@ -837,7 +837,7 @@ namespace OloEngine
         if (io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_A))
         {
             DeselectAll();
-            for (auto& item : m_Items)
+            for (const auto& item : m_Items)
                 Select(item.GetPath());
         }
 
@@ -1341,7 +1341,7 @@ namespace OloEngine
 
         // Guard against double-registration
         auto* ctx = ImGui::GetCurrentContext();
-        for (auto& h : ctx->SettingsHandlers)
+        for (const auto& h : ctx->SettingsHandlers)
         {
             if (h.TypeHash == ImHashStr("ContentBrowser"))
                 return;

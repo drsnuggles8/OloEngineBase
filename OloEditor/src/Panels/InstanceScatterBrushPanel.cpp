@@ -112,9 +112,9 @@ namespace OloEngine
         // needing to keep the inspector open.
         if (m_TargetEntity && m_TargetEntity.HasComponent<InstancedMeshComponent>())
         {
-            auto& tag = m_TargetEntity.HasComponent<TagComponent>()
-                            ? m_TargetEntity.GetComponent<TagComponent>().Tag
-                            : *(new std::string("(unnamed)")); // never executed; HasComponent<Tag> always true on real entities
+            const auto& tag = m_TargetEntity.HasComponent<TagComponent>()
+                                  ? m_TargetEntity.GetComponent<TagComponent>().Tag
+                                  : *(new std::string("(unnamed)")); // never executed; HasComponent<Tag> always true on real entities
             ImGui::Text("Target: %s", tag.c_str());
             const auto& imc = m_TargetEntity.GetComponent<InstancedMeshComponent>();
             ImGui::Text("Inline placements: %zu", imc.Instances.size());
@@ -314,7 +314,7 @@ namespace OloEngine
     {
         if (!m_TargetEntity || !m_TargetEntity.HasComponent<InstancedMeshComponent>())
             return;
-        auto& imc = m_TargetEntity.GetComponent<InstancedMeshComponent>();
+        const auto& imc = m_TargetEntity.GetComponent<InstancedMeshComponent>();
         m_StrokePreSnapshot = imc.Instances;
         m_StrokeActive = true;
     }
@@ -326,7 +326,7 @@ namespace OloEngine
         m_StrokeActive = false;
         if (!m_CommandHistory || !m_TargetEntity || !m_TargetEntity.HasComponent<InstancedMeshComponent>())
             return;
-        auto& imc = m_TargetEntity.GetComponent<InstancedMeshComponent>();
+        const auto& imc = m_TargetEntity.GetComponent<InstancedMeshComponent>();
         if (m_StrokePreSnapshot.size() == imc.Instances.size())
             return; // nothing deposited (e.g. slope filter rejected everything) — skip the undo entry
 

@@ -81,7 +81,7 @@ namespace OloEngine::Audio::SoundGraph
                 TUniqueLock<FMutex> lock(m_LoadTasksMutex);
                 tasksToJoin = std::move(m_LoadTasks);
             }
-            for (auto& task : tasksToJoin)
+            for (const auto& task : tasksToJoin)
             {
                 task.Wait();
             }

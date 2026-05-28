@@ -158,7 +158,7 @@ namespace OloEngine
         for (i32 i = 0; i < static_cast<i32>(m_Draft.Bookmarks.size()); ++i)
         {
             ImGui::PushID(i);
-            auto& bm = m_Draft.Bookmarks[static_cast<sizet>(i)];
+            const auto& bm = m_Draft.Bookmarks[static_cast<sizet>(i)];
             if (ImGui::Button(bm.Name.c_str()) && m_Camera)
             {
                 m_Camera->SetPosition(bm.Position);

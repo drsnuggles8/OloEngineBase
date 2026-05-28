@@ -654,7 +654,7 @@ namespace OloEngine
             TLinkPtr Links = m_RootList.PopAll();
             while (Links)
             {
-                TLink* LinksP = FLockFreeLinkPolicy::DerefLink(Links);
+                const TLink* LinksP = FLockFreeLinkPolicy::DerefLink(Links);
                 OutContainer.Add(static_cast<T*>(LinksP->Payload.load(std::memory_order_relaxed)));
                 TLinkPtr Del = Links;
                 Links = LinksP->SingleNext.load(std::memory_order_relaxed);
@@ -671,7 +671,7 @@ namespace OloEngine
             TLinkPtr Links = m_RootList.PopAll();
             while (Links)
             {
-                TLink* LinksP = FLockFreeLinkPolicy::DerefLink(Links);
+                const TLink* LinksP = FLockFreeLinkPolicy::DerefLink(Links);
                 InFunctor(static_cast<T*>(LinksP->Payload.load(std::memory_order_relaxed)));
                 TLinkPtr Del = Links;
                 Links = LinksP->SingleNext.load(std::memory_order_relaxed);
@@ -689,7 +689,7 @@ namespace OloEngine
             TLinkPtr Links = m_RootList.PopAllAndChangeState(StateChange);
             while (Links)
             {
-                TLink* LinksP = FLockFreeLinkPolicy::DerefLink(Links);
+                const TLink* LinksP = FLockFreeLinkPolicy::DerefLink(Links);
                 OutContainer.Add(static_cast<T*>(LinksP->Payload.load(std::memory_order_relaxed)));
                 TLinkPtr Del = Links;
                 Links = LinksP->SingleNext.load(std::memory_order_relaxed);

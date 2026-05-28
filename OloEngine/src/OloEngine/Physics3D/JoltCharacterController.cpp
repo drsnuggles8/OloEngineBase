@@ -260,7 +260,7 @@ namespace OloEngine
         JPH::Vec3 joltGravity = JoltUtils::ToJoltVector(gravity);
 
         // Get physics system for layer filters
-        JPH::PhysicsSystem* physicsSystem = m_Scene->GetJoltSystemPtr();
+        const JPH::PhysicsSystem* physicsSystem = m_Scene->GetJoltSystemPtr();
         if (!physicsSystem)
             return;
 
@@ -384,7 +384,7 @@ namespace OloEngine
 
         if (m_Entity && m_Entity.HasComponent<TransformComponent>())
         {
-            auto& transform = m_Entity.GetComponent<TransformComponent>();
+            const auto& transform = m_Entity.GetComponent<TransformComponent>();
             position = transform.Translation;
             rotation = transform.GetRotation();
         }
@@ -530,7 +530,7 @@ namespace OloEngine
             return true;
 
         // Get the physics system to check collision layers
-        auto* physicsSystem = m_Scene->GetJoltSystemPtr();
+        const auto* physicsSystem = m_Scene->GetJoltSystemPtr();
         if (!physicsSystem)
             return true;
 

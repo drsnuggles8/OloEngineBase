@@ -71,7 +71,7 @@ class PeriodicEffectStackingScalesDamageTest : public FunctionalTest
 
 TEST_F(PeriodicEffectStackingScalesDamageTest, ThreeStacksDeductFifteenPerPeriodNotFive)
 {
-    auto& ac = m_Victim.GetComponent<AbilityComponent>();
+    const auto& ac = m_Victim.GetComponent<AbilityComponent>();
     EXPECT_NEAR(ac.Attributes.GetCurrentValue("Health"), 100.0f, 1e-3f)
         << "ApplyEffect itself deducted health — periodic effects should "
            "not apply on application, only on subsequent period boundaries.";

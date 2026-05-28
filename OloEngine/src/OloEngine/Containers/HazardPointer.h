@@ -449,7 +449,7 @@ namespace OloEngine
         // Collect all global Hazards in the system using inline allocator for performance
         TArray<void*, TInlineAllocator<64>> Hazards;
 
-        FHazardRecordChunk* p = &m_Head;
+        const FHazardRecordChunk* p = &m_Head;
         do
         {
             for (u32 i = 0; i < HazardChunkSize; i++)

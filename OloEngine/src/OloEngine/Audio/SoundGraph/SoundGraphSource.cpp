@@ -914,7 +914,7 @@ namespace OloEngine::Audio::SoundGraph
     {
         OLO_PROFILE_FUNCTION();
 
-        if (auto* source = static_cast<SoundGraphSource*>(userData); !source)
+        if (const auto* source = static_cast<SoundGraphSource*>(userData); !source)
             return false;
 
         if (waveSource.m_WaveHandle == 0)

@@ -2374,7 +2374,7 @@ namespace OloEngine
         // Warn about orthographic cameras in 3D mode (common misconfiguration)
         if (m_Is3DMode)
         {
-            auto& cam = cameraEntity.GetComponent<CameraComponent>();
+            const auto& cam = cameraEntity.GetComponent<CameraComponent>();
             if (cam.Camera.GetProjectionType() == SceneCamera::ProjectionType::Orthographic)
             {
                 OLO_CORE_WARN("Primary camera '{}' uses Orthographic projection in 3D mode. "
@@ -2886,7 +2886,7 @@ namespace OloEngine
             else
             {
                 auto compound = std::make_unique<CompoundCommand>("Delete Pasted Entities");
-                for (auto& uuid : createdUUIDs)
+                for (const auto& uuid : createdUUIDs)
                 {
                     auto entityOpt = m_EditorScene->TryGetEntityWithUUID(uuid);
                     if (entityOpt)

@@ -272,7 +272,7 @@ namespace OloEngine
                 }
 
                 // Verify canary bytes
-                u8* Bytes = static_cast<u8*>(Pop);
+                const u8* Bytes = static_cast<u8*>(Pop);
                 for (sizet At = 0; At < Size; At++)
                 {
                     if (Bytes[At] != PURGATORY_CANARY_BYTE)

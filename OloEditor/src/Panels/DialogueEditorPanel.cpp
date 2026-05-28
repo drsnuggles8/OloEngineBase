@@ -289,7 +289,7 @@ namespace OloEngine
             // Show speaker + text excerpt
             if (auto it = node.Properties.find("speaker"); it != node.Properties.end())
             {
-                if (auto* str = std::get_if<std::string>(&it->second))
+                if (const auto* str = std::get_if<std::string>(&it->second))
                 {
                     drawList->AddText(nullptr, 11.0f * m_Zoom,
                                       ImVec2(nodePos.x + s_NodePadding * m_Zoom, contentY),
@@ -299,7 +299,7 @@ namespace OloEngine
             }
             if (auto it = node.Properties.find("text"); it != node.Properties.end())
             {
-                if (auto* str = std::get_if<std::string>(&it->second))
+                if (const auto* str = std::get_if<std::string>(&it->second))
                 {
                     std::string preview = *str;
                     if (preview.size() > 35)
@@ -314,7 +314,7 @@ namespace OloEngine
         {
             if (auto it = node.Properties.find("conditionExpression"); it != node.Properties.end())
             {
-                if (auto* str = std::get_if<std::string>(&it->second))
+                if (const auto* str = std::get_if<std::string>(&it->second))
                 {
                     std::string label = "if: " + *str;
                     drawList->AddText(nullptr, 11.0f * m_Zoom,
@@ -327,7 +327,7 @@ namespace OloEngine
         {
             if (auto it = node.Properties.find("actionName"); it != node.Properties.end())
             {
-                if (auto* str = std::get_if<std::string>(&it->second))
+                if (const auto* str = std::get_if<std::string>(&it->second))
                 {
                     std::string label = "do: " + *str;
                     drawList->AddText(nullptr, 11.0f * m_Zoom,
@@ -1081,7 +1081,7 @@ namespace OloEngine
             std::string speaker;
             if (auto it = node.Properties.find("speaker"); it != node.Properties.end())
             {
-                if (auto* str = std::get_if<std::string>(&it->second))
+                if (const auto* str = std::get_if<std::string>(&it->second))
                     speaker = *str;
             }
             char speakerBuf[256];
@@ -1097,7 +1097,7 @@ namespace OloEngine
             std::string text;
             if (auto it = node.Properties.find("text"); it != node.Properties.end())
             {
-                if (auto* str = std::get_if<std::string>(&it->second))
+                if (const auto* str = std::get_if<std::string>(&it->second))
                     text = *str;
             }
             char textBuf[4096];
@@ -1114,7 +1114,7 @@ namespace OloEngine
             std::string expr;
             if (auto it = node.Properties.find("conditionExpression"); it != node.Properties.end())
             {
-                if (auto* str = std::get_if<std::string>(&it->second))
+                if (const auto* str = std::get_if<std::string>(&it->second))
                     expr = *str;
             }
             char exprBuf[512];
@@ -1129,7 +1129,7 @@ namespace OloEngine
             std::string condArgs;
             if (auto it = node.Properties.find("conditionArgs"); it != node.Properties.end())
             {
-                if (auto* str = std::get_if<std::string>(&it->second))
+                if (const auto* str = std::get_if<std::string>(&it->second))
                     condArgs = *str;
             }
             char condArgsBuf[512];
@@ -1148,7 +1148,7 @@ namespace OloEngine
             std::string actionName;
             if (auto it = node.Properties.find("actionName"); it != node.Properties.end())
             {
-                if (auto* str = std::get_if<std::string>(&it->second))
+                if (const auto* str = std::get_if<std::string>(&it->second))
                     actionName = *str;
             }
             char actionBuf[256];
@@ -1163,7 +1163,7 @@ namespace OloEngine
             std::string actionArgs;
             if (auto it = node.Properties.find("actionArgs"); it != node.Properties.end())
             {
-                if (auto* str = std::get_if<std::string>(&it->second))
+                if (const auto* str = std::get_if<std::string>(&it->second))
                     actionArgs = *str;
             }
             char argsBuf[512];
@@ -1407,12 +1407,12 @@ namespace OloEngine
 
             if (auto it = node->Properties.find("speaker"); it != node->Properties.end())
             {
-                if (auto* str = std::get_if<std::string>(&it->second))
+                if (const auto* str = std::get_if<std::string>(&it->second))
                     m_PreviewCurrentSpeaker = *str;
             }
             if (auto it = node->Properties.find("text"); it != node->Properties.end())
             {
-                if (auto* str = std::get_if<std::string>(&it->second))
+                if (const auto* str = std::get_if<std::string>(&it->second))
                     m_PreviewCurrentText = *str;
             }
         }
@@ -1435,7 +1435,7 @@ namespace OloEngine
             std::string conditionName;
             if (auto it = node->Properties.find("conditionExpression"); it != node->Properties.end())
             {
-                if (auto* str = std::get_if<std::string>(&it->second))
+                if (const auto* str = std::get_if<std::string>(&it->second))
                     conditionName = *str;
             }
 
@@ -1488,7 +1488,7 @@ namespace OloEngine
             std::string actionName;
             if (auto it = node->Properties.find("actionName"); it != node->Properties.end())
             {
-                if (auto* str = std::get_if<std::string>(&it->second))
+                if (const auto* str = std::get_if<std::string>(&it->second))
                     actionName = *str;
             }
 

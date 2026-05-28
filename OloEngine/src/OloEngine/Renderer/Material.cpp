@@ -345,7 +345,7 @@ namespace OloEngine
 
     Ref<Texture2D> Material::GetTexture2D(const std::string& name)
     {
-        if (auto* value = m_Texture2DUniforms.Find(name))
+        if (const auto* value = m_Texture2DUniforms.Find(name))
             return *value;
 
         return nullptr;
@@ -354,7 +354,7 @@ namespace OloEngine
     Ref<Texture2D> Material::GetTexture2D(const std::string& name, u32 arrayIndex)
     {
         std::string key = GenerateArrayKey(name, arrayIndex);
-        if (auto* value = m_Texture2DUniforms.Find(key))
+        if (const auto* value = m_Texture2DUniforms.Find(key))
             return *value;
 
         return nullptr;
@@ -373,7 +373,7 @@ namespace OloEngine
 
     Ref<TextureCubemap> Material::GetTextureCube(const std::string& name)
     {
-        if (auto* value = m_TextureCubeUniforms.Find(name))
+        if (const auto* value = m_TextureCubeUniforms.Find(name))
             return *value;
 
         return nullptr;

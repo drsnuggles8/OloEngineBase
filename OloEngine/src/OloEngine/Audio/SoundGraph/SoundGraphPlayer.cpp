@@ -49,7 +49,7 @@ namespace OloEngine::Audio::SoundGraph
         // Stop and remove all sources
         {
             TUniqueLock<FMutex> lock(m_Mutex);
-            for (auto& [id, source] : m_SoundGraphSources)
+            for (const auto& [id, source] : m_SoundGraphSources)
             {
                 if (source)
                 {
@@ -375,7 +375,7 @@ namespace OloEngine::Audio::SoundGraph
         // Trade-off: Holding lock during updates reduces concurrency but ensures safety.
         // Future optimization: Could use shared_ptr if SoundGraphSource inherits RefCounted.
         TUniqueLock<FMutex> lock(m_Mutex);
-        for (auto& [id, source] : m_SoundGraphSources)
+        for (const auto& [id, source] : m_SoundGraphSources)
         {
             if (source)
             {

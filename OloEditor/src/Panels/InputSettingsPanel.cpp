@@ -41,7 +41,7 @@ namespace OloEngine
         {
             OLO_PROFILE_SCOPE("SortActionNames");
             actionNames.reserve(map.Actions.size());
-            for (auto& [name, _] : map.Actions)
+            for (const auto& [name, _] : map.Actions)
             {
                 actionNames.push_back(name);
             }
@@ -50,7 +50,7 @@ namespace OloEngine
 
         {
             OLO_PROFILE_SCOPE("RenderActions");
-            for (auto& name : actionNames)
+            for (const auto& name : actionNames)
             {
                 auto* action = map.GetAction(name);
                 if (action)
@@ -99,7 +99,7 @@ namespace OloEngine
 
     void InputSettingsPanel::DrawActionMapHeader()
     {
-        auto& map = InputActionManager::GetActionMap();
+        const auto& map = InputActionManager::GetActionMap();
 
         ImGui::Text("Action Map: %s", map.Name.empty() ? "(unnamed)" : map.Name.c_str());
         ImGui::SameLine();
@@ -234,7 +234,7 @@ namespace OloEngine
     {
         ImGui::PushID(static_cast<int>(bindingIndex));
 
-        auto& binding = action.Bindings[bindingIndex];
+        const auto& binding = action.Bindings[bindingIndex];
         std::string displayName = binding.GetDisplayName();
 
         ImGui::Text("%s", displayName.c_str());
@@ -434,7 +434,7 @@ namespace OloEngine
 
         for (i32 gpIdx = 0; gpIdx < GamepadManager::MaxGamepads; ++gpIdx)
         {
-            auto* gp = GamepadManager::GetGamepad(gpIdx);
+            const auto* gp = GamepadManager::GetGamepad(gpIdx);
             if (!gp || !gp->IsConnected())
             {
                 continue;

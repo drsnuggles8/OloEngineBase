@@ -271,7 +271,7 @@ namespace OloEngine::Tests::TestFailureCapture
 
     bool WriteLatestFrameSummary(const fs::path& path)
     {
-        auto& mgr = OloEngine::FrameCaptureManager::GetInstance();
+        const auto& mgr = OloEngine::FrameCaptureManager::GetInstance();
         const auto frames = mgr.GetCapturedFramesCopy();
         if (frames.empty())
             return false;

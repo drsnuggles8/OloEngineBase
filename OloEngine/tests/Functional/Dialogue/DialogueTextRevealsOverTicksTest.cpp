@@ -80,7 +80,7 @@ TEST_F(DialogueTextRevealsOverTicksTest, StartDialogueDisplaysAndRevealProgresse
 
     dialogueSystem->StartDialogue(m_Speaker);
 
-    auto& state = m_Speaker.GetComponent<DialogueStateComponent>();
+    const auto& state = m_Speaker.GetComponent<DialogueStateComponent>();
     EXPECT_EQ(state.m_State, DialogueState::Displaying)
         << "StartDialogue did not transition into Displaying — the "
            "AssetManager handle lookup may have failed.";

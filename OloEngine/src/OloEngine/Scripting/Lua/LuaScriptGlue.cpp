@@ -1605,7 +1605,7 @@ namespace OloEngine
                 {
                     return false;
                 }
-                auto* gp = GamepadManager::GetGamepad(index);
+                const auto* gp = GamepadManager::GetGamepad(index);
                 return gp && gp->IsButtonPressed(static_cast<GamepadButton>(button));
             };
             gamepadTable["IsButtonJustPressed"] = [](u8 button, i32 index) -> bool
@@ -1614,7 +1614,7 @@ namespace OloEngine
                 {
                     return false;
                 }
-                auto* gp = GamepadManager::GetGamepad(index);
+                const auto* gp = GamepadManager::GetGamepad(index);
                 return gp && gp->IsButtonJustPressed(static_cast<GamepadButton>(button));
             };
             gamepadTable["IsButtonJustReleased"] = [](u8 button, i32 index) -> bool
@@ -1623,7 +1623,7 @@ namespace OloEngine
                 {
                     return false;
                 }
-                auto* gp = GamepadManager::GetGamepad(index);
+                const auto* gp = GamepadManager::GetGamepad(index);
                 return gp && gp->IsButtonJustReleased(static_cast<GamepadButton>(button));
             };
             gamepadTable["GetAxis"] = [](u8 axis, i32 index) -> f32
@@ -1632,22 +1632,22 @@ namespace OloEngine
                 {
                     return 0.0f;
                 }
-                auto* gp = GamepadManager::GetGamepad(index);
+                const auto* gp = GamepadManager::GetGamepad(index);
                 return gp ? gp->GetAxis(static_cast<GamepadAxis>(axis)) : 0.0f;
             };
             gamepadTable["GetLeftStick"] = [](i32 index) -> glm::vec2
             {
-                auto* gp = GamepadManager::GetGamepad(index);
+                const auto* gp = GamepadManager::GetGamepad(index);
                 return gp ? gp->GetLeftStickDeadzone() : glm::vec2(0.0f);
             };
             gamepadTable["GetRightStick"] = [](i32 index) -> glm::vec2
             {
-                auto* gp = GamepadManager::GetGamepad(index);
+                const auto* gp = GamepadManager::GetGamepad(index);
                 return gp ? gp->GetRightStickDeadzone() : glm::vec2(0.0f);
             };
             gamepadTable["IsConnected"] = [](i32 index) -> bool
             {
-                auto* gp = GamepadManager::GetGamepad(index);
+                const auto* gp = GamepadManager::GetGamepad(index);
                 return gp && gp->IsConnected();
             };
             gamepadTable["GetConnectedCount"] = []() -> i32
@@ -1951,7 +1951,7 @@ namespace OloEngine
         {
             if (!entity)
                 return;
-            Scene* scene = ScriptEngine::GetSceneContext();
+            const Scene* scene = ScriptEngine::GetSceneContext();
             if (scene && scene->GetDialogueSystem())
                 scene->GetDialogueSystem()->StartDialogue(*entity);
         };
@@ -1959,7 +1959,7 @@ namespace OloEngine
         {
             if (!entity)
                 return;
-            Scene* scene = ScriptEngine::GetSceneContext();
+            const Scene* scene = ScriptEngine::GetSceneContext();
             if (scene && scene->GetDialogueSystem())
                 scene->GetDialogueSystem()->AdvanceDialogue(*entity);
         };
@@ -1967,7 +1967,7 @@ namespace OloEngine
         {
             if (!entity)
                 return;
-            Scene* scene = ScriptEngine::GetSceneContext();
+            const Scene* scene = ScriptEngine::GetSceneContext();
             if (scene && scene->GetDialogueSystem())
                 scene->GetDialogueSystem()->SelectChoice(*entity, index);
         };
@@ -1981,7 +1981,7 @@ namespace OloEngine
         {
             if (!entity)
                 return;
-            Scene* scene = ScriptEngine::GetSceneContext();
+            const Scene* scene = ScriptEngine::GetSceneContext();
             if (scene && scene->GetDialogueSystem())
                 scene->GetDialogueSystem()->EndDialogue(*entity);
         };
@@ -2267,7 +2267,7 @@ namespace OloEngine
         {
             if (!entity)
                 return false;
-            Scene* scene = ScriptEngine::GetSceneContext();
+            const Scene* scene = ScriptEngine::GetSceneContext();
             return scene && scene->TryGetEntityWithUUID(entity->GetUUID()).has_value();
         };
 
@@ -2275,7 +2275,7 @@ namespace OloEngine
         auto physicsTable = lua.create_named_table("Physics");
         physicsTable["Raycast"] = [](const glm::vec3& origin, const glm::vec3& direction, f32 maxDistance, sol::this_state s) -> sol::object
         {
-            Scene* scene = ScriptEngine::GetSceneContext();
+            const Scene* scene = ScriptEngine::GetSceneContext();
             if (!scene)
                 return sol::make_object(s, sol::nil);
 
@@ -2320,7 +2320,7 @@ namespace OloEngine
             glm::mat4 invVP = glm::inverse(projMatrix * viewMatrix);
 
             // screenPos is in pixels (from Input.GetMousePosition); normalise to [0,1]
-            auto& window = Application::Get().GetWindow();
+            const auto& window = Application::Get().GetWindow();
             const f32 winW = static_cast<f32>(window.GetWidth());
             const f32 winH = static_cast<f32>(window.GetHeight());
             if (winW <= 0.0f || winH <= 0.0f)
@@ -2440,8 +2440,8 @@ namespace OloEngine
             if (!GameplayAbilitySystem::TryActivateAbility(scene, caster, tag))
                 return false;
 
-            auto& casterAC = caster.GetComponent<AbilityComponent>();
-            for (auto& ability : casterAC.Abilities)
+            const auto& casterAC = caster.GetComponent<AbilityComponent>();
+            for (const auto& ability : casterAC.Abilities)
             {
                 if (ability.Definition.AbilityTag == tag)
                 {
@@ -2763,7 +2763,7 @@ namespace OloEngine
         auto sceneTable = lua.create_named_table("Scene");
         sceneTable["LoadRegion"] = [](u64 regionId)
         {
-            Scene* scene = ScriptEngine::GetSceneContext();
+            const Scene* scene = ScriptEngine::GetSceneContext();
             if (scene)
             {
                 if (auto* streamer = scene->GetSceneStreamer())
@@ -2772,7 +2772,7 @@ namespace OloEngine
         };
         sceneTable["UnloadRegion"] = [](u64 regionId)
         {
-            Scene* scene = ScriptEngine::GetSceneContext();
+            const Scene* scene = ScriptEngine::GetSceneContext();
             if (scene)
             {
                 if (auto* streamer = scene->GetSceneStreamer())
@@ -3012,7 +3012,7 @@ namespace OloEngine
             // entry is cleanly owned by the C++ side regardless of Lua GC.
             std::vector<std::string> v;
             v.reserve(items.size());
-            for (auto& kv : items)
+            for (const auto& kv : items)
             {
                 if (kv.second.is<std::string>())
                     v.push_back(kv.second.as<std::string>());

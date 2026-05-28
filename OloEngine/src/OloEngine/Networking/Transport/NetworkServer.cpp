@@ -215,7 +215,7 @@ namespace OloEngine
         std::vector<HSteamNetConnection> connected;
         {
             TUniqueLock<FMutex> lock(m_Mutex);
-            for (auto& [handle, connection] : m_Connections)
+            for (const auto& [handle, connection] : m_Connections)
             {
                 if (connection.GetState() == EConnectionState::Connected)
                 {

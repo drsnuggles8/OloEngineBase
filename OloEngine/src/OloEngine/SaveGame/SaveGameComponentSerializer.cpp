@@ -1514,7 +1514,7 @@ namespace OloEngine
         ar << weightCount;
         if (ar.IsSaving())
         {
-            for (auto& [name, weight] : c.Weights)
+            for (const auto& [name, weight] : c.Weights)
             {
                 std::string nameCopy = name; // ar << requires non-const reference
                 f32 weightCopy = weight;
@@ -2327,7 +2327,7 @@ namespace OloEngine
 
             std::unordered_map<std::string, f32> cooldowns;
             ar << cooldowns;
-            for (auto& [id, remaining] : cooldowns)
+            for (const auto& [id, remaining] : cooldowns)
             {
                 j.SetQuestCooldown(id, remaining);
             }
@@ -2337,7 +2337,7 @@ namespace OloEngine
             j.SetPlayerLevel(level);
             std::unordered_map<std::string, i32> reputations;
             ar << reputations;
-            for (auto& [faction, value] : reputations)
+            for (const auto& [faction, value] : reputations)
             {
                 j.SetReputation(faction, value);
             }

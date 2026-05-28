@@ -67,7 +67,7 @@ class TimedQuestFailsAfterDeadlineTest : public FunctionalTest
 
 TEST_F(TimedQuestFailsAfterDeadlineTest, ActiveQuestTransitionsToFailedAfterTimeLimitElapses)
 {
-    auto& jc = m_Player.GetComponent<QuestJournalComponent>();
+    const auto& jc = m_Player.GetComponent<QuestJournalComponent>();
 
     // Halfway through the deadline: still Active.
     TickFor(/*seconds=*/0.25f);

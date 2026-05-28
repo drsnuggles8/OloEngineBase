@@ -502,7 +502,7 @@ namespace OloEngine
         {
             for (u32 i = 0; i < node->mNumMeshes; i++)
             {
-                auto* mesh = scene->mMeshes[node->mMeshes[i]];
+                const auto* mesh = scene->mMeshes[node->mMeshes[i]];
                 out.push_back(mesh->mMaterialIndex);
             }
             for (u32 i = 0; i < node->mNumChildren; i++)
@@ -726,7 +726,7 @@ namespace OloEngine
         // Process all the node's meshes
         for (u32 i = 0; i < node->mNumMeshes; i++)
         {
-            aiMesh* mesh = scene->mMeshes[node->mMeshes[i]];
+            const aiMesh* mesh = scene->mMeshes[node->mMeshes[i]];
             auto meshSource = ProcessMesh(mesh, scene);
             if (meshSource)
             {

@@ -152,7 +152,7 @@ namespace OloEngine
 
         // Grab the last N log lines from the ringbuffer
         report << "--- Recent Log Messages (last 200) ---\n";
-        auto* logInstance = Log::GetIfInitialized();
+        const auto* logInstance = Log::GetIfInitialized();
         if (auto recentLogs = logInstance ? logInstance->GetRecentLogMessages() : std::vector<std::string>{}; recentLogs.empty())
         {
             report << "(no log messages captured)\n";

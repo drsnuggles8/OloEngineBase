@@ -602,7 +602,7 @@ namespace OloEngine::ParkingLot
             const u32 Hash = HashAddress(Address);
             for (;;)
             {
-                FTable* Table = s_GlobalTable.load(std::memory_order_acquire);
+                const FTable* Table = s_GlobalTable.load(std::memory_order_acquire);
                 if (!Table)
                 {
                     return nullptr;
@@ -689,7 +689,7 @@ namespace OloEngine::ParkingLot
                 }
 
                 // Make the new table visible to other threads.
-                FTable* CompareTable = s_GlobalTable.exchange(&NewTable, std::memory_order_release);
+                const FTable* CompareTable = s_GlobalTable.exchange(&NewTable, std::memory_order_release);
                 OLO_CORE_ASSERT(CompareTable == &ExistingTable);
 
                 // Unlock buckets that came from the existing table now that the new table is visible.
@@ -1077,7 +1077,7 @@ namespace OloEngine::ParkingLot
             }
         }
 
-        for (auto& WakeThread : WakeThreads)
+        for (const auto& WakeThread : WakeThreads)
         {
             WakeThread->WaitAddress.store(nullptr, std::memory_order_relaxed);
             WakeThread->Event.Notify();

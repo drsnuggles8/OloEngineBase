@@ -123,7 +123,7 @@ TEST_F(PrefabOverrideTest, Prefab_CreateFromEntity)
     ASSERT_TRUE(static_cast<bool>(root));
     EXPECT_EQ(root.GetComponent<TagComponent>().Tag, "TestEntity");
 
-    auto& t = root.GetComponent<TransformComponent>();
+    const auto& t = root.GetComponent<TransformComponent>();
     EXPECT_FLOAT_EQ(t.Translation.x, 1.0f);
     EXPECT_FLOAT_EQ(t.Translation.y, 2.0f);
     EXPECT_FLOAT_EQ(t.Translation.z, 3.0f);
@@ -391,7 +391,7 @@ TEST_F(PrefabOverrideTest, Scene_MarkPrefabComponentOverridden)
 
     m_Scene->MarkPrefabComponentOverridden(entity, "TransformComponent");
 
-    auto& pc = entity.GetComponent<PrefabComponent>();
+    const auto& pc = entity.GetComponent<PrefabComponent>();
     EXPECT_TRUE(pc.IsComponentOverridden("TransformComponent"));
 }
 

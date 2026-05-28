@@ -107,7 +107,7 @@ return script
 
 TEST_F(LuaSetsAbilityAttributeViaSceneTickTest, LuaDrivenHealthToZeroFlipsAliveToDeadOnSubsequentTick)
 {
-    auto& ac = m_Entity.GetComponent<AbilityComponent>();
+    const auto& ac = m_Entity.GetComponent<AbilityComponent>();
     ASSERT_NEAR(ac.Attributes.GetCurrentValue("Health"), 100.0f, 1e-3f);
     ASSERT_TRUE(ac.OwnedTags.HasTagExact(m_AliveTag));
 

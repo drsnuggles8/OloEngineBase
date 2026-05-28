@@ -292,7 +292,7 @@ namespace OloEngine
         for (auto e : view)
         {
             Entity entity{ e, *this };
-            auto& pc = entity.GetComponent<PrefabComponent>();
+            const auto& pc = entity.GetComponent<PrefabComponent>();
             if (!pc.IsValid())
                 continue;
 
@@ -699,7 +699,7 @@ namespace OloEngine
                 bool firstBounds = true;
                 for (auto e : boundsView)
                 {
-                    auto& bounds = m_Registry.get<NavMeshBoundsComponent>(e);
+                    const auto& bounds = m_Registry.get<NavMeshBoundsComponent>(e);
                     if (firstBounds)
                     {
                         boundsMin = bounds.m_Min;
@@ -883,7 +883,7 @@ namespace OloEngine
 
             auto& childSystem = psc.ChildSystems[trigger.ChildSystemIndex];
             auto& childPool = childSystem.GetPool();
-            auto& childEmitter = childSystem.Emitter;
+            const auto& childEmitter = childSystem.Emitter;
 
             u32 firstSlot = childPool.GetAliveCount();
             u32 emitted = childPool.Emit(trigger.EmitCount);
@@ -1270,7 +1270,7 @@ namespace OloEngine
                     {
                         Entity entity = { e, this };
                         auto& transform = entity.GetComponent<TransformComponent>();
-                        auto& rb2d = entity.GetComponent<Rigidbody2DComponent>();
+                        const auto& rb2d = entity.GetComponent<Rigidbody2DComponent>();
 
                         // Runtime-added Rigidbody2DComponent has RuntimeBody ==
                         // b2_nullBodyId until OnPhysics2DStart creates one.
@@ -1296,7 +1296,7 @@ namespace OloEngine
                 {
                     Entity entity = { e, this };
                     auto& transform = entity.GetComponent<TransformComponent>();
-                    auto& rb3d = entity.GetComponent<Rigidbody3DComponent>();
+                    const auto& rb3d = entity.GetComponent<Rigidbody3DComponent>();
 
                     if (rb3d.m_RuntimeBodyToken != 0 && rb3d.m_Type != BodyType3D::Static && m_JoltScene)
                     {
@@ -1396,7 +1396,7 @@ namespace OloEngine
 
                 for (auto view = m_Registry.view<TransformComponent, ParticleSystemComponent>(); auto entity : view)
                 {
-                    auto& transform = view.get<TransformComponent>(entity);
+                    const auto& transform = view.get<TransformComponent>(entity);
                     auto& psc = view.get<ParticleSystemComponent>(entity);
                     // Provide Jolt scene for raycast collision
                     psc.System.SetJoltScene(m_JoltScene.get());
@@ -1427,7 +1427,7 @@ namespace OloEngine
             for (const auto view = m_Registry.view<TransformComponent, CameraComponent>(); const auto entity : view)
             {
                 auto& transform = view.get<TransformComponent>(entity);
-                auto& camera = view.get<CameraComponent>(entity);
+                const auto& camera = view.get<CameraComponent>(entity);
 
                 if (camera.Primary)
                 {
@@ -1665,7 +1665,7 @@ namespace OloEngine
                     {
                         Entity entity = { e, this };
                         auto& transform = entity.GetComponent<TransformComponent>();
-                        auto& rb2d = entity.GetComponent<Rigidbody2DComponent>();
+                        const auto& rb2d = entity.GetComponent<Rigidbody2DComponent>();
 
                         // Runtime-added Rigidbody2DComponent has RuntimeBody ==
                         // b2_nullBodyId until OnPhysics2DStart creates one.
@@ -1691,7 +1691,7 @@ namespace OloEngine
                 {
                     Entity entity = { e, this };
                     auto& transform = entity.GetComponent<TransformComponent>();
-                    auto& rb3d = entity.GetComponent<Rigidbody3DComponent>();
+                    const auto& rb3d = entity.GetComponent<Rigidbody3DComponent>();
 
                     if (rb3d.m_RuntimeBodyToken != 0 && rb3d.m_Type != BodyType3D::Static && m_JoltScene)
                     {
@@ -1778,7 +1778,7 @@ namespace OloEngine
             const glm::vec3 camPos = camera.GetPosition();
             for (auto view = m_Registry.view<TransformComponent, ParticleSystemComponent>(); auto entity : view)
             {
-                auto& transform = view.get<TransformComponent>(entity);
+                const auto& transform = view.get<TransformComponent>(entity);
                 auto& psc = view.get<ParticleSystemComponent>(entity);
                 psc.System.UpdateLOD(camPos, transform.Translation);
                 psc.System.Update(ts, transform.Translation, glm::vec3(0.0f), transform.GetRotation());
@@ -2483,8 +2483,8 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        auto& accumSettings = Renderer3D::GetSnowAccumulationSettings();
-        auto& ejectaSettings = Renderer3D::GetSnowEjectaSettings();
+        const auto& accumSettings = Renderer3D::GetSnowAccumulationSettings();
+        const auto& ejectaSettings = Renderer3D::GetSnowEjectaSettings();
 
         bool const accumActive = accumSettings.Enabled && SnowAccumulationSystem::IsInitialized();
         bool const ejectaActive = ejectaSettings.Enabled && SnowEjectaSystem::IsInitialized();
@@ -2504,7 +2504,7 @@ namespace OloEngine
         for (auto entity : deformerView)
         {
             auto& transform = deformerView.get<TransformComponent>(entity);
-            auto& deformer = deformerView.get<SnowDeformerComponent>(entity);
+            const auto& deformer = deformerView.get<SnowDeformerComponent>(entity);
 
             glm::vec3 pos = transform.Translation;
 
@@ -2603,7 +2603,7 @@ namespace OloEngine
 
         for (const auto entity : uiEntities)
         {
-            auto& resolved = m_Registry.get<UIResolvedRectComponent>(entity);
+            const auto& resolved = m_Registry.get<UIResolvedRectComponent>(entity);
             const int eid = static_cast<int>(std::to_underlying(entity));
 
             if (m_Registry.all_of<UIPanelComponent>(entity))
@@ -4537,7 +4537,7 @@ namespace OloEngine
                                 auto va = submesh->GetVertexArray();
                                 if (va)
                                 {
-                                    auto* cmd = packet->GetCommandData<DrawMeshCommand>();
+                                    const auto* cmd = packet->GetCommandData<DrawMeshCommand>();
                                     if (cmd)
                                     {
                                         Renderer3D::AddSkinnedShadowCaster(
@@ -5114,7 +5114,7 @@ namespace OloEngine
         sortedSystems.reserve(psView.size_hint());
         for (auto entity : psView)
         {
-            auto& tc = psView.get<TransformComponent>(entity);
+            const auto& tc = psView.get<TransformComponent>(entity);
             f32 dist = glm::length2(glm::vec3(tc.Translation) - camPos);
             sortedSystems.emplace_back(dist, entity);
         }
@@ -5122,7 +5122,7 @@ namespace OloEngine
                           [](const auto& a, const auto& b)
                           { return a.first > b.first; });
 
-        for (auto& [dist, entity] : sortedSystems)
+        for (const auto& [dist, entity] : sortedSystems)
         {
             auto& psc = psView.get<ParticleSystemComponent>(entity);
             auto& sys = psc.System;

@@ -236,7 +236,7 @@ namespace OloEngine::Audio::SoundGraph
         TUniqueLock<FMutex> Lock(m_Mutex);
 
         // Invalidate all versions of this source file
-        for (auto& [key, resultPtr] : m_CompiledResults)
+        for (const auto& [key, resultPtr] : m_CompiledResults)
         {
             if (resultPtr && resultPtr->m_SourcePath == sourcePath)
             {
@@ -255,7 +255,7 @@ namespace OloEngine::Audio::SoundGraph
         auto it = m_CompiledResults.find(key);
         if (it != m_CompiledResults.end())
         {
-            auto& resultPtr = it->second;
+            const auto& resultPtr = it->second;
             if (resultPtr)
             {
                 resultPtr->m_IsValid = false;
@@ -499,7 +499,7 @@ namespace OloEngine::Audio::SoundGraph
 
         std::vector<std::string> invalidKeys;
 
-        for (auto& [key, resultPtr] : m_CompiledResults)
+        for (const auto& [key, resultPtr] : m_CompiledResults)
         {
             if (!resultPtr)
             {

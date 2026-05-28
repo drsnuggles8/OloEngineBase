@@ -79,7 +79,7 @@ namespace OloEngine
             return;
 
         // Simple implementation - in a real engine you'd use GPU fences
-        auto& frame = m_Frames[frameIndex];
+        const auto& frame = m_Frames[frameIndex];
         while (!frame.IsComplete)
         {
             std::this_thread::sleep_for(std::chrono::microseconds(100));

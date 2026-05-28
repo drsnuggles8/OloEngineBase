@@ -262,7 +262,7 @@ namespace OloEngine
             Entity entity = { entityHandle, &scene };
 
             // Write UUID first (always present via IDComponent)
-            auto& id = entity.GetComponent<IDComponent>();
+            const auto& id = entity.GetComponent<IDComponent>();
             UUID uuid = id.ID;
             writer << uuid;
 
@@ -674,7 +674,7 @@ namespace OloEngine
                                   return getDepth(a) > getDepth(b);
                               });
 
-            for (auto& entity : toDestroy)
+            for (const auto& entity : toDestroy)
             {
                 scene.DestroyEntity(entity);
             }

@@ -132,7 +132,7 @@ namespace OloEngine
         {
             if (ImGui::BeginMenu("Export"))
             {
-                auto& cm = FrameCaptureManager::GetInstance();
+                const auto& cm = FrameCaptureManager::GetInstance();
                 auto selectedFrame = cm.GetSelectedFrame();
                 u32 frameNum = selectedFrame ? selectedFrame->FrameNumber : 0;
 
@@ -149,7 +149,7 @@ namespace OloEngine
         RenderRecordingToolbar();
         ImGui::Separator();
 
-        auto& captureManager = FrameCaptureManager::GetInstance();
+        const auto& captureManager = FrameCaptureManager::GetInstance();
         auto selectedFrame = captureManager.GetSelectedFrame();
         const CapturedFrameData* selectedFramePtr = selectedFrame ? &*selectedFrame : nullptr;
 
@@ -1165,7 +1165,7 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        auto& captureManager = FrameCaptureManager::GetInstance();
+        const auto& captureManager = FrameCaptureManager::GetInstance();
         auto selectedFrame = captureManager.GetSelectedFrame();
 
         if (!selectedFrame)
@@ -1223,7 +1223,7 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        auto& captureManager = FrameCaptureManager::GetInstance();
+        const auto& captureManager = FrameCaptureManager::GetInstance();
         auto selectedFrame = captureManager.GetSelectedFrame();
 
         if (!selectedFrame)

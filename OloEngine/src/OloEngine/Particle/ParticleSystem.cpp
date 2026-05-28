@@ -391,7 +391,7 @@ namespace OloEngine
         }
 
         // 3. Apply Phase 2 modules
-        for (auto& forceField : ForceFields)
+        for (const auto& forceField : ForceFields)
         {
             forceField.Apply(scaledDt, m_Pool);
         }

@@ -59,7 +59,7 @@ class OcclusionStateManagerTest : public ::testing::Test
 TEST_F(OcclusionStateManagerTest, GetOrCreateNewState)
 {
     auto& mgr = OcclusionStateManager::GetInstance();
-    auto& state = mgr.GetOrCreate(1001);
+    const auto& state = mgr.GetOrCreate(1001);
 
     // Newly created state should have defaults
     EXPECT_EQ(state.QueryIndex, UINT32_MAX);
@@ -82,7 +82,7 @@ TEST_F(OcclusionStateManagerTest, GetOrCreateReturnsSameState)
 
 TEST_F(OcclusionStateManagerTest, HasReturnsFalseForUnknown)
 {
-    auto& mgr = OcclusionStateManager::GetInstance();
+    const auto& mgr = OcclusionStateManager::GetInstance();
     EXPECT_FALSE(mgr.Has(9999));
 }
 

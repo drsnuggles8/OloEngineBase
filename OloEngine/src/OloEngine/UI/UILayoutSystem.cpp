@@ -42,7 +42,7 @@ namespace OloEngine
             return;
         }
 
-        auto& rt = scene.GetAllEntitiesWith<UIRectTransformComponent>().get<UIRectTransformComponent>(entity);
+        const auto& rt = scene.GetAllEntitiesWith<UIRectTransformComponent>().get<UIRectTransformComponent>(entity);
 
         // Anchor-based layout resolution (Unity-style)
         const glm::vec2 anchorMinPos = parentPos + rt.m_AnchorMin * parentSize;
@@ -210,7 +210,7 @@ namespace OloEngine
         auto canvasView = scene.GetAllEntitiesWith<UICanvasComponent>();
         for (const auto entity : canvasView)
         {
-            auto& canvas = canvasView.get<UICanvasComponent>(entity);
+            const auto& canvas = canvasView.get<UICanvasComponent>(entity);
             Entity canvasEntity{ entity, &scene };
 
             glm::vec2 canvasSize = viewport;
@@ -254,7 +254,7 @@ namespace OloEngine
         auto anchorView = scene.GetAllEntitiesWith<UIWorldAnchorComponent, UIResolvedRectComponent>();
         for (const auto entity : anchorView)
         {
-            auto& anchor = anchorView.get<UIWorldAnchorComponent>(entity);
+            const auto& anchor = anchorView.get<UIWorldAnchorComponent>(entity);
             auto& resolved = anchorView.get<UIResolvedRectComponent>(entity);
 
             // Find the target entity's world position

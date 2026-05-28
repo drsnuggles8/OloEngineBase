@@ -332,7 +332,7 @@ namespace OloEngine
         // For now, we'll implement basic texture binding detection
         TUniqueLock<FMutex> lock(m_ResourceMutex);
 
-        for (auto& [id, resource] : m_Resources)
+        for (const auto& [id, resource] : m_Resources)
         {
             resource->m_IsBound = false; // Reset binding state
 
@@ -1138,7 +1138,7 @@ namespace OloEngine
         info.m_ContentPreview.resize(previewSize);
 
         // Map buffer and copy data
-        if (void* data = glMapBuffer(info.m_Target, GL_READ_ONLY); data)
+        if (const void* data = glMapBuffer(info.m_Target, GL_READ_ONLY); data)
         {
             memcpy(info.m_ContentPreview.data(), static_cast<const u8*>(data) + info.m_PreviewOffset, previewSize);
             glUnmapBuffer(info.m_Target);
@@ -2152,7 +2152,7 @@ namespace OloEngine
         sizet dataSize = width * height * bytesPerPixel;
 
         // Map the buffer to read the data
-        if (void* data = glMapBufferRange(GL_PIXEL_PACK_BUFFER, 0, dataSize, GL_MAP_READ_BIT); data != nullptr)
+        if (const void* data = glMapBufferRange(GL_PIXEL_PACK_BUFFER, 0, dataSize, GL_MAP_READ_BIT); data != nullptr)
         {
             // Calculate preview size (limit to reasonable size for UI)
             u32 previewWidth = std::min(width, 256u);

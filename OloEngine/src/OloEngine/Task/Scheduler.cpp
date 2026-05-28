@@ -821,7 +821,7 @@ namespace OloEngine::LowLevelTasks
 
     bool FSchedulerTls::IsWorkerThread() const
     {
-        FTlsValues& LocalTlsValues = FSchedulerTls::GetTlsValuesRef();
+        const FTlsValues& LocalTlsValues = FSchedulerTls::GetTlsValuesRef();
         return LocalTlsValues.WorkerType != FSchedulerTls::EWorkerType::None && LocalTlsValues.ActiveScheduler == this;
     }
 

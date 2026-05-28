@@ -63,7 +63,7 @@ class ToggledAbilityReactivateCancelsTest : public FunctionalTest
 TEST_F(ToggledAbilityReactivateCancelsTest, SuccessiveActivationsToggleActiveStateAndGrantedTag)
 {
     auto& ac = m_Caster.GetComponent<AbilityComponent>();
-    auto& ability = ac.Abilities.front();
+    const auto& ability = ac.Abilities.front();
 
     ASSERT_FALSE(ability.IsActive);
     ASSERT_FALSE(ac.OwnedTags.HasTagExact(m_AuraTag));

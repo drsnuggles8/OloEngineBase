@@ -25,7 +25,7 @@ namespace OloEngine
 
         for (i32 i = 0; i < GamepadManager::MaxGamepads; ++i)
         {
-            auto* gp = GamepadManager::GetGamepad(i);
+            const auto* gp = GamepadManager::GetGamepad(i);
             if (!gp || !gp->IsConnected())
             {
                 continue;

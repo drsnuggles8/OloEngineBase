@@ -68,7 +68,7 @@ namespace OloEngine
         // Entity name header
         if (m_SelectedEntity.HasComponent<TagComponent>())
         {
-            auto& tag = m_SelectedEntity.GetComponent<TagComponent>().Tag;
+            const auto& tag = m_SelectedEntity.GetComponent<TagComponent>().Tag;
             ImGui::Text("Entity: %s", tag.c_str());
             ImGui::Separator();
         }
@@ -439,7 +439,7 @@ namespace OloEngine
             // Show bone entity mappings if available
             if (entity.HasComponent<AnimationStateComponent>())
             {
-                auto& animState = entity.GetComponent<AnimationStateComponent>();
+                const auto& animState = entity.GetComponent<AnimationStateComponent>();
                 ImGui::Text("Mapped Bone Entities: %zu", animState.m_BoneEntityIds.size());
             }
 

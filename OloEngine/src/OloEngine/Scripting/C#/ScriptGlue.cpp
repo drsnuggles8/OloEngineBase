@@ -140,7 +140,7 @@ namespace OloEngine
 
     static bool Entity_IsValid(UUID entityID)
     {
-        Scene* scene = ScriptEngine::GetSceneContext();
+        const Scene* scene = ScriptEngine::GetSceneContext();
         OLO_CORE_ASSERT(scene);
         return scene->TryGetEntityWithUUID(entityID).has_value();
     }
@@ -180,7 +180,7 @@ namespace OloEngine
         Entity entity = scene->GetEntityByUUID(entityID);
         OLO_CORE_ASSERT(entity);
 
-        auto& rb2d = entity.GetComponent<Rigidbody2DComponent>();
+        const auto& rb2d = entity.GetComponent<Rigidbody2DComponent>();
         b2Body_ApplyLinearImpulse(rb2d.RuntimeBody, b2Vec2(impulse->x, impulse->y), b2Vec2(point->x, point->y), wake);
     }
 
@@ -191,7 +191,7 @@ namespace OloEngine
         Entity entity = scene->GetEntityByUUID(entityID);
         OLO_CORE_ASSERT(entity);
 
-        auto& rb2d = entity.GetComponent<Rigidbody2DComponent>();
+        const auto& rb2d = entity.GetComponent<Rigidbody2DComponent>();
         b2Body_ApplyLinearImpulseToCenter(rb2d.RuntimeBody, b2Vec2(impulse->x, impulse->y), wake);
     }
 
@@ -500,7 +500,7 @@ namespace OloEngine
 
     static void Scene_LoadRegion(u64 regionId)
     {
-        Scene* scene = ScriptEngine::GetSceneContext();
+        const Scene* scene = ScriptEngine::GetSceneContext();
         OLO_CORE_ASSERT(scene);
         if (auto* streamer = scene->GetSceneStreamer())
         {
@@ -510,7 +510,7 @@ namespace OloEngine
 
     static void Scene_UnloadRegion(u64 regionId)
     {
-        Scene* scene = ScriptEngine::GetSceneContext();
+        const Scene* scene = ScriptEngine::GetSceneContext();
         OLO_CORE_ASSERT(scene);
         if (auto* streamer = scene->GetSceneStreamer())
         {
@@ -763,7 +763,7 @@ namespace OloEngine
 
         if (!targetName)
             return 0.0f;
-        auto& component = GetEntity(entityID).GetComponent<MorphTargetComponent>();
+        const auto& component = GetEntity(entityID).GetComponent<MorphTargetComponent>();
         std::string name = Utils::MonoStringToString(targetName);
         return component.GetWeight(name);
     }
@@ -1726,7 +1726,7 @@ namespace OloEngine
         // In the editor the game viewport is an ImGui sub-window; subtract its
         // origin so scripts see coordinates relative to the viewport — matching
         // the size returned by Input_GetWindowSize.
-        if (Scene* scene = ScriptEngine::GetSceneContext(); scene)
+        if (const Scene* scene = ScriptEngine::GetSceneContext(); scene)
         {
             raw -= scene->GetViewportOffset();
         }
@@ -1737,12 +1737,12 @@ namespace OloEngine
     {
         // Return the game viewport size (not the host window), so scripts
         // normalising mouse coordinates work in both editor PIE and standalone.
-        if (Scene* scene = ScriptEngine::GetSceneContext(); scene && scene->GetViewportWidth() > 0)
+        if (const Scene* scene = ScriptEngine::GetSceneContext(); scene && scene->GetViewportWidth() > 0)
         {
             *outSize = { static_cast<f32>(scene->GetViewportWidth()), static_cast<f32>(scene->GetViewportHeight()) };
             return;
         }
-        auto& window = Application::Get().GetWindow();
+        const auto& window = Application::Get().GetWindow();
         *outSize = { static_cast<f32>(window.GetWidth()), static_cast<f32>(window.GetHeight()) };
     }
 
@@ -1757,7 +1757,7 @@ namespace OloEngine
         {
             return false;
         }
-        auto* gp = GamepadManager::GetGamepad(gamepadIndex);
+        const auto* gp = GamepadManager::GetGamepad(gamepadIndex);
         return gp && gp->IsButtonPressed(static_cast<GamepadButton>(button));
     }
 
@@ -1767,7 +1767,7 @@ namespace OloEngine
         {
             return false;
         }
-        auto* gp = GamepadManager::GetGamepad(gamepadIndex);
+        const auto* gp = GamepadManager::GetGamepad(gamepadIndex);
         return gp && gp->IsButtonJustPressed(static_cast<GamepadButton>(button));
     }
 
@@ -1777,7 +1777,7 @@ namespace OloEngine
         {
             return false;
         }
-        auto* gp = GamepadManager::GetGamepad(gamepadIndex);
+        const auto* gp = GamepadManager::GetGamepad(gamepadIndex);
         return gp && gp->IsButtonJustReleased(static_cast<GamepadButton>(button));
     }
 
@@ -1787,25 +1787,25 @@ namespace OloEngine
         {
             return 0.0f;
         }
-        auto* gp = GamepadManager::GetGamepad(gamepadIndex);
+        const auto* gp = GamepadManager::GetGamepad(gamepadIndex);
         return gp ? gp->GetAxis(static_cast<GamepadAxis>(axis)) : 0.0f;
     }
 
     static void Input_GetGamepadLeftStick(i32 gamepadIndex, glm::vec2* outStick)
     {
-        auto* gp = GamepadManager::GetGamepad(gamepadIndex);
+        const auto* gp = GamepadManager::GetGamepad(gamepadIndex);
         *outStick = gp ? gp->GetLeftStickDeadzone() : glm::vec2(0.0f);
     }
 
     static void Input_GetGamepadRightStick(i32 gamepadIndex, glm::vec2* outStick)
     {
-        auto* gp = GamepadManager::GetGamepad(gamepadIndex);
+        const auto* gp = GamepadManager::GetGamepad(gamepadIndex);
         *outStick = gp ? gp->GetRightStickDeadzone() : glm::vec2(0.0f);
     }
 
     static bool Input_IsGamepadConnected(i32 gamepadIndex)
     {
-        auto* gp = GamepadManager::GetGamepad(gamepadIndex);
+        const auto* gp = GamepadManager::GetGamepad(gamepadIndex);
         return gp && gp->IsConnected();
     }
 
@@ -2294,7 +2294,7 @@ namespace OloEngine
         }
         auto entity = GetEntity(entityID);
         OLO_CORE_ASSERT(entity.HasComponent<InventoryComponent>());
-        auto& ic = entity.GetComponent<InventoryComponent>();
+        const auto& ic = entity.GetComponent<InventoryComponent>();
         return ic.PlayerInventory.HasItem(Utils::MonoStringToString(itemId), count);
     }
 
@@ -2306,7 +2306,7 @@ namespace OloEngine
         }
         auto entity = GetEntity(entityID);
         OLO_CORE_ASSERT(entity.HasComponent<InventoryComponent>());
-        auto& ic = entity.GetComponent<InventoryComponent>();
+        const auto& ic = entity.GetComponent<InventoryComponent>();
         return ic.PlayerInventory.CountItem(Utils::MonoStringToString(itemId));
     }
 
@@ -2673,7 +2673,7 @@ namespace OloEngine
         *outDistance = 0.0f;
         *outEntityID = 0;
 
-        Scene* scene = ScriptEngine::GetSceneContext();
+        const Scene* scene = ScriptEngine::GetSceneContext();
         OLO_CORE_ASSERT(scene);
 
         JoltScene* joltScene = scene->GetPhysicsScene();
@@ -2826,8 +2826,8 @@ namespace OloEngine
         // Apply TargetActivationEffects to the TARGET entity.
         // ActivationEffects were already applied to the caster by TryActivateAbility;
         // only the explicit target-specific effects list goes to the target.
-        auto& casterAC = caster.GetComponent<AbilityComponent>();
-        for (auto& ability : casterAC.Abilities)
+        const auto& casterAC = caster.GetComponent<AbilityComponent>();
+        for (const auto& ability : casterAC.Abilities)
         {
             if (ability.Definition.AbilityTag == tag)
             {

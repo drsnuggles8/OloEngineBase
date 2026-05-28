@@ -167,7 +167,7 @@ namespace OloEngine
             // Read back previous frame's result.
             if (state.QueryIndex != UINT32_MAX)
             {
-                auto& queryPool = OcclusionQueryPool::GetInstance();
+                const auto& queryPool = OcclusionQueryPool::GetInstance();
                 const bool visible = queryPool.WasVisible(state.QueryIndex);
                 state.WasVisible = visible;
 
@@ -996,7 +996,7 @@ namespace OloEngine
 
             auto& meshComp = entity.GetComponent<MeshComponent>();
             auto& skeletonComp = entity.GetComponent<SkeletonComponent>();
-            auto& transformComp = entity.GetComponent<TransformComponent>();
+            const auto& transformComp = entity.GetComponent<TransformComponent>();
 
             if (!meshComp.m_MeshSource || !skeletonComp.m_Skeleton)
             {
@@ -1117,7 +1117,7 @@ namespace OloEngine
 
         auto& meshComp = entity.GetComponent<MeshComponent>();
         auto& skeletonComp = entity.GetComponent<SkeletonComponent>();
-        auto& transformComp = entity.GetComponent<TransformComponent>();
+        const auto& transformComp = entity.GetComponent<TransformComponent>();
 
         if (!meshComp.m_MeshSource || !skeletonComp.m_Skeleton)
         {

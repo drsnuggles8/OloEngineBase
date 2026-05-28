@@ -150,7 +150,7 @@ namespace OloEngine
 
         void CmdPlayers() const
         {
-            auto* server = NetworkManager::GetServer();
+            const auto* server = NetworkManager::GetServer();
             if (!server)
             {
                 OLO_CORE_INFO("[Server] Network server not running.");

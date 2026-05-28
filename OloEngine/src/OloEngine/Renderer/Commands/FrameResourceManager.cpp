@@ -103,7 +103,7 @@ namespace OloEngine
         // Safe: the GPU fence for that frame has been waited on above.
         {
             auto& deletionQueue = m_FrameResources[currentIndex].DeletionQueue;
-            for (auto& fn : deletionQueue)
+            for (const auto& fn : deletionQueue)
                 fn();
             deletionQueue.clear();
         }
@@ -256,7 +256,7 @@ namespace OloEngine
         for (u32 i = 0; i < NUM_BUFFERED_FRAMES; ++i)
         {
             auto& deletionQueue = m_FrameResources[i].DeletionQueue;
-            for (auto& fn : deletionQueue)
+            for (const auto& fn : deletionQueue)
                 fn();
             deletionQueue.clear();
         }

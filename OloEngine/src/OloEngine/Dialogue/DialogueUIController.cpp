@@ -152,7 +152,7 @@ namespace OloEngine
             auto view = scene.GetAllEntitiesWith<DialogueStateComponent>();
             for (auto e : view)
             {
-                auto& state = view.get<DialogueStateComponent>(e);
+                const auto& state = view.get<DialogueStateComponent>(e);
                 if (state.m_State != DialogueState::Inactive)
                 {
                     activeEntity = e;

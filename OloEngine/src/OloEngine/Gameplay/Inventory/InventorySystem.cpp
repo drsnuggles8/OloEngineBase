@@ -40,7 +40,7 @@ namespace OloEngine
         for (auto invEntity : inventoryView)
         {
             Entity invEnt = { invEntity, scene };
-            auto& invTransform = invEnt.GetComponent<TransformComponent>();
+            const auto& invTransform = invEnt.GetComponent<TransformComponent>();
             auto& invComp = invEnt.GetComponent<InventoryComponent>();
 
             for (auto pickupEntity : pickupView2)
@@ -57,13 +57,13 @@ namespace OloEngine
                     continue;
                 }
 
-                auto& pickupComp = pickupEnt.GetComponent<ItemPickupComponent>();
+                const auto& pickupComp = pickupEnt.GetComponent<ItemPickupComponent>();
                 if (!pickupComp.AutoPickup)
                 {
                     continue;
                 }
 
-                auto& pickupTransform = pickupEnt.GetComponent<TransformComponent>();
+                const auto& pickupTransform = pickupEnt.GetComponent<TransformComponent>();
                 glm::vec3 diff = invTransform.Translation - pickupTransform.Translation;
                 f32 distSq = glm::dot(diff, diff);
                 f32 radiusSq = pickupComp.PickupRadius * pickupComp.PickupRadius;

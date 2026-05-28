@@ -330,7 +330,7 @@ namespace OloEngine
                     continue;
                 }
 
-                auto* glShader = static_cast<OpenGLShader*>(shader.get());
+                const auto* glShader = static_cast<OpenGLShader*>(shader.get());
                 shaders.push_back({ shader->GetFilePath(),
                                     &glShader->GetVulkanSPIRV(),
                                     &glShader->GetOpenGLSPIRV() });

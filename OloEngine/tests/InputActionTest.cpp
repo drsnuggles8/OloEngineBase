@@ -175,7 +175,7 @@ TEST(InputActionManagerTest, GetActionMapReturnsReference)
     map.AddAction({ "Fire", { InputBinding::MouseButton(Mouse::ButtonLeft) } });
     InputActionManager::SetActionMap(map);
 
-    auto& ref = InputActionManager::GetActionMap();
+    const auto& ref = InputActionManager::GetActionMap();
     EXPECT_EQ(ref.Name, "EditorTest");
     EXPECT_TRUE(ref.HasAction("Fire"));
 

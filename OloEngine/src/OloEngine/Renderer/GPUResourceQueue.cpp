@@ -27,7 +27,7 @@ namespace OloEngine
         u32 processed = 0;
         while (!localQueue.empty())
         {
-            auto& cmd = localQueue.front();
+            const auto& cmd = localQueue.front();
             try
             {
                 OLO_PROFILE_SCOPE("GPUResourceCommand::Execute");
@@ -77,7 +77,7 @@ namespace OloEngine
         }
 
         u32 processed = 0;
-        for (auto& cmd : batch)
+        for (const auto& cmd : batch)
         {
             try
             {

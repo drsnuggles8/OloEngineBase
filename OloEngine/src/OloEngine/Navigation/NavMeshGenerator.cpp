@@ -24,7 +24,7 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        auto& tc = entity.GetComponent<TransformComponent>();
+        const auto& tc = entity.GetComponent<TransformComponent>();
         return glm::translate(glm::mat4(1.0f), tc.Translation) * glm::toMat4(tc.GetRotation()) * glm::scale(glm::mat4(1.0f), tc.Scale);
     }
 
@@ -206,7 +206,7 @@ namespace OloEngine
         for (auto e : boxView)
         {
             Entity entity = { e, scene };
-            auto& box = entity.GetComponent<BoxCollider3DComponent>();
+            const auto& box = entity.GetComponent<BoxCollider3DComponent>();
 
             glm::mat4 worldTransform = GetWorldTransform(entity);
             glm::vec3 halfSize = box.m_HalfExtents;
@@ -224,7 +224,7 @@ namespace OloEngine
             };
 
             const auto baseVertex = static_cast<i32>(outVerts.size() / 3);
-            for (auto& corner : localCorners)
+            for (const auto& corner : localCorners)
             {
                 glm::vec4 worldPos = worldTransform * glm::vec4(corner, 1.0f);
                 outVerts.push_back(worldPos.x);
@@ -256,7 +256,7 @@ namespace OloEngine
             for (auto e : sphereView)
             {
                 Entity entity = { e, scene };
-                auto& sphere = entity.GetComponent<SphereCollider3DComponent>();
+                const auto& sphere = entity.GetComponent<SphereCollider3DComponent>();
 
                 GenerateSphereGeometry(sphere.m_Radius, sphere.m_Offset, kRings, kSegments, localVerts, localTris);
 
@@ -279,7 +279,7 @@ namespace OloEngine
             for (auto e : capsuleView)
             {
                 Entity entity = { e, scene };
-                auto& capsule = entity.GetComponent<CapsuleCollider3DComponent>();
+                const auto& capsule = entity.GetComponent<CapsuleCollider3DComponent>();
 
                 localVerts.clear();
                 localTris.clear();

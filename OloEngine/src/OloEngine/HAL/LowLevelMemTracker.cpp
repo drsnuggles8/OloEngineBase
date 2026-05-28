@@ -221,7 +221,7 @@ namespace OloEngine
             return;
         }
 
-        auto& ThreadState = GetThreadState();
+        const auto& ThreadState = GetThreadState();
         if (ThreadState.IsPaused())
         {
             return;

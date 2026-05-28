@@ -70,7 +70,7 @@ class PeriodicDamageEffectTicksHealthDownTest : public FunctionalTest
 
 TEST_F(PeriodicDamageEffectTicksHealthDownTest, HealthDropsByOneStackPerPeriodAcrossTicks)
 {
-    auto& ac = m_Victim.GetComponent<AbilityComponent>();
+    const auto& ac = m_Victim.GetComponent<AbilityComponent>();
 
     // Initially full health — periodic effects don't fire on application,
     // only on the first period boundary inside Tick.

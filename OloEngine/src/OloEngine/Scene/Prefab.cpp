@@ -210,7 +210,7 @@ namespace OloEngine
         if (children.empty())
             return;
 
-        Scene* sourceScene = sourceEntity.GetScene();
+        const Scene* sourceScene = sourceEntity.GetScene();
         for (const UUID& childUUID : children)
         {
             auto childOpt = sourceScene->TryGetEntityWithUUID(childUUID);
@@ -364,7 +364,7 @@ namespace OloEngine
             // Preserve the prefab link: keep source entity ID for child-level resolution
             if (prefabChild.HasComponent<PrefabComponent>())
             {
-                auto& srcPc = prefabChild.GetComponent<PrefabComponent>();
+                const auto& srcPc = prefabChild.GetComponent<PrefabComponent>();
                 auto& dstPc = targetChild.AddOrReplaceComponent<PrefabComponent>();
                 dstPc.m_PrefabID = srcPc.m_PrefabID;
                 dstPc.m_PrefabEntityID = srcPc.m_PrefabEntityID;

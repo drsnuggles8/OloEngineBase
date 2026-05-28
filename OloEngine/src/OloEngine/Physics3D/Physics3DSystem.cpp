@@ -388,7 +388,7 @@ namespace OloEngine
         JPH::BodyCreationSettings body_settings(box_shape, position, rotation, isStatic ? JPH::EMotionType::Static : JPH::EMotionType::Dynamic, isStatic ? OloEngine::ObjectLayers::NON_MOVING : OloEngine::ObjectLayers::MOVING);
 
         // Create the actual rigid body
-        JPH::Body* body = m_PhysicsSystem->GetBodyInterface().CreateBody(body_settings); // Note that if we run out of bodies this can return nullptr
+        const JPH::Body* body = m_PhysicsSystem->GetBodyInterface().CreateBody(body_settings); // Note that if we run out of bodies this can return nullptr
         if (body == nullptr)
         {
             OLO_CORE_ERROR("Failed to create box body - physics system may be out of bodies");
@@ -424,7 +424,7 @@ namespace OloEngine
         JPH::BodyCreationSettings body_settings(sphere_shape, position, JPH::Quat::sIdentity(), isStatic ? JPH::EMotionType::Static : JPH::EMotionType::Dynamic, isStatic ? OloEngine::ObjectLayers::NON_MOVING : OloEngine::ObjectLayers::MOVING);
 
         // Create the actual rigid body
-        JPH::Body* body = m_PhysicsSystem->GetBodyInterface().CreateBody(body_settings); // Note that if we run out of bodies this can return nullptr
+        const JPH::Body* body = m_PhysicsSystem->GetBodyInterface().CreateBody(body_settings); // Note that if we run out of bodies this can return nullptr
         if (body == nullptr)
         {
             OLO_CORE_ERROR("Failed to create sphere body - physics system may be out of bodies");

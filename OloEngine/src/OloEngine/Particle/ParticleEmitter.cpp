@@ -33,7 +33,7 @@ namespace OloEngine
         auto& rng = RandomUtils::GetGlobalRandom();
         for (u32 b = m_NextBurstIndex; b < static_cast<u32>(Bursts.size()); ++b)
         {
-            auto& burst = Bursts[b];
+            const auto& burst = Bursts[b];
             if (burst.Time >= prevLoopTime && burst.Time < m_LoopTime)
             {
                 if (rng.GetFloat32InRange(0.0f, 1.0f) <= burst.Probability)

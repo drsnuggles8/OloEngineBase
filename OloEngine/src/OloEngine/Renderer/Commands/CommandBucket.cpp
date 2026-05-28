@@ -353,7 +353,7 @@ namespace OloEngine
             groupRanges.push_back({ groupStart, m_Packets.size() });
 
             // Sort each group independently
-            for (auto& [start, end] : groupRanges)
+            for (const auto& [start, end] : groupRanges)
             {
                 if (sizet groupSize = end - start; groupSize <= 1)
                     continue;

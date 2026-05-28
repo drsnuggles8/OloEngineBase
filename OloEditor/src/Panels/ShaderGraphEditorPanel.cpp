@@ -1078,7 +1078,7 @@ namespace OloEngine
             return 0;
 
         auto cmd = CreateScope<AddNodeCommand>(typeName, position);
-        auto* addCmd = cmd.get();
+        const auto* addCmd = cmd.get();
         m_CommandHistory.Execute(std::move(cmd), m_GraphAsset->GetMutableGraph());
 
         UUID id = addCmd->GetNodeID();
@@ -1301,7 +1301,7 @@ namespace OloEngine
             props.InputDefaultValues.push_back(input.DefaultValue);
 
         auto cmd = CreateScope<AddNodeCommand>(m_CopiedNodeTypeName, position, std::move(props));
-        auto* cmdPtr = cmd.get();
+        const auto* cmdPtr = cmd.get();
         m_CommandHistory.Execute(std::move(cmd), m_GraphAsset->GetMutableGraph());
 
         m_SelectedNodeID = cmdPtr->GetNodeID();
