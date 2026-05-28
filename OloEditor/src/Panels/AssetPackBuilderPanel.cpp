@@ -247,10 +247,10 @@ namespace OloEngine
             ImGui::Indent();
 
             i32 permilleProgress = m_BuildProgressPermille.load();
-            f32 progress = static_cast<f32>(permilleProgress) / 10.0f; // Convert permille to percentage
+            f32 fraction = static_cast<f32>(permilleProgress) / 1000.0f; // permille -> 0..1 for ProgressBar
             ImGui::Text("Building asset pack...");
-            ImGui::ProgressBar(progress, ImVec2(-1.0f, 0.0f), nullptr);
-            ImGui::Text("Progress: %.1f%%", progress * 100.0f);
+            ImGui::ProgressBar(fraction, ImVec2(-1.0f, 0.0f), nullptr);
+            ImGui::Text("Progress: %.1f%%", fraction * 100.0f);
 
             ImGui::Unindent();
         }
@@ -332,13 +332,18 @@ namespace OloEngine
             m_BuildThread.Join();
         }
 
+        // Snapshot the settings on the UI thread so the worker reads a stable
+        // copy; RenderBuildSettings keeps mutating m_BuildSettings each frame
+        // while the build runs, which would otherwise be a data race.
+        AssetPackBuilder::BuildSettings settingsCopy = m_BuildSettings;
+
         // Start build thread. Progress is written straight into m_BuildProgress
         // (polled by OnImGuiRender) and cancellation is observed via
         // m_CancelRequested — no separate monitor threads needed.
         m_IsBuildInProgress.store(true);
-        m_BuildThread = FThread("AssetPackBuild", [this]()
+        m_BuildThread = FThread("AssetPackBuild", [this, settingsCopy]()
                                 {
-            auto result = AssetPackBuilder::BuildFromActiveProject(m_BuildSettings, m_BuildProgress, &m_CancelRequested);
+            auto result = AssetPackBuilder::BuildFromActiveProject(settingsCopy, m_BuildProgress, &m_CancelRequested);
 
             // Final progress update
             if (result.m_Success && !m_CancelRequested.load()) {

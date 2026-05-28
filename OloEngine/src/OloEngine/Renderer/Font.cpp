@@ -228,6 +228,8 @@ namespace OloEngine
 
     Ref<Font> Font::Create(const std::filesystem::path& font)
     {
+        OLO_PROFILE_FUNCTION();
+
         auto canonical = std::filesystem::weakly_canonical(font).string();
         static std::unordered_map<std::string, WeakRef<Font>> s_FontCache;
         static FMutex s_FontCacheMutex;
