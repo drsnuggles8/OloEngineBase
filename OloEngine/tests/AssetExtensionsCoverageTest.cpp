@@ -76,7 +76,7 @@ namespace OloEngine::Tests
             oss << uncovered.size()
                 << " AssetType value(s) have no registered extension in s_ExtensionMap:\n";
             for (auto t : uncovered)
-                oss << "  - AssetType(" << static_cast<u16>(t) << ")\n";
+                oss << "  - AssetType(" << std::to_underlying(t) << ")\n";
             oss << "\nEither register a file extension for the type in "
                 << "`AssetExtensions::InitializeExtensionMap`, or — if the type is "
                 << "intentionally runtime-only / has no on-disk format — append it "
@@ -132,7 +132,7 @@ namespace OloEngine::Tests
             if (!foundInReverse)
             {
                 brokenRoundTrip.push_back(
-                    ext + " → AssetType(" + std::to_string(static_cast<u16>(resolved)) +
+                    ext + " → AssetType(" + std::to_string(std::to_underlying(resolved)) +
                     ") but reverse lookup doesn't include this extension");
             }
         }

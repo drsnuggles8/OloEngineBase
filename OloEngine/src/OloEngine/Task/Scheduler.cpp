@@ -730,11 +730,11 @@ namespace OloEngine::LowLevelTasks
 
             if (CachedLocalQueue && QueuePreference != EQueuePreference::GlobalQueuePreference)
             {
-                CachedLocalQueue->Enqueue(&Task, static_cast<u32>(Task.GetPriority()));
+                CachedLocalQueue->Enqueue(&Task, static_cast<u32>(std::to_underlying(Task.GetPriority())));
             }
             else
             {
-                m_QueueRegistry.Enqueue(&Task, static_cast<u32>(Task.GetPriority()));
+                m_QueueRegistry.Enqueue(&Task, static_cast<u32>(std::to_underlying(Task.GetPriority())));
             }
 
             if (bWakeUpWorker)

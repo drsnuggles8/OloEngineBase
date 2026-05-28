@@ -159,7 +159,7 @@ namespace OloEngine
         // Resolve each colour attachment independently — glBlitNamedFramebuffer
         // only reads/writes the currently-selected read-/draw-buffer so this
         // is the safe pattern for MRT MSAA resolve.
-        for (u32 i = 0; i < static_cast<u32>(Count); ++i)
+        for (u32 i = 0; i < std::to_underlying(Count); ++i)
         {
             const GLenum attachment = GL_COLOR_ATTACHMENT0 + i;
             glNamedFramebufferReadBuffer(srcFB, attachment);
@@ -185,7 +185,7 @@ namespace OloEngine
             GL_COLOR_ATTACHMENT3,
             GL_COLOR_ATTACHMENT4
         };
-        glNamedFramebufferDrawBuffers(dstFB, static_cast<GLsizei>(Count), fullDrawBufs);
+        glNamedFramebufferDrawBuffers(dstFB, static_cast<GLsizei>(std::to_underlying(Count)), fullDrawBufs);
     }
 
     u32 GBuffer::GetColorAttachmentID(AttachmentIndex index) const
@@ -193,7 +193,7 @@ namespace OloEngine
         const auto& fb = m_ResolvedFramebuffer ? m_ResolvedFramebuffer : m_Framebuffer;
         if (!fb)
             return 0;
-        return fb->GetColorAttachmentRendererID(static_cast<u32>(index));
+        return fb->GetColorAttachmentRendererID(std::to_underlying(index));
     }
 
     u32 GBuffer::GetDepthAttachmentID() const
@@ -208,7 +208,7 @@ namespace OloEngine
     {
         if (!m_Framebuffer)
             return 0;
-        return m_Framebuffer->GetColorAttachmentRendererID(static_cast<u32>(index));
+        return m_Framebuffer->GetColorAttachmentRendererID(std::to_underlying(index));
     }
 
     u32 GBuffer::GetMSDepthAttachmentID() const

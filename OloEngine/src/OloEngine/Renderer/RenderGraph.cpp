@@ -4225,7 +4225,7 @@ namespace OloEngine
         for (const auto& barrier : m_PlannedBarriers)
         {
             out << "    // before '" << barrier.BeforePass << "': resource='" << barrier.Resource
-                << "', flags=0x" << std::hex << static_cast<u32>(barrier.Flags) << std::dec << "\n";
+                << "', flags=0x" << std::hex << std::to_underlying(barrier.Flags) << std::dec << "\n";
         }
 
         out << "\n    // Barrier diagnostics\n";
@@ -4650,7 +4650,7 @@ namespace OloEngine
             barrierRows.reserve(m_PlannedBarriers.size());
             for (const auto& barrier : m_PlannedBarriers)
             {
-                const auto flags = static_cast<u32>(barrier.Flags);
+                const auto flags = std::to_underlying(barrier.Flags);
                 barrierRows.push_back({ barrier.BeforePass, barrier.Resource, flags });
                 barrierFlagsOr |= flags;
             }
@@ -4934,7 +4934,7 @@ namespace OloEngine
             const auto& barrier = m_PlannedBarriers[i];
             out << "    { \"beforePass\": \"" << jsonEscape(barrier.BeforePass)
                 << "\", \"resource\": \"" << jsonEscape(barrier.Resource)
-                << "\", \"flags\": " << static_cast<u32>(barrier.Flags)
+                << "\", \"flags\": " << std::to_underlying(barrier.Flags)
                 << ", \"range\": " << subresourceRangeToJson(barrier.Range) << " }";
             if (i + 1 < m_PlannedBarriers.size())
                 out << ",";
@@ -5333,7 +5333,7 @@ namespace OloEngine
             }
             else if (cmd.CommandKind == SubmissionCommand::Kind::MemoryBarrier)
             {
-                out << ", \"flags\": " << static_cast<u32>(cmd.Barriers);
+                out << ", \"flags\": " << std::to_underlying(cmd.Barriers);
             }
             else if (cmd.CommandKind == SubmissionCommand::Kind::BatchBegin ||
                      cmd.CommandKind == SubmissionCommand::Kind::BatchEnd)
@@ -5398,7 +5398,7 @@ namespace OloEngine
                 << "\", \"consumerPass\": \"" << jsonEscape(tr.ConsumerPass)
                 << "\", \"fromUsage\": \"" << writeUsageToString(tr.FromUsage)
                 << "\", \"toUsage\": \"" << readUsageToString(tr.ToUsage)
-                << "\", \"flags\": " << static_cast<u32>(tr.Flags)
+                << "\", \"flags\": " << std::to_underlying(tr.Flags)
                 << ", \"range\": " << subresourceRangeToJson(tr.Range)
                 << ", \"isCrossLane\": " << (tr.IsCrossLane ? "true" : "false")
                 << ", \"producerLane\": \"" << queueLaneToString(tr.ProducerLane)

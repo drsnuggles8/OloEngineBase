@@ -164,15 +164,15 @@ namespace OloEngine
 
         if (hadExisting)
         {
-            m_MemoryUsageByType[static_cast<sizet>(oldType)] -= oldMemory;
+            m_MemoryUsageByType[static_cast<sizet>(std::to_underlying(oldType))] -= oldMemory;
             if (oldType != ResourceType::Texture2D)
-                m_ResourceCounts[static_cast<sizet>(oldType)]--;
+                m_ResourceCounts[static_cast<sizet>(std::to_underlying(oldType))]--;
         }
 
         m_Resources[rendererID] = std::move(textureInfo);
-        m_MemoryUsageByType[static_cast<sizet>(ResourceType::Texture2D)] += memoryUsage;
+        m_MemoryUsageByType[static_cast<sizet>(std::to_underlying(ResourceType::Texture2D))] += memoryUsage;
         if (!hadExisting || oldType != ResourceType::Texture2D)
-            m_ResourceCounts[static_cast<sizet>(ResourceType::Texture2D)]++;
+            m_ResourceCounts[static_cast<sizet>(std::to_underlying(ResourceType::Texture2D))]++;
     }
 
     void GPUResourceInspector::RegisterTextureCubemap(u32 rendererID, const std::string& name, const std::string& debugName)
@@ -202,15 +202,15 @@ namespace OloEngine
 
         if (hadExisting)
         {
-            m_MemoryUsageByType[static_cast<sizet>(oldType)] -= oldMemory;
+            m_MemoryUsageByType[static_cast<sizet>(std::to_underlying(oldType))] -= oldMemory;
             if (oldType != ResourceType::TextureCubemap)
-                m_ResourceCounts[static_cast<sizet>(oldType)]--;
+                m_ResourceCounts[static_cast<sizet>(std::to_underlying(oldType))]--;
         }
 
         m_Resources[rendererID] = std::move(textureInfo);
-        m_MemoryUsageByType[static_cast<sizet>(ResourceType::TextureCubemap)] += memoryUsage;
+        m_MemoryUsageByType[static_cast<sizet>(std::to_underlying(ResourceType::TextureCubemap))] += memoryUsage;
         if (!hadExisting || oldType != ResourceType::TextureCubemap)
-            m_ResourceCounts[static_cast<sizet>(ResourceType::TextureCubemap)]++;
+            m_ResourceCounts[static_cast<sizet>(std::to_underlying(ResourceType::TextureCubemap))]++;
     }
 
     void GPUResourceInspector::RegisterBuffer(u32 rendererID, GLenum target, const std::string& name, const std::string& debugName)
@@ -257,15 +257,15 @@ namespace OloEngine
 
         if (hadExisting)
         {
-            m_MemoryUsageByType[static_cast<sizet>(oldType)] -= oldMemory;
+            m_MemoryUsageByType[static_cast<sizet>(std::to_underlying(oldType))] -= oldMemory;
             if (oldType != bufferType)
-                m_ResourceCounts[static_cast<sizet>(oldType)]--;
+                m_ResourceCounts[static_cast<sizet>(std::to_underlying(oldType))]--;
         }
 
         m_Resources[rendererID] = std::move(bufferInfo);
-        m_MemoryUsageByType[static_cast<sizet>(bufferType)] += memoryUsage;
+        m_MemoryUsageByType[static_cast<sizet>(std::to_underlying(bufferType))] += memoryUsage;
         if (!hadExisting || oldType != bufferType)
-            m_ResourceCounts[static_cast<sizet>(bufferType)]++;
+            m_ResourceCounts[static_cast<sizet>(std::to_underlying(bufferType))]++;
     }
 
     void GPUResourceInspector::RegisterFramebuffer(u32 rendererID, const std::string& name, const std::string& debugName)
@@ -295,15 +295,15 @@ namespace OloEngine
 
         if (hadExisting)
         {
-            m_MemoryUsageByType[static_cast<sizet>(oldType)] -= oldMemory;
+            m_MemoryUsageByType[static_cast<sizet>(std::to_underlying(oldType))] -= oldMemory;
             if (oldType != ResourceType::Framebuffer)
-                m_ResourceCounts[static_cast<sizet>(oldType)]--;
+                m_ResourceCounts[static_cast<sizet>(std::to_underlying(oldType))]--;
         }
 
         m_Resources[rendererID] = std::move(framebufferInfo);
-        m_MemoryUsageByType[static_cast<sizet>(ResourceType::Framebuffer)] += memoryUsage;
+        m_MemoryUsageByType[static_cast<sizet>(std::to_underlying(ResourceType::Framebuffer))] += memoryUsage;
         if (!hadExisting || oldType != ResourceType::Framebuffer)
-            m_ResourceCounts[static_cast<sizet>(ResourceType::Framebuffer)]++;
+            m_ResourceCounts[static_cast<sizet>(std::to_underlying(ResourceType::Framebuffer))]++;
     }
 
     void GPUResourceInspector::UnregisterResource(u32 rendererID)
@@ -317,8 +317,8 @@ namespace OloEngine
         if (it != m_Resources.end())
         {
             ResourceType type = it->second->m_Type;
-            m_ResourceCounts[static_cast<sizet>(type)]--;
-            m_MemoryUsageByType[static_cast<sizet>(type)] -= it->second->m_MemoryUsage;
+            m_ResourceCounts[static_cast<sizet>(std::to_underlying(type))]--;
+            m_MemoryUsageByType[static_cast<sizet>(std::to_underlying(type))] -= it->second->m_MemoryUsage;
             m_Resources.erase(it);
         }
     }
@@ -1157,7 +1157,7 @@ namespace OloEngine
     sizet GPUResourceInspector::GetMemoryUsage(ResourceType type) const
     {
         TUniqueLock<FMutex> lock(m_ResourceMutex);
-        return m_MemoryUsageByType[static_cast<sizet>(type)];
+        return m_MemoryUsageByType[static_cast<sizet>(std::to_underlying(type))];
     }
 
     sizet GPUResourceInspector::GetTotalMemoryUsage() const
@@ -1216,7 +1216,7 @@ namespace OloEngine
         ImGui::SameLine();
 
         const char* typeNames[] = { "All", "Textures", "Cubemaps", "Vertex Buffers", "Index Buffers", "Uniform Buffers", "Framebuffers" };
-        if (int currentFilter = static_cast<int>(m_FilterType) + 1; ImGui::Combo("Type", &currentFilter, typeNames, IM_ARRAYSIZE(typeNames)))
+        if (int currentFilter = static_cast<int>(std::to_underlying(m_FilterType)) + 1; ImGui::Combo("Type", &currentFilter, typeNames, IM_ARRAYSIZE(typeNames)))
         {
             m_FilterType = (currentFilter == 0) ? ResourceType::COUNT : static_cast<ResourceType>(currentFilter - 1);
         }
@@ -1375,7 +1375,7 @@ namespace OloEngine
         }
 
         // Render tree nodes by type
-        for (int i = 0; i < static_cast<int>(ResourceType::COUNT); ++i)
+        for (int i = 0; i < static_cast<int>(std::to_underlying(ResourceType::COUNT)); ++i)
         {
             ResourceType type = static_cast<ResourceType>(i);
             const auto& resources = groupedResources[type];
@@ -1824,15 +1824,15 @@ namespace OloEngine
         ImGui::Separator();
 
         // Count actual resources in map by type and calculate memory usage
-        std::array<u32, static_cast<sizet>(ResourceType::COUNT)> actualCounts = {};
-        std::array<sizet, static_cast<sizet>(ResourceType::COUNT)> actualMemoryUsage = {};
+        std::array<u32, static_cast<sizet>(std::to_underlying(ResourceType::COUNT))> actualCounts = {};
+        std::array<sizet, static_cast<sizet>(std::to_underlying(ResourceType::COUNT))> actualMemoryUsage = {};
         sizet totalMemory = 0;
 
         {
             TUniqueLock<FMutex> lock(m_ResourceMutex);
             for (const auto& [id, resource] : m_Resources)
             {
-                sizet typeIndex = static_cast<sizet>(resource->m_Type);
+                sizet typeIndex = static_cast<sizet>(std::to_underlying(resource->m_Type));
                 actualCounts[typeIndex]++;
                 actualMemoryUsage[typeIndex] += resource->m_MemoryUsage;
                 totalMemory += resource->m_MemoryUsage;
@@ -1843,7 +1843,7 @@ namespace OloEngine
         ImGui::Text("Total Memory: %s", FormatMemorySize(totalMemory).c_str());
 
         // Memory usage by type (only show types that have resources)
-        for (int i = 0; i < static_cast<int>(ResourceType::COUNT); ++i)
+        for (int i = 0; i < static_cast<int>(std::to_underlying(ResourceType::COUNT)); ++i)
         {
             ResourceType type = static_cast<ResourceType>(i);
             u32 count = actualCounts[i];

@@ -11,6 +11,7 @@
 #include "OloEngine/Memory/Platform.h"
 
 #include <atomic>
+#include <utility>
 
 #if defined(AGGRESSIVE_MEMORY_SAVING) && AGGRESSIVE_MEMORY_SAVING
 #define LOCALQUEUEREGISTRYDEFAULTS_MAX_LOCALQUEUES 1024
@@ -214,7 +215,7 @@ namespace OloEngine::LowLevelTasks
 
                         // Local queues are never unregistered, everything is shutdown at once.
                         m_Registry->AddLocalQueue(this);
-                        for (i32 PriorityIndex = 0; PriorityIndex < i32(ETaskPriority::Count); ++PriorityIndex)
+                        for (i32 PriorityIndex = 0; PriorityIndex < static_cast<i32>(std::to_underlying(ETaskPriority::Count)); ++PriorityIndex)
                         {
                             m_DequeueHazards[PriorityIndex] = m_Registry->m_OverflowQueues[PriorityIndex].GetHeadHazard();
                         }
@@ -225,7 +226,7 @@ namespace OloEngine::LowLevelTasks
                 {
                     if (m_IsInitialized.exchange(false, std::memory_order_relaxed))
                     {
-                        for (i32 PriorityIndex = 0; PriorityIndex < i32(ETaskPriority::Count); PriorityIndex++)
+                        for (i32 PriorityIndex = 0; PriorityIndex < static_cast<i32>(std::to_underlying(ETaskPriority::Count)); PriorityIndex++)
                         {
                             while (true)
                             {
@@ -244,7 +245,7 @@ namespace OloEngine::LowLevelTasks
                 OLO_FINLINE void Enqueue(FTask* Item, u32 PriorityIndex)
                 {
                     OLO_CORE_ASSERT(m_Registry != nullptr, "Registry not initialized");
-                    OLO_CORE_ASSERT(PriorityIndex < i32(ETaskPriority::Count), "Priority index out of range");
+                    OLO_CORE_ASSERT(PriorityIndex < static_cast<i32>(std::to_underlying(ETaskPriority::Count)), "Priority index out of range");
                     OLO_CORE_ASSERT(Item != nullptr, "Cannot enqueue null item");
 
                     if (!m_LocalQueues[PriorityIndex].Put(Item))
@@ -256,7 +257,7 @@ namespace OloEngine::LowLevelTasks
                 // @brief Steal from own local queue
                 OLO_FINLINE FTask* StealLocal(bool GetBackGroundTasks)
                 {
-                    const i32 MaxPriority = GetBackGroundTasks ? i32(ETaskPriority::Count) : i32(ETaskPriority::ForegroundCount);
+                    const i32 MaxPriority = GetBackGroundTasks ? static_cast<i32>(std::to_underlying(ETaskPriority::Count)) : static_cast<i32>(std::to_underlying(ETaskPriority::ForegroundCount));
 
                     for (i32 PriorityIndex = 0; PriorityIndex < MaxPriority; ++PriorityIndex)
                     {
@@ -272,7 +273,7 @@ namespace OloEngine::LowLevelTasks
                 // @brief Check both the local and global queue in priority order
                 OLO_FINLINE FTask* Dequeue(bool GetBackGroundTasks)
                 {
-                    const i32 MaxPriority = GetBackGroundTasks ? i32(ETaskPriority::Count) : i32(ETaskPriority::ForegroundCount);
+                    const i32 MaxPriority = GetBackGroundTasks ? static_cast<i32>(std::to_underlying(ETaskPriority::Count)) : static_cast<i32>(std::to_underlying(ETaskPriority::ForegroundCount));
 
                     for (i32 PriorityIndex = 0; PriorityIndex < MaxPriority; ++PriorityIndex)
                     {
@@ -308,8 +309,8 @@ namespace OloEngine::LowLevelTasks
 
               private:
                 static constexpr u32 InvalidIndex = ~0u;
-                FLocalQueueType m_LocalQueues[u32(ETaskPriority::Count)];
-                DequeueHazard m_DequeueHazards[u32(ETaskPriority::Count)];
+                FLocalQueueType m_LocalQueues[static_cast<u32>(std::to_underlying(ETaskPriority::Count))];
+                DequeueHazard m_DequeueHazards[static_cast<u32>(std::to_underlying(ETaskPriority::Count))];
                 TLocalQueueRegistry* m_Registry = nullptr;
                 u32 m_CachedRandomIndex = InvalidIndex;
                 u32 m_CachedPriorityIndex = 0;
@@ -324,7 +325,7 @@ namespace OloEngine::LowLevelTasks
                 TLocalQueue(TLocalQueue&& Other) noexcept
                     : m_Registry(Other.m_Registry), m_CachedRandomIndex(Other.m_CachedRandomIndex), m_CachedPriorityIndex(Other.m_CachedPriorityIndex), m_QueueType(Other.m_QueueType), m_IsInitialized(Other.m_IsInitialized.load(std::memory_order_relaxed))
                 {
-                    for (u32 i = 0; i < u32(ETaskPriority::Count); ++i)
+                    for (u32 i = 0; i < static_cast<u32>(std::to_underlying(ETaskPriority::Count)); ++i)
                     {
                         m_DequeueHazards[i] = std::move(Other.m_DequeueHazards[i]);
                     }
@@ -355,7 +356,7 @@ namespace OloEngine::LowLevelTasks
             FTask* StealItem(u32& CachedRandomIndex, u32& CachedPriorityIndex, bool GetBackGroundTasks)
             {
                 u32 NumQueues = m_NumLocalQueues.load(std::memory_order_relaxed);
-                u32 MaxPriority = GetBackGroundTasks ? i32(ETaskPriority::Count) : i32(ETaskPriority::ForegroundCount);
+                u32 MaxPriority = GetBackGroundTasks ? static_cast<i32>(std::to_underlying(ETaskPriority::Count)) : static_cast<i32>(std::to_underlying(ETaskPriority::ForegroundCount));
                 CachedRandomIndex = CachedRandomIndex % NumQueues;
 
                 for (u32 Index = 0; Index < m_NumLocalQueues; Index++)
@@ -383,7 +384,7 @@ namespace OloEngine::LowLevelTasks
             // @brief Enqueue an Item directly into the Global OverflowQueue
             void Enqueue(FTask* Item, u32 PriorityIndex)
             {
-                OLO_CORE_ASSERT(PriorityIndex < i32(ETaskPriority::Count), "Priority index out of range");
+                OLO_CORE_ASSERT(PriorityIndex < static_cast<i32>(std::to_underlying(ETaskPriority::Count)), "Priority index out of range");
                 OLO_CORE_ASSERT(Item != nullptr, "Cannot enqueue null item");
 
                 m_OverflowQueues[PriorityIndex].Enqueue(Item);
@@ -392,7 +393,7 @@ namespace OloEngine::LowLevelTasks
             // @brief Grab an Item directly from the Global OverflowQueue
             FTask* DequeueGlobal(bool GetBackGroundTasks = true)
             {
-                const i32 MaxPriority = GetBackGroundTasks ? i32(ETaskPriority::Count) : i32(ETaskPriority::ForegroundCount);
+                const i32 MaxPriority = GetBackGroundTasks ? static_cast<i32>(std::to_underlying(ETaskPriority::Count)) : static_cast<i32>(std::to_underlying(ETaskPriority::ForegroundCount));
 
                 for (i32 PriorityIndex = 0; PriorityIndex < MaxPriority; ++PriorityIndex)
                 {
@@ -428,7 +429,7 @@ namespace OloEngine::LowLevelTasks
             }
 
           private:
-            FOverflowQueueType m_OverflowQueues[u32(ETaskPriority::Count)];
+            FOverflowQueueType m_OverflowQueues[static_cast<u32>(std::to_underlying(ETaskPriority::Count))];
             std::atomic<TLocalQueue*> m_LocalQueues[MaxLocalQueues]{ nullptr };
             std::atomic<u32> m_NumLocalQueues{ 0 };
         };

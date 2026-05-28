@@ -6,6 +6,7 @@
 #include "OloEngine/Asset/AssetTypes.h"
 #include <type_traits>
 #include <string>
+#include <utility>
 
 namespace OloEngine
 {
@@ -107,7 +108,7 @@ namespace OloEngine
 
       private:
         AssetHandle m_Handle = 0;
-        u16 m_Flags = (u16)AssetFlag::None;
+        u16 m_Flags = std::to_underlying(AssetFlag::None);
 
         // If you want to find out whether assets are valid or missing, use AssetManager::IsAssetValid(handle), IsAssetMissing(handle)
         // This cleans up and removes inconsistencies from rest of the code.
@@ -146,19 +147,19 @@ namespace OloEngine
 
         bool IsValid() const
         {
-            return ((m_Flags & (u16)AssetFlag::Missing) | (m_Flags & (u16)AssetFlag::Invalid)) == 0;
+            return ((m_Flags & std::to_underlying(AssetFlag::Missing)) | (m_Flags & std::to_underlying(AssetFlag::Invalid))) == 0;
         }
 
         bool IsFlagSet(AssetFlag flag) const
         {
-            return (u16)flag & m_Flags;
+            return std::to_underlying(flag) & m_Flags;
         }
         void SetFlag(AssetFlag flag, bool value = true)
         {
             if (value)
-                m_Flags |= (u16)flag;
+                m_Flags |= std::to_underlying(flag);
             else
-                m_Flags &= ~(u16)flag;
+                m_Flags &= ~std::to_underlying(flag);
         }
     };
 

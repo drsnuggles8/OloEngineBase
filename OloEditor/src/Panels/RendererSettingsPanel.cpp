@@ -170,7 +170,7 @@ namespace OloEngine
     void RendererSettingsPanel::DrawPresetControls(QualityTieringSettings& qt)
     {
         static const char* presetItems[] = { "Low", "Medium", "High", "Ultra", "Custom" };
-        int currentPreset = static_cast<int>(qt.Preset);
+        int currentPreset = static_cast<int>(std::to_underlying(qt.Preset));
         if (ImGui::Combo("Preset", &currentPreset, presetItems, IM_ARRAYSIZE(presetItems)))
         {
             auto selected = static_cast<QualityPreset>(currentPreset);
@@ -222,7 +222,7 @@ namespace OloEngine
         ImGui::Spacing();
         ImGui::TextDisabled("Ambient Occlusion");
         static const char* aoItems[] = { "None", "SSAO", "GTAO" };
-        if (int aoIdx = std::clamp(static_cast<int>(qt.AO), 0, 2); ImGui::Combo("AO Technique##qt", &aoIdx, aoItems, IM_ARRAYSIZE(aoItems)))
+        if (int aoIdx = std::clamp(std::to_underlying(qt.AO), 0, 2); ImGui::Combo("AO Technique##qt", &aoIdx, aoItems, IM_ARRAYSIZE(aoItems)))
         {
             qt.AO = static_cast<AOTechnique>(aoIdx);
             changed = true;
@@ -333,7 +333,7 @@ namespace OloEngine
                 "Forward+",
                 "Deferred"
             };
-            if (int currentPath = static_cast<int>(settings.Path); ImGui::Combo("Active Path", &currentPath, pathItems, IM_ARRAYSIZE(pathItems)))
+            if (int currentPath = static_cast<int>(std::to_underlying(settings.Path)); ImGui::Combo("Active Path", &currentPath, pathItems, IM_ARRAYSIZE(pathItems)))
             {
                 settings.Path = static_cast<RenderingPath>(currentPath);
                 Renderer3D::ApplyRendererSettings();

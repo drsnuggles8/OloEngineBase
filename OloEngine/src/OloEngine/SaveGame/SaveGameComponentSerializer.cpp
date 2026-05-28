@@ -1737,7 +1737,7 @@ namespace OloEngine
 
     static void SerializeEquipmentSlots(FArchive& ar, EquipmentSlots& eq)
     {
-        constexpr u32 kSlotCount = static_cast<u32>(EquipmentSlots::Slot::Count);
+        constexpr u32 kSlotCount = static_cast<u32>(std::to_underlying(EquipmentSlots::Slot::Count));
         for (u32 i = 0; i < kSlotCount; ++i)
         {
             const auto slot = static_cast<EquipmentSlots::Slot>(i);

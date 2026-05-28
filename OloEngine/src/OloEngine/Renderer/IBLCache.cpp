@@ -179,7 +179,7 @@ namespace OloEngine
         }
 
         // Hash all config parameters
-        hashCombine(static_cast<u64>(config.Quality));
+        hashCombine(static_cast<u64>(std::to_underlying(config.Quality)));
         hashCombine(config.UseImportanceSampling ? 1ULL : 0ULL);
         hashCombine(config.UseSphericalHarmonics ? 1ULL : 0ULL);
         hashCombine(static_cast<u64>(config.IrradianceResolution));
@@ -562,7 +562,7 @@ namespace OloEngine
         IBLCacheHeader header;
         header.Width = spec.Width;
         header.Height = spec.Height;
-        header.Format = static_cast<u32>(spec.Format);
+        header.Format = static_cast<u32>(std::to_underlying(spec.Format));
         header.MipLevels = mipLevels;
         header.FaceCount = 6;
         header.DataSize = totalDataSize;
@@ -694,7 +694,7 @@ namespace OloEngine
         IBLCacheHeader header;
         header.Width = spec.Width;
         header.Height = spec.Height;
-        header.Format = static_cast<u32>(spec.Format);
+        header.Format = static_cast<u32>(std::to_underlying(spec.Format));
         header.MipLevels = 1;
         header.FaceCount = 1;
         header.DataSize = dataSize;

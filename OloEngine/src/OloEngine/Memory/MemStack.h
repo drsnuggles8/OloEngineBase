@@ -18,6 +18,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <limits>
+#include <utility>
 #include <vector>
 
 namespace OloEngine
@@ -656,7 +657,7 @@ inline void* operator new(size_t Size, std::align_val_t Align, OloEngine::FMemSt
 {
     const size_t SizeInBytes = Size * Count;
     OLO_CORE_ASSERT(SizeInBytes <= static_cast<size_t>(std::numeric_limits<int32_t>::max()), "Allocation too large!");
-    return Mem.PushBytes(SizeInBytes, static_cast<size_t>(Align));
+    return Mem.PushBytes(SizeInBytes, std::to_underlying(Align));
 }
 
 inline void* operator new(size_t Size, OloEngine::FMemStackBase& Mem, OloEngine::EMemZeroed /*Tag*/, int32_t Count = 1)
@@ -672,7 +673,7 @@ inline void* operator new(size_t Size, std::align_val_t Align, OloEngine::FMemSt
 {
     const size_t SizeInBytes = Size * Count;
     OLO_CORE_ASSERT(SizeInBytes <= static_cast<size_t>(std::numeric_limits<int32_t>::max()), "Allocation too large!");
-    uint8_t* Result = Mem.PushBytes(SizeInBytes, static_cast<size_t>(Align));
+    uint8_t* Result = Mem.PushBytes(SizeInBytes, std::to_underlying(Align));
     OloEngine::FMemory::Memzero(Result, SizeInBytes);
     return Result;
 }
@@ -690,7 +691,7 @@ inline void* operator new(size_t Size, std::align_val_t Align, OloEngine::FMemSt
 {
     const size_t SizeInBytes = Size * Count;
     OLO_CORE_ASSERT(SizeInBytes <= static_cast<size_t>(std::numeric_limits<int32_t>::max()), "Allocation too large!");
-    uint8_t* Result = Mem.PushBytes(SizeInBytes, static_cast<size_t>(Align));
+    uint8_t* Result = Mem.PushBytes(SizeInBytes, std::to_underlying(Align));
     OloEngine::FMemory::Memset(Result, 0xff, SizeInBytes);
     return Result;
 }
@@ -706,7 +707,7 @@ inline void* operator new[](size_t Size, std::align_val_t Align, OloEngine::FMem
 {
     const size_t SizeInBytes = Size * Count;
     OLO_CORE_ASSERT(SizeInBytes <= static_cast<size_t>(std::numeric_limits<int32_t>::max()), "Allocation too large!");
-    return Mem.PushBytes(SizeInBytes, static_cast<size_t>(Align));
+    return Mem.PushBytes(SizeInBytes, std::to_underlying(Align));
 }
 
 inline void* operator new[](size_t Size, OloEngine::FMemStackBase& Mem, OloEngine::EMemZeroed /*Tag*/, int32_t Count = 1)
@@ -722,7 +723,7 @@ inline void* operator new[](size_t Size, std::align_val_t Align, OloEngine::FMem
 {
     const size_t SizeInBytes = Size * Count;
     OLO_CORE_ASSERT(SizeInBytes <= static_cast<size_t>(std::numeric_limits<int32_t>::max()), "Allocation too large!");
-    uint8_t* Result = Mem.PushBytes(SizeInBytes, static_cast<size_t>(Align));
+    uint8_t* Result = Mem.PushBytes(SizeInBytes, std::to_underlying(Align));
     OloEngine::FMemory::Memzero(Result, SizeInBytes);
     return Result;
 }
@@ -740,7 +741,7 @@ inline void* operator new[](size_t Size, std::align_val_t Align, OloEngine::FMem
 {
     const size_t SizeInBytes = Size * Count;
     OLO_CORE_ASSERT(SizeInBytes <= static_cast<size_t>(std::numeric_limits<int32_t>::max()), "Allocation too large!");
-    uint8_t* Result = Mem.PushBytes(SizeInBytes, static_cast<size_t>(Align));
+    uint8_t* Result = Mem.PushBytes(SizeInBytes, std::to_underlying(Align));
     OloEngine::FMemory::Memset(Result, 0xff, SizeInBytes);
     return Result;
 }

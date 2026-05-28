@@ -255,8 +255,8 @@ namespace OloEngine
             {
                 // Cast to fixed-width types for cross-platform compatibility
                 const uint64_t handleValue = static_cast<uint64_t>(metadata.Handle);
-                const uint32_t typeValue = static_cast<uint32_t>(metadata.Type);
-                const uint32_t statusValue = static_cast<uint32_t>(metadata.Status);
+                const uint32_t typeValue = static_cast<uint32_t>(std::to_underlying(metadata.Type));
+                const uint32_t statusValue = static_cast<uint32_t>(std::to_underlying(metadata.Status));
 
                 file.write(reinterpret_cast<const char*>(&handleValue), sizeof(handleValue));
                 file.write(reinterpret_cast<const char*>(&typeValue), sizeof(typeValue));

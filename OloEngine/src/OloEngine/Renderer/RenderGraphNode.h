@@ -8,6 +8,7 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <utility>
 
 namespace OloEngine
 {
@@ -31,17 +32,17 @@ namespace OloEngine
 
     [[nodiscard]] constexpr auto operator|(RenderGraphNodeFlags lhs, RenderGraphNodeFlags rhs) -> RenderGraphNodeFlags
     {
-        return static_cast<RenderGraphNodeFlags>(static_cast<u32>(lhs) | static_cast<u32>(rhs));
+        return static_cast<RenderGraphNodeFlags>(std::to_underlying(lhs) | std::to_underlying(rhs));
     }
 
     [[nodiscard]] constexpr auto operator&(RenderGraphNodeFlags lhs, RenderGraphNodeFlags rhs) -> RenderGraphNodeFlags
     {
-        return static_cast<RenderGraphNodeFlags>(static_cast<u32>(lhs) & static_cast<u32>(rhs));
+        return static_cast<RenderGraphNodeFlags>(std::to_underlying(lhs) & std::to_underlying(rhs));
     }
 
     [[nodiscard]] constexpr auto HasRenderGraphNodeFlag(RenderGraphNodeFlags flags, RenderGraphNodeFlags flag) -> bool
     {
-        return (static_cast<u32>(flags) & static_cast<u32>(flag)) != 0u;
+        return (std::to_underlying(flags) & std::to_underlying(flag)) != 0u;
     }
 
     enum class RenderGraphPassWorkType : u8
@@ -201,13 +202,13 @@ namespace OloEngine
                     break;
             }
 
-            if ((static_cast<u8>(m_SideEffects) & static_cast<u8>(SideEffect::Present)) != 0u)
+            if ((std::to_underlying(m_SideEffects) & std::to_underlying(SideEffect::Present)) != 0u)
                 flags = flags | RenderGraphNodeFlags::Present;
-            if ((static_cast<u8>(m_SideEffects) & static_cast<u8>(SideEffect::Readback)) != 0u)
+            if ((std::to_underlying(m_SideEffects) & std::to_underlying(SideEffect::Readback)) != 0u)
                 flags = flags | RenderGraphNodeFlags::Readback;
-            if ((static_cast<u8>(m_SideEffects) & static_cast<u8>(SideEffect::NeverCull)) != 0u)
+            if ((std::to_underlying(m_SideEffects) & std::to_underlying(SideEffect::NeverCull)) != 0u)
                 flags = flags | RenderGraphNodeFlags::NeverCull;
-            if ((static_cast<u8>(m_SideEffects) & (static_cast<u8>(SideEffect::DebugCapture) | static_cast<u8>(SideEffect::Timestamp))) != 0u)
+            if ((std::to_underlying(m_SideEffects) & (std::to_underlying(SideEffect::DebugCapture) | std::to_underlying(SideEffect::Timestamp))) != 0u)
                 flags = flags | RenderGraphNodeFlags::ExternalSideEffect;
 
             return flags;
@@ -230,7 +231,7 @@ namespace OloEngine
 
         [[nodiscard]] virtual bool IsSideEffecting() const
         {
-            if (static_cast<u8>(m_SideEffects) != 0u)
+            if (std::to_underlying(m_SideEffects) != 0u)
                 return true;
             const auto flags = GetFlags();
             return HasRenderGraphNodeFlag(flags, RenderGraphNodeFlags::Present) ||

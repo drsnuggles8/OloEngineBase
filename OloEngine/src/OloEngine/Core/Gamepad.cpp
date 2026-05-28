@@ -74,25 +74,25 @@ namespace OloEngine
 
     bool Gamepad::IsButtonPressed(GamepadButton button) const
     {
-        auto idx = static_cast<u32>(button);
+        auto idx = static_cast<u32>(std::to_underlying(button));
         return (idx < ButtonCount) && m_CurrentButtons[idx];
     }
 
     bool Gamepad::IsButtonJustPressed(GamepadButton button) const
     {
-        auto idx = static_cast<u32>(button);
+        auto idx = static_cast<u32>(std::to_underlying(button));
         return (idx < ButtonCount) && m_CurrentButtons[idx] && !m_PreviousButtons[idx];
     }
 
     bool Gamepad::IsButtonJustReleased(GamepadButton button) const
     {
-        auto idx = static_cast<u32>(button);
+        auto idx = static_cast<u32>(std::to_underlying(button));
         return (idx < ButtonCount) && !m_CurrentButtons[idx] && m_PreviousButtons[idx];
     }
 
     f32 Gamepad::GetAxis(GamepadAxis axis) const
     {
-        auto idx = static_cast<u32>(axis);
+        auto idx = static_cast<u32>(std::to_underlying(axis));
         return (idx < AxisCount) ? m_Axes[idx] : 0.0f;
     }
 

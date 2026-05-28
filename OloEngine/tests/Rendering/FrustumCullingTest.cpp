@@ -202,7 +202,7 @@ TEST(Frustum, PlaneNormalsAreNormalized)
 {
     Frustum frustum = MakePerspectiveFrustum();
 
-    for (i32 i = 0; i < static_cast<i32>(Frustum::Planes::Count); ++i)
+    for (i32 i = 0; i < std::to_underlying(Frustum::Planes::Count); ++i)
     {
         const Plane& plane = frustum.GetPlane(static_cast<Frustum::Planes>(i));
         f32 normalLength = glm::length(plane.Normal);
@@ -242,7 +242,7 @@ TEST(Frustum, StressRandomSpheres_NoNaN)
         if (result)
         {
             bool allPlanesPass = true;
-            for (i32 p = 0; p < static_cast<i32>(Frustum::Planes::Count); ++p)
+            for (i32 p = 0; p < std::to_underlying(Frustum::Planes::Count); ++p)
             {
                 const Plane& plane = frustum.GetPlane(static_cast<Frustum::Planes>(p));
                 f32 signedDist = plane.GetSignedDistance(center);

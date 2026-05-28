@@ -531,7 +531,7 @@ namespace OloEngine
     }
 
     // Array of dispatch functions indexed by CommandType
-    static CommandDispatchFn s_DispatchTable[static_cast<sizet>(CommandType::COUNT)];
+    static CommandDispatchFn s_DispatchTable[static_cast<sizet>(std::to_underlying(CommandType::COUNT))];
 
     void CommandDispatch::Initialize()
     {
@@ -541,57 +541,57 @@ namespace OloEngine
         std::ranges::fill(s_DispatchTable, nullptr);
 
         // State management dispatch functions
-        s_DispatchTable[static_cast<sizet>(CommandType::SetViewport)] = CommandDispatch::SetViewport;
-        s_DispatchTable[static_cast<sizet>(CommandType::SetClearColor)] = CommandDispatch::SetClearColor;
-        s_DispatchTable[static_cast<sizet>(CommandType::Clear)] = CommandDispatch::Clear;
-        s_DispatchTable[static_cast<sizet>(CommandType::ClearStencil)] = CommandDispatch::ClearStencil;
-        s_DispatchTable[static_cast<sizet>(CommandType::SetBlendState)] = CommandDispatch::SetBlendState;
-        s_DispatchTable[static_cast<sizet>(CommandType::SetBlendFunc)] = CommandDispatch::SetBlendFunc;
-        s_DispatchTable[static_cast<sizet>(CommandType::SetBlendEquation)] = CommandDispatch::SetBlendEquation;
-        s_DispatchTable[static_cast<sizet>(CommandType::SetDepthTest)] = CommandDispatch::SetDepthTest;
-        s_DispatchTable[static_cast<sizet>(CommandType::SetDepthMask)] = CommandDispatch::SetDepthMask;
-        s_DispatchTable[static_cast<sizet>(CommandType::SetDepthFunc)] = CommandDispatch::SetDepthFunc;
-        s_DispatchTable[static_cast<sizet>(CommandType::SetStencilTest)] = CommandDispatch::SetStencilTest;
-        s_DispatchTable[static_cast<sizet>(CommandType::SetStencilFunc)] = CommandDispatch::SetStencilFunc;
-        s_DispatchTable[static_cast<sizet>(CommandType::SetStencilMask)] = CommandDispatch::SetStencilMask;
-        s_DispatchTable[static_cast<sizet>(CommandType::SetStencilOp)] = CommandDispatch::SetStencilOp;
-        s_DispatchTable[static_cast<sizet>(CommandType::SetCulling)] = CommandDispatch::SetCulling;
-        s_DispatchTable[static_cast<sizet>(CommandType::SetCullFace)] = CommandDispatch::SetCullFace;
-        s_DispatchTable[static_cast<sizet>(CommandType::SetLineWidth)] = CommandDispatch::SetLineWidth;
-        s_DispatchTable[static_cast<sizet>(CommandType::SetPolygonMode)] = CommandDispatch::SetPolygonMode;
-        s_DispatchTable[static_cast<sizet>(CommandType::SetPolygonOffset)] = CommandDispatch::SetPolygonOffset;
-        s_DispatchTable[static_cast<sizet>(CommandType::SetScissorTest)] = CommandDispatch::SetScissorTest;
-        s_DispatchTable[static_cast<sizet>(CommandType::SetScissorBox)] = CommandDispatch::SetScissorBox;
-        s_DispatchTable[static_cast<sizet>(CommandType::SetColorMask)] = CommandDispatch::SetColorMask;
-        s_DispatchTable[static_cast<sizet>(CommandType::SetMultisampling)] = CommandDispatch::SetMultisampling;
+        s_DispatchTable[static_cast<sizet>(std::to_underlying(CommandType::SetViewport))] = CommandDispatch::SetViewport;
+        s_DispatchTable[static_cast<sizet>(std::to_underlying(CommandType::SetClearColor))] = CommandDispatch::SetClearColor;
+        s_DispatchTable[static_cast<sizet>(std::to_underlying(CommandType::Clear))] = CommandDispatch::Clear;
+        s_DispatchTable[static_cast<sizet>(std::to_underlying(CommandType::ClearStencil))] = CommandDispatch::ClearStencil;
+        s_DispatchTable[static_cast<sizet>(std::to_underlying(CommandType::SetBlendState))] = CommandDispatch::SetBlendState;
+        s_DispatchTable[static_cast<sizet>(std::to_underlying(CommandType::SetBlendFunc))] = CommandDispatch::SetBlendFunc;
+        s_DispatchTable[static_cast<sizet>(std::to_underlying(CommandType::SetBlendEquation))] = CommandDispatch::SetBlendEquation;
+        s_DispatchTable[static_cast<sizet>(std::to_underlying(CommandType::SetDepthTest))] = CommandDispatch::SetDepthTest;
+        s_DispatchTable[static_cast<sizet>(std::to_underlying(CommandType::SetDepthMask))] = CommandDispatch::SetDepthMask;
+        s_DispatchTable[static_cast<sizet>(std::to_underlying(CommandType::SetDepthFunc))] = CommandDispatch::SetDepthFunc;
+        s_DispatchTable[static_cast<sizet>(std::to_underlying(CommandType::SetStencilTest))] = CommandDispatch::SetStencilTest;
+        s_DispatchTable[static_cast<sizet>(std::to_underlying(CommandType::SetStencilFunc))] = CommandDispatch::SetStencilFunc;
+        s_DispatchTable[static_cast<sizet>(std::to_underlying(CommandType::SetStencilMask))] = CommandDispatch::SetStencilMask;
+        s_DispatchTable[static_cast<sizet>(std::to_underlying(CommandType::SetStencilOp))] = CommandDispatch::SetStencilOp;
+        s_DispatchTable[static_cast<sizet>(std::to_underlying(CommandType::SetCulling))] = CommandDispatch::SetCulling;
+        s_DispatchTable[static_cast<sizet>(std::to_underlying(CommandType::SetCullFace))] = CommandDispatch::SetCullFace;
+        s_DispatchTable[static_cast<sizet>(std::to_underlying(CommandType::SetLineWidth))] = CommandDispatch::SetLineWidth;
+        s_DispatchTable[static_cast<sizet>(std::to_underlying(CommandType::SetPolygonMode))] = CommandDispatch::SetPolygonMode;
+        s_DispatchTable[static_cast<sizet>(std::to_underlying(CommandType::SetPolygonOffset))] = CommandDispatch::SetPolygonOffset;
+        s_DispatchTable[static_cast<sizet>(std::to_underlying(CommandType::SetScissorTest))] = CommandDispatch::SetScissorTest;
+        s_DispatchTable[static_cast<sizet>(std::to_underlying(CommandType::SetScissorBox))] = CommandDispatch::SetScissorBox;
+        s_DispatchTable[static_cast<sizet>(std::to_underlying(CommandType::SetColorMask))] = CommandDispatch::SetColorMask;
+        s_DispatchTable[static_cast<sizet>(std::to_underlying(CommandType::SetMultisampling))] = CommandDispatch::SetMultisampling;
 
         // Draw commands dispatch functions
-        s_DispatchTable[static_cast<sizet>(CommandType::BindDefaultFramebuffer)] = CommandDispatch::BindDefaultFramebuffer;
-        s_DispatchTable[static_cast<sizet>(CommandType::BindTexture)] = CommandDispatch::BindTexture;
-        s_DispatchTable[static_cast<sizet>(CommandType::SetShaderResource)] = CommandDispatch::SetShaderResource;
-        s_DispatchTable[static_cast<sizet>(CommandType::DrawIndexed)] = CommandDispatch::DrawIndexed;
-        s_DispatchTable[static_cast<sizet>(CommandType::DrawIndexedInstanced)] = CommandDispatch::DrawIndexedInstanced;
-        s_DispatchTable[static_cast<sizet>(CommandType::DrawArrays)] = CommandDispatch::DrawArrays;
-        s_DispatchTable[static_cast<sizet>(CommandType::DrawLines)] = CommandDispatch::DrawLines;
+        s_DispatchTable[static_cast<sizet>(std::to_underlying(CommandType::BindDefaultFramebuffer))] = CommandDispatch::BindDefaultFramebuffer;
+        s_DispatchTable[static_cast<sizet>(std::to_underlying(CommandType::BindTexture))] = CommandDispatch::BindTexture;
+        s_DispatchTable[static_cast<sizet>(std::to_underlying(CommandType::SetShaderResource))] = CommandDispatch::SetShaderResource;
+        s_DispatchTable[static_cast<sizet>(std::to_underlying(CommandType::DrawIndexed))] = CommandDispatch::DrawIndexed;
+        s_DispatchTable[static_cast<sizet>(std::to_underlying(CommandType::DrawIndexedInstanced))] = CommandDispatch::DrawIndexedInstanced;
+        s_DispatchTable[static_cast<sizet>(std::to_underlying(CommandType::DrawArrays))] = CommandDispatch::DrawArrays;
+        s_DispatchTable[static_cast<sizet>(std::to_underlying(CommandType::DrawLines))] = CommandDispatch::DrawLines;
         // Higher-level commands
-        s_DispatchTable[static_cast<sizet>(CommandType::DrawMesh)] = CommandDispatch::DrawMesh;
-        s_DispatchTable[static_cast<sizet>(CommandType::DrawMeshInstanced)] = CommandDispatch::DrawMeshInstanced;
-        s_DispatchTable[static_cast<sizet>(CommandType::DrawSkybox)] = CommandDispatch::DrawSkybox;
-        s_DispatchTable[static_cast<sizet>(CommandType::DrawInfiniteGrid)] = CommandDispatch::DrawInfiniteGrid;
-        s_DispatchTable[static_cast<sizet>(CommandType::DrawQuad)] = CommandDispatch::DrawQuad;
+        s_DispatchTable[static_cast<sizet>(std::to_underlying(CommandType::DrawMesh))] = CommandDispatch::DrawMesh;
+        s_DispatchTable[static_cast<sizet>(std::to_underlying(CommandType::DrawMeshInstanced))] = CommandDispatch::DrawMeshInstanced;
+        s_DispatchTable[static_cast<sizet>(std::to_underlying(CommandType::DrawSkybox))] = CommandDispatch::DrawSkybox;
+        s_DispatchTable[static_cast<sizet>(std::to_underlying(CommandType::DrawInfiniteGrid))] = CommandDispatch::DrawInfiniteGrid;
+        s_DispatchTable[static_cast<sizet>(std::to_underlying(CommandType::DrawQuad))] = CommandDispatch::DrawQuad;
 
         // Terrain/Voxel commands
-        s_DispatchTable[static_cast<sizet>(CommandType::DrawTerrainPatch)] = CommandDispatch::DrawTerrainPatch;
-        s_DispatchTable[static_cast<sizet>(CommandType::DrawVoxelMesh)] = CommandDispatch::DrawVoxelMesh;
+        s_DispatchTable[static_cast<sizet>(std::to_underlying(CommandType::DrawTerrainPatch))] = CommandDispatch::DrawTerrainPatch;
+        s_DispatchTable[static_cast<sizet>(std::to_underlying(CommandType::DrawVoxelMesh))] = CommandDispatch::DrawVoxelMesh;
 
         // Decal commands
-        s_DispatchTable[static_cast<sizet>(CommandType::DrawDecal)] = CommandDispatch::DrawDecal;
+        s_DispatchTable[static_cast<sizet>(std::to_underlying(CommandType::DrawDecal))] = CommandDispatch::DrawDecal;
 
         // Foliage commands
-        s_DispatchTable[static_cast<sizet>(CommandType::DrawFoliageLayer)] = CommandDispatch::DrawFoliageLayer;
+        s_DispatchTable[static_cast<sizet>(std::to_underlying(CommandType::DrawFoliageLayer))] = CommandDispatch::DrawFoliageLayer;
 
         // Water commands
-        s_DispatchTable[static_cast<sizet>(CommandType::DrawWater)] = CommandDispatch::DrawWater;
+        s_DispatchTable[static_cast<sizet>(std::to_underlying(CommandType::DrawWater))] = CommandDispatch::DrawWater;
 
         ResetState();
 
@@ -838,13 +838,13 @@ namespace OloEngine
 
     CommandDispatchFn CommandDispatch::GetDispatchFunction(CommandType type)
     {
-        if (type == CommandType::Invalid || static_cast<sizet>(type) >= static_cast<sizet>(CommandType::COUNT))
+        if (type == CommandType::Invalid || static_cast<sizet>(std::to_underlying(type)) >= static_cast<sizet>(std::to_underlying(CommandType::COUNT)))
         {
             OLO_CORE_ERROR("CommandDispatch::GetDispatchFunction: Invalid command type {}", static_cast<int>(type));
             return nullptr;
         }
 
-        return s_DispatchTable[static_cast<sizet>(type)];
+        return s_DispatchTable[static_cast<sizet>(std::to_underlying(type))];
     }
 
     void CommandDispatch::SetViewport(const void* data, RendererAPI& api)

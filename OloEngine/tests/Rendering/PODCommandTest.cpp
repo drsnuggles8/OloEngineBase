@@ -250,16 +250,16 @@ TEST(PODCommand, PODRenderStateDefaults)
 TEST(PODCommand, CommandTypeToStringCoverage)
 {
     // Every CommandType enum value should have a string representation
-    for (u8 i = 0; i < static_cast<u8>(CommandType::COUNT); ++i)
+    for (u8 i = 0; i < static_cast<u8>(std::to_underlying(CommandType::COUNT)); ++i)
     {
         auto type = static_cast<CommandType>(i);
         const char* str = CommandTypeToString(type);
-        EXPECT_NE(str, nullptr) << "CommandType " << static_cast<int>(type) << " has null string";
+        EXPECT_NE(str, nullptr) << "CommandType " << static_cast<int>(std::to_underlying(type)) << " has null string";
 
         if (type != CommandType::Invalid)
         {
             EXPECT_STRNE(str, "Unknown")
-                << "CommandType " << static_cast<int>(type) << " maps to 'Unknown'";
+                << "CommandType " << static_cast<int>(std::to_underlying(type)) << " maps to 'Unknown'";
         }
     }
 }

@@ -649,7 +649,7 @@ namespace OloEngine
         {
             auto& pp = data.PostProcess;
             auto& gpu = data.PostProcessGPU.PostProcessData;
-            gpu.TonemapOperator = static_cast<i32>(pp.Tonemap);
+            gpu.TonemapOperator = std::to_underlying(pp.Tonemap);
             gpu.Exposure = pp.Exposure;
             gpu.Gamma = pp.Gamma;
             gpu.BloomThreshold = pp.BloomThreshold;
@@ -732,7 +732,7 @@ namespace OloEngine
             // Wrap at 1024 to stay well within float32 integer-exact range
             gpu.SunDirection = glm::vec4(sunDir, static_cast<f32>(data.FogFrameIndex));
             data.FogFrameIndex = (data.FogFrameIndex + 1u) & 0x3FFu;
-            gpu.Flags = glm::vec4(1.0f, static_cast<f32>(static_cast<i32>(fog.Mode)),
+            gpu.Flags = glm::vec4(1.0f, static_cast<f32>(std::to_underlying(fog.Mode)),
                                   fog.EnableScattering ? 1.0f : 0.0f,
                                   fog.EnableVolumetric ? 1.0f : 0.0f);
 
@@ -873,7 +873,7 @@ namespace OloEngine
         }
 
         // Rendering path / deferred sub-state
-        HashU32(h, static_cast<u32>(data.Settings.Path));
+        HashU32(h, static_cast<u32>(std::to_underlying(data.Settings.Path)));
         HashU32(h, data.Settings.Deferred.MSAASampleCount);
         HashBool(h, data.Settings.OITEnabled);
         HashBool(h, data.Settings.Deferred.PerSampleLighting);
@@ -887,7 +887,7 @@ namespace OloEngine
             HashU32(h, data.Shadow.GetPointRendererID(i));
 
         // Post-process technique selection + per-effect toggles
-        HashU32(h, static_cast<u32>(data.PostProcess.ActiveAOTechnique));
+        HashU32(h, static_cast<u32>(std::to_underlying(data.PostProcess.ActiveAOTechnique)));
         HashBool(h, data.PostProcess.SSAOEnabled);
         HashBool(h, data.PostProcess.GTAOEnabled);
         HashBool(h, data.PostProcess.BloomEnabled);
@@ -1265,7 +1265,7 @@ namespace OloEngine
             static bool s_PrevSSAOReady = false;
             static bool s_PrevGTAOReady = false;
             static bool s_PrevAOHandleValid = false;
-            const i32 activeTechnique = static_cast<i32>(data.PostProcess.ActiveAOTechnique);
+            const i32 activeTechnique = std::to_underlying(data.PostProcess.ActiveAOTechnique);
             const bool aoHandleValid = board.AO.AOBuffer.IsValid();
             if (activeTechnique != s_PrevAOTechnique ||
                 data.PostProcess.SSAOEnabled != s_PrevSSAOEnabled ||

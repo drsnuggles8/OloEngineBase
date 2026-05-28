@@ -103,7 +103,7 @@ namespace OloEngine
         data.normalScale = material.GetNormalScale();
         data.occlusionStrength = material.GetOcclusionStrength();
         data.enableIBL = material.IsIBLEnabled();
-        data.alphaMode = static_cast<i32>(material.GetAlphaMode());
+        data.alphaMode = std::to_underlying(material.GetAlphaMode());
         data.alphaCutoff = material.GetAlphaCutoff();
 
         // PBR texture renderer IDs.
@@ -1007,7 +1007,7 @@ namespace OloEngine
             glm::mat4 worldTransform = transformComp.GetTransform();
             const auto& boneMatrices = skeletonComp.m_Skeleton->m_FinalBoneMatrices;
             const auto& prevBoneMatrices = skeletonComp.m_Skeleton->m_PrevFinalBoneMatrices;
-            const i32 pickEntityID = static_cast<i32>(static_cast<u32>(entityID));
+            const i32 pickEntityID = static_cast<i32>(std::to_underlying(entityID));
 
             // Get material from entity or use default.
             Material material = defaultMaterial;

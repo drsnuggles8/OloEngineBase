@@ -171,7 +171,7 @@ namespace OloEngine
                                        texPath,
                                        m_EnvironmentMap->GetWidth(),
                                        m_EnvironmentMap->GetHeight(),
-                                       static_cast<int>(m_EnvironmentMap->GetSpecification().Format));
+                                       std::to_underlying(m_EnvironmentMap->GetSpecification().Format));
             }
         }
         else

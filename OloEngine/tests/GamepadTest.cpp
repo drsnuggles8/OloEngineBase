@@ -148,13 +148,13 @@ class MockGamepadInputProvider : public IInputProvider
 
     [[nodiscard]] bool IsGamepadButtonPressed(GamepadButton button, [[maybe_unused]] i32 gamepadIndex) const override
     {
-        auto idx = static_cast<u32>(button);
+        auto idx = static_cast<u32>(std::to_underlying(button));
         return idx < m_Buttons.size() && m_Buttons[idx];
     }
 
     [[nodiscard]] f32 GetGamepadAxis(GamepadAxis axis, [[maybe_unused]] i32 gamepadIndex) const override
     {
-        auto idx = static_cast<u32>(axis);
+        auto idx = static_cast<u32>(std::to_underlying(axis));
         return (idx < m_Axes.size()) ? m_Axes[idx] : 0.0f;
     }
 
@@ -187,7 +187,7 @@ TEST_F(GamepadActionTest, GamepadButtonActionPressed)
     map.AddAction({ "Jump", { InputBinding::GamepadBtn(GamepadButton::South) } });
     InputActionManager::SetActionMap(map);
 
-    m_Provider.m_Buttons[static_cast<u32>(GamepadButton::South)] = true;
+    m_Provider.m_Buttons[static_cast<u32>(std::to_underlying(GamepadButton::South))] = true;
     InputActionManager::Update();
 
     EXPECT_TRUE(InputActionManager::IsActionPressed("Jump"));
@@ -202,11 +202,11 @@ TEST_F(GamepadActionTest, GamepadButtonActionReleased)
     InputActionManager::SetActionMap(map);
 
     // Press
-    m_Provider.m_Buttons[static_cast<u32>(GamepadButton::South)] = true;
+    m_Provider.m_Buttons[static_cast<u32>(std::to_underlying(GamepadButton::South))] = true;
     InputActionManager::Update();
 
     // Release
-    m_Provider.m_Buttons[static_cast<u32>(GamepadButton::South)] = false;
+    m_Provider.m_Buttons[static_cast<u32>(std::to_underlying(GamepadButton::South))] = false;
     InputActionManager::Update();
 
     EXPECT_FALSE(InputActionManager::IsActionPressed("Jump"));
@@ -221,12 +221,12 @@ TEST_F(GamepadActionTest, GamepadAxisPositiveThreshold)
     InputActionManager::SetActionMap(map);
 
     // Below threshold
-    m_Provider.m_Axes[static_cast<u32>(GamepadAxis::LeftX)] = 0.3f;
+    m_Provider.m_Axes[static_cast<u32>(std::to_underlying(GamepadAxis::LeftX))] = 0.3f;
     InputActionManager::Update();
     EXPECT_FALSE(InputActionManager::IsActionPressed("MoveRight"));
 
     // Above threshold
-    m_Provider.m_Axes[static_cast<u32>(GamepadAxis::LeftX)] = 0.7f;
+    m_Provider.m_Axes[static_cast<u32>(std::to_underlying(GamepadAxis::LeftX))] = 0.7f;
     InputActionManager::Update();
     EXPECT_TRUE(InputActionManager::IsActionPressed("MoveRight"));
 }
@@ -239,12 +239,12 @@ TEST_F(GamepadActionTest, GamepadAxisNegativeThreshold)
     InputActionManager::SetActionMap(map);
 
     // Positive direction shouldnt trigger
-    m_Provider.m_Axes[static_cast<u32>(GamepadAxis::LeftX)] = 0.8f;
+    m_Provider.m_Axes[static_cast<u32>(std::to_underlying(GamepadAxis::LeftX))] = 0.8f;
     InputActionManager::Update();
     EXPECT_FALSE(InputActionManager::IsActionPressed("MoveLeft"));
 
     // Negative direction above threshold
-    m_Provider.m_Axes[static_cast<u32>(GamepadAxis::LeftX)] = -0.7f;
+    m_Provider.m_Axes[static_cast<u32>(std::to_underlying(GamepadAxis::LeftX))] = -0.7f;
     InputActionManager::Update();
     EXPECT_TRUE(InputActionManager::IsActionPressed("MoveLeft"));
 }
@@ -257,7 +257,7 @@ TEST_F(GamepadActionTest, MixedKeyboardAndGamepadBindings)
     InputActionManager::SetActionMap(map);
 
     // Only gamepad pressed
-    m_Provider.m_Buttons[static_cast<u32>(GamepadButton::South)] = true;
+    m_Provider.m_Buttons[static_cast<u32>(std::to_underlying(GamepadButton::South))] = true;
     InputActionManager::Update();
     EXPECT_TRUE(InputActionManager::IsActionPressed("Jump"));
 }

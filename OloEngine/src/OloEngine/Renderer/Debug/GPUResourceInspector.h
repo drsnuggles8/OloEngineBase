@@ -10,6 +10,7 @@
 #include <string>
 #include <unordered_map>
 #include <memory>
+#include <utility>
 
 #include "OloEngine/Threading/Mutex.h"
 
@@ -293,8 +294,8 @@ namespace OloEngine
         PendingSaveRequest m_PendingSaveRequest;
 
         // Statistics
-        std::array<u32, static_cast<sizet>(ResourceType::COUNT)> m_ResourceCounts{};
-        std::array<sizet, static_cast<sizet>(ResourceType::COUNT)> m_MemoryUsageByType{};
+        std::array<u32, static_cast<sizet>(std::to_underlying(ResourceType::COUNT))> m_ResourceCounts{};
+        std::array<sizet, static_cast<sizet>(std::to_underlying(ResourceType::COUNT))> m_MemoryUsageByType{};
         // Threading
         mutable FMutex m_ResourceMutex;
 

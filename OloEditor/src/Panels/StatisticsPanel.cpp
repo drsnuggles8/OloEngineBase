@@ -248,7 +248,7 @@ namespace OloEngine
             ImGui::TableSetupColumn("Count", ImGuiTableColumnFlags_WidthFixed, 60.0f);
             ImGui::TableHeadersRow();
 
-            for (u8 i = 0; i < static_cast<u8>(RendererMemoryTracker::ResourceType::COUNT); ++i)
+            for (u8 i = 0; i < std::to_underlying(RendererMemoryTracker::ResourceType::COUNT); ++i)
             {
                 auto const type = static_cast<RendererMemoryTracker::ResourceType>(i);
                 sizet const usage = tracker.GetMemoryUsage(type);
@@ -265,7 +265,7 @@ namespace OloEngine
                     "Texture 2D", "Texture Cubemap", "Framebuffer", "Shader",
                     "Render Target", "Command Buffer", "Other"
                 };
-                static_assert(std::size(s_TypeNames) == static_cast<size_t>(RendererMemoryTracker::ResourceType::COUNT),
+                static_assert(std::size(s_TypeNames) == static_cast<size_t>(std::to_underlying(RendererMemoryTracker::ResourceType::COUNT)),
                               "s_TypeNames must match RendererMemoryTracker::ResourceType::COUNT");
                 ImGui::TextUnformatted(s_TypeNames[i]);
                 ImGui::TableSetColumnIndex(1);

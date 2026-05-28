@@ -187,7 +187,7 @@ namespace OloEngine
         return TextureDescriptorKey{
             .Width = spec.Width,
             .Height = spec.Height,
-            .Format = static_cast<u32>(spec.Format),
+            .Format = static_cast<u32>(std::to_underlying(spec.Format)),
             .MipLevels = spec.MipLevels,
             .Samples = spec.Samples,
             .Flags = spec.GenerateMips ? 1u : 0u,
@@ -208,7 +208,7 @@ namespace OloEngine
 
         for (const auto& attach : spec.Attachments.Attachments)
         {
-            key ^= static_cast<u64>(attach.TextureFormat);
+            key ^= static_cast<u64>(std::to_underlying(attach.TextureFormat));
             key *= 1099511628211ull;
         }
 

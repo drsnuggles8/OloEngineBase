@@ -10,6 +10,7 @@
 #include <array>
 #include <algorithm>
 #include <cctype>
+#include <utility>
 
 namespace OloEngine
 {
@@ -165,7 +166,7 @@ namespace OloEngine
                 "Invalid"     // AssetStatus::Invalid = 6
             };
 
-            const auto index = static_cast<std::size_t>(status);
+            const auto index = static_cast<std::size_t>(std::to_underlying(status));
             return (index < statusStrings.size()) ? statusStrings[index] : "Unknown";
         }
 

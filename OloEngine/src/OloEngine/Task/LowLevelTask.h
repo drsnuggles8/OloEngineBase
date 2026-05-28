@@ -15,6 +15,7 @@
 #include "OloEngine/Templates/UnrealTemplate.h"
 
 #include <atomic>
+#include <utility>
 
 #define LOWLEVEL_TASK_SIZE OLO_PLATFORM_CACHE_LINE_SIZE
 
@@ -56,7 +57,7 @@ namespace OloEngine::LowLevelTasks
             "BackgroundNormal",
             "BackgroundLow"
         };
-        return TaskPriorityToStr[static_cast<i32>(Priority)];
+        return TaskPriorityToStr[static_cast<i32>(std::to_underlying(Priority))];
     }
 
     // @brief Parse priority string to enum
@@ -244,17 +245,17 @@ namespace OloEngine::LowLevelTasks
                 }
 
                 constexpr FPackedData()
-                    : State(static_cast<uptr>(ETaskState::CompletedFlag)), DebugName(0ull), Priority(static_cast<uptr>(ETaskPriority::Count)), Flags(static_cast<uptr>(ETaskFlags::DefaultFlags))
+                    : State(static_cast<uptr>(std::to_underlying(ETaskState::CompletedFlag))), DebugName(0ull), Priority(static_cast<uptr>(std::to_underlying(ETaskPriority::Count))), Flags(static_cast<uptr>(std::to_underlying(ETaskFlags::DefaultFlags)))
                 {
                     static_assert(sizeof(uptr) == 8, "32-bit platforms are not supported");
-                    static_assert(static_cast<uptr>(ETaskPriority::Count) <= (1ull << 3), "Not enough bits to store ETaskPriority");
-                    static_assert(static_cast<uptr>(ETaskState::Count) <= (1ull << 6), "Not enough bits to store ETaskState");
-                    static_assert(static_cast<uptr>(ETaskFlags::AllowEverything) < (1ull << 2), "Not enough bits to store ETaskFlags");
+                    static_assert(static_cast<uptr>(std::to_underlying(ETaskPriority::Count)) <= (1ull << 3), "Not enough bits to store ETaskPriority");
+                    static_assert(static_cast<uptr>(std::to_underlying(ETaskState::Count)) <= (1ull << 6), "Not enough bits to store ETaskState");
+                    static_assert(static_cast<uptr>(std::to_underlying(ETaskFlags::AllowEverything)) < (1ull << 2), "Not enough bits to store ETaskFlags");
                 }
 
               public:
                 FPackedData(const char* InDebugName, ETaskPriority InPriority, ETaskState InState, ETaskFlags InFlags)
-                    : State(static_cast<uptr>(InState)), DebugName(reinterpret_cast<uptr>(InDebugName)), Priority(static_cast<uptr>(InPriority)), Flags(static_cast<uptr>(InFlags))
+                    : State(static_cast<uptr>(std::to_underlying(InState))), DebugName(reinterpret_cast<uptr>(InDebugName)), Priority(static_cast<uptr>(std::to_underlying(InPriority))), Flags(static_cast<uptr>(std::to_underlying(InFlags)))
                 {
                     OLO_CORE_ASSERT(reinterpret_cast<uptr>(InDebugName) < (1ull << 53), "Debug name pointer too large");
                     OLO_CORE_ASSERT(static_cast<uptr>(InPriority) < (1ull << 3), "Priority value out of range");
@@ -296,7 +297,7 @@ namespace OloEngine::LowLevelTasks
               public:
                 ETaskState fetch_or(ETaskState State, std::memory_order Order)
                 {
-                    return static_cast<ETaskState>(FPackedData(PackedData.fetch_or(static_cast<uptr>(State), Order)).State);
+                    return static_cast<ETaskState>(FPackedData(PackedData.fetch_or(static_cast<uptr>(std::to_underlying(State)), Order)).State);
                 }
 
                 bool compare_exchange_strong(FPackedData& Expected, FPackedData Desired, std::memory_order Success, std::memory_order Failure)

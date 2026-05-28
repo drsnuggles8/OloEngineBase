@@ -21,7 +21,7 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
         // Initialize performance counters
-        for (u32 i = 0; i < (u32)MetricType::COUNT; ++i)
+        for (u32 i = 0; i < static_cast<u32>(std::to_underlying(MetricType::COUNT)); ++i)
         {
             m_Counters[(MetricType)i] = PerformanceCounter{};
             m_Counters[(MetricType)i].Reset(); // sets m_Min = DBL_MAX etc.
@@ -495,7 +495,7 @@ namespace OloEngine
             ImGui::TableSetupColumn("Samples", ImGuiTableColumnFlags_WidthFixed, 80.0f);
             ImGui::TableHeadersRow();
 
-            for (u32 i = 0; i < (u32)MetricType::COUNT; ++i)
+            for (u32 i = 0; i < static_cast<u32>(std::to_underlying(MetricType::COUNT)); ++i)
             {
                 MetricType type = (MetricType)i;
                 const auto& counter = m_Counters.at(type);

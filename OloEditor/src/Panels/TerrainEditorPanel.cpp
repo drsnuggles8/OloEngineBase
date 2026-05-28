@@ -100,7 +100,7 @@ namespace OloEngine
     {
         ImGui::Text("Sculpt Tool");
 
-        if (int currentTool = static_cast<int>(m_SculptSettings.Tool); ImGui::Combo("Tool", &currentTool, s_SculptToolNames, IM_ARRAYSIZE(s_SculptToolNames)))
+        if (int currentTool = static_cast<int>(std::to_underlying(m_SculptSettings.Tool)); ImGui::Combo("Tool", &currentTool, s_SculptToolNames, IM_ARRAYSIZE(s_SculptToolNames)))
             m_SculptSettings.Tool = static_cast<TerrainBrushTool>(currentTool);
 
         ImGui::DragFloat("Radius", &m_SculptSettings.Radius, 0.5f, 0.5f, 200.0f, "%.1f");

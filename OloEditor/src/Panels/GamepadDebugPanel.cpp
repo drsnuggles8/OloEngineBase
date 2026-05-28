@@ -38,7 +38,7 @@ namespace OloEngine
                 ImGui::Text("Buttons:");
                 ImGui::Indent();
 
-                for (u32 b = 0; b < static_cast<u32>(GamepadButton::Count); ++b)
+                for (u32 b = 0; b < static_cast<u32>(std::to_underlying(GamepadButton::Count)); ++b)
                 {
                     auto btn = static_cast<GamepadButton>(b);
                     bool pressed = gp->IsButtonPressed(btn);
@@ -59,7 +59,7 @@ namespace OloEngine
                 // Axes
                 ImGui::Text("Axes:");
                 ImGui::Indent();
-                for (u32 a = 0; a < static_cast<u32>(GamepadAxis::Count); ++a)
+                for (u32 a = 0; a < static_cast<u32>(std::to_underlying(GamepadAxis::Count)); ++a)
                 {
                     auto axis = static_cast<GamepadAxis>(a);
                     f32 value = gp->GetAxis(axis);

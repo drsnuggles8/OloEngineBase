@@ -355,7 +355,7 @@ namespace OloEngine
         out << YAML::Key << "FogSettings";
         out << YAML::BeginMap;
         out << YAML::Key << "Enabled" << YAML::Value << fog.Enabled;
-        out << YAML::Key << "Mode" << YAML::Value << static_cast<i32>(fog.Mode);
+        out << YAML::Key << "Mode" << YAML::Value << std::to_underlying(fog.Mode);
         out << YAML::Key << "Color" << YAML::Value << fog.Color;
         out << YAML::Key << "Density" << YAML::Value << fog.Density;
         out << YAML::Key << "Start" << YAML::Value << fog.Start;
@@ -388,9 +388,9 @@ namespace OloEngine
         if (auto fogNode = data["FogSettings"]; fogNode)
         {
             TrySet(fog.Enabled, fogNode["Enabled"]);
-            i32 mode = static_cast<i32>(fog.Mode);
+            i32 mode = std::to_underlying(fog.Mode);
             TrySet(mode, fogNode["Mode"]);
-            mode = std::clamp(mode, static_cast<i32>(FogMode::Linear), static_cast<i32>(FogMode::ExponentialSquared));
+            mode = std::clamp(mode, std::to_underlying(FogMode::Linear), std::to_underlying(FogMode::ExponentialSquared));
             fog.Mode = static_cast<FogMode>(mode);
             TrySet(fog.Color, fogNode["Color"]);
             TrySet(fog.Density, fogNode["Density"]);
@@ -643,7 +643,7 @@ namespace OloEngine
         out << YAML::Key << "PrecipitationSettings";
         out << YAML::BeginMap;
         out << YAML::Key << "Enabled" << YAML::Value << ps.Enabled;
-        out << YAML::Key << "Type" << YAML::Value << static_cast<i32>(ps.Type);
+        out << YAML::Key << "Type" << YAML::Value << std::to_underlying(ps.Type);
         out << YAML::Key << "Intensity" << YAML::Value << ps.Intensity;
         out << YAML::Key << "TransitionSpeed" << YAML::Value << ps.TransitionSpeed;
         out << YAML::Key << "BaseEmissionRate" << YAML::Value << ps.BaseEmissionRate;
@@ -697,8 +697,8 @@ namespace OloEngine
             TrySet(ps.Enabled, psNode["Enabled"]);
             if (auto typeNode = psNode["Type"]; typeNode)
             {
-                auto typeVal = typeNode.as<i32>(static_cast<i32>(PrecipitationType::Snow));
-                if (typeVal >= 0 && typeVal <= static_cast<i32>(PrecipitationType::Sleet))
+                auto typeVal = typeNode.as<i32>(std::to_underlying(PrecipitationType::Snow));
+                if (typeVal >= 0 && typeVal <= std::to_underlying(PrecipitationType::Sleet))
                 {
                     ps.Type = static_cast<PrecipitationType>(typeVal);
                 }
@@ -839,7 +839,7 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
 
         auto& fv = entity.AddComponent<FogVolumeComponent>();
-        i32 shape = static_cast<i32>(fv.m_Shape);
+        i32 shape = std::to_underlying(fv.m_Shape);
         TrySet(shape, node["Shape"]);
         fv.m_Shape = static_cast<FogVolumeShape>(std::clamp(shape, 0, 2));
         TrySet(fv.m_Extents, node["Extents"]);
@@ -1685,7 +1685,7 @@ namespace OloEngine
             }
             if (meshComponent["Primitive"])
             {
-                if (const auto primitiveInt = meshComponent["Primitive"].as<i32>(); primitiveInt >= static_cast<i32>(MeshPrimitive::None) && primitiveInt <= static_cast<i32>(MeshPrimitive::Torus))
+                if (const auto primitiveInt = meshComponent["Primitive"].as<i32>(); primitiveInt >= std::to_underlying(MeshPrimitive::None) && primitiveInt <= std::to_underlying(MeshPrimitive::Torus))
                 {
                     mc.m_Primitive = static_cast<MeshPrimitive>(primitiveInt);
                 }
@@ -1728,7 +1728,7 @@ namespace OloEngine
             if (imcNode["Primitive"])
             {
                 const auto primitiveInt = imcNode["Primitive"].as<i32>();
-                if (primitiveInt >= static_cast<i32>(MeshPrimitive::None) && primitiveInt <= static_cast<i32>(MeshPrimitive::Torus))
+                if (primitiveInt >= std::to_underlying(MeshPrimitive::None) && primitiveInt <= std::to_underlying(MeshPrimitive::Torus))
                 {
                     imc.Primitive = static_cast<MeshPrimitive>(primitiveInt);
                     // Resolve MeshSource from the primitive if not already
@@ -2071,7 +2071,7 @@ namespace OloEngine
         if (auto rb3dComponent = entity["Rigidbody3DComponent"]; rb3dComponent)
         {
             auto& rb3d = deserializedEntity.AddComponent<Rigidbody3DComponent>();
-            rb3d.m_Type = static_cast<BodyType3D>(rb3dComponent["BodyType"].as<int>(static_cast<int>(rb3d.m_Type)));
+            rb3d.m_Type = static_cast<BodyType3D>(rb3dComponent["BodyType"].as<int>(std::to_underlying(rb3d.m_Type)));
             rb3d.m_Mass = rb3dComponent["Mass"].as<f32>(rb3d.m_Mass);
             rb3d.m_LinearDrag = rb3dComponent["LinearDrag"].as<f32>(rb3d.m_LinearDrag);
             rb3d.m_AngularDrag = rb3dComponent["AngularDrag"].as<f32>(rb3d.m_AngularDrag);
@@ -2460,7 +2460,7 @@ namespace OloEngine
         if (auto animComponent = entity["AnimationStateComponent"]; animComponent)
         {
             auto& anim = deserializedEntity.AddComponent<AnimationStateComponent>();
-            anim.m_State = static_cast<AnimationStateComponent::State>(animComponent["State"].as<int>(static_cast<int>(anim.m_State)));
+            anim.m_State = static_cast<AnimationStateComponent::State>(animComponent["State"].as<int>(std::to_underlying(anim.m_State)));
             anim.m_CurrentTime = animComponent["CurrentTime"].as<f32>(anim.m_CurrentTime);
             anim.m_BlendDuration = animComponent["BlendDuration"].as<f32>(anim.m_BlendDuration);
             anim.m_CurrentClipIndex = animComponent["CurrentClipIndex"].as<int>(anim.m_CurrentClipIndex);
@@ -2678,7 +2678,7 @@ namespace OloEngine
             TrySet(sv.UnloadRadius, svComponent["UnloadRadius"]);
 
             // Sanitize
-            if (static_cast<u8>(sv.ActivationMode) > static_cast<u8>(StreamingActivationMode::Manual))
+            if (std::to_underlying(sv.ActivationMode) > std::to_underlying(StreamingActivationMode::Manual))
             {
                 sv.ActivationMode = StreamingActivationMode::Proximity;
             }
@@ -3331,7 +3331,7 @@ namespace OloEngine
 
             out << YAML::Key << "Camera" << YAML::Value;
             out << YAML::BeginMap; // Camera
-            out << YAML::Key << "ProjectionType" << YAML::Value << static_cast<int>(camera.GetProjectionType());
+            out << YAML::Key << "ProjectionType" << YAML::Value << std::to_underlying(camera.GetProjectionType());
             out << YAML::Key << "PerspectiveFOV" << YAML::Value << camera.GetPerspectiveVerticalFOV();
             out << YAML::Key << "PerspectiveNear" << YAML::Value << camera.GetPerspectiveNearClip();
             out << YAML::Key << "PerspectiveFar" << YAML::Value << camera.GetPerspectiveFarClip();
@@ -3599,7 +3599,7 @@ namespace OloEngine
 
             if (meshComponent.m_Primitive != MeshPrimitive::None)
             {
-                out << YAML::Key << "Primitive" << YAML::Value << static_cast<i32>(meshComponent.m_Primitive);
+                out << YAML::Key << "Primitive" << YAML::Value << std::to_underlying(meshComponent.m_Primitive);
             }
 
             out << YAML::EndMap; // MeshComponent
@@ -3634,7 +3634,7 @@ namespace OloEngine
             if (imc.PlacementAssetHandle != 0)
                 out << YAML::Key << "PlacementAssetHandle" << YAML::Value << static_cast<u64>(imc.PlacementAssetHandle);
             if (imc.Primitive != MeshPrimitive::None)
-                out << YAML::Key << "Primitive" << YAML::Value << static_cast<i32>(imc.Primitive);
+                out << YAML::Key << "Primitive" << YAML::Value << std::to_underlying(imc.Primitive);
 
             // Only Transform, Color, EntityID, and Custom are authored
             // round-trip data. Normal and PrevTransform are runtime-derived.
@@ -3859,7 +3859,7 @@ namespace OloEngine
             out << YAML::BeginMap; // Rigidbody3DComponent
 
             auto const& rb3dComponent = entity.GetComponent<Rigidbody3DComponent>();
-            out << YAML::Key << "BodyType" << YAML::Value << static_cast<int>(rb3dComponent.m_Type);
+            out << YAML::Key << "BodyType" << YAML::Value << std::to_underlying(rb3dComponent.m_Type);
             out << YAML::Key << "Mass" << YAML::Value << rb3dComponent.m_Mass;
             out << YAML::Key << "LinearDrag" << YAML::Value << rb3dComponent.m_LinearDrag;
             out << YAML::Key << "AngularDrag" << YAML::Value << rb3dComponent.m_AngularDrag;
@@ -4049,8 +4049,8 @@ namespace OloEngine
             out << YAML::BeginMap; // UICanvasComponent
 
             auto const& canvas = entity.GetComponent<UICanvasComponent>();
-            out << YAML::Key << "RenderMode" << YAML::Value << static_cast<int>(canvas.m_RenderMode);
-            out << YAML::Key << "ScaleMode" << YAML::Value << static_cast<int>(canvas.m_ScaleMode);
+            out << YAML::Key << "RenderMode" << YAML::Value << static_cast<int>(std::to_underlying(canvas.m_RenderMode));
+            out << YAML::Key << "ScaleMode" << YAML::Value << static_cast<int>(std::to_underlying(canvas.m_ScaleMode));
             out << YAML::Key << "SortOrder" << YAML::Value << canvas.m_SortOrder;
             out << YAML::Key << "ReferenceResolution" << YAML::Value << canvas.m_ReferenceResolution;
 
@@ -4118,7 +4118,7 @@ namespace OloEngine
             }
             out << YAML::Key << "FontSize" << YAML::Value << text.m_FontSize;
             out << YAML::Key << "Color" << YAML::Value << text.m_Color;
-            out << YAML::Key << "Alignment" << YAML::Value << static_cast<int>(text.m_Alignment);
+            out << YAML::Key << "Alignment" << YAML::Value << static_cast<int>(std::to_underlying(text.m_Alignment));
             out << YAML::Key << "Kerning" << YAML::Value << text.m_Kerning;
             out << YAML::Key << "LineSpacing" << YAML::Value << text.m_LineSpacing;
 
@@ -4149,7 +4149,7 @@ namespace OloEngine
             out << YAML::Key << "Value" << YAML::Value << slider.m_Value;
             out << YAML::Key << "MinValue" << YAML::Value << slider.m_MinValue;
             out << YAML::Key << "MaxValue" << YAML::Value << slider.m_MaxValue;
-            out << YAML::Key << "Direction" << YAML::Value << static_cast<int>(slider.m_Direction);
+            out << YAML::Key << "Direction" << YAML::Value << static_cast<int>(std::to_underlying(slider.m_Direction));
             out << YAML::Key << "BackgroundColor" << YAML::Value << slider.m_BackgroundColor;
             out << YAML::Key << "FillColor" << YAML::Value << slider.m_FillColor;
             out << YAML::Key << "HandleColor" << YAML::Value << slider.m_HandleColor;
@@ -4182,7 +4182,7 @@ namespace OloEngine
             out << YAML::Key << "Value" << YAML::Value << progress.m_Value;
             out << YAML::Key << "MinValue" << YAML::Value << progress.m_MinValue;
             out << YAML::Key << "MaxValue" << YAML::Value << progress.m_MaxValue;
-            out << YAML::Key << "FillMethod" << YAML::Value << static_cast<int>(progress.m_FillMethod);
+            out << YAML::Key << "FillMethod" << YAML::Value << static_cast<int>(std::to_underlying(progress.m_FillMethod));
             out << YAML::Key << "BackgroundColor" << YAML::Value << progress.m_BackgroundColor;
             out << YAML::Key << "FillColor" << YAML::Value << progress.m_FillColor;
 
@@ -4231,7 +4231,7 @@ namespace OloEngine
             auto const& scrollView = entity.GetComponent<UIScrollViewComponent>();
             out << YAML::Key << "ScrollPosition" << YAML::Value << scrollView.m_ScrollPosition;
             out << YAML::Key << "ContentSize" << YAML::Value << scrollView.m_ContentSize;
-            out << YAML::Key << "ScrollDirection" << YAML::Value << static_cast<int>(scrollView.m_ScrollDirection);
+            out << YAML::Key << "ScrollDirection" << YAML::Value << static_cast<int>(std::to_underlying(scrollView.m_ScrollDirection));
             out << YAML::Key << "ScrollSpeed" << YAML::Value << scrollView.m_ScrollSpeed;
             out << YAML::Key << "ShowHorizontalScrollbar" << YAML::Value << scrollView.m_ShowHorizontalScrollbar;
             out << YAML::Key << "ShowVerticalScrollbar" << YAML::Value << scrollView.m_ShowVerticalScrollbar;
@@ -4277,8 +4277,8 @@ namespace OloEngine
             out << YAML::Key << "CellSize" << YAML::Value << grid.m_CellSize;
             out << YAML::Key << "Spacing" << YAML::Value << grid.m_Spacing;
             out << YAML::Key << "Padding" << YAML::Value << grid.m_Padding;
-            out << YAML::Key << "StartCorner" << YAML::Value << static_cast<int>(grid.m_StartCorner);
-            out << YAML::Key << "StartAxis" << YAML::Value << static_cast<int>(grid.m_StartAxis);
+            out << YAML::Key << "StartCorner" << YAML::Value << static_cast<int>(std::to_underlying(grid.m_StartCorner));
+            out << YAML::Key << "StartAxis" << YAML::Value << static_cast<int>(std::to_underlying(grid.m_StartAxis));
             out << YAML::Key << "ConstraintCount" << YAML::Value << grid.m_ConstraintCount;
 
             out << YAML::EndMap; // UIGridLayoutComponent
@@ -4313,7 +4313,7 @@ namespace OloEngine
             out << YAML::Key << "Looping" << YAML::Value << sys.Looping;
             out << YAML::Key << "Duration" << YAML::Value << sys.Duration;
             out << YAML::Key << "PlaybackSpeed" << YAML::Value << sys.PlaybackSpeed;
-            out << YAML::Key << "SimulationSpace" << YAML::Value << static_cast<int>(sys.SimulationSpace);
+            out << YAML::Key << "SimulationSpace" << YAML::Value << static_cast<int>(std::to_underlying(sys.SimulationSpace));
 
             // Emitter
             out << YAML::Key << "RateOverTime" << YAML::Value << emitter.RateOverTime;
@@ -4326,7 +4326,7 @@ namespace OloEngine
             out << YAML::Key << "InitialRotation" << YAML::Value << emitter.InitialRotation;
             out << YAML::Key << "RotationVariance" << YAML::Value << emitter.RotationVariance;
             out << YAML::Key << "InitialColor" << YAML::Value << emitter.InitialColor;
-            out << YAML::Key << "EmissionShapeType" << YAML::Value << static_cast<int>(GetEmissionShapeType(emitter.Shape));
+            out << YAML::Key << "EmissionShapeType" << YAML::Value << std::to_underlying(GetEmissionShapeType(emitter.Shape));
 
             // Bursts
             out << YAML::Key << "Bursts" << YAML::Value << YAML::BeginSeq;
@@ -4389,7 +4389,7 @@ namespace OloEngine
 
             // Phase 2: Collision
             out << YAML::Key << "CollisionEnabled" << YAML::Value << sys.CollisionModule.Enabled;
-            out << YAML::Key << "CollisionMode" << YAML::Value << static_cast<int>(sys.CollisionModule.Mode);
+            out << YAML::Key << "CollisionMode" << YAML::Value << static_cast<int>(std::to_underlying(sys.CollisionModule.Mode));
             out << YAML::Key << "CollisionPlaneNormal" << YAML::Value << sys.CollisionModule.PlaneNormal;
             out << YAML::Key << "CollisionPlaneOffset" << YAML::Value << sys.CollisionModule.PlaneOffset;
             out << YAML::Key << "CollisionBounce" << YAML::Value << sys.CollisionModule.Bounce;
@@ -4402,7 +4402,7 @@ namespace OloEngine
             {
                 out << YAML::BeginMap;
                 out << YAML::Key << "Enabled" << YAML::Value << ff.Enabled;
-                out << YAML::Key << "Type" << YAML::Value << static_cast<int>(ff.Type);
+                out << YAML::Key << "Type" << YAML::Value << static_cast<int>(std::to_underlying(ff.Type));
                 out << YAML::Key << "Position" << YAML::Value << ff.Position;
                 out << YAML::Key << "Strength" << YAML::Value << ff.Strength;
                 out << YAML::Key << "Radius" << YAML::Value << ff.Radius;
@@ -4432,8 +4432,8 @@ namespace OloEngine
             out << YAML::Key << "WarmUpTime" << YAML::Value << sys.WarmUpTime;
 
             // Rendering settings
-            out << YAML::Key << "BlendMode" << YAML::Value << static_cast<int>(sys.BlendMode);
-            out << YAML::Key << "RenderMode" << YAML::Value << static_cast<int>(sys.RenderMode);
+            out << YAML::Key << "BlendMode" << YAML::Value << static_cast<int>(std::to_underlying(sys.BlendMode));
+            out << YAML::Key << "RenderMode" << YAML::Value << static_cast<int>(std::to_underlying(sys.RenderMode));
             out << YAML::Key << "DepthSortEnabled" << YAML::Value << sys.DepthSortEnabled;
             out << YAML::Key << "UseGPU" << YAML::Value << sys.UseGPU;
             out << YAML::Key << "SoftParticlesEnabled" << YAML::Value << sys.SoftParticlesEnabled;
@@ -4454,7 +4454,7 @@ namespace OloEngine
             out << YAML::Key << "TextureSheetGridX" << YAML::Value << sys.TextureSheetModule.GridX;
             out << YAML::Key << "TextureSheetGridY" << YAML::Value << sys.TextureSheetModule.GridY;
             out << YAML::Key << "TextureSheetTotalFrames" << YAML::Value << sys.TextureSheetModule.TotalFrames;
-            out << YAML::Key << "TextureSheetMode" << YAML::Value << static_cast<int>(sys.TextureSheetModule.Mode);
+            out << YAML::Key << "TextureSheetMode" << YAML::Value << static_cast<int>(std::to_underlying(sys.TextureSheetModule.Mode));
             out << YAML::Key << "TextureSheetSpeedRange" << YAML::Value << sys.TextureSheetModule.SpeedRange;
 
             out << YAML::EndMap; // ParticleSystemComponent
@@ -4653,7 +4653,7 @@ namespace OloEngine
             out << YAML::BeginMap;
 
             auto const& fv = entity.GetComponent<FogVolumeComponent>();
-            out << YAML::Key << "Shape" << YAML::Value << static_cast<i32>(fv.m_Shape);
+            out << YAML::Key << "Shape" << YAML::Value << std::to_underlying(fv.m_Shape);
             out << YAML::Key << "Extents" << YAML::Value << fv.m_Extents;
             out << YAML::Key << "Color" << YAML::Value << fv.m_Color;
             out << YAML::Key << "Density" << YAML::Value << fv.m_Density;
@@ -4693,7 +4693,7 @@ namespace OloEngine
             {
                 out << YAML::Key << "EmissiveTexturePath" << YAML::Value << dc.m_EmissiveTexture->GetPath();
             }
-            out << YAML::Key << "Mode" << YAML::Value << static_cast<u32>(dc.m_Mode);
+            out << YAML::Key << "Mode" << YAML::Value << static_cast<u32>(std::to_underlying(dc.m_Mode));
             out << YAML::Key << "Transparent" << YAML::Value << dc.m_Transparent;
 
             out << YAML::EndMap; // DecalComponent
@@ -4718,7 +4718,7 @@ namespace OloEngine
             out << YAML::BeginMap; // AnimationStateComponent
 
             auto const& animComponent = entity.GetComponent<AnimationStateComponent>();
-            out << YAML::Key << "State" << YAML::Value << static_cast<int>(animComponent.m_State);
+            out << YAML::Key << "State" << YAML::Value << std::to_underlying(animComponent.m_State);
             out << YAML::Key << "CurrentTime" << YAML::Value << animComponent.m_CurrentTime;
             out << YAML::Key << "BlendDuration" << YAML::Value << animComponent.m_BlendDuration;
             out << YAML::Key << "CurrentClipIndex" << YAML::Value << animComponent.m_CurrentClipIndex;
@@ -4852,7 +4852,7 @@ namespace OloEngine
 
             auto const& sv = entity.GetComponent<StreamingVolumeComponent>();
             out << YAML::Key << "RegionAssetHandle" << YAML::Value << sv.RegionAssetHandle;
-            out << YAML::Key << "ActivationMode" << YAML::Value << static_cast<i32>(sv.ActivationMode);
+            out << YAML::Key << "ActivationMode" << YAML::Value << static_cast<i32>(std::to_underlying(sv.ActivationMode));
             out << YAML::Key << "LoadRadius" << YAML::Value << sv.LoadRadius;
             out << YAML::Key << "UnloadRadius" << YAML::Value << sv.UnloadRadius;
 
@@ -4866,7 +4866,7 @@ namespace OloEngine
 
             auto const& nic = entity.GetComponent<NetworkIdentityComponent>();
             out << YAML::Key << "OwnerClientID" << YAML::Value << nic.OwnerClientID;
-            out << YAML::Key << "Authority" << YAML::Value << static_cast<i32>(nic.Authority);
+            out << YAML::Key << "Authority" << YAML::Value << static_cast<i32>(std::to_underlying(nic.Authority));
             out << YAML::Key << "IsReplicated" << YAML::Value << nic.IsReplicated;
 
             out << YAML::EndMap; // NetworkIdentityComponent
@@ -4914,7 +4914,7 @@ namespace OloEngine
             out << YAML::BeginMap;
 
             auto const& nlc = entity.GetComponent<NetworkLODComponent>();
-            out << YAML::Key << "Level" << YAML::Value << static_cast<i32>(nlc.Level);
+            out << YAML::Key << "Level" << YAML::Value << static_cast<i32>(std::to_underlying(nlc.Level));
 
             out << YAML::EndMap; // NetworkLODComponent
         }
@@ -5500,7 +5500,7 @@ namespace OloEngine
         out << YAML::BeginMap;
         {
             auto const& pp = m_Scene->GetPostProcessSettings();
-            out << YAML::Key << "TonemapOperator" << YAML::Value << static_cast<int>(pp.Tonemap);
+            out << YAML::Key << "TonemapOperator" << YAML::Value << std::to_underlying(pp.Tonemap);
             out << YAML::Key << "Exposure" << YAML::Value << pp.Exposure;
             out << YAML::Key << "Gamma" << YAML::Value << pp.Gamma;
             out << YAML::Key << "BloomEnabled" << YAML::Value << pp.BloomEnabled;
@@ -5795,7 +5795,7 @@ namespace OloEngine
         out << YAML::BeginMap;
         {
             auto const& pp = m_Scene->GetPostProcessSettings();
-            out << YAML::Key << "TonemapOperator" << YAML::Value << static_cast<int>(pp.Tonemap);
+            out << YAML::Key << "TonemapOperator" << YAML::Value << std::to_underlying(pp.Tonemap);
             out << YAML::Key << "Exposure" << YAML::Value << pp.Exposure;
             out << YAML::Key << "Gamma" << YAML::Value << pp.Gamma;
             out << YAML::Key << "BloomEnabled" << YAML::Value << pp.BloomEnabled;

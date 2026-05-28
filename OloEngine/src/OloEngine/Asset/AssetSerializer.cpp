@@ -300,7 +300,7 @@ namespace OloEngine
         const auto& spec = texture->GetSpecification();
         stream.WriteRaw<u32>(spec.Width);
         stream.WriteRaw<u32>(spec.Height);
-        stream.WriteRaw<u32>(static_cast<u32>(spec.Format));
+        stream.WriteRaw<u32>(static_cast<u32>(std::to_underlying(spec.Format)));
         stream.WriteRaw<bool>(spec.GenerateMips);
 
         // Write texture path for reference
@@ -847,13 +847,13 @@ namespace OloEngine
         const auto& spec = environment->GetSpecification();
         stream.WriteString(spec.FilePath);
         stream.WriteRaw(spec.Resolution);
-        stream.WriteRaw(static_cast<u32>(spec.Format));
+        stream.WriteRaw(static_cast<u32>(std::to_underlying(spec.Format)));
         stream.WriteRaw(spec.GenerateIBL);
         stream.WriteRaw(spec.GenerateMipmaps);
 
         // Serialize IBL configuration
         const auto& iblConfig = spec.IBLConfig;
-        stream.WriteRaw(static_cast<u32>(iblConfig.Quality));
+        stream.WriteRaw(static_cast<u32>(std::to_underlying(iblConfig.Quality)));
         stream.WriteRaw(iblConfig.UseImportanceSampling);
         stream.WriteRaw(iblConfig.UseSphericalHarmonics);
         stream.WriteRaw(iblConfig.IrradianceResolution);
@@ -4175,7 +4175,7 @@ namespace OloEngine
         out << YAML::Key << "Duration" << YAML::Value << sys.Duration;
         out << YAML::Key << "PlaybackSpeed" << YAML::Value << sys.PlaybackSpeed;
         out << YAML::Key << "WarmUpTime" << YAML::Value << sys.WarmUpTime;
-        out << YAML::Key << "SimulationSpace" << YAML::Value << static_cast<int>(sys.SimulationSpace);
+        out << YAML::Key << "SimulationSpace" << YAML::Value << static_cast<int>(std::to_underlying(sys.SimulationSpace));
 
         // Emitter
         out << YAML::Key << "RateOverTime" << YAML::Value << emitter.RateOverTime;
@@ -4201,7 +4201,7 @@ namespace OloEngine
         }
         out << YAML::EndSeq;
 
-        out << YAML::Key << "EmissionShapeType" << YAML::Value << static_cast<int>(GetEmissionShapeType(emitter.Shape));
+        out << YAML::Key << "EmissionShapeType" << YAML::Value << std::to_underlying(GetEmissionShapeType(emitter.Shape));
 
         if (auto* sphere = std::get_if<EmitSphere>(&emitter.Shape))
         {
@@ -4251,7 +4251,7 @@ namespace OloEngine
 
         // Phase 2 modules
         out << YAML::Key << "CollisionEnabled" << YAML::Value << sys.CollisionModule.Enabled;
-        out << YAML::Key << "CollisionMode" << YAML::Value << static_cast<int>(sys.CollisionModule.Mode);
+        out << YAML::Key << "CollisionMode" << YAML::Value << static_cast<int>(std::to_underlying(sys.CollisionModule.Mode));
         out << YAML::Key << "CollisionPlaneNormal" << YAML::Value << sys.CollisionModule.PlaneNormal;
         out << YAML::Key << "CollisionPlaneOffset" << YAML::Value << sys.CollisionModule.PlaneOffset;
         out << YAML::Key << "CollisionBounce" << YAML::Value << sys.CollisionModule.Bounce;
@@ -4262,7 +4262,7 @@ namespace OloEngine
         {
             out << YAML::BeginMap;
             out << YAML::Key << "Enabled" << YAML::Value << ff.Enabled;
-            out << YAML::Key << "Type" << YAML::Value << static_cast<int>(ff.Type);
+            out << YAML::Key << "Type" << YAML::Value << static_cast<int>(std::to_underlying(ff.Type));
             out << YAML::Key << "Position" << YAML::Value << ff.Position;
             out << YAML::Key << "Strength" << YAML::Value << ff.Strength;
             out << YAML::Key << "Radius" << YAML::Value << ff.Radius;
@@ -4283,7 +4283,7 @@ namespace OloEngine
         for (const auto& entry : sys.SubEmitterModule.Entries)
         {
             out << YAML::BeginMap;
-            out << YAML::Key << "Trigger" << YAML::Value << static_cast<int>(entry.Trigger);
+            out << YAML::Key << "Trigger" << YAML::Value << static_cast<int>(std::to_underlying(entry.Trigger));
             out << YAML::Key << "EmitCount" << YAML::Value << entry.EmitCount;
             out << YAML::Key << "InheritVelocity" << YAML::Value << entry.InheritVelocity;
             out << YAML::Key << "InheritVelocityScale" << YAML::Value << entry.InheritVelocityScale;
@@ -4295,8 +4295,8 @@ namespace OloEngine
         out << YAML::Key << "LODMaxDistance" << YAML::Value << sys.LODMaxDistance;
 
         // Rendering settings
-        out << YAML::Key << "BlendMode" << YAML::Value << static_cast<int>(sys.BlendMode);
-        out << YAML::Key << "RenderMode" << YAML::Value << static_cast<int>(sys.RenderMode);
+        out << YAML::Key << "BlendMode" << YAML::Value << static_cast<int>(std::to_underlying(sys.BlendMode));
+        out << YAML::Key << "RenderMode" << YAML::Value << static_cast<int>(std::to_underlying(sys.RenderMode));
         out << YAML::Key << "DepthSortEnabled" << YAML::Value << sys.DepthSortEnabled;
         out << YAML::Key << "UseGPU" << YAML::Value << sys.UseGPU;
         out << YAML::Key << "SoftParticlesEnabled" << YAML::Value << sys.SoftParticlesEnabled;
@@ -4308,7 +4308,7 @@ namespace OloEngine
         out << YAML::Key << "TextureSheetGridX" << YAML::Value << sys.TextureSheetModule.GridX;
         out << YAML::Key << "TextureSheetGridY" << YAML::Value << sys.TextureSheetModule.GridY;
         out << YAML::Key << "TextureSheetTotalFrames" << YAML::Value << sys.TextureSheetModule.TotalFrames;
-        out << YAML::Key << "TextureSheetMode" << YAML::Value << static_cast<int>(sys.TextureSheetModule.Mode);
+        out << YAML::Key << "TextureSheetMode" << YAML::Value << static_cast<int>(std::to_underlying(sys.TextureSheetModule.Mode));
         out << YAML::Key << "TextureSheetSpeedRange" << YAML::Value << sys.TextureSheetModule.SpeedRange;
 
         out << YAML::EndMap;

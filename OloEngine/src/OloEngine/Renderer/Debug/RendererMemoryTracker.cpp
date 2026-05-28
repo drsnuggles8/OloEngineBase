@@ -45,7 +45,7 @@ namespace OloEngine
         m_GPUMemoryHistory.resize(OLO_HISTORY_SIZE, 0.0f);
         m_CPUMemoryHistory.resize(OLO_HISTORY_SIZE, 0.0f);
         // Initialize type usage tracking
-        for (u32 i = 0; i < (u32)ResourceType::COUNT; ++i)
+        for (u32 i = 0; i < static_cast<u32>(std::to_underlying(ResourceType::COUNT)); ++i)
         {
             m_TypeUsage[i] = 0;
             m_TypeCounts[i] = 0;
@@ -120,7 +120,7 @@ namespace OloEngine
 
         sizet total = 0;
         sizet nonZero = 0;
-        for (sizet i = 0; i < static_cast<sizet>(ResourceType::COUNT); ++i)
+        for (sizet i = 0; i < static_cast<sizet>(std::to_underlying(ResourceType::COUNT)); ++i)
         {
             total += m_TypeUsage[i];
             if (m_TypeUsage[i] > 0)
@@ -132,7 +132,7 @@ namespace OloEngine
 
         if (nonZero > 0)
         {
-            for (sizet i = 0; i < static_cast<sizet>(ResourceType::COUNT); ++i)
+            for (sizet i = 0; i < static_cast<sizet>(std::to_underlying(ResourceType::COUNT)); ++i)
             {
                 if (m_TypeUsage[i] > 0)
                 {
@@ -170,9 +170,9 @@ namespace OloEngine
         }
 
         m_Allocations[address] = info;
-        m_TypeUsage[static_cast<sizet>(type)] += size;
+        m_TypeUsage[static_cast<sizet>(std::to_underlying(type))] += size;
 
-        m_TypeCounts[static_cast<sizet>(type)]++;
+        m_TypeCounts[static_cast<sizet>(std::to_underlying(type))]++;
         m_TotalAllocations++;
 
         // Calculate total usage inline (avoid double locking)
@@ -218,8 +218,8 @@ namespace OloEngine
             if (it != m_Allocations.end())
             {
                 const AllocationInfo& info = it->second;
-                m_TypeUsage[static_cast<sizet>(info.m_Type)] -= info.m_Size;
-                m_TypeCounts[static_cast<sizet>(info.m_Type)]--;
+                m_TypeUsage[static_cast<sizet>(std::to_underlying(info.m_Type))] -= info.m_Size;
+                m_TypeCounts[static_cast<sizet>(std::to_underlying(info.m_Type))]--;
                 m_Allocations.erase(it);
                 m_TotalDeallocations++;
             }
@@ -335,14 +335,14 @@ namespace OloEngine
 
         // Calculate total memory usage inline (avoid double locking)
         sizet totalMemory = 0;
-        for (sizet i = 0; i < static_cast<sizet>(ResourceType::COUNT); ++i)
+        for (sizet i = 0; i < static_cast<sizet>(std::to_underlying(ResourceType::COUNT)); ++i)
         {
             totalMemory += m_TypeUsage[i];
         }
 
         // Debug output to see what's in the type usage array
         sizet nonZeroEntries = 0;
-        for (sizet i = 0; i < static_cast<sizet>(ResourceType::COUNT); ++i)
+        for (sizet i = 0; i < static_cast<sizet>(std::to_underlying(ResourceType::COUNT)); ++i)
         {
             if (m_TypeUsage[i] > 0)
                 nonZeroEntries++;
@@ -354,7 +354,7 @@ namespace OloEngine
         {
             OLO_CORE_TRACE("RendererMemoryTracker: TypeUsage array has {} entries, total = {} bytes",
                            nonZeroEntries, totalMemory);
-            for (sizet i = 0; i < static_cast<sizet>(ResourceType::COUNT); ++i)
+            for (sizet i = 0; i < static_cast<sizet>(std::to_underlying(ResourceType::COUNT)); ++i)
             {
                 if (m_TypeUsage[i] > 0)
                 {
@@ -375,7 +375,7 @@ namespace OloEngine
 
         ImGui::Separator();
         // Memory by type        ImGui::Text("Memory Usage by Type:");
-        for (u32 i = 0; i < (u32)ResourceType::COUNT; ++i)
+        for (u32 i = 0; i < static_cast<u32>(std::to_underlying(ResourceType::COUNT)); ++i)
         {
             ResourceType type = (ResourceType)i;
 
@@ -429,7 +429,7 @@ namespace OloEngine
                 // Apply filters - fix the type filter mapping
                 // s_TypeFilter: 0=All, 1=VertexBuffer, 2=IndexBuffer, etc.
                 // ResourceType enum: VertexBuffer=0, IndexBuffer=1, etc.
-                if (s_TypeFilter > 0 && (s_TypeFilter - 1) != (i32)info.m_Type)
+                if (s_TypeFilter > 0 && (s_TypeFilter - 1) != static_cast<i32>(std::to_underlying(info.m_Type)))
                     continue;
                 if (s_ShowGPUOnly && !info.m_IsGPU)
                     continue;
@@ -626,7 +626,7 @@ namespace OloEngine
         }
 
         // Display statistics for each resource type
-        for (u32 i = 0; i < (u32)ResourceType::COUNT; ++i)
+        for (u32 i = 0; i < static_cast<u32>(std::to_underlying(ResourceType::COUNT)); ++i)
         {
             ResourceType type = (ResourceType)i;
             if (allocationSizes.find(type) == allocationSizes.end())
@@ -708,7 +708,7 @@ namespace OloEngine
     sizet RendererMemoryTracker::GetMemoryUsage(ResourceType type) const
     {
         TUniqueLock<FMutex> lock(m_Mutex);
-        return m_TypeUsage[static_cast<sizet>(type)];
+        return m_TypeUsage[static_cast<sizet>(std::to_underlying(type))];
     }
 
     sizet RendererMemoryTracker::GetTotalMemoryUsage() const
@@ -720,7 +720,7 @@ namespace OloEngine
     sizet RendererMemoryTracker::GetTotalMemoryUsageUnlocked() const
     {
         sizet total = 0;
-        for (sizet i = 0; i < static_cast<sizet>(ResourceType::COUNT); ++i)
+        for (sizet i = 0; i < static_cast<sizet>(std::to_underlying(ResourceType::COUNT)); ++i)
         {
             total += m_TypeUsage[i];
         }
@@ -729,7 +729,7 @@ namespace OloEngine
     u32 RendererMemoryTracker::GetAllocationCount(ResourceType type) const
     {
         TUniqueLock<FMutex> lock(m_Mutex);
-        return m_TypeCounts[static_cast<sizet>(type)];
+        return m_TypeCounts[static_cast<sizet>(std::to_underlying(type))];
     }
 
     std::vector<RendererMemoryTracker::LeakInfo> RendererMemoryTracker::DetectLeaks() const
@@ -827,7 +827,7 @@ namespace OloEngine
             TUniqueLock<FMutex> lock(m_Mutex);
             // Calculate total memory usage inline (avoid double locking)
             sizet totalMemoryUsage = 0;
-            for (sizet i = 0; i < static_cast<sizet>(ResourceType::COUNT); ++i)
+            for (sizet i = 0; i < static_cast<sizet>(std::to_underlying(ResourceType::COUNT)); ++i)
             {
                 totalMemoryUsage += m_TypeUsage[i];
             }
@@ -844,7 +844,7 @@ namespace OloEngine
             file << "Total Deallocations: " << m_TotalDeallocations << "\n\n";
 
             file << "Memory by Type:\n";
-            for (u32 i = 0; i < (u32)ResourceType::COUNT; ++i)
+            for (u32 i = 0; i < static_cast<u32>(std::to_underlying(ResourceType::COUNT)); ++i)
             {
                 ResourceType type = (ResourceType)i;
 

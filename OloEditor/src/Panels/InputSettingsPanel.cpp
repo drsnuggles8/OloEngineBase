@@ -440,7 +440,7 @@ namespace OloEngine
                 continue;
             }
 
-            for (u32 b = 0; b < static_cast<u32>(GamepadButton::Count); ++b)
+            for (u32 b = 0; b < static_cast<u32>(std::to_underlying(GamepadButton::Count)); ++b)
             {
                 auto btn = static_cast<GamepadButton>(b);
                 if (gp->IsButtonJustPressed(btn))

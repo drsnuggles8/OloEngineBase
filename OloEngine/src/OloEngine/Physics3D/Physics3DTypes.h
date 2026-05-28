@@ -7,6 +7,7 @@
 #include <functional>
 #include <stdexcept>
 #include <vector>
+#include <utility>
 
 namespace OloEngine
 {
@@ -77,7 +78,7 @@ namespace OloEngine
 
     namespace ShapeUtils
     {
-        constexpr sizet MaxShapeTypes = (sizet)ShapeType::LAST; // depends on LAST sentinel value — do not add entries after LAST
+        constexpr sizet MaxShapeTypes = static_cast<sizet>(std::to_underlying(ShapeType::LAST)); // depends on LAST sentinel value — do not add entries after LAST
 
         inline const char* ShapeTypeToString(ShapeType type)
         {
@@ -144,22 +145,22 @@ namespace OloEngine
     // Bitwise operators for EActorAxis
     constexpr inline EActorAxis operator|(EActorAxis a, EActorAxis b)
     {
-        return static_cast<EActorAxis>(static_cast<u32>(a) | static_cast<u32>(b));
+        return static_cast<EActorAxis>(std::to_underlying(a) | std::to_underlying(b));
     }
 
     constexpr inline EActorAxis operator&(EActorAxis a, EActorAxis b)
     {
-        return static_cast<EActorAxis>(static_cast<u32>(a) & static_cast<u32>(b));
+        return static_cast<EActorAxis>(std::to_underlying(a) & std::to_underlying(b));
     }
 
     constexpr inline EActorAxis operator^(EActorAxis a, EActorAxis b)
     {
-        return static_cast<EActorAxis>(static_cast<u32>(a) ^ static_cast<u32>(b));
+        return static_cast<EActorAxis>(std::to_underlying(a) ^ std::to_underlying(b));
     }
 
     constexpr inline EActorAxis operator~(EActorAxis a)
     {
-        return static_cast<EActorAxis>(~static_cast<u32>(a) & AxisMask);
+        return static_cast<EActorAxis>(~std::to_underlying(a) & AxisMask);
     }
 
     constexpr inline EActorAxis& operator|=(EActorAxis& a, EActorAxis b)

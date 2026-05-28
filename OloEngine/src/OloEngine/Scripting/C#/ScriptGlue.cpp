@@ -806,15 +806,15 @@ namespace OloEngine
         Scene* scene = ScriptEngine::GetSceneContext();
         if (!scene)
         {
-            return static_cast<i32>(SaveLoadResult::NoActiveScene);
+            return static_cast<i32>(std::to_underlying(SaveLoadResult::NoActiveScene));
         }
         if (!slotName)
         {
-            return static_cast<i32>(SaveLoadResult::InvalidInput);
+            return static_cast<i32>(std::to_underlying(SaveLoadResult::InvalidInput));
         }
         std::string slot = Utils::MonoStringToString(slotName);
         std::string name = displayName ? Utils::MonoStringToString(displayName) : slot;
-        return static_cast<i32>(SaveGameManager::Save(*scene, slot, name));
+        return static_cast<i32>(std::to_underlying(SaveGameManager::Save(*scene, slot, name)));
     }
 
     static i32 SaveGame_Load(MonoString* slotName)
@@ -824,14 +824,14 @@ namespace OloEngine
         Scene* scene = ScriptEngine::GetSceneContext();
         if (!scene)
         {
-            return static_cast<i32>(SaveLoadResult::NoActiveScene);
+            return static_cast<i32>(std::to_underlying(SaveLoadResult::NoActiveScene));
         }
         if (!slotName)
         {
-            return static_cast<i32>(SaveLoadResult::InvalidInput);
+            return static_cast<i32>(std::to_underlying(SaveLoadResult::InvalidInput));
         }
         std::string slot = Utils::MonoStringToString(slotName);
-        return static_cast<i32>(SaveGameManager::Load(*scene, slot));
+        return static_cast<i32>(std::to_underlying(SaveGameManager::Load(*scene, slot)));
     }
 
     static i32 SaveGame_QuickSave()
@@ -841,9 +841,9 @@ namespace OloEngine
         Scene* scene = ScriptEngine::GetSceneContext();
         if (!scene)
         {
-            return static_cast<i32>(SaveLoadResult::NoActiveScene);
+            return static_cast<i32>(std::to_underlying(SaveLoadResult::NoActiveScene));
         }
-        return static_cast<i32>(SaveGameManager::QuickSave(*scene));
+        return static_cast<i32>(std::to_underlying(SaveGameManager::QuickSave(*scene)));
     }
 
     static i32 SaveGame_QuickLoad()
@@ -853,9 +853,9 @@ namespace OloEngine
         Scene* scene = ScriptEngine::GetSceneContext();
         if (!scene)
         {
-            return static_cast<i32>(SaveLoadResult::NoActiveScene);
+            return static_cast<i32>(std::to_underlying(SaveLoadResult::NoActiveScene));
         }
-        return static_cast<i32>(SaveGameManager::QuickLoad(*scene));
+        return static_cast<i32>(std::to_underlying(SaveGameManager::QuickLoad(*scene)));
     }
 
     static bool SaveGame_DeleteSave(MonoString* slotName)

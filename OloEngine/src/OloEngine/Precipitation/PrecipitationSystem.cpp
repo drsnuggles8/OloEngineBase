@@ -485,7 +485,7 @@ namespace OloEngine
             settings.ScreenStreaksEnabled ? 1.0f : 0.0f);
         gpu.ParticleColor = settings.ParticleColor;
         gpu.TypeParams = glm::vec4(
-            static_cast<f32>(static_cast<i32>(settings.Type)),
+            static_cast<f32>(std::to_underlying(settings.Type)),
             0.0f, 0.0f, 0.0f);
 
         s_Data.m_PrecipitationUBO->SetData(&gpu, PrecipitationUBOData::GetSize());

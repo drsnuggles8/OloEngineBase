@@ -391,7 +391,7 @@ namespace OloEngine
             // require GL_NEAREST (per the GL 4.6 spec); MSAA → single-
             // sample resolution takes sample 0, which is correct for
             // discrete entity IDs.
-            glNamedFramebufferReadBuffer(samplingFBID, GL_COLOR_ATTACHMENT0 + static_cast<GLenum>(GBuffer::EntityID));
+            glNamedFramebufferReadBuffer(samplingFBID, GL_COLOR_ATTACHMENT0 + static_cast<GLenum>(std::to_underlying(GBuffer::EntityID)));
             glNamedFramebufferDrawBuffer(sceneFBID, GL_COLOR_ATTACHMENT1);
             glBlitNamedFramebuffer(
                 samplingFBID, sceneFBID,

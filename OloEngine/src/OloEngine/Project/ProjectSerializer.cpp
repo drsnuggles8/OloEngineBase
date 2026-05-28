@@ -264,7 +264,7 @@ namespace OloEngine
                 out << YAML::Key << "ShadowResolution" << YAML::Value << qt.ShadowResolution;
                 out << YAML::Key << "ShadowSoftness" << YAML::Value << qt.ShadowSoftness;
                 out << YAML::Key << "ShadowEnabled" << YAML::Value << qt.ShadowEnabled;
-                out << YAML::Key << "AO" << YAML::Value << static_cast<i32>(qt.AO);
+                out << YAML::Key << "AO" << YAML::Value << std::to_underlying(qt.AO);
                 out << YAML::Key << "SSAOSamples" << YAML::Value << qt.SSAOSamples;
                 out << YAML::Key << "SSAORadius" << YAML::Value << qt.SSAORadius;
                 out << YAML::Key << "SSAOBias" << YAML::Value << qt.SSAOBias;
@@ -319,7 +319,7 @@ namespace OloEngine
                 out << YAML::Key << "CaptureOnPlay" << YAML::Value << physicsSettings.m_CaptureOnPlay;
 
                 out << YAML::Comment("Physics capture method (0: DebugToFile, 1: LiveDebug)");
-                out << YAML::Key << "CaptureMethod" << YAML::Value << static_cast<i32>(physicsSettings.m_CaptureMethod);
+                out << YAML::Key << "CaptureMethod" << YAML::Value << std::to_underlying(physicsSettings.m_CaptureMethod);
 
                 // Advanced Jolt settings with range documentation
                 out << YAML::Comment("Baumgarte stabilization factor (range: 0.01-1.0, default: 0.2)");
@@ -613,7 +613,7 @@ namespace OloEngine
             }
             if (auto n = tieringNode["AO"]; n && n.IsScalar())
             {
-                auto raw = n.as<i32>(static_cast<i32>(qt.AO));
+                auto raw = n.as<i32>(std::to_underlying(qt.AO));
                 qt.AO = static_cast<AOTechnique>(std::clamp(raw, 0, 2));
             }
             if (auto n = tieringNode["SSAOSamples"]; n && n.IsScalar())
@@ -716,11 +716,11 @@ namespace OloEngine
             // CaptureMethod requires special handling due to enum cast with validation
             if (physicsNode["CaptureMethod"].IsDefined())
             {
-                i32 captureMethodValue = physicsNode["CaptureMethod"].as<i32>(static_cast<i32>(physicsSettings.m_CaptureMethod));
+                i32 captureMethodValue = physicsNode["CaptureMethod"].as<i32>(std::to_underlying(physicsSettings.m_CaptureMethod));
 
                 // Validate enum bounds - PhysicsDebugType has DebugToFile=0 and LiveDebug=1
-                constexpr i32 minValidValue = static_cast<i32>(PhysicsDebugType::DebugToFile);
-                constexpr i32 maxValidValue = static_cast<i32>(PhysicsDebugType::LiveDebug);
+                constexpr i32 minValidValue = std::to_underlying(PhysicsDebugType::DebugToFile);
+                constexpr i32 maxValidValue = std::to_underlying(PhysicsDebugType::LiveDebug);
 
                 if (captureMethodValue >= minValidValue && captureMethodValue <= maxValidValue)
                 {

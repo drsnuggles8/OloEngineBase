@@ -338,7 +338,7 @@ namespace OloEngine
         // View mode selector
         ImGui::Text("View:");
         ImGui::SameLine();
-        i32 viewMode = static_cast<i32>(m_CommandViewMode);
+        i32 viewMode = std::to_underlying(m_CommandViewMode);
         ImGui::RadioButton("Pre-Sort", &viewMode, 0);
         ImGui::SameLine();
         ImGui::RadioButton("Post-Sort", &viewMode, 1);

@@ -698,11 +698,11 @@ namespace OloEngine
     {
         if (locked)
         {
-            m_LockedAxes = static_cast<EActorAxis>(static_cast<u32>(m_LockedAxes) | static_cast<u32>(axis));
+            m_LockedAxes = static_cast<EActorAxis>(std::to_underlying(m_LockedAxes) | std::to_underlying(axis));
         }
         else
         {
-            m_LockedAxes = static_cast<EActorAxis>(static_cast<u32>(m_LockedAxes) & ~static_cast<u32>(axis));
+            m_LockedAxes = static_cast<EActorAxis>(std::to_underlying(m_LockedAxes) & ~std::to_underlying(axis));
         }
 
         // Update component
@@ -717,7 +717,7 @@ namespace OloEngine
 
     bool JoltBody::IsAxisLocked(EActorAxis axis) const
     {
-        return (static_cast<u32>(m_LockedAxes) & static_cast<u32>(axis)) != 0;
+        return (std::to_underlying(m_LockedAxes) & std::to_underlying(axis)) != 0;
     }
 
     EActorAxis JoltBody::GetLockedAxes() const

@@ -564,15 +564,15 @@ namespace OloEngine
 
         if (f32 dotUp = inContact.mContactNormal.Dot(up); dotUp > kCollisionAngleDotThreshold) // Roughly 45 degrees
         {
-            m_CollisionFlags = static_cast<ECollisionFlags>(static_cast<u8>(m_CollisionFlags) | static_cast<u8>(ECollisionFlags::Below));
+            m_CollisionFlags = static_cast<ECollisionFlags>(std::to_underlying(m_CollisionFlags) | std::to_underlying(ECollisionFlags::Below));
         }
         else if (dotUp < -kCollisionAngleDotThreshold)
         {
-            m_CollisionFlags = static_cast<ECollisionFlags>(static_cast<u8>(m_CollisionFlags) | static_cast<u8>(ECollisionFlags::Above));
+            m_CollisionFlags = static_cast<ECollisionFlags>(std::to_underlying(m_CollisionFlags) | std::to_underlying(ECollisionFlags::Above));
         }
         else
         {
-            m_CollisionFlags = static_cast<ECollisionFlags>(static_cast<u8>(m_CollisionFlags) | static_cast<u8>(ECollisionFlags::Sides));
+            m_CollisionFlags = static_cast<ECollisionFlags>(std::to_underlying(m_CollisionFlags) | std::to_underlying(ECollisionFlags::Sides));
         }
 
         // Check if it's a sensor/trigger by querying the physics body

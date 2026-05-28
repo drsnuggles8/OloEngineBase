@@ -6,6 +6,8 @@
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Task/LowLevelTask.h"
 
+#include <utility>
+
 namespace OloEngine::Tasks
 {
     // @enum EExtendedTaskPriority
@@ -79,7 +81,7 @@ namespace OloEngine::Tasks
             "NetworkThreadNormalPriLocalQueue",
             "NetworkThreadHiPriLocalQueue"
         };
-        return ExtendedTaskPriorityToStr[static_cast<i32>(ExtendedPriority)];
+        return ExtendedTaskPriorityToStr[static_cast<i32>(std::to_underlying(ExtendedPriority))];
     }
 
     // @brief Parse string to extended priority

@@ -456,7 +456,7 @@ TEST(RenderGraphPathSwitch, ThreeWayCycleCleansUpAllPathSpecificPasses)
 
         const auto hazards = graph.ValidateResourceHazards();
         EXPECT_TRUE(hazards.empty())
-            << "Cycle " << i << " path=" << static_cast<i32>(steps[i].path)
+            << "Cycle " << i << " path=" << static_cast<i32>(std::to_underlying(steps[i].path))
             << ": " << HazardsToString(hazards);
 
         EXPECT_EQ(graph.GetNodeSubmissionInfo().size(), steps[i].expected)

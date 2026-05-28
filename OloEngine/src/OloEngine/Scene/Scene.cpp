@@ -1533,19 +1533,19 @@ namespace OloEngine
                                                              for (const auto group = m_Registry.group<TransformComponent>(entt::get<SpriteRendererComponent>); const auto entity : group)
                                                              {
                                                                  const auto [transform, sprite] = group.get<TransformComponent, SpriteRendererComponent>(entity);
-                                                                 Renderer2D::DrawSprite(transform.GetTransform(), sprite, static_cast<int>(entity));
+                                                                 Renderer2D::DrawSprite(transform.GetTransform(), sprite, static_cast<int>(std::to_underlying(entity)));
                                                              }
 
                                                              for (const auto view = m_Registry.view<TransformComponent, CircleRendererComponent>(); const auto entity : view)
                                                              {
                                                                  const auto [transform, circle] = view.get<TransformComponent, CircleRendererComponent>(entity);
-                                                                 Renderer2D::DrawCircle(transform.GetTransform(), circle.Color, circle.Thickness, circle.Fade, static_cast<int>(entity));
+                                                                 Renderer2D::DrawCircle(transform.GetTransform(), circle.Color, circle.Thickness, circle.Fade, static_cast<int>(std::to_underlying(entity)));
                                                              }
 
                                                              for (const auto view = m_Registry.view<TransformComponent, TextComponent>(); const auto entity : view)
                                                              {
                                                                  const auto [transform, text] = view.get<TransformComponent, TextComponent>(entity);
-                                                                 DrawTextWithShadow(text, transform, static_cast<int>(entity));
+                                                                 DrawTextWithShadow(text, transform, static_cast<int>(std::to_underlying(entity)));
                                                              }
 
                                                              Renderer2D::EndScene();
@@ -1573,19 +1573,19 @@ namespace OloEngine
                 for (const auto group = m_Registry.group<TransformComponent>(entt::get<SpriteRendererComponent>); const auto entity : group)
                 {
                     const auto [transform, sprite] = group.get<TransformComponent, SpriteRendererComponent>(entity);
-                    Renderer2D::DrawSprite(transform.GetTransform(), sprite, static_cast<int>(entity));
+                    Renderer2D::DrawSprite(transform.GetTransform(), sprite, static_cast<int>(std::to_underlying(entity)));
                 }
 
                 for (const auto view = m_Registry.view<TransformComponent, CircleRendererComponent>(); const auto entity : view)
                 {
                     const auto [transform, circle] = view.get<TransformComponent, CircleRendererComponent>(entity);
-                    Renderer2D::DrawCircle(transform.GetTransform(), circle.Color, circle.Thickness, circle.Fade, static_cast<int>(entity));
+                    Renderer2D::DrawCircle(transform.GetTransform(), circle.Color, circle.Thickness, circle.Fade, static_cast<int>(std::to_underlying(entity)));
                 }
 
                 for (const auto view = m_Registry.view<TransformComponent, TextComponent>(); const auto entity : view)
                 {
                     const auto [transform, text] = view.get<TransformComponent, TextComponent>(entity);
-                    DrawTextWithShadow(text, transform, static_cast<int>(entity));
+                    DrawTextWithShadow(text, transform, static_cast<int>(std::to_underlying(entity)));
                 }
 
                 // 2D particles (3D particles are rendered by ParticleRenderPass)
@@ -1598,14 +1598,14 @@ namespace OloEngine
                     const ModuleTextureSheetAnimation* sheet = sys.TextureSheetModule.Enabled ? &sys.TextureSheetModule : nullptr;
 
                     SetParticleBlendMode(sys.BlendMode);
-                    ParticleRenderer::RenderParticles2D(sys.GetPool(), psc.Texture, offset, static_cast<int>(entity), nullptr, sheet);
+                    ParticleRenderer::RenderParticles2D(sys.GetPool(), psc.Texture, offset, static_cast<int>(std::to_underlying(entity)), nullptr, sheet);
 
                     for (sizet c = 0; c < psc.ChildSystems.size(); ++c)
                     {
                         auto& childSys = psc.ChildSystems[c];
                         SetParticleBlendMode(childSys.BlendMode);
                         Ref<Texture2D> childTex = (c < psc.ChildTextures.size()) ? psc.ChildTextures[c] : nullptr;
-                        ParticleRenderer::RenderParticles2D(childSys.GetPool(), childTex, offset, static_cast<int>(entity), nullptr, nullptr);
+                        ParticleRenderer::RenderParticles2D(childSys.GetPool(), childTex, offset, static_cast<int>(std::to_underlying(entity)), nullptr, nullptr);
                     }
 
                     RestoreDefaultBlendMode();
@@ -1908,7 +1908,7 @@ namespace OloEngine
                                                              for (const auto view = m_Registry.view<TransformComponent, TextComponent>(); const auto entity : view)
                                                              {
                                                                  const auto [transform, text] = view.get<TransformComponent, TextComponent>(entity);
-                                                                 DrawTextWithShadow(text, transform, static_cast<int>(entity));
+                                                                 DrawTextWithShadow(text, transform, static_cast<int>(std::to_underlying(entity)));
                                                              }
 
                                                              Renderer2D::EndScene();
@@ -2598,13 +2598,13 @@ namespace OloEngine
                       {
                           return sortA < sortB;
                       }
-                      return static_cast<u32>(a) < static_cast<u32>(b);
+                      return std::to_underlying(a) < std::to_underlying(b);
                   });
 
         for (const auto entity : uiEntities)
         {
             auto& resolved = m_Registry.get<UIResolvedRectComponent>(entity);
-            const int eid = static_cast<int>(entity);
+            const int eid = static_cast<int>(std::to_underlying(entity));
 
             if (m_Registry.all_of<UIPanelComponent>(entity))
             {
@@ -2687,7 +2687,7 @@ namespace OloEngine
                 const glm::vec3 ndc = glm::vec3(clipPos) / clipPos.w;
                 const f32 screenX = (ndc.x * 0.5f + 0.5f) * static_cast<f32>(m_ViewportWidth);
                 const f32 screenY = (1.0f - (ndc.y * 0.5f + 0.5f)) * static_cast<f32>(m_ViewportHeight);
-                const int eid = static_cast<int>(entity);
+                const int eid = static_cast<int>(std::to_underlying(entity));
 
                 // Read health/mana from AbilityComponent
                 f32 hp = 0.0f;
@@ -2756,7 +2756,7 @@ namespace OloEngine
             {
                 const auto [transform, sprite] = view.get<TransformComponent, SpriteRendererComponent>(entity);
 
-                Renderer2D::DrawSprite(transform.GetTransform(), sprite, static_cast<int>(entity));
+                Renderer2D::DrawSprite(transform.GetTransform(), sprite, static_cast<int>(std::to_underlying(entity)));
             }
         }
 
@@ -2766,7 +2766,7 @@ namespace OloEngine
             {
                 const auto [transform, circle] = view.get<TransformComponent, CircleRendererComponent>(entity);
 
-                Renderer2D::DrawCircle(transform.GetTransform(), circle.Color, circle.Thickness, circle.Fade, static_cast<int>(entity));
+                Renderer2D::DrawCircle(transform.GetTransform(), circle.Color, circle.Thickness, circle.Fade, static_cast<int>(std::to_underlying(entity)));
             }
         }
 
@@ -2775,7 +2775,7 @@ namespace OloEngine
             for (const auto view = m_Registry.view<TransformComponent, TextComponent>(); const auto entity : view)
             {
                 const auto [transform, text] = view.get<TransformComponent, TextComponent>(entity);
-                DrawTextWithShadow(text, transform, static_cast<int>(entity));
+                DrawTextWithShadow(text, transform, static_cast<int>(std::to_underlying(entity)));
             }
         }
 
@@ -2790,14 +2790,14 @@ namespace OloEngine
                 const ModuleTextureSheetAnimation* sheet = sys.TextureSheetModule.Enabled ? &sys.TextureSheetModule : nullptr;
 
                 SetParticleBlendMode(sys.BlendMode);
-                ParticleRenderer::RenderParticles2D(sys.GetPool(), psc.Texture, offset, static_cast<int>(entity), nullptr, sheet);
+                ParticleRenderer::RenderParticles2D(sys.GetPool(), psc.Texture, offset, static_cast<int>(std::to_underlying(entity)), nullptr, sheet);
 
                 for (sizet c = 0; c < psc.ChildSystems.size(); ++c)
                 {
                     auto& childSys = psc.ChildSystems[c];
                     SetParticleBlendMode(childSys.BlendMode);
                     Ref<Texture2D> childTex = (c < psc.ChildTextures.size()) ? psc.ChildTextures[c] : nullptr;
-                    ParticleRenderer::RenderParticles2D(childSys.GetPool(), childTex, offset, static_cast<int>(entity), nullptr, nullptr);
+                    ParticleRenderer::RenderParticles2D(childSys.GetPool(), childTex, offset, static_cast<int>(std::to_underlying(entity)), nullptr, nullptr);
                 }
 
                 RestoreDefaultBlendMode();
@@ -3384,7 +3384,7 @@ namespace OloEngine
                 vol.WorldToLocal = glm::inverse(worldTransform);
                 vol.ColorAndDensity = glm::vec4(entry.fv->m_Color, entry.fv->m_Density);
                 vol.ShapeAndFalloff = glm::vec4(
-                    static_cast<f32>(static_cast<i32>(entry.fv->m_Shape)),
+                    static_cast<f32>(std::to_underlying(entry.fv->m_Shape)),
                     entry.fv->m_FalloffDistance,
                     entry.fv->m_BlendWeight,
                     entry.fv->m_AffectTransparent ? 1.0f : 0.0f);
@@ -3598,7 +3598,7 @@ namespace OloEngine
                             armArrayID = mat->GetARMArray()->GetRendererID();
                     }
 
-                    i32 entityID = static_cast<i32>(static_cast<u32>(entity));
+                    i32 entityID = static_cast<i32>(std::to_underlying(entity));
 
                     if (terrainShader)
                     {
@@ -3819,7 +3819,7 @@ namespace OloEngine
                     }
 
                     foliage.m_Renderer->SetTime(animationTime, prevAnimationTime);
-                    i32 entityID = static_cast<i32>(static_cast<u32>(foliageEntity));
+                    i32 entityID = static_cast<i32>(std::to_underlying(foliageEntity));
                     glm::mat4 modelMat = foliageTransform.GetTransform();
 
                     auto layerInfos = foliage.m_Renderer->GetActiveLayerDrawInfo();
@@ -3884,7 +3884,7 @@ namespace OloEngine
                         continue;
                     }
 
-                    i32 entityID = static_cast<i32>(static_cast<u32>(entity));
+                    i32 entityID = static_cast<i32>(std::to_underlying(entity));
                     glm::mat4 modelMat = transform.GetTransform();
 
                     // Pack component fields into WaterDrawParams
@@ -4175,7 +4175,7 @@ namespace OloEngine
                         rmaTextureID,
                         static_cast<DrawDecalCommand::DecalMode>(decal.m_Mode),
                         decal.m_Transparent,
-                        static_cast<i32>(static_cast<u32>(entity)));
+                        static_cast<i32>(std::to_underlying(entity)));
 
                     if (packet)
                     {
@@ -4222,7 +4222,7 @@ namespace OloEngine
                                      m_Registry.get<MaterialComponent>(entity).m_Material.GetAlphaMode() == AlphaMode::Opaque));
 
                 // Convert entt entity to int for entity ID picking
-                i32 entityID = static_cast<i32>(static_cast<u32>(entity));
+                i32 entityID = static_cast<i32>(std::to_underlying(entity));
 
                 // Get LOD group if present and enabled
                 const LODGroup* lodGroup = nullptr;
@@ -4333,7 +4333,7 @@ namespace OloEngine
                                                       ? m_Registry.get<MaterialComponent>(entity).m_Material
                                                       : GetDefaultMaterial());
 
-                const u64 ownerKey = static_cast<u64>(static_cast<u32>(entity));
+                const u64 ownerKey = static_cast<u64>(std::to_underlying(entity));
 
                 const bool castsShadow = imc.CastShadows && meshHasActiveShadows &&
                                          material.GetAlphaMode() == AlphaMode::Opaque &&
@@ -4403,7 +4403,7 @@ namespace OloEngine
                                      m_Registry.get<MaterialComponent>(entity).m_Material.GetAlphaMode() == AlphaMode::Opaque));
 
                 // Convert entt entity to int for entity ID picking
-                i32 entityID = static_cast<i32>(static_cast<u32>(entity));
+                i32 entityID = static_cast<i32>(std::to_underlying(entity));
 
                 // Get LOD group if present and enabled
                 const LODGroup* lodGroup = nullptr;
@@ -4449,7 +4449,7 @@ namespace OloEngine
                 // Model::DrawParallel uses the model's own materials loaded from file
                 // Pass entity ID for mouse picking support
                 const auto modelTransform = transform.GetTransform();
-                model.m_Model->DrawParallel(modelTransform, static_cast<int>(entity));
+                model.m_Model->DrawParallel(modelTransform, static_cast<int>(std::to_underlying(entity)));
 
                 // Submit each submesh as a shadow caster — Model::DrawParallel
                 // only enqueues color draws, so without this loop ModelComponent
@@ -4511,7 +4511,7 @@ namespace OloEngine
                 const auto& prevBoneMatrices = skeleton.m_Skeleton->m_PrevFinalBoneMatrices;
 
                 // Convert entt entity to int for entity ID picking
-                i32 entityID = static_cast<i32>(static_cast<u32>(entity));
+                i32 entityID = static_cast<i32>(std::to_underlying(entity));
 
                 // Exclude alpha-masked/blended materials (see MeshComponent
                 // branch comment above for the underlying shader limitation).
@@ -4582,7 +4582,7 @@ namespace OloEngine
                     continue;
                 }
 
-                i32 entityID = static_cast<i32>(static_cast<u32>(entity));
+                i32 entityID = static_cast<i32>(std::to_underlying(entity));
                 glm::mat4 baseTransform = transform.GetTransform();
 
                 for (u32 z = 0; z < tileComp.Height; ++z)
@@ -5178,15 +5178,15 @@ namespace OloEngine
             else if (sys.RenderMode == ParticleRenderMode::Mesh)
             {
                 ParticleBatchRenderer::Flush();
-                ParticleRenderer::RenderParticlesMesh(sys.GetPool(), psc.ParticleMesh, psc.Texture, offset, static_cast<int>(entity), sorted);
+                ParticleRenderer::RenderParticlesMesh(sys.GetPool(), psc.ParticleMesh, psc.Texture, offset, static_cast<int>(std::to_underlying(entity)), sorted);
             }
             else if (sys.RenderMode == ParticleRenderMode::StretchedBillboard)
             {
-                ParticleRenderer::RenderParticlesStretched(sys.GetPool(), psc.Texture, 1.0f, offset, static_cast<int>(entity), sorted, sheet);
+                ParticleRenderer::RenderParticlesStretched(sys.GetPool(), psc.Texture, 1.0f, offset, static_cast<int>(std::to_underlying(entity)), sorted, sheet);
             }
             else
             {
-                ParticleRenderer::RenderParticlesBillboard(sys.GetPool(), psc.Texture, offset, static_cast<int>(entity), sorted, sheet);
+                ParticleRenderer::RenderParticlesBillboard(sys.GetPool(), psc.Texture, offset, static_cast<int>(std::to_underlying(entity)), sorted, sheet);
             }
 
             // Render child systems
@@ -5202,14 +5202,14 @@ namespace OloEngine
                 ParticleBatchRenderer::Flush();
                 SetParticleBlendMode(childSys.BlendMode);
                 Ref<Texture2D> childTex = (c < psc.ChildTextures.size()) ? psc.ChildTextures[c] : nullptr;
-                ParticleRenderer::RenderParticlesBillboard(childSys.GetPool(), childTex, offset, static_cast<int>(entity), childSorted, nullptr);
+                ParticleRenderer::RenderParticlesBillboard(childSys.GetPool(), childTex, offset, static_cast<int>(std::to_underlying(entity)), childSorted, nullptr);
             }
 
             // Trail rendering via dedicated trail shader in ParticleBatchRenderer
             if (sys.TrailModule.Enabled)
             {
                 ParticleBatchRenderer::Flush();
-                TrailRenderer::RenderTrails(sys.GetPool(), sys.GetTrailData(), sys.TrailModule, camPos, psc.Texture, offset, static_cast<int>(entity));
+                TrailRenderer::RenderTrails(sys.GetPool(), sys.GetTrailData(), sys.TrailModule, camPos, psc.Texture, offset, static_cast<int>(std::to_underlying(entity)));
                 ParticleBatchRenderer::FlushTrails();
             }
 

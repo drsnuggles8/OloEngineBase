@@ -4,6 +4,7 @@
 #pragma once
 
 #include <type_traits>
+#include <utility>
 
 // @file EnumClassFlags.h
 // @brief Utilities for using enum classes as bit flags
@@ -81,8 +82,7 @@
 template<typename Enum>
 constexpr bool EnumHasAllFlags(Enum Flags, Enum Contains)
 {
-    using UnderlyingType = std::underlying_type_t<Enum>;
-    return ((UnderlyingType)Flags & (UnderlyingType)Contains) == (UnderlyingType)Contains;
+    return (std::to_underlying(Flags) & std::to_underlying(Contains)) == std::to_underlying(Contains);
 }
 
 // @brief Check if the Flags value contains any of the flags specified by Contains
@@ -93,8 +93,7 @@ constexpr bool EnumHasAllFlags(Enum Flags, Enum Contains)
 template<typename Enum>
 constexpr bool EnumHasAnyFlags(Enum Flags, Enum Contains)
 {
-    using UnderlyingType = std::underlying_type_t<Enum>;
-    return ((UnderlyingType)Flags & (UnderlyingType)Contains) != 0;
+    return (std::to_underlying(Flags) & std::to_underlying(Contains)) != 0;
 }
 
 // @brief Check if the Flags value contains only the flags specified by Contains
@@ -125,8 +124,7 @@ constexpr bool EnumOnlyContainsFlags(Enum Flags, Enum Contains)
 template<typename Enum>
 constexpr bool EnumHasOneFlag(Enum Flags)
 {
-    using UnderlyingType = std::underlying_type_t<Enum>;
-    return ((UnderlyingType)Flags != 0) && (((UnderlyingType)Flags & ((UnderlyingType)Flags - 1)) == 0);
+    return (std::to_underlying(Flags) != 0) && ((std::to_underlying(Flags) & (std::to_underlying(Flags) - 1)) == 0);
 }
 
 // @brief Check if Flags has one and only one of the flags specified in OneOfFlags set
@@ -138,8 +136,7 @@ constexpr bool EnumHasOneFlag(Enum Flags)
 template<typename Enum>
 constexpr bool EnumHasAnyOneFlag(Enum Flags, Enum OneOfFlags)
 {
-    using UnderlyingType = std::underlying_type_t<Enum>;
-    return EnumHasOneFlag((Enum)((UnderlyingType)Flags & (UnderlyingType)OneOfFlags));
+    return EnumHasOneFlag((Enum)(std::to_underlying(Flags) & std::to_underlying(OneOfFlags)));
 }
 
 // @brief Add flags to an existing flags value
@@ -149,8 +146,7 @@ constexpr bool EnumHasAnyOneFlag(Enum Flags, Enum OneOfFlags)
 template<typename Enum>
 constexpr void EnumAddFlags(Enum& Flags, Enum FlagsToAdd)
 {
-    using UnderlyingType = std::underlying_type_t<Enum>;
-    Flags = (Enum)((UnderlyingType)Flags | (UnderlyingType)FlagsToAdd);
+    Flags = (Enum)(std::to_underlying(Flags) | std::to_underlying(FlagsToAdd));
 }
 
 // @brief Remove flags from an existing flags value
@@ -160,8 +156,7 @@ constexpr void EnumAddFlags(Enum& Flags, Enum FlagsToAdd)
 template<typename Enum>
 constexpr void EnumRemoveFlags(Enum& Flags, Enum FlagsToRemove)
 {
-    using UnderlyingType = std::underlying_type_t<Enum>;
-    Flags = (Enum)((UnderlyingType)Flags & ~(UnderlyingType)FlagsToRemove);
+    Flags = (Enum)(std::to_underlying(Flags) & ~std::to_underlying(FlagsToRemove));
 }
 
 // @brief Get the lowest set flag in a flags value
@@ -171,12 +166,11 @@ constexpr void EnumRemoveFlags(Enum& Flags, Enum FlagsToRemove)
 template<typename Enum>
 constexpr Enum EnumLowestSetFlag(Enum Flags)
 {
-    using UnderlyingType = std::underlying_type_t<Enum>;
 #ifdef _MSC_VER
 #pragma warning(push)
 #pragma warning(disable : 4146) // unary minus operator applied to unsigned type, result still unsigned
 #endif
-    return Flags & (Enum)(-(UnderlyingType)Flags);
+    return Flags & (Enum)(-std::to_underlying(Flags));
 #ifdef _MSC_VER
 #pragma warning(pop)
 #endif
@@ -189,8 +183,7 @@ constexpr Enum EnumLowestSetFlag(Enum Flags)
 template<typename Enum>
 constexpr Enum EnumRemoveLowestSetFlag(Enum Flags)
 {
-    using UnderlyingType = std::underlying_type_t<Enum>;
-    return (Enum)((UnderlyingType)Flags & ((UnderlyingType)Flags - 1));
+    return (Enum)(std::to_underlying(Flags) & (std::to_underlying(Flags) - 1));
 }
 
 // @brief Count the number of set flags in a flags value
@@ -203,7 +196,7 @@ constexpr int EnumNumSetFlags(Enum Flags)
     using UnderlyingType = std::underlying_type_t<Enum>;
 
     int Result = 0;
-    UnderlyingType Int = (UnderlyingType)Flags;
+    UnderlyingType Int = std::to_underlying(Flags);
     while (Int != 0)
     {
         ++Result;

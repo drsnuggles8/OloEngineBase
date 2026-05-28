@@ -191,7 +191,7 @@ namespace OloEngine
             ImGui::Indent();
 
             const char* tonemapItems[] = { "None", "Reinhard", "ACES", "Uncharted2" };
-            if (int currentTonemap = static_cast<int>(settings.Tonemap); ImGui::Combo("Operator", &currentTonemap, tonemapItems, IM_ARRAYSIZE(tonemapItems)))
+            if (int currentTonemap = static_cast<int>(std::to_underlying(settings.Tonemap)); ImGui::Combo("Operator", &currentTonemap, tonemapItems, IM_ARRAYSIZE(tonemapItems)))
             {
                 settings.Tonemap = static_cast<TonemapOperator>(currentTonemap);
             }
@@ -368,7 +368,7 @@ namespace OloEngine
 
             // AO Technique selector
             static constexpr const char* aoTechniqueNames[] = { "None", "SSAO", "GTAO" };
-            if (int currentTechnique = static_cast<int>(settings.ActiveAOTechnique); ImGui::Combo("Technique##AO", &currentTechnique, aoTechniqueNames, IM_ARRAYSIZE(aoTechniqueNames)))
+            if (int currentTechnique = static_cast<int>(std::to_underlying(settings.ActiveAOTechnique)); ImGui::Combo("Technique##AO", &currentTechnique, aoTechniqueNames, IM_ARRAYSIZE(aoTechniqueNames)))
             {
                 settings.ActiveAOTechnique = static_cast<AOTechnique>(currentTechnique);
                 switch (settings.ActiveAOTechnique)
@@ -684,9 +684,9 @@ namespace OloEngine
             const int typeCount = static_cast<int>(typeNames.size());
 
             // Normalize Type into valid range before any use
-            settings.Type = static_cast<PrecipitationType>(std::clamp(static_cast<int>(settings.Type), 0, typeCount - 1));
+            settings.Type = static_cast<PrecipitationType>(std::clamp(static_cast<int>(std::to_underlying(settings.Type)), 0, typeCount - 1));
 
-            if (int typeIdx = static_cast<int>(settings.Type); ImGui::Combo("Type##Precip", &typeIdx, typeNames.data(), typeCount))
+            if (int typeIdx = static_cast<int>(std::to_underlying(settings.Type)); ImGui::Combo("Type##Precip", &typeIdx, typeNames.data(), typeCount))
             {
                 settings.Type = static_cast<PrecipitationType>(std::clamp(typeIdx, 0, typeCount - 1));
             }
@@ -820,7 +820,7 @@ namespace OloEngine
             {
                 // Fog mode dropdown
                 const char* fogModes[] = { "Linear", "Exponential", "Exponential\xc2\xb2" };
-                if (int currentMode = static_cast<int>(fog.Mode); ImGui::Combo("Fog Mode", &currentMode, fogModes, IM_ARRAYSIZE(fogModes)))
+                if (int currentMode = static_cast<int>(std::to_underlying(fog.Mode)); ImGui::Combo("Fog Mode", &currentMode, fogModes, IM_ARRAYSIZE(fogModes)))
                 {
                     fog.Mode = static_cast<FogMode>(currentMode);
                 }

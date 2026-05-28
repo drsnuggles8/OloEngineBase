@@ -13,18 +13,18 @@ namespace OloEngine::RenderGraphTransientPlanner
     auto BuildAliasGroup(const RGResourceDesc& desc) -> std::string
     {
         // Base key covers kind, dimensions, mips, samples and queue.
-        std::string key = std::to_string(static_cast<u32>(desc.Kind)) + ":" +
-                          std::to_string(static_cast<u32>(desc.Format)) + ":" +
+        std::string key = std::to_string(static_cast<u32>(std::to_underlying(desc.Kind))) + ":" +
+                          std::to_string(static_cast<u32>(std::to_underlying(desc.Format))) + ":" +
                           std::to_string(desc.Width) + "x" + std::to_string(desc.Height) +
                           "x" + std::to_string(desc.DepthOrLayers) + ":m" + std::to_string(desc.MipLevels) +
-                          ":s" + std::to_string(desc.Samples) + ":q" + std::to_string(static_cast<u32>(desc.Queue));
+                          ":s" + std::to_string(desc.Samples) + ":q" + std::to_string(static_cast<u32>(std::to_underlying(desc.Queue)));
         // MRT: append each attachment format so MRT layouts don't alias with
         // single-attachment FBs or with each other.
         if (!desc.Attachments.empty())
         {
             key += ":mrt";
             for (const auto fmt : desc.Attachments)
-                key += "," + std::to_string(static_cast<u32>(fmt));
+                key += "," + std::to_string(static_cast<u32>(std::to_underlying(fmt)));
         }
         return key;
     }
@@ -44,21 +44,21 @@ namespace OloEngine::RenderGraphTransientPlanner
                 h *= fnvPrime;
             }
         };
-        mix(static_cast<u64>(desc.Kind));
-        mix(static_cast<u64>(desc.Format));
+        mix(static_cast<u64>(std::to_underlying(desc.Kind)));
+        mix(static_cast<u64>(std::to_underlying(desc.Format)));
         mix(static_cast<u64>(desc.Width));
         mix(static_cast<u64>(desc.Height));
         mix(static_cast<u64>(desc.DepthOrLayers));
         mix(static_cast<u64>(desc.MipLevels));
         mix(static_cast<u64>(desc.Samples));
-        mix(static_cast<u64>(desc.Queue));
+        mix(static_cast<u64>(std::to_underlying(desc.Queue)));
         // MRT formats — order matters and a sentinel separates from a non-MRT
         // descriptor that happens to have one trailing attachment.
         if (!desc.Attachments.empty())
         {
             mix(0xDEADBEEFCAFEBABEULL); // MRT marker
             for (const auto fmt : desc.Attachments)
-                mix(static_cast<u64>(fmt));
+                mix(static_cast<u64>(std::to_underlying(fmt)));
         }
         return h;
     }

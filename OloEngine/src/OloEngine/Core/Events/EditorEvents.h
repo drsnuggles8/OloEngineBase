@@ -8,6 +8,7 @@
 #include <format>
 #include <chrono>
 #include <filesystem>
+#include <utility>
 
 namespace OloEngine
 {
@@ -101,7 +102,7 @@ namespace OloEngine
         {
             return std::format("AssetLoadedEvent: handle={}, type={}, path={}",
                                static_cast<u64>(m_Handle),
-                               static_cast<int>(m_Type),
+                               static_cast<int>(std::to_underlying(m_Type)),
                                m_Path.string());
         }
 
@@ -145,7 +146,7 @@ namespace OloEngine
         {
             return std::format("AssetReloadedEvent: handle={}, type={}, path={}",
                                static_cast<u64>(m_Handle),
-                               static_cast<int>(m_Type),
+                               static_cast<int>(std::to_underlying(m_Type)),
                                m_Path.string());
         }
 

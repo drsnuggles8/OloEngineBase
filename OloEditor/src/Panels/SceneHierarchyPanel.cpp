@@ -1416,7 +1416,7 @@ namespace OloEngine
         ImGui::ColorEdit4("Initial Color", glm::value_ptr(emitter.InitialColor));
 
         const char* shapeItems[] = { "Point", "Sphere", "Box", "Cone", "Ring", "Edge", "Mesh" };
-        if (int shapeIdx = static_cast<int>(GetEmissionShapeType(emitter.Shape)); ImGui::Combo("Emission Shape", &shapeIdx, shapeItems, 7))
+        if (int shapeIdx = std::to_underlying(GetEmissionShapeType(emitter.Shape)); ImGui::Combo("Emission Shape", &shapeIdx, shapeItems, 7))
         {
             switch (static_cast<EmissionShapeType>(shapeIdx))
             {
@@ -1487,12 +1487,12 @@ namespace OloEngine
 
         // Blend mode
         const char* blendModes[] = { "Alpha", "Additive", "Premultiplied Alpha" };
-        if (int blendIdx = static_cast<int>(sys.BlendMode); ImGui::Combo("Blend Mode", &blendIdx, blendModes, 3))
+        if (int blendIdx = static_cast<int>(std::to_underlying(sys.BlendMode)); ImGui::Combo("Blend Mode", &blendIdx, blendModes, 3))
             sys.BlendMode = static_cast<ParticleBlendMode>(blendIdx);
 
         // Render mode
         const char* renderModes[] = { "Billboard", "Stretched Billboard", "Mesh" };
-        if (int renderIdx = static_cast<int>(sys.RenderMode); ImGui::Combo("Render Mode", &renderIdx, renderModes, 3))
+        if (int renderIdx = static_cast<int>(std::to_underlying(sys.RenderMode)); ImGui::Combo("Render Mode", &renderIdx, renderModes, 3))
             sys.RenderMode = static_cast<ParticleRenderMode>(renderIdx);
 
         ImGui::Checkbox("Depth Sort", &sys.DepthSortEnabled);

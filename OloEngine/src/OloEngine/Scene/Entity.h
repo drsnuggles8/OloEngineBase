@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <vector>
+#include <utility>
 
 #pragma warning(push)
 #pragma warning(disable : 4996)
@@ -102,7 +103,7 @@ namespace OloEngine
         }
         explicit operator u32() const
         {
-            return static_cast<u32>(m_EntityHandle);
+            return std::to_underlying(m_EntityHandle);
         }
 
         [[nodiscard("Store this!")]] TransformComponent GetTransform() const

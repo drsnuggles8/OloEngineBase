@@ -26,6 +26,7 @@
 #include <thread>
 #include <type_traits>
 #include <limits>
+#include <utility>
 
 namespace OloEngine::Tasks
 {
@@ -187,7 +188,7 @@ namespace OloEngine::Tasks
                                     { TryExecuteTask(); }, LowLevelTasks::ETaskFlags::DefaultFlags);
 
                 CaptureInheritedContext();
-                TaskTrace::Launched(GetTraceId(), InDebugName, true, static_cast<i32>(InPriority), 0);
+                TaskTrace::Launched(GetTraceId(), InDebugName, true, static_cast<i32>(std::to_underlying(InPriority)), 0);
             }
 
             virtual ~FTaskBase()
@@ -395,7 +396,7 @@ namespace OloEngine::Tasks
             bool TryLaunch(u64 TaskSize)
             {
                 TaskTrace::Launched(GetTraceId(), m_LowLevelTask.GetDebugName(), true,
-                                    static_cast<i32>(m_LowLevelTask.GetPriority()), TaskSize);
+                                    static_cast<i32>(std::to_underlying(m_LowLevelTask.GetPriority())), TaskSize);
 
                 bool bWakeUpWorker = true;
                 return TryUnlock(bWakeUpWorker);

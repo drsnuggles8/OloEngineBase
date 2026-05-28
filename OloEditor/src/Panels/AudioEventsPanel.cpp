@@ -232,7 +232,7 @@ namespace OloEngine
             }
 
             // Type
-            if (auto currentType = static_cast<int>(action.Type);
+            if (auto currentType = static_cast<int>(std::to_underlying(action.Type));
                 ImGui::Combo("Type", &currentType, ActionTypeLabels.data(), static_cast<int>(ActionTypeLabels.size())))
             {
                 action.Type = static_cast<Audio::ActionType>(currentType);
@@ -240,7 +240,7 @@ namespace OloEngine
             }
 
             // Context
-            if (auto currentContext = static_cast<int>(action.Context);
+            if (auto currentContext = static_cast<int>(std::to_underlying(action.Context));
                 ImGui::Combo("Context", &currentContext, ActionContextLabels.data(), static_cast<int>(ActionContextLabels.size())))
             {
                 action.Context = static_cast<Audio::ActionContext>(currentContext);

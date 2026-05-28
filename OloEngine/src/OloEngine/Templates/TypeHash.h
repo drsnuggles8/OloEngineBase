@@ -155,7 +155,7 @@ namespace OloEngine
     [[nodiscard]] inline std::enable_if_t<std::is_enum_v<T>, u32>
     GetTypeHash(T Value)
     {
-        return GetTypeHash(static_cast<std::underlying_type_t<T>>(Value));
+        return GetTypeHash(std::to_underlying(Value));
     }
 
     // Integral types

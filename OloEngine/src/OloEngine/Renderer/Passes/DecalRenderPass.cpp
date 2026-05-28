@@ -331,7 +331,7 @@ namespace OloEngine
         // `GBuffer::Count` so RT4 (entity ID) stays at GL_NONE during decal
         // rendering — decals must not stamp their own pickability over the
         // underlying mesh's entity ID.
-        constexpr GLsizei kGBufferCount = static_cast<GLsizei>(GBuffer::Count);
+        constexpr GLsizei kGBufferCount = static_cast<GLsizei>(std::to_underlying(GBuffer::Count));
         const GLenum drawAlbedoOnly[kGBufferCount] = { GL_COLOR_ATTACHMENT0, GL_NONE, GL_NONE, GL_NONE, GL_NONE };
         const GLenum drawNormalOnly[kGBufferCount] = { GL_NONE, GL_COLOR_ATTACHMENT1, GL_NONE, GL_NONE, GL_NONE };
         const GLenum drawAlbedoAndNormal[kGBufferCount] = { GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1, GL_NONE, GL_NONE, GL_NONE };
