@@ -127,6 +127,8 @@ namespace OloEngine
 
     PreethamCoefficientsUBO ProceduralSky::ComputeCoefficients(const PreethamParameters& params)
     {
+        OLO_PROFILE_FUNCTION();
+
         // Sanitise inputs — extreme turbidity / sub-horizon sun otherwise
         // produces NaN-tinted skies.
         const f32 T = glm::clamp(params.Turbidity, 1.7f, 10.0f);
@@ -244,6 +246,8 @@ namespace OloEngine
 
     u64 ProceduralSky::HashParameters(const PreethamParameters& params, u32 resolution)
     {
+        OLO_PROFILE_FUNCTION();
+
         // FNV-1a over the parameter bytes plus resolution. Cheap and adequate
         // for "did anything change since last bake" checks.
         constexpr u64 kFnvOffset = 1469598103934665603ull;
@@ -312,6 +316,8 @@ namespace OloEngine
                               Ref<UniformBuffer> cameraUBO,
                               Ref<UniformBuffer> skyUBO)
         {
+            OLO_PROFILE_FUNCTION();
+
             const u32 face = cubemap->GetWidth();
             const auto& mats = GetCaptureMatrices();
 
@@ -338,6 +344,8 @@ namespace OloEngine
 
             for (u32 i = 0; i < 6; ++i)
             {
+                OLO_PROFILE_SCOPE("ProceduralSky::BakeFace");
+
                 // Update CameraUBO with face matrices. We use the engine's
                 // standard UBO_CAMERA slot so the shader vertex stage can
                 // pick up u_ViewProjection just like every other skybox-style
