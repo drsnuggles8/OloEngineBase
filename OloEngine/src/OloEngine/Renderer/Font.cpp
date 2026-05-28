@@ -323,7 +323,7 @@ namespace OloEngine
         // Kerning across fonts isn't meaningfully defined — only honour
         // the kerning table when both `cp` and `next` resolve against the
         // primary font.
-        const auto resolveAdvance = [&](u32 cp, u32 next, const GlyphLookup& lookup) -> f32
+        const auto resolveAdvance = [this, &spaceAdvance](u32 cp, u32 next, const GlyphLookup& lookup) -> f32
         {
             if (!lookup.Glyph)
                 return spaceAdvance;

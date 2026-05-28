@@ -682,7 +682,7 @@ namespace OloEngine
             std::set<sizet> selectedIndices;
 
             // Always include the 6 axis-aligned extremes (min/max X, Y, Z)
-            auto findExtreme = [&](const glm::vec3& direction) -> sizet
+            auto findExtreme = [&inputVertices, &center](const glm::vec3& direction) -> sizet
             {
                 f32 maxDot = -std::numeric_limits<f32>::max();
                 sizet bestIndex = 0;

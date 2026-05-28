@@ -399,7 +399,7 @@ namespace OloEngine
             }
 
             // Validate skeleton array sizes — reject mismatches
-            auto const validateSize = [&](sizet actual, const char* name) -> bool
+            auto const validateSize = [&boneCount, &path](sizet actual, const char* name) -> bool
             {
                 if (static_cast<u32>(actual) != boneCount)
                 {
@@ -429,7 +429,7 @@ namespace OloEngine
             WriteBytes(payload, skeleton->m_ParentIndices.data(), boneCount * sizeof(i32));
 
             // Transform arrays (6 arrays of mat4)
-            auto const writeMat4Array = [&](const std::vector<glm::mat4>& arr)
+            auto const writeMat4Array = [&payload, &boneCount](const std::vector<glm::mat4>& arr)
             {
                 WriteBytes(payload, arr.data(), boneCount * sizeof(f32) * 16);
             };
@@ -1110,7 +1110,7 @@ namespace OloEngine
                 }
 
                 // Transform arrays — read then validate for NaN/Inf
-                auto const readMat4Array = [&](std::vector<glm::mat4>& arr, const char* name)
+                auto const readMat4Array = [&payload, &boneCount, &path](std::vector<glm::mat4>& arr, const char* name)
                 {
                     arr.resize(boneCount);
                     ReadBytes(payload, arr.data(), boneCount * sizeof(f32) * 16);
@@ -1779,7 +1779,7 @@ namespace OloEngine
             auto const clipEnd = static_cast<std::streamoff>(payloadBase + directory[i].Offset + directory[i].Size);
 
             // Helper: verify that 'neededBytes' won't exceed the clip boundary.
-            auto const ensureClipRemaining = [&](sizet neededBytes, const char* context) -> bool
+            auto const ensureClipRemaining = [&payload, &clipEnd, &i, &path](sizet neededBytes, const char* context) -> bool
             {
                 if (!payload.good() || payload.tellg() < 0)
                 {

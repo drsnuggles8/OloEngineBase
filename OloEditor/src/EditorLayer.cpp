@@ -2832,7 +2832,7 @@ namespace OloEngine
         }
 
         // Recursively remap UUIDs in all entity data (hierarchy refs, component refs, etc.)
-        std::function<void(YAML::Node)> remapUUIDs = [&](YAML::Node node)
+        std::function<void(YAML::Node)> remapUUIDs = [&uuidMap, &remapUUIDs](YAML::Node node)
         {
             if (node.IsScalar())
             {

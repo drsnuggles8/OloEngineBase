@@ -438,7 +438,7 @@ namespace OloEngine
         }
 
         // Helper lambda for safe string extraction with validation
-        auto safeGetString = [&](const YAML::Node& node, const char* key, std::string& output) -> bool
+        auto safeGetString = [&filepath](const YAML::Node& node, const char* key, std::string& output) -> bool
         {
             auto childNode = node[key];
             if (!childNode || !childNode.IsScalar())
@@ -451,7 +451,7 @@ namespace OloEngine
         };
 
         // Helper lambda for safe filesystem path extraction with validation
-        auto safeGetPath = [&](const YAML::Node& node, const char* key, std::filesystem::path& output) -> bool
+        auto safeGetPath = [&filepath](const YAML::Node& node, const char* key, std::filesystem::path& output) -> bool
         {
             auto childNode = node[key];
             if (!childNode || !childNode.IsScalar())
@@ -491,7 +491,7 @@ namespace OloEngine
         };
 
         // Helper lambda for asset-relative paths (StartScene, ScriptModulePath)
-        auto safeGetAssetPath = [&](const YAML::Node& node, const char* key, std::filesystem::path& output, const std::filesystem::path& assetDir) -> bool
+        auto safeGetAssetPath = [&filepath](const YAML::Node& node, const char* key, std::filesystem::path& output, const std::filesystem::path& assetDir) -> bool
         {
             auto childNode = node[key];
             if (!childNode || !childNode.IsScalar())
@@ -694,7 +694,7 @@ namespace OloEngine
             auto& physicsSettings = Physics3DSystem::GetSettings();
 
             // Helper lambda to reduce duplication in physics field deserialization
-            auto deserializeField = [&](const char* fieldName, auto& targetField)
+            auto deserializeField = [&physicsNode, &appliedPhysicsFields](const char* fieldName, auto& targetField)
             {
                 if (physicsNode[fieldName].IsDefined())
                 {

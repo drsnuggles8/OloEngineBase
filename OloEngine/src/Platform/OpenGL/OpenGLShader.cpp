@@ -674,7 +674,7 @@ namespace OloEngine
         ParallelFor(
             "ShaderCompileVulkan",
             static_cast<i32>(stageSourcePairs.size()),
-            [&](i32 index)
+            [this, &hasError, &stageSourcePairs, &results, &cacheDirectory, &disableCache](i32 index)
             {
                 if (hasError.load(std::memory_order_relaxed))
                     return; // Early exit if another stage failed
@@ -811,7 +811,7 @@ namespace OloEngine
         ParallelFor(
             "ShaderCompileOpenGL",
             static_cast<i32>(stageSpirvPairs.size()),
-            [&](i32 index)
+            [this, &hasError, &stageSpirvPairs, &results, &cacheDirectory, &disableCache](i32 index)
             {
                 if (hasError.load(std::memory_order_relaxed))
                     return;

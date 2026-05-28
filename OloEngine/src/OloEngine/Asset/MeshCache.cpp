@@ -369,7 +369,7 @@ namespace OloEngine
         {
             u64 totalSize = 0;
 
-            auto const accumulateDirectorySize = [&](const std::filesystem::path& dir)
+            auto const accumulateDirectorySize = [&totalSize](const std::filesystem::path& dir)
             {
                 std::error_code existsEc;
                 if (!std::filesystem::exists(dir, existsEc))

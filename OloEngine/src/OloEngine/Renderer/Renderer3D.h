@@ -778,7 +778,7 @@ namespace OloEngine
             const bool haveHistory = (prevIt != s_Data.PrevInstanceTransforms.end()) &&
                                      (prevIt->second.size() == currFullTransforms.size());
 
-            auto project = [&](const std::vector<glm::mat4>& src) -> std::vector<glm::mat4>
+            auto project = [&visibleIndices](const std::vector<glm::mat4>& src) -> std::vector<glm::mat4>
             {
                 if (!visibleIndices)
                     return src;

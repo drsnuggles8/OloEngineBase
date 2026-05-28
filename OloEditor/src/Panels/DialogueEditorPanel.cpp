@@ -895,7 +895,7 @@ namespace OloEngine
                             conn.SourcePort = ResolveSourcePort(m_ConnectionStartPort, m_ConnectionStartNodeID);
                             conn.TargetPort = port.Name;
                             // Prevent duplicate connections
-                            bool duplicate = std::ranges::any_of(m_Connections, [&](const auto& c)
+                            bool duplicate = std::ranges::any_of(m_Connections, [&conn](const auto& c)
                                                                  { return c.SourceNodeID == conn.SourceNodeID && c.SourcePort == conn.SourcePort && c.TargetNodeID == conn.TargetNodeID && c.TargetPort == conn.TargetPort; });
                             if (!duplicate)
                             {
@@ -912,7 +912,7 @@ namespace OloEngine
                             conn.SourcePort = ResolveSourcePort(port.Name, port.NodeID);
                             conn.TargetPort = m_ConnectionStartPort;
                             // Prevent duplicate connections
-                            bool duplicate = std::ranges::any_of(m_Connections, [&](const auto& c)
+                            bool duplicate = std::ranges::any_of(m_Connections, [&conn](const auto& c)
                                                                  { return c.SourceNodeID == conn.SourceNodeID && c.SourcePort == conn.SourcePort && c.TargetNodeID == conn.TargetNodeID && c.TargetPort == conn.TargetPort; });
                             if (!duplicate)
                             {
@@ -2006,7 +2006,7 @@ namespace OloEngine
         if (portName == "out" || portName == "true" || portName == "false")
         {
             std::erase_if(m_Connections,
-                          [&](const DialogueConnection& c)
+                          [&sourceNodeID, &portName](const DialogueConnection& c)
                           { return c.SourceNodeID == sourceNodeID && c.SourcePort == portName; });
         }
 

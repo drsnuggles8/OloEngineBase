@@ -342,7 +342,7 @@ namespace OloEngine::Audio::DSP
         auto [it, success] = m_Sources.try_emplace(sourceID);
         auto& source = it->second;
 
-        auto abortIfFailed = [&](ma_result result, [[maybe_unused]] const char* errorMessage)
+        auto abortIfFailed = [this, &sourceID](ma_result result, [[maybe_unused]] const char* errorMessage)
         {
             if (result != MA_SUCCESS)
             {
@@ -620,7 +620,7 @@ namespace OloEngine::Audio::DSP
 
         // Update attenuation + VBAP for all sources
         std::for_each(m_Sources.begin(), m_Sources.end(),
-                      [&](std::pair<const u32, Source>& pair)
+                      [this](std::pair<const u32, Source>& pair)
                       {
                           auto& source = pair.second;
                           UpdatePositionalData(source, &m_Engine->listeners[0], m_ListenerVelocity);

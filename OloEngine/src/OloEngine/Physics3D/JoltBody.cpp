@@ -1039,12 +1039,12 @@ namespace OloEngine
     {
         // Helper to extract material properties from first available collider component
         // Returns {friction, restitution} pair, with fallback defaults if no collider found
-        auto extractMaterialProperties = [&]() -> std::pair<f32, f32>
+        auto extractMaterialProperties = [this]() -> std::pair<f32, f32>
         {
             // Check collider components in priority order: Box > Sphere > Capsule > Mesh > ConvexMesh > TriangleMesh
 
             // Template helper to check component and extract material if present
-            auto tryExtractMaterial = [&]<typename ColliderType>() -> std::optional<std::pair<f32, f32>>
+            auto tryExtractMaterial = [this]<typename ColliderType>() -> std::optional<std::pair<f32, f32>>
             {
                 if (m_Entity.HasComponent<ColliderType>())
                 {

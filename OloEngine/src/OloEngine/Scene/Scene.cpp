@@ -3606,11 +3606,14 @@ namespace OloEngine
                         bool useTess = terrain.m_TessellationEnabled;
 
                         // Lambda to submit command packets for one chunk manager
-                        auto submitChunkPackets = [&](const TerrainChunkManager& chunkMgr,
-                                                      const TerrainData* terrainData,
-                                                      const TerrainMaterial* tileMaterial,
-                                                      f32 worldSizeX, f32 worldSizeZ,
-                                                      f32 heightScale)
+                        auto submitChunkPackets = [&terrain, &transform, &splatmapID, &splatmap1ID,
+                                                   &albedoArrayID, &normalArrayID, &armArrayID,
+                                                   &hasMaterial, &useTess, &terrainShader, &entityID,
+                                                   &hasActiveShadows](const TerrainChunkManager& chunkMgr,
+                                                                      const TerrainData* terrainData,
+                                                                      const TerrainMaterial* tileMaterial,
+                                                                      f32 worldSizeX, f32 worldSizeZ,
+                                                                      f32 heightScale)
                         {
                             if (!chunkMgr.IsBuilt())
                             {
@@ -4986,7 +4989,7 @@ namespace OloEngine
             const glm::vec3 bboxColor(0.3f, 0.9f, 1.0f);
             const glm::quat noRotation(1.0f, 0.0f, 0.0f, 0.0f);
 
-            auto drawWorldAABB = [&](const BoundingBox& worldAABB)
+            auto drawWorldAABB = [noRotation, bboxColor](const BoundingBox& worldAABB)
             {
                 // Skip degenerate boxes — any non-positive axis means either a
                 // default-constructed box, a flat-plane mesh (one zero axis),

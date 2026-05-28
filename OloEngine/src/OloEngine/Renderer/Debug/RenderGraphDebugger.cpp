@@ -91,7 +91,7 @@ namespace OloEngine
             std::unordered_set<std::string> appended;
             appended.reserve(nodeByName.size());
 
-            const auto appendIfVisible = [&](const std::string& passName)
+            const auto appendIfVisible = [&culled, &appended, &nodeByName, &visible](const std::string& passName)
             {
                 if (culled.contains(passName) || appended.contains(passName))
                     return;

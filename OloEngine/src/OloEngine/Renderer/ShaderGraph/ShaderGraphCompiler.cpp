@@ -115,7 +115,7 @@ namespace OloEngine
 
         // ── Math nodes ──
 
-        auto resolveInput = [&](const std::string& pinName) -> std::string
+        auto resolveInput = [this, &node, &graph, &pinVarNames](const std::string& pinName) -> std::string
         {
             const auto* pin = node.FindPinByName(pinName, ShaderGraphPinDirection::Input);
             if (!pin)
@@ -123,7 +123,7 @@ namespace OloEngine
             return ResolveInputExpression(graph, *pin, pinVarNames);
         };
 
-        auto emitOutputVar = [&](const std::string& pinName, ShaderGraphPinType type, const std::string& expr)
+        auto emitOutputVar = [this, &node, &code, &pinVarNames](const std::string& pinName, ShaderGraphPinType type, const std::string& expr)
         {
             const auto* pin = node.FindPinByName(pinName, ShaderGraphPinDirection::Output);
             if (!pin)
@@ -282,7 +282,7 @@ namespace OloEngine
             pinVarNames[static_cast<u64>(node.FindPinByName("RGBA", ShaderGraphPinDirection::Output)->ID)] = sampleVar;
 
             // Derive sub-outputs
-            auto emitDerived = [&](const std::string& name, const std::string& swizzle, [[maybe_unused]] ShaderGraphPinType type)
+            auto emitDerived = [&node, &pinVarNames, &sampleVar](const std::string& name, const std::string& swizzle, [[maybe_unused]] ShaderGraphPinType type)
             {
                 const auto* pin = node.FindPinByName(name, ShaderGraphPinDirection::Output);
                 if (pin)
@@ -612,7 +612,7 @@ void main()
         // Write PBR output
         if (outputNode)
         {
-            auto resolve = [&](const std::string& name) -> std::string
+            auto resolve = [this, &outputNode, &graph, &pinVarNames](const std::string& name) -> std::string
             {
                 const auto* pin = outputNode->FindPinByName(name, ShaderGraphPinDirection::Input);
                 if (!pin)

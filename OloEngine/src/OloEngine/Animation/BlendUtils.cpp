@@ -115,7 +115,7 @@ namespace OloEngine::Animation::BlendUtils
         }
 
         // Build effective local transform: preTransform[i] * localPose[i]
-        auto effectiveLocal = [&](u32 idx) -> BoneTransform
+        auto effectiveLocal = [&preTransforms, &localPose](u32 idx) -> BoneTransform
         {
             if (idx < preTransforms.size())
             {

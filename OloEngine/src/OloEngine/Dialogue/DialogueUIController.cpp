@@ -122,7 +122,7 @@ namespace OloEngine
 
         ClearChoiceEntities(scene);
 
-        auto destroyIfValid = [&](UUID& uuid)
+        auto destroyIfValid = [&scene](UUID& uuid)
         {
             if (static_cast<u64>(uuid) != 0)
             {

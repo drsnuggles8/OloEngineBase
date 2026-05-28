@@ -160,7 +160,7 @@ namespace OloEngine
 
             const u32 count = server->GetConnectionCount();
             OLO_CORE_INFO("[Server] Connected players: {}/{}", count, m_Config.MaxPlayers);
-            server->ForEachConnection([&](HSteamNetConnection handle, const NetworkConnection& conn)
+            server->ForEachConnection([&server](HSteamNetConnection handle, const NetworkConnection& conn)
                                       { OLO_CORE_INFO("  Client {} (conn {}): ping {} ms",
                                                       conn.GetClientID(), static_cast<u32>(handle),
                                                       server->GetClientPingMs(handle)); });
@@ -192,7 +192,7 @@ namespace OloEngine
             }
 
             HSteamNetConnection targetHandle = k_HSteamNetConnection_Invalid;
-            server->ForEachConnection([&](HSteamNetConnection handle, const NetworkConnection& conn)
+            server->ForEachConnection([&targetId, &targetHandle](HSteamNetConnection handle, const NetworkConnection& conn)
                                       {
                 if (conn.GetClientID() == targetId)
                 {

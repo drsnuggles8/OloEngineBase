@@ -1555,7 +1555,7 @@ namespace OloEngine
                 ar << keyCopy;
                 u8 tag = static_cast<u8>(value.index());
                 ar << tag;
-                std::visit([&](auto& v)
+                std::visit([&ar](auto& v)
                            {
                     using T = std::decay_t<decltype(v)>;
                     if constexpr (std::is_same_v<T, UUID>)
@@ -2010,7 +2010,7 @@ namespace OloEngine
         {
             u64 count = cm.Size();
             ar << count;
-            cm.ForEachCooldown([&](const GameplayTag& tag, f32 dur, f32 rem)
+            cm.ForEachCooldown([&ar](const GameplayTag& tag, f32 dur, f32 rem)
                                {
                 GameplayTag tagCopy = tag;
                 f32 durCopy = dur;

@@ -105,7 +105,7 @@ namespace OloEngine
                 return it != haystack.end();
             };
 
-            m_Context->m_Registry.view<entt::entity>().each([&](const auto e)
+            m_Context->m_Registry.view<entt::entity>().each([this, hasFilter, &caseInsensitiveFind](const auto e)
                                                             {
                 Entity entity{ e, *m_Context };
 
@@ -510,7 +510,7 @@ namespace OloEngine
                 // Shift+click: select range between last clicked and this entity
                 // Collect visible entities in visual (tree) order
                 std::vector<Entity> visible;
-                m_Context->m_Registry.view<entt::entity>().each([&](const auto e)
+                m_Context->m_Registry.view<entt::entity>().each([this, &visible](const auto e)
                                                                 {
                     Entity ent{ e, *m_Context };
                     if (ent.GetParentUUID() == UUID(0))
@@ -887,13 +887,13 @@ namespace OloEngine
         }
 
         const f32 valueRange = valueMax - valueMin;
-        auto toScreen = [&](f32 time, f32 value) -> ImVec2
+        auto toScreen = [&canvasPos, &canvasSize, &valueMin, &valueRange](f32 time, f32 value) -> ImVec2
         {
             f32 ny = (valueRange > 0.0f) ? (value - valueMin) / valueRange : 0.5f;
             return { canvasPos.x + time * canvasSize.x,
                      canvasPos.y + (1.0f - ny) * canvasSize.y };
         };
-        auto fromScreen = [&](ImVec2 screen) -> std::pair<f32, f32>
+        auto fromScreen = [&canvasPos, &canvasSize, &valueMin, &valueMax, &valueRange](ImVec2 screen) -> std::pair<f32, f32>
         {
             f32 t = (canvasSize.x > 0.0f) ? (screen.x - canvasPos.x) / canvasSize.x : 0.0f;
             f32 ny = (canvasSize.y > 0.0f) ? 1.0f - (screen.y - canvasPos.y) / canvasSize.y : 0.0f;
@@ -1282,7 +1282,7 @@ namespace OloEngine
                     }
 
                     // Prefab-aware undo push — shared by both tracking strategies
-                    auto pushUndoCommand = [&]()
+                    auto pushUndoCommand = [&entity, &componentKey, &editState, &component]()
                     {
                         if (entity.HasComponent<PrefabComponent>())
                         {
@@ -2457,7 +2457,7 @@ namespace OloEngine
                         const i32 cellsX = std::max(1, static_cast<i32>(std::ceil((maxX - minX) / cellSize)));
                         const i32 cellsZ = std::max(1, static_cast<i32>(std::ceil((maxZ - minZ) / cellSize)));
                         std::vector<i32> grid(static_cast<sizet>(cellsX * cellsZ), -1);
-                        auto cellIndex = [&](f32 x, f32 z) -> std::pair<i32, i32>
+                        auto cellIndex = [&minX, &minZ, &cellSize, &cellsX, &cellsZ](f32 x, f32 z) -> std::pair<i32, i32>
                         {
                             i32 cx = std::clamp(static_cast<i32>((x - minX) / cellSize), 0, cellsX - 1);
                             i32 cz = std::clamp(static_cast<i32>((z - minZ) / cellSize), 0, cellsZ - 1);
@@ -5751,7 +5751,7 @@ namespace OloEngine
                         ImGui::Checkbox("Toggled", &ability.Definition.IsToggled);
 
                         // Tag arrays
-                        auto drawTagList = [&](const char* label, GameplayTagContainer& tagContainer, const char* id)
+                        auto drawTagList = [&i](const char* label, GameplayTagContainer& tagContainer, const char* id)
                         {
                             std::string treeId = std::string(label) + "##" + id + std::to_string(i);
                             if (ImGui::TreeNode(treeId.c_str(), "%s (%zu)", label, tagContainer.GetTags().size()))

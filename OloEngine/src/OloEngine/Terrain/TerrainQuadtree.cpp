@@ -95,7 +95,7 @@ namespace OloEngine
             }
         }
         // Always include boundary samples
-        auto sampleHeight = [&](u32 x, u32 z)
+        auto sampleHeight = [&heights, &resolution, &heightScale, &hMin, &hMax](u32 x, u32 z)
         {
             f32 h = heights[static_cast<sizet>(z) * resolution + x] * heightScale;
             hMin = std::min(hMin, h);
@@ -330,7 +330,7 @@ namespace OloEngine
 
         // Edge tessellation: use minimum of this node's and neighbor's tess factor
         // to prevent cracks
-        auto edgeTess = [&](u32 neighborLOD) -> f32
+        auto edgeTess = [this, &baseTess](u32 neighborLOD) -> f32
         {
             u32 nLod = std::min(neighborLOD, TerrainLODConfig::MAX_LOD_LEVELS - 1);
             f32 nTess = m_Config.TessFactors[nLod];

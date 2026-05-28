@@ -10,7 +10,7 @@ namespace OloEngine::Audio::DSP
         // Scale buffer sizes from 44100 Hz reference to the actual sample rate
         const double srCoef = 44100.0 / sampleRate;
 
-        auto scaledSize = [&](int baseSamples) -> int
+        auto scaledSize = [&srCoef](int baseSamples) -> int
         {
             return std::max(1, static_cast<int>(static_cast<double>(baseSamples) / srCoef));
         };

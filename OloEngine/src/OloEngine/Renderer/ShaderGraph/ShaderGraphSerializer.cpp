@@ -237,7 +237,7 @@ namespace OloEngine
                 out << YAML::Key << "BufferBinding" << YAML::Value << node->BufferBinding;
 
             // Serialize pin IDs and default values
-            auto serializePins = [&](const std::string& key, const std::vector<ShaderGraphPin>& pins)
+            auto serializePins = [&out](const std::string& key, const std::vector<ShaderGraphPin>& pins)
             {
                 out << YAML::Key << key << YAML::Value << YAML::BeginSeq;
                 for (const auto& pin : pins)
@@ -368,7 +368,7 @@ namespace OloEngine
                         node->BufferBinding = nodeYAML["BufferBinding"].as<int>();
 
                     // Restore pin IDs and default values from YAML
-                    auto restorePins = [&](const std::string& key, std::vector<ShaderGraphPin>& pins)
+                    auto restorePins = [&nodeYAML, &typeName, &nodeID, &node](const std::string& key, std::vector<ShaderGraphPin>& pins)
                     {
                         if (auto pinsYAML = nodeYAML[key]; pinsYAML && pinsYAML.IsSequence())
                         {

@@ -3063,7 +3063,7 @@ namespace OloEngine
         std::vector<NodeSubmissionInfo> result;
         result.reserve(m_NodeLookup.size());
 
-        const auto appendEntryInfo = [&](const std::string& name)
+        const auto appendEntryInfo = [this, &result](const std::string& name)
         {
             if (const auto nodeIt = m_NodeLookup.find(name); nodeIt != m_NodeLookup.end() && nodeIt->second)
             {
@@ -3118,7 +3118,7 @@ namespace OloEngine
         std::vector<Frame> stack;
         stack.reserve(m_InsertionOrder.size());
 
-        const auto visit = [&](const std::string& root) -> bool
+        const auto visit = [this, &visited, &inProgress, &stack](const std::string& root) -> bool
         {
             if (visited.contains(root))
                 return true;
@@ -3264,7 +3264,7 @@ namespace OloEngine
             // resource it reads whose last writer is a different pass.
             for (const auto& consName : m_ExecutionOrder)
             {
-                auto addImplicitEdge = [&](const std::string& producer)
+                auto addImplicitEdge = [&consName, &passSet, &successors, &inDegree](const std::string& producer)
                 {
                     if (producer == consName || !passSet.contains(producer))
                         return;
@@ -3296,7 +3296,7 @@ namespace OloEngine
         std::deque<std::string> computeReady;
         std::deque<std::string> graphicsReady;
 
-        auto classify = [&](const std::string& passName)
+        auto classify = [this, &computeReady, &graphicsReady](const std::string& passName)
         {
             if (IsGraphEntryAsyncComputeCandidate(passName))
                 computeReady.push_back(passName);
@@ -5983,7 +5983,9 @@ namespace OloEngine
             return true;
         };
 
-        auto processGraphNode = [&](RenderGraphNode& node)
+        auto processGraphNode = [this, &builder, &expandTextureViewAccesses, &expandTextureViewFeedbacks,
+                                 &declaredPassDependenciesByPass, &tryAddDerivedDependency, &lastWriterByResource,
+                                 &depSubresourceRangesOverlap, &processedNodeNames](RenderGraphNode& node)
         {
             const std::string nodeName(node.GetName());
             if (nodeName.empty())

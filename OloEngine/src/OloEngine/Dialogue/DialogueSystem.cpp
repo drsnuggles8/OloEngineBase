@@ -268,7 +268,7 @@ namespace OloEngine
             state.m_CurrentText.clear();
             state.m_CurrentSpeaker.clear();
 
-            auto resolveLocalized = [&](const char* keyProp, const char* literalProp) -> std::string
+            auto resolveLocalized = [&node](const char* keyProp, const char* literalProp) -> std::string
             {
                 if (auto it = node->Properties.find(keyProp); it != node->Properties.end())
                 {

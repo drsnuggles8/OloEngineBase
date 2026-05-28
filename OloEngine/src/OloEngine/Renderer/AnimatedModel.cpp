@@ -1082,7 +1082,7 @@ namespace OloEngine
         u32 nextBoneIndex = 0;
 
         std::function<void(const aiNode*, i32, const glm::mat4&)> traverseNode =
-            [&](const aiNode* node, i32 parentBoneIndex, const glm::mat4& accumulatedNonBoneTransform)
+            [this, &uniqueBoneNames, &boneNameToIndex, &nextBoneIndex, &traverseNode](const aiNode* node, i32 parentBoneIndex, const glm::mat4& accumulatedNonBoneTransform)
         {
             std::string nodeName = node->mName.data;
 

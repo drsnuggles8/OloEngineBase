@@ -143,7 +143,7 @@ namespace OloEngine
     {
         auto& rng = RandomUtils::GetGlobalRandom();
 
-        return std::visit([&](auto&& s) -> glm::vec3
+        return std::visit([&rng](auto&& s) -> glm::vec3
                           {
             using T = std::decay_t<decltype(s)>;
 
@@ -242,7 +242,7 @@ namespace OloEngine
     {
         auto& rng = RandomUtils::GetGlobalRandom();
 
-        return std::visit([&](auto&& s) -> glm::vec3
+        return std::visit([&rng](auto&& s) -> glm::vec3
                           {
             using T = std::decay_t<decltype(s)>;
 

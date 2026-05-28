@@ -126,7 +126,7 @@ namespace OloEngine
             m_GBuffer->Resolve();
         }
 
-        const auto copyGBufferExport = [&](const RGTextureHandle handle, const u32 sourceTextureID)
+        const auto copyGBufferExport = [this, &context](const RGTextureHandle handle, const u32 sourceTextureID)
         {
             if (!handle.IsValid() || sourceTextureID == 0u)
                 return;
@@ -142,7 +142,7 @@ namespace OloEngine
                                1);
         };
 
-        const auto copyMultisampleGBufferExport = [&](const RGTextureHandle handle, const u32 sourceTextureID)
+        const auto copyMultisampleGBufferExport = [this, &context](const RGTextureHandle handle, const u32 sourceTextureID)
         {
             if (!handle.IsValid() || sourceTextureID == 0u)
                 return;

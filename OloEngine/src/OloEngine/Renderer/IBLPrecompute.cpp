@@ -338,7 +338,7 @@ namespace OloEngine
         f64 MeasureMillisecondsWithGPUSync(auto&& work)
         {
             const auto start = std::chrono::steady_clock::now();
-            work();
+            std::forward<decltype(work)>(work)();
             // Sync — flushes the GL command queue so the elapsed time covers
             // the actual rasterisation work, not just submission.
             ::glFinish();
@@ -402,7 +402,7 @@ namespace OloEngine
         // Bind environment map
         environmentMap->Bind(ShaderBindingLayout::TEX_ENVIRONMENT);
 
-        const f64 elapsedMs = MeasureMillisecondsWithGPUSync([&]()
+        const f64 elapsedMs = MeasureMillisecondsWithGPUSync([this, &irradianceMap, &shader, &config]()
                                                              {
             // Use enhanced rendering with configuration
             RenderToCubemapAdvanced(irradianceMap, shader, GetCubeMesh(), config); });

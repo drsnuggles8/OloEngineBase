@@ -929,7 +929,7 @@ namespace OloEngine
         // against the primary font we honour the kerning pair; cross-font
         // pairs fall back to the source font's `AdvanceWidth` (kerning across
         // fonts isn't meaningfully defined).
-        const auto resolveAdvance = [&](u32 cp, u32 next, const Font::GlyphLookup& lookup) -> f32
+        const auto resolveAdvance = [&spaceGlyphAdvance, &primaryFont, &resolveGlyph, &slugData](u32 cp, u32 next, const Font::GlyphLookup& lookup) -> f32
         {
             if (!lookup.Glyph)
                 return spaceGlyphAdvance;

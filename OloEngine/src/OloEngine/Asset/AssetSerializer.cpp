@@ -2359,7 +2359,7 @@ namespace OloEngine
             auto boneCount = static_cast<u32>(skeleton->m_BoneNames.size());
 
             // Validate skeleton array sizes — reject mismatches instead of inventing data
-            auto const validateArraySize = [&](sizet actual, const char* name) -> bool
+            auto const validateArraySize = [&boneCount](sizet actual, const char* name) -> bool
             {
                 if (static_cast<u32>(actual) != boneCount)
                 {
@@ -2392,7 +2392,7 @@ namespace OloEngine
             }
 
             // Transform arrays (6 arrays of mat4)
-            auto const writeMat4Array = [&](const std::vector<glm::mat4>& arr)
+            auto const writeMat4Array = [&stream, &boneCount](const std::vector<glm::mat4>& arr)
             {
                 for (u32 j = 0; j < boneCount; ++j)
                 {
@@ -2813,7 +2813,7 @@ namespace OloEngine
             }
 
             // Transform arrays
-            auto const readMat4Array = [&](std::vector<glm::mat4>& arr)
+            auto const readMat4Array = [&stream, &boneCount](std::vector<glm::mat4>& arr)
             {
                 arr.resize(boneCount);
                 stream.ReadData(reinterpret_cast<char*>(arr.data()), boneCount * sizeof(glm::mat4));

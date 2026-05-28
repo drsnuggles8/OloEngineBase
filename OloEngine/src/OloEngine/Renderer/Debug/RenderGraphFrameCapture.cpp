@@ -553,7 +553,7 @@ namespace OloEngine
 
         bool emittedDiag = false;
 
-        const auto captureFB = [&](Source kind, std::string_view resourceName, const Ref<Framebuffer>& fb)
+        const auto captureFB = [this, &emittedDiag, &passName, &metadata](Source kind, std::string_view resourceName, const Ref<Framebuffer>& fb)
         {
             if (!fb)
                 return;
@@ -582,7 +582,7 @@ namespace OloEngine
                                resourceName, fb->GetRendererID(), metadata);
         };
 
-        const auto captureTexture = [&](Source kind, std::string_view resourceName, u32 textureID, u32 width, u32 height, u32 sourceFramebufferID = 0)
+        const auto captureTexture = [this, &emittedDiag, &passName, &metadata](Source kind, std::string_view resourceName, u32 textureID, u32 width, u32 height, u32 sourceFramebufferID = 0)
         {
             if (textureID == 0 || width == 0 || height == 0)
                 return;
@@ -595,7 +595,7 @@ namespace OloEngine
             CaptureFramebuffer(passName, kind, textureID, width, height, resourceName, sourceFramebufferID, metadata);
         };
 
-        const auto captureGraphTexture = [&](Source kind, std::string_view resourceName)
+        const auto captureGraphTexture = [&graph, &captureTexture](Source kind, std::string_view resourceName)
         {
             const u32 textureID = graph.ResolveTexture(graph.GetTextureHandle(resourceName));
             if (textureID == 0)

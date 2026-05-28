@@ -161,7 +161,7 @@ namespace OloEngine::Animation
         // The end-effector's position is determined by the parent chain.
 
         // Helper to get the decomposed pre-transform for a bone index
-        auto getPreTransform = [&](u32 idx) -> BoneTransform
+        auto getPreTransform = [&preTransforms](u32 idx) -> BoneTransform
         {
             if (idx < preTransforms.size())
             {

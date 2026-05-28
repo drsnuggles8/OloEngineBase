@@ -30,7 +30,7 @@ namespace OloEngine
         glm::vec2 currentPos{};
         bool inContour = false;
 
-        auto addLineCurve = [&](glm::vec2 from, glm::vec2 to)
+        auto addLineCurve = [&result](glm::vec2 from, glm::vec2 to)
         {
             // Convert line to degenerate quadratic: control point at midpoint.
             SlugCurve curve;
@@ -40,7 +40,7 @@ namespace OloEngine
             result.Curves.push_back(curve);
         };
 
-        auto addQuadCurve = [&](glm::vec2 from, glm::vec2 ctrl, glm::vec2 to)
+        auto addQuadCurve = [&result](glm::vec2 from, glm::vec2 ctrl, glm::vec2 to)
         {
             SlugCurve curve;
             curve.P1 = from;
@@ -49,7 +49,7 @@ namespace OloEngine
             result.Curves.push_back(curve);
         };
 
-        auto addCubicAsTwoQuadratics = [&](glm::vec2 p0, glm::vec2 p1, glm::vec2 p2, glm::vec2 p3)
+        auto addCubicAsTwoQuadratics = [&addQuadCurve](glm::vec2 p0, glm::vec2 p1, glm::vec2 p2, glm::vec2 p3)
         {
             // Split cubic at t=0.5 using de Casteljau, then approximate each half.
             auto q01 = (p0 + p1) * 0.5f;
@@ -360,7 +360,7 @@ namespace OloEngine
 
             // Sort curves in descending order by max x coordinate.
             std::sort(hbandCurves[band].begin(), hbandCurves[band].end(),
-                      [&](u32 a, u32 b)
+                      [&curveBounds](u32 a, u32 b)
                       { return curveBounds[a].MaxX > curveBounds[b].MaxX; });
         }
 
@@ -387,7 +387,7 @@ namespace OloEngine
 
             // Sort curves in descending order by max y coordinate.
             std::sort(vbandCurves[band].begin(), vbandCurves[band].end(),
-                      [&](u32 a, u32 b)
+                      [&curveBounds](u32 a, u32 b)
                       { return curveBounds[a].MaxY > curveBounds[b].MaxY; });
         }
 

@@ -513,7 +513,7 @@ namespace OloEngine
         }
 
         i32 pingMs = -1;
-        s_Server->ForEachConnection([&](HSteamNetConnection connHandle, const NetworkConnection& conn)
+        s_Server->ForEachConnection([&clientID, &pingMs](HSteamNetConnection connHandle, const NetworkConnection& conn)
                                     {
             if (conn.GetClientID() == clientID)
             {

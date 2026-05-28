@@ -11,7 +11,12 @@
       "Bash(git rebase --abort)",
       "Bash(git rebase --continue)",
       "Bash(git rebase --skip)",
-      "Bash(build/OloEngine/tests/Debug/OloEngine-Tests.exe --gtest_filter=\"BoundingBox.*:BoundingSphere.*:BoundingVolume.*:FrustumCulling.*:MeshBinarySerializer.*:MeshSourceBounds.*\")"
+      "Bash(build/OloEngine/tests/Debug/OloEngine-Tests.exe --gtest_filter=\"BoundingBox.*:BoundingSphere.*:BoundingVolume.*:FrustumCulling.*:MeshBinarySerializer.*:MeshSourceBounds.*\")",
+      "mcp__sonarqube__get_project_quality_gate_status",
+      "mcp__sonarqube__get_component_measures",
+      "mcp__sonarqube__search_sonar_issues_in_projects",
+      "mcp__sonarqube__show_rule",
+      "Bash(cmake --build build --target OloEngine-Tests --config Debug --parallel)"
     ],
     "additionalDirectories": [
       "\\tmp"

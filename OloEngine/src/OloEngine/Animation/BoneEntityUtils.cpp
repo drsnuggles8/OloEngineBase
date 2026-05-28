@@ -85,7 +85,7 @@ namespace OloEngine
         std::unordered_set<UUID> visited;
 
         // Build tag map with cycle detection
-        std::function<void(Entity)> buildTagMap = [&](Entity entity)
+        std::function<void(Entity)> buildTagMap = [&scene, &visited, &tagEntityMap, &buildTagMap](Entity entity)
         {
             if (!entity || !scene)
                 return;
@@ -163,7 +163,7 @@ namespace OloEngine
                 std::unordered_set<UUID> visited;
 
                 // Build tag map with cycle detection
-                std::function<void(Entity)> buildTagMap = [&](Entity entity)
+                std::function<void(Entity)> buildTagMap = [&scene, &visited, &skeletonComponent, &buildTagMap](Entity entity)
                 {
                     if (!entity || !scene)
                         return;

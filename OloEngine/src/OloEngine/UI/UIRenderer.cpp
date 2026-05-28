@@ -159,7 +159,7 @@ namespace OloEngine
         const f32 y2 = position.y + size.y - bottom;
 
         // Helper to draw one slice
-        auto drawSlice = [&](f32 px, f32 py, f32 pw, f32 ph, const glm::vec2& uvMin, const glm::vec2& uvMax)
+        auto drawSlice = [&texture, &tintColor, &entityID](f32 px, f32 py, f32 pw, f32 ph, const glm::vec2& uvMin, const glm::vec2& uvMax)
         {
             if (pw > 0.0f && ph > 0.0f)
             {

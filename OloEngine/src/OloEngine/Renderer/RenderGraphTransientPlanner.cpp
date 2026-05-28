@@ -36,7 +36,7 @@ namespace OloEngine::RenderGraphTransientPlanner
         constexpr u64 fnvOffset = 14695981039346656037ULL;
         constexpr u64 fnvPrime = 1099511628211ULL;
         u64 h = fnvOffset;
-        const auto mix = [&](u64 v)
+        const auto mix = [&h, &fnvPrime](u64 v)
         {
             for (u32 i = 0; i < 8; ++i)
             {
@@ -318,7 +318,7 @@ namespace OloEngine::RenderGraphTransientPlanner
         //    index, then by resource name (deterministic across rebuilds).
         //    The hash lookup replaces an O(L) string compare per probe.
         std::sort(plan.begin(), plan.end(),
-                  [&](const RenderGraph::TransientPlanEntry& lhs, const RenderGraph::TransientPlanEntry& rhs)
+                  [&aliasGroupHashByResource](const RenderGraph::TransientPlanEntry& lhs, const RenderGraph::TransientPlanEntry& rhs)
                   {
                       const auto lhsHash = aliasGroupHashByResource.at(lhs.Resource);
                       const auto rhsHash = aliasGroupHashByResource.at(rhs.Resource);

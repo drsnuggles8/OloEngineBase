@@ -691,7 +691,7 @@ namespace OloEngine
             else
             {
                 // Group by category when not searching
-                auto drawCategory = [&](const char* label, ShaderGraphNodeCategory category)
+                auto drawCategory = [this, &worldPos](const char* label, ShaderGraphNodeCategory category)
                 {
                     if (ImGui::BeginMenu(label))
                     {

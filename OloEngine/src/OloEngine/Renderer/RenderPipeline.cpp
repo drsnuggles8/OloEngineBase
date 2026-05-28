@@ -1089,7 +1089,7 @@ namespace OloEngine
             //   RT1 Normal   — octahedral normal + roughness + AO
             //   RT2 Emissive — emissive HDR
             //   RT3 Velocity — screen-space motion vectors
-            auto buildGBufferFramebufferDesc = [&](const u32 sampleCount, std::string_view debugName) -> RGResourceDesc
+            auto buildGBufferFramebufferDesc = [&gbuffer](const u32 sampleCount, std::string_view debugName) -> RGResourceDesc
             {
                 RGResourceDesc desc;
                 desc.Kind = ResourceHandle::Kind::Framebuffer;
@@ -1399,7 +1399,7 @@ namespace OloEngine
         };
 
         auto declareGraphOnlyPostProcessFB =
-            [&](std::string_view name, const RGResourceFormat fmt) -> RGFramebufferHandle
+            [&postProcessWidth, &postProcessHeight, &declareGraphOnlyFramebuffer](std::string_view name, const RGResourceFormat fmt) -> RGFramebufferHandle
         {
             RGResourceDesc desc;
             desc.Kind = ResourceHandle::Kind::Framebuffer;
@@ -1417,9 +1417,9 @@ namespace OloEngine
         };
 
         auto declareGraphOnlyPostProcessOutput =
-            [&](std::string_view framebufferName,
-                std::string_view textureName,
-                const RGResourceFormat fmt) -> GraphOnlyPostProcessOutput
+            [&declareGraphOnlyPostProcessFB, &graph](std::string_view framebufferName,
+                                                     std::string_view textureName,
+                                                     const RGResourceFormat fmt) -> GraphOnlyPostProcessOutput
         {
             const auto framebuffer = declareGraphOnlyPostProcessFB(framebufferName, fmt);
             const auto texture = framebuffer.IsValid()

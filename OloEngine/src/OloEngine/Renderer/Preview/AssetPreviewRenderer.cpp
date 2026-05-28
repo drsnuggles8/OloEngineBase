@@ -201,8 +201,8 @@ namespace OloEngine
         s_DefaultWhite = Texture2D::Create(spec);
         if (!s_DefaultWhite)
             return false;
-        const u8 white[4] = { 0xFF, 0xFF, 0xFF, 0xFF };
-        s_DefaultWhite->SetData(const_cast<u8*>(white), sizeof(white));
+        u8 white[4] = { 0xFF, 0xFF, 0xFF, 0xFF };
+        s_DefaultWhite->SetData(white, sizeof(white));
         return true;
     }
 
@@ -267,7 +267,7 @@ namespace OloEngine
         {
             return std::isfinite(v) ? v : fallback;
         };
-        const auto safeV3 = [&](const glm::vec3& v, const glm::vec3& fallback) noexcept
+        const auto safeV3 = [&safeF](const glm::vec3& v, const glm::vec3& fallback) noexcept
         {
             return glm::vec3(safeF(v.x, fallback.x), safeF(v.y, fallback.y), safeF(v.z, fallback.z));
         };

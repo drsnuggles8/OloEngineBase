@@ -1541,7 +1541,7 @@ namespace OloEngine
             TrySet(src.Config.DopplerFactor, audioSourceComponent["DopplerFactor"]);
 
             // DSP parameters: load + sanitize in one step to prevent drift
-            auto TrySetDsp = [&](f32& field, const char* key, f32 lo, f32 hi, f32 fallback)
+            auto TrySetDsp = [&audioSourceComponent](f32& field, const char* key, f32 lo, f32 hi, f32 fallback)
             {
                 TrySet(field, audioSourceComponent[key]);
                 SanitizeFloat(field, lo, hi, fallback);
@@ -5559,7 +5559,7 @@ namespace OloEngine
         }
 
         out << YAML::Key << "Entities" << YAML::Value << YAML::BeginSeq;
-        ForEachEntitySorted([&](Entity entity)
+        ForEachEntitySorted([&out](Entity entity)
                             { SerializeEntity(out, entity); });
         out << YAML::EndSeq;
         out << YAML::EndMap;
@@ -5577,9 +5577,9 @@ namespace OloEngine
     void SceneSerializer::ForEachEntitySorted(const std::function<void(Entity)>& fn) const
     {
         std::vector<entt::entity> sortedEntities;
-        m_Scene->m_Registry.view<entt::entity>().each([&](auto entityID)
+        m_Scene->m_Registry.view<entt::entity>().each([&sortedEntities](auto entityID)
                                                       { sortedEntities.push_back(entityID); });
-        std::ranges::sort(sortedEntities, [&](entt::entity a, entt::entity b)
+        std::ranges::sort(sortedEntities, [this](entt::entity a, entt::entity b)
                           {
                               const u64 uuidA = m_Scene->m_Registry.get<IDComponent>(a).ID;
                               const u64 uuidB = m_Scene->m_Registry.get<IDComponent>(b).ID;
@@ -5854,7 +5854,7 @@ namespace OloEngine
         }
 
         out << YAML::Key << "Entities" << YAML::Value << YAML::BeginSeq;
-        ForEachEntitySorted([&](Entity entity)
+        ForEachEntitySorted([&out](Entity entity)
                             { SerializeEntity(out, entity); });
         out << YAML::EndSeq;
         out << YAML::EndMap;

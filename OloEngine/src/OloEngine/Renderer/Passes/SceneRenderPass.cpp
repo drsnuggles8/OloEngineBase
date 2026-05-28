@@ -388,7 +388,7 @@ namespace OloEngine
         // scene pass still renders into the legacy scene/G-Buffer
         // attachments, but downstream consumers now sample the exported graph
         // textures instead of importing those attachments directly.
-        const auto copySceneExport = [&](const RGTextureHandle handle, const u32 sourceTextureID)
+        const auto copySceneExport = [this, &context](const RGTextureHandle handle, const u32 sourceTextureID)
         {
             if (!handle.IsValid() || sourceTextureID == 0u ||
                 m_FramebufferSpec.Width == 0u || m_FramebufferSpec.Height == 0u)

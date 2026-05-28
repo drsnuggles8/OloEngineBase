@@ -362,7 +362,7 @@ namespace OloEngine
             u64 removedBytes = 0;
             u32 removedFiles = 0;
 
-            auto removeFile = [&](const std::filesystem::path& path)
+            auto removeFile = [&removedBytes, &removedFiles](const std::filesystem::path& path)
             {
                 if (std::filesystem::exists(path))
                 {

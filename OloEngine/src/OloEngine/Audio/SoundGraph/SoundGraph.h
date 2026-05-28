@@ -84,7 +84,7 @@ namespace OloEngine::Audio::SoundGraph
             AddInEvent(IDs::Play);
 
             // Create a dedicated input event for handling finish notifications
-            AddInEvent(Identifier("OnFinishHandler"), [&](float v)
+            AddInEvent(Identifier("OnFinishHandler"), [this](float v)
                        {
                     (void)v;
             // Push finish event using pre-allocated storage (real-time safe)

@@ -263,7 +263,7 @@ namespace OloEngine::RenderGraphBarrierPlanner
         for (std::size_t i = 0; i < input.ExecutionOrder.size(); ++i)
             passOrderIdx.emplace(input.ExecutionOrder[i], i);
 
-        const auto passToLane = [&](const std::string& passName) -> RenderGraph::QueueLane
+        const auto passToLane = [&input](const std::string& passName) -> RenderGraph::QueueLane
         {
             switch (input.GetPassWorkType(passName))
             {

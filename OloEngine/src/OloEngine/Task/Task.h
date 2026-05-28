@@ -479,7 +479,7 @@ namespace OloEngine::Tasks
     {
         return Launch(
             "CompletedTask",
-            [&]()
+            [&Args...]()
             { return ResultType(Forward<ArgTypes>(Args)...); },
             ETaskPriority::Default,
             EExtendedTaskPriority::Inline);
