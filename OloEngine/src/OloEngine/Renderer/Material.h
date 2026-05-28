@@ -403,7 +403,7 @@ namespace OloEngine
         {
             return AssetType::Material;
         }
-        virtual AssetType GetAssetType() const override
+        AssetType GetAssetType() const override
         {
             return GetStaticType();
         }

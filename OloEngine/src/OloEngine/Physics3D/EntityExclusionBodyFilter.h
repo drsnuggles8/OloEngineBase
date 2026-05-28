@@ -51,8 +51,8 @@ namespace OloEngine
         // JPH::BodyFilter interface implementation
         // Note: These methods are exception-safe and designed not to throw,
         // but cannot be marked noexcept due to base class signature constraints
-        virtual bool ShouldCollide(const JPH::BodyID& inBodyID) const override;
-        virtual bool ShouldCollideLocked(const JPH::Body& inBody) const override;
+        bool ShouldCollide(const JPH::BodyID& inBodyID) const override;
+        bool ShouldCollideLocked(const JPH::Body& inBody) const override;
 
         // @brief Add an entity to the exclusion list
         // @param entityID UUID of entity to exclude

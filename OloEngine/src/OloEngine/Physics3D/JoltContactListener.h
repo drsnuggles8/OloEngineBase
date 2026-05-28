@@ -27,16 +27,16 @@ namespace OloEngine
         virtual ~JoltContactListener() noexcept = default;
 
         // Called when a contact is detected
-        [[nodiscard]] virtual JPH::ValidateResult OnContactValidate(const JPH::Body& inBody1, const JPH::Body& inBody2, JPH::RVec3Arg inBaseOffset, const JPH::CollideShapeResult& inCollisionResult) override;
+        [[nodiscard]] JPH::ValidateResult OnContactValidate(const JPH::Body& inBody1, const JPH::Body& inBody2, JPH::RVec3Arg inBaseOffset, const JPH::CollideShapeResult& inCollisionResult) override;
 
         // Called when a contact is added (first frame of contact)
-        virtual void OnContactAdded(const JPH::Body& inBody1, const JPH::Body& inBody2, const JPH::ContactManifold& inManifold, JPH::ContactSettings& ioSettings) override;
+        void OnContactAdded(const JPH::Body& inBody1, const JPH::Body& inBody2, const JPH::ContactManifold& inManifold, JPH::ContactSettings& ioSettings) override;
 
         // Called when a contact persists (second and subsequent frames of contact)
-        virtual void OnContactPersisted(const JPH::Body& inBody1, const JPH::Body& inBody2, const JPH::ContactManifold& inManifold, JPH::ContactSettings& ioSettings) override;
+        void OnContactPersisted(const JPH::Body& inBody1, const JPH::Body& inBody2, const JPH::ContactManifold& inManifold, JPH::ContactSettings& ioSettings) override;
 
         // Called when a contact is removed (last frame of contact)
-        virtual void OnContactRemoved(const JPH::SubShapeIDPair& inSubShapePair) override;
+        void OnContactRemoved(const JPH::SubShapeIDPair& inSubShapePair) override;
 
         // Process queued contact events (call this from the main thread)
         void ProcessContactEvents();

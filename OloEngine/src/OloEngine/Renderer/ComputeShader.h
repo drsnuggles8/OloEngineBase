@@ -44,7 +44,7 @@ namespace OloEngine
         {
             return AssetType::ComputeShader;
         }
-        virtual AssetType GetAssetType() const override
+        AssetType GetAssetType() const override
         {
             return GetStaticType();
         }

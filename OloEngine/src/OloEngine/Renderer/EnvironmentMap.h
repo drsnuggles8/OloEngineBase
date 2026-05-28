@@ -137,7 +137,7 @@ namespace OloEngine
         {
             return AssetType::EnvMap;
         }
-        virtual AssetType GetAssetType() const override
+        AssetType GetAssetType() const override
         {
             return GetStaticType();
         }

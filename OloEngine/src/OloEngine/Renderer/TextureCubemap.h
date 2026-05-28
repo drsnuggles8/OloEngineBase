@@ -56,7 +56,7 @@ namespace OloEngine
         {
             return AssetType::TextureCube;
         }
-        virtual AssetType GetAssetType() const override
+        AssetType GetAssetType() const override
         {
             return GetStaticType();
         }

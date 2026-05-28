@@ -203,7 +203,7 @@ namespace OloEngine
 
         // @brief Get the thread type
         // @return ThreadType::Forkable
-        virtual ThreadType GetThreadType() const override
+        ThreadType GetThreadType() const override
         {
             return ThreadType::Forkable;
         }

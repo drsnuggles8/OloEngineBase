@@ -89,7 +89,7 @@ namespace OloEngine
         {
             return AssetType::Shader;
         }
-        virtual AssetType GetAssetType() const override
+        AssetType GetAssetType() const override
         {
             return GetStaticType();
         }

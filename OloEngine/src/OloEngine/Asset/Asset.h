@@ -210,7 +210,7 @@ namespace OloEngine
         {
             return AssetType::Audio;
         }
-        virtual AssetType GetAssetType() const override
+        AssetType GetAssetType() const override
         {
             return GetStaticType();
         }
@@ -260,7 +260,7 @@ namespace OloEngine
         {
             return AssetType::ScriptFile;
         }
-        virtual AssetType GetAssetType() const override
+        AssetType GetAssetType() const override
         {
             return GetStaticType();
         }

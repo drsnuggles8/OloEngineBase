@@ -57,38 +57,38 @@ namespace OloEngine
         // enqueues onto the FNamedThreadManager singleton, which races its global
         // destructor at process exit (caught by TSan on Linux CI).
         virtual void Initialize(bool startFileWatcher = true);
-        virtual void Shutdown() noexcept override;
+        void Shutdown() noexcept override;
 
-        virtual AssetType GetAssetType(AssetHandle assetHandle) const noexcept override;
-        virtual Ref<Asset> GetAsset(AssetHandle assetHandle) override;
-        virtual AsyncAssetResult<Asset> GetAssetAsync(AssetHandle assetHandle) override;
+        AssetType GetAssetType(AssetHandle assetHandle) const noexcept override;
+        Ref<Asset> GetAsset(AssetHandle assetHandle) override;
+        AsyncAssetResult<Asset> GetAssetAsync(AssetHandle assetHandle) override;
 
-        virtual void AddMemoryOnlyAsset(Ref<Asset> asset) override;
-        [[nodiscard]] virtual bool ReloadData(AssetHandle assetHandle) override;
-        virtual void ReloadDataAsync(AssetHandle assetHandle) override;
-        [[nodiscard]] virtual bool EnsureCurrent(AssetHandle assetHandle) override;
-        [[nodiscard]] virtual bool EnsureAllLoadedCurrent() override;
-        [[nodiscard]] virtual bool IsAssetHandleValid(AssetHandle assetHandle) const noexcept override;
-        virtual Ref<Asset> GetMemoryAsset(AssetHandle handle) const override;
-        [[nodiscard]] virtual bool IsAssetLoaded(AssetHandle handle) const noexcept override;
-        [[nodiscard]] virtual bool IsAssetValid(AssetHandle handle) const noexcept override;
-        [[nodiscard]] virtual bool IsAssetMissing(AssetHandle handle) const noexcept override;
-        [[nodiscard]] virtual bool IsMemoryAsset(AssetHandle handle) const noexcept override;
-        [[nodiscard]] virtual bool IsPhysicalAsset(AssetHandle handle) const noexcept override;
-        virtual void RemoveAsset(AssetHandle handle) override;
+        void AddMemoryOnlyAsset(Ref<Asset> asset) override;
+        [[nodiscard]] bool ReloadData(AssetHandle assetHandle) override;
+        void ReloadDataAsync(AssetHandle assetHandle) override;
+        [[nodiscard]] bool EnsureCurrent(AssetHandle assetHandle) override;
+        [[nodiscard]] bool EnsureAllLoadedCurrent() override;
+        [[nodiscard]] bool IsAssetHandleValid(AssetHandle assetHandle) const noexcept override;
+        Ref<Asset> GetMemoryAsset(AssetHandle handle) const override;
+        [[nodiscard]] bool IsAssetLoaded(AssetHandle handle) const noexcept override;
+        [[nodiscard]] bool IsAssetValid(AssetHandle handle) const noexcept override;
+        [[nodiscard]] bool IsAssetMissing(AssetHandle handle) const noexcept override;
+        [[nodiscard]] bool IsMemoryAsset(AssetHandle handle) const noexcept override;
+        [[nodiscard]] bool IsPhysicalAsset(AssetHandle handle) const noexcept override;
+        void RemoveAsset(AssetHandle handle) override;
 
         // Dependency management
-        virtual void RegisterDependency(AssetHandle handle, AssetHandle dependency) override;
-        virtual void DeregisterDependency(AssetHandle handle, AssetHandle dependency) override;
-        virtual void DeregisterDependencies(AssetHandle handle) override;
-        virtual std::unordered_set<AssetHandle> GetDependencies(AssetHandle handle) const override;
+        void RegisterDependency(AssetHandle handle, AssetHandle dependency) override;
+        void DeregisterDependency(AssetHandle handle, AssetHandle dependency) override;
+        void DeregisterDependencies(AssetHandle handle) override;
+        std::unordered_set<AssetHandle> GetDependencies(AssetHandle handle) const override;
 
-        virtual void SyncWithAssetThread() noexcept override;
+        void SyncWithAssetThread() noexcept override;
 
-        virtual std::unordered_set<AssetHandle> GetAllAssetsWithType(AssetType type) const override;
+        std::unordered_set<AssetHandle> GetAllAssetsWithType(AssetType type) const override;
 
-        virtual std::unordered_map<AssetHandle, Ref<Asset>> GetLoadedAssets() const override;
-        virtual void ForEachLoadedAsset(const std::function<bool(AssetHandle, const Ref<Asset>&)>& callback) const override;
+        std::unordered_map<AssetHandle, Ref<Asset>> GetLoadedAssets() const override;
+        void ForEachLoadedAsset(const std::function<bool(AssetHandle, const Ref<Asset>&)>& callback) const override;
 
         /**
          * @brief Get a copy of loaded assets for safe iteration in multithreaded contexts
@@ -111,7 +111,7 @@ namespace OloEngine
          * @param handle Asset handle
          * @return Copy of asset metadata (thread-safe)
          */
-        virtual AssetMetadata GetAssetMetadata(AssetHandle handle) const noexcept override
+        AssetMetadata GetAssetMetadata(AssetHandle handle) const noexcept override
         {
             return GetMetadata(handle);
         }

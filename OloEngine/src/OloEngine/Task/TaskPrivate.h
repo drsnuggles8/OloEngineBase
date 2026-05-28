@@ -1149,7 +1149,7 @@ namespace OloEngine::Tasks
             OLO_NONCOPYABLE(TExecutableTaskBase);
 
           public:
-            virtual void ExecuteTask() override final
+            void ExecuteTask() override final
             {
                 // Execute task body and store result
                 new (this->m_ResultStorage.GetTypedPtr()) ResultType(Invoke(*m_TaskBodyStorage.GetTypedPtr()));
@@ -1182,7 +1182,7 @@ namespace OloEngine::Tasks
             OLO_NONCOPYABLE(TExecutableTaskBase);
 
           public:
-            virtual void ExecuteTask() override final
+            void ExecuteTask() override final
             {
                 Invoke(*m_TaskBodyStorage.GetTypedPtr());
 
@@ -1269,7 +1269,7 @@ namespace OloEngine::Tasks
                 Init(InDebugName, ETaskPriority::Normal, EExtendedTaskPriority::TaskEvent, ETaskFlags::None);
             }
 
-            virtual void ExecuteTask() override final
+            void ExecuteTask() override final
             {
                 OLO_CORE_ASSERT(false, "TaskEvent should never be executed");
             }

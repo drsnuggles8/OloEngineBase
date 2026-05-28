@@ -187,7 +187,7 @@ namespace OloEngine
 
 #if OLO_ALLOW_EXEC_COMMANDS
         // Handles any commands passed in on the command line
-        virtual bool Exec(const char* Cmd, FOutputDevice& Ar) override
+        bool Exec(const char* Cmd, FOutputDevice& Ar) override
         {
             (void)Cmd;
             (void)Ar;

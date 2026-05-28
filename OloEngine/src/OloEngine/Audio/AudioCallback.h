@@ -269,7 +269,7 @@ namespace OloEngine::Audio
       private:
         friend AudioCallbackDeinterleaved<CallbackBindedDeinterleaved>;
 
-        virtual void ReleaseResources() override {}
+        void ReleaseResources() override {}
 
         // CRTP interface requirement: Init() must be implemented to satisfy the base class contract.
         // Returns true immediately as configuration happens via onAudioCallback member.
@@ -333,7 +333,7 @@ namespace OloEngine::Audio
       private:
         friend AudioCallbackInterleaved<CallbackBindedInterleaved>;
 
-        virtual void ReleaseResources() override {}
+        void ReleaseResources() override {}
         bool Init([[maybe_unused]] u32 sampleRate, [[maybe_unused]] u32 maxBlockSize, [[maybe_unused]] const BusConfig& config)
         {
             return true;

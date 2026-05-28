@@ -446,7 +446,7 @@ namespace OloEngine
         {
             return AssetType::Scene;
         }
-        virtual AssetType GetAssetType() const override
+        AssetType GetAssetType() const override
         {
             return GetStaticType();
         }

@@ -42,7 +42,7 @@ namespace OloEngine
 
         // @brief Get asset type of this instance
         // @return AssetType::Prefab
-        virtual AssetType GetAssetType() const override
+        AssetType GetAssetType() const override
         {
             return GetStaticType();
         }

@@ -80,20 +80,20 @@ namespace OloEngine
         void OnSimulationStop();
 
         // Scene queries (implementing SceneQueries interface)
-        virtual bool CastRay(const RayCastInfo& rayInfo, SceneQueryHit& outHit) override;
-        virtual bool CastShape(const ShapeCastInfo& shapeCastInfo, SceneQueryHit& outHit) override;
-        virtual bool CastBox(const BoxCastInfo& boxCastInfo, SceneQueryHit& outHit) override;
-        virtual bool CastSphere(const SphereCastInfo& sphereCastInfo, SceneQueryHit& outHit) override;
-        virtual bool CastCapsule(const CapsuleCastInfo& capsuleCastInfo, SceneQueryHit& outHit) override;
-        virtual i32 OverlapShape(const ShapeOverlapInfo& overlapInfo, SceneQueryHit* outHits, i32 maxHits) override;
-        virtual i32 OverlapBox(const BoxOverlapInfo& boxOverlapInfo, SceneQueryHit* outHits, i32 maxHits) override;
-        virtual i32 OverlapSphere(const SphereOverlapInfo& sphereOverlapInfo, SceneQueryHit* outHits, i32 maxHits) override;
-        virtual i32 OverlapCapsule(const CapsuleOverlapInfo& capsuleOverlapInfo, SceneQueryHit* outHits, i32 maxHits) override;
-        virtual i32 CastRayMultiple(const RayCastInfo& rayInfo, SceneQueryHit* outHits, i32 maxHits) override;
-        virtual i32 CastShapeMultiple(const ShapeCastInfo& shapeCastInfo, SceneQueryHit* outHits, i32 maxHits) override;
-        virtual i32 CastBoxMultiple(const BoxCastInfo& boxCastInfo, SceneQueryHit* outHits, i32 maxHits) override;
-        virtual i32 CastSphereMultiple(const SphereCastInfo& sphereCastInfo, SceneQueryHit* outHits, i32 maxHits) override;
-        virtual i32 CastCapsuleMultiple(const CapsuleCastInfo& capsuleCastInfo, SceneQueryHit* outHits, i32 maxHits) override;
+        bool CastRay(const RayCastInfo& rayInfo, SceneQueryHit& outHit) override;
+        bool CastShape(const ShapeCastInfo& shapeCastInfo, SceneQueryHit& outHit) override;
+        bool CastBox(const BoxCastInfo& boxCastInfo, SceneQueryHit& outHit) override;
+        bool CastSphere(const SphereCastInfo& sphereCastInfo, SceneQueryHit& outHit) override;
+        bool CastCapsule(const CapsuleCastInfo& capsuleCastInfo, SceneQueryHit& outHit) override;
+        i32 OverlapShape(const ShapeOverlapInfo& overlapInfo, SceneQueryHit* outHits, i32 maxHits) override;
+        i32 OverlapBox(const BoxOverlapInfo& boxOverlapInfo, SceneQueryHit* outHits, i32 maxHits) override;
+        i32 OverlapSphere(const SphereOverlapInfo& sphereOverlapInfo, SceneQueryHit* outHits, i32 maxHits) override;
+        i32 OverlapCapsule(const CapsuleOverlapInfo& capsuleOverlapInfo, SceneQueryHit* outHits, i32 maxHits) override;
+        i32 CastRayMultiple(const RayCastInfo& rayInfo, SceneQueryHit* outHits, i32 maxHits) override;
+        i32 CastShapeMultiple(const ShapeCastInfo& shapeCastInfo, SceneQueryHit* outHits, i32 maxHits) override;
+        i32 CastBoxMultiple(const BoxCastInfo& boxCastInfo, SceneQueryHit* outHits, i32 maxHits) override;
+        i32 CastSphereMultiple(const SphereCastInfo& sphereCastInfo, SceneQueryHit* outHits, i32 maxHits) override;
+        i32 CastCapsuleMultiple(const CapsuleCastInfo& capsuleCastInfo, SceneQueryHit* outHits, i32 maxHits) override;
 
         // Radial impulse
         void AddRadialImpulse(const glm::vec3& origin, f32 radius, f32 strength, EFalloffMode falloff, bool velocityChange);

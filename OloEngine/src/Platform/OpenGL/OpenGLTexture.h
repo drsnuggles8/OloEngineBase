@@ -13,7 +13,7 @@ namespace OloEngine
         explicit OpenGLTexture2D(const std::string& path, bool srgb = false);
         ~OpenGLTexture2D() override;
 
-        virtual const TextureSpecification& GetSpecification() const override
+        const TextureSpecification& GetSpecification() const override
         {
             return m_Specification;
         }

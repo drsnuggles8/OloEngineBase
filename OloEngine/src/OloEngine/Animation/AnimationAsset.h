@@ -30,7 +30,7 @@ namespace OloEngine
         {
             return AssetType::AnimationClip;
         }
-        virtual AssetType GetAssetType() const override
+        AssetType GetAssetType() const override
         {
             return GetStaticType();
         }
@@ -88,7 +88,7 @@ namespace OloEngine
         }
 
         // Asset system integration
-        virtual void OnDependencyUpdated(AssetHandle handle) override;
+        void OnDependencyUpdated(AssetHandle handle) override;
 
       private:
         // Source and target data

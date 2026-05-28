@@ -32,7 +32,7 @@ namespace OloEngine
     class ObjectLayerPairFilter : public JPH::ObjectLayerPairFilter
     {
       public:
-        virtual bool ShouldCollide(JPH::ObjectLayer inObject1, JPH::ObjectLayer inObject2) const override
+        bool ShouldCollide(JPH::ObjectLayer inObject1, JPH::ObjectLayer inObject2) const override
         {
             // First check basic layer compatibility (static objects, triggers, etc.)
             bool basicCheck = ShouldCollideBasic(inObject1, inObject2);
@@ -94,12 +94,12 @@ namespace OloEngine
             m_ObjectToBroadPhase[ObjectLayers::DEBRIS] = BroadPhaseLayers::MOVING;    // Debris is moving
         }
 
-        virtual u32 GetNumBroadPhaseLayers() const override
+        u32 GetNumBroadPhaseLayers() const override
         {
             return BroadPhaseLayers::NUM_LAYERS;
         }
 
-        virtual JPH::BroadPhaseLayer GetBroadPhaseLayer(JPH::ObjectLayer inLayer) const override
+        JPH::BroadPhaseLayer GetBroadPhaseLayer(JPH::ObjectLayer inLayer) const override
         {
             // Handle built-in object layers
             if (inLayer < ObjectLayers::NUM_LAYERS)
@@ -120,7 +120,7 @@ namespace OloEngine
         }
 
 #if defined(JPH_EXTERNAL_PROFILE) || defined(JPH_PROFILE_ENABLED)
-        virtual const char* GetBroadPhaseLayerName(JPH::BroadPhaseLayer inLayer) const override
+        const char* GetBroadPhaseLayerName(JPH::BroadPhaseLayer inLayer) const override
         {
             switch ((JPH::BroadPhaseLayer::Type)inLayer)
             {
@@ -143,7 +143,7 @@ namespace OloEngine
     class ObjectVsBroadPhaseLayerFilter : public JPH::ObjectVsBroadPhaseLayerFilter
     {
       public:
-        virtual bool ShouldCollide(JPH::ObjectLayer inLayer1, JPH::BroadPhaseLayer inLayer2) const override
+        bool ShouldCollide(JPH::ObjectLayer inLayer1, JPH::BroadPhaseLayer inLayer2) const override
         {
             // Handle user-defined layers (indices >= NUM_LAYERS) first
             // Treat user-defined layers as moving-like: they can collide with both broadphase layers
