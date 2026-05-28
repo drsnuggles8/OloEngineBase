@@ -135,4 +135,4 @@ namespace OloEngine::Tests
         EXPECT_GT(hazyLum, clearLum)
             << "Higher turbidity must brighten the average sky radiance.";
     }
-}
+} // namespace OloEngine::Tests

@@ -23,26 +23,30 @@ namespace OloEngine
         // Preetham table 2 — Perez F-function coefficients are linear in turbidity.
         // Row order matches the original paper: (A,B,C,D,E) for x, y, then Y.
         // Each row is (slope, intercept) so the coefficient = slope * T + intercept.
-        struct PerezRow { f32 Slope; f32 Intercept; };
+        struct PerezRow
+        {
+            f32 Slope;
+            f32 Intercept;
+        };
 
         // Chromaticity x
         constexpr PerezRow kAx{ -0.0193f, -0.2592f };
-        constexpr PerezRow kBx{ -0.0665f,  0.0008f };
-        constexpr PerezRow kCx{ -0.0004f,  0.2125f };
+        constexpr PerezRow kBx{ -0.0665f, 0.0008f };
+        constexpr PerezRow kCx{ -0.0004f, 0.2125f };
         constexpr PerezRow kDx{ -0.0641f, -0.8989f };
-        constexpr PerezRow kEx{ -0.0033f,  0.0452f };
+        constexpr PerezRow kEx{ -0.0033f, 0.0452f };
         // Chromaticity y
         constexpr PerezRow kAy{ -0.0167f, -0.2608f };
-        constexpr PerezRow kBy{ -0.0950f,  0.0092f };
-        constexpr PerezRow kCy{ -0.0079f,  0.2102f };
+        constexpr PerezRow kBy{ -0.0950f, 0.0092f };
+        constexpr PerezRow kCy{ -0.0079f, 0.2102f };
         constexpr PerezRow kDy{ -0.0441f, -1.6537f };
-        constexpr PerezRow kEy{ -0.0109f,  0.0529f };
+        constexpr PerezRow kEy{ -0.0109f, 0.0529f };
         // Luminance Y (kcd/m^2 scale)
-        constexpr PerezRow kAY{  0.1787f, -1.4630f };
-        constexpr PerezRow kBY{ -0.3554f,  0.4275f };
-        constexpr PerezRow kCY{ -0.0227f,  5.3251f };
-        constexpr PerezRow kDY{  0.1206f, -2.5771f };
-        constexpr PerezRow kEY{ -0.0670f,  0.3703f };
+        constexpr PerezRow kAY{ 0.1787f, -1.4630f };
+        constexpr PerezRow kBY{ -0.3554f, 0.4275f };
+        constexpr PerezRow kCY{ -0.0227f, 5.3251f };
+        constexpr PerezRow kDY{ 0.1206f, -2.5771f };
+        constexpr PerezRow kEY{ -0.0670f, 0.3703f };
 
         [[nodiscard]] inline f32 EvalRow(const PerezRow& r, f32 T) noexcept
         {
@@ -98,9 +102,9 @@ namespace OloEngine
 
             // sRGB D65 from CIE 1931 XYZ
             glm::vec3 rgb{
-                 3.2404542f * X - 1.5371385f * Y - 0.4985314f * Z,
+                3.2404542f * X - 1.5371385f * Y - 0.4985314f * Z,
                 -0.9692660f * X + 1.8760108f * Y + 0.0415560f * Z,
-                 0.0556434f * X - 0.2040259f * Y + 1.0572252f * Z
+                0.0556434f * X - 0.2040259f * Y + 1.0572252f * Z
             };
             return rgb;
         }
@@ -111,7 +115,7 @@ namespace OloEngine
         // theta is the angle from zenith of the view direction, gamma is the
         // angle from the sun direction.
         [[nodiscard]] f32 PerezF(f32 A, f32 B, f32 C, f32 D, f32 E,
-                                  f32 cosTheta, f32 cosGamma, f32 gamma) noexcept
+                                 f32 cosTheta, f32 cosGamma, f32 gamma) noexcept
         {
             // Guard cos(theta) away from 0 — exp(B/0) explodes near the horizon.
             const f32 safeCosTheta = std::max(cosTheta, 1e-3f);
@@ -194,7 +198,7 @@ namespace OloEngine
     }
 
     glm::vec3 ProceduralSky::EvaluateAtDirection(const PreethamCoefficientsUBO& coeffs,
-                                                  const glm::vec3& viewDir)
+                                                 const glm::vec3& viewDir)
     {
         const glm::vec3 sunDir{ coeffs.SunDirection };
 
@@ -209,19 +213,19 @@ namespace OloEngine
 
         // Sample Perez at zenith reference (theta=0 so cos(theta)=1).
         const f32 FzX = PerezF(coeffs.A.x, coeffs.B.x, coeffs.C.x, coeffs.D.x, coeffs.E.x,
-                                1.0f, cosThetaS, thetaS);
+                               1.0f, cosThetaS, thetaS);
         const f32 FzY = PerezF(coeffs.A.y, coeffs.B.y, coeffs.C.y, coeffs.D.y, coeffs.E.y,
-                                1.0f, cosThetaS, thetaS);
+                               1.0f, cosThetaS, thetaS);
         const f32 FzL = PerezF(coeffs.A.z, coeffs.B.z, coeffs.C.z, coeffs.D.z, coeffs.E.z,
-                                1.0f, cosThetaS, thetaS);
+                               1.0f, cosThetaS, thetaS);
 
         // Sample at view direction.
         const f32 FX = PerezF(coeffs.A.x, coeffs.B.x, coeffs.C.x, coeffs.D.x, coeffs.E.x,
-                               cosTheta, cosGamma, gamma);
+                              cosTheta, cosGamma, gamma);
         const f32 FY = PerezF(coeffs.A.y, coeffs.B.y, coeffs.C.y, coeffs.D.y, coeffs.E.y,
-                               cosTheta, cosGamma, gamma);
+                              cosTheta, cosGamma, gamma);
         const f32 FL = PerezF(coeffs.A.z, coeffs.B.z, coeffs.C.z, coeffs.D.z, coeffs.E.z,
-                               cosTheta, cosGamma, gamma);
+                              cosTheta, cosGamma, gamma);
 
         // Q(theta, gamma) = Q_z * F(theta,gamma) / F(0, thetaS)
         const f32 cx = coeffs.ZenithXYY.x * (FX / std::max(FzX, 1e-6f));
@@ -253,7 +257,8 @@ namespace OloEngine
         };
 
         u64 hash = kFnvOffset;
-        const auto bitsOf = [](f32 v) noexcept {
+        const auto bitsOf = [](f32 v) noexcept
+        {
             u32 bits;
             std::memcpy(&bits, &v, sizeof(bits));
             return bits;
@@ -286,12 +291,12 @@ namespace OloEngine
             static const CaptureMatrices kMatrices = []
             {
                 CaptureMatrices m{};
-                m.Views[0] = glm::lookAt(glm::vec3(0.0f), glm::vec3( 1.0f, 0.0f, 0.0f), glm::vec3(0.0f, -1.0f, 0.0f));
+                m.Views[0] = glm::lookAt(glm::vec3(0.0f), glm::vec3(1.0f, 0.0f, 0.0f), glm::vec3(0.0f, -1.0f, 0.0f));
                 m.Views[1] = glm::lookAt(glm::vec3(0.0f), glm::vec3(-1.0f, 0.0f, 0.0f), glm::vec3(0.0f, -1.0f, 0.0f));
-                m.Views[2] = glm::lookAt(glm::vec3(0.0f), glm::vec3( 0.0f, 1.0f, 0.0f), glm::vec3(0.0f,  0.0f, 1.0f));
-                m.Views[3] = glm::lookAt(glm::vec3(0.0f), glm::vec3( 0.0f,-1.0f, 0.0f), glm::vec3(0.0f,  0.0f,-1.0f));
-                m.Views[4] = glm::lookAt(glm::vec3(0.0f), glm::vec3( 0.0f, 0.0f, 1.0f), glm::vec3(0.0f, -1.0f, 0.0f));
-                m.Views[5] = glm::lookAt(glm::vec3(0.0f), glm::vec3( 0.0f, 0.0f,-1.0f), glm::vec3(0.0f, -1.0f, 0.0f));
+                m.Views[2] = glm::lookAt(glm::vec3(0.0f), glm::vec3(0.0f, 1.0f, 0.0f), glm::vec3(0.0f, 0.0f, 1.0f));
+                m.Views[3] = glm::lookAt(glm::vec3(0.0f), glm::vec3(0.0f, -1.0f, 0.0f), glm::vec3(0.0f, 0.0f, -1.0f));
+                m.Views[4] = glm::lookAt(glm::vec3(0.0f), glm::vec3(0.0f, 0.0f, 1.0f), glm::vec3(0.0f, -1.0f, 0.0f));
+                m.Views[5] = glm::lookAt(glm::vec3(0.0f), glm::vec3(0.0f, 0.0f, -1.0f), glm::vec3(0.0f, -1.0f, 0.0f));
                 m.Projection = glm::perspective(glm::radians(90.0f), 1.0f, 0.1f, 10.0f);
                 return m;
             }();

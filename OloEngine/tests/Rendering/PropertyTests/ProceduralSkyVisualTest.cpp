@@ -62,7 +62,7 @@ namespace OloEngine::Tests
         {
             return static_cast<u8>(glm::clamp(v, 0.0f, 1.0f) * 255.0f + 0.5f);
         }
-    }
+    } // namespace
 
     class ProceduralSkyVisualTest : public RendererAttachedTest
     {
@@ -92,7 +92,11 @@ namespace OloEngine::Tests
         // sky" bug (stale/over-bright IBL). The irradiance map is intrinsically
         // blurry (it's a cosine-convolved low-res cubemap), so expect smooth
         // colour blobs, not detail.
-        struct Source { Ref<TextureCubemap> Cubemap; const char* Label; };
+        struct Source
+        {
+            Ref<TextureCubemap> Cubemap;
+            const char* Label;
+        };
         const Source sources[2] = {
             { envMap->GetEnvironmentMap(), "skybox" },
             { envMap->GetIrradianceMap(), "irradiance" },
@@ -165,4 +169,4 @@ namespace OloEngine::Tests
         EXPECT_GT(mean, 0.001f) << "Sky is essentially black.";
         EXPECT_LT(mean, 20.0f) << "Sky is implausibly bright (tonemaps to white).";
     }
-}
+} // namespace OloEngine::Tests

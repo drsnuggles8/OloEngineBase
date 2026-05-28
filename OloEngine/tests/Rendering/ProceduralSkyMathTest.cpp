@@ -64,7 +64,7 @@ namespace OloEngine::Tests
             p.ShowSunDisk = false; // Disk would dominate the dot-test directions
             return p;
         }
-    }
+    } // namespace
 
     // ---------- Coefficient linearity (Preetham table 2) ----------
 
@@ -251,7 +251,8 @@ namespace OloEngine::Tests
         // colour needs a large B channel to reach a given luminance, which
         // inflates the RGB *sum* — so an RGB-sum comparison can rank the
         // (dimmer) bluer side higher. Luminance is the right brightness metric.
-        const auto luma = [](const glm::vec3& c) {
+        const auto luma = [](const glm::vec3& c)
+        {
             return 0.2126f * c.r + 0.7152f * c.g + 0.0722f * c.b;
         };
         EXPECT_GT(luma(nearSunRGB), luma(antiSunRGB))
@@ -290,18 +291,19 @@ namespace OloEngine::Tests
         // Sample in 26 directions on the unit sphere (skipping the
         // exact poles to avoid the asin branch in some impls).
         for (int x = -1; x <= 1; ++x)
-        for (int y = -1; y <= 1; ++y)
-        for (int z = -1; z <= 1; ++z)
-        {
-            if (x == 0 && y == 0 && z == 0) continue;
-            const glm::vec3 dir = glm::normalize(glm::vec3(x, y, z));
-            const glm::vec3 rgb = ProceduralSky::EvaluateAtDirection(c, dir);
-            for (int i = 0; i < 3; ++i)
-            {
-                EXPECT_TRUE(std::isfinite(rgb[i]))
-                    << "dir = (" << dir.x << "," << dir.y << "," << dir.z << ")";
-                EXPECT_GE(rgb[i], 0.0f);
-            }
-        }
+            for (int y = -1; y <= 1; ++y)
+                for (int z = -1; z <= 1; ++z)
+                {
+                    if (x == 0 && y == 0 && z == 0)
+                        continue;
+                    const glm::vec3 dir = glm::normalize(glm::vec3(x, y, z));
+                    const glm::vec3 rgb = ProceduralSky::EvaluateAtDirection(c, dir);
+                    for (int i = 0; i < 3; ++i)
+                    {
+                        EXPECT_TRUE(std::isfinite(rgb[i]))
+                            << "dir = (" << dir.x << "," << dir.y << "," << dir.z << ")";
+                        EXPECT_GE(rgb[i], 0.0f);
+                    }
+                }
     }
-}
+} // namespace OloEngine::Tests

@@ -22,11 +22,11 @@ namespace OloEngine
     // few degrees above horizontal to avoid singular Preetham values.
     struct PreethamParameters
     {
-        glm::vec3 SunDirection = glm::vec3(0.0f, 1.0f, 0.0f);  // Toward sun (world space, unit)
+        glm::vec3 SunDirection = glm::vec3(0.0f, 1.0f, 0.0f); // Toward sun (world space, unit)
         f32 Turbidity = 2.5f;
-        f32 Exposure = 0.1f;        // Rate in the luminance tonemap 1-exp(-Exposure*Y); higher = brighter sky
-        f32 SunIntensity = 1.0f;    // Disk brightness multiplier
-        f32 SunDiskSize = 1.0f;     // Multiplier on the nominal solar angular radius (~0.265 deg)
+        f32 Exposure = 0.1f;     // Rate in the luminance tonemap 1-exp(-Exposure*Y); higher = brighter sky
+        f32 SunIntensity = 1.0f; // Disk brightness multiplier
+        f32 SunDiskSize = 1.0f;  // Multiplier on the nominal solar angular radius (~0.265 deg)
         bool ShowSunDisk = true;
     };
 
@@ -35,22 +35,22 @@ namespace OloEngine
     // Validate any future field additions stay 16-byte aligned per std140.
     struct PreethamCoefficientsUBO
     {
-        glm::vec4 SunDirection;    // xyz = toward sun (unit), w = cos(angular radius * SunDiskSize)
-        glm::vec4 ZenithXYY;       // x = chromaticity x, y = chromaticity y, z = luminance Y, w = unused
+        glm::vec4 SunDirection; // xyz = toward sun (unit), w = cos(angular radius * SunDiskSize)
+        glm::vec4 ZenithXYY;    // x = chromaticity x, y = chromaticity y, z = luminance Y, w = unused
         // Perez F coefficients packed as (Fx, Fy, FY, _) per quantity.
         glm::vec4 A;
         glm::vec4 B;
         glm::vec4 C;
         glm::vec4 D;
         glm::vec4 E;
-        glm::vec4 Params;          // x = exposure, y = sun intensity, z = show sun (0/1), w = unused
+        glm::vec4 Params; // x = exposure, y = sun intensity, z = show sun (0/1), w = unused
     };
     static_assert(sizeof(PreethamCoefficientsUBO) == 8 * 16,
                   "PreethamCoefficientsUBO must remain std140-friendly (8x vec4)");
 
     class ProceduralSky
     {
-    public:
+      public:
         // Pure-math: compute the Preetham distribution coefficients and zenith
         // chromaticity/luminance for the given parameters. No GPU work — this
         // is the hot path for tests and for detecting parameter drift between
@@ -78,11 +78,11 @@ namespace OloEngine
         // Used by tests to validate the analytic chain end-to-end without
         // standing up GPU resources.
         [[nodiscard]] static glm::vec3 EvaluateAtDirection(const PreethamCoefficientsUBO& coeffs,
-                                                            const glm::vec3& viewDir);
+                                                           const glm::vec3& viewDir);
 
         // Nominal solar angular radius (sun's apparent half-angle as seen
         // from Earth's surface).  Used by ComputeCoefficients to bake the
         // sun disk size into UBO.SunDirection.w.
         static constexpr f32 SunNominalAngularRadius = 0.00465f; // ~0.266 degrees
     };
-}
+} // namespace OloEngine
