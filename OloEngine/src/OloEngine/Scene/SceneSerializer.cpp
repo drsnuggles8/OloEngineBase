@@ -2030,6 +2030,36 @@ namespace OloEngine
             areaLight.m_CastShadows = sphereAreaLightComponent["CastShadows"].as<bool>(areaLight.m_CastShadows);
         }
 
+        if (auto procSky = entity["ProceduralSkyComponent"]; procSky)
+        {
+            auto& sky = deserializedEntity.AddComponent<ProceduralSkyComponent>();
+            const auto sunDir = procSky["SunDirection"].as<glm::vec3>(sky.m_SunDirection);
+            if (std::isfinite(sunDir.x) && std::isfinite(sunDir.y) && std::isfinite(sunDir.z))
+                sky.m_SunDirection = sunDir;
+            const f32 turbidity = procSky["Turbidity"].as<f32>(sky.m_Turbidity);
+            if (std::isfinite(turbidity) && turbidity > 0.0f)
+                sky.m_Turbidity = turbidity;
+            const f32 exposure = procSky["Exposure"].as<f32>(sky.m_Exposure);
+            if (std::isfinite(exposure) && exposure >= 0.0f)
+                sky.m_Exposure = exposure;
+            const f32 sunIntensity = procSky["SunIntensity"].as<f32>(sky.m_SunIntensity);
+            if (std::isfinite(sunIntensity) && sunIntensity >= 0.0f)
+                sky.m_SunIntensity = sunIntensity;
+            const f32 sunDiskSize = procSky["SunDiskSize"].as<f32>(sky.m_SunDiskSize);
+            if (std::isfinite(sunDiskSize) && sunDiskSize > 0.0f)
+                sky.m_SunDiskSize = sunDiskSize;
+            sky.m_ShowSunDisk = procSky["ShowSunDisk"].as<bool>(sky.m_ShowSunDisk);
+            sky.m_LinkSunToDirectionalLight = procSky["LinkSunToDirectionalLight"].as<bool>(sky.m_LinkSunToDirectionalLight);
+            sky.m_EnableSkybox = procSky["EnableSkybox"].as<bool>(sky.m_EnableSkybox);
+            sky.m_EnableIBL = procSky["EnableIBL"].as<bool>(sky.m_EnableIBL);
+            const f32 iblIntensity = procSky["IBLIntensity"].as<f32>(sky.m_IBLIntensity);
+            if (std::isfinite(iblIntensity) && iblIntensity >= 0.0f)
+                sky.m_IBLIntensity = iblIntensity;
+            const u32 res = procSky["CubemapResolution"].as<u32>(sky.m_CubemapResolution);
+            if (res >= 8u && res <= 4096u)
+                sky.m_CubemapResolution = res;
+        }
+
         if (auto envMapComponent = entity["EnvironmentMapComponent"]; envMapComponent)
         {
             auto& envMap = deserializedEntity.AddComponent<EnvironmentMapComponent>();
@@ -3788,6 +3818,27 @@ namespace OloEngine
             out << YAML::Key << "CastShadows" << YAML::Value << areaLight.m_CastShadows;
 
             out << YAML::EndMap; // SphereAreaLightComponent
+        }
+
+        if (entity.HasComponent<ProceduralSkyComponent>())
+        {
+            out << YAML::Key << "ProceduralSkyComponent";
+            out << YAML::BeginMap; // ProceduralSkyComponent
+
+            auto const& sky = entity.GetComponent<ProceduralSkyComponent>();
+            out << YAML::Key << "SunDirection" << YAML::Value << sky.m_SunDirection;
+            out << YAML::Key << "Turbidity" << YAML::Value << sky.m_Turbidity;
+            out << YAML::Key << "Exposure" << YAML::Value << sky.m_Exposure;
+            out << YAML::Key << "SunIntensity" << YAML::Value << sky.m_SunIntensity;
+            out << YAML::Key << "SunDiskSize" << YAML::Value << sky.m_SunDiskSize;
+            out << YAML::Key << "ShowSunDisk" << YAML::Value << sky.m_ShowSunDisk;
+            out << YAML::Key << "LinkSunToDirectionalLight" << YAML::Value << sky.m_LinkSunToDirectionalLight;
+            out << YAML::Key << "EnableSkybox" << YAML::Value << sky.m_EnableSkybox;
+            out << YAML::Key << "EnableIBL" << YAML::Value << sky.m_EnableIBL;
+            out << YAML::Key << "IBLIntensity" << YAML::Value << sky.m_IBLIntensity;
+            out << YAML::Key << "CubemapResolution" << YAML::Value << sky.m_CubemapResolution;
+
+            out << YAML::EndMap; // ProceduralSkyComponent
         }
 
         if (entity.HasComponent<EnvironmentMapComponent>())

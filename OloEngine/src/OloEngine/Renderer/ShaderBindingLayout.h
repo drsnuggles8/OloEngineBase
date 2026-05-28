@@ -617,6 +617,7 @@ namespace OloEngine
         static constexpr u32 UBO_DRS = 33;                  // Dynamic Resolution Scaling bounds
         static constexpr u32 UBO_PREVIEW = 34;              // Content-browser asset thumbnail preview (matrices + material factors)
         static constexpr u32 UBO_SH_COEFFICIENTS = 35;      // L2 spherical-harmonics coefficients (9 vec4) for SH-based IBL irradiance
+        static constexpr u32 UBO_PROCEDURAL_SKY = 36;       // Preetham analytic sky model coefficients (PreethamCoefficientsUBO, 8 vec4)
 
         // =============================================================================
         // TEXTURE SAMPLER BINDINGS
@@ -828,6 +829,9 @@ namespace OloEngine
                 case UBO_SH_COEFFICIENTS:
                     return name.contains("SHCoefficient") || name.contains("shCoefficient") ||
                            name.contains("SHCoeff") || name.contains("shCoeff");
+                case UBO_PROCEDURAL_SKY:
+                    return name.contains("ProceduralSky") || name.contains("proceduralSky") ||
+                           name.contains("Preetham") || name.contains("preetham");
                 default:
                     return false;
             }

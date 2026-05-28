@@ -2068,6 +2068,223 @@ static void PointLightComponent_SetCastShadows(UUID entityID, bool value)
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////
+// ProceduralSkyComponent                                                         //
+///////////////////////////////////////////////////////////////////////////////////////////
+
+static void ProceduralSkyComponent_GetSunDirection(UUID entityID, glm::vec3* outValue)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<ProceduralSkyComponent>();
+    *outValue = comp.m_SunDirection;
+}
+
+static void ProceduralSkyComponent_SetSunDirection(UUID entityID, glm::vec3 const* value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<ProceduralSkyComponent>();
+    for (glm::length_t i = 0; i < value->length(); ++i)
+        if (!std::isfinite((*value)[i]))
+            return;
+    comp.m_SunDirection = *value;
+}
+
+static float ProceduralSkyComponent_GetTurbidity(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<ProceduralSkyComponent>();
+    return comp.m_Turbidity;
+}
+
+static void ProceduralSkyComponent_SetTurbidity(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<ProceduralSkyComponent>();
+    comp.m_Turbidity = value;
+}
+
+static float ProceduralSkyComponent_GetExposure(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<ProceduralSkyComponent>();
+    return comp.m_Exposure;
+}
+
+static void ProceduralSkyComponent_SetExposure(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<ProceduralSkyComponent>();
+    comp.m_Exposure = value;
+}
+
+static float ProceduralSkyComponent_GetSunIntensity(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<ProceduralSkyComponent>();
+    return comp.m_SunIntensity;
+}
+
+static void ProceduralSkyComponent_SetSunIntensity(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<ProceduralSkyComponent>();
+    comp.m_SunIntensity = value;
+}
+
+static float ProceduralSkyComponent_GetSunDiskSize(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<ProceduralSkyComponent>();
+    return comp.m_SunDiskSize;
+}
+
+static void ProceduralSkyComponent_SetSunDiskSize(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<ProceduralSkyComponent>();
+    comp.m_SunDiskSize = value;
+}
+
+static bool ProceduralSkyComponent_GetShowSunDisk(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<ProceduralSkyComponent>();
+    return comp.m_ShowSunDisk;
+}
+
+static void ProceduralSkyComponent_SetShowSunDisk(UUID entityID, bool value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<ProceduralSkyComponent>();
+    comp.m_ShowSunDisk = value;
+}
+
+static bool ProceduralSkyComponent_GetLinkSunToDirectionalLight(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<ProceduralSkyComponent>();
+    return comp.m_LinkSunToDirectionalLight;
+}
+
+static void ProceduralSkyComponent_SetLinkSunToDirectionalLight(UUID entityID, bool value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<ProceduralSkyComponent>();
+    comp.m_LinkSunToDirectionalLight = value;
+}
+
+static bool ProceduralSkyComponent_GetEnableSkybox(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<ProceduralSkyComponent>();
+    return comp.m_EnableSkybox;
+}
+
+static void ProceduralSkyComponent_SetEnableSkybox(UUID entityID, bool value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<ProceduralSkyComponent>();
+    comp.m_EnableSkybox = value;
+}
+
+static bool ProceduralSkyComponent_GetEnableIBL(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<ProceduralSkyComponent>();
+    return comp.m_EnableIBL;
+}
+
+static void ProceduralSkyComponent_SetEnableIBL(UUID entityID, bool value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<ProceduralSkyComponent>();
+    comp.m_EnableIBL = value;
+}
+
+static float ProceduralSkyComponent_GetIBLIntensity(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<ProceduralSkyComponent>();
+    return comp.m_IBLIntensity;
+}
+
+static void ProceduralSkyComponent_SetIBLIntensity(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<ProceduralSkyComponent>();
+    comp.m_IBLIntensity = value;
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////
 // ReflectionProbeComponent                                                       //
 ///////////////////////////////////////////////////////////////////////////////////////////
 

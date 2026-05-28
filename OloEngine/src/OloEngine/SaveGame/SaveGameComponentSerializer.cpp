@@ -795,6 +795,40 @@ namespace OloEngine
         }
     }
 
+    void SaveGameComponentSerializer::Serialize(FArchive& ar, ProceduralSkyComponent& c)
+    {
+        ar << c.m_SunDirection << c.m_Turbidity << c.m_Exposure;
+        ar << c.m_SunIntensity << c.m_SunDiskSize << c.m_ShowSunDisk;
+        ar << c.m_LinkSunToDirectionalLight;
+        ar << c.m_EnableSkybox << c.m_EnableIBL << c.m_IBLIntensity;
+        ar << c.m_CubemapResolution;
+
+        if (ar.IsLoading())
+        {
+            // Sanitise untrusted on-disk floats — the renderer's UBO must
+            // never see NaN/inf (would propagate through tonemapping and
+            // poison every PBR draw via IBL).
+            for (int i = 0; i < 3; ++i)
+            {
+                if (!std::isfinite(c.m_SunDirection[i]))
+                    c.m_SunDirection = glm::vec3(0.3f, 0.7f, 0.4f);
+            }
+            if (!std::isfinite(c.m_Turbidity) || c.m_Turbidity <= 0.0f)
+                c.m_Turbidity = 2.5f;
+            if (!std::isfinite(c.m_Exposure) || c.m_Exposure < 0.0f)
+                c.m_Exposure = 0.05f;
+            if (!std::isfinite(c.m_SunIntensity) || c.m_SunIntensity < 0.0f)
+                c.m_SunIntensity = 1.0f;
+            if (!std::isfinite(c.m_SunDiskSize) || c.m_SunDiskSize <= 0.0f)
+                c.m_SunDiskSize = 1.0f;
+            if (!std::isfinite(c.m_IBLIntensity) || c.m_IBLIntensity < 0.0f)
+                c.m_IBLIntensity = 1.0f;
+            if (c.m_CubemapResolution < 8u || c.m_CubemapResolution > 4096u)
+                c.m_CubemapResolution = 256u;
+        }
+        // Ref<EnvironmentMap> and bake hash are runtime — not serialised
+    }
+
     void SaveGameComponentSerializer::Serialize(FArchive& ar, EnvironmentMapComponent& c)
     {
         ar << c.m_EnvironmentMapAsset << c.m_FilePath;
@@ -2387,6 +2421,7 @@ namespace OloEngine
         REGISTER_SAVE_COMPONENT(SpotLightComponent);
         REGISTER_SAVE_COMPONENT(SphereAreaLightComponent);
         REGISTER_SAVE_COMPONENT(EnvironmentMapComponent);
+        REGISTER_SAVE_COMPONENT(ProceduralSkyComponent);
         REGISTER_SAVE_COMPONENT(LightProbeComponent);
         REGISTER_SAVE_COMPONENT(LightProbeVolumeComponent);
         REGISTER_SAVE_COMPONENT(ReflectionProbeComponent);

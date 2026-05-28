@@ -1657,6 +1657,7 @@ namespace OloEngine
             DisplayAddComponentEntry<SpotLightComponent>("Spot Light");
             DisplayAddComponentEntry<SphereAreaLightComponent>("Sphere Area Light");
             DisplayAddComponentEntry<EnvironmentMapComponent>("Environment Map (Skybox/IBL)");
+            DisplayAddComponentEntry<ProceduralSkyComponent>("Procedural Sky (Preetham)");
 
             ImGui::Separator();
 
@@ -3120,6 +3121,99 @@ namespace OloEngine
                 ImGui::TextColored(ImVec4(0.8f, 0.7f, 0.3f, 1.0f),
                                    "Note: soft shadows from area lights are not implemented yet.");
                 ImGui::Unindent();
+            } });
+
+        DrawComponent<ProceduralSkyComponent>("Procedural Sky", entity, [&entity](auto& component)
+                                              {
+            // Sun direction: edit as a normalised vec3 plus a "copy from
+            // directional light" affordance so authoring matches DCC tools.
+            glm::vec3 dir = component.m_SunDirection;
+            if (ImGui::DragFloat3("Sun Direction##ProcSky", glm::value_ptr(dir), 0.01f, -1.0f, 1.0f))
+            {
+                component.m_SunDirection = dir;
+            }
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Toward-sun unit vector (world space). Re-normalised inside ComputeCoefficients; below-horizon directions are clamped to a small positive elevation.");
+
+            ImGui::Checkbox("Link to Directional Light##ProcSky", &component.m_LinkSunToDirectionalLight);
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("If on, the runtime overwrites the sun direction with -DirectionalLight.m_Direction each tick.");
+
+            // Quick presets — useful for previewing time-of-day without manual
+            // direction tweaking.
+            if (ImGui::Button("Noon"))
+            {
+                component.m_SunDirection = glm::vec3(0.0f, 1.0f, 0.0f);
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Mid-Morning"))
+            {
+                component.m_SunDirection = glm::normalize(glm::vec3(0.3f, 0.7f, 0.4f));
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Sunset"))
+            {
+                component.m_SunDirection = glm::normalize(glm::vec3(0.95f, 0.15f, 0.25f));
+            }
+
+            ImGui::DragFloat("Turbidity##ProcSky", &component.m_Turbidity, 0.05f, 1.7f, 10.0f);
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Atmospheric haze. 2 = very clear / mountain, 3 = clear sky, 6 = hazy, 10 = thick haze. Outside [1.7, 10] the Preetham model degrades.");
+
+            ImGui::DragFloat("Exposure##ProcSky", &component.m_Exposure, 0.005f, 0.0f, 2.0f, "%.3f");
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Rate in the sky luminance tonemap 1-exp(-Exposure*Y). Higher = brighter, whiter sky; lower = darker, more saturated blue.");
+
+            ImGui::Checkbox("Show Sun Disk##ProcSky", &component.m_ShowSunDisk);
+            if (component.m_ShowSunDisk)
+            {
+                ImGui::Indent();
+                ImGui::DragFloat("Sun Intensity##ProcSky", &component.m_SunIntensity, 0.01f, 0.0f, 10.0f);
+                ImGui::DragFloat("Sun Disk Size##ProcSky", &component.m_SunDiskSize, 0.05f, 0.1f, 10.0f);
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Multiplier on the nominal solar angular radius (~0.27 deg).");
+                ImGui::Unindent();
+            }
+
+            ImGui::Separator();
+            ImGui::Checkbox("Enable Skybox##ProcSky", &component.m_EnableSkybox);
+            ImGui::Checkbox("Enable IBL##ProcSky", &component.m_EnableIBL);
+            if (component.m_EnableIBL)
+            {
+                ImGui::Indent();
+                ImGui::DragFloat("IBL Intensity##ProcSky", &component.m_IBLIntensity, 0.01f, 0.0f, 5.0f);
+                ImGui::Unindent();
+            }
+
+            // Resolution: ints in steps the cubemap pipeline likes.
+            int res = static_cast<int>(component.m_CubemapResolution);
+            const int kSteps[] = { 64, 128, 256, 512, 1024 };
+            int currentIdx = 2;
+            for (int i = 0; i < IM_ARRAYSIZE(kSteps); ++i)
+            {
+                if (res <= kSteps[i]) { currentIdx = i; break; }
+            }
+            if (ImGui::Combo("Cubemap Resolution##ProcSky", &currentIdx, "64\0""128\0""256\0""512\0""1024\0\0"))
+            {
+                component.m_CubemapResolution = static_cast<u32>(kSteps[currentIdx]);
+                component.m_LastBakeHash = 0; // force rebake at the new resolution
+                component.m_EnvironmentMap.Reset();
+            }
+
+            ImGui::Separator();
+            if (ImGui::Button("Force Rebake##ProcSky"))
+            {
+                component.m_LastBakeHash = 0;
+                component.m_EnvironmentMap.Reset();
+            }
+            ImGui::SameLine();
+            if (component.m_EnvironmentMap)
+            {
+                ImGui::TextColored(ImVec4(0.6f, 0.85f, 0.6f, 1.0f), "Baked");
+            }
+            else
+            {
+                ImGui::TextColored(ImVec4(0.85f, 0.6f, 0.6f, 1.0f), "Not yet baked");
             } });
 
         DrawComponent<EnvironmentMapComponent>("Environment Map", entity, [](auto& component)

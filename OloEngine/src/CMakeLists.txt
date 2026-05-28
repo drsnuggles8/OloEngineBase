@@ -548,6 +548,8 @@
 		"OloEngine/Renderer/TextureCubemap.h"
 		"OloEngine/Renderer/EnvironmentMap.cpp"
 		"OloEngine/Renderer/EnvironmentMap.h"
+		"OloEngine/Renderer/ProceduralSky.cpp"
+		"OloEngine/Renderer/ProceduralSky.h"
 		"OloEngine/Renderer/IBLPrecompute.cpp"
 		"OloEngine/Renderer/GPUResourceQueue.cpp"
 		"OloEngine/Renderer/GPUResourceQueue.h"

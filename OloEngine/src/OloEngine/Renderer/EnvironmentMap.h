@@ -40,6 +40,16 @@ namespace OloEngine
 
         // Performance optimization
         bool EnableMultithreading = true; // Use multiple threads for generation
+
+        // Disk-cache control. The IBL disk cache is keyed on the source
+        // cubemap's path + this config. That's correct for file-backed
+        // environment maps (a given .hdr always produces the same IBL), but
+        // WRONG for procedurally generated cubemaps whose pixels change at
+        // runtime while their debug path stays constant ("Generated Cubemap").
+        // Such sources must set this false so a stale cache entry can't be
+        // served for freshly-baked content (e.g. ProceduralSky changing sun
+        // direction / turbidity / exposure).
+        bool UseDiskCache = true;
     };
 
     struct EnvironmentMapSpecification

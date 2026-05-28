@@ -207,6 +207,7 @@ namespace OloEngine
             REGISTER_COMPONENT(PointLightComponent),
             REGISTER_COMPONENT(SpotLightComponent),
             REGISTER_COMPONENT(SphereAreaLightComponent),
+            REGISTER_COMPONENT(ProceduralSkyComponent),
             REGISTER_COMPONENT(LightProbeComponent),
             REGISTER_COMPONENT(LightProbeVolumeComponent),
             // Streaming
@@ -1869,6 +1870,34 @@ namespace OloEngine
                                                                           { return l.m_Range; }, [](SphereAreaLightComponent& l, f32 v)
                                                                           { if (std::isfinite(v) && v >= 0.0f) l.m_Range = v; }),
                                                    "castShadows", &SphereAreaLightComponent::m_CastShadows);
+
+        // --- ProceduralSkyComponent ---
+        // Bake hash + cached EnvironmentMap stay internal: script writes mark
+        // the component dirty by leaving m_LastBakeHash untouched (LoadAndRenderSkybox
+        // detects the change via HashParameters mismatch).
+        lua.new_usertype<ProceduralSkyComponent>("ProceduralSkyComponent",
+                                                 "sunDirection", sol::property([](const ProceduralSkyComponent& s)
+                                                                               { return s.m_SunDirection; }, [](ProceduralSkyComponent& s, const glm::vec3& v)
+                                                                               { if (IsFiniteVec3(v)) s.m_SunDirection = v; }),
+                                                 "turbidity", sol::property([](const ProceduralSkyComponent& s)
+                                                                            { return s.m_Turbidity; }, [](ProceduralSkyComponent& s, f32 v)
+                                                                            { if (std::isfinite(v) && v > 0.0f) s.m_Turbidity = v; }),
+                                                 "exposure", sol::property([](const ProceduralSkyComponent& s)
+                                                                           { return s.m_Exposure; }, [](ProceduralSkyComponent& s, f32 v)
+                                                                           { if (std::isfinite(v) && v >= 0.0f) s.m_Exposure = v; }),
+                                                 "sunIntensity", sol::property([](const ProceduralSkyComponent& s)
+                                                                               { return s.m_SunIntensity; }, [](ProceduralSkyComponent& s, f32 v)
+                                                                               { if (std::isfinite(v) && v >= 0.0f) s.m_SunIntensity = v; }),
+                                                 "sunDiskSize", sol::property([](const ProceduralSkyComponent& s)
+                                                                              { return s.m_SunDiskSize; }, [](ProceduralSkyComponent& s, f32 v)
+                                                                              { if (std::isfinite(v) && v > 0.0f) s.m_SunDiskSize = v; }),
+                                                 "showSunDisk", &ProceduralSkyComponent::m_ShowSunDisk,
+                                                 "linkSunToDirectionalLight", &ProceduralSkyComponent::m_LinkSunToDirectionalLight,
+                                                 "enableSkybox", &ProceduralSkyComponent::m_EnableSkybox,
+                                                 "enableIBL", &ProceduralSkyComponent::m_EnableIBL,
+                                                 "iblIntensity", sol::property([](const ProceduralSkyComponent& s)
+                                                                               { return s.m_IBLIntensity; }, [](ProceduralSkyComponent& s, f32 v)
+                                                                               { if (std::isfinite(v) && v >= 0.0f) s.m_IBLIntensity = v; }));
 
         // --- NavAgentComponent ---
         lua.new_usertype<NavAgentComponent>("NavAgentComponent",
