@@ -3,11 +3,11 @@
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Build/GameBuildSettings.h"
 #include "OloEngine/Build/GameBuildPipeline.h"
+#include "OloEngine/HAL/Thread.h"
 
 #include <array>
 #include <atomic>
 #include <functional>
-#include <thread>
 
 namespace OloEngine
 {
@@ -77,7 +77,7 @@ namespace OloEngine
         std::atomic<i32> m_BuildProgressPermille{ 0 };
         std::atomic<bool> m_IsBuildInProgress{ false };
         std::atomic<bool> m_CancelRequested{ false };
-        std::jthread m_BuildThread;
+        FThread m_BuildThread;
 
         // Scene selection
         std::filesystem::path m_EditorScenePath; // currently open scene (absolute)

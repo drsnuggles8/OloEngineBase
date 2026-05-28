@@ -4,10 +4,10 @@
 #include "OloEngine/ImGui/ImGuiLayer.h"
 #include "OloEngine/Asset/AssetPackBuilder.h"
 #include "OloEngine/Threading/Mutex.h"
+#include "OloEngine/HAL/Thread.h"
 
 #include <array>
 #include <atomic>
-#include <thread>
 
 namespace OloEngine
 {
@@ -24,7 +24,7 @@ namespace OloEngine
 
         ~AssetPackBuilderPanel();
 
-        // Delete copy and move operations due to std::atomic and std::future members
+        // Delete copy and move operations due to std::atomic and FThread members
         AssetPackBuilderPanel(const AssetPackBuilderPanel&) = delete;
         AssetPackBuilderPanel& operator=(const AssetPackBuilderPanel&) = delete;
         AssetPackBuilderPanel(AssetPackBuilderPanel&&) = delete;
@@ -86,9 +86,11 @@ namespace OloEngine
         AssetPackBuilder::BuildSettings m_BuildSettings;
 
         // Progress tracking
+        std::atomic<f32> m_BuildProgress{ 0.0f };      // 0.0-1.0 real progress written by AssetPackBuilder
         std::atomic<i32> m_BuildProgressPermille{ 0 }; // Progress in permille (0-1000, where 1000 = 100%)
         std::atomic<bool> m_IsBuildInProgress{ false };
-        std::jthread m_BuildThread;
+        std::atomic<bool> m_CancelRequested{ false };
+        FThread m_BuildThread;
 
         // Results
         AssetPackBuilder::BuildResult m_LastBuildResult;

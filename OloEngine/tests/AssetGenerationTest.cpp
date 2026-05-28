@@ -1,6 +1,10 @@
 #include <gtest/gtest.h>
 #include "OloEngine/Asset/AssetManager/AssetManagerBase.h"
 
+#include <atomic>
+#include <thread>
+#include <vector>
+
 using namespace OloEngine;
 
 // Minimal concrete subclass to test non-virtual generation counter methods
@@ -136,4 +140,104 @@ TEST_F(AssetGenerationTest, ZeroHandleTracked)
     AssetHandle h{ 0 };
     mgr.IncrementAssetGeneration(h);
     EXPECT_EQ(mgr.GetAssetGeneration(h), 1u);
+}
+
+// --- Concurrency tests (exercise the FSharedMutex backing the counter) ---
+
+// Many writers hammering the same handle must not lose updates: the exclusive
+// lock in IncrementAssetGeneration has to serialise the read-modify-write.
+TEST_F(AssetGenerationTest, ConcurrentIncrementsSameHandleNoLostUpdates)
+{
+    AssetHandle h{ 1000 };
+    constexpr int threadCount = 8;
+    constexpr int incrementsPerThread = 5000;
+
+    std::vector<std::thread> threads;
+    threads.reserve(threadCount);
+    for (int t = 0; t < threadCount; ++t)
+    {
+        threads.emplace_back([this, h]
+                             {
+            for (int i = 0; i < incrementsPerThread; ++i)
+            {
+                mgr.IncrementAssetGeneration(h);
+            } });
+    }
+    for (auto& th : threads)
+    {
+        th.join();
+    }
+
+    EXPECT_EQ(mgr.GetAssetGeneration(h), static_cast<u32>(threadCount * incrementsPerThread));
+}
+
+// Writers touching distinct handles must each land their full count, with no
+// cross-handle interference even under heavy contention on the shared map.
+TEST_F(AssetGenerationTest, ConcurrentIncrementsDistinctHandles)
+{
+    constexpr int threadCount = 8;
+    constexpr int incrementsPerThread = 5000;
+
+    std::vector<std::thread> threads;
+    threads.reserve(threadCount);
+    for (int t = 0; t < threadCount; ++t)
+    {
+        threads.emplace_back([this, t]
+                             {
+            AssetHandle h{ static_cast<u64>(2000 + t) };
+            for (int i = 0; i < incrementsPerThread; ++i)
+            {
+                mgr.IncrementAssetGeneration(h);
+            } });
+    }
+    for (auto& th : threads)
+    {
+        th.join();
+    }
+
+    for (int t = 0; t < threadCount; ++t)
+    {
+        AssetHandle h{ static_cast<u64>(2000 + t) };
+        EXPECT_EQ(mgr.GetAssetGeneration(h), static_cast<u32>(incrementsPerThread));
+    }
+}
+
+// Concurrent shared (read) locks must coexist with exclusive (write) locks
+// without deadlock or data race; readers only ever observe a monotonically
+// non-decreasing value bounded by the final count.
+TEST_F(AssetGenerationTest, ConcurrentReadersAndWriter)
+{
+    AssetHandle h{ 3000 };
+    constexpr int writes = 20000;
+    constexpr int readerCount = 4;
+    std::atomic<bool> done{ false };
+
+    std::vector<std::thread> readers;
+    readers.reserve(readerCount);
+    for (int r = 0; r < readerCount; ++r)
+    {
+        readers.emplace_back([this, h, &done]
+                             {
+            u32 last = 0;
+            while (!done.load(std::memory_order_relaxed))
+            {
+                u32 gen = mgr.GetAssetGeneration(h);
+                EXPECT_GE(gen, last);
+                EXPECT_LE(gen, static_cast<u32>(writes));
+                last = gen;
+            } });
+    }
+
+    for (int i = 0; i < writes; ++i)
+    {
+        mgr.IncrementAssetGeneration(h);
+    }
+    done.store(true, std::memory_order_relaxed);
+
+    for (auto& th : readers)
+    {
+        th.join();
+    }
+
+    EXPECT_EQ(mgr.GetAssetGeneration(h), static_cast<u32>(writes));
 }

@@ -2,13 +2,13 @@
 
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Server/ServerConsolePlatform.h"
+#include "OloEngine/HAL/Thread.h"
+#include "OloEngine/Threading/Mutex.h"
 
 #include <atomic>
 #include <functional>
-#include <mutex>
 #include <queue>
 #include <string>
-#include <thread>
 #include <unordered_map>
 #include <vector>
 
@@ -76,9 +76,9 @@ namespace OloEngine
         bool m_Initialized = false;
 
         // Background input thread + thread-safe queue
-        std::thread m_InputThread;
+        FThread m_InputThread;
         std::atomic<bool> m_InputThreadRunning{ false };
-        std::mutex m_InputQueueMutex;
+        FMutex m_InputQueueMutex;
         std::queue<std::string> m_InputQueue;
 
         // Platform-specific state used to abort a blocking stdin read during shutdown.

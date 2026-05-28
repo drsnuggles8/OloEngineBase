@@ -4,6 +4,8 @@
 #include "SlugFontProcessor.h"
 
 #include "OloEngine/Core/UTF8.h"
+#include "OloEngine/Threading/Mutex.h"
+#include "OloEngine/Threading/UniqueLock.h"
 
 #define STB_TRUETYPE_IMPLEMENTATION
 #include <stb_image/stb_truetype.h>
@@ -228,10 +230,10 @@ namespace OloEngine
     {
         auto canonical = std::filesystem::weakly_canonical(font).string();
         static std::unordered_map<std::string, WeakRef<Font>> s_FontCache;
-        static std::mutex s_FontCacheMutex;
+        static FMutex s_FontCacheMutex;
 
         {
-            std::lock_guard lock(s_FontCacheMutex);
+            TUniqueLock<FMutex> lock(s_FontCacheMutex);
             auto it = s_FontCache.find(canonical);
             if (it != s_FontCache.end())
             {
@@ -245,7 +247,7 @@ namespace OloEngine
 
         if (newFont->IsLoaded())
         {
-            std::lock_guard lock(s_FontCacheMutex);
+            TUniqueLock<FMutex> lock(s_FontCacheMutex);
             s_FontCache[canonical] = newFont;
         }
         return newFont;

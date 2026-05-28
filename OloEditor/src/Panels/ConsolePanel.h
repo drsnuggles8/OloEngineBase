@@ -1,9 +1,9 @@
 #pragma once
 
 #include "OloEngine/Core/Log.h"
+#include "OloEngine/Threading/Mutex.h"
 
 #include <deque>
-#include <mutex>
 #include <string>
 
 namespace OloEngine
@@ -30,7 +30,7 @@ namespace OloEngine
         // Ring buffer of log entries
         static constexpr size_t s_MaxEntries = 2048;
         std::deque<LogEntry> m_Entries;
-        mutable std::mutex m_Mutex;
+        mutable FMutex m_Mutex;
 
         // Filter state
         bool m_ShowTrace = true;

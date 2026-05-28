@@ -6,9 +6,6 @@
 #include "OloEngine/Project/Project.h"
 
 #include <imgui.h>
-#include <future>
-#include <chrono>
-#include <thread>
 #include <cstring>
 #include <filesystem>
 #include <regex>
@@ -28,11 +25,12 @@ namespace OloEngine
 
     AssetPackBuilderPanel::~AssetPackBuilderPanel()
     {
-        // Request cancellation and wait for thread to complete
-        if (m_BuildThread.joinable())
+        // Request cancellation and wait for the thread to complete. FThread must
+        // be joined before destruction; the build observes m_CancelRequested.
+        m_CancelRequested.store(true);
+        if (m_BuildThread.IsJoinable())
         {
-            m_BuildThread.request_stop();
-            // jthread automatically joins in its destructor
+            m_BuildThread.Join();
         }
     }
 
@@ -60,10 +58,10 @@ namespace OloEngine
         if (ImGui::Begin("Asset Pack Builder", &isOpen))
         {
             // Check if build thread has completed (it will set m_IsBuildInProgress to false when done)
-            if (!m_IsBuildInProgress.load() && m_BuildThread.joinable())
+            if (!m_IsBuildInProgress.load() && m_BuildThread.IsJoinable())
             {
                 // Join the completed thread
-                m_BuildThread.join();
+                m_BuildThread.Join();
 
                 m_HasBuildResult.store(true);
                 m_BuildProgressPermille.store(1000); // 100% in permille
@@ -86,6 +84,12 @@ namespace OloEngine
 
             if (m_IsBuildInProgress.load())
             {
+                // Convert the build thread's real-time float progress to permille
+                // each frame (replaces the old dedicated progress-monitor thread).
+                m_BuildProgressPermille.store(
+                    static_cast<i32>(m_BuildProgress.load(std::memory_order_relaxed) * 1000.0f),
+                    std::memory_order_relaxed);
+
                 RenderBuildProgress();
                 ImGui::Separator();
             }
@@ -311,44 +315,31 @@ namespace OloEngine
         // Update settings from UI
         m_BuildSettings.m_OutputPath = std::filesystem::path(m_OutputPathBuffer.data());
 
-        // Reset progress and results
+        // Reset progress, cancellation, and results
+        m_BuildProgress.store(0.0f);
         m_BuildProgressPermille.store(0);
+        m_CancelRequested.store(false);
         m_HasBuildResult.store(false);
         m_LastBuildResult = {};
 
-        // Start build thread
+        // A previous build's thread may still be joinable if the panel was
+        // hidden when it finished. It has already completed, so Join() returns
+        // immediately and keeps the move-assignment below legal.
+        if (m_BuildThread.IsJoinable())
+        {
+            m_BuildThread.Join();
+        }
+
+        // Start build thread. Progress is written straight into m_BuildProgress
+        // (polled by OnImGuiRender) and cancellation is observed via
+        // m_CancelRequested — no separate monitor threads needed.
         m_IsBuildInProgress.store(true);
-        m_BuildThread = std::jthread([this](std::stop_token stopToken)
-                                     {
-            // Create a cancellation flag bridge for the AssetPackBuilder API
-            std::atomic<bool> cancelRequested{false};
-
-            // Create a float progress tracker for the AssetPackBuilder API
-            std::atomic<f32> floatProgress{0.0f};
-
-            // Launch a progress monitoring thread that checks for cancellation
-            std::jthread progressMonitor([this, &floatProgress, stopToken](std::stop_token) {
-                while (!stopToken.stop_requested()) {
-                    f32 progress = floatProgress.load();
-                    i32 permille = static_cast<i32>(progress * 1000.0f);
-                    m_BuildProgressPermille.store(permille);
-                    std::this_thread::sleep_for(std::chrono::milliseconds(50));
-                }
-            });
-
-            // Monitor stop token and update cancellation flag
-            std::jthread cancellationMonitor([&cancelRequested, stopToken](std::stop_token) {
-                while (!stopToken.stop_requested()) {
-                    std::this_thread::sleep_for(std::chrono::milliseconds(10));
-                }
-                cancelRequested.store(true);
-            });
-
-            // Perform the actual build
-            auto result = AssetPackBuilder::BuildFromActiveProject(m_BuildSettings, floatProgress, &cancelRequested);
+        m_BuildThread = FThread("AssetPackBuild", [this]()
+                                {
+            auto result = AssetPackBuilder::BuildFromActiveProject(m_BuildSettings, m_BuildProgress, &m_CancelRequested);
 
             // Final progress update
-            if (result.m_Success && !cancelRequested.load()) {
+            if (result.m_Success && !m_CancelRequested.load()) {
                 m_BuildProgressPermille.store(1000); // 100%
             }
 
@@ -366,11 +357,8 @@ namespace OloEngine
             return;
         }
 
-        // Request cancellation using C++20 structured cancellation
-        if (m_BuildThread.joinable())
-        {
-            m_BuildThread.request_stop();
-        }
+        // Signal the build thread to stop; it polls m_CancelRequested.
+        m_CancelRequested.store(true);
 
         // Update UI state immediately for responsive feedback
         m_IsBuildInProgress.store(false);
@@ -378,8 +366,8 @@ namespace OloEngine
 
         OLO_CORE_INFO("Asset pack build cancellation requested");
 
-        // Note: The actual build may continue in the background until completion
-        // The destructor will wait() on the future to ensure proper cleanup
+        // Note: the actual build may continue in the background until it observes
+        // the cancellation flag; OnImGuiRender (or the destructor) joins it.
     }
 
     bool AssetPackBuilderPanel::ValidateOutputPath(const std::string& path, std::string& errorMessage) const

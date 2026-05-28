@@ -37,7 +37,12 @@ namespace OloEngine
     BuildGamePanel::~BuildGamePanel()
     {
         m_CancelRequested.store(true, std::memory_order_release);
-        // jthread destructor handles request_stop() + join()
+        // FThread must be joined before destruction; the build observes
+        // m_CancelRequested and exits promptly.
+        if (m_BuildThread.IsJoinable())
+        {
+            m_BuildThread.Join();
+        }
     }
 
     void BuildGamePanel::OnImGuiRender(bool& isOpen)
@@ -45,9 +50,9 @@ namespace OloEngine
         if (ImGui::Begin("Build Game", &isOpen))
         {
             // Check if build thread has completed
-            if (!m_IsBuildInProgress.load() && m_BuildThread.joinable())
+            if (!m_IsBuildInProgress.load() && m_BuildThread.IsJoinable())
             {
-                m_BuildThread.join();
+                m_BuildThread.Join();
                 m_HasBuildResult.store(true);
                 m_BuildProgressPermille.store(1000);
 
@@ -319,8 +324,17 @@ namespace OloEngine
         // Capture settings by value for the build thread
         GameBuildSettings settings = m_Settings;
 
-        m_BuildThread = std::jthread([this, settings](std::stop_token)
-                                     {
+        // A previous build's thread may still be joinable if the panel was
+        // collapsed when it finished (the OnImGuiRender join branch is skipped
+        // while collapsed). It has already completed, so Join() returns at once
+        // and keeps the move-assignment below legal (FThread asserts otherwise).
+        if (m_BuildThread.IsJoinable())
+        {
+            m_BuildThread.Join();
+        }
+
+        m_BuildThread = FThread("GameBuildThread", [this, settings]()
+                                {
             // Use the member atomic directly so the UI thread can read real-time progress
             auto result = GameBuildPipeline::Build(settings, m_BuildProgress, &m_CancelRequested);
 
