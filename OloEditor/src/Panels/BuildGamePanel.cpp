@@ -47,6 +47,8 @@ namespace OloEngine
 
     void BuildGamePanel::OnImGuiRender(bool& isOpen)
     {
+        OLO_PROFILE_FUNCTION();
+
         if (ImGui::Begin("Build Game", &isOpen))
         {
             // Check if build thread has completed

@@ -247,7 +247,17 @@ namespace OloEngine
 
         if (newFont->IsLoaded())
         {
+            // Double-checked: another thread may have loaded and cached the same
+            // font while we were loading outside the lock. Re-check and reuse its
+            // entry so concurrent callers share a single Font instance.
             TUniqueLock<FMutex> lock(s_FontCacheMutex);
+            auto it = s_FontCache.find(canonical);
+            if (it != s_FontCache.end())
+            {
+                if (auto cached = it->second.Lock())
+                    return cached;
+                s_FontCache.erase(it);
+            }
             s_FontCache[canonical] = newFont;
         }
         return newFont;

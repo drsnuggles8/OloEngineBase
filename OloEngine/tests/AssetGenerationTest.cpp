@@ -211,13 +211,22 @@ TEST_F(AssetGenerationTest, ConcurrentReadersAndWriter)
     constexpr int writes = 20000;
     constexpr int readerCount = 4;
     std::atomic<bool> done{ false };
+    std::atomic<int> readyCount{ 0 };
 
     std::vector<std::thread> readers;
     readers.reserve(readerCount);
     for (int r = 0; r < readerCount; ++r)
     {
-        readers.emplace_back([this, h, &done]
+        readers.emplace_back([this, h, &done, &readyCount]
                              {
+            // Signal readiness, then spin until every reader is live so reads are
+            // guaranteed to overlap the writer loop below.
+            readyCount.fetch_add(1, std::memory_order_relaxed);
+            while (readyCount.load(std::memory_order_relaxed) < readerCount)
+            {
+                std::this_thread::yield();
+            }
+
             u32 last = 0;
             while (!done.load(std::memory_order_relaxed))
             {
@@ -226,6 +235,12 @@ TEST_F(AssetGenerationTest, ConcurrentReadersAndWriter)
                 EXPECT_LE(gen, static_cast<u32>(writes));
                 last = gen;
             } });
+    }
+
+    // Don't start writing until all readers are running.
+    while (readyCount.load(std::memory_order_relaxed) < readerCount)
+    {
+        std::this_thread::yield();
     }
 
     for (int i = 0; i < writes; ++i)

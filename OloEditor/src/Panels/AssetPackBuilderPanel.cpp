@@ -47,6 +47,8 @@ namespace OloEngine
 
     void AssetPackBuilderPanel::OnImGuiRender(bool& isOpen)
     {
+        OLO_PROFILE_FUNCTION();
+
         // One-time initialization of UI buffers from settings
         static bool s_UIInitialized = false;
         if (!s_UIInitialized)
@@ -357,17 +359,18 @@ namespace OloEngine
             return;
         }
 
-        // Signal the build thread to stop; it polls m_CancelRequested.
+        // Signal the build thread to stop; it polls m_CancelRequested. We must
+        // NOT clear m_IsBuildInProgress here: the worker is still running and
+        // only it clears the flag when it actually exits. Clearing it early would
+        // make OnImGuiRender's join branch (!m_IsBuildInProgress && IsJoinable())
+        // fire and block the UI thread on Join() until the worker observes the
+        // cancellation.
         m_CancelRequested.store(true);
-
-        // Update UI state immediately for responsive feedback
-        m_IsBuildInProgress.store(false);
-        m_BuildProgressPermille.store(0);
 
         OLO_CORE_INFO("Asset pack build cancellation requested");
 
-        // Note: the actual build may continue in the background until it observes
-        // the cancellation flag; OnImGuiRender (or the destructor) joins it.
+        // The build keeps running until it observes the cancellation flag, then
+        // sets m_IsBuildInProgress=false; OnImGuiRender (or the destructor) joins.
     }
 
     bool AssetPackBuilderPanel::ValidateOutputPath(const std::string& path, std::string& errorMessage) const

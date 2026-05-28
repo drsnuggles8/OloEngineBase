@@ -7,7 +7,9 @@
 
 #include <array>
 #include <atomic>
+#include <filesystem>
 #include <functional>
+#include <string>
 
 namespace OloEngine
 {
