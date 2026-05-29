@@ -52,14 +52,19 @@
 #include "OloEngine/Renderer/Camera/EditorCamera.h"
 #include "OloEngine/Scene/Entity.h"
 #include "OloEngine/Scene/Components.h"
+#include "OloEngine/Utils/PlatformUtils.h"
 
 #include <glad/gl.h>
 #include <gtest/gtest.h>
+#include <stb_image/stb_image.h>
 #include <stb_image/stb_image_write.h>
 
 #include <array>
+#include <cmath>
+#include <cstdlib>
 #include <cstring>
 #include <filesystem>
+#include <limits>
 #include <string>
 #include <vector>
 
@@ -71,6 +76,44 @@ namespace OloEngine::Tests
 
         constexpr u32 kWidth = 1280;
         constexpr u32 kHeight = 720;
+
+        // Frozen wall-clock value for the captures. The water wave phase and
+        // normal-map scroll come from Time::GetTime() (see Scene.cpp), so pinning
+        // it makes every capture render an identical, deterministic frame — the
+        // prerequisite for treating the PNGs as golden references.
+        constexpr f32 kCaptureTime = 12.0f;
+
+        // Generous per-channel RMSE pass threshold (0..255). Determinism makes
+        // same-machine re-runs ~0; the slack absorbs cross-GPU float variance in
+        // the high-frequency wave/foam detail. This is an on-demand integration
+        // smoke check, not a tight pixel test.
+        constexpr f64 kGoldenRmseThreshold = 6.0;
+
+        // Mean RMSE over the RGB channels (alpha ignored) between two equal-size
+        // RGBA8 buffers, in 0..255 units.
+        [[nodiscard]] f64 Rgba8Rmse(const std::vector<u8>& a, const std::vector<u8>& b)
+        {
+            if (a.size() != b.size() || a.empty())
+                return std::numeric_limits<f64>::max();
+            f64 sumSq = 0.0;
+            std::size_t count = 0;
+            for (std::size_t i = 0; i + 3 < a.size(); i += 4)
+            {
+                for (int c = 0; c < 3; ++c)
+                {
+                    const f64 d = static_cast<f64>(a[i + c]) - static_cast<f64>(b[i + c]);
+                    sumSq += d * d;
+                    ++count;
+                }
+            }
+            return count ? std::sqrt(sumSq / static_cast<f64>(count)) : 0.0;
+        }
+
+        [[nodiscard]] bool GoldenRebaseRequested()
+        {
+            const char* v = std::getenv("OLOENGINE_GOLDEN_REBASE");
+            return v && v[0] != '\0' && v[0] != '0';
+        }
     } // namespace
 
     class WaterVisualEvidenceTest : public RendererAttachedTest
@@ -222,24 +265,72 @@ namespace OloEngine::Tests
                 }
             }
 
-            fs::path dir = fs::path("assets") / "tests" / "visual";
-            std::error_code ec;
-            fs::create_directories(dir, ec);
-            ASSERT_FALSE(ec) << "Failed to create visual-evidence dir '" << dir.string()
-                             << "': " << ec.message();
+            const fs::path dir = fs::path("assets") / "tests" / "visual";
             const std::string path = (dir / ("Water_" + poseName + ".png")).string();
-            const int wrote = ::stbi_write_png(path.c_str(), static_cast<int>(kWidth),
-                                               static_cast<int>(kHeight), 4, outPixels.data(),
-                                               static_cast<int>(kWidth) * 4);
-            ASSERT_NE(wrote, 0) << "stbi_write_png failed to write '" << path << "'";
+
+            // Golden-image model: with the render frozen (kCaptureTime) the frame
+            // is deterministic, so the committed PNG is a stable reference. In
+            // rebase mode we (re)write it; otherwise we COMPARE the freshly
+            // rendered frame against it and never write — so a passing run leaves
+            // the tracked PNG untouched (no churn). Set OLOENGINE_GOLDEN_REBASE=1
+            // to update the goldens after a deliberate visual change.
+            if (GoldenRebaseRequested())
+            {
+                std::error_code ec;
+                fs::create_directories(dir, ec);
+                ASSERT_FALSE(ec) << "Failed to create golden dir '" << dir.string()
+                                 << "': " << ec.message();
+                const int wrote = ::stbi_write_png(path.c_str(), static_cast<int>(kWidth),
+                                                   static_cast<int>(kHeight), 4, outPixels.data(),
+                                                   static_cast<int>(kWidth) * 4);
+                ASSERT_NE(wrote, 0) << "stbi_write_png failed to write golden '" << path << "'";
+                return;
+            }
+
+            int gw = 0, gh = 0, gch = 0;
+            stbi_uc* golden = ::stbi_load(path.c_str(), &gw, &gh, &gch, 4);
+            ASSERT_NE(golden, nullptr)
+                << "Missing golden '" << path << "' — rerun with OLOENGINE_GOLDEN_REBASE=1 to create it.";
+            const bool sizeMatches = (gw == static_cast<int>(kWidth) && gh == static_cast<int>(kHeight));
+            std::vector<u8> goldenPixels;
+            if (sizeMatches)
+                goldenPixels.assign(golden, golden + static_cast<std::size_t>(kWidth) * kHeight * 4u);
+            ::stbi_image_free(golden);
+            ASSERT_TRUE(sizeMatches) << "Golden '" << path << "' is " << gw << "x" << gh << ", expected "
+                                     << kWidth << "x" << kHeight << " — rerun with OLOENGINE_GOLDEN_REBASE=1.";
+
+            const f64 rmse = Rgba8Rmse(outPixels, goldenPixels);
+            EXPECT_LE(rmse, kGoldenRmseThreshold)
+                << "Pose '" << poseName << "' diverged from golden (RMSE " << rmse << " > "
+                << kGoldenRmseThreshold << "). If this is an intended visual change, rerun with "
+                << "OLOENGINE_GOLDEN_REBASE=1 to update " << path;
         }
     };
 
     // DISABLED by default — see the file header. Run on demand with
-    // --gtest_also_run_disabled_tests to (re)generate the PNG evidence.
+    // --gtest_also_run_disabled_tests. The render is frozen (kCaptureTime) so each
+    // pose is deterministic and the committed PNGs act as golden references: a
+    // normal run COMPARES against them (RMSE) and writes nothing; set
+    // OLOENGINE_GOLDEN_REBASE=1 to (re)write the goldens after a deliberate change.
     TEST_F(WaterVisualEvidenceTest, DISABLED_CaptureWaterFromMultipleAngles)
     {
         OLO_ENSURE_GPU_OR_SKIP();
+
+        // Freeze the wall clock for the whole capture run so the wave phase /
+        // normal-map scroll are identical every time — the determinism that lets
+        // these PNGs be golden references. RAII restores the real clock on any
+        // exit path (including ASSERT early-returns) so the mock can't leak.
+        struct ScopedMockTime
+        {
+            explicit ScopedMockTime(f32 t)
+            {
+                Time::SetMockTime(t);
+            }
+            ~ScopedMockTime()
+            {
+                Time::ClearMockTime();
+            }
+        } scopedMockTime(kCaptureTime);
 
         struct Pose
         {

@@ -11,6 +11,8 @@ namespace OloEngine
 {
     f32 Time::GetTime()
     {
+        if (HasMockTime())
+            return GetMockTime();
         return static_cast<f32>(GLFWAPI::glfwGetTime());
     }
 
