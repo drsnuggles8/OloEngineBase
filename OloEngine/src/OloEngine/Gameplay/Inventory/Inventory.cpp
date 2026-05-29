@@ -367,6 +367,8 @@ namespace OloEngine
 
     void Inventory::SortByCategory()
     {
+        OLO_PROFILE_FUNCTION();
+
         std::ranges::sort(m_Slots,
                           [](auto const& a, auto const& b)
                           {
@@ -386,6 +388,8 @@ namespace OloEngine
 
     void Inventory::SortByRarity()
     {
+        OLO_PROFILE_FUNCTION();
+
         std::ranges::sort(m_Slots,
                           [](auto const& a, auto const& b)
                           {
@@ -405,6 +409,8 @@ namespace OloEngine
 
     void Inventory::SortByName()
     {
+        OLO_PROFILE_FUNCTION();
+
         std::ranges::sort(m_Slots,
                           [](auto const& a, auto const& b)
                           {

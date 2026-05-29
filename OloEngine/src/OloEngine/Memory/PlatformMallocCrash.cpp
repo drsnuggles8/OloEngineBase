@@ -2,6 +2,7 @@
 // Ported 1:1 from UE5.7 FPlatformMallocCrash
 
 #include "OloEngine/Memory/PlatformMallocCrash.h"
+#include <cstdint>
 #include <cstdlib>
 #include <cstring>
 #include <algorithm>
@@ -155,8 +156,12 @@ namespace OloEngine
         {
             return false;
         }
-        const u8* PoolEnd = AllocBase + (static_cast<sizet>(AllocationSize) * MaxNumAllocations);
-        return Ptr >= AllocBase && Ptr < PoolEnd;
+        // Compare as integers: relational comparison of raw pointers into
+        // unrelated objects is UB, so reinterpret to uintptr_t first.
+        const std::uintptr_t PtrAddr = reinterpret_cast<std::uintptr_t>(Ptr);
+        const std::uintptr_t BaseAddr = reinterpret_cast<std::uintptr_t>(AllocBase);
+        const std::uintptr_t EndAddr = BaseAddr + (static_cast<std::uintptr_t>(AllocationSize) * MaxNumAllocations);
+        return PtrAddr >= BaseAddr && PtrAddr < EndAddr;
     }
 
     //------------------------------------------------------------------------------
@@ -401,8 +406,11 @@ namespace OloEngine
         {
             return false;
         }
-        const u8* BytePtr = static_cast<u8*>(Ptr);
-        return BytePtr >= SmallMemoryPool && BytePtr < SmallMemoryPool + SmallMemoryPoolSize;
+        // Compare as integers: relational comparison of raw pointers into
+        // unrelated objects is UB, so reinterpret to uintptr_t first.
+        const std::uintptr_t PtrAddr = reinterpret_cast<std::uintptr_t>(Ptr);
+        const std::uintptr_t BaseAddr = reinterpret_cast<std::uintptr_t>(SmallMemoryPool);
+        return PtrAddr >= BaseAddr && PtrAddr < BaseAddr + SmallMemoryPoolSize;
     }
 
     bool FGenericPlatformMallocCrash::IsPtrInLargePool(void* Ptr) const
@@ -411,8 +419,11 @@ namespace OloEngine
         {
             return false;
         }
-        const u8* BytePtr = static_cast<u8*>(Ptr);
-        return BytePtr >= LargeMemoryPool && BytePtr < LargeMemoryPool + LARGE_MEMORYPOOL_SIZE;
+        // Compare as integers: relational comparison of raw pointers into
+        // unrelated objects is UB, so reinterpret to uintptr_t first.
+        const std::uintptr_t PtrAddr = reinterpret_cast<std::uintptr_t>(Ptr);
+        const std::uintptr_t BaseAddr = reinterpret_cast<std::uintptr_t>(LargeMemoryPool);
+        return PtrAddr >= BaseAddr && PtrAddr < BaseAddr + LARGE_MEMORYPOOL_SIZE;
     }
 
     bool FGenericPlatformMallocCrash::IsOwnedPointer(void* Ptr) const

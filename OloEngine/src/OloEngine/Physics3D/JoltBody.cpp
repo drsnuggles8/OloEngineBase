@@ -6,6 +6,7 @@
 #include "OloEngine/Core/Log.h"
 #include "OloEngine/Scene/Components.h"
 
+#include <cmath>
 #include <cstdint>
 #include <optional>
 #include <utility>
@@ -259,7 +260,15 @@ namespace OloEngine
             const JPH::MotionProperties* motionProperties = body.GetMotionProperties();
             if (motionProperties)
             {
-                return 1.0f / motionProperties->GetInverseMass();
+                const f32 invMass = motionProperties->GetInverseMass();
+                // Guard the reciprocal: a zero inverse mass (static/kinematic
+                // body) or a non-finite value would yield inf/nan. The zero
+                // compare is intentional here — it guards a division, not a
+                // tolerance comparison.
+                if (std::isfinite(invMass) && invMass != 0.0f)
+                {
+                    return 1.0f / invMass;
+                }
             }
         }
         return 0.0f;

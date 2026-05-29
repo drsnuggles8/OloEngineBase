@@ -7,6 +7,8 @@
 
 #include <glm/gtx/norm.hpp>
 
+#include <algorithm>
+
 namespace OloEngine
 {
     void NetworkInterestManager::SetClientPosition(u32 clientID, const glm::vec3& position)

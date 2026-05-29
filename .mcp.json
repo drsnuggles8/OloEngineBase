@@ -9,7 +9,7 @@
         "-e", "SONARQUBE_TOKEN",
         "-e", "SONARQUBE_ORG",
         "-e", "SONARQUBE_URL",
-        "mcp/sonarqube"
+        "mcp/sonarqube@sha256:b6405a37933674f921bdc10a3c03b74e1749e25e5ae39f92f7d7b4dfda069006"
       ],
       "env": {
         "SONARQUBE_TOKEN": "${SONARQUBE_TOKEN}",

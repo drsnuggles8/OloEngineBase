@@ -48,6 +48,7 @@
 #include <cmath>
 #include <cstring>
 #include <fstream>
+#include <limits>
 
 namespace OloEngine
 {
@@ -363,7 +364,12 @@ namespace OloEngine
         // so we only read when the cursor hasn't already consumed the whole
         // record.
         bool srgb = false;
-        if (const u64 packedEnd = assetInfo.PackedOffset + assetInfo.PackedSize; stream.GetStreamPosition() + sizeof(bool) <= packedEnd)
+        // Guard against u64 overflow when computing the end-of-record offset:
+        // a corrupt pack could have PackedOffset + PackedSize wrap around and
+        // spuriously satisfy the bounds check below. If the addition would
+        // overflow, treat the byte as absent and fall back to the heuristic.
+        const bool packedEndOverflows = assetInfo.PackedSize > std::numeric_limits<u64>::max() - assetInfo.PackedOffset;
+        if (!packedEndOverflows && stream.GetStreamPosition() + sizeof(bool) <= assetInfo.PackedOffset + assetInfo.PackedSize)
         {
             stream.ReadRaw(srgb);
         }

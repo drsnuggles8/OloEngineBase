@@ -22,6 +22,7 @@
 #include <imgui.h>
 #include <imgui_internal.h>
 #include <yaml-cpp/yaml.h>
+#include <cmath>
 #include <fstream>
 
 #ifdef OLO_PLATFORM_WINDOWS
@@ -1377,9 +1378,15 @@ namespace OloEngine
 
         f32 value = 0.0f;
         if (std::sscanf(line, "ThumbnailSize=%f", &value) == 1)
-            panel->m_ThumbnailSize = std::clamp(value, 48.0f, 256.0f);
+        {
+            if (std::isfinite(value))
+                panel->m_ThumbnailSize = std::clamp(value, 48.0f, 256.0f);
+        }
         else if (std::sscanf(line, "Padding=%f", &value) == 1)
-            panel->m_Padding = std::clamp(value, 0.0f, 32.0f);
+        {
+            if (std::isfinite(value))
+                panel->m_Padding = std::clamp(value, 0.0f, 32.0f);
+        }
         else
         {
             // No additional handling required.

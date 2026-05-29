@@ -97,6 +97,8 @@ namespace OloEngine
 
     void JoltScene::Simulate(f32 deltaTime)
     {
+        OLO_PROFILE_FUNCTION();
+
         if (!m_Initialized || !m_JoltSystem)
             return;
 

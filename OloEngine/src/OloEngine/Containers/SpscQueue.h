@@ -94,10 +94,13 @@ namespace OloEngine
             FNode* Node = AllocNode();
             ::new (static_cast<void*>(&Node->Value)) ElementType(Forward<ArgTypes>(Args)...);
 
+            // Bump the count BEFORE publishing the node. If we incremented after
+            // the release-store, the consumer could dequeue the freshly-visible
+            // node and decrement first, transiently driving m_NumElems negative.
+            ++m_NumElems;
+
             m_Head->Next.store(Node, std::memory_order_release);
             m_Head = Node;
-
-            ++m_NumElems;
         }
 
         /**

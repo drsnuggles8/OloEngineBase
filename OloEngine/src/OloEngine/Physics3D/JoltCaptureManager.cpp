@@ -516,6 +516,8 @@ namespace OloEngine
 
     void JoltCaptureManager::RefreshCapturesCache()
     {
+        OLO_PROFILE_FUNCTION();
+
         // Clear existing captures
         m_Captures.clear();
         m_RecentCapture.clear();
@@ -544,29 +546,29 @@ namespace OloEngine
             // Sort captures by last write time (newest first)
             std::ranges::sort(m_Captures, [](const std::filesystem::path& a, const std::filesystem::path& b)
                               {
-				std::filesystem::file_time_type timeA, timeB;
+                                  std::filesystem::file_time_type timeA, timeB;
 
-				try
-				{
-					timeA = std::filesystem::last_write_time(a);
-				}
-				catch (const std::filesystem::filesystem_error&)
-				{
-					// File became inaccessible - treat as oldest possible time
-					timeA = std::filesystem::file_time_type::min();
-				}
+                                  try
+                                  {
+                                      timeA = std::filesystem::last_write_time(a);
+                                  }
+                                  catch (const std::filesystem::filesystem_error&)
+                                  {
+                                      // File became inaccessible - treat as oldest possible time
+                                      timeA = std::filesystem::file_time_type::min();
+                                  }
 
-				try
-				{
-					timeB = std::filesystem::last_write_time(b);
-				}
-				catch (const std::filesystem::filesystem_error&)
-				{
-					// File became inaccessible - treat as oldest possible time
-					timeB = std::filesystem::file_time_type::min();
-				}
+                                  try
+                                  {
+                                      timeB = std::filesystem::last_write_time(b);
+                                  }
+                                  catch (const std::filesystem::filesystem_error&)
+                                  {
+                                      // File became inaccessible - treat as oldest possible time
+                                      timeB = std::filesystem::file_time_type::min();
+                                  }
 
-				return timeA > timeB; });
+                                  return timeA > timeB; });
 
             if (!m_Captures.empty())
             {

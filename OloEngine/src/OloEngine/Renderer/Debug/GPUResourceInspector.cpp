@@ -985,10 +985,20 @@ namespace OloEngine
 
                 if (downloadComplete)
                 {
-                    // Find the corresponding texture and complete the download
-                    if (auto resourceIt = m_Resources.find(it->m_TextureID); resourceIt != m_Resources.end() && resourceIt->second->m_Type == ResourceType::Texture2D)
+                    // Find the corresponding texture and complete the download.
+                    // Access to m_Resources must be synchronized; copy out the raw
+                    // pointer under the lock, then release it before calling
+                    // CompleteTextureDownload (which performs GL work).
+                    TextureInfo* texInfo = nullptr;
                     {
-                        auto* texInfo = static_cast<TextureInfo*>(resourceIt->second.get());
+                        TUniqueLock<FMutex> lock(m_ResourceMutex);
+                        if (auto resourceIt = m_Resources.find(it->m_TextureID); resourceIt != m_Resources.end() && resourceIt->second->m_Type == ResourceType::Texture2D)
+                        {
+                            texInfo = static_cast<TextureInfo*>(resourceIt->second.get());
+                        }
+                    }
+                    if (texInfo != nullptr)
+                    {
                         CompleteTextureDownload(*texInfo, *it);
                     }
 
@@ -2215,13 +2225,16 @@ namespace OloEngine
             info.m_PreviewDataValid = true;
 
             OLO_CORE_TRACE("Completed async texture download for texture {} mip level {}", request.m_TextureID, request.m_MipLevel);
+
+            // Unmap only when the buffer was successfully mapped; calling
+            // glUnmapBuffer on an unmapped buffer raises GL_INVALID_OPERATION.
+            glUnmapBuffer(GL_PIXEL_PACK_BUFFER);
         }
         else
         {
             OLO_CORE_ERROR("Failed to map PBO data for texture {}", request.m_TextureID);
         }
-        // Unmap and clean up
-        glUnmapBuffer(GL_PIXEL_PACK_BUFFER);
+        // Clean up
         glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
     }
     sizet GPUResourceInspector::CalculateAccurateTextureMemoryUsage(u32 textureId, GLenum target,

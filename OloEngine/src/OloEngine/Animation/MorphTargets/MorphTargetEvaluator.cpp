@@ -5,6 +5,8 @@
 #include <glad/gl.h>
 #include <glm/glm.hpp>
 
+#include <algorithm>
+
 namespace OloEngine
 {
     void MorphTargetEvaluator::EvaluateCPU(

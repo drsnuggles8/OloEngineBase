@@ -17,6 +17,8 @@ namespace OloEngine::Audio::DSP
     void ReverbNodeProcessPcmFrames(void* pNode, const float** ppFramesIn, unsigned int* pFrameCountIn,
                                     float** ppFramesOut, unsigned int* pFrameCountOut)
     {
+        OLO_PROFILE_FUNCTION();
+
         auto* node = static_cast<Reverb::ReverbNode*>(pNode);
         const auto* pNodeBase = &node->base;
         u32 outBuses = ma_node_get_output_bus_count(pNodeBase);

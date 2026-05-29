@@ -885,7 +885,8 @@ namespace OloEngine
             return AssetManager::GetPlaceholderAsset(metadata.Type);
         }
 
-        if (auto absolutePath = m_ProjectPath / metadata.FilePath; !std::filesystem::exists(absolutePath))
+        std::error_code existsEc;
+        if (auto absolutePath = m_ProjectPath / metadata.FilePath; !std::filesystem::exists(absolutePath, existsEc) || existsEc)
         {
             OLO_CORE_ERROR("Cannot load asset: file does not exist: {}", metadata.FilePath.string());
             SetAssetStatus(metadata.Handle, AssetStatus::Missing);

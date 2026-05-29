@@ -21,6 +21,8 @@ namespace OloEngine::Audio::SoundGraph
                                                float** ppFramesOut,
                                                ma_uint32* pFrameCountOut)
         {
+            OLO_PROFILE_FUNCTION();
+
             (void)ppFramesIn;
             (void)pFrameCountIn;
 
