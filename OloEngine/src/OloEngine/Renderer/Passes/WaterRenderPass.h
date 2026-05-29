@@ -1,6 +1,7 @@
 #pragma once
 
 #include "OloEngine/Core/Base.h"
+#include "OloEngine/Renderer/Framebuffer.h"
 #include "OloEngine/Renderer/Passes/CommandBufferRenderPass.h"
 
 namespace OloEngine
@@ -39,5 +40,12 @@ namespace OloEngine
         RGTextureHandle m_SelectedSceneDepthTexture{};
         RGTextureHandle m_SelectedSceneNormalsTexture{};
         RGTextureHandle m_SelectedRefractionTexture{};
+
+        // Dedicated depth target capturing the nearest wavy water surface per
+        // pixel (depth-only re-render of the water geometry). Published to
+        // Renderer3D for the underwater-fog stage. Persists across frames; resized
+        // with the viewport. Owned here (not the shared scene FBO) so adding it
+        // can't perturb the scene/G-buffer attachment layout.
+        Ref<Framebuffer> m_WaterDepthFB;
     };
 } // namespace OloEngine

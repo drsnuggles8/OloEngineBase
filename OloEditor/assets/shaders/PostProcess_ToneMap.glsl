@@ -23,6 +23,10 @@ layout(binding = 0) uniform sampler2D u_Texture;
 // Scene depth — used by the underwater fog stage to reconstruct eye-space
 // distance for the Beer-Lambert falloff. Bound by ToneMapRenderPass.
 layout(binding = 19) uniform sampler2D u_DepthTexture;
+// Nearest wavy water-surface depth captured by WaterRenderPass (1.0 = no water
+// at this pixel). Lets the fog find the real per-pixel water boundary instead
+// of assuming a flat plane. Bound by ToneMapRenderPass (TEX_UNDERWATER_WATER_DEPTH).
+layout(binding = 32) uniform sampler2D u_WaterSurfaceDepth;
 
 #define TONEMAP_NONE      0
 #define TONEMAP_REINHARD  1
@@ -103,7 +107,21 @@ vec3 applyUnderwaterFog(vec3 color, vec2 uv)
     vec4 worldH = u_UnderwaterInvViewProj * ndc;
     vec3 worldPos = worldH.xyz / worldH.w;
 
-    float underwaterDist = underwaterSegmentLength(u_UnderwaterCameraPos.xyz, worldPos, u_UnderwaterFlags.y);
+    // Per-pixel water surface height: where the water pass captured a surface in
+    // front of this pixel, reconstruct its world Y (wave-accurate) and use it as
+    // the local water plane. Otherwise fall back to the flat surface Y. This is
+    // what lets the fog follow the waves and work from any camera height — the
+    // old flat-plane assumption couldn't tell the surface from the seafloor.
+    float surfaceY = u_UnderwaterFlags.y;
+    float wDepth = texture(u_WaterSurfaceDepth, uv).r;
+    if (wDepth < 1.0)
+    {
+        vec4 sNdc = vec4(uv * 2.0 - 1.0, wDepth * 2.0 - 1.0, 1.0);
+        vec4 sH = u_UnderwaterInvViewProj * sNdc;
+        surfaceY = (sH.xyz / sH.w).y;
+    }
+
+    float underwaterDist = underwaterSegmentLength(u_UnderwaterCameraPos.xyz, worldPos, surfaceY);
 
     float density = clamp(u_UnderwaterColorAndDensity.a, 0.0, 10.0);
     float transmittance = exp(-density * underwaterDist);

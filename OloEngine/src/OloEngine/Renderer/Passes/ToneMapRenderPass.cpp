@@ -5,6 +5,7 @@
 #include "OloEngine/Renderer/MeshPrimitives.h"
 #include "OloEngine/Renderer/RGCommandContext.h"
 #include "OloEngine/Renderer/RenderCommand.h"
+#include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/RenderPipelineBuilderInternal.h"
 #include "OloEngine/Renderer/ResourceHandle.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
@@ -168,6 +169,13 @@ namespace OloEngine
             m_Shader->SetInt("u_DepthTexture", ShaderBindingLayout::TEX_POSTPROCESS_DEPTH);
         }
 
+        // Per-pixel water-surface depth (nearest wavy surface) captured by the
+        // water pass — lets the underwater fog find the real water boundary per
+        // pixel instead of assuming a flat plane. 0 when no water rendered.
+        const u32 waterDepthTextureID = Renderer3D::GetWaterSurfaceDepthTextureID();
+        context.BindTexture(ShaderBindingLayout::TEX_UNDERWATER_WATER_DEPTH, waterDepthTextureID);
+        m_Shader->SetInt("u_WaterSurfaceDepth", ShaderBindingLayout::TEX_UNDERWATER_WATER_DEPTH);
+
         const auto va = MeshPrimitives::GetFullscreenTriangle();
         va->Bind();
         context.DrawIndexed(va);
@@ -175,6 +183,7 @@ namespace OloEngine
         // Leave the depth slot clean for subsequent passes that share the layout.
         if (depthTextureID != 0u)
             context.BindTexture(ShaderBindingLayout::TEX_POSTPROCESS_DEPTH, 0);
+        context.BindTexture(ShaderBindingLayout::TEX_UNDERWATER_WATER_DEPTH, 0);
 
         context.SetDepthMask(true);
         outputFramebuffer->Unbind();

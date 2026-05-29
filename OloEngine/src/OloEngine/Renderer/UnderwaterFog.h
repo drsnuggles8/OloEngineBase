@@ -65,10 +65,10 @@ namespace OloEngine
             // Segment crosses the plane: find the crossing point.
             const f32 dy = worldPos.y - camPos.y;
             if (std::abs(dy) < 1e-6f)
-                return 0.0f; // parallel to the plane and not both under (handled above)
+                return 0.0f;                                    // parallel to the plane and not both under (handled above)
             const f32 tCross = (waterSurfaceY - camPos.y) / dy; // in [0,1]
             const glm::vec3 crossPoint = camPos + (worldPos - camPos) * tCross;
-            return camUnder ? glm::length(crossPoint - camPos)   // cam under, frag above
+            return camUnder ? glm::length(crossPoint - camPos)    // cam under, frag above
                             : glm::length(worldPos - crossPoint); // cam above, frag under
         }
     } // namespace UnderwaterFog

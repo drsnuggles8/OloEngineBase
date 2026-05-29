@@ -4160,19 +4160,21 @@ namespace OloEngine
                     if (!GetWaterCameraFootprintGap(transform.GetTransform(), water, cameraPosition, gap))
                         continue;
 
-                    // Only activate when the camera is genuinely submerged
-                    // (below the surface). This post pass can't tell a
-                    // water-surface pixel from the seafloor behind it (the
-                    // surface writes no depth), so when the camera is ABOVE the
-                    // water it would wrongly fog the whole surface based on the
-                    // deep seafloor behind it, flooding the view with flat fog.
-                    // Above-water looking-down is the water shader's own
-                    // refraction / depth tint, not this pass. The smallest
-                    // positive gap selects the immediate ceiling when volumes
-                    // overlap.
-                    if (gap > 0.0f && gap < bestSurfaceDist)
+                    // Activate when the camera is submerged OR within a wave's
+                    // reach of the surface (straddling / "covered by a wave").
+                    // gap = surfaceY - cameraY, so gap > 0 is submerged and a
+                    // small negative gap means the eye is just above the flat
+                    // surface but a crest can still wash over it. The ToneMap fog
+                    // now reads the per-pixel water-surface depth, so it fogs only
+                    // the genuinely-underwater pixels (it no longer mistakes the
+                    // seafloor behind the surface for the surface) — which is why
+                    // we can safely activate near/above the waterline. Well above
+                    // the water (gap < -kWaveReach) stays the water shader's own
+                    // refraction/depth tint. Nearest surface (smallest |gap|) wins.
+                    constexpr f32 kWaveReach = 2.0f; // generous max crest height above the flat plane
+                    if (const f32 absGap = std::abs(gap); gap > -kWaveReach && absGap < bestSurfaceDist)
                     {
-                        bestSurfaceDist = gap;
+                        bestSurfaceDist = absGap;
                         underwater.Active = true;
                         underwater.FogColor = glm::clamp(water.m_UnderwaterFogColor, glm::vec3(0.0f), glm::vec3(1.0f));
                         underwater.Density = std::isfinite(water.m_UnderwaterFogDensity)

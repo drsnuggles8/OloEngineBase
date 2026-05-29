@@ -6,6 +6,7 @@
 #include "OloEngine/Renderer/Commands/RenderCommand.h"
 #include "OloEngine/Renderer/Debug/GLStateGuard.h"
 #include "OloEngine/Renderer/Renderer.h"
+#include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
 
 #include <glad/gl.h>
@@ -163,6 +164,35 @@ namespace OloEngine
         m_CommandBucket.SortCommands();
 
         auto& rendererAPI = RenderCommand::GetRendererAPI();
+
+        // --- Water surface-depth capture ---------------------------------------
+        // Re-render the same (already-sorted) water geometry depth-only into a
+        // dedicated target so the underwater fog knows, per pixel, exactly where
+        // the wavy surface is (the colour pass below writes no depth). The
+        // CommandDispatch override forces depth-only state even though water is
+        // blended; CommandBucket::Execute is re-entrant (it does not consume the
+        // packets). The waterline discard still runs, so only the visible surface
+        // side is captured. The bound scene textures stay bound (unit state).
+        if (m_WaterDepthFB)
+        {
+            m_WaterDepthFB->Bind();
+            glDepthMask(GL_TRUE);
+            glClearDepth(1.0);
+            glClear(GL_DEPTH_BUFFER_BIT); // far = "no water at this pixel"
+            CommandDispatch::SetWaterDepthCaptureActive(true);
+            m_CommandBucket.Execute(rendererAPI);
+            CommandDispatch::SetWaterDepthCaptureActive(false);
+            CommandDispatch::InvalidateRenderStateCache();
+            m_WaterDepthFB->Unbind();
+            Renderer3D::SetWaterSurfaceDepthTextureID(m_WaterDepthFB->GetDepthAttachmentRendererID());
+            // Rebind the scene target for the colour pass below.
+            m_SceneFramebuffer->Bind();
+        }
+        else
+        {
+            Renderer3D::SetWaterSurfaceDepthTextureID(0);
+        }
+
         m_CommandBucket.Execute(rendererAPI);
 
         // Restore render state after water (water uses blending + depth write off)
@@ -195,9 +225,20 @@ namespace OloEngine
     void WaterRenderPass::SetupFramebuffer(u32 width, u32 height)
     {
         OLO_PROFILE_FUNCTION();
-        // No own framebuffer — dimensions tracked for consistency
+        // Colour is rendered into the shared scene FBO (tracked dims for
+        // consistency); we additionally own a depth-only target for the water
+        // surface-depth capture used by the underwater fog.
         m_FramebufferSpec.Width = width;
         m_FramebufferSpec.Height = height;
+
+        if (width > 0 && height > 0)
+        {
+            FramebufferSpecification depthSpec;
+            depthSpec.Width = width;
+            depthSpec.Height = height;
+            depthSpec.Attachments = { FramebufferTextureFormat::ShadowDepth };
+            m_WaterDepthFB = Framebuffer::Create(depthSpec);
+        }
     }
 
     void WaterRenderPass::ResizeFramebuffer(u32 width, u32 height)
@@ -205,6 +246,20 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
         m_FramebufferSpec.Width = width;
         m_FramebufferSpec.Height = height;
+
+        if (width > 0 && height > 0)
+        {
+            if (m_WaterDepthFB)
+                m_WaterDepthFB->Resize(width, height);
+            else
+            {
+                FramebufferSpecification depthSpec;
+                depthSpec.Width = width;
+                depthSpec.Height = height;
+                depthSpec.Attachments = { FramebufferTextureFormat::ShadowDepth };
+                m_WaterDepthFB = Framebuffer::Create(depthSpec);
+            }
+        }
     }
 
     void WaterRenderPass::OnReset()

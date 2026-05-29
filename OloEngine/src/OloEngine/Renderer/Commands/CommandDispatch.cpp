@@ -91,6 +91,9 @@ namespace OloEngine
         bool DepthPrepassActive = false;
         // Color pass of depth prepass: override depth func to GL_LEQUAL + depth mask false
         bool DepthPrepassColorPassActive = false;
+        // Water surface-depth capture: forces depth-only state even for the blended
+        // water draw so the nearest water surface is written to its own depth target.
+        bool WaterDepthCaptureActive = false;
 
         CommandDispatch::Statistics Stats;
     };
@@ -315,6 +318,17 @@ namespace OloEngine
         else
         {
             // No additional handling required.
+        }
+
+        // Water surface-depth capture: force depth-only even though water is
+        // blended, so the nearest water surface lands in the dedicated depth target.
+        if (s_Data.WaterDepthCaptureActive)
+        {
+            api.SetColorMask(false, false, false, false);
+            api.SetDepthTest(true);
+            api.SetDepthMask(true);
+            api.SetDepthFunc(GL_LESS);
+            api.SetBlendState(false);
         }
     }
 
@@ -765,6 +779,15 @@ namespace OloEngine
             s_Data.DepthPrepassActive = false;
         }
         // Invalidate cache so the next command re-applies state
+        InvalidateRenderStateCache();
+    }
+
+    void CommandDispatch::SetWaterDepthCaptureActive(bool active)
+    {
+        s_Data.WaterDepthCaptureActive = active;
+        // Invalidate so the next command — and the post-capture color command —
+        // re-applies state; otherwise a same-render-state water command would
+        // early-out and leak the depth-only override into the color pass.
         InvalidateRenderStateCache();
     }
 

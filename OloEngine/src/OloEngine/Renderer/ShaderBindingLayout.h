@@ -656,7 +656,12 @@ namespace OloEngine
         static constexpr u32 TEX_WIND_FIELD = 29;           // 3D wind velocity field (sampler3D, RGBA16F)
         static constexpr u32 TEX_SNOW_DEPTH = 30;           // Snow accumulation depth map (sampler2D, R32F)
         static constexpr u32 TEX_PRECIPITATION_NOISE = 31;  // Precipitation streak/lens noise (sampler2D)
-        // Slots 32-35 were reserved for GTAO (HZB / output / edges / Hilbert LUT) but
+        // Nearest water-surface depth (DEPTH_COMPONENT32F) captured by WaterRenderPass;
+        // sampled by the underwater-fog stage in the ToneMap pass to find the per-pixel
+        // wavy water boundary (WATER_FUTURE_IMPROVEMENTS.md §7.2). Took GTAO-reserved
+        // slot 32 — GTAO binds low sequential slots (0-5) instead, so 33-35 stay free.
+        static constexpr u32 TEX_UNDERWATER_WATER_DEPTH = 32;
+        // Slots 33-35 were reserved for GTAO (HZB / output / edges / Hilbert LUT) but
         // the GTAO compute shaders bind to low sequential slots (0-5) instead — see
         // GTAORenderPass.cpp's GTAO_HZB/NORMALS/HILBERT_TEXTURE_SLOT constants.
         // Leaving the range free for future graphics-pipeline-stage GTAO consumers.

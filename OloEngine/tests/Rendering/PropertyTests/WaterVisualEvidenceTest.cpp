@@ -188,8 +188,19 @@ namespace OloEngine::Tests
             GetScene().OnUpdateEditor(dt, camera);
             GetScene().OnUpdateEditor(dt, camera);
 
-            auto fb = Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::SceneColor);
-            ASSERT_TRUE(fb) << "No SceneColor framebuffer for pose '" << poseName << "'";
+            // Read the SAME image the editor viewport shows in 3D mode:
+            // UICompositePass output (post-processed scene + overlays). This is
+            // AFTER the ToneMap pass, so it includes tone-mapping AND the
+            // underwater fog. SceneColor is the pre-tone-map water-pass output and
+            // therefore never shows the fog — reading it was why the fog was
+            // invisible in these captures. Mirror EditorLayer's resolve order:
+            // UIComposite, then ToneMapColor, then SceneColor as a last resort.
+            auto fb = Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::UIComposite);
+            if (!fb)
+                fb = Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::ToneMapColor);
+            if (!fb)
+                fb = Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::SceneColor);
+            ASSERT_TRUE(fb) << "No composited framebuffer for pose '" << poseName << "'";
 
             ReadbackRgba8(fb->GetColorAttachmentRendererID(0), kWidth, kHeight, outPixels);
             ASSERT_EQ(outPixels.size(), static_cast<std::size_t>(kWidth) * kHeight * 4u);
@@ -318,7 +329,7 @@ namespace OloEngine::Tests
         EXPECT_FALSE(looksLikeMagentaSeafloor)
             << "Foreground band reads as the magenta seafloor (R=" << meanR << " G=" << meanG
             << " B=" << meanB << ") — near water is being culled / is see-through. See "
-               "Water_GrazingAcross.png";
+                                 "Water_GrazingAcross.png";
 
         // And it must read as water: blue is the dominant channel and red stays
         // low (water is blue/teal, not the red-heavy seafloor or a grey wash).

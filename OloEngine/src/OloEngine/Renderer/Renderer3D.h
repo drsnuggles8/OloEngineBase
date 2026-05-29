@@ -559,6 +559,17 @@ namespace OloEngine
         {
             return s_Data.GlobalEnvironmentMapID;
         }
+        // Nearest wavy water-surface depth captured by WaterRenderPass this frame
+        // (0 when no water rendered). Consumed by the underwater-fog stage in the
+        // ToneMap pass to find the per-pixel water boundary. See §7.2.
+        static void SetWaterSurfaceDepthTextureID(RendererID id)
+        {
+            s_Data.WaterSurfaceDepthTextureID = id;
+        }
+        [[nodiscard]] static RendererID GetWaterSurfaceDepthTextureID()
+        {
+            return s_Data.WaterSurfaceDepthTextureID;
+        }
         [[nodiscard]] static f32 GetGlobalIBLIntensity()
         {
             return s_Data.GlobalIBLIntensity;
@@ -1345,6 +1356,10 @@ namespace OloEngine
             RendererID GlobalBRDFLutMapID = 0;
             RendererID GlobalEnvironmentMapID = 0;
             f32 GlobalIBLIntensity = 1.0f;
+
+            // Nearest water-surface depth texture for underwater fog (§7.2);
+            // published by WaterRenderPass, consumed by ToneMap. 0 = no water.
+            RendererID WaterSurfaceDepthTextureID = 0;
 
             // Parallel submission state
             ParallelSceneContext ParallelContext;

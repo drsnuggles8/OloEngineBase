@@ -1,12 +1,13 @@
 EditorPreferences:
-  ShowGrid: true
+  ShowGrid: false
   GridSpacing: 1
   TranslateSnap: 0.5
   RotateSnap: 45
   ScaleSnap: 0.5
-  CameraFlySpeed: 4
+  CameraFlySpeed: 11
   ShowPhysicsColliders: false
   ShowLightGizmos: false
+  ShowBoundingBoxes: false
   Is3DMode: true
   CapturePhysicsOnPlay: false
   ThrottleEditMode: true
