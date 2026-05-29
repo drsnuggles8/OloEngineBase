@@ -340,7 +340,7 @@ namespace OloEngine
         }
     }
 
-    void FLowLevelMemTracker::DumpToLog()
+    void FLowLevelMemTracker::DumpToLog() const
     {
         OLO_CORE_INFO("=== LLM Memory Report ===");
         OLO_CORE_INFO("Total tracked: {} bytes", GetTagSize(ELLMTag::Total));

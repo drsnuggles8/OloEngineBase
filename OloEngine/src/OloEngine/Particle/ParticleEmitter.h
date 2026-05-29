@@ -43,7 +43,7 @@ namespace OloEngine
         void Reset();
 
       private:
-        void InitializeParticle(u32 index, ParticlePool& pool, const glm::vec3& emitterPosition, const glm::quat& emitterRotation);
+        void InitializeParticle(u32 index, ParticlePool& pool, const glm::vec3& emitterPosition, const glm::quat& emitterRotation) const;
 
         f32 m_EmitAccumulator = 0.0f;
         f32 m_LoopTime = 0.0f;

@@ -64,8 +64,8 @@ namespace OloEngine
         // Returns true if preferences were applied (OK or Apply pressed)
         bool OnImGuiRender(EditorPreferences& outPrefs);
 
-        void Save(const EditorPreferences& prefs, const std::filesystem::path& projectDir);
-        void Load(EditorPreferences& prefs, const std::filesystem::path& projectDir);
+        void Save(const EditorPreferences& prefs, const std::filesystem::path& projectDir) const;
+        void Load(EditorPreferences& prefs, const std::filesystem::path& projectDir) const;
 
       private:
         static std::filesystem::path GetPrefsPath(const std::filesystem::path& projectDir);

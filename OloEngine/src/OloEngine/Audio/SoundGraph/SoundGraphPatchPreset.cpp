@@ -213,7 +213,7 @@ namespace OloEngine::Audio::SoundGraph
         ApplyPatch(*patch, target);
     }
 
-    void SoundGraphPatchPreset::ApplyPatch(const ParameterPatch& patch, SoundGraphSound* target)
+    void SoundGraphPatchPreset::ApplyPatch(const ParameterPatch& patch, SoundGraphSound* target) const
     {
         OLO_PROFILE_FUNCTION();
 

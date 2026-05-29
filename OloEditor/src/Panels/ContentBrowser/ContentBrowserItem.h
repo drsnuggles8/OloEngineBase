@@ -109,7 +109,7 @@ namespace OloEngine
         }
 
       private:
-        void RenderContextMenu(CBActionResult& result);
+        void RenderContextMenu(CBActionResult& result) const;
 
         std::filesystem::path m_Path;
         std::string m_DisplayName;

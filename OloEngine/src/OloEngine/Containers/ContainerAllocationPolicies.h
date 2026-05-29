@@ -1132,7 +1132,7 @@ namespace OloEngine
                 return GetInlineElements();
             }
 
-            void ResizeAllocation(SizeType /*CurrentNum*/, SizeType NewMax, sizet /*NumBytesPerElement*/)
+            void ResizeAllocation(SizeType /*CurrentNum*/, SizeType NewMax, sizet /*NumBytesPerElement*/) const
             {
                 OLO_CORE_ASSERT(NewMax >= 0 && static_cast<u32>(NewMax) <= NumInlineElements,
                                 "TFixedAllocator cannot allocate more than NumInlineElements");

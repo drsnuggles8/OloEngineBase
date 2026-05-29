@@ -526,7 +526,7 @@ namespace OloEngine
         }
     }
 
-    void ShaderDebugger::UpdateActiveTime(ShaderInfo& shaderInfo)
+    void ShaderDebugger::UpdateActiveTime(ShaderInfo& shaderInfo) const
     {
         if (shaderInfo.m_IsActive)
         {
@@ -1079,7 +1079,7 @@ namespace OloEngine
         }
     }
 
-    void ShaderDebugger::RenderSourceCode(const ShaderInfo& shaderInfo)
+    void ShaderDebugger::RenderSourceCode(const ShaderInfo& shaderInfo) const
     {
         if (shaderInfo.m_OriginalSource.empty())
         {
@@ -1172,7 +1172,7 @@ namespace OloEngine
         }
     }
 
-    void ShaderDebugger::RenderUniforms(const ShaderInfo& shaderInfo)
+    void ShaderDebugger::RenderUniforms(const ShaderInfo& shaderInfo) const
     {
         // Uniforms table
         if (!shaderInfo.m_Uniforms.empty())
@@ -1292,7 +1292,7 @@ namespace OloEngine
         }
     }
 
-    void ShaderDebugger::RenderResourceBindings(const ShaderInfo& shaderInfo)
+    void ShaderDebugger::RenderResourceBindings(const ShaderInfo& shaderInfo) const
     {
         ImGui::Text("Resource Bindings");
         ImGui::Separator();
@@ -1379,7 +1379,7 @@ namespace OloEngine
         ImGui::TextColored(ImVec4(0.6f, 0.6f, 0.6f, 1.0f), "Note: Frame-in-flight statistics require shader registry access");
     }
 
-    void ShaderDebugger::RenderPerformanceMetrics(const ShaderInfo& shaderInfo)
+    void ShaderDebugger::RenderPerformanceMetrics(const ShaderInfo& shaderInfo) const
     {
         ImGui::Text("Performance Metrics");
         ImGui::Separator();
@@ -1433,7 +1433,7 @@ namespace OloEngine
         }
     }
 
-    void ShaderDebugger::RenderReloadHistory(const ShaderInfo& shaderInfo)
+    void ShaderDebugger::RenderReloadHistory(const ShaderInfo& shaderInfo) const
     {
         ImGui::Text("Reload History (%zu events):", shaderInfo.m_ReloadHistory.size());
         ImGui::Separator();
@@ -1482,7 +1482,7 @@ namespace OloEngine
         }
     }
 
-    void ShaderDebugger::RenderSPIRVAnalysis(const ShaderInfo& shaderInfo)
+    void ShaderDebugger::RenderSPIRVAnalysis(const ShaderInfo& shaderInfo) const
     {
         ImGui::Text("SPIR-V Analysis");
         ImGui::Separator();
@@ -1629,7 +1629,7 @@ namespace OloEngine
         }
     }
 
-    void ShaderDebugger::RenderCompilationErrors(const ShaderInfo& shaderInfo)
+    void ShaderDebugger::RenderCompilationErrors(const ShaderInfo& shaderInfo) const
     {
         ImGui::Text("Compilation Errors");
         ImGui::Separator();

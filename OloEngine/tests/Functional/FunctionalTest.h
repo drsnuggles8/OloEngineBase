@@ -86,7 +86,7 @@ namespace OloEngine::Functional
         /// `ScriptFile` and asks the engine to create the per-entity
         /// instance. Production code does this from `Scene::OnRuntimeStart`,
         /// which the Functional-test harness deliberately doesn't call.
-        void RegisterLuaScript(Entity entity, const std::filesystem::path& scriptPath);
+        void RegisterLuaScript(Entity entity, const std::filesystem::path& scriptPath) const;
 
         /// Bring up the Scene's audio runtime (AudioCommandRegistry +
         /// AudioEventsManager, position resolver, AudioListener / Source
@@ -97,7 +97,7 @@ namespace OloEngine::Functional
 
         /// Marker — Animation tick is integrated into Scene::OnUpdateRuntime.
         /// Present so tests can document their intended subsystem coverage.
-        void EnableAnimation();
+        void EnableAnimation() const;
 
         /// Bring up `Scene::DialogueSystem` so per-tick `Update(ts)` runs
         /// (text-reveal progression, auto-trigger checks). Without this the

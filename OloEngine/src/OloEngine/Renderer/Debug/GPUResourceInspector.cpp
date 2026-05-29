@@ -380,7 +380,7 @@ namespace OloEngine
         }
     }
 
-    void GPUResourceInspector::QueryTextureInfo(TextureInfo& info)
+    void GPUResourceInspector::QueryTextureInfo(TextureInfo& info) const
     {
         // Modern OpenGL 4.5+ DSA approach - no texture binding required
         GLint width, height, internalFormat;
@@ -483,7 +483,7 @@ namespace OloEngine
                                                                  info.m_MipLevels);
     }
 
-    void GPUResourceInspector::QueryTextureCubemapInfo(TextureInfo& info)
+    void GPUResourceInspector::QueryTextureCubemapInfo(TextureInfo& info) const
     {
         // Modern OpenGL 4.5+ DSA approach - no texture binding required
         GLint width, height, internalFormat;
@@ -569,7 +569,7 @@ namespace OloEngine
     }
 
     bool GPUResourceInspector::SaveTextureToFile(const TextureInfo& info, const std::string& filePath,
-                                                 u32 mipLevel, u32 faceIndex)
+                                                 u32 mipLevel, u32 faceIndex) const
     {
         OLO_PROFILE_FUNCTION();
 
@@ -828,7 +828,7 @@ namespace OloEngine
         }
     }
 
-    void GPUResourceInspector::QueryBufferInfo(BufferInfo& info)
+    void GPUResourceInspector::QueryBufferInfo(BufferInfo& info) const
     {
         // Save current buffer binding for this target
         GLint previousBinding = 0;
@@ -850,7 +850,7 @@ namespace OloEngine
         glBindBuffer(info.m_Target, previousBinding);
     }
 
-    void GPUResourceInspector::QueryFramebufferInfo(FramebufferInfo& info)
+    void GPUResourceInspector::QueryFramebufferInfo(FramebufferInfo& info) const
     {
         // Save current framebuffer binding
         GLint previousBinding;
@@ -1121,7 +1121,7 @@ namespace OloEngine
         RequestTextureDownload(info, info.m_SelectedMipLevel, faceIndex);
     }
 
-    void GPUResourceInspector::UpdateBufferPreview(BufferInfo& info)
+    void GPUResourceInspector::UpdateBufferPreview(BufferInfo& info) const
     {
         if (info.m_ContentPreviewValid)
             return;
@@ -2139,7 +2139,7 @@ namespace OloEngine
                 return "Unknown";
         }
     }
-    void GPUResourceInspector::CompleteTextureDownload(TextureInfo& info, const TextureDownloadRequest& request)
+    void GPUResourceInspector::CompleteTextureDownload(TextureInfo& info, const TextureDownloadRequest& request) const
     {
         OLO_CORE_TRACE("Completing texture download for texture {} mip level {}", info.m_RendererID, request.m_MipLevel);
 

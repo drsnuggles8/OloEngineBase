@@ -75,7 +75,7 @@ namespace OloEngine
         [[nodiscard]] bool IsCapturing() const;
 
         // File management
-        void OpenCapture(const std::filesystem::path& capturePath);
+        void OpenCapture(const std::filesystem::path& capturePath) const;
         void OpenRecentCapture();
         void ClearCaptures();
         void RemoveCapture(const std::filesystem::path& capturePath);
@@ -110,7 +110,7 @@ namespace OloEngine
         void InitializeCapturesDirectory();
         void RefreshCapturesCache();
         void HandleCaptureFailure(const std::string& errorMessage);
-        std::filesystem::path ValidateAndCanonalizePath(const std::filesystem::path& path, const std::filesystem::path& expectedRoot);
+        std::filesystem::path ValidateAndCanonalizePath(const std::filesystem::path& path, const std::filesystem::path& expectedRoot) const;
 
         inline static constexpr i32 s_DefaultFrameLogInterval = 100;
 

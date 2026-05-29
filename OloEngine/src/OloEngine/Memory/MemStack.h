@@ -440,7 +440,7 @@ namespace OloEngine
         //
         // Memory is only freed when the FMemMark is popped or stack is flushed.
         // Individual deallocation is not supported.
-        void deallocate([[maybe_unused]] T* p, [[maybe_unused]] size_type n) noexcept
+        void deallocate([[maybe_unused]] T* p, [[maybe_unused]] size_type n) const noexcept
         {
             // No-op: Memory stack doesn't support individual deallocation
             // Memory is freed in bulk when FMemMark is popped

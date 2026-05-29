@@ -20,10 +20,10 @@ namespace OloEngine
         void OnImGuiRender(bool* p_open = nullptr);
 
       private:
-        void DrawRendererTab();
+        void DrawRendererTab() const;
         void DrawAudioTab();
-        void DrawPerformanceTab();
-        void DrawMemoryTab();
+        void DrawPerformanceTab() const;
+        void DrawMemoryTab() const;
 
         Ref<Scene> m_Context;
         Entity m_HoveredEntity;

@@ -147,7 +147,7 @@ namespace OloEngine
         EndCapture();
     }
 
-    std::filesystem::path JoltCaptureManager::ValidateAndCanonalizePath(const std::filesystem::path& path, const std::filesystem::path& expectedRoot)
+    std::filesystem::path JoltCaptureManager::ValidateAndCanonalizePath(const std::filesystem::path& path, const std::filesystem::path& expectedRoot) const
     {
         try
         {
@@ -374,7 +374,7 @@ namespace OloEngine
         return m_IsCapturing && m_Stream.IsOpen() && !m_Stream.IsFailed();
     }
 
-    void JoltCaptureManager::OpenCapture(const std::filesystem::path& capturePath)
+    void JoltCaptureManager::OpenCapture(const std::filesystem::path& capturePath) const
     {
         OLO_PROFILE_FUNCTION();
 

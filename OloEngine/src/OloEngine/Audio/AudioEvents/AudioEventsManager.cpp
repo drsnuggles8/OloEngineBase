@@ -146,7 +146,7 @@ namespace OloEngine::Audio
             return active.Sources.empty(); });
     }
 
-    void AudioEventsManager::ExecuteAction(const TriggerAction& action, u64 objectID, [[maybe_unused]] u64 eventID)
+    void AudioEventsManager::ExecuteAction(const TriggerAction& action, u64 objectID, [[maybe_unused]] u64 eventID) const
     {
         switch (action.Type)
         {

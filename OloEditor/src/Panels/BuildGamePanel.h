@@ -59,8 +59,8 @@ namespace OloEngine
       private:
         void RenderBuildSettings();
         void RenderBuildActions();
-        void RenderBuildProgress();
-        void RenderBuildResults();
+        void RenderBuildProgress() const;
+        void RenderBuildResults() const;
 
         void StartBuild();
         void CancelBuild();

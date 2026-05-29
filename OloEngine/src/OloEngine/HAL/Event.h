@@ -112,14 +112,14 @@ namespace OloEngine
         // @brief Advances stats associated with this event
         //
         // Used to monitor wait->trigger history.
-        void AdvanceStats();
+        void AdvanceStats() const;
 
       protected:
         // @brief Sends to the stats a special message which encodes a wait for the event
         void WaitForStats();
 
         // @brief Sends to the stats a special message which encodes a trigger for the event
-        void TriggerForStats();
+        void TriggerForStats() const;
 
         // @brief Resets start cycles to 0
         void ResetForStats();

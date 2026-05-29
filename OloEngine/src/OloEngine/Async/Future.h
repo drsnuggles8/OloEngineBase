@@ -185,7 +185,7 @@ namespace OloEngine
         {
         }
 
-        void GetResult()
+        void GetResult() const
         {
             Wait();
         }

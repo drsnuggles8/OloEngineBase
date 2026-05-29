@@ -225,7 +225,7 @@ namespace OloEngine
         }
     }
 
-    void NetworkLobby::FindLobbies(std::function<void(const std::vector<LobbyInfo>&)> callback)
+    void NetworkLobby::FindLobbies(std::function<void(const std::vector<LobbyInfo>&)> callback) const
     {
         OLO_PROFILE_FUNCTION();
 

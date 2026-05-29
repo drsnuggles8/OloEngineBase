@@ -422,7 +422,7 @@ namespace OloEngine
     }
 
     // Helper methods
-    void ShaderResourceRegistry::BindUniformBuffer(const ResourceBinding& binding)
+    void ShaderResourceRegistry::BindUniformBuffer(const ResourceBinding& binding) const
     {
         if (std::holds_alternative<Ref<UniformBuffer>>(binding.Resource))
         {
@@ -434,7 +434,7 @@ namespace OloEngine
         }
     }
 
-    void ShaderResourceRegistry::BindTexture(const ResourceBinding& binding)
+    void ShaderResourceRegistry::BindTexture(const ResourceBinding& binding) const
     {
         if (std::holds_alternative<Ref<Texture2D>>(binding.Resource))
         {

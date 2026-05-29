@@ -95,7 +95,7 @@ namespace OloEngine
         // @param instanceEntity The in-scene instance to read the component value from.
         // @param componentName Name of the component to apply.
         // @return true if the component was successfully applied to the prefab.
-        bool ApplyComponentToPrefab(Entity instanceEntity, const std::string& componentName);
+        bool ApplyComponentToPrefab(Entity instanceEntity, const std::string& componentName) const;
 
         // @brief Update all non-overridden components on an instance from the prefab.
         // @param instanceEntity The in-scene instance to update.

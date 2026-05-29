@@ -107,7 +107,7 @@ namespace OloEngine
         {
             return m_DebugVisualization;
         }
-        void RenderDebugOverlay(u32 fullscreenQuadVAO, const Ref<Shader>& debugShader);
+        void RenderDebugOverlay(u32 fullscreenQuadVAO, const Ref<Shader>& debugShader) const;
 
         // Stats
         [[nodiscard]] u32 GetPointLightCount() const

@@ -395,7 +395,7 @@ namespace OloEngine
         // e.g., at the start of async task execution.
         //
         // @return RAII scope that restores the context until it goes out of scope
-        [[nodiscard]] FInheritedContextScope RestoreInheritedContext()
+        [[nodiscard]] FInheritedContextScope RestoreInheritedContext() const
         {
             return FInheritedContextScope(
                 m_CapturedTaskTag,

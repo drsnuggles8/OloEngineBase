@@ -45,7 +45,7 @@ namespace OloEngine
         // Polls whether the event is in the notified state.
         //
         // @return True if notified, otherwise false.
-        bool Poll()
+        bool Poll() const
         {
 #if defined(OLO_PLATFORM_LINUX)
             return m_State.load(std::memory_order_acquire) != 0;

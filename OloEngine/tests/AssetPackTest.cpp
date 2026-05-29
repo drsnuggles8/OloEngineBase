@@ -43,7 +43,7 @@ class AssetPackTest : public ::testing::Test
     /// Write a minimal valid asset pack file with the given header values.
     /// Field order must match AssetPack::Load exactly:
     ///   Header → IndexTable → AssetInfos → SceneInfos
-    void WriteMinimalPack(const AssetPackFile::FileHeader& header, u32 assetCount, u32 sceneCount)
+    void WriteMinimalPack(const AssetPackFile::FileHeader& header, u32 assetCount, u32 sceneCount) const
     {
         FileStreamWriter writer(m_TempPath);
         ASSERT_TRUE(writer.IsStreamGood());

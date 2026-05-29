@@ -454,7 +454,7 @@ namespace OloEngine
     // Apply instance override back to the source prefab
     // ─────────────────────────────────────────────────────────────────────────
 
-    bool Prefab::ApplyComponentToPrefab(Entity instanceEntity, const std::string& componentName)
+    bool Prefab::ApplyComponentToPrefab(Entity instanceEntity, const std::string& componentName) const
     {
         OLO_PROFILE_FUNCTION();
 

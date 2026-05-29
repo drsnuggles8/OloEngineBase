@@ -355,13 +355,13 @@ namespace OloEngine
         m_BodiesToSync.clear();
     }
 
-    void JoltScene::OnSimulationStart()
+    void JoltScene::OnSimulationStart() const
     {
         OLO_CORE_INFO("JoltScene starting simulation");
         // Additional simulation-specific setup can go here
     }
 
-    void JoltScene::OnSimulationStop()
+    void JoltScene::OnSimulationStop() const
     {
         OLO_CORE_INFO("JoltScene stopping simulation");
         // Additional simulation-specific cleanup can go here
@@ -688,7 +688,7 @@ namespace OloEngine
         }
     }
 
-    void JoltScene::OnContactEvent(ContactType type, UUID entityA, UUID entityB)
+    void JoltScene::OnContactEvent(ContactType type, UUID entityA, UUID entityB) const
     {
         // Forward contact events to the scene or specific entities
         // This can be extended to trigger script callbacks, audio events, etc.
@@ -723,7 +723,7 @@ namespace OloEngine
         OLO_CORE_INFO("Created {0} physics bodies", m_Bodies.size());
     }
 
-    void JoltScene::SynchronizeBody(Ref<JoltBody> body)
+    void JoltScene::SynchronizeBody(Ref<JoltBody> body) const
     {
         if (!body || !body->IsValid())
             return;
@@ -845,7 +845,7 @@ namespace OloEngine
 
     // Optimized ExcludedEntitySet-based implementations
     bool JoltScene::PerformShapeCast(JPH::Ref<JPH::Shape> shape, const glm::vec3& start, const glm::vec3& direction,
-                                     f32 maxDistance, u32 layerMask, const ExcludedEntitySet& excludedEntitySet, SceneQueryHit& outHit)
+                                     f32 maxDistance, u32 layerMask, const ExcludedEntitySet& excludedEntitySet, SceneQueryHit& outHit) const
     {
         if (!m_JoltSystem)
             return false;
@@ -982,7 +982,7 @@ namespace OloEngine
         return EntityExclusionUtils::IsEntityExcluded(excludedEntitySet, entityID);
     }
 
-    void JoltScene::FillHitInfo(const JPH::RayCastResult& hit, const JPH::RRayCast& ray, SceneQueryHit& outHit)
+    void JoltScene::FillHitInfo(const JPH::RayCastResult& hit, const JPH::RRayCast& ray, SceneQueryHit& outHit) const
     {
         outHit.Clear();
 
@@ -1007,7 +1007,7 @@ namespace OloEngine
         }
     }
 
-    void JoltScene::FillHitInfo(const JPH::ShapeCastResult& hit, const JPH::RShapeCast& shapeCast, SceneQueryHit& outHit)
+    void JoltScene::FillHitInfo(const JPH::ShapeCastResult& hit, const JPH::RShapeCast& shapeCast, SceneQueryHit& outHit) const
     {
         outHit.Clear();
 

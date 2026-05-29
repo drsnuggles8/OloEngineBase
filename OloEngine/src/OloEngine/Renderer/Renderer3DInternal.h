@@ -208,7 +208,7 @@ namespace OloEngine
         [[nodiscard]] u64 ComputeBlackboardFingerprint(const Renderer3DData& data) const;
 
       private:
-        void ApplyGlobalResources(Renderer3DData& data);
+        void ApplyGlobalResources(Renderer3DData& data) const;
         void CreateFramePasses(Renderer3DData& data,
                                ShaderLibrary& shaderLibrary,
                                const FramebufferSpecification& shadowPassSpec,

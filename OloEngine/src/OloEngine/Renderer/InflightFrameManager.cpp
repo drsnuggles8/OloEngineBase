@@ -26,7 +26,7 @@ namespace OloEngine
         ++m_CompletedFrames;
     }
 
-    void InflightFrameManager::EndFrame()
+    void InflightFrameManager::EndFrame() const
     {
         // Frame will be marked complete at the beginning of next frame
         // This gives GPU time to process the commands

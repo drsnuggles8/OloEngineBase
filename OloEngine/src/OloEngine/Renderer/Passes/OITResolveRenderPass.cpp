@@ -194,7 +194,7 @@ namespace OloEngine
         m_SelectedOITRevealageTexture = {};
     }
 
-    void OITResolveRenderPass::DrawFullscreenTriangle(RGCommandContext& context)
+    void OITResolveRenderPass::DrawFullscreenTriangle(RGCommandContext& context) const
     {
         const auto va = MeshPrimitives::GetFullscreenTriangle();
         va->Bind();

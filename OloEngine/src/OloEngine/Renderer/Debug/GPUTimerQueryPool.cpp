@@ -113,7 +113,7 @@ namespace OloEngine
             m_WriteQueryCount = commandIndex + 1;
     }
 
-    void GPUTimerQueryPool::EndQuery([[maybe_unused]] u32 commandIndex)
+    void GPUTimerQueryPool::EndQuery([[maybe_unused]] u32 commandIndex) const
     {
         if (!m_Active)
             return;

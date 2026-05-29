@@ -69,7 +69,7 @@ namespace OloEngine
         m_ClientID = clientID;
     }
 
-    bool NetworkConnection::Send(const void* data, u32 size, i32 sendFlags)
+    bool NetworkConnection::Send(const void* data, u32 size, i32 sendFlags) const
     {
         OLO_PROFILE_FUNCTION();
 

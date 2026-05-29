@@ -214,7 +214,7 @@ namespace OloEngine
         u32 m_CollectablesTlsSlot = FPlatformTLS::InvalidTlsSlot;
         std::atomic_uint m_TotalNumHazardRecords{ HazardChunkSize };
 
-        void Collect(TArray<HazardPointer_Impl::FHazardDeleter>& Collectables);
+        void Collect(TArray<HazardPointer_Impl::FHazardDeleter>& Collectables) const;
 
         // Mark pointer for deletion
         void Delete(const HazardPointer_Impl::FHazardDeleter& Deleter, i32 CollectLimit);
@@ -444,7 +444,7 @@ namespace OloEngine
         return ~0u;
     }
 
-    inline void FHazardPointerCollection::Collect(TArray<HazardPointer_Impl::FHazardDeleter>& Collectables)
+    inline void FHazardPointerCollection::Collect(TArray<HazardPointer_Impl::FHazardDeleter>& Collectables) const
     {
         // Collect all global Hazards in the system using inline allocator for performance
         TArray<void*, TInlineAllocator<64>> Hazards;

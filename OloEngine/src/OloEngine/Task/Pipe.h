@@ -246,12 +246,12 @@ namespace OloEngine::Tasks
             }
         }
 
-        void ExecutionStarted()
+        void ExecutionStarted() const
         {
             FPipeCallStack::Push(*this);
         }
 
-        void ExecutionFinished()
+        void ExecutionFinished() const
         {
             FPipeCallStack::Pop(*this);
         }

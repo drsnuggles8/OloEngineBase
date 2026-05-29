@@ -959,7 +959,7 @@ namespace OloEngine
         m_IsBatched = false;
     }
 
-    void CommandBucket::UseWorkerIndex(u32 workerIndex)
+    void CommandBucket::UseWorkerIndex(u32 workerIndex) const
     {
         // Optimized path: directly use the provided worker index without thread ID lookup.
         // This is called when the worker index is already known (e.g., from ParallelFor contextIndex).
@@ -1070,7 +1070,7 @@ namespace OloEngine
         m_IsBatched = false;
     }
 
-    void CommandBucket::RemapBoneOffsets(FrameDataBuffer& frameDataBuffer)
+    void CommandBucket::RemapBoneOffsets(FrameDataBuffer& frameDataBuffer) const
     {
         OLO_PROFILE_FUNCTION();
 

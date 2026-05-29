@@ -304,7 +304,7 @@ namespace OloEngine
         }
     }
 
-    void Scene::RevertPrefabComponent(Entity entity, const std::string& componentName)
+    void Scene::RevertPrefabComponent(Entity entity, const std::string& componentName) const
     {
         OLO_PROFILE_FUNCTION();
 
@@ -327,7 +327,7 @@ namespace OloEngine
         }
     }
 
-    void Scene::ApplyPrefabComponent(Entity entity, const std::string& componentName)
+    void Scene::ApplyPrefabComponent(Entity entity, const std::string& componentName) const
     {
         OLO_PROFILE_FUNCTION();
 
@@ -350,7 +350,7 @@ namespace OloEngine
         }
     }
 
-    void Scene::MarkPrefabComponentOverridden(Entity entity, const std::string& componentName)
+    void Scene::MarkPrefabComponentOverridden(Entity entity, const std::string& componentName) const
     {
         OLO_PROFILE_FUNCTION();
 
@@ -514,7 +514,7 @@ namespace OloEngine
         }
     }
 
-    void Scene::InitializeAudioSoundGraph(AudioSoundGraphComponent& sgc)
+    void Scene::InitializeAudioSoundGraph(AudioSoundGraphComponent& sgc) const
     {
         if (sgc.SoundGraphHandle == 0)
         {

@@ -218,7 +218,7 @@ namespace OloEngine::Tasks
         {
         }
 
-        void Execute()
+        void Execute() const
         {
             if (m_Task)
             {

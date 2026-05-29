@@ -48,7 +48,7 @@ namespace OloEngine
       private:
         void DrawAnimationControls(Entity entity);
         void DrawAnimationTimeline(Entity entity);
-        void DrawBoneHierarchy(Entity entity);
+        void DrawBoneHierarchy(Entity entity) const;
         void DrawSkeletonVisualization(Entity entity);
 
       private:

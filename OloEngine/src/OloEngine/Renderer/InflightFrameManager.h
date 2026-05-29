@@ -32,7 +32,7 @@ namespace OloEngine
         void BeginFrame();
 
         // @brief End the current frame
-        void EndFrame();
+        void EndFrame() const;
 
         // @brief Get current frame index
         u32 GetCurrentFrameIndex() const

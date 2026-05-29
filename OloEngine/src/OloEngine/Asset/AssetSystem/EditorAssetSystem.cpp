@@ -226,7 +226,7 @@ namespace OloEngine
         m_LoadedAssets = loadedAssets;
     }
 
-    void EditorAssetSystem::EnsureAllLoadedCurrent()
+    void EditorAssetSystem::EnsureAllLoadedCurrent() const
     {
         // This was previously called from the thread loop.
         // Since we removed the thread loop, this function is currently unused.

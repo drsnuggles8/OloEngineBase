@@ -236,7 +236,7 @@ namespace OloEngine
         }
     }
 
-    void AssetPackBuilderPanel::RenderBuildProgress()
+    void AssetPackBuilderPanel::RenderBuildProgress() const
     {
         if (ImGui::CollapsingHeader("Build Progress", ImGuiTreeNodeFlags_DefaultOpen))
         {

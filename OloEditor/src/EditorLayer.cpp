@@ -2271,7 +2271,7 @@ namespace OloEngine
         OLO_CORE_INFO("Auto-saved scene to '{0}'", autoPath.string());
     }
 
-    void EditorLayer::DeleteAutoSaveFile()
+    void EditorLayer::DeleteAutoSaveFile() const
     {
         std::error_code ec;
         if (!m_EditorScenePath.empty())
@@ -3201,7 +3201,7 @@ namespace OloEngine
         OLO_CORE_INFO("Asset Pack build started asynchronously...");
     }
 
-    void EditorLayer::BuildShaderPack()
+    void EditorLayer::BuildShaderPack() const
     {
         const std::filesystem::path outputPath = "assets/ShaderPack.osp";
         OLO_CORE_INFO("Building Shader Pack to '{}'...", outputPath.string());

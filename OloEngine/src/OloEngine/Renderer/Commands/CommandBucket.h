@@ -229,7 +229,7 @@ namespace OloEngine
         // Use an explicit worker index (no thread ID lookup needed)
         // This is the optimized path when contextIndex is already known from ParallelFor.
         // @param workerIndex The worker index (typically from ParallelFor contextIndex)
-        void UseWorkerIndex(u32 workerIndex);
+        void UseWorkerIndex(u32 workerIndex) const;
 
         // Merge all thread-local command ranges into a contiguous array
         // Must be called on the main thread after all workers complete
@@ -239,7 +239,7 @@ namespace OloEngine
         // Remap bone buffer offsets from worker-local to global
         // Must be called after MergeThreadLocalCommands() and FrameDataBuffer::MergeScratchBuffers()
         // @param frameDataBuffer Reference to the frame data buffer for offset remapping
-        void RemapBoneOffsets(class FrameDataBuffer& frameDataBuffer);
+        void RemapBoneOffsets(class FrameDataBuffer& frameDataBuffer) const;
 
         // Prepare the bucket for parallel submission
         // Resets thread-local state and prepares arrays

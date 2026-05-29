@@ -629,8 +629,8 @@ namespace OloEngine
         using RvalueGetType = void;
 
         void GetUnchecked() const {}
-        void EmplaceUnchecked() {}
-        void DestroyUnchecked() {}
+        void EmplaceUnchecked() const {}
+        void DestroyUnchecked() const {}
     };
 
     // @struct TAlignedBytes

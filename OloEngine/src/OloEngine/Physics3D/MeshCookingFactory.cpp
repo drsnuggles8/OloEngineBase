@@ -603,7 +603,7 @@ namespace OloEngine
         return ECookingResult::Success;
     }
 
-    bool MeshCookingFactory::ValidateMeshData(const std::vector<glm::vec3>& vertices, const std::vector<u32>& indices)
+    bool MeshCookingFactory::ValidateMeshData(const std::vector<glm::vec3>& vertices, const std::vector<u32>& indices) const
     {
         if (vertices.empty() || indices.empty())
         {
@@ -638,7 +638,7 @@ namespace OloEngine
         return vertices.size() >= s_MinVerticesForConvexHull && vertices.size() <= m_MaxConvexHullVertices;
     }
 
-    bool MeshCookingFactory::ReduceConvexHullVertices(const std::vector<glm::vec3>& inputVertices, u32 maxVertices, std::vector<glm::vec3>& outReducedVertices)
+    bool MeshCookingFactory::ReduceConvexHullVertices(const std::vector<glm::vec3>& inputVertices, u32 maxVertices, std::vector<glm::vec3>& outReducedVertices) const
     {
         outReducedVertices.clear();
 
@@ -769,7 +769,7 @@ namespace OloEngine
         return vertices;
     }
 
-    void MeshCookingFactory::WeldVertices(std::vector<glm::vec3>& vertices, std::vector<u32>& indices, f32 tolerance)
+    void MeshCookingFactory::WeldVertices(std::vector<glm::vec3>& vertices, std::vector<u32>& indices, f32 tolerance) const
     {
         // Custom hash for glm::ivec3 grid keys
         struct IVec3Hash
@@ -874,7 +874,7 @@ namespace OloEngine
         RemoveInvalidTriangles(vertices, indices, m_AreaTestEpsilon);
     }
 
-    void MeshCookingFactory::RemoveInvalidTriangles(std::vector<glm::vec3>& vertices, std::vector<u32>& indices, f32 areaEpsilon)
+    void MeshCookingFactory::RemoveInvalidTriangles(std::vector<glm::vec3>& vertices, std::vector<u32>& indices, f32 areaEpsilon) const
     {
         std::vector<u32> validIndices;
         validIndices.reserve(indices.size());
@@ -912,7 +912,7 @@ namespace OloEngine
         indices = validIndices;
     }
 
-    bool MeshCookingFactory::SerializeMeshCollider(const std::filesystem::path& filepath, const MeshColliderData& meshData)
+    bool MeshCookingFactory::SerializeMeshCollider(const std::filesystem::path& filepath, const MeshColliderData& meshData) const
     {
         try
         {
@@ -960,7 +960,7 @@ namespace OloEngine
         }
     }
 
-    MeshColliderData MeshCookingFactory::DeserializeMeshCollider(const std::filesystem::path& filepath)
+    MeshColliderData MeshCookingFactory::DeserializeMeshCollider(const std::filesystem::path& filepath) const
     {
         MeshColliderData meshData;
 
@@ -1073,7 +1073,7 @@ namespace OloEngine
         return fmt::format("{}_{}", static_cast<u64>(colliderAsset->GetHandle()), typeString);
     }
 
-    std::filesystem::path MeshCookingFactory::ResolveSourceMeshPath(AssetHandle meshHandle)
+    std::filesystem::path MeshCookingFactory::ResolveSourceMeshPath(AssetHandle meshHandle) const
     {
         // We cannot attribute a filesystem path without an active project +
         // asset manager (e.g. headless unit tests). The caller treats an
@@ -1103,7 +1103,7 @@ namespace OloEngine
         return m_CacheDirectory;
     }
 
-    bool MeshCookingFactory::IsCacheValid(const std::filesystem::path& cacheFilePath, const std::filesystem::path& sourcePath)
+    bool MeshCookingFactory::IsCacheValid(const std::filesystem::path& cacheFilePath, const std::filesystem::path& sourcePath) const
     {
         try
         {
@@ -1169,7 +1169,7 @@ namespace OloEngine
         OLO_CORE_ERROR("MeshCookingFactory::{}: {}", operation, error);
     }
 
-    JPH::Ref<JPH::Shape> MeshCookingFactory::CreateShapeFromColliderData(const SubmeshColliderData& colliderData)
+    JPH::Ref<JPH::Shape> MeshCookingFactory::CreateShapeFromColliderData(const SubmeshColliderData& colliderData) const
     {
         if (colliderData.m_ColliderData.empty())
         {

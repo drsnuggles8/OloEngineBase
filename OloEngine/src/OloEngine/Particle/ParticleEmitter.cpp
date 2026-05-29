@@ -66,7 +66,7 @@ namespace OloEngine
                           { return a.Time < b.Time; });
     }
 
-    void ParticleEmitter::InitializeParticle(u32 index, ParticlePool& pool, const glm::vec3& emitterPosition, const glm::quat& emitterRotation)
+    void ParticleEmitter::InitializeParticle(u32 index, ParticlePool& pool, const glm::vec3& emitterPosition, const glm::quat& emitterRotation) const
     {
         auto& rng = RandomUtils::GetGlobalRandom();
 

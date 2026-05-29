@@ -160,7 +160,7 @@ namespace OloEngine::Audio::SoundGraph
             std::string m_FilePath;
         };
 
-        void AsyncSaveWorker();
+        void AsyncSaveWorker() const;
         void EnqueueSave(const CompilationResult& result, const std::string& filePath);
         void ShutdownAsyncSaver();
 

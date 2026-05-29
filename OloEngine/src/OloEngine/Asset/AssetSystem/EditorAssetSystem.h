@@ -134,7 +134,7 @@ namespace OloEngine
         /**
          * @brief Ensure all loaded assets are current
          */
-        void EnsureAllLoadedCurrent();
+        void EnsureAllLoadedCurrent() const;
 
       private:
         std::atomic<bool> m_Running = true;

@@ -106,7 +106,7 @@ namespace OloEngine
         ImGui::End();
     }
 
-    void DebugOverlayLayer::DrawQuickStats()
+    void DebugOverlayLayer::DrawQuickStats() const
     {
         OLO_PROFILE_SCOPE("DebugOverlay/DrawQuickStats");
 
@@ -138,7 +138,7 @@ namespace OloEngine
 #endif
     }
 
-    void DebugOverlayLayer::DrawVisualizationToggles()
+    void DebugOverlayLayer::DrawVisualizationToggles() const
     {
         OLO_PROFILE_SCOPE("DebugOverlay/DrawVisualizationToggles");
 

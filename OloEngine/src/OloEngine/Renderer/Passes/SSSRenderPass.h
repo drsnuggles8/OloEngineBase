@@ -38,7 +38,7 @@ namespace OloEngine
         }
 
       private:
-        void DrawFullscreenTriangle(RGCommandContext& context);
+        void DrawFullscreenTriangle(RGCommandContext& context) const;
         void CreateOutputFramebuffer(u32 width, u32 height);
 
         Ref<Shader> m_SSSBlurShader;

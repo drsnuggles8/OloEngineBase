@@ -266,7 +266,7 @@ namespace OloEngine
     // OpenGL Fence Implementation
     // ========================================================================
 
-    u64 FrameResourceManager::CreateFence()
+    u64 FrameResourceManager::CreateFence() const
     {
         OLO_PROFILE_FUNCTION();
 
@@ -280,7 +280,7 @@ namespace OloEngine
         return static_cast<u64>(reinterpret_cast<uptr>(sync));
     }
 
-    bool FrameResourceManager::WaitForFence(u64 fenceId)
+    bool FrameResourceManager::WaitForFence(u64 fenceId) const
     {
         OLO_PROFILE_FUNCTION();
 
@@ -318,7 +318,7 @@ namespace OloEngine
         return signaled == GL_SIGNALED;
     }
 
-    void FrameResourceManager::DeleteFence(u64 fenceId)
+    void FrameResourceManager::DeleteFence(u64 fenceId) const
     {
         if (fenceId == 0)
             return;

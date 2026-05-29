@@ -60,7 +60,7 @@ namespace OloEngine::Audio
         [[nodiscard]] u32 GetActiveEventCount() const;
 
       private:
-        void ExecuteAction(const TriggerAction& action, u64 objectID, u64 eventID);
+        void ExecuteAction(const TriggerAction& action, u64 objectID, u64 eventID) const;
 
         AudioCommandRegistry* m_Registry = nullptr;
         PositionResolver m_PositionResolver;

@@ -68,7 +68,7 @@ namespace OloEngine
         void RequestRegionLoad(RegionID id);
         void ProcessCompletedLoads();
         void EvictOverBudget();
-        void InitializeStreamedEntities(const std::vector<UUID>& entityUUIDs);
+        void InitializeStreamedEntities(const std::vector<UUID>& entityUUIDs) const;
 
         Scene* m_Scene = nullptr;
         SceneStreamerConfig m_Config;

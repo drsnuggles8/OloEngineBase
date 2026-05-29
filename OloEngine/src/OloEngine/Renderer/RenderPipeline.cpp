@@ -590,7 +590,7 @@ namespace OloEngine
         }
     }
 
-    void Renderer3D::RenderPipeline::ApplyGlobalResources(Renderer3DData& data)
+    void Renderer3D::RenderPipeline::ApplyGlobalResources(Renderer3DData& data) const
     {
         OLO_PROFILE_FUNCTION();
 

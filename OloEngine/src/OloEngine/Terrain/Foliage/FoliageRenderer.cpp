@@ -35,7 +35,7 @@ namespace OloEngine
         return static_cast<f32>(h & 0xFFFF) / 65536.0f;
     }
 
-    void FoliageRenderer::BuildQuadGeometry(LayerRenderData& data)
+    void FoliageRenderer::BuildQuadGeometry(LayerRenderData& data) const
     {
         // Billboard quad: 4 vertices, centered at bottom
         // Positions in local space, billboard rotation handled in shader

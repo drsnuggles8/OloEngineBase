@@ -193,7 +193,7 @@ namespace OloEngine
         DrawContextMenu(canvasOrigin);
     }
 
-    void DialogueEditorPanel::DrawGrid(ImDrawList* drawList, const ImVec2& canvasOrigin, const ImVec2& canvasSize)
+    void DialogueEditorPanel::DrawGrid(ImDrawList* drawList, const ImVec2& canvasOrigin, const ImVec2& canvasSize) const
     {
         f32 const gridStep = s_GridSize * m_Zoom;
         ImU32 const gridColorMajor = IM_COL32(60, 60, 65, 200);

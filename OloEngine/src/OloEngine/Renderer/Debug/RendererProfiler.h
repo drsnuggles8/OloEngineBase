@@ -306,9 +306,9 @@ namespace OloEngine
         RendererProfiler() = default;
         ~RendererProfiler() = default;
         // UI rendering methods
-        void RenderOverviewTab();
-        void RenderDetailedTimingTab();
-        void RenderBottleneckAnalysisTab();
+        void RenderOverviewTab() const;
+        void RenderDetailedTimingTab() const;
+        void RenderBottleneckAnalysisTab() const;
         void RenderCountersTab();
         void RenderHistoryTab();
         void RenderFrameCaptureTab();

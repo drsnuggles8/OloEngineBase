@@ -463,7 +463,7 @@ namespace OloEngine
         }
     }
 
-    void SceneStreamer::InitializeStreamedEntities(const std::vector<UUID>& entityUUIDs)
+    void SceneStreamer::InitializeStreamedEntities(const std::vector<UUID>& entityUUIDs) const
     {
         OLO_PROFILE_FUNCTION();
 

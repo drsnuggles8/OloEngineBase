@@ -82,7 +82,7 @@ namespace OloEngine
         OLO_FINLINE ~FScopedMallocTimer()
         {
         }
-        OLO_FINLINE void Hit(i32 InIndex)
+        OLO_FINLINE void Hit(i32 InIndex) const
         {
             (void)InIndex;
         }

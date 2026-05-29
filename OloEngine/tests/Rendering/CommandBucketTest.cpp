@@ -33,7 +33,7 @@ class CommandBucketTest : public ::testing::Test
     }
 
     /// Submit N synthetic DrawMeshCommands with unique shader IDs
-    void SubmitNDrawMeshCommands(CommandBucket& bucket, u32 count, bool randomOrder = false)
+    void SubmitNDrawMeshCommands(CommandBucket& bucket, u32 count, bool randomOrder = false) const
     {
         std::vector<u32> ids(count);
         std::iota(ids.begin(), ids.end(), 1);

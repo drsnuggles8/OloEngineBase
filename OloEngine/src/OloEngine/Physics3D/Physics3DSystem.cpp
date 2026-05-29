@@ -162,7 +162,7 @@ namespace OloEngine
     }
 #endif // JPH_EXTERNAL_PROFILE || JPH_PROFILE_ENABLED
 
-    void OloBPLayerInterfaceImpl::UpdateLayers()
+    void OloBPLayerInterfaceImpl::UpdateLayers() const
     {
         // This method can be called when the layer configuration changes
         // Currently using direct mapping, but could be extended for more complex mapping strategies

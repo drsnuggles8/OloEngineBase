@@ -131,7 +131,7 @@ namespace OloEngine
             m_WriteQueryCount = objectIndex + 1;
     }
 
-    void OcclusionQueryPool::EndQuery([[maybe_unused]] u32 objectIndex)
+    void OcclusionQueryPool::EndQuery([[maybe_unused]] u32 objectIndex) const
     {
         OLO_PROFILE_FUNCTION();
         if (!m_Active)

@@ -161,7 +161,7 @@ namespace OloEngine
         m_BlockNameToIndex.clear();
     }
 
-    ShaderDataType ShaderReflection::ConvertSPIRVType(const spirv_cross::SPIRType& type)
+    ShaderDataType ShaderReflection::ConvertSPIRVType(const spirv_cross::SPIRType& type) const
     {
         switch (type.basetype)
         {

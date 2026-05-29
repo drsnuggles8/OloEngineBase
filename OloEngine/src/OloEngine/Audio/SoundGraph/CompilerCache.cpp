@@ -1152,7 +1152,7 @@ namespace OloEngine::Audio::SoundGraph
                        result.m_SourcePath, m_ActiveSaveTasks.load(std::memory_order_relaxed));
     }
 
-    void CompilerCache::AsyncSaveWorker()
+    void CompilerCache::AsyncSaveWorker() const
     {
         // NOTE: This method is no longer used. Async saves are now handled via Tasks::Launch() in EnqueueSave().
         // Kept for API compatibility but should never be called.

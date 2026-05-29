@@ -67,9 +67,9 @@ namespace OloEngine
         void InputThreadFunc();
 
         // Built-in command implementations
-        void CmdStatus(const std::vector<std::string>& args);
-        void CmdStop(const std::vector<std::string>& args);
-        void CmdHelp(const std::vector<std::string>& args);
+        void CmdStatus(const std::vector<std::string>& args) const;
+        void CmdStop(const std::vector<std::string>& args) const;
+        void CmdHelp(const std::vector<std::string>& args) const;
 
       private:
         std::unordered_map<std::string, CommandHandler> m_Commands;

@@ -1244,7 +1244,7 @@ namespace OloEngine
     }
 
     // Helper functions for sampling animation data
-    glm::vec3 AnimatedModel::SamplePosition(const aiNodeAnim* nodeAnim, f64 time)
+    glm::vec3 AnimatedModel::SamplePosition(const aiNodeAnim* nodeAnim, f64 time) const
     {
         if (nodeAnim->mNumPositionKeys == 0)
             return glm::vec3(0.0f);
@@ -1276,7 +1276,7 @@ namespace OloEngine
                         glm::vec3(pos2.x, pos2.y, pos2.z), (f32)t);
     }
 
-    glm::quat AnimatedModel::SampleRotation(const aiNodeAnim* nodeAnim, f64 time)
+    glm::quat AnimatedModel::SampleRotation(const aiNodeAnim* nodeAnim, f64 time) const
     {
         if (nodeAnim->mNumRotationKeys == 0)
             return glm::quat(1.0f, 0.0f, 0.0f, 0.0f);
@@ -1309,7 +1309,7 @@ namespace OloEngine
         return glm::quat(result.w, result.x, result.y, result.z);
     }
 
-    glm::vec3 AnimatedModel::SampleScale(const aiNodeAnim* nodeAnim, f64 time)
+    glm::vec3 AnimatedModel::SampleScale(const aiNodeAnim* nodeAnim, f64 time) const
     {
         if (nodeAnim->mNumScalingKeys == 0)
             return glm::vec3(1.0f);
@@ -1905,7 +1905,7 @@ namespace OloEngine
         return nullptr;
     }
 
-    glm::mat4 AnimatedModel::AssimpMatrixToGLM(const aiMatrix4x4& from)
+    glm::mat4 AnimatedModel::AssimpMatrixToGLM(const aiMatrix4x4& from) const
     {
         glm::mat4 to;
 

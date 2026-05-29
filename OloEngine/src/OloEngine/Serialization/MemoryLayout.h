@@ -468,7 +468,7 @@ namespace OloEngine
             return m_Is32BitTarget;
         }
 
-        void WriteBytes([[maybe_unused]] const void* Data, [[maybe_unused]] sizet Size) {}
+        void WriteBytes([[maybe_unused]] const void* Data, [[maybe_unused]] sizet Size) const {}
 
         template<typename T>
         void WriteBytes(const T& Value)
@@ -476,12 +476,12 @@ namespace OloEngine
             WriteBytes(&Value, sizeof(T));
         }
 
-        FMemoryImageWriter WritePointer([[maybe_unused]] const FTypeLayoutDesc& TypeDesc)
+        FMemoryImageWriter WritePointer([[maybe_unused]] const FTypeLayoutDesc& TypeDesc) const
         {
             return *this;
         }
 
-        void WriteAlignment([[maybe_unused]] sizet Alignment) {}
+        void WriteAlignment([[maybe_unused]] sizet Alignment) const {}
 
         template<typename T>
         u32 WriteAlignment()
@@ -490,14 +490,14 @@ namespace OloEngine
             return 0;
         }
 
-        void WritePaddingToSize([[maybe_unused]] sizet Size) {}
+        void WritePaddingToSize([[maybe_unused]] sizet Size) const {}
 
-        void WriteObject([[maybe_unused]] const void* Data, [[maybe_unused]] const FTypeLayoutDesc& TypeDesc) {}
+        void WriteObject([[maybe_unused]] const void* Data, [[maybe_unused]] const FTypeLayoutDesc& TypeDesc) const {}
 
-        void WriteNullPointer() {}
+        void WriteNullPointer() const {}
 
         template<typename T>
-        void WriteObjectArray([[maybe_unused]] const T* Data, [[maybe_unused]] const FTypeLayoutDesc& TypeDesc, [[maybe_unused]] i32 Count) {}
+        void WriteObjectArray([[maybe_unused]] const T* Data, [[maybe_unused]] const FTypeLayoutDesc& TypeDesc, [[maybe_unused]] i32 Count) const {}
 
       private:
         bool m_Is32BitTarget = false;
@@ -519,9 +519,9 @@ namespace OloEngine
     class FSHA1
     {
       public:
-        void Update([[maybe_unused]] const void* Data, [[maybe_unused]] sizet Size) {}
-        void Final() {}
-        void GetHash([[maybe_unused]] u8 OutHash[20]) {}
+        void Update([[maybe_unused]] const void* Data, [[maybe_unused]] sizet Size) const {}
+        void Final() const {}
+        void GetHash([[maybe_unused]] u8 OutHash[20]) const {}
     };
 
     // @struct FSHAHash

@@ -339,7 +339,7 @@ class FrameCapturePipelineTest : public ::testing::Test
     }
 
     /// Build a bucket with N draw commands + 1 state command, sort it, return it.
-    CommandBucket MakeTestBucket(u32 drawCount = 5)
+    CommandBucket MakeTestBucket(u32 drawCount = 5) const
     {
         CommandBucketConfig config;
         config.EnableSorting = true;

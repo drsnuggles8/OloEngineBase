@@ -643,7 +643,7 @@ namespace OloEngine::Audio::SoundGraph
         return m_DataSources.GetSourceCount();
     }
 
-    bool SoundGraphSource::AreAllDataSourcesAtEnd()
+    bool SoundGraphSource::AreAllDataSourcesAtEnd() const
     {
         OLO_PROFILE_FUNCTION();
 
@@ -702,7 +702,7 @@ namespace OloEngine::Audio::SoundGraph
                        m_ParameterHandles.size());
     }
 
-    bool SoundGraphSource::ApplyParameterPresetInternal()
+    bool SoundGraphSource::ApplyParameterPresetInternal() const
     {
         OLO_PROFILE_FUNCTION();
 
@@ -720,14 +720,14 @@ namespace OloEngine::Audio::SoundGraph
         return true;
     }
 
-    void SoundGraphSource::UpdateChangedParameters()
+    void SoundGraphSource::UpdateChangedParameters() const
     {
         // TODO(implement parameter change detection)
         // Handle any parameter changes that occurred since last audio block
         // This would integrate with OloEngine's parameter change detection system
     }
 
-    void SoundGraphSource::SilenceOutputBuffers(float** ppFramesOut, u32 frameCount)
+    void SoundGraphSource::SilenceOutputBuffers(float** ppFramesOut, u32 frameCount) const
     {
         // Our ma_node_vtable declares 1 output bus. miniaudio passes the bus buffer at
         // ppFramesOut[0] (frameCount * channels floats, interleaved); any higher index is

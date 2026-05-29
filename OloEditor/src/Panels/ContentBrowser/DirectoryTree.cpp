@@ -30,7 +30,7 @@ namespace OloEngine
         ScanDirectory(*m_Root);
     }
 
-    void DirectoryTree::RefreshSubtree(DirectoryInfo* node)
+    void DirectoryTree::RefreshSubtree(DirectoryInfo* node) const
     {
         OLO_PROFILE_FUNCTION();
 

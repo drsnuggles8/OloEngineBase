@@ -235,7 +235,7 @@ namespace OloEngine
         //
         // When running as a fake thread pre-fork, the main thread calls
         // this to give the runnable a chance to execute.
-        void Tick()
+        void Tick() const
         {
             if (m_IsRealThread || !m_Runnable)
             {

@@ -182,7 +182,7 @@ namespace OloEngine
         ImGui::End();
     }
 
-    void PostProcessSettingsPanel::DrawToneMappingSection()
+    void PostProcessSettingsPanel::DrawToneMappingSection() const
     {
         auto& settings = Renderer3D::GetPostProcessSettings();
 
@@ -203,7 +203,7 @@ namespace OloEngine
         }
     }
 
-    void PostProcessSettingsPanel::DrawBloomSection()
+    void PostProcessSettingsPanel::DrawBloomSection() const
     {
         auto& settings = Renderer3D::GetPostProcessSettings();
 
@@ -224,7 +224,7 @@ namespace OloEngine
         }
     }
 
-    void PostProcessSettingsPanel::DrawVignetteSection()
+    void PostProcessSettingsPanel::DrawVignetteSection() const
     {
         auto& settings = Renderer3D::GetPostProcessSettings();
 
@@ -244,7 +244,7 @@ namespace OloEngine
         }
     }
 
-    void PostProcessSettingsPanel::DrawChromaticAberrationSection()
+    void PostProcessSettingsPanel::DrawChromaticAberrationSection() const
     {
         auto& settings = Renderer3D::GetPostProcessSettings();
 
@@ -263,7 +263,7 @@ namespace OloEngine
         }
     }
 
-    void PostProcessSettingsPanel::DrawColorGradingSection()
+    void PostProcessSettingsPanel::DrawColorGradingSection() const
     {
         auto& settings = Renderer3D::GetPostProcessSettings();
 
@@ -282,7 +282,7 @@ namespace OloEngine
         }
     }
 
-    void PostProcessSettingsPanel::DrawFXAASection()
+    void PostProcessSettingsPanel::DrawFXAASection() const
     {
         auto& settings = Renderer3D::GetPostProcessSettings();
 
@@ -296,7 +296,7 @@ namespace OloEngine
         }
     }
 
-    void PostProcessSettingsPanel::DrawDOFSection()
+    void PostProcessSettingsPanel::DrawDOFSection() const
     {
         auto& settings = Renderer3D::GetPostProcessSettings();
 
@@ -317,7 +317,7 @@ namespace OloEngine
         }
     }
 
-    void PostProcessSettingsPanel::DrawMotionBlurSection()
+    void PostProcessSettingsPanel::DrawMotionBlurSection() const
     {
         auto& settings = Renderer3D::GetPostProcessSettings();
 
@@ -337,7 +337,7 @@ namespace OloEngine
         }
     }
 
-    void PostProcessSettingsPanel::DrawTAASection()
+    void PostProcessSettingsPanel::DrawTAASection() const
     {
         auto& settings = Renderer3D::GetPostProcessSettings();
 
@@ -358,7 +358,7 @@ namespace OloEngine
         }
     }
 
-    void PostProcessSettingsPanel::DrawAOSection()
+    void PostProcessSettingsPanel::DrawAOSection() const
     {
         auto& settings = Renderer3D::GetPostProcessSettings();
 
@@ -437,7 +437,7 @@ namespace OloEngine
         }
     }
 
-    void PostProcessSettingsPanel::DrawSnowSection()
+    void PostProcessSettingsPanel::DrawSnowSection() const
     {
         OLO_PROFILE_FUNCTION();
 
@@ -499,7 +499,7 @@ namespace OloEngine
         }
     }
 
-    void PostProcessSettingsPanel::DrawWindSection()
+    void PostProcessSettingsPanel::DrawWindSection() const
     {
         OLO_PROFILE_FUNCTION();
 
@@ -558,7 +558,7 @@ namespace OloEngine
         }
     }
 
-    void PostProcessSettingsPanel::DrawSnowAccumulationSection()
+    void PostProcessSettingsPanel::DrawSnowAccumulationSection() const
     {
         OLO_PROFILE_FUNCTION();
 
@@ -601,7 +601,7 @@ namespace OloEngine
         }
     }
 
-    void PostProcessSettingsPanel::DrawSnowEjectaSection()
+    void PostProcessSettingsPanel::DrawSnowEjectaSection() const
     {
         OLO_PROFILE_FUNCTION();
 
@@ -667,7 +667,7 @@ namespace OloEngine
         }
     }
 
-    void PostProcessSettingsPanel::DrawPrecipitationSection()
+    void PostProcessSettingsPanel::DrawPrecipitationSection() const
     {
         OLO_PROFILE_FUNCTION();
 
@@ -806,7 +806,7 @@ namespace OloEngine
         }
     }
 
-    void PostProcessSettingsPanel::DrawFogSection()
+    void PostProcessSettingsPanel::DrawFogSection() const
     {
         if (ImGui::CollapsingHeader("Fog & Atmosphere"))
         {

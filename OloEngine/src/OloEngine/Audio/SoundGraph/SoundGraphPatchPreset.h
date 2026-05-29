@@ -90,7 +90,7 @@ namespace OloEngine::Audio::SoundGraph
 
         /// Apply patches to targets
         void ApplyPatch(const std::string& patchName, SoundGraphSound* target);
-        void ApplyPatch(const ParameterPatch& patch, SoundGraphSound* target);
+        void ApplyPatch(const ParameterPatch& patch, SoundGraphSound* target) const;
 
         /// Capture current state as a patch
         void CaptureStateToPatch(const std::string& patchName, SoundGraphSound* source);

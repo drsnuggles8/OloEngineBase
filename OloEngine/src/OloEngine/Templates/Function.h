@@ -282,7 +282,7 @@ namespace OloEngine
 #endif
             }
 
-            void Unbind()
+            void Unbind() const
             {
                 IFunction_OwnedObject* Owned = GetBoundObject();
                 Owned->Destroy();

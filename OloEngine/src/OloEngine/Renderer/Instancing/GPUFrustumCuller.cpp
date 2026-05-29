@@ -77,7 +77,7 @@ namespace OloEngine
         return slot;
     }
 
-    void GPUFrustumCuller::EnsureSlotCapacity(PoolSlot& slot, u32 requiredCapacity)
+    void GPUFrustumCuller::EnsureSlotCapacity(PoolSlot& slot, u32 requiredCapacity) const
     {
         if (requiredCapacity <= slot.Capacity)
             return;

@@ -28,11 +28,11 @@ namespace OloEngine
         }
 
       private:
-        void DrawQualityTieringSection();
-        void DrawRenderingPathSection();
-        void DrawCullingSection();
-        void DrawForwardPlusSection();
-        void DrawTransparencySection();
+        void DrawQualityTieringSection() const;
+        void DrawRenderingPathSection() const;
+        void DrawCullingSection() const;
+        void DrawForwardPlusSection() const;
+        void DrawTransparencySection() const;
         void DrawDebugSection();
 
         // Quality-tiering helpers

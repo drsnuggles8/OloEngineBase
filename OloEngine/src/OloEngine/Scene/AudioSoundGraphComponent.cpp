@@ -23,7 +23,7 @@ namespace OloEngine
         }
     } // namespace
 
-    bool AudioSoundGraphComponent::SetParameter(const std::string& name, f32 value)
+    bool AudioSoundGraphComponent::SetParameter(const std::string& name, f32 value) const
     {
         auto* source = GetLiveSource(*this);
         if (!source)
@@ -31,7 +31,7 @@ namespace OloEngine
         return source->SetParameter(name, choc::value::createFloat32(value));
     }
 
-    bool AudioSoundGraphComponent::SetParameter(const std::string& name, i32 value)
+    bool AudioSoundGraphComponent::SetParameter(const std::string& name, i32 value) const
     {
         auto* source = GetLiveSource(*this);
         if (!source)
@@ -39,7 +39,7 @@ namespace OloEngine
         return source->SetParameter(name, choc::value::createInt32(value));
     }
 
-    bool AudioSoundGraphComponent::SetParameter(const std::string& name, bool value)
+    bool AudioSoundGraphComponent::SetParameter(const std::string& name, bool value) const
     {
         auto* source = GetLiveSource(*this);
         if (!source)

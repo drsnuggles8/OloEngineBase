@@ -246,21 +246,21 @@ namespace OloEngine
                         { CmdHelp(args); });
     }
 
-    void ServerConsole::CmdStatus([[maybe_unused]] const std::vector<std::string>& args)
+    void ServerConsole::CmdStatus([[maybe_unused]] const std::vector<std::string>& args) const
     {
         OLO_PROFILE_FUNCTION();
         OLO_CORE_INFO("[Server] Status: Running");
         OLO_CORE_INFO("[Server] Application: {}", Application::Get().GetSpecification().Name);
     }
 
-    void ServerConsole::CmdStop([[maybe_unused]] const std::vector<std::string>& args)
+    void ServerConsole::CmdStop([[maybe_unused]] const std::vector<std::string>& args) const
     {
         OLO_PROFILE_FUNCTION();
         OLO_CORE_INFO("[ServerConsole] Shutting down server...");
         Application::Get().Close();
     }
 
-    void ServerConsole::CmdHelp([[maybe_unused]] const std::vector<std::string>& args)
+    void ServerConsole::CmdHelp([[maybe_unused]] const std::vector<std::string>& args) const
     {
         OLO_PROFILE_FUNCTION();
         OLO_CORE_INFO("[ServerConsole] Available commands:");

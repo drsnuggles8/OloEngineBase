@@ -293,7 +293,7 @@ namespace OloEngine
         }
     }
 
-    void RendererProfiler::RenderOverviewTab()
+    void RendererProfiler::RenderOverviewTab() const
     {
         // Frame rate and timing overview
         f32 currentFPS = CalculateFrameRate();
@@ -375,7 +375,7 @@ namespace OloEngine
         }
     }
 
-    void RendererProfiler::RenderDetailedTimingTab()
+    void RendererProfiler::RenderDetailedTimingTab() const
     {
         ImGui::Text("Custom Timing Samples:");
 
@@ -412,7 +412,7 @@ namespace OloEngine
         }
     }
 
-    void RendererProfiler::RenderBottleneckAnalysisTab()
+    void RendererProfiler::RenderBottleneckAnalysisTab() const
     {
         if (m_AutoAnalyzeBottlenecks)
         {

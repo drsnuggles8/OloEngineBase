@@ -442,7 +442,7 @@ namespace OloEngine::Audio::SoundGraph
         return true;
     }
 
-    bool SoundGraphCache::LoadCacheMetadata(const std::string& filePath)
+    bool SoundGraphCache::LoadCacheMetadata(const std::string& filePath) const
     {
         // TODO: Implementation would deserialize cache metadata from JSON/binary format
         // This is a placeholder for persistent cache functionality

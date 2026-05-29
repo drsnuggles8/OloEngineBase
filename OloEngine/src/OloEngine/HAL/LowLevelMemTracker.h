@@ -284,7 +284,7 @@ namespace OloEngine
         void GetAllTagSizes(i64* OutSizes, u32 MaxTags) const;
 
         // @brief Dump LLM stats to log
-        void DumpToLog();
+        void DumpToLog() const;
 
         // @brief Get the thread-local state for the current thread
         LLMPrivate::FLLMThreadState& GetThreadState();

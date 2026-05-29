@@ -324,7 +324,7 @@ namespace OloEngine
         return true;
     }
 
-    void ContentBrowserItem::RenderContextMenu(CBActionResult& result)
+    void ContentBrowserItem::RenderContextMenu(CBActionResult& result) const
     {
         if (ImGui::MenuItem("Open in Explorer"))
         {

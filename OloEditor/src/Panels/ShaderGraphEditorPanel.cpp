@@ -204,7 +204,7 @@ namespace OloEngine
         DrawContextMenu(canvasOrigin);
     }
 
-    void ShaderGraphEditorPanel::DrawGrid(ImDrawList* drawList, const ImVec2& canvasOrigin, const ImVec2& canvasSize)
+    void ShaderGraphEditorPanel::DrawGrid(ImDrawList* drawList, const ImVec2& canvasOrigin, const ImVec2& canvasSize) const
     {
         f32 const gridStep = s_GridSize * m_Zoom;
         ImU32 const gridColor = IM_COL32(50, 50, 55, 255);

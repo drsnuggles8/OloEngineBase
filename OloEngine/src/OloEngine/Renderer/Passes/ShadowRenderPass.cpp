@@ -244,7 +244,7 @@ namespace OloEngine
     }
 
     void ShadowRenderPass::RenderCascadeOrFace(const glm::mat4& lightVP, ShadowPassType type, u32 layerOrLight,
-                                               const Frustum* cullFrustum)
+                                               const Frustum* cullFrustum) const
     {
         OLO_PROFILE_FUNCTION();
 

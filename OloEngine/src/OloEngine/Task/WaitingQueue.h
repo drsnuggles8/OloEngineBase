@@ -69,10 +69,10 @@ namespace OloEngine::LowLevelTasks::Private
 
         void Init(u32 InThreadCount, u32 InMaxThreadCount, TFunction<void()> InCreateThread, u32 InActiveThreadCount);
         void StartShutdown();
-        void FinishShutdown();
+        void FinishShutdown() const;
 
         // First step to execute when no more work is found in the queues.
-        void PrepareStandby(FWaitEvent* Node);
+        void PrepareStandby(FWaitEvent* Node) const;
         // Second step to execute when no more work is found in the queues.
         bool CommitStandby(FWaitEvent* Node, FOutOfWork& OutOfWork);
 
@@ -109,10 +109,10 @@ namespace OloEngine::LowLevelTasks::Private
       private:
         bool TryStartNewThread();
         i32 NotifyInternal(i32 Count);
-        void Park(FWaitEvent* Node, FOutOfWork& OutOfWork, i32 SpinCycles, i32 WaitCycles);
+        void Park(FWaitEvent* Node, FOutOfWork& OutOfWork, i32 SpinCycles, i32 WaitCycles) const;
         i32 Unpark(FWaitEvent* InNode);
-        void CheckState(u64 State, bool bIsWaiter = false);
-        void CheckStandbyState(u64 State);
+        void CheckState(u64 State, bool bIsWaiter = false) const;
+        void CheckStandbyState(u64 State) const;
     };
 
 } // namespace OloEngine::LowLevelTasks::Private

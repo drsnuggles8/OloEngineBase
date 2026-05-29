@@ -142,7 +142,7 @@ namespace OloEngine
         }
     }
 
-    void ActiveEffectsContainer::ApplyInstantEffect(const GameplayEffect& effect, AttributeSet& attributes)
+    void ActiveEffectsContainer::ApplyInstantEffect(const GameplayEffect& effect, AttributeSet& attributes) const
     {
         for (auto const& mod : effect.Modifiers)
         {
@@ -163,7 +163,7 @@ namespace OloEngine
         }
     }
 
-    void ActiveEffectsContainer::ApplyPeriodicTick(const ActiveEffect& ae, AttributeSet& attributes)
+    void ActiveEffectsContainer::ApplyPeriodicTick(const ActiveEffect& ae, AttributeSet& attributes) const
     {
         // Periodic effects apply their modifiers as instant modifications
         // scaled by stack count

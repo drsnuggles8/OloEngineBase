@@ -223,7 +223,7 @@ namespace OloEngine
 
     void FrameCaptureManager::DeepCopyCommands(const CommandBucket& bucket,
                                                std::vector<CapturedCommandData>& outCommands,
-                                               bool useSortedOrder)
+                                               bool useSortedOrder) const
     {
         OLO_PROFILE_FUNCTION();
         outCommands.clear();

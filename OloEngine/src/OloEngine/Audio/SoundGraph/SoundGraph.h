@@ -269,12 +269,12 @@ namespace OloEngine::Audio::SoundGraph
         //==============================================================================
         /// Graph Connections Internal Methods
 
-        void AddConnection(choc::value::ValueView& source, choc::value::ValueView& destination) noexcept
+        void AddConnection(choc::value::ValueView& source, choc::value::ValueView& destination) const noexcept
         {
             destination = source;
         }
 
-        void AddConnection(OutputEvent& source, InputEvent& destination) noexcept
+        void AddConnection(OutputEvent& source, InputEvent& destination) const noexcept
         {
             // Find the shared_ptr for this InputEvent in InEvents
             for (const auto& [id, inputEventPtr] : InEvents)
@@ -290,7 +290,7 @@ namespace OloEngine::Audio::SoundGraph
         }
 
         /// Connect Input Event to Input Event
-        void AddRoute(InputEvent& source, InputEvent& destination) noexcept
+        void AddRoute(InputEvent& source, InputEvent& destination) const noexcept
         {
             InputEvent* dest = &destination;
             source.m_Event = [dest](float v)
@@ -505,7 +505,7 @@ namespace OloEngine::Audio::SoundGraph
             RebuildOutputChannelViewsCache();
         }
 
-        void BeginProcessBlock()
+        void BeginProcessBlock() const
         {
             // Refill wave player buffers
             for (auto& wavePlayer : m_WavePlayers)
@@ -734,7 +734,7 @@ namespace OloEngine::Audio::SoundGraph
         /// Wave Source Management (for future implementation)
 
         using RefillCallback = bool (*)(Audio::WaveSource&, void* userData, u32 numFrames);
-        void SetRefillWavePlayerBufferCallback(RefillCallback callback, void* userData, u32 numFrames)
+        void SetRefillWavePlayerBufferCallback(RefillCallback callback, void* userData, u32 numFrames) const
         {
             for (auto& wavePlayer : m_WavePlayers)
             {

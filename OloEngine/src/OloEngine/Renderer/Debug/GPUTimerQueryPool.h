@@ -30,7 +30,7 @@ namespace OloEngine
         void BeginQuery(u32 commandIndex);
 
         /// @brief Stop timing the current command.
-        void EndQuery(u32 commandIndex);
+        void EndQuery(u32 commandIndex) const;
 
         /// @brief End the current frame of timing.
         void EndFrame();

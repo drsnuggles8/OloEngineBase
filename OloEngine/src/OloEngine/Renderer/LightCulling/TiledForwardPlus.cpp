@@ -264,7 +264,7 @@ namespace OloEngine
         }
     }
 
-    void TiledForwardPlus::RenderDebugOverlay(u32 fullscreenQuadVAO, const Ref<Shader>& debugShader)
+    void TiledForwardPlus::RenderDebugOverlay(u32 fullscreenQuadVAO, const Ref<Shader>& debugShader) const
     {
         OLO_PROFILE_FUNCTION();
 

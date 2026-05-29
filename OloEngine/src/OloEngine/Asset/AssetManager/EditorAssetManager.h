@@ -170,7 +170,7 @@ namespace OloEngine
          * @param metadata Asset metadata
          * @return Absolute file system path
          */
-        std::filesystem::path GetFileSystemPath(const AssetMetadata& metadata);
+        std::filesystem::path GetFileSystemPath(const AssetMetadata& metadata) const;
 
         /**
          * @brief Get file system path as string
@@ -184,7 +184,7 @@ namespace OloEngine
          * @param filepath Absolute file path
          * @return Project-relative path
          */
-        std::filesystem::path GetRelativePath(const std::filesystem::path& filepath);
+        std::filesystem::path GetRelativePath(const std::filesystem::path& filepath) const;
 
         /**
          * @brief Check if file exists for given metadata

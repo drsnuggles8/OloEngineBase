@@ -198,7 +198,7 @@ namespace OloEngine
         ProcessNode(entity, targetNodeID, 0);
     }
 
-    void DialogueSystem::EndDialogue(Entity entity)
+    void DialogueSystem::EndDialogue(Entity entity) const
     {
         OLO_PROFILE_FUNCTION();
 

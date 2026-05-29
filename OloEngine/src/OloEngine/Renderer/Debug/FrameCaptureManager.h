@@ -82,7 +82,7 @@ namespace OloEngine
         FrameCaptureManager& operator=(const FrameCaptureManager&) = delete;
 
         // Deep-copy all commands from a bucket into a vector
-        void DeepCopyCommands(const CommandBucket& bucket, std::vector<CapturedCommandData>& outCommands, bool useSortedOrder);
+        void DeepCopyCommands(const CommandBucket& bucket, std::vector<CapturedCommandData>& outCommands, bool useSortedOrder) const;
 
         std::atomic<CaptureState> m_State = CaptureState::Idle;
         std::atomic<u32> m_MaxCapturedFrames = 60;

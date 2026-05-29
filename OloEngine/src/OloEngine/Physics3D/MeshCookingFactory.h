@@ -112,20 +112,20 @@ namespace OloEngine
                                              std::vector<glm::vec3>& outVertices, f32 simplificationRatio = 0.1f);
 
         // Validation
-        bool ValidateMeshData(const std::vector<glm::vec3>& vertices, const std::vector<u32>& indices);
+        bool ValidateMeshData(const std::vector<glm::vec3>& vertices, const std::vector<u32>& indices) const;
         bool ValidateConvexHull(const std::vector<glm::vec3>& vertices);
 
         // Serialization
-        bool SerializeMeshCollider(const std::filesystem::path& filepath, const MeshColliderData& meshData);
-        MeshColliderData DeserializeMeshCollider(const std::filesystem::path& filepath);
+        bool SerializeMeshCollider(const std::filesystem::path& filepath, const MeshColliderData& meshData) const;
+        MeshColliderData DeserializeMeshCollider(const std::filesystem::path& filepath) const;
 
         // Shape reconstruction from cached data
-        JPH::Ref<JPH::Shape> CreateShapeFromColliderData(const SubmeshColliderData& colliderData);
+        JPH::Ref<JPH::Shape> CreateShapeFromColliderData(const SubmeshColliderData& colliderData) const;
         bool CanCreateShapeFromColliderData(const SubmeshColliderData& colliderData) const;
 
         // Cache management
         std::filesystem::path GetCacheFilePath(Ref<MeshColliderAsset> colliderAsset, EMeshColliderType type);
-        bool IsCacheValid(const std::filesystem::path& cacheFilePath, const std::filesystem::path& sourcePath);
+        bool IsCacheValid(const std::filesystem::path& cacheFilePath, const std::filesystem::path& sourcePath) const;
         void ClearCache();
 
         // Settings
@@ -186,15 +186,15 @@ namespace OloEngine
 
         // Vertex processing
         std::vector<glm::vec3> ExtractVertexPositions(const std::vector<glm::vec3>& vertices);
-        void WeldVertices(std::vector<glm::vec3>& vertices, std::vector<u32>& indices, f32 tolerance);
+        void WeldVertices(std::vector<glm::vec3>& vertices, std::vector<u32>& indices, f32 tolerance) const;
         void RemoveDuplicateVertices(std::vector<glm::vec3>& vertices, std::vector<u32>& indices);
 
         // Triangle mesh optimization
         void OptimizeTriangleMesh(std::vector<glm::vec3>& vertices, std::vector<u32>& indices);
-        void RemoveInvalidTriangles(std::vector<glm::vec3>& vertices, std::vector<u32>& indices, f32 areaEpsilon);
+        void RemoveInvalidTriangles(std::vector<glm::vec3>& vertices, std::vector<u32>& indices, f32 areaEpsilon) const;
 
         // Convex hull optimization
-        bool ReduceConvexHullVertices(const std::vector<glm::vec3>& inputVertices, u32 maxVertices, std::vector<glm::vec3>& outReducedVertices);
+        bool ReduceConvexHullVertices(const std::vector<glm::vec3>& inputVertices, u32 maxVertices, std::vector<glm::vec3>& outReducedVertices) const;
 
         // Cache path generation
         std::string GenerateCacheKey(Ref<MeshColliderAsset> colliderAsset, EMeshColliderType type);
@@ -204,7 +204,7 @@ namespace OloEngine
         // by the collider asset. Returns an empty path for memory-only assets,
         // missing metadata, or when no project is active — callers use that as
         // a signal to skip timestamp-based cache invalidation.
-        std::filesystem::path ResolveSourceMeshPath(AssetHandle meshHandle);
+        std::filesystem::path ResolveSourceMeshPath(AssetHandle meshHandle) const;
 
         // Error handling
         void LogCookingError(const std::string& operation, const std::string& error);

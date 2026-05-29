@@ -30,7 +30,7 @@ namespace OloEngine
         void BeginQuery(u32 objectIndex);
 
         /// @brief Stop the current occlusion query.
-        void EndQuery(u32 objectIndex);
+        void EndQuery(u32 objectIndex) const;
 
         /// @brief End the current frame of occlusion queries.
         void EndFrame();

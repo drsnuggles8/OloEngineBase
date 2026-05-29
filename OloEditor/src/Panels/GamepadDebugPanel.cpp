@@ -9,7 +9,7 @@
 
 namespace OloEngine
 {
-    void GamepadDebugPanel::OnImGuiRender(bool* p_open)
+    void GamepadDebugPanel::OnImGuiRender(bool* p_open) const
     {
         if (!ImGui::Begin("Gamepad Debug", p_open))
         {

@@ -91,7 +91,7 @@ namespace OloEngine::LowLevelTasks::Private
         OLO_CORE_ASSERT(m_NodesArray.Num() < (1ull << WaiterBits) - 1, "Too many nodes in array");
     }
 
-    void FWaitingQueue::FinishShutdown()
+    void FWaitingQueue::FinishShutdown() const
     {
         using namespace WaitingQueueImpl;
 
@@ -111,7 +111,7 @@ namespace OloEngine::LowLevelTasks::Private
         return m_Oversubscription.load(std::memory_order_relaxed) >= m_MaxThreadCount;
     }
 
-    void FWaitingQueue::CheckState(u64 InState, bool bInIsWaiter)
+    void FWaitingQueue::CheckState(u64 InState, bool bInIsWaiter) const
     {
         using namespace WaitingQueueImpl;
 
@@ -130,7 +130,7 @@ namespace OloEngine::LowLevelTasks::Private
 #endif
     }
 
-    void FWaitingQueue::CheckStandbyState(u64 InState)
+    void FWaitingQueue::CheckStandbyState(u64 InState) const
     {
         using namespace WaitingQueueImpl;
 
@@ -257,7 +257,7 @@ namespace OloEngine::LowLevelTasks::Private
         m_StandbyState = StackMask;
     }
 
-    void FWaitingQueue::PrepareStandby(FWaitEvent* Node)
+    void FWaitingQueue::PrepareStandby(FWaitEvent* Node) const
     {
         // We store the whole state before going back checking the queue so that we can't possibly
         // miss an event in-between PrepareStandby and CommitStandby.
@@ -476,7 +476,7 @@ namespace OloEngine::LowLevelTasks::Private
         return Notifications;
     }
 
-    void FWaitingQueue::Park(FWaitEvent* Node, FOutOfWork& OutOfWork, i32 SpinCycles, i32 WaitCycles)
+    void FWaitingQueue::Park(FWaitEvent* Node, FOutOfWork& OutOfWork, i32 SpinCycles, i32 WaitCycles) const
     {
         using namespace WaitingQueueImpl;
 

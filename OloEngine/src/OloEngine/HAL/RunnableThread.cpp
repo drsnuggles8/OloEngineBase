@@ -300,7 +300,7 @@ namespace OloEngine
         s_CurrentThread = this;
     }
 
-    void FRunnableThread::FreeTls()
+    void FRunnableThread::FreeTls() const
     {
         s_CurrentThread = nullptr;
     }

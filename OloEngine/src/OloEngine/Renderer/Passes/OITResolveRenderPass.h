@@ -50,7 +50,7 @@ namespace OloEngine
         }
 
       private:
-        void DrawFullscreenTriangle(RGCommandContext& context);
+        void DrawFullscreenTriangle(RGCommandContext& context) const;
 
         Ref<Shader> m_ResolveShader;
         RGTextureHandle m_SelectedOITAccumTexture{};

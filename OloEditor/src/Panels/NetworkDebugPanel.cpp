@@ -10,7 +10,7 @@
 
 namespace OloEngine
 {
-    void NetworkDebugPanel::OnImGuiRender(bool* p_open)
+    void NetworkDebugPanel::OnImGuiRender(bool* p_open) const
     {
         OLO_PROFILE_FUNCTION();
 

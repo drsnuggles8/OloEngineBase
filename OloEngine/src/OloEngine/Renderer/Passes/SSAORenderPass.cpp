@@ -231,7 +231,7 @@ namespace OloEngine
         context.SetViewport(0, 0, m_FramebufferSpec.Width, m_FramebufferSpec.Height);
     }
 
-    void SSAORenderPass::DrawFullscreenTriangle()
+    void SSAORenderPass::DrawFullscreenTriangle() const
     {
         auto va = MeshPrimitives::GetFullscreenTriangle();
         va->Bind();

@@ -1159,7 +1159,7 @@ namespace OloEngine
          *       Currently stubbed until FOutputDevice is implemented.
          *       Future signature: void Dump(FOutputDevice& Ar)
          */
-        void Dump()
+        void Dump() const
         {
             // TODO: Implement when FOutputDevice is available
             // Ar.Logf(TEXT("TSparseSet: %i elements, %i hash slots"), Elements.Num(), HashSize);

@@ -227,7 +227,7 @@ namespace OloEngine
         return projectDir / "EditorPreferences.yaml";
     }
 
-    void EditorPreferencesPanel::Save(const EditorPreferences& prefs, const std::filesystem::path& projectDir)
+    void EditorPreferencesPanel::Save(const EditorPreferences& prefs, const std::filesystem::path& projectDir) const
     {
         YAML::Emitter out;
         out << YAML::BeginMap;
@@ -283,7 +283,7 @@ namespace OloEngine
         }
     }
 
-    void EditorPreferencesPanel::Load(EditorPreferences& prefs, const std::filesystem::path& projectDir)
+    void EditorPreferencesPanel::Load(EditorPreferences& prefs, const std::filesystem::path& projectDir) const
     {
         auto path = GetPrefsPath(projectDir);
         if (!std::filesystem::exists(path))

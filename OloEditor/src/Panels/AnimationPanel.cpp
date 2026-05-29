@@ -419,7 +419,7 @@ namespace OloEngine
         ImGui::Dummy(ImVec2(0, 10)); // Spacing after timeline
     }
 
-    void AnimationPanel::DrawBoneHierarchy(Entity entity)
+    void AnimationPanel::DrawBoneHierarchy(Entity entity) const
     {
         if (!entity.HasComponent<SkeletonComponent>())
             return;

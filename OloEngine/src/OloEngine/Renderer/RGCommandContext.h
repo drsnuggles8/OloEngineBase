@@ -47,27 +47,27 @@ namespace OloEngine
             return m_ActivePassName;
         }
 
-        void SetViewport(u32 x, u32 y, u32 width, u32 height);
-        void SetClearColor(const glm::vec4& color);
-        void Clear();
-        void ResetGraphicsStateToDefault();
-        void BindDefaultFramebuffer();
-        void SetDepthTest(bool enabled);
-        void SetDepthMask(bool enabled);
-        void SetBlendState(bool enabled);
-        void SetAlphaBlendStandard();
-        void SetOpaqueReplaceBlend();
-        void SetCulling(bool enabled);
-        void SetDrawBuffers(std::span<const u32> attachments);
-        void BindTexture(u32 slot, u32 textureID);
-        void MemoryBarrier(MemoryBarrierFlags flags);
-        void DrawIndexed(const Ref<VertexArray>& vertexArray, u32 indexCount = 0);
+        void SetViewport(u32 x, u32 y, u32 width, u32 height) const;
+        void SetClearColor(const glm::vec4& color) const;
+        void Clear() const;
+        void ResetGraphicsStateToDefault() const;
+        void BindDefaultFramebuffer() const;
+        void SetDepthTest(bool enabled) const;
+        void SetDepthMask(bool enabled) const;
+        void SetBlendState(bool enabled) const;
+        void SetAlphaBlendStandard() const;
+        void SetOpaqueReplaceBlend() const;
+        void SetCulling(bool enabled) const;
+        void SetDrawBuffers(std::span<const u32> attachments) const;
+        void BindTexture(u32 slot, u32 textureID) const;
+        void MemoryBarrier(MemoryBarrierFlags flags) const;
+        void DrawIndexed(const Ref<VertexArray>& vertexArray, u32 indexCount = 0) const;
         // Async-compute batch boundaries.
         // In GL 4.6 (single command stream) these insert KHR_debug group labels
         // for profiling tools. Future Vulkan/DX12 backends map them to
         // queue-wait / queue-signal operations.
-        void BeginAsyncBatch(u32 batchIndex);
-        void EndAsyncBatch(u32 batchIndex);
+        void BeginAsyncBatch(u32 batchIndex) const;
+        void EndAsyncBatch(u32 batchIndex) const;
         [[nodiscard]] u32 ResolveTexture(RGTextureHandle handle) const;
         [[nodiscard]] Ref<Framebuffer> ResolveFramebuffer(RGFramebufferHandle handle) const;
         void ExtractHistoryTexture(std::string_view historyResource,

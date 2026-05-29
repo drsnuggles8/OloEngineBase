@@ -8,22 +8,22 @@
 
 namespace OloEngine
 {
-    void RGCommandContext::SetViewport(const u32 x, const u32 y, const u32 width, const u32 height)
+    void RGCommandContext::SetViewport(const u32 x, const u32 y, const u32 width, const u32 height) const
     {
         RenderCommand::SetViewport(x, y, width, height);
     }
 
-    void RGCommandContext::SetClearColor(const glm::vec4& color)
+    void RGCommandContext::SetClearColor(const glm::vec4& color) const
     {
         RenderCommand::SetClearColor(color);
     }
 
-    void RGCommandContext::Clear()
+    void RGCommandContext::Clear() const
     {
         RenderCommand::Clear();
     }
 
-    void RGCommandContext::ResetGraphicsStateToDefault()
+    void RGCommandContext::ResetGraphicsStateToDefault() const
     {
         // Keep in sync with the engine's default render-state contract.
         RenderCommand::SetBlendState(false);
@@ -41,37 +41,37 @@ namespace OloEngine
         RenderCommand::EnableMultisampling();
     }
 
-    void RGCommandContext::BindDefaultFramebuffer()
+    void RGCommandContext::BindDefaultFramebuffer() const
     {
         RenderCommand::BindDefaultFramebuffer();
     }
 
-    void RGCommandContext::SetDepthTest(const bool enabled)
+    void RGCommandContext::SetDepthTest(const bool enabled) const
     {
         RenderCommand::SetDepthTest(enabled);
     }
 
-    void RGCommandContext::SetDepthMask(const bool enabled)
+    void RGCommandContext::SetDepthMask(const bool enabled) const
     {
         RenderCommand::SetDepthMask(enabled);
     }
 
-    void RGCommandContext::SetBlendState(const bool enabled)
+    void RGCommandContext::SetBlendState(const bool enabled) const
     {
         RenderCommand::SetBlendState(enabled);
     }
 
-    void RGCommandContext::SetAlphaBlendStandard()
+    void RGCommandContext::SetAlphaBlendStandard() const
     {
         RenderCommand::SetBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
     }
 
-    void RGCommandContext::SetOpaqueReplaceBlend()
+    void RGCommandContext::SetOpaqueReplaceBlend() const
     {
         RenderCommand::SetBlendFunc(GL_ONE, GL_ZERO);
     }
 
-    void RGCommandContext::SetCulling(const bool enabled)
+    void RGCommandContext::SetCulling(const bool enabled) const
     {
         if (enabled)
             RenderCommand::EnableCulling();
@@ -79,29 +79,29 @@ namespace OloEngine
             RenderCommand::DisableCulling();
     }
 
-    void RGCommandContext::SetDrawBuffers(const std::span<const u32> attachments)
+    void RGCommandContext::SetDrawBuffers(const std::span<const u32> attachments) const
     {
         RenderCommand::SetDrawBuffers(attachments);
     }
 
-    void RGCommandContext::BindTexture(const u32 slot, const u32 textureID)
+    void RGCommandContext::BindTexture(const u32 slot, const u32 textureID) const
     {
         RenderCommand::BindTexture(slot, textureID);
     }
 
-    void RGCommandContext::MemoryBarrier(const MemoryBarrierFlags flags)
+    void RGCommandContext::MemoryBarrier(const MemoryBarrierFlags flags) const
     {
         if (flags == MemoryBarrierFlags::None)
             return;
         RenderCommand::MemoryBarrier(flags);
     }
 
-    void RGCommandContext::DrawIndexed(const Ref<VertexArray>& vertexArray, const u32 indexCount)
+    void RGCommandContext::DrawIndexed(const Ref<VertexArray>& vertexArray, const u32 indexCount) const
     {
         RenderCommand::DrawIndexed(vertexArray, indexCount);
     }
 
-    void RGCommandContext::BeginAsyncBatch(const u32 batchIndex)
+    void RGCommandContext::BeginAsyncBatch(const u32 batchIndex) const
     {
         // GL 4.6 runs a single command stream — no true async queue overlap.
         // Insert a KHR_debug group label so the batch region is visible in
@@ -115,7 +115,7 @@ namespace OloEngine
         }
     }
 
-    void RGCommandContext::EndAsyncBatch([[maybe_unused]] const u32 batchIndex)
+    void RGCommandContext::EndAsyncBatch([[maybe_unused]] const u32 batchIndex) const
     {
         if (GLAD_GL_KHR_debug)
             glPopDebugGroup();

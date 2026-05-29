@@ -126,16 +126,16 @@ namespace OloEngine
         FrameResourceManager& operator=(FrameResourceManager&&) = delete;
 
         // Create GPU sync fence
-        u64 CreateFence();
+        u64 CreateFence() const;
 
         // Wait for GPU fence to be signaled
-        bool WaitForFence(u64 fenceId);
+        bool WaitForFence(u64 fenceId) const;
 
         // Check if fence is signaled
         bool IsFenceSignaled(u64 fenceId) const;
 
         // Delete a fence
-        void DeleteFence(u64 fenceId);
+        void DeleteFence(u64 fenceId) const;
 
         std::array<FrameResources, NUM_BUFFERED_FRAMES> m_FrameResources;
         // Atomic frame index: main thread writes with release, worker threads read with acquire

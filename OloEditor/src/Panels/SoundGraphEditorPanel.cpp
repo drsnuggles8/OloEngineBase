@@ -363,7 +363,7 @@ namespace OloEngine
         DrawContextMenu(canvasOrigin);
     }
 
-    void SoundGraphEditorPanel::DrawGrid(ImDrawList* drawList, const ImVec2& canvasOrigin, const ImVec2& canvasSize)
+    void SoundGraphEditorPanel::DrawGrid(ImDrawList* drawList, const ImVec2& canvasOrigin, const ImVec2& canvasSize) const
     {
         f32 const gridStep = s_GridSize * m_Zoom;
         ImU32 const gridColor = IM_COL32(50, 50, 55, 255);
@@ -908,7 +908,7 @@ namespace OloEngine
         }
     }
 
-    void SoundGraphEditorPanel::DrawConnectionInProgress(ImDrawList* drawList, const ImVec2& canvasOrigin)
+    void SoundGraphEditorPanel::DrawConnectionInProgress(ImDrawList* drawList, const ImVec2& canvasOrigin) const
     {
         if (!m_IsDraggingConnection || !m_GraphAsset)
             return;

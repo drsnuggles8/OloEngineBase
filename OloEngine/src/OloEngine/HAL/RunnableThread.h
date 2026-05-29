@@ -181,7 +181,7 @@ namespace OloEngine
         /**
          * @brief Clear TLS
          */
-        void FreeTls();
+        void FreeTls() const;
 
       protected:
         std::string m_ThreadName;

@@ -551,7 +551,7 @@ namespace OloEngine
             RenderPODRenderStateDetail(*state);
     }
 
-    void CommandPacketDebugger::RenderDrawMeshDetail(const DrawMeshCommand& cmd, const CapturedFrameData* frame)
+    void CommandPacketDebugger::RenderDrawMeshDetail(const DrawMeshCommand& cmd, const CapturedFrameData* frame) const
     {
         ImGui::Text("Mesh Handle: %llu", static_cast<u64>(cmd.meshHandle));
         ImGui::Text("VAO: %u", cmd.vertexArrayID);
@@ -602,7 +602,7 @@ namespace OloEngine
         }
     }
 
-    void CommandPacketDebugger::RenderDrawMeshInstancedDetail(const DrawMeshInstancedCommand& cmd, const CapturedFrameData* frame)
+    void CommandPacketDebugger::RenderDrawMeshInstancedDetail(const DrawMeshInstancedCommand& cmd, const CapturedFrameData* frame) const
     {
         ImGui::Text("Mesh Handle: %llu", static_cast<u64>(cmd.meshHandle));
         ImGui::Text("VAO: %u", cmd.vertexArrayID);
@@ -615,7 +615,7 @@ namespace OloEngine
         ImGui::Text("Material Data Index: %u", cmd.materialDataIndex);
     }
 
-    void CommandPacketDebugger::RenderPODRenderStateDetail(const PODRenderState& state)
+    void CommandPacketDebugger::RenderPODRenderStateDetail(const PODRenderState& state) const
     {
         if (ImGui::TreeNode("Blend"))
         {
@@ -679,7 +679,7 @@ namespace OloEngine
     // Sort Analysis Tab
     // ========================================================================
 
-    void CommandPacketDebugger::RenderSortAnalysis(const CapturedFrameData* frame)
+    void CommandPacketDebugger::RenderSortAnalysis(const CapturedFrameData* frame) const
     {
         if (!frame)
         {
@@ -756,7 +756,7 @@ namespace OloEngine
     // State Change Delta Tab
     // ========================================================================
 
-    void CommandPacketDebugger::RenderStateChanges(const CapturedFrameData* frame)
+    void CommandPacketDebugger::RenderStateChanges(const CapturedFrameData* frame) const
     {
         if (!frame)
         {
@@ -872,7 +872,7 @@ namespace OloEngine
     // Batching Analysis Tab
     // ========================================================================
 
-    void CommandPacketDebugger::RenderBatchingAnalysis(const CapturedFrameData* frame)
+    void CommandPacketDebugger::RenderBatchingAnalysis(const CapturedFrameData* frame) const
     {
         if (!frame)
         {
@@ -1072,7 +1072,7 @@ namespace OloEngine
     // Live View (fallback when no captures exist)
     // ========================================================================
 
-    void CommandPacketDebugger::RenderLiveView(const CommandBucket* bucket)
+    void CommandPacketDebugger::RenderLiveView(const CommandBucket* bucket) const
     {
         ImGui::TextColored(DebugUtils::Colors::Info,
                            "No captured frames. Use the toolbar above to capture frames for analysis.");

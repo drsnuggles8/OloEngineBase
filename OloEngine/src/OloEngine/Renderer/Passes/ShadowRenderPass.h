@@ -123,7 +123,7 @@ namespace OloEngine
         [[nodiscard]] static bool ShouldCull(const BoundingBox& worldBounds, const Frustum& frustum);
 
         void RenderCascadeOrFace(const glm::mat4& lightVP, ShadowPassType type, u32 layerOrLight,
-                                 const Frustum* cullFrustum = nullptr);
+                                 const Frustum* cullFrustum = nullptr) const;
 
         ShadowMap* m_ShadowMap = nullptr;
         Ref<Framebuffer> m_ShadowFramebuffer; // Depth-only FBO for shadow rendering

@@ -997,7 +997,7 @@ namespace OloEngine
     }
 #endif
 
-    std::filesystem::path EditorAssetManager::GetRelativePath(const std::filesystem::path& filepath)
+    std::filesystem::path EditorAssetManager::GetRelativePath(const std::filesystem::path& filepath) const
     {
         // If the project path is empty, return the filepath as-is
         if (m_ProjectPath.empty())
@@ -1024,7 +1024,7 @@ namespace OloEngine
         return GetFileSystemPath(m_AssetRegistry.GetMetadata(handle));
     }
 
-    std::filesystem::path EditorAssetManager::GetFileSystemPath(const AssetMetadata& metadata)
+    std::filesystem::path EditorAssetManager::GetFileSystemPath(const AssetMetadata& metadata) const
     {
         if (metadata.FilePath.is_absolute())
             return metadata.FilePath;

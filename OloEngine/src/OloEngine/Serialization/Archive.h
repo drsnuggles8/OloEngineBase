@@ -895,7 +895,7 @@ namespace OloEngine
         // ========================================================================
 
         // Used internally only to do byte swapping on small items.
-        void ByteSwap(void* V, i32 Length)
+        void ByteSwap(void* V, i32 Length) const
         {
             u8* Ptr = static_cast<u8*>(V);
             i32 Top = Length - 1;

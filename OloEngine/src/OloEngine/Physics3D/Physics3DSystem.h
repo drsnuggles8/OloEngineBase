@@ -51,7 +51,7 @@ namespace OloEngine
     {
       public:
         OloBPLayerInterfaceImpl();
-        void UpdateLayers(); // Update layer mappings when PhysicsLayerManager changes
+        void UpdateLayers() const; // Update layer mappings when PhysicsLayerManager changes
 
         JPH::uint GetNumBroadPhaseLayers() const override;
         JPH::BroadPhaseLayer GetBroadPhaseLayer(JPH::ObjectLayer inLayer) const override;

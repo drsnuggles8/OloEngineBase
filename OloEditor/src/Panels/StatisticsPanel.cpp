@@ -89,7 +89,7 @@ namespace OloEngine
         ImGui::End();
     }
 
-    void StatisticsPanel::DrawRendererTab()
+    void StatisticsPanel::DrawRendererTab() const
     {
         // GPU Info (query OpenGL directly)
         auto const* vendor = reinterpret_cast<const char*>(glGetString(GL_VENDOR));
@@ -182,7 +182,7 @@ namespace OloEngine
         }
     }
 
-    void StatisticsPanel::DrawPerformanceTab()
+    void StatisticsPanel::DrawPerformanceTab() const
     {
         auto const& frameData = Application::Get().GetProfilerPreviousFrameData();
 
@@ -220,7 +220,7 @@ namespace OloEngine
         }
     }
 
-    void StatisticsPanel::DrawMemoryTab()
+    void StatisticsPanel::DrawMemoryTab() const
     {
         const auto& tracker = RendererMemoryTracker::GetInstance();
 

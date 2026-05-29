@@ -823,9 +823,9 @@ namespace OloEngine
         // because PlayOnAwake was false and Play hasn't been called, or the asset failed
         // to compile). Implementations live in AudioSoundGraphComponent.cpp to avoid
         // pulling SoundGraphSource.h / miniaudio into this header.
-        bool SetParameter(const std::string& name, f32 value);
-        bool SetParameter(const std::string& name, i32 value);
-        bool SetParameter(const std::string& name, bool value);
+        bool SetParameter(const std::string& name, f32 value) const;
+        bool SetParameter(const std::string& name, i32 value) const;
+        bool SetParameter(const std::string& name, bool value) const;
     };
 
     // Note: SubmeshComponent, MeshComponent, AnimationStateComponent,

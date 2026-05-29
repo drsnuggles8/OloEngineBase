@@ -223,7 +223,7 @@ namespace OloEngine
         }
     }
 
-    void BuildGamePanel::RenderBuildProgress()
+    void BuildGamePanel::RenderBuildProgress() const
     {
         ImGui::Spacing();
         ImGui::Separator();
@@ -233,7 +233,7 @@ namespace OloEngine
         ImGui::ProgressBar(fraction, ImVec2(-1, 0), nullptr);
     }
 
-    void BuildGamePanel::RenderBuildResults()
+    void BuildGamePanel::RenderBuildResults() const
     {
         if (m_LastBuildResult.Success)
         {
