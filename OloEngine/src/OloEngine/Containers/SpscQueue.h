@@ -97,7 +97,7 @@ namespace OloEngine
             m_Head->Next.store(Node, std::memory_order_release);
             m_Head = Node;
 
-            m_NumElems++;
+            ++m_NumElems;
         }
 
         /**
@@ -121,7 +121,7 @@ namespace OloEngine
 
             if (Value.has_value())
             {
-                m_NumElems--;
+                --m_NumElems;
             }
             return Value;
         }

@@ -124,7 +124,7 @@ namespace OloEngine
         {
             Step(m_FixedTimeStep);
             m_Accumulator -= m_FixedTimeStep;
-            stepsExecuted++;
+            ++stepsExecuted;
         }
 
         // Synchronize transforms after simulation
@@ -607,7 +607,7 @@ namespace OloEngine
                 break;
 
             FillHitInfo(hit, ray, outHits[hitCount]);
-            hitCount++;
+            ++hitCount;
         }
 
         return hitCount;
@@ -916,7 +916,7 @@ namespace OloEngine
                 break;
 
             FillHitInfo(hit, shapeCast, outHits[hitCount]);
-            hitCount++;
+            ++hitCount;
         }
 
         return hitCount;
@@ -970,7 +970,7 @@ namespace OloEngine
                     hitInfo.m_HitBody = it->second;
                 }
 
-                hitCount++;
+                ++hitCount;
             }
         }
 

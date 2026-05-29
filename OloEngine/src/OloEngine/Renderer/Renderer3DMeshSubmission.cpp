@@ -140,13 +140,13 @@ namespace OloEngine
             OLO_CORE_ERROR("Renderer3D::DrawMesh: ScenePass is null!");
             return nullptr;
         }
-        s_Data.Stats.TotalMeshes++;
+        ++s_Data.Stats.TotalMeshes;
 
         if (s_Data.FrustumCullingEnabled && (isStatic || s_Data.DynamicCullingEnabled))
         {
             if (mesh && !IsVisibleInFrustum(mesh, modelMatrix))
             {
-                s_Data.Stats.CulledMeshes++;
+                ++s_Data.Stats.CulledMeshes;
                 return nullptr;
             }
         }
@@ -173,7 +173,7 @@ namespace OloEngine
 
                 if (!visible)
                 {
-                    state.InvisibleFrameCount++;
+                    ++state.InvisibleFrameCount;
                     // Re-test periodically to detect when occluded objects become visible.
                     if (state.InvisibleFrameCount % kOcclusionRetestInterval == 0)
                     {
@@ -183,7 +183,7 @@ namespace OloEngine
                         worldBounds.Max = bs.Center + glm::vec3(bs.Radius);
                         OcclusionCuller::GetInstance().QueueBoundingBox(state.QueryIndex, worldBounds);
                     }
-                    s_Data.Stats.CulledMeshes++;
+                    ++s_Data.Stats.CulledMeshes;
                     return nullptr;
                 }
 
@@ -206,10 +206,10 @@ namespace OloEngine
             {
                 s_Data.Stats.ObjectsPerLODLevel.resize(lodResult.SelectedLODIndex + 1, 0);
             }
-            s_Data.Stats.ObjectsPerLODLevel[lodResult.SelectedLODIndex]++;
+            ++s_Data.Stats.ObjectsPerLODLevel[lodResult.SelectedLODIndex];
             if (lodResult.Switched)
             {
-                s_Data.Stats.LODSwitches++;
+                ++s_Data.Stats.LODSwitches;
             }
         }
 
@@ -726,7 +726,7 @@ namespace OloEngine
             return nullptr;
         }
 
-        s_Data.Stats.TotalMeshes++;
+        ++s_Data.Stats.TotalMeshes;
 
         // For animated meshes, be more conservative with frustum culling
         // since bone transforms can move vertices significantly beyond rest pose bounds.
@@ -745,7 +745,7 @@ namespace OloEngine
 
             if (!s_Data.ViewFrustum.IsBoundingSphereVisible(animatedSphere))
             {
-                s_Data.Stats.CulledMeshes++;
+                ++s_Data.Stats.CulledMeshes;
                 return nullptr;
             }
         }
@@ -982,15 +982,15 @@ namespace OloEngine
         for (auto entityID : view)
         {
             Entity entity = { entityID, scene.get() };
-            s_Data.Stats.TotalAnimatedMeshes++;
-            entityCount++;
+            ++s_Data.Stats.TotalAnimatedMeshes;
+            ++entityCount;
 
             // Validate components.
             if (!entity.HasComponent<MeshComponent>() ||
                 !entity.HasComponent<SkeletonComponent>() ||
                 !entity.HasComponent<TransformComponent>())
             {
-                s_Data.Stats.SkippedAnimatedMeshes++;
+                ++s_Data.Stats.SkippedAnimatedMeshes;
                 continue;
             }
 
@@ -1000,7 +1000,7 @@ namespace OloEngine
 
             if (!meshComp.m_MeshSource || !skeletonComp.m_Skeleton)
             {
-                s_Data.Stats.SkippedAnimatedMeshes++;
+                ++s_Data.Stats.SkippedAnimatedMeshes;
                 continue;
             }
 
@@ -1084,7 +1084,7 @@ namespace OloEngine
                 meshDescriptors.push_back(std::move(desc));
             }
 
-            s_Data.Stats.RenderedAnimatedMeshes++;
+            ++s_Data.Stats.RenderedAnimatedMeshes;
         }
 
         // Submit all animated meshes in parallel.
@@ -1111,7 +1111,7 @@ namespace OloEngine
             !entity.HasComponent<SkeletonComponent>() ||
             !entity.HasComponent<TransformComponent>())
         {
-            s_Data.Stats.SkippedAnimatedMeshes++;
+            ++s_Data.Stats.SkippedAnimatedMeshes;
             return;
         }
 
@@ -1123,7 +1123,7 @@ namespace OloEngine
         {
             OLO_CORE_WARN("Renderer3D::RenderAnimatedMesh: Entity {} has invalid mesh or skeleton",
                           entity.GetComponent<TagComponent>().Tag);
-            s_Data.Stats.SkippedAnimatedMeshes++;
+            ++s_Data.Stats.SkippedAnimatedMeshes;
             return;
         }
 
@@ -1213,7 +1213,7 @@ namespace OloEngine
 
         if (renderedAnySubmesh)
         {
-            s_Data.Stats.RenderedAnimatedMeshes++;
+            ++s_Data.Stats.RenderedAnimatedMeshes;
         }
     }
 
@@ -1245,7 +1245,7 @@ namespace OloEngine
 
                 if (!ctx.SceneContext->ViewFrustum.IsBoundingSphereVisible(sphere))
                 {
-                    ctx.MeshesCulled++;
+                    ++ctx.MeshesCulled;
                     return nullptr;
                 }
             }
@@ -1259,10 +1259,10 @@ namespace OloEngine
             {
                 ctx.ObjectsPerLODLevel.resize(lodResult.SelectedLODIndex + 1, 0);
             }
-            ctx.ObjectsPerLODLevel[lodResult.SelectedLODIndex]++;
+            ++ctx.ObjectsPerLODLevel[lodResult.SelectedLODIndex];
             if (lodResult.Switched)
             {
-                ctx.LODSwitches++;
+                ++ctx.LODSwitches;
             }
         }
 
@@ -1438,7 +1438,7 @@ namespace OloEngine
 
                 if (!ctx.SceneContext->ViewFrustum.IsBoundingSphereVisible(animatedSphere))
                 {
-                    ctx.MeshesCulled++;
+                    ++ctx.MeshesCulled;
                     return nullptr;
                 }
             }
@@ -1639,7 +1639,7 @@ namespace OloEngine
                 if (packet)
                 {
                     SubmitPacket(packet);
-                    totalSubmitted++;
+                    ++totalSubmitted;
                 }
             }
             return totalSubmitted;
@@ -1727,11 +1727,11 @@ namespace OloEngine
                 if (packet)
                 {
                     Renderer3D::SubmitPacketParallel(stats.Context, packet);
-                    stats.Submitted++;
+                    ++stats.Submitted;
                 }
                 else
                 {
-                    stats.Culled++;
+                    ++stats.Culled;
                 }
             },
             EParallelForFlags::None);

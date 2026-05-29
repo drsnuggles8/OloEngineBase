@@ -70,7 +70,7 @@ namespace OloEngine
                     if (server && server->AddPlayer(clientID))
                     {
                         m_PlayerLayerMap[clientID] = layerID;
-                        infoIt->second.PlayerCount++;
+                        ++infoIt->second.PlayerCount;
                         return layerID;
                     }
                 }
@@ -91,7 +91,7 @@ namespace OloEngine
                     if (server && server->AddPlayer(clientID))
                     {
                         m_PlayerLayerMap[clientID] = layerID;
-                        infoIt->second.PlayerCount++;
+                        ++infoIt->second.PlayerCount;
                         if (partyID != 0)
                         {
                             m_PartyLayerMap[partyID] = layerID;
@@ -126,7 +126,7 @@ namespace OloEngine
 
         if (auto infoIt = m_LayerInfos.find(layerID); infoIt != m_LayerInfos.end() && infoIt->second.PlayerCount > 0)
         {
-            infoIt->second.PlayerCount--;
+            --infoIt->second.PlayerCount;
         }
 
         m_PlayerLayerMap.erase(it);
@@ -306,7 +306,7 @@ namespace OloEngine
                 zl.erase(std::remove(zl.begin(), zl.end(), source), zl.end());
 
                 mergeCandidates.erase(mergeCandidates.begin() + 1);
-                mergeCount++;
+                ++mergeCount;
 
                 OLO_CORE_INFO("[LayerManager] Merged layer {} into layer {} for zone {}", source, target, zoneID);
             }

@@ -99,18 +99,18 @@ namespace OloEngine
                     auto asset = tempAssetManager->GetAsset(metadata.Handle);
                     if (asset)
                     {
-                        loadedCount++;
+                        ++loadedCount;
                         OLO_CORE_TRACE("AssetPackBuilder: Loaded asset {} ({})", metadata.Handle, metadata.FilePath.string());
                     }
                     else
                     {
-                        failedCount++;
+                        ++failedCount;
                         OLO_CORE_WARN("AssetPackBuilder: Failed to load asset {} ({})", metadata.Handle, metadata.FilePath.string());
                     }
                 }
                 catch (const std::exception& e)
                 {
-                    failedCount++;
+                    ++failedCount;
                     OLO_CORE_ERROR("AssetPackBuilder: Exception loading asset {} ({}): {}", metadata.Handle, metadata.FilePath.string(), e.what());
                 }
 
@@ -500,7 +500,7 @@ namespace OloEngine
             // Count scenes separately
             if (assetInfo.Type == AssetType::Scene)
             {
-                assetPackFile.Index.SceneCount++;
+                ++assetPackFile.Index.SceneCount;
 
                 // Create scene info
                 AssetPackFile::SceneInfo sceneInfo;

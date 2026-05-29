@@ -500,12 +500,12 @@ namespace OloEngine
         const auto CollectMaterialIndices = [](const aiNode* node, const aiScene* scene,
                                                std::vector<u32>& out, auto&& self) -> void
         {
-            for (u32 i = 0; i < node->mNumMeshes; i++)
+            for (u32 i = 0; i < node->mNumMeshes; ++i)
             {
                 const auto* mesh = scene->mMeshes[node->mMeshes[i]];
                 out.push_back(mesh->mMaterialIndex);
             }
-            for (u32 i = 0; i < node->mNumChildren; i++)
+            for (u32 i = 0; i < node->mNumChildren; ++i)
             {
                 self(node->mChildren[i], scene, out, self);
             }
@@ -724,7 +724,7 @@ namespace OloEngine
         glm::mat4 globalTransform = parentTransform * nodeTransform;
 
         // Process all the node's meshes
-        for (u32 i = 0; i < node->mNumMeshes; i++)
+        for (u32 i = 0; i < node->mNumMeshes; ++i)
         {
             const aiMesh* mesh = scene->mMeshes[node->mMeshes[i]];
             auto meshSource = ProcessMesh(mesh, scene);
@@ -779,7 +779,7 @@ namespace OloEngine
         }
 
         // Process all the node's children
-        for (u32 i = 0; i < node->mNumChildren; i++)
+        for (u32 i = 0; i < node->mNumChildren; ++i)
         {
             ProcessNode(node->mChildren[i], scene, globalTransform);
         }
@@ -802,7 +802,7 @@ namespace OloEngine
                        mesh->mNumVertices, mesh->mNumFaces, mesh->mNumBones);
 
         // Process vertices (without bone data)
-        for (u32 i = 0; i < mesh->mNumVertices; i++)
+        for (u32 i = 0; i < mesh->mNumVertices; ++i)
         {
             Vertex vertex;
 
@@ -850,10 +850,10 @@ namespace OloEngine
         }
 
         // Process indices
-        for (u32 i = 0; i < mesh->mNumFaces; i++)
+        for (u32 i = 0; i < mesh->mNumFaces; ++i)
         {
             const aiFace& face = mesh->mFaces[i];
-            for (u32 j = 0; j < face.mNumIndices; j++)
+            for (u32 j = 0; j < face.mNumIndices; ++j)
             {
                 indices.push_back(face.mIndices[j]);
             }
@@ -1520,7 +1520,7 @@ namespace OloEngine
         // different sRGB intents must not share a cached Ref.
         const std::string_view srgbSuffix = srgb ? "|srgb" : "|linear";
 
-        for (u32 i = 0; i < mat->GetTextureCount(type); i++)
+        for (u32 i = 0; i < mat->GetTextureCount(type); ++i)
         {
             aiString str;
             mat->GetTexture(type, i, &str);

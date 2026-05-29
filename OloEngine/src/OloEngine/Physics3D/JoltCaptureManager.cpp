@@ -327,7 +327,7 @@ namespace OloEngine
         // Full implementation would require Jolt debug renderer integration
         // This provides the framework for when JPH_DEBUG_RENDERER is available
 
-        m_FrameCount++;
+        ++m_FrameCount;
 
         // Example of how write operations should be handled:
         // if (actualWriteDataNeeded)

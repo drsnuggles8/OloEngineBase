@@ -223,17 +223,17 @@ namespace OloEngine
         // Pre-allocate vector based on potential collider count to avoid reallocations
         sizet estimatedCount = 0;
         if (entity.HasComponent<BoxCollider3DComponent>())
-            estimatedCount++;
+            ++estimatedCount;
         if (entity.HasComponent<SphereCollider3DComponent>())
-            estimatedCount++;
+            ++estimatedCount;
         if (entity.HasComponent<CapsuleCollider3DComponent>())
-            estimatedCount++;
+            ++estimatedCount;
         if (entity.HasComponent<MeshCollider3DComponent>())
-            estimatedCount++;
+            ++estimatedCount;
         if (entity.HasComponent<ConvexMeshCollider3DComponent>())
-            estimatedCount++;
+            ++estimatedCount;
         if (entity.HasComponent<TriangleMeshCollider3DComponent>())
-            estimatedCount++;
+            ++estimatedCount;
 
         collectedShapes.reserve(estimatedCount);
 

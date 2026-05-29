@@ -796,7 +796,7 @@ namespace OloEngine
             // Shader change (from DrawKey)
             if (prev.GetSortKey().GetShaderID() != curr.GetSortKey().GetShaderID())
             {
-                shaderChanges++;
+                ++shaderChanges;
                 changeLog.push_back({ i - 1, i,
                                       "Shader: " + std::to_string(prev.GetSortKey().GetShaderID()) + " -> " + std::to_string(curr.GetSortKey().GetShaderID()) });
             }
@@ -804,7 +804,7 @@ namespace OloEngine
             // Material change (from DrawKey)
             if (prev.GetSortKey().GetMaterialID() != curr.GetSortKey().GetMaterialID())
             {
-                materialChanges++;
+                ++materialChanges;
             }
 
             // Compare PODRenderState using the unified extractor
@@ -817,17 +817,17 @@ namespace OloEngine
                         prevState->blendSrcFactor != currState->blendSrcFactor ||
                         prevState->blendDstFactor != currState->blendDstFactor)
                     {
-                        blendChanges++;
+                        ++blendChanges;
                     }
                     if (prevState->depthTestEnabled != currState->depthTestEnabled ||
                         prevState->depthFunction != currState->depthFunction)
                     {
-                        depthChanges++;
+                        ++depthChanges;
                     }
                     if (prevState->polygonMode != currState->polygonMode ||
                         prevState->cullingEnabled != currState->cullingEnabled)
                     {
-                        polygonChanges++;
+                        ++polygonChanges;
                     }
                 }
             }
@@ -904,7 +904,7 @@ namespace OloEngine
                         prev.GetSortKey().GetShaderID() == curr.GetSortKey().GetShaderID() &&
                         prev.GetSortKey().GetMaterialID() == curr.GetSortKey().GetMaterialID())
                     {
-                        missedBatches++;
+                        ++missedBatches;
                     }
                 }
                 ImGui::Text("Potential batch merges (same shader+material): %u", missedBatches);
@@ -932,7 +932,7 @@ namespace OloEngine
         {
             if (cmd.GetCommandType() == CommandType::DrawMeshInstanced)
             {
-                instancedCount++;
+                ++instancedCount;
                 if (const auto* instCmd = cmd.GetCommandData<DrawMeshInstancedCommand>())
                     totalInstances += instCmd->instanceCount;
             }
@@ -1310,7 +1310,7 @@ namespace OloEngine
                     totalDisplacement += displacement;
                     maxDisplacement = std::max(maxDisplacement, displacement);
                     if (displacement > 0)
-                        movedCount++;
+                        ++movedCount;
                 }
 
                 f64 avgDisplacement = post.empty() ? 0.0 : totalDisplacement / post.size();
@@ -1338,9 +1338,9 @@ namespace OloEngine
                     const auto& curr = commands[i];
 
                     if (prev.GetSortKey().GetShaderID() != curr.GetSortKey().GetShaderID())
-                        shaderChanges++;
+                        ++shaderChanges;
                     if (prev.GetSortKey().GetMaterialID() != curr.GetSortKey().GetMaterialID())
-                        materialChanges++;
+                        ++materialChanges;
 
                     // Compare PODRenderState using the unified extractor
                     {
@@ -1350,10 +1350,10 @@ namespace OloEngine
                         {
                             if (prevState->blendEnabled != currState->blendEnabled ||
                                 prevState->blendSrcFactor != currState->blendSrcFactor)
-                                blendChanges++;
+                                ++blendChanges;
                             if (prevState->depthTestEnabled != currState->depthTestEnabled ||
                                 prevState->depthFunction != currState->depthFunction)
-                                depthChanges++;
+                                ++depthChanges;
                         }
                     }
                 }
@@ -1397,7 +1397,7 @@ namespace OloEngine
                         prev.GetSortKey().GetShaderID() == curr.GetSortKey().GetShaderID() &&
                         prev.GetSortKey().GetMaterialID() == curr.GetSortKey().GetMaterialID())
                     {
-                        potentialMerges++;
+                        ++potentialMerges;
                     }
                 }
                 if (potentialMerges > 0)
@@ -1495,7 +1495,7 @@ namespace OloEngine
                 for (u32 i = 1; i < static_cast<u32>(commands.size()); ++i)
                 {
                     if (commands[i - 1].GetSortKey().GetShaderID() != commands[i].GetSortKey().GetShaderID())
-                        shaderChanges++;
+                        ++shaderChanges;
                 }
                 f32 changeRatio = static_cast<f32>(shaderChanges) / static_cast<f32>(commands.size() - 1);
                 if (changeRatio > 0.5f)
@@ -1547,7 +1547,7 @@ namespace OloEngine
                         if (const auto* meshCmd = cmd.GetCommandData<DrawMeshCommand>())
                         {
                             if (meshCmd->indexCount < 100)
-                                smallDraws++;
+                                ++smallDraws;
                         }
                     }
                 }

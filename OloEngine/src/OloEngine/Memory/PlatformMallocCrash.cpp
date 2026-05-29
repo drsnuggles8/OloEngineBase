@@ -70,8 +70,8 @@ namespace OloEngine
             {
                 // Found a free slot
                 Allocations[i].Size = InAllocationSize;
-                NumUsed++;
-                TotalNumUsed++;
+                ++NumUsed;
+                ++TotalNumUsed;
 
                 // Update tracking
                 if (i > MaxUsedIndex)
@@ -121,7 +121,7 @@ namespace OloEngine
         if (Allocations[Index].Size != 0)
         {
             Allocations[Index].Size = 0;
-            NumUsed--;
+            --NumUsed;
 
             // Wipe freed memory
             std::memset(Ptr, MEM_WIPETAG, AllocationSize);

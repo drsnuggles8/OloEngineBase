@@ -194,7 +194,7 @@ inline u32 CountShaderChanges(const std::vector<DrawKey>& keys)
         u32 currentShader = keys[i].GetShaderID();
         if (currentShader != lastShader)
         {
-            changes++;
+            ++changes;
             lastShader = currentShader;
         }
     }

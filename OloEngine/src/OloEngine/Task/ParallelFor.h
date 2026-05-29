@@ -95,7 +95,7 @@ namespace OloEngine
 
             if (!LowLevelTasks::FScheduler::Get().IsWorkerThread())
             {
-                NumThreadTasks++; // Named threads help with the work
+                ++NumThreadTasks; // Named threads help with the work
             }
 
             // Don't go wider than number of cores
@@ -147,7 +147,7 @@ namespace OloEngine
                 // Do the prework
                 CurrentThreadWorkToDoBeforeHelping();
                 // No threads, just do it and return
-                for (i32 Index = 0; Index < Num; Index++)
+                for (i32 Index = 0; Index < Num; ++Index)
                 {
                     CallBody(Body, Contexts, 0, Index);
                 }
@@ -159,7 +159,7 @@ namespace OloEngine
             i32 NumBatches = Num;
             if (const bool bIsUnbalanced = (Flags & EParallelForFlags::Unbalanced) != EParallelForFlags::None; !bIsUnbalanced)
             {
-                for (i32 Div = 6; Div; Div--)
+                for (i32 Div = 6; Div; --Div)
                 {
                     if (Num >= (NumWorkers * Div))
                     {
@@ -173,7 +173,7 @@ namespace OloEngine
                     }
                 }
             }
-            NumWorkers--; // Decrement one because this function will work on it locally
+            --NumWorkers; // Decrement one because this function will work on it locally
 
             OLO_CORE_ASSERT(BatchSize * NumBatches >= Num, "Batch calculation error");
 
@@ -331,7 +331,7 @@ namespace OloEngine
 
                         i32 StartIndex = BatchIndex * BatchSize;
                         i32 EndIndex = FMath::Min(StartIndex + BatchSize, Num);
-                        for (i32 Index = StartIndex; Index < EndIndex; Index++)
+                        for (i32 Index = StartIndex; Index < EndIndex; ++Index)
                         {
                             CallBody(Body, Contexts, WorkerIndex, Index);
                         }

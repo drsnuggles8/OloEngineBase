@@ -229,7 +229,7 @@ namespace OloEngine
             // Read asset infos
             m_AssetLookupMap.clear(); // Clear lookup map before populating with new assets
             m_AssetPackFile.AssetInfos.resize(m_AssetPackFile.Index.AssetCount);
-            for (u32 i = 0; i < m_AssetPackFile.Index.AssetCount; i++)
+            for (u32 i = 0; i < m_AssetPackFile.Index.AssetCount; ++i)
             {
                 auto& assetInfo = m_AssetPackFile.AssetInfos[i];
                 stream.ReadRaw(assetInfo.Handle);
@@ -278,7 +278,7 @@ namespace OloEngine
 
             // Read scene infos
             m_AssetPackFile.SceneInfos.resize(m_AssetPackFile.Index.SceneCount);
-            for (u32 i = 0; i < m_AssetPackFile.Index.SceneCount; i++)
+            for (u32 i = 0; i < m_AssetPackFile.Index.SceneCount; ++i)
             {
                 auto& sceneInfo = m_AssetPackFile.SceneInfos[i];
                 stream.ReadRaw(sceneInfo.Handle);
@@ -333,7 +333,7 @@ namespace OloEngine
                                                "Asset count for scene exceeds maximum allowed limit");
                 }
 
-                for (u32 j = 0; j < assetCount; j++)
+                for (u32 j = 0; j < assetCount; ++j)
                 {
                     AssetHandle assetHandle;
                     AssetPackFile::AssetInfo assetInfo;

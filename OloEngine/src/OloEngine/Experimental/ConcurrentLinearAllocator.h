@@ -349,7 +349,7 @@ namespace OloEngine
                 if (uptr AlignedOffset = Align(Header->NextAllocationPtr, static_cast<uptr>(Alignment)); AlignedOffset + Size <= reinterpret_cast<uptr>(Header) + BlockAllocationTag::BlockSize)
                 {
                     Header->NextAllocationPtr = AlignedOffset + Size;
-                    Header->Num++;
+                    ++Header->Num;
                     return reinterpret_cast<void*>(AlignedOffset);
                 }
 
@@ -377,7 +377,7 @@ namespace OloEngine
                 if (uptr AlignedOffset = Align(Header->NextAllocationPtr, static_cast<uptr>(Alignment)); AlignedOffset + Size <= reinterpret_cast<uptr>(Header) + BlockAllocationTag::BlockSize)
                 {
                     Header->NextAllocationPtr = AlignedOffset + Size + sizeof(FAllocationHeader);
-                    Header->Num++;
+                    ++Header->Num;
 
                     FAllocationHeader* AllocationHeader = reinterpret_cast<FAllocationHeader*>(AlignedOffset) - 1;
                     OLO_ASAN_UNPOISON_MEMORY_REGION(AllocationHeader, sizeof(FAllocationHeader) + Size);

@@ -573,7 +573,7 @@ void main()
         {
             frag << "layout(binding = " << nextTextureBinding << ") uniform sampler2D " << param.Name << ";\n";
             outParameters.push_back({ param.Name, ShaderGraphPinType::Texture2D, {} });
-            nextTextureBinding++;
+            ++nextTextureBinding;
         }
         if (!textureParams.empty())
             frag << "\n";

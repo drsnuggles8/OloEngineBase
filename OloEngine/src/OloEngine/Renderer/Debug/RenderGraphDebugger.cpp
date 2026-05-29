@@ -858,7 +858,7 @@ namespace OloEngine
 
             dependsOn[inputName].push_back(outputName);
             dependedBy[outputName].push_back(inputName);
-            inDegree[inputName]++;
+            ++inDegree[inputName];
         }
 
         // Step 2: Assign layers using topological sorting
@@ -886,7 +886,7 @@ namespace OloEngine
                 layers[dependent] = std::max(layers[dependent], layers[current] + 1);
 
                 // Decrease in-degree and check if ready
-                inDegree[dependent]--;
+                --inDegree[dependent];
                 if (inDegree[dependent] == 0)
                 {
                     queue.push(dependent);
@@ -900,7 +900,7 @@ namespace OloEngine
 
         for (const auto& [passName, layer] : layers)
         {
-            nodesPerLayer[layer]++;
+            ++nodesPerLayer[layer];
             maxLayer = std::max(maxLayer, layer);
         }
 
@@ -942,7 +942,7 @@ namespace OloEngine
             m_NodePositions[passName] = nodeData;
 
             // Increment counter for this layer
-            layerCounts[layer]++;
+            ++layerCounts[layer];
         }
     }
 

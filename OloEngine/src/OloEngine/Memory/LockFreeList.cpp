@@ -174,7 +174,7 @@ namespace OloEngine
                         // Allocate new links from the main allocator
                         // Chain them using Payload field (matching UE5.7)
                         i32 FirstIndex = FLockFreeLinkPolicy::s_LinkAllocator.Alloc(NUM_PER_BUNDLE);
-                        for (i32 Index = 0; Index < NUM_PER_BUNDLE; Index++)
+                        for (i32 Index = 0; Index < NUM_PER_BUNDLE; ++Index)
                         {
                             TLink* Event = FLockFreeLinkPolicy::IndexToLink(FirstIndex + Index);
                             Event->DoubleNext.Init();
@@ -193,7 +193,7 @@ namespace OloEngine
             TLink* ResultP = FLockFreeLinkPolicy::DerefLink(TLS.PartialBundle);
             TLS.PartialBundle = static_cast<TLinkPtr>(
                 reinterpret_cast<uptr>(ResultP->Payload.load(std::memory_order_relaxed)));
-            TLS.NumPartial--;
+            --TLS.NumPartial;
 
             // Clear payload and verify link is clean
             ResultP->Payload.store(nullptr, std::memory_order_relaxed);
@@ -232,7 +232,7 @@ namespace OloEngine
             ItemP->Payload.store(reinterpret_cast<void*>(static_cast<uptr>(TLS.PartialBundle)),
                                  std::memory_order_relaxed);
             TLS.PartialBundle = Item;
-            TLS.NumPartial++;
+            ++TLS.NumPartial;
         }
 
         // @brief Get singleton instance

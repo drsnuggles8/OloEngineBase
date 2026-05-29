@@ -499,9 +499,9 @@ namespace OloEngine
         for (const auto& item : m_Items)
         {
             if (item.IsDirectory())
-                dirCount++;
+                ++dirCount;
             else
-                fileCount++;
+                ++fileCount;
         }
 
         if (!m_SelectedItems.empty())

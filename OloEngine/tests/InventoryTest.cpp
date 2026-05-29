@@ -589,9 +589,9 @@ TEST_F(InventoryTestFixture, LootTable_StatisticalDistribution)
         auto const& id = results[0].ItemDefinitionID;
         EXPECT_TRUE(id == "sword_iron" || id == "health_potion");
         if (id == "sword_iron")
-            swordCount++;
+            ++swordCount;
         else if (id == "health_potion")
-            potionCount++;
+            ++potionCount;
     }
 
     // With equal weights, each should be roughly 50% (allow 10% tolerance)

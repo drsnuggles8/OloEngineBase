@@ -146,9 +146,9 @@ namespace OloEngine
 
         vertices.reserve(rings * sectors);
 
-        for (u32 r = 0; r < rings; r++)
+        for (u32 r = 0; r < rings; ++r)
         {
-            for (u32 s = 0; s < sectors; s++)
+            for (u32 s = 0; s < sectors; ++s)
             {
                 const f32 y = sin(-glm::pi<f32>() / 2 + glm::pi<f32>() * r * R);
                 const f32 x = cos(2 * glm::pi<f32>() * s * S) * sin(glm::pi<f32>() * r * R);
@@ -169,9 +169,9 @@ namespace OloEngine
 
         // Generate indices
         indices.reserve((rings - 1) * (sectors - 1) * 6);
-        for (u32 r = 0; r < rings - 1; r++)
+        for (u32 r = 0; r < rings - 1; ++r)
         {
-            for (u32 s = 0; s < sectors - 1; s++)
+            for (u32 s = 0; s < sectors - 1; ++s)
             {
                 const u32 curRow = r * sectors;
                 const u32 nextRow = (r + 1) * sectors;
@@ -257,7 +257,7 @@ namespace OloEngine
         vertices.emplace_back(glm::vec3(0.0f, -halfHeight, 0.0f), glm::vec3(0.0f, -1.0f, 0.0f), glm::vec2(0.5f, 0.5f)); // Bottom center
 
         // Generate circle vertices
-        for (u32 i = 0; i < segments; i++)
+        for (u32 i = 0; i < segments; ++i)
         {
             const f32 angle = i * angleStep;
             const f32 x = cos(angle) * radius;
@@ -276,7 +276,7 @@ namespace OloEngine
         }
 
         // Generate indices
-        for (u32 i = 0; i < segments; i++)
+        for (u32 i = 0; i < segments; ++i)
         {
             const u32 next = (i + 1) % segments;
 
@@ -338,7 +338,7 @@ namespace OloEngine
         vertices.emplace_back(glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, -1.0f, 0.0f), glm::vec2(0.5f, 0.5f));
 
         // Generate base circle and side vertices
-        for (u32 i = 0; i < segments; i++)
+        for (u32 i = 0; i < segments; ++i)
         {
             const f32 angle = i * angleStep;
             const f32 x = cos(angle) * radius;
@@ -354,7 +354,7 @@ namespace OloEngine
         }
 
         // Generate indices
-        for (u32 i = 0; i < segments; i++)
+        for (u32 i = 0; i < segments; ++i)
         {
             const u32 next = (i + 1) % segments;
 
@@ -525,7 +525,7 @@ namespace OloEngine
         };
 
         // Subdivide faces
-        for (u32 sub = 0; sub < subdivisions; sub++)
+        for (u32 sub = 0; sub < subdivisions; ++sub)
         {
             std::vector<u32> newIndices;
             newIndices.reserve(indices.size() * 4);
@@ -595,7 +595,7 @@ namespace OloEngine
                 std::array<f32, 3> originalU = { u1, u2, u3 };
                 std::array<u32, 3> originalIndices = { v1, v2, v3 };
 
-                for (int j = 0; j < 3; j++)
+                for (int j = 0; j < 3; ++j)
                 {
                     Vertex newVertex = vertices[originalIndices[j]];
 
@@ -644,11 +644,11 @@ namespace OloEngine
 
         vertices.reserve(majorSegments * minorSegments);
 
-        for (u32 i = 0; i < majorSegments; i++)
+        for (u32 i = 0; i < majorSegments; ++i)
         {
             const f32 u = static_cast<f32>(i) / majorSegments * 2.0f * glm::pi<f32>();
 
-            for (u32 j = 0; j < minorSegments; j++)
+            for (u32 j = 0; j < minorSegments; ++j)
             {
                 const f32 v = static_cast<f32>(j) / minorSegments * 2.0f * glm::pi<f32>();
 
@@ -669,9 +669,9 @@ namespace OloEngine
         }
 
         // Generate indices
-        for (u32 i = 0; i < majorSegments; i++)
+        for (u32 i = 0; i < majorSegments; ++i)
         {
-            for (u32 j = 0; j < minorSegments; j++)
+            for (u32 j = 0; j < minorSegments; ++j)
             {
                 const u32 current = i * minorSegments + j;
                 const u32 next = ((i + 1) % majorSegments) * minorSegments + j;
@@ -711,7 +711,7 @@ namespace OloEngine
         const f32 step = size / divisions;
 
         // Generate grid lines (vertical and horizontal)
-        for (u32 i = 0; i <= divisions; i++)
+        for (u32 i = 0; i <= divisions; ++i)
         {
             const f32 pos = -halfSize + i * step;
 

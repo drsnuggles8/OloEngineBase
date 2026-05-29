@@ -132,6 +132,6 @@ namespace OloEngine
         }
 
         ctx.Bucket->SubmitPacketParallel(packet, ctx.WorkerIndex);
-        ctx.CommandsSubmitted++;
+        ++ctx.CommandsSubmitted;
     }
 } // namespace OloEngine

@@ -72,7 +72,7 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
         m_FrameStartTime = std::chrono::high_resolution_clock::now();
-        m_FrameNumber++;
+        ++m_FrameNumber;
 
         // Calculate frame time from previous frame
         auto frameTime = std::chrono::duration<f64, std::milli>(m_FrameStartTime - m_LastFrameTime).count();
@@ -789,7 +789,7 @@ namespace OloEngine
     void RendererProfiler::PerformanceCounter::AddSample(f64 value)
     {
         m_Value = value;
-        m_SampleCount++;
+        ++m_SampleCount;
 
         if (value < m_Min)
             m_Min = value;
@@ -811,7 +811,7 @@ namespace OloEngine
 
         // Track how many valid samples we have (up to buffer size)
         if (m_HistoryCount < OLO_HISTORY_SIZE)
-            m_HistoryCount++;
+            ++m_HistoryCount;
     }
     void RendererProfiler::PerformanceCounter::Reset()
     {
@@ -968,7 +968,7 @@ namespace OloEngine
         drawCall.m_GPUTime = gpuTime;
 
         m_CurrentRenderPass->m_DrawCalls.push_back(drawCall);
-        m_CurrentRenderPass->m_DrawCallCount++;
+        ++m_CurrentRenderPass->m_DrawCallCount;
 
         OLO_CORE_TRACE("RendererProfiler: Tracked draw call '{}' with shader '{}' - {} verts, {} indices",
                        name, shaderName, vertexCount, indexCount);

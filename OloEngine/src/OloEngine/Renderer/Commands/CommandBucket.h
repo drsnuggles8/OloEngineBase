@@ -122,8 +122,8 @@ namespace OloEngine
             {
                 m_Keys.push_back(metadata.m_SortKey.GetKey());
                 m_Packets.push_back(packet);
-                m_CommandCount++;
-                m_Stats.TotalCommands++;
+                ++m_CommandCount;
+                ++m_Stats.TotalCommands;
 
                 // Adding a new command invalidates sorting and batching
                 m_IsSorted = false;
@@ -213,8 +213,8 @@ namespace OloEngine
 
             m_Keys.push_back(packet->GetMetadata().m_SortKey.GetKey());
             m_Packets.push_back(packet);
-            m_CommandCount++;
-            m_Stats.TotalCommands++;
+            ++m_CommandCount;
+            ++m_Stats.TotalCommands;
 
             m_IsSorted = false;
             m_IsBatched = false;

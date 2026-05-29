@@ -1679,7 +1679,7 @@ namespace OloEngine
                 if (KeyFuncs::Matches(KeyFuncs::GetSetKey(ElementsData[ElementIndex]), Key))
                 {
                     RemoveByIndexAndHash<IsStable>(ElementIndex, KeyHash);
-                    NumRemovedElements++;
+                    ++NumRemovedElements;
 
                     if constexpr (!KeyFuncs::bAllowDuplicateKeys)
                     {

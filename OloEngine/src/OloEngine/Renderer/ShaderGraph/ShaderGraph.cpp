@@ -359,7 +359,7 @@ namespace OloEngine
         {
             if (!node->ParameterName.empty())
             {
-                paramNames[node->ParameterName]++;
+                ++paramNames[node->ParameterName];
             }
         }
         for (const auto& [name, count] : paramNames)
@@ -403,7 +403,7 @@ namespace OloEngine
             u64 fromID = static_cast<u64>(outputNode->ID);
             u64 toID = static_cast<u64>(inputNode->ID);
             adjacency[fromID].push_back(toID);
-            inDegree[toID]++;
+            ++inDegree[toID];
         }
 
         // Kahn's algorithm

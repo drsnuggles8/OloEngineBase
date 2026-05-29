@@ -460,7 +460,7 @@ namespace OloEngine
             drawCall.Shader->Bind();
 
             // Bind textures
-            for (u32 i = 0; i < drawCall.Textures.size(); i++)
+            for (u32 i = 0; i < drawCall.Textures.size(); ++i)
             {
                 drawCall.Textures[i]->Bind(i);
             }
@@ -814,12 +814,12 @@ namespace OloEngine
             s_Data.CircleVertexBufferPtr->Thickness = thickness;
             s_Data.CircleVertexBufferPtr->Fade = fade;
             s_Data.CircleVertexBufferPtr->EntityID = entityID;
-            s_Data.CircleVertexBufferPtr++;
+            ++s_Data.CircleVertexBufferPtr;
         }
 
         s_Data.CircleIndexCount += 6;
 
-        s_Data.Stats.QuadCount++;
+        ++s_Data.Stats.QuadCount;
     }
 
     void Renderer2D::DrawLine(const glm::vec3& p0, const glm::vec3& p1, const glm::vec4& color, const int entityID)
@@ -827,12 +827,12 @@ namespace OloEngine
         s_Data.LineVertexBufferPtr->Position = p0;
         s_Data.LineVertexBufferPtr->Color = color;
         s_Data.LineVertexBufferPtr->EntityID = entityID;
-        s_Data.LineVertexBufferPtr++;
+        ++s_Data.LineVertexBufferPtr;
 
         s_Data.LineVertexBufferPtr->Position = p1;
         s_Data.LineVertexBufferPtr->Color = color;
         s_Data.LineVertexBufferPtr->EntityID = entityID;
-        s_Data.LineVertexBufferPtr++;
+        ++s_Data.LineVertexBufferPtr;
 
         s_Data.LineVertexCount += 2;
     }
@@ -853,7 +853,7 @@ namespace OloEngine
     void Renderer2D::DrawRect(const glm::mat4& transform, const glm::vec4& color, const int entityID)
     {
         glm::vec3 lineVertices[4]{};
-        for (sizet i = 0; i < 4; i++)
+        for (sizet i = 0; i < 4; ++i)
         {
             lineVertices[i] = transform * s_Data.QuadVertexPositions[i];
         }

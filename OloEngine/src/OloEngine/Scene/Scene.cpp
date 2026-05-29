@@ -5128,10 +5128,10 @@ namespace OloEngine
             auto& sys = psc.System;
 
             // Frustum cull entire emitter via its bounding sphere
-            Renderer3D::GetStats().TotalEmitters++;
+            ++Renderer3D::GetStats().TotalEmitters;
             if (Renderer3D::IsFrustumCullingEnabled() && !Renderer3D::IsVisibleInFrustum(sys.GetBoundingSphere()))
             {
-                Renderer3D::GetStats().CulledEmitters++;
+                ++Renderer3D::GetStats().CulledEmitters;
                 continue;
             }
 

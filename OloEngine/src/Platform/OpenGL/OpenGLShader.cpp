@@ -596,13 +596,13 @@ namespace OloEngine
             sizet typeStart = pos + typeTokenLength;
             while (typeStart < eol && (sourceStr[typeStart] == ' ' || sourceStr[typeStart] == '\t'))
             {
-                typeStart++;
+                ++typeStart;
             }
 
             sizet typeEnd = typeStart;
             while (typeEnd < eol && sourceStr[typeEnd] != ' ' && sourceStr[typeEnd] != '\t' && sourceStr[typeEnd] != '\r' && sourceStr[typeEnd] != '\n')
             {
-                typeEnd++;
+                ++typeEnd;
             }
 
             std::string typeStr = sourceStr.substr(typeStart, typeEnd - typeStart);

@@ -148,7 +148,7 @@ namespace OloEngine
         // Advance to the next frame buffer
         u32 nextIndex = (currentIndex + 1) % NUM_BUFFERED_FRAMES;
         m_CurrentFrameIndex.store(nextIndex, std::memory_order_release);
-        m_TotalFrameCount++;
+        ++m_TotalFrameCount;
     }
 
     CommandAllocator* FrameResourceManager::GetMainAllocator()

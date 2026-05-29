@@ -47,7 +47,7 @@ namespace OloEngine
                 for (sizet i = 0; i < count; ++i)
                 {
                     u8 digit = static_cast<u8>((keys[i] >> shift) & 0xFF);
-                    histogram[digit]++;
+                    ++histogram[digit];
                 }
 
                 // Convert counts to starting positions (prefix sum)
@@ -138,7 +138,7 @@ namespace OloEngine
                             for (sizet i = start; i < end; ++i)
                             {
                                 u8 digit = static_cast<u8>((keys[i] >> shift) & 0xFF);
-                                hist[digit]++;
+                                ++hist[digit];
                             }
                         });
                 }
@@ -285,8 +285,8 @@ namespace OloEngine
         m_Keys.push_back(packet->GetMetadata().m_SortKey.GetKey());
         m_Packets.push_back(packet);
 
-        m_CommandCount++;
-        m_Stats.TotalCommands++;
+        ++m_CommandCount;
+        ++m_Stats.TotalCommands;
 
         // Adding a new command invalidates sorting and batching
         m_IsSorted = false;
@@ -728,7 +728,7 @@ namespace OloEngine
             for (u32 t = 1; t < totalInstances; ++t)
             {
                 m_Packets[indices[t]] = nullptr;
-                m_Stats.BatchedCommands++;
+                ++m_Stats.BatchedCommands;
             }
         }
 
@@ -804,11 +804,11 @@ namespace OloEngine
                 type == CommandType::DrawIndexedInstanced ||
                 type == CommandType::DrawLines)
             {
-                m_Stats.DrawCalls++;
+                ++m_Stats.DrawCalls;
             }
             else if (type != CommandType::Invalid)
             {
-                m_Stats.StateChanges++;
+                ++m_Stats.StateChanges;
             }
 
             packet->Execute(rendererAPI);
@@ -872,11 +872,11 @@ namespace OloEngine
                 type == CommandType::DrawIndexedInstanced ||
                 type == CommandType::DrawLines)
             {
-                m_Stats.DrawCalls++;
+                ++m_Stats.DrawCalls;
             }
             else if (type != CommandType::Invalid)
             {
-                m_Stats.StateChanges++;
+                ++m_Stats.StateChanges;
             }
 
             if (cmdIndex < gpuTimer.GetMaxQueries())
@@ -890,7 +890,7 @@ namespace OloEngine
                 packet->Execute(rendererAPI);
             }
 
-            cmdIndex++;
+            ++cmdIndex;
         }
 
         // Restore previous view state if we changed it
@@ -1020,8 +1020,8 @@ namespace OloEngine
         m_ParallelCommands[globalIndex] = packet;
 
         // Update slot state
-        slot.offset++;
-        slot.remaining--;
+        ++slot.offset;
+        --slot.remaining;
 
         // Increment global command count (atomic)
         m_ParallelCommandCount.fetch_add(1, std::memory_order_relaxed);
@@ -1058,7 +1058,7 @@ namespace OloEngine
             {
                 m_Keys.push_back(packet->GetMetadata().m_SortKey.GetKey());
                 m_Packets.push_back(packet);
-                m_CommandCount++;
+                ++m_CommandCount;
             }
         }
 
@@ -1098,7 +1098,7 @@ namespace OloEngine
                         cmd->prevBoneBufferOffset = frameDataBuffer.GetGlobalBoneOffset(cmd->workerIndex, cmd->prevBoneBufferOffset);
                     }
                     cmd->needsBoneOffsetRemap = false;
-                    remappedCount++;
+                    ++remappedCount;
                 }
             }
         }

@@ -110,7 +110,7 @@ namespace OloEngine::Audio::DSP
         vbap->spPos.resize(numOfOutputs);
 
         // Store speaker vectors from channel map
-        for (u32 i = 0; i < numOfOutputs; i++)
+        for (u32 i = 0; i < numOfOutputs; ++i)
         {
             const auto vector = g_maChannelDirections[outputChannelMap[i]];
             vbap->spPos[i] = glm::vec2{ vector.x, vector.z };
@@ -120,7 +120,7 @@ namespace OloEngine::Audio::DSP
         SortChannelLayout(vbap->spPos, vbap->spPosSorted);
 
         // Pre-compute inverse matrices for each sorted speaker pair
-        for (sizet i = 0; i < vbap->spPosSorted.size(); i++)
+        for (sizet i = 0; i < vbap->spPosSorted.size(); ++i)
         {
             const auto& [p, idx] = vbap->spPosSorted.at(i);
             const auto& [p2, idx2] = vbap->spPosSorted.at((i + 1) % vbap->spPosSorted.size());
@@ -142,7 +142,7 @@ namespace OloEngine::Audio::DSP
         // Sort input channels by their rotation vectors
         std::vector<glm::vec2> inputChannelsUnsorted;
         inputChannelsUnsorted.reserve(numOfInputs);
-        for (u32 i = 0; i < numOfInputs; i++)
+        for (u32 i = 0; i < numOfInputs; ++i)
         {
             const auto vec = g_maChannelDirections[sourceChannelMap[i]];
             inputChannelsUnsorted.push_back(glm::vec2{ vec.x, vec.z });
@@ -155,7 +155,7 @@ namespace OloEngine::Audio::DSP
         const bool evenChannelCount = numOfInputs % 2 == 0;
         float sourceAngle = -0.5f * vsAngle;
 
-        for (u32 i = 0; i < numOfInputs; i++)
+        for (u32 i = 0; i < numOfInputs; ++i)
         {
             const auto& [pos, id] = inputChannelsSorted[i];
 
@@ -174,7 +174,7 @@ namespace OloEngine::Audio::DSP
             ChannelGroup channelGroup(numOfOutputs, id, channelAngle);
             channelGroup.VirtualSourceIDs.reserve(vsPerChannel);
 
-            for (u32 vi = 0; vi < vsPerChannel; vi++)
+            for (u32 vi = 0; vi < vsPerChannel; ++vi)
             {
                 sourceAngle += vsAngle;
                 float sa = sourceAngle;
@@ -189,7 +189,7 @@ namespace OloEngine::Audio::DSP
 
                 vbap->VirtualSources.push_back(virtualSource);
                 channelGroup.VirtualSourceIDs.push_back(vsID);
-                vsID++;
+                ++vsID;
             }
 
             vbap->ChannelGroups[id] = std::move(channelGroup);
@@ -263,7 +263,7 @@ namespace OloEngine::Audio::DSP
     void VBAP::SortChannelLayout(const std::vector<glm::vec2>& speakerVectors,
                                  std::vector<std::pair<glm::vec2, u32>>& sorted)
     {
-        for (sizet i = 0; i < speakerVectors.size(); i++)
+        for (sizet i = 0; i < speakerVectors.size(); ++i)
         {
             sorted.push_back({ speakerVectors.at(i), static_cast<u32>(i) });
         }
@@ -368,7 +368,7 @@ namespace OloEngine::Audio::DSP
         const auto& inverseMats = vbap->InverseMats;
         const auto size = sortedPositions.size();
 
-        for (sizet i = 0; i < size; i++)
+        for (sizet i = 0; i < size; ++i)
         {
             const auto& [pos, ind] = sortedPositions[i];
             const auto& [pos2, ind2] = sortedPositions[(i + 1) % size];

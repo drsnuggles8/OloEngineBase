@@ -193,7 +193,7 @@ namespace OloEngine
         TReversePredicate<PredicateType> ReversePredicateWrapper(Predicate); // Reverse the predicate to build a max-heap instead of a min-heap
         HeapifyInternal(First, Num, Proj, ReversePredicateWrapper);
 
-        for (IndexType Index = Num - 1; Index > 0; Index--)
+        for (IndexType Index = Num - 1; Index > 0; --Index)
         {
             Swap(First[0], First[Index]);
             HeapSiftDown(First, (IndexType)0, Index, Proj, ReversePredicateWrapper);

@@ -1434,7 +1434,7 @@ namespace OloEngine
                 if (KeyFuncs::Matches(KeyFuncs::GetSetKey(Element.Value), Key))
                 {
                     RemoveByIndex(ElementIndex);
-                    NumRemovedElements++;
+                    ++NumRemovedElements;
 
                     if constexpr (!KeyFuncs::bAllowDuplicateKeys)
                     {

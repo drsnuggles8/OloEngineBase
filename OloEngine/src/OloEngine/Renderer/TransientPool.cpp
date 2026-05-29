@@ -372,7 +372,7 @@ namespace OloEngine
         {
             if (pool.size() > 1)
             {
-                report.TextureGroupsWithAliasPotential++;
+                ++report.TextureGroupsWithAliasPotential;
                 // Estimate savings as (count-1) * sizeof(one item)
                 TextureSpecification spec;
                 spec.Width = key.Width;
@@ -390,7 +390,7 @@ namespace OloEngine
         {
             if (pool.size() > 1)
             {
-                report.FramebufferGroupsWithAliasPotential++;
+                ++report.FramebufferGroupsWithAliasPotential;
                 // Estimate based on first framebuffer in pool
                 if (pool[0])
                 {
@@ -424,7 +424,7 @@ namespace OloEngine
         {
             if (pool.size() > 1)
             {
-                report.BufferGroupsWithAliasPotential++;
+                ++report.BufferGroupsWithAliasPotential;
                 u64 itemBytes = static_cast<u64>(sizeBytes);
                 report.PotentialAliasingBytes += itemBytes * (pool.size() - 1);
             }

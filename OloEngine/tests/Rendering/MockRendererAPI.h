@@ -77,7 +77,7 @@ namespace OloEngine::Testing
             sizet n = 0;
             for (const auto& c : m_Calls)
                 if (c.Name == name)
-                    n++;
+                    ++n;
             return n;
         }
 
@@ -127,14 +127,14 @@ namespace OloEngine::Testing
             RecordedCall c{ "DrawArrays" };
             c.ParamU32_0 = vertexCount;
             m_Calls.push_back(c);
-            m_DrawCallCount++;
+            ++m_DrawCallCount;
         }
         void DrawIndexed(const Ref<VertexArray>& /*va*/, u32 indexCount) override
         {
             RecordedCall c{ "DrawIndexed" };
             c.ParamU32_0 = indexCount;
             m_Calls.push_back(c);
-            m_DrawCallCount++;
+            ++m_DrawCallCount;
         }
         void DrawIndexedInstanced(const Ref<VertexArray>& /*va*/, u32 indexCount, u32 instanceCount) override
         {
@@ -142,14 +142,14 @@ namespace OloEngine::Testing
             c.ParamU32_0 = indexCount;
             c.ParamU32_1 = instanceCount;
             m_Calls.push_back(c);
-            m_DrawCallCount++;
+            ++m_DrawCallCount;
         }
         void DrawLines(const Ref<VertexArray>& /*va*/, u32 vertexCount) override
         {
             RecordedCall c{ "DrawLines" };
             c.ParamU32_0 = vertexCount;
             m_Calls.push_back(c);
-            m_DrawCallCount++;
+            ++m_DrawCallCount;
         }
         void DrawIndexedPatches(const Ref<VertexArray>& /*va*/, u32 indexCount, u32 patchVerts) override
         {
@@ -157,7 +157,7 @@ namespace OloEngine::Testing
             c.ParamU32_0 = indexCount;
             c.ParamU32_1 = patchVerts;
             m_Calls.push_back(c);
-            m_DrawCallCount++;
+            ++m_DrawCallCount;
         }
         void DrawIndexedRaw(u32 vaoID, u32 indexCount) override
         {
@@ -165,7 +165,7 @@ namespace OloEngine::Testing
             c.ParamU32_0 = vaoID;
             c.ParamU32_1 = indexCount;
             m_Calls.push_back(c);
-            m_DrawCallCount++;
+            ++m_DrawCallCount;
         }
         void DrawIndexedRaw(u32 vaoID, u32 indexCount, u32 baseIndex) override
         {
@@ -174,7 +174,7 @@ namespace OloEngine::Testing
             c.ParamU32_1 = indexCount;
             c.ParamU32_2 = baseIndex;
             m_Calls.push_back(c);
-            m_DrawCallCount++;
+            ++m_DrawCallCount;
         }
         void DrawIndexedInstancedRaw(u32 vaoID, u32 indexCount, u32 baseIndex, u32 instanceCount) override
         {
@@ -184,7 +184,7 @@ namespace OloEngine::Testing
             c.ParamU32_2 = baseIndex;
             c.ParamU32_3 = instanceCount;
             m_Calls.push_back(c);
-            m_DrawCallCount++;
+            ++m_DrawCallCount;
         }
         void DrawIndexedPatchesRaw(u32 vaoID, u32 indexCount, u32 patchVerts) override
         {
@@ -193,7 +193,7 @@ namespace OloEngine::Testing
             c.ParamU32_1 = indexCount;
             c.ParamU32_2 = patchVerts;
             m_Calls.push_back(c);
-            m_DrawCallCount++;
+            ++m_DrawCallCount;
         }
 
         // State
@@ -303,17 +303,17 @@ namespace OloEngine::Testing
         void DrawElementsIndirect(const Ref<VertexArray>& /*va*/, u32 /*bufID*/) override
         {
             Record("DrawElementsIndirect");
-            m_DrawCallCount++;
+            ++m_DrawCallCount;
         }
         void DrawArraysIndirect(const Ref<VertexArray>& /*va*/, u32 /*bufID*/) override
         {
             Record("DrawArraysIndirect");
-            m_DrawCallCount++;
+            ++m_DrawCallCount;
         }
         void DrawElementsIndirectRaw(u32 /*vaoID*/, u32 /*bufID*/) override
         {
             Record("DrawElementsIndirectRaw");
-            m_DrawCallCount++;
+            ++m_DrawCallCount;
         }
         void DispatchCompute(u32 /*x*/, u32 /*y*/, u32 /*z*/) override
         {
@@ -327,7 +327,7 @@ namespace OloEngine::Testing
         void BindDefaultFramebuffer() override
         {
             Record("BindDefaultFramebuffer");
-            m_BindCount++;
+            ++m_BindCount;
         }
         void BlitFramebufferToDefault(u32 srcFboID, u32 width, u32 height) override
         {
@@ -343,12 +343,12 @@ namespace OloEngine::Testing
             c.ParamU32_0 = slot;
             c.ParamU32_1 = texID;
             m_Calls.push_back(c);
-            m_BindCount++;
+            ++m_BindCount;
         }
         void BindImageTexture(u32 /*unit*/, u32 /*texID*/, u32 /*mip*/, bool /*layered*/, u32 /*layer*/, GLenum /*access*/, GLenum /*fmt*/) override
         {
             Record("BindImageTexture");
-            m_BindCount++;
+            ++m_BindCount;
         }
 
         void SetPolygonOffset(f32 /*factor*/, f32 /*units*/) override

@@ -1183,7 +1183,7 @@ TEST_F(LowLevelTaskUserDataTest, ConcurrencyLimiterSimulation)
     while (LowLevelTasks::FTask* PoppedTask = WorkQueue.Pop())
     {
         u32 Slot = SlotCounter % MaxConcurrency;
-        SlotCounter++;
+        ++SlotCounter;
 
         PoppedTask->SetUserData(reinterpret_cast<void*>(static_cast<uptr>(Slot)));
         LowLevelTasks::TryLaunch(*PoppedTask, LowLevelTasks::EQueuePreference::GlobalQueuePreference, true);

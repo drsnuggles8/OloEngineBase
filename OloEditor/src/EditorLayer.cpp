@@ -1025,19 +1025,19 @@ namespace OloEngine
         int buttonCount = 0;
         if (hasPlayButton)
         {
-            buttonCount++;
+            ++buttonCount;
         }
         if (hasSimulateButton)
         {
-            buttonCount++;
+            ++buttonCount;
         }
         if (hasPauseButton)
         {
-            buttonCount++;
+            ++buttonCount;
         }
         if (isPaused)
         {
-            buttonCount++;
+            ++buttonCount;
         }
         if (buttonCount == 0)
         {

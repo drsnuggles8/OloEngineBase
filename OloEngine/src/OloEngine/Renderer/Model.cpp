@@ -621,14 +621,14 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
 
         // Process all the node's meshes (if any)
-        for (u32 i = 0; i < node->mNumMeshes; i++)
+        for (u32 i = 0; i < node->mNumMeshes; ++i)
         {
             const aiMesh* mesh = scene->mMeshes[node->mMeshes[i]];
             m_Meshes.push_back(ProcessMesh(mesh, scene));
         }
 
         // Then do the same for each of its children
-        for (u32 i = 0; i < node->mNumChildren; i++)
+        for (u32 i = 0; i < node->mNumChildren; ++i)
         {
             ProcessNode(node->mChildren[i], scene);
         }
@@ -696,7 +696,7 @@ namespace OloEngine
         else
         {
             // Process vertices sequentially for small meshes
-            for (u32 i = 0; i < mesh->mNumVertices; i++)
+            for (u32 i = 0; i < mesh->mNumVertices; ++i)
             {
                 Vertex& vertex = vertices[i];
 
@@ -731,10 +731,10 @@ namespace OloEngine
             }
         }
 
-        for (u32 i = 0; i < mesh->mNumFaces; i++)
+        for (u32 i = 0; i < mesh->mNumFaces; ++i)
         {
             const aiFace face = mesh->mFaces[i];
-            for (u32 j = 0; j < face.mNumIndices; j++)
+            for (u32 j = 0; j < face.mNumIndices; ++j)
             {
                 indices.push_back(face.mIndices[j]);
             }
@@ -846,7 +846,7 @@ namespace OloEngine
         // of the cache logic stays unchanged.
         const std::string_view srgbSuffix = srgb ? "|srgb" : "|linear";
 
-        for (u32 i = 0; i < mat->GetTextureCount(type); i++)
+        for (u32 i = 0; i < mat->GetTextureCount(type); ++i)
         {
             aiString str;
             mat->GetTexture(type, i, &str);
@@ -1370,7 +1370,7 @@ namespace OloEngine
         m_BoundingSphere = m_Meshes[0]->GetBoundingSphere();
 
         // Expand to include all other meshes
-        for (sizet i = 1; i < m_Meshes.size(); i++)
+        for (sizet i = 1; i < m_Meshes.size(); ++i)
         {
             const BoundingBox& meshBox = m_Meshes[i]->GetBoundingBox();
 
@@ -1395,7 +1395,7 @@ namespace OloEngine
         outCommands.clear();
         outCommands.reserve(m_Meshes.size());
 
-        for (sizet i = 0; i < m_Meshes.size(); i++)
+        for (sizet i = 0; i < m_Meshes.size(); ++i)
         {
             // Get the submesh to access its material index
             const Submesh& submesh = m_Meshes[i]->GetSubmesh();
@@ -1423,7 +1423,7 @@ namespace OloEngine
         outCommands.clear();
         outCommands.reserve(m_Meshes.size());
 
-        for (sizet i = 0; i < m_Meshes.size(); i++)
+        for (sizet i = 0; i < m_Meshes.size(); ++i)
         {
             // Get the submesh to access its material index
             const Submesh& submesh = m_Meshes[i]->GetSubmesh();
@@ -1515,7 +1515,7 @@ namespace OloEngine
         std::vector<Renderer3D::MeshSubmitDesc> meshDescriptors;
         meshDescriptors.reserve(m_Meshes.size());
 
-        for (sizet i = 0; i < m_Meshes.size(); i++)
+        for (sizet i = 0; i < m_Meshes.size(); ++i)
         {
             const Submesh& submesh = m_Meshes[i]->GetSubmesh();
 
@@ -1562,7 +1562,7 @@ namespace OloEngine
         std::vector<Renderer3D::MeshSubmitDesc> meshDescriptors;
         meshDescriptors.reserve(m_Meshes.size());
 
-        for (sizet i = 0; i < m_Meshes.size(); i++)
+        for (sizet i = 0; i < m_Meshes.size(); ++i)
         {
             const Submesh& submesh = m_Meshes[i]->GetSubmesh();
 

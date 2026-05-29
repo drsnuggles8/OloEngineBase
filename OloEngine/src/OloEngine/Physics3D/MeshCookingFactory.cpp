@@ -185,11 +185,11 @@ namespace OloEngine
         // Update statistics
         if (type == EMeshColliderType::Triangle)
         {
-            m_TriangleMeshCount++;
+            ++m_TriangleMeshCount;
         }
         else if (type == EMeshColliderType::Convex)
         {
-            m_ConvexMeshCount++;
+            ++m_ConvexMeshCount;
         }
 
         OLO_CORE_INFO("Successfully cooked {} mesh collider", type == EMeshColliderType::Triangle ? "triangle" : "convex");

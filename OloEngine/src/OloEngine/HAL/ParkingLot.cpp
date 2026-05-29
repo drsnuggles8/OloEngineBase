@@ -808,7 +808,7 @@ namespace OloEngine::ParkingLot
             {
                 return 1;
             }
-            Value--;
+            --Value;
             Value |= Value >> 1;
             Value |= Value >> 2;
             Value |= Value >> 4;

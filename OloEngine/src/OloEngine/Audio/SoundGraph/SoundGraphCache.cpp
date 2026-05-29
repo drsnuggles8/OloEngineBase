@@ -69,7 +69,7 @@ namespace OloEngine::Audio::SoundGraph
         // Update statistics and LRU
         ++m_HitCount;
         it->second.m_LastAccessed = std::chrono::system_clock::now();
-        it->second.m_AccessCount++;
+        ++it->second.m_AccessCount;
         UpdateLRU(sourcePath);
 
         return it->second.m_CachedGraph;

@@ -293,7 +293,7 @@ namespace OloEngine
         {
             if (layer.m_LayerID != INVALID_LAYER_ID)
             {
-                validCount++;
+                ++validCount;
             }
         }
         return validCount;

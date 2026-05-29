@@ -95,7 +95,7 @@ namespace OloEngine
                     {
                         TLS.PartialBundle = static_cast<void**>(FMemory::Malloc(SIZE_PER_BUNDLE, BLOCK_ALIGNMENT));
                         void** Next = TLS.PartialBundle;
-                        for (i32 Index = 0; Index < NUM_PER_BUNDLE - 1; Index++)
+                        for (i32 Index = 0; Index < NUM_PER_BUNDLE - 1; ++Index)
                         {
                             void* NextNext = reinterpret_cast<void*>(reinterpret_cast<u8*>(Next) + SIZE);
                             *Next = NextNext;
@@ -111,7 +111,7 @@ namespace OloEngine
             m_NumFree.Decrement();
             void* Result = static_cast<void*>(TLS.PartialBundle);
             TLS.PartialBundle = static_cast<void**>(*TLS.PartialBundle);
-            TLS.NumPartial--;
+            --TLS.NumPartial;
             OLO_CORE_ASSERT(TLS.NumPartial >= 0 && ((!!TLS.NumPartial) == (!!TLS.PartialBundle)));
             return Result;
 #endif
@@ -140,7 +140,7 @@ namespace OloEngine
             }
             *static_cast<void**>(Item) = static_cast<void*>(TLS.PartialBundle);
             TLS.PartialBundle = static_cast<void**>(Item);
-            TLS.NumPartial++;
+            ++TLS.NumPartial;
 #endif
         }
 

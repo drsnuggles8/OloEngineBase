@@ -78,7 +78,7 @@ namespace OloEngine
             return {};
         }
 
-        m_TotalMessagesRouted++;
+        ++m_TotalMessagesRouted;
 
         // Return all subscribers as recipients
         const auto& subscribers = it->second.GetSubscribers();

@@ -495,12 +495,12 @@ namespace OloEngine::LowLevelTasks
             // uninitialized waiting queues.
             if (!g_TaskGraphUseDynamicThreadCreation)
             {
-                for (i32 Index = 0; Index < MaxForegroundWorkers; Index++)
+                for (i32 Index = 0; Index < MaxForegroundWorkers; ++Index)
                 {
                     ForegroundCreateThreadFn();
                 }
 
-                for (i32 Index = 0; Index < MaxBackgroundWorkers; Index++)
+                for (i32 Index = 0; Index < MaxBackgroundWorkers; ++Index)
                 {
                     BackgroundCreateThreadFn();
                 }

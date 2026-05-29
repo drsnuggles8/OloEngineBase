@@ -417,7 +417,7 @@ namespace OloEngine
         // Instanced draw call
         RenderCommand::DrawIndexedInstanced(s_Data.VAO, 6, s_Data.InstanceCount);
 
-        s_Data.Stats.DrawCalls++;
+        ++s_Data.Stats.DrawCalls;
         s_Data.Stats.InstanceCount += s_Data.InstanceCount;
 
         // Reset write cursor so Flush is self-contained even in code paths that
@@ -465,8 +465,8 @@ namespace OloEngine
             s_Data.MeshInstanceUBO->SetData(&instances[i], sizeof(MeshParticleInstance));
             RenderCommand::DrawIndexed(vao, indexCount);
 
-            s_Data.Stats.DrawCalls++;
-            s_Data.Stats.InstanceCount++;
+            ++s_Data.Stats.DrawCalls;
+            ++s_Data.Stats.InstanceCount;
         }
     }
 
@@ -535,7 +535,7 @@ namespace OloEngine
         u32 indexCount = s_Data.TrailQuadCount * 6;
         RenderCommand::DrawIndexed(s_Data.TrailVAO, indexCount);
 
-        s_Data.Stats.DrawCalls++;
+        ++s_Data.Stats.DrawCalls;
         s_Data.Stats.InstanceCount += s_Data.TrailQuadCount;
     }
 
@@ -568,7 +568,7 @@ namespace OloEngine
         // Indirect draw using the GPU-dedicated VAO (no instance attributes)
         RenderCommand::DrawElementsIndirect(s_Data.GPUVAO, gpuSystem.GetIndirectDrawSSBO()->GetRendererID());
 
-        s_Data.Stats.DrawCalls++;
+        ++s_Data.Stats.DrawCalls;
         // InstanceCount not updated here: GetAliveCount() requires a GPU→CPU readback that would stall the pipeline
     }
 

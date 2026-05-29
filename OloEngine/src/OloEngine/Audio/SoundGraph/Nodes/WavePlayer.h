@@ -194,7 +194,7 @@ namespace OloEngine::Audio::SoundGraph
                             m_NextRefillFrame = m_StartSample;
                             m_WaveSource.m_Channels.Clear();
                             ReadNextFrame();
-                            m_FrameNumber++;
+                            ++m_FrameNumber;
                             m_WaveSource.m_ReadPosition = m_FrameNumber;
                         }
                     }
@@ -207,7 +207,7 @@ namespace OloEngine::Audio::SoundGraph
                 else
                 {
                     ReadNextFrame();
-                    m_FrameNumber++;
+                    ++m_FrameNumber;
                     m_WaveSource.m_ReadPosition = m_FrameNumber;
                 }
             }

@@ -463,7 +463,7 @@ namespace OloEngine
                     if (!seenBytes[sampleData[i]])
                     {
                         seenBytes[sampleData[i]] = true;
-                        uniqueBytes++;
+                        ++uniqueBytes;
                     }
                 }
 
@@ -507,7 +507,7 @@ namespace OloEngine
             {
                 if (input[i] == currentByte && runLength < 255)
                 {
-                    runLength++;
+                    ++runLength;
                 }
                 else
                 {

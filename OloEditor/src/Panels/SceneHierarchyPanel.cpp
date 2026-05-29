@@ -974,7 +974,7 @@ namespace OloEngine
             auto rk = static_cast<u32>(hoveredKey);
             for (u32 j = rk; j < curve.KeyCount - 1; ++j)
                 curve.Keys[j] = curve.Keys[j + 1];
-            curve.KeyCount--;
+            --curve.KeyCount;
             modified = true;
         }
 
@@ -994,7 +994,7 @@ namespace OloEngine
             for (u32 k = curve.KeyCount; k > insertIdx; --k)
                 curve.Keys[k] = curve.Keys[k - 1];
             curve.Keys[insertIdx] = { time, value };
-            curve.KeyCount++;
+            ++curve.KeyCount;
             modified = true;
         }
 
@@ -2285,7 +2285,7 @@ namespace OloEngine
                                 OLO_CORE_INFO("Added AnimationStateComponent: {} animations available", animStateComp.m_AvailableClips.size());
 
                                 // List all available animations
-                                for (sizet i = 0; i < animStateComp.m_AvailableClips.size(); i++)
+                                for (sizet i = 0; i < animStateComp.m_AvailableClips.size(); ++i)
                                 {
                                     auto& anim = animStateComp.m_AvailableClips[i];
                                     OLO_CORE_INFO("  Animation [{}]: '{}' - Duration: {:.2f}s", i, anim->Name, anim->Duration);
@@ -3952,7 +3952,7 @@ namespace OloEngine
                     if (component.m_SelectedIndex == removedIndex)
                         component.m_SelectedIndex = -1;
                     else if (component.m_SelectedIndex > removedIndex)
-                        component.m_SelectedIndex--;
+                        --component.m_SelectedIndex;
                     ImGui::PopID();
                     break;
                 }

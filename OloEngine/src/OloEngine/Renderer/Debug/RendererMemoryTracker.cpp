@@ -124,7 +124,7 @@ namespace OloEngine
         {
             total += m_TypeUsage[i];
             if (m_TypeUsage[i] > 0)
-                nonZero++;
+                ++nonZero;
         }
 
         OLO_CORE_INFO("DebugDump [{}]: nonZero={}, total={}, allocations={}",
@@ -172,8 +172,8 @@ namespace OloEngine
         m_Allocations[address] = info;
         m_TypeUsage[static_cast<sizet>(std::to_underlying(type))] += size;
 
-        m_TypeCounts[static_cast<sizet>(std::to_underlying(type))]++;
-        m_TotalAllocations++;
+        ++m_TypeCounts[static_cast<sizet>(std::to_underlying(type))];
+        ++m_TotalAllocations;
 
         // Calculate total usage inline (avoid double locking)
         const sizet totalUsage = GetTotalMemoryUsageUnlocked();
@@ -219,9 +219,9 @@ namespace OloEngine
             {
                 const AllocationInfo& info = it->second;
                 m_TypeUsage[static_cast<sizet>(std::to_underlying(info.m_Type))] -= info.m_Size;
-                m_TypeCounts[static_cast<sizet>(std::to_underlying(info.m_Type))]--;
+                --m_TypeCounts[static_cast<sizet>(std::to_underlying(info.m_Type))];
                 m_Allocations.erase(it);
-                m_TotalDeallocations++;
+                ++m_TotalDeallocations;
             }
             else
             {
@@ -345,7 +345,7 @@ namespace OloEngine
         for (sizet i = 0; i < static_cast<sizet>(std::to_underlying(ResourceType::COUNT)); ++i)
         {
             if (m_TypeUsage[i] > 0)
-                nonZeroEntries++;
+                ++nonZeroEntries;
         }
 
         OLO_CORE_INFO("RendererMemoryTracker: Debug - nonZeroEntries={}, m_Allocations.size()={}, totalMemory={}",

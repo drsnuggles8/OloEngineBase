@@ -265,7 +265,7 @@ TEST_F(OcclusionStateManagerTest, SimulateTemporalCoherence)
     {
         mgr.BeginFrame();
         state.WasVisible = false;
-        state.InvisibleFrameCount++;
+        ++state.InvisibleFrameCount;
         state.LastTestedFrame = mgr.GetCurrentFrame();
     }
 

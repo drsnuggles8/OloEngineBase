@@ -281,7 +281,7 @@ namespace OloEngine
             return std::nullopt;
         }
 
-        state.CurrentStageIndex++;
+        ++state.CurrentStageIndex;
 
         // Check if all stages are done
         if (state.CurrentStageIndex >= static_cast<i32>(definition.Stages.size()))

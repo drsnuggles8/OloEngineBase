@@ -869,13 +869,13 @@ namespace OloEngine
         // Sets a flag indicating that this archive is currently serializing class/struct defaults.
         void StartSerializingDefaults()
         {
-            ArSerializingDefaults++;
+            ++ArSerializingDefaults;
         }
 
         // Indicate that this archive is no longer serializing class/struct defaults.
         void StopSerializingDefaults()
         {
-            ArSerializingDefaults--;
+            --ArSerializingDefaults;
         }
 
         // Flushes cache and frees internal data.

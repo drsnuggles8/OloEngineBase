@@ -166,13 +166,13 @@ namespace OloEngine
         {
             m_MemoryUsageByType[static_cast<sizet>(std::to_underlying(oldType))] -= oldMemory;
             if (oldType != ResourceType::Texture2D)
-                m_ResourceCounts[static_cast<sizet>(std::to_underlying(oldType))]--;
+                --m_ResourceCounts[static_cast<sizet>(std::to_underlying(oldType))];
         }
 
         m_Resources[rendererID] = std::move(textureInfo);
         m_MemoryUsageByType[static_cast<sizet>(std::to_underlying(ResourceType::Texture2D))] += memoryUsage;
         if (!hadExisting || oldType != ResourceType::Texture2D)
-            m_ResourceCounts[static_cast<sizet>(std::to_underlying(ResourceType::Texture2D))]++;
+            ++m_ResourceCounts[static_cast<sizet>(std::to_underlying(ResourceType::Texture2D))];
     }
 
     void GPUResourceInspector::RegisterTextureCubemap(u32 rendererID, const std::string& name, const std::string& debugName)
@@ -204,13 +204,13 @@ namespace OloEngine
         {
             m_MemoryUsageByType[static_cast<sizet>(std::to_underlying(oldType))] -= oldMemory;
             if (oldType != ResourceType::TextureCubemap)
-                m_ResourceCounts[static_cast<sizet>(std::to_underlying(oldType))]--;
+                --m_ResourceCounts[static_cast<sizet>(std::to_underlying(oldType))];
         }
 
         m_Resources[rendererID] = std::move(textureInfo);
         m_MemoryUsageByType[static_cast<sizet>(std::to_underlying(ResourceType::TextureCubemap))] += memoryUsage;
         if (!hadExisting || oldType != ResourceType::TextureCubemap)
-            m_ResourceCounts[static_cast<sizet>(std::to_underlying(ResourceType::TextureCubemap))]++;
+            ++m_ResourceCounts[static_cast<sizet>(std::to_underlying(ResourceType::TextureCubemap))];
     }
 
     void GPUResourceInspector::RegisterBuffer(u32 rendererID, GLenum target, const std::string& name, const std::string& debugName)
@@ -259,13 +259,13 @@ namespace OloEngine
         {
             m_MemoryUsageByType[static_cast<sizet>(std::to_underlying(oldType))] -= oldMemory;
             if (oldType != bufferType)
-                m_ResourceCounts[static_cast<sizet>(std::to_underlying(oldType))]--;
+                --m_ResourceCounts[static_cast<sizet>(std::to_underlying(oldType))];
         }
 
         m_Resources[rendererID] = std::move(bufferInfo);
         m_MemoryUsageByType[static_cast<sizet>(std::to_underlying(bufferType))] += memoryUsage;
         if (!hadExisting || oldType != bufferType)
-            m_ResourceCounts[static_cast<sizet>(std::to_underlying(bufferType))]++;
+            ++m_ResourceCounts[static_cast<sizet>(std::to_underlying(bufferType))];
     }
 
     void GPUResourceInspector::RegisterFramebuffer(u32 rendererID, const std::string& name, const std::string& debugName)
@@ -297,13 +297,13 @@ namespace OloEngine
         {
             m_MemoryUsageByType[static_cast<sizet>(std::to_underlying(oldType))] -= oldMemory;
             if (oldType != ResourceType::Framebuffer)
-                m_ResourceCounts[static_cast<sizet>(std::to_underlying(oldType))]--;
+                --m_ResourceCounts[static_cast<sizet>(std::to_underlying(oldType))];
         }
 
         m_Resources[rendererID] = std::move(framebufferInfo);
         m_MemoryUsageByType[static_cast<sizet>(std::to_underlying(ResourceType::Framebuffer))] += memoryUsage;
         if (!hadExisting || oldType != ResourceType::Framebuffer)
-            m_ResourceCounts[static_cast<sizet>(std::to_underlying(ResourceType::Framebuffer))]++;
+            ++m_ResourceCounts[static_cast<sizet>(std::to_underlying(ResourceType::Framebuffer))];
     }
 
     void GPUResourceInspector::UnregisterResource(u32 rendererID)
@@ -317,7 +317,7 @@ namespace OloEngine
         if (it != m_Resources.end())
         {
             ResourceType type = it->second->m_Type;
-            m_ResourceCounts[static_cast<sizet>(std::to_underlying(type))]--;
+            --m_ResourceCounts[static_cast<sizet>(std::to_underlying(type))];
             m_MemoryUsageByType[static_cast<sizet>(std::to_underlying(type))] -= it->second->m_MemoryUsage;
             m_Resources.erase(it);
         }
@@ -874,7 +874,7 @@ namespace OloEngine
 
             if (attachmentType != GL_NONE)
             {
-                info.m_ColorAttachmentCount++;
+                ++info.m_ColorAttachmentCount;
 
                 GLint internalFormat;
                 glGetFramebufferAttachmentParameteriv(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0 + i,
@@ -1334,9 +1334,9 @@ namespace OloEngine
         for (const auto& [id, resource] : m_Resources)
         {
             if (resource->m_IsActive)
-                activeResources++;
+                ++activeResources;
             else
-                inactiveResources++;
+                ++inactiveResources;
         }
 
         ImGui::Text("Total: %u, Active: %u, Inactive: %u", totalResources, activeResources, inactiveResources);
@@ -1833,7 +1833,7 @@ namespace OloEngine
             for (const auto& [id, resource] : m_Resources)
             {
                 sizet typeIndex = static_cast<sizet>(std::to_underlying(resource->m_Type));
-                actualCounts[typeIndex]++;
+                ++actualCounts[typeIndex];
                 actualMemoryUsage[typeIndex] += resource->m_MemoryUsage;
                 totalMemory += resource->m_MemoryUsage;
             }
@@ -2078,7 +2078,7 @@ namespace OloEngine
         while (size >= 1024.0 && unit < 3)
         {
             size /= 1024.0;
-            unit++;
+            ++unit;
         }
 
         std::ostringstream oss;

@@ -176,7 +176,7 @@ namespace OloEngine
 
             if (ImGui::BeginCombo("Animation Clip##AnimControl", previewLabel.c_str()))
             {
-                for (int i = 0; i < static_cast<int>(animState.m_AvailableClips.size()); i++)
+                for (int i = 0; i < static_cast<int>(animState.m_AvailableClips.size()); ++i)
                 {
                     const auto& clip = animState.m_AvailableClips[i];
                     bool isSelected = (i == selectedClip);

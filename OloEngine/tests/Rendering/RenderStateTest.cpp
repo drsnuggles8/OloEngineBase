@@ -644,7 +644,7 @@ struct CylinderTestData
         outVertices.push_back({ { 0.0f, halfHeight, 0.0f }, { 0.0f, 1.0f, 0.0f } });
         outVertices.push_back({ { 0.0f, -halfHeight, 0.0f }, { 0.0f, -1.0f, 0.0f } });
 
-        for (u32 i = 0; i < segments; i++)
+        for (u32 i = 0; i < segments; ++i)
         {
             const f32 angle = i * angleStep;
             const f32 x = cos(angle) * radius;
@@ -656,7 +656,7 @@ struct CylinderTestData
             outVertices.push_back({ { x, -halfHeight, z }, { x / radius, 0.0f, z / radius } }); // side bottom
         }
 
-        for (u32 i = 0; i < segments; i++)
+        for (u32 i = 0; i < segments; ++i)
         {
             const u32 next = (i + 1) % segments;
 
@@ -694,7 +694,7 @@ TEST(RenderState, CylinderTopCapWindingIsCCW)
     CylinderTestData::Generate(0.5f, 1.0f, 16, vertices, indices);
 
     // Top cap: every 12 indices per segment, first 3 are a top-cap triangle
-    for (u32 i = 0; i < 16; i++)
+    for (u32 i = 0; i < 16; ++i)
     {
         const u32 base = i * 12; // 12 indices per segment (top + bottom + 2 side)
         const auto& v0 = vertices[indices[base + 0]].Position;
@@ -714,7 +714,7 @@ TEST(RenderState, CylinderBottomCapWindingIsCCW)
     std::vector<u32> indices;
     CylinderTestData::Generate(0.5f, 1.0f, 16, vertices, indices);
 
-    for (u32 i = 0; i < 16; i++)
+    for (u32 i = 0; i < 16; ++i)
     {
         const u32 base = i * 12 + 3; // bottom cap starts 3 indices after top cap
         const auto& v0 = vertices[indices[base + 0]].Position;
@@ -739,9 +739,9 @@ TEST(RenderState, CylinderSideWindingIsCCW)
     // Wait, actually the loop generates:
     //   top cap (3 indices) + bottom cap (3 indices) + side face1 (3 indices) + side face2 (3 indices) = 12 per segment
 
-    for (u32 i = 0; i < 16; i++)
+    for (u32 i = 0; i < 16; ++i)
     {
-        for (u32 tri = 0; tri < 2; tri++)
+        for (u32 tri = 0; tri < 2; ++tri)
         {
             const u32 base = i * 12 + 6 + tri * 3;
             const auto& v0 = vertices[indices[base + 0]].Position;
@@ -782,7 +782,7 @@ struct ConeTestData
         outVertices.push_back({ { 0.0f, height, 0.0f }, { 0.0f, 1.0f, 0.0f } }); // tip
         outVertices.push_back({ { 0.0f, 0.0f, 0.0f }, { 0.0f, -1.0f, 0.0f } });  // bottom center
 
-        for (u32 i = 0; i < segments; i++)
+        for (u32 i = 0; i < segments; ++i)
         {
             const f32 angle = i * angleStep;
             const f32 x = cos(angle) * radius;
@@ -793,7 +793,7 @@ struct ConeTestData
             outVertices.push_back({ { x, 0.0f, z }, sideNormal });            // side
         }
 
-        for (u32 i = 0; i < segments; i++)
+        for (u32 i = 0; i < segments; ++i)
         {
             const u32 next = (i + 1) % segments;
 
@@ -816,7 +816,7 @@ TEST(RenderState, ConeBaseWindingIsCCW)
     std::vector<u32> indices;
     ConeTestData::Generate(0.5f, 1.0f, 16, vertices, indices);
 
-    for (u32 i = 0; i < 16; i++)
+    for (u32 i = 0; i < 16; ++i)
     {
         const u32 base = i * 6; // 6 indices per segment (3 base + 3 side)
         const auto& v0 = vertices[indices[base + 0]].Position;
@@ -836,7 +836,7 @@ TEST(RenderState, ConeSideWindingIsCCW)
     std::vector<u32> indices;
     ConeTestData::Generate(0.5f, 1.0f, 16, vertices, indices);
 
-    for (u32 i = 0; i < 16; i++)
+    for (u32 i = 0; i < 16; ++i)
     {
         const u32 base = i * 6 + 3; // side triangle starts after base triangle
         const auto& v0 = vertices[indices[base + 0]].Position;
@@ -872,10 +872,10 @@ struct TorusTestData
     static void Generate(f32 majorRadius, f32 minorRadius, u32 majorSegments, u32 minorSegments,
                          std::vector<TestVertex>& outVertices, std::vector<u32>& outIndices)
     {
-        for (u32 i = 0; i < majorSegments; i++)
+        for (u32 i = 0; i < majorSegments; ++i)
         {
             const f32 u = static_cast<f32>(i) / majorSegments * 2.0f * glm::pi<f32>();
-            for (u32 j = 0; j < minorSegments; j++)
+            for (u32 j = 0; j < minorSegments; ++j)
             {
                 const f32 v = static_cast<f32>(j) / minorSegments * 2.0f * glm::pi<f32>();
                 const f32 x = (majorRadius + minorRadius * cos(v)) * cos(u);
@@ -890,9 +890,9 @@ struct TorusTestData
             }
         }
 
-        for (u32 i = 0; i < majorSegments; i++)
+        for (u32 i = 0; i < majorSegments; ++i)
         {
-            for (u32 j = 0; j < minorSegments; j++)
+            for (u32 j = 0; j < minorSegments; ++j)
             {
                 const u32 current = i * minorSegments + j;
                 const u32 next = ((i + 1) % majorSegments) * minorSegments + j;
@@ -918,7 +918,7 @@ TEST(RenderState, TorusWindingIsCCW)
     // vertex normal (pointing outward from the tube surface).
     const u32 totalTriangles = majorSegs * minorSegs * 2;
     u32 failures = 0;
-    for (u32 t = 0; t < totalTriangles; t++)
+    for (u32 t = 0; t < totalTriangles; ++t)
     {
         const u32 i0 = indices[t * 3 + 0];
         const u32 i1 = indices[t * 3 + 1];
@@ -933,7 +933,7 @@ TEST(RenderState, TorusWindingIsCCW)
 
         if (dot <= 0.0f)
         {
-            failures++;
+            ++failures;
             if (failures <= 3) // Only print first few failures to avoid spam
             {
                 ADD_FAILURE() << "Torus triangle " << t << " has wrong winding.\n"

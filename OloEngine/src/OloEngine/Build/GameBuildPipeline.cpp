@@ -351,7 +351,7 @@ namespace OloEngine
             }
             else
             {
-                copiedCount++;
+                ++copiedCount;
             }
         }
 
@@ -392,7 +392,7 @@ namespace OloEngine
         {
             if (entry.is_regular_file())
             {
-                shaderCount++;
+                ++shaderCount;
             }
         }
         OLO_CORE_INFO("[GameBuild] Copied {} shader files", shaderCount);
@@ -588,7 +588,7 @@ namespace OloEngine
                 continue;
             }
 
-            copiedCount++;
+            ++copiedCount;
         }
 
         if (copiedCount == 0)

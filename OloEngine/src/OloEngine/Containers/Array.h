@@ -2611,7 +2611,7 @@ namespace OloEngine
             else if (Ar.IsLoading())
             {
                 A.Empty(SerializeNum);
-                for (SizeType i = 0; i < SerializeNum; i++)
+                for (SizeType i = 0; i < SerializeNum; ++i)
                 {
                     Ar << A.AddDefaulted_GetRef();
                 }
@@ -2619,7 +2619,7 @@ namespace OloEngine
             else
             {
                 A.m_ArrayNum = SerializeNum;
-                for (SizeType i = 0; i < A.m_ArrayNum; i++)
+                for (SizeType i = 0; i < A.m_ArrayNum; ++i)
                 {
                     Ar << A[i];
                 }

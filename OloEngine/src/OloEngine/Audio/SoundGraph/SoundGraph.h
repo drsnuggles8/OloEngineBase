@@ -163,7 +163,7 @@ namespace OloEngine::Audio::SoundGraph
                 if (m_Steps > 0)
                 {
                     m_Current += m_Increment;
-                    m_Steps--;
+                    --m_Steps;
 
                     if (m_Steps == 0)
                         m_Current = m_Target;

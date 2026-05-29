@@ -172,7 +172,7 @@ TEST_F(PrefabOverrideTest, Prefab_CreatePreservesHierarchy)
     int entityCount = 0;
     prefab->GetScene()->GetAllEntitiesWith<IDComponent>().each(
         [&](auto)
-        { entityCount++; });
+        { ++entityCount; });
     EXPECT_EQ(entityCount, 3);
 
     // Root should have children

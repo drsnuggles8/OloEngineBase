@@ -56,7 +56,7 @@ class StubRenderPass : public RenderGraphNode
     void Init(const FramebufferSpecification& /*spec*/) override {}
     void Execute(RGCommandContext& /*context*/) override
     {
-        m_ExecuteCount++;
+        ++m_ExecuteCount;
     }
     [[nodiscard]] Ref<Framebuffer> GetTarget() const override
     {
@@ -327,7 +327,7 @@ class ContextAwareStubPass : public RenderGraphNode
 
     void Execute(RGCommandContext& context) override
     {
-        m_ContextExecuteCount++;
+        ++m_ContextExecuteCount;
         m_ContextWasActive = context.IsPassActive();
         m_ContextPassName = std::string(context.GetActivePassName());
     }
@@ -369,7 +369,7 @@ class InputTrackingStubPass : public RenderGraphNode
     void Init(const FramebufferSpecification& /*spec*/) override {}
     void Execute(RGCommandContext& /*context*/) override
     {
-        m_ExecuteCount++;
+        ++m_ExecuteCount;
     }
 
     [[nodiscard]] Ref<Framebuffer> GetTarget() const override
@@ -443,7 +443,7 @@ class DeclarationTrackingStubPass : public TestDeclarativeNode
     void Init(const FramebufferSpecification& /*spec*/) override {}
     void Execute(RGCommandContext& /*context*/) override
     {
-        m_ExecuteCount++;
+        ++m_ExecuteCount;
     }
 
     [[nodiscard]] Ref<Framebuffer> GetTarget() const override

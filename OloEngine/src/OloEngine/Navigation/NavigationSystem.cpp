@@ -64,7 +64,7 @@ namespace OloEngine
             constexpr f32 EPSILON = 1e-4f;
             if (dist < std::max(agent.m_StoppingDistance, EPSILON))
             {
-                agent.m_CurrentCornerIndex++;
+                ++agent.m_CurrentCornerIndex;
                 if (agent.m_CurrentCornerIndex >= static_cast<u32>(agent.m_PathCorners.size()))
                 {
                     agent.m_HasPath = false;

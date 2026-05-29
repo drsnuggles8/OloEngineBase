@@ -65,7 +65,7 @@ namespace OloEngine
                 while (Current.Max > Current.Min)
                 {
                     T *Max, *Item;
-                    for (Max = Current.Min, Item = Current.Min + 1; Item <= Current.Max; Item++)
+                    for (Max = Current.Min, Item = Current.Min + 1; Item <= Current.Max; ++Item)
                     {
 // Workaround for a codegen bug that was discovered related to member function pointer projections that are virtual
 #if defined(_MSC_FULL_VER) && _MSC_FULL_VER < 194134123
@@ -120,7 +120,7 @@ namespace OloEngine
                         StackTop->Min = Current.Min;
                         StackTop->Max = Inner.Max - 1;
                         StackTop->MaxDepth = Current.MaxDepth;
-                        StackTop++;
+                        ++StackTop;
                     }
                     if (Current.Max > Inner.Min)
                     {
@@ -135,7 +135,7 @@ namespace OloEngine
                         StackTop->Min = Inner.Min;
                         StackTop->Max = Current.Max;
                         StackTop->MaxDepth = Current.MaxDepth;
-                        StackTop++;
+                        ++StackTop;
                     }
                     if (Current.Min + 1 < Inner.Max)
                     {

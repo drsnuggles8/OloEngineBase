@@ -698,7 +698,7 @@ namespace OloEngine
                 {
                     using FieldType = std::decay_t<decltype(targetField)>;
                     targetField = physicsNode[fieldName].as<FieldType>(targetField);
-                    appliedPhysicsFields++;
+                    ++appliedPhysicsFields;
                 }
             };
 
@@ -725,7 +725,7 @@ namespace OloEngine
                 if (captureMethodValue >= minValidValue && captureMethodValue <= maxValidValue)
                 {
                     physicsSettings.m_CaptureMethod = static_cast<PhysicsDebugType>(captureMethodValue);
-                    appliedPhysicsFields++;
+                    ++appliedPhysicsFields;
                 }
                 else
                 {

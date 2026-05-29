@@ -143,9 +143,9 @@ namespace OloEngine
         for (const auto& cmd : finalCommands)
         {
             if (cmd.IsDrawCommand())
-                drawCalls++;
+                ++drawCalls;
             else if (cmd.IsStateCommand())
-                stateChanges++;
+                ++stateChanges;
         }
         m_PendingFrame.Stats.DrawCalls = drawCalls;
         m_PendingFrame.Stats.StateChanges = stateChanges;

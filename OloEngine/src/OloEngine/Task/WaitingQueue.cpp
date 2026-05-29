@@ -443,7 +443,7 @@ namespace OloEngine::LowLevelTasks::Private
                 {
                     if (!bNotifyAll && (Signals < Waiters))
                     {
-                        Notifications++;
+                        ++Notifications;
                         break; // unblocked pre-wait thread
                     }
 
@@ -451,7 +451,7 @@ namespace OloEngine::LowLevelTasks::Private
                     {
                         if (TryStartNewThread())
                         {
-                            Notifications++;
+                            ++Notifications;
                             break;
                         }
                         return Notifications;
@@ -522,7 +522,7 @@ namespace OloEngine::LowLevelTasks::Private
             u64 NextNode = Node->Next.load(std::memory_order_relaxed) & StackMask;
             FWaitEvent* Next = NextNode == StackMask ? nullptr : &m_NodesArray[static_cast<i32>(NextNode)];
 
-            UnparkedCount++;
+            ++UnparkedCount;
 
             // Signaling can be very costly on some platforms. So only trigger
             // the event if the other thread was in the waiting state.

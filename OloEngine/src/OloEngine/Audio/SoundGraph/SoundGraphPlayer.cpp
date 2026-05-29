@@ -396,7 +396,7 @@ namespace OloEngine::Audio::SoundGraph
         {
             if (source && source->IsPlaying())
             {
-                count++;
+                ++count;
             }
         }
         return count;

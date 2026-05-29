@@ -80,6 +80,6 @@ namespace OloEngine
     void OcclusionStateManager::BeginFrame()
     {
         OLO_PROFILE_FUNCTION();
-        m_CurrentFrame++;
+        ++m_CurrentFrame;
     }
 } // namespace OloEngine

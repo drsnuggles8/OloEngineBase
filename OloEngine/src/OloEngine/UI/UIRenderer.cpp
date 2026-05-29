@@ -335,7 +335,7 @@ namespace OloEngine
         // intended top of each line.
         const f32 ascenderScreen = static_cast<f32>(metrics.AscenderY * fsScale) * scale;
 
-        for (sizet i = 0; i < lines.size(); i++)
+        for (sizet i = 0; i < lines.size(); ++i)
         {
             if (lines[i].empty())
             {

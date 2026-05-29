@@ -226,9 +226,9 @@ namespace OloEngine
 
         // Generate LUT data
         std::vector<u16> data(HILBERT_SIZE * HILBERT_SIZE);
-        for (u32 y = 0; y < HILBERT_SIZE; y++)
+        for (u32 y = 0; y < HILBERT_SIZE; ++y)
         {
-            for (u32 x = 0; x < HILBERT_SIZE; x++)
+            for (u32 x = 0; x < HILBERT_SIZE; ++x)
             {
                 data[y * HILBERT_SIZE + x] = HilbertIndex(x, y);
             }
@@ -421,7 +421,7 @@ namespace OloEngine
         i32 passes = m_Settings.GTAODenoisePasses;
         bool readFromTex0 = true;
 
-        for (i32 pass = 0; pass < passes; pass++)
+        for (i32 pass = 0; pass < passes; ++pass)
         {
             // Alternate horizontal/vertical
             m_DenoiseShader->SetInt("u_BlurHorizontal", (pass % 2 == 0) ? 1 : 0);

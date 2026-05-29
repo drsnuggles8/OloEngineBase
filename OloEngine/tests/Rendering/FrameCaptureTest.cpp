@@ -429,9 +429,9 @@ TEST_F(FrameCapturePipelineTest, CapturedCommandsPreserveTypes)
     for (const auto& cmd : preSortCmds)
     {
         if (cmd.IsDrawCommand())
-            drawCount++;
+            ++drawCount;
         if (cmd.IsStateCommand())
-            stateCount++;
+            ++stateCount;
     }
 
     // We submitted 3 draw + 1 clear (Clear is a state command in IsStateCommand?
@@ -709,7 +709,7 @@ TEST_F(FrameExportTest, ExportToCSVCreatesValidFile)
     while (std::getline(file, line))
     {
         if (!line.empty())
-            dataLines++;
+            ++dataLines;
     }
 
     // Should have at least 6 lines (5 draw + 1 clear) from the captured frame

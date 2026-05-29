@@ -23,7 +23,7 @@ namespace OloEngine
         currentFrame.StartTime = std::chrono::steady_clock::now();
         currentFrame.BufferAllocations.clear();
 
-        m_CompletedFrames++;
+        ++m_CompletedFrames;
     }
 
     void InflightFrameManager::EndFrame()

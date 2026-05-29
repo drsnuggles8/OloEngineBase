@@ -297,7 +297,7 @@ namespace OloEngine
             // Search HazardPointerList for an empty entry
             do
             {
-                for (u64 idx = 0; idx < HazardChunkSize; idx++)
+                for (u64 idx = 0; idx < HazardChunkSize; ++idx)
                 {
                     uptr Nullptr = 0;
                     uptr FreeEntry = FHazardRecord::FreeHazardEntry;
@@ -438,7 +438,7 @@ namespace OloEngine
             {
                 return static_cast<u32>(Index);
             }
-            Index++;
+            ++Index;
         }
 
         return ~0u;
@@ -452,7 +452,7 @@ namespace OloEngine
         const FHazardRecordChunk* p = &m_Head;
         do
         {
-            for (u32 i = 0; i < HazardChunkSize; i++)
+            for (u32 i = 0; i < HazardChunkSize; ++i)
             {
                 void* h = p->Records[i].GetHazard();
                 if (h && h != reinterpret_cast<void*>(FHazardRecord::FreeHazardEntry))
@@ -474,7 +474,7 @@ namespace OloEngine
         TArray<HazardPointer_Impl::FHazardDeleter, TInlineAllocator<64>> DeletedCollectables;
 
         // Check all thread local to-be-deleted pointers if they are NOT in the hazard list
-        for (i32 c = 0; c < Collectables.Num(); c++)
+        for (i32 c = 0; c < Collectables.Num(); ++c)
         {
             const HazardPointer_Impl::FHazardDeleter& Collectable = Collectables[c];
             u32 Index = BinarySearchHazard(Hazards, Collectable.Pointer);
@@ -485,7 +485,7 @@ namespace OloEngine
                 DeletedCollectables.Add(Collectable);
                 Collectables[c] = Collectables.Last();
                 Collectables.Pop(EAllowShrinking::No);
-                c--;
+                --c;
             }
         }
 

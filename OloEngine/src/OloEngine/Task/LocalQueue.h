@@ -50,7 +50,7 @@ namespace OloEngine::LowLevelTasks
                 if (uptr Slot = m_ItemSlots[Idx].Value.load(std::memory_order_acquire); Slot == uptr(ESlotState::Free))
                 {
                     m_ItemSlots[Idx].Value.store(Item, std::memory_order_release);
-                    m_Head++;
+                    ++m_Head;
                     OLO_CORE_ASSERT(m_Head % NumItems == Idx, "Head index mismatch");
                     return true;
                 }
@@ -63,7 +63,7 @@ namespace OloEngine::LowLevelTasks
                 u32 Idx = m_Head % NumItems;
                 if (uptr Slot = m_ItemSlots[Idx].Value.load(std::memory_order_acquire); Slot > uptr(ESlotState::Taken) && m_ItemSlots[Idx].Value.compare_exchange_strong(Slot, uptr(ESlotState::Free), std::memory_order_acq_rel))
                 {
-                    m_Head--;
+                    --m_Head;
                     OLO_CORE_ASSERT((m_Head + 1) % NumItems == Idx, "Head index mismatch after Get");
                     Item = Slot;
                     return true;
@@ -226,7 +226,7 @@ namespace OloEngine::LowLevelTasks
                 {
                     if (m_IsInitialized.exchange(false, std::memory_order_relaxed))
                     {
-                        for (i32 PriorityIndex = 0; PriorityIndex < static_cast<i32>(std::to_underlying(ETaskPriority::Count)); PriorityIndex++)
+                        for (i32 PriorityIndex = 0; PriorityIndex < static_cast<i32>(std::to_underlying(ETaskPriority::Count)); ++PriorityIndex)
                         {
                             while (true)
                             {
@@ -359,12 +359,12 @@ namespace OloEngine::LowLevelTasks
                 u32 MaxPriority = GetBackGroundTasks ? static_cast<i32>(std::to_underlying(ETaskPriority::Count)) : static_cast<i32>(std::to_underlying(ETaskPriority::ForegroundCount));
                 CachedRandomIndex = CachedRandomIndex % NumQueues;
 
-                for (u32 Index = 0; Index < m_NumLocalQueues; Index++)
+                for (u32 Index = 0; Index < m_NumLocalQueues; ++Index)
                 {
                     // Test for null in case we race on reading NumLocalQueues reserved index before the pointer is set
                     if (TLocalQueue* LocalQueue = m_LocalQueues[Index].load(std::memory_order_acquire))
                     {
-                        for (u32 PriorityIndex = 0; PriorityIndex < MaxPriority; PriorityIndex++)
+                        for (u32 PriorityIndex = 0; PriorityIndex < MaxPriority; ++PriorityIndex)
                         {
                             if (FTask* Item; LocalQueue->m_LocalQueues[PriorityIndex].Steal(Item))
                             {
@@ -420,7 +420,7 @@ namespace OloEngine::LowLevelTasks
             void Reset()
             {
                 u32 NumQueues = m_NumLocalQueues.load(std::memory_order_relaxed);
-                for (u32 Index = 0; Index < NumQueues; Index++)
+                for (u32 Index = 0; Index < NumQueues; ++Index)
                 {
                     m_LocalQueues[Index].store(nullptr, std::memory_order_relaxed);
                 }

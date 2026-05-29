@@ -219,9 +219,9 @@ namespace OloEngine
 
             // Update global statistics
             m_TotalCompilationTime += compileTimeMs;
-            m_TotalCompilations++;
+            ++m_TotalCompilations;
             if (!success)
-                m_FailedCompilations++;
+                ++m_FailedCompilations;
 
             // Remove from pending compilations
             if (auto pendingIt = m_PendingCompilations.find(info.m_Name); pendingIt != m_PendingCompilations.end())
@@ -284,7 +284,7 @@ namespace OloEngine
                 info.m_ReloadHistory.erase(info.m_ReloadHistory.begin());
             }
 
-            m_TotalReloads++;
+            ++m_TotalReloads;
 
             OLO_CORE_TRACE("Shader reload ended: {0} (ID: {1}), Success: {2}",
                            info.m_Name, rendererID, success);
@@ -314,7 +314,7 @@ namespace OloEngine
         {
             ShaderInfo& info = it->second;
 
-            info.m_BindCount++;
+            ++info.m_BindCount;
             info.m_LastBindTime = std::chrono::steady_clock::now();
             info.m_LastActivationTime = info.m_LastBindTime;
             info.m_IsActive = true;
@@ -340,7 +340,7 @@ namespace OloEngine
 
             if (uniformIt != info.m_Uniforms.end())
             {
-                uniformIt->m_SetCount++;
+                ++uniformIt->m_SetCount;
                 uniformIt->m_LastSetTime = std::chrono::steady_clock::now();
             }
             else
@@ -641,7 +641,7 @@ namespace OloEngine
             if (length == 0)
                 break; // Invalid instruction
 
-            instructionCount++;
+            ++instructionCount;
             offset += length;
         }
     }
@@ -677,7 +677,7 @@ namespace OloEngine
             if (length == 0 || length > (wordCount - offset))
                 break; // Invalid instruction
 
-            instructionCount++;
+            ++instructionCount;
             offset += length;
         }
     }

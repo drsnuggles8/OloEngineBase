@@ -248,7 +248,7 @@ TEST_F(CommandBucketTest, SortReducesStateChanges)
             u32 s = pkt->GetMetadata().m_SortKey.GetShaderID();
             if (s != lastShader)
             {
-                changesBefore++;
+                ++changesBefore;
                 lastShader = s;
             }
         }

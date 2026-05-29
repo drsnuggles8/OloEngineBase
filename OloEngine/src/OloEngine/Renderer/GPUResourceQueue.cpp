@@ -33,7 +33,7 @@ namespace OloEngine
                 OLO_PROFILE_SCOPE("GPUResourceCommand::Execute");
                 cmd->Execute();
                 s_ProcessedCount.fetch_add(1, std::memory_order_relaxed);
-                processed++;
+                ++processed;
             }
             catch (const std::exception& e)
             {
@@ -84,7 +84,7 @@ namespace OloEngine
                 OLO_PROFILE_SCOPE("GPUResourceCommand::Execute");
                 cmd->Execute();
                 s_ProcessedCount.fetch_add(1, std::memory_order_relaxed);
-                processed++;
+                ++processed;
             }
             catch (const std::exception& e)
             {

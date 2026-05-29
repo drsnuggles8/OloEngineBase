@@ -313,14 +313,14 @@ namespace OloEngine
 
         std::vector<void*> FreedPointers;
         // Allocate pointers that will be freed later
-        for (int Index = 0; Index < NumFreedAllocations; Index++)
+        for (int Index = 0; Index < NumFreedAllocations; ++Index)
         {
             FreedPointers.push_back(FMemory::Malloc(std::rand() % MaxAllocationSize));
         }
 
         // Allocate pointers that will be leaked until the next call
         LeakedPointers.clear();
-        for (int Index = 0; Index < NumLeakedAllocations; Index++)
+        for (int Index = 0; Index < NumLeakedAllocations; ++Index)
         {
             LeakedPointers.push_back(FMemory::Malloc(std::rand() % MaxAllocationSize));
         }

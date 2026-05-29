@@ -80,7 +80,7 @@ namespace OloEngine
         for (auto& [id, index] : m_NodeIdMap)
         {
             if (index > indexToRemove)
-                index--;
+                --index;
         }
 
         // Remove all connections involving this node

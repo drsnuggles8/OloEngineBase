@@ -226,7 +226,7 @@ TEST(AudioEventQueue, MultithreadedProducerConsumer)
                 if (queue.Push(event))
                 {
                     producedCount.fetch_add(1, std::memory_order_relaxed);
-                    eventId++;
+                    ++eventId;
                 }
             }
 
@@ -293,7 +293,7 @@ TEST(AudioEventQueue, MultithreadedStressTest)
                 if (queue.Push(event))
                 {
                     producedCount.fetch_add(1, std::memory_order_relaxed);
-                    eventId++;
+                    ++eventId;
                 }
                 else
                 {

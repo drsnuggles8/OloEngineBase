@@ -215,7 +215,7 @@ namespace OloEngine
         if (!s_Initialized)
         {
             OLO_CORE_WARN("IBLCache: Not initialized");
-            s_Stats.CacheMisses++;
+            ++s_Stats.CacheMisses;
             return false;
         }
 
@@ -230,14 +230,14 @@ namespace OloEngine
                 !std::filesystem::exists(paths.BRDFLut))
             {
                 OLO_CORE_TRACE("IBLCache: Cache miss for {} (files not found)", sourcePath);
-                s_Stats.CacheMisses++;
+                ++s_Stats.CacheMisses;
                 return false;
             }
         }
         catch (const std::filesystem::filesystem_error& e)
         {
             OLO_CORE_ERROR("IBLCache: Filesystem error checking cache: {}", e.what());
-            s_Stats.CacheMisses++;
+            ++s_Stats.CacheMisses;
             return false;
         }
 
@@ -246,7 +246,7 @@ namespace OloEngine
         if (!outCached.Irradiance)
         {
             OLO_CORE_WARN("IBLCache: Failed to load irradiance from cache");
-            s_Stats.CacheMisses++;
+            ++s_Stats.CacheMisses;
             return false;
         }
 
@@ -254,7 +254,7 @@ namespace OloEngine
         if (!outCached.Prefilter)
         {
             OLO_CORE_WARN("IBLCache: Failed to load prefilter from cache");
-            s_Stats.CacheMisses++;
+            ++s_Stats.CacheMisses;
             return false;
         }
 
@@ -262,12 +262,12 @@ namespace OloEngine
         if (!outCached.BRDFLut)
         {
             OLO_CORE_WARN("IBLCache: Failed to load BRDF LUT from cache");
-            s_Stats.CacheMisses++;
+            ++s_Stats.CacheMisses;
             return false;
         }
 
         OLO_CORE_INFO("IBLCache: Loaded IBL textures from cache for {}", sourcePath);
-        s_Stats.CacheHits++;
+        ++s_Stats.CacheHits;
         return true;
     }
 
@@ -317,7 +317,7 @@ namespace OloEngine
 
         if (success)
         {
-            s_Stats.SaveCount++;
+            ++s_Stats.SaveCount;
             OLO_CORE_INFO("IBLCache: Saved IBL textures to cache for {}", sourcePath);
         }
 
@@ -368,7 +368,7 @@ namespace OloEngine
                 {
                     removedBytes += std::filesystem::file_size(path);
                     std::filesystem::remove(path);
-                    removedFiles++;
+                    ++removedFiles;
                 }
             };
 
@@ -412,7 +412,7 @@ namespace OloEngine
                 {
                     removedBytes += entry.file_size();
                     std::filesystem::remove(entry.path());
-                    removedFiles++;
+                    ++removedFiles;
                 }
             }
 
@@ -510,13 +510,13 @@ namespace OloEngine
         // to preserve the precomputed roughness-convolved mip chain.
         // Using SetFaceData (mip 0 only) would trigger glGenerateTextureMipmap,
         // overwriting the proper GGX-convolved mips with trivial bilinear downsamples.
-        for (u32 mip = 0; mip < header.MipLevels; mip++)
+        for (u32 mip = 0; mip < header.MipLevels; ++mip)
         {
             u32 mipWidth = std::max(1u, header.Width >> mip);
             u32 mipHeight = std::max(1u, header.Height >> mip);
             sizet faceSize = static_cast<sizet>(mipWidth) * mipHeight * bytesPerPixel;
 
-            for (u32 face = 0; face < 6; face++)
+            for (u32 face = 0; face < 6; ++face)
             {
                 std::vector<u8> faceData(faceSize);
                 file.read(reinterpret_cast<char*>(faceData.data()), static_cast<std::streamsize>(faceSize));
@@ -551,7 +551,7 @@ namespace OloEngine
 
         // Calculate total data size
         u64 totalDataSize = 0;
-        for (u32 mip = 0; mip < mipLevels; mip++)
+        for (u32 mip = 0; mip < mipLevels; ++mip)
         {
             u32 mipWidth = std::max(1u, spec.Width >> mip);
             u32 mipHeight = std::max(1u, spec.Height >> mip);
@@ -578,9 +578,9 @@ namespace OloEngine
         file.write(reinterpret_cast<const char*>(&header), sizeof(header));
 
         // Write each mip level's face data
-        for (u32 mip = 0; mip < mipLevels; mip++)
+        for (u32 mip = 0; mip < mipLevels; ++mip)
         {
-            for (u32 face = 0; face < 6; face++)
+            for (u32 face = 0; face < 6; ++face)
             {
                 std::vector<u8> faceData;
                 if (!cubemap->GetFaceData(face, faceData, mip))

@@ -175,12 +175,12 @@ namespace OloEngine::Audio::SoundGraph
 
                 for (const auto& nodeYaml : nodesNode)
                 {
-                    nodeCount++;
+                    ++nodeCount;
                     OloEngine::SoundGraphNodeData nodeData;
                     if (DeserializeNodeData(nodeYaml, nodeData))
                     {
                         asset.m_Nodes.push_back(nodeData);
-                        validNodeCount++;
+                        ++validNodeCount;
                     }
                 }
 
@@ -204,12 +204,12 @@ namespace OloEngine::Audio::SoundGraph
 
                 for (const auto& connectionYaml : connectionsNode)
                 {
-                    connectionCount++;
+                    ++connectionCount;
                     OloEngine::SoundGraphConnection connection;
                     if (DeserializeConnection(connectionYaml, connection))
                     {
                         asset.m_Connections.push_back(connection);
-                        validConnectionCount++;
+                        ++validConnectionCount;
                     }
                 }
 

@@ -33,7 +33,7 @@ TEST(MMOOptimization, BandwidthCapEnforcement)
     NetworkPriorityQueue queue;
 
     // Add entities with varying distances
-    for (u32 i = 1; i <= 100; i++)
+    for (u32 i = 1; i <= 100; ++i)
     {
         queue.UpdatePriority(i, static_cast<f32>(i * 10), i); // Varying distance and staleness
     }

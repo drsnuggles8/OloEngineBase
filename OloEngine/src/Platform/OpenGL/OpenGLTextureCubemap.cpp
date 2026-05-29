@@ -212,7 +212,7 @@ namespace OloEngine
 
         // First pass: check sizes and determine format
         bool firstFace = true;
-        for (u32 i = 0; i < 6; i++)
+        for (u32 i = 0; i < 6; ++i)
         {
             stbi_uc* data = stbi_load(facePaths[i].c_str(), &width, &height, &channels, 0);
             if (!data)
@@ -279,7 +279,7 @@ namespace OloEngine
         // Second pass: load and upload each face
         // Set alignment to 1 for safety — RGB (3-byte) rows may not be 4-byte aligned.
         glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
-        for (u32 i = 0; i < 6; i++)
+        for (u32 i = 0; i < 6; ++i)
         {
             stbi_uc* data = stbi_load(facePaths[i].c_str(), &width, &height, &channels, 0);
             if (!data)
@@ -486,7 +486,7 @@ namespace OloEngine
         while (maxDim > 1)
         {
             maxDim >>= 1;
-            levels++;
+            ++levels;
         }
         return levels;
     }
@@ -575,7 +575,7 @@ namespace OloEngine
         faceData.reserve(faceSize);
 
         // Read all 6 faces
-        for (u32 face = 0; face < 6; face++)
+        for (u32 face = 0; face < 6; ++face)
         {
             faceData.clear();
             if (!GetFaceData(face, faceData, mipLevel))

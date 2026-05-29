@@ -275,7 +275,7 @@ namespace OloEngine
             m_Mem.m_TopMark = this;
 
             // Track the number of outstanding marks on the stack
-            m_Mem.m_NumMarks++;
+            ++m_Mem.m_NumMarks;
         }
 
         // Destructor - automatically pops if not already popped

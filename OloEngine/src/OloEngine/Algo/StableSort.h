@@ -76,7 +76,7 @@ namespace OloEngine
                                 Swap(First[It], First[It + 1]);
                             }
                         }
-                        GroupEnd--;
+                        --GroupEnd;
                     } while (GroupEnd - SubgroupStart > 1);
 
                     SubgroupStart += MinMergeSubgroupSize;

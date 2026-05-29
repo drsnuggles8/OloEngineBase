@@ -106,7 +106,7 @@ namespace OloEngine
         [[nodiscard]] TLockFreeAllocOnceIndexedAllocator()
         {
             ++m_NextIndex; // skip index 0 (null pointer)
-            for (u32 Index = 0; Index < MaxBlocks; Index++)
+            for (u32 Index = 0; Index < MaxBlocks; ++Index)
             {
                 m_Pages[Index] = nullptr;
             }
@@ -122,7 +122,7 @@ namespace OloEngine
             {
                 LockFreeLinksExhausted(MaxTotalItems);
             }
-            for (u32 CurrentItem = FirstItem; CurrentItem < FirstItem + Count; CurrentItem++)
+            for (u32 CurrentItem = FirstItem; CurrentItem < FirstItem + Count; ++CurrentItem)
             {
                 ::new (GetRawItem(CurrentItem)) T();
             }
@@ -963,7 +963,7 @@ namespace OloEngine
                 LocalMasterState.AtomicRead(m_MasterState);
 
                 // Try each priority queue
-                for (i32 Index = 0; Index < NumPriorities; Index++)
+                for (i32 Index = 0; Index < NumPriorities; ++Index)
                 {
                     T* Result = m_PriorityQueues[Index].Pop();
                     if (Result)
@@ -1010,7 +1010,7 @@ namespace OloEngine
                 while (!(Test & 1))
                 {
                     Test >>= 1;
-                    Result++;
+                    ++Result;
                 }
             }
             return Result;
