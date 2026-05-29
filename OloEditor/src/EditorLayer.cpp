@@ -3255,6 +3255,8 @@ namespace OloEngine
 
     void EditorLayer::BuildShaderPack() const
     {
+        OLO_PROFILE_FUNCTION();
+
         const std::filesystem::path outputPath = "assets/ShaderPack.osp";
         OLO_CORE_INFO("Building Shader Pack to '{}'...", outputPath.string());
 

@@ -754,70 +754,78 @@ namespace OloEngine
             // Physics layers deserialization
             if (auto physicsLayers = physicsNode["Layers"]; physicsLayers)
             {
-                // Clear existing layers
-                PhysicsLayerManager::ClearLayers();
-
-                // Ensure the default layer exists after clearing
-                // Note: Default layer ID is not guaranteed to be any specific value
-                u32 defaultLayerId = PhysicsLayerManager::AddLayer("Default", true);
-                if (defaultLayerId == INVALID_LAYER_ID)
+                if (!physicsLayers.IsSequence())
                 {
-                    OLO_CORE_ERROR("Physics deserialization: Failed to recreate default layer");
+                    OLO_CORE_ERROR("Physics deserialization: 'Layers' is not a sequence");
                     physicsValid = false;
                 }
-
-                std::vector<std::pair<u32, YAML::Node>> layersToProcess; // Store layers for collision setup
-
-                for (auto layer : physicsLayers)
+                else
                 {
-                    const std::string layerName = layer["Name"].as<std::string>();
+                    // Clear existing layers
+                    PhysicsLayerManager::ClearLayers();
 
-                    // Skip if this is the default layer (already created) - case-insensitive comparison
-                    if (iequals(layerName, "Default"))
+                    // Ensure the default layer exists after clearing
+                    // Note: Default layer ID is not guaranteed to be any specific value
+                    u32 defaultLayerId = PhysicsLayerManager::AddLayer("Default", true);
+                    if (defaultLayerId == INVALID_LAYER_ID)
                     {
-                        // Still store it for collision processing
-                        layersToProcess.emplace_back(defaultLayerId, layer);
-                        continue;
+                        OLO_CORE_ERROR("Physics deserialization: Failed to recreate default layer");
+                        physicsValid = false;
                     }
 
-                    u32 layerId = PhysicsLayerManager::AddLayer(layerName, false);
-                    if (layerId == INVALID_LAYER_ID)
+                    std::vector<std::pair<u32, YAML::Node>> layersToProcess; // Store layers for collision setup
+
+                    for (auto layer : physicsLayers)
                     {
-                        OLO_CORE_ERROR("Physics deserialization: Failed to add layer '{}' - may have hit layer limit", layerName);
-                        continue; // Skip this layer but continue processing others
-                    }
+                        const std::string layerName = layer["Name"].as<std::string>();
 
-                    // Store successful layer for collision setup
-                    layersToProcess.emplace_back(layerId, layer);
-                }
-
-                // Process collision settings for all successfully created layers
-                for (const auto& [layerId, layerNode] : layersToProcess)
-                {
-                    PhysicsLayer layerInfo = PhysicsLayerManager::GetLayer(layerId);
-                    if (!layerInfo.IsValid())
-                    {
-                        OLO_CORE_WARN("Physics deserialization: Skipping collision setup for invalid layer ID {}", layerId);
-                        continue;
-                    }
-
-                    PhysicsLayerManager::SetLayerSelfCollision(layerId, layerNode["CollidesWithSelf"].as<bool>(true));
-
-                    auto collidesWith = layerNode["CollidesWith"];
-                    if (collidesWith)
-                    {
-                        for (auto collisionLayer : collidesWith)
+                        // Skip if this is the default layer (already created) - case-insensitive comparison
+                        if (iequals(layerName, "Default"))
                         {
-                            const std::string otherLayerName = collisionLayer["Name"].as<std::string>();
-                            const auto otherLayer = PhysicsLayerManager::GetLayer(otherLayerName);
-                            if (otherLayer.IsValid())
+                            // Still store it for collision processing
+                            layersToProcess.emplace_back(defaultLayerId, layer);
+                            continue;
+                        }
+
+                        u32 layerId = PhysicsLayerManager::AddLayer(layerName, false);
+                        if (layerId == INVALID_LAYER_ID)
+                        {
+                            OLO_CORE_ERROR("Physics deserialization: Failed to add layer '{}' - may have hit layer limit", layerName);
+                            continue; // Skip this layer but continue processing others
+                        }
+
+                        // Store successful layer for collision setup
+                        layersToProcess.emplace_back(layerId, layer);
+                    }
+
+                    // Process collision settings for all successfully created layers
+                    for (const auto& [layerId, layerNode] : layersToProcess)
+                    {
+                        PhysicsLayer layerInfo = PhysicsLayerManager::GetLayer(layerId);
+                        if (!layerInfo.IsValid())
+                        {
+                            OLO_CORE_WARN("Physics deserialization: Skipping collision setup for invalid layer ID {}", layerId);
+                            continue;
+                        }
+
+                        PhysicsLayerManager::SetLayerSelfCollision(layerId, layerNode["CollidesWithSelf"].as<bool>(true));
+
+                        auto collidesWith = layerNode["CollidesWith"];
+                        if (collidesWith)
+                        {
+                            for (auto collisionLayer : collidesWith)
                             {
-                                PhysicsLayerManager::SetLayerCollision(layerInfo.m_LayerID, otherLayer.m_LayerID, true);
-                            }
-                            else
-                            {
-                                OLO_CORE_WARN("Physics deserialization: Layer '{}' references non-existent collision layer '{}'",
-                                              layerInfo.m_Name, otherLayerName);
+                                const std::string otherLayerName = collisionLayer["Name"].as<std::string>();
+                                const auto otherLayer = PhysicsLayerManager::GetLayer(otherLayerName);
+                                if (otherLayer.IsValid())
+                                {
+                                    PhysicsLayerManager::SetLayerCollision(layerInfo.m_LayerID, otherLayer.m_LayerID, true);
+                                }
+                                else
+                                {
+                                    OLO_CORE_WARN("Physics deserialization: Layer '{}' references non-existent collision layer '{}'",
+                                                  layerInfo.m_Name, otherLayerName);
+                                }
                             }
                         }
                     }

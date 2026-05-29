@@ -9,6 +9,7 @@
 #include "OloEngine/Threading/SharedMutex.h"
 
 #include <unordered_map>
+#include <unordered_set>
 
 namespace OloEngine
 {

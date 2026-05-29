@@ -195,6 +195,8 @@ namespace OloEngine
 
     void DialogueEditorPanel::DrawGrid(ImDrawList* drawList, const ImVec2& canvasOrigin, const ImVec2& canvasSize) const
     {
+        OLO_PROFILE_FUNCTION();
+
         f32 const gridStep = s_GridSize * m_Zoom;
         ImU32 const gridColorMajor = IM_COL32(60, 60, 65, 200);
         ImU32 const gridColorMinor = IM_COL32(45, 45, 50, 200);

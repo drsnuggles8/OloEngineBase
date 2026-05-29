@@ -1078,7 +1078,7 @@ namespace OloEngine
         m_IsBatched = false;
     }
 
-    void CommandBucket::RemapBoneOffsets(FrameDataBuffer& frameDataBuffer) const
+    void CommandBucket::RemapBoneOffsets(FrameDataBuffer& frameDataBuffer)
     {
         OLO_PROFILE_FUNCTION();
 

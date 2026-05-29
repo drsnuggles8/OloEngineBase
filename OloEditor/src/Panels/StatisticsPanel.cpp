@@ -91,6 +91,8 @@ namespace OloEngine
 
     void StatisticsPanel::DrawRendererTab() const
     {
+        OLO_PROFILE_FUNCTION();
+
         // GPU Info (query OpenGL directly)
         auto const* vendor = reinterpret_cast<const char*>(glGetString(GL_VENDOR));
         auto const* renderer = reinterpret_cast<const char*>(glGetString(GL_RENDERER));
@@ -162,6 +164,8 @@ namespace OloEngine
 
     void StatisticsPanel::DrawAudioTab()
     {
+        OLO_PROFILE_FUNCTION();
+
         auto const stats = AudioEngine::GetStats();
 
         ImGui::Text("Sample Rate: %u Hz", stats.SampleRate);
@@ -184,6 +188,8 @@ namespace OloEngine
 
     void StatisticsPanel::DrawPerformanceTab() const
     {
+        OLO_PROFILE_FUNCTION();
+
         auto const& frameData = Application::Get().GetProfilerPreviousFrameData();
 
         if (frameData.empty())
@@ -222,6 +228,8 @@ namespace OloEngine
 
     void StatisticsPanel::DrawMemoryTab() const
     {
+        OLO_PROFILE_FUNCTION();
+
         const auto& tracker = RendererMemoryTracker::GetInstance();
 
         sizet const totalMemory = tracker.GetTotalMemoryUsage();

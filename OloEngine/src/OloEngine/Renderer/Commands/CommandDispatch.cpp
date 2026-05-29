@@ -146,6 +146,8 @@ namespace OloEngine
     // Helper to apply POD render state to the renderer API (skips if same index as last)
     static void ApplyPODRenderState(u16 renderStateIndex, RendererAPI& api)
     {
+        OLO_PROFILE_FUNCTION();
+
         if (renderStateIndex == INVALID_RENDER_STATE_INDEX)
         {
             // Apply safe defaults so no stale GL state persists
@@ -355,6 +357,8 @@ namespace OloEngine
 
     static void UploadMaterialState(const PODMaterialData& mat, u16 materialDataIndex)
     {
+        OLO_PROFILE_FUNCTION();
+
         const bool sameIndex = (materialDataIndex == s_Data.LastMaterialDataIndex);
         s_Data.LastMaterialDataIndex = materialDataIndex;
 

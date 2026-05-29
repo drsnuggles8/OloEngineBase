@@ -17,6 +17,7 @@
 #include "OloEngine/Threading/SharedLock.h"
 
 #include <algorithm>
+#include <cctype>
 #include <future>
 #include <filesystem>
 
@@ -1136,8 +1137,10 @@ namespace OloEngine
                     std::string registryPath = metadata.FilePath.generic_string();
 
                     // Windows is case-insensitive, so compare lowercase
-                    std::ranges::transform(pathStr, pathStr.begin(), ::tolower);
-                    std::ranges::transform(registryPath, registryPath.begin(), ::tolower);
+                    constexpr auto toLowerChar = [](unsigned char c)
+                    { return static_cast<char>(std::tolower(c)); };
+                    std::ranges::transform(pathStr, pathStr.begin(), toLowerChar);
+                    std::ranges::transform(registryPath, registryPath.begin(), toLowerChar);
 
                     if (pathStr == registryPath)
                     {

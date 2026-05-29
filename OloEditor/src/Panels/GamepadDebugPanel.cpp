@@ -7,10 +7,14 @@
 
 #include <imgui.h>
 
+#include <utility>
+
 namespace OloEngine
 {
     void GamepadDebugPanel::OnImGuiRender(bool* p_open) const
     {
+        OLO_PROFILE_FUNCTION();
+
         if (!ImGui::Begin("Gamepad Debug", p_open))
         {
             ImGui::End();

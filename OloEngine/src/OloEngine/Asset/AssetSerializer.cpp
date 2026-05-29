@@ -44,6 +44,7 @@
 #include <yaml-cpp/yaml.h>
 #include <stb_image/stb_image.h>
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <cstring>
 #include <fstream>
@@ -954,7 +955,9 @@ namespace OloEngine
 
         // Basic audio file format detection and analysis
         std::string extension = filePath.extension().string();
-        std::ranges::transform(extension, extension.begin(), ::tolower);
+        std::ranges::transform(extension, extension.begin(),
+                               [](unsigned char c)
+                               { return static_cast<char>(std::tolower(c)); });
 
         if (extension == ".wav")
         {

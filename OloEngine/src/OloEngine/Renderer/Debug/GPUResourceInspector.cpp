@@ -1142,13 +1142,17 @@ namespace OloEngine
         // Bind buffer and map data
         glBindBuffer(info.m_Target, info.m_RendererID);
 
-        u32 previewSize = std::min(info.m_Size, info.m_PreviewSize);
+        // Clamp the copy to what actually remains past the offset so we never
+        // read past the end of the mapped buffer when m_PreviewOffset > 0.
+        const u32 remaining = (info.m_Size > info.m_PreviewOffset) ? (info.m_Size - info.m_PreviewOffset) : 0;
+        const u32 previewSize = std::min(info.m_PreviewSize, remaining);
         info.m_ContentPreview.resize(previewSize);
 
         // Map buffer and copy data
         if (const void* data = glMapBuffer(info.m_Target, GL_READ_ONLY); data)
         {
-            memcpy(info.m_ContentPreview.data(), static_cast<const u8*>(data) + info.m_PreviewOffset, previewSize);
+            if (previewSize > 0)
+                memcpy(info.m_ContentPreview.data(), static_cast<const u8*>(data) + info.m_PreviewOffset, previewSize);
             glUnmapBuffer(info.m_Target);
             info.m_ContentPreviewValid = true;
         }
@@ -1366,11 +1370,14 @@ namespace OloEngine
 
             if (!m_SearchFilter.empty())
             {
+                constexpr auto toLowerChar = [](unsigned char c)
+                { return static_cast<char>(std::tolower(c)); };
+
                 std::string searchLower = m_SearchFilter;
-                std::ranges::transform(searchLower, searchLower.begin(), ::tolower);
+                std::ranges::transform(searchLower, searchLower.begin(), toLowerChar);
 
                 std::string nameLower = resource->m_Name;
-                std::ranges::transform(nameLower, nameLower.begin(), ::tolower);
+                std::ranges::transform(nameLower, nameLower.begin(), toLowerChar);
 
                 if (nameLower.find(searchLower) == std::string::npos)
                     continue;

@@ -557,6 +557,8 @@ namespace OloEngine
 
     void CommandPacketDebugger::RenderDrawMeshDetail(const DrawMeshCommand& cmd, const CapturedFrameData* frame) const
     {
+        OLO_PROFILE_FUNCTION();
+
         ImGui::Text("Mesh Handle: %llu", static_cast<u64>(cmd.meshHandle));
         ImGui::Text("VAO: %u", cmd.vertexArrayID);
         ImGui::Text("Index Count: %u", cmd.indexCount);
@@ -685,6 +687,8 @@ namespace OloEngine
 
     void CommandPacketDebugger::RenderSortAnalysis(const CapturedFrameData* frame) const
     {
+        OLO_PROFILE_FUNCTION();
+
         if (!frame)
         {
             ImGui::TextColored(DebugUtils::Colors::Warning, "No frame selected.");
@@ -762,6 +766,8 @@ namespace OloEngine
 
     void CommandPacketDebugger::RenderStateChanges(const CapturedFrameData* frame) const
     {
+        OLO_PROFILE_FUNCTION();
+
         if (!frame)
         {
             ImGui::TextColored(DebugUtils::Colors::Warning, "No frame selected.");
@@ -878,6 +884,8 @@ namespace OloEngine
 
     void CommandPacketDebugger::RenderBatchingAnalysis(const CapturedFrameData* frame) const
     {
+        OLO_PROFILE_FUNCTION();
+
         if (!frame)
         {
             ImGui::TextColored(DebugUtils::Colors::Warning, "No frame selected.");

@@ -1915,14 +1915,14 @@ namespace OloEngine
             {
                 const auto& entityClasses = ScriptEngine::GetEntityClasses();
                 static std::vector<std::string> cachedClassNames;
-                if (static size_t cachedSize = 0; entityClasses.size() != cachedSize)
+                std::vector<std::string> currentClassNames;
+                currentClassNames.reserve(entityClasses.size());
+                for (const auto& [name, _] : entityClasses)
+                    currentClassNames.push_back(name);
+                std::ranges::sort(currentClassNames);
+                if (currentClassNames != cachedClassNames)
                 {
-                    cachedClassNames.clear();
-                    cachedClassNames.reserve(entityClasses.size());
-                    for (const auto& [name, _] : entityClasses)
-                        cachedClassNames.push_back(name);
-                    std::ranges::sort(cachedClassNames);
-                    cachedSize = entityClasses.size();
+                    cachedClassNames = std::move(currentClassNames);
                 }
 
                 const char* currentItem = component.ClassName.c_str();

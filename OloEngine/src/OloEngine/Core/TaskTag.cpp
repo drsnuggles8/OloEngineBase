@@ -6,6 +6,8 @@
 #include "OloEngine/Core/PlatformTLS.h"
 #include "OloEngine/Task/Scheduler.h"
 
+#include <utility>
+
 namespace OLO
 {
     // Use OloEngine namespace for FPlatformTLS

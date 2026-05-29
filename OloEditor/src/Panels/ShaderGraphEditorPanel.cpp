@@ -9,6 +9,7 @@
 #include <imgui.h>
 #include <imgui_internal.h>
 #include <algorithm>
+#include <cctype>
 #include <fstream>
 #include <queue>
 
@@ -670,14 +671,18 @@ namespace OloEngine
             {
                 // Flat filtered list when searching
                 std::string filterLower = m_NodeSearchFilter;
-                std::ranges::transform(filterLower, filterLower.begin(), ::tolower);
+                std::ranges::transform(filterLower, filterLower.begin(),
+                                       [](unsigned char c)
+                                       { return static_cast<char>(std::tolower(c)); });
 
                 auto allTypes = GetAllNodeTypeNames();
                 for (const auto& type : allTypes)
                 {
                     // Case-insensitive substring match
                     std::string typeLower = type;
-                    std::ranges::transform(typeLower, typeLower.begin(), ::tolower);
+                    std::ranges::transform(typeLower, typeLower.begin(),
+                                           [](unsigned char c)
+                                           { return static_cast<char>(std::tolower(c)); });
 
                     if (typeLower.find(filterLower) != std::string::npos)
                     {

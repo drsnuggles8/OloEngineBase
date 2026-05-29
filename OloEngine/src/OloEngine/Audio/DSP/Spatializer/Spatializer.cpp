@@ -570,6 +570,8 @@ namespace OloEngine::Audio::DSP
 
     void Spatializer::UpdateListener(const Audio::Transform& transform, glm::vec3 velocity)
     {
+        OLO_PROFILE_FUNCTION();
+
         m_ListenerTransform = transform;
         m_ListenerVelocity = velocity;
 

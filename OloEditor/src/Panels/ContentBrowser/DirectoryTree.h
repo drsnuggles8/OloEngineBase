@@ -30,7 +30,7 @@ namespace OloEngine
 
         // Refresh only the subtree rooted at the given node.
         // If node is null, refreshes the entire tree.
-        void RefreshSubtree(DirectoryInfo* node = nullptr) const;
+        void RefreshSubtree(DirectoryInfo* node = nullptr);
 
         // Mark a directory (and its ancestors) as needing refresh.
         // relativePath is relative to the asset root.

@@ -55,6 +55,8 @@ namespace OloEngine::Audio
 
     void AudioEventsManager::Update([[maybe_unused]] Timestep ts)
     {
+        OLO_PROFILE_FUNCTION();
+
         if (!m_Registry)
         {
             return;
@@ -148,6 +150,8 @@ namespace OloEngine::Audio
 
     void AudioEventsManager::ExecuteAction(const TriggerAction& action, u64 objectID, [[maybe_unused]] u64 eventID) const
     {
+        OLO_PROFILE_FUNCTION();
+
         switch (action.Type)
         {
             case ActionType::Play:
@@ -261,6 +265,8 @@ namespace OloEngine::Audio
 
     void AudioEventsManager::StopAllEvents()
     {
+        OLO_PROFILE_FUNCTION();
+
         for (const auto& [id, active] : m_ActiveEvents)
         {
             for (const auto& entry : active.Sources)

@@ -338,10 +338,26 @@ namespace OloEngine
 
                         while (remainingBytes > 0)
                         {
-                            sizet bytesToRead = std::min(bufferSize, remainingBytes);
-                            tempFile.read(buffer, bytesToRead);
-                            writer.WriteData(buffer, bytesToRead);
-                            remainingBytes -= bytesToRead;
+                            const sizet bytesToRead = std::min(bufferSize, remainingBytes);
+                            tempFile.read(buffer, static_cast<std::streamsize>(bytesToRead));
+
+                            // gcount() reflects what was actually read; on a short read or error
+                            // it is less than requested, so never write the stale tail of the buffer.
+                            const sizet actualBytesRead = static_cast<sizet>(tempFile.gcount());
+                            if (actualBytesRead > 0)
+                            {
+                                writer.WriteData(buffer, actualBytesRead);
+                                remainingBytes -= actualBytesRead;
+                            }
+
+                            // Bail out if the stream went bad / hit EOF before all expected bytes
+                            // were read, rather than spinning forever writing nothing.
+                            if (actualBytesRead < bytesToRead)
+                            {
+                                result.m_ErrorMessage =
+                                    "Failed to read temporary asset file: " + tempFilePath.string();
+                                return result;
+                            }
                         }
 
                         tempFile.close();

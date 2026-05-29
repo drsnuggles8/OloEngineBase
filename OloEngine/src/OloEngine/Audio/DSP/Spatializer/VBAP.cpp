@@ -244,9 +244,17 @@ namespace OloEngine::Audio::DSP
 
             // RMS normalization with distance attenuation
             const u32 numVirtualSources = static_cast<u32>(chg.VirtualSourceIDs.size());
-            std::ranges::for_each(gainsLocal,
-                                  [numVirtualSources, gainAttenuation](float& g)
-                                  { g = std::sqrt(g / static_cast<float>(numVirtualSources)) * gainAttenuation; });
+            if (numVirtualSources == 0)
+            {
+                // No contributing virtual sources: avoid division by zero (would yield NaN). Silence this group.
+                std::ranges::fill(gainsLocal, 0.0f);
+            }
+            else
+            {
+                std::ranges::for_each(gainsLocal,
+                                      [numVirtualSources, gainAttenuation](float& g)
+                                      { g = std::sqrt(g / static_cast<float>(numVirtualSources)) * gainAttenuation; });
+            }
 
             // Convert intermediate surround channel gains to output format
             ChannelGains gainsOut = ConvertChannelGains(gainsLocal, converter);

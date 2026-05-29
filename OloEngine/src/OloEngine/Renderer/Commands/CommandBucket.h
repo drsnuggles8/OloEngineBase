@@ -239,7 +239,7 @@ namespace OloEngine
         // Remap bone buffer offsets from worker-local to global
         // Must be called after MergeThreadLocalCommands() and FrameDataBuffer::MergeScratchBuffers()
         // @param frameDataBuffer Reference to the frame data buffer for offset remapping
-        void RemapBoneOffsets(class FrameDataBuffer& frameDataBuffer) const;
+        void RemapBoneOffsets(class FrameDataBuffer& frameDataBuffer);
 
         // Prepare the bucket for parallel submission
         // Resets thread-local state and prepares arrays

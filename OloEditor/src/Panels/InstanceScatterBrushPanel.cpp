@@ -112,9 +112,10 @@ namespace OloEngine
         // needing to keep the inspector open.
         if (m_TargetEntity && m_TargetEntity.HasComponent<InstancedMeshComponent>())
         {
+            static const std::string s_Unnamed("(unnamed)");
             const auto& tag = m_TargetEntity.HasComponent<TagComponent>()
                                   ? m_TargetEntity.GetComponent<TagComponent>().Tag
-                                  : *(new std::string("(unnamed)")); // never executed; HasComponent<Tag> always true on real entities
+                                  : s_Unnamed; // never executed; HasComponent<Tag> always true on real entities
             ImGui::Text("Target: %s", tag.c_str());
             const auto& imc = m_TargetEntity.GetComponent<InstancedMeshComponent>();
             ImGui::Text("Inline placements: %zu", imc.Instances.size());
