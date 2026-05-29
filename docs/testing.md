@@ -1090,7 +1090,7 @@ new `.cpp` under `OloEngine/tests/Rendering/`, `ShaderGraph/`,
 |---|---:|---|
 | [TestFailureCaptureTest.cpp](../OloEngine/tests/Rendering/PropertyTests/TestFailureCaptureTest.cpp) | 6 | **TestFailureCaptureTest** &mdash; `DirectoryForSanitizesNames`, `MetadataIsWrittenWithoutGlContext`, `LatestFrameSummaryIsNoOpWithoutCaptures`, `GLStateSnapshotIsWrittenWhenGpuAvailable`, `FboPngIsWrittenWhenGpuAvailable`, `CaptureAllProducesExpectedArtefacts` |
 
-**Totals.** 71 renderer-scope test files, 1126 TEST / TEST_F / TEST_P declarations across all layers.
+**Totals.** 72 renderer-scope test files, 1132 TEST / TEST_F / TEST_P declarations across all layers.
 
 <!-- END: renderer-catalogue -->
 

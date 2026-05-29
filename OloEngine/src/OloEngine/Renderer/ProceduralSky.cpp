@@ -333,6 +333,13 @@ namespace OloEngine
             fbSpec.Height = face;
             fbSpec.Attachments = { FramebufferTextureFormat::RGBA32F, FramebufferTextureFormat::Depth };
             auto framebuffer = Framebuffer::Create(fbSpec);
+            if (!framebuffer)
+            {
+                OLO_CORE_ERROR("ProceduralSky::BakeSkyToCubemap: failed to allocate framebuffer");
+                if (wasStencilEnabled)
+                    RenderCommand::EnableStencilTest();
+                return false;
+            }
 
             auto cubeMesh = MeshPrimitives::CreateSkyboxCube();
             if (!cubeMesh)
@@ -423,12 +430,22 @@ namespace OloEngine
         auto cameraUBO = UniformBuffer::Create(
             ShaderBindingLayout::CameraUBO::GetSize(),
             ShaderBindingLayout::UBO_CAMERA);
+        if (!cameraUBO)
+        {
+            OLO_CORE_ERROR("ProceduralSky::Generate: failed to allocate camera UBO");
+            return nullptr;
+        }
 
         // Procedural sky coefficient UBO at binding UBO_PROCEDURAL_SKY.
         const auto ubo = ComputeCoefficients(params);
         auto skyUBO = UniformBuffer::Create(
             sizeof(PreethamCoefficientsUBO),
             ShaderBindingLayout::UBO_PROCEDURAL_SKY);
+        if (!skyUBO)
+        {
+            OLO_CORE_ERROR("ProceduralSky::Generate: failed to allocate procedural sky UBO");
+            return nullptr;
+        }
         skyUBO->SetData(&ubo, sizeof(PreethamCoefficientsUBO));
 
         if (!BakeSkyToCubemap(cubemap, shader, cameraUBO, skyUBO))
