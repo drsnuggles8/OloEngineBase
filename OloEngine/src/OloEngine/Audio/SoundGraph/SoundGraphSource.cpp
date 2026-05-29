@@ -34,12 +34,15 @@ namespace OloEngine::Audio::SoundGraph
             }
             else if (ppFramesOut)
             {
-                // No owner — emit silence to avoid producing junk audio.
-                // Channel count is not directly available here without an owner, so silence
-                // the channels miniaudio reports it allocated for us. miniaudio always
-                // provides at least bus[0]; we silence what's there defensively.
+                // No owner — emit silence to avoid producing junk audio. The
+                // output bus is interleaved (frameCount frames × channelCount
+                // floats), so we must zero the full width or trailing channels
+                // keep stale samples.
                 if (ppFramesOut[0])
-                    std::memset(ppFramesOut[0], 0, sizeof(float) * frameCount);
+                {
+                    const ma_uint32 channelCount = ma_node_get_output_channels(pNode, 0);
+                    std::memset(ppFramesOut[0], 0, sizeof(float) * frameCount * channelCount);
+                }
             }
             else
             {

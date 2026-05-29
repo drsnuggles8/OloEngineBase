@@ -11,6 +11,7 @@
 #include <cctype>
 #include <cmath>
 #include <type_traits>
+#include <utility>
 
 // YAML conversion for glm::vec3
 namespace YAML

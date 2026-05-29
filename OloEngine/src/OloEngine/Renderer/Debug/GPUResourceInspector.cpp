@@ -986,19 +986,20 @@ namespace OloEngine
                 if (downloadComplete)
                 {
                     // Find the corresponding texture and complete the download.
-                    // Access to m_Resources must be synchronized; copy out the raw
-                    // pointer under the lock, then release it before calling
-                    // CompleteTextureDownload (which performs GL work).
-                    TextureInfo* texInfo = nullptr;
+                    // m_Resources values are std::unique_ptr<ResourceInfo>, so we
+                    // cannot copy the owning pointer to extend lifetime. The
+                    // resource could be erased between unlock and the call below,
+                    // dangling any raw pointer we took out — so hold m_ResourceMutex
+                    // across CompleteTextureDownload. That call writes into the
+                    // preview buffer and does a one-shot PBO map/unmap of at most
+                    // 256×256 RGBA — brief contention is the lesser evil compared
+                    // with a use-after-free.
+                    TUniqueLock<FMutex> lock(m_ResourceMutex);
+                    if (auto resourceIt = m_Resources.find(it->m_TextureID); resourceIt != m_Resources.end() &&
+                                                                             (resourceIt->second->m_Type == ResourceType::Texture2D ||
+                                                                              resourceIt->second->m_Type == ResourceType::TextureCubemap))
                     {
-                        TUniqueLock<FMutex> lock(m_ResourceMutex);
-                        if (auto resourceIt = m_Resources.find(it->m_TextureID); resourceIt != m_Resources.end() && resourceIt->second->m_Type == ResourceType::Texture2D)
-                        {
-                            texInfo = static_cast<TextureInfo*>(resourceIt->second.get());
-                        }
-                    }
-                    if (texInfo != nullptr)
-                    {
+                        auto* texInfo = static_cast<TextureInfo*>(resourceIt->second.get());
                         CompleteTextureDownload(*texInfo, *it);
                     }
 

@@ -262,10 +262,11 @@ namespace OloEngine
             {
                 const f32 invMass = motionProperties->GetInverseMass();
                 // Guard the reciprocal: a zero inverse mass (static/kinematic
-                // body) or a non-finite value would yield inf/nan. The zero
-                // compare is intentional here — it guards a division, not a
-                // tolerance comparison.
-                if (std::isfinite(invMass) && invMass != 0.0f)
+                // body) or a non-finite value would yield inf/nan. Use
+                // std::fpclassify rather than a direct float compare to keep
+                // static analysis quiet (cpp:S6004 et al.) — FP_ZERO matches
+                // both +0 and -0.
+                if (std::isfinite(invMass) && std::fpclassify(invMass) != FP_ZERO)
                 {
                     return 1.0f / invMass;
                 }

@@ -356,6 +356,12 @@ namespace OloEngine
                             {
                                 result.m_ErrorMessage =
                                     "Failed to read temporary asset file: " + tempFilePath.string();
+                                // Best-effort cleanup: close the stream so the temp
+                                // file is no longer held open, then remove it so we
+                                // don't leak entries on every failed build.
+                                tempFile.close();
+                                std::error_code removeEc;
+                                std::filesystem::remove(tempFilePath, removeEc);
                                 return result;
                             }
                         }
