@@ -85,6 +85,12 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
+        // Clear any previously-published water-surface depth up front so the
+        // underwater fog never samples a stale texture if this pass early-exits
+        // (no scene FB, no water commands, zero-size, failed texture resolve)
+        // before the capture runs. The successful capture path re-publishes it.
+        Renderer3D::SetWaterSurfaceDepthTextureID(0);
+
         // Resolve the setup-selected scene framebuffer instead of replaying
         // a blackboard lookup ladder at execute time.
         if (const auto sceneHandle = GetPrimaryInputFramebufferHandle(); sceneHandle.IsValid())

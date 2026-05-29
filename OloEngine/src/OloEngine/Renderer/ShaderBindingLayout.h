@@ -943,6 +943,12 @@ namespace OloEngine
                     return name.contains("OIT") || name.contains("oit") ||
                            name.contains("Accum") || name.contains("accum") ||
                            name.contains("Revealage") || name.contains("revealage");
+                case TEX_UNDERWATER_WATER_DEPTH:
+                    // Dedicated one-off slot (32) for the underwater-fog water-surface
+                    // depth; validate its sampler name instead of letting it pass the
+                    // generic 10–42 range unchecked. Production: u_WaterSurfaceDepth.
+                    return name == "u_WaterSurfaceDepth" ||
+                           (name.contains("Water") && name.contains("Surface") && name.contains("Depth"));
                 default:
                     // Accept explicitly defined engine texture slots (TEX_USER_0 through TEX_WATER_SSR, i.e. 10–42)
                     // and shader graph user texture slots (TEX_SHADER_GRAPH_0+)

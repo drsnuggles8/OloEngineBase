@@ -1,6 +1,7 @@
 #pragma once
 
 #include "OloEngine/Core/Base.h"
+#include "OloEngine/Math/Math.h"
 #include <glm/glm.hpp>
 
 namespace OloEngine
@@ -714,7 +715,17 @@ namespace OloEngine
         f32 Density = 0.08f;      // Per-metre exponential absorption coefficient
         f32 WaterSurfaceY = 0.0f; // World-Y of the dominant water plane (debug / depth-fade tuning)
 
-        bool operator==(const UnderwaterFogState&) const = default;
+        // Float members go through Math::BitwiseEqual rather than a defaulted
+        // operator== so the comparison doesn't rely on `==` over floats (per the
+        // project's float-comparison rule); bitwise equality is exactly the
+        // "did this state change" semantics this struct needs.
+        bool operator==(const UnderwaterFogState& other) const
+        {
+            return Active == other.Active &&
+                   Math::BitwiseEqual(FogColor, other.FogColor) &&
+                   Math::BitwiseEqual(Density, other.Density) &&
+                   Math::BitwiseEqual(WaterSurfaceY, other.WaterSurfaceY);
+        }
     };
 
     // GPU-side UBO layout for underwater fog (std140, binding 36).

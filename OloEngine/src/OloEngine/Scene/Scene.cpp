@@ -104,8 +104,15 @@ namespace OloEngine
         const glm::vec4 localCam = invModel * glm::vec4(cameraPos, 1.0f);
         if (!std::isfinite(localCam.x) || !std::isfinite(localCam.y) || !std::isfinite(localCam.z))
             return false;
-        const f32 halfX = std::clamp(water.m_WorldSizeX, 0.1f, 10000.0f) * 0.5f;
-        const f32 halfZ = std::clamp(water.m_WorldSizeZ, 0.1f, 10000.0f) * 0.5f;
+        // Sanitize the world sizes before clamping: std::clamp passes NaN through,
+        // which would make halfX/halfZ NaN and the bounds test below always "pass"
+        // (every comparison with NaN is false), wrongly treating the water as
+        // infinite. Fall back to the 0.1f minimum used elsewhere (fail-closed:
+        // a tiny tile the camera won't be inside) so non-finite sizes don't activate fog.
+        const f32 safeSizeX = std::isfinite(water.m_WorldSizeX) ? water.m_WorldSizeX : 0.1f;
+        const f32 safeSizeZ = std::isfinite(water.m_WorldSizeZ) ? water.m_WorldSizeZ : 0.1f;
+        const f32 halfX = std::clamp(safeSizeX, 0.1f, 10000.0f) * 0.5f;
+        const f32 halfZ = std::clamp(safeSizeZ, 0.1f, 10000.0f) * 0.5f;
         if (localCam.x < -halfX || localCam.x > halfX || localCam.z < -halfZ || localCam.z > halfZ)
             return false;
         const glm::vec4 surfaceWorld = modelMat * glm::vec4(localCam.x, 0.0f, localCam.z, 1.0f);
@@ -4176,7 +4183,15 @@ namespace OloEngine
                     {
                         bestSurfaceDist = absGap;
                         underwater.Active = true;
-                        underwater.FogColor = glm::clamp(water.m_UnderwaterFogColor, glm::vec3(0.0f), glm::vec3(1.0f));
+                        // Sanitize each colour component before clamping — glm::clamp
+                        // passes NaN through, so a bad component would propagate into
+                        // the fog UBO and break the tone-map pass. Replace non-finite
+                        // with 0 first, then clamp to [0,1].
+                        const glm::vec3 rawFog = water.m_UnderwaterFogColor;
+                        const glm::vec3 finiteFog(std::isfinite(rawFog.x) ? rawFog.x : 0.0f,
+                                                  std::isfinite(rawFog.y) ? rawFog.y : 0.0f,
+                                                  std::isfinite(rawFog.z) ? rawFog.z : 0.0f);
+                        underwater.FogColor = glm::clamp(finiteFog, glm::vec3(0.0f), glm::vec3(1.0f));
                         underwater.Density = std::isfinite(water.m_UnderwaterFogDensity)
                                                  ? std::clamp(water.m_UnderwaterFogDensity, 0.0f, 10.0f)
                                                  : 0.08f;

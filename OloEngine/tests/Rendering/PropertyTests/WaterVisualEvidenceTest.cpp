@@ -225,9 +225,13 @@ namespace OloEngine::Tests
             fs::path dir = fs::path("assets") / "tests" / "visual";
             std::error_code ec;
             fs::create_directories(dir, ec);
+            ASSERT_FALSE(ec) << "Failed to create visual-evidence dir '" << dir.string()
+                             << "': " << ec.message();
             const std::string path = (dir / ("Water_" + poseName + ".png")).string();
-            ::stbi_write_png(path.c_str(), static_cast<int>(kWidth), static_cast<int>(kHeight), 4,
-                             outPixels.data(), static_cast<int>(kWidth) * 4);
+            const int wrote = ::stbi_write_png(path.c_str(), static_cast<int>(kWidth),
+                                               static_cast<int>(kHeight), 4, outPixels.data(),
+                                               static_cast<int>(kWidth) * 4);
+            ASSERT_NE(wrote, 0) << "stbi_write_png failed to write '" << path << "'";
         }
     };
 
