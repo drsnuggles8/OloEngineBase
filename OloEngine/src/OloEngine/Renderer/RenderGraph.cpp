@@ -6075,7 +6075,7 @@ namespace OloEngine
                         }
                     }
                     if (!slotUpdated)
-                        writerVec.push_back(DepWriterSlot{ nodeName, access.Range });
+                        writerVec.emplace_back(nodeName, access.Range);
 
                     // Track the most-recent writer by resource base name so a
                     // subsequent RMW pass's Setup can call
@@ -6130,7 +6130,7 @@ namespace OloEngine
                             }
                         }
                         if (!baseSlotPresent)
-                            baseWriterVec.push_back(DepWriterSlot{ nodeName, RGSubresourceRange::Full() });
+                            baseWriterVec.emplace_back(nodeName, RGSubresourceRange::Full());
                     }
                 }
             }
@@ -6300,7 +6300,7 @@ namespace OloEngine
                         }
 
                         if (!slotUpdated)
-                            writerVec.push_back(DepWriterSlot{ nodeName, access.Range });
+                            writerVec.emplace_back(nodeName, access.Range);
                     }
                 }
             }

@@ -789,7 +789,7 @@ namespace OloEngine
                     if (idx < src.size())
                         out.push_back(src[idx]);
                     else
-                        out.push_back(glm::mat4(1.0f)); // Defensive guard — should not happen.
+                        out.emplace_back(1.0f); // Defensive guard — should not happen.
                 }
                 return out;
             };

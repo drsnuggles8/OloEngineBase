@@ -198,7 +198,7 @@ namespace OloEngine
         std::vector<std::string> errors;
 
         if (m_Nodes.empty())
-            errors.push_back("Sound graph has no nodes");
+            errors.emplace_back("Sound graph has no nodes");
 
         // Check for nodes with duplicate IDs
         std::unordered_set<UUID> nodeIds;

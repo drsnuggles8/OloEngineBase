@@ -297,7 +297,7 @@ namespace OloEngine::RenderGraphBarrierPlanner
             {
                 if (!decl.IsWrite)
                     continue;
-                writersByResource[decl.ResourceName].push_back(WriterEntry{ i, &passName, decl.WriteUsage });
+                writersByResource[decl.ResourceName].emplace_back(i, &passName, decl.WriteUsage);
             }
         }
 

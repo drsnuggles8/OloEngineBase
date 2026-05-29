@@ -295,7 +295,7 @@ namespace OloEngine
         if (int outputCount = pbrCount + computeCount; outputCount == 0)
         {
             result.IsValid = false;
-            result.Errors.push_back("Graph must have exactly one output node (PBROutput or ComputeOutput)");
+            result.Errors.emplace_back("Graph must have exactly one output node (PBROutput or ComputeOutput)");
         }
         else if (outputCount > 1)
         {
@@ -342,7 +342,7 @@ namespace OloEngine
         if (auto order = GetTopologicalOrder(); order.empty() && !m_Nodes.empty())
         {
             result.IsValid = false;
-            result.Errors.push_back("Graph contains a cycle");
+            result.Errors.emplace_back("Graph contains a cycle");
         }
 
         // Warn about disconnected required inputs on the output node
@@ -350,7 +350,7 @@ namespace OloEngine
         {
             const auto* albedoPin = outputNode->FindPinByName("Albedo", ShaderGraphPinDirection::Input);
             if (albedoPin && !GetLinkForInputPin(albedoPin->ID))
-                result.Warnings.push_back("PBROutput 'Albedo' input is not connected, will use default value");
+                result.Warnings.emplace_back("PBROutput 'Albedo' input is not connected, will use default value");
         }
 
         // Check for parameter name uniqueness
