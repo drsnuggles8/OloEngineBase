@@ -1016,6 +1016,8 @@ new `.cpp` under `OloEngine/tests/Rendering/`, `ShaderGraph/`,
 | File | Tests | Cases |
 |---|---:|---|
 | [GoldenImageTests.cpp](../OloEngine/tests/Rendering/PropertyTests/GoldenImageTests.cpp) | 8 | **GoldenImageSsimTest** &mdash; `IdenticalImagesYieldSsimOne`, `TinyUniformShiftKeepsSsimHigh`, `StructuralDestructionCollapsesSsim`, `SsimIsSymmetric`<br/>**GoldenImageTest** &mdash; `ReinhardHdrRampGolden`, `FxaaHardEdgeGolden`, `SceneShadowIntegrationGolden`, `SceneSplatmapIntegrationGolden` |
+| [ProceduralSkyBakeTest.cpp](../OloEngine/tests/Rendering/PropertyTests/ProceduralSkyBakeTest.cpp) | 2 | **ProceduralSkyBakeTest** &mdash; `GeneratesNonBlackEnvironmentMapWithIBL`, `HigherTurbidityProducesBrighterAverage` |
+| [ProceduralSkyVisualTest.cpp](../OloEngine/tests/Rendering/PropertyTests/ProceduralSkyVisualTest.cpp) | 1 | **ProceduralSkyVisualTest** &mdash; `WritesFaceGridPng` |
 | [SphereAreaLightVisualTest.cpp](../OloEngine/tests/Rendering/PropertyTests/SphereAreaLightVisualTest.cpp) | 1 | **SphereAreaLightVisual** &mdash; `RendersAndProducesPng` |
 
 #### plumbing — Pipeline plumbing (command bucket, dispatch, frame data)
@@ -1050,6 +1052,7 @@ new `.cpp` under `OloEngine/tests/Rendering/`, `ShaderGraph/`,
 |---|---:|---|
 | [GPUFrustumCullParityTest.cpp](../OloEngine/tests/Rendering/GPUFrustumCullParityTest.cpp) | 2 | **GPUFrustumCullParity** &mdash; `RandomisedInstancesMatchCPU`, `EdgeCaseInstancesMatchCPU` |
 | [InstanceDataLayoutTest.cpp](../OloEngine/tests/Rendering/InstanceDataLayoutTest.cpp) | 6 | **InstanceDataLayout** &mdash; `StructSizeMatchesStd430`, `FieldOffsetsMatchGLSLBlock`, `DefaultsAreIdentityAndNeutral`, `BindingConstantIsStable`, `GLSLLayoutMentionsAllFieldsAndBinding`<br/>**InstancedMeshComponentDefaults** &mdash; `FieldsHaveSafeDefaults` |
+| [ProceduralSkyMathTest.cpp](../OloEngine/tests/Rendering/ProceduralSkyMathTest.cpp) | 11 | **ProceduralSkyMath** &mdash; `PerezCoefficientsAreLinearInTurbidity`, `CoefficientsMatchReferenceAtT2_5`, `ZenithLuminanceIsPositiveAtCommonElevations`, `ZenithChromaticityIsInPlausibleRange`, `SubHorizonSunIsClampedAboveHorizon`, `ZeroLengthSunDefaultsToZenith`, `SunDiskCosAngleIsConsistent`, `HashChangesWhenParametersChange`, `SkyIsBrighterTowardSunThanAntiSun`, `BluerAwayFromSunForClearSky`, `AllOutputsAreFinite` |
 | [ScatterBrushMathTest.cpp](../OloEngine/tests/Rendering/ScatterBrushMathTest.cpp) | 7 | **ScatterBrushSlopeFilter** &mdash; `FlatGroundPasses`, `FortyFiveDegreeAtDot07RoughlyAtThreshold`, `ZeroThresholdDisablesFilter`, `OverhangFails`<br/>**ScatterBrushVariantEncoding** &mdash; `SingleVariantProducesZero`, `EndpointsAreExactlyZeroAndOne`, `OutOfRangeIndexClamps` |
 | [ShaderBindingLayoutTest.cpp](../OloEngine/tests/Rendering/ShaderBindingLayoutTest.cpp) | 26 | **ShaderBindingLayout** &mdash; `CameraUBOAlignment`, `LightUBOAlignment`, `MaterialUBOAlignment`, `PBRMaterialUBOAlignment`, `ModelUBOAlignment`, `AnimationUBOAlignment`, `MultiLightUBOAlignment`, `ShadowUBOAlignment`, `TerrainUBOAlignment`, `BrushPreviewUBOAlignment`, `FoliageUBOAlignment`, `DecalUBOAlignment`, `IBLParametersUBOAlignment`, `TerrainUBOSizeStable`, `BrushPreviewUBOSizeStable`, `FoliageUBOSizeStable`, `DecalUBOSizeStable`, `UBOBindingSlotUniqueness`, `TextureSlotUniqueness`, `SSBOSlotUniqueness`, `AnimationConstantsConsistency`, `ShaderConstantGeneratorRoundTrip`, `KnownUBOBindingRecognized`, `UnknownUBOBindingRejected`, `AllTextureSlotsWithinGLMinimum`, `UBOGetSizeMatchesSizeof` |
 | [ShaderCrossConsistencyTest.cpp](../OloEngine/tests/Rendering/ShaderCrossConsistencyTest.cpp) | 2 | **ShaderCrossConsistency** &mdash; `BlockNamesHaveUniqueBindings`, `SamplerBindingsHaveConsistentType` |
@@ -1087,7 +1090,7 @@ new `.cpp` under `OloEngine/tests/Rendering/`, `ShaderGraph/`,
 |---|---:|---|
 | [TestFailureCaptureTest.cpp](../OloEngine/tests/Rendering/PropertyTests/TestFailureCaptureTest.cpp) | 6 | **TestFailureCaptureTest** &mdash; `DirectoryForSanitizesNames`, `MetadataIsWrittenWithoutGlContext`, `LatestFrameSummaryIsNoOpWithoutCaptures`, `GLStateSnapshotIsWrittenWhenGpuAvailable`, `FboPngIsWrittenWhenGpuAvailable`, `CaptureAllProducesExpectedArtefacts` |
 
-**Totals.** 69 renderer-scope test files, 1118 TEST / TEST_F / TEST_P declarations across all layers.
+**Totals.** 72 renderer-scope test files, 1132 TEST / TEST_F / TEST_P declarations across all layers.
 
 <!-- END: renderer-catalogue -->
 

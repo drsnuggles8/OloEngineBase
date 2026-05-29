@@ -180,6 +180,16 @@ namespace OloEngine
             return;
         }
 
+        // Procedural / runtime-varying sources opt out of the disk cache: the
+        // cache key can't see their per-bake parameters (the cubemap path is a
+        // constant debug name like "Generated Cubemap"), so a hit would serve
+        // stale IBL for freshly-baked pixels — e.g. ProceduralSky changing sun
+        // direction / turbidity / exposure.
+        if (!config.UseDiskCache)
+        {
+            cacheKey.clear();
+        }
+
         IBLCache::CachedIBL cached;
 
         if (!cacheKey.empty() && IBLCache::TryLoad(cacheKey, config, cached))

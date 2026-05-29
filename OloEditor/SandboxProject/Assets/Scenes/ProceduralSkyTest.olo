@@ -1,0 +1,239 @@
+Scene: ProceduralSkyTest.olo
+PostProcessSettings:
+  TonemapOperator: 0
+  Exposure: 1
+  Gamma: 2.2
+  BloomEnabled: true
+  BloomThreshold: 1
+  BloomIntensity: 0.4
+  BloomIterations: 4
+  VignetteEnabled: false
+  VignetteIntensity: 0.5
+  VignetteSmoothness: 0.2
+  ChromaticAberrationEnabled: false
+  ChromaticAberrationIntensity: 0.5
+  FXAAEnabled: true
+  DOFEnabled: false
+  DOFFocusDistance: 10
+  DOFFocusRange: 5
+  DOFBokehRadius: 3
+  MotionBlurEnabled: false
+  MotionBlurStrength: 0.5
+  MotionBlurSamples: 4
+  ColorGradingEnabled: false
+  SSAOEnabled: true
+  SSAORadius: 0.5
+  SSAOBias: 0.025
+  SSAOIntensity: 1
+  SSAOSamples: 32
+  SSAODebugView: false
+Entities:
+  # ── Camera (looks across the sphere rows toward the horizon so both the
+  #    sky gradient and the sun disk are framed) ──
+  - Entity: 760000000000001
+    TagComponent:
+      Tag: Camera
+    TransformComponent:
+      Translation: [0, 2.2, 9]
+      Rotation: [-0.12, 0, 0]
+      Scale: [1, 1, 1]
+    CameraComponent:
+      Camera:
+        ProjectionType: 0
+        PerspectiveFOV: 0.785398185
+        PerspectiveNear: 0.01
+        PerspectiveFar: 1000
+        OrthographicSize: 10
+        OrthographicNear: -1
+        OrthographicFar: 1
+      Primary: true
+      FixedAspectRatio: false
+  # ── Procedural Sky (Preetham). Sun is mid-morning; turbidity 3 = clear.
+  #    Toggle "Link to Directional Light" in the inspector to drive the sun
+  #    from the directional light below instead of this explicit direction. ──
+  - Entity: 760000000000002
+    TagComponent:
+      Tag: Procedural Sky
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    ProceduralSkyComponent:
+      SunDirection: [0.35, 0.55, 0.75]
+      Turbidity: 3
+      Exposure: 0.1
+      SunIntensity: 1
+      SunDiskSize: 1
+      ShowSunDisk: true
+      LinkSunToDirectionalLight: false
+      EnableSkybox: true
+      EnableIBL: true
+      IBLIntensity: 1
+      CubemapResolution: 256
+  # ── Sun directional light. Direction is the negation of the sky's
+  #    SunDirection so cast highlights line up with the painted sun disk. ──
+  - Entity: 760000000000003
+    TagComponent:
+      Tag: Sun
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    DirectionalLightComponent:
+      Direction: [-0.35, -0.55, -0.75]
+      Color: [1, 0.97, 0.92]
+      Intensity: 2.5
+      CastShadows: true
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+      MaxShadowDistance: 80
+      CascadeSplitLambda: 0.9
+  # ── Metallic row (Metallic=1): mirror-reflects the sky, so the Preetham
+  #    gradient + sun disk are clearly visible in the spheres. Roughness
+  #    sweeps left→right, blurring the reflection. ──
+  - Entity: 760000000000100
+    TagComponent:
+      Tag: Metal R0.02
+    TransformComponent:
+      Translation: [-4.5, 0.6, -1]
+      Rotation: [0, 0, 0]
+      Scale: [0.55, 0.55, 0.55]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.95, 0.95, 0.95]
+      Metallic: 1
+      Roughness: 0.02
+  - Entity: 760000000000101
+    TagComponent:
+      Tag: Metal R0.12
+    TransformComponent:
+      Translation: [-2.25, 0.6, -1]
+      Rotation: [0, 0, 0]
+      Scale: [0.55, 0.55, 0.55]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.95, 0.85, 0.55]
+      Metallic: 1
+      Roughness: 0.12
+  - Entity: 760000000000102
+    TagComponent:
+      Tag: Metal R0.3
+    TransformComponent:
+      Translation: [0, 0.6, -1]
+      Rotation: [0, 0, 0]
+      Scale: [0.55, 0.55, 0.55]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.85, 0.85, 0.90]
+      Metallic: 1
+      Roughness: 0.3
+  - Entity: 760000000000103
+    TagComponent:
+      Tag: Metal R0.5
+    TransformComponent:
+      Translation: [2.25, 0.6, -1]
+      Rotation: [0, 0, 0]
+      Scale: [0.55, 0.55, 0.55]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.90, 0.75, 0.70]
+      Metallic: 1
+      Roughness: 0.5
+  - Entity: 760000000000104
+    TagComponent:
+      Tag: Metal R0.75
+    TransformComponent:
+      Translation: [4.5, 0.6, -1]
+      Rotation: [0, 0, 0]
+      Scale: [0.55, 0.55, 0.55]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.70, 0.75, 0.90]
+      Metallic: 1
+      Roughness: 0.75
+  # ── Dielectric row (Metallic=0): shows the diffuse-IBL contribution from
+  #    the sky (ambient sky-colour bounce) rather than mirror reflection. ──
+  - Entity: 760000000000200
+    TagComponent:
+      Tag: Dielectric R0.1
+    TransformComponent:
+      Translation: [-4.5, 0.6, -3]
+      Rotation: [0, 0, 0]
+      Scale: [0.55, 0.55, 0.55]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.90, 0.20, 0.20]
+      Metallic: 0
+      Roughness: 0.1
+  - Entity: 760000000000201
+    TagComponent:
+      Tag: Dielectric R0.3
+    TransformComponent:
+      Translation: [-2.25, 0.6, -3]
+      Rotation: [0, 0, 0]
+      Scale: [0.55, 0.55, 0.55]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.90, 0.55, 0.15]
+      Metallic: 0
+      Roughness: 0.3
+  - Entity: 760000000000202
+    TagComponent:
+      Tag: Dielectric R0.5
+    TransformComponent:
+      Translation: [0, 0.6, -3]
+      Rotation: [0, 0, 0]
+      Scale: [0.55, 0.55, 0.55]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.30, 0.80, 0.35]
+      Metallic: 0
+      Roughness: 0.5
+  - Entity: 760000000000203
+    TagComponent:
+      Tag: Dielectric R0.7
+    TransformComponent:
+      Translation: [2.25, 0.6, -3]
+      Rotation: [0, 0, 0]
+      Scale: [0.55, 0.55, 0.55]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.25, 0.55, 0.90]
+      Metallic: 0
+      Roughness: 0.7
+  - Entity: 760000000000204
+    TagComponent:
+      Tag: Dielectric R0.9
+    TransformComponent:
+      Translation: [4.5, 0.6, -3]
+      Rotation: [0, 0, 0]
+      Scale: [0.55, 0.55, 0.55]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.65, 0.35, 0.85]
+      Metallic: 0
+      Roughness: 0.9
+  # ── Ground plane (matte mid-grey; picks up the sky's diffuse ambient) ──
+  - Entity: 760000000000300
+    TagComponent:
+      Tag: Ground
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [30, 1, 30]
+    MeshComponent:
+      Primitive: 3
+    MaterialComponent:
+      AlbedoColor: [0.25, 0.25, 0.27]
+      Metallic: 0
+      Roughness: 0.9

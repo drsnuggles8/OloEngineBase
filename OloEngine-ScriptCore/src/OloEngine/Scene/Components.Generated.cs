@@ -680,6 +680,73 @@ namespace OloEngine
 		}
 	}
 
+	public partial class ProceduralSkyComponent : Component
+	{
+		public Vector3 SunDirection
+		{
+			get
+			{
+				InternalCalls.ProceduralSkyComponent_GetSunDirection(Entity.ID, out Vector3 value);
+				return value;
+			}
+			set => InternalCalls.ProceduralSkyComponent_SetSunDirection(Entity.ID, ref value);
+		}
+
+		public float Turbidity
+		{
+			get => InternalCalls.ProceduralSkyComponent_GetTurbidity(Entity.ID);
+			set => InternalCalls.ProceduralSkyComponent_SetTurbidity(Entity.ID, value);
+		}
+
+		public float Exposure
+		{
+			get => InternalCalls.ProceduralSkyComponent_GetExposure(Entity.ID);
+			set => InternalCalls.ProceduralSkyComponent_SetExposure(Entity.ID, value);
+		}
+
+		public float SunIntensity
+		{
+			get => InternalCalls.ProceduralSkyComponent_GetSunIntensity(Entity.ID);
+			set => InternalCalls.ProceduralSkyComponent_SetSunIntensity(Entity.ID, value);
+		}
+
+		public float SunDiskSize
+		{
+			get => InternalCalls.ProceduralSkyComponent_GetSunDiskSize(Entity.ID);
+			set => InternalCalls.ProceduralSkyComponent_SetSunDiskSize(Entity.ID, value);
+		}
+
+		public bool ShowSunDisk
+		{
+			get => InternalCalls.ProceduralSkyComponent_GetShowSunDisk(Entity.ID);
+			set => InternalCalls.ProceduralSkyComponent_SetShowSunDisk(Entity.ID, value);
+		}
+
+		public bool LinkSunToDirectionalLight
+		{
+			get => InternalCalls.ProceduralSkyComponent_GetLinkSunToDirectionalLight(Entity.ID);
+			set => InternalCalls.ProceduralSkyComponent_SetLinkSunToDirectionalLight(Entity.ID, value);
+		}
+
+		public bool EnableSkybox
+		{
+			get => InternalCalls.ProceduralSkyComponent_GetEnableSkybox(Entity.ID);
+			set => InternalCalls.ProceduralSkyComponent_SetEnableSkybox(Entity.ID, value);
+		}
+
+		public bool EnableIBL
+		{
+			get => InternalCalls.ProceduralSkyComponent_GetEnableIBL(Entity.ID);
+			set => InternalCalls.ProceduralSkyComponent_SetEnableIBL(Entity.ID, value);
+		}
+
+		public float IBLIntensity
+		{
+			get => InternalCalls.ProceduralSkyComponent_GetIBLIntensity(Entity.ID);
+			set => InternalCalls.ProceduralSkyComponent_SetIBLIntensity(Entity.ID, value);
+		}
+	}
+
 	public partial class ReflectionProbeComponent : Component
 	{
 		public float InfluenceRadius

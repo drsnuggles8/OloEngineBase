@@ -124,14 +124,33 @@ height maps stay linear. The asset-pipeline drag-drop path goes through
 `TextureSerializer::IsLikelyColorTextureByName` for the same decision.
 Pinned by `SRGBTextureSupportTest.cpp`.
 
-### 3.2 Atmospheric Scattering / Sky Integration
+### 3.2 Atmospheric Scattering / Sky Integration — **Preetham shipped**
 
-The current skybox is a flat gray. A procedural sky (Preetham / Bruneton
-atmospheric model) would:
+`ProceduralSkyComponent` (see
+[`ProceduralSky.h`](../OloEngine/src/OloEngine/Renderer/ProceduralSky.h))
+bakes a Preetham 1999 analytic daylight sky into a cubemap via
+[`ProceduralSky.glsl`](../OloEditor/assets/shaders/ProceduralSky.glsl) and
+feeds it through the existing `EnvironmentMap` IBL pipeline. Because the
+output is the same cubemap + irradiance / prefilter / BRDF set that the
+file-based environment map produces, water reflections, IBL ambient, and
+the skybox all consume it with no shader changes. Sun direction can track
+the scene's directional light (`m_LinkSunToDirectionalLight`) for a
+time-of-day controller, and a representative sun disk is baked in. The
+Preetham math is pinned by `ProceduralSkyMathTest.cpp` and the GPU bake by
+`ProceduralSkyBakeTest.cpp`.
 
-- Provide realistic horizon color for reflections.
-- Enable proper aerial perspective / haze over distant water.
-- Supply a sun disk for environment-map reflections.
+Still open:
+
+- **Bruneton / Hosek-Wilkie precomputed scattering** — Preetham degrades
+  near the horizon and at sunset (the sun-area glow is approximate). A
+  precomputed multiple-scattering model gives a far better twilight and
+  aerial-perspective result, at the cost of a heavier precompute.
+- **Aerial perspective / haze over distant water** — needs the scattering
+  transmittance LUT a Bruneton model would provide; not derivable from the
+  Preetham analytic form alone.
+- **Night sky / sub-horizon sun** — Preetham is undefined below the
+  horizon (currently clamped a few degrees above), so dusk-to-night needs a
+  separate model or a blend.
 
 ### 3.3 Volumetric Light Shafts (God Rays)
 

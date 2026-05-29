@@ -17,6 +17,7 @@
 #include "OloEngine/Renderer/Light.h"
 #include "OloEngine/Renderer/EnvironmentMap.h"
 #include "OloEngine/Renderer/ReflectionProbeBaker.h"
+#include "OloEngine/Renderer/ProceduralSky.h"
 #include "OloEngine/Renderer/TextureCubemap.h"
 #include "OloEngine/Scripting/C#/ScriptEngine.h"
 #include "OloEngine/Scripting/Lua/LuaScriptEngine.h"
@@ -2064,6 +2065,8 @@ namespace OloEngine
     template<>
     void Scene::OnComponentAdded<EnvironmentMapComponent>(Entity, EnvironmentMapComponent&) {}
     template<>
+    void Scene::OnComponentAdded<ProceduralSkyComponent>(Entity, ProceduralSkyComponent&) {}
+    template<>
     void Scene::OnComponentAdded<TerrainComponent>(Entity, TerrainComponent&) {}
     template<>
     void Scene::OnComponentAdded<FoliageComponent>(Entity, FoliageComponent&) {}
@@ -2824,6 +2827,82 @@ namespace OloEngine
         // Clear stale global IBL from previous scenes — only the current
         // scene's EnvironmentMap (if any) should provide IBL textures.
         Renderer3D::ClearGlobalIBL();
+
+        // ProceduralSkyComponent wins over EnvironmentMapComponent when both
+        // live in the same scene: the procedural sky bakes its own cubemap
+        // and routes through the same Renderer3D::DrawSkybox + IBL path that
+        // the file-based environment map uses.  We early-return after wiring
+        // the procedural sky so the loops can't both fire.
+        if (auto procView = m_Registry.view<ProceduralSkyComponent>(); procView.begin() != procView.end())
+        {
+            for (auto entity : procView)
+            {
+                auto& sky = procView.get<ProceduralSkyComponent>(entity);
+
+                // Time-of-day path: pull sun direction from the first
+                // directional light in the scene each tick. Negation
+                // converts "outgoing light direction" -> "toward sun".
+                if (sky.m_LinkSunToDirectionalLight)
+                {
+                    auto dirView = m_Registry.view<DirectionalLightComponent>();
+                    if (auto it = dirView.begin(); it != dirView.end())
+                    {
+                        const auto& dirLight = dirView.get<DirectionalLightComponent>(*it);
+                        const glm::vec3 newDir = -dirLight.m_Direction;
+                        if (std::isfinite(newDir.x) && std::isfinite(newDir.y) && std::isfinite(newDir.z) &&
+                            glm::length(newDir) > 1e-4f)
+                        {
+                            sky.m_SunDirection = newDir;
+                        }
+                    }
+                }
+
+                // Detect dirtiness via parameter hash; rebake on change. The
+                // bake is expensive (six cubemap face renders + IBL convolve)
+                // so we deliberately gate on the hash rather than rebake every
+                // frame.
+                PreethamParameters params;
+                params.SunDirection = sky.m_SunDirection;
+                params.Turbidity = sky.m_Turbidity;
+                params.Exposure = sky.m_Exposure;
+                params.SunIntensity = sky.m_SunIntensity;
+                params.SunDiskSize = sky.m_SunDiskSize;
+                params.ShowSunDisk = sky.m_ShowSunDisk;
+
+                const u64 hash = ProceduralSky::HashParameters(params, sky.m_CubemapResolution);
+                if (!sky.m_EnvironmentMap || hash != sky.m_LastBakeHash)
+                {
+                    auto baked = ProceduralSky::Generate(params, sky.m_CubemapResolution);
+                    if (baked)
+                    {
+                        sky.m_EnvironmentMap = baked;
+                        sky.m_LastBakeHash = hash;
+                    }
+                }
+
+                if (!sky.m_EnvironmentMap)
+                    continue;
+
+                if (sky.m_EnableSkybox && sky.m_EnvironmentMap->GetEnvironmentMap())
+                {
+                    auto* packet = Renderer3D::DrawSkybox(sky.m_EnvironmentMap->GetEnvironmentMap());
+                    if (packet)
+                        Renderer3D::SubmitPacket(packet);
+                }
+
+                if (sky.m_EnableIBL && sky.m_EnvironmentMap->HasIBL())
+                {
+                    auto& envMap = sky.m_EnvironmentMap;
+                    Renderer3D::SetGlobalIBL(
+                        envMap->GetIrradianceMap() ? envMap->GetIrradianceMap()->GetRendererID() : 0,
+                        envMap->GetPrefilterMap() ? envMap->GetPrefilterMap()->GetRendererID() : 0,
+                        envMap->GetBRDFLutMap() ? envMap->GetBRDFLutMap()->GetRendererID() : 0,
+                        envMap->GetEnvironmentMap() ? envMap->GetEnvironmentMap()->GetRendererID() : 0,
+                        sky.m_IBLIntensity);
+                }
+                return; // Only one procedural sky drives the scene
+            }
+        }
 
         auto view = m_Registry.view<EnvironmentMapComponent>();
         for (auto entity : view)
@@ -5473,6 +5552,7 @@ namespace OloEngine
     OLO_ON_COMPONENT_REMOVED_NOOP(SpotLightComponent)
     OLO_ON_COMPONENT_REMOVED_NOOP(SphereAreaLightComponent)
     OLO_ON_COMPONENT_REMOVED_NOOP(EnvironmentMapComponent)
+    OLO_ON_COMPONENT_REMOVED_NOOP(ProceduralSkyComponent)
     OLO_ON_COMPONENT_REMOVED_NOOP(TerrainComponent)
     OLO_ON_COMPONENT_REMOVED_NOOP(FoliageComponent)
     OLO_ON_COMPONENT_REMOVED_NOOP(WaterComponent)

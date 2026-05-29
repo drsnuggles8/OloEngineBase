@@ -420,6 +420,49 @@ namespace OloEngine
 		internal static extern void PointLightComponent_SetCastShadows(ulong entityID, bool value);
 		#endregion
 
+		#region ProceduralSkyComponent
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void ProceduralSkyComponent_GetSunDirection(ulong entityID, out Vector3 value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void ProceduralSkyComponent_SetSunDirection(ulong entityID, ref Vector3 value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float ProceduralSkyComponent_GetTurbidity(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void ProceduralSkyComponent_SetTurbidity(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float ProceduralSkyComponent_GetExposure(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void ProceduralSkyComponent_SetExposure(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float ProceduralSkyComponent_GetSunIntensity(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void ProceduralSkyComponent_SetSunIntensity(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float ProceduralSkyComponent_GetSunDiskSize(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void ProceduralSkyComponent_SetSunDiskSize(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool ProceduralSkyComponent_GetShowSunDisk(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void ProceduralSkyComponent_SetShowSunDisk(ulong entityID, bool value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool ProceduralSkyComponent_GetLinkSunToDirectionalLight(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void ProceduralSkyComponent_SetLinkSunToDirectionalLight(ulong entityID, bool value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool ProceduralSkyComponent_GetEnableSkybox(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void ProceduralSkyComponent_SetEnableSkybox(ulong entityID, bool value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool ProceduralSkyComponent_GetEnableIBL(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void ProceduralSkyComponent_SetEnableIBL(ulong entityID, bool value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float ProceduralSkyComponent_GetIBLIntensity(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void ProceduralSkyComponent_SetIBLIntensity(ulong entityID, float value);
+		#endregion
+
 		#region ReflectionProbeComponent
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern float ReflectionProbeComponent_GetInfluenceRadius(ulong entityID);

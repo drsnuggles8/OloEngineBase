@@ -795,6 +795,38 @@ namespace OloEngine
         }
     }
 
+    void SaveGameComponentSerializer::Serialize(FArchive& ar, ProceduralSkyComponent& c)
+    {
+        ar << c.m_SunDirection << c.m_Turbidity << c.m_Exposure;
+        ar << c.m_SunIntensity << c.m_SunDiskSize << c.m_ShowSunDisk;
+        ar << c.m_LinkSunToDirectionalLight;
+        ar << c.m_EnableSkybox << c.m_EnableIBL << c.m_IBLIntensity;
+        ar << c.m_CubemapResolution;
+
+        if (ar.IsLoading())
+        {
+            // Sanitise untrusted on-disk data. Save files are a system
+            // boundary: the renderer UBO must never see NaN/inf (poisons
+            // tonemapping and every PBR draw via IBL), and an extremely large
+            // *finite* value would blow the sky / ambient out to white. So
+            // clamp each field into its sane authoring range, not just check
+            // finiteness. NaN/inf fall back to the component default.
+            for (int i = 0; i < 3; ++i)
+            {
+                if (!std::isfinite(c.m_SunDirection[i]))
+                    c.m_SunDirection = glm::vec3(0.3f, 0.7f, 0.4f);
+            }
+            c.m_Turbidity = std::isfinite(c.m_Turbidity) ? std::clamp(c.m_Turbidity, 1.7f, 10.0f) : 2.5f;
+            c.m_Exposure = std::isfinite(c.m_Exposure) ? std::clamp(c.m_Exposure, 0.0f, 10.0f) : 0.1f;
+            c.m_SunIntensity = std::isfinite(c.m_SunIntensity) ? std::clamp(c.m_SunIntensity, 0.0f, 100.0f) : 1.0f;
+            c.m_SunDiskSize = std::isfinite(c.m_SunDiskSize) ? std::clamp(c.m_SunDiskSize, 0.01f, 10.0f) : 1.0f;
+            c.m_IBLIntensity = std::isfinite(c.m_IBLIntensity) ? std::clamp(c.m_IBLIntensity, 0.0f, 100.0f) : 1.0f;
+            if (c.m_CubemapResolution < 8u || c.m_CubemapResolution > 4096u)
+                c.m_CubemapResolution = 256u;
+        }
+        // Ref<EnvironmentMap> and bake hash are runtime — not serialised
+    }
+
     void SaveGameComponentSerializer::Serialize(FArchive& ar, EnvironmentMapComponent& c)
     {
         ar << c.m_EnvironmentMapAsset << c.m_FilePath;
@@ -2387,6 +2419,7 @@ namespace OloEngine
         REGISTER_SAVE_COMPONENT(SpotLightComponent);
         REGISTER_SAVE_COMPONENT(SphereAreaLightComponent);
         REGISTER_SAVE_COMPONENT(EnvironmentMapComponent);
+        REGISTER_SAVE_COMPONENT(ProceduralSkyComponent);
         REGISTER_SAVE_COMPONENT(LightProbeComponent);
         REGISTER_SAVE_COMPONENT(LightProbeVolumeComponent);
         REGISTER_SAVE_COMPONENT(ReflectionProbeComponent);
