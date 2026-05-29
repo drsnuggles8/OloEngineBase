@@ -458,6 +458,21 @@ namespace OloEngine
         return true;
     }
 
+    void OpenGLTextureCubemap::GenerateMipmaps() const
+    {
+        OLO_PROFILE_FUNCTION();
+
+        if (m_RendererID == 0)
+            return;
+
+        // No chain to fill for single-level cubemaps — skip the GL call rather than
+        // letting the driver emit an INVALID_OPERATION on a 1-level texture.
+        if (GetMipLevelCount() <= 1)
+            return;
+
+        glGenerateTextureMipmap(m_RendererID);
+    }
+
     void OpenGLTextureCubemap::Invalidate(std::string_view /*path*/, u32 /*width*/, u32 /*height*/, const void* /*data*/, u32 /*channels*/)
     {
         OLO_CORE_ERROR("Invalidate is not supported for cubemaps");

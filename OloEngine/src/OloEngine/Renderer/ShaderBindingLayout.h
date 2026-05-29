@@ -228,6 +228,37 @@ namespace OloEngine
             }
         };
 
+        // @brief Parameters for the *advanced* (quality-configurable) IBL
+        // generation shaders: IBLPrefilterImportance, BRDFIntegrationAdvanced and
+        // IrradianceConvolutionAdvanced. Bound at UBO_USER_0 (binding 7) during the
+        // offline IBL bake — only one IBL generator shader is ever bound at a time,
+        // so it can share the slot with IBLParametersUBO used by the legacy path.
+        //
+        // std140: a uniform block is rounded up to a multiple of vec4 (16 B); this
+        // packs the active fields into the first vec4 and pads to a second so the
+        // C++ struct size and the GLSL block size agree exactly.
+        struct IBLAdvancedParamsUBO
+        {
+            f32 Roughness;             // [0,1] perceptual roughness for the current mip
+            f32 QualityMultiplier;     // scales effective sample count in-shader
+            i32 SampleCount;           // Monte-Carlo sample count (already quality-scaled by C++)
+            i32 UseImportanceSampling; // 0/1 — fall back to a flat hemisphere sweep when 0
+            i32 SourceResolution;      // source cubemap face resolution, for mip-bias firefly suppression
+            i32 _pad0 = 0;
+            i32 _pad1 = 0;
+            i32 _pad2 = 0;
+
+            static constexpr u32 GetSize()
+            {
+                return sizeof(IBLAdvancedParamsUBO);
+            }
+        };
+
+        // 5 scalars (offsets 0,4,8,12,16) + 3 pad ints → 32 B, matching the
+        // std140 `IBLAdvancedParams` block in IBLPrefilterImportance.glsl,
+        // IrradianceConvolutionAdvanced.glsl and BRDFIntegrationAdvanced.glsl.
+        static_assert(sizeof(IBLAdvancedParamsUBO) == 32, "IBLAdvancedParamsUBO std140 size drifted from GLSL expectation (32 B)");
+
         // @brief Terrain rendering parameters
         struct TerrainUBO
         {
@@ -737,6 +768,7 @@ namespace OloEngine
         using ModelUBO = UBOStructures::ModelUBO;
         using AnimationUBO = UBOStructures::AnimationUBO;
         using IBLParametersUBO = UBOStructures::IBLParametersUBO;
+        using IBLAdvancedParamsUBO = UBOStructures::IBLAdvancedParamsUBO;
         using ShadowUBO = UBOStructures::ShadowUBO;
         using TerrainUBO = UBOStructures::TerrainUBO;
         using LightProbeVolumeUBO = UBOStructures::LightProbeVolumeUBO;

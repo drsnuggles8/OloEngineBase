@@ -27,7 +27,12 @@ namespace OloEngine
     // shader's local vec3-array copy of the UBO swizzle was collapsing
     // RGB into a single channel, producing exact-grayscale irradiance.
     // Fixed by inlining the SH evaluation directly off the UBO.
-    constexpr u32 kIBLCacheVersion = 4;
+    // Version 5 invalidates prefilter/irradiance cache files written by
+    // the legacy advanced path that silently fell back to the baseline
+    // shaders. The advanced shaders now exist (IBLPrefilterImportance,
+    // IrradianceConvolutionAdvanced, BRDFIntegrationAdvanced) with
+    // mip-biased importance sampling, so the baked output differs.
+    constexpr u32 kIBLCacheVersion = 5;
 
     // Cache file header for version tracking
     // Use pragma pack to ensure consistent binary layout across compilers
