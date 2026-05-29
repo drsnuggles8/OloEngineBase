@@ -25,12 +25,16 @@
 #include "OloEnginePCH.h"
 #include "RendererAttachedTest.h"
 
+#include "OloEngine/Renderer/Debug/GLStateGuard.h"
 #include "OloEngine/Scene/Components.h"
 #include "OloEngine/Scene/Entity.h"
 
 #include <gtest/gtest.h>
 #include <glm/glm.hpp>
 #include <glm/gtc/quaternion.hpp>
+
+#include <string>
+#include <vector>
 
 namespace OloEngine::Tests
 {
@@ -84,5 +88,68 @@ namespace OloEngine::Tests
     {
         RunFrames(3);
         SUCCEED() << "Scene with primary camera ticked 3 frames after Renderer3D::Init.";
+    }
+
+    // -------------------------------------------------------------------------
+    // SceneRenders3D — issue #258
+    //
+    // Drives the FULL Scene::OnUpdateRuntime 3D render path inside the fixture
+    // (3D mode + sized render-graph targets + primary camera, via
+    // EnableRendering). This is the path the fixture historically could not
+    // run: it left global GL state corrupted for later tests and the process
+    // SIGSEGV'd at teardown. Both are now contained (GLStateGuard-wrapped
+    // ticks + the renderer-shutdown environment).
+    // -------------------------------------------------------------------------
+    class SceneRenders3D : public RendererAttachedTest
+    {
+      protected:
+        void BuildScene() override
+        {
+            Entity camera = GetScene().CreateEntity("MainCamera");
+            auto& xf = camera.GetComponent<TransformComponent>();
+            xf.Translation = { 0.0f, 0.0f, 3.0f };
+            auto& cc = camera.AddComponent<CameraComponent>();
+            cc.Primary = true;
+
+            EnableRendering(256, 256);
+        }
+    };
+
+    TEST_F(SceneRenders3D, FullPipelineTickDoesNotCrash)
+    {
+        RunFrames(2);
+        SUCCEED() << "Scene rendered the full 3D pipeline for 2 frames without crashing.";
+    }
+
+    // Regression contract for the GL-state hygiene that makes rendering in
+    // this fixture safe for the rest of the process: after a full-pipeline
+    // render, the global fixed-function + binding state the caller sees must
+    // be unchanged. Per-slot texture / UBO bindings are excluded — GLStateGuard
+    // deliberately does not restore those (cost), and they are benign because
+    // downstream GPU tests bind their own resources before drawing.
+    TEST_F(SceneRenders3D, RenderLeavesNoGlobalGlStateBehind)
+    {
+        const GLStateSnapshot before = GLStateSnapshot::Capture();
+        RunFrames(2);
+        const GLStateSnapshot after = GLStateSnapshot::Capture();
+
+        std::vector<std::string> coreDiffs;
+        for (const auto& d : before.DiffAgainst(after))
+        {
+            const bool isPerSlotBinding =
+                d.starts_with("Texture2D[") || d.starts_with("Texture2DArray[") ||
+                d.starts_with("TextureCubeMap[") || d.starts_with("UBO[");
+            if (!isPerSlotBinding)
+                coreDiffs.push_back(d);
+        }
+
+        if (!coreDiffs.empty())
+        {
+            std::string joined;
+            for (const auto& d : coreDiffs)
+                joined += "\n    " + d;
+            ADD_FAILURE() << "Full-pipeline render leaked " << coreDiffs.size()
+                          << " core GL-state field(s):" << joined;
+        }
     }
 } // namespace OloEngine::Tests
