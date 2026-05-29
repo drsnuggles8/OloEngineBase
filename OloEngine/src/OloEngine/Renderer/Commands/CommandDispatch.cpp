@@ -185,6 +185,10 @@ namespace OloEngine
                 api.SetDepthFunc(GL_LEQUAL);
                 api.SetDepthMask(false);
             }
+            else
+            {
+                // No additional handling required.
+            }
             return;
         }
 
@@ -306,6 +310,10 @@ namespace OloEngine
             api.SetDepthFunc(GL_LEQUAL);
             api.SetDepthMask(false);
         }
+        else
+        {
+            // No additional handling required.
+        }
     }
 
     // Helper: Upload material UBO and bind material textures.
@@ -387,6 +395,10 @@ namespace OloEngine
                 // point (other subsystems may have overwritten it).
                 BindUBOIfNeeded(ShaderBindingLayout::UBO_MATERIAL, s_Data.MaterialUBO->GetRendererID());
             }
+            else
+            {
+                // No additional handling required.
+            }
 
             // Always rebind textures — an intervening pass (e.g. DecalPass)
             // may have changed texture slots since the last material upload.
@@ -420,6 +432,10 @@ namespace OloEngine
                 // binding point — other subsystems (e.g. ParticleBatchRenderer)
                 // may have overwritten UBO_MATERIAL.
                 BindUBOIfNeeded(ShaderBindingLayout::UBO_MATERIAL, s_Data.MaterialUBO->GetRendererID());
+            }
+            else
+            {
+                // No additional handling required.
             }
 
             if (mat.useTextureMaps)

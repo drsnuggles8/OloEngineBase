@@ -305,14 +305,26 @@ namespace OloEngine
             albedoMap->Bind(albedoSlot);
         else if (s_DefaultWhite)
             s_DefaultWhite->Bind(albedoSlot);
+        else
+        {
+            // No additional handling required.
+        }
         if (metalMap)
             metalMap->Bind(metalSlot);
         else if (s_DefaultWhite)
             s_DefaultWhite->Bind(metalSlot);
+        else
+        {
+            // No additional handling required.
+        }
         if (roughMap)
             roughMap->Bind(roughSlot);
         else if (s_DefaultWhite)
             s_DefaultWhite->Bind(roughSlot);
+        else
+        {
+            // No additional handling required.
+        }
     }
 
     Ref<Texture2D> AssetPreviewRenderer::RenderInto(const Ref<Mesh>& mesh,

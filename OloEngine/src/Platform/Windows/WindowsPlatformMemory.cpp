@@ -81,6 +81,10 @@ namespace OloEngine::PlatformMemoryBackend
         {
             newProtect = PAGE_READWRITE; // No write-only on Windows
         }
+        else
+        {
+            // No additional handling required.
+        }
 
         DWORD oldProtect = 0;
         return VirtualProtect(ptr, size, newProtect, &oldProtect) != 0;

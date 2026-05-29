@@ -83,6 +83,10 @@ namespace OloEngine
             {
                 MouseZoom(delta.y);
             }
+            else
+            {
+                // No additional handling required.
+            }
         }
         else if (Input::IsMouseButtonPressed(Mouse::ButtonRight))
         {

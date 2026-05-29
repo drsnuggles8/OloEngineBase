@@ -115,6 +115,10 @@ namespace OloEngine
                               ? glm::max(1, static_cast<i32>((availableHeight + grid.m_Spacing.y) / cellSpanY))
                               : 1;
             }
+            else
+            {
+                // No additional handling required.
+            }
 
             for (sizet i = 0; i < children.size(); ++i)
             {
@@ -246,6 +250,10 @@ namespace OloEngine
                         ResolveRect(scene, static_cast<entt::entity>(*childOpt), canvasPos, canvasSize);
                     }
                 }
+            }
+            else
+            {
+                // No additional handling required.
             }
         }
 

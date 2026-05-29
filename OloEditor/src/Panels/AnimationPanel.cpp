@@ -279,6 +279,10 @@ namespace OloEngine
             }
             m_IsEditingBlendDuration = false;
         }
+        else
+        {
+            // No additional handling required.
+        }
 
         // Update animation if playing (editor preview mode)
         if (animState.m_IsPlaying && animState.m_CurrentClip)

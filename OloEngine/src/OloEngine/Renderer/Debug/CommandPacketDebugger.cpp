@@ -544,6 +544,10 @@ namespace OloEngine
                     RenderDrawMeshInstancedDetail(*meshCmd, frame);
             }
         }
+        else
+        {
+            // No additional handling required.
+        }
 
         // Render state for commands that have one
         const PODRenderState* state = GetRenderStateFromCommand(cmd, frame);
@@ -1446,6 +1450,10 @@ namespace OloEngine
                         file << "- Material Data Index: " << instCmd->materialDataIndex << "\n";
                         file << "- VAO: " << instCmd->vertexArrayID << ", Index Count: " << instCmd->indexCount << "\n\n";
                     }
+                }
+                else
+                {
+                    // No additional handling required.
                 }
             }
 

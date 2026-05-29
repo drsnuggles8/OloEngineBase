@@ -26,6 +26,10 @@ namespace OloEngine
             m_CameraPosition.x += std::cos(glm::radians(m_CameraRotation)) * m_CameraTranslationSpeed * ts;
             m_CameraPosition.y += std::sin(glm::radians(m_CameraRotation)) * m_CameraTranslationSpeed * ts;
         }
+        else
+        {
+            // No additional handling required.
+        }
 
         if (Input::IsKeyPressed(Key::W))
         {
@@ -36,6 +40,10 @@ namespace OloEngine
         {
             m_CameraPosition.x -= -std::sin(glm::radians(m_CameraRotation)) * m_CameraTranslationSpeed * ts;
             m_CameraPosition.y -= std::cos(glm::radians(m_CameraRotation)) * m_CameraTranslationSpeed * ts;
+        }
+        else
+        {
+            // No additional handling required.
         }
 
         if (m_Rotation)
@@ -56,6 +64,10 @@ namespace OloEngine
             else if (m_CameraRotation <= -180.0f)
             {
                 m_CameraRotation += 360.0f;
+            }
+            else
+            {
+                // No additional handling required.
             }
 
             m_Camera.SetRotation(m_CameraRotation);

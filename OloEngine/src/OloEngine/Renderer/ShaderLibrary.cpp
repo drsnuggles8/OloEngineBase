@@ -124,6 +124,10 @@ namespace OloEngine
                     ++completed;
                 }
             }
+            else
+            {
+                // No additional handling required.
+            }
         }
         return completed;
     }
@@ -152,6 +156,10 @@ namespace OloEngine
                     glShader->InitializeResourceRegistry(shader);
                 }
             }
+            else
+            {
+                // No additional handling required.
+            }
         }
     }
 
@@ -170,6 +178,10 @@ namespace OloEngine
                 {
                     ++count;
                 }
+            }
+            else
+            {
+                // No additional handling required.
             }
         }
         return count;

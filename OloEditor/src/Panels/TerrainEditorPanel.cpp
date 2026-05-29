@@ -278,6 +278,10 @@ namespace OloEngine
                                 std::move(oldRegion0), std::move(newSplatmap0)));
                     }
                 }
+                else
+                {
+                    // No additional handling required.
+                }
             }
 
             m_StrokeActive = false;
@@ -421,6 +425,10 @@ namespace OloEngine
                         m_StrokeDirtyH = maxY - minY;
                     }
                 }
+            }
+            else
+            {
+                // No additional handling required.
             }
         }
     }

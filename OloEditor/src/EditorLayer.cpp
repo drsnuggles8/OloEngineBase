@@ -146,6 +146,10 @@ namespace OloEngine
             {
                 Application::Get().Close();
             }
+            else
+            {
+                // No additional handling required.
+            }
         }
         m_EditorCamera = EditorCamera(30.0f, 1.778f, 0.1f, 1000.0f);
 
@@ -448,6 +452,10 @@ namespace OloEngine
                 {
                     // 2D mode: synchronous read (not performance critical)
                     pixelData = m_Framebuffer->ReadPixel(1, mouseX, mouseY);
+                }
+                else
+                {
+                    // No additional handling required.
                 }
                 m_HoveredEntity = pixelData == -1 ? Entity() : Entity(static_cast<entt::entity>(pixelData), m_ActiveScene.get());
             }
@@ -925,6 +933,10 @@ namespace OloEngine
                         }
                     }
                 }
+                else
+                {
+                    // No additional handling required.
+                }
             }
             ImGui::EndDragDropTarget();
         }
@@ -971,6 +983,10 @@ namespace OloEngine
             else if (m_GizmoType == ImGuizmo::OPERATION::SCALE)
             {
                 snapValue = m_ScaleSnap;
+            }
+            else
+            {
+                // No additional handling required.
             }
 
             const std::array<f32, 3> snapValues = { snapValue, snapValue, snapValue };
@@ -1101,6 +1117,10 @@ namespace OloEngine
                 {
                     OnSceneStop();
                 }
+                else
+                {
+                    // No additional handling required.
+                }
             }
             ImGui::SameLine();
         }
@@ -1118,6 +1138,10 @@ namespace OloEngine
                 else if (m_SceneState == Simulate)
                 {
                     OnSceneStop();
+                }
+                else
+                {
+                    // No additional handling required.
                 }
             }
             ImGui::SameLine();
@@ -1706,6 +1730,10 @@ namespace OloEngine
                             [this](Entity restored)
                             { m_SceneHierarchyPanel.SetSelectedEntity(restored); }));
                     }
+                    else
+                    {
+                        // No additional handling required.
+                    }
                 }
                 break;
             }
@@ -1796,6 +1824,10 @@ namespace OloEngine
                     else if (cc.Camera.GetProjectionType() == SceneCamera::ProjectionType::Perspective)
                     {
                         // TODO(olbu): Draw the selected camera properly once the Renderer2D can draw triangles/points
+                    }
+                    else
+                    {
+                        // No additional handling required.
                     }
                 }
             }
@@ -1950,6 +1982,10 @@ namespace OloEngine
                 {
                     OpenScene(path);
                 }
+            }
+            else
+            {
+                // No additional handling required.
             } });
     }
 
@@ -2442,6 +2478,10 @@ namespace OloEngine
         {
             m_ActiveScene->OnSimulationStop();
         }
+        else
+        {
+            // No additional handling required.
+        }
 
         m_SceneState = Edit;
 
@@ -2852,6 +2892,10 @@ namespace OloEngine
                     remapUUIDs(elem);
                 }
             }
+            else
+            {
+                // No additional handling required.
+            }
         };
 
         for (auto entityNode : entities)
@@ -2929,6 +2973,10 @@ namespace OloEngine
                 // is to drop them all and re-render lazily on next paint.
                 m_ContentBrowserPanel->ClearThumbnails();
             }
+            else
+            {
+                // No additional handling required.
+            }
         }
 
         OLO_TRACE("📦 Asset Loaded Event Received!");
@@ -2964,6 +3012,10 @@ namespace OloEngine
             else if (type == AssetType::Texture2D)
             {
                 m_ContentBrowserPanel->ClearThumbnails();
+            }
+            else
+            {
+                // No additional handling required.
             }
         }
 

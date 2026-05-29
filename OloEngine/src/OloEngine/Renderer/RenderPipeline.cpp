@@ -625,6 +625,10 @@ namespace OloEngine
                 {
                     input = ShaderResourceInput(std::get<Ref<TextureCubemap>>(resource));
                 }
+                else
+                {
+                    // No additional handling required.
+                }
 
                 if (input.Type != ShaderResourceType::None)
                 {
@@ -1257,6 +1261,10 @@ namespace OloEngine
                 aoDesc.Height = aoHeight;
                 aoDesc.DebugName = std::string(ResourceNames::AOBuffer);
                 board.AO.AOBuffer = graph.AllocateTransientTextureHandle(ResourceNames::AOBuffer, aoDesc);
+            }
+            else
+            {
+                // No additional handling required.
             }
 
             static i32 s_PrevAOTechnique = -1;

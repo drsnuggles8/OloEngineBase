@@ -141,6 +141,10 @@ namespace OloEngine
             {
                 out << YAML::Key << "clip" << YAML::Value << child.ClipName;
             }
+            else
+            {
+                // No additional handling required.
+            }
             out << YAML::Key << "threshold" << YAML::Value << child.Threshold;
             if (tree->Type != BlendTree::BlendType::Simple1D)
             {
@@ -171,10 +175,18 @@ namespace OloEngine
             {
                 out << YAML::Key << "clip" << YAML::Value << state.ClipName;
             }
+            else
+            {
+                // No additional handling required.
+            }
         }
         else if (state.Type == AnimationState::MotionType::BlendTree && state.Tree)
         {
             SerializeBlendTree(out, state.Tree);
+        }
+        else
+        {
+            // No additional handling required.
         }
 
         out << YAML::EndMap;

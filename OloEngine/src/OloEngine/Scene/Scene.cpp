@@ -3763,6 +3763,10 @@ namespace OloEngine
                                                nullptr,
                                                terrain.m_WorldSizeX, terrain.m_WorldSizeZ, terrain.m_HeightScale);
                         }
+                        else
+                        {
+                            // No additional handling required.
+                        }
                     } // if (terrainShader)
 
                     // Submit voxel mesh command packets

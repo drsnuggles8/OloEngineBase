@@ -127,6 +127,10 @@ namespace OloEngine
             {
                 OLO_CORE_TRACE("Renderer3D::EndScene: compiled RenderGraph validation passed.");
             }
+            else
+            {
+                // No additional handling required.
+            }
         }
 
         s_Data.RGraph->Execute();

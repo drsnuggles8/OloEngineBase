@@ -506,6 +506,10 @@ namespace OloEngine
                     Renderer3D::ApplyRendererSettings();
                 }
             }
+            else
+            {
+                // No additional handling required.
+            }
 
             // Show active path status
             ImGui::Separator();

@@ -276,6 +276,10 @@ static void EmitStatements(std::ostream& out, const std::string& indent, const s
                             break;
                         }
                     }
+                    else
+                    {
+                        // No additional handling required.
+                    }
                 }
 
                 if (closeParen != std::string::npos && closeParen + 1 < stmt.size())
@@ -449,6 +453,10 @@ static std::vector<ComponentDef> ParseHeaders(const fs::path& scanDir)
                     insideStruct = !structStack.empty();
                     braceDepth = std::max(braceDepth, 0);
                 }
+                else
+                {
+                    // No additional handling required.
+                }
             }
 
             // Check for OLO_PROPERTY(...) — skip if inside a line comment
@@ -473,6 +481,9 @@ static std::vector<ComponentDef> ParseHeaders(const fs::path& scanDir)
                             ++depth;
                         else if (content[scanPos] == ')')
                             --depth;
+                        else
+                        { /* No additional handling required. */
+                        }
                         if (depth > 0)
                             ++scanPos;
                     }

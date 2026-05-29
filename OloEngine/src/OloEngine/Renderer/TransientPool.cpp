@@ -352,6 +352,10 @@ namespace OloEngine
                             imgFormat = ImageFormat::RGBA16F;
                         else if (firstAttach.TextureFormat == FramebufferTextureFormat::RGBA32F)
                             imgFormat = ImageFormat::RGBA32F;
+                        else
+                        {
+                            // No additional handling required.
+                        }
 
                         u64 bytesPerPixel = BytesPerPixel(imgFormat);
                         report.TotalAcquiredBytes += spec.Width * spec.Height * bytesPerPixel;
@@ -410,6 +414,10 @@ namespace OloEngine
                                 imgFormat = ImageFormat::RGBA16F;
                             else if (firstAttach.TextureFormat == FramebufferTextureFormat::RGBA32F)
                                 imgFormat = ImageFormat::RGBA32F;
+                            else
+                            {
+                                // No additional handling required.
+                            }
 
                             u64 bytesPerPixel = BytesPerPixel(imgFormat);
                             u64 itemBytes = spec.Width * spec.Height * bytesPerPixel;

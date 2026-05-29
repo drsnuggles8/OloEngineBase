@@ -713,6 +713,10 @@ namespace OloEngine::Audio::SoundGraph
                             bool interpolated = t < 0.5f ? vA : vB;
                             result.SetParameter(paramId, interpolated);
                         }
+                        else
+                        {
+                            // No additional handling required.
+                        }
                     } }, valueA, valueB);
             }
         }

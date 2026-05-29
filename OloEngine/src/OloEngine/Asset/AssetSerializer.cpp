@@ -370,6 +370,10 @@ namespace OloEngine
         {
             srgb = IsLikelyColorTextureByName(std::filesystem::path(path).filename().string());
         }
+        else
+        {
+            // No additional handling required.
+        }
 
         // Create texture specification
         TextureSpecification spec;
@@ -783,6 +787,10 @@ namespace OloEngine
                                 material->Set(propName, texture);
                         }
                     }
+                    else
+                    {
+                        // No additional handling required.
+                    }
                 }
             }
         }
@@ -976,6 +984,10 @@ namespace OloEngine
 
             OLO_CORE_TRACE("AudioFileSourceSerializer: Estimated audio properties for {} - Duration: {:.2f}s (estimated)",
                            extension, duration);
+        }
+        else
+        {
+            // No additional handling required.
         }
 
         // Create AudioFile asset with extracted/estimated metadata
@@ -4229,6 +4241,10 @@ namespace OloEngine
         {
             out << YAML::Key << "EmissionMeshPrimitiveType" << YAML::Value << mesh->PrimitiveType;
         }
+        else
+        {
+            // No additional handling required.
+        }
 
         // Modules
         out << YAML::Key << "GravityEnabled" << YAML::Value << sys.GravityModule.Enabled;
@@ -4483,6 +4499,10 @@ namespace OloEngine
                 TrySetPS(ff.Radius, ps["ForceFieldRadius"]);
                 TrySetPS(ff.Axis, ps["ForceFieldAxis"]);
                 sys.ForceFields.push_back(ff);
+            }
+            else
+            {
+                // No additional handling required.
             }
 
             TrySetPS(sys.TrailModule.Enabled, ps["TrailEnabled"]);

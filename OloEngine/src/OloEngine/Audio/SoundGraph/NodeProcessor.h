@@ -403,6 +403,10 @@ namespace OloEngine::Audio::SoundGraph
                 it->second = static_cast<i64>(value.getInt64());
             else if (type.isBool())
                 it->second = static_cast<bool>(value.getBool());
+            else
+            {
+                // No additional handling required.
+            }
         }
     };
 

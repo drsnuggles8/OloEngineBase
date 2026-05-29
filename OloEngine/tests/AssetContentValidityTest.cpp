@@ -1119,6 +1119,10 @@ namespace OloEngine::Tests
                     walk(it->second, path, key);
                 }
             }
+            else
+            {
+                // No additional handling required.
+            }
         };
 
         for (const auto& path : scenes)
@@ -1881,6 +1885,10 @@ namespace OloEngine::Tests
                     walk(it->second, path, key);
                 }
             }
+            else
+            {
+                // No additional handling required.
+            }
         };
 
         const auto scenes = EnumerateFilesByExtension(assetsRoot / "Scenes", ".olo");
@@ -1956,6 +1964,10 @@ namespace OloEngine::Tests
                         it->second, sceneRelPath,
                         keyPath.empty() ? key : (keyPath + "." + key), out);
                 }
+            }
+            else
+            {
+                // No additional handling required.
             }
         }
     } // namespace

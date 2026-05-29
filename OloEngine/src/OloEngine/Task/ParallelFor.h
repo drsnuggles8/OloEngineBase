@@ -198,6 +198,10 @@ namespace OloEngine
             {
                 Priority = LowLevelTasks::ETaskPriority::BackgroundNormal;
             }
+            else
+            {
+                // No additional handling required.
+            }
 
             // Shared data between tasks (ref-counted for safe lifetime)
             // Using TConcurrentLinearObject for efficient allocation (matches UE5.7)
@@ -358,6 +362,10 @@ namespace OloEngine
                         else if (!bIsBackgroundPriority)
                         {
                             continue;
+                        }
+                        else
+                        {
+                            // No additional handling required.
                         }
 
                         // Background priority yielding check

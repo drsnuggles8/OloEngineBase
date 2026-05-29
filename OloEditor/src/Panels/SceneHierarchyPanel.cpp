@@ -323,6 +323,10 @@ namespace OloEngine
         {
             ImGui::TextDisabled("%zu entities selected", m_SelectedEntities.size());
         }
+        else
+        {
+            // No additional handling required.
+        }
 
         ImGui::End();
     }
@@ -401,6 +405,10 @@ namespace OloEngine
                 m_Context->DestroyEntity(entity);
                 ClearSelection();
             }
+        }
+        else
+        {
+            // No additional handling required.
         }
     }
 
@@ -774,6 +782,10 @@ namespace OloEngine
             {
                 ClearSelection();
             }
+        }
+        else
+        {
+            // No additional handling required.
         }
     }
 
@@ -1173,6 +1185,10 @@ namespace OloEngine
                 ImGui::PushStyleColor(ImGuiCol_Header, ImVec4(0.1f, 0.5f, 0.1f, 0.7f));
                 ImGui::PushStyleColor(ImGuiCol_HeaderHovered, ImVec4(0.15f, 0.6f, 0.15f, 0.8f));
             }
+            else
+            {
+                // No additional handling required.
+            }
 
             ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2{ 4, 4 });
             const f32 lineHeight = ImGui::GetFontSize() + (::GImGui->Style.FramePadding.y * 2.0f);
@@ -1184,6 +1200,9 @@ namespace OloEngine
                 displayName = "* " + name + " (Override)";
             else if (isPrefabAdded)
                 displayName = "+ " + name + " (Added)";
+            else
+            { /* No additional handling required. */
+            }
 
             const bool open = ImGui::TreeNodeEx(reinterpret_cast<void*>(typeid(T).hash_code()), treeNodeFlags, displayName.c_str());
             ImGui::PopStyleVar();
@@ -2825,6 +2844,7 @@ namespace OloEngine
                         id = 0;
                     else if (id > removedIdx)
                         --id;
+                    else { /* No additional handling required. */ }
                 }
             }
 
@@ -3604,6 +3624,10 @@ namespace OloEngine
                             OLO_WARN("Drag-dropped asset is not a SoundGraph (type: {0})",
                                      AssetUtils::AssetTypeToString(AssetManager::GetAssetType(handle)));
                         }
+                        else
+                        {
+                            // No additional handling required.
+                        }
                     }
                 }
                 ImGui::EndDragDropTarget();
@@ -3953,6 +3977,7 @@ namespace OloEngine
                         component.m_SelectedIndex = -1;
                     else if (component.m_SelectedIndex > removedIndex)
                         --component.m_SelectedIndex;
+                    else { /* No additional handling required. */ }
                     ImGui::PopID();
                     break;
                 }
@@ -5919,6 +5944,7 @@ namespace OloEngine
                         durStr = std::to_string(ae.RemainingDuration) + "s remaining";
                     else if (ae.Definition.Policy.DurationType == GameplayEffectPolicy::Duration::Infinite)
                         durStr = "Infinite";
+                    else { /* No additional handling required. */ }
 
                     ImGui::Text("%s (x%d) %s", ae.Definition.Name.c_str(), ae.CurrentStacks, durStr.c_str());
                 }

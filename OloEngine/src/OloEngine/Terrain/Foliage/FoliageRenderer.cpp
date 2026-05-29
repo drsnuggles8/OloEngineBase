@@ -117,6 +117,10 @@ namespace OloEngine
             });
             data.VAO->AddInstanceBuffer(data.InstanceVBO);
         }
+        else
+        {
+            // No additional handling required.
+        }
 
         data.InstanceVBO->SetData({ instances.data(), dataSize });
         data.InstanceCount = requiredCount;

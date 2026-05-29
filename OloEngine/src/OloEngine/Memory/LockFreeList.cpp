@@ -42,6 +42,10 @@ namespace OloEngine
             // Rare: 1% chance of yield (0ms sleep)
             std::this_thread::yield();
         }
+        else
+        {
+            // No additional handling required.
+        }
     }
 
     i32 GTestCriticalStalls = 0;

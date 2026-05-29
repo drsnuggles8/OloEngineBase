@@ -336,6 +336,10 @@ namespace OloEngine
                             {
                                 node.Properties[propKey] = propVal.as<std::string>();
                             }
+                            else
+                            {
+                                // No additional handling required.
+                            }
                         }
                         catch (const YAML::Exception& e)
                         {

@@ -4027,6 +4027,10 @@ namespace OloEngine
                 activeBufferNames.insert(info.Name);
             else if (info.Desc.Kind == ResourceHandle::Kind::Framebuffer)
                 activeFramebufferNames.insert(info.Name);
+            else
+            {
+                // No additional handling required.
+            }
         }
 
         RenderGraphHandleAllocator::Reconcile(m_TextureHandlesByName, m_TextureHandleSlots, m_FreeTextureHandleIndices, activeTextureNames);
@@ -4070,6 +4074,10 @@ namespace OloEngine
                                                                               {
                                                                                   return RGFramebufferHandle{ index, generation };
                                                                               });
+            }
+            else
+            {
+                // No additional handling required.
             }
         }
 
@@ -4184,6 +4192,10 @@ namespace OloEngine
             {
                 // Teal: transfer/blit only
                 attributes.emplace_back("fillcolor=\"#cff4fc\"");
+            }
+            else
+            {
+                // No additional handling required.
             }
 
             if (!attributes.empty())
@@ -5371,6 +5383,10 @@ namespace OloEngine
                 }
                 out << "]";
             }
+            else
+            {
+                // No additional handling required.
+            }
 
             out << " }";
             if (ci + 1 < submissionPlan.size())
@@ -5814,6 +5830,10 @@ namespace OloEngine
                         expandedAccess.Range = RGSubresourceRange::Full();
                         appendUniqueAccessDeclaration(expandedAccesses, expandedAccess);
                     }
+                    else
+                    {
+                        // No additional handling required.
+                    }
 
                     continue;
                 }
@@ -5878,6 +5898,10 @@ namespace OloEngine
                         expandedFeedback.ResourceName = viewIt->second.BackingResource;
                         expandedFeedback.Range = RGSubresourceRange::Full();
                         appendUniqueFeedbackDeclaration(expandedFeedbacks, expandedFeedback);
+                    }
+                    else
+                    {
+                        // No additional handling required.
                     }
 
                     continue;
@@ -6405,6 +6429,10 @@ namespace OloEngine
                     diagnostic.Resource = currentOrigin->ResourceName;
                 else if (alternateOrigin && !alternateOrigin->ResourceName.empty())
                     diagnostic.Resource = alternateOrigin->ResourceName;
+                else
+                {
+                    // No additional handling required.
+                }
 
                 if (currentEdge)
                 {
@@ -6436,6 +6464,10 @@ namespace OloEngine
                 {
                     message += ": current build derives no matching edge, reversed visitation derives '" + diagnostic.AlternateBeforePass +
                                "' -> '" + diagnostic.AlternateAfterPass + "'";
+                }
+                else
+                {
+                    // No additional handling required.
                 }
 
                 diagnostic.Message = std::move(message);

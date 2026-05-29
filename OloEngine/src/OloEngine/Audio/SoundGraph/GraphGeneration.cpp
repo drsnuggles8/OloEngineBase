@@ -247,6 +247,10 @@ namespace OloEngine::Audio::SoundGraph
                     OLO_CORE_TRACE("GraphGenerator: Validated value connection from endpoint {} to {}",
                                    static_cast<u64>(connection.m_Source.m_EndpointID), static_cast<u64>(connection.m_Destination.m_EndpointID));
                 }
+                else
+                {
+                    // No additional handling required.
+                }
 
                 // Connection is valid, add to output prototype
                 m_OutPrototype->m_Connections.push_back(connection);

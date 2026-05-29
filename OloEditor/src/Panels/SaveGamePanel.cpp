@@ -77,6 +77,10 @@ namespace OloEngine
                     m_StatusTimer = 3.0f;
                 }
             }
+            else
+            {
+                // No additional handling required.
+            }
         }
 
         ImGui::Spacing();

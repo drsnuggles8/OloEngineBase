@@ -36,6 +36,10 @@ namespace OloEngine
         {
             mode = "Client";
         }
+        else
+        {
+            // No additional handling required.
+        }
         ImGui::Text("Mode: %s", mode);
 
         if (isClient)
@@ -178,6 +182,10 @@ namespace OloEngine
                         }
                     }
                     ImGui::EndTable();
+                }
+                else
+                {
+                    // No additional handling required.
                 }
             }
         }

@@ -113,6 +113,10 @@ namespace OloEngine
                 }
                 ae.ModifiersApplied = true;
             }
+            else
+            {
+                // No additional handling required.
+            }
 
             // Add granted tags (only once)
             if (!ae.TagsApplied)
@@ -160,6 +164,10 @@ namespace OloEngine
                 f32 current = attributes.GetBaseValue(mod.AttributeName);
                 attributes.SetBaseValue(mod.AttributeName, current * mod.Magnitude);
             }
+            else
+            {
+                // No additional handling required.
+            }
         }
     }
 
@@ -183,6 +191,10 @@ namespace OloEngine
             {
                 f32 current = attributes.GetBaseValue(mod.AttributeName);
                 attributes.SetBaseValue(mod.AttributeName, current * magnitude);
+            }
+            else
+            {
+                // No additional handling required.
             }
         }
     }

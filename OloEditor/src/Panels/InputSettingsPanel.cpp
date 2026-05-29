@@ -376,6 +376,10 @@ namespace OloEngine
             {
                 action->Bindings[m_RebindBindingIndex] = newBinding;
             }
+            else
+            {
+                // No additional handling required.
+            }
             m_Dirty = true;
 
             if (m_CommandHistory)

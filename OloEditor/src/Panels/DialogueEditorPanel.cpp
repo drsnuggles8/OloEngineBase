@@ -336,6 +336,10 @@ namespace OloEngine
                 }
             }
         }
+        else
+        {
+            // No additional handling required.
+        }
 
         // Draw ports
         auto ports = GetNodePorts(node, nodePos);
@@ -921,6 +925,10 @@ namespace OloEngine
                             }
                             connected = true;
                         }
+                        else
+                        {
+                            // No additional handling required.
+                        }
                         break;
                     }
                 }
@@ -1216,6 +1224,10 @@ namespace OloEngine
                 }
             }
         }
+        else
+        {
+            // No additional handling required.
+        }
 
         // Position
         ImGui::Separator();
@@ -1356,6 +1368,10 @@ namespace OloEngine
                     }
                 }
             }
+        }
+        else
+        {
+            // No additional handling required.
         }
 
         ImGui::Spacing();
@@ -1498,6 +1514,10 @@ namespace OloEngine
 
             // Auto-advance past action nodes after display
         }
+        else
+        {
+            // No additional handling required.
+        }
     }
 
     void DialogueEditorPanel::PreviewSelectChoice(i32 index)
@@ -1633,6 +1653,10 @@ namespace OloEngine
                     {
                         out << YAML::Key << "type" << YAML::Value << "string";
                         out << YAML::Key << "value" << YAML::Value << arg;
+                    }
+                    else
+                    {
+                        // No additional handling required.
                     } }, value);
 
                 out << YAML::EndMap;
@@ -1848,6 +1872,10 @@ namespace OloEngine
             node.Name = "Action " + std::to_string(static_cast<u64>(id));
             node.Properties["actionName"] = std::string("");
             node.Properties["actionArgs"] = std::string("");
+        }
+        else
+        {
+            // No additional handling required.
         }
 
         m_Nodes.push_back(std::move(node));

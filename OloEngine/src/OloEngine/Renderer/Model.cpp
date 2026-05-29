@@ -945,6 +945,10 @@ namespace OloEngine
                         textures.push_back(m_LoadedTextures[fallbackPathStr]);
                         loaded = true;
                     }
+                    else
+                    {
+                        // No additional handling required.
+                    }
 
                     // Fallback: scan model directory for case-insensitive stem match with any image extension.
                     // Handles FBX referencing .tga when the actual file is .png, and case mismatches on Linux.
@@ -1033,6 +1037,10 @@ namespace OloEngine
             {
                 materialRef->SetAlphaMode(AlphaMode::Blend);
                 materialRef->SetFlag(MaterialFlag::Blend, true);
+            }
+            else
+            {
+                // No additional handling required.
             }
         }
 
@@ -1245,6 +1253,10 @@ namespace OloEngine
                     }
                 }
             }
+            else
+            {
+                // No additional handling required.
+            }
         }
 
         // AO textures
@@ -1300,6 +1312,10 @@ namespace OloEngine
                         materialRef->SetAOMap(tex);
                     }
                 }
+            }
+            else
+            {
+                // No additional handling required.
             }
         }
 

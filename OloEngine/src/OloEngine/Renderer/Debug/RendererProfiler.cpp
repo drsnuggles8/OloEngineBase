@@ -148,6 +148,10 @@ namespace OloEngine
             m_CurrentFrame.m_SortingTime += timeMs;
         else if (type == MetricType::CullingTime)
             m_CurrentFrame.m_CullingTime += timeMs;
+        else
+        {
+            // No additional handling required.
+        }
     }
 
     void RendererProfiler::IncrementCounter(MetricType type, u32 value)
@@ -1308,6 +1312,10 @@ namespace OloEngine
             {
                 ++gpuCullCalls;
                 gpuCullInstances += rec.m_InstanceCount;
+            }
+            else
+            {
+                // No additional handling required.
             }
         }
         ImGui::Text("Total instances across these draws: %u", totalInstances);

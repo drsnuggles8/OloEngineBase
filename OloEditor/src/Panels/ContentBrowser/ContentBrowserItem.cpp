@@ -276,6 +276,10 @@ namespace OloEngine
                     SetAction(result, ContentBrowserAction::Selected);
                 }
             }
+            else
+            {
+                // No additional handling required.
+            }
 
             DrawFileTypeTooltip(m_DisplayName, m_Type);
         }

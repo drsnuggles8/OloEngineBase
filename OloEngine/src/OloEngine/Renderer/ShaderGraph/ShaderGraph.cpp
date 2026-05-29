@@ -290,6 +290,10 @@ namespace OloEngine
                 outputNode = node.get();
                 ++computeCount;
             }
+            else
+            {
+                // No additional handling required.
+            }
         }
 
         if (int outputCount = pbrCount + computeCount; outputCount == 0)
@@ -301,6 +305,10 @@ namespace OloEngine
         {
             result.IsValid = false;
             result.Errors.push_back("Graph must have exactly one output node, found " + std::to_string(outputCount));
+        }
+        else
+        {
+            // No additional handling required.
         }
 
         // Check for compute/raster node mixing

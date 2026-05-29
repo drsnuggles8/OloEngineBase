@@ -165,6 +165,10 @@ namespace OloEngine
         {
             Grow = static_cast<sizet>(NewMax);
         }
+        else
+        {
+            // No additional handling required.
+        }
 #else
         if (CurrentMax || static_cast<sizet>(NewMax) > Grow)
         {

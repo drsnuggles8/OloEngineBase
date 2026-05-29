@@ -213,6 +213,10 @@ namespace OloEngine
         {
             DrawRect(position, size, panel.m_BackgroundColor, entityID);
         }
+        else
+        {
+            // No additional handling required.
+        }
     }
 
     // Line width is delegated to Font::MeasureLine — that helper iterates UTF-8
@@ -350,6 +354,10 @@ namespace OloEngine
             else if (isRight)
             {
                 lineX += size.x - lineWidths[i];
+            }
+            else
+            {
+                // No additional handling required.
             }
 
             const f32 lineY = blockY + static_cast<f32>(i) * lineHeightScreen + ascenderScreen;

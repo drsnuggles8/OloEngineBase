@@ -401,6 +401,10 @@ namespace OloEngine
             std::string valueExpr = resolveInput("Value");
             code << "    " << bufName << ".data[gl_GlobalInvocationID.x] = " << valueExpr << ";\n";
         }
+        else
+        {
+            // No additional handling required.
+        }
 
         // ── PBROutput / ComputeOutput — handled separately in generators ──
 
@@ -528,6 +532,10 @@ void main()
                 if (!node->Outputs.empty())
                     defaultVal = node->Outputs[0].DefaultValue;
                 scalarParams.push_back({ node->ParameterName, node->Outputs[0].Type, defaultVal });
+            }
+            else
+            {
+                // No additional handling required.
             }
         }
 
@@ -791,6 +799,10 @@ void main()
                 else
                     param.Type = ShaderGraphPinType::Vec4;
                 outParams.push_back(param);
+            }
+            else
+            {
+                // No additional handling required.
             }
         }
         if (computeUsesTime)

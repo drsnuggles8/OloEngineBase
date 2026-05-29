@@ -970,6 +970,10 @@ namespace OloEngine
             ImGui::TextColored(ImVec4(0.9f, 0.2f, 0.2f, 1.0f), "Compilation Failed");
             ImGui::TextWrapped("%s", m_LastCompileResult.ErrorLog.c_str());
         }
+        else
+        {
+            // No additional handling required.
+        }
 
         if (!m_LastCompileResult.ErrorLog.empty() && m_LastCompileResult.Success)
         {
@@ -1343,6 +1347,10 @@ namespace OloEngine
         {
             DeleteNode(m_SelectedNodeID);
             m_SelectedNodeID = 0;
+        }
+        else
+        {
+            // No additional handling required.
         }
     }
 

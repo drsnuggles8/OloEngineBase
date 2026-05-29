@@ -530,6 +530,10 @@ namespace OloEngine::Audio::SoundGraph
         {
             milliseconds = 0.0;
         }
+        else
+        {
+            // No additional handling required.
+        }
 
         return StopFade(static_cast<i32>(milliseconds));
     }

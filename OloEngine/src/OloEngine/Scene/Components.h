@@ -269,6 +269,10 @@ namespace OloEngine
                     RotationEuler[i] -= twoPi;
                 else if (diff < -glm::pi<float>())
                     RotationEuler[i] += twoPi;
+                else
+                {
+                    // No additional handling required.
+                }
             }
         }
 

@@ -592,6 +592,9 @@ TEST_F(InventoryTestFixture, LootTable_StatisticalDistribution)
             ++swordCount;
         else if (id == "health_potion")
             ++potionCount;
+        else
+        { /* No additional handling required. */
+        }
     }
 
     // With equal weights, each should be roughly 50% (allow 10% tolerance)

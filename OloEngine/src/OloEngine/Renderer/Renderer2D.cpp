@@ -484,6 +484,10 @@ namespace OloEngine
                 RenderCommand::SetLineWidth(s_Data.LineWidth);
                 RenderCommand::DrawLines(drawCall.VertexArray, drawCall.IndexCount);
             }
+            else
+            {
+                // No additional handling required.
+            }
 
             ++s_Data.Stats.DrawCalls;
         }
@@ -1143,6 +1147,10 @@ namespace OloEngine
                     NextBatch();
                 s_Data.SlugCurveTexture = curveTexture;
                 s_Data.SlugBandTexture = bandTexture;
+            }
+            else
+            {
+                // No additional handling required.
             }
 
             const auto& rd = glyph->RenderData;

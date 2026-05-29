@@ -127,6 +127,10 @@ namespace OloEngine
                         m_ActiveContacts.try_emplace(contactKey, entityA, entityB);
                     }
                 }
+                else
+                {
+                    // No additional handling required.
+                }
             }
 
             glm::vec3 contactPoint = JoltUtils::FromJoltRVec3(inManifold.GetWorldSpaceContactPointOn1(0));

@@ -2341,6 +2341,10 @@ namespace OloEngine
             {
                 NewNumBits = BitArrayMath::Max(InOther.Num(), OutResult.Num());
             }
+            else
+            {
+                // No additional handling required.
+            }
 
             if (const i32 SizeDifference = NewNumBits - OutResult.NumBits; SizeDifference < 0)
             {
@@ -2351,6 +2355,10 @@ namespace OloEngine
             {
                 const bool bPadValue = EnumHasAnyFlags(InFlags, EBitwiseOperatorFlags::OneFillMissingBits);
                 OutResult.Add(bPadValue, SizeDifference);
+            }
+            else
+            {
+                // No additional handling required.
             }
 
             const u32 MissingBitsFill = EnumHasAnyFlags(InFlags, EBitwiseOperatorFlags::OneFillMissingBits) ? ~0u : 0;

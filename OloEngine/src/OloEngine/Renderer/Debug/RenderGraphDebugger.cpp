@@ -1166,6 +1166,10 @@ namespace OloEngine
             ImGui::TextDisabled("Pass is enabled but reports !IsReadyForExecution() \xE2\x80\x94 missing\n"
                                 "shader, UBO, or upstream resource. Check Init() and FrameCorePasses wiring.");
         }
+        else
+        {
+            // No additional handling required.
+        }
 
         ImGui::Spacing();
         ImGui::Separator();

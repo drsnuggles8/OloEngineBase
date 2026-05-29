@@ -46,6 +46,10 @@ namespace OloEngine
             {
                 OldMid = Mid;
             }
+            else
+            {
+                // No additional handling required.
+            }
         }
     }
 

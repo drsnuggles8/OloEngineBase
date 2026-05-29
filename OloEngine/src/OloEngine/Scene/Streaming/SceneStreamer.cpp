@@ -197,6 +197,10 @@ namespace OloEngine
             {
                 region->m_LastUsedFrame = frameNumber;
             }
+            else
+            {
+                // No additional handling required.
+            }
         }
 
         EvictOverBudget();
@@ -410,6 +414,10 @@ namespace OloEngine
                 OLO_CORE_ERROR("SceneStreamer: Failed to load region '{0}'", region->m_Name);
                 TUniqueLock<FMutex> lock(m_RegionMutex);
                 region->m_State = StreamingRegion::State::Unloaded;
+            }
+            else
+            {
+                // No additional handling required.
             }
 
             it = m_PendingLoads.erase(it);

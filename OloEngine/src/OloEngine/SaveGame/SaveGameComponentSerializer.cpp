@@ -243,8 +243,11 @@ namespace OloEngine
                            {
                                ar << s.PrimitiveType;
                            }
-                           // EmitPoint has no data
-                       },
+                           else
+                           {
+                               // No additional handling required.
+                               // (EmitPoint has no data)
+                           } },
                        shape);
         }
         else
@@ -995,6 +998,10 @@ namespace OloEngine
             {
                 c.m_SelectedIndex = static_cast<i32>(c.m_Options.size()) - 1;
             }
+            else
+            {
+                // No additional handling required.
+            }
         }
         ar << c.m_BackgroundColor << c.m_HighlightColor << c.m_TextColor;
         ar << c.m_FontSize << c.m_ItemHeight;
@@ -1687,6 +1694,10 @@ namespace OloEngine
         else if (ar.IsLoading())
         {
             slot.reset();
+        }
+        else
+        {
+            // No additional handling required.
         }
     }
 

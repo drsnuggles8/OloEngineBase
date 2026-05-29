@@ -88,6 +88,10 @@ namespace OloEngine::RenderGraphResourceRegistry
             {
                 info.Desc.DebugName = handle.Name;
             }
+            else
+            {
+                // No additional handling required.
+            }
 
             const auto declaredKind = handle.Type;
             if (const auto existingKind = info.Desc.Kind; existingKind == ResourceHandle::Kind::Unknown && declaredKind != ResourceHandle::Kind::Unknown)
@@ -113,6 +117,10 @@ namespace OloEngine::RenderGraphResourceRegistry
                             std::string(ToString(declaredKind)) + "'";
                 OLO_CORE_ERROR("RenderGraph hazard: {}", h.Message);
                 result.Diagnostics.push_back(std::move(h));
+            }
+            else
+            {
+                // No additional handling required.
             }
 
             if (isWrite)

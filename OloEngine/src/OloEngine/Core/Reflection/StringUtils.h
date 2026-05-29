@@ -109,6 +109,10 @@ namespace OloEngine::Core::Reflection::StringUtils
             name.remove_prefix(4); // length of "out_"
         else if (StartsWith(name, "m_"))
             name.remove_prefix(2); // length of "m_"
+        else
+        {
+            // No additional handling required.
+        }
 
         // Remove common suffixes
         if (EndsWith(name, "_Raw"))

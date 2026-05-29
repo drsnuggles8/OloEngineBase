@@ -744,6 +744,10 @@ namespace OloEngine
             encoderPixels = convertBuffer.data();
             encoderRowStride = static_cast<sizet>(width) * static_cast<sizet>(channels) * sizeof(f32);
         }
+        else
+        {
+            // No additional handling required.
+        }
 
         // Ensure the destination directory exists.
         std::error_code ec;
@@ -965,6 +969,10 @@ namespace OloEngine
                         // Sync object failed - this shouldn't happen but handle gracefully
                         OLO_CORE_WARN("Sync object wait failed for texture {}", it->m_TextureID);
                         downloadComplete = true; // Force completion to avoid hanging
+                    }
+                    else
+                    {
+                        // No additional handling required.
                     }
                     // GL_TIMEOUT_EXPIRED means not ready yet - continue to next frame
                 }
@@ -1466,6 +1474,10 @@ namespace OloEngine
         {
             RenderFramebufferDetails(*static_cast<FramebufferInfo*>(resource));
         }
+        else
+        {
+            // No additional handling required.
+        }
     }
 
     void GPUResourceInspector::RenderTexturePreview(TextureInfo& info)
@@ -1684,6 +1696,10 @@ namespace OloEngine
                 }
                 ImGui::Text("%s", indexString.c_str());
             }
+        }
+        else
+        {
+            // No additional handling required.
         }
 
         ImGui::Separator();

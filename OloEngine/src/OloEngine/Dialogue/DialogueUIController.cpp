@@ -268,6 +268,10 @@ namespace OloEngine
                 }
             }
         }
+        else
+        {
+            // No additional handling required.
+        }
         m_AdvanceKeyWasPressed = keyPressed;
         m_ArrowKeyWasPressed = Input::IsKeyPressed(Key::Up) || Input::IsKeyPressed(Key::Down);
     }

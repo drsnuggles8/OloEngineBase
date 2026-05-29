@@ -436,6 +436,10 @@ namespace OloEngine
             // DebugChannel=5 capability for the forward paths.
             BlitForwardVelocityDebug();
         }
+        else
+        {
+            // No additional handling required.
+        }
     }
 
     void SceneRenderPass::SetupFramebuffer(u32 width, u32 height)

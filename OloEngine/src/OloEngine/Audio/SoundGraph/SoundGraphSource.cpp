@@ -39,6 +39,10 @@ namespace OloEngine::Audio::SoundGraph
                 if (ppFramesOut[0])
                     std::memset(ppFramesOut[0], 0, sizeof(float) * frameCount);
             }
+            else
+            {
+                // No additional handling required.
+            }
             *pFrameCountOut = frameCount;
         }
 

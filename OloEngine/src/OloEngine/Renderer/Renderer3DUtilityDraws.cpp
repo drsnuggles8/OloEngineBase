@@ -655,6 +655,10 @@ namespace OloEngine
                 activeShader = s_Data.TerrainGBufferShader;
             else if (shader == s_Data.VoxelPBRShader && s_Data.VoxelGBufferShader)
                 activeShader = s_Data.VoxelGBufferShader;
+            else
+            {
+                // No additional handling required.
+            }
         }
         const bool useGBufferVariant = deferredActive && (activeShader != shader);
         const bool overlayRoute = deferredActive && !useGBufferVariant && s_Data.Pipeline->RenderStreamPasses.ForwardOverlay;

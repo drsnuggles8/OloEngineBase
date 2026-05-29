@@ -7993,6 +7993,10 @@ TEST(RenderGraphPassFlags, NodeSubmissionInfoReportsWorkTypeAndAsyncFlag)
             EXPECT_EQ(info.WorkType, RenderGraphPassWorkType::Compute);
             EXPECT_TRUE(info.AsyncComputeCandidate);
         }
+        else
+        {
+            // No additional handling required.
+        }
     }
 }
 
@@ -8513,6 +8517,10 @@ TEST(RenderGraphSubmissionPlan, PassCommandsCarryCorrectWorkType)
             EXPECT_EQ(cmd.WorkType, RenderGraphPassWorkType::Graphics);
             EXPECT_EQ(cmd.Lane, RenderGraph::QueueLane::Graphics)
                 << "Graphics pass must map to graphics lane";
+        }
+        else
+        {
+            // No additional handling required.
         }
     }
 }

@@ -66,6 +66,10 @@ namespace OloEngine
             {
                 after = &entry;
             }
+            else
+            {
+                // No additional handling required.
+            }
 
             if (before && after)
             {

@@ -325,6 +325,10 @@ namespace OloEngine::Tasks
                 {
                     m_LocalNormalPriQueue.TryPopFirst(Task);
                 }
+                else
+                {
+                    // No additional handling required.
+                }
             }
 
             if (Task.IsValid())

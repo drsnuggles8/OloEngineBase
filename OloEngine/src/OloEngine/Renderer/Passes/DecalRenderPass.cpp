@@ -93,6 +93,10 @@ namespace OloEngine
                 builder.WriteNewVersion(board.Scene.SceneColor, RGWriteUsage::RenderTarget, decalSceneColorVersionTag);
             builder.DependsOnPreviousWriter(ResourceNames::SceneColor);
         }
+        else
+        {
+            // No additional handling required.
+        }
     }
 
     void DecalRenderPass::Execute(RGCommandContext& context)

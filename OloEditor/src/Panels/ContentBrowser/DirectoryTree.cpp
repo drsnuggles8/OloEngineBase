@@ -71,6 +71,10 @@ namespace OloEngine
             if (!anyFound)
                 m_Root->NeedsRefresh = true;
         }
+        else
+        {
+            // No additional handling required.
+        }
     }
 
     DirectoryInfo* DirectoryTree::FindDirectory(const std::filesystem::path& relativePath)

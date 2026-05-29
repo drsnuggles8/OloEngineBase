@@ -139,6 +139,10 @@ namespace OloEngine
             // Only depth-pass
             glDrawBuffer(GL_NONE);
         }
+        else
+        {
+            // No additional handling required.
+        }
         OLO_CORE_ASSERT(glCheckNamedFramebufferStatus(m_RendererID, GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE, "Framebuffer is incomplete!");
 
         // Calculate framebuffer memory usage

@@ -32,6 +32,10 @@ namespace OloEngine
         {
             ofn.lpstrInitialDir = currentDir;
         }
+        else
+        {
+            // No additional handling required.
+        }
         ofn.lpstrFilter = filter;
         ofn.nFilterIndex = 1;
         ofn.Flags = OFN_PATHMUSTEXIST | OFN_FILEMUSTEXIST | OFN_NOCHANGEDIR;
@@ -60,6 +64,10 @@ namespace OloEngine
         else if (::GetCurrentDirectoryA(256, currentDir))
         {
             ofn.lpstrInitialDir = currentDir;
+        }
+        else
+        {
+            // No additional handling required.
         }
         ofn.lpstrFilter = filter;
         ofn.nFilterIndex = 1;

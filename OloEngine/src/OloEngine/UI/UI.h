@@ -339,6 +339,10 @@ namespace OloEngine::UI
                 {
                     ImGui::TablePushBackgroundChannel();
                 }
+                else
+                {
+                    // No additional handling required.
+                }
             }
 
             const float width = fullWidth ? ImGui::GetWindowWidth() : ImGui::GetContentRegionAvail().x;
@@ -357,6 +361,10 @@ namespace OloEngine::UI
                 else if (ImGui::GetCurrentTable() != nullptr)
                 {
                     ImGui::TablePopBackgroundChannel();
+                }
+                else
+                {
+                    // No additional handling required.
                 }
             }
         }

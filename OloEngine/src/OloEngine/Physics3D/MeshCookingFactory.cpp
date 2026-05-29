@@ -191,6 +191,10 @@ namespace OloEngine
         {
             ++m_ConvexMeshCount;
         }
+        else
+        {
+            // No additional handling required.
+        }
 
         OLO_CORE_INFO("Successfully cooked {} mesh collider", type == EMeshColliderType::Triangle ? "triangle" : "convex");
         return ECookingResult::Success;

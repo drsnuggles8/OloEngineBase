@@ -418,6 +418,10 @@ namespace OloEngine
                 {
                     m_AssetSelectedCallback(item.GetPath(), item.GetType());
                 }
+                else
+                {
+                    // No additional handling required.
+                }
             }
 
             if (HasAction(actions, ContentBrowserAction::StartRenaming))
@@ -1311,6 +1315,10 @@ namespace OloEngine
             out << YAML::Key << "MajorSegments" << YAML::Value << 24;
             out << YAML::Key << "MinorSegments" << YAML::Value << 12;
         }
+        else
+        {
+            // No additional handling required.
+        }
 
         out << YAML::EndMap;
         out << YAML::EndMap;
@@ -1372,6 +1380,10 @@ namespace OloEngine
             panel->m_ThumbnailSize = std::clamp(value, 48.0f, 256.0f);
         else if (std::sscanf(line, "Padding=%f", &value) == 1)
             panel->m_Padding = std::clamp(value, 0.0f, 32.0f);
+        else
+        {
+            // No additional handling required.
+        }
     }
 
     void ContentBrowserPanel::SettingsHandler_WriteAll(ImGuiContext*, ImGuiSettingsHandler* handler, ImGuiTextBuffer* buf)

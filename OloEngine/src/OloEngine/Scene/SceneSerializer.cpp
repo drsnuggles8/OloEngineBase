@@ -184,6 +184,10 @@ namespace OloEngine
                 durType = "HasDuration";
             else if (effect.Policy.DurationType == GameplayEffectPolicy::Duration::Infinite)
                 durType = "Infinite";
+            else
+            {
+                // No additional handling required.
+            }
             out << YAML::Key << "DurationType" << YAML::Value << durType;
             out << YAML::Key << "DurationSeconds" << YAML::Value << effect.Policy.DurationSeconds;
             out << YAML::Key << "IsPeriodic" << YAML::Value << effect.Policy.IsPeriodic;
@@ -199,6 +203,10 @@ namespace OloEngine
                     op = "Multiply";
                 else if (mod.Op == AttributeModifier::Operation::Override)
                     op = "Override";
+                else
+                {
+                    // No additional handling required.
+                }
                 out << YAML::Key << "Operation" << YAML::Value << op;
                 out << YAML::Key << "Magnitude" << YAML::Value << mod.Magnitude;
                 out << YAML::EndMap;
@@ -249,6 +257,10 @@ namespace OloEngine
                 ge.Policy.DurationType = GameplayEffectPolicy::Duration::HasDuration;
             else if (durType == "Infinite")
                 ge.Policy.DurationType = GameplayEffectPolicy::Duration::Infinite;
+            else
+            {
+                // No additional handling required.
+            }
 
             ge.Policy.DurationSeconds = effectNode["DurationSeconds"].as<f32>(0.0f);
             ge.Policy.IsPeriodic = effectNode["IsPeriodic"].as<bool>(false);
@@ -266,6 +278,10 @@ namespace OloEngine
                         mod.Op = AttributeModifier::Operation::Multiply;
                     else if (op == "Override")
                         mod.Op = AttributeModifier::Operation::Override;
+                    else
+                    {
+                        // No additional handling required.
+                    }
                     mod.Magnitude = modNode["Magnitude"].as<f32>(0.0f);
                     ge.Modifiers.push_back(mod);
                 }
@@ -1073,6 +1089,10 @@ namespace OloEngine
             TrySet(forceField.Axis, particleComponent["ForceFieldAxis"]);
             sys.ForceFields.push_back(forceField);
         }
+        else
+        {
+            // No additional handling required.
+        }
 
         // Phase 2: Trail
         TrySet(sys.TrailModule.Enabled, particleComponent["TrailEnabled"]);
@@ -1560,6 +1580,10 @@ namespace OloEngine
             else if (const auto cmdIDNode = audioSourceComponent["StartCommandID"])
             {
                 src.StartCommandID = Audio::CommandID(cmdIDNode.as<u32>(0));
+            }
+            else
+            {
+                // No additional handling required.
             }
 
             if (!audioFilepath.empty())
@@ -2493,6 +2517,10 @@ namespace OloEngine
                             {
                                 anim.m_CurrentClip = anim.m_AvailableClips[0];
                                 anim.m_CurrentClipIndex = 0;
+                            }
+                            else
+                            {
+                                // No additional handling required.
                             }
                             OLO_CORE_INFO("Deserialized AnimationStateComponent: loaded {} clips from '{}'",
                                           anim.m_AvailableClips.size(), anim.m_SourceFilePath);

@@ -356,6 +356,10 @@ namespace OloEngine
                 ImGui::DragInt("Default", &m_NewParamDefaultInt);
             else if (m_NewParamType == 2)
                 ImGui::Checkbox("Default", &m_NewParamDefaultBool);
+            else
+            {
+                // No additional handling required.
+            }
 
             if (ImGui::Button("Create") && strlen(m_NewParamName) > 0)
             {

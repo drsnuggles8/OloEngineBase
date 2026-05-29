@@ -245,6 +245,10 @@ namespace OloEngine
                         break;
                     }
                 }
+                else
+                {
+                    // No additional handling required.
+                }
             }
             s_CurrentState[actionName] = pressed;
 

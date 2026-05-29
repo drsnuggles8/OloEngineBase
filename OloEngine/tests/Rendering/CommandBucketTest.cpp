@@ -969,6 +969,10 @@ TEST_F(CommandBucketBatchTest, SameLODBatchesAndDifferentLODsStaySeparate)
             lod0InstanceCount = icmd->instanceCount;
         else if (icmd->meshHandle == kLOD1Handle)
             lod1InstanceCount = icmd->instanceCount;
+        else
+        {
+            // No additional handling required.
+        }
     }
     EXPECT_EQ(instancedPacketCount, 2u) << "Two LOD levels should produce two instanced packets";
     EXPECT_EQ(lod0InstanceCount, kLOD0Count);

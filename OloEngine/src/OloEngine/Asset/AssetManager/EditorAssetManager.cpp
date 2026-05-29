@@ -80,6 +80,10 @@ namespace OloEngine
             {
                 OLO_CORE_WARN("Failed to check asset registry existence: {}", ec.message());
             }
+            else
+            {
+                // No additional handling required.
+            }
 
             // Scan project assets directory for any new assets that aren't in the registry
             auto assetDirectory = Project::GetAssetDirectory();
@@ -95,6 +99,10 @@ namespace OloEngine
             else if (ec)
             {
                 OLO_CORE_WARN("Failed to check asset directory existence: {}", ec.message());
+            }
+            else
+            {
+                // No additional handling required.
             }
         }
 
@@ -969,10 +977,18 @@ namespace OloEngine
                             {
                                 OLO_CORE_WARN("Failed to get last write time for asset {}: {}", absolutePath.string(), ec.message());
                             }
+                            else
+                            {
+                                // No additional handling required.
+                            }
                         }
                         else if (ec)
                         {
                             OLO_CORE_WARN("Error checking asset file existence for {}: {}", absolutePath.string(), ec.message());
+                        }
+                        else
+                        {
+                            // No additional handling required.
                         }
                     }
                 }

@@ -505,6 +505,10 @@ namespace OloEngine
                     info.m_LastCompilation.m_VertexGeometrySPIRVSize += spirvBinary.size();
                 else if (stage == ShaderStage::Fragment || stage == ShaderStage::Compute)
                     info.m_LastCompilation.m_FragmentComputeSPIRVSize += spirvBinary.size();
+                else
+                {
+                    // No additional handling required.
+                }
 
                 // Convert SPIR-V binary to u32 vector for analysis
                 std::vector<u32> spirvWords;
@@ -921,6 +925,10 @@ namespace OloEngine
                 textColor = ImVec4(0.4f, 1.0f, 0.4f, 1.0f);
             else if (info.m_IsReloading)
                 textColor = ImVec4(1.0f, 1.0f, 0.4f, 1.0f);
+            else
+            {
+                // No additional handling required.
+            }
 
             ImGui::PushStyleColor(ImGuiCol_Text, textColor);
 
@@ -1430,6 +1438,10 @@ namespace OloEngine
         else if (shaderInfo.m_BindCount > 1000)
         {
             ImGui::TextColored(DebugUtils::Colors::Good, "✓ Frequently used shader");
+        }
+        else
+        {
+            // No additional handling required.
         }
     }
 

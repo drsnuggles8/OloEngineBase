@@ -71,6 +71,10 @@ namespace OloEngine::LowLevelTasks
             {
                 g_TaskGraphUseDynamicPrioritization = true;
             }
+            else
+            {
+                // No additional handling required.
+            }
         }
 
         if (const char* EnvDynamicThreadCreation = std::getenv("OLO_TASK_GRAPH_DYNAMIC_THREAD_CREATION"))
@@ -82,6 +86,10 @@ namespace OloEngine::LowLevelTasks
             else if (std::strcmp(EnvDynamicThreadCreation, "1") == 0 || std::strcmp(EnvDynamicThreadCreation, "true") == 0)
             {
                 g_TaskGraphUseDynamicThreadCreation = true;
+            }
+            else
+            {
+                // No additional handling required.
             }
         }
 
@@ -902,6 +910,10 @@ namespace OloEngine::LowLevelTasks
                     // Only reset this when the commit succeeded, otherwise we're backing off the commit and looking at the queue again
                     bPreparingStandby = false;
                 }
+                else
+                {
+                    // No additional handling required.
+                }
             }
         }
     }
@@ -943,6 +955,10 @@ namespace OloEngine::LowLevelTasks
                 {
                     // Only reset this when the commit succeeded, otherwise we're backing off the commit and looking at the queue again
                     bPreparingWait = false;
+                }
+                else
+                {
+                    // No additional handling required.
                 }
             }
         }

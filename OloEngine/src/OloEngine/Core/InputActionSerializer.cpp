@@ -94,6 +94,10 @@ namespace OloEngine
                                 out << YAML::Key << "Threshold" << YAML::Value << binding.AxisThreshold;
                                 out << YAML::Key << "Positive" << YAML::Value << binding.AxisPositive;
                             }
+                            else
+                            {
+                                // No additional handling required.
+                            }
 
                             out << YAML::EndMap;
                         }
@@ -286,6 +290,10 @@ namespace OloEngine
                                 {
                                     binding.AxisPositive = posNode.as<bool>();
                                 }
+                            }
+                            else
+                            {
+                                // No additional handling required.
                             }
 
                             action.Bindings.push_back(binding);

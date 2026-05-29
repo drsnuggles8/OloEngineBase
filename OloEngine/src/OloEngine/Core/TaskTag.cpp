@@ -98,6 +98,10 @@ namespace OLO
                 OLO_CORE_ASSERT(IsInGameThread(), "ETaskTag::EParallelGameThread can only be retagged if in a parallel for on the GameThread...");
             }
         }
+        else
+        {
+            // No additional handling required.
+        }
     }
 
     FTaskTagScope::~FTaskTagScope()

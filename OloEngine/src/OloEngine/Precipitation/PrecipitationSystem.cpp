@@ -417,6 +417,10 @@ namespace OloEngine
         {
             s_Data.m_EmissionReductionFactor = std::min(s_Data.m_EmissionReductionFactor * 1.05f, 1.0f);
         }
+        else
+        {
+            // No additional handling required.
+        }
 
         s_Data.m_LastCameraPos = cameraPos;
     }

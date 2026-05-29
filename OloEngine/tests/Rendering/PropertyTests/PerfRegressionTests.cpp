@@ -335,6 +335,10 @@ namespace OloEngine::Tests
                               << ratio << "x; warn threshold "
                               << kPerfWarnRatio << "x)";
             }
+            else
+            {
+                // No additional handling required.
+            }
         }
 
         // RAII wrapper around a pair of GL_TIME_ELAPSED queries (start/stop

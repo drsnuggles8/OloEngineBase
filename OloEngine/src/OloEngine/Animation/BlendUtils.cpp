@@ -196,6 +196,10 @@ namespace OloEngine::Animation::BlendUtils
             std::copy(base.begin(), base.begin() + static_cast<std::ptrdiff_t>(count), out.begin());
             return;
         }
+        else
+        {
+            // No additional handling required.
+        }
 
         for (sizet i = 0; i < count; ++i)
         {

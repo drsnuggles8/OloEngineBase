@@ -104,6 +104,10 @@ namespace OloEngine::LowLevelTasks
                         }
                         m_ItemSlots[Idx].Value.store(Slot, std::memory_order_release);
                     }
+                    else
+                    {
+                        // No additional handling required.
+                    }
                 } while (true);
             }
 

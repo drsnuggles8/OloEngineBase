@@ -1291,6 +1291,10 @@ namespace OloEngine
             {
                 RemoveAt(NewNum, m_ArrayNum - NewNum, AllowShrinking);
             }
+            else
+            {
+                // No additional handling required.
+            }
         }
 
         /** Set number of elements with uninitialized new elements */
@@ -1306,6 +1310,10 @@ namespace OloEngine
             {
                 RemoveAt(NewNum, m_ArrayNum - NewNum, AllowShrinking);
             }
+            else
+            {
+                // No additional handling required.
+            }
         }
 
         /** Set number of elements with zeroed new elements */
@@ -1320,6 +1328,10 @@ namespace OloEngine
             else if (NewNum < m_ArrayNum)
             {
                 RemoveAt(NewNum, m_ArrayNum - NewNum, AllowShrinking);
+            }
+            else
+            {
+                // No additional handling required.
             }
         }
 
@@ -2497,6 +2509,10 @@ namespace OloEngine
                     SizeType ArrayCount = Num();
                     Ar << ArrayCount;
                     Ar.Serialize(GetData(), static_cast<i64>(ArrayCount) * static_cast<i64>(ElementSize));
+                }
+                else
+                {
+                    // No additional handling required.
                 }
             }
         }

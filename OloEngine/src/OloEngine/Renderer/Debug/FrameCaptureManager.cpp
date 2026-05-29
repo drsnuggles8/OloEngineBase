@@ -146,6 +146,10 @@ namespace OloEngine
                 ++drawCalls;
             else if (cmd.IsStateCommand())
                 ++stateChanges;
+            else
+            {
+                // No additional handling required.
+            }
         }
         m_PendingFrame.Stats.DrawCalls = drawCalls;
         m_PendingFrame.Stats.StateChanges = stateChanges;

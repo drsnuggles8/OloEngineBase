@@ -77,6 +77,10 @@ namespace OloEngine
                 builder.WriteNewVersion(blackboard.Scene.SceneColor, RGWriteUsage::RenderTarget, particleSceneColorVersionTag);
             builder.DependsOnPreviousWriter(ResourceNames::SceneColor);
         }
+        else
+        {
+            // No additional handling required.
+        }
     }
 
     void ParticleRenderPass::Init(const FramebufferSpecification& spec)

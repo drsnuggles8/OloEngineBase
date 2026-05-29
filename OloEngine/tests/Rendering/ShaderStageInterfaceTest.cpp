@@ -158,6 +158,10 @@ namespace OloEngine::Tests
                          kind == shaderc_glsl_tess_control_shader ||
                          kind == shaderc_glsl_tess_evaluation_shader)
                     hasGeomOrTess = true;
+                else
+                {
+                    // No additional handling required.
+                }
             }
             if (hasGeomOrTess || !vertexSrc || !fragmentSrc)
                 continue;

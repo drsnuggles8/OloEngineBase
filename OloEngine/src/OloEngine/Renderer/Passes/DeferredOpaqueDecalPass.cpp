@@ -108,6 +108,10 @@ namespace OloEngine
         {
             m_DecalPass->ExecuteOnGBuffer(m_GBuffer->GetSamplingFramebuffer());
         }
+        else
+        {
+            // No additional handling required.
+        }
 
         const bool anySingleSampleExportRequested = m_SelectedSceneNormalsExport.IsValid() ||
                                                     m_SelectedGBufferAlbedoExport.IsValid() ||

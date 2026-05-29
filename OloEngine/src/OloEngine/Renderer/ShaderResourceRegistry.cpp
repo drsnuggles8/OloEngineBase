@@ -452,6 +452,10 @@ namespace OloEngine
                 texture->Bind(binding.BindingPoint);
             }
         }
+        else
+        {
+            // No additional handling required.
+        }
     }
 
     // ResourceBinding helper methods
@@ -511,6 +515,10 @@ namespace OloEngine
                                    name, binding.BindingPoint);
                     isValid = false;
                 }
+            }
+            else
+            {
+                // No additional handling required.
             }
         }
 

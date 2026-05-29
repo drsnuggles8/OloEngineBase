@@ -107,6 +107,10 @@ namespace OloEngine::Animation
         {
             phaseWeight = 1.0f - glm::clamp(m_PhaseTime / BlendOutDuration, 0.0f, 1.0f);
         }
+        else
+        {
+            // No additional handling required.
+        }
         f32 effectiveWeight = Weight * phaseWeight;
 
         if (effectiveWeight <= 0.0f)

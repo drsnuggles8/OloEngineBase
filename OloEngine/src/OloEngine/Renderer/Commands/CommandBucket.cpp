@@ -810,6 +810,10 @@ namespace OloEngine
             {
                 ++m_Stats.StateChanges;
             }
+            else
+            {
+                // No additional handling required.
+            }
 
             packet->Execute(rendererAPI);
         }
@@ -877,6 +881,10 @@ namespace OloEngine
             else if (type != CommandType::Invalid)
             {
                 ++m_Stats.StateChanges;
+            }
+            else
+            {
+                // No additional handling required.
             }
 
             if (cmdIndex < gpuTimer.GetMaxQueries())

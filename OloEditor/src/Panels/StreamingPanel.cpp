@@ -317,6 +317,10 @@ namespace OloEngine
                             streamer->UnloadRegion(id);
                         }
                     }
+                    else
+                    {
+                        // No additional handling required.
+                    }
 
                     ImGui::TreePop();
                 }

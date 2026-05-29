@@ -104,6 +104,10 @@ namespace OloEngine
             OLO_CORE_WARN("[PlayerStatePacket] Rejecting oversized blob: {} bytes (max {})", blobSize, kMaxBlobSize);
             reader.SetError();
         }
+        else
+        {
+            // No additional handling required.
+        }
 
         if (reader.IsError())
         {

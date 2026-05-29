@@ -253,6 +253,10 @@ TEST(AudioEventQueue, MultithreadedProducerConsumer)
                 }
                 break;
             }
+            else
+            {
+                // No additional handling required.
+            }
 
             std::this_thread::sleep_for(std::chrono::microseconds(20));
         } });
@@ -321,6 +325,10 @@ TEST(AudioEventQueue, MultithreadedStressTest)
                     consumedCount.fetch_add(1, std::memory_order_relaxed);
                 }
                 break;
+            }
+            else
+            {
+                // No additional handling required.
             }
         } });
 

@@ -51,6 +51,10 @@ namespace OloEngine::ParticleCurveSerializer
         {
             curve.KeyCount = std::min(kc.as<u32>(), static_cast<u32>(curve.Keys.size()));
         }
+        else
+        {
+            // No additional handling required.
+        }
     }
 
     inline void Serialize4(YAML::Emitter& out, const std::string& name, const ParticleCurve4& curve)

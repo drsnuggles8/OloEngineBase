@@ -752,6 +752,10 @@ namespace OloEngine
                     OLO_CORE_ASSERT(same,
                                     "AnimatedModel: skinned meshes have different node transforms — axis correction may be wrong");
                 }
+                else
+                {
+                    // No additional handling required.
+                }
 
                 // Process the material for this mesh
                 Material material;
@@ -1706,6 +1710,10 @@ namespace OloEngine
                                 loaded = true;
                             }
                         }
+                        else
+                        {
+                            // No additional handling required.
+                        }
                     }
 
                     // Fallback: scan model directory for case-insensitive stem match with any image extension.
@@ -1797,6 +1805,10 @@ namespace OloEngine
             {
                 material.SetAlphaMode(AlphaMode::Blend);
                 material.SetFlag(MaterialFlag::Blend, true);
+            }
+            else
+            {
+                // No additional handling required.
             }
         }
 

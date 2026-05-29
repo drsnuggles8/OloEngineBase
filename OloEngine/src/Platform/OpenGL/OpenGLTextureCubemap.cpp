@@ -272,6 +272,10 @@ namespace OloEngine
                 stbi_image_free(data);
                 return;
             }
+            else
+            {
+                // No additional handling required.
+            }
 
             stbi_image_free(data);
         }

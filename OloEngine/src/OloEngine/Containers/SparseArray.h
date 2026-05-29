@@ -794,6 +794,10 @@ namespace OloEngine
                         return false;
                     }
                 }
+                else
+                {
+                    // No additional handling required.
+                }
             }
 
             return true;
