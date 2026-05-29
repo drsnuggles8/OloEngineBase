@@ -1122,15 +1122,22 @@ namespace OloEngine::Tests
         config.Quality = IBLQuality::Medium;
         IBLPrecompute::GeneratePrefilterMapAdvanced(env, prefilter, localLib, config);
 
+        // Uniform-white input → every face of every mip must read unity. Check
+        // all six faces so a face-index/orientation bug in the cubemap render
+        // can't hide behind a face-0-only assertion.
         for (u32 mip = 0; mip < kMipLevels; ++mip)
         {
             const u32 mipRes = std::max(1u, kResolution >> mip);
-            f32 mean = 0.0f, peak = 0.0f;
-            ASSERT_TRUE(FacePrefilterStats(prefilter, 0, mip, mipRes, mean, peak))
-                << "readback failed for advanced prefilter mip " << mip;
             const f32 roughness = static_cast<f32>(mip) / static_cast<f32>(kMipLevels - 1);
-            EXPECT_NEAR(mean, 1.0f, 2e-2f)
-                << "advanced prefilter(uniform-white) drifts from unity at roughness=" << roughness;
+            for (u32 face = 0; face < 6; ++face)
+            {
+                f32 mean = 0.0f, peak = 0.0f;
+                ASSERT_TRUE(FacePrefilterStats(prefilter, face, mip, mipRes, mean, peak))
+                    << "readback failed for advanced prefilter face " << face << " mip " << mip;
+                EXPECT_NEAR(mean, 1.0f, 2e-2f)
+                    << "advanced prefilter(uniform-white) drifts from unity at face=" << face
+                    << " roughness=" << roughness;
+            }
         }
     }
 
@@ -1255,12 +1262,16 @@ namespace OloEngine::Tests
         config.Quality = IBLQuality::Medium;
         IBLPrecompute::GenerateIrradianceMapAdvanced(env, irradiance, localLib, config);
 
-        f32 mean = 0.0f, peak = 0.0f;
-        ASSERT_TRUE(FacePrefilterStats(irradiance, 0, 0, kIrradianceRes, mean, peak))
-            << "readback failed for advanced irradiance";
-        // Monte-Carlo noise at 512 cosine samples is small but non-zero; 3% slack.
-        EXPECT_NEAR(mean, 1.0f, 3e-2f)
-            << "advanced irradiance(uniform-white) should normalise to unity";
+        // Uniform-white input → all six irradiance faces normalise to unity.
+        for (u32 face = 0; face < 6; ++face)
+        {
+            f32 mean = 0.0f, peak = 0.0f;
+            ASSERT_TRUE(FacePrefilterStats(irradiance, face, 0, kIrradianceRes, mean, peak))
+                << "readback failed for advanced irradiance face " << face;
+            // Monte-Carlo noise at 512 cosine samples is small but non-zero; 3% slack.
+            EXPECT_NEAR(mean, 1.0f, 3e-2f)
+                << "advanced irradiance(uniform-white) should normalise to unity at face=" << face;
+        }
     }
 
     // =========================================================================
@@ -1303,6 +1314,7 @@ namespace OloEngine::Tests
         std::memcpy(rg.data(), bytes.data(), bytes.size());
 
         f32 maxScale = 0.0f;
+        f32 maxBias = 0.0f;
         for (std::size_t i = 0; i < texelCount; ++i)
         {
             const f32 a = rg[i * 2 + 0];
@@ -1313,9 +1325,17 @@ namespace OloEngine::Tests
             EXPECT_GE(b, -1e-3f);
             EXPECT_LE(b, 1.0f + 1e-3f);
             maxScale = std::max(maxScale, a);
+            maxBias = std::max(maxBias, b);
         }
         // A degenerate (all-zero) LUT would make every metallic surface black.
+        // Both channels reach near-unity in a healthy LUT: the scale term (F0
+        // coefficient) at smooth/grazing, and the bias term (additive Fresnel
+        // offset) at the grazing / high-roughness corner (measured ~0.95 here).
+        // The 0.5 floor leaves headroom for fp/sample-count variance while still
+        // catching a degenerate channel that would break split-sum lighting.
         EXPECT_GT(maxScale, 0.5f)
             << "BRDF LUT scale term never approaches unity — likely a degenerate/black LUT";
+        EXPECT_GT(maxBias, 0.5f)
+            << "BRDF LUT bias term never approaches unity — degenerate Fresnel-offset channel";
     }
 } // namespace OloEngine::Tests
