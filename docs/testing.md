@@ -1020,7 +1020,7 @@ new `.cpp` under `OloEngine/tests/Rendering/`, `ShaderGraph/`,
 | [ProceduralSkyVisualTest.cpp](../OloEngine/tests/Rendering/PropertyTests/ProceduralSkyVisualTest.cpp) | 1 | **ProceduralSkyVisualTest** &mdash; `WritesFaceGridPng` |
 | [SceneRenderEvidenceTest.cpp](../OloEngine/tests/Rendering/PropertyTests/SceneRenderEvidenceTest.cpp) | 1 | **LitCubeScene** &mdash; `RendersThroughScenePipelineAndProducesPng` |
 | [SphereAreaLightVisualTest.cpp](../OloEngine/tests/Rendering/PropertyTests/SphereAreaLightVisualTest.cpp) | 1 | **SphereAreaLightVisual** &mdash; `RendersAndProducesPng` |
-| [WaterVisualEvidenceTest.cpp](../OloEngine/tests/Rendering/PropertyTests/WaterVisualEvidenceTest.cpp) | 1 | **WaterVisualEvidenceTest** &mdash; `DISABLED_CaptureWaterFromMultipleAngles` |
+| [WaterVisualEvidenceTest.cpp](../OloEngine/tests/Rendering/PropertyTests/WaterVisualEvidenceTest.cpp) | 1 | **WaterVisualEvidenceTest** &mdash; `CaptureWaterFromMultipleAngles` |
 
 #### plumbing — Pipeline plumbing (command bucket, dispatch, frame data)
 
