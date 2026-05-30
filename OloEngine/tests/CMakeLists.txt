@@ -102,6 +102,7 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/HZBGeneratorResizeTest.cpp
 		Rendering/PropertyTests/PostProcessPropertyTests.cpp
 		Rendering/PropertyTests/PbrPropertyTests.cpp
+		Rendering/PropertyTests/ShaderMathIdentityTests.cpp
 		Rendering/PropertyTests/GLStateGuardTest.cpp
 		Rendering/PropertyTests/RendererValidateTest.cpp
 		Rendering/PropertyTests/ShaderUnitTests.cpp

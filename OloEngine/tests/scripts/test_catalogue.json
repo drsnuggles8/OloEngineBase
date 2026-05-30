@@ -38,6 +38,7 @@
   ],
   "file_layer_map": {
     "OloEngine/tests/Rendering/PropertyTests/PbrPropertyTests.cpp": "L1",
+    "OloEngine/tests/Rendering/PropertyTests/ShaderMathIdentityTests.cpp": "L1",
     "OloEngine/tests/Rendering/PropertyTests/PostProcessPropertyTests.cpp": "L1",
     "OloEngine/tests/Rendering/PropertyTests/ShadowTerrainPropertyTests.cpp": "L1",
     "OloEngine/tests/Rendering/PropertyTests/DeferredPropertyTests.cpp": "L1",

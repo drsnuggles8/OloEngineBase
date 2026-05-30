@@ -196,7 +196,9 @@ void main()
 
     // Cheap horizon-glow ambient: brightens silhouettes slightly,
     // approximates IBL contribution without paying a cubemap lookup.
-    float rim = pow(1.0 - max(dot(N, V), 0.0), 3.0);
+    // (1-NdotV)^3 as a multiply chain — no pow() exp2/log2 per thumbnail pixel.
+    float rimBase = 1.0 - max(dot(N, V), 0.0);
+    float rim = rimBase * rimBase * rimBase;
     vec3 ambient = c_AmbientColor * albedo + 0.06 * rim * c_RimColor;
 
     vec3 emissive = albedo * u_EmissiveFactor;

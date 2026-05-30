@@ -56,22 +56,8 @@ layout(std140, binding = 7) uniform IBLAdvancedParams {
     int u_SourceResolution;
 };
 
-const float PI = 3.14159265359;
-
-float RadicalInverse_VdC(uint bits)
-{
-    bits = (bits << 16u) | (bits >> 16u);
-    bits = ((bits & 0x55555555u) << 1u) | ((bits & 0xAAAAAAAAu) >> 1u);
-    bits = ((bits & 0x33333333u) << 2u) | ((bits & 0xCCCCCCCCu) >> 2u);
-    bits = ((bits & 0x0F0F0F0Fu) << 4u) | ((bits & 0xF0F0F0F0u) >> 4u);
-    bits = ((bits & 0x00FF00FFu) << 8u) | ((bits & 0xFF00FF00u) >> 8u);
-    return float(bits) * 2.3283064365386963e-10; // 1 / 2^32
-}
-
-vec2 Hammersley(uint i, uint N)
-{
-    return vec2(float(i) / float(N), RadicalInverse_VdC(i));
-}
+// Hammersley / bitwise radical inverse / branchless OrthonormalBasis.
+#include "include/MathCommon.glsl"
 
 // Cosine-weighted hemisphere sample around N. pdf = cos(theta) / PI.
 vec3 ImportanceSampleCosine(vec2 Xi, vec3 N, out float cosTheta)
@@ -82,9 +68,8 @@ vec3 ImportanceSampleCosine(vec2 Xi, vec3 N, out float cosTheta)
 
     vec3 H = vec3(cos(phi) * sinTheta, sin(phi) * sinTheta, cosTheta);
 
-    vec3 up = abs(N.z) < 0.999 ? vec3(0.0, 0.0, 1.0) : vec3(1.0, 0.0, 0.0);
-    vec3 tangent = normalize(cross(up, N));
-    vec3 bitangent = cross(N, tangent);
+    vec3 tangent, bitangent;
+    OrthonormalBasis(N, tangent, bitangent);
 
     return normalize(tangent * H.x + bitangent * H.y + N * H.z);
 }

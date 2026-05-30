@@ -33,7 +33,8 @@ layout(location = 0) out vec4 o_Color;
 
 layout(binding = 9) uniform samplerCube u_EnvironmentMap;
 
-const float PI = 3.14159265359;
+// Branchless OrthonormalBasis + PI.
+#include "include/MathCommon.glsl"
 
 void main()
 {
@@ -41,10 +42,15 @@ void main()
 
     vec3 irradiance = vec3(0.0);
 
-    // Tangent space calculation
-    vec3 up = vec3(0.0, 1.0, 0.0);
-    vec3 right = normalize(cross(up, N));
-    up = normalize(cross(N, right));
+    // Tangent space. Branchless basis (Duff et al. 2017) — also removes the NaN
+    // the old fixed up=(0,1,0) + normalize(cross(up,N)) produced when N pointed
+    // straight up/down (cross collapsed to zero). The hemisphere convolution is
+    // rotation-invariant about N, so the irradiance result is unchanged.
+    // The brute-force sampleDelta grid is kept deliberately: this is the simple
+    // fallback for the importance-sampled IrradianceConvolutionAdvanced path and
+    // only runs once at bake, so its sample count is not on any frame budget.
+    vec3 right, up;
+    OrthonormalBasis(N, right, up);
 
     float sampleDelta = 0.025;
     float nrSamples = 0.0;
