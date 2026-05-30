@@ -67,22 +67,44 @@ namespace OloEngine::Tests
         }
 
         // --- Mirror of the integer-power helpers ---------------------------------
-        f32 Pow2(f32 x) { return x * x; }
-        f32 Pow3(f32 x) { return x * x * x; }
-        f32 Pow4(f32 x) { const f32 x2 = x * x; return x2 * x2; }
-        f32 Pow5(f32 x) { const f32 x2 = x * x; return x2 * x2 * x; }
+        f32 Pow2(f32 x)
+        {
+            return x * x;
+        }
+        f32 Pow3(f32 x)
+        {
+            return x * x * x;
+        }
+        f32 Pow4(f32 x)
+        {
+            const f32 x2 = x * x;
+            return x2 * x2;
+        }
+        f32 Pow5(f32 x)
+        {
+            const f32 x2 = x * x;
+            return x2 * x2 * x;
+        }
 
         // High fixed exponents that Water.glsl (specular ^16/^256) and
         // SnowCommon.glsl (sparkle glint ^128) replace pow() with — pure
         // squaring chains.
-        f32 Pow16(f32 x) { const f32 a2 = x * x, a4 = a2 * a2, a8 = a4 * a4; return a8 * a8; }
+        f32 Pow16(f32 x)
+        {
+            const f32 a2 = x * x, a4 = a2 * a2, a8 = a4 * a4;
+            return a8 * a8;
+        }
         f32 Pow128(f32 x)
         {
             const f32 a2 = x * x, a4 = a2 * a2, a8 = a4 * a4, a16 = a8 * a8;
             const f32 a32 = a16 * a16, a64 = a32 * a32;
             return a64 * a64;
         }
-        f32 Pow256(f32 x) { const f32 a16 = Pow16(x), a64 = a16 * a16 * a16 * a16; return a64 * a64 * a64 * a64; }
+        f32 Pow256(f32 x)
+        {
+            const f32 a16 = Pow16(x), a64 = a16 * a16 * a16 * a16;
+            return a64 * a64 * a64 * a64;
+        }
 
         // --- Mirror of the branchless Duff et al. 2017 OrthonormalBasis ----------
         void OrthonormalBasis(const glm::vec3& n, glm::vec3& t, glm::vec3& b)
@@ -114,8 +136,8 @@ namespace OloEngine::Tests
         std::vector<glm::vec3> SampleUnitNormals()
         {
             std::vector<glm::vec3> normals;
-            normals.push_back({ 0.0f, 0.0f, 1.0f });   // +Z pole
-            normals.push_back({ 0.0f, 0.0f, -1.0f });  // -Z pole
+            normals.push_back({ 0.0f, 0.0f, 1.0f });  // +Z pole
+            normals.push_back({ 0.0f, 0.0f, -1.0f }); // -Z pole
             normals.push_back({ 1.0f, 0.0f, 0.0f });
             normals.push_back({ 0.0f, 1.0f, 0.0f });
             normals.push_back(glm::normalize(glm::vec3(0.05f, 0.05f, 0.998f)));  // just inside threshold
@@ -226,7 +248,7 @@ namespace OloEngine::Tests
             OrthonormalBasis(n, t, b);
 
             EXPECT_NEAR(glm::length(t), 1.0f, kTol) << "t not unit for n=("
-                << n.x << "," << n.y << "," << n.z << ")";
+                                                    << n.x << "," << n.y << "," << n.z << ")";
             EXPECT_NEAR(glm::length(b), 1.0f, kTol) << "b not unit";
 
             EXPECT_NEAR(glm::dot(t, n), 0.0f, kTol) << "t not perpendicular to n";
