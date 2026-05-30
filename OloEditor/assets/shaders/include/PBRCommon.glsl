@@ -99,27 +99,35 @@
 #define MAX3(a, b, c) max(a, max(b, c))
 #define MIN3(a, b, c) min(a, min(b, c))
 
+// Shared Pow2/4/5, bitwise RadicalInverse_VdC, Hammersley, branchless
+// OrthonormalBasis and ImportanceSampleGGX. PI is already defined above, so
+// MathCommon's #ifndef guard leaves it alone. Bare path: nested includes
+// resolve relative to this file's own directory (assets/shaders/include),
+// matching LightProbeSampling.glsl's `#include "SphericalHarmonics.glsl"`.
+#include "MathCommon.glsl"
+
 // =============================================================================
 // FRESNEL FUNCTIONS
 // =============================================================================
 
-// Schlick-Fresnel approximation
+// Schlick-Fresnel approximation. Pow5 (multiply chain) over pow(x, 5.0): this
+// runs for every light at every lit pixel, so the avoided exp2/log2 pair is a
+// real per-frame win, and the result is bit-near-identical for x in [0, 1].
 vec3 fresnelSchlick(float cosTheta, vec3 F0)
 {
-    return F0 + (1.0 - F0) * pow(SATURATE(1.0 - cosTheta), 5.0);
+    return F0 + (1.0 - F0) * Pow5(SATURATE(1.0 - cosTheta));
 }
 
 // Fresnel with roughness for IBL
 vec3 fresnelSchlickRoughness(float cosTheta, vec3 F0, float roughness)
 {
-    return F0 + (max(vec3(1.0 - roughness), F0) - F0) * pow(SATURATE(1.0 - cosTheta), 5.0);
+    return F0 + (max(vec3(1.0 - roughness), F0) - F0) * Pow5(SATURATE(1.0 - cosTheta));
 }
 
-// More accurate Fresnel using Spherical Gaussian approximation
-vec3 fresnelSphericalGaussian(float cosTheta, vec3 F0)
-{
-    return F0 + (vec3(1.0) - F0) * pow(2.0, (-5.55473 * cosTheta - 6.98316) * cosTheta);
-}
+// (A spherical-Gaussian Fresnel approximation lived here. It was never wired up,
+//  and now that Schlick uses the Pow5 multiply chain it would be slower — its
+//  exp2 costs more than five MULs — so it was removed rather than kept as dead
+//  code. See docs/shader-performance-audit-262.md.)
 
 // =============================================================================
 // DISTRIBUTION FUNCTIONS
@@ -354,46 +362,13 @@ vec3 postProcessColor(vec3 hdrColor, int tonemapOperator, bool applyGamma)
 // SAMPLING UTILITIES
 // =============================================================================
 
-// Van der Corput sequence for low-discrepancy sampling
-float vanDerCorputSequence(uint bits)
-{
-    bits = (bits << 16u) | (bits >> 16u);
-    bits = ((bits & 0x55555555u) << 1u) | ((bits & 0xAAAAAAAAu) >> 1u);
-    bits = ((bits & 0x33333333u) << 2u) | ((bits & 0xCCCCCCCCu) >> 2u);
-    bits = ((bits & 0x0F0F0F0Fu) << 4u) | ((bits & 0xF0F0F0F0u) >> 4u);
-    bits = ((bits & 0x00FF00FFu) << 8u) | ((bits & 0xFF00FF00u) >> 8u);
-    return float(bits) * 2.3283064365386963e-10; // / 0x100000000
-}
-
-// Hammersley sequence for importance sampling
-vec2 hammersleySequence(uint i, uint N)
-{
-    return vec2(float(i) / float(N), vanDerCorputSequence(i));
-}
-
-// Importance sample GGX distribution
-vec3 importanceSampleGGX(vec2 Xi, vec3 N, float roughness)
-{
-    float a = roughness * roughness;
-
-    float phi = TWO_PI * Xi.x;
-    float cosTheta = sqrt((1.0 - Xi.y) / (1.0 + (a * a - 1.0) * Xi.y));
-    float sinTheta = sqrt(1.0 - cosTheta * cosTheta);
-
-    // From spherical coordinates to cartesian coordinates
-    vec3 H;
-    H.x = cos(phi) * sinTheta;
-    H.y = sin(phi) * sinTheta;
-    H.z = cosTheta;
-
-    // From tangent-space vector to world-space sample vector
-    vec3 up = abs(N.z) < 0.999 ? vec3(0.0, 0.0, 1.0) : vec3(1.0, 0.0, 0.0);
-    vec3 tangent = normalize(cross(up, N));
-    vec3 bitangent = cross(N, tangent);
-
-    vec3 sampleVec = tangent * H.x + bitangent * H.y + N * H.z;
-    return normalize(sampleVec);
-}
+// camelCase aliases over the shared MathCommon primitives, kept so existing
+// call sites (e.g. calculateIBLImportanceSampled) compile unchanged. The
+// canonical bodies — bitwise radical inverse and the branchless orthonormal
+// basis — now live in MathCommon.glsl, so they can't drift from the bake path.
+float vanDerCorputSequence(uint bits)               { return RadicalInverse_VdC(bits); }
+vec2  hammersleySequence(uint i, uint N)            { return Hammersley(i, N); }
+vec3  importanceSampleGGX(vec2 Xi, vec3 N, float r) { return ImportanceSampleGGX(Xi, N, r); }
 
 // =============================================================================
 // LIGHT DATA STRUCTURE
@@ -428,7 +403,7 @@ float calculateAttenuation(vec3 lightPos, vec3 fragPos, vec4 attenuationParams)
     float attenuation = 1.0 / (constant + linear * distance + quadratic * (distance * distance));
 
     // Smooth cutoff at range boundary
-    float falloff = SATURATE(1.0 - pow(distance / range, 4.0));
+    float falloff = SATURATE(1.0 - Pow4(distance / range));
     return attenuation * falloff * falloff;
 }
 

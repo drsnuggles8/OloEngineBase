@@ -30,8 +30,10 @@ float ComputeOITWeight(float alpha, float viewZ)
 {
     float normZ = viewZ * (1.0 / OIT_DEPTH_SCALE);
     // Exponential weighting. Clamp avoids weights that would overflow the
-    // RGBA16F accumulator when many fragments overlap.
-    float w = alpha * clamp(0.03 / (1e-5 + pow(normZ, 4.0)), 1e-2, 3e3);
+    // RGBA16F accumulator when many fragments overlap. normZ^4 as a multiply
+    // chain (this runs per transparent fragment; pow()'s exp2/log2 is wasted).
+    float normZ2 = normZ * normZ;
+    float w = alpha * clamp(0.03 / (1e-5 + normZ2 * normZ2), 1e-2, 3e3);
     return w;
 }
 

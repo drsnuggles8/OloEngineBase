@@ -128,7 +128,16 @@ float snowSparkle(vec3 V, vec3 N, vec3 L, vec3 worldPos, float sparkleIntensity,
             // Reflection of view off micro-facet — sparkles when aligned with light
             vec3 R = reflect(-V, microNormal);
             float alignment = max(dot(R, L), 0.0);
-            float glint = pow(alignment, 128.0) * crystalHash.z;
+            // alignment^128 as a squaring chain (7 mults; alignment in [0,1]).
+            // This runs once per cell in the surrounding 3x3 sparkle grid, so the
+            // avoided pow() exp2/log2 is paid back per snow pixel several times.
+            float al2 = alignment * alignment;
+            float al4 = al2 * al2;
+            float al8 = al4 * al4;
+            float al16 = al8 * al8;
+            float al32 = al16 * al16;
+            float al64 = al32 * al32;
+            float glint = (al64 * al64) * crystalHash.z; // alignment^128
 
             // View-dependent masking: sparkles appear/disappear as camera moves
             float viewMask = step(0.85, crystalHash.x + dot(V, microNormal) * 0.2);

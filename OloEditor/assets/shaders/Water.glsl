@@ -746,7 +746,10 @@ void main()
         vec3 underColor = mix(u_WaterColor.rgb, u_WaterDeepColor.rgb, 0.5);
         vec3 cubemapU = texture(u_EnvironmentMap, reflect(-viewDir, normal)).rgb;
         // Subtle rim toward the cubemap at grazing angles so it isn't flat.
-        float rim = pow(1.0 - NdotVu, 4.0);
+        // (1-NdotVu)^4 as a multiply chain — avoids pow()'s exp2/log2 per pixel.
+        float rimBase = 1.0 - NdotVu;
+        float rimBase2 = rimBase * rimBase;
+        float rim = rimBase2 * rimBase2;
         vec3 underFinal = mix(underColor, cubemapU, rim * 0.25);
 
         o_Color = vec4(underFinal, 1.0);
@@ -882,10 +885,20 @@ void main()
     }
 
     float specIntensity = u_VisualParams.y;
+    // specAngle^16 and ^256 as squaring chains (specAngle in [0,1]) — avoids two
+    // pow() exp2/log2 pairs per water pixel; ^256 reuses the ^16 partial.
+    float sa2 = specAngle * specAngle;
+    float sa4 = sa2 * sa2;
+    float sa8 = sa4 * sa4;
+    float sa16 = sa8 * sa8;     // specAngle^16
+    float sa256 = sa16 * sa16;  // ^32
+    sa256 = sa256 * sa256;      // ^64
+    sa256 = sa256 * sa256;      // ^128
+    sa256 = sa256 * sa256;      // ^256
     // Tight sun specular (always present)
-    float sunSpec = pow(specAngle, 256.0) * specIntensity * 2.0;
+    float sunSpec = sa256 * specIntensity * 2.0;
     // Broader sparkle (noise-modulated) — wide lobe gives wet glint across the surface
-    float sparkleSpec = pow(specAngle, 16.0) * specIntensity * 0.35 * sparkleNoise;
+    float sparkleSpec = sa16 * specIntensity * 0.35 * sparkleNoise;
     finalColor += vec3(sunSpec + sparkleSpec);
 
     // --- Subsurface Scattering (SSS) ---
