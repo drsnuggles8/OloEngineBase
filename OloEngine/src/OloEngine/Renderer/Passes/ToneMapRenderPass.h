@@ -47,6 +47,14 @@ namespace OloEngine
             m_PostProcessUBO = ubo;
         }
 
+        // Underwater fog UBO (Renderer3D-owned, binding 36). Bound during
+        // Execute so the tone-map shader's underwater stage can read the
+        // camera-below-water tint parameters. See WATER_FUTURE_IMPROVEMENTS.md §7.2.
+        void SetUnderwaterFogUBO(const Ref<UniformBuffer>& ubo) noexcept
+        {
+            m_UnderwaterFogUBO = ubo;
+        }
+
         [[nodiscard]] bool IsReadyForExecution() const noexcept override
         {
             return m_Shader && m_Shader->IsReady() && m_PostProcessUBO;
@@ -57,6 +65,8 @@ namespace OloEngine
 
         Ref<Shader> m_Shader;
         Ref<UniformBuffer> m_PostProcessUBO;
+        Ref<UniformBuffer> m_UnderwaterFogUBO;
+        RGTextureHandle m_SelectedSceneDepthTexture;
 
         // Defaults true — tone mapping runs every frame unconditionally.
         bool m_Enabled = true;

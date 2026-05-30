@@ -43,6 +43,22 @@ namespace OloEngine
             m_Pitch = pitch;
         }
 
+        // Pose the camera at an explicit eye position looking along (yaw, pitch)
+        // and rebuild the view matrix immediately. The plain SetPosition/SetYaw/
+        // SetPitch setters only stash members — they don't recompute the view, and
+        // the next OnUpdate/UpdateView re-derives the eye from the orbit focal
+        // point, discarding a SetPosition. This collapses the orbit (focal point =
+        // eye, distance 0) so the requested pose is exactly what gets rendered.
+        // Used for deterministic captures/bookmarks where there is no live input.
+        void SetPose(const glm::vec3& eyePosition, const f32 yaw, const f32 pitch)
+        {
+            m_Yaw = yaw;
+            m_Pitch = pitch;
+            m_Distance = 0.0f;
+            m_FocalPoint = eyePosition;
+            UpdateView();
+        }
+
         [[nodiscard("Store this!")]] const glm::mat4& GetViewMatrix() const
         {
             return m_ViewMatrix;

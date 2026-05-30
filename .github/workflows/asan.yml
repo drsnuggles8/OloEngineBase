@@ -178,6 +178,18 @@ jobs:
     steps:
     - uses: actions/checkout@v6
 
+    - name: Free up disk space
+      # GitHub-hosted runners ship ~14 GB free; a sanitizer Debug link of
+      # OloEngine-Tests (instrumented + vendored static libs) can exhaust it
+      # ("No space left on device" during the final link). Reclaim ~20 GB of
+      # preinstalled toolchains this job doesn't use. `|| true` keeps a missing
+      # path from failing the job; the df lines bracket it for diagnostics.
+      run: |
+        df -h /
+        sudo rm -rf /usr/local/lib/android /opt/ghc /usr/local/.ghcup /usr/share/dotnet /opt/hostedtoolcache/CodeQL /usr/local/share/boost 2>/dev/null || true
+        sudo docker image prune --all --force 2>/dev/null || true
+        df -h /
+
     - name: Install Clang 19
       run: |
         wget --max-redirect=0 -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | sudo tee /etc/apt/trusted.gpg.d/apt.llvm.org.asc
@@ -264,6 +276,18 @@ jobs:
     steps:
     - uses: actions/checkout@v6
 
+    - name: Free up disk space
+      # GitHub-hosted runners ship ~14 GB free; a sanitizer Debug link of
+      # OloEngine-Tests (instrumented + vendored static libs) can exhaust it
+      # ("No space left on device" during the final link). Reclaim ~20 GB of
+      # preinstalled toolchains this job doesn't use. `|| true` keeps a missing
+      # path from failing the job; the df lines bracket it for diagnostics.
+      run: |
+        df -h /
+        sudo rm -rf /usr/local/lib/android /opt/ghc /usr/local/.ghcup /usr/share/dotnet /opt/hostedtoolcache/CodeQL /usr/local/share/boost 2>/dev/null || true
+        sudo docker image prune --all --force 2>/dev/null || true
+        df -h /
+
     - name: Install Clang 19
       run: |
         wget --max-redirect=0 -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | sudo tee /etc/apt/trusted.gpg.d/apt.llvm.org.asc
@@ -344,6 +368,18 @@ jobs:
 
     steps:
     - uses: actions/checkout@v6
+
+    - name: Free up disk space
+      # GitHub-hosted runners ship ~14 GB free; a sanitizer Debug link of
+      # OloEngine-Tests (instrumented + vendored static libs) can exhaust it
+      # ("No space left on device" during the final link). Reclaim ~20 GB of
+      # preinstalled toolchains this job doesn't use. `|| true` keeps a missing
+      # path from failing the job; the df lines bracket it for diagnostics.
+      run: |
+        df -h /
+        sudo rm -rf /usr/local/lib/android /opt/ghc /usr/local/.ghcup /usr/share/dotnet /opt/hostedtoolcache/CodeQL /usr/local/share/boost 2>/dev/null || true
+        sudo docker image prune --all --force 2>/dev/null || true
+        df -h /
 
     - name: Install Clang 19
       run: |

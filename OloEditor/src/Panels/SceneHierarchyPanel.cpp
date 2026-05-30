@@ -4853,6 +4853,15 @@ namespace OloEngine
                         component.m_TessMaxDistance = std::max(component.m_TessMaxDistance, component.m_TessMinDistance + 1.0f);
                 }
 
+                ImGui::SeparatorText("Underwater");
+                ImGui::Checkbox("Render From Below", &component.m_RenderFromBelow);
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Draw the water plane double-sided so it stays visible when the camera dips underwater");
+                ImGui::ColorEdit3("Underwater Fog Color", glm::value_ptr(component.m_UnderwaterFogColor));
+                ImGui::DragFloat("Underwater Fog Density", &component.m_UnderwaterFogDensity, 0.005f, 0.0f, 10.0f, "%.3f");
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Per-metre exponential absorption applied to the scene while the camera is below this surface");
+
                 ImGui::Separator();
                 if (ImGui::Button("Rebuild Mesh"))
                 {

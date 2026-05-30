@@ -4,6 +4,8 @@
 #include "RenderingTestUtils.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
 #include "OloEngine/Renderer/Commands/RenderCommand.h"
+#include "OloEngine/Renderer/PostProcessSettings.h"
+#include "OloEngine/Renderer/UnderwaterFog.h"
 #include "OloEngine/Scene/Components.h"
 
 #include <glm/gtc/matrix_transform.hpp>
@@ -247,6 +249,13 @@ TEST(WaterRendering, WaterComponentDefaults)
     EXPECT_FLOAT_EQ(wc.m_TessellationFactor, 8.0f);
     EXPECT_FLOAT_EQ(wc.m_TessMinDistance, 10.0f);
     EXPECT_FLOAT_EQ(wc.m_TessMaxDistance, 200.0f);
+
+    // Underwater fog defaults (WATER_FUTURE_IMPROVEMENTS.md §7.2)
+    EXPECT_FLOAT_EQ(wc.m_UnderwaterFogColor.r, 0.05f);
+    EXPECT_FLOAT_EQ(wc.m_UnderwaterFogColor.g, 0.15f);
+    EXPECT_FLOAT_EQ(wc.m_UnderwaterFogColor.b, 0.25f);
+    EXPECT_FLOAT_EQ(wc.m_UnderwaterFogDensity, 0.08f);
+    EXPECT_TRUE(wc.m_RenderFromBelow);
 }
 
 // =============================================================================
@@ -268,6 +277,9 @@ TEST(WaterRendering, WaterComponentCopyOmitsRuntime)
     original.m_TessellationFactor = 16.0f;
     original.m_SSREnabled = false;
     original.m_SSRMaxSteps = 128.0f;
+    original.m_UnderwaterFogColor = glm::vec3(0.1f, 0.2f, 0.3f);
+    original.m_UnderwaterFogDensity = 0.25f;
+    original.m_RenderFromBelow = false;
 
     WaterComponent copy(original);
 
@@ -284,6 +296,11 @@ TEST(WaterRendering, WaterComponentCopyOmitsRuntime)
     EXPECT_FLOAT_EQ(copy.m_TessellationFactor, 16.0f);
     EXPECT_FALSE(copy.m_SSREnabled);
     EXPECT_FLOAT_EQ(copy.m_SSRMaxSteps, 128.0f);
+    EXPECT_FLOAT_EQ(copy.m_UnderwaterFogColor.r, 0.1f);
+    EXPECT_FLOAT_EQ(copy.m_UnderwaterFogColor.g, 0.2f);
+    EXPECT_FLOAT_EQ(copy.m_UnderwaterFogColor.b, 0.3f);
+    EXPECT_FLOAT_EQ(copy.m_UnderwaterFogDensity, 0.25f);
+    EXPECT_FALSE(copy.m_RenderFromBelow);
 
     // Runtime state should NOT be copied — mesh is null, needs rebuild
     EXPECT_EQ(copy.m_WaterMesh, nullptr);
@@ -623,4 +640,211 @@ TEST(WaterRendering, TessParamsCarryFrustumCullFlag)
     EXPECT_FLOAT_EQ(tessParams.y, 5.0f);
     EXPECT_FLOAT_EQ(tessParams.z, 150.0f);
     EXPECT_FLOAT_EQ(tessParams.w, 1.0f) << "tessParams.w must default to 1 to enable TCS frustum culling";
+}
+
+// =============================================================================
+// Underwater fog (WATER_FUTURE_IMPROVEMENTS.md §7.2)
+// =============================================================================
+
+TEST(WaterRendering, UnderwaterFogUBOAlignment)
+{
+    EXPECT_EQ(sizeof(UnderwaterFogUBOData) % 16, 0u)
+        << "UnderwaterFogUBOData must be 16-byte aligned for std140";
+    EXPECT_EQ(UnderwaterFogUBOData::GetSize(), sizeof(UnderwaterFogUBOData));
+    // vec4 ColorAndDensity + vec4 Flags + vec4 CameraPos + mat4 InvViewProj
+    // = 16 + 16 + 16 + 64 = 112 bytes.
+    EXPECT_EQ(sizeof(UnderwaterFogUBOData), 112u);
+}
+
+TEST(WaterRendering, UnderwaterFogUBOBindingSlot)
+{
+    // Master's Preetham procedural-sky UBO occupies slot 36, so underwater fog
+    // lives at 37. Must match `layout(std140, binding = 37)` in PostProcess_ToneMap.glsl.
+    EXPECT_EQ(ShaderBindingLayout::UBO_UNDERWATER, 37u);
+}
+
+TEST(WaterRendering, UnderwaterFogTransmittanceAtCameraIsOne)
+{
+    // At zero distance nothing is absorbed: transmittance == 1, colour unchanged.
+    EXPECT_FLOAT_EQ(UnderwaterFog::ComputeTransmittance(0.0f, 0.08f), 1.0f);
+
+    const glm::vec3 scene(0.4f, 0.6f, 0.8f);
+    const glm::vec3 fog(0.05f, 0.15f, 0.25f);
+    const glm::vec3 r = UnderwaterFog::Apply(scene, fog, 0.0f, 0.08f);
+    EXPECT_FLOAT_EQ(r.r, scene.r);
+    EXPECT_FLOAT_EQ(r.g, scene.g);
+    EXPECT_FLOAT_EQ(r.b, scene.b);
+}
+
+TEST(WaterRendering, UnderwaterFogBeerLambertFalloff)
+{
+    // Transmittance follows exp(-density * distance).
+    constexpr f32 density = 0.5f;
+    constexpr f32 dist = 4.0f;
+    const f32 expected = std::exp(-density * dist);
+    EXPECT_NEAR(UnderwaterFog::ComputeTransmittance(dist, density), expected, 1e-6f);
+
+    // Apply blends scene → fog by (1 - transmittance), per channel.
+    const glm::vec3 scene(1.0f, 1.0f, 1.0f);
+    const glm::vec3 fog(0.0f, 0.0f, 0.0f);
+    const glm::vec3 r = UnderwaterFog::Apply(scene, fog, dist, density);
+    EXPECT_NEAR(r.r, expected, 1e-6f);
+    EXPECT_NEAR(r.g, expected, 1e-6f);
+    EXPECT_NEAR(r.b, expected, 1e-6f);
+}
+
+TEST(WaterRendering, UnderwaterFogSaturatesAtDistance)
+{
+    // Far pixels (e.g. the sky/far plane underwater) approach the fog colour.
+    const glm::vec3 scene(1.0f, 1.0f, 1.0f);
+    const glm::vec3 fog(0.05f, 0.15f, 0.25f);
+    const glm::vec3 r = UnderwaterFog::Apply(scene, fog, 1000.0f, 0.08f);
+    EXPECT_NEAR(r.r, fog.r, 1e-3f);
+    EXPECT_NEAR(r.g, fog.g, 1e-3f);
+    EXPECT_NEAR(r.b, fog.b, 1e-3f);
+}
+
+TEST(WaterRendering, UnderwaterFogClampsNegativeInputs)
+{
+    // Defensive clamps mirror the GPU path: negative distance / density → no fog.
+    EXPECT_FLOAT_EQ(UnderwaterFog::ComputeTransmittance(-5.0f, 0.08f), 1.0f);
+    EXPECT_FLOAT_EQ(UnderwaterFog::ComputeTransmittance(4.0f, -1.0f), 1.0f);
+    // Density above the clamp ceiling (10) does not overflow the result.
+    const f32 t = UnderwaterFog::ComputeTransmittance(4.0f, 1000.0f);
+    EXPECT_GE(t, 0.0f);
+    EXPECT_LE(t, 1.0f);
+}
+
+TEST(WaterRendering, UnderwaterFogStateDefaultsInactive)
+{
+    UnderwaterFogState s{};
+    EXPECT_FALSE(s.Active);
+    EXPECT_FLOAT_EQ(s.FogColor.r, 0.05f);
+    EXPECT_FLOAT_EQ(s.FogColor.g, 0.15f);
+    EXPECT_FLOAT_EQ(s.FogColor.b, 0.25f);
+    EXPECT_FLOAT_EQ(s.Density, 0.08f);
+}
+
+// =============================================================================
+// Waterline behaviour (WATER_FUTURE_IMPROVEMENTS.md §7.2)
+//
+// These pin the two pieces of logic that decide what the water looks like as
+// the camera moves through the surface and views it from the side — the exact
+// cases where the early implementations glitched:
+//   * underwaterSegmentLength: how much of a view ray passes through water
+//     (drives the per-pixel fog so the underwater half of a waterline view is
+//      fogged while the above-water half is clear);
+//   * the per-fragment surface side selection (which face of the double-sided
+//     water plane is kept), mirroring the Water.glsl discard rule.
+// =============================================================================
+
+namespace
+{
+    constexpr f32 kWaterSurfaceY = 0.0f;
+
+    // CPU mirror of the Water.glsl per-fragment waterline discard:
+    //   keep the fragment iff (cameraBelowFragment != isTopFace)
+    // A fragment above the eye shows its underside; below the eye shows its top.
+    bool WaterFaceKept(f32 fragmentY, f32 cameraY, bool isTopFace)
+    {
+        const bool cameraBelowFragment = fragmentY > cameraY;
+        return cameraBelowFragment != isTopFace;
+    }
+} // namespace
+
+TEST(WaterRendering, UnderwaterSegment_CameraBelowFragmentBelow_FullRay)
+{
+    // Fully submerged view: the whole ray is underwater.
+    const glm::vec3 cam(0.0f, -5.0f, 0.0f);
+    const glm::vec3 frag(0.0f, -5.0f, 20.0f); // horizontal ray, 20 m
+    const f32 len = UnderwaterFog::UnderwaterSegmentLength(cam, frag, kWaterSurfaceY);
+    EXPECT_NEAR(len, 20.0f, 1e-4f);
+}
+
+TEST(WaterRendering, UnderwaterSegment_BothAbove_Zero)
+{
+    // Above-water view of above-water geometry: no fog.
+    const glm::vec3 cam(0.0f, 3.0f, 0.0f);
+    const glm::vec3 frag(0.0f, 5.0f, 20.0f);
+    EXPECT_FLOAT_EQ(UnderwaterFog::UnderwaterSegmentLength(cam, frag, kWaterSurfaceY), 0.0f);
+}
+
+TEST(WaterRendering, UnderwaterSegment_CameraAboveFragmentBelow_EntryToFrag)
+{
+    // Looking down from above into the water (or the waterline case for
+    // downward rays): only the part below the surface counts. Camera at y=+10,
+    // fragment (seafloor) at y=-10, straight down → crosses surface at the
+    // midpoint, so 10 m of the 20 m ray is underwater.
+    const glm::vec3 cam(0.0f, 10.0f, 0.0f);
+    const glm::vec3 frag(0.0f, -10.0f, 0.0f);
+    EXPECT_NEAR(UnderwaterFog::UnderwaterSegmentLength(cam, frag, kWaterSurfaceY), 10.0f, 1e-4f);
+}
+
+TEST(WaterRendering, UnderwaterSegment_CameraBelowFragmentAbove_CamToExit)
+{
+    // Submerged camera looking up at above-water geometry: only the part below
+    // the surface counts. Camera y=-10, fragment y=+10 straight up → 10 m
+    // underwater before exiting.
+    const glm::vec3 cam(0.0f, -10.0f, 0.0f);
+    const glm::vec3 frag(0.0f, 10.0f, 0.0f);
+    EXPECT_NEAR(UnderwaterFog::UnderwaterSegmentLength(cam, frag, kWaterSurfaceY), 10.0f, 1e-4f);
+}
+
+TEST(WaterRendering, UnderwaterSegment_AtWaterlineSplitsRayByDirection)
+{
+    // Camera exactly at the surface (the "going in/out" case): a downward ray
+    // is fully underwater, an upward ray fully above. This is what lets the
+    // waterline render correctly per pixel instead of as a whole-screen toggle.
+    const glm::vec3 cam(0.0f, 0.0f, 0.0f);
+    const glm::vec3 down(0.0f, -8.0f, 6.0f); // mixed down+forward
+    const glm::vec3 up(0.0f, 8.0f, 6.0f);
+    EXPECT_NEAR(UnderwaterFog::UnderwaterSegmentLength(cam, down, kWaterSurfaceY),
+                glm::length(down), 1e-4f);
+    EXPECT_FLOAT_EQ(UnderwaterFog::UnderwaterSegmentLength(cam, up, kWaterSurfaceY), 0.0f);
+}
+
+TEST(WaterRendering, UnderwaterSegment_RespectsNonZeroSurfacePlane)
+{
+    // Surface raised to y=5: depth is measured from that plane.
+    const f32 surfaceY = 5.0f;
+    const glm::vec3 cam(0.0f, 5.0f, 0.0f);   // at the raised surface
+    const glm::vec3 frag(0.0f, -5.0f, 0.0f); // 10 m below the surface
+    EXPECT_NEAR(UnderwaterFog::UnderwaterSegmentLength(cam, frag, surfaceY), 10.0f, 1e-4f);
+}
+
+TEST(WaterRendering, WaterFace_CameraAbove_KeepsTopsDiscardsUndersides)
+{
+    // Camera above the water: every surface fragment is below the eye, so the
+    // top face is kept and the underside discarded — identical to the classic
+    // back-cull top-down view, no see-through holes.
+    const f32 cameraY = 5.0f;
+    const f32 fragY = 0.0f; // surface below the camera
+    EXPECT_TRUE(WaterFaceKept(fragY, cameraY, /*isTopFace=*/true));
+    EXPECT_FALSE(WaterFaceKept(fragY, cameraY, /*isTopFace=*/false));
+}
+
+TEST(WaterRendering, WaterFace_CameraBelow_KeepsUndersidesDiscardsTops)
+{
+    // Fully submerged: every surface fragment is above the eye, so the
+    // underside is kept and the top discarded — the surface is visible from
+    // below.
+    const f32 cameraY = -5.0f;
+    const f32 fragY = 0.0f; // surface above the camera
+    EXPECT_FALSE(WaterFaceKept(fragY, cameraY, /*isTopFace=*/true));
+    EXPECT_TRUE(WaterFaceKept(fragY, cameraY, /*isTopFace=*/false));
+}
+
+TEST(WaterRendering, WaterFace_AtWaterline_SplitsPerFragment)
+{
+    // Camera straddling the waterline (eye at y=0): surface fragments below the
+    // eye keep their tops, fragments above the eye keep their undersides. This
+    // per-fragment split is what removes the see-through holes / interleaved
+    // sheets when viewing the water from the side.
+    const f32 cameraY = 0.0f;
+    // Fragment of a wave trough below the eye → show top.
+    EXPECT_TRUE(WaterFaceKept(-0.5f, cameraY, /*isTopFace=*/true));
+    EXPECT_FALSE(WaterFaceKept(-0.5f, cameraY, /*isTopFace=*/false));
+    // Fragment of a wave crest above the eye → show underside.
+    EXPECT_FALSE(WaterFaceKept(0.5f, cameraY, /*isTopFace=*/true));
+    EXPECT_TRUE(WaterFaceKept(0.5f, cameraY, /*isTopFace=*/false));
 }

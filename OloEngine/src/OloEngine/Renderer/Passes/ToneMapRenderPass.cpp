@@ -5,8 +5,10 @@
 #include "OloEngine/Renderer/MeshPrimitives.h"
 #include "OloEngine/Renderer/RGCommandContext.h"
 #include "OloEngine/Renderer/RenderCommand.h"
+#include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/RenderPipelineBuilderInternal.h"
 #include "OloEngine/Renderer/ResourceHandle.h"
+#include "OloEngine/Renderer/ShaderBindingLayout.h"
 
 #include <glad/gl.h>
 
@@ -21,7 +23,17 @@ namespace OloEngine
     {
         RenderGraphNode::Setup(builder, blackboard);
 
-        (void)blackboard;
+        m_SelectedSceneDepthTexture = {};
+        // Scene depth feeds the underwater fog stage (eye-space distance for the
+        // Beer-Lambert falloff). Depth is produced far upstream by the scene
+        // pass, so reading it here doesn't reorder the post chain. The fog
+        // stage self-skips in the shader when the camera is above water.
+        if (blackboard.Scene.SceneDepth.IsValid())
+        {
+            m_SelectedSceneDepthTexture = blackboard.Scene.SceneDepth;
+            [[maybe_unused]] const auto sceneDepthRead = builder.Read(blackboard.Scene.SceneDepth, RGReadUsage::ShaderSample);
+        }
+
         [[maybe_unused]] const auto input = RenderPipelineBuilderInternal::ReadFirstValidVersionedInputForPass(
             builder,
             this,
@@ -136,14 +148,42 @@ namespace OloEngine
         context.SetClearColor({ 0.0f, 0.0f, 0.0f, 1.0f });
         context.Clear();
 
+        // Underwater fog UBO — bind so the shader stage can read the tint
+        // params. The shader self-skips when the camera is above water, so a
+        // missing/zeroed UBO is harmless. See §7.2.
+        if (m_UnderwaterFogUBO)
+            m_UnderwaterFogUBO->Bind();
+
         m_Shader->Bind();
 
         context.BindTexture(0, inputColorTextureID);
         m_Shader->SetInt("u_Texture", 0);
 
+        // Scene depth for the underwater fog distance reconstruction.
+        u32 depthTextureID = 0u;
+        if (m_SelectedSceneDepthTexture.IsValid())
+            depthTextureID = context.ResolveTexture(m_SelectedSceneDepthTexture);
+        if (depthTextureID != 0u)
+        {
+            context.BindTexture(ShaderBindingLayout::TEX_POSTPROCESS_DEPTH, depthTextureID);
+            m_Shader->SetInt("u_DepthTexture", ShaderBindingLayout::TEX_POSTPROCESS_DEPTH);
+        }
+
+        // Per-pixel water-surface depth (nearest wavy surface) captured by the
+        // water pass — lets the underwater fog find the real water boundary per
+        // pixel instead of assuming a flat plane. 0 when no water rendered.
+        const u32 waterDepthTextureID = Renderer3D::GetWaterSurfaceDepthTextureID();
+        context.BindTexture(ShaderBindingLayout::TEX_UNDERWATER_WATER_DEPTH, waterDepthTextureID);
+        m_Shader->SetInt("u_WaterSurfaceDepth", ShaderBindingLayout::TEX_UNDERWATER_WATER_DEPTH);
+
         const auto va = MeshPrimitives::GetFullscreenTriangle();
         va->Bind();
         context.DrawIndexed(va);
+
+        // Leave the depth slot clean for subsequent passes that share the layout.
+        if (depthTextureID != 0u)
+            context.BindTexture(ShaderBindingLayout::TEX_POSTPROCESS_DEPTH, 0);
+        context.BindTexture(ShaderBindingLayout::TEX_UNDERWATER_WATER_DEPTH, 0);
 
         context.SetDepthMask(true);
         outputFramebuffer->Unbind();
@@ -168,5 +208,6 @@ namespace OloEngine
     void ToneMapRenderPass::OnReset()
     {
         m_Target = nullptr;
+        m_SelectedSceneDepthTexture = {};
     }
 } // namespace OloEngine

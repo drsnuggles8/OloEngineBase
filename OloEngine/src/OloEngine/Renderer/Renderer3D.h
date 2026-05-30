@@ -559,6 +559,17 @@ namespace OloEngine
         {
             return s_Data.GlobalEnvironmentMapID;
         }
+        // Nearest wavy water-surface depth captured by WaterRenderPass this frame
+        // (0 when no water rendered). Consumed by the underwater-fog stage in the
+        // ToneMap pass to find the per-pixel water boundary. See §7.2.
+        static void SetWaterSurfaceDepthTextureID(RendererID id)
+        {
+            s_Data.WaterSurfaceDepthTextureID = id;
+        }
+        [[nodiscard]] static RendererID GetWaterSurfaceDepthTextureID()
+        {
+            return s_Data.WaterSurfaceDepthTextureID;
+        }
         [[nodiscard]] static f32 GetGlobalIBLIntensity()
         {
             return s_Data.GlobalIBLIntensity;
@@ -887,6 +898,23 @@ namespace OloEngine
 
         static void UploadFogVolumes(const FogVolumesUBOData& data);
 
+        // Underwater fog — runtime state for the camera-below-water pass
+        // (WATER_FUTURE_IMPROVEMENTS.md §7.2). Populated each frame by the
+        // scene's water update loop; consumed by `UnderwaterFogRenderPass`.
+        static void SetUnderwaterFogState(const UnderwaterFogState& state)
+        {
+            s_Data.UnderwaterFog = state;
+        }
+        [[nodiscard]] static const UnderwaterFogState& GetUnderwaterFogState()
+        {
+            return s_Data.UnderwaterFog;
+        }
+        [[nodiscard]] static Ref<UniformBuffer> GetUnderwaterFogUBO()
+        {
+            return s_Data.UnderwaterFogBuffer;
+        }
+        static void UploadUnderwaterFogUBO(const UnderwaterFogUBOData& data);
+
         // Decal rendering (submits DrawDecalCommand to DecalRenderPass bucket)
         static CommandPacket* DrawDecal(
             const glm::mat4& decalTransform,
@@ -953,6 +981,11 @@ namespace OloEngine
             RendererID foamTextureID = 0;
             bool refractionEnabled = true;
             bool ssrEnabled = true;
+            // When true the water plane draws double-sided so it stays visible
+            // from below; the fragment shader keeps the correct side per
+            // fragment via the waterline discard (§7.2). When false it is
+            // single-sided back-culled (original top-down behaviour).
+            bool renderFromBelow = true;
         };
 
         // Water rendering (submits DrawWaterCommand to WaterRenderPass bucket)
@@ -1296,6 +1329,8 @@ namespace OloEngine
             u32 FogFrameIndex = 0;
             std::chrono::steady_clock::time_point FogLastTime{};
             f32 FogTime = 0.0f;
+            UnderwaterFogState UnderwaterFog{};
+            Ref<UniformBuffer> UnderwaterFogBuffer;
             WindSettings Wind;
             SnowAccumulationSettings SnowAccumulation;
             SnowEjectaSettings SnowEjecta;
@@ -1321,6 +1356,10 @@ namespace OloEngine
             RendererID GlobalBRDFLutMapID = 0;
             RendererID GlobalEnvironmentMapID = 0;
             f32 GlobalIBLIntensity = 1.0f;
+
+            // Nearest water-surface depth texture for underwater fog (§7.2);
+            // published by WaterRenderPass, consumed by ToneMap. 0 = no water.
+            RendererID WaterSurfaceDepthTextureID = 0;
 
             // Parallel submission state
             ParallelSceneContext ParallelContext;

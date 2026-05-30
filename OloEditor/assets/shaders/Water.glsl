@@ -181,7 +181,15 @@ layout(location = 3) out vec3 tc_PrevWorldPos[];
 
 float calcTessLevel(vec3 p0, vec3 p1)
 {
-    float maxFactor = u_TessParams.x;
+    // u_TessParams.x is the near-camera subdivision factor. When tessellation is
+    // disabled the C++ side passes 0 here — but a DRAWN patch needs a tess level
+    // of at least 1; a level below 1 (and especially 0) discards the patch
+    // entirely (GL 4.6 §11.2.2). The old mix(maxFactor, 1.0, t) therefore handed
+    // near patches (t≈0) a level of ~0 whenever tessellation was off, silently
+    // culling all the water close to the camera and leaving a see-through hole to
+    // the seafloor. Clamp the factor (and the result) to >= 1 so the base grid is
+    // always rasterised; "disabled" just means no extra subdivision.
+    float maxFactor = max(u_TessParams.x, 1.0);
     float minDist = u_TessParams.y;
     float maxDist = u_TessParams.z;
 
@@ -190,7 +198,7 @@ float calcTessLevel(vec3 p0, vec3 p1)
 
     // Linear falloff: close = maxFactor, far = 1.0
     float t = clamp((dist - minDist) / max(maxDist - minDist, 0.001), 0.0, 1.0);
-    return mix(maxFactor, 1.0, t);
+    return max(mix(maxFactor, 1.0, t), 1.0);
 }
 
 // Conservative upper bound on per-axis Gerstner displacement for the current
@@ -652,8 +660,31 @@ vec4 screenSpaceReflection(vec3 worldPos, vec3 reflectDirWorld)
 
 void main()
 {
+    // Per-fragment waterline side selection (§7.2). When render-from-below is
+    // enabled (u_NormalMapSpeed.w > 0.5) the water draws double-sided; keep only
+    // the face whose side the camera is actually on relative to THIS fragment:
+    // a fragment above the eye shows its underside, one below shows its top.
+    // This avoids both the see-through holes of single-sided culling and the
+    // interleaved-sheet mess of naive double-siding when the camera straddles
+    // the waterline. (With render-from-below off the draw is back-culled and
+    // this branch is inert.)
+    if (u_NormalMapSpeed.w > 0.5)
+    {
+        bool cameraBelowFragment = v_WorldPos.y > u_CameraPosition.y;
+        if (cameraBelowFragment == gl_FrontFacing)
+            discard;
+    }
+
     vec3 gerstnerNormal = normalize(v_Normal);
     vec3 viewDir = normalize(v_ViewDir);
+
+    // Underside shading: kept back faces (camera below this fragment) face away
+    // from the viewer, so flip the shading normal to face the camera before the
+    // Fresnel / reflection / cheap-underside path below.
+    if (!gl_FrontFacing)
+    {
+        gerstnerNormal = -gerstnerNormal;
+    }
 
     // --- Normal Detail ---
     float tiling = u_VisualParams.z; // NormalMapTiling
@@ -703,6 +734,30 @@ void main()
     // Blend strength: stronger at close range for micro-detail
     vec3 normal = normalize(mix(gerstnerNormal, normalMapWorld, 0.6));
 
+    // --- Underside (camera submerged) ---
+    // Cheap, stable shading for the surface seen from below. Screen-space
+    // reflection and refraction are sampled from an above-water frame of
+    // reference and produce flickering garbage from underneath, so the
+    // underside is just a tinted surface with a soft cubemap rim. The whole-
+    // scene underwater tint is applied separately in the tone-map pass. §7.2.
+    if (!gl_FrontFacing)
+    {
+        float NdotVu = max(dot(normal, viewDir), 0.0);
+        vec3 underColor = mix(u_WaterColor.rgb, u_WaterDeepColor.rgb, 0.5);
+        vec3 cubemapU = texture(u_EnvironmentMap, reflect(-viewDir, normal)).rgb;
+        // Subtle rim toward the cubemap at grazing angles so it isn't flat.
+        float rim = pow(1.0 - NdotVu, 4.0);
+        vec3 underFinal = mix(underColor, cubemapU, rim * 0.25);
+
+        o_Color = vec4(underFinal, 1.0);
+        o_EntityID = u_EntityID;
+        o_ViewNormal = octEncode(normalize(mat3(u_View) * normal));
+        vec4 clipCurrU = u_ViewProjection     * vec4(v_WorldPos,     1.0);
+        vec4 clipPrevU = u_PrevViewProjection * vec4(v_PrevWorldPos, 1.0);
+        o_Velocity = (clipCurrU.xy / clipCurrU.w - clipPrevU.xy / clipPrevU.w) * 0.5;
+        return;
+    }
+
     // --- Screen-space UV ---
     vec2 screenUV = gl_FragCoord.xy * u_ScreenParams.zw;
 
@@ -717,6 +772,22 @@ void main()
 
     float depthSoftening = u_DepthRefractionParams.x;
     float depthFade = smoothstep(0.0, depthSoftening, depthDifference);
+
+    // View-INDEPENDENT water-column depth: reconstruct the seafloor's world
+    // height under this fragment. The screen-space depthDifference collapses at
+    // grazing angles (making the surface look transparent / foam flicker), so
+    // both opacity and shoreline foam use this vertical depth instead. Computed
+    // once here and reused below.
+    //
+    // `hasFloorBehind` is false when there's no opaque geometry behind the
+    // surface (open ocean / sky at the far plane). There's no bottom to see in
+    // that case, so the water must read as fully opaque (and grow no shoreline
+    // foam) — otherwise the far-plane reconstruction yields a near-zero depth
+    // and the open ocean turns transparent. This is the deep-water default.
+    bool hasFloorBehind = sceneDepthRaw < 0.9999;
+    vec3 floorViewPos = viewPosFromDepth(screenUV, sceneDepthRaw);
+    float floorWorldY = (inverse(u_View) * vec4(floorViewPos, 1.0)).y;
+    float verticalWaterDepth = max(v_WorldPos.y - floorWorldY, 0.0);
 
     // --- Refraction ---
     float refrDistortion = u_DepthRefractionParams.y;
@@ -757,11 +828,13 @@ void main()
     float viewDepthBlend = max(depthColorBlend, 1.0 - NdotV); // deep color at grazing angles too
     vec3 waterBaseColor = mix(shallowColor, deepColor, viewDepthBlend);
 
-    // Blend refraction (visible in shallow areas) with water body color (in deep areas)
-    // Clamp minimum blend so water body color always dominates — prevents
-    // the editor grid / underlying geometry "bleeding" through the surface.
-    float minWaterOpacity = 0.9; // Water body color always at least 90%
-    float waterBlend = max(clamp(depthColorBlend, 0.0, 1.0), minWaterOpacity);
+    // Refraction opacity from the VIEW-INDEPENDENT water-column depth, so the
+    // surface reads as opaque from every angle (it never goes see-through at
+    // grazing). Only genuinely shallow water (a metre or so — true shorelines,
+    // against pillars) lets the bottom show; anything deeper is fully opaque
+    // water body colour. exp(-d*2): ~0.86 opaque at 1 m, ~0.98 at 2 m, ~1 beyond.
+    // Open ocean (no floor behind the surface) is always fully opaque.
+    float waterBlend = hasFloorBehind ? (1.0 - exp(-verticalWaterDepth * 2.0)) : 1.0;
     vec3 waterColor = mix(refractedColor, waterBaseColor, waterBlend);
 
     // Combine reflection with water color via Fresnel
@@ -842,20 +915,33 @@ void main()
     float steepness = 1.0 - max(dot(gerstnerNormal, vec3(0.0, 1.0, 0.0)), 0.0);
     float angleFoam = pow(steepness, foamAngleExponent);
 
-    // Shoreline foam (depth-based)
-    float safeSoftening = max(depthSoftening, 0.001);
-    float shorelineFoam = pow(1.0 - clamp(depthDifference / safeSoftening, 0.0, 1.0), shorelineFoamPower);
+    // Shoreline foam — uses the same view-INDEPENDENT water-column depth as the
+    // opacity above (computed once in the depth section), so foam only appears
+    // where the water is genuinely shallow (true shorelines / against pillars)
+    // and never flickers with camera angle over open water. See §7.2.
+    const float shorelineDepthRange = 1.5; // metres of water depth over which shore foam fades out
+    float shorelineFoam = hasFloorBehind
+        ? pow(1.0 - clamp(verticalWaterDepth / shorelineDepthRange, 0.0, 1.0), shorelineFoamPower)
+        : 0.0; // open ocean (no floor behind) → no shoreline foam
 
     // --- Large-scale spatial noise gate ---
     // Prevents foam from appearing on EVERY wave crest.
     // Very low-frequency noise so only sparse, random patches of
     // crests get foam — eliminates the grid/checkerboard pattern.
     float foamGateNoise = fbmNoise(v_WorldPos.xz * 0.03 + vec2(5.3, 11.7));
-    float foamGate = smoothstep(0.55, 0.85, foamGateNoise);  // ~15-20% of area gets foam — rarer, more clustered
+    float foamGate = smoothstep(0.62, 0.88, foamGateNoise);  // ~10% of area gets foam — sparse, clustered whitecaps
     heightFoam *= foamGate;
     angleFoam  *= foamGate;
 
     float foam = max(max(heightFoam, angleFoam), shorelineFoam);
+
+    // Distance fade: at grazing angles the foam patches compress toward the
+    // horizon into a continuous white wash that dominates the frame. Fade foam
+    // out fairly aggressively with distance so only nearby waves (where foam
+    // detail is actually resolvable) keep it; far water reads as smooth tinted
+    // ocean. See §7.2.
+    float foamCamDist = length(u_CameraPosition - v_WorldPos);
+    foam *= 1.0 - smoothstep(12.0, 45.0, foamCamDist);
 
     // Modulate foam with texture OR procedural noise
     vec2 foamUV = v_WorldPos.xz * foamTiling + u_NormalMapScroll.xy * 0.2;

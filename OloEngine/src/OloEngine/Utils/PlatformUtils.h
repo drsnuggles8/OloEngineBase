@@ -43,7 +43,35 @@ namespace OloEngine
     class Time
     {
       public:
+        // Seconds since startup (wall clock) — unless a mock time is set, in
+        // which case GetTime() returns that fixed value. The mock exists so
+        // deterministic renders/captures (e.g. golden-image tests of animated
+        // water) can freeze the wave/scroll phase instead of sampling the clock.
         static f32 GetTime();
+
+        // Freeze GetTime() to a fixed value (deterministic tests/captures).
+        static void SetMockTime(f32 seconds)
+        {
+            s_MockTime = seconds;
+            s_HasMockTime = true;
+        }
+        // Resume the real wall clock.
+        static void ClearMockTime()
+        {
+            s_HasMockTime = false;
+        }
+        [[nodiscard]] static bool HasMockTime()
+        {
+            return s_HasMockTime;
+        }
+        [[nodiscard]] static f32 GetMockTime()
+        {
+            return s_MockTime;
+        }
+
+      private:
+        static inline f32 s_MockTime = 0.0f;
+        static inline bool s_HasMockTime = false;
     };
 
 } // namespace OloEngine

@@ -1170,6 +1170,28 @@ namespace OloEngine
         ar << c.m_SSRMaxSteps << c.m_SSRStepSize << c.m_SSRMaxDistance << c.m_SSRThickness;
         ar << c.m_SSREnabled;
         ar << c.m_TessellationEnabled << c.m_TessellationFactor << c.m_TessMinDistance << c.m_TessMaxDistance;
+        // m_UnderwaterFogColor / m_UnderwaterFogDensity / m_RenderFromBelow were
+        // added with the §7.2 underwater work. Per-component payloads aren't
+        // size-prefixed at this trailing point, so older archives end here —
+        // probe AtEnd() and fall back to the component defaults rather than
+        // reading past the end (same pattern as m_Transparent below).
+        if (ar.IsLoading())
+        {
+            if (ar.AtEnd())
+            {
+                c.m_UnderwaterFogColor = glm::vec3(0.05f, 0.15f, 0.25f);
+                c.m_UnderwaterFogDensity = 0.08f;
+                c.m_RenderFromBelow = true;
+            }
+            else
+            {
+                ar << c.m_UnderwaterFogColor << c.m_UnderwaterFogDensity << c.m_RenderFromBelow;
+            }
+        }
+        else
+        {
+            ar << c.m_UnderwaterFogColor << c.m_UnderwaterFogDensity << c.m_RenderFromBelow;
+        }
 
         if (ar.IsLoading())
         {
@@ -1253,6 +1275,8 @@ namespace OloEngine
             sanitizeColor(c.m_DeepColor, glm::vec3(0.0f, 0.1f, 0.2f));
             sanitizeColor(c.m_RefractionColor, glm::vec3(0.0f, 0.05f, 0.1f));
             sanitizeColor(c.m_SSSColor, glm::vec3(0.0f, 0.5f, 0.4f));
+            sanitizeColor(c.m_UnderwaterFogColor, glm::vec3(0.05f, 0.15f, 0.25f));
+            sanitize(c.m_UnderwaterFogDensity, 0.0f, 10.0f, 0.08f);
         }
     }
 

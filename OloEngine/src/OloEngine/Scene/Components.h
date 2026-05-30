@@ -1868,6 +1868,15 @@ namespace OloEngine
         f32 m_TessMinDistance = 10.0f;
         f32 m_TessMaxDistance = 200.0f;
 
+        // Underwater rendering (Phase 6 — WATER_FUTURE_IMPROVEMENTS.md §7.2)
+        // Applied as a screen-space exponential color shift when the camera
+        // sits below the water plane. Density is a per-metre absorption
+        // coefficient; the depth-fade math mirrors UnderwaterFog::Apply()
+        // (UnderwaterFog.h) and is pinned by UnderwaterFogMathTest.
+        glm::vec3 m_UnderwaterFogColor = { 0.05f, 0.15f, 0.25f };
+        f32 m_UnderwaterFogDensity = 0.08f;
+        bool m_RenderFromBelow = true; // Allow the water plane to be visible from below
+
         // Runtime (not serialized)
         Ref<Mesh> m_WaterMesh;
         bool m_NeedsRebuild = true;
@@ -1916,7 +1925,9 @@ namespace OloEngine
                 && blkEq(m_SSRMaxSteps, m_SSRThickness)        // f32*4
                 && blkEq(m_TessellationFactor, m_TessellationFactor) // f32
                 && m_TessellationEnabled == o.m_TessellationEnabled
-                && blkEq(m_TessMinDistance, m_TessMaxDistance); // f32*2
+                && blkEq(m_TessMinDistance, m_TessMaxDistance) // f32*2
+                && blkEq(m_UnderwaterFogColor, m_UnderwaterFogDensity) // vec3 + f32
+                && m_RenderFromBelow == o.m_RenderFromBelow;
             // clang-format on
         }
 
@@ -1993,6 +2004,9 @@ namespace OloEngine
             m_TessellationEnabled = src.m_TessellationEnabled;
             m_TessMinDistance = src.m_TessMinDistance;
             m_TessMaxDistance = src.m_TessMaxDistance;
+            m_UnderwaterFogColor = src.m_UnderwaterFogColor;
+            m_UnderwaterFogDensity = src.m_UnderwaterFogDensity;
+            m_RenderFromBelow = src.m_RenderFromBelow;
         }
     };
 

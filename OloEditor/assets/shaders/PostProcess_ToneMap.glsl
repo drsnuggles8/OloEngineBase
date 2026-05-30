@@ -20,6 +20,13 @@ layout(location = 0) out vec4 o_Color;
 layout(location = 0) in vec2 v_TexCoord;
 
 layout(binding = 0) uniform sampler2D u_Texture;
+// Scene depth — used by the underwater fog stage to reconstruct eye-space
+// distance for the Beer-Lambert falloff. Bound by ToneMapRenderPass.
+layout(binding = 19) uniform sampler2D u_DepthTexture;
+// Nearest wavy water-surface depth captured by WaterRenderPass (1.0 = no water
+// at this pixel). Lets the fog find the real per-pixel water boundary instead
+// of assuming a flat plane. Bound by ToneMapRenderPass (TEX_UNDERWATER_WATER_DEPTH).
+layout(binding = 32) uniform sampler2D u_WaterSurfaceDepth;
 
 #define TONEMAP_NONE      0
 #define TONEMAP_REINHARD  1
@@ -54,6 +61,74 @@ layout(std140, binding = 7) uniform PostProcessUBO
     float u_Far;
 };
 
+// Underwater fog UBO (binding 36) — mirrors UnderwaterFogUBOData. Drives a
+// per-pixel water-volume fog: each pixel's view ray is fogged by the length of
+// its segment that passes below the water plane, so the waterline is handled
+// per pixel (underwater half fogged, above-water half clear) rather than as a
+// whole-screen toggle. Flags.x < 0.5 disables it. See WATER_FUTURE_IMPROVEMENTS.md §7.2.
+layout(std140, binding = 37) uniform UnderwaterFogBlock
+{
+    vec4 u_UnderwaterColorAndDensity; // rgb = fog colour, a = per-metre density
+    vec4 u_UnderwaterFlags;           // x = active (>0.5), y = waterSurfaceY, zw = pad
+    vec4 u_UnderwaterCameraPos;       // xyz = camera world position, w = pad
+    mat4 u_UnderwaterInvViewProj;     // NDC -> world reconstruction
+};
+
+// Length of the part of segment [camPos -> worldPos] below the water plane.
+// MUST match UnderwaterFog::UnderwaterSegmentLength (UnderwaterFog.h).
+float underwaterSegmentLength(vec3 camPos, vec3 worldPos, float waterY)
+{
+    bool camUnder = camPos.y < waterY;
+    bool fragUnder = worldPos.y < waterY;
+    if (camUnder && fragUnder)
+        return length(worldPos - camPos);
+    if (!camUnder && !fragUnder)
+        return 0.0;
+    float dy = worldPos.y - camPos.y;
+    if (abs(dy) < 1e-6)
+        return 0.0;
+    float tCross = (waterY - camPos.y) / dy;
+    vec3 crossPoint = camPos + (worldPos - camPos) * tCross;
+    return camUnder ? length(crossPoint - camPos) : length(worldPos - crossPoint);
+}
+
+// Beer-Lambert absorption over the underwater segment of this pixel's view ray.
+// Mirrors UnderwaterFog (UnderwaterFog.h), pinned by the WaterRendering tests.
+vec3 applyUnderwaterFog(vec3 color, vec2 uv)
+{
+    if (u_UnderwaterFlags.x < 0.5)
+        return color;
+
+    float depth = texture(u_DepthTexture, uv).r;
+    // Reconstruct the world position of the opaque geometry (or far plane) at
+    // this pixel; the segment between the camera and it that lies underwater is
+    // what absorbs light.
+    vec4 ndc = vec4(uv * 2.0 - 1.0, depth * 2.0 - 1.0, 1.0);
+    vec4 worldH = u_UnderwaterInvViewProj * ndc;
+    vec3 worldPos = worldH.xyz / worldH.w;
+
+    // Per-pixel water surface height: where the water pass captured a surface in
+    // front of this pixel, reconstruct its world Y (wave-accurate) and use it as
+    // the local water plane. Otherwise fall back to the flat surface Y. This is
+    // what lets the fog follow the waves and work from any camera height — the
+    // old flat-plane assumption couldn't tell the surface from the seafloor.
+    float surfaceY = u_UnderwaterFlags.y;
+    float wDepth = texture(u_WaterSurfaceDepth, uv).r;
+    if (wDepth < 1.0)
+    {
+        vec4 sNdc = vec4(uv * 2.0 - 1.0, wDepth * 2.0 - 1.0, 1.0);
+        vec4 sH = u_UnderwaterInvViewProj * sNdc;
+        surfaceY = (sH.xyz / sH.w).y;
+    }
+
+    float underwaterDist = underwaterSegmentLength(u_UnderwaterCameraPos.xyz, worldPos, surfaceY);
+
+    float density = clamp(u_UnderwaterColorAndDensity.a, 0.0, 10.0);
+    float transmittance = exp(-density * underwaterDist);
+    vec3 fogColor = u_UnderwaterColorAndDensity.rgb;
+    return color * transmittance + fogColor * (1.0 - transmittance);
+}
+
 vec3 reinhardToneMapping(vec3 color)
 {
     return color / (color + vec3(1.0));
@@ -83,6 +158,10 @@ vec3 uncharted2ToneMapping(vec3 color)
 void main()
 {
     vec3 hdrColor = texture(u_Texture, v_TexCoord).rgb;
+
+    // Underwater absorption — applied in linear HDR radiance before exposure
+    // so the in-scatter colour is exposed/tonemapped with the rest of the scene.
+    hdrColor = applyUnderwaterFog(hdrColor, v_TexCoord);
 
     // Apply exposure
     hdrColor *= u_Exposure;

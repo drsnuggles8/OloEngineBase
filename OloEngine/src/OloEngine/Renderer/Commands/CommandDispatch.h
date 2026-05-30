@@ -48,6 +48,12 @@ namespace OloEngine
         static void InvalidateTextureBinding(u32 textureID);
         static void SetDepthPrepassActive(bool active);
         static void SetDepthPrepassColorPassActive(bool active);
+        // Water surface-depth capture: when active, ApplyPODRenderState forces
+        // depth-only state (color writes off, depth writes on, GL_LESS, no blend)
+        // even for the blended water draw, so the nearest wavy water surface is
+        // written into a dedicated depth target for the underwater fog. The depth
+        // prepass deliberately no-ops blended geometry, so this needs its own flag.
+        static void SetWaterDepthCaptureActive(bool active);
         static void SetViewProjectionMatrix(const glm::mat4& vp);
         static void SetViewMatrix(const glm::mat4& view);
         static void SetProjectionMatrix(const glm::mat4& projection);

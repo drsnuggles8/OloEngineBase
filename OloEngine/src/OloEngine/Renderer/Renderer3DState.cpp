@@ -150,6 +150,16 @@ namespace OloEngine
         s_Data.GlobalIBLIntensity = 1.0f;
     }
 
+    void Renderer3D::UploadUnderwaterFogUBO(const UnderwaterFogUBOData& data)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        if (s_Data.UnderwaterFogBuffer)
+        {
+            s_Data.UnderwaterFogBuffer->SetData(&data, UnderwaterFogUBOData::GetSize());
+        }
+    }
+
     void Renderer3D::SetSceneLights(const Ref<Scene>& scene)
     {
         OLO_PROFILE_FUNCTION();

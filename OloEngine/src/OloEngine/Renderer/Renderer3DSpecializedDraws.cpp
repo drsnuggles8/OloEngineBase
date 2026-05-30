@@ -336,6 +336,12 @@ namespace OloEngine
         cmd->entityID = entityID;
 
         // Water render state: translucent, depth test on, depth write off, alpha blend.
+        // When `renderFromBelow` is set the water draws double-sided and the
+        // fragment shader keeps the correct side per fragment (the waterline
+        // discard, gated on u_NormalMapSpeed.w) — this is what lets the surface
+        // be seen from below and straddle the waterline without holes or
+        // interleaved-sheet artifacts. Otherwise it stays single-sided
+        // back-culled (original top-down behaviour, invisible from below). §7.2.
         {
             PODRenderState waterState = CreateDefaultPODRenderState();
             waterState.depthTestEnabled = true;
@@ -344,10 +350,15 @@ namespace OloEngine
             waterState.blendEnabled = true;
             waterState.blendSrcFactor = GL_SRC_ALPHA;
             waterState.blendDstFactor = GL_ONE_MINUS_SRC_ALPHA;
-            waterState.cullingEnabled = true;
+            waterState.cullingEnabled = !params.renderFromBelow;
             waterState.cullFace = GL_BACK;
             cmd->renderStateIndex = FrameDataBufferManager::Get().AllocateRenderState(waterState);
         }
+
+        // Tell the shader whether to run the per-fragment waterline discard
+        // (only meaningful when double-sided). Packed into the otherwise-unused
+        // NormalMapSpeed.w channel of the water UBO.
+        cmd->normalMapSpeed.w = params.renderFromBelow ? 1.0f : 0.0f;
 
         packet->SetCommandType(cmd->header.type);
         packet->SetDispatchFunction(CommandDispatch::GetDispatchFunction(cmd->header.type));

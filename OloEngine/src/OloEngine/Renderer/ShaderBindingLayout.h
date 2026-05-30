@@ -618,6 +618,7 @@ namespace OloEngine
         static constexpr u32 UBO_PREVIEW = 34;              // Content-browser asset thumbnail preview (matrices + material factors)
         static constexpr u32 UBO_SH_COEFFICIENTS = 35;      // L2 spherical-harmonics coefficients (9 vec4) for SH-based IBL irradiance
         static constexpr u32 UBO_PROCEDURAL_SKY = 36;       // Preetham analytic sky model coefficients (PreethamCoefficientsUBO, 8 vec4)
+        static constexpr u32 UBO_UNDERWATER = 37;           // Underwater fog parameters (camera-below-water tint, WATER_FUTURE_IMPROVEMENTS.md §7.2)
 
         // =============================================================================
         // TEXTURE SAMPLER BINDINGS
@@ -655,7 +656,12 @@ namespace OloEngine
         static constexpr u32 TEX_WIND_FIELD = 29;           // 3D wind velocity field (sampler3D, RGBA16F)
         static constexpr u32 TEX_SNOW_DEPTH = 30;           // Snow accumulation depth map (sampler2D, R32F)
         static constexpr u32 TEX_PRECIPITATION_NOISE = 31;  // Precipitation streak/lens noise (sampler2D)
-        // Slots 32-35 were reserved for GTAO (HZB / output / edges / Hilbert LUT) but
+        // Nearest water-surface depth (DEPTH_COMPONENT32F) captured by WaterRenderPass;
+        // sampled by the underwater-fog stage in the ToneMap pass to find the per-pixel
+        // wavy water boundary (WATER_FUTURE_IMPROVEMENTS.md §7.2). Took GTAO-reserved
+        // slot 32 — GTAO binds low sequential slots (0-5) instead, so 33-35 stay free.
+        static constexpr u32 TEX_UNDERWATER_WATER_DEPTH = 32;
+        // Slots 33-35 were reserved for GTAO (HZB / output / edges / Hilbert LUT) but
         // the GTAO compute shaders bind to low sequential slots (0-5) instead — see
         // GTAORenderPass.cpp's GTAO_HZB/NORMALS/HILBERT_TEXTURE_SLOT constants.
         // Leaving the range free for future graphics-pipeline-stage GTAO consumers.
@@ -832,6 +838,8 @@ namespace OloEngine
                 case UBO_PROCEDURAL_SKY:
                     return name.contains("ProceduralSky") || name.contains("proceduralSky") ||
                            name.contains("Preetham") || name.contains("preetham");
+                case UBO_UNDERWATER:
+                    return name.contains("Underwater") || name.contains("underwater");
                 default:
                     return false;
             }
@@ -935,6 +943,12 @@ namespace OloEngine
                     return name.contains("OIT") || name.contains("oit") ||
                            name.contains("Accum") || name.contains("accum") ||
                            name.contains("Revealage") || name.contains("revealage");
+                case TEX_UNDERWATER_WATER_DEPTH:
+                    // Dedicated one-off slot (32) for the underwater-fog water-surface
+                    // depth; validate its sampler name instead of letting it pass the
+                    // generic 10–42 range unchecked. Production: u_WaterSurfaceDepth.
+                    return name == "u_WaterSurfaceDepth" ||
+                           (name.contains("Water") && name.contains("Surface") && name.contains("Depth"));
                 default:
                     // Accept explicitly defined engine texture slots (TEX_USER_0 through TEX_WATER_SSR, i.e. 10–42)
                     // and shader graph user texture slots (TEX_SHADER_GRAPH_0+)
