@@ -145,6 +145,31 @@ TEST(FontMemoryLoadTest, MemoryLoadMatchesFileLoad)
     EXPECT_NEAR(memGlyph->second.AdvanceWidth, fileGlyph->second.AdvanceWidth, 1e-6f);
 }
 
+// Codepoint ranges can arrive from an untrusted asset pack. An unclamped Last of
+// 0xFFFFFFFF would wrap `++codepoint` back to 0 and loop forever; an inverted
+// range must be dropped. Before the sanitize guard, this test would hang.
+TEST(FontMemoryLoadTest, SanitizesOutOfRangeCodepoints)
+{
+    const fs::path fontPath = ResolveReferenceFont();
+    if (fontPath.empty())
+        GTEST_SKIP() << "OpenSans-Regular.ttf not found — skipping range-sanitize test";
+
+    const std::vector<u8> bytes = ReadFileBytes(fontPath);
+    ASSERT_FALSE(bytes.empty());
+
+    const std::vector<FontCodepointRange> dirty{
+        { 0x10FFF0u, 0xFFFFFFFFu }, // huge Last -> clamped to 0x10FFFF (no wrap, ~16 iterations)
+        { 100u, 50u },              // inverted -> dropped
+    };
+    Ref<Font> font = Font::Create("probe", std::span<const u8>(bytes), dirty);
+    ASSERT_TRUE(font && font->IsLoaded()) << "load must complete (not hang) and succeed";
+
+    const std::vector<FontCodepointRange>& got = font->GetRanges();
+    ASSERT_EQ(got.size(), 1u) << "inverted range must be dropped";
+    EXPECT_EQ(got[0].First, 0x10FFF0u);
+    EXPECT_EQ(got[0].Last, 0x10FFFFu) << "Last must be clamped to the max Unicode scalar";
+}
+
 // -----------------------------------------------------------------------------
 // 2. Full asset-pack round-trip through the production serializer.
 // -----------------------------------------------------------------------------

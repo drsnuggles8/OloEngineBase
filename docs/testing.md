@@ -39,6 +39,7 @@ contract, pre-commit checks, the add-a-test workflow — live in
 9. [Test catalogues (auto-generated)](#9-test-catalogues-auto-generated)
     - 9.1 [Renderer tests](#91-renderer-tests)
     - 9.2 [Functional tests](#92-functional-tests)
+    - 9.3 [Unit / subsystem tests](#93-unit--subsystem-tests)
 10. [References](#10-references)
 
 ---
@@ -1437,7 +1438,7 @@ level of `tests/`). Grouped by directory.
 |---|---:|---|
 | [ArchiveExtensionsTest.cpp](../OloEngine/tests/Serialization/ArchiveExtensionsTest.cpp) | 24 | **ArchiveExtensionsTest** &mdash; `Vec2Roundtrip`, `Vec3Roundtrip`, `Vec4Roundtrip`, `IVec3Roundtrip`, `Mat3Roundtrip`, `Mat4Roundtrip`, `QuatRoundtrip`, `UUIDRoundtrip`, `UUIDZeroRoundtrip`, `VectorOfFloatsRoundtrip`, `EmptyVectorRoundtrip`, `VectorOfVec3Roundtrip`, `VectorOfStringsRoundtrip`, `UnorderedMapRoundtrip`, `EmptyMapRoundtrip`, `VectorOfUUIDsRoundtrip`, `Vec3ProducesExpectedSize`, `Mat4ProducesExpectedSize`, `TruncatedVectorFailsKeepsDestination`, `OversizeCountFailsKeepsDestination`, `DuplicateKeyMapFailsKeepsDestination`, `TruncatedMapFailsKeepsDestination`, `TruncatedVectorCountFailsKeepsDestination`, `TruncatedMapCountFailsKeepsDestination` |
 | [EnvironmentSerializerTest.cpp](../OloEngine/tests/Serialization/EnvironmentSerializerTest.cpp) | 2 | **EnvironmentSerializerTest** &mdash; `TryLoadDataPopulatesSpecFilePath`, `TryLoadDataFailsWhenSourceMissing` |
-| [FontAssetPackSerializerTest.cpp](../OloEngine/tests/Serialization/FontAssetPackSerializerTest.cpp) | 2 | **FontMemoryLoadTest** &mdash; `MemoryLoadMatchesFileLoad`<br/>**FontAssetPackSerializerTest** &mdash; `AssetPackRoundTrip` |
+| [FontAssetPackSerializerTest.cpp](../OloEngine/tests/Serialization/FontAssetPackSerializerTest.cpp) | 3 | **FontMemoryLoadTest** &mdash; `MemoryLoadMatchesFileLoad`, `SanitizesOutOfRangeCodepoints`<br/>**FontAssetPackSerializerTest** &mdash; `AssetPackRoundTrip` |
 | [MeshAssetSerializerTest.cpp](../OloEngine/tests/Serialization/MeshAssetSerializerTest.cpp) | 3 | **MeshAssetSerializerYAMLTest** &mdash; `RoundTripsMeshSourceHandleAndSubmeshIndex`, `FailsWhenMeshSourceHandleIsMissing`, `ClampsOutOfRangeSubmeshIndexInsteadOfAsserting` |
 | [MeshBinarySerializerTest.cpp](../OloEngine/tests/Serialization/MeshBinarySerializerTest.cpp) | 8 | **MeshBinarySerializerTest** &mdash; `WriteAndReadStaticMesh`, `ReadTimestampWorks`, `ReadTimestampFailsOnMissingFile`, `WriteAndReadRiggedMesh`, `ReadRejectsCorruptFile`<br/>**AnimationBinarySerializerTest** &mdash; `WriteAndReadRoundTrip`, `ReadTimestampWorks`, `ReadReturnsEmptyOnCorruptFile` |
 | [SoundGraphSerializerTest.cpp](../OloEngine/tests/Serialization/SoundGraphSerializerTest.cpp) | 2 | **SoundGraphSerializer** &mdash; `RoundTripPreservesNodesConnectionsAndGraphIO`, `EmptyGraphRoundTripsWithoutData` |
@@ -1455,7 +1456,7 @@ level of `tests/`). Grouped by directory.
 | [FunctionWithContextTest.cpp](../OloEngine/tests/Templates/FunctionWithContextTest.cpp) | 4 | **FunctionWithContext** &mdash; `DefaultConstructedIsNullAndExposesNullSlots`, `LambdaBoundCallableInvokesCaptureBody`, `ReassignmentReplacesBoundCallable`, `RoundTripsThroughStatelessInvocationAPI` |
 | [TypeTraitsTest.cpp](../OloEngine/tests/Templates/TypeTraitsTest.cpp) | 2 | **TypeTraitsTest** &mdash; `AllChecksAreCompileTime`, `AllNameOfsAreCorrect` |
 
-**Totals.** 115 unit / subsystem test files, 1427 TEST / TEST_F declarations across all subsystems.
+**Totals.** 115 unit / subsystem test files, 1428 TEST / TEST_F declarations across all subsystems.
 
 <!-- END: unit-catalogue -->
 

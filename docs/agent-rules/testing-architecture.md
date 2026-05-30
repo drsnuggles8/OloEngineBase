@@ -60,11 +60,11 @@ The `test-catalogue-in-sync` pre-commit hook **fails the commit** otherwise. Fil
 **Workflow when adding a test file:**
 
 1. Write the test(s). Use `TEST`, `TEST_F`, `TEST_P`, or `TYPED_TEST` — the scanner's regex relies on these macros.
-2. Register the file in `test_catalogue.json` → `file_layer_map` with the correct layer id (renderer tests) or `"Functional"` tag.
-3. Run `python OloEngine/tests/scripts/generate_test_catalogue.py` to regenerate both auto-catalogue blocks inside `docs/testing.md` (renderer block in §9.1, Functional block in §9.2).
+2. Register the file in `test_catalogue.json` → `file_layer_map` with the correct classification: a renderer-pyramid layer id (`L1`–`L11`/`plumbing`/…) for rendering-scope tests, `"Functional"` for cross-subsystem tests, or `"unit"` for plain per-subsystem unit tests.
+3. Run `python OloEngine/tests/scripts/generate_test_catalogue.py` to regenerate all three auto-catalogue blocks inside `docs/testing.md` (renderer block in §9.1, Functional block in §9.2, unit block in §9.3).
 4. Commit the .cpp, the JSON entry, and the doc diff together.
 
-**Do not hand-edit** the blocks between `<!-- BEGIN: renderer-catalogue ... -->` / `<!-- END: renderer-catalogue -->` or `<!-- BEGIN: functional-catalogue ... -->` / `<!-- END: functional-catalogue -->` in `docs/testing.md`. The generator overwrites them.
+**Do not hand-edit** the blocks between `<!-- BEGIN: renderer-catalogue ... -->` / `<!-- END: renderer-catalogue -->`, `<!-- BEGIN: functional-catalogue ... -->` / `<!-- END: functional-catalogue -->`, or `<!-- BEGIN: unit-catalogue ... -->` / `<!-- END: unit-catalogue -->` in `docs/testing.md`. The generator overwrites them.
 
 ---
 

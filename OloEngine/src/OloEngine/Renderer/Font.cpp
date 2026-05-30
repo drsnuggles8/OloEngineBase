@@ -84,8 +84,27 @@ namespace OloEngine
 
     void Font::LoadFromMemory(std::string name, std::span<const u8> fontData, const std::vector<FontCodepointRange>& ranges)
     {
+        OLO_PROFILE_FUNCTION();
+
         m_Name = std::move(name);
-        m_Ranges = ranges;
+
+        // Sanitize codepoint ranges before storing or iterating them. Ranges can
+        // arrive from an untrusted asset pack (FontSerializer::DeserializeFromAssetPack),
+        // so clamp into the valid Unicode scalar range and drop inverted ranges.
+        // Without the clamp, a Last of 0xFFFFFFFF would wrap `++codepoint` back to
+        // 0 in the loops below and spin forever; a merely-large Last would burn
+        // billions of iterations on codepoints no font defines.
+        constexpr u32 kMaxCodepoint = 0x10FFFFu;
+        m_Ranges.clear();
+        m_Ranges.reserve(ranges.size());
+        for (const auto& r : ranges)
+        {
+            const u32 first = r.First > kMaxCodepoint ? kMaxCodepoint : r.First;
+            const u32 last = r.Last > kMaxCodepoint ? kMaxCodepoint : r.Last;
+            if (last < first)
+                continue; // inverted / degenerate range
+            m_Ranges.emplace_back(first, last);
+        }
 
         if (fontData.empty())
         {
@@ -125,7 +144,7 @@ namespace OloEngine
         // caller supplying both Latin1 and ArabicBasic) are de-duplicated
         // by `Glyphs[codepoint] = glyph` overwriting in place — cheap.
         int glyphCount = 0;
-        for (const auto& range : ranges)
+        for (const auto& range : m_Ranges)
         {
             for (u32 codepoint = range.First; codepoint <= range.Last; ++codepoint)
             {
