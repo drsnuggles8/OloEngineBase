@@ -36,6 +36,7 @@
 
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Renderer/Debug/GLStateGuard.h"
+#include "OloEngine/Renderer/EnvironmentMap.h" // IBLConfiguration / IBLQuality
 #include "OloEngine/Renderer/Framebuffer.h"
 #include "OloEngine/Renderer/IBLPrecompute.h"
 #include "OloEngine/Renderer/Shader.h"
@@ -994,5 +995,347 @@ namespace OloEngine::Tests
         EXPECT_LT(peaks[kMipLevels - 1], peaks[0] * 0.7f)
             << "Highest roughness mip should have much lower peak than mip 0 "
             << "(got " << peaks[kMipLevels - 1] << " vs " << peaks[0] << ")";
+    }
+
+    // -------------------------------------------------------------------------
+    // Shared readback helper for the advanced-path prefilter tests: mean + peak
+    // luminance over one face of one mip. Returns false (and ADD_FAILUREs) on a
+    // readback/size mismatch so the caller can ASSERT_TRUE without a lambda-only
+    // early return leaving outputs uninitialised.
+    // -------------------------------------------------------------------------
+    static bool FacePrefilterStats(const Ref<TextureCubemap>& cm, u32 face, u32 mip,
+                                   u32 mipResolution, f32& outMean, f32& outPeak)
+    {
+        outMean = 0.0f;
+        outPeak = 0.0f;
+        std::vector<u8> bytes;
+        if (!cm->GetFaceData(face, bytes, mip))
+        {
+            ADD_FAILURE() << "GetFaceData failed for face " << face << " mip " << mip;
+            return false;
+        }
+        const std::size_t texelCount = static_cast<std::size_t>(mipResolution) * mipResolution;
+        if (bytes.size() != texelCount * 4 * sizeof(f32))
+        {
+            ADD_FAILURE() << "readback size mismatch for face " << face << " mip " << mip;
+            return false;
+        }
+        std::vector<f32> pixels(texelCount * 4);
+        std::memcpy(pixels.data(), bytes.data(), bytes.size());
+        f32 sum = 0.0f;
+        f32 peak = 0.0f;
+        for (std::size_t i = 0; i < texelCount; ++i)
+        {
+            const f32 lum = 0.2126f * pixels[i * 4 + 0] + 0.7152f * pixels[i * 4 + 1] + 0.0722f * pixels[i * 4 + 2];
+            sum += lum;
+            if (lum > peak)
+                peak = lum;
+        }
+        outMean = sum / static_cast<f32>(texelCount);
+        outPeak = peak;
+        return true;
+    }
+
+    // Helper: build a square RGBA32F environment cubemap with a full mip chain
+    // and a per-face fill callback `fn(face, x, y) -> luminance`.
+    template<typename FillFn>
+    static Ref<TextureCubemap> MakeMippedEnv(u32 resolution, FillFn&& fn)
+    {
+        CubemapSpecification envSpec{};
+        envSpec.Width = resolution;
+        envSpec.Height = resolution;
+        envSpec.Format = ImageFormat::RGBA32F;
+        envSpec.GenerateMips = true;
+        Ref<TextureCubemap> env = TextureCubemap::Create(envSpec);
+        if (!env)
+            return nullptr;
+
+        for (u32 face = 0; face < 6; ++face)
+        {
+            std::vector<f32> pixels(static_cast<std::size_t>(resolution) * resolution * 4);
+            for (u32 y = 0; y < resolution; ++y)
+            {
+                for (u32 x = 0; x < resolution; ++x)
+                {
+                    const std::size_t idx = (static_cast<std::size_t>(y) * resolution + x) * 4;
+                    const f32 v = fn(face, x, y);
+                    pixels[idx + 0] = v;
+                    pixels[idx + 1] = v;
+                    pixels[idx + 2] = v;
+                    pixels[idx + 3] = 1.0f;
+                }
+            }
+            if (!env->SetFaceDataMip(face, 0, pixels.data(),
+                                     static_cast<u32>(pixels.size() * sizeof(f32))))
+            {
+                ADD_FAILURE() << "SetFaceDataMip failed for face " << face;
+                return nullptr;
+            }
+        }
+        env->GenerateMipmaps(); // build the chain the mip-biased sampler reads
+        return env;
+    }
+
+    // =========================================================================
+    // Advanced (importance-sampled) prefilter — white-environment invariant
+    // through the production GeneratePrefilterMapAdvanced path.
+    //
+    // Unlike PbrPrefilterTest.UniformWhiteYieldsUnityAtAllRoughness, which runs
+    // the integrator in isolation via a test probe shader, this drives the real
+    // IBLPrefilterImportance.glsl + UBO plumbing selected when
+    // IBLConfiguration::UseImportanceSampling is true. For uniform-white input
+    // the normalised lobe integral collapses to 1.0 at every roughness, and the
+    // roughness == 0 mirror fast path must also return exactly the input.
+    //
+    // Catches: a broken IBLAdvancedParams UBO binding (wrong roughness/sample
+    // count → NaN or 0), a dropped totalWeight normalisation, or the mirror
+    // fast path sampling the wrong direction.
+    // =========================================================================
+    TEST(PbrPrefilterAdvancedTest, ImportanceUniformWhiteYieldsUnity)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+
+        constexpr u32 kResolution = 64;
+        constexpr u32 kMipLevels = 5;
+
+        Ref<TextureCubemap> env = MakeMippedEnv(kResolution, [](u32, u32, u32)
+                                                { return 1.0f; });
+        ASSERT_TRUE(env != nullptr);
+
+        CubemapSpecification prefilterSpec{};
+        prefilterSpec.Width = kResolution;
+        prefilterSpec.Height = kResolution;
+        prefilterSpec.Format = ImageFormat::RGBA32F;
+        prefilterSpec.GenerateMips = true;
+        prefilterSpec.MipLevels = kMipLevels;
+        Ref<TextureCubemap> prefilter = TextureCubemap::Create(prefilterSpec);
+        ASSERT_TRUE(prefilter != nullptr);
+
+        ShaderLibrary localLib;
+        localLib.Load("IBLPrefilterImportance", "assets/shaders/IBLPrefilterImportance.glsl");
+        ASSERT_TRUE(localLib.Exists("IBLPrefilterImportance"))
+            << "IBLPrefilterImportance shader failed to load";
+
+        IBLConfiguration config;
+        config.UseImportanceSampling = true;
+        config.PrefilterSamples = 256;
+        config.Quality = IBLQuality::Medium;
+        IBLPrecompute::GeneratePrefilterMapAdvanced(env, prefilter, localLib, config);
+
+        // Uniform-white input → every face of every mip must read unity. Check
+        // all six faces so a face-index/orientation bug in the cubemap render
+        // can't hide behind a face-0-only assertion.
+        for (u32 mip = 0; mip < kMipLevels; ++mip)
+        {
+            const u32 mipRes = std::max(1u, kResolution >> mip);
+            const f32 roughness = static_cast<f32>(mip) / static_cast<f32>(kMipLevels - 1);
+            for (u32 face = 0; face < 6; ++face)
+            {
+                f32 mean = 0.0f, peak = 0.0f;
+                ASSERT_TRUE(FacePrefilterStats(prefilter, face, mip, mipRes, mean, peak))
+                    << "readback failed for advanced prefilter face " << face << " mip " << mip;
+                EXPECT_NEAR(mean, 1.0f, 2e-2f)
+                    << "advanced prefilter(uniform-white) drifts from unity at face=" << face
+                    << " roughness=" << roughness;
+            }
+        }
+    }
+
+    // =========================================================================
+    // Advanced prefilter — mip-chain energy behaviour on a hotspot environment,
+    // mirroring PbrPrefilterTest.MipChainEnergyIsMonotonicAndMip0ApproxSource
+    // but through GeneratePrefilterMapAdvanced + the importance shader.
+    //
+    //   1. Mip 0 (roughness 0) takes the mirror fast path → ~source.
+    //   2. Per-mip PEAK luminance is monotonically non-increasing (wider GGX
+    //      lobes diffuse the hotspot), and the top mip is markedly blurrier.
+    //
+    // Catches: a per-mip render that collapses to a single image, a
+    // roughness→radius inversion, and the "advanced path silently no-ops"
+    // regression the missing shaders used to cause.
+    // =========================================================================
+    TEST(PbrPrefilterAdvancedTest, ImportanceMipChainEnergyIsMonotonic)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+
+        constexpr u32 kResolution = 64;
+        constexpr u32 kMipLevels = 5;
+        constexpr f32 kBaseGray = 0.5f;
+        constexpr f32 kHotspotPeak = 16.0f;
+
+        Ref<TextureCubemap> env = MakeMippedEnv(kResolution, [&](u32 face, u32 x, u32 y) -> f32
+                                                {
+            if (face != 0)
+                return kBaseGray;
+            const f32 dx = (static_cast<f32>(x) - kResolution * 0.5f) / (kResolution * 0.25f);
+            const f32 dy = (static_cast<f32>(y) - kResolution * 0.5f) / (kResolution * 0.25f);
+            return kBaseGray + (kHotspotPeak - kBaseGray) * std::exp(-(dx * dx + dy * dy)); });
+        ASSERT_TRUE(env != nullptr);
+
+        CubemapSpecification prefilterSpec{};
+        prefilterSpec.Width = kResolution;
+        prefilterSpec.Height = kResolution;
+        prefilterSpec.Format = ImageFormat::RGBA32F;
+        prefilterSpec.GenerateMips = true;
+        prefilterSpec.MipLevels = kMipLevels;
+        Ref<TextureCubemap> prefilter = TextureCubemap::Create(prefilterSpec);
+        ASSERT_TRUE(prefilter != nullptr);
+
+        ShaderLibrary localLib;
+        localLib.Load("IBLPrefilterImportance", "assets/shaders/IBLPrefilterImportance.glsl");
+        ASSERT_TRUE(localLib.Exists("IBLPrefilterImportance"))
+            << "IBLPrefilterImportance shader failed to load";
+
+        IBLConfiguration config;
+        config.UseImportanceSampling = true;
+        config.PrefilterSamples = 256;
+        config.Quality = IBLQuality::High;
+        IBLPrecompute::GeneratePrefilterMapAdvanced(env, prefilter, localLib, config);
+
+        f32 srcMean = 0.0f, srcPeak = 0.0f;
+        ASSERT_TRUE(FacePrefilterStats(env, 0, 0, kResolution, srcMean, srcPeak))
+            << "failed to read source face 0";
+
+        std::vector<f32> peaks(kMipLevels);
+        std::vector<f32> means(kMipLevels);
+        for (u32 mip = 0; mip < kMipLevels; ++mip)
+        {
+            const u32 mipRes = std::max(1u, kResolution >> mip);
+            ASSERT_TRUE(FacePrefilterStats(prefilter, 0, mip, mipRes, means[mip], peaks[mip]))
+                << "failed to read advanced prefilter mip " << mip;
+        }
+
+        EXPECT_NEAR(means[0], srcMean, srcMean * 0.20f)
+            << "advanced mip 0 mean (" << means[0] << ") should approximate source mean ("
+            << srcMean << ") within 20%";
+
+        for (u32 mip = 1; mip < kMipLevels; ++mip)
+        {
+            EXPECT_LE(peaks[mip], peaks[mip - 1] * 1.05f)
+                << "advanced peak at mip " << mip << " increased vs mip " << (mip - 1)
+                << " — higher roughness must diffuse, not sharpen.";
+        }
+
+        EXPECT_LT(peaks[kMipLevels - 1], peaks[0] * 0.7f)
+            << "advanced top-roughness mip should be much blurrier than mip 0 "
+            << "(got " << peaks[kMipLevels - 1] << " vs " << peaks[0] << ")";
+    }
+
+    // =========================================================================
+    // Advanced (cosine-importance) diffuse irradiance — white-environment
+    // invariant through GenerateIrradianceMapAdvanced + IrradianceConvolution-
+    // Advanced.glsl, the production default when UseSphericalHarmonics is false.
+    //
+    // The normalisation matches the baseline convolution (output = E(N)/π = 1.0
+    // for uniform white), so this is a drop-in correctness check on the new
+    // Monte-Carlo path: a non-unity result means a dropped pdf cancellation, a
+    // mis-bound UBO, or a broken cosine sampler.
+    // =========================================================================
+    TEST(PbrIrradianceAdvancedTest, ImportanceUniformWhiteYieldsUnity)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+
+        constexpr u32 kEnvResolution = 32;
+        constexpr u32 kIrradianceRes = 16;
+
+        Ref<TextureCubemap> env = MakeMippedEnv(kEnvResolution, [](u32, u32, u32)
+                                                { return 1.0f; });
+        ASSERT_TRUE(env != nullptr);
+
+        CubemapSpecification irrSpec{};
+        irrSpec.Width = kIrradianceRes;
+        irrSpec.Height = kIrradianceRes;
+        irrSpec.Format = ImageFormat::RGBA32F;
+        irrSpec.GenerateMips = false;
+        Ref<TextureCubemap> irradiance = TextureCubemap::Create(irrSpec);
+        ASSERT_TRUE(irradiance != nullptr);
+
+        ShaderLibrary localLib;
+        localLib.Load("IrradianceConvolutionAdvanced", "assets/shaders/IrradianceConvolutionAdvanced.glsl");
+        ASSERT_TRUE(localLib.Exists("IrradianceConvolutionAdvanced"))
+            << "IrradianceConvolutionAdvanced shader failed to load";
+
+        IBLConfiguration config;
+        config.UseSphericalHarmonics = false;
+        config.UseImportanceSampling = true;
+        config.IrradianceSamples = 512;
+        config.Quality = IBLQuality::Medium;
+        IBLPrecompute::GenerateIrradianceMapAdvanced(env, irradiance, localLib, config);
+
+        // Uniform-white input → all six irradiance faces normalise to unity.
+        for (u32 face = 0; face < 6; ++face)
+        {
+            f32 mean = 0.0f, peak = 0.0f;
+            ASSERT_TRUE(FacePrefilterStats(irradiance, face, 0, kIrradianceRes, mean, peak))
+                << "readback failed for advanced irradiance face " << face;
+            // Monte-Carlo noise at 512 cosine samples is small but non-zero; 3% slack.
+            EXPECT_NEAR(mean, 1.0f, 3e-2f)
+                << "advanced irradiance(uniform-white) should normalise to unity at face=" << face;
+        }
+    }
+
+    // =========================================================================
+    // Advanced BRDF LUT — BRDFIntegrationAdvanced.glsl through
+    // GenerateBRDFLutAdvanced. The split-sum LUT must be finite, in [0,1], and
+    // non-degenerate (the smooth/grazing corner near scale≈1) — directly
+    // guarding the all-zero "black metallic" regression the LUT path is prone
+    // to, while confirming the configurable-sample-count shader compiles and
+    // runs.
+    // =========================================================================
+    TEST(PbrBRDFLutAdvancedTest, ProducesValidNonDegenerateLUT)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+
+        constexpr u32 kRes = 64;
+
+        TextureSpecification brdfSpec{};
+        brdfSpec.Width = kRes;
+        brdfSpec.Height = kRes;
+        brdfSpec.Format = ImageFormat::RG32F;
+        brdfSpec.GenerateMips = false;
+        Ref<Texture2D> brdfLut = Texture2D::Create(brdfSpec);
+        ASSERT_TRUE(brdfLut != nullptr);
+
+        ShaderLibrary localLib;
+        localLib.Load("BRDFIntegrationAdvanced", "assets/shaders/BRDFIntegrationAdvanced.glsl");
+        ASSERT_TRUE(localLib.Exists("BRDFIntegrationAdvanced"))
+            << "BRDFIntegrationAdvanced shader failed to load";
+
+        IBLConfiguration config;
+        config.Quality = IBLQuality::Medium; // 512 samples
+        IBLPrecompute::GenerateBRDFLutAdvanced(brdfLut, localLib, config);
+
+        std::vector<u8> bytes;
+        ASSERT_TRUE(brdfLut->GetData(bytes, 0)) << "BRDF LUT readback failed";
+        const std::size_t texelCount = static_cast<std::size_t>(kRes) * kRes;
+        ASSERT_EQ(bytes.size(), texelCount * 2 * sizeof(f32)) << "unexpected RG32F readback size";
+
+        std::vector<f32> rg(texelCount * 2);
+        std::memcpy(rg.data(), bytes.data(), bytes.size());
+
+        f32 maxScale = 0.0f;
+        f32 maxBias = 0.0f;
+        for (std::size_t i = 0; i < texelCount; ++i)
+        {
+            const f32 a = rg[i * 2 + 0];
+            const f32 b = rg[i * 2 + 1];
+            ASSERT_TRUE(std::isfinite(a) && std::isfinite(b)) << "non-finite BRDF LUT texel " << i;
+            EXPECT_GE(a, -1e-3f);
+            EXPECT_LE(a, 1.0f + 1e-3f);
+            EXPECT_GE(b, -1e-3f);
+            EXPECT_LE(b, 1.0f + 1e-3f);
+            maxScale = std::max(maxScale, a);
+            maxBias = std::max(maxBias, b);
+        }
+        // A degenerate (all-zero) LUT would make every metallic surface black.
+        // Both channels reach near-unity in a healthy LUT: the scale term (F0
+        // coefficient) at smooth/grazing, and the bias term (additive Fresnel
+        // offset) at the grazing / high-roughness corner (measured ~0.95 here).
+        // The 0.5 floor leaves headroom for fp/sample-count variance while still
+        // catching a degenerate channel that would break split-sum lighting.
+        EXPECT_GT(maxScale, 0.5f)
+            << "BRDF LUT scale term never approaches unity — likely a degenerate/black LUT";
+        EXPECT_GT(maxBias, 0.5f)
+            << "BRDF LUT bias term never approaches unity — degenerate Fresnel-offset channel";
     }
 } // namespace OloEngine::Tests

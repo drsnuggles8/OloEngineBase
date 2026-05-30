@@ -58,6 +58,7 @@ namespace OloEngine
         }
         void SetFaceData(u32 faceIndex, void* data, u32 size) override;
         bool SetFaceDataMip(u32 faceIndex, u32 mipLevel, void* data, u32 size) override;
+        void GenerateMipmaps() const override;
         bool GetFaceData(u32 faceIndex, std::vector<u8>& outData, u32 mipLevel = 0) const override;
         u32 GetMipLevelCount() const override;
 

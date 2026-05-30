@@ -34,6 +34,13 @@ namespace OloEngine
         // Set data for a specific face at a specific mip level (no auto-mipmap generation)
         virtual bool SetFaceDataMip(u32 faceIndex, u32 mipLevel, void* data, u32 size) = 0;
 
+        // Regenerate the full mip chain from mip 0. Use after populating mip 0 by a
+        // route that does not auto-generate mips (e.g. render-to-cubemap copies). A
+        // no-op for single-level cubemaps (GenerateMips == false / MipLevels == 1).
+        // const like Bind()/GetFaceData(): it mutates GPU-side mip storage, not the
+        // logical object, and is routinely called through a const Ref during baking.
+        virtual void GenerateMipmaps() const = 0;
+
         virtual const CubemapSpecification& GetCubemapSpecification() const = 0;
 
         /**
