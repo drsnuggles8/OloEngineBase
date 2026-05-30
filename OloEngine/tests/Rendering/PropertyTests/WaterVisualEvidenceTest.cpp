@@ -19,22 +19,25 @@
 //      opaque — you can't see the background through it).
 //   2. That band reads as water (blue/teal dominant), not a grey wash.
 //
-// DISABLED by default
-// ------------------
+// Runs in the normal suite (issue #258)
+// -------------------------------------
 //   This test drives the full editor render path (OnUpdateEditor →
 //   RenderScene3D → EndScene) by enabling rendering on the fixture's Scene.
-//   Per RendererAttachedTest's notes, a full-pipeline render leaves Renderer3D
-//   global GL state in a way that perturbs later GPU tests in the same process
-//   (the documented "untangle rendering side-effects" follow-up). So, like
-//   AssetSceneLoadTest, it is DISABLED_ and run on demand for visual evidence:
+//   It used to be DISABLED_: a full-pipeline render left Renderer3D global GL
+//   state in a way that perturbed later GPU tests in the same process. PR #263
+//   untangled that for the runtime-camera path (RendererAttachedTest::RunFrames
+//   wraps each tick in a GLStateGuard); this test now goes through the matching
+//   editor-camera helper RendererAttachedTest::RunEditorFrames, which guards the
+//   OnUpdateEditor render the same way — so it runs alongside everything else
+//   without poisoning it, and SKIPs (not fails) when no GL 4.6 context exists.
 //
-//     <test binary> --gtest_also_run_disabled_tests \
-//                   --gtest_filter=*WaterVisualEvidence*
-//
-//   (run from OloEditor/ so assets resolve and PNGs land under
-//   OloEditor/assets/tests/visual/). The water rendering contracts that DO run
-//   in CI live in WaterRenderingTest.cpp (fog segment math, the per-fragment
-//   waterline side rule, UBO layout).
+//   The committed Water_<pose>.png files act as golden references: a normal run
+//   COMPARES (RMSE) and writes nothing; set OLOENGINE_GOLDEN_REBASE=1 to
+//   (re)write them after a deliberate visual change. Run from OloEditor/ so
+//   assets resolve and any rebased PNGs land under
+//   OloEditor/assets/tests/visual/. The cheaper water *math* contracts live in
+//   WaterRenderingTest.cpp (fog segment math, the per-fragment waterline side
+//   rule, UBO layout).
 //
 // Classification: L8 / integration (full GL pipeline + RGBA8 readback + PNG).
 // =============================================================================
@@ -121,15 +124,17 @@ namespace OloEngine::Tests
       protected:
         void BuildScene() override
         {
-            SetViewport(kWidth, kHeight);
             Scene& scene = GetScene();
 
-            // Drive the editor render path (OnUpdateEditor → RenderScene3D →
-            // EndScene). The fixture leaves rendering off by default; turn it on
-            // (and 3D mode) so the full graph — scene/water/tone-map passes —
-            // executes and produces a resolvable SceneColor.
-            scene.SetRenderingEnabled(true);
-            scene.SetIs3DModeEnabled(true);
+            // Opt the fixture's Scene into the full 3D draw path. EnableRendering
+            // turns on 3D mode, sizes the Scene cameras AND the Renderer3D
+            // render-graph targets to kWidth x kHeight, and flips rendering on, so
+            // the full graph (scene/water/post/tone-map/composite passes) executes
+            // and produces a resolvable composited frame. The actual per-pose
+            // render is driven by RunEditorFrames in Capture() below, which wraps
+            // each OnUpdateEditor tick in a GLStateGuard so this full-pipeline
+            // render leaves no global GL state behind for later GPU tests.
+            EnableRendering(kWidth, kHeight);
 
             // Sun.
             {
@@ -223,13 +228,15 @@ namespace OloEngine::Tests
             // constructor view — which is why the earlier captures all looked alike.
             camera.SetPose(position, yaw, pitch);
 
-            // OnUpdateEditor runs the editor render path (→ RenderScene3D →
-            // EndScene, executing the full graph incl. water + tone-map/
-            // underwater-fog). Two ticks let the Gerstner waves advance off the
-            // flat t=0 state.
-            const Timestep dt(1.0f / 60.0f);
-            GetScene().OnUpdateEditor(dt, camera);
-            GetScene().OnUpdateEditor(dt, camera);
+            // RunEditorFrames drives the editor render path (OnUpdateEditor →
+            // RenderScene3D → EndScene, executing the full graph incl. water +
+            // tone-map/underwater-fog) for two ticks — enough to let the Gerstner
+            // waves advance off the flat t=0 state. Going through the fixture
+            // helper (rather than calling OnUpdateEditor directly) wraps each
+            // render in a GLStateGuard(restore), so this full-pipeline editor
+            // render leaves no global GL state behind for the GPU tests that run
+            // after this one in the same process (the coupling issue #258 fixed).
+            RunEditorFrames(camera, 2);
 
             // Read the SAME image the editor viewport shows in 3D mode:
             // UICompositePass output (post-processed scene + overlays). This is
@@ -307,12 +314,12 @@ namespace OloEngine::Tests
         }
     };
 
-    // DISABLED by default — see the file header. Run on demand with
-    // --gtest_also_run_disabled_tests. The render is frozen (kCaptureTime) so each
-    // pose is deterministic and the committed PNGs act as golden references: a
-    // normal run COMPARES against them (RMSE) and writes nothing; set
-    // OLOENGINE_GOLDEN_REBASE=1 to (re)write the goldens after a deliberate change.
-    TEST_F(WaterVisualEvidenceTest, DISABLED_CaptureWaterFromMultipleAngles)
+    // Runs in the normal suite (SKIPs without a GL 4.6 context — see the file
+    // header). The render is frozen (kCaptureTime) so each pose is deterministic
+    // and the committed PNGs act as golden references: a normal run COMPARES
+    // against them (RMSE) and writes nothing; set OLOENGINE_GOLDEN_REBASE=1 to
+    // (re)write the goldens after a deliberate change.
+    TEST_F(WaterVisualEvidenceTest, CaptureWaterFromMultipleAngles)
     {
         OLO_ENSURE_GPU_OR_SKIP();
 

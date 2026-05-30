@@ -1,6 +1,7 @@
 #include "OloEnginePCH.h"
 #include "RendererAttachedTest.h"
 
+#include "OloEngine/Renderer/Camera/EditorCamera.h"
 #include "OloEngine/Renderer/Debug/GLStateGuard.h"
 #include "OloEngine/Renderer/Framebuffer.h"
 #include "OloEngine/Renderer/Renderer.h"
@@ -98,6 +99,30 @@ namespace OloEngine::Tests
                 // Rendering disabled: the tick issues no draws, so there is no
                 // GL state to contain — skip the guard's per-frame snapshots.
                 m_Scene->OnUpdateRuntime(ts);
+            }
+        }
+    }
+
+    void RendererAttachedTest::RunEditorFrames(const EditorCamera& camera, u32 count, f32 dtSeconds)
+    {
+        const Timestep ts{ dtSeconds };
+        for (u32 i = 0; i < count; ++i)
+        {
+            if (m_RenderingEnabled)
+            {
+                // Same GL-state hygiene as RunFrames: the editor render path
+                // (OnUpdateEditor -> RenderScene3D -> EndScene) drives the full
+                // render graph and leaves the same global fixed-function /
+                // binding state behind. Containing it here is what lets an
+                // editor-camera visual test (e.g. WaterVisualEvidenceTest) run
+                // in the normal suite without poisoning the GPU tests that
+                // follow it in the same process.
+                GLStateGuard guard("RendererAttachedTest::RunEditorFrames", GLStateGuard::Policy::Restore);
+                m_Scene->OnUpdateEditor(ts, camera);
+            }
+            else
+            {
+                m_Scene->OnUpdateEditor(ts, camera);
             }
         }
     }

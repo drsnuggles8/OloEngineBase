@@ -68,6 +68,11 @@
 
 #include <vector>
 
+namespace OloEngine
+{
+    class EditorCamera;
+}
+
 namespace OloEngine::Tests
 {
     class RendererAttachedTest : public ::testing::Test
@@ -98,6 +103,17 @@ namespace OloEngine::Tests
         /// wrapped in a `GLStateGuard` (restore policy) so the render
         /// leaves no global GL state behind for the next test.
         void RunFrames(u32 count, f32 dtSeconds = 1.0f / 60.0f);
+
+        /// Tick `count` frames through the EDITOR render path
+        /// (`Scene::OnUpdateEditor` with the supplied posed `EditorCamera`)
+        /// instead of the runtime primary camera. Mirrors `RunFrames`: each
+        /// tick is wrapped in a `GLStateGuard` (restore policy) when rendering
+        /// is enabled, so a full-pipeline render here leaves no global GL state
+        /// behind for the next GPU test in the same process. Use this for
+        /// visual tests that need an explicit fly-camera pose — multi-angle
+        /// screenshot evidence, etc. — which the single runtime
+        /// `CameraComponent` path cannot express.
+        void RunEditorFrames(const EditorCamera& camera, u32 count, f32 dtSeconds = 1.0f / 60.0f);
 
         /// Opt the Scene into the full 3D draw path. Call from `BuildScene()`.
         /// Enables 3D mode, sizes the camera + the Renderer3D render-graph
