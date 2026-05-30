@@ -16,12 +16,28 @@
 //   * `SetUpTestSuite` brings up `Renderer::Init(Renderer3D, nullptr)`
 //     once per process. The 42-shader pipeline compile is ~25s on a
 //     dev box but happens only on the first test in the suite.
-//   * Per-test `SetUp` creates a fresh `Scene` with rendering enabled,
-//     `m_IsRunning = true`, and a default viewport. Subclasses override
-//     `BuildScene()` to add entities.
+//   * Per-test `SetUp` creates a fresh `Scene` with rendering DISABLED.
+//     Subclasses override `BuildScene()` to add entities and, when they
+//     want the full draw path to run, call `EnableRendering(w, h)`.
 //   * Per-test `TearDown` clears the Scene; the renderer stays initialised
 //     for the next test.
-//   * `TearDownTestSuite` calls `Renderer::Shutdown()`.
+//   * `Renderer::Shutdown()` runs once, after ALL tests in the process,
+//     from the test `main()` (after RUN_ALL_TESTS) — while the shared GL
+//     context is still current. (Doing it at process exit /
+//     static-destruction time instead SIGSEGVs: `Renderer3D::s_Data` is a
+//     static holding GL handles, and the GL context is gone by then.)
+//
+// Driving the real render path
+// ----------------------------
+//   Call `EnableRendering(w, h)` from `BuildScene()` to switch the Scene
+//   into 3D mode, size the render-graph targets, and enable rendering.
+//   `RunFrames` then drives the entire Renderer3D pipeline. The per-frame
+//   tick is wrapped in a `GLStateGuard` (restore policy) so the full
+//   pipeline leaves no global GL state behind — a render here cannot
+//   corrupt the fixed-function / binding state seen by the next test in
+//   the same process. After ticking, `ReadbackComposite()` returns the
+//   final composited frame (the same `UIComposite` output the editor
+//   viewport displays) for pixel assertions / PNG evidence.
 //
 // Why a separate fixture from `FunctionalTest`?
 // ---------------------------------------------
@@ -50,6 +66,8 @@
 
 #include <gtest/gtest.h>
 
+#include <vector>
+
 namespace OloEngine::Tests
 {
     class RendererAttachedTest : public ::testing::Test
@@ -76,8 +94,24 @@ namespace OloEngine::Tests
 
         /// Tick `count` frames at `dtSeconds` per frame. Each tick is a
         /// full `Scene::OnUpdateRuntime` call, which (with rendering
-        /// enabled) drives the entire Renderer3D pipeline.
+        /// enabled) drives the entire Renderer3D pipeline. Each tick is
+        /// wrapped in a `GLStateGuard` (restore policy) so the render
+        /// leaves no global GL state behind for the next test.
         void RunFrames(u32 count, f32 dtSeconds = 1.0f / 60.0f);
+
+        /// Opt the Scene into the full 3D draw path. Call from `BuildScene()`.
+        /// Enables 3D mode, sizes the camera + the Renderer3D render-graph
+        /// targets to `width`x`height`, and flips `SetRenderingEnabled(true)`.
+        /// After this, `RunFrames` drives the entire pipeline and
+        /// `ReadbackComposite()` can read the result back.
+        void EnableRendering(u32 width = 256, u32 height = 256);
+
+        /// Read back the final composited frame (the render graph's
+        /// `UIComposite` RT0 — the same image the editor viewport shows)
+        /// into a tightly-packed RGBA8 buffer. Returns false if rendering
+        /// was never enabled or the composite framebuffer is unavailable.
+        /// `outWidth`/`outHeight` receive the render target dimensions.
+        [[nodiscard]] bool ReadbackComposite(std::vector<u8>& outRgba, u32& outWidth, u32& outHeight);
 
         [[nodiscard]] Scene& GetScene()
         {
@@ -98,5 +132,8 @@ namespace OloEngine::Tests
 
       private:
         Ref<Scene> m_Scene;
+        bool m_RenderingEnabled = false;
+        u32 m_RenderWidth = 0;
+        u32 m_RenderHeight = 0;
     };
 } // namespace OloEngine::Tests

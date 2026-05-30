@@ -1,7 +1,11 @@
 #include "OloEnginePCH.h"
 #include "RendererAttachedTest.h"
 
+#include "OloEngine/Renderer/Debug/GLStateGuard.h"
+#include "OloEngine/Renderer/Framebuffer.h"
 #include "OloEngine/Renderer/Renderer.h"
+#include "OloEngine/Renderer/Renderer3D.h"
+#include "OloEngine/Renderer/ResourceHandle.h"
 
 namespace OloEngine::Tests
 {
@@ -10,6 +14,14 @@ namespace OloEngine::Tests
         // Track whether Renderer::Init has been called this process so
         // that running multiple RendererAttachedTest-derived suites
         // in one binary doesn't double-init.
+        //
+        // The matching teardown is NOT here: `Renderer3D::s_Data` is a static
+        // holding GL-resource `Ref<>`s that would SIGSEGV if left to destruct
+        // at process exit on a dead GL context. The test `main()`
+        // (OloEngineTest.cpp) calls `Renderer::Shutdown()` after
+        // RUN_ALL_TESTS() — while the shared GL context is still current —
+        // which releases those resources for the whole binary. We only need
+        // to lazily bring the renderer up here.
         bool s_RendererInitialised = false;
     } // namespace
 
@@ -25,8 +37,10 @@ namespace OloEngine::Tests
 
     void RendererAttachedTest::TearDownTestSuite()
     {
-        // See SetUpTestSuite. Renderer::Shutdown happens at process exit;
-        // the GL context (RenderPropertyFixture) follows the same lifetime.
+        // See SetUpTestSuite. Renderer::Shutdown is driven once for the whole
+        // process by the test main() (after RUN_ALL_TESTS), not per-suite —
+        // other derived suites may still run after this one, and they share
+        // the single process-wide Renderer::Init.
     }
 
     void RendererAttachedTest::SetUp()
@@ -44,23 +58,11 @@ namespace OloEngine::Tests
         }
 
         m_Scene = Scene::Create();
-        // *** Current limitation ***
-        // Enabling rendering on the Scene (`SetRenderingEnabled(true)`)
-        // currently SEH-crashes deep inside `Scene::OnUpdateRuntime`, even
-        // with no entities. The crash bisects to "Renderer::Init has been
-        // called + m_RenderingEnabled == true" — Renderer3D leaves some
-        // subsystem state that one of the unconditional render-path
-        // helpers in OnUpdateRuntime dereferences without a guard. Needs
-        // a debugger session to localise; until then the fixture exercises
-        // the *foundation* (renderer comes up, OnUpdateRuntime ticks
-        // cross-subsystem logic post-init) but not the actual draw path.
-        //
-        // Tests that need to verify rendering side-effects should continue
-        // to use `GoldenImageTests`-style direct `Renderer3D::Submit*`
-        // calls. The renderer-attached scene-tick path is documented as a
-        // follow-up; once unblocked, flip this to `SetRenderingEnabled(true)`
-        // and re-enable the rendering-conditional smoke tests below.
+        // Rendering is OFF by default: the cheap smoke tests only need the
+        // cross-subsystem tick to run post-init. Subclasses that want the
+        // full draw path call `EnableRendering(w, h)` from `BuildScene()`.
         m_Scene->SetRenderingEnabled(false);
+        m_RenderingEnabled = false;
 
         BuildScene();
     }
@@ -77,11 +79,81 @@ namespace OloEngine::Tests
     {
         const Timestep ts{ dtSeconds };
         for (u32 i = 0; i < count; ++i)
-            m_Scene->OnUpdateRuntime(ts);
+        {
+            if (m_RenderingEnabled)
+            {
+                // Contain global GL state the full pipeline leaves behind
+                // (blend / stencil / viewport / active program / VAO / FBO)
+                // so a render in this fixture cannot poison the fixed-function
+                // state of the next GPU test in the same process. Per-slot
+                // texture / UBO bindings are intentionally NOT restored by
+                // GLStateGuard (see its class comment) — they are benign here
+                // because downstream GPU tests bind their own resources before
+                // drawing.
+                GLStateGuard guard("RendererAttachedTest::RunFrames", GLStateGuard::Policy::Restore);
+                m_Scene->OnUpdateRuntime(ts);
+            }
+            else
+            {
+                // Rendering disabled: the tick issues no draws, so there is no
+                // GL state to contain — skip the guard's per-frame snapshots.
+                m_Scene->OnUpdateRuntime(ts);
+            }
+        }
     }
 
     void RendererAttachedTest::SetViewport(u32 width, u32 height)
     {
         m_Scene->OnViewportResize(width, height);
+    }
+
+    void RendererAttachedTest::EnableRendering(u32 width, u32 height)
+    {
+        m_RenderWidth = width;
+        m_RenderHeight = height;
+
+        // 3D mode routes OnUpdateRuntime through RenderScene3D + the render
+        // graph (the 2D path uses Renderer2D directly and never sizes the
+        // graph). OnViewportResize sizes the Scene's cameras;
+        // Renderer3D::OnWindowResize sizes the render-graph targets — without
+        // the latter the graph would execute against unsized framebuffers.
+        m_Scene->SetIs3DModeEnabled(true);
+        m_Scene->OnViewportResize(width, height);
+        Renderer3D::OnWindowResize(width, height);
+        m_Scene->SetRenderingEnabled(true);
+        m_RenderingEnabled = true;
+    }
+
+    bool RendererAttachedTest::ReadbackComposite(std::vector<u8>& outRgba, u32& outWidth, u32& outHeight)
+    {
+        outWidth = 0;
+        outHeight = 0;
+        if (!m_RenderingEnabled)
+        {
+            return false;
+        }
+
+        // UIComposite is the render graph's terminal color target — the same
+        // framebuffer the editor viewport samples for the 3D scene image
+        // (EditorLayer's viewport panel). Reading RT0 back gives the final,
+        // tone-mapped, post-processed frame.
+        auto framebuffer = Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::UIComposite);
+        if (!framebuffer)
+        {
+            return false;
+        }
+
+        const auto& spec = framebuffer->GetSpecification();
+        outWidth = spec.Width;
+        outHeight = spec.Height;
+
+        const u32 textureID = framebuffer->GetColorAttachmentRendererID(0);
+        if (textureID == 0 || outWidth == 0 || outHeight == 0)
+        {
+            return false;
+        }
+
+        ReadbackRgba8(textureID, outWidth, outHeight, outRgba);
+        return true;
     }
 } // namespace OloEngine::Tests
