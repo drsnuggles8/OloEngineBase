@@ -49,16 +49,13 @@ Anything that drives a real `Scene::OnUpdateRuntime` to pin a contract at the se
 
 ## 2. The registration contract (NON-NEGOTIABLE)
 
-Every `.cpp` under the scan roots in [`OloEngine/tests/scripts/test_catalogue.json`](../../OloEngine/tests/scripts/test_catalogue.json) must appear in `file_layer_map` (with a layer id or `"Functional"` tag) or `exclude` (helpers / fixtures only). The `test-catalogue-in-sync` pre-commit hook **fails the commit** otherwise.
+The generator scans the **entire** `OloEngine/tests/` tree (recursively) — there is no allowlist and no exclude list. Every `.cpp` that declares at least one `TEST` / `TEST_F` / `TEST_P` / `TYPED_TEST` macro must appear in `file_layer_map` in [`OloEngine/tests/scripts/test_catalogue.json`](../../OloEngine/tests/scripts/test_catalogue.json), classified on one of three axes:
 
-Scan roots (recursive):
+- a renderer-pyramid layer id (`L1`–`L11`, `plumbing`, `cullinglod`, `shaderpipe`, `integration`, `meta`) — rendering-scope tests;
+- `"Functional"` — cross-subsystem tests driven via `Scene::OnUpdateRuntime`;
+- `"unit"` — plain per-subsystem unit tests (everything else), grouped by directory in the doc.
 
-- `OloEngine/tests/Rendering/`
-- `OloEngine/tests/ShaderGraph/`
-- `OloEngine/tests/Streaming/`
-- `OloEngine/tests/Functional/`
-
-Plus any file explicitly listed under `extra_roots`.
+The `test-catalogue-in-sync` pre-commit hook **fails the commit** otherwise. Files with no test macros (the gtest `main`, libFuzzer targets, fixtures/helpers) are not tests and need no entry — that is the definition of a non-test, not a configurable exclusion.
 
 **Workflow when adding a test file:**
 

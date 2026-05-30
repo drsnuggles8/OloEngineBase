@@ -167,7 +167,7 @@ Full coding rules in [docs/agent-rules/cpp-coding-quality.md](docs/agent-rules/c
 - **Wrong working directory** → missing shaders / Mono assemblies at startup.
 - **Editing under `OloEngine/vendor/`** → wiped on next CMake reconfigure.
 - **Adding a component without updating all five touch-points** (`AllComponents` tuple, `SceneSerializer.cpp`, `SaveGameComponentSerializer.{h,cpp}`, `LuaScriptGlue.cpp::RegisterAllTypes`, `OLO_PROPERTY` annotations) → scenes don't persist, save-games drop the component, scene copy / prefab instantiation silently skips it, scripts break silently. The pre-commit hook can't catch this; see the Definition of done above.
-- **Adding a `.cpp` under the test scan roots without registering it in `test_catalogue.json`** → pre-commit hook blocks the commit.
+- **Adding a test `.cpp` anywhere under `OloEngine/tests/` without registering it in `test_catalogue.json`** → pre-commit hook blocks the commit. The whole tree is scanned (no allowlist, no exclude list); every file with a `TEST`/`TEST_F`/`TEST_P`/`TYPED_TEST` macro must be classified (`L1`–`L11`/`plumbing`/… for renderer-scope, `Functional`, or `unit`).
 - **Hand-editing the auto-catalogue blocks in [docs/testing.md](docs/testing.md)** → overwritten on next regenerate.
 - **Using golden images as the *primary* correctness check** → the testing rules require an L1–L5 contract test as well.
 
