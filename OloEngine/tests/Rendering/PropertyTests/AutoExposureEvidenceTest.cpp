@@ -158,7 +158,7 @@ namespace OloEngine::Tests
         // --- Auto exposure (ON) ---
         pp.AutoExposureEnabled = true;
         pp.AutoExposureCompensation = 0.0f;
-        pp.AutoExposureSpeedUp = 20.0f;   // converge fast for the test
+        pp.AutoExposureSpeedUp = 20.0f; // converge fast for the test
         pp.AutoExposureSpeedDown = 20.0f;
         // This is a deliberately extreme scene (surface radiance ~2^12), so widen
         // the metering window + clamps to actually capture it; a real scene fits
