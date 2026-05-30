@@ -30,6 +30,20 @@ namespace OloEngine
         f32 Exposure = 1.0f;
         f32 Gamma = 2.2f;
 
+        // Automatic exposure / eye adaptation (histogram metering).
+        // When enabled, a compute pass meters the HDR scene luminance each frame
+        // and drives the exposure multiplier instead of the manual Exposure above
+        // (the eye adapting between bright exteriors and dark interiors). The math
+        // lives in Renderer/AutoExposure.h and is pinned by AutoExposureMathTest.
+        bool AutoExposureEnabled = false;
+        f32 AutoExposureMinLogLuminance = -8.0f; // histogram lower bound, log2 luminance
+        f32 AutoExposureMaxLogLuminance = 3.5f;  // histogram upper bound, log2 luminance
+        f32 AutoExposureSpeedUp = 3.0f;          // adaptation rate when brightening (per second)
+        f32 AutoExposureSpeedDown = 1.0f;        // adaptation rate when darkening (per second)
+        f32 AutoExposureCompensation = 0.0f;     // EV bias; +1 doubles the resulting brightness
+        f32 AutoExposureMinExposure = 0.05f;     // hard clamp on the metered exposure multiplier
+        f32 AutoExposureMaxExposure = 16.0f;     // hard clamp on the metered exposure multiplier
+
         // Bloom
         bool BloomEnabled = false;
         f32 BloomThreshold = 1.0f;

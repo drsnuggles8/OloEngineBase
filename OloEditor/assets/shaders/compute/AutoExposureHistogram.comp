@@ -1,0 +1,67 @@
+#version 460 core
+
+// =============================================================================
+// AutoExposureHistogram.comp — log-luminance histogram of the HDR scene colour.
+//
+// CPU mirror: OloEngine/Renderer/AutoExposure.h :: LuminanceToBin / Luminance.
+// Pinned by AutoExposureMathTest. If the bin mapping changes here, change the
+// header (and the average pass) to match.
+//
+// Each invocation samples one texel of a capped metering grid (decoupled from
+// screen resolution so the atomic counts can't overflow a uint at 4K+), bins it
+// by log2(luminance), and accumulates into a per-workgroup shared histogram that
+// is flushed to the global buffer with one atomic per bin.
+// =============================================================================
+
+#define LOCAL_SIZE 16
+#define NUM_BINS 256
+
+layout(local_size_x = LOCAL_SIZE, local_size_y = LOCAL_SIZE, local_size_z = 1) in;
+
+// Metering input: the HDR colour about to be tone-mapped (post-process chain
+// output, linear radiance).
+layout(binding = 0) uniform sampler2D u_HDRColor;
+
+layout(std430, binding = 19) buffer HistogramBuffer
+{
+    uint histogram[NUM_BINS];
+};
+
+uniform vec2 u_MeterSize;       // metering grid dimensions (capped, see ToneMapRenderPass)
+uniform float u_MinLogLum;      // histogram lower bound (log2 luminance)
+uniform float u_InvLogLumRange; // 1.0 / (maxLogLum - minLogLum)
+
+const vec3 RGB_TO_LUM = vec3(0.2126, 0.7152, 0.0722); // Rec.709, matches AutoExposure.h
+const float BLACK_THRESHOLD = 0.0001;                 // AutoExposure::kBlackThreshold
+
+shared uint s_Histogram[NUM_BINS];
+
+// Mirrors AutoExposure::LuminanceToBin.
+uint colorToBin(vec3 hdrColor)
+{
+    float lum = dot(max(hdrColor, vec3(0.0)), RGB_TO_LUM);
+    if (lum < BLACK_THRESHOLD)
+        return 0u; // bin 0 reserved for near-black, excluded from the average
+    float logLum = clamp((log2(lum) - u_MinLogLum) * u_InvLogLumRange, 0.0, 1.0);
+    return uint(logLum * 254.0 + 1.0); // bins 1..255
+}
+
+void main()
+{
+    // Workgroup size (16*16) == NUM_BINS, so each invocation owns exactly one
+    // shared bin for the zero-init and the flush.
+    uint localIndex = gl_LocalInvocationIndex;
+    s_Histogram[localIndex] = 0u;
+    barrier();
+
+    ivec2 gid = ivec2(gl_GlobalInvocationID.xy);
+    if (gid.x < int(u_MeterSize.x) && gid.y < int(u_MeterSize.y))
+    {
+        vec2 uv = (vec2(gid) + 0.5) / vec2(u_MeterSize);
+        vec3 c = textureLod(u_HDRColor, uv, 0.0).rgb;
+        atomicAdd(s_Histogram[colorToBin(c)], 1u);
+    }
+    barrier();
+
+    atomicAdd(histogram[localIndex], s_Histogram[localIndex]);
+}

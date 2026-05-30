@@ -16,6 +16,8 @@
 
 #include <box2d/box2d.h>
 
+#include <cmath>
+
 namespace OloEngine
 {
     // ========================================================================
@@ -99,6 +101,25 @@ namespace OloEngine
         ar << s.ColorGradingEnabled;
         ar << s.SSAOEnabled << s.SSAORadius << s.SSAOBias << s.SSAOIntensity;
         ar << s.SSAOSamples << s.SSAODebugView;
+        // Auto-exposure / eye adaptation (save format v2+).
+        ar << s.AutoExposureEnabled;
+        ar << s.AutoExposureMinLogLuminance << s.AutoExposureMaxLogLuminance;
+        ar << s.AutoExposureSpeedUp << s.AutoExposureSpeedDown;
+        ar << s.AutoExposureCompensation;
+        ar << s.AutoExposureMinExposure << s.AutoExposureMaxExposure;
+        if (ar.IsLoading())
+        {
+            // Floats read from disk must be finite (CLAUDE.md float-validation rule).
+            const auto sane = [](f32& v, f32 fallback)
+            { if (!std::isfinite(v)) v = fallback; };
+            sane(s.AutoExposureMinLogLuminance, -8.0f);
+            sane(s.AutoExposureMaxLogLuminance, 3.5f);
+            sane(s.AutoExposureSpeedUp, 3.0f);
+            sane(s.AutoExposureSpeedDown, 1.0f);
+            sane(s.AutoExposureCompensation, 0.0f);
+            sane(s.AutoExposureMinExposure, 0.05f);
+            sane(s.AutoExposureMaxExposure, 16.0f);
+        }
     }
 
     static void SerializeSnowSettings(FArchive& ar, SnowSettings& s)

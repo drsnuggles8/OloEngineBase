@@ -66,6 +66,15 @@ namespace OloEngine
             AppendChange(changes, "Exposure", before.Exposure, after.Exposure);
             AppendChange(changes, "Gamma", before.Gamma, after.Gamma);
 
+            AppendChange(changes, "AutoExposureEnabled", before.AutoExposureEnabled, after.AutoExposureEnabled);
+            AppendChange(changes, "AutoExposureMinLogLuminance", before.AutoExposureMinLogLuminance, after.AutoExposureMinLogLuminance);
+            AppendChange(changes, "AutoExposureMaxLogLuminance", before.AutoExposureMaxLogLuminance, after.AutoExposureMaxLogLuminance);
+            AppendChange(changes, "AutoExposureSpeedUp", before.AutoExposureSpeedUp, after.AutoExposureSpeedUp);
+            AppendChange(changes, "AutoExposureSpeedDown", before.AutoExposureSpeedDown, after.AutoExposureSpeedDown);
+            AppendChange(changes, "AutoExposureCompensation", before.AutoExposureCompensation, after.AutoExposureCompensation);
+            AppendChange(changes, "AutoExposureMinExposure", before.AutoExposureMinExposure, after.AutoExposureMinExposure);
+            AppendChange(changes, "AutoExposureMaxExposure", before.AutoExposureMaxExposure, after.AutoExposureMaxExposure);
+
             AppendChange(changes, "BloomEnabled", before.BloomEnabled, after.BloomEnabled);
             AppendChange(changes, "BloomThreshold", before.BloomThreshold, after.BloomThreshold);
             AppendChange(changes, "BloomIntensity", before.BloomIntensity, after.BloomIntensity);
@@ -196,8 +205,26 @@ namespace OloEngine
                 settings.Tonemap = static_cast<TonemapOperator>(currentTonemap);
             }
 
+            ImGui::BeginDisabled(settings.AutoExposureEnabled);
             ImGui::DragFloat("Exposure", &settings.Exposure, 0.01f, 0.0f, 20.0f, "%.2f");
+            ImGui::EndDisabled();
             ImGui::DragFloat("Gamma", &settings.Gamma, 0.01f, 0.1f, 5.0f, "%.2f");
+
+            ImGui::Separator();
+            ImGui::Checkbox("Auto Exposure (Eye Adaptation)", &settings.AutoExposureEnabled);
+            if (settings.AutoExposureEnabled)
+            {
+                ImGui::Indent();
+                ImGui::TextDisabled("Histogram metering drives exposure; the manual Exposure value is ignored.");
+                ImGui::DragFloat("EV Compensation", &settings.AutoExposureCompensation, 0.05f, -8.0f, 8.0f, "%.2f EV");
+                ImGui::DragFloat("Min Log Luminance", &settings.AutoExposureMinLogLuminance, 0.1f, -16.0f, settings.AutoExposureMaxLogLuminance - 0.1f, "%.1f");
+                ImGui::DragFloat("Max Log Luminance", &settings.AutoExposureMaxLogLuminance, 0.1f, settings.AutoExposureMinLogLuminance + 0.1f, 16.0f, "%.1f");
+                ImGui::DragFloat("Adapt Speed (brighten)", &settings.AutoExposureSpeedUp, 0.05f, 0.0f, 20.0f, "%.2f");
+                ImGui::DragFloat("Adapt Speed (darken)", &settings.AutoExposureSpeedDown, 0.05f, 0.0f, 20.0f, "%.2f");
+                ImGui::DragFloat("Min Exposure", &settings.AutoExposureMinExposure, 0.005f, 0.001f, settings.AutoExposureMaxExposure, "%.3f");
+                ImGui::DragFloat("Max Exposure", &settings.AutoExposureMaxExposure, 0.05f, settings.AutoExposureMinExposure, 64.0f, "%.2f");
+                ImGui::Unindent();
+            }
 
             ImGui::Unindent();
         }
