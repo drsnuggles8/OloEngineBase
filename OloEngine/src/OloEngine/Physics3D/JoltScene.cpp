@@ -72,7 +72,7 @@ namespace OloEngine
         OLO_CORE_INFO("Shutting down JoltScene");
 
         // Destroy all bodies
-        for (auto& [entityID, body] : m_Bodies)
+        for (const auto& [entityID, body] : m_Bodies)
         {
             // Body destructor will handle Jolt cleanup
         }
@@ -81,7 +81,7 @@ namespace OloEngine
         m_BodiesToSync.clear();
 
         // Destroy all character controllers
-        for (auto& [entityID, characterController] : m_CharacterControllers)
+        for (const auto& [entityID, characterController] : m_CharacterControllers)
         {
             // Character controller destructor will handle Jolt cleanup
         }
@@ -97,6 +97,8 @@ namespace OloEngine
 
     void JoltScene::Simulate(f32 deltaTime)
     {
+        OLO_PROFILE_FUNCTION();
+
         if (!m_Initialized || !m_JoltSystem)
             return;
 
@@ -111,10 +113,9 @@ namespace OloEngine
 
         // Prevent "spiral of death" by capping simulation steps per frame
         u32 stepsExecuted = 0;
-        f32 maxAccumulator = static_cast<f32>(s_MaxStepsPerFrame) * m_FixedTimeStep;
 
         // If accumulator exceeds maximum, clamp it and log the skip
-        if (m_Accumulator > maxAccumulator)
+        if (f32 maxAccumulator = static_cast<f32>(s_MaxStepsPerFrame) * m_FixedTimeStep; m_Accumulator > maxAccumulator)
         {
             f32 skippedTime = m_Accumulator - maxAccumulator;
             m_Accumulator = maxAccumulator;
@@ -125,7 +126,7 @@ namespace OloEngine
         {
             Step(m_FixedTimeStep);
             m_Accumulator -= m_FixedTimeStep;
-            stepsExecuted++;
+            ++stepsExecuted;
         }
 
         // Synchronize transforms after simulation
@@ -234,8 +235,7 @@ namespace OloEngine
             }
 
             // Remove from sync list
-            auto syncIt = std::find(m_BodiesToSync.begin(), m_BodiesToSync.end(), it->second);
-            if (syncIt != m_BodiesToSync.end())
+            if (auto syncIt = std::ranges::find(m_BodiesToSync, it->second); syncIt != m_BodiesToSync.end())
             {
                 m_BodiesToSync.erase(syncIt);
             }
@@ -262,8 +262,7 @@ namespace OloEngine
     Entity JoltScene::GetEntityByBodyID(const JPH::BodyID& bodyID)
     {
         // Use efficient reverse lookup instead of O(n) linear search
-        auto it = m_BodyIDToEntity.find(bodyID);
-        if (it != m_BodyIDToEntity.end())
+        if (auto it = m_BodyIDToEntity.find(bodyID); it != m_BodyIDToEntity.end())
         {
             // Found the entity UUID, get Entity from scene
             return m_Scene->GetEntityByUUID(it->second);
@@ -281,8 +280,7 @@ namespace OloEngine
         UUID entityID = entity.GetUUID();
 
         // Check if character controller already exists
-        auto it = m_CharacterControllers.find(entityID);
-        if (it != m_CharacterControllers.end())
+        if (auto it = m_CharacterControllers.find(entityID); it != m_CharacterControllers.end())
         {
             OLO_CORE_WARN("Character controller already exists for entity {0}", (u64)entityID);
             return it->second;
@@ -309,8 +307,7 @@ namespace OloEngine
         if (it != m_CharacterControllers.end())
         {
             // Remove from update list
-            auto updateIt = std::find(m_CharacterControllersToUpdate.begin(), m_CharacterControllersToUpdate.end(), it->second);
-            if (updateIt != m_CharacterControllersToUpdate.end())
+            if (auto updateIt = std::ranges::find(m_CharacterControllersToUpdate, it->second); updateIt != m_CharacterControllersToUpdate.end())
             {
                 m_CharacterControllersToUpdate.erase(updateIt);
             }
@@ -351,7 +348,7 @@ namespace OloEngine
         OLO_CORE_INFO("JoltScene stopping runtime");
 
         // Destroy all bodies
-        for (auto& [entityID, body] : m_Bodies)
+        for (const auto& [entityID, body] : m_Bodies)
         {
             // Body destructor will handle cleanup
         }
@@ -360,13 +357,13 @@ namespace OloEngine
         m_BodiesToSync.clear();
     }
 
-    void JoltScene::OnSimulationStart()
+    void JoltScene::OnSimulationStart() const
     {
         OLO_CORE_INFO("JoltScene starting simulation");
         // Additional simulation-specific setup can go here
     }
 
-    void JoltScene::OnSimulationStop()
+    void JoltScene::OnSimulationStop() const
     {
         OLO_CORE_INFO("JoltScene stopping simulation");
         // Additional simulation-specific cleanup can go here
@@ -612,7 +609,7 @@ namespace OloEngine
                 break;
 
             FillHitInfo(hit, ray, outHits[hitCount]);
-            hitCount++;
+            ++hitCount;
         }
 
         return hitCount;
@@ -674,7 +671,7 @@ namespace OloEngine
     void JoltScene::SynchronizeTransforms()
     {
         // Synchronize transforms for all bodies that need it
-        for (auto& body : m_BodiesToSync)
+        for (const auto& body : m_BodiesToSync)
         {
             if (body)
             {
@@ -693,7 +690,7 @@ namespace OloEngine
         }
     }
 
-    void JoltScene::OnContactEvent(ContactType type, UUID entityA, UUID entityB)
+    void JoltScene::OnContactEvent(ContactType type, UUID entityA, UUID entityB) const
     {
         // Forward contact events to the scene or specific entities
         // This can be extended to trigger script callbacks, audio events, etc.
@@ -728,7 +725,7 @@ namespace OloEngine
         OLO_CORE_INFO("Created {0} physics bodies", m_Bodies.size());
     }
 
-    void JoltScene::SynchronizeBody(Ref<JoltBody> body)
+    void JoltScene::SynchronizeBody(Ref<JoltBody> body) const
     {
         if (!body || !body->IsValid())
             return;
@@ -850,7 +847,7 @@ namespace OloEngine
 
     // Optimized ExcludedEntitySet-based implementations
     bool JoltScene::PerformShapeCast(JPH::Ref<JPH::Shape> shape, const glm::vec3& start, const glm::vec3& direction,
-                                     f32 maxDistance, u32 layerMask, const ExcludedEntitySet& excludedEntitySet, SceneQueryHit& outHit)
+                                     f32 maxDistance, u32 layerMask, const ExcludedEntitySet& excludedEntitySet, SceneQueryHit& outHit) const
     {
         if (!m_JoltSystem)
             return false;
@@ -921,7 +918,7 @@ namespace OloEngine
                 break;
 
             FillHitInfo(hit, shapeCast, outHits[hitCount]);
-            hitCount++;
+            ++hitCount;
         }
 
         return hitCount;
@@ -970,13 +967,12 @@ namespace OloEngine
                 hitInfo.m_Position = JoltUtils::FromJoltVector(body.GetPosition());
 
                 // Get body from our map for reference
-                auto it = m_Bodies.find(hitInfo.m_HitEntity);
-                if (it != m_Bodies.end())
+                if (auto it = m_Bodies.find(hitInfo.m_HitEntity); it != m_Bodies.end())
                 {
                     hitInfo.m_HitBody = it->second;
                 }
 
-                hitCount++;
+                ++hitCount;
             }
         }
 
@@ -988,7 +984,7 @@ namespace OloEngine
         return EntityExclusionUtils::IsEntityExcluded(excludedEntitySet, entityID);
     }
 
-    void JoltScene::FillHitInfo(const JPH::RayCastResult& hit, const JPH::RRayCast& ray, SceneQueryHit& outHit)
+    void JoltScene::FillHitInfo(const JPH::RayCastResult& hit, const JPH::RRayCast& ray, SceneQueryHit& outHit) const
     {
         outHit.Clear();
 
@@ -1013,7 +1009,7 @@ namespace OloEngine
         }
     }
 
-    void JoltScene::FillHitInfo(const JPH::ShapeCastResult& hit, const JPH::RShapeCast& shapeCast, SceneQueryHit& outHit)
+    void JoltScene::FillHitInfo(const JPH::ShapeCastResult& hit, const JPH::RShapeCast& shapeCast, SceneQueryHit& outHit) const
     {
         outHit.Clear();
 

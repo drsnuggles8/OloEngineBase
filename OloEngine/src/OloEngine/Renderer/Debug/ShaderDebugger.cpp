@@ -219,13 +219,12 @@ namespace OloEngine
 
             // Update global statistics
             m_TotalCompilationTime += compileTimeMs;
-            m_TotalCompilations++;
+            ++m_TotalCompilations;
             if (!success)
-                m_FailedCompilations++;
+                ++m_FailedCompilations;
 
             // Remove from pending compilations
-            auto pendingIt = m_PendingCompilations.find(info.m_Name);
-            if (pendingIt != m_PendingCompilations.end())
+            if (auto pendingIt = m_PendingCompilations.find(info.m_Name); pendingIt != m_PendingCompilations.end())
             {
                 info.m_FilePath = pendingIt->second.m_FilePath;
                 m_PendingCompilations.erase(pendingIt);
@@ -285,7 +284,7 @@ namespace OloEngine
                 info.m_ReloadHistory.erase(info.m_ReloadHistory.begin());
             }
 
-            m_TotalReloads++;
+            ++m_TotalReloads;
 
             OLO_CORE_TRACE("Shader reload ended: {0} (ID: {1}), Success: {2}",
                            info.m_Name, rendererID, success);
@@ -315,7 +314,7 @@ namespace OloEngine
         {
             ShaderInfo& info = it->second;
 
-            info.m_BindCount++;
+            ++info.m_BindCount;
             info.m_LastBindTime = std::chrono::steady_clock::now();
             info.m_LastActivationTime = info.m_LastBindTime;
             info.m_IsActive = true;
@@ -335,13 +334,13 @@ namespace OloEngine
             ShaderInfo& info = it->second;
 
             // Find or create uniform info
-            auto uniformIt = std::find_if(info.m_Uniforms.begin(), info.m_Uniforms.end(),
-                                          [&name](const UniformInfo& uniform)
-                                          { return uniform.m_Name == name; });
+            auto uniformIt = std::ranges::find_if(info.m_Uniforms,
+                                                  [&name](const UniformInfo& uniform)
+                                                  { return uniform.m_Name == name; });
 
             if (uniformIt != info.m_Uniforms.end())
             {
-                uniformIt->m_SetCount++;
+                ++uniformIt->m_SetCount;
                 uniformIt->m_LastSetTime = std::chrono::steady_clock::now();
             }
             else
@@ -506,6 +505,10 @@ namespace OloEngine
                     info.m_LastCompilation.m_VertexGeometrySPIRVSize += spirvBinary.size();
                 else if (stage == ShaderStage::Fragment || stage == ShaderStage::Compute)
                     info.m_LastCompilation.m_FragmentComputeSPIRVSize += spirvBinary.size();
+                else
+                {
+                    // No additional handling required.
+                }
 
                 // Convert SPIR-V binary to u32 vector for analysis
                 std::vector<u32> spirvWords;
@@ -527,7 +530,7 @@ namespace OloEngine
         }
     }
 
-    void ShaderDebugger::UpdateActiveTime(ShaderInfo& shaderInfo)
+    void ShaderDebugger::UpdateActiveTime(ShaderInfo& shaderInfo) const
     {
         if (shaderInfo.m_IsActive)
         {
@@ -642,7 +645,7 @@ namespace OloEngine
             if (length == 0)
                 break; // Invalid instruction
 
-            instructionCount++;
+            ++instructionCount;
             offset += length;
         }
     }
@@ -678,7 +681,7 @@ namespace OloEngine
             if (length == 0 || length > (wordCount - offset))
                 break; // Invalid instruction
 
-            instructionCount++;
+            ++instructionCount;
             offset += length;
         }
     }
@@ -752,11 +755,11 @@ namespace OloEngine
         {
             // Find existing binding or create new one
             auto& bindings = it->second.m_ResourceBindings;
-            auto bindingIt = std::find_if(bindings.begin(), bindings.end(),
-                                          [&resourceName](const ResourceBindingInfo& binding)
-                                          {
-                                              return binding.m_Name == resourceName;
-                                          });
+            auto bindingIt = std::ranges::find_if(bindings,
+                                                  [&resourceName](const ResourceBindingInfo& binding)
+                                                  {
+                                                      return binding.m_Name == resourceName;
+                                                  });
 
             if (bindingIt != bindings.end())
             {
@@ -901,12 +904,12 @@ namespace OloEngine
                 const std::string searchLower = [this]()
                 {
                     std::string s(m_SearchFilter);
-                    std::transform(s.begin(), s.end(), s.begin(), ::tolower);
+                    std::ranges::transform(s, s.begin(), ::tolower);
                     return s;
                 }();
 
                 std::string nameLower = info.m_Name;
-                std::transform(nameLower.begin(), nameLower.end(), nameLower.begin(), ::tolower);
+                std::ranges::transform(nameLower, nameLower.begin(), ::tolower);
 
                 if (nameLower.find(searchLower) == std::string::npos)
                     continue;
@@ -922,6 +925,10 @@ namespace OloEngine
                 textColor = ImVec4(0.4f, 1.0f, 0.4f, 1.0f);
             else if (info.m_IsReloading)
                 textColor = ImVec4(1.0f, 1.0f, 0.4f, 1.0f);
+            else
+            {
+                // No additional handling required.
+            }
 
             ImGui::PushStyleColor(ImGuiCol_Text, textColor);
 
@@ -1080,7 +1087,7 @@ namespace OloEngine
         }
     }
 
-    void ShaderDebugger::RenderSourceCode(const ShaderInfo& shaderInfo)
+    void ShaderDebugger::RenderSourceCode(const ShaderInfo& shaderInfo) const
     {
         if (shaderInfo.m_OriginalSource.empty())
         {
@@ -1101,8 +1108,7 @@ namespace OloEngine
         if (ImGui::BeginTabBar("SourceTabs"))
         {
             // Original source
-            auto originalIt = shaderInfo.m_OriginalSource.find(stage);
-            if (originalIt != shaderInfo.m_OriginalSource.end() && ImGui::BeginTabItem("Original"))
+            if (auto originalIt = shaderInfo.m_OriginalSource.find(stage); originalIt != shaderInfo.m_OriginalSource.end() && ImGui::BeginTabItem("Original"))
             {
                 // Use InputTextMultiline for selectable/copyable text
                 const std::string& sourceText = originalIt->second;
@@ -1115,8 +1121,7 @@ namespace OloEngine
             }
 
             // Generated GLSL
-            auto generatedIt = shaderInfo.m_GeneratedGLSL.find(stage);
-            if (generatedIt != shaderInfo.m_GeneratedGLSL.end() && ImGui::BeginTabItem("Generated GLSL"))
+            if (auto generatedIt = shaderInfo.m_GeneratedGLSL.find(stage); generatedIt != shaderInfo.m_GeneratedGLSL.end() && ImGui::BeginTabItem("Generated GLSL"))
             {
                 // Use InputTextMultiline for selectable/copyable text
                 const std::string& sourceText = generatedIt->second;
@@ -1129,8 +1134,7 @@ namespace OloEngine
             }
 
             // SPIR-V hex dump
-            auto spirvIt = shaderInfo.m_SPIRVBinary.find(stage);
-            if (spirvIt != shaderInfo.m_SPIRVBinary.end() && ImGui::BeginTabItem("SPIR-V Binary"))
+            if (auto spirvIt = shaderInfo.m_SPIRVBinary.find(stage); spirvIt != shaderInfo.m_SPIRVBinary.end() && ImGui::BeginTabItem("SPIR-V Binary"))
             {
                 ImGui::Text("Size: %s", DebugUtils::FormatMemorySize(spirvIt->second.size()).c_str());
                 ImGui::Separator();
@@ -1176,7 +1180,7 @@ namespace OloEngine
         }
     }
 
-    void ShaderDebugger::RenderUniforms(const ShaderInfo& shaderInfo)
+    void ShaderDebugger::RenderUniforms(const ShaderInfo& shaderInfo) const
     {
         // Uniforms table
         if (!shaderInfo.m_Uniforms.empty())
@@ -1296,7 +1300,7 @@ namespace OloEngine
         }
     }
 
-    void ShaderDebugger::RenderResourceBindings(const ShaderInfo& shaderInfo)
+    void ShaderDebugger::RenderResourceBindings(const ShaderInfo& shaderInfo) const
     {
         ImGui::Text("Resource Bindings");
         ImGui::Separator();
@@ -1383,7 +1387,7 @@ namespace OloEngine
         ImGui::TextColored(ImVec4(0.6f, 0.6f, 0.6f, 1.0f), "Note: Frame-in-flight statistics require shader registry access");
     }
 
-    void ShaderDebugger::RenderPerformanceMetrics(const ShaderInfo& shaderInfo)
+    void ShaderDebugger::RenderPerformanceMetrics(const ShaderInfo& shaderInfo) const
     {
         ImGui::Text("Performance Metrics");
         ImGui::Separator();
@@ -1435,9 +1439,13 @@ namespace OloEngine
         {
             ImGui::TextColored(DebugUtils::Colors::Good, "✓ Frequently used shader");
         }
+        else
+        {
+            // No additional handling required.
+        }
     }
 
-    void ShaderDebugger::RenderReloadHistory(const ShaderInfo& shaderInfo)
+    void ShaderDebugger::RenderReloadHistory(const ShaderInfo& shaderInfo) const
     {
         ImGui::Text("Reload History (%zu events):", shaderInfo.m_ReloadHistory.size());
         ImGui::Separator();
@@ -1486,7 +1494,7 @@ namespace OloEngine
         }
     }
 
-    void ShaderDebugger::RenderSPIRVAnalysis(const ShaderInfo& shaderInfo)
+    void ShaderDebugger::RenderSPIRVAnalysis(const ShaderInfo& shaderInfo) const
     {
         ImGui::Text("SPIR-V Analysis");
         ImGui::Separator();
@@ -1633,7 +1641,7 @@ namespace OloEngine
         }
     }
 
-    void ShaderDebugger::RenderCompilationErrors(const ShaderInfo& shaderInfo)
+    void ShaderDebugger::RenderCompilationErrors(const ShaderInfo& shaderInfo) const
     {
         ImGui::Text("Compilation Errors");
         ImGui::Separator();
@@ -1783,8 +1791,7 @@ namespace OloEngine
             }
 
             // Check for entry points
-            const auto entryPoints = compiler.get_entry_points_and_stages();
-            if (entryPoints.size() > 1)
+            if (const auto entryPoints = compiler.get_entry_points_and_stages(); entryPoints.size() > 1)
             {
                 OLO_CORE_INFO("Multiple entry points detected ({0}). Ensure correct usage.", entryPoints.size());
             }

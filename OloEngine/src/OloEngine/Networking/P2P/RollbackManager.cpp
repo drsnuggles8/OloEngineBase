@@ -73,8 +73,7 @@ namespace OloEngine
         }
 
         // Try exact tick
-        auto tickIt = peerIt->second.find(tick);
-        if (tickIt != peerIt->second.end())
+        if (auto tickIt = peerIt->second.find(tick); tickIt != peerIt->second.end())
         {
             return tickIt->second;
         }
@@ -136,7 +135,7 @@ namespace OloEngine
         {
             sortedPeers.push_back(peerID);
         }
-        std::sort(sortedPeers.begin(), sortedPeers.end());
+        std::ranges::sort(sortedPeers);
 
         for (u32 tick = toTick + 1; tick <= originalTick; ++tick)
         {

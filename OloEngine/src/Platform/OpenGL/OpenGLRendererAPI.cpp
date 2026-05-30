@@ -433,8 +433,7 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
 
         // Only track state change if the value actually changes
-        static bool s_BlendEnabled = false;
-        if (s_BlendEnabled != value)
+        if (static bool s_BlendEnabled = false; s_BlendEnabled != value)
         {
             RendererProfiler::GetInstance().IncrementCounter(RendererProfiler::MetricType::StateChanges, 1);
             s_BlendEnabled = value;
@@ -524,8 +523,7 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
 
         // Only track state change if not already enabled
-        static bool s_ScissorEnabled = false;
-        if (!s_ScissorEnabled)
+        if (static bool s_ScissorEnabled = false; !s_ScissorEnabled)
         {
             RendererProfiler::GetInstance().IncrementCounter(RendererProfiler::MetricType::StateChanges, 1);
             s_ScissorEnabled = true;
@@ -538,8 +536,7 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
 
         // Only track state change if currently enabled
-        static bool s_ScissorEnabled = false;
-        if (s_ScissorEnabled)
+        if (static bool s_ScissorEnabled = false; s_ScissorEnabled)
         {
             RendererProfiler::GetInstance().IncrementCounter(RendererProfiler::MetricType::StateChanges, 1);
             s_ScissorEnabled = false;
@@ -654,36 +651,36 @@ namespace OloEngine
         }
 
         GLbitfield glBarrier = 0;
-        const auto bits = static_cast<u32>(flags);
-        if (bits & static_cast<u32>(MemoryBarrierFlags::VertexAttribArray))
+        const auto bits = std::to_underlying(flags);
+        if (bits & std::to_underlying(MemoryBarrierFlags::VertexAttribArray))
             glBarrier |= GL_VERTEX_ATTRIB_ARRAY_BARRIER_BIT;
-        if (bits & static_cast<u32>(MemoryBarrierFlags::ElementArray))
+        if (bits & std::to_underlying(MemoryBarrierFlags::ElementArray))
             glBarrier |= GL_ELEMENT_ARRAY_BARRIER_BIT;
-        if (bits & static_cast<u32>(MemoryBarrierFlags::Uniform))
+        if (bits & std::to_underlying(MemoryBarrierFlags::Uniform))
             glBarrier |= GL_UNIFORM_BARRIER_BIT;
-        if (bits & static_cast<u32>(MemoryBarrierFlags::TextureFetch))
+        if (bits & std::to_underlying(MemoryBarrierFlags::TextureFetch))
             glBarrier |= GL_TEXTURE_FETCH_BARRIER_BIT;
-        if (bits & static_cast<u32>(MemoryBarrierFlags::ShaderImageAccess))
+        if (bits & std::to_underlying(MemoryBarrierFlags::ShaderImageAccess))
             glBarrier |= GL_SHADER_IMAGE_ACCESS_BARRIER_BIT;
-        if (bits & static_cast<u32>(MemoryBarrierFlags::Command))
+        if (bits & std::to_underlying(MemoryBarrierFlags::Command))
             glBarrier |= GL_COMMAND_BARRIER_BIT;
-        if (bits & static_cast<u32>(MemoryBarrierFlags::PixelBuffer))
+        if (bits & std::to_underlying(MemoryBarrierFlags::PixelBuffer))
             glBarrier |= GL_PIXEL_BUFFER_BARRIER_BIT;
-        if (bits & static_cast<u32>(MemoryBarrierFlags::TextureUpdate))
+        if (bits & std::to_underlying(MemoryBarrierFlags::TextureUpdate))
             glBarrier |= GL_TEXTURE_UPDATE_BARRIER_BIT;
-        if (bits & static_cast<u32>(MemoryBarrierFlags::BufferUpdate))
+        if (bits & std::to_underlying(MemoryBarrierFlags::BufferUpdate))
             glBarrier |= GL_BUFFER_UPDATE_BARRIER_BIT;
-        if (bits & static_cast<u32>(MemoryBarrierFlags::Framebuffer))
+        if (bits & std::to_underlying(MemoryBarrierFlags::Framebuffer))
             glBarrier |= GL_FRAMEBUFFER_BARRIER_BIT;
-        if (bits & static_cast<u32>(MemoryBarrierFlags::TransformFeedback))
+        if (bits & std::to_underlying(MemoryBarrierFlags::TransformFeedback))
             glBarrier |= GL_TRANSFORM_FEEDBACK_BARRIER_BIT;
-        if (bits & static_cast<u32>(MemoryBarrierFlags::AtomicCounter))
+        if (bits & std::to_underlying(MemoryBarrierFlags::AtomicCounter))
             glBarrier |= GL_ATOMIC_COUNTER_BARRIER_BIT;
-        if (bits & static_cast<u32>(MemoryBarrierFlags::ShaderStorage))
+        if (bits & std::to_underlying(MemoryBarrierFlags::ShaderStorage))
             glBarrier |= GL_SHADER_STORAGE_BARRIER_BIT;
-        if (bits & static_cast<u32>(MemoryBarrierFlags::ClientMappedBuffer))
+        if (bits & std::to_underlying(MemoryBarrierFlags::ClientMappedBuffer))
             glBarrier |= GL_CLIENT_MAPPED_BUFFER_BARRIER_BIT;
-        if (bits & static_cast<u32>(MemoryBarrierFlags::QueryBuffer))
+        if (bits & std::to_underlying(MemoryBarrierFlags::QueryBuffer))
             glBarrier |= GL_QUERY_BUFFER_BARRIER_BIT;
 
         glMemoryBarrier(glBarrier);
@@ -847,9 +844,7 @@ namespace OloEngine
 
         GLint maxDrawBuffers = 0;
         glGetIntegerv(GL_MAX_DRAW_BUFFERS, &maxDrawBuffers);
-        u32 maxBuf = static_cast<u32>(maxDrawBuffers);
-
-        if (colorAttachmentCount > maxBuf)
+        if (u32 maxBuf = static_cast<u32>(maxDrawBuffers); colorAttachmentCount > maxBuf)
         {
             OLO_CORE_WARN("OpenGLRendererAPI::RestoreAllDrawBuffers - count {} exceeds GL_MAX_DRAW_BUFFERS {}, clamping",
                           colorAttachmentCount, maxBuf);

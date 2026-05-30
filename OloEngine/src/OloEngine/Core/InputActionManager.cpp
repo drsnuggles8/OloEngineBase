@@ -23,13 +23,13 @@ namespace OloEngine
 
         [[nodiscard]] bool IsGamepadButtonPressed(GamepadButton button, i32 gamepadIndex) const override
         {
-            auto* gp = GamepadManager::GetGamepad(gamepadIndex);
+            const auto* gp = GamepadManager::GetGamepad(gamepadIndex);
             return gp && gp->IsButtonPressed(button);
         }
 
         [[nodiscard]] f32 GetGamepadAxis(GamepadAxis axis, i32 gamepadIndex) const override
         {
-            auto* gp = GamepadManager::GetGamepad(gamepadIndex);
+            const auto* gp = GamepadManager::GetGamepad(gamepadIndex);
             return gp ? gp->GetAxis(axis) : 0.0f;
         }
     };
@@ -202,7 +202,7 @@ namespace OloEngine
             }
         }
 
-        for (auto& [actionName, action] : s_ActiveMap.Actions)
+        for (const auto& [actionName, action] : s_ActiveMap.Actions)
         {
             bool pressed = false;
             for (const auto& binding : action.Bindings)
@@ -244,6 +244,10 @@ namespace OloEngine
                         pressed = true;
                         break;
                     }
+                }
+                else
+                {
+                    // No additional handling required.
                 }
             }
             s_CurrentState[actionName] = pressed;
@@ -292,8 +296,7 @@ namespace OloEngine
 
     bool InputActionManager::IsActionJustPressed(std::string_view actionName)
     {
-        auto currentIt = s_CurrentState.find(actionName);
-        if (currentIt == s_CurrentState.end() || !currentIt->second)
+        if (auto currentIt = s_CurrentState.find(actionName); currentIt == s_CurrentState.end() || !currentIt->second)
         {
             return false;
         }
@@ -304,8 +307,7 @@ namespace OloEngine
     bool InputActionManager::IsActionJustReleased(std::string_view actionName)
     {
         auto currentIt = s_CurrentState.find(actionName);
-        bool currentlyPressed = (currentIt != s_CurrentState.end()) && currentIt->second;
-        if (currentlyPressed)
+        if (bool currentlyPressed = (currentIt != s_CurrentState.end()) && currentIt->second)
         {
             return false;
         }

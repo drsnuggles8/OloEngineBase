@@ -208,8 +208,7 @@ namespace OloEngine
             for (const auto& loc : locales)
             {
                 const bool selected = (loc.Code == current);
-                std::string label = loc.Name.empty() ? loc.Code : (loc.Name + " (" + loc.Code + ")");
-                if (ImGui::Selectable(label.c_str(), selected) && !selected)
+                if (std::string label = loc.Name.empty() ? loc.Code : (loc.Name + " (" + loc.Code + ")"); ImGui::Selectable(label.c_str(), selected) && !selected)
                 {
                     LocalizationManager::SetCurrentLocale(loc.Code);
                     m_StatusMessage = "Switched to locale '" + loc.Code + "'.";
@@ -268,8 +267,7 @@ namespace OloEngine
 
                 const bool sourceHas = LocalizationManager::HasKey(key, sourceLocale);
                 const bool activeHas = LocalizationManager::HasKey(key, activeLocale);
-                const bool missing = sourceHas && !activeHas;
-                if (m_ShowMissingOnly && !missing)
+                if (const bool missing = sourceHas && !activeHas; m_ShowMissingOnly && !missing)
                     continue;
 
                 ImGui::TableNextRow();

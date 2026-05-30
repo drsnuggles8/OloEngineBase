@@ -7,10 +7,14 @@
 
 #include <imgui.h>
 
+#include <utility>
+
 namespace OloEngine
 {
-    void GamepadDebugPanel::OnImGuiRender(bool* p_open)
+    void GamepadDebugPanel::OnImGuiRender(bool* p_open) const
     {
+        OLO_PROFILE_FUNCTION();
+
         if (!ImGui::Begin("Gamepad Debug", p_open))
         {
             ImGui::End();
@@ -25,7 +29,7 @@ namespace OloEngine
 
         for (i32 i = 0; i < GamepadManager::MaxGamepads; ++i)
         {
-            auto* gp = GamepadManager::GetGamepad(i);
+            const auto* gp = GamepadManager::GetGamepad(i);
             if (!gp || !gp->IsConnected())
             {
                 continue;
@@ -38,7 +42,7 @@ namespace OloEngine
                 ImGui::Text("Buttons:");
                 ImGui::Indent();
 
-                for (u32 b = 0; b < static_cast<u32>(GamepadButton::Count); ++b)
+                for (u32 b = 0; b < static_cast<u32>(std::to_underlying(GamepadButton::Count)); ++b)
                 {
                     auto btn = static_cast<GamepadButton>(b);
                     bool pressed = gp->IsButtonPressed(btn);
@@ -59,7 +63,7 @@ namespace OloEngine
                 // Axes
                 ImGui::Text("Axes:");
                 ImGui::Indent();
-                for (u32 a = 0; a < static_cast<u32>(GamepadAxis::Count); ++a)
+                for (u32 a = 0; a < static_cast<u32>(std::to_underlying(GamepadAxis::Count)); ++a)
                 {
                     auto axis = static_cast<GamepadAxis>(a);
                     f32 value = gp->GetAxis(axis);

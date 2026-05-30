@@ -149,8 +149,7 @@ constexpr auto ArraySize(T array)
 template<typename T>
 constexpr T OloBit(int x)
 {
-    constexpr int max_bits = sizeof(T) * 8;
-    if (x < 0 || x >= max_bits)
+    if (constexpr int max_bits = sizeof(T) * 8; x < 0 || x >= max_bits)
     {
         throw std::out_of_range("Bit index out of range for bit manipulation");
     }

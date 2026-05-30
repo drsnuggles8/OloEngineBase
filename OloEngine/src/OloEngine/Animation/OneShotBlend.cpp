@@ -71,8 +71,7 @@ namespace OloEngine::Animation
                     break;
                 case Phase::Playing:
                 {
-                    f32 blendOutStart = Clip->Duration - BlendOutDuration;
-                    if (m_PlaybackTime >= blendOutStart)
+                    if (f32 blendOutStart = Clip->Duration - BlendOutDuration; m_PlaybackTime >= blendOutStart)
                     {
                         m_Phase = Phase::BlendOut;
                         m_PhaseTime = m_PlaybackTime - blendOutStart;
@@ -107,6 +106,10 @@ namespace OloEngine::Animation
         else if (m_Phase == Phase::BlendOut && BlendOutDuration > 0.0f)
         {
             phaseWeight = 1.0f - glm::clamp(m_PhaseTime / BlendOutDuration, 0.0f, 1.0f);
+        }
+        else
+        {
+            // No additional handling required.
         }
         f32 effectiveWeight = Weight * phaseWeight;
 

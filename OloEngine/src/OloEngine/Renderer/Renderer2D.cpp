@@ -447,8 +447,8 @@ namespace OloEngine
         }
 
         // Sort draw calls by shader and textures
-        std::sort(drawCalls.begin(), drawCalls.end(), [](const DrawCall& a, const DrawCall& b)
-                  {
+        std::ranges::sort(drawCalls, [](const DrawCall& a, const DrawCall& b)
+                          {
 			if (a.Shader != b.Shader)
 				return a.Shader < b.Shader;
 			return a.Textures < b.Textures; });
@@ -460,7 +460,7 @@ namespace OloEngine
             drawCall.Shader->Bind();
 
             // Bind textures
-            for (u32 i = 0; i < drawCall.Textures.size(); i++)
+            for (u32 i = 0; i < drawCall.Textures.size(); ++i)
             {
                 drawCall.Textures[i]->Bind(i);
             }
@@ -483,6 +483,10 @@ namespace OloEngine
             {
                 RenderCommand::SetLineWidth(s_Data.LineWidth);
                 RenderCommand::DrawLines(drawCall.VertexArray, drawCall.IndexCount);
+            }
+            else
+            {
+                // No additional handling required.
             }
 
             ++s_Data.Stats.DrawCalls;
@@ -714,8 +718,7 @@ namespace OloEngine
         // textureIndex == 0.0f is the "no match found in the loop above" sentinel.
         // Bit-exact comparison because the loop assigns from integer indices —
         // 0.0f appears only when nothing was assigned (see cpp-coding-quality §2a).
-        constexpr f32 noTextureSlotSentinel = 0.0f;
-        if (Math::BitwiseEqual(textureIndex, noTextureSlotSentinel))
+        if (constexpr f32 noTextureSlotSentinel = 0.0f; Math::BitwiseEqual(textureIndex, noTextureSlotSentinel))
         {
             if (s_Data.TextureSlotIndex >= Renderer2DData::MaxTextureSlots)
             {
@@ -815,12 +818,12 @@ namespace OloEngine
             s_Data.CircleVertexBufferPtr->Thickness = thickness;
             s_Data.CircleVertexBufferPtr->Fade = fade;
             s_Data.CircleVertexBufferPtr->EntityID = entityID;
-            s_Data.CircleVertexBufferPtr++;
+            ++s_Data.CircleVertexBufferPtr;
         }
 
         s_Data.CircleIndexCount += 6;
 
-        s_Data.Stats.QuadCount++;
+        ++s_Data.Stats.QuadCount;
     }
 
     void Renderer2D::DrawLine(const glm::vec3& p0, const glm::vec3& p1, const glm::vec4& color, const int entityID)
@@ -828,12 +831,12 @@ namespace OloEngine
         s_Data.LineVertexBufferPtr->Position = p0;
         s_Data.LineVertexBufferPtr->Color = color;
         s_Data.LineVertexBufferPtr->EntityID = entityID;
-        s_Data.LineVertexBufferPtr++;
+        ++s_Data.LineVertexBufferPtr;
 
         s_Data.LineVertexBufferPtr->Position = p1;
         s_Data.LineVertexBufferPtr->Color = color;
         s_Data.LineVertexBufferPtr->EntityID = entityID;
-        s_Data.LineVertexBufferPtr++;
+        ++s_Data.LineVertexBufferPtr;
 
         s_Data.LineVertexCount += 2;
     }
@@ -854,7 +857,7 @@ namespace OloEngine
     void Renderer2D::DrawRect(const glm::mat4& transform, const glm::vec4& color, const int entityID)
     {
         glm::vec3 lineVertices[4]{};
-        for (sizet i = 0; i < 4; i++)
+        for (sizet i = 0; i < 4; ++i)
         {
             lineVertices[i] = transform * s_Data.QuadVertexPositions[i];
         }
@@ -929,7 +932,7 @@ namespace OloEngine
         // against the primary font we honour the kerning pair; cross-font
         // pairs fall back to the source font's `AdvanceWidth` (kerning across
         // fonts isn't meaningfully defined).
-        const auto resolveAdvance = [&](u32 cp, u32 next, const Font::GlyphLookup& lookup) -> f32
+        const auto resolveAdvance = [&spaceGlyphAdvance, &primaryFont, &resolveGlyph, &slugData](u32 cp, u32 next, const Font::GlyphLookup& lookup) -> f32
         {
             if (!lookup.Glyph)
                 return spaceGlyphAdvance;
@@ -1012,9 +1015,7 @@ namespace OloEngine
                 }
                 const auto* glyph = lookup.Glyph;
 
-                f32 quadMaxX = glyph->PlaneBoundsRight * static_cast<f32>(fsScale) + static_cast<f32>(wx);
-
-                if (quadMaxX > textParams.MaxWidth)
+                if (f32 quadMaxX = glyph->PlaneBoundsRight * static_cast<f32>(fsScale) + static_cast<f32>(wx); quadMaxX > textParams.MaxWidth)
                 {
                     if (lastSpace != std::string::npos)
                     {
@@ -1146,6 +1147,10 @@ namespace OloEngine
                     NextBatch();
                 s_Data.SlugCurveTexture = curveTexture;
                 s_Data.SlugBandTexture = bandTexture;
+            }
+            else
+            {
+                // No additional handling required.
             }
 
             const auto& rd = glyph->RenderData;

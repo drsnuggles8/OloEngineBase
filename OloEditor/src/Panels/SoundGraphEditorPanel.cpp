@@ -157,8 +157,7 @@ namespace OloEngine
             ImGui::TextDisabled("Old name: %s", m_RenameParamOldName.c_str());
             ImGui::TextDisabled("New name");
             ImGui::InputText("##sgrrenameparam", m_RenameParamNewName, sizeof(m_RenameParamNewName));
-            const bool canRename = m_GraphAsset && std::strlen(m_RenameParamNewName) > 0;
-            if (ImGui::Button("Rename", ImVec2(120, 0)) && canRename)
+            if (const bool canRename = m_GraphAsset && std::strlen(m_RenameParamNewName) > 0; ImGui::Button("Rename", ImVec2(120, 0)) && canRename)
             {
                 std::string newName = m_RenameParamNewName;
                 Ref<SoundGraphAsset> snap = SnapshotAsset();
@@ -191,8 +190,7 @@ namespace OloEngine
             const char* typeOptions[] = { "Float", "Int", "Bool" };
             ImGui::Combo("##sgrnewparamtype", &m_NewParamTypeIndex, typeOptions, IM_ARRAYSIZE(typeOptions));
 
-            const bool canCreate = m_GraphAsset && std::strlen(m_NewParamName) > 0;
-            if (ImGui::Button("Create", ImVec2(120, 0)) && canCreate)
+            if (const bool canCreate = m_GraphAsset && std::strlen(m_NewParamName) > 0; ImGui::Button("Create", ImVec2(120, 0)) && canCreate)
             {
                 std::string name = m_NewParamName;
                 const char* typeStr = typeOptions[std::clamp(m_NewParamTypeIndex, 0, IM_ARRAYSIZE(typeOptions) - 1)];
@@ -365,7 +363,7 @@ namespace OloEngine
         DrawContextMenu(canvasOrigin);
     }
 
-    void SoundGraphEditorPanel::DrawGrid(ImDrawList* drawList, const ImVec2& canvasOrigin, const ImVec2& canvasSize)
+    void SoundGraphEditorPanel::DrawGrid(ImDrawList* drawList, const ImVec2& canvasOrigin, const ImVec2& canvasSize) const
     {
         f32 const gridStep = s_GridSize * m_Zoom;
         ImU32 const gridColor = IM_COL32(50, 50, 55, 255);
@@ -484,7 +482,7 @@ namespace OloEngine
             sortedNames.reserve(inputs.size());
             for (const auto& [name, _] : inputs)
                 sortedNames.push_back(name);
-            std::sort(sortedNames.begin(), sortedNames.end());
+            std::ranges::sort(sortedNames);
             const ImU32 pinFill = IM_COL32(180, 140, 230, 255);
             const ImU32 pinBorder = IM_COL32(200, 200, 200, 255);
             const f32 labelFont = 11.0f * m_Zoom;
@@ -592,8 +590,8 @@ namespace OloEngine
         sorted.reserve(inputs.size());
         for (const auto& [n, _] : inputs)
             sorted.push_back(n);
-        std::sort(sorted.begin(), sorted.end());
-        auto it = std::find(sorted.begin(), sorted.end(), name);
+        std::ranges::sort(sorted);
+        auto it = std::ranges::find(sorted, name);
         if (it == sorted.end())
             return false;
         const sizet idx = static_cast<sizet>(std::distance(sorted.begin(), it));
@@ -855,8 +853,7 @@ namespace OloEngine
                 // Point-to-segment distance. ax + b*y form via vector projection.
                 const f32 segX = cur.x - prev.x;
                 const f32 segY = cur.y - prev.y;
-                const f32 segLenSq = segX * segX + segY * segY;
-                if (segLenSq > 1e-6f)
+                if (const f32 segLenSq = segX * segX + segY * segY; segLenSq > 1e-6f)
                 {
                     const f32 pmX = mousePos.x - prev.x;
                     const f32 pmY = mousePos.y - prev.y;
@@ -882,8 +879,7 @@ namespace OloEngine
         // Determine which wire (if any) the mouse is hovering. Skip this when the canvas
         // is busy with other interactions so highlights don't flicker mid-drag.
         sizet hoveredIndex = static_cast<sizet>(-1);
-        const bool canHoverWire = !m_IsDraggingConnection && !m_IsDraggingNode && !m_IsPanning && !m_IsBoxSelecting;
-        if (canHoverWire && ImGui::IsWindowHovered(ImGuiHoveredFlags_ChildWindows))
+        if (const bool canHoverWire = !m_IsDraggingConnection && !m_IsDraggingNode && !m_IsPanning && !m_IsBoxSelecting; canHoverWire && ImGui::IsWindowHovered(ImGuiHoveredFlags_ChildWindows))
             hoveredIndex = HitTestConnection(ImGui::GetIO().MousePos, canvasOrigin, 6.0f * m_Zoom);
 
         const auto& connections = m_GraphAsset->GetConnections();
@@ -912,7 +908,7 @@ namespace OloEngine
         }
     }
 
-    void SoundGraphEditorPanel::DrawConnectionInProgress(ImDrawList* drawList, const ImVec2& canvasOrigin)
+    void SoundGraphEditorPanel::DrawConnectionInProgress(ImDrawList* drawList, const ImVec2& canvasOrigin) const
     {
         if (!m_IsDraggingConnection || !m_GraphAsset)
             return;
@@ -1086,7 +1082,7 @@ namespace OloEngine
                     { "OutLeft", g.OutLeftPinPos },
                     { "OutRight", g.OutRightPinPos },
                 };
-                for (auto& p : pinList)
+                for (const auto& p : pinList)
                 {
                     const f32 dx = mousePos.x - p.Pos.x;
                     const f32 dy = mousePos.y - p.Pos.y;
@@ -1134,7 +1130,7 @@ namespace OloEngine
                     sorted.reserve(inputs.size());
                     for (const auto& [n, _] : inputs)
                         sorted.push_back(n);
-                    std::sort(sorted.begin(), sorted.end());
+                    std::ranges::sort(sorted);
                     for (sizet i = 0; i < sorted.size(); ++i)
                     {
                         const f32 py = inNodeScreen.y + (kGraphOutputNodeHeaderHeight + (static_cast<f32>(i) + 1.0f) * kGraphOutputNodePinSpacing) * m_Zoom;
@@ -1327,9 +1323,7 @@ namespace OloEngine
                                  std::min(m_BoxSelectStart.y, mousePos.y));
             const ImVec2 rectMax(std::max(m_BoxSelectStart.x, mousePos.x),
                                  std::max(m_BoxSelectStart.y, mousePos.y));
-            const bool meaningfulDrag = (rectMax.x - rectMin.x > 4.0f) && (rectMax.y - rectMin.y > 4.0f);
-
-            if (meaningfulDrag)
+            if (const bool meaningfulDrag = (rectMax.x - rectMin.x > 4.0f) && (rectMax.y - rectMin.y > 4.0f); meaningfulDrag)
             {
                 m_SelectedNodes.clear();
                 for (const auto& node : m_GraphAsset->GetNodes())
@@ -1421,11 +1415,10 @@ namespace OloEngine
                     { "OutLeft", g.OutLeftPinPos },
                     { "OutRight", g.OutRightPinPos },
                 };
-                for (auto& p : pinList)
+                for (const auto& p : pinList)
                 {
                     const f32 dx = m_DragEndPos.x - p.Pos.x;
-                    const f32 dy = m_DragEndPos.y - p.Pos.y;
-                    if (dx * dx + dy * dy > hitRadius * hitRadius)
+                    if (const f32 dy = m_DragEndPos.y - p.Pos.y; dx * dx + dy * dy > hitRadius * hitRadius)
                         continue;
                     // Drop on a pseudo-node input pin. Only valid if the drag started from
                     // a real node's output and was a value (not event) connection.
@@ -1462,8 +1455,7 @@ namespace OloEngine
                 {
                     f32 const dx = m_DragEndPos.x - pin.Position.x;
                     f32 const dy = m_DragEndPos.y - pin.Position.y;
-                    f32 const hitRadius = s_PinRadius * m_Zoom + 4.0f;
-                    if (dx * dx + dy * dy > hitRadius * hitRadius)
+                    if (f32 const hitRadius = s_PinRadius * m_Zoom + 4.0f; dx * dx + dy * dy > hitRadius * hitRadius)
                         continue;
                     if (pin.IsOutput == m_DragStartIsOutput)
                         break; // same-direction pin — not a valid wire endpoint
@@ -1592,8 +1584,7 @@ namespace OloEngine
         // render typed widgets that round-trip values through m_Properties as strings (so
         // the YAML serializer doesn't need to know about types). Unschemized types fall
         // back to the raw string-map editor.
-        const Audio::SoundGraph::NodeSchema* schema = Audio::SoundGraph::GetNodeSchema(node.m_Type);
-        if (schema)
+        if (const Audio::SoundGraph::NodeSchema* schema = Audio::SoundGraph::GetNodeSchema(node.m_Type); schema)
         {
             ImGui::Text("Parameters");
             ImGui::Separator();
@@ -1605,8 +1596,7 @@ namespace OloEngine
                 {
                     case Audio::SoundGraph::NodeParamKind::Float:
                     {
-                        f32 v = Audio::SoundGraph::ParsePropertyFloat(param, valueStr);
-                        if (ImGui::DragFloat(param.Name.c_str(), &v, param.Step, param.MinFloat, param.MaxFloat))
+                        if (f32 v = Audio::SoundGraph::ParsePropertyFloat(param, valueStr); ImGui::DragFloat(param.Name.c_str(), &v, param.Step, param.MinFloat, param.MaxFloat))
                         {
                             char buf[64];
                             std::snprintf(buf, sizeof(buf), "%g", static_cast<double>(v));
@@ -1619,8 +1609,7 @@ namespace OloEngine
                     }
                     case Audio::SoundGraph::NodeParamKind::Int:
                     {
-                        i32 v = Audio::SoundGraph::ParsePropertyInt(param, valueStr);
-                        if (ImGui::DragInt(param.Name.c_str(), &v))
+                        if (i32 v = Audio::SoundGraph::ParsePropertyInt(param, valueStr); ImGui::DragInt(param.Name.c_str(), &v))
                         {
                             char buf[32];
                             std::snprintf(buf, sizeof(buf), "%d", v);
@@ -1633,8 +1622,7 @@ namespace OloEngine
                     }
                     case Audio::SoundGraph::NodeParamKind::Bool:
                     {
-                        bool v = Audio::SoundGraph::ParsePropertyBool(param, valueStr);
-                        if (ImGui::Checkbox(param.Name.c_str(), &v))
+                        if (bool v = Audio::SoundGraph::ParsePropertyBool(param, valueStr); ImGui::Checkbox(param.Name.c_str(), &v))
                         {
                             valueStr = v ? "true" : "false";
                             m_IsDirty = true;
@@ -1860,8 +1848,7 @@ namespace OloEngine
                 }
 
                 // Inline list of existing params with a delete button each.
-                const auto& inputs = m_GraphAsset->GetGraphInputs();
-                if (!inputs.empty())
+                if (const auto& inputs = m_GraphAsset->GetGraphInputs(); !inputs.empty())
                 {
                     ImGui::Separator();
                     ImGui::TextDisabled("Existing (%zu):", inputs.size());
@@ -1869,7 +1856,7 @@ namespace OloEngine
                     sorted.reserve(inputs.size());
                     for (const auto& [name, _] : inputs)
                         sorted.push_back(name);
-                    std::sort(sorted.begin(), sorted.end());
+                    std::ranges::sort(sorted);
                     for (const auto& name : sorted)
                     {
                         if (ImGui::BeginMenu(name.c_str()))
@@ -1999,9 +1986,9 @@ namespace OloEngine
             ImGui::InputTextWithHint("##sgrnodefilter", "Filter...", m_NodeSearchFilter, sizeof(m_NodeSearchFilter));
 
             std::string filter = m_NodeSearchFilter;
-            std::transform(filter.begin(), filter.end(), filter.begin(),
-                           [](unsigned char c)
-                           { return static_cast<char>(std::tolower(c)); });
+            std::ranges::transform(filter, filter.begin(),
+                                   [](unsigned char c)
+                                   { return static_cast<char>(std::tolower(c)); });
 
             const char* currentCategory = nullptr;
             for (const auto& entry : s_Palette)
@@ -2010,13 +1997,13 @@ namespace OloEngine
                 if (!filter.empty())
                 {
                     std::string nameLower = entry.TypeName;
-                    std::transform(nameLower.begin(), nameLower.end(), nameLower.begin(),
-                                   [](unsigned char c)
-                                   { return static_cast<char>(std::tolower(c)); });
+                    std::ranges::transform(nameLower, nameLower.begin(),
+                                           [](unsigned char c)
+                                           { return static_cast<char>(std::tolower(c)); });
                     std::string categoryLower = entry.Category;
-                    std::transform(categoryLower.begin(), categoryLower.end(), categoryLower.begin(),
-                                   [](unsigned char c)
-                                   { return static_cast<char>(std::tolower(c)); });
+                    std::ranges::transform(categoryLower, categoryLower.begin(),
+                                           [](unsigned char c)
+                                           { return static_cast<char>(std::tolower(c)); });
                     if (nameLower.find(filter) == std::string::npos && categoryLower.find(filter) == std::string::npos)
                         continue;
                 }
@@ -2141,8 +2128,7 @@ namespace OloEngine
 
         // Suppress the event that fires from our own SaveSoundGraph (and the filewatch echo
         // that follows it). m_SelfSaveEchoWindow generously bounds the round trip.
-        const auto sinceSelfSave = std::chrono::steady_clock::now() - m_LastSelfSaveTime;
-        if (sinceSelfSave < m_SelfSaveEchoWindow)
+        if (const auto sinceSelfSave = std::chrono::steady_clock::now() - m_LastSelfSaveTime; sinceSelfSave < m_SelfSaveEchoWindow)
             return;
 
         // If the user has unsaved edits, defer the reload and ask them via modal. Without
@@ -2180,8 +2166,7 @@ namespace OloEngine
         // The hot-reload dispatcher in EditorLayer reads GetCompiledPrototype() to construct
         // a runtime SoundGraph; without this step the asset stays at "loaded YAML, no
         // executable graph" and no audio plays.
-        Ref<Audio::SoundGraph::Prototype> prototype = Audio::SoundGraph::CompileAssetToPrototype(*m_GraphAsset);
-        if (prototype)
+        if (Ref<Audio::SoundGraph::Prototype> prototype = Audio::SoundGraph::CompileAssetToPrototype(*m_GraphAsset); prototype)
         {
             m_GraphAsset->SetCompiledPrototype(prototype);
         }

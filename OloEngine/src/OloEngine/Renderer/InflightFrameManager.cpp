@@ -23,10 +23,10 @@ namespace OloEngine
         currentFrame.StartTime = std::chrono::steady_clock::now();
         currentFrame.BufferAllocations.clear();
 
-        m_CompletedFrames++;
+        ++m_CompletedFrames;
     }
 
-    void InflightFrameManager::EndFrame()
+    void InflightFrameManager::EndFrame() const
     {
         // Frame will be marked complete at the beginning of next frame
         // This gives GPU time to process the commands
@@ -37,8 +37,7 @@ namespace OloEngine
         auto& currentFrame = m_Frames[m_CurrentFrameIndex];
 
         // Check if we already have a buffer allocation for this name
-        auto it = currentFrame.BufferAllocations.find(name);
-        if (it != currentFrame.BufferAllocations.end())
+        if (auto it = currentFrame.BufferAllocations.find(name); it != currentFrame.BufferAllocations.end())
         {
             u32 bufferIndex = it->second;
             if (bufferIndex < currentFrame.UniformBuffers.size())
@@ -80,7 +79,7 @@ namespace OloEngine
             return;
 
         // Simple implementation - in a real engine you'd use GPU fences
-        auto& frame = m_Frames[frameIndex];
+        const auto& frame = m_Frames[frameIndex];
         while (!frame.IsComplete)
         {
             std::this_thread::sleep_for(std::chrono::microseconds(100));

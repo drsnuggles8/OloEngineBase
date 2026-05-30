@@ -61,7 +61,7 @@ namespace OloEngine::Tests
                 if (entry.path().extension() == ".cs")
                     out.push_back(entry.path());
             }
-            std::sort(out.begin(), out.end());
+            std::ranges::sort(out);
             return out;
         }
 
@@ -206,8 +206,7 @@ namespace OloEngine::Tests
             std::ifstream f(path, std::ios::binary);
             std::ostringstream buf;
             buf << f.rdbuf();
-            const std::string source = buf.str();
-            if (!isEntityDerived(source))
+            if (const std::string source = buf.str(); !isEntityDerived(source))
                 continue; // non-Entity helpers are not subject to the orphan check
 
             const std::string className = path.stem().generic_string();

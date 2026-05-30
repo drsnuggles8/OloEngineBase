@@ -33,6 +33,7 @@
 #include <atomic>
 #include <cstdint>
 #include <string_view>
+#include <utility>
 
 namespace OloEngine
 {
@@ -166,12 +167,12 @@ namespace OloEngine
         ProjectTagEnd = 255,
     };
 
-    static_assert(static_cast<u8>(ELLMTag::GenericTagCount) <= static_cast<u8>(ELLMTag::PlatformTagStart),
+    static_assert(std::to_underlying(ELLMTag::GenericTagCount) <= std::to_underlying(ELLMTag::PlatformTagStart),
                   "Too many LLM tags defined!");
 
     constexpr u32 LLM_TAG_COUNT = 256;
-    constexpr u32 LLM_CUSTOM_TAG_START = static_cast<u32>(ELLMTag::PlatformTagStart);
-    constexpr u32 LLM_CUSTOM_TAG_END = static_cast<u32>(ELLMTag::ProjectTagEnd);
+    constexpr u32 LLM_CUSTOM_TAG_START = static_cast<u32>(std::to_underlying(ELLMTag::PlatformTagStart));
+    constexpr u32 LLM_CUSTOM_TAG_END = static_cast<u32>(std::to_underlying(ELLMTag::ProjectTagEnd));
     constexpr u32 LLM_CUSTOM_TAG_COUNT = LLM_CUSTOM_TAG_END + 1 - LLM_CUSTOM_TAG_START;
 
     // ============================================================================
@@ -283,7 +284,7 @@ namespace OloEngine
         void GetAllTagSizes(i64* OutSizes, u32 MaxTags) const;
 
         // @brief Dump LLM stats to log
-        void DumpToLog();
+        void DumpToLog() const;
 
         // @brief Get the thread-local state for the current thread
         LLMPrivate::FLLMThreadState& GetThreadState();

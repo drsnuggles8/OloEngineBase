@@ -75,8 +75,7 @@ namespace OloEngine
     void JoltContactListener::ProcessContactEvents()
     {
         // Check if there are events to process before acquiring lock
-        const sizet queueSize = m_QueueSize.load(std::memory_order_relaxed);
-        if (queueSize == 0)
+        if (const sizet queueSize = m_QueueSize.load(std::memory_order_relaxed); queueSize == 0)
         {
             return; // Early exit if no events to process
         }
@@ -128,6 +127,10 @@ namespace OloEngine
                         m_ActiveContacts.try_emplace(contactKey, entityA, entityB);
                     }
                 }
+                else
+                {
+                    // No additional handling required.
+                }
             }
 
             glm::vec3 contactPoint = JoltUtils::FromJoltRVec3(inManifold.GetWorldSpaceContactPointOn1(0));
@@ -138,18 +141,16 @@ namespace OloEngine
         }
     }
 
-    [[nodiscard]] UUID JoltContactListener::GetEntityIDFromBody(const JPH::Body& body) noexcept
+    [[nodiscard]] UUID JoltContactListener::GetEntityIDFromBody(const JPH::Body& body) const noexcept
     {
         // The entity ID is stored in the body's user data
         return static_cast<UUID>(body.GetUserData());
     }
 
-    [[nodiscard]] u32 JoltContactListener::GetPhysicsLayerFromBody(const JPH::Body& body) noexcept
+    [[nodiscard]] u32 JoltContactListener::GetPhysicsLayerFromBody(const JPH::Body& body) const noexcept
     {
-        JPH::ObjectLayer objectLayer = body.GetObjectLayer();
-
         // Check if this is a custom physics layer (offset by NUM_LAYERS)
-        if (objectLayer >= ObjectLayers::NUM_LAYERS)
+        if (JPH::ObjectLayer objectLayer = body.GetObjectLayer(); objectLayer >= ObjectLayers::NUM_LAYERS)
         {
             u32 customLayerIndex = static_cast<u32>(objectLayer) - ObjectLayers::NUM_LAYERS;
 

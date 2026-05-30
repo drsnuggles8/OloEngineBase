@@ -260,7 +260,7 @@ namespace OloEngine
         JPH::Vec3 joltGravity = JoltUtils::ToJoltVector(gravity);
 
         // Get physics system for layer filters
-        JPH::PhysicsSystem* physicsSystem = m_Scene->GetJoltSystemPtr();
+        const JPH::PhysicsSystem* physicsSystem = m_Scene->GetJoltSystemPtr();
         if (!physicsSystem)
             return;
 
@@ -384,7 +384,7 @@ namespace OloEngine
 
         if (m_Entity && m_Entity.HasComponent<TransformComponent>())
         {
-            auto& transform = m_Entity.GetComponent<TransformComponent>();
+            const auto& transform = m_Entity.GetComponent<TransformComponent>();
             position = transform.Translation;
             rotation = transform.GetRotation();
         }
@@ -530,7 +530,7 @@ namespace OloEngine
             return true;
 
         // Get the physics system to check collision layers
-        auto* physicsSystem = m_Scene->GetJoltSystemPtr();
+        const auto* physicsSystem = m_Scene->GetJoltSystemPtr();
         if (!physicsSystem)
             return true;
 
@@ -542,10 +542,9 @@ namespace OloEngine
         const JPH::Body& otherBody = bodyLock.GetBody();
 
         // Check if the collision layers should interact
-        u32 otherLayer = otherBody.GetObjectLayer();
-
-        // Check if this layer should be ignored using configurable bitmask
-        if (m_IgnoreCollisionLayers & (1u << otherLayer))
+        // Check if this layer should be ignored using configurable bitmask.
+        // Guard the shift: layers >= 32 cannot be expressed in the 32-bit mask and shifting by >= 32 is UB.
+        if (const u32 otherLayer = otherBody.GetObjectLayer(); otherLayer < 32u && (m_IgnoreCollisionLayers & (1u << otherLayer)))
             return false;
 
         // Allow collision with all other layers (Static, Dynamic, Kinematic, other Characters)
@@ -563,19 +562,18 @@ namespace OloEngine
 
         // Determine collision flags based on contact normal
         JPH::Vec3 up = JPH::Vec3(0, 1, 0);
-        f32 dotUp = inContact.mContactNormal.Dot(up);
 
-        if (dotUp > kCollisionAngleDotThreshold) // Roughly 45 degrees
+        if (f32 dotUp = inContact.mContactNormal.Dot(up); dotUp > kCollisionAngleDotThreshold) // Roughly 45 degrees
         {
-            m_CollisionFlags = static_cast<ECollisionFlags>(static_cast<u8>(m_CollisionFlags) | static_cast<u8>(ECollisionFlags::Below));
+            m_CollisionFlags = static_cast<ECollisionFlags>(std::to_underlying(m_CollisionFlags) | std::to_underlying(ECollisionFlags::Below));
         }
         else if (dotUp < -kCollisionAngleDotThreshold)
         {
-            m_CollisionFlags = static_cast<ECollisionFlags>(static_cast<u8>(m_CollisionFlags) | static_cast<u8>(ECollisionFlags::Above));
+            m_CollisionFlags = static_cast<ECollisionFlags>(std::to_underlying(m_CollisionFlags) | std::to_underlying(ECollisionFlags::Above));
         }
         else
         {
-            m_CollisionFlags = static_cast<ECollisionFlags>(static_cast<u8>(m_CollisionFlags) | static_cast<u8>(ECollisionFlags::Sides));
+            m_CollisionFlags = static_cast<ECollisionFlags>(std::to_underlying(m_CollisionFlags) | std::to_underlying(ECollisionFlags::Sides));
         }
 
         // Check if it's a sensor/trigger by querying the physics body

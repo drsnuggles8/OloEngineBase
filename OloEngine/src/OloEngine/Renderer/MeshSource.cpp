@@ -331,7 +331,7 @@ namespace OloEngine
             glm::vec3 min = m_Vertices[startVertex].Position;
             glm::vec3 max = m_Vertices[startVertex].Position;
 
-            for (u32 i = startVertex; i < endVertex; i++)
+            for (u32 i = startVertex; i < endVertex; ++i)
             {
                 min = glm::min(min, m_Vertices[i].Position);
                 max = glm::max(max, m_Vertices[i].Position);

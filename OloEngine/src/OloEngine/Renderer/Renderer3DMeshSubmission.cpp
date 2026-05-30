@@ -30,8 +30,7 @@ namespace OloEngine
         if (vaoID != 0 && shaderID != 0)
             return true;
 
-        static std::atomic<u64> s_InvalidRendererIDWarnCount{ 0 };
-        if (s_InvalidRendererIDWarnCount.fetch_add(1, std::memory_order_relaxed) < 1)
+        if (static std::atomic<u64> s_InvalidRendererIDWarnCount{ 0 }; s_InvalidRendererIDWarnCount.fetch_add(1, std::memory_order_relaxed) < 1)
         {
             OLO_CORE_WARN("{}: Dropping draw with invalid renderer IDs (VAO={}, Shader={})",
                           context, vaoID, shaderID);
@@ -104,7 +103,7 @@ namespace OloEngine
         data.normalScale = material.GetNormalScale();
         data.occlusionStrength = material.GetOcclusionStrength();
         data.enableIBL = material.IsIBLEnabled();
-        data.alphaMode = static_cast<i32>(material.GetAlphaMode());
+        data.alphaMode = std::to_underlying(material.GetAlphaMode());
         data.alphaCutoff = material.GetAlphaCutoff();
 
         // PBR texture renderer IDs.
@@ -141,13 +140,13 @@ namespace OloEngine
             OLO_CORE_ERROR("Renderer3D::DrawMesh: ScenePass is null!");
             return nullptr;
         }
-        s_Data.Stats.TotalMeshes++;
+        ++s_Data.Stats.TotalMeshes;
 
         if (s_Data.FrustumCullingEnabled && (isStatic || s_Data.DynamicCullingEnabled))
         {
             if (mesh && !IsVisibleInFrustum(mesh, modelMatrix))
             {
-                s_Data.Stats.CulledMeshes++;
+                ++s_Data.Stats.CulledMeshes;
                 return nullptr;
             }
         }
@@ -168,13 +167,13 @@ namespace OloEngine
             // Read back previous frame's result.
             if (state.QueryIndex != UINT32_MAX)
             {
-                auto& queryPool = OcclusionQueryPool::GetInstance();
+                const auto& queryPool = OcclusionQueryPool::GetInstance();
                 const bool visible = queryPool.WasVisible(state.QueryIndex);
                 state.WasVisible = visible;
 
                 if (!visible)
                 {
-                    state.InvisibleFrameCount++;
+                    ++state.InvisibleFrameCount;
                     // Re-test periodically to detect when occluded objects become visible.
                     if (state.InvisibleFrameCount % kOcclusionRetestInterval == 0)
                     {
@@ -184,7 +183,7 @@ namespace OloEngine
                         worldBounds.Max = bs.Center + glm::vec3(bs.Radius);
                         OcclusionCuller::GetInstance().QueueBoundingBox(state.QueryIndex, worldBounds);
                     }
-                    s_Data.Stats.CulledMeshes++;
+                    ++s_Data.Stats.CulledMeshes;
                     return nullptr;
                 }
 
@@ -201,17 +200,16 @@ namespace OloEngine
 
         // LOD selection.
         Ref<Mesh> meshToUse;
-        auto lodResult = SelectLODMesh(mesh, modelMatrix, s_Data.ViewPos, lodGroup, meshToUse);
-        if (lodResult.SelectedLODIndex >= 0)
+        if (auto lodResult = SelectLODMesh(mesh, modelMatrix, s_Data.ViewPos, lodGroup, meshToUse); lodResult.SelectedLODIndex >= 0)
         {
             if (lodResult.SelectedLODIndex >= static_cast<i32>(s_Data.Stats.ObjectsPerLODLevel.size()))
             {
                 s_Data.Stats.ObjectsPerLODLevel.resize(lodResult.SelectedLODIndex + 1, 0);
             }
-            s_Data.Stats.ObjectsPerLODLevel[lodResult.SelectedLODIndex]++;
+            ++s_Data.Stats.ObjectsPerLODLevel[lodResult.SelectedLODIndex];
             if (lodResult.Switched)
             {
-                s_Data.Stats.LODSwitches++;
+                ++s_Data.Stats.LODSwitches;
             }
         }
 
@@ -728,7 +726,7 @@ namespace OloEngine
             return nullptr;
         }
 
-        s_Data.Stats.TotalMeshes++;
+        ++s_Data.Stats.TotalMeshes;
 
         // For animated meshes, be more conservative with frustum culling
         // since bone transforms can move vertices significantly beyond rest pose bounds.
@@ -747,7 +745,7 @@ namespace OloEngine
 
             if (!s_Data.ViewFrustum.IsBoundingSphereVisible(animatedSphere))
             {
-                s_Data.Stats.CulledMeshes++;
+                ++s_Data.Stats.CulledMeshes;
                 return nullptr;
             }
         }
@@ -924,8 +922,7 @@ namespace OloEngine
         // Entity ID for picking.
         cmd->entityID = entityID;
 
-        static bool s_LoggedBoneMatrices = false;
-        if (!s_LoggedBoneMatrices && !boneMatrices.empty())
+        if (static bool s_LoggedBoneMatrices = false; !s_LoggedBoneMatrices && !boneMatrices.empty())
         {
             OLO_CORE_INFO("DrawAnimatedMesh: Storing {} bone matrices at offset {} in FrameDataBuffer", boneCount, boneBufferOffset);
             s_LoggedBoneMatrices = true;
@@ -962,8 +959,7 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        static bool s_FirstRun = true;
-        if (s_FirstRun)
+        if (static bool s_FirstRun = true; s_FirstRun)
         {
             OLO_CORE_INFO("Renderer3D::RenderAnimatedMeshes: Starting animated mesh rendering");
             s_FirstRun = false;
@@ -986,32 +982,32 @@ namespace OloEngine
         for (auto entityID : view)
         {
             Entity entity = { entityID, scene.get() };
-            s_Data.Stats.TotalAnimatedMeshes++;
-            entityCount++;
+            ++s_Data.Stats.TotalAnimatedMeshes;
+            ++entityCount;
 
             // Validate components.
             if (!entity.HasComponent<MeshComponent>() ||
                 !entity.HasComponent<SkeletonComponent>() ||
                 !entity.HasComponent<TransformComponent>())
             {
-                s_Data.Stats.SkippedAnimatedMeshes++;
+                ++s_Data.Stats.SkippedAnimatedMeshes;
                 continue;
             }
 
             auto& meshComp = entity.GetComponent<MeshComponent>();
             auto& skeletonComp = entity.GetComponent<SkeletonComponent>();
-            auto& transformComp = entity.GetComponent<TransformComponent>();
+            const auto& transformComp = entity.GetComponent<TransformComponent>();
 
             if (!meshComp.m_MeshSource || !skeletonComp.m_Skeleton)
             {
-                s_Data.Stats.SkippedAnimatedMeshes++;
+                ++s_Data.Stats.SkippedAnimatedMeshes;
                 continue;
             }
 
             glm::mat4 worldTransform = transformComp.GetTransform();
             const auto& boneMatrices = skeletonComp.m_Skeleton->m_FinalBoneMatrices;
             const auto& prevBoneMatrices = skeletonComp.m_Skeleton->m_PrevFinalBoneMatrices;
-            const i32 pickEntityID = static_cast<i32>(static_cast<u32>(entityID));
+            const i32 pickEntityID = static_cast<i32>(std::to_underlying(entityID));
 
             // Get material from entity or use default.
             Material material = defaultMaterial;
@@ -1088,7 +1084,7 @@ namespace OloEngine
                 meshDescriptors.push_back(std::move(desc));
             }
 
-            s_Data.Stats.RenderedAnimatedMeshes++;
+            ++s_Data.Stats.RenderedAnimatedMeshes;
         }
 
         // Submit all animated meshes in parallel.
@@ -1115,19 +1111,19 @@ namespace OloEngine
             !entity.HasComponent<SkeletonComponent>() ||
             !entity.HasComponent<TransformComponent>())
         {
-            s_Data.Stats.SkippedAnimatedMeshes++;
+            ++s_Data.Stats.SkippedAnimatedMeshes;
             return;
         }
 
         auto& meshComp = entity.GetComponent<MeshComponent>();
         auto& skeletonComp = entity.GetComponent<SkeletonComponent>();
-        auto& transformComp = entity.GetComponent<TransformComponent>();
+        const auto& transformComp = entity.GetComponent<TransformComponent>();
 
         if (!meshComp.m_MeshSource || !skeletonComp.m_Skeleton)
         {
             OLO_CORE_WARN("Renderer3D::RenderAnimatedMesh: Entity {} has invalid mesh or skeleton",
                           entity.GetComponent<TagComponent>().Tag);
-            s_Data.Stats.SkippedAnimatedMeshes++;
+            ++s_Data.Stats.SkippedAnimatedMeshes;
             return;
         }
 
@@ -1217,7 +1213,7 @@ namespace OloEngine
 
         if (renderedAnySubmesh)
         {
-            s_Data.Stats.RenderedAnimatedMeshes++;
+            ++s_Data.Stats.RenderedAnimatedMeshes;
         }
     }
 
@@ -1249,7 +1245,7 @@ namespace OloEngine
 
                 if (!ctx.SceneContext->ViewFrustum.IsBoundingSphereVisible(sphere))
                 {
-                    ctx.MeshesCulled++;
+                    ++ctx.MeshesCulled;
                     return nullptr;
                 }
             }
@@ -1257,17 +1253,16 @@ namespace OloEngine
 
         // LOD selection.
         Ref<Mesh> meshToUse;
-        const auto lodResult = SelectLODMesh(mesh, modelMatrix, ctx.SceneContext->ViewPosition, lodGroup, meshToUse);
-        if (lodResult.SelectedLODIndex >= 0)
+        if (const auto lodResult = SelectLODMesh(mesh, modelMatrix, ctx.SceneContext->ViewPosition, lodGroup, meshToUse); lodResult.SelectedLODIndex >= 0)
         {
             if (lodResult.SelectedLODIndex >= static_cast<i32>(ctx.ObjectsPerLODLevel.size()))
             {
                 ctx.ObjectsPerLODLevel.resize(lodResult.SelectedLODIndex + 1, 0);
             }
-            ctx.ObjectsPerLODLevel[lodResult.SelectedLODIndex]++;
+            ++ctx.ObjectsPerLODLevel[lodResult.SelectedLODIndex];
             if (lodResult.Switched)
             {
-                ctx.LODSwitches++;
+                ++ctx.LODSwitches;
             }
         }
 
@@ -1443,7 +1438,7 @@ namespace OloEngine
 
                 if (!ctx.SceneContext->ViewFrustum.IsBoundingSphereVisible(animatedSphere))
                 {
-                    ctx.MeshesCulled++;
+                    ++ctx.MeshesCulled;
                     return nullptr;
                 }
             }
@@ -1480,8 +1475,7 @@ namespace OloEngine
         if (s_Data.Settings.Path == RenderingPath::Deferred &&
             !IsDeferredCapableShader(shaderToUse))
         {
-            static std::atomic<u64> s_WarnCount{ 0 };
-            if (s_WarnCount.fetch_add(1, std::memory_order_relaxed) < 8)
+            if (static std::atomic<u64> s_WarnCount{ 0 }; s_WarnCount.fetch_add(1, std::memory_order_relaxed) < 8)
             {
                 OLO_CORE_WARN("Renderer3D::DrawAnimatedMeshParallel: forward-only skinned shader on Deferred path — draw dropped (use serial DrawAnimatedMesh for overlay reroute)");
             }
@@ -1645,7 +1639,7 @@ namespace OloEngine
                 if (packet)
                 {
                     SubmitPacket(packet);
-                    totalSubmitted++;
+                    ++totalSubmitted;
                 }
             }
             return totalSubmitted;
@@ -1733,11 +1727,11 @@ namespace OloEngine
                 if (packet)
                 {
                     Renderer3D::SubmitPacketParallel(stats.Context, packet);
-                    stats.Submitted++;
+                    ++stats.Submitted;
                 }
                 else
                 {
-                    stats.Culled++;
+                    ++stats.Culled;
                 }
             },
             EParallelForFlags::None);

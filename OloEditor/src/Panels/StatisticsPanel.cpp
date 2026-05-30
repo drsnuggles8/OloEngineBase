@@ -14,6 +14,7 @@
 #include <imgui.h>
 
 #include <algorithm>
+#include <utility>
 #include <vector>
 
 namespace OloEngine
@@ -89,8 +90,10 @@ namespace OloEngine
         ImGui::End();
     }
 
-    void StatisticsPanel::DrawRendererTab()
+    void StatisticsPanel::DrawRendererTab() const
     {
+        OLO_PROFILE_FUNCTION();
+
         // GPU Info (query OpenGL directly)
         auto const* vendor = reinterpret_cast<const char*>(glGetString(GL_VENDOR));
         auto const* renderer = reinterpret_cast<const char*>(glGetString(GL_RENDERER));
@@ -162,6 +165,8 @@ namespace OloEngine
 
     void StatisticsPanel::DrawAudioTab()
     {
+        OLO_PROFILE_FUNCTION();
+
         auto const stats = AudioEngine::GetStats();
 
         ImGui::Text("Sample Rate: %u Hz", stats.SampleRate);
@@ -182,8 +187,10 @@ namespace OloEngine
         }
     }
 
-    void StatisticsPanel::DrawPerformanceTab()
+    void StatisticsPanel::DrawPerformanceTab() const
     {
+        OLO_PROFILE_FUNCTION();
+
         auto const& frameData = Application::Get().GetProfilerPreviousFrameData();
 
         if (frameData.empty())
@@ -194,8 +201,8 @@ namespace OloEngine
 
         // Sort by time descending for readability
         std::vector<std::pair<std::string, PerFrameData>> sorted(frameData.begin(), frameData.end());
-        std::sort(sorted.begin(), sorted.end(), [](const auto& a, const auto& b)
-                  { return a.second.Time > b.second.Time; });
+        std::ranges::sort(sorted, [](const auto& a, const auto& b)
+                          { return a.second.Time > b.second.Time; });
 
         // Table header
         if (ImGui::BeginTable("PerfTable", 3, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_Resizable))
@@ -220,9 +227,11 @@ namespace OloEngine
         }
     }
 
-    void StatisticsPanel::DrawMemoryTab()
+    void StatisticsPanel::DrawMemoryTab() const
     {
-        auto& tracker = RendererMemoryTracker::GetInstance();
+        OLO_PROFILE_FUNCTION();
+
+        const auto& tracker = RendererMemoryTracker::GetInstance();
 
         sizet const totalMemory = tracker.GetTotalMemoryUsage();
         ImGui::Text("Total GPU/CPU Tracked: %s", DebugUtils::FormatMemorySize(totalMemory).c_str());
@@ -248,7 +257,7 @@ namespace OloEngine
             ImGui::TableSetupColumn("Count", ImGuiTableColumnFlags_WidthFixed, 60.0f);
             ImGui::TableHeadersRow();
 
-            for (u8 i = 0; i < static_cast<u8>(RendererMemoryTracker::ResourceType::COUNT); ++i)
+            for (u8 i = 0; i < std::to_underlying(RendererMemoryTracker::ResourceType::COUNT); ++i)
             {
                 auto const type = static_cast<RendererMemoryTracker::ResourceType>(i);
                 sizet const usage = tracker.GetMemoryUsage(type);
@@ -265,7 +274,7 @@ namespace OloEngine
                     "Texture 2D", "Texture Cubemap", "Framebuffer", "Shader",
                     "Render Target", "Command Buffer", "Other"
                 };
-                static_assert(std::size(s_TypeNames) == static_cast<size_t>(RendererMemoryTracker::ResourceType::COUNT),
+                static_assert(std::size(s_TypeNames) == static_cast<size_t>(std::to_underlying(RendererMemoryTracker::ResourceType::COUNT)),
                               "s_TypeNames must match RendererMemoryTracker::ResourceType::COUNT");
                 ImGui::TextUnformatted(s_TypeNames[i]);
                 ImGui::TableSetColumnIndex(1);

@@ -394,8 +394,8 @@ TEST(AudioDSP_Reverb, MuteSilencesOutput)
     reverb.Mute();
 
     // Process silence — output should now be near-zero
-    std::fill(inL.begin(), inL.end(), 0.0f);
-    std::fill(inR.begin(), inR.end(), 0.0f);
+    std::ranges::fill(inL, 0.0f);
+    std::ranges::fill(inR, 0.0f);
     reverb.ProcessReplace(inL.data(), inR.data(), outL.data(), outR.data(), blockSize, 1);
 
     float totalEnergy = 0.0f;
@@ -429,8 +429,8 @@ TEST(AudioDSP_Reverb, DifferentSampleRates)
         energy48k += outL[i] * outL[i] + outR[i] * outR[i];
     }
 
-    std::fill(outL.begin(), outL.end(), 0.0f);
-    std::fill(outR.begin(), outR.end(), 0.0f);
+    std::ranges::fill(outL, 0.0f);
+    std::ranges::fill(outR, 0.0f);
 
     reverb96k.ProcessReplace(inL.data(), inR.data(), outL.data(), outR.data(), numSamples, 1);
 

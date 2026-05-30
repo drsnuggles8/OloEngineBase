@@ -367,59 +367,65 @@ namespace OloEngine
 
     void Inventory::SortByCategory()
     {
-        std::sort(m_Slots.begin(), m_Slots.end(),
-                  [](auto const& a, auto const& b)
-                  {
-                      if (!a.has_value())
-                          return false;
-                      if (!b.has_value())
-                          return true;
-                      const auto* defA = ItemDatabase::Get(a->ItemDefinitionID);
-                      const auto* defB = ItemDatabase::Get(b->ItemDefinitionID);
-                      if (!defA)
-                          return false;
-                      if (!defB)
-                          return true;
-                      return static_cast<u8>(defA->Category) < static_cast<u8>(defB->Category);
-                  });
+        OLO_PROFILE_FUNCTION();
+
+        std::ranges::sort(m_Slots,
+                          [](auto const& a, auto const& b)
+                          {
+                              if (!a.has_value())
+                                  return false;
+                              if (!b.has_value())
+                                  return true;
+                              const auto* defA = ItemDatabase::Get(a->ItemDefinitionID);
+                              const auto* defB = ItemDatabase::Get(b->ItemDefinitionID);
+                              if (!defA)
+                                  return false;
+                              if (!defB)
+                                  return true;
+                              return static_cast<u8>(defA->Category) < static_cast<u8>(defB->Category);
+                          });
     }
 
     void Inventory::SortByRarity()
     {
-        std::sort(m_Slots.begin(), m_Slots.end(),
-                  [](auto const& a, auto const& b)
-                  {
-                      if (!a.has_value())
-                          return false;
-                      if (!b.has_value())
-                          return true;
-                      const auto* defA = ItemDatabase::Get(a->ItemDefinitionID);
-                      const auto* defB = ItemDatabase::Get(b->ItemDefinitionID);
-                      if (!defA)
-                          return false;
-                      if (!defB)
-                          return true;
-                      return static_cast<u8>(defA->Rarity) > static_cast<u8>(defB->Rarity);
-                  });
+        OLO_PROFILE_FUNCTION();
+
+        std::ranges::sort(m_Slots,
+                          [](auto const& a, auto const& b)
+                          {
+                              if (!a.has_value())
+                                  return false;
+                              if (!b.has_value())
+                                  return true;
+                              const auto* defA = ItemDatabase::Get(a->ItemDefinitionID);
+                              const auto* defB = ItemDatabase::Get(b->ItemDefinitionID);
+                              if (!defA)
+                                  return false;
+                              if (!defB)
+                                  return true;
+                              return static_cast<u8>(defA->Rarity) > static_cast<u8>(defB->Rarity);
+                          });
     }
 
     void Inventory::SortByName()
     {
-        std::sort(m_Slots.begin(), m_Slots.end(),
-                  [](auto const& a, auto const& b)
-                  {
-                      if (!a.has_value())
-                          return false;
-                      if (!b.has_value())
-                          return true;
-                      const auto* defA = ItemDatabase::Get(a->ItemDefinitionID);
-                      const auto* defB = ItemDatabase::Get(b->ItemDefinitionID);
-                      if (!defA)
-                          return false;
-                      if (!defB)
-                          return true;
-                      return defA->DisplayName < defB->DisplayName;
-                  });
+        OLO_PROFILE_FUNCTION();
+
+        std::ranges::sort(m_Slots,
+                          [](auto const& a, auto const& b)
+                          {
+                              if (!a.has_value())
+                                  return false;
+                              if (!b.has_value())
+                                  return true;
+                              const auto* defA = ItemDatabase::Get(a->ItemDefinitionID);
+                              const auto* defB = ItemDatabase::Get(b->ItemDefinitionID);
+                              if (!defA)
+                                  return false;
+                              if (!defB)
+                                  return true;
+                              return defA->DisplayName < defB->DisplayName;
+                          });
     }
 
     void Inventory::SetCapacity(i32 capacity)

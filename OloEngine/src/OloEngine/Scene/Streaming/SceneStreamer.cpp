@@ -56,7 +56,7 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
 
         // Wait for pending loads to complete
-        for (auto& pending : m_PendingLoads)
+        for (const auto& pending : m_PendingLoads)
         {
             if (pending.Task.IsValid())
             {
@@ -196,6 +196,10 @@ namespace OloEngine
             else if (region->m_State == StreamingRegion::State::Ready)
             {
                 region->m_LastUsedFrame = frameNumber;
+            }
+            else
+            {
+                // No additional handling required.
             }
         }
 
@@ -378,8 +382,7 @@ namespace OloEngine
                 // Phase 2: main-thread entity instantiation
                 Ref<Scene> sceneRef{ m_Scene };
                 SceneSerializer serializer{ sceneRef };
-                auto entitiesNode = rawData["Entities"];
-                if (entitiesNode)
+                if (auto entitiesNode = rawData["Entities"])
                 {
                     auto createdUUIDs = serializer.DeserializeAdditive(entitiesNode);
                     region->m_EntityUUIDs = std::move(createdUUIDs);
@@ -411,6 +414,10 @@ namespace OloEngine
                 OLO_CORE_ERROR("SceneStreamer: Failed to load region '{0}'", region->m_Name);
                 TUniqueLock<FMutex> lock(m_RegionMutex);
                 region->m_State = StreamingRegion::State::Unloaded;
+            }
+            else
+            {
+                // No additional handling required.
             }
 
             it = m_PendingLoads.erase(it);
@@ -449,9 +456,9 @@ namespace OloEngine
             }
         }
 
-        std::sort(sortedRegions.begin(), sortedRegions.end(),
-                  [](const auto& a, const auto& b)
-                  { return a.second < b.second; });
+        std::ranges::sort(sortedRegions,
+                          [](const auto& a, const auto& b)
+                          { return a.second < b.second; });
 
         // Evict oldest until under budget
         u32 toEvict = readyCount - m_Config.MaxLoadedRegions;
@@ -464,7 +471,7 @@ namespace OloEngine
         }
     }
 
-    void SceneStreamer::InitializeStreamedEntities(const std::vector<UUID>& entityUUIDs)
+    void SceneStreamer::InitializeStreamedEntities(const std::vector<UUID>& entityUUIDs) const
     {
         OLO_PROFILE_FUNCTION();
 
@@ -532,7 +539,7 @@ namespace OloEngine
                 auto& ac = entity.GetComponent<AudioSourceComponent>();
                 if (ac.Source)
                 {
-                    auto& tc = entity.GetComponent<TransformComponent>();
+                    const auto& tc = entity.GetComponent<TransformComponent>();
                     ac.Source->SetConfig(ac.Config);
                     ac.Source->SetPosition(tc.Translation);
                     if (ac.Config.PlayOnAwake)

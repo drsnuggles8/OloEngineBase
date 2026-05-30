@@ -28,7 +28,7 @@ namespace OloEngine
             for (const auto entity : view)
             {
                 auto& dropdown = view.get<UIDropdownComponent>(entity);
-                auto& resolved = view.get<UIResolvedRectComponent>(entity);
+                const auto& resolved = view.get<UIResolvedRectComponent>(entity);
 
                 if (!dropdown.m_Interactable)
                 {
@@ -88,16 +88,14 @@ namespace OloEngine
             for (const auto entity : view)
             {
                 auto& slider = view.get<UISliderComponent>(entity);
-                auto& resolved = view.get<UIResolvedRectComponent>(entity);
+                const auto& resolved = view.get<UIResolvedRectComponent>(entity);
 
                 if (!slider.m_Interactable)
                 {
                     continue;
                 }
 
-                const bool hovered = PointInRect(mousePos, resolved.m_Position, resolved.m_Size);
-
-                if (!consumed && mousePressed && hovered)
+                if (const bool hovered = PointInRect(mousePos, resolved.m_Position, resolved.m_Size); !consumed && mousePressed && hovered)
                 {
                     slider.m_IsDragging = true;
                     consumed = true;
@@ -141,7 +139,7 @@ namespace OloEngine
             for (const auto entity : view)
             {
                 auto& button = view.get<UIButtonComponent>(entity);
-                auto& resolved = view.get<UIResolvedRectComponent>(entity);
+                const auto& resolved = view.get<UIResolvedRectComponent>(entity);
 
                 if (!button.m_Interactable)
                 {
@@ -181,7 +179,7 @@ namespace OloEngine
             for (const auto entity : view)
             {
                 auto& checkbox = view.get<UICheckboxComponent>(entity);
-                auto& resolved = view.get<UIResolvedRectComponent>(entity);
+                const auto& resolved = view.get<UIResolvedRectComponent>(entity);
 
                 if (!checkbox.m_Interactable)
                 {
@@ -202,7 +200,7 @@ namespace OloEngine
             for (const auto entity : view)
             {
                 auto& toggle = view.get<UIToggleComponent>(entity);
-                auto& resolved = view.get<UIResolvedRectComponent>(entity);
+                const auto& resolved = view.get<UIResolvedRectComponent>(entity);
 
                 if (!toggle.m_Interactable)
                 {
@@ -223,7 +221,7 @@ namespace OloEngine
             for (const auto entity : view)
             {
                 auto& inputField = view.get<UIInputFieldComponent>(entity);
-                auto& resolved = view.get<UIResolvedRectComponent>(entity);
+                const auto& resolved = view.get<UIResolvedRectComponent>(entity);
 
                 if (!inputField.m_Interactable)
                 {
@@ -255,7 +253,7 @@ namespace OloEngine
             for (const auto entity : view)
             {
                 auto& scrollView = view.get<UIScrollViewComponent>(entity);
-                auto& resolved = view.get<UIResolvedRectComponent>(entity);
+                const auto& resolved = view.get<UIResolvedRectComponent>(entity);
 
                 if (!PointInRect(mousePos, resolved.m_Position, resolved.m_Size))
                 {

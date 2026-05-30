@@ -37,7 +37,7 @@ namespace OloEngine
 
         void Execute() override
         {
-            for (auto& cmd : m_Commands)
+            for (const auto& cmd : m_Commands)
             {
                 cmd->Execute();
             }

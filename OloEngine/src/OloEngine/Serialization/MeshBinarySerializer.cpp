@@ -63,8 +63,7 @@ namespace OloEngine
         bool VerifySectionBoundary(std::istream& payload, u64 seekBase, u64 sectionEnd,
                                    const char* sectionName, const std::filesystem::path& path)
         {
-            auto const pos = static_cast<u64>(payload.tellg()) - seekBase;
-            if (pos > sectionEnd)
+            if (auto const pos = static_cast<u64>(payload.tellg()) - seekBase; pos > sectionEnd)
             {
                 OLO_CORE_ERROR("MeshBinarySerializer::Read: {} section read past boundary "
                                "(pos={}, sectionEnd={}) in '{}'",
@@ -124,8 +123,7 @@ namespace OloEngine
             }
             // Guard against corrupt length values — mesh string fields (bone/node
             // names, paths) should never exceed 64 KiB.
-            constexpr u32 MAX_STRING_LENGTH = 65536;
-            if (len > MAX_STRING_LENGTH)
+            if (constexpr u32 MAX_STRING_LENGTH = 65536; len > MAX_STRING_LENGTH)
             {
                 OLO_CORE_ERROR("ReadString: suspicious string length {} (max {}), stream likely corrupt", len, MAX_STRING_LENGTH);
                 in.setstate(std::ios::failbit);
@@ -184,8 +182,7 @@ namespace OloEngine
             }
 
             // Guard against corrupt headers claiming unreasonable sizes
-            constexpr sizet MAX_UNCOMPRESSED_SIZE = 512u * 1024u * 1024u; // 512 MiB
-            if (uncompressedSize > MAX_UNCOMPRESSED_SIZE)
+            if (constexpr sizet MAX_UNCOMPRESSED_SIZE = 512u * 1024u * 1024u; uncompressedSize > MAX_UNCOMPRESSED_SIZE) // 512 MiB
             {
                 OLO_CORE_ERROR("ZlibDecompress: claimed uncompressed size {} exceeds limit {}", uncompressedSize, MAX_UNCOMPRESSED_SIZE);
                 return {};
@@ -270,7 +267,7 @@ namespace OloEngine
 
         // ── Geometry Section ──
         {
-            directory.Sections[static_cast<u16>(OMeshFormat::SectionType::Geometry)].Offset = StreamPos(payload);
+            directory.Sections[static_cast<u16>(std::to_underlying(OMeshFormat::SectionType::Geometry))].Offset = StreamPos(payload);
 
             OMeshFormat::GeometryHeader geo;
             geo.VertexCount = static_cast<u32>(vertices.Num());
@@ -319,13 +316,13 @@ namespace OloEngine
                 WriteBytes(payload, encodedShadow.Data.data(), encodedShadow.Data.size());
             }
 
-            directory.Sections[static_cast<u16>(OMeshFormat::SectionType::Geometry)].Size =
-                StreamPos(payload) - directory.Sections[static_cast<u16>(OMeshFormat::SectionType::Geometry)].Offset;
+            directory.Sections[static_cast<u16>(std::to_underlying(OMeshFormat::SectionType::Geometry))].Size =
+                StreamPos(payload) - directory.Sections[static_cast<u16>(std::to_underlying(OMeshFormat::SectionType::Geometry))].Offset;
         }
 
         // ── Submesh Section ──
         {
-            directory.Sections[static_cast<u16>(OMeshFormat::SectionType::Submeshes)].Offset = StreamPos(payload);
+            directory.Sections[static_cast<u16>(std::to_underlying(OMeshFormat::SectionType::Submeshes))].Offset = StreamPos(payload);
 
             OMeshFormat::SubmeshHeader subHeader;
             subHeader.SubmeshCount = static_cast<u32>(submeshes.Num());
@@ -358,14 +355,14 @@ namespace OloEngine
                 }
             }
 
-            directory.Sections[static_cast<u16>(OMeshFormat::SectionType::Submeshes)].Size =
-                StreamPos(payload) - directory.Sections[static_cast<u16>(OMeshFormat::SectionType::Submeshes)].Offset;
+            directory.Sections[static_cast<u16>(std::to_underlying(OMeshFormat::SectionType::Submeshes))].Size =
+                StreamPos(payload) - directory.Sections[static_cast<u16>(std::to_underlying(OMeshFormat::SectionType::Submeshes))].Offset;
         }
 
         // ── Material Section ──
         if (!materials.IsEmpty())
         {
-            directory.Sections[static_cast<u16>(OMeshFormat::SectionType::Materials)].Offset = StreamPos(payload);
+            directory.Sections[static_cast<u16>(std::to_underlying(OMeshFormat::SectionType::Materials))].Offset = StreamPos(payload);
 
             OMeshFormat::MaterialHeader matHeader;
             matHeader.MaterialCount = static_cast<u32>(materials.Num());
@@ -379,14 +376,14 @@ namespace OloEngine
                 WriteBytes(payload, &entry, sizeof(entry));
             }
 
-            directory.Sections[static_cast<u16>(OMeshFormat::SectionType::Materials)].Size =
-                StreamPos(payload) - directory.Sections[static_cast<u16>(OMeshFormat::SectionType::Materials)].Offset;
+            directory.Sections[static_cast<u16>(std::to_underlying(OMeshFormat::SectionType::Materials))].Size =
+                StreamPos(payload) - directory.Sections[static_cast<u16>(std::to_underlying(OMeshFormat::SectionType::Materials))].Offset;
         }
 
         // ── Skeleton Section ──
         if (meshSource.HasSkeleton())
         {
-            directory.Sections[static_cast<u16>(OMeshFormat::SectionType::Skeleton)].Offset = StreamPos(payload);
+            directory.Sections[static_cast<u16>(std::to_underlying(OMeshFormat::SectionType::Skeleton))].Offset = StreamPos(payload);
 
             const auto* skeleton = meshSource.GetSkeleton();
             auto boneCount = static_cast<u32>(skeleton->m_BoneNames.size());
@@ -399,7 +396,7 @@ namespace OloEngine
             }
 
             // Validate skeleton array sizes — reject mismatches
-            auto const validateSize = [&](sizet actual, const char* name) -> bool
+            auto const validateSize = [&boneCount, &path](sizet actual, const char* name) -> bool
             {
                 if (static_cast<u32>(actual) != boneCount)
                 {
@@ -429,7 +426,7 @@ namespace OloEngine
             WriteBytes(payload, skeleton->m_ParentIndices.data(), boneCount * sizeof(i32));
 
             // Transform arrays (6 arrays of mat4)
-            auto const writeMat4Array = [&](const std::vector<glm::mat4>& arr)
+            auto const writeMat4Array = [&payload, &boneCount](const std::vector<glm::mat4>& arr)
             {
                 WriteBytes(payload, arr.data(), boneCount * sizeof(f32) * 16);
             };
@@ -450,14 +447,14 @@ namespace OloEngine
                 }
             }
 
-            directory.Sections[static_cast<u16>(OMeshFormat::SectionType::Skeleton)].Size =
-                StreamPos(payload) - directory.Sections[static_cast<u16>(OMeshFormat::SectionType::Skeleton)].Offset;
+            directory.Sections[static_cast<u16>(std::to_underlying(OMeshFormat::SectionType::Skeleton))].Size =
+                StreamPos(payload) - directory.Sections[static_cast<u16>(std::to_underlying(OMeshFormat::SectionType::Skeleton))].Offset;
         }
 
         // ── BoneInfluence Section ──
         if (meshSource.HasBoneInfluences())
         {
-            directory.Sections[static_cast<u16>(OMeshFormat::SectionType::BoneInfluences)].Offset = StreamPos(payload);
+            directory.Sections[static_cast<u16>(std::to_underlying(OMeshFormat::SectionType::BoneInfluences))].Offset = StreamPos(payload);
 
             const auto& boneInfluences = meshSource.GetBoneInfluences();
             auto influenceCount = static_cast<u32>(boneInfluences.Num());
@@ -488,8 +485,8 @@ namespace OloEngine
                 WriteBytes(payload, encoded.Data.data(), encoded.Data.size());
             }
 
-            directory.Sections[static_cast<u16>(OMeshFormat::SectionType::BoneInfluences)].Size =
-                StreamPos(payload) - directory.Sections[static_cast<u16>(OMeshFormat::SectionType::BoneInfluences)].Offset;
+            directory.Sections[static_cast<u16>(std::to_underlying(OMeshFormat::SectionType::BoneInfluences))].Size =
+                StreamPos(payload) - directory.Sections[static_cast<u16>(std::to_underlying(OMeshFormat::SectionType::BoneInfluences))].Offset;
         }
 
         // ── BoneInfo Section ──
@@ -497,7 +494,7 @@ namespace OloEngine
             const auto& boneInfo = meshSource.GetBoneInfo();
             if (!boneInfo.IsEmpty())
             {
-                directory.Sections[static_cast<u16>(OMeshFormat::SectionType::BoneInfo)].Offset = StreamPos(payload);
+                directory.Sections[static_cast<u16>(std::to_underlying(OMeshFormat::SectionType::BoneInfo))].Offset = StreamPos(payload);
 
                 OMeshFormat::BoneInfoHeader biHeader;
                 biHeader.BoneInfoCount = static_cast<u32>(boneInfo.Num());
@@ -511,15 +508,15 @@ namespace OloEngine
                     WriteBytes(payload, &entry, sizeof(entry));
                 }
 
-                directory.Sections[static_cast<u16>(OMeshFormat::SectionType::BoneInfo)].Size =
-                    StreamPos(payload) - directory.Sections[static_cast<u16>(OMeshFormat::SectionType::BoneInfo)].Offset;
+                directory.Sections[static_cast<u16>(std::to_underlying(OMeshFormat::SectionType::BoneInfo))].Size =
+                    StreamPos(payload) - directory.Sections[static_cast<u16>(std::to_underlying(OMeshFormat::SectionType::BoneInfo))].Offset;
             }
         }
 
         // ── MorphTarget Section ──
         if (meshSource.HasMorphTargets())
         {
-            directory.Sections[static_cast<u16>(OMeshFormat::SectionType::MorphTargets)].Offset = StreamPos(payload);
+            directory.Sections[static_cast<u16>(std::to_underlying(OMeshFormat::SectionType::MorphTargets))].Offset = StreamPos(payload);
 
             const auto& morphTargets = meshSource.GetMorphTargets();
             auto targetCount = morphTargets->GetTargetCount();
@@ -587,8 +584,8 @@ namespace OloEngine
                 }
             }
 
-            directory.Sections[static_cast<u16>(OMeshFormat::SectionType::MorphTargets)].Size =
-                StreamPos(payload) - directory.Sections[static_cast<u16>(OMeshFormat::SectionType::MorphTargets)].Offset;
+            directory.Sections[static_cast<u16>(std::to_underlying(OMeshFormat::SectionType::MorphTargets))].Size =
+                StreamPos(payload) - directory.Sections[static_cast<u16>(std::to_underlying(OMeshFormat::SectionType::MorphTargets))].Offset;
         }
 
         // ── Patch section directory at start of payload ──
@@ -815,7 +812,7 @@ namespace OloEngine
 
         // ── Geometry Section ──
         {
-            const auto& sec = directory.Sections[static_cast<u16>(OMeshFormat::SectionType::Geometry)];
+            const auto& sec = directory.Sections[static_cast<u16>(std::to_underlying(OMeshFormat::SectionType::Geometry))];
             if (sec.Size > 0)
             {
                 payload.seekg(static_cast<std::streamoff>(seekBase + sec.Offset));
@@ -955,7 +952,7 @@ namespace OloEngine
 
         // ── Submesh Section ──
         {
-            const auto& sec = directory.Sections[static_cast<u16>(OMeshFormat::SectionType::Submeshes)];
+            const auto& sec = directory.Sections[static_cast<u16>(std::to_underlying(OMeshFormat::SectionType::Submeshes))];
             if (sec.Size > 0)
             {
                 payload.seekg(static_cast<std::streamoff>(seekBase + sec.Offset));
@@ -1045,7 +1042,7 @@ namespace OloEngine
 
         // ── Material Section ──
         {
-            const auto& sec = directory.Sections[static_cast<u16>(OMeshFormat::SectionType::Materials)];
+            const auto& sec = directory.Sections[static_cast<u16>(std::to_underlying(OMeshFormat::SectionType::Materials))];
             if (sec.Size > 0)
             {
                 payload.seekg(static_cast<std::streamoff>(seekBase + sec.Offset));
@@ -1076,7 +1073,7 @@ namespace OloEngine
 
         // ── Skeleton Section ──
         {
-            const auto& sec = directory.Sections[static_cast<u16>(OMeshFormat::SectionType::Skeleton)];
+            const auto& sec = directory.Sections[static_cast<u16>(std::to_underlying(OMeshFormat::SectionType::Skeleton))];
             if (sec.Size > 0)
             {
                 payload.seekg(static_cast<std::streamoff>(seekBase + sec.Offset));
@@ -1110,7 +1107,7 @@ namespace OloEngine
                 }
 
                 // Transform arrays — read then validate for NaN/Inf
-                auto const readMat4Array = [&](std::vector<glm::mat4>& arr, const char* name)
+                auto const readMat4Array = [&payload, &boneCount, &path](std::vector<glm::mat4>& arr, const char* name)
                 {
                     arr.resize(boneCount);
                     ReadBytes(payload, arr.data(), boneCount * sizeof(f32) * 16);
@@ -1151,7 +1148,7 @@ namespace OloEngine
 
         // ── BoneInfluence Section ──
         {
-            const auto& sec = directory.Sections[static_cast<u16>(OMeshFormat::SectionType::BoneInfluences)];
+            const auto& sec = directory.Sections[static_cast<u16>(std::to_underlying(OMeshFormat::SectionType::BoneInfluences))];
             if (sec.Size > 0)
             {
                 payload.seekg(static_cast<std::streamoff>(seekBase + sec.Offset));
@@ -1216,7 +1213,7 @@ namespace OloEngine
 
         // ── BoneInfo Section ──
         {
-            const auto& sec = directory.Sections[static_cast<u16>(OMeshFormat::SectionType::BoneInfo)];
+            const auto& sec = directory.Sections[static_cast<u16>(std::to_underlying(OMeshFormat::SectionType::BoneInfo))];
             if (sec.Size > 0)
             {
                 payload.seekg(static_cast<std::streamoff>(seekBase + sec.Offset));
@@ -1288,7 +1285,7 @@ namespace OloEngine
 
         // ── MorphTarget Section ──
         {
-            const auto& sec = directory.Sections[static_cast<u16>(OMeshFormat::SectionType::MorphTargets)];
+            const auto& sec = directory.Sections[static_cast<u16>(std::to_underlying(OMeshFormat::SectionType::MorphTargets))];
             if (sec.Size > 0)
             {
                 payload.seekg(static_cast<std::streamoff>(seekBase + sec.Offset));
@@ -1779,7 +1776,7 @@ namespace OloEngine
             auto const clipEnd = static_cast<std::streamoff>(payloadBase + directory[i].Offset + directory[i].Size);
 
             // Helper: verify that 'neededBytes' won't exceed the clip boundary.
-            auto const ensureClipRemaining = [&](sizet neededBytes, const char* context) -> bool
+            auto const ensureClipRemaining = [&payload, &clipEnd, &i, &path](sizet neededBytes, const char* context) -> bool
             {
                 if (!payload.good() || payload.tellg() < 0)
                 {

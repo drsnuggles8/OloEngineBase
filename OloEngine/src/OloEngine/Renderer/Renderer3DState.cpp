@@ -174,21 +174,21 @@ namespace OloEngine
         u32 dirLightCount = 0;
         for ([[maybe_unused]] auto entity : dirLightView)
         {
-            dirLightCount++;
+            ++dirLightCount;
         }
 
         // Count and collect point lights
         auto pointLightView = scene->GetAllEntitiesWith<PointLightComponent>();
         for ([[maybe_unused]] auto entity : pointLightView)
         {
-            pointLightCount++;
+            ++pointLightCount;
         }
 
         // Count and collect spot lights
         auto spotLightView = scene->GetAllEntitiesWith<SpotLightComponent>();
         for ([[maybe_unused]] auto entity : spotLightView)
         {
-            spotLightCount++;
+            ++spotLightCount;
         }
 
         // Warn if limits exceeded
@@ -275,8 +275,7 @@ namespace OloEngine
             {
                 queryPool.Initialize(1024);
             }
-            auto& culler = OcclusionCuller::GetInstance();
-            if (!culler.IsInitialized())
+            if (auto& culler = OcclusionCuller::GetInstance(); !culler.IsInitialized())
             {
                 culler.Initialize();
             }

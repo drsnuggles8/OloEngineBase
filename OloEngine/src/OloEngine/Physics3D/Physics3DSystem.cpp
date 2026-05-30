@@ -116,8 +116,7 @@ namespace OloEngine
     JPH::BroadPhaseLayer OloBPLayerInterfaceImpl::GetBroadPhaseLayer(JPH::ObjectLayer inLayer) const
     {
         // For now, map object layers directly to broadphase layers (1:1 mapping)
-        u32 layerIndex = static_cast<u32>(inLayer);
-        if (layerIndex < GetNumBroadPhaseLayers())
+        if (u32 layerIndex = static_cast<u32>(inLayer); layerIndex < GetNumBroadPhaseLayers())
             return JPH::BroadPhaseLayer(static_cast<JPH::BroadPhaseLayer::Type>(layerIndex));
 
         // Default to first layer if invalid
@@ -153,9 +152,7 @@ namespace OloEngine
             cachedLayerNames.assign(layerNames.begin(), layerNames.end());
         }
 
-        u32 customLayerIndex = layerIndex - BroadPhaseLayers::NUM_LAYERS;
-
-        if (customLayerIndex < cachedLayerNames.size())
+        if (u32 customLayerIndex = layerIndex - BroadPhaseLayers::NUM_LAYERS; customLayerIndex < cachedLayerNames.size())
         {
             return cachedLayerNames[customLayerIndex].c_str();
         }
@@ -165,7 +162,7 @@ namespace OloEngine
     }
 #endif // JPH_EXTERNAL_PROFILE || JPH_PROFILE_ENABLED
 
-    void OloBPLayerInterfaceImpl::UpdateLayers()
+    void OloBPLayerInterfaceImpl::UpdateLayers() const
     {
         // This method can be called when the layer configuration changes
         // Currently using direct mapping, but could be extended for more complex mapping strategies
@@ -175,10 +172,8 @@ namespace OloEngine
     {
         // Convert broadphase layer back to object layer for collision checking
         // Since we use 1:1 mapping, this is straightforward
-        JPH::ObjectLayer objectLayer2 = static_cast<JPH::ObjectLayer>(inLayer2.GetValue());
-
         // If both layers are user-defined physics layers, map to custom layer IDs and check
-        if (inLayer1 >= OloEngine::ObjectLayers::NUM_LAYERS && objectLayer2 >= OloEngine::ObjectLayers::NUM_LAYERS)
+        if (JPH::ObjectLayer objectLayer2 = static_cast<JPH::ObjectLayer>(inLayer2.GetValue()); inLayer1 >= OloEngine::ObjectLayers::NUM_LAYERS && objectLayer2 >= OloEngine::ObjectLayers::NUM_LAYERS)
         {
             u32 layer1 = static_cast<u32>(inLayer1) - OloEngine::ObjectLayers::NUM_LAYERS;
             u32 layer2 = static_cast<u32>(objectLayer2) - OloEngine::ObjectLayers::NUM_LAYERS;
@@ -393,7 +388,7 @@ namespace OloEngine
         JPH::BodyCreationSettings body_settings(box_shape, position, rotation, isStatic ? JPH::EMotionType::Static : JPH::EMotionType::Dynamic, isStatic ? OloEngine::ObjectLayers::NON_MOVING : OloEngine::ObjectLayers::MOVING);
 
         // Create the actual rigid body
-        JPH::Body* body = m_PhysicsSystem->GetBodyInterface().CreateBody(body_settings); // Note that if we run out of bodies this can return nullptr
+        const JPH::Body* body = m_PhysicsSystem->GetBodyInterface().CreateBody(body_settings); // Note that if we run out of bodies this can return nullptr
         if (body == nullptr)
         {
             OLO_CORE_ERROR("Failed to create box body - physics system may be out of bodies");
@@ -429,7 +424,7 @@ namespace OloEngine
         JPH::BodyCreationSettings body_settings(sphere_shape, position, JPH::Quat::sIdentity(), isStatic ? JPH::EMotionType::Static : JPH::EMotionType::Dynamic, isStatic ? OloEngine::ObjectLayers::NON_MOVING : OloEngine::ObjectLayers::MOVING);
 
         // Create the actual rigid body
-        JPH::Body* body = m_PhysicsSystem->GetBodyInterface().CreateBody(body_settings); // Note that if we run out of bodies this can return nullptr
+        const JPH::Body* body = m_PhysicsSystem->GetBodyInterface().CreateBody(body_settings); // Note that if we run out of bodies this can return nullptr
         if (body == nullptr)
         {
             OLO_CORE_ERROR("Failed to create sphere body - physics system may be out of bodies");

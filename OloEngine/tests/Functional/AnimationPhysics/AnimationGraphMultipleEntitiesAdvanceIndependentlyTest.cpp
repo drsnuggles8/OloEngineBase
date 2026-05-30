@@ -100,8 +100,8 @@ TEST_F(AnimationGraphMultipleEntitiesAdvanceIndependentlyTest, EachEntityKeepsIt
 
     RunFrames(2);
 
-    auto* firstSM = firstGc.RuntimeGraph->Layers[0].StateMachine.Raw();
-    auto* secondSM = secondGc.RuntimeGraph->Layers[0].StateMachine.Raw();
+    const auto* firstSM = firstGc.RuntimeGraph->Layers[0].StateMachine.Raw();
+    const auto* secondSM = secondGc.RuntimeGraph->Layers[0].StateMachine.Raw();
 
     EXPECT_TRUE(firstSM->HasStarted());
     EXPECT_TRUE(secondSM->HasStarted());

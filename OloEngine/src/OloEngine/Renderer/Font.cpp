@@ -48,8 +48,7 @@ namespace OloEngine
             return;
         }
 
-        constexpr std::streamoff kMaxFontFileSize = 64 * 1024 * 1024; // 64 MB sanity cap
-        if (fileSize > kMaxFontFileSize)
+        if (constexpr std::streamoff kMaxFontFileSize = 64 * 1024 * 1024 /* 64 MB sanity cap */; fileSize > kMaxFontFileSize)
         {
             OLO_CORE_ERROR("Font file too large ({} bytes, max {}) for: {}", static_cast<std::streamoff>(fileSize), kMaxFontFileSize, m_Path);
             return;
@@ -203,8 +202,7 @@ namespace OloEngine
         };
         for (const char* candidate : kCandidates)
         {
-            std::error_code ec;
-            if (!std::filesystem::exists(candidate, ec) || ec)
+            if (std::error_code ec; !std::filesystem::exists(candidate, ec) || ec)
             {
                 continue;
             }
@@ -323,7 +321,7 @@ namespace OloEngine
         // Kerning across fonts isn't meaningfully defined — only honour
         // the kerning table when both `cp` and `next` resolve against the
         // primary font.
-        const auto resolveAdvance = [&](u32 cp, u32 next, const GlyphLookup& lookup) -> f32
+        const auto resolveAdvance = [this, &spaceAdvance](u32 cp, u32 next, const GlyphLookup& lookup) -> f32
         {
             if (!lookup.Glyph)
                 return spaceAdvance;

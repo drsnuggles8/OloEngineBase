@@ -46,7 +46,7 @@ namespace OloEngine
             return m_Equipped;
         }
 
-        static constexpr i32 SlotCount = static_cast<i32>(Slot::Count);
+        static constexpr i32 SlotCount = static_cast<i32>(std::to_underlying(Slot::Count));
 
         static const char* SlotToString(Slot slot);
         static Slot SlotFromString(const std::string& str);
@@ -54,7 +54,7 @@ namespace OloEngine
         auto operator==(const EquipmentSlots&) const -> bool = default;
 
       private:
-        std::array<std::optional<ItemInstance>, static_cast<size_t>(Slot::Count)> m_Equipped;
+        std::array<std::optional<ItemInstance>, static_cast<size_t>(std::to_underlying(Slot::Count))> m_Equipped;
     };
 
 } // namespace OloEngine

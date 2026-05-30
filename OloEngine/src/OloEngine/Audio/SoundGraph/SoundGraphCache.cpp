@@ -69,7 +69,7 @@ namespace OloEngine::Audio::SoundGraph
         // Update statistics and LRU
         ++m_HitCount;
         it->second.m_LastAccessed = std::chrono::system_clock::now();
-        it->second.m_AccessCount++;
+        ++it->second.m_AccessCount;
         UpdateLRU(sourcePath);
 
         return it->second.m_CachedGraph;
@@ -130,8 +130,7 @@ namespace OloEngine::Audio::SoundGraph
         entry.m_AccessCount = 1;
 
         // Remove existing entry if it exists
-        auto it = m_CacheEntries.find(sourcePath);
-        if (it != m_CacheEntries.end())
+        if (auto it = m_CacheEntries.find(sourcePath); it != m_CacheEntries.end())
         {
             m_CurrentMemoryUsage -= CalculateGraphMemoryUsage(it->second.m_CachedGraph);
             RemoveFromLRU(sourcePath);
@@ -321,7 +320,7 @@ namespace OloEngine::Audio::SoundGraph
         std::filesystem::path targetDir(directoryPath);
         targetDir = targetDir.lexically_normal();
 
-        for (auto& [path, entry] : m_CacheEntries)
+        for (const auto& [path, entry] : m_CacheEntries)
         {
             std::filesystem::path entryPath(path);
             entryPath = entryPath.lexically_normal();
@@ -400,7 +399,7 @@ namespace OloEngine::Audio::SoundGraph
             }
         }
 
-        std::sort(paths.begin(), paths.end());
+        std::ranges::sort(paths);
         return paths;
     }
 
@@ -409,8 +408,7 @@ namespace OloEngine::Audio::SoundGraph
         OLO_PROFILE_FUNCTION();
         TDynamicUniqueLock<FMutex> Lock(m_Mutex);
 
-        auto it = m_CacheEntries.find(sourcePath);
-        if (it != m_CacheEntries.end())
+        if (auto it = m_CacheEntries.find(sourcePath); it != m_CacheEntries.end())
         {
             return it->second; // Return a copy
         }
@@ -444,7 +442,7 @@ namespace OloEngine::Audio::SoundGraph
         return true;
     }
 
-    bool SoundGraphCache::LoadCacheMetadata(const std::string& filePath)
+    bool SoundGraphCache::LoadCacheMetadata(const std::string& filePath) const
     {
         // TODO: Implementation would deserialize cache metadata from JSON/binary format
         // This is a placeholder for persistent cache functionality

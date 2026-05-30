@@ -5,6 +5,7 @@
 #include <imgui.h>
 #include <yaml-cpp/yaml.h>
 
+#include <cmath>
 #include <fstream>
 
 namespace OloEngine
@@ -158,7 +159,7 @@ namespace OloEngine
         for (i32 i = 0; i < static_cast<i32>(m_Draft.Bookmarks.size()); ++i)
         {
             ImGui::PushID(i);
-            auto& bm = m_Draft.Bookmarks[static_cast<sizet>(i)];
+            const auto& bm = m_Draft.Bookmarks[static_cast<sizet>(i)];
             if (ImGui::Button(bm.Name.c_str()) && m_Camera)
             {
                 m_Camera->SetPosition(bm.Position);
@@ -227,7 +228,7 @@ namespace OloEngine
         return projectDir / "EditorPreferences.yaml";
     }
 
-    void EditorPreferencesPanel::Save(const EditorPreferences& prefs, const std::filesystem::path& projectDir)
+    void EditorPreferencesPanel::Save(const EditorPreferences& prefs, const std::filesystem::path& projectDir) const
     {
         YAML::Emitter out;
         out << YAML::BeginMap;
@@ -283,7 +284,7 @@ namespace OloEngine
         }
     }
 
-    void EditorPreferencesPanel::Load(EditorPreferences& prefs, const std::filesystem::path& projectDir)
+    void EditorPreferencesPanel::Load(EditorPreferences& prefs, const std::filesystem::path& projectDir) const
     {
         auto path = GetPrefsPath(projectDir);
         if (!std::filesystem::exists(path))
@@ -318,15 +319,20 @@ namespace OloEngine
             if (node["ShowGrid"])
                 prefs.ShowGrid = node["ShowGrid"].as<bool>();
             if (node["GridSpacing"])
-                prefs.GridSpacing = std::clamp(node["GridSpacing"].as<f32>(), 0.1f, 100.0f);
+                if (f32 v = node["GridSpacing"].as<f32>(); std::isfinite(v))
+                    prefs.GridSpacing = std::clamp(v, 0.1f, 100.0f);
             if (node["TranslateSnap"])
-                prefs.TranslateSnap = std::clamp(node["TranslateSnap"].as<f32>(), 0.01f, 100.0f);
+                if (f32 v = node["TranslateSnap"].as<f32>(); std::isfinite(v))
+                    prefs.TranslateSnap = std::clamp(v, 0.01f, 100.0f);
             if (node["RotateSnap"])
-                prefs.RotateSnap = std::clamp(node["RotateSnap"].as<f32>(), 1.0f, 180.0f);
+                if (f32 v = node["RotateSnap"].as<f32>(); std::isfinite(v))
+                    prefs.RotateSnap = std::clamp(v, 1.0f, 180.0f);
             if (node["ScaleSnap"])
-                prefs.ScaleSnap = std::clamp(node["ScaleSnap"].as<f32>(), 0.01f, 10.0f);
+                if (f32 v = node["ScaleSnap"].as<f32>(); std::isfinite(v))
+                    prefs.ScaleSnap = std::clamp(v, 0.01f, 10.0f);
             if (node["CameraFlySpeed"])
-                prefs.CameraFlySpeed = std::clamp(node["CameraFlySpeed"].as<f32>(), 0.1f, 100.0f);
+                if (f32 v = node["CameraFlySpeed"].as<f32>(); std::isfinite(v))
+                    prefs.CameraFlySpeed = std::clamp(v, 0.1f, 100.0f);
             if (node["ShowPhysicsColliders"])
                 prefs.ShowPhysicsColliders = node["ShowPhysicsColliders"].as<bool>();
             if (node["ShowLightGizmos"])
@@ -342,7 +348,8 @@ namespace OloEngine
             if (node["ThrottlePlayMode"])
                 prefs.ThrottlePlayMode = node["ThrottlePlayMode"].as<bool>();
             if (node["RenderBudgetMs"])
-                prefs.RenderBudgetMs = std::clamp(node["RenderBudgetMs"].as<f32>(), 8.0f, 100.0f);
+                if (f32 v = node["RenderBudgetMs"].as<f32>(); std::isfinite(v))
+                    prefs.RenderBudgetMs = std::clamp(v, 8.0f, 100.0f);
             if (node["EnableAutoSave"])
                 prefs.EnableAutoSave = node["EnableAutoSave"].as<bool>();
             if (node["AutoSaveIntervalSeconds"])
@@ -356,12 +363,18 @@ namespace OloEngine
                 {
                     CameraBookmark bm;
                     bm.Name = bmNode["Name"].as<std::string>();
-                    bm.Position.x = bmNode["PositionX"].as<f32>();
-                    bm.Position.y = bmNode["PositionY"].as<f32>();
-                    bm.Position.z = bmNode["PositionZ"].as<f32>();
-                    bm.Pitch = bmNode["Pitch"].as<f32>();
-                    bm.Yaw = bmNode["Yaw"].as<f32>();
-                    bm.Distance = bmNode["Distance"].as<f32>();
+                    if (f32 v = bmNode["PositionX"].as<f32>(); std::isfinite(v))
+                        bm.Position.x = v;
+                    if (f32 v = bmNode["PositionY"].as<f32>(); std::isfinite(v))
+                        bm.Position.y = v;
+                    if (f32 v = bmNode["PositionZ"].as<f32>(); std::isfinite(v))
+                        bm.Position.z = v;
+                    if (f32 v = bmNode["Pitch"].as<f32>(); std::isfinite(v))
+                        bm.Pitch = v;
+                    if (f32 v = bmNode["Yaw"].as<f32>(); std::isfinite(v))
+                        bm.Yaw = v;
+                    if (f32 v = bmNode["Distance"].as<f32>(); std::isfinite(v))
+                        bm.Distance = v;
                     prefs.Bookmarks.push_back(std::move(bm));
                 }
             }

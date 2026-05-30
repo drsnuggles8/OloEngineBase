@@ -203,7 +203,7 @@ namespace OloEngine
 
         // @brief Get the thread type
         // @return ThreadType::Forkable
-        virtual ThreadType GetThreadType() const override
+        ThreadType GetThreadType() const override
         {
             return ThreadType::Forkable;
         }
@@ -235,7 +235,7 @@ namespace OloEngine
         //
         // When running as a fake thread pre-fork, the main thread calls
         // this to give the runnable a chance to execute.
-        void Tick()
+        void Tick() const
         {
             if (m_IsRealThread || !m_Runnable)
             {

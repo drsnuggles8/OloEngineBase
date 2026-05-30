@@ -229,7 +229,7 @@ namespace OloEngine::Functional
         m_Physics3DEnabled = true;
     }
 
-    void FunctionalTest::EnableAnimation()
+    void FunctionalTest::EnableAnimation() const
     {
         // Animation tick lives inside Scene::OnUpdateRuntime — no init needed.
     }
@@ -266,7 +266,7 @@ namespace OloEngine::Functional
         m_LuaEnabled = true;
     }
 
-    void FunctionalTest::RegisterLuaScript(Entity entity, const std::filesystem::path& scriptPath)
+    void FunctionalTest::RegisterLuaScript(Entity entity, const std::filesystem::path& scriptPath) const
     {
         ASSERT_TRUE(m_LuaEnabled) << "EnableLua() must be called before RegisterLuaScript()";
 

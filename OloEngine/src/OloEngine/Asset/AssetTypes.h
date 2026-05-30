@@ -3,6 +3,7 @@
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Core/Assert.h"
 #include <string>
+#include <utility>
 
 namespace OloEngine
 {
@@ -47,7 +48,7 @@ namespace OloEngine
     // If AssetType grows past InstancePlacement, bump kMaxKnownValue in
     // OloEngine/tests/AssetExtensionsCoverageTest.cpp or that test will
     // silently skip the new entries.
-    static_assert(static_cast<u16>(AssetType::InstancePlacement) == 33,
+    static_assert(std::to_underlying(AssetType::InstancePlacement) == 33,
                   "AssetType::InstancePlacement moved; update kMaxKnownValue in "
                   "AssetExtensionsCoverageTest.cpp to match the new max value.");
 
@@ -61,22 +62,22 @@ namespace OloEngine
     // Bitwise operators for AssetFlag to enable flag operations
     inline AssetFlag operator|(AssetFlag lhs, AssetFlag rhs)
     {
-        return static_cast<AssetFlag>(static_cast<u16>(lhs) | static_cast<u16>(rhs));
+        return static_cast<AssetFlag>(std::to_underlying(lhs) | std::to_underlying(rhs));
     }
 
     inline AssetFlag operator&(AssetFlag lhs, AssetFlag rhs)
     {
-        return static_cast<AssetFlag>(static_cast<u16>(lhs) & static_cast<u16>(rhs));
+        return static_cast<AssetFlag>(std::to_underlying(lhs) & std::to_underlying(rhs));
     }
 
     inline AssetFlag operator^(AssetFlag lhs, AssetFlag rhs)
     {
-        return static_cast<AssetFlag>(static_cast<u16>(lhs) ^ static_cast<u16>(rhs));
+        return static_cast<AssetFlag>(std::to_underlying(lhs) ^ std::to_underlying(rhs));
     }
 
     inline AssetFlag operator~(AssetFlag flag)
     {
-        return static_cast<AssetFlag>(~static_cast<u16>(flag));
+        return static_cast<AssetFlag>(~std::to_underlying(flag));
     }
 
     inline AssetFlag& operator|=(AssetFlag& lhs, AssetFlag rhs)

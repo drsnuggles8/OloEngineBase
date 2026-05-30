@@ -212,7 +212,7 @@ namespace OloEngine
 
         // First pass: check sizes and determine format
         bool firstFace = true;
-        for (u32 i = 0; i < 6; i++)
+        for (u32 i = 0; i < 6; ++i)
         {
             stbi_uc* data = stbi_load(facePaths[i].c_str(), &width, &height, &channels, 0);
             if (!data)
@@ -272,6 +272,10 @@ namespace OloEngine
                 stbi_image_free(data);
                 return;
             }
+            else
+            {
+                // No additional handling required.
+            }
 
             stbi_image_free(data);
         }
@@ -279,7 +283,7 @@ namespace OloEngine
         // Second pass: load and upload each face
         // Set alignment to 1 for safety — RGB (3-byte) rows may not be 4-byte aligned.
         glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
-        for (u32 i = 0; i < 6; i++)
+        for (u32 i = 0; i < 6; ++i)
         {
             stbi_uc* data = stbi_load(facePaths[i].c_str(), &width, &height, &channels, 0);
             if (!data)
@@ -486,7 +490,7 @@ namespace OloEngine
         while (maxDim > 1)
         {
             maxDim >>= 1;
-            levels++;
+            ++levels;
         }
         return levels;
     }
@@ -537,8 +541,7 @@ namespace OloEngine
             outData.data()                   // buffer
         );
 
-        GLenum error = glGetError();
-        if (error != GL_NO_ERROR)
+        if (GLenum error = glGetError(); error != GL_NO_ERROR)
         {
             OLO_CORE_ERROR("OpenGLTextureCubemap::GetFaceData: GL error {}", error);
             return false;
@@ -576,7 +579,7 @@ namespace OloEngine
         faceData.reserve(faceSize);
 
         // Read all 6 faces
-        for (u32 face = 0; face < 6; face++)
+        for (u32 face = 0; face < 6; ++face)
         {
             faceData.clear();
             if (!GetFaceData(face, faceData, mipLevel))

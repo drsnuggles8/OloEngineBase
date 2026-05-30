@@ -86,10 +86,10 @@ namespace OloEngine
       private:
         // Canvas
         void DrawCanvas();
-        void DrawGrid(ImDrawList* drawList, const ImVec2& canvasOrigin, const ImVec2& canvasSize);
+        void DrawGrid(ImDrawList* drawList, const ImVec2& canvasOrigin, const ImVec2& canvasSize) const;
         void DrawNodes(ImDrawList* drawList, const ImVec2& canvasOrigin);
         void DrawConnections(ImDrawList* drawList, const ImVec2& canvasOrigin);
-        void DrawConnectionInProgress(ImDrawList* drawList, const ImVec2& canvasOrigin);
+        void DrawConnectionInProgress(ImDrawList* drawList, const ImVec2& canvasOrigin) const;
 
         // Node rendering
         void DrawNode(ImDrawList* drawList, const ImVec2& canvasOrigin, SoundGraphNodeData& node);

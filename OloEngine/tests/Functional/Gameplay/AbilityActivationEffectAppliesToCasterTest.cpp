@@ -77,7 +77,7 @@ class AbilityActivationEffectAppliesToCasterTest : public FunctionalTest
 
 TEST_F(AbilityActivationEffectAppliesToCasterTest, InstantSelfDamageActivationEffectDeductsHealthOnNextTick)
 {
-    auto& ac = m_Caster.GetComponent<AbilityComponent>();
+    const auto& ac = m_Caster.GetComponent<AbilityComponent>();
     ASSERT_NEAR(ac.Attributes.GetBaseValue("Health"), 100.0f, 1e-3f);
 
     ASSERT_TRUE(GameplayAbilitySystem::TryActivateAbility(&GetScene(), m_Caster, m_AbilityTag));

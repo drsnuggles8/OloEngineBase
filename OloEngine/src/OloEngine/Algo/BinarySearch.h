@@ -182,8 +182,7 @@ namespace OloEngine
         template<typename RangeType, typename ValueType, typename SortPredicateType>
         [[nodiscard]] auto BinarySearch(const RangeType& Range, const ValueType& Value, SortPredicateType SortPredicate) -> decltype(GetNum(Range))
         {
-            auto CheckIndex = LowerBound(Range, Value, SortPredicate);
-            if (CheckIndex < GetNum(Range))
+            if (auto CheckIndex = LowerBound(Range, Value, SortPredicate); CheckIndex < GetNum(Range))
             {
                 auto&& CheckValue = GetData(Range)[CheckIndex];
                 // Since we returned lower bound we already know Value <= CheckValue. So if Value is not < CheckValue, they must be equal
@@ -213,8 +212,7 @@ namespace OloEngine
         template<typename RangeType, typename ValueType, typename ProjectionType, typename SortPredicateType>
         [[nodiscard]] auto BinarySearchBy(const RangeType& Range, const ValueType& Value, ProjectionType Projection, SortPredicateType SortPredicate) -> decltype(GetNum(Range))
         {
-            auto CheckIndex = LowerBoundBy(Range, Value, Projection, SortPredicate);
-            if (CheckIndex < GetNum(Range))
+            if (auto CheckIndex = LowerBoundBy(Range, Value, Projection, SortPredicate); CheckIndex < GetNum(Range))
             {
                 auto&& CheckValue = Invoke(Projection, GetData(Range)[CheckIndex]);
                 // Since we returned lower bound we already know Value <= CheckValue. So if Value is not < CheckValue, they must be equal

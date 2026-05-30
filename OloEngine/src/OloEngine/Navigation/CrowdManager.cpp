@@ -94,8 +94,7 @@ namespace OloEngine
         if (!IsValidAgentId(agentId))
             return;
 
-        const dtCrowdAgent* ag = m_Crowd->getAgent(agentId);
-        if (!ag || !ag->active)
+        if (const dtCrowdAgent* ag = m_Crowd->getAgent(agentId); !ag || !ag->active)
             return;
 
         const f32 targetPos[3] = { target.x, target.y, target.z };

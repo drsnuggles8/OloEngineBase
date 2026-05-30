@@ -44,9 +44,9 @@ namespace OloEngine::Tests
     // values that depend on the GL default (e.g., "DepthFunc: 519 -> 514").
     bool DiffContainsPrefix(const std::vector<std::string>& diffs, std::string_view prefix)
     {
-        return std::any_of(diffs.begin(), diffs.end(),
-                           [&](const std::string& d)
-                           { return d.rfind(prefix, 0) == 0; });
+        return std::ranges::any_of(diffs,
+                                   [&](const std::string& d)
+                                   { return d.rfind(prefix, 0) == 0; });
     }
 
     // =========================================================================

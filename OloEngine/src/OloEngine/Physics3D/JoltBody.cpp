@@ -6,6 +6,7 @@
 #include "OloEngine/Core/Log.h"
 #include "OloEngine/Scene/Components.h"
 
+#include <cmath>
 #include <cstdint>
 #include <optional>
 #include <utility>
@@ -253,14 +254,22 @@ namespace OloEngine
             return 0.0f;
 
         const auto& bodyLockInterface = GetBodyLockInterface();
-        JPH::BodyLockRead lock(bodyLockInterface, m_BodyID);
-        if (lock.Succeeded())
+        if (JPH::BodyLockRead lock(bodyLockInterface, m_BodyID); lock.Succeeded())
         {
             const JPH::Body& body = lock.GetBody();
             const JPH::MotionProperties* motionProperties = body.GetMotionProperties();
             if (motionProperties)
             {
-                return 1.0f / motionProperties->GetInverseMass();
+                const f32 invMass = motionProperties->GetInverseMass();
+                // Guard the reciprocal: a zero inverse mass (static/kinematic
+                // body) or a non-finite value would yield inf/nan. Use
+                // std::fpclassify rather than a direct float compare to keep
+                // static analysis quiet (cpp:S6004 et al.) — FP_ZERO matches
+                // both +0 and -0.
+                if (std::isfinite(invMass) && std::fpclassify(invMass) != FP_ZERO)
+                {
+                    return 1.0f / invMass;
+                }
             }
         }
         return 0.0f;
@@ -272,8 +281,7 @@ namespace OloEngine
             return;
 
         const auto& bodyLockInterface = GetBodyLockInterface();
-        JPH::BodyLockWrite lock(bodyLockInterface, m_BodyID);
-        if (lock.Succeeded())
+        if (JPH::BodyLockWrite lock(bodyLockInterface, m_BodyID); lock.Succeeded())
         {
             JPH::Body& body = lock.GetBody();
             JPH::MotionProperties* motionProperties = body.GetMotionProperties();
@@ -297,8 +305,7 @@ namespace OloEngine
             return;
 
         const auto& bodyLockInterface = GetBodyLockInterface();
-        JPH::BodyLockWrite lock(bodyLockInterface, m_BodyID);
-        if (lock.Succeeded())
+        if (JPH::BodyLockWrite lock(bodyLockInterface, m_BodyID); lock.Succeeded())
         {
             JPH::Body& body = lock.GetBody();
             JPH::MotionProperties* motionProperties = body.GetMotionProperties();
@@ -322,8 +329,7 @@ namespace OloEngine
             return 0.0f;
 
         const auto& bodyLockInterface = GetBodyLockInterface();
-        JPH::BodyLockRead lock(bodyLockInterface, m_BodyID);
-        if (lock.Succeeded())
+        if (JPH::BodyLockRead lock(bodyLockInterface, m_BodyID); lock.Succeeded())
         {
             const JPH::Body& body = lock.GetBody();
             const JPH::MotionProperties* motionProperties = body.GetMotionProperties();
@@ -341,8 +347,7 @@ namespace OloEngine
             return;
 
         const auto& bodyLockInterface = GetBodyLockInterface();
-        JPH::BodyLockWrite lock(bodyLockInterface, m_BodyID);
-        if (lock.Succeeded())
+        if (JPH::BodyLockWrite lock(bodyLockInterface, m_BodyID); lock.Succeeded())
         {
             JPH::Body& body = lock.GetBody();
             JPH::MotionProperties* motionProperties = body.GetMotionProperties();
@@ -366,8 +371,7 @@ namespace OloEngine
             return 0.0f;
 
         const auto& bodyLockInterface = GetBodyLockInterface();
-        JPH::BodyLockRead lock(bodyLockInterface, m_BodyID);
-        if (lock.Succeeded())
+        if (JPH::BodyLockRead lock(bodyLockInterface, m_BodyID); lock.Succeeded())
         {
             const JPH::Body& body = lock.GetBody();
             const JPH::MotionProperties* motionProperties = body.GetMotionProperties();
@@ -425,8 +429,7 @@ namespace OloEngine
             return 0.0f;
 
         const auto& bodyLockInterface = GetBodyLockInterface();
-        JPH::BodyLockRead lock(bodyLockInterface, m_BodyID);
-        if (lock.Succeeded())
+        if (JPH::BodyLockRead lock(bodyLockInterface, m_BodyID); lock.Succeeded())
         {
             const JPH::Body& body = lock.GetBody();
             const JPH::MotionProperties* motionProperties = body.GetMotionProperties();
@@ -444,8 +447,7 @@ namespace OloEngine
             return;
 
         const auto& bodyLockInterface = GetBodyLockInterface();
-        JPH::BodyLockWrite lock(bodyLockInterface, m_BodyID);
-        if (lock.Succeeded())
+        if (JPH::BodyLockWrite lock(bodyLockInterface, m_BodyID); lock.Succeeded())
         {
             JPH::Body& body = lock.GetBody();
             JPH::MotionProperties* motionProperties = body.GetMotionProperties();
@@ -469,8 +471,7 @@ namespace OloEngine
             return 0.0f;
 
         const auto& bodyLockInterface = GetBodyLockInterface();
-        JPH::BodyLockRead lock(bodyLockInterface, m_BodyID);
-        if (lock.Succeeded())
+        if (JPH::BodyLockRead lock(bodyLockInterface, m_BodyID); lock.Succeeded())
         {
             const JPH::Body& body = lock.GetBody();
             const JPH::MotionProperties* motionProperties = body.GetMotionProperties();
@@ -488,8 +489,7 @@ namespace OloEngine
             return;
 
         const auto& bodyLockInterface = GetBodyLockInterface();
-        JPH::BodyLockWrite lock(bodyLockInterface, m_BodyID);
-        if (lock.Succeeded())
+        if (JPH::BodyLockWrite lock(bodyLockInterface, m_BodyID); lock.Succeeded())
         {
             JPH::Body& body = lock.GetBody();
             JPH::MotionProperties* motionProperties = body.GetMotionProperties();
@@ -708,11 +708,11 @@ namespace OloEngine
     {
         if (locked)
         {
-            m_LockedAxes = static_cast<EActorAxis>(static_cast<u32>(m_LockedAxes) | static_cast<u32>(axis));
+            m_LockedAxes = static_cast<EActorAxis>(std::to_underlying(m_LockedAxes) | std::to_underlying(axis));
         }
         else
         {
-            m_LockedAxes = static_cast<EActorAxis>(static_cast<u32>(m_LockedAxes) & ~static_cast<u32>(axis));
+            m_LockedAxes = static_cast<EActorAxis>(std::to_underlying(m_LockedAxes) & ~std::to_underlying(axis));
         }
 
         // Update component
@@ -727,7 +727,7 @@ namespace OloEngine
 
     bool JoltBody::IsAxisLocked(EActorAxis axis) const
     {
-        return (static_cast<u32>(m_LockedAxes) & static_cast<u32>(axis)) != 0;
+        return (std::to_underlying(m_LockedAxes) & std::to_underlying(axis)) != 0;
     }
 
     EActorAxis JoltBody::GetLockedAxes() const
@@ -942,8 +942,8 @@ namespace OloEngine
         if (!m_BodyID.IsInvalid())
             return; // Already created
 
-        auto& rigidBodyComponent = m_Entity.GetComponent<Rigidbody3DComponent>();
-        auto& transformComponent = m_Entity.GetComponent<TransformComponent>();
+        const auto& rigidBodyComponent = m_Entity.GetComponent<Rigidbody3DComponent>();
+        const auto& transformComponent = m_Entity.GetComponent<TransformComponent>();
 
         // Create shape for the entity
         JPH::Ref<JPH::Shape> shape = CreateShapeForBody();
@@ -1039,12 +1039,12 @@ namespace OloEngine
     {
         // Helper to extract material properties from first available collider component
         // Returns {friction, restitution} pair, with fallback defaults if no collider found
-        auto extractMaterialProperties = [&]() -> std::pair<f32, f32>
+        auto extractMaterialProperties = [this]() -> std::pair<f32, f32>
         {
             // Check collider components in priority order: Box > Sphere > Capsule > Mesh > ConvexMesh > TriangleMesh
 
             // Template helper to check component and extract material if present
-            auto tryExtractMaterial = [&]<typename ColliderType>() -> std::optional<std::pair<f32, f32>>
+            auto tryExtractMaterial = [this]<typename ColliderType>() -> std::optional<std::pair<f32, f32>>
             {
                 if (m_Entity.HasComponent<ColliderType>())
                 {

@@ -77,6 +77,10 @@ namespace OloEngine
                 builder.WriteNewVersion(blackboard.Scene.SceneColor, RGWriteUsage::RenderTarget, particleSceneColorVersionTag);
             builder.DependsOnPreviousWriter(ResourceNames::SceneColor);
         }
+        else
+        {
+            // No additional handling required.
+        }
     }
 
     void ParticleRenderPass::Init(const FramebufferSpecification& spec)
@@ -109,9 +113,7 @@ namespace OloEngine
         if (m_OITEnabled && m_SelectedOITFramebuffer.IsValid())
             oitFramebuffer = context.ResolveFramebuffer(m_SelectedOITFramebuffer);
 
-        const bool useOIT = m_OITEnabled && oitFramebuffer;
-
-        if (useOIT)
+        if (const bool useOIT = m_OITEnabled && oitFramebuffer; useOIT)
         {
             // Weighted-blended OIT path. Transparent particles
             // accumulate into the graph-owned OIT target and OITResolveRenderPass composites

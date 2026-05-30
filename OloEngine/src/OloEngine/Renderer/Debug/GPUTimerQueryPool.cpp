@@ -79,7 +79,7 @@ namespace OloEngine
         if (!m_FirstFrame)
         {
             m_ReadableQueryCount = m_WriteQueryCount; // previous frame's count
-            std::fill(m_Results.begin(), m_Results.end(), 0.0);
+            std::ranges::fill(m_Results, 0.0);
 
             for (u32 i = 0; i < m_ReadableQueryCount; ++i)
             {
@@ -113,7 +113,7 @@ namespace OloEngine
             m_WriteQueryCount = commandIndex + 1;
     }
 
-    void GPUTimerQueryPool::EndQuery([[maybe_unused]] u32 commandIndex)
+    void GPUTimerQueryPool::EndQuery([[maybe_unused]] u32 commandIndex) const
     {
         if (!m_Active)
             return;

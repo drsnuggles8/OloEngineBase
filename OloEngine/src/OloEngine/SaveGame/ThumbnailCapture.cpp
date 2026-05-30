@@ -50,8 +50,7 @@ namespace OloEngine
         glGetTextureImage(texID, 0, GL_RGBA, GL_UNSIGNED_BYTE,
                           static_cast<GLsizei>(pixelData.size()), pixelData.data());
 
-        GLenum err = glGetError();
-        if (err != GL_NO_ERROR)
+        if (GLenum err = glGetError(); err != GL_NO_ERROR)
         {
             OLO_CORE_ERROR("[ThumbnailCapture] GL error reading framebuffer: {}", err);
             return {};
@@ -131,8 +130,7 @@ namespace OloEngine
             return {};
         }
 
-        sizet expectedSrcSize = static_cast<sizet>(src.Width) * src.Height * 4;
-        if (srcData.size() < expectedSrcSize)
+        if (sizet expectedSrcSize = static_cast<sizet>(src.Width) * src.Height * 4; srcData.size() < expectedSrcSize)
         {
             OLO_CORE_ERROR("[ThumbnailCapture] Source buffer too small ({} < {})", srcData.size(), expectedSrcSize);
             return {};

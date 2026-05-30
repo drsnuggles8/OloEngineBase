@@ -84,6 +84,6 @@ namespace OloEngine
         void ParseSPIRVTextures(const std::vector<u32>& spirvBytecode);
 
         // @brief Convert SPIR-V type to ShaderDataType
-        ShaderDataType ConvertSPIRVType(const spirv_cross::SPIRType& type);
+        ShaderDataType ConvertSPIRVType(const spirv_cross::SPIRType& type) const;
     };
 } // namespace OloEngine

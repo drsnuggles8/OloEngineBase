@@ -65,8 +65,7 @@ namespace OloEngine
             bool Remove(const void* Ptr, FAllocationInfo& OutInfo)
             {
                 TUniqueLock<FMutex> Lock(m_Mutex);
-                auto It = m_Map.find(Ptr);
-                if (It != m_Map.end())
+                if (auto It = m_Map.find(Ptr); It != m_Map.end())
                 {
                     OutInfo = It->second;
                     m_Map.erase(It);
@@ -222,7 +221,7 @@ namespace OloEngine
             return;
         }
 
-        auto& ThreadState = GetThreadState();
+        const auto& ThreadState = GetThreadState();
         if (ThreadState.IsPaused())
         {
             return;
@@ -239,7 +238,7 @@ namespace OloEngine
         LLMPrivate::s_AllocationMap.Add(Ptr, Size, Tag);
 
         // Update tag sizes
-        u8 TagIndex = static_cast<u8>(Tag);
+        u8 TagIndex = static_cast<u8>(std::to_underlying(Tag));
         i64 NewSize = m_TagData[TagIndex].CurrentSize.fetch_add(static_cast<i64>(Size), std::memory_order_relaxed) + static_cast<i64>(Size);
 
         // Update peak if needed
@@ -271,7 +270,7 @@ namespace OloEngine
         }
 
         // Update total
-        u8 TotalIndex = static_cast<u8>(ELLMTag::Total);
+        u8 TotalIndex = static_cast<u8>(std::to_underlying(ELLMTag::Total));
         i64 TotalNewSize = m_TagData[TotalIndex].CurrentSize.fetch_add(static_cast<i64>(Size), std::memory_order_relaxed) + static_cast<i64>(Size);
 
         i64 TotalPeak = m_TagData[TotalIndex].PeakSize.load(std::memory_order_relaxed);
@@ -298,7 +297,7 @@ namespace OloEngine
         }
 
         // Update tag sizes
-        u8 TagIndex = static_cast<u8>(Info.Tag);
+        u8 TagIndex = static_cast<u8>(std::to_underlying(Info.Tag));
         m_TagData[TagIndex].CurrentSize.fetch_sub(static_cast<i64>(Info.Size), std::memory_order_relaxed);
 
         // Also update parent tags
@@ -310,14 +309,13 @@ namespace OloEngine
         }
 
         // Update total
-        u8 TotalIndex = static_cast<u8>(ELLMTag::Total);
+        u8 TotalIndex = static_cast<u8>(std::to_underlying(ELLMTag::Total));
         m_TagData[TotalIndex].CurrentSize.fetch_sub(static_cast<i64>(Info.Size), std::memory_order_relaxed);
     }
 
     i64 FLowLevelMemTracker::GetTagSize(ELLMTag Tag) const
     {
-        u8 Index = static_cast<u8>(Tag);
-        if (Index < LLM_TAG_COUNT)
+        if (u8 Index = static_cast<u8>(std::to_underlying(Tag)); Index < LLM_TAG_COUNT)
         {
             return m_TagData[Index].CurrentSize.load(std::memory_order_relaxed);
         }
@@ -326,8 +324,7 @@ namespace OloEngine
 
     i64 FLowLevelMemTracker::GetTagPeakSize(ELLMTag Tag) const
     {
-        u8 Index = static_cast<u8>(Tag);
-        if (Index < LLM_TAG_COUNT)
+        if (u8 Index = static_cast<u8>(std::to_underlying(Tag)); Index < LLM_TAG_COUNT)
         {
             return m_TagData[Index].PeakSize.load(std::memory_order_relaxed);
         }
@@ -343,12 +340,12 @@ namespace OloEngine
         }
     }
 
-    void FLowLevelMemTracker::DumpToLog()
+    void FLowLevelMemTracker::DumpToLog() const
     {
         OLO_CORE_INFO("=== LLM Memory Report ===");
         OLO_CORE_INFO("Total tracked: {} bytes", GetTagSize(ELLMTag::Total));
 
-        for (u32 i = 0; i < static_cast<u32>(ELLMTag::GenericTagCount); ++i)
+        for (u32 i = 0; i < static_cast<u32>(std::to_underlying(ELLMTag::GenericTagCount)); ++i)
         {
             i64 Size = m_TagData[i].CurrentSize.load(std::memory_order_relaxed);
             i64 Peak = m_TagData[i].PeakSize.load(std::memory_order_relaxed);

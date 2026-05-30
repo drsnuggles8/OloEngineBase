@@ -2,6 +2,8 @@
 
 #include "OloEngine/Core/Base.h"
 
+#include <utility>
+
 namespace OloEngine
 {
     enum class ViewLayerType : u8
@@ -189,14 +191,14 @@ namespace OloEngine
 
     inline void DrawKey::SetViewLayer(ViewLayerType viewLayer)
     {
-        u32 layer = static_cast<u32>(viewLayer);
+        u32 layer = static_cast<u32>(std::to_underlying(viewLayer));
         OLO_CORE_ASSERT(layer <= VIEWLAYER_MASK, "ViewLayer value too large");
         m_Key = (m_Key & ~(VIEWLAYER_MASK << VIEWLAYER_SHIFT)) | (static_cast<u64>(layer) << VIEWLAYER_SHIFT);
     }
 
     inline void DrawKey::SetRenderMode(RenderMode mode)
     {
-        u32 modeValue = static_cast<u32>(mode);
+        u32 modeValue = static_cast<u32>(std::to_underlying(mode));
         OLO_CORE_ASSERT(modeValue <= RENDERMODE_MASK, "RenderMode value too large");
         m_Key = (m_Key & ~(RENDERMODE_MASK << RENDERMODE_SHIFT)) | (static_cast<u64>(modeValue) << RENDERMODE_SHIFT);
     }

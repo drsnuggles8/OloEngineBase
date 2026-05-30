@@ -85,21 +85,21 @@ namespace OloEngine
 
         // @brief Free a small page
         // @param Mem Pointer to small page to free
-        void FreeSmall(void* Mem)
+        void FreeSmall(void* Mem) const
         {
             FMemory::Free(Mem);
         }
 
         // @brief Get total bytes currently in use
         // @return Bytes used
-        u64 BytesUsed()
+        u64 BytesUsed() const
         {
             return static_cast<u64>(m_TheAllocator.GetNumUsed()) * PageSize;
         }
 
         // @brief Get total bytes in free list
         // @return Bytes free
-        u64 BytesFree()
+        u64 BytesFree() const
         {
             return static_cast<u64>(m_TheAllocator.GetNumFree()) * PageSize;
         }

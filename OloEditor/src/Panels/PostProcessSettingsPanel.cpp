@@ -182,7 +182,7 @@ namespace OloEngine
         ImGui::End();
     }
 
-    void PostProcessSettingsPanel::DrawToneMappingSection()
+    void PostProcessSettingsPanel::DrawToneMappingSection() const
     {
         auto& settings = Renderer3D::GetPostProcessSettings();
 
@@ -191,8 +191,7 @@ namespace OloEngine
             ImGui::Indent();
 
             const char* tonemapItems[] = { "None", "Reinhard", "ACES", "Uncharted2" };
-            int currentTonemap = static_cast<int>(settings.Tonemap);
-            if (ImGui::Combo("Operator", &currentTonemap, tonemapItems, IM_ARRAYSIZE(tonemapItems)))
+            if (int currentTonemap = static_cast<int>(std::to_underlying(settings.Tonemap)); ImGui::Combo("Operator", &currentTonemap, tonemapItems, IM_ARRAYSIZE(tonemapItems)))
             {
                 settings.Tonemap = static_cast<TonemapOperator>(currentTonemap);
             }
@@ -204,7 +203,7 @@ namespace OloEngine
         }
     }
 
-    void PostProcessSettingsPanel::DrawBloomSection()
+    void PostProcessSettingsPanel::DrawBloomSection() const
     {
         auto& settings = Renderer3D::GetPostProcessSettings();
 
@@ -225,7 +224,7 @@ namespace OloEngine
         }
     }
 
-    void PostProcessSettingsPanel::DrawVignetteSection()
+    void PostProcessSettingsPanel::DrawVignetteSection() const
     {
         auto& settings = Renderer3D::GetPostProcessSettings();
 
@@ -245,7 +244,7 @@ namespace OloEngine
         }
     }
 
-    void PostProcessSettingsPanel::DrawChromaticAberrationSection()
+    void PostProcessSettingsPanel::DrawChromaticAberrationSection() const
     {
         auto& settings = Renderer3D::GetPostProcessSettings();
 
@@ -264,7 +263,7 @@ namespace OloEngine
         }
     }
 
-    void PostProcessSettingsPanel::DrawColorGradingSection()
+    void PostProcessSettingsPanel::DrawColorGradingSection() const
     {
         auto& settings = Renderer3D::GetPostProcessSettings();
 
@@ -283,7 +282,7 @@ namespace OloEngine
         }
     }
 
-    void PostProcessSettingsPanel::DrawFXAASection()
+    void PostProcessSettingsPanel::DrawFXAASection() const
     {
         auto& settings = Renderer3D::GetPostProcessSettings();
 
@@ -297,7 +296,7 @@ namespace OloEngine
         }
     }
 
-    void PostProcessSettingsPanel::DrawDOFSection()
+    void PostProcessSettingsPanel::DrawDOFSection() const
     {
         auto& settings = Renderer3D::GetPostProcessSettings();
 
@@ -318,7 +317,7 @@ namespace OloEngine
         }
     }
 
-    void PostProcessSettingsPanel::DrawMotionBlurSection()
+    void PostProcessSettingsPanel::DrawMotionBlurSection() const
     {
         auto& settings = Renderer3D::GetPostProcessSettings();
 
@@ -338,7 +337,7 @@ namespace OloEngine
         }
     }
 
-    void PostProcessSettingsPanel::DrawTAASection()
+    void PostProcessSettingsPanel::DrawTAASection() const
     {
         auto& settings = Renderer3D::GetPostProcessSettings();
 
@@ -359,7 +358,7 @@ namespace OloEngine
         }
     }
 
-    void PostProcessSettingsPanel::DrawAOSection()
+    void PostProcessSettingsPanel::DrawAOSection() const
     {
         auto& settings = Renderer3D::GetPostProcessSettings();
 
@@ -369,8 +368,7 @@ namespace OloEngine
 
             // AO Technique selector
             static constexpr const char* aoTechniqueNames[] = { "None", "SSAO", "GTAO" };
-            int currentTechnique = static_cast<int>(settings.ActiveAOTechnique);
-            if (ImGui::Combo("Technique##AO", &currentTechnique, aoTechniqueNames, IM_ARRAYSIZE(aoTechniqueNames)))
+            if (int currentTechnique = static_cast<int>(std::to_underlying(settings.ActiveAOTechnique)); ImGui::Combo("Technique##AO", &currentTechnique, aoTechniqueNames, IM_ARRAYSIZE(aoTechniqueNames)))
             {
                 settings.ActiveAOTechnique = static_cast<AOTechnique>(currentTechnique);
                 switch (settings.ActiveAOTechnique)
@@ -439,7 +437,7 @@ namespace OloEngine
         }
     }
 
-    void PostProcessSettingsPanel::DrawSnowSection()
+    void PostProcessSettingsPanel::DrawSnowSection() const
     {
         OLO_PROFILE_FUNCTION();
 
@@ -501,7 +499,7 @@ namespace OloEngine
         }
     }
 
-    void PostProcessSettingsPanel::DrawWindSection()
+    void PostProcessSettingsPanel::DrawWindSection() const
     {
         OLO_PROFILE_FUNCTION();
 
@@ -560,7 +558,7 @@ namespace OloEngine
         }
     }
 
-    void PostProcessSettingsPanel::DrawSnowAccumulationSection()
+    void PostProcessSettingsPanel::DrawSnowAccumulationSection() const
     {
         OLO_PROFILE_FUNCTION();
 
@@ -588,8 +586,7 @@ namespace OloEngine
 
                 ImGui::SeparatorText("Clipmap");
                 ImGui::DragFloat("Extent (m)##SnowClip", &settings.ClipmapExtent, 1.0f, 1.0f, 500.0f, "%.0f");
-                int rings = static_cast<int>(settings.NumClipmapRings);
-                if (ImGui::SliderInt("Rings##SnowClip", &rings, 1, 3))
+                if (int rings = static_cast<int>(settings.NumClipmapRings); ImGui::SliderInt("Rings##SnowClip", &rings, 1, 3))
                 {
                     settings.NumClipmapRings = static_cast<u32>(rings);
                 }
@@ -604,7 +601,7 @@ namespace OloEngine
         }
     }
 
-    void PostProcessSettingsPanel::DrawSnowEjectaSection()
+    void PostProcessSettingsPanel::DrawSnowEjectaSection() const
     {
         OLO_PROFILE_FUNCTION();
 
@@ -619,8 +616,7 @@ namespace OloEngine
             if (settings.Enabled)
             {
                 ImGui::SeparatorText("Emission");
-                int ppd = static_cast<int>(settings.ParticlesPerDeform);
-                if (ImGui::DragInt("Particles/Stamp##Ejecta", &ppd, 1, 1, 128))
+                if (int ppd = static_cast<int>(settings.ParticlesPerDeform); ImGui::DragInt("Particles/Stamp##Ejecta", &ppd, 1, 1, 128))
                 {
                     settings.ParticlesPerDeform = static_cast<u32>(std::clamp(ppd, 1, 128));
                 }
@@ -671,7 +667,7 @@ namespace OloEngine
         }
     }
 
-    void PostProcessSettingsPanel::DrawPrecipitationSection()
+    void PostProcessSettingsPanel::DrawPrecipitationSection() const
     {
         OLO_PROFILE_FUNCTION();
 
@@ -688,10 +684,9 @@ namespace OloEngine
             const int typeCount = static_cast<int>(typeNames.size());
 
             // Normalize Type into valid range before any use
-            settings.Type = static_cast<PrecipitationType>(std::clamp(static_cast<int>(settings.Type), 0, typeCount - 1));
+            settings.Type = static_cast<PrecipitationType>(std::clamp(static_cast<int>(std::to_underlying(settings.Type)), 0, typeCount - 1));
 
-            int typeIdx = static_cast<int>(settings.Type);
-            if (ImGui::Combo("Type##Precip", &typeIdx, typeNames.data(), typeCount))
+            if (int typeIdx = static_cast<int>(std::to_underlying(settings.Type)); ImGui::Combo("Type##Precip", &typeIdx, typeNames.data(), typeCount))
             {
                 settings.Type = static_cast<PrecipitationType>(std::clamp(typeIdx, 0, typeCount - 1));
             }
@@ -731,8 +726,7 @@ namespace OloEngine
 
                 ImGui::SeparatorText("Emission");
                 settings.BaseEmissionRate = static_cast<u32>(std::clamp(static_cast<int>(settings.BaseEmissionRate), 100, 50000));
-                int baseRate = static_cast<int>(settings.BaseEmissionRate);
-                if (ImGui::DragInt("Base Rate##Precip", &baseRate, 50, 100, 50000))
+                if (int baseRate = static_cast<int>(settings.BaseEmissionRate); ImGui::DragInt("Base Rate##Precip", &baseRate, 50, 100, 50000))
                 {
                     settings.BaseEmissionRate = static_cast<u32>(std::clamp(baseRate, 100, 50000));
                 }
@@ -812,7 +806,7 @@ namespace OloEngine
         }
     }
 
-    void PostProcessSettingsPanel::DrawFogSection()
+    void PostProcessSettingsPanel::DrawFogSection() const
     {
         if (ImGui::CollapsingHeader("Fog & Atmosphere"))
         {
@@ -826,8 +820,7 @@ namespace OloEngine
             {
                 // Fog mode dropdown
                 const char* fogModes[] = { "Linear", "Exponential", "Exponential\xc2\xb2" };
-                int currentMode = static_cast<int>(fog.Mode);
-                if (ImGui::Combo("Fog Mode", &currentMode, fogModes, IM_ARRAYSIZE(fogModes)))
+                if (int currentMode = static_cast<int>(std::to_underlying(fog.Mode)); ImGui::Combo("Fog Mode", &currentMode, fogModes, IM_ARRAYSIZE(fogModes)))
                 {
                     fog.Mode = static_cast<FogMode>(currentMode);
                 }

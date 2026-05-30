@@ -35,7 +35,7 @@ namespace
         vertices.reserve(8);
         for (const auto& p : corners)
         {
-            vertices.push_back(Vertex{ p, glm::vec3(0.0f), glm::vec2(0.0f) });
+            vertices.emplace_back(p, glm::vec3(0.0f), glm::vec2(0.0f));
         }
         indices = {
             // -Z face (normal -Z, CCW from -Z view): 0,3,2 and 0,2,1
@@ -103,7 +103,7 @@ namespace
                     radius * cosTheta,
                     radius * sinTheta * std::sin(phi)
                 };
-                vertices.push_back(Vertex{ p, glm::normalize(p), glm::vec2(0.0f) });
+                vertices.emplace_back(p, glm::normalize(p), glm::vec2(0.0f));
             }
         }
         for (u32 lat = 0; lat < latitudeBands; ++lat)

@@ -378,8 +378,7 @@ namespace OloEngine
         const bool aoNeedsResolvedNormals =
             (postProcessSettings.ActiveAOTechnique == AOTechnique::SSAO && postProcessSettings.SSAOEnabled) ||
             (postProcessSettings.ActiveAOTechnique == AOTechnique::GTAO && postProcessSettings.GTAOEnabled);
-        const bool postNeedsResolvedVelocity = postProcessSettings.MotionBlurEnabled || postProcessSettings.TAAEnabled;
-        if (perSampleLighting && (debugNeedsColour || aoNeedsResolvedNormals || postNeedsResolvedVelocity))
+        if (const bool postNeedsResolvedVelocity = postProcessSettings.MotionBlurEnabled || postProcessSettings.TAAEnabled; perSampleLighting && (debugNeedsColour || aoNeedsResolvedNormals || postNeedsResolvedVelocity))
         {
             m_GBuffer->Resolve();
         }
@@ -388,7 +387,7 @@ namespace OloEngine
         // scene pass still renders into the legacy scene/G-Buffer
         // attachments, but downstream consumers now sample the exported graph
         // textures instead of importing those attachments directly.
-        const auto copySceneExport = [&](const RGTextureHandle handle, const u32 sourceTextureID)
+        const auto copySceneExport = [this, &context](const RGTextureHandle handle, const u32 sourceTextureID)
         {
             if (!handle.IsValid() || sourceTextureID == 0u ||
                 m_FramebufferSpec.Width == 0u || m_FramebufferSpec.Height == 0u)
@@ -436,6 +435,10 @@ namespace OloEngine
             // Forward / Forward+ velocity overlay: mirror the Deferred
             // DebugChannel=5 capability for the forward paths.
             BlitForwardVelocityDebug();
+        }
+        else
+        {
+            // No additional handling required.
         }
     }
 

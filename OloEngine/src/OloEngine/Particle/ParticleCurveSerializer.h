@@ -3,6 +3,7 @@
 #include "OloEngine/Particle/ParticleCurve.h"
 
 #include <algorithm>
+#include <cmath>
 #include <string>
 #include <yaml-cpp/yaml.h>
 
@@ -39,17 +40,23 @@ namespace OloEngine::ParticleCurveSerializer
             {
                 if (auto timeNode = keys[i]["Time"]; timeNode)
                 {
-                    curve.Keys[i].Time = timeNode.as<f32>(curve.Keys[i].Time);
+                    if (f32 t = timeNode.as<f32>(curve.Keys[i].Time); std::isfinite(t))
+                        curve.Keys[i].Time = t;
                 }
                 if (auto valueNode = keys[i]["Value"]; valueNode)
                 {
-                    curve.Keys[i].Value = valueNode.as<f32>(curve.Keys[i].Value);
+                    if (f32 v = valueNode.as<f32>(curve.Keys[i].Value); std::isfinite(v))
+                        curve.Keys[i].Value = v;
                 }
             }
         }
         else if (auto kc = node["KeyCount"]; kc)
         {
             curve.KeyCount = std::min(kc.as<u32>(), static_cast<u32>(curve.Keys.size()));
+        }
+        else
+        {
+            // No additional handling required.
         }
     }
 

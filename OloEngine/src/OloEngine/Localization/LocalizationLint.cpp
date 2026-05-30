@@ -28,8 +28,7 @@ namespace OloEngine
                 if (closing == std::string::npos)
                     break;
                 std::string token = value.substr(i + 1, closing - i - 1);
-                const auto colon = token.find(':');
-                if (colon != std::string::npos)
+                if (const auto colon = token.find(':'); colon != std::string::npos)
                     token.resize(colon);
                 if (!token.empty())
                     out.insert(std::move(token));
@@ -91,7 +90,7 @@ namespace OloEngine
                 auto sortedTokens = [](const std::unordered_set<std::string>& src)
                 {
                     std::vector<std::string> v(src.begin(), src.end());
-                    std::sort(v.begin(), v.end());
+                    std::ranges::sort(v);
                     return v;
                 };
 

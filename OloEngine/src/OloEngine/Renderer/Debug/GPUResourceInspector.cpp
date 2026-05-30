@@ -36,9 +36,9 @@ namespace OloEngine
         {
             std::filesystem::path p(filePath);
             std::string ext = p.extension().string();
-            std::transform(ext.begin(), ext.end(), ext.begin(),
-                           [](unsigned char c)
-                           { return static_cast<char>(std::tolower(c)); });
+            std::ranges::transform(ext, ext.begin(),
+                                   [](unsigned char c)
+                                   { return static_cast<char>(std::tolower(c)); });
             if (ext == ".hdr")
                 return TextureSaveEncoder::Hdr;
             if (ext == ".png")
@@ -164,15 +164,15 @@ namespace OloEngine
 
         if (hadExisting)
         {
-            m_MemoryUsageByType[static_cast<sizet>(oldType)] -= oldMemory;
+            m_MemoryUsageByType[static_cast<sizet>(std::to_underlying(oldType))] -= oldMemory;
             if (oldType != ResourceType::Texture2D)
-                m_ResourceCounts[static_cast<sizet>(oldType)]--;
+                --m_ResourceCounts[static_cast<sizet>(std::to_underlying(oldType))];
         }
 
         m_Resources[rendererID] = std::move(textureInfo);
-        m_MemoryUsageByType[static_cast<sizet>(ResourceType::Texture2D)] += memoryUsage;
+        m_MemoryUsageByType[static_cast<sizet>(std::to_underlying(ResourceType::Texture2D))] += memoryUsage;
         if (!hadExisting || oldType != ResourceType::Texture2D)
-            m_ResourceCounts[static_cast<sizet>(ResourceType::Texture2D)]++;
+            ++m_ResourceCounts[static_cast<sizet>(std::to_underlying(ResourceType::Texture2D))];
     }
 
     void GPUResourceInspector::RegisterTextureCubemap(u32 rendererID, const std::string& name, const std::string& debugName)
@@ -202,15 +202,15 @@ namespace OloEngine
 
         if (hadExisting)
         {
-            m_MemoryUsageByType[static_cast<sizet>(oldType)] -= oldMemory;
+            m_MemoryUsageByType[static_cast<sizet>(std::to_underlying(oldType))] -= oldMemory;
             if (oldType != ResourceType::TextureCubemap)
-                m_ResourceCounts[static_cast<sizet>(oldType)]--;
+                --m_ResourceCounts[static_cast<sizet>(std::to_underlying(oldType))];
         }
 
         m_Resources[rendererID] = std::move(textureInfo);
-        m_MemoryUsageByType[static_cast<sizet>(ResourceType::TextureCubemap)] += memoryUsage;
+        m_MemoryUsageByType[static_cast<sizet>(std::to_underlying(ResourceType::TextureCubemap))] += memoryUsage;
         if (!hadExisting || oldType != ResourceType::TextureCubemap)
-            m_ResourceCounts[static_cast<sizet>(ResourceType::TextureCubemap)]++;
+            ++m_ResourceCounts[static_cast<sizet>(std::to_underlying(ResourceType::TextureCubemap))];
     }
 
     void GPUResourceInspector::RegisterBuffer(u32 rendererID, GLenum target, const std::string& name, const std::string& debugName)
@@ -257,15 +257,15 @@ namespace OloEngine
 
         if (hadExisting)
         {
-            m_MemoryUsageByType[static_cast<sizet>(oldType)] -= oldMemory;
+            m_MemoryUsageByType[static_cast<sizet>(std::to_underlying(oldType))] -= oldMemory;
             if (oldType != bufferType)
-                m_ResourceCounts[static_cast<sizet>(oldType)]--;
+                --m_ResourceCounts[static_cast<sizet>(std::to_underlying(oldType))];
         }
 
         m_Resources[rendererID] = std::move(bufferInfo);
-        m_MemoryUsageByType[static_cast<sizet>(bufferType)] += memoryUsage;
+        m_MemoryUsageByType[static_cast<sizet>(std::to_underlying(bufferType))] += memoryUsage;
         if (!hadExisting || oldType != bufferType)
-            m_ResourceCounts[static_cast<sizet>(bufferType)]++;
+            ++m_ResourceCounts[static_cast<sizet>(std::to_underlying(bufferType))];
     }
 
     void GPUResourceInspector::RegisterFramebuffer(u32 rendererID, const std::string& name, const std::string& debugName)
@@ -295,15 +295,15 @@ namespace OloEngine
 
         if (hadExisting)
         {
-            m_MemoryUsageByType[static_cast<sizet>(oldType)] -= oldMemory;
+            m_MemoryUsageByType[static_cast<sizet>(std::to_underlying(oldType))] -= oldMemory;
             if (oldType != ResourceType::Framebuffer)
-                m_ResourceCounts[static_cast<sizet>(oldType)]--;
+                --m_ResourceCounts[static_cast<sizet>(std::to_underlying(oldType))];
         }
 
         m_Resources[rendererID] = std::move(framebufferInfo);
-        m_MemoryUsageByType[static_cast<sizet>(ResourceType::Framebuffer)] += memoryUsage;
+        m_MemoryUsageByType[static_cast<sizet>(std::to_underlying(ResourceType::Framebuffer))] += memoryUsage;
         if (!hadExisting || oldType != ResourceType::Framebuffer)
-            m_ResourceCounts[static_cast<sizet>(ResourceType::Framebuffer)]++;
+            ++m_ResourceCounts[static_cast<sizet>(std::to_underlying(ResourceType::Framebuffer))];
     }
 
     void GPUResourceInspector::UnregisterResource(u32 rendererID)
@@ -317,8 +317,8 @@ namespace OloEngine
         if (it != m_Resources.end())
         {
             ResourceType type = it->second->m_Type;
-            m_ResourceCounts[static_cast<sizet>(type)]--;
-            m_MemoryUsageByType[static_cast<sizet>(type)] -= it->second->m_MemoryUsage;
+            --m_ResourceCounts[static_cast<sizet>(std::to_underlying(type))];
+            m_MemoryUsageByType[static_cast<sizet>(std::to_underlying(type))] -= it->second->m_MemoryUsage;
             m_Resources.erase(it);
         }
     }
@@ -332,7 +332,7 @@ namespace OloEngine
         // For now, we'll implement basic texture binding detection
         TUniqueLock<FMutex> lock(m_ResourceMutex);
 
-        for (auto& [id, resource] : m_Resources)
+        for (const auto& [id, resource] : m_Resources)
         {
             resource->m_IsBound = false; // Reset binding state
 
@@ -380,7 +380,7 @@ namespace OloEngine
         }
     }
 
-    void GPUResourceInspector::QueryTextureInfo(TextureInfo& info)
+    void GPUResourceInspector::QueryTextureInfo(TextureInfo& info) const
     {
         // Modern OpenGL 4.5+ DSA approach - no texture binding required
         GLint width, height, internalFormat;
@@ -483,7 +483,7 @@ namespace OloEngine
                                                                  info.m_MipLevels);
     }
 
-    void GPUResourceInspector::QueryTextureCubemapInfo(TextureInfo& info)
+    void GPUResourceInspector::QueryTextureCubemapInfo(TextureInfo& info) const
     {
         // Modern OpenGL 4.5+ DSA approach - no texture binding required
         GLint width, height, internalFormat;
@@ -569,7 +569,7 @@ namespace OloEngine
     }
 
     bool GPUResourceInspector::SaveTextureToFile(const TextureInfo& info, const std::string& filePath,
-                                                 u32 mipLevel, u32 faceIndex)
+                                                 u32 mipLevel, u32 faceIndex) const
     {
         OLO_PROFILE_FUNCTION();
 
@@ -744,6 +744,10 @@ namespace OloEngine
             encoderPixels = convertBuffer.data();
             encoderRowStride = static_cast<sizet>(width) * static_cast<sizet>(channels) * sizeof(f32);
         }
+        else
+        {
+            // No additional handling required.
+        }
 
         // Ensure the destination directory exists.
         std::error_code ec;
@@ -828,7 +832,7 @@ namespace OloEngine
         }
     }
 
-    void GPUResourceInspector::QueryBufferInfo(BufferInfo& info)
+    void GPUResourceInspector::QueryBufferInfo(BufferInfo& info) const
     {
         // Save current buffer binding for this target
         GLint previousBinding = 0;
@@ -850,7 +854,7 @@ namespace OloEngine
         glBindBuffer(info.m_Target, previousBinding);
     }
 
-    void GPUResourceInspector::QueryFramebufferInfo(FramebufferInfo& info)
+    void GPUResourceInspector::QueryFramebufferInfo(FramebufferInfo& info) const
     {
         // Save current framebuffer binding
         GLint previousBinding;
@@ -874,7 +878,7 @@ namespace OloEngine
 
             if (attachmentType != GL_NONE)
             {
-                info.m_ColorAttachmentCount++;
+                ++info.m_ColorAttachmentCount;
 
                 GLint internalFormat;
                 glGetFramebufferAttachmentParameteriv(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0 + i,
@@ -966,6 +970,10 @@ namespace OloEngine
                         OLO_CORE_WARN("Sync object wait failed for texture {}", it->m_TextureID);
                         downloadComplete = true; // Force completion to avoid hanging
                     }
+                    else
+                    {
+                        // No additional handling required.
+                    }
                     // GL_TIMEOUT_EXPIRED means not ready yet - continue to next frame
                 }
                 else
@@ -977,9 +985,19 @@ namespace OloEngine
 
                 if (downloadComplete)
                 {
-                    // Find the corresponding texture and complete the download
-                    auto resourceIt = m_Resources.find(it->m_TextureID);
-                    if (resourceIt != m_Resources.end() && resourceIt->second->m_Type == ResourceType::Texture2D)
+                    // Find the corresponding texture and complete the download.
+                    // m_Resources values are std::unique_ptr<ResourceInfo>, so we
+                    // cannot copy the owning pointer to extend lifetime. The
+                    // resource could be erased between unlock and the call below,
+                    // dangling any raw pointer we took out — so hold m_ResourceMutex
+                    // across CompleteTextureDownload. That call writes into the
+                    // preview buffer and does a one-shot PBO map/unmap of at most
+                    // 256×256 RGBA — brief contention is the lesser evil compared
+                    // with a use-after-free.
+                    TUniqueLock<FMutex> lock(m_ResourceMutex);
+                    if (auto resourceIt = m_Resources.find(it->m_TextureID); resourceIt != m_Resources.end() &&
+                                                                             (resourceIt->second->m_Type == ResourceType::Texture2D ||
+                                                                              resourceIt->second->m_Type == ResourceType::TextureCubemap))
                     {
                         auto* texInfo = static_cast<TextureInfo*>(resourceIt->second.get());
                         CompleteTextureDownload(*texInfo, *it);
@@ -1122,7 +1140,7 @@ namespace OloEngine
         RequestTextureDownload(info, info.m_SelectedMipLevel, faceIndex);
     }
 
-    void GPUResourceInspector::UpdateBufferPreview(BufferInfo& info)
+    void GPUResourceInspector::UpdateBufferPreview(BufferInfo& info) const
     {
         if (info.m_ContentPreviewValid)
             return;
@@ -1135,14 +1153,17 @@ namespace OloEngine
         // Bind buffer and map data
         glBindBuffer(info.m_Target, info.m_RendererID);
 
-        u32 previewSize = std::min(info.m_Size, info.m_PreviewSize);
+        // Clamp the copy to what actually remains past the offset so we never
+        // read past the end of the mapped buffer when m_PreviewOffset > 0.
+        const u32 remaining = (info.m_Size > info.m_PreviewOffset) ? (info.m_Size - info.m_PreviewOffset) : 0;
+        const u32 previewSize = std::min(info.m_PreviewSize, remaining);
         info.m_ContentPreview.resize(previewSize);
 
         // Map buffer and copy data
-        void* data = glMapBuffer(info.m_Target, GL_READ_ONLY);
-        if (data)
+        if (const void* data = glMapBuffer(info.m_Target, GL_READ_ONLY); data)
         {
-            memcpy(info.m_ContentPreview.data(), static_cast<const u8*>(data) + info.m_PreviewOffset, previewSize);
+            if (previewSize > 0)
+                memcpy(info.m_ContentPreview.data(), static_cast<const u8*>(data) + info.m_PreviewOffset, previewSize);
             glUnmapBuffer(info.m_Target);
             info.m_ContentPreviewValid = true;
         }
@@ -1159,7 +1180,7 @@ namespace OloEngine
     sizet GPUResourceInspector::GetMemoryUsage(ResourceType type) const
     {
         TUniqueLock<FMutex> lock(m_ResourceMutex);
-        return m_MemoryUsageByType[static_cast<sizet>(type)];
+        return m_MemoryUsageByType[static_cast<sizet>(std::to_underlying(type))];
     }
 
     sizet GPUResourceInspector::GetTotalMemoryUsage() const
@@ -1218,15 +1239,13 @@ namespace OloEngine
         ImGui::SameLine();
 
         const char* typeNames[] = { "All", "Textures", "Cubemaps", "Vertex Buffers", "Index Buffers", "Uniform Buffers", "Framebuffers" };
-        int currentFilter = static_cast<int>(m_FilterType) + 1;
-        if (ImGui::Combo("Type", &currentFilter, typeNames, IM_ARRAYSIZE(typeNames)))
+        if (int currentFilter = static_cast<int>(std::to_underlying(m_FilterType)) + 1; ImGui::Combo("Type", &currentFilter, typeNames, IM_ARRAYSIZE(typeNames)))
         {
             m_FilterType = (currentFilter == 0) ? ResourceType::COUNT : static_cast<ResourceType>(currentFilter - 1);
         }
 
         ImGui::SameLine(); // Create a buffer for InputText (ImGui needs a char buffer)
-        static char searchBuffer[256] = "";
-        if (ImGui::InputText("Search", searchBuffer, sizeof(searchBuffer)))
+        if (static char searchBuffer[256] = ""; ImGui::InputText("Search", searchBuffer, sizeof(searchBuffer)))
         {
             m_SearchFilter = std::string(searchBuffer);
         }
@@ -1338,9 +1357,9 @@ namespace OloEngine
         for (const auto& [id, resource] : m_Resources)
         {
             if (resource->m_IsActive)
-                activeResources++;
+                ++activeResources;
             else
-                inactiveResources++;
+                ++inactiveResources;
         }
 
         ImGui::Text("Total: %u, Active: %u, Inactive: %u", totalResources, activeResources, inactiveResources);
@@ -1362,11 +1381,14 @@ namespace OloEngine
 
             if (!m_SearchFilter.empty())
             {
+                constexpr auto toLowerChar = [](unsigned char c)
+                { return static_cast<char>(std::tolower(c)); };
+
                 std::string searchLower = m_SearchFilter;
-                std::transform(searchLower.begin(), searchLower.end(), searchLower.begin(), ::tolower);
+                std::ranges::transform(searchLower, searchLower.begin(), toLowerChar);
 
                 std::string nameLower = resource->m_Name;
-                std::transform(nameLower.begin(), nameLower.end(), nameLower.begin(), ::tolower);
+                std::ranges::transform(nameLower, nameLower.begin(), toLowerChar);
 
                 if (nameLower.find(searchLower) == std::string::npos)
                     continue;
@@ -1379,7 +1401,7 @@ namespace OloEngine
         }
 
         // Render tree nodes by type
-        for (int i = 0; i < static_cast<int>(ResourceType::COUNT); ++i)
+        for (int i = 0; i < static_cast<int>(std::to_underlying(ResourceType::COUNT)); ++i)
         {
             ResourceType type = static_cast<ResourceType>(i);
             const auto& resources = groupedResources[type];
@@ -1469,6 +1491,10 @@ namespace OloEngine
         else if (resource->m_Type == ResourceType::Framebuffer)
         {
             RenderFramebufferDetails(*static_cast<FramebufferInfo*>(resource));
+        }
+        else
+        {
+            // No additional handling required.
         }
     }
 
@@ -1689,6 +1715,10 @@ namespace OloEngine
                 ImGui::Text("%s", indexString.c_str());
             }
         }
+        else
+        {
+            // No additional handling required.
+        }
 
         ImGui::Separator();
 
@@ -1828,16 +1858,16 @@ namespace OloEngine
         ImGui::Separator();
 
         // Count actual resources in map by type and calculate memory usage
-        std::array<u32, static_cast<sizet>(ResourceType::COUNT)> actualCounts = {};
-        std::array<sizet, static_cast<sizet>(ResourceType::COUNT)> actualMemoryUsage = {};
+        std::array<u32, static_cast<sizet>(std::to_underlying(ResourceType::COUNT))> actualCounts = {};
+        std::array<sizet, static_cast<sizet>(std::to_underlying(ResourceType::COUNT))> actualMemoryUsage = {};
         sizet totalMemory = 0;
 
         {
             TUniqueLock<FMutex> lock(m_ResourceMutex);
             for (const auto& [id, resource] : m_Resources)
             {
-                sizet typeIndex = static_cast<sizet>(resource->m_Type);
-                actualCounts[typeIndex]++;
+                sizet typeIndex = static_cast<sizet>(std::to_underlying(resource->m_Type));
+                ++actualCounts[typeIndex];
                 actualMemoryUsage[typeIndex] += resource->m_MemoryUsage;
                 totalMemory += resource->m_MemoryUsage;
             }
@@ -1847,7 +1877,7 @@ namespace OloEngine
         ImGui::Text("Total Memory: %s", FormatMemorySize(totalMemory).c_str());
 
         // Memory usage by type (only show types that have resources)
-        for (int i = 0; i < static_cast<int>(ResourceType::COUNT); ++i)
+        for (int i = 0; i < static_cast<int>(std::to_underlying(ResourceType::COUNT)); ++i)
         {
             ResourceType type = static_cast<ResourceType>(i);
             u32 count = actualCounts[i];
@@ -2082,7 +2112,7 @@ namespace OloEngine
         while (size >= 1024.0 && unit < 3)
         {
             size /= 1024.0;
-            unit++;
+            ++unit;
         }
 
         std::ostringstream oss;
@@ -2143,7 +2173,7 @@ namespace OloEngine
                 return "Unknown";
         }
     }
-    void GPUResourceInspector::CompleteTextureDownload(TextureInfo& info, const TextureDownloadRequest& request)
+    void GPUResourceInspector::CompleteTextureDownload(TextureInfo& info, const TextureDownloadRequest& request) const
     {
         OLO_CORE_TRACE("Completing texture download for texture {} mip level {}", info.m_RendererID, request.m_MipLevel);
 
@@ -2156,9 +2186,7 @@ namespace OloEngine
         sizet dataSize = width * height * bytesPerPixel;
 
         // Map the buffer to read the data
-        void* data = glMapBufferRange(GL_PIXEL_PACK_BUFFER, 0, dataSize, GL_MAP_READ_BIT);
-
-        if (data != nullptr)
+        if (const void* data = glMapBufferRange(GL_PIXEL_PACK_BUFFER, 0, dataSize, GL_MAP_READ_BIT); data != nullptr)
         {
             // Calculate preview size (limit to reasonable size for UI)
             u32 previewWidth = std::min(width, 256u);
@@ -2198,13 +2226,16 @@ namespace OloEngine
             info.m_PreviewDataValid = true;
 
             OLO_CORE_TRACE("Completed async texture download for texture {} mip level {}", request.m_TextureID, request.m_MipLevel);
+
+            // Unmap only when the buffer was successfully mapped; calling
+            // glUnmapBuffer on an unmapped buffer raises GL_INVALID_OPERATION.
+            glUnmapBuffer(GL_PIXEL_PACK_BUFFER);
         }
         else
         {
             OLO_CORE_ERROR("Failed to map PBO data for texture {}", request.m_TextureID);
         }
-        // Unmap and clean up
-        glUnmapBuffer(GL_PIXEL_PACK_BUFFER);
+        // Clean up
         glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
     }
     sizet GPUResourceInspector::CalculateAccurateTextureMemoryUsage(u32 textureId, GLenum target,

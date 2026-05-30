@@ -1636,8 +1636,7 @@ namespace OloEngine
             ElementType* ElementsData = GetData();
             FCompactHashTableView HashTable = GetHashTableView();
 
-            const SizeType LastElementIndex = this->NumElements - 1;
-            if (ElementIndex == LastElementIndex)
+            if (const SizeType LastElementIndex = this->NumElements - 1; ElementIndex == LastElementIndex)
             {
                 HashTable.Remove(ElementIndex, KeyHash, ElementIndex, KeyHash);
                 ElementsData[LastElementIndex].~ElementType();
@@ -1680,7 +1679,7 @@ namespace OloEngine
                 if (KeyFuncs::Matches(KeyFuncs::GetSetKey(ElementsData[ElementIndex]), Key))
                 {
                     RemoveByIndexAndHash<IsStable>(ElementIndex, KeyHash);
-                    NumRemovedElements++;
+                    ++NumRemovedElements;
 
                     if constexpr (!KeyFuncs::bAllowDuplicateKeys)
                     {

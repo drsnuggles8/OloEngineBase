@@ -1168,8 +1168,7 @@ TEST_F(LowLevelTaskUserDataTest, ConcurrencyLimiterSimulation)
         Task->Init("SimTask", LowLevelTasks::ETaskPriority::Default,
                    [&CompletedCount, &AnyFailure, Task, MaxConcurrency]()
                    {
-                       u32 Slot = static_cast<u32>(reinterpret_cast<uptr>(Task->GetUserData()));
-                       if (Slot >= MaxConcurrency)
+                       if (u32 Slot = static_cast<u32>(reinterpret_cast<uptr>(Task->GetUserData())); Slot >= MaxConcurrency)
                        {
                            AnyFailure.store(true, std::memory_order_release);
                        }
@@ -1184,7 +1183,7 @@ TEST_F(LowLevelTaskUserDataTest, ConcurrencyLimiterSimulation)
     while (LowLevelTasks::FTask* PoppedTask = WorkQueue.Pop())
     {
         u32 Slot = SlotCounter % MaxConcurrency;
-        SlotCounter++;
+        ++SlotCounter;
 
         PoppedTask->SetUserData(reinterpret_cast<void*>(static_cast<uptr>(Slot)));
         LowLevelTasks::TryLaunch(*PoppedTask, LowLevelTasks::EQueuePreference::GlobalQueuePreference, true);
@@ -1473,8 +1472,7 @@ TEST_F(WorkerRestartTest, BackgroundWithNormalAsPrereq)
         auto StartTime = std::chrono::steady_clock::now();
         while (!BackgroundTask.IsCompleted())
         {
-            auto Elapsed = std::chrono::steady_clock::now() - StartTime;
-            if (std::chrono::duration_cast<std::chrono::seconds>(Elapsed).count() > 10)
+            if (auto Elapsed = std::chrono::steady_clock::now() - StartTime; std::chrono::duration_cast<std::chrono::seconds>(Elapsed).count() > 10)
             {
                 FAIL() << "Test is likely deadlocked, aborting.";
                 return;

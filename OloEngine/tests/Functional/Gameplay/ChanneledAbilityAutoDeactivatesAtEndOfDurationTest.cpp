@@ -71,7 +71,7 @@ TEST_F(ChanneledAbilityAutoDeactivatesAtEndOfDurationTest, ChannelRemainingHitsZ
 
     // Right after activation: active, channel timer set, tag granted.
     ASSERT_FALSE(ac.Abilities.empty());
-    auto& ability = ac.Abilities.front();
+    const auto& ability = ac.Abilities.front();
     EXPECT_TRUE(ability.IsActive)
         << "channeled ability didn't enter the active state immediately on activation.";
     EXPECT_NEAR(ability.ChannelRemaining, 0.4f, 1e-3f);

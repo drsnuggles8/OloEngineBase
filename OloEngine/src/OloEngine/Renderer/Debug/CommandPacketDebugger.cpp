@@ -132,7 +132,7 @@ namespace OloEngine
         {
             if (ImGui::BeginMenu("Export"))
             {
-                auto& cm = FrameCaptureManager::GetInstance();
+                const auto& cm = FrameCaptureManager::GetInstance();
                 auto selectedFrame = cm.GetSelectedFrame();
                 u32 frameNum = selectedFrame ? selectedFrame->FrameNumber : 0;
 
@@ -149,7 +149,7 @@ namespace OloEngine
         RenderRecordingToolbar();
         ImGui::Separator();
 
-        auto& captureManager = FrameCaptureManager::GetInstance();
+        const auto& captureManager = FrameCaptureManager::GetInstance();
         auto selectedFrame = captureManager.GetSelectedFrame();
         const CapturedFrameData* selectedFramePtr = selectedFrame ? &*selectedFrame : nullptr;
 
@@ -277,8 +277,7 @@ namespace OloEngine
         auto& captureManager = FrameCaptureManager::GetInstance();
 
         // Refresh cached frames only when generation changes
-        u64 currentGen = captureManager.GetCaptureGeneration();
-        if (currentGen != m_CachedGeneration)
+        if (u64 currentGen = captureManager.GetCaptureGeneration(); currentGen != m_CachedGeneration)
         {
             m_CachedFrames = captureManager.GetCapturedFramesCopy();
             m_CachedFrameCount = m_CachedFrames.size();
@@ -339,7 +338,7 @@ namespace OloEngine
         // View mode selector
         ImGui::Text("View:");
         ImGui::SameLine();
-        i32 viewMode = static_cast<i32>(m_CommandViewMode);
+        i32 viewMode = std::to_underlying(m_CommandViewMode);
         ImGui::RadioButton("Pre-Sort", &viewMode, 0);
         ImGui::SameLine();
         ImGui::RadioButton("Post-Sort", &viewMode, 1);
@@ -545,6 +544,10 @@ namespace OloEngine
                     RenderDrawMeshInstancedDetail(*meshCmd, frame);
             }
         }
+        else
+        {
+            // No additional handling required.
+        }
 
         // Render state for commands that have one
         const PODRenderState* state = GetRenderStateFromCommand(cmd, frame);
@@ -552,8 +555,10 @@ namespace OloEngine
             RenderPODRenderStateDetail(*state);
     }
 
-    void CommandPacketDebugger::RenderDrawMeshDetail(const DrawMeshCommand& cmd, const CapturedFrameData* frame)
+    void CommandPacketDebugger::RenderDrawMeshDetail(const DrawMeshCommand& cmd, const CapturedFrameData* frame) const
     {
+        OLO_PROFILE_FUNCTION();
+
         ImGui::Text("Mesh Handle: %llu", static_cast<u64>(cmd.meshHandle));
         ImGui::Text("VAO: %u", cmd.vertexArrayID);
         ImGui::Text("Index Count: %u", cmd.indexCount);
@@ -603,7 +608,7 @@ namespace OloEngine
         }
     }
 
-    void CommandPacketDebugger::RenderDrawMeshInstancedDetail(const DrawMeshInstancedCommand& cmd, const CapturedFrameData* frame)
+    void CommandPacketDebugger::RenderDrawMeshInstancedDetail(const DrawMeshInstancedCommand& cmd, const CapturedFrameData* frame) const
     {
         ImGui::Text("Mesh Handle: %llu", static_cast<u64>(cmd.meshHandle));
         ImGui::Text("VAO: %u", cmd.vertexArrayID);
@@ -616,7 +621,7 @@ namespace OloEngine
         ImGui::Text("Material Data Index: %u", cmd.materialDataIndex);
     }
 
-    void CommandPacketDebugger::RenderPODRenderStateDetail(const PODRenderState& state)
+    void CommandPacketDebugger::RenderPODRenderStateDetail(const PODRenderState& state) const
     {
         if (ImGui::TreeNode("Blend"))
         {
@@ -680,8 +685,10 @@ namespace OloEngine
     // Sort Analysis Tab
     // ========================================================================
 
-    void CommandPacketDebugger::RenderSortAnalysis(const CapturedFrameData* frame)
+    void CommandPacketDebugger::RenderSortAnalysis(const CapturedFrameData* frame) const
     {
+        OLO_PROFILE_FUNCTION();
+
         if (!frame)
         {
             ImGui::TextColored(DebugUtils::Colors::Warning, "No frame selected.");
@@ -757,8 +764,10 @@ namespace OloEngine
     // State Change Delta Tab
     // ========================================================================
 
-    void CommandPacketDebugger::RenderStateChanges(const CapturedFrameData* frame)
+    void CommandPacketDebugger::RenderStateChanges(const CapturedFrameData* frame) const
     {
+        OLO_PROFILE_FUNCTION();
+
         if (!frame)
         {
             ImGui::TextColored(DebugUtils::Colors::Warning, "No frame selected.");
@@ -797,7 +806,7 @@ namespace OloEngine
             // Shader change (from DrawKey)
             if (prev.GetSortKey().GetShaderID() != curr.GetSortKey().GetShaderID())
             {
-                shaderChanges++;
+                ++shaderChanges;
                 changeLog.push_back({ i - 1, i,
                                       "Shader: " + std::to_string(prev.GetSortKey().GetShaderID()) + " -> " + std::to_string(curr.GetSortKey().GetShaderID()) });
             }
@@ -805,7 +814,7 @@ namespace OloEngine
             // Material change (from DrawKey)
             if (prev.GetSortKey().GetMaterialID() != curr.GetSortKey().GetMaterialID())
             {
-                materialChanges++;
+                ++materialChanges;
             }
 
             // Compare PODRenderState using the unified extractor
@@ -818,17 +827,17 @@ namespace OloEngine
                         prevState->blendSrcFactor != currState->blendSrcFactor ||
                         prevState->blendDstFactor != currState->blendDstFactor)
                     {
-                        blendChanges++;
+                        ++blendChanges;
                     }
                     if (prevState->depthTestEnabled != currState->depthTestEnabled ||
                         prevState->depthFunction != currState->depthFunction)
                     {
-                        depthChanges++;
+                        ++depthChanges;
                     }
                     if (prevState->polygonMode != currState->polygonMode ||
                         prevState->cullingEnabled != currState->cullingEnabled)
                     {
-                        polygonChanges++;
+                        ++polygonChanges;
                     }
                 }
             }
@@ -873,8 +882,10 @@ namespace OloEngine
     // Batching Analysis Tab
     // ========================================================================
 
-    void CommandPacketDebugger::RenderBatchingAnalysis(const CapturedFrameData* frame)
+    void CommandPacketDebugger::RenderBatchingAnalysis(const CapturedFrameData* frame) const
     {
+        OLO_PROFILE_FUNCTION();
+
         if (!frame)
         {
             ImGui::TextColored(DebugUtils::Colors::Warning, "No frame selected.");
@@ -905,7 +916,7 @@ namespace OloEngine
                         prev.GetSortKey().GetShaderID() == curr.GetSortKey().GetShaderID() &&
                         prev.GetSortKey().GetMaterialID() == curr.GetSortKey().GetMaterialID())
                     {
-                        missedBatches++;
+                        ++missedBatches;
                     }
                 }
                 ImGui::Text("Potential batch merges (same shader+material): %u", missedBatches);
@@ -933,7 +944,7 @@ namespace OloEngine
         {
             if (cmd.GetCommandType() == CommandType::DrawMeshInstanced)
             {
-                instancedCount++;
+                ++instancedCount;
                 if (const auto* instCmd = cmd.GetCommandData<DrawMeshInstancedCommand>())
                     totalInstances += instCmd->instanceCount;
             }
@@ -1073,7 +1084,7 @@ namespace OloEngine
     // Live View (fallback when no captures exist)
     // ========================================================================
 
-    void CommandPacketDebugger::RenderLiveView(const CommandBucket* bucket)
+    void CommandPacketDebugger::RenderLiveView(const CommandBucket* bucket) const
     {
         ImGui::TextColored(DebugUtils::Colors::Info,
                            "No captured frames. Use the toolbar above to capture frames for analysis.");
@@ -1166,7 +1177,7 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        auto& captureManager = FrameCaptureManager::GetInstance();
+        const auto& captureManager = FrameCaptureManager::GetInstance();
         auto selectedFrame = captureManager.GetSelectedFrame();
 
         if (!selectedFrame)
@@ -1224,7 +1235,7 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        auto& captureManager = FrameCaptureManager::GetInstance();
+        const auto& captureManager = FrameCaptureManager::GetInstance();
         auto selectedFrame = captureManager.GetSelectedFrame();
 
         if (!selectedFrame)
@@ -1311,7 +1322,7 @@ namespace OloEngine
                     totalDisplacement += displacement;
                     maxDisplacement = std::max(maxDisplacement, displacement);
                     if (displacement > 0)
-                        movedCount++;
+                        ++movedCount;
                 }
 
                 f64 avgDisplacement = post.empty() ? 0.0 : totalDisplacement / post.size();
@@ -1339,9 +1350,9 @@ namespace OloEngine
                     const auto& curr = commands[i];
 
                     if (prev.GetSortKey().GetShaderID() != curr.GetSortKey().GetShaderID())
-                        shaderChanges++;
+                        ++shaderChanges;
                     if (prev.GetSortKey().GetMaterialID() != curr.GetSortKey().GetMaterialID())
-                        materialChanges++;
+                        ++materialChanges;
 
                     // Compare PODRenderState using the unified extractor
                     {
@@ -1351,10 +1362,10 @@ namespace OloEngine
                         {
                             if (prevState->blendEnabled != currState->blendEnabled ||
                                 prevState->blendSrcFactor != currState->blendSrcFactor)
-                                blendChanges++;
+                                ++blendChanges;
                             if (prevState->depthTestEnabled != currState->depthTestEnabled ||
                                 prevState->depthFunction != currState->depthFunction)
-                                depthChanges++;
+                                ++depthChanges;
                         }
                     }
                 }
@@ -1398,7 +1409,7 @@ namespace OloEngine
                         prev.GetSortKey().GetShaderID() == curr.GetSortKey().GetShaderID() &&
                         prev.GetSortKey().GetMaterialID() == curr.GetSortKey().GetMaterialID())
                     {
-                        potentialMerges++;
+                        ++potentialMerges;
                     }
                 }
                 if (potentialMerges > 0)
@@ -1448,6 +1459,10 @@ namespace OloEngine
                         file << "- VAO: " << instCmd->vertexArrayID << ", Index Count: " << instCmd->indexCount << "\n\n";
                     }
                 }
+                else
+                {
+                    // No additional handling required.
+                }
             }
 
             // GPU timing section
@@ -1496,7 +1511,7 @@ namespace OloEngine
                 for (u32 i = 1; i < static_cast<u32>(commands.size()); ++i)
                 {
                     if (commands[i - 1].GetSortKey().GetShaderID() != commands[i].GetSortKey().GetShaderID())
-                        shaderChanges++;
+                        ++shaderChanges;
                 }
                 f32 changeRatio = static_cast<f32>(shaderChanges) / static_cast<f32>(commands.size() - 1);
                 if (changeRatio > 0.5f)
@@ -1548,7 +1563,7 @@ namespace OloEngine
                         if (const auto* meshCmd = cmd.GetCommandData<DrawMeshCommand>())
                         {
                             if (meshCmd->indexCount < 100)
-                                smallDraws++;
+                                ++smallDraws;
                         }
                     }
                 }

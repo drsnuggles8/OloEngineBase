@@ -21,7 +21,7 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
         // Initialize performance counters
-        for (u32 i = 0; i < (u32)MetricType::COUNT; ++i)
+        for (u32 i = 0; i < static_cast<u32>(std::to_underlying(MetricType::COUNT)); ++i)
         {
             m_Counters[(MetricType)i] = PerformanceCounter{};
             m_Counters[(MetricType)i].Reset(); // sets m_Min = DBL_MAX etc.
@@ -72,7 +72,7 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
         m_FrameStartTime = std::chrono::high_resolution_clock::now();
-        m_FrameNumber++;
+        ++m_FrameNumber;
 
         // Calculate frame time from previous frame
         auto frameTime = std::chrono::duration<f64, std::milli>(m_FrameStartTime - m_LastFrameTime).count();
@@ -148,6 +148,10 @@ namespace OloEngine
             m_CurrentFrame.m_SortingTime += timeMs;
         else if (type == MetricType::CullingTime)
             m_CurrentFrame.m_CullingTime += timeMs;
+        else
+        {
+            // No additional handling required.
+        }
     }
 
     void RendererProfiler::IncrementCounter(MetricType type, u32 value)
@@ -293,7 +297,7 @@ namespace OloEngine
         }
     }
 
-    void RendererProfiler::RenderOverviewTab()
+    void RendererProfiler::RenderOverviewTab() const
     {
         // Frame rate and timing overview
         f32 currentFPS = CalculateFrameRate();
@@ -375,7 +379,7 @@ namespace OloEngine
         }
     }
 
-    void RendererProfiler::RenderDetailedTimingTab()
+    void RendererProfiler::RenderDetailedTimingTab() const
     {
         ImGui::Text("Custom Timing Samples:");
 
@@ -412,7 +416,7 @@ namespace OloEngine
         }
     }
 
-    void RendererProfiler::RenderBottleneckAnalysisTab()
+    void RendererProfiler::RenderBottleneckAnalysisTab() const
     {
         if (m_AutoAnalyzeBottlenecks)
         {
@@ -495,7 +499,7 @@ namespace OloEngine
             ImGui::TableSetupColumn("Samples", ImGuiTableColumnFlags_WidthFixed, 80.0f);
             ImGui::TableHeadersRow();
 
-            for (u32 i = 0; i < (u32)MetricType::COUNT; ++i)
+            for (u32 i = 0; i < static_cast<u32>(std::to_underlying(MetricType::COUNT)); ++i)
             {
                 MetricType type = (MetricType)i;
                 const auto& counter = m_Counters.at(type);
@@ -789,7 +793,7 @@ namespace OloEngine
     void RendererProfiler::PerformanceCounter::AddSample(f64 value)
     {
         m_Value = value;
-        m_SampleCount++;
+        ++m_SampleCount;
 
         if (value < m_Min)
             m_Min = value;
@@ -811,7 +815,7 @@ namespace OloEngine
 
         // Track how many valid samples we have (up to buffer size)
         if (m_HistoryCount < OLO_HISTORY_SIZE)
-            m_HistoryCount++;
+            ++m_HistoryCount;
     }
     void RendererProfiler::PerformanceCounter::Reset()
     {
@@ -968,7 +972,7 @@ namespace OloEngine
         drawCall.m_GPUTime = gpuTime;
 
         m_CurrentRenderPass->m_DrawCalls.push_back(drawCall);
-        m_CurrentRenderPass->m_DrawCallCount++;
+        ++m_CurrentRenderPass->m_DrawCallCount;
 
         OLO_CORE_TRACE("RendererProfiler: Tracked draw call '{}' with shader '{}' - {} verts, {} indices",
                        name, shaderName, vertexCount, indexCount);
@@ -1195,8 +1199,7 @@ namespace OloEngine
                 ImGui::TableSetColumnIndex(1);
                 ImGui::Text("%.2fms", frame1.m_FrameData.m_FrameTime);
                 ImGui::TableSetColumnIndex(2);
-                f64 frameTimeDiff = frame2.m_FrameData.m_FrameTime - frame1.m_FrameData.m_FrameTime;
-                if (frameTimeDiff > 0.5f)
+                if (f64 frameTimeDiff = frame2.m_FrameData.m_FrameTime - frame1.m_FrameData.m_FrameTime; frameTimeDiff > 0.5f)
                     ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "%.2fms (+%.2f)", frame2.m_FrameData.m_FrameTime, frameTimeDiff);
                 else if (frameTimeDiff < -0.5f)
                     ImGui::TextColored(ImVec4(0.4f, 1.0f, 0.4f, 1.0f), "%.2fms (%.2f)", frame2.m_FrameData.m_FrameTime, frameTimeDiff);
@@ -1210,8 +1213,7 @@ namespace OloEngine
                 ImGui::TableSetColumnIndex(1);
                 ImGui::Text("%u", frame1.m_FrameData.m_DrawCalls);
                 ImGui::TableSetColumnIndex(2);
-                i32 drawCallDiff = (i32)frame2.m_FrameData.m_DrawCalls - (i32)frame1.m_FrameData.m_DrawCalls;
-                if (drawCallDiff > 0)
+                if (i32 drawCallDiff = (i32)frame2.m_FrameData.m_DrawCalls - (i32)frame1.m_FrameData.m_DrawCalls; drawCallDiff > 0)
                     ImGui::TextColored(ImVec4(1.0f, 0.6f, 0.4f, 1.0f), "%u (+%d)", frame2.m_FrameData.m_DrawCalls, drawCallDiff);
                 else if (drawCallDiff < 0)
                     ImGui::TextColored(ImVec4(0.4f, 1.0f, 0.4f, 1.0f), "%u (%d)", frame2.m_FrameData.m_DrawCalls, drawCallDiff);
@@ -1225,8 +1227,7 @@ namespace OloEngine
                 ImGui::TableSetColumnIndex(1);
                 ImGui::Text("%u", frame1.m_FrameData.m_VerticesRendered);
                 ImGui::TableSetColumnIndex(2);
-                i32 vertexDiff = (i32)frame2.m_FrameData.m_VerticesRendered - (i32)frame1.m_FrameData.m_VerticesRendered;
-                if (vertexDiff > 0)
+                if (i32 vertexDiff = (i32)frame2.m_FrameData.m_VerticesRendered - (i32)frame1.m_FrameData.m_VerticesRendered; vertexDiff > 0)
                     ImGui::TextColored(ImVec4(1.0f, 0.6f, 0.4f, 1.0f), "%u (+%d)", frame2.m_FrameData.m_VerticesRendered, vertexDiff);
                 else if (vertexDiff < 0)
                     ImGui::TextColored(ImVec4(0.4f, 1.0f, 0.4f, 1.0f), "%u (%d)", frame2.m_FrameData.m_VerticesRendered, vertexDiff);
@@ -1259,8 +1260,7 @@ namespace OloEngine
             "list refreshes every frame while enabled.");
         ImGui::Spacing();
 
-        bool recording = m_RecordInstancedDraws;
-        if (ImGui::Checkbox("Record Instanced Draws", &recording))
+        if (bool recording = m_RecordInstancedDraws; ImGui::Checkbox("Record Instanced Draws", &recording))
         {
             m_RecordInstancedDraws = recording;
             if (!recording)
@@ -1312,6 +1312,10 @@ namespace OloEngine
             {
                 ++gpuCullCalls;
                 gpuCullInstances += rec.m_InstanceCount;
+            }
+            else
+            {
+                // No additional handling required.
             }
         }
         ImGui::Text("Total instances across these draws: %u", totalInstances);

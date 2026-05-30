@@ -336,6 +336,11 @@ namespace OloEngine
                             {
                                 node.Properties[propKey] = propVal.as<std::string>();
                             }
+                            else
+                            {
+                                OLO_CORE_WARN("DialogueTreeSerializer - Skipping property '{}' on node {} ('{}'): unexpected value shape (expected a scalar or a map with 'type'/'value' keys)",
+                                              propKey, static_cast<u64>(node.ID), node.Name);
+                            }
                         }
                         catch (const YAML::Exception& e)
                         {

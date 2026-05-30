@@ -4,6 +4,7 @@
 #include "OloEngine/Serialization/Archive.h"
 
 #include <string>
+#include <utility>
 
 namespace OloEngine
 {
@@ -100,7 +101,7 @@ namespace OloEngine
 
         void SetCompression(SaveGameCompression compression)
         {
-            Flags = (Flags & ~0xFFu) | static_cast<u32>(compression);
+            Flags = (Flags & ~0xFFu) | std::to_underlying(compression);
         }
     };
 #pragma pack(pop)

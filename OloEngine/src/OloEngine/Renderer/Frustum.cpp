@@ -39,13 +39,13 @@ namespace OloEngine
 
     bool Frustum::IsPointVisible(const glm::vec3& point) const
     {
-        return std::ranges::all_of(m_Planes, [&](const auto& plane)
+        return std::ranges::all_of(m_Planes, [&point](const auto& plane)
                                    { return plane.GetSignedDistance(point) >= 0.0f; });
     }
 
     bool Frustum::IsSphereVisible(const glm::vec3& center, f32 radius) const
     {
-        return std::ranges::all_of(m_Planes, [&](const auto& plane)
+        return std::ranges::all_of(m_Planes, [&center, &radius](const auto& plane)
                                    { return plane.GetSignedDistance(center) >= -radius; });
     }
 

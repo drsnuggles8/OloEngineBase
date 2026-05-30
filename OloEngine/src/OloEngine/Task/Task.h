@@ -90,7 +90,7 @@ namespace OloEngine::Tasks
             }
 
             // @brief Try to retract and execute inline
-            bool TryRetractAndExecute()
+            bool TryRetractAndExecute() const
             {
                 if (IsValid())
                 {
@@ -204,7 +204,7 @@ namespace OloEngine::Tasks
       public:
         TTask() = default;
 
-        void GetResult()
+        void GetResult() const
         {
             OLO_CORE_ASSERT(IsValid(), "Cannot get result from invalid task");
             Wait();
@@ -239,7 +239,7 @@ namespace OloEngine::Tasks
             Pimpl->AddPrerequisites(Prerequisites);
         }
 
-        void Trigger()
+        void Trigger() const
         {
             if (!IsCompleted())
             {
@@ -479,7 +479,7 @@ namespace OloEngine::Tasks
     {
         return Launch(
             "CompletedTask",
-            [&]()
+            [&Args...]()
             { return ResultType(Forward<ArgTypes>(Args)...); },
             ETaskPriority::Default,
             EExtendedTaskPriority::Inline);

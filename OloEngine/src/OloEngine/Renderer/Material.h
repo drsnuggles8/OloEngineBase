@@ -12,6 +12,7 @@
 #include <algorithm>
 #include <cmath>
 #include <string>
+#include <utility>
 
 namespace OloEngine
 {
@@ -170,7 +171,7 @@ namespace OloEngine
 
         virtual bool GetFlag(MaterialFlag flag) const
         {
-            return (static_cast<u32>(flag) & m_MaterialFlags) != 0;
+            return (std::to_underlying(flag) & m_MaterialFlags) != 0;
         }
         virtual void SetFlag(MaterialFlag flag, bool value = true);
 
@@ -402,7 +403,7 @@ namespace OloEngine
         {
             return AssetType::Material;
         }
-        virtual AssetType GetAssetType() const override
+        AssetType GetAssetType() const override
         {
             return GetStaticType();
         }
@@ -474,7 +475,7 @@ namespace OloEngine
       protected:
         Ref<OloEngine::Shader> m_Shader;
         std::string m_Name;
-        u32 m_MaterialFlags = static_cast<u32>(MaterialFlag::DepthTest);
+        u32 m_MaterialFlags = std::to_underlying(MaterialFlag::DepthTest);
 
         // Material properties storage (uniform system)
         // Using TMap for better cache performance on hot path (every draw call)

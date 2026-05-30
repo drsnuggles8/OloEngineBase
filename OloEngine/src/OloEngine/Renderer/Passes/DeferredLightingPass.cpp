@@ -47,9 +47,7 @@ namespace OloEngine
             return;
 
         m_UseMSAAShading = m_PerSampleLighting && m_GBuffer->GetSampleCount() > 1u && static_cast<bool>(m_ShaderMSAA);
-        const bool useMSAAShading = m_UseMSAAShading;
-
-        if (useMSAAShading)
+        if (const bool useMSAAShading = m_UseMSAAShading)
         {
             m_SelectedInputs.GBufferAlbedo = blackboard.GBuffer.GBufferAlbedoMS;
             m_SelectedInputs.GBufferNormal = blackboard.GBuffer.GBufferNormalMS;
@@ -370,8 +368,7 @@ namespace OloEngine
         // the same depth values deferred geometry wrote. Without this the
         // scene FB depth attachment remains at whatever clear value it had
         // and downstream depth tests/samples are meaningless in Deferred.
-        auto const& samplingFB = m_GBuffer->GetSamplingFramebuffer();
-        if (samplingFB)
+        if (auto const& samplingFB = m_GBuffer->GetSamplingFramebuffer())
         {
             const u32 samplingFBID = samplingFB->GetRendererID();
             glBlitNamedFramebuffer(
@@ -394,7 +391,7 @@ namespace OloEngine
             // require GL_NEAREST (per the GL 4.6 spec); MSAA → single-
             // sample resolution takes sample 0, which is correct for
             // discrete entity IDs.
-            glNamedFramebufferReadBuffer(samplingFBID, GL_COLOR_ATTACHMENT0 + static_cast<GLenum>(GBuffer::EntityID));
+            glNamedFramebufferReadBuffer(samplingFBID, GL_COLOR_ATTACHMENT0 + static_cast<GLenum>(std::to_underlying(GBuffer::EntityID)));
             glNamedFramebufferDrawBuffer(sceneFBID, GL_COLOR_ATTACHMENT1);
             glBlitNamedFramebuffer(
                 samplingFBID, sceneFBID,

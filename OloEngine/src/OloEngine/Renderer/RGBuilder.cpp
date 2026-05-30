@@ -48,13 +48,12 @@ namespace OloEngine
                    declaration.Range.SliceCount == range.SliceCount;
         };
 
-        if (const auto existingIt = std::find_if(m_DeclaredFeedbacks.begin(),
-                                                 m_DeclaredFeedbacks.end(),
-                                                 [resourceName, &sameRange](const RGFeedbackDeclaration& declaration)
-                                                 {
-                                                     return declaration.ResourceName == resourceName &&
-                                                            sameRange(declaration);
-                                                 });
+        if (const auto existingIt = std::ranges::find_if(m_DeclaredFeedbacks,
+                                                         [resourceName, &sameRange](const RGFeedbackDeclaration& declaration)
+                                                         {
+                                                             return declaration.ResourceName == resourceName &&
+                                                                    sameRange(declaration);
+                                                         });
             existingIt != m_DeclaredFeedbacks.end())
         {
             return;
@@ -71,9 +70,7 @@ namespace OloEngine
         if (passName.empty())
             return;
 
-        if (const auto alreadyDeclared = std::find(m_DeclaredPassDependencies.begin(),
-                                                   m_DeclaredPassDependencies.end(),
-                                                   passName);
+        if (const auto alreadyDeclared = std::ranges::find(m_DeclaredPassDependencies, passName);
             alreadyDeclared == m_DeclaredPassDependencies.end())
         {
             m_DeclaredPassDependencies.emplace_back(passName);
@@ -101,8 +98,7 @@ namespace OloEngine
         if (resourceName.empty())
             return;
 
-        const auto alreadyDeclared = std::find(m_DeclaredReads.begin(), m_DeclaredReads.end(), resourceName);
-        if (alreadyDeclared == m_DeclaredReads.end())
+        if (const auto alreadyDeclared = std::ranges::find(m_DeclaredReads, resourceName); alreadyDeclared == m_DeclaredReads.end())
             m_DeclaredReads.emplace_back(resourceName);
 
         m_DeclaredAccesses.push_back(RGAccessDeclaration{
@@ -123,8 +119,7 @@ namespace OloEngine
         if (resourceName.empty())
             return;
 
-        const auto alreadyDeclared = std::find(m_DeclaredWrites.begin(), m_DeclaredWrites.end(), resourceName);
-        if (alreadyDeclared == m_DeclaredWrites.end())
+        if (const auto alreadyDeclared = std::ranges::find(m_DeclaredWrites, resourceName); alreadyDeclared == m_DeclaredWrites.end())
             m_DeclaredWrites.emplace_back(resourceName);
 
         m_DeclaredAccesses.push_back(RGAccessDeclaration{
@@ -150,8 +145,7 @@ namespace OloEngine
         // full implementation will populate m_Graph's dependency DAG.
         OLO_CORE_ASSERT(handle.IsValid(), "Cannot read an invalid texture handle");
 
-        const auto resourceName = m_Graph.GetResourceName(handle);
-        if (resourceName.empty())
+        if (const auto resourceName = m_Graph.GetResourceName(handle); resourceName.empty())
         {
             OLO_CORE_ERROR("RGBuilder::Read: pass='{}' texture handle (idx={}, gen={}) resolved to empty resource name — handle is stale or resource was never imported",
                            m_CurrentPassName, handle.Index, handle.Generation);
@@ -187,8 +181,7 @@ namespace OloEngine
     {
         OLO_CORE_ASSERT(handle.IsValid(), "Cannot read an invalid framebuffer handle");
 
-        const auto resourceName = m_Graph.GetResourceName(handle);
-        if (resourceName.empty())
+        if (const auto resourceName = m_Graph.GetResourceName(handle); resourceName.empty())
         {
             OLO_CORE_ERROR("RGBuilder::Read: pass='{}' framebuffer handle (idx={}, gen={}) resolved to empty resource name — handle is stale or resource was never imported",
                            m_CurrentPassName, handle.Index, handle.Generation);
@@ -208,8 +201,7 @@ namespace OloEngine
     {
         OLO_CORE_ASSERT(handle.IsValid(), "Cannot read an invalid buffer handle");
 
-        const auto resourceName = m_Graph.GetResourceName(handle);
-        if (resourceName.empty())
+        if (const auto resourceName = m_Graph.GetResourceName(handle); resourceName.empty())
         {
             OLO_CORE_ERROR("RGBuilder::Read: pass='{}' buffer handle (idx={}, gen={}) resolved to empty resource name — handle is stale or resource was never imported",
                            m_CurrentPassName, handle.Index, handle.Generation);
@@ -234,8 +226,7 @@ namespace OloEngine
     {
         OLO_CORE_ASSERT(handle.IsValid(), "Cannot write an invalid texture handle");
 
-        const auto resourceName = m_Graph.GetResourceName(handle);
-        if (resourceName.empty())
+        if (const auto resourceName = m_Graph.GetResourceName(handle); resourceName.empty())
         {
             OLO_CORE_ERROR("RGBuilder::Write: pass='{}' texture handle (idx={}, gen={}) resolved to empty resource name — handle is stale or resource was never imported",
                            m_CurrentPassName, handle.Index, handle.Generation);
@@ -256,8 +247,7 @@ namespace OloEngine
     {
         OLO_CORE_ASSERT(handle.IsValid(), "Cannot write an invalid framebuffer handle");
 
-        const auto resourceName = m_Graph.GetResourceName(handle);
-        if (resourceName.empty())
+        if (const auto resourceName = m_Graph.GetResourceName(handle); resourceName.empty())
         {
             OLO_CORE_ERROR("RGBuilder::Write: pass='{}' framebuffer handle (idx={}, gen={}) resolved to empty resource name — handle is stale or resource was never imported",
                            m_CurrentPassName, handle.Index, handle.Generation);
@@ -276,8 +266,7 @@ namespace OloEngine
     {
         OLO_CORE_ASSERT(handle.IsValid(), "Cannot write an invalid buffer handle");
 
-        const auto resourceName = m_Graph.GetResourceName(handle);
-        if (resourceName.empty())
+        if (const auto resourceName = m_Graph.GetResourceName(handle); resourceName.empty())
         {
             OLO_CORE_ERROR("RGBuilder::Write: pass='{}' buffer handle (idx={}, gen={}) resolved to empty resource name — handle is stale or resource was never imported",
                            m_CurrentPassName, handle.Index, handle.Generation);
@@ -520,8 +509,7 @@ namespace OloEngine
     {
         OLO_CORE_ASSERT(sourceHandle.IsValid(), "Cannot register an external sink from an invalid texture handle");
 
-        const auto resourceName = m_Graph.GetResourceName(sourceHandle);
-        if (resourceName.empty())
+        if (const auto resourceName = m_Graph.GetResourceName(sourceHandle); resourceName.empty())
         {
             OLO_CORE_ERROR("RGBuilder::RegisterExternalTextureSink: pass='{}' texture handle (idx={}, gen={}) resolved to empty resource name — handle is stale or resource was never imported",
                            m_CurrentPassName, sourceHandle.Index, sourceHandle.Generation);
@@ -541,8 +529,7 @@ namespace OloEngine
     {
         OLO_CORE_ASSERT(sourceHandle.IsValid(), "Cannot register an external sink from an invalid framebuffer handle");
 
-        const auto resourceName = m_Graph.GetResourceName(sourceHandle);
-        if (resourceName.empty())
+        if (const auto resourceName = m_Graph.GetResourceName(sourceHandle); resourceName.empty())
         {
             OLO_CORE_ERROR("RGBuilder::RegisterExternalTextureSink: pass='{}' framebuffer handle (idx={}, gen={}) resolved to empty resource name — handle is stale or resource was never imported",
                            m_CurrentPassName, sourceHandle.Index, sourceHandle.Generation);
@@ -558,8 +545,7 @@ namespace OloEngine
     {
         OLO_CORE_ASSERT(sourceHandle.IsValid(), "Cannot extract history from an invalid texture handle");
 
-        const auto resourceName = m_Graph.GetResourceName(sourceHandle);
-        if (resourceName.empty())
+        if (const auto resourceName = m_Graph.GetResourceName(sourceHandle); resourceName.empty())
         {
             OLO_CORE_ERROR("RGBuilder::ExtractHistoryTexture: pass='{}' texture handle (idx={}, gen={}) resolved to empty resource name — handle is stale or resource was never imported",
                            m_CurrentPassName, sourceHandle.Index, sourceHandle.Generation);
@@ -576,8 +562,7 @@ namespace OloEngine
     {
         OLO_CORE_ASSERT(sourceHandle.IsValid(), "Cannot extract history from an invalid framebuffer handle");
 
-        const auto resourceName = m_Graph.GetResourceName(sourceHandle);
-        if (resourceName.empty())
+        if (const auto resourceName = m_Graph.GetResourceName(sourceHandle); resourceName.empty())
         {
             OLO_CORE_ERROR("RGBuilder::ExtractHistoryTexture: pass='{}' framebuffer handle (idx={}, gen={}) resolved to empty resource name — handle is stale or resource was never imported",
                            m_CurrentPassName, sourceHandle.Index, sourceHandle.Generation);

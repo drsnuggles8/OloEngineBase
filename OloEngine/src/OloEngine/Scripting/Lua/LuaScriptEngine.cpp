@@ -157,8 +157,7 @@ namespace OloEngine
 
         // Call OnCreate if it exists — store instance only on success so
         // half-initialised scripts don't receive OnUpdate.
-        sol::optional<sol::protected_function> onCreate = scriptTable["OnCreate"];
-        if (onCreate)
+        if (sol::optional<sol::protected_function> onCreate = scriptTable["OnCreate"]; onCreate)
         {
             sol::protected_function_result createResult = onCreate.value()(entityID);
             if (!createResult.valid())

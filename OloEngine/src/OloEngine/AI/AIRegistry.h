@@ -30,8 +30,7 @@ namespace OloEngine
         static Ref<BTNode> Create(const std::string& typeName)
         {
             auto& factories = GetFactories();
-            auto it = factories.find(typeName);
-            if (it != factories.end())
+            if (auto it = factories.find(typeName); it != factories.end())
             {
                 return it->second();
             }
@@ -76,8 +75,7 @@ namespace OloEngine
         static Ref<FSMState> Create(const std::string& typeName)
         {
             auto& factories = GetFactories();
-            auto it = factories.find(typeName);
-            if (it != factories.end())
+            if (auto it = factories.find(typeName); it != factories.end())
             {
                 return it->second();
             }

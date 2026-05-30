@@ -158,8 +158,8 @@ namespace OloEngine::Audio
         {
             sorted.push_back(&cmd);
         }
-        std::sort(sorted.begin(), sorted.end(), [](const auto* a, const auto* b)
-                  { return a->DebugName < b->DebugName; });
+        std::ranges::sort(sorted, [](const auto* a, const auto* b)
+                          { return a->DebugName < b->DebugName; });
 
         for (const auto* cmd : sorted)
         {

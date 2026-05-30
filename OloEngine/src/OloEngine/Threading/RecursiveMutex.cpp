@@ -151,7 +151,7 @@ namespace OloEngine
                 &m_State,
                 [](void* Context) -> bool
                 {
-                    FWaitContext* Ctx = static_cast<FWaitContext*>(Context);
+                    const FWaitContext* Ctx = static_cast<FWaitContext*>(Context);
                     return Ctx->Mutex->m_State.load(std::memory_order_relaxed) == Ctx->ExpectedState;
                 },
                 &WaitCtx,

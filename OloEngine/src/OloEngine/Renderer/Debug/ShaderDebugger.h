@@ -276,16 +276,16 @@ namespace OloEngine
         ShaderDebugger& operator=(const ShaderDebugger&) = delete; // UI rendering methods
         void RenderShaderList();
         void RenderShaderDetails(const ShaderInfo& shaderInfo);
-        void RenderSourceCode(const ShaderInfo& shaderInfo);
-        void RenderUniforms(const ShaderInfo& shaderInfo);
-        void RenderResourceBindings(const ShaderInfo& shaderInfo);
-        void RenderPerformanceMetrics(const ShaderInfo& shaderInfo);
-        void RenderReloadHistory(const ShaderInfo& shaderInfo);
-        void RenderSPIRVAnalysis(const ShaderInfo& shaderInfo);
-        void RenderCompilationErrors(const ShaderInfo& shaderInfo);
+        void RenderSourceCode(const ShaderInfo& shaderInfo) const;
+        void RenderUniforms(const ShaderInfo& shaderInfo) const;
+        void RenderResourceBindings(const ShaderInfo& shaderInfo) const;
+        void RenderPerformanceMetrics(const ShaderInfo& shaderInfo) const;
+        void RenderReloadHistory(const ShaderInfo& shaderInfo) const;
+        void RenderSPIRVAnalysis(const ShaderInfo& shaderInfo) const;
+        void RenderCompilationErrors(const ShaderInfo& shaderInfo) const;
 
         // Helper methods
-        void UpdateActiveTime(ShaderInfo& shaderInfo);
+        void UpdateActiveTime(ShaderInfo& shaderInfo) const;
         std::string GetUniformTypeString(UniformType type) const;
         std::string GetShaderStageString(ShaderStage stage) const;
         ImVec4 GetShaderStageColor(ShaderStage stage) const;

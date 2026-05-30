@@ -96,8 +96,7 @@ namespace OloEngine
 
         // Fractional accumulation: use probabilistic rounding
         u32 particlesToEmit = static_cast<u32>(particlesToEmitF);
-        f32 fractional = particlesToEmitF - static_cast<f32>(particlesToEmit);
-        if (s_Rng.GetFloat32() < fractional)
+        if (f32 fractional = particlesToEmitF - static_cast<f32>(particlesToEmit); s_Rng.GetFloat32() < fractional)
         {
             ++particlesToEmit;
         }

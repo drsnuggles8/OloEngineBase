@@ -62,9 +62,9 @@ namespace OloEngine
 
         // Prefab override management
         void UpdateAllPrefabInstances();
-        void RevertPrefabComponent(Entity entity, const std::string& componentName);
-        void ApplyPrefabComponent(Entity entity, const std::string& componentName);
-        void MarkPrefabComponentOverridden(Entity entity, const std::string& componentName);
+        void RevertPrefabComponent(Entity entity, const std::string& componentName) const;
+        void ApplyPrefabComponent(Entity entity, const std::string& componentName) const;
+        void MarkPrefabComponentOverridden(Entity entity, const std::string& componentName) const;
 
         void OnRuntimeStart();
         void OnRuntimeStop();
@@ -202,7 +202,7 @@ namespace OloEngine
         // spawned entities — script-spawned, networked actors arriving mid-
         // session). Without this shared entry point, components added after
         // OnRuntimeStart stay silent until the next InitAudioRuntime.
-        void InitializeAudioSoundGraph(AudioSoundGraphComponent& sgc);
+        void InitializeAudioSoundGraph(AudioSoundGraphComponent& sgc) const;
 
         // DialogueSystem instantiation. Production code reaches this via
         // OnRuntimeStart. Exposed for headless test harnesses that drive
@@ -446,7 +446,7 @@ namespace OloEngine
         {
             return AssetType::Scene;
         }
-        virtual AssetType GetAssetType() const override
+        AssetType GetAssetType() const override
         {
             return GetStaticType();
         }

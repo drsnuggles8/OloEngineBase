@@ -21,6 +21,8 @@ namespace OloEngine::Audio::SoundGraph
                                                float** ppFramesOut,
                                                ma_uint32* pFrameCountOut)
         {
+            OLO_PROFILE_FUNCTION();
+
             (void)ppFramesIn;
             (void)pFrameCountIn;
 
@@ -32,12 +34,19 @@ namespace OloEngine::Audio::SoundGraph
             }
             else if (ppFramesOut)
             {
-                // No owner — emit silence to avoid producing junk audio.
-                // Channel count is not directly available here without an owner, so silence
-                // the channels miniaudio reports it allocated for us. miniaudio always
-                // provides at least bus[0]; we silence what's there defensively.
+                // No owner — emit silence to avoid producing junk audio. The
+                // output bus is interleaved (frameCount frames × channelCount
+                // floats), so we must zero the full width or trailing channels
+                // keep stale samples.
                 if (ppFramesOut[0])
-                    std::memset(ppFramesOut[0], 0, sizeof(float) * frameCount);
+                {
+                    const ma_uint32 channelCount = ma_node_get_output_channels(pNode, 0);
+                    std::memset(ppFramesOut[0], 0, sizeof(float) * frameCount * channelCount);
+                }
+            }
+            else
+            {
+                // No additional handling required.
             }
             *pFrameCountOut = frameCount;
         }
@@ -105,8 +114,7 @@ namespace OloEngine::Audio::SoundGraph
 
         // Preload audio data to avoid blocking file I/O in audio thread
         // This is done during initialization on the main thread
-        AssetMetadata metadata = AssetManager::GetAssetMetadata(handle);
-        if (metadata.IsValid())
+        if (AssetMetadata metadata = AssetManager::GetAssetMetadata(handle); metadata.IsValid())
         {
             std::filesystem::path filePath = Project::GetProjectDirectory() / metadata.FilePath;
             if (std::filesystem::exists(filePath))
@@ -644,7 +652,7 @@ namespace OloEngine::Audio::SoundGraph
         return m_DataSources.GetSourceCount();
     }
 
-    bool SoundGraphSource::AreAllDataSourcesAtEnd()
+    bool SoundGraphSource::AreAllDataSourcesAtEnd() const
     {
         OLO_PROFILE_FUNCTION();
 
@@ -703,7 +711,7 @@ namespace OloEngine::Audio::SoundGraph
                        m_ParameterHandles.size());
     }
 
-    bool SoundGraphSource::ApplyParameterPresetInternal()
+    bool SoundGraphSource::ApplyParameterPresetInternal() const
     {
         OLO_PROFILE_FUNCTION();
 
@@ -721,14 +729,14 @@ namespace OloEngine::Audio::SoundGraph
         return true;
     }
 
-    void SoundGraphSource::UpdateChangedParameters()
+    void SoundGraphSource::UpdateChangedParameters() const
     {
         // TODO(implement parameter change detection)
         // Handle any parameter changes that occurred since last audio block
         // This would integrate with OloEngine's parameter change detection system
     }
 
-    void SoundGraphSource::SilenceOutputBuffers(float** ppFramesOut, u32 frameCount)
+    void SoundGraphSource::SilenceOutputBuffers(float** ppFramesOut, u32 frameCount) const
     {
         // Our ma_node_vtable declares 1 output bus. miniaudio passes the bus buffer at
         // ppFramesOut[0] (frameCount * channels floats, interleaved); any higher index is
@@ -796,8 +804,7 @@ namespace OloEngine::Audio::SoundGraph
             // (frameCount * m_ChannelCount floats). Higher indices are uninitialized stack
             // memory — writing through them crashes. Address samples by
             // ppFramesOut[0][frame * m_ChannelCount + channel].
-            float* const busOut = (ppFramesOut && ppFramesOut[0]) ? ppFramesOut[0] : nullptr;
-            if (busOut)
+            if (float* const busOut = (ppFramesOut && ppFramesOut[0]) ? ppFramesOut[0] : nullptr; busOut)
             {
                 // Phase 1: a single block-rate Process call replaces the old per-sample
                 // inner loop. The graph fills m_OutputBuffers[c][i] with `frameCount`
@@ -916,8 +923,7 @@ namespace OloEngine::Audio::SoundGraph
     {
         OLO_PROFILE_FUNCTION();
 
-        auto* source = static_cast<SoundGraphSource*>(userData);
-        if (!source)
+        if (const auto* source = static_cast<SoundGraphSource*>(userData); !source)
             return false;
 
         if (waveSource.m_WaveHandle == 0)
@@ -932,8 +938,7 @@ namespace OloEngine::Audio::SoundGraph
         {
             // Audio data not preloaded or corrupted - this is a critical error but don't block
             // Log once per wave source to avoid spam using thread-safe atomic flag
-            bool expectedFalse = false;
-            if (waveSource.m_MissingDataLogged.compare_exchange_strong(expectedFalse, true, std::memory_order_relaxed))
+            if (bool expectedFalse = false; waveSource.m_MissingDataLogged.compare_exchange_strong(expectedFalse, true, std::memory_order_relaxed))
             {
                 OLO_CORE_ERROR("[SoundGraphSource] No preloaded audio data for handle: {} - Audio will underrun",
                                waveSource.m_WaveHandle);

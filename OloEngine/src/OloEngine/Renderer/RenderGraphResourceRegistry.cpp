@@ -13,7 +13,7 @@ namespace OloEngine::RenderGraphResourceRegistry
     {
         void AppendUnique(std::vector<std::string>& names, const std::string& value)
         {
-            if (std::find(names.begin(), names.end(), value) == names.end())
+            if (std::ranges::find(names, value) == names.end())
                 names.push_back(value);
         }
     } // namespace
@@ -88,10 +88,13 @@ namespace OloEngine::RenderGraphResourceRegistry
             {
                 info.Desc.DebugName = handle.Name;
             }
+            else
+            {
+                // No additional handling required.
+            }
 
             const auto declaredKind = handle.Type;
-            const auto existingKind = info.Desc.Kind;
-            if (existingKind == ResourceHandle::Kind::Unknown && declaredKind != ResourceHandle::Kind::Unknown)
+            if (const auto existingKind = info.Desc.Kind; existingKind == ResourceHandle::Kind::Unknown && declaredKind != ResourceHandle::Kind::Unknown)
             {
                 info.Desc.Kind = declaredKind;
             }
@@ -114,6 +117,10 @@ namespace OloEngine::RenderGraphResourceRegistry
                             std::string(ToString(declaredKind)) + "'";
                 OLO_CORE_ERROR("RenderGraph hazard: {}", h.Message);
                 result.Diagnostics.push_back(std::move(h));
+            }
+            else
+            {
+                // No additional handling required.
             }
 
             if (isWrite)
@@ -139,11 +146,11 @@ namespace OloEngine::RenderGraphResourceRegistry
         result.Sorted.reserve(result.Registry.size());
         for (const auto& [name, info] : result.Registry)
             result.Sorted.push_back(info);
-        std::sort(result.Sorted.begin(), result.Sorted.end(),
-                  [](const ResourceInfo& lhs, const ResourceInfo& rhs)
-                  {
-                      return lhs.Name < rhs.Name;
-                  });
+        std::ranges::sort(result.Sorted,
+                          [](const ResourceInfo& lhs, const ResourceInfo& rhs)
+                          {
+                              return lhs.Name < rhs.Name;
+                          });
 
         return result;
     }

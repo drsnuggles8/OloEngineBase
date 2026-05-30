@@ -338,7 +338,7 @@ namespace OloEngine
         f64 MeasureMillisecondsWithGPUSync(auto&& work)
         {
             const auto start = std::chrono::steady_clock::now();
-            work();
+            std::forward<decltype(work)>(work)();
             // Sync — flushes the GL command queue so the elapsed time covers
             // the actual rasterisation work, not just submission.
             ::glFinish();
@@ -402,7 +402,7 @@ namespace OloEngine
         // Bind environment map
         environmentMap->Bind(ShaderBindingLayout::TEX_ENVIRONMENT);
 
-        const f64 elapsedMs = MeasureMillisecondsWithGPUSync([&]()
+        const f64 elapsedMs = MeasureMillisecondsWithGPUSync([&irradianceMap, &shader, &config]()
                                                              {
             // Use enhanced rendering with configuration
             RenderToCubemapAdvanced(irradianceMap, shader, GetCubeMesh(), config); });
@@ -421,9 +421,7 @@ namespace OloEngine
                       config.PrefilterSamples, config.UseImportanceSampling);
 
         Ref<Shader> shader = nullptr;
-        const std::string preferredShader = config.UseImportanceSampling ? "IBLPrefilterImportance" : "IBLPrefilter";
-
-        if (shaderLibrary.Exists(preferredShader))
+        if (const std::string preferredShader = config.UseImportanceSampling ? "IBLPrefilterImportance" : "IBLPrefilter"; shaderLibrary.Exists(preferredShader))
         {
             shader = shaderLibrary.Get(preferredShader);
         }

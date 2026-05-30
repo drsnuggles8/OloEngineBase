@@ -26,6 +26,7 @@
 #include <thread>
 #include <type_traits>
 #include <limits>
+#include <utility>
 
 namespace OloEngine::Tasks
 {
@@ -187,7 +188,7 @@ namespace OloEngine::Tasks
                                     { TryExecuteTask(); }, LowLevelTasks::ETaskFlags::DefaultFlags);
 
                 CaptureInheritedContext();
-                TaskTrace::Launched(GetTraceId(), InDebugName, true, static_cast<i32>(InPriority), 0);
+                TaskTrace::Launched(GetTraceId(), InDebugName, true, static_cast<i32>(std::to_underlying(InPriority)), 0);
             }
 
             virtual ~FTaskBase()
@@ -395,7 +396,7 @@ namespace OloEngine::Tasks
             bool TryLaunch(u64 TaskSize)
             {
                 TaskTrace::Launched(GetTraceId(), m_LowLevelTask.GetDebugName(), true,
-                                    static_cast<i32>(m_LowLevelTask.GetPriority()), TaskSize);
+                                    static_cast<i32>(std::to_underlying(m_LowLevelTask.GetPriority())), TaskSize);
 
                 bool bWakeUpWorker = true;
                 return TryUnlock(bWakeUpWorker);
@@ -654,8 +655,7 @@ namespace OloEngine::Tasks
                     ExchangeCurrentTask(PrevTask);
 
                     // Check for pending nested tasks
-                    u32 LocalNumLocks = m_NumLocks.fetch_sub(1, std::memory_order_acq_rel) - 1;
-                    if (LocalNumLocks == ExecutionFlag)
+                    if (u32 LocalNumLocks = m_NumLocks.fetch_sub(1, std::memory_order_acq_rel) - 1; LocalNumLocks == ExecutionFlag)
                     {
                         Close();
                         Release();
@@ -721,8 +721,7 @@ namespace OloEngine::Tasks
                 ExchangeCurrentTask(PrevTask);
 
                 // Check for pending nested tasks
-                u32 LocalNumLocks = m_NumLocks.fetch_sub(1, std::memory_order_acq_rel) - 1;
-                if (LocalNumLocks == ExecutionFlag)
+                if (u32 LocalNumLocks = m_NumLocks.fetch_sub(1, std::memory_order_acq_rel) - 1; LocalNumLocks == ExecutionFlag)
                 {
                     Close();
                     Release();
@@ -760,7 +759,7 @@ namespace OloEngine::Tasks
           private:
             bool TryUnlock(bool& bWakeUpWorker)
             {
-                FPipe* LocalPipe = GetPipe();
+                const FPipe* LocalPipe = GetPipe();
 
                 u32 PrevNumLocks = m_NumLocks.fetch_sub(1, std::memory_order_acq_rel);
                 u32 LocalNumLocks = PrevNumLocks - 1;
@@ -770,8 +769,7 @@ namespace OloEngine::Tasks
                     // Pre-execution: try to schedule
                     OLO_CORE_ASSERT(PrevNumLocks != 0, "Task is not locked");
 
-                    bool bPrerequisitesCompleted = LocalPipe == nullptr ? LocalNumLocks == 0 : LocalNumLocks <= 1;
-                    if (!bPrerequisitesCompleted)
+                    if (bool bPrerequisitesCompleted = LocalPipe == nullptr ? LocalNumLocks == 0 : LocalNumLocks <= 1; !bPrerequisitesCompleted)
                     {
                         return false;
                     }
@@ -782,8 +780,7 @@ namespace OloEngine::Tasks
                         bool bFirstPipingAttempt = LocalNumLocks == 1;
                         if (bFirstPipingAttempt)
                         {
-                            FTaskBase* PrevPipedTask = TryPushIntoPipe();
-                            if (PrevPipedTask != nullptr)
+                            if (FTaskBase* PrevPipedTask = TryPushIntoPipe(); PrevPipedTask != nullptr)
                             {
                                 m_Prerequisites.Push(PrevPipedTask);
                                 return false;
@@ -1152,7 +1149,7 @@ namespace OloEngine::Tasks
             OLO_NONCOPYABLE(TExecutableTaskBase);
 
           public:
-            virtual void ExecuteTask() override final
+            void ExecuteTask() override final
             {
                 // Execute task body and store result
                 new (this->m_ResultStorage.GetTypedPtr()) ResultType(Invoke(*m_TaskBodyStorage.GetTypedPtr()));
@@ -1185,7 +1182,7 @@ namespace OloEngine::Tasks
             OLO_NONCOPYABLE(TExecutableTaskBase);
 
           public:
-            virtual void ExecuteTask() override final
+            void ExecuteTask() override final
             {
                 Invoke(*m_TaskBodyStorage.GetTypedPtr());
 
@@ -1272,7 +1269,7 @@ namespace OloEngine::Tasks
                 Init(InDebugName, ETaskPriority::Normal, EExtendedTaskPriority::TaskEvent, ETaskFlags::None);
             }
 
-            virtual void ExecuteTask() override final
+            void ExecuteTask() override final
             {
                 OLO_CORE_ASSERT(false, "TaskEvent should never be executed");
             }

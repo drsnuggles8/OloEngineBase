@@ -13,7 +13,7 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
 
         auto* crowdMgr = scene->GetCrowdManager();
-        auto* navQuery = scene->GetNavMeshQuery();
+        const auto* navQuery = scene->GetNavMeshQuery();
 
         if (!navQuery || !navQuery->IsValid())
             return;
@@ -33,8 +33,7 @@ namespace OloEngine
             // If using crowd manager, sync from crowd
             if (crowdMgr && crowdMgr->IsValid() && agent.m_CrowdAgentId >= 0)
             {
-                glm::vec3 pos;
-                if (crowdMgr->GetAgentPosition(agent.m_CrowdAgentId, pos))
+                if (glm::vec3 pos; crowdMgr->GetAgentPosition(agent.m_CrowdAgentId, pos))
                 {
                     if (agent.m_LockYAxis)
                         pos.y = transform.Translation.y;
@@ -65,7 +64,7 @@ namespace OloEngine
             constexpr f32 EPSILON = 1e-4f;
             if (dist < std::max(agent.m_StoppingDistance, EPSILON))
             {
-                agent.m_CurrentCornerIndex++;
+                ++agent.m_CurrentCornerIndex;
                 if (agent.m_CurrentCornerIndex >= static_cast<u32>(agent.m_PathCorners.size()))
                 {
                     agent.m_HasPath = false;

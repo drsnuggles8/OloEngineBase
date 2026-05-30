@@ -48,8 +48,7 @@ namespace OloEngine
                         return str == "true";
                     case ShaderGraphPinType::Vec2:
                     {
-                        auto comma = str.find(',');
-                        if (comma != std::string::npos)
+                        if (auto comma = str.find(','); comma != std::string::npos)
                             return glm::vec2(std::stof(str.substr(0, comma)), std::stof(str.substr(comma + 1)));
                         return glm::vec2(0.0f);
                     }
@@ -237,7 +236,7 @@ namespace OloEngine
                 out << YAML::Key << "BufferBinding" << YAML::Value << node->BufferBinding;
 
             // Serialize pin IDs and default values
-            auto serializePins = [&](const std::string& key, const std::vector<ShaderGraphPin>& pins)
+            auto serializePins = [&out](const std::string& key, const std::vector<ShaderGraphPin>& pins)
             {
                 out << YAML::Key << key << YAML::Value << YAML::BeginSeq;
                 for (const auto& pin : pins)
@@ -247,8 +246,7 @@ namespace OloEngine
                     out << YAML::Key << "Name" << YAML::Value << pin.Name;
                     out << YAML::Key << "Type" << YAML::Value << PinTypeToString(pin.Type);
 
-                    std::string valStr = PinValueToYAMLString(pin.DefaultValue);
-                    if (!valStr.empty())
+                    if (std::string valStr = PinValueToYAMLString(pin.DefaultValue); !valStr.empty())
                         out << YAML::Key << "DefaultValue" << YAML::Value << valStr;
 
                     out << YAML::EndMap;
@@ -368,7 +366,7 @@ namespace OloEngine
                         node->BufferBinding = nodeYAML["BufferBinding"].as<int>();
 
                     // Restore pin IDs and default values from YAML
-                    auto restorePins = [&](const std::string& key, std::vector<ShaderGraphPin>& pins)
+                    auto restorePins = [&nodeYAML, &typeName, &nodeID, &node](const std::string& key, std::vector<ShaderGraphPin>& pins)
                     {
                         if (auto pinsYAML = nodeYAML[key]; pinsYAML && pinsYAML.IsSequence())
                         {

@@ -466,9 +466,9 @@ namespace OloEngine
         // --- Rigidbody2DComponent ---
         // All properties use sol::property so setters sync through Box2D when a runtime body exists.
         lua.new_usertype<Rigidbody2DComponent>("Rigidbody2DComponent", "type", sol::property([](Rigidbody2DComponent& rb) -> int
-                                                                                             { return static_cast<int>(rb.Type); }, [](Rigidbody2DComponent& rb, int v)
+                                                                                             { return std::to_underlying(rb.Type); }, [](Rigidbody2DComponent& rb, int v)
                                                                                              {
-                    if (v < 0 || v > static_cast<int>(Rigidbody2DComponent::BodyType::Kinematic)) { v = 0; }
+                    if (v < 0 || v > std::to_underlying(Rigidbody2DComponent::BodyType::Kinematic)) { v = 0; }
                     auto const t = static_cast<Rigidbody2DComponent::BodyType>(v);
                     rb.Type = t;
                     if (b2Body_IsValid(rb.RuntimeBody))
@@ -565,7 +565,7 @@ namespace OloEngine
         // --- Rigidbody3DComponent ---
         lua.new_usertype<Rigidbody3DComponent>("Rigidbody3DComponent",
                                                "type", sol::property([](const Rigidbody3DComponent& rb) -> int
-                                                                     { return static_cast<int>(rb.m_Type); }, [](Rigidbody3DComponent& rb, int v)
+                                                                     { return std::to_underlying(rb.m_Type); }, [](Rigidbody3DComponent& rb, int v)
                                                                      { if (v >= 0 && v <= 2) rb.m_Type = static_cast<BodyType3D>(v); }),
                                                "layerID", sol::property([](const Rigidbody3DComponent& rb)
                                                                         { return rb.m_LayerID; }, [](Rigidbody3DComponent& rb, int v)
@@ -582,7 +582,7 @@ namespace OloEngine
                                                "disableGravity", &Rigidbody3DComponent::m_DisableGravity,
                                                "isTrigger", &Rigidbody3DComponent::m_IsTrigger,
                                                "lockedAxes", sol::property([](const Rigidbody3DComponent& rb) -> int
-                                                                           { return static_cast<int>(static_cast<u32>(rb.m_LockedAxes)); }, [](Rigidbody3DComponent& rb, int v)
+                                                                           { return static_cast<int>(std::to_underlying(rb.m_LockedAxes)); }, [](Rigidbody3DComponent& rb, int v)
                                                                            { if (v >= 0 && (static_cast<u32>(v) & ~AxisMask) == 0) rb.m_LockedAxes = static_cast<EActorAxis>(v); }),
                                                "initialLinearVelocity", sol::property([](const Rigidbody3DComponent& rb)
                                                                                       { return rb.m_InitialLinearVelocity; }, [](Rigidbody3DComponent& rb, const glm::vec3& v)
@@ -832,7 +832,7 @@ namespace OloEngine
         // --- MeshComponent ---
         lua.new_usertype<MeshComponent>("MeshComponent",
                                         "primitive", sol::property([](const MeshComponent& c) -> int
-                                                                   { return static_cast<int>(c.m_Primitive); }, [](MeshComponent& c, int v)
+                                                                   { return std::to_underlying(c.m_Primitive); }, [](MeshComponent& c, int v)
                                                                    { if (v >= 0 && v <= 7) c.m_Primitive = static_cast<MeshPrimitive>(v); }));
 
         // --- InstancedMeshComponent ---
@@ -860,10 +860,10 @@ namespace OloEngine
         // --- UICanvasComponent ---
         lua.new_usertype<UICanvasComponent>("UICanvasComponent",
                                             "renderMode", sol::property([](const UICanvasComponent& c) -> int
-                                                                        { return static_cast<int>(c.m_RenderMode); }, [](UICanvasComponent& c, int v)
+                                                                        { return static_cast<int>(std::to_underlying(c.m_RenderMode)); }, [](UICanvasComponent& c, int v)
                                                                         { if (v >= 0 && v <= 1) c.m_RenderMode = static_cast<UICanvasRenderMode>(v); }),
                                             "scaleMode", sol::property([](const UICanvasComponent& c) -> int
-                                                                       { return static_cast<int>(c.m_ScaleMode); }, [](UICanvasComponent& c, int v)
+                                                                       { return static_cast<int>(std::to_underlying(c.m_ScaleMode)); }, [](UICanvasComponent& c, int v)
                                                                        { if (v >= 0 && v <= 1) c.m_ScaleMode = static_cast<UICanvasScaleMode>(v); }),
                                             "sortOrder", &UICanvasComponent::m_SortOrder,
                                             "referenceResolution", sol::property([](const UICanvasComponent& c)
@@ -919,7 +919,7 @@ namespace OloEngine
                                                                  { return c.m_Color; }, [](UITextComponent& c, const glm::vec4& v)
                                                                  { if (IsFiniteVec4(v)) c.m_Color = v; }),
                                           "alignment", sol::property([](const UITextComponent& c) -> int
-                                                                     { return static_cast<int>(c.m_Alignment); }, [](UITextComponent& c, int v)
+                                                                     { return static_cast<int>(std::to_underlying(c.m_Alignment)); }, [](UITextComponent& c, int v)
                                                                      { if (v >= 0 && v <= 8) c.m_Alignment = static_cast<UITextAlignment>(v); }),
                                           "kerning", sol::property([](const UITextComponent& c)
                                                                    { return c.m_Kerning; }, [](UITextComponent& c, f32 v)
@@ -957,7 +957,7 @@ namespace OloEngine
                                                                       { return c.m_MaxValue; }, [](UISliderComponent& c, f32 v)
                                                                       { if (std::isfinite(v)) c.m_MaxValue = v; }),
                                             "direction", sol::property([](const UISliderComponent& c) -> int
-                                                                       { return static_cast<int>(c.m_Direction); }, [](UISliderComponent& c, int v)
+                                                                       { return static_cast<int>(std::to_underlying(c.m_Direction)); }, [](UISliderComponent& c, int v)
                                                                        { if (v >= 0 && v <= 3) c.m_Direction = static_cast<UISliderDirection>(v); }),
                                             "backgroundColor", sol::property([](const UISliderComponent& c)
                                                                              { return c.m_BackgroundColor; }, [](UISliderComponent& c, const glm::vec4& v)
@@ -996,7 +996,7 @@ namespace OloEngine
                                                                            { return c.m_MaxValue; }, [](UIProgressBarComponent& c, f32 v)
                                                                            { if (std::isfinite(v)) c.m_MaxValue = v; }),
                                                  "fillMethod", sol::property([](const UIProgressBarComponent& c) -> int
-                                                                             { return static_cast<int>(c.m_FillMethod); }, [](UIProgressBarComponent& c, int v)
+                                                                             { return static_cast<int>(std::to_underlying(c.m_FillMethod)); }, [](UIProgressBarComponent& c, int v)
                                                                              { if (v >= 0 && v <= 1) c.m_FillMethod = static_cast<UIFillMethod>(v); }),
                                                  "backgroundColor", sol::property([](const UIProgressBarComponent& c)
                                                                                   { return c.m_BackgroundColor; }, [](UIProgressBarComponent& c, const glm::vec4& v)
@@ -1033,7 +1033,7 @@ namespace OloEngine
                                                                              { return c.m_ContentSize; }, [](UIScrollViewComponent& c, const glm::vec2& v)
                                                                              { if (IsFiniteVec2(v)) c.m_ContentSize = v; }),
                                                 "scrollDirection", sol::property([](const UIScrollViewComponent& c) -> int
-                                                                                 { return static_cast<int>(c.m_ScrollDirection); }, [](UIScrollViewComponent& c, int v)
+                                                                                 { return static_cast<int>(std::to_underlying(c.m_ScrollDirection)); }, [](UIScrollViewComponent& c, int v)
                                                                                  { if (v >= 0 && v <= 2) c.m_ScrollDirection = static_cast<UIScrollDirection>(v); }),
                                                 "scrollSpeed", sol::property([](const UIScrollViewComponent& c)
                                                                              { return c.m_ScrollSpeed; }, [](UIScrollViewComponent& c, f32 v)
@@ -1079,10 +1079,10 @@ namespace OloEngine
                                                                          { return c.m_Padding; }, [](UIGridLayoutComponent& c, const glm::vec4& v)
                                                                          { if (IsFiniteVec4(v) && v.x >= 0.0f && v.y >= 0.0f && v.z >= 0.0f && v.w >= 0.0f) c.m_Padding = v; }),
                                                 "startCorner", sol::property([](const UIGridLayoutComponent& c) -> int
-                                                                             { return static_cast<int>(c.m_StartCorner); }, [](UIGridLayoutComponent& c, int v)
+                                                                             { return static_cast<int>(std::to_underlying(c.m_StartCorner)); }, [](UIGridLayoutComponent& c, int v)
                                                                              { if (v >= 0 && v <= 3) c.m_StartCorner = static_cast<UIGridLayoutStartCorner>(v); }),
                                                 "startAxis", sol::property([](const UIGridLayoutComponent& c) -> int
-                                                                           { return static_cast<int>(c.m_StartAxis); }, [](UIGridLayoutComponent& c, int v)
+                                                                           { return static_cast<int>(std::to_underlying(c.m_StartAxis)); }, [](UIGridLayoutComponent& c, int v)
                                                                            { if (v >= 0 && v <= 1) c.m_StartAxis = static_cast<UIGridLayoutAxis>(v); }),
                                                 "constraintCount", &UIGridLayoutComponent::m_ConstraintCount);
 
@@ -1314,7 +1314,7 @@ namespace OloEngine
         lua.new_usertype<NetworkIdentityComponent>("NetworkIdentityComponent",
                                                    "ownerClientID", &NetworkIdentityComponent::OwnerClientID,
                                                    "authority", sol::property([](const NetworkIdentityComponent& c) -> int
-                                                                              { return static_cast<int>(c.Authority); }, [](NetworkIdentityComponent& c, int v)
+                                                                              { return static_cast<int>(std::to_underlying(c.Authority)); }, [](NetworkIdentityComponent& c, int v)
                                                                               { if (v >= 0 && v <= 2) c.Authority = static_cast<ENetworkAuthority>(v); }),
                                                    "isReplicated", &NetworkIdentityComponent::IsReplicated);
 
@@ -1394,9 +1394,9 @@ namespace OloEngine
                 if (c.Source) { c.Source->UnPause(); } },
                                                // --- Spatial audio properties ---
                                                "attenuationModel", sol::property([](const AudioSourceComponent& c)
-                                                                                 { return static_cast<int>(c.Config.AttenuationModel); }, [](AudioSourceComponent& c, int v)
+                                                                                 { return std::to_underlying(c.Config.AttenuationModel); }, [](AudioSourceComponent& c, int v)
                                                                                  {
-                    if (v < 0 || v > static_cast<int>(AttenuationModelType::Exponential)) return;
+                    if (v < 0 || v > std::to_underlying(AttenuationModelType::Exponential)) return;
                     c.Config.AttenuationModel = static_cast<AttenuationModelType>(v);
                     if (c.Source) { c.Source->SetAttenuationModel(c.Config.AttenuationModel); } }),
                                                "rollOff", sol::property([](const AudioSourceComponent& c)
@@ -1605,7 +1605,7 @@ namespace OloEngine
                 {
                     return false;
                 }
-                auto* gp = GamepadManager::GetGamepad(index);
+                const auto* gp = GamepadManager::GetGamepad(index);
                 return gp && gp->IsButtonPressed(static_cast<GamepadButton>(button));
             };
             gamepadTable["IsButtonJustPressed"] = [](u8 button, i32 index) -> bool
@@ -1614,7 +1614,7 @@ namespace OloEngine
                 {
                     return false;
                 }
-                auto* gp = GamepadManager::GetGamepad(index);
+                const auto* gp = GamepadManager::GetGamepad(index);
                 return gp && gp->IsButtonJustPressed(static_cast<GamepadButton>(button));
             };
             gamepadTable["IsButtonJustReleased"] = [](u8 button, i32 index) -> bool
@@ -1623,7 +1623,7 @@ namespace OloEngine
                 {
                     return false;
                 }
-                auto* gp = GamepadManager::GetGamepad(index);
+                const auto* gp = GamepadManager::GetGamepad(index);
                 return gp && gp->IsButtonJustReleased(static_cast<GamepadButton>(button));
             };
             gamepadTable["GetAxis"] = [](u8 axis, i32 index) -> f32
@@ -1632,22 +1632,22 @@ namespace OloEngine
                 {
                     return 0.0f;
                 }
-                auto* gp = GamepadManager::GetGamepad(index);
+                const auto* gp = GamepadManager::GetGamepad(index);
                 return gp ? gp->GetAxis(static_cast<GamepadAxis>(axis)) : 0.0f;
             };
             gamepadTable["GetLeftStick"] = [](i32 index) -> glm::vec2
             {
-                auto* gp = GamepadManager::GetGamepad(index);
+                const auto* gp = GamepadManager::GetGamepad(index);
                 return gp ? gp->GetLeftStickDeadzone() : glm::vec2(0.0f);
             };
             gamepadTable["GetRightStick"] = [](i32 index) -> glm::vec2
             {
-                auto* gp = GamepadManager::GetGamepad(index);
+                const auto* gp = GamepadManager::GetGamepad(index);
                 return gp ? gp->GetRightStickDeadzone() : glm::vec2(0.0f);
             };
             gamepadTable["IsConnected"] = [](i32 index) -> bool
             {
-                auto* gp = GamepadManager::GetGamepad(index);
+                const auto* gp = GamepadManager::GetGamepad(index);
                 return gp && gp->IsConnected();
             };
             gamepadTable["GetConnectedCount"] = []() -> i32
@@ -1657,29 +1657,29 @@ namespace OloEngine
 
             // --- Gamepad button/axis enum constants ---
             auto gpButtonTable = lua.create_named_table("GamepadButton");
-            gpButtonTable["South"] = static_cast<u8>(GamepadButton::South);
-            gpButtonTable["East"] = static_cast<u8>(GamepadButton::East);
-            gpButtonTable["West"] = static_cast<u8>(GamepadButton::West);
-            gpButtonTable["North"] = static_cast<u8>(GamepadButton::North);
-            gpButtonTable["LeftBumper"] = static_cast<u8>(GamepadButton::LeftBumper);
-            gpButtonTable["RightBumper"] = static_cast<u8>(GamepadButton::RightBumper);
-            gpButtonTable["Back"] = static_cast<u8>(GamepadButton::Back);
-            gpButtonTable["Start"] = static_cast<u8>(GamepadButton::Start);
-            gpButtonTable["Guide"] = static_cast<u8>(GamepadButton::Guide);
-            gpButtonTable["LeftThumb"] = static_cast<u8>(GamepadButton::LeftThumb);
-            gpButtonTable["RightThumb"] = static_cast<u8>(GamepadButton::RightThumb);
-            gpButtonTable["DPadUp"] = static_cast<u8>(GamepadButton::DPadUp);
-            gpButtonTable["DPadRight"] = static_cast<u8>(GamepadButton::DPadRight);
-            gpButtonTable["DPadDown"] = static_cast<u8>(GamepadButton::DPadDown);
-            gpButtonTable["DPadLeft"] = static_cast<u8>(GamepadButton::DPadLeft);
+            gpButtonTable["South"] = std::to_underlying(GamepadButton::South);
+            gpButtonTable["East"] = std::to_underlying(GamepadButton::East);
+            gpButtonTable["West"] = std::to_underlying(GamepadButton::West);
+            gpButtonTable["North"] = std::to_underlying(GamepadButton::North);
+            gpButtonTable["LeftBumper"] = std::to_underlying(GamepadButton::LeftBumper);
+            gpButtonTable["RightBumper"] = std::to_underlying(GamepadButton::RightBumper);
+            gpButtonTable["Back"] = std::to_underlying(GamepadButton::Back);
+            gpButtonTable["Start"] = std::to_underlying(GamepadButton::Start);
+            gpButtonTable["Guide"] = std::to_underlying(GamepadButton::Guide);
+            gpButtonTable["LeftThumb"] = std::to_underlying(GamepadButton::LeftThumb);
+            gpButtonTable["RightThumb"] = std::to_underlying(GamepadButton::RightThumb);
+            gpButtonTable["DPadUp"] = std::to_underlying(GamepadButton::DPadUp);
+            gpButtonTable["DPadRight"] = std::to_underlying(GamepadButton::DPadRight);
+            gpButtonTable["DPadDown"] = std::to_underlying(GamepadButton::DPadDown);
+            gpButtonTable["DPadLeft"] = std::to_underlying(GamepadButton::DPadLeft);
 
             auto gpAxisTable = lua.create_named_table("GamepadAxis");
-            gpAxisTable["LeftX"] = static_cast<u8>(GamepadAxis::LeftX);
-            gpAxisTable["LeftY"] = static_cast<u8>(GamepadAxis::LeftY);
-            gpAxisTable["RightX"] = static_cast<u8>(GamepadAxis::RightX);
-            gpAxisTable["RightY"] = static_cast<u8>(GamepadAxis::RightY);
-            gpAxisTable["LeftTrigger"] = static_cast<u8>(GamepadAxis::LeftTrigger);
-            gpAxisTable["RightTrigger"] = static_cast<u8>(GamepadAxis::RightTrigger);
+            gpAxisTable["LeftX"] = std::to_underlying(GamepadAxis::LeftX);
+            gpAxisTable["LeftY"] = std::to_underlying(GamepadAxis::LeftY);
+            gpAxisTable["RightX"] = std::to_underlying(GamepadAxis::RightX);
+            gpAxisTable["RightY"] = std::to_underlying(GamepadAxis::RightY);
+            gpAxisTable["LeftTrigger"] = std::to_underlying(GamepadAxis::LeftTrigger);
+            gpAxisTable["RightTrigger"] = std::to_underlying(GamepadAxis::RightTrigger);
         }
 
         // --- KeyCode constants (auto-generated from OLO_KEY_LIST in KeyCodes.h) ---
@@ -1951,7 +1951,7 @@ namespace OloEngine
         {
             if (!entity)
                 return;
-            Scene* scene = ScriptEngine::GetSceneContext();
+            const Scene* scene = ScriptEngine::GetSceneContext();
             if (scene && scene->GetDialogueSystem())
                 scene->GetDialogueSystem()->StartDialogue(*entity);
         };
@@ -1959,7 +1959,7 @@ namespace OloEngine
         {
             if (!entity)
                 return;
-            Scene* scene = ScriptEngine::GetSceneContext();
+            const Scene* scene = ScriptEngine::GetSceneContext();
             if (scene && scene->GetDialogueSystem())
                 scene->GetDialogueSystem()->AdvanceDialogue(*entity);
         };
@@ -1967,7 +1967,7 @@ namespace OloEngine
         {
             if (!entity)
                 return;
-            Scene* scene = ScriptEngine::GetSceneContext();
+            const Scene* scene = ScriptEngine::GetSceneContext();
             if (scene && scene->GetDialogueSystem())
                 scene->GetDialogueSystem()->SelectChoice(*entity, index);
         };
@@ -1981,7 +1981,7 @@ namespace OloEngine
         {
             if (!entity)
                 return;
-            Scene* scene = ScriptEngine::GetSceneContext();
+            const Scene* scene = ScriptEngine::GetSceneContext();
             if (scene && scene->GetDialogueSystem())
                 scene->GetDialogueSystem()->EndDialogue(*entity);
         };
@@ -2061,32 +2061,32 @@ namespace OloEngine
             OLO_PROFILE_SCOPE("Lua::SaveGame::Save");
             Scene* scene = ScriptEngine::GetSceneContext();
             if (!scene)
-                return static_cast<i32>(SaveLoadResult::NoActiveScene);
-            return static_cast<i32>(SaveGameManager::Save(*scene, slotName, displayName));
+                return static_cast<i32>(std::to_underlying(SaveLoadResult::NoActiveScene));
+            return static_cast<i32>(std::to_underlying(SaveGameManager::Save(*scene, slotName, displayName)));
         };
         saveGameTable["Load"] = [](const std::string& slotName) -> i32
         {
             OLO_PROFILE_SCOPE("Lua::SaveGame::Load");
             Scene* scene = ScriptEngine::GetSceneContext();
             if (!scene)
-                return static_cast<i32>(SaveLoadResult::NoActiveScene);
-            return static_cast<i32>(SaveGameManager::Load(*scene, slotName));
+                return static_cast<i32>(std::to_underlying(SaveLoadResult::NoActiveScene));
+            return static_cast<i32>(std::to_underlying(SaveGameManager::Load(*scene, slotName)));
         };
         saveGameTable["QuickSave"] = []() -> i32
         {
             OLO_PROFILE_SCOPE("Lua::SaveGame::QuickSave");
             Scene* scene = ScriptEngine::GetSceneContext();
             if (!scene)
-                return static_cast<i32>(SaveLoadResult::NoActiveScene);
-            return static_cast<i32>(SaveGameManager::QuickSave(*scene));
+                return static_cast<i32>(std::to_underlying(SaveLoadResult::NoActiveScene));
+            return static_cast<i32>(std::to_underlying(SaveGameManager::QuickSave(*scene)));
         };
         saveGameTable["QuickLoad"] = []() -> i32
         {
             OLO_PROFILE_SCOPE("Lua::SaveGame::QuickLoad");
             Scene* scene = ScriptEngine::GetSceneContext();
             if (!scene)
-                return static_cast<i32>(SaveLoadResult::NoActiveScene);
-            return static_cast<i32>(SaveGameManager::QuickLoad(*scene));
+                return static_cast<i32>(std::to_underlying(SaveLoadResult::NoActiveScene));
+            return static_cast<i32>(std::to_underlying(SaveGameManager::QuickLoad(*scene)));
         };
         saveGameTable["EnumerateSaves"] = [](sol::this_state s) -> sol::table
         {
@@ -2267,7 +2267,7 @@ namespace OloEngine
         {
             if (!entity)
                 return false;
-            Scene* scene = ScriptEngine::GetSceneContext();
+            const Scene* scene = ScriptEngine::GetSceneContext();
             return scene && scene->TryGetEntityWithUUID(entity->GetUUID()).has_value();
         };
 
@@ -2275,7 +2275,7 @@ namespace OloEngine
         auto physicsTable = lua.create_named_table("Physics");
         physicsTable["Raycast"] = [](const glm::vec3& origin, const glm::vec3& direction, f32 maxDistance, sol::this_state s) -> sol::object
         {
-            Scene* scene = ScriptEngine::GetSceneContext();
+            const Scene* scene = ScriptEngine::GetSceneContext();
             if (!scene)
                 return sol::make_object(s, sol::nil);
 
@@ -2320,7 +2320,7 @@ namespace OloEngine
             glm::mat4 invVP = glm::inverse(projMatrix * viewMatrix);
 
             // screenPos is in pixels (from Input.GetMousePosition); normalise to [0,1]
-            auto& window = Application::Get().GetWindow();
+            const auto& window = Application::Get().GetWindow();
             const f32 winW = static_cast<f32>(window.GetWidth());
             const f32 winH = static_cast<f32>(window.GetHeight());
             if (winW <= 0.0f || winH <= 0.0f)
@@ -2440,8 +2440,8 @@ namespace OloEngine
             if (!GameplayAbilitySystem::TryActivateAbility(scene, caster, tag))
                 return false;
 
-            auto& casterAC = caster.GetComponent<AbilityComponent>();
-            for (auto& ability : casterAC.Abilities)
+            const auto& casterAC = caster.GetComponent<AbilityComponent>();
+            for (const auto& ability : casterAC.Abilities)
             {
                 if (ability.Definition.AbilityTag == tag)
                 {
@@ -2763,7 +2763,7 @@ namespace OloEngine
         auto sceneTable = lua.create_named_table("Scene");
         sceneTable["LoadRegion"] = [](u64 regionId)
         {
-            Scene* scene = ScriptEngine::GetSceneContext();
+            const Scene* scene = ScriptEngine::GetSceneContext();
             if (scene)
             {
                 if (auto* streamer = scene->GetSceneStreamer())
@@ -2772,7 +2772,7 @@ namespace OloEngine
         };
         sceneTable["UnloadRegion"] = [](u64 regionId)
         {
-            Scene* scene = ScriptEngine::GetSceneContext();
+            const Scene* scene = ScriptEngine::GetSceneContext();
             if (scene)
             {
                 if (auto* streamer = scene->GetSceneStreamer())
@@ -3012,7 +3012,7 @@ namespace OloEngine
             // entry is cleanly owned by the C++ side regardless of Lua GC.
             std::vector<std::string> v;
             v.reserve(items.size());
-            for (auto& kv : items)
+            for (const auto& kv : items)
             {
                 if (kv.second.is<std::string>())
                     v.push_back(kv.second.as<std::string>());
@@ -3029,7 +3029,7 @@ namespace OloEngine
                                 ? std::chrono::system_clock::now()
                                 : std::chrono::system_clock::from_time_t(static_cast<std::time_t>(epochSeconds));
             return LocalizationManager::FormatDate(tp,
-                                                   static_cast<LocalizationManager::DateStyle>(style.value_or(static_cast<i32>(LocalizationManager::DateStyle::Medium))),
+                                                   static_cast<LocalizationManager::DateStyle>(style.value_or(static_cast<i32>(std::to_underlying(LocalizationManager::DateStyle::Medium)))),
                                                    localeCode.value_or(std::string{}));
         };
         localizationTable["FormatTime"] = [](i64 epochSeconds, sol::optional<i32> style, sol::optional<std::string> localeCode) -> std::string
@@ -3038,7 +3038,7 @@ namespace OloEngine
                                 ? std::chrono::system_clock::now()
                                 : std::chrono::system_clock::from_time_t(static_cast<std::time_t>(epochSeconds));
             return LocalizationManager::FormatTime(tp,
-                                                   static_cast<LocalizationManager::TimeStyle>(style.value_or(static_cast<i32>(LocalizationManager::TimeStyle::Short))),
+                                                   static_cast<LocalizationManager::TimeStyle>(style.value_or(static_cast<i32>(std::to_underlying(LocalizationManager::TimeStyle::Short)))),
                                                    localeCode.value_or(std::string{}));
         };
         localizationTable["FormatRelativeTime"] = [](i64 epochSeconds, sol::optional<std::string> localeCode) -> std::string

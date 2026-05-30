@@ -115,7 +115,7 @@ namespace OloEngine
 
         // ── Math nodes ──
 
-        auto resolveInput = [&](const std::string& pinName) -> std::string
+        auto resolveInput = [this, &node, &graph, &pinVarNames](const std::string& pinName) -> std::string
         {
             const auto* pin = node.FindPinByName(pinName, ShaderGraphPinDirection::Input);
             if (!pin)
@@ -123,7 +123,7 @@ namespace OloEngine
             return ResolveInputExpression(graph, *pin, pinVarNames);
         };
 
-        auto emitOutputVar = [&](const std::string& pinName, ShaderGraphPinType type, const std::string& expr)
+        auto emitOutputVar = [this, &node, &code, &pinVarNames](const std::string& pinName, ShaderGraphPinType type, const std::string& expr)
         {
             const auto* pin = node.FindPinByName(pinName, ShaderGraphPinDirection::Output);
             if (!pin)
@@ -274,15 +274,14 @@ namespace OloEngine
 
             // If the Texture input is unconnected, tex resolves to a non-sampler fallback — emit zero
             const auto* texPin = node.FindPinByName("Texture", ShaderGraphPinDirection::Input);
-            bool texConnected = texPin && graph.GetLinkForInputPin(texPin->ID);
-            if (texConnected)
+            if (bool texConnected = texPin && graph.GetLinkForInputPin(texPin->ID))
                 code << "    vec4 " << sampleVar << " = texture(" << tex << ", " << uv << ");\n";
             else
                 code << "    vec4 " << sampleVar << " = vec4(0.0);\n";
             pinVarNames[static_cast<u64>(node.FindPinByName("RGBA", ShaderGraphPinDirection::Output)->ID)] = sampleVar;
 
             // Derive sub-outputs
-            auto emitDerived = [&](const std::string& name, const std::string& swizzle, [[maybe_unused]] ShaderGraphPinType type)
+            auto emitDerived = [&node, &pinVarNames, &sampleVar](const std::string& name, const std::string& swizzle, [[maybe_unused]] ShaderGraphPinType type)
             {
                 const auto* pin = node.FindPinByName(name, ShaderGraphPinDirection::Output);
                 if (pin)
@@ -302,8 +301,7 @@ namespace OloEngine
             std::string var = MakeVarName(node, *node.FindPinByName("Normal", ShaderGraphPinDirection::Output));
 
             const auto* texPin = node.FindPinByName("Texture", ShaderGraphPinDirection::Input);
-            bool texConnected = texPin && graph.GetLinkForInputPin(texPin->ID);
-            if (texConnected)
+            if (bool texConnected = texPin && graph.GetLinkForInputPin(texPin->ID))
             {
                 code << "    vec3 " << var << " = normalize(texture(" << tex << ", " << uv << ").rgb * 2.0 - 1.0);\n";
                 code << "    " << var << ".xy *= " << strength << ";\n";
@@ -402,6 +400,10 @@ namespace OloEngine
             std::string bufName = node.ParameterName.empty() ? "outputBuffer" : node.ParameterName;
             std::string valueExpr = resolveInput("Value");
             code << "    " << bufName << ".data[gl_GlobalInvocationID.x] = " << valueExpr << ";\n";
+        }
+        else
+        {
+            // No additional handling required.
         }
 
         // ── PBROutput / ComputeOutput — handled separately in generators ──
@@ -531,6 +533,10 @@ void main()
                     defaultVal = node->Outputs[0].DefaultValue;
                 scalarParams.push_back({ node->ParameterName, node->Outputs[0].Type, defaultVal });
             }
+            else
+            {
+                // No additional handling required.
+            }
         }
 
         // Check if Time node is used
@@ -566,8 +572,7 @@ void main()
         }
 
         // Emit texture samplers (GL 4.6 guarantees 80 combined units; engine uses 0-31)
-        constexpr int maxShaderGraphTextures = 48; // slots 32-79
-        if (static_cast<int>(textureParams.size()) > maxShaderGraphTextures)
+        if (constexpr int maxShaderGraphTextures = 48 /* slots 32-79 */; static_cast<int>(textureParams.size()) > maxShaderGraphTextures)
         {
             OLO_CORE_ERROR("ShaderGraphCompiler: Too many texture parameters ({}, max {})", textureParams.size(), maxShaderGraphTextures);
             return {};
@@ -576,7 +581,7 @@ void main()
         {
             frag << "layout(binding = " << nextTextureBinding << ") uniform sampler2D " << param.Name << ";\n";
             outParameters.push_back({ param.Name, ShaderGraphPinType::Texture2D, {} });
-            nextTextureBinding++;
+            ++nextTextureBinding;
         }
         if (!textureParams.empty())
             frag << "\n";
@@ -612,7 +617,7 @@ void main()
         // Write PBR output
         if (outputNode)
         {
-            auto resolve = [&](const std::string& name) -> std::string
+            auto resolve = [this, &outputNode, &graph, &pinVarNames](const std::string& name) -> std::string
             {
                 const auto* pin = outputNode->FindPinByName(name, ShaderGraphPinDirection::Input);
                 if (!pin)
@@ -794,6 +799,10 @@ void main()
                 else
                     param.Type = ShaderGraphPinType::Vec4;
                 outParams.push_back(param);
+            }
+            else
+            {
+                // No additional handling required.
             }
         }
         if (computeUsesTime)

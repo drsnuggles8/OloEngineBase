@@ -93,6 +93,10 @@ namespace OloEngine
                 builder.WriteNewVersion(board.Scene.SceneColor, RGWriteUsage::RenderTarget, decalSceneColorVersionTag);
             builder.DependsOnPreviousWriter(ResourceNames::SceneColor);
         }
+        else
+        {
+            // No additional handling required.
+        }
     }
 
     void DecalRenderPass::Execute(RGCommandContext& context)
@@ -176,9 +180,7 @@ namespace OloEngine
         if (m_OITEnabled && m_SelectedOITFramebuffer.IsValid())
             oitFramebuffer = context.ResolveFramebuffer(m_SelectedOITFramebuffer);
 
-        const bool useOIT = m_OITEnabled && oitFramebuffer && m_OITShader;
-
-        if (useOIT)
+        if (const bool useOIT = m_OITEnabled && oitFramebuffer && m_OITShader; useOIT)
         {
             // Weighted-blended OIT forward-decal path. Decal draws accumulate
             // into the shared graph-owned OIT framebuffer (RGBA16F accum + RG16F revealage) with
@@ -333,7 +335,7 @@ namespace OloEngine
         // `GBuffer::Count` so RT4 (entity ID) stays at GL_NONE during decal
         // rendering — decals must not stamp their own pickability over the
         // underlying mesh's entity ID.
-        constexpr GLsizei kGBufferCount = static_cast<GLsizei>(GBuffer::Count);
+        constexpr GLsizei kGBufferCount = static_cast<GLsizei>(std::to_underlying(GBuffer::Count));
         const GLenum drawAlbedoOnly[kGBufferCount] = { GL_COLOR_ATTACHMENT0, GL_NONE, GL_NONE, GL_NONE, GL_NONE };
         const GLenum drawNormalOnly[kGBufferCount] = { GL_NONE, GL_COLOR_ATTACHMENT1, GL_NONE, GL_NONE, GL_NONE };
         const GLenum drawAlbedoAndNormal[kGBufferCount] = { GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1, GL_NONE, GL_NONE, GL_NONE };

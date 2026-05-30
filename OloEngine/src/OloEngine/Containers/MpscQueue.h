@@ -118,8 +118,7 @@ namespace OloEngine
          */
         bool Dequeue(ElementType& OutElem)
         {
-            std::optional<ElementType> LocalElement = Dequeue();
-            if (LocalElement.has_value())
+            if (std::optional<ElementType> LocalElement = Dequeue(); LocalElement.has_value())
             {
                 OutElem = MoveTempIfPossible(LocalElement.value());
                 return true;

@@ -64,14 +64,13 @@ namespace OloEngine
             {
                 LayerID layerID = partyIt->second;
                 // Validate the cached layer belongs to the requested zone
-                auto infoIt = m_LayerInfos.find(layerID);
-                if (infoIt != m_LayerInfos.end() && infoIt->second.ZoneTemplateID == zoneID)
+                if (auto infoIt = m_LayerInfos.find(layerID); infoIt != m_LayerInfos.end() && infoIt->second.ZoneTemplateID == zoneID)
                 {
                     auto* server = GetLayerServer(layerID);
                     if (server && server->AddPlayer(clientID))
                     {
                         m_PlayerLayerMap[clientID] = layerID;
-                        infoIt->second.PlayerCount++;
+                        ++infoIt->second.PlayerCount;
                         return layerID;
                     }
                 }
@@ -81,8 +80,7 @@ namespace OloEngine
         }
 
         // Find a layer for this zone that isn't at soft cap
-        auto zoneLayers = m_ZoneLayers.find(zoneID);
-        if (zoneLayers != m_ZoneLayers.end())
+        if (auto zoneLayers = m_ZoneLayers.find(zoneID); zoneLayers != m_ZoneLayers.end())
         {
             for (LayerID layerID : zoneLayers->second)
             {
@@ -93,7 +91,7 @@ namespace OloEngine
                     if (server && server->AddPlayer(clientID))
                     {
                         m_PlayerLayerMap[clientID] = layerID;
-                        infoIt->second.PlayerCount++;
+                        ++infoIt->second.PlayerCount;
                         if (partyID != 0)
                         {
                             m_PartyLayerMap[partyID] = layerID;
@@ -121,16 +119,14 @@ namespace OloEngine
         }
 
         LayerID layerID = it->second;
-        auto* server = GetLayerServer(layerID);
-        if (server)
+        if (auto* server = GetLayerServer(layerID); server)
         {
             server->RemovePlayer(clientID);
         }
 
-        auto infoIt = m_LayerInfos.find(layerID);
-        if (infoIt != m_LayerInfos.end() && infoIt->second.PlayerCount > 0)
+        if (auto infoIt = m_LayerInfos.find(layerID); infoIt != m_LayerInfos.end() && infoIt->second.PlayerCount > 0)
         {
-            infoIt->second.PlayerCount--;
+            --infoIt->second.PlayerCount;
         }
 
         m_PlayerLayerMap.erase(it);
@@ -184,7 +180,7 @@ namespace OloEngine
 
         u32 mergeCount = 0;
 
-        for (auto& [zoneID, layerIDs] : m_ZoneLayers)
+        for (const auto& [zoneID, layerIDs] : m_ZoneLayers)
         {
             if (layerIDs.size() < 2)
             {
@@ -240,7 +236,7 @@ namespace OloEngine
                 }
 
                 std::vector<u32> playersToMove;
-                for (auto& [clientID, layerID] : m_PlayerLayerMap)
+                for (const auto& [clientID, layerID] : m_PlayerLayerMap)
                 {
                     if (layerID == source)
                     {
@@ -298,8 +294,7 @@ namespace OloEngine
                 targetInfoIt->second.PlayerCount += sourceInfoIt->second.PlayerCount;
 
                 // Destroy source layer
-                auto sourceIt = m_Layers.find(source);
-                if (sourceIt != m_Layers.end())
+                if (auto sourceIt = m_Layers.find(source); sourceIt != m_Layers.end())
                 {
                     sourceIt->second.Stop();
                     m_Layers.erase(sourceIt);
@@ -311,7 +306,7 @@ namespace OloEngine
                 zl.erase(std::remove(zl.begin(), zl.end(), source), zl.end());
 
                 mergeCandidates.erase(mergeCandidates.begin() + 1);
-                mergeCount++;
+                ++mergeCount;
 
                 OLO_CORE_INFO("[LayerManager] Merged layer {} into layer {} for zone {}", source, target, zoneID);
             }

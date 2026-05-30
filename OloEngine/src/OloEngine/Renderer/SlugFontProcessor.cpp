@@ -30,7 +30,7 @@ namespace OloEngine
         glm::vec2 currentPos{};
         bool inContour = false;
 
-        auto addLineCurve = [&](glm::vec2 from, glm::vec2 to)
+        auto addLineCurve = [&result](glm::vec2 from, glm::vec2 to)
         {
             // Convert line to degenerate quadratic: control point at midpoint.
             SlugCurve curve;
@@ -40,7 +40,7 @@ namespace OloEngine
             result.Curves.push_back(curve);
         };
 
-        auto addQuadCurve = [&](glm::vec2 from, glm::vec2 ctrl, glm::vec2 to)
+        auto addQuadCurve = [&result](glm::vec2 from, glm::vec2 ctrl, glm::vec2 to)
         {
             SlugCurve curve;
             curve.P1 = from;
@@ -49,7 +49,7 @@ namespace OloEngine
             result.Curves.push_back(curve);
         };
 
-        auto addCubicAsTwoQuadratics = [&](glm::vec2 p0, glm::vec2 p1, glm::vec2 p2, glm::vec2 p3)
+        auto addCubicAsTwoQuadratics = [&addQuadCurve](glm::vec2 p0, glm::vec2 p1, glm::vec2 p2, glm::vec2 p3)
         {
             // Split cubic at t=0.5 using de Casteljau, then approximate each half.
             auto q01 = (p0 + p1) * 0.5f;
@@ -191,8 +191,7 @@ namespace OloEngine
                 OLO_CORE_ERROR("SlugFontProcessor::PackCurves: contour {} has {} texels, exceeds row width {}", contourIdx, contourTexels, kBandTextureWidth);
                 continue;
             }
-            auto currentCol = curveTexelCount % kBandTextureWidth;
-            if (currentCol + contourTexels > kBandTextureWidth)
+            if (auto currentCol = curveTexelCount % kBandTextureWidth; currentCol + contourTexels > kBandTextureWidth)
             {
                 auto padding = kBandTextureWidth - currentCol;
                 curveTexelData.resize(curveTexelData.size() + static_cast<sizet>(padding) * 4, 0.0f);
@@ -359,9 +358,9 @@ namespace OloEngine
             }
 
             // Sort curves in descending order by max x coordinate.
-            std::sort(hbandCurves[band].begin(), hbandCurves[band].end(),
-                      [&](u32 a, u32 b)
-                      { return curveBounds[a].MaxX > curveBounds[b].MaxX; });
+            std::ranges::sort(hbandCurves[band],
+                              [&curveBounds](u32 a, u32 b)
+                              { return curveBounds[a].MaxX > curveBounds[b].MaxX; });
         }
 
         // Vertical bands (indexed by x position).
@@ -386,9 +385,9 @@ namespace OloEngine
             }
 
             // Sort curves in descending order by max y coordinate.
-            std::sort(vbandCurves[band].begin(), vbandCurves[band].end(),
-                      [&](u32 a, u32 b)
-                      { return curveBounds[a].MaxY > curveBounds[b].MaxY; });
+            std::ranges::sort(vbandCurves[band],
+                              [&curveBounds](u32 a, u32 b)
+                              { return curveBounds[a].MaxY > curveBounds[b].MaxY; });
         }
 
         // --- Pack into band texture ---
@@ -402,8 +401,7 @@ namespace OloEngine
         // The shader reads headers at (glyphLoc.x + bandIdx, glyphLoc.y)
         // without row-wrap logic, so all headers must stay in one row.
         auto totalHeaders = hbandCount + vbandCount;
-        auto currentCol = bandTexelCount % kBandTextureWidth;
-        if (currentCol + totalHeaders > kBandTextureWidth)
+        if (auto currentCol = bandTexelCount % kBandTextureWidth; currentCol + totalHeaders > kBandTextureWidth)
         {
             auto padding = kBandTextureWidth - currentCol;
             bandTexelData.resize(bandTexelData.size() + static_cast<sizet>(padding) * 2, 0);
@@ -435,7 +433,7 @@ namespace OloEngine
             auto headerDataIdx = static_cast<sizet>(headerIdx) * 2;
             auto curveListOffset = bandTexelCount - headerStart; // relative to glyphLoc
 
-            auto& bandCurves = hbandCurves[band];
+            const auto& bandCurves = hbandCurves[band];
 
             // Ensure enough room.
             bandTexelData.resize(static_cast<sizet>(bandTexelCount + bandCurves.size()) * 2, 0);
@@ -468,7 +466,7 @@ namespace OloEngine
             auto headerDataIdx = static_cast<sizet>(headerIdx) * 2;
             auto curveListOffset = bandTexelCount - headerStart; // relative to glyphLoc
 
-            auto& bandCurves = vbandCurves[band];
+            const auto& bandCurves = vbandCurves[band];
 
             bandTexelData.resize(static_cast<sizet>(bandTexelCount + bandCurves.size()) * 2, 0);
 

@@ -6,8 +6,8 @@ namespace OloEngine
 {
     bool EquipmentSlots::Equip(Slot slot, const ItemInstance& item, Inventory& sourceInventory)
     {
-        auto slotIdx = static_cast<size_t>(slot);
-        if (slotIdx >= static_cast<size_t>(Slot::Count))
+        auto slotIdx = static_cast<size_t>(std::to_underlying(slot));
+        if (slotIdx >= static_cast<size_t>(std::to_underlying(Slot::Count)))
         {
             return false;
         }
@@ -35,8 +35,8 @@ namespace OloEngine
 
     bool EquipmentSlots::DirectEquip(Slot slot, const ItemInstance& item)
     {
-        auto slotIdx = static_cast<size_t>(slot);
-        if (slotIdx >= static_cast<size_t>(Slot::Count))
+        auto slotIdx = static_cast<size_t>(std::to_underlying(slot));
+        if (slotIdx >= static_cast<size_t>(std::to_underlying(Slot::Count)))
         {
             return false;
         }
@@ -47,8 +47,8 @@ namespace OloEngine
 
     bool EquipmentSlots::Unequip(Slot slot, Inventory& targetInventory)
     {
-        auto slotIdx = static_cast<size_t>(slot);
-        if (slotIdx >= static_cast<size_t>(Slot::Count))
+        auto slotIdx = static_cast<size_t>(std::to_underlying(slot));
+        if (slotIdx >= static_cast<size_t>(std::to_underlying(Slot::Count)))
         {
             return false;
         }
@@ -69,8 +69,8 @@ namespace OloEngine
 
     const ItemInstance* EquipmentSlots::GetEquipped(Slot slot) const
     {
-        auto slotIdx = static_cast<size_t>(slot);
-        if (slotIdx >= static_cast<size_t>(Slot::Count))
+        auto slotIdx = static_cast<size_t>(std::to_underlying(slot));
+        if (slotIdx >= static_cast<size_t>(std::to_underlying(Slot::Count)))
         {
             return nullptr;
         }
@@ -79,8 +79,8 @@ namespace OloEngine
 
     bool EquipmentSlots::IsSlotEmpty(Slot slot) const
     {
-        auto slotIdx = static_cast<size_t>(slot);
-        if (slotIdx >= static_cast<size_t>(Slot::Count))
+        auto slotIdx = static_cast<size_t>(std::to_underlying(slot));
+        if (slotIdx >= static_cast<size_t>(std::to_underlying(Slot::Count)))
         {
             return true;
         }
@@ -97,8 +97,7 @@ namespace OloEngine
                 continue;
             }
 
-            const ItemDefinition* def = ItemDatabase::Get(slot->ItemDefinitionID);
-            if (def)
+            if (const ItemDefinition* def = ItemDatabase::Get(slot->ItemDefinitionID); def)
             {
                 for (auto const& mod : def->AttributeModifiers)
                 {

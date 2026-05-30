@@ -139,7 +139,7 @@ namespace OloEngine::Tests
                 const u32 c = indices[i * 3 + 2];
                 tris.push_back(CanonicalizeTriangle(a, b, c));
             }
-            std::sort(tris.begin(), tris.end());
+            std::ranges::sort(tris);
             return Hash::CRC32(reinterpret_cast<const u8*>(tris.data()), tris.size() * sizeof(CanonicalTriangle));
         }
 

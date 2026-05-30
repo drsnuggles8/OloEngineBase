@@ -242,7 +242,7 @@ TEST_F(QuestSystemTest, FailOnTag)
     QuestJournal journal;
     auto def = MakeSimpleQuest("fail_tag_quest");
     def.CanFail = true;
-    def.FailOnTags.push_back("villain_path");
+    def.FailOnTags.emplace_back("villain_path");
 
     journal.AcceptQuest("fail_tag_quest", def);
     EXPECT_TRUE(journal.IsQuestActive("fail_tag_quest"));
@@ -262,12 +262,12 @@ TEST_F(QuestSystemTest, BranchingCompletion)
 
     QuestBranchChoice choiceA;
     choiceA.ChoiceID = "save_village";
-    choiceA.GrantedTags.push_back("hero_path");
+    choiceA.GrantedTags.emplace_back("hero_path");
     def.CompletionChoices.push_back(choiceA);
 
     QuestBranchChoice choiceB;
     choiceB.ChoiceID = "burn_village";
-    choiceB.GrantedTags.push_back("villain_path");
+    choiceB.GrantedTags.emplace_back("villain_path");
     def.CompletionChoices.push_back(choiceB);
 
     journal.AcceptQuest("branch_quest", def);
@@ -304,7 +304,7 @@ TEST_F(QuestSystemTest, CompletionRewards_GrantsTags)
 {
     QuestJournal journal;
     auto def = MakeSimpleQuest("reward_quest");
-    def.CompletionRewards.GrantedTags.push_back("quest_01_complete");
+    def.CompletionRewards.GrantedTags.emplace_back("quest_01_complete");
 
     journal.AcceptQuest("reward_quest", def);
     for (int i = 0; i < 5; ++i)

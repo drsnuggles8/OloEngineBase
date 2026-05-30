@@ -124,7 +124,7 @@ namespace OloEngine
         auto material = Ref<Material>(new Material());
         material->m_Name = name;
         material->m_MaterialType = MaterialType::PBR;
-        material->m_MaterialFlags = static_cast<u32>(MaterialFlag::DepthTest);
+        material->m_MaterialFlags = std::to_underlying(MaterialFlag::DepthTest);
 
         // Set PBR properties using the uniform system
         material->Set("u_MaterialUniforms.AlbedoColor", baseColor);
@@ -345,7 +345,7 @@ namespace OloEngine
 
     Ref<Texture2D> Material::GetTexture2D(const std::string& name)
     {
-        if (auto* value = m_Texture2DUniforms.Find(name))
+        if (const auto* value = m_Texture2DUniforms.Find(name))
             return *value;
 
         return nullptr;
@@ -354,7 +354,7 @@ namespace OloEngine
     Ref<Texture2D> Material::GetTexture2D(const std::string& name, u32 arrayIndex)
     {
         std::string key = GenerateArrayKey(name, arrayIndex);
-        if (auto* value = m_Texture2DUniforms.Find(key))
+        if (const auto* value = m_Texture2DUniforms.Find(key))
             return *value;
 
         return nullptr;
@@ -373,7 +373,7 @@ namespace OloEngine
 
     Ref<TextureCubemap> Material::GetTextureCube(const std::string& name)
     {
-        if (auto* value = m_TextureCubeUniforms.Find(name))
+        if (const auto* value = m_TextureCubeUniforms.Find(name))
             return *value;
 
         return nullptr;
@@ -420,9 +420,9 @@ namespace OloEngine
     void Material::SetFlag(MaterialFlag flag, bool value)
     {
         if (value)
-            m_MaterialFlags |= static_cast<u32>(flag);
+            m_MaterialFlags |= std::to_underlying(flag);
         else
-            m_MaterialFlags &= ~static_cast<u32>(flag);
+            m_MaterialFlags &= ~std::to_underlying(flag);
     }
 
     std::string Material::GenerateArrayKey(const std::string& name, u32 arrayIndex)

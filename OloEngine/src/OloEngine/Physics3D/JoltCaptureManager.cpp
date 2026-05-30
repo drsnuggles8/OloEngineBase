@@ -147,7 +147,7 @@ namespace OloEngine
         EndCapture();
     }
 
-    std::filesystem::path JoltCaptureManager::ValidateAndCanonalizePath(const std::filesystem::path& path, const std::filesystem::path& expectedRoot)
+    std::filesystem::path JoltCaptureManager::ValidateAndCanonalizePath(const std::filesystem::path& path, const std::filesystem::path& expectedRoot) const
     {
         try
         {
@@ -294,7 +294,7 @@ namespace OloEngine
             m_RecentCapture = capturePath;
 
             // Add to captures list if not already present
-            if (std::find(m_Captures.begin(), m_Captures.end(), capturePath) == m_Captures.end())
+            if (std::ranges::find(m_Captures, capturePath) == m_Captures.end())
             {
                 m_Captures.push_back(capturePath);
             }
@@ -327,7 +327,7 @@ namespace OloEngine
         // Full implementation would require Jolt debug renderer integration
         // This provides the framework for when JPH_DEBUG_RENDERER is available
 
-        m_FrameCount++;
+        ++m_FrameCount;
 
         // Example of how write operations should be handled:
         // if (actualWriteDataNeeded)
@@ -374,7 +374,7 @@ namespace OloEngine
         return m_IsCapturing && m_Stream.IsOpen() && !m_Stream.IsFailed();
     }
 
-    void JoltCaptureManager::OpenCapture(const std::filesystem::path& capturePath)
+    void JoltCaptureManager::OpenCapture(const std::filesystem::path& capturePath) const
     {
         OLO_PROFILE_FUNCTION();
 
@@ -454,7 +454,7 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        auto it = std::find(m_Captures.begin(), m_Captures.end(), capturePath);
+        auto it = std::ranges::find(m_Captures, capturePath);
         if (it != m_Captures.end())
         {
             try
@@ -516,6 +516,8 @@ namespace OloEngine
 
     void JoltCaptureManager::RefreshCapturesCache()
     {
+        OLO_PROFILE_FUNCTION();
+
         // Clear existing captures
         m_Captures.clear();
         m_RecentCapture.clear();
@@ -542,31 +544,31 @@ namespace OloEngine
             }
 
             // Sort captures by last write time (newest first)
-            std::sort(m_Captures.begin(), m_Captures.end(), [](const std::filesystem::path& a, const std::filesystem::path& b)
-                      {
-				std::filesystem::file_time_type timeA, timeB;
+            std::ranges::sort(m_Captures, [](const std::filesystem::path& a, const std::filesystem::path& b)
+                              {
+                                  std::filesystem::file_time_type timeA, timeB;
 
-				try
-				{
-					timeA = std::filesystem::last_write_time(a);
-				}
-				catch (const std::filesystem::filesystem_error&)
-				{
-					// File became inaccessible - treat as oldest possible time
-					timeA = std::filesystem::file_time_type::min();
-				}
+                                  try
+                                  {
+                                      timeA = std::filesystem::last_write_time(a);
+                                  }
+                                  catch (const std::filesystem::filesystem_error&)
+                                  {
+                                      // File became inaccessible - treat as oldest possible time
+                                      timeA = std::filesystem::file_time_type::min();
+                                  }
 
-				try
-				{
-					timeB = std::filesystem::last_write_time(b);
-				}
-				catch (const std::filesystem::filesystem_error&)
-				{
-					// File became inaccessible - treat as oldest possible time
-					timeB = std::filesystem::file_time_type::min();
-				}
+                                  try
+                                  {
+                                      timeB = std::filesystem::last_write_time(b);
+                                  }
+                                  catch (const std::filesystem::filesystem_error&)
+                                  {
+                                      // File became inaccessible - treat as oldest possible time
+                                      timeB = std::filesystem::file_time_type::min();
+                                  }
 
-				return timeA > timeB; });
+                                  return timeA > timeB; });
 
             if (!m_Captures.empty())
             {

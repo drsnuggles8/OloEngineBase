@@ -112,9 +112,9 @@ namespace
     bool ContainsPass(const RenderGraph& graph, const std::string& name)
     {
         const auto entries = graph.GetNodeSubmissionInfo();
-        return std::any_of(entries.begin(), entries.end(),
-                           [&](const RenderGraph::NodeSubmissionInfo& entry)
-                           { return entry.NodeName == name; });
+        return std::ranges::any_of(entries,
+                                   [&](const RenderGraph::NodeSubmissionInfo& entry)
+                                   { return entry.NodeName == name; });
     }
 
     // Minimal production-shaped topology. Only the passes relevant to the
@@ -303,10 +303,10 @@ TEST(RenderGraphPathSwitch, PassOrderReflectsCurrentTopologyAfterSwitch)
         // Topological sort must place ScenePass before
         // DeferredOpaqueDecalPass before DeferredLightingPass before
         // ForwardOverlayPass.
-        const auto sceneIdx = std::find(order.begin(), order.end(), "ScenePass");
-        const auto decalIdx = std::find(order.begin(), order.end(), "DeferredOpaqueDecalPass");
-        const auto lightingIdx = std::find(order.begin(), order.end(), "DeferredLightingPass");
-        const auto overlayIdx = std::find(order.begin(), order.end(), "ForwardOverlayPass");
+        const auto sceneIdx = std::ranges::find(order, "ScenePass");
+        const auto decalIdx = std::ranges::find(order, "DeferredOpaqueDecalPass");
+        const auto lightingIdx = std::ranges::find(order, "DeferredLightingPass");
+        const auto overlayIdx = std::ranges::find(order, "ForwardOverlayPass");
         ASSERT_NE(sceneIdx, order.end());
         ASSERT_NE(decalIdx, order.end());
         ASSERT_NE(lightingIdx, order.end());
@@ -320,11 +320,11 @@ TEST(RenderGraphPathSwitch, PassOrderReflectsCurrentTopologyAfterSwitch)
     (void)graph.ValidateResourceHazards();
     {
         const auto& order = graph.GetExecutionOrder();
-        EXPECT_EQ(std::find(order.begin(), order.end(), "DeferredOpaqueDecalPass"), order.end())
+        EXPECT_EQ(std::ranges::find(order, "DeferredOpaqueDecalPass"), order.end())
             << "DeferredOpaqueDecalPass must not appear in Forward pass order";
-        EXPECT_EQ(std::find(order.begin(), order.end(), "DeferredLightingPass"), order.end())
+        EXPECT_EQ(std::ranges::find(order, "DeferredLightingPass"), order.end())
             << "DeferredLightingPass must not appear in Forward pass order";
-        EXPECT_EQ(std::find(order.begin(), order.end(), "ForwardOverlayPass"), order.end())
+        EXPECT_EQ(std::ranges::find(order, "ForwardOverlayPass"), order.end())
             << "ForwardOverlayPass must not appear in Forward pass order";
     }
 }
@@ -456,7 +456,7 @@ TEST(RenderGraphPathSwitch, ThreeWayCycleCleansUpAllPathSpecificPasses)
 
         const auto hazards = graph.ValidateResourceHazards();
         EXPECT_TRUE(hazards.empty())
-            << "Cycle " << i << " path=" << static_cast<i32>(steps[i].path)
+            << "Cycle " << i << " path=" << static_cast<i32>(std::to_underlying(steps[i].path))
             << ": " << HazardsToString(hazards);
 
         EXPECT_EQ(graph.GetNodeSubmissionInfo().size(), steps[i].expected)
@@ -514,7 +514,7 @@ TEST(RenderGraphPathSwitch, DeferredDecalOrderingIsTopologicallyValid)
     const auto& order = graph.GetExecutionOrder();
     auto indexOf = [&](const char* name) -> i64
     {
-        const auto it = std::find(order.begin(), order.end(), name);
+        const auto it = std::ranges::find(order, name);
         return (it == order.end()) ? -1 : (it - order.begin());
     };
 

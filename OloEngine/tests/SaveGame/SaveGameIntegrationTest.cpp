@@ -127,6 +127,10 @@ TEST_F(SaveGameIntegrationTest, CaptureAndRestoreWithEntities)
             EXPECT_NEAR(s.Color.a, 1.0f, 0.001f);
             EXPECT_NEAR(s.TilingFactor, 2.5f, 0.001f);
         }
+        else
+        {
+            // No additional handling required.
+        }
     }
     EXPECT_TRUE(foundPlayer);
     EXPECT_TRUE(foundCamera);

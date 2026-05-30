@@ -16,7 +16,7 @@ namespace OloEngine
         explicit MaterialAsset(Ref<Material> material);
         virtual ~MaterialAsset() override;
 
-        virtual void OnDependencyUpdated(AssetHandle handle) override;
+        void OnDependencyUpdated(AssetHandle handle) override;
 
         glm::vec3 GetAlbedoColor() const;
         void SetAlbedoColor(const glm::vec3& color);
@@ -66,7 +66,7 @@ namespace OloEngine
         {
             return AssetType::Material;
         }
-        virtual AssetType GetAssetType() const override
+        AssetType GetAssetType() const override
         {
             return GetStaticType();
         }

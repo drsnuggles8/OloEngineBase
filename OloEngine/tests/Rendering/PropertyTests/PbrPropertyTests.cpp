@@ -648,8 +648,7 @@ namespace OloEngine::Tests
         u32 sampleX = kWidth - 1;
         while (sampleX > 0)
         {
-            const f32 ndh = pixels[(static_cast<std::size_t>(kTargetRow) * kWidth + sampleX) * 4 + 1];
-            if (ndh < 0.95f)
+            if (const f32 ndh = pixels[(static_cast<std::size_t>(kTargetRow) * kWidth + sampleX) * 4 + 1]; ndh < 0.95f)
                 break;
             --sampleX;
         }

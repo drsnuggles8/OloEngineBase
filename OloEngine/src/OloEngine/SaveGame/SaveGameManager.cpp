@@ -115,14 +115,14 @@ namespace OloEngine
         // enqueued to the game thread after Shutdown returns.
         auto allDrained = []()
         {
-            for (auto& flag : s_QuickSaveInFlight)
+            for (const auto& flag : s_QuickSaveInFlight)
             {
                 if (flag.load(std::memory_order_acquire))
                 {
                     return false;
                 }
             }
-            for (auto& flag : s_AutoSaveInFlight)
+            for (const auto& flag : s_AutoSaveInFlight)
             {
                 if (flag.load(std::memory_order_acquire))
                 {
@@ -389,11 +389,11 @@ namespace OloEngine
         }
 
         // Sort by timestamp, most recent first
-        std::sort(saves.begin(), saves.end(),
-                  [](const SaveFileInfo& a, const SaveFileInfo& b)
-                  {
-                      return a.Metadata.TimestampUTC > b.Metadata.TimestampUTC;
-                  });
+        std::ranges::sort(saves,
+                          [](const SaveFileInfo& a, const SaveFileInfo& b)
+                          {
+                              return a.Metadata.TimestampUTC > b.Metadata.TimestampUTC;
+                          });
 
         return saves;
     }
@@ -413,8 +413,7 @@ namespace OloEngine
             return false;
         }
 
-        SaveGameHeader header;
-        if (!SaveGameFile::ReadMetadata(path, header, outInfo.Metadata))
+        if (SaveGameHeader header; !SaveGameFile::ReadMetadata(path, header, outInfo.Metadata))
         {
             return false;
         }

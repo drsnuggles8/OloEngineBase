@@ -40,8 +40,7 @@ namespace OloEngine
         // any subnormal value here would be a degenerate projection. Reset to
         // 0.0f on the degenerate path so a stale viewport height from a prior
         // BeginScene can't leak into PushClipRect's Y-flip math.
-        constexpr f32 projectionEpsilon = 1e-6f;
-        if (std::abs(projection[1][1]) > projectionEpsilon)
+        if (constexpr f32 projectionEpsilon = 1e-6f; std::abs(projection[1][1]) > projectionEpsilon)
         {
             s_ViewportHeight = glm::abs(-2.0f / projection[1][1]);
         }
@@ -159,7 +158,7 @@ namespace OloEngine
         const f32 y2 = position.y + size.y - bottom;
 
         // Helper to draw one slice
-        auto drawSlice = [&](f32 px, f32 py, f32 pw, f32 ph, const glm::vec2& uvMin, const glm::vec2& uvMax)
+        auto drawSlice = [&texture, &tintColor, &entityID](f32 px, f32 py, f32 pw, f32 ph, const glm::vec2& uvMin, const glm::vec2& uvMax)
         {
             if (pw > 0.0f && ph > 0.0f)
             {
@@ -213,6 +212,10 @@ namespace OloEngine
         else if (panel.m_BackgroundColor.a > 0.0f)
         {
             DrawRect(position, size, panel.m_BackgroundColor, entityID);
+        }
+        else
+        {
+            // No additional handling required.
         }
     }
 
@@ -336,7 +339,7 @@ namespace OloEngine
         // intended top of each line.
         const f32 ascenderScreen = static_cast<f32>(metrics.AscenderY * fsScale) * scale;
 
-        for (sizet i = 0; i < lines.size(); i++)
+        for (sizet i = 0; i < lines.size(); ++i)
         {
             if (lines[i].empty())
             {
@@ -351,6 +354,10 @@ namespace OloEngine
             else if (isRight)
             {
                 lineX += size.x - lineWidths[i];
+            }
+            else
+            {
+                // No additional handling required.
             }
 
             const f32 lineY = blockY + static_cast<f32>(i) * lineHeightScreen + ascenderScreen;

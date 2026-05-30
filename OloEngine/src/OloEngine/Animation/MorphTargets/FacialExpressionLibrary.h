@@ -94,7 +94,7 @@ namespace OloEngine
                 OLO_PROFILE_SCOPE("GetExpressionNames::CollectAndSort");
                 for (const auto& [name, _] : GetExpressions())
                     names.push_back(name);
-                std::sort(names.begin(), names.end());
+                std::ranges::sort(names);
             }
             return names;
         }

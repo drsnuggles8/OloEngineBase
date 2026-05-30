@@ -146,14 +146,14 @@ namespace OloEngine::Audio::SoundGraph
                 if (!connection.m_Source.m_EndpointID.IsValid())
                 {
                     OLO_CORE_WARN("GraphGenerator: Connection has empty source endpoint");
-                    invalidConnections++;
+                    ++invalidConnections;
                     continue;
                 }
 
                 if (!connection.m_Destination.m_EndpointID.IsValid())
                 {
                     OLO_CORE_WARN("GraphGenerator: Connection has empty destination endpoint");
-                    invalidConnections++;
+                    ++invalidConnections;
                     continue;
                 }
 
@@ -188,14 +188,14 @@ namespace OloEngine::Audio::SoundGraph
                 if (sourceRequiresNode && !sourceNodeExists)
                 {
                     OLO_CORE_WARN("GraphGenerator: Connection references non-existent source node {}", static_cast<u64>(connection.m_Source.m_NodeID));
-                    invalidConnections++;
+                    ++invalidConnections;
                     continue;
                 }
 
                 if (destinationRequiresNode && !destinationNodeExists)
                 {
                     OLO_CORE_WARN("GraphGenerator: Connection references non-existent destination node {}", static_cast<u64>(connection.m_Destination.m_NodeID));
-                    invalidConnections++;
+                    ++invalidConnections;
                     continue;
                 }
 
@@ -220,7 +220,7 @@ namespace OloEngine::Audio::SoundGraph
                 if (!isValidConnectionType)
                 {
                     OLO_CORE_WARN("GraphGenerator: Connection has invalid connection type {}", static_cast<i32>(connection.m_Type));
-                    invalidConnections++;
+                    ++invalidConnections;
                     continue;
                 }
 
@@ -247,10 +247,14 @@ namespace OloEngine::Audio::SoundGraph
                     OLO_CORE_TRACE("GraphGenerator: Validated value connection from endpoint {} to {}",
                                    static_cast<u64>(connection.m_Source.m_EndpointID), static_cast<u64>(connection.m_Destination.m_EndpointID));
                 }
+                else
+                {
+                    // No additional handling required.
+                }
 
                 // Connection is valid, add to output prototype
                 m_OutPrototype->m_Connections.push_back(connection);
-                validConnections++;
+                ++validConnections;
             }
 
             OLO_CORE_INFO("GraphGenerator: Validated {} connections ({} valid, {} invalid)",
@@ -509,8 +513,7 @@ namespace OloEngine::Audio::SoundGraph
                 for (const auto& defaultPlug : nodeDesc.m_DefaultValuePlugs)
                 {
                     // Find the corresponding input stream in the node and set default value
-                    auto inputIt = node->InputStreams.find(defaultPlug.m_EndpointID);
-                    if (inputIt != node->InputStreams.end())
+                    if (auto inputIt = node->InputStreams.find(defaultPlug.m_EndpointID); inputIt != node->InputStreams.end())
                     {
                         // Create a default value plug for this input
                         auto defaultValuePlug = CreateScope<StreamWriter>(

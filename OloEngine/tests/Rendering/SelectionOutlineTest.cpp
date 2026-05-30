@@ -183,6 +183,10 @@ TEST(SelectionOutlineGraph, TopologicalOrderRespectsChain)
             uiIdx = i;
         else if (order[i] == "FinalPass")
             finalIdx = i;
+        else
+        {
+            // No additional handling required.
+        }
     }
 
     EXPECT_NE(postIdx, -1);

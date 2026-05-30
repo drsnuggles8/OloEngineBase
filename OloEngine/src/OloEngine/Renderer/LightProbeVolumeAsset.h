@@ -65,8 +65,7 @@ namespace OloEngine
         // Store baked SH data for a single probe at the given linear index
         void SetProbeData(i32 probeIndex, const SHCoefficients& sh, f32 validity = 1.0f)
         {
-            size_t const maxProbes = CoefficientData.size() / SH_COEFFICIENT_COUNT;
-            if (probeIndex < 0 || static_cast<size_t>(probeIndex) >= maxProbes)
+            if (size_t const maxProbes = CoefficientData.size() / SH_COEFFICIENT_COUNT; probeIndex < 0 || static_cast<size_t>(probeIndex) >= maxProbes)
             {
                 return;
             }
@@ -82,8 +81,7 @@ namespace OloEngine
         // Retrieve SH data for a single probe
         [[nodiscard]] SHCoefficients GetProbeData(i32 probeIndex) const
         {
-            size_t const maxProbes = CoefficientData.size() / SH_COEFFICIENT_COUNT;
-            if (probeIndex < 0 || static_cast<size_t>(probeIndex) >= maxProbes)
+            if (size_t const maxProbes = CoefficientData.size() / SH_COEFFICIENT_COUNT; probeIndex < 0 || static_cast<size_t>(probeIndex) >= maxProbes)
             {
                 return {};
             }

@@ -49,7 +49,7 @@ namespace OloEngine::Audio::SoundGraph
         // Stop and remove all sources
         {
             TUniqueLock<FMutex> lock(m_Mutex);
-            for (auto& [id, source] : m_SoundGraphSources)
+            for (const auto& [id, source] : m_SoundGraphSources)
             {
                 if (source)
                 {
@@ -321,8 +321,7 @@ namespace OloEngine::Audio::SoundGraph
         f32 clampedVolume = glm::clamp(volume, 0.0f, 2.0f);
 
         // Apply the master volume to the underlying miniaudio engine first
-        ma_result result = ma_engine_set_volume(m_Engine, clampedVolume);
-        if (result != MA_SUCCESS)
+        if (ma_result result = ma_engine_set_volume(m_Engine, clampedVolume); result != MA_SUCCESS)
         {
             OLO_CORE_ERROR("[SoundGraphPlayer] Failed to set master volume on audio engine: {}", ma_result_description(result));
             return;
@@ -376,7 +375,7 @@ namespace OloEngine::Audio::SoundGraph
         // Trade-off: Holding lock during updates reduces concurrency but ensures safety.
         // Future optimization: Could use shared_ptr if SoundGraphSource inherits RefCounted.
         TUniqueLock<FMutex> lock(m_Mutex);
-        for (auto& [id, source] : m_SoundGraphSources)
+        for (const auto& [id, source] : m_SoundGraphSources)
         {
             if (source)
             {
@@ -397,7 +396,7 @@ namespace OloEngine::Audio::SoundGraph
         {
             if (source && source->IsPlaying())
             {
-                count++;
+                ++count;
             }
         }
         return count;

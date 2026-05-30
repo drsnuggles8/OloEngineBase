@@ -60,11 +60,11 @@ namespace OloEngine::Audio::DSP
 
         void Reset()
         {
-            std::fill(m_WritePos.begin(), m_WritePos.end(), 0);
-            std::fill(m_ReadPos.begin(), m_ReadPos.end(), 0);
+            std::ranges::fill(m_WritePos, 0);
+            std::ranges::fill(m_ReadPos, 0);
             for (auto& ch : m_BufferData)
             {
-                std::fill(ch.begin(), ch.end(), 0.0f);
+                std::ranges::fill(ch, 0.0f);
             }
         }
 

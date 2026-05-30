@@ -8,6 +8,7 @@
 
 #include <atomic>
 #include <cstring>
+#include <utility>
 
 // Platform detection for asymmetric fence support
 // Asymmetric fences are primarily useful on ARM architectures where memory ordering
@@ -247,12 +248,12 @@ namespace OloEngine
 
     OLO_FINLINE EThreadCreateFlags operator|(EThreadCreateFlags A, EThreadCreateFlags B)
     {
-        return static_cast<EThreadCreateFlags>(static_cast<i8>(A) | static_cast<i8>(B));
+        return static_cast<EThreadCreateFlags>(std::to_underlying(A) | std::to_underlying(B));
     }
 
     OLO_FINLINE EThreadCreateFlags operator&(EThreadCreateFlags A, EThreadCreateFlags B)
     {
-        return static_cast<EThreadCreateFlags>(static_cast<i8>(A) & static_cast<i8>(B));
+        return static_cast<EThreadCreateFlags>(std::to_underlying(A) & std::to_underlying(B));
     }
 
     /**

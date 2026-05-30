@@ -347,9 +347,8 @@ namespace OloEngine
             // list before reusing it to avoid duplicate allocations of the same index.
             // Tracked separately so we can decide whether to bump the generation
             // (free-list reuse always invalidates prior handles).
-            const auto freeIt = std::find(m_FreeTextureHandleIndices.begin(),
-                                          m_FreeTextureHandleIndices.end(),
-                                          handle.Index);
+            const auto freeIt = std::ranges::find(m_FreeTextureHandleIndices,
+                                                  handle.Index);
             const bool wasOnFreeList = (freeIt != m_FreeTextureHandleIndices.end());
             if (wasOnFreeList)
                 m_FreeTextureHandleIndices.erase(freeIt);
@@ -476,9 +475,8 @@ namespace OloEngine
             // If this slot was previously marked free, remove it from the free
             // list before reusing it. Free-list reuse always counts as a
             // backing-state change for generation purposes.
-            const auto freeIt = std::find(m_FreeFramebufferHandleIndices.begin(),
-                                          m_FreeFramebufferHandleIndices.end(),
-                                          handle.Index);
+            const auto freeIt = std::ranges::find(m_FreeFramebufferHandleIndices,
+                                                  handle.Index);
             const bool wasOnFreeList = (freeIt != m_FreeFramebufferHandleIndices.end());
             if (wasOnFreeList)
                 m_FreeFramebufferHandleIndices.erase(freeIt);
@@ -671,9 +669,8 @@ namespace OloEngine
             // If this slot was previously marked free, remove it from the free
             // list before reusing it. Free-list reuse always counts as a
             // backing-state change for generation purposes.
-            const auto freeIt = std::find(m_FreeBufferHandleIndices.begin(),
-                                          m_FreeBufferHandleIndices.end(),
-                                          handle.Index);
+            const auto freeIt = std::ranges::find(m_FreeBufferHandleIndices,
+                                                  handle.Index);
             const bool wasOnFreeList = (freeIt != m_FreeBufferHandleIndices.end());
             if (wasOnFreeList)
                 m_FreeBufferHandleIndices.erase(freeIt);
@@ -954,12 +951,11 @@ namespace OloEngine
 
         if (!parentInfo->Desc.Attachments.empty())
         {
-            if (const auto depthIt = std::find_if(parentInfo->Desc.Attachments.begin(),
-                                                  parentInfo->Desc.Attachments.end(),
-                                                  [&isDepthFormat](const RGResourceFormat format)
-                                                  {
-                                                      return isDepthFormat(format);
-                                                  });
+            if (const auto depthIt = std::ranges::find_if(parentInfo->Desc.Attachments,
+                                                          [&isDepthFormat](const RGResourceFormat format)
+                                                          {
+                                                              return isDepthFormat(format);
+                                                          });
                 depthIt != parentInfo->Desc.Attachments.end())
             {
                 viewDesc.Format = *depthIt;
@@ -1036,8 +1032,7 @@ namespace OloEngine
             return {};
         }
 
-        const auto parentMipCount = std::max(parentInfo->Desc.MipLevels, 1u);
-        if (mipLevel >= parentMipCount)
+        if (const auto parentMipCount = std::max(parentInfo->Desc.MipLevels, 1u); mipLevel >= parentMipCount)
         {
             OLO_CORE_ERROR("RenderGraph::CreateTextureMipView: mip level {} is out of range for '{}' (mipCount={})",
                            mipLevel,
@@ -1103,8 +1098,7 @@ namespace OloEngine
             return {};
         }
 
-        const auto parentLayerCount = std::max(parentInfo->Desc.DepthOrLayers, 1u);
-        if (layerIndex >= parentLayerCount)
+        if (const auto parentLayerCount = std::max(parentInfo->Desc.DepthOrLayers, 1u); layerIndex >= parentLayerCount)
         {
             OLO_CORE_ERROR("RenderGraph::CreateTextureArrayLayerView: layer index {} is out of range for '{}' (layerCount={})",
                            layerIndex,
@@ -1491,13 +1485,12 @@ namespace OloEngine
         if (sourceResource.empty())
             return;
 
-        const auto existing = std::find_if(m_ExternalTextureSinkContracts.begin(),
-                                           m_ExternalTextureSinkContracts.end(),
-                                           [sourceResource, colorAttachmentIndex](const ExternalTextureSinkContract& contract)
-                                           {
-                                               return contract.SourceResource == sourceResource &&
-                                                      contract.ColorAttachmentIndex == colorAttachmentIndex;
-                                           });
+        const auto existing = std::ranges::find_if(m_ExternalTextureSinkContracts,
+                                                   [sourceResource, colorAttachmentIndex](const ExternalTextureSinkContract& contract)
+                                                   {
+                                                       return contract.SourceResource == sourceResource &&
+                                                              contract.ColorAttachmentIndex == colorAttachmentIndex;
+                                                   });
         if (existing != m_ExternalTextureSinkContracts.end())
             return;
 
@@ -1552,15 +1545,14 @@ namespace OloEngine
         if (historyResource.empty() || sourceResource.empty())
             return;
 
-        const auto existing = std::find_if(m_TemporalHistoryContracts.begin(),
-                                           m_TemporalHistoryContracts.end(),
-                                           [historyResource, sourceResource, kind, colorAttachmentIndex](const TemporalHistoryContract& contract)
-                                           {
-                                               return contract.HistoryResource == historyResource &&
-                                                      contract.SourceResource == sourceResource &&
-                                                      contract.Kind == kind &&
-                                                      contract.ColorAttachmentIndex == colorAttachmentIndex;
-                                           });
+        const auto existing = std::ranges::find_if(m_TemporalHistoryContracts,
+                                                   [historyResource, sourceResource, kind, colorAttachmentIndex](const TemporalHistoryContract& contract)
+                                                   {
+                                                       return contract.HistoryResource == historyResource &&
+                                                              contract.SourceResource == sourceResource &&
+                                                              contract.Kind == kind &&
+                                                              contract.ColorAttachmentIndex == colorAttachmentIndex;
+                                                   });
         if (existing != m_TemporalHistoryContracts.end())
             return;
 
@@ -1816,8 +1808,7 @@ namespace OloEngine
                 continue;
             }
 
-            const auto resourceName = GetResourceName(extract.Handle);
-            if (!diagnoseExtractionResource(resourceName, "<extract-texture>"))
+            if (const auto resourceName = GetResourceName(extract.Handle); !diagnoseExtractionResource(resourceName, "<extract-texture>"))
                 continue;
             extract.Callback(ResolveTexture(extract.Handle));
         }
@@ -1890,8 +1881,7 @@ namespace OloEngine
                 continue;
             }
 
-            const auto resourceName = GetResourceName(extract.Handle);
-            if (!diagnoseExtractionResource(resourceName, "<extract-framebuffer>"))
+            if (const auto resourceName = GetResourceName(extract.Handle); !diagnoseExtractionResource(resourceName, "<extract-framebuffer>"))
                 continue;
             extract.Callback(ResolveFramebuffer(extract.Handle));
         }
@@ -1940,9 +1930,8 @@ namespace OloEngine
             slot.PlaceholderReason.clear();
             slot.PlaceholderWarnedThisFrame = false;
 
-            const auto freeIt = std::find(m_FreeTextureHandleIndices.begin(),
-                                          m_FreeTextureHandleIndices.end(),
-                                          existingIt->second.Index);
+            const auto freeIt = std::ranges::find(m_FreeTextureHandleIndices,
+                                                  existingIt->second.Index);
             if (freeIt != m_FreeTextureHandleIndices.end())
                 m_FreeTextureHandleIndices.erase(freeIt);
 
@@ -2053,9 +2042,8 @@ namespace OloEngine
             slot.PlaceholderReason.clear();
             slot.PlaceholderWarnedThisFrame = false;
 
-            const auto freeIt = std::find(m_FreeFramebufferHandleIndices.begin(),
-                                          m_FreeFramebufferHandleIndices.end(),
-                                          existingIt->second.Index);
+            const auto freeIt = std::ranges::find(m_FreeFramebufferHandleIndices,
+                                                  existingIt->second.Index);
             if (freeIt != m_FreeFramebufferHandleIndices.end())
                 m_FreeFramebufferHandleIndices.erase(freeIt);
 
@@ -2162,9 +2150,8 @@ namespace OloEngine
             slot.PlaceholderReason.clear();
             slot.PlaceholderWarnedThisFrame = false;
 
-            const auto freeIt = std::find(m_FreeBufferHandleIndices.begin(),
-                                          m_FreeBufferHandleIndices.end(),
-                                          existingIt->second.Index);
+            const auto freeIt = std::ranges::find(m_FreeBufferHandleIndices,
+                                                  existingIt->second.Index);
             if (freeIt != m_FreeBufferHandleIndices.end())
                 m_FreeBufferHandleIndices.erase(freeIt);
 
@@ -2518,8 +2505,7 @@ namespace OloEngine
             OLO_CORE_TRACE("Adding execution dependency (ordering only): {} -> {}", beforePass, afterPass);
 
         // Only add dependency for execution ordering, no framebuffer piping (avoid duplicates)
-        auto& deps = m_Dependencies[afterPass];
-        if (std::find(deps.begin(), deps.end(), beforePass) == deps.end())
+        if (auto& deps = m_Dependencies[afterPass]; std::ranges::find(deps, beforePass) == deps.end())
         {
             deps.push_back(beforePass);
         }
@@ -2527,7 +2513,7 @@ namespace OloEngine
         if (persistent)
         {
             auto& explicitDeps = m_ExplicitDependencies[afterPass];
-            if (std::find(explicitDeps.begin(), explicitDeps.end(), beforePass) == explicitDeps.end())
+            if (std::ranges::find(explicitDeps, beforePass) == explicitDeps.end())
             {
                 explicitDeps.push_back(beforePass);
             }
@@ -2613,12 +2599,12 @@ namespace OloEngine
         if (passName.empty() || reason.empty())
             return;
 
-        auto existing = std::find_if(m_ResolveFailures.begin(), m_ResolveFailures.end(),
-                                     [passName, reason](const ResolveFailure& failure)
-                                     {
-                                         return failure.PassName == passName &&
-                                                failure.Reason == reason;
-                                     });
+        auto existing = std::ranges::find_if(m_ResolveFailures,
+                                             [passName, reason](const ResolveFailure& failure)
+                                             {
+                                                 return failure.PassName == passName &&
+                                                        failure.Reason == reason;
+                                             });
 
         if (existing != m_ResolveFailures.end())
         {
@@ -3063,7 +3049,7 @@ namespace OloEngine
         std::vector<NodeSubmissionInfo> result;
         result.reserve(m_NodeLookup.size());
 
-        const auto appendEntryInfo = [&](const std::string& name)
+        const auto appendEntryInfo = [this, &result](const std::string& name)
         {
             if (const auto nodeIt = m_NodeLookup.find(name); nodeIt != m_NodeLookup.end() && nodeIt->second)
             {
@@ -3118,7 +3104,7 @@ namespace OloEngine
         std::vector<Frame> stack;
         stack.reserve(m_InsertionOrder.size());
 
-        const auto visit = [&](const std::string& root) -> bool
+        const auto visit = [this, &visited, &inProgress, &stack](const std::string& root) -> bool
         {
             if (visited.contains(root))
                 return true;
@@ -3264,13 +3250,13 @@ namespace OloEngine
             // resource it reads whose last writer is a different pass.
             for (const auto& consName : m_ExecutionOrder)
             {
-                auto addImplicitEdge = [&](const std::string& producer)
+                auto addImplicitEdge = [&consName, &passSet, &successors, &inDegree](const std::string& producer)
                 {
                     if (producer == consName || !passSet.contains(producer))
                         return;
                     // Skip if the edge is already present to avoid double-counting.
                     auto& succVec = successors[producer];
-                    if (std::find(succVec.begin(), succVec.end(), consName) != succVec.end())
+                    if (std::ranges::find(succVec, consName) != succVec.end())
                         return;
                     succVec.push_back(consName);
                     ++inDegree[consName];
@@ -3296,7 +3282,7 @@ namespace OloEngine
         std::deque<std::string> computeReady;
         std::deque<std::string> graphicsReady;
 
-        auto classify = [&](const std::string& passName)
+        auto classify = [this, &computeReady, &graphicsReady](const std::string& passName)
         {
             if (IsGraphEntryAsyncComputeCandidate(passName))
                 computeReady.push_back(passName);
@@ -3705,7 +3691,7 @@ namespace OloEngine
             }
         }
 
-        std::sort(m_CulledPasses.begin(), m_CulledPasses.end());
+        std::ranges::sort(m_CulledPasses);
 
         std::string digest;
         for (const auto& passName : m_CulledPasses)
@@ -4041,6 +4027,10 @@ namespace OloEngine
                 activeBufferNames.insert(info.Name);
             else if (info.Desc.Kind == ResourceHandle::Kind::Framebuffer)
                 activeFramebufferNames.insert(info.Name);
+            else
+            {
+                // No additional handling required.
+            }
         }
 
         RenderGraphHandleAllocator::Reconcile(m_TextureHandlesByName, m_TextureHandleSlots, m_FreeTextureHandleIndices, activeTextureNames);
@@ -4084,6 +4074,10 @@ namespace OloEngine
                                                                               {
                                                                                   return RGFramebufferHandle{ index, generation };
                                                                               });
+            }
+            else
+            {
+                // No additional handling required.
             }
         }
 
@@ -4180,8 +4174,7 @@ namespace OloEngine
                 attributes.emplace_back("peripheries=2");
 
             const bool hasReachabilityData = !m_ReachablePasses.empty();
-            const bool isCulled = hasReachabilityData && !m_ReachablePasses.contains(name);
-            if (isCulled)
+            if (const bool isCulled = hasReachabilityData && !m_ReachablePasses.contains(name); isCulled)
             {
                 attributes.emplace_back("fillcolor=\"#f2f2f2\"");
                 attributes.emplace_back("style=\"rounded,dashed,filled\"");
@@ -4199,6 +4192,10 @@ namespace OloEngine
             {
                 // Teal: transfer/blit only
                 attributes.emplace_back("fillcolor=\"#cff4fc\"");
+            }
+            else
+            {
+                // No additional handling required.
             }
 
             if (!attributes.empty())
@@ -4231,7 +4228,7 @@ namespace OloEngine
         for (const auto& barrier : m_PlannedBarriers)
         {
             out << "    // before '" << barrier.BeforePass << "': resource='" << barrier.Resource
-                << "', flags=0x" << std::hex << static_cast<u32>(barrier.Flags) << std::dec << "\n";
+                << "', flags=0x" << std::hex << std::to_underlying(barrier.Flags) << std::dec << "\n";
         }
 
         out << "\n    // Barrier diagnostics\n";
@@ -4257,9 +4254,9 @@ namespace OloEngine
 
         // Cross-lane sync records in DOT comments.
         const auto dotTransitions = GetResourceTransitions();
-        const auto crossLaneDot = std::count_if(dotTransitions.begin(), dotTransitions.end(),
-                                                [](const ResourceTransition& tr)
-                                                { return tr.IsCrossLane; });
+        const auto crossLaneDot = std::ranges::count_if(dotTransitions,
+                                                        [](const ResourceTransition& tr)
+                                                        { return tr.IsCrossLane; });
         out << "\n    // Cross-lane sync records (" << crossLaneDot << " total)\n";
         for (const auto& tr : dotTransitions)
         {
@@ -4560,14 +4557,14 @@ namespace OloEngine
                                             ":" + (resource.Desc.Imported ? "1" : "0") +
                                             ":xb" + (resource.HasExternalBacking ? "1" : "0"));
             }
-            std::sort(descriptorEntries.begin(), descriptorEntries.end());
+            std::ranges::sort(descriptorEntries);
             resourceDigestEntries.insert(resourceDigestEntries.end(), descriptorEntries.begin(), descriptorEntries.end());
 
             std::vector<std::string> lifetimeNames;
             lifetimeNames.reserve(lifetimeByResource.size());
             for (const auto& [resource, info] : lifetimeByResource)
                 lifetimeNames.push_back(resource);
-            std::sort(lifetimeNames.begin(), lifetimeNames.end());
+            std::ranges::sort(lifetimeNames);
             for (const auto& resource : lifetimeNames)
             {
                 const auto& info = lifetimeByResource.at(resource);
@@ -4587,7 +4584,7 @@ namespace OloEngine
             accessResources.reserve(accessResourcesSet.size());
             for (const auto& resource : accessResourcesSet)
                 accessResources.push_back(resource);
-            std::sort(accessResources.begin(), accessResources.end());
+            std::ranges::sort(accessResources);
             resourceDigestAccessCount = static_cast<u32>(accessResources.size());
 
             for (const auto& resource : accessResources)
@@ -4596,14 +4593,14 @@ namespace OloEngine
                 if (const auto readsIt = readModesByResource.find(resource); readsIt != readModesByResource.end())
                 {
                     readModes.assign(readsIt->second.begin(), readsIt->second.end());
-                    std::sort(readModes.begin(), readModes.end());
+                    std::ranges::sort(readModes);
                 }
 
                 std::vector<std::string> writeModes;
                 if (const auto writesIt = writeModesByResource.find(resource); writesIt != writeModesByResource.end())
                 {
                     writeModes.assign(writesIt->second.begin(), writesIt->second.end());
-                    std::sort(writeModes.begin(), writeModes.end());
+                    std::ranges::sort(writeModes);
                 }
 
                 std::string accessEntry = std::string("acc:") + resource + ":r[";
@@ -4656,19 +4653,19 @@ namespace OloEngine
             barrierRows.reserve(m_PlannedBarriers.size());
             for (const auto& barrier : m_PlannedBarriers)
             {
-                const auto flags = static_cast<u32>(barrier.Flags);
+                const auto flags = std::to_underlying(barrier.Flags);
                 barrierRows.push_back({ barrier.BeforePass, barrier.Resource, flags });
                 barrierFlagsOr |= flags;
             }
-            std::sort(barrierRows.begin(), barrierRows.end(),
-                      [](const BarrierDigestRow& lhs, const BarrierDigestRow& rhs)
-                      {
-                          if (lhs.BeforePass != rhs.BeforePass)
-                              return lhs.BeforePass < rhs.BeforePass;
-                          if (lhs.Resource != rhs.Resource)
-                              return lhs.Resource < rhs.Resource;
-                          return lhs.Flags < rhs.Flags;
-                      });
+            std::ranges::sort(barrierRows,
+                              [](const BarrierDigestRow& lhs, const BarrierDigestRow& rhs)
+                              {
+                                  if (lhs.BeforePass != rhs.BeforePass)
+                                      return lhs.BeforePass < rhs.BeforePass;
+                                  if (lhs.Resource != rhs.Resource)
+                                      return lhs.Resource < rhs.Resource;
+                                  return lhs.Flags < rhs.Flags;
+                              });
 
             barrierDigestEntries.reserve(m_PlannedBarriers.size() + m_BarrierDiagnostics.size());
             for (const auto& row : barrierRows)
@@ -4713,15 +4710,15 @@ namespace OloEngine
                         break;
                 }
             }
-            std::sort(diagnosticRows.begin(), diagnosticRows.end(),
-                      [](const DiagnosticDigestRow& lhs, const DiagnosticDigestRow& rhs)
-                      {
-                          if (lhs.Kind != rhs.Kind)
-                              return lhs.Kind < rhs.Kind;
-                          if (lhs.Pass != rhs.Pass)
-                              return lhs.Pass < rhs.Pass;
-                          return lhs.Resource < rhs.Resource;
-                      });
+            std::ranges::sort(diagnosticRows,
+                              [](const DiagnosticDigestRow& lhs, const DiagnosticDigestRow& rhs)
+                              {
+                                  if (lhs.Kind != rhs.Kind)
+                                      return lhs.Kind < rhs.Kind;
+                                  if (lhs.Pass != rhs.Pass)
+                                      return lhs.Pass < rhs.Pass;
+                                  return lhs.Resource < rhs.Resource;
+                              });
             for (const auto& row : diagnosticRows)
             {
                 barrierDigestEntries.push_back(std::string("diag:") + row.Kind + "/" + row.Pass + "/" + row.Resource);
@@ -4768,8 +4765,7 @@ namespace OloEngine
 
         for (const auto& passName : m_InsertionOrder)
         {
-            const auto node = TryGetGraphEntryNode(passName, m_NodeLookup);
-            if (!node)
+            if (const auto node = TryGetGraphEntryNode(passName, m_NodeLookup); !node)
                 continue;
 
             passAuthoringRows.push_back(PassAuthoringRow{
@@ -4793,8 +4789,8 @@ namespace OloEngine
         const auto dumpTransitions = GetResourceTransitions();
         const auto resourceTransitionCount = static_cast<u32>(dumpTransitions.size());
         // Count cross-lane sync transitions.
-        const auto crossLaneSyncCount = static_cast<u32>(std::count_if(
-            dumpTransitions.begin(), dumpTransitions.end(),
+        const auto crossLaneSyncCount = static_cast<u32>(std::ranges::count_if(
+            dumpTransitions,
             [](const ResourceTransition& tr)
             { return tr.IsCrossLane; }));
 
@@ -4941,7 +4937,7 @@ namespace OloEngine
             const auto& barrier = m_PlannedBarriers[i];
             out << "    { \"beforePass\": \"" << jsonEscape(barrier.BeforePass)
                 << "\", \"resource\": \"" << jsonEscape(barrier.Resource)
-                << "\", \"flags\": " << static_cast<u32>(barrier.Flags)
+                << "\", \"flags\": " << std::to_underlying(barrier.Flags)
                 << ", \"range\": " << subresourceRangeToJson(barrier.Range) << " }";
             if (i + 1 < m_PlannedBarriers.size())
                 out << ",";
@@ -5034,7 +5030,7 @@ namespace OloEngine
             resourceNames.reserve(lifetimeByResource.size());
             for (const auto& [resource, info] : lifetimeByResource)
                 resourceNames.push_back(resource);
-            std::sort(resourceNames.begin(), resourceNames.end());
+            std::ranges::sort(resourceNames);
 
             for (sizet i = 0; i < resourceNames.size(); ++i)
             {
@@ -5066,7 +5062,7 @@ namespace OloEngine
             resources.reserve(allResources.size());
             for (const auto& resource : allResources)
                 resources.push_back(resource);
-            std::sort(resources.begin(), resources.end());
+            std::ranges::sort(resources);
 
             for (sizet i = 0; i < resources.size(); ++i)
             {
@@ -5077,7 +5073,7 @@ namespace OloEngine
                 if (const auto readsIt = readModesByResource.find(resource); readsIt != readModesByResource.end())
                 {
                     readModes.assign(readsIt->second.begin(), readsIt->second.end());
-                    std::sort(readModes.begin(), readModes.end());
+                    std::ranges::sort(readModes);
                 }
                 for (sizet modeIdx = 0; modeIdx < readModes.size(); ++modeIdx)
                 {
@@ -5091,7 +5087,7 @@ namespace OloEngine
                 if (const auto writesIt = writeModesByResource.find(resource); writesIt != writeModesByResource.end())
                 {
                     writeModes.assign(writesIt->second.begin(), writesIt->second.end());
-                    std::sort(writeModes.begin(), writeModes.end());
+                    std::ranges::sort(writeModes);
                 }
                 for (sizet modeIdx = 0; modeIdx < writeModes.size(); ++modeIdx)
                 {
@@ -5340,7 +5336,7 @@ namespace OloEngine
             }
             else if (cmd.CommandKind == SubmissionCommand::Kind::MemoryBarrier)
             {
-                out << ", \"flags\": " << static_cast<u32>(cmd.Barriers);
+                out << ", \"flags\": " << std::to_underlying(cmd.Barriers);
             }
             else if (cmd.CommandKind == SubmissionCommand::Kind::BatchBegin ||
                      cmd.CommandKind == SubmissionCommand::Kind::BatchEnd)
@@ -5387,6 +5383,10 @@ namespace OloEngine
                 }
                 out << "]";
             }
+            else
+            {
+                // No additional handling required.
+            }
 
             out << " }";
             if (ci + 1 < submissionPlan.size())
@@ -5405,7 +5405,7 @@ namespace OloEngine
                 << "\", \"consumerPass\": \"" << jsonEscape(tr.ConsumerPass)
                 << "\", \"fromUsage\": \"" << writeUsageToString(tr.FromUsage)
                 << "\", \"toUsage\": \"" << readUsageToString(tr.ToUsage)
-                << "\", \"flags\": " << static_cast<u32>(tr.Flags)
+                << "\", \"flags\": " << std::to_underlying(tr.Flags)
                 << ", \"range\": " << subresourceRangeToJson(tr.Range)
                 << ", \"isCrossLane\": " << (tr.IsCrossLane ? "true" : "false")
                 << ", \"producerLane\": \"" << queueLaneToString(tr.ProducerLane)
@@ -5541,7 +5541,7 @@ namespace OloEngine
                 std::vector<const ResourceInfo*> writtenResources;
                 for (const auto& info : m_RegisteredResources)
                 {
-                    if (std::find(info.Producers.begin(), info.Producers.end(), passName) != info.Producers.end())
+                    if (std::ranges::find(info.Producers, passName) != info.Producers.end())
                         writtenResources.push_back(&info);
                 }
                 if (writtenResources.empty())
@@ -5766,11 +5766,11 @@ namespace OloEngine
             if (declaration.ResourceName.empty())
                 return;
 
-            if (std::find_if(declarations.begin(), declarations.end(),
-                             [&declaration, &accessDeclarationsEqual](const RGAccessDeclaration& existing)
-                             {
-                                 return accessDeclarationsEqual(existing, declaration);
-                             }) == declarations.end())
+            if (std::ranges::find_if(declarations,
+                                     [&declaration, &accessDeclarationsEqual](const RGAccessDeclaration& existing)
+                                     {
+                                         return accessDeclarationsEqual(existing, declaration);
+                                     }) == declarations.end())
             {
                 declarations.push_back(declaration);
             }
@@ -5782,11 +5782,11 @@ namespace OloEngine
             if (declaration.ResourceName.empty())
                 return;
 
-            if (std::find_if(declarations.begin(), declarations.end(),
-                             [&declaration, &feedbackDeclarationsEqual](const RGFeedbackDeclaration& existing)
-                             {
-                                 return feedbackDeclarationsEqual(existing, declaration);
-                             }) == declarations.end())
+            if (std::ranges::find_if(declarations,
+                                     [&declaration, &feedbackDeclarationsEqual](const RGFeedbackDeclaration& existing)
+                                     {
+                                         return feedbackDeclarationsEqual(existing, declaration);
+                                     }) == declarations.end())
             {
                 declarations.push_back(declaration);
             }
@@ -5829,6 +5829,10 @@ namespace OloEngine
                         expandedAccess.ResourceName = viewIt->second.BackingResource;
                         expandedAccess.Range = RGSubresourceRange::Full();
                         appendUniqueAccessDeclaration(expandedAccesses, expandedAccess);
+                    }
+                    else
+                    {
+                        // No additional handling required.
                     }
 
                     continue;
@@ -5895,6 +5899,10 @@ namespace OloEngine
                         expandedFeedback.Range = RGSubresourceRange::Full();
                         appendUniqueFeedbackDeclaration(expandedFeedbacks, expandedFeedback);
                     }
+                    else
+                    {
+                        // No additional handling required.
+                    }
 
                     continue;
                 }
@@ -5942,8 +5950,7 @@ namespace OloEngine
                 return false;
             }
 
-            auto& deps = m_Dependencies[afterPass];
-            if (std::find(deps.begin(), deps.end(), beforePass) != deps.end())
+            if (auto& deps = m_Dependencies[afterPass]; std::ranges::find(deps, beforePass) != deps.end())
                 return false;
 
             // Avoid introducing a derived edge that would close a cycle.
@@ -5983,7 +5990,9 @@ namespace OloEngine
             return true;
         };
 
-        auto processGraphNode = [&](RenderGraphNode& node)
+        auto processGraphNode = [this, &builder, &expandTextureViewAccesses, &expandTextureViewFeedbacks,
+                                 &declaredPassDependenciesByPass, &tryAddDerivedDependency, &lastWriterByResource,
+                                 &depSubresourceRangesOverlap, &processedNodeNames](RenderGraphNode& node)
         {
             const std::string nodeName(node.GetName());
             if (nodeName.empty())
@@ -6090,7 +6099,7 @@ namespace OloEngine
                         }
                     }
                     if (!slotUpdated)
-                        writerVec.push_back(DepWriterSlot{ nodeName, access.Range });
+                        writerVec.emplace_back(nodeName, access.Range);
 
                     // Track the most-recent writer by resource base name so a
                     // subsequent RMW pass's Setup can call
@@ -6145,7 +6154,7 @@ namespace OloEngine
                             }
                         }
                         if (!baseSlotPresent)
-                            baseWriterVec.push_back(DepWriterSlot{ nodeName, RGSubresourceRange::Full() });
+                            baseWriterVec.emplace_back(nodeName, RGSubresourceRange::Full());
                     }
                 }
             }
@@ -6203,7 +6212,7 @@ namespace OloEngine
                     return false;
 
                 auto& deps = result.Dependencies[afterPass];
-                if (std::find(deps.begin(), deps.end(), beforePass) != deps.end())
+                if (std::ranges::find(deps, beforePass) != deps.end())
                     return false;
 
                 std::unordered_set<std::string> visited;
@@ -6315,7 +6324,7 @@ namespace OloEngine
                         }
 
                         if (!slotUpdated)
-                            writerVec.push_back(DepWriterSlot{ nodeName, access.Range });
+                            writerVec.emplace_back(nodeName, access.Range);
                     }
                 }
             }
@@ -6332,7 +6341,7 @@ namespace OloEngine
         {
             const auto currentSimulation = simulateDerivedDependencies(processedNodeNames);
             auto reversedProcessedNodeNames = processedNodeNames;
-            std::reverse(reversedProcessedNodeNames.begin(), reversedProcessedNodeNames.end());
+            std::ranges::reverse(reversedProcessedNodeNames);
             const auto reversedSimulation = simulateDerivedDependencies(reversedProcessedNodeNames);
 
             enum class SimulatedOrderingRelation
@@ -6420,6 +6429,10 @@ namespace OloEngine
                     diagnostic.Resource = currentOrigin->ResourceName;
                 else if (alternateOrigin && !alternateOrigin->ResourceName.empty())
                     diagnostic.Resource = alternateOrigin->ResourceName;
+                else
+                {
+                    // No additional handling required.
+                }
 
                 if (currentEdge)
                 {
@@ -6451,6 +6464,10 @@ namespace OloEngine
                 {
                     message += ": current build derives no matching edge, reversed visitation derives '" + diagnostic.AlternateBeforePass +
                                "' -> '" + diagnostic.AlternateAfterPass + "'";
+                }
+                else
+                {
+                    // No additional handling required.
                 }
 
                 diagnostic.Message = std::move(message);
@@ -6492,21 +6509,21 @@ namespace OloEngine
                 appendBuildDiagnostic(nullptr, nullptr, &edge, &origin);
             }
 
-            std::sort(m_BuildDiagnostics.begin(), m_BuildDiagnostics.end(),
-                      [](const BuildDiagnostic& lhs, const BuildDiagnostic& rhs)
-                      {
-                          if (lhs.Resource != rhs.Resource)
-                              return lhs.Resource < rhs.Resource;
-                          if (lhs.CurrentBeforePass != rhs.CurrentBeforePass)
-                              return lhs.CurrentBeforePass < rhs.CurrentBeforePass;
-                          if (lhs.CurrentAfterPass != rhs.CurrentAfterPass)
-                              return lhs.CurrentAfterPass < rhs.CurrentAfterPass;
-                          if (lhs.AlternateBeforePass != rhs.AlternateBeforePass)
-                              return lhs.AlternateBeforePass < rhs.AlternateBeforePass;
-                          if (lhs.AlternateAfterPass != rhs.AlternateAfterPass)
-                              return lhs.AlternateAfterPass < rhs.AlternateAfterPass;
-                          return lhs.Message < rhs.Message;
-                      });
+            std::ranges::sort(m_BuildDiagnostics,
+                              [](const BuildDiagnostic& lhs, const BuildDiagnostic& rhs)
+                              {
+                                  if (lhs.Resource != rhs.Resource)
+                                      return lhs.Resource < rhs.Resource;
+                                  if (lhs.CurrentBeforePass != rhs.CurrentBeforePass)
+                                      return lhs.CurrentBeforePass < rhs.CurrentBeforePass;
+                                  if (lhs.CurrentAfterPass != rhs.CurrentAfterPass)
+                                      return lhs.CurrentAfterPass < rhs.CurrentAfterPass;
+                                  if (lhs.AlternateBeforePass != rhs.AlternateBeforePass)
+                                      return lhs.AlternateBeforePass < rhs.AlternateBeforePass;
+                                  if (lhs.AlternateAfterPass != rhs.AlternateAfterPass)
+                                      return lhs.AlternateAfterPass < rhs.AlternateAfterPass;
+                                  return lhs.Message < rhs.Message;
+                              });
 
             m_LastBuildStats.OrderSensitiveResults = static_cast<u32>(m_BuildDiagnostics.size());
 

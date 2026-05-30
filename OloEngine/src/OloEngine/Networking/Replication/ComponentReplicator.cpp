@@ -23,7 +23,7 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        i32 bodyType = static_cast<i32>(component.Type);
+        i32 bodyType = std::to_underlying(component.Type);
         ar << bodyType;
         if (ar.IsLoading())
         {
@@ -36,7 +36,7 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        i32 bodyType = static_cast<i32>(component.m_Type);
+        i32 bodyType = std::to_underlying(component.m_Type);
         ar << bodyType;
         if (ar.IsLoading())
         {

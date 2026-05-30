@@ -102,8 +102,7 @@ namespace OloEngine::Tests
             fs::path cwd = fs::current_path();
             for (int i = 0; i < 8; ++i)
             {
-                fs::path candidate = cwd / relFromRoot;
-                if (fs::exists(candidate))
+                if (fs::path candidate = cwd / relFromRoot; fs::exists(candidate))
                     return candidate;
                 if (!cwd.has_parent_path() || cwd == cwd.parent_path())
                     break;
@@ -116,8 +115,7 @@ namespace OloEngine::Tests
         static std::unordered_map<std::string, u64>& PerfBaselineCache()
         {
             static std::unordered_map<std::string, u64> cache;
-            static bool loaded = false;
-            if (!loaded)
+            if (static bool loaded = false; !loaded)
             {
                 loaded = true;
                 fs::path path = PerfBaselinePath();
@@ -128,8 +126,7 @@ namespace OloEngine::Tests
                     while (std::getline(in, line))
                     {
                         // Strip comments and whitespace.
-                        auto hash = line.find('#');
-                        if (hash != std::string::npos)
+                        if (auto hash = line.find('#'); hash != std::string::npos)
                             line.erase(hash);
                         std::istringstream ls(line);
                         std::string key;
@@ -181,7 +178,7 @@ namespace OloEngine::Tests
             keys.reserve(baselines.size());
             for (const auto& [k, _] : baselines)
                 keys.push_back(k);
-            std::sort(keys.begin(), keys.end());
+            std::ranges::sort(keys);
             for (const auto& k : keys)
                 out << k << " " << baselines.at(k) << "\n";
         }
@@ -338,6 +335,10 @@ namespace OloEngine::Tests
                               << ratio << "x; warn threshold "
                               << kPerfWarnRatio << "x)";
             }
+            else
+            {
+                // No additional handling required.
+            }
         }
 
         // RAII wrapper around a pair of GL_TIME_ELAPSED queries (start/stop
@@ -450,7 +451,7 @@ namespace OloEngine::Tests
             samples.push_back(timer.GetElapsedNs());
         }
 
-        std::sort(samples.begin(), samples.end());
+        std::ranges::sort(samples);
         // Use minimum across iterations: for pure GPU microbenchmarks the
         // minimum is the most stable metric (thermal/scheduling jitter only
         // ever lengthens timings; the "fastest run" is the purest signal).
@@ -533,7 +534,7 @@ namespace OloEngine::Tests
 
             ::glDeleteTextures(1, &inputTex);
 
-            std::sort(samples.begin(), samples.end());
+            std::ranges::sort(samples);
             // Minimum across iterations — see rationale in ToneMap test.
             return samples.front();
         }
@@ -554,8 +555,7 @@ namespace OloEngine::Tests
             if (it == PerfBaselineCache().end() || it->second == 0 || PerfShouldRebase())
                 return first;
 
-            const f32 ratio = static_cast<f32>(first) / static_cast<f32>(it->second);
-            if (ratio < kPerfWarnRatio)
+            if (const f32 ratio = static_cast<f32>(first) / static_cast<f32>(it->second); ratio < kPerfWarnRatio)
                 return first;
 
             // Retry once — pick the faster of the two attempts. If noise is
@@ -693,7 +693,7 @@ namespace OloEngine::Tests
 
             ::glDeleteTextures(1, &inputTex);
 
-            std::sort(samples.begin(), samples.end());
+            std::ranges::sort(samples);
             return samples.front();
         }
     } // namespace
@@ -705,8 +705,7 @@ namespace OloEngine::Tests
         // Anti-flake: measure twice, keep the faster sample if the first one
         // exceeds the warn threshold.
         u64 first = MeasureWholeFramePostprocessNs(512, 512);
-        auto it = PerfBaselineCache().find("whole_frame_postprocess_512x512");
-        if (it != PerfBaselineCache().end() && it->second != 0 && !PerfShouldRebase())
+        if (auto it = PerfBaselineCache().find("whole_frame_postprocess_512x512"); it != PerfBaselineCache().end() && it->second != 0 && !PerfShouldRebase())
         {
             const f32 ratio = static_cast<f32>(first) / static_cast<f32>(it->second);
             if (ratio >= kPerfWarnRatio)
@@ -861,7 +860,7 @@ namespace OloEngine::Tests
             for (u32 i = 0; i < kSceneTextures; ++i)
                 ::glDeleteTextures(1, &textures[i]);
 
-            std::sort(samples.begin(), samples.end());
+            std::ranges::sort(samples);
 
             // Divide counters by kMeasure so they represent per-frame cost,
             // matching the per-frame timing sample above.
@@ -879,8 +878,7 @@ namespace OloEngine::Tests
         u32 draws = 0, shaderBinds = 0, textureBinds = 0;
         u64 first = MeasureSceneDrawBurstNs(512, 512, draws, shaderBinds, textureBinds);
 
-        auto it = PerfBaselineCache().find("scene_draw_burst_512x512");
-        if (it != PerfBaselineCache().end() && it->second != 0 && !PerfShouldRebase())
+        if (auto it = PerfBaselineCache().find("scene_draw_burst_512x512"); it != PerfBaselineCache().end() && it->second != 0 && !PerfShouldRebase())
         {
             const f32 ratio = static_cast<f32>(first) / static_cast<f32>(it->second);
             if (ratio >= kPerfWarnRatio)

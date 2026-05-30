@@ -171,7 +171,7 @@ namespace OloEngine
                                        texPath,
                                        m_EnvironmentMap->GetWidth(),
                                        m_EnvironmentMap->GetHeight(),
-                                       static_cast<int>(m_EnvironmentMap->GetSpecification().Format));
+                                       std::to_underlying(m_EnvironmentMap->GetSpecification().Format));
             }
         }
         else
@@ -190,9 +190,7 @@ namespace OloEngine
             cacheKey.clear();
         }
 
-        IBLCache::CachedIBL cached;
-
-        if (!cacheKey.empty() && IBLCache::TryLoad(cacheKey, config, cached))
+        if (IBLCache::CachedIBL cached; !cacheKey.empty() && IBLCache::TryLoad(cacheKey, config, cached))
         {
             // Use cached IBL textures
             m_IrradianceMap = cached.Irradiance;

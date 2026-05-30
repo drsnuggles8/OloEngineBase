@@ -74,7 +74,7 @@ namespace OloEngine::Tests
                 if (entry.path().extension() == extension)
                     out.push_back(entry.path());
             }
-            std::sort(out.begin(), out.end());
+            std::ranges::sort(out);
             return out;
         }
 
@@ -874,8 +874,7 @@ namespace OloEngine::Tests
             // AssetExtensions::IsExtensionSupported takes a normalised
             // string (with or without leading dot). The std::filesystem
             // extension() returns it with the leading dot.
-            const std::string ext = entry.path().extension().string();
-            if (!AssetExtensions::IsExtensionSupported(ext))
+            if (const std::string ext = entry.path().extension().string(); !AssetExtensions::IsExtensionSupported(ext))
                 continue;
 
             // Path the registry stores: project-relative, forward
@@ -960,8 +959,7 @@ namespace OloEngine::Tests
                 bool foundExact = false;
                 bool foundCaseInsensitive = false;
                 std::string actualName;
-                std::error_code ec;
-                if (fs::is_directory(accumulated, ec))
+                if (std::error_code ec; fs::is_directory(accumulated, ec))
                 {
                     for (auto& entry : fs::directory_iterator(accumulated, ec))
                     {
@@ -1120,6 +1118,10 @@ namespace OloEngine::Tests
                     const std::string key = it->first.as<std::string>("?");
                     walk(it->second, path, key);
                 }
+            }
+            else
+            {
+                // No additional handling required.
             }
         };
 
@@ -1317,9 +1319,9 @@ namespace OloEngine::Tests
             const std::string kindName = firstComponent.generic_string();
             const std::string filename = entry.path().filename().generic_string();
 
-            auto it = std::find_if(std::begin(known), std::end(known),
-                                   [&](const KnownCacheKind& k)
-                                   { return k.Subdir == kindName; });
+            auto it = std::ranges::find_if(known,
+                                           [&](const KnownCacheKind& k)
+                                           { return k.Subdir == kindName; });
             if (it == std::end(known))
             {
                 unclassified.push_back({
@@ -1418,8 +1420,7 @@ namespace OloEngine::Tests
                     break;
                 if (!entry.is_regular_file())
                     continue;
-                const std::string ext = entry.path().extension().generic_string();
-                if (ext != ".cpp" && ext != ".h" && ext != ".hpp" && ext != ".inl")
+                if (const std::string ext = entry.path().extension().generic_string(); ext != ".cpp" && ext != ".h" && ext != ".hpp" && ext != ".inl")
                     continue;
                 std::ifstream in(entry.path(), std::ios::binary);
                 if (!in)
@@ -1636,8 +1637,7 @@ namespace OloEngine::Tests
                                                   ? fullName
                                                   : fullName.substr(dot + 1);
                 const fs::path csFile = sourceDir / (className + ".cs");
-                std::error_code ec;
-                if (!fs::exists(csFile, ec))
+                if (std::error_code ec; !fs::exists(csFile, ec))
                     continue;
 
                 std::ifstream sf(csFile, std::ios::binary);
@@ -1885,6 +1885,10 @@ namespace OloEngine::Tests
                     walk(it->second, path, key);
                 }
             }
+            else
+            {
+                // No additional handling required.
+            }
         };
 
         const auto scenes = EnumerateFilesByExtension(assetsRoot / "Scenes", ".olo");
@@ -1960,6 +1964,10 @@ namespace OloEngine::Tests
                         it->second, sceneRelPath,
                         keyPath.empty() ? key : (keyPath + "." + key), out);
                 }
+            }
+            else
+            {
+                // No additional handling required.
             }
         }
     } // namespace

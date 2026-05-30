@@ -59,7 +59,7 @@ namespace OloEngine
             if (size == 0)
                 ReadRaw<u32>(size);
 
-            for (u32 i = 0; i < size; i++)
+            for (u32 i = 0; i < size; ++i)
             {
                 Key key;
                 if constexpr (std::is_trivially_copyable_v<Key>)
@@ -80,7 +80,7 @@ namespace OloEngine
             if (size == 0)
                 ReadRaw<u32>(size);
 
-            for (u32 i = 0; i < size; i++)
+            for (u32 i = 0; i < size; ++i)
             {
                 Key key;
                 if constexpr (std::is_trivially_copyable_v<Key>)
@@ -101,7 +101,7 @@ namespace OloEngine
             if (size == 0)
                 ReadRaw<u32>(size);
 
-            for (u32 i = 0; i < size; i++)
+            for (u32 i = 0; i < size; ++i)
             {
                 std::string key;
                 ReadString(key);
@@ -121,7 +121,7 @@ namespace OloEngine
 
             array.resize(size);
 
-            for (u32 i = 0; i < size; i++)
+            for (u32 i = 0; i < size; ++i)
             {
                 if constexpr (std::is_trivially_copyable_v<T>)
                     ReadRaw<T>(array[i]);
@@ -139,7 +139,7 @@ namespace OloEngine
 
         array.resize(size);
 
-        for (u32 i = 0; i < size; i++)
+        for (u32 i = 0; i < size; ++i)
             ReadString(array[i]);
     }
 

@@ -103,6 +103,7 @@
 
 #include <atomic>
 #include <thread>
+#include <utility>
 
 namespace OloEngine::Tasks
 {
@@ -217,7 +218,7 @@ namespace OloEngine::Tasks
         {
         }
 
-        void Execute()
+        void Execute() const
         {
             if (m_Task)
             {
@@ -323,6 +324,10 @@ namespace OloEngine::Tasks
                 else if (bIncludeLocalQueue && !m_LocalNormalPriQueue.IsEmpty())
                 {
                     m_LocalNormalPriQueue.TryPopFirst(Task);
+                }
+                else
+                {
+                    // No additional handling required.
                 }
             }
 
@@ -471,9 +476,9 @@ namespace OloEngine::Tasks
             OLO_CORE_ASSERT(Thread != ENamedThread::Invalid && Thread < ENamedThread::Count,
                             "Invalid named thread");
 
-            u32 Index = static_cast<u32>(Thread);
+            u32 Index = static_cast<u32>(std::to_underlying(Thread));
             m_ThreadIds[Index].store(OLO::FTaskTagScope::GetCurrentTag() != OLO::ETaskTag::ENone
-                                         ? static_cast<u32>(OLO::FTaskTagScope::GetCurrentTag())
+                                         ? static_cast<u32>(std::to_underlying(OLO::FTaskTagScope::GetCurrentTag()))
                                          : GetCurrentThreadIdInternal(),
                                      std::memory_order_release);
 
@@ -486,7 +491,7 @@ namespace OloEngine::Tasks
             OLO_CORE_ASSERT(Thread != ENamedThread::Invalid && Thread < ENamedThread::Count,
                             "Invalid named thread");
 
-            u32 Index = static_cast<u32>(Thread);
+            u32 Index = static_cast<u32>(std::to_underlying(Thread));
             m_ThreadIds[Index].store(0, std::memory_order_release);
 
             if (s_CurrentNamedThread == Thread)
@@ -514,7 +519,7 @@ namespace OloEngine::Tasks
             OLO_CORE_ASSERT(Thread != ENamedThread::Invalid && Thread < ENamedThread::Count,
                             "Invalid named thread");
 
-            m_Queues[static_cast<u32>(Thread)].Enqueue(MoveTemp(Task));
+            m_Queues[static_cast<u32>(std::to_underlying(Thread))].Enqueue(MoveTemp(Task));
         }
 
         // @brief Enqueue a task using extended priority
@@ -536,7 +541,7 @@ namespace OloEngine::Tasks
             {
                 return 0;
             }
-            return m_Queues[static_cast<u32>(Thread)].ProcessAll(bIncludeLocalQueue);
+            return m_Queues[static_cast<u32>(std::to_underlying(Thread))].ProcessAll(bIncludeLocalQueue);
         }
 
         // @brief Process tasks on a specific named thread
@@ -545,7 +550,7 @@ namespace OloEngine::Tasks
         {
             OLO_CORE_ASSERT(Thread != ENamedThread::Invalid && Thread < ENamedThread::Count,
                             "Invalid named thread");
-            return m_Queues[static_cast<u32>(Thread)].ProcessAll(bIncludeLocalQueue);
+            return m_Queues[static_cast<u32>(std::to_underlying(Thread))].ProcessAll(bIncludeLocalQueue);
         }
 
         // @brief Process tasks until a return is requested
@@ -554,7 +559,7 @@ namespace OloEngine::Tasks
             OLO_CORE_ASSERT(Thread != ENamedThread::Invalid && Thread < ENamedThread::Count,
                             "Invalid named thread");
 
-            FNamedThreadQueue& Queue = m_Queues[static_cast<u32>(Thread)];
+            FNamedThreadQueue& Queue = m_Queues[static_cast<u32>(std::to_underlying(Thread))];
             Queue.ClearReturnRequest();
             Queue.ProcessUntil([&Queue]()
                                { return Queue.IsReturnRequested(); }, true);
@@ -565,7 +570,7 @@ namespace OloEngine::Tasks
         {
             OLO_CORE_ASSERT(Thread != ENamedThread::Invalid && Thread < ENamedThread::Count,
                             "Invalid named thread");
-            m_Queues[static_cast<u32>(Thread)].RequestReturn();
+            m_Queues[static_cast<u32>(std::to_underlying(Thread))].RequestReturn();
         }
 
         // @brief Wake a waiting named thread (sends notification without enqueuing task)
@@ -573,7 +578,7 @@ namespace OloEngine::Tasks
         {
             OLO_CORE_ASSERT(Thread != ENamedThread::Invalid && Thread < ENamedThread::Count,
                             "Invalid named thread");
-            m_Queues[static_cast<u32>(Thread)].Notify();
+            m_Queues[static_cast<u32>(std::to_underlying(Thread))].Notify();
         }
 
         // @brief Check if a named thread is currently processing tasks
@@ -619,7 +624,7 @@ namespace OloEngine::Tasks
         {
             OLO_CORE_ASSERT(Thread != ENamedThread::Invalid && Thread < ENamedThread::Count,
                             "Invalid named thread");
-            return m_Queues[static_cast<u32>(Thread)];
+            return m_Queues[static_cast<u32>(std::to_underlying(Thread))];
         }
 
       private:
@@ -631,8 +636,8 @@ namespace OloEngine::Tasks
             return static_cast<u32>(std::hash<std::thread::id>{}(std::this_thread::get_id()) & 0xFFFFFFFF);
         }
 
-        FNamedThreadQueue m_Queues[static_cast<u32>(ENamedThread::Count)];
-        std::atomic<u32> m_ThreadIds[static_cast<u32>(ENamedThread::Count)] = {};
+        FNamedThreadQueue m_Queues[static_cast<u32>(std::to_underlying(ENamedThread::Count))];
+        std::atomic<u32> m_ThreadIds[static_cast<u32>(std::to_underlying(ENamedThread::Count))] = {};
 
         static thread_local ENamedThread s_CurrentNamedThread;
         static thread_local bool s_IsProcessingTasks;

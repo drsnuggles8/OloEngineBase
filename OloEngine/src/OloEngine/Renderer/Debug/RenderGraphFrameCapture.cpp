@@ -196,8 +196,7 @@ namespace OloEngine
     u32 RenderGraphFrameCapture::AcquireTexture(const std::string& passName, Source source, u32 width, u32 height)
     {
         const CacheKey key{ passName, source };
-        auto it = m_TextureCache.find(key);
-        if (it != m_TextureCache.end())
+        if (auto it = m_TextureCache.find(key); it != m_TextureCache.end())
         {
             // Reuse if dimensions match, otherwise reallocate.
             if (it->second.Width == width && it->second.Height == height && it->second.TextureID != 0)
@@ -293,8 +292,7 @@ namespace OloEngine
                                0, 0, static_cast<GLint>(width), static_cast<GLint>(height),
                                GL_COLOR_BUFFER_BIT, GL_NEAREST);
 
-        const GLenum blitErr = glGetError();
-        if (blitErr != GL_NO_ERROR)
+        if (const GLenum blitErr = glGetError(); blitErr != GL_NO_ERROR)
         {
             OLO_CORE_WARN("RenderGraphFrameCapture[{}|{}:{}]: glBlitNamedFramebuffer GL error 0x{:x} (src tex {}, {}x{})",
                           passName, SourceName(source), resourceName, blitErr, sourceTextureID, width, height);
@@ -345,8 +343,7 @@ namespace OloEngine
         glNamedFramebufferTexture(dstFBO, GL_COLOR_ATTACHMENT0, dstTexture, 0);
         glNamedFramebufferDrawBuffer(dstFBO, GL_COLOR_ATTACHMENT0);
 
-        const GLenum dstStatus = glCheckNamedFramebufferStatus(dstFBO, GL_DRAW_FRAMEBUFFER);
-        if (dstStatus != GL_FRAMEBUFFER_COMPLETE)
+        if (const GLenum dstStatus = glCheckNamedFramebufferStatus(dstFBO, GL_DRAW_FRAMEBUFFER); dstStatus != GL_FRAMEBUFFER_COMPLETE)
         {
             OLO_CORE_WARN("RenderGraphFrameCapture[{}|{}:{}]: default-FB capture destination incomplete (dst=0x{:x})",
                           passName, SourceName(source), resourceName, dstStatus);
@@ -388,8 +385,7 @@ namespace OloEngine
                                0, 0, static_cast<GLint>(width), static_cast<GLint>(height),
                                GL_COLOR_BUFFER_BIT, GL_NEAREST);
 
-        const GLenum blitErr = glGetError();
-        if (blitErr != GL_NO_ERROR)
+        if (const GLenum blitErr = glGetError(); blitErr != GL_NO_ERROR)
         {
             OLO_CORE_WARN("RenderGraphFrameCapture[{}|{}:{}]: default-FB blit GL error 0x{:x} ({}x{})",
                           passName, SourceName(source), resourceName, blitErr, width, height);
@@ -528,7 +524,7 @@ namespace OloEngine
 
         GraphMetadata metadata;
         const auto& passOrder = graph.GetExecutionOrder();
-        if (const auto it = std::find(passOrder.begin(), passOrder.end(), passName); it != passOrder.end())
+        if (const auto it = std::ranges::find(passOrder, passName); it != passOrder.end())
         {
             metadata.PassOrderIndex = static_cast<u32>(std::distance(passOrder.begin(), it));
         }
@@ -538,9 +534,9 @@ namespace OloEngine
 
         const auto passIndexOf = [&passOrder](std::string_view name) -> u32
         {
-            const auto it = std::find_if(passOrder.begin(), passOrder.end(),
-                                         [name](const std::string& candidate)
-                                         { return std::string_view(candidate) == name; });
+            const auto it = std::ranges::find_if(passOrder,
+                                                 [name](const std::string& candidate)
+                                                 { return std::string_view(candidate) == name; });
             if (it == passOrder.end())
                 return std::numeric_limits<u32>::max();
             return static_cast<u32>(std::distance(passOrder.begin(), it));
@@ -553,7 +549,7 @@ namespace OloEngine
 
         bool emittedDiag = false;
 
-        const auto captureFB = [&](Source kind, std::string_view resourceName, const Ref<Framebuffer>& fb)
+        const auto captureFB = [this, &emittedDiag, &passName, &metadata](Source kind, std::string_view resourceName, const Ref<Framebuffer>& fb)
         {
             if (!fb)
                 return;
@@ -582,7 +578,7 @@ namespace OloEngine
                                resourceName, fb->GetRendererID(), metadata);
         };
 
-        const auto captureTexture = [&](Source kind, std::string_view resourceName, u32 textureID, u32 width, u32 height, u32 sourceFramebufferID = 0)
+        const auto captureTexture = [this, &emittedDiag, &passName, &metadata](Source kind, std::string_view resourceName, u32 textureID, u32 width, u32 height, u32 sourceFramebufferID = 0)
         {
             if (textureID == 0 || width == 0 || height == 0)
                 return;
@@ -595,7 +591,7 @@ namespace OloEngine
             CaptureFramebuffer(passName, kind, textureID, width, height, resourceName, sourceFramebufferID, metadata);
         };
 
-        const auto captureGraphTexture = [&](Source kind, std::string_view resourceName)
+        const auto captureGraphTexture = [&graph, &captureTexture](Source kind, std::string_view resourceName)
         {
             const u32 textureID = graph.ResolveTexture(graph.GetTextureHandle(resourceName));
             if (textureID == 0)

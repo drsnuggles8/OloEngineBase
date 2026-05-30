@@ -115,7 +115,7 @@ namespace OloEngine::Animation::BlendUtils
         }
 
         // Build effective local transform: preTransform[i] * localPose[i]
-        auto effectiveLocal = [&](u32 idx) -> BoneTransform
+        auto effectiveLocal = [&preTransforms, &localPose](u32 idx) -> BoneTransform
         {
             if (idx < preTransforms.size())
             {
@@ -195,6 +195,10 @@ namespace OloEngine::Animation::BlendUtils
             // Out-of-range root bone: nothing to blend, copy base
             std::copy(base.begin(), base.begin() + static_cast<std::ptrdiff_t>(count), out.begin());
             return;
+        }
+        else
+        {
+            // No additional handling required.
         }
 
         for (sizet i = 0; i < count; ++i)

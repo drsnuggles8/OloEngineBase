@@ -211,8 +211,7 @@ namespace OloEngine
 
         void SetRotation(const glm::quat& quat)
         {
-            f32 const len2 = glm::dot(quat, quat);
-            if (len2 < 1e-12f)
+            if (f32 const len2 = glm::dot(quat, quat); len2 < 1e-12f)
             {
                 Rotation = glm::quat(1.0f, 0.0f, 0.0f, 0.0f);
                 RotationEuler = glm::vec3(0.0f);
@@ -270,6 +269,10 @@ namespace OloEngine
                     RotationEuler[i] -= twoPi;
                 else if (diff < -glm::pi<float>())
                     RotationEuler[i] += twoPi;
+                else
+                {
+                    // No additional handling required.
+                }
             }
         }
 
@@ -343,8 +346,7 @@ namespace OloEngine
         {
             if (Camera.GetProjectionType() != other.Camera.GetProjectionType())
                 return false;
-            const auto type = Camera.GetProjectionType();
-            if (type == SceneCamera::ProjectionType::Perspective)
+            if (const auto type = Camera.GetProjectionType(); type == SceneCamera::ProjectionType::Perspective)
             {
                 if (!Math::BitwiseEqual(Camera.GetPerspectiveVerticalFOV(), other.Camera.GetPerspectiveVerticalFOV()))
                     return false;
@@ -825,9 +827,9 @@ namespace OloEngine
         // because PlayOnAwake was false and Play hasn't been called, or the asset failed
         // to compile). Implementations live in AudioSoundGraphComponent.cpp to avoid
         // pulling SoundGraphSource.h / miniaudio into this header.
-        bool SetParameter(const std::string& name, f32 value);
-        bool SetParameter(const std::string& name, i32 value);
-        bool SetParameter(const std::string& name, bool value);
+        bool SetParameter(const std::string& name, f32 value) const;
+        bool SetParameter(const std::string& name, i32 value) const;
+        bool SetParameter(const std::string& name, bool value) const;
     };
 
     // Note: SubmeshComponent, MeshComponent, AnimationStateComponent,

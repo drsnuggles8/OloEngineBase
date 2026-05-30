@@ -39,9 +39,8 @@ namespace OloEngine
         // New convenience method to set data directly
         virtual void SetData(const void* data, u32 size, u32 offset = 0)
         {
-            u32 requiredSize = offset + size;
             // Grow the CPU-side buffer if needed
-            if (requiredSize > m_Size)
+            if (u32 requiredSize = offset + size; requiredSize > m_Size)
             {
                 auto* newBuf = new u8[requiredSize]{};
                 if (m_LocalData)

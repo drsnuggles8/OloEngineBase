@@ -86,9 +86,7 @@ namespace OloEngine
             i32 NumThreadTasks = 0;
 
             // Check if multithreading should be used for performance (matches UE5.7 FApp::ShouldUseThreadingForPerformance())
-            const bool bIsMultithread = ShouldUseThreadingForPerformance() || FForkProcessHelper::IsForkedMultithreadInstance();
-
-            if (Num > 1 && (Flags & EParallelForFlags::ForceSingleThread) == EParallelForFlags::None && bIsMultithread)
+            if (const bool bIsMultithread = ShouldUseThreadingForPerformance() || FForkProcessHelper::IsForkedMultithreadInstance(); Num > 1 && (Flags & EParallelForFlags::ForceSingleThread) == EParallelForFlags::None && bIsMultithread)
             {
                 NumThreadTasks = FMath::Min(
                     static_cast<i32>(LowLevelTasks::FScheduler::Get().GetNumWorkers()),
@@ -97,7 +95,7 @@ namespace OloEngine
 
             if (!LowLevelTasks::FScheduler::Get().IsWorkerThread())
             {
-                NumThreadTasks++; // Named threads help with the work
+                ++NumThreadTasks; // Named threads help with the work
             }
 
             // Don't go wider than number of cores
@@ -149,7 +147,7 @@ namespace OloEngine
                 // Do the prework
                 CurrentThreadWorkToDoBeforeHelping();
                 // No threads, just do it and return
-                for (i32 Index = 0; Index < Num; Index++)
+                for (i32 Index = 0; Index < Num; ++Index)
                 {
                     CallBody(Body, Contexts, 0, Index);
                 }
@@ -159,11 +157,9 @@ namespace OloEngine
             // Calculate batch sizes
             i32 BatchSize = 1;
             i32 NumBatches = Num;
-            const bool bIsUnbalanced = (Flags & EParallelForFlags::Unbalanced) != EParallelForFlags::None;
-
-            if (!bIsUnbalanced)
+            if (const bool bIsUnbalanced = (Flags & EParallelForFlags::Unbalanced) != EParallelForFlags::None; !bIsUnbalanced)
             {
-                for (i32 Div = 6; Div; Div--)
+                for (i32 Div = 6; Div; --Div)
                 {
                     if (Num >= (NumWorkers * Div))
                     {
@@ -177,7 +173,7 @@ namespace OloEngine
                     }
                 }
             }
-            NumWorkers--; // Decrement one because this function will work on it locally
+            --NumWorkers; // Decrement one because this function will work on it locally
 
             OLO_CORE_ASSERT(BatchSize * NumBatches >= Num, "Batch calculation error");
 
@@ -201,6 +197,10 @@ namespace OloEngine
             else if (bBackgroundPriority)
             {
                 Priority = LowLevelTasks::ETaskPriority::BackgroundNormal;
+            }
+            else
+            {
+                // No additional handling required.
             }
 
             // Shared data between tasks (ref-counted for safe lifetime)
@@ -335,7 +335,7 @@ namespace OloEngine
 
                         i32 StartIndex = BatchIndex * BatchSize;
                         i32 EndIndex = FMath::Min(StartIndex + BatchSize, Num);
-                        for (i32 Index = StartIndex; Index < EndIndex; Index++)
+                        for (i32 Index = StartIndex; Index < EndIndex; ++Index)
                         {
                             CallBody(Body, Contexts, WorkerIndex, Index);
                         }
@@ -362,6 +362,10 @@ namespace OloEngine
                         else if (!bIsBackgroundPriority)
                         {
                             continue;
+                        }
+                        else
+                        {
+                            // No additional handling required.
                         }
 
                         // Background priority yielding check
@@ -413,9 +417,7 @@ namespace OloEngine
             // Help with the parallel-for to prevent deadlocks
             // Master thread uses NumWorkers as its worker index (the "extra" slot)
             FParallelExecutor LocalExecutor(MoveTemp(Data), NumWorkers);
-            const bool bFinishedLast = LocalExecutor(true);
-
-            if (!bFinishedLast)
+            if (const bool bFinishedLast = LocalExecutor(true); !bFinishedLast)
             {
                 OLO_PROFILE_SCOPE("ParallelFor.Wait");
 

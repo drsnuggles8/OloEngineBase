@@ -512,8 +512,7 @@ namespace OloEngine
         // Verify marker
         u32 magic = 0;
         ar << magic;
-        constexpr u32 kWorldDbMagic = 0x57444200;
-        if (ar.IsError() || magic != kWorldDbMagic)
+        if (constexpr u32 kWorldDbMagic = 0x57444200; ar.IsError() || magic != kWorldDbMagic)
         {
             OLO_CORE_ERROR("[SaveFileWorldDatabase] Invalid world database marker");
             return false;

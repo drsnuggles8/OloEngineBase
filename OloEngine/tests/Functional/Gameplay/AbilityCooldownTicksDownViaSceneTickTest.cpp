@@ -57,7 +57,7 @@ class AbilityCooldownTicksDownViaSceneTickTest : public FunctionalTest
 
 TEST_F(AbilityCooldownTicksDownViaSceneTickTest, CooldownStartsOnActivationAndDecrementsViaSceneTick)
 {
-    auto& ac = m_Player.GetComponent<AbilityComponent>();
+    const auto& ac = m_Player.GetComponent<AbilityComponent>();
 
     // Initially off-cooldown.
     ASSERT_FALSE(ac.Cooldowns.IsOnCooldown(m_AbilityTag));

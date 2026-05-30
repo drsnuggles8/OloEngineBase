@@ -126,8 +126,7 @@ namespace OloEngine
                 if (currentState)
                 {
                     f32 normalizedTime = 0.0f;
-                    f32 dur = currentState->GetEffectiveDuration(params);
-                    if (dur > 0.0f)
+                    if (f32 dur = currentState->GetEffectiveDuration(params); dur > 0.0f)
                     {
                         normalizedTime = m_CurrentStateTime / dur;
                     }
@@ -193,8 +192,7 @@ namespace OloEngine
             return 0.0f;
         }
 
-        f32 duration = state->GetEffectiveDuration(m_LastParams);
-        if (duration > 0.0f)
+        if (f32 duration = state->GetEffectiveDuration(m_LastParams); duration > 0.0f)
         {
             return m_CurrentStateTime / duration;
         }

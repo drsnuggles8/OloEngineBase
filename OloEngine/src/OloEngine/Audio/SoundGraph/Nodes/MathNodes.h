@@ -569,8 +569,7 @@ namespace OloEngine::Audio::SoundGraph
                 {
                     // Positive exponent: use binary exponentiation with overflow checking
                     // Clamp exponent to prevent runaway computation
-                    constexpr i32 maxExponent = 63; // Safe limit for most integer types
-                    if (exponent > maxExponent)
+                    if (constexpr i32 maxExponent = 63; exponent > maxExponent) // Safe limit for most integer types
                     {
                         // For very large exponents, result will be 0 (overflow) or ±1/0 for base ±1/0
                         if (base == T(0))

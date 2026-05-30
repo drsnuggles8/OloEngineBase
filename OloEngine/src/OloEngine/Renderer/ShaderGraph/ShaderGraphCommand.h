@@ -203,8 +203,7 @@ namespace OloEngine
                 m_HadPreviousLink = true;
             }
 
-            auto* link = graph.AddLink(m_OutputPinID, m_InputPinID);
-            if (link)
+            if (const auto* link = graph.AddLink(m_OutputPinID, m_InputPinID); link)
             {
                 m_LinkID = link->ID;
                 return true;
@@ -246,8 +245,7 @@ namespace OloEngine
         bool Execute(ShaderGraph& graph) override
         {
             // Save the link for undo
-            const auto* link = graph.FindLink(m_LinkID);
-            if (link)
+            if (const auto* link = graph.FindLink(m_LinkID); link)
                 m_SavedLink = *link;
             return graph.RemoveLink(m_LinkID);
         }
@@ -318,7 +316,7 @@ namespace OloEngine
 
         bool Execute(ShaderGraph& graph) override
         {
-            for (auto& cmd : m_Commands)
+            for (const auto& cmd : m_Commands)
                 cmd->Execute(graph);
             return true;
         }

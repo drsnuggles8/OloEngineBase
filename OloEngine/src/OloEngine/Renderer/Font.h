@@ -93,7 +93,7 @@ namespace OloEngine
         {
             return AssetType::Font;
         }
-        virtual AssetType GetAssetType() const override
+        AssetType GetAssetType() const override
         {
             return GetStaticType();
         }

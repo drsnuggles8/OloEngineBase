@@ -210,8 +210,8 @@ namespace OloEngine
         bool m_Initialized = false;
 
         // Helper methods
-        void BindUniformBuffer(const ResourceBinding& binding);
-        void BindTexture(const ResourceBinding& binding);
+        void BindUniformBuffer(const ResourceBinding& binding) const;
+        void BindTexture(const ResourceBinding& binding) const;
 
         // GLSL source parsing fallbacks
         std::string ParseUBONameFromGLSL(u32 binding) const;

@@ -161,11 +161,11 @@ static std::vector<CanonicalTriangle> ExtractCanonicalTriangles(const MeshSource
         CanonicalTriangle tri = { { { verts[idxs[i]].Position.x, verts[idxs[i]].Position.y, verts[idxs[i]].Position.z },
                                     { verts[idxs[i + 1]].Position.x, verts[idxs[i + 1]].Position.y, verts[idxs[i + 1]].Position.z },
                                     { verts[idxs[i + 2]].Position.x, verts[idxs[i + 2]].Position.y, verts[idxs[i + 2]].Position.z } } };
-        std::sort(tri.begin(), tri.end());
+        std::ranges::sort(tri);
         triangles.push_back(tri);
     }
 
-    std::sort(triangles.begin(), triangles.end());
+    std::ranges::sort(triangles);
     return triangles;
 }
 

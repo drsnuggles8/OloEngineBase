@@ -32,16 +32,25 @@ namespace OloEngine
             m_CameraPosition -= right * (m_CameraTranslationSpeed * ts);
         else if (Input::IsKeyPressed(Key::D))
             m_CameraPosition += right * (m_CameraTranslationSpeed * ts);
+        else
+        { /* No additional handling required. */
+        }
 
         if (Input::IsKeyPressed(Key::W))
             m_CameraPosition += forward * (m_CameraTranslationSpeed * ts);
         else if (Input::IsKeyPressed(Key::S))
             m_CameraPosition -= forward * (m_CameraTranslationSpeed * ts);
+        else
+        { /* No additional handling required. */
+        }
 
         if (Input::IsKeyPressed(Key::LeftShift))
             m_CameraPosition += up * (m_CameraTranslationSpeed * ts);
         else if (Input::IsKeyPressed(Key::LeftControl))
             m_CameraPosition -= up * (m_CameraTranslationSpeed * ts);
+        else
+        { /* No additional handling required. */
+        }
 
         if (m_MouseLookEnabled)
         {

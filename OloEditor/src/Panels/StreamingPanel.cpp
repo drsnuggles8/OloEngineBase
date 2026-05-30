@@ -60,8 +60,7 @@ namespace OloEngine
             ImGui::DragFloat("Default Load Radius", &ss.DefaultLoadRadius, 1.0f, 10.0f, 10000.0f);
             ImGui::DragFloat("Default Unload Radius", &ss.DefaultUnloadRadius, 1.0f, 10.0f, 10000.0f);
 
-            int maxRegions = static_cast<int>(ss.MaxLoadedRegions);
-            if (ImGui::DragInt("Max Loaded Regions", &maxRegions, 1, 1, 64))
+            if (int maxRegions = static_cast<int>(ss.MaxLoadedRegions); ImGui::DragInt("Max Loaded Regions", &maxRegions, 1, 1, 64))
             {
                 ss.MaxLoadedRegions = static_cast<u32>(maxRegions);
             }
@@ -150,10 +149,8 @@ namespace OloEngine
             auto view = m_Context->GetAllEntitiesWith<TransformComponent>();
             for (auto&& [e, tc] : view.each())
             {
-                Entity entity{ e, m_Context.get() };
-
                 // Skip entities that are cameras or have streaming volumes (infrastructure)
-                if (entity.HasComponent<CameraComponent>() || entity.HasComponent<StreamingVolumeComponent>())
+                if (Entity entity{ e, m_Context.get() }; entity.HasComponent<CameraComponent>() || entity.HasComponent<StreamingVolumeComponent>())
                 {
                     continue;
                 }
@@ -223,10 +220,8 @@ namespace OloEngine
         auto view = m_Context->GetAllEntitiesWith<TransformComponent, IDComponent>();
         for (auto&& [e, tc, idc] : view.each())
         {
-            Entity entity{ e, m_Context.get() };
-
             // Skip infrastructure entities
-            if (entity.HasComponent<CameraComponent>() || entity.HasComponent<StreamingVolumeComponent>())
+            if (Entity entity{ e, m_Context.get() }; entity.HasComponent<CameraComponent>() || entity.HasComponent<StreamingVolumeComponent>())
             {
                 continue;
             }
@@ -298,8 +293,7 @@ namespace OloEngine
                 auto idStr = std::to_string(static_cast<u64>(id));
                 ImGui::PushID(idStr.c_str());
 
-                bool nodeOpen = ImGui::TreeNode("", "%s [%s]", region->m_Name.c_str(), stateStr);
-                if (nodeOpen)
+                if (bool nodeOpen = ImGui::TreeNode("", "%s [%s]", region->m_Name.c_str(), stateStr))
                 {
                     ImGui::Text("ID: %llu", static_cast<unsigned long long>(static_cast<u64>(id)));
                     ImGui::Text("Entities: %zu", region->m_EntityUUIDs.size());
@@ -322,6 +316,10 @@ namespace OloEngine
                         {
                             streamer->UnloadRegion(id);
                         }
+                    }
+                    else
+                    {
+                        // No additional handling required.
                     }
 
                     ImGui::TreePop();

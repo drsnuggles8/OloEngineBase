@@ -124,7 +124,7 @@ TEST_F(InventoryTestFixture, ItemDatabase_GetAll)
 
 TEST(ItemStringConversion, CategoryRoundTrip)
 {
-    for (u8 i = 0; i <= static_cast<u8>(ItemCategory::Misc); ++i)
+    for (u8 i = 0; i <= std::to_underlying(ItemCategory::Misc); ++i)
     {
         auto cat = static_cast<ItemCategory>(i);
         auto str = ItemCategoryToString(cat);
@@ -134,7 +134,7 @@ TEST(ItemStringConversion, CategoryRoundTrip)
 
 TEST(ItemStringConversion, RarityRoundTrip)
 {
-    for (u8 i = 0; i <= static_cast<u8>(ItemRarity::Legendary); ++i)
+    for (u8 i = 0; i <= std::to_underlying(ItemRarity::Legendary); ++i)
     {
         auto rarity = static_cast<ItemRarity>(i);
         auto str = ItemRarityToString(rarity);
@@ -589,9 +589,12 @@ TEST_F(InventoryTestFixture, LootTable_StatisticalDistribution)
         auto const& id = results[0].ItemDefinitionID;
         EXPECT_TRUE(id == "sword_iron" || id == "health_potion");
         if (id == "sword_iron")
-            swordCount++;
+            ++swordCount;
         else if (id == "health_potion")
-            potionCount++;
+            ++potionCount;
+        else
+        { /* No additional handling required. */
+        }
     }
 
     // With equal weights, each should be roughly 50% (allow 10% tolerance)

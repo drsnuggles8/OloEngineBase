@@ -55,7 +55,7 @@ namespace OloEngine
 
       private:
         void CreateNoiseTexture();
-        void DrawFullscreenTriangle();
+        void DrawFullscreenTriangle() const;
 
         Ref<Shader> m_SSAOShader;
         Ref<Shader> m_SSAOBlurShader;

@@ -13,18 +13,18 @@ namespace OloEngine::RenderGraphTransientPlanner
     auto BuildAliasGroup(const RGResourceDesc& desc) -> std::string
     {
         // Base key covers kind, dimensions, mips, samples and queue.
-        std::string key = std::to_string(static_cast<u32>(desc.Kind)) + ":" +
-                          std::to_string(static_cast<u32>(desc.Format)) + ":" +
+        std::string key = std::to_string(static_cast<u32>(std::to_underlying(desc.Kind))) + ":" +
+                          std::to_string(static_cast<u32>(std::to_underlying(desc.Format))) + ":" +
                           std::to_string(desc.Width) + "x" + std::to_string(desc.Height) +
                           "x" + std::to_string(desc.DepthOrLayers) + ":m" + std::to_string(desc.MipLevels) +
-                          ":s" + std::to_string(desc.Samples) + ":q" + std::to_string(static_cast<u32>(desc.Queue));
+                          ":s" + std::to_string(desc.Samples) + ":q" + std::to_string(static_cast<u32>(std::to_underlying(desc.Queue)));
         // MRT: append each attachment format so MRT layouts don't alias with
         // single-attachment FBs or with each other.
         if (!desc.Attachments.empty())
         {
             key += ":mrt";
             for (const auto fmt : desc.Attachments)
-                key += "," + std::to_string(static_cast<u32>(fmt));
+                key += "," + std::to_string(static_cast<u32>(std::to_underlying(fmt)));
         }
         return key;
     }
@@ -36,7 +36,7 @@ namespace OloEngine::RenderGraphTransientPlanner
         constexpr u64 fnvOffset = 14695981039346656037ULL;
         constexpr u64 fnvPrime = 1099511628211ULL;
         u64 h = fnvOffset;
-        const auto mix = [&](u64 v)
+        const auto mix = [&h, &fnvPrime](u64 v)
         {
             for (u32 i = 0; i < 8; ++i)
             {
@@ -44,21 +44,21 @@ namespace OloEngine::RenderGraphTransientPlanner
                 h *= fnvPrime;
             }
         };
-        mix(static_cast<u64>(desc.Kind));
-        mix(static_cast<u64>(desc.Format));
+        mix(static_cast<u64>(std::to_underlying(desc.Kind)));
+        mix(static_cast<u64>(std::to_underlying(desc.Format)));
         mix(static_cast<u64>(desc.Width));
         mix(static_cast<u64>(desc.Height));
         mix(static_cast<u64>(desc.DepthOrLayers));
         mix(static_cast<u64>(desc.MipLevels));
         mix(static_cast<u64>(desc.Samples));
-        mix(static_cast<u64>(desc.Queue));
+        mix(static_cast<u64>(std::to_underlying(desc.Queue)));
         // MRT formats — order matters and a sentinel separates from a non-MRT
         // descriptor that happens to have one trailing attachment.
         if (!desc.Attachments.empty())
         {
             mix(0xDEADBEEFCAFEBABEULL); // MRT marker
             for (const auto fmt : desc.Attachments)
-                mix(static_cast<u64>(fmt));
+                mix(static_cast<u64>(std::to_underlying(fmt)));
         }
         return h;
     }
@@ -138,11 +138,11 @@ namespace OloEngine::RenderGraphTransientPlanner
                 {
                     return desc.Width > 0 &&
                            desc.Height > 0 &&
-                           std::any_of(desc.Attachments.begin(), desc.Attachments.end(),
-                                       [](const RGResourceFormat fmt)
-                                       {
-                                           return RenderGraph::ToFramebufferFormat(fmt) != FramebufferTextureFormat::None;
-                                       });
+                           std::ranges::any_of(desc.Attachments,
+                                               [](const RGResourceFormat fmt)
+                                               {
+                                                   return RenderGraph::ToFramebufferFormat(fmt) != FramebufferTextureFormat::None;
+                                               });
                 }
                 return desc.Width > 0 &&
                        desc.Height > 0 &&
@@ -184,11 +184,11 @@ namespace OloEngine::RenderGraphTransientPlanner
                 // MRT path: a non-empty Attachments list replaces Format.
                 if (!desc.Attachments.empty())
                 {
-                    const bool anyValid = std::any_of(desc.Attachments.begin(), desc.Attachments.end(),
-                                                      [](const RGResourceFormat fmt)
-                                                      {
-                                                          return RenderGraph::ToFramebufferFormat(fmt) != FramebufferTextureFormat::None;
-                                                      });
+                    const bool anyValid = std::ranges::any_of(desc.Attachments,
+                                                              [](const RGResourceFormat fmt)
+                                                              {
+                                                                  return RenderGraph::ToFramebufferFormat(fmt) != FramebufferTextureFormat::None;
+                                                              });
                     if (!anyValid)
                         return "unsupported-framebuffer-format";
                     return "descriptor-incomplete";
@@ -317,17 +317,16 @@ namespace OloEngine::RenderGraphTransientPlanner
         // 3. Canonical sort: by alias-group hash, then by first-use pass
         //    index, then by resource name (deterministic across rebuilds).
         //    The hash lookup replaces an O(L) string compare per probe.
-        std::sort(plan.begin(), plan.end(),
-                  [&](const RenderGraph::TransientPlanEntry& lhs, const RenderGraph::TransientPlanEntry& rhs)
-                  {
-                      const auto lhsHash = aliasGroupHashByResource.at(lhs.Resource);
-                      const auto rhsHash = aliasGroupHashByResource.at(rhs.Resource);
-                      if (lhsHash != rhsHash)
-                          return lhsHash < rhsHash;
-                      if (lhs.FirstPassIndex != rhs.FirstPassIndex)
-                          return lhs.FirstPassIndex < rhs.FirstPassIndex;
-                      return lhs.Resource < rhs.Resource;
-                  });
+        std::ranges::sort(plan,
+                          [&aliasGroupHashByResource](const RenderGraph::TransientPlanEntry& lhs, const RenderGraph::TransientPlanEntry& rhs)
+                          {
+                              const auto lhsHash = aliasGroupHashByResource.at(lhs.Resource);
+                              if (const auto rhsHash = aliasGroupHashByResource.at(rhs.Resource); lhsHash != rhsHash)
+                                  return lhsHash < rhsHash;
+                              if (lhs.FirstPassIndex != rhs.FirstPassIndex)
+                                  return lhs.FirstPassIndex < rhs.FirstPassIndex;
+                              return lhs.Resource < rhs.Resource;
+                          });
 
         // 4. Alias-slot assignment per alias group: non-overlapping lifetimes
         //    share a slot, otherwise allocate a new one. Keyed by hash, not

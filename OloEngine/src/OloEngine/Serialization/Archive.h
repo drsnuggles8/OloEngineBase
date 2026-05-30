@@ -869,13 +869,13 @@ namespace OloEngine
         // Sets a flag indicating that this archive is currently serializing class/struct defaults.
         void StartSerializingDefaults()
         {
-            ArSerializingDefaults++;
+            ++ArSerializingDefaults;
         }
 
         // Indicate that this archive is no longer serializing class/struct defaults.
         void StopSerializingDefaults()
         {
-            ArSerializingDefaults--;
+            --ArSerializingDefaults;
         }
 
         // Flushes cache and frees internal data.
@@ -895,7 +895,7 @@ namespace OloEngine
         // ========================================================================
 
         // Used internally only to do byte swapping on small items.
-        void ByteSwap(void* V, i32 Length)
+        void ByteSwap(void* V, i32 Length) const
         {
             u8* Ptr = static_cast<u8*>(V);
             i32 Top = Length - 1;
@@ -1324,8 +1324,7 @@ namespace OloEngine
         {
             if (Num > 0)
             {
-                const i64 NumBytesToAdd = Offset + Num - static_cast<i64>(Bytes.size());
-                if (NumBytesToAdd > 0)
+                if (const i64 NumBytesToAdd = Offset + Num - static_cast<i64>(Bytes.size()); NumBytesToAdd > 0)
                 {
                     Bytes.resize(Bytes.size() + static_cast<sizet>(NumBytesToAdd));
                 }

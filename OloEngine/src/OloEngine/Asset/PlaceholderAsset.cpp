@@ -212,8 +212,7 @@ namespace OloEngine
         }
 
         // Check if we already have a placeholder for this type
-        auto it = s_PlaceholderAssets.find(type);
-        if (it != s_PlaceholderAssets.end())
+        if (auto it = s_PlaceholderAssets.find(type); it != s_PlaceholderAssets.end())
         {
             return it->second;
         }

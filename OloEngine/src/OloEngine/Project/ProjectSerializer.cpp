@@ -11,6 +11,7 @@
 #include <cctype>
 #include <cmath>
 #include <type_traits>
+#include <utility>
 
 // YAML conversion for glm::vec3
 namespace YAML
@@ -264,7 +265,7 @@ namespace OloEngine
                 out << YAML::Key << "ShadowResolution" << YAML::Value << qt.ShadowResolution;
                 out << YAML::Key << "ShadowSoftness" << YAML::Value << qt.ShadowSoftness;
                 out << YAML::Key << "ShadowEnabled" << YAML::Value << qt.ShadowEnabled;
-                out << YAML::Key << "AO" << YAML::Value << static_cast<i32>(qt.AO);
+                out << YAML::Key << "AO" << YAML::Value << std::to_underlying(qt.AO);
                 out << YAML::Key << "SSAOSamples" << YAML::Value << qt.SSAOSamples;
                 out << YAML::Key << "SSAORadius" << YAML::Value << qt.SSAORadius;
                 out << YAML::Key << "SSAOBias" << YAML::Value << qt.SSAOBias;
@@ -319,7 +320,7 @@ namespace OloEngine
                 out << YAML::Key << "CaptureOnPlay" << YAML::Value << physicsSettings.m_CaptureOnPlay;
 
                 out << YAML::Comment("Physics capture method (0: DebugToFile, 1: LiveDebug)");
-                out << YAML::Key << "CaptureMethod" << YAML::Value << static_cast<i32>(physicsSettings.m_CaptureMethod);
+                out << YAML::Key << "CaptureMethod" << YAML::Value << std::to_underlying(physicsSettings.m_CaptureMethod);
 
                 // Advanced Jolt settings with range documentation
                 out << YAML::Comment("Baumgarte stabilization factor (range: 0.01-1.0, default: 0.2)");
@@ -438,7 +439,7 @@ namespace OloEngine
         }
 
         // Helper lambda for safe string extraction with validation
-        auto safeGetString = [&](const YAML::Node& node, const char* key, std::string& output) -> bool
+        auto safeGetString = [&filepath](const YAML::Node& node, const char* key, std::string& output) -> bool
         {
             auto childNode = node[key];
             if (!childNode || !childNode.IsScalar())
@@ -451,7 +452,7 @@ namespace OloEngine
         };
 
         // Helper lambda for safe filesystem path extraction with validation
-        auto safeGetPath = [&](const YAML::Node& node, const char* key, std::filesystem::path& output) -> bool
+        auto safeGetPath = [&filepath](const YAML::Node& node, const char* key, std::filesystem::path& output) -> bool
         {
             auto childNode = node[key];
             if (!childNode || !childNode.IsScalar())
@@ -474,8 +475,7 @@ namespace OloEngine
             }
 
             // Check if the resolved path exists and log a warning if it doesn't
-            std::error_code ec;
-            if (!std::filesystem::exists(output, ec))
+            if (std::error_code ec; !std::filesystem::exists(output, ec))
             {
                 if (ec)
                 {
@@ -491,7 +491,7 @@ namespace OloEngine
         };
 
         // Helper lambda for asset-relative paths (StartScene, ScriptModulePath)
-        auto safeGetAssetPath = [&](const YAML::Node& node, const char* key, std::filesystem::path& output, const std::filesystem::path& assetDir) -> bool
+        auto safeGetAssetPath = [&filepath](const YAML::Node& node, const char* key, std::filesystem::path& output, const std::filesystem::path& assetDir) -> bool
         {
             auto childNode = node[key];
             if (!childNode || !childNode.IsScalar())
@@ -514,8 +514,7 @@ namespace OloEngine
             }
 
             // Check if the resolved path exists and log a warning if it doesn't
-            std::error_code ec;
-            if (!std::filesystem::exists(output, ec))
+            if (std::error_code ec; !std::filesystem::exists(output, ec))
             {
                 if (ec)
                 {
@@ -615,7 +614,7 @@ namespace OloEngine
             }
             if (auto n = tieringNode["AO"]; n && n.IsScalar())
             {
-                auto raw = n.as<i32>(static_cast<i32>(qt.AO));
+                auto raw = n.as<i32>(std::to_underlying(qt.AO));
                 qt.AO = static_cast<AOTechnique>(std::clamp(raw, 0, 2));
             }
             if (auto n = tieringNode["SSAOSamples"]; n && n.IsScalar())
@@ -694,13 +693,13 @@ namespace OloEngine
             auto& physicsSettings = Physics3DSystem::GetSettings();
 
             // Helper lambda to reduce duplication in physics field deserialization
-            auto deserializeField = [&](const char* fieldName, auto& targetField)
+            auto deserializeField = [&physicsNode, &appliedPhysicsFields](const char* fieldName, auto& targetField)
             {
                 if (physicsNode[fieldName].IsDefined())
                 {
                     using FieldType = std::decay_t<decltype(targetField)>;
                     targetField = physicsNode[fieldName].as<FieldType>(targetField);
-                    appliedPhysicsFields++;
+                    ++appliedPhysicsFields;
                 }
             };
 
@@ -718,16 +717,16 @@ namespace OloEngine
             // CaptureMethod requires special handling due to enum cast with validation
             if (physicsNode["CaptureMethod"].IsDefined())
             {
-                i32 captureMethodValue = physicsNode["CaptureMethod"].as<i32>(static_cast<i32>(physicsSettings.m_CaptureMethod));
+                i32 captureMethodValue = physicsNode["CaptureMethod"].as<i32>(std::to_underlying(physicsSettings.m_CaptureMethod));
 
                 // Validate enum bounds - PhysicsDebugType has DebugToFile=0 and LiveDebug=1
-                constexpr i32 minValidValue = static_cast<i32>(PhysicsDebugType::DebugToFile);
-                constexpr i32 maxValidValue = static_cast<i32>(PhysicsDebugType::LiveDebug);
+                constexpr i32 minValidValue = std::to_underlying(PhysicsDebugType::DebugToFile);
+                constexpr i32 maxValidValue = std::to_underlying(PhysicsDebugType::LiveDebug);
 
                 if (captureMethodValue >= minValidValue && captureMethodValue <= maxValidValue)
                 {
                     physicsSettings.m_CaptureMethod = static_cast<PhysicsDebugType>(captureMethodValue);
-                    appliedPhysicsFields++;
+                    ++appliedPhysicsFields;
                 }
                 else
                 {
@@ -754,73 +753,80 @@ namespace OloEngine
             deserializeField("AllowSleeping", physicsSettings.m_AllowSleeping);
 
             // Physics layers deserialization
-            auto physicsLayers = physicsNode["Layers"];
-            if (physicsLayers)
+            if (auto physicsLayers = physicsNode["Layers"]; physicsLayers)
             {
-                // Clear existing layers
-                PhysicsLayerManager::ClearLayers();
-
-                // Ensure the default layer exists after clearing
-                // Note: Default layer ID is not guaranteed to be any specific value
-                u32 defaultLayerId = PhysicsLayerManager::AddLayer("Default", true);
-                if (defaultLayerId == INVALID_LAYER_ID)
+                if (!physicsLayers.IsSequence())
                 {
-                    OLO_CORE_ERROR("Physics deserialization: Failed to recreate default layer");
+                    OLO_CORE_ERROR("Physics deserialization: 'Layers' is not a sequence");
                     physicsValid = false;
                 }
-
-                std::vector<std::pair<u32, YAML::Node>> layersToProcess; // Store layers for collision setup
-
-                for (auto layer : physicsLayers)
+                else
                 {
-                    const std::string layerName = layer["Name"].as<std::string>();
+                    // Clear existing layers
+                    PhysicsLayerManager::ClearLayers();
 
-                    // Skip if this is the default layer (already created) - case-insensitive comparison
-                    if (iequals(layerName, "Default"))
+                    // Ensure the default layer exists after clearing
+                    // Note: Default layer ID is not guaranteed to be any specific value
+                    u32 defaultLayerId = PhysicsLayerManager::AddLayer("Default", true);
+                    if (defaultLayerId == INVALID_LAYER_ID)
                     {
-                        // Still store it for collision processing
-                        layersToProcess.emplace_back(defaultLayerId, layer);
-                        continue;
+                        OLO_CORE_ERROR("Physics deserialization: Failed to recreate default layer");
+                        physicsValid = false;
                     }
 
-                    u32 layerId = PhysicsLayerManager::AddLayer(layerName, false);
-                    if (layerId == INVALID_LAYER_ID)
+                    std::vector<std::pair<u32, YAML::Node>> layersToProcess; // Store layers for collision setup
+
+                    for (auto layer : physicsLayers)
                     {
-                        OLO_CORE_ERROR("Physics deserialization: Failed to add layer '{}' - may have hit layer limit", layerName);
-                        continue; // Skip this layer but continue processing others
-                    }
+                        const std::string layerName = layer["Name"].as<std::string>();
 
-                    // Store successful layer for collision setup
-                    layersToProcess.emplace_back(layerId, layer);
-                }
-
-                // Process collision settings for all successfully created layers
-                for (const auto& [layerId, layerNode] : layersToProcess)
-                {
-                    PhysicsLayer layerInfo = PhysicsLayerManager::GetLayer(layerId);
-                    if (!layerInfo.IsValid())
-                    {
-                        OLO_CORE_WARN("Physics deserialization: Skipping collision setup for invalid layer ID {}", layerId);
-                        continue;
-                    }
-
-                    PhysicsLayerManager::SetLayerSelfCollision(layerId, layerNode["CollidesWithSelf"].as<bool>(true));
-
-                    auto collidesWith = layerNode["CollidesWith"];
-                    if (collidesWith)
-                    {
-                        for (auto collisionLayer : collidesWith)
+                        // Skip if this is the default layer (already created) - case-insensitive comparison
+                        if (iequals(layerName, "Default"))
                         {
-                            const std::string otherLayerName = collisionLayer["Name"].as<std::string>();
-                            const auto otherLayer = PhysicsLayerManager::GetLayer(otherLayerName);
-                            if (otherLayer.IsValid())
+                            // Still store it for collision processing
+                            layersToProcess.emplace_back(defaultLayerId, layer);
+                            continue;
+                        }
+
+                        u32 layerId = PhysicsLayerManager::AddLayer(layerName, false);
+                        if (layerId == INVALID_LAYER_ID)
+                        {
+                            OLO_CORE_ERROR("Physics deserialization: Failed to add layer '{}' - may have hit layer limit", layerName);
+                            continue; // Skip this layer but continue processing others
+                        }
+
+                        // Store successful layer for collision setup
+                        layersToProcess.emplace_back(layerId, layer);
+                    }
+
+                    // Process collision settings for all successfully created layers
+                    for (const auto& [layerId, layerNode] : layersToProcess)
+                    {
+                        PhysicsLayer layerInfo = PhysicsLayerManager::GetLayer(layerId);
+                        if (!layerInfo.IsValid())
+                        {
+                            OLO_CORE_WARN("Physics deserialization: Skipping collision setup for invalid layer ID {}", layerId);
+                            continue;
+                        }
+
+                        PhysicsLayerManager::SetLayerSelfCollision(layerId, layerNode["CollidesWithSelf"].as<bool>(true));
+
+                        auto collidesWith = layerNode["CollidesWith"];
+                        if (collidesWith)
+                        {
+                            for (auto collisionLayer : collidesWith)
                             {
-                                PhysicsLayerManager::SetLayerCollision(layerInfo.m_LayerID, otherLayer.m_LayerID, true);
-                            }
-                            else
-                            {
-                                OLO_CORE_WARN("Physics deserialization: Layer '{}' references non-existent collision layer '{}'",
-                                              layerInfo.m_Name, otherLayerName);
+                                const std::string otherLayerName = collisionLayer["Name"].as<std::string>();
+                                const auto otherLayer = PhysicsLayerManager::GetLayer(otherLayerName);
+                                if (otherLayer.IsValid())
+                                {
+                                    PhysicsLayerManager::SetLayerCollision(layerInfo.m_LayerID, otherLayer.m_LayerID, true);
+                                }
+                                else
+                                {
+                                    OLO_CORE_WARN("Physics deserialization: Layer '{}' references non-existent collision layer '{}'",
+                                                  layerInfo.m_Name, otherLayerName);
+                                }
                             }
                         }
                     }

@@ -165,6 +165,10 @@ namespace OloEngine
         {
             Grow = static_cast<sizet>(NewMax);
         }
+        else
+        {
+            // No additional handling required.
+        }
 #else
         if (CurrentMax || static_cast<sizet>(NewMax) > Grow)
         {
@@ -1132,7 +1136,7 @@ namespace OloEngine
                 return GetInlineElements();
             }
 
-            void ResizeAllocation(SizeType /*CurrentNum*/, SizeType NewMax, sizet /*NumBytesPerElement*/)
+            void ResizeAllocation(SizeType /*CurrentNum*/, SizeType NewMax, sizet /*NumBytesPerElement*/) const
             {
                 OLO_CORE_ASSERT(NewMax >= 0 && static_cast<u32>(NewMax) <= NumInlineElements,
                                 "TFixedAllocator cannot allocate more than NumInlineElements");

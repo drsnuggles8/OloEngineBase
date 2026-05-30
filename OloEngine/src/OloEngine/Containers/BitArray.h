@@ -1434,8 +1434,7 @@ namespace OloEngine
             while (ThisIterator || OtherIterator)
             {
                 const u32 A = ThisIterator ? ThisIterator.GetWord() : MissingBitsFill;
-                const u32 B = OtherIterator ? OtherIterator.GetWord() : MissingBitsFill;
-                if (A != B)
+                if (const u32 B = OtherIterator ? OtherIterator.GetWord() : MissingBitsFill; A != B)
                 {
                     return false;
                 }
@@ -1455,8 +1454,7 @@ namespace OloEngine
          */
         i32 PadToNum(i32 DesiredNum, bool bPadValue)
         {
-            const i32 NumToAdd = DesiredNum - Num();
-            if (NumToAdd > 0)
+            if (const i32 NumToAdd = DesiredNum - Num(); NumToAdd > 0)
             {
                 Add(bPadValue, NumToAdd);
                 return NumToAdd;
@@ -1718,8 +1716,7 @@ namespace OloEngine
             [[nodiscard]] explicit TWordIteratorBase(WordType* InData, i32 InStartBitIndex, i32 InEndBitIndex)
                 : Data(InData), CurrentIndex(InStartBitIndex / NumBitsPerDWORD), NumWords(BitArrayMath::DivideAndRoundUp(InEndBitIndex, NumBitsPerDWORD)), CurrentMask(~0u << (InStartBitIndex % NumBitsPerDWORD)), FinalMask(~0u), MissingBitsFill(0)
             {
-                const i32 Shift = NumBitsPerDWORD - (InEndBitIndex % NumBitsPerDWORD);
-                if (Shift < NumBitsPerDWORD)
+                if (const i32 Shift = NumBitsPerDWORD - (InEndBitIndex % NumBitsPerDWORD); Shift < NumBitsPerDWORD)
                 {
                     FinalMask = ~0u >> Shift;
                 }
@@ -2344,9 +2341,12 @@ namespace OloEngine
             {
                 NewNumBits = BitArrayMath::Max(InOther.Num(), OutResult.Num());
             }
+            else
+            {
+                // No additional handling required.
+            }
 
-            const i32 SizeDifference = NewNumBits - OutResult.NumBits;
-            if (SizeDifference < 0)
+            if (const i32 SizeDifference = NewNumBits - OutResult.NumBits; SizeDifference < 0)
             {
                 OutResult.NumBits = NewNumBits;
                 OutResult.ClearPartialSlackBits();
@@ -2355,6 +2355,10 @@ namespace OloEngine
             {
                 const bool bPadValue = EnumHasAnyFlags(InFlags, EBitwiseOperatorFlags::OneFillMissingBits);
                 OutResult.Add(bPadValue, SizeDifference);
+            }
+            else
+            {
+                // No additional handling required.
             }
 
             const u32 MissingBitsFill = EnumHasAnyFlags(InFlags, EBitwiseOperatorFlags::OneFillMissingBits) ? ~0u : 0;

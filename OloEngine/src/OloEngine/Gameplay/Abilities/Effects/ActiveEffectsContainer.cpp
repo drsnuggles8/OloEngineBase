@@ -113,6 +113,10 @@ namespace OloEngine
                 }
                 ae.ModifiersApplied = true;
             }
+            else
+            {
+                // No additional handling required.
+            }
 
             // Add granted tags (only once)
             if (!ae.TagsApplied)
@@ -142,7 +146,7 @@ namespace OloEngine
         }
     }
 
-    void ActiveEffectsContainer::ApplyInstantEffect(const GameplayEffect& effect, AttributeSet& attributes)
+    void ActiveEffectsContainer::ApplyInstantEffect(const GameplayEffect& effect, AttributeSet& attributes) const
     {
         for (auto const& mod : effect.Modifiers)
         {
@@ -160,10 +164,14 @@ namespace OloEngine
                 f32 current = attributes.GetBaseValue(mod.AttributeName);
                 attributes.SetBaseValue(mod.AttributeName, current * mod.Magnitude);
             }
+            else
+            {
+                // No additional handling required.
+            }
         }
     }
 
-    void ActiveEffectsContainer::ApplyPeriodicTick(const ActiveEffect& ae, AttributeSet& attributes)
+    void ActiveEffectsContainer::ApplyPeriodicTick(const ActiveEffect& ae, AttributeSet& attributes) const
     {
         // Periodic effects apply their modifiers as instant modifications
         // scaled by stack count
@@ -183,6 +191,10 @@ namespace OloEngine
             {
                 f32 current = attributes.GetBaseValue(mod.AttributeName);
                 attributes.SetBaseValue(mod.AttributeName, current * magnitude);
+            }
+            else
+            {
+                // No additional handling required.
             }
         }
     }

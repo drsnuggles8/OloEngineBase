@@ -10,6 +10,7 @@
 #include <string>
 #include <unordered_map>
 #include <memory>
+#include <utility>
 
 #include "OloEngine/Threading/Mutex.h"
 
@@ -218,7 +219,7 @@ namespace OloEngine
         //        OpenGLTexture2D are pre-flipped on upload and so will appear right-side-up when opened,
         //        while cubemap faces (loaded without that flip) will look vertically mirrored.
         // @return true on success; false if the texture is invalid, the format is unsupported, or the file write fails.
-        bool SaveTextureToFile(const TextureInfo& info, const std::string& filePath, u32 mipLevel, u32 faceIndex = 0);
+        bool SaveTextureToFile(const TextureInfo& info, const std::string& filePath, u32 mipLevel, u32 faceIndex = 0) const;
 
         // @brief Get total number of tracked resources
         u32 GetResourceCount() const
@@ -233,15 +234,15 @@ namespace OloEngine
         sizet GetTotalMemoryUsage() const;
 
       private:
-        void QueryTextureInfo(TextureInfo& info);
-        void QueryTextureCubemapInfo(TextureInfo& info);
-        void QueryBufferInfo(BufferInfo& info);
-        void QueryFramebufferInfo(FramebufferInfo& info);
+        void QueryTextureInfo(TextureInfo& info) const;
+        void QueryTextureCubemapInfo(TextureInfo& info) const;
+        void QueryBufferInfo(BufferInfo& info) const;
+        void QueryFramebufferInfo(FramebufferInfo& info) const;
         void RequestTextureDownload(TextureInfo& info, u32 mipLevel, u32 faceIndex = 0);
         void ProcessTextureDownloads();
-        void CompleteTextureDownload(TextureInfo& info, const TextureDownloadRequest& request);
+        void CompleteTextureDownload(TextureInfo& info, const TextureDownloadRequest& request) const;
         void UpdateTexturePreview(TextureInfo& info);
-        void UpdateBufferPreview(BufferInfo& info);
+        void UpdateBufferPreview(BufferInfo& info) const;
 
         void RenderResourceTree();
         void RenderResourceDetails();
@@ -293,8 +294,8 @@ namespace OloEngine
         PendingSaveRequest m_PendingSaveRequest;
 
         // Statistics
-        std::array<u32, static_cast<sizet>(ResourceType::COUNT)> m_ResourceCounts{};
-        std::array<sizet, static_cast<sizet>(ResourceType::COUNT)> m_MemoryUsageByType{};
+        std::array<u32, static_cast<sizet>(std::to_underlying(ResourceType::COUNT))> m_ResourceCounts{};
+        std::array<sizet, static_cast<sizet>(std::to_underlying(ResourceType::COUNT))> m_MemoryUsageByType{};
         // Threading
         mutable FMutex m_ResourceMutex;
 

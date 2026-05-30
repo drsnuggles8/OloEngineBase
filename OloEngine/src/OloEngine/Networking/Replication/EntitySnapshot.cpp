@@ -23,8 +23,7 @@ namespace OloEngine
         for (auto entityHandle : view)
         {
             Entity entity{ entityHandle, &scene };
-            auto const& nic = entity.GetComponent<NetworkIdentityComponent>();
-            if (!nic.IsReplicated)
+            if (auto const& nic = entity.GetComponent<NetworkIdentityComponent>(); !nic.IsReplicated)
             {
                 continue;
             }
@@ -125,8 +124,7 @@ namespace OloEngine
         for (auto entityHandle : view)
         {
             Entity entity{ entityHandle, &scene };
-            auto const& nic = entity.GetComponent<NetworkIdentityComponent>();
-            if (!nic.IsReplicated)
+            if (auto const& nic = entity.GetComponent<NetworkIdentityComponent>(); !nic.IsReplicated)
             {
                 continue;
             }

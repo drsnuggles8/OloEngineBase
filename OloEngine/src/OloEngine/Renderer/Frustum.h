@@ -3,6 +3,7 @@
 #include "OloEngine/Core/Base.h"
 #include <glm/glm.hpp>
 #include <array>
+#include <utility>
 
 namespace OloEngine
 {
@@ -69,10 +70,10 @@ namespace OloEngine
 
         [[nodiscard]] const Plane& GetPlane(Planes plane) const
         {
-            return m_Planes[static_cast<sizet>(plane)];
+            return m_Planes[static_cast<sizet>(std::to_underlying(plane))];
         }
 
       private:
-        std::array<Plane, static_cast<sizet>(Planes::Count)> m_Planes;
+        std::array<Plane, static_cast<sizet>(std::to_underlying(Planes::Count))> m_Planes;
     };
 } // namespace OloEngine

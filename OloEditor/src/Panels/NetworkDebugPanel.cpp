@@ -10,7 +10,7 @@
 
 namespace OloEngine
 {
-    void NetworkDebugPanel::OnImGuiRender(bool* p_open)
+    void NetworkDebugPanel::OnImGuiRender(bool* p_open) const
     {
         OLO_PROFILE_FUNCTION();
 
@@ -35,6 +35,10 @@ namespace OloEngine
         else if (isClient)
         {
             mode = "Client";
+        }
+        else
+        {
+            // No additional handling required.
         }
         ImGui::Text("Mode: %s", mode);
 
@@ -93,8 +97,7 @@ namespace OloEngine
         }
 
         // Statistics
-        auto stats = NetworkManager::GetStats();
-        if (stats)
+        if (auto stats = NetworkManager::GetStats(); stats)
         {
             ImGui::Separator();
             if (ImGui::CollapsingHeader("Statistics", ImGuiTreeNodeFlags_DefaultOpen))
@@ -179,6 +182,10 @@ namespace OloEngine
                         }
                     }
                     ImGui::EndTable();
+                }
+                else
+                {
+                    // No additional handling required.
                 }
             }
         }

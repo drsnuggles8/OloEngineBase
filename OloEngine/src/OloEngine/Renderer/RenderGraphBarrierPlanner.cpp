@@ -119,8 +119,7 @@ namespace OloEngine::RenderGraphBarrierPlanner
                     const auto writerIt = lastWriterByResource.find(access.ResourceName);
                     if (writerIt == lastWriterByResource.end() || writerIt->second.empty())
                     {
-                        const auto allWritersIt = allWriterPassesByResource.find(access.ResourceName);
-                        if (allWritersIt == allWriterPassesByResource.end() || allWritersIt->second.empty())
+                        if (const auto allWritersIt = allWriterPassesByResource.find(access.ResourceName); allWritersIt == allWriterPassesByResource.end() || allWritersIt->second.empty())
                         {
                             result.Diagnostics.push_back(RenderGraph::BarrierDiagnostic{
                                 .Kind = RenderGraph::BarrierDiagnosticKind::MissingProducer,
@@ -263,7 +262,7 @@ namespace OloEngine::RenderGraphBarrierPlanner
         for (std::size_t i = 0; i < input.ExecutionOrder.size(); ++i)
             passOrderIdx.emplace(input.ExecutionOrder[i], i);
 
-        const auto passToLane = [&](const std::string& passName) -> RenderGraph::QueueLane
+        const auto passToLane = [&input](const std::string& passName) -> RenderGraph::QueueLane
         {
             switch (input.GetPassWorkType(passName))
             {
@@ -298,7 +297,7 @@ namespace OloEngine::RenderGraphBarrierPlanner
             {
                 if (!decl.IsWrite)
                     continue;
-                writersByResource[decl.ResourceName].push_back(WriterEntry{ i, &passName, decl.WriteUsage });
+                writersByResource[decl.ResourceName].emplace_back(i, &passName, decl.WriteUsage);
             }
         }
 
@@ -341,8 +340,7 @@ namespace OloEngine::RenderGraphBarrierPlanner
             t.ProducerPass = "external";
             t.FromUsage = RGWriteUsage::RenderTarget;
 
-            const auto consumerIdxIt = passOrderIdx.find(barrier.BeforePass);
-            if (consumerIdxIt != passOrderIdx.end())
+            if (const auto consumerIdxIt = passOrderIdx.find(barrier.BeforePass); consumerIdxIt != passOrderIdx.end())
             {
                 const std::size_t consumerIdx = consumerIdxIt->second;
                 if (const auto writersIt = writersByResource.find(barrier.Resource);

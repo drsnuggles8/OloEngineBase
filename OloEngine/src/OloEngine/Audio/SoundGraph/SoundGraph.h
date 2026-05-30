@@ -84,7 +84,7 @@ namespace OloEngine::Audio::SoundGraph
             AddInEvent(IDs::Play);
 
             // Create a dedicated input event for handling finish notifications
-            AddInEvent(Identifier("OnFinishHandler"), [&](float v)
+            AddInEvent(Identifier("OnFinishHandler"), [this](float v)
                        {
                     (void)v;
             // Push finish event using pre-allocated storage (real-time safe)
@@ -163,7 +163,7 @@ namespace OloEngine::Audio::SoundGraph
                 if (m_Steps > 0)
                 {
                     m_Current += m_Increment;
-                    m_Steps--;
+                    --m_Steps;
 
                     if (m_Steps == 0)
                         m_Current = m_Target;
@@ -269,12 +269,12 @@ namespace OloEngine::Audio::SoundGraph
         //==============================================================================
         /// Graph Connections Internal Methods
 
-        void AddConnection(choc::value::ValueView& source, choc::value::ValueView& destination) noexcept
+        void AddConnection(choc::value::ValueView& source, choc::value::ValueView& destination) const noexcept
         {
             destination = source;
         }
 
-        void AddConnection(OutputEvent& source, InputEvent& destination) noexcept
+        void AddConnection(OutputEvent& source, InputEvent& destination) const noexcept
         {
             // Find the shared_ptr for this InputEvent in InEvents
             for (const auto& [id, inputEventPtr] : InEvents)
@@ -290,7 +290,7 @@ namespace OloEngine::Audio::SoundGraph
         }
 
         /// Connect Input Event to Input Event
-        void AddRoute(InputEvent& source, InputEvent& destination) noexcept
+        void AddRoute(InputEvent& source, InputEvent& destination) const noexcept
         {
             InputEvent* dest = &destination;
             source.m_Event = [dest](float v)
@@ -460,7 +460,7 @@ namespace OloEngine::Audio::SoundGraph
             // its next call once the freshly-(re)wired endpoint map is stable.
             m_OutputChannelViews.clear();
 
-            for (auto& node : m_Nodes)
+            for (const auto& node : m_Nodes)
             {
                 // Rebuild lookup map
                 m_NodeLookup[node->m_ID] = node.get();
@@ -471,7 +471,7 @@ namespace OloEngine::Audio::SoundGraph
             }
 
             // Initialize all nodes in order, passing sample rate
-            for (auto& node : m_Nodes)
+            for (const auto& node : m_Nodes)
             {
                 node->SetSampleRate(m_SampleRate);
                 node->Init();
@@ -505,7 +505,7 @@ namespace OloEngine::Audio::SoundGraph
             RebuildOutputChannelViewsCache();
         }
 
-        void BeginProcessBlock()
+        void BeginProcessBlock() const
         {
             // Refill wave player buffers
             for (auto& wavePlayer : m_WavePlayers)
@@ -543,7 +543,7 @@ namespace OloEngine::Audio::SoundGraph
                             "SoundGraph::Process: view cache is stale; call SetMaxBlockSize/Init off-thread after wiring");
             OLO_CORE_ASSERT(m_OutputBuffers.size() >= m_OutChannels.size(),
                             "SoundGraph::Process: output buffer count is short of channel count; call SetMaxBlockSize off-thread");
-            for ([[maybe_unused]] auto& buf : m_OutputBuffers)
+            for ([[maybe_unused]] const auto& buf : m_OutputBuffers)
             {
                 // Check size(), not capacity() — operator[] writes below are bounds-checked
                 // against size() by MSVC Debug iterators (and are simply UB past size() in
@@ -566,7 +566,7 @@ namespace OloEngine::Audio::SoundGraph
                 // one sample, downstream consumers read the scalar via ValueView, the chain
                 // works. Phase 2 swaps in typed buffer connections and lifts this call out
                 // of the per-sample loop.
-                for (auto& node : m_Nodes)
+                for (const auto& node : m_Nodes)
                     node->Process(1);
 
                 // Sample each graph output channel from its (possibly re-aliased) endpoint
@@ -601,7 +601,7 @@ namespace OloEngine::Audio::SoundGraph
             m_OutgoingEvents.Clear();
             m_OutgoingMessages.Clear();
 
-            for (auto& node : m_Nodes)
+            for (const auto& node : m_Nodes)
                 node->Init();
         }
 
@@ -655,15 +655,15 @@ namespace OloEngine::Audio::SoundGraph
         bool SendInputValue(u32 endpointID, choc::value::ValueView value, bool interpolate)
         {
             // Find endpoint by searching through the map (still O(n) due to u32 lookup, but rare case)
-            auto endpointIt = std::find_if(m_EndpointInputStreams.begin(), m_EndpointInputStreams.end(),
-                                           [endpointID](const auto& pair)
-                                           {
-                                               return (u32)pair.second->m_DestinationID == endpointID;
-                                           });
+            auto endpointIt = std::ranges::find_if(m_EndpointInputStreams,
+                                                   [endpointID](const auto& pair)
+                                                   {
+                                                       return (u32)pair.second->m_DestinationID == endpointID;
+                                                   });
             if (endpointIt == m_EndpointInputStreams.end())
                 return false;
 
-            auto& endpoint = endpointIt->second;
+            const auto& endpoint = endpointIt->second;
 
             if (value.isFloat32())
             {
@@ -734,7 +734,7 @@ namespace OloEngine::Audio::SoundGraph
         /// Wave Source Management (for future implementation)
 
         using RefillCallback = bool (*)(Audio::WaveSource&, void* userData, u32 numFrames);
-        void SetRefillWavePlayerBufferCallback(RefillCallback callback, void* userData, u32 numFrames)
+        void SetRefillWavePlayerBufferCallback(RefillCallback callback, void* userData, u32 numFrames) const
         {
             for (auto& wavePlayer : m_WavePlayers)
             {

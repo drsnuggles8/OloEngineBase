@@ -114,8 +114,7 @@ namespace OloEngine
         {
             OLO_CORE_INFO("[Server] Loading scene: {}", scenePath);
             auto tempScene = Scene::Create();
-            SceneSerializer serializer(tempScene);
-            if (serializer.Deserialize(scenePath))
+            if (SceneSerializer serializer(tempScene); serializer.Deserialize(scenePath))
             {
                 tempScene->OnRuntimeStart();
 
@@ -151,7 +150,7 @@ namespace OloEngine
 
         void CmdPlayers() const
         {
-            auto* server = NetworkManager::GetServer();
+            const auto* server = NetworkManager::GetServer();
             if (!server)
             {
                 OLO_CORE_INFO("[Server] Network server not running.");
@@ -160,7 +159,7 @@ namespace OloEngine
 
             const u32 count = server->GetConnectionCount();
             OLO_CORE_INFO("[Server] Connected players: {}/{}", count, m_Config.MaxPlayers);
-            server->ForEachConnection([&](HSteamNetConnection handle, const NetworkConnection& conn)
+            server->ForEachConnection([&server](HSteamNetConnection handle, const NetworkConnection& conn)
                                       { OLO_CORE_INFO("  Client {} (conn {}): ping {} ms",
                                                       conn.GetClientID(), static_cast<u32>(handle),
                                                       server->GetClientPingMs(handle)); });
@@ -192,7 +191,7 @@ namespace OloEngine
             }
 
             HSteamNetConnection targetHandle = k_HSteamNetConnection_Invalid;
-            server->ForEachConnection([&](HSteamNetConnection handle, const NetworkConnection& conn)
+            server->ForEachConnection([&targetId, &targetHandle](HSteamNetConnection handle, const NetworkConnection& conn)
                                       {
                 if (conn.GetClientID() == targetId)
                 {

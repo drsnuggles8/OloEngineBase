@@ -81,7 +81,7 @@ namespace OloEngine::Audio::SoundGraph
                 TUniqueLock<FMutex> lock(m_LoadTasksMutex);
                 tasksToJoin = std::move(m_LoadTasks);
             }
-            for (auto& task : tasksToJoin)
+            for (const auto& task : tasksToJoin)
             {
                 task.Wait();
             }
@@ -194,7 +194,7 @@ namespace OloEngine::Audio::SoundGraph
                             m_NextRefillFrame = m_StartSample;
                             m_WaveSource.m_Channels.Clear();
                             ReadNextFrame();
-                            m_FrameNumber++;
+                            ++m_FrameNumber;
                             m_WaveSource.m_ReadPosition = m_FrameNumber;
                         }
                     }
@@ -207,7 +207,7 @@ namespace OloEngine::Audio::SoundGraph
                 else
                 {
                     ReadNextFrame();
-                    m_FrameNumber++;
+                    ++m_FrameNumber;
                     m_WaveSource.m_ReadPosition = m_FrameNumber;
                 }
             }
@@ -546,9 +546,8 @@ namespace OloEngine::Audio::SoundGraph
             //  2. When we do refill, start *past* the highest sample index we've already
             //     pushed (m_NextRefillFrame), not at the reader position. That keeps each
             //     sample from m_AudioData entering the buffer exactly once.
-            const i32 currentAvail = m_WaveSource.m_Channels.Available();
             constexpr i32 kLowWatermarkSamples = 1920; // half of the 3840-sample buffer (= 960 stereo frames)
-            if (currentAvail >= kLowWatermarkSamples)
+            if (const i32 currentAvail = m_WaveSource.m_Channels.Available(); currentAvail >= kLowWatermarkSamples)
                 return;
 
             // FillBufferFromAudioData reads from m_NextRefillFrame and advances it on

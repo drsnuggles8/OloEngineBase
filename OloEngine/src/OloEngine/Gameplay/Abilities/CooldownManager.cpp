@@ -42,8 +42,7 @@ namespace OloEngine
 
     f32 CooldownManager::GetRemainingCooldown(const GameplayTag& abilityTag) const
     {
-        auto it = m_Cooldowns.find(abilityTag);
-        if (it != m_Cooldowns.end())
+        if (auto it = m_Cooldowns.find(abilityTag); it != m_Cooldowns.end())
         {
             return std::max(it->second.Remaining, 0.0f);
         }
@@ -52,8 +51,7 @@ namespace OloEngine
 
     f32 CooldownManager::GetCooldownFraction(const GameplayTag& abilityTag) const
     {
-        auto it = m_Cooldowns.find(abilityTag);
-        if (it != m_Cooldowns.end() && it->second.Duration > 0.0f)
+        if (auto it = m_Cooldowns.find(abilityTag); it != m_Cooldowns.end() && it->second.Duration > 0.0f)
         {
             return std::clamp(it->second.Remaining / it->second.Duration, 0.0f, 1.0f);
         }

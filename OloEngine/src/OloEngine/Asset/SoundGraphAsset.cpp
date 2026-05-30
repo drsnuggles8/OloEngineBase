@@ -21,8 +21,7 @@ namespace OloEngine
         OLO_CORE_ASSERT(m_NodeIdMap.size() == m_Nodes.size(),
                         "Node ID map out of sync with nodes vector - did you modify m_Nodes directly without calling RebuildNodeIdMap()?");
 
-        auto it = m_NodeIdMap.find(nodeId);
-        if (it != m_NodeIdMap.end())
+        if (auto it = m_NodeIdMap.find(nodeId); it != m_NodeIdMap.end())
         {
             OLO_CORE_ASSERT(it->second < m_Nodes.size(), "Node ID map contains invalid index");
             return &m_Nodes[it->second];
@@ -38,8 +37,7 @@ namespace OloEngine
         OLO_CORE_ASSERT(m_NodeIdMap.size() == m_Nodes.size(),
                         "Node ID map out of sync with nodes vector - did you modify m_Nodes directly without calling RebuildNodeIdMap()?");
 
-        auto it = m_NodeIdMap.find(nodeId);
-        if (it != m_NodeIdMap.end())
+        if (auto it = m_NodeIdMap.find(nodeId); it != m_NodeIdMap.end())
         {
             OLO_CORE_ASSERT(it->second < m_Nodes.size(), "Node ID map contains invalid index");
             return &m_Nodes[it->second];
@@ -82,7 +80,7 @@ namespace OloEngine
         for (auto& [id, index] : m_NodeIdMap)
         {
             if (index > indexToRemove)
-                index--;
+                --index;
         }
 
         // Remove all connections involving this node
@@ -124,15 +122,15 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        auto it = std::find_if(m_Connections.begin(), m_Connections.end(),
-                               [&](const SoundGraphConnection& conn)
-                               {
-                                   return conn.m_SourceNodeID == sourceNodeId &&
-                                          conn.m_SourceEndpoint == sourceEndpoint &&
-                                          conn.m_TargetNodeID == targetNodeId &&
-                                          conn.m_TargetEndpoint == targetEndpoint &&
-                                          conn.m_IsEvent == isEvent;
-                               });
+        auto it = std::ranges::find_if(m_Connections,
+                                       [&](const SoundGraphConnection& conn)
+                                       {
+                                           return conn.m_SourceNodeID == sourceNodeId &&
+                                                  conn.m_SourceEndpoint == sourceEndpoint &&
+                                                  conn.m_TargetNodeID == targetNodeId &&
+                                                  conn.m_TargetEndpoint == targetEndpoint &&
+                                                  conn.m_IsEvent == isEvent;
+                                       });
 
         if (it != m_Connections.end())
         {
@@ -200,7 +198,7 @@ namespace OloEngine
         std::vector<std::string> errors;
 
         if (m_Nodes.empty())
-            errors.push_back("Sound graph has no nodes");
+            errors.emplace_back("Sound graph has no nodes");
 
         // Check for nodes with duplicate IDs
         std::unordered_set<UUID> nodeIds;

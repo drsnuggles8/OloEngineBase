@@ -103,7 +103,7 @@ namespace OloEngine
         };
 
         PoolSlot& AcquireSlot(u32 requiredCapacity);
-        void EnsureSlotCapacity(PoolSlot& slot, u32 requiredCapacity);
+        void EnsureSlotCapacity(PoolSlot& slot, u32 requiredCapacity) const;
 
         Ref<ComputeShader> m_CullShader;
         std::vector<PoolSlot> m_Pool;

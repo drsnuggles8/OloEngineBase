@@ -80,8 +80,7 @@ namespace OloEngine::Audio::DSP
     {
         u32 gainSmoothTimeInFrames = 360; // ~7.5ms at 48kHz
         ma_gainer_config gainerConfig = ma_gainer_config_init(numberOfOutputChannels, gainSmoothTimeInFrames);
-        ma_result result = ma_gainer_init(&gainerConfig, nullptr, &Gainer);
-        if (result != MA_SUCCESS)
+        if (ma_result result = ma_gainer_init(&gainerConfig, nullptr, &Gainer); result != MA_SUCCESS)
         {
             OLO_CORE_ERROR("[VBAP] ma_gainer_init failed: {}", static_cast<int>(result));
             return;
@@ -111,7 +110,7 @@ namespace OloEngine::Audio::DSP
         vbap->spPos.resize(numOfOutputs);
 
         // Store speaker vectors from channel map
-        for (u32 i = 0; i < numOfOutputs; i++)
+        for (u32 i = 0; i < numOfOutputs; ++i)
         {
             const auto vector = g_maChannelDirections[outputChannelMap[i]];
             vbap->spPos[i] = glm::vec2{ vector.x, vector.z };
@@ -121,10 +120,10 @@ namespace OloEngine::Audio::DSP
         SortChannelLayout(vbap->spPos, vbap->spPosSorted);
 
         // Pre-compute inverse matrices for each sorted speaker pair
-        for (sizet i = 0; i < vbap->spPosSorted.size(); i++)
+        for (sizet i = 0; i < vbap->spPosSorted.size(); ++i)
         {
-            auto& [p, idx] = vbap->spPosSorted.at(i);
-            auto& [p2, idx2] = vbap->spPosSorted.at((i + 1) % vbap->spPosSorted.size());
+            const auto& [p, idx] = vbap->spPosSorted.at(i);
+            const auto& [p2, idx2] = vbap->spPosSorted.at((i + 1) % vbap->spPosSorted.size());
 
             const glm::mat2 L(glm::vec2(p.x, p.y), glm::vec2(p2.x, p2.y));
             vbap->InverseMats.push_back(glm::inverse(L));
@@ -143,7 +142,7 @@ namespace OloEngine::Audio::DSP
         // Sort input channels by their rotation vectors
         std::vector<glm::vec2> inputChannelsUnsorted;
         inputChannelsUnsorted.reserve(numOfInputs);
-        for (u32 i = 0; i < numOfInputs; i++)
+        for (u32 i = 0; i < numOfInputs; ++i)
         {
             const auto vec = g_maChannelDirections[sourceChannelMap[i]];
             inputChannelsUnsorted.push_back(glm::vec2{ vec.x, vec.z });
@@ -156,9 +155,9 @@ namespace OloEngine::Audio::DSP
         const bool evenChannelCount = numOfInputs % 2 == 0;
         float sourceAngle = -0.5f * vsAngle;
 
-        for (u32 i = 0; i < numOfInputs; i++)
+        for (u32 i = 0; i < numOfInputs; ++i)
         {
-            auto& [pos, id] = inputChannelsSorted[i];
+            const auto& [pos, id] = inputChannelsSorted[i];
 
             // Assign centre angle of the equal section of the input plane
             float channelAngle = inputPlaneSection * static_cast<float>(i);
@@ -175,7 +174,7 @@ namespace OloEngine::Audio::DSP
             ChannelGroup channelGroup(numOfOutputs, id, channelAngle);
             channelGroup.VirtualSourceIDs.reserve(vsPerChannel);
 
-            for (u32 vi = 0; vi < vsPerChannel; vi++)
+            for (u32 vi = 0; vi < vsPerChannel; ++vi)
             {
                 sourceAngle += vsAngle;
                 float sa = sourceAngle;
@@ -190,7 +189,7 @@ namespace OloEngine::Audio::DSP
 
                 vbap->VirtualSources.push_back(virtualSource);
                 channelGroup.VirtualSourceIDs.push_back(vsID);
-                vsID++;
+                ++vsID;
             }
 
             vbap->ChannelGroups[id] = std::move(channelGroup);
@@ -236,7 +235,7 @@ namespace OloEngine::Audio::DSP
 
             for (auto& vsID : chg.VirtualSourceIDs)
             {
-                auto& vsGains = vbap->VirtualSources[static_cast<sizet>(vsID)].Gains;
+                const auto& vsGains = vbap->VirtualSources[static_cast<sizet>(vsID)].Gains;
                 for (sizet i = 0; i < gainsLocal.size(); ++i)
                 {
                     gainsLocal[i] += vsGains[i] * vsGains[i];
@@ -245,9 +244,17 @@ namespace OloEngine::Audio::DSP
 
             // RMS normalization with distance attenuation
             const u32 numVirtualSources = static_cast<u32>(chg.VirtualSourceIDs.size());
-            std::for_each(gainsLocal.begin(), gainsLocal.end(),
-                          [numVirtualSources, gainAttenuation](float& g)
-                          { g = std::sqrt(g / static_cast<float>(numVirtualSources)) * gainAttenuation; });
+            if (numVirtualSources == 0)
+            {
+                // No contributing virtual sources: avoid division by zero (would yield NaN). Silence this group.
+                std::ranges::fill(gainsLocal, 0.0f);
+            }
+            else
+            {
+                std::ranges::for_each(gainsLocal,
+                                      [numVirtualSources, gainAttenuation](float& g)
+                                      { g = std::sqrt(g / static_cast<float>(numVirtualSources)) * gainAttenuation; });
+            }
 
             // Convert intermediate surround channel gains to output format
             ChannelGains gainsOut = ConvertChannelGains(gainsLocal, converter);
@@ -264,23 +271,23 @@ namespace OloEngine::Audio::DSP
     void VBAP::SortChannelLayout(const std::vector<glm::vec2>& speakerVectors,
                                  std::vector<std::pair<glm::vec2, u32>>& sorted)
     {
-        for (sizet i = 0; i < speakerVectors.size(); i++)
+        for (sizet i = 0; i < speakerVectors.size(); ++i)
         {
             sorted.push_back({ speakerVectors.at(i), static_cast<u32>(i) });
         }
 
-        std::sort(sorted.begin(), sorted.end(),
-                  [](const auto& p1, const auto& p2)
-                  {
-                      float ang1 = VectorAngle({ p1.first.x, p1.first.y });
-                      float ang2 = VectorAngle({ p2.first.x, p2.first.y });
-                      constexpr float circle = glm::radians(360.0f);
-                      if (ang1 < 0.0f)
-                          ang1 = circle + ang1;
-                      if (ang2 < 0.0f)
-                          ang2 = circle + ang2;
-                      return ang1 < ang2;
-                  });
+        std::ranges::sort(sorted,
+                          [](const auto& p1, const auto& p2)
+                          {
+                              float ang1 = VectorAngle({ p1.first.x, p1.first.y });
+                              float ang2 = VectorAngle({ p2.first.x, p2.first.y });
+                              constexpr float circle = glm::radians(360.0f);
+                              if (ang1 < 0.0f)
+                                  ang1 = circle + ang1;
+                              if (ang2 < 0.0f)
+                                  ang2 = circle + ang2;
+                              return ang1 < ang2;
+                          });
     }
 
     ChannelGains VBAP::ConvertChannelGains(const ChannelGains& channelGainsIn, const ma_channel_converter& converter)
@@ -346,7 +353,7 @@ namespace OloEngine::Audio::DSP
         std::pair<float, float> speakerGains;
         if (FindActiveArch(vbap, azimuthRadians, speakers, speakerGains))
         {
-            std::fill(gains.begin(), gains.end(), 0.0f);
+            std::ranges::fill(gains, 0.0f);
             gains[static_cast<sizet>(speakers.first)] = speakerGains.first;
             gains[static_cast<sizet>(speakers.second)] = speakerGains.second;
         }
@@ -369,7 +376,7 @@ namespace OloEngine::Audio::DSP
         const auto& inverseMats = vbap->InverseMats;
         const auto size = sortedPositions.size();
 
-        for (sizet i = 0; i < size; i++)
+        for (sizet i = 0; i < size; ++i)
         {
             const auto& [pos, ind] = sortedPositions[i];
             const auto& [pos2, ind2] = sortedPositions[(i + 1) % size];

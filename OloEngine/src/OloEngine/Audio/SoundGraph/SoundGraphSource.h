@@ -136,7 +136,7 @@ namespace OloEngine::Audio::SoundGraph
         /// Playback Interface
 
         i32 GetNumDataSources() const;
-        bool AreAllDataSourcesAtEnd();
+        bool AreAllDataSourcesAtEnd() const;
         bool IsAnyDataSourceReading()
         {
             return !AreAllDataSourcesAtEnd();
@@ -197,10 +197,10 @@ namespace OloEngine::Audio::SoundGraph
         void UpdateParameterSet();
 
         /** Called from audio thread to apply preset changes */
-        bool ApplyParameterPresetInternal();
+        bool ApplyParameterPresetInternal() const;
 
         /** Called from audio thread to send updated parameters */
-        void UpdateChangedParameters();
+        void UpdateChangedParameters() const;
 
         /** SoundGraph event handlers (called from audio thread) */
         static void HandleGraphEvent(void* context, u64 frameIndex, Identifier endpointID, const choc::value::ValueView& eventData);
@@ -214,7 +214,7 @@ namespace OloEngine::Audio::SoundGraph
         /// Helper methods
 
         /** Helper to silence output buffers (planar stereo) */
-        void SilenceOutputBuffers(float** ppFramesOut, u32 frameCount);
+        void SilenceOutputBuffers(float** ppFramesOut, u32 frameCount) const;
         //============================================
         /// Audio engine and processing
         ma_engine* m_Engine = nullptr;

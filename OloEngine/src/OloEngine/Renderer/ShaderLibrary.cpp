@@ -117,12 +117,16 @@ namespace OloEngine
             // but whose registry was never initialized.
             else if (shader->IsReady())
             {
-                if (auto* reg = shader->GetResourceRegistry(); reg && !reg->IsInitialized())
+                if (const auto* reg = shader->GetResourceRegistry(); reg && !reg->IsInitialized())
                 {
                     auto* glShader = static_cast<OpenGLShader*>(shader.get());
                     glShader->InitializeResourceRegistry(shader);
                     ++completed;
                 }
+            }
+            else
+            {
+                // No additional handling required.
             }
         }
         return completed;
@@ -146,11 +150,15 @@ namespace OloEngine
             // Same guard as PollPendingShaders — catch ready-but-uninitialized.
             else if (shader->IsReady())
             {
-                if (auto* reg = shader->GetResourceRegistry(); reg && !reg->IsInitialized())
+                if (const auto* reg = shader->GetResourceRegistry(); reg && !reg->IsInitialized())
                 {
                     auto* glShader = static_cast<OpenGLShader*>(shader.get());
                     glShader->InitializeResourceRegistry(shader);
                 }
+            }
+            else
+            {
+                // No additional handling required.
             }
         }
     }
@@ -171,6 +179,10 @@ namespace OloEngine
                     ++count;
                 }
             }
+            else
+            {
+                // No additional handling required.
+            }
         }
         return count;
     }
@@ -179,8 +191,7 @@ namespace OloEngine
     {
         for (const auto& [name, shader] : m_Shaders)
         {
-            auto status = shader->GetCompilationStatus();
-            if (status == ShaderCompilationStatus::Compiling || status == ShaderCompilationStatus::Pending)
+            if (auto status = shader->GetCompilationStatus(); status == ShaderCompilationStatus::Compiling || status == ShaderCompilationStatus::Pending)
                 return true;
             if (shader->IsReady())
             {

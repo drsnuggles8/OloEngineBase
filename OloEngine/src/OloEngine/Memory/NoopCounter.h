@@ -27,32 +27,32 @@ namespace OloEngine
         FNoopCounter(const FNoopCounter& /*Other*/) {}
         FNoopCounter(i32 /*Value*/) {}
 
-        i32 Increment()
+        i32 Increment() const
         {
             return 0;
         }
 
-        i32 Add(i32 /*Amount*/)
+        i32 Add(i32 /*Amount*/) const
         {
             return 0;
         }
 
-        i32 Decrement()
+        i32 Decrement() const
         {
             return 0;
         }
 
-        i32 Subtract(i32 /*Amount*/)
+        i32 Subtract(i32 /*Amount*/) const
         {
             return 0;
         }
 
-        i32 Set(i32 /*Value*/)
+        i32 Set(i32 /*Value*/) const
         {
             return 0;
         }
 
-        i32 Reset()
+        i32 Reset() const
         {
             return 0;
         }

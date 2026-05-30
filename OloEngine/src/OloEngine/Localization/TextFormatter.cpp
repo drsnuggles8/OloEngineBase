@@ -107,8 +107,7 @@ namespace OloEngine
                 if (i == forms.size() || forms[i] == '|')
                 {
                     const std::string_view segment = forms.substr(start, i - start);
-                    const sizet eq = segment.find('=');
-                    if (eq != std::string_view::npos)
+                    if (const sizet eq = segment.find('='); eq != std::string_view::npos)
                     {
                         const std::string_view label = segment.substr(0, eq);
                         const std::string_view form = segment.substr(eq + 1);
@@ -154,8 +153,7 @@ namespace OloEngine
                 }
 
                 const std::string_view token(pattern.data() + i + 1, closing - i - 1);
-                const sizet colon = token.find(':');
-                if (colon == std::string_view::npos)
+                if (const sizet colon = token.find(':'); colon == std::string_view::npos)
                 {
                     // Simple {name} substitution.
                     const std::string name(token);

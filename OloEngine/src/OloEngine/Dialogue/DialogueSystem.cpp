@@ -107,7 +107,7 @@ namespace OloEngine
         }
         else
         {
-            auto& existingState = entity.GetComponent<DialogueStateComponent>();
+            const auto& existingState = entity.GetComponent<DialogueStateComponent>();
             if (existingState.m_State != DialogueState::Inactive)
             {
                 OLO_CORE_WARN("DialogueSystem::StartDialogue - Dialogue already active, resetting");
@@ -150,7 +150,7 @@ namespace OloEngine
         }
 
         // Follow the default connection from current node
-        auto& dialogueComp = entity.GetComponent<DialogueComponent>();
+        const auto& dialogueComp = entity.GetComponent<DialogueComponent>();
         auto dialogueTree = AssetManager::GetAsset<DialogueTreeAsset>(dialogueComp.m_DialogueTree);
         if (!dialogueTree)
         {
@@ -198,7 +198,7 @@ namespace OloEngine
         ProcessNode(entity, targetNodeID, 0);
     }
 
-    void DialogueSystem::EndDialogue(Entity entity)
+    void DialogueSystem::EndDialogue(Entity entity) const
     {
         OLO_PROFILE_FUNCTION();
 
@@ -237,7 +237,7 @@ namespace OloEngine
             return;
         }
 
-        auto& dialogueComp = entity.GetComponent<DialogueComponent>();
+        const auto& dialogueComp = entity.GetComponent<DialogueComponent>();
         auto dialogueTree = AssetManager::GetAsset<DialogueTreeAsset>(dialogueComp.m_DialogueTree);
         if (!dialogueTree)
         {
@@ -268,7 +268,7 @@ namespace OloEngine
             state.m_CurrentText.clear();
             state.m_CurrentSpeaker.clear();
 
-            auto resolveLocalized = [&](const char* keyProp, const char* literalProp) -> std::string
+            auto resolveLocalized = [&node](const char* keyProp, const char* literalProp) -> std::string
             {
                 if (auto it = node->Properties.find(keyProp); it != node->Properties.end())
                 {
@@ -303,8 +303,7 @@ namespace OloEngine
             // locale's table.
             auto resolveChoiceLabel = [](const std::string& raw) -> std::string
             {
-                constexpr std::string_view kKeyPrefix = "@key:";
-                if (raw.size() > kKeyPrefix.size() && raw.starts_with(kKeyPrefix))
+                if (constexpr std::string_view kKeyPrefix = "@key:"; raw.size() > kKeyPrefix.size() && raw.starts_with(kKeyPrefix))
                 {
                     const std::string key(raw.substr(kKeyPrefix.size()));
                     return LocalizationManager::Get(key);

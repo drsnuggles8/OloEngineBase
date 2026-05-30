@@ -245,6 +245,10 @@ namespace OloEngine
             {
                 ++i; // Already handled in first pass
             }
+            else
+            {
+                // No additional handling required.
+            }
         }
 
         return config;

@@ -54,12 +54,12 @@ namespace OloEngine
             OLO_CORE_ASSERT(m_UsedMalloc, "FMallocPoisonProxy is used without a valid malloc!");
         }
 
-        virtual void InitializeStatsMetadata() override
+        void InitializeStatsMetadata() override
         {
             m_UsedMalloc->InitializeStatsMetadata();
         }
 
-        virtual void* Malloc(sizet Size, u32 Alignment) override
+        void* Malloc(sizet Size, u32 Alignment) override
         {
             void* Result = m_UsedMalloc->Malloc(Size, Alignment);
             if (OLO_LIKELY(Result != nullptr && Size > 0))
@@ -69,7 +69,7 @@ namespace OloEngine
             return Result;
         }
 
-        virtual void* TryMalloc(sizet Size, u32 Alignment) override
+        void* TryMalloc(sizet Size, u32 Alignment) override
         {
             void* Result = m_UsedMalloc->TryMalloc(Size, Alignment);
             if (OLO_LIKELY(Result != nullptr && Size > 0))
@@ -79,7 +79,7 @@ namespace OloEngine
             return Result;
         }
 
-        virtual void* MallocZeroed(sizet Size, u32 Alignment) override
+        void* MallocZeroed(sizet Size, u32 Alignment) override
         {
             void* Result = m_UsedMalloc->Malloc(Size, Alignment);
             if (OLO_LIKELY(Result != nullptr && Size > 0))
@@ -89,7 +89,7 @@ namespace OloEngine
             return Result;
         }
 
-        virtual void* Realloc(void* Ptr, sizet NewSize, u32 Alignment) override
+        void* Realloc(void* Ptr, sizet NewSize, u32 Alignment) override
         {
             // NOTE: case when Realloc returns completely new pointer is not handled properly
             // (we would like to have previous memory poisoned completely).
@@ -114,7 +114,7 @@ namespace OloEngine
             return Result;
         }
 
-        virtual void* TryRealloc(void* Ptr, sizet NewSize, u32 Alignment) override
+        void* TryRealloc(void* Ptr, sizet NewSize, u32 Alignment) override
         {
             sizet OldSize = 0;
             if (Ptr != nullptr && GetAllocationSize(Ptr, OldSize) && OldSize > 0 && OldSize > NewSize)
@@ -132,7 +132,7 @@ namespace OloEngine
             return Result;
         }
 
-        virtual void Free(void* Ptr) override
+        void Free(void* Ptr) override
         {
             if (OLO_LIKELY(Ptr))
             {
@@ -145,89 +145,89 @@ namespace OloEngine
             }
         }
 
-        virtual sizet QuantizeSize(sizet Count, u32 Alignment) override
+        sizet QuantizeSize(sizet Count, u32 Alignment) override
         {
             return m_UsedMalloc->QuantizeSize(Count, Alignment);
         }
 
-        virtual void UpdateStats() override
+        void UpdateStats() override
         {
             m_UsedMalloc->UpdateStats();
         }
 
-        virtual void GetAllocatorStats(FGenericMemoryStats& OutStats) override
+        void GetAllocatorStats(FGenericMemoryStats& OutStats) override
         {
             m_UsedMalloc->GetAllocatorStats(OutStats);
         }
 
-        virtual void DumpAllocatorStats(FOutputDevice& Ar) override
+        void DumpAllocatorStats(FOutputDevice& Ar) override
         {
             m_UsedMalloc->DumpAllocatorStats(Ar);
         }
 
-        virtual bool IsInternallyThreadSafe() const override
+        bool IsInternallyThreadSafe() const override
         {
             return m_UsedMalloc->IsInternallyThreadSafe();
         }
 
-        virtual bool ValidateHeap() override
+        bool ValidateHeap() override
         {
             return m_UsedMalloc->ValidateHeap();
         }
 
 #if OLO_ALLOW_EXEC_COMMANDS
-        virtual bool Exec(const char* Cmd, FOutputDevice& Ar) override
+        bool Exec(const char* Cmd, FOutputDevice& Ar) override
         {
             return m_UsedMalloc->Exec(Cmd, Ar);
         }
 #endif
 
-        virtual bool GetAllocationSize(void* Original, sizet& SizeOut) override
+        bool GetAllocationSize(void* Original, sizet& SizeOut) override
         {
             return m_UsedMalloc->GetAllocationSize(Original, SizeOut);
         }
 
-        virtual const char* GetDescriptiveName() override
+        const char* GetDescriptiveName() override
         {
             return "PoisonProxy";
         }
 
-        virtual void Trim(bool bTrimThreadCaches) override
+        void Trim(bool bTrimThreadCaches) override
         {
             m_UsedMalloc->Trim(bTrimThreadCaches);
         }
 
-        virtual void SetupTLSCachesOnCurrentThread() override
+        void SetupTLSCachesOnCurrentThread() override
         {
             m_UsedMalloc->SetupTLSCachesOnCurrentThread();
         }
 
-        virtual void MarkTLSCachesAsUsedOnCurrentThread() override
+        void MarkTLSCachesAsUsedOnCurrentThread() override
         {
             m_UsedMalloc->MarkTLSCachesAsUsedOnCurrentThread();
         }
 
-        virtual void MarkTLSCachesAsUnusedOnCurrentThread() override
+        void MarkTLSCachesAsUnusedOnCurrentThread() override
         {
             m_UsedMalloc->MarkTLSCachesAsUnusedOnCurrentThread();
         }
 
-        virtual void ClearAndDisableTLSCachesOnCurrentThread() override
+        void ClearAndDisableTLSCachesOnCurrentThread() override
         {
             m_UsedMalloc->ClearAndDisableTLSCachesOnCurrentThread();
         }
 
-        virtual void OnMallocInitialized() override
+        void OnMallocInitialized() override
         {
             m_UsedMalloc->OnMallocInitialized();
         }
 
-        virtual void OnPreFork() override
+        void OnPreFork() override
         {
             m_UsedMalloc->OnPreFork();
         }
 
-        virtual void OnPostFork() override
+        void OnPostFork() override
         {
             m_UsedMalloc->OnPostFork();
         }

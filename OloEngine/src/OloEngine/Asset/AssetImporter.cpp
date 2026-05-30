@@ -83,8 +83,7 @@ namespace OloEngine
     void AssetImporter::Shutdown()
     {
         // Set shutdown flag to prevent re-entry during static destruction
-        auto wasShuttingDown = s_IsShuttingDown.exchange(true, std::memory_order_acq_rel);
-        if (wasShuttingDown)
+        if (auto wasShuttingDown = s_IsShuttingDown.exchange(true, std::memory_order_acq_rel); wasShuttingDown)
         {
             // Already shutting down, avoid double shutdown
             return;

@@ -22,8 +22,7 @@ namespace OloEngine
         req.Target = node["Target"].as<std::string>("");
         req.Value = node["Value"].as<i32>(0);
 
-        auto compStr = node["Comparison"].as<std::string>("");
-        if (!compStr.empty())
+        if (auto compStr = node["Comparison"].as<std::string>(""); !compStr.empty())
         {
             auto compOpt = ComparisonOpFromString(compStr);
             if (!compOpt)

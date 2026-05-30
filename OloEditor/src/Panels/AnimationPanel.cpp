@@ -68,7 +68,7 @@ namespace OloEngine
         // Entity name header
         if (m_SelectedEntity.HasComponent<TagComponent>())
         {
-            auto& tag = m_SelectedEntity.GetComponent<TagComponent>().Tag;
+            const auto& tag = m_SelectedEntity.GetComponent<TagComponent>().Tag;
             ImGui::Text("Entity: %s", tag.c_str());
             ImGui::Separator();
         }
@@ -176,7 +176,7 @@ namespace OloEngine
 
             if (ImGui::BeginCombo("Animation Clip##AnimControl", previewLabel.c_str()))
             {
-                for (int i = 0; i < static_cast<int>(animState.m_AvailableClips.size()); i++)
+                for (int i = 0; i < static_cast<int>(animState.m_AvailableClips.size()); ++i)
                 {
                     const auto& clip = animState.m_AvailableClips[i];
                     bool isSelected = (i == selectedClip);
@@ -278,6 +278,10 @@ namespace OloEngine
                         oldState, animState, "Change Blend Duration"));
             }
             m_IsEditingBlendDuration = false;
+        }
+        else
+        {
+            // No additional handling required.
         }
 
         // Update animation if playing (editor preview mode)
@@ -390,8 +394,7 @@ namespace OloEngine
         }
 
         // Playhead
-        f32 playheadX = timelinePos.x + (animState.m_CurrentTime - m_TimelineOffset) * pixelsPerSecond;
-        if (playheadX >= timelinePos.x && playheadX <= timelinePos.x + timelineSize.x)
+        if (f32 playheadX = timelinePos.x + (animState.m_CurrentTime - m_TimelineOffset) * pixelsPerSecond; playheadX >= timelinePos.x && playheadX <= timelinePos.x + timelineSize.x)
         {
             drawList->AddLine(
                 ImVec2(playheadX, timelinePos.y),
@@ -420,7 +423,7 @@ namespace OloEngine
         ImGui::Dummy(ImVec2(0, 10)); // Spacing after timeline
     }
 
-    void AnimationPanel::DrawBoneHierarchy(Entity entity)
+    void AnimationPanel::DrawBoneHierarchy(Entity entity) const
     {
         if (!entity.HasComponent<SkeletonComponent>())
             return;
@@ -440,7 +443,7 @@ namespace OloEngine
             // Show bone entity mappings if available
             if (entity.HasComponent<AnimationStateComponent>())
             {
-                auto& animState = entity.GetComponent<AnimationStateComponent>();
+                const auto& animState = entity.GetComponent<AnimationStateComponent>();
                 ImGui::Text("Mapped Bone Entities: %zu", animState.m_BoneEntityIds.size());
             }
 

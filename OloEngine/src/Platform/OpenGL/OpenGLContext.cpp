@@ -66,6 +66,10 @@ namespace OloEngine
                 hasARB = true;
             else if (std::string_view(ext) == "GL_KHR_parallel_shader_compile")
                 hasKHR = true;
+            else
+            {
+                // No additional handling required.
+            }
         }
 
         if (hasARB)

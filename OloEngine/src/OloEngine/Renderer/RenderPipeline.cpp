@@ -226,8 +226,7 @@ namespace OloEngine
                 // x_ndc = P[0][0]*x + P[2][0]*z + P[3][0]. Instead, add the
                 // jitter to the translation row so every fragment gets the
                 // same sub-pixel shift independent of depth.
-                const bool isOrthographic = glm::abs(data.ProjectionMatrix[3][3] - 1.0f) < 1e-5f;
-                if (isOrthographic)
+                if (const bool isOrthographic = glm::abs(data.ProjectionMatrix[3][3] - 1.0f) < 1e-5f; isOrthographic)
                 {
                     data.ProjectionMatrix[3][0] += jitterNdcX;
                     data.ProjectionMatrix[3][1] += jitterNdcY;
@@ -591,7 +590,7 @@ namespace OloEngine
         }
     }
 
-    void Renderer3D::RenderPipeline::ApplyGlobalResources(Renderer3DData& data)
+    void Renderer3D::RenderPipeline::ApplyGlobalResources(Renderer3DData& data) const
     {
         OLO_PROFILE_FUNCTION();
 
@@ -626,6 +625,10 @@ namespace OloEngine
                 {
                     input = ShaderResourceInput(std::get<Ref<TextureCubemap>>(resource));
                 }
+                else
+                {
+                    // No additional handling required.
+                }
 
                 if (input.Type != ShaderResourceType::None)
                 {
@@ -648,9 +651,9 @@ namespace OloEngine
 
         // Upload post-process settings to GPU
         {
-            auto& pp = data.PostProcess;
+            const auto& pp = data.PostProcess;
             auto& gpu = data.PostProcessGPU.PostProcessData;
-            gpu.TonemapOperator = static_cast<i32>(pp.Tonemap);
+            gpu.TonemapOperator = std::to_underlying(pp.Tonemap);
             gpu.Exposure = pp.Exposure;
             gpu.Gamma = pp.Gamma;
             gpu.BloomThreshold = pp.BloomThreshold;
@@ -684,7 +687,7 @@ namespace OloEngine
         // Upload snow settings to GPU
         if (data.Snow.Enabled)
         {
-            auto& snow = data.Snow;
+            const auto& snow = data.Snow;
             auto& gpu = data.SceneEffectsGPU.SnowData;
             gpu.CoverageParams = glm::vec4(snow.HeightStart, snow.HeightFull, snow.SlopeStart, snow.SlopeFull);
             gpu.AlbedoAndRoughness = glm::vec4(snow.Albedo, snow.Roughness);
@@ -716,7 +719,7 @@ namespace OloEngine
         // Upload fog & atmospheric scattering settings to GPU
         if (data.Fog.Enabled)
         {
-            auto& fog = data.Fog;
+            const auto& fog = data.Fog;
             auto& gpu = data.SceneEffectsGPU.FogData;
             gpu.ColorAndDensity = glm::vec4(fog.Color, fog.Density);
             gpu.DistanceParams = glm::vec4(fog.Start, fog.End, fog.HeightFalloff, fog.HeightOffset);
@@ -725,8 +728,7 @@ namespace OloEngine
             // Derive sun direction from the scene's primary directional light
             // Guard against zero-length direction to prevent NaN from normalize
             glm::vec3 sunDir(0.0f, -1.0f, 0.0f);
-            const f32 dirLen2 = glm::dot(data.SceneLight.Direction, data.SceneLight.Direction);
-            if (std::isfinite(dirLen2) && dirLen2 > 1e-8f)
+            if (const f32 dirLen2 = glm::dot(data.SceneLight.Direction, data.SceneLight.Direction); std::isfinite(dirLen2) && dirLen2 > 1e-8f)
             {
                 sunDir = glm::normalize(data.SceneLight.Direction);
             }
@@ -734,7 +736,7 @@ namespace OloEngine
             // Wrap at 1024 to stay well within float32 integer-exact range
             gpu.SunDirection = glm::vec4(sunDir, static_cast<f32>(data.FogFrameIndex));
             data.FogFrameIndex = (data.FogFrameIndex + 1u) & 0x3FFu;
-            gpu.Flags = glm::vec4(1.0f, static_cast<f32>(static_cast<i32>(fog.Mode)),
+            gpu.Flags = glm::vec4(1.0f, static_cast<f32>(std::to_underlying(fog.Mode)),
                                   fog.EnableScattering ? 1.0f : 0.0f,
                                   fog.EnableVolumetric ? 1.0f : 0.0f);
 
@@ -875,7 +877,7 @@ namespace OloEngine
         }
 
         // Rendering path / deferred sub-state
-        HashU32(h, static_cast<u32>(data.Settings.Path));
+        HashU32(h, static_cast<u32>(std::to_underlying(data.Settings.Path)));
         HashU32(h, data.Settings.Deferred.MSAASampleCount);
         HashBool(h, data.Settings.OITEnabled);
         HashBool(h, data.Settings.Deferred.PerSampleLighting);
@@ -889,7 +891,7 @@ namespace OloEngine
             HashU32(h, data.Shadow.GetPointRendererID(i));
 
         // Post-process technique selection + per-effect toggles
-        HashU32(h, static_cast<u32>(data.PostProcess.ActiveAOTechnique));
+        HashU32(h, static_cast<u32>(std::to_underlying(data.PostProcess.ActiveAOTechnique)));
         HashBool(h, data.PostProcess.SSAOEnabled);
         HashBool(h, data.PostProcess.GTAOEnabled);
         HashBool(h, data.PostProcess.BloomEnabled);
@@ -1089,7 +1091,7 @@ namespace OloEngine
             //   RT1 Normal   — octahedral normal + roughness + AO
             //   RT2 Emissive — emissive HDR
             //   RT3 Velocity — screen-space motion vectors
-            auto buildGBufferFramebufferDesc = [&](const u32 sampleCount, std::string_view debugName) -> RGResourceDesc
+            auto buildGBufferFramebufferDesc = [&gbuffer](const u32 sampleCount, std::string_view debugName) -> RGResourceDesc
             {
                 RGResourceDesc desc;
                 desc.Kind = ResourceHandle::Kind::Framebuffer;
@@ -1260,6 +1262,10 @@ namespace OloEngine
                 aoDesc.DebugName = std::string(ResourceNames::AOBuffer);
                 board.AO.AOBuffer = graph.AllocateTransientTextureHandle(ResourceNames::AOBuffer, aoDesc);
             }
+            else
+            {
+                // No additional handling required.
+            }
 
             static i32 s_PrevAOTechnique = -1;
             static bool s_PrevSSAOEnabled = false;
@@ -1267,7 +1273,7 @@ namespace OloEngine
             static bool s_PrevSSAOReady = false;
             static bool s_PrevGTAOReady = false;
             static bool s_PrevAOHandleValid = false;
-            const i32 activeTechnique = static_cast<i32>(data.PostProcess.ActiveAOTechnique);
+            const i32 activeTechnique = std::to_underlying(data.PostProcess.ActiveAOTechnique);
             const bool aoHandleValid = board.AO.AOBuffer.IsValid();
             if (activeTechnique != s_PrevAOTechnique ||
                 data.PostProcess.SSAOEnabled != s_PrevSSAOEnabled ||
@@ -1399,7 +1405,7 @@ namespace OloEngine
         };
 
         auto declareGraphOnlyPostProcessFB =
-            [&](std::string_view name, const RGResourceFormat fmt) -> RGFramebufferHandle
+            [&postProcessWidth, &postProcessHeight, &declareGraphOnlyFramebuffer](std::string_view name, const RGResourceFormat fmt) -> RGFramebufferHandle
         {
             RGResourceDesc desc;
             desc.Kind = ResourceHandle::Kind::Framebuffer;
@@ -1417,9 +1423,9 @@ namespace OloEngine
         };
 
         auto declareGraphOnlyPostProcessOutput =
-            [&](std::string_view framebufferName,
-                std::string_view textureName,
-                const RGResourceFormat fmt) -> GraphOnlyPostProcessOutput
+            [&declareGraphOnlyPostProcessFB, &graph](std::string_view framebufferName,
+                                                     std::string_view textureName,
+                                                     const RGResourceFormat fmt) -> GraphOnlyPostProcessOutput
         {
             const auto framebuffer = declareGraphOnlyPostProcessFB(framebufferName, fmt);
             const auto texture = framebuffer.IsValid()
@@ -1858,9 +1864,7 @@ namespace OloEngine
         // (`if (board.OIT.OITAccum.IsValid())` is already guarded), so the
         // graph never sees write edges into a buffer that nothing reads.
         // OITPreparePass and OITResolvePass also self-skip via `m_Enabled`.
-        const bool oitActive = data.Settings.OITEnabled &&
-                               pipeline.SceneCompositePasses.OITResolve;
-        if (oitActive)
+        if (const bool oitActive = data.Settings.OITEnabled && pipeline.SceneCompositePasses.OITResolve; oitActive)
         {
             // Declare as a shared transient MRT framebuffer (RT0 = RGBA16F
             // accumulation, RT1 = RG16F revealage, depth = DEPTH24_STENCIL8).

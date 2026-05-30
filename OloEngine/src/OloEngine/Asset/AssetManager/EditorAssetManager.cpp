@@ -17,6 +17,7 @@
 #include "OloEngine/Threading/SharedLock.h"
 
 #include <algorithm>
+#include <cctype>
 #include <future>
 #include <filesystem>
 
@@ -80,6 +81,10 @@ namespace OloEngine
             {
                 OLO_CORE_WARN("Failed to check asset registry existence: {}", ec.message());
             }
+            else
+            {
+                // No additional handling required.
+            }
 
             // Scan project assets directory for any new assets that aren't in the registry
             auto assetDirectory = Project::GetAssetDirectory();
@@ -95,6 +100,10 @@ namespace OloEngine
             else if (ec)
             {
                 OLO_CORE_WARN("Failed to check asset directory existence: {}", ec.message());
+            }
+            else
+            {
+                // No additional handling required.
             }
         }
 
@@ -170,8 +179,7 @@ namespace OloEngine
         }
 
         // Wait for any pending async reload tasks
-        u32 remainingReloads = m_ActiveReloadTasks.load(std::memory_order_acquire);
-        if (remainingReloads > 0)
+        if (u32 remainingReloads = m_ActiveReloadTasks.load(std::memory_order_acquire); remainingReloads > 0)
         {
             OLO_CORE_INFO("EditorAssetManager: Waiting for {} async reload tasks to complete...", remainingReloads);
             while (m_ActiveReloadTasks.load(std::memory_order_acquire) > 0)
@@ -220,8 +228,7 @@ namespace OloEngine
             TSharedLock<FSharedMutex> lock(m_AssetsMutex);
 
             // Check if it's a memory asset first
-            auto memoryIt = m_MemoryAssets.find(assetHandle);
-            if (memoryIt != m_MemoryAssets.end())
+            if (auto memoryIt = m_MemoryAssets.find(assetHandle); memoryIt != m_MemoryAssets.end())
                 return memoryIt->second;
 
             // Check if already loaded
@@ -247,8 +254,7 @@ namespace OloEngine
             TSharedLock<FSharedMutex> lock(m_AssetsMutex);
 
             // Check memory assets
-            auto memoryIt = m_MemoryAssets.find(assetHandle);
-            if (memoryIt != m_MemoryAssets.end())
+            if (auto memoryIt = m_MemoryAssets.find(assetHandle); memoryIt != m_MemoryAssets.end())
                 return AsyncAssetResult<Asset>{ memoryIt->second, true };
 
             // Check loaded assets
@@ -719,8 +725,7 @@ namespace OloEngine
         std::filesystem::path relativePath = GetRelativePath(filepath);
 
         // Check if already imported
-        AssetHandle existingHandle = m_AssetRegistry.GetHandleFromPath(relativePath);
-        if (existingHandle != 0)
+        if (AssetHandle existingHandle = m_AssetRegistry.GetHandleFromPath(relativePath); existingHandle != 0)
         {
             OLO_CORE_TRACE("Asset already imported: {}", relativePath.string());
             return existingHandle;
@@ -880,8 +885,8 @@ namespace OloEngine
             return AssetManager::GetPlaceholderAsset(metadata.Type);
         }
 
-        auto absolutePath = m_ProjectPath / metadata.FilePath;
-        if (!std::filesystem::exists(absolutePath))
+        std::error_code existsEc;
+        if (auto absolutePath = m_ProjectPath / metadata.FilePath; !std::filesystem::exists(absolutePath, existsEc) || existsEc)
         {
             OLO_CORE_ERROR("Cannot load asset: file does not exist: {}", metadata.FilePath.string());
             SetAssetStatus(metadata.Handle, AssetStatus::Missing);
@@ -974,10 +979,18 @@ namespace OloEngine
                             {
                                 OLO_CORE_WARN("Failed to get last write time for asset {}: {}", absolutePath.string(), ec.message());
                             }
+                            else
+                            {
+                                // No additional handling required.
+                            }
                         }
                         else if (ec)
                         {
                             OLO_CORE_WARN("Error checking asset file existence for {}: {}", absolutePath.string(), ec.message());
+                        }
+                        else
+                        {
+                            // No additional handling required.
                         }
                     }
                 }
@@ -1002,7 +1015,7 @@ namespace OloEngine
     }
 #endif
 
-    std::filesystem::path EditorAssetManager::GetRelativePath(const std::filesystem::path& filepath)
+    std::filesystem::path EditorAssetManager::GetRelativePath(const std::filesystem::path& filepath) const
     {
         // If the project path is empty, return the filepath as-is
         if (m_ProjectPath.empty())
@@ -1029,7 +1042,7 @@ namespace OloEngine
         return GetFileSystemPath(m_AssetRegistry.GetMetadata(handle));
     }
 
-    std::filesystem::path EditorAssetManager::GetFileSystemPath(const AssetMetadata& metadata)
+    std::filesystem::path EditorAssetManager::GetFileSystemPath(const AssetMetadata& metadata) const
     {
         if (metadata.FilePath.is_absolute())
             return metadata.FilePath;
@@ -1086,8 +1099,7 @@ namespace OloEngine
         // LocalizationSystem and the LocalizationPanel both poll.
         if (extension == ".ololocale")
         {
-            const auto absolutePath = m_ProjectPath / filePath;
-            if (LocalizationManager::LoadLocale(absolutePath))
+            if (const auto absolutePath = m_ProjectPath / filePath; LocalizationManager::LoadLocale(absolutePath))
             {
                 OLO_CORE_INFO("🌐 Hot-reloaded locale '{}'", absolutePath.filename().string());
             }
@@ -1126,8 +1138,10 @@ namespace OloEngine
                     std::string registryPath = metadata.FilePath.generic_string();
 
                     // Windows is case-insensitive, so compare lowercase
-                    std::transform(pathStr.begin(), pathStr.end(), pathStr.begin(), ::tolower);
-                    std::transform(registryPath.begin(), registryPath.end(), registryPath.begin(), ::tolower);
+                    constexpr auto toLowerChar = [](unsigned char c)
+                    { return static_cast<char>(std::tolower(c)); };
+                    std::ranges::transform(pathStr, pathStr.begin(), toLowerChar);
+                    std::ranges::transform(registryPath, registryPath.begin(), toLowerChar);
 
                     if (pathStr == registryPath)
                     {

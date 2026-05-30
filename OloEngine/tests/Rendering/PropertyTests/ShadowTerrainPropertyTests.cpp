@@ -200,6 +200,9 @@ namespace OloEngine::Tests
                     expected = 0.25f;
                 else if (outOfFrustum)
                     expected = 0.50f;
+                else
+                { /* No additional handling required. */
+                }
 
                 if (std::abs(sentinel - expected) > 0.02f)
                 {

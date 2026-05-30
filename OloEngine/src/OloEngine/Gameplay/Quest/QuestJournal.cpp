@@ -281,7 +281,7 @@ namespace OloEngine
             return std::nullopt;
         }
 
-        state.CurrentStageIndex++;
+        ++state.CurrentStageIndex;
 
         // Check if all stages are done
         if (state.CurrentStageIndex >= static_cast<i32>(definition.Stages.size()))
@@ -309,8 +309,7 @@ namespace OloEngine
 
     QuestStatus QuestJournal::GetQuestStatus(const std::string& questId) const
     {
-        auto it = m_ActiveQuests.find(questId);
-        if (it != m_ActiveQuests.end())
+        if (auto it = m_ActiveQuests.find(questId); it != m_ActiveQuests.end())
         {
             return it->second.Status;
         }

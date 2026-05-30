@@ -35,7 +35,7 @@ namespace OloEngine
         return static_cast<f32>(h & 0xFFFF) / 65536.0f;
     }
 
-    void FoliageRenderer::BuildQuadGeometry(LayerRenderData& data)
+    void FoliageRenderer::BuildQuadGeometry(LayerRenderData& data) const
     {
         // Billboard quad: 4 vertices, centered at bottom
         // Positions in local space, billboard rotation handled in shader
@@ -116,6 +116,10 @@ namespace OloEngine
                 { ShaderDataType::Float4, "a_ColorAlpha" },
             });
             data.VAO->AddInstanceBuffer(data.InstanceVBO);
+        }
+        else
+        {
+            // No additional handling required.
         }
 
         data.InstanceVBO->SetData({ instances.data(), dataSize });
@@ -213,8 +217,8 @@ namespace OloEngine
 
                     // Slope check
                     glm::vec3 normal = terrainData.GetNormalAt(nx, nz, worldSizeX, worldSizeZ, heightScale);
-                    f32 upDot = normal.y; // dot(normal, up)
-                    if (upDot < cosMinSlope || upDot > cosMaxSlope)
+                    // dot(normal, up)
+                    if (f32 upDot = normal.y; upDot < cosMinSlope || upDot > cosMaxSlope)
                         continue;
 
                     // Splatmap density check

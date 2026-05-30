@@ -24,8 +24,7 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        auto project = Project::GetActive();
-        if (!project)
+        if (auto project = Project::GetActive(); !project)
         {
             OLO_CORE_ERROR("AssetPackBuilder::BuildFromActiveProject - No active project");
             return { false, "No active project loaded", 0, 0, {} };
@@ -100,18 +99,18 @@ namespace OloEngine
                     auto asset = tempAssetManager->GetAsset(metadata.Handle);
                     if (asset)
                     {
-                        loadedCount++;
+                        ++loadedCount;
                         OLO_CORE_TRACE("AssetPackBuilder: Loaded asset {} ({})", metadata.Handle, metadata.FilePath.string());
                     }
                     else
                     {
-                        failedCount++;
+                        ++failedCount;
                         OLO_CORE_WARN("AssetPackBuilder: Failed to load asset {} ({})", metadata.Handle, metadata.FilePath.string());
                     }
                 }
                 catch (const std::exception& e)
                 {
-                    failedCount++;
+                    ++failedCount;
                     OLO_CORE_ERROR("AssetPackBuilder: Exception loading asset {} ({}): {}", metadata.Handle, metadata.FilePath.string(), e.what());
                 }
 
@@ -325,8 +324,7 @@ namespace OloEngine
                 if (std::filesystem::exists(tempFilePath))
                 {
                     // Read the temporary file and write its contents to the main pack file
-                    std::ifstream tempFile(tempFilePath, std::ios::binary);
-                    if (tempFile.is_open())
+                    if (std::ifstream tempFile(tempFilePath, std::ios::binary); tempFile.is_open())
                     {
                         // Get file size
                         tempFile.seekg(0, std::ios::end);
@@ -340,10 +338,32 @@ namespace OloEngine
 
                         while (remainingBytes > 0)
                         {
-                            sizet bytesToRead = std::min(bufferSize, remainingBytes);
-                            tempFile.read(buffer, bytesToRead);
-                            writer.WriteData(buffer, bytesToRead);
-                            remainingBytes -= bytesToRead;
+                            const sizet bytesToRead = std::min(bufferSize, remainingBytes);
+                            tempFile.read(buffer, static_cast<std::streamsize>(bytesToRead));
+
+                            // gcount() reflects what was actually read; on a short read or error
+                            // it is less than requested, so never write the stale tail of the buffer.
+                            const sizet actualBytesRead = static_cast<sizet>(tempFile.gcount());
+                            if (actualBytesRead > 0)
+                            {
+                                writer.WriteData(buffer, actualBytesRead);
+                                remainingBytes -= actualBytesRead;
+                            }
+
+                            // Bail out if the stream went bad / hit EOF before all expected bytes
+                            // were read, rather than spinning forever writing nothing.
+                            if (actualBytesRead < bytesToRead)
+                            {
+                                result.m_ErrorMessage =
+                                    "Failed to read temporary asset file: " + tempFilePath.string();
+                                // Best-effort cleanup: close the stream so the temp
+                                // file is no longer held open, then remove it so we
+                                // don't leak entries on every failed build.
+                                tempFile.close();
+                                std::error_code removeEc;
+                                std::filesystem::remove(tempFilePath, removeEc);
+                                return result;
+                            }
                         }
 
                         tempFile.close();
@@ -410,8 +430,7 @@ namespace OloEngine
                         {
                             if (ecIter)
                                 break;
-                            std::error_code ecEntry;
-                            if (!entry.is_regular_file(ecEntry) || ecEntry)
+                            if (std::error_code ecEntry; !entry.is_regular_file(ecEntry) || ecEntry)
                                 continue;
                             if (entry.path().extension() != ".ololocale")
                                 continue;
@@ -503,7 +522,7 @@ namespace OloEngine
             // Count scenes separately
             if (assetInfo.Type == AssetType::Scene)
             {
-                assetPackFile.Index.SceneCount++;
+                ++assetPackFile.Index.SceneCount;
 
                 // Create scene info
                 AssetPackFile::SceneInfo sceneInfo;
@@ -568,8 +587,7 @@ namespace OloEngine
             assetInfo.PackedOffset = currentOffset;
 
             // Serialize the asset
-            AssetSerializationInfo serializationInfo;
-            if (AssetImporter::SerializeToAssetPack(assetInfo.Handle, tempWriter, serializationInfo))
+            if (AssetSerializationInfo serializationInfo; AssetImporter::SerializeToAssetPack(assetInfo.Handle, tempWriter, serializationInfo))
             {
                 assetInfo.PackedSize = serializationInfo.Size;
                 tempAssetFiles.emplace_back(assetInfo.Handle, tempPath);

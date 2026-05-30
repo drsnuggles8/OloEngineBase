@@ -148,8 +148,7 @@ namespace OloEngine::Audio::SoundGraph
         ++m_HitCount;
 
         // Update LRU: move accessed key to back (most recently used)
-        auto orderIt = m_AccessOrderMap.find(key);
-        if (orderIt != m_AccessOrderMap.end())
+        if (auto orderIt = m_AccessOrderMap.find(key); orderIt != m_AccessOrderMap.end())
         {
             m_AccessOrder.erase(orderIt->second);
             m_AccessOrder.push_back(key);
@@ -176,8 +175,7 @@ namespace OloEngine::Audio::SoundGraph
                 if (entry.second == nullptr)
                 {
                     // Also remove from LRU tracking
-                    auto orderIt = m_AccessOrderMap.find(entry.first);
-                    if (orderIt != m_AccessOrderMap.end())
+                    if (auto orderIt = m_AccessOrderMap.find(entry.first); orderIt != m_AccessOrderMap.end())
                     {
                         m_AccessOrder.erase(orderIt->second);
                         m_AccessOrderMap.erase(orderIt);
@@ -193,8 +191,7 @@ namespace OloEngine::Audio::SoundGraph
                 const std::string& lruKey = m_AccessOrder.front();
 
                 // Look up the entry for logging before erasing
-                auto entryIt = m_CompiledResults.find(lruKey);
-                if (entryIt != m_CompiledResults.end() && entryIt->second)
+                if (auto entryIt = m_CompiledResults.find(lruKey); entryIt != m_CompiledResults.end() && entryIt->second)
                 {
                     OLO_CORE_TRACE("CompilerCache: Evicting LRU entry (source: '{}', compiler: '{}')",
                                    entryIt->second->m_SourcePath, entryIt->second->m_CompilerVersion);
@@ -208,8 +205,7 @@ namespace OloEngine::Audio::SoundGraph
         }
 
         // If key already exists, remove it from LRU tracking (will be re-added at back)
-        auto existingOrderIt = m_AccessOrderMap.find(key);
-        if (existingOrderIt != m_AccessOrderMap.end())
+        if (auto existingOrderIt = m_AccessOrderMap.find(key); existingOrderIt != m_AccessOrderMap.end())
         {
             m_AccessOrder.erase(existingOrderIt->second);
             m_AccessOrderMap.erase(existingOrderIt);
@@ -240,7 +236,7 @@ namespace OloEngine::Audio::SoundGraph
         TUniqueLock<FMutex> Lock(m_Mutex);
 
         // Invalidate all versions of this source file
-        for (auto& [key, resultPtr] : m_CompiledResults)
+        for (const auto& [key, resultPtr] : m_CompiledResults)
         {
             if (resultPtr && resultPtr->m_SourcePath == sourcePath)
             {
@@ -259,7 +255,7 @@ namespace OloEngine::Audio::SoundGraph
         auto it = m_CompiledResults.find(key);
         if (it != m_CompiledResults.end())
         {
-            auto& resultPtr = it->second;
+            const auto& resultPtr = it->second;
             if (resultPtr)
             {
                 resultPtr->m_IsValid = false;
@@ -503,7 +499,7 @@ namespace OloEngine::Audio::SoundGraph
 
         std::vector<std::string> invalidKeys;
 
-        for (auto& [key, resultPtr] : m_CompiledResults)
+        for (const auto& [key, resultPtr] : m_CompiledResults)
         {
             if (!resultPtr)
             {
@@ -1156,7 +1152,7 @@ namespace OloEngine::Audio::SoundGraph
                        result.m_SourcePath, m_ActiveSaveTasks.load(std::memory_order_relaxed));
     }
 
-    void CompilerCache::AsyncSaveWorker()
+    void CompilerCache::AsyncSaveWorker() const
     {
         // NOTE: This method is no longer used. Async saves are now handled via Tasks::Launch() in EnqueueSave().
         // Kept for API compatibility but should never be called.
@@ -1168,8 +1164,7 @@ namespace OloEngine::Audio::SoundGraph
         OLO_PROFILE_FUNCTION();
 
         // Signal shutdown
-        bool alreadyShuttingDown = m_ShuttingDown.exchange(true, std::memory_order_acq_rel);
-        if (alreadyShuttingDown)
+        if (bool alreadyShuttingDown = m_ShuttingDown.exchange(true, std::memory_order_acq_rel); alreadyShuttingDown)
         {
             return; // Already shut down
         }
@@ -1177,8 +1172,7 @@ namespace OloEngine::Audio::SoundGraph
         OLO_CORE_INFO("CompilerCache: Shutting down async save system...");
 
         // Wait for all active save tasks to complete
-        u32 remainingTasks = m_ActiveSaveTasks.load(std::memory_order_acquire);
-        if (remainingTasks > 0)
+        if (u32 remainingTasks = m_ActiveSaveTasks.load(std::memory_order_acquire); remainingTasks > 0)
         {
             OLO_CORE_INFO("CompilerCache: Waiting for {} active save tasks to complete...", remainingTasks);
 

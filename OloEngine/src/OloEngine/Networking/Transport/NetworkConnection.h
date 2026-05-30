@@ -35,7 +35,7 @@ namespace OloEngine
         void SetState(EConnectionState state);
         void SetClientID(u32 clientID);
 
-        bool Send(const void* data, u32 size, i32 sendFlags);
+        bool Send(const void* data, u32 size, i32 sendFlags) const;
         void Close(i32 reason = 0, const char* debug = "Closing");
 
       private:

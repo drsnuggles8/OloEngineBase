@@ -686,12 +686,12 @@ TEST(RenderGraphResourceHazards, SamePassOverlappingReadWriteWithoutFeedbackIsFl
     graph.BuildFrameGraph();
 
     const auto hazards = graph.ValidateResourceHazards();
-    const auto it = std::find_if(hazards.begin(), hazards.end(),
-                                 [](const RenderGraph::Hazard& h)
-                                 {
-                                     return h.Kind == RenderGraph::HazardKind::FeedbackWithoutDeclaration &&
-                                            h.Resource == "FeedbackTex";
-                                 });
+    const auto it = std::ranges::find_if(hazards,
+                                         [](const RenderGraph::Hazard& h)
+                                         {
+                                             return h.Kind == RenderGraph::HazardKind::FeedbackWithoutDeclaration &&
+                                                    h.Resource == "FeedbackTex";
+                                         });
     ASSERT_NE(it, hazards.end()) << HazardsToString(hazards);
 }
 
@@ -717,12 +717,12 @@ TEST(RenderGraphResourceHazards, SamePassOverlappingReadWriteWithFeedbackIsAllow
     graph.BuildFrameGraph();
 
     const auto hazards = graph.ValidateCompiledResourceHazards();
-    const auto it = std::find_if(hazards.begin(), hazards.end(),
-                                 [](const RenderGraph::Hazard& h)
-                                 {
-                                     return h.Kind == RenderGraph::HazardKind::FeedbackWithoutDeclaration &&
-                                            h.Resource == "FeedbackTex";
-                                 });
+    const auto it = std::ranges::find_if(hazards,
+                                         [](const RenderGraph::Hazard& h)
+                                         {
+                                             return h.Kind == RenderGraph::HazardKind::FeedbackWithoutDeclaration &&
+                                                    h.Resource == "FeedbackTex";
+                                         });
     EXPECT_EQ(it, hazards.end()) << HazardsToString(hazards);
 }
 
@@ -748,12 +748,12 @@ TEST(RenderGraphResourceHazards, FeedbackDeclarationIsRangeScoped)
     graph.BuildFrameGraph();
 
     const auto hazards = graph.ValidateCompiledResourceHazards();
-    const auto it = std::find_if(hazards.begin(), hazards.end(),
-                                 [](const RenderGraph::Hazard& h)
-                                 {
-                                     return h.Kind == RenderGraph::HazardKind::FeedbackWithoutDeclaration &&
-                                            h.Resource == "FeedbackTex";
-                                 });
+    const auto it = std::ranges::find_if(hazards,
+                                         [](const RenderGraph::Hazard& h)
+                                         {
+                                             return h.Kind == RenderGraph::HazardKind::FeedbackWithoutDeclaration &&
+                                                    h.Resource == "FeedbackTex";
+                                         });
     ASSERT_NE(it, hazards.end()) << HazardsToString(hazards);
 }
 
@@ -818,12 +818,12 @@ TEST(RenderGraphResourceHazards, DynamicDecalProjectionContractDerivesSceneDepth
         << HazardsToString(hazards);
 
     const auto connections = graph.GetConnections();
-    const auto derivedEdge = std::find_if(connections.begin(), connections.end(),
-                                          [](const RenderGraph::ConnectionInfo& connection)
-                                          {
-                                              return connection.OutputPass == "SceneDepthProducer" &&
-                                                     connection.InputPass == "DecalPass";
-                                          });
+    const auto derivedEdge = std::ranges::find_if(connections,
+                                                  [](const RenderGraph::ConnectionInfo& connection)
+                                                  {
+                                                      return connection.OutputPass == "SceneDepthProducer" &&
+                                                             connection.InputPass == "DecalPass";
+                                                  });
     EXPECT_NE(derivedEdge, connections.end())
         << "Decal-style projection must derive a SceneDepth producer edge from the dynamic setup contract.";
 }
@@ -910,21 +910,21 @@ TEST(RenderGraphResourceHazards, DynamicOITDepthContractDerivesPrepareAndContrib
     EXPECT_TRUE(hazards.empty()) << HazardsToString(hazards);
 
     const auto connections = graph.GetConnections();
-    const auto sceneToPrepare = std::find_if(connections.begin(), connections.end(),
-                                             [](const RenderGraph::ConnectionInfo& connection)
-                                             {
-                                                 return connection.OutputPass == "ScenePass" &&
-                                                        connection.InputPass == "OITPreparePass";
-                                             });
+    const auto sceneToPrepare = std::ranges::find_if(connections,
+                                                     [](const RenderGraph::ConnectionInfo& connection)
+                                                     {
+                                                         return connection.OutputPass == "ScenePass" &&
+                                                                connection.InputPass == "OITPreparePass";
+                                                     });
     EXPECT_NE(sceneToPrepare, connections.end())
         << "OITPreparePass depth seeding must derive ScenePass -> OITPreparePass from SceneDepthAttachment.";
 
-    const auto prepareToParticle = std::find_if(connections.begin(), connections.end(),
-                                                [](const RenderGraph::ConnectionInfo& connection)
-                                                {
-                                                    return connection.OutputPass == "OITPreparePass" &&
-                                                           connection.InputPass == "ParticlePass";
-                                                });
+    const auto prepareToParticle = std::ranges::find_if(connections,
+                                                        [](const RenderGraph::ConnectionInfo& connection)
+                                                        {
+                                                            return connection.OutputPass == "OITPreparePass" &&
+                                                                   connection.InputPass == "ParticlePass";
+                                                        });
     EXPECT_NE(prepareToParticle, connections.end())
         << "Depth-tested OIT contributors must derive OITPreparePass -> ParticlePass from OITDepthAttachment.";
 }
@@ -962,12 +962,12 @@ TEST(RenderGraphResourceHazards, ImportedProducedAndConsumedWithoutBackingIsFlag
     graph.BuildFrameGraph();
 
     const auto hazards = graph.ValidateResourceHazards();
-    const auto it = std::find_if(hazards.begin(), hazards.end(),
-                                 [](const RenderGraph::Hazard& h)
-                                 {
-                                     return h.Kind == RenderGraph::HazardKind::ImportedResourceLifetimeMisuse &&
-                                            h.Resource == "ImportedNoBacking";
-                                 });
+    const auto it = std::ranges::find_if(hazards,
+                                         [](const RenderGraph::Hazard& h)
+                                         {
+                                             return h.Kind == RenderGraph::HazardKind::ImportedResourceLifetimeMisuse &&
+                                                    h.Resource == "ImportedNoBacking";
+                                         });
     ASSERT_NE(it, hazards.end()) << HazardsToString(hazards);
 }
 
@@ -1096,9 +1096,9 @@ TEST(RenderGraphResourceHazards, ExplicitVersionHandlesDeriveRewriteChainsWithou
     ASSERT_TRUE(secondVersion.IsValid());
 
     const auto& order = graph.GetExecutionOrder();
-    const auto passAIt = std::find(order.begin(), order.end(), "PassA");
-    const auto passBIt = std::find(order.begin(), order.end(), "PassB");
-    const auto passCIt = std::find(order.begin(), order.end(), "PassC");
+    const auto passAIt = std::ranges::find(order, "PassA");
+    const auto passBIt = std::ranges::find(order, "PassB");
+    const auto passCIt = std::ranges::find(order, "PassC");
     ASSERT_NE(passAIt, order.end());
     ASSERT_NE(passBIt, order.end());
     ASSERT_NE(passCIt, order.end());

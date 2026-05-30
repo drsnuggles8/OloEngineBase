@@ -37,8 +37,7 @@ namespace OloEngine::MeshOptimization
         // 1 & 2. Per-submesh cache and overdraw optimization.
         // These operations reorder triangles within the index buffer, so they
         // must run per-submesh to preserve each submesh's [m_BaseIndex, m_BaseIndex + m_IndexCount) range.
-        auto const& submeshes = meshSource.GetSubmeshes();
-        if (submeshes.Num() > 0)
+        if (auto const& submeshes = meshSource.GetSubmeshes(); submeshes.Num() > 0)
         {
             constexpr f32 kOverdrawThreshold = 1.05f;
             for (i32 s = 0; s < submeshes.Num(); ++s)
@@ -234,8 +233,7 @@ namespace OloEngine::MeshOptimization
             lodMesh->SetMaterial(index, handle);
         }
 
-        const auto& srcSubmeshes = meshSource.GetSubmeshes();
-        if (srcSubmeshes.Num() == 1)
+        if (const auto& srcSubmeshes = meshSource.GetSubmeshes(); srcSubmeshes.Num() == 1)
         {
             Submesh submesh = srcSubmeshes[0];
             submesh.m_BaseVertex = 0;
@@ -360,8 +358,7 @@ namespace OloEngine::MeshOptimization
             lodMesh->SetMaterial(index, handle);
         }
 
-        const auto& srcSubmeshes = meshSource.GetSubmeshes();
-        if (srcSubmeshes.Num() == 1)
+        if (const auto& srcSubmeshes = meshSource.GetSubmeshes(); srcSubmeshes.Num() == 1)
         {
             Submesh submesh = srcSubmeshes[0];
             submesh.m_BaseVertex = 0;

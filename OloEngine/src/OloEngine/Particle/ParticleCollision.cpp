@@ -19,9 +19,7 @@ namespace OloEngine
         while (i < count)
         {
             // Signed distance from particle to plane
-            f32 dist = glm::dot(pool.m_Positions[i], PlaneNormal) - PlaneOffset;
-
-            if (dist < 0.0f)
+            if (f32 dist = glm::dot(pool.m_Positions[i], PlaneNormal) - PlaneOffset; dist < 0.0f)
             {
                 // Record collision event before potential kill
                 if (outEvents)
@@ -40,8 +38,7 @@ namespace OloEngine
                 pool.m_Positions[i] -= PlaneNormal * dist;
 
                 // Reflect velocity
-                f32 velDotN = glm::dot(pool.m_Velocities[i], PlaneNormal);
-                if (velDotN < 0.0f)
+                if (f32 velDotN = glm::dot(pool.m_Velocities[i], PlaneNormal); velDotN < 0.0f)
                 {
                     pool.m_Velocities[i] -= PlaneNormal * velDotN * (1.0f + Bounce);
                 }
@@ -105,8 +102,7 @@ namespace OloEngine
                 pool.m_Positions[i] = hit.m_Position + hit.m_Normal * 0.01f;
 
                 // Reflect velocity off hit normal
-                f32 velDotN = glm::dot(pool.m_Velocities[i], hit.m_Normal);
-                if (velDotN < 0.0f)
+                if (f32 velDotN = glm::dot(pool.m_Velocities[i], hit.m_Normal); velDotN < 0.0f)
                 {
                     pool.m_Velocities[i] -= hit.m_Normal * velDotN * (1.0f + Bounce);
                 }
@@ -167,8 +163,7 @@ namespace OloEngine
                 {
                     // Cross product of axis with direction-to-center gives tangent direction
                     glm::vec3 tangent = glm::cross(Axis, dirToCenter);
-                    f32 tangentLen = glm::length(tangent);
-                    if (tangentLen > 0.001f)
+                    if (f32 tangentLen = glm::length(tangent); tangentLen > 0.001f)
                     {
                         tangent /= tangentLen;
                         pool.m_Velocities[i] += tangent * Strength * falloff * dt;

@@ -89,7 +89,7 @@ namespace OloEngine
         }
 
         // Network stats (if the server is running)
-        if (auto* server = NetworkManager::GetServer(); server)
+        if (const auto* server = NetworkManager::GetServer(); server)
         {
             const u32 connections = server->GetConnectionCount();
             const auto stats = server->GetStats();

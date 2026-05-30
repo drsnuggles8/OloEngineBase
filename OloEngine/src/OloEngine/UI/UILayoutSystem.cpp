@@ -25,8 +25,7 @@ namespace OloEngine
                 continue;
             }
 
-            Entity childEnt{ static_cast<entt::entity>(*childOpt), &scene };
-            if (childEnt.HasComponent<UIResolvedRectComponent>())
+            if (Entity childEnt{ static_cast<entt::entity>(*childOpt), &scene }; childEnt.HasComponent<UIResolvedRectComponent>())
             {
                 childEnt.GetComponent<UIResolvedRectComponent>().m_Position += delta;
             }
@@ -43,7 +42,7 @@ namespace OloEngine
             return;
         }
 
-        auto& rt = scene.GetAllEntitiesWith<UIRectTransformComponent>().get<UIRectTransformComponent>(entity);
+        const auto& rt = scene.GetAllEntitiesWith<UIRectTransformComponent>().get<UIRectTransformComponent>(entity);
 
         // Anchor-based layout resolution (Unity-style)
         const glm::vec2 anchorMinPos = parentPos + rt.m_AnchorMin * parentSize;
@@ -115,6 +114,10 @@ namespace OloEngine
                 columns = (cellSpanY > 0.0f)
                               ? glm::max(1, static_cast<i32>((availableHeight + grid.m_Spacing.y) / cellSpanY))
                               : 1;
+            }
+            else
+            {
+                // No additional handling required.
             }
 
             for (sizet i = 0; i < children.size(); ++i)
@@ -211,7 +214,7 @@ namespace OloEngine
         auto canvasView = scene.GetAllEntitiesWith<UICanvasComponent>();
         for (const auto entity : canvasView)
         {
-            auto& canvas = canvasView.get<UICanvasComponent>(entity);
+            const auto& canvas = canvasView.get<UICanvasComponent>(entity);
             Entity canvasEntity{ entity, &scene };
 
             glm::vec2 canvasSize = viewport;
@@ -248,6 +251,10 @@ namespace OloEngine
                     }
                 }
             }
+            else
+            {
+                // No additional handling required.
+            }
         }
 
         // World-anchor override pass: project entities with UIWorldAnchorComponent
@@ -255,7 +262,7 @@ namespace OloEngine
         auto anchorView = scene.GetAllEntitiesWith<UIWorldAnchorComponent, UIResolvedRectComponent>();
         for (const auto entity : anchorView)
         {
-            auto& anchor = anchorView.get<UIWorldAnchorComponent>(entity);
+            const auto& anchor = anchorView.get<UIWorldAnchorComponent>(entity);
             auto& resolved = anchorView.get<UIResolvedRectComponent>(entity);
 
             // Find the target entity's world position

@@ -339,7 +339,7 @@ class FrameCapturePipelineTest : public ::testing::Test
     }
 
     /// Build a bucket with N draw commands + 1 state command, sort it, return it.
-    CommandBucket MakeTestBucket(u32 drawCount = 5)
+    CommandBucket MakeTestBucket(u32 drawCount = 5) const
     {
         CommandBucketConfig config;
         config.EnableSorting = true;
@@ -429,9 +429,9 @@ TEST_F(FrameCapturePipelineTest, CapturedCommandsPreserveTypes)
     for (const auto& cmd : preSortCmds)
     {
         if (cmd.IsDrawCommand())
-            drawCount++;
+            ++drawCount;
         if (cmd.IsStateCommand())
-            stateCount++;
+            ++stateCount;
     }
 
     // We submitted 3 draw + 1 clear (Clear is a state command in IsStateCommand?
@@ -683,7 +683,7 @@ TEST_F(FrameExportTest, ExportToCSVCreatesValidFile)
     CaptureAndSelectFrame(5);
 
     auto csvPath = (m_TestOutputDir / "test_export.csv").string();
-    auto& debugger = CommandPacketDebugger::GetInstance();
+    const auto& debugger = CommandPacketDebugger::GetInstance();
 
     bool success = debugger.ExportToCSV(csvPath);
     ASSERT_TRUE(success) << "ExportToCSV should succeed";
@@ -709,7 +709,7 @@ TEST_F(FrameExportTest, ExportToCSVCreatesValidFile)
     while (std::getline(file, line))
     {
         if (!line.empty())
-            dataLines++;
+            ++dataLines;
     }
 
     // Should have at least 6 lines (5 draw + 1 clear) from the captured frame
@@ -721,7 +721,7 @@ TEST_F(FrameExportTest, ExportToMarkdownCreatesValidFile)
     CaptureAndSelectFrame(5);
 
     auto mdPath = (m_TestOutputDir / "test_export.md").string();
-    auto& debugger = CommandPacketDebugger::GetInstance();
+    const auto& debugger = CommandPacketDebugger::GetInstance();
 
     bool success = debugger.ExportToMarkdown(mdPath);
     ASSERT_TRUE(success) << "ExportToMarkdown should succeed";
@@ -757,7 +757,7 @@ TEST_F(FrameExportTest, ExportToCSVWithNoSelectedFrameFails)
     mgr.SetSelectedFrameIndex(-1);
 
     auto csvPath = (m_TestOutputDir / "should_not_exist.csv").string();
-    auto& debugger = CommandPacketDebugger::GetInstance();
+    const auto& debugger = CommandPacketDebugger::GetInstance();
 
     bool success = debugger.ExportToCSV(csvPath);
     EXPECT_FALSE(success) << "ExportToCSV should fail without a selected frame";
@@ -770,7 +770,7 @@ TEST_F(FrameExportTest, ExportToMarkdownWithNoSelectedFrameFails)
     mgr.SetSelectedFrameIndex(-1);
 
     auto mdPath = (m_TestOutputDir / "should_not_exist.md").string();
-    auto& debugger = CommandPacketDebugger::GetInstance();
+    const auto& debugger = CommandPacketDebugger::GetInstance();
 
     bool success = debugger.ExportToMarkdown(mdPath);
     EXPECT_FALSE(success) << "ExportToMarkdown should fail without a selected frame";
@@ -791,7 +791,7 @@ TEST_F(FrameExportTest, CSVContainsCorrectSortKeyData)
     CaptureAndSelectFrame(3);
 
     auto csvPath = (m_TestOutputDir / "key_check.csv").string();
-    auto& debugger = CommandPacketDebugger::GetInstance();
+    const auto& debugger = CommandPacketDebugger::GetInstance();
 
     bool success = debugger.ExportToCSV(csvPath);
     ASSERT_TRUE(success);
@@ -823,7 +823,7 @@ TEST_F(FrameExportTest, MarkdownSortAnalysisPresent)
     CaptureAndSelectFrame(10); // More commands for interesting sort analysis
 
     auto mdPath = (m_TestOutputDir / "sort_analysis.md").string();
-    auto& debugger = CommandPacketDebugger::GetInstance();
+    const auto& debugger = CommandPacketDebugger::GetInstance();
 
     bool success = debugger.ExportToMarkdown(mdPath);
     ASSERT_TRUE(success);

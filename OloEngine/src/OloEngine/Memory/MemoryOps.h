@@ -99,6 +99,10 @@ namespace OloEngine
 
             Element->DestructItemsElementTypeTypedef::~DestructItemsElementTypeTypedef();
         }
+        else
+        {
+            // No additional handling required.
+        }
     }
 
     // @brief Destructs a range of items in memory (trivially destructible types - no-op)

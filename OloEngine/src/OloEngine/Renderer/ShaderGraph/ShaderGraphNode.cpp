@@ -476,7 +476,7 @@ namespace OloEngine
         names.reserve(registry.size());
         for (const auto& [name, info] : registry)
             names.push_back(name);
-        std::sort(names.begin(), names.end());
+        std::ranges::sort(names);
         return names;
     }
 
@@ -491,7 +491,7 @@ namespace OloEngine
             if (info.Category == category)
                 names.push_back(name);
         }
-        std::sort(names.begin(), names.end());
+        std::ranges::sort(names);
         return names;
     }
 

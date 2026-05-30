@@ -74,7 +74,7 @@ namespace OloEngine
                 : DeqIdx{ 0 }, EnqIdx{ 1 }, Next{ nullptr }
             {
                 Items[0].store(Item, std::memory_order_relaxed);
-                for (i64 i = 1; i < BUFFER_SIZE; i++)
+                for (i64 i = 1; i < BUFFER_SIZE; ++i)
                 {
                     Items[i].store(nullptr, std::memory_order_relaxed);
                 }
@@ -178,8 +178,7 @@ namespace OloEngine
                     {
                         continue;
                     }
-                    FNode* LocalNext = LocalTail->Next.load();
-                    if (LocalNext == nullptr)
+                    if (FNode* LocalNext = LocalTail->Next.load(); LocalNext == nullptr)
                     {
                         FNode* NewNode = new FNode(Item);
                         if (LocalTail->CasNext(nullptr, NewNode))

@@ -210,9 +210,9 @@ TEST(DrawKey, SortStability)
     }
 
     // Stable sort should preserve insertion order for equal keys
-    std::stable_sort(keysWithIndex.begin(), keysWithIndex.end(),
-                     [](const auto& a, const auto& b)
-                     { return a.first < b.first; });
+    std::ranges::stable_sort(keysWithIndex,
+                             [](const auto& a, const auto& b)
+                             { return a.first < b.first; });
 
     for (int i = 0; i < 10; ++i)
     {

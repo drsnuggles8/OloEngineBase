@@ -44,9 +44,11 @@
 #include <yaml-cpp/yaml.h>
 #include <stb_image/stb_image.h>
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <cstring>
 #include <fstream>
+#include <limits>
 
 namespace OloEngine
 {
@@ -300,7 +302,7 @@ namespace OloEngine
         const auto& spec = texture->GetSpecification();
         stream.WriteRaw<u32>(spec.Width);
         stream.WriteRaw<u32>(spec.Height);
-        stream.WriteRaw<u32>(static_cast<u32>(spec.Format));
+        stream.WriteRaw<u32>(static_cast<u32>(std::to_underlying(spec.Format)));
         stream.WriteRaw<bool>(spec.GenerateMips);
 
         // Write texture path for reference
@@ -362,14 +364,22 @@ namespace OloEngine
         // so we only read when the cursor hasn't already consumed the whole
         // record.
         bool srgb = false;
-        const u64 packedEnd = assetInfo.PackedOffset + assetInfo.PackedSize;
-        if (stream.GetStreamPosition() + sizeof(bool) <= packedEnd)
+        // Guard against u64 overflow when computing the end-of-record offset:
+        // a corrupt pack could have PackedOffset + PackedSize wrap around and
+        // spuriously satisfy the bounds check below. If the addition would
+        // overflow, treat the byte as absent and fall back to the heuristic.
+        const bool packedEndOverflows = assetInfo.PackedSize > std::numeric_limits<u64>::max() - assetInfo.PackedOffset;
+        if (!packedEndOverflows && stream.GetStreamPosition() + sizeof(bool) <= assetInfo.PackedOffset + assetInfo.PackedSize)
         {
             stream.ReadRaw(srgb);
         }
         else if (!path.empty())
         {
             srgb = IsLikelyColorTextureByName(std::filesystem::path(path).filename().string());
+        }
+        else
+        {
+            // No additional handling required.
         }
 
         // Create texture specification
@@ -521,8 +531,7 @@ namespace OloEngine
         stream.ReadString(yamlString);
 
         Ref<MaterialAsset> materialAsset;
-        bool result = DeserializeFromYAML(yamlString, materialAsset, assetInfo.Handle);
-        if (!result)
+        if (bool result = DeserializeFromYAML(yamlString, materialAsset, assetInfo.Handle); !result)
         {
             OLO_CORE_ERROR("MaterialAssetSerializer::DeserializeFromAssetPack - Failed to deserialize material from YAML");
             return nullptr;
@@ -539,8 +548,7 @@ namespace OloEngine
         {
             out << YAML::BeginMap;
 
-            auto material = materialAsset->GetMaterial();
-            if (material)
+            if (auto material = materialAsset->GetMaterial())
             {
                 // Serialize shader name
                 out << YAML::Key << "Shader" << YAML::Value << material->GetShader()->GetName();
@@ -786,6 +794,10 @@ namespace OloEngine
                                 material->Set(propName, texture);
                         }
                     }
+                    else
+                    {
+                        // No additional handling required.
+                    }
                 }
             }
         }
@@ -850,13 +862,13 @@ namespace OloEngine
         const auto& spec = environment->GetSpecification();
         stream.WriteString(spec.FilePath);
         stream.WriteRaw(spec.Resolution);
-        stream.WriteRaw(static_cast<u32>(spec.Format));
+        stream.WriteRaw(static_cast<u32>(std::to_underlying(spec.Format)));
         stream.WriteRaw(spec.GenerateIBL);
         stream.WriteRaw(spec.GenerateMipmaps);
 
         // Serialize IBL configuration
         const auto& iblConfig = spec.IBLConfig;
-        stream.WriteRaw(static_cast<u32>(iblConfig.Quality));
+        stream.WriteRaw(static_cast<u32>(std::to_underlying(iblConfig.Quality)));
         stream.WriteRaw(iblConfig.UseImportanceSampling);
         stream.WriteRaw(iblConfig.UseSphericalHarmonics);
         stream.WriteRaw(iblConfig.IrradianceResolution);
@@ -949,7 +961,9 @@ namespace OloEngine
 
         // Basic audio file format detection and analysis
         std::string extension = filePath.extension().string();
-        std::transform(extension.begin(), extension.end(), extension.begin(), ::tolower);
+        std::ranges::transform(extension, extension.begin(),
+                               [](unsigned char c)
+                               { return static_cast<char>(std::tolower(c)); });
 
         if (extension == ".wav")
         {
@@ -980,6 +994,10 @@ namespace OloEngine
             OLO_CORE_TRACE("AudioFileSourceSerializer: Estimated audio properties for {} - Duration: {:.2f}s (estimated)",
                            extension, duration);
         }
+        else
+        {
+            // No additional handling required.
+        }
 
         // Create AudioFile asset with extracted/estimated metadata
         asset = Ref<AudioFile>::Create(duration, samplingRate, bitDepth, numChannels, fileSize);
@@ -996,8 +1014,7 @@ namespace OloEngine
 
         outInfo.Offset = stream.GetStreamPosition();
 
-        Ref<AudioFile> audioFile = AssetManager::GetAsset<AudioFile>(handle);
-        if (!audioFile)
+        if (Ref<AudioFile> audioFile = AssetManager::GetAsset<AudioFile>(handle); !audioFile)
         {
             OLO_CORE_ERROR("AudioFileSourceSerializer: Failed to get AudioFile asset for handle {0}", handle);
             return false;
@@ -1128,8 +1145,7 @@ namespace OloEngine
         if (fmtFound && dataSize > 0)
         {
             // Calculate duration: dataSize / (sampleRate * channels * (bitDepth/8))
-            u32 bytesPerSample = (bitDepth / 8) * numChannels;
-            if (bytesPerSample > 0 && samplingRate > 0)
+            if (u32 bytesPerSample = (bitDepth / 8) * numChannels; bytesPerSample > 0 && samplingRate > 0)
             {
                 duration = static_cast<double>(dataSize) / (samplingRate * bytesPerSample);
             }
@@ -1226,8 +1242,7 @@ namespace OloEngine
         stream.close();
 
         Ref<Prefab> prefab = Ref<Prefab>::Create();
-        bool success = DeserializeFromYAML(strStream.str(), prefab);
-        if (!success)
+        if (bool success = DeserializeFromYAML(strStream.str(), prefab); !success)
         {
             OLO_CORE_ERROR("PrefabSerializer::TryLoadData - Failed to deserialize prefab from YAML");
             return false;
@@ -1261,8 +1276,7 @@ namespace OloEngine
         stream.ReadString(yamlString);
 
         Ref<Prefab> prefab = Ref<Prefab>::Create();
-        bool result = DeserializeFromYAML(yamlString, prefab);
-        if (!result)
+        if (bool result = DeserializeFromYAML(yamlString, prefab); !result)
         {
             OLO_CORE_ERROR("PrefabSerializer::DeserializeFromAssetPack - Failed to deserialize prefab from YAML");
             return nullptr;
@@ -1325,8 +1339,7 @@ namespace OloEngine
         }
 
         // Deserialize the scene content
-        auto sceneNode = prefabNode["Scene"];
-        if (sceneNode)
+        if (auto sceneNode = prefabNode["Scene"])
         {
             std::string sceneYamlString = sceneNode.as<std::string>();
             SceneSerializer sceneSerializer(scene);
@@ -1342,8 +1355,7 @@ namespace OloEngine
         prefab->m_Scene = scene;
 
         // Find the root entity (assuming it's the first entity in the scene)
-        auto entities = scene->GetAllEntitiesWith<IDComponent>();
-        if (!entities.empty())
+        if (auto entities = scene->GetAllEntitiesWith<IDComponent>(); !entities.empty())
         {
             auto firstEntity = entities.front();
             prefab->m_Entity = Entity{ firstEntity, scene.get() };
@@ -1372,9 +1384,7 @@ namespace OloEngine
     bool SceneAssetSerializer::TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const
     {
         Ref<Scene> scene = Ref<Scene>(new Scene());
-        SceneSerializer serializer(scene);
-
-        if (serializer.Deserialize(metadata.FilePath))
+        if (SceneSerializer serializer(scene); serializer.Deserialize(metadata.FilePath))
         {
             scene->m_Handle = metadata.Handle;
             asset = scene; // Direct assignment - Ref<Scene> should convert to Ref<Asset>
@@ -1562,8 +1572,7 @@ namespace OloEngine
             return false;
         }
 
-        auto colliderNode = data["MeshCollider"];
-        if (!colliderNode)
+        if (auto colliderNode = data["MeshCollider"]; !colliderNode)
         {
             OLO_CORE_ERROR("MeshColliderSerializer::TryLoadData - No MeshCollider node found");
             return false;
@@ -1572,8 +1581,7 @@ namespace OloEngine
         auto meshCollider = Ref<MeshColliderAsset>::Create();
 
         // Use the YAML deserializer to load the data
-        bool success = DeserializeFromYAML(strStream.str(), meshCollider);
-        if (!success)
+        if (bool success = DeserializeFromYAML(strStream.str(), meshCollider); !success)
         {
             OLO_CORE_ERROR("MeshColliderSerializer::TryLoadData - Failed to deserialize from YAML");
             return false;
@@ -1617,9 +1625,7 @@ namespace OloEngine
         stream.ReadString(yamlString);
 
         Ref<MeshColliderAsset> meshCollider = Ref<MeshColliderAsset>::Create();
-        bool success = DeserializeFromYAML(yamlString, meshCollider);
-
-        if (!success)
+        if (bool success = DeserializeFromYAML(yamlString, meshCollider); !success)
         {
             OLO_CORE_ERROR("MeshColliderSerializer: Failed to deserialize MeshCollider from YAML - Handle: {0}", assetInfo.Handle);
             return nullptr;
@@ -1849,9 +1855,7 @@ namespace OloEngine
         strStream << file.rdbuf();
 
         Ref<ScriptFileAsset> scriptAsset = Ref<ScriptFileAsset>::Create();
-        bool success = DeserializeFromYAML(strStream.str(), scriptAsset);
-
-        if (!success)
+        if (bool success = DeserializeFromYAML(strStream.str(), scriptAsset); !success)
         {
             OLO_CORE_ERROR("ScriptFileSerializer::TryLoadData - Failed to deserialize from YAML");
             return false;
@@ -1895,9 +1899,7 @@ namespace OloEngine
         stream.ReadString(yamlString);
 
         Ref<ScriptFileAsset> scriptAsset = Ref<ScriptFileAsset>::Create();
-        bool success = DeserializeFromYAML(yamlString, scriptAsset);
-
-        if (!success)
+        if (bool success = DeserializeFromYAML(yamlString, scriptAsset); !success)
         {
             OLO_CORE_ERROR("ScriptFileSerializer: Failed to deserialize ScriptFile from YAML - Handle: {0}", assetInfo.Handle);
             return nullptr;
@@ -2242,10 +2244,9 @@ namespace OloEngine
                                    i);
                     return false;
                 }
-                const auto& bb = sub.m_BoundingBox;
-                if (!std::isfinite(bb.Min.x) || !std::isfinite(bb.Min.y) || !std::isfinite(bb.Min.z) ||
-                    !std::isfinite(bb.Max.x) || !std::isfinite(bb.Max.y) || !std::isfinite(bb.Max.z) ||
-                    bb.Min.x > bb.Max.x || bb.Min.y > bb.Max.y || bb.Min.z > bb.Max.z)
+                if (const auto& bb = sub.m_BoundingBox; !std::isfinite(bb.Min.x) || !std::isfinite(bb.Min.y) || !std::isfinite(bb.Min.z) ||
+                                                        !std::isfinite(bb.Max.x) || !std::isfinite(bb.Max.y) || !std::isfinite(bb.Max.z) ||
+                                                        bb.Min.x > bb.Max.x || bb.Min.y > bb.Max.y || bb.Min.z > bb.Max.z)
                 {
                     OLO_CORE_ERROR("MeshSourceSerializer::SerializeToAssetPack - Submesh {} has non-finite "
                                    "or inverted bounding box, rejecting before write",
@@ -2359,7 +2360,7 @@ namespace OloEngine
             auto boneCount = static_cast<u32>(skeleton->m_BoneNames.size());
 
             // Validate skeleton array sizes — reject mismatches instead of inventing data
-            auto const validateArraySize = [&](sizet actual, const char* name) -> bool
+            auto const validateArraySize = [&boneCount](sizet actual, const char* name) -> bool
             {
                 if (static_cast<u32>(actual) != boneCount)
                 {
@@ -2392,7 +2393,7 @@ namespace OloEngine
             }
 
             // Transform arrays (6 arrays of mat4)
-            auto const writeMat4Array = [&](const std::vector<glm::mat4>& arr)
+            auto const writeMat4Array = [&stream, &boneCount](const std::vector<glm::mat4>& arr)
             {
                 for (u32 j = 0; j < boneCount; ++j)
                 {
@@ -2813,7 +2814,7 @@ namespace OloEngine
             }
 
             // Transform arrays
-            auto const readMat4Array = [&](std::vector<glm::mat4>& arr)
+            auto const readMat4Array = [&stream, &boneCount](std::vector<glm::mat4>& arr)
             {
                 arr.resize(boneCount);
                 stream.ReadData(reinterpret_cast<char*>(arr.data()), boneCount * sizeof(glm::mat4));
@@ -3435,8 +3436,7 @@ namespace OloEngine
             out << YAML::Key << "GenerateColliders" << YAML::Value << staticMesh->ShouldGenerateColliders();
 
             // Serialize submesh indices if not using all submeshes
-            const auto& submeshIndices = staticMesh->GetSubmeshes();
-            if (!submeshIndices.IsEmpty())
+            if (const auto& submeshIndices = staticMesh->GetSubmeshes(); !submeshIndices.IsEmpty())
             {
                 out << YAML::Key << "Submeshes" << YAML::Value;
                 out << YAML::BeginSeq;
@@ -3561,8 +3561,7 @@ namespace OloEngine
             YAML::Node meshNode = yamlData["StaticMesh"];
 
             // Register mesh source dependency
-            AssetHandle meshSourceHandle = meshNode["MeshSource"].as<u64>(0);
-            if (meshSourceHandle != 0)
+            if (AssetHandle meshSourceHandle = meshNode["MeshSource"].as<u64>(0); meshSourceHandle != 0)
             {
                 AssetManager::RegisterDependency(meshSourceHandle, metadata.Handle);
                 OLO_CORE_TRACE("StaticMeshSerializer: Registered MeshSource dependency - StaticMesh {0} depends on MeshSource {1}", metadata.Handle, meshSourceHandle);
@@ -3818,8 +3817,7 @@ namespace OloEngine
         std::string yamlString = buffer.str();
 
         Ref<AnimationAsset> animationAsset;
-        bool result = DeserializeFromYAML(yamlString, animationAsset);
-        if (!result)
+        if (bool result = DeserializeFromYAML(yamlString, animationAsset); !result)
         {
             OLO_CORE_ERROR("AnimationAssetSerializer::TryLoadData - Failed to deserialize animation asset");
             return false;
@@ -3871,8 +3869,7 @@ namespace OloEngine
         stream.ReadString(yamlString);
 
         Ref<AnimationAsset> animationAsset;
-        bool result = DeserializeFromYAML(yamlString, animationAsset);
-        if (!result)
+        if (bool result = DeserializeFromYAML(yamlString, animationAsset); !result)
         {
             OLO_CORE_ERROR("AnimationAssetSerializer::DeserializeFromAssetPack - Failed to deserialize animation asset");
             return nullptr;
@@ -3986,8 +3983,7 @@ namespace OloEngine
         // Resolve absolute path by anchoring to project asset directory
         std::filesystem::path absolutePath = Project::GetProjectDirectory() / metadata.FilePath;
 
-        std::filesystem::path parentDir = absolutePath.parent_path();
-        if (!parentDir.empty())
+        if (std::filesystem::path parentDir = absolutePath.parent_path(); !parentDir.empty())
         {
             std::error_code ec;
             if (!std::filesystem::create_directories(parentDir, ec) && ec)
@@ -4011,9 +4007,7 @@ namespace OloEngine
         Ref<SoundGraphAsset> soundGraphAsset = Ref<SoundGraphAsset>::Create();
 
         // Resolve absolute path by anchoring to project asset directory
-        std::filesystem::path absolutePath = Project::GetProjectDirectory() / metadata.FilePath;
-
-        if (!Audio::SoundGraph::SoundGraphSerializer::Deserialize(*soundGraphAsset, absolutePath))
+        if (std::filesystem::path absolutePath = Project::GetProjectDirectory() / metadata.FilePath; !Audio::SoundGraph::SoundGraphSerializer::Deserialize(*soundGraphAsset, absolutePath))
         {
             OLO_CORE_ERROR("SoundGraphSerializer::TryLoadData - Failed to deserialize SoundGraph from '{}'", absolutePath.string());
             return false;
@@ -4202,7 +4196,7 @@ namespace OloEngine
         out << YAML::Key << "Duration" << YAML::Value << sys.Duration;
         out << YAML::Key << "PlaybackSpeed" << YAML::Value << sys.PlaybackSpeed;
         out << YAML::Key << "WarmUpTime" << YAML::Value << sys.WarmUpTime;
-        out << YAML::Key << "SimulationSpace" << YAML::Value << static_cast<int>(sys.SimulationSpace);
+        out << YAML::Key << "SimulationSpace" << YAML::Value << static_cast<int>(std::to_underlying(sys.SimulationSpace));
 
         // Emitter
         out << YAML::Key << "RateOverTime" << YAML::Value << emitter.RateOverTime;
@@ -4228,7 +4222,7 @@ namespace OloEngine
         }
         out << YAML::EndSeq;
 
-        out << YAML::Key << "EmissionShapeType" << YAML::Value << static_cast<int>(GetEmissionShapeType(emitter.Shape));
+        out << YAML::Key << "EmissionShapeType" << YAML::Value << std::to_underlying(GetEmissionShapeType(emitter.Shape));
 
         if (auto* sphere = std::get_if<EmitSphere>(&emitter.Shape))
         {
@@ -4256,6 +4250,10 @@ namespace OloEngine
         {
             out << YAML::Key << "EmissionMeshPrimitiveType" << YAML::Value << mesh->PrimitiveType;
         }
+        else
+        {
+            // No additional handling required.
+        }
 
         // Modules
         out << YAML::Key << "GravityEnabled" << YAML::Value << sys.GravityModule.Enabled;
@@ -4278,7 +4276,7 @@ namespace OloEngine
 
         // Phase 2 modules
         out << YAML::Key << "CollisionEnabled" << YAML::Value << sys.CollisionModule.Enabled;
-        out << YAML::Key << "CollisionMode" << YAML::Value << static_cast<int>(sys.CollisionModule.Mode);
+        out << YAML::Key << "CollisionMode" << YAML::Value << static_cast<int>(std::to_underlying(sys.CollisionModule.Mode));
         out << YAML::Key << "CollisionPlaneNormal" << YAML::Value << sys.CollisionModule.PlaneNormal;
         out << YAML::Key << "CollisionPlaneOffset" << YAML::Value << sys.CollisionModule.PlaneOffset;
         out << YAML::Key << "CollisionBounce" << YAML::Value << sys.CollisionModule.Bounce;
@@ -4289,7 +4287,7 @@ namespace OloEngine
         {
             out << YAML::BeginMap;
             out << YAML::Key << "Enabled" << YAML::Value << ff.Enabled;
-            out << YAML::Key << "Type" << YAML::Value << static_cast<int>(ff.Type);
+            out << YAML::Key << "Type" << YAML::Value << static_cast<int>(std::to_underlying(ff.Type));
             out << YAML::Key << "Position" << YAML::Value << ff.Position;
             out << YAML::Key << "Strength" << YAML::Value << ff.Strength;
             out << YAML::Key << "Radius" << YAML::Value << ff.Radius;
@@ -4310,7 +4308,7 @@ namespace OloEngine
         for (const auto& entry : sys.SubEmitterModule.Entries)
         {
             out << YAML::BeginMap;
-            out << YAML::Key << "Trigger" << YAML::Value << static_cast<int>(entry.Trigger);
+            out << YAML::Key << "Trigger" << YAML::Value << static_cast<int>(std::to_underlying(entry.Trigger));
             out << YAML::Key << "EmitCount" << YAML::Value << entry.EmitCount;
             out << YAML::Key << "InheritVelocity" << YAML::Value << entry.InheritVelocity;
             out << YAML::Key << "InheritVelocityScale" << YAML::Value << entry.InheritVelocityScale;
@@ -4322,8 +4320,8 @@ namespace OloEngine
         out << YAML::Key << "LODMaxDistance" << YAML::Value << sys.LODMaxDistance;
 
         // Rendering settings
-        out << YAML::Key << "BlendMode" << YAML::Value << static_cast<int>(sys.BlendMode);
-        out << YAML::Key << "RenderMode" << YAML::Value << static_cast<int>(sys.RenderMode);
+        out << YAML::Key << "BlendMode" << YAML::Value << static_cast<int>(std::to_underlying(sys.BlendMode));
+        out << YAML::Key << "RenderMode" << YAML::Value << static_cast<int>(std::to_underlying(sys.RenderMode));
         out << YAML::Key << "DepthSortEnabled" << YAML::Value << sys.DepthSortEnabled;
         out << YAML::Key << "UseGPU" << YAML::Value << sys.UseGPU;
         out << YAML::Key << "SoftParticlesEnabled" << YAML::Value << sys.SoftParticlesEnabled;
@@ -4335,7 +4333,7 @@ namespace OloEngine
         out << YAML::Key << "TextureSheetGridX" << YAML::Value << sys.TextureSheetModule.GridX;
         out << YAML::Key << "TextureSheetGridY" << YAML::Value << sys.TextureSheetModule.GridY;
         out << YAML::Key << "TextureSheetTotalFrames" << YAML::Value << sys.TextureSheetModule.TotalFrames;
-        out << YAML::Key << "TextureSheetMode" << YAML::Value << static_cast<int>(sys.TextureSheetModule.Mode);
+        out << YAML::Key << "TextureSheetMode" << YAML::Value << static_cast<int>(std::to_underlying(sys.TextureSheetModule.Mode));
         out << YAML::Key << "TextureSheetSpeedRange" << YAML::Value << sys.TextureSheetModule.SpeedRange;
 
         out << YAML::EndMap;
@@ -4510,6 +4508,10 @@ namespace OloEngine
                 TrySetPS(ff.Radius, ps["ForceFieldRadius"]);
                 TrySetPS(ff.Axis, ps["ForceFieldAxis"]);
                 sys.ForceFields.push_back(ff);
+            }
+            else
+            {
+                // No additional handling required.
             }
 
             TrySetPS(sys.TrailModule.Enabled, ps["TrailEnabled"]);

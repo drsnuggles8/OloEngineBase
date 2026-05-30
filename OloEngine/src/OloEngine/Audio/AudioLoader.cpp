@@ -41,8 +41,7 @@ namespace OloEngine::Audio
 
         auto u8str = filePath.u8string();
         std::string utf8Path(reinterpret_cast<const char*>(u8str.c_str()), u8str.size());
-        ma_result result = ma_decoder_init_file(utf8Path.c_str(), &config, &decoder);
-        if (result != MA_SUCCESS)
+        if (ma_result result = ma_decoder_init_file(utf8Path.c_str(), &config, &decoder); result != MA_SUCCESS)
         {
             OLO_CORE_ERROR("[AudioLoader] Failed to initialize decoder for file: {} (error: {})",
                            utf8Path, static_cast<int>(result));
@@ -86,8 +85,7 @@ namespace OloEngine::Audio
         ma_decoder decoder;
         ma_decoder_config config = ma_decoder_config_init(ma_format_f32, 0, 0);
 
-        ma_result result = ma_decoder_init_memory(data, dataSize, &config, &decoder);
-        if (result != MA_SUCCESS)
+        if (ma_result result = ma_decoder_init_memory(data, dataSize, &config, &decoder); result != MA_SUCCESS)
         {
             OLO_CORE_ERROR("[AudioLoader] Failed to initialize decoder from memory (error: {})", static_cast<int>(result));
             return false;
@@ -159,8 +157,7 @@ namespace OloEngine::Audio
 
             // Allocate buffer for audio data
             const u64 totalSamples = static_cast<u64>(outAudioData.m_NumFrames) * outAudioData.m_NumChannels;
-            const u64 maxSamples = static_cast<u64>(outAudioData.m_Samples.max_size());
-            if (totalSamples > maxSamples)
+            if (const u64 maxSamples = static_cast<u64>(outAudioData.m_Samples.max_size()); totalSamples > maxSamples)
             {
                 OLO_CORE_ERROR("[AudioLoader] Audio buffer too large for {}: samples {} > max {}",
                                sourceDescription, totalSamples, maxSamples);
@@ -371,10 +368,10 @@ namespace OloEngine::Audio
     {
         // Convert to lowercase for case-insensitive comparison
         std::string lowerExt = extension;
-        std::transform(lowerExt.begin(), lowerExt.end(), lowerExt.begin(), [](unsigned char c)
-                       { return static_cast<char>(std::tolower(c)); });
+        std::ranges::transform(lowerExt, lowerExt.begin(), [](unsigned char c)
+                               { return static_cast<char>(std::tolower(c)); });
 
-        return std::find(s_SupportedExtensions.begin(), s_SupportedExtensions.end(), lowerExt) != s_SupportedExtensions.end();
+        return std::ranges::find(s_SupportedExtensions, lowerExt) != s_SupportedExtensions.end();
     }
 
     const std::vector<std::string>& AudioLoader::GetSupportedExtensions()

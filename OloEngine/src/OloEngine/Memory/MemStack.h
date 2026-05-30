@@ -18,6 +18,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <limits>
+#include <utility>
 #include <vector>
 
 namespace OloEngine
@@ -131,10 +132,8 @@ namespace OloEngine
 
             // Try to get memory from the current chunk
             u8* Result = Align(m_Top, Alignment);
-            u8* NewTop = Result + AllocSize;
-
             // Make sure we didn't overflow
-            if (NewTop <= m_End)
+            if (u8* NewTop = Result + AllocSize; NewTop <= m_End)
             {
                 m_Top = NewTop;
             }
@@ -276,7 +275,7 @@ namespace OloEngine
             m_Mem.m_TopMark = this;
 
             // Track the number of outstanding marks on the stack
-            m_Mem.m_NumMarks++;
+            ++m_Mem.m_NumMarks;
         }
 
         // Destructor - automatically pops if not already popped
@@ -441,7 +440,7 @@ namespace OloEngine
         //
         // Memory is only freed when the FMemMark is popped or stack is flushed.
         // Individual deallocation is not supported.
-        void deallocate([[maybe_unused]] T* p, [[maybe_unused]] size_type n) noexcept
+        void deallocate([[maybe_unused]] T* p, [[maybe_unused]] size_type n) const noexcept
         {
             // No-op: Memory stack doesn't support individual deallocation
             // Memory is freed in bulk when FMemMark is popped
@@ -658,7 +657,7 @@ inline void* operator new(size_t Size, std::align_val_t Align, OloEngine::FMemSt
 {
     const size_t SizeInBytes = Size * Count;
     OLO_CORE_ASSERT(SizeInBytes <= static_cast<size_t>(std::numeric_limits<int32_t>::max()), "Allocation too large!");
-    return Mem.PushBytes(SizeInBytes, static_cast<size_t>(Align));
+    return Mem.PushBytes(SizeInBytes, std::to_underlying(Align));
 }
 
 inline void* operator new(size_t Size, OloEngine::FMemStackBase& Mem, OloEngine::EMemZeroed /*Tag*/, int32_t Count = 1)
@@ -674,7 +673,7 @@ inline void* operator new(size_t Size, std::align_val_t Align, OloEngine::FMemSt
 {
     const size_t SizeInBytes = Size * Count;
     OLO_CORE_ASSERT(SizeInBytes <= static_cast<size_t>(std::numeric_limits<int32_t>::max()), "Allocation too large!");
-    uint8_t* Result = Mem.PushBytes(SizeInBytes, static_cast<size_t>(Align));
+    uint8_t* Result = Mem.PushBytes(SizeInBytes, std::to_underlying(Align));
     OloEngine::FMemory::Memzero(Result, SizeInBytes);
     return Result;
 }
@@ -692,7 +691,7 @@ inline void* operator new(size_t Size, std::align_val_t Align, OloEngine::FMemSt
 {
     const size_t SizeInBytes = Size * Count;
     OLO_CORE_ASSERT(SizeInBytes <= static_cast<size_t>(std::numeric_limits<int32_t>::max()), "Allocation too large!");
-    uint8_t* Result = Mem.PushBytes(SizeInBytes, static_cast<size_t>(Align));
+    uint8_t* Result = Mem.PushBytes(SizeInBytes, std::to_underlying(Align));
     OloEngine::FMemory::Memset(Result, 0xff, SizeInBytes);
     return Result;
 }
@@ -708,7 +707,7 @@ inline void* operator new[](size_t Size, std::align_val_t Align, OloEngine::FMem
 {
     const size_t SizeInBytes = Size * Count;
     OLO_CORE_ASSERT(SizeInBytes <= static_cast<size_t>(std::numeric_limits<int32_t>::max()), "Allocation too large!");
-    return Mem.PushBytes(SizeInBytes, static_cast<size_t>(Align));
+    return Mem.PushBytes(SizeInBytes, std::to_underlying(Align));
 }
 
 inline void* operator new[](size_t Size, OloEngine::FMemStackBase& Mem, OloEngine::EMemZeroed /*Tag*/, int32_t Count = 1)
@@ -724,7 +723,7 @@ inline void* operator new[](size_t Size, std::align_val_t Align, OloEngine::FMem
 {
     const size_t SizeInBytes = Size * Count;
     OLO_CORE_ASSERT(SizeInBytes <= static_cast<size_t>(std::numeric_limits<int32_t>::max()), "Allocation too large!");
-    uint8_t* Result = Mem.PushBytes(SizeInBytes, static_cast<size_t>(Align));
+    uint8_t* Result = Mem.PushBytes(SizeInBytes, std::to_underlying(Align));
     OloEngine::FMemory::Memzero(Result, SizeInBytes);
     return Result;
 }
@@ -742,7 +741,7 @@ inline void* operator new[](size_t Size, std::align_val_t Align, OloEngine::FMem
 {
     const size_t SizeInBytes = Size * Count;
     OLO_CORE_ASSERT(SizeInBytes <= static_cast<size_t>(std::numeric_limits<int32_t>::max()), "Allocation too large!");
-    uint8_t* Result = Mem.PushBytes(SizeInBytes, static_cast<size_t>(Align));
+    uint8_t* Result = Mem.PushBytes(SizeInBytes, std::to_underlying(Align));
     OloEngine::FMemory::Memset(Result, 0xff, SizeInBytes);
     return Result;
 }

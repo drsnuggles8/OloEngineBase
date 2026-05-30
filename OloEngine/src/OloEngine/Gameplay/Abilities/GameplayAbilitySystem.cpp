@@ -198,8 +198,7 @@ namespace OloEngine
         auto& targetAC = target.GetComponent<AbilityComponent>();
 
         AttributeSet sourceAttribs;
-        Entity source = event.Source;
-        if (source && source.HasComponent<AbilityComponent>())
+        if (Entity source = event.Source; source && source.HasComponent<AbilityComponent>())
         {
             sourceAttribs = source.GetComponent<AbilityComponent>().Attributes;
         }

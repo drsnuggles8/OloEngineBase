@@ -75,8 +75,7 @@ namespace OloEngine
         if (!m_MeshSource)
             return false;
 
-        const auto& submeshes = m_MeshSource->GetSubmeshes();
-        if (m_SubmeshIndex >= static_cast<u32>(submeshes.Num()))
+        if (const auto& submeshes = m_MeshSource->GetSubmeshes(); m_SubmeshIndex >= static_cast<u32>(submeshes.Num()))
             return false;
 
         return m_MeshSource->IsSubmeshRigged(m_SubmeshIndex);
@@ -92,8 +91,7 @@ namespace OloEngine
         return m_MeshSource->GetBoundingBox();
 #else
         // Production mode: use submesh-specific bounding box
-        const auto& submeshes = m_MeshSource->GetSubmeshes();
-        if (m_SubmeshIndex < static_cast<u32>(submeshes.Num()))
+        if (const auto& submeshes = m_MeshSource->GetSubmeshes(); m_SubmeshIndex < static_cast<u32>(submeshes.Num()))
         {
             return submeshes[m_SubmeshIndex].m_BoundingBox;
         }
@@ -137,8 +135,7 @@ namespace OloEngine
         if (!m_MeshSource)
             return 0;
 
-        const auto& submeshes = m_MeshSource->GetSubmeshes();
-        if (m_SubmeshIndex < static_cast<u32>(submeshes.Num()))
+        if (const auto& submeshes = m_MeshSource->GetSubmeshes(); m_SubmeshIndex < static_cast<u32>(submeshes.Num()))
         {
             return submeshes[m_SubmeshIndex].m_IndexCount;
         }
@@ -152,8 +149,7 @@ namespace OloEngine
         if (!m_MeshSource)
             return 0;
 
-        const auto& submeshes = m_MeshSource->GetSubmeshes();
-        if (m_SubmeshIndex < static_cast<u32>(submeshes.Num()))
+        if (const auto& submeshes = m_MeshSource->GetSubmeshes(); m_SubmeshIndex < static_cast<u32>(submeshes.Num()))
         {
             return submeshes[m_SubmeshIndex].m_BaseIndex;
         }

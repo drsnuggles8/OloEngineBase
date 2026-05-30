@@ -90,7 +90,7 @@ namespace OloEngine
         StaticMesh(AssetHandle meshSource, const TArray<u32>& submeshes, bool generateColliders = false);
         virtual ~StaticMesh() = default;
 
-        virtual void OnDependencyUpdated(AssetHandle handle) override;
+        void OnDependencyUpdated(AssetHandle handle) override;
 
         // Submesh management
         const TArray<u32>& GetSubmeshes() const
@@ -126,7 +126,7 @@ namespace OloEngine
         {
             return AssetType::StaticMesh;
         }
-        virtual AssetType GetAssetType() const noexcept override
+        AssetType GetAssetType() const noexcept override
         {
             return GetStaticType();
         }

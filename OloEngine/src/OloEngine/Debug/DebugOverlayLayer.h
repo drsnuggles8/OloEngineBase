@@ -34,8 +34,8 @@ namespace OloEngine
         bool OnKeyPressed(KeyPressedEvent const& e);
 
         void DrawOverlayHUD();
-        void DrawVisualizationToggles();
-        void DrawQuickStats();
+        void DrawVisualizationToggles() const;
+        void DrawQuickStats() const;
 
       private:
         bool m_Visible = false;

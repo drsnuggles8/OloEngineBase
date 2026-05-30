@@ -87,8 +87,7 @@ namespace OloEngine
             OLO_PROFILE_SCOPE("NetworkThread::Tick");
 
             // Run GNS callbacks (connection status changes, etc.)
-            ISteamNetworkingSockets* pSockets = SteamNetworkingSockets();
-            if (pSockets)
+            if (ISteamNetworkingSockets* pSockets = SteamNetworkingSockets(); pSockets)
             {
                 pSockets->RunCallbacks();
             }

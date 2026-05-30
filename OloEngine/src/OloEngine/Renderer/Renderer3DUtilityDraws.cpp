@@ -274,8 +274,7 @@ namespace OloEngine
         const glm::vec3 dir = seg / length;
         const glm::vec3 xAxis = glm::vec3(1, 0, 0);
         glm::mat4 rot(1.0f);
-        const float dot = glm::clamp(glm::dot(xAxis, dir), -1.0f, 1.0f);
-        if (dot < 0.9999f)
+        if (const float dot = glm::clamp(glm::dot(xAxis, dir), -1.0f, 1.0f); dot < 0.9999f)
         {
             if (dot < -0.9999f) // Direction is opposite to +X axis (antiparallel)
             {
@@ -300,8 +299,7 @@ namespace OloEngine
         // Modify render state and sort key to ensure skeleton visibility through geometry
         if (packet)
         {
-            auto* drawCmd = packet->GetCommandData<DrawMeshCommand>();
-            if (drawCmd)
+            if (auto* drawCmd = packet->GetCommandData<DrawMeshCommand>())
             {
                 // Depth off so lines always pass depth test
                 PODRenderState skelState = FrameDataBufferManager::Get().GetRenderState(drawCmd->renderStateIndex);
@@ -354,8 +352,7 @@ namespace OloEngine
         // Modify render state and sort key to ensure joint visibility through geometry
         if (packet)
         {
-            auto* drawCmd = packet->GetCommandData<DrawMeshCommand>();
-            if (drawCmd)
+            if (auto* drawCmd = packet->GetCommandData<DrawMeshCommand>())
             {
                 // Depth off so joints always pass depth test
                 PODRenderState jointState = FrameDataBufferManager::Get().GetRenderState(drawCmd->renderStateIndex);
@@ -502,8 +499,7 @@ namespace OloEngine
         glm::vec3 arrowTip = position + forward * arrowLength;
         glm::vec3 arrowColor = glm::vec3(0.2f, 0.8f, 0.2f); // Green for direction
 
-        auto* arrowLine = DrawLine(position, arrowTip, arrowColor, lineThickness * 1.5f);
-        if (arrowLine)
+        if (auto* arrowLine = DrawLine(position, arrowTip, arrowColor, lineThickness * 1.5f))
             SubmitPacket(arrowLine);
 
         // Arrow head (two lines from tip going back)
@@ -659,6 +655,10 @@ namespace OloEngine
                 activeShader = s_Data.TerrainGBufferShader;
             else if (shader == s_Data.VoxelPBRShader && s_Data.VoxelGBufferShader)
                 activeShader = s_Data.VoxelGBufferShader;
+            else
+            {
+                // No additional handling required.
+            }
         }
         const bool useGBufferVariant = deferredActive && (activeShader != shader);
         const bool overlayRoute = deferredActive && !useGBufferVariant && s_Data.Pipeline->RenderStreamPasses.ForwardOverlay;
@@ -803,8 +803,7 @@ namespace OloEngine
         glm::vec3 arrowEnd = position + dir * arrowLength;
 
         // Main arrow line
-        auto* mainLine = DrawLine(position, arrowEnd, color * intensity, lineThickness);
-        if (mainLine)
+        if (auto* mainLine = DrawLine(position, arrowEnd, color * intensity, lineThickness))
             SubmitPacket(mainLine);
 
         // Create arrow head - find perpendicular vectors
@@ -1065,8 +1064,7 @@ namespace OloEngine
         glm::vec3 coneEnd = position + dir * visualRange;
 
         // Draw central direction line
-        auto* centerLine = DrawLine(position, coneEnd, color, lineThickness);
-        if (centerLine)
+        if (auto* centerLine = DrawLine(position, coneEnd, color, lineThickness))
             SubmitPacket(centerLine);
 
         // Draw outer cone edges (4 lines from tip to base)
@@ -1262,8 +1260,7 @@ namespace OloEngine
         const glm::vec3 origin(0.0f);
 
         // X axis - Red
-        auto* xAxis = DrawLine(origin, glm::vec3(axisLength, 0.0f, 0.0f), glm::vec3(1.0f, 0.2f, 0.2f), lineThickness);
-        if (xAxis)
+        if (auto* xAxis = DrawLine(origin, glm::vec3(axisLength, 0.0f, 0.0f), glm::vec3(1.0f, 0.2f, 0.2f), lineThickness))
             SubmitPacket(xAxis);
 
         // X axis arrow head
@@ -1275,8 +1272,7 @@ namespace OloEngine
             SubmitPacket(xArrow2);
 
         // Y axis - Green
-        auto* yAxis = DrawLine(origin, glm::vec3(0.0f, axisLength, 0.0f), glm::vec3(0.2f, 1.0f, 0.2f), lineThickness);
-        if (yAxis)
+        if (auto* yAxis = DrawLine(origin, glm::vec3(0.0f, axisLength, 0.0f), glm::vec3(0.2f, 1.0f, 0.2f), lineThickness))
             SubmitPacket(yAxis);
 
         // Y axis arrow head
@@ -1288,8 +1284,7 @@ namespace OloEngine
             SubmitPacket(yArrow2);
 
         // Z axis - Blue
-        auto* zAxis = DrawLine(origin, glm::vec3(0.0f, 0.0f, axisLength), glm::vec3(0.2f, 0.2f, 1.0f), lineThickness);
-        if (zAxis)
+        if (auto* zAxis = DrawLine(origin, glm::vec3(0.0f, 0.0f, axisLength), glm::vec3(0.2f, 0.2f, 1.0f), lineThickness))
             SubmitPacket(zAxis);
 
         // Z axis arrow head
@@ -1491,8 +1486,7 @@ namespace OloEngine
             glm::vec3 offset2 = localRight * std::cos(angle2) * radius + localForward * std::sin(angle2) * radius;
 
             // Top circle
-            auto* topSeg = DrawLine(topCenter + offset1, topCenter + offset2, color, lineThickness);
-            if (topSeg)
+            if (auto* topSeg = DrawLine(topCenter + offset1, topCenter + offset2, color, lineThickness))
                 SubmitPacket(topSeg);
 
             // Bottom circle

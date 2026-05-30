@@ -43,7 +43,7 @@ class AssetPackTest : public ::testing::Test
     /// Write a minimal valid asset pack file with the given header values.
     /// Field order must match AssetPack::Load exactly:
     ///   Header → IndexTable → AssetInfos → SceneInfos
-    void WriteMinimalPack(const AssetPackFile::FileHeader& header, u32 assetCount, u32 sceneCount)
+    void WriteMinimalPack(const AssetPackFile::FileHeader& header, u32 assetCount, u32 sceneCount) const
     {
         FileStreamWriter writer(m_TempPath);
         ASSERT_TRUE(writer.IsStreamGood());
@@ -64,7 +64,7 @@ class AssetPackTest : public ::testing::Test
         writer.WriteRaw(packedAppBinarySize);
 
         // Write asset infos — Load reads: Handle, PackedOffset, PackedSize, Type, Flags
-        for (u32 i = 0; i < assetCount; i++)
+        for (u32 i = 0; i < assetCount; ++i)
         {
             AssetHandle handle = static_cast<AssetHandle>(i + 1);
             u64 packedOffset = 4096;
@@ -79,7 +79,7 @@ class AssetPackTest : public ::testing::Test
         }
 
         // Write scene infos — Load reads: Handle, PackedOffset, PackedSize, Flags, u32 assetCount, then per-asset entries
-        for (u32 i = 0; i < sceneCount; i++)
+        for (u32 i = 0; i < sceneCount; ++i)
         {
             AssetHandle sceneHandle = static_cast<AssetHandle>(1000 + i);
             u64 packedOffset = 8192;

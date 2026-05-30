@@ -6,6 +6,7 @@
 
 #include <array>
 #include <string>
+#include <utility>
 
 namespace OloEngine
 {
@@ -28,8 +29,8 @@ namespace OloEngine
     class Gamepad
     {
       public:
-        static constexpr u32 ButtonCount = static_cast<u32>(GamepadButton::Count);
-        static constexpr u32 AxisCount = static_cast<u32>(GamepadAxis::Count);
+        static constexpr u32 ButtonCount = static_cast<u32>(std::to_underlying(GamepadButton::Count));
+        static constexpr u32 AxisCount = static_cast<u32>(std::to_underlying(GamepadAxis::Count));
 
         explicit Gamepad(i32 joystickId = -1);
 

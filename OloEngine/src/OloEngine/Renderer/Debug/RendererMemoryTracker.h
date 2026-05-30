@@ -9,6 +9,7 @@
 #include <memory>
 #include <atomic>
 #include <array>
+#include <utility>
 
 #include "OloEngine/Threading/Mutex.h"
 
@@ -133,8 +134,8 @@ namespace OloEngine
         mutable FMutex m_Mutex;
         // Allocation tracking
         std::unordered_map<void*, AllocationInfo> m_Allocations;
-        std::array<sizet, static_cast<sizet>(ResourceType::COUNT)> m_TypeUsage{};
-        std::array<u32, static_cast<sizet>(ResourceType::COUNT)> m_TypeCounts{};
+        std::array<sizet, static_cast<sizet>(std::to_underlying(ResourceType::COUNT))> m_TypeUsage{};
+        std::array<u32, static_cast<sizet>(std::to_underlying(ResourceType::COUNT))> m_TypeCounts{};
 
         // History for graphs
         static constexpr u32 OLO_HISTORY_SIZE = 300; // 5 minutes at 60fps

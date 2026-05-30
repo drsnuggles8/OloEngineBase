@@ -136,8 +136,7 @@ namespace OloEngine
 
         if (coeffCount > 0)
         {
-            constexpr u64 maxCoefficients = 10'000'000;
-            if (coeffCount > maxCoefficients)
+            if (constexpr u64 maxCoefficients = 10'000'000; coeffCount > maxCoefficients)
             {
                 OLO_CORE_ERROR("Light probe volume '{}': coefficient count {} exceeds safe limit", filepath.string(), coeffCount);
                 return false;

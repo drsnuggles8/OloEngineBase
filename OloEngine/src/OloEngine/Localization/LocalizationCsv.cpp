@@ -223,12 +223,12 @@ namespace OloEngine
         cursor = ParseRow(content, cursor, header);
         if (cursor == kParseRowError)
         {
-            result.Warnings.push_back("malformed quoted field in CSV header — aborting import");
+            result.Warnings.emplace_back("malformed quoted field in CSV header — aborting import");
             return result;
         }
         if (header.empty() || header[0] != "key")
         {
-            result.Warnings.push_back("missing or malformed header row (first column must be 'key')");
+            result.Warnings.emplace_back("missing or malformed header row (first column must be 'key')");
             return result;
         }
 

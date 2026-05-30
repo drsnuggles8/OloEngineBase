@@ -83,6 +83,10 @@ TEST_F(FramePipelineTest, OpaqueBeforeTransparent)
         {
             FAIL() << "Opaque command found after transparent — sort order violation";
         }
+        else
+        {
+            // No additional handling required.
+        }
     }
 }
 

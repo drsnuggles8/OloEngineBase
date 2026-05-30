@@ -112,7 +112,7 @@ TEST(ZoneHandoff, ThreePhaseHandoffProtocol)
     EXPECT_EQ(tx->State, EHandoffState::Requested);
 
     // Source zone should mark player as transitioning
-    auto* source = manager.GetZone(1);
+    const auto* source = manager.GetZone(1);
     EXPECT_TRUE(source->IsPlayerTransitioning(1));
 
     // Phase 2: Accept handoff

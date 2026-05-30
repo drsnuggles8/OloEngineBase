@@ -131,10 +131,7 @@ namespace OloEngine
             return false;
         }
 
-        EResult result = m_Interface->SendMessageToConnection(
-            m_Connection, data, size, sendFlags, nullptr);
-
-        if (result == k_EResultOK)
+        if (EResult result = m_Interface->SendMessageToConnection(m_Connection, data, size, sendFlags, nullptr); result == k_EResultOK)
         {
             m_Stats.RecordSend(size);
             return true;

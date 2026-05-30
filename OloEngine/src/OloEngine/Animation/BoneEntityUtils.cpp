@@ -85,7 +85,7 @@ namespace OloEngine
         std::unordered_set<UUID> visited;
 
         // Build tag map with cycle detection
-        std::function<void(Entity)> buildTagMap = [&](Entity entity)
+        std::function<void(Entity)> buildTagMap = [&scene, &visited, &tagEntityMap, &buildTagMap](Entity entity)
         {
             if (!entity || !scene)
                 return;
@@ -163,7 +163,7 @@ namespace OloEngine
                 std::unordered_set<UUID> visited;
 
                 // Build tag map with cycle detection
-                std::function<void(Entity)> buildTagMap = [&](Entity entity)
+                std::function<void(Entity)> buildTagMap = [&scene, &visited, &skeletonComponent, &buildTagMap](Entity entity)
                 {
                     if (!entity || !scene)
                         return;
@@ -228,9 +228,7 @@ namespace OloEngine
             return glm::mat4(1.0f);
 
         glm::mat4 transform = glm::mat4(1.0f);
-        auto rootBoneEntityOpt = scene->TryGetEntityWithUUID(boneEntityIds.front());
-
-        if (rootBoneEntityOpt)
+        if (auto rootBoneEntityOpt = scene->TryGetEntityWithUUID(boneEntityIds.front()))
         {
             std::unordered_set<UUID> visitedParents; // Track visited entities to prevent cycles
             Entity parentEntity = rootBoneEntityOpt->GetParent();

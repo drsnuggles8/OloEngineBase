@@ -175,12 +175,12 @@ namespace OloEngine::Audio::SoundGraph
 
                 for (const auto& nodeYaml : nodesNode)
                 {
-                    nodeCount++;
+                    ++nodeCount;
                     OloEngine::SoundGraphNodeData nodeData;
                     if (DeserializeNodeData(nodeYaml, nodeData))
                     {
                         asset.m_Nodes.push_back(nodeData);
-                        validNodeCount++;
+                        ++validNodeCount;
                     }
                 }
 
@@ -204,12 +204,12 @@ namespace OloEngine::Audio::SoundGraph
 
                 for (const auto& connectionYaml : connectionsNode)
                 {
-                    connectionCount++;
+                    ++connectionCount;
                     OloEngine::SoundGraphConnection connection;
                     if (DeserializeConnection(connectionYaml, connection))
                     {
                         asset.m_Connections.push_back(connection);
-                        validConnectionCount++;
+                        ++validConnectionCount;
                     }
                 }
 
@@ -491,8 +491,7 @@ namespace OloEngine::Audio::SoundGraph
 
     Scope<NodeProcessor> SoundGraphFactory::CreateNode(const std::string& typeName, const std::string& name, Identifier id)
     {
-        auto it = s_NodeCreators.find(typeName);
-        if (it != s_NodeCreators.end())
+        if (auto it = s_NodeCreators.find(typeName); it != s_NodeCreators.end())
         {
             return it->second(name, id);
         }

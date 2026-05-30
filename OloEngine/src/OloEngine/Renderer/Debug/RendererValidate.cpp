@@ -44,8 +44,7 @@ namespace OloEngine::RendererValidate
                           attachmentIndex, spec.Attachments.Attachments.size());
             return stats;
         }
-        const auto fmt = spec.Attachments.Attachments[attachmentIndex].TextureFormat;
-        if (!IsFloatColorFormat(fmt))
+        if (const auto fmt = spec.Attachments.Attachments[attachmentIndex].TextureFormat; !IsFloatColorFormat(fmt))
         {
             OLO_CORE_WARN("RendererValidate: attachment {} is not a float format, skipping readback", attachmentIndex);
             return stats;
@@ -76,8 +75,7 @@ namespace OloEngine::RendererValidate
         const auto maxBytes = static_cast<u64>(std::numeric_limits<GLsizei>::max());
         const auto maxPixelsByGlsizei = maxBytes / bytesPerPixel;
         const auto maxPixelsByStats = static_cast<u64>(std::numeric_limits<u32>::max());
-        const auto kMaxPixels = std::min(maxPixelsByGlsizei, maxPixelsByStats);
-        if (pixelCount64 > kMaxPixels)
+        if (const auto kMaxPixels = std::min(maxPixelsByGlsizei, maxPixelsByStats); pixelCount64 > kMaxPixels)
         {
             OLO_CORE_WARN("RendererValidate: attachment {} is {}x{} (>{} pixels); skipping readback to avoid overflow",
                           attachmentIndex, width, height, kMaxPixels);

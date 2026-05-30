@@ -76,24 +76,24 @@ namespace OloEngine
         // Scene lifecycle
         void OnRuntimeStart();
         void OnRuntimeStop();
-        void OnSimulationStart();
-        void OnSimulationStop();
+        void OnSimulationStart() const;
+        void OnSimulationStop() const;
 
         // Scene queries (implementing SceneQueries interface)
-        virtual bool CastRay(const RayCastInfo& rayInfo, SceneQueryHit& outHit) override;
-        virtual bool CastShape(const ShapeCastInfo& shapeCastInfo, SceneQueryHit& outHit) override;
-        virtual bool CastBox(const BoxCastInfo& boxCastInfo, SceneQueryHit& outHit) override;
-        virtual bool CastSphere(const SphereCastInfo& sphereCastInfo, SceneQueryHit& outHit) override;
-        virtual bool CastCapsule(const CapsuleCastInfo& capsuleCastInfo, SceneQueryHit& outHit) override;
-        virtual i32 OverlapShape(const ShapeOverlapInfo& overlapInfo, SceneQueryHit* outHits, i32 maxHits) override;
-        virtual i32 OverlapBox(const BoxOverlapInfo& boxOverlapInfo, SceneQueryHit* outHits, i32 maxHits) override;
-        virtual i32 OverlapSphere(const SphereOverlapInfo& sphereOverlapInfo, SceneQueryHit* outHits, i32 maxHits) override;
-        virtual i32 OverlapCapsule(const CapsuleOverlapInfo& capsuleOverlapInfo, SceneQueryHit* outHits, i32 maxHits) override;
-        virtual i32 CastRayMultiple(const RayCastInfo& rayInfo, SceneQueryHit* outHits, i32 maxHits) override;
-        virtual i32 CastShapeMultiple(const ShapeCastInfo& shapeCastInfo, SceneQueryHit* outHits, i32 maxHits) override;
-        virtual i32 CastBoxMultiple(const BoxCastInfo& boxCastInfo, SceneQueryHit* outHits, i32 maxHits) override;
-        virtual i32 CastSphereMultiple(const SphereCastInfo& sphereCastInfo, SceneQueryHit* outHits, i32 maxHits) override;
-        virtual i32 CastCapsuleMultiple(const CapsuleCastInfo& capsuleCastInfo, SceneQueryHit* outHits, i32 maxHits) override;
+        bool CastRay(const RayCastInfo& rayInfo, SceneQueryHit& outHit) override;
+        bool CastShape(const ShapeCastInfo& shapeCastInfo, SceneQueryHit& outHit) override;
+        bool CastBox(const BoxCastInfo& boxCastInfo, SceneQueryHit& outHit) override;
+        bool CastSphere(const SphereCastInfo& sphereCastInfo, SceneQueryHit& outHit) override;
+        bool CastCapsule(const CapsuleCastInfo& capsuleCastInfo, SceneQueryHit& outHit) override;
+        i32 OverlapShape(const ShapeOverlapInfo& overlapInfo, SceneQueryHit* outHits, i32 maxHits) override;
+        i32 OverlapBox(const BoxOverlapInfo& boxOverlapInfo, SceneQueryHit* outHits, i32 maxHits) override;
+        i32 OverlapSphere(const SphereOverlapInfo& sphereOverlapInfo, SceneQueryHit* outHits, i32 maxHits) override;
+        i32 OverlapCapsule(const CapsuleOverlapInfo& capsuleOverlapInfo, SceneQueryHit* outHits, i32 maxHits) override;
+        i32 CastRayMultiple(const RayCastInfo& rayInfo, SceneQueryHit* outHits, i32 maxHits) override;
+        i32 CastShapeMultiple(const ShapeCastInfo& shapeCastInfo, SceneQueryHit* outHits, i32 maxHits) override;
+        i32 CastBoxMultiple(const BoxCastInfo& boxCastInfo, SceneQueryHit* outHits, i32 maxHits) override;
+        i32 CastSphereMultiple(const SphereCastInfo& sphereCastInfo, SceneQueryHit* outHits, i32 maxHits) override;
+        i32 CastCapsuleMultiple(const CapsuleCastInfo& capsuleCastInfo, SceneQueryHit* outHits, i32 maxHits) override;
 
         // Radial impulse
         void AddRadialImpulse(const glm::vec3& origin, f32 radius, f32 strength, EFalloffMode falloff, bool velocityChange);
@@ -105,7 +105,7 @@ namespace OloEngine
         void SynchronizeTransforms();
 
         // Contact events
-        void OnContactEvent(ContactType type, UUID entityA, UUID entityB);
+        void OnContactEvent(ContactType type, UUID entityA, UUID entityB) const;
 
         // Jolt system access
         // NOTE: These methods require Initialize() to have been called successfully
@@ -153,7 +153,7 @@ namespace OloEngine
 
       private:
         void CreateRigidBodies();
-        void SynchronizeBody(Ref<JoltBody> body);
+        void SynchronizeBody(Ref<JoltBody> body) const;
 
         // Internal Jolt setup
         void InitializeJolt();
@@ -180,15 +180,15 @@ namespace OloEngine
         // ✅ PREFERRED: These methods provide O(1) entity exclusion checks for optimal performance.
         // Performance Note: Uses std::unordered_set for constant-time entity lookup during queries.
         bool PerformShapeCast(JPH::Ref<JPH::Shape> shape, const glm::vec3& start, const glm::vec3& direction,
-                              f32 maxDistance, u32 layerMask, const ExcludedEntitySet& excludedEntitySet, SceneQueryHit& outHit);
+                              f32 maxDistance, u32 layerMask, const ExcludedEntitySet& excludedEntitySet, SceneQueryHit& outHit) const;
         i32 PerformShapeCastMultiple(JPH::Ref<JPH::Shape> shape, const glm::vec3& start, const glm::vec3& direction,
                                      f32 maxDistance, u32 layerMask, const ExcludedEntitySet& excludedEntitySet, SceneQueryHit* outHits, i32 maxHits);
         i32 PerformShapeOverlap(JPH::Ref<JPH::Shape> shape, const glm::vec3& position, const glm::quat& rotation,
                                 u32 layerMask, const ExcludedEntitySet& excludedEntitySet, SceneQueryHit* outHits, i32 maxHits);
         bool IsEntityExcluded(UUID entityID, const ExcludedEntitySet& excludedEntitySet);
 
-        void FillHitInfo(const JPH::RayCastResult& hit, const JPH::RRayCast& ray, SceneQueryHit& outHit);
-        void FillHitInfo(const JPH::ShapeCastResult& hit, const JPH::RShapeCast& shapeCast, SceneQueryHit& outHit);
+        void FillHitInfo(const JPH::RayCastResult& hit, const JPH::RRayCast& ray, SceneQueryHit& outHit) const;
+        void FillHitInfo(const JPH::ShapeCastResult& hit, const JPH::RShapeCast& shapeCast, SceneQueryHit& outHit) const;
 
       private:
         Scene* m_Scene;

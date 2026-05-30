@@ -83,7 +83,7 @@ namespace OloEngine
         // Auto-save
         void AutoSaveScene();
         void UI_AutoSaveRecoveryModal();
-        void DeleteAutoSaveFile();
+        void DeleteAutoSaveFile() const;
         bool LoadSceneInternal(const std::filesystem::path& scenePath);
 
         void OnScenePlay();
@@ -101,7 +101,7 @@ namespace OloEngine
 
         // Shader Pack Building
         // Bundles all compiled SPIR-V into a single binary file for distribution builds
-        void BuildShaderPack();
+        void BuildShaderPack() const;
 
         // Build status and progress queries
         bool IsBuildInProgress() const

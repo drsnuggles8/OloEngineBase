@@ -23,7 +23,7 @@ namespace OloEngine
     // Static member initialization
     std::atomic<u32> FEvent::s_EventUniqueId{ 0 };
 
-    void FEvent::AdvanceStats()
+    void FEvent::AdvanceStats() const
     {
         // Stats tracking would be implemented here
         // For now, this is a placeholder
@@ -35,7 +35,7 @@ namespace OloEngine
         m_EventStartCycles.fetch_add(1, std::memory_order_relaxed);
     }
 
-    void FEvent::TriggerForStats()
+    void FEvent::TriggerForStats() const
     {
         // Record that the event was triggered
         // In UE5.7 this sends stats messages - we just track the cycle

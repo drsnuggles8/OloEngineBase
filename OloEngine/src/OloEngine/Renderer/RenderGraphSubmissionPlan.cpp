@@ -200,18 +200,18 @@ namespace OloEngine::RenderGraphSubmissionPlan
             }
 
             batch.InputResources.reserve(inputByResource.size());
-            for (auto& [res, externalNode] : inputByResource)
+            for (const auto& [res, externalNode] : inputByResource)
                 batch.InputResources.push_back({ res, externalNode });
-            std::sort(batch.InputResources.begin(), batch.InputResources.end(),
-                      [](const BatchResourceDependency& a, const BatchResourceDependency& b)
-                      { return a.ResourceName < b.ResourceName; });
+            std::ranges::sort(batch.InputResources,
+                              [](const BatchResourceDependency& a, const BatchResourceDependency& b)
+                              { return a.ResourceName < b.ResourceName; });
 
             batch.OutputResources.reserve(outputByResource.size());
-            for (auto& [res, externalNode] : outputByResource)
+            for (const auto& [res, externalNode] : outputByResource)
                 batch.OutputResources.push_back({ res, externalNode });
-            std::sort(batch.OutputResources.begin(), batch.OutputResources.end(),
-                      [](const BatchResourceDependency& a, const BatchResourceDependency& b)
-                      { return a.ResourceName < b.ResourceName; });
+            std::ranges::sort(batch.OutputResources,
+                              [](const BatchResourceDependency& a, const BatchResourceDependency& b)
+                              { return a.ResourceName < b.ResourceName; });
         }
 
         return batches;
@@ -258,10 +258,8 @@ namespace OloEngine::RenderGraphSubmissionPlan
         {
             const auto batchIt = passToBatch.find(passName);
             const bool inBatch = (batchIt != passToBatch.end());
-            const u32 batchIdx = inBatch ? batchIt->second : std::numeric_limits<u32>::max();
-
             // Batch-boundary open.
-            if (inBatch && batchIdx != currentBatch)
+            if (const u32 batchIdx = inBatch ? batchIt->second : std::numeric_limits<u32>::max(); inBatch && batchIdx != currentBatch)
             {
                 // Close the previous batch (if any) before opening a new one.
                 if (currentBatch != std::numeric_limits<u32>::max())

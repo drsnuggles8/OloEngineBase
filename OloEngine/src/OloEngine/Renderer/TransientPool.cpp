@@ -187,7 +187,7 @@ namespace OloEngine
         return TextureDescriptorKey{
             .Width = spec.Width,
             .Height = spec.Height,
-            .Format = static_cast<u32>(spec.Format),
+            .Format = static_cast<u32>(std::to_underlying(spec.Format)),
             .MipLevels = spec.MipLevels,
             .Samples = spec.Samples,
             .Flags = spec.GenerateMips ? 1u : 0u,
@@ -208,7 +208,7 @@ namespace OloEngine
 
         for (const auto& attach : spec.Attachments.Attachments)
         {
-            key ^= static_cast<u64>(attach.TextureFormat);
+            key ^= static_cast<u64>(std::to_underlying(attach.TextureFormat));
             key *= 1099511628211ull;
         }
 
@@ -352,6 +352,10 @@ namespace OloEngine
                             imgFormat = ImageFormat::RGBA16F;
                         else if (firstAttach.TextureFormat == FramebufferTextureFormat::RGBA32F)
                             imgFormat = ImageFormat::RGBA32F;
+                        else
+                        {
+                            // No additional handling required.
+                        }
 
                         u64 bytesPerPixel = BytesPerPixel(imgFormat);
                         report.TotalAcquiredBytes += spec.Width * spec.Height * bytesPerPixel;
@@ -372,7 +376,7 @@ namespace OloEngine
         {
             if (pool.size() > 1)
             {
-                report.TextureGroupsWithAliasPotential++;
+                ++report.TextureGroupsWithAliasPotential;
                 // Estimate savings as (count-1) * sizeof(one item)
                 TextureSpecification spec;
                 spec.Width = key.Width;
@@ -390,7 +394,7 @@ namespace OloEngine
         {
             if (pool.size() > 1)
             {
-                report.FramebufferGroupsWithAliasPotential++;
+                ++report.FramebufferGroupsWithAliasPotential;
                 // Estimate based on first framebuffer in pool
                 if (pool[0])
                 {
@@ -410,6 +414,10 @@ namespace OloEngine
                                 imgFormat = ImageFormat::RGBA16F;
                             else if (firstAttach.TextureFormat == FramebufferTextureFormat::RGBA32F)
                                 imgFormat = ImageFormat::RGBA32F;
+                            else
+                            {
+                                // No additional handling required.
+                            }
 
                             u64 bytesPerPixel = BytesPerPixel(imgFormat);
                             u64 itemBytes = spec.Width * spec.Height * bytesPerPixel;
@@ -424,7 +432,7 @@ namespace OloEngine
         {
             if (pool.size() > 1)
             {
-                report.BufferGroupsWithAliasPotential++;
+                ++report.BufferGroupsWithAliasPotential;
                 u64 itemBytes = static_cast<u64>(sizeBytes);
                 report.PotentialAliasingBytes += itemBytes * (pool.size() - 1);
             }

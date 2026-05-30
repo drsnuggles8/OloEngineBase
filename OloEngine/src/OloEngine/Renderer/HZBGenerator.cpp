@@ -12,13 +12,13 @@ namespace OloEngine
 
     u32 HZBGenerator::NextPowerOfTwo(u32 v)
     {
-        v--;
+        --v;
         v |= v >> 1;
         v |= v >> 2;
         v |= v >> 4;
         v |= v >> 8;
         v |= v >> 16;
-        v++;
+        ++v;
         return v;
     }
 
@@ -152,13 +152,13 @@ namespace OloEngine
 
         // Bind output image mips (up to 4 per batch)
         u32 endMip = std::min(startMip + MAX_MIP_BATCH_SIZE, mipCount);
-        for (u32 mip = startMip; mip < endMip; mip++)
+        for (u32 mip = startMip; mip < endMip; ++mip)
         {
             u32 localIdx = mip - startMip;
             RenderCommand::BindImageTexture(localIdx, hzbTexID, mip, false, 0, GL_WRITE_ONLY, GL_R32F);
         }
         // Fill remaining image slots with the last valid mip to avoid undefined bindings
-        for (u32 localIdx = endMip - startMip; localIdx < MAX_MIP_BATCH_SIZE; localIdx++)
+        for (u32 localIdx = endMip - startMip; localIdx < MAX_MIP_BATCH_SIZE; ++localIdx)
         {
             RenderCommand::BindImageTexture(localIdx, hzbTexID, endMip - 1, false, 0, GL_WRITE_ONLY, GL_R32F);
         }

@@ -71,6 +71,10 @@ namespace OloEngine::LowLevelTasks
             {
                 g_TaskGraphUseDynamicPrioritization = true;
             }
+            else
+            {
+                // No additional handling required.
+            }
         }
 
         if (const char* EnvDynamicThreadCreation = std::getenv("OLO_TASK_GRAPH_DYNAMIC_THREAD_CREATION"))
@@ -82,6 +86,10 @@ namespace OloEngine::LowLevelTasks
             else if (std::strcmp(EnvDynamicThreadCreation, "1") == 0 || std::strcmp(EnvDynamicThreadCreation, "true") == 0)
             {
                 g_TaskGraphUseDynamicThreadCreation = true;
+            }
+            else
+            {
+                // No additional handling required.
             }
         }
 
@@ -495,12 +503,12 @@ namespace OloEngine::LowLevelTasks
             // uninitialized waiting queues.
             if (!g_TaskGraphUseDynamicThreadCreation)
             {
-                for (i32 Index = 0; Index < MaxForegroundWorkers; Index++)
+                for (i32 Index = 0; Index < MaxForegroundWorkers; ++Index)
                 {
                     ForegroundCreateThreadFn();
                 }
 
-                for (i32 Index = 0; Index < MaxBackgroundWorkers; Index++)
+                for (i32 Index = 0; Index < MaxBackgroundWorkers; ++Index)
                 {
                     BackgroundCreateThreadFn();
                 }
@@ -730,11 +738,11 @@ namespace OloEngine::LowLevelTasks
 
             if (CachedLocalQueue && QueuePreference != EQueuePreference::GlobalQueuePreference)
             {
-                CachedLocalQueue->Enqueue(&Task, static_cast<u32>(Task.GetPriority()));
+                CachedLocalQueue->Enqueue(&Task, static_cast<u32>(std::to_underlying(Task.GetPriority())));
             }
             else
             {
-                m_QueueRegistry.Enqueue(&Task, static_cast<u32>(Task.GetPriority()));
+                m_QueueRegistry.Enqueue(&Task, static_cast<u32>(std::to_underlying(Task.GetPriority())));
             }
 
             if (bWakeUpWorker)
@@ -821,7 +829,7 @@ namespace OloEngine::LowLevelTasks
 
     bool FSchedulerTls::IsWorkerThread() const
     {
-        FTlsValues& LocalTlsValues = FSchedulerTls::GetTlsValuesRef();
+        const FTlsValues& LocalTlsValues = FSchedulerTls::GetTlsValuesRef();
         return LocalTlsValues.WorkerType != FSchedulerTls::EWorkerType::None && LocalTlsValues.ActiveScheduler == this;
     }
 
@@ -902,6 +910,10 @@ namespace OloEngine::LowLevelTasks
                     // Only reset this when the commit succeeded, otherwise we're backing off the commit and looking at the queue again
                     bPreparingStandby = false;
                 }
+                else
+                {
+                    // No additional handling required.
+                }
             }
         }
     }
@@ -943,6 +955,10 @@ namespace OloEngine::LowLevelTasks
                 {
                     // Only reset this when the commit succeeded, otherwise we're backing off the commit and looking at the queue again
                     bPreparingWait = false;
+                }
+                else
+                {
+                    // No additional handling required.
                 }
             }
         }

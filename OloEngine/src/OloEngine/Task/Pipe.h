@@ -231,11 +231,9 @@ namespace OloEngine::Tasks
         // Called when task execution finishes, before completion.
         void ClearTask(Private::FTaskBase& Task)
         {
-            Private::FTaskBase* Task_Local = &Task;
-
             // Try clearing if still the last task
-            if (m_LastTask.compare_exchange_strong(Task_Local, nullptr,
-                                                   std::memory_order_acq_rel, std::memory_order_acquire))
+            if (Private::FTaskBase* Task_Local = &Task; m_LastTask.compare_exchange_strong(Task_Local, nullptr,
+                                                                                           std::memory_order_acq_rel, std::memory_order_acquire))
             {
                 Task.Release();
             }
@@ -248,12 +246,12 @@ namespace OloEngine::Tasks
             }
         }
 
-        void ExecutionStarted()
+        void ExecutionStarted() const
         {
             FPipeCallStack::Push(*this);
         }
 
-        void ExecutionFinished()
+        void ExecutionFinished() const
         {
             FPipeCallStack::Pop(*this);
         }

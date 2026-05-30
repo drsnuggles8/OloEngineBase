@@ -30,9 +30,7 @@ namespace OloEngine
 
         // Check if any terrain exists in scene
         auto terrainView = m_Context->GetAllEntitiesWith<TransformComponent, TerrainComponent>();
-        const bool hasTerrain = terrainView.begin() != terrainView.end();
-
-        if (!hasTerrain)
+        if (const bool hasTerrain = terrainView.begin() != terrainView.end(); !hasTerrain)
         {
             ImGui::Text("No terrain in scene.");
             ImGui::End();
@@ -102,8 +100,7 @@ namespace OloEngine
     {
         ImGui::Text("Sculpt Tool");
 
-        int currentTool = static_cast<int>(m_SculptSettings.Tool);
-        if (ImGui::Combo("Tool", &currentTool, s_SculptToolNames, IM_ARRAYSIZE(s_SculptToolNames)))
+        if (int currentTool = static_cast<int>(std::to_underlying(m_SculptSettings.Tool)); ImGui::Combo("Tool", &currentTool, s_SculptToolNames, IM_ARRAYSIZE(s_SculptToolNames)))
             m_SculptSettings.Tool = static_cast<TerrainBrushTool>(currentTool);
 
         ImGui::DragFloat("Radius", &m_SculptSettings.Radius, 0.5f, 0.5f, 200.0f, "%.1f");
@@ -144,8 +141,7 @@ namespace OloEngine
             return;
         }
 
-        int targetLayer = static_cast<int>(m_PaintSettings.TargetLayer);
-        if (ImGui::SliderInt("Target Layer", &targetLayer, 0, static_cast<int>(maxLayers - 1)))
+        if (int targetLayer = static_cast<int>(m_PaintSettings.TargetLayer); ImGui::SliderInt("Target Layer", &targetLayer, 0, static_cast<int>(maxLayers - 1)))
             m_PaintSettings.TargetLayer = static_cast<u32>(targetLayer);
 
         // Show layer name
@@ -281,6 +277,10 @@ namespace OloEngine
                                 m_StrokeDirtyX, m_StrokeDirtyY, m_StrokeDirtyW, m_StrokeDirtyH,
                                 std::move(oldRegion0), std::move(newSplatmap0)));
                     }
+                }
+                else
+                {
+                    // No additional handling required.
                 }
             }
 
@@ -426,6 +426,10 @@ namespace OloEngine
                     }
                 }
             }
+            else
+            {
+                // No additional handling required.
+            }
         }
     }
 
@@ -450,17 +454,14 @@ namespace OloEngine
         ImGui::Separator();
         ImGui::Text("Simulation");
 
-        int dropletCount = static_cast<int>(m_ErosionSettings.DropletCount);
-        if (ImGui::DragInt("Droplets", &dropletCount, 1000, 1000, 500000))
+        if (int dropletCount = static_cast<int>(m_ErosionSettings.DropletCount); ImGui::DragInt("Droplets", &dropletCount, 1000, 1000, 500000))
             m_ErosionSettings.DropletCount = static_cast<u32>(std::max(1000, dropletCount));
         ImGui::SetItemTooltip("Number of water droplets per iteration");
 
-        int maxSteps = static_cast<int>(m_ErosionSettings.MaxDropletSteps);
-        if (ImGui::DragInt("Max Steps", &maxSteps, 1, 16, 256))
+        if (int maxSteps = static_cast<int>(m_ErosionSettings.MaxDropletSteps); ImGui::DragInt("Max Steps", &maxSteps, 1, 16, 256))
             m_ErosionSettings.MaxDropletSteps = static_cast<u32>(std::max(16, maxSteps));
 
-        int iterations = static_cast<int>(m_ErosionIterations);
-        if (ImGui::DragInt("Iterations", &iterations, 1, 1, 50))
+        if (int iterations = static_cast<int>(m_ErosionIterations); ImGui::DragInt("Iterations", &iterations, 1, 1, 50))
             m_ErosionIterations = static_cast<u32>(std::max(1, iterations));
 
         ImGui::Separator();
@@ -476,8 +477,7 @@ namespace OloEngine
         ImGui::DragFloat("Evaporation", &m_ErosionSettings.EvaporateSpeed, 0.001f, 0.0f, 0.1f, "%.3f");
         ImGui::DragFloat("Gravity", &m_ErosionSettings.Gravity, 0.1f, 0.5f, 20.0f, "%.1f");
 
-        int erosionRadius = m_ErosionSettings.ErosionRadius;
-        if (ImGui::DragInt("Erosion Radius", &erosionRadius, 1, 1, 8))
+        if (int erosionRadius = m_ErosionSettings.ErosionRadius; ImGui::DragInt("Erosion Radius", &erosionRadius, 1, 1, 8))
             m_ErosionSettings.ErosionRadius = std::max(1, erosionRadius);
         ImGui::SetItemTooltip("Brush radius for erosion/deposition in texels");
 

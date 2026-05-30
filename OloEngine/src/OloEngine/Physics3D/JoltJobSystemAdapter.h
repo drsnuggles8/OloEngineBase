@@ -29,16 +29,16 @@ namespace OloEngine
         virtual ~JoltJobSystemAdapter() override;
 
         // JobSystem interface
-        virtual i32 GetMaxConcurrency() const override;
-        virtual JPH::JobSystem::JobHandle CreateJob(const char* inName, JPH::ColorArg inColor,
-                                                    const JPH::JobSystem::JobFunction& inJobFunction,
-                                                    u32 inNumDependencies = 0) override;
+        i32 GetMaxConcurrency() const override;
+        JPH::JobSystem::JobHandle CreateJob(const char* inName, JPH::ColorArg inColor,
+                                            const JPH::JobSystem::JobFunction& inJobFunction,
+                                            u32 inNumDependencies = 0) override;
 
       protected:
         // JobSystem interface - protected methods
-        virtual void QueueJob(JPH::JobSystem::Job* inJob) override;
-        virtual void QueueJobs(JPH::JobSystem::Job** inJobs, u32 inNumJobs) override;
-        virtual void FreeJob(JPH::JobSystem::Job* inJob) override;
+        void QueueJob(JPH::JobSystem::Job* inJob) override;
+        void QueueJobs(JPH::JobSystem::Job** inJobs, u32 inNumJobs) override;
+        void FreeJob(JPH::JobSystem::Job* inJob) override;
 
       private:
         /// Fixed-size free list for job allocation (using Jolt's implementation)

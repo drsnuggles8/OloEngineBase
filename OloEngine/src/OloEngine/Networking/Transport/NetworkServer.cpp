@@ -198,8 +198,7 @@ namespace OloEngine
             return false;
         }
 
-        EResult result = m_Interface->SendMessageToConnection(connection, data, size, sendFlags, nullptr);
-        if (result == k_EResultOK)
+        if (EResult result = m_Interface->SendMessageToConnection(connection, data, size, sendFlags, nullptr); result == k_EResultOK)
         {
             m_Stats.RecordSend(size);
             return true;
@@ -216,7 +215,7 @@ namespace OloEngine
         std::vector<HSteamNetConnection> connected;
         {
             TUniqueLock<FMutex> lock(m_Mutex);
-            for (auto& [handle, connection] : m_Connections)
+            for (const auto& [handle, connection] : m_Connections)
             {
                 if (connection.GetState() == EConnectionState::Connected)
                 {

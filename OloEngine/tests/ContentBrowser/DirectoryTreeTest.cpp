@@ -209,7 +209,7 @@ TEST(DirectoryTree, SearchFindsFilesByName)
 
     bool foundDir = false;
     bool foundFile = false;
-    for (auto& r : results)
+    for (const auto& r : results)
     {
         if (r.filename().string() == "hero" && std::filesystem::is_directory(r))
             foundDir = true;
@@ -268,9 +268,9 @@ TEST(DirectoryTree, MarkDirtyFlagsAncestors)
 
     tree.MarkDirty("models/hero");
 
-    auto* hero = tree.FindDirectory("models/hero");
-    auto* models = tree.FindDirectory("models");
-    auto* root = tree.GetRoot();
+    const auto* hero = tree.FindDirectory("models/hero");
+    const auto* models = tree.FindDirectory("models");
+    const auto* root = tree.GetRoot();
 
     EXPECT_TRUE(hero->NeedsRefresh);
     EXPECT_TRUE(models->NeedsRefresh);

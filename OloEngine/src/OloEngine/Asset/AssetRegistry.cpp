@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <fstream>
 #include <filesystem>
+#include <utility>
 
 namespace OloEngine
 {
@@ -22,8 +23,7 @@ namespace OloEngine
         }
 
         // Check for existing asset with same handle
-        auto handleIt = m_AssetMetadata.find(metadata.Handle);
-        if (handleIt != m_AssetMetadata.end())
+        if (auto handleIt = m_AssetMetadata.find(metadata.Handle); handleIt != m_AssetMetadata.end())
         {
             // Handle already exists - log warning about potential overwrite
             if (handleIt->second.FilePath != metadata.FilePath || handleIt->second.Type != metadata.Type)
@@ -98,8 +98,7 @@ namespace OloEngine
     {
         TSharedLock<FSharedMutex> lock(m_Mutex);
 
-        auto it = m_PathToHandle.find(path);
-        if (it != m_PathToHandle.end())
+        if (auto it = m_PathToHandle.find(path); it != m_PathToHandle.end())
         {
             auto metaIt = m_AssetMetadata.find(it->second);
             if (metaIt != m_AssetMetadata.end())
@@ -212,8 +211,7 @@ namespace OloEngine
         if (!updatedMetadata.FilePath.empty())
         {
             // Check if the new path is already mapped to a different handle
-            auto pathIt = m_PathToHandle.find(updatedMetadata.FilePath);
-            if (pathIt != m_PathToHandle.end() && pathIt->second != handle)
+            if (auto pathIt = m_PathToHandle.find(updatedMetadata.FilePath); pathIt != m_PathToHandle.end() && pathIt->second != handle)
             {
                 OLO_CORE_WARN("AssetRegistry::UpdateMetadata - Path {} already mapped to different handle {} (current handle: {}). Overwriting existing path mapping.",
                               updatedMetadata.FilePath.string(), pathIt->second, handle);
@@ -258,8 +256,8 @@ namespace OloEngine
             {
                 // Cast to fixed-width types for cross-platform compatibility
                 const uint64_t handleValue = static_cast<uint64_t>(metadata.Handle);
-                const uint32_t typeValue = static_cast<uint32_t>(metadata.Type);
-                const uint32_t statusValue = static_cast<uint32_t>(metadata.Status);
+                const uint32_t typeValue = static_cast<uint32_t>(std::to_underlying(metadata.Type));
+                const uint32_t statusValue = static_cast<uint32_t>(std::to_underlying(metadata.Status));
 
                 file.write(reinterpret_cast<const char*>(&handleValue), sizeof(handleValue));
                 file.write(reinterpret_cast<const char*>(&typeValue), sizeof(typeValue));

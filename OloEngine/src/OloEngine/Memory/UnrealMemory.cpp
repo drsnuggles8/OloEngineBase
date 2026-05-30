@@ -85,8 +85,7 @@ namespace OloEngine
             FMalloc* Proxy = new FMallocPurgatoryProxy(LocalGMalloc);
 
             // Atomic compare-exchange to swap in the proxy
-            FMalloc* Expected = LocalGMalloc;
-            if (Private::AtomicCompareExchangeGMalloc(Expected, Proxy))
+            if (FMalloc* Expected = LocalGMalloc; Private::AtomicCompareExchangeGMalloc(Expected, Proxy))
             {
                 OLO_CORE_INFO("Purgatory proxy is now on - use-after-free detection enabled.");
                 return;
@@ -121,8 +120,7 @@ namespace OloEngine
             FMalloc* Proxy = new FMallocPoisonProxy(LocalGMalloc);
 
             // Atomic compare-exchange to swap in the proxy
-            FMalloc* Expected = LocalGMalloc;
-            if (Private::AtomicCompareExchangeGMalloc(Expected, Proxy))
+            if (FMalloc* Expected = LocalGMalloc; Private::AtomicCompareExchangeGMalloc(Expected, Proxy))
             {
                 OLO_CORE_INFO("Poison proxy is now on - memory poisoning enabled (0xCD=new, 0xDD=freed).");
                 return;
@@ -315,14 +313,14 @@ namespace OloEngine
 
         std::vector<void*> FreedPointers;
         // Allocate pointers that will be freed later
-        for (int Index = 0; Index < NumFreedAllocations; Index++)
+        for (int Index = 0; Index < NumFreedAllocations; ++Index)
         {
             FreedPointers.push_back(FMemory::Malloc(std::rand() % MaxAllocationSize));
         }
 
         // Allocate pointers that will be leaked until the next call
         LeakedPointers.clear();
-        for (int Index = 0; Index < NumLeakedAllocations; Index++)
+        for (int Index = 0; Index < NumLeakedAllocations; ++Index)
         {
             LeakedPointers.push_back(FMemory::Malloc(std::rand() % MaxAllocationSize));
         }

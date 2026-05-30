@@ -92,8 +92,7 @@ namespace OloEngine
 
         void Undo() override
         {
-            auto entityOpt = m_Scene->TryGetEntityWithUUID(m_EntityUUID);
-            if (entityOpt)
+            if (auto entityOpt = m_Scene->TryGetEntityWithUUID(m_EntityUUID))
             {
                 m_Scene->DestroyEntity(*entityOpt);
             }
@@ -145,12 +144,10 @@ namespace OloEngine
 
         void Execute() override
         {
-            auto entityOpt = m_Scene->TryGetEntityWithUUID(m_EntityUUID);
-            if (entityOpt)
+            if (auto entityOpt = m_Scene->TryGetEntityWithUUID(m_EntityUUID))
             {
                 // Detach from parent before destroying to keep hierarchy consistent
-                auto parentEntity = entityOpt->GetParent();
-                if (parentEntity)
+                if (auto parentEntity = entityOpt->GetParent())
                 {
                     parentEntity.RemoveChild(*entityOpt);
                 }

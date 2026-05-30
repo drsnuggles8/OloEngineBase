@@ -221,13 +221,12 @@ TEST(AudioEventQueue, MultithreadedProducerConsumer)
             event.m_FrameIndex = eventId;
             event.m_EndpointID = eventId % 10;
 
-            choc::value::Value value = choc::value::createFloat32(eventId * 0.1f);
-            if (event.m_ValueData.CopyFrom(value))
+            if (choc::value::Value value = choc::value::createFloat32(eventId * 0.1f); event.m_ValueData.CopyFrom(value))
             {
                 if (queue.Push(event))
                 {
                     producedCount.fetch_add(1, std::memory_order_relaxed);
-                    eventId++;
+                    ++eventId;
                 }
             }
 
@@ -241,8 +240,7 @@ TEST(AudioEventQueue, MultithreadedProducerConsumer)
                          {
         while (true)
         {
-            AudioThreadEvent event;
-            if (queue.Pop(event))
+            if (AudioThreadEvent event; queue.Pop(event))
             {
                 consumedCount.fetch_add(1, std::memory_order_relaxed);
             }
@@ -254,6 +252,10 @@ TEST(AudioEventQueue, MultithreadedProducerConsumer)
                     consumedCount.fetch_add(1, std::memory_order_relaxed);
                 }
                 break;
+            }
+            else
+            {
+                // No additional handling required.
             }
 
             std::this_thread::sleep_for(std::chrono::microseconds(20));
@@ -295,7 +297,7 @@ TEST(AudioEventQueue, MultithreadedStressTest)
                 if (queue.Push(event))
                 {
                     producedCount.fetch_add(1, std::memory_order_relaxed);
-                    eventId++;
+                    ++eventId;
                 }
                 else
                 {
@@ -323,6 +325,10 @@ TEST(AudioEventQueue, MultithreadedStressTest)
                     consumedCount.fetch_add(1, std::memory_order_relaxed);
                 }
                 break;
+            }
+            else
+            {
+                // No additional handling required.
             }
         } });
 

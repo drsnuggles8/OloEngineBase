@@ -276,6 +276,10 @@ static void EmitStatements(std::ostream& out, const std::string& indent, const s
                             break;
                         }
                     }
+                    else
+                    {
+                        // No additional handling required.
+                    }
                 }
 
                 if (closeParen != std::string::npos && closeParen + 1 < stmt.size())
@@ -357,8 +361,7 @@ static std::vector<ComponentDef> ParseHeaders(const fs::path& scanDir)
     {
         if (!entry.is_regular_file())
             continue;
-        auto ext = entry.path().extension().string();
-        if (ext != ".h" && ext != ".hpp")
+        if (auto ext = entry.path().extension().string(); ext != ".h" && ext != ".hpp")
             continue;
 
         std::ifstream file(entry.path());
@@ -450,14 +453,16 @@ static std::vector<ComponentDef> ParseHeaders(const fs::path& scanDir)
                     insideStruct = !structStack.empty();
                     braceDepth = std::max(braceDepth, 0);
                 }
+                else
+                {
+                    // No additional handling required.
+                }
             }
 
             // Check for OLO_PROPERTY(...) — skip if inside a line comment
-            auto propPos = trimmed.find("OLO_PROPERTY(");
-            if (propPos != std::string::npos)
+            if (auto propPos = trimmed.find("OLO_PROPERTY("); propPos != std::string::npos)
             {
-                auto commentPos = trimmed.find("//");
-                if (commentPos != std::string::npos && commentPos < propPos)
+                if (auto commentPos = trimmed.find("//"); commentPos != std::string::npos && commentPos < propPos)
                 {
                     continue; // OLO_PROPERTY is inside a comment — ignore
                 }
@@ -476,6 +481,9 @@ static std::vector<ComponentDef> ParseHeaders(const fs::path& scanDir)
                             ++depth;
                         else if (content[scanPos] == ')')
                             --depth;
+                        else
+                        { /* No additional handling required. */
+                        }
                         if (depth > 0)
                             ++scanPos;
                     }
@@ -604,9 +612,9 @@ static std::vector<ComponentDef> ParseHeaders(const fs::path& scanDir)
     }
 
     // Sort by component name for deterministic output
-    std::sort(components.begin(), components.end(),
-              [](const ComponentDef& a, const ComponentDef& b)
-              { return a.name < b.name; });
+    std::ranges::sort(components,
+                      [](const ComponentDef& a, const ComponentDef& b)
+                      { return a.name < b.name; });
 
     return components;
 }
@@ -802,9 +810,8 @@ static void EmitCsComponents(std::ostream& out, const std::vector<ComponentDef>&
         {
             auto const& prop = comp.properties[i];
             std::string cs = CsType(prop.type);
-            bool scalar = IsScalar(prop.type);
 
-            if (scalar || prop.type == PropType::String)
+            if (bool scalar = IsScalar(prop.type); scalar || prop.type == PropType::String)
             {
                 out << "\t\tpublic " << cs << " " << prop.scriptName << "\n";
                 out << "\t\t{\n";

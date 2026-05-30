@@ -146,6 +146,8 @@ namespace OloEngine
     // Helper to apply POD render state to the renderer API (skips if same index as last)
     static void ApplyPODRenderState(u16 renderStateIndex, RendererAPI& api)
     {
+        OLO_PROFILE_FUNCTION();
+
         if (renderStateIndex == INVALID_RENDER_STATE_INDEX)
         {
             // Apply safe defaults so no stale GL state persists
@@ -184,6 +186,10 @@ namespace OloEngine
             {
                 api.SetDepthFunc(GL_LEQUAL);
                 api.SetDepthMask(false);
+            }
+            else
+            {
+                // No additional handling required.
             }
             return;
         }
@@ -306,6 +312,10 @@ namespace OloEngine
             api.SetDepthFunc(GL_LEQUAL);
             api.SetDepthMask(false);
         }
+        else
+        {
+            // No additional handling required.
+        }
     }
 
     // Helper: Upload material UBO and bind material textures.
@@ -347,6 +357,8 @@ namespace OloEngine
 
     static void UploadMaterialState(const PODMaterialData& mat, u16 materialDataIndex)
     {
+        OLO_PROFILE_FUNCTION();
+
         const bool sameIndex = (materialDataIndex == s_Data.LastMaterialDataIndex);
         s_Data.LastMaterialDataIndex = materialDataIndex;
 
@@ -387,6 +399,10 @@ namespace OloEngine
                 // point (other subsystems may have overwritten it).
                 BindUBOIfNeeded(ShaderBindingLayout::UBO_MATERIAL, s_Data.MaterialUBO->GetRendererID());
             }
+            else
+            {
+                // No additional handling required.
+            }
 
             // Always rebind textures — an intervening pass (e.g. DecalPass)
             // may have changed texture slots since the last material upload.
@@ -420,6 +436,10 @@ namespace OloEngine
                 // binding point — other subsystems (e.g. ParticleBatchRenderer)
                 // may have overwritten UBO_MATERIAL.
                 BindUBOIfNeeded(ShaderBindingLayout::UBO_MATERIAL, s_Data.MaterialUBO->GetRendererID());
+            }
+            else
+            {
+                // No additional handling required.
             }
 
             if (mat.useTextureMaps)
@@ -531,7 +551,7 @@ namespace OloEngine
     }
 
     // Array of dispatch functions indexed by CommandType
-    static CommandDispatchFn s_DispatchTable[static_cast<sizet>(CommandType::COUNT)];
+    static CommandDispatchFn s_DispatchTable[static_cast<sizet>(std::to_underlying(CommandType::COUNT))];
 
     void CommandDispatch::Initialize()
     {
@@ -541,57 +561,57 @@ namespace OloEngine
         std::ranges::fill(s_DispatchTable, nullptr);
 
         // State management dispatch functions
-        s_DispatchTable[static_cast<sizet>(CommandType::SetViewport)] = CommandDispatch::SetViewport;
-        s_DispatchTable[static_cast<sizet>(CommandType::SetClearColor)] = CommandDispatch::SetClearColor;
-        s_DispatchTable[static_cast<sizet>(CommandType::Clear)] = CommandDispatch::Clear;
-        s_DispatchTable[static_cast<sizet>(CommandType::ClearStencil)] = CommandDispatch::ClearStencil;
-        s_DispatchTable[static_cast<sizet>(CommandType::SetBlendState)] = CommandDispatch::SetBlendState;
-        s_DispatchTable[static_cast<sizet>(CommandType::SetBlendFunc)] = CommandDispatch::SetBlendFunc;
-        s_DispatchTable[static_cast<sizet>(CommandType::SetBlendEquation)] = CommandDispatch::SetBlendEquation;
-        s_DispatchTable[static_cast<sizet>(CommandType::SetDepthTest)] = CommandDispatch::SetDepthTest;
-        s_DispatchTable[static_cast<sizet>(CommandType::SetDepthMask)] = CommandDispatch::SetDepthMask;
-        s_DispatchTable[static_cast<sizet>(CommandType::SetDepthFunc)] = CommandDispatch::SetDepthFunc;
-        s_DispatchTable[static_cast<sizet>(CommandType::SetStencilTest)] = CommandDispatch::SetStencilTest;
-        s_DispatchTable[static_cast<sizet>(CommandType::SetStencilFunc)] = CommandDispatch::SetStencilFunc;
-        s_DispatchTable[static_cast<sizet>(CommandType::SetStencilMask)] = CommandDispatch::SetStencilMask;
-        s_DispatchTable[static_cast<sizet>(CommandType::SetStencilOp)] = CommandDispatch::SetStencilOp;
-        s_DispatchTable[static_cast<sizet>(CommandType::SetCulling)] = CommandDispatch::SetCulling;
-        s_DispatchTable[static_cast<sizet>(CommandType::SetCullFace)] = CommandDispatch::SetCullFace;
-        s_DispatchTable[static_cast<sizet>(CommandType::SetLineWidth)] = CommandDispatch::SetLineWidth;
-        s_DispatchTable[static_cast<sizet>(CommandType::SetPolygonMode)] = CommandDispatch::SetPolygonMode;
-        s_DispatchTable[static_cast<sizet>(CommandType::SetPolygonOffset)] = CommandDispatch::SetPolygonOffset;
-        s_DispatchTable[static_cast<sizet>(CommandType::SetScissorTest)] = CommandDispatch::SetScissorTest;
-        s_DispatchTable[static_cast<sizet>(CommandType::SetScissorBox)] = CommandDispatch::SetScissorBox;
-        s_DispatchTable[static_cast<sizet>(CommandType::SetColorMask)] = CommandDispatch::SetColorMask;
-        s_DispatchTable[static_cast<sizet>(CommandType::SetMultisampling)] = CommandDispatch::SetMultisampling;
+        s_DispatchTable[static_cast<sizet>(std::to_underlying(CommandType::SetViewport))] = CommandDispatch::SetViewport;
+        s_DispatchTable[static_cast<sizet>(std::to_underlying(CommandType::SetClearColor))] = CommandDispatch::SetClearColor;
+        s_DispatchTable[static_cast<sizet>(std::to_underlying(CommandType::Clear))] = CommandDispatch::Clear;
+        s_DispatchTable[static_cast<sizet>(std::to_underlying(CommandType::ClearStencil))] = CommandDispatch::ClearStencil;
+        s_DispatchTable[static_cast<sizet>(std::to_underlying(CommandType::SetBlendState))] = CommandDispatch::SetBlendState;
+        s_DispatchTable[static_cast<sizet>(std::to_underlying(CommandType::SetBlendFunc))] = CommandDispatch::SetBlendFunc;
+        s_DispatchTable[static_cast<sizet>(std::to_underlying(CommandType::SetBlendEquation))] = CommandDispatch::SetBlendEquation;
+        s_DispatchTable[static_cast<sizet>(std::to_underlying(CommandType::SetDepthTest))] = CommandDispatch::SetDepthTest;
+        s_DispatchTable[static_cast<sizet>(std::to_underlying(CommandType::SetDepthMask))] = CommandDispatch::SetDepthMask;
+        s_DispatchTable[static_cast<sizet>(std::to_underlying(CommandType::SetDepthFunc))] = CommandDispatch::SetDepthFunc;
+        s_DispatchTable[static_cast<sizet>(std::to_underlying(CommandType::SetStencilTest))] = CommandDispatch::SetStencilTest;
+        s_DispatchTable[static_cast<sizet>(std::to_underlying(CommandType::SetStencilFunc))] = CommandDispatch::SetStencilFunc;
+        s_DispatchTable[static_cast<sizet>(std::to_underlying(CommandType::SetStencilMask))] = CommandDispatch::SetStencilMask;
+        s_DispatchTable[static_cast<sizet>(std::to_underlying(CommandType::SetStencilOp))] = CommandDispatch::SetStencilOp;
+        s_DispatchTable[static_cast<sizet>(std::to_underlying(CommandType::SetCulling))] = CommandDispatch::SetCulling;
+        s_DispatchTable[static_cast<sizet>(std::to_underlying(CommandType::SetCullFace))] = CommandDispatch::SetCullFace;
+        s_DispatchTable[static_cast<sizet>(std::to_underlying(CommandType::SetLineWidth))] = CommandDispatch::SetLineWidth;
+        s_DispatchTable[static_cast<sizet>(std::to_underlying(CommandType::SetPolygonMode))] = CommandDispatch::SetPolygonMode;
+        s_DispatchTable[static_cast<sizet>(std::to_underlying(CommandType::SetPolygonOffset))] = CommandDispatch::SetPolygonOffset;
+        s_DispatchTable[static_cast<sizet>(std::to_underlying(CommandType::SetScissorTest))] = CommandDispatch::SetScissorTest;
+        s_DispatchTable[static_cast<sizet>(std::to_underlying(CommandType::SetScissorBox))] = CommandDispatch::SetScissorBox;
+        s_DispatchTable[static_cast<sizet>(std::to_underlying(CommandType::SetColorMask))] = CommandDispatch::SetColorMask;
+        s_DispatchTable[static_cast<sizet>(std::to_underlying(CommandType::SetMultisampling))] = CommandDispatch::SetMultisampling;
 
         // Draw commands dispatch functions
-        s_DispatchTable[static_cast<sizet>(CommandType::BindDefaultFramebuffer)] = CommandDispatch::BindDefaultFramebuffer;
-        s_DispatchTable[static_cast<sizet>(CommandType::BindTexture)] = CommandDispatch::BindTexture;
-        s_DispatchTable[static_cast<sizet>(CommandType::SetShaderResource)] = CommandDispatch::SetShaderResource;
-        s_DispatchTable[static_cast<sizet>(CommandType::DrawIndexed)] = CommandDispatch::DrawIndexed;
-        s_DispatchTable[static_cast<sizet>(CommandType::DrawIndexedInstanced)] = CommandDispatch::DrawIndexedInstanced;
-        s_DispatchTable[static_cast<sizet>(CommandType::DrawArrays)] = CommandDispatch::DrawArrays;
-        s_DispatchTable[static_cast<sizet>(CommandType::DrawLines)] = CommandDispatch::DrawLines;
+        s_DispatchTable[static_cast<sizet>(std::to_underlying(CommandType::BindDefaultFramebuffer))] = CommandDispatch::BindDefaultFramebuffer;
+        s_DispatchTable[static_cast<sizet>(std::to_underlying(CommandType::BindTexture))] = CommandDispatch::BindTexture;
+        s_DispatchTable[static_cast<sizet>(std::to_underlying(CommandType::SetShaderResource))] = CommandDispatch::SetShaderResource;
+        s_DispatchTable[static_cast<sizet>(std::to_underlying(CommandType::DrawIndexed))] = CommandDispatch::DrawIndexed;
+        s_DispatchTable[static_cast<sizet>(std::to_underlying(CommandType::DrawIndexedInstanced))] = CommandDispatch::DrawIndexedInstanced;
+        s_DispatchTable[static_cast<sizet>(std::to_underlying(CommandType::DrawArrays))] = CommandDispatch::DrawArrays;
+        s_DispatchTable[static_cast<sizet>(std::to_underlying(CommandType::DrawLines))] = CommandDispatch::DrawLines;
         // Higher-level commands
-        s_DispatchTable[static_cast<sizet>(CommandType::DrawMesh)] = CommandDispatch::DrawMesh;
-        s_DispatchTable[static_cast<sizet>(CommandType::DrawMeshInstanced)] = CommandDispatch::DrawMeshInstanced;
-        s_DispatchTable[static_cast<sizet>(CommandType::DrawSkybox)] = CommandDispatch::DrawSkybox;
-        s_DispatchTable[static_cast<sizet>(CommandType::DrawInfiniteGrid)] = CommandDispatch::DrawInfiniteGrid;
-        s_DispatchTable[static_cast<sizet>(CommandType::DrawQuad)] = CommandDispatch::DrawQuad;
+        s_DispatchTable[static_cast<sizet>(std::to_underlying(CommandType::DrawMesh))] = CommandDispatch::DrawMesh;
+        s_DispatchTable[static_cast<sizet>(std::to_underlying(CommandType::DrawMeshInstanced))] = CommandDispatch::DrawMeshInstanced;
+        s_DispatchTable[static_cast<sizet>(std::to_underlying(CommandType::DrawSkybox))] = CommandDispatch::DrawSkybox;
+        s_DispatchTable[static_cast<sizet>(std::to_underlying(CommandType::DrawInfiniteGrid))] = CommandDispatch::DrawInfiniteGrid;
+        s_DispatchTable[static_cast<sizet>(std::to_underlying(CommandType::DrawQuad))] = CommandDispatch::DrawQuad;
 
         // Terrain/Voxel commands
-        s_DispatchTable[static_cast<sizet>(CommandType::DrawTerrainPatch)] = CommandDispatch::DrawTerrainPatch;
-        s_DispatchTable[static_cast<sizet>(CommandType::DrawVoxelMesh)] = CommandDispatch::DrawVoxelMesh;
+        s_DispatchTable[static_cast<sizet>(std::to_underlying(CommandType::DrawTerrainPatch))] = CommandDispatch::DrawTerrainPatch;
+        s_DispatchTable[static_cast<sizet>(std::to_underlying(CommandType::DrawVoxelMesh))] = CommandDispatch::DrawVoxelMesh;
 
         // Decal commands
-        s_DispatchTable[static_cast<sizet>(CommandType::DrawDecal)] = CommandDispatch::DrawDecal;
+        s_DispatchTable[static_cast<sizet>(std::to_underlying(CommandType::DrawDecal))] = CommandDispatch::DrawDecal;
 
         // Foliage commands
-        s_DispatchTable[static_cast<sizet>(CommandType::DrawFoliageLayer)] = CommandDispatch::DrawFoliageLayer;
+        s_DispatchTable[static_cast<sizet>(std::to_underlying(CommandType::DrawFoliageLayer))] = CommandDispatch::DrawFoliageLayer;
 
         // Water commands
-        s_DispatchTable[static_cast<sizet>(CommandType::DrawWater)] = CommandDispatch::DrawWater;
+        s_DispatchTable[static_cast<sizet>(std::to_underlying(CommandType::DrawWater))] = CommandDispatch::DrawWater;
 
         ResetState();
 
@@ -838,13 +858,13 @@ namespace OloEngine
 
     CommandDispatchFn CommandDispatch::GetDispatchFunction(CommandType type)
     {
-        if (type == CommandType::Invalid || static_cast<sizet>(type) >= static_cast<sizet>(CommandType::COUNT))
+        if (type == CommandType::Invalid || static_cast<sizet>(std::to_underlying(type)) >= static_cast<sizet>(std::to_underlying(CommandType::COUNT)))
         {
             OLO_CORE_ERROR("CommandDispatch::GetDispatchFunction: Invalid command type {}", static_cast<int>(type));
             return nullptr;
         }
 
-        return s_DispatchTable[static_cast<sizet>(type)];
+        return s_DispatchTable[static_cast<sizet>(std::to_underlying(type))];
     }
 
     void CommandDispatch::SetViewport(const void* data, RendererAPI& api)
@@ -1106,8 +1126,7 @@ namespace OloEngine
         // Validate POD renderer IDs
         if (cmd->vertexArrayID == 0 || mat.shaderRendererID == 0)
         {
-            static std::atomic<u64> s_InvalidDrawMeshLogCount{ 0 };
-            if (s_InvalidDrawMeshLogCount.fetch_add(1, std::memory_order_relaxed) < 16)
+            if (static std::atomic<u64> s_InvalidDrawMeshLogCount{ 0 }; s_InvalidDrawMeshLogCount.fetch_add(1, std::memory_order_relaxed) < 16)
             {
                 OLO_CORE_WARN("CommandDispatch::DrawMesh: Skipping draw with invalid IDs (VAO={}, Shader={})",
                               cmd->vertexArrayID, mat.shaderRendererID);
@@ -1249,8 +1268,7 @@ namespace OloEngine
         // Validate POD renderer IDs
         if (cmd->vertexArrayID == 0 || mat.shaderRendererID == 0)
         {
-            static std::atomic<u64> s_InvalidDrawMeshInstancedLogCount{ 0 };
-            if (s_InvalidDrawMeshInstancedLogCount.fetch_add(1, std::memory_order_relaxed) < 16)
+            if (static std::atomic<u64> s_InvalidDrawMeshInstancedLogCount{ 0 }; s_InvalidDrawMeshInstancedLogCount.fetch_add(1, std::memory_order_relaxed) < 16)
             {
                 OLO_CORE_WARN("CommandDispatch::DrawMeshInstanced: Skipping draw with invalid IDs (VAO={}, Shader={})",
                               cmd->vertexArrayID, mat.shaderRendererID);
@@ -1288,8 +1306,7 @@ namespace OloEngine
         // surviving count into `cullIndirectBufferID`. Skip the FrameDataBuffer
         // -> InstanceData scratch loop and the upload; bind the pre-populated
         // output buffer at SSBO_INSTANCE_DATA and draw indirect.
-        const bool useGPUCull = cmd->cullIndirectBufferID != 0 && cmd->cullOutputInstanceBufferID != 0;
-        if (useGPUCull)
+        if (const bool useGPUCull = cmd->cullIndirectBufferID != 0 && cmd->cullOutputInstanceBufferID != 0; useGPUCull)
         {
             // Rebind slot 15 to the per-submission output buffer. The engine-
             // wide `s_Data.ModelInstanceBuffer` is unchanged so it can be
@@ -1613,8 +1630,7 @@ namespace OloEngine
         }
 
         // Set grid scale uniform if the shader supports it
-        GLint gridScaleLoc = glGetUniformLocation(cmd->shaderRendererID, "u_GridScale");
-        if (gridScaleLoc != -1)
+        if (GLint gridScaleLoc = glGetUniformLocation(cmd->shaderRendererID, "u_GridScale"); gridScaleLoc != -1)
         {
             glUniform1f(gridScaleLoc, cmd->gridScale);
         }
@@ -1703,8 +1719,7 @@ namespace OloEngine
         }
 
         // Upload terrain UBO (per-chunk data with tess factors)
-        auto terrainUBO = Renderer3D::GetTerrainUBO();
-        if (terrainUBO)
+        if (auto terrainUBO = Renderer3D::GetTerrainUBO(); terrainUBO)
         {
             terrainUBO->SetData(&cmd->terrainUBOData, ShaderBindingLayout::TerrainUBO::GetSize());
             glBindBufferBase(GL_UNIFORM_BUFFER, ShaderBindingLayout::UBO_TERRAIN, terrainUBO->GetRendererID());
@@ -1915,8 +1930,7 @@ namespace OloEngine
         }
 
         // Upload decal UBO
-        auto decalUBO = Renderer3D::GetDecalUBO();
-        if (decalUBO)
+        if (auto decalUBO = Renderer3D::GetDecalUBO(); decalUBO)
         {
             ShaderBindingLayout::DecalUBO decalData{};
             decalData.InverseDecalTransform = cmd->inverseDecalTransform;
@@ -1999,8 +2013,7 @@ namespace OloEngine
         }
 
         // Upload foliage UBO (per-layer parameters)
-        auto foliageUBO = Renderer3D::GetFoliageUBO();
-        if (foliageUBO)
+        if (auto foliageUBO = Renderer3D::GetFoliageUBO(); foliageUBO)
         {
             ShaderBindingLayout::FoliageUBO foliageData{};
             foliageData.Time = cmd->time;
@@ -2067,8 +2080,7 @@ namespace OloEngine
         }
 
         // Upload water UBO
-        auto waterUBO = Renderer3D::GetWaterUBO();
-        if (waterUBO)
+        if (auto waterUBO = Renderer3D::GetWaterUBO(); waterUBO)
         {
             const f32 viewportWidth = static_cast<f32>(s_Data.CurrentViewportWidth);
             const f32 viewportHeight = static_cast<f32>(s_Data.CurrentViewportHeight);

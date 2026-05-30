@@ -342,7 +342,7 @@ namespace OloEngine::Audio::DSP
         auto [it, success] = m_Sources.try_emplace(sourceID);
         auto& source = it->second;
 
-        auto abortIfFailed = [&](ma_result result, [[maybe_unused]] const char* errorMessage)
+        auto abortIfFailed = [this, &sourceID](ma_result result, [[maybe_unused]] const char* errorMessage)
         {
             if (result != MA_SUCCESS)
             {
@@ -353,7 +353,7 @@ namespace OloEngine::Audio::DSP
             return false;
         };
 
-        auto* allocationCallbacks = &m_Engine->pResourceManager->config.allocationCallbacks;
+        const auto* allocationCallbacks = &m_Engine->pResourceManager->config.allocationCallbacks;
 
         // Base node setup
         source.InternalChannelCount = 4; // Quad virtual speaker layout
@@ -416,9 +416,9 @@ namespace OloEngine::Audio::DSP
 
         // Initialize VBAP
         source.SpatializerNode.vbap = CreateScope<VBAPData>();
-        bool res = VBAP::InitVBAP(source.SpatializerNode.vbap.get(), sourceChannels, source.InternalChannelCount,
-                                  source.SourceChannelMap, source.InternalChannelMap);
-        if (abortIfFailed(res ? MA_SUCCESS : MA_INVALID_ARGS, "VBAP init failed"))
+        if (bool res = VBAP::InitVBAP(source.SpatializerNode.vbap.get(), sourceChannels, source.InternalChannelCount,
+                                      source.SourceChannelMap, source.InternalChannelMap);
+            abortIfFailed(res ? MA_SUCCESS : MA_INVALID_ARGS, "VBAP init failed"))
         {
             return false;
         }
@@ -474,7 +474,7 @@ namespace OloEngine::Audio::DSP
         {
             ma_node_set_state(&source.SpatializerNode, ma_node_state_stopped);
 
-            auto* allocationCallbacks = &m_Engine->pResourceManager->config.allocationCallbacks;
+            const auto* allocationCallbacks = &m_Engine->pResourceManager->config.allocationCallbacks;
             if (!allocationCallbacks->onFree)
             {
                 allocationCallbacks = nullptr;
@@ -570,6 +570,8 @@ namespace OloEngine::Audio::DSP
 
     void Spatializer::UpdateListener(const Audio::Transform& transform, glm::vec3 velocity)
     {
+        OLO_PROFILE_FUNCTION();
+
         m_ListenerTransform = transform;
         m_ListenerVelocity = velocity;
 
@@ -619,14 +621,14 @@ namespace OloEngine::Audio::DSP
         }
 
         // Update attenuation + VBAP for all sources
-        std::for_each(m_Sources.begin(), m_Sources.end(),
-                      [&](std::pair<const u32, Source>& pair)
-                      {
-                          auto& source = pair.second;
-                          UpdatePositionalData(source, &m_Engine->listeners[0], m_ListenerVelocity);
-                          UpdateVBAP(source);
-                          FlagRealtimeForUpdate(source);
-                      });
+        std::ranges::for_each(m_Sources,
+                              [this](std::pair<const u32, Source>& pair)
+                              {
+                                  auto& source = pair.second;
+                                  UpdatePositionalData(source, &m_Engine->listeners[0], m_ListenerVelocity);
+                                  UpdateVBAP(source);
+                                  FlagRealtimeForUpdate(source);
+                              });
     }
 
 } // namespace OloEngine::Audio::DSP

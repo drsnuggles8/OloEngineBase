@@ -58,8 +58,7 @@ namespace OloEngine
     std::optional<CapturedFrameData> FrameCaptureManager::GetSelectedFrame() const
     {
         TUniqueLock<FMutex> lock(m_Mutex);
-        i32 idx = m_SelectedFrameIndex.load(std::memory_order_acquire);
-        if (idx >= 0 && idx < static_cast<i32>(m_CapturedFrames.size()))
+        if (i32 idx = m_SelectedFrameIndex.load(std::memory_order_acquire); idx >= 0 && idx < static_cast<i32>(m_CapturedFrames.size()))
         {
             return m_CapturedFrames[idx];
         }
@@ -144,17 +143,20 @@ namespace OloEngine
         for (const auto& cmd : finalCommands)
         {
             if (cmd.IsDrawCommand())
-                drawCalls++;
+                ++drawCalls;
             else if (cmd.IsStateCommand())
-                stateChanges++;
+                ++stateChanges;
+            else
+            {
+                // No additional handling required.
+            }
         }
         m_PendingFrame.Stats.DrawCalls = drawCalls;
         m_PendingFrame.Stats.StateChanges = stateChanges;
 
         // Populate GPU timing from the previous frame's readback
         // (GPU timer uses double-buffered queries; results lag by one frame)
-        auto& gpuTimer = GPUTimerQueryPool::GetInstance();
-        if (gpuTimer.IsInitialized() && gpuTimer.GetReadableQueryCount() > 0)
+        if (const auto& gpuTimer = GPUTimerQueryPool::GetInstance(); gpuTimer.IsInitialized() && gpuTimer.GetReadableQueryCount() > 0)
         {
             // Apply to post-sort commands (the execution order)
             auto& timedCommands = m_HasPendingPostBatch
@@ -177,7 +179,7 @@ namespace OloEngine
         // Snapshot render state and material data tables so the debugger can inspect
         // the exact data from this frame rather than reading the live FrameDataBuffer.
         {
-            auto& fdb = FrameDataBufferManager::Get();
+            const auto& fdb = FrameDataBufferManager::Get();
             u16 rsCount = fdb.GetRenderStateCount();
             m_PendingFrame.RenderStateSnapshot.resize(rsCount);
             for (u16 i = 0; i < rsCount; ++i)
@@ -225,7 +227,7 @@ namespace OloEngine
 
     void FrameCaptureManager::DeepCopyCommands(const CommandBucket& bucket,
                                                std::vector<CapturedCommandData>& outCommands,
-                                               bool useSortedOrder)
+                                               bool useSortedOrder) const
     {
         OLO_PROFILE_FUNCTION();
         outCommands.clear();

@@ -65,6 +65,10 @@ namespace OloEngine
                     OnGamepadDisconnected(i);
                 }
             }
+            else
+            {
+                // No additional handling required.
+            }
             s_WasConnected[i] = nowConnected;
 
             if (s_Gamepads[i].HadInputThisFrame())
@@ -93,6 +97,10 @@ namespace OloEngine
                     OnDeviceChanged(s_ActiveDevice);
                 }
             }
+        }
+        else
+        {
+            // No additional handling required.
         }
         s_HadKeyboardMouseInput = false;
     }

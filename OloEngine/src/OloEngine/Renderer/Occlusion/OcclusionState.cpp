@@ -66,7 +66,7 @@ namespace OloEngine
             return;
 
         // Prevent duplicate free
-        if (std::find(m_FreeQueryIndices.begin(), m_FreeQueryIndices.end(), index) != m_FreeQueryIndices.end())
+        if (std::ranges::find(m_FreeQueryIndices, index) != m_FreeQueryIndices.end())
             return;
 
         m_FreeQueryIndices.push_back(index);
@@ -80,6 +80,6 @@ namespace OloEngine
     void OcclusionStateManager::BeginFrame()
     {
         OLO_PROFILE_FUNCTION();
-        m_CurrentFrame++;
+        ++m_CurrentFrame;
     }
 } // namespace OloEngine

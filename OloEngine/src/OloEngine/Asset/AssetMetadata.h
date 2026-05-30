@@ -10,6 +10,7 @@
 #include <array>
 #include <algorithm>
 #include <cctype>
+#include <utility>
 
 namespace OloEngine
 {
@@ -165,16 +166,16 @@ namespace OloEngine
                 "Invalid"     // AssetStatus::Invalid = 6
             };
 
-            const auto index = static_cast<std::size_t>(status);
+            const auto index = static_cast<std::size_t>(std::to_underlying(status));
             return (index < statusStrings.size()) ? statusStrings[index] : "Unknown";
         }
 
         inline AssetStatus AssetStatusFromString(const std::string& statusStr)
         {
             std::string lowerStr = statusStr;
-            std::transform(lowerStr.begin(), lowerStr.end(), lowerStr.begin(),
-                           [](unsigned char c)
-                           { return std::tolower(c); });
+            std::ranges::transform(lowerStr, lowerStr.begin(),
+                                   [](unsigned char c)
+                                   { return std::tolower(c); });
 
             if (lowerStr == "none")
                 return AssetStatus::None;

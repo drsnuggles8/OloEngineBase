@@ -18,7 +18,7 @@ namespace OloEngine
         {
             return AssetType::None;
         }
-        virtual AssetType GetAssetType() const override = 0;
+        AssetType GetAssetType() const override = 0;
 
       protected:
         RendererResource() = default;

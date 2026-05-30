@@ -193,8 +193,10 @@ namespace OloEngine
         DrawContextMenu(canvasOrigin);
     }
 
-    void DialogueEditorPanel::DrawGrid(ImDrawList* drawList, const ImVec2& canvasOrigin, const ImVec2& canvasSize)
+    void DialogueEditorPanel::DrawGrid(ImDrawList* drawList, const ImVec2& canvasOrigin, const ImVec2& canvasSize) const
     {
+        OLO_PROFILE_FUNCTION();
+
         f32 const gridStep = s_GridSize * m_Zoom;
         ImU32 const gridColorMajor = IM_COL32(60, 60, 65, 200);
         ImU32 const gridColorMinor = IM_COL32(45, 45, 50, 200);
@@ -289,7 +291,7 @@ namespace OloEngine
             // Show speaker + text excerpt
             if (auto it = node.Properties.find("speaker"); it != node.Properties.end())
             {
-                if (auto* str = std::get_if<std::string>(&it->second))
+                if (const auto* str = std::get_if<std::string>(&it->second))
                 {
                     drawList->AddText(nullptr, 11.0f * m_Zoom,
                                       ImVec2(nodePos.x + s_NodePadding * m_Zoom, contentY),
@@ -299,7 +301,7 @@ namespace OloEngine
             }
             if (auto it = node.Properties.find("text"); it != node.Properties.end())
             {
-                if (auto* str = std::get_if<std::string>(&it->second))
+                if (const auto* str = std::get_if<std::string>(&it->second))
                 {
                     std::string preview = *str;
                     if (preview.size() > 35)
@@ -314,7 +316,7 @@ namespace OloEngine
         {
             if (auto it = node.Properties.find("conditionExpression"); it != node.Properties.end())
             {
-                if (auto* str = std::get_if<std::string>(&it->second))
+                if (const auto* str = std::get_if<std::string>(&it->second))
                 {
                     std::string label = "if: " + *str;
                     drawList->AddText(nullptr, 11.0f * m_Zoom,
@@ -327,7 +329,7 @@ namespace OloEngine
         {
             if (auto it = node.Properties.find("actionName"); it != node.Properties.end())
             {
-                if (auto* str = std::get_if<std::string>(&it->second))
+                if (const auto* str = std::get_if<std::string>(&it->second))
                 {
                     std::string label = "do: " + *str;
                     drawList->AddText(nullptr, 11.0f * m_Zoom,
@@ -335,6 +337,10 @@ namespace OloEngine
                                       IM_COL32(255, 180, 150, 220), label.c_str());
                 }
             }
+        }
+        else
+        {
+            // No additional handling required.
         }
 
         // Draw ports
@@ -895,7 +901,7 @@ namespace OloEngine
                             conn.SourcePort = ResolveSourcePort(m_ConnectionStartPort, m_ConnectionStartNodeID);
                             conn.TargetPort = port.Name;
                             // Prevent duplicate connections
-                            bool duplicate = std::ranges::any_of(m_Connections, [&](const auto& c)
+                            bool duplicate = std::ranges::any_of(m_Connections, [&conn](const auto& c)
                                                                  { return c.SourceNodeID == conn.SourceNodeID && c.SourcePort == conn.SourcePort && c.TargetNodeID == conn.TargetNodeID && c.TargetPort == conn.TargetPort; });
                             if (!duplicate)
                             {
@@ -912,7 +918,7 @@ namespace OloEngine
                             conn.SourcePort = ResolveSourcePort(port.Name, port.NodeID);
                             conn.TargetPort = m_ConnectionStartPort;
                             // Prevent duplicate connections
-                            bool duplicate = std::ranges::any_of(m_Connections, [&](const auto& c)
+                            bool duplicate = std::ranges::any_of(m_Connections, [&conn](const auto& c)
                                                                  { return c.SourceNodeID == conn.SourceNodeID && c.SourcePort == conn.SourcePort && c.TargetNodeID == conn.TargetNodeID && c.TargetPort == conn.TargetPort; });
                             if (!duplicate)
                             {
@@ -920,6 +926,10 @@ namespace OloEngine
                                 m_IsDirty = true;
                             }
                             connected = true;
+                        }
+                        else
+                        {
+                            // No additional handling required.
                         }
                         break;
                     }
@@ -1062,8 +1072,7 @@ namespace OloEngine
         ImGui::Text("ID: %llu", static_cast<unsigned long long>(node.ID));
 
         // Root node toggle
-        bool isRoot = (node.ID == m_RootNodeID);
-        if (ImGui::Checkbox("Root Node", &isRoot))
+        if (bool isRoot = (node.ID == m_RootNodeID); ImGui::Checkbox("Root Node", &isRoot))
         {
             if (isRoot)
             {
@@ -1082,7 +1091,7 @@ namespace OloEngine
             std::string speaker;
             if (auto it = node.Properties.find("speaker"); it != node.Properties.end())
             {
-                if (auto* str = std::get_if<std::string>(&it->second))
+                if (const auto* str = std::get_if<std::string>(&it->second))
                     speaker = *str;
             }
             char speakerBuf[256];
@@ -1098,7 +1107,7 @@ namespace OloEngine
             std::string text;
             if (auto it = node.Properties.find("text"); it != node.Properties.end())
             {
-                if (auto* str = std::get_if<std::string>(&it->second))
+                if (const auto* str = std::get_if<std::string>(&it->second))
                     text = *str;
             }
             char textBuf[4096];
@@ -1115,7 +1124,7 @@ namespace OloEngine
             std::string expr;
             if (auto it = node.Properties.find("conditionExpression"); it != node.Properties.end())
             {
-                if (auto* str = std::get_if<std::string>(&it->second))
+                if (const auto* str = std::get_if<std::string>(&it->second))
                     expr = *str;
             }
             char exprBuf[512];
@@ -1130,7 +1139,7 @@ namespace OloEngine
             std::string condArgs;
             if (auto it = node.Properties.find("conditionArgs"); it != node.Properties.end())
             {
-                if (auto* str = std::get_if<std::string>(&it->second))
+                if (const auto* str = std::get_if<std::string>(&it->second))
                     condArgs = *str;
             }
             char condArgsBuf[512];
@@ -1149,7 +1158,7 @@ namespace OloEngine
             std::string actionName;
             if (auto it = node.Properties.find("actionName"); it != node.Properties.end())
             {
-                if (auto* str = std::get_if<std::string>(&it->second))
+                if (const auto* str = std::get_if<std::string>(&it->second))
                     actionName = *str;
             }
             char actionBuf[256];
@@ -1164,7 +1173,7 @@ namespace OloEngine
             std::string actionArgs;
             if (auto it = node.Properties.find("actionArgs"); it != node.Properties.end())
             {
-                if (auto* str = std::get_if<std::string>(&it->second))
+                if (const auto* str = std::get_if<std::string>(&it->second))
                     actionArgs = *str;
             }
             char argsBuf[512];
@@ -1191,8 +1200,7 @@ namespace OloEngine
 
                 char labelBuf[256];
                 std::snprintf(labelBuf, sizeof(labelBuf), "%s", conn.SourcePort.c_str());
-                std::string inputLabel = "##choice_" + std::to_string(static_cast<u64>(conn.TargetNodeID));
-                if (ImGui::InputText(inputLabel.c_str(), labelBuf, sizeof(labelBuf)))
+                if (std::string inputLabel = "##choice_" + std::to_string(static_cast<u64>(conn.TargetNodeID)); ImGui::InputText(inputLabel.c_str(), labelBuf, sizeof(labelBuf)))
                 {
                     conn.SourcePort = labelBuf;
                     m_IsDirty = true;
@@ -1217,6 +1225,10 @@ namespace OloEngine
                     break; // Iterator invalidated
                 }
             }
+        }
+        else
+        {
+            // No additional handling required.
         }
 
         // Position
@@ -1254,8 +1266,7 @@ namespace OloEngine
 
                 ImGui::Text("%s", label.c_str());
                 ImGui::SameLine();
-                std::string delLabel = "X##conn_" + std::to_string(connIdx);
-                if (ImGui::SmallButton(delLabel.c_str()))
+                if (std::string delLabel = "X##conn_" + std::to_string(connIdx); ImGui::SmallButton(delLabel.c_str()))
                 {
                     DeleteConnection(i);
                     break;
@@ -1360,6 +1371,10 @@ namespace OloEngine
                 }
             }
         }
+        else
+        {
+            // No additional handling required.
+        }
 
         ImGui::Spacing();
         if (ImGui::Button("Restart", ImVec2(-1, 0)))
@@ -1410,12 +1425,12 @@ namespace OloEngine
 
             if (auto it = node->Properties.find("speaker"); it != node->Properties.end())
             {
-                if (auto* str = std::get_if<std::string>(&it->second))
+                if (const auto* str = std::get_if<std::string>(&it->second))
                     m_PreviewCurrentSpeaker = *str;
             }
             if (auto it = node->Properties.find("text"); it != node->Properties.end())
             {
-                if (auto* str = std::get_if<std::string>(&it->second))
+                if (const auto* str = std::get_if<std::string>(&it->second))
                     m_PreviewCurrentText = *str;
             }
         }
@@ -1438,7 +1453,7 @@ namespace OloEngine
             std::string conditionName;
             if (auto it = node->Properties.find("conditionExpression"); it != node->Properties.end())
             {
-                if (auto* str = std::get_if<std::string>(&it->second))
+                if (const auto* str = std::get_if<std::string>(&it->second))
                     conditionName = *str;
             }
 
@@ -1491,7 +1506,7 @@ namespace OloEngine
             std::string actionName;
             if (auto it = node->Properties.find("actionName"); it != node->Properties.end())
             {
-                if (auto* str = std::get_if<std::string>(&it->second))
+                if (const auto* str = std::get_if<std::string>(&it->second))
                     actionName = *str;
             }
 
@@ -1500,6 +1515,10 @@ namespace OloEngine
             m_PreviewChoices.clear();
 
             // Auto-advance past action nodes after display
+        }
+        else
+        {
+            // No additional handling required.
         }
     }
 
@@ -1636,6 +1655,10 @@ namespace OloEngine
                     {
                         out << YAML::Key << "type" << YAML::Value << "string";
                         out << YAML::Key << "value" << YAML::Value << arg;
+                    }
+                    else
+                    {
+                        // No additional handling required.
                     } }, value);
 
                 out << YAML::EndMap;
@@ -1806,8 +1829,7 @@ namespace OloEngine
         // Create a default start node
         m_RootNodeID = CreateNode("dialogue", { 100.0f, 200.0f });
 
-        auto* startNode = FindNodeMutable(m_RootNodeID);
-        if (startNode)
+        if (auto* startNode = FindNodeMutable(m_RootNodeID); startNode)
         {
             startNode->Name = "Start";
             startNode->Properties["speaker"] = std::string("NPC");
@@ -1852,6 +1874,10 @@ namespace OloEngine
             node.Name = "Action " + std::to_string(static_cast<u64>(id));
             node.Properties["actionName"] = std::string("");
             node.Properties["actionArgs"] = std::string("");
+        }
+        else
+        {
+            // No additional handling required.
         }
 
         m_Nodes.push_back(std::move(node));
@@ -1930,8 +1956,7 @@ namespace OloEngine
         UUID newID = CreateNode(srcType, srcPos);
         m_CommandHistory = savedHistory;
 
-        auto* newNode = FindNodeMutable(newID);
-        if (newNode)
+        if (auto* newNode = FindNodeMutable(newID); newNode)
         {
             newNode->Name = std::move(srcName);
             newNode->Properties = std::move(srcProperties);
@@ -2006,7 +2031,7 @@ namespace OloEngine
         if (portName == "out" || portName == "true" || portName == "false")
         {
             std::erase_if(m_Connections,
-                          [&](const DialogueConnection& c)
+                          [&sourceNodeID, &portName](const DialogueConnection& c)
                           { return c.SourceNodeID == sourceNodeID && c.SourcePort == portName; });
         }
 

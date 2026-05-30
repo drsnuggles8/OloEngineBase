@@ -17,6 +17,7 @@
 #include <algorithm>
 #include <cmath>
 #include <numbers>
+#include <utility>
 #include <vector>
 
 namespace OloEngine
@@ -79,7 +80,7 @@ namespace OloEngine
         constexpr f32 center = static_cast<f32>(texSize) * 0.5f;
         constexpr f32 invRadius = 1.0f / center;
 
-        auto createTex = [&](auto pixelGen) -> Ref<Texture2D>
+        auto createTex = [&texSize](auto pixelGen) -> Ref<Texture2D>
         {
             std::vector<u32> pixels(texSize * texSize);
             for (u32 y = 0; y < texSize; ++y)
@@ -103,7 +104,7 @@ namespace OloEngine
         };
 
         // Snow: soft radial with 6-fold crystalline modulation
-        s_Data.m_SnowflakeTexture = createTex([&](u32 x, u32 y) -> u32
+        s_Data.m_SnowflakeTexture = createTex([&center, &invRadius](u32 x, u32 y) -> u32
                                               {
             f32 dx = (static_cast<f32>(x) + 0.5f - center) * invRadius;
             f32 dy = (static_cast<f32>(y) + 0.5f - center) * invRadius;
@@ -116,7 +117,7 @@ namespace OloEngine
             return (static_cast<u32>(a) << 24u) | 0x00FFFFFFu; });
 
         // Rain: vertically elongated teardrop
-        s_Data.m_RaindropTexture = createTex([&](u32 x, u32 y) -> u32
+        s_Data.m_RaindropTexture = createTex([&center, &invRadius](u32 x, u32 y) -> u32
                                              {
             f32 dx = (static_cast<f32>(x) + 0.5f - center) * invRadius;
             f32 dy = (static_cast<f32>(y) + 0.5f - center) * invRadius;
@@ -137,7 +138,7 @@ namespace OloEngine
                  | (static_cast<u32>(g) << 8u)  | static_cast<u32>(r); });
 
         // Hail: hard-edged sphere (bright, opaque center)
-        s_Data.m_HailstoneTexture = createTex([&](u32 x, u32 y) -> u32
+        s_Data.m_HailstoneTexture = createTex([&center, &invRadius](u32 x, u32 y) -> u32
                                               {
             f32 dx = (static_cast<f32>(x) + 0.5f - center) * invRadius;
             f32 dy = (static_cast<f32>(y) + 0.5f - center) * invRadius;
@@ -153,7 +154,7 @@ namespace OloEngine
                  | (static_cast<u32>(c) << 8u)  | static_cast<u32>(c); });
 
         // Sleet: rounded flake — between snow and rain (less crystalline)
-        s_Data.m_SleetTexture = createTex([&](u32 x, u32 y) -> u32
+        s_Data.m_SleetTexture = createTex([&center, &invRadius](u32 x, u32 y) -> u32
                                           {
             f32 dx = (static_cast<f32>(x) + 0.5f - center) * invRadius;
             f32 dy = (static_cast<f32>(y) + 0.5f - center) * invRadius;
@@ -354,8 +355,7 @@ namespace OloEngine
 
         // 6. Accumulation bridge — feed landed particles to snow depth clipmap
         //    Only snow and sleet contribute to accumulation
-        bool typeCanAccumulate = (settings.Type == PrecipitationType::Snow || settings.Type == PrecipitationType::Sleet);
-        if (settings.FeedAccumulation && typeCanAccumulate && s_Data.m_FeedShader && SnowAccumulationSystem::IsInitialized())
+        if (bool typeCanAccumulate = (settings.Type == PrecipitationType::Snow || settings.Type == PrecipitationType::Sleet); settings.FeedAccumulation && typeCanAccumulate && s_Data.m_FeedShader && SnowAccumulationSystem::IsInitialized())
         {
             s_Data.m_FeedShader->Bind();
             s_Data.m_FeedShader->SetFloat("u_AccumulationFeedRate", settings.AccumulationFeedRate);
@@ -417,6 +417,10 @@ namespace OloEngine
         else if (s_Data.m_LastFrameTimeMs < settings.FrameBudgetMs * 0.8f)
         {
             s_Data.m_EmissionReductionFactor = std::min(s_Data.m_EmissionReductionFactor * 1.05f, 1.0f);
+        }
+        else
+        {
+            // No additional handling required.
         }
 
         s_Data.m_LastCameraPos = cameraPos;
@@ -486,7 +490,7 @@ namespace OloEngine
             settings.ScreenStreaksEnabled ? 1.0f : 0.0f);
         gpu.ParticleColor = settings.ParticleColor;
         gpu.TypeParams = glm::vec4(
-            static_cast<f32>(static_cast<i32>(settings.Type)),
+            static_cast<f32>(std::to_underlying(settings.Type)),
             0.0f, 0.0f, 0.0f);
 
         s_Data.m_PrecipitationUBO->SetData(&gpu, PrecipitationUBOData::GetSize());

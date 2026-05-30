@@ -102,12 +102,9 @@ namespace OloEngine
             // We use GetProcAddress to avoid requiring the newer SDK
             typedef HRESULT(WINAPI * SetThreadDescriptionFn)(HANDLE, PCWSTR);
             static SetThreadDescriptionFn SetThreadDescriptionPtr = nullptr;
-            static bool bChecked = false;
-
-            if (!bChecked)
+            if (static bool bChecked = false; !bChecked)
             {
-                HMODULE hKernel32 = ::GetModuleHandleW(L"kernel32.dll");
-                if (hKernel32)
+                if (HMODULE hKernel32 = ::GetModuleHandleW(L"kernel32.dll"); hKernel32)
                 {
                     SetThreadDescriptionPtr = reinterpret_cast<SetThreadDescriptionFn>(
                         ::GetProcAddress(hKernel32, "SetThreadDescription"));

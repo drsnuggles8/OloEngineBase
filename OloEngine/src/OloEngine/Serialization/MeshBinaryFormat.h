@@ -4,6 +4,7 @@
 
 #include <array>
 #include <type_traits>
+#include <utility>
 
 namespace OloEngine
 {
@@ -54,7 +55,7 @@ namespace OloEngine
             Count = 7 // sentinel
         };
 
-        constexpr auto kSectionCount = static_cast<u16>(SectionType::Count);
+        constexpr auto kSectionCount = std::to_underlying(SectionType::Count);
 
         struct FileHeader
         {

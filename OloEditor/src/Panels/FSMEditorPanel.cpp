@@ -7,6 +7,8 @@
 
 #include <imgui.h>
 
+#include <utility>
+
 namespace OloEngine
 {
     FSMEditorPanel::FSMEditorPanel(const Ref<Scene>& context)
@@ -47,7 +49,7 @@ namespace OloEngine
             auto const& tag = view.get<TagComponent>(entityId);
             auto& smc = view.get<StateMachineComponent>(entityId);
 
-            bool open = ImGui::TreeNode(reinterpret_cast<void*>(static_cast<uintptr_t>(static_cast<u32>(entityId))),
+            bool open = ImGui::TreeNode(reinterpret_cast<void*>(static_cast<uintptr_t>(std::to_underlying(entityId))),
                                         "%s", tag.Tag.c_str());
             if (open)
             {

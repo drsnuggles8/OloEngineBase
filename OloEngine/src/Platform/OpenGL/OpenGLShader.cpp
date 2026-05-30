@@ -124,8 +124,7 @@ namespace OloEngine
 
         [[nodiscard("Store this!")]] static const char* GetCacheDirectory()
         {
-            const std::filesystem::path assetsDirectory = "assets";
-            if (!std::filesystem::exists(assetsDirectory))
+            if (const std::filesystem::path assetsDirectory = "assets"; !std::filesystem::exists(assetsDirectory))
             {
                 OLO_CORE_ERROR("The assets directory does not exist.");
                 return nullptr;
@@ -560,8 +559,7 @@ namespace OloEngine
             return true; // Cannot stat cache file → treat as stale
 
         // Check the main shader file
-        auto const shaderTime = std::filesystem::last_write_time(m_FilePath, ec);
-        if (ec || shaderTime > cacheTime)
+        if (auto const shaderTime = std::filesystem::last_write_time(m_FilePath, ec); ec || shaderTime > cacheTime)
             return true;
 
         // Check every transitively included file
@@ -598,13 +596,13 @@ namespace OloEngine
             sizet typeStart = pos + typeTokenLength;
             while (typeStart < eol && (sourceStr[typeStart] == ' ' || sourceStr[typeStart] == '\t'))
             {
-                typeStart++;
+                ++typeStart;
             }
 
             sizet typeEnd = typeStart;
             while (typeEnd < eol && sourceStr[typeEnd] != ' ' && sourceStr[typeEnd] != '\t' && sourceStr[typeEnd] != '\r' && sourceStr[typeEnd] != '\n')
             {
-                typeEnd++;
+                ++typeEnd;
             }
 
             std::string typeStr = sourceStr.substr(typeStart, typeEnd - typeStart);
@@ -628,7 +626,7 @@ namespace OloEngine
             m_IncludedFilePaths.insert(m_IncludedFilePaths.end(), stageIncludes.begin(), stageIncludes.end());
         }
         // Deduplicate (order doesn't matter for cache invalidation)
-        std::sort(m_IncludedFilePaths.begin(), m_IncludedFilePaths.end());
+        std::ranges::sort(m_IncludedFilePaths);
         m_IncludedFilePaths.erase(std::unique(m_IncludedFilePaths.begin(), m_IncludedFilePaths.end()), m_IncludedFilePaths.end());
 
         return shaderSources;
@@ -674,7 +672,7 @@ namespace OloEngine
         ParallelFor(
             "ShaderCompileVulkan",
             static_cast<i32>(stageSourcePairs.size()),
-            [&](i32 index)
+            [this, &hasError, &stageSourcePairs, &results, &cacheDirectory, &disableCache](i32 index)
             {
                 if (hasError.load(std::memory_order_relaxed))
                     return; // Early exit if another stage failed
@@ -688,8 +686,7 @@ namespace OloEngine
                 result.CachePath = cachedPath;
 
                 // Try to load from cache first
-                std::ifstream in(cachedPath, std::ios::in | std::ios::binary);
-                if (in.is_open() && !disableCache)
+                if (std::ifstream in(cachedPath, std::ios::in | std::ios::binary); in.is_open() && !disableCache)
                 {
                     in.seekg(0, std::ios::end);
                     const auto size = in.tellg();
@@ -811,7 +808,7 @@ namespace OloEngine
         ParallelFor(
             "ShaderCompileOpenGL",
             static_cast<i32>(stageSpirvPairs.size()),
-            [&](i32 index)
+            [this, &hasError, &stageSpirvPairs, &results, &cacheDirectory, &disableCache](i32 index)
             {
                 if (hasError.load(std::memory_order_relaxed))
                     return;
@@ -825,8 +822,7 @@ namespace OloEngine
                 result.CachePath = cachedPath;
 
                 // Try to load from cache first
-                std::ifstream in(cachedPath, std::ios::in | std::ios::binary);
-                if (in.is_open() && !disableCache)
+                if (std::ifstream in(cachedPath, std::ios::in | std::ios::binary); in.is_open() && !disableCache)
                 {
                     if (!IsCacheStale(cachedPath))
                     {
@@ -880,7 +876,7 @@ namespace OloEngine
                 // Log before compilation so crashes leave a breadcrumb
                 OLO_CORE_TRACE("[OpenGL SPIR-V] Compiling '{}' stage {} ({} lines of cross-compiled GLSL)",
                                m_FilePath, Utils::GLShaderStageToString(stage),
-                               std::count(result.GlslSource.begin(), result.GlslSource.end(), '\n'));
+                               std::ranges::count(result.GlslSource, '\n'));
 
                 // Compile GLSL to OpenGL SPIR-V
                 shaderc::Compiler compiler;

@@ -189,14 +189,14 @@ namespace OloEngine
             // skips OptimizeMesh on reload (mirrors SplitCombinedMeshSource).
             // Only mark the bundle as pre-optimized when every non-null source mesh is.
             // Null entries are ignored rather than causing the flag to be false.
-            if (auto anyNonNull = std::any_of(meshes.begin(), meshes.end(),
-                                              [](const Ref<MeshSource>& s)
-                                              { return static_cast<bool>(s); });
+            if (auto anyNonNull = std::ranges::any_of(meshes,
+                                                      [](const Ref<MeshSource>& s)
+                                                      { return static_cast<bool>(s); });
                 anyNonNull)
             {
-                if (auto allPreOpt = std::all_of(meshes.begin(), meshes.end(),
-                                                 [](const Ref<MeshSource>& src)
-                                                 { return !src || src->IsPreOptimized(); });
+                if (auto allPreOpt = std::ranges::all_of(meshes,
+                                                         [](const Ref<MeshSource>& src)
+                                                         { return !src || src->IsPreOptimized(); });
                     allPreOpt)
                 {
                     combined->SetPreOptimized(true);
@@ -224,15 +224,14 @@ namespace OloEngine
                 const auto* src = combined->GetSkeleton();
 
                 // Verify all skeleton arrays share the same bone count
-                auto const expectedBoneCount = src->m_ParentIndices.size();
-                if (src->m_BoneNames.size() != expectedBoneCount ||
-                    src->m_LocalTransforms.size() != expectedBoneCount ||
-                    src->m_GlobalTransforms.size() != expectedBoneCount ||
-                    src->m_FinalBoneMatrices.size() != expectedBoneCount ||
-                    src->m_BindPoseMatrices.size() != expectedBoneCount ||
-                    src->m_InverseBindPoses.size() != expectedBoneCount ||
-                    src->m_BindPoseLocalTransforms.size() != expectedBoneCount ||
-                    src->m_BonePreTransforms.size() != expectedBoneCount)
+                if (auto const expectedBoneCount = src->m_ParentIndices.size(); src->m_BoneNames.size() != expectedBoneCount ||
+                                                                                src->m_LocalTransforms.size() != expectedBoneCount ||
+                                                                                src->m_GlobalTransforms.size() != expectedBoneCount ||
+                                                                                src->m_FinalBoneMatrices.size() != expectedBoneCount ||
+                                                                                src->m_BindPoseMatrices.size() != expectedBoneCount ||
+                                                                                src->m_InverseBindPoses.size() != expectedBoneCount ||
+                                                                                src->m_BindPoseLocalTransforms.size() != expectedBoneCount ||
+                                                                                src->m_BonePreTransforms.size() != expectedBoneCount)
                 {
                     OLO_CORE_ERROR("AnimatedModel::SplitCombinedMeshSource - Skeleton array size mismatch "
                                    "(expected {} bones), rejecting cache",
@@ -501,12 +500,12 @@ namespace OloEngine
         const auto CollectMaterialIndices = [](const aiNode* node, const aiScene* scene,
                                                std::vector<u32>& out, auto&& self) -> void
         {
-            for (u32 i = 0; i < node->mNumMeshes; i++)
+            for (u32 i = 0; i < node->mNumMeshes; ++i)
             {
-                auto* mesh = scene->mMeshes[node->mMeshes[i]];
+                const auto* mesh = scene->mMeshes[node->mMeshes[i]];
                 out.push_back(mesh->mMaterialIndex);
             }
-            for (u32 i = 0; i < node->mNumChildren; i++)
+            for (u32 i = 0; i < node->mNumChildren; ++i)
             {
                 self(node->mChildren[i], scene, out, self);
             }
@@ -725,9 +724,9 @@ namespace OloEngine
         glm::mat4 globalTransform = parentTransform * nodeTransform;
 
         // Process all the node's meshes
-        for (u32 i = 0; i < node->mNumMeshes; i++)
+        for (u32 i = 0; i < node->mNumMeshes; ++i)
         {
-            aiMesh* mesh = scene->mMeshes[node->mMeshes[i]];
+            const aiMesh* mesh = scene->mMeshes[node->mMeshes[i]];
             auto meshSource = ProcessMesh(mesh, scene);
             if (meshSource)
             {
@@ -752,6 +751,10 @@ namespace OloEngine
                     }
                     OLO_CORE_ASSERT(same,
                                     "AnimatedModel: skinned meshes have different node transforms — axis correction may be wrong");
+                }
+                else
+                {
+                    // No additional handling required.
                 }
 
                 // Process the material for this mesh
@@ -780,7 +783,7 @@ namespace OloEngine
         }
 
         // Process all the node's children
-        for (u32 i = 0; i < node->mNumChildren; i++)
+        for (u32 i = 0; i < node->mNumChildren; ++i)
         {
             ProcessNode(node->mChildren[i], scene, globalTransform);
         }
@@ -803,7 +806,7 @@ namespace OloEngine
                        mesh->mNumVertices, mesh->mNumFaces, mesh->mNumBones);
 
         // Process vertices (without bone data)
-        for (u32 i = 0; i < mesh->mNumVertices; i++)
+        for (u32 i = 0; i < mesh->mNumVertices; ++i)
         {
             Vertex vertex;
 
@@ -851,10 +854,10 @@ namespace OloEngine
         }
 
         // Process indices
-        for (u32 i = 0; i < mesh->mNumFaces; i++)
+        for (u32 i = 0; i < mesh->mNumFaces; ++i)
         {
             const aiFace& face = mesh->mFaces[i];
-            for (u32 j = 0; j < face.mNumIndices; j++)
+            for (u32 j = 0; j < face.mNumIndices; ++j)
             {
                 indices.push_back(face.mIndices[j]);
             }
@@ -1082,7 +1085,7 @@ namespace OloEngine
         u32 nextBoneIndex = 0;
 
         std::function<void(const aiNode*, i32, const glm::mat4&)> traverseNode =
-            [&](const aiNode* node, i32 parentBoneIndex, const glm::mat4& accumulatedNonBoneTransform)
+            [this, &uniqueBoneNames, &boneNameToIndex, &nextBoneIndex, &traverseNode](const aiNode* node, i32 parentBoneIndex, const glm::mat4& accumulatedNonBoneTransform)
         {
             std::string nodeName = node->mName.data;
 
@@ -1150,8 +1153,7 @@ namespace OloEngine
             BoneInfo boneInfo;
             boneInfo.Id = static_cast<u32>(i);
 
-            auto it = boneOffsetMatrices.find(boneName);
-            if (it != boneOffsetMatrices.end())
+            if (auto it = boneOffsetMatrices.find(boneName); it != boneOffsetMatrices.end())
             {
                 // Use the offset matrix from the mesh bone as the inverse bind pose
                 boneInfo.Offset = it->second;
@@ -1246,7 +1248,7 @@ namespace OloEngine
     }
 
     // Helper functions for sampling animation data
-    glm::vec3 AnimatedModel::SamplePosition(const aiNodeAnim* nodeAnim, f64 time)
+    glm::vec3 AnimatedModel::SamplePosition(const aiNodeAnim* nodeAnim, f64 time) const
     {
         if (nodeAnim->mNumPositionKeys == 0)
             return glm::vec3(0.0f);
@@ -1278,7 +1280,7 @@ namespace OloEngine
                         glm::vec3(pos2.x, pos2.y, pos2.z), (f32)t);
     }
 
-    glm::quat AnimatedModel::SampleRotation(const aiNodeAnim* nodeAnim, f64 time)
+    glm::quat AnimatedModel::SampleRotation(const aiNodeAnim* nodeAnim, f64 time) const
     {
         if (nodeAnim->mNumRotationKeys == 0)
             return glm::quat(1.0f, 0.0f, 0.0f, 0.0f);
@@ -1311,7 +1313,7 @@ namespace OloEngine
         return glm::quat(result.w, result.x, result.y, result.z);
     }
 
-    glm::vec3 AnimatedModel::SampleScale(const aiNodeAnim* nodeAnim, f64 time)
+    glm::vec3 AnimatedModel::SampleScale(const aiNodeAnim* nodeAnim, f64 time) const
     {
         if (nodeAnim->mNumScalingKeys == 0)
             return glm::vec3(1.0f);
@@ -1522,7 +1524,7 @@ namespace OloEngine
         // different sRGB intents must not share a cached Ref.
         const std::string_view srgbSuffix = srgb ? "|srgb" : "|linear";
 
-        for (u32 i = 0; i < mat->GetTextureCount(type); i++)
+        for (u32 i = 0; i < mat->GetTextureCount(type); ++i)
         {
             aiString str;
             mat->GetTexture(type, i, &str);
@@ -1708,6 +1710,10 @@ namespace OloEngine
                                 loaded = true;
                             }
                         }
+                        else
+                        {
+                            // No additional handling required.
+                        }
                     }
 
                     // Fallback: scan model directory for case-insensitive stem match with any image extension.
@@ -1788,8 +1794,7 @@ namespace OloEngine
         }
 
         // glTF alpha mode + cutoff + double-sided (mirrors Model::ProcessMaterial).
-        aiString alphaModeStr;
-        if (mat->Get(AI_MATKEY_GLTF_ALPHAMODE, alphaModeStr) == AI_SUCCESS)
+        if (aiString alphaModeStr; mat->Get(AI_MATKEY_GLTF_ALPHAMODE, alphaModeStr) == AI_SUCCESS)
         {
             std::string_view mode(alphaModeStr.C_Str(), alphaModeStr.length);
             if (mode == "MASK")
@@ -1801,16 +1806,18 @@ namespace OloEngine
                 material.SetAlphaMode(AlphaMode::Blend);
                 material.SetFlag(MaterialFlag::Blend, true);
             }
+            else
+            {
+                // No additional handling required.
+            }
         }
 
-        f32 alphaCutoff = 0.5f;
-        if (mat->Get(AI_MATKEY_GLTF_ALPHACUTOFF, alphaCutoff) == AI_SUCCESS)
+        if (f32 alphaCutoff = 0.5f; mat->Get(AI_MATKEY_GLTF_ALPHACUTOFF, alphaCutoff) == AI_SUCCESS)
         {
             material.SetAlphaCutoff(alphaCutoff);
         }
 
-        i32 twoSided = 0;
-        if (mat->Get(AI_MATKEY_TWOSIDED, twoSided) == AI_SUCCESS && twoSided != 0)
+        if (i32 twoSided = 0; mat->Get(AI_MATKEY_TWOSIDED, twoSided) == AI_SUCCESS && twoSided != 0)
         {
             material.SetFlag(MaterialFlag::TwoSided, true);
         }
@@ -1827,26 +1834,22 @@ namespace OloEngine
             material.SetAlbedoMap(albedoMaps[0]);
         }
 
-        auto metallicRoughnessMaps = LoadMaterialTextures(mat, aiTextureType_METALNESS);
-        if (!metallicRoughnessMaps.empty())
+        if (auto metallicRoughnessMaps = LoadMaterialTextures(mat, aiTextureType_METALNESS); !metallicRoughnessMaps.empty())
         {
             material.SetMetallicRoughnessMap(metallicRoughnessMaps[0]);
         }
 
-        auto normalMaps = LoadMaterialTextures(mat, aiTextureType_NORMALS);
-        if (!normalMaps.empty())
+        if (auto normalMaps = LoadMaterialTextures(mat, aiTextureType_NORMALS); !normalMaps.empty())
         {
             material.SetNormalMap(normalMaps[0]);
         }
 
-        auto aoMaps = LoadMaterialTextures(mat, aiTextureType_AMBIENT_OCCLUSION);
-        if (!aoMaps.empty())
+        if (auto aoMaps = LoadMaterialTextures(mat, aiTextureType_AMBIENT_OCCLUSION); !aoMaps.empty())
         {
             material.SetAOMap(aoMaps[0]);
         }
 
-        auto emissiveMaps = LoadMaterialTextures(mat, aiTextureType_EMISSIVE);
-        if (!emissiveMaps.empty())
+        if (auto emissiveMaps = LoadMaterialTextures(mat, aiTextureType_EMISSIVE); !emissiveMaps.empty())
         {
             material.SetEmissiveMap(emissiveMaps[0]);
         }
@@ -1914,7 +1917,7 @@ namespace OloEngine
         return nullptr;
     }
 
-    glm::mat4 AnimatedModel::AssimpMatrixToGLM(const aiMatrix4x4& from)
+    glm::mat4 AnimatedModel::AssimpMatrixToGLM(const aiMatrix4x4& from) const
     {
         glm::mat4 to;
 
@@ -1940,8 +1943,7 @@ namespace OloEngine
 
     u32 AnimatedModel::FindBoneIndex(const std::string& boneName)
     {
-        auto it = m_BoneInfoMap.find(boneName);
-        if (it != m_BoneInfoMap.end())
+        if (auto it = m_BoneInfoMap.find(boneName); it != m_BoneInfoMap.end())
         {
             return it->second.Id;
         }

@@ -153,12 +153,10 @@ namespace OloEngine
             return;
         }
 
-        const bool readyForExecution = IsReadyForExecution();
-        if (!readyForExecution)
+        if (const bool readyForExecution = IsReadyForExecution(); !readyForExecution)
         {
             m_Target = nullptr;
-            static u32 s_InvalidExecutionStateWarnings = 0;
-            if (s_InvalidExecutionStateWarnings++ < 10)
+            if (static u32 s_InvalidExecutionStateWarnings = 0; s_InvalidExecutionStateWarnings++ < 10)
             {
                 OLO_CORE_WARN("SelectionOutlineRenderPass: enabled without complete execution state (sceneEntityTex={}, shadersReady={}, selectedCount={})",
                               sceneEntityTextureID,
@@ -188,8 +186,7 @@ namespace OloEngine
         if (!jfaFBs[0] || !jfaFBs[1])
         {
             m_Target = nullptr;
-            static u32 s_MissingScratchWarnings = 0;
-            if (s_MissingScratchWarnings++ < 10)
+            if (static u32 s_MissingScratchWarnings = 0; s_MissingScratchWarnings++ < 10)
             {
                 OLO_CORE_WARN("SelectionOutlineRenderPass: enabled without resolved JFA scratch (pingFB={}, pongFB={})",
                               jfaFBs[0] ? jfaFBs[0]->GetRendererID() : 0u,

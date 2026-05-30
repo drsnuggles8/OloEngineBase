@@ -78,7 +78,7 @@ namespace
             {
                 const auto& cam = entity.GetComponent<CameraComponent>();
                 snap.CameraPrimary = cam.Primary;
-                snap.CameraProjectionType = static_cast<i32>(cam.Camera.GetProjectionType());
+                snap.CameraProjectionType = std::to_underlying(cam.Camera.GetProjectionType());
                 snap.CameraPerspectiveFOV = cam.Camera.GetPerspectiveVerticalFOV();
                 snap.CameraOrthographicSize = cam.Camera.GetOrthographicSize();
             }

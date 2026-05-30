@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <vector>
+#include <utility>
 
 #pragma warning(push)
 #pragma warning(disable : 4996)
@@ -102,7 +103,7 @@ namespace OloEngine
         }
         explicit operator u32() const
         {
-            return static_cast<u32>(m_EntityHandle);
+            return std::to_underlying(m_EntityHandle);
         }
 
         [[nodiscard("Store this!")]] TransformComponent GetTransform() const
@@ -176,7 +177,7 @@ namespace OloEngine
                 {
                     auto& parentChildren = parent.GetOrCreateChildren();
                     UUID uuid = GetUUID();
-                    if (std::find(parentChildren.begin(), parentChildren.end(), uuid) == parentChildren.end())
+                    if (std::ranges::find(parentChildren, uuid) == parentChildren.end())
                         parentChildren.emplace_back(uuid);
                 }
                 return;
@@ -193,7 +194,7 @@ namespace OloEngine
             {
                 auto& parentChildren = parent.GetOrCreateChildren();
                 UUID uuid = GetUUID();
-                if (std::find(parentChildren.begin(), parentChildren.end(), uuid) == parentChildren.end())
+                if (std::ranges::find(parentChildren, uuid) == parentChildren.end())
                     parentChildren.emplace_back(uuid);
             }
         }
@@ -232,8 +233,7 @@ namespace OloEngine
 
             UUID childId = child.GetUUID();
             std::vector<UUID>& children = GetOrCreateChildren();
-            auto it = std::find(children.begin(), children.end(), childId);
-            if (it != children.end())
+            if (auto it = std::ranges::find(children, childId); it != children.end())
             {
                 // Verify that the child's recorded parent UUID matches this entity's UUID
                 // This prevents mistakenly modifying unrelated entities

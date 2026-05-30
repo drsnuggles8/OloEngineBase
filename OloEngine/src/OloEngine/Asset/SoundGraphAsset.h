@@ -60,7 +60,7 @@ namespace OloEngine
         {
             return AssetType::SoundGraph;
         }
-        virtual AssetType GetAssetType() const override
+        AssetType GetAssetType() const override
         {
             return GetStaticType();
         }
@@ -265,7 +265,7 @@ namespace OloEngine
         {
             return AssetType::SoundGraphSound;
         }
-        virtual AssetType GetAssetType() const override
+        AssetType GetAssetType() const override
         {
             return GetStaticType();
         }

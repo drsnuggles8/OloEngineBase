@@ -263,8 +263,7 @@ namespace OloEngine
                 return Buffer();
             }
 
-            JoltBinaryStreamWriter writer;
-            if (SerializeShape(shape, writer))
+            if (JoltBinaryStreamWriter writer; SerializeShape(shape, writer))
             {
                 return writer.CreateBuffer();
             }
@@ -464,7 +463,7 @@ namespace OloEngine
                     if (!seenBytes[sampleData[i]])
                     {
                         seenBytes[sampleData[i]] = true;
-                        uniqueBytes++;
+                        ++uniqueBytes;
                     }
                 }
 
@@ -508,7 +507,7 @@ namespace OloEngine
             {
                 if (input[i] == currentByte && runLength < 255)
                 {
-                    runLength++;
+                    ++runLength;
                 }
                 else
                 {

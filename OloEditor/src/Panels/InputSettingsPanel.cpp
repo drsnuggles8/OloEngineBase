@@ -15,6 +15,7 @@
 
 #include <algorithm>
 #include <array>
+#include <utility>
 
 namespace OloEngine
 {
@@ -41,7 +42,7 @@ namespace OloEngine
         {
             OLO_PROFILE_SCOPE("SortActionNames");
             actionNames.reserve(map.Actions.size());
-            for (auto& [name, _] : map.Actions)
+            for (const auto& [name, _] : map.Actions)
             {
                 actionNames.push_back(name);
             }
@@ -50,7 +51,7 @@ namespace OloEngine
 
         {
             OLO_PROFILE_SCOPE("RenderActions");
-            for (auto& name : actionNames)
+            for (const auto& name : actionNames)
             {
                 auto* action = map.GetAction(name);
                 if (action)
@@ -99,7 +100,7 @@ namespace OloEngine
 
     void InputSettingsPanel::DrawActionMapHeader()
     {
-        auto& map = InputActionManager::GetActionMap();
+        const auto& map = InputActionManager::GetActionMap();
 
         ImGui::Text("Action Map: %s", map.Name.empty() ? "(unnamed)" : map.Name.c_str());
         ImGui::SameLine();
@@ -234,7 +235,7 @@ namespace OloEngine
     {
         ImGui::PushID(static_cast<int>(bindingIndex));
 
-        auto& binding = action.Bindings[bindingIndex];
+        const auto& binding = action.Bindings[bindingIndex];
         std::string displayName = binding.GetDisplayName();
 
         ImGui::Text("%s", displayName.c_str());
@@ -351,8 +352,7 @@ namespace OloEngine
         auto oldMap = InputActionManager::GetActionMap();
 
         auto& map = InputActionManager::GetActionMap();
-        auto* action = map.GetAction(m_RebindActionName);
-        if (action)
+        if (auto* action = map.GetAction(m_RebindActionName); action)
         {
             // Conflict detection — remove this binding from any other action
             for (auto& [name, act] : map.Actions)
@@ -376,6 +376,10 @@ namespace OloEngine
             else if (m_RebindBindingIndex < action->Bindings.size())
             {
                 action->Bindings[m_RebindBindingIndex] = newBinding;
+            }
+            else
+            {
+                // No additional handling required.
             }
             m_Dirty = true;
 
@@ -435,13 +439,13 @@ namespace OloEngine
 
         for (i32 gpIdx = 0; gpIdx < GamepadManager::MaxGamepads; ++gpIdx)
         {
-            auto* gp = GamepadManager::GetGamepad(gpIdx);
+            const auto* gp = GamepadManager::GetGamepad(gpIdx);
             if (!gp || !gp->IsConnected())
             {
                 continue;
             }
 
-            for (u32 b = 0; b < static_cast<u32>(GamepadButton::Count); ++b)
+            for (u32 b = 0; b < static_cast<u32>(std::to_underlying(GamepadButton::Count)); ++b)
             {
                 auto btn = static_cast<GamepadButton>(b);
                 if (gp->IsButtonJustPressed(btn))
@@ -469,8 +473,7 @@ namespace OloEngine
                 if (ImGui::Selectable(axisNames[i]))
                 {
                     auto& map = InputActionManager::GetActionMap();
-                    auto* action = map.GetAction(m_GamepadAxisActionName);
-                    if (action)
+                    if (auto* action = map.GetAction(m_GamepadAxisActionName); action)
                     {
                         auto oldMap = InputActionManager::GetActionMap();
                         action->Bindings.push_back(InputBinding::GamepadAx(axes[i], 0.5f, true));

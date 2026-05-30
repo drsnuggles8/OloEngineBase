@@ -15,6 +15,7 @@
 #include <random>
 #include <sstream>
 #include <string>
+#include <utility>
 #include <vector>
 
 using namespace OloEngine; // NOLINT(google-build-using-namespace) — test utility header
@@ -193,7 +194,7 @@ inline u32 CountShaderChanges(const std::vector<DrawKey>& keys)
         u32 currentShader = keys[i].GetShaderID();
         if (currentShader != lastShader)
         {
-            changes++;
+            ++changes;
             lastShader = currentShader;
         }
     }
@@ -210,8 +211,8 @@ inline std::string PrintKeyBits(const DrawKey& key)
     std::ostringstream oss;
     oss << "DrawKey{raw=0x" << std::hex << key.GetKey() << std::dec
         << " viewport=" << key.GetViewportID()
-        << " layer=" << static_cast<u32>(key.GetViewLayer())
-        << " mode=" << static_cast<u32>(key.GetRenderMode())
+        << " layer=" << static_cast<u32>(std::to_underlying(key.GetViewLayer()))
+        << " mode=" << static_cast<u32>(std::to_underlying(key.GetRenderMode()))
         << " shader=" << key.GetShaderID()
         << " material=" << key.GetMaterialID()
         << " depth=" << key.GetDepth()

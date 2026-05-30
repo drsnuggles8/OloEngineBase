@@ -55,7 +55,7 @@ TEST(InstanceManager, AddRemovePlayers)
     EXPECT_TRUE(mgr.AddPlayerToInstance(id, 2));
     EXPECT_FALSE(mgr.AddPlayerToInstance(id, 3)); // Full
 
-    auto* server = mgr.GetInstance(id);
+    const auto* server = mgr.GetInstance(id);
     EXPECT_EQ(server->GetPlayerCount(), 2u);
 
     mgr.RemovePlayerFromInstance(id, 1);

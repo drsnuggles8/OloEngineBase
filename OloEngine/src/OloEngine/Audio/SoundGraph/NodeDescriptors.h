@@ -91,6 +91,10 @@ namespace OloEngine::Audio::SoundGraph
                                             // Single float parameter event function
                                             std::invoke(memberPtr, node, value);
                                         }
+                                        else
+                                        {
+                                            // No additional handling required.
+                                        }
                                         // TODO: Add support for other event parameter types as needed
                                         });
 

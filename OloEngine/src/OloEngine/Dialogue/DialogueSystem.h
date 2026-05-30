@@ -29,7 +29,7 @@ namespace OloEngine
         void StartDialogue(Entity entity);
         void AdvanceDialogue(Entity entity);
         void SelectChoice(Entity entity, i32 choiceIndex);
-        void EndDialogue(Entity entity);
+        void EndDialogue(Entity entity) const;
 
         void RegisterConditionHandler(const std::string& name, ConditionCallback handler);
         void RegisterActionHandler(const std::string& name, ActionCallback handler);

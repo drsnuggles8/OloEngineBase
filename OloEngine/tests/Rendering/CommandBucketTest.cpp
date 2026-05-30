@@ -33,7 +33,7 @@ class CommandBucketTest : public ::testing::Test
     }
 
     /// Submit N synthetic DrawMeshCommands with unique shader IDs
-    void SubmitNDrawMeshCommands(CommandBucket& bucket, u32 count, bool randomOrder = false)
+    void SubmitNDrawMeshCommands(CommandBucket& bucket, u32 count, bool randomOrder = false) const
     {
         std::vector<u32> ids(count);
         std::iota(ids.begin(), ids.end(), 1);
@@ -248,7 +248,7 @@ TEST_F(CommandBucketTest, SortReducesStateChanges)
             u32 s = pkt->GetMetadata().m_SortKey.GetShaderID();
             if (s != lastShader)
             {
-                changesBefore++;
+                ++changesBefore;
                 lastShader = s;
             }
         }
@@ -969,6 +969,10 @@ TEST_F(CommandBucketBatchTest, SameLODBatchesAndDifferentLODsStaySeparate)
             lod0InstanceCount = icmd->instanceCount;
         else if (icmd->meshHandle == kLOD1Handle)
             lod1InstanceCount = icmd->instanceCount;
+        else
+        {
+            // No additional handling required.
+        }
     }
     EXPECT_EQ(instancedPacketCount, 2u) << "Two LOD levels should produce two instanced packets";
     EXPECT_EQ(lod0InstanceCount, kLOD0Count);

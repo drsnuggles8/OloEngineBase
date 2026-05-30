@@ -75,7 +75,7 @@ namespace OloEngine
         {
         }
 
-        virtual u32 Run() override
+        u32 Run() override
         {
             SetPromise(m_Promise, m_Function);
 
@@ -85,7 +85,7 @@ namespace OloEngine
             return 0;
         }
 
-        virtual void Exit() override
+        void Exit() override
         {
             // Schedule self-destruction - the thread will clean up after itself
             // We need to delete the runnable after the thread is done

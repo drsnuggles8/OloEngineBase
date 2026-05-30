@@ -83,6 +83,10 @@ namespace OloEngine
         {
             bytesPerPixel = 16;
         }
+        else
+        {
+            // No additional handling required.
+        }
         sizet textureMemory = static_cast<sizet>(m_Width) * m_Height * m_Layers * bytesPerPixel;
         OLO_TRACK_GPU_ALLOC(this,
                             textureMemory,

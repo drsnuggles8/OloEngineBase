@@ -111,7 +111,7 @@ namespace OloEngine
 
         m_WriteQueryCount = 0;
         // Clear issued flags for the new write buffer
-        std::fill(m_QueryIssued[m_WriteBuffer].begin(), m_QueryIssued[m_WriteBuffer].end(), false);
+        std::ranges::fill(m_QueryIssued[m_WriteBuffer], false);
         m_Active = true;
         m_FirstFrame = false;
 
@@ -131,7 +131,7 @@ namespace OloEngine
             m_WriteQueryCount = objectIndex + 1;
     }
 
-    void OcclusionQueryPool::EndQuery([[maybe_unused]] u32 objectIndex)
+    void OcclusionQueryPool::EndQuery([[maybe_unused]] u32 objectIndex) const
     {
         OLO_PROFILE_FUNCTION();
         if (!m_Active)

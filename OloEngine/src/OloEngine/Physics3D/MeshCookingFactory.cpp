@@ -160,9 +160,7 @@ namespace OloEngine
             const auto& submesh = submeshes[i];
 
             SubmeshColliderData submeshData;
-            ECookingResult result = ProcessSubmesh(submesh, meshSource, glm::mat4(1.0f), type, submeshData);
-
-            if (result != ECookingResult::Success)
+            if (ECookingResult result = ProcessSubmesh(submesh, meshSource, glm::mat4(1.0f), type, submeshData); result != ECookingResult::Success)
             {
                 LogCookingError("CookMeshType", fmt::format("Failed to process submesh {}", i));
                 return result;
@@ -187,11 +185,15 @@ namespace OloEngine
         // Update statistics
         if (type == EMeshColliderType::Triangle)
         {
-            m_TriangleMeshCount++;
+            ++m_TriangleMeshCount;
         }
         else if (type == EMeshColliderType::Convex)
         {
-            m_ConvexMeshCount++;
+            ++m_ConvexMeshCount;
+        }
+        else
+        {
+            // No additional handling required.
         }
 
         OLO_CORE_INFO("Successfully cooked {} mesh collider", type == EMeshColliderType::Triangle ? "triangle" : "convex");
@@ -393,9 +395,7 @@ namespace OloEngine
         {
             // Simplify vertices for convex hull (already have positions)
             std::vector<glm::vec3> hullVertices;
-            ECookingResult simplifyResult = SimplifyMeshForConvex(vertices, indices, hullVertices, m_ConvexSimplificationRatio);
-
-            if (simplifyResult != ECookingResult::Success)
+            if (ECookingResult simplifyResult = SimplifyMeshForConvex(vertices, indices, hullVertices, m_ConvexSimplificationRatio); simplifyResult != ECookingResult::Success)
             {
                 return simplifyResult;
             }
@@ -416,9 +416,7 @@ namespace OloEngine
 
             // Generate convex hull
             std::vector<glm::vec3> finalHullVertices;
-            ECookingResult hullResult = GenerateConvexHull(hullVertices, finalHullVertices);
-
-            if (hullResult != ECookingResult::Success)
+            if (ECookingResult hullResult = GenerateConvexHull(hullVertices, finalHullVertices); hullResult != ECookingResult::Success)
             {
                 return hullResult;
             }
@@ -502,9 +500,7 @@ namespace OloEngine
             JPH::ConvexHullBuilder builder(joltVertices);
 
             const char* error = nullptr;
-            JPH::ConvexHullBuilder::EResult result = builder.Initialize(i32_max, 1e-5f, error);
-
-            if (result != JPH::ConvexHullBuilder::EResult::Success)
+            if (JPH::ConvexHullBuilder::EResult result = builder.Initialize(i32_max, 1e-5f, error); result != JPH::ConvexHullBuilder::EResult::Success)
             {
                 std::string errorMsg = error ? error : "Unknown error";
                 LogCookingError("GenerateConvexHull", "Convex hull generation failed: " + errorMsg);
@@ -611,7 +607,7 @@ namespace OloEngine
         return ECookingResult::Success;
     }
 
-    bool MeshCookingFactory::ValidateMeshData(const std::vector<glm::vec3>& vertices, const std::vector<u32>& indices)
+    bool MeshCookingFactory::ValidateMeshData(const std::vector<glm::vec3>& vertices, const std::vector<u32>& indices) const
     {
         if (vertices.empty() || indices.empty())
         {
@@ -646,7 +642,7 @@ namespace OloEngine
         return vertices.size() >= s_MinVerticesForConvexHull && vertices.size() <= m_MaxConvexHullVertices;
     }
 
-    bool MeshCookingFactory::ReduceConvexHullVertices(const std::vector<glm::vec3>& inputVertices, u32 maxVertices, std::vector<glm::vec3>& outReducedVertices)
+    bool MeshCookingFactory::ReduceConvexHullVertices(const std::vector<glm::vec3>& inputVertices, u32 maxVertices, std::vector<glm::vec3>& outReducedVertices) const
     {
         outReducedVertices.clear();
 
@@ -682,7 +678,7 @@ namespace OloEngine
             std::set<sizet> selectedIndices;
 
             // Always include the 6 axis-aligned extremes (min/max X, Y, Z)
-            auto findExtreme = [&](const glm::vec3& direction) -> sizet
+            auto findExtreme = [&inputVertices, &center](const glm::vec3& direction) -> sizet
             {
                 f32 maxDot = -std::numeric_limits<f32>::max();
                 sizet bestIndex = 0;
@@ -744,7 +740,7 @@ namespace OloEngine
                 }
 
                 // Sort by distance (furthest first)
-                std::sort(distanceIndices.begin(), distanceIndices.end(), std::greater<>());
+                std::ranges::sort(distanceIndices, std::greater<>());
 
                 // Add the furthest vertices until we reach the limit
                 for (const auto& [distance, index] : distanceIndices)
@@ -777,7 +773,7 @@ namespace OloEngine
         return vertices;
     }
 
-    void MeshCookingFactory::WeldVertices(std::vector<glm::vec3>& vertices, std::vector<u32>& indices, f32 tolerance)
+    void MeshCookingFactory::WeldVertices(std::vector<glm::vec3>& vertices, std::vector<u32>& indices, f32 tolerance) const
     {
         // Custom hash for glm::ivec3 grid keys
         struct IVec3Hash
@@ -882,7 +878,7 @@ namespace OloEngine
         RemoveInvalidTriangles(vertices, indices, m_AreaTestEpsilon);
     }
 
-    void MeshCookingFactory::RemoveInvalidTriangles(std::vector<glm::vec3>& vertices, std::vector<u32>& indices, f32 areaEpsilon)
+    void MeshCookingFactory::RemoveInvalidTriangles(std::vector<glm::vec3>& vertices, std::vector<u32>& indices, f32 areaEpsilon) const
     {
         std::vector<u32> validIndices;
         validIndices.reserve(indices.size());
@@ -920,7 +916,7 @@ namespace OloEngine
         indices = validIndices;
     }
 
-    bool MeshCookingFactory::SerializeMeshCollider(const std::filesystem::path& filepath, const MeshColliderData& meshData)
+    bool MeshCookingFactory::SerializeMeshCollider(const std::filesystem::path& filepath, const MeshColliderData& meshData) const
     {
         try
         {
@@ -968,7 +964,7 @@ namespace OloEngine
         }
     }
 
-    MeshColliderData MeshCookingFactory::DeserializeMeshCollider(const std::filesystem::path& filepath)
+    MeshColliderData MeshCookingFactory::DeserializeMeshCollider(const std::filesystem::path& filepath) const
     {
         MeshColliderData meshData;
 
@@ -1081,7 +1077,7 @@ namespace OloEngine
         return fmt::format("{}_{}", static_cast<u64>(colliderAsset->GetHandle()), typeString);
     }
 
-    std::filesystem::path MeshCookingFactory::ResolveSourceMeshPath(AssetHandle meshHandle)
+    std::filesystem::path MeshCookingFactory::ResolveSourceMeshPath(AssetHandle meshHandle) const
     {
         // We cannot attribute a filesystem path without an active project +
         // asset manager (e.g. headless unit tests). The caller treats an
@@ -1111,7 +1107,7 @@ namespace OloEngine
         return m_CacheDirectory;
     }
 
-    bool MeshCookingFactory::IsCacheValid(const std::filesystem::path& cacheFilePath, const std::filesystem::path& sourcePath)
+    bool MeshCookingFactory::IsCacheValid(const std::filesystem::path& cacheFilePath, const std::filesystem::path& sourcePath) const
     {
         try
         {
@@ -1177,7 +1173,7 @@ namespace OloEngine
         OLO_CORE_ERROR("MeshCookingFactory::{}: {}", operation, error);
     }
 
-    JPH::Ref<JPH::Shape> MeshCookingFactory::CreateShapeFromColliderData(const SubmeshColliderData& colliderData)
+    JPH::Ref<JPH::Shape> MeshCookingFactory::CreateShapeFromColliderData(const SubmeshColliderData& colliderData) const
     {
         if (colliderData.m_ColliderData.empty())
         {

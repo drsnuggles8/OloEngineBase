@@ -103,7 +103,7 @@ namespace OloEngine
         // Safe: the GPU fence for that frame has been waited on above.
         {
             auto& deletionQueue = m_FrameResources[currentIndex].DeletionQueue;
-            for (auto& fn : deletionQueue)
+            for (const auto& fn : deletionQueue)
                 fn();
             deletionQueue.clear();
         }
@@ -148,7 +148,7 @@ namespace OloEngine
         // Advance to the next frame buffer
         u32 nextIndex = (currentIndex + 1) % NUM_BUFFERED_FRAMES;
         m_CurrentFrameIndex.store(nextIndex, std::memory_order_release);
-        m_TotalFrameCount++;
+        ++m_TotalFrameCount;
     }
 
     CommandAllocator* FrameResourceManager::GetMainAllocator()
@@ -256,7 +256,7 @@ namespace OloEngine
         for (u32 i = 0; i < NUM_BUFFERED_FRAMES; ++i)
         {
             auto& deletionQueue = m_FrameResources[i].DeletionQueue;
-            for (auto& fn : deletionQueue)
+            for (const auto& fn : deletionQueue)
                 fn();
             deletionQueue.clear();
         }
@@ -266,7 +266,7 @@ namespace OloEngine
     // OpenGL Fence Implementation
     // ========================================================================
 
-    u64 FrameResourceManager::CreateFence()
+    u64 FrameResourceManager::CreateFence() const
     {
         OLO_PROFILE_FUNCTION();
 
@@ -280,7 +280,7 @@ namespace OloEngine
         return static_cast<u64>(reinterpret_cast<uptr>(sync));
     }
 
-    bool FrameResourceManager::WaitForFence(u64 fenceId)
+    bool FrameResourceManager::WaitForFence(u64 fenceId) const
     {
         OLO_PROFILE_FUNCTION();
 
@@ -290,9 +290,7 @@ namespace OloEngine
         GLsync sync = reinterpret_cast<GLsync>(static_cast<uptr>(fenceId));
 
         constexpr GLuint64 TIMEOUT_NS = 1000000000ULL; // 1 second
-        GLenum result = glClientWaitSync(sync, GL_SYNC_FLUSH_COMMANDS_BIT, TIMEOUT_NS);
-
-        if (result == GL_TIMEOUT_EXPIRED)
+        if (GLenum result = glClientWaitSync(sync, GL_SYNC_FLUSH_COMMANDS_BIT, TIMEOUT_NS); result == GL_TIMEOUT_EXPIRED)
         {
             OLO_CORE_WARN("FrameResourceManager::WaitForFence: Fence wait timed out!");
             return false;
@@ -320,7 +318,7 @@ namespace OloEngine
         return signaled == GL_SIGNALED;
     }
 
-    void FrameResourceManager::DeleteFence(u64 fenceId)
+    void FrameResourceManager::DeleteFence(u64 fenceId) const
     {
         if (fenceId == 0)
             return;

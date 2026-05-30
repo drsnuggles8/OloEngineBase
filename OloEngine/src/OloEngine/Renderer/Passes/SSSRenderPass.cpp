@@ -145,7 +145,7 @@ namespace OloEngine
         outputFramebuffer->Unbind();
     }
 
-    void SSSRenderPass::DrawFullscreenTriangle(RGCommandContext& context)
+    void SSSRenderPass::DrawFullscreenTriangle(RGCommandContext& context) const
     {
         const auto va = MeshPrimitives::GetFullscreenTriangle();
         va->Bind();

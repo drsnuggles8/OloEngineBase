@@ -110,8 +110,7 @@ namespace OloEngine
         }
 
         // Successfully added — now remove from old zone
-        auto it = m_PlayerZoneMap.find(clientID);
-        if (it != m_PlayerZoneMap.end())
+        if (auto it = m_PlayerZoneMap.find(clientID); it != m_PlayerZoneMap.end())
         {
             if (auto* oldZone = GetZone(it->second))
             {
@@ -144,8 +143,7 @@ namespace OloEngine
         }
 
         // Successfully added — now remove from old zone
-        auto it = m_PlayerZoneMap.find(clientID);
-        if (it != m_PlayerZoneMap.end())
+        if (auto it = m_PlayerZoneMap.find(clientID); it != m_PlayerZoneMap.end())
         {
             if (auto* oldZone = GetZone(it->second))
             {
@@ -201,8 +199,7 @@ namespace OloEngine
 
     u32 ZoneManager::BeginHandoff(u32 clientID, ZoneID targetZoneID, const PlayerStatePacket& state)
     {
-        auto* target = GetZone(targetZoneID);
-        if (!target || !target->IsRunning())
+        if (const auto* target = GetZone(targetZoneID); !target || !target->IsRunning())
         {
             return 0;
         }
@@ -213,8 +210,7 @@ namespace OloEngine
             return 0;
         }
 
-        auto* source = GetZone(sourceZoneID);
-        if (source)
+        if (auto* source = GetZone(sourceZoneID); source)
         {
             source->SetPlayerTransitioning(clientID, true);
         }
@@ -253,8 +249,7 @@ namespace OloEngine
             return false;
         }
 
-        auto* target = GetZone(tx.TargetZoneID);
-        if (!target || target->IsFull())
+        if (const auto* target = GetZone(tx.TargetZoneID); !target || target->IsFull())
         {
             RejectHandoff(transactionID);
             return false;
@@ -289,8 +284,7 @@ namespace OloEngine
         }
 
         // Add to target zone
-        auto* target = GetZone(tx.TargetZoneID);
-        if (target && target->AddPlayer(tx.ClientID))
+        if (auto* target = GetZone(tx.TargetZoneID); target && target->AddPlayer(tx.ClientID))
         {
             m_PlayerZoneMap[tx.ClientID] = tx.TargetZoneID;
             tx.State = EHandoffState::Completed;
@@ -319,8 +313,7 @@ namespace OloEngine
         }
 
         auto& tx = it->second;
-        auto* source = GetZone(tx.SourceZoneID);
-        if (source)
+        if (auto* source = GetZone(tx.SourceZoneID); source)
         {
             source->SetPlayerTransitioning(tx.ClientID, false);
         }

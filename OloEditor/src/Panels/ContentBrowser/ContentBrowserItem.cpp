@@ -63,17 +63,15 @@ namespace OloEngine
 
     ContentFileType GetFileTypeFromExtension(const std::filesystem::path& filepath)
     {
-        std::error_code ec;
-        if (std::filesystem::is_directory(filepath, ec))
+        if (std::error_code ec; std::filesystem::is_directory(filepath, ec))
             return ContentFileType::Directory;
 
         std::string ext = filepath.extension().string();
-        std::transform(ext.begin(), ext.end(), ext.begin(),
-                       [](unsigned char c)
-                       { return static_cast<char>(std::tolower(c)); });
+        std::ranges::transform(ext, ext.begin(),
+                               [](unsigned char c)
+                               { return static_cast<char>(std::tolower(c)); });
 
-        auto it = s_ExtensionToFileType.find(ext);
-        if (it != s_ExtensionToFileType.end())
+        if (auto it = s_ExtensionToFileType.find(ext); it != s_ExtensionToFileType.end())
             return it->second;
 
         return ContentFileType::Unknown;
@@ -278,6 +276,10 @@ namespace OloEngine
                     SetAction(result, ContentBrowserAction::Selected);
                 }
             }
+            else
+            {
+                // No additional handling required.
+            }
 
             DrawFileTypeTooltip(m_DisplayName, m_Type);
         }
@@ -326,7 +328,7 @@ namespace OloEngine
         return true;
     }
 
-    void ContentBrowserItem::RenderContextMenu(CBActionResult& result)
+    void ContentBrowserItem::RenderContextMenu(CBActionResult& result) const
     {
         if (ImGui::MenuItem("Open in Explorer"))
         {
@@ -368,24 +370,24 @@ namespace OloEngine
 
     void SortContentBrowserItems(std::vector<ContentBrowserItem>& items)
     {
-        std::sort(items.begin(), items.end(),
-                  [](const ContentBrowserItem& a, const ContentBrowserItem& b)
-                  {
-                      // Directories first
-                      if (a.IsDirectory() != b.IsDirectory())
-                          return a.IsDirectory();
+        std::ranges::sort(items,
+                          [](const ContentBrowserItem& a, const ContentBrowserItem& b)
+                          {
+                              // Directories first
+                              if (a.IsDirectory() != b.IsDirectory())
+                                  return a.IsDirectory();
 
-                      // Then alphabetical (case-insensitive)
-                      std::string aName = a.GetDisplayName();
-                      std::string bName = b.GetDisplayName();
-                      std::transform(aName.begin(), aName.end(), aName.begin(),
-                                     [](unsigned char c)
-                                     { return static_cast<char>(std::tolower(c)); });
-                      std::transform(bName.begin(), bName.end(), bName.begin(),
-                                     [](unsigned char c)
-                                     { return static_cast<char>(std::tolower(c)); });
-                      return aName < bName;
-                  });
+                              // Then alphabetical (case-insensitive)
+                              std::string aName = a.GetDisplayName();
+                              std::string bName = b.GetDisplayName();
+                              std::ranges::transform(aName, aName.begin(),
+                                                     [](unsigned char c)
+                                                     { return static_cast<char>(std::tolower(c)); });
+                              std::ranges::transform(bName, bName.begin(),
+                                                     [](unsigned char c)
+                                                     { return static_cast<char>(std::tolower(c)); });
+                              return aName < bName;
+                          });
     }
 
 } // namespace OloEngine

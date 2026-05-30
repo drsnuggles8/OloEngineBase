@@ -33,7 +33,7 @@ namespace OloEngine
         auto& rng = RandomUtils::GetGlobalRandom();
         for (u32 b = m_NextBurstIndex; b < static_cast<u32>(Bursts.size()); ++b)
         {
-            auto& burst = Bursts[b];
+            const auto& burst = Bursts[b];
             if (burst.Time >= prevLoopTime && burst.Time < m_LoopTime)
             {
                 if (rng.GetFloat32InRange(0.0f, 1.0f) <= burst.Probability)
@@ -61,12 +61,12 @@ namespace OloEngine
         m_LoopTime = 0.0f;
         m_NextBurstIndex = 0;
         // Sort bursts by time so the forward-iteration in Update() works correctly
-        std::sort(Bursts.begin(), Bursts.end(),
-                  [](const BurstEntry& a, const BurstEntry& b)
-                  { return a.Time < b.Time; });
+        std::ranges::sort(Bursts,
+                          [](const BurstEntry& a, const BurstEntry& b)
+                          { return a.Time < b.Time; });
     }
 
-    void ParticleEmitter::InitializeParticle(u32 index, ParticlePool& pool, const glm::vec3& emitterPosition, const glm::quat& emitterRotation)
+    void ParticleEmitter::InitializeParticle(u32 index, ParticlePool& pool, const glm::vec3& emitterPosition, const glm::quat& emitterRotation) const
     {
         auto& rng = RandomUtils::GetGlobalRandom();
 

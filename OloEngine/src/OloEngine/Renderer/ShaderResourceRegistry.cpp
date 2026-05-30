@@ -254,8 +254,7 @@ namespace OloEngine
 
     Ref<UniformBuffer> ShaderResourceRegistry::GetUniformBuffer(const std::string& name) const
     {
-        auto it = m_Bindings.find(name);
-        if (it != m_Bindings.end())
+        if (auto it = m_Bindings.find(name); it != m_Bindings.end())
         {
             if (std::holds_alternative<Ref<UniformBuffer>>(it->second.Resource))
             {
@@ -267,8 +266,7 @@ namespace OloEngine
 
     ShaderResource ShaderResourceRegistry::GetResource(const std::string& name) const
     {
-        auto it = m_Bindings.find(name);
-        if (it != m_Bindings.end())
+        if (auto it = m_Bindings.find(name); it != m_Bindings.end())
         {
             return it->second.Resource;
         }
@@ -424,7 +422,7 @@ namespace OloEngine
     }
 
     // Helper methods
-    void ShaderResourceRegistry::BindUniformBuffer(const ResourceBinding& binding)
+    void ShaderResourceRegistry::BindUniformBuffer(const ResourceBinding& binding) const
     {
         if (std::holds_alternative<Ref<UniformBuffer>>(binding.Resource))
         {
@@ -436,7 +434,7 @@ namespace OloEngine
         }
     }
 
-    void ShaderResourceRegistry::BindTexture(const ResourceBinding& binding)
+    void ShaderResourceRegistry::BindTexture(const ResourceBinding& binding) const
     {
         if (std::holds_alternative<Ref<Texture2D>>(binding.Resource))
         {
@@ -453,6 +451,10 @@ namespace OloEngine
             {
                 texture->Bind(binding.BindingPoint);
             }
+        }
+        else
+        {
+            // No additional handling required.
         }
     }
 
@@ -513,6 +515,10 @@ namespace OloEngine
                                    name, binding.BindingPoint);
                     isValid = false;
                 }
+            }
+            else
+            {
+                // No additional handling required.
             }
         }
 

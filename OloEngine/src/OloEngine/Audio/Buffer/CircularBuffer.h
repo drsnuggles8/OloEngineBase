@@ -28,7 +28,7 @@ namespace OloEngine::Audio
             m_Avail = 0;
             m_ReadPos = 0;
             m_WritePos = 0;
-            std::fill(m_Buf.begin(), m_Buf.end(), T(0));
+            std::ranges::fill(m_Buf, T(0));
         }
 
         /// Push a single sample (for single-channel buffers)
@@ -147,10 +147,9 @@ namespace OloEngine::Audio
                 len = m_Avail;
 
             const sizet bufferSize = m_Buf.size();
-            const sizet samplesUntilEnd = bufferSize - static_cast<sizet>(m_ReadPos);
 
             // Check if we need to wrap around
-            if (static_cast<sizet>(len) <= samplesUntilEnd)
+            if (const sizet samplesUntilEnd = bufferSize - static_cast<sizet>(m_ReadPos); static_cast<sizet>(len) <= samplesUntilEnd)
             {
                 // No wrap - single bulk copy
                 std::copy_n(&m_Buf[m_ReadPos], len, buf);
@@ -187,10 +186,9 @@ namespace OloEngine::Audio
             const sizet totalSamples = static_cast<sizet>(numFrames) * NumChannels;
             const sizet readSampleOffset = static_cast<sizet>(m_ReadPos) * NumChannels;
             const sizet bufferSamples = m_Buf.size();
-            const sizet samplesUntilEnd = bufferSamples - readSampleOffset;
 
             // Check if we need to wrap around
-            if (totalSamples <= samplesUntilEnd)
+            if (const sizet samplesUntilEnd = bufferSamples - readSampleOffset; totalSamples <= samplesUntilEnd)
             {
                 // No wrap - single bulk copy of interleaved frames
                 std::copy_n(&m_Buf[readSampleOffset], totalSamples, buf);
@@ -232,10 +230,8 @@ namespace OloEngine::Audio
                 len = bufferSize;
             }
 
-            const sizet free = m_Buf.size() - m_WritePos;
-
             // Copy in bounded chunks using safe element-wise copying
-            if (len > static_cast<i32>(free))
+            if (const sizet free = m_Buf.size() - m_WritePos; len > static_cast<i32>(free))
             {
                 // First chunk: copy up to end of buffer
                 const sizet firstChunk = std::min(static_cast<sizet>(len), free);
@@ -257,10 +253,8 @@ namespace OloEngine::Audio
             }
 
             // Calculate how much data was overwritten
-            const i32 overwritten = std::max(static_cast<i32>(0), previousAvail + len - bufferSize);
-
             // Advance read position by amount overwritten (mod bufferSize)
-            if (overwritten > 0)
+            if (const i32 overwritten = std::max(static_cast<i32>(0), previousAvail + len - bufferSize); overwritten > 0)
             {
                 m_ReadPos = (m_ReadPos + overwritten) % bufferSize;
             }
@@ -303,8 +297,7 @@ namespace OloEngine::Audio
             std::copy_n(sourcePtr, firstChunkElements, &m_Buf[writeIndex]);
 
             // Second chunk: wrap around to beginning if needed
-            const sizet remainingElements = totalElements - firstChunkElements;
-            if (remainingElements > 0)
+            if (const sizet remainingElements = totalElements - firstChunkElements; remainingElements > 0)
             {
                 std::copy_n(sourcePtr + firstChunkElements, remainingElements, &m_Buf[0]);
             }
@@ -343,9 +336,7 @@ namespace OloEngine::Audio
             OLO_CORE_ASSERT(m_Avail >= count);
 
             // Detect wrap: compute tail = m_Buf.size() - m_ReadPos
-            const sizet tail = m_Buf.size() - static_cast<sizet>(m_ReadPos);
-
-            if (count <= tail)
+            if (const sizet tail = m_Buf.size() - static_cast<sizet>(m_ReadPos); count <= tail)
             {
                 // No wrap - single copy as before
                 std::copy_n(&m_Buf[m_ReadPos], count, dest);

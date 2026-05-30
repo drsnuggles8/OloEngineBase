@@ -122,12 +122,11 @@ namespace OloEngine
 
         ClearChoiceEntities(scene);
 
-        auto destroyIfValid = [&](UUID& uuid)
+        auto destroyIfValid = [&scene](UUID& uuid)
         {
             if (static_cast<u64>(uuid) != 0)
             {
-                Entity ent = scene.GetEntityByUUID(uuid);
-                if (ent)
+                if (Entity ent = scene.GetEntityByUUID(uuid))
                     scene.DestroyEntity(ent);
                 uuid = 0;
             }
@@ -153,7 +152,7 @@ namespace OloEngine
             auto view = scene.GetAllEntitiesWith<DialogueStateComponent>();
             for (auto e : view)
             {
-                auto& state = view.get<DialogueStateComponent>(e);
+                const auto& state = view.get<DialogueStateComponent>(e);
                 if (state.m_State != DialogueState::Inactive)
                 {
                     activeEntity = e;
@@ -243,8 +242,7 @@ namespace OloEngine
         else if (state.m_State == DialogueState::WaitingForChoice)
         {
             // Arrow keys to navigate choices
-            i32 const choiceCount = static_cast<i32>(state.m_AvailableChoices.size());
-            if (choiceCount > 0)
+            if (i32 const choiceCount = static_cast<i32>(state.m_AvailableChoices.size()); choiceCount > 0)
             {
                 if (Input::IsKeyPressed(Key::Up) && !m_ArrowKeyWasPressed)
                 {
@@ -269,6 +267,10 @@ namespace OloEngine
                     dialogueSystem->SelectChoice(npcEntity, state.m_HoveredChoiceIndex);
                 }
             }
+        }
+        else
+        {
+            // No additional handling required.
         }
         m_AdvanceKeyWasPressed = keyPressed;
         m_ArrowKeyWasPressed = Input::IsKeyPressed(Key::Up) || Input::IsKeyPressed(Key::Down);

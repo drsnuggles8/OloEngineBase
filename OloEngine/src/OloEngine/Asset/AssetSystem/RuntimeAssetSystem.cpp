@@ -90,8 +90,7 @@ namespace OloEngine
                 TUniqueLock<FMutex> lock(m_CompletedAssetsMutex);
 
                 // Implement back-pressure: limit completed queue size
-                constexpr sizet MAX_COMPLETED_QUEUE_SIZE = 1000;
-                if (m_CompletedAssets.size() >= MAX_COMPLETED_QUEUE_SIZE)
+                if (constexpr sizet MAX_COMPLETED_QUEUE_SIZE = 1000; m_CompletedAssets.size() >= MAX_COMPLETED_QUEUE_SIZE)
                 {
                     OLO_CORE_WARN("RuntimeAssetSystem: Completed assets queue is full ({} items), dropping oldest asset", m_CompletedAssets.size());
                     m_CompletedAssets.pop(); // Remove oldest asset

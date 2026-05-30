@@ -262,7 +262,7 @@ namespace OloEngine
             Entity entity = { entityHandle, &scene };
 
             // Write UUID first (always present via IDComponent)
-            auto& id = entity.GetComponent<IDComponent>();
+            const auto& id = entity.GetComponent<IDComponent>();
             UUID uuid = id.ID;
             writer << uuid;
 
@@ -399,8 +399,7 @@ namespace OloEngine
             return false;
         }
 
-        static constexpr u32 kMaxEntityCount = 1'000'000;
-        if (entityCount > kMaxEntityCount)
+        if (static constexpr u32 kMaxEntityCount = 1'000'000; entityCount > kMaxEntityCount)
         {
             OLO_CORE_ERROR("[SaveGameSerializer] Entity count {} exceeds maximum {}", entityCount, kMaxEntityCount);
             return false;
@@ -669,13 +668,13 @@ namespace OloEngine
                 return depth;
             };
 
-            std::sort(toDestroy.begin(), toDestroy.end(),
-                      [&getDepth](Entity& a, Entity& b)
-                      {
-                          return getDepth(a) > getDepth(b);
-                      });
+            std::ranges::sort(toDestroy,
+                              [&getDepth](Entity& a, Entity& b)
+                              {
+                                  return getDepth(a) > getDepth(b);
+                              });
 
-            for (auto& entity : toDestroy)
+            for (const auto& entity : toDestroy)
             {
                 scene.DestroyEntity(entity);
             }

@@ -87,9 +87,7 @@ namespace OloEngine
                 }
 
                 const auto& entryPath = entry.path();
-                std::string entryStem = ToLowerCopy(entryPath.stem().string());
-
-                if (entryStem != targetStem)
+                if (std::string entryStem = ToLowerCopy(entryPath.stem().string()); entryStem != targetStem)
                 {
                     continue;
                 }
@@ -623,14 +621,14 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
 
         // Process all the node's meshes (if any)
-        for (u32 i = 0; i < node->mNumMeshes; i++)
+        for (u32 i = 0; i < node->mNumMeshes; ++i)
         {
             const aiMesh* mesh = scene->mMeshes[node->mMeshes[i]];
             m_Meshes.push_back(ProcessMesh(mesh, scene));
         }
 
         // Then do the same for each of its children
-        for (u32 i = 0; i < node->mNumChildren; i++)
+        for (u32 i = 0; i < node->mNumChildren; ++i)
         {
             ProcessNode(node->mChildren[i], scene);
         }
@@ -698,7 +696,7 @@ namespace OloEngine
         else
         {
             // Process vertices sequentially for small meshes
-            for (u32 i = 0; i < mesh->mNumVertices; i++)
+            for (u32 i = 0; i < mesh->mNumVertices; ++i)
             {
                 Vertex& vertex = vertices[i];
 
@@ -733,10 +731,10 @@ namespace OloEngine
             }
         }
 
-        for (u32 i = 0; i < mesh->mNumFaces; i++)
+        for (u32 i = 0; i < mesh->mNumFaces; ++i)
         {
             const aiFace face = mesh->mFaces[i];
-            for (u32 j = 0; j < face.mNumIndices; j++)
+            for (u32 j = 0; j < face.mNumIndices; ++j)
             {
                 indices.push_back(face.mIndices[j]);
             }
@@ -792,8 +790,7 @@ namespace OloEngine
         submesh.m_VertexCount = static_cast<u32>(vertexCount);
 
         // Use mapped material index with bounds checking
-        auto mapIt = m_MaterialIndexMap.find(mesh->mMaterialIndex);
-        if (mapIt != m_MaterialIndexMap.end() && mapIt->second < m_Materials.size())
+        if (auto mapIt = m_MaterialIndexMap.find(mesh->mMaterialIndex); mapIt != m_MaterialIndexMap.end() && mapIt->second < m_Materials.size())
         {
             submesh.m_MaterialIndex = mapIt->second;
         }
@@ -849,7 +846,7 @@ namespace OloEngine
         // of the cache logic stays unchanged.
         const std::string_view srgbSuffix = srgb ? "|srgb" : "|linear";
 
-        for (u32 i = 0; i < mat->GetTextureCount(type); i++)
+        for (u32 i = 0; i < mat->GetTextureCount(type); ++i)
         {
             aiString str;
             mat->GetTexture(type, i, &str);
@@ -948,6 +945,10 @@ namespace OloEngine
                         textures.push_back(m_LoadedTextures[fallbackPathStr]);
                         loaded = true;
                     }
+                    else
+                    {
+                        // No additional handling required.
+                    }
 
                     // Fallback: scan model directory for case-insensitive stem match with any image extension.
                     // Handles FBX referencing .tga when the actual file is .png, and case mismatches on Linux.
@@ -1025,8 +1026,7 @@ namespace OloEngine
         // glTF alpha mode + cutoff. Assimp surfaces these from the gltf2 importer
         // via dedicated keys; legacy formats simply don't set them, leaving the
         // material at the Opaque default.
-        aiString alphaModeStr;
-        if (mat->Get(AI_MATKEY_GLTF_ALPHAMODE, alphaModeStr) == AI_SUCCESS)
+        if (aiString alphaModeStr; mat->Get(AI_MATKEY_GLTF_ALPHAMODE, alphaModeStr) == AI_SUCCESS)
         {
             std::string_view mode(alphaModeStr.C_Str(), alphaModeStr.length);
             if (mode == "MASK")
@@ -1038,17 +1038,19 @@ namespace OloEngine
                 materialRef->SetAlphaMode(AlphaMode::Blend);
                 materialRef->SetFlag(MaterialFlag::Blend, true);
             }
+            else
+            {
+                // No additional handling required.
+            }
         }
 
-        f32 alphaCutoff = 0.5f;
-        if (mat->Get(AI_MATKEY_GLTF_ALPHACUTOFF, alphaCutoff) == AI_SUCCESS)
+        if (f32 alphaCutoff = 0.5f; mat->Get(AI_MATKEY_GLTF_ALPHACUTOFF, alphaCutoff) == AI_SUCCESS)
         {
             materialRef->SetAlphaCutoff(alphaCutoff);
         }
 
         // Double-sided: glTF "doubleSided": true maps to assimp's TWOSIDED key.
-        i32 twoSided = 0;
-        if (mat->Get(AI_MATKEY_TWOSIDED, twoSided) == AI_SUCCESS && twoSided != 0)
+        if (i32 twoSided = 0; mat->Get(AI_MATKEY_TWOSIDED, twoSided) == AI_SUCCESS && twoSided != 0)
         {
             materialRef->SetFlag(MaterialFlag::TwoSided, true);
         }
@@ -1073,8 +1075,7 @@ namespace OloEngine
             if (auto it = m_LoadedTextures.find(cacheKey); it != m_LoadedTextures.end())
                 return it->second;
 
-            auto texture = Texture2D::Create(texturePathStr, srgb);
-            if (texture && texture->IsLoaded())
+            if (auto texture = Texture2D::Create(texturePathStr, srgb); texture && texture->IsLoaded())
             {
                 m_LoadedTextures[cacheKey] = texture;
                 return texture;
@@ -1252,6 +1253,10 @@ namespace OloEngine
                     }
                 }
             }
+            else
+            {
+                // No additional handling required.
+            }
         }
 
         // AO textures
@@ -1307,6 +1312,10 @@ namespace OloEngine
                         materialRef->SetAOMap(tex);
                     }
                 }
+            }
+            else
+            {
+                // No additional handling required.
             }
         }
 
@@ -1377,7 +1386,7 @@ namespace OloEngine
         m_BoundingSphere = m_Meshes[0]->GetBoundingSphere();
 
         // Expand to include all other meshes
-        for (sizet i = 1; i < m_Meshes.size(); i++)
+        for (sizet i = 1; i < m_Meshes.size(); ++i)
         {
             const BoundingBox& meshBox = m_Meshes[i]->GetBoundingBox();
 
@@ -1402,7 +1411,7 @@ namespace OloEngine
         outCommands.clear();
         outCommands.reserve(m_Meshes.size());
 
-        for (sizet i = 0; i < m_Meshes.size(); i++)
+        for (sizet i = 0; i < m_Meshes.size(); ++i)
         {
             // Get the submesh to access its material index
             const Submesh& submesh = m_Meshes[i]->GetSubmesh();
@@ -1430,7 +1439,7 @@ namespace OloEngine
         outCommands.clear();
         outCommands.reserve(m_Meshes.size());
 
-        for (sizet i = 0; i < m_Meshes.size(); i++)
+        for (sizet i = 0; i < m_Meshes.size(); ++i)
         {
             // Get the submesh to access its material index
             const Submesh& submesh = m_Meshes[i]->GetSubmesh();
@@ -1522,7 +1531,7 @@ namespace OloEngine
         std::vector<Renderer3D::MeshSubmitDesc> meshDescriptors;
         meshDescriptors.reserve(m_Meshes.size());
 
-        for (sizet i = 0; i < m_Meshes.size(); i++)
+        for (sizet i = 0; i < m_Meshes.size(); ++i)
         {
             const Submesh& submesh = m_Meshes[i]->GetSubmesh();
 
@@ -1558,8 +1567,7 @@ namespace OloEngine
         // Static default material
         static Material s_DefaultMaterial = []() -> Material
         {
-            auto defaultMaterialRef = Material::CreatePBR("Default PBR", glm::vec3(0.8f), 0.0f, 0.5f);
-            if (defaultMaterialRef)
+            if (auto defaultMaterialRef = Material::CreatePBR("Default PBR", glm::vec3(0.8f), 0.0f, 0.5f); defaultMaterialRef)
             {
                 return *defaultMaterialRef;
             }
@@ -1570,7 +1578,7 @@ namespace OloEngine
         std::vector<Renderer3D::MeshSubmitDesc> meshDescriptors;
         meshDescriptors.reserve(m_Meshes.size());
 
-        for (sizet i = 0; i < m_Meshes.size(); i++)
+        for (sizet i = 0; i < m_Meshes.size(); ++i)
         {
             const Submesh& submesh = m_Meshes[i]->GetSubmesh();
 

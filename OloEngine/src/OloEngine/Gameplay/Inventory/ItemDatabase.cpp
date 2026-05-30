@@ -101,8 +101,7 @@ namespace OloEngine
     const ItemDefinition* ItemDatabase::Get(const std::string& itemId)
     {
         auto& items = GetItems();
-        auto it = items.find(itemId);
-        if (it != items.end())
+        if (auto it = items.find(itemId); it != items.end())
         {
             return &it->second;
         }

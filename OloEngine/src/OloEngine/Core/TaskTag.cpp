@@ -6,6 +6,8 @@
 #include "OloEngine/Core/PlatformTLS.h"
 #include "OloEngine/Task/Scheduler.h"
 
+#include <utility>
+
 namespace OLO
 {
     // Use OloEngine namespace for FPlatformTLS
@@ -71,11 +73,11 @@ namespace OLO
         {
             ETaskTag NamedThreadBits = (Tag & ETaskTag::ENamedThreadBits);
             static_assert(sizeof(ETaskTag) == sizeof(i32), "EnumSize must match interlockedOr");
-            ETaskTag OldTag = ETaskTag(s_ActiveNamedThreads.fetch_or(static_cast<i32>(NamedThreadBits)));
+            ETaskTag OldTag = ETaskTag(s_ActiveNamedThreads.fetch_or(std::to_underlying(NamedThreadBits)));
             bool IsOK = (OldTag & NamedThreadBits) == ETaskTag::ENone;
             if (!IsOK)
             {
-                s_ActiveNamedThreads.store(static_cast<i32>(ETaskTag::ENone));
+                s_ActiveNamedThreads.store(std::to_underlying(ETaskTag::ENone));
             }
             OLO_CORE_ASSERT(IsOK, "Only Scopes tagged with ETaskTag::EParallelThread can be tagged multiple times...");
         }
@@ -98,6 +100,10 @@ namespace OLO
                 OLO_CORE_ASSERT(IsInGameThread(), "ETaskTag::EParallelGameThread can only be retagged if in a parallel for on the GameThread...");
             }
         }
+        else
+        {
+            // No additional handling required.
+        }
     }
 
     FTaskTagScope::~FTaskTagScope()
@@ -114,7 +120,7 @@ namespace OLO
         {
             ETaskTag NamedThreadBits = (Tag & ETaskTag::ENamedThreadBits);
             static_assert(sizeof(ETaskTag) == sizeof(i32), "EnumSize must match interlockedAnd");
-            [[maybe_unused]] ETaskTag OldTag = ETaskTag(s_ActiveNamedThreads.fetch_and(static_cast<i32>(~static_cast<i32>(NamedThreadBits))));
+            [[maybe_unused]] ETaskTag OldTag = ETaskTag(s_ActiveNamedThreads.fetch_and(static_cast<i32>(~std::to_underlying(NamedThreadBits))));
             OLO_CORE_ASSERT((OldTag & NamedThreadBits) == NamedThreadBits, "Currently active Threads got corrupted...");
         }
 

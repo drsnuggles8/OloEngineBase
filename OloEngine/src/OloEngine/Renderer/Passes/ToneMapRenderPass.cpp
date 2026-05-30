@@ -105,8 +105,7 @@ namespace OloEngine
         if (inputColorTextureID == 0u || !outputFramebuffer || !m_Shader)
         {
             m_Target = nullptr;
-            static u32 s_MissingInputWarnings = 0;
-            if (outputFramebuffer && m_Shader && inputColorTextureID == 0u && s_MissingInputWarnings++ < 10)
+            if (static u32 s_MissingInputWarnings = 0; outputFramebuffer && m_Shader && inputColorTextureID == 0u && s_MissingInputWarnings++ < 10)
             {
                 OLO_CORE_WARN("ToneMapRenderPass: No valid setup-selected input texture resolved");
             }

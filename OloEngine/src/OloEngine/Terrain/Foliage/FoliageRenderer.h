@@ -98,7 +98,7 @@ namespace OloEngine
             BoundingBox Bounds; // Precomputed AABB encompassing all instances
         };
 
-        void BuildQuadGeometry(LayerRenderData& data);
+        void BuildQuadGeometry(LayerRenderData& data) const;
         void UploadInstances(LayerRenderData& data, const std::vector<FoliageInstanceData>& instances);
 
         std::vector<LayerRenderData> m_Layers;

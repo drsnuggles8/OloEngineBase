@@ -50,7 +50,7 @@ namespace OloEngine::Audio::SoundGraph
             ids.push_back(id);
         }
 
-        std::sort(ids.begin(), ids.end());
+        std::ranges::sort(ids);
         return ids;
     }
 
@@ -115,11 +115,11 @@ namespace OloEngine::Audio::SoundGraph
         }
 
         // Sort by ID for consistent ordering
-        std::sort(descriptors.begin(), descriptors.end(),
-                  [](const ParameterDescriptor& a, const ParameterDescriptor& b)
-                  {
-                      return a.ID < b.ID;
-                  });
+        std::ranges::sort(descriptors,
+                          [](const ParameterDescriptor& a, const ParameterDescriptor& b)
+                          {
+                              return a.ID < b.ID;
+                          });
 
         return descriptors;
     }
@@ -189,7 +189,7 @@ namespace OloEngine::Audio::SoundGraph
             names.push_back(name);
         }
 
-        std::sort(names.begin(), names.end());
+        std::ranges::sort(names);
         return names;
     }
 
@@ -213,7 +213,7 @@ namespace OloEngine::Audio::SoundGraph
         ApplyPatch(*patch, target);
     }
 
-    void SoundGraphPatchPreset::ApplyPatch(const ParameterPatch& patch, SoundGraphSound* target)
+    void SoundGraphPatchPreset::ApplyPatch(const ParameterPatch& patch, SoundGraphSound* target) const
     {
         OLO_PROFILE_FUNCTION();
 
@@ -226,7 +226,7 @@ namespace OloEngine::Audio::SoundGraph
         // Helper lambdas to convert Variant to numeric types safely
         auto toFloat = [](const ParameterValue& pv, f32 fallback) -> f32
         {
-            return std::visit([&](const auto& v) -> f32
+            return std::visit([&fallback](const auto& v) -> f32
                               {
                 using VT = std::decay_t<decltype(v)>;
                 if constexpr (std::is_same_v<VT, f32>) return v;
@@ -237,7 +237,7 @@ namespace OloEngine::Audio::SoundGraph
 
         auto toInt = [](const ParameterValue& pv, i32 fallback) -> i32
         {
-            return std::visit([&](const auto& v) -> i32
+            return std::visit([&fallback](const auto& v) -> i32
                               {
                 using VT = std::decay_t<decltype(v)>;
                 if constexpr (std::is_same_v<VT, i32>) return v;
@@ -248,7 +248,7 @@ namespace OloEngine::Audio::SoundGraph
 
         auto toBool = [](const ParameterValue& pv, bool fallback) -> bool
         {
-            return std::visit([&](const auto& v) -> bool
+            return std::visit([&fallback](const auto& v) -> bool
                               {
                 using VT = std::decay_t<decltype(v)>;
                 if constexpr (std::is_same_v<VT, bool>) return v;
@@ -276,7 +276,7 @@ namespace OloEngine::Audio::SoundGraph
             }
 
             // Determine declared type by default value's alternative
-            std::visit([&](const auto& defaultVal)
+            std::visit([&toFloat, &toInt, &toBool, &desc, &value, &parameterID, &target](const auto& defaultVal)
                        {
                 using DT = std::decay_t<decltype(defaultVal)>;
 
@@ -712,6 +712,10 @@ namespace OloEngine::Audio::SoundGraph
                         {
                             bool interpolated = t < 0.5f ? vA : vB;
                             result.SetParameter(paramId, interpolated);
+                        }
+                        else
+                        {
+                            // No additional handling required.
                         }
                     } }, valueA, valueB);
             }

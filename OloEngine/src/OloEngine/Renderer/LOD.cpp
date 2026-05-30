@@ -56,8 +56,7 @@ namespace OloEngine
         }
 
         result.SelectedLODIndex = lodIndex;
-        AssetHandle lodMeshHandle = lodGroup->Levels[lodIndex].MeshHandle;
-        if (lodMeshHandle != 0)
+        if (AssetHandle lodMeshHandle = lodGroup->Levels[lodIndex].MeshHandle; lodMeshHandle != 0)
         {
             auto lodMesh = AssetManager::GetAsset<Mesh>(lodMeshHandle);
             if (lodMesh)

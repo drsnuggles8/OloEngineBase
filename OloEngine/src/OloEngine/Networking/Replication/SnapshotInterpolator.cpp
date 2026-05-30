@@ -156,6 +156,10 @@ namespace OloEngine
                 transform.SetRotationEuler(itAfter->second.GetRotationEuler());
                 transform.Scale = itAfter->second.Scale;
             }
+            else
+            {
+                // No additional handling required.
+            }
         }
     }
 

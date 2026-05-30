@@ -64,8 +64,8 @@ namespace OloEngine
         auto operator==(const ActiveEffectsContainer&) const -> bool = default;
 
       private:
-        void ApplyInstantEffect(const GameplayEffect& effect, AttributeSet& attributes);
-        void ApplyPeriodicTick(const ActiveEffect& ae, AttributeSet& attributes);
+        void ApplyInstantEffect(const GameplayEffect& effect, AttributeSet& attributes) const;
+        void ApplyPeriodicTick(const ActiveEffect& ae, AttributeSet& attributes) const;
         void AddGrantedTags(const GameplayEffect& effect, GameplayTagContainer& ownerTags);
         void RemoveGrantedTags(const GameplayEffect& effect, GameplayTagContainer& ownerTags);
 

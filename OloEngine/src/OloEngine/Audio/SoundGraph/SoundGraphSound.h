@@ -9,6 +9,7 @@
 #include <glm/glm.hpp>
 #include <string>
 #include <functional>
+#include <utility>
 #include <vector>
 
 // Forward declarations
@@ -193,17 +194,17 @@ namespace OloEngine
                 // Bitwise operators for StopOptions
                 inline friend StopOptions operator|(StopOptions lhs, StopOptions rhs)
                 {
-                    return static_cast<StopOptions>(static_cast<u16>(lhs) | static_cast<u16>(rhs));
+                    return static_cast<StopOptions>(std::to_underlying(lhs) | std::to_underlying(rhs));
                 }
 
                 inline friend StopOptions operator&(StopOptions lhs, StopOptions rhs)
                 {
-                    return static_cast<StopOptions>(static_cast<u16>(lhs) & static_cast<u16>(rhs));
+                    return static_cast<StopOptions>(std::to_underlying(lhs) & std::to_underlying(rhs));
                 }
 
                 inline friend StopOptions operator~(StopOptions opt)
                 {
-                    return static_cast<StopOptions>(~static_cast<u16>(opt));
+                    return static_cast<StopOptions>(~std::to_underlying(opt));
                 }
 
                 inline friend StopOptions& operator|=(StopOptions& lhs, StopOptions rhs)

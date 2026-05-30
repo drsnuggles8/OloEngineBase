@@ -778,7 +778,7 @@ namespace OloEngine
             const bool haveHistory = (prevIt != s_Data.PrevInstanceTransforms.end()) &&
                                      (prevIt->second.size() == currFullTransforms.size());
 
-            auto project = [&](const std::vector<glm::mat4>& src) -> std::vector<glm::mat4>
+            auto project = [&visibleIndices](const std::vector<glm::mat4>& src) -> std::vector<glm::mat4>
             {
                 if (!visibleIndices)
                     return src;
@@ -789,7 +789,7 @@ namespace OloEngine
                     if (idx < src.size())
                         out.push_back(src[idx]);
                     else
-                        out.push_back(glm::mat4(1.0f)); // Defensive guard — should not happen.
+                        out.emplace_back(1.0f); // Defensive guard — should not happen.
                 }
                 return out;
             };

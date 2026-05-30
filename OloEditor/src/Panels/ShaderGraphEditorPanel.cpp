@@ -9,6 +9,7 @@
 #include <imgui.h>
 #include <imgui_internal.h>
 #include <algorithm>
+#include <cctype>
 #include <fstream>
 #include <queue>
 
@@ -204,7 +205,7 @@ namespace OloEngine
         DrawContextMenu(canvasOrigin);
     }
 
-    void ShaderGraphEditorPanel::DrawGrid(ImDrawList* drawList, const ImVec2& canvasOrigin, const ImVec2& canvasSize)
+    void ShaderGraphEditorPanel::DrawGrid(ImDrawList* drawList, const ImVec2& canvasOrigin, const ImVec2& canvasSize) const
     {
         f32 const gridStep = s_GridSize * m_Zoom;
         ImU32 const gridColor = IM_COL32(50, 50, 55, 255);
@@ -666,20 +667,22 @@ namespace OloEngine
             ImGui::InputTextWithHint("##NodeSearch", "Search nodes...", m_NodeSearchFilter, sizeof(m_NodeSearchFilter));
             ImGui::Separator();
 
-            bool hasFilter = m_NodeSearchFilter[0] != '\0';
-
-            if (hasFilter)
+            if (bool hasFilter = m_NodeSearchFilter[0] != '\0'; hasFilter)
             {
                 // Flat filtered list when searching
                 std::string filterLower = m_NodeSearchFilter;
-                std::transform(filterLower.begin(), filterLower.end(), filterLower.begin(), ::tolower);
+                std::ranges::transform(filterLower, filterLower.begin(),
+                                       [](unsigned char c)
+                                       { return static_cast<char>(std::tolower(c)); });
 
                 auto allTypes = GetAllNodeTypeNames();
                 for (const auto& type : allTypes)
                 {
                     // Case-insensitive substring match
                     std::string typeLower = type;
-                    std::transform(typeLower.begin(), typeLower.end(), typeLower.begin(), ::tolower);
+                    std::ranges::transform(typeLower, typeLower.begin(),
+                                           [](unsigned char c)
+                                           { return static_cast<char>(std::tolower(c)); });
 
                     if (typeLower.find(filterLower) != std::string::npos)
                     {
@@ -691,7 +694,7 @@ namespace OloEngine
             else
             {
                 // Group by category when not searching
-                auto drawCategory = [&](const char* label, ShaderGraphNodeCategory category)
+                auto drawCategory = [this, &worldPos](const char* label, ShaderGraphNodeCategory category)
                 {
                     if (ImGui::BeginMenu(label))
                     {
@@ -972,6 +975,10 @@ namespace OloEngine
             ImGui::TextColored(ImVec4(0.9f, 0.2f, 0.2f, 1.0f), "Compilation Failed");
             ImGui::TextWrapped("%s", m_LastCompileResult.ErrorLog.c_str());
         }
+        else
+        {
+            // No additional handling required.
+        }
 
         if (!m_LastCompileResult.ErrorLog.empty() && m_LastCompileResult.Success)
         {
@@ -1080,7 +1087,7 @@ namespace OloEngine
             return 0;
 
         auto cmd = CreateScope<AddNodeCommand>(typeName, position);
-        auto* addCmd = cmd.get();
+        const auto* addCmd = cmd.get();
         m_CommandHistory.Execute(std::move(cmd), m_GraphAsset->GetMutableGraph());
 
         UUID id = addCmd->GetNodeID();
@@ -1157,8 +1164,7 @@ namespace OloEngine
         std::unordered_map<u64, glm::vec2> newPositions;
 
         // BFS from output node backwards
-        const auto* outputNode = graph.FindOutputNode();
-        if (!outputNode)
+        if (const auto* outputNode = graph.FindOutputNode(); !outputNode)
         {
             // No output node — just lay out linearly
             f32 x = 0.0f;
@@ -1304,7 +1310,7 @@ namespace OloEngine
             props.InputDefaultValues.push_back(input.DefaultValue);
 
         auto cmd = CreateScope<AddNodeCommand>(m_CopiedNodeTypeName, position, std::move(props));
-        auto* cmdPtr = cmd.get();
+        const auto* cmdPtr = cmd.get();
         m_CommandHistory.Execute(std::move(cmd), m_GraphAsset->GetMutableGraph());
 
         m_SelectedNodeID = cmdPtr->GetNodeID();
@@ -1346,6 +1352,10 @@ namespace OloEngine
         {
             DeleteNode(m_SelectedNodeID);
             m_SelectedNodeID = 0;
+        }
+        else
+        {
+            // No additional handling required.
         }
     }
 

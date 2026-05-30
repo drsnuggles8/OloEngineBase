@@ -53,19 +53,19 @@ namespace OloEngine
         void RenderFrameSelector();
         void RenderCommandList(const CapturedFrameData* frame);
         void RenderCommandDetail(const CapturedCommandData& cmd, const CapturedFrameData* frame);
-        void RenderSortAnalysis(const CapturedFrameData* frame);
-        void RenderStateChanges(const CapturedFrameData* frame);
-        void RenderBatchingAnalysis(const CapturedFrameData* frame);
+        void RenderSortAnalysis(const CapturedFrameData* frame) const;
+        void RenderStateChanges(const CapturedFrameData* frame) const;
+        void RenderBatchingAnalysis(const CapturedFrameData* frame) const;
         void RenderTimeline(const CapturedFrameData* frame);
-        void RenderLiveView(const CommandBucket* bucket);
+        void RenderLiveView(const CommandBucket* bucket) const;
 
         // Helpers
         static ImVec4 GetColorForCommandType(CommandType type);
 
         // Render state detail for DrawMeshCommand
-        void RenderPODRenderStateDetail(const PODRenderState& state);
-        void RenderDrawMeshDetail(const DrawMeshCommand& cmd, const CapturedFrameData* frame);
-        void RenderDrawMeshInstancedDetail(const DrawMeshInstancedCommand& cmd, const CapturedFrameData* frame);
+        void RenderPODRenderStateDetail(const PODRenderState& state) const;
+        void RenderDrawMeshDetail(const DrawMeshCommand& cmd, const CapturedFrameData* frame) const;
+        void RenderDrawMeshInstancedDetail(const DrawMeshInstancedCommand& cmd, const CapturedFrameData* frame) const;
 
         enum class CommandViewMode : i32
         {

@@ -150,7 +150,7 @@ namespace OloEngine
         ImGui::End();
     }
 
-    void PerformanceLayer::DrawFrameTimeGraph()
+    void PerformanceLayer::DrawFrameTimeGraph() const
     {
         OLO_PROFILE_SCOPE("Performance/DrawFrameTimeGraph");
 
@@ -199,7 +199,7 @@ namespace OloEngine
         }
     }
 
-    void PerformanceLayer::DrawTimingBreakdown()
+    void PerformanceLayer::DrawTimingBreakdown() const
     {
         OLO_PROFILE_SCOPE("Performance/DrawTimingBreakdown");
 
@@ -239,7 +239,7 @@ namespace OloEngine
 #endif
     }
 
-    void PerformanceLayer::DrawMemoryStats()
+    void PerformanceLayer::DrawMemoryStats() const
     {
         OLO_PROFILE_SCOPE("Performance/DrawMemoryStats");
 

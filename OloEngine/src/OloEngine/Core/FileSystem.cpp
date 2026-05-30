@@ -38,8 +38,7 @@ namespace OloEngine
         }
 
         in.seekg(0, std::ios::end);
-        const auto size = in.tellg();
-        if (size != std::streampos(-1))
+        if (const auto size = in.tellg(); size != std::streampos(-1))
         {
             result.resize(static_cast<sizet>(size));
             in.seekg(0, std::ios::beg);

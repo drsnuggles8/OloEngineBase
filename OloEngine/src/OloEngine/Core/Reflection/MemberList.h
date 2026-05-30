@@ -176,7 +176,7 @@ namespace OloEngine::Core::Reflection
             OLO_PROFILE_FUNCTION();
             bool valueSet = false;
 
-            ApplyToMember(memberIndex, [&](auto& memb)
+            ApplyToMember(memberIndex, [&valueSet, &value](auto& memb)
                           { valueSet = TrySetMemberValue(memb, value); }, std::forward<TObj>(obj));
 
             return valueSet;
@@ -188,7 +188,7 @@ namespace OloEngine::Core::Reflection
             bool valueSet = false;
 
             ApplyToMember<MemberIndex>(
-                [&](auto& memb)
+                [&valueSet, &value](auto& memb)
                 {
                     valueSet = TrySetMemberValue(memb, value);
                 },
@@ -228,7 +228,7 @@ namespace OloEngine::Core::Reflection
 
             if (Count() > memberIndex)
             {
-                ApplyToMember(memberIndex, [&](const auto& memb)
+                ApplyToMember(memberIndex, [&value](const auto& memb)
                               {
                         using TMember = std::remove_cvref_t<decltype(memb)>;
 

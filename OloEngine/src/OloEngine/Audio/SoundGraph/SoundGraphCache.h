@@ -114,7 +114,7 @@ namespace OloEngine::Audio::SoundGraph
 
         /// Serialization for persistent cache
         bool SaveCacheMetadata(const std::string& filePath) const;
-        bool LoadCacheMetadata(const std::string& filePath);
+        bool LoadCacheMetadata(const std::string& filePath) const;
 
       private:
         mutable FMutex m_Mutex;

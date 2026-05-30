@@ -14,7 +14,7 @@ namespace OloEngine
         {
             return AssetType::ParticleSystem;
         }
-        virtual AssetType GetAssetType() const override
+        AssetType GetAssetType() const override
         {
             return GetStaticType();
         }

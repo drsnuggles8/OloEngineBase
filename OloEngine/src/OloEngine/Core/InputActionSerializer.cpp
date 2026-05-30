@@ -94,6 +94,10 @@ namespace OloEngine
                                 out << YAML::Key << "Threshold" << YAML::Value << binding.AxisThreshold;
                                 out << YAML::Key << "Positive" << YAML::Value << binding.AxisPositive;
                             }
+                            else
+                            {
+                                // No additional handling required.
+                            }
 
                             out << YAML::EndMap;
                         }
@@ -206,8 +210,7 @@ namespace OloEngine
                     continue;
                 }
 
-                auto bindingsNode = actionNode["Bindings"];
-                if (bindingsNode && bindingsNode.IsSequence())
+                if (auto bindingsNode = actionNode["Bindings"]; bindingsNode && bindingsNode.IsSequence())
                 {
                     for (const auto& bindingNode : bindingsNode)
                     {
@@ -287,6 +290,10 @@ namespace OloEngine
                                 {
                                     binding.AxisPositive = posNode.as<bool>();
                                 }
+                            }
+                            else
+                            {
+                                // No additional handling required.
                             }
 
                             action.Bindings.push_back(binding);

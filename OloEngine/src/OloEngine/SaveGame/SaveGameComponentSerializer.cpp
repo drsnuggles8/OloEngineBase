@@ -243,8 +243,11 @@ namespace OloEngine
                            {
                                ar << s.PrimitiveType;
                            }
-                           // EmitPoint has no data
-                       },
+                           else
+                           {
+                               // No additional handling required.
+                               // (EmitPoint has no data)
+                           } },
                        shape);
         }
         else
@@ -995,6 +998,10 @@ namespace OloEngine
             {
                 c.m_SelectedIndex = static_cast<i32>(c.m_Options.size()) - 1;
             }
+            else
+            {
+                // No additional handling required.
+            }
         }
         ar << c.m_BackgroundColor << c.m_HighlightColor << c.m_TextColor;
         ar << c.m_FontSize << c.m_ItemHeight;
@@ -1514,7 +1521,7 @@ namespace OloEngine
         ar << weightCount;
         if (ar.IsSaving())
         {
-            for (auto& [name, weight] : c.Weights)
+            for (const auto& [name, weight] : c.Weights)
             {
                 std::string nameCopy = name; // ar << requires non-const reference
                 f32 weightCopy = weight;
@@ -1555,7 +1562,7 @@ namespace OloEngine
                 ar << keyCopy;
                 u8 tag = static_cast<u8>(value.index());
                 ar << tag;
-                std::visit([&](auto& v)
+                std::visit([&ar](auto& v)
                            {
                     using T = std::decay_t<decltype(v)>;
                     if constexpr (std::is_same_v<T, UUID>)
@@ -1688,6 +1695,10 @@ namespace OloEngine
         {
             slot.reset();
         }
+        else
+        {
+            // No additional handling required.
+        }
     }
 
     static void SerializeInventory(FArchive& ar, Inventory& inv)
@@ -1737,7 +1748,7 @@ namespace OloEngine
 
     static void SerializeEquipmentSlots(FArchive& ar, EquipmentSlots& eq)
     {
-        constexpr u32 kSlotCount = static_cast<u32>(EquipmentSlots::Slot::Count);
+        constexpr u32 kSlotCount = static_cast<u32>(std::to_underlying(EquipmentSlots::Slot::Count));
         for (u32 i = 0; i < kSlotCount; ++i)
         {
             const auto slot = static_cast<EquipmentSlots::Slot>(i);
@@ -2010,7 +2021,7 @@ namespace OloEngine
         {
             u64 count = cm.Size();
             ar << count;
-            cm.ForEachCooldown([&](const GameplayTag& tag, f32 dur, f32 rem)
+            cm.ForEachCooldown([&ar](const GameplayTag& tag, f32 dur, f32 rem)
                                {
                 GameplayTag tagCopy = tag;
                 f32 durCopy = dur;
@@ -2327,7 +2338,7 @@ namespace OloEngine
 
             std::unordered_map<std::string, f32> cooldowns;
             ar << cooldowns;
-            for (auto& [id, remaining] : cooldowns)
+            for (const auto& [id, remaining] : cooldowns)
             {
                 j.SetQuestCooldown(id, remaining);
             }
@@ -2337,7 +2348,7 @@ namespace OloEngine
             j.SetPlayerLevel(level);
             std::unordered_map<std::string, i32> reputations;
             ar << reputations;
-            for (auto& [faction, value] : reputations)
+            for (const auto& [faction, value] : reputations)
             {
                 j.SetReputation(faction, value);
             }

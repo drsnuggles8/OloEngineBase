@@ -131,8 +131,7 @@ namespace OloEngine
         {
             auto cachePath = GetMeshCachePath(sourcePath, prefix);
 
-            std::error_code ec;
-            if (!std::filesystem::exists(cachePath, ec))
+            if (std::error_code ec; !std::filesystem::exists(cachePath, ec))
             {
                 return false;
             }
@@ -151,8 +150,7 @@ namespace OloEngine
         {
             auto cachePath = GetAnimationCachePath(sourcePath);
 
-            std::error_code ec;
-            if (!std::filesystem::exists(cachePath, ec))
+            if (std::error_code ec; !std::filesystem::exists(cachePath, ec))
             {
                 return false;
             }
@@ -231,8 +229,7 @@ namespace OloEngine
         {
             std::error_code ec;
 
-            auto meshDir = GetAssetRoot() / kMeshCacheSubdir;
-            if (std::filesystem::exists(meshDir, ec))
+            if (auto meshDir = GetAssetRoot() / kMeshCacheSubdir; std::filesystem::exists(meshDir, ec))
             {
                 std::filesystem::remove_all(meshDir, ec);
                 if (ec)
@@ -369,10 +366,9 @@ namespace OloEngine
         {
             u64 totalSize = 0;
 
-            auto const accumulateDirectorySize = [&](const std::filesystem::path& dir)
+            auto const accumulateDirectorySize = [&totalSize](const std::filesystem::path& dir)
             {
-                std::error_code existsEc;
-                if (!std::filesystem::exists(dir, existsEc))
+                if (std::error_code existsEc; !std::filesystem::exists(dir, existsEc))
                 {
                     return;
                 }

@@ -441,8 +441,7 @@ namespace OloEngine
             // Determine the highest allocated index
             i32 MaxAllocatedIndex = AllocationFlags.FindLast(true);
 
-            const i32 FirstIndexToRemove = MaxAllocatedIndex + 1;
-            if (FirstIndexToRemove < Data.Num())
+            if (const i32 FirstIndexToRemove = MaxAllocatedIndex + 1; FirstIndexToRemove < Data.Num())
             {
                 if (NumFreeIndices > 0)
                 {
@@ -794,6 +793,10 @@ namespace OloEngine
                     {
                         return false;
                     }
+                }
+                else
+                {
+                    // No additional handling required.
                 }
             }
 

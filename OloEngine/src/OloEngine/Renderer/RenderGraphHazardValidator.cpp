@@ -68,8 +68,7 @@ namespace OloEngine::RenderGraphHazardValidator
         {
             std::unordered_set<std::string>& cls = closure[passName];
             std::vector<std::string> frontier;
-            auto depsIt = input.Dependencies.find(passName);
-            if (depsIt != input.Dependencies.end())
+            if (auto depsIt = input.Dependencies.find(passName); depsIt != input.Dependencies.end())
             {
                 frontier.insert(frontier.end(), depsIt->second.begin(), depsIt->second.end());
             }
@@ -204,6 +203,10 @@ namespace OloEngine::RenderGraphHazardValidator
                 hasValidBacking = input.ResolveBuffer(resource.BufferHandle) != 0;
             else if (resource.FramebufferHandle.IsValid())
                 hasValidBacking = input.ResolveFramebuffer(resource.FramebufferHandle) != nullptr;
+            else
+            {
+                // No additional handling required.
+            }
 
             if (hasValidBacking)
                 continue;
@@ -234,7 +237,7 @@ namespace OloEngine::RenderGraphHazardValidator
         {
             if (resourceName.empty())
                 return;
-            if (std::find(names.begin(), names.end(), resourceName) == names.end())
+            if (std::ranges::find(names, resourceName) == names.end())
                 names.emplace_back(resourceName);
         };
 

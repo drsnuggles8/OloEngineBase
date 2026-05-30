@@ -369,9 +369,7 @@ namespace OloEngine
                 return;
 
             const GLStateSnapshot exit = GLStateSnapshot::Capture();
-            const auto diffs = m_EntryState.DiffAgainst(exit);
-
-            if (!diffs.empty())
+            if (const auto diffs = m_EntryState.DiffAgainst(exit); !diffs.empty())
             {
                 // Policy::Restore is the "trust me to clean up" path —
                 // mutations escaping into the destructor are EXPECTED for

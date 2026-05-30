@@ -51,7 +51,7 @@ namespace OloEngine
         /**
          * @brief Render build progress section
          */
-        void RenderBuildProgress();
+        void RenderBuildProgress() const;
 
         /**
          * @brief Render build results section

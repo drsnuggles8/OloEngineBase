@@ -29,8 +29,7 @@ namespace OloEngine
             auto const& p = probes[i];
             glm::vec3 const delta = cameraPosition - p.Position;
             f32 const distSq = glm::dot(delta, delta);
-            f32 const radiusSq = p.InfluenceRadius * p.InfluenceRadius;
-            if (distSq > radiusSq)
+            if (f32 const radiusSq = p.InfluenceRadius * p.InfluenceRadius; distSq > radiusSq)
             {
                 continue;
             }

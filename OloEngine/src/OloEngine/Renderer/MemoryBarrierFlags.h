@@ -2,6 +2,8 @@
 
 #include "OloEngine/Core/Base.h"
 
+#include <utility>
+
 namespace OloEngine
 {
     // @brief API-agnostic memory barrier flags for GPU synchronization.
@@ -31,22 +33,22 @@ namespace OloEngine
 
     inline MemoryBarrierFlags operator|(MemoryBarrierFlags lhs, MemoryBarrierFlags rhs)
     {
-        return static_cast<MemoryBarrierFlags>(static_cast<u32>(lhs) | static_cast<u32>(rhs));
+        return static_cast<MemoryBarrierFlags>(std::to_underlying(lhs) | std::to_underlying(rhs));
     }
 
     inline MemoryBarrierFlags operator&(MemoryBarrierFlags lhs, MemoryBarrierFlags rhs)
     {
-        return static_cast<MemoryBarrierFlags>(static_cast<u32>(lhs) & static_cast<u32>(rhs));
+        return static_cast<MemoryBarrierFlags>(std::to_underlying(lhs) & std::to_underlying(rhs));
     }
 
     inline MemoryBarrierFlags operator^(MemoryBarrierFlags lhs, MemoryBarrierFlags rhs)
     {
-        return static_cast<MemoryBarrierFlags>(static_cast<u32>(lhs) ^ static_cast<u32>(rhs));
+        return static_cast<MemoryBarrierFlags>(std::to_underlying(lhs) ^ std::to_underlying(rhs));
     }
 
     inline MemoryBarrierFlags operator~(MemoryBarrierFlags flags)
     {
-        return static_cast<MemoryBarrierFlags>(~static_cast<u32>(flags));
+        return static_cast<MemoryBarrierFlags>(~std::to_underlying(flags));
     }
 
     inline MemoryBarrierFlags& operator|=(MemoryBarrierFlags& lhs, MemoryBarrierFlags rhs)

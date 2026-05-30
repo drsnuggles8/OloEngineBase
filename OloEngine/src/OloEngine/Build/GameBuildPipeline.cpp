@@ -195,15 +195,13 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        auto project = Project::GetActive();
-        if (!project)
+        if (auto project = Project::GetActive(); !project)
         {
             errorMessage = "No active project. Open a project in the editor first.";
             return false;
         }
 
-        auto assetManager = Project::GetAssetManager();
-        if (!assetManager)
+        if (auto assetManager = Project::GetAssetManager(); !assetManager)
         {
             errorMessage = "No asset manager available.";
             return false;
@@ -353,7 +351,7 @@ namespace OloEngine
             }
             else
             {
-                copiedCount++;
+                ++copiedCount;
             }
         }
 
@@ -394,7 +392,7 @@ namespace OloEngine
         {
             if (entry.is_regular_file())
             {
-                shaderCount++;
+                ++shaderCount;
             }
         }
         OLO_CORE_INFO("[GameBuild] Copied {} shader files", shaderCount);
@@ -516,8 +514,7 @@ namespace OloEngine
         }
 
         // Also copy the app-specific script assembly if it exists
-        const auto& projectConfig = Project::GetActive()->GetConfig();
-        if (!projectConfig.ScriptModulePath.empty())
+        if (const auto& projectConfig = Project::GetActive()->GetConfig(); !projectConfig.ScriptModulePath.empty())
         {
             std::filesystem::path appScriptSrc = projectConfig.ScriptModulePath;
             if (std::filesystem::exists(appScriptSrc))
@@ -591,7 +588,7 @@ namespace OloEngine
                 continue;
             }
 
-            copiedCount++;
+            ++copiedCount;
         }
 
         if (copiedCount == 0)
@@ -602,8 +599,7 @@ namespace OloEngine
 
         // Write the start scene path into the manifest
         // The project config may specify a start scene; otherwise fall back to the first found
-        const auto& startScene = project->GetConfig().StartScene;
-        if (!startScene.empty())
+        if (const auto& startScene = project->GetConfig().StartScene; !startScene.empty())
         {
             OLO_CORE_INFO("[GameBuild] Start scene from project config: {}", startScene.string());
         }

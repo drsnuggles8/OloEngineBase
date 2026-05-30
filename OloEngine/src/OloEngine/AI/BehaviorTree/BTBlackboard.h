@@ -59,8 +59,7 @@ namespace OloEngine
 
         [[nodiscard]] std::optional<Value> GetRaw(const std::string& key) const
         {
-            auto it = m_Data.find(key);
-            if (it != m_Data.end())
+            if (auto it = m_Data.find(key); it != m_Data.end())
             {
                 return it->second;
             }

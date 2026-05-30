@@ -163,7 +163,7 @@ namespace OloEngine::Audio
             {
                 m_FuncPtr = [](WaveSource& source, void* ctx) noexcept -> bool
                 {
-                    auto* self = static_cast<RefillCallback*>(ctx);
+                    const auto* self = static_cast<RefillCallback*>(ctx);
                     try
                     {
                         return self->m_InstanceFunc(source);

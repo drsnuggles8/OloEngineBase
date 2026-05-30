@@ -37,9 +37,9 @@ namespace OloEngine
         bool OnKeyPressed(KeyPressedEvent const& e);
 
         void DrawPerformanceWindow();
-        void DrawFrameTimeGraph();
-        void DrawTimingBreakdown();
-        void DrawMemoryStats();
+        void DrawFrameTimeGraph() const;
+        void DrawTimingBreakdown() const;
+        void DrawMemoryStats() const;
         void DrawCPUProfileScopes();
 
         // Writes a structured snapshot of the current frame to disk (perf-snapshot-<timestamp>.txt

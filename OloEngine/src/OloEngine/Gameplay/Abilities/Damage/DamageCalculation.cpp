@@ -33,8 +33,7 @@ namespace OloEngine
 
         // 4. Apply damage type resistance
         // Convention: resistance attribute = "Resistance.<DamageType>" (e.g., "Resistance.Fire")
-        std::string resistanceAttr = "Resistance." + event.DamageType.GetTagString();
-        if (targetAttribs.HasAttribute(resistanceAttr))
+        if (std::string resistanceAttr = "Resistance." + event.DamageType.GetTagString(); targetAttribs.HasAttribute(resistanceAttr))
         {
             f32 resistance = targetAttribs.GetCurrentValue(resistanceAttr);
             // Resistance is a percentage reduction (0.0 = no reduction, 1.0 = immune)

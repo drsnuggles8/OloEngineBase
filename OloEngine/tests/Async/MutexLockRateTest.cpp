@@ -83,7 +83,7 @@ static double TestConcurrency(const i32 TaskCount, BodyType&& Body)
     }
     const auto EndTime = std::chrono::high_resolution_clock::now();
 
-    for (auto& Task : MakeArrayView(Tasks, TaskCount))
+    for (const auto& Task : MakeArrayView(Tasks, TaskCount))
     {
         while (!Task.IsCompleted())
         {

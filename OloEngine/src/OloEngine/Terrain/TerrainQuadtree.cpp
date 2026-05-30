@@ -23,8 +23,7 @@ namespace OloEngine
         m_Nodes.clear();
         m_SelectedNodes.clear();
 
-        u32 resolution = terrainData.GetResolution();
-        if (resolution == 0 || terrainData.GetHeightData().size() < static_cast<sizet>(resolution) * resolution)
+        if (u32 resolution = terrainData.GetResolution(); resolution == 0 || terrainData.GetHeightData().size() < static_cast<sizet>(resolution) * resolution)
         {
             OLO_CORE_ERROR("TerrainQuadtree::Build: Invalid terrain data (resolution={}, heights={})",
                            resolution, terrainData.GetHeightData().size());
@@ -95,7 +94,7 @@ namespace OloEngine
             }
         }
         // Always include boundary samples
-        auto sampleHeight = [&](u32 x, u32 z)
+        auto sampleHeight = [&heights, &resolution, &heightScale, &hMin, &hMax](u32 x, u32 z)
         {
             f32 h = heights[static_cast<sizet>(z) * resolution + x] * heightScale;
             hMin = std::min(hMin, h);
@@ -192,10 +191,8 @@ namespace OloEngine
 
         // Calculate screen-space error to decide whether to use this node
         // or recurse into children
-        f32 screenError = CalculateScreenSpaceError(node, cameraPos, viewProjection, viewportHeight);
-
         // If error is below threshold, this node is fine — render at this LOD
-        if (screenError < m_Config.TargetTriangleSize)
+        if (f32 screenError = CalculateScreenSpaceError(node, cameraPos, viewProjection, viewportHeight); screenError < m_Config.TargetTriangleSize)
         {
             node.LODLevel = node.Depth;
 
@@ -330,7 +327,7 @@ namespace OloEngine
 
         // Edge tessellation: use minimum of this node's and neighbor's tess factor
         // to prevent cracks
-        auto edgeTess = [&](u32 neighborLOD) -> f32
+        auto edgeTess = [this, &baseTess](u32 neighborLOD) -> f32
         {
             u32 nLod = std::min(neighborLOD, TerrainLODConfig::MAX_LOD_LEVELS - 1);
             f32 nTess = m_Config.TessFactors[nLod];

@@ -231,10 +231,9 @@ TEST_F(SharedMutexTest, ReaderWriterInterleaving)
             while (Running.load())
             {
                 Mutex.LockShared();
-                i32 Value = SharedData;
                 // Value should always be complete (odd) after first write
                 // or 0 before any writes
-                if (Value != 0 && Value % 2 == 0)
+                if (i32 Value = SharedData; Value != 0 && Value % 2 == 0)
                 {
                     ReaderErrors.fetch_add(1);
                 }

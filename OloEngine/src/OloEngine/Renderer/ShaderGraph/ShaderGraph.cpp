@@ -28,7 +28,7 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
 
         // Remove all links connected to this node's pins
-        auto* node = FindNode(nodeID);
+        const auto* node = FindNode(nodeID);
         if (!node)
             return false;
 
@@ -51,7 +51,7 @@ namespace OloEngine
 
     ShaderGraphNode* ShaderGraph::FindNode(UUID nodeID)
     {
-        for (auto& node : m_Nodes)
+        for (const auto& node : m_Nodes)
         {
             if (node->ID == nodeID)
                 return node.get();
@@ -71,7 +71,7 @@ namespace OloEngine
 
     ShaderGraphPin* ShaderGraph::FindPin(UUID pinID)
     {
-        for (auto& node : m_Nodes)
+        for (const auto& node : m_Nodes)
         {
             if (auto* pin = node->FindPin(pinID))
                 return pin;
@@ -91,7 +91,7 @@ namespace OloEngine
 
     ShaderGraphNode* ShaderGraph::FindNodeByPinID(UUID pinID)
     {
-        for (auto& node : m_Nodes)
+        for (const auto& node : m_Nodes)
         {
             if (node->FindPin(pinID))
                 return node.get();
@@ -157,9 +157,9 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        auto it = std::find_if(m_Links.begin(), m_Links.end(),
-                               [linkID](const ShaderGraphLink& link)
-                               { return link.ID == linkID; });
+        auto it = std::ranges::find_if(m_Links,
+                                       [linkID](const ShaderGraphLink& link)
+                                       { return link.ID == linkID; });
         if (it == m_Links.end())
             return false;
         m_Links.erase(it);
@@ -290,18 +290,25 @@ namespace OloEngine
                 outputNode = node.get();
                 ++computeCount;
             }
+            else
+            {
+                // No additional handling required.
+            }
         }
 
-        int outputCount = pbrCount + computeCount;
-        if (outputCount == 0)
+        if (int outputCount = pbrCount + computeCount; outputCount == 0)
         {
             result.IsValid = false;
-            result.Errors.push_back("Graph must have exactly one output node (PBROutput or ComputeOutput)");
+            result.Errors.emplace_back("Graph must have exactly one output node (PBROutput or ComputeOutput)");
         }
         else if (outputCount > 1)
         {
             result.IsValid = false;
             result.Errors.push_back("Graph must have exactly one output node, found " + std::to_string(outputCount));
+        }
+        else
+        {
+            // No additional handling required.
         }
 
         // Check for compute/raster node mixing
@@ -340,11 +347,10 @@ namespace OloEngine
         }
 
         // Check for cycles via topological sort
-        auto order = GetTopologicalOrder();
-        if (order.empty() && !m_Nodes.empty())
+        if (auto order = GetTopologicalOrder(); order.empty() && !m_Nodes.empty())
         {
             result.IsValid = false;
-            result.Errors.push_back("Graph contains a cycle");
+            result.Errors.emplace_back("Graph contains a cycle");
         }
 
         // Warn about disconnected required inputs on the output node
@@ -352,7 +358,7 @@ namespace OloEngine
         {
             const auto* albedoPin = outputNode->FindPinByName("Albedo", ShaderGraphPinDirection::Input);
             if (albedoPin && !GetLinkForInputPin(albedoPin->ID))
-                result.Warnings.push_back("PBROutput 'Albedo' input is not connected, will use default value");
+                result.Warnings.emplace_back("PBROutput 'Albedo' input is not connected, will use default value");
         }
 
         // Check for parameter name uniqueness
@@ -361,7 +367,7 @@ namespace OloEngine
         {
             if (!node->ParameterName.empty())
             {
-                paramNames[node->ParameterName]++;
+                ++paramNames[node->ParameterName];
             }
         }
         for (const auto& [name, count] : paramNames)
@@ -405,7 +411,7 @@ namespace OloEngine
             u64 fromID = static_cast<u64>(outputNode->ID);
             u64 toID = static_cast<u64>(inputNode->ID);
             adjacency[fromID].push_back(toID);
-            inDegree[toID]++;
+            ++inDegree[toID];
         }
 
         // Kahn's algorithm
@@ -424,8 +430,7 @@ namespace OloEngine
             u64 current = frontier.front();
             frontier.pop();
 
-            const auto* node = FindNode(UUID(current));
-            if (node)
+            if (const auto* node = FindNode(UUID(current)); node)
                 sorted.push_back(node);
 
             if (auto it = adjacency.find(current); it != adjacency.end())

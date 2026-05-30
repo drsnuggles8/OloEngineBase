@@ -170,7 +170,7 @@ namespace OloEngine
     void RendererSettingsPanel::DrawPresetControls(QualityTieringSettings& qt)
     {
         static const char* presetItems[] = { "Low", "Medium", "High", "Ultra", "Custom" };
-        int currentPreset = static_cast<int>(qt.Preset);
+        int currentPreset = static_cast<int>(std::to_underlying(qt.Preset));
         if (ImGui::Combo("Preset", &currentPreset, presetItems, IM_ARRAYSIZE(presetItems)))
         {
             auto selected = static_cast<QualityPreset>(currentPreset);
@@ -222,8 +222,7 @@ namespace OloEngine
         ImGui::Spacing();
         ImGui::TextDisabled("Ambient Occlusion");
         static const char* aoItems[] = { "None", "SSAO", "GTAO" };
-        int aoIdx = std::clamp(static_cast<int>(qt.AO), 0, 2);
-        if (ImGui::Combo("AO Technique##qt", &aoIdx, aoItems, IM_ARRAYSIZE(aoItems)))
+        if (int aoIdx = std::clamp(std::to_underlying(qt.AO), 0, 2); ImGui::Combo("AO Technique##qt", &aoIdx, aoItems, IM_ARRAYSIZE(aoItems)))
         {
             qt.AO = static_cast<AOTechnique>(aoIdx);
             changed = true;
@@ -271,7 +270,7 @@ namespace OloEngine
             changed = true;
     }
 
-    void RendererSettingsPanel::DrawQualityTieringSection()
+    void RendererSettingsPanel::DrawQualityTieringSection() const
     {
         auto project = Project::GetActive();
         if (!project)
@@ -321,7 +320,7 @@ namespace OloEngine
         }
     }
 
-    void RendererSettingsPanel::DrawRenderingPathSection()
+    void RendererSettingsPanel::DrawRenderingPathSection() const
     {
         auto& settings = Renderer3D::GetRendererSettings();
 
@@ -334,8 +333,7 @@ namespace OloEngine
                 "Forward+",
                 "Deferred"
             };
-            int currentPath = static_cast<int>(settings.Path);
-            if (ImGui::Combo("Active Path", &currentPath, pathItems, IM_ARRAYSIZE(pathItems)))
+            if (int currentPath = static_cast<int>(std::to_underlying(settings.Path)); ImGui::Combo("Active Path", &currentPath, pathItems, IM_ARRAYSIZE(pathItems)))
             {
                 settings.Path = static_cast<RenderingPath>(currentPath);
                 Renderer3D::ApplyRendererSettings();
@@ -351,8 +349,7 @@ namespace OloEngine
 
                 if (settings.ForwardPlusAutoSwitch)
                 {
-                    int threshold = static_cast<int>(settings.ForwardPlusLightThreshold);
-                    if (ImGui::SliderInt("Light Threshold", &threshold, 1, 64))
+                    if (int threshold = static_cast<int>(settings.ForwardPlusLightThreshold); ImGui::SliderInt("Light Threshold", &threshold, 1, 64))
                     {
                         settings.ForwardPlusLightThreshold = static_cast<u32>(threshold);
                         // Keep the downgrade floor < upgrade threshold (allow 0 when threshold == 1).
@@ -509,10 +506,14 @@ namespace OloEngine
                     Renderer3D::ApplyRendererSettings();
                 }
             }
+            else
+            {
+                // No additional handling required.
+            }
 
             // Show active path status
             ImGui::Separator();
-            auto& fplus = Renderer3D::GetForwardPlus();
+            const auto& fplus = Renderer3D::GetForwardPlus();
             if (settings.Path == RenderingPath::Deferred)
             {
                 ImGui::TextColored(ImVec4(0.3f, 1.0f, 0.3f, 1.0f), "Active: Deferred");
@@ -534,7 +535,7 @@ namespace OloEngine
         }
     }
 
-    void RendererSettingsPanel::DrawCullingSection()
+    void RendererSettingsPanel::DrawCullingSection() const
     {
         auto& settings = Renderer3D::GetRendererSettings();
         const bool forwardPlusForced = (settings.Path == RenderingPath::ForwardPlus) || (settings.Path == RenderingPath::Deferred);
@@ -575,10 +576,10 @@ namespace OloEngine
         }
     }
 
-    void RendererSettingsPanel::DrawForwardPlusSection()
+    void RendererSettingsPanel::DrawForwardPlusSection() const
     {
         auto& settings = Renderer3D::GetRendererSettings();
-        auto& fplus = Renderer3D::GetForwardPlus();
+        const auto& fplus = Renderer3D::GetForwardPlus();
 
         if (ImGui::CollapsingHeader("Forward+ Settings"))
         {
@@ -630,7 +631,7 @@ namespace OloEngine
         }
     }
 
-    void RendererSettingsPanel::DrawTransparencySection()
+    void RendererSettingsPanel::DrawTransparencySection() const
     {
         auto& settings = Renderer3D::GetRendererSettings();
 

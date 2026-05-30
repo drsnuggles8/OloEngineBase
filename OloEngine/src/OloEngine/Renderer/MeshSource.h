@@ -197,8 +197,7 @@ namespace OloEngine
             }
 
             // Validate index bounds (reasonable range for material indices)
-            constexpr u32 MAX_MATERIAL_INDEX = 65535; // Reasonable upper limit
-            if (index > MAX_MATERIAL_INDEX)
+            if (constexpr u32 MAX_MATERIAL_INDEX = 65535; index > MAX_MATERIAL_INDEX) // Reasonable upper limit
             {
                 OLO_CORE_ERROR("SetMaterial: material index {} exceeds maximum allowed ({})", index, MAX_MATERIAL_INDEX);
                 return;

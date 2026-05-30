@@ -166,6 +166,10 @@ namespace OloEngine
             OLO_CORE_WARN("UICompositePass: No input texture ({}) or blit shader ({}) — scene background will be black",
                           inputColorTextureID != 0u, m_BlitShader != nullptr);
         }
+        else
+        {
+            // No additional handling required.
+        }
 
         // Render 2D overlays and screen-space UI via the per-frame callback
         if (m_RenderCallback)
@@ -191,6 +195,10 @@ namespace OloEngine
         else if (m_NoCallbackWarningCount++ < 5)
         {
             OLO_CORE_WARN("UICompositePass: No render callback set — UI will not render this frame");
+        }
+        else
+        {
+            // No additional handling required.
         }
     }
 

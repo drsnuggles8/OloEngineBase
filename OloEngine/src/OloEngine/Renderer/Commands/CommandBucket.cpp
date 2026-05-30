@@ -47,7 +47,7 @@ namespace OloEngine
                 for (sizet i = 0; i < count; ++i)
                 {
                     u8 digit = static_cast<u8>((keys[i] >> shift) & 0xFF);
-                    histogram[digit]++;
+                    ++histogram[digit];
                 }
 
                 // Convert counts to starting positions (prefix sum)
@@ -138,7 +138,7 @@ namespace OloEngine
                             for (sizet i = start; i < end; ++i)
                             {
                                 u8 digit = static_cast<u8>((keys[i] >> shift) & 0xFF);
-                                hist[digit]++;
+                                ++hist[digit];
                             }
                         });
                 }
@@ -285,8 +285,8 @@ namespace OloEngine
         m_Keys.push_back(packet->GetMetadata().m_SortKey.GetKey());
         m_Packets.push_back(packet);
 
-        m_CommandCount++;
-        m_Stats.TotalCommands++;
+        ++m_CommandCount;
+        ++m_Stats.TotalCommands;
 
         // Adding a new command invalidates sorting and batching
         m_IsSorted = false;
@@ -353,10 +353,9 @@ namespace OloEngine
             groupRanges.push_back({ groupStart, m_Packets.size() });
 
             // Sort each group independently
-            for (auto& [start, end] : groupRanges)
+            for (const auto& [start, end] : groupRanges)
             {
-                sizet groupSize = end - start;
-                if (groupSize <= 1)
+                if (sizet groupSize = end - start; groupSize <= 1)
                     continue;
 
                 // Create temporary sub-arrays for the group
@@ -366,8 +365,8 @@ namespace OloEngine
                 ParallelRadixSort64(groupKeys, groupPackets);
 
                 // Copy sorted results back
-                std::copy(groupKeys.begin(), groupKeys.end(), m_Keys.begin() + start);
-                std::copy(groupPackets.begin(), groupPackets.end(), m_Packets.begin() + start);
+                std::ranges::copy(groupKeys, m_Keys.begin() + start);
+                std::ranges::copy(groupPackets, m_Packets.begin() + start);
             }
         }
 
@@ -493,8 +492,7 @@ namespace OloEngine
                 return false;
             }
 
-            const glm::mat4* existingTransforms = frameBuffer.GetTransformPtr(instancedCmd->transformBufferOffset);
-            if (existingTransforms)
+            if (const glm::mat4* existingTransforms = frameBuffer.GetTransformPtr(instancedCmd->transformBufferOffset))
             {
                 frameBuffer.WriteTransforms(newOffset, existingTransforms, instancedCmd->transformCount);
             }
@@ -533,8 +531,7 @@ namespace OloEngine
                 return false;
             }
 
-            const glm::mat4* existingTransforms = frameBuffer.GetTransformPtr(instancedCmd->transformBufferOffset);
-            if (existingTransforms)
+            if (const glm::mat4* existingTransforms = frameBuffer.GetTransformPtr(instancedCmd->transformBufferOffset))
             {
                 frameBuffer.WriteTransforms(newOffset, existingTransforms, instancedCmd->transformCount);
             }
@@ -731,7 +728,7 @@ namespace OloEngine
             for (u32 t = 1; t < totalInstances; ++t)
             {
                 m_Packets[indices[t]] = nullptr;
-                m_Stats.BatchedCommands++;
+                ++m_Stats.BatchedCommands;
             }
         }
 
@@ -807,11 +804,15 @@ namespace OloEngine
                 type == CommandType::DrawIndexedInstanced ||
                 type == CommandType::DrawLines)
             {
-                m_Stats.DrawCalls++;
+                ++m_Stats.DrawCalls;
             }
             else if (type != CommandType::Invalid)
             {
-                m_Stats.StateChanges++;
+                ++m_Stats.StateChanges;
+            }
+            else
+            {
+                // No additional handling required.
             }
 
             packet->Execute(rendererAPI);
@@ -875,11 +876,15 @@ namespace OloEngine
                 type == CommandType::DrawIndexedInstanced ||
                 type == CommandType::DrawLines)
             {
-                m_Stats.DrawCalls++;
+                ++m_Stats.DrawCalls;
             }
             else if (type != CommandType::Invalid)
             {
-                m_Stats.StateChanges++;
+                ++m_Stats.StateChanges;
+            }
+            else
+            {
+                // No additional handling required.
             }
 
             if (cmdIndex < gpuTimer.GetMaxQueries())
@@ -893,7 +898,7 @@ namespace OloEngine
                 packet->Execute(rendererAPI);
             }
 
-            cmdIndex++;
+            ++cmdIndex;
         }
 
         // Restore previous view state if we changed it
@@ -962,7 +967,7 @@ namespace OloEngine
         m_IsBatched = false;
     }
 
-    void CommandBucket::UseWorkerIndex(u32 workerIndex)
+    void CommandBucket::UseWorkerIndex(u32 workerIndex) const
     {
         // Optimized path: directly use the provided worker index without thread ID lookup.
         // This is called when the worker index is already known (e.g., from ParallelFor contextIndex).
@@ -982,8 +987,7 @@ namespace OloEngine
         u32 batchStart = m_NextBatchStart.fetch_add(TLS_BATCH_SIZE, std::memory_order_relaxed);
 
         // Grow the parallel commands array if needed
-        u32 requiredCapacity = batchStart + TLS_BATCH_SIZE;
-        if (requiredCapacity > m_ParallelCommands.size())
+        if (u32 requiredCapacity = batchStart + TLS_BATCH_SIZE; requiredCapacity > m_ParallelCommands.size())
         {
             TUniqueLock<FMutex> lock(m_Mutex);
             if (requiredCapacity > m_ParallelCommands.size())
@@ -1024,8 +1028,8 @@ namespace OloEngine
         m_ParallelCommands[globalIndex] = packet;
 
         // Update slot state
-        slot.offset++;
-        slot.remaining--;
+        ++slot.offset;
+        --slot.remaining;
 
         // Increment global command count (atomic)
         m_ParallelCommandCount.fetch_add(1, std::memory_order_relaxed);
@@ -1043,8 +1047,7 @@ namespace OloEngine
             return;
         }
 
-        u32 totalCommands = m_ParallelCommandCount.load(std::memory_order_acquire);
-        if (totalCommands == 0)
+        if (u32 totalCommands = m_ParallelCommandCount.load(std::memory_order_acquire); totalCommands == 0)
         {
             m_ParallelSubmissionActive = false;
             return;
@@ -1063,7 +1066,7 @@ namespace OloEngine
             {
                 m_Keys.push_back(packet->GetMetadata().m_SortKey.GetKey());
                 m_Packets.push_back(packet);
-                m_CommandCount++;
+                ++m_CommandCount;
             }
         }
 
@@ -1103,7 +1106,7 @@ namespace OloEngine
                         cmd->prevBoneBufferOffset = frameDataBuffer.GetGlobalBoneOffset(cmd->workerIndex, cmd->prevBoneBufferOffset);
                     }
                     cmd->needsBoneOffsetRemap = false;
-                    remappedCount++;
+                    ++remappedCount;
                 }
             }
         }

@@ -91,7 +91,7 @@ namespace OloEngine
             std::unordered_set<std::string> appended;
             appended.reserve(nodeByName.size());
 
-            const auto appendIfVisible = [&](const std::string& passName)
+            const auto appendIfVisible = [&culled, &appended, &nodeByName, &visible](const std::string& passName)
             {
                 if (culled.contains(passName) || appended.contains(passName))
                     return;
@@ -224,7 +224,7 @@ namespace OloEngine
             std::vector<const RenderGraph::ResourceInfo*> writtenResources;
             for (const auto& info : resources)
             {
-                if (std::find(info.Producers.begin(), info.Producers.end(), passName) != info.Producers.end())
+                if (std::ranges::find(info.Producers, passName) != info.Producers.end())
                 {
                     writtenResources.push_back(&info);
                 }
@@ -274,8 +274,7 @@ namespace OloEngine
             ImGui::SameLine();
             ImGui::TextDisabled("[OIT %s]", renderer.OITEnabled ? "on" : "off");
 
-            const auto finalInput = GetFinalPassInputName(graph);
-            if (finalInput.empty())
+            if (const auto finalInput = GetFinalPassInputName(graph); finalInput.empty())
             {
                 ImGui::TextColored(ImVec4(1.0f, 0.55f, 0.55f, 1.0f),
                                    "Final input: <none resolved>");
@@ -315,8 +314,7 @@ namespace OloEngine
 
             // Cull list with derived reasons.
             const auto& culledPasses = graph->GetCulledPasses();
-            const std::string cullHeader = "Culled passes (" + std::to_string(culledPasses.size()) + ")";
-            if (ImGui::TreeNodeEx(cullHeader.c_str(), culledPasses.empty() ? ImGuiTreeNodeFlags_Leaf : 0))
+            if (const std::string cullHeader = "Culled passes (" + std::to_string(culledPasses.size()) + ")"; ImGui::TreeNodeEx(cullHeader.c_str(), culledPasses.empty() ? ImGuiTreeNodeFlags_Leaf : 0))
             {
                 if (culledPasses.empty())
                 {
@@ -326,7 +324,7 @@ namespace OloEngine
                 {
                     std::unordered_set<std::string> culledSet(culledPasses.begin(), culledPasses.end());
                     std::vector<std::string> sortedCulled(culledPasses.begin(), culledPasses.end());
-                    std::sort(sortedCulled.begin(), sortedCulled.end());
+                    std::ranges::sort(sortedCulled);
                     for (const auto& passName : sortedCulled)
                     {
                         const auto reason = DeriveCullReason(graph, passName, culledSet);
@@ -370,8 +368,7 @@ namespace OloEngine
             return;
         }
 
-        const std::string visibleDigest = BuildVisibleNodeDigest(nodes);
-        if (visibleDigest != m_VisiblePassDigest)
+        if (const std::string visibleDigest = BuildVisibleNodeDigest(nodes); visibleDigest != m_VisiblePassDigest)
         {
             m_VisiblePassDigest = visibleDigest;
             m_NeedsLayout = true;
@@ -462,8 +459,7 @@ namespace OloEngine
             canvasSize.y = std::max(100.0f, canvasSize.y);
         }
 
-        constexpr ImGuiWindowFlags canvasFlags = ImGuiWindowFlags_HorizontalScrollbar;
-        if (ImGui::BeginChild("##render_graph_canvas", canvasSize, true, canvasFlags))
+        if (constexpr ImGuiWindowFlags canvasFlags = ImGuiWindowFlags_HorizontalScrollbar; ImGui::BeginChild("##render_graph_canvas", canvasSize, true, canvasFlags))
         {
             if (resetViewRequested)
             {
@@ -862,7 +858,7 @@ namespace OloEngine
 
             dependsOn[inputName].push_back(outputName);
             dependedBy[outputName].push_back(inputName);
-            inDegree[inputName]++;
+            ++inDegree[inputName];
         }
 
         // Step 2: Assign layers using topological sorting
@@ -890,7 +886,7 @@ namespace OloEngine
                 layers[dependent] = std::max(layers[dependent], layers[current] + 1);
 
                 // Decrease in-degree and check if ready
-                inDegree[dependent]--;
+                --inDegree[dependent];
                 if (inDegree[dependent] == 0)
                 {
                     queue.push(dependent);
@@ -904,7 +900,7 @@ namespace OloEngine
 
         for (const auto& [passName, layer] : layers)
         {
-            nodesPerLayer[layer]++;
+            ++nodesPerLayer[layer];
             maxLayer = std::max(maxLayer, layer);
         }
 
@@ -946,15 +942,14 @@ namespace OloEngine
             m_NodePositions[passName] = nodeData;
 
             // Increment counter for this layer
-            layerCounts[layer]++;
+            ++layerCounts[layer];
         }
     }
 
     void RenderGraphDebugger::DrawCapturePanel(const Ref<RenderGraph>& graph)
     {
         ImGui::SameLine();
-        const bool hookInstalled = graph && graph->HasPostPassHook();
-        if (ImGui::Button(hookInstalled ? "Recapture Frame" : "Capture Frame"))
+        if (const bool hookInstalled = graph && graph->HasPostPassHook(); ImGui::Button(hookInstalled ? "Recapture Frame" : "Capture Frame"))
         {
             // Debug instrumentation: installing a post-pass hook on the live
             // graph is a logical mutation, but RenderDebugView() takes the
@@ -1017,8 +1012,7 @@ namespace OloEngine
 
                 // Scrollable thumbnail strip on the left, viewer on the right.
                 const f32 thumbWidth = 196.0f;
-                const f32 listWidth = thumbWidth + 36.0f;
-                if (ImGui::BeginChild("##captures_list", ImVec2(listWidth, 0), true))
+                if (const f32 listWidth = thumbWidth + 36.0f; ImGui::BeginChild("##captures_list", ImVec2(listWidth, 0), true))
                 {
                     for (i32 i = 0; i < static_cast<i32>(captures.size()); ++i)
                     {
@@ -1048,8 +1042,7 @@ namespace OloEngine
                             ImGui::TextColored(ImVec4(0.55f, 0.9f, 0.55f, 1.0f), "VISIBLE (nonBlack: %u/9)", entry.NonBlackSamples);
                         }
 
-                        const ImTextureID texID = static_cast<ImTextureID>(static_cast<uintptr_t>(entry.TextureID));
-                        if (ImGui::ImageButton("##thumb", texID, ImVec2(thumbWidth, thumbHeight), ImVec2(0.0f, 1.0f), ImVec2(1.0f, 0.0f)))
+                        if (const ImTextureID texID = static_cast<ImTextureID>(static_cast<uintptr_t>(entry.TextureID)); ImGui::ImageButton("##thumb", texID, ImVec2(thumbWidth, thumbHeight), ImVec2(0.0f, 1.0f), ImVec2(1.0f, 0.0f)))
                         {
                             m_SelectedCaptureIndex = i;
                         }
@@ -1125,8 +1118,7 @@ namespace OloEngine
             return;
 
         ImGui::Spacing();
-        const std::string header = "Inspector: " + m_SelectedPassName;
-        if (!ImGui::CollapsingHeader(header.c_str(), ImGuiTreeNodeFlags_DefaultOpen))
+        if (const std::string header = "Inspector: " + m_SelectedPassName; !ImGui::CollapsingHeader(header.c_str(), ImGuiTreeNodeFlags_DefaultOpen))
             return;
 
         ImGui::Indent();
@@ -1142,7 +1134,7 @@ namespace OloEngine
         }
 
         const auto& culledPasses = graph->GetCulledPasses();
-        const bool culled = std::find(culledPasses.begin(), culledPasses.end(), m_SelectedPassName) != culledPasses.end();
+        const bool culled = std::ranges::find(culledPasses, m_SelectedPassName) != culledPasses.end();
         const bool enabled = node->IsEnabled();
         const bool ready = node->IsReadyForExecution();
 
@@ -1174,6 +1166,10 @@ namespace OloEngine
             ImGui::TextDisabled("Pass is enabled but reports !IsReadyForExecution() \xE2\x80\x94 missing\n"
                                 "shader, UBO, or upstream resource. Check Init() and FrameCorePasses wiring.");
         }
+        else
+        {
+            // No additional handling required.
+        }
 
         ImGui::Spacing();
         ImGui::Separator();
@@ -1204,16 +1200,15 @@ namespace OloEngine
         std::vector<std::string> writes;
         for (const auto& res : graph->GetRegisteredResources())
         {
-            if (std::find(res.Producers.begin(), res.Producers.end(), m_SelectedPassName) != res.Producers.end())
+            if (std::ranges::find(res.Producers, m_SelectedPassName) != res.Producers.end())
                 writes.push_back(res.Name);
-            if (std::find(res.Consumers.begin(), res.Consumers.end(), m_SelectedPassName) != res.Consumers.end())
+            if (std::ranges::find(res.Consumers, m_SelectedPassName) != res.Consumers.end())
                 reads.push_back(res.Name);
         }
-        std::sort(reads.begin(), reads.end());
-        std::sort(writes.begin(), writes.end());
+        std::ranges::sort(reads);
+        std::ranges::sort(writes);
 
-        const std::string readsHeader = "Reads (" + std::to_string(reads.size()) + ")";
-        if (ImGui::TreeNodeEx(readsHeader.c_str(), reads.empty() ? ImGuiTreeNodeFlags_Leaf : ImGuiTreeNodeFlags_DefaultOpen))
+        if (const std::string readsHeader = "Reads (" + std::to_string(reads.size()) + ")"; ImGui::TreeNodeEx(readsHeader.c_str(), reads.empty() ? ImGuiTreeNodeFlags_Leaf : ImGuiTreeNodeFlags_DefaultOpen))
         {
             if (reads.empty())
                 ImGui::TextDisabled("(no declared reads)");
@@ -1222,8 +1217,7 @@ namespace OloEngine
             ImGui::TreePop();
         }
 
-        const std::string writesHeader = "Writes (" + std::to_string(writes.size()) + ")";
-        if (ImGui::TreeNodeEx(writesHeader.c_str(), writes.empty() ? ImGuiTreeNodeFlags_Leaf : ImGuiTreeNodeFlags_DefaultOpen))
+        if (const std::string writesHeader = "Writes (" + std::to_string(writes.size()) + ")"; ImGui::TreeNodeEx(writesHeader.c_str(), writes.empty() ? ImGuiTreeNodeFlags_Leaf : ImGuiTreeNodeFlags_DefaultOpen))
         {
             if (writes.empty())
                 ImGui::TextDisabled("(no declared writes)");
@@ -1246,15 +1240,13 @@ namespace OloEngine
             return;
 
         ImGui::Spacing();
-        const std::string header = "Pass output strip (" + std::to_string(captures.size()) + ")";
-        if (!ImGui::CollapsingHeader(header.c_str(), ImGuiTreeNodeFlags_DefaultOpen))
+        if (const std::string header = "Pass output strip (" + std::to_string(captures.size()) + ")"; !ImGui::CollapsingHeader(header.c_str(), ImGuiTreeNodeFlags_DefaultOpen))
             return;
 
         ImGui::TextDisabled("Click a thumbnail to open it in the full capture viewer.");
 
-        constexpr f32 thumbHeight = 96.0f;
-        if (ImGui::BeginChild("##capture_strip", ImVec2(0, thumbHeight + 56.0f), true,
-                              ImGuiWindowFlags_HorizontalScrollbar))
+        if (constexpr f32 thumbHeight = 96.0f; ImGui::BeginChild("##capture_strip", ImVec2(0, thumbHeight + 56.0f), true,
+                                                                 ImGuiWindowFlags_HorizontalScrollbar))
         {
             for (i32 i = 0; i < static_cast<i32>(captures.size()); ++i)
             {
@@ -1266,9 +1258,8 @@ namespace OloEngine
 
                 ImGui::BeginGroup();
 
-                const ImTextureID texID = static_cast<ImTextureID>(static_cast<uintptr_t>(entry.TextureID));
-                if (ImGui::ImageButton("##strip_thumb", texID, ImVec2(thumbWidth, thumbHeight),
-                                       ImVec2(0.0f, 1.0f), ImVec2(1.0f, 0.0f)))
+                if (const ImTextureID texID = static_cast<ImTextureID>(static_cast<uintptr_t>(entry.TextureID)); ImGui::ImageButton("##strip_thumb", texID, ImVec2(thumbWidth, thumbHeight),
+                                                                                                                                    ImVec2(0.0f, 1.0f), ImVec2(1.0f, 0.0f)))
                 {
                     m_SelectedCaptureIndex = i;
                     m_CaptureWindowOpen = true;

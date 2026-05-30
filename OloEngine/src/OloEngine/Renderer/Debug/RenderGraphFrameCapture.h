@@ -11,6 +11,7 @@
 #include <string_view>
 #include <unordered_map>
 #include <unordered_set>
+#include <utility>
 #include <vector>
 
 namespace OloEngine
@@ -177,7 +178,7 @@ namespace OloEngine
         {
             sizet operator()(const CacheKey& k) const noexcept
             {
-                return std::hash<std::string>{}(k.PassName) ^ (static_cast<sizet>(k.SourceKind) * 0x9e3779b97f4a7c15ULL);
+                return std::hash<std::string>{}(k.PassName) ^ (static_cast<sizet>(std::to_underlying(k.SourceKind)) * 0x9e3779b97f4a7c15ULL);
             }
         };
 

@@ -83,6 +83,10 @@ namespace OloEngine
             {
                 MouseZoom(delta.y);
             }
+            else
+            {
+                // No additional handling required.
+            }
         }
         else if (Input::IsMouseButtonPressed(Mouse::ButtonRight))
         {
@@ -140,7 +144,7 @@ namespace OloEngine
         // Gamepad fly mode: left stick moves, right stick looks, bumpers for up/down
         if (m_GamepadEnabled)
         {
-            if (auto* gp = GamepadManager::GetGamepad(); gp && gp->IsConnected())
+            if (const auto* gp = GamepadManager::GetGamepad(); gp && gp->IsConnected())
             {
                 glm::vec2 leftStick = gp->GetLeftStickDeadzone(0.15f);
                 glm::vec2 rightStick = gp->GetRightStickDeadzone(0.15f);

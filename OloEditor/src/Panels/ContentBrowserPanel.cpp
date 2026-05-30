@@ -22,6 +22,7 @@
 #include <imgui.h>
 #include <imgui_internal.h>
 #include <yaml-cpp/yaml.h>
+#include <cmath>
 #include <fstream>
 
 #ifdef OLO_PLATFORM_WINDOWS
@@ -168,7 +169,7 @@ namespace OloEngine
         {
             // Count directories in selection
             size_t dirCount = 0;
-            for (auto& path : m_SelectedItems)
+            for (const auto& path : m_SelectedItems)
             {
                 std::error_code ec;
                 if (std::filesystem::is_directory(path, ec))
@@ -355,7 +356,7 @@ namespace OloEngine
 
         if (isOpen)
         {
-            for (auto& child : dir->SubDirectories)
+            for (const auto& child : dir->SubDirectories)
             {
                 DrawDirectoryTreeNode(child.get());
             }
@@ -418,6 +419,10 @@ namespace OloEngine
                 {
                     m_AssetSelectedCallback(item.GetPath(), item.GetType());
                 }
+                else
+                {
+                    // No additional handling required.
+                }
             }
 
             if (HasAction(actions, ContentBrowserAction::StartRenaming))
@@ -430,8 +435,7 @@ namespace OloEngine
             {
                 if (renaming)
                 {
-                    std::string newName(item.GetRenameBuffer());
-                    if (newName != item.GetDisplayName())
+                    if (std::string newName(item.GetRenameBuffer()); newName != item.GetDisplayName())
                     {
                         auto& mutableItem = m_Items[i];
                         auto parentPath = std::filesystem::relative(mutableItem.GetPath().parent_path(), m_DirectoryTree.GetAssetRoot());
@@ -500,9 +504,9 @@ namespace OloEngine
         for (const auto& item : m_Items)
         {
             if (item.IsDirectory())
-                dirCount++;
+                ++dirCount;
             else
-                fileCount++;
+                ++fileCount;
         }
 
         if (!m_SelectedItems.empty())
@@ -591,7 +595,7 @@ namespace OloEngine
             return;
 
         // Add subdirectories
-        for (auto& subDir : m_CurrentDirectory->SubDirectories)
+        for (const auto& subDir : m_CurrentDirectory->SubDirectories)
         {
             std::filesystem::path absPath = m_DirectoryTree.GetAssetRoot() / subDir->RelativePath;
             m_Items.emplace_back(absPath, ContentFileType::Directory, m_DirectoryIcon);
@@ -615,7 +619,7 @@ namespace OloEngine
         for (auto* d = m_CurrentDirectory; d != nullptr; d = d->Parent)
             m_BreadcrumbTrail.push_back(d);
 
-        std::reverse(m_BreadcrumbTrail.begin(), m_BreadcrumbTrail.end());
+        std::ranges::reverse(m_BreadcrumbTrail);
     }
 
     void ContentBrowserPanel::RefreshIfDirty()
@@ -709,7 +713,7 @@ namespace OloEngine
 
     bool ContentBrowserPanel::IsSelected(const std::filesystem::path& path) const
     {
-        return std::find(m_SelectedItems.begin(), m_SelectedItems.end(), path) != m_SelectedItems.end();
+        return std::ranges::find(m_SelectedItems, path) != m_SelectedItems.end();
     }
 
     void ContentBrowserPanel::Select(const std::filesystem::path& path)
@@ -720,7 +724,7 @@ namespace OloEngine
 
     void ContentBrowserPanel::Deselect(const std::filesystem::path& path)
     {
-        auto it = std::find(m_SelectedItems.begin(), m_SelectedItems.end(), path);
+        auto it = std::ranges::find(m_SelectedItems, path);
         if (it != m_SelectedItems.end())
             m_SelectedItems.erase(it);
     }
@@ -751,7 +755,7 @@ namespace OloEngine
 
     void ContentBrowserPanel::DeleteSelectedItems()
     {
-        for (auto& path : m_SelectedItems)
+        for (const auto& path : m_SelectedItems)
         {
             std::error_code ec;
             std::filesystem::remove_all(path, ec);
@@ -795,7 +799,7 @@ namespace OloEngine
         if (!ImGui::IsWindowFocused(ImGuiFocusedFlags_ChildWindows))
             return;
 
-        auto& io = ImGui::GetIO();
+        const auto& io = ImGui::GetIO();
 
         // Don't process shortcuts while a text input owns the keyboard
         if (io.WantTextInput)
@@ -838,7 +842,7 @@ namespace OloEngine
         if (io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_A))
         {
             DeselectAll();
-            for (auto& item : m_Items)
+            for (const auto& item : m_Items)
                 Select(item.GetPath());
         }
 
@@ -876,8 +880,7 @@ namespace OloEngine
             OLO_CORE_ERROR("OpenInExplorer: canonical failed for '{}': {}", path.string(), ecCanonical.message());
             return;
         }
-        std::error_code ecExists;
-        if (!std::filesystem::exists(canonical, ecExists))
+        if (std::error_code ecExists; !std::filesystem::exists(canonical, ecExists))
         {
             OLO_CORE_ERROR("OpenInExplorer: path does not exist '{}': {}", canonical.string(), ecExists.message());
             return;
@@ -899,8 +902,7 @@ namespace OloEngine
             OLO_CORE_ERROR("OpenExternally: canonical failed for '{}': {}", path.string(), ecCanonical.message());
             return;
         }
-        std::error_code ecIsFile;
-        if (!std::filesystem::is_regular_file(canonical, ecIsFile))
+        if (std::error_code ecIsFile; !std::filesystem::is_regular_file(canonical, ecIsFile))
         {
             OLO_CORE_ERROR("OpenExternally: not a regular file '{}': {}", canonical.string(), ecIsFile.message());
             return;
@@ -1314,6 +1316,10 @@ namespace OloEngine
             out << YAML::Key << "MajorSegments" << YAML::Value << 24;
             out << YAML::Key << "MinorSegments" << YAML::Value << 12;
         }
+        else
+        {
+            // No additional handling required.
+        }
 
         out << YAML::EndMap;
         out << YAML::EndMap;
@@ -1344,7 +1350,7 @@ namespace OloEngine
 
         // Guard against double-registration
         auto* ctx = ImGui::GetCurrentContext();
-        for (auto& h : ctx->SettingsHandlers)
+        for (const auto& h : ctx->SettingsHandlers)
         {
             if (h.TypeHash == ImHashStr("ContentBrowser"))
                 return;
@@ -1372,9 +1378,19 @@ namespace OloEngine
 
         f32 value = 0.0f;
         if (std::sscanf(line, "ThumbnailSize=%f", &value) == 1)
-            panel->m_ThumbnailSize = std::clamp(value, 48.0f, 256.0f);
+        {
+            if (std::isfinite(value))
+                panel->m_ThumbnailSize = std::clamp(value, 48.0f, 256.0f);
+        }
         else if (std::sscanf(line, "Padding=%f", &value) == 1)
-            panel->m_Padding = std::clamp(value, 0.0f, 32.0f);
+        {
+            if (std::isfinite(value))
+                panel->m_Padding = std::clamp(value, 0.0f, 32.0f);
+        }
+        else
+        {
+            // No additional handling required.
+        }
     }
 
     void ContentBrowserPanel::SettingsHandler_WriteAll(ImGuiContext*, ImGuiSettingsHandler* handler, ImGuiTextBuffer* buf)

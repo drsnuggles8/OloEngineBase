@@ -91,7 +91,7 @@ namespace OloEngine
         {
             return AssetType::None;
         }
-        virtual AssetType GetAssetType() const override = 0;
+        AssetType GetAssetType() const override = 0;
     };
 
     class Texture2D : public Texture
@@ -117,7 +117,7 @@ namespace OloEngine
         {
             return AssetType::Texture2D;
         }
-        virtual AssetType GetAssetType() const override
+        AssetType GetAssetType() const override
         {
             return GetStaticType();
         }

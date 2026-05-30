@@ -24,12 +24,12 @@ namespace OloEngine
                 return false;
 
             const auto& attachments = framebuffer->GetSpecification().Attachments.Attachments;
-            return std::any_of(attachments.begin(), attachments.end(),
-                               [](const FramebufferTextureSpecification& attachment)
-                               {
-                                   return attachment.TextureFormat == FramebufferTextureFormat::Depth ||
-                                          attachment.TextureFormat == FramebufferTextureFormat::DEPTH24STENCIL8;
-                               });
+            return std::ranges::any_of(attachments,
+                                       [](const FramebufferTextureSpecification& attachment)
+                                       {
+                                           return attachment.TextureFormat == FramebufferTextureFormat::Depth ||
+                                                  attachment.TextureFormat == FramebufferTextureFormat::DEPTH24STENCIL8;
+                                       });
         }
     } // namespace
 

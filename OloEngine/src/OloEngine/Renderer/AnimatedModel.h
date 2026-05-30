@@ -98,13 +98,13 @@ namespace OloEngine
 
         // Helper methods
         void CalculateBounds();
-        glm::mat4 AssimpMatrixToGLM(const aiMatrix4x4& from);
+        glm::mat4 AssimpMatrixToGLM(const aiMatrix4x4& from) const;
         u32 FindBoneIndex(const std::string& boneName);
 
         // Animation sampling helpers
-        glm::vec3 SamplePosition(const aiNodeAnim* nodeAnim, f64 time);
-        glm::quat SampleRotation(const aiNodeAnim* nodeAnim, f64 time);
-        glm::vec3 SampleScale(const aiNodeAnim* nodeAnim, f64 time);
+        glm::vec3 SamplePosition(const aiNodeAnim* nodeAnim, f64 time) const;
+        glm::quat SampleRotation(const aiNodeAnim* nodeAnim, f64 time) const;
+        glm::vec3 SampleScale(const aiNodeAnim* nodeAnim, f64 time) const;
 
         // Bone mapping structure
         struct BoneInfo

@@ -4,6 +4,7 @@
 
 #include <filesystem>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace OloEngine
@@ -50,17 +51,17 @@ namespace OloEngine
 
     inline CBActionResult operator|(CBActionResult a, ContentBrowserAction b)
     {
-        return a | static_cast<CBActionResult>(b);
+        return a | std::to_underlying(b);
     }
 
     inline bool HasAction(CBActionResult result, ContentBrowserAction action)
     {
-        return (result & static_cast<CBActionResult>(action)) != 0;
+        return (result & std::to_underlying(action)) != 0;
     }
 
     inline void SetAction(CBActionResult& result, ContentBrowserAction action)
     {
-        result |= static_cast<CBActionResult>(action);
+        result |= std::to_underlying(action);
     }
 
     // Maps a file extension to a ContentFileType.
@@ -108,7 +109,7 @@ namespace OloEngine
         }
 
       private:
-        void RenderContextMenu(CBActionResult& result);
+        void RenderContextMenu(CBActionResult& result) const;
 
         std::filesystem::path m_Path;
         std::string m_DisplayName;

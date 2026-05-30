@@ -693,8 +693,7 @@ namespace OloEngine
          */
         [[nodiscard]] inline ElementType* Find(KeyInitType Key)
         {
-            i32 ElementIndex = FindIndexByHash(KeyFuncs::GetKeyHash(Key), Key);
-            if (ElementIndex != INDEX_NONE)
+            if (i32 ElementIndex = FindIndexByHash(KeyFuncs::GetKeyHash(Key), Key); ElementIndex != INDEX_NONE)
             {
                 return &Elements[ElementIndex].Value;
             }
@@ -715,8 +714,7 @@ namespace OloEngine
         template<typename ComparableKey>
         [[nodiscard]] ElementType* FindByHash(u32 KeyHash, const ComparableKey& Key)
         {
-            i32 ElementIndex = FindIndexByHash(KeyHash, Key);
-            if (ElementIndex != INDEX_NONE)
+            if (i32 ElementIndex = FindIndexByHash(KeyHash, Key); ElementIndex != INDEX_NONE)
             {
                 return &Elements[ElementIndex].Value;
             }
@@ -1161,7 +1159,7 @@ namespace OloEngine
          *       Currently stubbed until FOutputDevice is implemented.
          *       Future signature: void Dump(FOutputDevice& Ar)
          */
-        void Dump()
+        void Dump() const
         {
             // TODO: Implement when FOutputDevice is available
             // Ar.Logf(TEXT("TSparseSet: %i elements, %i hash slots"), Elements.Num(), HashSize);
@@ -1274,7 +1272,7 @@ namespace OloEngine
                 return INDEX_NONE;
             }
 
-            FSetElementId* HashPtr = reinterpret_cast<FSetElementId*>(Hash.GetAllocation());
+            const FSetElementId* HashPtr = reinterpret_cast<FSetElementId*>(Hash.GetAllocation());
             i32 ElementIndex = HashPtr[KeyHash & (HashSize - 1)].AsInteger();
 
             while (ElementIndex != INDEX_NONE)
@@ -1427,7 +1425,7 @@ namespace OloEngine
         {
             i32 NumRemovedElements = 0;
 
-            FSetElementId* NextElementId = &GetTypedHash(KeyHash);
+            const FSetElementId* NextElementId = &GetTypedHash(KeyHash);
             while (NextElementId->IsValidId())
             {
                 const i32 ElementIndex = NextElementId->AsInteger();
@@ -1436,7 +1434,7 @@ namespace OloEngine
                 if (KeyFuncs::Matches(KeyFuncs::GetSetKey(Element.Value), Key))
                 {
                     RemoveByIndex(ElementIndex);
-                    NumRemovedElements++;
+                    ++NumRemovedElements;
 
                     if constexpr (!KeyFuncs::bAllowDuplicateKeys)
                     {

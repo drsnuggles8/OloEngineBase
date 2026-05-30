@@ -106,7 +106,7 @@ namespace OloEngine
         [[nodiscard]] TLockFreeAllocOnceIndexedAllocator()
         {
             ++m_NextIndex; // skip index 0 (null pointer)
-            for (u32 Index = 0; Index < MaxBlocks; Index++)
+            for (u32 Index = 0; Index < MaxBlocks; ++Index)
             {
                 m_Pages[Index] = nullptr;
             }
@@ -122,7 +122,7 @@ namespace OloEngine
             {
                 LockFreeLinksExhausted(MaxTotalItems);
             }
-            for (u32 CurrentItem = FirstItem; CurrentItem < FirstItem + Count; CurrentItem++)
+            for (u32 CurrentItem = FirstItem; CurrentItem < FirstItem + Count; ++CurrentItem)
             {
                 ::new (GetRawItem(CurrentItem)) T();
             }
@@ -654,7 +654,7 @@ namespace OloEngine
             TLinkPtr Links = m_RootList.PopAll();
             while (Links)
             {
-                TLink* LinksP = FLockFreeLinkPolicy::DerefLink(Links);
+                const TLink* LinksP = FLockFreeLinkPolicy::DerefLink(Links);
                 OutContainer.Add(static_cast<T*>(LinksP->Payload.load(std::memory_order_relaxed)));
                 TLinkPtr Del = Links;
                 Links = LinksP->SingleNext.load(std::memory_order_relaxed);
@@ -671,7 +671,7 @@ namespace OloEngine
             TLinkPtr Links = m_RootList.PopAll();
             while (Links)
             {
-                TLink* LinksP = FLockFreeLinkPolicy::DerefLink(Links);
+                const TLink* LinksP = FLockFreeLinkPolicy::DerefLink(Links);
                 InFunctor(static_cast<T*>(LinksP->Payload.load(std::memory_order_relaxed)));
                 TLinkPtr Del = Links;
                 Links = LinksP->SingleNext.load(std::memory_order_relaxed);
@@ -689,7 +689,7 @@ namespace OloEngine
             TLinkPtr Links = m_RootList.PopAllAndChangeState(StateChange);
             while (Links)
             {
-                TLink* LinksP = FLockFreeLinkPolicy::DerefLink(Links);
+                const TLink* LinksP = FLockFreeLinkPolicy::DerefLink(Links);
                 OutContainer.Add(static_cast<T*>(LinksP->Payload.load(std::memory_order_relaxed)));
                 TLinkPtr Del = Links;
                 Links = LinksP->SingleNext.load(std::memory_order_relaxed);
@@ -963,7 +963,7 @@ namespace OloEngine
                 LocalMasterState.AtomicRead(m_MasterState);
 
                 // Try each priority queue
-                for (i32 Index = 0; Index < NumPriorities; Index++)
+                for (i32 Index = 0; Index < NumPriorities; ++Index)
                 {
                     T* Result = m_PriorityQueues[Index].Pop();
                     if (Result)
@@ -1004,14 +1004,13 @@ namespace OloEngine
         [[nodiscard]] static i32 FindThreadToWake(TLinkPtr Ptr)
         {
             i32 Result = -1;
-            uptr Test = uptr(Ptr);
-            if (Test)
+            if (uptr Test = uptr(Ptr); Test)
             {
                 Result = 0;
                 while (!(Test & 1))
                 {
                     Test >>= 1;
-                    Result++;
+                    ++Result;
                 }
             }
             return Result;

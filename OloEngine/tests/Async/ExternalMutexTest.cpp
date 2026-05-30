@@ -69,7 +69,7 @@ TEST_F(ExternalMutexTest, IsLockedAndTryLock)
             EXPECT_TRUE(Mutex.IsLocked());
             EXPECT_FALSE(Mutex.TryLock());
             EXPECT_TRUE((ExternalState.load() & ThirdBit) != 0);
-            TasksComplete++;
+            ++TasksComplete;
             Mutex.Unlock(); });
     }
 
@@ -111,7 +111,7 @@ TEST_F(ExternalMutexTest, WithUniqueLockSlowPath)
             TUniqueLock Lock(Mutex);
             EXPECT_TRUE(Mutex.IsLocked());
             EXPECT_TRUE((ExternalState.load() & ThirdBit) != 0);
-            TasksComplete++; });
+            ++TasksComplete; });
     }
 
     MainMutex.Unlock();

@@ -57,7 +57,7 @@ namespace OloEngine::Tasks
                 return GetAllocator().Allocate();
             }
 
-            void Free(void* Ptr)
+            void Free(void* Ptr) const
             {
                 GetAllocator().Free(Ptr);
             }

@@ -69,7 +69,7 @@ namespace OloEngine
         //   exclusionSet.IsEntityExcluded(entityID); // O(1) instead of O(n)
         bool IsEntityExcluded(const std::vector<UUID>& excludedEntities, UUID entityID) noexcept
         {
-            return std::find(excludedEntities.begin(), excludedEntities.end(), entityID) != excludedEntities.end();
+            return std::ranges::find(excludedEntities, entityID) != excludedEntities.end();
         }
 
     } // namespace EntityExclusionUtils

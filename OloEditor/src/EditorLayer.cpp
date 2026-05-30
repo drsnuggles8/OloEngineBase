@@ -70,9 +70,9 @@ namespace
     [[nodiscard]] std::string LowercaseExtension(const std::filesystem::path& p)
     {
         std::string ext = p.extension().string();
-        std::transform(ext.begin(), ext.end(), ext.begin(),
-                       [](unsigned char c)
-                       { return static_cast<char>(std::tolower(c)); });
+        std::ranges::transform(ext, ext.begin(),
+                               [](unsigned char c)
+                               { return static_cast<char>(std::tolower(c)); });
         return ext;
     }
 } // namespace
@@ -145,6 +145,10 @@ namespace OloEngine
             else if (!OpenProject())
             {
                 Application::Get().Close();
+            }
+            else
+            {
+                // No additional handling required.
             }
         }
         m_EditorCamera = EditorCamera(30.0f, 1.778f, 0.1f, 1000.0f);
@@ -421,8 +425,7 @@ namespace OloEngine
                     if (m_PickingReadPending)
                     {
                         glBindBuffer(GL_PIXEL_PACK_BUFFER, readPBO);
-                        const auto* mapped = static_cast<const int*>(glMapBuffer(GL_PIXEL_PACK_BUFFER, GL_READ_ONLY));
-                        if (mapped)
+                        if (const auto* mapped = static_cast<const int*>(glMapBuffer(GL_PIXEL_PACK_BUFFER, GL_READ_ONLY)); mapped)
                         {
                             pixelData = *mapped;
                             glUnmapBuffer(GL_PIXEL_PACK_BUFFER);
@@ -431,8 +434,7 @@ namespace OloEngine
                     }
 
                     // Step 2: Issue async read for this frame into the write PBO
-                    auto framebuffer = Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::SceneColor);
-                    if (framebuffer)
+                    if (auto framebuffer = Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::SceneColor); framebuffer)
                     {
                         glBindFramebuffer(GL_READ_FRAMEBUFFER, framebuffer->GetRendererID());
                         glReadBuffer(GL_COLOR_ATTACHMENT0 + 1); // Entity ID attachment
@@ -450,6 +452,10 @@ namespace OloEngine
                 {
                     // 2D mode: synchronous read (not performance critical)
                     pixelData = m_Framebuffer->ReadPixel(1, mouseX, mouseY);
+                }
+                else
+                {
+                    // No additional handling required.
                 }
                 m_HoveredEntity = pixelData == -1 ? Entity() : Entity(static_cast<entt::entity>(pixelData), m_ActiveScene.get());
             }
@@ -927,6 +933,10 @@ namespace OloEngine
                         }
                     }
                 }
+                else
+                {
+                    // No additional handling required.
+                }
             }
             ImGui::EndDragDropTarget();
         }
@@ -973,6 +983,10 @@ namespace OloEngine
             else if (m_GizmoType == ImGuizmo::OPERATION::SCALE)
             {
                 snapValue = m_ScaleSnap;
+            }
+            else
+            {
+                // No additional handling required.
             }
 
             const std::array<f32, 3> snapValues = { snapValue, snapValue, snapValue };
@@ -1027,19 +1041,19 @@ namespace OloEngine
         int buttonCount = 0;
         if (hasPlayButton)
         {
-            buttonCount++;
+            ++buttonCount;
         }
         if (hasSimulateButton)
         {
-            buttonCount++;
+            ++buttonCount;
         }
         if (hasPauseButton)
         {
-            buttonCount++;
+            ++buttonCount;
         }
         if (isPaused)
         {
-            buttonCount++;
+            ++buttonCount;
         }
         if (buttonCount == 0)
         {
@@ -1093,8 +1107,7 @@ namespace OloEngine
         if (hasPlayButton)
         {
             using enum OloEngine::EditorLayer::SceneState;
-            Ref<Texture2D> const icon = ((m_SceneState == Edit) || (m_SceneState == Simulate)) ? m_IconPlay : m_IconStop;
-            if (ImGui::ImageButton("##play_stop_icon", static_cast<u64>(icon->GetRendererID()), btnSize, ImVec2(0, 0), ImVec2(1, 1), ImVec4(0, 0, 0, 0), tintColor) && toolbarEnabled)
+            if (Ref<Texture2D> const icon = ((m_SceneState == Edit) || (m_SceneState == Simulate)) ? m_IconPlay : m_IconStop; ImGui::ImageButton("##play_stop_icon", static_cast<u64>(icon->GetRendererID()), btnSize, ImVec2(0, 0), ImVec2(1, 1), ImVec4(0, 0, 0, 0), tintColor) && toolbarEnabled)
             {
                 if ((m_SceneState == Edit) || (m_SceneState == Simulate))
                 {
@@ -1104,6 +1117,10 @@ namespace OloEngine
                 {
                     OnSceneStop();
                 }
+                else
+                {
+                    // No additional handling required.
+                }
             }
             ImGui::SameLine();
         }
@@ -1112,8 +1129,7 @@ namespace OloEngine
         if (hasSimulateButton)
         {
             using enum OloEngine::EditorLayer::SceneState;
-            Ref<Texture2D> const icon = ((m_SceneState == Edit) || (m_SceneState == Play)) ? m_IconSimulate : m_IconStop;
-            if (ImGui::ImageButton("##simulate_stop_icon", static_cast<u64>(icon->GetRendererID()), btnSize, ImVec2(0, 0), ImVec2(1, 1), ImVec4(0, 0, 0, 0), tintColor) && toolbarEnabled)
+            if (Ref<Texture2D> const icon = ((m_SceneState == Edit) || (m_SceneState == Play)) ? m_IconSimulate : m_IconStop; ImGui::ImageButton("##simulate_stop_icon", static_cast<u64>(icon->GetRendererID()), btnSize, ImVec2(0, 0), ImVec2(1, 1), ImVec4(0, 0, 0, 0), tintColor) && toolbarEnabled)
             {
                 if ((m_SceneState == Edit) || (m_SceneState == Play))
                 {
@@ -1123,6 +1139,10 @@ namespace OloEngine
                 {
                     OnSceneStop();
                 }
+                else
+                {
+                    // No additional handling required.
+                }
             }
             ImGui::SameLine();
         }
@@ -1130,8 +1150,7 @@ namespace OloEngine
         // Pause button
         if (hasPauseButton)
         {
-            Ref<Texture2D> const icon = m_IconPause;
-            if (ImGui::ImageButton("##pause_icon", static_cast<u64>(icon->GetRendererID()), btnSize, ImVec2(0, 0), ImVec2(1, 1), ImVec4(0, 0, 0, 0), tintColor) && toolbarEnabled)
+            if (Ref<Texture2D> const icon = m_IconPause; ImGui::ImageButton("##pause_icon", static_cast<u64>(icon->GetRendererID()), btnSize, ImVec2(0, 0), ImVec2(1, 1), ImVec4(0, 0, 0, 0), tintColor) && toolbarEnabled)
             {
                 m_ActiveScene->SetPaused(!isPaused);
             }
@@ -1272,8 +1291,7 @@ namespace OloEngine
         if (m_ShowLocalizationPanel)
         {
             static const Project* s_LastLocalizationProject = reinterpret_cast<const Project*>(0x1);
-            const Project* activeProject = Project::GetActive().Raw();
-            if (activeProject != s_LastLocalizationProject)
+            if (const Project* activeProject = Project::GetActive().Raw(); activeProject != s_LastLocalizationProject)
             {
                 // Resolve the project's asset root + "localization" subdir
                 // into an absolute path. The hard-coded "assets/localization"
@@ -1712,6 +1730,10 @@ namespace OloEngine
                             [this](Entity restored)
                             { m_SceneHierarchyPanel.SetSelectedEntity(restored); }));
                     }
+                    else
+                    {
+                        // No additional handling required.
+                    }
                 }
                 break;
             }
@@ -1766,8 +1788,7 @@ namespace OloEngine
         }
 
         // Entity outline
-        const auto& selectedEntities = m_SceneHierarchyPanel.GetSelectedEntities();
-        if (!selectedEntities.empty())
+        if (const auto& selectedEntities = m_SceneHierarchyPanel.GetSelectedEntities(); !selectedEntities.empty())
         {
             Renderer2D::SetLineWidth(4.0f);
 
@@ -1803,6 +1824,10 @@ namespace OloEngine
                     else if (cc.Camera.GetProjectionType() == SceneCamera::ProjectionType::Perspective)
                     {
                         // TODO(olbu): Draw the selected camera properly once the Renderer2D can draw triangles/points
+                    }
+                    else
+                    {
+                        // No additional handling required.
                     }
                 }
             }
@@ -1957,6 +1982,10 @@ namespace OloEngine
                 {
                     OpenScene(path);
                 }
+            }
+            else
+            {
+                // No additional handling required.
             } });
     }
 
@@ -2010,8 +2039,7 @@ namespace OloEngine
 
             // Load item definitions before opening scene so deserialization can resolve items
             ItemDatabase::Clear();
-            auto itemsDir = Project::GetAssetFileSystemPath("Items");
-            if (std::filesystem::exists(itemsDir))
+            if (auto itemsDir = Project::GetAssetFileSystemPath("Items"); std::filesystem::exists(itemsDir))
             {
                 ItemDatabase::LoadFromDirectory(itemsDir.string());
             }
@@ -2029,8 +2057,7 @@ namespace OloEngine
                                                    { return SaveScene(); });
 
             // Load input action map if one exists for this project
-            auto inputMapPath = Project::GetInputActionMapPath();
-            if (std::filesystem::exists(inputMapPath))
+            if (auto inputMapPath = Project::GetInputActionMapPath(); std::filesystem::exists(inputMapPath))
             {
                 auto loadedMap = InputActionSerializer::Deserialize(inputMapPath);
                 if (loadedMap)
@@ -2095,8 +2122,7 @@ namespace OloEngine
             OnSceneStop();
         }
 
-        auto const ext = LowercaseExtension(path);
-        if (ext != ".olo" && ext != ".scene")
+        if (auto const ext = LowercaseExtension(path); ext != ".olo" && ext != ".scene")
         {
             OLO_WARN("Could not load {0} - not a scene file", path.filename().string());
             return false;
@@ -2281,7 +2307,7 @@ namespace OloEngine
         OLO_CORE_INFO("Auto-saved scene to '{0}'", autoPath.string());
     }
 
-    void EditorLayer::DeleteAutoSaveFile()
+    void EditorLayer::DeleteAutoSaveFile() const
     {
         std::error_code ec;
         if (!m_EditorScenePath.empty())
@@ -2384,7 +2410,7 @@ namespace OloEngine
         // Warn about orthographic cameras in 3D mode (common misconfiguration)
         if (m_Is3DMode)
         {
-            auto& cam = cameraEntity.GetComponent<CameraComponent>();
+            const auto& cam = cameraEntity.GetComponent<CameraComponent>();
             if (cam.Camera.GetProjectionType() == SceneCamera::ProjectionType::Orthographic)
             {
                 OLO_CORE_WARN("Primary camera '{}' uses Orthographic projection in 3D mode. "
@@ -2451,6 +2477,10 @@ namespace OloEngine
         else if (m_SceneState == Simulate)
         {
             m_ActiveScene->OnSimulationStop();
+        }
+        else
+        {
+            // No additional handling required.
         }
 
         m_SceneState = Edit;
@@ -2832,7 +2862,7 @@ namespace OloEngine
         }
 
         // Recursively remap UUIDs in all entity data (hierarchy refs, component refs, etc.)
-        std::function<void(YAML::Node)> remapUUIDs = [&](YAML::Node node)
+        std::function<void(YAML::Node)> remapUUIDs = [&uuidMap, &remapUUIDs](YAML::Node node)
         {
             if (node.IsScalar())
             {
@@ -2861,6 +2891,10 @@ namespace OloEngine
                 {
                     remapUUIDs(elem);
                 }
+            }
+            else
+            {
+                // No additional handling required.
             }
         };
 
@@ -2896,7 +2930,7 @@ namespace OloEngine
             else
             {
                 auto compound = std::make_unique<CompoundCommand>("Delete Pasted Entities");
-                for (auto& uuid : createdUUIDs)
+                for (const auto& uuid : createdUUIDs)
                 {
                     auto entityOpt = m_EditorScene->TryGetEntityWithUUID(uuid);
                     if (entityOpt)
@@ -2939,6 +2973,10 @@ namespace OloEngine
                 // is to drop them all and re-render lazily on next paint.
                 m_ContentBrowserPanel->ClearThumbnails();
             }
+            else
+            {
+                // No additional handling required.
+            }
         }
 
         OLO_TRACE("📦 Asset Loaded Event Received!");
@@ -2974,6 +3012,10 @@ namespace OloEngine
             else if (type == AssetType::Texture2D)
             {
                 m_ContentBrowserPanel->ClearThumbnails();
+            }
+            else
+            {
+                // No additional handling required.
             }
         }
 
@@ -3211,8 +3253,10 @@ namespace OloEngine
         OLO_CORE_INFO("Asset Pack build started asynchronously...");
     }
 
-    void EditorLayer::BuildShaderPack()
+    void EditorLayer::BuildShaderPack() const
     {
+        OLO_PROFILE_FUNCTION();
+
         const std::filesystem::path outputPath = "assets/ShaderPack.osp";
         OLO_CORE_INFO("Building Shader Pack to '{}'...", outputPath.string());
 

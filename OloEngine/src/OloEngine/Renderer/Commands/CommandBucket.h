@@ -122,8 +122,8 @@ namespace OloEngine
             {
                 m_Keys.push_back(metadata.m_SortKey.GetKey());
                 m_Packets.push_back(packet);
-                m_CommandCount++;
-                m_Stats.TotalCommands++;
+                ++m_CommandCount;
+                ++m_Stats.TotalCommands;
 
                 // Adding a new command invalidates sorting and batching
                 m_IsSorted = false;
@@ -213,8 +213,8 @@ namespace OloEngine
 
             m_Keys.push_back(packet->GetMetadata().m_SortKey.GetKey());
             m_Packets.push_back(packet);
-            m_CommandCount++;
-            m_Stats.TotalCommands++;
+            ++m_CommandCount;
+            ++m_Stats.TotalCommands;
 
             m_IsSorted = false;
             m_IsBatched = false;
@@ -229,7 +229,7 @@ namespace OloEngine
         // Use an explicit worker index (no thread ID lookup needed)
         // This is the optimized path when contextIndex is already known from ParallelFor.
         // @param workerIndex The worker index (typically from ParallelFor contextIndex)
-        void UseWorkerIndex(u32 workerIndex);
+        void UseWorkerIndex(u32 workerIndex) const;
 
         // Merge all thread-local command ranges into a contiguous array
         // Must be called on the main thread after all workers complete

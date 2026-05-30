@@ -92,6 +92,10 @@ namespace OloEngine
             {
                 ++failureCount;
             }
+            else
+            {
+                // No additional handling required.
+            }
         }
 
         if (FailurePolicy == Policy::RequireOne && failureCount > 0)

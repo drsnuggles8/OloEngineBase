@@ -91,7 +91,7 @@ namespace OloEngine::LowLevelTasks::Private
         OLO_CORE_ASSERT(m_NodesArray.Num() < (1ull << WaiterBits) - 1, "Too many nodes in array");
     }
 
-    void FWaitingQueue::FinishShutdown()
+    void FWaitingQueue::FinishShutdown() const
     {
         using namespace WaitingQueueImpl;
 
@@ -111,7 +111,7 @@ namespace OloEngine::LowLevelTasks::Private
         return m_Oversubscription.load(std::memory_order_relaxed) >= m_MaxThreadCount;
     }
 
-    void FWaitingQueue::CheckState(u64 InState, bool bInIsWaiter)
+    void FWaitingQueue::CheckState(u64 InState, bool bInIsWaiter) const
     {
         using namespace WaitingQueueImpl;
 
@@ -130,7 +130,7 @@ namespace OloEngine::LowLevelTasks::Private
 #endif
     }
 
-    void FWaitingQueue::CheckStandbyState(u64 InState)
+    void FWaitingQueue::CheckStandbyState(u64 InState) const
     {
         using namespace WaitingQueueImpl;
 
@@ -250,14 +250,14 @@ namespace OloEngine::LowLevelTasks::Private
         u64 LocalState = m_StandbyState;
         while ((LocalState & StackMask) != StackMask)
         {
-            FWaitEvent* Node = &m_NodesArray[LocalState & StackMask];
+            const FWaitEvent* Node = &m_NodesArray[LocalState & StackMask];
             Node->Event->Trigger();
             LocalState = Node->Next;
         }
         m_StandbyState = StackMask;
     }
 
-    void FWaitingQueue::PrepareStandby(FWaitEvent* Node)
+    void FWaitingQueue::PrepareStandby(FWaitEvent* Node) const
     {
         // We store the whole state before going back checking the queue so that we can't possibly
         // miss an event in-between PrepareStandby and CommitStandby.
@@ -363,7 +363,7 @@ namespace OloEngine::LowLevelTasks::Private
             u64 NewState = NewEpoch | (LocalState & WaiterMask) + WaiterInc;
             if ((LocalState & StackMask) != StackMask)
             {
-                FWaitEvent* Node = &m_NodesArray[LocalState & StackMask];
+                const FWaitEvent* Node = &m_NodesArray[LocalState & StackMask];
                 u64 Next = Node->Next.load(std::memory_order_relaxed);
                 NewState |= Next & StackMask;
             }
@@ -378,7 +378,7 @@ namespace OloEngine::LowLevelTasks::Private
                 if ((LocalState & StackMask) != StackMask)
                 {
                     // We got an existing node, wake it from standby
-                    FWaitEvent* Node = &m_NodesArray[LocalState & StackMask];
+                    const FWaitEvent* Node = &m_NodesArray[LocalState & StackMask];
                     Node->Event->Trigger();
                     return true;
                 }
@@ -434,7 +434,7 @@ namespace OloEngine::LowLevelTasks::Private
                 else
                 {
                     // Pop a waiter from list and unpark it.
-                    FWaitEvent* Node = &m_NodesArray[LocalState & StackMask];
+                    const FWaitEvent* Node = &m_NodesArray[LocalState & StackMask];
                     u64 Next = Node->Next.load(std::memory_order_relaxed);
                     NewState = (LocalState & (WaiterMask | SignalMask)) | (Next & StackMask) | NewEpoch;
                 }
@@ -443,7 +443,7 @@ namespace OloEngine::LowLevelTasks::Private
                 {
                     if (!bNotifyAll && (Signals < Waiters))
                     {
-                        Notifications++;
+                        ++Notifications;
                         break; // unblocked pre-wait thread
                     }
 
@@ -451,7 +451,7 @@ namespace OloEngine::LowLevelTasks::Private
                     {
                         if (TryStartNewThread())
                         {
-                            Notifications++;
+                            ++Notifications;
                             break;
                         }
                         return Notifications;
@@ -476,7 +476,7 @@ namespace OloEngine::LowLevelTasks::Private
         return Notifications;
     }
 
-    void FWaitingQueue::Park(FWaitEvent* Node, FOutOfWork& OutOfWork, i32 SpinCycles, i32 WaitCycles)
+    void FWaitingQueue::Park(FWaitEvent* Node, FOutOfWork& OutOfWork, i32 SpinCycles, i32 WaitCycles) const
     {
         using namespace WaitingQueueImpl;
 
@@ -498,8 +498,7 @@ namespace OloEngine::LowLevelTasks::Private
         }
 
         Node->Event->Reset();
-        EWaitState Target = EWaitState::NotSignaled;
-        if (Node->State.compare_exchange_strong(Target, EWaitState::Waiting, std::memory_order_relaxed, std::memory_order_relaxed))
+        if (EWaitState Target = EWaitState::NotSignaled; Node->State.compare_exchange_strong(Target, EWaitState::Waiting, std::memory_order_relaxed, std::memory_order_relaxed))
         {
             // Fall through to the wait function
         }
@@ -523,7 +522,7 @@ namespace OloEngine::LowLevelTasks::Private
             u64 NextNode = Node->Next.load(std::memory_order_relaxed) & StackMask;
             FWaitEvent* Next = NextNode == StackMask ? nullptr : &m_NodesArray[static_cast<i32>(NextNode)];
 
-            UnparkedCount++;
+            ++UnparkedCount;
 
             // Signaling can be very costly on some platforms. So only trigger
             // the event if the other thread was in the waiting state.

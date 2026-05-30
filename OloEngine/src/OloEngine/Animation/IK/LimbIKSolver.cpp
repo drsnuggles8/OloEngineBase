@@ -15,8 +15,7 @@ namespace OloEngine::Animation
 {
     static glm::vec3 SafeNormalize(const glm::vec3& v)
     {
-        f32 len2 = glm::length2(v);
-        if (len2 > 1e-12f)
+        if (f32 len2 = glm::length2(v); len2 > 1e-12f)
         {
             return v * glm::inversesqrt(len2);
         }
@@ -74,7 +73,7 @@ namespace OloEngine::Animation
         }
 
         // Reverse so indices go root-to-tip (ascending from chain root to end-effector)
-        std::reverse(boneIndices.begin(), boneIndices.end());
+        std::ranges::reverse(boneIndices);
 
         // Save original rotations for chain bones only (for final weight blending)
         // Must be captured AFTER reverse so indices align with the blend loop order.
@@ -161,7 +160,7 @@ namespace OloEngine::Animation
         // The end-effector's position is determined by the parent chain.
 
         // Helper to get the decomposed pre-transform for a bone index
-        auto getPreTransform = [&](u32 idx) -> BoneTransform
+        auto getPreTransform = [&preTransforms](u32 idx) -> BoneTransform
         {
             if (idx < preTransforms.size())
             {

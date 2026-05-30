@@ -46,7 +46,7 @@ namespace OloEngine
         // Sends a probe on kDiscoveryPort and waits up to ~500 ms for responses.
         // NOTE: This function blocks. Call from the network thread or a background
         // thread to avoid stalling the main loop.
-        void FindLobbies(std::function<void(const std::vector<LobbyInfo>&)> callback);
+        void FindLobbies(std::function<void(const std::vector<LobbyInfo>&)> callback) const;
 
         // Request to join a discovered lobby.  Returns true if the join
         // request was initiated (actual confirmation is async via server).

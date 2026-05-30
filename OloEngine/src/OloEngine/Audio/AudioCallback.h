@@ -269,18 +269,18 @@ namespace OloEngine::Audio
       private:
         friend AudioCallbackDeinterleaved<CallbackBindedDeinterleaved>;
 
-        virtual void ReleaseResources() override {}
+        void ReleaseResources() override {}
 
         // CRTP interface requirement: Init() must be implemented to satisfy the base class contract.
         // Returns true immediately as configuration happens via onAudioCallback member.
         // Parameters unused because this callback type delegates all processing to the bound function.
-        bool Init([[maybe_unused]] u32 sampleRate, [[maybe_unused]] u32 maxBlockSize, [[maybe_unused]] const BusConfig& config)
+        bool Init([[maybe_unused]] u32 sampleRate, [[maybe_unused]] u32 maxBlockSize, [[maybe_unused]] const BusConfig& config) const
         {
             return true;
         }
 
         void ProcessBlock(const std::vector<choc::buffer::ChannelArrayBuffer<float>>& inBuffer,
-                          std::vector<choc::buffer::ChannelArrayBuffer<float>>& outBuffer, u32 numFramesRequested)
+                          std::vector<choc::buffer::ChannelArrayBuffer<float>>& outBuffer, u32 numFramesRequested) const
         {
             if (onAudioCallback && !m_Suspended.load(std::memory_order_relaxed))
             {
@@ -290,7 +290,7 @@ namespace OloEngine::Audio
             {
                 // Clear output buffer to prevent stale samples when callback is null or suspended
                 // Real-time safety: Use pre-allocated buffers and clear only the needed frames
-                for (auto& channelBuffer : outBuffer)
+                for (const auto& channelBuffer : outBuffer)
                 {
                     // Verify buffer was pre-allocated to sufficient size
                     OLO_CORE_ASSERT(channelBuffer.getSize().numFrames >= numFramesRequested,
@@ -333,8 +333,8 @@ namespace OloEngine::Audio
       private:
         friend AudioCallbackInterleaved<CallbackBindedInterleaved>;
 
-        virtual void ReleaseResources() override {}
-        bool Init([[maybe_unused]] u32 sampleRate, [[maybe_unused]] u32 maxBlockSize, [[maybe_unused]] const BusConfig& config)
+        void ReleaseResources() override {}
+        bool Init([[maybe_unused]] u32 sampleRate, [[maybe_unused]] u32 maxBlockSize, [[maybe_unused]] const BusConfig& config) const
         {
             return true;
         }

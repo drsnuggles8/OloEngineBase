@@ -91,14 +91,13 @@ namespace OloEngine
          */
         void RotateBoneHistory()
         {
-            const sizet boneCount = m_FinalBoneMatrices.size();
-            if (m_PrevFinalBoneMatrices.size() != boneCount)
+            if (const sizet boneCount = m_FinalBoneMatrices.size(); m_PrevFinalBoneMatrices.size() != boneCount)
             {
                 m_PrevFinalBoneMatrices.assign(m_FinalBoneMatrices.begin(), m_FinalBoneMatrices.end());
                 return;
             }
             // std::copy lets the compiler pick the best vectorised path for POD mat4 data.
-            std::copy(m_FinalBoneMatrices.begin(), m_FinalBoneMatrices.end(), m_PrevFinalBoneMatrices.begin());
+            std::ranges::copy(m_FinalBoneMatrices, m_PrevFinalBoneMatrices.begin());
         }
     };
 } // namespace OloEngine
