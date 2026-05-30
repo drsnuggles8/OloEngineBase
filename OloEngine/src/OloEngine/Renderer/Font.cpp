@@ -180,7 +180,7 @@ namespace OloEngine
             // Multiple codepoints can share the same glyph index (aliases),
             // so store all codepoints per glyph to emit kerning for every pair.
             std::unordered_map<int, std::vector<u32>> glyphIndexToCodepoints;
-            for (const auto& range : ranges)
+            for (const auto& range : m_Ranges)
             {
                 for (u32 cp = range.First; cp <= range.Last; ++cp)
                 {

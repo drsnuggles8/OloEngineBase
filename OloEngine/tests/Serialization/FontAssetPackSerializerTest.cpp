@@ -74,14 +74,14 @@ namespace
         if (size <= 0)
             return {};
         file.seekg(0, std::ios::beg);
-        std::vector<u8> bytes(static_cast<std::size_t>(size));
+        std::vector<u8> bytes(static_cast<sizet>(size));
         file.read(reinterpret_cast<char*>(bytes.data()), size);
         if (file.fail())
             return {};
         return bytes;
     }
 
-    std::size_t GlyphCount(const Ref<Font>& font)
+    sizet GlyphCount(const Ref<Font>& font)
     {
         const SlugFontData* data = font->GetSlugData();
         return data ? data->Glyphs.size() : 0u;
@@ -91,7 +91,7 @@ namespace
     {
         if (a.size() != b.size())
             return false;
-        for (std::size_t i = 0; i < a.size(); ++i)
+        for (sizet i = 0; i < a.size(); ++i)
         {
             if (a[i].First != b[i].First || a[i].Last != b[i].Last)
                 return false;
@@ -225,7 +225,7 @@ TEST_F(FontAssetPackSerializerTest, AssetPackRoundTrip)
     const std::vector<FontCodepointRange> ranges{ FontCodepointRanges::Latin1 };
     Ref<Font> font = Font::Create(fontPath, ranges);
     ASSERT_TRUE(font && font->IsLoaded()) << "File load failed for " << fontPath.string();
-    const std::size_t sourceGlyphs = GlyphCount(font);
+    const sizet sourceGlyphs = GlyphCount(font);
     ASSERT_GT(sourceGlyphs, 0u);
 
     const AssetHandle handle = AssetManager::AddMemoryOnlyAsset(font);
