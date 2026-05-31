@@ -74,6 +74,7 @@ add_executable(OloEngine-Tests
 		Rendering/ShaderStageInterfaceTest.cpp
 		Rendering/ShaderStageContractTest.cpp
 		Rendering/ShaderPackTest.cpp
+		Rendering/ShaderBinaryCacheRoundTripTest.cpp
 		Rendering/FrameDataBufferTest.cpp
 		Rendering/InstanceDataLayoutTest.cpp
 		Rendering/GPUFrustumCullParityTest.cpp

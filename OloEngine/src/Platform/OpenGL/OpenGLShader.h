@@ -168,6 +168,14 @@ namespace OloEngine
         void FinalizeAfterLink();            // Check link status, cache binary, call FinalizeProgram()
         void SaveProgramBinaryCache() const; // Extract & save program binary to disk cache
 
+        // Loads the cached program binary into |program| (a freshly created, empty program
+        // object) and verifies it links. Returns true only on a fresh, well-framed cache that
+        // links cleanly; returns false — without asserting — on a missing/disabled/stale cache,
+        // a corrupt or truncated file, or a soft link failure, leaving the caller to recompile.
+        // Shared by CreateProgram() and CreateProgramForAmd() so the on-disk framing is parsed
+        // in exactly one place (see issue #267).
+        [[nodiscard]] bool LoadProgramBinaryCache(GLenum program) const;
+
       private:
         u32 m_RendererID{};
         std::string m_Name;

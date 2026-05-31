@@ -97,6 +97,7 @@
     "OloEngine/tests/Rendering/ShaderStageInterfaceTest.cpp": "shaderpipe",
     "OloEngine/tests/Rendering/ShaderStageContractTest.cpp": "shaderpipe",
     "OloEngine/tests/Rendering/ShaderPackTest.cpp": "shaderpipe",
+    "OloEngine/tests/Rendering/ShaderBinaryCacheRoundTripTest.cpp": "L3",
     "OloEngine/tests/Rendering/RenderingRegressionTest.cpp": "integration",
     "OloEngine/tests/Rendering/SelectionOutlineTest.cpp": "integration",
     "OloEngine/tests/Rendering/DeccerCubesLoadingTest.cpp": "integration",
