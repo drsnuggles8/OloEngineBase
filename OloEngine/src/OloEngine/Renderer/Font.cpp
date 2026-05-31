@@ -28,12 +28,20 @@ namespace OloEngine
         LoadFromFile(filepath, ranges);
     }
 
+    Font::Font(std::string name, std::span<const u8> fontData, const std::vector<FontCodepointRange>& ranges)
+        : m_Data(CreateScope<SlugFontData>())
+    {
+        LoadFromMemory(std::move(name), fontData, ranges);
+    }
+
     void Font::LoadFromFile(const std::filesystem::path& filepath, const std::vector<FontCodepointRange>& ranges)
     {
+        // Set name/path up front so diagnostics carry them even if a read step
+        // below fails before the shared loader runs (it re-sets m_Name).
         m_Name = filepath.filename().stem().string();
         m_Path = filepath.string();
 
-        // Read TTF file into memory
+        // Read TTF file into memory, then hand the bytes to the shared loader.
         std::ifstream file(filepath, std::ios::binary | std::ios::ate);
         if (!file.is_open())
         {
@@ -69,11 +77,46 @@ namespace OloEngine
             return;
         }
 
+        // m_Path stays as set above; LoadFromMemory deliberately leaves it alone
+        // so the file path survives the shared parse.
+        LoadFromMemory(filepath.filename().stem().string(), fontBuffer, ranges);
+    }
+
+    void Font::LoadFromMemory(std::string name, std::span<const u8> fontData, const std::vector<FontCodepointRange>& ranges)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        m_Name = std::move(name);
+
+        // Sanitize codepoint ranges before storing or iterating them. Ranges can
+        // arrive from an untrusted asset pack (FontSerializer::DeserializeFromAssetPack),
+        // so clamp into the valid Unicode scalar range and drop inverted ranges.
+        // Without the clamp, a Last of 0xFFFFFFFF would wrap `++codepoint` back to
+        // 0 in the loops below and spin forever; a merely-large Last would burn
+        // billions of iterations on codepoints no font defines.
+        constexpr u32 kMaxCodepoint = 0x10FFFFu;
+        m_Ranges.clear();
+        m_Ranges.reserve(ranges.size());
+        for (const auto& r : ranges)
+        {
+            const u32 first = r.First > kMaxCodepoint ? kMaxCodepoint : r.First;
+            const u32 last = r.Last > kMaxCodepoint ? kMaxCodepoint : r.Last;
+            if (last < first)
+                continue; // inverted / degenerate range
+            m_Ranges.emplace_back(first, last);
+        }
+
+        if (fontData.empty())
+        {
+            OLO_CORE_ERROR("Font '{}' has no font-file data to load", m_Name);
+            return;
+        }
+
         // Initialize stb_truetype
         ::stbtt_fontinfo fontInfo{};
-        if (::stbtt_InitFont(&fontInfo, fontBuffer.data(), ::stbtt_GetFontOffsetForIndex(fontBuffer.data(), 0)) == 0)
+        if (::stbtt_InitFont(&fontInfo, fontData.data(), ::stbtt_GetFontOffsetForIndex(fontData.data(), 0)) == 0)
         {
-            OLO_CORE_ERROR("stb_truetype failed to parse font: {}", m_Path);
+            OLO_CORE_ERROR("stb_truetype failed to parse font: {}", m_Name);
             return;
         }
 
@@ -87,7 +130,7 @@ namespace OloEngine
         f32 unitsPerEm = static_cast<f32>(ascent - descent);
         if (!std::isfinite(unitsPerEm) || std::abs(unitsPerEm) < 1e-6f)
         {
-            OLO_CORE_ERROR("Font '{}' has invalid metrics (ascent={}, descent={}) — using fallback unitsPerEm=1.0", m_Path, ascent, descent);
+            OLO_CORE_ERROR("Font '{}' has invalid metrics (ascent={}, descent={}) — using fallback unitsPerEm=1.0", m_Name, ascent, descent);
             unitsPerEm = 1.0f;
         }
         const f32 emScale = 1.0f / unitsPerEm;
@@ -101,7 +144,7 @@ namespace OloEngine
         // caller supplying both Latin1 and ArabicBasic) are de-duplicated
         // by `Glyphs[codepoint] = glyph` overwriting in place — cheap.
         int glyphCount = 0;
-        for (const auto& range : ranges)
+        for (const auto& range : m_Ranges)
         {
             for (u32 codepoint = range.First; codepoint <= range.Last; ++codepoint)
             {
@@ -137,7 +180,7 @@ namespace OloEngine
             // Multiple codepoints can share the same glyph index (aliases),
             // so store all codepoints per glyph to emit kerning for every pair.
             std::unordered_map<int, std::vector<u32>> glyphIndexToCodepoints;
-            for (const auto& range : ranges)
+            for (const auto& range : m_Ranges)
             {
                 for (u32 cp = range.First; cp <= range.Last; ++cp)
                 {
@@ -269,6 +312,14 @@ namespace OloEngine
         // the range list in, and the typical use (one ranged load per
         // game-locale at startup) doesn't benefit from sharing.
         return Ref<Font>::Create(std::filesystem::weakly_canonical(font).string(), ranges);
+    }
+
+    Ref<Font> Font::Create(std::string name, std::span<const u8> fontData, const std::vector<FontCodepointRange>& ranges)
+    {
+        OLO_PROFILE_FUNCTION();
+        // No cache: there's no canonical path to key on, and asset-pack loads
+        // already de-dupe via the AssetManager handle cache one level up.
+        return Ref<Font>::Create(std::move(name), fontData, ranges);
     }
 
     Font::GlyphLookup Font::FindGlyphWithFallback(u32 codepoint) const
