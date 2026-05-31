@@ -35,6 +35,7 @@
 #include "OloEngine/Serialization/AssetPackFile.h"
 #include "OloEngine/Serialization/FileStream.h"
 
+#include <array>
 #include <filesystem>
 #include <fstream>
 #include <span>
@@ -51,7 +52,7 @@ namespace
     // if none exist (so the caller can SKIP).
     fs::path ResolveReferenceFont()
     {
-        const char* candidates[] = {
+        const std::array<const char*, 3> candidates = {
             "OloEditor/assets/fonts/opensans/OpenSans-Regular.ttf",
             "../OloEditor/assets/fonts/opensans/OpenSans-Regular.ttf",
             "assets/fonts/opensans/OpenSans-Regular.ttf",
@@ -81,17 +82,18 @@ namespace
         return bytes;
     }
 
-    sizet GlyphCount(const Ref<Font>& font)
+    [[nodiscard]] sizet GlyphCount(const Ref<Font>& font)
     {
         const SlugFontData* data = font->GetSlugData();
         return data ? data->Glyphs.size() : 0u;
     }
 
-    bool RangesEqual(const std::vector<FontCodepointRange>& a, const std::vector<FontCodepointRange>& b)
+    [[nodiscard]] bool RangesEqual(const std::vector<FontCodepointRange>& a, const std::vector<FontCodepointRange>& b)
     {
-        if (a.size() != b.size())
+        const sizet count = a.size();
+        if (count != b.size())
             return false;
-        for (sizet i = 0; i < a.size(); ++i)
+        for (sizet i = 0; i < count; ++i)
         {
             if (a[i].First != b[i].First || a[i].Last != b[i].Last)
                 return false;
@@ -246,7 +248,7 @@ TEST_F(FontAssetPackSerializerTest, AssetPackRoundTrip)
 
     AssetPackFile::AssetInfo assetInfo{};
     // A distinct handle so we can assert the deserializer applies AssetInfo::Handle.
-    assetInfo.Handle = static_cast<AssetHandle>(0xF047C0DEull);
+    assetInfo.Handle = static_cast<AssetHandle>(0xF047C0DEULL);
     assetInfo.PackedOffset = info.Offset;
     assetInfo.PackedSize = info.Size;
     assetInfo.Type = AssetType::Font;

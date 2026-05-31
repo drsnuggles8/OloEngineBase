@@ -54,6 +54,11 @@ UNIT_END = "<!-- END: unit-catalogue -->"
 # directory in its own doc block.
 UNIT_TAG = "unit"
 
+# Shared boilerplate emitted into every one of the three catalogue blocks.
+DOC_GENERATED_NOTE = "> **Do not edit by hand.** Generated from [test_catalogue.json](../OloEngine/tests/scripts/test_catalogue.json) by [generate_test_catalogue.py](../OloEngine/tests/scripts/generate_test_catalogue.py). Add new test files to the config and run the script (or pre-commit will run it with `--check`)."
+TABLE_HEADER = "| File | Tests | Cases |"
+TABLE_SEPARATOR = "|---|---:|---|"
+
 # TEST / TEST_F / TEST_P / TYPED_TEST / INSTANTIATE_TEST_SUITE_P:
 # all take at least (SuiteName, TestName). INSTANTIATE_TEST_SUITE_P has
 # a different ordering but we only need the suite name for cataloguing.
@@ -179,7 +184,7 @@ def build_renderer_block(cfg):
     lines = []
     lines.append(RENDERER_BEGIN)
     lines.append("")
-    lines.append("> **Do not edit by hand.** Generated from [test_catalogue.json](../OloEngine/tests/scripts/test_catalogue.json) by [generate_test_catalogue.py](../OloEngine/tests/scripts/generate_test_catalogue.py). Add new test files to the config and run the script (or pre-commit will run it with `--check`).")
+    lines.append(DOC_GENERATED_NOTE)
     lines.append("")
 
     total_tests = 0
@@ -200,8 +205,8 @@ def build_renderer_block(cfg):
 
         lines.append(heading)
         lines.append("")
-        lines.append("| File | Tests | Cases |")
-        lines.append("|---|---:|---|")
+        lines.append(TABLE_HEADER)
+        lines.append(TABLE_SEPARATOR)
 
         for rel in files:
             link, n, cell = file_row(rel)
@@ -236,7 +241,7 @@ def build_functional_block(cfg):
     lines = []
     lines.append(FUNCTIONAL_BEGIN)
     lines.append("")
-    lines.append("> **Do not edit by hand.** Generated from [test_catalogue.json](../OloEngine/tests/scripts/test_catalogue.json) by [generate_test_catalogue.py](../OloEngine/tests/scripts/generate_test_catalogue.py). Add new test files to the config and run the script (or pre-commit will run it with `--check`).")
+    lines.append(DOC_GENERATED_NOTE)
     lines.append("")
 
     total_tests = 0
@@ -247,8 +252,8 @@ def build_functional_block(cfg):
         heading = f"#### {subdir} ({len(entries)} file{'s' if len(entries) != 1 else ''})"
         lines.append(heading)
         lines.append("")
-        lines.append("| File | Tests | Cases |")
-        lines.append("|---|---:|---|")
+        lines.append(TABLE_HEADER)
+        lines.append(TABLE_SEPARATOR)
 
         for rel in entries:
             link, n, cell = file_row(rel)
@@ -285,7 +290,7 @@ def build_unit_block(cfg):
     lines = []
     lines.append(UNIT_BEGIN)
     lines.append("")
-    lines.append("> **Do not edit by hand.** Generated from [test_catalogue.json](../OloEngine/tests/scripts/test_catalogue.json) by [generate_test_catalogue.py](../OloEngine/tests/scripts/generate_test_catalogue.py). Add new test files to the config and run the script (or pre-commit will run it with `--check`).")
+    lines.append(DOC_GENERATED_NOTE)
     lines.append("")
 
     total_tests = 0
@@ -296,8 +301,8 @@ def build_unit_block(cfg):
         heading = f"#### {subdir} ({len(entries)} file{'s' if len(entries) != 1 else ''})"
         lines.append(heading)
         lines.append("")
-        lines.append("| File | Tests | Cases |")
-        lines.append("|---|---:|---|")
+        lines.append(TABLE_HEADER)
+        lines.append(TABLE_SEPARATOR)
 
         for rel in entries:
             link, n, cell = file_row(rel)

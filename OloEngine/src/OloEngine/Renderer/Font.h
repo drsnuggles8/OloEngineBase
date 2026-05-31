@@ -119,7 +119,7 @@ namespace OloEngine
 
         // Codepoint ranges this font was loaded with. Needed so the asset-pack
         // serializer can round-trip the glyph coverage, not just the bytes.
-        [[nodiscard]] const std::vector<FontCodepointRange>& GetRanges() const
+        [[nodiscard("Query the loaded codepoint ranges; discarding the call is a no-op")]] const std::vector<FontCodepointRange>& GetRanges() const
         {
             return m_Ranges;
         }
