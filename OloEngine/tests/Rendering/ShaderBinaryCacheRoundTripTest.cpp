@@ -34,7 +34,14 @@
 #include <filesystem>
 #include <fstream>
 #include <sstream>
+#include <string>
 #include <vector>
+
+#ifdef _WIN32
+#include <process.h> // _getpid
+#else
+#include <unistd.h> // getpid
+#endif
 
 namespace OloEngine::Tests
 {
@@ -167,8 +174,17 @@ namespace OloEngine::Tests
         const u32 format = 0xFEEDFACEu;
         const std::vector<char> payload = MakePayload(513);
 
+        // Per-process unique name so concurrent test binaries on one machine (or a leftover
+        // file from a crashed prior run) can't collide. (std::filesystem::unique_path is a
+        // Boost API that never made it into std, hence the explicit PID suffix.)
+#ifdef _WIN32
+        const auto pid = static_cast<long long>(_getpid());
+#else
+        const auto pid = static_cast<long long>(::getpid());
+#endif
         const std::filesystem::path path =
-            std::filesystem::temp_directory_path() / "olo_shader_bincache_roundtrip_test.pgr";
+            std::filesystem::temp_directory_path() /
+            ("olo_shader_bincache_roundtrip_test_" + std::to_string(pid) + ".pgr");
         std::filesystem::remove(path);
 
         {
