@@ -4,6 +4,10 @@
 #include "OloEngine/Math/Math.h"
 #include <glm/glm.hpp>
 
+#include <algorithm>
+#include <cmath>
+#include <utility>
+
 namespace OloEngine
 {
     // Tonemap operator constants (match PBRCommon.glsl defines)
@@ -113,6 +117,30 @@ namespace OloEngine
 
         bool operator==(const PostProcessSettings&) const = default;
     };
+
+    // Clamp the auto-exposure parameters to a finite, ordered, sane range.
+    // Call after loading settings from disk (scene YAML / save-game), per the
+    // CLAUDE.md rule that floats read from external data are validated with
+    // std::isfinite. The renderer also defends against bad values at use-time,
+    // but persisted/edited settings should never carry NaN/Inf or min>max.
+    inline void SanitizeAutoExposure(PostProcessSettings& s) noexcept
+    {
+        const auto finite = [](f32 v, f32 fallback) noexcept
+        { return std::isfinite(v) ? v : fallback; };
+
+        s.AutoExposureMinLogLuminance = finite(s.AutoExposureMinLogLuminance, -8.0f);
+        s.AutoExposureMaxLogLuminance = finite(s.AutoExposureMaxLogLuminance, 3.5f);
+        s.AutoExposureSpeedUp = std::max(0.0f, finite(s.AutoExposureSpeedUp, 3.0f));
+        s.AutoExposureSpeedDown = std::max(0.0f, finite(s.AutoExposureSpeedDown, 1.0f));
+        s.AutoExposureCompensation = std::clamp(finite(s.AutoExposureCompensation, 0.0f), -16.0f, 16.0f);
+        s.AutoExposureMinExposure = std::max(0.0f, finite(s.AutoExposureMinExposure, 0.05f));
+        s.AutoExposureMaxExposure = std::max(0.0f, finite(s.AutoExposureMaxExposure, 16.0f));
+
+        if (s.AutoExposureMinLogLuminance > s.AutoExposureMaxLogLuminance)
+            std::swap(s.AutoExposureMinLogLuminance, s.AutoExposureMaxLogLuminance);
+        if (s.AutoExposureMinExposure > s.AutoExposureMaxExposure)
+            std::swap(s.AutoExposureMinExposure, s.AutoExposureMaxExposure);
+    }
 
     // GPU-side UBO layout for post-process parameters (std140, binding 7)
     struct PostProcessUBOData

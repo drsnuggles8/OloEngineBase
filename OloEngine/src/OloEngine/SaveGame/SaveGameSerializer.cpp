@@ -16,8 +16,6 @@
 
 #include <box2d/box2d.h>
 
-#include <cmath>
-
 namespace OloEngine
 {
     // ========================================================================
@@ -109,16 +107,9 @@ namespace OloEngine
         ar << s.AutoExposureMinExposure << s.AutoExposureMaxExposure;
         if (ar.IsLoading())
         {
-            // Floats read from disk must be finite (CLAUDE.md float-validation rule).
-            const auto sane = [](f32& v, f32 fallback)
-            { if (!std::isfinite(v)) v = fallback; };
-            sane(s.AutoExposureMinLogLuminance, -8.0f);
-            sane(s.AutoExposureMaxLogLuminance, 3.5f);
-            sane(s.AutoExposureSpeedUp, 3.0f);
-            sane(s.AutoExposureSpeedDown, 1.0f);
-            sane(s.AutoExposureCompensation, 0.0f);
-            sane(s.AutoExposureMinExposure, 0.05f);
-            sane(s.AutoExposureMaxExposure, 16.0f);
+            // Floats read from disk must be finite and ordered (CLAUDE.md
+            // float-validation rule); shared with the scene-YAML loader.
+            SanitizeAutoExposure(s);
         }
     }
 

@@ -95,7 +95,7 @@ namespace OloEngine
         bool EnsureAutoExposureResources();
         // Run the histogram + average compute passes over the HDR input,
         // leaving the metered exposure in m_ExposureStateBuffer[0].
-        void RunAutoExposureMetering(RGCommandContext& context, u32 hdrTextureID, u32 width, u32 height);
+        void RunAutoExposureMetering(const RGCommandContext& context, u32 hdrTextureID, u32 width, u32 height);
 
         Ref<Shader> m_Shader;
         Ref<UniformBuffer> m_PostProcessUBO;

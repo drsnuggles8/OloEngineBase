@@ -40,8 +40,11 @@ shared uint s_Histogram[NUM_BINS];
 uint colorToBin(vec3 hdrColor)
 {
     float lum = dot(max(hdrColor, vec3(0.0)), RGB_TO_LUM);
-    if (lum < BLACK_THRESHOLD)
-        return 0u; // bin 0 reserved for near-black, excluded from the average
+    // Non-finite (NaN/Inf, e.g. from a corrupt HDR target) or near-black goes to
+    // bin 0 — excluded from the average — so it can't reach log2 / the uint cast.
+    // Matches AutoExposure::LuminanceToBin's isfinite guard on the CPU.
+    if (isnan(lum) || isinf(lum) || lum < BLACK_THRESHOLD)
+        return 0u;
     float logLum = clamp((log2(lum) - u_MinLogLum) * u_InvLogLumRange, 0.0, 1.0);
     return uint(logLum * 254.0 + 1.0); // bins 1..255
 }

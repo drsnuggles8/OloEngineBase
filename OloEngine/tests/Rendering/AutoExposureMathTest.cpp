@@ -19,11 +19,13 @@
 #include "OloEnginePCH.h"
 
 #include "OloEngine/Renderer/AutoExposure.h"
+#include "OloEngine/Renderer/PostProcessSettings.h"
 
 #include <gtest/gtest.h>
 
 #include <array>
 #include <cmath>
+#include <limits>
 #include <vector>
 
 namespace OloEngine::Tests
@@ -81,8 +83,12 @@ namespace OloEngine::Tests
     TEST(AutoExposureMathTest, BinMappingIsMonotonicAndClamped)
     {
         u32 prev = 0;
-        for (f32 ev = kMinLogLum; ev <= kMaxLogLum; ev += 0.5f)
+        // Integer loop counter (S2193: no float counter); ev is computed fresh
+        // each step so there's no accumulating float error.
+        const int steps = static_cast<int>(std::round((kMaxLogLum - kMinLogLum) / 0.5f)) + 1;
+        for (int i = 0; i < steps; ++i)
         {
+            const f32 ev = kMinLogLum + 0.5f * static_cast<f32>(i);
             const u32 bin = AutoExposure::LuminanceToBin(std::exp2(ev), kMinLogLum, kInvLogLumRange);
             EXPECT_GE(bin, prev) << "bins must be non-decreasing in luminance (ev=" << ev << ")";
             EXPECT_LE(bin, 255u);
@@ -95,8 +101,10 @@ namespace OloEngine::Tests
 
     TEST(AutoExposureMathTest, BinRoundTripRecoversLuminance)
     {
-        for (f32 ev = kMinLogLum + 0.5f; ev <= kMaxLogLum - 0.5f; ev += 0.7f)
+        const int steps = static_cast<int>(std::round((kMaxLogLum - 0.5f - (kMinLogLum + 0.5f)) / 0.7f)) + 1;
+        for (int i = 0; i < steps; ++i)
         {
+            const f32 ev = kMinLogLum + 0.5f + 0.7f * static_cast<f32>(i);
             const f32 lum = std::exp2(ev);
             const u32 bin = AutoExposure::LuminanceToBin(lum, kMinLogLum, kInvLogLumRange);
             const f32 recovered = AutoExposure::BinToLuminance(static_cast<f32>(bin), kMinLogLum, kLogLumRange);
@@ -244,11 +252,9 @@ namespace OloEngine::Tests
         f32 exposure = 1.0f;
         for (int i = 0; i < 600; ++i) // ~10s at 60fps
         {
-            const auto r = AutoExposure::Step(h, adapted, 1.0f / 60.0f,
-                                              kMinLogLum, kMaxLogLum, 3.0f, 3.0f,
-                                              0.0f, 0.001f, 1000.0f);
-            adapted = r.AdaptedLuminance;
-            exposure = r.Exposure;
+            const f32 target = AutoExposure::ComputeAverageLuminance(h, kMinLogLum, kMaxLogLum);
+            adapted = AutoExposure::AdaptLuminance(adapted, target, 1.0f / 60.0f, 3.0f, 3.0f);
+            exposure = AutoExposure::ComputeExposure(adapted, 0.0f, 0.001f, 1000.0f);
         }
 
         // Adapted luminance settles at the scene luminance (~1.0).
@@ -256,5 +262,35 @@ namespace OloEngine::Tests
         // Exposure matches the closed-form value for that luminance.
         const f32 expected = AutoExposure::ComputeExposure(adapted, 0.0f, 0.001f, 1000.0f);
         EXPECT_NEAR(exposure, expected, expected * 1e-4f);
+    }
+
+    // ----- Settings sanitization (load-time validation) ----------------------
+
+    TEST(AutoExposureMathTest, SanitizeReplacesNonFiniteWithFiniteDefaults)
+    {
+        PostProcessSettings s;
+        s.AutoExposureMinLogLuminance = std::nanf("");
+        s.AutoExposureSpeedUp = std::numeric_limits<f32>::infinity();
+        s.AutoExposureSpeedDown = -std::numeric_limits<f32>::infinity();
+        s.AutoExposureMaxExposure = std::nanf("");
+        SanitizeAutoExposure(s);
+        EXPECT_TRUE(std::isfinite(s.AutoExposureMinLogLuminance));
+        EXPECT_TRUE(std::isfinite(s.AutoExposureSpeedUp));
+        EXPECT_TRUE(std::isfinite(s.AutoExposureSpeedDown));
+        EXPECT_TRUE(std::isfinite(s.AutoExposureMaxExposure));
+        EXPECT_GE(s.AutoExposureSpeedUp, 0.0f); // speeds clamped non-negative
+        EXPECT_GE(s.AutoExposureSpeedDown, 0.0f);
+    }
+
+    TEST(AutoExposureMathTest, SanitizeOrdersInvertedMinMaxPairs)
+    {
+        PostProcessSettings s;
+        s.AutoExposureMinLogLuminance = 5.0f; // inverted vs max
+        s.AutoExposureMaxLogLuminance = -2.0f;
+        s.AutoExposureMinExposure = 8.0f; // inverted vs max
+        s.AutoExposureMaxExposure = 0.1f;
+        SanitizeAutoExposure(s);
+        EXPECT_LE(s.AutoExposureMinLogLuminance, s.AutoExposureMaxLogLuminance);
+        EXPECT_LE(s.AutoExposureMinExposure, s.AutoExposureMaxExposure);
     }
 } // namespace OloEngine::Tests

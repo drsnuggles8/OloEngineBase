@@ -124,11 +124,12 @@ namespace OloEngine
                                                       ShaderBindingLayout::SSBO_AUTO_EXPOSURE_HISTOGRAM,
                                                       StorageBufferUsage::DynamicCopy);
         }
-        return m_HistogramShader && m_HistogramShader->IsValid() && m_AverageShader && m_AverageShader->IsValid() &&
-               m_HistogramBuffer && m_ExposureStateBuffer;
+        const bool histogramReady = m_HistogramShader && m_HistogramShader->IsValid();
+        const bool averageReady = m_AverageShader && m_AverageShader->IsValid();
+        return histogramReady && averageReady && m_HistogramBuffer && m_ExposureStateBuffer;
     }
 
-    void ToneMapRenderPass::RunAutoExposureMetering(RGCommandContext& context, u32 hdrTextureID, u32 width, u32 height)
+    void ToneMapRenderPass::RunAutoExposureMetering(const RGCommandContext& context, u32 hdrTextureID, u32 width, u32 height)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -233,6 +234,10 @@ namespace OloEngine
             if (const f32 sentinel = -1.0f; m_ExposureStateBuffer)
                 m_ExposureStateBuffer->SetData(&sentinel, static_cast<u32>(sizeof(f32)), 0);
             m_AutoExposureActiveLastFrame = false;
+        }
+        else
+        {
+            // Auto-exposure already inactive (sentinel already in place) — nothing to do.
         }
 
         if (m_PostProcessUBO)

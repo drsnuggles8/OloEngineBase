@@ -5739,6 +5739,9 @@ namespace OloEngine
                 TrySet(pp.AutoExposureCompensation, ppNode["AutoExposureCompensation"]);
                 TrySet(pp.AutoExposureMinExposure, ppNode["AutoExposureMinExposure"]);
                 TrySet(pp.AutoExposureMaxExposure, ppNode["AutoExposureMaxExposure"]);
+
+                // Floats read from YAML must be finite and ordered (min<=max).
+                SanitizeAutoExposure(pp);
             }
 
             DeserializeSnowSettings(data, m_Scene->GetSnowSettings());
@@ -6006,6 +6009,9 @@ namespace OloEngine
                 TrySet(pp.AutoExposureCompensation, ppNode["AutoExposureCompensation"]);
                 TrySet(pp.AutoExposureMinExposure, ppNode["AutoExposureMinExposure"]);
                 TrySet(pp.AutoExposureMaxExposure, ppNode["AutoExposureMaxExposure"]);
+
+                // Floats read from YAML must be finite and ordered (min<=max).
+                SanitizeAutoExposure(pp);
             }
 
             DeserializeSnowSettings(data, m_Scene->GetSnowSettings());

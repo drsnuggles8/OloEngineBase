@@ -516,7 +516,7 @@ namespace OloEngine
             // Auto-exposure / eye adaptation parameters (+ frame dt for the
             // temporal adaptation step). dt uses the same wall-clock fallback as
             // the wind/precipitation update until a real Timestep is threaded
-            // through BeginScene (see the TODO further down this file).
+            // through BeginScene (mirrors the dt computation later in this file).
             const auto& pp = data.PostProcess;
             AutoExposureFrameParams ae;
             ae.Enabled = pp.AutoExposureEnabled;

@@ -49,7 +49,7 @@ namespace OloEngine
         inline constexpr f32 kBlackThreshold = 0.0001f;
 
         // Relative luminance of an HDR colour (Rec.709).
-        [[nodiscard]] inline f32 Luminance(const glm::vec3& hdrColor) noexcept
+        [[nodiscard("pure computation; discarding the result makes the call a no-op")]] inline f32 Luminance(const glm::vec3& hdrColor) noexcept
         {
             return glm::dot(glm::max(hdrColor, glm::vec3(0.0f)), kLuminanceWeights);
         }
@@ -58,7 +58,7 @@ namespace OloEngine
         //   - bin 0      : near-black (lum < kBlackThreshold), excluded from the average.
         //   - bins 1..255: log2(lum) linearly mapped across [minLogLum, maxLogLum].
         // invLogLumRange == 1 / (maxLogLum - minLogLum).
-        [[nodiscard]] inline u32 LuminanceToBin(f32 luminance, f32 minLogLum, f32 invLogLumRange) noexcept
+        [[nodiscard("pure computation; discarding the result makes the call a no-op")]] inline u32 LuminanceToBin(f32 luminance, f32 minLogLum, f32 invLogLumRange) noexcept
         {
             if (!std::isfinite(luminance) || luminance < kBlackThreshold)
                 return 0u;
@@ -70,7 +70,7 @@ namespace OloEngine
 
         // Inverse of LuminanceToBin for a (fractional) bin index in [1, 255].
         // Used to turn the weighted-average bin back into a luminance value.
-        [[nodiscard]] inline f32 BinToLuminance(f32 bin, f32 minLogLum, f32 logLumRange) noexcept
+        [[nodiscard("pure computation; discarding the result makes the call a no-op")]] inline f32 BinToLuminance(f32 bin, f32 minLogLum, f32 logLumRange) noexcept
         {
             const f32 logLum01 = std::clamp((bin - 1.0f) / 254.0f, 0.0f, 1.0f);
             return std::exp2(logLum01 * logLumRange + minLogLum);
@@ -79,8 +79,8 @@ namespace OloEngine
         // Reduce a 256-bin log-luminance histogram to an average linear
         // luminance. Bin 0 (black pixels) is excluded from the weighting; if the
         // whole frame is black the result floors at exp2(minLogLum).
-        [[nodiscard]] inline f32 ComputeAverageLuminance(const std::array<u32, kHistogramBins>& histogram,
-                                                         f32 minLogLum, f32 maxLogLum) noexcept
+        [[nodiscard("pure computation; discarding the result makes the call a no-op")]] inline f32 ComputeAverageLuminance(const std::array<u32, kHistogramBins>& histogram,
+                                                                                                                           f32 minLogLum, f32 maxLogLum) noexcept
         {
             const f32 logLumRange = maxLogLum - minLogLum;
             if (!(logLumRange > 0.0f))
@@ -96,7 +96,7 @@ namespace OloEngine
             }
 
             const u64 numBlack = histogram[0];
-            const u64 denom = (totalCount > numBlack) ? (totalCount - numBlack) : 1ull;
+            const u64 denom = (totalCount > numBlack) ? (totalCount - numBlack) : 1ULL;
 
             // Average bin index over the non-black pixels, in [0, 255].
             const f32 avgBin = static_cast<f32>(weightedCount) / static_cast<f32>(denom);
@@ -108,8 +108,8 @@ namespace OloEngine
         // (the eye dark-adapts slower than it light-adapts). With dt in seconds
         // the step is exact under subdivision: adapting dt then dt equals
         // adapting 2*dt in one shot.
-        [[nodiscard]] inline f32 AdaptLuminance(f32 current, f32 target, f32 dt,
-                                                f32 speedUp, f32 speedDown) noexcept
+        [[nodiscard("pure computation; discarding the result makes the call a no-op")]] inline f32 AdaptLuminance(f32 current, f32 target, f32 dt,
+                                                                                                                  f32 speedUp, f32 speedDown) noexcept
         {
             if (!std::isfinite(current) || current <= 0.0f)
                 current = target; // first frame / invalid history snaps to target
@@ -127,14 +127,14 @@ namespace OloEngine
         }
 
         // Lagarde/Frostbite EV100 from a scene luminance (ISO 100, K = 12.5).
-        [[nodiscard]] inline f32 EV100FromLuminance(f32 luminance) noexcept
+        [[nodiscard("pure computation; discarding the result makes the call a no-op")]] inline f32 EV100FromLuminance(f32 luminance) noexcept
         {
             return std::log2(std::max(luminance, kBlackThreshold) * 100.0f / 12.5f);
         }
 
         // Sensor saturation-based exposure for a given EV100 (Frostbite eq.):
         //   maxLuminance = 1.2 * 2^EV100 ; exposure = 1 / maxLuminance.
-        [[nodiscard]] inline f32 ExposureFromEV100(f32 ev100) noexcept
+        [[nodiscard("pure computation; discarding the result makes the call a no-op")]] inline f32 ExposureFromEV100(f32 ev100) noexcept
         {
             const f32 maxLuminance = 1.2f * std::exp2(ev100);
             return 1.0f / std::max(maxLuminance, kBlackThreshold);
@@ -143,8 +143,8 @@ namespace OloEngine
         // Full luminance -> exposure multiplier. `exposureCompensation` is in EV
         // stops: +1 EV doubles the resulting image brightness. The result is
         // clamped to [minExposure, maxExposure].
-        [[nodiscard]] inline f32 ComputeExposure(f32 adaptedLuminance, f32 exposureCompensation,
-                                                 f32 minExposure, f32 maxExposure) noexcept
+        [[nodiscard("pure computation; discarding the result makes the call a no-op")]] inline f32 ComputeExposure(f32 adaptedLuminance, f32 exposureCompensation,
+                                                                                                                   f32 minExposure, f32 maxExposure) noexcept
         {
             const f32 ev100 = EV100FromLuminance(adaptedLuminance) - exposureCompensation;
             const f32 exposure = ExposureFromEV100(ev100);
@@ -153,25 +153,8 @@ namespace OloEngine
             return std::clamp(exposure, lo, hi);
         }
 
-        // Convenience: run the whole per-frame step on the CPU (used by tests and
-        // any CPU-side preview). Returns {adaptedLuminance, exposure}.
-        struct Result
-        {
-            f32 AdaptedLuminance;
-            f32 Exposure;
-        };
-
-        [[nodiscard]] inline Result Step(const std::array<u32, kHistogramBins>& histogram,
-                                         f32 previousAdaptedLuminance, f32 dt,
-                                         f32 minLogLum, f32 maxLogLum,
-                                         f32 speedUp, f32 speedDown,
-                                         f32 exposureCompensation,
-                                         f32 minExposure, f32 maxExposure) noexcept
-        {
-            const f32 target = ComputeAverageLuminance(histogram, minLogLum, maxLogLum);
-            const f32 adapted = AdaptLuminance(previousAdaptedLuminance, target, dt, speedUp, speedDown);
-            const f32 exposure = ComputeExposure(adapted, exposureCompensation, minExposure, maxExposure);
-            return { adapted, exposure };
-        }
+        // The full per-frame step is just ComputeAverageLuminance -> AdaptLuminance
+        // -> ComputeExposure; callers (the metering compute shader, the CPU tests)
+        // chain those three directly so there's no wide-parameter wrapper here.
     } // namespace AutoExposure
 } // namespace OloEngine

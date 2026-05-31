@@ -52,8 +52,8 @@
 
 #include <algorithm>
 #include <cstddef>
-#include <cstdio>
 #include <filesystem>
+#include <string_view>
 #include <vector>
 
 namespace OloEngine::Tests
@@ -64,13 +64,14 @@ namespace OloEngine::Tests
 
         constexpr u32 kSize = 256;
 
-        f32 MeanLuminance(const std::vector<u8>& px)
+        [[nodiscard("mean luminance is this pure helper's only result")]] f32 MeanLuminance(const std::vector<u8>& px)
         {
             if (px.empty())
                 return 0.0f;
             f64 sum = 0.0;
-            const std::size_t pixels = px.size() / 4;
-            for (std::size_t i = 0; i < px.size(); i += 4)
+            const std::size_t byteCount = px.size();
+            const std::size_t pixels = byteCount / 4;
+            for (std::size_t i = 0; i < byteCount; i += 4)
             {
                 const f32 r = static_cast<f32>(px[i + 0]) / 255.0f;
                 const f32 g = static_cast<f32>(px[i + 1]) / 255.0f;
@@ -80,7 +81,7 @@ namespace OloEngine::Tests
             return static_cast<f32>(sum / static_cast<f64>(pixels));
         }
 
-        void WritePng(const std::vector<u8>& px, u32 w, u32 h, const char* name)
+        void WritePng(const std::vector<u8>& px, u32 w, u32 h, std::string_view name)
         {
             const fs::path dir = fs::path("assets") / "tests" / "visual";
             std::error_code ec;
@@ -125,13 +126,14 @@ namespace OloEngine::Tests
             EnableRendering(kSize, kSize);
         }
 
-        f32 RenderAndMeasure(const char* pngName)
+        f32 RenderAndMeasure(std::string_view pngName)
         {
             // 3 frames: seed TAA/velocity history + let the auto-exposure
             // metering run (the first metered frame snaps adaptation to target).
             RunFrames(3);
             std::vector<u8> px;
-            u32 w = 0, h = 0;
+            u32 w = 0;
+            u32 h = 0;
             if (!ReadbackComposite(px, w, h))
                 return -1.0f;
             EXPECT_EQ(w, kSize);
@@ -148,6 +150,21 @@ namespace OloEngine::Tests
         // The renderer reads its own PostProcessSettings copy (s_Data.PostProcess),
         // not the Scene's serialized copy, so drive that one directly.
         auto& pp = Renderer3D::GetPostProcessSettings();
+
+        // Snapshot + RAII-restore ALL post-process settings so a failing ASSERT
+        // (which returns early) can't leak this test's mutations — auto-exposure
+        // ON, widened clamps, etc. — into later GPU tests sharing this process's
+        // static Renderer3D state.
+        struct PostProcessRestore
+        {
+            PostProcessSettings& Target;
+            PostProcessSettings Saved;
+            explicit PostProcessRestore(PostProcessSettings& t) : Target(t), Saved(t) {}
+            ~PostProcessRestore()
+            {
+                Target = Saved;
+            }
+        } ppRestore(pp);
 
         // --- Manual exposure baseline (auto OFF) ---
         pp.AutoExposureEnabled = false;
@@ -169,7 +186,8 @@ namespace OloEngine::Tests
         const f32 meanAuto = RenderAndMeasure("AutoExposure_AutoBright.png");
         ASSERT_GE(meanAuto, 0.0f) << "ReadbackComposite failed for the auto render";
 
-        std::printf("[AutoExposure] meanManual=%.4f meanAuto=%.4f\n", meanManual, meanAuto);
+        // (The measured means appear in the EXPECT messages below on failure;
+        // the written PNGs are the success-case evidence artifact.)
 
         // (2) The scene is saturated-bright at exposure 1.0 (premise).
         EXPECT_GT(meanManual, 0.9f)
@@ -185,9 +203,6 @@ namespace OloEngine::Tests
             << "auto-exposed frame is still near-white (mean=" << meanAuto
             << ") — metering did not bring the exposure down";
 
-        // Restore renderer state so auto-exposure doesn't leak into later GPU
-        // tests sharing this process's Renderer3D (s_Data.PostProcess is static).
-        pp.AutoExposureEnabled = false;
-        pp.Exposure = 1.0f;
+        // (Renderer settings are restored by ppRestore on scope exit.)
     }
 } // namespace OloEngine::Tests

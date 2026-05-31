@@ -217,12 +217,14 @@ namespace OloEngine
                 ImGui::Indent();
                 ImGui::TextDisabled("Histogram metering drives exposure; the manual Exposure value is ignored.");
                 ImGui::DragFloat("EV Compensation", &settings.AutoExposureCompensation, 0.05f, -8.0f, 8.0f, "%.2f EV");
-                ImGui::DragFloat("Min Log Luminance", &settings.AutoExposureMinLogLuminance, 0.1f, -16.0f, settings.AutoExposureMaxLogLuminance - 0.1f, "%.1f");
-                ImGui::DragFloat("Max Log Luminance", &settings.AutoExposureMaxLogLuminance, 0.1f, settings.AutoExposureMinLogLuminance + 0.1f, 16.0f, "%.1f");
+                // AlwaysClamp so Ctrl+Click text entry can't push a value past
+                // its sibling-derived bound and invert min/max.
+                ImGui::DragFloat("Min Log Luminance", &settings.AutoExposureMinLogLuminance, 0.1f, -16.0f, settings.AutoExposureMaxLogLuminance - 0.1f, "%.1f", ImGuiSliderFlags_AlwaysClamp);
+                ImGui::DragFloat("Max Log Luminance", &settings.AutoExposureMaxLogLuminance, 0.1f, settings.AutoExposureMinLogLuminance + 0.1f, 16.0f, "%.1f", ImGuiSliderFlags_AlwaysClamp);
                 ImGui::DragFloat("Adapt Speed (brighten)", &settings.AutoExposureSpeedUp, 0.05f, 0.0f, 20.0f, "%.2f");
                 ImGui::DragFloat("Adapt Speed (darken)", &settings.AutoExposureSpeedDown, 0.05f, 0.0f, 20.0f, "%.2f");
-                ImGui::DragFloat("Min Exposure", &settings.AutoExposureMinExposure, 0.005f, 0.001f, settings.AutoExposureMaxExposure, "%.3f");
-                ImGui::DragFloat("Max Exposure", &settings.AutoExposureMaxExposure, 0.05f, settings.AutoExposureMinExposure, 64.0f, "%.2f");
+                ImGui::DragFloat("Min Exposure", &settings.AutoExposureMinExposure, 0.005f, 0.001f, settings.AutoExposureMaxExposure, "%.3f", ImGuiSliderFlags_AlwaysClamp);
+                ImGui::DragFloat("Max Exposure", &settings.AutoExposureMaxExposure, 0.05f, settings.AutoExposureMinExposure, 64.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp);
                 ImGui::Unindent();
             }
 
