@@ -1054,7 +1054,7 @@ new `.cpp` under `OloEngine/tests/Rendering/`, `ShaderGraph/`,
 
 | File | Tests | Cases |
 |---|---:|---|
-| [AutoExposureMathTest.cpp](../OloEngine/tests/Rendering/AutoExposureMathTest.cpp) | 17 | **AutoExposureMathTest** &mdash; `LuminanceUsesRec709Weights`, `BlackPixelsGoToBinZero`, `BinMappingIsMonotonicAndClamped`, `BinRoundTripRecoversLuminance`, `UniformHistogramRecoversThatLuminance`, `AllBlackFloorsAtMinLogLum`, `BlackPixelsDoNotDragTheAverage`, `MixedHistogramAveragesBetweenExtremes`, `AdaptationConvergesToTarget`, `AdaptationIsFrameRateIndependent`, `SeparateUpAndDownSpeeds`, `AdaptationEdgeCases`, `DoublingLuminanceIsOneStopOfEV`, `BrighterSceneGivesSmallerExposure`, `ExposureCompensationIsInStops`, `ExposureRespectsClamp`, `StepDrivesExposureTowardSceneOverTime` |
+| [AutoExposureMathTest.cpp](../OloEngine/tests/Rendering/AutoExposureMathTest.cpp) | 19 | **AutoExposureMathTest** &mdash; `LuminanceUsesRec709Weights`, `BlackPixelsGoToBinZero`, `BinMappingIsMonotonicAndClamped`, `BinRoundTripRecoversLuminance`, `UniformHistogramRecoversThatLuminance`, `AllBlackFloorsAtMinLogLum`, `BlackPixelsDoNotDragTheAverage`, `MixedHistogramAveragesBetweenExtremes`, `AdaptationConvergesToTarget`, `AdaptationIsFrameRateIndependent`, `SeparateUpAndDownSpeeds`, `AdaptationEdgeCases`, `DoublingLuminanceIsOneStopOfEV`, `BrighterSceneGivesSmallerExposure`, `ExposureCompensationIsInStops`, `ExposureRespectsClamp`, `StepDrivesExposureTowardSceneOverTime`, `SanitizeReplacesNonFiniteWithFiniteDefaults`, `SanitizeOrdersInvertedMinMaxPairs` |
 | [GPUFrustumCullParityTest.cpp](../OloEngine/tests/Rendering/GPUFrustumCullParityTest.cpp) | 2 | **GPUFrustumCullParity** &mdash; `RandomisedInstancesMatchCPU`, `EdgeCaseInstancesMatchCPU` |
 | [InstanceDataLayoutTest.cpp](../OloEngine/tests/Rendering/InstanceDataLayoutTest.cpp) | 6 | **InstanceDataLayout** &mdash; `StructSizeMatchesStd430`, `FieldOffsetsMatchGLSLBlock`, `DefaultsAreIdentityAndNeutral`, `BindingConstantIsStable`, `GLSLLayoutMentionsAllFieldsAndBinding`<br/>**InstancedMeshComponentDefaults** &mdash; `FieldsHaveSafeDefaults` |
 | [ProceduralSkyMathTest.cpp](../OloEngine/tests/Rendering/ProceduralSkyMathTest.cpp) | 11 | **ProceduralSkyMath** &mdash; `PerezCoefficientsAreLinearInTurbidity`, `CoefficientsMatchReferenceAtT2_5`, `ZenithLuminanceIsPositiveAtCommonElevations`, `ZenithChromaticityIsInPlausibleRange`, `SubHorizonSunIsClampedAboveHorizon`, `ZeroLengthSunDefaultsToZenith`, `SunDiskCosAngleIsConsistent`, `HashChangesWhenParametersChange`, `SkyIsBrighterTowardSunThanAntiSun`, `BluerAwayFromSunForClearSky`, `AllOutputsAreFinite` |
@@ -1095,7 +1095,7 @@ new `.cpp` under `OloEngine/tests/Rendering/`, `ShaderGraph/`,
 |---|---:|---|
 | [TestFailureCaptureTest.cpp](../OloEngine/tests/Rendering/PropertyTests/TestFailureCaptureTest.cpp) | 6 | **TestFailureCaptureTest** &mdash; `DirectoryForSanitizesNames`, `MetadataIsWrittenWithoutGlContext`, `LatestFrameSummaryIsNoOpWithoutCaptures`, `GLStateSnapshotIsWrittenWhenGpuAvailable`, `FboPngIsWrittenWhenGpuAvailable`, `CaptureAllProducesExpectedArtefacts` |
 
-**Totals.** 77 renderer-scope test files, 1182 TEST / TEST_F / TEST_P declarations across all layers.
+**Totals.** 77 renderer-scope test files, 1184 TEST / TEST_F / TEST_P declarations across all layers.
 
 <!-- END: renderer-catalogue -->
 
