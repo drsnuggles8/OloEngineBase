@@ -429,6 +429,15 @@ namespace OloEngine
         return true;
     }
 
+    // Asset-pack record layout for a font (in stream order):
+    //   string  name                  — display name
+    //   u32     rangeCount            — number of codepoint ranges
+    //   [rangeCount × {u32 First, u32 Last}]
+    //   u64     byteCount + bytes      — the raw font-file (.ttf/.otf) image
+    // The bytes are embedded (not path-referenced) so a shipped .olopack is
+    // self-contained — it loads fonts even when the original .ttf is gone.
+    // Fonts are small (KB–low-MB), so embedding is cheap.
+
     bool FontSerializer::SerializeToAssetPack(AssetHandle handle, FileStreamWriter& stream, AssetSerializationInfo& outInfo) const
     {
         outInfo.Offset = stream.GetStreamPosition();
@@ -440,11 +449,44 @@ namespace OloEngine
             return false;
         }
 
-        // Write font name and data
-        stream.WriteString(font->GetName());
+        // Read the original font-file bytes from disk so they can be embedded.
+        const std::string& path = font->GetPath();
+        if (path.empty())
+        {
+            OLO_CORE_ERROR("FontSerializer::SerializeToAssetPack - Font '{}' has no source path to read bytes from", font->GetName());
+            return false;
+        }
 
-        // TODO: Read font file data and write to stream
-        // This should read the original font file and write its contents
+        std::ifstream file(path, std::ios::binary | std::ios::ate);
+        if (!file.is_open())
+        {
+            OLO_CORE_ERROR("FontSerializer::SerializeToAssetPack - Failed to open font file: {}", path);
+            return false;
+        }
+
+        const std::streamoff fileSize = file.tellg();
+        if (fileSize <= 0)
+        {
+            OLO_CORE_ERROR("FontSerializer::SerializeToAssetPack - Empty or unreadable font file: {}", path);
+            return false;
+        }
+
+        file.seekg(0, std::ios::beg);
+
+        Buffer fontData(static_cast<u64>(fileSize));
+        file.read(reinterpret_cast<char*>(fontData.Data), fileSize);
+        if (file.fail())
+        {
+            OLO_CORE_ERROR("FontSerializer::SerializeToAssetPack - Failed to read font file: {}", path);
+            fontData.Release();
+            return false;
+        }
+
+        stream.WriteString(font->GetName());
+        stream.WriteArray(font->GetRanges());
+        stream.WriteBuffer(fontData);
+
+        fontData.Release();
 
         outInfo.Size = stream.GetStreamPosition() - outInfo.Offset;
         return true;
@@ -457,13 +499,49 @@ namespace OloEngine
         std::string name;
         stream.ReadString(name);
 
-        // TODO: Read font data buffer and create font
-        // Buffer fontData;
-        // stream.ReadBuffer(fontData);
-        // return Font::Create(name, fontData);
+        // Read the codepoint ranges (layout matches StreamWriter::WriteArray:
+        // u32 count followed by count × {u32 First, u32 Last}). Read manually
+        // rather than via ReadArray: ReadArray treats an explicit size of 0 as
+        // "size not supplied" and would re-read the count, desyncing the
+        // stream for a legitimately empty range list. A sanity cap keeps a
+        // corrupt pack from driving a huge allocation.
+        constexpr u32 kMaxFontRanges = 1024;
+        u32 rangeCount = 0;
+        stream.ReadRaw<u32>(rangeCount);
+        if (rangeCount > kMaxFontRanges)
+        {
+            OLO_CORE_ERROR("FontSerializer::DeserializeFromAssetPack - Implausible range count {} (max {}); pack likely corrupt", rangeCount, kMaxFontRanges);
+            return nullptr;
+        }
 
-        OLO_CORE_WARN("FontSerializer::DeserializeFromAssetPack not yet fully implemented");
-        return nullptr;
+        std::vector<FontCodepointRange> ranges(rangeCount);
+        for (u32 i = 0; i < rangeCount; ++i)
+        {
+            stream.ReadRaw<u32>(ranges[i].First);
+            stream.ReadRaw<u32>(ranges[i].Last);
+        }
+
+        Buffer fontData;
+        stream.ReadBuffer(fontData); // reads u64 size, validates against the 1 GB cap, allocates
+        if (!fontData.Data || fontData.Size == 0)
+        {
+            OLO_CORE_ERROR("FontSerializer::DeserializeFromAssetPack - Font '{}' has no embedded bytes", name);
+            fontData.Release();
+            return nullptr;
+        }
+
+        const std::span<const u8> fontSpan(fontData.Data, static_cast<sizet>(fontData.Size));
+        Ref<Font> font = Font::Create(name, fontSpan, ranges);
+        fontData.Release();
+
+        if (!font || !font->IsLoaded())
+        {
+            OLO_CORE_ERROR("FontSerializer::DeserializeFromAssetPack - Failed to load font '{}' from embedded bytes", name);
+            return nullptr;
+        }
+
+        font->SetHandle(assetInfo.Handle);
+        return font;
     }
 
     //////////////////////////////////////////////////////////////////////////////////

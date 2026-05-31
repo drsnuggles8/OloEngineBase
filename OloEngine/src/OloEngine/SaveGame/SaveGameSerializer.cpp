@@ -10,6 +10,7 @@
 #include "OloEngine/Scene/Components.h"
 #include "OloEngine/Scene/Entity.h"
 #include "OloEngine/Scene/Scene.h"
+#include "OloEngine/Renderer/PostProcessSettings.h"
 #include "OloEngine/Scene/Streaming/StreamingVolumeComponent.h"
 #include "OloEngine/Serialization/Archive.h"
 #include "OloEngine/Serialization/ArchiveExtensions.h"
@@ -99,6 +100,18 @@ namespace OloEngine
         ar << s.ColorGradingEnabled;
         ar << s.SSAOEnabled << s.SSAORadius << s.SSAOBias << s.SSAOIntensity;
         ar << s.SSAOSamples << s.SSAODebugView;
+        // Auto-exposure / eye adaptation (save format v2+).
+        ar << s.AutoExposureEnabled;
+        ar << s.AutoExposureMinLogLuminance << s.AutoExposureMaxLogLuminance;
+        ar << s.AutoExposureSpeedUp << s.AutoExposureSpeedDown;
+        ar << s.AutoExposureCompensation;
+        ar << s.AutoExposureMinExposure << s.AutoExposureMaxExposure;
+        if (ar.IsLoading())
+        {
+            // Floats read from disk must be finite and ordered (CLAUDE.md
+            // float-validation rule); shared with the scene-YAML loader.
+            SanitizeAutoExposure(s);
+        }
     }
 
     static void SerializeSnowSettings(FArchive& ar, SnowSettings& s)

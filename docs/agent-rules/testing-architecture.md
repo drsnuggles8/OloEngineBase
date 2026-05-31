@@ -49,25 +49,22 @@ Anything that drives a real `Scene::OnUpdateRuntime` to pin a contract at the se
 
 ## 2. The registration contract (NON-NEGOTIABLE)
 
-Every `.cpp` under the scan roots in [`OloEngine/tests/scripts/test_catalogue.json`](../../OloEngine/tests/scripts/test_catalogue.json) must appear in `file_layer_map` (with a layer id or `"Functional"` tag) or `exclude` (helpers / fixtures only). The `test-catalogue-in-sync` pre-commit hook **fails the commit** otherwise.
+The generator scans the **entire** `OloEngine/tests/` tree (recursively) — there is no allowlist and no exclude list. Every `.cpp` that declares at least one `TEST` / `TEST_F` / `TEST_P` / `TYPED_TEST` macro must appear in `file_layer_map` in [`OloEngine/tests/scripts/test_catalogue.json`](../../OloEngine/tests/scripts/test_catalogue.json), classified on one of three axes:
 
-Scan roots (recursive):
+- a renderer-pyramid layer id (`L1`–`L11`, `plumbing`, `cullinglod`, `shaderpipe`, `integration`, `meta`) — rendering-scope tests;
+- `"Functional"` — cross-subsystem tests driven via `Scene::OnUpdateRuntime`;
+- `"unit"` — plain per-subsystem unit tests (everything else), grouped by directory in the doc.
 
-- `OloEngine/tests/Rendering/`
-- `OloEngine/tests/ShaderGraph/`
-- `OloEngine/tests/Streaming/`
-- `OloEngine/tests/Functional/`
-
-Plus any file explicitly listed under `extra_roots`.
+The `test-catalogue-in-sync` pre-commit hook **fails the commit** otherwise. Files with no test macros (the gtest `main`, libFuzzer targets, fixtures/helpers) are not tests and need no entry — that is the definition of a non-test, not a configurable exclusion.
 
 **Workflow when adding a test file:**
 
 1. Write the test(s). Use `TEST`, `TEST_F`, `TEST_P`, or `TYPED_TEST` — the scanner's regex relies on these macros.
-2. Register the file in `test_catalogue.json` → `file_layer_map` with the correct layer id (renderer tests) or `"Functional"` tag.
-3. Run `python OloEngine/tests/scripts/generate_test_catalogue.py` to regenerate both auto-catalogue blocks inside `docs/testing.md` (renderer block in §9.1, Functional block in §9.2).
+2. Register the file in `test_catalogue.json` → `file_layer_map` with the correct classification: a renderer-pyramid layer id (`L1`–`L11`/`plumbing`/…) for rendering-scope tests, `"Functional"` for cross-subsystem tests, or `"unit"` for plain per-subsystem unit tests.
+3. Run `python OloEngine/tests/scripts/generate_test_catalogue.py` to regenerate all three auto-catalogue blocks inside `docs/testing.md` (renderer block in §9.1, Functional block in §9.2, unit block in §9.3).
 4. Commit the .cpp, the JSON entry, and the doc diff together.
 
-**Do not hand-edit** the blocks between `<!-- BEGIN: renderer-catalogue ... -->` / `<!-- END: renderer-catalogue -->` or `<!-- BEGIN: functional-catalogue ... -->` / `<!-- END: functional-catalogue -->` in `docs/testing.md`. The generator overwrites them.
+**Do not hand-edit** the blocks between `<!-- BEGIN: renderer-catalogue ... -->` / `<!-- END: renderer-catalogue -->`, `<!-- BEGIN: functional-catalogue ... -->` / `<!-- END: functional-catalogue -->`, or `<!-- BEGIN: unit-catalogue ... -->` / `<!-- END: unit-catalogue -->` in `docs/testing.md`. The generator overwrites them.
 
 ---
 

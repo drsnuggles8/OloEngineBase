@@ -81,6 +81,7 @@ add_executable(OloEngine-Tests
 		Rendering/ScatterBrushMathTest.cpp
 		Rendering/SphereAreaLightMathTest.cpp
 		Rendering/ProceduralSkyMathTest.cpp
+		Rendering/AutoExposureMathTest.cpp
 		Rendering/CommandPacketTest.cpp
 		Rendering/CommandAllocatorTest.cpp
 		Rendering/CommandBucketTest.cpp
@@ -123,6 +124,7 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/RendererAttachedTest.cpp
 		Rendering/PropertyTests/RendererAttachedSmokeTest.cpp
 		Rendering/PropertyTests/SceneRenderEvidenceTest.cpp
+		Rendering/PropertyTests/AutoExposureEvidenceTest.cpp
 		Rendering/PropertyTests/TestFailureCapture.cpp
 		Rendering/PropertyTests/TestFailureCaptureTest.cpp
 		Rendering/PropertyTests/ModelLoadDeterminismTest.cpp
@@ -174,6 +176,7 @@ add_executable(OloEngine-Tests
 		Serialization/MeshAssetSerializerTest.cpp
 		Serialization/SoundGraphSerializerTest.cpp
 		Serialization/EnvironmentSerializerTest.cpp
+		Serialization/FontAssetPackSerializerTest.cpp
 		# SaveGame Tests
 		SaveGame/SaveGameFileTest.cpp
 		SaveGame/SaveGameManagerTest.cpp
