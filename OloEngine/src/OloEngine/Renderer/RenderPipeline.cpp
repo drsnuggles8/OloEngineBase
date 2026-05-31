@@ -512,6 +512,26 @@ namespace OloEngine
             // ToneMap always runs; m_Enabled stays true.
             PostProcessPasses.ToneMap->SetPostProcessUBO(data.PostProcessGPU.PostProcess);
             PostProcessPasses.ToneMap->SetUnderwaterFogUBO(data.UnderwaterFogBuffer);
+
+            // Auto-exposure / eye adaptation parameters (+ frame dt for the
+            // temporal adaptation step). dt uses the same wall-clock fallback as
+            // the wind/precipitation update until a real Timestep is threaded
+            // through BeginScene (mirrors the dt computation later in this file).
+            const auto& pp = data.PostProcess;
+            AutoExposureFrameParams ae;
+            ae.Enabled = pp.AutoExposureEnabled;
+            ae.MinLogLuminance = pp.AutoExposureMinLogLuminance;
+            ae.MaxLogLuminance = pp.AutoExposureMaxLogLuminance;
+            ae.SpeedUp = pp.AutoExposureSpeedUp;
+            ae.SpeedDown = pp.AutoExposureSpeedDown;
+            ae.Compensation = pp.AutoExposureCompensation;
+            ae.MinExposure = pp.AutoExposureMinExposure;
+            ae.MaxExposure = pp.AutoExposureMaxExposure;
+            static auto s_LastAutoExposureTime = std::chrono::steady_clock::now();
+            const auto aeNow = std::chrono::steady_clock::now();
+            ae.DeltaTime = std::clamp(std::chrono::duration<f32>(aeNow - s_LastAutoExposureTime).count(), 0.0f, 0.1f);
+            s_LastAutoExposureTime = aeNow;
+            PostProcessPasses.ToneMap->SetAutoExposure(ae);
         }
         if (PostProcessPasses.Vignette)
         {

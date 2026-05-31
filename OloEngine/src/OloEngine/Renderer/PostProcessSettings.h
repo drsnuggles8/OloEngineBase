@@ -4,6 +4,10 @@
 #include "OloEngine/Math/Math.h"
 #include <glm/glm.hpp>
 
+#include <algorithm>
+#include <cmath>
+#include <utility>
+
 namespace OloEngine
 {
     // Tonemap operator constants (match PBRCommon.glsl defines)
@@ -29,6 +33,20 @@ namespace OloEngine
         TonemapOperator Tonemap = TonemapOperator::Reinhard;
         f32 Exposure = 1.0f;
         f32 Gamma = 2.2f;
+
+        // Automatic exposure / eye adaptation (histogram metering).
+        // When enabled, a compute pass meters the HDR scene luminance each frame
+        // and drives the exposure multiplier instead of the manual Exposure above
+        // (the eye adapting between bright exteriors and dark interiors). The math
+        // lives in Renderer/AutoExposure.h and is pinned by AutoExposureMathTest.
+        bool AutoExposureEnabled = false;
+        f32 AutoExposureMinLogLuminance = -8.0f; // histogram lower bound, log2 luminance
+        f32 AutoExposureMaxLogLuminance = 3.5f;  // histogram upper bound, log2 luminance
+        f32 AutoExposureSpeedUp = 3.0f;          // adaptation rate when brightening (per second)
+        f32 AutoExposureSpeedDown = 1.0f;        // adaptation rate when darkening (per second)
+        f32 AutoExposureCompensation = 0.0f;     // EV bias; +1 doubles the resulting brightness
+        f32 AutoExposureMinExposure = 0.05f;     // hard clamp on the metered exposure multiplier
+        f32 AutoExposureMaxExposure = 16.0f;     // hard clamp on the metered exposure multiplier
 
         // Bloom
         bool BloomEnabled = false;
@@ -99,6 +117,30 @@ namespace OloEngine
 
         bool operator==(const PostProcessSettings&) const = default;
     };
+
+    // Clamp the auto-exposure parameters to a finite, ordered, sane range.
+    // Call after loading settings from disk (scene YAML / save-game), per the
+    // CLAUDE.md rule that floats read from external data are validated with
+    // std::isfinite. The renderer also defends against bad values at use-time,
+    // but persisted/edited settings should never carry NaN/Inf or min>max.
+    inline void SanitizeAutoExposure(PostProcessSettings& s) noexcept
+    {
+        const auto finite = [](f32 v, f32 fallback) noexcept
+        { return std::isfinite(v) ? v : fallback; };
+
+        s.AutoExposureMinLogLuminance = finite(s.AutoExposureMinLogLuminance, -8.0f);
+        s.AutoExposureMaxLogLuminance = finite(s.AutoExposureMaxLogLuminance, 3.5f);
+        s.AutoExposureSpeedUp = std::max(0.0f, finite(s.AutoExposureSpeedUp, 3.0f));
+        s.AutoExposureSpeedDown = std::max(0.0f, finite(s.AutoExposureSpeedDown, 1.0f));
+        s.AutoExposureCompensation = std::clamp(finite(s.AutoExposureCompensation, 0.0f), -16.0f, 16.0f);
+        s.AutoExposureMinExposure = std::max(0.0f, finite(s.AutoExposureMinExposure, 0.05f));
+        s.AutoExposureMaxExposure = std::max(0.0f, finite(s.AutoExposureMaxExposure, 16.0f));
+
+        if (s.AutoExposureMinLogLuminance > s.AutoExposureMaxLogLuminance)
+            std::swap(s.AutoExposureMinLogLuminance, s.AutoExposureMaxLogLuminance);
+        if (s.AutoExposureMinExposure > s.AutoExposureMaxExposure)
+            std::swap(s.AutoExposureMinExposure, s.AutoExposureMaxExposure);
+    }
 
     // GPU-side UBO layout for post-process parameters (std140, binding 7)
     struct PostProcessUBOData

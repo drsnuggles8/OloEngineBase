@@ -755,6 +755,10 @@ namespace OloEngine
         static constexpr u32 SSBO_INSTANCE_DRAW_INDIRECT = 17;   // DrawElementsIndirectCommand populated by the cull compute, read by glDrawElementsIndirect
         static constexpr u32 SSBO_FPLUS_SPHERE_AREA_LIGHTS = 18; // Forward+ sphere area light data array (Karis 2013 representative-point)
 
+        // Automatic exposure / eye adaptation (histogram metering -> ToneMap)
+        static constexpr u32 SSBO_AUTO_EXPOSURE_HISTOGRAM = 19; // 256-bin log-luminance histogram (AutoExposureHistogram.comp -> AutoExposureAverage.comp)
+        static constexpr u32 SSBO_AUTO_EXPOSURE_STATE = 20;     // [0]=exposure multiplier (<=0 => use manual), [1]=adapted luminance (persists across frames)
+
         // =============================================================================
         // TYPE ALIASES FOR CONVENIENCE
         // =============================================================================

@@ -5566,6 +5566,14 @@ namespace OloEngine
             out << YAML::Key << "SSAOIntensity" << YAML::Value << pp.SSAOIntensity;
             out << YAML::Key << "SSAOSamples" << YAML::Value << pp.SSAOSamples;
             out << YAML::Key << "SSAODebugView" << YAML::Value << pp.SSAODebugView;
+            out << YAML::Key << "AutoExposureEnabled" << YAML::Value << pp.AutoExposureEnabled;
+            out << YAML::Key << "AutoExposureMinLogLuminance" << YAML::Value << pp.AutoExposureMinLogLuminance;
+            out << YAML::Key << "AutoExposureMaxLogLuminance" << YAML::Value << pp.AutoExposureMaxLogLuminance;
+            out << YAML::Key << "AutoExposureSpeedUp" << YAML::Value << pp.AutoExposureSpeedUp;
+            out << YAML::Key << "AutoExposureSpeedDown" << YAML::Value << pp.AutoExposureSpeedDown;
+            out << YAML::Key << "AutoExposureCompensation" << YAML::Value << pp.AutoExposureCompensation;
+            out << YAML::Key << "AutoExposureMinExposure" << YAML::Value << pp.AutoExposureMinExposure;
+            out << YAML::Key << "AutoExposureMaxExposure" << YAML::Value << pp.AutoExposureMaxExposure;
         }
         out << YAML::EndMap;
 
@@ -5723,6 +5731,17 @@ namespace OloEngine
                 TrySet(pp.SSAOIntensity, ppNode["SSAOIntensity"]);
                 TrySet(pp.SSAOSamples, ppNode["SSAOSamples"]);
                 TrySet(pp.SSAODebugView, ppNode["SSAODebugView"]);
+                TrySet(pp.AutoExposureEnabled, ppNode["AutoExposureEnabled"]);
+                TrySet(pp.AutoExposureMinLogLuminance, ppNode["AutoExposureMinLogLuminance"]);
+                TrySet(pp.AutoExposureMaxLogLuminance, ppNode["AutoExposureMaxLogLuminance"]);
+                TrySet(pp.AutoExposureSpeedUp, ppNode["AutoExposureSpeedUp"]);
+                TrySet(pp.AutoExposureSpeedDown, ppNode["AutoExposureSpeedDown"]);
+                TrySet(pp.AutoExposureCompensation, ppNode["AutoExposureCompensation"]);
+                TrySet(pp.AutoExposureMinExposure, ppNode["AutoExposureMinExposure"]);
+                TrySet(pp.AutoExposureMaxExposure, ppNode["AutoExposureMaxExposure"]);
+
+                // Floats read from YAML must be finite and ordered (min<=max).
+                SanitizeAutoExposure(pp);
             }
 
             DeserializeSnowSettings(data, m_Scene->GetSnowSettings());
@@ -5861,6 +5880,14 @@ namespace OloEngine
             out << YAML::Key << "SSAOIntensity" << YAML::Value << pp.SSAOIntensity;
             out << YAML::Key << "SSAOSamples" << YAML::Value << pp.SSAOSamples;
             out << YAML::Key << "SSAODebugView" << YAML::Value << pp.SSAODebugView;
+            out << YAML::Key << "AutoExposureEnabled" << YAML::Value << pp.AutoExposureEnabled;
+            out << YAML::Key << "AutoExposureMinLogLuminance" << YAML::Value << pp.AutoExposureMinLogLuminance;
+            out << YAML::Key << "AutoExposureMaxLogLuminance" << YAML::Value << pp.AutoExposureMaxLogLuminance;
+            out << YAML::Key << "AutoExposureSpeedUp" << YAML::Value << pp.AutoExposureSpeedUp;
+            out << YAML::Key << "AutoExposureSpeedDown" << YAML::Value << pp.AutoExposureSpeedDown;
+            out << YAML::Key << "AutoExposureCompensation" << YAML::Value << pp.AutoExposureCompensation;
+            out << YAML::Key << "AutoExposureMinExposure" << YAML::Value << pp.AutoExposureMinExposure;
+            out << YAML::Key << "AutoExposureMaxExposure" << YAML::Value << pp.AutoExposureMaxExposure;
         }
         out << YAML::EndMap;
 
@@ -5974,6 +6001,17 @@ namespace OloEngine
                 TrySet(pp.SSAOIntensity, ppNode["SSAOIntensity"]);
                 TrySet(pp.SSAOSamples, ppNode["SSAOSamples"]);
                 TrySet(pp.SSAODebugView, ppNode["SSAODebugView"]);
+                TrySet(pp.AutoExposureEnabled, ppNode["AutoExposureEnabled"]);
+                TrySet(pp.AutoExposureMinLogLuminance, ppNode["AutoExposureMinLogLuminance"]);
+                TrySet(pp.AutoExposureMaxLogLuminance, ppNode["AutoExposureMaxLogLuminance"]);
+                TrySet(pp.AutoExposureSpeedUp, ppNode["AutoExposureSpeedUp"]);
+                TrySet(pp.AutoExposureSpeedDown, ppNode["AutoExposureSpeedDown"]);
+                TrySet(pp.AutoExposureCompensation, ppNode["AutoExposureCompensation"]);
+                TrySet(pp.AutoExposureMinExposure, ppNode["AutoExposureMinExposure"]);
+                TrySet(pp.AutoExposureMaxExposure, ppNode["AutoExposureMaxExposure"]);
+
+                // Floats read from YAML must be finite and ordered (min<=max).
+                SanitizeAutoExposure(pp);
             }
 
             DeserializeSnowSettings(data, m_Scene->GetSnowSettings());

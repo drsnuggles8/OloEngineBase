@@ -33,6 +33,14 @@ layout(binding = 32) uniform sampler2D u_WaterSurfaceDepth;
 #define TONEMAP_ACES      2
 #define TONEMAP_UNCHARTED2 3
 
+// Automatic-exposure result written by AutoExposureAverage.comp.
+//   autoExposureState[0] = exposure multiplier; <= 0 means auto-exposure is off
+//   this frame, so the manual u_Exposure from the PostProcess UBO is used.
+layout(std430, binding = 20) readonly buffer ExposureState
+{
+    float autoExposureState[];
+};
+
 layout(std140, binding = 7) uniform PostProcessUBO
 {
     int   u_TonemapOperator;
@@ -163,8 +171,15 @@ void main()
     // so the in-scatter colour is exposed/tonemapped with the rest of the scene.
     hdrColor = applyUnderwaterFog(hdrColor, v_TexCoord);
 
-    // Apply exposure
-    hdrColor *= u_Exposure;
+    // Apply exposure. Auto-exposure (when enabled) writes a positive metered
+    // multiplier into autoExposureState[0]. A non-positive sentinel — or an
+    // out-of-range value from an unbound buffer when a test/tool drives this
+    // shader without the metering pass — falls back to the manual u_Exposure.
+    // The finite upper bound keeps a stray read from overflowing the tone-map
+    // operators on extreme HDR input.
+    float autoExp = autoExposureState[0];
+    float exposure = (autoExp > 0.0 && autoExp < 1.0e6) ? autoExp : u_Exposure;
+    hdrColor *= exposure;
 
     // Tone mapping
     vec3 mapped;
