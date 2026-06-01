@@ -131,6 +131,12 @@ namespace OloEngine
             case CursorMode::Locked:
                 glfwMode = GLFW_CURSOR_DISABLED;
                 break;
+            default:
+                // A future CursorMode must be handled explicitly rather than
+                // silently falling through to the GLFW_CURSOR_NORMAL fallback.
+                OLO_CORE_ASSERT(false, "Input::SetCursorMode: unhandled CursorMode {}", static_cast<int>(mode));
+                glfwMode = GLFW_CURSOR_NORMAL;
+                break;
         }
         GLFWAPI::glfwSetInputMode(window, GLFW_CURSOR, glfwMode);
     }

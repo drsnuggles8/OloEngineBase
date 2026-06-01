@@ -142,6 +142,7 @@ namespace OloEngine::WaterSurface
 
     glm::vec3 SampleDisplacement(const Params& params, glm::vec2 baseXZ, f32 rawTime)
     {
+        OLO_PROFILE_FUNCTION();
         // The water vertex shader evaluates `time = u_WaveParams.x * u_WaveParams.y`
         // (= Time * WaveSpeed) before calling sumGerstnerWaves — match it exactly.
         const f32 time = rawTime * params.m_WaveSpeed;
@@ -152,6 +153,7 @@ namespace OloEngine::WaterSurface
 
     f32 SampleHeight(const Params& params, glm::vec2 queryXZ, f32 rawTime)
     {
+        OLO_PROFILE_FUNCTION();
         // A Gerstner base point B maps to surface point B + horizontalDisp(B).
         // To read the height of the column *above* queryXZ we solve for the base
         // point that lands there, with a short fixed-point iteration (the shift is

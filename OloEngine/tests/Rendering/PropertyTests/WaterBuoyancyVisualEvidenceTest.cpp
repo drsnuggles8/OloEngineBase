@@ -263,18 +263,29 @@ namespace OloEngine::Tests
             << "rendered frame is nearly flat (min=" << minLum << ", max=" << maxLum
             << ") — nothing drew; see " << out.string();
 
-        // (3) The cube is visible at frame centre: a warm (orange) object reads with
-        // R notably above B there, unlike the surrounding blue/teal water.
-        u32 bestRminusB = 0;
-        for (std::size_t i = 0; i < px.size(); i += 4)
+        // (3) The cube is visible at frame centre: count warm (orange) pixels — R
+        // notably above B — within a central region of interest, NOT the whole
+        // frame, so an incidental warm highlight elsewhere can't false-pass. The
+        // camera is aimed at the cube, so it floats near screen centre; requiring a
+        // *cluster* of warm pixels there (not a single bright texel) means the cube
+        // is actually on screen and afloat over the blue/teal water.
+        constexpr int kWarmThreshold = 30; // R - B, in 0..255
+        const u32 roiX0 = width / 4u;      // central 50% horizontally
+        const u32 roiX1 = width - width / 4u;
+        const u32 roiY0 = height * 30u / 100u; // centre-to-lower band (the waterline sits here)
+        const u32 roiY1 = height * 85u / 100u;
+        u32 warmPixels = 0;
+        for (u32 y = roiY0; y < roiY1; ++y)
         {
-            const int r = px[i + 0];
-            const int b = px[i + 2];
-            if (r - b > static_cast<int>(bestRminusB))
-                bestRminusB = static_cast<u32>(std::max(0, r - b));
+            for (u32 x = roiX0; x < roiX1; ++x)
+            {
+                const std::size_t i = (static_cast<std::size_t>(y) * width + x) * 4u;
+                if (static_cast<int>(px[i + 0]) - static_cast<int>(px[i + 2]) > kWarmThreshold)
+                    ++warmPixels;
+            }
         }
-        EXPECT_GT(bestRminusB, 30u)
-            << "no warm (orange) cube pixels found over the blue water — the cube may have "
-            << "sunk out of view; see " << out.string();
+        EXPECT_GT(warmPixels, 20u)
+            << "no warm (orange) cube cluster at frame centre (" << warmPixels << " px > "
+            << kWarmThreshold << " R-B) — the cube may have sunk out of view; see " << out.string();
     }
 } // namespace OloEngine::Tests
