@@ -121,6 +121,19 @@ namespace OloEngine
          */
         AssetType GetAssetTypeFromPacks(AssetHandle handle) const;
 
+        /**
+         * @brief Index an asset pack's contents into the metadata table
+         *
+         * Populates m_AssetMetadata with one entry per asset in the pack so the
+         * metadata-keyed query and load paths (GetAsset, IsAssetValid,
+         * GetAssetType, GetAllAssetsWithType, ...) can resolve the pack's assets.
+         * Without this step a loaded pack is invisible to every one of those paths.
+         *
+         * @param assetPack Loaded asset pack to index
+         * @note The caller must hold an exclusive lock on m_PacksMutex.
+         */
+        void IndexAssetPackMetadata(const AssetPack& assetPack);
+
       private:
         // Loaded assets cache
         std::unordered_map<AssetHandle, Ref<Asset>> m_LoadedAssets;

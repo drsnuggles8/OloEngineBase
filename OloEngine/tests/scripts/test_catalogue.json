@@ -272,6 +272,7 @@
     "OloEngine/tests/PrefabOverrideTest.cpp": "unit",
     "OloEngine/tests/QualityTieringTest.cpp": "unit",
     "OloEngine/tests/QuestSystemTest.cpp": "unit",
+    "OloEngine/tests/RuntimeAssetManagerTest.cpp": "unit",
     "OloEngine/tests/SRGBTextureSupportTest.cpp": "unit",
     "OloEngine/tests/SaveGame/SaveFileWorldDatabaseTest.cpp": "unit",
     "OloEngine/tests/SaveGame/SaveGameFileTest.cpp": "unit",

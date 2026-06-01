@@ -66,6 +66,7 @@ namespace OloEngine
         m_LoadedAssets.clear();
         m_MemoryAssets.clear();
         m_LoadedPacks.clear();
+        m_AssetMetadata.clear();
         m_AssetDependencies.clear();
 
         // Shutdown AssetImporter to release serializer resources
@@ -349,10 +350,13 @@ namespace OloEngine
         }
 
         // Check asset pack metadata
-        for (const auto& [handle, metadata] : m_AssetMetadata)
         {
-            if (metadata.Type == type)
-                result.insert(handle);
+            TSharedLock<FSharedMutex> lock(m_PacksMutex);
+            for (const auto& [handle, metadata] : m_AssetMetadata)
+            {
+                if (metadata.Type == type)
+                    result.insert(handle);
+            }
         }
 
         return result;
@@ -400,10 +404,14 @@ namespace OloEngine
             return false;
         }
 
-        // Store the loaded pack
+        // Store the loaded pack and index its assets into the metadata table.
+        // m_AssetMetadata is the source of truth for every metadata-keyed query
+        // (GetAsset, IsAssetValid, GetAssetType, GetAllAssetsWithType, ...); without
+        // this step the loaded pack stays invisible and every asset lookup fails.
         {
             TUniqueLock<FSharedMutex> lock(m_PacksMutex);
             m_LoadedPacks[packPath] = assetPack;
+            IndexAssetPackMetadata(*assetPack);
         }
 
         OLO_CORE_INFO("Loaded asset pack: {}", packPath.string());
@@ -418,12 +426,21 @@ namespace OloEngine
         {
             it->second->Unload();
             m_LoadedPacks.erase(it);
+
+            // Rebuild the metadata index from the packs that remain loaded so this
+            // pack's assets stop resolving, while assets still provided by another
+            // loaded pack stay valid.
+            m_AssetMetadata.clear();
+            for (const auto& [remainingPath, remainingPack] : m_LoadedPacks)
+                IndexAssetPackMetadata(*remainingPack);
+
             OLO_CORE_INFO("Unloaded asset pack: {}", packPath.string());
         }
     }
 
     AssetMetadata RuntimeAssetManager::GetAssetMetadataFromPacks(AssetHandle handle)
     {
+        TSharedLock<FSharedMutex> lock(m_PacksMutex);
         auto it = m_AssetMetadata.find(handle);
         return (it != m_AssetMetadata.end()) ? it->second : AssetMetadata{};
     }
@@ -443,15 +460,19 @@ namespace OloEngine
 
     Ref<Asset> RuntimeAssetManager::LoadAssetFromPack(AssetHandle handle)
     {
+        // m_AssetMetadata and m_LoadedPacks are both guarded by m_PacksMutex; hold a
+        // single shared lock across the metadata check and the pack scan so the view
+        // stays consistent with a concurrent Load/Unload.
+        TSharedLock<FSharedMutex> lock(m_PacksMutex);
+
         // Check if we have metadata for this asset
-        if (auto metadataIt = m_AssetMetadata.find(handle); metadataIt == m_AssetMetadata.end())
+        if (m_AssetMetadata.find(handle) == m_AssetMetadata.end())
         {
             OLO_CORE_ERROR("RuntimeAssetManager::LoadAssetFromPack - No metadata found for asset: {}", handle);
             return nullptr;
         }
 
         // Find which pack contains the asset
-        TSharedLock<FSharedMutex> lock(m_PacksMutex);
         for (const auto& [packPath, assetPack] : m_LoadedPacks)
         {
             if (assetPack->IsAssetAvailable(handle))
@@ -488,13 +509,35 @@ namespace OloEngine
     bool RuntimeAssetManager::AssetExistsInPacks(AssetHandle handle) const
     {
         // Check if we have metadata for this asset
+        TSharedLock<FSharedMutex> lock(m_PacksMutex);
         return m_AssetMetadata.find(handle) != m_AssetMetadata.end();
     }
 
     AssetType RuntimeAssetManager::GetAssetTypeFromPacks(AssetHandle handle) const
     {
+        TSharedLock<FSharedMutex> lock(m_PacksMutex);
         auto it = m_AssetMetadata.find(handle);
         return (it != m_AssetMetadata.end()) ? it->second.Type : AssetType::None;
+    }
+
+    void RuntimeAssetManager::IndexAssetPackMetadata(const AssetPack& assetPack)
+    {
+        // Caller holds an exclusive lock on m_PacksMutex.
+        //
+        // Only the pack's top-level AssetInfos are indexed: those are exactly the
+        // handles the pack's lookup map can serve (AssetPack::IsAssetAvailable /
+        // GetAssetInfo), so every metadata entry created here is resolvable by
+        // LoadAssetFromPack. Scene containers use a separate load path and are not
+        // indexed here, keeping "has metadata" equivalent to "loadable from pack".
+        for (const auto& info : assetPack.GetAllAssetInfos())
+        {
+            if (info.Handle == 0)
+                continue;
+
+            AssetMetadata metadata(info.Handle, info.Type);
+            metadata.Status = AssetStatus::NotLoaded;
+            m_AssetMetadata[info.Handle] = metadata;
+        }
     }
 
 } // namespace OloEngine
