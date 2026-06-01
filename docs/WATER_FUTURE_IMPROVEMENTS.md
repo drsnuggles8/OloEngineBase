@@ -210,14 +210,41 @@ up through the surface. Frustum culling is the cleaner standalone win.
 
 ## 5. Interaction & Physics (High Impact / High Effort)
 
-### 5.1 Buoyancy System
+### 5.1 Buoyancy System — **shipped (CPU)**
 
-Query the wave height at arbitrary world positions to drive rigid-body buoyancy:
+A `BuoyancyComponent` ([`Components.h`](../OloEngine/src/OloEngine/Scene/Components.h))
+on any dynamic `Rigidbody3DComponent` makes it float on a `WaterComponent`
+surface. [`BuoyancySystem`](../OloEngine/src/OloEngine/Physics3D/BuoyancySystem.cpp)
+runs each physics tick (before `JoltScene::Simulate`) and:
 
-- Sample the Gerstner/FFT displacement at N probe points per floating object.
-- Apply upward force proportional to submerged volume.
-- Compute torque from asymmetric probe forces for realistic tilting.
-- Can be CPU-side for physics objects, or GPU readback for many objects.
+- Samples the wave height at the eight corner probes of a configurable
+  buoyancy box via [`WaterSurface`](../OloEngine/src/OloEngine/Renderer/WaterSurface.h)
+  — a **1:1 CPU mirror of `WaterCommon.glsl :: sumGerstnerWaves`**, so a body
+  tracks the *rendered* crest (it reads `Time::GetTime()`, the same clock the
+  water shader is fed). `WaterSurface::SampleHeight` inverts the horizontal
+  Gerstner shift with a short fixed-point iteration so the height belongs to the
+  column above the query.
+- Applies an upward Archimedes force per submerged probe (acting at the corner,
+  so asymmetric submersion yields a self-righting / wave-tilting torque), ramped
+  smoothly across the waterline.
+- Damps bobbing / rocking with submerged, mass-scaled linear + angular drag.
+
+The CPU wave math is pinned by `WaterSurfaceSamplerTest` (L1) and the
+emergent physics behaviour (settles at the waterline, tracks the plane height,
+dense bodies sink, tracks a frozen wave surface) by `WaterBuoyancyTest`
+(Functional). Editor UI, Lua bindings, scene + save-game serialization are all
+wired.
+
+Still open:
+
+- **FFT displacement source** — once the §1 FFT pipeline lands, `WaterSurface`
+  should sample its displacement texture (GPU readback or a shared CPU copy)
+  instead of summing Gerstner octaves on the CPU.
+- **GPU readback for many objects** — the current path is CPU per-probe
+  (cheap for tens of floaters). A crowd of hundreds wants a batched GPU height
+  query.
+- **Submerged-volume from the real collider** — probes are derived from a
+  user box (`m_ProbeExtents`), not the actual convex/mesh collider shape.
 
 ### 5.2 Wake / Kelvin Wake Pattern
 

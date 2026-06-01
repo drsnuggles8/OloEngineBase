@@ -67,6 +67,7 @@ namespace OloEngine
     struct TerrainComponent;
     struct FoliageComponent;
     struct WaterComponent;
+    struct BuoyancyComponent;
     struct SnowDeformerComponent;
     struct FogVolumeComponent;
     struct DecalComponent;
@@ -165,6 +166,7 @@ namespace OloEngine
         static void Serialize(FArchive& ar, TerrainComponent& c);
         static void Serialize(FArchive& ar, FoliageComponent& c);
         static void Serialize(FArchive& ar, WaterComponent& c);
+        static void Serialize(FArchive& ar, BuoyancyComponent& c);
         static void Serialize(FArchive& ar, SnowDeformerComponent& c);
         static void Serialize(FArchive& ar, FogVolumeComponent& c);
         static void Serialize(FArchive& ar, DecalComponent& c);

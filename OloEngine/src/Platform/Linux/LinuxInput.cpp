@@ -116,4 +116,41 @@ namespace OloEngine
         return GetMousePosition().y;
     }
 
+    void Input::SetCursorMode(const CursorMode mode)
+    {
+        auto* const window = TryGetGlfwWindow();
+        if (!window)
+            return;
+        i32 glfwMode = GLFW_CURSOR_NORMAL;
+        switch (mode)
+        {
+            case CursorMode::Normal:
+                glfwMode = GLFW_CURSOR_NORMAL;
+                break;
+            case CursorMode::Hidden:
+                glfwMode = GLFW_CURSOR_HIDDEN;
+                break;
+            case CursorMode::Locked:
+                glfwMode = GLFW_CURSOR_DISABLED;
+                break;
+        }
+        GLFWAPI::glfwSetInputMode(window, GLFW_CURSOR, glfwMode);
+    }
+
+    CursorMode Input::GetCursorMode()
+    {
+        auto* const window = TryGetGlfwWindow();
+        if (!window)
+            return CursorMode::Normal;
+        switch (GLFWAPI::glfwGetInputMode(window, GLFW_CURSOR))
+        {
+            case GLFW_CURSOR_DISABLED:
+                return CursorMode::Locked;
+            case GLFW_CURSOR_HIDDEN:
+                return CursorMode::Hidden;
+            default:
+                return CursorMode::Normal;
+        }
+    }
+
 } // namespace OloEngine

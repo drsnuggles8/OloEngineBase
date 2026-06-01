@@ -2280,4 +2280,58 @@ namespace OloEngine::Tests
         EXPECT_NEAR(water.m_UnderwaterFogDensity, expectedFogDensity, kFloatEpsilon);
         EXPECT_EQ(water.m_RenderFromBelow, expectedRenderFromBelow);
     }
+
+    // -------------------------------------------------------------------------
+    // BuoyancyComponent — every serialized field must survive a YAML round-trip
+    // (one of the five component touch-points; a dropped read/write here would
+    // silently desync a saved scene from its in-editor setup). See
+    // docs/WATER_FUTURE_IMPROVEMENTS.md §5.1.
+    // -------------------------------------------------------------------------
+    TEST(ComponentRoundTrip, BuoyancyComponentSurvivesYAMLRoundTrip)
+    {
+        // Non-default, recognisable values so a dropped field is visible.
+        const bool expectedEnabled = false; // default is true
+        const glm::vec3 expectedExtents{ 0.7f, 0.4f, 1.3f };
+        const f32 expectedDensity = 1025.0f;
+        const f32 expectedScale = 1.4f;
+        const f32 expectedLinearDrag = 2.5f;
+        const f32 expectedAngularDrag = 1.1f;
+        const f32 expectedRamp = 0.6f;
+
+        std::string yaml;
+        {
+            auto scene = Scene::Create();
+            Entity entity = scene->CreateEntity(kTestTag);
+            auto& b = entity.AddComponent<BuoyancyComponent>();
+            b.m_Enabled = expectedEnabled;
+            b.m_ProbeExtents = expectedExtents;
+            b.m_FluidDensity = expectedDensity;
+            b.m_BuoyancyScale = expectedScale;
+            b.m_LinearDrag = expectedLinearDrag;
+            b.m_AngularDrag = expectedAngularDrag;
+            b.m_SubmergenceRamp = expectedRamp;
+
+            yaml = SceneSerializer(scene).SerializeToYAML();
+        }
+
+        ASSERT_FALSE(yaml.empty());
+
+        auto reloaded = Scene::Create();
+        ASSERT_TRUE(SceneSerializer(reloaded).DeserializeFromYAML(yaml));
+
+        Entity restored = FindByTag(*reloaded, kTestTag);
+        ASSERT_TRUE(static_cast<bool>(restored));
+        ASSERT_TRUE(restored.HasComponent<BuoyancyComponent>());
+
+        const auto& b = restored.GetComponent<BuoyancyComponent>();
+        EXPECT_EQ(b.m_Enabled, expectedEnabled);
+        EXPECT_NEAR(b.m_ProbeExtents.x, expectedExtents.x, kFloatEpsilon);
+        EXPECT_NEAR(b.m_ProbeExtents.y, expectedExtents.y, kFloatEpsilon);
+        EXPECT_NEAR(b.m_ProbeExtents.z, expectedExtents.z, kFloatEpsilon);
+        EXPECT_NEAR(b.m_FluidDensity, expectedDensity, kFloatEpsilon);
+        EXPECT_NEAR(b.m_BuoyancyScale, expectedScale, kFloatEpsilon);
+        EXPECT_NEAR(b.m_LinearDrag, expectedLinearDrag, kFloatEpsilon);
+        EXPECT_NEAR(b.m_AngularDrag, expectedAngularDrag, kFloatEpsilon);
+        EXPECT_NEAR(b.m_SubmergenceRamp, expectedRamp, kFloatEpsilon);
+    }
 } // namespace OloEngine::Tests

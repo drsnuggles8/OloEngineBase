@@ -33,6 +33,7 @@
 #include "OloEngine/Renderer/MeshSource.h"
 #include "OloEngine/Renderer/MeshPrimitives.h"
 #include "OloEngine/Physics3D/JoltScene.h"
+#include "OloEngine/Physics3D/BuoyancySystem.h"
 #include "OloEngine/UI/UILayoutSystem.h"
 #include "OloEngine/UI/UIRenderer.h"
 #include "OloEngine/UI/UIInputSystem.h"
@@ -1289,6 +1290,11 @@ namespace OloEngine
                 // Update 3D physics
                 if (m_JoltScene)
                 {
+                    // Buoyancy forces must be queued BEFORE the step so Jolt
+                    // integrates them this frame. Time::GetTime() matches the clock
+                    // the water shader uses, so floating bodies track the rendered
+                    // wave crests (Physics3D/BuoyancySystem, WATER §5.1).
+                    BuoyancySystem::OnUpdate(this, Time::GetTime(), ts.GetSeconds());
                     m_JoltScene->Simulate(ts.GetSeconds());
                 }
 
@@ -1684,6 +1690,11 @@ namespace OloEngine
                 // Update 3D physics
                 if (m_JoltScene)
                 {
+                    // Buoyancy forces must be queued BEFORE the step so Jolt
+                    // integrates them this frame. Time::GetTime() matches the clock
+                    // the water shader uses, so floating bodies track the rendered
+                    // wave crests (Physics3D/BuoyancySystem, WATER §5.1).
+                    BuoyancySystem::OnUpdate(this, Time::GetTime(), ts.GetSeconds());
                     m_JoltScene->Simulate(ts.GetSeconds());
                 }
 
@@ -2100,6 +2111,8 @@ namespace OloEngine
     void Scene::OnComponentAdded<FoliageComponent>(Entity, FoliageComponent&) {}
     template<>
     void Scene::OnComponentAdded<WaterComponent>(Entity, WaterComponent&) {}
+    template<>
+    void Scene::OnComponentAdded<BuoyancyComponent>(Entity, BuoyancyComponent&) {}
     template<>
     void Scene::OnComponentAdded<SnowDeformerComponent>(Entity, SnowDeformerComponent&) {}
     template<>
@@ -5653,6 +5666,7 @@ namespace OloEngine
     OLO_ON_COMPONENT_REMOVED_NOOP(TerrainComponent)
     OLO_ON_COMPONENT_REMOVED_NOOP(FoliageComponent)
     OLO_ON_COMPONENT_REMOVED_NOOP(WaterComponent)
+    OLO_ON_COMPONENT_REMOVED_NOOP(BuoyancyComponent)
     OLO_ON_COMPONENT_REMOVED_NOOP(SnowDeformerComponent)
     OLO_ON_COMPONENT_REMOVED_NOOP(FogVolumeComponent)
     OLO_ON_COMPONENT_REMOVED_NOOP(DecalComponent)

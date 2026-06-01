@@ -180,6 +180,7 @@ namespace OloEngine
             REGISTER_COMPONENT(ModelComponent),
             // 3D Physics
             REGISTER_COMPONENT(Rigidbody3DComponent),
+            REGISTER_COMPONENT(BuoyancyComponent),
             REGISTER_COMPONENT(BoxCollider3DComponent),
             REGISTER_COMPONENT(SphereCollider3DComponent),
             REGISTER_COMPONENT(CapsuleCollider3DComponent),
@@ -707,6 +708,30 @@ namespace OloEngine
                                                                                { return w.m_UnderwaterFogDensity; }, [](WaterComponent& w, f32 v)
                                                                                { if (std::isfinite(v) && v >= 0.0f && v <= 10.0f) w.m_UnderwaterFogDensity = v; }),
                                          "renderFromBelow", &WaterComponent::m_RenderFromBelow);
+
+        // --- BuoyancyComponent ---
+        // Lets gameplay scripts toggle / tune how a floating body responds to the
+        // wave field (Physics3D/BuoyancySystem). All setters validate finiteness.
+        lua.new_usertype<BuoyancyComponent>("BuoyancyComponent",
+                                            "enabled", &BuoyancyComponent::m_Enabled,
+                                            "probeExtents", sol::property([](const BuoyancyComponent& b)
+                                                                          { return b.m_ProbeExtents; }, [](BuoyancyComponent& b, const glm::vec3& v)
+                                                                          { if (IsFiniteVec3(v)) b.m_ProbeExtents = glm::clamp(v, glm::vec3(0.01f), glm::vec3(1000.0f)); }),
+                                            "fluidDensity", sol::property([](const BuoyancyComponent& b)
+                                                                          { return b.m_FluidDensity; }, [](BuoyancyComponent& b, f32 v)
+                                                                          { if (std::isfinite(v) && v > 0.0f) b.m_FluidDensity = v; }),
+                                            "buoyancyScale", sol::property([](const BuoyancyComponent& b)
+                                                                           { return b.m_BuoyancyScale; }, [](BuoyancyComponent& b, f32 v)
+                                                                           { if (std::isfinite(v) && v >= 0.0f) b.m_BuoyancyScale = v; }),
+                                            "linearDrag", sol::property([](const BuoyancyComponent& b)
+                                                                        { return b.m_LinearDrag; }, [](BuoyancyComponent& b, f32 v)
+                                                                        { if (std::isfinite(v) && v >= 0.0f) b.m_LinearDrag = v; }),
+                                            "angularDrag", sol::property([](const BuoyancyComponent& b)
+                                                                         { return b.m_AngularDrag; }, [](BuoyancyComponent& b, f32 v)
+                                                                         { if (std::isfinite(v) && v >= 0.0f) b.m_AngularDrag = v; }),
+                                            "submergenceRamp", sol::property([](const BuoyancyComponent& b)
+                                                                             { return b.m_SubmergenceRamp; }, [](BuoyancyComponent& b, f32 v)
+                                                                             { if (std::isfinite(v) && v > 0.0f) b.m_SubmergenceRamp = v; }));
 
         // --- CharacterController3DComponent ---
         lua.new_usertype<CharacterController3DComponent>("CharacterController3DComponent",
@@ -1594,6 +1619,17 @@ namespace OloEngine
                 pos -= scene->GetViewportOffset();
             return { pos.x, pos.y };
         };
+        // Cursor capture for FPS mouse-look. Pass a CursorMode.* constant.
+        // CursorMode.Locked hides + pins the cursor and makes GetMousePosition
+        // report unbounded virtual motion (no window-edge stall).
+        inputTable["SetCursorMode"] = [](i32 mode)
+        {
+            Input::SetCursorMode(static_cast<CursorMode>(mode));
+        };
+        inputTable["GetCursorMode"] = []() -> i32
+        {
+            return static_cast<i32>(Input::GetCursorMode());
+        };
         inputTable["GetWindowSize"] = []() -> std::tuple<f32, f32>
         {
             if (Scene* scene = ScriptEngine::GetSceneContext(); scene && scene->GetViewportWidth() > 0)
@@ -1707,6 +1743,14 @@ namespace OloEngine
             OLO_MOUSE_LIST(OLO_BIND_MOUSE)
 #undef OLO_BIND_MOUSE
             // clang-format on
+        }
+
+        // --- CursorMode constants (for Input.SetCursorMode — FPS mouse capture) ---
+        {
+            auto cursorTable = lua.create_named_table("CursorMode");
+            cursorTable["Normal"] = static_cast<i32>(CursorMode::Normal);
+            cursorTable["Hidden"] = static_cast<i32>(CursorMode::Hidden);
+            cursorTable["Locked"] = static_cast<i32>(CursorMode::Locked);
         }
 
         // --- DialogueComponent ---

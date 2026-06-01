@@ -116,6 +116,8 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/ProceduralSkyBakeTest.cpp
 		Rendering/PropertyTests/ProceduralSkyVisualTest.cpp
 		Rendering/PropertyTests/WaterVisualEvidenceTest.cpp
+		Rendering/PropertyTests/WaterSurfaceSamplerTest.cpp
+		Rendering/PropertyTests/WaterBuoyancyVisualEvidenceTest.cpp
 		Rendering/PropertyTests/ShadowTerrainPropertyTests.cpp
 		Rendering/PropertyTests/DeferredPropertyTests.cpp
 		Rendering/PropertyTests/DeferredOverlayPassTests.cpp
@@ -229,6 +231,7 @@ add_executable(OloEngine-Tests
 		# Functional / cross-subsystem world-tick tests (see ADR 0001).
 		Functional/FunctionalTest.cpp
 		Functional/AnimationPhysics/FreeFallLandingTest.cpp
+		Functional/AnimationPhysics/WaterBuoyancyTest.cpp
 		Functional/AnimationPhysics/AnimationKeepsTickingUnderPhysicsLoadTest.cpp
 		Functional/SaveGame/SceneRoundTripAfterTickTest.cpp
 		Functional/Networking/PhysicsTransformReplicationTest.cpp

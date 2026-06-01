@@ -1280,6 +1280,34 @@ namespace OloEngine
         }
     }
 
+    void SaveGameComponentSerializer::Serialize(FArchive& ar, BuoyancyComponent& c)
+    {
+        ar << c.m_Enabled;
+        ar << c.m_ProbeExtents;
+        ar << c.m_FluidDensity << c.m_BuoyancyScale;
+        ar << c.m_LinearDrag << c.m_AngularDrag << c.m_SubmergenceRamp;
+
+        if (ar.IsLoading())
+        {
+            auto sanitize = [](f32& v, f32 lo, f32 hi, f32 fallback)
+            {
+                if (!std::isfinite(v))
+                    v = fallback;
+                else
+                    v = std::clamp(v, lo, hi);
+            };
+            if (!std::isfinite(c.m_ProbeExtents.x) || !std::isfinite(c.m_ProbeExtents.y) || !std::isfinite(c.m_ProbeExtents.z))
+                c.m_ProbeExtents = glm::vec3(0.5f);
+            else
+                c.m_ProbeExtents = glm::clamp(c.m_ProbeExtents, glm::vec3(0.01f), glm::vec3(1000.0f));
+            sanitize(c.m_FluidDensity, 1.0f, 100000.0f, 1000.0f);
+            sanitize(c.m_BuoyancyScale, 0.0f, 1000.0f, 1.0f);
+            sanitize(c.m_LinearDrag, 0.0f, 1000.0f, 0.8f);
+            sanitize(c.m_AngularDrag, 0.0f, 1000.0f, 0.5f);
+            sanitize(c.m_SubmergenceRamp, 0.001f, 100.0f, 0.25f);
+        }
+    }
+
     void SaveGameComponentSerializer::Serialize(FArchive& ar, SnowDeformerComponent& c)
     {
         ar << c.m_DeformRadius << c.m_DeformDepth;
@@ -2476,6 +2504,7 @@ namespace OloEngine
         REGISTER_SAVE_COMPONENT(TerrainComponent);
         REGISTER_SAVE_COMPONENT(FoliageComponent);
         REGISTER_SAVE_COMPONENT(WaterComponent);
+        REGISTER_SAVE_COMPONENT(BuoyancyComponent);
         REGISTER_SAVE_COMPONENT(SnowDeformerComponent);
         REGISTER_SAVE_COMPONENT(FogVolumeComponent);
         REGISTER_SAVE_COMPONENT(DecalComponent);
