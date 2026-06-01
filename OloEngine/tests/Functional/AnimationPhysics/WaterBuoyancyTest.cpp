@@ -77,7 +77,7 @@ class WaterBuoyancyTest : public FunctionalTest
         auto& body = box.AddComponent<Rigidbody3DComponent>();
         body.m_Type = BodyType3D::Dynamic;
         body.m_Mass = mass;
-        body.m_LinearDrag = 0.0f;  // buoyancy supplies its own submerged drag
+        body.m_LinearDrag = 0.0f; // buoyancy supplies its own submerged drag
         body.m_AngularDrag = 0.0f;
 
         auto& col = box.AddComponent<BoxCollider3DComponent>();
@@ -87,12 +87,15 @@ class WaterBuoyancyTest : public FunctionalTest
         buoyancy.m_ProbeExtents = glm::vec3(kBoxHalfExtent);
         buoyancy.m_FluidDensity = 1000.0f;
         buoyancy.m_SubmergenceRamp = kSubmergenceRamp;
-        buoyancy.m_LinearDrag = 4.0f;   // settle quickly within the test window
+        buoyancy.m_LinearDrag = 4.0f; // settle quickly within the test window
         buoyancy.m_AngularDrag = 2.0f;
         return box;
     }
 
-    static f32 Y(Entity e) { return e.GetComponent<TransformComponent>().Translation.y; }
+    static f32 Y(Entity e)
+    {
+        return e.GetComponent<TransformComponent>().Translation.y;
+    }
 };
 
 TEST_F(WaterBuoyancyTest, LightBodySettlesAtWaterline)

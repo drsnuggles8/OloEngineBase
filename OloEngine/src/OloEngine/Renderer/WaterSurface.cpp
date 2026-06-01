@@ -19,12 +19,21 @@ namespace OloEngine::WaterSurface
     {
         constexpr f32 kPi = 3.14159265f;
         constexpr f32 kTwoPi = 2.0f * kPi;
-        constexpr f32 kGravity = 9.81f;          // dispersion relation constant (matches gerstnerWave)
-        constexpr f32 kGoldenAngle = 2.39996f;   // pi * (3 - sqrt(5))
+        constexpr f32 kGravity = 9.81f;        // dispersion relation constant (matches gerstnerWave)
+        constexpr f32 kGoldenAngle = 2.39996f; // pi * (3 - sqrt(5))
 
-        [[nodiscard]] f32 Fract(f32 x) { return x - std::floor(x); }
-        [[nodiscard]] glm::vec2 Fract(glm::vec2 v) { return v - glm::floor(v); }
-        [[nodiscard]] glm::vec3 Fract(glm::vec3 v) { return v - glm::floor(v); }
+        [[nodiscard]] f32 Fract(f32 x)
+        {
+            return x - std::floor(x);
+        }
+        [[nodiscard]] glm::vec2 Fract(glm::vec2 v)
+        {
+            return v - glm::floor(v);
+        }
+        [[nodiscard]] glm::vec3 Fract(glm::vec3 v)
+        {
+            return v - glm::floor(v);
+        }
 
         // WaterCommon.glsl :: waveHash
         [[nodiscard]] f32 WaveHash(glm::vec2 p)
@@ -62,10 +71,10 @@ namespace OloEngine::WaterSurface
                                              f32 steepness, f32 wavelength, f32 time, f32 phase)
         {
             const f32 k = kTwoPi / glm::max(wavelength, 0.001f);
-            const f32 c = std::sqrt(kGravity / k);  // phase speed from the deep-water dispersion relation
+            const f32 c = std::sqrt(kGravity / k); // phase speed from the deep-water dispersion relation
             const f32 d = glm::dot(direction, glm::vec2(position.x, position.z));
             const f32 f = k * (d - c * time) + phase;
-            const f32 a = steepness / k;            // amplitude derived from steepness
+            const f32 a = steepness / k; // amplitude derived from steepness
             return glm::vec3(direction.x * a * std::cos(f),
                              a * std::sin(f),
                              direction.y * a * std::cos(f));
@@ -161,4 +170,4 @@ namespace OloEngine::WaterSurface
         const f32 height = params.m_PlaneHeight + SampleDisplacement(params, base, rawTime).y;
         return std::isfinite(height) ? height : params.m_PlaneHeight;
     }
-}
+} // namespace OloEngine::WaterSurface

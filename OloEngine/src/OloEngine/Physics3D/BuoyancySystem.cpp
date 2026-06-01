@@ -54,8 +54,14 @@ namespace OloEngine
 
         // The 8 corners of the buoyancy box (sign of each local half-extent axis).
         constexpr std::array<glm::vec3, 8> kCornerSigns = { {
-            { -1.0f, -1.0f, -1.0f }, { 1.0f, -1.0f, -1.0f }, { -1.0f, -1.0f, 1.0f }, { 1.0f, -1.0f, 1.0f },
-            { -1.0f, 1.0f, -1.0f }, { 1.0f, 1.0f, -1.0f }, { -1.0f, 1.0f, 1.0f }, { 1.0f, 1.0f, 1.0f },
+            { -1.0f, -1.0f, -1.0f },
+            { 1.0f, -1.0f, -1.0f },
+            { -1.0f, -1.0f, 1.0f },
+            { 1.0f, -1.0f, 1.0f },
+            { -1.0f, 1.0f, -1.0f },
+            { 1.0f, 1.0f, -1.0f },
+            { -1.0f, 1.0f, 1.0f },
+            { 1.0f, 1.0f, 1.0f },
         } };
     } // namespace
 
@@ -143,10 +149,12 @@ namespace OloEngine
             ext.z = std::isfinite(ext.z) ? std::clamp(ext.z, 0.01f, 1000.0f) : 0.5f;
 
             const f32 fluidDensity = (std::isfinite(buoyancy.m_FluidDensity) && buoyancy.m_FluidDensity > 0.0f)
-                                         ? buoyancy.m_FluidDensity : 1000.0f;
+                                         ? buoyancy.m_FluidDensity
+                                         : 1000.0f;
             const f32 buoyancyScale = std::isfinite(buoyancy.m_BuoyancyScale) ? std::max(buoyancy.m_BuoyancyScale, 0.0f) : 1.0f;
             const f32 ramp = (std::isfinite(buoyancy.m_SubmergenceRamp) && buoyancy.m_SubmergenceRamp > 1e-3f)
-                                 ? buoyancy.m_SubmergenceRamp : 1e-3f;
+                                 ? buoyancy.m_SubmergenceRamp
+                                 : 1e-3f;
             const f32 linearDrag = std::isfinite(buoyancy.m_LinearDrag) ? std::max(buoyancy.m_LinearDrag, 0.0f) : 0.0f;
             const f32 angularDrag = std::isfinite(buoyancy.m_AngularDrag) ? std::max(buoyancy.m_AngularDrag, 0.0f) : 0.0f;
 
@@ -209,4 +217,4 @@ namespace OloEngine
             }
         }
     }
-}
+} // namespace OloEngine

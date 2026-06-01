@@ -23,12 +23,12 @@ namespace OloEngine::WaterSurface
     /// `WaterComponent::PackWaveDir0/1()` + waveParams produce on the GPU side.
     struct Params
     {
-        glm::vec4 m_WaveDir0{ 1.0f, 0.0f, 0.5f, 10.0f };  ///< xy = direction0, z = steepness0, w = wavelength0
-        glm::vec4 m_WaveDir1{ 0.7f, 0.7f, 0.3f, 15.0f };  ///< xy = direction1, z = steepness1, w = wavelength1
-        f32 m_WaveFrequency = 1.0f;                       ///< global frequency multiplier
-        f32 m_WaveAmplitude = 0.5f;                       ///< global amplitude multiplier
-        f32 m_WaveSpeed = 1.0f;                           ///< the shader folds Time * WaveSpeed into the phase
-        f32 m_PlaneHeight = 0.0f;                         ///< world-space Y of the flat (undisplaced) water plane
+        glm::vec4 m_WaveDir0{ 1.0f, 0.0f, 0.5f, 10.0f }; ///< xy = direction0, z = steepness0, w = wavelength0
+        glm::vec4 m_WaveDir1{ 0.7f, 0.7f, 0.3f, 15.0f }; ///< xy = direction1, z = steepness1, w = wavelength1
+        f32 m_WaveFrequency = 1.0f;                      ///< global frequency multiplier
+        f32 m_WaveAmplitude = 0.5f;                      ///< global amplitude multiplier
+        f32 m_WaveSpeed = 1.0f;                          ///< the shader folds Time * WaveSpeed into the phase
+        f32 m_PlaneHeight = 0.0f;                        ///< world-space Y of the flat (undisplaced) water plane
     };
 
     /// Full Gerstner displacement delta (dx, dy, dz) the shader adds to a base
@@ -43,4 +43,4 @@ namespace OloEngine::WaterSurface
     /// iterations before reading the vertical displacement. Returns the flat
     /// plane height on any non-finite intermediate (fail-safe for physics).
     [[nodiscard]] f32 SampleHeight(const Params& params, glm::vec2 queryXZ, f32 rawTime);
-}
+} // namespace OloEngine::WaterSurface

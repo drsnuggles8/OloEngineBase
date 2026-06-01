@@ -24,11 +24,11 @@ namespace OloEngine
     // =========================================================================
     class BuoyancySystem
     {
-    public:
+      public:
         /// Apply buoyancy forces for this physics step. Call once per tick, BEFORE
         /// JoltScene::Simulate, so the queued forces are integrated this frame.
         /// `rawTime` must be Time::GetTime() — the same clock the water shader is
         /// fed — so a floating body tracks the wave crest it is rendered on.
         static void OnUpdate(Scene* scene, f32 rawTime, f32 deltaTime);
     };
-}
+} // namespace OloEngine
