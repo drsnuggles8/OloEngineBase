@@ -9,6 +9,7 @@
 #include <fstream>
 #include <sstream>
 
+#include <glm/gtc/type_ptr.hpp>
 #include <yaml-cpp/yaml.h>
 
 namespace OloEngine
@@ -23,7 +24,7 @@ namespace OloEngine
             out << YAML::BeginMap;
             out << YAML::Key << "Transform" << YAML::Value << YAML::Flow << YAML::BeginSeq;
             for (sizet i = 0; i < 16; ++i)
-                out << (&inst.Transform[0][0])[i];
+                out << glm::value_ptr(inst.Transform)[i];
             out << YAML::EndSeq;
             out << YAML::Key << "Color" << YAML::Value << YAML::Flow << YAML::BeginSeq
                 << inst.Color.x << inst.Color.y << inst.Color.z << inst.Color.w << YAML::EndSeq;
@@ -44,7 +45,7 @@ namespace OloEngine
             if (auto t = node["Transform"]; t && t.IsSequence() && t.size() == 16)
             {
                 for (sizet i = 0; i < 16; ++i)
-                    (&out.Transform[0][0])[i] = t[i].as<f32>();
+                    glm::value_ptr(out.Transform)[i] = t[i].as<f32>();
             }
             else
             {
@@ -55,7 +56,7 @@ namespace OloEngine
             if (auto c = node["Color"]; c && c.IsSequence() && c.size() == 4)
             {
                 for (sizet i = 0; i < 4; ++i)
-                    (&out.Color[0])[i] = c[i].as<f32>();
+                    glm::value_ptr(out.Color)[i] = c[i].as<f32>();
             }
             if (node["EntityID"])
                 out.EntityID = node["EntityID"].as<i32>();

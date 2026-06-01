@@ -2334,4 +2334,79 @@ namespace OloEngine::Tests
         EXPECT_NEAR(b.m_AngularDrag, expectedAngularDrag, kFloatEpsilon);
         EXPECT_NEAR(b.m_SubmergenceRamp, expectedRamp, kFloatEpsilon);
     }
+
+    // -------------------------------------------------------------------------
+    // InstancedMeshComponent — each instance's Transform (16 floats) and Color
+    // (4 floats) are serialized as flat float sequences. This flat-array path
+    // was the only authored round-trip data with no direct coverage. A
+    // distinctive, fully-populated transform (every one of the 16 floats
+    // different) makes a column/row transposition or off-by-one in the flat
+    // (de)serialization detectable. Also exercises the emit-only-when-non-
+    // default branches for EntityID (-1) and Custom (0), which must still
+    // recover their defaults on load.
+    // -------------------------------------------------------------------------
+    TEST(ComponentRoundTrip, InstancedMeshComponentInstancesSurviveYAMLRoundTrip)
+    {
+        // Distinct value per matrix element so any ordering bug is visible.
+        // Uses glm's operator[] (column-major [col][row]) rather than the
+        // serializer's flat-pointer access, keeping the check independent.
+        auto makeTransform = [](f32 seed)
+        {
+            glm::mat4 m(1.0f);
+            for (glm::length_t c = 0; c < 4; ++c)
+                for (glm::length_t r = 0; r < 4; ++r)
+                    m[c][r] = seed + static_cast<f32>(c * 4 + r) * 0.5f - 3.0f;
+            return m;
+        };
+
+        const glm::mat4 expectedTransforms[2] = { makeTransform(1.0f), makeTransform(40.0f) };
+        const glm::vec4 expectedColors[2] = { { 0.1f, 0.2f, 0.3f, 0.4f }, { 0.9f, 0.8f, 0.7f, 0.6f } };
+        const i32 expectedIDs[2] = { 7, -1 };           // 7 is emitted; -1 is skipped and must default back to -1
+        const f32 expectedCustoms[2] = { 2.75f, 0.0f }; // 2.75 is emitted; 0.0 is skipped and must default back to 0
+
+        std::string yaml;
+        {
+            auto scene = Scene::Create();
+            Entity entity = scene->CreateEntity(kTestTag);
+            auto& imc = entity.AddComponent<InstancedMeshComponent>();
+            for (sizet inst = 0; inst < 2; ++inst)
+            {
+                InstanceData data;
+                data.Transform = expectedTransforms[inst];
+                data.Color = expectedColors[inst];
+                data.EntityID = expectedIDs[inst];
+                data.Custom = expectedCustoms[inst];
+                imc.Instances.push_back(data);
+            }
+
+            yaml = SceneSerializer(scene).SerializeToYAML();
+        }
+
+        ASSERT_FALSE(yaml.empty());
+
+        auto reloaded = Scene::Create();
+        ASSERT_TRUE(SceneSerializer(reloaded).DeserializeFromYAML(yaml));
+
+        Entity restored = FindByTag(*reloaded, kTestTag);
+        ASSERT_TRUE(static_cast<bool>(restored));
+        ASSERT_TRUE(restored.HasComponent<InstancedMeshComponent>())
+            << "InstancedMeshComponent was dropped during round-trip.";
+
+        const auto& imc = restored.GetComponent<InstancedMeshComponent>();
+        ASSERT_EQ(imc.Instances.size(), 2u) << "Instance count changed across the round-trip.";
+
+        for (sizet inst = 0; inst < 2; ++inst)
+        {
+            const auto& data = imc.Instances[inst];
+            for (glm::length_t c = 0; c < 4; ++c)
+                for (glm::length_t r = 0; r < 4; ++r)
+                    EXPECT_NEAR(data.Transform[c][r], expectedTransforms[inst][c][r], kFloatEpsilon)
+                        << "instance " << inst << " transform [" << c << "][" << r << "]";
+            for (glm::length_t i = 0; i < 4; ++i)
+                EXPECT_NEAR(data.Color[i], expectedColors[inst][i], kFloatEpsilon)
+                    << "instance " << inst << " color [" << i << "]";
+            EXPECT_EQ(data.EntityID, expectedIDs[inst]) << "instance " << inst << " EntityID";
+            EXPECT_NEAR(data.Custom, expectedCustoms[inst], kFloatEpsilon) << "instance " << inst << " Custom";
+        }
+    }
 } // namespace OloEngine::Tests
