@@ -42,7 +42,7 @@ namespace OloEngine
                             name = "CameraMatrices";
                             break;
                         case 1:
-                            name = "LightProperties";
+                            name = "Reserved_Binding1"; // legacy single-light LightProperties retired; binding free
                             break;
                         case 2:
                             name = "MaterialProperties";

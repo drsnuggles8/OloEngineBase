@@ -2,8 +2,6 @@
 #include "OloEngine/Renderer/LightCulling/TiledForwardPlus.h"
 #include "OloEngine/Renderer/Shader.h"
 #include "OloEngine/Renderer/UniformBuffer.h"
-#include "OloEngine/Scene/Scene.h"
-#include "OloEngine/Scene/Components.h"
 #include <glad/gl.h>
 #include <glm/gtc/type_ptr.hpp>
 
@@ -54,7 +52,9 @@ namespace OloEngine
         }
     }
 
-    void TiledForwardPlus::GatherLights(const Scene& scene)
+    void TiledForwardPlus::SetLights(const std::vector<GPUPointLight>& pointLights,
+                                     const std::vector<GPUSpotLight>& spotLights,
+                                     const std::vector<GPUSphereAreaLight>& sphereAreaLights)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -63,66 +63,10 @@ namespace OloEngine
             return;
         }
 
-        // Reserve up-front so the hot per-frame path allocates at most once
-        // per vector. size_hint() is the standard EnTT-view-on-Scene idiom
-        // already used elsewhere in the engine (see Scene.cpp deformerView /
-        // fogVolumeView / psView reserves).
-        auto pointLightView = scene.GetAllEntitiesWith<TransformComponent, PointLightComponent>();
-        auto spotLightView = scene.GetAllEntitiesWith<TransformComponent, SpotLightComponent>();
-        auto sphereAreaLightView = scene.GetAllEntitiesWith<TransformComponent, SphereAreaLightComponent>();
-
-        std::vector<GPUPointLight> pointLights;
-        std::vector<GPUSpotLight> spotLights;
-        std::vector<GPUSphereAreaLight> sphereAreaLights;
-        pointLights.reserve(pointLightView.size_hint());
-        spotLights.reserve(spotLightView.size_hint());
-        sphereAreaLights.reserve(sphereAreaLightView.size_hint());
-
-        // Gather point lights
-        for (auto entity : pointLightView)
-        {
-            auto& transform = pointLightView.template get<TransformComponent>(entity);
-            auto& light = pointLightView.template get<PointLightComponent>(entity);
-
-            GPUPointLight gpu;
-            gpu.PositionAndRadius = glm::vec4(transform.Translation, light.m_Range);
-            gpu.ColorAndIntensity = glm::vec4(light.m_Color, light.m_Intensity);
-            pointLights.push_back(gpu);
-        }
-
-        // Gather spot lights
-        for (auto entity : spotLightView)
-        {
-            auto& transform = spotLightView.template get<TransformComponent>(entity);
-            auto& light = spotLightView.template get<SpotLightComponent>(entity);
-
-            GPUSpotLight gpu;
-            gpu.PositionAndRadius = glm::vec4(transform.Translation, light.m_Range);
-            gpu.DirectionAndAngle = glm::vec4(
-                glm::normalize(light.m_Direction),
-                glm::cos(glm::radians(light.m_OuterCutoff)));
-            gpu.ColorAndIntensity = glm::vec4(light.m_Color, light.m_Intensity);
-            gpu.SpotParams = glm::vec4(
-                glm::cos(glm::radians(light.m_InnerCutoff)),
-                light.m_Attenuation,
-                0.0f, 0.0f);
-            spotLights.push_back(gpu);
-        }
-
-        // Gather sphere area lights
-        for (auto entity : sphereAreaLightView)
-        {
-            auto& transform = sphereAreaLightView.template get<TransformComponent>(entity);
-            auto& light = sphereAreaLightView.template get<SphereAreaLightComponent>(entity);
-
-            GPUSphereAreaLight gpu;
-            gpu.PositionAndRadius = glm::vec4(transform.Translation, light.m_Radius);
-            gpu.ColorAndIntensity = glm::vec4(light.m_Color, light.m_Intensity);
-            gpu.RangeAndPadding = glm::vec4(light.m_Range, 0.0f, 0.0f, 0.0f);
-            sphereAreaLights.push_back(gpu);
-        }
-
-        // Upload to GPU
+        // The scene iterates its light components once per frame to build the
+        // MultiLightUBO; it packs these Forward+ SSBO vectors in that same pass
+        // (Scene::ProcessScene3DSharedLogic) and hands them here, so the cull
+        // path no longer re-iterates the scene.
         m_LightBuffer.Update(pointLights, spotLights, sphereAreaLights);
 
         // Decide if Forward+ should be active

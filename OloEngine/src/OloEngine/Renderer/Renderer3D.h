@@ -5,7 +5,6 @@
 #include "OloEngine/Renderer/Camera/PerspectiveCamera.h"
 #include "OloEngine/Renderer/Material.h"
 #include "OloEngine/Renderer/Mesh.h"
-#include "OloEngine/Renderer/Light.h"
 #include "OloEngine/Renderer/Frustum.h"
 #include "OloEngine/Renderer/LOD.h"
 #include "OloEngine/Renderer/BoundingVolume.h"
@@ -78,8 +77,8 @@ namespace OloEngine
         bool DynamicCullingEnabled = true;
 
         // Shader references (immutable during frame)
-        Ref<Shader> LightingShader;
-        Ref<Shader> SkinnedLightingShader;
+        Ref<Shader> DefaultForwardShader;
+        Ref<Shader> DefaultForwardSkinnedShader;
         Ref<Shader> PBRShader;
         Ref<Shader> PBRSkinnedShader;
         Ref<Shader> LightCubeShader;
@@ -523,12 +522,13 @@ namespace OloEngine
         static u32 SubmitMeshesParallel(const std::vector<MeshSubmitDesc>& meshes,
                                         i32 minBatchSize = 16);
 
-        static void SetLight(const Light& light);
         static void SetViewPosition(const glm::vec3& position);
+        // Direction of the scene's primary directional light, consumed by the
+        // fog / atmospheric sun-direction derivation. Set once per frame from
+        // Scene::ProcessScene3DSharedLogic; replaces the retired single-light
+        // SceneLight as the sun-direction source.
+        static void SetPrimaryDirectionalLightDirection(const glm::vec3& direction);
         static void SetCameraClipPlanes(f32 nearClip, f32 farClip);
-
-        // Scene light collection (collects light components from scene)
-        static void SetSceneLights(const Ref<Scene>& scene);
 
         // Upload multi-light UBO data for the current frame (partial: only header + activeLightCount lights)
         static void UploadMultiLightUBO(const UBOStructures::MultiLightUBO& data, i32 activeLightCount);
@@ -1095,13 +1095,11 @@ namespace OloEngine
         {
             Ref<UniformBuffer> Camera;
             Ref<UniformBuffer> Material;
-            Ref<UniformBuffer> LightProperties;
 
             void Reset()
             {
                 Camera.Reset();
                 Material.Reset();
-                LightProperties.Reset();
             }
         };
 
@@ -1203,8 +1201,8 @@ namespace OloEngine
             Ref<Mesh> SkyboxMesh;
             Ref<Mesh> LineQuadMesh; // Cached unit-length quad for debug lines
             Ref<Shader> LightCubeShader;
-            Ref<Shader> LightingShader;
-            Ref<Shader> SkinnedLightingShader;
+            Ref<Shader> DefaultForwardShader;
+            Ref<Shader> DefaultForwardSkinnedShader;
             Ref<Shader> QuadShader;
             Ref<Shader> PBRShader;
             Ref<Shader> PBRSkinnedShader;
@@ -1263,8 +1261,11 @@ namespace OloEngine
             bool OcclusionCullingEnabled = false;
             bool OcclusionResultsAvailable = false;
 
-            Light SceneLight;
             glm::vec3 ViewPos;
+            // Direction of the scene's primary (first) directional light. Used
+            // by the fog/atmosphere sun-direction derivation; defaults to
+            // straight-down when the scene has no directional light.
+            glm::vec3 PrimaryDirectionalLightDir = glm::vec3(0.0f, -1.0f, 0.0f);
             f32 CameraNearClip = 0.1f;
             f32 CameraFarClip = 1000.0f;
 

@@ -62,7 +62,6 @@ namespace OloEngine
         // (terrain / voxel / decal) can fill CameraUBO::PrevViewProjection
         // without aliasing the current-frame VP.
         static void SetPrevViewProjectionMatrix(const glm::mat4& prevVP);
-        static void SetSceneLight(const Light& light);
         static void SetViewPosition(const glm::vec3& viewPos);
 
         // Shadow texture binding — set per-frame from Renderer3D/Scene
@@ -82,15 +81,14 @@ namespace OloEngine
         static void SetUBOReferences(
             const Ref<UniformBuffer>& cameraUBO,
             const Ref<UniformBuffer>& materialUBO,
-            const Ref<UniformBuffer>& lightUBO,
             const Ref<UniformBuffer>& boneMatricesUBO,
             const Ref<InstanceBuffer>& modelInstanceBuffer,
             const Ref<UniformBuffer>& prevBoneMatricesUBO = nullptr,
             TiledForwardPlus* forwardPlus = nullptr);
 
-        // Rebind the shared scene camera/light UBOs after earlier passes reused
-        // those binding points, and ensure the Forward+ UBO baseline remains
-        // valid even when tiled Forward+ lighting is inactive this frame.
+        // Rebind the shared scene camera UBO after earlier passes reused that
+        // binding point, and ensure the Forward+ UBO baseline remains valid
+        // even when tiled Forward+ lighting is inactive this frame.
         static void BindSceneResources();
 
         // State management dispatch functions

@@ -304,32 +304,6 @@ namespace OloEngine
             data.SharedSceneUBOs.Camera->Bind();
         }
 
-        if (data.SharedSceneUBOs.LightProperties)
-        {
-            ShaderBindingLayout::LightUBO lightData;
-            const auto lightType = std::to_underlying(data.SceneLight.Type);
-
-            lightData.LightPosition = glm::vec4(data.SceneLight.Position, 1.0f);
-            lightData.LightDirection = glm::vec4(data.SceneLight.Direction, 0.0f);
-            lightData.LightAmbient = glm::vec4(data.SceneLight.Ambient, 0.0f);
-            lightData.LightDiffuse = glm::vec4(data.SceneLight.Diffuse, 0.0f);
-            lightData.LightSpecular = glm::vec4(data.SceneLight.Specular, 0.0f);
-            lightData.LightAttParams = glm::vec4(
-                data.SceneLight.Constant,
-                data.SceneLight.Linear,
-                data.SceneLight.Quadratic,
-                0.0f);
-            lightData.LightSpotParams = glm::vec4(
-                data.SceneLight.CutOff,
-                data.SceneLight.OuterCutOff,
-                0.0f,
-                0.0f);
-            lightData.ViewPosAndLightType = glm::vec4(data.ViewPos, static_cast<f32>(lightType));
-
-            data.SharedSceneUBOs.LightProperties->SetData(&lightData, sizeof(ShaderBindingLayout::LightUBO));
-        }
-
-        CommandDispatch::SetSceneLight(data.SceneLight);
         CommandDispatch::SetViewPosition(data.ViewPos);
 
         const auto resetRenderStreamBucket = [](CommandBufferRenderPass* node)
@@ -366,8 +340,8 @@ namespace OloEngine
         data.ParallelContext.DynamicCullingEnabled = data.DynamicCullingEnabled;
 
         // Cache shader references for parallel access.
-        data.ParallelContext.LightingShader = data.LightingShader;
-        data.ParallelContext.SkinnedLightingShader = data.SkinnedLightingShader;
+        data.ParallelContext.DefaultForwardShader = data.DefaultForwardShader;
+        data.ParallelContext.DefaultForwardSkinnedShader = data.DefaultForwardSkinnedShader;
         // Route PBR shader slot to the G-Buffer write variant in Deferred mode
         // so parallel-submission workers pick the correct program without
         // needing to query RendererSettings per draw.
@@ -749,9 +723,9 @@ namespace OloEngine
             // Derive sun direction from the scene's primary directional light
             // Guard against zero-length direction to prevent NaN from normalize
             glm::vec3 sunDir(0.0f, -1.0f, 0.0f);
-            if (const f32 dirLen2 = glm::dot(data.SceneLight.Direction, data.SceneLight.Direction); std::isfinite(dirLen2) && dirLen2 > 1e-8f)
+            if (const f32 dirLen2 = glm::dot(data.PrimaryDirectionalLightDir, data.PrimaryDirectionalLightDir); std::isfinite(dirLen2) && dirLen2 > 1e-8f)
             {
-                sunDir = glm::normalize(data.SceneLight.Direction);
+                sunDir = glm::normalize(data.PrimaryDirectionalLightDir);
             }
             // Pack fog frame index into SunDirection.w (bare uniforms fail SPIR-V)
             // Wrap at 1024 to stay well within float32 integer-exact range

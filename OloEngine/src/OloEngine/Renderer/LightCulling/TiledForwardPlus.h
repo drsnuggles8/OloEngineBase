@@ -8,10 +8,10 @@
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
 #include "OloEngine/Renderer/UniformBuffer.h"
 #include <glm/glm.hpp>
+#include <vector>
 
 namespace OloEngine
 {
-    class Scene;
     class Shader;
 
     // @brief Forward+ rendering mode
@@ -26,9 +26,9 @@ namespace OloEngine
     //
     // Owns the LightGrid, LightCullingBuffer, and LightCullingPass. The
     // compute shader culls lights into screen-space tiles (no depth slicing
-    // / froxels). Call GatherLights() to pack scene lights into SSBOs, then
-    // DispatchCulling() after the depth pre-pass, and BindForShading()
-    // before the color pass.
+    // / froxels). Call SetLights() with the scene-gathered light vectors to
+    // upload them into SSBOs, then DispatchCulling() after the depth pre-pass,
+    // and BindForShading() before the color pass.
     class TiledForwardPlus
     {
       public:
@@ -43,8 +43,12 @@ namespace OloEngine
         void Shutdown();
         void Resize(u32 screenWidth, u32 screenHeight);
 
-        // Gather point/spot lights from the scene into GPU SSBOs
-        void GatherLights(const Scene& scene);
+        // Upload pre-gathered point/spot/sphere lights (packed by the scene
+        // during its single light pass in Scene::ProcessScene3DSharedLogic)
+        // into the cull SSBOs and decide whether Forward+ runs this frame.
+        void SetLights(const std::vector<GPUPointLight>& pointLights,
+                       const std::vector<GPUSpotLight>& spotLights,
+                       const std::vector<GPUSphereAreaLight>& sphereAreaLights);
 
         // Dispatch the light culling compute pass (after depth pre-pass)
         void DispatchCulling(const glm::mat4& viewMatrix,
@@ -76,7 +80,7 @@ namespace OloEngine
         void SetTileSize(u32 tileSize);
         // The upgrade threshold must be >= 1 so the strict `down < up` invariant
         // (enforced in SetLightCountThresholdDown and consumed by
-        // TiledForwardPlus::GatherLights) can be satisfied.
+        // TiledForwardPlus::SetLights) can be satisfied.
         void SetLightCountThreshold(u32 threshold)
         {
             m_LightCountThreshold = threshold > 0 ? threshold : 1u;

@@ -60,10 +60,9 @@ namespace OloEngine::Tests
 
         // Block names that production shaders use, mapped to their
         // canonical C++ struct size. Aliases are listed explicitly.
-        const std::array<KnownBlock, 22> kKnownBlocks = { {
+        const std::array<KnownBlock, 21> kKnownBlocks = { {
             { "CameraMatrices", sizeof(UBOStructures::CameraUBO) },
             { "Camera", sizeof(UBOStructures::CameraUBO) },
-            { "LightProperties", sizeof(UBOStructures::LightUBO) },
             { "MultiLightBuffer", sizeof(UBOStructures::MultiLightUBO) },
             { "MultiLightData", sizeof(UBOStructures::MultiLightUBO) },
             { "MaterialProperties", sizeof(UBOStructures::MaterialUBO) },

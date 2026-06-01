@@ -7,8 +7,8 @@
 // No IBL, no shadows, no instance UBO — driven by `AssetPreviewRenderer`
 // outside the Renderer3D frame graph.
 //
-// Why a dedicated shader instead of reusing PBR.glsl: the main PBR path
-// expects the Renderer3D pipeline's UBO bindings (camera, lights, IBL,
+// Why a dedicated shader instead of reusing the main PBR_MultiLight path:
+// that path expects the Renderer3D pipeline's UBO bindings (camera, lights, IBL,
 // shadow maps, instance SSBO, post-process state). Wiring all of that up
 // just to render a 256-pixel sphere thumbnail is more code than the
 // thumbnail itself.

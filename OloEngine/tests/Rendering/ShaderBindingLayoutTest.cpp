@@ -18,12 +18,6 @@ TEST(ShaderBindingLayout, CameraUBOAlignment)
         << "CameraUBO must be 16-byte aligned for std140";
 }
 
-TEST(ShaderBindingLayout, LightUBOAlignment)
-{
-    EXPECT_EQ(sizeof(UBOStructures::LightUBO) % 16, 0u)
-        << "LightUBO must be 16-byte aligned for std140";
-}
-
 TEST(ShaderBindingLayout, MaterialUBOAlignment)
 {
     EXPECT_EQ(sizeof(UBOStructures::MaterialUBO) % 16, 0u)
@@ -130,7 +124,7 @@ TEST(ShaderBindingLayout, UBOBindingSlotUniqueness)
     };
 
     checkSlot(ShaderBindingLayout::UBO_CAMERA, "UBO_CAMERA");
-    checkSlot(ShaderBindingLayout::UBO_LIGHTS, "UBO_LIGHTS");
+    // Binding 1 (formerly UBO_LIGHTS / single-light LightProperties) is now free.
     checkSlot(ShaderBindingLayout::UBO_MATERIAL, "UBO_MATERIAL");
     checkSlot(ShaderBindingLayout::UBO_MODEL, "UBO_MODEL");
     checkSlot(ShaderBindingLayout::UBO_ANIMATION, "UBO_ANIMATION");
@@ -240,7 +234,6 @@ TEST(ShaderBindingLayout, ShaderConstantGeneratorRoundTrip)
 TEST(ShaderBindingLayout, KnownUBOBindingRecognized)
 {
     EXPECT_TRUE(ShaderBindingLayout::IsKnownUBOBinding(ShaderBindingLayout::UBO_CAMERA, "CameraMatrices"));
-    EXPECT_TRUE(ShaderBindingLayout::IsKnownUBOBinding(ShaderBindingLayout::UBO_LIGHTS, "LightProperties"));
     EXPECT_TRUE(ShaderBindingLayout::IsKnownUBOBinding(ShaderBindingLayout::UBO_MATERIAL, "MaterialProperties"));
     EXPECT_TRUE(ShaderBindingLayout::IsKnownUBOBinding(ShaderBindingLayout::UBO_MODEL, "ModelMatrices"));
     EXPECT_TRUE(ShaderBindingLayout::IsKnownUBOBinding(ShaderBindingLayout::UBO_ANIMATION, "AnimationMatrices"));
@@ -273,7 +266,6 @@ TEST(ShaderBindingLayout, AllTextureSlotsWithinGLMinimum)
 TEST(ShaderBindingLayout, UBOGetSizeMatchesSizeof)
 {
     EXPECT_EQ(UBOStructures::CameraUBO::GetSize(), sizeof(UBOStructures::CameraUBO));
-    EXPECT_EQ(UBOStructures::LightUBO::GetSize(), sizeof(UBOStructures::LightUBO));
     EXPECT_EQ(UBOStructures::MaterialUBO::GetSize(), sizeof(UBOStructures::MaterialUBO));
     EXPECT_EQ(UBOStructures::PBRMaterialUBO::GetSize(), sizeof(UBOStructures::PBRMaterialUBO));
     EXPECT_EQ(UBOStructures::ModelUBO::GetSize(), sizeof(UBOStructures::ModelUBO));

@@ -23,7 +23,6 @@
 #include "OloEngine/Renderer/Commands/FrameResourceManager.h"
 #include "OloEngine/Renderer/GPUResourceQueue.h"
 #include "OloEngine/Renderer/Material.h"
-#include "OloEngine/Renderer/Light.h"
 #include "OloEngine/Renderer/BoundingVolume.h"
 #include "OloEngine/Renderer/Texture.h"
 #include "OloEngine/Renderer/EnvironmentMap.h"
@@ -179,7 +178,7 @@ namespace OloEngine
 
         u32 shaderIdx = 0;
         // NOTE: Keep totalShaders3D in sync with the number of Load() calls below.
-        constexpr u32 totalShaders3D = 46;
+        constexpr u32 totalShaders3D = 42;
 
         // Boot + fallback are idempotent — no-ops when already initialized by
         // Renderer::Init().  Needed here for the lazy-init path (EditorLayer
@@ -195,11 +194,7 @@ namespace OloEngine
         // PollPendingShaders() each frame from `RenderPipeline::PrepareFrame()`.
         static constexpr std::array s_ShaderPaths = {
             "assets/shaders/LightCube.glsl",
-            "assets/shaders/Lighting3D.glsl",
-            "assets/shaders/SkinnedLighting3D_Simple.glsl",
             "assets/shaders/Renderer3D_Quad.glsl",
-            "assets/shaders/PBR.glsl",
-            "assets/shaders/PBR_Skinned.glsl",
             "assets/shaders/PBR_MultiLight.glsl",
             "assets/shaders/PBR_MultiLight_Skinned.glsl",
             "assets/shaders/PBR_GBuffer.glsl",
@@ -260,8 +255,14 @@ namespace OloEngine
         ShaderWarmup::RunWarmupScreen(m_ShaderLibrary, window);
 
         s_Data.LightCubeShader = m_ShaderLibrary.Get("LightCube");
-        s_Data.LightingShader = m_ShaderLibrary.Get("Lighting3D");
-        s_Data.SkinnedLightingShader = m_ShaderLibrary.Get("SkinnedLighting3D_Simple");
+        // The legacy single-light forward shaders (Lighting3D /
+        // SkinnedLighting3D_Simple, binding-1 LightUBO) were retired. The
+        // default/fallback forward shader for materials without an explicit
+        // shader is now the multi-light PBR path (binding-5 MultiLightUBO).
+        // These stay forward-only, so the Deferred-path overlay rerouting in
+        // Renderer3DMeshSubmission still applies unchanged.
+        s_Data.DefaultForwardShader = m_ShaderLibrary.Get("PBR_MultiLight");
+        s_Data.DefaultForwardSkinnedShader = m_ShaderLibrary.Get("PBR_MultiLight_Skinned");
         s_Data.QuadShader = m_ShaderLibrary.Get("Renderer3D_Quad");
         s_Data.PBRShader = m_ShaderLibrary.Get("PBR_MultiLight");
         s_Data.PBRSkinnedShader = m_ShaderLibrary.Get("PBR_MultiLight_Skinned");
@@ -299,7 +300,6 @@ namespace OloEngine
         s_Data.WhiteTexture->SetData(&whiteTextureData, sizeof(u32));
 
         s_Data.SharedSceneUBOs.Camera = UniformBuffer::Create(ShaderBindingLayout::CameraUBO::GetSize(), ShaderBindingLayout::UBO_CAMERA);
-        s_Data.SharedSceneUBOs.LightProperties = UniformBuffer::Create(ShaderBindingLayout::LightUBO::GetSize(), ShaderBindingLayout::UBO_LIGHTS);
         // Allocate enough for the larger PBR layout (PBRMaterialUBO > MaterialUBO)
         constexpr u32 materialBufferSize = std::max(ShaderBindingLayout::MaterialUBO::GetSize(), ShaderBindingLayout::PBRMaterialUBO::GetSize());
         s_Data.SharedSceneUBOs.Material = UniformBuffer::Create(materialBufferSize, ShaderBindingLayout::UBO_MATERIAL);
@@ -364,7 +364,6 @@ namespace OloEngine
         CommandDispatch::SetUBOReferences(
             s_Data.SharedSceneUBOs.Camera,
             s_Data.SharedSceneUBOs.Material,
-            s_Data.SharedSceneUBOs.LightProperties,
             s_Data.BoneMatricesUBO,
             s_Data.ModelInstanceBuffer,
             s_Data.PrevBoneMatricesUBO,
@@ -372,16 +371,6 @@ namespace OloEngine
 
         EnvironmentMap::InitializeIBLSystem(m_ShaderLibrary);
         OLO_CORE_INFO("IBL system initialized.");
-
-        s_Data.SceneLight.Type = LightType::Directional;
-        s_Data.SceneLight.Position = glm::vec3(1.2f, 1.0f, 2.0f);
-        s_Data.SceneLight.Direction = glm::vec3(-0.2f, -1.0f, -0.3f);
-        s_Data.SceneLight.Ambient = glm::vec3(0.2f, 0.2f, 0.2f);
-        s_Data.SceneLight.Diffuse = glm::vec3(0.5f, 0.5f, 0.5f);
-        s_Data.SceneLight.Specular = glm::vec3(1.0f, 1.0f, 1.0f);
-        s_Data.SceneLight.Constant = 1.0f;
-        s_Data.SceneLight.Linear = 0.09f;
-        s_Data.SceneLight.Quadratic = 0.032f;
 
         s_Data.ViewPos = glm::vec3(0.0f, 0.0f, 3.0f);
 
