@@ -44,6 +44,8 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/quaternion.hpp>
 
+#include <cmath>
+#include <regex>
 #include <string>
 
 namespace OloEngine::Tests
@@ -2407,6 +2409,66 @@ namespace OloEngine::Tests
                     << "instance " << inst << " color [" << i << "]";
             EXPECT_EQ(data.EntityID, expectedIDs[inst]) << "instance " << inst << " EntityID";
             EXPECT_NEAR(data.Custom, expectedCustoms[inst], kFloatEpsilon) << "instance " << inst << " Custom";
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // InstancedMeshComponent — non-finite instance floats (NaN/Inf) injected
+    // into a saved scene (corrupt file, bad authoring tool, hostile input) must
+    // be sanitized on load, never uploaded to the instance SSBO. Guards the
+    // Math::IsFinite checks on the instance read path. Injection goes through
+    // the YAML *parser* (which maps .nan/.inf to NaN/Inf) rather than emitting
+    // a NaN, since MSVC's float→text for NaN is not valid YAML.
+    // -------------------------------------------------------------------------
+    TEST(ComponentRoundTrip, InstancedMeshComponentNonFiniteInstanceDataIsSanitizedOnLoad)
+    {
+        std::string yaml;
+        {
+            auto scene = Scene::Create();
+            Entity entity = scene->CreateEntity(kTestTag);
+            auto& imc = entity.AddComponent<InstancedMeshComponent>();
+            InstanceData data;
+            data.Transform = glm::mat4(2.0f); // distinctive finite values
+            data.Color = glm::vec4(0.25f, 0.5f, 0.75f, 1.0f);
+            data.Custom = 3.0f;
+            imc.Instances.push_back(data);
+            yaml = SceneSerializer(scene).SerializeToYAML();
+        }
+
+        // Replace the flow-style instance arrays with ones carrying .nan/.inf.
+        // The block-mapped "TransformComponent:" key is not followed by '[', so
+        // only the instance's "Transform: [..]" / "Color: [..]" seqs are hit.
+        yaml = std::regex_replace(yaml, std::regex(R"(Transform: \[[^\]]*\])"),
+                                  "Transform: [.nan, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]");
+        yaml = std::regex_replace(yaml, std::regex(R"(Color: \[[^\]]*\])"),
+                                  "Color: [.inf, 0.5, 0.5, 1]");
+
+        auto reloaded = Scene::Create();
+        ASSERT_TRUE(SceneSerializer(reloaded).DeserializeFromYAML(yaml))
+            << "Deserialize rejected the (structurally valid) NaN/Inf-injected scene.";
+
+        Entity restored = FindByTag(*reloaded, kTestTag);
+        ASSERT_TRUE(static_cast<bool>(restored));
+        ASSERT_TRUE(restored.HasComponent<InstancedMeshComponent>());
+
+        const auto& imc = restored.GetComponent<InstancedMeshComponent>();
+        ASSERT_EQ(imc.Instances.size(), 1u);
+
+        // Non-finite transform → reset to identity; non-finite color → white.
+        const auto& d = imc.Instances[0];
+        const glm::mat4 identity{ 1.0f };
+        for (glm::length_t c = 0; c < 4; ++c)
+            for (glm::length_t r = 0; r < 4; ++r)
+            {
+                EXPECT_TRUE(std::isfinite(d.Transform[c][r]))
+                    << "transform [" << c << "][" << r << "] left non-finite";
+                EXPECT_NEAR(d.Transform[c][r], identity[c][r], kFloatEpsilon)
+                    << "transform [" << c << "][" << r << "] should be reset to identity";
+            }
+        for (glm::length_t i = 0; i < 4; ++i)
+        {
+            EXPECT_TRUE(std::isfinite(d.Color[i])) << "color [" << i << "] left non-finite";
+            EXPECT_NEAR(d.Color[i], 1.0f, kFloatEpsilon) << "color [" << i << "] should be reset to white";
         }
     }
 } // namespace OloEngine::Tests

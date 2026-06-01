@@ -1787,16 +1787,26 @@ namespace OloEngine
                     {
                         for (sizet i = 0; i < 16; ++i)
                             glm::value_ptr(inst.Transform)[i] = t[i].as<f32>();
+                        // A non-finite transform propagates into the instance SSBO and
+                        // any later transpose(inverse(...)); reset rather than upload garbage.
+                        if (!Math::IsFinite(inst.Transform))
+                            inst.Transform = glm::mat4(1.0f);
                     }
                     if (auto c = node["Color"]; c && c.IsSequence() && c.size() == 4)
                     {
                         for (sizet i = 0; i < 4; ++i)
                             glm::value_ptr(inst.Color)[i] = c[i].as<f32>();
+                        if (!Math::IsFinite(inst.Color))
+                            inst.Color = glm::vec4(1.0f);
                     }
                     if (node["EntityID"])
                         inst.EntityID = node["EntityID"].as<i32>();
                     if (node["Custom"])
+                    {
                         inst.Custom = node["Custom"].as<f32>();
+                        if (!Math::IsFinite(inst.Custom))
+                            inst.Custom = 0.0f;
+                    }
                     imc.Instances.push_back(inst);
                 }
             }

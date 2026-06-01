@@ -117,4 +117,50 @@ namespace
         b.Y = 8;
         EXPECT_FALSE(BitwiseEqual(a, b));
     }
+
+    // =========================================================================
+    // IsFinite — the predicate behind the cpp-coding-quality §2 rule that every
+    // float crossing a serialization boundary (scene YAML, save-games, network)
+    // must be validated before it reaches the GPU / physics / matrix math.
+    // =========================================================================
+    using OloEngine::Math::IsFinite;
+
+    TEST(MathIsFiniteTest, FiniteScalarsVectorsAndMatricesPass)
+    {
+        EXPECT_TRUE(IsFinite(0.0f));
+        EXPECT_TRUE(IsFinite(-123.456f));
+        EXPECT_TRUE(IsFinite(1e30)); // double overload
+        EXPECT_TRUE(IsFinite(glm::vec2{ 1.0f, -2.0f }));
+        EXPECT_TRUE(IsFinite(glm::vec3{ 1.0f, -2.0f, 3.0f }));
+        EXPECT_TRUE(IsFinite(glm::vec4{ 1.0f, -2.0f, 3.0f, -4.0f }));
+        EXPECT_TRUE(IsFinite(glm::mat4{ 2.5f }));
+    }
+
+    TEST(MathIsFiniteTest, NaNIsRejectedInEveryComponentSlot)
+    {
+        const f32 nan = std::numeric_limits<f32>::quiet_NaN();
+        EXPECT_FALSE(IsFinite(nan));
+        EXPECT_FALSE(IsFinite(glm::vec2{ 1.0f, nan }));
+        EXPECT_FALSE(IsFinite(glm::vec3{ nan, 2.0f, 3.0f }));
+        EXPECT_FALSE(IsFinite(glm::vec4{ 1.0f, 2.0f, 3.0f, nan }));
+
+        // A single non-finite matrix element must fail the whole-matrix check —
+        // any slot, not just the diagonal.
+        glm::mat4 m{ 1.0f };
+        m[2][1] = nan;
+        EXPECT_FALSE(IsFinite(m));
+    }
+
+    TEST(MathIsFiniteTest, PositiveAndNegativeInfinityAreRejected)
+    {
+        const f32 inf = std::numeric_limits<f32>::infinity();
+        EXPECT_FALSE(IsFinite(inf));
+        EXPECT_FALSE(IsFinite(-inf));
+        EXPECT_FALSE(IsFinite(glm::vec3{ 1.0f, inf, 3.0f }));
+        EXPECT_FALSE(IsFinite(glm::vec4{ -inf, 2.0f, 3.0f, 4.0f }));
+
+        glm::mat4 m{ 1.0f };
+        m[0][0] = -inf;
+        EXPECT_FALSE(IsFinite(m));
+    }
 } // namespace

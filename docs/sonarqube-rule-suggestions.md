@@ -249,6 +249,16 @@ four sites in `InstancePlacementSerializer.cpp` and `Scene/SceneSerializer.cpp`,
 and added `ComponentRoundTrip.InstancedMeshComponentInstancesSurviveYAMLRoundTrip`
 to pin the previously-uncovered per-instance Transform/Color round-trip.
 
+While in that code, the same load path was found to be **missing the engine's
+mandatory `std::isfinite` validation** ([cpp-coding-quality §2](agent-rules/cpp-coding-quality.md)):
+every other deserializer sanitizes floats via `SanitizeFloat`, but the instance
+Transform/Color/Custom reads did not — so a NaN/Inf in a corrupt or hand-edited
+scene would flow straight into the instance SSBO (and through
+`transpose(inverse(Transform))`). Added a reusable `Math::IsFinite(vec2/3/4, mat4,
+scalar)` helper and wired it into both instance read paths (non-finite transform →
+identity, color → white, custom → 0). Covered by `MathIsFiniteTest` and
+`ComponentRoundTrip.InstancedMeshComponentNonFiniteInstanceDataIsSanitizedOnLoad`.
+
 ### `cpp:S2259` — "forming reference to null pointer" — confirmed false positive
 
 `SaveGameComponentSerializer.cpp:1786` (`ItemInstance copy = *eqItem;`) is guarded

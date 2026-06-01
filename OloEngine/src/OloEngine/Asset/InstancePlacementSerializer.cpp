@@ -46,6 +46,10 @@ namespace OloEngine
             {
                 for (sizet i = 0; i < 16; ++i)
                     glm::value_ptr(out.Transform)[i] = t[i].as<f32>();
+                // Sanitize before deriving Normal/PrevTransform below: a non-finite
+                // transform would make transpose(inverse(...)) all-NaN and corrupt the SSBO.
+                if (!Math::IsFinite(out.Transform))
+                    out.Transform = glm::mat4(1.0f);
             }
             else
             {
@@ -57,11 +61,17 @@ namespace OloEngine
             {
                 for (sizet i = 0; i < 4; ++i)
                     glm::value_ptr(out.Color)[i] = c[i].as<f32>();
+                if (!Math::IsFinite(out.Color))
+                    out.Color = glm::vec4(1.0f);
             }
             if (node["EntityID"])
                 out.EntityID = node["EntityID"].as<i32>();
             if (node["Custom"])
+            {
                 out.Custom = node["Custom"].as<f32>();
+                if (!Math::IsFinite(out.Custom))
+                    out.Custom = 0.0f;
+            }
             return true;
         }
     } // namespace
