@@ -126,6 +126,22 @@ TEST(CinematicCurveTest, QuatChannelSlerpMidpointAndNormalization)
     EXPECT_NEAR(glm::length(mid), 1.0f, 1e-4f); // result stays unit
 }
 
+TEST(CinematicCurveTest, QuatChannelDegenerateKeyDoesNotNaN)
+{
+    // A zero quaternion would make glm::normalize divide by zero and seed a NaN
+    // that propagates into transforms. SafeNormalizeQuat must guard it.
+    CinematicQuatChannel ch;
+    ch.Keys.push_back({ 0.0f, glm::quat(0.0f, 0.0f, 0.0f, 0.0f), CinematicInterp::Linear });
+    ch.Keys.push_back({ 1.0f, glm::angleAxis(glm::radians(90.0f), glm::vec3(0, 1, 0)), CinematicInterp::Linear });
+
+    for (const f32 t : { 0.0f, 0.5f, 1.0f })
+    {
+        const glm::quat q = ch.Evaluate(t);
+        EXPECT_TRUE(std::isfinite(q.x) && std::isfinite(q.y) && std::isfinite(q.z) && std::isfinite(q.w))
+            << "degenerate quat key produced a non-finite result at t=" << t;
+    }
+}
+
 TEST(CinematicCurveTest, QuatChannelEmptyReturnsFallback)
 {
     CinematicQuatChannel ch;

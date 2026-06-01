@@ -3794,12 +3794,12 @@ namespace OloEngine
                     CinematicSystem::ApplyAtTime(*m_Context, *seq, 0.0f);
             }
 
-            // Edit-mode live preview. The runtime CinematicSystem only ticks in
-            // Play mode (Scene::OnUpdateRuntime), so in the editor we advance the
-            // playhead here using the editor frame's delta time while this
-            // component is selected + playing. Shares Advance() with the runtime
-            // path so timeline / event semantics match exactly.
-            if (component.Playing && m_Context)
+            // Edit-mode live preview. The runtime CinematicSystem already ticks
+            // every CinematicComponent from Scene::OnUpdateRuntime in Play mode,
+            // so only drive the playhead here when the scene is NOT running —
+            // otherwise the selected component would advance twice per frame.
+            // Shares Advance() with the runtime path so semantics match exactly.
+            if (component.Playing && m_Context && !m_Context->IsRunning())
                 CinematicSystem::Advance(*m_Context, component, *seq, ImGui::GetIO().DeltaTime);
 
             const char* stateLabel = component.Playing ? "Playing" : (atEnd ? "Finished" : "Paused");

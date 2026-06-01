@@ -57,7 +57,7 @@ it.
 
 ## Architecture
 
-```
+```text
 CinematicCurve.{h,cpp}        Float / Vec3 / Quat keyframe channels + interp modes
 CinematicTrack.h              Transform / Camera / Visibility / Event track structs
 CinematicSequence.{h,cpp}     Asset (AssetType::CinematicSequence) holding the tracks
@@ -110,8 +110,9 @@ frame) and **before** dialogue / animation / physics.
 `.olocine` is YAML (`CinematicSequenceSerializer`), wired into the asset
 pipeline like every other asset type: `AssetType::CinematicSequence`,
 extension map, `CinematicSequenceAssetSerializer` registered in
-`AssetImporter`. The `CinematicComponent` updates all five component
-touch-points (`AllComponents`, `SceneSerializer`, `SaveGameComponentSerializer`,
+`AssetImporter`. The `CinematicComponent` updates all six component
+touch-points (`AllComponents`, `Scene::OnComponentAdded`/`OnComponentRemoved`
+specializations in `Scene.cpp`, `SceneSerializer`, `SaveGameComponentSerializer`,
 `OLO_PROPERTY` annotations, `LuaScriptGlue`) so scenes and save-games
 round-trip it. All floats read back from YAML / save-games are validated
 with `std::isfinite`.

@@ -7,6 +7,15 @@ namespace OloEngine
 {
     namespace
     {
+        // Guard glm::normalize against zero / denormal quaternions (||q||^2 below
+        // EPS), which would divide by zero and propagate NaN into transforms.
+        // A degenerate key falls back to a safe (identity-ish) quaternion.
+        glm::quat SafeNormalizeQuat(const glm::quat& q, const glm::quat& fallback) noexcept
+        {
+            constexpr f32 kQuatLenEps = 1e-8f;
+            return (glm::dot(q, q) > kQuatLenEps) ? glm::normalize(q) : fallback;
+        }
+
         // Find the segment [i, i+1] bracketing `time` for a sorted key vector.
         // Returns the index `i` of the left key and writes the normalized
         // segment parameter `u` in [0,1]. Callers guarantee size() >= 2 and
@@ -93,17 +102,19 @@ namespace OloEngine
         }
         if (time <= Keys.front().Time)
         {
-            return glm::normalize(Keys.front().Value);
+            return SafeNormalizeQuat(Keys.front().Value, fallback);
         }
         if (time >= Keys.back().Time)
         {
-            return glm::normalize(Keys.back().Value);
+            return SafeNormalizeQuat(Keys.back().Value, fallback);
         }
         f32 u = 0.0f;
         const sizet i = FindSegment(Keys, time, u);
         const f32 blend = CinematicCurve::ApplyInterp(Keys[i].Interp, u);
         // glm::slerp takes the shortest arc; normalize endpoints so authored
-        // (possibly denormal) quats don't skew the result.
-        return glm::slerp(glm::normalize(Keys[i].Value), glm::normalize(Keys[i + 1].Value), blend);
+        // (possibly denormal) quats don't skew the result, and guard against
+        // zero-length keys so a degenerate quat can't seed a NaN.
+        return glm::slerp(SafeNormalizeQuat(Keys[i].Value, fallback),
+                          SafeNormalizeQuat(Keys[i + 1].Value, fallback), blend);
     }
 } // namespace OloEngine

@@ -98,6 +98,8 @@ namespace OloEngine
 
     void CinematicSystem::Advance(Scene& scene, CinematicComponent& component, CinematicSequence& sequence, f32 dt)
     {
+        OLO_PROFILE_FUNCTION();
+
         const CinematicPlayer::TickResult tick =
             CinematicPlayer::Tick(sequence, component.Time, component.PreviousTime, dt, component.PlaybackSpeed, component.Loop);
 
