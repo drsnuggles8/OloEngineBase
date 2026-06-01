@@ -3195,9 +3195,18 @@ namespace OloEngine
             {
                 const auto& [transform, spotLight] = spotLightView.get<TransformComponent, SpotLightComponent>(entity);
 
+                // Sanitize the authored direction before normalizing — a zero
+                // or non-finite m_Direction would make glm::normalize emit NaNs
+                // into the Forward+ SSBO. Fall back to a safe -Z unit vector.
+                glm::vec3 spotDir = spotLight.m_Direction;
+                if (const f32 spotDirLen2 = glm::dot(spotDir, spotDir); !std::isfinite(spotDirLen2) || spotDirLen2 < 1e-8f)
+                {
+                    spotDir = glm::vec3(0.0f, 0.0f, -1.0f);
+                }
+
                 // Forward+ SSBO entry (capacity clamped in LightCullingBuffer::Update)
                 fpSpotLights.push_back({ glm::vec4(transform.Translation, spotLight.m_Range),
-                                         glm::vec4(glm::normalize(spotLight.m_Direction), glm::cos(glm::radians(spotLight.m_OuterCutoff))),
+                                         glm::vec4(glm::normalize(spotDir), glm::cos(glm::radians(spotLight.m_OuterCutoff))),
                                          glm::vec4(spotLight.m_Color, spotLight.m_Intensity),
                                          glm::vec4(glm::cos(glm::radians(spotLight.m_InnerCutoff)), spotLight.m_Attenuation, 0.0f, 0.0f) });
 

@@ -10,7 +10,6 @@ namespace OloEngine
     class TiledForwardPlus;
     class UniformBuffer;
     class InstanceBuffer;
-    class Light;
     class ShaderResourceRegistry;
 
     class CommandDispatch
