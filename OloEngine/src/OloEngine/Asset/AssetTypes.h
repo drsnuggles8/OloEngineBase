@@ -43,13 +43,14 @@ namespace OloEngine
         BehaviorTree = 31,
         StateMachine = 32,
         InstancePlacement = 33,
+        CinematicSequence = 34,
     };
 
-    // If AssetType grows past InstancePlacement, bump kMaxKnownValue in
+    // If AssetType grows past CinematicSequence, bump kMaxKnownValue in
     // OloEngine/tests/AssetExtensionsCoverageTest.cpp or that test will
     // silently skip the new entries.
-    static_assert(std::to_underlying(AssetType::InstancePlacement) == 33,
-                  "AssetType::InstancePlacement moved; update kMaxKnownValue in "
+    static_assert(std::to_underlying(AssetType::CinematicSequence) == 34,
+                  "AssetType::CinematicSequence moved; update kMaxKnownValue in "
                   "AssetExtensionsCoverageTest.cpp to match the new max value.");
 
     enum class AssetFlag : u16
@@ -180,6 +181,8 @@ namespace OloEngine
                     return "StateMachine";
                 case AssetType::InstancePlacement:
                     return "InstancePlacement";
+                case AssetType::CinematicSequence:
+                    return "CinematicSequence";
             }
             OLO_CORE_ASSERT(false, "Unknown Asset Type");
             return "None";
@@ -263,6 +266,8 @@ namespace OloEngine
                 return AssetType::StateMachine;
             if (assetType == "InstancePlacement")
                 return AssetType::InstancePlacement;
+            if (assetType == "CinematicSequence")
+                return AssetType::CinematicSequence;
 
             return AssetType::None;
         }

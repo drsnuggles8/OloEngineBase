@@ -987,6 +987,72 @@ static void CharacterController3DComponent_SetDisableGravity(UUID entityID, bool
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////
+// CinematicComponent                                                             //
+///////////////////////////////////////////////////////////////////////////////////////////
+
+static bool CinematicComponent_GetPlayOnStart(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<CinematicComponent>();
+    return comp.PlayOnStart;
+}
+
+static void CinematicComponent_SetPlayOnStart(UUID entityID, bool value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<CinematicComponent>();
+    comp.PlayOnStart = value;
+}
+
+static bool CinematicComponent_GetLoop(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<CinematicComponent>();
+    return comp.Loop;
+}
+
+static void CinematicComponent_SetLoop(UUID entityID, bool value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<CinematicComponent>();
+    comp.Loop = value;
+}
+
+static float CinematicComponent_GetPlaybackSpeed(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<CinematicComponent>();
+    return comp.PlaybackSpeed;
+}
+
+static void CinematicComponent_SetPlaybackSpeed(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<CinematicComponent>();
+    comp.PlaybackSpeed = value;
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////
 // CircleCollider2DComponent                                                      //
 ///////////////////////////////////////////////////////////////////////////////////////////
 

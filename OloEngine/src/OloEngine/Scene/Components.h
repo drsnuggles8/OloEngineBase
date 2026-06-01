@@ -36,6 +36,7 @@
 #include "OloEngine/Gameplay/Inventory/InventoryComponents.h"
 #include "OloEngine/Gameplay/Quest/QuestComponents.h"
 #include "OloEngine/Gameplay/Abilities/AbilityComponents.h"
+#include "OloEngine/Cinematic/CinematicComponent.h"
 #include "OloEngine/Scene/ComponentReflection.h"
 
 #include <box2d/id.h>
@@ -2622,5 +2623,6 @@ namespace OloEngine
         AbilityComponent,
         NameplateComponent,
         IKTargetComponent,
-        InstancedMeshComponent>;
+        InstancedMeshComponent,
+        CinematicComponent>;
 } // namespace OloEngine

@@ -100,6 +100,14 @@ OLO_ADD_INTERNAL_CALL(CharacterController3DComponent_SetJumpPower);
 OLO_ADD_INTERNAL_CALL(CharacterController3DComponent_GetDisableGravity);
 OLO_ADD_INTERNAL_CALL(CharacterController3DComponent_SetDisableGravity);
 
+// CinematicComponent
+OLO_ADD_INTERNAL_CALL(CinematicComponent_GetPlayOnStart);
+OLO_ADD_INTERNAL_CALL(CinematicComponent_SetPlayOnStart);
+OLO_ADD_INTERNAL_CALL(CinematicComponent_GetLoop);
+OLO_ADD_INTERNAL_CALL(CinematicComponent_SetLoop);
+OLO_ADD_INTERNAL_CALL(CinematicComponent_GetPlaybackSpeed);
+OLO_ADD_INTERNAL_CALL(CinematicComponent_SetPlaybackSpeed);
+
 // CircleCollider2DComponent
 OLO_ADD_INTERNAL_CALL(CircleCollider2DComponent_GetOffset);
 OLO_ADD_INTERNAL_CALL(CircleCollider2DComponent_SetOffset);

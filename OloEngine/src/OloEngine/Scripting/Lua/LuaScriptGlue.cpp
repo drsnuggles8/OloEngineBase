@@ -216,6 +216,8 @@ namespace OloEngine
             // Animation
             REGISTER_COMPONENT(AnimationGraphComponent),
             REGISTER_COMPONENT(MorphTargetComponent),
+            // Cinematic
+            REGISTER_COMPONENT(CinematicComponent),
             // AI / Behavior
             REGISTER_COMPONENT(NavMeshBoundsComponent),
             REGISTER_COMPONENT(BehaviorTreeComponent),
@@ -1776,6 +1778,21 @@ namespace OloEngine
                                                        if (!comp.RuntimeGraph)
                                                            return "";
                                                        return std::string(comp.RuntimeGraph->GetCurrentStateName(layerIndex.value_or(0))); });
+
+        // --- CinematicComponent ---
+        lua.new_usertype<CinematicComponent>("CinematicComponent",
+                                             "Play", &CinematicComponent::Play,
+                                             "PlayFromStart", &CinematicComponent::PlayFromStart,
+                                             "Pause", &CinematicComponent::Pause,
+                                             "Stop", &CinematicComponent::Stop,
+                                             "loop", &CinematicComponent::Loop,
+                                             "playOnStart", &CinematicComponent::PlayOnStart,
+                                             "playbackSpeed", sol::property([](const CinematicComponent& c)
+                                                                            { return c.PlaybackSpeed; }, [](CinematicComponent& c, f32 v)
+                                                                            { if (std::isfinite(v) && v >= 0.0f) c.PlaybackSpeed = v; }),
+                                             "isPlaying", sol::readonly(&CinematicComponent::Playing),
+                                             "time", sol::readonly(&CinematicComponent::Time),
+                                             "isFinished", sol::readonly(&CinematicComponent::Finished));
 
         // --- MorphTargetComponent ---
         lua.new_usertype<MorphTargetComponent>("MorphTargetComponent", "SetWeight", [](MorphTargetComponent& comp, const std::string& name, f32 weight)

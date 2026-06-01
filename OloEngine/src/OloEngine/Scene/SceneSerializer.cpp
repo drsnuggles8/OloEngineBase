@@ -2619,6 +2619,19 @@ namespace OloEngine
             graphComp.AnimationGraphAssetHandle = graphComponent["AssetHandle"].as<u64>(0);
         }
 
+        if (auto cinematicComponent = entity["CinematicComponent"]; cinematicComponent)
+        {
+            auto& cine = deserializedEntity.AddComponent<CinematicComponent>();
+            cine.Sequence = cinematicComponent["Sequence"].as<u64>(0);
+            cine.PlayOnStart = cinematicComponent["PlayOnStart"].as<bool>(cine.PlayOnStart);
+            cine.Loop = cinematicComponent["Loop"].as<bool>(cine.Loop);
+            if (const f32 speed = cinematicComponent["PlaybackSpeed"].as<f32>(cine.PlaybackSpeed);
+                std::isfinite(speed) && speed >= 0.0f)
+            {
+                cine.PlaybackSpeed = speed;
+            }
+        }
+
         if (auto morphComponent = entity["MorphTargetComponent"]; morphComponent)
         {
             auto& morphComp = deserializedEntity.AddComponent<MorphTargetComponent>();
@@ -4840,6 +4853,20 @@ namespace OloEngine
             out << YAML::Key << "AssetHandle" << YAML::Value << graphComp.AnimationGraphAssetHandle;
 
             out << YAML::EndMap; // AnimationGraphComponent
+        }
+
+        if (entity.HasComponent<CinematicComponent>())
+        {
+            out << YAML::Key << "CinematicComponent";
+            out << YAML::BeginMap;
+
+            auto const& cine = entity.GetComponent<CinematicComponent>();
+            out << YAML::Key << "Sequence" << YAML::Value << static_cast<u64>(cine.Sequence);
+            out << YAML::Key << "PlayOnStart" << YAML::Value << cine.PlayOnStart;
+            out << YAML::Key << "Loop" << YAML::Value << cine.Loop;
+            out << YAML::Key << "PlaybackSpeed" << YAML::Value << cine.PlaybackSpeed;
+
+            out << YAML::EndMap; // CinematicComponent
         }
 
         if (entity.HasComponent<MorphTargetComponent>())

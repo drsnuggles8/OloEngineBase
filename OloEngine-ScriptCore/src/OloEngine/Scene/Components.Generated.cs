@@ -301,6 +301,27 @@ namespace OloEngine
 		}
 	}
 
+	public partial class CinematicComponent : Component
+	{
+		public bool PlayOnStart
+		{
+			get => InternalCalls.CinematicComponent_GetPlayOnStart(Entity.ID);
+			set => InternalCalls.CinematicComponent_SetPlayOnStart(Entity.ID, value);
+		}
+
+		public bool Loop
+		{
+			get => InternalCalls.CinematicComponent_GetLoop(Entity.ID);
+			set => InternalCalls.CinematicComponent_SetLoop(Entity.ID, value);
+		}
+
+		public float PlaybackSpeed
+		{
+			get => InternalCalls.CinematicComponent_GetPlaybackSpeed(Entity.ID);
+			set => InternalCalls.CinematicComponent_SetPlaybackSpeed(Entity.ID, value);
+		}
+	}
+
 	public partial class CircleCollider2DComponent : Component
 	{
 		public Vector2 Offset

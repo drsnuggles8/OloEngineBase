@@ -35,6 +35,7 @@ namespace OloEngine
     class DialogueTreeAsset;
     class BehaviorTreeAsset;
     class StateMachineAsset;
+    class CinematicSequence;
 
     struct AssetSerializationInfo
     {
@@ -331,6 +332,17 @@ namespace OloEngine
         void RegisterDependencies(const AssetMetadata& metadata) const override;
 
         bool SerializeToAssetPack(AssetHandle handle, FileStreamWriter& stream, AssetSerializationInfo& outInfo) const override;
+        Ref<Asset> DeserializeFromAssetPack(FileStreamReader& stream, const AssetPackFile::AssetInfo& assetInfo) const override;
+    };
+
+    class CinematicSequenceAssetSerializer : public AssetSerializer
+    {
+      public:
+        void Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const override;
+        [[nodiscard]] bool TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const override;
+        void RegisterDependencies(const AssetMetadata& metadata) const override;
+
+        [[nodiscard]] bool SerializeToAssetPack(AssetHandle handle, FileStreamWriter& stream, AssetSerializationInfo& outInfo) const override;
         Ref<Asset> DeserializeFromAssetPack(FileStreamReader& stream, const AssetPackFile::AssetInfo& assetInfo) const override;
     };
 

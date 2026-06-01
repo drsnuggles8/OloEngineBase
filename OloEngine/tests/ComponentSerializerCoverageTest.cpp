@@ -171,6 +171,7 @@ namespace OloEngine::Tests
             RepoRoot() / "OloEngine" / "src" / "OloEngine" / "Networking" / "NetworkIdentityComponent.h",
             RepoRoot() / "OloEngine" / "src" / "OloEngine" / "Renderer" / "Instancing" / "InstancedMeshComponent.h",
             RepoRoot() / "OloEngine" / "src" / "OloEngine" / "Localization" / "LocalizedTextComponent.h",
+            RepoRoot() / "OloEngine" / "src" / "OloEngine" / "Cinematic" / "CinematicComponent.h",
         };
 
         const std::regex structPat{ R"(struct\s+(\w+Component)\b)" };

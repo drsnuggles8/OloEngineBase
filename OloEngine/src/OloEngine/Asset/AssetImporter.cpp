@@ -77,7 +77,8 @@ namespace OloEngine
             serializers[AssetType::ShaderGraph] = CreateScope<ShaderGraphSerializer>();
             serializers[AssetType::BehaviorTree] = CreateScope<BehaviorTreeSerializer>();
             serializers[AssetType::StateMachine] = CreateScope<StateMachineSerializer>();
-            serializers[AssetType::InstancePlacement] = CreateScope<InstancePlacementSerializer>(); });
+            serializers[AssetType::InstancePlacement] = CreateScope<InstancePlacementSerializer>();
+            serializers[AssetType::CinematicSequence] = CreateScope<CinematicSequenceAssetSerializer>(); });
     }
 
     void AssetImporter::Shutdown()

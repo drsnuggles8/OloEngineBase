@@ -32,6 +32,8 @@
 #include "OloEngine/Animation/AnimationAsset.h"
 #include "OloEngine/Animation/AnimationGraphAsset.h"
 #include "OloEngine/Animation/AnimationGraphSerializer.h"
+#include "OloEngine/Cinematic/CinematicSequence.h"
+#include "OloEngine/Cinematic/CinematicSequenceSerializer.h"
 #include "OloEngine/Asset/MeshColliderAsset.h"
 #include "OloEngine/Core/YAMLConverters.h"
 #include "OloEngine/Particle/ParticleSystemAsset.h"
@@ -4041,6 +4043,91 @@ namespace OloEngine
         graphAsset->SetGraph(graph);
         graphAsset->m_Handle = assetInfo.Handle;
         return graphAsset;
+    }
+
+    //////////////////////////////////////////////////////////////////////////////////
+    // CinematicSequenceAssetSerializer
+    //////////////////////////////////////////////////////////////////////////////////
+
+    void CinematicSequenceAssetSerializer::Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const
+    {
+        OLO_PROFILE_FUNCTION();
+
+        auto sequence = asset.As<CinematicSequence>();
+        if (!sequence)
+        {
+            OLO_CORE_ERROR("CinematicSequenceAssetSerializer::Serialize - asset is not a CinematicSequence");
+            return;
+        }
+
+        std::filesystem::path filepath = Project::GetProjectDirectory() / metadata.FilePath;
+        if (!CinematicSequenceSerializer::Serialize(sequence, filepath.string()))
+        {
+            OLO_CORE_ERROR("CinematicSequenceAssetSerializer::Serialize - Failed to write: {}", filepath.string());
+        }
+    }
+
+    bool CinematicSequenceAssetSerializer::TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const
+    {
+        OLO_PROFILE_FUNCTION();
+
+        std::filesystem::path filepath = Project::GetProjectDirectory() / metadata.FilePath;
+        auto sequence = CinematicSequenceSerializer::DeserializeAsset(filepath.string());
+        if (!sequence)
+        {
+            OLO_CORE_ERROR("CinematicSequenceAssetSerializer::TryLoadData - Failed to load: {}", metadata.FilePath.string());
+            return false;
+        }
+        sequence->m_Handle = metadata.Handle;
+        asset = sequence;
+        return true;
+    }
+
+    void CinematicSequenceAssetSerializer::RegisterDependencies([[maybe_unused]] const AssetMetadata& metadata) const
+    {
+    }
+
+    bool CinematicSequenceAssetSerializer::SerializeToAssetPack(AssetHandle handle, FileStreamWriter& stream, AssetSerializationInfo& outInfo) const
+    {
+        OLO_PROFILE_FUNCTION();
+
+        auto sequence = AssetManager::GetAsset<CinematicSequence>(handle);
+        if (!sequence)
+        {
+            OLO_CORE_ERROR("CinematicSequenceAssetSerializer::SerializeToAssetPack - Invalid cinematic sequence asset");
+            return false;
+        }
+
+        std::string yamlString = CinematicSequenceSerializer::SerializeToString(sequence);
+        if (yamlString.empty())
+        {
+            OLO_CORE_ERROR("CinematicSequenceAssetSerializer::SerializeToAssetPack - Failed to serialize sequence to string");
+            return false;
+        }
+
+        outInfo.Offset = stream.GetStreamPosition();
+        stream.WriteString(yamlString);
+        outInfo.Size = stream.GetStreamPosition() - outInfo.Offset;
+        return true;
+    }
+
+    Ref<Asset> CinematicSequenceAssetSerializer::DeserializeFromAssetPack(FileStreamReader& stream, const AssetPackFile::AssetInfo& assetInfo) const
+    {
+        OLO_PROFILE_FUNCTION();
+
+        stream.SetStreamPosition(assetInfo.PackedOffset);
+        std::string yamlString;
+        stream.ReadString(yamlString);
+
+        auto sequence = CinematicSequenceSerializer::DeserializeFromString(yamlString);
+        if (!sequence)
+        {
+            OLO_CORE_ERROR("CinematicSequenceAssetSerializer::DeserializeFromAssetPack - Failed to deserialize sequence from string");
+            return nullptr;
+        }
+
+        sequence->m_Handle = assetInfo.Handle;
+        return sequence;
     }
 
     //////////////////////////////////////////////////////////////////////////////////
