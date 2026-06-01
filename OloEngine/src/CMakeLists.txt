@@ -1129,6 +1129,8 @@
 		"Platform/OpenGL/OpenGLIndexBuffer.h"
 		"Platform/OpenGL/OpenGLRendererAPI.cpp"
 		"Platform/OpenGL/OpenGLRendererAPI.h"
+		"Platform/OpenGL/OpenGLProgramBinaryCache.cpp"
+		"Platform/OpenGL/OpenGLProgramBinaryCache.h"
 		"Platform/OpenGL/OpenGLShader.cpp"
 		"Platform/OpenGL/OpenGLShader.h"
 		"Platform/OpenGL/OpenGLTexture.cpp"

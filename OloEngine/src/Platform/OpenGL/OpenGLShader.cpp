@@ -1,6 +1,7 @@
 #include "OloEnginePCH.h"
 #include "Platform/OpenGL/OpenGLShader.h"
 #include "Platform/OpenGL/OpenGLContext.h"
+#include "Platform/OpenGL/OpenGLProgramBinaryCache.h"
 #include "OloEngine/Core/Timer.h"
 #include "OloEngine/Renderer/Commands/FrameResourceManager.h"
 #include "OloEngine/Renderer/Debug/RendererMemoryTracker.h"
@@ -18,6 +19,7 @@
 #include <spirv_cross/spirv_glsl.hpp>
 
 #include <fstream>
+#include <optional>
 #include <utility>
 #include <filesystem>
 #include <sstream>
@@ -997,84 +999,21 @@ namespace OloEngine
     {
         GLuint program = glCreateProgram();
 
-        const std::filesystem::path cacheDirectory = Utils::GetCacheDirectory();
-        const std::filesystem::path shaderFilePath = m_FilePath;
-        const std::filesystem::path cachedPath = cacheDirectory / (shaderFilePath.filename().string() + ".cached_opengl.pgr");
-        const bool disableCache = Utils::IsShaderCacheDisabled();
-
-        // Try to load from program binary cache first
-        if (std::ifstream in(cachedPath, std::ios::ate | std::ios::binary); in.is_open() && !disableCache)
+        // Try to load from the program-binary cache first. The shared helper parses
+        // the on-disk framing, calls glProgramBinary, and soft-checks GL_LINK_STATUS;
+        // on any miss/failure it returns false and we fall through to a full compile.
+        if (LoadProgramBinaryCache(program))
         {
-            if (!IsCacheStale(cachedPath))
-            {
-                const auto size = in.tellg();
-
-                // Validate file size - must contain at least format u32
-                if (size < static_cast<std::streamoff>(sizeof(u32)))
-                {
-                    OLO_CORE_WARN("Shader program binary cache file too small, recompiling: {}", cachedPath.string());
-                    in.close();
-                }
-                else
-                {
-                    in.seekg(0);
-
-                    u32 format = 0;
-                    in.read(reinterpret_cast<char*>(&format), sizeof(u32));
-
-                    if (!in || in.gcount() != static_cast<std::streamsize>(sizeof(u32)))
-                    {
-                        OLO_CORE_WARN("Shader program binary cache: Failed to read format, recompiling: {}", cachedPath.string());
-                        in.close();
-                        glDeleteProgram(program);
-                        program = glCreateProgram();
-                        // Fall through to recompilation
-                    }
-                    else
-                    {
-                        const auto dataSize = size - static_cast<std::streamoff>(sizeof(u32));
-                        auto data = std::vector<char>(dataSize);
-                        in.read(data.data(), dataSize);
-
-                        if (!in || in.gcount() != static_cast<std::streamsize>(dataSize))
-                        {
-                            OLO_CORE_WARN("Shader program binary cache: Failed to read data, recompiling: {}", cachedPath.string());
-                            in.close();
-                            glDeleteProgram(program);
-                            program = glCreateProgram();
-                            // Fall through to recompilation
-                        }
-                        else
-                        {
-                            in.close();
-
-                            glProgramBinary(program, format, data.data(), static_cast<GLsizei>(data.size()));
-
-                            GLint isLinked = 0;
-                            glGetProgramiv(program, GL_LINK_STATUS, &isLinked);
-
-                            if (isLinked == GL_TRUE)
-                            {
-                                FinalizeProgram(program, m_OpenGLSPIRV);
-                                m_CompilationStatus = ShaderCompilationStatus::Ready;
-                                OLO_CORE_TRACE("Loaded shader program from binary cache: {0}", m_FilePath);
-                                return;
-                            }
-                            else
-                            {
-                                OLO_CORE_WARN("Cached program binary failed to link, recompiling: {0}", shaderFilePath.string());
-                                glDeleteProgram(program);
-                                program = glCreateProgram();
-                            }
-                        }
-                    }
-                }
-            }
-            else
-            {
-                OLO_CORE_TRACE("Shader source or include newer than cache, recompiling: {0}", shaderFilePath.string());
-            }
+            FinalizeProgram(program, m_OpenGLSPIRV);
+            m_CompilationStatus = ShaderCompilationStatus::Ready;
+            OLO_CORE_TRACE("Loaded shader program from binary cache: {0}", m_FilePath);
+            return;
         }
+
+        // Cache miss or invalid binary: discard the (possibly dirtied) program object
+        // and recreate a clean one for compilation from SPIR-V.
+        glDeleteProgram(program);
+        program = glCreateProgram();
 
         // Compile from SPIR-V if cache miss or invalid
         std::vector<GLuint> shaderIDs;
@@ -1145,6 +1084,63 @@ namespace OloEngine
     // Async link helpers
     // ========================================================================
 
+    bool OpenGLShader::LoadProgramBinaryCache(GLenum program) const
+    {
+        OLO_PROFILE_FUNCTION();
+
+        if (Utils::IsShaderCacheDisabled())
+            return false;
+
+        const std::filesystem::path cacheDirectory = Utils::GetCacheDirectory();
+        const std::filesystem::path shaderFilePath = m_FilePath;
+        const std::filesystem::path cachedPath = cacheDirectory / (shaderFilePath.filename().string() + ".cached_opengl.pgr");
+
+        std::ifstream in(cachedPath, std::ios::binary);
+        if (!in.is_open())
+            return false;
+
+        if (IsCacheStale(cachedPath))
+        {
+            OLO_CORE_TRACE("Shader source or include newer than cache, recompiling: {0}", shaderFilePath.string());
+            return false;
+        }
+
+        const std::optional<ProgramBinary> binary = ReadProgramBinary(in);
+        in.close();
+        if (!binary)
+        {
+            OLO_CORE_WARN("Shader program binary cache corrupt or truncated, recompiling: {0}", cachedPath.string());
+            return false;
+        }
+
+        glProgramBinary(program, binary->Format, binary->Data.data(), static_cast<GLsizei>(binary->Data.size()));
+
+        // Soft link-status check: loading a cached binary is a best-effort optimisation, so
+        // a failure here must fall back to recompilation rather than abort. (The old AMD path
+        // used the fatal VerifyProgramLink() here, which OLO_DEBUGBREAK()s on every launch.)
+        // A failure here is legal per the GL spec — the driver may reject a binary whose
+        // source has changed or that was produced by a different driver version — so we log
+        // the program info log to disambiguate that expected case from a genuine framing bug.
+        GLint isLinked = GL_FALSE;
+        glGetProgramiv(program, GL_LINK_STATUS, &isLinked);
+        if (isLinked != GL_TRUE)
+        {
+            GLint logLength = 0;
+            glGetProgramiv(program, GL_INFO_LOG_LENGTH, &logLength);
+            std::string infoLog;
+            if (logLength > 0)
+            {
+                infoLog.resize(static_cast<sizet>(logLength));
+                glGetProgramInfoLog(program, logLength, nullptr, infoLog.data());
+            }
+            OLO_CORE_WARN("Cached program binary failed to link, recompiling: {0}{1}",
+                          shaderFilePath.string(), infoLog.empty() ? std::string{} : " (" + infoLog + ")");
+            return false;
+        }
+
+        return true;
+    }
+
     void OpenGLShader::SaveProgramBinaryCache() const
     {
         OLO_PROFILE_FUNCTION();
@@ -1181,8 +1177,7 @@ namespace OloEngine
         std::ofstream out(cachedPath, std::ios::out | std::ios::binary);
         if (out.is_open())
         {
-            out.write(reinterpret_cast<char*>(&format), sizeof(u32));
-            out.write(shaderData.data(), static_cast<std::streamsize>(shaderData.size()));
+            WriteProgramBinary(out, format, shaderData.data(), shaderData.size());
             out.flush();
             out.close();
             OLO_CORE_TRACE("Saved shader program binary to cache: {0}", cachedPath.string());
@@ -1305,35 +1300,21 @@ namespace OloEngine
         const std::filesystem::path cachedPath = cacheDirectory / (shaderFilePath.filename().string() + ".cached_opengl.pgr");
         bool disableCache = Utils::IsShaderCacheDisabled();
 
-        if (std::ifstream in(cachedPath, std::ios::ate | std::ios::binary); in.is_open() && !disableCache)
+        // Shared with the non-AMD path: parse the framing, call glProgramBinary, and
+        // soft-check GL_LINK_STATUS. This previously had its own hand-copied loader that
+        // read the wrong byte count (issue #267) and used the fatal VerifyProgramLink for
+        // a recoverable cache miss; routing through the shared helper fixes both.
+        if (LoadProgramBinaryCache(program))
         {
-            if (!IsCacheStale(cachedPath))
-            {
-                const auto size = in.tellg();
-                in.seekg(0);
-
-                auto data = std::vector<char>(size);
-                u32 format = 0;
-                in.read(reinterpret_cast<char*>(&format), sizeof(u32));
-                in.read(data.data(), size);
-                glProgramBinary(program, format, data.data(), static_cast<GLsizei>(data.size()));
-
-                if (VerifyProgramLink(program, m_FilePath))
-                {
-                    FinalizeProgram(program, m_VulkanSPIRV);
-                    m_CompilationStatus = ShaderCompilationStatus::Ready;
-                    return;
-                }
-
-                OLO_CORE_WARN("Cached program binary failed to link, recompiling: {0}", shaderFilePath.string());
-                glDeleteProgram(program);
-                program = glCreateProgram();
-            }
-            else
-            {
-                OLO_CORE_INFO("Shader source or include newer than cache, recompiling: {0}", shaderFilePath.string());
-            }
+            FinalizeProgram(program, m_VulkanSPIRV);
+            m_CompilationStatus = ShaderCompilationStatus::Ready;
+            OLO_CORE_TRACE("Loaded shader program from binary cache: {0}", m_FilePath);
+            return;
         }
+
+        // Cache miss or invalid binary: recreate a clean program object before compiling.
+        glDeleteProgram(program);
+        program = glCreateProgram();
 
         std::array<u32, 2> glShadersIDs{};
         CompileOpenGLBinariesForAmd(program, glShadersIDs);
@@ -1368,8 +1349,7 @@ namespace OloEngine
                 std::ofstream out(cachedPath, std::ios::out | std::ios::binary);
                 if (out.is_open())
                 {
-                    out.write(reinterpret_cast<char*>(&format), sizeof(u32));
-                    out.write(shaderData.data(), shaderData.size());
+                    WriteProgramBinary(out, format, shaderData.data(), shaderData.size());
                     out.flush();
                     out.close();
                 }
