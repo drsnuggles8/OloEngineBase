@@ -34,7 +34,13 @@ namespace OloEngine
     class RuntimeAssetManager : public AssetManagerBase
     {
       public:
-        RuntimeAssetManager();
+        /**
+         * @param autoLoadDefaultPack When true (default), the constructor loads
+         *        "Assets/AssetPack.olopack" relative to the working directory if it
+         *        exists. Pass false when the caller manages packs explicitly or needs
+         *        a deterministic, empty starting state (e.g. tests).
+         */
+        explicit RuntimeAssetManager(bool autoLoadDefaultPack = true);
         virtual ~RuntimeAssetManager();
 
         // AssetManagerBase interface implementation

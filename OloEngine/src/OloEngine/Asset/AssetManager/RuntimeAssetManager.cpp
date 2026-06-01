@@ -13,7 +13,7 @@
 
 namespace OloEngine
 {
-    RuntimeAssetManager::RuntimeAssetManager()
+    RuntimeAssetManager::RuntimeAssetManager(bool autoLoadDefaultPack)
     {
 #if OLO_ASYNC_ASSETS
         m_AssetThread = Ref<RuntimeAssetSystem>::Create();
@@ -21,6 +21,9 @@ namespace OloEngine
 
         AssetImporter::Init();
         OLO_CORE_INFO("RuntimeAssetManager initialized");
+
+        if (!autoLoadDefaultPack)
+            return;
 
         // Load default asset pack if it exists
         const std::string assetPackPath = "Assets/AssetPack.olopack";
@@ -420,22 +423,34 @@ namespace OloEngine
 
     void RuntimeAssetManager::UnloadAssetPack(const std::filesystem::path& packPath)
     {
-        TUniqueLock<FSharedMutex> lock(m_PacksMutex);
+        // Lock order matches Shutdown(): m_AssetsMutex before m_PacksMutex. Both are
+        // needed because unloading rebuilds the pack metadata index (m_PacksMutex)
+        // and prunes the loaded-asset cache to match it (m_AssetsMutex).
+        TUniqueLock<FSharedMutex> assetsLock(m_AssetsMutex);
+        TUniqueLock<FSharedMutex> packsLock(m_PacksMutex);
+
         auto it = m_LoadedPacks.find(packPath);
-        if (it != m_LoadedPacks.end())
-        {
-            it->second->Unload();
-            m_LoadedPacks.erase(it);
+        if (it == m_LoadedPacks.end())
+            return;
 
-            // Rebuild the metadata index from the packs that remain loaded so this
-            // pack's assets stop resolving, while assets still provided by another
-            // loaded pack stay valid.
-            m_AssetMetadata.clear();
-            for (const auto& [remainingPath, remainingPack] : m_LoadedPacks)
-                IndexAssetPackMetadata(*remainingPack);
+        it->second->Unload();
+        m_LoadedPacks.erase(it);
 
-            OLO_CORE_INFO("Unloaded asset pack: {}", packPath.string());
-        }
+        // Rebuild the metadata index from the packs that remain loaded so this
+        // pack's assets stop resolving, while assets still provided by another
+        // loaded pack stay valid.
+        m_AssetMetadata.clear();
+        for (const auto& [remainingPath, remainingPack] : m_LoadedPacks)
+            IndexAssetPackMetadata(*remainingPack);
+
+        // Evict cached pack-backed assets the rebuilt index no longer covers, so
+        // GetAsset() cannot return a handle that IsAssetHandleValid() / IsAssetMissing()
+        // now report as gone. Memory-only assets (m_MemoryAssets) are not pack-backed
+        // and are intentionally left untouched.
+        std::erase_if(m_LoadedAssets, [this](const auto& entry)
+                      { return m_AssetMetadata.find(entry.first) == m_AssetMetadata.end(); });
+
+        OLO_CORE_INFO("Unloaded asset pack: {}", packPath.string());
     }
 
     AssetMetadata RuntimeAssetManager::GetAssetMetadataFromPacks(AssetHandle handle)

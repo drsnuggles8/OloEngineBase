@@ -114,7 +114,7 @@ TEST_F(RuntimeAssetManagerTest, LoadedPackAssetsAreDiscoverable)
     const AssetHandle meshHandle = 202;
     WritePack({ { texHandle, AssetType::Texture2D }, { meshHandle, AssetType::StaticMesh } });
 
-    RuntimeAssetManager manager;
+    RuntimeAssetManager manager(/*autoLoadDefaultPack=*/false);
     ASSERT_TRUE(manager.LoadAssetPack(m_TempPath));
 
     // Before the fix all of these were false / None because m_AssetMetadata was
@@ -139,7 +139,7 @@ TEST_F(RuntimeAssetManagerTest, UnknownHandleIsNotValid)
     const AssetHandle known = 101;
     WritePack({ { known, AssetType::Texture2D } });
 
-    RuntimeAssetManager manager;
+    RuntimeAssetManager manager(/*autoLoadDefaultPack=*/false);
     ASSERT_TRUE(manager.LoadAssetPack(m_TempPath));
 
     const AssetHandle unknown = 999;
@@ -161,7 +161,7 @@ TEST_F(RuntimeAssetManagerTest, GetAllAssetsWithTypeReturnsMatchingHandles)
         { m3, AssetType::StaticMesh },
     });
 
-    RuntimeAssetManager manager;
+    RuntimeAssetManager manager(/*autoLoadDefaultPack=*/false);
     ASSERT_TRUE(manager.LoadAssetPack(m_TempPath));
 
     const auto textures = manager.GetAllAssetsWithType(AssetType::Texture2D);
@@ -180,7 +180,7 @@ TEST_F(RuntimeAssetManagerTest, UnloadingPackRemovesItsAssets)
     const AssetHandle handle = 55;
     WritePack({ { handle, AssetType::Texture2D } });
 
-    RuntimeAssetManager manager;
+    RuntimeAssetManager manager(/*autoLoadDefaultPack=*/false);
     ASSERT_TRUE(manager.LoadAssetPack(m_TempPath));
     ASSERT_TRUE(manager.IsAssetHandleValid(handle));
 
@@ -190,6 +190,10 @@ TEST_F(RuntimeAssetManagerTest, UnloadingPackRemovesItsAssets)
     EXPECT_TRUE(manager.IsAssetMissing(handle));
     EXPECT_EQ(manager.GetAssetType(handle), AssetType::None);
     EXPECT_TRUE(manager.GetAllAssetsWithType(AssetType::Texture2D).empty());
+
+    // The loaded-asset cache must not retain handles the rebuilt metadata index no
+    // longer covers, otherwise GetAsset() would disagree with IsAssetMissing().
+    EXPECT_TRUE(manager.GetLoadedAssets().empty());
 }
 
 TEST_F(RuntimeAssetManagerTest, MetadataSurvivesUntilExplicitUnload)
@@ -199,7 +203,7 @@ TEST_F(RuntimeAssetManagerTest, MetadataSurvivesUntilExplicitUnload)
     const AssetHandle handle = 77;
     WritePack({ { handle, AssetType::Texture2D } });
 
-    RuntimeAssetManager manager;
+    RuntimeAssetManager manager(/*autoLoadDefaultPack=*/false);
     ASSERT_TRUE(manager.LoadAssetPack(m_TempPath));
     ASSERT_TRUE(manager.LoadAssetPack(m_TempPath)); // idempotent re-load
 
