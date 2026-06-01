@@ -34,7 +34,13 @@ namespace OloEngine
     class RuntimeAssetManager : public AssetManagerBase
     {
       public:
-        RuntimeAssetManager();
+        /**
+         * @param autoLoadDefaultPack When true (default), the constructor loads
+         *        "Assets/AssetPack.olopack" relative to the working directory if it
+         *        exists. Pass false when the caller manages packs explicitly or needs
+         *        a deterministic, empty starting state (e.g. tests).
+         */
+        explicit RuntimeAssetManager(bool autoLoadDefaultPack = true);
         virtual ~RuntimeAssetManager();
 
         // AssetManagerBase interface implementation
@@ -120,6 +126,19 @@ namespace OloEngine
          * @return Asset type or AssetType::None if not found
          */
         AssetType GetAssetTypeFromPacks(AssetHandle handle) const;
+
+        /**
+         * @brief Index an asset pack's contents into the metadata table
+         *
+         * Populates m_AssetMetadata with one entry per asset in the pack so the
+         * metadata-keyed query and load paths (GetAsset, IsAssetValid,
+         * GetAssetType, GetAllAssetsWithType, ...) can resolve the pack's assets.
+         * Without this step a loaded pack is invisible to every one of those paths.
+         *
+         * @param assetPack Loaded asset pack to index
+         * @note The caller must hold an exclusive lock on m_PacksMutex.
+         */
+        void IndexAssetPackMetadata(const AssetPack& assetPack);
 
       private:
         // Loaded assets cache
