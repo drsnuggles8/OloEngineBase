@@ -2169,6 +2169,8 @@ namespace OloEngine
     template<>
     void Scene::OnComponentAdded<StateMachineComponent>(Entity, StateMachineComponent&) {}
     template<>
+    void Scene::OnComponentAdded<GoapAgentComponent>(Entity, GoapAgentComponent&) {}
+    template<>
     void Scene::OnComponentAdded<TileRendererComponent>(Entity, TileRendererComponent&) {}
 
     // Runtime-spawned AudioSoundGraphComponent entities (script-spawned, networked

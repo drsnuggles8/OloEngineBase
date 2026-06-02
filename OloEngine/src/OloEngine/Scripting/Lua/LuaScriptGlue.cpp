@@ -222,6 +222,7 @@ namespace OloEngine
             REGISTER_COMPONENT(NavMeshBoundsComponent),
             REGISTER_COMPONENT(BehaviorTreeComponent),
             REGISTER_COMPONENT(StateMachineComponent),
+            REGISTER_COMPONENT(GoapAgentComponent),
             #undef REGISTER_COMPONENT
         };
         return s_Registry;
@@ -2235,6 +2236,23 @@ namespace OloEngine
                                                 {
                 if (comp.RuntimeFSM)
                     comp.RuntimeFSM->ForceTransition(stateId, entity, comp.Blackboard); });
+
+        // --- GoapAgentComponent ---
+        // Scripts steer the GOAP brain by pushing observations into its world
+        // state (SetWorldFact*) and reading back which goal/plan it committed to.
+        lua.new_usertype<GoapAgentComponent>("GoapAgentComponent", "enabled", &GoapAgentComponent::Enabled, "SetBlackboardBool", [](GoapAgentComponent& comp, const std::string& key, bool value)
+                                             { comp.Blackboard.Set(key, value); }, "GetBlackboardBool", [](const GoapAgentComponent& comp, const std::string& key) -> bool
+                                             { return comp.Blackboard.Get<bool>(key); }, "SetBlackboardInt", [](GoapAgentComponent& comp, const std::string& key, i32 value)
+                                             { comp.Blackboard.Set(key, value); }, "GetBlackboardInt", [](const GoapAgentComponent& comp, const std::string& key) -> i32
+                                             { return comp.Blackboard.Get<i32>(key); }, "SetBlackboardFloat", [](GoapAgentComponent& comp, const std::string& key, f32 value)
+                                             { comp.Blackboard.Set(key, value); }, "GetBlackboardFloat", [](const GoapAgentComponent& comp, const std::string& key) -> f32
+                                             { return comp.Blackboard.Get<f32>(key); }, "SetWorldFactBool", [](GoapAgentComponent& comp, const std::string& key, bool value)
+                                             { if (comp.RuntimeAgent) comp.RuntimeAgent->SetFact(key, value); }, "SetWorldFactInt", [](GoapAgentComponent& comp, const std::string& key, i32 value)
+                                             { if (comp.RuntimeAgent) comp.RuntimeAgent->SetFact(key, value); }, "Invalidate", [](GoapAgentComponent& comp)
+                                             { if (comp.RuntimeAgent) comp.RuntimeAgent->Invalidate(); }, "CurrentGoal", [](const GoapAgentComponent& comp) -> std::string
+                                             { return comp.RuntimeAgent ? comp.RuntimeAgent->CurrentGoalName() : std::string{}; }, "HasPlan", [](const GoapAgentComponent& comp) -> bool
+                                             { return comp.RuntimeAgent && comp.RuntimeAgent->HasPlan(); }, "GoalsAchieved", [](const GoapAgentComponent& comp) -> u32
+                                             { return comp.RuntimeAgent ? comp.RuntimeAgent->GoalsAchieved() : 0u; });
 
         // --- InventoryComponent ---
         lua.new_usertype<InventoryComponent>("InventoryComponent", "currency", &InventoryComponent::Currency, "AddItem", [](InventoryComponent& comp, const std::string& itemId, sol::optional<i32> count)

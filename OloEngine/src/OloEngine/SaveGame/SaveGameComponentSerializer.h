@@ -97,6 +97,7 @@ namespace OloEngine
     struct CinematicComponent;
     struct BehaviorTreeComponent;
     struct StateMachineComponent;
+    struct GoapAgentComponent;
     struct InventoryComponent;
     struct ItemPickupComponent;
     struct ItemContainerComponent;
@@ -197,6 +198,7 @@ namespace OloEngine
         static void Serialize(FArchive& ar, CinematicComponent& c);
         static void Serialize(FArchive& ar, BehaviorTreeComponent& c);
         static void Serialize(FArchive& ar, StateMachineComponent& c);
+        static void Serialize(FArchive& ar, GoapAgentComponent& c);
         static void Serialize(FArchive& ar, InventoryComponent& c);
         static void Serialize(FArchive& ar, ItemPickupComponent& c);
         static void Serialize(FArchive& ar, ItemContainerComponent& c);
