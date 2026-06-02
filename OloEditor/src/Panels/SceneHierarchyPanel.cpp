@@ -1736,6 +1736,7 @@ namespace OloEngine
             DisplayAddComponentEntry<FogVolumeComponent>("Fog Volume");
             DisplayAddComponentEntry<DecalComponent>("Decal");
             DisplayAddComponentEntry<WaterComponent>("Water");
+            DisplayAddComponentEntry<BuoyancyComponent>("Buoyancy");
 
             ImGui::Separator();
 
@@ -4867,6 +4868,28 @@ namespace OloEngine
                 {
                     component.m_NeedsRebuild = true;
                 } });
+
+        DrawComponent<BuoyancyComponent>("Buoyancy", entity, [](auto& component)
+                                         {
+                ImGui::Checkbox("Enabled", &component.m_Enabled);
+
+                ImGui::SeparatorText("Probes");
+                ImGui::DragFloat3("Probe Extents", glm::value_ptr(component.m_ProbeExtents), 0.01f, 0.01f, 1000.0f, "%.2f");
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Local half-extents of the buoyancy box; its 8 corners are the submersion probes. Match to the collider for a sensible displaced volume.");
+                ImGui::DragFloat("Submergence Ramp", &component.m_SubmergenceRamp, 0.01f, 0.001f, 100.0f, "%.3f");
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Metres over which a probe transitions dry -> fully submerged (smooths the waterline).");
+
+                ImGui::SeparatorText("Forces");
+                ImGui::DragFloat("Fluid Density", &component.m_FluidDensity, 1.0f, 1.0f, 100000.0f, "%.0f");
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("kg/m^3. Fresh water ~1000. The body floats when its mass < density * box volume.");
+                ImGui::DragFloat("Buoyancy Scale", &component.m_BuoyancyScale, 0.01f, 0.0f, 1000.0f, "%.2f");
+                ImGui::DragFloat("Linear Drag", &component.m_LinearDrag, 0.01f, 0.0f, 1000.0f, "%.2f");
+                ImGui::DragFloat("Angular Drag", &component.m_AngularDrag, 0.01f, 0.0f, 1000.0f, "%.2f");
+
+                ImGui::TextDisabled("Needs a dynamic Rigidbody 3D over a Water surface."); });
 
         DrawComponent<SnowDeformerComponent>("Snow Deformer", entity, [](auto& component)
                                              {

@@ -141,6 +141,14 @@ Entities:
       AlbedoColor: [0.35, 0.3, 0.22]
       Metallic: 0
       Roughness: 0.95
+    Rigidbody3DComponent:
+      BodyType: 0
+      Mass: 0
+      LinearDrag: 0
+      AngularDrag: 0
+      DisableGravity: false
+    BoxCollider3DComponent:
+      HalfExtents: [30, 0.5, 30]
   # ── Pillars that break the surface (visible above AND below water) ──
   - Entity: 900000000000005
     TagComponent:
@@ -208,10 +216,133 @@ Entities:
       AlbedoColor: [0.9, 0.85, 0.1]
       Metallic: 0
       Roughness: 0.5
-  # ── Primary camera positioned underwater (for Play-mode testing) ──
+  # ── Buoyant cubes (WATER §5.1): press Play and they drop onto the ocean.
+  #    Float height is set by mass vs. the ~1000 kg of water a unit cube
+  #    displaces — light rides high, 250 kg rests at the waterline, heavy sits
+  #    awash, and the 6000 kg stone sinks to the seafloor. ──
+  - Entity: 900000000000020
+    TagComponent:
+      Tag: Buoy (very light)
+    TransformComponent:
+      Translation: [-3, 3, 4]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.1, 0.8, 0.9]
+      Metallic: 0
+      Roughness: 0.4
+    Rigidbody3DComponent:
+      BodyType: 1
+      Mass: 60
+      LinearDrag: 0.05
+      AngularDrag: 0.05
+      DisableGravity: false
+    BoxCollider3DComponent:
+      HalfExtents: [0.5, 0.5, 0.5]
+    BuoyancyComponent:
+      Enabled: true
+      ProbeExtents: [0.5, 0.5, 0.5]
+      FluidDensity: 1000
+      BuoyancyScale: 1
+      LinearDrag: 1.5
+      AngularDrag: 0.8
+      SubmergenceRamp: 1
+  - Entity: 900000000000021
+    TagComponent:
+      Tag: Wooden Crate (waterline)
+    TransformComponent:
+      Translation: [0, 4, 4]
+      Rotation: [0, 0.4, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.6, 0.4, 0.2]
+      Metallic: 0
+      Roughness: 0.6
+    Rigidbody3DComponent:
+      BodyType: 1
+      Mass: 250
+      LinearDrag: 0.05
+      AngularDrag: 0.05
+      DisableGravity: false
+    BoxCollider3DComponent:
+      HalfExtents: [0.5, 0.5, 0.5]
+    BuoyancyComponent:
+      Enabled: true
+      ProbeExtents: [0.5, 0.5, 0.5]
+      FluidDensity: 1000
+      BuoyancyScale: 1
+      LinearDrag: 1.5
+      AngularDrag: 0.8
+      SubmergenceRamp: 1
+  - Entity: 900000000000022
+    TagComponent:
+      Tag: Heavy Crate (awash)
+    TransformComponent:
+      Translation: [3, 3.5, 4]
+      Rotation: [0.1, 0.2, 0.15]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.5, 0.15, 0.15]
+      Metallic: 0
+      Roughness: 0.6
+    Rigidbody3DComponent:
+      BodyType: 1
+      Mass: 430
+      LinearDrag: 0.05
+      AngularDrag: 0.05
+      DisableGravity: false
+    BoxCollider3DComponent:
+      HalfExtents: [0.5, 0.5, 0.5]
+    BuoyancyComponent:
+      Enabled: true
+      ProbeExtents: [0.5, 0.5, 0.5]
+      FluidDensity: 1000
+      BuoyancyScale: 1
+      LinearDrag: 1.5
+      AngularDrag: 0.8
+      SubmergenceRamp: 1
+  - Entity: 900000000000023
+    TagComponent:
+      Tag: Stone Block (sinks)
+    TransformComponent:
+      Translation: [6, 3, 4]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.4, 0.4, 0.42]
+      Metallic: 0.1
+      Roughness: 0.8
+    Rigidbody3DComponent:
+      BodyType: 1
+      Mass: 6000
+      LinearDrag: 0.05
+      AngularDrag: 0.05
+      DisableGravity: false
+    BoxCollider3DComponent:
+      HalfExtents: [0.5, 0.5, 0.5]
+    BuoyancyComponent:
+      Enabled: true
+      ProbeExtents: [0.5, 0.5, 0.5]
+      FluidDensity: 1000
+      BuoyancyScale: 1
+      LinearDrag: 1.5
+      AngularDrag: 0.8
+      SubmergenceRamp: 1
+  # ── Primary camera. Starts underwater (for the §7.2 fog look); in Play mode
+  #    the LuaFreeCamera script makes it fly: WASD move, E/Q up/down, arrows
+  #    look, LeftShift to boost — so you can rise to the surface and watch the
+  #    cubes bob, or dive back under. ──
   - Entity: 900000000000010
     TagComponent:
-      Tag: Underwater Camera
+      Tag: Free-Fly Camera
     TransformComponent:
       Translation: [0, -6, 24]
       Rotation: [-0.2, 0, 0]
@@ -227,6 +358,8 @@ Entities:
         OrthographicFar: 1
       Primary: true
       FixedAspectRatio: false
+    LuaScriptComponent:
+      ScriptFile: Scripts/LuaScripts/LuaFreeCamera.lua
   # ── Skybox / environment map (gives the water something to reflect) ──
   - Entity: 900000000000011
     TagComponent:

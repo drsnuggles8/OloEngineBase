@@ -2010,6 +2010,33 @@ namespace OloEngine
         }
     };
 
+    // Archimedes buoyancy for a dynamic Rigidbody3D floating on a WaterComponent
+    // surface. The BuoyancySystem samples the Gerstner wave field (WaterSurface,
+    // the CPU mirror of Water.glsl) at eight corner probes derived from
+    // m_ProbeExtents, applies an upward force per submerged probe (which yields a
+    // self-righting torque because the forces act at the corners), and damps
+    // bobbing/rocking with submerged linear + angular drag. See
+    // docs/WATER_FUTURE_IMPROVEMENTS.md §5.1.
+    //
+    // Trivially copyable on purpose: the editor's DrawComponent undo path uses a
+    // byte-wise memcmp for trivially-copyable components, so no operator== is
+    // needed (and we avoid float == which the coding rules forbid).
+    struct BuoyancyComponent
+    {
+        bool m_Enabled = true;
+
+        // Local-space half-extents of the buoyancy box (the 8 corners become the
+        // submersion probes). Default matches a 1 m cube; pick values close to the
+        // body's collider so the displaced-volume estimate is sensible.
+        glm::vec3 m_ProbeExtents = { 0.5f, 0.5f, 0.5f };
+
+        f32 m_FluidDensity = 1000.0f;  ///< kg/m^3 (fresh water ~1000). Body floats when its mass < density * boxVolume.
+        f32 m_BuoyancyScale = 1.0f;    ///< global multiplier on the Archimedes force (tuning / artistic control)
+        f32 m_LinearDrag = 0.8f;       ///< submerged linear drag coefficient (damps vertical bobbing)
+        f32 m_AngularDrag = 0.5f;      ///< submerged angular drag coefficient (damps rocking)
+        f32 m_SubmergenceRamp = 0.25f; ///< metres over which a probe ramps dry -> fully wet (smooths the waterline)
+    };
+
     struct SnowDeformerComponent
     {
         f32 m_DeformRadius = 0.5f;     // World-space radius of the deformation stamp
@@ -2565,6 +2592,7 @@ namespace OloEngine
         TerrainComponent,
         FoliageComponent,
         WaterComponent,
+        BuoyancyComponent,
         SnowDeformerComponent,
         FogVolumeComponent,
         DecalComponent,

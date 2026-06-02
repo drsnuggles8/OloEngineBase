@@ -2466,6 +2466,26 @@ namespace OloEngine
             DeserializeWaterComponent(water, waterComponent);
         }
 
+        if (auto buoyancyComponent = entity["BuoyancyComponent"]; buoyancyComponent)
+        {
+            auto& buoyancy = deserializedEntity.AddComponent<BuoyancyComponent>();
+            buoyancy.m_Enabled = buoyancyComponent["Enabled"].as<bool>(buoyancy.m_Enabled);
+            buoyancy.m_ProbeExtents = buoyancyComponent["ProbeExtents"].as<glm::vec3>(buoyancy.m_ProbeExtents);
+            buoyancy.m_FluidDensity = buoyancyComponent["FluidDensity"].as<f32>(buoyancy.m_FluidDensity);
+            buoyancy.m_BuoyancyScale = buoyancyComponent["BuoyancyScale"].as<f32>(buoyancy.m_BuoyancyScale);
+            buoyancy.m_LinearDrag = buoyancyComponent["LinearDrag"].as<f32>(buoyancy.m_LinearDrag);
+            buoyancy.m_AngularDrag = buoyancyComponent["AngularDrag"].as<f32>(buoyancy.m_AngularDrag);
+            buoyancy.m_SubmergenceRamp = buoyancyComponent["SubmergenceRamp"].as<f32>(buoyancy.m_SubmergenceRamp);
+
+            // Validate every float read from YAML (project rule).
+            SanitizeVec3Clamped(buoyancy.m_ProbeExtents, 0.01f, 1000.0f, { 0.5f, 0.5f, 0.5f });
+            SanitizeFloat(buoyancy.m_FluidDensity, 1.0f, 100000.0f, 1000.0f);
+            SanitizeFloat(buoyancy.m_BuoyancyScale, 0.0f, 1000.0f, 1.0f);
+            SanitizeFloat(buoyancy.m_LinearDrag, 0.0f, 1000.0f, 0.8f);
+            SanitizeFloat(buoyancy.m_AngularDrag, 0.0f, 1000.0f, 0.5f);
+            SanitizeFloat(buoyancy.m_SubmergenceRamp, 0.001f, 100.0f, 0.25f);
+        }
+
         if (auto snowDeformerComponent = entity["SnowDeformerComponent"]; snowDeformerComponent)
         {
             DeserializeSnowDeformerComponent(deserializedEntity, snowDeformerComponent);
@@ -4669,6 +4689,23 @@ namespace OloEngine
             out << YAML::Key << "RenderFromBelow" << YAML::Value << water.m_RenderFromBelow;
 
             out << YAML::EndMap; // WaterComponent
+        }
+
+        if (entity.HasComponent<BuoyancyComponent>())
+        {
+            out << YAML::Key << "BuoyancyComponent";
+            out << YAML::BeginMap;
+
+            auto const& buoyancy = entity.GetComponent<BuoyancyComponent>();
+            out << YAML::Key << "Enabled" << YAML::Value << buoyancy.m_Enabled;
+            out << YAML::Key << "ProbeExtents" << YAML::Value << buoyancy.m_ProbeExtents;
+            out << YAML::Key << "FluidDensity" << YAML::Value << buoyancy.m_FluidDensity;
+            out << YAML::Key << "BuoyancyScale" << YAML::Value << buoyancy.m_BuoyancyScale;
+            out << YAML::Key << "LinearDrag" << YAML::Value << buoyancy.m_LinearDrag;
+            out << YAML::Key << "AngularDrag" << YAML::Value << buoyancy.m_AngularDrag;
+            out << YAML::Key << "SubmergenceRamp" << YAML::Value << buoyancy.m_SubmergenceRamp;
+
+            out << YAML::EndMap; // BuoyancyComponent
         }
 
         if (entity.HasComponent<SnowDeformerComponent>())
