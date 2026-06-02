@@ -1479,7 +1479,7 @@ level of `tests/`). Grouped by directory.
 | [FunctionWithContextTest.cpp](../OloEngine/tests/Templates/FunctionWithContextTest.cpp) | 4 | **FunctionWithContext** &mdash; `DefaultConstructedIsNullAndExposesNullSlots`, `LambdaBoundCallableInvokesCaptureBody`, `ReassignmentReplacesBoundCallable`, `RoundTripsThroughStatelessInvocationAPI` |
 | [TypeTraitsTest.cpp](../OloEngine/tests/Templates/TypeTraitsTest.cpp) | 2 | **TypeTraitsTest** &mdash; `AllChecksAreCompileTime`, `AllNameOfsAreCorrect` |
 
-**Totals.** 119 unit / subsystem test files, 1463 TEST / TEST_F declarations across all subsystems.
+**Totals.** 119 unit / subsystem test files, 1464 TEST / TEST_F declarations across all subsystems.
 
 <!-- END: unit-catalogue -->
 
