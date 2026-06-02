@@ -3712,6 +3712,7 @@ namespace OloEngine
                         {
                             component.Sequence = handle;
                             component.RuntimeSequence = nullptr; // force re-resolve
+                            component.Stop();                     // rewind playhead for the new asset
                         }
                         else if (handle != 0)
                         {
@@ -3729,6 +3730,7 @@ namespace OloEngine
                 {
                     component.Sequence = 0;
                     component.RuntimeSequence = nullptr;
+                    component.Stop(); // rewind playhead when the asset is removed
                 }
             }
 

@@ -201,6 +201,10 @@ namespace OloEngine
 
 		#region CinematicComponent
 		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern ulong CinematicComponent_GetSequence(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void CinematicComponent_SetSequence(ulong entityID, ulong value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern bool CinematicComponent_GetPlayOnStart(ulong entityID);
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern void CinematicComponent_SetPlayOnStart(ulong entityID, bool value);

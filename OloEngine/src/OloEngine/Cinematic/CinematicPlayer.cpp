@@ -1,6 +1,7 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Cinematic/CinematicPlayer.h"
 #include "OloEngine/Cinematic/CinematicSequence.h"
+#include "OloEngine/Debug/Instrumentor.h"
 
 #include <algorithm>
 #include <cmath>
@@ -10,6 +11,8 @@ namespace OloEngine::CinematicPlayer
 {
     AdvanceResult AdvanceTime(f32 fromTime, f32 dt, f32 speed, f32 duration, bool loop) noexcept
     {
+        OLO_PROFILE_FUNCTION();
+
         AdvanceResult result;
 
         if (duration <= 0.0f)
@@ -51,6 +54,8 @@ namespace OloEngine::CinematicPlayer
     void CollectEvents(const CinematicSequence& sequence, f32 lowerExclusive, f32 upperInclusive,
                        std::vector<std::string>& out)
     {
+        OLO_PROFILE_FUNCTION();
+
         if (upperInclusive < lowerExclusive)
         {
             return;
@@ -83,6 +88,8 @@ namespace OloEngine::CinematicPlayer
 
     TickResult Tick(const CinematicSequence& sequence, f32 fromTime, f32 eventFloor, f32 dt, f32 speed, bool loop)
     {
+        OLO_PROFILE_FUNCTION();
+
         TickResult result;
 
         const f32 duration = sequence.GetEffectiveDuration();

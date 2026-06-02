@@ -22,6 +22,7 @@ namespace OloEngine
     struct CinematicComponent
     {
         // ----- Serialized authoring data -----
+        OLO_PROPERTY()
         AssetHandle Sequence = 0; ///< CinematicSequence asset to play
 
         OLO_PROPERTY()

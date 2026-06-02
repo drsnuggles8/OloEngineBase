@@ -990,6 +990,26 @@ static void CharacterController3DComponent_SetDisableGravity(UUID entityID, bool
 // CinematicComponent                                                             //
 ///////////////////////////////////////////////////////////////////////////////////////////
 
+static u64 CinematicComponent_GetSequence(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<CinematicComponent>();
+    return comp.Sequence;
+}
+
+static void CinematicComponent_SetSequence(UUID entityID, u64 value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<CinematicComponent>();
+    comp.Sequence = value;
+}
+
 static bool CinematicComponent_GetPlayOnStart(UUID entityID)
 {
     Scene* scene = ScriptEngine::GetSceneContext();

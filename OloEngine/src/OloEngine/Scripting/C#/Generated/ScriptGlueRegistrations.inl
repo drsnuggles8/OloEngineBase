@@ -101,6 +101,8 @@ OLO_ADD_INTERNAL_CALL(CharacterController3DComponent_GetDisableGravity);
 OLO_ADD_INTERNAL_CALL(CharacterController3DComponent_SetDisableGravity);
 
 // CinematicComponent
+OLO_ADD_INTERNAL_CALL(CinematicComponent_GetSequence);
+OLO_ADD_INTERNAL_CALL(CinematicComponent_SetSequence);
 OLO_ADD_INTERNAL_CALL(CinematicComponent_GetPlayOnStart);
 OLO_ADD_INTERNAL_CALL(CinematicComponent_SetPlayOnStart);
 OLO_ADD_INTERNAL_CALL(CinematicComponent_GetLoop);

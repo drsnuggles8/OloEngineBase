@@ -303,6 +303,12 @@ namespace OloEngine
 
 	public partial class CinematicComponent : Component
 	{
+		public ulong Sequence
+		{
+			get => InternalCalls.CinematicComponent_GetSequence(Entity.ID);
+			set => InternalCalls.CinematicComponent_SetSequence(Entity.ID, value);
+		}
+
 		public bool PlayOnStart
 		{
 			get => InternalCalls.CinematicComponent_GetPlayOnStart(Entity.ID);
