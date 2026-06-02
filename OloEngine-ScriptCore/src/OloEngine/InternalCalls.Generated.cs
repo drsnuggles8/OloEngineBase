@@ -216,6 +216,10 @@ namespace OloEngine
 		internal static extern float CinematicComponent_GetPlaybackSpeed(ulong entityID);
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern void CinematicComponent_SetPlaybackSpeed(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool CinematicComponent_GetPlaying(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void CinematicComponent_SetPlaying(ulong entityID, bool value);
 		#endregion
 
 		#region CircleCollider2DComponent

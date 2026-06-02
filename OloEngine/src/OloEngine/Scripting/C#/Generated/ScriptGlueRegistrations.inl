@@ -109,6 +109,8 @@ OLO_ADD_INTERNAL_CALL(CinematicComponent_GetLoop);
 OLO_ADD_INTERNAL_CALL(CinematicComponent_SetLoop);
 OLO_ADD_INTERNAL_CALL(CinematicComponent_GetPlaybackSpeed);
 OLO_ADD_INTERNAL_CALL(CinematicComponent_SetPlaybackSpeed);
+OLO_ADD_INTERNAL_CALL(CinematicComponent_GetPlaying);
+OLO_ADD_INTERNAL_CALL(CinematicComponent_SetPlaying);
 
 // CircleCollider2DComponent
 OLO_ADD_INTERNAL_CALL(CircleCollider2DComponent_GetOffset);

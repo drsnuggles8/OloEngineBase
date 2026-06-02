@@ -43,6 +43,9 @@ namespace OloEngine::CinematicPlayer
             }
             result.NewTime = wrapped;
             result.Looped = true;
+            // Number of full laps crossed this step (>=1). >1 when a single dt
+            // spans the whole timeline more than once (e.g. a frame hitch).
+            result.LoopCount = static_cast<u32>(raw / duration);
             return result;
         }
 
@@ -106,10 +109,21 @@ namespace OloEngine::CinematicPlayer
 
         if (adv.Looped)
         {
-            // Tail of the lap we just left, then the head of the new lap. The
-            // negative sentinel lets events authored at exactly t == 0 re-fire
-            // each loop.
+            // Tail of the lap we just left, every full lap crossed in between,
+            // then the head of the new lap. The negative sentinel lets events
+            // authored at exactly t == 0 re-fire each loop. Each *completed*
+            // lap fires the whole timeline's events; a single huge dt (frame
+            // hitch) can cross several. The middle-lap count is capped so a
+            // pathological dt can't spin firing the same events unboundedly.
             CollectEvents(sequence, eventFloor, duration, result.FiredEvents);
+
+            constexpr u32 kMaxMiddleLaps = 64;
+            const u32 middleLaps = (adv.LoopCount > 1) ? std::min(adv.LoopCount - 1, kMaxMiddleLaps) : 0;
+            for (u32 lap = 0; lap < middleLaps; ++lap)
+            {
+                CollectEvents(sequence, -1.0f, duration, result.FiredEvents);
+            }
+
             CollectEvents(sequence, -1.0f, adv.NewTime, result.FiredEvents);
         }
         else

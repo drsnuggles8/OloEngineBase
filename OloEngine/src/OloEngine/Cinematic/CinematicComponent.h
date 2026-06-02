@@ -4,6 +4,7 @@
 #include "OloEngine/Core/Ref.h"
 #include "OloEngine/Asset/Asset.h"
 #include "OloEngine/Cinematic/CinematicSequence.h"
+#include "OloEngine/Math/Math.h"                 // Math::BitwiseEqual
 #include "OloEngine/Scene/ComponentReflection.h" // OLO_PROPERTY
 
 #include <string>
@@ -38,7 +39,8 @@ namespace OloEngine
         /// Resolved sequence. Set directly for code/tests, or lazily loaded
         /// from `Sequence` by CinematicSystem when null.
         Ref<CinematicSequence> RuntimeSequence;
-        bool Playing = false;
+        OLO_PROPERTY()
+        bool Playing = false;     ///< runtime playback flag (exposed for scripts; not serialized)
         f32 Time = 0.0f;          ///< current playhead in seconds
         f32 PreviousTime = -1.0f; ///< playhead last tick (sentinel < 0 fires t==0 events)
         bool Finished = false;    ///< reached the end this run (non-looping)
@@ -73,6 +75,18 @@ namespace OloEngine
         }
         CinematicComponent(CinematicComponent&&) = default;
         CinematicComponent& operator=(CinematicComponent&&) = default;
+
+        // Authoring-only equality for the editor's undo/redo diff (SceneHierarchy
+        // DrawComponent tier-2). Deliberately excludes the runtime playhead /
+        // preview state (Time, Playing, Finished, RuntimeSequence,
+        // EventsFiredThisFrame) so scrubbing or previewing in the inspector never
+        // registers as an edit — same rationale as TagComponent's transient
+        // `renaming` flag. PlaybackSpeed goes through BitwiseEqual per
+        // cpp-coding-quality §2 (no float ==).
+        auto operator==(const CinematicComponent& other) const -> bool
+        {
+            return Sequence == other.Sequence && PlayOnStart == other.PlayOnStart && Loop == other.Loop && Math::BitwiseEqual(PlaybackSpeed, other.PlaybackSpeed);
+        }
 
         /// Start (or resume) playback from the current playhead.
         void Play()

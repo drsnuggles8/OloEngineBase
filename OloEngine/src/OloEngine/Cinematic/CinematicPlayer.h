@@ -26,6 +26,7 @@ namespace OloEngine
             f32 NewTime = 0.0f;
             bool Looped = false;       ///< playhead wrapped past the end this step
             bool JustFinished = false; ///< reached the end this step (non-looping / empty)
+            u32 LoopCount = 0;         ///< full laps crossed this step (>=1 when Looped; >1 on a huge dt)
         };
 
         /// Advance `fromTime` by `dt * max(speed, 0)`, honouring `duration` and

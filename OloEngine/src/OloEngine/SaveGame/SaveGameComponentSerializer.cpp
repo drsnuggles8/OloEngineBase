@@ -2280,9 +2280,18 @@ namespace OloEngine
         ar << c.PlaybackSpeed;
         // RuntimeSequence + playhead/event state are runtime-only; the tick
         // loop rebuilds them when playback (re)starts.
-        if (ar.IsLoading() && (!std::isfinite(c.PlaybackSpeed) || c.PlaybackSpeed < 0.0f))
+        if (ar.IsLoading())
         {
-            c.PlaybackSpeed = 1.0f;
+            if (!std::isfinite(c.PlaybackSpeed))
+            {
+                c.PlaybackSpeed = 1.0f;
+            }
+            else
+            {
+                // Clamp to the inspector's authoring range so a corrupted save
+                // can't inject a negative or absurd time scale.
+                c.PlaybackSpeed = std::clamp(c.PlaybackSpeed, 0.0f, 16.0f);
+            }
         }
     }
 

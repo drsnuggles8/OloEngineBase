@@ -176,6 +176,29 @@ TEST(CinematicPlayerTest, TickLoopWrapFiresTailThenHead)
     EXPECT_EQ(r.FiredEvents[1], "start");
 }
 
+TEST(CinematicPlayerTest, TickMultiLapFiresEachCompletedLapEvents)
+{
+    auto seq = MakeEventSequence(); // 5s; events start@0, mid@1, end@5
+
+    // One huge step (dt=12s) wraps the 5s timeline twice and lands at t=2.
+    // The old single-wrap logic dropped the middle lap's events entirely.
+    const auto r = CinematicPlayer::Tick(*seq, 0.0f, -1.0f, 12.0f, 1.0f, /*loop*/ true);
+    EXPECT_TRUE(r.Looped);
+    EXPECT_NEAR(r.NewTime, 2.0f, kEps);
+
+    const auto count = [&](const char* name)
+    {
+        u32 n = 0;
+        for (const auto& e : r.FiredEvents)
+            if (e == name)
+                ++n;
+        return n;
+    };
+    EXPECT_EQ(count("end"), 2u);   // one per completed lap
+    EXPECT_EQ(count("mid"), 3u);   // lap 1, lap 2, and the final head (t=2 >= 1)
+    EXPECT_EQ(count("start"), 3u); // t==0 re-fires at each lap head
+}
+
 TEST(CinematicPlayerTest, EffectiveDurationDerivesFromKeysWhenUnset)
 {
     auto seq = Ref<CinematicSequence>::Create();

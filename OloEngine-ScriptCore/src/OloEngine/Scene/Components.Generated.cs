@@ -326,6 +326,12 @@ namespace OloEngine
 			get => InternalCalls.CinematicComponent_GetPlaybackSpeed(Entity.ID);
 			set => InternalCalls.CinematicComponent_SetPlaybackSpeed(Entity.ID, value);
 		}
+
+		public bool Playing
+		{
+			get => InternalCalls.CinematicComponent_GetPlaying(Entity.ID);
+			set => InternalCalls.CinematicComponent_SetPlaying(Entity.ID, value);
+		}
 	}
 
 	public partial class CircleCollider2DComponent : Component

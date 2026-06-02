@@ -3759,14 +3759,20 @@ namespace OloEngine
             // Edit-mode scrubbing: pose the scene at the chosen time. Works in
             // the viewport without entering Play mode. Keep PreviousTime aligned
             // so a subsequent resume doesn't replay events from before the scrub.
+            // Disabled while the scene is running: the runtime CinematicSystem
+            // owns the playhead then, so scrubbing would fight its per-frame
+            // advance (and double-write component.Time).
+            const bool runtimeOwnsPlayhead = m_Context && m_Context->IsRunning();
+            ImGui::BeginDisabled(runtimeOwnsPlayhead);
             f32 scrub = component.Time;
-            if (ImGui::SliderFloat("Scrub##Cinematic", &scrub, 0.0f, duration > 0.0f ? duration : 1.0f))
+            if (ImGui::SliderFloat("Scrub##Cinematic", &scrub, 0.0f, duration > 0.0f ? duration : 1.0f) && !runtimeOwnsPlayhead)
             {
                 component.Time = scrub;
                 component.PreviousTime = scrub;
                 if (m_Context)
                     CinematicSystem::ApplyAtTime(*m_Context, *seq, scrub);
             }
+            ImGui::EndDisabled();
 
             const bool atEnd = component.Finished || component.Time >= duration;
 

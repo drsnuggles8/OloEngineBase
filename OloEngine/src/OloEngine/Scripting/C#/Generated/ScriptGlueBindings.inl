@@ -1072,6 +1072,26 @@ static void CinematicComponent_SetPlaybackSpeed(UUID entityID, float value)
     comp.PlaybackSpeed = value;
 }
 
+static bool CinematicComponent_GetPlaying(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<CinematicComponent>();
+    return comp.Playing;
+}
+
+static void CinematicComponent_SetPlaying(UUID entityID, bool value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<CinematicComponent>();
+    comp.Playing = value;
+}
+
 ///////////////////////////////////////////////////////////////////////////////////////////
 // CircleCollider2DComponent                                                      //
 ///////////////////////////////////////////////////////////////////////////////////////////

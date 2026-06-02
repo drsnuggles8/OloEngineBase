@@ -2156,7 +2156,15 @@ namespace OloEngine
     template<>
     void Scene::OnComponentAdded<AnimationGraphComponent>(Entity, AnimationGraphComponent&) {}
     template<>
-    void Scene::OnComponentAdded<CinematicComponent>(Entity, CinematicComponent&) {}
+    void Scene::OnComponentAdded<CinematicComponent>(Entity, CinematicComponent& component)
+    {
+        // If a cinematic is added while the scene is already running, honour
+        // PlayOnStart now — OnRuntimeStart (which normally does this) has passed.
+        if (m_IsRunning && component.PlayOnStart)
+        {
+            component.PlayFromStart();
+        }
+    }
     template<>
     void Scene::OnComponentAdded<BehaviorTreeComponent>(Entity, BehaviorTreeComponent&) {}
     template<>

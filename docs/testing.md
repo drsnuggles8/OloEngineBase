@@ -1376,7 +1376,7 @@ level of `tests/`). Grouped by directory.
 | File | Tests | Cases |
 |---|---:|---|
 | [CinematicCurveTest.cpp](../OloEngine/tests/Cinematic/CinematicCurveTest.cpp) | 13 | **CinematicCurveTest** &mdash; `EmptyFloatChannelReturnsFallback`, `FloatChannelClampsOutsideRange`, `FloatChannelLinearMidpoint`, `FloatChannelConstantHoldsLeftKey`, `FloatChannelEaseInOutIsSmoothstep`, `ApplyInterpContract`, `Vec3ChannelLinearMidpoint`, `Vec3ChannelDegenerateSegmentIsSafe`, `QuatChannelSlerpMidpointAndNormalization`, `QuatChannelDegenerateKeyDoesNotNaN`, `QuatChannelEmptyReturnsFallback`, `VisibilityTrackStepSemantics`, `VisibilityTrackBeforeFirstKeyUsesFallback` |
-| [CinematicPlayerTest.cpp](../OloEngine/tests/Cinematic/CinematicPlayerTest.cpp) | 13 | **CinematicPlayerTest** &mdash; `AdvanceTimeNormalStep`, `AdvanceTimeSpeedScales`, `AdvanceTimeNegativeSpeedHolds`, `AdvanceTimeClampsAtEndWhenNotLooping`, `AdvanceTimeWrapsWhenLooping`, `AdvanceTimeZeroDurationFinishesImmediately`, `CollectEventsHalfOpenWindow`, `CollectEventsOrdersByTimeAcrossTracks`, `TickFiresZeroTimeEventOnFirstStep`, `TickDoesNotDoubleFireAcrossConsecutiveSteps`, `TickClampFinishFiresFinalEvent`, `TickLoopWrapFiresTailThenHead`, `EffectiveDurationDerivesFromKeysWhenUnset` |
+| [CinematicPlayerTest.cpp](../OloEngine/tests/Cinematic/CinematicPlayerTest.cpp) | 14 | **CinematicPlayerTest** &mdash; `AdvanceTimeNormalStep`, `AdvanceTimeSpeedScales`, `AdvanceTimeNegativeSpeedHolds`, `AdvanceTimeClampsAtEndWhenNotLooping`, `AdvanceTimeWrapsWhenLooping`, `AdvanceTimeZeroDurationFinishesImmediately`, `CollectEventsHalfOpenWindow`, `CollectEventsOrdersByTimeAcrossTracks`, `TickFiresZeroTimeEventOnFirstStep`, `TickDoesNotDoubleFireAcrossConsecutiveSteps`, `TickClampFinishFiresFinalEvent`, `TickLoopWrapFiresTailThenHead`, `TickMultiLapFiresEachCompletedLapEvents`, `EffectiveDurationDerivesFromKeysWhenUnset` |
 | [CinematicSerializerTest.cpp](../OloEngine/tests/Cinematic/CinematicSerializerTest.cpp) | 4 | **CinematicSerializerTest** &mdash; `RoundTripPreservesStructureAndValues`, `EmptySequenceRoundTrips`, `MalformedYamlReturnsNullWithoutCrashing`, `NullSequenceSerializesToEmptyString` |
 
 #### Containers (1 file)
@@ -1479,7 +1479,7 @@ level of `tests/`). Grouped by directory.
 | [FunctionWithContextTest.cpp](../OloEngine/tests/Templates/FunctionWithContextTest.cpp) | 4 | **FunctionWithContext** &mdash; `DefaultConstructedIsNullAndExposesNullSlots`, `LambdaBoundCallableInvokesCaptureBody`, `ReassignmentReplacesBoundCallable`, `RoundTripsThroughStatelessInvocationAPI` |
 | [TypeTraitsTest.cpp](../OloEngine/tests/Templates/TypeTraitsTest.cpp) | 2 | **TypeTraitsTest** &mdash; `AllChecksAreCompileTime`, `AllNameOfsAreCorrect` |
 
-**Totals.** 119 unit / subsystem test files, 1464 TEST / TEST_F declarations across all subsystems.
+**Totals.** 119 unit / subsystem test files, 1465 TEST / TEST_F declarations across all subsystems.
 
 <!-- END: unit-catalogue -->
 

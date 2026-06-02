@@ -115,6 +115,17 @@ namespace OloEngine
             }
             return static_cast<CinematicInterp>(raw);
         }
+        // CinematicCurve evaluation assumes keys are sorted by Time ascending.
+        // YAML preserves authoring order, which a hand-edited file may not honour,
+        // so enforce the invariant after reading. stable_sort keeps the relative
+        // order of equal-time keys (matters for degenerate same-time segments).
+        template<typename KeyVec>
+        void SortKeysByTime(KeyVec& keys)
+        {
+            std::stable_sort(keys.begin(), keys.end(),
+                             [](const auto& a, const auto& b)
+                             { return a.Time < b.Time; });
+        }
         void ReadFloatChannel(const YAML::Node& node, CinematicFloatChannel& channel)
         {
             if (!node || !node.IsSequence())
@@ -131,6 +142,7 @@ namespace OloEngine
                 }
                 channel.Keys.push_back({ time, value, ReadInterp(keyNode["Interp"]) });
             }
+            SortKeysByTime(channel.Keys);
         }
         void ReadVec3Channel(const YAML::Node& node, CinematicVec3Channel& channel)
         {
@@ -147,6 +159,7 @@ namespace OloEngine
                 }
                 channel.Keys.push_back({ time, ReadVec3(keyNode["Value"], glm::vec3(0.0f)), ReadInterp(keyNode["Interp"]) });
             }
+            SortKeysByTime(channel.Keys);
         }
         void ReadQuatChannel(const YAML::Node& node, CinematicQuatChannel& channel)
         {
@@ -163,6 +176,7 @@ namespace OloEngine
                 }
                 channel.Keys.push_back({ time, ReadQuat(keyNode["Value"]), ReadInterp(keyNode["Interp"]) });
             }
+            SortKeysByTime(channel.Keys);
         }
     } // namespace
 
@@ -323,6 +337,7 @@ namespace OloEngine
                         track.Keys.push_back({ time, keyNode["Visible"].as<bool>(true) });
                     }
                 }
+                SortKeysByTime(track.Keys); // visibility step-eval assumes ascending time
                 sequence->VisibilityTracks.push_back(std::move(track));
             }
         }
@@ -345,6 +360,7 @@ namespace OloEngine
                         track.Keys.push_back({ time, keyNode["Name"].as<std::string>(std::string{}) });
                     }
                 }
+                SortKeysByTime(track.Keys); // event edge-firing assumes ascending time
                 sequence->EventTracks.push_back(std::move(track));
             }
         }
