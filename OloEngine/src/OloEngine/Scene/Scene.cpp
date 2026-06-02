@@ -3092,6 +3092,21 @@ namespace OloEngine
             UBOStructures::MultiLightUBO multiLightData{};
             i32 lightIndex = 0;
 
+            // Sanitize an authored spot-light direction once, reused by every
+            // downstream consumer (Forward+ SSBO, MultiLight UBO, and the
+            // spot-shadow projection). A zero-length or non-finite direction
+            // would make glm::normalize emit NaNs; fall back to a safe -Z unit.
+            // Valid directions pass through unchanged.
+            const auto sanitizeSpotDir = [](const glm::vec3& dir) -> glm::vec3
+            {
+                const f32 len2 = glm::dot(dir, dir);
+                if (!std::isfinite(len2) || len2 < 1e-8f)
+                {
+                    return glm::vec3(0.0f, 0.0f, -1.0f);
+                }
+                return dir;
+            };
+
             // Collect directional lights
             auto dirLightView = m_Registry.view<TransformComponent, DirectionalLightComponent>();
             for (auto entity : dirLightView)
@@ -3195,14 +3210,9 @@ namespace OloEngine
             {
                 const auto& [transform, spotLight] = spotLightView.get<TransformComponent, SpotLightComponent>(entity);
 
-                // Sanitize the authored direction before normalizing — a zero
-                // or non-finite m_Direction would make glm::normalize emit NaNs
-                // into the Forward+ SSBO. Fall back to a safe -Z unit vector.
-                glm::vec3 spotDir = spotLight.m_Direction;
-                if (const f32 spotDirLen2 = glm::dot(spotDir, spotDir); !std::isfinite(spotDirLen2) || spotDirLen2 < 1e-8f)
-                {
-                    spotDir = glm::vec3(0.0f, 0.0f, -1.0f);
-                }
+                // Sanitized direction shared by the Forward+ SSBO, the
+                // MultiLight UBO, and the spot-shadow projection below.
+                const glm::vec3 spotDir = sanitizeSpotDir(spotLight.m_Direction);
 
                 // Forward+ SSBO entry (capacity clamped in LightCullingBuffer::Update)
                 fpSpotLights.push_back({ glm::vec4(transform.Translation, spotLight.m_Range),
@@ -3230,12 +3240,12 @@ namespace OloEngine
                 // Encode spot shadow index in direction.w (-1 = no shadow)
                 if (spotLight.m_CastShadows && spotShadowIndex < ShadowMap::MAX_SPOT_SHADOWS)
                 {
-                    data.Direction = glm::vec4(spotLight.m_Direction, static_cast<f32>(spotShadowIndex));
+                    data.Direction = glm::vec4(spotDir, static_cast<f32>(spotShadowIndex));
                     ++spotShadowIndex;
                 }
                 else
                 {
-                    data.Direction = glm::vec4(spotLight.m_Direction, -1.0f);
+                    data.Direction = glm::vec4(spotDir, -1.0f);
                 }
 
                 ++lightIndex;
@@ -3384,7 +3394,7 @@ namespace OloEngine
                     shadowMap.SetSpotLightShadow(
                         spotIdx,
                         transform.Translation,
-                        spotLight.m_Direction,
+                        sanitizeSpotDir(spotLight.m_Direction),
                         spotLight.m_OuterCutoff,
                         spotLight.m_Range);
                     ++spotIdx;
