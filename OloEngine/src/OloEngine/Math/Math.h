@@ -41,7 +41,7 @@ namespace OloEngine::Math
     {
         return std::isfinite(v);
     }
-    
+
     [[nodiscard]] inline bool IsFinite(double v) noexcept
     {
         return std::isfinite(v);

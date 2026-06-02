@@ -991,7 +991,7 @@ namespace OloEngine
         record.m_IndexCount = indexCount;
         record.m_InstanceCount = instanceCount;
         record.m_FromAutoBatching = fromAutoBatching;
-        if (source && *source)
+        if (source != nullptr && *source != '\0')
             record.m_Source = source;
         if (entityIDs && instanceCount > 0)
         {

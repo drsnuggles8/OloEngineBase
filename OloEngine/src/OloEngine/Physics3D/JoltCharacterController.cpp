@@ -544,7 +544,7 @@ namespace OloEngine
         // Check if the collision layers should interact
         // Check if this layer should be ignored using configurable bitmask.
         // Guard the shift: layers >= 32 cannot be expressed in the 32-bit mask and shifting by >= 32 is UB.
-        if (const u32 otherLayer = otherBody.GetObjectLayer(); otherLayer < 32u && (m_IgnoreCollisionLayers & (1u << otherLayer)))
+        if (const u32 otherLayer = otherBody.GetObjectLayer(); otherLayer < 32u && (m_IgnoreCollisionLayers & (1u << otherLayer)) != 0u)
             return false;
 
         // Allow collision with all other layers (Static, Dynamic, Kinematic, other Characters)

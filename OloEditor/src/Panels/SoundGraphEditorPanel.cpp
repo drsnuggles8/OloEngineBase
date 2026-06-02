@@ -12,6 +12,7 @@
 #include "OloEngine/Audio/SoundGraph/SoundGraphSound.h"
 #include "OloEngine/Core/Application.h"
 #include "OloEngine/Core/Events/EditorEvents.h"
+#include "OloEngine/Math/Math.h"
 #include "OloEngine/Project/Project.h"
 #include "OloEngine/Utils/PlatformUtils.h"
 #include "../UndoRedo/EditorCommand.h"
@@ -372,15 +373,26 @@ namespace OloEngine
         f32 const offX = std::fmod(m_ScrollOffset.x * m_Zoom, gridStep);
         f32 const offY = std::fmod(m_ScrollOffset.y * m_Zoom, gridStep);
 
-        for (f32 x = canvasOrigin.x + offX; x < canvasOrigin.x + canvasSize.x; x += gridStep)
+        // Integer line counter, position derived from the index — avoids the
+        // rounding drift an accumulating `x += gridStep` float counter introduces
+        // over many grid lines (cpp:S2193).
+        const f32 startX = canvasOrigin.x + offX;
+        const f32 endX = canvasOrigin.x + canvasSize.x;
+        for (int lineIndex = 0;; ++lineIndex)
         {
-            int lineIndex = static_cast<int>((x - canvasOrigin.x - offX) / gridStep);
+            const f32 x = startX + static_cast<f32>(lineIndex) * gridStep;
+            if (x >= endX)
+                break;
             drawList->AddLine(ImVec2(x, canvasOrigin.y), ImVec2(x, canvasOrigin.y + canvasSize.y),
                               (lineIndex % 4 == 0) ? gridColorMajor : gridColor);
         }
-        for (f32 y = canvasOrigin.y + offY; y < canvasOrigin.y + canvasSize.y; y += gridStep)
+        const f32 startY = canvasOrigin.y + offY;
+        const f32 endY = canvasOrigin.y + canvasSize.y;
+        for (int lineIndex = 0;; ++lineIndex)
         {
-            int lineIndex = static_cast<int>((y - canvasOrigin.y - offY) / gridStep);
+            const f32 y = startY + static_cast<f32>(lineIndex) * gridStep;
+            if (y >= endY)
+                break;
             drawList->AddLine(ImVec2(canvasOrigin.x, y), ImVec2(canvasOrigin.x + canvasSize.x, y),
                               (lineIndex % 4 == 0) ? gridColorMajor : gridColor);
         }
@@ -958,11 +970,14 @@ namespace OloEngine
         if (ImGui::IsItemHovered())
         {
             f32 const wheel = ImGui::GetIO().MouseWheel;
-            if (wheel != 0.0f)
+            // ImGui zeroes MouseWheel when idle, so a bit-exact sentinel check is
+            // the intent here (cpp-coding-quality §2a — no float ==/!=).
+            if (!Math::BitwiseEqual(wheel, 0.0f))
             {
                 f32 const oldZoom = m_Zoom;
                 m_Zoom = std::clamp(m_Zoom * (1.0f + wheel * 0.1f), 0.25f, 3.0f);
-                if (m_Zoom != oldZoom)
+                // Bit-exact change detection: only recompute if the clamp actually moved zoom.
+                if (!Math::BitwiseEqual(m_Zoom, oldZoom))
                 {
                     ImVec2 const mousePos = ImGui::GetIO().MousePos;
                     glm::vec2 const worldBefore = ScreenToWorld(mousePos, canvasOrigin);

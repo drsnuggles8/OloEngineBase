@@ -1,5 +1,6 @@
 #include "OloEngine/Networking/MMO/PlayerStatePacket.h"
 #include "OloEngine/Debug/Profiler.h"
+#include "OloEngine/Math/Math.h"
 #include "OloEngine/Serialization/Archive.h"
 
 #include <cstring>
@@ -111,6 +112,18 @@ namespace OloEngine
 
         if (reader.IsError())
         {
+            return std::nullopt;
+        }
+
+        // Reject non-finite transforms. A malicious or buggy client can put
+        // NaN/Inf into the replicated Position/Rotation/Scale; applying it would
+        // corrupt server-side spatial partitioning, interest management, and the
+        // Jolt simulation for every player in the zone. Per cpp-coding-quality §2,
+        // floats read from the network must be validated — and for untrusted
+        // input the safe response is to drop the packet, not clamp it.
+        if (!Math::IsFinite(packet.Position) || !Math::IsFinite(packet.Rotation) || !Math::IsFinite(packet.Scale))
+        {
+            OLO_CORE_WARN("[PlayerStatePacket] Rejecting packet with non-finite transform (client {})", packet.ClientID);
             return std::nullopt;
         }
 

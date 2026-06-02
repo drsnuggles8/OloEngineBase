@@ -269,6 +269,37 @@ deref guard isn't worth an inline `// NOSONAR` in save-game code). Left untouche
 
 ---
 
+## 7. `cpp:S1244` — "floating-point numbers should not be tested for equality"
+
+**Hits triaged:** ~18 (RELIABILITY). Split between intentional exact-comparison and one genuine fix.
+
+This rule restates the project's own [cpp-coding-quality §2](agent-rules/cpp-coding-quality.md) (no `==`/`!=` on floats). Most hits, though, are the *bit-exact* case §2a explicitly carves out — change detection, where any difference (including a one-ULP edit) must register:
+
+- **`Scene/Components.h` (9 hits)** — each is a `operator==(const T&) const -> bool = default;`, the documented undo/redo change-detection hook (CLAUDE.md "Editor undo/redo for components"). Defaulted member-wise float equality *is* the intended bit-exact semantics; hand-rolling epsilon comparisons would defeat the `= default` pattern. **Scoped out** in `sonar-project.properties` (`cmp_s1244_components`), narrowed to `Components.h` so real float `==` bugs elsewhere in `Scene/**` stay flagged.
+- **`Renderer/Commands/RenderCommand.h:155` (7 hits)** — `PODMaterialData::operator==`, a deliberate field-wise exact comparison for render-command change detection / dedup (it intentionally avoids `memcmp` due to padding — see the comment). Exact equality is correct; epsilon would wrongly merge distinct materials. **Scoped out** (`cmp_s1244_rendercmd`).
+- **`OloEditor/.../SoundGraphEditorPanel.cpp:961,965` — fixed in code.** A mouse-wheel "did it move" sentinel and a post-clamp zoom change-detection, both written as raw `!= ` on floats. Replaced with `Math::BitwiseEqual` (the §2a-blessed bit-exact form) — same behavior, rule satisfied, no suppression needed.
+
+---
+
+## 8. Reliability cleanup batch — `S867` / `S853` / `S2193` (fixed) and `S3584` / `S6232` (triaged)
+
+A sweep of the remaining `RELIABILITY` findings (excluding the intentional `S8417`
+atomics and the `S5000`/`S3519` analyzer FPs) surfaced a set of small, genuine,
+mechanical fixes — all applied in code:
+
+- **`cpp:S867`** ("operand should have type `bool`") — implicit conversions in `&&`/`!`.
+  Fixed to explicit comparisons: `GetExitCodeThread(...) != 0` ([RunnableThread.cpp](../OloEngine/src/OloEngine/HAL/RunnableThread.cpp), Windows `BOOL` is `int`), `ref == 0` ([NavMeshQuery.cpp](../OloEngine/src/OloEngine/Navigation/NavMeshQuery.cpp), `dtPolyRef` is an integer handle), `(mask & bit) != 0u` ([JoltCharacterController.cpp](../OloEngine/src/OloEngine/Physics3D/JoltCharacterController.cpp)), and `source != nullptr && *source != '\0'` ([RendererProfiler.cpp](../OloEngine/src/OloEngine/Renderer/Debug/RendererProfiler.cpp), a `const char*`).
+- **`cpp:S853`** ("explicit cast on the result of `~`") — the `AssetFlag` bit ops in
+  [AssetTypes.h](../OloEngine/src/OloEngine/Asset/AssetTypes.h) / [Asset.h](../OloEngine/src/OloEngine/Asset/Asset.h): `~` integer-promotes its `u16` operand to `int`, so the high bits it sets were being narrowed implicitly. Added an explicit cast back to the underlying type.
+- **`cpp:S2193`** ("float loop counter") — the SoundGraph editor grid-line loops accumulated `x += gridStep` in a `f32` counter, drifting over many lines. Rewrote with an `int` index and `pos = start + i*step`.
+
+Triaged as **not-a-fix** (left in place, reasoning recorded):
+
+- **`cpp:S3584`** ("potential leak of `New`", `ClosableMpscQueue.h`) — **false positive**. On the success path `New` is published to the queue via `Prev->Next.store(New)` (ownership transfers to the queue, freed at `Close()`); only the closed-queue path owns and deletes it. Adding a `delete` would double-free. Annotated with an inline `// NOSONAR cpp:S3584` + ownership comment.
+- **`cpp:S6232` / `cpp:M23_360`** ("type-punning via union → use `std::bit_cast`", `GenericPlatformMemory.cpp` `Memswap`) — left untouched. It's the Unreal-ported aligned word-swap hot path where the pointer union is read for alignment *and* advanced for the swap; a `bit_cast` rewrite is a non-trivial restructure of intentional, perf-critical code with no functional defect. Better handled deliberately, not as a drive-by.
+
+---
+
 ## High-volume rules to deactivate or scope (full-corpus histogram)
 
 A full-corpus facet query (≈31,800 open issues) surfaced four very high-count rules that are **MISRA / stylistic rules fighting idiomatic modern C++**. These dwarf everything else and are the reason the raw issue count looks alarming. "Fixing" them mechanically would be harmful or pointless; the right move is to deactivate (or tightly scope) them in the C++ Quality Profile.

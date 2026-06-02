@@ -119,7 +119,7 @@ namespace OloEngine
             {
                 // Liveness check: if the thread exited without ever signalling the event
                 // (crash, unhandled exception, early return), bail out instead of blocking.
-                if (DWORD ExitCode = 0; ::GetExitCodeThread(Handle, &ExitCode) && ExitCode != STILL_ACTIVE)
+                if (DWORD ExitCode = 0; ::GetExitCodeThread(Handle, &ExitCode) != 0 && ExitCode != STILL_ACTIVE)
                 {
                     OLO_CORE_ERROR("FRunnableThread::Create: worker thread '{}' exited (code={}) before signalling init",
                                    m_ThreadName, static_cast<u32>(ExitCode));
