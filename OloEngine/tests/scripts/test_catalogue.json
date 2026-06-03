@@ -245,6 +245,7 @@
     "OloEngine/tests/LocalizationTest.cpp": "unit",
     "OloEngine/tests/Lua/LuaBindingTest.cpp": "unit",
     "OloEngine/tests/MathTest.cpp": "unit",
+    "OloEngine/tests/ModelImporterTest.cpp": "unit",
     "OloEngine/tests/Memory/MemoryViewTest.cpp": "unit",
     "OloEngine/tests/MeshCookingFactoryCacheTest.cpp": "unit",
     "OloEngine/tests/NavMeshTest.cpp": "unit",

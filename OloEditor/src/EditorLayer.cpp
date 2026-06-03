@@ -20,7 +20,10 @@
 #include "OloEngine/Scripting/C#/ScriptEngine.h"
 #include "OloEngine/Scene/SceneCamera.h"
 #include "OloEngine/Scene/SceneSerializer.h"
+#include "OloEngine/Scene/ModelImporter.h"
 #include "OloEngine/Scene/Prefab.h"
+#include "OloEngine/Renderer/Model.h"
+#include "OloEngine/Renderer/AnimatedModel.h"
 #include "OloEngine/Core/FileSystem.h"
 #include "OloEngine/Localization/LocalizationManager.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
@@ -932,6 +935,47 @@ namespace OloEngine
                             }
                         }
                     }
+                }
+                else if (m_SceneState == SceneState::Edit && [&ext]
+                         { static constexpr std::string_view kModelExts[] = {".gltf", ".glb", ".fbx", ".obj"}; return std::ranges::find(kModelExts, ext) != std::ranges::end(kModelExts); }()) // Import a 3D model into the scene
+                {
+                    std::string filepath = path.string();
+                    std::string entityName = path.stem().string();
+                    if (entityName.empty())
+                    {
+                        entityName = "Model";
+                    }
+
+                    // Wire the entity inside the create callback so undo/redo recreate it cleanly.
+                    // Models carrying a skeleton and/or animation clips get the full animation
+                    // component set (mesh + skeleton + animation state + material); everything
+                    // else is imported as a single combined static mesh.
+                    m_CommandHistory.Execute(std::make_unique<CreateEntityCommand>(
+                        m_EditorScene, entityName,
+                        [this, filepath](Entity created)
+                        {
+                            bool wired = false;
+                            auto animatedModel = Ref<AnimatedModel>::Create(filepath);
+                            if (animatedModel && !animatedModel->GetMeshes().empty() &&
+                                (animatedModel->HasSkeleton() || animatedModel->HasAnimations()))
+                            {
+                                ModelImporter::PopulateAnimatedEntity(created, animatedModel, filepath);
+                                wired = true;
+                            }
+                            else
+                            {
+                                auto model = Ref<Model>::Create(filepath);
+                                wired = ModelImporter::PopulateStaticEntity(created, model);
+                            }
+
+                            if (!wired)
+                            {
+                                OLO_WARN("Could not import model into scene: {0}", filepath);
+                            }
+                            m_SceneHierarchyPanel.SetSelectedEntity(created);
+                        },
+                        [this]()
+                        { m_SceneHierarchyPanel.ClearSelection(); }));
                 }
                 else
                 {
