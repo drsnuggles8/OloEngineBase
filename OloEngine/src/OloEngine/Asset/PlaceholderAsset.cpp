@@ -15,6 +15,12 @@ namespace OloEngine
     FMutex PlaceholderAssetManager::s_PlaceholderMutex;
     bool PlaceholderAssetManager::s_Initialized = false;
 
+    // Reference count of live asset managers using the shared placeholder set
+    // (guarded by s_PlaceholderMutex). Like the AssetImporter serializer registry,
+    // this process-global must stay alive while ANY manager references it — a plain
+    // bool let an older manager's destructor tear it down under a live new manager.
+    static i32 s_PlaceholderInitRefCount = 0;
+
     //////////////////////////////////////////////////////////////////////////////////
     // PlaceholderTexture
     //////////////////////////////////////////////////////////////////////////////////
@@ -178,11 +184,11 @@ namespace OloEngine
     {
         TUniqueLock<FMutex> lock(s_PlaceholderMutex);
 
-        if (s_Initialized)
-        {
-            OLO_CORE_WARN("PlaceholderAssetManager::Initialize - Already initialized");
+        // Reference-counted so overlapping manager lifetimes (editor project swap,
+        // or back-to-back tests) keep the shared placeholder set alive. Only the
+        // first live manager populates; later managers just add a reference.
+        if (s_PlaceholderInitRefCount++ != 0)
             return;
-        }
 
         s_PlaceholderAssets.clear();
         s_Initialized = true;
@@ -194,8 +200,12 @@ namespace OloEngine
     {
         TUniqueLock<FMutex> lock(s_PlaceholderMutex);
 
-        if (!s_Initialized)
-            return;
+        // Reference-counted: only the last live manager tears the placeholder set
+        // down, so an older manager's destructor can't clear it under a live one.
+        if (s_PlaceholderInitRefCount == 0)
+            return; // never initialized / already fully shut down
+        if (--s_PlaceholderInitRefCount != 0)
+            return; // other managers still using the placeholder set
 
         s_PlaceholderAssets.clear();
         s_Initialized = false;

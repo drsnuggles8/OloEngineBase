@@ -178,5 +178,38 @@ Removing all three together is clean and also kills the ODR hazard with the live
 - **2026-06-03 — pass 1b:** also deleted `Core/PerformanceProfiler.cpp` (dead
   duplicate of the 5-line accessor in `Application.cpp`) and the two empty
   `Scripting/C#/ScriptUtils.{h,cpp}` stubs (+ their 2 CMake entries).
-- **Pending decision:** the entire 🔵 UE-ported tier, and whether to
-  *finish-wire* the 🟡 Quest/Inventory event payloads vs leave as-is.
+- **2026-06-03 — pass 2 (UE-ported "bucket A" dedup, ~3,300 LOC):**
+  - `Containers/ContainersFwd.h` (254) deleted — the live fwd-decl header is the
+    *singular* `ContainerFwd.h` (which is deliberately OloEngine-adapted; the plural
+    full UE port can't fwd-declare OloEngine's `TSet`/`TMap` aliases).
+  - **Allocator island deleted** (`Memory/ConcurrentLinearAllocator.h` 1284 +
+    `Memory/TypeTraits.h` 1364 + `Task/LocalWorkQueue.h` 285). *Correction to the
+    original plan:* the `Memory/` allocator turned out to be **broken / never
+    compiled** (its only includer was the dead `LocalWorkQueue.h`; wiring it to
+    `TaskDelegate` surfaced multiple compile errors incl. a `TAllocatorTraits`
+    redefinition clashing with `ContainerAllocationPolicies.h`). So the **working
+    `Experimental/ConcurrentLinearAllocator.h` is kept** (used by `ParallelFor` /
+    `TaskDelegate`) and the broken `Memory/` island removed. `Memory/TypeTraits.h`
+    was likewise a *partial* dup of the live `Templates/UnrealTypeTraits.h`
+    (24 users) — kept the canonical one.
+  - **`FWordMutex` consolidated:** `HAL/ParkingLot.cpp` dropped its private
+    duplicate of `FWordMutex` and now uses `Threading/WordMutex.h`'s
+    `OloEngine::FWordMutex` (algorithm-identical), making `WordMutex.h` live.
+- **2026-06-03 — pre-existing bug fixed (cinematic test flakiness, surfaced while
+  running the suite):** `CinematicAssetPlaybackTest` (and the `#258`-class
+  `AssetSceneLoadTest`) flaked because `EditorAssetManager`'s ctor/dtor
+  `Init()`/`Shutdown()` the process-global `AssetImporter` serializer registry and
+  `PlaceholderAssetManager` behind **boolean guards**. When a new manager is
+  constructed before the old one is destroyed (`Project::SetAssetManager` swap,
+  or back-to-back tests), the old manager's destructor tore those shared
+  registries down under the live new manager → *"No serializer available for
+  CinematicSequence"* → `GetAsset` returned null. **Fix:** reference-count both
+  registries so they survive overlapping manager lifetimes (static-destruction
+  safety preserved); plus `FunctionalTest::EnableAssetManager` now passes
+  `Initialize(false)` (no file watcher in tests, per that method's own guidance).
+  Verified: cinematic test 10/10 repeats, full suite 2766/2766.
+- **Pending decision:** the remaining 🔵 *speculative* UE-ported headers
+  (`Containers/LinkedList.h`, `Algo/HeapSort|Heapify|IsHeap.h`,
+  `HAL/ThreadManager.h`, `Memory/MemStackUtility.h`, the `Threading` mutex/lock
+  variants, `Async/QueuedThreadPool.{cpp,h}`), and whether to *finish-wire* the
+  🟡 Quest/Inventory event payloads vs leave as-is.
