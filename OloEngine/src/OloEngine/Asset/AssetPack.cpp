@@ -463,6 +463,22 @@ namespace OloEngine
         return std::nullopt;
     }
 
+    std::optional<AssetPackFile::SceneInfo> AssetPack::GetSceneInfo(AssetHandle handle) const
+    {
+        if (!m_IsLoaded)
+            return std::nullopt;
+
+        // Scene counts are small (one per scene asset), so a linear scan over the
+        // dedicated SceneInfo table is cheap and avoids a second lookup map.
+        for (const auto& sceneInfo : m_AssetPackFile.SceneInfos)
+        {
+            if (sceneInfo.Handle == handle)
+                return sceneInfo;
+        }
+
+        return std::nullopt;
+    }
+
     FileStreamReaderPtr AssetPack::GetAssetStreamReader() const
     {
         if (!m_IsLoaded || m_PackPath.empty())

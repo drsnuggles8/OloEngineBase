@@ -1,19 +1,20 @@
 #include "RuntimeAssetSystem.h"
 
+#include "OloEngine/Asset/AssetManager/RuntimeAssetManager.h"
 #include "OloEngine/Asset/AssetPack.h"
-#include "OloEngine/Core/Application.h"
 #include "OloEngine/Core/Log.h"
 #include "OloEngine/Debug/Profiler.h"
-#include "OloEngine/Task/Task.h"
 #include "OloEngine/Threading/UniqueLock.h"
 
-#include <chrono>
-#include <optional>
+#include <exception>
+#include <utility>
 
 namespace OloEngine
 {
-    RuntimeAssetSystem::RuntimeAssetSystem()
+    RuntimeAssetSystem::RuntimeAssetSystem(RuntimeAssetManager* manager)
+        : m_Manager(manager)
     {
+        OLO_CORE_ASSERT(manager, "RuntimeAssetSystem requires a valid owning RuntimeAssetManager");
     }
 
     RuntimeAssetSystem::~RuntimeAssetSystem()
@@ -23,13 +24,32 @@ namespace OloEngine
 
     void RuntimeAssetSystem::Stop()
     {
-        m_Running.store(false, std::memory_order_release);
+        TUniqueLock<FMutex> lock(m_StateMutex);
+        m_Running = false;
     }
 
     void RuntimeAssetSystem::StopAndWait()
     {
-        Stop();
-        // Tasks will finish naturally or be cancelled by scheduler shutdown
+        // Reject new work and snapshot the in-flight task handles under the lock.
+        TArray<Tasks::TTask<Ref<Asset>>> pending;
+        {
+            TUniqueLock<FMutex> lock(m_StateMutex);
+            m_Running = false;
+            pending.Reserve(m_InFlight.Num());
+            for (const auto& load : m_InFlight)
+                pending.Add(load.Task);
+        }
+
+        // Wait for every in-flight task outside the lock. Their bodies call back into
+        // the owning RuntimeAssetManager, which is destroyed right after this returns,
+        // so none may still be running. Tasks::TTask::Wait drives the task to
+        // completion through the UE scheduler (executing it inline if it has not been
+        // picked up yet), so this returns deterministically without a poll loop.
+        for (auto& task : pending)
+            task.Wait();
+
+        TUniqueLock<FMutex> lock(m_StateMutex);
+        m_InFlight.Reset();
     }
 
     void RuntimeAssetSystem::QueueAssetLoad(RuntimeAssetLoadRequest request)
@@ -40,125 +60,112 @@ namespace OloEngine
             return;
         }
 
-        // Check if system is still running
-        if (!m_Running.load(std::memory_order_acquire))
+        const AssetHandle handle = request.Handle;
+
+        TUniqueLock<FMutex> lock(m_StateMutex);
+
+        if (!m_Running)
         {
             OLO_CORE_WARN("RuntimeAssetSystem: Cannot queue asset load - system is stopped");
             return;
         }
 
-        // Check if already pending
+        // Dedup: skip if this handle is already in flight.
+        for (const auto& load : m_InFlight)
         {
-            TUniqueLock<FMutex> lock(m_PendingAssetsMutex);
-            if (m_PendingAssets.find(request.Handle) != m_PendingAssets.end())
-            {
-                // Already pending, don't queue again
+            if (load.Handle == handle)
                 return;
-            }
-            m_PendingAssets.insert(request.Handle);
         }
 
-        m_ActiveTaskCount.fetch_add(1, std::memory_order_relaxed);
-
-        Tasks::Launch("RuntimeAssetLoad", [this, request]()
-                      {
-            if (!m_Running.load(std::memory_order_acquire))
+        // Launch on the UE task scheduler. The returned TTask both tracks completion
+        // and carries the loaded asset as its result, so retaining the handle is all
+        // the bookkeeping the in-flight set needs.
+        Tasks::TTask<Ref<Asset>> task = Tasks::Launch(
+            "RuntimeAssetLoad",
+            [this, handle]() -> Ref<Asset>
             {
-                m_ActiveTaskCount.fetch_sub(1, std::memory_order_relaxed);
-                return;
-            }
-
-            OLO_PROFILER_SCOPE("Runtime Asset Load Task");
-
-            // Load asset from pack with exception handling
-            Ref<Asset> asset = nullptr;
-            try
-            {
-                asset = LoadAssetFromPack(request.Handle);
-            }
-            catch (const std::exception& e)
-            {
-                OLO_CORE_ERROR("RuntimeAssetSystem: Exception during asset loading for handle {}: {}", request.Handle, e.what());
-            }
-            catch (...)
-            {
-                OLO_CORE_ERROR("RuntimeAssetSystem: Unknown exception during asset loading for handle {}", request.Handle);
-            }
-
-            // Move asset to completed queue with capacity check
-            {
-                TUniqueLock<FMutex> lock(m_CompletedAssetsMutex);
-
-                // Implement back-pressure: limit completed queue size
-                if (constexpr sizet MAX_COMPLETED_QUEUE_SIZE = 1000; m_CompletedAssets.size() >= MAX_COMPLETED_QUEUE_SIZE)
+                OLO_PROFILER_SCOPE("Runtime Asset Load Task");
+                try
                 {
-                    OLO_CORE_WARN("RuntimeAssetSystem: Completed assets queue is full ({} items), dropping oldest asset", m_CompletedAssets.size());
-                    m_CompletedAssets.pop(); // Remove oldest asset
+                    return LoadAssetFromPack(handle);
                 }
+                catch (const std::exception& e)
+                {
+                    OLO_CORE_ERROR("RuntimeAssetSystem: Exception during asset loading for handle {}: {}", handle, e.what());
+                }
+                catch (...)
+                {
+                    OLO_CORE_ERROR("RuntimeAssetSystem: Unknown exception during asset loading for handle {}", handle);
+                }
+                return nullptr;
+            },
+            Tasks::ETaskPriority::BackgroundNormal);
 
-                m_CompletedAssets.push({ request.Handle, asset });
-            }
-
-            // Remove from pending set
-            {
-                TUniqueLock<FMutex> lock(m_PendingAssetsMutex);
-                m_PendingAssets.erase(request.Handle);
-            }
-
-            m_ActiveTaskCount.fetch_sub(1, std::memory_order_relaxed); }, Tasks::ETaskPriority::BackgroundNormal);
+        m_InFlight.Add(FInFlightLoad{ handle, std::move(task) });
     }
 
-    void RuntimeAssetSystem::SyncWithAssetThread()
+    bool RuntimeAssetSystem::RetrieveCompletedAssets(TArray<FCompletedAssetLoad>& outAssets)
     {
-        OLO_PROFILER_SCOPE("RuntimeAssetSystem::SyncWithAssetThread");
+        OLO_PROFILER_SCOPE("RuntimeAssetSystem::RetrieveCompletedAssets");
 
-        // This method is called from the main thread to process completed assets
-        // In a full implementation, this would notify the RuntimeAssetManager
-        // of newly loaded assets. For now, we just clear the completed queue.
+        bool retrievedAny = false;
 
-        TUniqueLock<FMutex> lock(m_CompletedAssetsMutex);
-        while (!m_CompletedAssets.empty())
+        TUniqueLock<FMutex> lock(m_StateMutex);
+
+        // Walk back-to-front so RemoveAtSwap never disturbs an index we have yet to
+        // visit. Only completed tasks are touched, so GetResult() returns immediately
+        // (its internal wait is already satisfied) and never blocks under the lock.
+        for (i32 i = m_InFlight.Num() - 1; i >= 0; --i)
         {
-            auto [handle, asset] = m_CompletedAssets.front();
-            m_CompletedAssets.pop();
+            FInFlightLoad& load = m_InFlight[i];
+            if (!load.Task.IsCompleted())
+                continue;
 
-            if (asset)
-            {
-                OLO_CORE_TRACE("RuntimeAssetSystem: Asset loaded and ready: {}", static_cast<u64>(handle));
-                // TODO: Notify RuntimeAssetManager of loaded asset
-            }
-            else
-            {
-                OLO_CORE_ERROR("RuntimeAssetSystem: Failed to load asset: {}", static_cast<u64>(handle));
-            }
+            outAssets.Add(FCompletedAssetLoad{ load.Handle, load.Task.GetResult() });
+            m_InFlight.RemoveAtSwap(i);
+            retrievedAny = true;
         }
+
+        return retrievedAny;
+    }
+
+    bool RuntimeAssetSystem::IsRunning() const
+    {
+        TUniqueLock<FMutex> lock(m_StateMutex);
+        return m_Running;
     }
 
     bool RuntimeAssetSystem::IsAssetPending(AssetHandle handle) const
     {
-        TUniqueLock<FMutex> lock(m_PendingAssetsMutex);
-        return m_PendingAssets.find(handle) != m_PendingAssets.end();
+        TUniqueLock<FMutex> lock(m_StateMutex);
+        for (const auto& load : m_InFlight)
+        {
+            if (load.Handle == handle)
+                return true;
+        }
+        return false;
     }
 
-    sizet RuntimeAssetSystem::GetPendingAssetCount() const noexcept
+    sizet RuntimeAssetSystem::GetPendingAssetCount() const
     {
-        TUniqueLock<FMutex> lock(m_PendingAssetsMutex);
-        return m_PendingAssets.size();
+        TUniqueLock<FMutex> lock(m_StateMutex);
+        return static_cast<sizet>(m_InFlight.Num());
     }
 
     Ref<Asset> RuntimeAssetSystem::LoadAssetFromPack(AssetHandle handle)
     {
         OLO_PROFILER_SCOPE("RuntimeAssetSystem::LoadAssetFromPack");
 
-        // TODO: Implement actual asset pack loading
-        // This would use the AssetPack system to load assets from binary packs
-        // In a full implementation, this would:
-        // 1. Find the asset in the active asset pack
-        // 2. Deserialize the asset from binary data
-        // 3. Return the loaded asset
+        if (!m_Manager)
+        {
+            OLO_CORE_ERROR("RuntimeAssetSystem::LoadAssetFromPack - No owning asset manager for handle {}", handle);
+            return nullptr;
+        }
 
-        OLO_CORE_ERROR("LoadAssetFromPack not implemented - asset pack loading not yet supported for handle {0}", handle);
-        return nullptr;
+        // Delegate to the manager, which owns the loaded packs and performs the read +
+        // deserialize under its own pack lock. Only off-thread-safe (CPU-only) types are
+        // ever queued for async loading, so this performs no GPU work on the worker.
+        return m_Manager->LoadAssetFromPack(handle);
     }
 
 } // namespace OloEngine

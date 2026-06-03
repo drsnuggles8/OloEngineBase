@@ -201,6 +201,19 @@ namespace OloEngine
         return it->second->SupportsAsyncLoading();
     }
 
+    bool AssetImporter::CanDeserializeFromAssetPackOffThread(AssetType type)
+    {
+        TUniqueLock<FMutex> lock(GetSerializersMutex());
+        auto& serializers = GetSerializers();
+        auto it = serializers.find(type);
+        if (it == serializers.end())
+        {
+            return false;
+        }
+
+        return it->second->CanDeserializeFromAssetPackOffThread();
+    }
+
     bool AssetImporter::TryLoadRawData(const AssetMetadata& metadata, RawAssetData& outRawData)
     {
         TUniqueLock<FMutex> lock(GetSerializersMutex());

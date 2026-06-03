@@ -46,6 +46,15 @@ namespace OloEngine
         [[nodiscard]] static bool SupportsAsyncLoading(AssetType type);
 
         /**
+         * @brief Check if a type's DeserializeFromAssetPack is safe off the main thread
+         * @param type The asset type to check
+         * @return True if the runtime async system may fully deserialize this type on a
+         *         worker thread (CPU-only serializer). False (the default for unknown or
+         *         GPU-touching types) means callers must load it synchronously.
+         */
+        [[nodiscard]] static bool CanDeserializeFromAssetPackOffThread(AssetType type);
+
+        /**
          * @brief Load raw asset data without creating GPU resources (thread-safe)
          * @param metadata The asset metadata
          * @param outRawData Output raw asset data
