@@ -148,3 +148,28 @@ TEST(CinematicSerializerTest, NullSequenceSerializesToEmptyString)
     Ref<CinematicSequence> nullSeq;
     EXPECT_TRUE(CinematicSequenceSerializer::SerializeToString(nullSeq).empty());
 }
+
+TEST(CinematicSerializerTest, MalformedKeysAreSkippedNotMaterialized)
+{
+    // A Translation channel with one well-formed key plus two malformed ones
+    // (no Time, no Value). The bad keys must be skipped, not materialised as
+    // synthetic t==0 / value==0 keys.
+    const std::string yaml = R"(CinematicSequence:
+  Name: Malformed
+  Duration: 2
+  TransformTracks:
+    - Target: 5
+      Translation:
+        - { Value: [9, 9, 9], Interp: 1 }
+        - { Time: 1.0, Value: [1, 2, 3], Interp: 1 }
+        - { Time: 1.5, Interp: 1 }
+)";
+
+    auto seq = CinematicSequenceSerializer::DeserializeFromString(yaml);
+    ASSERT_TRUE(seq);
+    ASSERT_EQ(seq->TransformTracks.size(), 1u);
+    const auto& tt = seq->TransformTracks[0];
+    ASSERT_EQ(tt.Translation.Keys.size(), 1u); // only the well-formed key survives
+    EXPECT_NEAR(tt.Translation.Keys[0].Time, 1.0f, 1e-4f);
+    EXPECT_NEAR(tt.Translation.Keys[0].Value.x, 1.0f, 1e-4f);
+}

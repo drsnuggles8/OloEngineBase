@@ -3,12 +3,15 @@
 
 #include "OloEngine/Cinematic/CinematicSequence.h"
 #include "OloEngine/Core/Log.h"
+#include "OloEngine/Debug/Instrumentor.h"
 
 #include <yaml-cpp/yaml.h>
 
+#include <algorithm>
 #include <cmath>
 #include <filesystem>
 #include <fstream>
+#include <limits>
 #include <sstream>
 
 namespace OloEngine
@@ -134,8 +137,11 @@ namespace OloEngine
             }
             for (const auto& keyNode : node)
             {
-                const f32 time = keyNode["Time"].as<f32>(0.0f);
-                const f32 value = keyNode["Value"].as<f32>(0.0f);
+                // NaN default so a missing/unparseable Time or Value is caught by
+                // the finite check below and skipped, rather than materialising a
+                // synthetic t == 0 / value == 0 key.
+                const f32 time = keyNode["Time"].as<f32>(std::numeric_limits<f32>::quiet_NaN());
+                const f32 value = keyNode["Value"].as<f32>(std::numeric_limits<f32>::quiet_NaN());
                 if (!IsFinite(time) || !IsFinite(value))
                 {
                     continue;
@@ -152,10 +158,10 @@ namespace OloEngine
             }
             for (const auto& keyNode : node)
             {
-                const f32 time = keyNode["Time"].as<f32>(0.0f);
-                if (!IsFinite(time))
+                const f32 time = keyNode["Time"].as<f32>(std::numeric_limits<f32>::quiet_NaN());
+                if (!IsFinite(time) || !keyNode["Value"])
                 {
-                    continue;
+                    continue; // skip keys with a missing/unparseable Time or no Value
                 }
                 channel.Keys.push_back({ time, ReadVec3(keyNode["Value"], glm::vec3(0.0f)), ReadInterp(keyNode["Interp"]) });
             }
@@ -169,10 +175,10 @@ namespace OloEngine
             }
             for (const auto& keyNode : node)
             {
-                const f32 time = keyNode["Time"].as<f32>(0.0f);
-                if (!IsFinite(time))
+                const f32 time = keyNode["Time"].as<f32>(std::numeric_limits<f32>::quiet_NaN());
+                if (!IsFinite(time) || !keyNode["Value"])
                 {
-                    continue;
+                    continue; // skip keys with a missing/unparseable Time or no Value
                 }
                 channel.Keys.push_back({ time, ReadQuat(keyNode["Value"]), ReadInterp(keyNode["Interp"]) });
             }
@@ -182,6 +188,8 @@ namespace OloEngine
 
     std::string CinematicSequenceSerializer::SerializeToString(const Ref<CinematicSequence>& sequence)
     {
+        OLO_PROFILE_FUNCTION();
+
         if (!sequence)
         {
             return {};
@@ -265,6 +273,8 @@ namespace OloEngine
 
     Ref<CinematicSequence> CinematicSequenceSerializer::DeserializeFromString(const std::string& yamlString)
     {
+        OLO_PROFILE_FUNCTION();
+
         YAML::Node root;
         try
         {
@@ -329,10 +339,10 @@ namespace OloEngine
                 {
                     for (const auto& keyNode : keys)
                     {
-                        const f32 time = keyNode["Time"].as<f32>(0.0f);
+                        const f32 time = keyNode["Time"].as<f32>(std::numeric_limits<f32>::quiet_NaN());
                         if (!std::isfinite(time))
                         {
-                            continue;
+                            continue; // skip keys with a missing/unparseable Time
                         }
                         track.Keys.push_back({ time, keyNode["Visible"].as<bool>(true) });
                     }
@@ -352,10 +362,10 @@ namespace OloEngine
                 {
                     for (const auto& keyNode : keys)
                     {
-                        const f32 time = keyNode["Time"].as<f32>(0.0f);
+                        const f32 time = keyNode["Time"].as<f32>(std::numeric_limits<f32>::quiet_NaN());
                         if (!std::isfinite(time))
                         {
-                            continue;
+                            continue; // skip keys with a missing/unparseable Time
                         }
                         track.Keys.push_back({ time, keyNode["Name"].as<std::string>(std::string{}) });
                     }
@@ -370,6 +380,8 @@ namespace OloEngine
 
     bool CinematicSequenceSerializer::Serialize(const Ref<CinematicSequence>& sequence, const std::string& filepath)
     {
+        OLO_PROFILE_FUNCTION();
+
         const std::string yaml = SerializeToString(sequence);
         if (yaml.empty())
         {
@@ -394,6 +406,8 @@ namespace OloEngine
 
     Ref<CinematicSequence> CinematicSequenceSerializer::DeserializeAsset(const std::string& filepath)
     {
+        OLO_PROFILE_FUNCTION();
+
         std::ifstream fin(filepath, std::ios::binary);
         if (!fin)
         {
