@@ -8,28 +8,12 @@
 #include "OloEngine/Asset/AssetTypes.h"
 #include "OloEngine/Project/Project.h"
 
-#include <atomic>
 #include <memory>
 #include "OloEngine/Threading/Mutex.h"
 #include "OloEngine/Threading/UniqueLock.h"
 
 namespace OloEngine
 {
-    // Global flag to track if we're in static destruction
-    static std::atomic<bool> g_IsInStaticDestruction{ false };
-
-    // This object will be destroyed during static destruction and set the flag
-    struct StaticDestructionSentinel
-    {
-        ~StaticDestructionSentinel()
-        {
-            g_IsInStaticDestruction.store(true, std::memory_order_release);
-        }
-    };
-
-    // This static object will be destroyed early in the static destruction chain
-    static StaticDestructionSentinel g_StaticSentinel;
-
     // Use function-local static to ensure proper construction/destruction order
     static std::unordered_map<AssetType, Scope<AssetSerializer>>& GetSerializers()
     {
@@ -44,20 +28,17 @@ namespace OloEngine
         return s_SerializersMutex;
     }
 
-    static std::atomic<bool> s_IsShuttingDown{ false };
-
     void AssetImporter::Init()
     {
-        // Re-initializable: (re)populate the registry whenever it is empty — on first
-        // init, or after a prior Shutdown() cleared it. The old call_once made Shutdown
-        // permanent, so any asset manager constructed after the first one had been torn
-        // down (editor<->runtime transitions, tests) silently ran with no serializers.
+        // The serializer registry is process-lifetime and shared by every asset manager
+        // (it holds stateless serializers — no GPU/file handles). Populate it once, lazily,
+        // on the first manager's Init(); Shutdown() intentionally does not clear it, so a
+        // second manager (editor<->runtime transitions, tests) keeps working and one
+        // manager's teardown can't wipe the registry out from under another.
         TUniqueLock<FMutex> lock(GetSerializersMutex());
         auto& serializers = GetSerializers();
         if (!serializers.empty())
             return;
-
-        s_IsShuttingDown.store(false, std::memory_order_release);
 
         serializers.reserve(32); // Reserve ahead of the registered serializer count (24) to avoid rehashing
         serializers[AssetType::Prefab] = CreateScope<PrefabSerializer>();
@@ -89,45 +70,12 @@ namespace OloEngine
 
     void AssetImporter::Shutdown()
     {
-        // Set shutdown flag to prevent re-entry during static destruction
-        if (auto wasShuttingDown = s_IsShuttingDown.exchange(true, std::memory_order_acq_rel); wasShuttingDown)
-        {
-            // Already shutting down, avoid double shutdown
-            return;
-        }
-
-        // If we're in static destruction, absolutely do not attempt any cleanup
-        // The OS will handle memory cleanup automatically
-        if (g_IsInStaticDestruction.load(std::memory_order_acquire))
-        {
-            return;
-        }
-
-        // Additional safety check: try to detect if we're being called during exit
-        // by attempting to access the function-local statics safely
-        try
-        {
-            // If accessing these throws or behaves oddly, we're likely in static destruction
-            auto& mutex = GetSerializersMutex();
-            auto& serializers = GetSerializers();
-
-            // Acquire lock - TUniqueLock will handle RAII
-            TUniqueLock<FMutex> lock(mutex);
-
-            // Final check: if we're in static destruction by now, just return
-            if (g_IsInStaticDestruction.load(std::memory_order_acquire))
-            {
-                return;
-            }
-
-            // Only clear if we're absolutely sure we're not in static destruction
-            serializers.clear();
-        }
-        catch (...)
-        {
-            // Any exception during shutdown means we should not proceed
-            // This is likely due to static destruction issues
-        }
+        // Intentional no-op. The serializer registry is process-lifetime: serializers are
+        // stateless, so there is nothing to release per manager, and clearing here would
+        // wipe the shared registry for any other asset manager still alive (and break a
+        // subsequently constructed one). The function-local static registry is destroyed
+        // naturally at program exit. Kept for the symmetric Init()/Shutdown() API and so
+        // managers don't need to change their teardown.
     }
 
     void AssetImporter::Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset)
