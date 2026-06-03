@@ -12,13 +12,13 @@ namespace OloEngine
     class RuntimeAssetManager;
 
     /**
-     * @brief An async-loaded asset retrieved from the worker pool, ready for the
-     *        main thread to integrate. A null Asset means that handle failed to load.
+     * @brief An async-loaded asset retrieved from the worker pool, ready for the main
+     *        thread to integrate. A null LoadedAsset means that handle failed to load.
      */
     struct FCompletedAssetLoad
     {
         AssetHandle Handle = 0;
-        Ref<Asset> Asset;
+        Ref<Asset> LoadedAsset; // named LoadedAsset (not Asset) so it doesn't shadow the Asset type
     };
 
     /**

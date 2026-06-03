@@ -384,16 +384,28 @@ namespace OloEngine
             TUniqueLock<FSharedMutex> lock(m_AssetsMutex);
             for (const auto& result : completed)
             {
-                if (result.Asset)
-                {
-                    m_LoadedAssets[result.Handle] = result.Asset;
-                    loadedEvents.push_back({ result.Handle, result.Asset->GetAssetType() });
-                    OLO_CORE_TRACE("RuntimeAssetManager::SyncWithAssetThread - Integrated async-loaded asset {}", result.Handle);
-                }
-                else
+                if (!result.LoadedAsset)
                 {
                     OLO_CORE_ERROR("RuntimeAssetManager::SyncWithAssetThread - Async load failed for asset {}", result.Handle);
+                    continue;
                 }
+
+                // Drop completions whose handle is no longer provided by a loaded pack:
+                // an UnloadAssetPack() between queue and completion already evicted it
+                // (and rebuilt the metadata index), so re-inserting here would resurrect
+                // a handle IsAssetMissing()/IsAssetHandleValid() now report as gone.
+                // AssetExistsInPacks acquires m_PacksMutex (shared); the m_AssetsMutex ->
+                // m_PacksMutex order matches UnloadAssetPack()/Shutdown(), so holding
+                // m_AssetsMutex here serialises against the eviction.
+                if (!AssetExistsInPacks(result.Handle))
+                {
+                    OLO_CORE_TRACE("RuntimeAssetManager::SyncWithAssetThread - Dropping stale async result for asset {} (pack unloaded before completion)", result.Handle);
+                    continue;
+                }
+
+                m_LoadedAssets[result.Handle] = result.LoadedAsset;
+                loadedEvents.push_back({ result.Handle, result.LoadedAsset->GetAssetType() });
+                OLO_CORE_TRACE("RuntimeAssetManager::SyncWithAssetThread - Integrated async-loaded asset {}", result.Handle);
             }
         }
 

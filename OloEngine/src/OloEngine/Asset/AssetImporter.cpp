@@ -44,41 +44,47 @@ namespace OloEngine
         return s_SerializersMutex;
     }
 
-    static std::once_flag s_InitFlag;
     static std::atomic<bool> s_IsShuttingDown{ false };
 
     void AssetImporter::Init()
     {
-        std::call_once(s_InitFlag, []()
-                       {
-            auto& serializers = GetSerializers();
-            serializers.clear();
-            serializers.reserve(32); // Reserve ahead of the registered serializer count (24) to avoid rehashing
-            serializers[AssetType::Prefab] = CreateScope<PrefabSerializer>();
-            serializers[AssetType::Texture2D] = CreateScope<TextureSerializer>();
-            serializers[AssetType::TextureCube] = CreateScope<TextureSerializer>();
-            serializers[AssetType::Mesh] = CreateScope<MeshSerializer>();
-            serializers[AssetType::StaticMesh] = CreateScope<StaticMeshSerializer>();
-            serializers[AssetType::MeshSource] = CreateScope<MeshSourceSerializer>();
-            serializers[AssetType::Material] = CreateScope<MaterialAssetSerializer>();
-            serializers[AssetType::EnvMap] = CreateScope<EnvironmentSerializer>();
-            serializers[AssetType::Audio] = CreateScope<AudioFileSourceSerializer>();
-            // serializers[AssetType::SoundConfig] = CreateScope<SoundConfigSerializer>(); // Disabled - SoundConfig not implemented
-            serializers[AssetType::Scene] = CreateScope<SceneAssetSerializer>();
-            serializers[AssetType::Font] = CreateScope<FontSerializer>();
-            serializers[AssetType::MeshCollider] = CreateScope<MeshColliderSerializer>();
-            serializers[AssetType::SoundGraph] = CreateScope<SoundGraphSerializer>();
-            serializers[AssetType::AnimationClip] = CreateScope<AnimationAssetSerializer>();
-            serializers[AssetType::AnimationGraph] = CreateScope<AnimationGraphAssetSerializer>();
-            serializers[AssetType::ScriptFile] = CreateScope<ScriptFileSerializer>();
-            serializers[AssetType::ParticleSystem] = CreateScope<ParticleSystemAssetSerializer>();
-            serializers[AssetType::LightProbeVolume] = CreateScope<LightProbeVolumeSerializer>();
-            serializers[AssetType::DialogueTree] = CreateScope<DialogueTreeSerializer>();
-            serializers[AssetType::ShaderGraph] = CreateScope<ShaderGraphSerializer>();
-            serializers[AssetType::BehaviorTree] = CreateScope<BehaviorTreeSerializer>();
-            serializers[AssetType::StateMachine] = CreateScope<StateMachineSerializer>();
-            serializers[AssetType::InstancePlacement] = CreateScope<InstancePlacementSerializer>();
-            serializers[AssetType::CinematicSequence] = CreateScope<CinematicSequenceAssetSerializer>(); });
+        // Re-initializable: (re)populate the registry whenever it is empty — on first
+        // init, or after a prior Shutdown() cleared it. The old call_once made Shutdown
+        // permanent, so any asset manager constructed after the first one had been torn
+        // down (editor<->runtime transitions, tests) silently ran with no serializers.
+        TUniqueLock<FMutex> lock(GetSerializersMutex());
+        auto& serializers = GetSerializers();
+        if (!serializers.empty())
+            return;
+
+        s_IsShuttingDown.store(false, std::memory_order_release);
+
+        serializers.reserve(32); // Reserve ahead of the registered serializer count (24) to avoid rehashing
+        serializers[AssetType::Prefab] = CreateScope<PrefabSerializer>();
+        serializers[AssetType::Texture2D] = CreateScope<TextureSerializer>();
+        serializers[AssetType::TextureCube] = CreateScope<TextureSerializer>();
+        serializers[AssetType::Mesh] = CreateScope<MeshSerializer>();
+        serializers[AssetType::StaticMesh] = CreateScope<StaticMeshSerializer>();
+        serializers[AssetType::MeshSource] = CreateScope<MeshSourceSerializer>();
+        serializers[AssetType::Material] = CreateScope<MaterialAssetSerializer>();
+        serializers[AssetType::EnvMap] = CreateScope<EnvironmentSerializer>();
+        serializers[AssetType::Audio] = CreateScope<AudioFileSourceSerializer>();
+        // serializers[AssetType::SoundConfig] = CreateScope<SoundConfigSerializer>(); // Disabled - SoundConfig not implemented
+        serializers[AssetType::Scene] = CreateScope<SceneAssetSerializer>();
+        serializers[AssetType::Font] = CreateScope<FontSerializer>();
+        serializers[AssetType::MeshCollider] = CreateScope<MeshColliderSerializer>();
+        serializers[AssetType::SoundGraph] = CreateScope<SoundGraphSerializer>();
+        serializers[AssetType::AnimationClip] = CreateScope<AnimationAssetSerializer>();
+        serializers[AssetType::AnimationGraph] = CreateScope<AnimationGraphAssetSerializer>();
+        serializers[AssetType::ScriptFile] = CreateScope<ScriptFileSerializer>();
+        serializers[AssetType::ParticleSystem] = CreateScope<ParticleSystemAssetSerializer>();
+        serializers[AssetType::LightProbeVolume] = CreateScope<LightProbeVolumeSerializer>();
+        serializers[AssetType::DialogueTree] = CreateScope<DialogueTreeSerializer>();
+        serializers[AssetType::ShaderGraph] = CreateScope<ShaderGraphSerializer>();
+        serializers[AssetType::BehaviorTree] = CreateScope<BehaviorTreeSerializer>();
+        serializers[AssetType::StateMachine] = CreateScope<StateMachineSerializer>();
+        serializers[AssetType::InstancePlacement] = CreateScope<InstancePlacementSerializer>();
+        serializers[AssetType::CinematicSequence] = CreateScope<CinematicSequenceAssetSerializer>();
     }
 
     void AssetImporter::Shutdown()

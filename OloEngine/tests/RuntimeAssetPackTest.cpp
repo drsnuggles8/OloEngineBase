@@ -18,14 +18,11 @@
 //      thread. GPU-touching / asset-resolving types must report false.
 //   4. AsyncLoadIntegratesThroughManager — the full async path
 //      (GetAssetAsync -> worker -> SyncWithAssetThread -> loaded cache) for a
-//      CPU-only asset type (Audio). Skips cleanly if a prior test's asset-manager
-//      shutdown has cleared the shared AssetImporter serializer registry
-//      (AssetImporter::Init is call_once and Shutdown clears it).
+//      CPU-only asset type (Audio).
 //
 // All headless: scenes/audio deserialize on the CPU with no GL context.
 // =============================================================================
 
-#include "OloEngine/Asset/AssetImporter.h"
 #include "OloEngine/Asset/AssetPack.h"
 #include "OloEngine/Asset/AssetSerializer.h"
 #include "OloEngine/Asset/AssetManager/RuntimeAssetManager.h"
@@ -304,16 +301,6 @@ TEST(RuntimeAssetPackTest, OffThreadCapabilityContract)
 // -----------------------------------------------------------------------------
 TEST(RuntimeAssetPackTest, AsyncLoadIntegratesThroughManager)
 {
-    // The shared AssetImporter serializer registry is process-global: Init() is
-    // call_once and any asset manager's Shutdown() clears it. If a prior test
-    // already tore an asset manager down, the registry is empty and cannot be
-    // repopulated — skip rather than report a false failure.
-    AssetImporter::Init();
-    if (!AssetImporter::CanDeserializeFromAssetPackOffThread(AssetType::Audio))
-    {
-        GTEST_SKIP() << "AssetImporter serializer registry unavailable (cleared by a prior test's asset-manager shutdown)";
-    }
-
     // Bring up the engine task scheduler once per process; worker tasks never run
     // without started workers. Application does this at startup; the test binary
     // does not construct an Application.
@@ -342,12 +329,10 @@ TEST(RuntimeAssetPackTest, AsyncLoadIntegratesThroughManager)
     }
     WritePack(packPath, { audio });
 
-    // Keep the manager alive for the process lifetime (function-local static) so its
-    // destructor never clears the shared AssetImporter registry mid-suite; at process
-    // exit AssetImporter::Shutdown is a no-op during static destruction. Created with
-    // autoLoadDefaultPack=false.
-    static Ref<RuntimeAssetManager> s_Manager = Ref<RuntimeAssetManager>::Create(false);
-    RuntimeAssetManager& mgr = *s_Manager;
+    // A plain stack-local manager: its ctor calls AssetImporter::Init(), which
+    // repopulates the serializer registry if a prior test's manager shutdown cleared
+    // it, so no static/leak/skip workaround is needed.
+    RuntimeAssetManager mgr(/*autoLoadDefaultPack=*/false);
     ASSERT_TRUE(mgr.LoadAssetPack(packPath));
 
     // First async request queues the load and reports not-ready.

@@ -1540,6 +1540,18 @@ namespace OloEngine
             return nullptr;
         }
 
+        // dataSize is pack-controlled and untrusted. Reject sizes that would over-allocate
+        // before touching memory: the YAML must fit within the scene's packed byte budget
+        // (minus the 4-byte length prefix) when PackedSize is set, and within an absolute
+        // sanity bound regardless.
+        constexpr u32 c_MaxSceneYamlSize = 256u * 1024u * 1024u; // 256 MB
+        const u64 maxFromPackedSize = (sceneInfo.PackedSize > sizeof(u32)) ? (sceneInfo.PackedSize - sizeof(u32)) : 0ull;
+        if (dataSize > c_MaxSceneYamlSize || (sceneInfo.PackedSize != 0 && dataSize > maxFromPackedSize))
+        {
+            OLO_CORE_ERROR("SceneAssetSerializer::DeserializeSceneFromAssetPack - Scene data size {} exceeds allowed bound for handle {} (packed size {})", dataSize, sceneInfo.Handle, sceneInfo.PackedSize);
+            return nullptr;
+        }
+
         std::vector<char> yamlData(static_cast<sizet>(dataSize) + 1);
         stream.ReadData(yamlData.data(), dataSize);
         if (!stream.IsStreamGood())
