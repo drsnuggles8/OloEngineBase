@@ -69,7 +69,7 @@ namespace
     {
         AssetHandle Handle = 0;
         AssetType Type = AssetType::None;
-        std::string Data;       // raw bytes written at the entry's data offset
+        std::string Data; // raw bytes written at the entry's data offset
         bool IsScene = false;
     };
 
