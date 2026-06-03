@@ -78,7 +78,10 @@ namespace OloEngine
 
     inline AssetFlag operator~(AssetFlag flag)
     {
-        return static_cast<AssetFlag>(~std::to_underlying(flag));
+        // Cast the ~ result back to the underlying type before re-wrapping: the
+        // operand is integer-promoted to int, so without it the high bits set by
+        // ~ would be narrowed implicitly (cpp:S853).
+        return static_cast<AssetFlag>(static_cast<decltype(std::to_underlying(flag))>(~std::to_underlying(flag)));
     }
 
     inline AssetFlag& operator|=(AssetFlag& lhs, AssetFlag rhs)

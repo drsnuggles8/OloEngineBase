@@ -184,7 +184,7 @@ namespace OloEngine
         dtPolyRef ref = 0;
         f32 nearest[3]{};
 
-        if (dtStatus status = m_Query->findNearestPoly(pos, extent, &filter, &ref, nearest); dtStatusFailed(status) || !ref)
+        if (dtStatus status = m_Query->findNearestPoly(pos, extent, &filter, &ref, nearest); dtStatusFailed(status) || ref == 0)
             return false;
 
         outNearest = { nearest[0], nearest[1], nearest[2] };

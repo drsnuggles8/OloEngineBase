@@ -39,7 +39,7 @@ Always include the rule key and a one-line reason. Bare `// NOSONAR` ages badly.
 
 **Hits in sample:** 21 (all at the same line)
 **Location:** `OloEngine/src/OloEngine/Math/Math.h:27`
-**Status:** False positive
+**Status:** False positive — ✅ **APPLIED** in `sonar-project.properties` (`fp_s5000`)
 
 ### What the rule catches
 
@@ -87,7 +87,7 @@ Alternative: keep the rule active but add a `// NOSONAR cpp:S5000` line comment 
 ## 2. `cpp:S5443` — "Avoid publicly writable directories"
 
 **Hits in sample:** 9 (all in `tests/**`)
-**Status:** Scope mismatch
+**Status:** Scope mismatch — ✅ **APPLIED** in `sonar-project.properties` (`tst_s5443`)
 
 ### What the rule catches
 
@@ -115,7 +115,7 @@ Keep the rule active on production sources (`OloEngine/src/**`, `OloEditor/src/*
 ## 3. `cpp:S1067` — "Reduce conditional operators in expression (max 3)"
 
 **Hits in sample:** 10 (concentrated in `Scene/Components.h` and `Scene/SceneSerializer.cpp`)
-**Status:** Threshold mismatch — keep the rule, raise the bar or scope it
+**Status:** Threshold mismatch — ✅ **APPLIED** Option A (scope `Scene/**`) in `sonar-project.properties` (`ecs_s1067`)
 
 ### What the rule catches
 
@@ -152,7 +152,7 @@ Pick A if other parts of the codebase want the stricter rule. Pick B if you'd ra
 ## 4. `cpp:S963` — "Each instance of a function-like macro parameter shall be enclosed in parentheses"
 
 **Hits in sample:** 2 (`OloEngine/src/OloEngine/Scene/Prefab.cpp:117` and `:121`)
-**Status:** Unfixable as written — language doesn't allow it
+**Status:** Unfixable as written — ✅ **APPLIED** scope-exclude in `sonar-project.properties` (`xmacro_s963`)
 
 ### What the rule catches
 
@@ -229,6 +229,77 @@ sonar.issue.ignore.multicriteria.s3776.resourceKey=OloEngine/src/OloEngine/Rende
 
 ---
 
+## 6. Reliability `BLOCKER`s on glm storage / guarded derefs — triaged
+
+A pass over the open `RELIABILITY` `HIGH`+`BLOCKER` findings (≈1,126) showed the
+genuine-bug rate is very low; most are the analyzer failing to model glm's
+union-based vector storage or a guard that precedes a dereference. Two patterns
+were triaged here:
+
+### `cpp:S3519` — "access of field 'x' at index 1, while it holds only a single float" — **fixed in code**
+
+Fired on the instance-placement serializers where 16 mat4 floats / 4 vec4 floats
+were (de)serialized via `(&m[0][0])[i]` / `(&v[0])[i]`. Sonar reads `m[0][0]` as a
+single-`float` subobject and flags the loop as out-of-bounds. It's *technically
+right by the standard*: pointer arithmetic across sub-object boundaries
+(`&m[0][0] + 1` reaching `m[0][1]`) is UB even though glm guarantees contiguous
+storage in practice. **This is a fix-don't-silence case.** Replaced with glm's
+blessed contiguous accessor `glm::value_ptr()` (same bytes, well-defined) at all
+four sites in `InstancePlacementSerializer.cpp` and `Scene/SceneSerializer.cpp`,
+and added `ComponentRoundTrip.InstancedMeshComponentInstancesSurviveYAMLRoundTrip`
+to pin the previously-uncovered per-instance Transform/Color round-trip.
+
+While in that code, the same load path was found to be **missing the engine's
+mandatory `std::isfinite` validation** ([cpp-coding-quality §2](agent-rules/cpp-coding-quality.md)):
+every other deserializer sanitizes floats via `SanitizeFloat`, but the instance
+Transform/Color/Custom reads did not — so a NaN/Inf in a corrupt or hand-edited
+scene would flow straight into the instance SSBO (and through
+`transpose(inverse(Transform))`). Added a reusable `Math::IsFinite(vec2/3/4, mat4,
+scalar)` helper and wired it into both instance read paths (non-finite transform →
+identity, color → white, custom → 0). Covered by `MathIsFiniteTest` and
+`ComponentRoundTrip.InstancedMeshComponentNonFiniteInstanceDataIsSanitizedOnLoad`.
+
+### `cpp:S2259` — "forming reference to null pointer" — confirmed false positive
+
+`SaveGameComponentSerializer.cpp:1786` (`ItemInstance copy = *eqItem;`) is guarded
+by `present = (eqItem != nullptr)` on the line above; the deref only runs inside
+`if (present)`. Sonar doesn't correlate the `bool` with the pointer. **Action:**
+mark as *Won't Fix / False Positive* in the SonarCloud UI (a one-line, value-free
+deref guard isn't worth an inline `// NOSONAR` in save-game code). Left untouched.
+
+---
+
+## 7. `cpp:S1244` — "floating-point numbers should not be tested for equality"
+
+**Hits triaged:** ~18 (RELIABILITY). Split between intentional exact-comparison and one genuine fix.
+
+This rule restates the project's own [cpp-coding-quality §2](agent-rules/cpp-coding-quality.md) (no `==`/`!=` on floats). Most hits, though, are the *bit-exact* case §2a explicitly carves out — change detection, where any difference (including a one-ULP edit) must register:
+
+- **`Scene/Components.h` (9 hits)** — each is a `operator==(const T&) const -> bool = default;`, the documented undo/redo change-detection hook (CLAUDE.md "Editor undo/redo for components"). Defaulted member-wise float equality *is* the intended bit-exact semantics; hand-rolling epsilon comparisons would defeat the `= default` pattern. **Scoped out** in `sonar-project.properties` (`cmp_s1244_components`), narrowed to `Components.h` so real float `==` bugs elsewhere in `Scene/**` stay flagged.
+- **`Renderer/Commands/RenderCommand.h:155` (7 hits)** — `PODMaterialData::operator==`, a deliberate field-wise exact comparison for render-command change detection / dedup (it intentionally avoids `memcmp` due to padding — see the comment). Exact equality is correct; epsilon would wrongly merge distinct materials. **Scoped out** (`cmp_s1244_rendercmd`).
+- **`OloEditor/.../SoundGraphEditorPanel.cpp:961,965` — fixed in code.** A mouse-wheel "did it move" sentinel and a post-clamp zoom change-detection, both written as raw `!= ` on floats. Replaced with `Math::BitwiseEqual` (the §2a-blessed bit-exact form) — same behavior, rule satisfied, no suppression needed.
+
+---
+
+## 8. Reliability cleanup batch — `S867` / `S853` / `S2193` (fixed) and `S3584` / `S6232` (triaged)
+
+A sweep of the remaining `RELIABILITY` findings (excluding the intentional `S8417`
+atomics and the `S5000`/`S3519` analyzer FPs) surfaced a set of small, genuine,
+mechanical fixes — all applied in code:
+
+- **`cpp:S867`** ("operand should have type `bool`") — implicit conversions in `&&`/`!`.
+  Fixed to explicit comparisons: `GetExitCodeThread(...) != 0` ([RunnableThread.cpp](../OloEngine/src/OloEngine/HAL/RunnableThread.cpp), Windows `BOOL` is `int`), `ref == 0` ([NavMeshQuery.cpp](../OloEngine/src/OloEngine/Navigation/NavMeshQuery.cpp), `dtPolyRef` is an integer handle), `(mask & bit) != 0u` ([JoltCharacterController.cpp](../OloEngine/src/OloEngine/Physics3D/JoltCharacterController.cpp)), and `source != nullptr && *source != '\0'` ([RendererProfiler.cpp](../OloEngine/src/OloEngine/Renderer/Debug/RendererProfiler.cpp), a `const char*`).
+- **`cpp:S853`** ("explicit cast on the result of `~`") — the `AssetFlag` bit ops in
+  [AssetTypes.h](../OloEngine/src/OloEngine/Asset/AssetTypes.h) / [Asset.h](../OloEngine/src/OloEngine/Asset/Asset.h): `~` integer-promotes its `u16` operand to `int`, so the high bits it sets were being narrowed implicitly. Added an explicit cast back to the underlying type.
+- **`cpp:S2193`** ("float loop counter") — the SoundGraph editor grid-line loops accumulated `x += gridStep` in a `f32` counter, drifting over many lines. Rewrote with an `int` index and `pos = start + i*step`.
+
+Triaged as **not-a-fix** (left in place, reasoning recorded):
+
+- **`cpp:S3584`** ("potential leak of `New`", `ClosableMpscQueue.h`) — **false positive**. On the success path `New` is published to the queue via `Prev->Next.store(New)` (ownership transfers to the queue, freed at `Close()`); only the closed-queue path owns and deletes it. Adding a `delete` would double-free. Annotated with an inline `// NOSONAR cpp:S3584` + ownership comment.
+- **`cpp:S6232` / `cpp:M23_360`** ("type-punning via union → use `std::bit_cast`", `GenericPlatformMemory.cpp` `Memswap`) — left untouched. It's the Unreal-ported aligned word-swap hot path where the pointer union is read for alignment *and* advanced for the swap; a `bit_cast` rewrite is a non-trivial restructure of intentional, perf-critical code with no functional defect. Better handled deliberately, not as a drive-by.
+
+---
+
 ## High-volume rules to deactivate or scope (full-corpus histogram)
 
 A full-corpus facet query (≈31,800 open issues) surfaced four very high-count rules that are **MISRA / stylistic rules fighting idiomatic modern C++**. These dwarf everything else and are the reason the raw issue count looks alarming. "Fixing" them mechanically would be harmful or pointless; the right move is to deactivate (or tightly scope) them in the C++ Quality Profile.
@@ -267,5 +338,6 @@ For completeness, some rules that *look* noisy but are worth keeping at their cu
 
 - Full-corpus histogram (≈31,800 open issues) obtained via the SonarCloud `facets=rules` API. The four rules in the "High-volume" section above account for ≈6,800 issues on their own; deactivating them would roughly halve the raw count without touching a line of code.
 - `cpp:S6004` (if/switch init-statement, 835 hits) was swept and fixed in bulk — it aligns with the project's own [coding standard §1](agent-rules/cpp-coding-quality.md) rather than being a false positive.
-- Once the recommended path-scopes are applied, re-run the quality-gate check to confirm the false-positive concentration in `Math.h` and `tests/**` has dropped.
+- ✅ The recommended path-scopes (`fp_s5000` / `ecs_s1067` / `xmacro_s963`, plus the pre-existing `tst_*`) are now applied in `sonar-project.properties`. Re-run the quality-gate check to confirm the false-positive concentration in `Math.h`, `Scene/**`, `Prefab.cpp`, and `tests/**` has dropped.
+- The four high-volume rules in the section above (`cpp:S5536`, `cpp:S1271`, `cpp:S1712`, `cpp:S909`, ≈6,800 issues) are **not** applied here — they remain a Quality-Profile (UI) action as recommended, since project-wide deactivation is better reviewed there than buried in a `**/*` properties scope. Doing so would roughly halve the raw count.
 - Coverage is reported as **0%** in SonarCloud despite an extensive GoogleTest suite. The CI scan isn't picking up coverage XML — separate problem from rule tuning, but worth fixing for the maintainability dashboard to make sense.

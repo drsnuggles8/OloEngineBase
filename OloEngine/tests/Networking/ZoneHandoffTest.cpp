@@ -4,6 +4,8 @@
 #include "OloEngine/Networking/MMO/ZoneManager.h"
 #include "OloEngine/Networking/MMO/ZoneServer.h"
 
+#include <limits>
+
 using namespace OloEngine;
 
 // ============================================================================
@@ -61,6 +63,48 @@ TEST(PlayerStatePacket, EmptyGameStateBlob)
 
     EXPECT_EQ(restored->ClientID, 1u);
     EXPECT_TRUE(restored->GameStateBlob.empty());
+}
+
+TEST(PlayerStatePacket, RejectsNonFiniteTransform)
+{
+    // A hostile or buggy client can inject NaN/Inf into the replicated
+    // transform. Deserialize must drop such packets, not feed non-finite
+    // values into server-side spatial partitioning / interest management /
+    // Jolt physics (which would corrupt the zone for every player). Binary
+    // serialization round-trips NaN/Inf bit-exactly, so this exercises the
+    // real wire path.
+    const f32 nan = std::numeric_limits<f32>::quiet_NaN();
+    const f32 inf = std::numeric_limits<f32>::infinity();
+
+    auto roundTrip = [](const PlayerStatePacket& p)
+    {
+        auto buffer = p.Serialize();
+        return PlayerStatePacket::Deserialize(buffer.data(), static_cast<i64>(buffer.size()));
+    };
+
+    // Sanity: a fully-finite packet is accepted.
+    {
+        PlayerStatePacket good;
+        good.Position = { 1.0f, 2.0f, 3.0f };
+        EXPECT_TRUE(roundTrip(good).has_value());
+    }
+
+    {
+        PlayerStatePacket p;
+        p.ClientID = 7;
+        p.Position = { nan, 0.0f, 0.0f };
+        EXPECT_FALSE(roundTrip(p).has_value()) << "NaN position must be rejected";
+    }
+    {
+        PlayerStatePacket p;
+        p.Rotation = { 0.0f, inf, 0.0f };
+        EXPECT_FALSE(roundTrip(p).has_value()) << "Inf rotation must be rejected";
+    }
+    {
+        PlayerStatePacket p;
+        p.Scale = { 1.0f, 1.0f, -inf };
+        EXPECT_FALSE(roundTrip(p).has_value()) << "-Inf scale must be rejected";
+    }
 }
 
 // ============================================================================

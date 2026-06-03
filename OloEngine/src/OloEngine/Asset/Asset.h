@@ -160,7 +160,7 @@ namespace OloEngine
             if (value)
                 m_Flags |= std::to_underlying(flag);
             else
-                m_Flags &= ~std::to_underlying(flag);
+                m_Flags &= static_cast<u16>(~std::to_underlying(flag));
         }
     };
 

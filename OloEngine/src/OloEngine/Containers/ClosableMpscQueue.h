@@ -131,10 +131,12 @@ namespace OloEngine
                 return false;
             }
 
-            // Link the previous head to the new node
+            // Link the previous head to the new node. Ownership of `New` transfers
+            // to the queue here — it is freed by Close()/the consumer, not on this
+            // path. (The closed-queue path above is the one that owns and deletes it.)
             Prev->Next.store(New, std::memory_order_release);
 
-            return true;
+            return true; // NOSONAR cpp:S3584 — `New` is owned by the queue after the store above, not leaked.
         }
 
         /**
