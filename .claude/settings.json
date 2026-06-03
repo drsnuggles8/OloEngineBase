@@ -16,7 +16,10 @@
       "mcp__sonarqube__get_component_measures",
       "mcp__sonarqube__search_sonar_issues_in_projects",
       "mcp__sonarqube__show_rule",
-      "Bash(cmake --build build --target OloEngine-Tests --config Debug --parallel)"
+      "mcp__sonarqube__search_my_sonarqube_projects",
+      "Bash(cmake --build build --target OloEngine-Tests --config Debug --parallel)",
+      "Bash(build/OloEngine/tests/Debug/OloEngine-Tests.exe *)",
+      "Bash(tasklist *)"
     ],
     "additionalDirectories": [
       "\\tmp"
