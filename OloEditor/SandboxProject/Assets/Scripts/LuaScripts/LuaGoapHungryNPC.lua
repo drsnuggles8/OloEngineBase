@@ -70,10 +70,11 @@ function HungryNPC.OnCreate(id)
 
             local me = entity_utils.get_translation(id)
             local food = entity_utils.get_translation(foodID)
-            local step = MOVE_SPEED * dt
+            local step = math.min(MOVE_SPEED * dt, dist) -- never overshoot on a long frame
             local nx = me.x + (food.x - me.x) / dist * step
             local nz = me.z + (food.z - me.z) / dist * step
             entity_utils.set_translation(id, vec3.new(nx, me.y, nz)) -- keep Y on the floor
+            if step >= dist then return GoapStatus.Success end -- reached the food this tick
             return GoapStatus.Running
         end,
     }

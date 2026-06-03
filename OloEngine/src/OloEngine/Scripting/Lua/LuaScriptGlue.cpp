@@ -280,7 +280,15 @@ namespace OloEngine
 
             GoapAction action;
             action.Name = def.get_or<std::string>("name", "");
-            action.Cost = def.get_or("cost", 1.0f);
+            if (const f32 cost = def.get_or("cost", 1.0f); std::isfinite(cost) && cost >= 0.0f)
+            {
+                action.Cost = cost;
+            }
+            else
+            {
+                OLO_CORE_WARN("[Lua GOAP] action '{}' has invalid cost {} — using 1.0 (cost must be finite and >= 0)", action.Name, cost);
+                action.Cost = 1.0f;
+            }
             if (sol::optional<sol::table> pre = def["pre"]; pre)
                 action.Preconditions = LuaTableToWorldState(*pre);
             if (sol::optional<sol::table> eff = def["effects"]; eff)
@@ -298,13 +306,16 @@ namespace OloEngine
                         return GoapActionStatus::Failure;
                     }
                     const sol::object out = result;
+                    const sol::type t = out.get_type();
+                    if (t == sol::type::lua_nil || t == sol::type::none)
+                        return GoapActionStatus::Success; // no/nil return → instantaneous success
                     if (out.is<double>())
                     {
-                        const i32 code = out.as<i32>();
-                        if (code >= 0 && code <= 2)
+                        if (const i32 code = out.as<i32>(); code >= 0 && code <= 2)
                             return static_cast<GoapActionStatus>(code);
                     }
-                    return GoapActionStatus::Success; // nil/other → instantaneous success
+                    OLO_CORE_ERROR("[Lua GOAP] action 'perform' returned an invalid value — expected GoapStatus.{{Running,Success,Failure}} or nil");
+                    return GoapActionStatus::Failure;
                 };
             }
             if (sol::optional<sol::protected_function> fn = def["onEnter"]; fn && fn->valid())
@@ -327,7 +338,12 @@ namespace OloEngine
                     if (!result.valid())
                         return false;
                     const sol::object out = result;
-                    return out.is<bool>() ? out.as<bool>() : true;
+                    if (out.is<bool>())
+                        return out.as<bool>();
+                    if (const sol::type t = out.get_type(); t == sol::type::lua_nil || t == sol::type::none)
+                        return true; // no/nil return → usable by default
+                    OLO_CORE_ERROR("[Lua GOAP] action 'isUsable' returned a non-boolean value — treating as not usable");
+                    return false;
                 };
             }
             comp.RuntimeAgent->AddAction(std::move(action));
@@ -360,7 +376,12 @@ namespace OloEngine
                     if (!result.valid())
                         return false;
                     const sol::object out = result;
-                    return out.is<bool>() ? out.as<bool>() : true;
+                    if (out.is<bool>())
+                        return out.as<bool>();
+                    if (const sol::type t = out.get_type(); t == sol::type::lua_nil || t == sol::type::none)
+                        return true; // no/nil return → relevant by default
+                    OLO_CORE_ERROR("[Lua GOAP] goal 'isValid' returned a non-boolean value — treating as not relevant");
+                    return false;
                 };
             }
             comp.RuntimeAgent->AddGoal(std::move(goal));
@@ -2385,8 +2406,8 @@ namespace OloEngine
                                              { return comp.Blackboard.Get<i32>(key); }, "SetBlackboardFloat", [](GoapAgentComponent& comp, const std::string& key, f32 value)
                                              { comp.Blackboard.Set(key, value); }, "GetBlackboardFloat", [](const GoapAgentComponent& comp, const std::string& key) -> f32
                                              { return comp.Blackboard.Get<f32>(key); }, "SetWorldFactBool", [](GoapAgentComponent& comp, const std::string& key, bool value)
-                                             { if (comp.RuntimeAgent) comp.RuntimeAgent->SetFact(key, value); }, "SetWorldFactInt", [](GoapAgentComponent& comp, const std::string& key, i32 value)
-                                             { if (comp.RuntimeAgent) comp.RuntimeAgent->SetFact(key, value); }, "Invalidate", [](GoapAgentComponent& comp)
+                                             { if (!comp.RuntimeAgent) comp.RuntimeAgent = Ref<GoapAgent>::Create(); comp.RuntimeAgent->SetFact(key, value); }, "SetWorldFactInt", [](GoapAgentComponent& comp, const std::string& key, i32 value)
+                                             { if (!comp.RuntimeAgent) comp.RuntimeAgent = Ref<GoapAgent>::Create(); comp.RuntimeAgent->SetFact(key, value); }, "Invalidate", [](GoapAgentComponent& comp)
                                              { if (comp.RuntimeAgent) comp.RuntimeAgent->Invalidate(); }, "CurrentGoal", [](const GoapAgentComponent& comp) -> std::string
                                              { return comp.RuntimeAgent ? comp.RuntimeAgent->CurrentGoalName() : std::string{}; }, "HasPlan", [](const GoapAgentComponent& comp) -> bool
                                              { return comp.RuntimeAgent && comp.RuntimeAgent->HasPlan(); }, "GoalsAchieved", [](const GoapAgentComponent& comp) -> u32

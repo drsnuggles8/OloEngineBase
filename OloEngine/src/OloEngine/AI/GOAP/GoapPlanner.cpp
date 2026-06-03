@@ -87,9 +87,24 @@ namespace OloEngine
 
         std::priority_queue<OpenEntry, std::vector<OpenEntry>, OpenGreater> open;
 
+        // Cheapest non-negative action cost — the least any single step can add.
+        // Scaling the unsatisfied-fact count by it keeps the heuristic admissible
+        // regardless of the cost scale (h = count * minStep <= true cost when no
+        // action satisfies more than one outstanding fact). If any action is free
+        // (cost 0) there is no positive per-fact lower bound, so fall back to 0
+        // (Dijkstra-like, still admissible).
+        f32 minStepCost = std::numeric_limits<f32>::max();
+        for (const auto& candidate : actions)
+        {
+            const f32 c = candidate.Cost < 0.0f ? 0.0f : candidate.Cost; // negatives are floored on expansion too
+            if (c < minStepCost)
+                minStepCost = c;
+        }
+        const f32 heuristicScale = (actions.empty() || minStepCost <= 0.0f) ? 0.0f : minStepCost;
+
         const auto heuristic = [&](const GoapWorldState& s) -> f32
         {
-            return static_cast<f32>(s.UnsatisfiedCount(goal.DesiredState)) * settings.HeuristicWeight;
+            return static_cast<f32>(s.UnsatisfiedCount(goal.DesiredState)) * settings.HeuristicWeight * heuristicScale;
         };
 
         // Seed with the start state.
