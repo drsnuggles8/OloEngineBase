@@ -52,7 +52,7 @@ namespace OloEngine
      */
     class ModelImporter
     {
-    public:
+      public:
         /**
          * @brief Wire an entity from a loaded @ref AnimatedModel.
          *

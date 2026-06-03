@@ -49,7 +49,7 @@ namespace
         }
         return clips;
     }
-}
+} // namespace
 
 // A model carrying a skeleton + clips gets the full animation component set, and
 // fresh playback state (clip 0, Idle, stopped).
@@ -139,7 +139,7 @@ TEST(ModelImporterTest, DeserializePreservesPlaybackScalars)
 
     const auto& anim = entity.GetComponent<AnimationStateComponent>();
     EXPECT_EQ(anim.m_AvailableClips.size(), 3u); // refreshed from the reloaded model
-    EXPECT_EQ(anim.m_CurrentClipIndex, 1);        // preserved
+    EXPECT_EQ(anim.m_CurrentClipIndex, 1);       // preserved
     EXPECT_EQ(anim.m_CurrentClip, clips[1]);
     EXPECT_EQ(anim.m_State, AnimationStateComponent::State::Custom); // preserved
     EXPECT_NEAR(anim.m_CurrentTime, 0.75f, 1e-5f);                   // preserved
