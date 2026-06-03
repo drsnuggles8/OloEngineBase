@@ -13,6 +13,7 @@
 #include "Panels/NetworkDebugPanel.h"
 #include "Panels/ConsolePanel.h"
 #include "Panels/DialogueEditorPanel.h"
+#include "Panels/CinematicTimelinePanel.h"
 #include "Panels/NavMeshPanel.h"
 #include "Panels/BehaviorTreeEditorPanel.h"
 #include "Panels/FSMEditorPanel.h"
@@ -218,6 +219,8 @@ namespace OloEngine
         ConsolePanel m_ConsolePanel;
         StatisticsPanel m_StatisticsPanel;
         DialogueEditorPanel m_DialogueEditorPanel;
+        CinematicTimelinePanel m_CinematicTimelinePanel;
+        bool m_ShowCinematicTimeline = false;
         EditorPreferencesPanel m_EditorPreferencesPanel;
         EditorPreferences m_Prefs;
         ShaderGraphEditorPanel m_ShaderGraphEditorPanel;

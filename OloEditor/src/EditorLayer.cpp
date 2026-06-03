@@ -783,6 +783,7 @@ namespace OloEngine
             ImGui::MenuItem("Input Settings", nullptr, &m_ShowInputSettings);
             ImGui::MenuItem("Network Debug", nullptr, &m_ShowNetworkDebug);
             ImGui::MenuItem("Dialogue Editor", nullptr, &m_ShowDialogueEditor);
+            ImGui::MenuItem("Cinematic Timeline", nullptr, &m_ShowCinematicTimeline);
             ImGui::MenuItem("NavMesh Panel", nullptr, &m_ShowNavMeshPanel);
             ImGui::MenuItem("Behavior Tree Editor", nullptr, &m_ShowBehaviorTreeEditor);
             ImGui::MenuItem("State Machine Editor", nullptr, &m_ShowFSMEditor);
@@ -1295,6 +1296,15 @@ namespace OloEngine
         {
             m_DialogueEditorPanel.OnImGuiRender();
             m_ShowDialogueEditor = m_DialogueEditorPanel.IsOpen();
+        }
+
+        // Cinematic Timeline Panel — context is set per-frame so scrubbing /
+        // preview always poses the current active scene (edit mode == editor
+        // scene; play/sim == the runtime copy, where ApplyAtTime is a no-op).
+        if (m_ShowCinematicTimeline)
+        {
+            m_CinematicTimelinePanel.SetContext(m_ActiveScene);
+            m_CinematicTimelinePanel.OnImGuiRender(&m_ShowCinematicTimeline);
         }
 
         // Shader Graph Editor Panel
@@ -1949,6 +1959,11 @@ namespace OloEngine
                 m_DialogueEditorPanel.OpenDialogue(path);
                 m_ShowDialogueEditor = true;
             }
+            else if (type == ContentFileType::Cinematic)
+            {
+                m_CinematicTimelinePanel.OpenSequence(path);
+                m_ShowCinematicTimeline = true;
+            }
             else if (type == ContentFileType::ShaderGraph)
             {
                 if (m_ShaderGraphEditorPanel.HasUnsavedChanges())
@@ -2031,6 +2046,13 @@ namespace OloEngine
             {
                 // No additional handling required.
             } });
+
+        // "Edit in Timeline" on the CinematicComponent inspector opens the
+        // referenced sequence in the timeline panel.
+        m_SceneHierarchyPanel.SetOpenCinematicTimelineCallback([this](AssetHandle handle)
+                                                               {
+            m_CinematicTimelinePanel.OpenSequence(handle);
+            m_ShowCinematicTimeline = true; });
     }
 
     void EditorLayer::NewProject()
@@ -2048,6 +2070,8 @@ namespace OloEngine
         Project::New();
         NewScene();
         m_DialogueEditorPanel.NewDialogue();
+        m_CinematicTimelinePanel.Reset();
+        m_ShowCinematicTimeline = false;
         m_ContentBrowserPanel = CreateScope<ContentBrowserPanel>();
         BindContentBrowserSelectionCallback();
         m_AssetPackBuilderPanel = CreateScope<AssetPackBuilderPanel>();
@@ -2093,6 +2117,8 @@ namespace OloEngine
             OpenScene(startScenePath);
 
             m_DialogueEditorPanel.NewDialogue();
+            m_CinematicTimelinePanel.Reset();
+            m_ShowCinematicTimeline = false;
             m_ContentBrowserPanel = CreateScope<ContentBrowserPanel>();
             BindContentBrowserSelectionCallback();
             m_AssetPackBuilderPanel = CreateScope<AssetPackBuilderPanel>();

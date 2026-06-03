@@ -1,9 +1,11 @@
 #pragma once
 
 #include "OloEngine/Core/Base.h"
+#include "OloEngine/Asset/Asset.h"
 #include "OloEngine/Scene/Scene.h"
 #include "OloEngine/Scene/Entity.h"
 
+#include <functional>
 #include <vector>
 
 namespace OloEngine
@@ -20,6 +22,13 @@ namespace OloEngine
         void SetCommandHistory(CommandHistory* history)
         {
             m_CommandHistory = history;
+        }
+
+        // Set by EditorLayer: open a CinematicSequence asset in the timeline panel
+        // (the "Edit in Timeline" button on the CinematicComponent inspector).
+        void SetOpenCinematicTimelineCallback(std::function<void(AssetHandle)> cb)
+        {
+            m_OpenCinematicTimeline = std::move(cb);
         }
 
         void OnImGuiRender();
@@ -58,6 +67,7 @@ namespace OloEngine
         Entity m_SelectionContext;
         std::vector<Entity> m_SelectedEntities;
         CommandHistory* m_CommandHistory = nullptr;
+        std::function<void(AssetHandle)> m_OpenCinematicTimeline;
 
         // Rename tracking for undo
         std::string m_RenameOldName;

@@ -193,6 +193,7 @@
     "OloEngine/tests/Cinematic/CinematicCurveTest.cpp": "unit",
     "OloEngine/tests/Cinematic/CinematicPlayerTest.cpp": "unit",
     "OloEngine/tests/Cinematic/CinematicSerializerTest.cpp": "unit",
+    "OloEngine/tests/Cinematic/CinematicEditTest.cpp": "unit",
     "OloEngine/tests/AnimationStateMachineTest.cpp": "unit",
     "OloEngine/tests/AnimationSystemTest.cpp": "unit",
     "OloEngine/tests/AssetBinaryIntegrityTest.cpp": "unit",

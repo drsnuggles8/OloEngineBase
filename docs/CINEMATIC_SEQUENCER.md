@@ -133,17 +133,46 @@ with `std::isfinite`.
 
 ---
 
-## Deferred (concrete follow-ups, not oversights)
+## Editor timeline panel — **shipped**
 
-### Editor timeline panel
+[`CinematicTimelinePanel`](../OloEditor/src/Panels/CinematicTimelinePanel.h) is the
+authoring surface on top of the runtime. Open a `.olocine` by double-clicking it in
+the Content Browser, or via **Edit in Timeline** on the `CinematicComponent`
+inspector (alongside the existing assign / Loop / PlayOnStart / speed / Scrub
+controls). Toggle it from **View ▸ Cinematic Timeline**.
 
-There **is** a `CinematicComponent` inspector (assign a sequence by drag-drop,
-toggle Loop / PlayOnStart / speed, Play/Pause/Stop, and an edit-mode **Scrub**
-slider that calls `CinematicSystem::ApplyAtTime` to pose the scene live). What's
-still missing is a dedicated **timeline panel** for *authoring*: track lanes,
-draggable/insertable keyframes, and curve editing. Today sequences are authored
-as `.olocine` YAML by hand (or built in code/tests). The runtime, serialization,
-and scrubbing hook are all panel-ready; a panel is pure editor UI on top.
+What it does:
+
+- **Track lanes** — every track expands into its editable channels (Transform →
+  Translation / Rotation / Scale; Camera → Pos / Rot / FOV; plus Visibility and
+  Event lanes), drawn against a time ruler with zoom (Ctrl+wheel) and pan (wheel).
+- **Keyframes** — diamonds coloured by interpolation mode. **Drag** to retime,
+  **double-click** an empty lane (or the lane's **＋**) to insert a key at that
+  time, snapshotting the target entity's current value. **Snap** to a configurable
+  grid. Right-panel inspector edits the selected key's time, value (vec3 / euler /
+  FOV-degrees / visible / event-name) and interpolation; **Delete Key** removes it.
+- **Curve preview** — the inspector plots the channel's *evaluated* output across
+  the sequence, so the chosen interp modes are visible (Constant = steps, Linear =
+  straight, EaseInOut = smooth).
+- **Playhead** — drag the ruler to scrub (poses the scene live through
+  `CinematicSystem::ApplyAtTime`), or **Play/Pause/Stop** for an edit-mode preview
+  (Loop optional). The explicit **Duration** field (0 = auto) and **Add Track**
+  (with an entity-target picker) round it out.
+- **Save** writes back through `CinematicSequenceSerializer`. Editing is in-place
+  on the AssetManager's cached `Ref<CinematicSequence>`, so a referencing
+  `CinematicComponent` (and the inspector scrub slider) sees edits immediately.
+
+All key mutations route through the pure, unit-tested `OloEngine::CinematicEdit`
+helpers (insert-sorted / move-and-resort / remove), so the sort-by-time invariant
+that playback depends on is enforced in one place
+([`CinematicEditTest`](../OloEngine/tests/Cinematic/CinematicEditTest.cpp)). The
+panel itself is editor UI and isn't auto-tested.
+
+### Still deferred
+
+- **Bezier tangents** — the curve model is per-key Constant / Linear / EaseInOut
+  only; the preview reflects that. Free tangent handles would need new fields on
+  `CinematicCurve` (+ serializer version bump) before the panel could edit them.
 
 ### Additional track types
 

@@ -57,6 +57,8 @@ namespace OloEngine
         { ".olosg", ContentFileType::ShaderGraph },
         // Sound Graphs
         { ".olosoundgraph", ContentFileType::SoundGraph },
+        // Cinematic Sequences
+        { ".olocine", ContentFileType::Cinematic },
         // Save Games
         { ".olosave", ContentFileType::SaveGame },
     };
@@ -143,6 +145,9 @@ namespace OloEngine
                 break;
             case ContentFileType::SaveGame:
                 ImGui::TextColored(ImVec4(0.6f, 0.9f, 0.4f, 1.0f), "Save Game");
+                break;
+            case ContentFileType::Cinematic:
+                ImGui::TextColored(ImVec4(0.9f, 0.7f, 0.4f, 1.0f), "Cinematic Sequence");
                 break;
             default:
                 break;

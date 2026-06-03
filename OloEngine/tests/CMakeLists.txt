@@ -202,6 +202,7 @@ add_executable(OloEngine-Tests
 		Cinematic/CinematicCurveTest.cpp
 		Cinematic/CinematicPlayerTest.cpp
 		Cinematic/CinematicSerializerTest.cpp
+		Cinematic/CinematicEditTest.cpp
 		# Morph Target Tests
 		MorphTargetTest.cpp
 		# AI Behavior Tree & FSM Tests
