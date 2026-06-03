@@ -94,6 +94,7 @@ namespace OloEngine
     struct MorphTargetComponent;
     struct InstancedMeshComponent;
     struct AnimationGraphComponent;
+    struct CinematicComponent;
     struct BehaviorTreeComponent;
     struct StateMachineComponent;
     struct InventoryComponent;
@@ -193,6 +194,7 @@ namespace OloEngine
         static void Serialize(FArchive& ar, MorphTargetComponent& c);
         static void Serialize(FArchive& ar, InstancedMeshComponent& c);
         static void Serialize(FArchive& ar, AnimationGraphComponent& c);
+        static void Serialize(FArchive& ar, CinematicComponent& c);
         static void Serialize(FArchive& ar, BehaviorTreeComponent& c);
         static void Serialize(FArchive& ar, StateMachineComponent& c);
         static void Serialize(FArchive& ar, InventoryComponent& c);

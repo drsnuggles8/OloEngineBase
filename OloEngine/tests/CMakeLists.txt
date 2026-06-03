@@ -196,6 +196,10 @@ add_executable(OloEngine-Tests
 		Animation/LimbIKSolverTest.cpp
 		Animation/BlendUtilsTest.cpp
 		Animation/OneShotBlendTest.cpp
+		# Cinematic Sequencer Tests
+		Cinematic/CinematicCurveTest.cpp
+		Cinematic/CinematicPlayerTest.cpp
+		Cinematic/CinematicSerializerTest.cpp
 		# Morph Target Tests
 		MorphTargetTest.cpp
 		# AI Behavior Tree & FSM Tests
@@ -230,6 +234,8 @@ add_executable(OloEngine-Tests
 		Lua/LuaBindingTest.cpp
 		# Functional / cross-subsystem world-tick tests (see ADR 0001).
 		Functional/FunctionalTest.cpp
+		Functional/Cinematic/CinematicDrivesEntitiesTest.cpp
+		Functional/Cinematic/CinematicAssetPlaybackTest.cpp
 		Functional/AnimationPhysics/FreeFallLandingTest.cpp
 		Functional/AnimationPhysics/WaterBuoyancyTest.cpp
 		Functional/AnimationPhysics/AnimationKeepsTickingUnderPhysicsLoadTest.cpp

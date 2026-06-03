@@ -16,6 +16,8 @@
 #include "OloEngine/Asset/AssetManager.h"
 #include "OloEngine/Asset/AssetManager/EditorAssetManager.h"
 #include "OloEngine/Asset/AssetImporter.h"
+#include "OloEngine/Cinematic/CinematicSystem.h"
+#include "OloEngine/Cinematic/CinematicSequence.h"
 #include "OloEngine/Project/Project.h"
 #include "OloEngine/Particle/EmissionShapeUtils.h"
 #include "OloEngine/Particle/ParticlePresets.h"
@@ -1746,6 +1748,7 @@ namespace OloEngine
             DisplayAddComponentEntry<SkeletonComponent>("Skeleton");
             DisplayAddComponentEntry<SubmeshComponent>("Submesh");
             DisplayAddComponentEntry<MorphTargetComponent>("Morph Targets");
+            DisplayAddComponentEntry<CinematicComponent>("Cinematic Sequence");
 
             ImGui::Separator();
 
@@ -3689,6 +3692,128 @@ namespace OloEngine
             {
                 ImGui::BulletText("%s", name.c_str());
             } });
+
+        DrawComponent<CinematicComponent>("Cinematic Sequence", entity, [this](auto& component)
+                                          {
+            // Sequence asset slot — drag a .olocine from the Content Browser.
+            const std::string handleLabel = component.Sequence != 0
+                ? "Sequence: " + std::to_string(static_cast<u64>(component.Sequence))
+                : "Sequence: <none — drag a .olocine here>";
+            ImGui::Button(handleLabel.c_str(), ImVec2(-1.0f, 0.0f));
+            if (ImGui::BeginDragDropTarget())
+            {
+                if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("CONTENT_BROWSER_ITEM"))
+                {
+                    std::filesystem::path assetPath = PathFromUtf8Payload(*payload);
+                    if (auto assetManager = Project::GetAssetManager().As<EditorAssetManager>())
+                    {
+                        AssetHandle handle = assetManager->ImportAsset(assetPath);
+                        if (handle != 0 && AssetManager::GetAssetType(handle) == AssetType::CinematicSequence)
+                        {
+                            component.Sequence = handle;
+                            component.RuntimeSequence = nullptr; // force re-resolve
+                            component.Stop();                     // rewind playhead for the new asset
+                        }
+                        else if (handle != 0)
+                        {
+                            OLO_WARN("Drag-dropped asset is not a CinematicSequence (type: {0})",
+                                     AssetUtils::AssetTypeToString(AssetManager::GetAssetType(handle)));
+                        }
+                    }
+                }
+                ImGui::EndDragDropTarget();
+            }
+            if (component.Sequence != 0)
+            {
+                ImGui::SameLine();
+                if (ImGui::SmallButton("Clear##CinematicSeq"))
+                {
+                    component.Sequence = 0;
+                    component.RuntimeSequence = nullptr;
+                    component.Stop(); // rewind playhead when the asset is removed
+                }
+            }
+
+            ImGui::Separator();
+            ImGui::Checkbox("Play On Start##Cinematic", &component.PlayOnStart);
+            ImGui::SameLine();
+            ImGui::Checkbox("Loop##Cinematic", &component.Loop);
+            ImGui::DragFloat("Speed##Cinematic", &component.PlaybackSpeed, 0.05f, 0.0f, 16.0f);
+
+            // Resolve for preview without committing to RuntimeSequence.
+            Ref<CinematicSequence> seq = component.RuntimeSequence;
+            if (!seq && component.Sequence != 0)
+                seq = AssetManager::GetAsset<CinematicSequence>(component.Sequence);
+
+            if (!seq)
+            {
+                ImGui::TextDisabled("Assign a CinematicSequence asset to scrub / play.");
+                return;
+            }
+
+            const f32 duration = seq->GetEffectiveDuration();
+            ImGui::Text("Duration: %.2fs  |  Tracks  T:%zu C:%zu V:%zu E:%zu", duration,
+                        seq->TransformTracks.size(), seq->CameraTracks.size(),
+                        seq->VisibilityTracks.size(), seq->EventTracks.size());
+
+            // Edit-mode scrubbing: pose the scene at the chosen time. Works in
+            // the viewport without entering Play mode. Keep PreviousTime aligned
+            // so a subsequent resume doesn't replay events from before the scrub.
+            // Disabled while the scene is running: the runtime CinematicSystem
+            // owns the playhead then, so scrubbing would fight its per-frame
+            // advance (and double-write component.Time).
+            const bool runtimeOwnsPlayhead = m_Context && m_Context->IsRunning();
+            ImGui::BeginDisabled(runtimeOwnsPlayhead);
+            f32 scrub = component.Time;
+            if (ImGui::SliderFloat("Scrub##Cinematic", &scrub, 0.0f, duration > 0.0f ? duration : 1.0f) && !runtimeOwnsPlayhead)
+            {
+                component.Time = scrub;
+                component.PreviousTime = scrub;
+                if (m_Context)
+                    CinematicSystem::ApplyAtTime(*m_Context, *seq, scrub);
+            }
+            ImGui::EndDisabled();
+
+            const bool atEnd = component.Finished || component.Time >= duration;
+
+            // Play/Pause toggle: Pause holds the playhead; Play resumes from it
+            // (or restarts from 0 if it already ran to the end on a non-looping
+            // sequence). Restart always rewinds to 0; Stop rewinds + repose.
+            if (component.Playing)
+            {
+                if (ImGui::Button("Pause##Cinematic"))
+                    component.Pause();
+            }
+            else if (ImGui::Button("Play##Cinematic"))
+            {
+                if (atEnd)
+                    component.PlayFromStart();
+                else
+                    component.Play(); // resume from the current playhead
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Restart##Cinematic"))
+                component.PlayFromStart();
+            ImGui::SameLine();
+            if (ImGui::Button("Stop##Cinematic"))
+            {
+                component.Stop();
+                if (m_Context)
+                    CinematicSystem::ApplyAtTime(*m_Context, *seq, 0.0f);
+            }
+
+            // Edit-mode live preview. The runtime CinematicSystem already ticks
+            // every CinematicComponent from Scene::OnUpdateRuntime in Play mode,
+            // so only drive the playhead here when the scene is NOT running —
+            // otherwise the selected component would advance twice per frame.
+            // Shares Advance() with the runtime path so semantics match exactly.
+            if (component.Playing && m_Context && !m_Context->IsRunning())
+                CinematicSystem::Advance(*m_Context, component, *seq, ImGui::GetIO().DeltaTime);
+
+            const char* stateLabel = component.Playing ? "Playing" : (atEnd ? "Finished" : "Paused");
+            ImGui::Text("State: %s  t=%.2fs / %.2fs", stateLabel,
+                        static_cast<double>(component.Time), static_cast<double>(duration));
+            ImGui::TextDisabled("Pause/Play resumes where you left off; preview runs while this entity is selected."); });
 
         DrawComponent<SkeletonComponent>("Skeleton", entity, [](auto& component)
                                          {

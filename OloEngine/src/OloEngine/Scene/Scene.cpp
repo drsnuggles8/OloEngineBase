@@ -26,6 +26,7 @@
 #include "OloEngine/Audio/SoundGraph/GraphGeneration.h"
 #include "OloEngine/Audio/SoundGraph/SoundGraph.h"
 #include "OloEngine/Animation/MorphTargets/MorphTargetSystem.h"
+#include "OloEngine/Cinematic/CinematicSystem.h"
 #include "OloEngine/Animation/AnimationGraphComponent.h"
 #include "OloEngine/Animation/AnimationGraphAsset.h"
 #include "OloEngine/Animation/AnimationGraphSystem.h"
@@ -662,6 +663,17 @@ namespace OloEngine
         // Dialogue system initialization
         InitDialogueSystem();
 
+        // Auto-start cinematics flagged PlayOnStart. CinematicSystem only
+        // advances components whose Playing flag is set; this is what flips it
+        // on as runtime begins (the edit-mode tick never plays cinematics).
+        for (auto e : m_Registry.view<CinematicComponent>())
+        {
+            if (auto& cine = m_Registry.get<CinematicComponent>(e); cine.PlayOnStart)
+            {
+                cine.PlayFromStart();
+            }
+        }
+
         // Scripting
         {
             ScriptEngine::OnRuntimeStart(this);
@@ -1031,6 +1043,12 @@ namespace OloEngine
                     }
                 }
             }
+
+            // Advance cinematic sequences. Runs after scripts so a playing
+            // cutscene's authored transforms / camera win over script motion
+            // for the frame, and before animation/physics so downstream
+            // systems see the posed entities.
+            CinematicSystem::Update(*this, ts);
 
             // Update dialogue system
             if (m_DialogueSystem)
@@ -2136,6 +2154,16 @@ namespace OloEngine
     void Scene::OnComponentAdded<NavAgentComponent>(Entity, NavAgentComponent&) {}
     template<>
     void Scene::OnComponentAdded<AnimationGraphComponent>(Entity, AnimationGraphComponent&) {}
+    template<>
+    void Scene::OnComponentAdded<CinematicComponent>(Entity, CinematicComponent& component)
+    {
+        // If a cinematic is added while the scene is already running, honour
+        // PlayOnStart now — OnRuntimeStart (which normally does this) has passed.
+        if (m_IsRunning && component.PlayOnStart)
+        {
+            component.PlayFromStart();
+        }
+    }
     template<>
     void Scene::OnComponentAdded<BehaviorTreeComponent>(Entity, BehaviorTreeComponent&) {}
     template<>
@@ -5729,6 +5757,7 @@ namespace OloEngine
     OLO_ON_COMPONENT_REMOVED_NOOP(NavMeshBoundsComponent)
     OLO_ON_COMPONENT_REMOVED_NOOP(NavAgentComponent)
     OLO_ON_COMPONENT_REMOVED_NOOP(AnimationGraphComponent)
+    OLO_ON_COMPONENT_REMOVED_NOOP(CinematicComponent)
     OLO_ON_COMPONENT_REMOVED_NOOP(BehaviorTreeComponent)
     OLO_ON_COMPONENT_REMOVED_NOOP(StateMachineComponent)
     OLO_ON_COMPONENT_REMOVED_NOOP(TileRendererComponent)

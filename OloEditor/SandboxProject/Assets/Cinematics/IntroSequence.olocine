@@ -1,0 +1,35 @@
+CinematicSequence:
+  Version: 1
+  Name: IntroSequence
+  Duration: 8
+  TransformTracks:
+    - Target: 8801000000000002
+      Name: MovingSprite
+      Translation:
+        - { Time: 0, Value: [-2, 0, 0], Interp: 2 }
+        - { Time: 4, Value: [2, 0, 0], Interp: 2 }
+        - { Time: 8, Value: [-2, 0, 0], Interp: 2 }
+      Rotation: []
+      Scale:
+        - { Time: 0, Value: [1, 1, 1], Interp: 1 }
+        - { Time: 2, Value: [1.6, 1.6, 1], Interp: 1 }
+        - { Time: 4, Value: [1, 1, 1], Interp: 1 }
+        - { Time: 8, Value: [1, 1, 1], Interp: 1 }
+  CameraTracks:
+    - Target: 8801000000000001
+      Name: MainCamera
+      Position:
+        - { Time: 0, Value: [0, 2, 6], Interp: 1 }
+        - { Time: 4, Value: [-3, 2, 6], Interp: 1 }
+        - { Time: 8, Value: [0, 2, 6], Interp: 1 }
+      Rotation: []
+      VerticalFovRadians:
+        - { Time: 0, Value: 0.6, Interp: 1 }
+        - { Time: 4, Value: 0.95, Interp: 1 }
+        - { Time: 8, Value: 0.6, Interp: 1 }
+  VisibilityTracks: []
+  EventTracks:
+    - Name: cues
+      Keys:
+        - { Time: 0, Name: begin }
+        - { Time: 4, Name: midpoint }

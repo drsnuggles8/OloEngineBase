@@ -199,6 +199,29 @@ namespace OloEngine
 		internal static extern void CharacterController3DComponent_SetDisableGravity(ulong entityID, bool value);
 		#endregion
 
+		#region CinematicComponent
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern ulong CinematicComponent_GetSequence(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void CinematicComponent_SetSequence(ulong entityID, ulong value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool CinematicComponent_GetPlayOnStart(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void CinematicComponent_SetPlayOnStart(ulong entityID, bool value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool CinematicComponent_GetLoop(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void CinematicComponent_SetLoop(ulong entityID, bool value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float CinematicComponent_GetPlaybackSpeed(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void CinematicComponent_SetPlaybackSpeed(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool CinematicComponent_GetPlaying(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void CinematicComponent_SetPlaying(ulong entityID, bool value);
+		#endregion
+
 		#region CircleCollider2DComponent
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern void CircleCollider2DComponent_GetOffset(ulong entityID, out Vector2 value);

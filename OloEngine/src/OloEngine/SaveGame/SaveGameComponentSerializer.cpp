@@ -2272,6 +2272,29 @@ namespace OloEngine
         // RuntimeGraph is a Ref that gets lazy-loaded from the asset on first tick.
     }
 
+    void SaveGameComponentSerializer::Serialize(FArchive& ar, CinematicComponent& c)
+    {
+        ar << c.Sequence;
+        ar << c.PlayOnStart;
+        ar << c.Loop;
+        ar << c.PlaybackSpeed;
+        // RuntimeSequence + playhead/event state are runtime-only; the tick
+        // loop rebuilds them when playback (re)starts.
+        if (ar.IsLoading())
+        {
+            if (!std::isfinite(c.PlaybackSpeed))
+            {
+                c.PlaybackSpeed = 1.0f;
+            }
+            else
+            {
+                // Clamp to the inspector's authoring range so a corrupted save
+                // can't inject a negative or absurd time scale.
+                c.PlaybackSpeed = std::clamp(c.PlaybackSpeed, 0.0f, 16.0f);
+            }
+        }
+    }
+
     void SaveGameComponentSerializer::Serialize(FArchive& ar, BehaviorTreeComponent& c)
     {
         ar << c.BehaviorTreeAssetHandle;
@@ -2531,6 +2554,7 @@ namespace OloEngine
         REGISTER_SAVE_COMPONENT(MorphTargetComponent);
         REGISTER_SAVE_COMPONENT(InstancedMeshComponent);
         REGISTER_SAVE_COMPONENT(AnimationGraphComponent);
+        REGISTER_SAVE_COMPONENT(CinematicComponent);
         REGISTER_SAVE_COMPONENT(BehaviorTreeComponent);
         REGISTER_SAVE_COMPONENT(StateMachineComponent);
         REGISTER_SAVE_COMPONENT(InventoryComponent);

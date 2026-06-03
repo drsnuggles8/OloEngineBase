@@ -20,14 +20,15 @@ When you finish a task that touched code or assets:
 
 1. **Pre-commit is automatic.** A `Stop` hook in `.claude/settings.json` runs `pre-commit run --all-files` at the end of every turn (the wrapper script at `scripts/claude-stop-hook.ps1` is the source of truth — it runs the whole repo, not just modified files, on purpose). If it reformats anything, the changes are already on disk — re-stage them before committing. Do **not** run `pre-commit` again manually unless it failed.
 2. **Test-catalogue regeneration** is enforced by the `test-catalogue-in-sync` hook above. If it fails, run `python OloEngine/tests/scripts/generate_test_catalogue.py` and re-stage.
-3. **Cross-binding check** — the pre-commit hook does **not** catch this. If you added or changed an ECS component, you must update **all five** touch-points or scripting / scene saves / save-games / runtime copies will silently drop it:
+3. **Cross-binding check** — the pre-commit hook does **not** catch this. If you added or changed an ECS component, you must update **all six** touch-points or scripting / scene saves / save-games / runtime copies will silently drop it (and the build will fail to link):
    - `Scene/Components.h` — the component struct itself **and** add it to the `AllComponents` tuple at the bottom of the file (scene copy, prefab instantiation, and `HasComponent<T>()` script registration all iterate this tuple).
+   - `Scene/Scene.cpp` — add **both** an explicit `template<> void Scene::OnComponentAdded<YourComponent>(Entity, YourComponent&) {}` specialization (alongside the others, ~line 2130) **and** an `OLO_ON_COMPONENT_REMOVED_NOOP(YourComponent)` entry in the no-op list (~line 5648). Adding the component to `AllComponents` instantiates `AddComponent<T>` → `OnComponentAdded<T>` (engine link error if missing); the editor's remove-component button instantiates `RemoveComponent<T>` → `OnComponentRemoved<T>` (OloEditor link error if missing). Neither is a silent failure — both are unresolved-symbol link errors. Give either a body if the component needs init/teardown.
    - `Scene/SceneSerializer.cpp` — `SerializeEntity` (writes) and `DeserializeEntities` (reads). Validate every float with `std::isfinite`.
    - `SaveGame/SaveGameComponentSerializer.{h,cpp}` — forward decl, `Serialize()` overload, and `RegisterAll()` registration. Save-games will not round-trip otherwise.
    - `Scripting/C#/Generated/` is auto-generated from `OLO_PROPERTY` annotations by OloHeaderTool (see below) — add the annotations on the component fields. Don't hand-edit the generated `.inl` / `.cs`.
    - `Scripting/Lua/LuaScriptGlue.cpp::RegisterAllTypes()` — Sol2 usertype registration. (`OloEngine-LuaScriptCore/` is the Mono-equivalent project target but the actual bindings live in `Scripting/Lua/`.)
 
-   Missing any one causes silent script or scene failures. Audit the existing list in `AllComponents` (`Scene/Components.h`, near the bottom of the file) as the source of truth for what's expected to round-trip.
+   Missing any one causes silent script or scene failures (or, for `OnComponentAdded`, a link error). Audit the existing list in `AllComponents` (`Scene/Components.h`, near the bottom of the file) as the source of truth for what's expected to round-trip. A separate `ComponentSerializerCoverageTest` greps a fixed header list — if the component lives in a new header, add it there too.
 
 If you find yourself wanting to write "remember to run pre-commit" anywhere, don't — the hook owns that.
 
@@ -166,7 +167,7 @@ Full coding rules in [docs/agent-rules/cpp-coding-quality.md](docs/agent-rules/c
 
 - **Wrong working directory** → missing shaders / Mono assemblies at startup.
 - **Editing under `OloEngine/vendor/`** → wiped on next CMake reconfigure.
-- **Adding a component without updating all five touch-points** (`AllComponents` tuple, `SceneSerializer.cpp`, `SaveGameComponentSerializer.{h,cpp}`, `LuaScriptGlue.cpp::RegisterAllTypes`, `OLO_PROPERTY` annotations) → scenes don't persist, save-games drop the component, scene copy / prefab instantiation silently skips it, scripts break silently. The pre-commit hook can't catch this; see the Definition of done above.
+- **Adding a component without updating all six touch-points** (`AllComponents` tuple, `Scene::OnComponentAdded<T>` specialization, `SceneSerializer.cpp`, `SaveGameComponentSerializer.{h,cpp}`, `LuaScriptGlue.cpp::RegisterAllTypes`, `OLO_PROPERTY` annotations) → scenes don't persist, save-games drop the component, scene copy / prefab instantiation silently skips it, scripts break silently — or, for a missing `OnComponentAdded<T>`, the test/runtime binary fails to link. The pre-commit hook can't catch this; see the Definition of done above.
 - **Adding a test `.cpp` anywhere under `OloEngine/tests/` without registering it in `test_catalogue.json`** → pre-commit hook blocks the commit. The whole tree is scanned (no allowlist, no exclude list); every file with a `TEST`/`TEST_F`/`TEST_P`/`TYPED_TEST` macro must be classified (`L1`–`L11`/`plumbing`/… for renderer-scope, `Functional`, or `unit`).
 - **Hand-editing the auto-catalogue blocks in [docs/testing.md](docs/testing.md)** → overwritten on next regenerate.
 - **Using golden images as the *primary* correctness check** → the testing rules require an L1–L5 contract test as well.

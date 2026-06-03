@@ -94,6 +94,7 @@ namespace OloEngine
         constexpr const char* Script = ".oloscript";
         constexpr const char* MeshCollider = ".olomc";
         constexpr const char* ParticleSystem = ".oloparticle";
+        constexpr const char* CinematicSequence = ".olocine";
     } // namespace OloExtensions
 
 } // namespace OloEngine
