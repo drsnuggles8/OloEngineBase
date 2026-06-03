@@ -1116,13 +1116,14 @@ subsystem unit tests (§9.3, grouped by directory).
 
 > **Do not edit by hand.** Generated from [test_catalogue.json](../OloEngine/tests/scripts/test_catalogue.json) by [generate_test_catalogue.py](../OloEngine/tests/scripts/generate_test_catalogue.py). Add new test files to the config and run the script (or pre-commit will run it with `--check`).
 
-#### AI (4 files)
+#### AI (5 files)
 
 | File | Tests | Cases |
 |---|---:|---|
 | [BehaviorTreeAdvancesViaSceneTickTest.cpp](../OloEngine/tests/Functional/AI/BehaviorTreeAdvancesViaSceneTickTest.cpp) | 1 | **BehaviorTreeAdvancesViaSceneTickTest** &mdash; `RootTaskRunsAndWritesBlackboardAfterOneTick` |
 | [BehaviorTreeSequenceShortCircuitsOnFailureTest.cpp](../OloEngine/tests/Functional/AI/BehaviorTreeSequenceShortCircuitsOnFailureTest.cpp) | 1 | **BehaviorTreeSequenceShortCircuitsOnFailureTest** &mdash; `FirstChildRunsThirdChildSkippedAfterMiddleFails` |
 | [GoapAgentPlansViaSceneTickTest.cpp](../OloEngine/tests/Functional/AI/GoapAgentPlansViaSceneTickTest.cpp) | 1 | **GoapAgentPlansViaSceneTickTest** &mdash; `AgentPlansAndExecutesToGoalAcrossSceneTicks` |
+| [GoapAuthoredFromLuaViaSceneTickTest.cpp](../OloEngine/tests/Functional/AI/GoapAuthoredFromLuaViaSceneTickTest.cpp) | 2 | **GoapAuthoredFromLuaViaSceneTickTest** &mdash; `LuaBuiltAgentPlansAndReachesGoal`, `RuntimeStopReleasesLuaBuiltAgentBeforeStateTeardown` |
 | [StateMachineTransitionsViaSceneTickTest.cpp](../OloEngine/tests/Functional/AI/StateMachineTransitionsViaSceneTickTest.cpp) | 1 | **StateMachineTransitionsViaSceneTickTest** &mdash; `FsmStartsInIdleAndTransitionsToChaseAfterConditionMet` |
 
 #### AnimationPhysics (21 files)
@@ -1266,7 +1267,7 @@ subsystem unit tests (§9.3, grouped by directory).
 | [LuaScriptSetsRigidbody2DVelocityTest.cpp](../OloEngine/tests/Functional/Scripting/LuaScriptSetsRigidbody2DVelocityTest.cpp) | 1 | **LuaScriptSetsRigidbody2DVelocityTest** &mdash; `BodyTranslatesAfterLuaSetsLinearVelocity` |
 | [LuaSetsAbilityAttributeViaSceneTickTest.cpp](../OloEngine/tests/Functional/Scripting/LuaSetsAbilityAttributeViaSceneTickTest.cpp) | 1 | **LuaSetsAbilityAttributeViaSceneTickTest** &mdash; `LuaDrivenHealthToZeroFlipsAliveToDeadOnSubsequentTick` |
 
-**Totals.** 80 Functional test files, 89 TEST / TEST_F declarations across all subsystems.
+**Totals.** 81 Functional test files, 91 TEST / TEST_F declarations across all subsystems.
 
 <!-- END: functional-catalogue -->
 

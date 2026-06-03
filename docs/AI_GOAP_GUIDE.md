@@ -96,21 +96,60 @@ through the action closures and the sensor.
 ## ECS integration
 
 Attach a
-[`GoapAgentComponent`](../OloEngine/src/OloEngine/AI/AIComponents.h) and
-`AISystem::OnUpdate` (called from `Scene::OnUpdateRuntime`) ticks its
-`RuntimeAgent` every frame while `Enabled`. Like `BehaviorTreeComponent`, the
-runtime brain (actions/goals/world state) is built programmatically by gameplay
-or scripting code and is **not** serialized; only the authored `Enabled` flag
-and a script-facing `Blackboard` persist across scene save/load and save-games.
+[`GoapAgentComponent`](../OloEngine/src/OloEngine/AI/AIComponents.h) (add it from
+the editor's *Add Component ▸ GOAP Agent*) and `AISystem::OnUpdate` (called from
+`Scene::OnUpdateRuntime`) ticks its `RuntimeAgent` every frame while `Enabled`.
+Like `BehaviorTreeComponent`, the runtime brain (actions/goals/world state) is
+built programmatically — it is **not** serialized; only the authored `Enabled`
+flag and a script-facing `Blackboard` persist across scene save/load and
+save-games. The component inspector shows live planner state (current goal,
+plan step, goals achieved) once a brain is built.
 
-From Lua, scripts push observations and read the agent's commitment:
+## Authoring an agent from Lua
+
+The whole brain can be defined from a Lua script's `OnCreate` — no C++ required.
+`pre`/`effects`/`desired` are fact tables (string → `bool`|integer); a `perform`
+callback returns `GoapStatus.Running` / `.Success` / `.Failure` (or nothing,
+meaning instantaneous success):
 
 ```lua
-local goap = entity:GetComponent("GoapAgentComponent")
-goap:SetWorldFactBool("seesEnemy", true)
-goap:Invalidate()                 -- force a replan next tick
-local goal = goap:CurrentGoal()   -- e.g. "EliminateThreat"
+function script.OnCreate(id)
+    local goap = entity_utils.get_component(id, "GoapAgentComponent")
+    goap:AddAction{ name = "GoToFood", cost = 1.0,
+                    pre = { nearFood = false }, effects = { nearFood = true },
+                    perform = function(dt) ... return GoapStatus.Running end }
+    goap:AddAction{ name = "Eat", cost = 1.0,
+                    pre = { nearFood = true }, effects = { hungry = false } }
+    goap:AddGoal{ name = "NotHungry", priority = 1.0, desired = { hungry = false } }
+    goap:SetWorldFactBool("hungry", true)
+end
+
+function script.OnUpdate(id, dt)
+    -- refresh world facts each frame (runs before AISystem ticks the agent)
+    local goap = entity_utils.get_component(id, "GoapAgentComponent")
+    goap:SetWorldFactBool("nearFood", ...)
+end
+
+function script.OnDestroy(id)
+    -- release the captured Lua callbacks before the Lua state is torn down
+    local goap = entity_utils.get_component(id, "GoapAgentComponent")
+    if goap then goap:ClearAgent() end
+end
 ```
+
+Other component methods: `SetWorldFactInt`, `Invalidate()` (force a replan),
+`CurrentGoal()`, `HasPlan()`, `GoalsAchieved()`.
+
+### Playable sample
+
+[`SandboxProject/Assets/Scenes/GoapAgentTest.olo`](../OloEditor/SandboxProject/Assets/Scenes/GoapAgentTest.olo)
+drives [`LuaGoapHungryNPC.lua`](../OloEditor/SandboxProject/Assets/Scripts/LuaScripts/LuaGoapHungryNPC.lua):
+a small 3D arena (perspective camera, sun + skybox IBL, a ground plane). Open it
+in OloEditor and press Play — the green **cube** NPC gets hungry on a timer,
+plans `GoToFood → Eat`, walks across the floor to the yellow **sphere** and eats
+it (which relocates the food, so it re-plans a fresh path). Movement is on the
+X/Z plane. The Lua authoring path is regression-covered by
+[`GoapAuthoredFromLuaViaSceneTickTest`](../OloEngine/tests/Functional/AI/GoapAuthoredFromLuaViaSceneTickTest.cpp).
 
 ## References
 

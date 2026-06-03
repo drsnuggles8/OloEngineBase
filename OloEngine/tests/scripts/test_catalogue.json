@@ -182,6 +182,7 @@
     "OloEngine/tests/Functional/Dialogue/DialogueSelectChoiceBranchesToTargetTest.cpp": "Functional",
     "OloEngine/tests/Functional/AI/BehaviorTreeSequenceShortCircuitsOnFailureTest.cpp": "Functional",
     "OloEngine/tests/Functional/AI/GoapAgentPlansViaSceneTickTest.cpp": "Functional",
+    "OloEngine/tests/Functional/AI/GoapAuthoredFromLuaViaSceneTickTest.cpp": "Functional",
     "OloEngine/tests/Functional/Scripting/LuaReadsTransformOfAnotherEntityTest.cpp": "Functional",
     "OloEngine/tests/Functional/SaveGame/InventoryComponentSceneYAMLRoundTripTest.cpp": "Functional",
     "OloEngine/tests/AI/GoapTest.cpp": "unit",

@@ -254,6 +254,7 @@ add_executable(OloEngine-Tests
 		Functional/Scene/HierarchyChildFollowsPhysicsParentTest.cpp
 		Functional/AI/BehaviorTreeAdvancesViaSceneTickTest.cpp
 		Functional/AI/GoapAgentPlansViaSceneTickTest.cpp
+		Functional/AI/GoapAuthoredFromLuaViaSceneTickTest.cpp
 		Functional/Particles/ParticleSystemEmitsAndExpiresTest.cpp
 		Functional/AnimationPhysics/CharacterControllerWalksTest.cpp
 		Functional/AnimationPhysics/AnimationBlendCompletesViaSceneTickTest.cpp

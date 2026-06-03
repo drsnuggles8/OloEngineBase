@@ -229,6 +229,122 @@ namespace OloEngine
     }
     // clang-format on
 
+    // ── GOAP Lua authoring helpers ──────────────────────────────────────────
+    // These let a Lua script *define* an agent's brain — actions and goals —
+    // from plain Lua tables, e.g.:
+    //   goap:AddAction{ name="GoToFood", cost=1, pre={atFood=false},
+    //                   effects={atFood=true}, perform=function(dt) ... end }
+    //   goap:AddGoal{ name="NotHungry", priority=1, desired={hungry=false} }
+    // Fact tables map string keys to bool|integer values (the planner's
+    // discrete world-state types). Callbacks are wrapped as protected
+    // functions so a Lua error degrades to Failure instead of crashing the
+    // tick. Call goap:ClearAgent() in OnDestroy to release the captured Lua
+    // callbacks before the Lua state is torn down.
+    namespace
+    {
+        GoapWorldState LuaTableToWorldState(const sol::table& table)
+        {
+            GoapWorldState ws;
+            if (!table.valid())
+                return ws;
+            for (auto& [keyObj, valObj] : table)
+            {
+                if (!keyObj.is<std::string>())
+                    continue;
+                const std::string key = keyObj.as<std::string>();
+                if (valObj.is<bool>())
+                    ws.Set(key, valObj.as<bool>());
+                else if (valObj.is<double>()) // Lua numbers; bool is handled above
+                    ws.Set(key, valObj.as<i32>());
+            }
+            return ws;
+        }
+
+        void LuaGoapAddAction(GoapAgentComponent& comp, sol::table def)
+        {
+            if (!comp.RuntimeAgent)
+                comp.RuntimeAgent = Ref<GoapAgent>::Create();
+
+            GoapAction action;
+            action.Name = def.get_or<std::string>("name", "");
+            action.Cost = def.get_or("cost", 1.0f);
+            if (sol::optional<sol::table> pre = def["pre"]; pre)
+                action.Preconditions = LuaTableToWorldState(*pre);
+            if (sol::optional<sol::table> eff = def["effects"]; eff)
+                action.Effects = LuaTableToWorldState(*eff);
+
+            if (sol::optional<sol::protected_function> fn = def["perform"]; fn && fn->valid())
+            {
+                action.Perform = [callback = *fn](f32 dt) -> GoapActionStatus
+                {
+                    sol::protected_function_result result = callback(dt);
+                    if (!result.valid())
+                    {
+                        const sol::error err = result;
+                        OLO_CORE_ERROR("[Lua GOAP] action 'perform' error: {}", err.what());
+                        return GoapActionStatus::Failure;
+                    }
+                    const sol::object out = result;
+                    if (out.is<double>())
+                    {
+                        const i32 code = out.as<i32>();
+                        if (code >= 0 && code <= 2)
+                            return static_cast<GoapActionStatus>(code);
+                    }
+                    return GoapActionStatus::Success; // nil/other → instantaneous success
+                };
+            }
+            if (sol::optional<sol::protected_function> fn = def["onEnter"]; fn && fn->valid())
+            {
+                action.OnEnter = [callback = *fn]()
+                {
+                    sol::protected_function_result result = callback();
+                    if (!result.valid())
+                    {
+                        const sol::error err = result;
+                        OLO_CORE_ERROR("[Lua GOAP] action 'onEnter' error: {}", err.what());
+                    }
+                };
+            }
+            if (sol::optional<sol::protected_function> fn = def["isUsable"]; fn && fn->valid())
+            {
+                action.IsUsable = [callback = *fn]() -> bool
+                {
+                    sol::protected_function_result result = callback();
+                    if (!result.valid())
+                        return false;
+                    const sol::object out = result;
+                    return out.is<bool>() ? out.as<bool>() : true;
+                };
+            }
+            comp.RuntimeAgent->AddAction(std::move(action));
+        }
+
+        void LuaGoapAddGoal(GoapAgentComponent& comp, sol::table def)
+        {
+            if (!comp.RuntimeAgent)
+                comp.RuntimeAgent = Ref<GoapAgent>::Create();
+
+            GoapGoal goal;
+            goal.Name = def.get_or<std::string>("name", "");
+            goal.Priority = def.get_or("priority", 1.0f);
+            if (sol::optional<sol::table> desired = def["desired"]; desired)
+                goal.DesiredState = LuaTableToWorldState(*desired);
+            if (sol::optional<sol::protected_function> fn = def["isValid"]; fn && fn->valid())
+            {
+                goal.IsValid = [callback = *fn](const GoapWorldState&) -> bool
+                {
+                    sol::protected_function_result result = callback();
+                    if (!result.valid())
+                        return false;
+                    const sol::object out = result;
+                    return out.is<bool>() ? out.as<bool>() : true;
+                };
+            }
+            comp.RuntimeAgent->AddGoal(std::move(goal));
+        }
+    } // namespace
+
     void LuaScriptGlue::RegisterAllTypes()
     {
         RegisterAllTypes(*Scripting::GetState());
@@ -2252,7 +2368,16 @@ namespace OloEngine
                                              { if (comp.RuntimeAgent) comp.RuntimeAgent->Invalidate(); }, "CurrentGoal", [](const GoapAgentComponent& comp) -> std::string
                                              { return comp.RuntimeAgent ? comp.RuntimeAgent->CurrentGoalName() : std::string{}; }, "HasPlan", [](const GoapAgentComponent& comp) -> bool
                                              { return comp.RuntimeAgent && comp.RuntimeAgent->HasPlan(); }, "GoalsAchieved", [](const GoapAgentComponent& comp) -> u32
-                                             { return comp.RuntimeAgent ? comp.RuntimeAgent->GoalsAchieved() : 0u; });
+                                             { return comp.RuntimeAgent ? comp.RuntimeAgent->GoalsAchieved() : 0u; },
+                                             // Authoring: build the agent's brain from Lua tables.
+                                             "AddAction", &LuaGoapAddAction, "AddGoal", &LuaGoapAddGoal, "ClearAgent", [](GoapAgentComponent& comp)
+                                             { comp.RuntimeAgent = nullptr; });
+
+        // Status codes a GOAP action's `perform` callback returns.
+        lua["GoapStatus"] = lua.create_table_with(
+            "Running", static_cast<i32>(GoapActionStatus::Running),
+            "Success", static_cast<i32>(GoapActionStatus::Success),
+            "Failure", static_cast<i32>(GoapActionStatus::Failure));
 
         // --- InventoryComponent ---
         lua.new_usertype<InventoryComponent>("InventoryComponent", "currency", &InventoryComponent::Currency, "AddItem", [](InventoryComponent& comp, const std::string& itemId, sol::optional<i32> count)
