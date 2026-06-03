@@ -51,15 +51,24 @@ namespace OloEngine
         {
             switch (kind)
             {
-                case 0: return "Translation";
-                case 1: return "Rotation";
-                case 2: return "Scale";
-                case 3: return "Position";
-                case 4: return "Rotation";
-                case 5: return "FOV";
-                case 6: return "Visibility";
-                case 7: return "Events";
-                default: return "?";
+                case 0:
+                    return "Translation";
+                case 1:
+                    return "Rotation";
+                case 2:
+                    return "Scale";
+                case 3:
+                    return "Position";
+                case 4:
+                    return "Rotation";
+                case 5:
+                    return "FOV";
+                case 6:
+                    return "Visibility";
+                case 7:
+                    return "Events";
+                default:
+                    return "?";
             }
         }
     } // namespace
@@ -772,7 +781,8 @@ namespace OloEngine
             {
                 auto& tr = m_Sequence->TransformTracks[ti];
                 auto& channel = (m_Selection.Kind == LaneKind::TransformTranslation) ? tr.Translation : tr.Scale;
-                if (!clampedKey(channel.Keys.size())) break;
+                if (!clampedKey(channel.Keys.size()))
+                    break;
                 auto& key = channel.Keys[m_Selection.KeyIndex];
                 f32 t = key.Time;
                 if (ImGui::DragFloat("Time", &t, 0.01f, 0.0f, 1e6f, "%.3fs"))
@@ -789,7 +799,8 @@ namespace OloEngine
             case LaneKind::CameraPosition:
             {
                 auto& channel = m_Sequence->CameraTracks[ti].Position;
-                if (!clampedKey(channel.Keys.size())) break;
+                if (!clampedKey(channel.Keys.size()))
+                    break;
                 auto& key = channel.Keys[m_Selection.KeyIndex];
                 f32 t = key.Time;
                 if (ImGui::DragFloat("Time", &t, 0.01f, 0.0f, 1e6f, "%.3fs"))
@@ -809,7 +820,8 @@ namespace OloEngine
                 CinematicQuatChannel* channel = (m_Selection.Kind == LaneKind::TransformRotation)
                                                     ? &m_Sequence->TransformTracks[ti].Rotation
                                                     : &m_Sequence->CameraTracks[ti].Rotation;
-                if (!clampedKey(channel->Keys.size())) break;
+                if (!clampedKey(channel->Keys.size()))
+                    break;
                 auto& key = channel->Keys[m_Selection.KeyIndex];
                 f32 t = key.Time;
                 if (ImGui::DragFloat("Time", &t, 0.01f, 0.0f, 1e6f, "%.3fs"))
@@ -830,7 +842,8 @@ namespace OloEngine
             case LaneKind::CameraFov:
             {
                 auto& channel = m_Sequence->CameraTracks[ti].VerticalFovRadians;
-                if (!clampedKey(channel.Keys.size())) break;
+                if (!clampedKey(channel.Keys.size()))
+                    break;
                 auto& key = channel.Keys[m_Selection.KeyIndex];
                 f32 t = key.Time;
                 if (ImGui::DragFloat("Time", &t, 0.01f, 0.0f, 1e6f, "%.3fs"))
@@ -851,7 +864,8 @@ namespace OloEngine
             case LaneKind::Visibility:
             {
                 auto& keys = m_Sequence->VisibilityTracks[ti].Keys;
-                if (!clampedKey(keys.size())) break;
+                if (!clampedKey(keys.size()))
+                    break;
                 auto& key = keys[m_Selection.KeyIndex];
                 f32 t = key.Time;
                 if (ImGui::DragFloat("Time", &t, 0.01f, 0.0f, 1e6f, "%.3fs"))
@@ -867,7 +881,8 @@ namespace OloEngine
             case LaneKind::Event:
             {
                 auto& keys = m_Sequence->EventTracks[ti].Keys;
-                if (!clampedKey(keys.size())) break;
+                if (!clampedKey(keys.size()))
+                    break;
                 auto& key = keys[m_Selection.KeyIndex];
                 f32 t = key.Time;
                 if (ImGui::DragFloat("Time", &t, 0.01f, 0.0f, 1e6f, "%.3fs"))

@@ -122,7 +122,7 @@ TEST(CinematicEditTest, MoveKeyRejectsNonFiniteTime)
     auto keys = FloatKeys({ 0.0f, 1.0f, 2.0f });
     const f32 before = keys[1].Time;
     const sizet idx = CinematicEdit::MoveKeyTime(keys, 1, std::numeric_limits<f32>::quiet_NaN());
-    EXPECT_EQ(idx, 1u);             // unchanged
+    EXPECT_EQ(idx, 1u); // unchanged
     EXPECT_NEAR(keys[1].Time, before, kEps);
     EXPECT_TRUE(CinematicEdit::IsSortedByTime(keys));
 }
