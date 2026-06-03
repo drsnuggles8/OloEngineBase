@@ -445,20 +445,24 @@ TEST(GoapAgent, ReplansWhenAnActionFails)
 TEST(GoapAgent, SensorRefreshesWorldStateBeforePlanning)
 {
     auto agent = Ref<GoapAgent>::Create();
-    agent->AddAction(Action("Drink", 1.0f, GoapWorldState{}, State({ { "hydrated", true } })));
+    // Drink is only usable while the sensor reports thirst, so the agent can only
+    // become hydrated if the sensor's fact is folded in *before* planning.
+    agent->AddAction(Action("Drink", 1.0f, State({ { "thirsty", true } }), State({ { "hydrated", true } })));
     agent->AddGoal(Goal("StayHydrated", State({ { "hydrated", true } })));
 
     bool thirsty = false;
     agent->SetSensor([&thirsty](GoapWorldState& ws)
                      { ws.Set("thirsty", thirsty); });
 
+    // Not thirsty → Drink's precondition is unmet → no plan → not hydrated.
     agent->Update(0.016f);
-    EXPECT_TRUE(agent->WorldState().Has("thirsty"));
     EXPECT_FALSE(agent->WorldState().GetOr<bool>("thirsty", true));
+    EXPECT_FALSE(agent->WorldState().GetOr<bool>("hydrated", false));
 
+    // Sensor now reports thirst → Drink becomes usable → agent drinks → hydrated.
     thirsty = true;
     agent->Update(0.016f);
-    EXPECT_TRUE(agent->WorldState().GetOr<bool>("thirsty", false));
+    EXPECT_TRUE(agent->WorldState().GetOr<bool>("hydrated", false));
 }
 
 TEST(GoapAgent, NoSatisfiableGoalLeavesAgentIdle)

@@ -253,9 +253,22 @@ namespace OloEngine
                     continue;
                 const std::string key = keyObj.as<std::string>();
                 if (valObj.is<bool>())
+                {
                     ws.Set(key, valObj.as<bool>());
+                }
                 else if (valObj.is<double>()) // Lua numbers; bool is handled above
-                    ws.Set(key, valObj.as<i32>());
+                {
+                    // Facts are discrete (bool|i32). Accept only integral, in-range
+                    // numbers; a fractional or out-of-range value is a scripting
+                    // mistake — warn and skip rather than silently truncate or wrap.
+                    const double d = valObj.as<double>();
+                    constexpr double kI32Min = -2147483648.0;
+                    constexpr double kI32Max = 2147483647.0;
+                    if (d >= kI32Min && d <= kI32Max && d == std::floor(d)) // exact integrality check
+                        ws.Set(key, static_cast<i32>(d));
+                    else
+                        OLO_CORE_WARN("[Lua GOAP] fact '{}' = {} is not a 32-bit integer — skipped (GOAP facts must be bool or integer)", key, d);
+                }
             }
             return ws;
         }
@@ -332,9 +345,18 @@ namespace OloEngine
                 goal.DesiredState = LuaTableToWorldState(*desired);
             if (sol::optional<sol::protected_function> fn = def["isValid"]; fn && fn->valid())
             {
-                goal.IsValid = [callback = *fn](const GoapWorldState&) -> bool
+                goal.IsValid = [callback = *fn](const GoapWorldState& ws) -> bool
                 {
-                    sol::protected_function_result result = callback();
+                    // Hand the current world state to the script as a { key = value }
+                    // table so relevance gates can read facts, e.g.
+                    // isValid = function(ws) return ws.underThreat end.
+                    sol::state_view lua(callback.lua_state());
+                    sol::table state = lua.create_table();
+                    for (const auto& fact : ws.GetFacts())
+                        std::visit([&](auto&& v)
+                                   { state[fact.Key] = v; }, fact.Val);
+
+                    sol::protected_function_result result = callback(state);
                     if (!result.valid())
                         return false;
                     const sol::object out = result;

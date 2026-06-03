@@ -41,12 +41,32 @@ namespace OloEngine
         return false;
     }
 
+    const GoapGoal* GoapAgent::FindGoal(const std::string& name) const
+    {
+        for (const auto& goal : m_Goals)
+        {
+            if (goal.Name == name)
+                return &goal;
+        }
+        return nullptr;
+    }
+
     void GoapAgent::Update(f32 dt)
     {
         OLO_PROFILE_FUNCTION();
 
         if (m_Sensor)
             m_Sensor(m_WorldState);
+
+        // The sensor may have changed the world so the active plan's goal is
+        // already met or no longer relevant (or the goal was removed). Drop the
+        // in-flight plan and reconsider rather than finishing a now-pointless one.
+        if (!m_NeedsReplan && HasPlan())
+        {
+            const GoapGoal* goal = FindGoal(m_CurrentGoal);
+            if (!goal || goal->IsSatisfiedBy(m_WorldState) || !goal->CheckValid(m_WorldState))
+                m_NeedsReplan = true;
+        }
 
         if (m_NeedsReplan || !HasPlan())
         {

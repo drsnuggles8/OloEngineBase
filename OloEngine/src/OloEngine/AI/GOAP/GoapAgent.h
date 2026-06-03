@@ -36,10 +36,12 @@ namespace OloEngine
         void AddAction(GoapAction action)
         {
             m_Actions.push_back(std::move(action));
+            Abort(); // a new option may change the best plan; re-evaluate
         }
         void AddGoal(GoapGoal goal)
         {
             m_Goals.push_back(std::move(goal));
+            Abort(); // a new goal may outrank the active one; re-evaluate
         }
         void SetActions(std::vector<GoapAction> actions)
         {
@@ -126,6 +128,9 @@ namespace OloEngine
         // Choose the best relevant, unsatisfied goal and plan toward it. Returns
         // true and sets up m_Plan/m_CurrentGoal/m_Step when a plan is found.
         bool SelectGoalAndPlan();
+
+        // The goal the active plan is pursuing, or nullptr if it no longer exists.
+        [[nodiscard]] const GoapGoal* FindGoal(const std::string& name) const;
 
         std::vector<GoapAction> m_Actions;
         std::vector<GoapGoal> m_Goals;

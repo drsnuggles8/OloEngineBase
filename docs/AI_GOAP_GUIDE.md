@@ -19,8 +19,11 @@ automatically exploit it — no graph to rewire.
 All of `AI/GOAP/` is engine-agnostic and has no GPU/scene dependency, so it is
 exercised entirely by CPU unit tests
 ([`OloEngine/tests/AI/GoapTest.cpp`](../OloEngine/tests/AI/GoapTest.cpp)) plus
-one Functional test that drives it through a real `Scene::OnUpdateRuntime`
-([`GoapAgentPlansViaSceneTickTest.cpp`](../OloEngine/tests/Functional/AI/GoapAgentPlansViaSceneTickTest.cpp)).
+two Functional tests driven through a real `Scene::OnUpdateRuntime`:
+[`GoapAgentPlansViaSceneTickTest.cpp`](../OloEngine/tests/Functional/AI/GoapAgentPlansViaSceneTickTest.cpp)
+(a C++-built agent) and
+[`GoapAuthoredFromLuaViaSceneTickTest.cpp`](../OloEngine/tests/Functional/AI/GoapAuthoredFromLuaViaSceneTickTest.cpp)
+(an agent authored from Lua).
 
 ## World state
 

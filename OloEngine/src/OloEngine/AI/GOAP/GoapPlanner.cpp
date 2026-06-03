@@ -42,6 +42,18 @@ namespace OloEngine
                 return a.G > b.G;
             }
         };
+
+        // Hash a world state for the closed set. The map keys on the full state
+        // (not the raw hash) so two distinct states that happen to collide land
+        // in the same bucket and are separated by GoapWorldState::operator==,
+        // rather than one silently pruning the other.
+        struct WorldStateHash
+        {
+            sizet operator()(const GoapWorldState& s) const
+            {
+                return static_cast<sizet>(s.Hash());
+            }
+        };
     } // namespace
 
     GoapPlan GoapPlanner::Plan(const GoapWorldState& start,
@@ -67,10 +79,11 @@ namespace OloEngine
         std::vector<SearchNode> arena;
         arena.reserve(64);
 
-        // Best known cost-to-reach for each finalised state, keyed by hash. The
-        // strict-less check below both prunes worse revisits and makes zero-cost
-        // no-op actions self-terminating (a state can never improve on itself).
-        std::unordered_map<u64, f32> bestG;
+        // Best known cost-to-reach for each finalised state. Keyed by the full
+        // GoapWorldState (collision-safe via operator==). The strict-less check
+        // below both prunes worse revisits and makes zero-cost no-op actions
+        // self-terminating (a state can never improve on itself).
+        std::unordered_map<GoapWorldState, f32, WorldStateHash> bestG;
 
         std::priority_queue<OpenEntry, std::vector<OpenEntry>, OpenGreater> open;
 
@@ -86,7 +99,7 @@ namespace OloEngine
             root.G = 0.0f;
             root.F = heuristic(start);
             arena.push_back(std::move(root));
-            bestG[arena[0].State.Hash()] = 0.0f;
+            bestG[start] = 0.0f;
             open.push(OpenEntry{ arena[0].F, 0.0f, 0 });
         }
 
@@ -107,8 +120,8 @@ namespace OloEngine
 
             // Lazy deletion: skip entries made stale by a cheaper path to the
             // same state discovered after this one was queued.
-            const u64 currentHash = arena[static_cast<sizet>(currentIdx)].State.Hash();
-            if (auto it = bestG.find(currentHash); it != bestG.end() && top.G > it->second)
+            if (auto it = bestG.find(arena[static_cast<sizet>(currentIdx)].State);
+                it != bestG.end() && top.G > it->second)
                 continue;
 
             ++iterations;
@@ -144,11 +157,10 @@ namespace OloEngine
                 const f32 stepCost = action.Cost < 0.0f ? 0.0f : action.Cost;
                 const f32 tentativeG = currentG + stepCost;
 
-                const u64 nextHash = next.Hash();
-                if (auto it = bestG.find(nextHash); it != bestG.end() && !(tentativeG < it->second))
+                if (auto it = bestG.find(next); it != bestG.end() && !(tentativeG < it->second))
                     continue; // no improvement over a known path to this state
 
-                bestG[nextHash] = tentativeG;
+                bestG[next] = tentativeG;
 
                 SearchNode child;
                 child.G = tentativeG;
