@@ -81,9 +81,13 @@ build-*/
 OloEditor/cmake_test_discovery_*.json
 
 # Per-user Claude Code state (project-local instructions, skills, agents)
-# Ignore the entire .claude/ tree except .claude/settings.json, which is the
-# shared project hooks/permissions config and IS version-controlled.
+# Ignore the entire .claude/ tree except .claude/settings.json (shared project
+# hooks/permissions config) and .claude/skills/ (shared, version-controlled
+# project skills — e.g. run-oloengine). Each skill's own .gitignore handles
+# its generated artifacts (screenshots/logs).
 .claude/*
 !.claude/settings.json
+!.claude/skills/
+.claude/skills/**/shots/
 skills-lock.json
 docs/agents/
