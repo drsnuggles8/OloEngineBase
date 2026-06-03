@@ -876,6 +876,8 @@
 		"OloEngine/Scene/SceneCamera.h"
 		"OloEngine/Scene/SceneSerializer.cpp"
 		"OloEngine/Scene/SceneSerializer.h"
+		"OloEngine/Scene/ModelImporter.cpp"
+		"OloEngine/Scene/ModelImporter.h"
 
 		"OloEngine/Scene/Streaming/StreamingRegion.h"
 		"OloEngine/Scene/Streaming/StreamingSettings.h"

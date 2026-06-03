@@ -1,5 +1,6 @@
 #include "SceneHierarchyPanel.h"
 #include "OloEngine/Scene/Components.h"
+#include "OloEngine/Scene/ModelImporter.h"
 #include "OloEngine/Localization/LocalizationManager.h"
 #include "OloEngine/Renderer/Instancing/InstancedMeshComponent.h"
 
@@ -2205,19 +2206,9 @@ namespace OloEngine
                 if (!filepath.empty())
                 {
                     auto model = Ref<Model>::Create(filepath);
-                    if (model && model->GetMeshCount() > 0)
+                    if (ModelImporter::PopulateStaticEntity(entity, model))
                     {
-                        // Create a combined MeshSource from all meshes in the model
-                        auto combinedMeshSource = model->CreateCombinedMeshSource();
-                        if (combinedMeshSource)
-                        {
-                            component.m_MeshSource = combinedMeshSource;
-                            OLO_CORE_INFO("Imported static model: {} ({} meshes combined)", filepath, model->GetMeshCount());
-                        }
-                        else
-                        {
-                            OLO_CORE_ERROR("Failed to create combined mesh from model: {}", filepath);
-                        }
+                        OLO_CORE_INFO("Imported static model: {} ({} meshes combined)", filepath, model->GetMeshCount());
                     }
                     else
                     {
@@ -2241,101 +2232,44 @@ namespace OloEngine
                     auto animatedModel = Ref<AnimatedModel>::Create(filepath);
                     if (animatedModel && !animatedModel->GetMeshes().empty())
                     {
-                        // Track auto-added components for undo
-                        auto* cmdHistory = s_DrawComponentCmdHistory;
-                        auto cmdScene = s_DrawComponentScene;
-                        UUID entityUUID = entity.GetUUID();
-                        auto compound = std::make_unique<CompoundCommand>("Import Animated Model");
-
-                        // Set the mesh source from the animated model
-                        component.m_MeshSource = animatedModel->GetMeshes()[0];
-                        OLO_CORE_INFO("Imported animated model: {} ({} meshes)", filepath, animatedModel->GetMeshes().size());
-
-                        // Add MaterialComponent if the model has materials
-                        if (!animatedModel->GetMaterials().empty())
-                        {
-                            if (!entity.HasComponent<MaterialComponent>())
-                            {
-                                auto& materialComp = entity.AddComponent<MaterialComponent>();
-                                materialComp.m_Material = animatedModel->GetMaterials()[0];
-                                OLO_CORE_INFO("Added MaterialComponent from animated model");
-                                if (cmdHistory && cmdScene)
-                                {
-                                    compound->Add(std::make_unique<AddComponentCommand<MaterialComponent>>(cmdScene, entityUUID));
-                                }
-                            }
-                            else
-                            {
-                                auto& materialComp = entity.GetComponent<MaterialComponent>();
-                                materialComp.m_Material = animatedModel->GetMaterials()[0];
-                            }
-                        }
-
-                        // Add SkeletonComponent if the model has a skeleton
-                        if (animatedModel->HasSkeleton())
-                        {
-                            if (!entity.HasComponent<SkeletonComponent>())
-                            {
-                                auto& skeletonComp = entity.AddComponent<SkeletonComponent>();
-                                skeletonComp.m_Skeleton = animatedModel->GetSkeleton();
-                                OLO_CORE_INFO("Added SkeletonComponent: {} bones", skeletonComp.m_Skeleton->m_BoneNames.size());
-                                if (cmdHistory && cmdScene)
-                                {
-                                    compound->Add(std::make_unique<AddComponentCommand<SkeletonComponent>>(cmdScene, entityUUID));
-                                }
-                            }
-                            else
-                            {
-                                auto& skeletonComp = entity.GetComponent<SkeletonComponent>();
-                                skeletonComp.m_Skeleton = animatedModel->GetSkeleton();
-                            }
-                        }
-
-                        // Add AnimationStateComponent if the model has animations
-                        if (animatedModel->HasAnimations())
-                        {
-                            if (!entity.HasComponent<AnimationStateComponent>())
-                            {
-                                auto& animStateComp = entity.AddComponent<AnimationStateComponent>();
-                                // Store all available clips
-                                animStateComp.m_AvailableClips = animatedModel->GetAnimations();
-                                animStateComp.m_CurrentClip = animStateComp.m_AvailableClips[0];
-                                animStateComp.m_CurrentClipIndex = 0;
-                                animStateComp.m_State = AnimationStateComponent::State::Idle;
-                                animStateComp.m_CurrentTime = 0.0f;
-                                animStateComp.m_IsPlaying = false;
-                                animStateComp.m_SourceFilePath = filepath; // Save for serialization
-                                OLO_CORE_INFO("Added AnimationStateComponent: {} animations available", animStateComp.m_AvailableClips.size());
-
-                                // List all available animations
-                                for (sizet i = 0; i < animStateComp.m_AvailableClips.size(); ++i)
-                                {
-                                    auto& anim = animStateComp.m_AvailableClips[i];
-                                    OLO_CORE_INFO("  Animation [{}]: '{}' - Duration: {:.2f}s", i, anim->Name, anim->Duration);
-                                }
-                                if (cmdHistory && cmdScene)
-                                {
-                                    compound->Add(std::make_unique<AddComponentCommand<AnimationStateComponent>>(cmdScene, entityUUID));
-                                }
-                            }
-                            else
-                            {
-                                auto& animStateComp = entity.GetComponent<AnimationStateComponent>();
-                                animStateComp.m_AvailableClips = animatedModel->GetAnimations();
-                                animStateComp.m_CurrentClip = animStateComp.m_AvailableClips[0];
-                                animStateComp.m_CurrentClipIndex = 0;
-                                animStateComp.m_SourceFilePath = filepath; // Save for serialization
-                            }
-                        }
-                        else
+                        // Wire MeshComponent / SkeletonComponent / AnimationStateComponent /
+                        // MaterialComponent from the model via the shared importer (same logic
+                        // used by viewport drag-drop and scene deserialization).
+                        ModelImportResult importResult =
+                            ModelImporter::PopulateAnimatedEntity(entity, animatedModel, filepath);
+                        OLO_CORE_INFO("Imported animated model: {} ({} meshes, {} animations, skeleton: {})",
+                                      filepath, animatedModel->GetMeshes().size(),
+                                      animatedModel->GetAnimations().size(),
+                                      animatedModel->HasSkeleton() ? "yes" : "no");
+                        if (!animatedModel->HasAnimations())
                         {
                             OLO_CORE_WARN("Animated model has no animations: {}", filepath);
                         }
 
-                        // Push compound command for auto-added components (MeshComponent change handled by DrawComponent tracking)
-                        if (cmdHistory && !compound->IsEmpty())
+                        // Record undo for the components the import newly added. The MeshComponent
+                        // edit itself is captured by DrawComponent's copy-before/after tracking.
+                        auto* cmdHistory = s_DrawComponentCmdHistory;
+                        auto cmdScene = s_DrawComponentScene;
+                        if (cmdHistory && cmdScene)
                         {
-                            cmdHistory->PushAlreadyExecuted(std::move(compound));
+                            UUID entityUUID = entity.GetUUID();
+                            auto compound = std::make_unique<CompoundCommand>("Import Animated Model");
+                            if (importResult.AddedMaterialComponent)
+                            {
+                                compound->Add(std::make_unique<AddComponentCommand<MaterialComponent>>(cmdScene, entityUUID));
+                            }
+                            if (importResult.AddedSkeletonComponent)
+                            {
+                                compound->Add(std::make_unique<AddComponentCommand<SkeletonComponent>>(cmdScene, entityUUID));
+                            }
+                            if (importResult.AddedAnimationStateComponent)
+                            {
+                                compound->Add(std::make_unique<AddComponentCommand<AnimationStateComponent>>(cmdScene, entityUUID));
+                            }
+                            if (!compound->IsEmpty())
+                            {
+                                cmdHistory->PushAlreadyExecuted(std::move(compound));
+                            }
                         }
                     }
                     else

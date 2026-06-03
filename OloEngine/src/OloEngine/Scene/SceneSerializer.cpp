@@ -5,6 +5,7 @@
 #include "OloEngine/Math/Math.h"
 #include "OloEngine/Scene/Entity.h"
 #include "OloEngine/Scene/Components.h"
+#include "OloEngine/Scene/ModelImporter.h"
 #include "OloEngine/Localization/LocalizedTextComponent.h"
 #include "OloEngine/Scripting/C#/ScriptEngine.h"
 #include "OloEngine/Core/UUID.h"
@@ -2544,67 +2545,18 @@ namespace OloEngine
                     auto animatedModel = Ref<AnimatedModel>::Create(anim.m_SourceFilePath);
                     if (animatedModel)
                     {
-                        // Load animations
-                        if (animatedModel->HasAnimations())
-                        {
-                            anim.m_AvailableClips = animatedModel->GetAnimations();
-                            if (anim.m_CurrentClipIndex >= 0 && anim.m_CurrentClipIndex < static_cast<int>(anim.m_AvailableClips.size()))
-                            {
-                                anim.m_CurrentClip = anim.m_AvailableClips[anim.m_CurrentClipIndex];
-                            }
-                            else if (!anim.m_AvailableClips.empty())
-                            {
-                                anim.m_CurrentClip = anim.m_AvailableClips[0];
-                                anim.m_CurrentClipIndex = 0;
-                            }
-                            else
-                            {
-                                // No additional handling required.
-                            }
-                            OLO_CORE_INFO("Deserialized AnimationStateComponent: loaded {} clips from '{}'",
-                                          anim.m_AvailableClips.size(), anim.m_SourceFilePath);
-                        }
-
-                        // Update or add MeshComponent with loaded mesh data
-                        if (!animatedModel->GetMeshes().empty())
-                        {
-                            if (!deserializedEntity.HasComponent<MeshComponent>())
-                            {
-                                deserializedEntity.AddComponent<MeshComponent>();
-                            }
-                            auto& meshComp = deserializedEntity.GetComponent<MeshComponent>();
-                            meshComp.m_MeshSource = animatedModel->GetMeshes()[0];
-                            OLO_CORE_INFO("Deserialized MeshComponent: loaded mesh from animated model");
-                        }
-
-                        // Update or add SkeletonComponent with loaded skeleton data
-                        if (animatedModel->HasSkeleton())
-                        {
-                            if (!deserializedEntity.HasComponent<SkeletonComponent>())
-                            {
-                                deserializedEntity.AddComponent<SkeletonComponent>();
-                            }
-                            auto& skelComp = deserializedEntity.GetComponent<SkeletonComponent>();
-                            skelComp.m_Skeleton = animatedModel->GetSkeleton();
-                            OLO_CORE_INFO("Deserialized SkeletonComponent: loaded {} bones from animated model",
-                                          skelComp.m_Skeleton ? skelComp.m_Skeleton->m_BoneNames.size() : 0);
-                        }
-
-                        // Update MaterialComponent if model has materials
-                        if (!animatedModel->GetMaterials().empty())
-                        {
-                            if (!deserializedEntity.HasComponent<MaterialComponent>())
-                            {
-                                deserializedEntity.AddComponent<MaterialComponent>();
-                            }
-                            auto& matComp = deserializedEntity.GetComponent<MaterialComponent>();
-                            // Only replace the material if no shader graph is assigned
-                            if (matComp.m_ShaderGraphHandle == 0)
-                            {
-                                matComp.m_Material = animatedModel->GetMaterials()[0];
-                                OLO_CORE_INFO("Deserialized MaterialComponent: loaded material from animated model");
-                            }
-                        }
+                        // Reload MeshComponent / SkeletonComponent / AnimationStateComponent /
+                        // MaterialComponent from the model. resetPlaybackState=false keeps the
+                        // playback scalars (state/time/clip index) we just read from YAML; the
+                        // importer only clamps the current-clip index into range.
+                        ModelImporter::PopulateAnimatedEntity(deserializedEntity, animatedModel,
+                                                              anim.m_SourceFilePath, /*resetPlaybackState=*/false);
+                        OLO_CORE_INFO("Deserialized animated model '{}': {} clips, {} meshes, {} bones",
+                                      anim.m_SourceFilePath, animatedModel->GetAnimations().size(),
+                                      animatedModel->GetMeshes().size(),
+                                      animatedModel->HasSkeleton() && animatedModel->GetSkeleton()
+                                          ? animatedModel->GetSkeleton()->m_BoneNames.size()
+                                          : 0);
                     }
                     else
                     {
