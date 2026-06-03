@@ -33,6 +33,10 @@ namespace OloEngine
      */
     class RuntimeAssetManager : public AssetManagerBase
     {
+        // The async system delegates its worker-thread pack reads back to the manager's
+        // LoadAssetFromPack (the single source of truth for loaded packs).
+        friend class RuntimeAssetSystem;
+
       public:
         /**
          * @param autoLoadDefaultPack When true (default), the constructor loads

@@ -188,6 +188,18 @@ namespace OloEngine
         std::optional<AssetPackFile::AssetInfo> GetAssetInfo(AssetHandle handle) const;
 
         /**
+         * @brief Get scene information from the pack
+         * @param handle Scene asset handle
+         * @return Scene info if found, nullopt otherwise
+         *
+         * Scenes are stored in a dedicated SceneInfo table whose PackedOffset points
+         * at the scene's serialized bytes. Use this (not GetAssetInfo) to load a scene
+         * from a pack: the scene's entry in the regular AssetInfo table is a type-only
+         * record whose offset is not populated by the builder.
+         */
+        std::optional<AssetPackFile::SceneInfo> GetSceneInfo(AssetHandle handle) const;
+
+        /**
          * @brief Create a stream reader for reading asset data
          *
          * @warning The returned FileStreamReader pointer may become invalid if Unload()

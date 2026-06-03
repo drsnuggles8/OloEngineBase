@@ -140,6 +140,11 @@ namespace OloEngine
 
         void OnUpdate(Timestep const ts) override
         {
+            // Integrate any assets the runtime asset thread finished loading in the
+            // background. Done before the early-out so async loads still complete while
+            // no scene is active (e.g. during a load transition).
+            AssetManager::SyncWithAssetThread();
+
             if (!m_ActiveScene)
             {
                 return;

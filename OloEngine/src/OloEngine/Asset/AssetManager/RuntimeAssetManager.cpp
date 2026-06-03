@@ -3,6 +3,9 @@
 #include "OloEngine/Asset/AssetImporter.h"
 #include "OloEngine/Asset/AssetManager.h"
 #include "OloEngine/Asset/AssetPack.h"
+#include "OloEngine/Containers/Array.h"
+#include "OloEngine/Core/Events/EditorEvents.h"
+#include "OloEngine/Scene/Scene.h"
 #include "OloEngine/Core/Application.h"
 #include "OloEngine/Core/Timer.h"
 #include "OloEngine/Core/Ref.h"
@@ -11,12 +14,15 @@
 #include "OloEngine/Threading/UniqueLock.h"
 #include "OloEngine/Threading/SharedLock.h"
 
+#include <filesystem>
+#include <vector>
+
 namespace OloEngine
 {
     RuntimeAssetManager::RuntimeAssetManager(bool autoLoadDefaultPack)
     {
 #if OLO_ASYNC_ASSETS
-        m_AssetThread = Ref<RuntimeAssetSystem>::Create();
+        m_AssetThread = Ref<RuntimeAssetSystem>::Create(this);
 #endif
 
         AssetImporter::Init();
@@ -171,10 +177,38 @@ namespace OloEngine
 
     AsyncAssetResult<Asset> RuntimeAssetManager::GetAssetAsync(AssetHandle assetHandle)
     {
-        // For runtime, we'll load synchronously for now
-        // In a full implementation, this would queue the asset for background loading
+        if (assetHandle == 0)
+            return AsyncAssetResult<Asset>{ nullptr, false };
+
+        // Fast path: already loaded or memory-only asset
+        {
+            TSharedLock<FSharedMutex> lock(m_AssetsMutex);
+            if (auto it = m_LoadedAssets.find(assetHandle); it != m_LoadedAssets.end())
+                return AsyncAssetResult<Asset>{ it->second, true };
+            if (auto memIt = m_MemoryAssets.find(assetHandle); memIt != m_MemoryAssets.end())
+                return AsyncAssetResult<Asset>{ memIt->second, true };
+        }
+
+#if OLO_ASYNC_ASSETS
+        // Queue for background loading only when the asset lives in a pack and its
+        // serializer is safe to run off the main thread (no GPU work). GPU-backed types
+        // (textures, meshes, ...) and unknown types fall through to synchronous loading.
+        if (m_AssetThread)
+        {
+            AssetType type = GetAssetTypeFromPacks(assetHandle);
+            if (type != AssetType::None && AssetImporter::CanDeserializeFromAssetPackOffThread(type))
+            {
+                m_AssetThread->QueueAssetLoad(RuntimeAssetLoadRequest(0, assetHandle));
+
+                // Not ready yet; caller should call SyncWithAssetThread() and retry.
+                return AsyncAssetResult<Asset>{ nullptr, false };
+            }
+        }
+#endif
+
+        // Fallback: synchronous load (GPU types, or no async thread available).
         Ref<Asset> asset = GetAsset(assetHandle);
-        return AsyncAssetResult<Asset>(asset, asset != nullptr);
+        return AsyncAssetResult<Asset>{ asset, asset != nullptr };
     }
 
     void RuntimeAssetManager::AddMemoryOnlyAsset(Ref<Asset> asset)
@@ -327,8 +361,66 @@ namespace OloEngine
 
     void RuntimeAssetManager::SyncWithAssetThread() noexcept
     {
-        // Runtime manager doesn't use separate asset threads
-        // All loading is done on the calling thread
+#if OLO_ASYNC_ASSETS
+        if (!m_AssetThread)
+            return;
+
+        OLO_PROFILER_SCOPE("RuntimeAssetManager::SyncWithAssetThread");
+
+        TArray<FCompletedAssetLoad> completed;
+        if (!m_AssetThread->RetrieveCompletedAssets(completed))
+            return;
+
+        // Announce integrated assets after releasing the lock so handlers can call back
+        // into the manager without deadlocking.
+        struct LoadedEvent
+        {
+            AssetHandle Handle;
+            AssetType Type;
+        };
+        std::vector<LoadedEvent> loadedEvents;
+
+        {
+            TUniqueLock<FSharedMutex> lock(m_AssetsMutex);
+            for (const auto& result : completed)
+            {
+                if (!result.LoadedAsset)
+                {
+                    OLO_CORE_ERROR("RuntimeAssetManager::SyncWithAssetThread - Async load failed for asset {}", result.Handle);
+                    continue;
+                }
+
+                // Drop completions whose handle is no longer provided by a loaded pack:
+                // an UnloadAssetPack() between queue and completion already evicted it
+                // (and rebuilt the metadata index), so re-inserting here would resurrect
+                // a handle IsAssetMissing()/IsAssetHandleValid() now report as gone.
+                // AssetExistsInPacks acquires m_PacksMutex (shared); the m_AssetsMutex ->
+                // m_PacksMutex order matches UnloadAssetPack()/Shutdown(), so holding
+                // m_AssetsMutex here serialises against the eviction.
+                if (!AssetExistsInPacks(result.Handle))
+                {
+                    OLO_CORE_TRACE("RuntimeAssetManager::SyncWithAssetThread - Dropping stale async result for asset {} (pack unloaded before completion)", result.Handle);
+                    continue;
+                }
+
+                m_LoadedAssets[result.Handle] = result.LoadedAsset;
+                loadedEvents.push_back({ result.Handle, result.LoadedAsset->GetAssetType() });
+                OLO_CORE_TRACE("RuntimeAssetManager::SyncWithAssetThread - Integrated async-loaded asset {}", result.Handle);
+            }
+        }
+
+        if (!loadedEvents.empty())
+        {
+            if (Application* app = Application::TryGet())
+            {
+                for (const auto& evt : loadedEvents)
+                {
+                    AssetLoadedEvent loadedEvent(evt.Handle, evt.Type, std::filesystem::path{});
+                    app->OnEvent(loadedEvent);
+                }
+            }
+        }
+#endif
     }
 
     std::unordered_set<AssetHandle> RuntimeAssetManager::GetAllAssetsWithType(AssetType type) const
@@ -481,39 +573,57 @@ namespace OloEngine
         TSharedLock<FSharedMutex> lock(m_PacksMutex);
 
         // Check if we have metadata for this asset
-        if (m_AssetMetadata.find(handle) == m_AssetMetadata.end())
+        auto metaIt = m_AssetMetadata.find(handle);
+        if (metaIt == m_AssetMetadata.end())
         {
             OLO_CORE_ERROR("RuntimeAssetManager::LoadAssetFromPack - No metadata found for asset: {}", handle);
             return nullptr;
         }
 
+        // Scenes are stored in a dedicated SceneInfo table; their entry in the regular
+        // AssetInfo table is a type-only record whose PackedOffset is never populated by
+        // the builder. Routing a scene through the AssetInfo path would seek to offset 0
+        // (the file header) and read garbage, so dispatch scenes to the scene path.
+        const bool isScene = (metaIt->second.Type == AssetType::Scene);
+
         // Find which pack contains the asset
         for (const auto& [packPath, assetPack] : m_LoadedPacks)
         {
-            if (assetPack->IsAssetAvailable(handle))
-            {
-                // Get asset info from pack
-                auto assetInfo = assetPack->GetAssetInfo(handle);
-                if (!assetInfo.has_value())
-                {
-                    continue;
-                }
+            Ref<Asset> asset;
 
-                // Create file stream reader for the pack
+            if (isScene)
+            {
+                auto sceneInfo = assetPack->GetSceneInfo(handle);
+                if (!sceneInfo.has_value())
+                    continue;
+
                 auto stream = assetPack->GetAssetStreamReader();
                 if (!stream)
-                {
                     continue;
-                }
 
-                // Use AssetImporter to deserialize from pack
-                Ref<Asset> asset = AssetImporter::DeserializeFromAssetPack(*stream, assetInfo.value());
-                if (asset)
-                {
-                    asset->m_Handle = handle;
-                    OLO_CORE_TRACE("RuntimeAssetManager::LoadAssetFromPack - Successfully loaded asset from pack: {}", handle);
-                    return asset;
-                }
+                asset = AssetImporter::DeserializeSceneFromAssetPack(*stream, sceneInfo.value());
+            }
+            else
+            {
+                if (!assetPack->IsAssetAvailable(handle))
+                    continue;
+
+                auto assetInfo = assetPack->GetAssetInfo(handle);
+                if (!assetInfo.has_value())
+                    continue;
+
+                auto stream = assetPack->GetAssetStreamReader();
+                if (!stream)
+                    continue;
+
+                asset = AssetImporter::DeserializeFromAssetPack(*stream, assetInfo.value());
+            }
+
+            if (asset)
+            {
+                asset->m_Handle = handle;
+                OLO_CORE_TRACE("RuntimeAssetManager::LoadAssetFromPack - Successfully loaded asset from pack: {}", handle);
+                return asset;
             }
         }
 
@@ -539,11 +649,14 @@ namespace OloEngine
     {
         // Caller holds an exclusive lock on m_PacksMutex.
         //
-        // Only the pack's top-level AssetInfos are indexed: those are exactly the
-        // handles the pack's lookup map can serve (AssetPack::IsAssetAvailable /
-        // GetAssetInfo), so every metadata entry created here is resolvable by
-        // LoadAssetFromPack. Scene containers use a separate load path and are not
-        // indexed here, keeping "has metadata" equivalent to "loadable from pack".
+        // Every metadata entry created here must be resolvable by LoadAssetFromPack so
+        // that "has metadata" stays equivalent to "loadable from pack":
+        //  - Non-scene assets resolve through AssetPack::GetAssetInfo (the AssetInfo
+        //    table / lookup map), so index the top-level AssetInfos.
+        //  - Scenes resolve through AssetPack::GetSceneInfo (the dedicated SceneInfo
+        //    table whose PackedOffset points at the scene bytes). Index those too, and
+        //    record the Scene type so LoadAssetFromPack dispatches them to the scene
+        //    path rather than the AssetInfo path (whose offset is unset for scenes).
         for (const auto& info : assetPack.GetAllAssetInfos())
         {
             if (info.Handle == 0)
@@ -552,6 +665,16 @@ namespace OloEngine
             AssetMetadata metadata(info.Handle, info.Type);
             metadata.Status = AssetStatus::NotLoaded;
             m_AssetMetadata[info.Handle] = metadata;
+        }
+
+        for (const auto& sceneInfo : assetPack.GetAllSceneInfos())
+        {
+            if (sceneInfo.Handle == 0)
+                continue;
+
+            AssetMetadata metadata(sceneInfo.Handle, AssetType::Scene);
+            metadata.Status = AssetStatus::NotLoaded;
+            m_AssetMetadata[sceneInfo.Handle] = metadata;
         }
     }
 

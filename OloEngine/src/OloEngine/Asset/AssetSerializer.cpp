@@ -1526,11 +1526,52 @@ namespace OloEngine
         return scene; // Direct return - Ref<Scene> should convert to Ref<Asset>
     }
 
-    Ref<Scene> SceneAssetSerializer::DeserializeSceneFromAssetPack([[maybe_unused]] FileStreamReader& stream, [[maybe_unused]] const AssetPackFile::SceneInfo& sceneInfo) const
+    Ref<Scene> SceneAssetSerializer::DeserializeSceneFromAssetPack(FileStreamReader& stream, const AssetPackFile::SceneInfo& sceneInfo) const
     {
-        // TODO: Implement scene pack deserialization
-        OLO_CORE_WARN("SceneAssetSerializer::DeserializeSceneFromAssetPack not yet implemented");
-        return nullptr;
+        // Scene bytes live at the dedicated SceneInfo offset and use the same on-pack
+        // layout written by SerializeToAssetPack: [u32 dataSize][char[dataSize] yaml].
+        stream.SetStreamPosition(sceneInfo.PackedOffset);
+
+        u32 dataSize = 0;
+        stream.ReadRaw(dataSize);
+        if (!stream.IsStreamGood() || dataSize == 0)
+        {
+            OLO_CORE_ERROR("SceneAssetSerializer::DeserializeSceneFromAssetPack - Invalid scene data size ({}) for handle {}", dataSize, sceneInfo.Handle);
+            return nullptr;
+        }
+
+        // dataSize is pack-controlled and untrusted. Reject sizes that would over-allocate
+        // before touching memory: the YAML must fit within the scene's packed byte budget
+        // (minus the 4-byte length prefix) when PackedSize is set, and within an absolute
+        // sanity bound regardless.
+        constexpr u32 c_MaxSceneYamlSize = 256u * 1024u * 1024u; // 256 MB
+        const u64 maxFromPackedSize = (sceneInfo.PackedSize > sizeof(u32)) ? (sceneInfo.PackedSize - sizeof(u32)) : 0ull;
+        if (dataSize > c_MaxSceneYamlSize || (sceneInfo.PackedSize != 0 && dataSize > maxFromPackedSize))
+        {
+            OLO_CORE_ERROR("SceneAssetSerializer::DeserializeSceneFromAssetPack - Scene data size {} exceeds allowed bound for handle {} (packed size {})", dataSize, sceneInfo.Handle, sceneInfo.PackedSize);
+            return nullptr;
+        }
+
+        std::vector<char> yamlData(static_cast<sizet>(dataSize) + 1);
+        stream.ReadData(yamlData.data(), dataSize);
+        if (!stream.IsStreamGood())
+        {
+            OLO_CORE_ERROR("SceneAssetSerializer::DeserializeSceneFromAssetPack - Failed to read scene bytes for handle {}", sceneInfo.Handle);
+            return nullptr;
+        }
+        yamlData[dataSize] = '\0'; // Null terminate
+
+        auto scene = Ref<Scene>::Create();
+        if (!DeserializeFromString(yamlData.data(), scene))
+        {
+            OLO_CORE_ERROR("SceneAssetSerializer::DeserializeSceneFromAssetPack - Failed to deserialize scene from YAML for handle {}", sceneInfo.Handle);
+            return nullptr;
+        }
+
+        scene->m_Handle = sceneInfo.Handle;
+
+        OLO_CORE_TRACE("SceneAssetSerializer::DeserializeSceneFromAssetPack - Deserialized scene {} from pack", sceneInfo.Handle);
+        return scene;
     }
 
     std::string SceneAssetSerializer::SerializeToString(const Ref<Scene>& scene) const

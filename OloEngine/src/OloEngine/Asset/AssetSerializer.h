@@ -109,6 +109,22 @@ namespace OloEngine
             return false;
         }
 
+        /**
+         * @brief Whether DeserializeFromAssetPack may be called off the main thread
+         *
+         * The runtime async asset system fully deserializes packed assets on a worker
+         * thread. That is only safe for serializers whose DeserializeFromAssetPack does
+         * no GPU / main-thread-only work (e.g. no Texture2D/Mesh/Shader/Font creation).
+         *
+         * Defaults to false — the conservative, always-correct choice: the runtime
+         * falls back to synchronous (main-thread) loading. Override to true only for
+         * CPU-only serializers.
+         */
+        [[nodiscard]] virtual bool CanDeserializeFromAssetPackOffThread() const
+        {
+            return false;
+        }
+
         [[nodiscard]] virtual bool SerializeToAssetPack(AssetHandle handle, FileStreamWriter& stream, AssetSerializationInfo& outInfo) const = 0;
         virtual Ref<Asset> DeserializeFromAssetPack(FileStreamReader& stream, const AssetPackFile::AssetInfo& assetInfo) const = 0;
 
@@ -190,6 +206,10 @@ namespace OloEngine
 
         [[nodiscard]] bool SerializeToAssetPack(AssetHandle handle, FileStreamWriter& stream, AssetSerializationInfo& outInfo) const override;
         Ref<Asset> DeserializeFromAssetPack(FileStreamReader& stream, const AssetPackFile::AssetInfo& assetInfo) const override;
+        [[nodiscard]] bool CanDeserializeFromAssetPackOffThread() const override
+        {
+            return true;
+        } // CPU-only: no GPU resources
 
       private:
         [[nodiscard]] bool GetWavFileInfo(const std::filesystem::path& filePath, double& duration, u32& samplingRate, u16& bitDepth, u16& numChannels) const;
@@ -219,6 +239,8 @@ namespace OloEngine
 
         [[nodiscard]] bool SerializeToAssetPack(AssetHandle handle, FileStreamWriter& stream, AssetSerializationInfo& outInfo) const override;
         Ref<Asset> DeserializeFromAssetPack(FileStreamReader& stream, const AssetPackFile::AssetInfo& assetInfo) const override;
+        // NOTE: not off-thread-safe — prefab deserialization resolves referenced assets
+        // (AssetManager::GetAsset<...>) which may create GPU resources.
 
       private:
         std::string SerializeToYAML(const Ref<Prefab>& prefab) const;
@@ -234,6 +256,9 @@ namespace OloEngine
         [[nodiscard]] bool SerializeToAssetPack(AssetHandle handle, FileStreamWriter& stream, AssetSerializationInfo& outInfo) const override;
         Ref<Asset> DeserializeFromAssetPack(FileStreamReader& stream, const AssetPackFile::AssetInfo& assetInfo) const override;
         Ref<Scene> DeserializeSceneFromAssetPack(FileStreamReader& stream, const AssetPackFile::SceneInfo& sceneInfo) const override;
+        // NOTE: not off-thread-safe — scene deserialization resolves referenced assets
+        // (AssetManager::GetAsset<MeshSource/Material/Texture2D/...>) which may create
+        // GPU resources, so scenes must be loaded on the main thread.
 
         // String serialization methods for asset pack support
         std::string SerializeToString(const Ref<Scene>& scene) const;
@@ -249,6 +274,10 @@ namespace OloEngine
 
         bool SerializeToAssetPack(AssetHandle handle, FileStreamWriter& stream, AssetSerializationInfo& outInfo) const override;
         Ref<Asset> DeserializeFromAssetPack(FileStreamReader& stream, const AssetPackFile::AssetInfo& assetInfo) const override;
+        [[nodiscard]] bool CanDeserializeFromAssetPackOffThread() const override
+        {
+            return true;
+        } // CPU-only: YAML -> MeshColliderAsset, no GPU resources
 
       private:
         std::string SerializeToYAML(Ref<MeshColliderAsset> meshCollider) const;
@@ -264,6 +293,10 @@ namespace OloEngine
 
         bool SerializeToAssetPack(AssetHandle handle, FileStreamWriter& stream, AssetSerializationInfo& outInfo) const override;
         Ref<Asset> DeserializeFromAssetPack(FileStreamReader& stream, const AssetPackFile::AssetInfo& assetInfo) const override;
+        [[nodiscard]] bool CanDeserializeFromAssetPackOffThread() const override
+        {
+            return true;
+        } // CPU-only: text -> ScriptFileAsset, no GPU resources
 
       private:
         std::string SerializeToYAML(Ref<ScriptFileAsset> scriptAsset) const;

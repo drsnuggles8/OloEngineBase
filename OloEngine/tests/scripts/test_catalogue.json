@@ -203,6 +203,7 @@
     "OloEngine/tests/AssetPackTest.cpp": "unit",
     "OloEngine/tests/AssetRegistryInvariantsTest.cpp": "unit",
     "OloEngine/tests/AssetSceneLoadTest.cpp": "unit",
+    "OloEngine/tests/RuntimeAssetPackTest.cpp": "unit",
     "OloEngine/tests/Async/ExternalMutexTest.cpp": "unit",
     "OloEngine/tests/Async/ManualResetEventTest.cpp": "unit",
     "OloEngine/tests/Async/MutexLockRateTest.cpp": "unit",

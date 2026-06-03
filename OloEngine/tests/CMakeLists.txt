@@ -21,6 +21,7 @@ add_executable(OloEngine-Tests
 		AssetLuaScriptValidityTest.cpp
 		AssetCSharpScriptValidityTest.cpp
 		AssetPackTest.cpp
+		RuntimeAssetPackTest.cpp
 		AssetRegistryInvariantsTest.cpp
 		RuntimeAssetManagerTest.cpp
 		AssetLoadedEventTest.cpp

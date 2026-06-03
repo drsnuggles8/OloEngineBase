@@ -1280,7 +1280,7 @@ level of `tests/`). Grouped by directory.
 
 > **Do not edit by hand.** Generated from [test_catalogue.json](../OloEngine/tests/scripts/test_catalogue.json) by [generate_test_catalogue.py](../OloEngine/tests/scripts/generate_test_catalogue.py). Add new test files to the config and run the script (or pre-commit will run it with `--check`).
 
-#### (top-level) (55 files)
+#### (top-level) (56 files)
 
 | File | Tests | Cases |
 |---|---:|---|
@@ -1331,6 +1331,7 @@ level of `tests/`). Grouped by directory.
 | [QualityTieringTest.cpp](../OloEngine/tests/QualityTieringTest.cpp) | 5 | **QualityTiering** &mdash; `PresetsAreOrderedByQuality`, `ApplyWritesShadowSettings`, `ApplyWritesPostProcessSettings`, `StringRoundTrip`, `UnknownStringDefaultsToHigh` |
 | [QuestSystemTest.cpp](../OloEngine/tests/QuestSystemTest.cpp) | 55 | **QuestSystemTest** &mdash; `QuestLifecycle_AcceptToComplete`, `QuestStatus_Unavailable`, `AcceptQuest_AlreadyActive`, `AbandonQuest`, `ObjectiveTracking_Increment`, `ObjectiveTracking_Overshoot`, `NotifyKill_UpdatesCorrectObjective`, `NotifyCollect_UpdatesCorrectObjective`, `TimedQuest_ExpiresOnTimeout`, `FailOnTag`, `BranchingCompletion`, `CompletionRewards_GrantsTags`, `NonRepeatable_CantReaccept`, `Repeatable_CanReaccept`, `OptionalObjectives_DontBlockStage`, `AnyObjective_CompletesStage`, `QuestDatabase_RegisterAndGet`, `QuestDatabase_GetByCategory`, `GetActiveAndCompletedQuests`, `SetObjectiveComplete`, `TagManagement`, `ObjectiveTypeStringConversion`, `QuestStatusStringConversion`, `AcceptQuest_RequiresPrerequisiteQuests`, `AcceptQuest_RequiresTags`, `AcceptQuest_MismatchedQuestID`, `CompleteQuest_NotReady`, `Requirement_Level`, `Requirement_Reputation`, `Requirement_ReputationLessThan`, `Requirement_HasItem`, `Requirement_Stat`, `Requirement_IsClass`, `Requirement_IsFaction`, `Requirement_QuestCompleted`, `Requirement_QuestActive`, `Requirement_QuestFailed`, `Requirement_QuestNotStarted`, `Requirement_DoesNotHaveTag`, `Requirement_HasTag`, `Requirement_All_Combinator`, `Requirement_Any_Combinator`, `Requirement_Not_Combinator`, `Requirement_NestedCombinators`, `Requirement_MultipleTopLevel`, `GetUnmetRequirements`, `CheckRequirement_Direct`, `ComparisonOperators`, `RequirementTypeStringConversion`, `ComparisonOpStringConversion`, `PlayerState_SettersGetters`, `Requirement_EmptyAll`, `Requirement_EmptyAny`, `Requirement_EmptyNot`, `RequirementsCombo_QuestAndTag` |
 | [RuntimeAssetManagerTest.cpp](../OloEngine/tests/RuntimeAssetManagerTest.cpp) | 5 | **RuntimeAssetManagerTest** &mdash; `LoadedPackAssetsAreDiscoverable`, `UnknownHandleIsNotValid`, `GetAllAssetsWithTypeReturnsMatchingHandles`, `UnloadingPackRemovesItsAssets`, `MetadataSurvivesUntilExplicitUnload` |
+| [RuntimeAssetPackTest.cpp](../OloEngine/tests/RuntimeAssetPackTest.cpp) | 4 | **RuntimeAssetPackTest** &mdash; `SceneSerializerPackRoundTrip`, `SceneRoutingUsesSceneInfoOffset`, `OffThreadCapabilityContract`, `AsyncLoadIntegratesThroughManager` |
 | [SRGBTextureSupportTest.cpp](../OloEngine/tests/SRGBTextureSupportTest.cpp) | 8 | **SRGBTextureSupport** &mdash; `TextureSpecificationDefaultsToLinear`, `TextureSpecificationCarriesSrgbFlag`, `RawTextureDataKeepsLinearDefault`, `FilenameHeuristic_ClassifiesAlbedoAsSrgb`, `FilenameHeuristic_ClassifiesDataTexturesAsLinear`, `FilenameHeuristic_DataKeywordsOverrideColorKeywords`, `FilenameHeuristic_AmbiguousFilesDefaultLinear`, `FilenameHeuristic_IsCaseInsensitive` |
 | [SceneSerializerFuzzRegressionTest.cpp](../OloEngine/tests/SceneSerializerFuzzRegressionTest.cpp) | 19 | **SceneSerializerFuzzRegression** &mdash; `CrashInput_OriginalSixBytes`, `EmptyInput`, `RootIsScalar`, `RootIsSequence`, `RootIsEmptyMap`, `SceneKeyMissing`, `SceneIsMap`, `SceneIsSequence`, `SceneIsNull`, `PostProcessSettingsIsScalar`, `StreamingSettingsIsSequence`, `EntitiesIsScalar`, `EntitiesContainsScalar`, `EntityIdIsMap`, `TagComponentIsScalar`, `BinaryGarbage`, `UnterminatedFlowMap`, `ParserThrowsOnAnchorOnlyDoc`, `SinglePrintableChar` |
 | [SnowSettingsTest.cpp](../OloEngine/tests/SnowSettingsTest.cpp) | 7 | **SnowUBOData** &mdash; `SizeIs80Bytes`, `FieldOffsets_Std140Compatible`, `DefaultsMatchSettings`<br/>**SSSUBOData** &mdash; `SizeIs32Bytes`, `FieldOffsets_Std140Compatible`, `DefaultsMatchSettings`<br/>**ShaderBindingLayout** &mdash; `SnowAndSSSBindingsExist` |
@@ -1479,7 +1480,7 @@ level of `tests/`). Grouped by directory.
 | [FunctionWithContextTest.cpp](../OloEngine/tests/Templates/FunctionWithContextTest.cpp) | 4 | **FunctionWithContext** &mdash; `DefaultConstructedIsNullAndExposesNullSlots`, `LambdaBoundCallableInvokesCaptureBody`, `ReassignmentReplacesBoundCallable`, `RoundTripsThroughStatelessInvocationAPI` |
 | [TypeTraitsTest.cpp](../OloEngine/tests/Templates/TypeTraitsTest.cpp) | 2 | **TypeTraitsTest** &mdash; `AllChecksAreCompileTime`, `AllNameOfsAreCorrect` |
 
-**Totals.** 119 unit / subsystem test files, 1472 TEST / TEST_F declarations across all subsystems.
+**Totals.** 120 unit / subsystem test files, 1476 TEST / TEST_F declarations across all subsystems.
 
 <!-- END: unit-catalogue -->
 
