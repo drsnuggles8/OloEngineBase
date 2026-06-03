@@ -311,8 +311,10 @@ namespace OloEngine
                         return GoapActionStatus::Success; // no/nil return → instantaneous success
                     if (out.is<double>())
                     {
-                        if (const i32 code = out.as<i32>(); code >= 0 && code <= 2)
-                            return static_cast<GoapActionStatus>(code);
+                        // Must be an exact, in-range status code — reject fractional
+                        // values rather than truncating them.
+                        if (const double d = out.as<double>(); d == std::floor(d) && d >= 0.0 && d <= 2.0)
+                            return static_cast<GoapActionStatus>(static_cast<i32>(d));
                     }
                     OLO_CORE_ERROR("[Lua GOAP] action 'perform' returned an invalid value — expected GoapStatus.{{Running,Success,Failure}} or nil");
                     return GoapActionStatus::Failure;
@@ -336,7 +338,11 @@ namespace OloEngine
                 {
                     sol::protected_function_result result = callback();
                     if (!result.valid())
+                    {
+                        const sol::error err = result;
+                        OLO_CORE_ERROR("[Lua GOAP] action 'isUsable' error: {}", err.what());
                         return false;
+                    }
                     const sol::object out = result;
                     if (out.is<bool>())
                         return out.as<bool>();
@@ -374,7 +380,11 @@ namespace OloEngine
 
                     sol::protected_function_result result = callback(state);
                     if (!result.valid())
+                    {
+                        const sol::error err = result;
+                        OLO_CORE_ERROR("[Lua GOAP] goal 'isValid' error: {}", err.what());
                         return false;
+                    }
                     const sol::object out = result;
                     if (out.is<bool>())
                         return out.as<bool>();
