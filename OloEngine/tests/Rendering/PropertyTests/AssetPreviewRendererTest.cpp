@@ -57,7 +57,7 @@ namespace OloEngine::Tests
                 ShaderLibrary& lib = Renderer3D::GetShaderLibrary();
                 if (!lib.Exists("DefaultPBR"))
                 {
-                    auto shader = Shader::Create("assets/shaders/PBR.glsl");
+                    auto shader = Shader::Create("assets/shaders/PBR_MultiLight.glsl");
                     if (shader)
                         lib.Add("DefaultPBR", shader);
                 }

@@ -14,7 +14,6 @@
 #include "OloEngine/Core/PerformanceProfiler.h"
 #include "OloEngine/Renderer/Renderer2D.h"
 #include "OloEngine/Renderer/Renderer3D.h"
-#include "OloEngine/Renderer/Light.h"
 #include "OloEngine/Renderer/EnvironmentMap.h"
 #include "OloEngine/Renderer/ReflectionProbeBaker.h"
 #include "OloEngine/Renderer/ProceduralSky.h"
@@ -3093,6 +3092,21 @@ namespace OloEngine
             UBOStructures::MultiLightUBO multiLightData{};
             i32 lightIndex = 0;
 
+            // Sanitize an authored spot-light direction once, reused by every
+            // downstream consumer (Forward+ SSBO, MultiLight UBO, and the
+            // spot-shadow projection). A zero-length or non-finite direction
+            // would make glm::normalize emit NaNs; fall back to a safe -Z unit.
+            // Valid directions pass through unchanged.
+            const auto sanitizeSpotDir = [](const glm::vec3& dir) -> glm::vec3
+            {
+                const f32 len2 = glm::dot(dir, dir);
+                if (!std::isfinite(len2) || len2 < 1e-8f)
+                {
+                    return glm::vec3(0.0f, 0.0f, -1.0f);
+                }
+                return dir;
+            };
+
             // Collect directional lights
             auto dirLightView = m_Registry.view<TransformComponent, DirectionalLightComponent>();
             for (auto entity : dirLightView)
@@ -3111,16 +3125,10 @@ namespace OloEngine
                 data.AttenuationParams = glm::vec4(1.0f, 0.0f, 0.0f, 0.0f);
                 data.SpotParams = glm::vec4(0.0f, 0.0f, 0.0f, 0.0f); // type = DIRECTIONAL_LIGHT = 0
 
-                // Also set single-light for backward compatibility with CommandDispatch
+                // The first directional light drives the camera view position
+                // (used by shading/specular) and the directional CSM shadow setup.
                 if (lightIndex == 0)
                 {
-                    Light light;
-                    light.Type = LightType::Directional;
-                    light.Direction = dirLight.m_Direction;
-                    light.Ambient = dirLight.m_Color * 0.1f;
-                    light.Diffuse = dirLight.m_Color * dirLight.m_Intensity;
-                    light.Specular = dirLight.m_Color * dirLight.m_Intensity;
-                    Renderer3D::SetLight(light);
                     Renderer3D::SetViewPosition(cameraPosition);
 
                     directionalLightDir = dirLight.m_Direction;
@@ -3145,17 +3153,34 @@ namespace OloEngine
             // Record how many directional lights were collected (at the start of the array)
             const i32 directionalLightCount = lightIndex;
 
+            // Forward+ tile culling consumes the same point/spot/sphere lights,
+            // packed into typed SSBOs. Gather them in THIS single pass (rather
+            // than a second scene iteration) and hand them to
+            // TiledForwardPlus::SetLights below. Directional lights are not
+            // culled, so they are not gathered here. These vectors are not
+            // bounded by the MultiLightUBO MAX_LIGHTS cap — the cull buffer
+            // clamps to its own (larger) capacity in LightCullingBuffer::Update.
+            std::vector<GPUPointLight> fpPointLights;
+            std::vector<GPUSpotLight> fpSpotLights;
+            std::vector<GPUSphereAreaLight> fpSphereAreaLights;
+
             // Collect point lights
             u32 pointShadowIndex = 0;
             auto pointLightView = m_Registry.view<TransformComponent, PointLightComponent>();
+            fpPointLights.reserve(pointLightView.size_hint());
             for (auto entity : pointLightView)
             {
+                const auto& [transform, pointLight] = pointLightView.get<TransformComponent, PointLightComponent>(entity);
+
+                // Forward+ SSBO entry (capacity clamped in LightCullingBuffer::Update)
+                fpPointLights.push_back({ glm::vec4(transform.Translation, pointLight.m_Range),
+                                          glm::vec4(pointLight.m_Color, pointLight.m_Intensity) });
+
+                // MultiLightUBO entry (shared mixed-type array, capped at MAX_LIGHTS)
                 if (lightIndex >= static_cast<i32>(UBOStructures::MultiLightUBO::MAX_LIGHTS))
                 {
-                    break;
+                    continue;
                 }
-
-                const auto& [transform, pointLight] = pointLightView.get<TransformComponent, PointLightComponent>(entity);
 
                 auto& data = multiLightData.Lights[lightIndex];
                 data.Position = glm::vec4(transform.Translation, 1.0f); // w=1 for point
@@ -3180,14 +3205,26 @@ namespace OloEngine
             // Collect spot lights
             u32 spotShadowIndex = 0;
             auto spotLightView = m_Registry.view<TransformComponent, SpotLightComponent>();
+            fpSpotLights.reserve(spotLightView.size_hint());
             for (auto entity : spotLightView)
             {
+                const auto& [transform, spotLight] = spotLightView.get<TransformComponent, SpotLightComponent>(entity);
+
+                // Sanitized direction shared by the Forward+ SSBO, the
+                // MultiLight UBO, and the spot-shadow projection below.
+                const glm::vec3 spotDir = sanitizeSpotDir(spotLight.m_Direction);
+
+                // Forward+ SSBO entry (capacity clamped in LightCullingBuffer::Update)
+                fpSpotLights.push_back({ glm::vec4(transform.Translation, spotLight.m_Range),
+                                         glm::vec4(glm::normalize(spotDir), glm::cos(glm::radians(spotLight.m_OuterCutoff))),
+                                         glm::vec4(spotLight.m_Color, spotLight.m_Intensity),
+                                         glm::vec4(glm::cos(glm::radians(spotLight.m_InnerCutoff)), spotLight.m_Attenuation, 0.0f, 0.0f) });
+
+                // MultiLightUBO entry (shared mixed-type array, capped at MAX_LIGHTS)
                 if (lightIndex >= static_cast<i32>(UBOStructures::MultiLightUBO::MAX_LIGHTS))
                 {
-                    break;
+                    continue;
                 }
-
-                const auto& [transform, spotLight] = spotLightView.get<TransformComponent, SpotLightComponent>(entity);
 
                 auto& data = multiLightData.Lights[lightIndex];
                 data.Position = glm::vec4(transform.Translation, 2.0f); // w=2 for spot
@@ -3203,12 +3240,12 @@ namespace OloEngine
                 // Encode spot shadow index in direction.w (-1 = no shadow)
                 if (spotLight.m_CastShadows && spotShadowIndex < ShadowMap::MAX_SPOT_SHADOWS)
                 {
-                    data.Direction = glm::vec4(spotLight.m_Direction, static_cast<f32>(spotShadowIndex));
+                    data.Direction = glm::vec4(spotDir, static_cast<f32>(spotShadowIndex));
                     ++spotShadowIndex;
                 }
                 else
                 {
-                    data.Direction = glm::vec4(spotLight.m_Direction, -1.0f);
+                    data.Direction = glm::vec4(spotDir, -1.0f);
                 }
 
                 ++lightIndex;
@@ -3218,14 +3255,21 @@ namespace OloEngine
             // SPHERE_AREA_LIGHT type tag (w=3) and the emitter sphere radius
             // stored in SpotParams.z — see PBRCommon.glsl for the decoder side.
             auto sphereAreaLightView = m_Registry.view<TransformComponent, SphereAreaLightComponent>();
+            fpSphereAreaLights.reserve(sphereAreaLightView.size_hint());
             for (auto entity : sphereAreaLightView)
             {
+                const auto& [transform, areaLight] = sphereAreaLightView.get<TransformComponent, SphereAreaLightComponent>(entity);
+
+                // Forward+ SSBO entry (capacity clamped in LightCullingBuffer::Update)
+                fpSphereAreaLights.push_back({ glm::vec4(transform.Translation, areaLight.m_Radius),
+                                               glm::vec4(areaLight.m_Color, areaLight.m_Intensity),
+                                               glm::vec4(areaLight.m_Range, 0.0f, 0.0f, 0.0f) });
+
+                // MultiLightUBO entry (shared mixed-type array, capped at MAX_LIGHTS)
                 if (lightIndex >= static_cast<i32>(UBOStructures::MultiLightUBO::MAX_LIGHTS))
                 {
-                    break;
+                    continue;
                 }
-
-                const auto& [transform, areaLight] = sphereAreaLightView.get<TransformComponent, SphereAreaLightComponent>(entity);
 
                 auto& data = multiLightData.Lights[lightIndex];
                 data.Position = glm::vec4(transform.Translation, 3.0f); // w=3 for sphere area
@@ -3242,8 +3286,14 @@ namespace OloEngine
             multiLightData.DirectionalLightCount = directionalLightCount;
             Renderer3D::UploadMultiLightUBO(multiLightData, lightIndex);
 
-            // Gather lights for Forward+ tile-based culling
-            Renderer3D::GetForwardPlus().GatherLights(*this);
+            // Publish the primary directional light direction for the
+            // fog / atmospheric sun-direction derivation (previously carried by
+            // the now-retired single-light SceneLight).
+            Renderer3D::SetPrimaryDirectionalLightDirection(directionalLightDir);
+
+            // Hand the point/spot/sphere lights gathered above to Forward+ for
+            // tile-based culling (no second scene iteration).
+            Renderer3D::GetForwardPlus().SetLights(fpPointLights, fpSpotLights, fpSphereAreaLights);
 
             // Upload light probe volume data if present and dirty
             {
@@ -3344,7 +3394,7 @@ namespace OloEngine
                     shadowMap.SetSpotLightShadow(
                         spotIdx,
                         transform.Translation,
-                        spotLight.m_Direction,
+                        sanitizeSpotDir(spotLight.m_Direction),
                         spotLight.m_OuterCutoff,
                         spotLight.m_Range);
                     ++spotIdx;

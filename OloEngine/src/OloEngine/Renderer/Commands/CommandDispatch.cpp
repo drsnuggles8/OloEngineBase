@@ -13,7 +13,6 @@
 #include "OloEngine/Renderer/Debug/RendererProfiler.h"
 #include "OloEngine/Renderer/LightCulling/TiledForwardPlus.h"
 #include "OloEngine/Renderer/ShaderResourceRegistry.h"
-#include "OloEngine/Renderer/Light.h"
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/Occlusion/OcclusionQueryPool.h"
 #include "OloEngine/Asset/AssetManager.h"
@@ -46,7 +45,6 @@ namespace OloEngine
     {
         Ref<UniformBuffer> CameraUBO = nullptr;
         Ref<UniformBuffer> MaterialUBO = nullptr;
-        Ref<UniformBuffer> LightUBO = nullptr;
         Ref<UniformBuffer> BoneMatricesUBO = nullptr;
         Ref<UniformBuffer> PrevBoneMatricesUBO = nullptr;
         Ref<InstanceBuffer> ModelInstanceBuffer = nullptr;
@@ -63,7 +61,6 @@ namespace OloEngine
         // for any later shader reading the full CameraUBO (TAA velocity
         // reconstruction, motion blur).
         glm::mat4 PrevViewProjectionMatrix = glm::mat4(1.0f);
-        Light SceneLight;
         glm::vec3 ViewPos = glm::vec3(0.0f);
 
         u32 CurrentBoundShaderID = 0;
@@ -661,7 +658,6 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
         s_Data.CameraUBO.Reset();
         s_Data.MaterialUBO.Reset();
-        s_Data.LightUBO.Reset();
         s_Data.BoneMatricesUBO.Reset();
         s_Data.PrevBoneMatricesUBO.Reset();
         s_Data.ModelInstanceBuffer.Reset();
@@ -671,7 +667,6 @@ namespace OloEngine
     void CommandDispatch::SetUBOReferences(
         const Ref<UniformBuffer>& cameraUBO,
         const Ref<UniformBuffer>& materialUBO,
-        const Ref<UniformBuffer>& lightUBO,
         const Ref<UniformBuffer>& boneMatricesUBO,
         const Ref<InstanceBuffer>& modelInstanceBuffer,
         const Ref<UniformBuffer>& prevBoneMatricesUBO,
@@ -679,7 +674,6 @@ namespace OloEngine
     {
         s_Data.CameraUBO = cameraUBO;
         s_Data.MaterialUBO = materialUBO;
-        s_Data.LightUBO = lightUBO;
         s_Data.BoneMatricesUBO = boneMatricesUBO;
         s_Data.ModelInstanceBuffer = modelInstanceBuffer;
         s_Data.PrevBoneMatricesUBO = prevBoneMatricesUBO;
@@ -723,11 +717,6 @@ namespace OloEngine
         if (s_Data.CameraUBO)
         {
             BindUBOIfNeeded(ShaderBindingLayout::UBO_CAMERA, s_Data.CameraUBO->GetRendererID());
-        }
-
-        if (s_Data.LightUBO)
-        {
-            BindUBOIfNeeded(ShaderBindingLayout::UBO_LIGHTS, s_Data.LightUBO->GetRendererID());
         }
 
         if (s_Data.ForwardPlus)
@@ -829,11 +818,6 @@ namespace OloEngine
     const glm::vec3& CommandDispatch::GetViewPosition()
     {
         return s_Data.ViewPos;
-    }
-
-    void CommandDispatch::SetSceneLight(const Light& light)
-    {
-        s_Data.SceneLight = light;
     }
 
     void CommandDispatch::SetViewPosition(const glm::vec3& viewPos)
@@ -1211,11 +1195,6 @@ namespace OloEngine
                 BindUBOIfNeeded(ShaderBindingLayout::UBO_CAMERA, s_Data.CameraUBO->GetRendererID());
             }
 
-            if (s_Data.LightUBO)
-            {
-                BindUBOIfNeeded(ShaderBindingLayout::UBO_LIGHTS, s_Data.LightUBO->GetRendererID());
-            }
-
             // Update model matrix UBO
             if (s_Data.ModelInstanceBuffer)
             {
@@ -1310,15 +1289,11 @@ namespace OloEngine
             ++s_Data.Stats.ShaderBinds;
         }
 
-        // Camera + Lights UBOs: re-bind in case a prior pass (e.g. ShadowMap)
-        // overwrote the binding points.  Mirrors the logic in DrawMesh's color path.
+        // Camera UBO: re-bind in case a prior pass (e.g. ShadowMap)
+        // overwrote the binding point.  Mirrors the logic in DrawMesh's color path.
         if (s_Data.CameraUBO)
         {
             BindUBOIfNeeded(ShaderBindingLayout::UBO_CAMERA, s_Data.CameraUBO->GetRendererID());
-        }
-        if (s_Data.LightUBO)
-        {
-            BindUBOIfNeeded(ShaderBindingLayout::UBO_LIGHTS, s_Data.LightUBO->GetRendererID());
         }
 
         // Material UBO + texture bindings (skipped when material unchanged)
@@ -1724,23 +1699,6 @@ namespace OloEngine
             // Legacy ModelMatrixUBO binding retired — all shaders now read transforms from the InstanceBuffer SSBO at binding 15.
         }
 
-        // Upload light UBO
-        if (s_Data.LightUBO)
-        {
-            const Light& light = s_Data.SceneLight;
-            ShaderBindingLayout::LightUBO lightData;
-            lightData.LightPosition = glm::vec4(light.Position, 1.0f);
-            lightData.LightDirection = glm::vec4(light.Direction, 0.0f);
-            lightData.LightAmbient = glm::vec4(light.Ambient, 0.0f);
-            lightData.LightDiffuse = glm::vec4(light.Diffuse, 0.0f);
-            lightData.LightSpecular = glm::vec4(light.Specular, 0.0f);
-            lightData.LightAttParams = glm::vec4(light.Constant, light.Linear, light.Quadratic, 0.0f);
-            lightData.LightSpotParams = glm::vec4(light.CutOff, light.OuterCutOff, 0.0f, 0.0f);
-            lightData.ViewPosAndLightType = glm::vec4(s_Data.ViewPos, static_cast<f32>(std::to_underlying(light.Type)));
-            s_Data.LightUBO->SetData(&lightData, ShaderBindingLayout::LightUBO::GetSize());
-            BindUBOIfNeeded(ShaderBindingLayout::UBO_LIGHTS, s_Data.LightUBO->GetRendererID());
-        }
-
         // Upload terrain UBO (per-chunk data with tess factors)
         if (auto terrainUBO = Renderer3D::GetTerrainUBO(); terrainUBO)
         {
@@ -1865,23 +1823,6 @@ namespace OloEngine
             modelData.PrevModel = cmd->transform; // voxel: routed through ForwardOverlayPass, no motion tracking
             UploadModelInstance(modelData, s_Data.ModelInstanceBuffer);
             // Legacy ModelMatrixUBO binding retired — all shaders now read transforms from the InstanceBuffer SSBO at binding 15.
-        }
-
-        // Upload light UBO
-        if (s_Data.LightUBO)
-        {
-            const Light& light = s_Data.SceneLight;
-            ShaderBindingLayout::LightUBO lightData;
-            lightData.LightPosition = glm::vec4(light.Position, 1.0f);
-            lightData.LightDirection = glm::vec4(light.Direction, 0.0f);
-            lightData.LightAmbient = glm::vec4(light.Ambient, 0.0f);
-            lightData.LightDiffuse = glm::vec4(light.Diffuse, 0.0f);
-            lightData.LightSpecular = glm::vec4(light.Specular, 0.0f);
-            lightData.LightAttParams = glm::vec4(light.Constant, light.Linear, light.Quadratic, 0.0f);
-            lightData.LightSpotParams = glm::vec4(light.CutOff, light.OuterCutOff, 0.0f, 0.0f);
-            lightData.ViewPosAndLightType = glm::vec4(s_Data.ViewPos, static_cast<f32>(std::to_underlying(light.Type)));
-            s_Data.LightUBO->SetData(&lightData, ShaderBindingLayout::LightUBO::GetSize());
-            BindUBOIfNeeded(ShaderBindingLayout::UBO_LIGHTS, s_Data.LightUBO->GetRendererID());
         }
 
         // Bind textures for triplanar sampling

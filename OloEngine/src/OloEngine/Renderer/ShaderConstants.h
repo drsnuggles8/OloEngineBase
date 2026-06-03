@@ -11,13 +11,6 @@ namespace OloEngine
     namespace ShaderConstants
     {
         // =============================================================================
-        // LIGHT TYPES
-        // =============================================================================
-        constexpr int DIRECTIONAL_LIGHT = 0;
-        constexpr int POINT_LIGHT = 1;
-        constexpr int SPOT_LIGHT = 2;
-
-        // =============================================================================
         // PBR CONSTANTS
         // =============================================================================
         constexpr float PI = 3.14159265359f;
@@ -38,9 +31,6 @@ namespace OloEngine
         // =============================================================================
         // RENDERING CONSTANTS
         // =============================================================================
-
-        // Maximum number of lights supported
-        constexpr int MAX_LIGHTS = 256;
 
         // Maximum number of bones for skeletal animation - centralized from ShaderBindingLayout
         constexpr int MAX_BONES = UBOStructures::AnimationConstants::MAX_BONES;

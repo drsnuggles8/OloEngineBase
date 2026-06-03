@@ -47,25 +47,10 @@ namespace OloEngine
         // uploads the raw byte buffer so only total size matters.
         static_assert(sizeof(CameraUBO) == 272, "CameraUBO std140 size drifted from GLSL expectation (272 B)");
 
-        struct LightUBO
-        {
-            glm::vec4 LightPosition;
-            glm::vec4 LightDirection;
-            glm::vec4 LightAmbient;
-            glm::vec4 LightDiffuse;
-            glm::vec4 LightSpecular;
-            glm::vec4 LightAttParams;      // (constant, linear, quadratic, _)
-            glm::vec4 LightSpotParams;     // (cutOff, outerCutOff, _, _)
-            glm::vec4 ViewPosAndLightType; // (viewPos.xyz, lightType)
-
-            static constexpr u32 GetSize()
-            {
-                return sizeof(LightUBO);
-            }
-        };
-
-        // @brief Multi-light UBO structure for advanced lighting scenarios
-        // Aligned with LightBuffer::LightData for consistency
+        // @brief Per-light record in the multi-light UBO (binding 5). Packed
+        // by Scene::ProcessScene3DSharedLogic; decoded in PBRCommon.glsl /
+        // PBR_MultiLight.glsl. The w-channels carry type tags and shadow
+        // indices — see the Scene-side packing for the encoding.
         struct MultiLightData
         {
             glm::vec4 Position;          // Position in world space (w = 1.0 for point/spot, 0.0 for directional)
@@ -612,8 +597,9 @@ namespace OloEngine
         // UNIFORM BUFFER OBJECT (UBO) BINDINGS
         // =============================================================================
 
-        static constexpr u32 UBO_CAMERA = 0;                // Camera matrices (view, projection, etc.)
-        static constexpr u32 UBO_LIGHTS = 1;                // Lighting properties and data
+        static constexpr u32 UBO_CAMERA = 0; // Camera matrices (view, projection, etc.)
+        // Binding 1 is intentionally free: the legacy single-light LightUBO was
+        // retired. All lighting now flows through UBO_MULTI_LIGHTS (binding 5).
         static constexpr u32 UBO_MATERIAL = 2;              // Material properties
         static constexpr u32 UBO_MODEL = 3;                 // Model/transform matrices
         static constexpr u32 UBO_ANIMATION = 4;             // Animation/bone matrices
@@ -764,7 +750,6 @@ namespace OloEngine
         // =============================================================================
 
         using CameraUBO = UBOStructures::CameraUBO;
-        using LightUBO = UBOStructures::LightUBO;
         using MultiLightData = UBOStructures::MultiLightData;
         using MultiLightUBO = UBOStructures::MultiLightUBO;
         using MaterialUBO = UBOStructures::MaterialUBO;
@@ -794,8 +779,6 @@ namespace OloEngine
             {
                 case UBO_CAMERA:
                     return name.contains("Camera") || name.contains("camera");
-                case UBO_LIGHTS:
-                    return name.contains("Light") || name.contains("light");
                 case UBO_MATERIAL:
                     return name.contains("Material") || name.contains("material") ||
                            name.contains("Particle") || name.contains("particle");
@@ -1013,21 +996,6 @@ layout(std140, binding = 0) uniform CameraMatrices {
     vec3 u_CameraPosition;
     float _padding0;
     mat4 u_PrevViewProjection;
-};)";
-        }
-
-        static const char* GetLightUBOLayout()
-        {
-            return R"(
-layout(std140, binding = 1) uniform LightProperties {
-    vec4 u_LightPosition;
-    vec4 u_LightDirection;
-    vec4 u_LightAmbient;
-    vec4 u_LightDiffuse;
-    vec4 u_LightSpecular;
-    vec4 u_LightAttParams;
-    vec4 u_LightSpotParams;
-    vec4 u_ViewPosAndLightType;
 };)";
         }
 

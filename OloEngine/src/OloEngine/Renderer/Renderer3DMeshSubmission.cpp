@@ -222,7 +222,7 @@ namespace OloEngine
         Ref<Shader> shaderToUse;
         // Deferred mode demands that every ScenePass draw write the 4-RT
         // G-Buffer layout (Albedo/Metallic, Normal/Roughness/AO, Emissive/
-        // Flags, Velocity). Non-PBR materials selecting s_Data.LightingShader
+        // Flags, Velocity). Non-PBR materials selecting s_Data.DefaultForwardShader
         // would instead write the legacy forward outputs (o_Color / o_EntityID
         // / o_ViewNormal / o_Velocity), which alias onto the G-Buffer slots
         // and corrupt lighting for every subsequent pixel.
@@ -260,7 +260,7 @@ namespace OloEngine
         }
         else
         {
-            shaderToUse = s_Data.LightingShader;
+            shaderToUse = s_Data.DefaultForwardShader;
             if (s_Data.Settings.Path == RenderingPath::Deferred && s_Data.Pipeline->RenderStreamPasses.ForwardOverlay)
                 overlayRoute = true;
         }
@@ -466,7 +466,7 @@ namespace OloEngine
             }
         }
 
-        Ref<Shader> shaderToUse = material.GetShader() ? material.GetShader() : s_Data.LightingShader;
+        Ref<Shader> shaderToUse = material.GetShader() ? material.GetShader() : s_Data.DefaultForwardShader;
 
         // Create POD command.
         CommandPacket* packet = CreateDrawCall<DrawMeshInstancedCommand>();
@@ -661,7 +661,7 @@ namespace OloEngine
         // it skips the FrameDataBuffer-driven scratch loop entirely and
         // binds `cullOutputInstanceBufferID` at SSBO_INSTANCE_DATA before
         // calling DrawElementsIndirectRaw.
-        Ref<Shader> shaderToUse = material.GetShader() ? material.GetShader() : s_Data.LightingShader;
+        Ref<Shader> shaderToUse = material.GetShader() ? material.GetShader() : s_Data.DefaultForwardShader;
         const u32 vertexArrayID = mesh->GetVertexArray()->GetRendererID();
         const u32 shaderRendererID = shaderToUse->GetRendererID();
         if (!ValidateDrawMeshRendererIDs("Renderer3D::SubmitGPUCulledInstanced", vertexArrayID, shaderRendererID))
@@ -815,15 +815,15 @@ namespace OloEngine
         }
         else
         {
-            shaderToUse = s_Data.SkinnedLightingShader;
+            shaderToUse = s_Data.DefaultForwardSkinnedShader;
             if (s_Data.Settings.Path == RenderingPath::Deferred && s_Data.Pipeline->RenderStreamPasses.ForwardOverlay)
                 overlayRoute = true;
         }
 
         if (!shaderToUse)
         {
-            OLO_CORE_WARN("Renderer3D::DrawAnimatedMesh: Preferred shader not available, falling back to Lighting3D");
-            shaderToUse = s_Data.LightingShader;
+            OLO_CORE_WARN("Renderer3D::DrawAnimatedMesh: Preferred shader not available, falling back to default forward shader");
+            shaderToUse = s_Data.DefaultForwardShader;
             if (s_Data.Settings.Path == RenderingPath::Deferred && s_Data.Pipeline->RenderStreamPasses.ForwardOverlay)
                 overlayRoute = true;
         }
@@ -1284,7 +1284,7 @@ namespace OloEngine
         }
         else
         {
-            shaderToUse = ctx.SceneContext->LightingShader;
+            shaderToUse = ctx.SceneContext->DefaultForwardShader;
         }
 
         if (!shaderToUse)
@@ -1462,12 +1462,12 @@ namespace OloEngine
         }
         else
         {
-            shaderToUse = ctx.SceneContext->SkinnedLightingShader;
+            shaderToUse = ctx.SceneContext->DefaultForwardSkinnedShader;
         }
 
         if (!shaderToUse)
         {
-            shaderToUse = ctx.SceneContext->LightingShader;
+            shaderToUse = ctx.SceneContext->DefaultForwardShader;
         }
 
         // Same Deferred gating as DrawMeshParallel — forward-only skinned

@@ -114,7 +114,6 @@ TEST(ForwardPlus, UBOBindingIsUnique)
 {
     // Forward+ UBO must not collide with other well-known bindings
     EXPECT_NE(ShaderBindingLayout::UBO_FORWARD_PLUS, ShaderBindingLayout::UBO_CAMERA);
-    EXPECT_NE(ShaderBindingLayout::UBO_FORWARD_PLUS, ShaderBindingLayout::UBO_LIGHTS);
     EXPECT_NE(ShaderBindingLayout::UBO_FORWARD_PLUS, ShaderBindingLayout::UBO_MATERIAL);
     EXPECT_NE(ShaderBindingLayout::UBO_FORWARD_PLUS, ShaderBindingLayout::UBO_MODEL);
     EXPECT_NE(ShaderBindingLayout::UBO_FORWARD_PLUS, ShaderBindingLayout::UBO_MULTI_LIGHTS);

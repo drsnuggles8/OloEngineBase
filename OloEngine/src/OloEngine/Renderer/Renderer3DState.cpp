@@ -64,14 +64,14 @@ namespace OloEngine
         }
     }
 
-    void Renderer3D::SetLight(const Light& light)
-    {
-        s_Data.SceneLight = light;
-    }
-
     void Renderer3D::SetViewPosition(const glm::vec3& position)
     {
         s_Data.ViewPos = position;
+    }
+
+    void Renderer3D::SetPrimaryDirectionalLightDirection(const glm::vec3& direction)
+    {
+        s_Data.PrimaryDirectionalLightDir = direction;
     }
 
     void Renderer3D::SetCameraClipPlanes(f32 nearClip, f32 farClip)
@@ -158,64 +158,6 @@ namespace OloEngine
         {
             s_Data.UnderwaterFogBuffer->SetData(&data, UnderwaterFogUBOData::GetSize());
         }
-    }
-
-    void Renderer3D::SetSceneLights(const Ref<Scene>& scene)
-    {
-        OLO_PROFILE_FUNCTION();
-
-        if (!scene || !s_Data.MultiLightBuffer)
-        {
-            return;
-        }
-
-        // Collect lights from the scene
-        constexpr u32 MAX_POINT_LIGHTS = 16;
-        constexpr u32 MAX_SPOT_LIGHTS = 8;
-
-        u32 pointLightCount = 0;
-        u32 spotLightCount = 0;
-
-        // TODO: Create proper multi-light UBO structure and populate it
-        // For now, we'll just gather the count and warn if limits exceeded
-
-        // Count directional lights
-        auto dirLightView = scene->GetAllEntitiesWith<DirectionalLightComponent>();
-        u32 dirLightCount = 0;
-        for ([[maybe_unused]] auto entity : dirLightView)
-        {
-            ++dirLightCount;
-        }
-
-        // Count and collect point lights
-        auto pointLightView = scene->GetAllEntitiesWith<PointLightComponent>();
-        for ([[maybe_unused]] auto entity : pointLightView)
-        {
-            ++pointLightCount;
-        }
-
-        // Count and collect spot lights
-        auto spotLightView = scene->GetAllEntitiesWith<SpotLightComponent>();
-        for ([[maybe_unused]] auto entity : spotLightView)
-        {
-            ++spotLightCount;
-        }
-
-        // Warn if limits exceeded
-        if (pointLightCount > MAX_POINT_LIGHTS)
-        {
-            OLO_CORE_WARN("Scene contains {} point lights, but max is {}. Only first {} will be rendered.",
-                          pointLightCount, MAX_POINT_LIGHTS, MAX_POINT_LIGHTS);
-        }
-
-        if (spotLightCount > MAX_SPOT_LIGHTS)
-        {
-            OLO_CORE_WARN("Scene contains {} spot lights, but max is {}. Only first {} will be rendered.",
-                          spotLightCount, MAX_SPOT_LIGHTS, MAX_SPOT_LIGHTS);
-        }
-
-        // TODO: Populate multi-light UBO with actual light data
-        // This requires matching the shader's light structure
     }
 
     void Renderer3D::EnableFrustumCulling(bool enable)
