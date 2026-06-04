@@ -36,6 +36,7 @@ namespace OloEngine
     struct IKTargetComponent;
     struct AudioSoundGraphComponent;
     class DialogueSystem;
+    class GameplayEventBus;
 
     namespace Audio
     {
@@ -437,6 +438,22 @@ namespace OloEngine
             return m_AudioCommandRegistry.get();
         }
 
+        // Gameplay event dispatcher — quest/inventory systems publish their
+        // POD notification payloads here; UI / audio / scripting subscribe.
+        // Always non-null (constructed in the Scene ctor). See GameplayEventBus.h.
+        // Defined out-of-line so Scene.h only needs the forward declaration.
+        [[nodiscard]] GameplayEventBus& GetGameplayEvents();
+        [[nodiscard]] const GameplayEventBus& GetGameplayEvents() const;
+
+        // Recover the entity that owns a component instance stored in this
+        // scene's registry. Returns a null Entity if `component` is not one of
+        // this registry's T components. Used by the scripting glue, which binds
+        // methods on component references without a handle back to the owning
+        // entity (needed to stamp gameplay events with the entity UUID).
+        // O(n) in the number of live T components — fine at script-call rates.
+        template<typename T>
+        [[nodiscard]] Entity GetEntityForComponent(const T& component);
+
         // Editor-mode streamer management (allows streaming preview without entering Play mode)
         void InitializeEditorStreamer();
         void ShutdownEditorStreamer();
@@ -539,6 +556,9 @@ namespace OloEngine
         // Audio Events
         std::unique_ptr<Audio::AudioCommandRegistry> m_AudioCommandRegistry;
         std::unique_ptr<Audio::AudioEventsManager> m_AudioEventsManager;
+
+        // Gameplay event dispatcher (runtime-only; never serialized/copied)
+        std::unique_ptr<GameplayEventBus> m_GameplayEventBus;
 
         // Entity UUID -> entt::entity lookup map
         // Using TMap for O(1) lookup with better cache locality

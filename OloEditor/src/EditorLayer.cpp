@@ -44,6 +44,8 @@
 #include "OloEngine/Audio/SoundGraph/SoundGraph.h"
 #include "OloEngine/Audio/SoundGraph/SoundGraphSource.h"
 #include "OloEngine/Gameplay/Inventory/ItemDatabase.h"
+#include "OloEngine/Gameplay/Quest/QuestDatabase.h"
+#include "GameplayEventLogger.h"
 #include "OloEngine/Core/PerformanceProfiler.h"
 
 #include <imgui.h>
@@ -2112,6 +2114,14 @@ namespace OloEngine
                 ItemDatabase::LoadFromDirectory(itemsDir.string());
             }
 
+            // Load quest definitions (.oloquest) so QuestSystem::AcceptQuest and
+            // scene deserialization can resolve them by ID.
+            QuestDatabase::Clear();
+            if (auto questsDir = Project::GetAssetFileSystemPath("Quests"); std::filesystem::exists(questsDir))
+            {
+                QuestDatabase::LoadFromDirectory(questsDir.string());
+            }
+
             auto startScenePath = Project::GetAssetFileSystemPath(Project::GetActive()->GetConfig().StartScene);
             OLO_ASSERT(std::filesystem::exists(startScenePath));
             OpenScene(startScenePath);
@@ -2490,6 +2500,10 @@ namespace OloEngine
         }
 
         m_ActiveScene->OnRuntimeStart();
+
+        // Stream quest/inventory gameplay events to the Console panel for this
+        // Play session (subscriptions are dropped on OnRuntimeStop).
+        AttachGameplayEventLogger(*m_ActiveScene);
 
         m_SceneHierarchyPanel.SetContext(m_ActiveScene);
         m_SceneHierarchyPanel.SetCommandHistory(nullptr);
