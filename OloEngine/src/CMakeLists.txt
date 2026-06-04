@@ -926,18 +926,15 @@
 
 		"OloEngine/Threading/ExternalMutex.h"
 		"OloEngine/Threading/IntrusiveMutex.h"
-		"OloEngine/Threading/IntrusiveUniqueLock.h"
 		"OloEngine/Threading/LockTags.h"
 		"OloEngine/Threading/Mutex.cpp"
 		"OloEngine/Threading/Mutex.h"
 		"OloEngine/Threading/RecursiveMutex.cpp"
 		"OloEngine/Threading/RecursiveMutex.h"
-		"OloEngine/Threading/RecursiveWordMutex.h"
 		"OloEngine/Threading/SharedLock.h"
 		"OloEngine/Threading/SharedMutex.h"
 		"OloEngine/Threading/SharedRecursiveMutex.cpp"
 		"OloEngine/Threading/SharedRecursiveMutex.h"
-		"OloEngine/Threading/TransactionallySafeMutex.h"
 		"OloEngine/Threading/UniqueLock.h"
 		"OloEngine/Threading/WordMutex.h"
 

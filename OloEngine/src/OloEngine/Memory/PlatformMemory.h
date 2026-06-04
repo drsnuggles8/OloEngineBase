@@ -6,8 +6,12 @@
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Memory/GenericPlatformMemory.h"
 
-// In UE, this would include the platform-specific header via COMPILED_PLATFORM_HEADER macro.
-// For now, we just use the generic implementation.
+// TODO(platform-memory): port the platform-specific FPlatformMemory backends.
+// In UE this header selects a per-OS implementation via the COMPILED_PLATFORM_HEADER
+// macro (e.g. Windows/Linux/Mac PlatformMemory with large-page allocation, accurate
+// stats, NUMA hints, etc.). OloEngine currently ships only the generic implementation
+// below; when needed, add Platform/<OS>/<OS>PlatformMemory.h and select it here so
+// FPlatformMemory picks up the OS-specific overrides instead of the generic fallbacks.
 
 namespace OloEngine
 {

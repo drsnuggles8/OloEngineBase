@@ -15,6 +15,34 @@ Generated on branch `refactor/dead-code-loc-reduction`, based on master
 
 ---
 
+## Status (as of pass 3)
+
+**Removed so far — ≈ 5,200 LOC** (build green, full suite 2766/2766):
+
+- **Pass 1 / 1b — native cruft (committed `a116130b`+`dc4d5259`, ≈ 1,000 LOC):**
+  10 empty stub files (`Asset/Serializers/{Material,Mesh,Shader,Texture}Serializer.{h,cpp}`,
+  `Scripting/C#/ScriptUtils.{h,cpp}`), `Renderer/RenderState.h`,
+  `Renderer/Commands/CommandMemoryManager.{cpp,h}`, `Core/YAMLConverters.cpp`,
+  `Asset/Serializers/AudioFileSerializer.cpp`, `Core/PerformanceProfiler.cpp`.
+- **Pass 2 — UE-ported dedup (staged, ≈ 3,400 LOC):** `Containers/ContainersFwd.h`,
+  the dead allocator island `Memory/ConcurrentLinearAllocator.h` +
+  `Memory/TypeTraits.h` + `Task/LocalWorkQueue.h`, and `HAL/ParkingLot.cpp`'s
+  duplicate `FWordMutex` (now uses `Threading/WordMutex.h`, making it live).
+- **Bonus fix:** reference-counted `AssetImporter` + `PlaceholderAssetManager`
+  to fix the pre-existing `CinematicAssetPlaybackTest` flakiness (see action log).
+- **Pass 3 — remaining 🔵 tier, per-item review (≈ 800 LOC):** removed the unused
+  `Async/QueuedThreadPool` layer (`QueuedThreadPool.{cpp,h}` + `QueuedWork.h`), the
+  3 Threading mutex/lock variants, and the dead `LockFreeList.cpp` `#if 0` block.
+
+**Deliberately kept** (verified dead, but wanted): `Containers/LinkedList.h` +
+`Containers/Queue.h` (useful containers, forward-looking); `Memory/MemStackUtility.h`
+(typo fixed; awaits broader `FMemStack` adoption); `Memory/PlatformMemory.h` (added a
+port-platform-backends TODO); `HAL/ThreadManager.h` (backs thread-inspector issue #282);
+`Algo/HeapSort|Heapify|IsHeap.h` (public API over the live `BinaryHeap.h`). Plus the
+🟡 set: Quest/Inventory event payloads, `JoltMaterial`, the fmt formatters, `GamepadEvent`.
+
+---
+
 ## Methodology
 
 1. **Include-graph reachability.** Parsed every `#include` across
@@ -55,6 +83,8 @@ appear in the unreachable-header list; the orphaned-TU pass (3) catches those.
 ---
 
 ## 🟢 REMOVE — native cruft (superseded / duplicate / abandoned / empty)
+
+> ✅ **All of these were removed in pass 1 / 1b (committed).** Table retained as the record.
 
 | Item | LOC | In build? | Evidence | Verdict |
 |---|---|---|---|---|
@@ -110,33 +140,33 @@ toolkit being grown into. Listed for a deliberate keep-or-remove decision.
 
 ### Redundant (an exact/near-exact live twin is in active use)
 
-| Header | LOC | Live twin in use |
-|---|---|---|
-| `Memory/ConcurrentLinearAllocator.h` | 1284 | Duplicate of `Experimental/ConcurrentLinearAllocator.h` (used by `Task/ParallelFor.h`, `TaskDelegate.h`). Same namespace + symbols → latent ODR hazard. |
-| `Memory/TypeTraits.h` | 1364 | Same provenance as the live `Templates/UnrealTypeTraits.h` (included by ~40 files + the type-trait tests). |
-| `Threading/WordMutex.h` | 265 | `FWordMutex` re-implemented privately in `HAL/ParkingLot.cpp`; the engine-wide lock is `Threading/SharedMutex.h` (`FSharedMutex`). |
-| `Containers/Queue.h` | 341 | `Containers/SpscQueue.h` / `MpscQueue.h` / `Deque.h`. |
-| `Containers/ContainersFwd.h` | 254 | The singular `Containers/ContainerFwd.h` (included by `Array.h`). |
-| `Memory/PlatformMemory.h` | 17 | `FPlatformMemory` already aliased in `GenericPlatformMemory.h` (self-described redundant). |
+| Header | LOC | Status | Live twin in use |
+|---|---|---|---|
+| `Memory/ConcurrentLinearAllocator.h` | 1284 | ✅ removed (pass 2) | Was a *broken* dup of `Experimental/ConcurrentLinearAllocator.h` (never compiled). |
+| `Memory/TypeTraits.h` | 1364 | ✅ removed (pass 2) | Partial dup of the live `Templates/UnrealTypeTraits.h` (24 users). |
+| `Threading/WordMutex.h` | 265 | ✅ now **live** (pass 2) | `HAL/ParkingLot.cpp` now uses it instead of a private copy — no longer dead. |
+| `Containers/ContainersFwd.h` | 254 | ✅ removed (pass 2) | The singular `Containers/ContainerFwd.h` (included by `Array.h`). |
+| `Containers/Queue.h` | 341 | 🟡 KEPT | Useful generic `TQueue`; live fast paths are `SpscQueue.h` / `MpscQueue.h` / `Deque.h`. |
+| `Memory/PlatformMemory.h` | 17 | 🟡 KEPT | Kept as the per-OS seam; added a `TODO(platform-memory)` to port platform backends. |
 
 ### Speculative (ported, zero use, no live consumer, no documented plan)
 
-| Header / TU | LOC | Live alternative |
-|---|---|---|
-| `Threading/RecursiveWordMutex.h` | 96 | `Threading/RecursiveMutex.h` (its own comment says "Prefer FRecursiveMutex"). |
-| `Threading/TransactionallySafeMutex.h` | 38 | Just aliases `FMutex`/`FRecursiveMutex`/`FSharedMutex`. |
-| `Threading/IntrusiveUniqueLock.h` | 37 | `UniqueLock.h` / `SharedLock.h`. |
-| `Containers/LinkedList.h` | 783 | `Containers/IntrusiveLinkedList.h` (used by `Task/Scheduler.h`). |
-| `Algo/HeapSort.h` / `Heapify.h` / `IsHeap.h` | 245 | `Algo/Sort.h`→`IntroSort.h`→`BinaryHeap.h`. **Keep `BinaryHeap.h` — it is live.** |
-| `HAL/ThreadManager.h` | 363 | `Tasks::FNamedThreadManager` (`Task/NamedThreads.h`). |
-| `Task/LocalWorkQueue.h` | 285 | (none) — sole includer of the dead `Memory/ConcurrentLinearAllocator.h`. |
-| `Memory/MemStackUtility.h` | 147 | `Memory/MemStack.h` (`FMemStack`/`FMemMark`, used by `ParallelFor.h`). |
-| `Async/QueuedThreadPool.{cpp,h}` | 620 | Abandoned UE-port thread pool; `AsyncPool()` never called. `Async/Async.h` is pulled into one test only. |
-| `Memory/LockFreeList.cpp` `#if 0` block | ~9 | Disabled reference code in an otherwise-live file (in-file edit). |
+| Header / TU | LOC | Status | Live alternative |
+|---|---|---|---|
+| `Task/LocalWorkQueue.h` | 285 | ✅ removed (pass 2) | Sole includer of the dead `Memory/ConcurrentLinearAllocator.h` (removed with the island). |
+| `Async/QueuedThreadPool.{cpp,h}` (+ `QueuedWork.h`) | 620+ | ✅ removed (pass 3) | Abandoned UE thread-pool layer; engine uses `LowLevelTasks::FScheduler` directly. |
+| `Threading/RecursiveWordMutex.h` | 96 | ✅ removed (pass 3) | Superseded by merged threading-unification (`FRecursiveMutex`). |
+| `Threading/TransactionallySafeMutex.h` | 38 | ✅ removed (pass 3) | Inert AutoRTFM-compat aliases to `FMutex` etc. |
+| `Threading/IntrusiveUniqueLock.h` | 37 | ✅ removed (pass 3) | Superseded by `UniqueLock.h` / `SharedLock.h`. |
+| `Memory/LockFreeList.cpp` `#if 0` block | ~18 | ✅ removed (pass 3) | Disabled stat-tracking reference block (in-file). |
+| `Containers/LinkedList.h` | 783 | 🟡 KEPT | Useful `TLinkedList`/`TDoubleLinkedList`; no clean current use-site (forward-looking). |
+| `HAL/ThreadManager.h` | 363 | 🟡 KEPT | Backs thread-inspector **issue #282**. Live thread mgmt is `Tasks::FNamedThreadManager`. |
+| `Algo/HeapSort.h` / `Heapify.h` / `IsHeap.h` | 245 | 🟡 KEPT | Public API over the live `Algo/BinaryHeap.h`. |
+| `Memory/MemStackUtility.h` | 147 | 🟡 KEPT | Typo fixed; awaits broader `FMemStack` adoption. |
 
-**Dead island note:** `Task/LocalWorkQueue.h` → `Memory/ConcurrentLinearAllocator.h`
-→ `Memory/TypeTraits.h` form one self-contained dead cluster (~2,933 LOC).
-Removing all three together is clean and also kills the ODR hazard with the live
+**Dead island note (✅ done):** `Task/LocalWorkQueue.h` → `Memory/ConcurrentLinearAllocator.h`
+→ `Memory/TypeTraits.h` formed one self-contained dead cluster (~2,933 LOC), removed
+together in pass 2 — which also eliminated the ODR hazard with the live
 `Experimental/` allocator.
 
 ---
@@ -159,11 +189,16 @@ Removing all three together is clean and also kills the ODR hazard with the live
   `AudioCallback.cpp` (165, SKIP) + `JoltMaterial.cpp` (10, KEEP).
 - Empty stub files: **10** (8 serializer + 2 ScriptUtils).
 
-### Rough removable LOC by decision band
-- 🟢 Native cruft (this effort): ~1,011 LOC + 10 empty files.
-- 🔵 UE-ported redundant: ~3,525 LOC.
-- 🔵 UE-ported speculative: ~2,600 LOC.
-- 🟡 Keep / finish-wire: ~432 LOC (do not delete).
+### LOC by decision band (✅ = done)
+- 🟢 Native cruft: ~1,000 LOC + 10 empty files — ✅ **removed** (pass 1/1b).
+- 🔵 UE-ported redundant: ~3,525 LOC — ✅ **~3,167 removed** (allocator island +
+  ContainersFwd; WordMutex now live); **remaining: `Containers/Queue.h` 341 +
+  `Memory/PlatformMemory.h` 17**.
+- 🔵 UE-ported speculative: ~2,600 LOC — ✅ `LocalWorkQueue.h` 285 removed;
+  **remaining ~2,338**: LinkedList 783, Async/QueuedThreadPool 620, ThreadManager
+  363, Algo trio 245, MemStackUtility 147, the 3 Threading mutex/lock variants 171,
+  LockFreeList `#if 0` ~9.
+- 🟡 Keep / finish-wire: ~432 LOC (do **not** delete).
 
 ---
 
@@ -208,8 +243,31 @@ Removing all three together is clean and also kills the ODR hazard with the live
   safety preserved); plus `FunctionalTest::EnableAssetManager` now passes
   `Initialize(false)` (no file watcher in tests, per that method's own guidance).
   Verified: cinematic test 10/10 repeats, full suite 2766/2766.
-- **Pending decision:** the remaining 🔵 *speculative* UE-ported headers
-  (`Containers/LinkedList.h`, `Algo/HeapSort|Heapify|IsHeap.h`,
-  `HAL/ThreadManager.h`, `Memory/MemStackUtility.h`, the `Threading` mutex/lock
-  variants, `Async/QueuedThreadPool.{cpp,h}`), and whether to *finish-wire* the
-  🟡 Quest/Inventory event payloads vs leave as-is.
+- **2026-06-03 — pass 3 (per-item review of the remaining 🔵 tier):**
+  - **Removed:** `Async/QueuedThreadPool.{cpp,h}` + `Async/QueuedWork.h` (the unused
+    UE thread-pool layer — the engine uses `LowLevelTasks::FScheduler` directly; `QueuedWork.h`
+    was included only by `QueuedThreadPool.h`). The 3 Threading mutex/lock variants
+    (`Threading/RecursiveWordMutex.h`, `TransactionallySafeMutex.h`,
+    `IntrusiveUniqueLock.h`) — superseded by the **already-merged** threading-unification
+    onto `FSharedMutex`/`FMutex`/`FRecursiveMutex` (that branch is an ancestor of master,
+    so no collision). The dead `#if 0` stat-tracking block in the otherwise-live
+    `Memory/LockFreeList.cpp`. (`Async/Async.h` + `Future.h` **kept** — `Async.h` is used by
+    `TaskSystemTest`.)
+  - **Kept (deliberately, per review):**
+    - `Containers/LinkedList.h` (`TLinkedList`/`TDoubleLinkedList`) + `Containers/Queue.h`
+      (`TQueue`) — useful general-purpose containers. *Use-site analysis:* no clean current
+      home — the only `std::list` uses are the SoundGraph LRU caches (off-limits, and
+      `std::list` is already a fine fit there); no `std::forward_list`. So these are
+      forward-looking, not droppable-in today.
+    - `Memory/MemStackUtility.h` — fixed the stray-`n` typo. *Use-site analysis:* value is
+      gated on broader `FMemStack` adoption (only `ParallelFor` uses `FMemStack` today);
+      they'd pay off once scratch-stack allocation is adopted in render-command building,
+      serialization scratch buffers, or per-frame format temporaries.
+    - `Memory/PlatformMemory.h` — kept; added a `TODO(platform-memory)` to port the per-OS
+      `FPlatformMemory` backends (large pages / accurate stats / NUMA) when needed.
+    - `HAL/ThreadManager.h` (`FThreadManager`) — kept to back a future thread inspector;
+      filed **issue #282**.
+    - `Algo/HeapSort|Heapify|IsHeap.h` — kept as public API over the live `BinaryHeap.h`.
+      (No `[[maybe_unused]]` added: uninstantiated function templates don't trigger
+      unused warnings, so it would be a no-op.)
+- **Still open:** whether to *finish-wire* the 🟡 Quest/Inventory event payloads.
