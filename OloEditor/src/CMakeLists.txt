@@ -33,6 +33,8 @@
 		"Panels/EditorPreferencesPanel.h"
 		"Panels/DialogueEditorPanel.cpp"
 		"Panels/DialogueEditorPanel.h"
+		"Panels/CinematicTimelinePanel.cpp"
+		"Panels/CinematicTimelinePanel.h"
 		"Panels/InputSettingsPanel.cpp"
 		"Panels/InputSettingsPanel.h"
 		"Panels/PostProcessSettingsPanel.cpp"

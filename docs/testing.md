@@ -1381,11 +1381,12 @@ level of `tests/`). Grouped by directory.
 | [AudioEventsSceneIntegrationTest.cpp](../OloEngine/tests/Audio/AudioEventsSceneIntegrationTest.cpp) | 16 | **AudioEventsSceneIntegrationTest** &mdash; `PositionResolverFindsEntityByUUID`, `PositionResolverReturnsFalseForMissingEntity`, `PositionResolverReflectsMovedEntity`, `AudioPlaybackPostTriggerDelegatesToManager`, `AudioPlaybackStopAllOnEmptyActiveSetDelegates`, `AudioPlaybackIsEventActiveReturnsFalseForStopOnlyTrigger`, `AudioPlaybackWithNullManagerReturnsDefaults`, `StopEventCancelsPendingBeforeUpdate`, `PostTriggerRejectsUnknownCommandID`, `FullLifecycleInitUpdateShutdown`, `ShutdownClearsPositionResolver`, `PostTriggerWithObjectIDQueuesEvent`, `MultipleEntitiesPostEventsIndependently`, `StopEventOnNonExistentIDDoesNotCrash`, `AudioSourceComponentEventSystemFlag`, `CommandIDFromStartEventMatchesRegistry` |
 | [CommandIDTest.cpp](../OloEngine/tests/Audio/CommandIDTest.cpp) | 8 | **CommandIDTest** &mdash; `FromStringDeterministic`, `EmptyStringInvalid`, `CaseInsensitive`, `DifferentStringsDifferentIDs`, `ValidIDIsValid`, `DefaultConstructedInvalid`, `Comparison`, `ExplicitConstruction` |
 
-#### Cinematic (3 files)
+#### Cinematic (4 files)
 
 | File | Tests | Cases |
 |---|---:|---|
 | [CinematicCurveTest.cpp](../OloEngine/tests/Cinematic/CinematicCurveTest.cpp) | 13 | **CinematicCurveTest** &mdash; `EmptyFloatChannelReturnsFallback`, `FloatChannelClampsOutsideRange`, `FloatChannelLinearMidpoint`, `FloatChannelConstantHoldsLeftKey`, `FloatChannelEaseInOutIsSmoothstep`, `ApplyInterpContract`, `Vec3ChannelLinearMidpoint`, `Vec3ChannelDegenerateSegmentIsSafe`, `QuatChannelSlerpMidpointAndNormalization`, `QuatChannelDegenerateKeyDoesNotNaN`, `QuatChannelEmptyReturnsFallback`, `VisibilityTrackStepSemantics`, `VisibilityTrackBeforeFirstKeyUsesFallback` |
+| [CinematicEditTest.cpp](../OloEngine/tests/Cinematic/CinematicEditTest.cpp) | 14 | **CinematicEditTest** &mdash; `InsertIntoEmptyReturnsZero`, `InsertKeepsAscendingOrder`, `InsertAtFrontAndBack`, `InsertTieGoesAfterExisting`, `MoveKeyForwardReindexesAndResorts`, `MoveKeyBackwardReindexes`, `MoveKeyClampsNegativeTimeToZero`, `MoveKeyRejectsNonFiniteTime`, `MoveKeyOutOfRangeIsNoOp`, `RemoveKeyErasesAndKeepsOrder`, `RemoveKeyOutOfRangeReturnsFalse`, `WorksOnVisibilityKeys`, `WorksOnEventKeys`, `WorksOnQuatKeys` |
 | [CinematicPlayerTest.cpp](../OloEngine/tests/Cinematic/CinematicPlayerTest.cpp) | 14 | **CinematicPlayerTest** &mdash; `AdvanceTimeNormalStep`, `AdvanceTimeSpeedScales`, `AdvanceTimeNegativeSpeedHolds`, `AdvanceTimeClampsAtEndWhenNotLooping`, `AdvanceTimeWrapsWhenLooping`, `AdvanceTimeZeroDurationFinishesImmediately`, `CollectEventsHalfOpenWindow`, `CollectEventsOrdersByTimeAcrossTracks`, `TickFiresZeroTimeEventOnFirstStep`, `TickDoesNotDoubleFireAcrossConsecutiveSteps`, `TickClampFinishFiresFinalEvent`, `TickLoopWrapFiresTailThenHead`, `TickMultiLapFiresEachCompletedLapEvents`, `EffectiveDurationDerivesFromKeysWhenUnset` |
 | [CinematicSerializerTest.cpp](../OloEngine/tests/Cinematic/CinematicSerializerTest.cpp) | 5 | **CinematicSerializerTest** &mdash; `RoundTripPreservesStructureAndValues`, `EmptySequenceRoundTrips`, `MalformedYamlReturnsNullWithoutCrashing`, `NullSequenceSerializesToEmptyString`, `MalformedKeysAreSkippedNotMaterialized` |
 
@@ -1489,7 +1490,7 @@ level of `tests/`). Grouped by directory.
 | [FunctionWithContextTest.cpp](../OloEngine/tests/Templates/FunctionWithContextTest.cpp) | 4 | **FunctionWithContext** &mdash; `DefaultConstructedIsNullAndExposesNullSlots`, `LambdaBoundCallableInvokesCaptureBody`, `ReassignmentReplacesBoundCallable`, `RoundTripsThroughStatelessInvocationAPI` |
 | [TypeTraitsTest.cpp](../OloEngine/tests/Templates/TypeTraitsTest.cpp) | 2 | **TypeTraitsTest** &mdash; `AllChecksAreCompileTime`, `AllNameOfsAreCorrect` |
 
-**Totals.** 122 unit / subsystem test files, 1509 TEST / TEST_F declarations across all subsystems.
+**Totals.** 123 unit / subsystem test files, 1523 TEST / TEST_F declarations across all subsystems.
 
 <!-- END: unit-catalogue -->
 

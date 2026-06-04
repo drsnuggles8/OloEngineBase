@@ -3667,6 +3667,11 @@ namespace OloEngine
                     component.RuntimeSequence = nullptr;
                     component.Stop(); // rewind playhead when the asset is removed
                 }
+                ImGui::SameLine();
+                if (ImGui::SmallButton("Edit in Timeline##CinematicSeq") && m_OpenCinematicTimeline)
+                {
+                    m_OpenCinematicTimeline(component.Sequence);
+                }
             }
 
             ImGui::Separator();

@@ -61,6 +61,7 @@
 		"OloEngine/Cinematic/CinematicSequence.h"
 		"OloEngine/Cinematic/CinematicSequence.cpp"
 		"OloEngine/Cinematic/CinematicComponent.h"
+		"OloEngine/Cinematic/CinematicEdit.h"
 		"OloEngine/Cinematic/CinematicPlayer.h"
 		"OloEngine/Cinematic/CinematicPlayer.cpp"
 		"OloEngine/Cinematic/CinematicSystem.h"
