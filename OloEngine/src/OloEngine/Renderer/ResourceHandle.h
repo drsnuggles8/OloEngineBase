@@ -353,7 +353,9 @@ namespace OloEngine::ResourceNames
     inline constexpr std::string_view SSSColorTexture = "SSSColorTexture";                           // Color attachment view of SSSColor
     inline constexpr std::string_view AOApplyColor = "AOApplyColor";                                 // After AO apply (only valid when SSAO or GTAO is enabled)
     inline constexpr std::string_view AOApplyColorTexture = "AOApplyColorTexture";                   // Color attachment view of AOApplyColor
-    inline constexpr std::string_view PostProcessColor = "PostProcessColor";                         // Alias for the latest upstream full-resolution post-chain source (AOApply, SSS, or SceneColor)
+    inline constexpr std::string_view SSRColor = "SSRColor";                                         // After screen-space reflections composite (only valid when SSR is enabled, deferred path)
+    inline constexpr std::string_view SSRColorTexture = "SSRColorTexture";                           // Color attachment view of SSRColor
+    inline constexpr std::string_view PostProcessColor = "PostProcessColor";                         // Alias for the latest upstream full-resolution post-chain source (SSR, AOApply, SSS, or SceneColor)
     inline constexpr std::string_view PostProcessColorTexture = "PostProcessColorTexture";           // Color attachment view alias matching PostProcessColor
     inline constexpr std::string_view BloomColor = "BloomColor";                                     // After Bloom composite (only valid when Bloom is enabled)
     inline constexpr std::string_view BloomColorTexture = "BloomColorTexture";                       // Color attachment view of BloomColor

@@ -5610,6 +5610,16 @@ namespace OloEngine
             out << YAML::Key << "SSAOIntensity" << YAML::Value << pp.SSAOIntensity;
             out << YAML::Key << "SSAOSamples" << YAML::Value << pp.SSAOSamples;
             out << YAML::Key << "SSAODebugView" << YAML::Value << pp.SSAODebugView;
+            out << YAML::Key << "SSREnabled" << YAML::Value << pp.SSREnabled;
+            out << YAML::Key << "SSRMaxDistance" << YAML::Value << pp.SSRMaxDistance;
+            out << YAML::Key << "SSRThickness" << YAML::Value << pp.SSRThickness;
+            out << YAML::Key << "SSRStride" << YAML::Value << pp.SSRStride;
+            out << YAML::Key << "SSRMaxSteps" << YAML::Value << pp.SSRMaxSteps;
+            out << YAML::Key << "SSRBinarySearchSteps" << YAML::Value << pp.SSRBinarySearchSteps;
+            out << YAML::Key << "SSRIntensity" << YAML::Value << pp.SSRIntensity;
+            out << YAML::Key << "SSRMaxRoughness" << YAML::Value << pp.SSRMaxRoughness;
+            out << YAML::Key << "SSREdgeFade" << YAML::Value << pp.SSREdgeFade;
+            out << YAML::Key << "SSRDebugView" << YAML::Value << pp.SSRDebugView;
             out << YAML::Key << "AutoExposureEnabled" << YAML::Value << pp.AutoExposureEnabled;
             out << YAML::Key << "AutoExposureMinLogLuminance" << YAML::Value << pp.AutoExposureMinLogLuminance;
             out << YAML::Key << "AutoExposureMaxLogLuminance" << YAML::Value << pp.AutoExposureMaxLogLuminance;
@@ -5775,6 +5785,16 @@ namespace OloEngine
                 TrySet(pp.SSAOIntensity, ppNode["SSAOIntensity"]);
                 TrySet(pp.SSAOSamples, ppNode["SSAOSamples"]);
                 TrySet(pp.SSAODebugView, ppNode["SSAODebugView"]);
+                TrySet(pp.SSREnabled, ppNode["SSREnabled"]);
+                TrySet(pp.SSRMaxDistance, ppNode["SSRMaxDistance"]);
+                TrySet(pp.SSRThickness, ppNode["SSRThickness"]);
+                TrySet(pp.SSRStride, ppNode["SSRStride"]);
+                TrySet(pp.SSRMaxSteps, ppNode["SSRMaxSteps"]);
+                TrySet(pp.SSRBinarySearchSteps, ppNode["SSRBinarySearchSteps"]);
+                TrySet(pp.SSRIntensity, ppNode["SSRIntensity"]);
+                TrySet(pp.SSRMaxRoughness, ppNode["SSRMaxRoughness"]);
+                TrySet(pp.SSREdgeFade, ppNode["SSREdgeFade"]);
+                TrySet(pp.SSRDebugView, ppNode["SSRDebugView"]);
                 TrySet(pp.AutoExposureEnabled, ppNode["AutoExposureEnabled"]);
                 TrySet(pp.AutoExposureMinLogLuminance, ppNode["AutoExposureMinLogLuminance"]);
                 TrySet(pp.AutoExposureMaxLogLuminance, ppNode["AutoExposureMaxLogLuminance"]);
@@ -5786,6 +5806,7 @@ namespace OloEngine
 
                 // Floats read from YAML must be finite and ordered (min<=max).
                 SanitizeAutoExposure(pp);
+                SanitizeSSR(pp);
             }
 
             DeserializeSnowSettings(data, m_Scene->GetSnowSettings());
@@ -5924,6 +5945,16 @@ namespace OloEngine
             out << YAML::Key << "SSAOIntensity" << YAML::Value << pp.SSAOIntensity;
             out << YAML::Key << "SSAOSamples" << YAML::Value << pp.SSAOSamples;
             out << YAML::Key << "SSAODebugView" << YAML::Value << pp.SSAODebugView;
+            out << YAML::Key << "SSREnabled" << YAML::Value << pp.SSREnabled;
+            out << YAML::Key << "SSRMaxDistance" << YAML::Value << pp.SSRMaxDistance;
+            out << YAML::Key << "SSRThickness" << YAML::Value << pp.SSRThickness;
+            out << YAML::Key << "SSRStride" << YAML::Value << pp.SSRStride;
+            out << YAML::Key << "SSRMaxSteps" << YAML::Value << pp.SSRMaxSteps;
+            out << YAML::Key << "SSRBinarySearchSteps" << YAML::Value << pp.SSRBinarySearchSteps;
+            out << YAML::Key << "SSRIntensity" << YAML::Value << pp.SSRIntensity;
+            out << YAML::Key << "SSRMaxRoughness" << YAML::Value << pp.SSRMaxRoughness;
+            out << YAML::Key << "SSREdgeFade" << YAML::Value << pp.SSREdgeFade;
+            out << YAML::Key << "SSRDebugView" << YAML::Value << pp.SSRDebugView;
             out << YAML::Key << "AutoExposureEnabled" << YAML::Value << pp.AutoExposureEnabled;
             out << YAML::Key << "AutoExposureMinLogLuminance" << YAML::Value << pp.AutoExposureMinLogLuminance;
             out << YAML::Key << "AutoExposureMaxLogLuminance" << YAML::Value << pp.AutoExposureMaxLogLuminance;
@@ -6045,6 +6076,16 @@ namespace OloEngine
                 TrySet(pp.SSAOIntensity, ppNode["SSAOIntensity"]);
                 TrySet(pp.SSAOSamples, ppNode["SSAOSamples"]);
                 TrySet(pp.SSAODebugView, ppNode["SSAODebugView"]);
+                TrySet(pp.SSREnabled, ppNode["SSREnabled"]);
+                TrySet(pp.SSRMaxDistance, ppNode["SSRMaxDistance"]);
+                TrySet(pp.SSRThickness, ppNode["SSRThickness"]);
+                TrySet(pp.SSRStride, ppNode["SSRStride"]);
+                TrySet(pp.SSRMaxSteps, ppNode["SSRMaxSteps"]);
+                TrySet(pp.SSRBinarySearchSteps, ppNode["SSRBinarySearchSteps"]);
+                TrySet(pp.SSRIntensity, ppNode["SSRIntensity"]);
+                TrySet(pp.SSRMaxRoughness, ppNode["SSRMaxRoughness"]);
+                TrySet(pp.SSREdgeFade, ppNode["SSREdgeFade"]);
+                TrySet(pp.SSRDebugView, ppNode["SSRDebugView"]);
                 TrySet(pp.AutoExposureEnabled, ppNode["AutoExposureEnabled"]);
                 TrySet(pp.AutoExposureMinLogLuminance, ppNode["AutoExposureMinLogLuminance"]);
                 TrySet(pp.AutoExposureMaxLogLuminance, ppNode["AutoExposureMaxLogLuminance"]);
@@ -6056,6 +6097,7 @@ namespace OloEngine
 
                 // Floats read from YAML must be finite and ordered (min<=max).
                 SanitizeAutoExposure(pp);
+                SanitizeSSR(pp);
             }
 
             DeserializeSnowSettings(data, m_Scene->GetSnowSettings());

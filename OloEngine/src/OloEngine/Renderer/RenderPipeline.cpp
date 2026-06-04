@@ -430,6 +430,47 @@ namespace OloEngine
             PostProcessPasses.AOApply->SetPostProcessUBO(data.PostProcessGPU.PostProcess);
             PostProcessPasses.AOApply->SetSSAOUBO(data.PostProcessGPU.SSAO);
         }
+        // Wire SSRPass (screen-space reflections) before Bloom in the dynamic
+        // post chain. Deferred-only: when the path is forward / forward+ the
+        // SSRColor resource is never declared (see PopulateBlackboard), so the
+        // pass self-skips and downstream aliases back to the upstream colour.
+        if (PostProcessPasses.SSR)
+        {
+            const bool deferredPath = data.Settings.Path == RenderingPath::Deferred;
+            const bool ssrEnabled = data.PostProcess.SSREnabled && deferredPath &&
+                                    PostProcessPasses.SSR->IsReadyForExecution();
+            PostProcessPasses.SSR->SetEnabled(ssrEnabled);
+            PostProcessPasses.SSR->SetSSRUBO(data.PostProcessGPU.SSR);
+
+            if (ssrEnabled)
+            {
+                auto& ssr = data.PostProcessGPU.SSRData;
+                ssr.Projection = data.ProjectionMatrix;
+                ssr.InverseProjection = glm::inverse(data.ProjectionMatrix);
+                ssr.View = data.ViewMatrix;
+                ssr.RayParams = glm::vec4(static_cast<f32>(std::clamp(data.PostProcess.SSRMaxSteps, 1, 256)),
+                                          std::max(0.1f, data.PostProcess.SSRMaxDistance),
+                                          std::max(0.001f, data.PostProcess.SSRThickness),
+                                          std::max(0.001f, data.PostProcess.SSRStride));
+                ssr.ShadeParams = glm::vec4(std::max(0.0f, data.PostProcess.SSRIntensity),
+                                            std::clamp(data.PostProcess.SSRMaxRoughness, 0.0f, 1.0f),
+                                            std::clamp(data.PostProcess.SSREdgeFade, 0.0f, 0.5f),
+                                            static_cast<f32>(std::clamp(data.PostProcess.SSRBinarySearchSteps, 0, 32)));
+                f32 ssrWidth = 1.0f;
+                f32 ssrHeight = 1.0f;
+                if (FrameCorePasses.Scene)
+                {
+                    const auto& spec = FrameCorePasses.Scene->GetFramebufferSpecification();
+                    ssrWidth = spec.Width > 0 ? static_cast<f32>(spec.Width) : 1.0f;
+                    ssrHeight = spec.Height > 0 ? static_cast<f32>(spec.Height) : 1.0f;
+                }
+                ssr.ScreenParams = glm::vec4(ssrWidth, ssrHeight, 1.0f / ssrWidth, 1.0f / ssrHeight);
+                ssr.Flags = glm::vec4(data.PostProcess.SSRDebugView ? 1.0f : 0.0f, 0.0f, 0.0f, 0.0f);
+
+                data.PostProcessGPU.SSR->SetData(&ssr, SSRUBOData::GetSize());
+                data.PostProcessGPU.SSR->Bind();
+            }
+        }
         // Standalone dynamic post-chain configuration.
         if (PostProcessPasses.Bloom)
         {
@@ -889,6 +930,7 @@ namespace OloEngine
         HashU32(h, static_cast<u32>(std::to_underlying(data.PostProcess.ActiveAOTechnique)));
         HashBool(h, data.PostProcess.SSAOEnabled);
         HashBool(h, data.PostProcess.GTAOEnabled);
+        HashBool(h, data.PostProcess.SSREnabled);
         HashBool(h, data.PostProcess.BloomEnabled);
         HashBool(h, data.PostProcess.DOFEnabled);
         HashBool(h, data.PostProcess.MotionBlurEnabled);
@@ -943,6 +985,7 @@ namespace OloEngine
         HashPassState(h, RenderStreamPasses.Decal);
         HashPassState(h, PostProcessPasses.SSS);
         HashPassState(h, PostProcessPasses.AOApply);
+        HashPassState(h, PostProcessPasses.SSR);
         HashPassState(h, PostProcessPasses.Bloom);
         HashPassState(h, PostProcessPasses.DOF);
         HashPassState(h, PostProcessPasses.MotionBlur);
@@ -1568,6 +1611,27 @@ namespace OloEngine
             }
         }
 
+        // SSRColor exists only on the deferred path when SSR is enabled, ready,
+        // and the G-Buffer normal + scene depth it ray-marches against are
+        // available. Forward / forward+ never declares it, so downstream aliases
+        // back to the upstream colour.
+        if (pipeline.PostProcessPasses.SSR)
+        {
+            if (pipeline.PostProcessPasses.SSR->IsEnabled() &&
+                pipeline.PostProcessPasses.SSR->IsReadyForExecution() &&
+                board.Scene.SceneDepth.IsValid() &&
+                board.GBuffer.GBufferNormal.IsValid() &&
+                board.GBuffer.GBufferAlbedo.IsValid())
+            {
+                const auto ssrOutput = declareGraphOnlyPostProcessOutput(
+                    ResourceNames::SSRColor,
+                    ResourceNames::SSRColorTexture,
+                    RGResourceFormat::RGBA16Float);
+                board.Post.SSRColor = ssrOutput.Framebuffer;
+                board.Post.SSRColorTexture = ssrOutput.Texture;
+            }
+        }
+
         // PostProcessColor is an alias handle to the latest upstream graph
         // resource in the dynamic chain, NOT a separate imported resource.
         // This preserves declaration-derived reachability:
@@ -1585,7 +1649,17 @@ namespace OloEngine
         // every possible chain source explicitly in their candidate arrays.
         std::string_view postProcessTargetFramebuffer;
         std::string_view postProcessTargetTexture;
-        if (board.Post.AOApplyColor.IsValid())
+        if (board.Post.SSRColor.IsValid())
+        {
+            // SSR runs after AOApply, so its output is the freshest pre-Bloom
+            // colour. Keep it first so name-based readers (DOF/MotionBlur/TAA)
+            // pick up reflections even when Bloom is disabled.
+            board.Post.PostProcessColor = board.Post.SSRColor;
+            board.Post.PostProcessColorTexture = board.Post.SSRColorTexture;
+            postProcessTargetFramebuffer = ResourceNames::SSRColor;
+            postProcessTargetTexture = ResourceNames::SSRColorTexture;
+        }
+        else if (board.Post.AOApplyColor.IsValid())
         {
             board.Post.PostProcessColor = board.Post.AOApplyColor;
             board.Post.PostProcessColorTexture = board.Post.AOApplyColorTexture;
@@ -1972,6 +2046,7 @@ namespace OloEngine
         inputs.Passes.OITResolve = SceneCompositePasses.OITResolve.Raw();
         inputs.Passes.SSS = PostProcessPasses.SSS.Raw();
         inputs.Passes.AOApply = PostProcessPasses.AOApply.Raw();
+        inputs.Passes.SSR = PostProcessPasses.SSR.Raw();
         inputs.Passes.Bloom = PostProcessPasses.Bloom.Raw();
         inputs.Passes.DOF = PostProcessPasses.DOF.Raw();
         inputs.Passes.MotionBlur = PostProcessPasses.MotionBlur.Raw();
@@ -2084,6 +2159,12 @@ namespace OloEngine
         PostProcessPasses.AOApply = Ref<AOApplyRenderPass>::Create();
         PostProcessPasses.AOApply->SetName("AOApplyPass");
         PostProcessPasses.AOApply->Init(finalPassSpec);
+
+        // Screen-space reflections standalone pass.
+        // Sits between AOApply and Bloom in dynamic mode (deferred path only).
+        PostProcessPasses.SSR = Ref<SSRRenderPass>::Create();
+        PostProcessPasses.SSR->SetName("SSRPass");
+        PostProcessPasses.SSR->Init(finalPassSpec);
 
         // Bloom standalone pass.
         // Sits between PostProcess and DOF.

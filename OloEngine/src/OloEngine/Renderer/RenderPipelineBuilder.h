@@ -33,6 +33,7 @@ namespace OloEngine
         RenderGraphNode* OITResolve = nullptr;
         RenderGraphNode* SSS = nullptr;
         RenderGraphNode* AOApply = nullptr;
+        RenderGraphNode* SSR = nullptr;
         RenderGraphNode* Bloom = nullptr;
         RenderGraphNode* DOF = nullptr;
         RenderGraphNode* MotionBlur = nullptr;

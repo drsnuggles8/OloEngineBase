@@ -9,6 +9,13 @@ namespace OloEngine::RenderPipelineBuilderInternal
                                   const PostProcessStageInputs& inputs)
     {
         OLO_CORE_ASSERT(inputs.Passes, "RegisterPostProcessNodes requires pass inputs");
+        // SSR (deferred-only) reflects the AO-applied scene colour, so it is
+        // registered first in the post stage — ahead of Bloom. It self-skips on
+        // the forward path (its SSRColor resource is never declared).
+        if (inputs.Passes->SSR)
+        {
+            graph.AddNode(PrepareGraphNode("SSRPass", inputs.Passes->SSR));
+        }
         graph.AddNode(PrepareGraphNode("BloomPass",
                                        inputs.Passes->Bloom));
         graph.AddNode(PrepareGraphNode("DOFPass",
