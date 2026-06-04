@@ -210,7 +210,8 @@ namespace OloEngine
                          });
 
         const sizet runningCount = static_cast<sizet>(
-            std::count_if(rows.begin(), rows.end(), [](const ThreadRow& r) { return r.IsRunning; }));
+            std::count_if(rows.begin(), rows.end(), [](const ThreadRow& r)
+                          { return r.IsRunning; }));
 
         // --- Summary ---------------------------------------------------------
         auto& scheduler = LowLevelTasks::FScheduler::Get();

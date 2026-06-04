@@ -186,8 +186,15 @@ TEST(ThreadManagerTest, NamedThreadIdAgreesWithRegistryId)
     FRunnableThread* thread = FRunnableThread::Create(&runnable, "OloTest::NamedWorker");
     ASSERT_NE(thread, nullptr);
 
+    // Wait for the worker to attach itself, bounded so a stuck thread fails CI fast
+    // instead of hanging forever.
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
     while (!runnable.m_Started.load(std::memory_order_acquire))
     {
+        if (std::chrono::steady_clock::now() >= deadline)
+        {
+            GTEST_FAIL() << "Worker did not reach AttachToThread() / set runnable.m_Started within 5s";
+        }
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
 
