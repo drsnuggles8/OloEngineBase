@@ -1,0 +1,196 @@
+Scene: ProceduralTerrainTest.olo
+PostProcessSettings:
+  TonemapOperator: 1
+  Exposure: 1
+  Gamma: 2.2
+  BloomEnabled: false
+  BloomThreshold: 1
+  BloomIntensity: 0.5
+  BloomIterations: 5
+  VignetteEnabled: false
+  VignetteIntensity: 0.3
+  VignetteSmoothness: 0.5
+  ChromaticAberrationEnabled: false
+  ChromaticAberrationIntensity: 0.005
+  FXAAEnabled: false
+  DOFEnabled: false
+  DOFFocusDistance: 10
+  DOFFocusRange: 5
+  DOFBokehRadius: 3
+  MotionBlurEnabled: false
+  MotionBlurStrength: 0.5
+  MotionBlurSamples: 8
+  ColorGradingEnabled: false
+  SSAOEnabled: false
+  SSAORadius: 0.5
+  SSAOBias: 0.025
+  SSAOIntensity: 1
+  SSAOSamples: 32
+  SSAODebugView: false
+SnowSettings:
+  Enabled: false
+FogSettings:
+  Enabled: false
+WindSettings:
+  Enabled: false
+SnowAccumulationSettings:
+  Enabled: false
+SnowEjectaSettings:
+  Enabled: false
+PrecipitationSettings:
+  Enabled: false
+StreamingSettings:
+  Enabled: false
+Entities:
+  - Entity: 9977033210160945010
+    TagComponent:
+      Tag: camera
+    TransformComponent:
+      Translation: [128, 90, 300]
+      Rotation: [-0.45, 0, 0]
+      Scale: [1, 1, 1]
+    CameraComponent:
+      Camera:
+        ProjectionType: 0
+        PerspectiveFOV: 0.7853982
+        PerspectiveNear: 0.1
+        PerspectiveFar: 2000
+        OrthographicSize: 10
+        OrthographicNear: -1
+        OrthographicFar: 1
+      Primary: true
+      FixedAspectRatio: false
+      RuntimeControl: true
+      FlySpeed: 20
+  - Entity: 100000000000020
+    TagComponent:
+      Tag: Procedural Terrain
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    TerrainComponent:
+      HeightmapPath: ""
+      WorldSizeX: 256
+      WorldSizeZ: 256
+      HeightScale: 60
+      ProceduralEnabled: true
+      ProceduralSeed: 1337
+      ProceduralResolution: 256
+      ProceduralOctaves: 6
+      ProceduralFrequency: 3
+      ProceduralLacunarity: 2
+      ProceduralPersistence: 0.45
+      ShapingRidgeBlend: 0.45
+      ShapingWarpStrength: 0.12
+      ShapingWarpFrequency: 2
+      ShapingTerraceSteps: 0
+      ShapingTerraceSharpness: 0.6
+      ShapingHeightExponent: 1
+      AutoMaterial: true
+      SplatmapGenResolution: 256
+      LayerRules:
+        - LayerIndex: 0
+          MinHeight: 0
+          MaxHeight: 0.12
+          HeightBlend: 0.06
+          MinSlopeDeg: 0
+          MaxSlopeDeg: 35
+          SlopeBlend: 8
+          Strength: 1
+        - LayerIndex: 1
+          MinHeight: 0.08
+          MaxHeight: 0.55
+          HeightBlend: 0.14
+          MinSlopeDeg: 0
+          MaxSlopeDeg: 28
+          SlopeBlend: 8
+          Strength: 1
+        - LayerIndex: 2
+          MinHeight: 0
+          MaxHeight: 1
+          HeightBlend: 0
+          MinSlopeDeg: 32
+          MaxSlopeDeg: 90
+          SlopeBlend: 10
+          Strength: 1
+        - LayerIndex: 3
+          MinHeight: 0.62
+          MaxHeight: 1
+          HeightBlend: 0.14
+          MinSlopeDeg: 0
+          MaxSlopeDeg: 50
+          SlopeBlend: 10
+          Strength: 1
+      TessellationEnabled: false
+      TargetTriangleSize: 8
+      MorphRegion: 0.3
+      StreamingEnabled: false
+      TileDirectory: ""
+      TileFilePattern: tile_%d_%d.raw
+      TileWorldSize: 256
+      TileResolution: 513
+      StreamingLoadRadius: 3
+      StreamingMaxTiles: 25
+      VoxelEnabled: false
+      VoxelSize: 1
+      SplatmapPath0: ""
+      SplatmapPath1: ""
+      Layers:
+        - Name: Sand
+          AlbedoPath: ""
+          NormalPath: ""
+          ARMPath: ""
+          TilingScale: 16
+          HeightBlendSharpness: 4
+          TriplanarSharpness: 8
+          BaseColor: [0.76, 0.7, 0.5]
+          Roughness: 0.95
+          Metallic: 0
+        - Name: Grass
+          AlbedoPath: ""
+          NormalPath: ""
+          ARMPath: ""
+          TilingScale: 20
+          HeightBlendSharpness: 4
+          TriplanarSharpness: 8
+          BaseColor: [0.28, 0.45, 0.17]
+          Roughness: 0.9
+          Metallic: 0
+        - Name: Rock
+          AlbedoPath: ""
+          NormalPath: ""
+          ARMPath: ""
+          TilingScale: 12
+          HeightBlendSharpness: 4
+          TriplanarSharpness: 8
+          BaseColor: [0.42, 0.4, 0.38]
+          Roughness: 0.8
+          Metallic: 0
+        - Name: Snow
+          AlbedoPath: ""
+          NormalPath: ""
+          ARMPath: ""
+          TilingScale: 18
+          HeightBlendSharpness: 4
+          TriplanarSharpness: 8
+          BaseColor: [0.92, 0.93, 0.96]
+          Roughness: 0.6
+          Metallic: 0
+  - Entity: 100000000000021
+    TagComponent:
+      Tag: Directional Light
+    TransformComponent:
+      Translation: [21.055992, 25.520258, 26.569588]
+      Rotation: [-0.78539824, 0.39269903, 0]
+      Scale: [1, 1, 1]
+    DirectionalLightComponent:
+      Direction: [-0.4, -0.8, -0.3]
+      Color: [1, 0.9607843, 0.8980392]
+      Intensity: 2.5
+      CastShadows: true
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.01
+      MaxShadowDistance: 500
+      CascadeSplitLambda: 0.5
+      CascadeDebugVisualization: false

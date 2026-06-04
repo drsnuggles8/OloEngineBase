@@ -1034,6 +1034,7 @@ subsystem unit tests (§9.3, grouped by directory).
 | [SSRVisualEvidenceTest.cpp](../OloEngine/tests/Rendering/PropertyTests/SSRVisualEvidenceTest.cpp) | 1 | **SSRVisualEvidenceTest** &mdash; `ReflectionAppearsOnMirrorFloor` |
 | [SceneRenderEvidenceTest.cpp](../OloEngine/tests/Rendering/PropertyTests/SceneRenderEvidenceTest.cpp) | 1 | **LitCubeScene** &mdash; `RendersThroughScenePipelineAndProducesPng` |
 | [SphereAreaLightVisualTest.cpp](../OloEngine/tests/Rendering/PropertyTests/SphereAreaLightVisualTest.cpp) | 1 | **SphereAreaLightVisual** &mdash; `RendersAndProducesPng` |
+| [TerrainGenerationEvidenceTest.cpp](../OloEngine/tests/Rendering/PropertyTests/TerrainGenerationEvidenceTest.cpp) | 1 | **TerrainGenerationEvidenceTest** &mdash; `GeneratedTerrainIsTexturedAndBanded` |
 | [WaterBuoyancyVisualEvidenceTest.cpp](../OloEngine/tests/Rendering/PropertyTests/WaterBuoyancyVisualEvidenceTest.cpp) | 1 | **FloatingCubeOnOcean** &mdash; `CubeFloatsOnRenderedOceanAndProducesPng` |
 | [WaterVisualEvidenceTest.cpp](../OloEngine/tests/Rendering/PropertyTests/WaterVisualEvidenceTest.cpp) | 1 | **WaterVisualEvidenceTest** &mdash; `CaptureWaterFromMultipleAngles` |
 
@@ -1110,7 +1111,7 @@ subsystem unit tests (§9.3, grouped by directory).
 |---|---:|---|
 | [TestFailureCaptureTest.cpp](../OloEngine/tests/Rendering/PropertyTests/TestFailureCaptureTest.cpp) | 6 | **TestFailureCaptureTest** &mdash; `DirectoryForSanitizesNames`, `MetadataIsWrittenWithoutGlContext`, `LatestFrameSummaryIsNoOpWithoutCaptures`, `GLStateSnapshotIsWrittenWhenGpuAvailable`, `FboPngIsWrittenWhenGpuAvailable`, `CaptureAllProducesExpectedArtefacts` |
 
-**Totals.** 84 renderer-scope test files, 1215 TEST / TEST_F / TEST_P declarations across all layers.
+**Totals.** 85 renderer-scope test files, 1216 TEST / TEST_F / TEST_P declarations across all layers.
 
 <!-- END: renderer-catalogue -->
 
@@ -1504,7 +1505,13 @@ level of `tests/`). Grouped by directory.
 | [FunctionWithContextTest.cpp](../OloEngine/tests/Templates/FunctionWithContextTest.cpp) | 4 | **FunctionWithContext** &mdash; `DefaultConstructedIsNullAndExposesNullSlots`, `LambdaBoundCallableInvokesCaptureBody`, `ReassignmentReplacesBoundCallable`, `RoundTripsThroughStatelessInvocationAPI` |
 | [TypeTraitsTest.cpp](../OloEngine/tests/Templates/TypeTraitsTest.cpp) | 2 | **TypeTraitsTest** &mdash; `AllChecksAreCompileTime`, `AllNameOfsAreCorrect` |
 
-**Totals.** 126 unit / subsystem test files, 1546 TEST / TEST_F declarations across all subsystems.
+#### Terrain (1 file)
+
+| File | Tests | Cases |
+|---|---:|---|
+| [TerrainGeneratorTest.cpp](../OloEngine/tests/Terrain/TerrainGeneratorTest.cpp) | 15 | **TerrainGeneratorTest** &mdash; `HeightFieldIsDeterministic`, `HeightFieldIsNormalizedAndFinite`, `LargeSeedStillProducesVariedTerrain`, `DifferentSeedsProduceDifferentTerrain`, `RidgedAndWarpAndExponentStayValid`, `TerraceShapingStaysValidAndDeterministic`, `TerraceEndpointsAndIdentity`, `TerraceIsMonotonicAndBounded`, `TerraceProducesFlatPlateaus`, `RuleWeightPeaksInsideBandAndZeroOutside`, `SlopeBandSelectsRule`, `DefaultRulesAssignExpectedLayers`, `LayerWeightsAreNormalized`, `NoMatchingRuleFallsBackToLayerZero`, `PackLayerWeightsQuantizesToBothSplatmaps` |
+
+**Totals.** 127 unit / subsystem test files, 1561 TEST / TEST_F declarations across all subsystems.
 
 <!-- END: unit-catalogue -->
 

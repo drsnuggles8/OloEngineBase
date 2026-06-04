@@ -1,5 +1,5 @@
 Project:
   Name: Sandbox
-  StartScene: "Scenes/WaterTest.olo"
+  StartScene: "Scenes/ProceduralTerrainTest.olo"
   AssetDirectory: "Assets"
   ScriptModulePath: "Scripts/Binaries/Sandbox-Scripting.dll"

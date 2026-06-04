@@ -21,6 +21,7 @@
 #include "OloEngine/Renderer/Instancing/InstancedMeshComponent.h"
 #include "OloEngine/Particle/ParticleSystem.h"
 #include "OloEngine/Terrain/TerrainData.h"
+#include "OloEngine/Terrain/TerrainGenerator.h"
 #include "OloEngine/Terrain/TerrainChunkManager.h"
 #include "OloEngine/Terrain/TerrainMaterial.h"
 #include "OloEngine/Terrain/TerrainStreamer.h"
@@ -1778,6 +1779,18 @@ namespace OloEngine
         f32 m_ProceduralLacunarity = 2.0f;
         f32 m_ProceduralPersistence = 0.45f;
 
+        // Advanced height-field shaping (serialized) — ridged mountains, domain
+        // warp, terracing, height redistribution. Defaults are identity, so the
+        // base fBm above is unchanged unless these are touched.
+        TerrainHeightShaping m_HeightShaping;
+
+        // Automatic material assignment (serialized). When enabled (and a material
+        // with layers + rules exist), the splatmap is generated from m_LayerRules
+        // by height/slope each rebuild instead of being hand-painted.
+        bool m_AutoMaterial = false;
+        std::vector<TerrainLayerRule> m_LayerRules;
+        u32 m_SplatmapGenResolution = 512;
+
         // LOD / tessellation settings (serialized)
         bool m_TessellationEnabled = true;
         f32 m_TargetTriangleSize = 8.0f; // Screen-space pixel target
@@ -1805,10 +1818,11 @@ namespace OloEngine
         std::unordered_map<VoxelCoord, VoxelMesh, VoxelCoordHash> m_VoxelMeshes;
         bool m_NeedsRebuild = true;
         bool m_MaterialNeedsRebuild = true;
+        bool m_AutoSplatNeedsRebuild = true; // Regenerate the auto-material splatmap on next tick
 
         TerrainComponent() = default;
         TerrainComponent(const TerrainComponent& other)
-            : m_HeightmapPath(other.m_HeightmapPath), m_WorldSizeX(other.m_WorldSizeX), m_WorldSizeZ(other.m_WorldSizeZ), m_HeightScale(other.m_HeightScale), m_ProceduralEnabled(other.m_ProceduralEnabled), m_ProceduralSeed(other.m_ProceduralSeed), m_ProceduralResolution(other.m_ProceduralResolution), m_ProceduralOctaves(other.m_ProceduralOctaves), m_ProceduralFrequency(other.m_ProceduralFrequency), m_ProceduralLacunarity(other.m_ProceduralLacunarity), m_ProceduralPersistence(other.m_ProceduralPersistence), m_TessellationEnabled(other.m_TessellationEnabled), m_TargetTriangleSize(other.m_TargetTriangleSize), m_MorphRegion(other.m_MorphRegion), m_StreamingEnabled(other.m_StreamingEnabled), m_TileDirectory(other.m_TileDirectory), m_TileFilePattern(other.m_TileFilePattern), m_TileWorldSize(other.m_TileWorldSize), m_TileResolution(other.m_TileResolution), m_StreamingLoadRadius(other.m_StreamingLoadRadius), m_StreamingMaxTiles(other.m_StreamingMaxTiles), m_VoxelEnabled(other.m_VoxelEnabled), m_VoxelSize(other.m_VoxelSize)
+            : m_HeightmapPath(other.m_HeightmapPath), m_WorldSizeX(other.m_WorldSizeX), m_WorldSizeZ(other.m_WorldSizeZ), m_HeightScale(other.m_HeightScale), m_ProceduralEnabled(other.m_ProceduralEnabled), m_ProceduralSeed(other.m_ProceduralSeed), m_ProceduralResolution(other.m_ProceduralResolution), m_ProceduralOctaves(other.m_ProceduralOctaves), m_ProceduralFrequency(other.m_ProceduralFrequency), m_ProceduralLacunarity(other.m_ProceduralLacunarity), m_ProceduralPersistence(other.m_ProceduralPersistence), m_HeightShaping(other.m_HeightShaping), m_AutoMaterial(other.m_AutoMaterial), m_LayerRules(other.m_LayerRules), m_SplatmapGenResolution(other.m_SplatmapGenResolution), m_TessellationEnabled(other.m_TessellationEnabled), m_TargetTriangleSize(other.m_TargetTriangleSize), m_MorphRegion(other.m_MorphRegion), m_StreamingEnabled(other.m_StreamingEnabled), m_TileDirectory(other.m_TileDirectory), m_TileFilePattern(other.m_TileFilePattern), m_TileWorldSize(other.m_TileWorldSize), m_TileResolution(other.m_TileResolution), m_StreamingLoadRadius(other.m_StreamingLoadRadius), m_StreamingMaxTiles(other.m_StreamingMaxTiles), m_VoxelEnabled(other.m_VoxelEnabled), m_VoxelSize(other.m_VoxelSize)
         {
             // Runtime state intentionally NOT copied — force rebuild
         }
@@ -1827,6 +1841,10 @@ namespace OloEngine
                 m_ProceduralFrequency = other.m_ProceduralFrequency;
                 m_ProceduralLacunarity = other.m_ProceduralLacunarity;
                 m_ProceduralPersistence = other.m_ProceduralPersistence;
+                m_HeightShaping = other.m_HeightShaping;
+                m_AutoMaterial = other.m_AutoMaterial;
+                m_LayerRules = other.m_LayerRules;
+                m_SplatmapGenResolution = other.m_SplatmapGenResolution;
                 m_TessellationEnabled = other.m_TessellationEnabled;
                 m_TargetTriangleSize = other.m_TargetTriangleSize;
                 m_MorphRegion = other.m_MorphRegion;
@@ -1858,7 +1876,7 @@ namespace OloEngine
         // so it's intentionally not considered for undo equality.
         auto operator==(const TerrainComponent& other) const -> bool
         {
-            return m_HeightmapPath == other.m_HeightmapPath && Math::BitwiseEqual(m_WorldSizeX, other.m_WorldSizeX) && Math::BitwiseEqual(m_WorldSizeZ, other.m_WorldSizeZ) && Math::BitwiseEqual(m_HeightScale, other.m_HeightScale) && m_ProceduralEnabled == other.m_ProceduralEnabled && m_ProceduralSeed == other.m_ProceduralSeed && m_ProceduralResolution == other.m_ProceduralResolution && m_ProceduralOctaves == other.m_ProceduralOctaves && Math::BitwiseEqual(m_ProceduralFrequency, other.m_ProceduralFrequency) && Math::BitwiseEqual(m_ProceduralLacunarity, other.m_ProceduralLacunarity) && Math::BitwiseEqual(m_ProceduralPersistence, other.m_ProceduralPersistence) && m_TessellationEnabled == other.m_TessellationEnabled && Math::BitwiseEqual(m_TargetTriangleSize, other.m_TargetTriangleSize) && Math::BitwiseEqual(m_MorphRegion, other.m_MorphRegion) && m_StreamingEnabled == other.m_StreamingEnabled && m_TileDirectory == other.m_TileDirectory && m_TileFilePattern == other.m_TileFilePattern && Math::BitwiseEqual(m_TileWorldSize, other.m_TileWorldSize) && m_TileResolution == other.m_TileResolution && m_StreamingLoadRadius == other.m_StreamingLoadRadius && m_StreamingMaxTiles == other.m_StreamingMaxTiles && m_VoxelEnabled == other.m_VoxelEnabled && Math::BitwiseEqual(m_VoxelSize, other.m_VoxelSize);
+            return m_HeightmapPath == other.m_HeightmapPath && Math::BitwiseEqual(m_WorldSizeX, other.m_WorldSizeX) && Math::BitwiseEqual(m_WorldSizeZ, other.m_WorldSizeZ) && Math::BitwiseEqual(m_HeightScale, other.m_HeightScale) && m_ProceduralEnabled == other.m_ProceduralEnabled && m_ProceduralSeed == other.m_ProceduralSeed && m_ProceduralResolution == other.m_ProceduralResolution && m_ProceduralOctaves == other.m_ProceduralOctaves && Math::BitwiseEqual(m_ProceduralFrequency, other.m_ProceduralFrequency) && Math::BitwiseEqual(m_ProceduralLacunarity, other.m_ProceduralLacunarity) && Math::BitwiseEqual(m_ProceduralPersistence, other.m_ProceduralPersistence) && m_HeightShaping == other.m_HeightShaping && m_AutoMaterial == other.m_AutoMaterial && m_LayerRules == other.m_LayerRules && m_SplatmapGenResolution == other.m_SplatmapGenResolution && m_TessellationEnabled == other.m_TessellationEnabled && Math::BitwiseEqual(m_TargetTriangleSize, other.m_TargetTriangleSize) && Math::BitwiseEqual(m_MorphRegion, other.m_MorphRegion) && m_StreamingEnabled == other.m_StreamingEnabled && m_TileDirectory == other.m_TileDirectory && m_TileFilePattern == other.m_TileFilePattern && Math::BitwiseEqual(m_TileWorldSize, other.m_TileWorldSize) && m_TileResolution == other.m_TileResolution && m_StreamingLoadRadius == other.m_StreamingLoadRadius && m_StreamingMaxTiles == other.m_StreamingMaxTiles && m_VoxelEnabled == other.m_VoxelEnabled && Math::BitwiseEqual(m_VoxelSize, other.m_VoxelSize);
         }
     };
 

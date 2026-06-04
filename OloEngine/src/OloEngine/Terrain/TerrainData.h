@@ -30,6 +30,12 @@ namespace OloEngine
                                 f32 frequency = 2.0f, f32 amplitude = 1.0f,
                                 f32 lacunarity = 2.0f, f32 persistence = 0.5f);
 
+        // Replace the heightmap wholesale with an externally generated field
+        // (row-major, resolution × resolution, expected in [0, 1]). Re-uploads
+        // to the GPU. Used by TerrainGenerator to push a procedurally shaped
+        // height field without GenerateProcedural's fixed single-fBm formula.
+        void SetHeights(u32 resolution, std::vector<f32> heights);
+
         // CPU height query with bilinear interpolation — normalizedX/Z in [0, 1]
         [[nodiscard]] f32 GetHeightAt(f32 normalizedX, f32 normalizedZ) const;
 

@@ -77,6 +77,10 @@ namespace OloEngine
         void NewScene();
         void OpenScene();
         bool OpenScene(const std::filesystem::path& path);
+        // Point the editor camera at a terrain in the scene (terrain spans world
+        // [0, worldSize] from its transform, so the default origin-focused camera
+        // would otherwise look right past it). No-op when the scene has no terrain.
+        void FrameEditorCameraOnTerrain(const Ref<Scene>& scene);
         bool SaveScene();
         bool SaveSceneAs();
 
