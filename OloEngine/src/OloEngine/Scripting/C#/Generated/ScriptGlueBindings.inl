@@ -4345,3 +4345,155 @@ static void UIWorldAnchorComponent_SetWorldOffset(UUID entityID, glm::vec3 const
             return;
     comp.m_WorldOffset = *value;
 }
+
+///////////////////////////////////////////////////////////////////////////////////////////
+// VideoOverlayComponent                                                          //
+///////////////////////////////////////////////////////////////////////////////////////////
+
+static bool VideoOverlayComponent_GetPlayOnStart(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<VideoOverlayComponent>();
+    return comp.PlayOnStart;
+}
+
+static void VideoOverlayComponent_SetPlayOnStart(UUID entityID, bool value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<VideoOverlayComponent>();
+    comp.PlayOnStart = value;
+}
+
+static bool VideoOverlayComponent_GetSkipOnInput(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<VideoOverlayComponent>();
+    return comp.SkipOnInput;
+}
+
+static void VideoOverlayComponent_SetSkipOnInput(UUID entityID, bool value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<VideoOverlayComponent>();
+    comp.SkipOnInput = value;
+}
+
+static bool VideoOverlayComponent_GetLooping(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<VideoOverlayComponent>();
+    return comp.Looping;
+}
+
+static void VideoOverlayComponent_SetLooping(UUID entityID, bool value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<VideoOverlayComponent>();
+    comp.Looping = value;
+}
+
+static float VideoOverlayComponent_GetVolume(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<VideoOverlayComponent>();
+    return comp.Volume;
+}
+
+static void VideoOverlayComponent_SetVolume(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<VideoOverlayComponent>();
+    comp.Volume = value;
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////
+// VideoSurfaceComponent                                                          //
+///////////////////////////////////////////////////////////////////////////////////////////
+
+static bool VideoSurfaceComponent_GetAutoPlay(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<VideoSurfaceComponent>();
+    return comp.AutoPlay;
+}
+
+static void VideoSurfaceComponent_SetAutoPlay(UUID entityID, bool value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<VideoSurfaceComponent>();
+    comp.AutoPlay = value;
+}
+
+static bool VideoSurfaceComponent_GetLooping(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<VideoSurfaceComponent>();
+    return comp.Looping;
+}
+
+static void VideoSurfaceComponent_SetLooping(UUID entityID, bool value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<VideoSurfaceComponent>();
+    comp.Looping = value;
+}
+
+static float VideoSurfaceComponent_GetVolume(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<VideoSurfaceComponent>();
+    return comp.Volume;
+}
+
+static void VideoSurfaceComponent_SetVolume(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<VideoSurfaceComponent>();
+    comp.Volume = value;
+}

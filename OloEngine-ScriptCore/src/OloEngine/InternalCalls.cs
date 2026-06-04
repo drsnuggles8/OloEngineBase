@@ -112,6 +112,17 @@ namespace OloEngine
 		internal static extern bool AudioSoundGraphComponent_SetParameterBool(ulong entityID, string paramName, bool value);
 		#endregion
 
+		#region Video
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void Video_PlayFullscreen(string filePath, bool loop);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void Video_Stop();
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void Video_Skip();
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool Video_IsPlaying();
+		#endregion
+
 		#region AudioEvents
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern ulong AudioEvents_PostTrigger(string eventName, ulong objectID);

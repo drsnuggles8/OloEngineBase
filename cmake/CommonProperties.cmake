@@ -148,6 +148,25 @@ function(olo_set_link_options target_name)
     endif()
 endfunction()
 
+# Copy the FFmpeg runtime libs (Windows DLLs / Linux .so) next to an executable
+# target's output so a build with OLO_VIDEO_FFMPEG=ON can load them at runtime.
+# No-op when FFmpeg is off (OLO_FFMPEG_RUNTIME_DIR is only set by cmake/ffmpeg.cmake).
+# Must be called from the directory that created the target (add_custom_command TARGET).
+function(olo_copy_ffmpeg_runtime target_name)
+    if(DEFINED OLO_FFMPEG_RUNTIME_DIR)
+        add_custom_command(TARGET ${target_name} POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_directory_if_different
+                    "${OLO_FFMPEG_RUNTIME_DIR}" "$<TARGET_FILE_DIR:${target_name}>"
+            COMMENT "Copying FFmpeg runtime libs to ${target_name} output dir"
+            VERBATIM)
+        if(NOT WIN32)
+            # Resolve the FFmpeg .so copied next to the executable at run time.
+            set_target_properties(${target_name} PROPERTIES
+                BUILD_RPATH "$ORIGIN" INSTALL_RPATH "$ORIGIN")
+        endif()
+    endif()
+endfunction()
+
 # Complete setup for an application target (combines all the above).
 # Pass PCH_HEADER <path/to/pch.h> to opt-in to PCH; omit it to skip PCH entirely.
 function(olo_configure_app target_name)
@@ -158,6 +177,9 @@ function(olo_configure_app target_name)
     olo_set_compiler_options(${target_name})
     olo_set_common_definitions(${target_name})
     olo_set_link_options(${target_name})
+    # NOTE: olo_copy_ffmpeg_runtime() is NOT called here — add_custom_command(TARGET ...)
+    # must run in the directory that created the target, and olo_configure_app is invoked
+    # from each app's parent dir. Call it explicitly next to each add_executable instead.
 
     if(DEFINED ARG_PCH_HEADER)
         olo_enable_pch(${target_name} ${ARG_PCH_HEADER})

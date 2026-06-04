@@ -49,6 +49,11 @@ namespace OloEngine
         // Only meaningful for 8-bit color formats (RGB8 / RGBA8); ignored
         // for float / integer / depth formats.
         bool SRGB = false;
+        // True for textures whose pixels are replaced every frame from the CPU
+        // (e.g. streamed video frames). The OpenGL backend then uploads through a
+        // double-buffered Pixel Buffer Object ring so the copy + DMA do not stall
+        // the render thread. Ignored for multisample textures.
+        bool Streaming = false;
     };
 
     class Texture : public RendererResource

@@ -19,6 +19,7 @@ namespace OloEngine
         Scene,
         Script,
         Audio,
+        Video,
         Material,
         Shader,
         StreamingRegion,

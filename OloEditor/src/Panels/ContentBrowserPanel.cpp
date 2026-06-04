@@ -18,6 +18,7 @@
 #include "OloEngine/Audio/SoundGraph/SoundGraphSerializer.h"
 #include "OloEngine/Renderer/ShaderGraph/ShaderGraphNode.h"
 #include "OloEngine/Asset/MeshCache.h"
+#include "OloEngine/Video/VideoDecoder.h"
 
 #include <imgui.h>
 #include <imgui_internal.h>
@@ -948,6 +949,20 @@ namespace OloEngine
             return m_FileIcon;
         }
 
+        // Video files preview as their first decoded frame, cached path-keyed like images.
+        if (fileType == ContentFileType::Video)
+        {
+            if (m_ImageIcons.size() < 200)
+            {
+                if (auto videoThumb = DecodeVideoThumbnail(filepath))
+                {
+                    m_ImageIcons[filepath] = videoThumb;
+                    return videoThumb;
+                }
+            }
+            return m_FileIcon;
+        }
+
         // Materials and meshes get a live PBR-sphere or per-mesh
         // thumbnail when the preview renderer is available. The
         // thumbnail cache is keyed by AssetHandle, so a rename of the
@@ -975,6 +990,31 @@ namespace OloEngine
 
         auto it = m_FileTypeIconMap.find(fileType);
         return (it != m_FileTypeIconMap.end()) ? *it->second : m_FileIcon;
+    }
+
+    Ref<Texture2D> ContentBrowserPanel::DecodeVideoThumbnail(const std::filesystem::path& filepath)
+    {
+        // Decode just the first frame into an sRGB texture for a WYSIWYG poster preview.
+        VideoDecoder decoder;
+        if (!decoder.Open(filepath.string()))
+            return nullptr;
+
+        std::vector<u8> rgba;
+        VideoFrameInfo info;
+        if (!decoder.DecodeNextFrame(rgba, info) || info.Width == 0 || info.Height == 0)
+            return nullptr;
+
+        TextureSpecification spec;
+        spec.Width = info.Width;
+        spec.Height = info.Height;
+        spec.Format = ImageFormat::RGBA8;
+        spec.GenerateMips = false;
+        spec.SRGB = true; // displayed as authored, like image thumbnails
+        auto texture = Texture2D::Create(spec);
+        if (!texture)
+            return nullptr;
+        texture->SetData(rgba.data(), static_cast<u32>(rgba.size()));
+        return texture;
     }
 
     void ContentBrowserPanel::InvalidateThumbnail(AssetHandle handle, const std::filesystem::path& path)

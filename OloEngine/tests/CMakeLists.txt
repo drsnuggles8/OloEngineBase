@@ -41,6 +41,7 @@ add_executable(OloEngine-Tests
 		AudioEventQueueTest.cpp
 		AudioDSPTest.cpp
 		AudioSpatializerTest.cpp
+		VideoPlaybackTest.cpp
 		Audio/CommandIDTest.cpp
 		Audio/AudioCommandRegistryTest.cpp
 		Audio/AudioEventsManagerTest.cpp
@@ -133,6 +134,7 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/RendererAttachedTest.cpp
 		Rendering/PropertyTests/RendererAttachedSmokeTest.cpp
 		Rendering/PropertyTests/SceneRenderEvidenceTest.cpp
+		Rendering/PropertyTests/VideoOverlayVisualEvidenceTest.cpp
 		Rendering/PropertyTests/AutoExposureEvidenceTest.cpp
 		Rendering/PropertyTests/TestFailureCapture.cpp
 		Rendering/PropertyTests/TestFailureCaptureTest.cpp
@@ -332,6 +334,9 @@ add_executable(OloEngine-Tests
 target_link_libraries(OloEngine-Tests
 	OloEngine
 	gtest)
+
+# Copy FFmpeg DLLs next to the test exe so OLO_VIDEO_FFMPEG decode tests can run.
+olo_copy_ffmpeg_runtime(OloEngine-Tests)
 
 target_compile_definitions(OloEngine-Tests PRIVATE SOL_ALL_SAFETIES_ON=1)
 

@@ -292,6 +292,14 @@ namespace OloEngine
         u32 id = m_RendererID;
         FrameResourceManager::Get().SubmitForDeletion([id]()
                                                       { glDeleteTextures(1, &id); });
+
+        if (m_PBO[0] != 0u)
+        {
+            GLuint pbo0 = m_PBO[0];
+            GLuint pbo1 = m_PBO[1];
+            FrameResourceManager::Get().SubmitForDeletion([pbo0, pbo1]()
+                                                          { GLuint pbos[2] = { pbo0, pbo1 }; glDeleteBuffers(2, pbos); });
+        }
     }
 
     void OpenGLTexture2D::Resize(u32 width, u32 height)
@@ -477,6 +485,42 @@ namespace OloEngine
         }
 
         OLO_CORE_ASSERT(size == m_Width * m_Height * bpp, "Data must be entire texture! Expected: {}, Got: {}", m_Width * m_Height * bpp, size);
+
+        // Streaming path: route the upload through a double-buffered PBO ring so the
+        // CPU copy and the GPU DMA overlap instead of stalling the render thread.
+        if (m_Specification.Streaming && m_Specification.Samples <= 1u && data)
+        {
+            if (m_PBO[0] == 0u || m_PBOCapacity != size)
+            {
+                if (m_PBO[0] == 0u)
+                    glCreateBuffers(2, m_PBO);
+                glNamedBufferData(m_PBO[0], static_cast<GLsizeiptr>(size), nullptr, GL_STREAM_DRAW);
+                glNamedBufferData(m_PBO[1], static_cast<GLsizeiptr>(size), nullptr, GL_STREAM_DRAW);
+                m_PBOCapacity = size;
+            }
+
+            m_PBOIndex = (m_PBOIndex + 1u) & 1u;
+            const GLuint pbo = m_PBO[m_PBOIndex];
+
+            // Orphan + map UNSYNCHRONIZED so the driver hands back fresh storage
+            // without waiting on any in-flight DMA from the previous frame.
+            glNamedBufferData(pbo, static_cast<GLsizeiptr>(size), nullptr, GL_STREAM_DRAW);
+            if (void* ptr = glMapNamedBufferRange(pbo, 0, static_cast<GLsizeiptr>(size),
+                                                  GL_MAP_WRITE_BIT | GL_MAP_INVALIDATE_BUFFER_BIT | GL_MAP_UNSYNCHRONIZED_BIT))
+            {
+                std::memcpy(ptr, data, size);
+                glUnmapNamedBuffer(pbo);
+
+                // glTextureSubImage2D sources from the bound GL_PIXEL_UNPACK_BUFFER when
+                // the data pointer is a (null) buffer offset. Restore the binding to 0 after.
+                glBindBuffer(GL_PIXEL_UNPACK_BUFFER, pbo);
+                glTextureSubImage2D(m_RendererID, 0, 0, 0, static_cast<int>(m_Width), static_cast<int>(m_Height), m_DataFormat, dataType, nullptr);
+                glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
+                return;
+            }
+            // Map failed — fall through to the direct (client-memory) upload below.
+        }
+
         glTextureSubImage2D(m_RendererID, 0, 0, 0, static_cast<int>(m_Width), static_cast<int>(m_Height), m_DataFormat, dataType, data);
     }
 

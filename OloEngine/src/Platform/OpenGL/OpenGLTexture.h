@@ -76,6 +76,13 @@ namespace OloEngine
         u32 m_RendererID{};
         GLenum m_InternalFormat{};
         GLenum m_DataFormat{};
+
+        // Double-buffered Pixel Buffer Objects for streaming uploads (see
+        // TextureSpecification::Streaming). Created lazily on the first SetData and
+        // alternated each call so the CPU copy never waits on the previous DMA.
+        GLuint m_PBO[2]{};
+        u32 m_PBOIndex = 0;
+        u32 m_PBOCapacity = 0;
     };
 
 } // namespace OloEngine

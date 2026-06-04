@@ -469,3 +469,21 @@ OLO_ADD_INTERNAL_CALL(UIToggleComponent_SetInteractable);
 // UIWorldAnchorComponent
 OLO_ADD_INTERNAL_CALL(UIWorldAnchorComponent_GetWorldOffset);
 OLO_ADD_INTERNAL_CALL(UIWorldAnchorComponent_SetWorldOffset);
+
+// VideoOverlayComponent
+OLO_ADD_INTERNAL_CALL(VideoOverlayComponent_GetPlayOnStart);
+OLO_ADD_INTERNAL_CALL(VideoOverlayComponent_SetPlayOnStart);
+OLO_ADD_INTERNAL_CALL(VideoOverlayComponent_GetSkipOnInput);
+OLO_ADD_INTERNAL_CALL(VideoOverlayComponent_SetSkipOnInput);
+OLO_ADD_INTERNAL_CALL(VideoOverlayComponent_GetLooping);
+OLO_ADD_INTERNAL_CALL(VideoOverlayComponent_SetLooping);
+OLO_ADD_INTERNAL_CALL(VideoOverlayComponent_GetVolume);
+OLO_ADD_INTERNAL_CALL(VideoOverlayComponent_SetVolume);
+
+// VideoSurfaceComponent
+OLO_ADD_INTERNAL_CALL(VideoSurfaceComponent_GetAutoPlay);
+OLO_ADD_INTERNAL_CALL(VideoSurfaceComponent_SetAutoPlay);
+OLO_ADD_INTERNAL_CALL(VideoSurfaceComponent_GetLooping);
+OLO_ADD_INTERNAL_CALL(VideoSurfaceComponent_SetLooping);
+OLO_ADD_INTERNAL_CALL(VideoSurfaceComponent_GetVolume);
+OLO_ADD_INTERNAL_CALL(VideoSurfaceComponent_SetVolume);

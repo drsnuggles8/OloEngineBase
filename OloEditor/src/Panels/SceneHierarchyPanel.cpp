@@ -1694,6 +1694,10 @@ namespace OloEngine
             DisplayAddComponentEntry<AudioListenerComponent>("Audio Listener");
             DisplayAddComponentEntry<AudioSoundGraphComponent>("Audio Sound Graph");
 
+            // Video Components
+            DisplayAddComponentEntry<VideoOverlayComponent>("Video Overlay");
+            DisplayAddComponentEntry<VideoSurfaceComponent>("Video Surface");
+
             ImGui::Separator();
 
             // Particle System
@@ -3589,6 +3593,90 @@ namespace OloEngine
 
             ImGui::Separator();
             ImGui::Text("Runtime Sound: %s", component.Sound ? "Active" : "Not playing"); });
+
+        // Video Components — accept a dropped video file (.mpg) and store its asset-relative
+        // path. The runtime VideoPlayer is created by VideoSystem in play mode.
+        const auto drawVideoPathPicker = [](std::string& videoPath, const char* idSuffix)
+        {
+            std::string label = videoPath.empty()
+                                    ? std::string("File: <none — drag a .mpg here>")
+                                    : ("File: " + videoPath);
+            ImGui::Button((label + "##" + idSuffix).c_str(), ImVec2(-1.0f, 0.0f));
+            if (ImGui::BeginDragDropTarget())
+            {
+                if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("CONTENT_BROWSER_ITEM"))
+                {
+                    std::filesystem::path dropped = PathFromUtf8Payload(*payload);
+                    std::string ext = dropped.extension().string();
+                    std::ranges::transform(ext, ext.begin(), [](unsigned char c)
+                                           { return static_cast<char>(std::tolower(c)); });
+                    if (ext == ".mpg" || ext == ".mpeg" || ext == ".m1v")
+                        videoPath = Project::GetAssetRelativeFileSystemPath(dropped).generic_string();
+                    else
+                        OLO_WARN("Dropped file is not an MPEG-1 video (.mpg/.mpeg/.m1v): {0}", dropped.filename().string());
+                }
+                ImGui::EndDragDropTarget();
+            }
+            if (!videoPath.empty())
+            {
+                ImGui::SameLine();
+                if (ImGui::SmallButton((std::string("Clear##") + idSuffix).c_str()))
+                    videoPath.clear();
+            }
+        };
+
+        DrawComponent<VideoOverlayComponent>("Video Overlay", entity, [&drawVideoPathPicker](auto& component)
+                                             {
+            drawVideoPathPicker(component.VideoPath, "VideoOverlay");
+            ImGui::Separator();
+            ImGui::Checkbox("Play On Start##VideoOverlay", &component.PlayOnStart);
+            ImGui::Checkbox("Skip On Input##VideoOverlay", &component.SkipOnInput);
+            ImGui::Checkbox("Looping##VideoOverlay", &component.Looping);
+            ImGui::DragFloat("Volume##VideoOverlay", &component.Volume, 0.01f, 0.0f, 1.0f);
+
+            ImGui::Separator();
+            if (component.Player)
+            {
+                ImGui::Text("Runtime: %s  (%.1f / %.1fs)",
+                    component.Player->IsPlaying() ? "Playing" : (component.Player->IsPaused() ? "Paused" : "Stopped"),
+                    component.Player->GetCurrentTime(), component.Player->GetDuration());
+                if (ImGui::SmallButton("Play##VideoOverlayRt")) component.Player->Play();
+                ImGui::SameLine();
+                if (ImGui::SmallButton("Pause##VideoOverlayRt")) component.Player->Pause();
+                ImGui::SameLine();
+                if (ImGui::SmallButton("Stop##VideoOverlayRt")) component.Player->Stop();
+            }
+            else
+            {
+                ImGui::TextDisabled("Runtime: not playing (enter play mode)");
+            } });
+
+        DrawComponent<VideoSurfaceComponent>("Video Surface", entity, [&drawVideoPathPicker](auto& component)
+                                             {
+            drawVideoPathPicker(component.VideoPath, "VideoSurface");
+            ImGui::Separator();
+            ImGui::Checkbox("Auto Play##VideoSurface", &component.AutoPlay);
+            ImGui::Checkbox("Looping##VideoSurface", &component.Looping);
+            ImGui::DragFloat("Volume##VideoSurface", &component.Volume, 0.01f, 0.0f, 1.0f);
+            ImGui::TextWrapped("The decoded video is bound to this entity's material albedo. "
+                               "Add a Material component and a mesh to display it.");
+
+            ImGui::Separator();
+            if (component.Player)
+            {
+                ImGui::Text("Runtime: %s  (%.1f / %.1fs)",
+                    component.Player->IsPlaying() ? "Playing" : (component.Player->IsPaused() ? "Paused" : "Stopped"),
+                    component.Player->GetCurrentTime(), component.Player->GetDuration());
+                if (ImGui::SmallButton("Play##VideoSurfaceRt")) component.Player->Play();
+                ImGui::SameLine();
+                if (ImGui::SmallButton("Pause##VideoSurfaceRt")) component.Player->Pause();
+                ImGui::SameLine();
+                if (ImGui::SmallButton("Stop##VideoSurfaceRt")) component.Player->Stop();
+            }
+            else
+            {
+                ImGui::TextDisabled("Runtime: not playing (enter play mode)");
+            } });
 
         // Animation Components
         DrawComponent<AnimationStateComponent>("Animation State", entity, [](auto& component)

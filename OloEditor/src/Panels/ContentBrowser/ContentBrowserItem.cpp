@@ -41,6 +41,10 @@ namespace OloEngine
         { ".mp3", ContentFileType::Audio },
         { ".ogg", ContentFileType::Audio },
         { ".flac", ContentFileType::Audio },
+
+        { ".mpg", ContentFileType::Video },
+        { ".mpeg", ContentFileType::Video },
+        { ".m1v", ContentFileType::Video },
         // Materials
         { ".mat", ContentFileType::Material },
         { ".material", ContentFileType::Material },
@@ -127,6 +131,9 @@ namespace OloEngine
                 break;
             case ContentFileType::Audio:
                 ImGui::TextColored(ImVec4(0.8f, 0.4f, 0.8f, 1.0f), "Audio");
+                break;
+            case ContentFileType::Video:
+                ImGui::TextColored(ImVec4(0.9f, 0.4f, 0.5f, 1.0f), "Video (MPEG-1)");
                 break;
             case ContentFileType::Material:
                 ImGui::TextColored(ImVec4(0.5f, 0.8f, 0.9f, 1.0f), "Material");

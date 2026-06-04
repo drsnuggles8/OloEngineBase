@@ -1624,6 +1624,29 @@ namespace OloEngine
             TrySet(sgc.PlayOnAwake, soundGraphComponent["PlayOnAwake"]);
         }
 
+        if (const auto& videoOverlayComponent = entity["VideoOverlayComponent"])
+        {
+            auto& voc = deserializedEntity.AddComponent<VideoOverlayComponent>();
+            if (auto pathNode = videoOverlayComponent["VideoPath"])
+                voc.VideoPath = pathNode.as<std::string>("");
+            TrySet(voc.PlayOnStart, videoOverlayComponent["PlayOnStart"]);
+            TrySet(voc.SkipOnInput, videoOverlayComponent["SkipOnInput"]);
+            TrySet(voc.Looping, videoOverlayComponent["Looping"]);
+            TrySet(voc.Volume, videoOverlayComponent["Volume"]);
+            SanitizeFloat(voc.Volume, 0.0f, 1.0f, 1.0f);
+        }
+
+        if (const auto& videoSurfaceComponent = entity["VideoSurfaceComponent"])
+        {
+            auto& vsc = deserializedEntity.AddComponent<VideoSurfaceComponent>();
+            if (auto pathNode = videoSurfaceComponent["VideoPath"])
+                vsc.VideoPath = pathNode.as<std::string>("");
+            TrySet(vsc.AutoPlay, videoSurfaceComponent["AutoPlay"]);
+            TrySet(vsc.Looping, videoSurfaceComponent["Looping"]);
+            TrySet(vsc.Volume, videoSurfaceComponent["Volume"]);
+            SanitizeFloat(vsc.Volume, 0.0f, 1.0f, 0.5f);
+        }
+
         if (auto spriteRendererComponent = entity["SpriteRendererComponent"]; spriteRendererComponent)
         {
             auto& src = deserializedEntity.AddComponent<SpriteRendererComponent>();
@@ -3517,6 +3540,35 @@ namespace OloEngine
             out << YAML::Key << "PlayOnAwake" << YAML::Value << sgc.PlayOnAwake;
 
             out << YAML::EndMap; // AudioSoundGraphComponent
+        }
+
+        if (entity.HasComponent<VideoOverlayComponent>())
+        {
+            out << YAML::Key << "VideoOverlayComponent";
+            out << YAML::BeginMap; // VideoOverlayComponent
+
+            const auto& voc = entity.GetComponent<VideoOverlayComponent>();
+            out << YAML::Key << "VideoPath" << YAML::Value << voc.VideoPath;
+            out << YAML::Key << "PlayOnStart" << YAML::Value << voc.PlayOnStart;
+            out << YAML::Key << "SkipOnInput" << YAML::Value << voc.SkipOnInput;
+            out << YAML::Key << "Looping" << YAML::Value << voc.Looping;
+            out << YAML::Key << "Volume" << YAML::Value << voc.Volume;
+
+            out << YAML::EndMap; // VideoOverlayComponent
+        }
+
+        if (entity.HasComponent<VideoSurfaceComponent>())
+        {
+            out << YAML::Key << "VideoSurfaceComponent";
+            out << YAML::BeginMap; // VideoSurfaceComponent
+
+            const auto& vsc = entity.GetComponent<VideoSurfaceComponent>();
+            out << YAML::Key << "VideoPath" << YAML::Value << vsc.VideoPath;
+            out << YAML::Key << "AutoPlay" << YAML::Value << vsc.AutoPlay;
+            out << YAML::Key << "Looping" << YAML::Value << vsc.Looping;
+            out << YAML::Key << "Volume" << YAML::Value << vsc.Volume;
+
+            out << YAML::EndMap; // VideoSurfaceComponent
         }
 
         if (entity.HasComponent<SpriteRendererComponent>())
