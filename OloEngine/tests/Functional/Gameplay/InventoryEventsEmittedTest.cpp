@@ -126,8 +126,10 @@ TEST_F(InventoryEventsEmittedTest, EquipAndUnequipPublishEvents)
     std::vector<ItemEquippedEvent> equipped;
     std::vector<ItemUnequippedEvent> unequipped;
     auto& bus = GetScene().GetGameplayEvents();
-    bus.Subscribe<ItemEquippedEvent>([&](const ItemEquippedEvent& e) { equipped.push_back(e); });
-    bus.Subscribe<ItemUnequippedEvent>([&](const ItemUnequippedEvent& e) { unequipped.push_back(e); });
+    bus.Subscribe<ItemEquippedEvent>([&](const ItemEquippedEvent& e)
+                                     { equipped.push_back(e); });
+    bus.Subscribe<ItemUnequippedEvent>([&](const ItemUnequippedEvent& e)
+                                       { unequipped.push_back(e); });
 
     // Equip the sword from the player's own inventory into MainHand.
     ASSERT_TRUE(InventorySystem::EquipItem(&GetScene(), m_Player, EquipmentSlots::Slot::MainHand, sword));

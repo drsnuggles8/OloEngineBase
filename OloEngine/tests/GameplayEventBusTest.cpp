@@ -34,7 +34,8 @@ TEST(GameplayEventBusTest, PublishReachesSubscriberWithPayload)
 {
     GameplayEventBus bus;
     std::vector<int> seen;
-    bus.Subscribe<AlphaEvent>([&](const AlphaEvent& e) { seen.push_back(e.Value); });
+    bus.Subscribe<AlphaEvent>([&](const AlphaEvent& e)
+                              { seen.push_back(e.Value); });
 
     bus.Publish(AlphaEvent{ 42 });
     bus.Publish(AlphaEvent{ 7 });
@@ -49,8 +50,10 @@ TEST(GameplayEventBusTest, EventsAreRoutedByType)
     GameplayEventBus bus;
     int alphaHits = 0;
     int betaHits = 0;
-    bus.Subscribe<AlphaEvent>([&](const AlphaEvent&) { ++alphaHits; });
-    bus.Subscribe<BetaEvent>([&](const BetaEvent&) { ++betaHits; });
+    bus.Subscribe<AlphaEvent>([&](const AlphaEvent&)
+                              { ++alphaHits; });
+    bus.Subscribe<BetaEvent>([&](const BetaEvent&)
+                             { ++betaHits; });
 
     bus.Publish(AlphaEvent{ 1 });
     EXPECT_EQ(alphaHits, 1);
@@ -65,9 +68,12 @@ TEST(GameplayEventBusTest, MultipleHandlersFireInSubscriptionOrder)
 {
     GameplayEventBus bus;
     std::vector<int> order;
-    bus.Subscribe<AlphaEvent>([&](const AlphaEvent&) { order.push_back(1); });
-    bus.Subscribe<AlphaEvent>([&](const AlphaEvent&) { order.push_back(2); });
-    bus.Subscribe<AlphaEvent>([&](const AlphaEvent&) { order.push_back(3); });
+    bus.Subscribe<AlphaEvent>([&](const AlphaEvent&)
+                              { order.push_back(1); });
+    bus.Subscribe<AlphaEvent>([&](const AlphaEvent&)
+                              { order.push_back(2); });
+    bus.Subscribe<AlphaEvent>([&](const AlphaEvent&)
+                              { order.push_back(3); });
 
     bus.Publish(AlphaEvent{ 0 });
 
@@ -90,7 +96,8 @@ TEST(GameplayEventBusTest, ClearDropsAllSubscriptions)
 {
     GameplayEventBus bus;
     int hits = 0;
-    bus.Subscribe<AlphaEvent>([&](const AlphaEvent&) { ++hits; });
+    bus.Subscribe<AlphaEvent>([&](const AlphaEvent&)
+                              { ++hits; });
     bus.Publish(AlphaEvent{ 0 });
     ASSERT_EQ(hits, 1);
 

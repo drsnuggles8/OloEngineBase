@@ -96,9 +96,12 @@ TEST_F(QuestEventsEmittedTest, ObjectiveProgressCompletionAndAutoCompleteCascade
     std::vector<ObjectiveCompletedEvent> objDone;
     std::vector<QuestCompletedEvent> questDone;
     auto& bus = GetScene().GetGameplayEvents();
-    bus.Subscribe<ObjectiveProgressEvent>([&](const ObjectiveProgressEvent& e) { progress.push_back(e); });
-    bus.Subscribe<ObjectiveCompletedEvent>([&](const ObjectiveCompletedEvent& e) { objDone.push_back(e); });
-    bus.Subscribe<QuestCompletedEvent>([&](const QuestCompletedEvent& e) { questDone.push_back(e); });
+    bus.Subscribe<ObjectiveProgressEvent>([&](const ObjectiveProgressEvent& e)
+                                          { progress.push_back(e); });
+    bus.Subscribe<ObjectiveCompletedEvent>([&](const ObjectiveCompletedEvent& e)
+                                           { objDone.push_back(e); });
+    bus.Subscribe<QuestCompletedEvent>([&](const QuestCompletedEvent& e)
+                                       { questDone.push_back(e); });
 
     // Two increments: progress only, no completion yet.
     QuestSystem::IncrementObjective(&GetScene(), m_Player, "Q1", "obj", 1);
@@ -154,8 +157,10 @@ TEST_F(QuestEventsEmittedTest, MultiStageAdvancePublishesStageAdvanced)
     std::vector<QuestStageAdvancedEvent> advanced;
     std::vector<QuestCompletedEvent> completed;
     auto& bus = GetScene().GetGameplayEvents();
-    bus.Subscribe<QuestStageAdvancedEvent>([&](const QuestStageAdvancedEvent& e) { advanced.push_back(e); });
-    bus.Subscribe<QuestCompletedEvent>([&](const QuestCompletedEvent& e) { completed.push_back(e); });
+    bus.Subscribe<QuestStageAdvancedEvent>([&](const QuestStageAdvancedEvent& e)
+                                           { advanced.push_back(e); });
+    bus.Subscribe<QuestCompletedEvent>([&](const QuestCompletedEvent& e)
+                                       { completed.push_back(e); });
 
     // Clear stage 0 -> advances to stage 1 (one StageAdvanced, no completion).
     QuestSystem::IncrementObjective(&GetScene(), m_Player, "Q2", "k", 1);
@@ -229,8 +234,10 @@ TEST_F(QuestEventsEmittedTest, NotifyKillDrivesObjectiveEventsAcrossActiveQuests
     std::vector<ObjectiveCompletedEvent> objDone;
     std::vector<QuestCompletedEvent> questDone;
     auto& bus = GetScene().GetGameplayEvents();
-    bus.Subscribe<ObjectiveCompletedEvent>([&](const ObjectiveCompletedEvent& e) { objDone.push_back(e); });
-    bus.Subscribe<QuestCompletedEvent>([&](const QuestCompletedEvent& e) { questDone.push_back(e); });
+    bus.Subscribe<ObjectiveCompletedEvent>([&](const ObjectiveCompletedEvent& e)
+                                           { objDone.push_back(e); });
+    bus.Subscribe<QuestCompletedEvent>([&](const QuestCompletedEvent& e)
+                                       { questDone.push_back(e); });
 
     // A wolf kill matches the objective by (type, target) — completes + auto-finishes.
     QuestSystem::NotifyKill(&GetScene(), m_Player, "wolf");
