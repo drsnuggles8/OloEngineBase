@@ -2,7 +2,9 @@
 #include "OloEngine/Video/VideoPlayer.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
+#include <utility>
 
 namespace OloEngine
 {

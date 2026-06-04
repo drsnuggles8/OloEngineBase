@@ -14,7 +14,9 @@ extern "C"
 #include <libswscale/swscale.h>
 }
 
+#include <cstdint>
 #include <deque>
+#include <utility>
 #include <vector>
 
 namespace OloEngine

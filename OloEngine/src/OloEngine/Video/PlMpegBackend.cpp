@@ -143,7 +143,7 @@ namespace OloEngine
             {
                 if (!m_Plm)
                     return false;
-                const int ok = plm_seek(m_Plm, timeSeconds, TRUE);
+                const int ok = plm_seek(m_Plm, timeSeconds, 1 /*seek_exact*/);
                 if (ok)
                     m_EndOfStream = false;
                 return ok != 0;
