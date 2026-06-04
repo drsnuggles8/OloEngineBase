@@ -860,6 +860,8 @@ namespace OloEngine
                            name.contains("Preetham") || name.contains("preetham");
                 case UBO_UNDERWATER:
                     return name.contains("Underwater") || name.contains("underwater");
+                case UBO_SSR:
+                    return name.contains("SSR") || name.contains("ssr");
                 default:
                     return false;
             }
