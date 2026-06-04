@@ -33,9 +33,11 @@
 #include "OloEngine/Animation/MorphTargets/FacialExpressionLibrary.h"
 #include "OloEngine/AI/AIComponents.h"
 #include "OloEngine/Gameplay/Inventory/InventoryComponents.h"
+#include "OloEngine/Gameplay/Inventory/InventorySystem.h"
 #include "OloEngine/Gameplay/Inventory/ItemDatabase.h"
 #include "OloEngine/Gameplay/Quest/QuestComponents.h"
 #include "OloEngine/Gameplay/Quest/QuestDatabase.h"
+#include "OloEngine/Gameplay/Quest/QuestSystem.h"
 #include "OloEngine/Gameplay/Abilities/AbilityComponents.h"
 #include "OloEngine/Gameplay/Abilities/GameplayAbilitySystem.h"
 #include "OloEngine/Gameplay/Abilities/Damage/DamageCalculation.h"
@@ -2247,7 +2249,7 @@ namespace OloEngine
         }
         auto entity = GetEntity(entityID);
         OLO_CORE_ASSERT(entity.HasComponent<InventoryComponent>());
-        auto& ic = entity.GetComponent<InventoryComponent>();
+        Scene* scene = ScriptEngine::GetSceneContext();
         std::string id = Utils::MonoStringToString(itemId);
 
         const auto* def = ItemDatabase::Get(id);
@@ -2257,7 +2259,8 @@ namespace OloEngine
         }
         i32 maxStack = std::max(def->MaxStackSize, 1);
 
-        // Split count into multiple instances respecting MaxStackSize
+        // Split count into multiple instances respecting MaxStackSize.
+        // Route through InventorySystem so each successful add publishes ItemAdded.
         i32 remaining = count;
         while (remaining > 0)
         {
@@ -2265,7 +2268,7 @@ namespace OloEngine
             instance.InstanceID = UUID();
             instance.ItemDefinitionID = id;
             instance.StackCount = std::min(remaining, maxStack);
-            if (!ic.PlayerInventory.AddItem(instance))
+            if (!InventorySystem::AddItem(scene, entity, instance))
             {
                 return false;
             }
@@ -2282,8 +2285,7 @@ namespace OloEngine
         }
         auto entity = GetEntity(entityID);
         OLO_CORE_ASSERT(entity.HasComponent<InventoryComponent>());
-        auto& ic = entity.GetComponent<InventoryComponent>();
-        return ic.PlayerInventory.RemoveItemByDefinition(Utils::MonoStringToString(itemId), count);
+        return InventorySystem::RemoveItemByDefinition(ScriptEngine::GetSceneContext(), entity, Utils::MonoStringToString(itemId), count);
     }
 
     static bool InventoryComponent_HasItem(UUID entityID, MonoString* itemId, i32 count)
@@ -2336,13 +2338,7 @@ namespace OloEngine
         }
         auto entity = GetEntity(entityID);
         OLO_CORE_ASSERT(entity.HasComponent<QuestJournalComponent>());
-        std::string questId = Utils::MonoStringToString(questIdStr);
-        const auto* def = QuestDatabase::Get(questId);
-        if (!def)
-        {
-            return false;
-        }
-        return entity.GetComponent<QuestJournalComponent>().Journal.AcceptQuest(questId, *def);
+        return QuestSystem::AcceptQuest(ScriptEngine::GetSceneContext(), entity, Utils::MonoStringToString(questIdStr));
     }
 
     static bool QuestJournalComponent_AbandonQuest(UUID entityID, MonoString* questIdStr)
@@ -2353,7 +2349,7 @@ namespace OloEngine
         }
         auto entity = GetEntity(entityID);
         OLO_CORE_ASSERT(entity.HasComponent<QuestJournalComponent>());
-        return entity.GetComponent<QuestJournalComponent>().Journal.AbandonQuest(Utils::MonoStringToString(questIdStr));
+        return QuestSystem::AbandonQuest(ScriptEngine::GetSceneContext(), entity, Utils::MonoStringToString(questIdStr));
     }
 
     static bool QuestJournalComponent_CompleteQuest(UUID entityID, MonoString* questIdStr, MonoString* branchStr)
@@ -2365,7 +2361,7 @@ namespace OloEngine
         auto entity = GetEntity(entityID);
         OLO_CORE_ASSERT(entity.HasComponent<QuestJournalComponent>());
         std::string branch = branchStr ? Utils::MonoStringToString(branchStr) : "";
-        return entity.GetComponent<QuestJournalComponent>().Journal.CompleteQuest(Utils::MonoStringToString(questIdStr), branch).has_value();
+        return QuestSystem::CompleteQuest(ScriptEngine::GetSceneContext(), entity, Utils::MonoStringToString(questIdStr), branch);
     }
 
     static bool QuestJournalComponent_IsQuestActive(UUID entityID, MonoString* questIdStr)
@@ -2398,8 +2394,8 @@ namespace OloEngine
         }
         auto entity = GetEntity(entityID);
         OLO_CORE_ASSERT(entity.HasComponent<QuestJournalComponent>());
-        entity.GetComponent<QuestJournalComponent>().Journal.IncrementObjective(
-            Utils::MonoStringToString(questIdStr), Utils::MonoStringToString(objectiveIdStr), amount);
+        QuestSystem::IncrementObjective(ScriptEngine::GetSceneContext(), entity,
+                                        Utils::MonoStringToString(questIdStr), Utils::MonoStringToString(objectiveIdStr), amount);
     }
 
     static void QuestJournalComponent_NotifyKill(UUID entityID, MonoString* targetTagStr)
@@ -2410,7 +2406,7 @@ namespace OloEngine
         }
         auto entity = GetEntity(entityID);
         OLO_CORE_ASSERT(entity.HasComponent<QuestJournalComponent>());
-        entity.GetComponent<QuestJournalComponent>().Journal.NotifyKill(Utils::MonoStringToString(targetTagStr));
+        QuestSystem::NotifyKill(ScriptEngine::GetSceneContext(), entity, Utils::MonoStringToString(targetTagStr));
     }
 
     static void QuestJournalComponent_NotifyCollect(UUID entityID, MonoString* itemIdStr, i32 count)
@@ -2421,7 +2417,7 @@ namespace OloEngine
         }
         auto entity = GetEntity(entityID);
         OLO_CORE_ASSERT(entity.HasComponent<QuestJournalComponent>());
-        entity.GetComponent<QuestJournalComponent>().Journal.NotifyCollect(Utils::MonoStringToString(itemIdStr), count);
+        QuestSystem::NotifyCollect(ScriptEngine::GetSceneContext(), entity, Utils::MonoStringToString(itemIdStr), count);
     }
 
     static void QuestJournalComponent_NotifyInteract(UUID entityID, MonoString* interactableIdStr)
@@ -2432,7 +2428,7 @@ namespace OloEngine
         }
         auto entity = GetEntity(entityID);
         OLO_CORE_ASSERT(entity.HasComponent<QuestJournalComponent>());
-        entity.GetComponent<QuestJournalComponent>().Journal.NotifyInteract(Utils::MonoStringToString(interactableIdStr));
+        QuestSystem::NotifyInteract(ScriptEngine::GetSceneContext(), entity, Utils::MonoStringToString(interactableIdStr));
     }
 
     static void QuestJournalComponent_NotifyReachLocation(UUID entityID, MonoString* locationIdStr)
@@ -2443,7 +2439,7 @@ namespace OloEngine
         }
         auto entity = GetEntity(entityID);
         OLO_CORE_ASSERT(entity.HasComponent<QuestJournalComponent>());
-        entity.GetComponent<QuestJournalComponent>().Journal.NotifyReachLocation(Utils::MonoStringToString(locationIdStr));
+        QuestSystem::NotifyReachLocation(ScriptEngine::GetSceneContext(), entity, Utils::MonoStringToString(locationIdStr));
     }
 
     static void QuestJournalComponent_SetPlayerLevel(UUID entityID, i32 level)

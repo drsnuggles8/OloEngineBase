@@ -214,6 +214,8 @@ add_executable(OloEngine-Tests
 		InventoryTest.cpp
 		# Quest Tests
 		QuestSystemTest.cpp
+		# Gameplay event bus
+		GameplayEventBusTest.cpp
 		# Auto-Save Tests
 		AutoSaveTest.cpp
 		# Quality Tiering Tests
@@ -273,6 +275,8 @@ add_executable(OloEngine-Tests
 		Functional/SaveGame/Save2DBodyVelocityRoundTripTest.cpp
 		Functional/AnimationPhysics/TriggerEndEventFiresOnSeparationTest.cpp
 		Functional/Gameplay/InventoryAutoPickupOnProximityTest.cpp
+		Functional/Gameplay/InventoryEventsEmittedTest.cpp
+		Functional/Gameplay/QuestEventsEmittedTest.cpp
 		Functional/Scene/EntitySetParentCycleRejectionTest.cpp
 		Functional/Scene/DuplicateTagFindableTest.cpp
 		Functional/SaveGame/NetworkIdentitySurvivesSaveLoadTest.cpp

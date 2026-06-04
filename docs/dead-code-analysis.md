@@ -121,8 +121,8 @@ is a pure dead duplicate; the class and the live accessor stay.
 
 | Item | LOC | Why keep |
 |---|---|---|
-| `Gameplay/Quest/QuestEvents.h` | 61 | POD notification payloads (`QuestStartedEvent`, `ObjectiveProgressEvent`, …) for the **fully-implemented Quest system** (`QuestSystem`, `QuestJournal`, `QuestDatabase`, `QuestComponents`, `QuestDefinition`). `QuestSystem.h` has no notification mechanism yet → **finish the wiring**, don't delete. |
-| `Gameplay/Inventory/InventoryEvents.h` | 43 | Event payloads (`ItemAddedEvent`, `ItemEquippedEvent`, …) for the **real Inventory system** (`InventorySystem`, `Inventory`, `InventoryComponents`). |
+| `Gameplay/Quest/QuestEvents.h` | 61 | ✅ **WIRED (2026-06-04).** POD notification payloads (`QuestStartedEvent`, `ObjectiveProgressEvent`, …) for the **fully-implemented Quest system**. Now published via the new per-Scene `GameplayEventBus` from `QuestSystem`'s entity-aware service methods (see action log). |
+| `Gameplay/Inventory/InventoryEvents.h` | 43 | ✅ **WIRED (2026-06-04).** Event payloads (`ItemAddedEvent`, `ItemEquippedEvent`, …) for the **real Inventory system**. Now published via the `GameplayEventBus` from `InventorySystem`'s service methods + the auto-pickup path. |
 | `Physics3D/JoltMaterial.{cpp,h}` | 153 | `JPH::PhysicsMaterial` subclass with a friction policy — plausible per-material physics feature for the live Jolt subsystem. Currently unused/uncompiled. |
 | `Core/FilesystemUtils.h` | 33 | fmt log-formatter for `std::filesystem::path`. Unused but harmless and reusable. |
 | `Math/GLMFormatter.h` | 22 | fmt log-formatter for glm types. Unused but harmless and reusable. |
@@ -270,4 +270,17 @@ together in pass 2 — which also eliminated the ODR hazard with the live
     - `Algo/HeapSort|Heapify|IsHeap.h` — kept as public API over the live `BinaryHeap.h`.
       (No `[[maybe_unused]]` added: uninstantiated function templates don't trigger
       unused warnings, so it would be a no-op.)
-- **Still open:** whether to *finish-wire* the 🟡 Quest/Inventory event payloads.
+- **2026-06-04 — finish-wire (branch `feature/quest-inventory-event-wiring`):** the
+  🟡 Quest/Inventory event payloads are now *wired*, not deleted. Added a per-Scene
+  `GameplayEventBus` (`Gameplay/GameplayEventBus.h`) — a synchronous, type-keyed
+  pub/sub, the "notification mechanism" `QuestSystem.h` previously lacked. The pure
+  `QuestJournal` value type now reports its changes (including the internal objective
+  → stage → auto-complete cascade) through an optional `QuestEventSink` out-param
+  (no new members → `operator==`/serialization/undo untouched). Entity-aware service
+  methods on `QuestSystem` / `InventorySystem` translate those into the
+  entity-stamped `QuestEvents.h` / `InventoryEvents.h` payloads and publish them; the
+  real per-frame paths emit too (auto-pickup → `ItemAdded`, timed-quest deadline →
+  `QuestFailed`). C# + Lua scripting mutators route through the service layer (Lua
+  recovers the owning entity via `Scene::GetEntityForComponent`). Covered by
+  `QuestEventsEmittedTest`, `InventoryEventsEmittedTest`, and the `GameplayEventBusTest`
+  unit test. **All 11 payloads now have a producer; none remain dead scaffolding.**

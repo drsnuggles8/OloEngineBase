@@ -1064,6 +1064,8 @@
 		"OloEngine/Localization/LocalizationLint.h"
 		"OloEngine/Localization/LocalizationLint.cpp"
 
+		"OloEngine/Gameplay/GameplayEventBus.h"
+
 		"OloEngine/Gameplay/Inventory/AffixDefinition.h"
 		"OloEngine/Gameplay/Inventory/AffixDatabase.h"
 		"OloEngine/Gameplay/Inventory/AffixDatabase.cpp"

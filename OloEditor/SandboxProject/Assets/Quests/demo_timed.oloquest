@@ -1,0 +1,25 @@
+QuestID: demo_timed
+Title: Beat the Clock (demo)
+Description: A demo failable quest. Accept it and do nothing — it fails when the timer runs out, firing QuestFailed via the per-frame timer path.
+Category: Side
+CanFail: true
+TimeLimit: 8
+IsRepeatable: true
+RepeatCooldownSeconds: 0
+
+Stages:
+  - StageID: stage_1
+    Description: Ring the bell before time runs out
+    RequireAllObjectives: true
+    Objectives:
+      - ObjectiveID: ring_bell
+        Description: Ring the village bell
+        Type: Interact
+        TargetID: bell
+        RequiredCount: 1
+        IsOptional: false
+        IsHidden: false
+
+CompletionRewards:
+  ExperiencePoints: 10
+  Currency: 5

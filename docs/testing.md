@@ -1185,7 +1185,7 @@ subsystem unit tests (§9.3, grouped by directory).
 | [DialogueSelectChoiceBranchesToTargetTest.cpp](../OloEngine/tests/Functional/Dialogue/DialogueSelectChoiceBranchesToTargetTest.cpp) | 1 | **DialogueSelectChoiceBranchesToTargetTest** &mdash; `SelectChoiceWalksTheChosenEdgeAndLandsOnTargetNode` |
 | [DialogueTextRevealsOverTicksTest.cpp](../OloEngine/tests/Functional/Dialogue/DialogueTextRevealsOverTicksTest.cpp) | 1 | **DialogueTextRevealsOverTicksTest** &mdash; `StartDialogueDisplaysAndRevealProgressesAcrossTicks` |
 
-#### Gameplay (17 files)
+#### Gameplay (19 files)
 
 | File | Tests | Cases |
 |---|---:|---|
@@ -1198,11 +1198,13 @@ subsystem unit tests (§9.3, grouped by directory).
 | [DamageKillsEntityAndFlipsDeathTagTest.cpp](../OloEngine/tests/Functional/Gameplay/DamageKillsEntityAndFlipsDeathTagTest.cpp) | 1 | **DamageKillsEntityAndFlipsDeathTagTest** &mdash; `OverkillDamageDropsHealthAndScheduleNextTickFlipsTags` |
 | [GameplayEffectExpiresAndRevertsAttributeTest.cpp](../OloEngine/tests/Functional/Gameplay/GameplayEffectExpiresAndRevertsAttributeTest.cpp) | 1 | **GameplayEffectExpiresAndRevertsAttributeTest** &mdash; `DurationEffectModifiesCurrentValueThenRevertsOnExpiry` |
 | [InventoryAutoPickupOnProximityTest.cpp](../OloEngine/tests/Functional/Gameplay/InventoryAutoPickupOnProximityTest.cpp) | 1 | **InventoryAutoPickupOnProximityTest** &mdash; `NearbyAutoPickupIsConsumedIntoInventory` |
+| [InventoryEventsEmittedTest.cpp](../OloEngine/tests/Functional/Gameplay/InventoryEventsEmittedTest.cpp) | 4 | **InventoryEventsEmittedTest** &mdash; `AddItemPublishesItemAdded`, `RemoveItemByDefinitionPublishesItemRemoved`, `EquipAndUnequipPublishEvents`, `AutoPickupPublishesItemAddedViaTick` |
 | [InventoryStackConsolidationTest.cpp](../OloEngine/tests/Functional/Gameplay/InventoryStackConsolidationTest.cpp) | 1 | **InventoryStackConsolidationTest** &mdash; `TwoAddsOfStackableItemMergeIntoOneSlotWithStackCountTwo` |
 | [InventoryTransferItemBetweenContainersTest.cpp](../OloEngine/tests/Functional/Gameplay/InventoryTransferItemBetweenContainersTest.cpp) | 1 | **InventoryTransferItemBetweenContainersTest** &mdash; `TransferFromPlayerToChestMovesItemAndClearsSource` |
 | [MultiStageQuestAdvancesThroughStagesTest.cpp](../OloEngine/tests/Functional/Gameplay/MultiStageQuestAdvancesThroughStagesTest.cpp) | 1 | **MultiStageQuestAdvancesThroughStagesTest** &mdash; `FinishingStageZeroSwitchesToStageOneObjectives` |
 | [PeriodicDamageEffectTicksHealthDownTest.cpp](../OloEngine/tests/Functional/Gameplay/PeriodicDamageEffectTicksHealthDownTest.cpp) | 1 | **PeriodicDamageEffectTicksHealthDownTest** &mdash; `HealthDropsByOneStackPerPeriodAcrossTicks` |
 | [PeriodicEffectStackingScalesDamageTest.cpp](../OloEngine/tests/Functional/Gameplay/PeriodicEffectStackingScalesDamageTest.cpp) | 1 | **PeriodicEffectStackingScalesDamageTest** &mdash; `ThreeStacksDeductFifteenPerPeriodNotFive` |
+| [QuestEventsEmittedTest.cpp](../OloEngine/tests/Functional/Gameplay/QuestEventsEmittedTest.cpp) | 8 | **QuestEventsEmittedTest** &mdash; `AcceptPublishesQuestStarted`, `ObjectiveProgressCompletionAndAutoCompleteCascade`, `MultiStageAdvancePublishesStageAdvanced`, `AbandonPublishesQuestAbandoned`, `ExplicitFailPublishesQuestFailed`, `TimedQuestDeadlinePublishesQuestFailedViaTick`, `NotifyKillDrivesObjectiveEventsAcrossActiveQuests`, `CompleteWithBranchPublishesBranchChoice` |
 | [QuestObjectiveCompletionAdvancesStageTest.cpp](../OloEngine/tests/Functional/Gameplay/QuestObjectiveCompletionAdvancesStageTest.cpp) | 1 | **QuestObjectiveCompletionAdvancesStageTest** &mdash; `IncrementToTargetMarksCompleteAndAutoFinalizesQuest` |
 | [TimedQuestFailsAfterDeadlineTest.cpp](../OloEngine/tests/Functional/Gameplay/TimedQuestFailsAfterDeadlineTest.cpp) | 1 | **TimedQuestFailsAfterDeadlineTest** &mdash; `ActiveQuestTransitionsToFailedAfterTimeLimitElapses` |
 | [ToggledAbilityReactivateCancelsTest.cpp](../OloEngine/tests/Functional/Gameplay/ToggledAbilityReactivateCancelsTest.cpp) | 1 | **ToggledAbilityReactivateCancelsTest** &mdash; `SuccessiveActivationsToggleActiveStateAndGrantedTag` |
@@ -1267,7 +1269,7 @@ subsystem unit tests (§9.3, grouped by directory).
 | [LuaScriptSetsRigidbody2DVelocityTest.cpp](../OloEngine/tests/Functional/Scripting/LuaScriptSetsRigidbody2DVelocityTest.cpp) | 1 | **LuaScriptSetsRigidbody2DVelocityTest** &mdash; `BodyTranslatesAfterLuaSetsLinearVelocity` |
 | [LuaSetsAbilityAttributeViaSceneTickTest.cpp](../OloEngine/tests/Functional/Scripting/LuaSetsAbilityAttributeViaSceneTickTest.cpp) | 1 | **LuaSetsAbilityAttributeViaSceneTickTest** &mdash; `LuaDrivenHealthToZeroFlipsAliveToDeadOnSubsequentTick` |
 
-**Totals.** 81 Functional test files, 91 TEST / TEST_F declarations across all subsystems.
+**Totals.** 83 Functional test files, 103 TEST / TEST_F declarations across all subsystems.
 
 <!-- END: functional-catalogue -->
 
@@ -1282,7 +1284,7 @@ level of `tests/`). Grouped by directory.
 
 > **Do not edit by hand.** Generated from [test_catalogue.json](../OloEngine/tests/scripts/test_catalogue.json) by [generate_test_catalogue.py](../OloEngine/tests/scripts/generate_test_catalogue.py). Add new test files to the config and run the script (or pre-commit will run it with `--check`).
 
-#### (top-level) (57 files)
+#### (top-level) (58 files)
 
 | File | Tests | Cases |
 |---|---:|---|
@@ -1316,6 +1318,7 @@ level of `tests/`). Grouped by directory.
 | [FastRandomTest.cpp](../OloEngine/tests/FastRandomTest.cpp) | 8 | **FastRandomTest** &mdash; `AllGeneratorsProduceVaryingValuesFromAFreshSeed`, `SameSeedProducesIdenticalSequenceAcrossAllGenerators`, `PCGSeed42ProducesPinnedOutputVector`, `EveryGetXInRangeRespectsTheRequestedBounds`, `EqualBoundsAlwaysReturnTheBound`, `SwappedBoundsStayWithinTheImpliedRange`, `Int32InRangeIsApproximatelyUniformOverTenBuckets`, `RandomUtilsDispatchesToGlobalRNG` |
 | [FunctionalTestFixtureCoverageTest.cpp](../OloEngine/tests/FunctionalTestFixtureCoverageTest.cpp) | 1 | **FunctionalTestFixtureCoverage** &mdash; `EveryEnableHelperIsCalledBySomeFunctionalTest` |
 | [GamepadTest.cpp](../OloEngine/tests/GamepadTest.cpp) | 20 | **GamepadDeadzoneTest** &mdash; `InsideDeadzoneReturnsZero`, `ZeroInputReturnsZero`, `FullDeflectionReturnsOne`, `ExactlyAtDeadzoneReturnsZero`, `JustOutsideDeadzoneReturnsSmallValue`, `DirectionIsPreserved`<br/>**GamepadCodesTest** &mdash; `ButtonToString`, `AxisToString`, `StringToButton`, `StringToAxis`<br/>**InputBindingTest** &mdash; `GamepadButtonFactory`, `GamepadAxisFactory`, `GamepadButtonDisplayName`, `GamepadAxisDisplayName`<br/>**GamepadActionTest** &mdash; `GamepadButtonActionPressed`, `GamepadButtonActionReleased`, `GamepadAxisPositiveThreshold`, `GamepadAxisNegativeThreshold`, `MixedKeyboardAndGamepadBindings`<br/>**GamepadSerializationTest** &mdash; `RoundTrip` |
+| [GameplayEventBusTest.cpp](../OloEngine/tests/GameplayEventBusTest.cpp) | 5 | **GameplayEventBusTest** &mdash; `PublishReachesSubscriberWithPayload`, `EventsAreRoutedByType`, `MultipleHandlersFireInSubscriptionOrder`, `PublishWithNoSubscribersIsNoOp`, `ClearDropsAllSubscriptions` |
 | [HeadlessTest.cpp](../OloEngine/tests/HeadlessTest.cpp) | 16 | **HeadlessMode** &mdash; `ApplicationSpecDefaultsToNonHeadless`, `ApplicationSpecHeadlessFlag`, `DefaultTickRate`, `CustomTickRate`, `TickRateFromServerConfig`<br/>**ServerConfig** &mdash; `DefaultValues`<br/>**ServerConfigSerializer** &mdash; `ParseEmptyCommandLine`, `ParsePortFlag`, `ParseMultipleFlags`, `YAMLRoundTrip`, `LoadMissingFileReturnsDefaults`, `CommandLineOverridesConfigFile`<br/>**ServerConsole** &mdash; `ImplementsIConsoleInterface`, `RegisterAndHasCommands`, `RegisterCustomCommand`, `MessageSendCallback` |
 | [InputActionTest.cpp](../OloEngine/tests/InputActionTest.cpp) | 41 | **InputBindingTest** &mdash; `KeyFactory`, `MouseFactory`, `Equality`, `DisplayNameKeyboard`, `DisplayNameMouse`<br/>**InputActionMapTest** &mdash; `AddAndRetrieve`, `RemoveAction`, `HasAction`, `DuplicateAddOverwrites`, `EmptyMap`, `MultipleBindings`<br/>**InputActionManagerTest** &mdash; `UnknownActionReturnsFalse`, `SetActionMapClearsState`, `GetActionMapReturnsReference`<br/>**DefaultGameActionsTest** &mdash; `HasExpectedActions`, `MoveUpHasWAndArrowAndDPad`<br/>**InputActionSerializerTest** &mdash; `RoundTrip`, `EmptyMap`, `InvalidFile`, `MalformedYAML`, `MissingFields`, `UnknownBindingType`, `FuzzRegression_RootIsScalar`, `FuzzRegression_RootIsSequence`, `FuzzRegression_InputActionMapIsNull`, `FuzzRegression_InputActionMapIsScalar`, `FuzzRegression_ActionsContainsNonMap`, `FuzzRegression_ActionNameIsMap`, `FuzzRegression_BindingTypeIsSequence`, `FuzzRegression_CodeFieldIsNonScalar`, `FuzzRegression_AxisThresholdIsNaN`, `FuzzRegression_RawGarbage`<br/>**InputStateTransitionTest** &mdash; `KeyPressedOnFirstFrame`, `KeyHeldAcrossFrames`, `KeyReleasedAfterHeld`, `JustReleasedOnlyOneFrame`, `MouseButtonTransitions`, `MultipleBindingsSameAction`, `RapidPressReleaseCycle`, `UnboundActionStaysIdle`, `StaleStateCleanedAfterActionRemoval` |
 | [InventoryTest.cpp](../OloEngine/tests/InventoryTest.cpp) | 37 | **InventoryTestFixture** &mdash; `ItemDatabase_GetRegisteredItem`, `ItemDatabase_GetUnregisteredItem`, `ItemDatabase_GetByCategory`, `ItemDatabase_GetByTag`, `ItemDatabase_GetAll`, `Inventory_AddItem`, `Inventory_CapacityLimit`, `Inventory_WeightLimit`, `Inventory_RemoveByDefinition`, `Inventory_RemoveAll`, `Inventory_RemoveTooMany`, `Inventory_HasItem`, `Inventory_FindItem`, `Inventory_SwapItems`, `Inventory_MoveToEmptySlot`, `Inventory_SortByCategory`, `Inventory_SortByRarity`, `Equipment_EquipUnequip`, `Equipment_AttributeModifiers`, `Equipment_AffixModifiers`, `Equipment_SlotStringConversion`, `LootTable_BasicRoll`, `LootTable_NothingWeight`, `LootTable_EmptyTable`, `LootTable_StatisticalDistribution`, `LootTable_ItemLevelFilter`, `AffixDatabase_RegisterAndGet`, `AffixDatabase_RegisterPoolAndGet`, `AffixDatabase_GetAll`, `AffixDatabase_ClearRemovesAll`, `LootTable_RollWithAffixPool`, `LootTable_AffixTierSelection`, `LootTable_AffixPrefixSuffixLimits`, `LootTable_LegacyAffixFallback`, `AffixTypeStringConversion`<br/>**ItemStringConversion** &mdash; `CategoryRoundTrip`, `RarityRoundTrip` |
@@ -1490,7 +1493,7 @@ level of `tests/`). Grouped by directory.
 | [FunctionWithContextTest.cpp](../OloEngine/tests/Templates/FunctionWithContextTest.cpp) | 4 | **FunctionWithContext** &mdash; `DefaultConstructedIsNullAndExposesNullSlots`, `LambdaBoundCallableInvokesCaptureBody`, `ReassignmentReplacesBoundCallable`, `RoundTripsThroughStatelessInvocationAPI` |
 | [TypeTraitsTest.cpp](../OloEngine/tests/Templates/TypeTraitsTest.cpp) | 2 | **TypeTraitsTest** &mdash; `AllChecksAreCompileTime`, `AllNameOfsAreCorrect` |
 
-**Totals.** 123 unit / subsystem test files, 1523 TEST / TEST_F declarations across all subsystems.
+**Totals.** 124 unit / subsystem test files, 1528 TEST / TEST_F declarations across all subsystems.
 
 <!-- END: unit-catalogue -->
 

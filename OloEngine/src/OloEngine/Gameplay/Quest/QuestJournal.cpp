@@ -3,7 +3,19 @@
 
 namespace OloEngine
 {
-    bool QuestJournal::AcceptQuest(const std::string& questId, const QuestDefinition& definition)
+    namespace
+    {
+        // Push a change record only when a caller asked for reporting.
+        void Record(QuestEventSink* sink, QuestJournalChange change)
+        {
+            if (sink)
+            {
+                sink->push_back(std::move(change));
+            }
+        }
+    } // namespace
+
+    bool QuestJournal::AcceptQuest(const std::string& questId, const QuestDefinition& definition, QuestEventSink* sink)
     {
         if (questId != definition.QuestID)
         {
@@ -60,10 +72,11 @@ namespace OloEngine
 
         m_ActiveQuests[questId] = std::move(state);
         OLO_CORE_INFO("[QuestJournal] Accepted quest '{}'", questId);
+        Record(sink, { .Kind = QuestJournalChange::Type::QuestStarted, .QuestID = questId });
         return true;
     }
 
-    bool QuestJournal::AbandonQuest(const std::string& questId)
+    bool QuestJournal::AbandonQuest(const std::string& questId, QuestEventSink* sink)
     {
         auto it = m_ActiveQuests.find(questId);
         if (it == m_ActiveQuests.end())
@@ -74,10 +87,11 @@ namespace OloEngine
         std::string id = questId; // Copy before erase (questId may alias the map key)
         m_ActiveQuests.erase(it);
         OLO_CORE_INFO("[QuestJournal] Abandoned quest '{}'", id);
+        Record(sink, { .Kind = QuestJournalChange::Type::QuestAbandoned, .QuestID = id });
         return true;
     }
 
-    std::optional<QuestRewards> QuestJournal::CompleteQuest(const std::string& questId, const std::string& branchChoice)
+    std::optional<QuestRewards> QuestJournal::CompleteQuest(const std::string& questId, const std::string& branchChoice, QuestEventSink* sink)
     {
         auto it = m_ActiveQuests.find(questId);
         if (it == m_ActiveQuests.end())
@@ -161,10 +175,11 @@ namespace OloEngine
 
         m_ActiveQuests.erase(it);
         OLO_CORE_INFO("[QuestJournal] Completed quest '{}'", id);
+        Record(sink, { .Kind = QuestJournalChange::Type::QuestCompleted, .QuestID = id, .BranchChoice = branchChoice });
         return rewards;
     }
 
-    bool QuestJournal::FailQuest(const std::string& questId)
+    bool QuestJournal::FailQuest(const std::string& questId, QuestEventSink* sink)
     {
         auto it = m_ActiveQuests.find(questId);
         if (it == m_ActiveQuests.end())
@@ -177,10 +192,11 @@ namespace OloEngine
         m_FailedQuestIDs.insert(id);
         m_ActiveQuests.erase(it);
         OLO_CORE_INFO("[QuestJournal] Failed quest '{}'", id);
+        Record(sink, { .Kind = QuestJournalChange::Type::QuestFailed, .QuestID = id });
         return true;
     }
 
-    void QuestJournal::IncrementObjective(const std::string& questId, const std::string& objectiveId, i32 amount)
+    void QuestJournal::IncrementObjective(const std::string& questId, const std::string& objectiveId, i32 amount, QuestEventSink* sink)
     {
         if (amount <= 0)
         {
@@ -199,19 +215,25 @@ namespace OloEngine
             {
                 // Overflow-safe: clamp addition to [0, RequiredCount]
                 i32 headroom = obj.RequiredCount - obj.CurrentCount;
-                obj.CurrentCount += std::min(amount, headroom);
-                if (obj.CurrentCount >= obj.RequiredCount)
+                i32 added = std::min(amount, headroom);
+                if (added > 0)
                 {
-                    obj.IsCompleted = true;
+                    obj.CurrentCount += added;
+                    Record(sink, { .Kind = QuestJournalChange::Type::ObjectiveProgress, .QuestID = questId, .ObjectiveID = objectiveId, .CurrentCount = obj.CurrentCount, .RequiredCount = obj.RequiredCount });
+                    if (obj.CurrentCount >= obj.RequiredCount)
+                    {
+                        obj.IsCompleted = true;
+                        Record(sink, { .Kind = QuestJournalChange::Type::ObjectiveCompleted, .QuestID = questId, .ObjectiveID = objectiveId });
+                    }
                 }
                 break;
             }
         }
 
-        TryAdvanceStage(questId);
+        TryAdvanceStage(questId, sink);
     }
 
-    void QuestJournal::SetObjectiveComplete(const std::string& questId, const std::string& objectiveId)
+    void QuestJournal::SetObjectiveComplete(const std::string& questId, const std::string& objectiveId, QuestEventSink* sink)
     {
         auto it = m_ActiveQuests.find(questId);
         if (it == m_ActiveQuests.end())
@@ -223,16 +245,21 @@ namespace OloEngine
         {
             if (obj.ObjectiveID == objectiveId)
             {
+                bool wasCompleted = obj.IsCompleted;
                 obj.CurrentCount = obj.RequiredCount;
                 obj.IsCompleted = true;
+                if (!wasCompleted)
+                {
+                    Record(sink, { .Kind = QuestJournalChange::Type::ObjectiveCompleted, .QuestID = questId, .ObjectiveID = objectiveId });
+                }
                 break;
             }
         }
 
-        TryAdvanceStage(questId);
+        TryAdvanceStage(questId, sink);
     }
 
-    std::optional<QuestRewards> QuestJournal::TryAdvanceStage(const std::string& questId)
+    std::optional<QuestRewards> QuestJournal::TryAdvanceStage(const std::string& questId, QuestEventSink* sink)
     {
         auto it = m_ActiveQuests.find(questId);
         if (it == m_ActiveQuests.end())
@@ -289,7 +316,7 @@ namespace OloEngine
             // Quest is ready for completion (auto-complete if no choices)
             if (definition.CompletionChoices.empty())
             {
-                return CompleteQuest(questId);
+                return CompleteQuest(questId, "", sink);
             }
             return std::nullopt;
         }
@@ -304,6 +331,7 @@ namespace OloEngine
         }
 
         OLO_CORE_INFO("[QuestJournal] Quest '{}' advanced to stage {}", questId, state.CurrentStageIndex);
+        Record(sink, { .Kind = QuestJournalChange::Type::StageAdvanced, .QuestID = questId, .NewStageIndex = state.CurrentStageIndex });
         return std::nullopt;
     }
 
@@ -381,24 +409,24 @@ namespace OloEngine
         return it != m_ActiveQuests.end() && it->second.Status == QuestStatus::Active;
     }
 
-    void QuestJournal::NotifyKill(const std::string& targetTag)
+    void QuestJournal::NotifyKill(const std::string& targetTag, QuestEventSink* sink)
     {
-        NotifyObjectiveProgress(QuestObjective::Type::Kill, targetTag, 1);
+        NotifyObjectiveProgress(QuestObjective::Type::Kill, targetTag, 1, sink);
     }
 
-    void QuestJournal::NotifyCollect(const std::string& itemId, i32 count)
+    void QuestJournal::NotifyCollect(const std::string& itemId, i32 count, QuestEventSink* sink)
     {
-        NotifyObjectiveProgress(QuestObjective::Type::Collect, itemId, count);
+        NotifyObjectiveProgress(QuestObjective::Type::Collect, itemId, count, sink);
     }
 
-    void QuestJournal::NotifyInteract(const std::string& interactableId)
+    void QuestJournal::NotifyInteract(const std::string& interactableId, QuestEventSink* sink)
     {
-        NotifyObjectiveProgress(QuestObjective::Type::Interact, interactableId, 1);
+        NotifyObjectiveProgress(QuestObjective::Type::Interact, interactableId, 1, sink);
     }
 
-    void QuestJournal::NotifyReachLocation(const std::string& locationId)
+    void QuestJournal::NotifyReachLocation(const std::string& locationId, QuestEventSink* sink)
     {
-        NotifyObjectiveProgress(QuestObjective::Type::Reach, locationId, 1);
+        NotifyObjectiveProgress(QuestObjective::Type::Reach, locationId, 1, sink);
     }
 
     void QuestJournal::AddTag(const std::string& tag)
@@ -411,7 +439,7 @@ namespace OloEngine
         return m_Tags.contains(tag);
     }
 
-    void QuestJournal::UpdateTimers(f32 dt)
+    void QuestJournal::UpdateTimers(f32 dt, QuestEventSink* sink)
     {
         std::vector<std::string> questsToFail;
 
@@ -451,7 +479,7 @@ namespace OloEngine
 
         for (auto const& questId : questsToFail)
         {
-            FailQuest(questId);
+            FailQuest(questId, sink);
         }
 
         // Decrement quest cooldowns
@@ -656,7 +684,7 @@ namespace OloEngine
         return unmet;
     }
 
-    void QuestJournal::NotifyObjectiveProgress(QuestObjective::Type type, const std::string& targetId, i32 amount)
+    void QuestJournal::NotifyObjectiveProgress(QuestObjective::Type type, const std::string& targetId, i32 amount, QuestEventSink* sink)
     {
         if (amount <= 0)
         {
@@ -680,10 +708,17 @@ namespace OloEngine
                 {
                     // Overflow-safe: clamp addition to [0, RequiredCount]
                     i32 headroom = obj.RequiredCount - obj.CurrentCount;
-                    obj.CurrentCount += std::min(amount, headroom);
+                    i32 added = std::min(amount, headroom);
+                    if (added <= 0)
+                    {
+                        continue;
+                    }
+                    obj.CurrentCount += added;
+                    Record(sink, { .Kind = QuestJournalChange::Type::ObjectiveProgress, .QuestID = questId, .ObjectiveID = obj.ObjectiveID, .CurrentCount = obj.CurrentCount, .RequiredCount = obj.RequiredCount });
                     if (obj.CurrentCount >= obj.RequiredCount)
                     {
                         obj.IsCompleted = true;
+                        Record(sink, { .Kind = QuestJournalChange::Type::ObjectiveCompleted, .QuestID = questId, .ObjectiveID = obj.ObjectiveID });
                     }
                     changed = true;
                 }
@@ -697,7 +732,7 @@ namespace OloEngine
 
         for (auto const& id : questsToAdvance)
         {
-            TryAdvanceStage(id);
+            TryAdvanceStage(id, sink);
         }
     }
 

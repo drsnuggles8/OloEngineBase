@@ -31,8 +31,10 @@
 #include "OloEngine/Renderer/ShaderGraph/ShaderGraphAsset.h"
 #include "OloEngine/AI/AIComponents.h"
 #include "OloEngine/Gameplay/Inventory/InventoryComponents.h"
+#include "OloEngine/Gameplay/Inventory/InventorySystem.h"
 #include "OloEngine/Gameplay/Inventory/ItemDatabase.h"
 #include "OloEngine/Gameplay/Quest/QuestComponents.h"
+#include "OloEngine/Gameplay/Quest/QuestSystem.h"
 #include "OloEngine/Gameplay/Quest/QuestDatabase.h"
 #include "OloEngine/Gameplay/Abilities/AbilityComponents.h"
 #include "OloEngine/Gameplay/Abilities/GameplayAbilitySystem.h"
@@ -74,6 +76,19 @@ namespace OloEngine
     [[nodiscard]] static bool IsFiniteVec4(const glm::vec4& v)
     {
         return std::isfinite(v.x) && std::isfinite(v.y) && std::isfinite(v.z) && std::isfinite(v.w);
+    }
+
+    // Recover (active scene, owning entity) for a script-bound gameplay
+    // component so quest/inventory mutations driven from Lua publish
+    // entity-stamped gameplay events. Returns a null Entity when there's no
+    // active scene context; callers then fall back to the raw, event-less
+    // data-structure path so behaviour is unchanged outside of runtime.
+    template<typename T>
+    [[nodiscard]] static std::pair<Scene*, Entity> LuaOwnerContext(T& component)
+    {
+        Scene* scene = ScriptEngine::GetSceneContext();
+        Entity entity = scene ? scene->GetEntityForComponent(component) : Entity{};
+        return { scene, entity };
     }
 
     namespace Scripting
@@ -2442,6 +2457,8 @@ namespace OloEngine
                                                  if (!def)
                                                      return false;
                                                  i32 maxStack = std::max(def->MaxStackSize, 1);
+                                                 // Route through InventorySystem so each add publishes ItemAdded.
+                                                 auto [scene, entity] = LuaOwnerContext(comp);
                                                  i32 remaining = total;
                                                  while (remaining > 0)
                                                  {
@@ -2449,17 +2466,42 @@ namespace OloEngine
                                                      instance.InstanceID = UUID();
                                                      instance.ItemDefinitionID = itemId;
                                                      instance.StackCount = std::min(remaining, maxStack);
-                                                     if (!comp.PlayerInventory.AddItem(instance))
+                                                     bool added = entity ? InventorySystem::AddItem(scene, entity, instance)
+                                                                         : comp.PlayerInventory.AddItem(instance);
+                                                     if (!added)
                                                          return false;
                                                      remaining -= instance.StackCount;
                                                  }
                                                  return true; }, "RemoveItem", [](InventoryComponent& comp, const std::string& itemId, sol::optional<i32> count)
-                                             { return comp.PlayerInventory.RemoveItemByDefinition(itemId, count.value_or(1)); }, "HasItem", [](const InventoryComponent& comp, const std::string& itemId, sol::optional<i32> count) -> bool
+                                             { auto [scene, entity] = LuaOwnerContext(comp); i32 cnt = count.value_or(1); return entity ? InventorySystem::RemoveItemByDefinition(scene, entity, itemId, cnt) : comp.PlayerInventory.RemoveItemByDefinition(itemId, cnt); }, "HasItem", [](const InventoryComponent& comp, const std::string& itemId, sol::optional<i32> count) -> bool
                                              { return comp.PlayerInventory.HasItem(itemId, count.value_or(1)); }, "CountItem", [](const InventoryComponent& comp, const std::string& itemId) -> i32
                                              { return comp.PlayerInventory.CountItem(itemId); }, "GetUsedSlots", [](const InventoryComponent& comp) -> i32
                                              { return comp.PlayerInventory.GetUsedSlots(); }, "GetCapacity", [](const InventoryComponent& comp) -> i32
                                              { return comp.PlayerInventory.GetCapacity(); }, "GetTotalWeight", [](const InventoryComponent& comp) -> f32
-                                             { return comp.PlayerInventory.GetTotalWeight(); });
+                                             { return comp.PlayerInventory.GetTotalWeight(); }, "EquipItem", [](InventoryComponent& comp, const std::string& definitionId, const std::string& slotName) -> bool
+                                             {
+                                                 auto [scene, entity] = LuaOwnerContext(comp);
+                                                 if (!entity)
+                                                     return false;
+                                                 EquipmentSlots::Slot slot = EquipmentSlots::SlotFromString(slotName);
+                                                 if (slot == EquipmentSlots::Slot::Count)
+                                                     return false;
+                                                 // Find the item in the inventory by definition; copy it (Equip
+                                                 // removes it from the inventory, invalidating the slot pointer).
+                                                 i32 idx = comp.PlayerInventory.FindItem(definitionId);
+                                                 const ItemInstance* found = comp.PlayerInventory.GetItemAtSlot(idx);
+                                                 if (!found)
+                                                     return false;
+                                                 ItemInstance copy = *found;
+                                                 return InventorySystem::EquipItem(scene, entity, slot, copy); }, "UnequipItem", [](InventoryComponent& comp, const std::string& slotName) -> bool
+                                             {
+                                                 auto [scene, entity] = LuaOwnerContext(comp);
+                                                 if (!entity)
+                                                     return false;
+                                                 EquipmentSlots::Slot slot = EquipmentSlots::SlotFromString(slotName);
+                                                 if (slot == EquipmentSlots::Slot::Count)
+                                                     return false;
+                                                 return InventorySystem::UnequipItem(scene, entity, slot); });
 
         // --- ItemPickupComponent ---
         lua.new_usertype<ItemPickupComponent>("ItemPickupComponent",
@@ -2480,19 +2522,20 @@ namespace OloEngine
         // --- QuestJournalComponent ---
         lua.new_usertype<QuestJournalComponent>("QuestJournalComponent", "AcceptQuest", [](QuestJournalComponent& comp, const std::string& questId) -> bool
                                                 {
+                auto [scene, entity] = LuaOwnerContext(comp);
+                if (entity)
+                    return QuestSystem::AcceptQuest(scene, entity, questId);
                 const auto* def = QuestDatabase::Get(questId);
-                if (!def)
-                    return false;
-                return comp.Journal.AcceptQuest(questId, *def); }, "AbandonQuest", [](QuestJournalComponent& comp, const std::string& questId) -> bool
-                                                { return comp.Journal.AbandonQuest(questId); }, "CompleteQuest", [](QuestJournalComponent& comp, const std::string& questId, sol::optional<std::string> branch) -> bool
-                                                { return comp.Journal.CompleteQuest(questId, branch.value_or("")).has_value(); }, "IsQuestActive", [](const QuestJournalComponent& comp, const std::string& questId) -> bool
+                return def && comp.Journal.AcceptQuest(questId, *def); }, "AbandonQuest", [](QuestJournalComponent& comp, const std::string& questId) -> bool
+                                                { auto [scene, entity] = LuaOwnerContext(comp); return entity ? QuestSystem::AbandonQuest(scene, entity, questId) : comp.Journal.AbandonQuest(questId); }, "CompleteQuest", [](QuestJournalComponent& comp, const std::string& questId, sol::optional<std::string> branch) -> bool
+                                                { auto [scene, entity] = LuaOwnerContext(comp); return entity ? QuestSystem::CompleteQuest(scene, entity, questId, branch.value_or("")) : comp.Journal.CompleteQuest(questId, branch.value_or("")).has_value(); }, "IsQuestActive", [](const QuestJournalComponent& comp, const std::string& questId) -> bool
                                                 { return comp.Journal.IsQuestActive(questId); }, "HasCompletedQuest", [](const QuestJournalComponent& comp, const std::string& questId) -> bool
                                                 { return comp.Journal.HasCompletedQuest(questId); }, "IncrementObjective", [](QuestJournalComponent& comp, const std::string& questId, const std::string& objId, sol::optional<i32> amount)
-                                                { i32 amt = amount.value_or(1); if (amt <= 0) return; comp.Journal.IncrementObjective(questId, objId, amt); }, "NotifyKill", [](QuestJournalComponent& comp, const std::string& targetTag)
-                                                { comp.Journal.NotifyKill(targetTag); }, "NotifyCollect", [](QuestJournalComponent& comp, const std::string& itemId, sol::optional<i32> count)
-                                                { i32 cnt = count.value_or(1); if (cnt <= 0) return; comp.Journal.NotifyCollect(itemId, cnt); }, "NotifyInteract", [](QuestJournalComponent& comp, const std::string& id)
-                                                { comp.Journal.NotifyInteract(id); }, "NotifyReachLocation", [](QuestJournalComponent& comp, const std::string& locId)
-                                                { comp.Journal.NotifyReachLocation(locId); }, "HasTag", [](const QuestJournalComponent& comp, const std::string& tag) -> bool
+                                                { i32 amt = amount.value_or(1); if (amt <= 0) return; auto [scene, entity] = LuaOwnerContext(comp); if (entity) QuestSystem::IncrementObjective(scene, entity, questId, objId, amt); else comp.Journal.IncrementObjective(questId, objId, amt); }, "NotifyKill", [](QuestJournalComponent& comp, const std::string& targetTag)
+                                                { auto [scene, entity] = LuaOwnerContext(comp); if (entity) QuestSystem::NotifyKill(scene, entity, targetTag); else comp.Journal.NotifyKill(targetTag); }, "NotifyCollect", [](QuestJournalComponent& comp, const std::string& itemId, sol::optional<i32> count)
+                                                { i32 cnt = count.value_or(1); if (cnt <= 0) return; auto [scene, entity] = LuaOwnerContext(comp); if (entity) QuestSystem::NotifyCollect(scene, entity, itemId, cnt); else comp.Journal.NotifyCollect(itemId, cnt); }, "NotifyInteract", [](QuestJournalComponent& comp, const std::string& id)
+                                                { auto [scene, entity] = LuaOwnerContext(comp); if (entity) QuestSystem::NotifyInteract(scene, entity, id); else comp.Journal.NotifyInteract(id); }, "NotifyReachLocation", [](QuestJournalComponent& comp, const std::string& locId)
+                                                { auto [scene, entity] = LuaOwnerContext(comp); if (entity) QuestSystem::NotifyReachLocation(scene, entity, locId); else comp.Journal.NotifyReachLocation(locId); }, "HasTag", [](const QuestJournalComponent& comp, const std::string& tag) -> bool
                                                 { return comp.Journal.HasTag(tag); }, "AddTag", [](QuestJournalComponent& comp, const std::string& tag)
                                                 { comp.Journal.AddTag(tag); }, "SetPlayerLevel", [](QuestJournalComponent& comp, i32 level)
                                                 { if (level < 0) return; comp.Journal.SetPlayerLevel(level); }, "GetPlayerLevel", [](const QuestJournalComponent& comp) -> i32

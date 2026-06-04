@@ -1,0 +1,59 @@
+Scene: GameplayEventsDemo.olo
+Entities:
+  - Entity: 7000000000000000001
+    TagComponent:
+      Tag: Player
+    TransformComponent:
+      Translation: [0, 1, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    SpriteRendererComponent:
+      Color: [0.2, 0.6, 1.0, 1]
+    QuestJournalComponent:
+      Tags: []
+      PlayerLevel: 5
+    InventoryComponent:
+      Capacity: 40
+      MaxWeight: 100.0
+      Currency: 100
+      Items: []
+      Equipment: []
+    LuaScriptComponent:
+      ScriptFile: Scripts/LuaScripts/GameplayEventsDemo.lua
+  - Entity: 7000000000000000002
+    TagComponent:
+      Tag: Auto Pickup (Health Potion)
+    TransformComponent:
+      Translation: [1, 1, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.5, 0.5, 0.5]
+    SpriteRendererComponent:
+      Color: [1.0, 0.2, 0.2, 1]
+    ItemPickupComponent:
+      DefinitionID: health_potion
+      InstanceID: 7000000000000000050
+      StackCount: 1
+      Durability: -1.0
+      MaxDurability: -1.0
+      PickupRadius: 3.0
+      AutoPickup: true
+      DespawnTimer: -1.0
+      Affixes: []
+  - Entity: 7000000000000000003
+    TagComponent:
+      Tag: Camera
+    TransformComponent:
+      Translation: [0, 5, 10]
+      Rotation: [-0.4, 0, 0]
+      Scale: [1, 1, 1]
+    CameraComponent:
+      Camera:
+        ProjectionType: 0
+        PerspectiveFOV: 0.785
+        PerspectiveNear: 0.1
+        PerspectiveFar: 1000
+        OrthographicSize: 10
+        OrthographicNear: -1
+        OrthographicFar: 1
+      Primary: true
+      FixedAspectRatio: false

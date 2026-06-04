@@ -2,6 +2,8 @@
 		"EditorLayer.cpp"
 		"EditorLayer.h"
 		"OloEditorApp.cpp"
+		"GameplayEventLogger.h"
+		"GameplayEventLogger.cpp"
 
 		"UndoRedo/EditorCommand.h"
 		"UndoRedo/EntityCommands.h"

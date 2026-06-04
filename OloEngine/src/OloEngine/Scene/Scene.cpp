@@ -73,8 +73,11 @@
 #include "OloEngine/Navigation/NavigationSystem.h"
 #include "OloEngine/AI/AISystem.h"
 #include "OloEngine/Gameplay/Inventory/InventorySystem.h"
+#include "OloEngine/Gameplay/Inventory/InventoryComponents.h"
 #include "OloEngine/Gameplay/Quest/QuestSystem.h"
+#include "OloEngine/Gameplay/Quest/QuestComponents.h"
 #include "OloEngine/Gameplay/Abilities/GameplayAbilitySystem.h"
+#include "OloEngine/Gameplay/GameplayEventBus.h"
 #include "OloEngine/Audio/AudioEvents/AudioEventsManager.h"
 #include "OloEngine/Audio/AudioEvents/AudioCommandRegistry.h"
 #include "OloEngine/Audio/AudioEvents/AudioPlayback.h"
@@ -149,8 +152,36 @@ namespace OloEngine
     }
 
     Scene::Scene()
-        : m_JoltScene(std::make_unique<JoltScene>(this))
+        : m_JoltScene(std::make_unique<JoltScene>(this)), m_GameplayEventBus(std::make_unique<GameplayEventBus>())
     {
+    }
+
+    template<typename T>
+    Entity Scene::GetEntityForComponent(const T& component)
+    {
+        for (auto const e : m_Registry.view<T>())
+        {
+            if (&m_Registry.get<T>(e) == &component)
+            {
+                return { e, this };
+            }
+        }
+        return {};
+    }
+
+    // Explicit instantiations for the component types the scripting glue needs
+    // to map back to their owning entity when publishing gameplay events.
+    template Entity Scene::GetEntityForComponent<InventoryComponent>(const InventoryComponent&);
+    template Entity Scene::GetEntityForComponent<QuestJournalComponent>(const QuestJournalComponent&);
+
+    GameplayEventBus& Scene::GetGameplayEvents()
+    {
+        return *m_GameplayEventBus;
+    }
+
+    const GameplayEventBus& Scene::GetGameplayEvents() const
+    {
+        return *m_GameplayEventBus;
     }
 
     Ref<Scene> Scene::Create()
@@ -853,6 +884,13 @@ namespace OloEngine
         // to edit mode) seeds a fresh baseline instead of leaking a stale
         // PrevAnimationTime into TAA / motion-blur / wind / water shaders.
         m_LastAnimationTime = -1.0f;
+
+        // Drop gameplay-event subscriptions so a stop/play cycle doesn't
+        // accumulate stale handlers (scripts/UI re-subscribe on next start).
+        if (m_GameplayEventBus)
+        {
+            m_GameplayEventBus->Clear();
+        }
     }
 
     void Scene::OnSimulationStart()
