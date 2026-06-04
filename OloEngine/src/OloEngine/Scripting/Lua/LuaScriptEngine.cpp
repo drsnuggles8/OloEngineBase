@@ -114,6 +114,22 @@ namespace OloEngine
 
     void LuaScriptEngine::OnRuntimeStop()
     {
+        // A GOAP agent authored from Lua (goap:AddAction{...}) stores the
+        // perform/onEnter/isUsable callbacks as sol::protected_functions inside
+        // GoapAgentComponent::RuntimeAgent — an engine object that lives on the
+        // scene, not in EntityScriptInstances. Release those agents now, while
+        // the Lua state is still alive, so their captured references unref here
+        // instead of when the component is destroyed later (which can happen
+        // after lua_close — e.g. closing the editor mid-play — and crashes in
+        // luaL_unref). The agent is rebuilt by the script's OnCreate on the next
+        // runtime start, exactly like the per-entity script tables cleared below.
+        if (s_LuaData.SceneContext)
+        {
+            auto view = s_LuaData.SceneContext->GetAllEntitiesWith<GoapAgentComponent>();
+            for (const auto e : view)
+                view.get<GoapAgentComponent>(e).RuntimeAgent = nullptr;
+        }
+
         s_LuaData.EntityScriptInstances.clear();
         s_LuaData.SceneContext = nullptr;
 

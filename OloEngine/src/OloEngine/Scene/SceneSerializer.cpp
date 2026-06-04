@@ -2811,6 +2811,12 @@ namespace OloEngine
             TrySet(smc.StateMachineAssetHandle, stateMachineComponent["StateMachineAsset"]);
         }
 
+        if (auto goapAgentComponent = entity["GoapAgentComponent"]; goapAgentComponent)
+        {
+            auto& gac = deserializedEntity.AddComponent<GoapAgentComponent>();
+            TrySet(gac.Enabled, goapAgentComponent["Enabled"]);
+        }
+
         if (auto inventoryComponent = entity["InventoryComponent"]; inventoryComponent)
         {
             auto& ic = deserializedEntity.AddComponent<InventoryComponent>();
@@ -5048,6 +5054,17 @@ namespace OloEngine
             out << YAML::Key << "StateMachineAsset" << YAML::Value << smc.StateMachineAssetHandle;
 
             out << YAML::EndMap; // StateMachineComponent
+        }
+
+        if (entity.HasComponent<GoapAgentComponent>())
+        {
+            out << YAML::Key << "GoapAgentComponent";
+            out << YAML::BeginMap;
+
+            auto const& gac = entity.GetComponent<GoapAgentComponent>();
+            out << YAML::Key << "Enabled" << YAML::Value << gac.Enabled;
+
+            out << YAML::EndMap; // GoapAgentComponent
         }
 
         if (entity.HasComponent<InventoryComponent>())

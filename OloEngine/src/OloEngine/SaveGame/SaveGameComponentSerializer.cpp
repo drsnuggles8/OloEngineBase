@@ -2309,6 +2309,14 @@ namespace OloEngine
         // RuntimeFSM is a runtime Ref.
     }
 
+    void SaveGameComponentSerializer::Serialize(FArchive& ar, GoapAgentComponent& c)
+    {
+        ar << c.Enabled;
+        SerializeBlackboard(ar, c.Blackboard);
+        // RuntimeAgent (actions/goals/world state) is a runtime Ref the gameplay
+        // layer rebuilds after load.
+    }
+
     void SaveGameComponentSerializer::Serialize(FArchive& ar, InventoryComponent& c)
     {
         SerializeInventory(ar, c.PlayerInventory);
@@ -2557,6 +2565,7 @@ namespace OloEngine
         REGISTER_SAVE_COMPONENT(CinematicComponent);
         REGISTER_SAVE_COMPONENT(BehaviorTreeComponent);
         REGISTER_SAVE_COMPONENT(StateMachineComponent);
+        REGISTER_SAVE_COMPONENT(GoapAgentComponent);
         REGISTER_SAVE_COMPONENT(InventoryComponent);
         REGISTER_SAVE_COMPONENT(ItemPickupComponent);
         REGISTER_SAVE_COMPONENT(ItemContainerComponent);

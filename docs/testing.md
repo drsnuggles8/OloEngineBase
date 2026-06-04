@@ -1116,12 +1116,14 @@ subsystem unit tests (§9.3, grouped by directory).
 
 > **Do not edit by hand.** Generated from [test_catalogue.json](../OloEngine/tests/scripts/test_catalogue.json) by [generate_test_catalogue.py](../OloEngine/tests/scripts/generate_test_catalogue.py). Add new test files to the config and run the script (or pre-commit will run it with `--check`).
 
-#### AI (3 files)
+#### AI (5 files)
 
 | File | Tests | Cases |
 |---|---:|---|
 | [BehaviorTreeAdvancesViaSceneTickTest.cpp](../OloEngine/tests/Functional/AI/BehaviorTreeAdvancesViaSceneTickTest.cpp) | 1 | **BehaviorTreeAdvancesViaSceneTickTest** &mdash; `RootTaskRunsAndWritesBlackboardAfterOneTick` |
 | [BehaviorTreeSequenceShortCircuitsOnFailureTest.cpp](../OloEngine/tests/Functional/AI/BehaviorTreeSequenceShortCircuitsOnFailureTest.cpp) | 1 | **BehaviorTreeSequenceShortCircuitsOnFailureTest** &mdash; `FirstChildRunsThirdChildSkippedAfterMiddleFails` |
+| [GoapAgentPlansViaSceneTickTest.cpp](../OloEngine/tests/Functional/AI/GoapAgentPlansViaSceneTickTest.cpp) | 1 | **GoapAgentPlansViaSceneTickTest** &mdash; `AgentPlansAndExecutesToGoalAcrossSceneTicks` |
+| [GoapAuthoredFromLuaViaSceneTickTest.cpp](../OloEngine/tests/Functional/AI/GoapAuthoredFromLuaViaSceneTickTest.cpp) | 2 | **GoapAuthoredFromLuaViaSceneTickTest** &mdash; `LuaBuiltAgentPlansAndReachesGoal`, `RuntimeStopReleasesLuaBuiltAgentBeforeStateTeardown` |
 | [StateMachineTransitionsViaSceneTickTest.cpp](../OloEngine/tests/Functional/AI/StateMachineTransitionsViaSceneTickTest.cpp) | 1 | **StateMachineTransitionsViaSceneTickTest** &mdash; `FsmStartsInIdleAndTransitionsToChaseAfterConditionMet` |
 
 #### AnimationPhysics (21 files)
@@ -1265,7 +1267,7 @@ subsystem unit tests (§9.3, grouped by directory).
 | [LuaScriptSetsRigidbody2DVelocityTest.cpp](../OloEngine/tests/Functional/Scripting/LuaScriptSetsRigidbody2DVelocityTest.cpp) | 1 | **LuaScriptSetsRigidbody2DVelocityTest** &mdash; `BodyTranslatesAfterLuaSetsLinearVelocity` |
 | [LuaSetsAbilityAttributeViaSceneTickTest.cpp](../OloEngine/tests/Functional/Scripting/LuaSetsAbilityAttributeViaSceneTickTest.cpp) | 1 | **LuaSetsAbilityAttributeViaSceneTickTest** &mdash; `LuaDrivenHealthToZeroFlipsAliveToDeadOnSubsequentTick` |
 
-**Totals.** 79 Functional test files, 88 TEST / TEST_F declarations across all subsystems.
+**Totals.** 81 Functional test files, 91 TEST / TEST_F declarations across all subsystems.
 
 <!-- END: functional-catalogue -->
 
@@ -1341,6 +1343,12 @@ level of `tests/`). Grouped by directory.
 | [StateMachineTest.cpp](../OloEngine/tests/StateMachineTest.cpp) | 12 | **StateMachineTest** &mdash; `StartCallsOnEnter`, `UpdateCallsOnUpdate`, `TransitionChangesState`, `ForceTransition`, `ForceTransition_ToSameState_DoesNothing`, `ForceTransition_InvalidState_DoesNothing`, `UpdateBeforeStart_DoesNothing`, `MultipleTransitions_FirstMatchWins`<br/>**StateMachineAssetTest** &mdash; `HasCorrectAssetType`, `StoresStatesAndTransitions`<br/>**FSMStateRegistryTest** &mdash; `RegisterAndCreate`, `UnknownTypeReturnsNull` |
 | [TransformComponentTest.cpp](../OloEngine/tests/TransformComponentTest.cpp) | 9 | **TransformComponent** &mdash; `DefaultsAreIdentity`, `SetRotationEulerUpdatesQuaternion`, `SetRotationQuaternionUpdatesEuler`, `SetRotationPreventsFlips`, `SetRotationContinuousAcrossPiBoundary`, `GetTransformUsesQuaternion`, `SetTransformRoundTrip`, `CopyPreservesPrivateFields`<br/>**MathDecompose** &mdash; `TRSMatrixRoundTripsThroughDecompose` |
 | [WindSettingsTest.cpp](../OloEngine/tests/WindSettingsTest.cpp) | 6 | **WindUBOData** &mdash; `SizeIs64Bytes`, `FieldOffsets_Std140Compatible`, `DefaultsMatchSettings`<br/>**ShaderBindingLayout** &mdash; `WindBindingsExist`<br/>**SnowSettings** &mdash; `WindDriftFactorDefaultIsZero`, `WindDriftFactorInUBOFlags` |
+
+#### AI (1 file)
+
+| File | Tests | Cases |
+|---|---:|---|
+| [GoapTest.cpp](../OloEngine/tests/AI/GoapTest.cpp) | 26 | **GoapWorldState** &mdash; `SetGetHasRemove`, `GetOrFallsBackOnMissingOrWrongType`, `SatisfiesSemantics`, `SatisfiesDistinguishesBoolAndIntTypes`, `ApplyEffectsOverlays`, `UnsatisfiedCount`, `EqualityAndHashAreOrderIndependent`, `HashSeparatesBoolFalseFromIntZero`<br/>**GoapPlanner** &mdash; `GoalAlreadySatisfiedYieldsEmptyFoundPlan`, `SingleActionPlan`, `MultiStepChainIsOrderedCorrectly`, `UnreachableGoalIsNotFound`, `ChoosesCheaperOfCompetingPlans`, `DijkstraModeFindsMinimumCostMultiStepPlan`, `IsUsableGateExcludesAction`, `MaxPlanLengthBoundsTheSearch`, `IterationCapTerminatesAndReports`, `NoOpActionsDoNotCauseInfiniteLoop`, `ClassicWoodcutterScenario`<br/>**GoapAgent** &mdash; `PlansAndExecutesToGoalWithInstantActions`, `PicksHighestPriorityRelevantGoal`, `SkipsGoalWhoseRelevanceGateIsClosed`, `RunningActionSpansMultipleTicks`, `ReplansWhenAnActionFails`, `SensorRefreshesWorldStateBeforePlanning`, `NoSatisfiableGoalLeavesAgentIdle` |
 
 #### Animation (4 files)
 
@@ -1481,7 +1489,7 @@ level of `tests/`). Grouped by directory.
 | [FunctionWithContextTest.cpp](../OloEngine/tests/Templates/FunctionWithContextTest.cpp) | 4 | **FunctionWithContext** &mdash; `DefaultConstructedIsNullAndExposesNullSlots`, `LambdaBoundCallableInvokesCaptureBody`, `ReassignmentReplacesBoundCallable`, `RoundTripsThroughStatelessInvocationAPI` |
 | [TypeTraitsTest.cpp](../OloEngine/tests/Templates/TypeTraitsTest.cpp) | 2 | **TypeTraitsTest** &mdash; `AllChecksAreCompileTime`, `AllNameOfsAreCorrect` |
 
-**Totals.** 121 unit / subsystem test files, 1483 TEST / TEST_F declarations across all subsystems.
+**Totals.** 122 unit / subsystem test files, 1509 TEST / TEST_F declarations across all subsystems.
 
 <!-- END: unit-catalogue -->
 

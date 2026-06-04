@@ -43,5 +43,19 @@ namespace OloEngine
                 }
             }
         }
+
+        // Tick all GoapAgentComponents (deliberative planners)
+        {
+            OLO_PROFILE_SCOPE("AISystem::GoapAgents");
+            auto goapView = scene->GetAllEntitiesWith<GoapAgentComponent>();
+            for (auto entityId : goapView)
+            {
+                auto& goap = goapView.get<GoapAgentComponent>(entityId);
+                if (goap.Enabled && goap.RuntimeAgent)
+                {
+                    goap.RuntimeAgent->Update(dt);
+                }
+            }
+        }
     }
 } // namespace OloEngine

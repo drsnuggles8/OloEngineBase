@@ -798,6 +798,8 @@ namespace OloEngine
                 LuaScriptEngine::OnDestroyEntity({ e, this });
             }
         }
+        // LuaScriptEngine::OnRuntimeStop releases any GOAP agents built from Lua
+        // (their actions hold sol callbacks) before the Lua state can be torn down.
         LuaScriptEngine::OnRuntimeStop();
 
         // Defer clearing the running flag until after Lua teardown so that
@@ -2168,6 +2170,8 @@ namespace OloEngine
     void Scene::OnComponentAdded<BehaviorTreeComponent>(Entity, BehaviorTreeComponent&) {}
     template<>
     void Scene::OnComponentAdded<StateMachineComponent>(Entity, StateMachineComponent&) {}
+    template<>
+    void Scene::OnComponentAdded<GoapAgentComponent>(Entity, GoapAgentComponent&) {}
     template<>
     void Scene::OnComponentAdded<TileRendererComponent>(Entity, TileRendererComponent&) {}
 
@@ -5760,6 +5764,7 @@ namespace OloEngine
     OLO_ON_COMPONENT_REMOVED_NOOP(CinematicComponent)
     OLO_ON_COMPONENT_REMOVED_NOOP(BehaviorTreeComponent)
     OLO_ON_COMPONENT_REMOVED_NOOP(StateMachineComponent)
+    OLO_ON_COMPONENT_REMOVED_NOOP(GoapAgentComponent)
     OLO_ON_COMPONENT_REMOVED_NOOP(TileRendererComponent)
 
     // Specialisation: when a Rigidbody2DComponent is removed at runtime,

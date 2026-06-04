@@ -1,0 +1,144 @@
+Scene: GoapAgentTest.olo
+PostProcessSettings:
+  TonemapOperator: 1
+  Exposure: 1
+  Gamma: 2.2
+  BloomEnabled: true
+  BloomThreshold: 1
+  BloomIntensity: 0.4
+  BloomIterations: 5
+  VignetteEnabled: false
+  VignetteIntensity: 0.3
+  VignetteSmoothness: 0.5
+  ChromaticAberrationEnabled: false
+  ChromaticAberrationIntensity: 0.005
+  FXAAEnabled: true
+  DOFEnabled: false
+  DOFFocusDistance: 10
+  DOFFocusRange: 5
+  DOFBokehRadius: 3
+  MotionBlurEnabled: false
+  MotionBlurStrength: 0.5
+  MotionBlurSamples: 8
+  ColorGradingEnabled: false
+  SSAOEnabled: false
+  SSAORadius: 0.5
+  SSAOBias: 0.025
+  SSAOIntensity: 1
+  SSAOSamples: 32
+  SSAODebugView: false
+SnowSettings:
+  Enabled: false
+FogSettings:
+  Enabled: false
+WindSettings:
+  Enabled: false
+SnowAccumulationSettings:
+  Enabled: false
+SnowEjectaSettings:
+  Enabled: false
+PrecipitationSettings:
+  Enabled: false
+StreamingSettings:
+  Enabled: false
+Entities:
+  # ── Camera (perspective, looking down at the arena) ──
+  - Entity: 2000000000000000001
+    TagComponent:
+      Tag: Camera
+    TransformComponent:
+      Translation: [0, 14, 14]
+      Rotation: [-0.785398, 0, 0]
+      Scale: [1, 1, 1]
+    CameraComponent:
+      Camera:
+        ProjectionType: 0
+        PerspectiveFOV: 0.785398185
+        PerspectiveNear: 0.01
+        PerspectiveFar: 1000
+        OrthographicSize: 10
+        OrthographicNear: -1
+        OrthographicFar: 1
+      Primary: true
+      FixedAspectRatio: false
+  # ── Skybox + image-based lighting ──
+  - Entity: 2000000000000000002
+    TagComponent:
+      Tag: Skybox
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    EnvironmentMapComponent:
+      FilePath: assets/textures/Skybox
+      IsCubemapFolder: true
+      EnableSkybox: true
+      Rotation: 0
+      Exposure: 1
+      BlurAmount: 0
+      EnableIBL: true
+      IBLIntensity: 1
+      Tint: [1, 1, 1]
+  # ── Sun ──
+  - Entity: 2000000000000000003
+    TagComponent:
+      Tag: Directional Light
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    DirectionalLightComponent:
+      Direction: [-0.3, -1, -0.4]
+      Color: [1, 0.97, 0.9]
+      Intensity: 2.5
+      CastShadows: true
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+      MaxShadowDistance: 200
+      CascadeSplitLambda: 0.95
+  # ── Ground arena (flat cube) ──
+  - Entity: 2000000000000000004
+    TagComponent:
+      Tag: Ground
+    TransformComponent:
+      Translation: [0, -0.1, 0]
+      Rotation: [0, 0, 0]
+      Scale: [24, 0.2, 24]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.22, 0.24, 0.28]
+      Metallic: 0
+      Roughness: 0.9
+  # ── HungryNPC (green cube driven by GOAP) ──
+  - Entity: 2000000000000000005
+    TagComponent:
+      Tag: HungryNPC
+    TransformComponent:
+      Translation: [0, 0.5, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.2, 0.8, 0.35]
+      Metallic: 0
+      Roughness: 0.45
+    GoapAgentComponent:
+      Enabled: true
+    LuaScriptComponent:
+      ScriptFile: Scripts/LuaScripts/LuaGoapHungryNPC.lua
+  # ── Food (yellow sphere the NPC chases) ──
+  - Entity: 2000000000000000006
+    TagComponent:
+      Tag: Food
+    TransformComponent:
+      Translation: [5, 0.6, 3]
+      Rotation: [0, 0, 0]
+      Scale: [0.7, 0.7, 0.7]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.95, 0.8, 0.1]
+      Metallic: 0.1
+      Roughness: 0.35

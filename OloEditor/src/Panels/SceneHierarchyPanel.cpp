@@ -1794,6 +1794,7 @@ namespace OloEngine
             // AI
             DisplayAddComponentEntry<BehaviorTreeComponent>("Behavior Tree");
             DisplayAddComponentEntry<StateMachineComponent>("State Machine");
+            DisplayAddComponentEntry<GoapAgentComponent>("GOAP Agent");
 
             ImGui::Separator();
 
@@ -5466,6 +5467,40 @@ namespace OloEngine
             else
             {
                 ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "Not started");
+            } });
+
+        DrawComponent<GoapAgentComponent>("GOAP Agent", entity, [](auto& component)
+                                          {
+            ImGui::Checkbox("Enabled", &component.Enabled);
+
+            // The runtime brain (actions/goals) is built programmatically — from
+            // a Lua script's OnCreate or from native gameplay code — so the
+            // inspector reflects live planner state rather than authoring it.
+            if (component.RuntimeAgent)
+            {
+                const auto& agent = *component.RuntimeAgent;
+                ImGui::Text("Actions: %zu   Goals: %zu",
+                            agent.Actions().size(), agent.Goals().size());
+
+                const std::string& goal = agent.CurrentGoalName();
+                if (agent.HasPlan() && !goal.empty())
+                {
+                    ImGui::TextColored(ImVec4(0.4f, 0.9f, 0.4f, 1.0f), "Goal: %s", goal.c_str());
+                    ImGui::Text("Plan: step %zu / %zu",
+                                agent.CurrentStepIndex() + 1, agent.CurrentPlan().Length());
+                }
+                else
+                {
+                    ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "Idle (no active plan)");
+                }
+                ImGui::Text("Goals achieved: %u", agent.GoalsAchieved());
+            }
+            else
+            {
+                ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f),
+                                   "No runtime agent — build one from a script (see");
+                ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f),
+                                   "  LuaGoapHungryNPC.lua) or native code, then press Play.");
             } });
 
         DrawComponent<InventoryComponent>("Inventory", entity, [](auto& component)

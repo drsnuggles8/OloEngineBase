@@ -207,6 +207,8 @@ add_executable(OloEngine-Tests
 		# AI Behavior Tree & FSM Tests
 		BehaviorTreeTest.cpp
 		StateMachineTest.cpp
+		# AI GOAP (Goal-Oriented Action Planning) Tests
+		AI/GoapTest.cpp
 		# Inventory Tests
 		InventoryTest.cpp
 		# Quest Tests
@@ -251,6 +253,8 @@ add_executable(OloEngine-Tests
 		Functional/Scene/MultipleScenesCoexistTest.cpp
 		Functional/Scene/HierarchyChildFollowsPhysicsParentTest.cpp
 		Functional/AI/BehaviorTreeAdvancesViaSceneTickTest.cpp
+		Functional/AI/GoapAgentPlansViaSceneTickTest.cpp
+		Functional/AI/GoapAuthoredFromLuaViaSceneTickTest.cpp
 		Functional/Particles/ParticleSystemEmitsAndExpiresTest.cpp
 		Functional/AnimationPhysics/CharacterControllerWalksTest.cpp
 		Functional/AnimationPhysics/AnimationBlendCompletesViaSceneTickTest.cpp

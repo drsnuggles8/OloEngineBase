@@ -2614,6 +2614,7 @@ namespace OloEngine
         MorphTargetComponent,
         BehaviorTreeComponent,
         StateMachineComponent,
+        GoapAgentComponent,
         TileRendererComponent,
         InventoryComponent,
         ItemPickupComponent,
