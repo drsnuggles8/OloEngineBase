@@ -353,7 +353,13 @@ namespace OloEngine::Functional
         // <tempdir>/AssetRegistry.oar. That side-effect is contained in the
         // throwaway directory which TearDown removes.
         auto assetManager = Ref<EditorAssetManager>::Create();
-        assetManager->Initialize();
+        // Pass startFileWatcher=false: functional tests stage their assets once
+        // and never hot-reload mid-test. Leaving the watcher on (the Initialize()
+        // default) spawns a background thread that outlives the test and races the
+        // next test's asset manager (the callback captures `this`), which made
+        // asset-backed tests flaky — e.g. CinematicAssetPlaybackTest intermittently
+        // saw GetAsset() return null. See EditorAssetManager::Initialize.
+        assetManager->Initialize(false);
         Project::SetAssetManager(assetManager);
 
         m_AssetManagerEnabled = true;

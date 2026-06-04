@@ -52,27 +52,6 @@ namespace OloEngine
 #endif
 
     // ========================================================================
-    // Memory Statistics Tracking
-    // ========================================================================
-
-    namespace
-    {
-        // Memory tracking is disabled during lock-free operations in UE5.7
-        // because updating stats is not safe in the middle of an atomic operation.
-        // We keep this for reference but disabled by default.
-#if 0
-        std::atomic<i64> s_LockFreeListMem{0};
-
-        void ChangeMem(i64 Delta)
-        {
-            s_LockFreeListMem.fetch_add(Delta, std::memory_order_relaxed);
-            // Note: Cannot safely update external stats systems here
-            // as we may be in the middle of a lock-free operation
-        }
-#endif
-    } // namespace
-
-    // ========================================================================
     // Error Handlers
     // ========================================================================
 
