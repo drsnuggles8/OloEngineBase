@@ -13,6 +13,7 @@
 #include <span>
 #include <cstring>
 #include <format>
+#include <utility> // std::forward (AllocateStringf / AllocateStringViewf)
 
 namespace OloEngine::MemStackUtils
 {
