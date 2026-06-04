@@ -307,6 +307,7 @@
     "OloEngine/tests/SoundGraphInstantiationTest.cpp": "unit",
     "OloEngine/tests/StateMachineTest.cpp": "unit",
     "OloEngine/tests/Tasks/TaskSystemTest.cpp": "unit",
+    "OloEngine/tests/HAL/ThreadManagerTest.cpp": "unit",
     "OloEngine/tests/Templates/FunctionWithContextTest.cpp": "unit",
     "OloEngine/tests/Templates/TypeTraitsTest.cpp": "unit",
     "OloEngine/tests/TransformComponentTest.cpp": "unit",

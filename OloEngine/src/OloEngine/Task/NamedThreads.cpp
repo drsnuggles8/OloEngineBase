@@ -8,8 +8,21 @@
 
 #include "OloEngine/Task/NamedThreads.h"
 
+#include "OloEngine/Core/PlatformTLS.h"
+
 namespace OloEngine::Tasks
 {
+    // @brief Real OS thread id of the calling thread.
+    //
+    // Kept out-of-line so NamedThreads.h (a hot, widely-included header) doesn't pull
+    // in PlatformTLS.h / Windows.h. The value matches FRunnableThread::GetThreadID()
+    // and FThreadManager's keys, so named-thread registrations can be cross-referenced
+    // with the global thread registry.
+    u32 FNamedThreadManager::GetCurrentThreadIdInternal()
+    {
+        return FPlatformTLS::GetCurrentThreadId();
+    }
+
     // ============================================================================
     // Thread-local storage definitions
     // ============================================================================

@@ -784,6 +784,7 @@ namespace OloEngine
             ImGui::MenuItem("Scene Streaming", nullptr, &m_ShowStreamingPanel);
             ImGui::MenuItem("Input Settings", nullptr, &m_ShowInputSettings);
             ImGui::MenuItem("Network Debug", nullptr, &m_ShowNetworkDebug);
+            ImGui::MenuItem("Thread Inspector", nullptr, &m_ShowThreadInspector);
             ImGui::MenuItem("Dialogue Editor", nullptr, &m_ShowDialogueEditor);
             ImGui::MenuItem("Cinematic Timeline", nullptr, &m_ShowCinematicTimeline);
             ImGui::MenuItem("NavMesh Panel", nullptr, &m_ShowNavMeshPanel);
@@ -1291,6 +1292,12 @@ namespace OloEngine
         if (m_ShowNetworkDebug)
         {
             m_NetworkDebugPanel.OnImGuiRender(&m_ShowNetworkDebug);
+        }
+
+        // Thread Inspector Panel
+        if (m_ShowThreadInspector)
+        {
+            m_ThreadInspectorPanel.OnImGuiRender(&m_ShowThreadInspector);
         }
 
         // Dialogue Editor Panel

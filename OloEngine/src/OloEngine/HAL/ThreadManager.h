@@ -14,7 +14,7 @@
  */
 
 #include "OloEngine/Core/Base.h"
-#include "OloEngine/Threading/CriticalSection.h"
+#include "OloEngine/Core/CriticalSection.h"
 
 #include <string>
 #include <unordered_map>
@@ -196,8 +196,15 @@ namespace OloEngine
 
     inline FThreadManager& FThreadManager::Get()
     {
-        static FThreadManager s_Instance;
-        return s_Instance;
+        // Leak-on-purpose singleton. The registry is touched from FRunnableThread's
+        // destructor (RemoveThread), and some FRunnableThread instances are owned by
+        // namespace-scope statics (e.g. AudioEngine's audio thread, NetworkThread's
+        // worker) that are destroyed during static teardown. A Meyers singleton would
+        // be destroyed *before* those statics (it is constructed later, on first
+        // AddThread), so RemoveThread would touch a destroyed object. Intentionally
+        // never destroying the manager removes that teardown-order hazard.
+        static FThreadManager* s_Instance = new FThreadManager();
+        return *s_Instance;
     }
 
     inline void FThreadManager::AddThread(u32 ThreadId, FRunnableThread* Thread)

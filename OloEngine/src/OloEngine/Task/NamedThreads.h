@@ -477,10 +477,11 @@ namespace OloEngine::Tasks
                             "Invalid named thread");
 
             u32 Index = static_cast<u32>(std::to_underlying(Thread));
-            m_ThreadIds[Index].store(OLO::FTaskTagScope::GetCurrentTag() != OLO::ETaskTag::ENone
-                                         ? static_cast<u32>(std::to_underlying(OLO::FTaskTagScope::GetCurrentTag()))
-                                         : GetCurrentThreadIdInternal(),
-                                     std::memory_order_release);
+            // Record the real OS thread id so this registration can be cross-referenced
+            // with FThreadManager / FRunnableThread::GetThreadID(), which key threads by
+            // the same FPlatformTLS::GetCurrentThreadId() value. (This slot used to hold a
+            // task-tag enum or a hashed std::thread::id, which agreed with nothing else.)
+            m_ThreadIds[Index].store(GetCurrentThreadIdInternal(), std::memory_order_release);
 
             s_CurrentNamedThread = Thread;
         }
@@ -511,6 +512,23 @@ namespace OloEngine::Tasks
         bool IsOnNamedThread() const
         {
             return s_CurrentNamedThread != ENamedThread::Invalid;
+        }
+
+        // @brief Get the OS thread id currently attached as the given named thread
+        // @return The real OS thread id (FPlatformTLS::GetCurrentThreadId), or 0 if no
+        //         thread is attached to that role. Comparable with FThreadManager and
+        //         FRunnableThread::GetThreadID(), which use the same id space.
+        u32 GetThreadId(ENamedThread Thread) const
+        {
+            OLO_CORE_ASSERT(Thread != ENamedThread::Invalid && Thread < ENamedThread::Count,
+                            "Invalid named thread");
+            return m_ThreadIds[static_cast<u32>(std::to_underlying(Thread))].load(std::memory_order_acquire);
+        }
+
+        // @brief Whether a live thread is currently attached to the given role
+        bool IsThreadAttached(ENamedThread Thread) const
+        {
+            return GetThreadId(Thread) != 0;
         }
 
         // @brief Enqueue a task to a named thread
@@ -631,10 +649,9 @@ namespace OloEngine::Tasks
         FNamedThreadManager() = default;
         ~FNamedThreadManager() = default;
 
-        static u32 GetCurrentThreadIdInternal()
-        {
-            return static_cast<u32>(std::hash<std::thread::id>{}(std::this_thread::get_id()) & 0xFFFFFFFF);
-        }
+        // Defined in NamedThreads.cpp to keep the platform TLS header (and Windows.h)
+        // out of this widely-included header. Returns FPlatformTLS::GetCurrentThreadId().
+        static u32 GetCurrentThreadIdInternal();
 
         FNamedThreadQueue m_Queues[static_cast<u32>(std::to_underlying(ENamedThread::Count))];
         std::atomic<u32> m_ThreadIds[static_cast<u32>(std::to_underlying(ENamedThread::Count))] = {};

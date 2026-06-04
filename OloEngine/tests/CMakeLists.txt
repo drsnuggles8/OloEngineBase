@@ -56,6 +56,7 @@ add_executable(OloEngine-Tests
 		Async/SharedRecursiveMutexTest.cpp
 		Async/ExternalMutexTest.cpp
 		Tasks/TaskSystemTest.cpp
+		HAL/ThreadManagerTest.cpp
 		Containers/ConcurrentQueuesTest.cpp
 		Memory/MemoryViewTest.cpp
 		Templates/FunctionWithContextTest.cpp
