@@ -91,6 +91,7 @@ jobs:
     - name: Configure CMake (ASan enabled)
       run: >
         cmake -S . -B build
+        -DOLO_VIDEO_FFMPEG=OFF
         -DPython_EXECUTABLE="${{ steps.py.outputs.python-path }}"
         -DOLO_ENABLE_ASAN=ON
         -DBUILD_TESTS=ON
@@ -211,6 +212,7 @@ jobs:
     - name: Configure CMake (ASan + LSan)
       run: >
         cmake -S . -B build
+        -DOLO_VIDEO_FFMPEG=OFF
         -DCMAKE_CXX_COMPILER=clang++-19
         -DCMAKE_C_COMPILER=clang-19
         -DCMAKE_BUILD_TYPE=Debug
@@ -309,6 +311,7 @@ jobs:
     - name: Configure CMake (UBSan)
       run: >
         cmake -S . -B build
+        -DOLO_VIDEO_FFMPEG=OFF
         -DCMAKE_CXX_COMPILER=clang++-19
         -DCMAKE_C_COMPILER=clang-19
         -DCMAKE_BUILD_TYPE=Debug
@@ -402,6 +405,7 @@ jobs:
     - name: Configure CMake (TSan)
       run: >
         cmake -S . -B build
+        -DOLO_VIDEO_FFMPEG=OFF
         -DCMAKE_CXX_COMPILER=clang++-19
         -DCMAKE_C_COMPILER=clang-19
         -DCMAKE_BUILD_TYPE=Debug

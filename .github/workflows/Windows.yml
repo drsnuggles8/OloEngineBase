@@ -48,10 +48,30 @@ jobs:
     - name: Setup Vulkan SDK
       uses: ./.github/actions/setup-vulkan
 
+    # OLO_VIDEO_FFMPEG defaults ON, so the engine build compiles FFmpeg from source
+    # (scripts/build-ffmpeg.sh). That needs nasm + a bash + Visual Studio; windows-latest
+    # has Git-bash + Strawberry Perl (gmake), and we provision nasm here.
+    - name: Install nasm
+      run: choco install nasm -y --no-progress
+
+    # Cache the built FFmpeg so only the first (or post-bump) run pays the ~10-15 min build.
+    - name: Cache FFmpeg build
+      id: ffcache
+      uses: actions/cache@v4
+      with:
+        path: OloEngine/vendor/ffmpeg-install
+        key: ffmpeg-${{ runner.os }}-n7.1-${{ hashFiles('scripts/build-ffmpeg.sh') }}
+
     - name: Configure CMake
-      # Configure CMake in a 'build' subdirectory. `CMAKE_BUILD_TYPE` is only required if you are using a single-configuration generator such as make.
-      # See https://cmake.org/cmake/help/latest/variable/CMAKE_BUILD_TYPE.html?highlight=cmake_build_type
-      run: cmake -S . -B ${{github.workspace}}/build -DPython_EXECUTABLE="${{ steps.py.outputs.python-path }}"
+      # On a cache hit, point CMake at the prebuilt FFmpeg (ffmpeg.cmake's OLO_FFMPEG_PREFIX
+      # fast path) so the build step doesn't rebuild it; on a miss it builds from source.
+      shell: bash
+      run: |
+        PREFIX_ARG=""
+        if [ "${{ steps.ffcache.outputs.cache-hit }}" = "true" ]; then
+          PREFIX_ARG="-DOLO_FFMPEG_PREFIX=${GITHUB_WORKSPACE}/OloEngine/vendor/ffmpeg-install"
+        fi
+        cmake -S . -B "${GITHUB_WORKSPACE}/build" -DPython_EXECUTABLE="${{ steps.py.outputs.python-path }}" $PREFIX_ARG
 
     - name: Build with CMake
       # Build your program with the given configuration

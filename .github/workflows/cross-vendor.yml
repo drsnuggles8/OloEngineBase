@@ -51,7 +51,9 @@ jobs:
         uses: ./.github/actions/setup-vulkan
 
       - name: Configure CMake
-        run: cmake -S . -B build -DPython_EXECUTABLE="${{ steps.py.outputs.python-path }}"
+        # OLO_VIDEO_FFMPEG OFF: this job tests GPU-vendor rendering conformance, not video
+        # decode; skip the ~15 min FFmpeg-from-source build (+ nasm dependency).
+        run: cmake -S . -B build -DPython_EXECUTABLE="${{ steps.py.outputs.python-path }}" -DOLO_VIDEO_FFMPEG=OFF
 
       - name: Build tests
         run: cmake --build build --target OloEngine-Tests --config ${{env.BUILD_TYPE}} --parallel
