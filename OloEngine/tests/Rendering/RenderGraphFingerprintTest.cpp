@@ -74,17 +74,28 @@ namespace OloEngine::Tests
         // Every post-process flag that gates a graph-resource declaration /
         // pass execution. Keep in sync with ComputeBlackboardFingerprint.
         const std::vector<Toggle> kTopologyToggles = {
-            { "SSAOEnabled", [](PostProcessSettings& s) { s.SSAOEnabled = !s.SSAOEnabled; } },
-            { "GTAOEnabled", [](PostProcessSettings& s) { s.GTAOEnabled = !s.GTAOEnabled; } },
-            { "SSREnabled", [](PostProcessSettings& s) { s.SSREnabled = !s.SSREnabled; } },
-            { "BloomEnabled", [](PostProcessSettings& s) { s.BloomEnabled = !s.BloomEnabled; } },
-            { "DOFEnabled", [](PostProcessSettings& s) { s.DOFEnabled = !s.DOFEnabled; } },
-            { "MotionBlurEnabled", [](PostProcessSettings& s) { s.MotionBlurEnabled = !s.MotionBlurEnabled; } },
-            { "TAAEnabled", [](PostProcessSettings& s) { s.TAAEnabled = !s.TAAEnabled; } },
-            { "ChromaticAberrationEnabled", [](PostProcessSettings& s) { s.ChromaticAberrationEnabled = !s.ChromaticAberrationEnabled; } },
-            { "ColorGradingEnabled", [](PostProcessSettings& s) { s.ColorGradingEnabled = !s.ColorGradingEnabled; } },
-            { "VignetteEnabled", [](PostProcessSettings& s) { s.VignetteEnabled = !s.VignetteEnabled; } },
-            { "FXAAEnabled", [](PostProcessSettings& s) { s.FXAAEnabled = !s.FXAAEnabled; } },
+            { "SSAOEnabled", [](PostProcessSettings& s)
+              { s.SSAOEnabled = !s.SSAOEnabled; } },
+            { "GTAOEnabled", [](PostProcessSettings& s)
+              { s.GTAOEnabled = !s.GTAOEnabled; } },
+            { "SSREnabled", [](PostProcessSettings& s)
+              { s.SSREnabled = !s.SSREnabled; } },
+            { "BloomEnabled", [](PostProcessSettings& s)
+              { s.BloomEnabled = !s.BloomEnabled; } },
+            { "DOFEnabled", [](PostProcessSettings& s)
+              { s.DOFEnabled = !s.DOFEnabled; } },
+            { "MotionBlurEnabled", [](PostProcessSettings& s)
+              { s.MotionBlurEnabled = !s.MotionBlurEnabled; } },
+            { "TAAEnabled", [](PostProcessSettings& s)
+              { s.TAAEnabled = !s.TAAEnabled; } },
+            { "ChromaticAberrationEnabled", [](PostProcessSettings& s)
+              { s.ChromaticAberrationEnabled = !s.ChromaticAberrationEnabled; } },
+            { "ColorGradingEnabled", [](PostProcessSettings& s)
+              { s.ColorGradingEnabled = !s.ColorGradingEnabled; } },
+            { "VignetteEnabled", [](PostProcessSettings& s)
+              { s.VignetteEnabled = !s.VignetteEnabled; } },
+            { "FXAAEnabled", [](PostProcessSettings& s)
+              { s.FXAAEnabled = !s.FXAAEnabled; } },
         };
     } // namespace
 

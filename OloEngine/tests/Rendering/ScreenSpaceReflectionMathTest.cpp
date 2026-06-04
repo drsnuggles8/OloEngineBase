@@ -91,7 +91,7 @@ namespace
     {
         return 1.0f - Smoothstep(maxRoughness * 0.75f, maxRoughness, roughness);
     }
-}
+} // namespace
 
 // ---- UBO layout contract ----------------------------------------------------
 
@@ -252,7 +252,8 @@ TEST(ScreenSpaceReflection, RoughnessFadeCutoff)
 TEST(ScreenSpaceReflection, EdgeFadeVanishesAtBorders)
 {
     const float edge = 0.1f;
-    auto edgeFade = [edge](glm::vec2 uv) {
+    auto edgeFade = [edge](glm::vec2 uv)
+    {
         float f = 1.0f;
         f *= Smoothstep(0.0f, edge, uv.x) * Smoothstep(0.0f, edge, 1.0f - uv.x);
         f *= Smoothstep(0.0f, edge, uv.y) * Smoothstep(0.0f, edge, 1.0f - uv.y);

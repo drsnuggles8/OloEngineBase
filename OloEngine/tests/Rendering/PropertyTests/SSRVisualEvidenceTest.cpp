@@ -214,8 +214,14 @@ namespace OloEngine::Tests
 
         struct ScopedMockTime
         {
-            explicit ScopedMockTime(f32 t) { Time::SetMockTime(t); }
-            ~ScopedMockTime() { Time::ClearMockTime(); }
+            explicit ScopedMockTime(f32 t)
+            {
+                Time::SetMockTime(t);
+            }
+            ~ScopedMockTime()
+            {
+                Time::ClearMockTime();
+            }
         } scopedMockTime(kCaptureTime);
 
         // Floor band: lower-centre of the frame, below the block itself, where the
