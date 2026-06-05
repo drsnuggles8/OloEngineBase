@@ -1,4 +1,4 @@
-﻿include(CMakePrintHelpers)
+include(CMakePrintHelpers)
 include(CheckIPOSupported)
 
 project(OloEngine
@@ -8,10 +8,13 @@ project(OloEngine
 # Externally provided content
 add_subdirectory(vendor)
 
+# Vendor deps below are pinned to fixed commits for reproducible builds (#294); see the
+# rationale in vendor/CMakeLists.txt. GIT_SHALLOW must be FALSE for a commit-SHA pin.
 # Sol2 - for Lua scripting
 CPMAddPackage(NAME sol2
   GIT_REPOSITORY https://github.com/ThePhD/sol2.git
-  GIT_TAG develop
+  GIT_TAG c1f95a773c6f8f4fde8ca3efe872e7286afe4444  # develop @ 2026-06-05
+  GIT_SHALLOW FALSE
   DOWNLOAD_ONLY YES)
 if(sol2_ADDED)
   add_library(sol2 INTERFACE IMPORTED)
@@ -22,7 +25,8 @@ endif()
 # CHOC - for SoundGraph audio processing (Value system, FIFOs, real-time utilities)
 CPMAddPackage(NAME choc
   GIT_REPOSITORY https://github.com/Tracktion/choc.git
-  GIT_TAG main
+  GIT_TAG 5685fb59db9e60d31a35df7bff0ce7967beaaf25  # main @ 2026-06-05
+  GIT_SHALLOW FALSE
   DOWNLOAD_ONLY YES)
 if(choc_ADDED)
   add_library(choc INTERFACE IMPORTED)
