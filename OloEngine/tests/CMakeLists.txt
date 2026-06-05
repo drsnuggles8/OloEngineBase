@@ -103,6 +103,7 @@ add_executable(OloEngine-Tests
 		Rendering/OcclusionStateTest.cpp
 		Rendering/OcclusionIntegrationTest.cpp
 		Rendering/WaterRenderingTest.cpp
+		Rendering/PCSSShadowTest.cpp
 		Rendering/RenderingRegressionTest.cpp
 		Rendering/SelectionOutlineTest.cpp
 		Rendering/DeccerCubesLoadingTest.cpp
@@ -123,6 +124,7 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/ProceduralSkyVisualTest.cpp
 		Rendering/PropertyTests/WaterVisualEvidenceTest.cpp
 		Rendering/PropertyTests/SSRVisualEvidenceTest.cpp
+		Rendering/PropertyTests/PCSSVisualEvidenceTest.cpp
 		Rendering/PropertyTests/WaterSurfaceSamplerTest.cpp
 		Rendering/PropertyTests/WaterBuoyancyVisualEvidenceTest.cpp
 		Rendering/PropertyTests/ShadowTerrainPropertyTests.cpp

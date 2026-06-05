@@ -1029,6 +1029,7 @@ subsystem unit tests (§9.3, grouped by directory).
 |---|---:|---|
 | [AutoExposureEvidenceTest.cpp](../OloEngine/tests/Rendering/PropertyTests/AutoExposureEvidenceTest.cpp) | 1 | **AutoExposureBrightScene** &mdash; `AutoExposureDarkensAnOverBrightScene` |
 | [GoldenImageTests.cpp](../OloEngine/tests/Rendering/PropertyTests/GoldenImageTests.cpp) | 8 | **GoldenImageSsimTest** &mdash; `IdenticalImagesYieldSsimOne`, `TinyUniformShiftKeepsSsimHigh`, `StructuralDestructionCollapsesSsim`, `SsimIsSymmetric`<br/>**GoldenImageTest** &mdash; `ReinhardHdrRampGolden`, `FxaaHardEdgeGolden`, `SceneShadowIntegrationGolden`, `SceneSplatmapIntegrationGolden` |
+| [PCSSVisualEvidenceTest.cpp](../OloEngine/tests/Rendering/PropertyTests/PCSSVisualEvidenceTest.cpp) | 1 | **PCSSVisualEvidenceTest** &mdash; `SoftShadowsRenderAndDifferFromHardPCF` |
 | [ProceduralSkyBakeTest.cpp](../OloEngine/tests/Rendering/PropertyTests/ProceduralSkyBakeTest.cpp) | 2 | **ProceduralSkyBakeTest** &mdash; `GeneratesNonBlackEnvironmentMapWithIBL`, `HigherTurbidityProducesBrighterAverage` |
 | [ProceduralSkyVisualTest.cpp](../OloEngine/tests/Rendering/PropertyTests/ProceduralSkyVisualTest.cpp) | 1 | **ProceduralSkyVisualTest** &mdash; `WritesFaceGridPng` |
 | [SSRVisualEvidenceTest.cpp](../OloEngine/tests/Rendering/PropertyTests/SSRVisualEvidenceTest.cpp) | 1 | **SSRVisualEvidenceTest** &mdash; `ReflectionAppearsOnMirrorFloor` |
@@ -1111,7 +1112,7 @@ subsystem unit tests (§9.3, grouped by directory).
 |---|---:|---|
 | [TestFailureCaptureTest.cpp](../OloEngine/tests/Rendering/PropertyTests/TestFailureCaptureTest.cpp) | 6 | **TestFailureCaptureTest** &mdash; `DirectoryForSanitizesNames`, `MetadataIsWrittenWithoutGlContext`, `LatestFrameSummaryIsNoOpWithoutCaptures`, `GLStateSnapshotIsWrittenWhenGpuAvailable`, `FboPngIsWrittenWhenGpuAvailable`, `CaptureAllProducesExpectedArtefacts` |
 
-**Totals.** 85 renderer-scope test files, 1216 TEST / TEST_F / TEST_P declarations across all layers.
+**Totals.** 86 renderer-scope test files, 1217 TEST / TEST_F / TEST_P declarations across all layers.
 
 <!-- END: renderer-catalogue -->
 
@@ -1472,6 +1473,12 @@ level of `tests/`). Grouped by directory.
 | [ZoneHandoffTest.cpp](../OloEngine/tests/Networking/ZoneHandoffTest.cpp) | 7 | **PlayerStatePacket** &mdash; `SerializeDeserializeRoundtrip`, `EmptyGameStateBlob`, `RejectsNonFiniteTransform`<br/>**ZoneHandoff** &mdash; `ThreePhaseHandoffProtocol`, `HandoffRejectionOnFull`, `GhostEntityVisibility`, `PlayerTransitioningState` |
 | [ZoneServerTest.cpp](../OloEngine/tests/Networking/ZoneServerTest.cpp) | 7 | **ZoneServer** &mdash; `StartStop`, `AddRemovePlayers`<br/>**ZoneManager** &mdash; `RegisterAndRoutePlayer`, `TransferPlayer`, `MaxPlayersEnforcement`<br/>**InterZoneMessageBus** &mdash; `PushAndDrainAll`, `DrainForZone` |
 
+#### Rendering (1 file)
+
+| File | Tests | Cases |
+|---|---:|---|
+| [PCSSShadowTest.cpp](../OloEngine/tests/Rendering/PCSSShadowTest.cpp) | 12 | **PCSSShadow** &mdash; `ShadowUBOSizeUnchangedBySoftShadowModeField`, `SoftShadowModeFollowsCascadeDebugInLayout`, `RawDepthBindingSlotsMatchShaders`, `SoftShadowsDefaultsOn`, `QualityTieringMapsSoftShadows`, `LowPresetUsesHardShadows`, `NoBlockerReportsFullyLit`, `BlockerSearchAveragesOnlyOccluders`, `ZeroGapGivesSharpMinimumRadius`, `PenumbraGrowsMonotonicallyWithGap`, `PenumbraClampsToMaxRadius`, `LargerLightSizeGivesSofterMaxPenumbra` |
+
 #### SaveGame (4 files)
 
 | File | Tests | Cases |
@@ -1511,7 +1518,7 @@ level of `tests/`). Grouped by directory.
 |---|---:|---|
 | [TerrainGeneratorTest.cpp](../OloEngine/tests/Terrain/TerrainGeneratorTest.cpp) | 15 | **TerrainGeneratorTest** &mdash; `HeightFieldIsDeterministic`, `HeightFieldIsNormalizedAndFinite`, `LargeSeedStillProducesVariedTerrain`, `DifferentSeedsProduceDifferentTerrain`, `RidgedAndWarpAndExponentStayValid`, `TerraceShapingStaysValidAndDeterministic`, `TerraceEndpointsAndIdentity`, `TerraceIsMonotonicAndBounded`, `TerraceProducesFlatPlateaus`, `RuleWeightPeaksInsideBandAndZeroOutside`, `SlopeBandSelectsRule`, `DefaultRulesAssignExpectedLayers`, `LayerWeightsAreNormalized`, `NoMatchingRuleFallsBackToLayerZero`, `PackLayerWeightsQuantizesToBothSplatmaps` |
 
-**Totals.** 127 unit / subsystem test files, 1561 TEST / TEST_F declarations across all subsystems.
+**Totals.** 128 unit / subsystem test files, 1573 TEST / TEST_F declarations across all subsystems.
 
 <!-- END: unit-catalogue -->
 

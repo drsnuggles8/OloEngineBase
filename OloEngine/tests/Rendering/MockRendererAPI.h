@@ -437,6 +437,11 @@ namespace OloEngine::Testing
             Record("CreateTextureCubemap");
             return m_NextTextureID++;
         }
+        u32 CreateDepthArrayCompareOffView(u32 /*srcTextureID*/, u32 /*numLayers*/) override
+        {
+            Record("CreateDepthArrayCompareOffView");
+            return m_NextTextureID++;
+        }
         void SetTextureParameter(u32 /*texID*/, GLenum /*pname*/, GLint /*value*/) override
         {
             Record("SetTextureParameter");

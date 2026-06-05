@@ -63,8 +63,11 @@ namespace OloEngine
         static void SetPrevViewProjectionMatrix(const glm::mat4& prevVP);
         static void SetViewPosition(const glm::vec3& viewPos);
 
-        // Shadow texture binding — set per-frame from Renderer3D/Scene
-        static void SetShadowTextureIDs(u32 csmTextureID, u32 spotTextureID);
+        // Shadow texture binding — set per-frame from Renderer3D/Scene.
+        // The *Raw ids are the comparison-OFF views of the CSM / spot arrays used
+        // by the PCSS blocker search (0 = none; bound only when non-zero).
+        static void SetShadowTextureIDs(u32 csmTextureID, u32 spotTextureID,
+                                        u32 csmRawTextureID = 0, u32 spotRawTextureID = 0);
         static void SetPointShadowTextureIDs(const std::array<u32, UBOStructures::ShadowUBO::MAX_POINT_SHADOWS>& pointTextureIDs);
 
         // Snow accumulation depth texture — set per-frame

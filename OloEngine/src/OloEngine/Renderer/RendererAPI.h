@@ -137,6 +137,13 @@ namespace OloEngine
         // Texture lifecycle abstractions (avoid raw gl* calls in passes)
         virtual u32 CreateTexture2D(u32 width, u32 height, GLenum internalFormat) = 0;
         virtual u32 CreateTextureCubemap(u32 width, u32 height, GLenum internalFormat) = 0;
+        // Create a GL_TEXTURE_2D_ARRAY *view* aliasing the storage of an existing
+        // immutable depth array, but with hardware depth comparison DISABLED, so
+        // it can be sampled as a plain sampler2DArray to read raw depth (needed by
+        // the PCSS blocker search, which the comparison sampler2DArrayShadow can't
+        // provide). Source must be DEPTH_COMPONENT32F immutable storage. Returns 0
+        // if the platform lacks texture-view support.
+        virtual u32 CreateDepthArrayCompareOffView(u32 srcTextureID, u32 numLayers) = 0;
         virtual void SetTextureParameter(u32 textureID, GLenum pname, GLint value) = 0;
         virtual void UploadTextureSubImage2D(u32 textureID, u32 width, u32 height,
                                              GLenum format, GLenum type, const void* data) = 0;

@@ -12,6 +12,7 @@
 //   - samplerCube u_IrradianceMap (10), u_PrefilterMap (11)
 //   - sampler2D u_BRDFLutMap (12)
 //   - sampler2DArrayShadow u_ShadowMapCSM (8), u_ShadowMapSpot (13)
+//   - sampler2DArray u_ShadowMapCSMRaw (33), u_ShadowMapSpotRaw (34) — PCSS blocker search
 //   - samplerCubeShadow u_ShadowMapPoint0..3 (14-17)
 //   - include/PBRCommon.glsl, include/LightProbeSampling.glsl,
 //     include/ForwardPlusCommon.glsl
@@ -114,12 +115,14 @@ vec3 ComputeDeferredLit(
             float viewDepth = viewSpacePos.z;
             float shadow = calculateCascadedShadowFactorCSM(
                 u_ShadowMapCSM,
+                u_ShadowMapCSMRaw,
                 worldPos,
                 viewDepth,
                 u_DirectionalLightSpaceMatrices,
                 u_CascadePlaneDistances,
                 u_ShadowParams,
-                u_ShadowMapResolution);
+                u_ShadowMapResolution,
+                u_SoftShadowMode);
             lightContrib *= shadow;
         }
         else if (lightType == SPOT_LIGHT)
@@ -131,9 +134,12 @@ vec3 ComputeDeferredLit(
                     worldPos,
                     u_SpotLightSpaceMatrices[spotShadowIdx],
                     u_ShadowMapSpot,
+                    u_ShadowMapSpotRaw,
                     float(spotShadowIdx),
                     u_ShadowParams.x,
-                    u_ShadowMapResolution);
+                    u_ShadowMapResolution,
+                    u_SoftShadowMode,
+                    u_ShadowParams.z);
                 lightContrib *= shadow;
             }
         }

@@ -85,6 +85,10 @@ namespace OloEngine
             [[maybe_unused]] const auto velocityRead = builder.Read(m_SelectedInputs.Velocity, RGReadUsage::ShaderSample);
         }
 
+        // Raw-depth views alias the array storage tracked via the handles below,
+        // so they need no separate Read()/barrier — just carry the GL ids.
+        m_SelectedInputs.ShadowMapCSMRawID = blackboard.Shadows.ShadowMapCSMRawID;
+        m_SelectedInputs.ShadowMapSpotRawID = blackboard.Shadows.ShadowMapSpotRawID;
         if (blackboard.Shadows.ShadowMapCSM.IsValid())
         {
             m_SelectedInputs.ShadowMapCSM = blackboard.Shadows.ShadowMapCSM;
@@ -327,6 +331,17 @@ namespace OloEngine
                                      : ShadowMap::GetSpotPlaceholderRendererID();
         context.BindTexture(ShaderBindingLayout::TEX_SHADOW, csmShadowID);
         context.BindTexture(ShaderBindingLayout::TEX_SHADOW_SPOT, spotShadowID);
+        // Comparison-OFF raw-depth views for the PCSS blocker search (plain
+        // sampler2DArray). Fall back to the raw placeholder so the declared
+        // sampler always has a valid same-type binding.
+        const u32 csmRawID = (m_SelectedInputs.ShadowMapCSMRawID != 0)
+                                 ? m_SelectedInputs.ShadowMapCSMRawID
+                                 : ShadowMap::GetCSMRawPlaceholderRendererID();
+        const u32 spotRawID = (m_SelectedInputs.ShadowMapSpotRawID != 0)
+                                  ? m_SelectedInputs.ShadowMapSpotRawID
+                                  : ShadowMap::GetSpotRawPlaceholderRendererID();
+        context.BindTexture(ShaderBindingLayout::TEX_SHADOW_CSM_RAW, csmRawID);
+        context.BindTexture(ShaderBindingLayout::TEX_SHADOW_SPOT_RAW, spotRawID);
         static constexpr std::array<u32, 4u> pointShadowSlots = {
             ShaderBindingLayout::TEX_SHADOW_POINT_0,
             ShaderBindingLayout::TEX_SHADOW_POINT_1,

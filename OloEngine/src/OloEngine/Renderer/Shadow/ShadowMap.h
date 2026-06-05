@@ -21,10 +21,18 @@ namespace OloEngine
         u32 Resolution = static_cast<u32>(ShaderConstants::SHADOW_MAP_SIZE);
         f32 Bias = ShaderConstants::SHADOW_BIAS;
         f32 NormalBias = 0.01f;
+        // With SoftShadows (PCSS) on, Softness is the light's apparent size — it
+        // scales both the blocker-search region and the penumbra width, so larger
+        // values give softer, more spread-out shadow edges. With PCSS off it
+        // scales the legacy fixed PCF kernel. Range ~0.5..4 is sensible.
         f32 Softness = 1.0f;
         f32 MaxShadowDistance = 200.0f;
         f32 CascadeSplitLambda = 0.5f; // Practical split scheme blending factor
         bool Enabled = true;
+        // Percentage-Closer Soft Shadows: contact-hardening variable-penumbra
+        // filtering (sharp where the occluder touches the receiver, softening with
+        // distance). Off falls back to the legacy fixed 3x3 hardware PCF.
+        bool SoftShadows = true;
     };
 
     // @brief Manages shadow map textures, light-space matrices, and UBO uploads
@@ -95,6 +103,20 @@ namespace OloEngine
         [[nodiscard]] u32 GetSpotRendererID() const;
         [[nodiscard]] u32 GetPointRendererID(u32 index) const;
 
+        // Raw-depth (comparison-OFF) views aliasing the CSM / spot depth arrays,
+        // bound as plain sampler2DArray so the PCSS blocker search can read raw
+        // occluder depth (the hardware sampler2DArrayShadow only returns the
+        // depth-comparison result). Created alongside the arrays in Init();
+        // 0 until then. See Renderer::CreateDepthArrayCompareOffView.
+        [[nodiscard]] u32 GetCSMRawRendererID() const
+        {
+            return m_CSMRawViewID;
+        }
+        [[nodiscard]] u32 GetSpotRawRendererID() const
+        {
+            return m_SpotRawViewID;
+        }
+
         // Placeholder shadow textures for when no real shadow map is available
         // this frame. Some drivers validate the bound texture target at draw
         // time when a sampler2DArrayShadow / samplerCubeShadow uniform exists,
@@ -105,6 +127,10 @@ namespace OloEngine
         [[nodiscard]] static u32 GetCSMPlaceholderRendererID();
         [[nodiscard]] static u32 GetSpotPlaceholderRendererID();
         [[nodiscard]] static u32 GetPointPlaceholderRendererID();
+        // Comparison-OFF raw-depth placeholders (plain sampler2DArray) for the
+        // PCSS raw-view slots when no real shadow map is bound this frame.
+        [[nodiscard]] static u32 GetCSMRawPlaceholderRendererID();
+        [[nodiscard]] static u32 GetSpotRawPlaceholderRendererID();
         // Release placeholder textures. Called at renderer shutdown.
         static void ShutdownPlaceholders();
 
@@ -212,6 +238,11 @@ namespace OloEngine
         Ref<Texture2DArray> m_CSMTextureArray;                  // 4 layers for CSM cascades
         Ref<Texture2DArray> m_SpotTextureArray;                 // 4 layers for spot shadows
         std::array<u32, MAX_POINT_SHADOWS> m_PointCubemapIDs{}; // Depth cubemaps for point lights
+
+        // Comparison-OFF raw-depth views of the two depth arrays above (for PCSS
+        // blocker search). Owned GL texture-view objects; deleted in Shutdown().
+        u32 m_CSMRawViewID = 0;
+        u32 m_SpotRawViewID = 0;
 
         // Point light face VP matrices (6 per light)
         std::array<std::array<glm::mat4, 6>, MAX_POINT_SHADOWS> m_PointLightFaceMatrices{};

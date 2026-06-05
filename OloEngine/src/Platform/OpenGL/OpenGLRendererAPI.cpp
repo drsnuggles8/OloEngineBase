@@ -893,6 +893,35 @@ namespace OloEngine
         return textureID;
     }
 
+    u32 OpenGLRendererAPI::CreateDepthArrayCompareOffView(u32 srcTextureID, u32 numLayers)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        // glTextureView needs a *generated but unbound* name (NOT one from
+        // glCreateTextures, which already assigns a target). The view aliases
+        // the source's immutable DEPTH_COMPONENT32F storage with independent
+        // sampler state, so disabling comparison here does not affect the
+        // source's sampler2DArrayShadow binding.
+        u32 viewID = 0;
+        glGenTextures(1, &viewID);
+        glTextureView(viewID, GL_TEXTURE_2D_ARRAY, srcTextureID, GL_DEPTH_COMPONENT32F,
+                      0, 1, 0, static_cast<GLuint>(numLayers));
+
+        // Raw-depth reads for the PCSS blocker search: comparison OFF, point
+        // sampling (interpolating depths across occluder edges would corrupt the
+        // average-blocker estimate), white border so out-of-bounds taps read as
+        // "far" (no occluder).
+        glTextureParameteri(viewID, GL_TEXTURE_COMPARE_MODE, GL_NONE);
+        glTextureParameteri(viewID, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        glTextureParameteri(viewID, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        glTextureParameteri(viewID, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
+        glTextureParameteri(viewID, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
+        glTextureParameteri(viewID, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_BORDER);
+        constexpr std::array<float, 4> borderColor = { 1.0f, 1.0f, 1.0f, 1.0f };
+        glTextureParameterfv(viewID, GL_TEXTURE_BORDER_COLOR, borderColor.data());
+        return viewID;
+    }
+
     void OpenGLRendererAPI::SetTextureParameter(u32 textureID, GLenum pname, GLint value)
     {
         OLO_PROFILE_FUNCTION();

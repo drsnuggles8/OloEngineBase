@@ -177,6 +177,12 @@ namespace OloEngine
             // Matches UBOStructures::ShadowUBO::MAX_POINT_SHADOWS == 4.
             std::array<RGTextureHandle, MaxShadowMapPointLights> ShadowMapPoint{};                                         // Point-light cubemap roots (frame-local transients with explicit backing when available)
             std::array<std::array<RGTextureHandle, MaxShadowMapCubeFaces>, MaxShadowMapPointLights> ShadowMapPointFaces{}; // Explicit per-face views over each point-light cubemap
+            // Comparison-OFF raw-depth views of the CSM / spot arrays for the PCSS
+            // blocker search. Plain external GL ids (the views alias the
+            // graph-tracked arrays above, so they need no separate barrier
+            // tracking); 0 when the ShadowMap is uninitialised.
+            u32 ShadowMapCSMRawID = 0;
+            u32 ShadowMapSpotRawID = 0;
         };
 
         // -----------------------------------------------------------------------

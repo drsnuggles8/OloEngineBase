@@ -318,7 +318,9 @@ namespace OloEngine
         // Set shadow texture IDs AFTER ResetState() so they aren't zeroed out.
         CommandDispatch::SetShadowTextureIDs(
             data.Shadow.GetCSMRendererID(),
-            data.Shadow.GetSpotRendererID());
+            data.Shadow.GetSpotRendererID(),
+            data.Shadow.GetCSMRawRendererID(),
+            data.Shadow.GetSpotRawRendererID());
 
         // Set point shadow cubemap texture IDs.
         {
@@ -1347,6 +1349,13 @@ namespace OloEngine
         // ------------------------------------------------------------------
         {
             const auto shadowResolution = std::max(data.Shadow.GetResolution(), 1u);
+
+            // Comparison-OFF raw-depth views for the deferred PCSS blocker search.
+            // These alias the CSM / spot array storage declared below, so they
+            // ride that storage's barriers and need no separate graph resource.
+            board.Shadows.ShadowMapCSMRawID = data.Shadow.GetCSMRawRendererID();
+            board.Shadows.ShadowMapSpotRawID = data.Shadow.GetSpotRawRendererID();
+
             const auto buildShadowTextureDesc = [shadowResolution](const ResourceHandle::Kind kind,
                                                                    std::string_view debugName,
                                                                    const u32 depthOrLayers)

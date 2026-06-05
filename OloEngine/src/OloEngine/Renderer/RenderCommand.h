@@ -352,6 +352,11 @@ namespace OloEngine
             return s_RendererAPI->CreateTextureCubemap(width, height, internalFormat);
         }
 
+        static u32 CreateDepthArrayCompareOffView(u32 srcTextureID, u32 numLayers)
+        {
+            return s_RendererAPI->CreateDepthArrayCompareOffView(srcTextureID, numLayers);
+        }
+
         static void SetTextureParameter(u32 textureID, GLenum pname, GLint value)
         {
             s_RendererAPI->SetTextureParameter(textureID, pname, value);

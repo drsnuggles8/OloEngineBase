@@ -265,6 +265,7 @@ namespace OloEngine
                 out << YAML::Key << "ShadowResolution" << YAML::Value << qt.ShadowResolution;
                 out << YAML::Key << "ShadowSoftness" << YAML::Value << qt.ShadowSoftness;
                 out << YAML::Key << "ShadowEnabled" << YAML::Value << qt.ShadowEnabled;
+                out << YAML::Key << "SoftShadows" << YAML::Value << qt.SoftShadows;
                 out << YAML::Key << "AO" << YAML::Value << std::to_underlying(qt.AO);
                 out << YAML::Key << "SSAOSamples" << YAML::Value << qt.SSAOSamples;
                 out << YAML::Key << "SSAORadius" << YAML::Value << qt.SSAORadius;
@@ -611,6 +612,10 @@ namespace OloEngine
             if (auto n = tieringNode["ShadowEnabled"]; n && n.IsScalar())
             {
                 qt.ShadowEnabled = n.as<bool>(qt.ShadowEnabled);
+            }
+            if (auto n = tieringNode["SoftShadows"]; n && n.IsScalar())
+            {
+                qt.SoftShadows = n.as<bool>(qt.SoftShadows);
             }
             if (auto n = tieringNode["AO"]; n && n.IsScalar())
             {
