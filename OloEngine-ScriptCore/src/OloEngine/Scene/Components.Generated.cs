@@ -1502,6 +1502,12 @@ namespace OloEngine
 			get => InternalCalls.VideoOverlayComponent_GetVolume(Entity.ID);
 			set => InternalCalls.VideoOverlayComponent_SetVolume(Entity.ID, value);
 		}
+
+		public string VideoPath
+		{
+			get => InternalCalls.VideoOverlayComponent_GetVideoPath(Entity.ID);
+			set => InternalCalls.VideoOverlayComponent_SetVideoPath(Entity.ID, value);
+		}
 	}
 
 	public partial class VideoSurfaceComponent : Component
@@ -1522,6 +1528,12 @@ namespace OloEngine
 		{
 			get => InternalCalls.VideoSurfaceComponent_GetVolume(Entity.ID);
 			set => InternalCalls.VideoSurfaceComponent_SetVolume(Entity.ID, value);
+		}
+
+		public string VideoPath
+		{
+			get => InternalCalls.VideoSurfaceComponent_GetVideoPath(Entity.ID);
+			set => InternalCalls.VideoSurfaceComponent_SetVideoPath(Entity.ID, value);
 		}
 	}
 

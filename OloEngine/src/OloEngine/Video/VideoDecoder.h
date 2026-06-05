@@ -52,7 +52,7 @@ namespace OloEngine
         [[nodiscard]] f64 GetFrameRate() const;       // Frames per second.
         [[nodiscard]] bool HasAudio() const;          // True if the file carries an audio stream.
         [[nodiscard]] u32 GetAudioSampleRate() const; // Hz (0 if no audio).
-        [[nodiscard]] u32 GetAudioChannels() const;   // pl_mpeg always decodes stereo (2).
+        [[nodiscard]] u32 GetAudioChannels() const;   // Output channel count (backends output stereo: 2).
 
         /// Decode the next video frame into @p outRGBA (resized to width*height*4).
         /// @return false at end-of-stream or when no decoder is open.

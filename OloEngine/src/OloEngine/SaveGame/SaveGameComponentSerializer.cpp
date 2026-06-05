@@ -687,11 +687,14 @@ namespace OloEngine
     void SaveGameComponentSerializer::Serialize(FArchive& ar, VideoOverlayComponent& c)
     {
         ar << c.VideoPath << c.PlayOnStart << c.SkipOnInput << c.Looping << c.Volume;
+        // Sanitise on load so a corrupt save can't feed NaN/out-of-range to SetVolume each frame.
+        c.Volume = std::isfinite(c.Volume) ? std::clamp(c.Volume, 0.0f, 1.0f) : 1.0f;
     }
 
     void SaveGameComponentSerializer::Serialize(FArchive& ar, VideoSurfaceComponent& c)
     {
         ar << c.VideoPath << c.AutoPlay << c.Looping << c.Volume;
+        c.Volume = std::isfinite(c.Volume) ? std::clamp(c.Volume, 0.0f, 1.0f) : 0.5f;
     }
 
     void SaveGameComponentSerializer::Serialize(FArchive& ar, MaterialComponent& c)

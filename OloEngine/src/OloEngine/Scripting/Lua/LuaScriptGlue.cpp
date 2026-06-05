@@ -1769,8 +1769,17 @@ namespace OloEngine
             {
                 VideoSystem::PlayFullscreen(path, false, [onFinished]()
                                             {
-                    if (onFinished.valid())
-                        onFinished(); });
+                    // Invoke as a protected_function so a Lua error in the callback is logged
+                    // rather than thrown into the C++ caller (OnFinished runs during the scene tick).
+                    sol::protected_function pf = onFinished;
+                    if (!pf.valid())
+                        return;
+                    sol::protected_function_result result = pf();
+                    if (!result.valid())
+                    {
+                        sol::error err = result;
+                        OLO_ERROR("Video.PlayFullscreen onFinished callback error: {}", err.what());
+                    } });
             });
         videoTable["Stop"] = []()
         { VideoSystem::StopFullscreen(); };

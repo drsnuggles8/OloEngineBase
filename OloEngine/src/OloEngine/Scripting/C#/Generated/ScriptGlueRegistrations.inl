@@ -479,6 +479,8 @@ OLO_ADD_INTERNAL_CALL(VideoOverlayComponent_GetLooping);
 OLO_ADD_INTERNAL_CALL(VideoOverlayComponent_SetLooping);
 OLO_ADD_INTERNAL_CALL(VideoOverlayComponent_GetVolume);
 OLO_ADD_INTERNAL_CALL(VideoOverlayComponent_SetVolume);
+OLO_ADD_INTERNAL_CALL(VideoOverlayComponent_GetVideoPath);
+OLO_ADD_INTERNAL_CALL(VideoOverlayComponent_SetVideoPath);
 
 // VideoSurfaceComponent
 OLO_ADD_INTERNAL_CALL(VideoSurfaceComponent_GetAutoPlay);
@@ -487,3 +489,5 @@ OLO_ADD_INTERNAL_CALL(VideoSurfaceComponent_GetLooping);
 OLO_ADD_INTERNAL_CALL(VideoSurfaceComponent_SetLooping);
 OLO_ADD_INTERNAL_CALL(VideoSurfaceComponent_GetVolume);
 OLO_ADD_INTERNAL_CALL(VideoSurfaceComponent_SetVolume);
+OLO_ADD_INTERNAL_CALL(VideoSurfaceComponent_GetVideoPath);
+OLO_ADD_INTERNAL_CALL(VideoSurfaceComponent_SetVideoPath);

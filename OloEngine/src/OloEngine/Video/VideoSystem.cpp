@@ -109,10 +109,14 @@ namespace OloEngine
         if (!s_FullscreenPlayer || !s_FullscreenSkippable)
             return;
 
-        // Fire the finished callback so callers waiting on the cutscene proceed.
-        if (s_FullscreenPlayer->OnFinished)
-            s_FullscreenPlayer->OnFinished();
-        StopFullscreen();
+        // Keep the current player alive across the callback, which may itself start a new
+        // fullscreen video (PlayFullscreen). Only tear down if it's still the same player —
+        // otherwise we'd immediately kill the one OnFinished just started.
+        Ref<VideoPlayer> current = s_FullscreenPlayer;
+        if (current->OnFinished)
+            current->OnFinished();
+        if (s_FullscreenPlayer.Raw() == current.Raw())
+            StopFullscreen();
     }
 
     void VideoSystem::SetFullscreenSkippable(bool skippable)

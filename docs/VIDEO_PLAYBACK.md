@@ -16,11 +16,12 @@ surfaces (TV screens, billboards, security-camera feeds).
   [PlMpeg.cpp](../OloEngine/src/OloEngine/Video/PlMpeg.cpp).
 - **FFmpeg/libav** ([FFmpegBackend.cpp](../OloEngine/src/OloEngine/Video/FFmpegBackend.cpp)) —
   everything else (H.264/HEVC/VP9/MPEG-4 in MP4/MOV/MKV/AVI, AAC/MP3/AC3 audio). Built **from
-  source** (like every other dependency) by [OloEngine/vendor/ffmpeg.cmake](../OloEngine/vendor/ffmpeg.cmake),
-  which runs [scripts/build-ffmpeg.sh](../scripts/build-ffmpeg.sh) under an `ExternalProject`.
-  **Opt-in** via `-DOLO_VIDEO_FFMPEG=ON` (off by default — building FFmpeg from source needs a
-  MSYS/MINGW bash + nasm + gmake + Visual Studio). When on, `FFmpegBackend.cpp` compiles
-  (guarded by `OLO_VIDEO_FFMPEG`) and the runtime DLLs are copied next to the app exes.
+  source** (like every other dependency) by [cmake/ffmpeg.cmake](../cmake/ffmpeg.cmake), which
+  runs [scripts/build-ffmpeg.sh](../scripts/build-ffmpeg.sh) under an `ExternalProject`.
+  **On by default**; opt out with `-DOLO_VIDEO_FFMPEG=OFF` (then only the pl_mpeg/MPEG-1 path is
+  available). Building FFmpeg from source needs `nasm` + a bash (+ Visual Studio on Windows).
+  `FFmpegBackend.cpp` is guarded by `OLO_VIDEO_FFMPEG`, and the runtime libs (DLLs/`.so`) are
+  copied next to the app exes.
 
 The build is decode-only (no encoders/muxers/programs/network) and converts to RGBA8
 (swscale) and interleaved-stereo float (swresample) — the formats the rest of the pipeline
@@ -39,11 +40,13 @@ rpath on Linux).
 
 ### CI
 
-The default Windows/Linux CI leaves `OLO_VIDEO_FFMPEG` **off**, so it is unaffected. A
-separate opt-in workflow — [.github/workflows/video-ffmpeg.yml](../.github/workflows/video-ffmpeg.yml),
-manual-dispatch + weekly — builds `-DOLO_VIDEO_FFMPEG=ON` on **both** `windows-latest` and
-`ubuntu-24.04`, installs `nasm` (choco/apt), **caches** `vendor/ffmpeg-install` (so only the
-first/post-bump run pays the ~10-15 min build), and runs the decode test against a fetched
+`OLO_VIDEO_FFMPEG` defaults **on**, so the regular Windows build (`Windows.yml`) compiles FFmpeg
+from source — it provisions `nasm` and **caches** `vendor/ffmpeg-install` (only the first/post-bump
+run pays the ~10-15 min build). The specialised analysis jobs (ASan/UBSan, fuzz, CodeQL,
+SonarCloud, cross-vendor) explicitly opt **out** with `-DOLO_VIDEO_FFMPEG=OFF`, since a
+from-source FFmpeg build is irrelevant overhead for them. A dedicated workflow —
+[.github/workflows/video-ffmpeg.yml](../.github/workflows/video-ffmpeg.yml) — builds with FFmpeg
+on for **both** `windows-latest` and `ubuntu-24.04` and runs the decode test against a fetched
 sample MP4. Both from-source builds are verified: the Windows path end-to-end (build → backend
 compile → link → decode a 1080p H.264 MP4); the Linux path producing the FFmpeg `.so`s.
 

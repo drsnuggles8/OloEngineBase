@@ -4432,6 +4432,29 @@ static void VideoOverlayComponent_SetVolume(UUID entityID, float value)
     comp.Volume = value;
 }
 
+static MonoString* VideoOverlayComponent_GetVideoPath(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<VideoOverlayComponent>();
+    return ScriptEngine::CreateString((comp.VideoPath).c_str());
+}
+
+static void VideoOverlayComponent_SetVideoPath(UUID entityID, MonoString* value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!value)
+        return;
+    auto& comp = entity.GetComponent<VideoOverlayComponent>();
+    std::string converted = Utils::MonoStringToString(value);
+    comp.VideoPath = converted;
+}
+
 ///////////////////////////////////////////////////////////////////////////////////////////
 // VideoSurfaceComponent                                                          //
 ///////////////////////////////////////////////////////////////////////////////////////////
@@ -4496,4 +4519,27 @@ static void VideoSurfaceComponent_SetVolume(UUID entityID, float value)
         return;
     auto& comp = entity.GetComponent<VideoSurfaceComponent>();
     comp.Volume = value;
+}
+
+static MonoString* VideoSurfaceComponent_GetVideoPath(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<VideoSurfaceComponent>();
+    return ScriptEngine::CreateString((comp.VideoPath).c_str());
+}
+
+static void VideoSurfaceComponent_SetVideoPath(UUID entityID, MonoString* value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!value)
+        return;
+    auto& comp = entity.GetComponent<VideoSurfaceComponent>();
+    std::string converted = Utils::MonoStringToString(value);
+    comp.VideoPath = converted;
 }

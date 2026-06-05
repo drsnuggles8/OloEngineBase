@@ -1004,6 +1004,11 @@ namespace OloEngine
         if (!decoder.DecodeNextFrame(rgba, info) || info.Width == 0 || info.Height == 0)
             return nullptr;
 
+        // Guard the RGBA8 contract before upload — Texture2D::SetData asserts on a size mismatch.
+        const size_t expectedBytes = static_cast<size_t>(info.Width) * static_cast<size_t>(info.Height) * 4u;
+        if (rgba.size() != expectedBytes)
+            return nullptr;
+
         TextureSpecification spec;
         spec.Width = info.Width;
         spec.Height = info.Height;

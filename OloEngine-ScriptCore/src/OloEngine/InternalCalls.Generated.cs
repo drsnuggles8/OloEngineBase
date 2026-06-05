@@ -918,6 +918,10 @@ namespace OloEngine
 		internal static extern float VideoOverlayComponent_GetVolume(ulong entityID);
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern void VideoOverlayComponent_SetVolume(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern string VideoOverlayComponent_GetVideoPath(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void VideoOverlayComponent_SetVideoPath(ulong entityID, string value);
 		#endregion
 
 		#region VideoSurfaceComponent
@@ -933,6 +937,10 @@ namespace OloEngine
 		internal static extern float VideoSurfaceComponent_GetVolume(ulong entityID);
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern void VideoSurfaceComponent_SetVolume(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern string VideoSurfaceComponent_GetVideoPath(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void VideoSurfaceComponent_SetVideoPath(ulong entityID, string value);
 		#endregion
 
 	}

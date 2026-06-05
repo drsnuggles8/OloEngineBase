@@ -84,11 +84,15 @@ jobs:
       - name: Build tests (builds FFmpeg on cache miss)
         run: cmake --build build --target OloEngine-Tests --config Debug --parallel
 
-      # Fetch a small H.264 MP4 so the FFmpeg decode path runs end-to-end; without it
-      # the fixture test SKIPs cleanly.
+      # Fetch a small H.264 MP4 so the FFmpeg decode path runs end-to-end. -f fails on HTTP
+      # errors and --retry rides out transient flakes; the existence check surfaces a genuine
+      # download failure instead of silently letting the decode test SKIP.
       - name: Fetch decode fixture
         shell: bash
-        run: curl -sSL --max-time 60 -o "${GITHUB_WORKSPACE}/sample.mp4" https://download.samplelib.com/mp4/sample-5s.mp4 || true
+        run: |
+          curl -fSL --retry 3 --retry-delay 5 --max-time 120 \
+            -o "${GITHUB_WORKSPACE}/sample.mp4" https://download.samplelib.com/mp4/sample-5s.mp4
+          test -s "${GITHUB_WORKSPACE}/sample.mp4"
 
       - name: Run video tests
         shell: bash

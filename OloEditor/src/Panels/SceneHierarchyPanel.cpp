@@ -3599,7 +3599,7 @@ namespace OloEngine
         const auto drawVideoPathPicker = [](std::string& videoPath, const char* idSuffix)
         {
             std::string label = videoPath.empty()
-                                    ? std::string("File: <none — drag a .mpg here>")
+                                    ? std::string("File: <none — drag a video here>")
                                     : ("File: " + videoPath);
             ImGui::Button((label + "##" + idSuffix).c_str(), ImVec2(-1.0f, 0.0f));
             if (ImGui::BeginDragDropTarget())
@@ -3610,10 +3610,10 @@ namespace OloEngine
                     std::string ext = dropped.extension().string();
                     std::ranges::transform(ext, ext.begin(), [](unsigned char c)
                                            { return static_cast<char>(std::tolower(c)); });
-                    if (ext == ".mpg" || ext == ".mpeg" || ext == ".m1v")
+                    if (ext == ".mpg" || ext == ".mpeg" || ext == ".m1v" || ext == ".mp4" || ext == ".mov" || ext == ".m4v" || ext == ".mkv" || ext == ".webm" || ext == ".avi")
                         videoPath = Project::GetAssetRelativeFileSystemPath(dropped).generic_string();
                     else
-                        OLO_WARN("Dropped file is not an MPEG-1 video (.mpg/.mpeg/.m1v): {0}", dropped.filename().string());
+                        OLO_WARN("Dropped file is not a recognised video (.mpg/.mp4/.mov/.mkv/.webm/.avi/…): {0}", dropped.filename().string());
                 }
                 ImGui::EndDragDropTarget();
             }

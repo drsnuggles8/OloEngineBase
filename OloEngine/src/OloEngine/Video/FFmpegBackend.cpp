@@ -144,12 +144,17 @@ namespace OloEngine
                 m_Sws = sws_getCachedContext(m_Sws, frame->width, frame->height,
                                              static_cast<AVPixelFormat>(frame->format), static_cast<int>(w), static_cast<int>(h),
                                              AV_PIX_FMT_RGBA, SWS_BILINEAR, nullptr, nullptr, nullptr);
-                if (m_Sws)
+                if (!m_Sws)
                 {
-                    uint8_t* dst[4] = { outRGBA.data(), nullptr, nullptr, nullptr };
-                    int dstStride[4] = { static_cast<int>(w * 4u), 0, 0, 0 };
-                    sws_scale(m_Sws, frame->data, frame->linesize, 0, frame->height, dst, dstStride);
+                    // Could not build a colour converter — fail rather than return uninitialised pixels.
+                    OLO_CORE_WARN("FFmpegBackend::DecodeNextFrame - sws_getCachedContext failed");
+                    av_frame_free(&frame);
+                    return false;
                 }
+
+                uint8_t* dst[4] = { outRGBA.data(), nullptr, nullptr, nullptr };
+                int dstStride[4] = { static_cast<int>(w * 4u), 0, 0, 0 };
+                sws_scale(m_Sws, frame->data, frame->linesize, 0, frame->height, dst, dstStride);
 
                 outInfo.Width = w;
                 outInfo.Height = h;
@@ -230,7 +235,7 @@ namespace OloEngine
                 if (m_AudioCtx->ch_layout.nb_channels > 0)
                     av_channel_layout_copy(&inLayout, &m_AudioCtx->ch_layout);
                 else
-                    av_channel_layout_default(&inLayout, m_AudioCtx->ch_layout.nb_channels > 0 ? m_AudioCtx->ch_layout.nb_channels : 2);
+                    av_channel_layout_default(&inLayout, 2);
 
                 const int rc = swr_alloc_set_opts2(&m_Swr,
                                                    &outLayout, AV_SAMPLE_FMT_FLT, m_AudioCtx->sample_rate,

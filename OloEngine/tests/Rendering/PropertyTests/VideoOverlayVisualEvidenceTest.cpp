@@ -102,6 +102,15 @@ namespace OloEngine::Tests
         }
 
         VideoSystem::ShowFullscreenImage(frame.data(), frameW, frameH);
+        // Tear the global fullscreen player down on every exit path (incl. ASSERT_* early
+        // returns) so it can't leak into later tests.
+        struct AutoStopFullscreen
+        {
+            ~AutoStopFullscreen()
+            {
+                VideoSystem::StopFullscreen();
+            }
+        } autoStop;
 
         // Two frames: first seeds render-graph history, second produces the stable image.
         RunFrames(2);
@@ -146,7 +155,6 @@ namespace OloEngine::Tests
             << "top letterbox bar should be black";
         EXPECT_TRUE(isBlack(pixel(width / 2, height - 8u)))
             << "bottom letterbox bar should be black";
-
-        VideoSystem::StopFullscreen();
+        // autoStop tears down the fullscreen player on scope exit.
     }
 } // namespace OloEngine::Tests

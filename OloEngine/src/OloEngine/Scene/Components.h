@@ -845,6 +845,7 @@ namespace OloEngine
         OLO_PROPERTY(Name = "SkipOnInput", Type = "bool", Get = "comp.SkipOnInput", Set = "comp.SkipOnInput = {v}")
         OLO_PROPERTY(Name = "Looping", Type = "bool", Get = "comp.Looping", Set = "comp.Looping = {v}")
         OLO_PROPERTY(Name = "Volume", Type = "float", Get = "comp.Volume", Set = "comp.Volume = {v}")
+        OLO_PROPERTY(Name = "VideoPath", Type = "string", Get = "comp.VideoPath", Set = "comp.VideoPath = {v}")
         std::string VideoPath; // Asset-relative path to the video file.
         bool PlayOnStart = false;
         bool SkipOnInput = true;
@@ -895,6 +896,7 @@ namespace OloEngine
         OLO_PROPERTY(Name = "AutoPlay", Type = "bool", Get = "comp.AutoPlay", Set = "comp.AutoPlay = {v}")
         OLO_PROPERTY(Name = "Looping", Type = "bool", Get = "comp.Looping", Set = "comp.Looping = {v}")
         OLO_PROPERTY(Name = "Volume", Type = "float", Get = "comp.Volume", Set = "comp.Volume = {v}")
+        OLO_PROPERTY(Name = "VideoPath", Type = "string", Get = "comp.VideoPath", Set = "comp.VideoPath = {v}")
         std::string VideoPath; // Asset-relative path to the video file.
         bool AutoPlay = true;
         bool Looping = true;
