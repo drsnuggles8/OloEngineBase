@@ -110,11 +110,14 @@ namespace OloEngine
             return;
 
         // Keep the current player alive across the callback, which may itself start a new
-        // fullscreen video (PlayFullscreen). Only tear down if it's still the same player —
-        // otherwise we'd immediately kill the one OnFinished just started.
+        // fullscreen video (PlayFullscreen). Move the callback out and clear it before invoking
+        // so a re-entrant Skip/Stop from within it can't fire the same callback again. Only tear
+        // down if it's still the same player — otherwise we'd kill the one OnFinished just started.
         Ref<VideoPlayer> current = s_FullscreenPlayer;
-        if (current->OnFinished)
-            current->OnFinished();
+        std::function<void()> onFinished = std::move(current->OnFinished);
+        current->OnFinished = nullptr;
+        if (onFinished)
+            onFinished();
         if (s_FullscreenPlayer.Raw() == current.Raw())
             StopFullscreen();
     }

@@ -42,16 +42,19 @@ namespace OloEngine
         { ".ogg", ContentFileType::Audio },
         { ".flac", ContentFileType::Audio },
 
+        // pl_mpeg path — always available.
         { ".mpg", ContentFileType::Video },
         { ".mpeg", ContentFileType::Video },
         { ".m1v", ContentFileType::Video },
-        // FFmpeg-backed containers (decoded when OLO_VIDEO_FFMPEG is built).
+#if defined(OLO_VIDEO_FFMPEG)
+        // FFmpeg-backed containers — only advertised when the build can actually decode them.
         { ".mp4", ContentFileType::Video },
         { ".mov", ContentFileType::Video },
         { ".m4v", ContentFileType::Video },
         { ".mkv", ContentFileType::Video },
         { ".webm", ContentFileType::Video },
         { ".avi", ContentFileType::Video },
+#endif
         // Materials
         { ".mat", ContentFileType::Material },
         { ".material", ContentFileType::Material },

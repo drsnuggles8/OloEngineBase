@@ -98,5 +98,10 @@ jobs:
         shell: bash
         env:
           OLO_TEST_VIDEO: ${{ github.workspace }}/sample.mp4
-        working-directory: build/OloEngine/tests/Debug
-        run: ./OloEngine-Tests --gtest_filter='VideoDecoder*:VideoPlayer*:VideoTexture*:VideoFrameInfo*:VideoDecoderFixture*'
+        # Run from the repo root so VideoPlaybackTest's relative fixture candidates resolve, and
+        # locate the binary per-OS: Windows (VS multi-config) emits it under Debug/ with a .exe
+        # suffix; Linux (single-config) emits build/OloEngine/tests/OloEngine-Tests with neither.
+        run: |
+          BIN=$(find build/OloEngine/tests -type f \( -name OloEngine-Tests -o -name OloEngine-Tests.exe \) | head -1)
+          test -n "$BIN" || { echo "OloEngine-Tests binary not found under build/OloEngine/tests"; exit 1; }
+          "$BIN" --gtest_filter='VideoDecoder*:VideoPlayer*:VideoTexture*:VideoFrameInfo*:VideoDecoderFixture*'

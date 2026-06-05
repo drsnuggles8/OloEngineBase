@@ -3610,10 +3610,17 @@ namespace OloEngine
                     std::string ext = dropped.extension().string();
                     std::ranges::transform(ext, ext.begin(), [](unsigned char c)
                                            { return static_cast<char>(std::tolower(c)); });
-                    if (ext == ".mpg" || ext == ".mpeg" || ext == ".m1v" || ext == ".mp4" || ext == ".mov" || ext == ".m4v" || ext == ".mkv" || ext == ".webm" || ext == ".avi")
+                    const bool isMpeg1 = (ext == ".mpg" || ext == ".mpeg" || ext == ".m1v");
+#if defined(OLO_VIDEO_FFMPEG)
+                    // FFmpeg-backed containers only count as video when the build can decode them.
+                    const bool isFFmpegContainer = (ext == ".mp4" || ext == ".mov" || ext == ".m4v" || ext == ".mkv" || ext == ".webm" || ext == ".avi");
+#else
+                    const bool isFFmpegContainer = false;
+#endif
+                    if (isMpeg1 || isFFmpegContainer)
                         videoPath = Project::GetAssetRelativeFileSystemPath(dropped).generic_string();
                     else
-                        OLO_WARN("Dropped file is not a recognised video (.mpg/.mp4/.mov/.mkv/.webm/.avi/…): {0}", dropped.filename().string());
+                        OLO_WARN("Dropped file is not a recognised/decodable video: {0}", dropped.filename().string());
                 }
                 ImGui::EndDragDropTarget();
             }

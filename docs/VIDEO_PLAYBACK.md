@@ -138,7 +138,8 @@ render path, and unit + visual-evidence tests.
 
 ### Remaining nice-to-haves (not blocking)
 
-- FFmpeg is **opt-in** (`OLO_VIDEO_FFMPEG=ON`); without it only MPEG-1 (`.mpg`) plays.
+- FFmpeg is **on by default**; opt out with `-DOLO_VIDEO_FFMPEG=OFF`, after which only
+  MPEG-1 (`.mpg`) plays.
 - Playback-speed control applies only in the video-only (no-audio) path; with audio the master
   clock keeps playback at 1×.
 - Subtitle tracks and hardware-accelerated decode (DXVA/NVDEC) are not wired.
