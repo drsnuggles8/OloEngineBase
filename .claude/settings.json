@@ -19,7 +19,10 @@
       "mcp__sonarqube__search_my_sonarqube_projects",
       "Bash(cmake --build build --target OloEngine-Tests --config Debug --parallel)",
       "Bash(build/OloEngine/tests/Debug/OloEngine-Tests.exe *)",
-      "Bash(tasklist *)"
+      "Bash(tasklist *)",
+      "Bash(git rev-list *)",
+      "Bash(git grep *)",
+      "Bash(git check-ignore *)"
     ],
     "additionalDirectories": [
       "\\tmp"
