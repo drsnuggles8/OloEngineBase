@@ -196,6 +196,8 @@ namespace OloEngine
             tc.m_ProceduralSeed = RandomUtils::Int32(0, std::numeric_limits<i32>::max());
             regenerate();
         }
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Picks a new seed and regenerates immediately.\nEditing the Seed value above instead requires the Generate / Regenerate button.");
         if (int res = static_cast<int>(tc.m_ProceduralResolution); ImGui::DragInt("Resolution", &res, 1, 64, 2048))
             tc.m_ProceduralResolution = static_cast<u32>(std::clamp(res, 64, 2048));
         if (int oct = static_cast<int>(tc.m_ProceduralOctaves); ImGui::DragInt("Octaves", &oct, 1, 1, 12))

@@ -54,7 +54,7 @@ and writes the two RGBA8 splatmaps (layers 0–3 → splatmap 0, 4–7 → splat
 
 Each rule maps a **height band × slope band** onto one material layer:
 
-```
+```cpp
 struct TerrainLayerRule {
     u32 LayerIndex;
     f32 MinHeight, MaxHeight, HeightBlend;   // normalized [0,1] height + soft edge

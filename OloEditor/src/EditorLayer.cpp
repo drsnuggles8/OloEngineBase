@@ -161,14 +161,15 @@ namespace OloEngine
         // Reapply preferences loaded by OpenProject() since the camera was just reconstructed
         m_EditorCamera.SetFlySpeed(m_Prefs.CameraFlySpeed);
 
-        // OpenProject() above opened the start scene (and framed the camera) BEFORE
-        // this reconstruction wiped it — re-frame the start scene's terrain now so
-        // a terrain project doesn't open to an empty viewport.
-        FrameEditorCameraOnTerrain(m_EditorScene);
-
         // Initialize Renderer3D early so 3D code paths in OnUpdate / UI_Viewport
         // never run against an uninitialized renderer when m_Is3DMode is true.
         TryInitialize3DMode();
+
+        // Frame the start scene's terrain AFTER TryInitialize3DMode: it calls
+        // ApplyDefault3DCameraPose, which would otherwise clobber the framing.
+        // (OpenProject() opened the start scene before the camera reconstruction
+        // above, so its earlier framing was already lost.)
+        FrameEditorCameraOnTerrain(m_EditorScene);
 
         // Create brush preview UBO (binding 11, 32 bytes = 2 vec4s)
         m_BrushPreviewUBO = UniformBuffer::Create(ShaderBindingLayout::BrushPreviewUBO::GetSize(), ShaderBindingLayout::UBO_BRUSH_PREVIEW);

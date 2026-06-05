@@ -1866,6 +1866,7 @@ namespace OloEngine
                 m_VoxelMeshes.clear();
                 m_NeedsRebuild = true;
                 m_MaterialNeedsRebuild = true;
+                m_AutoSplatNeedsRebuild = true;
             }
             return *this;
         }

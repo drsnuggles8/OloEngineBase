@@ -15,6 +15,10 @@
 
 namespace OloEngine
 {
+    // Upper bound on heightmap / splatmap edge length — guards against a
+    // corrupt resolution from a save file or scene triggering a huge allocation.
+    static constexpr u32 kMaxTerrainResolution = 4096u;
+
     namespace
     {
         // Clamped Hermite smoothstep (matches glm::smoothstep but guards the
@@ -78,7 +82,9 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        const u32 resolution = std::max(params.Resolution, 2u);
+        // Cap the resolution so a corrupt/huge value (from a save file or scene)
+        // can't trigger a multi-GB allocation.
+        const u32 resolution = std::clamp(params.Resolution, 2u, kMaxTerrainResolution);
         const sizet totalPixels = static_cast<sizet>(resolution) * resolution;
         outHeights.resize(totalPixels);
 
@@ -248,7 +254,7 @@ namespace OloEngine
             return;
         }
 
-        const u32 res = std::max(splatmapResolution, 2u);
+        const u32 res = std::clamp(splatmapResolution, 2u, kMaxTerrainResolution);
         material.InitializeCPUSplatmaps(res);
 
         std::vector<u8>& splat0 = material.GetSplatmapData(0);

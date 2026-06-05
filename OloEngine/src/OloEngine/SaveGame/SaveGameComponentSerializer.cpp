@@ -1176,6 +1176,41 @@ namespace OloEngine
                 SerializeTerrainLayerRule(ar, c.m_LayerRules[i]);
             }
         }
+
+        if (ar.IsLoading())
+        {
+            // Sanitize untrusted on-disk values so corrupt save data can't poison
+            // terrain generation (NaN/inf in the noise math, or a huge allocation).
+            auto sanitize = [](f32& v, f32 lo, f32 hi, f32 fallback)
+            {
+                if (!std::isfinite(v))
+                    v = fallback;
+                v = std::clamp(v, lo, hi);
+            };
+            sanitize(c.m_HeightShaping.RidgeBlend, 0.0f, 1.0f, 0.0f);
+            sanitize(c.m_HeightShaping.WarpStrength, 0.0f, 4.0f, 0.0f);
+            sanitize(c.m_HeightShaping.WarpFrequency, 0.0f, 64.0f, 2.0f);
+            sanitize(c.m_HeightShaping.TerraceSharpness, 0.0f, 0.999f, 0.6f);
+            sanitize(c.m_HeightShaping.HeightExponent, 0.05f, 16.0f, 1.0f);
+            c.m_HeightShaping.TerraceSteps = std::min(c.m_HeightShaping.TerraceSteps, 256u);
+            c.m_SplatmapGenResolution = std::clamp(c.m_SplatmapGenResolution, 16u, 4096u);
+            for (TerrainLayerRule& r : c.m_LayerRules)
+            {
+                if (r.LayerIndex >= MAX_TERRAIN_LAYERS)
+                    r.LayerIndex = 0;
+                sanitize(r.MinHeight, 0.0f, 1.0f, 0.0f);
+                sanitize(r.MaxHeight, 0.0f, 1.0f, 1.0f);
+                sanitize(r.HeightBlend, 0.0f, 1.0f, 0.0f);
+                sanitize(r.MinSlopeDeg, 0.0f, 90.0f, 0.0f);
+                sanitize(r.MaxSlopeDeg, 0.0f, 90.0f, 90.0f);
+                sanitize(r.SlopeBlend, 0.0f, 90.0f, 0.0f);
+                sanitize(r.Strength, 0.0f, 16.0f, 1.0f);
+                if (r.MinHeight > r.MaxHeight)
+                    std::swap(r.MinHeight, r.MaxHeight);
+                if (r.MinSlopeDeg > r.MaxSlopeDeg)
+                    std::swap(r.MinSlopeDeg, r.MaxSlopeDeg);
+            }
+        }
         // Runtime pointers (TerrainData, ChunkManager, etc.) are not serialized
     }
 
