@@ -8,17 +8,26 @@ endif()
 
 message(STATUS "Downloading third party libraries using CMake's FetchContent and CPM")
 
+# --- Vendor dependency pinning (#294: reproducible builds) ---
+# Every dependency below is pinned to a fixed commit. A floating branch (GIT_TAG
+# master/main/docking) lets CI silently fetch a newer version than any dev with zero
+# repo changes -- exactly how the #281 flaky physics crash hid (CI and local ran
+# different Jolt commits) -- and it defeats build caching. The SHAs are the branch
+# tips as of 2026-06-05 (the known-good versions built against today); each keeps a
+# trailing "# <branch> @ <date>" so a deliberate bump is a one-line, reviewable change.
+# NOTE: GIT_SHALLOW must be FALSE for a commit-SHA pin -- a shallow fetch only pulls
+# branch tips and cannot resolve an arbitrary historical commit (see Jolt below).
 FetchContent_Declare(
 	assimp
 	GIT_REPOSITORY	https://github.com/assimp/assimp.git
-	GIT_TAG			master
-	GIT_SHALLOW		TRUE
+	GIT_TAG			ace8c310f5d7452d7ef1e19e81957513326ccd07  # master @ 2026-06-05
+	GIT_SHALLOW		FALSE
 )
 FetchContent_Declare(
 	atomic_queue
 	GIT_REPOSITORY	https://github.com/max0x7ba/atomic_queue.git
-	GIT_TAG			master
-	GIT_SHALLOW		TRUE
+	GIT_TAG			705fe1acf5a0207ad0b2a24ac59d211b91e151a7  # master @ 2026-06-05
+	GIT_SHALLOW		FALSE
 )
 FetchContent_Declare(
 	box2d
@@ -29,14 +38,14 @@ FetchContent_Declare(
 FetchContent_Declare(
 	entt
 	GIT_REPOSITORY	https://github.com/skypjack/entt.git
-	GIT_TAG			main
-	GIT_SHALLOW		TRUE
+	GIT_TAG			1333fa53129e7cfded5a9640c4336a254049917b  # main @ 2026-06-05
+	GIT_SHALLOW		FALSE
 )
 FetchContent_Declare(
 	filewatch
 	GIT_REPOSITORY	https://github.com/drsnuggles8/filewatch.git
-	GIT_TAG			master
-	GIT_SHALLOW		TRUE
+	GIT_TAG			2b24bd3bd513f7a6c9c9c566858a48a6124ad5af  # master @ 2026-06-05
+	GIT_SHALLOW		FALSE
 )
 
 FetchContent_Declare(
@@ -55,14 +64,14 @@ FetchContent_Declare(
 FetchContent_Declare(
 	glm
 	GIT_REPOSITORY https://github.com/g-truc/glm.git
-	GIT_TAG master
-	GIT_SHALLOW		TRUE
+	GIT_TAG 6f14f4792a0cde5d0cf2c910506724d61cb95834  # master @ 2026-06-05
+	GIT_SHALLOW		FALSE
 )
 FetchContent_Declare(
 	googletest
 	GIT_REPOSITORY https://github.com/google/googletest.git
-	GIT_TAG main
-	GIT_SHALLOW		TRUE
+	GIT_TAG 7140cd416cecd7462a8aae488024abeee55598e4  # main @ 2026-06-05
+	GIT_SHALLOW		FALSE
 )
 # Pin Jolt to a fixed commit (not a floating branch). A floating `GIT_TAG master`
 # makes builds non-deterministic — CI can fetch a newer Jolt than any dev with zero
@@ -84,8 +93,8 @@ FetchContent_Declare(
 FetchContent_Declare(
 	miniaudio
 	GIT_REPOSITORY https://github.com/mackron/miniaudio.git
-	GIT_TAG master
-	GIT_SHALLOW		TRUE
+	GIT_TAG 9634bedb5b5a2ca38c1ee7108a9358a4e233f14d  # master @ 2026-06-05
+	GIT_SHALLOW		FALSE
 )
 
 # pl_mpeg: single-file, public-domain MPEG-1 video + MP2 audio decoder.
@@ -95,8 +104,8 @@ FetchContent_Declare(
 FetchContent_Declare(
 	pl_mpeg
 	GIT_REPOSITORY https://github.com/phoboslab/pl_mpeg.git
-	GIT_TAG master
-	GIT_SHALLOW		TRUE
+	GIT_TAG c871f2be022ece7ef4f64230b4fb8e1fb9eb6023  # master @ 2026-06-05
+	GIT_SHALLOW		FALSE
 )
 
 FetchContent_Declare(
@@ -127,8 +136,8 @@ FetchContent_Declare(
 FetchContent_Declare(
 	yaml-cpp
 	GIT_REPOSITORY	https://github.com/jbeder/yaml-cpp.git
-	GIT_TAG			master
-	GIT_SHALLOW		TRUE
+	GIT_TAG			2decf96e915d2b0c26c68c1659665789dfef2633  # master @ 2026-06-05
+	GIT_SHALLOW		FALSE
 )
 FetchContent_Declare(
     zlib
@@ -158,8 +167,8 @@ FetchContent_Declare(
 FetchContent_Declare(
 	GameNetworkingSockets
 	GIT_REPOSITORY	https://github.com/ValveSoftware/GameNetworkingSockets.git
-	GIT_TAG			master
-	GIT_SHALLOW		TRUE
+	GIT_TAG			d67d1673abb1a3c00dfa9e62344860e15c741c1d  # master @ 2026-06-05
+	GIT_SHALLOW		FALSE
 	EXCLUDE_FROM_ALL
 )
 
@@ -248,7 +257,8 @@ glad_add_library(glad STATIC API gl:core=4.6 LOCATION ${PROJECT_SOURCE_DIR}/vend
 
 FetchContent_Declare(stb_image
 	GIT_REPOSITORY https://github.com/nothings/stb.git
-	GIT_TAG master)
+	GIT_TAG 31c1ad37456438565541f4919958214b6e762fb4  # master @ 2026-06-05
+	GIT_SHALLOW FALSE)
 FetchContent_MakeAvailable(stb_image)
 add_library(stb_image INTERFACE)
 
@@ -261,7 +271,8 @@ set(STBIMAGE_INSTALL_DIR "${PROJECT_SOURCE_DIR}/vendor/stb_image-build")
 
 CPMAddPackage(NAME imgui
 	GITHUB_REPOSITORY ocornut/imgui
-	GIT_TAG docking
+	GIT_TAG 2af6dd9694288e6befe1edb7ce25510911693c22  # docking @ 2026-06-05
+	GIT_SHALLOW FALSE
 	DOWNLOAD_ONLY YES)
 if(imgui_ADDED)
 	FILE(GLOB imgui_sources ${imgui_SOURCE_DIR}/*.cpp)
@@ -283,7 +294,8 @@ endif()
 
 CPMAddPackage(NAME imguizmo
 	GITHUB_REPOSITORY CedricGuillemet/ImGuizmo
-	GIT_TAG master
+	GIT_TAG be8aa4aeab86b402701c8c1df011bd8cd776760b  # master @ 2026-06-05
+	GIT_SHALLOW FALSE
 	DOWNLOAD_ONLY YES)
 if (imguizmo_ADDED)
 	# As of tag 1.9 the repository moved sources into a src/ subdirectory.
