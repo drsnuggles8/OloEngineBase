@@ -209,8 +209,14 @@ namespace OloEngine::Tests
 
         struct ScopedMockTime
         {
-            explicit ScopedMockTime(f32 t) { Time::SetMockTime(t); }
-            ~ScopedMockTime() { Time::ClearMockTime(); }
+            explicit ScopedMockTime(f32 t)
+            {
+                Time::SetMockTime(t);
+            }
+            ~ScopedMockTime()
+            {
+                Time::ClearMockTime();
+            }
         } scopedMockTime(kCaptureTime);
 
         // 3/4 view from +Z, angled down at the ground so the pole's long shadow
