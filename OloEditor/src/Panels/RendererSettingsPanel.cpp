@@ -213,6 +213,13 @@ namespace OloEngine
             qt.ShadowResolution = static_cast<u32>(shadowResValues[shadowResIdx]);
             changed = true;
         }
+        if (ImGui::Checkbox("Soft Shadows (PCSS)##qt", &qt.SoftShadows))
+            changed = true;
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Percentage-Closer Soft Shadows: contact-hardening variable\n"
+                              "penumbra (sharp at contact, softening with distance).\n"
+                              "Off uses the legacy fixed PCF. 'Shadow Softness' is the\n"
+                              "light apparent size when PCSS is on.");
         if (ImGui::SliderFloat("Shadow Softness##qt", &qt.ShadowSoftness, 0.0f, 2.0f))
             changed = true;
     }

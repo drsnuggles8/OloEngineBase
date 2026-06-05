@@ -52,7 +52,7 @@ layout(std140, binding = 6) uniform ShadowData
     int u_PointShadowCount;
     int u_ShadowMapResolution;
     int u_CascadeDebugEnabled;
-    int _shadowPad0;
+    int u_SoftShadowMode;  // 0 = legacy hardware PCF, 1 = PCSS (unused by fog; kept for layout parity)
     int _shadowPad1;
     int _shadowPad2;
 };

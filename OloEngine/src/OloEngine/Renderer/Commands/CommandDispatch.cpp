@@ -79,6 +79,9 @@ namespace OloEngine
         // Shadow texture renderer IDs (set per-frame)
         u32 CSMShadowTextureID = 0;
         u32 SpotShadowTextureID = 0;
+        // Comparison-OFF raw-depth views of the CSM / spot arrays (PCSS blocker search)
+        u32 CSMRawShadowTextureID = 0;
+        u32 SpotRawShadowTextureID = 0;
         std::array<u32, UBOStructures::ShadowUBO::MAX_POINT_SHADOWS> PointShadowTextureIDs = { 0 };
 
         // Snow accumulation depth texture (set per-frame)
@@ -483,6 +486,27 @@ namespace OloEngine
             }
         }
 
+        // Comparison-OFF raw-depth views for the PCSS blocker search (plain
+        // sampler2DArray at TEX_SHADOW_CSM_RAW / TEX_SHADOW_SPOT_RAW).
+        if (s_Data.CSMRawShadowTextureID != 0)
+        {
+            if (s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_SHADOW_CSM_RAW] != s_Data.CSMRawShadowTextureID)
+            {
+                glBindTextureUnit(ShaderBindingLayout::TEX_SHADOW_CSM_RAW, s_Data.CSMRawShadowTextureID);
+                s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_SHADOW_CSM_RAW] = s_Data.CSMRawShadowTextureID;
+                ++s_Data.Stats.TextureBinds;
+            }
+        }
+        if (s_Data.SpotRawShadowTextureID != 0)
+        {
+            if (s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_SHADOW_SPOT_RAW] != s_Data.SpotRawShadowTextureID)
+            {
+                glBindTextureUnit(ShaderBindingLayout::TEX_SHADOW_SPOT_RAW, s_Data.SpotRawShadowTextureID);
+                s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_SHADOW_SPOT_RAW] = s_Data.SpotRawShadowTextureID;
+                ++s_Data.Stats.TextureBinds;
+            }
+        }
+
         static constexpr std::array<u32, UBOStructures::ShadowUBO::MAX_POINT_SHADOWS> pointSlots = {
             ShaderBindingLayout::TEX_SHADOW_POINT_0,
             ShaderBindingLayout::TEX_SHADOW_POINT_1,
@@ -737,6 +761,8 @@ namespace OloEngine
         s_Data.BoundUBOIDs.fill(0);
         s_Data.CSMShadowTextureID = 0;
         s_Data.SpotShadowTextureID = 0;
+        s_Data.CSMRawShadowTextureID = 0;
+        s_Data.SpotRawShadowTextureID = 0;
         s_Data.PointShadowTextureIDs.fill(0);
         s_Data.SnowDepthTextureID = 0;
         s_Data.DepthPrepassActive = false;
@@ -825,10 +851,13 @@ namespace OloEngine
         s_Data.ViewPos = viewPos;
     }
 
-    void CommandDispatch::SetShadowTextureIDs(u32 csmTextureID, u32 spotTextureID)
+    void CommandDispatch::SetShadowTextureIDs(u32 csmTextureID, u32 spotTextureID,
+                                              u32 csmRawTextureID, u32 spotRawTextureID)
     {
         s_Data.CSMShadowTextureID = csmTextureID;
         s_Data.SpotShadowTextureID = spotTextureID;
+        s_Data.CSMRawShadowTextureID = csmRawTextureID;
+        s_Data.SpotRawShadowTextureID = spotRawTextureID;
     }
 
     void CommandDispatch::SetPointShadowTextureIDs(const std::array<u32, UBOStructures::ShadowUBO::MAX_POINT_SHADOWS>& pointTextureIDs)
@@ -1748,6 +1777,25 @@ namespace OloEngine
             {
                 glBindTextureUnit(ShaderBindingLayout::TEX_SHADOW_SPOT, s_Data.SpotShadowTextureID);
                 s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_SHADOW_SPOT] = s_Data.SpotShadowTextureID;
+                ++s_Data.Stats.TextureBinds;
+            }
+        }
+        // PCSS raw-depth views (terrain PBR / voxel use soft shadows too).
+        if (s_Data.CSMRawShadowTextureID != 0)
+        {
+            if (s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_SHADOW_CSM_RAW] != s_Data.CSMRawShadowTextureID)
+            {
+                glBindTextureUnit(ShaderBindingLayout::TEX_SHADOW_CSM_RAW, s_Data.CSMRawShadowTextureID);
+                s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_SHADOW_CSM_RAW] = s_Data.CSMRawShadowTextureID;
+                ++s_Data.Stats.TextureBinds;
+            }
+        }
+        if (s_Data.SpotRawShadowTextureID != 0)
+        {
+            if (s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_SHADOW_SPOT_RAW] != s_Data.SpotRawShadowTextureID)
+            {
+                glBindTextureUnit(ShaderBindingLayout::TEX_SHADOW_SPOT_RAW, s_Data.SpotRawShadowTextureID);
+                s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_SHADOW_SPOT_RAW] = s_Data.SpotRawShadowTextureID;
                 ++s_Data.Stats.TextureBinds;
             }
         }

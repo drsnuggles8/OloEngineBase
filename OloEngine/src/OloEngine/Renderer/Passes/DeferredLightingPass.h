@@ -78,6 +78,9 @@ namespace OloEngine
             RGTextureHandle ShadowMapCSM;
             RGTextureHandle ShadowMapSpot;
             std::array<RGTextureHandle, MaxPointShadowSlots> ShadowMapPoint{};
+            // Comparison-OFF raw-depth view GL ids (PCSS blocker search); 0 = none.
+            u32 ShadowMapCSMRawID = 0;
+            u32 ShadowMapSpotRawID = 0;
             RGTextureHandle IrradianceMap;
             RGTextureHandle PrefilterMap;
             RGTextureHandle BrdfLut;

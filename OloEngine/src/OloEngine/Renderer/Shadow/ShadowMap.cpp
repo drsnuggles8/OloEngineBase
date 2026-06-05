@@ -34,6 +34,15 @@ namespace OloEngine
         spotSpec.DepthComparisonMode = true;
         m_SpotTextureArray = Texture2DArray::Create(spotSpec);
 
+        // Comparison-OFF raw-depth views aliasing the CSM / spot arrays, used by
+        // the PCSS blocker search (the hardware comparison sampler can't read raw
+        // occluder depth). These alias the same immutable storage, so the arrays'
+        // sampler2DArrayShadow bindings are unaffected.
+        m_CSMRawViewID = RenderCommand::CreateDepthArrayCompareOffView(
+            m_CSMTextureArray->GetRendererID(), MAX_CSM_CASCADES);
+        m_SpotRawViewID = RenderCommand::CreateDepthArrayCompareOffView(
+            m_SpotTextureArray->GetRendererID(), MAX_SPOT_SHADOWS);
+
         // Create point shadow depth cubemaps (one per point light)
         for (u32 i = 0; i < MAX_POINT_SHADOWS; ++i)
         {
@@ -75,6 +84,7 @@ namespace OloEngine
             m_Settings.Softness,
             m_Settings.MaxShadowDistance);
         m_UBOData.ShadowMapResolution = static_cast<i32>(m_Settings.Resolution);
+        m_UBOData.SoftShadowMode = m_Settings.SoftShadows ? 1 : 0;
 
         m_Initialized = true;
         OLO_CORE_INFO("ShadowMap initialized: {}x{} resolution, {} CSM cascades, {} point cubemaps",
@@ -84,6 +94,17 @@ namespace OloEngine
     void ShadowMap::Shutdown()
     {
         OLO_PROFILE_FUNCTION();
+
+        if (m_CSMRawViewID != 0)
+        {
+            RenderCommand::DeleteTexture(m_CSMRawViewID);
+            m_CSMRawViewID = 0;
+        }
+        if (m_SpotRawViewID != 0)
+        {
+            RenderCommand::DeleteTexture(m_SpotRawViewID);
+            m_SpotRawViewID = 0;
+        }
 
         m_CSMTextureArray.Reset();
         m_SpotTextureArray.Reset();
@@ -327,6 +348,7 @@ namespace OloEngine
             m_Settings.Softness,
             m_Settings.MaxShadowDistance);
         data.ShadowMapResolution = static_cast<i32>(m_Settings.Resolution);
+        data.SoftShadowMode = m_Settings.SoftShadows ? 1 : 0;
 
         m_ShadowUBO->SetData(&data, UBOStructures::ShadowUBO::GetSize());
         // Re-establish binding point 6 every frame to guard against
@@ -382,6 +404,7 @@ namespace OloEngine
     namespace
     {
         Ref<Texture2DArray> g_PlaceholderShadowArray;
+        u32 g_PlaceholderShadowArrayRaw = 0u; // compare-OFF view of the array above
         u32 g_PlaceholderShadowCube = 0u;
 
         Ref<Texture2DArray> CreatePlaceholderShadowArray()
@@ -424,6 +447,23 @@ namespace OloEngine
         return GetCSMPlaceholderRendererID();
     }
 
+    u32 ShadowMap::GetCSMRawPlaceholderRendererID()
+    {
+        if (g_PlaceholderShadowArrayRaw == 0u)
+        {
+            const u32 src = GetCSMPlaceholderRendererID(); // ensures the array exists
+            if (src != 0u)
+                g_PlaceholderShadowArrayRaw = RenderCommand::CreateDepthArrayCompareOffView(src, 1u);
+        }
+        return g_PlaceholderShadowArrayRaw;
+    }
+
+    u32 ShadowMap::GetSpotRawPlaceholderRendererID()
+    {
+        // Same plain sampler2DArray placeholder as CSM raw — share.
+        return GetCSMRawPlaceholderRendererID();
+    }
+
     u32 ShadowMap::GetPointPlaceholderRendererID()
     {
         if (g_PlaceholderShadowCube == 0u)
@@ -433,6 +473,11 @@ namespace OloEngine
 
     void ShadowMap::ShutdownPlaceholders()
     {
+        if (g_PlaceholderShadowArrayRaw != 0u)
+        {
+            RenderCommand::DeleteTexture(g_PlaceholderShadowArrayRaw);
+            g_PlaceholderShadowArrayRaw = 0u;
+        }
         g_PlaceholderShadowArray.Reset();
         if (g_PlaceholderShadowCube != 0u)
         {

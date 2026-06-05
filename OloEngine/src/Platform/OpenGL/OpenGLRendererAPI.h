@@ -85,6 +85,7 @@ namespace OloEngine
         void RestoreAllDrawBuffers(u32 colorAttachmentCount) override;
         u32 CreateTexture2D(u32 width, u32 height, GLenum internalFormat) override;
         u32 CreateTextureCubemap(u32 width, u32 height, GLenum internalFormat) override;
+        u32 CreateDepthArrayCompareOffView(u32 srcTextureID, u32 numLayers) override;
         void SetTextureParameter(u32 textureID, GLenum pname, GLint value) override;
         void UploadTextureSubImage2D(u32 textureID, u32 width, u32 height,
                                      GLenum format, GLenum type, const void* data) override;

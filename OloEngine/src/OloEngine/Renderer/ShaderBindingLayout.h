@@ -313,7 +313,7 @@ namespace OloEngine
             i32 PointShadowCount = 0;
             i32 ShadowMapResolution = 0;
             i32 CascadeDebugEnabled = 0; // Visualize cascade boundaries
-            i32 _shadowPad0 = 0;
+            i32 SoftShadowMode = 0;      // 0 = legacy hardware PCF, 1 = PCSS (contact-hardening)
             i32 _shadowPad1 = 0;
             i32 _shadowPad2 = 0;
 
@@ -679,10 +679,13 @@ namespace OloEngine
         // wavy water boundary (WATER_FUTURE_IMPROVEMENTS.md §7.2). Took GTAO-reserved
         // slot 32 — GTAO binds low sequential slots (0-5) instead, so 33-35 stay free.
         static constexpr u32 TEX_UNDERWATER_WATER_DEPTH = 32;
-        // Slots 33-35 were reserved for GTAO (HZB / output / edges / Hilbert LUT) but
-        // the GTAO compute shaders bind to low sequential slots (0-5) instead — see
-        // GTAORenderPass.cpp's GTAO_HZB/NORMALS/HILBERT_TEXTURE_SLOT constants.
-        // Leaving the range free for future graphics-pipeline-stage GTAO consumers.
+        // Comparison-OFF raw-depth views of the CSM / spot shadow arrays, bound as
+        // plain sampler2DArray so the PCSS blocker search can read raw occluder
+        // depth (the hardware sampler2DArrayShadow at TEX_SHADOW / TEX_SHADOW_SPOT
+        // only yields the comparison result). Took the formerly GTAO-reserved
+        // slots 33-34 (GTAO binds low sequential slots 0-5 instead). Slot 35 free.
+        static constexpr u32 TEX_SHADOW_CSM_RAW = 33;   // Raw-depth view of the CSM array (PCSS blocker search)
+        static constexpr u32 TEX_SHADOW_SPOT_RAW = 34;  // Raw-depth view of the spot array (PCSS blocker search)
         static constexpr u32 TEX_WATER_NORMAL_0 = 36;   // Water scrolling normal map 0
         static constexpr u32 TEX_WATER_NORMAL_1 = 37;   // Water scrolling normal map 1
         static constexpr u32 TEX_WATER_NOISE = 38;      // Water specular noise texture
@@ -1142,7 +1145,7 @@ layout(std140, binding = 6) uniform ShadowData {
     int u_PointShadowCount;
     int u_ShadowMapResolution;
     int u_CascadeDebugEnabled;
-    int _shadowPad0;
+    int u_SoftShadowMode;  // 0 = legacy hardware PCF, 1 = PCSS (contact-hardening)
     int _shadowPad1;
     int _shadowPad2;
 };)";

@@ -72,7 +72,7 @@ layout(std140, binding = 6) uniform ShadowData {
     int u_PointShadowCount;
     int u_ShadowMapResolution;
     int u_CascadeDebugEnabled;
-    int _shadowPad0;
+    int u_SoftShadowMode;  // 0 = legacy hardware PCF, 1 = PCSS (contact-hardening)
     int _shadowPad1;
     int _shadowPad2;
 };
@@ -99,6 +99,9 @@ layout(std140, binding = 10) uniform TerrainParams {
 // Shadow maps
 layout(binding = 8) uniform sampler2DArrayShadow u_ShadowMapCSM;
 layout(binding = 13) uniform sampler2DArrayShadow u_ShadowMapSpot;
+// Comparison-OFF raw-depth views of the arrays above for the PCSS blocker search.
+layout(binding = 33) uniform sampler2DArray u_ShadowMapCSMRaw;
+layout(binding = 34) uniform sampler2DArray u_ShadowMapSpotRaw;
 layout(binding = 14) uniform samplerCubeShadow u_ShadowMapPoint0;
 layout(binding = 15) uniform samplerCubeShadow u_ShadowMapPoint1;
 layout(binding = 16) uniform samplerCubeShadow u_ShadowMapPoint2;
@@ -205,12 +208,14 @@ void main()
 
             float shadow = calculateCascadedShadowFactorCSM(
                 u_ShadowMapCSM,
+                u_ShadowMapCSMRaw,
                 v_WorldPos,
                 viewDepth,
                 u_DirectionalLightSpaceMatrices,
                 u_CascadePlaneDistances,
                 u_ShadowParams,
-                u_ShadowMapResolution
+                u_ShadowMapResolution,
+                u_SoftShadowMode
             );
             lightContrib *= shadow;
         }
@@ -223,9 +228,12 @@ void main()
                     v_WorldPos,
                     u_SpotLightSpaceMatrices[spotShadowIdx],
                     u_ShadowMapSpot,
+                    u_ShadowMapSpotRaw,
                     float(spotShadowIdx),
                     u_ShadowParams.x,
-                    u_ShadowMapResolution
+                    u_ShadowMapResolution,
+                    u_SoftShadowMode,
+                    u_ShadowParams.z
                 );
                 lightContrib *= shadow;
             }

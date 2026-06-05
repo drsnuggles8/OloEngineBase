@@ -25,6 +25,8 @@ namespace OloEngine
         u32 ShadowResolution = 4096;
         f32 ShadowSoftness = 1.0f;
         bool ShadowEnabled = true;
+        // Percentage-Closer Soft Shadows (contact-hardening variable penumbra).
+        bool SoftShadows = true;
 
         // AO
         AOTechnique AO = AOTechnique::GTAO;

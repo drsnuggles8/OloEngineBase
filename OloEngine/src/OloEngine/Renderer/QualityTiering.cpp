@@ -21,6 +21,7 @@ namespace OloEngine
                 s.ShadowResolution = 1024;
                 s.ShadowSoftness = 0.0f;
                 s.ShadowEnabled = false;
+                s.SoftShadows = false; // hard PCF is cheapest
                 s.AO = AOTechnique::None;
                 s.SSAOSamples = 16;
                 s.SSAORadius = 0.3f;
@@ -140,6 +141,7 @@ namespace OloEngine
         shadow.Resolution = tiering.ShadowResolution;
         shadow.Softness = tiering.ShadowSoftness;
         shadow.Enabled = tiering.ShadowEnabled;
+        shadow.SoftShadows = tiering.SoftShadows;
 
         CopyTierPPFields(tiering, pp);
     }

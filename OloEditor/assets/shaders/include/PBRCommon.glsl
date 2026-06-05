@@ -710,6 +710,111 @@ float sampleShadowPCF(sampler2DArrayShadow shadowMap, vec3 projCoords, float lay
     return shadow / 9.0;
 }
 
+// =============================================================================
+// PCSS — Percentage-Closer Soft Shadows (contact-hardening variable penumbra)
+// =============================================================================
+// Sharp where an occluder meets the receiver, softening with separation. Two
+// stages: (1) a blocker search over the RAW depth array (a comparison-OFF view
+// bound alongside the hardware-comparison array — the comparison sampler can't
+// return raw occluder depth) to find the average occluder depth, then (2) a
+// variable-radius PCF whose radius is the estimated penumbra. Gated by
+// u_SoftShadowMode (passed in as softMode) so the legacy fixed PCF stays the
+// default fallback.
+
+// Shared 16-tap Poisson disk (unit disk) for both the blocker search and PCF.
+const vec2 POISSON_DISK_16[16] = vec2[](
+    vec2(-0.94201624, -0.39906216), vec2( 0.94558609, -0.76890725),
+    vec2(-0.09418410, -0.92938870), vec2( 0.34495938,  0.29387760),
+    vec2(-0.91588581,  0.45771432), vec2(-0.81544232, -0.87912464),
+    vec2(-0.38277543,  0.27676845), vec2( 0.97484398,  0.75648379),
+    vec2( 0.44323325, -0.97511554), vec2( 0.53742981, -0.47373420),
+    vec2(-0.26496911, -0.41893023), vec2( 0.79197514,  0.19090188),
+    vec2(-0.24188840,  0.99706507), vec2(-0.81409955,  0.91437590),
+    vec2( 0.19984126,  0.78641367), vec2( 0.14383161, -0.14100790)
+);
+
+// Per-fragment rotation angle to decorrelate the Poisson pattern (cheap hash of
+// world position — turns sampling banding into noise the eye tolerates better).
+float pcssRotationAngle(vec3 worldPos)
+{
+    float h = fract(sin(dot(worldPos.xy + worldPos.yz, vec2(12.9898, 78.233))) * 43758.5453);
+    return h * 6.2831853; // 0..2pi
+}
+
+// Blocker search on the raw (comparison-OFF) array. Returns the average blocker
+// depth in shadow-map NDC depth space, or -1.0 if no blocker is found.
+// searchRadiusUV / depths are in shadow-map UV / NDC units.
+float pcssBlockerSearch(sampler2DArray rawMap, vec2 uv, float layer, float zReceiver,
+                        float searchRadiusUV, mat2 rot, out int numBlockers)
+{
+    float blockerSum = 0.0;
+    numBlockers = 0;
+    for (int i = 0; i < 16; ++i)
+    {
+        vec2 offs = (rot * POISSON_DISK_16[i]) * searchRadiusUV;
+        float d = texture(rawMap, vec3(uv + offs, layer)).r;
+        if (d < zReceiver) // closer to the light than the receiver -> occluder
+        {
+            blockerSum += d;
+            numBlockers += 1;
+        }
+    }
+    return (numBlockers == 0) ? -1.0 : (blockerSum / float(numBlockers));
+}
+
+// Variable-radius PCF using the hardware comparison sampler (free 2x2 bilinear
+// PCF per tap). filterRadiusUV in shadow-map UV units.
+float pcssVariablePCF(sampler2DArrayShadow shadowMap, vec2 uv, float layer, float zReceiver,
+                      float bias, float filterRadiusUV, mat2 rot)
+{
+    float sum = 0.0;
+    for (int i = 0; i < 16; ++i)
+    {
+        vec2 offs = (rot * POISSON_DISK_16[i]) * filterRadiusUV;
+        sum += texture(shadowMap, vec4(uv + offs, layer, zReceiver - bias));
+    }
+    return sum / 16.0;
+}
+
+// Full PCSS visibility for one shadow-map layer. `softness` is the light's
+// apparent size knob (ShadowParams.z); larger -> softer. Returns [0,1] (1 lit).
+float pcssShadowFactor(sampler2DArrayShadow shadowMap, sampler2DArray rawMap,
+                       vec2 uv, float layer, float zReceiver, float bias,
+                       float softness, int resolution, mat2 rot)
+{
+    float texelSizeUV = 1.0 / float(resolution);
+
+    // Light apparent size in texels. Softness == 1 -> ~4-texel light.
+    float lightSizeTexels = max(softness, 0.05) * 4.0;
+    float searchRadiusUV = max(lightSizeTexels, 2.0) * texelSizeUV;
+
+    int numBlockers;
+    float avgBlocker = pcssBlockerSearch(rawMap, uv, layer, zReceiver, searchRadiusUV, rot, numBlockers);
+    if (numBlockers == 0)
+        return 1.0; // no occluder -> fully lit
+
+    // Penumbra from occluder/receiver depth gap (contact-hardening). The gain
+    // absorbs the cascade depth scale; tuned for a natural soft edge. Clamp to
+    // [1 texel, lightSizeTexels*8] to bound cost and avoid over-blurring.
+    const float PCSS_PENUMBRA_GAIN = 220.0;
+    float depthGap = max(zReceiver - avgBlocker, 0.0);
+    float filterRadiusTexels = clamp(depthGap * lightSizeTexels * PCSS_PENUMBRA_GAIN,
+                                     1.0, lightSizeTexels * 8.0);
+    float filterRadiusUV = filterRadiusTexels * texelSizeUV;
+
+    return pcssVariablePCF(shadowMap, uv, layer, zReceiver, bias, filterRadiusUV, rot);
+}
+
+// Dispatch one layer's shadow test to PCSS (softMode==1) or the legacy 3x3 PCF.
+float sampleShadowLayer(sampler2DArrayShadow shadowMap, sampler2DArray rawMap,
+                        vec3 projCoords, float layer, float bias, int resolution,
+                        int softMode, float softness, mat2 rot)
+{
+    if (softMode == 1)
+        return pcssShadowFactor(shadowMap, rawMap, projCoords.xy, layer, projCoords.z, bias, softness, resolution, rot);
+    return sampleShadowPCF(shadowMap, projCoords, layer, bias, resolution);
+}
+
 // Calculate CSM shadow factor for directional lights
 // shadowMap: sampler2DArrayShadow bound at TEX_SHADOW (binding 8)
 // worldPos: fragment world position
@@ -720,14 +825,22 @@ float sampleShadowPCF(sampler2DArrayShadow shadowMap, vec3 projCoords, float lay
 // shadowMapResolution: shadow map size in pixels
 float calculateCascadedShadowFactorCSM(
     sampler2DArrayShadow shadowMap,
+    sampler2DArray rawShadowMap,
     vec3 worldPos,
     float viewDepth,
     mat4 lightSpaceMatrices[4],
     vec4 cascadePlaneDistances,
     vec4 shadowParams,
-    int shadowMapResolution)
+    int shadowMapResolution,
+    int softMode)
 {
     float maxShadowDistance = shadowParams.w;
+
+    // PCSS sampling state (ignored by the legacy PCF path). softness == light
+    // apparent size (ShadowParams.z); rot decorrelates the Poisson kernel.
+    float softness = shadowParams.z;
+    float rotAngle = pcssRotationAngle(worldPos);
+    mat2 shadowRot = mat2(cos(rotAngle), -sin(rotAngle), sin(rotAngle), cos(rotAngle));
     if (-viewDepth > maxShadowDistance)
     {
         return 1.0; // Beyond shadow distance
@@ -768,7 +881,8 @@ float calculateCascadedShadowFactorCSM(
     float baseBias = shadowParams.x;
     float cascadeBias = baseBias * float(cascadeIndex + 1);
 
-    float shadow = sampleShadowPCF(shadowMap, projCoords, float(cascadeIndex), cascadeBias, shadowMapResolution);
+    float shadow = sampleShadowLayer(shadowMap, rawShadowMap, projCoords, float(cascadeIndex),
+                                     cascadeBias, shadowMapResolution, softMode, softness, shadowRot);
 
     // Cascade blending: smooth cross-fade in the last 10% of each cascade
     if (cascadeIndex < 3)
@@ -784,7 +898,8 @@ float calculateCascadedShadowFactorCSM(
             vec3 nextProjCoords = nextLightSpacePos.xyz / nextLightSpacePos.w;
             nextProjCoords = nextProjCoords * 0.5 + 0.5;
             float nextBias = baseBias * float(cascadeIndex + 2);
-            float nextShadow = sampleShadowPCF(shadowMap, nextProjCoords, float(cascadeIndex + 1), nextBias, shadowMapResolution);
+            float nextShadow = sampleShadowLayer(shadowMap, rawShadowMap, nextProjCoords, float(cascadeIndex + 1),
+                                                 nextBias, shadowMapResolution, softMode, softness, shadowRot);
             shadow = mix(shadow, nextShadow, blendFactor);
         }
     }
@@ -813,8 +928,11 @@ float calculateCascadedShadowFactorCSM(
     return shadow;
 }
 
-// Simple shadow factor for a single light (spot light)
-float calculateShadowFactor(vec3 worldPos, mat4 lightSpaceMatrix, sampler2DArrayShadow shadowMap, float layer, float bias, int resolution)
+// Simple shadow factor for a single light (spot light). softMode/softness drive
+// PCSS; rawShadowMap is the comparison-OFF view of the spot array.
+float calculateShadowFactor(vec3 worldPos, mat4 lightSpaceMatrix, sampler2DArrayShadow shadowMap,
+                            sampler2DArray rawShadowMap, float layer, float bias, int resolution,
+                            int softMode, float softness)
 {
     vec4 lightSpacePos = lightSpaceMatrix * vec4(worldPos, 1.0);
     vec3 projCoords = lightSpacePos.xyz / lightSpacePos.w;
@@ -827,21 +945,40 @@ float calculateShadowFactor(vec3 worldPos, mat4 lightSpaceMatrix, sampler2DArray
         return 1.0;
     }
 
-    return sampleShadowPCF(shadowMap, projCoords, layer, bias, resolution);
+    float rotAngle = pcssRotationAngle(worldPos);
+    mat2 shadowRot = mat2(cos(rotAngle), -sin(rotAngle), sin(rotAngle), cos(rotAngle));
+    return sampleShadowLayer(shadowMap, rawShadowMap, projCoords, layer, bias, resolution, softMode, softness, shadowRot);
 }
 
-// Point light shadow factor using depth cubemap
-// Uses samplerCubeShadow with hardware depth comparison (GL_LEQUAL)
-// The cubemap stores linear depth ( distance / farPlane ) written by ShadowDepthPoint.glsl
+// 20-direction cube sampling offsets for soft point-shadow PCF.
+const vec3 POINT_PCF_OFFSETS[20] = vec3[](
+    vec3( 1,  1,  1), vec3( 1, -1,  1), vec3(-1, -1,  1), vec3(-1,  1,  1),
+    vec3( 1,  1, -1), vec3( 1, -1, -1), vec3(-1, -1, -1), vec3(-1,  1, -1),
+    vec3( 1,  1,  0), vec3( 1, -1,  0), vec3(-1, -1,  0), vec3(-1,  1,  0),
+    vec3( 1,  0,  1), vec3(-1,  0,  1), vec3( 1,  0, -1), vec3(-1,  0, -1),
+    vec3( 0,  1,  1), vec3( 0, -1,  1), vec3( 0, -1, -1), vec3( 0,  1, -1)
+);
+
+// Point light shadow factor using depth cubemap.
+// Uses samplerCubeShadow with hardware depth comparison (GL_LEQUAL); the cubemap
+// stores linear depth ( distance / farPlane ) written by ShadowDepthPoint.glsl.
+// A fixed 20-tap disk PCF (radius grows mildly with distance) replaces the old
+// single tap so point shadows read as soft edges rather than aliased hard ones.
 float calculatePointShadowFactor(samplerCubeShadow shadowCubemap, vec3 worldPos, vec3 lightPos, float farPlane, float bias)
 {
     vec3 fragToLight = worldPos - lightPos;
     float currentDepth = length(fragToLight) / farPlane;
 
-    // samplerCubeShadow: texture(sampler, vec4(direction.xyz, refDepth))
-    // Returns 1.0 if refDepth <= stored depth (not in shadow), 0.0 otherwise
-    float shadow = texture(shadowCubemap, vec4(fragToLight, currentDepth - bias));
-    return shadow;
+    // World-space sample-disk radius: a small fraction of the light range that
+    // widens with distance from the light for a roughly constant screen-space
+    // softness. samplerCubeShadow: texture(sampler, vec4(direction.xyz, refDepth)).
+    float diskRadius = farPlane * 0.0035 * (1.0 + currentDepth);
+    float shadow = 0.0;
+    for (int i = 0; i < 20; ++i)
+    {
+        shadow += texture(shadowCubemap, vec4(fragToLight + POINT_PCF_OFFSETS[i] * diskRadius, currentDepth - bias));
+    }
+    return shadow / 20.0;
 }
 
 // =============================================================================
