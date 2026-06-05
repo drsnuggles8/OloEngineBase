@@ -88,6 +88,8 @@ namespace OloEngine
         // cache; that lets `AssetThumbnailCache` evict its LRU entries
         // without leaving a dangling reference inside the panel.
         Ref<Texture2D> GetFileIcon(const std::filesystem::path& filepath);
+        // Decode a video file's first frame into a preview texture (null on failure).
+        Ref<Texture2D> DecodeVideoThumbnail(const std::filesystem::path& filepath);
         void DrawCreateMenu();
         void CreateMeshPrimitiveFile(const std::string& primitiveType);
 

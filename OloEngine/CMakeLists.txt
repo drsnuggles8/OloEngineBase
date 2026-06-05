@@ -117,6 +117,7 @@ target_include_directories(OloEngine PUBLIC
 	${joltphysics_SOURCE_DIR}
 	${meshoptimizer_SOURCE_DIR}/src
 	${miniaudio_SOURCE_DIR}
+	${pl_mpeg_SOURCE_DIR}
 	${lua_SOURCE_DIR}
 	${imgui_SOURCE_DIR}
 	${imgui_SOURCE_DIR}/backends
@@ -162,6 +163,14 @@ target_link_libraries(OloEngine
 	Vulkan::Vulkan
 	zlibstatic
 )
+
+# FFmpeg video backend (optional). vendor/ffmpeg.cmake defines the `ffmpeg` INTERFACE
+# target (includes + import libs) and builds FFmpeg from source when OLO_VIDEO_FFMPEG=ON;
+# the compile def flips on FFmpegBackend.cpp so VideoDecoder can decode H.264/MP4/etc.
+if(TARGET ffmpeg)
+	target_link_libraries(OloEngine ffmpeg)
+	target_compile_definitions(OloEngine PUBLIC OLO_VIDEO_FFMPEG=1)
+endif()
 
 # Tracy — only link the client library when profiling is on. Tracy's TracyClient.cpp
 # contains file-scope globals (Profiler, _memory_span_cache) whose constructors fire

@@ -1021,6 +1021,7 @@ subsystem unit tests (§9.3, grouped by directory).
 |---|---:|---|
 | [AssetPreviewRendererTest.cpp](../OloEngine/tests/Rendering/PropertyTests/AssetPreviewRendererTest.cpp) | 5 | **AssetPreviewRendererTest** &mdash; `InitializeAndShutdownAreIdempotent`, `RenderMaterialPreviewReturnsCorrectlySizedTexture`, `RenderMaterialPreviewWithNullMaterialReturnsNull`, `RenderMeshPreviewWithoutMaterialUsesDefaultAndProducesTexture`, `RenderingBeforeInitializeReturnsNullWithoutCrashing` |
 | [RendererValidateTest.cpp](../OloEngine/tests/Rendering/PropertyTests/RendererValidateTest.cpp) | 5 | **RendererValidateTest** &mdash; `CleanFramebufferPassesValidation`, `NanPixelsAreDetected`, `InfPixelsAreDetected`, `Fp16OverflowIsDetected`, `RejectsUnsupportedFormatsGracefully` |
+| [VideoOverlayVisualEvidenceTest.cpp](../OloEngine/tests/Rendering/PropertyTests/VideoOverlayVisualEvidenceTest.cpp) | 1 | **VideoOverlayScene** &mdash; `FullscreenImageCompositesLetterboxed` |
 
 #### L8 — Golden image
 
@@ -1109,7 +1110,7 @@ subsystem unit tests (§9.3, grouped by directory).
 |---|---:|---|
 | [TestFailureCaptureTest.cpp](../OloEngine/tests/Rendering/PropertyTests/TestFailureCaptureTest.cpp) | 6 | **TestFailureCaptureTest** &mdash; `DirectoryForSanitizesNames`, `MetadataIsWrittenWithoutGlContext`, `LatestFrameSummaryIsNoOpWithoutCaptures`, `GLStateSnapshotIsWrittenWhenGpuAvailable`, `FboPngIsWrittenWhenGpuAvailable`, `CaptureAllProducesExpectedArtefacts` |
 
-**Totals.** 83 renderer-scope test files, 1214 TEST / TEST_F / TEST_P declarations across all layers.
+**Totals.** 84 renderer-scope test files, 1215 TEST / TEST_F / TEST_P declarations across all layers.
 
 <!-- END: renderer-catalogue -->
 
@@ -1287,7 +1288,7 @@ level of `tests/`). Grouped by directory.
 
 > **Do not edit by hand.** Generated from [test_catalogue.json](../OloEngine/tests/scripts/test_catalogue.json) by [generate_test_catalogue.py](../OloEngine/tests/scripts/generate_test_catalogue.py). Add new test files to the config and run the script (or pre-commit will run it with `--check`).
 
-#### (top-level) (58 files)
+#### (top-level) (59 files)
 
 | File | Tests | Cases |
 |---|---:|---|
@@ -1348,6 +1349,7 @@ level of `tests/`). Grouped by directory.
 | [SoundGraphInstantiationTest.cpp](../OloEngine/tests/SoundGraphInstantiationTest.cpp) | 2 | **SoundGraphInstantiation** &mdash; `NoiseToGraphOutputCompilesAndInstantiates`, `WavePlayerWithUnconfiguredAssetDoesNotCrash` |
 | [StateMachineTest.cpp](../OloEngine/tests/StateMachineTest.cpp) | 12 | **StateMachineTest** &mdash; `StartCallsOnEnter`, `UpdateCallsOnUpdate`, `TransitionChangesState`, `ForceTransition`, `ForceTransition_ToSameState_DoesNothing`, `ForceTransition_InvalidState_DoesNothing`, `UpdateBeforeStart_DoesNothing`, `MultipleTransitions_FirstMatchWins`<br/>**StateMachineAssetTest** &mdash; `HasCorrectAssetType`, `StoresStatesAndTransitions`<br/>**FSMStateRegistryTest** &mdash; `RegisterAndCreate`, `UnknownTypeReturnsNull` |
 | [TransformComponentTest.cpp](../OloEngine/tests/TransformComponentTest.cpp) | 9 | **TransformComponent** &mdash; `DefaultsAreIdentity`, `SetRotationEulerUpdatesQuaternion`, `SetRotationQuaternionUpdatesEuler`, `SetRotationPreventsFlips`, `SetRotationContinuousAcrossPiBoundary`, `GetTransformUsesQuaternion`, `SetTransformRoundTrip`, `CopyPreservesPrivateFields`<br/>**MathDecompose** &mdash; `TRSMatrixRoundTripsThroughDecompose` |
+| [VideoPlaybackTest.cpp](../OloEngine/tests/VideoPlaybackTest.cpp) | 15 | **VideoDecoder** &mdash; `DefaultIsClosed`, `OpenEmptyPathFails`, `OpenMissingFileFails`, `DecodeWithoutOpenReturnsFalse`<br/>**VideoFrameInfo** &mdash; `DefaultsAreZero`<br/>**VideoPlayer** &mdash; `DefaultState`, `LoadMissingFileFails`, `PlayPauseStopTransitions`, `SeekClampsToNonNegative`, `PlaybackSpeedClamping`, `VolumeClamping`, `LoopingToggles`, `UpdateOnUnloadedPlayerIsInert`<br/>**VideoTexture** &mdash; `UninitializedContract`<br/>**VideoDecoderFixture** &mdash; `DecodesFrameWhenFixtureAvailable` |
 | [WindSettingsTest.cpp](../OloEngine/tests/WindSettingsTest.cpp) | 6 | **WindUBOData** &mdash; `SizeIs64Bytes`, `FieldOffsets_Std140Compatible`, `DefaultsMatchSettings`<br/>**ShaderBindingLayout** &mdash; `WindBindingsExist`<br/>**SnowSettings** &mdash; `WindDriftFactorDefaultIsZero`, `WindDriftFactorInUBOFlags` |
 
 #### AI (1 file)
@@ -1502,7 +1504,7 @@ level of `tests/`). Grouped by directory.
 | [FunctionWithContextTest.cpp](../OloEngine/tests/Templates/FunctionWithContextTest.cpp) | 4 | **FunctionWithContext** &mdash; `DefaultConstructedIsNullAndExposesNullSlots`, `LambdaBoundCallableInvokesCaptureBody`, `ReassignmentReplacesBoundCallable`, `RoundTripsThroughStatelessInvocationAPI` |
 | [TypeTraitsTest.cpp](../OloEngine/tests/Templates/TypeTraitsTest.cpp) | 2 | **TypeTraitsTest** &mdash; `AllChecksAreCompileTime`, `AllNameOfsAreCorrect` |
 
-**Totals.** 125 unit / subsystem test files, 1531 TEST / TEST_F declarations across all subsystems.
+**Totals.** 126 unit / subsystem test files, 1546 TEST / TEST_F declarations across all subsystems.
 
 <!-- END: unit-catalogue -->
 

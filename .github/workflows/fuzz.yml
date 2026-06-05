@@ -113,7 +113,8 @@ jobs:
                 -DBUILD_TESTS=ON `
                 "-DPython_EXECUTABLE=${{ steps.py.outputs.python-path }}" `
                 -DOLO_ENABLE_FUZZING=ON `
-                -DOLO_FUZZ_SANITIZER=${{ matrix.sanitizer }}
+                -DOLO_FUZZ_SANITIZER=${{ matrix.sanitizer }} `
+                -DOLO_VIDEO_FFMPEG=OFF
 
       - name: Build fuzzers
         # OloEngine + fuzz harnesses are sanitised (see cmake/Fuzzing.cmake);

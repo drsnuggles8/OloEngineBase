@@ -39,6 +39,8 @@ namespace OloEngine
     struct ScriptComponent;
     struct AudioSourceComponent;
     struct AudioListenerComponent;
+    struct VideoOverlayComponent;
+    struct VideoSurfaceComponent;
     struct MaterialComponent;
     struct DirectionalLightComponent;
     struct PointLightComponent;
@@ -140,6 +142,8 @@ namespace OloEngine
         static void Serialize(FArchive& ar, ScriptComponent& c);
         static void Serialize(FArchive& ar, AudioSourceComponent& c);
         static void Serialize(FArchive& ar, AudioListenerComponent& c);
+        static void Serialize(FArchive& ar, VideoOverlayComponent& c);
+        static void Serialize(FArchive& ar, VideoSurfaceComponent& c);
         static void Serialize(FArchive& ar, MaterialComponent& c);
         static void Serialize(FArchive& ar, DirectionalLightComponent& c);
         static void Serialize(FArchive& ar, PointLightComponent& c);

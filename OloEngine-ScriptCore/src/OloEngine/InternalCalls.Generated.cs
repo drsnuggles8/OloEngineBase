@@ -901,5 +901,47 @@ namespace OloEngine
 		internal static extern void UIWorldAnchorComponent_SetWorldOffset(ulong entityID, ref Vector3 value);
 		#endregion
 
+		#region VideoOverlayComponent
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool VideoOverlayComponent_GetPlayOnStart(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void VideoOverlayComponent_SetPlayOnStart(ulong entityID, bool value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool VideoOverlayComponent_GetSkipOnInput(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void VideoOverlayComponent_SetSkipOnInput(ulong entityID, bool value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool VideoOverlayComponent_GetLooping(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void VideoOverlayComponent_SetLooping(ulong entityID, bool value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float VideoOverlayComponent_GetVolume(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void VideoOverlayComponent_SetVolume(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern string VideoOverlayComponent_GetVideoPath(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void VideoOverlayComponent_SetVideoPath(ulong entityID, string value);
+		#endregion
+
+		#region VideoSurfaceComponent
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool VideoSurfaceComponent_GetAutoPlay(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void VideoSurfaceComponent_SetAutoPlay(ulong entityID, bool value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool VideoSurfaceComponent_GetLooping(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void VideoSurfaceComponent_SetLooping(ulong entityID, bool value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float VideoSurfaceComponent_GetVolume(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void VideoSurfaceComponent_SetVolume(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern string VideoSurfaceComponent_GetVideoPath(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void VideoSurfaceComponent_SetVideoPath(ulong entityID, string value);
+		#endregion
+
 	}
 }

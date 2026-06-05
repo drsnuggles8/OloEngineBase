@@ -9,6 +9,7 @@
 #include "OloEngine/Audio/AudioListener.h"
 #include "OloEngine/Audio/SoundGraph/SoundGraphSound.h"
 #include "OloEngine/Audio/AudioEvents/CommandID.h"
+#include "OloEngine/Video/VideoPlayer.h"
 #include "OloEngine/Animation/AnimatedMeshComponents.h"
 #include "OloEngine/Animation/AnimationGraphComponent.h"
 #include "OloEngine/Animation/IKTargetComponent.h"
@@ -831,6 +832,107 @@ namespace OloEngine
         bool SetParameter(const std::string& name, f32 value) const;
         bool SetParameter(const std::string& name, i32 value) const;
         bool SetParameter(const std::string& name, bool value) const;
+    };
+
+    // Plays a video file (MPEG-1 .mpg) as a fullscreen overlay — cutscenes, studio logos,
+    // splash screens, credits. Decoded frames stream to a GPU texture the renderer
+    // composites on top of the scene. The file is referenced by an asset-relative path;
+    // the live VideoPlayer is runtime-only (allocated when playback starts, not serialized
+    // and not shared across copies).
+    struct VideoOverlayComponent
+    {
+        OLO_PROPERTY(Name = "PlayOnStart", Type = "bool", Get = "comp.PlayOnStart", Set = "comp.PlayOnStart = {v}")
+        OLO_PROPERTY(Name = "SkipOnInput", Type = "bool", Get = "comp.SkipOnInput", Set = "comp.SkipOnInput = {v}")
+        OLO_PROPERTY(Name = "Looping", Type = "bool", Get = "comp.Looping", Set = "comp.Looping = {v}")
+        OLO_PROPERTY(Name = "Volume", Type = "float", Get = "comp.Volume", Set = "comp.Volume = {v}")
+        OLO_PROPERTY(Name = "VideoPath", Type = "string", Get = "comp.VideoPath", Set = "comp.VideoPath = {v}")
+        std::string VideoPath; // Asset-relative path to the video file.
+        bool PlayOnStart = false;
+        bool SkipOnInput = true;
+        bool Looping = false;
+        f32 Volume = 1.0f;
+
+        // Runtime-only state, not serialized and reset to null on copy.
+        Ref<VideoPlayer> Player = nullptr;
+
+        VideoOverlayComponent() = default;
+
+        VideoOverlayComponent(const VideoOverlayComponent& other)
+            : VideoPath(other.VideoPath),
+              PlayOnStart(other.PlayOnStart),
+              SkipOnInput(other.SkipOnInput),
+              Looping(other.Looping),
+              Volume(other.Volume),
+              Player(nullptr) // Don't share live playback state across copies.
+        {
+        }
+
+        auto operator=(const VideoOverlayComponent& other) -> VideoOverlayComponent&
+        {
+            if (this != &other)
+            {
+                VideoPath = other.VideoPath;
+                PlayOnStart = other.PlayOnStart;
+                SkipOnInput = other.SkipOnInput;
+                Looping = other.Looping;
+                Volume = other.Volume;
+                Player = nullptr;
+            }
+            return *this;
+        }
+
+        // Equality for undo/redo — compares serialized/editor-visible fields only.
+        auto operator==(const VideoOverlayComponent& other) const -> bool
+        {
+            return VideoPath == other.VideoPath && PlayOnStart == other.PlayOnStart && SkipOnInput == other.SkipOnInput && Looping == other.Looping && Math::BitwiseEqual(Volume, other.Volume);
+        }
+    };
+
+    // Plays a video on a world-space mesh surface — TV screens, monitors, billboards,
+    // security-camera feeds. Each frame VideoSystem binds the decoded video texture to the
+    // entity material's albedo slot. Same path/runtime split as VideoOverlayComponent.
+    struct VideoSurfaceComponent
+    {
+        OLO_PROPERTY(Name = "AutoPlay", Type = "bool", Get = "comp.AutoPlay", Set = "comp.AutoPlay = {v}")
+        OLO_PROPERTY(Name = "Looping", Type = "bool", Get = "comp.Looping", Set = "comp.Looping = {v}")
+        OLO_PROPERTY(Name = "Volume", Type = "float", Get = "comp.Volume", Set = "comp.Volume = {v}")
+        OLO_PROPERTY(Name = "VideoPath", Type = "string", Get = "comp.VideoPath", Set = "comp.VideoPath = {v}")
+        std::string VideoPath; // Asset-relative path to the video file.
+        bool AutoPlay = true;
+        bool Looping = true;
+        f32 Volume = 0.5f;
+
+        // Runtime-only state, not serialized and reset to null on copy.
+        Ref<VideoPlayer> Player = nullptr;
+
+        VideoSurfaceComponent() = default;
+
+        VideoSurfaceComponent(const VideoSurfaceComponent& other)
+            : VideoPath(other.VideoPath),
+              AutoPlay(other.AutoPlay),
+              Looping(other.Looping),
+              Volume(other.Volume),
+              Player(nullptr)
+        {
+        }
+
+        auto operator=(const VideoSurfaceComponent& other) -> VideoSurfaceComponent&
+        {
+            if (this != &other)
+            {
+                VideoPath = other.VideoPath;
+                AutoPlay = other.AutoPlay;
+                Looping = other.Looping;
+                Volume = other.Volume;
+                Player = nullptr;
+            }
+            return *this;
+        }
+
+        auto operator==(const VideoSurfaceComponent& other) const -> bool
+        {
+            return VideoPath == other.VideoPath && AutoPlay == other.AutoPlay && Looping == other.Looping && Math::BitwiseEqual(Volume, other.Volume);
+        }
     };
 
     // Note: SubmeshComponent, MeshComponent, AnimationStateComponent,
@@ -2560,6 +2662,8 @@ namespace OloEngine
         AudioSourceComponent,
         AudioListenerComponent,
         AudioSoundGraphComponent,
+        VideoOverlayComponent,
+        VideoSurfaceComponent,
         SubmeshComponent,
         MeshComponent,
         ModelComponent,

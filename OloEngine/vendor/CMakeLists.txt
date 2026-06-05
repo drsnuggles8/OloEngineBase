@@ -88,6 +88,17 @@ FetchContent_Declare(
 	GIT_SHALLOW		TRUE
 )
 
+# pl_mpeg: single-file, public-domain MPEG-1 video + MP2 audio decoder.
+# Header-only (one plmpeg.h; PL_MPEG_IMPLEMENTATION is defined in Video/PlMpeg.cpp).
+# The repo ships no CMakeLists.txt, so MakeAvailable just populates the source dir
+# and we add it to OloEngine's include path manually (mirrors the miniaudio pattern).
+FetchContent_Declare(
+	pl_mpeg
+	GIT_REPOSITORY https://github.com/phoboslab/pl_mpeg.git
+	GIT_TAG master
+	GIT_SHALLOW		TRUE
+)
+
 FetchContent_Declare(
 	meshoptimizer
 	GIT_REPOSITORY	https://github.com/zeux/meshoptimizer.git
@@ -240,6 +251,9 @@ FetchContent_Declare(stb_image
 	GIT_TAG master)
 FetchContent_MakeAvailable(stb_image)
 add_library(stb_image INTERFACE)
+
+# pl_mpeg has no CMakeLists, so MakeAvailable only populates ${pl_mpeg_SOURCE_DIR}.
+FetchContent_MakeAvailable(pl_mpeg)
 file(COPY ${stb_image_SOURCE_DIR}/stb_image.h DESTINATION "${PROJECT_SOURCE_DIR}/vendor/stb_image-build/include/stb_image")
 file(COPY ${stb_image_SOURCE_DIR}/stb_image_write.h DESTINATION "${PROJECT_SOURCE_DIR}/vendor/stb_image-build/include/stb_image")
 file(COPY ${stb_image_SOURCE_DIR}/stb_truetype.h DESTINATION "${PROJECT_SOURCE_DIR}/vendor/stb_image-build/include/stb_image")
@@ -507,7 +521,7 @@ endif()
 # Propagate FetchContent _SOURCE_DIR / _BINARY_DIR variables to parent scope
 # so OloEngine/CMakeLists.txt can use them in target_include_directories.
 foreach(_dep assimp atomic_queue box2d entt filewatch glad glfw glm googletest
-             joltphysics meshoptimizer miniaudio recastnavigation spdlog tracy yaml-cpp
+             joltphysics meshoptimizer miniaudio pl_mpeg recastnavigation spdlog tracy yaml-cpp
              zlib stb_image imgui imguizmo lua GameNetworkingSockets)
 	if(DEFINED ${_dep}_SOURCE_DIR)
 		set(${_dep}_SOURCE_DIR "${${_dep}_SOURCE_DIR}" PARENT_SCOPE)
@@ -516,5 +530,9 @@ foreach(_dep assimp atomic_queue box2d entt filewatch glad glfw glm googletest
 		set(${_dep}_BINARY_DIR "${${_dep}_BINARY_DIR}" PARENT_SCOPE)
 	endif()
 endforeach()
+
+# FFmpeg (optional) — built from source for the H.264/MP4 video backend. Off by default.
+# (Lives in the tracked cmake/ dir because OloEngine/vendor/* is gitignored.)
+include(${CMAKE_SOURCE_DIR}/cmake/ffmpeg.cmake)
 
 message(STATUS "Fetching thirdparty libraries done")

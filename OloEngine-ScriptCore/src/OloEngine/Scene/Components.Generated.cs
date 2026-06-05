@@ -1477,4 +1477,64 @@ namespace OloEngine
 		}
 	}
 
+	public partial class VideoOverlayComponent : Component
+	{
+		public bool PlayOnStart
+		{
+			get => InternalCalls.VideoOverlayComponent_GetPlayOnStart(Entity.ID);
+			set => InternalCalls.VideoOverlayComponent_SetPlayOnStart(Entity.ID, value);
+		}
+
+		public bool SkipOnInput
+		{
+			get => InternalCalls.VideoOverlayComponent_GetSkipOnInput(Entity.ID);
+			set => InternalCalls.VideoOverlayComponent_SetSkipOnInput(Entity.ID, value);
+		}
+
+		public bool Looping
+		{
+			get => InternalCalls.VideoOverlayComponent_GetLooping(Entity.ID);
+			set => InternalCalls.VideoOverlayComponent_SetLooping(Entity.ID, value);
+		}
+
+		public float Volume
+		{
+			get => InternalCalls.VideoOverlayComponent_GetVolume(Entity.ID);
+			set => InternalCalls.VideoOverlayComponent_SetVolume(Entity.ID, value);
+		}
+
+		public string VideoPath
+		{
+			get => InternalCalls.VideoOverlayComponent_GetVideoPath(Entity.ID);
+			set => InternalCalls.VideoOverlayComponent_SetVideoPath(Entity.ID, value);
+		}
+	}
+
+	public partial class VideoSurfaceComponent : Component
+	{
+		public bool AutoPlay
+		{
+			get => InternalCalls.VideoSurfaceComponent_GetAutoPlay(Entity.ID);
+			set => InternalCalls.VideoSurfaceComponent_SetAutoPlay(Entity.ID, value);
+		}
+
+		public bool Looping
+		{
+			get => InternalCalls.VideoSurfaceComponent_GetLooping(Entity.ID);
+			set => InternalCalls.VideoSurfaceComponent_SetLooping(Entity.ID, value);
+		}
+
+		public float Volume
+		{
+			get => InternalCalls.VideoSurfaceComponent_GetVolume(Entity.ID);
+			set => InternalCalls.VideoSurfaceComponent_SetVolume(Entity.ID, value);
+		}
+
+		public string VideoPath
+		{
+			get => InternalCalls.VideoSurfaceComponent_GetVideoPath(Entity.ID);
+			set => InternalCalls.VideoSurfaceComponent_SetVideoPath(Entity.ID, value);
+		}
+	}
+
 }

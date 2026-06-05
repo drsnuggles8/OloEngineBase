@@ -682,6 +682,24 @@ namespace OloEngine
         SerializeAudioListenerConfig(ar, c.Config);
     }
 
+    // Authored fields only — the runtime VideoPlayer (decode thread + GPU texture) is
+    // transient and rebuilt by VideoSystem on the next runtime tick.
+    void SaveGameComponentSerializer::Serialize(FArchive& ar, VideoOverlayComponent& c)
+    {
+        ar << c.VideoPath << c.PlayOnStart << c.SkipOnInput << c.Looping << c.Volume;
+        // Sanitise on load only (never mutate the live component during a save) so a corrupt
+        // save can't feed NaN/out-of-range to SetVolume each frame.
+        if (ar.IsLoading())
+            c.Volume = std::isfinite(c.Volume) ? std::clamp(c.Volume, 0.0f, 1.0f) : 1.0f;
+    }
+
+    void SaveGameComponentSerializer::Serialize(FArchive& ar, VideoSurfaceComponent& c)
+    {
+        ar << c.VideoPath << c.AutoPlay << c.Looping << c.Volume;
+        if (ar.IsLoading())
+            c.Volume = std::isfinite(c.Volume) ? std::clamp(c.Volume, 0.0f, 1.0f) : 0.5f;
+    }
+
     void SaveGameComponentSerializer::Serialize(FArchive& ar, MaterialComponent& c)
     {
         // Serialize core material properties (matching SceneSerializer coverage)
@@ -2507,6 +2525,8 @@ namespace OloEngine
         REGISTER_SAVE_COMPONENT(ScriptComponent);
         REGISTER_SAVE_COMPONENT(AudioSourceComponent);
         REGISTER_SAVE_COMPONENT(AudioListenerComponent);
+        REGISTER_SAVE_COMPONENT(VideoOverlayComponent);
+        REGISTER_SAVE_COMPONENT(VideoSurfaceComponent);
         REGISTER_SAVE_COMPONENT(MaterialComponent);
         REGISTER_SAVE_COMPONENT(DirectionalLightComponent);
         REGISTER_SAVE_COMPONENT(PointLightComponent);

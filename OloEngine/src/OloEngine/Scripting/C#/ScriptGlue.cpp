@@ -14,6 +14,7 @@
 #include "OloEngine/Scene/Scene.h"
 #include "OloEngine/Scene/Entity.h"
 #include "OloEngine/Scene/Streaming/SceneStreamer.h"
+#include "OloEngine/Video/VideoSystem.h"
 #include "OloEngine/Asset/AssetManager.h"
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/Renderer2D.h"
@@ -360,6 +361,34 @@ namespace OloEngine
         bool result = component.SetParameter(std::string(name), value);
         mono_free(name);
         return result;
+    }
+
+    ///////////////////////////////////////////////////////////////////////////////////////////
+    // Video //////////////////////////////////////////////////////////////////////////////////
+    ///////////////////////////////////////////////////////////////////////////////////////////
+
+    static void Video_PlayFullscreen(MonoString* filePath, bool loop)
+    {
+        if (!filePath)
+            return;
+        char* path = mono_string_to_utf8(filePath);
+        VideoSystem::PlayFullscreen(std::string(path), loop, {});
+        mono_free(path);
+    }
+
+    static void Video_Stop()
+    {
+        VideoSystem::StopFullscreen();
+    }
+
+    static void Video_Skip()
+    {
+        VideoSystem::SkipFullscreen();
+    }
+
+    static bool Video_IsPlaying()
+    {
+        return VideoSystem::IsFullscreenPlaying();
     }
 
     ///////////////////////////////////////////////////////////////////////////////////////////
@@ -3128,6 +3157,14 @@ namespace OloEngine
         OLO_ADD_INTERNAL_CALL(AudioSoundGraphComponent_SetParameterFloat);
         OLO_ADD_INTERNAL_CALL(AudioSoundGraphComponent_SetParameterInt);
         OLO_ADD_INTERNAL_CALL(AudioSoundGraphComponent_SetParameterBool);
+
+        ///////////////////////////////////////////////////////////////
+        // Video //////////////////////////////////////////////////////
+        ///////////////////////////////////////////////////////////////
+        OLO_ADD_INTERNAL_CALL(Video_PlayFullscreen);
+        OLO_ADD_INTERNAL_CALL(Video_Stop);
+        OLO_ADD_INTERNAL_CALL(Video_Skip);
+        OLO_ADD_INTERNAL_CALL(Video_IsPlaying);
 
         ///////////////////////////////////////////////////////////////
         // Audio Events ///////////////////////////////////////////////

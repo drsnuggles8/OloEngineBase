@@ -84,7 +84,9 @@ jobs:
       uses: ./.github/actions/setup-vulkan
 
     - name: Configure CMake
-      run: cmake -S . -B ${{github.workspace}}/build -DPython_EXECUTABLE="${{ env.pythonLocation }}/python.exe" -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+      # OLO_VIDEO_FFMPEG OFF: CodeQL analyses OloEngine sources; building FFmpeg from source
+      # would add ~15 min + a nasm dependency without analysing it.
+      run: cmake -S . -B ${{github.workspace}}/build -DPython_EXECUTABLE="${{ env.pythonLocation }}/python.exe" -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -DOLO_VIDEO_FFMPEG=OFF
 
     - name: Initialize CodeQL
       uses: github/codeql-action/init@v4

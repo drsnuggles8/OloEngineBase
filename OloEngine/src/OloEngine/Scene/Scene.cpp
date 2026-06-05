@@ -43,6 +43,7 @@
 #include "OloEngine/Particle/ParticleRenderer.h"
 #include "OloEngine/Particle/ParticleBatchRenderer.h"
 #include "OloEngine/Particle/TrailRenderer.h"
+#include "OloEngine/Video/VideoSystem.h"
 #include "OloEngine/Renderer/RenderCommand.h"
 #include "OloEngine/Renderer/Commands/RenderCommand.h"
 #include "OloEngine/Renderer/Commands/CommandPacket.h"
@@ -805,6 +806,11 @@ namespace OloEngine
 
     void Scene::OnRuntimeStop()
     {
+        // Stop any global fullscreen video while the GL context is still alive, so its
+        // texture is freed here rather than at static-destruction time (no context).
+        // Per-entity video players are torn down with their components on scene destruction.
+        VideoSystem::StopFullscreen();
+
         // Shut down streaming before other systems
         if (m_SceneStreamer)
         {
@@ -1507,6 +1513,11 @@ namespace OloEngine
                     ProcessChildSubEmitters(psc, ts, transform.Translation);
                 }
             }
+
+            // Update video playback: ticks the global fullscreen overlay plus every
+            // VideoOverlay/VideoSurface component (lazy player creation, frame decode + GPU
+            // upload, material albedo binding for world surfaces).
+            VideoSystem::OnUpdate(this, static_cast<f32>(ts));
 
             // Process snow deformer entities — submit deformation stamps and emit ejecta
             ProcessSnowDeformers(ts, m_RuntimeSnowPrevPositions);
@@ -2232,6 +2243,20 @@ namespace OloEngine
         }
     }
 
+    // Video components allocate no resources on add: VideoSystem::OnUpdate lazily creates
+    // the VideoPlayer (honouring PlayOnStart / AutoPlay) on the first runtime tick, which
+    // also covers entities added mid-play. Editing the component in edit mode must not spin
+    // up a decode thread, so these stay empty.
+    template<>
+    void Scene::OnComponentAdded<VideoOverlayComponent>(Entity, VideoOverlayComponent&)
+    {
+    }
+
+    template<>
+    void Scene::OnComponentAdded<VideoSurfaceComponent>(Entity, VideoSurfaceComponent&)
+    {
+    }
+
     template<>
     void Scene::OnComponentAdded<Rigidbody3DComponent>(Entity entity, Rigidbody3DComponent& component)
     {
@@ -2847,6 +2872,27 @@ namespace OloEngine
                         UIRenderer::DrawRect(barPos, fillSize, nameplate.m_ManaBarColor, eid);
                     }
                 }
+            }
+        }
+
+        // Fullscreen video overlay (cutscenes / studio logos / splash screens) — drawn on
+        // top of the scene and UI, letterboxed to the video's aspect with black bars.
+        if (auto fullscreenPlayer = VideoSystem::GetFullscreenPlayer(); fullscreenPlayer && fullscreenPlayer->GetTexture().IsInitialized())
+        {
+            const f32 vw = static_cast<f32>(m_ViewportWidth);
+            const f32 vh = static_cast<f32>(m_ViewportHeight);
+            const f32 texW = static_cast<f32>(fullscreenPlayer->GetWidth());
+            const f32 texH = static_cast<f32>(fullscreenPlayer->GetHeight());
+
+            // Opaque black backdrop so non-covered regions read as letterbox bars.
+            UIRenderer::DrawRect({ 0.0f, 0.0f }, { vw, vh }, glm::vec4(0.0f, 0.0f, 0.0f, 1.0f));
+
+            if (texW > 0.0f && texH > 0.0f)
+            {
+                const f32 scale = std::min(vw / texW, vh / texH);
+                const glm::vec2 size = { texW * scale, texH * scale };
+                const glm::vec2 pos = { (vw - size.x) * 0.5f, (vh - size.y) * 0.5f };
+                UIRenderer::DrawRect(pos, size, fullscreenPlayer->GetTexture().GetTexture(), glm::vec4(1.0f));
             }
         }
 
@@ -5842,6 +5888,26 @@ namespace OloEngine
             component.Sound->Stop();
             component.Sound->ReleaseResources();
             component.Sound = nullptr;
+        }
+    }
+    // Explicitly unload the player so its decode thread is joined synchronously before the
+    // registry erases the component (rather than waiting on the Ref destructor).
+    template<>
+    void Scene::OnComponentRemoved<VideoOverlayComponent>(Entity, VideoOverlayComponent& component)
+    {
+        if (component.Player)
+        {
+            component.Player->Unload();
+            component.Player = nullptr;
+        }
+    }
+    template<>
+    void Scene::OnComponentRemoved<VideoSurfaceComponent>(Entity, VideoSurfaceComponent& component)
+    {
+        if (component.Player)
+        {
+            component.Player->Unload();
+            component.Player = nullptr;
         }
     }
     OLO_ON_COMPONENT_REMOVED_NOOP(PrefabComponent)

@@ -1,0 +1,107 @@
+# Dedicated CI for the FFmpeg video backend: builds with OLO_VIDEO_FFMPEG=ON on both
+# Windows and Linux runners and runs the decode path against a real MP4 fixture.
+#
+# OLO_VIDEO_FFMPEG now defaults to ON, so the regular Windows/Linux builds also compile
+# FFmpeg from source (they need nasm + a bash on the runner). This workflow exists to
+# (a) give the FFmpeg build a cached, nasm-provisioned home so the slow (~10-15 min cold)
+# build is paid once, and (b) exercise the end-to-end decode test with a fixture. The
+# built FFmpeg (vendor/ffmpeg-install) is cached and reused via OLO_FFMPEG_PREFIX.
+name: Video (FFmpeg backend)
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 6 * * 1' # weekly, Monday 06:00 UTC
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: windows, runner: windows-latest, os: Windows }
+          - { name: linux,   runner: ubuntu-24.04,    os: Linux }
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Python 3.10
+        id: py
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.10'
+      - name: Python deps (OloHeaderTool)
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install jinja2
+
+      - name: Setup Vulkan SDK
+        uses: ./.github/actions/setup-vulkan
+
+      # FFmpeg's from-source build needs nasm on both platforms (gmake/make + a bash
+      # are already present: Strawberry Perl + Git-bash on windows-latest; make + bash
+      # on ubuntu). The Linux engine build also needs the usual GL/X/shader dev libs.
+      - name: Install nasm (Windows)
+        if: matrix.os == 'Windows'
+        run: choco install nasm -y --no-progress
+      - name: Install Linux deps
+        if: matrix.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            nasm \
+            libgl-dev libglu1-mesa-dev \
+            libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev libxext-dev \
+            libwayland-dev wayland-protocols libxkbcommon-dev \
+            glslang-dev libshaderc-dev libspirv-cross-c-shared-dev spirv-tools
+
+      # Cache the built FFmpeg so only the first (or post-bump) run pays the build cost.
+      - name: Cache FFmpeg build
+        id: ffcache
+        uses: actions/cache@v4
+        with:
+          path: OloEngine/vendor/ffmpeg-install
+          key: ffmpeg-${{ runner.os }}-n7.1-${{ hashFiles('scripts/build-ffmpeg.sh') }}
+
+      # On a cache hit, point CMake at the prebuilt tree (skips the ExternalProject
+      # rebuild via ffmpeg.cmake's OLO_FFMPEG_PREFIX fast path). On a miss, the
+      # ExternalProject builds FFmpeg from source and the cache step saves it.
+      - name: Configure (FFmpeg ON)
+        shell: bash
+        run: |
+          PREFIX_ARG=""
+          if [ "${{ steps.ffcache.outputs.cache-hit }}" = "true" ]; then
+            PREFIX_ARG="-DOLO_FFMPEG_PREFIX=${GITHUB_WORKSPACE}/OloEngine/vendor/ffmpeg-install"
+          fi
+          cmake -S . -B build -DOLO_VIDEO_FFMPEG=ON $PREFIX_ARG \
+            -DPython_EXECUTABLE="${{ steps.py.outputs.python-path }}"
+
+      - name: Build tests (builds FFmpeg on cache miss)
+        run: cmake --build build --target OloEngine-Tests --config Debug --parallel
+
+      # Fetch a small H.264 MP4 so the FFmpeg decode path runs end-to-end. -f fails on HTTP
+      # errors and --retry rides out transient flakes; the existence check surfaces a genuine
+      # download failure instead of silently letting the decode test SKIP.
+      - name: Fetch decode fixture
+        shell: bash
+        run: |
+          curl -fSL --retry 3 --retry-delay 5 --max-time 120 \
+            -o "${GITHUB_WORKSPACE}/sample.mp4" https://download.samplelib.com/mp4/sample-5s.mp4
+          test -s "${GITHUB_WORKSPACE}/sample.mp4"
+
+      - name: Run video tests
+        shell: bash
+        env:
+          OLO_TEST_VIDEO: ${{ github.workspace }}/sample.mp4
+        # Run from the repo root so VideoPlaybackTest's relative fixture candidates resolve, and
+        # locate the binary per-OS: Windows (VS multi-config) emits it under Debug/ with a .exe
+        # suffix; Linux (single-config) emits build/OloEngine/tests/OloEngine-Tests with neither.
+        run: |
+          BIN=$(find build/OloEngine/tests -type f \( -name OloEngine-Tests -o -name OloEngine-Tests.exe \) | head -1)
+          test -n "$BIN" || { echo "OloEngine-Tests binary not found under build/OloEngine/tests"; exit 1; }
+          "$BIN" --gtest_filter='VideoDecoder*:VideoPlayer*:VideoTexture*:VideoFrameInfo*:VideoDecoderFixture*'

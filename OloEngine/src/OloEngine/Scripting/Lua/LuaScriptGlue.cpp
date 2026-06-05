@@ -21,6 +21,7 @@
 #include "OloEngine/Localization/LocalizationManager.h"
 #include "OloEngine/Localization/TextFormatter.h"
 #include "OloEngine/Scene/Scene.h"
+#include "OloEngine/Video/VideoSystem.h"
 #include "OloEngine/Scene/Entity.h"
 #include "OloEngine/Scripting/C#/ScriptEngine.h"
 #include "OloEngine/SaveGame/SaveGameManager.h"
@@ -178,6 +179,8 @@ namespace OloEngine
             REGISTER_COMPONENT(AudioSourceComponent),
             REGISTER_COMPONENT(AudioListenerComponent),
             REGISTER_COMPONENT(AudioSoundGraphComponent),
+            REGISTER_COMPONENT(VideoOverlayComponent),
+            REGISTER_COMPONENT(VideoSurfaceComponent),
             REGISTER_COMPONENT(ParticleSystemComponent),
             REGISTER_COMPONENT(NavAgentComponent),
             REGISTER_COMPONENT(AbilityComponent),
@@ -1727,6 +1730,65 @@ namespace OloEngine
                                                                                  { return c.SetParameter(name, value); }, [](AudioSoundGraphComponent& c, const std::string& name, i32 value)
                                                                                  { return c.SetParameter(name, value); }, [](AudioSoundGraphComponent& c, const std::string& name, bool value)
                                                                                  { return c.SetParameter(name, value); }));
+
+        // --- VideoOverlayComponent (fullscreen cutscene overlay) ---
+        // The runtime Player is created by VideoSystem on the first runtime tick; before
+        // then the actions no-op and isPlaying returns false, so scripts can poll safely.
+        lua.new_usertype<VideoOverlayComponent>("VideoOverlayComponent", "videoPath", &VideoOverlayComponent::VideoPath, "playOnStart", &VideoOverlayComponent::PlayOnStart, "skipOnInput", &VideoOverlayComponent::SkipOnInput, "looping", &VideoOverlayComponent::Looping, "volume", sol::property([](const VideoOverlayComponent& c)
+                                                                                                                                                                                                                                                                                                     { return c.Volume; }, [](VideoOverlayComponent& c, f32 v)
+                                                                                                                                                                                                                                                                                                     {
+                    if (!std::isfinite(v)) v = 1.0f;
+                    c.Volume = std::clamp(v, 0.0f, 1.0f); }),
+                                                "isPlaying", [](const VideoOverlayComponent& c) -> bool
+                                                { return c.Player && c.Player->IsPlaying(); }, "isFinished", [](const VideoOverlayComponent& c) -> bool
+                                                { return c.Player && c.Player->IsFinished(); }, "Play", [](VideoOverlayComponent& c)
+                                                { if (c.Player) c.Player->Play(); }, "Pause", [](VideoOverlayComponent& c)
+                                                { if (c.Player) c.Player->Pause(); }, "Stop", [](VideoOverlayComponent& c)
+                                                { if (c.Player) c.Player->Stop(); });
+
+        // --- VideoSurfaceComponent (world-space video on a mesh) ---
+        lua.new_usertype<VideoSurfaceComponent>("VideoSurfaceComponent", "videoPath", &VideoSurfaceComponent::VideoPath, "autoPlay", &VideoSurfaceComponent::AutoPlay, "looping", &VideoSurfaceComponent::Looping, "volume", sol::property([](const VideoSurfaceComponent& c)
+                                                                                                                                                                                                                                           { return c.Volume; }, [](VideoSurfaceComponent& c, f32 v)
+                                                                                                                                                                                                                                           {
+                    if (!std::isfinite(v)) v = 1.0f;
+                    c.Volume = std::clamp(v, 0.0f, 1.0f); }),
+                                                "isPlaying", [](const VideoSurfaceComponent& c) -> bool
+                                                { return c.Player && c.Player->IsPlaying(); }, "Play", [](VideoSurfaceComponent& c)
+                                                { if (c.Player) c.Player->Play(); }, "Pause", [](VideoSurfaceComponent& c)
+                                                { if (c.Player) c.Player->Pause(); }, "Stop", [](VideoSurfaceComponent& c)
+                                                { if (c.Player) c.Player->Stop(); });
+
+        // --- Video (global table) — fullscreen cutscene control. ---
+        auto videoTable = lua.create_named_table("Video");
+        videoTable["PlayFullscreen"] = sol::overload(
+            [](const std::string& path)
+            { VideoSystem::PlayFullscreen(path, false, {}); },
+            [](const std::string& path, bool loop)
+            { VideoSystem::PlayFullscreen(path, loop, {}); },
+            [](const std::string& path, sol::function onFinished)
+            {
+                VideoSystem::PlayFullscreen(path, false, [onFinished]()
+                                            {
+                    // Invoke as a protected_function so a Lua error in the callback is logged
+                    // rather than thrown into the C++ caller (OnFinished runs during the scene tick).
+                    sol::protected_function pf = onFinished;
+                    if (!pf.valid())
+                        return;
+                    sol::protected_function_result result = pf();
+                    if (!result.valid())
+                    {
+                        sol::error err = result;
+                        OLO_ERROR("Video.PlayFullscreen onFinished callback error: {}", err.what());
+                    } });
+            });
+        videoTable["Stop"] = []()
+        { VideoSystem::StopFullscreen(); };
+        videoTable["Skip"] = []()
+        { VideoSystem::SkipFullscreen(); };
+        videoTable["IsPlaying"] = []()
+        { return VideoSystem::IsFullscreenPlaying(); };
+        videoTable["SetSkippable"] = [](bool skippable)
+        { VideoSystem::SetFullscreenSkippable(skippable); };
 
         // --- AudioEvents (global table) ---
         auto audioEventsTable = lua.create_named_table("AudioEvents");
