@@ -219,68 +219,86 @@ namespace OloEngine::Tests
             }
         } scopedMockTime(kCaptureTime);
 
-        // 3/4 view from +Z, angled down at the ground so the pole's long shadow
-        // (sharp at the base, soft at the tip near the camera) fills the lower
-        // frame. SetPose: yaw 0 looks toward -Z, positive pitch tilts down.
-        EditorCamera camera(60.0f, static_cast<f32>(kWidth) / static_cast<f32>(kHeight), 0.05f, 1000.0f);
-        camera.SetViewportSize(static_cast<f32>(kWidth), static_cast<f32>(kHeight));
-        camera.SetPose({ 0.0f, 11.0f, 17.0f }, 0.0f, 0.55f);
-
-        std::vector<u8> hardPixels;
-        Capture("ThreeQuarter", /*softShadows=*/false, camera, hardPixels);
-        if (::testing::Test::HasFatalFailure())
-            return;
-
-        std::vector<u8> softPixels;
-        Capture("ThreeQuarter", /*softShadows=*/true, camera, softPixels);
-        if (::testing::Test::HasFatalFailure())
-            return;
-
-        // Classify ground luma over the lower 55% of the frame (foreground ground
-        // + the cast shadows) for BOTH renders. Lit grey ground reads bright; a
-        // shadow darkens it; PCSS spreads occlusion into a lighter penumbra so its
-        // deepest-dark (umbra) area is smaller than the hard-PCF equivalent.
-        const u32 yStart = static_cast<u32>(static_cast<f32>(kHeight) * 0.45f);
-        const auto classify = [&](const std::vector<u8>& px, std::size_t& lit,
-                                  std::size_t& shadowed, std::size_t& umbra, std::size_t& total)
+        // Render one camera pose with hard PCF then PCSS and assert the
+        // driver-independent soft-shadow contracts. Classifies ground luma over the
+        // lower 55% of the frame (foreground ground + cast shadows): lit grey ground
+        // reads bright; a shadow darkens it; PCSS spreads occlusion into a lighter
+        // penumbra so its deepest-dark (umbra) area is smaller than hard PCF's.
+        const auto verifyPose = [this](const std::string& poseName, const EditorCamera& camera)
         {
-            lit = shadowed = umbra = total = 0;
-            for (u32 y = yStart; y < kHeight; ++y)
+            std::vector<u8> hardPixels;
+            Capture(poseName, /*softShadows=*/false, camera, hardPixels);
+            if (::testing::Test::HasFatalFailure())
+                return;
+            std::vector<u8> softPixels;
+            Capture(poseName, /*softShadows=*/true, camera, softPixels);
+            if (::testing::Test::HasFatalFailure())
+                return;
+
+            const u32 yStart = static_cast<u32>(static_cast<f32>(kHeight) * 0.45f);
+            const auto classify = [&](const std::vector<u8>& px, std::size_t& lit,
+                                      std::size_t& shadowed, std::size_t& umbra, std::size_t& total)
             {
-                for (u32 x = 0; x < kWidth; ++x)
+                lit = shadowed = umbra = total = 0;
+                for (u32 y = yStart; y < kHeight; ++y)
                 {
-                    const u8* p = px.data() + (static_cast<std::size_t>(y) * kWidth + x) * 4u;
-                    const f64 l = Luma(p);
-                    ++total;
-                    if (l > 155.0)
-                        ++lit; // fully-lit ground
-                    else if (l > 20.0 && l < 145.0)
-                        ++shadowed; // darkened ground (soft or hard), excl. near-black non-ground
-                    if (l > 8.0 && l < 70.0)
-                        ++umbra; // deep, near-umbra occlusion (excl. pure-black background)
+                    for (u32 x = 0; x < kWidth; ++x)
+                    {
+                        const u8* p = px.data() + (static_cast<std::size_t>(y) * kWidth + x) * 4u;
+                        const f64 l = Luma(p);
+                        ++total;
+                        if (l > 155.0)
+                            ++lit; // fully-lit ground
+                        else if (l > 20.0 && l < 145.0)
+                            ++shadowed; // darkened ground (soft or hard), excl. near-black non-ground
+                        if (l > 8.0 && l < 70.0)
+                            ++umbra; // deep, near-umbra occlusion (excl. pure-black background)
+                    }
                 }
-            }
+            };
+            std::size_t litOn, shadowOn, umbraOn, totalOn;
+            std::size_t litOff, shadowOff, umbraOff, totalOff;
+            classify(softPixels, litOn, shadowOn, umbraOn, totalOn);
+            classify(hardPixels, litOff, shadowOff, umbraOff, totalOff);
+            ASSERT_GT(totalOn, 0u);
+
+            // (1) Lit ground and a shadow render in both modes.
+            EXPECT_GT(litOn, totalOn / 100) << poseName << ": expected lit ground in the lower frame";
+            EXPECT_GT(shadowOn, totalOn / 300) << poseName << ": expected a (soft) shadow in the PCSS frame";
+            EXPECT_GT(shadowOff, totalOff / 300) << poseName << ": expected a shadow in the hard-PCF frame";
+
+            // (2) Contact-hardening / softening: PCSS lifts umbra into a lighter
+            // penumbra, so its deepest-dark area is strictly smaller than hard PCF's.
+            EXPECT_LT(umbraOn, umbraOff)
+                << poseName << ": PCSS should spread occlusion into a lighter penumbra than hard PCF "
+                << "(umbra px: PCSS=" << umbraOn << " hardPCF=" << umbraOff << ")";
+
+            // (3) The PCSS toggle measurably changes the shadows vs legacy hardware PCF.
+            const f64 rmse = Rgba8Rmse(hardPixels, softPixels);
+            EXPECT_GT(rmse, 1.0)
+                << poseName << ": PCSS-on frame should differ from PCSS-off (legacy PCF); RMSE=" << rmse;
         };
-        std::size_t litOn, shadowOn, umbraOn, totalOn;
-        std::size_t litOff, shadowOff, umbraOff, totalOff;
-        classify(softPixels, litOn, shadowOn, umbraOn, totalOn);
-        classify(hardPixels, litOff, shadowOff, umbraOff, totalOff);
-        ASSERT_GT(totalOn, 0u);
 
-        // (1) Lit ground and a shadow render in both modes.
-        EXPECT_GT(litOn, totalOn / 100) << "expected lit ground in the lower frame";
-        EXPECT_GT(shadowOn, totalOn / 300) << "expected a (soft) shadow in the PCSS frame";
-        EXPECT_GT(shadowOff, totalOff / 300) << "expected a shadow in the hard-PCF frame";
+        const f32 aspect = static_cast<f32>(kWidth) / static_cast<f32>(kHeight);
 
-        // (2) Contact-hardening / softening: PCSS lifts umbra into a lighter
-        // penumbra, so its deepest-dark area is strictly smaller than hard PCF's.
-        EXPECT_LT(umbraOn, umbraOff)
-            << "PCSS should spread occlusion into a lighter penumbra than hard PCF "
-            << "(umbra px: PCSS=" << umbraOn << " hardPCF=" << umbraOff << ")";
+        // Pose A — 3/4 view from +Z, angled down: the pole's long shadow (sharp at
+        // the base, soft at the tip near the camera) fills the lower frame.
+        // SetPose: yaw 0 looks toward -Z, positive pitch tilts down.
+        EditorCamera threeQuarter(60.0f, aspect, 0.05f, 1000.0f);
+        threeQuarter.SetViewportSize(static_cast<f32>(kWidth), static_cast<f32>(kHeight));
+        threeQuarter.SetPose({ 0.0f, 11.0f, 17.0f }, 0.0f, 0.55f);
+        verifyPose("ThreeQuarter", threeQuarter);
+        if (::testing::Test::HasFatalFailure())
+            return;
 
-        // (3) The PCSS toggle measurably changes the shadows vs legacy hardware PCF.
-        const f64 rmse = Rgba8Rmse(hardPixels, softPixels);
-        EXPECT_GT(rmse, 1.0)
-            << "PCSS-on frame should differ from PCSS-off (legacy PCF); RMSE=" << rmse;
+        // Pose B — higher, X-offset, steeper oblique view of the same scene. A
+        // different eye height / pitch / lateral offset changes the cascade
+        // coverage and the on-screen projection of the penumbra, so re-checking the
+        // contracts here guards against view-dependent regressions (e.g. a cascade
+        // selection or projection bug that only shows from one angle).
+        EditorCamera oblique(60.0f, aspect, 0.05f, 1000.0f);
+        oblique.SetViewportSize(static_cast<f32>(kWidth), static_cast<f32>(kHeight));
+        oblique.SetPose({ 8.0f, 14.0f, 13.0f }, 0.0f, 0.72f);
+        verifyPose("Oblique", oblique);
     }
 } // namespace OloEngine::Tests

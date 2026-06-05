@@ -463,49 +463,33 @@ namespace OloEngine
         }
     }
 
+    // Bind a texture to a unit only when it differs from the currently-tracked
+    // binding, updating the redundant-bind tracker and the bind stat. A 0 id is a
+    // no-op (no texture for that slot this frame). Shared by every tracked bind so
+    // the check/update/increment logic lives in exactly one place.
+    static void BindTrackedTextureUnit(u32 slot, u32 textureID)
+    {
+        if (textureID == 0)
+            return;
+        if (s_Data.BoundTextureIDs[slot] != textureID)
+        {
+            glBindTextureUnit(slot, textureID);
+            s_Data.BoundTextureIDs[slot] = textureID;
+            ++s_Data.Stats.TextureBinds;
+        }
+    }
+
     // Helper: Bind per-frame shadow and snow depth textures (only relevant for PBR paths).
     // Relies on BoundTextureIDs tracking to avoid redundant binds.
     static void BindShadowTextures()
     {
-        if (s_Data.CSMShadowTextureID != 0)
-        {
-            if (s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_SHADOW] != s_Data.CSMShadowTextureID)
-            {
-                glBindTextureUnit(ShaderBindingLayout::TEX_SHADOW, s_Data.CSMShadowTextureID);
-                s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_SHADOW] = s_Data.CSMShadowTextureID;
-                ++s_Data.Stats.TextureBinds;
-            }
-        }
-        if (s_Data.SpotShadowTextureID != 0)
-        {
-            if (s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_SHADOW_SPOT] != s_Data.SpotShadowTextureID)
-            {
-                glBindTextureUnit(ShaderBindingLayout::TEX_SHADOW_SPOT, s_Data.SpotShadowTextureID);
-                s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_SHADOW_SPOT] = s_Data.SpotShadowTextureID;
-                ++s_Data.Stats.TextureBinds;
-            }
-        }
+        BindTrackedTextureUnit(ShaderBindingLayout::TEX_SHADOW, s_Data.CSMShadowTextureID);
+        BindTrackedTextureUnit(ShaderBindingLayout::TEX_SHADOW_SPOT, s_Data.SpotShadowTextureID);
 
         // Comparison-OFF raw-depth views for the PCSS blocker search (plain
         // sampler2DArray at TEX_SHADOW_CSM_RAW / TEX_SHADOW_SPOT_RAW).
-        if (s_Data.CSMRawShadowTextureID != 0)
-        {
-            if (s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_SHADOW_CSM_RAW] != s_Data.CSMRawShadowTextureID)
-            {
-                glBindTextureUnit(ShaderBindingLayout::TEX_SHADOW_CSM_RAW, s_Data.CSMRawShadowTextureID);
-                s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_SHADOW_CSM_RAW] = s_Data.CSMRawShadowTextureID;
-                ++s_Data.Stats.TextureBinds;
-            }
-        }
-        if (s_Data.SpotRawShadowTextureID != 0)
-        {
-            if (s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_SHADOW_SPOT_RAW] != s_Data.SpotRawShadowTextureID)
-            {
-                glBindTextureUnit(ShaderBindingLayout::TEX_SHADOW_SPOT_RAW, s_Data.SpotRawShadowTextureID);
-                s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_SHADOW_SPOT_RAW] = s_Data.SpotRawShadowTextureID;
-                ++s_Data.Stats.TextureBinds;
-            }
-        }
+        BindTrackedTextureUnit(ShaderBindingLayout::TEX_SHADOW_CSM_RAW, s_Data.CSMRawShadowTextureID);
+        BindTrackedTextureUnit(ShaderBindingLayout::TEX_SHADOW_SPOT_RAW, s_Data.SpotRawShadowTextureID);
 
         static constexpr std::array<u32, UBOStructures::ShadowUBO::MAX_POINT_SHADOWS> pointSlots = {
             ShaderBindingLayout::TEX_SHADOW_POINT_0,
@@ -515,26 +499,10 @@ namespace OloEngine
         };
         for (u32 i = 0; i < UBOStructures::ShadowUBO::MAX_POINT_SHADOWS; ++i)
         {
-            if (s_Data.PointShadowTextureIDs[i] != 0)
-            {
-                if (s_Data.BoundTextureIDs[pointSlots[i]] != s_Data.PointShadowTextureIDs[i])
-                {
-                    glBindTextureUnit(pointSlots[i], s_Data.PointShadowTextureIDs[i]);
-                    s_Data.BoundTextureIDs[pointSlots[i]] = s_Data.PointShadowTextureIDs[i];
-                    ++s_Data.Stats.TextureBinds;
-                }
-            }
+            BindTrackedTextureUnit(pointSlots[i], s_Data.PointShadowTextureIDs[i]);
         }
 
-        if (s_Data.SnowDepthTextureID != 0)
-        {
-            if (s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_SNOW_DEPTH] != s_Data.SnowDepthTextureID)
-            {
-                glBindTextureUnit(ShaderBindingLayout::TEX_SNOW_DEPTH, s_Data.SnowDepthTextureID);
-                s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_SNOW_DEPTH] = s_Data.SnowDepthTextureID;
-                ++s_Data.Stats.TextureBinds;
-            }
-        }
+        BindTrackedTextureUnit(ShaderBindingLayout::TEX_SNOW_DEPTH, s_Data.SnowDepthTextureID);
     }
 
     // Helper: Upload bone matrices from FrameDataBuffer.
@@ -1761,55 +1729,13 @@ namespace OloEngine
             glBindTextureUnit(ShaderBindingLayout::TEX_TERRAIN_ARM_ARRAY, cmd->armArrayTextureID);
         }
 
-        // Bind shadow textures (terrain PBR needs shadows too)
-        if (s_Data.CSMShadowTextureID != 0)
-        {
-            if (s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_SHADOW] != s_Data.CSMShadowTextureID)
-            {
-                glBindTextureUnit(ShaderBindingLayout::TEX_SHADOW, s_Data.CSMShadowTextureID);
-                s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_SHADOW] = s_Data.CSMShadowTextureID;
-                ++s_Data.Stats.TextureBinds;
-            }
-        }
-        if (s_Data.SpotShadowTextureID != 0)
-        {
-            if (s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_SHADOW_SPOT] != s_Data.SpotShadowTextureID)
-            {
-                glBindTextureUnit(ShaderBindingLayout::TEX_SHADOW_SPOT, s_Data.SpotShadowTextureID);
-                s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_SHADOW_SPOT] = s_Data.SpotShadowTextureID;
-                ++s_Data.Stats.TextureBinds;
-            }
-        }
-        // PCSS raw-depth views (terrain PBR / voxel use soft shadows too).
-        if (s_Data.CSMRawShadowTextureID != 0)
-        {
-            if (s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_SHADOW_CSM_RAW] != s_Data.CSMRawShadowTextureID)
-            {
-                glBindTextureUnit(ShaderBindingLayout::TEX_SHADOW_CSM_RAW, s_Data.CSMRawShadowTextureID);
-                s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_SHADOW_CSM_RAW] = s_Data.CSMRawShadowTextureID;
-                ++s_Data.Stats.TextureBinds;
-            }
-        }
-        if (s_Data.SpotRawShadowTextureID != 0)
-        {
-            if (s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_SHADOW_SPOT_RAW] != s_Data.SpotRawShadowTextureID)
-            {
-                glBindTextureUnit(ShaderBindingLayout::TEX_SHADOW_SPOT_RAW, s_Data.SpotRawShadowTextureID);
-                s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_SHADOW_SPOT_RAW] = s_Data.SpotRawShadowTextureID;
-                ++s_Data.Stats.TextureBinds;
-            }
-        }
-
-        // Bind snow depth texture for accumulation displacement
-        if (s_Data.SnowDepthTextureID != 0)
-        {
-            if (s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_SNOW_DEPTH] != s_Data.SnowDepthTextureID)
-            {
-                glBindTextureUnit(ShaderBindingLayout::TEX_SNOW_DEPTH, s_Data.SnowDepthTextureID);
-                s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_SNOW_DEPTH] = s_Data.SnowDepthTextureID;
-                ++s_Data.Stats.TextureBinds;
-            }
-        }
+        // Bind shadow textures (terrain PBR needs shadows too), incl. the PCSS
+        // comparison-OFF raw-depth views and the snow accumulation depth map.
+        BindTrackedTextureUnit(ShaderBindingLayout::TEX_SHADOW, s_Data.CSMShadowTextureID);
+        BindTrackedTextureUnit(ShaderBindingLayout::TEX_SHADOW_SPOT, s_Data.SpotShadowTextureID);
+        BindTrackedTextureUnit(ShaderBindingLayout::TEX_SHADOW_CSM_RAW, s_Data.CSMRawShadowTextureID);
+        BindTrackedTextureUnit(ShaderBindingLayout::TEX_SHADOW_SPOT_RAW, s_Data.SpotRawShadowTextureID);
+        BindTrackedTextureUnit(ShaderBindingLayout::TEX_SNOW_DEPTH, s_Data.SnowDepthTextureID);
 
         // Bind VAO (cached) and draw with GL_PATCHES
         BindVAOIfNeeded(cmd->vertexArrayID);

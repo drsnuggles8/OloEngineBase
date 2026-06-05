@@ -323,6 +323,14 @@ namespace OloEngine
             }
         };
 
+        // std140 layout sanity check for ShadowUBO — mirrors the GLSL `ShadowData`
+        // block at binding 6 (GetShadowUBOLayout). A mismatch means the C++ struct
+        // drifted from the shader; adding/reordering a field (e.g. SoftShadowMode,
+        // which reused a former pad int) must keep the size at 640 B:
+        //   4*mat4 (256) + 2*vec4 (32) + 4*mat4 (256) + 4*vec4 (64) + 8*int (32).
+        static_assert(sizeof(ShadowUBO) % 16 == 0, "ShadowUBO must be 16-byte aligned for std140");
+        static_assert(sizeof(ShadowUBO) == 640, "ShadowUBO std140 size drifted from GLSL expectation (640 B)");
+
         // @brief Decal projection parameters
         struct DecalUBO
         {
