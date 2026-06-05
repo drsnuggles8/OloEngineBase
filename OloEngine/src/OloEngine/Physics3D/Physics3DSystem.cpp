@@ -352,6 +352,14 @@ namespace OloEngine
 
         // Step the world
         m_PhysicsSystem->Update(deltaTime, collisionSteps, m_TempAllocator.get(), m_JobSystem.get());
+
+        // Drain scheduler workers still finishing Job::Release()→FreeJob() before returning.
+        // Jolt's barrier waited only on Job::Execute(), not our lambda's trailing Release(),
+        // so a worker can still be touching the job free-list when Update() returns — the
+        // #281 use-after-free window. Mirrors the per-step drain in JoltScene::Step. No-op
+        // in the common case (the barrier already drained Execute()).
+        if (m_JobSystem)
+            m_JobSystem->WaitForOutstandingTasks();
     }
 
     void Physics3DSystem::ProcessActivationEvents()

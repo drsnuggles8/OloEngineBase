@@ -26,7 +26,17 @@ namespace OloEngine
         // can call back into FreeJob(this) → m_Jobs.DestructObject. If the destructor
         // tears down m_Jobs first, the worker thread dereferences freed Job memory —
         // exactly the TSan race that bit MultipleScenesCoexistTest, SceneStepAdvances*,
-        // TriggerEndEvent*, and CharacterControllerJumps* on Linux CI.
+        // TriggerEndEvent*, and CharacterControllerJumps* on Linux CI. Same drain the
+        // per-step path runs after each PhysicsSystem::Update (see WaitForOutstandingTasks).
+        WaitForOutstandingTasks();
+    }
+
+    void JoltJobSystemAdapter::WaitForOutstandingTasks() noexcept
+    {
+        // Spin-wait until every in-flight QueueJob lambda has decremented m_OutstandingTasks,
+        // which it does only after Job::Execute() AND Job::Release() (→ possible FreeJob on
+        // m_Jobs) have both fully returned. See the header for why Jolt's barrier alone is
+        // not enough. Bounded by a timeout so a wedged worker can't hang the simulation.
         using clock = std::chrono::steady_clock;
         constexpr auto kTimeout = std::chrono::seconds(5);
         const auto deadline = clock::now() + kTimeout;
@@ -34,7 +44,7 @@ namespace OloEngine
         {
             if (clock::now() > deadline)
             {
-                OLO_CORE_ERROR("JoltJobSystemAdapter: timed out waiting for {} pending tasks during shutdown",
+                OLO_CORE_ERROR("JoltJobSystemAdapter: timed out waiting for {} outstanding physics job(s) to drain",
                                m_OutstandingTasks.load(std::memory_order_relaxed));
                 break;
             }

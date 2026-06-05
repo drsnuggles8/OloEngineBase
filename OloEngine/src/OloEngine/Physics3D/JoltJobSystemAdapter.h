@@ -34,6 +34,21 @@ namespace OloEngine
                                             const JPH::JobSystem::JobFunction& inJobFunction,
                                             u32 inNumDependencies = 0) override;
 
+        /// Block until every QueueJob-launched scheduler lambda has fully returned
+        /// (Job::Execute() → Job::Release() → the FreeJob()/m_Jobs free-list callback,
+        /// then the m_OutstandingTasks decrement). Jolt's barrier Wait() inside
+        /// PhysicsSystem::Update only synchronises on Job::Execute() *returning*, so on
+        /// Update's return a scheduler worker can still be mid-Release()→FreeJob(), i.e.
+        /// still touching m_Jobs. Call this immediately after PhysicsSystem::Update()
+        /// returns so the engine never reads or mutates state — nor begins the next step,
+        /// whose CreateJob() reuses m_Jobs slots — while a worker is still inside the
+        /// adapter. This is the runtime sibling of the drain the destructor performs at
+        /// teardown (see #281). Spin-waits with a timeout; on timeout it logs and returns
+        /// rather than hanging the simulation. Cheap in the common case: the barrier has
+        /// already waited on Execute(), so the trailing Release() is normally done and the
+        /// counter reads zero on the first check.
+        void WaitForOutstandingTasks() noexcept;
+
       protected:
         // JobSystem interface - protected methods
         void QueueJob(JPH::JobSystem::Job* inJob) override;

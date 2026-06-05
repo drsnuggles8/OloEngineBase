@@ -157,6 +157,14 @@ namespace OloEngine
             m_TempAllocator.get(),
             m_JobSystem.get());
 
+        // Drain any scheduler workers still finishing Job::Release()→FreeJob() before we
+        // touch physics state or start the next Step (whose CreateJob reuses the same job
+        // free-list). Jolt's barrier only waited on Job::Execute() returning, not on our
+        // lambda's trailing Release(). Without this the worker can corrupt the free-list
+        // concurrently — the #281 SEH 0xc0000005 / use-after-free. Normally a no-op.
+        if (m_JobSystem)
+            m_JobSystem->WaitForOutstandingTasks();
+
         if (error != JPH::EPhysicsUpdateError::None)
         {
             OLO_CORE_ERROR("Jolt physics update error: {0}", static_cast<i32>(error));
