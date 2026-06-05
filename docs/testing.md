@@ -1418,6 +1418,12 @@ level of `tests/`). Grouped by directory.
 |---|---:|---|
 | [GameplayAbilityTest.cpp](../OloEngine/tests/Gameplay/GameplayAbilityTest.cpp) | 40 | **GameplayTagTest** &mdash; `ConstructAndQuery`, `EmptyTag`, `ExactMatch`, `PartialMatch`, `PartialMatchNotSubstring`, `HashEquality`<br/>**GameplayTagContainerTest** &mdash; `AddAndQuery`, `NoDuplicates`, `RemoveTag`, `HasAll`, `HasAny`, `PartialQuery`<br/>**AttributeSetTest** &mdash; `DefineAndGet`, `SetBaseValue`, `AdditiveModifier`, `MultiplicativeModifier`, `OverrideModifier`, `StackedModifiers`, `RemoveModifiersBySource`, `GetAttributeNames`<br/>**CooldownManagerTest** &mdash; `StartAndCheck`, `TickReducesCooldown`, `CooldownExpires`, `CooldownFraction`, `ResetCooldown`<br/>**ActiveEffectsContainerTest** &mdash; `InstantEffect`, `DurationEffect`, `PeriodicEffect`, `StackingEffect`, `RequiredTagsBlocked`, `BlockedTagsPrevents`, `RefCountedTags`<br/>**DamageCalculationTest** &mdash; `BasicDamage`, `CriticalHit`, `Resistance`, `MinimumZeroDamage`, `CustomFormula`, `ScopedFormula`<br/>**AbilityComponentTest** &mdash; `InitializeDefaultRPG`, `EqualityOperator` |
 
+#### HAL (1 file)
+
+| File | Tests | Cases |
+|---|---:|---|
+| [ThreadManagerTest.cpp](../OloEngine/tests/HAL/ThreadManagerTest.cpp) | 3 | **ThreadManagerTest** &mdash; `RegistersThreadOnCreateAndDeregistersOnDestroy`, `TracksMultipleConcurrentThreads`, `NamedThreadIdAgreesWithRegistryId` |
+
 #### Lua (1 file)
 
 | File | Tests | Cases |
@@ -1493,7 +1499,7 @@ level of `tests/`). Grouped by directory.
 | [FunctionWithContextTest.cpp](../OloEngine/tests/Templates/FunctionWithContextTest.cpp) | 4 | **FunctionWithContext** &mdash; `DefaultConstructedIsNullAndExposesNullSlots`, `LambdaBoundCallableInvokesCaptureBody`, `ReassignmentReplacesBoundCallable`, `RoundTripsThroughStatelessInvocationAPI` |
 | [TypeTraitsTest.cpp](../OloEngine/tests/Templates/TypeTraitsTest.cpp) | 2 | **TypeTraitsTest** &mdash; `AllChecksAreCompileTime`, `AllNameOfsAreCorrect` |
 
-**Totals.** 124 unit / subsystem test files, 1528 TEST / TEST_F declarations across all subsystems.
+**Totals.** 125 unit / subsystem test files, 1531 TEST / TEST_F declarations across all subsystems.
 
 <!-- END: unit-catalogue -->
 

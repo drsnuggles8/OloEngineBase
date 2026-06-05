@@ -54,6 +54,8 @@
 		"Panels/StreamingPanel.h"
 		"Panels/NetworkDebugPanel.cpp"
 		"Panels/NetworkDebugPanel.h"
+		"Panels/ThreadInspectorPanel.cpp"
+		"Panels/ThreadInspectorPanel.h"
 		"Panels/SaveGamePanel.cpp"
 		"Panels/SaveGamePanel.h"
 		"Panels/LocalizationPanel.cpp"

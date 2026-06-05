@@ -3,6 +3,7 @@
 
 #include "OloEnginePCH.h"
 #include "OloEngine/HAL/RunnableThread.h"
+#include "OloEngine/HAL/ThreadManager.h"
 
 #ifdef OLO_PLATFORM_WINDOWS
 #include "Platform/Windows/WindowsHWrapper.h"
@@ -22,6 +23,12 @@ namespace OloEngine
 
     FRunnableThread::~FRunnableThread()
     {
+        // Deregister from the global registry first, so an enumerator can never
+        // observe a pointer to a partially-destroyed thread. RemoveThread matches
+        // by pointer identity, so it is a safe no-op for threads that were never
+        // added (e.g. a failed Create()).
+        FThreadManager::Get().RemoveThread(this);
+
         // Ensure thread is stopped before destruction
         Kill(true);
 
@@ -47,6 +54,11 @@ namespace OloEngine
         FRunnableThread* NewThread = new FRunnableThread();
         if (NewThread->CreateInternal(InRunnable, ThreadName, InStackSize, InThreadPri, InThreadAffinityMask, InCreateFlags))
         {
+            // Register the live thread in the global registry. CreateInternal only
+            // returns true after the worker has signalled init, so m_ThreadID is
+            // already set to the real OS thread id by this point. The matching
+            // RemoveThread happens in ~FRunnableThread().
+            FThreadManager::Get().AddThread(NewThread->GetThreadID(), NewThread);
             return NewThread;
         }
         delete NewThread;

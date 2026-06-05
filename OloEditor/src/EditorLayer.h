@@ -11,6 +11,7 @@
 #include "Panels/StreamingPanel.h"
 #include "Panels/InputSettingsPanel.h"
 #include "Panels/NetworkDebugPanel.h"
+#include "Panels/ThreadInspectorPanel.h"
 #include "Panels/ConsolePanel.h"
 #include "Panels/DialogueEditorPanel.h"
 #include "Panels/CinematicTimelinePanel.h"
@@ -216,6 +217,7 @@ namespace OloEngine
         StreamingPanel m_StreamingPanel;
         InputSettingsPanel m_InputSettingsPanel;
         NetworkDebugPanel m_NetworkDebugPanel;
+        ThreadInspectorPanel m_ThreadInspectorPanel;
         ConsolePanel m_ConsolePanel;
         StatisticsPanel m_StatisticsPanel;
         DialogueEditorPanel m_DialogueEditorPanel;
@@ -235,6 +237,7 @@ namespace OloEngine
         bool m_ShowStreamingPanel = false;
         bool m_ShowInputSettings = false;
         bool m_ShowNetworkDebug = false;
+        bool m_ShowThreadInspector = false;
         bool m_ShowDialogueEditor = false;
         NavMeshPanel m_NavMeshPanel;
         bool m_ShowNavMeshPanel = false;
