@@ -20,7 +20,9 @@ void main()
 // For each opaque pixel, reconstruct its view-space position from depth, build
 // the view-space reflection vector from the G-Buffer world normal, and march it
 // against the scene depth buffer (linear steps + binary-search refinement). On
-// a hit, sample the lit scene colour at the hit UV and composite it additively,
+// a hit, sample the lit scene colour at the hit UV and composite it with a
+// replace/mix blend (lerp toward the reflection by reflectance x confidence —
+// not additive, which double-counts the IBL already in the base colour),
 // weighted by Fresnel, roughness fade, and screen-edge / distance / facing
 // fades. Reflections of opaque geometry can only contain what is already on
 // screen, so off-screen rays fade out gracefully.

@@ -117,7 +117,7 @@ namespace OloEngine::Tests
     }
 
     // The whole class: each topology-affecting toggle must flip the fingerprint.
-    TEST(RenderGraphFingerprint, EveryTopologyTogglechangesFingerprint)
+    TEST(RenderGraphFingerprint, EveryTopologyToggleChangesFingerprint)
     {
         const RendererSettings rs = DeferredSettings();
         const PostProcessSettings base; // all effects default (mostly off)

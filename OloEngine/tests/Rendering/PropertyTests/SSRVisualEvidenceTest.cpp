@@ -43,8 +43,10 @@
 
 #include <glad/gl.h>
 #include <gtest/gtest.h>
+#include <stb_image/stb_image.h>
 #include <stb_image/stb_image_write.h>
 
+#include <array>
 #include <cmath>
 #include <cstring>
 #include <filesystem>
@@ -162,16 +164,15 @@ namespace OloEngine::Tests
             }
         }
 
-        // Render the current scene/settings from a fixed pose and read back the
-        // composited frame (top-down rows), also saving it as PNG evidence.
-        void Capture(const std::string& state, std::vector<u8>& outPixels)
+        // Render the current scene/settings from the given pose, read back the
+        // composited frame (top-down rows), save it as PNG evidence, and verify
+        // the PNG round-trips (write succeeded + reloads bit-identical).
+        void Capture(const std::string& tag, const glm::vec3& position, f32 yaw, f32 pitch,
+                     std::vector<u8>& outPixels)
         {
             EditorCamera camera(60.0f, static_cast<f32>(kWidth) / static_cast<f32>(kHeight), 0.05f, 1000.0f);
             camera.SetViewportSize(static_cast<f32>(kWidth), static_cast<f32>(kHeight));
-            // Above the floor, looking forward and down at it; the red block sits
-            // ahead at y=3, z=-7, so its reflection lands in the floor between the
-            // camera and the block.
-            camera.SetPose(glm::vec3(0.0f, 4.0f, 6.0f), 0.0f, 0.42f);
+            camera.SetPose(position, yaw, pitch);
 
             RunEditorFrames(camera, 2);
 
@@ -180,7 +181,7 @@ namespace OloEngine::Tests
                 fb = Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::ToneMapColor);
             if (!fb)
                 fb = Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::SceneColor);
-            ASSERT_TRUE(fb) << "No composited framebuffer for SSR state '" << state << "'";
+            ASSERT_TRUE(fb) << "No composited framebuffer for SSR capture '" << tag << "'";
 
             ReadbackRgba8(fb->GetColorAttachmentRendererID(0), kWidth, kHeight, outPixels);
             ASSERT_EQ(outPixels.size(), static_cast<std::size_t>(kWidth) * kHeight * 4u);
@@ -197,17 +198,44 @@ namespace OloEngine::Tests
                 std::memcpy(bot, tmp.data(), rowBytes);
             }
 
+            // Evidence path is relative to cwd (= OloEditor/ when run), matching
+            // WaterVisualEvidenceTest's convention so it works from the same
+            // working directory the rest of the visual tests assume.
             const fs::path dir = fs::path("assets") / "tests" / "visual";
             std::error_code ec;
             fs::create_directories(dir, ec);
-            const std::string path = (dir / ("SSR_" + state + ".png")).string();
-            ::stbi_write_png(path.c_str(), static_cast<int>(kWidth), static_cast<int>(kHeight), 4,
-                             outPixels.data(), static_cast<int>(kWidth) * 4);
+            ASSERT_FALSE(ec) << "Failed to create evidence dir '" << dir.generic_string()
+                             << "': " << ec.message();
+
+            const std::string path = (dir / ("SSR_" + tag + ".png")).string();
+            const int wrote = ::stbi_write_png(path.c_str(), static_cast<int>(kWidth),
+                                               static_cast<int>(kHeight), 4, outPixels.data(),
+                                               static_cast<int>(kWidth) * 4);
+            ASSERT_NE(wrote, 0) << "stbi_write_png failed for '" << path << "'";
+
+            // Reload and verify the saved PNG matches what we wrote (PNG is
+            // lossless, so the round-trip must be bit-identical).
+            int w = 0, h = 0, ch = 0;
+            stbi_uc* loaded = ::stbi_load(path.c_str(), &w, &h, &ch, 4);
+            ASSERT_NE(loaded, nullptr) << "Failed to reload written PNG '" << path << "'";
+            EXPECT_EQ(w, static_cast<int>(kWidth));
+            EXPECT_EQ(h, static_cast<int>(kHeight));
+            EXPECT_EQ(ch, 4) << "Written PNG should have 4 channels (RGBA)";
+            if (w == static_cast<int>(kWidth) && h == static_cast<int>(kHeight))
+            {
+                EXPECT_EQ(std::memcmp(loaded, outPixels.data(),
+                                      static_cast<std::size_t>(kWidth) * kHeight * 4u),
+                          0)
+                    << "Reloaded PNG pixels differ from the written buffer: " << path;
+            }
+            ::stbi_image_free(loaded);
         }
     };
 
-    // SSR off vs on: the floor must gain the red block's reflection. SKIPs without
-    // a GL 4.6 context (see the file header).
+    // SSR off vs on: the mirror floor must gain the red block's reflection. The
+    // contract is checked from TWO camera poses (frontal/downward and a lower,
+    // grazing angle) to catch view-dependent regressions. SKIPs without a GL 4.6
+    // context (see the file header).
     TEST_F(SSRVisualEvidenceTest, ReflectionAppearsOnMirrorFloor)
     {
         OLO_ENSURE_GPU_OR_SKIP();
@@ -224,53 +252,75 @@ namespace OloEngine::Tests
             }
         } scopedMockTime(kCaptureTime);
 
-        // Floor band: lower-centre of the frame, below the block itself, where the
-        // reflection is expected. Generous so the contract does not hinge on the
-        // exact pixel the reflection lands on.
-        constexpr f32 bx0 = 0.30f, bx1 = 0.70f, by0 = 0.58f, by1 = 0.88f;
-
         auto& pp = Renderer3D::GetPostProcessSettings();
+        const auto applyOnParams = [&pp]()
+        {
+            pp.SSREnabled = true;
+            pp.SSRIntensity = 1.0f;
+            pp.SSRMaxRoughness = 0.6f;
+            pp.SSRMaxDistance = 60.0f;
+            pp.SSRThickness = 1.0f;
+            pp.SSRStride = 0.25f;
+            pp.SSRMaxSteps = 96;
+            pp.SSRBinarySearchSteps = 6;
+            pp.SSREdgeFade = 0.1f;
+        };
 
-        // --- SSR OFF baseline ---
-        pp.SSREnabled = false;
-        std::vector<u8> offPixels;
-        Capture("Off", offPixels);
-        if (::testing::Test::HasFatalFailure())
-            return;
-        const BandStats off = SampleBand(offPixels, bx0, bx1, by0, by1);
+        struct Pose
+        {
+            const char* Name;
+            glm::vec3 Position;
+            f32 Yaw;
+            f32 Pitch;
+            // Floor band (UV) where the block's reflection is expected for this pose.
+            f32 BandY0;
+            f32 BandY1;
+        };
 
-        // --- SSR ON ---
-        pp.SSREnabled = true;
-        pp.SSRIntensity = 1.0f;
-        pp.SSRMaxRoughness = 0.6f;
-        pp.SSRMaxDistance = 60.0f;
-        pp.SSRThickness = 1.0f;
-        pp.SSRStride = 0.25f;
-        pp.SSRMaxSteps = 96;
-        pp.SSRBinarySearchSteps = 6;
-        pp.SSREdgeFade = 0.1f;
-        std::vector<u8> onPixels;
-        Capture("On", onPixels);
-        if (::testing::Test::HasFatalFailure())
-            return;
-        const BandStats on = SampleBand(onPixels, bx0, bx1, by0, by1);
+        // The block sits at y=3, z=-7; its reflection lands in the floor between
+        // the camera and the block, lower in the frame as the view flattens.
+        const std::array<Pose, 2> poses = { {
+            { "Frontal", { 0.0f, 4.0f, 6.0f }, 0.0f, 0.42f, 0.58f, 0.88f },
+            { "Grazing", { 0.0f, 2.2f, 8.5f }, 0.0f, 0.22f, 0.55f, 0.92f },
+        } };
 
-        // Both frames must be non-trivial (catch a black / failed render).
-        EXPECT_GT(off.R + off.G + off.B, 5.0) << "SSR-off frame rendered (near-)black";
-        EXPECT_GT(on.R + on.G + on.B, 5.0) << "SSR-on frame rendered (near-)black";
+        constexpr f32 bx0 = 0.30f, bx1 = 0.70f;
 
-        // Core contract: SSR adds the red block's reflection into the floor band.
-        EXPECT_GT(on.R, off.R + 6.0)
-            << "Enabling SSR did not add reflected red to the floor (off.R=" << off.R
-            << " on.R=" << on.R << "). See SSR_Off.png / SSR_On.png";
+        for (const Pose& pose : poses)
+        {
+            SCOPED_TRACE(pose.Name);
 
-        // The added reflection reads as red (the block), not a grey wash: red is
-        // the dominant channel in the SSR-on floor band.
-        EXPECT_GT(on.R, on.G + 4.0)
-            << "SSR floor reflection is not red-dominant (R=" << on.R << " G=" << on.G
-            << " B=" << on.B << "). See SSR_On.png";
-        EXPECT_GT(on.R, on.B + 4.0)
-            << "SSR floor reflection is not red-dominant (R=" << on.R << " G=" << on.G
-            << " B=" << on.B << "). See SSR_On.png";
+            pp.SSREnabled = false;
+            std::vector<u8> offPixels;
+            Capture(std::string("Off_") + pose.Name, pose.Position, pose.Yaw, pose.Pitch, offPixels);
+            if (::testing::Test::HasFatalFailure())
+                return;
+            const BandStats off = SampleBand(offPixels, bx0, bx1, pose.BandY0, pose.BandY1);
+
+            applyOnParams();
+            std::vector<u8> onPixels;
+            Capture(std::string("On_") + pose.Name, pose.Position, pose.Yaw, pose.Pitch, onPixels);
+            if (::testing::Test::HasFatalFailure())
+                return;
+            const BandStats on = SampleBand(onPixels, bx0, bx1, pose.BandY0, pose.BandY1);
+
+            // Both frames must be non-trivial (catch a black / failed render).
+            EXPECT_GT(off.R + off.G + off.B, 5.0) << "SSR-off frame rendered (near-)black";
+            EXPECT_GT(on.R + on.G + on.B, 5.0) << "SSR-on frame rendered (near-)black";
+
+            // Core contract: SSR brings the red block's reflection into the floor band.
+            EXPECT_GT(on.R, off.R + 6.0)
+                << "Enabling SSR did not add reflected red to the floor (off.R=" << off.R
+                << " on.R=" << on.R << "). See SSR_Off_" << pose.Name << ".png / SSR_On_" << pose.Name << ".png";
+
+            // The reflection reads as red (the block), not a grey wash: red is the
+            // dominant channel in the SSR-on floor band.
+            EXPECT_GT(on.R, on.G + 4.0)
+                << "SSR floor reflection is not red-dominant (R=" << on.R << " G=" << on.G
+                << " B=" << on.B << "). See SSR_On_" << pose.Name << ".png";
+            EXPECT_GT(on.R, on.B + 4.0)
+                << "SSR floor reflection is not red-dominant (R=" << on.R << " G=" << on.G
+                << " B=" << on.B << "). See SSR_On_" << pose.Name << ".png";
+        }
     }
 } // namespace OloEngine::Tests

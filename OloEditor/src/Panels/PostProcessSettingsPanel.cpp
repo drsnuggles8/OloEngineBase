@@ -126,6 +126,17 @@ namespace OloEngine
             AppendChange(changes, "GTAODenoisePasses", before.GTAODenoisePasses, after.GTAODenoisePasses);
             AppendChange(changes, "GTAODebugView", before.GTAODebugView, after.GTAODebugView);
 
+            AppendChange(changes, "SSREnabled", before.SSREnabled, after.SSREnabled);
+            AppendChange(changes, "SSRIntensity", before.SSRIntensity, after.SSRIntensity);
+            AppendChange(changes, "SSRMaxDistance", before.SSRMaxDistance, after.SSRMaxDistance);
+            AppendChange(changes, "SSRThickness", before.SSRThickness, after.SSRThickness);
+            AppendChange(changes, "SSRStride", before.SSRStride, after.SSRStride);
+            AppendChange(changes, "SSRMaxSteps", before.SSRMaxSteps, after.SSRMaxSteps);
+            AppendChange(changes, "SSRBinarySearchSteps", before.SSRBinarySearchSteps, after.SSRBinarySearchSteps);
+            AppendChange(changes, "SSRMaxRoughness", before.SSRMaxRoughness, after.SSRMaxRoughness);
+            AppendChange(changes, "SSREdgeFade", before.SSREdgeFade, after.SSREdgeFade);
+            AppendChange(changes, "SSRDebugView", before.SSRDebugView, after.SSRDebugView);
+
             SettingsChangeLog::EmitLog("PostProcessSettingsPanel", changes);
         }
     } // namespace

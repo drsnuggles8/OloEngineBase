@@ -437,10 +437,13 @@ namespace OloEngine
         if (PostProcessPasses.SSR)
         {
             const bool deferredPath = data.Settings.Path == RenderingPath::Deferred;
+            // Bind the UBO before the readiness check: IsReadyForExecution() now
+            // also validates the UBO, so setting it first avoids dropping the
+            // first frame SSR is enabled.
+            PostProcessPasses.SSR->SetSSRUBO(data.PostProcessGPU.SSR);
             const bool ssrEnabled = data.PostProcess.SSREnabled && deferredPath &&
                                     PostProcessPasses.SSR->IsReadyForExecution();
             PostProcessPasses.SSR->SetEnabled(ssrEnabled);
-            PostProcessPasses.SSR->SetSSRUBO(data.PostProcessGPU.SSR);
 
             if (ssrEnabled)
             {
@@ -448,14 +451,14 @@ namespace OloEngine
                 ssr.Projection = data.ProjectionMatrix;
                 ssr.InverseProjection = glm::inverse(data.ProjectionMatrix);
                 ssr.View = data.ViewMatrix;
-                ssr.RayParams = glm::vec4(static_cast<f32>(std::clamp(data.PostProcess.SSRMaxSteps, 1, 256)),
+                ssr.RayParams = glm::vec4(static_cast<f32>(std::clamp(data.PostProcess.SSRMaxSteps, 1, kSSRMaxSteps)),
                                           std::max(0.1f, data.PostProcess.SSRMaxDistance),
                                           std::max(0.001f, data.PostProcess.SSRThickness),
                                           std::max(0.001f, data.PostProcess.SSRStride));
                 ssr.ShadeParams = glm::vec4(std::max(0.0f, data.PostProcess.SSRIntensity),
                                             std::clamp(data.PostProcess.SSRMaxRoughness, 0.0f, 1.0f),
                                             std::clamp(data.PostProcess.SSREdgeFade, 0.0f, 0.5f),
-                                            static_cast<f32>(std::clamp(data.PostProcess.SSRBinarySearchSteps, 0, 32)));
+                                            static_cast<f32>(std::clamp(data.PostProcess.SSRBinarySearchSteps, 0, kSSRMaxBinarySearchSteps)));
                 f32 ssrWidth = 1.0f;
                 f32 ssrHeight = 1.0f;
                 if (FrameCorePasses.Scene)

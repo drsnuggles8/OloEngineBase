@@ -18,7 +18,9 @@ namespace OloEngine
     // normal + roughness in RT1, metallic in RT0.a) and scene depth, then
     // ray-marches each opaque pixel's view-space reflection vector against the
     // depth buffer (linear march + binary-search refinement). On a hit it
-    // samples the upstream scene color and composites it additively, weighted by
+    // samples the upstream scene color and composites it with a replace/mix blend
+    // (lerp toward the reflection by reflectance x confidence — not additive,
+    // which would double-count the IBL already in the base color), weighted by
     // Fresnel, roughness fade, and screen-edge / distance / facing fades, into a
     // fresh SSRColor target (so the read/write of scene color never aliases).
     //
@@ -60,7 +62,9 @@ namespace OloEngine
 
         [[nodiscard]] bool IsReadyForExecution() const noexcept override
         {
-            return m_SSRShader && m_SSRShader->IsReady();
+            // The UBO carries the camera matrices + ray params the shader needs;
+            // executing without it would ray-march against stale/garbage state.
+            return m_SSRShader && m_SSRShader->IsReady() && m_SSRUBO;
         }
 
         void SetSSRUBO(const Ref<UniformBuffer>& ubo) noexcept

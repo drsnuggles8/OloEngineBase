@@ -117,10 +117,12 @@ namespace OloEngine
 
         // Screen-Space Reflections (SSR)
         // Deferred-only: reflects the lit scene color off opaque G-Buffer
-        // surfaces via a view-space ray march against scene depth. Composited
-        // additively (Fresnel + roughness + edge/distance fades) into a fresh
-        // SSRColor target inserted between AOApply and Bloom. The math is pinned
-        // by ScreenSpaceReflectionMathTest and the frame is checked by
+        // surfaces via a view-space ray march against scene depth. The reflection
+        // is composited with a replace/mix blend (lerp toward the reflected
+        // colour by reflectance x confidence, NOT additive — adding double-counts
+        // the IBL already in the base colour) into a fresh SSRColor target
+        // inserted between AOApply and Bloom. The math is pinned by
+        // ScreenSpaceReflectionMathTest and the frame is checked by
         // SSRVisualEvidenceTest. A min-depth HZB acceleration is the planned
         // follow-up (the existing HZB pyramid stores max depth for GTAO
         // occlusion, unsuited to front-to-back SSR) — tracked in GitHub issue
@@ -139,6 +141,14 @@ namespace OloEngine
         bool operator==(const PostProcessSettings&) const = default;
     };
 
+    // Upper bounds for the SSR step counts. These MUST match the runtime UBO
+    // upload clamp in RenderPipeline.cpp and the HARD_MAX_* loop caps in
+    // PostProcess_SSR.glsl — otherwise a persisted/edited value above the
+    // runtime cap is saved but silently ignored when rendering. Shared here so
+    // the sanitizer and the upload path use a single source of truth.
+    inline constexpr i32 kSSRMaxSteps = 256;
+    inline constexpr i32 kSSRMaxBinarySearchSteps = 32;
+
     // Clamp SSR parameters to finite, sane ranges. Call after loading settings
     // from disk (scene YAML / save-game), per the CLAUDE.md rule that floats read
     // from external data are validated with std::isfinite. The shader also clamps
@@ -151,8 +161,8 @@ namespace OloEngine
         s.SSRMaxDistance = std::clamp(finite(s.SSRMaxDistance, 40.0f), 0.1f, 10000.0f);
         s.SSRThickness = std::clamp(finite(s.SSRThickness, 0.8f), 0.001f, 1000.0f);
         s.SSRStride = std::clamp(finite(s.SSRStride, 0.25f), 0.001f, 100.0f);
-        s.SSRMaxSteps = std::clamp(s.SSRMaxSteps, 1, 512);
-        s.SSRBinarySearchSteps = std::clamp(s.SSRBinarySearchSteps, 0, 32);
+        s.SSRMaxSteps = std::clamp(s.SSRMaxSteps, 1, kSSRMaxSteps);
+        s.SSRBinarySearchSteps = std::clamp(s.SSRBinarySearchSteps, 0, kSSRMaxBinarySearchSteps);
         s.SSRIntensity = std::clamp(finite(s.SSRIntensity, 1.0f), 0.0f, 16.0f);
         s.SSRMaxRoughness = std::clamp(finite(s.SSRMaxRoughness, 0.6f), 0.0f, 1.0f);
         s.SSREdgeFade = std::clamp(finite(s.SSREdgeFade, 0.1f), 0.0f, 0.5f);
