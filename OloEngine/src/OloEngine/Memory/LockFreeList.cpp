@@ -218,39 +218,33 @@ namespace OloEngine
             ++TLS.NumPartial;
         }
 
-        // @brief Get singleton instance
+        // @brief Get the never-destructed singleton instance.
         //
-        // Uses placement new into static storage to ensure the allocator is NEVER destructed.
-        // This is critical because lock-free lists may still be in use during static destruction
-        // (e.g., other static objects freeing links in their destructors).
-        // Matches UE5.7's approach: "make memory that will not go away"
+        // DELIBERATE DIVERGENCE FROM UE 5.7 — read
+        // docs/adr/0004-lock-free-allocator-singleton-init.md before changing this.
+        //
+        // The allocator is placement-new'd into a static buffer and its destructor
+        // is NEVER run: other statics may still free links during static
+        // destruction at exit. That is also why this is NOT a TLazySingleton —
+        // TLazySingleton (ours and UE's) runs the instance destructor at exit,
+        // which would be a shutdown use-after-free here. UE avoids it for the same
+        // reason ("a replacement for TLazySingleton, which will still get destructed").
+        //
+        // UE first-inits this on the game thread during single-threaded startup and
+        // so gets away with a plain non-atomic `if (!bIsInitialized)`. OloEngine
+        // first touches it from a SCHEDULER WORKER (freeing a Jolt job), so that
+        // form races on the flag (TSan-reported). We instead rely on C++11's
+        // guaranteed-once, thread-safe function-local static initialization: the
+        // `Instance` initializer runs exactly once under a compiler guard whose hot
+        // path is a single guarded load (~UE's bool check). Do NOT revert to UE's
+        // plain-bool form or re-add a hand-rolled double-checked lock — the previous
+        // version hand-rolled a DCLP whose outer check read the non-atomic flag
+        // outside the lock, which is the race that motivated this comment.
         static LockFreeLinkAllocator_TLSCache& Get()
         {
-            // Make memory that will not go away, a replacement for TLazySingleton
-            // C++11 guarantees thread-safe initialization of static local variables
             alignas(LockFreeLinkAllocator_TLSCache) static u8 Data[sizeof(LockFreeLinkAllocator_TLSCache)];
-            static bool bIsInitialized = false;
-            static LockFreeLinkAllocator_TLSCache* Instance = nullptr;
-
-            // Use a simple double-checked locking pattern
-            if (!bIsInitialized)
-            {
-                static std::atomic_flag s_InitLock = ATOMIC_FLAG_INIT;
-                while (s_InitLock.test_and_set(std::memory_order_acquire))
-                {
-                    // Spin
-                }
-
-                if (!bIsInitialized)
-                {
-                    ::new (static_cast<void*>(Data)) LockFreeLinkAllocator_TLSCache();
-                    Instance = reinterpret_cast<LockFreeLinkAllocator_TLSCache*>(Data);
-                    bIsInitialized = true;
-                }
-
-                s_InitLock.clear(std::memory_order_release);
-            }
-
+            static LockFreeLinkAllocator_TLSCache* Instance =
+                ::new (static_cast<void*>(Data)) LockFreeLinkAllocator_TLSCache();
             return *Instance;
         }
 
