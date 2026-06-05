@@ -292,9 +292,10 @@ TEST(ScreenSpaceReflection, SanitizeClampsNonFiniteAndRanges)
     EXPECT_TRUE(std::isfinite(s.SSRMaxDistance));
     EXPECT_TRUE(std::isfinite(s.SSRThickness));
     EXPECT_GE(s.SSRStride, 0.001f);
-    EXPECT_LE(s.SSRMaxSteps, 512);
+    EXPECT_LE(s.SSRMaxSteps, kSSRMaxSteps); // sanitizer cap must match the runtime/shader cap (256)
     EXPECT_GE(s.SSRMaxSteps, 1);
     EXPECT_GE(s.SSRBinarySearchSteps, 0);
+    EXPECT_LE(s.SSRBinarySearchSteps, kSSRMaxBinarySearchSteps); // cap matches runtime/shader (32)
     EXPECT_TRUE(std::isfinite(s.SSRIntensity));
     EXPECT_GE(s.SSRIntensity, 0.0f);
     EXPECT_GE(s.SSRMaxRoughness, 0.0f);
