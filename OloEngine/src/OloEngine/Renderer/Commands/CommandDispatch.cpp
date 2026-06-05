@@ -1729,13 +1729,13 @@ namespace OloEngine
             glBindTextureUnit(ShaderBindingLayout::TEX_TERRAIN_ARM_ARRAY, cmd->armArrayTextureID);
         }
 
-        // Bind shadow textures (terrain PBR needs shadows too), incl. the PCSS
-        // comparison-OFF raw-depth views and the snow accumulation depth map.
-        BindTrackedTextureUnit(ShaderBindingLayout::TEX_SHADOW, s_Data.CSMShadowTextureID);
-        BindTrackedTextureUnit(ShaderBindingLayout::TEX_SHADOW_SPOT, s_Data.SpotShadowTextureID);
-        BindTrackedTextureUnit(ShaderBindingLayout::TEX_SHADOW_CSM_RAW, s_Data.CSMRawShadowTextureID);
-        BindTrackedTextureUnit(ShaderBindingLayout::TEX_SHADOW_SPOT_RAW, s_Data.SpotRawShadowTextureID);
-        BindTrackedTextureUnit(ShaderBindingLayout::TEX_SNOW_DEPTH, s_Data.SnowDepthTextureID);
+        // Bind the full shadow contract the terrain shaders sample — CSM, spot,
+        // the PCSS comparison-OFF raw-depth views, the point-light cubemaps, and
+        // the snow depth map. Sharing BindShadowTextures keeps terrain in lockstep
+        // with the mesh path; the point cubemaps were previously omitted here, so
+        // terrain point shadows relied on an earlier mesh draw having bound units
+        // 14-17 in the same frame.
+        BindShadowTextures();
 
         // Bind VAO (cached) and draw with GL_PATCHES
         BindVAOIfNeeded(cmd->vertexArrayID);
@@ -1812,6 +1812,11 @@ namespace OloEngine
         {
             glBindTextureUnit(ShaderBindingLayout::TEX_TERRAIN_ARM_ARRAY, cmd->armArrayTextureID);
         }
+
+        // Bind the shadow contract Terrain_Voxel.glsl samples (CSM + spot + PCSS
+        // raw-depth views + point cubemaps). Previously absent here, so voxel
+        // shadows depended entirely on a prior mesh draw having bound them.
+        BindShadowTextures();
 
         // Bind VAO (cached) and draw
         BindVAOIfNeeded(cmd->vertexArrayID);
