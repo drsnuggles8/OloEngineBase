@@ -126,6 +126,17 @@ namespace OloEngine
             AppendChange(changes, "GTAODenoisePasses", before.GTAODenoisePasses, after.GTAODenoisePasses);
             AppendChange(changes, "GTAODebugView", before.GTAODebugView, after.GTAODebugView);
 
+            AppendChange(changes, "SSREnabled", before.SSREnabled, after.SSREnabled);
+            AppendChange(changes, "SSRIntensity", before.SSRIntensity, after.SSRIntensity);
+            AppendChange(changes, "SSRMaxDistance", before.SSRMaxDistance, after.SSRMaxDistance);
+            AppendChange(changes, "SSRThickness", before.SSRThickness, after.SSRThickness);
+            AppendChange(changes, "SSRStride", before.SSRStride, after.SSRStride);
+            AppendChange(changes, "SSRMaxSteps", before.SSRMaxSteps, after.SSRMaxSteps);
+            AppendChange(changes, "SSRBinarySearchSteps", before.SSRBinarySearchSteps, after.SSRBinarySearchSteps);
+            AppendChange(changes, "SSRMaxRoughness", before.SSRMaxRoughness, after.SSRMaxRoughness);
+            AppendChange(changes, "SSREdgeFade", before.SSREdgeFade, after.SSREdgeFade);
+            AppendChange(changes, "SSRDebugView", before.SSRDebugView, after.SSRDebugView);
+
             SettingsChangeLog::EmitLog("PostProcessSettingsPanel", changes);
         }
     } // namespace
@@ -146,6 +157,7 @@ namespace OloEngine
 
         DrawToneMappingSection();
         DrawAOSection();
+        DrawSSRSection();
         DrawSnowSection();
         DrawWindSection();
         DrawSnowAccumulationSection();
@@ -247,6 +259,34 @@ namespace OloEngine
                 ImGui::DragFloat("Threshold", &settings.BloomThreshold, 0.01f, 0.0f, 10.0f, "%.2f");
                 ImGui::DragFloat("Intensity##Bloom", &settings.BloomIntensity, 0.01f, 0.0f, 5.0f, "%.2f");
                 ImGui::SliderInt("Iterations", &settings.BloomIterations, 1, 8);
+            }
+
+            ImGui::Unindent();
+        }
+    }
+
+    void PostProcessSettingsPanel::DrawSSRSection() const
+    {
+        auto& settings = Renderer3D::GetPostProcessSettings();
+
+        if (ImGui::CollapsingHeader("Screen-Space Reflections"))
+        {
+            ImGui::Indent();
+
+            ImGui::Checkbox("Enable##SSR", &settings.SSREnabled);
+            ImGui::TextDisabled("Deferred rendering path only");
+
+            if (settings.SSREnabled)
+            {
+                ImGui::DragFloat("Intensity##SSR", &settings.SSRIntensity, 0.01f, 0.0f, 4.0f, "%.2f");
+                ImGui::DragFloat("Max Distance##SSR", &settings.SSRMaxDistance, 0.5f, 0.1f, 500.0f, "%.1f");
+                ImGui::DragFloat("Thickness##SSR", &settings.SSRThickness, 0.01f, 0.001f, 10.0f, "%.3f");
+                ImGui::DragFloat("Stride##SSR", &settings.SSRStride, 0.01f, 0.001f, 5.0f, "%.3f");
+                ImGui::SliderInt("Max Steps##SSR", &settings.SSRMaxSteps, 1, 256);
+                ImGui::SliderInt("Refine Steps##SSR", &settings.SSRBinarySearchSteps, 0, 16);
+                ImGui::SliderFloat("Max Roughness##SSR", &settings.SSRMaxRoughness, 0.0f, 1.0f, "%.2f");
+                ImGui::SliderFloat("Edge Fade##SSR", &settings.SSREdgeFade, 0.0f, 0.5f, "%.2f");
+                ImGui::Checkbox("Debug View (reflection only)##SSR", &settings.SSRDebugView);
             }
 
             ImGui::Unindent();

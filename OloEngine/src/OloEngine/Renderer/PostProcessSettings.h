@@ -115,8 +115,58 @@ namespace OloEngine
         f32 GTAODenoiseBeta = 1.2f; // Edge sensitivity
         bool GTAODebugView = false;
 
+        // Screen-Space Reflections (SSR)
+        // Deferred-only: reflects the lit scene color off opaque G-Buffer
+        // surfaces via a view-space ray march against scene depth. The reflection
+        // is composited with a replace/mix blend (lerp toward the reflected
+        // colour by reflectance x confidence, NOT additive — adding double-counts
+        // the IBL already in the base colour) into a fresh SSRColor target
+        // inserted between AOApply and Bloom. The math is pinned by
+        // ScreenSpaceReflectionMathTest and the frame is checked by
+        // SSRVisualEvidenceTest. A min-depth HZB acceleration is the planned
+        // follow-up (the existing HZB pyramid stores max depth for GTAO
+        // occlusion, unsuited to front-to-back SSR) — tracked in GitHub issue
+        // drsnuggles8/OloEngineBase#284.
+        bool SSREnabled = false;
+        f32 SSRMaxDistance = 40.0f;   // Max ray length in world/view units before the ray is abandoned
+        f32 SSRThickness = 0.8f;      // View-space depth tolerance for accepting a hit (thin-surface guard)
+        f32 SSRStride = 0.25f;        // Initial view-space marching step length
+        i32 SSRMaxSteps = 64;         // Maximum linear march iterations
+        i32 SSRBinarySearchSteps = 6; // Binary-search refinement iterations after a crossing is found
+        f32 SSRIntensity = 1.0f;      // Overall reflection strength multiplier
+        f32 SSRMaxRoughness = 0.6f;   // Surfaces rougher than this receive no SSR (fade-out cutoff)
+        f32 SSREdgeFade = 0.1f;       // Screen-border fade width in UV (0..0.5); larger = softer edges
+        bool SSRDebugView = false;    // Show the raw reflection buffer instead of the composite
+
         bool operator==(const PostProcessSettings&) const = default;
     };
+
+    // Upper bounds for the SSR step counts. These MUST match the runtime UBO
+    // upload clamp in RenderPipeline.cpp and the HARD_MAX_* loop caps in
+    // PostProcess_SSR.glsl — otherwise a persisted/edited value above the
+    // runtime cap is saved but silently ignored when rendering. Shared here so
+    // the sanitizer and the upload path use a single source of truth.
+    inline constexpr i32 kSSRMaxSteps = 256;
+    inline constexpr i32 kSSRMaxBinarySearchSteps = 32;
+
+    // Clamp SSR parameters to finite, sane ranges. Call after loading settings
+    // from disk (scene YAML / save-game), per the CLAUDE.md rule that floats read
+    // from external data are validated with std::isfinite. The shader also clamps
+    // at use-time, but persisted/edited settings should never carry NaN/Inf.
+    inline void SanitizeSSR(PostProcessSettings& s) noexcept
+    {
+        const auto finite = [](f32 v, f32 fallback) noexcept
+        { return std::isfinite(v) ? v : fallback; };
+
+        s.SSRMaxDistance = std::clamp(finite(s.SSRMaxDistance, 40.0f), 0.1f, 10000.0f);
+        s.SSRThickness = std::clamp(finite(s.SSRThickness, 0.8f), 0.001f, 1000.0f);
+        s.SSRStride = std::clamp(finite(s.SSRStride, 0.25f), 0.001f, 100.0f);
+        s.SSRMaxSteps = std::clamp(s.SSRMaxSteps, 1, kSSRMaxSteps);
+        s.SSRBinarySearchSteps = std::clamp(s.SSRBinarySearchSteps, 0, kSSRMaxBinarySearchSteps);
+        s.SSRIntensity = std::clamp(finite(s.SSRIntensity, 1.0f), 0.0f, 16.0f);
+        s.SSRMaxRoughness = std::clamp(finite(s.SSRMaxRoughness, 0.6f), 0.0f, 1.0f);
+        s.SSREdgeFade = std::clamp(finite(s.SSREdgeFade, 0.1f), 0.0f, 0.5f);
+    }
 
     // Clamp the auto-exposure parameters to a finite, ordered, sane range.
     // Call after loading settings from disk (scene YAML / save-game), per the
@@ -240,6 +290,34 @@ namespace OloEngine
             return sizeof(SSAOUBOData);
         }
     };
+
+    // GPU-side UBO layout for screen-space reflections (std140, binding 38).
+    // All math the PostProcess_SSR.glsl ray march needs: camera matrices to
+    // reconstruct/project view-space positions, plus the ray-march parameters.
+    // Mirrored on the CPU by ScreenSpaceReflectionMathTest so the contract is
+    // pinned without a GL context.
+    struct SSRUBOData
+    {
+        glm::mat4 Projection = glm::mat4(1.0f);
+        glm::mat4 InverseProjection = glm::mat4(1.0f);
+        glm::mat4 View = glm::mat4(1.0f);
+
+        // x = MaxSteps, y = MaxDistance (view units), z = Thickness, w = Stride (view units)
+        glm::vec4 RayParams = glm::vec4(64.0f, 40.0f, 0.8f, 0.25f);
+        // x = Intensity, y = MaxRoughness, z = EdgeFade (UV), w = BinarySearchSteps
+        glm::vec4 ShadeParams = glm::vec4(1.0f, 0.6f, 0.1f, 6.0f);
+        // x = width, y = height, z = 1/width, w = 1/height
+        glm::vec4 ScreenParams = glm::vec4(0.0f);
+        // x = DebugView (0/1), yzw = pad
+        glm::vec4 Flags = glm::vec4(0.0f);
+
+        static constexpr u32 GetSize()
+        {
+            return sizeof(SSRUBOData);
+        }
+    };
+
+    static_assert(sizeof(SSRUBOData) % 16 == 0, "SSRUBOData must be 16-byte aligned for std140");
     // Snow rendering settings (scene-level, separate from PostProcess)
     struct SnowSettings
     {

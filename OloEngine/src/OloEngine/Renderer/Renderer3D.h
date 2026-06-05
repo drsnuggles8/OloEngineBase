@@ -114,8 +114,20 @@ namespace OloEngine
     // - All other Draw* methods are NOT thread-safe unless noted
     class ShaderLibrary;
 
+    namespace Tests
+    {
+        // Test seam: grants RenderGraphFingerprintTest access to the private
+        // RenderPipeline / Renderer3DData so it can verify that every
+        // topology-affecting setting changes ComputeBlackboardFingerprint()
+        // (the invariant the SSR-enable bug violated). See
+        // RenderGraphFingerprintTest.cpp.
+        struct RenderPipelineFingerprintAccess;
+    } // namespace Tests
+
     class Renderer3D
     {
+        friend struct ::OloEngine::Tests::RenderPipelineFingerprintAccess;
+
       public:
         using RenderCallback = std::function<void()>;
 
@@ -1109,11 +1121,13 @@ namespace OloEngine
             Ref<UniformBuffer> MotionBlur;
             Ref<UniformBuffer> SSAO;
             Ref<UniformBuffer> GTAO;
+            Ref<UniformBuffer> SSR;
 
             PostProcessUBOData PostProcessData{};
             MotionBlurUBOData MotionBlurData{};
             SSAOUBOData SSAOData{};
             UBOStructures::GTAOUBO GTAOData{};
+            SSRUBOData SSRData{};
 
             void Reset()
             {
@@ -1121,6 +1135,7 @@ namespace OloEngine
                 MotionBlur.Reset();
                 SSAO.Reset();
                 GTAO.Reset();
+                SSR.Reset();
             }
         };
 

@@ -340,6 +340,7 @@ namespace OloEngine
         s_Data.PostProcessGPU.MotionBlur = UniformBuffer::Create(MotionBlurUBOData::GetSize(), ShaderBindingLayout::UBO_USER_1);
         s_Data.PostProcessGPU.SSAO = UniformBuffer::Create(SSAOUBOData::GetSize(), ShaderBindingLayout::UBO_SSAO);
         s_Data.PostProcessGPU.GTAO = UniformBuffer::Create(UBOStructures::GTAOUBO::GetSize(), ShaderBindingLayout::UBO_GTAO);
+        s_Data.PostProcessGPU.SSR = UniformBuffer::Create(SSRUBOData::GetSize(), ShaderBindingLayout::UBO_SSR);
         s_Data.SceneEffectsGPU.Snow = UniformBuffer::Create(SnowUBOData::GetSize(), ShaderBindingLayout::UBO_SNOW);
         s_Data.SceneEffectsGPU.SSS = UniformBuffer::Create(SSSUBOData::GetSize(), ShaderBindingLayout::UBO_SSS);
         s_Data.SceneEffectsGPU.Fog = UniformBuffer::Create(FogUBOData::GetSize(), ShaderBindingLayout::UBO_FOG);
