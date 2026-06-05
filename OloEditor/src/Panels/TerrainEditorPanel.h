@@ -17,6 +17,7 @@ namespace OloEngine
     enum class TerrainEditMode : u8
     {
         None = 0,
+        Generate,
         Sculpt,
         Paint,
         Erosion
@@ -64,6 +65,7 @@ namespace OloEngine
         bool Visible = true;
 
       private:
+        void DrawGenerateUI();
         void DrawSculptUI();
         void DrawPaintUI();
         void DrawErosionUI();

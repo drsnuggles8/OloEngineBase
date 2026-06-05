@@ -165,6 +165,12 @@ namespace OloEngine
         // never run against an uninitialized renderer when m_Is3DMode is true.
         TryInitialize3DMode();
 
+        // Frame the start scene's terrain AFTER TryInitialize3DMode: it calls
+        // ApplyDefault3DCameraPose, which would otherwise clobber the framing.
+        // (OpenProject() opened the start scene before the camera reconstruction
+        // above, so its earlier framing was already lost.)
+        FrameEditorCameraOnTerrain(m_EditorScene);
+
         // Create brush preview UBO (binding 11, 32 bytes = 2 vec4s)
         m_BrushPreviewUBO = UniformBuffer::Create(ShaderBindingLayout::BrushPreviewUBO::GetSize(), ShaderBindingLayout::UBO_BRUSH_PREVIEW);
 
@@ -2233,6 +2239,8 @@ namespace OloEngine
         }
         SetEditorScene(newScene);
         m_EditorScenePath = path;
+        FrameEditorCameraOnTerrain(newScene);
+
         Renderer3D::GetPostProcessSettings() = newScene->GetPostProcessSettings();
         Renderer3D::GetSnowSettings() = newScene->GetSnowSettings();
         Renderer3D::GetWindSettings() = newScene->GetWindSettings();
@@ -2251,6 +2259,33 @@ namespace OloEngine
 
         m_TimeSinceLastAutoSave = 0.0f;
         return true;
+    }
+
+    void EditorLayer::FrameEditorCameraOnTerrain(const Ref<Scene>& scene)
+    {
+        if (!scene)
+            return;
+
+        // Terrain geometry spans world [0, worldSize] from its transform origin,
+        // so the default origin-focused editor camera looks straight past it and
+        // the scene appears empty. Orbit the terrain centre at a distance that
+        // fits its footprint, tilted down (positive pitch = look down).
+        auto terrainFrameView = scene->GetAllEntitiesWith<TransformComponent, TerrainComponent>();
+        bool framed = false;
+        for (auto terrainEntity : terrainFrameView)
+        {
+            if (framed)
+                continue;
+            framed = true;
+            const auto& tf = terrainFrameView.get<TransformComponent>(terrainEntity);
+            const auto& tc = terrainFrameView.get<TerrainComponent>(terrainEntity);
+            const glm::vec3 center = tf.Translation +
+                                     glm::vec3(tc.m_WorldSizeX * 0.5f, tc.m_HeightScale * 0.4f, tc.m_WorldSizeZ * 0.5f);
+            const f32 distance = std::max(tc.m_WorldSizeX, tc.m_WorldSizeZ) * 1.1f;
+            // ~37° downward: a top-down-ish overview that shows the terrain's flat
+            // (grass) tops rather than a grazing angle full of steep rock faces.
+            m_EditorCamera.Focus(center, distance, 0.0f, 0.65f);
+        }
     }
 
     bool EditorLayer::SaveScene()

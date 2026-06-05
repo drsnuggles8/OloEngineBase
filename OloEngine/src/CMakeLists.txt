@@ -837,6 +837,8 @@
 		"OloEngine/Terrain/TerrainVertex.h"
 		"OloEngine/Terrain/TerrainData.h"
 		"OloEngine/Terrain/TerrainData.cpp"
+		"OloEngine/Terrain/TerrainGenerator.h"
+		"OloEngine/Terrain/TerrainGenerator.cpp"
 		"OloEngine/Terrain/TerrainChunk.h"
 		"OloEngine/Terrain/TerrainChunk.cpp"
 		"OloEngine/Terrain/TerrainChunkManager.h"

@@ -35,6 +35,7 @@
 #include "OloEngine/Serialization/Archive.h"
 #include "OloEngine/Serialization/ArchiveExtensions.h"
 #include "OloEngine/Terrain/Foliage/FoliageLayer.h"
+#include "OloEngine/Terrain/TerrainGenerator.h"
 
 namespace OloEngine
 {
@@ -513,6 +514,17 @@ namespace OloEngine
         ar << l.Roughness << l.AlphaCutoff;
         ar << l.Enabled;
         // AlbedoTexture (Ref<Texture2D>) is runtime — not serialized
+    }
+
+    // ========================================================================
+    // Helper: TerrainLayerRule (auto-material height/slope assignment)
+    // ========================================================================
+    static void SerializeTerrainLayerRule(FArchive& ar, TerrainLayerRule& r)
+    {
+        ar << r.LayerIndex;
+        ar << r.MinHeight << r.MaxHeight << r.HeightBlend;
+        ar << r.MinSlopeDeg << r.MaxSlopeDeg << r.SlopeBlend;
+        ar << r.Strength;
     }
 
     // ========================================================================
@@ -1124,6 +1136,81 @@ namespace OloEngine
         ar << c.m_TileWorldSize << c.m_TileResolution;
         ar << c.m_StreamingLoadRadius << c.m_StreamingMaxTiles;
         ar << c.m_VoxelEnabled << c.m_VoxelSize;
+
+        // ── Format v3: procedural height-field shaping + auto-material rules ──
+        // Appended at the end; kSaveGameFormatVersion was bumped 2→3, so any
+        // pre-v3 archive is rejected by the header check before reaching here.
+        ar << c.m_HeightShaping.RidgeBlend << c.m_HeightShaping.WarpStrength << c.m_HeightShaping.WarpFrequency;
+        ar << c.m_HeightShaping.TerraceSteps << c.m_HeightShaping.TerraceSharpness << c.m_HeightShaping.HeightExponent;
+        ar << c.m_AutoMaterial << c.m_SplatmapGenResolution;
+
+        u32 ruleCount = static_cast<u32>(c.m_LayerRules.size());
+        ar << ruleCount;
+        if (ar.IsLoading())
+        {
+            u32 clampedRules = std::min(ruleCount, 256u);
+            c.m_LayerRules.resize(clampedRules);
+            for (u32 i = 0; i < clampedRules; ++i)
+            {
+                SerializeTerrainLayerRule(ar, c.m_LayerRules[i]);
+                if (ar.IsError())
+                {
+                    return;
+                }
+            }
+            // Drain any excess entries to keep the stream aligned.
+            for (u32 i = clampedRules; i < ruleCount; ++i)
+            {
+                TerrainLayerRule discard{};
+                SerializeTerrainLayerRule(ar, discard);
+                if (ar.IsError())
+                {
+                    return;
+                }
+            }
+        }
+        else
+        {
+            for (u32 i = 0; i < ruleCount; ++i)
+            {
+                SerializeTerrainLayerRule(ar, c.m_LayerRules[i]);
+            }
+        }
+
+        if (ar.IsLoading())
+        {
+            // Sanitize untrusted on-disk values so corrupt save data can't poison
+            // terrain generation (NaN/inf in the noise math, or a huge allocation).
+            auto sanitize = [](f32& v, f32 lo, f32 hi, f32 fallback)
+            {
+                if (!std::isfinite(v))
+                    v = fallback;
+                v = std::clamp(v, lo, hi);
+            };
+            sanitize(c.m_HeightShaping.RidgeBlend, 0.0f, 1.0f, 0.0f);
+            sanitize(c.m_HeightShaping.WarpStrength, 0.0f, 4.0f, 0.0f);
+            sanitize(c.m_HeightShaping.WarpFrequency, 0.0f, 64.0f, 2.0f);
+            sanitize(c.m_HeightShaping.TerraceSharpness, 0.0f, 0.999f, 0.6f);
+            sanitize(c.m_HeightShaping.HeightExponent, 0.05f, 16.0f, 1.0f);
+            c.m_HeightShaping.TerraceSteps = std::min(c.m_HeightShaping.TerraceSteps, 256u);
+            c.m_SplatmapGenResolution = std::clamp(c.m_SplatmapGenResolution, 16u, 4096u);
+            for (TerrainLayerRule& r : c.m_LayerRules)
+            {
+                if (r.LayerIndex >= MAX_TERRAIN_LAYERS)
+                    r.LayerIndex = 0;
+                sanitize(r.MinHeight, 0.0f, 1.0f, 0.0f);
+                sanitize(r.MaxHeight, 0.0f, 1.0f, 1.0f);
+                sanitize(r.HeightBlend, 0.0f, 1.0f, 0.0f);
+                sanitize(r.MinSlopeDeg, 0.0f, 90.0f, 0.0f);
+                sanitize(r.MaxSlopeDeg, 0.0f, 90.0f, 90.0f);
+                sanitize(r.SlopeBlend, 0.0f, 90.0f, 0.0f);
+                sanitize(r.Strength, 0.0f, 16.0f, 1.0f);
+                if (r.MinHeight > r.MaxHeight)
+                    std::swap(r.MinHeight, r.MaxHeight);
+                if (r.MinSlopeDeg > r.MaxSlopeDeg)
+                    std::swap(r.MinSlopeDeg, r.MaxSlopeDeg);
+            }
+        }
         // Runtime pointers (TerrainData, ChunkManager, etc.) are not serialized
     }
 

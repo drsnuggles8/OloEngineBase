@@ -59,6 +59,21 @@ namespace OloEngine
             UpdateView();
         }
 
+        // Frame an orbit view centred on `point`: pivot there at the given
+        // distance and look-angles, rebuilding the view immediately. Unlike
+        // SetPose (which collapses the orbit to distance 0), this keeps a real
+        // focal point so subsequent orbit/dolly behave normally. Used to frame
+        // the camera on scene content when a scene is opened. Positive pitch
+        // tilts the view down.
+        void Focus(const glm::vec3& point, const f32 distance, const f32 yaw, const f32 pitch)
+        {
+            m_FocalPoint = point;
+            m_Distance = distance;
+            m_Yaw = yaw;
+            m_Pitch = pitch;
+            UpdateView();
+        }
+
         [[nodiscard("Store this!")]] const glm::mat4& GetViewMatrix() const
         {
             return m_ViewMatrix;

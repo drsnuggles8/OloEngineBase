@@ -53,6 +53,7 @@
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
 #include "OloEngine/Renderer/LightProbeVolumeAsset.h"
 #include "OloEngine/Terrain/TerrainData.h"
+#include "OloEngine/Terrain/TerrainGenerator.h"
 #include "OloEngine/Terrain/TerrainChunk.h"
 #include "OloEngine/Terrain/TerrainChunkManager.h"
 #include "OloEngine/Terrain/TerrainMaterial.h"
@@ -3671,14 +3672,15 @@ namespace OloEngine
                             }
                             else if (terrain.m_ProceduralEnabled)
                             {
-                                terrain.m_TerrainData->GenerateProcedural(
-                                    terrain.m_ProceduralResolution,
-                                    terrain.m_ProceduralSeed,
-                                    terrain.m_ProceduralOctaves,
-                                    terrain.m_ProceduralFrequency,
-                                    1.0f,
-                                    terrain.m_ProceduralLacunarity,
-                                    terrain.m_ProceduralPersistence);
+                                TerrainGenerator::HeightParams params;
+                                params.Resolution = terrain.m_ProceduralResolution;
+                                params.Seed = terrain.m_ProceduralSeed;
+                                params.Octaves = terrain.m_ProceduralOctaves;
+                                params.Frequency = terrain.m_ProceduralFrequency;
+                                params.Lacunarity = terrain.m_ProceduralLacunarity;
+                                params.Persistence = terrain.m_ProceduralPersistence;
+                                params.Shaping = terrain.m_HeightShaping;
+                                TerrainGenerator::GenerateHeightmap(*terrain.m_TerrainData, params);
                             }
                             else
                             {
@@ -3702,6 +3704,9 @@ namespace OloEngine
                             terrain.m_WorldSizeX, terrain.m_WorldSizeZ, terrain.m_HeightScale);
 
                         terrain.m_NeedsRebuild = false;
+                        // The height field changed, so any auto-material splatmap
+                        // (derived from height/slope) must be regenerated too.
+                        terrain.m_AutoSplatNeedsRebuild = true;
                     }
 
                     // Build / rebuild terrain material texture arrays
@@ -3710,6 +3715,22 @@ namespace OloEngine
                         terrain.m_Material->BuildTextureArrays();
                         terrain.m_Material->LoadSplatmaps();
                         terrain.m_MaterialNeedsRebuild = false;
+                    }
+
+                    // Auto-material: derive the splatmap from height/slope rules so
+                    // procedurally generated terrain comes out textured (sand →
+                    // grass → rock → snow) instead of a single flat layer. Runs
+                    // after the material's texture arrays are built and whenever the
+                    // height field or the rules change.
+                    if (terrain.m_AutoMaterial && terrain.m_AutoSplatNeedsRebuild && terrain.m_TerrainData &&
+                        terrain.m_TerrainData->GetResolution() > 0 && terrain.m_Material &&
+                        terrain.m_Material->GetLayerCount() > 0 && !terrain.m_LayerRules.empty())
+                    {
+                        TerrainGenerator::GenerateSplatmap(
+                            *terrain.m_Material, *terrain.m_TerrainData, terrain.m_LayerRules,
+                            terrain.m_SplatmapGenResolution,
+                            terrain.m_WorldSizeX, terrain.m_WorldSizeZ, terrain.m_HeightScale);
+                        terrain.m_AutoSplatNeedsRebuild = false;
                     }
 
                     // Run quadtree LOD selection each frame if tessellation is enabled

@@ -1182,6 +1182,69 @@ namespace OloEngine
         terrain.m_ProceduralLacunarity = terrainComponent["ProceduralLacunarity"].as<f32>(terrain.m_ProceduralLacunarity);
         terrain.m_ProceduralPersistence = terrainComponent["ProceduralPersistence"].as<f32>(terrain.m_ProceduralPersistence);
 
+        // Advanced height-field shaping
+        terrain.m_HeightShaping.RidgeBlend = terrainComponent["ShapingRidgeBlend"].as<f32>(terrain.m_HeightShaping.RidgeBlend);
+        terrain.m_HeightShaping.WarpStrength = terrainComponent["ShapingWarpStrength"].as<f32>(terrain.m_HeightShaping.WarpStrength);
+        terrain.m_HeightShaping.WarpFrequency = terrainComponent["ShapingWarpFrequency"].as<f32>(terrain.m_HeightShaping.WarpFrequency);
+        terrain.m_HeightShaping.TerraceSteps = terrainComponent["ShapingTerraceSteps"].as<u32>(terrain.m_HeightShaping.TerraceSteps);
+        terrain.m_HeightShaping.TerraceSharpness = terrainComponent["ShapingTerraceSharpness"].as<f32>(terrain.m_HeightShaping.TerraceSharpness);
+        terrain.m_HeightShaping.HeightExponent = terrainComponent["ShapingHeightExponent"].as<f32>(terrain.m_HeightShaping.HeightExponent);
+
+        // Automatic material assignment rules
+        terrain.m_AutoMaterial = terrainComponent["AutoMaterial"].as<bool>(terrain.m_AutoMaterial);
+        terrain.m_SplatmapGenResolution = terrainComponent["SplatmapGenResolution"].as<u32>(terrain.m_SplatmapGenResolution);
+        if (auto rulesNode = terrainComponent["LayerRules"]; rulesNode && rulesNode.IsSequence())
+        {
+            terrain.m_LayerRules.clear();
+            for (const auto& ruleNode : rulesNode)
+            {
+                TerrainLayerRule rule;
+                rule.LayerIndex = ruleNode["LayerIndex"].as<u32>(rule.LayerIndex);
+                rule.MinHeight = ruleNode["MinHeight"].as<f32>(rule.MinHeight);
+                rule.MaxHeight = ruleNode["MaxHeight"].as<f32>(rule.MaxHeight);
+                rule.HeightBlend = ruleNode["HeightBlend"].as<f32>(rule.HeightBlend);
+                rule.MinSlopeDeg = ruleNode["MinSlopeDeg"].as<f32>(rule.MinSlopeDeg);
+                rule.MaxSlopeDeg = ruleNode["MaxSlopeDeg"].as<f32>(rule.MaxSlopeDeg);
+                rule.SlopeBlend = ruleNode["SlopeBlend"].as<f32>(rule.SlopeBlend);
+                rule.Strength = ruleNode["Strength"].as<f32>(rule.Strength);
+                terrain.m_LayerRules.push_back(rule);
+            }
+        }
+
+        // Sanitize untrusted YAML values (NaN/inf, out-of-range) so corrupt scene
+        // data can't poison terrain generation or trigger huge allocations.
+        {
+            auto sanitize = [](f32& v, f32 lo, f32 hi, f32 fallback)
+            {
+                if (!std::isfinite(v))
+                    v = fallback;
+                v = std::clamp(v, lo, hi);
+            };
+            sanitize(terrain.m_HeightShaping.RidgeBlend, 0.0f, 1.0f, 0.0f);
+            sanitize(terrain.m_HeightShaping.WarpStrength, 0.0f, 4.0f, 0.0f);
+            sanitize(terrain.m_HeightShaping.WarpFrequency, 0.0f, 64.0f, 2.0f);
+            sanitize(terrain.m_HeightShaping.TerraceSharpness, 0.0f, 0.999f, 0.6f);
+            sanitize(terrain.m_HeightShaping.HeightExponent, 0.05f, 16.0f, 1.0f);
+            terrain.m_HeightShaping.TerraceSteps = std::min(terrain.m_HeightShaping.TerraceSteps, 256u);
+            terrain.m_SplatmapGenResolution = std::clamp(terrain.m_SplatmapGenResolution, 16u, 4096u);
+            for (TerrainLayerRule& r : terrain.m_LayerRules)
+            {
+                if (r.LayerIndex >= MAX_TERRAIN_LAYERS)
+                    r.LayerIndex = 0;
+                sanitize(r.MinHeight, 0.0f, 1.0f, 0.0f);
+                sanitize(r.MaxHeight, 0.0f, 1.0f, 1.0f);
+                sanitize(r.HeightBlend, 0.0f, 1.0f, 0.0f);
+                sanitize(r.MinSlopeDeg, 0.0f, 90.0f, 0.0f);
+                sanitize(r.MaxSlopeDeg, 0.0f, 90.0f, 90.0f);
+                sanitize(r.SlopeBlend, 0.0f, 90.0f, 0.0f);
+                sanitize(r.Strength, 0.0f, 16.0f, 1.0f);
+                if (r.MinHeight > r.MaxHeight)
+                    std::swap(r.MinHeight, r.MaxHeight);
+                if (r.MinSlopeDeg > r.MaxSlopeDeg)
+                    std::swap(r.MinSlopeDeg, r.MaxSlopeDeg);
+            }
+        }
+
         terrain.m_TessellationEnabled = terrainComponent["TessellationEnabled"].as<bool>(terrain.m_TessellationEnabled);
         terrain.m_TargetTriangleSize = terrainComponent["TargetTriangleSize"].as<f32>(terrain.m_TargetTriangleSize);
         terrain.m_MorphRegion = terrainComponent["MorphRegion"].as<f32>(terrain.m_MorphRegion);
@@ -4569,6 +4632,37 @@ namespace OloEngine
             out << YAML::Key << "ProceduralFrequency" << YAML::Value << terrain.m_ProceduralFrequency;
             out << YAML::Key << "ProceduralLacunarity" << YAML::Value << terrain.m_ProceduralLacunarity;
             out << YAML::Key << "ProceduralPersistence" << YAML::Value << terrain.m_ProceduralPersistence;
+
+            // Advanced height-field shaping
+            out << YAML::Key << "ShapingRidgeBlend" << YAML::Value << terrain.m_HeightShaping.RidgeBlend;
+            out << YAML::Key << "ShapingWarpStrength" << YAML::Value << terrain.m_HeightShaping.WarpStrength;
+            out << YAML::Key << "ShapingWarpFrequency" << YAML::Value << terrain.m_HeightShaping.WarpFrequency;
+            out << YAML::Key << "ShapingTerraceSteps" << YAML::Value << terrain.m_HeightShaping.TerraceSteps;
+            out << YAML::Key << "ShapingTerraceSharpness" << YAML::Value << terrain.m_HeightShaping.TerraceSharpness;
+            out << YAML::Key << "ShapingHeightExponent" << YAML::Value << terrain.m_HeightShaping.HeightExponent;
+
+            // Automatic material assignment rules
+            out << YAML::Key << "AutoMaterial" << YAML::Value << terrain.m_AutoMaterial;
+            out << YAML::Key << "SplatmapGenResolution" << YAML::Value << terrain.m_SplatmapGenResolution;
+            if (!terrain.m_LayerRules.empty())
+            {
+                out << YAML::Key << "LayerRules";
+                out << YAML::Value << YAML::BeginSeq;
+                for (const auto& rule : terrain.m_LayerRules)
+                {
+                    out << YAML::BeginMap;
+                    out << YAML::Key << "LayerIndex" << YAML::Value << rule.LayerIndex;
+                    out << YAML::Key << "MinHeight" << YAML::Value << rule.MinHeight;
+                    out << YAML::Key << "MaxHeight" << YAML::Value << rule.MaxHeight;
+                    out << YAML::Key << "HeightBlend" << YAML::Value << rule.HeightBlend;
+                    out << YAML::Key << "MinSlopeDeg" << YAML::Value << rule.MinSlopeDeg;
+                    out << YAML::Key << "MaxSlopeDeg" << YAML::Value << rule.MaxSlopeDeg;
+                    out << YAML::Key << "SlopeBlend" << YAML::Value << rule.SlopeBlend;
+                    out << YAML::Key << "Strength" << YAML::Value << rule.Strength;
+                    out << YAML::EndMap;
+                }
+                out << YAML::EndSeq;
+            }
 
             out << YAML::Key << "TessellationEnabled" << YAML::Value << terrain.m_TessellationEnabled;
             out << YAML::Key << "TargetTriangleSize" << YAML::Value << terrain.m_TargetTriangleSize;

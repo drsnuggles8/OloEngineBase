@@ -4425,6 +4425,30 @@ namespace OloEngine
                 if (ImGui::DragFloat("Persistence", &component.m_ProceduralPersistence, 0.01f, 0.1f, 0.9f))
                     component.m_NeedsRebuild = true;
 
+                // Advanced shaping — defaults are identity, so leaving these alone
+                // reproduces the plain-fBm terrain. Changes apply on Regenerate.
+                ImGui::TextDisabled("Shaping");
+                if (ImGui::DragFloat("Ridge Blend", &component.m_HeightShaping.RidgeBlend, 0.01f, 0.0f, 1.0f))
+                    component.m_NeedsRebuild = true;
+                ImGui::SetItemTooltip("0 = rolling fBm hills, 1 = sharp ridged mountains");
+                if (ImGui::DragFloat("Warp Strength", &component.m_HeightShaping.WarpStrength, 0.005f, 0.0f, 1.0f))
+                    component.m_NeedsRebuild = true;
+                ImGui::SetItemTooltip("Domain warp — breaks up the grid-aligned look (meandering ridges)");
+                if (ImGui::DragFloat("Warp Frequency", &component.m_HeightShaping.WarpFrequency, 0.05f, 0.1f, 16.0f))
+                    component.m_NeedsRebuild = true;
+                if (int terraceSteps = static_cast<int>(component.m_HeightShaping.TerraceSteps);
+                    ImGui::DragInt("Terrace Steps", &terraceSteps, 0.2f, 0, 32))
+                {
+                    component.m_HeightShaping.TerraceSteps = static_cast<u32>(std::max(0, terraceSteps));
+                    component.m_NeedsRebuild = true;
+                }
+                ImGui::SetItemTooltip("0 = off; quantizes height into flat plateaus (mesa look)");
+                if (ImGui::DragFloat("Terrace Sharpness", &component.m_HeightShaping.TerraceSharpness, 0.01f, 0.0f, 0.99f))
+                    component.m_NeedsRebuild = true;
+                if (ImGui::DragFloat("Height Exponent", &component.m_HeightShaping.HeightExponent, 0.02f, 0.1f, 6.0f))
+                    component.m_NeedsRebuild = true;
+                ImGui::SetItemTooltip(">1 flattens lowlands and sharpens peaks (islands / deep valleys)");
+
                 if (ImGui::Button("Randomize Seed"))
                 {
                     component.m_ProceduralSeed = RandomUtils::Int32(0, std::numeric_limits<i32>::max());
@@ -4576,6 +4600,92 @@ namespace OloEngine
                     ImGui::SameLine();
                     ImGui::TextColored(ImVec4(0.3f, 0.8f, 0.3f, 1.0f), "Built (%u layers)", layerCount);
                 }
+            }
+
+            // ── Auto-Material (height/slope rules) ───────────────────────
+            // Generates the splatmap from rules so procedurally generated terrain
+            // comes out textured (sand → grass → rock → snow) instead of a single
+            // flat layer. Each rule maps a height band × slope band onto a layer.
+            ImGui::Separator();
+            ImGui::Text("Auto-Material");
+            if (ImGui::Checkbox("Auto Material from Rules", &component.m_AutoMaterial))
+                component.m_AutoSplatNeedsRebuild = true;
+
+            if (component.m_AutoMaterial)
+            {
+                if (int splatRes = static_cast<int>(component.m_SplatmapGenResolution);
+                    ImGui::DragInt("Splatmap Resolution", &splatRes, 1.0f, 64, 2048))
+                {
+                    component.m_SplatmapGenResolution = static_cast<u32>(std::clamp(splatRes, 64, 2048));
+                    component.m_AutoSplatNeedsRebuild = true;
+                }
+
+                // One-click sand/grass/rock/snow biome: create the layers and the
+                // matching rules so the terrain is textured immediately.
+                if (ImGui::Button("Apply Default Biome Preset"))
+                {
+                    if (!component.m_Material)
+                        component.m_Material = Ref<TerrainMaterial>::Create();
+                    while (component.m_Material->GetLayerCount() > 0)
+                        component.m_Material->RemoveLayer(0);
+                    for (const auto& layer : TerrainGenerator::MakeDefaultLayers())
+                        component.m_Material->AddLayer(layer);
+                    component.m_LayerRules = TerrainGenerator::MakeDefaultRules();
+                    component.m_MaterialNeedsRebuild = true;
+                    component.m_AutoSplatNeedsRebuild = true;
+                }
+
+                for (sizet i = 0; i < component.m_LayerRules.size(); ++i)
+                {
+                    ImGui::PushID(static_cast<int>(2000 + i));
+                    auto& rule = component.m_LayerRules[i];
+
+                    std::string label = "Rule " + std::to_string(i) + " -> Layer " + std::to_string(rule.LayerIndex);
+                    bool ruleOpen = ImGui::TreeNodeEx(label.c_str(),
+                                                      ImGuiTreeNodeFlags_AllowOverlap | ImGuiTreeNodeFlags_DefaultOpen);
+
+                    ImGui::SameLine(ImGui::GetContentRegionAvail().x - 20.0f);
+                    if (ImGui::SmallButton("X"))
+                    {
+                        component.m_LayerRules.erase(component.m_LayerRules.begin() + static_cast<std::ptrdiff_t>(i));
+                        component.m_AutoSplatNeedsRebuild = true;
+                        if (ruleOpen)
+                            ImGui::TreePop();
+                        ImGui::PopID();
+                        break;
+                    }
+
+                    if (ruleOpen)
+                    {
+                        if (int li = static_cast<int>(rule.LayerIndex);
+                            ImGui::DragInt("Layer Index", &li, 0.1f, 0, static_cast<int>(MAX_TERRAIN_LAYERS) - 1))
+                        {
+                            rule.LayerIndex = static_cast<u32>(std::clamp(li, 0, static_cast<int>(MAX_TERRAIN_LAYERS) - 1));
+                            component.m_AutoSplatNeedsRebuild = true;
+                        }
+                        if (ImGui::DragFloatRange2("Height [0,1]", &rule.MinHeight, &rule.MaxHeight, 0.005f, 0.0f, 1.0f))
+                            component.m_AutoSplatNeedsRebuild = true;
+                        if (ImGui::DragFloat("Height Blend", &rule.HeightBlend, 0.005f, 0.0f, 0.5f))
+                            component.m_AutoSplatNeedsRebuild = true;
+                        if (ImGui::DragFloatRange2("Slope (deg)", &rule.MinSlopeDeg, &rule.MaxSlopeDeg, 0.5f, 0.0f, 90.0f))
+                            component.m_AutoSplatNeedsRebuild = true;
+                        if (ImGui::DragFloat("Slope Blend (deg)", &rule.SlopeBlend, 0.2f, 0.0f, 45.0f))
+                            component.m_AutoSplatNeedsRebuild = true;
+                        if (ImGui::DragFloat("Strength", &rule.Strength, 0.02f, 0.0f, 4.0f))
+                            component.m_AutoSplatNeedsRebuild = true;
+                        ImGui::TreePop();
+                    }
+                    ImGui::PopID();
+                }
+
+                if (ImGui::Button("+ Add Rule"))
+                {
+                    component.m_LayerRules.push_back(TerrainLayerRule{});
+                    component.m_AutoSplatNeedsRebuild = true;
+                }
+                ImGui::SameLine();
+                if (ImGui::Button("Generate Splatmap Now"))
+                    component.m_AutoSplatNeedsRebuild = true;
             }
 
             // Rebuild button

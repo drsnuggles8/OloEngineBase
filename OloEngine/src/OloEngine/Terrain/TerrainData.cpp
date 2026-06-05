@@ -138,6 +138,22 @@ namespace OloEngine
                       resolution, resolution, seed, octaves, frequency);
     }
 
+    void TerrainData::SetHeights(u32 resolution, std::vector<f32> heights)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        if (resolution == 0 || heights.size() != static_cast<sizet>(resolution) * resolution)
+        {
+            OLO_CORE_ERROR("TerrainData::SetHeights - height count {} does not match resolution {}x{}",
+                           heights.size(), resolution, resolution);
+            return;
+        }
+
+        m_Resolution = resolution;
+        m_Heights = std::move(heights);
+        UploadToGPU();
+    }
+
     f32 TerrainData::GetHeightAt(f32 normalizedX, f32 normalizedZ) const
     {
         if (m_Heights.empty() || m_Resolution == 0)

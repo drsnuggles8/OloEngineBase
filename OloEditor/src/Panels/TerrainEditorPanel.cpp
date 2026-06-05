@@ -1,14 +1,18 @@
 #include "TerrainEditorPanel.h"
+#include "OloEngine/Core/FastRandom.h"
 #include "OloEngine/Scene/Components.h"
 #include "OloEngine/Terrain/TerrainData.h"
 #include "OloEngine/Terrain/TerrainChunkManager.h"
+#include "OloEngine/Terrain/TerrainGenerator.h"
 #include "OloEngine/Terrain/TerrainMaterial.h"
 #include "OloEngine/Terrain/Editor/TerrainErosion.h"
 #include "../UndoRedo/SpecializedCommands.h"
 
 #include <imgui.h>
 
+#include <algorithm>
 #include <cstring>
+#include <limits>
 
 namespace OloEngine
 {
@@ -43,6 +47,9 @@ namespace OloEngine
         if (ImGui::RadioButton("None", m_EditMode == TerrainEditMode::None))
             m_EditMode = TerrainEditMode::None;
         ImGui::SameLine();
+        if (ImGui::RadioButton("Generate", m_EditMode == TerrainEditMode::Generate))
+            m_EditMode = TerrainEditMode::Generate;
+        ImGui::SameLine();
         if (ImGui::RadioButton("Sculpt", m_EditMode == TerrainEditMode::Sculpt))
             m_EditMode = TerrainEditMode::Sculpt;
         ImGui::SameLine();
@@ -56,6 +63,9 @@ namespace OloEngine
 
         switch (m_EditMode)
         {
+            case TerrainEditMode::Generate:
+                DrawGenerateUI();
+                break;
             case TerrainEditMode::Sculpt:
                 DrawSculptUI();
                 break;
@@ -94,6 +104,188 @@ namespace OloEngine
         }
 
         ImGui::End();
+    }
+
+    void TerrainEditorPanel::DrawGenerateUI()
+    {
+        // Operate on the first terrain in the scene.
+        auto terrainView = m_Context->GetAllEntitiesWith<TransformComponent, TerrainComponent>();
+        TerrainComponent* terrainPtr = nullptr;
+        for (auto entity : terrainView)
+        {
+            if (terrainPtr == nullptr)
+                terrainPtr = &terrainView.get<TerrainComponent>(entity);
+        }
+        if (!terrainPtr)
+        {
+            ImGui::TextDisabled("No terrain in scene.");
+            return;
+        }
+        TerrainComponent& tc = *terrainPtr;
+
+        // Re-noise the height field (and re-derive the auto-material) on the next
+        // tick. Dropping m_TerrainData forces Scene to regenerate from scratch —
+        // editing the procedural params alone only rebuilds chunks from the cached
+        // heightmap, so the shape would not change without this.
+        const auto regenerate = [&tc]()
+        {
+            tc.m_TerrainData = nullptr;
+            tc.m_NeedsRebuild = true;
+            tc.m_AutoSplatNeedsRebuild = true;
+        };
+
+        if (!tc.m_ProceduralEnabled)
+        {
+            ImGui::TextWrapped("This terrain is not procedural. Enable it to generate a height field from noise.");
+            if (ImGui::Button("Enable Procedural Generation"))
+            {
+                tc.m_ProceduralEnabled = true;
+                regenerate();
+            }
+            return;
+        }
+
+        // ── Shape presets ────────────────────────────────────────────────────
+        // One-click terrain archetypes — each sets the shaping knobs (and base
+        // frequency) then regenerates. The starting point for "playing around".
+        struct ShapePreset
+        {
+            const char* Name;
+            f32 Ridge;
+            f32 Warp;
+            f32 WarpFreq;
+            u32 Terrace;
+            f32 TerraceSharp;
+            f32 Exponent;
+            f32 Frequency;
+        };
+        static const ShapePreset kPresets[] = {
+            { "Rolling Hills", 0.0f, 0.06f, 2.0f, 0, 0.6f, 1.0f, 2.5f },
+            { "Mountains", 0.6f, 0.15f, 2.0f, 0, 0.6f, 1.2f, 3.0f },
+            { "Mesas", 0.2f, 0.10f, 2.0f, 6, 0.85f, 1.0f, 2.5f },
+            { "Islands", 0.3f, 0.10f, 2.0f, 0, 0.6f, 2.5f, 3.0f },
+            { "Canyons", 0.7f, 0.25f, 3.0f, 0, 0.6f, 1.5f, 3.5f },
+        };
+        ImGui::Text("Shape Presets");
+        for (int i = 0; i < IM_ARRAYSIZE(kPresets); ++i)
+        {
+            const ShapePreset& p = kPresets[i];
+            if (i > 0)
+                ImGui::SameLine();
+            if (ImGui::Button(p.Name))
+            {
+                tc.m_HeightShaping.RidgeBlend = p.Ridge;
+                tc.m_HeightShaping.WarpStrength = p.Warp;
+                tc.m_HeightShaping.WarpFrequency = p.WarpFreq;
+                tc.m_HeightShaping.TerraceSteps = p.Terrace;
+                tc.m_HeightShaping.TerraceSharpness = p.TerraceSharp;
+                tc.m_HeightShaping.HeightExponent = p.Exponent;
+                tc.m_ProceduralFrequency = p.Frequency;
+                regenerate();
+            }
+        }
+
+        ImGui::Separator();
+
+        // ── Base noise ───────────────────────────────────────────────────────
+        ImGui::Text("Noise");
+        ImGui::DragInt("Seed", &tc.m_ProceduralSeed, 1);
+        ImGui::SameLine();
+        if (ImGui::Button("Randomize"))
+        {
+            tc.m_ProceduralSeed = RandomUtils::Int32(0, std::numeric_limits<i32>::max());
+            regenerate();
+        }
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Picks a new seed and regenerates immediately.\nEditing the Seed value above instead requires the Generate / Regenerate button.");
+        if (int res = static_cast<int>(tc.m_ProceduralResolution); ImGui::DragInt("Resolution", &res, 1, 64, 2048))
+            tc.m_ProceduralResolution = static_cast<u32>(std::clamp(res, 64, 2048));
+        if (int oct = static_cast<int>(tc.m_ProceduralOctaves); ImGui::DragInt("Octaves", &oct, 1, 1, 12))
+            tc.m_ProceduralOctaves = static_cast<u32>(std::clamp(oct, 1, 12));
+        ImGui::DragFloat("Frequency", &tc.m_ProceduralFrequency, 0.1f, 0.1f, 20.0f, "%.2f");
+        ImGui::DragFloat("Lacunarity", &tc.m_ProceduralLacunarity, 0.05f, 1.0f, 4.0f, "%.2f");
+        ImGui::DragFloat("Persistence", &tc.m_ProceduralPersistence, 0.01f, 0.1f, 0.9f, "%.2f");
+
+        // ── Shaping ──────────────────────────────────────────────────────────
+        ImGui::Separator();
+        ImGui::Text("Shaping");
+        ImGui::DragFloat("Ridge Blend", &tc.m_HeightShaping.RidgeBlend, 0.01f, 0.0f, 1.0f, "%.2f");
+        ImGui::SetItemTooltip("0 = rolling fBm hills, 1 = sharp ridged mountains");
+        ImGui::DragFloat("Warp Strength", &tc.m_HeightShaping.WarpStrength, 0.005f, 0.0f, 1.0f, "%.3f");
+        ImGui::SetItemTooltip("Domain warp — meandering ridges instead of a grid-aligned look");
+        ImGui::DragFloat("Warp Frequency", &tc.m_HeightShaping.WarpFrequency, 0.05f, 0.1f, 16.0f, "%.2f");
+        if (int steps = static_cast<int>(tc.m_HeightShaping.TerraceSteps); ImGui::DragInt("Terrace Steps", &steps, 0.2f, 0, 32))
+            tc.m_HeightShaping.TerraceSteps = static_cast<u32>(std::max(0, steps));
+        ImGui::SetItemTooltip("0 = off; flat plateaus (mesa look)");
+        ImGui::DragFloat("Terrace Sharpness", &tc.m_HeightShaping.TerraceSharpness, 0.01f, 0.0f, 0.99f, "%.2f");
+        ImGui::DragFloat("Height Exponent", &tc.m_HeightShaping.HeightExponent, 0.02f, 0.1f, 6.0f, "%.2f");
+        ImGui::SetItemTooltip(">1 flattens lowlands and sharpens peaks (islands / deep valleys)");
+
+        // ── World ────────────────────────────────────────────────────────────
+        ImGui::Separator();
+        ImGui::Text("World");
+        ImGui::DragFloat("World Size X", &tc.m_WorldSizeX, 1.0f, 1.0f, 16384.0f, "%.0f");
+        ImGui::DragFloat("World Size Z", &tc.m_WorldSizeZ, 1.0f, 1.0f, 16384.0f, "%.0f");
+        ImGui::DragFloat("Height Scale", &tc.m_HeightScale, 0.5f, 0.0f, 1024.0f, "%.1f");
+
+        // ── Auto-material ────────────────────────────────────────────────────
+        ImGui::Separator();
+        ImGui::Text("Auto-Material");
+        if (ImGui::Checkbox("Auto Material from Rules", &tc.m_AutoMaterial))
+            tc.m_AutoSplatNeedsRebuild = true;
+        if (tc.m_AutoMaterial)
+        {
+            if (ImGui::Button("Apply Default Biome Preset"))
+            {
+                if (!tc.m_Material)
+                    tc.m_Material = Ref<TerrainMaterial>::Create();
+                while (tc.m_Material->GetLayerCount() > 0)
+                    tc.m_Material->RemoveLayer(0);
+                for (const auto& layer : TerrainGenerator::MakeDefaultLayers())
+                    tc.m_Material->AddLayer(layer);
+                tc.m_LayerRules = TerrainGenerator::MakeDefaultRules();
+                tc.m_MaterialNeedsRebuild = true;
+                tc.m_AutoSplatNeedsRebuild = true;
+            }
+            if (int splatRes = static_cast<int>(tc.m_SplatmapGenResolution); ImGui::DragInt("Splatmap Resolution", &splatRes, 1.0f, 64, 2048))
+            {
+                tc.m_SplatmapGenResolution = static_cast<u32>(std::clamp(splatRes, 64, 2048));
+                tc.m_AutoSplatNeedsRebuild = true;
+            }
+
+            // Compact per-rule band editor (LayerIndex + height/slope ranges).
+            for (sizet i = 0; i < tc.m_LayerRules.size(); ++i)
+            {
+                ImGui::PushID(static_cast<int>(i));
+                TerrainLayerRule& rule = tc.m_LayerRules[i];
+                const char* layerName = (tc.m_Material && rule.LayerIndex < tc.m_Material->GetLayerCount())
+                                            ? tc.m_Material->GetLayer(rule.LayerIndex).Name.c_str()
+                                            : "Layer";
+                if (ImGui::TreeNodeEx(layerName, ImGuiTreeNodeFlags_DefaultOpen))
+                {
+                    if (int li = static_cast<int>(rule.LayerIndex); ImGui::DragInt("Layer", &li, 0.1f, 0, static_cast<int>(MAX_TERRAIN_LAYERS) - 1))
+                    {
+                        rule.LayerIndex = static_cast<u32>(std::clamp(li, 0, static_cast<int>(MAX_TERRAIN_LAYERS) - 1));
+                        tc.m_AutoSplatNeedsRebuild = true;
+                    }
+                    if (ImGui::DragFloatRange2("Height", &rule.MinHeight, &rule.MaxHeight, 0.005f, 0.0f, 1.0f, "%.2f"))
+                        tc.m_AutoSplatNeedsRebuild = true;
+                    if (ImGui::DragFloatRange2("Slope", &rule.MinSlopeDeg, &rule.MaxSlopeDeg, 0.5f, 0.0f, 90.0f, "%.0f"))
+                        tc.m_AutoSplatNeedsRebuild = true;
+                    ImGui::TreePop();
+                }
+                ImGui::PopID();
+            }
+            if (ImGui::Button("Generate Splatmap Now"))
+                tc.m_AutoSplatNeedsRebuild = true;
+        }
+
+        // ── Generate ─────────────────────────────────────────────────────────
+        ImGui::Separator();
+        if (ImGui::Button("Generate / Regenerate", ImVec2(-1.0f, 0.0f)))
+            regenerate();
+        if (tc.m_TerrainData)
+            ImGui::TextDisabled("Resolution %u x %u", tc.m_TerrainData->GetResolution(), tc.m_TerrainData->GetResolution());
     }
 
     void TerrainEditorPanel::DrawSculptUI()
