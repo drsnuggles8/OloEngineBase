@@ -22,7 +22,15 @@
       "Bash(tasklist *)",
       "Bash(git rev-list *)",
       "Bash(git grep *)",
-      "Bash(git check-ignore *)"
+      "Bash(git check-ignore *)",
+      "Bash(git merge-base *)",
+      "Bash(gh issue *)",
+      "Bash(echo \"exit=$?\")",
+      "Bash(git rev-parse *)",
+      "Bash(git -C D:/repos/OloEngineBaseBase fetch --prune origin)",
+      "Bash(git -C D:/repos/OloEngineBaseBase worktree list)",
+      "Bash(git -C D:/repos/OloEngineBaseBase branch -a)",
+      "Bash(git -C D:/repos/OloEngineBaseBase log --oneline -20)"
     ],
     "additionalDirectories": [
       "\\tmp"
