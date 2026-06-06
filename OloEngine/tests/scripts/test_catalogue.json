@@ -263,6 +263,7 @@
     "OloEngine/tests/ModelImporterTest.cpp": "unit",
     "OloEngine/tests/Memory/MemoryViewTest.cpp": "unit",
     "OloEngine/tests/MeshCookingFactoryCacheTest.cpp": "unit",
+    "OloEngine/tests/StaticMeshColliderGenerationTest.cpp": "unit",
     "OloEngine/tests/NavMeshTest.cpp": "unit",
     "OloEngine/tests/Networking/AuthorityRejectionTest.cpp": "unit",
     "OloEngine/tests/Networking/ChatTest.cpp": "unit",

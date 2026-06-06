@@ -239,6 +239,8 @@ add_executable(OloEngine-Tests
 		JoltShapesMeshMassPropertiesTest.cpp
 		# Physics3D mesh collider cache invalidation
 		MeshCookingFactoryCacheTest.cpp
+		# StaticMesh GenerateColliders flag -> generated MeshColliderAsset (cook + raycast)
+		StaticMeshColliderGenerationTest.cpp
 		# CrashReporter / platform handlers (Windows SEH + Linux signal hooks)
 		Debug/CrashReporterTest.cpp
 		# Gameplay Ability Tests

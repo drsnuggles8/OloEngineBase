@@ -1290,7 +1290,7 @@ level of `tests/`). Grouped by directory.
 
 > **Do not edit by hand.** Generated from [test_catalogue.json](../OloEngine/tests/scripts/test_catalogue.json) by [generate_test_catalogue.py](../OloEngine/tests/scripts/generate_test_catalogue.py). Add new test files to the config and run the script (or pre-commit will run it with `--check`).
 
-#### (top-level) (59 files)
+#### (top-level) (60 files)
 
 | File | Tests | Cases |
 |---|---:|---|
@@ -1350,6 +1350,7 @@ level of `tests/`). Grouped by directory.
 | [SoundGraphBasicTest.cpp](../OloEngine/tests/SoundGraphBasicTest.cpp) | 8 | **SoundGraphBasicTest** &mdash; `SoundGraphAssetBasicOperations`, `SoundGraphConnections`, `SoundGraphRemoveConnection`, `CircularBufferSingleChannel`, `CircularBufferMultiChannel`, `SampleBufferOperationsInterleaving`, `SampleBufferOperationsGain`, `SoundGraphValidation` |
 | [SoundGraphInstantiationTest.cpp](../OloEngine/tests/SoundGraphInstantiationTest.cpp) | 2 | **SoundGraphInstantiation** &mdash; `NoiseToGraphOutputCompilesAndInstantiates`, `WavePlayerWithUnconfiguredAssetDoesNotCrash` |
 | [StateMachineTest.cpp](../OloEngine/tests/StateMachineTest.cpp) | 12 | **StateMachineTest** &mdash; `StartCallsOnEnter`, `UpdateCallsOnUpdate`, `TransitionChangesState`, `ForceTransition`, `ForceTransition_ToSameState_DoesNothing`, `ForceTransition_InvalidState_DoesNothing`, `UpdateBeforeStart_DoesNothing`, `MultipleTransitions_FirstMatchWins`<br/>**StateMachineAssetTest** &mdash; `HasCorrectAssetType`, `StoresStatesAndTransitions`<br/>**FSMStateRegistryTest** &mdash; `RegisterAndCreate`, `UnknownTypeReturnsNull` |
+| [StaticMeshColliderGenerationTest.cpp](../OloEngine/tests/StaticMeshColliderGenerationTest.cpp) | 5 | **StaticMeshColliderGenerationTest** &mdash; `GenerateFlagWiresColliderAssetToMeshSource`, `GenerateFlagOffProducesNoCollider`, `EmptyMeshSourceSkipsGeneration`, `ReSetupKeepsColliderHandleStable`, `GeneratedColliderCooksAndIsHitByRaycast` |
 | [TransformComponentTest.cpp](../OloEngine/tests/TransformComponentTest.cpp) | 9 | **TransformComponent** &mdash; `DefaultsAreIdentity`, `SetRotationEulerUpdatesQuaternion`, `SetRotationQuaternionUpdatesEuler`, `SetRotationPreventsFlips`, `SetRotationContinuousAcrossPiBoundary`, `GetTransformUsesQuaternion`, `SetTransformRoundTrip`, `CopyPreservesPrivateFields`<br/>**MathDecompose** &mdash; `TRSMatrixRoundTripsThroughDecompose` |
 | [VideoPlaybackTest.cpp](../OloEngine/tests/VideoPlaybackTest.cpp) | 15 | **VideoDecoder** &mdash; `DefaultIsClosed`, `OpenEmptyPathFails`, `OpenMissingFileFails`, `DecodeWithoutOpenReturnsFalse`<br/>**VideoFrameInfo** &mdash; `DefaultsAreZero`<br/>**VideoPlayer** &mdash; `DefaultState`, `LoadMissingFileFails`, `PlayPauseStopTransitions`, `SeekClampsToNonNegative`, `PlaybackSpeedClamping`, `VolumeClamping`, `LoopingToggles`, `UpdateOnUnloadedPlayerIsInert`<br/>**VideoTexture** &mdash; `UninitializedContract`<br/>**VideoDecoderFixture** &mdash; `DecodesFrameWhenFixtureAvailable` |
 | [WindSettingsTest.cpp](../OloEngine/tests/WindSettingsTest.cpp) | 6 | **WindUBOData** &mdash; `SizeIs64Bytes`, `FieldOffsets_Std140Compatible`, `DefaultsMatchSettings`<br/>**ShaderBindingLayout** &mdash; `WindBindingsExist`<br/>**SnowSettings** &mdash; `WindDriftFactorDefaultIsZero`, `WindDriftFactorInUBOFlags` |
@@ -1518,7 +1519,7 @@ level of `tests/`). Grouped by directory.
 |---|---:|---|
 | [TerrainGeneratorTest.cpp](../OloEngine/tests/Terrain/TerrainGeneratorTest.cpp) | 15 | **TerrainGeneratorTest** &mdash; `HeightFieldIsDeterministic`, `HeightFieldIsNormalizedAndFinite`, `LargeSeedStillProducesVariedTerrain`, `DifferentSeedsProduceDifferentTerrain`, `RidgedAndWarpAndExponentStayValid`, `TerraceShapingStaysValidAndDeterministic`, `TerraceEndpointsAndIdentity`, `TerraceIsMonotonicAndBounded`, `TerraceProducesFlatPlateaus`, `RuleWeightPeaksInsideBandAndZeroOutside`, `SlopeBandSelectsRule`, `DefaultRulesAssignExpectedLayers`, `LayerWeightsAreNormalized`, `NoMatchingRuleFallsBackToLayerZero`, `PackLayerWeightsQuantizesToBothSplatmaps` |
 
-**Totals.** 128 unit / subsystem test files, 1573 TEST / TEST_F declarations across all subsystems.
+**Totals.** 129 unit / subsystem test files, 1578 TEST / TEST_F declarations across all subsystems.
 
 <!-- END: unit-catalogue -->
 
