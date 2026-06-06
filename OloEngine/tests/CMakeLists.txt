@@ -310,6 +310,7 @@ add_executable(OloEngine-Tests
 		Functional/Gameplay/PeriodicDamageEffectTicksHealthDownTest.cpp
 		Functional/AI/StateMachineTransitionsViaSceneTickTest.cpp
 		Functional/Scripting/LuaSetsAbilityAttributeViaSceneTickTest.cpp
+		Functional/Scripting/LuaDrivesTerrainRegenerationTest.cpp
 		Functional/SaveGame/QuestJournalSceneYAMLRoundTripTest.cpp
 		Functional/Gameplay/GameplayEffectExpiresAndRevertsAttributeTest.cpp
 		Functional/Gameplay/AbilityBlockedByOwnerTagTest.cpp

@@ -1016,6 +1016,117 @@ namespace OloEngine
 		}
 	}
 
+	public partial class TerrainComponent : Component
+	{
+		public float WorldSizeX
+		{
+			get => InternalCalls.TerrainComponent_GetWorldSizeX(Entity.ID);
+			set => InternalCalls.TerrainComponent_SetWorldSizeX(Entity.ID, value);
+		}
+
+		public float WorldSizeZ
+		{
+			get => InternalCalls.TerrainComponent_GetWorldSizeZ(Entity.ID);
+			set => InternalCalls.TerrainComponent_SetWorldSizeZ(Entity.ID, value);
+		}
+
+		public float HeightScale
+		{
+			get => InternalCalls.TerrainComponent_GetHeightScale(Entity.ID);
+			set => InternalCalls.TerrainComponent_SetHeightScale(Entity.ID, value);
+		}
+
+		public bool ProceduralEnabled
+		{
+			get => InternalCalls.TerrainComponent_GetProceduralEnabled(Entity.ID);
+			set => InternalCalls.TerrainComponent_SetProceduralEnabled(Entity.ID, value);
+		}
+
+		public int Seed
+		{
+			get => InternalCalls.TerrainComponent_GetSeed(Entity.ID);
+			set => InternalCalls.TerrainComponent_SetSeed(Entity.ID, value);
+		}
+
+		public uint Resolution
+		{
+			get => InternalCalls.TerrainComponent_GetResolution(Entity.ID);
+			set => InternalCalls.TerrainComponent_SetResolution(Entity.ID, value);
+		}
+
+		public uint Octaves
+		{
+			get => InternalCalls.TerrainComponent_GetOctaves(Entity.ID);
+			set => InternalCalls.TerrainComponent_SetOctaves(Entity.ID, value);
+		}
+
+		public float Frequency
+		{
+			get => InternalCalls.TerrainComponent_GetFrequency(Entity.ID);
+			set => InternalCalls.TerrainComponent_SetFrequency(Entity.ID, value);
+		}
+
+		public float Lacunarity
+		{
+			get => InternalCalls.TerrainComponent_GetLacunarity(Entity.ID);
+			set => InternalCalls.TerrainComponent_SetLacunarity(Entity.ID, value);
+		}
+
+		public float Persistence
+		{
+			get => InternalCalls.TerrainComponent_GetPersistence(Entity.ID);
+			set => InternalCalls.TerrainComponent_SetPersistence(Entity.ID, value);
+		}
+
+		public float RidgeBlend
+		{
+			get => InternalCalls.TerrainComponent_GetRidgeBlend(Entity.ID);
+			set => InternalCalls.TerrainComponent_SetRidgeBlend(Entity.ID, value);
+		}
+
+		public float WarpStrength
+		{
+			get => InternalCalls.TerrainComponent_GetWarpStrength(Entity.ID);
+			set => InternalCalls.TerrainComponent_SetWarpStrength(Entity.ID, value);
+		}
+
+		public float WarpFrequency
+		{
+			get => InternalCalls.TerrainComponent_GetWarpFrequency(Entity.ID);
+			set => InternalCalls.TerrainComponent_SetWarpFrequency(Entity.ID, value);
+		}
+
+		public uint TerraceSteps
+		{
+			get => InternalCalls.TerrainComponent_GetTerraceSteps(Entity.ID);
+			set => InternalCalls.TerrainComponent_SetTerraceSteps(Entity.ID, value);
+		}
+
+		public float TerraceSharpness
+		{
+			get => InternalCalls.TerrainComponent_GetTerraceSharpness(Entity.ID);
+			set => InternalCalls.TerrainComponent_SetTerraceSharpness(Entity.ID, value);
+		}
+
+		public float HeightExponent
+		{
+			get => InternalCalls.TerrainComponent_GetHeightExponent(Entity.ID);
+			set => InternalCalls.TerrainComponent_SetHeightExponent(Entity.ID, value);
+		}
+
+		public bool AutoMaterial
+		{
+			get => InternalCalls.TerrainComponent_GetAutoMaterial(Entity.ID);
+			set => InternalCalls.TerrainComponent_SetAutoMaterial(Entity.ID, value);
+		}
+
+		public uint SplatmapGenResolution
+		{
+			get => InternalCalls.TerrainComponent_GetSplatmapGenResolution(Entity.ID);
+			set => InternalCalls.TerrainComponent_SetSplatmapGenResolution(Entity.ID, value);
+		}
+	}
+
 	public partial class TextComponent : Component
 	{
 		public string Text

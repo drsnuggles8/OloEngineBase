@@ -170,6 +170,7 @@
     "OloEngine/tests/Functional/Gameplay/PeriodicDamageEffectTicksHealthDownTest.cpp": "Functional",
     "OloEngine/tests/Functional/AI/StateMachineTransitionsViaSceneTickTest.cpp": "Functional",
     "OloEngine/tests/Functional/Scripting/LuaSetsAbilityAttributeViaSceneTickTest.cpp": "Functional",
+    "OloEngine/tests/Functional/Scripting/LuaDrivesTerrainRegenerationTest.cpp": "Functional",
     "OloEngine/tests/Functional/SaveGame/QuestJournalSceneYAMLRoundTripTest.cpp": "Functional",
     "OloEngine/tests/Functional/Gameplay/GameplayEffectExpiresAndRevertsAttributeTest.cpp": "Functional",
     "OloEngine/tests/Functional/Gameplay/AbilityBlockedByOwnerTagTest.cpp": "Functional",

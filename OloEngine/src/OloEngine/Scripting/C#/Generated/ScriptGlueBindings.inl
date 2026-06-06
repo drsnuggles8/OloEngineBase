@@ -3114,6 +3114,392 @@ static void StreamingVolumeComponent_SetUnloadRadius(UUID entityID, float value)
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////
+// TerrainComponent                                                               //
+///////////////////////////////////////////////////////////////////////////////////////////
+
+static float TerrainComponent_GetWorldSizeX(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<TerrainComponent>();
+    return comp.m_WorldSizeX;
+}
+
+static void TerrainComponent_SetWorldSizeX(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<TerrainComponent>();
+    comp.m_WorldSizeX = value;
+}
+
+static float TerrainComponent_GetWorldSizeZ(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<TerrainComponent>();
+    return comp.m_WorldSizeZ;
+}
+
+static void TerrainComponent_SetWorldSizeZ(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<TerrainComponent>();
+    comp.m_WorldSizeZ = value;
+}
+
+static float TerrainComponent_GetHeightScale(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<TerrainComponent>();
+    return comp.m_HeightScale;
+}
+
+static void TerrainComponent_SetHeightScale(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<TerrainComponent>();
+    comp.m_HeightScale = value;
+}
+
+static bool TerrainComponent_GetProceduralEnabled(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<TerrainComponent>();
+    return comp.m_ProceduralEnabled;
+}
+
+static void TerrainComponent_SetProceduralEnabled(UUID entityID, bool value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<TerrainComponent>();
+    comp.m_ProceduralEnabled = value;
+}
+
+static int TerrainComponent_GetSeed(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<TerrainComponent>();
+    return comp.m_ProceduralSeed;
+}
+
+static void TerrainComponent_SetSeed(UUID entityID, int value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<TerrainComponent>();
+    comp.m_ProceduralSeed = value;
+}
+
+static unsigned int TerrainComponent_GetResolution(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<TerrainComponent>();
+    return comp.m_ProceduralResolution;
+}
+
+static void TerrainComponent_SetResolution(UUID entityID, unsigned int value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<TerrainComponent>();
+    comp.m_ProceduralResolution = value;
+}
+
+static unsigned int TerrainComponent_GetOctaves(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<TerrainComponent>();
+    return comp.m_ProceduralOctaves;
+}
+
+static void TerrainComponent_SetOctaves(UUID entityID, unsigned int value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<TerrainComponent>();
+    comp.m_ProceduralOctaves = value;
+}
+
+static float TerrainComponent_GetFrequency(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<TerrainComponent>();
+    return comp.m_ProceduralFrequency;
+}
+
+static void TerrainComponent_SetFrequency(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<TerrainComponent>();
+    comp.m_ProceduralFrequency = value;
+}
+
+static float TerrainComponent_GetLacunarity(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<TerrainComponent>();
+    return comp.m_ProceduralLacunarity;
+}
+
+static void TerrainComponent_SetLacunarity(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<TerrainComponent>();
+    comp.m_ProceduralLacunarity = value;
+}
+
+static float TerrainComponent_GetPersistence(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<TerrainComponent>();
+    return comp.m_ProceduralPersistence;
+}
+
+static void TerrainComponent_SetPersistence(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<TerrainComponent>();
+    comp.m_ProceduralPersistence = value;
+}
+
+static float TerrainComponent_GetRidgeBlend(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<TerrainComponent>();
+    return comp.m_HeightShaping.RidgeBlend;
+}
+
+static void TerrainComponent_SetRidgeBlend(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<TerrainComponent>();
+    comp.m_HeightShaping.RidgeBlend = value;
+}
+
+static float TerrainComponent_GetWarpStrength(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<TerrainComponent>();
+    return comp.m_HeightShaping.WarpStrength;
+}
+
+static void TerrainComponent_SetWarpStrength(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<TerrainComponent>();
+    comp.m_HeightShaping.WarpStrength = value;
+}
+
+static float TerrainComponent_GetWarpFrequency(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<TerrainComponent>();
+    return comp.m_HeightShaping.WarpFrequency;
+}
+
+static void TerrainComponent_SetWarpFrequency(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<TerrainComponent>();
+    comp.m_HeightShaping.WarpFrequency = value;
+}
+
+static unsigned int TerrainComponent_GetTerraceSteps(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<TerrainComponent>();
+    return comp.m_HeightShaping.TerraceSteps;
+}
+
+static void TerrainComponent_SetTerraceSteps(UUID entityID, unsigned int value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<TerrainComponent>();
+    comp.m_HeightShaping.TerraceSteps = value;
+}
+
+static float TerrainComponent_GetTerraceSharpness(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<TerrainComponent>();
+    return comp.m_HeightShaping.TerraceSharpness;
+}
+
+static void TerrainComponent_SetTerraceSharpness(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<TerrainComponent>();
+    comp.m_HeightShaping.TerraceSharpness = value;
+}
+
+static float TerrainComponent_GetHeightExponent(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<TerrainComponent>();
+    return comp.m_HeightShaping.HeightExponent;
+}
+
+static void TerrainComponent_SetHeightExponent(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<TerrainComponent>();
+    comp.m_HeightShaping.HeightExponent = value;
+}
+
+static bool TerrainComponent_GetAutoMaterial(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<TerrainComponent>();
+    return comp.m_AutoMaterial;
+}
+
+static void TerrainComponent_SetAutoMaterial(UUID entityID, bool value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<TerrainComponent>();
+    comp.m_AutoMaterial = value;
+}
+
+static unsigned int TerrainComponent_GetSplatmapGenResolution(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<TerrainComponent>();
+    return comp.m_SplatmapGenResolution;
+}
+
+static void TerrainComponent_SetSplatmapGenResolution(UUID entityID, unsigned int value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<TerrainComponent>();
+    comp.m_SplatmapGenResolution = value;
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////
 // TextComponent                                                                  //
 ///////////////////////////////////////////////////////////////////////////////////////////
 

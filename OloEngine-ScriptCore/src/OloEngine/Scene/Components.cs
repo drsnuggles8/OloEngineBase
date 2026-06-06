@@ -329,6 +329,22 @@ namespace OloEngine
 		}
 	}
 
+	// `partial` so this hand-written Regenerate() trigger merges with the generated
+	// procedural-param property surface (Seed / Octaves / Frequency / RidgeBlend / …)
+	// emitted by OloHeaderTool from the C++ OLO_PROPERTY annotations on TerrainComponent.
+	// Setting a param only takes effect on the next regeneration; call Regenerate() after
+	// changing seed/shaping to rebuild the height field at runtime (e.g. on a level
+	// transition or to pick a fresh seed per run).
+	public partial class TerrainComponent : Component
+	{
+		/// <summary>
+		/// Re-run procedural generation using the current parameter values. Drops the
+		/// cached terrain data so the next engine tick rebuilds the height field, chunks,
+		/// and auto-material splatmap from the latest Seed / Octaves / shaping settings.
+		/// </summary>
+		public void Regenerate() => InternalCalls.TerrainComponent_Regenerate(Entity.ID);
+	}
+
 	// Scripted surface for InstancedMeshComponent. The C++ component holds the
 	// authoritative mesh source and material refs (asset handles); scripts can't
 	// reassign those today (mirrors how MeshComponent is exposed: properties +

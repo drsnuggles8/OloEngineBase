@@ -262,6 +262,11 @@ namespace OloEngine
 		internal static extern void MaterialComponent_SetShaderGraphHandle(ulong entityID, ulong handle);
 		#endregion
 
+		#region TerrainComponent (hand-written regeneration trigger only)
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void TerrainComponent_Regenerate(ulong entityID);
+		#endregion
+
 		#region InstancedMeshComponent
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern int InstancedMeshComponent_GetInstanceCount(ulong entityID);
