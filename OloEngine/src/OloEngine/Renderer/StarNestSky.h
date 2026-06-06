@@ -27,14 +27,14 @@ namespace OloEngine
         f32 Rotation1 = 0.5f;                           // Whole-sky rotation in the xz plane (radians)
         f32 Rotation2 = 0.8f;                           // Whole-sky rotation in the xy plane (radians)
 
-        f32 Formuparam = 0.53f;  // The fold constant in p = abs(p)/dot(p,p) - formuparam
-        f32 StepSize = 0.1f;     // March step length
-        f32 Tile = 0.85f;        // Tiling-fold half period
+        f32 Formuparam = 0.53f;   // The fold constant in p = abs(p)/dot(p,p) - formuparam
+        f32 StepSize = 0.1f;      // March step length
+        f32 Tile = 0.85f;         // Tiling-fold half period
         f32 Brightness = 0.0015f; // Per-step coloring brightness
-        f32 DarkMatter = 0.3f;   // Dark-matter occlusion strength
-        f32 DistFading = 0.73f;  // Per-step distance fade
-        f32 Saturation = 0.85f;  // 0 = greyscale, 1 = full colour
-        f32 Intensity = 1.0f;    // Overall output multiplier (drives IBL/skybox brightness)
+        f32 DarkMatter = 0.3f;    // Dark-matter occlusion strength
+        f32 DistFading = 0.73f;   // Per-step distance fade
+        f32 Saturation = 0.85f;   // 0 = greyscale, 1 = full colour
+        f32 Intensity = 1.0f;     // Overall output multiplier (drives IBL/skybox brightness)
 
         i32 Iterations = 17; // Inner fractal iterations  [1, 40]
         i32 VolSteps = 20;   // Volumetric march steps    [1, 40]
