@@ -2316,8 +2316,12 @@ namespace OloEngine
                                                "intensity", sol::property([](const StarNestSkyComponent& s)
                                                                           { return s.m_Intensity; }, [](StarNestSkyComponent& s, f32 v)
                                                                           { if (std::isfinite(v) && v >= 0.0f) s.m_Intensity = v; }),
-                                               "iterations", &StarNestSkyComponent::m_Iterations,
-                                               "volSteps", &StarNestSkyComponent::m_VolSteps,
+                                               "iterations", sol::property([](const StarNestSkyComponent& s)
+                                                                           { return s.m_Iterations; }, [](StarNestSkyComponent& s, i32 v)
+                                                                           { s.m_Iterations = std::clamp(v, 1, kStarNestMaxIterations); }),
+                                               "volSteps", sol::property([](const StarNestSkyComponent& s)
+                                                                         { return s.m_VolSteps; }, [](StarNestSkyComponent& s, i32 v)
+                                                                         { s.m_VolSteps = std::clamp(v, 1, kStarNestMaxVolSteps); }),
                                                "enableSkybox", &StarNestSkyComponent::m_EnableSkybox,
                                                "enableIBL", &StarNestSkyComponent::m_EnableIBL,
                                                "iblIntensity", sol::property([](const StarNestSkyComponent& s)

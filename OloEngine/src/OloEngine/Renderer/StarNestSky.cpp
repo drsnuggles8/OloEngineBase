@@ -25,7 +25,7 @@ namespace OloEngine
         // the entire marched field and poison the baked cubemap (one bad texel
         // ruins the IBL irradiance convolution).
         glm::vec3 offset = params.Offset;
-        for (int i = 0; i < 3; ++i)
+        for (i32 i = 0; i < 3; ++i)
         {
             if (!std::isfinite(offset[i]))
                 offset = glm::vec3(1.0f, 0.5f, 0.5f);

@@ -1277,12 +1277,11 @@ namespace OloEngine
 
         auto operator==(const StarNestSkyComponent& other) const -> bool
         {
-            // EnvironmentMap is a runtime cache; pointer compare captures
-            // "a different bake happened" without a deep texture compare.
-            if (m_EnvironmentMap.Raw() != other.m_EnvironmentMap.Raw())
-                return false;
-            if (m_LastBakeHash != other.m_LastBakeHash)
-                return false;
+            // Compare authored/persistent state only. m_EnvironmentMap and
+            // m_LastBakeHash are a runtime bake cache mutated by
+            // Scene::LoadAndRenderSkybox; including them would report the
+            // component as "changed" purely because a re-bake happened,
+            // producing spurious editor undo/redo churn.
             return m_CubemapResolution == other.m_CubemapResolution &&
                    m_Iterations == other.m_Iterations &&
                    m_VolSteps == other.m_VolSteps &&

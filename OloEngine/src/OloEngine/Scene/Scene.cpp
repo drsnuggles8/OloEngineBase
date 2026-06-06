@@ -3019,14 +3019,19 @@ namespace OloEngine
                 params.VolSteps = sky.m_VolSteps;
 
                 const u64 hash = StarNestSky::HashParameters(params, sky.m_CubemapResolution);
-                if (!sky.m_EnvironmentMap || hash != sky.m_LastBakeHash)
+                if (hash != sky.m_LastBakeHash)
                 {
                     auto baked = StarNestSky::Generate(params, sky.m_CubemapResolution);
                     if (baked)
-                    {
                         sky.m_EnvironmentMap = baked;
-                        sky.m_LastBakeHash = hash;
-                    }
+
+                    // Record the attempt regardless of outcome: a persistent
+                    // bake failure (e.g. shader missing) must not re-run the
+                    // expensive Generate — and re-log its error — every frame.
+                    // A real parameter edit moves the hash and re-triggers a
+                    // bake; the editor "Force Rebake" resets m_LastBakeHash to 0
+                    // (and clears m_EnvironmentMap) to force a retry on demand.
+                    sky.m_LastBakeHash = hash;
                 }
 
                 if (!sky.m_EnvironmentMap)
