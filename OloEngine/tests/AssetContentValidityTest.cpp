@@ -1585,15 +1585,32 @@ namespace OloEngine::Tests
             }
         }
 
-        // Pass 2 — add supported on-disk assets the registry is missing.
+        // Pass 2 — reconcile supported on-disk assets with the registry.
         // Mirror EverySupportedAssetOnDiskIsInTheRegistry's project-relative,
-        // forward-slash path comparison so the two stay in lockstep.
-        std::set<std::string> registeredPaths;
+        // forward-slash path comparison so the two stay in lockstep. A file
+        // whose path differs from its registry entry only by case (Windows /
+        // NTFS is case-insensitive) is RE-CASED in place rather than minting a
+        // duplicate — otherwise the helper would leave the stale wrong-case
+        // entry that SandboxAssetRegistryPathsMatchOnDiskCasing flags.
+        auto toLower = [](std::string s)
+        {
+            for (char& c : s)
+                c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+            return s;
+        };
+
+        std::set<std::string> registeredPaths;                      // exact-case generic
+        std::unordered_map<std::string, AssetMetadata> byLowerPath; // case-folded -> metadata
         for (const auto& metadata : registry.GetAllAssets())
-            registeredPaths.insert(metadata.FilePath.generic_string());
+        {
+            const std::string p = metadata.FilePath.generic_string();
+            registeredPaths.insert(p);
+            byLowerPath.emplace(toLower(p), metadata);
+        }
 
         const fs::path assetsRoot = projectRoot / "Assets";
         u32 addedCount = 0;
+        u32 recasedCount = 0;
         std::error_code ec;
         for (auto& entry : fs::recursive_directory_iterator(assetsRoot, ec))
         {
@@ -1606,7 +1623,19 @@ namespace OloEngine::Tests
                 continue;
             const std::string relative = fs::relative(entry.path(), projectRoot, ec).generic_string();
             if (ec || relative.empty() || registeredPaths.contains(relative))
+                continue; // already registered with exact casing
+
+            if (auto it = byLowerPath.find(toLower(relative)); it != byLowerPath.end())
+            {
+                // Registered under different casing — re-case in place, don't duplicate.
+                AssetMetadata fixed = it->second;
+                fixed.FilePath = relative;
+                registry.UpdateMetadata(fixed.Handle, fixed);
+                registeredPaths.insert(relative);
+                it->second.FilePath = relative;
+                ++recasedCount;
                 continue;
+            }
 
             AssetMetadata md;
             md.Handle = UUID(); // fresh random handle, editor-style
@@ -1615,13 +1644,14 @@ namespace OloEngine::Tests
             md.Status = AssetStatus::None;
             registry.AddAsset(md);
             registeredPaths.insert(relative);
+            byLowerPath.emplace(toLower(relative), md);
             ++addedCount;
         }
 
         ASSERT_TRUE(registry.Serialize(registryPath));
         std::cout << "Rebased AssetRegistry.oar: removed " << removedCount
-                  << " stale entries, added " << addedCount << " new on-disk asset(s); "
-                  << registry.GetAssetCount() << " total.\n";
+                  << " stale entries, added " << addedCount << " new on-disk asset(s), recased "
+                  << recasedCount << " path(s); " << registry.GetAssetCount() << " total.\n";
     }
 
     // -------------------------------------------------------------------------

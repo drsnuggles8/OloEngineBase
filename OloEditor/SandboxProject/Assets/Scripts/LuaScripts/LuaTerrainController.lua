@@ -37,7 +37,7 @@ function TerrainController.OnCreate(id)
     reseed(id)
 end
 
-function TerrainController.OnUpdate(id, dt)
+function TerrainController.OnUpdate(id, _dt)
     -- Roll a fresh world on demand (e.g. a "regenerate" button / level reset).
     if Input.IsKeyJustPressed(KeyCode.R) then
         reseed(id)
