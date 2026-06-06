@@ -627,6 +627,73 @@ namespace OloEngine
 		internal static extern void SpriteRendererComponent_SetTilingFactor(ulong entityID, float value);
 		#endregion
 
+		#region StarNestSkyComponent
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void StarNestSkyComponent_GetOffset(ulong entityID, out Vector3 value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void StarNestSkyComponent_SetOffset(ulong entityID, ref Vector3 value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float StarNestSkyComponent_GetRotation1(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void StarNestSkyComponent_SetRotation1(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float StarNestSkyComponent_GetRotation2(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void StarNestSkyComponent_SetRotation2(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float StarNestSkyComponent_GetFormuparam(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void StarNestSkyComponent_SetFormuparam(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float StarNestSkyComponent_GetStepSize(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void StarNestSkyComponent_SetStepSize(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float StarNestSkyComponent_GetTile(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void StarNestSkyComponent_SetTile(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float StarNestSkyComponent_GetBrightness(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void StarNestSkyComponent_SetBrightness(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float StarNestSkyComponent_GetDarkMatter(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void StarNestSkyComponent_SetDarkMatter(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float StarNestSkyComponent_GetDistFading(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void StarNestSkyComponent_SetDistFading(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float StarNestSkyComponent_GetSaturation(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void StarNestSkyComponent_SetSaturation(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float StarNestSkyComponent_GetIntensity(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void StarNestSkyComponent_SetIntensity(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern int StarNestSkyComponent_GetIterations(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void StarNestSkyComponent_SetIterations(ulong entityID, int value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern int StarNestSkyComponent_GetVolSteps(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void StarNestSkyComponent_SetVolSteps(ulong entityID, int value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool StarNestSkyComponent_GetEnableSkybox(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void StarNestSkyComponent_SetEnableSkybox(ulong entityID, bool value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool StarNestSkyComponent_GetEnableIBL(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void StarNestSkyComponent_SetEnableIBL(ulong entityID, bool value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float StarNestSkyComponent_GetIBLIntensity(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void StarNestSkyComponent_SetIBLIntensity(ulong entityID, float value);
+		#endregion
+
 		#region StreamingVolumeComponent
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern float StreamingVolumeComponent_GetLoadRadius(ulong entityID);

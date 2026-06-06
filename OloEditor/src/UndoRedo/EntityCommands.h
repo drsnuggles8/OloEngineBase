@@ -247,6 +247,7 @@ namespace OloEngine
             SnapshotComponentIfExists<SpotLightComponent>(entity);
             SnapshotComponentIfExists<EnvironmentMapComponent>(entity);
             SnapshotComponentIfExists<ProceduralSkyComponent>(entity);
+            SnapshotComponentIfExists<StarNestSkyComponent>(entity);
             // RelationshipComponent excluded — hierarchy restored via SetParent() in Undo()
             SnapshotComponentIfExists<ParticleSystemComponent>(entity);
             SnapshotComponentIfExists<TerrainComponent>(entity);

@@ -227,6 +227,7 @@ namespace OloEngine
             REGISTER_COMPONENT(SpotLightComponent),
             REGISTER_COMPONENT(SphereAreaLightComponent),
             REGISTER_COMPONENT(ProceduralSkyComponent),
+            REGISTER_COMPONENT(StarNestSkyComponent),
             REGISTER_COMPONENT(LightProbeComponent),
             REGISTER_COMPONENT(LightProbeVolumeComponent),
             // Streaming
@@ -2275,6 +2276,53 @@ namespace OloEngine
                                                  "iblIntensity", sol::property([](const ProceduralSkyComponent& s)
                                                                                { return s.m_IBLIntensity; }, [](ProceduralSkyComponent& s, f32 v)
                                                                                { if (std::isfinite(v) && v >= 0.0f) s.m_IBLIntensity = v; }));
+
+        // --- StarNestSkyComponent ---
+        // Raymarched nebula sky (issue #292). Bake hash + cached EnvironmentMap
+        // stay internal: a script write leaves m_LastBakeHash untouched, so
+        // LoadAndRenderSkybox rebakes on the next tick via the hash mismatch.
+        // Finite-guard every float so a bad script value can't poison the bake.
+        lua.new_usertype<StarNestSkyComponent>("StarNestSkyComponent",
+                                               "offset", sol::property([](const StarNestSkyComponent& s)
+                                                                       { return s.m_Offset; }, [](StarNestSkyComponent& s, const glm::vec3& v)
+                                                                       { if (IsFiniteVec3(v)) s.m_Offset = v; }),
+                                               "rotation1", sol::property([](const StarNestSkyComponent& s)
+                                                                          { return s.m_Rotation1; }, [](StarNestSkyComponent& s, f32 v)
+                                                                          { if (std::isfinite(v)) s.m_Rotation1 = v; }),
+                                               "rotation2", sol::property([](const StarNestSkyComponent& s)
+                                                                          { return s.m_Rotation2; }, [](StarNestSkyComponent& s, f32 v)
+                                                                          { if (std::isfinite(v)) s.m_Rotation2 = v; }),
+                                               "formuparam", sol::property([](const StarNestSkyComponent& s)
+                                                                           { return s.m_Formuparam; }, [](StarNestSkyComponent& s, f32 v)
+                                                                           { if (std::isfinite(v)) s.m_Formuparam = v; }),
+                                               "stepSize", sol::property([](const StarNestSkyComponent& s)
+                                                                         { return s.m_StepSize; }, [](StarNestSkyComponent& s, f32 v)
+                                                                         { if (std::isfinite(v) && v > 0.0f) s.m_StepSize = v; }),
+                                               "tile", sol::property([](const StarNestSkyComponent& s)
+                                                                     { return s.m_Tile; }, [](StarNestSkyComponent& s, f32 v)
+                                                                     { if (std::isfinite(v) && v > 0.0f) s.m_Tile = v; }),
+                                               "brightness", sol::property([](const StarNestSkyComponent& s)
+                                                                           { return s.m_Brightness; }, [](StarNestSkyComponent& s, f32 v)
+                                                                           { if (std::isfinite(v) && v >= 0.0f) s.m_Brightness = v; }),
+                                               "darkMatter", sol::property([](const StarNestSkyComponent& s)
+                                                                           { return s.m_DarkMatter; }, [](StarNestSkyComponent& s, f32 v)
+                                                                           { if (std::isfinite(v) && v >= 0.0f) s.m_DarkMatter = v; }),
+                                               "distFading", sol::property([](const StarNestSkyComponent& s)
+                                                                           { return s.m_DistFading; }, [](StarNestSkyComponent& s, f32 v)
+                                                                           { if (std::isfinite(v) && v >= 0.0f) s.m_DistFading = v; }),
+                                               "saturation", sol::property([](const StarNestSkyComponent& s)
+                                                                           { return s.m_Saturation; }, [](StarNestSkyComponent& s, f32 v)
+                                                                           { if (std::isfinite(v) && v >= 0.0f) s.m_Saturation = v; }),
+                                               "intensity", sol::property([](const StarNestSkyComponent& s)
+                                                                          { return s.m_Intensity; }, [](StarNestSkyComponent& s, f32 v)
+                                                                          { if (std::isfinite(v) && v >= 0.0f) s.m_Intensity = v; }),
+                                               "iterations", &StarNestSkyComponent::m_Iterations,
+                                               "volSteps", &StarNestSkyComponent::m_VolSteps,
+                                               "enableSkybox", &StarNestSkyComponent::m_EnableSkybox,
+                                               "enableIBL", &StarNestSkyComponent::m_EnableIBL,
+                                               "iblIntensity", sol::property([](const StarNestSkyComponent& s)
+                                                                             { return s.m_IBLIntensity; }, [](StarNestSkyComponent& s, f32 v)
+                                                                             { if (std::isfinite(v) && v >= 0.0f) s.m_IBLIntensity = v; }));
 
         // --- NavAgentComponent ---
         lua.new_usertype<NavAgentComponent>("NavAgentComponent",

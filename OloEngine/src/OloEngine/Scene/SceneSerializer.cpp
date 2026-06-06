@@ -2183,6 +2183,58 @@ namespace OloEngine
                 sky.m_CubemapResolution = res;
         }
 
+        if (auto starSky = entity["StarNestSkyComponent"]; starSky)
+        {
+            auto& sky = deserializedEntity.AddComponent<StarNestSkyComponent>();
+            const auto offset = starSky["Offset"].as<glm::vec3>(sky.m_Offset);
+            if (std::isfinite(offset.x) && std::isfinite(offset.y) && std::isfinite(offset.z))
+                sky.m_Offset = offset;
+            const f32 rotation1 = starSky["Rotation1"].as<f32>(sky.m_Rotation1);
+            if (std::isfinite(rotation1))
+                sky.m_Rotation1 = rotation1;
+            const f32 rotation2 = starSky["Rotation2"].as<f32>(sky.m_Rotation2);
+            if (std::isfinite(rotation2))
+                sky.m_Rotation2 = rotation2;
+            const f32 formuparam = starSky["Formuparam"].as<f32>(sky.m_Formuparam);
+            if (std::isfinite(formuparam))
+                sky.m_Formuparam = formuparam;
+            const f32 stepSize = starSky["StepSize"].as<f32>(sky.m_StepSize);
+            if (std::isfinite(stepSize) && stepSize > 0.0f)
+                sky.m_StepSize = stepSize;
+            const f32 tile = starSky["Tile"].as<f32>(sky.m_Tile);
+            if (std::isfinite(tile) && tile > 0.0f)
+                sky.m_Tile = tile;
+            const f32 brightness = starSky["Brightness"].as<f32>(sky.m_Brightness);
+            if (std::isfinite(brightness) && brightness >= 0.0f)
+                sky.m_Brightness = brightness;
+            const f32 darkMatter = starSky["DarkMatter"].as<f32>(sky.m_DarkMatter);
+            if (std::isfinite(darkMatter) && darkMatter >= 0.0f)
+                sky.m_DarkMatter = darkMatter;
+            const f32 distFading = starSky["DistFading"].as<f32>(sky.m_DistFading);
+            if (std::isfinite(distFading) && distFading >= 0.0f)
+                sky.m_DistFading = distFading;
+            const f32 saturation = starSky["Saturation"].as<f32>(sky.m_Saturation);
+            if (std::isfinite(saturation) && saturation >= 0.0f)
+                sky.m_Saturation = saturation;
+            const f32 intensity = starSky["Intensity"].as<f32>(sky.m_Intensity);
+            if (std::isfinite(intensity) && intensity >= 0.0f)
+                sky.m_Intensity = intensity;
+            const i32 iterations = starSky["Iterations"].as<i32>(sky.m_Iterations);
+            if (iterations >= 1 && iterations <= kStarNestMaxIterations)
+                sky.m_Iterations = iterations;
+            const i32 volSteps = starSky["VolSteps"].as<i32>(sky.m_VolSteps);
+            if (volSteps >= 1 && volSteps <= kStarNestMaxVolSteps)
+                sky.m_VolSteps = volSteps;
+            sky.m_EnableSkybox = starSky["EnableSkybox"].as<bool>(sky.m_EnableSkybox);
+            sky.m_EnableIBL = starSky["EnableIBL"].as<bool>(sky.m_EnableIBL);
+            const f32 iblIntensity = starSky["IBLIntensity"].as<f32>(sky.m_IBLIntensity);
+            if (std::isfinite(iblIntensity) && iblIntensity >= 0.0f)
+                sky.m_IBLIntensity = iblIntensity;
+            const u32 res = starSky["CubemapResolution"].as<u32>(sky.m_CubemapResolution);
+            if (res >= 8u && res <= 4096u)
+                sky.m_CubemapResolution = res;
+        }
+
         if (auto envMapComponent = entity["EnvironmentMapComponent"]; envMapComponent)
         {
             auto& envMap = deserializedEntity.AddComponent<EnvironmentMapComponent>();
@@ -3984,6 +4036,33 @@ namespace OloEngine
             out << YAML::Key << "CubemapResolution" << YAML::Value << sky.m_CubemapResolution;
 
             out << YAML::EndMap; // ProceduralSkyComponent
+        }
+
+        if (entity.HasComponent<StarNestSkyComponent>())
+        {
+            out << YAML::Key << "StarNestSkyComponent";
+            out << YAML::BeginMap; // StarNestSkyComponent
+
+            auto const& sky = entity.GetComponent<StarNestSkyComponent>();
+            out << YAML::Key << "Offset" << YAML::Value << sky.m_Offset;
+            out << YAML::Key << "Rotation1" << YAML::Value << sky.m_Rotation1;
+            out << YAML::Key << "Rotation2" << YAML::Value << sky.m_Rotation2;
+            out << YAML::Key << "Formuparam" << YAML::Value << sky.m_Formuparam;
+            out << YAML::Key << "StepSize" << YAML::Value << sky.m_StepSize;
+            out << YAML::Key << "Tile" << YAML::Value << sky.m_Tile;
+            out << YAML::Key << "Brightness" << YAML::Value << sky.m_Brightness;
+            out << YAML::Key << "DarkMatter" << YAML::Value << sky.m_DarkMatter;
+            out << YAML::Key << "DistFading" << YAML::Value << sky.m_DistFading;
+            out << YAML::Key << "Saturation" << YAML::Value << sky.m_Saturation;
+            out << YAML::Key << "Intensity" << YAML::Value << sky.m_Intensity;
+            out << YAML::Key << "Iterations" << YAML::Value << sky.m_Iterations;
+            out << YAML::Key << "VolSteps" << YAML::Value << sky.m_VolSteps;
+            out << YAML::Key << "EnableSkybox" << YAML::Value << sky.m_EnableSkybox;
+            out << YAML::Key << "EnableIBL" << YAML::Value << sky.m_EnableIBL;
+            out << YAML::Key << "IBLIntensity" << YAML::Value << sky.m_IBLIntensity;
+            out << YAML::Key << "CubemapResolution" << YAML::Value << sky.m_CubemapResolution;
+
+            out << YAML::EndMap; // StarNestSkyComponent
         }
 
         if (entity.HasComponent<EnvironmentMapComponent>())
