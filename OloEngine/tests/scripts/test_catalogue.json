@@ -90,6 +90,7 @@
     "OloEngine/tests/Rendering/ProceduralSkyMathTest.cpp": "shaderpipe",
     "OloEngine/tests/Rendering/AutoExposureMathTest.cpp": "shaderpipe",
     "OloEngine/tests/Rendering/ScreenSpaceReflectionMathTest.cpp": "shaderpipe",
+    "OloEngine/tests/Rendering/SSRHiZTraversalTest.cpp": "shaderpipe",
     "OloEngine/tests/Rendering/RenderGraphFingerprintTest.cpp": "plumbing",
     "OloEngine/tests/Rendering/ShaderStageInterfaceTest.cpp": "shaderpipe",
     "OloEngine/tests/Rendering/ShaderStageContractTest.cpp": "shaderpipe",

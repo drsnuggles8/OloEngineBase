@@ -472,6 +472,16 @@ namespace OloEngine
                 ssr.ScreenParams = glm::vec4(ssrWidth, ssrHeight, 1.0f / ssrWidth, 1.0f / ssrHeight);
                 ssr.Flags = glm::vec4(data.PostProcess.SSRDebugView ? 1.0f : 0.0f, 0.0f, 0.0f, 0.0f);
 
+                // Min-depth HZB acceleration (#284). UVFactor + mip count come
+                // straight from the SSR pass so they always describe the very
+                // texture its generator builds (both derive from the pass's
+                // framebuffer size). HiZ skipping needs at least two mips; below
+                // that, fall back to the plain linear march.
+                const glm::vec2 hzbUV = PostProcessPasses.SSR->GetHZBUVFactor();
+                const u32 hzbMips = PostProcessPasses.SSR->GetHZBMipCount();
+                ssr.HZBParams = glm::vec4(hzbUV.x, hzbUV.y, static_cast<f32>(hzbMips),
+                                          (hzbMips >= 2u) ? 1.0f : 0.0f);
+
                 data.PostProcessGPU.SSR->SetData(&ssr, SSRUBOData::GetSize());
                 data.PostProcessGPU.SSR->Bind();
             }

@@ -19,7 +19,9 @@ void main()
 //
 // For each opaque pixel, reconstruct its view-space position from depth, build
 // the view-space reflection vector from the G-Buffer world normal, and march it
-// against the scene depth buffer (linear steps + binary-search refinement). On
+// using hierarchical-Z traversal: a min-depth (nearest-surface) HZB pyramid lets
+// the ray skip empty space in big coarse-cell steps, dropping to a linear step +
+// binary-search refinement against full-res scene depth near a surface (#284). On
 // a hit, sample the lit scene colour at the hit UV and composite it with a
 // replace/mix blend (lerp toward the reflection by reflectance x confidence —
 // not additive, which double-counts the IBL already in the base colour),
@@ -38,6 +40,7 @@ layout(binding = 0) uniform sampler2D u_SceneColor;     // lit upstream HDR colo
 layout(binding = 19) uniform sampler2D u_DepthTexture;  // scene depth (nonlinear, [0,1])
 layout(binding = 44) uniform sampler2D u_GBufferNormal; // RT1: rg = oct world normal, z = roughness, w = ao
 layout(binding = 43) uniform sampler2D u_GBufferAlbedo; // RT0: rgb = albedo, a = metallic
+layout(binding = 35) uniform sampler2D u_MinHZB;        // min-depth (nearest-surface) HZB pyramid (#284)
 
 layout(std140, binding = 38) uniform SSRParams
 {
@@ -48,12 +51,14 @@ layout(std140, binding = 38) uniform SSRParams
     vec4 u_ShadeParams;  // x = Intensity, y = MaxRoughness, z = EdgeFade (UV), w = BinarySearchSteps
     vec4 u_ScreenParams; // x = width, y = height, z = 1/width, w = 1/height
     vec4 u_Flags;        // x = DebugView (0/1)
+    vec4 u_HZBParams;    // xy = HZB UVFactor, z = HZB mip count, w = UseHiZ (0/1)
 };
 
 const float MIN_ROUGHNESS = 0.045;
 const float SKY_DEPTH = 0.999999;
 const int HARD_MAX_STEPS = 256;
 const int HARD_MAX_BIN_STEPS = 32;
+const int HARD_MAX_HZB_LEVELS = 16; // loop-safety cap on the HZB mip used for skipping
 
 // Octahedral decode — matches octEncodeGB() in PBR_GBuffer.glsl.
 vec3 OctDecode(vec2 e)
@@ -78,6 +83,39 @@ vec2 ProjectToUV(vec3 viewPos)
     vec4 clip = u_Projection * vec4(viewPos, 1.0);
     vec2 ndc = clip.xy / clip.w;
     return ndc * 0.5 + 0.5;
+}
+
+// Nearest-surface device-Z in the level-`lod` HZB cell covering `screenUV`.
+// Point-sampled via texelFetch so the value is the exact conservative minimum
+// of the covered block (bilinear would average, breaking the front-to-back
+// skip guarantee).
+float SampleMinHZB(vec2 screenUV, int lod)
+{
+    vec2 hzbUV = clamp(screenUV, vec2(0.0), vec2(1.0)) * u_HZBParams.xy;
+    ivec2 sz = textureSize(u_MinHZB, lod);
+    ivec2 c = clamp(ivec2(hzbUV * vec2(sz)), ivec2(0), sz - ivec2(1));
+    return texelFetch(u_MinHZB, c, lod).r;
+}
+
+// Binary-search the surface crossing between `lo` (in front) and `hi` (behind)
+// against full-res scene depth, returning the refined hit UV.
+vec2 RefineCrossing(vec3 lo, vec3 hi, int steps)
+{
+    for (int b = 0; b < HARD_MAX_BIN_STEPS; ++b)
+    {
+        if (b >= steps)
+            break;
+        vec3 mid = (lo + hi) * 0.5;
+        vec2 muv = ProjectToUV(mid);
+        float md = texture(u_DepthTexture, muv).r;
+        vec3 mpos = ViewPosFromDepth(muv, md);
+        float mdl = (-mid.z) - (-mpos.z);
+        if (mdl > 0.0)
+            hi = mid;
+        else
+            lo = mid;
+    }
+    return ProjectToUV(hi);
 }
 
 void main()
@@ -123,67 +161,124 @@ void main()
 
     // Depth-proportional bias along the normal so the first step does not
     // self-intersect the originating surface.
-    vec3 rayPos = P + Nview * (0.02 * -P.z);
-    vec3 prevPos = rayPos;
-    float traveled = 0.0;
-    float stepLen = stride;
+    vec3 vStart = P + Nview * (0.02 * -P.z);
 
     bool hit = false;
     vec2 hitUV = vec2(0.0);
+    float traveled = 0.0;
 
-    for (int i = 0; i < HARD_MAX_STEPS; ++i)
+    // -----------------------------------------------------------------------
+    // Screen-space hierarchical-Z traversal (#284).
+    //
+    // The reflection ray is projected to a screen-space segment and marched
+    // ACROSS THE SCREEN, cell by cell, against the min-depth (nearest-surface)
+    // HZB pyramid. Progressing in screen space (not depth) is what makes HiZ
+    // robust: at each cell we compare the ray's depth at the cell's far edge to
+    // the cell's nearest surface. If the ray is still in front there, the whole
+    // cell is empty (nothing nearer can be hit) so we jump to the next cell and
+    // climb to a coarser mip — large empty stretches cost a handful of steps.
+    // Otherwise the ray reaches a surface inside the cell: descend toward mip 0,
+    // where the precise crossing test + binary refine run against full-res scene
+    // depth. The pyramid only skips provably-empty cells, so it never invents or
+    // drops a hit — a stale/imperfect pyramid costs steps, not correctness.
+    // UseHiZ off (no usable pyramid) collapses maxLevel to 0 → 1px linear march.
+    int maxLevel = (u_HZBParams.w > 0.5) ? clamp(int(u_HZBParams.z) - 1, 0, HARD_MAX_HZB_LEVELS) : 0;
+
+    // Clip the view-space segment to stay just in front of the eye (z < 0), so
+    // the projected endpoints never cross the w = 0 singularity.
+    float segLen = maxDist;
+    if (R.z > 1.0e-6)
+        segLen = min(segLen, (-1.0e-3 - vStart.z) / R.z);
+    vec3 vEnd = vStart + R * segLen;
+
+    vec4 hStart = u_Projection * vec4(vStart, 1.0);
+    vec4 hEnd = u_Projection * vec4(vEnd, 1.0);
+
+    vec2 uvStart = (hStart.xy / hStart.w) * 0.5 + 0.5;
+    vec2 uvEnd = (hEnd.xy / hEnd.w) * 0.5 + 0.5;
+
+    // March parameter t in [0,1] along the VIEW-space segment; one tInc step
+    // spans about one screen pixel. Stepping the view parameter (rather than an
+    // exact screen-pixel parameter) samples depth at the v1 linear march's
+    // view-space granularity — that is what keeps grazing reflections matching
+    // v1 rather than under-sampling depth where a surface is near-parallel to the
+    // ray. The screen-pixel-sized increment keeps the HiZ cell stepping aligned
+    // to the pyramid (one mip-0 texel ≈ one viewport pixel).
+    float pixLen = length((uvEnd - uvStart) * u_ScreenParams.xy);
+    if (hStart.w > 0.0 && hEnd.w > 0.0 && pixLen >= 1.0)
     {
-        if (i >= int(maxSteps))
-            break;
+        float tInc = 1.0 / pixLen;
+        int level = 0;
+        float t = 0.0;
+        float prevT = 0.0;
 
-        prevPos = rayPos;
-        rayPos += R * stepLen;
-        traveled += stepLen;
-        if (traveled > maxDist)
-            break;
-        if (rayPos.z >= 0.0) // crossed in front of the eye
-            break;
-
-        vec2 uv = ProjectToUV(rayPos);
-        if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0)
-            break;
-
-        float sDepth = texture(u_DepthTexture, uv).r;
-        if (sDepth >= SKY_DEPTH) // marched over the sky; keep going
+        for (int i = 0; i < HARD_MAX_STEPS; ++i)
         {
-            stepLen *= 1.04;
-            continue;
-        }
+            if (i >= int(maxSteps) || t >= 1.0)
+                break;
 
-        vec3 sPos = ViewPosFromDepth(uv, sDepth);
-        // Positive linear depths: rayL/sceneL = distance in front of camera.
-        float deltaL = (-rayPos.z) - (-sPos.z); // > 0 => ray is behind the surface
+            vec4 clip = mix(hStart, hEnd, t);
+            vec2 uv = (clip.xy / clip.w) * 0.5 + 0.5;
+            if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0)
+                break;
 
-        if (deltaL > 0.0 && deltaL < thickness)
-        {
-            // Refine the crossing between prevPos (in front) and rayPos (behind).
-            vec3 lo = prevPos;
-            vec3 hi = rayPos;
-            for (int b = 0; b < HARD_MAX_BIN_STEPS; ++b)
+            // Size the cell step in LOCAL screen pixels: perspective makes
+            // pixels-per-t vary along the ray, so a global average would
+            // occasionally over-skip a cell and miss a surface. Level 0 keeps the
+            // global, view-uniform increment so grazing surfaces are still sampled
+            // at the v1 linear march's depth granularity.
+            vec4 clipProbe = mix(hStart, hEnd, min(t + tInc, 1.0));
+            vec2 uvProbe = (clipProbe.xy / clipProbe.w) * 0.5 + 0.5;
+            float localPixPerT = max(length((uvProbe - uv) * u_ScreenParams.xy) / tInc, 1.0e-3);
+            float cellStepT = (level == 0) ? tInc : (exp2(float(level)) / localPixPerT);
+
+            // Ray device-Z at the cell entry and at its far edge (one cell ahead).
+            // Depth is monotonic along the segment, so the deeper of the two
+            // bounds the ray's depth across the whole cell.
+            float tExit = min(t + cellStepT, 1.0);
+            vec4 clipExit = mix(hStart, hEnd, tExit);
+            float rayDZ = (clip.z / clip.w) * 0.5 + 0.5;
+            float rayDZExit = (clipExit.z / clipExit.w) * 0.5 + 0.5;
+            float rayDZFar = max(rayDZ, rayDZExit);
+
+            float cellMin = SampleMinHZB(uv, level);
+
+            if (cellMin >= SKY_DEPTH || rayDZFar < cellMin)
             {
-                if (b >= binSteps)
-                    break;
-                vec3 mid = (lo + hi) * 0.5;
-                vec2 muv = ProjectToUV(mid);
-                float md = texture(u_DepthTexture, muv).r;
-                vec3 mpos = ViewPosFromDepth(muv, md);
-                float mdl = (-mid.z) - (-mpos.z);
-                if (mdl > 0.0)
-                    hi = mid;
-                else
-                    lo = mid;
+                // Empty cell: the ray stays in front of its nearest surface the
+                // whole way across — jump to the next cell and climb a mip.
+                prevT = t;
+                t = tExit;
+                level = min(level + 1, maxLevel);
             }
-            hitUV = ProjectToUV(hi);
-            hit = true;
-            break;
+            else if (level > 0)
+            {
+                // A surface lies somewhere in this cell — descend to localise.
+                level -= 1;
+            }
+            else
+            {
+                // Finest level: precise crossing test against full-res scene depth.
+                float sDepth = texture(u_DepthTexture, uv).r;
+                if (sDepth < SKY_DEPTH)
+                {
+                    vec3 rayPos = mix(vStart, vEnd, t);
+                    vec3 sPos = ViewPosFromDepth(uv, sDepth);
+                    float deltaL = (-rayPos.z) - (-sPos.z); // > 0 => behind surface
+                    if (deltaL > 0.0 && deltaL < thickness)
+                    {
+                        hitUV = RefineCrossing(mix(vStart, vEnd, prevT), rayPos, binSteps);
+                        hit = true;
+                        traveled = segLen * t;
+                        break;
+                    }
+                }
+                // No crossing at this pixel (in front, or behind a thick
+                // occluder): step one pixel and keep marching.
+                prevT = t;
+                t += tInc;
+            }
         }
-
-        stepLen *= 1.04; // gentle acceleration in empty space
     }
 
     if (!hit)

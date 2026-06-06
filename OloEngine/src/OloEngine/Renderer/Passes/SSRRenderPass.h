@@ -5,6 +5,7 @@
 #include "OloEngine/Renderer/ResourceHandle.h"
 #include "OloEngine/Renderer/Shader.h"
 #include "OloEngine/Renderer/UniformBuffer.h"
+#include "OloEngine/Renderer/HZBGenerator.h"
 
 namespace OloEngine
 {
@@ -72,11 +73,23 @@ namespace OloEngine
             m_SSRUBO = ubo;
         }
 
+        // Min-depth HZB pyramid parameters for the current viewport, used to
+        // fill the SSR UBO's HZBParams (see SSRUBOData). Derived purely from the
+        // framebuffer size, so they are valid as soon as the pass is sized —
+        // independent of whether Execute() has run yet this frame.
+        [[nodiscard]] glm::vec2 GetHZBUVFactor() const noexcept;
+        [[nodiscard]] u32 GetHZBMipCount() const noexcept;
+
       private:
         bool m_Enabled = false;
 
         Ref<Shader> m_SSRShader;
         Ref<UniformBuffer> m_SSRUBO;
+
+        // SSR owns a dedicated MIN-depth HZB (#284). It cannot share GTAO's HZB:
+        // that one stores MAX depth and is only generated when GTAO is the
+        // active AO technique, whereas SSR runs independently of the AO setting.
+        HZBGenerator m_MinHZB;
 
         RGTextureHandle m_SelectedSceneDepthTexture{};
         RGTextureHandle m_SelectedGBufferNormalTexture{};

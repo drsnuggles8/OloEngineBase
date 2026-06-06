@@ -22,6 +22,22 @@ namespace OloEngine
         return v;
     }
 
+    HZBGenerator::Dimensions HZBGenerator::ComputeDimensions(u32 viewportWidth, u32 viewportHeight)
+    {
+        Dimensions dims;
+        if (viewportWidth == 0 || viewportHeight == 0)
+            return dims;
+
+        // HZB must be power-of-2 for clean mip halving.
+        dims.Width = NextPowerOfTwo(viewportWidth);
+        dims.Height = NextPowerOfTwo(viewportHeight);
+        dims.MipCount = static_cast<u32>(std::floor(std::log2(static_cast<f64>(std::max(dims.Width, dims.Height))))) + 1;
+        // UV factor: viewport → HZB texture coordinate mapping (hzbUV = screenUV * UVFactor).
+        dims.UVFactor = glm::vec2(static_cast<f32>(viewportWidth) / static_cast<f32>(dims.Width),
+                                  static_cast<f32>(viewportHeight) / static_cast<f32>(dims.Height));
+        return dims;
+    }
+
     void HZBGenerator::Initialize()
     {
         OLO_PROFILE_FUNCTION();
@@ -61,9 +77,9 @@ namespace OloEngine
         m_ViewportWidth = viewportWidth;
         m_ViewportHeight = viewportHeight;
 
-        // HZB must be power-of-2 for clean mip halving
-        u32 hzbW = NextPowerOfTwo(viewportWidth);
-        u32 hzbH = NextPowerOfTwo(viewportHeight);
+        const Dimensions dims = ComputeDimensions(viewportWidth, viewportHeight);
+        const u32 hzbW = dims.Width;
+        const u32 hzbH = dims.Height;
 
         // UV factor: viewport → HZB texture coordinate mapping. MUST be
         // recomputed every Resize() even when the HZB texture itself is
@@ -78,8 +94,7 @@ namespace OloEngine
         // rest of the session because every subsequent same-bucket resize
         // hits the early-return below without refreshing the factor. This
         // is the post-resize "ghost halo" reported in the bug tracker.
-        m_UVFactor = glm::vec2(static_cast<f32>(viewportWidth) / static_cast<f32>(hzbW),
-                               static_cast<f32>(viewportHeight) / static_cast<f32>(hzbH));
+        m_UVFactor = dims.UVFactor;
 
         if (hzbW == m_HZBWidth && hzbH == m_HZBHeight && m_HZBTexture)
         {
@@ -95,15 +110,12 @@ namespace OloEngine
         spec.Height = hzbH;
         spec.Format = ImageFormat::R32F;
         spec.GenerateMips = false;
-
-        // Compute full mip chain count
-        u32 mipCount = static_cast<u32>(std::floor(std::log2(static_cast<f64>(std::max(hzbW, hzbH))))) + 1;
-        spec.MipLevels = mipCount;
+        spec.MipLevels = dims.MipCount;
 
         // Always recreate — mip count may change when viewport changes
         m_HZBTexture = Texture2D::Create(spec);
 
-        m_MipCount = mipCount;
+        m_MipCount = dims.MipCount;
 
         OLO_CORE_INFO("HZBGenerator: Resized to {}x{} ({} mips), viewport {}x{}, UVFactor ({:.3f}, {:.3f})",
                       hzbW, hzbH, m_MipCount, viewportWidth, viewportHeight, m_UVFactor.x, m_UVFactor.y);
@@ -235,6 +247,7 @@ namespace OloEngine
                                glm::vec2(1.0f / static_cast<f32>(srcW), 1.0f / static_cast<f32>(srcH)));
         m_HZBShader->SetInt("u_FirstLod", static_cast<int>(startMip));
         m_HZBShader->SetInt("u_IsFirstPass", isFirstPass ? 1 : 0);
+        m_HZBShader->SetInt("u_ReduceOp", static_cast<int>(m_ReduceMode));
 
         // Dispatch: one workgroup per LOCAL_SIZE x LOCAL_SIZE block of the destination mip
         u32 groupsX = (dstW + LOCAL_SIZE - 1) / LOCAL_SIZE;

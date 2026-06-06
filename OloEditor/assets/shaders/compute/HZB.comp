@@ -3,7 +3,14 @@
 // =============================================================================
 // HZB.comp — Hierarchical Z-Buffer depth pyramid generation (compute)
 //
-// Builds a max-depth mip chain from the scene depth buffer.
+// Builds a depth mip chain from the scene depth buffer. The per-quad reduction
+// operator is selectable via u_ReduceOp:
+//   0 = MAX depth (farthest surface) — GTAO horizon-based occlusion.
+//   1 = MIN depth (nearest surface) — front-to-back HiZ SSR traversal (#284).
+// Both consumers share this one shader; the C++ HZBGenerator picks the mode.
+// Depth is standard OpenGL device-Z in [0,1] (smaller = nearer), so "nearest"
+// is the numeric minimum and "farthest" the numeric maximum.
+//
 // Processes 4 mip levels per dispatch using shared memory reduction.
 // 8x8 workgroups → first mip covers 8x8 texels, then 4x4, 2x2, 1x1.
 //
@@ -23,6 +30,7 @@ uniform vec2 u_InputViewportMaxBound;       // (srcSize - 0.5) / srcSize  (clamp
 uniform vec2 u_InvSize;                     // 1.0 / srcMipSize
 uniform int  u_FirstLod;                    // Starting destination mip level
 uniform int  u_IsFirstPass;                 // 1 = read from scene depth, 0 = read from HZB
+uniform int  u_ReduceOp;                    // 0 = max (farthest), 1 = min (nearest)
 
 // ---------------------------------------------------------------------------
 // Resources
@@ -34,12 +42,26 @@ layout(binding = 3, r32f) writeonly uniform image2D o_HZB_Mip3;
 layout(binding = 4) uniform sampler2D u_InputDepth;
 
 // ---------------------------------------------------------------------------
-// Shared memory for cross-thread reduction
+// Shared memory for cross-thread reduction. Holds the reduced depth per thread
+// (nearest or farthest of its quad, per u_ReduceOp).
 // ---------------------------------------------------------------------------
-shared float s_ClosestDepth[LOCAL_SIZE * LOCAL_SIZE];
+shared float s_ReducedDepth[LOCAL_SIZE * LOCAL_SIZE];
 
 // ---------------------------------------------------------------------------
-// Gather 2x2 texels and return max (conservative depth for occlusion culling)
+// Per-quad reduction operator (min = nearest surface, max = farthest surface).
+// ---------------------------------------------------------------------------
+float Reduce2(float a, float b)
+{
+    return (u_ReduceOp == 1) ? min(a, b) : max(a, b);
+}
+
+float Reduce4(vec4 v)
+{
+    return Reduce2(Reduce2(v.x, v.y), Reduce2(v.z, v.w));
+}
+
+// ---------------------------------------------------------------------------
+// Gather 2x2 texels (the reduction operator is applied by the caller).
 // ---------------------------------------------------------------------------
 vec4 Gather4(sampler2D tex, vec2 bufferUV, float lod)
 {
@@ -113,9 +135,9 @@ void main()
 
     // Sample 2x2 from parent mip (or scene depth on first pass)
     vec4 deviceZ = Gather4(u_InputDepth, bufferUV, float(u_FirstLod - 1));
-    float closestDepth = max(max(deviceZ.x, deviceZ.y), max(deviceZ.z, deviceZ.w));
+    float reducedDepth = Reduce4(deviceZ);
 
-    // Mip 0 of this batch: first pass copies scene depth directly, subsequent max-reduce
+    // Mip 0 of this batch: first pass copies scene depth directly, subsequent reduce
     if (u_IsFirstPass != 0)
     {
         // Scene depth is at viewport size, but bufferUV is computed for
@@ -131,11 +153,11 @@ void main()
     }
     else
     {
-        WriteMip(0, dispatchThreadId, closestDepth);
+        WriteMip(0, dispatchThreadId, reducedDepth);
     }
 
     // Store to shared for reduction
-    s_ClosestDepth[gl_LocalInvocationIndex] = closestDepth;
+    s_ReducedDepth[gl_LocalInvocationIndex] = reducedDepth;
     barrier();
 
     // Reduce remaining 3 mips via shared memory
@@ -148,17 +170,17 @@ void main()
         {
             // Gather 4 values from shared memory
             vec4 parentDepth;
-            parentDepth.x = closestDepth;
+            parentDepth.x = reducedDepth;
             for (uint i = 1u; i < 4u; i++)
             {
-                parentDepth[i] = s_ClosestDepth[gl_LocalInvocationIndex + i * uint(reduceBankSize)];
+                parentDepth[i] = s_ReducedDepth[gl_LocalInvocationIndex + i * uint(reduceBankSize)];
             }
 
-            closestDepth = max(max(parentDepth.x, parentDepth.y), max(parentDepth.z, parentDepth.w));
+            reducedDepth = Reduce4(parentDepth);
             ivec2 outputPos = dispatchThreadId >> ivec2(mipLevel);
 
-            s_ClosestDepth[gl_LocalInvocationIndex] = closestDepth;
-            WriteMip(mipLevel, outputPos, closestDepth);
+            s_ReducedDepth[gl_LocalInvocationIndex] = reducedDepth;
+            WriteMip(mipLevel, outputPos, reducedDepth);
         }
 
         barrier();

@@ -105,6 +105,15 @@ TEST(ScreenSpaceReflection, SSRUBOGetSizeMatchesSizeof)
     EXPECT_EQ(SSRUBOData::GetSize(), sizeof(SSRUBOData));
 }
 
+// The std140 block in PostProcess_SSR.glsl is laid out byte-for-byte against
+// this struct: 3 mat4 (192) + 5 vec4 (80) = 272. The trailing HZBParams vec4
+// (#284: min-depth HZB acceleration) must keep the size 16-byte aligned.
+TEST(ScreenSpaceReflection, SSRUBOLayoutSizeMatchesShader)
+{
+    EXPECT_EQ(sizeof(SSRUBOData), 272u) << "SSRUBOData drifted from the PostProcess_SSR.glsl SSRParams block";
+    EXPECT_EQ(offsetof(SSRUBOData, HZBParams), 256u) << "HZBParams must follow Flags at offset 256";
+}
+
 TEST(ScreenSpaceReflection, SSRBindingIsUniqueAndExpected)
 {
     EXPECT_EQ(ShaderBindingLayout::UBO_SSR, 38u);
