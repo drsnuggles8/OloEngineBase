@@ -2320,6 +2320,17 @@ namespace OloEngine::Tests
         const glm::vec3 expectedFogColor{ 0.12f, 0.34f, 0.56f };
         const f32 expectedFogDensity = 0.275f;
         const bool expectedRenderFromBelow = false; // default is true
+        // Refraction (§7.2) + caustics (§7.1) fields. Values chosen inside each
+        // field's sanitize range so the serializer doesn't clamp them away.
+        const f32 expectedRefractionStrength = 0.042f;
+        const f32 expectedRefractionScale = 27.5f;
+        const f32 expectedRefractionSpeed = 2.25f;
+        const f32 expectedChromaticStrength = 0.66f;
+        const f32 expectedCausticsIntensity = 1.75f;
+        const f32 expectedCausticsScale = 0.42f;
+        const f32 expectedCausticsSpeed = 0.85f;
+        const f32 expectedCausticsMaxDepth = 33.0f;
+        const glm::vec3 expectedCausticsColor{ 0.65f, 0.8f, 0.95f };
 
         std::string yaml;
         {
@@ -2329,6 +2340,15 @@ namespace OloEngine::Tests
             water.m_UnderwaterFogColor = expectedFogColor;
             water.m_UnderwaterFogDensity = expectedFogDensity;
             water.m_RenderFromBelow = expectedRenderFromBelow;
+            water.m_UnderwaterRefractionStrength = expectedRefractionStrength;
+            water.m_UnderwaterRefractionScale = expectedRefractionScale;
+            water.m_UnderwaterRefractionSpeed = expectedRefractionSpeed;
+            water.m_UnderwaterChromaticStrength = expectedChromaticStrength;
+            water.m_CausticsIntensity = expectedCausticsIntensity;
+            water.m_CausticsScale = expectedCausticsScale;
+            water.m_CausticsSpeed = expectedCausticsSpeed;
+            water.m_CausticsMaxDepth = expectedCausticsMaxDepth;
+            water.m_CausticsColor = expectedCausticsColor;
 
             yaml = SceneSerializer(scene).SerializeToYAML();
         }
@@ -2348,6 +2368,17 @@ namespace OloEngine::Tests
         EXPECT_NEAR(water.m_UnderwaterFogColor.b, expectedFogColor.b, kFloatEpsilon);
         EXPECT_NEAR(water.m_UnderwaterFogDensity, expectedFogDensity, kFloatEpsilon);
         EXPECT_EQ(water.m_RenderFromBelow, expectedRenderFromBelow);
+        EXPECT_NEAR(water.m_UnderwaterRefractionStrength, expectedRefractionStrength, kFloatEpsilon);
+        EXPECT_NEAR(water.m_UnderwaterRefractionScale, expectedRefractionScale, kFloatEpsilon);
+        EXPECT_NEAR(water.m_UnderwaterRefractionSpeed, expectedRefractionSpeed, kFloatEpsilon);
+        EXPECT_NEAR(water.m_UnderwaterChromaticStrength, expectedChromaticStrength, kFloatEpsilon);
+        EXPECT_NEAR(water.m_CausticsIntensity, expectedCausticsIntensity, kFloatEpsilon);
+        EXPECT_NEAR(water.m_CausticsScale, expectedCausticsScale, kFloatEpsilon);
+        EXPECT_NEAR(water.m_CausticsSpeed, expectedCausticsSpeed, kFloatEpsilon);
+        EXPECT_NEAR(water.m_CausticsMaxDepth, expectedCausticsMaxDepth, kFloatEpsilon);
+        EXPECT_NEAR(water.m_CausticsColor.r, expectedCausticsColor.r, kFloatEpsilon);
+        EXPECT_NEAR(water.m_CausticsColor.g, expectedCausticsColor.g, kFloatEpsilon);
+        EXPECT_NEAR(water.m_CausticsColor.b, expectedCausticsColor.b, kFloatEpsilon);
     }
 
     // -------------------------------------------------------------------------

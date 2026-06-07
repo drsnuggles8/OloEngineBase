@@ -1349,6 +1349,34 @@ namespace OloEngine
             ar << c.m_UnderwaterFogColor << c.m_UnderwaterFogDensity << c.m_RenderFromBelow;
         }
 
+        // Refraction distortion (§7.2) + caustics (§7.1) were appended after the
+        // fog block. Same trailing-AtEnd() probe: an archive written before this
+        // addition ends after m_RenderFromBelow, so fall back to the component
+        // defaults rather than reading past the end of the component blob.
+        auto loadUnderwaterFxDefaults = [](WaterComponent& w)
+        {
+            w.m_UnderwaterRefractionStrength = 0.006f;
+            w.m_UnderwaterRefractionScale = 18.0f;
+            w.m_UnderwaterRefractionSpeed = 1.2f;
+            w.m_UnderwaterChromaticStrength = 0.4f;
+            w.m_CausticsIntensity = 0.5f;
+            w.m_CausticsScale = 0.35f;
+            w.m_CausticsSpeed = 0.6f;
+            w.m_CausticsMaxDepth = 25.0f;
+            w.m_CausticsColor = glm::vec3(0.7f, 0.85f, 1.0f);
+        };
+        if (ar.IsLoading() && ar.AtEnd())
+        {
+            loadUnderwaterFxDefaults(c);
+        }
+        else
+        {
+            ar << c.m_UnderwaterRefractionStrength << c.m_UnderwaterRefractionScale
+               << c.m_UnderwaterRefractionSpeed << c.m_UnderwaterChromaticStrength;
+            ar << c.m_CausticsIntensity << c.m_CausticsScale << c.m_CausticsSpeed << c.m_CausticsMaxDepth;
+            ar << c.m_CausticsColor;
+        }
+
         if (ar.IsLoading())
         {
             auto sanitize = [](f32& v, f32 lo, f32 hi, f32 fallback)
@@ -1433,6 +1461,15 @@ namespace OloEngine
             sanitizeColor(c.m_SSSColor, glm::vec3(0.0f, 0.5f, 0.4f));
             sanitizeColor(c.m_UnderwaterFogColor, glm::vec3(0.05f, 0.15f, 0.25f));
             sanitize(c.m_UnderwaterFogDensity, 0.0f, 10.0f, 0.08f);
+            sanitize(c.m_UnderwaterRefractionStrength, 0.0f, 0.1f, 0.006f);
+            sanitize(c.m_UnderwaterRefractionScale, 0.0f, 200.0f, 18.0f);
+            sanitize(c.m_UnderwaterRefractionSpeed, 0.0f, 50.0f, 1.2f);
+            sanitize(c.m_UnderwaterChromaticStrength, 0.0f, 1.0f, 0.4f);
+            sanitize(c.m_CausticsIntensity, 0.0f, 10.0f, 0.5f);
+            sanitize(c.m_CausticsScale, 0.001f, 10.0f, 0.35f);
+            sanitize(c.m_CausticsSpeed, 0.0f, 50.0f, 0.6f);
+            sanitize(c.m_CausticsMaxDepth, 0.1f, 1000.0f, 25.0f);
+            sanitizeColor(c.m_CausticsColor, glm::vec3(0.7f, 0.85f, 1.0f));
         }
     }
 

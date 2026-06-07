@@ -2209,6 +2209,26 @@ namespace OloEngine
         // (UnderwaterFog.h) and is pinned by UnderwaterFogMathTest.
         glm::vec3 m_UnderwaterFogColor = { 0.05f, 0.15f, 0.25f };
         f32 m_UnderwaterFogDensity = 0.08f;
+
+        // Submerged refraction distortion (§7.2, bullet 2) — a screen-space wobble
+        // + chromatic split applied to the underwater image by the tone-map pass
+        // when the camera is below the surface. Strength is in UV units (0 = off);
+        // mirrored by UnderwaterCaustics::RefractionOffset (UnderwaterCaustics.h).
+        f32 m_UnderwaterRefractionStrength = 0.006f; // UV-space wobble amplitude (0 disables)
+        f32 m_UnderwaterRefractionScale = 18.0f;     // spatial frequency of the wobble
+        f32 m_UnderwaterRefractionSpeed = 1.2f;      // wobble scroll speed
+        f32 m_UnderwaterChromaticStrength = 0.4f;    // per-channel UV split (fraction of the wobble)
+
+        // Caustics (§7.1) — animated light pattern projected onto submerged
+        // geometry by the tone-map pass, faded by depth below the surface and by
+        // upward-facing-ness / sun overhead-ness. Intensity 0 disables. Pattern +
+        // depth-fade mirrored by UnderwaterCaustics (UnderwaterCaustics.h).
+        f32 m_CausticsIntensity = 0.5f;                    // additive caustic brightness (0 disables)
+        f32 m_CausticsScale = 0.35f;                       // world-space frequency of the caustic cells
+        f32 m_CausticsSpeed = 0.6f;                        // caustic animation speed
+        f32 m_CausticsMaxDepth = 25.0f;                    // metres below surface where caustics fade to zero
+        glm::vec3 m_CausticsColor = { 0.7f, 0.85f, 1.0f }; // caustic light tint (slightly blue-white)
+
         bool m_RenderFromBelow = true; // Allow the water plane to be visible from below
 
         // Runtime (not serialized)
@@ -2260,7 +2280,7 @@ namespace OloEngine
                 && blkEq(m_TessellationFactor, m_TessellationFactor) // f32
                 && m_TessellationEnabled == o.m_TessellationEnabled
                 && blkEq(m_TessMinDistance, m_TessMaxDistance) // f32*2
-                && blkEq(m_UnderwaterFogColor, m_UnderwaterFogDensity) // vec3 + f32
+                && blkEq(m_UnderwaterFogColor, m_CausticsColor) // vec3 + f32 + f32*8 + vec3
                 && m_RenderFromBelow == o.m_RenderFromBelow;
             // clang-format on
         }
@@ -2340,6 +2360,15 @@ namespace OloEngine
             m_TessMaxDistance = src.m_TessMaxDistance;
             m_UnderwaterFogColor = src.m_UnderwaterFogColor;
             m_UnderwaterFogDensity = src.m_UnderwaterFogDensity;
+            m_UnderwaterRefractionStrength = src.m_UnderwaterRefractionStrength;
+            m_UnderwaterRefractionScale = src.m_UnderwaterRefractionScale;
+            m_UnderwaterRefractionSpeed = src.m_UnderwaterRefractionSpeed;
+            m_UnderwaterChromaticStrength = src.m_UnderwaterChromaticStrength;
+            m_CausticsIntensity = src.m_CausticsIntensity;
+            m_CausticsScale = src.m_CausticsScale;
+            m_CausticsSpeed = src.m_CausticsSpeed;
+            m_CausticsMaxDepth = src.m_CausticsMaxDepth;
+            m_CausticsColor = src.m_CausticsColor;
             m_RenderFromBelow = src.m_RenderFromBelow;
         }
     };

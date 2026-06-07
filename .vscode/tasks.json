@@ -4,15 +4,19 @@
 		{
 			"label": "build-oloeditor-debug",
 			"type": "shell",
-			"command": "cmake",
+			"command": "pwsh",
 			"args": [
-				"--build",
+				"-NoProfile",
+				"-ExecutionPolicy",
+				"Bypass",
+				"-File",
+				"${workspaceFolder}/scripts/BuildCleanEnv.ps1",
+				"-BuildDir",
 				"${workspaceFolder}/build",
-				"--target",
+				"-Target",
 				"OloEditor",
-				"--config",
-				"Debug",
-				"--parallel"
+				"-Config",
+				"Debug"
 			],
 			"group": {
 				"kind": "build",
@@ -25,15 +29,19 @@
 		{
 			"label": "build-oloeditor-release",
 			"type": "shell",
-			"command": "cmake",
+			"command": "pwsh",
 			"args": [
-				"--build",
+				"-NoProfile",
+				"-ExecutionPolicy",
+				"Bypass",
+				"-File",
+				"${workspaceFolder}/scripts/BuildCleanEnv.ps1",
+				"-BuildDir",
 				"${workspaceFolder}/build",
-				"--target",
+				"-Target",
 				"OloEditor",
-				"--config",
-				"Release",
-				"--parallel"
+				"-Config",
+				"Release"
 			],
 			"group": "build",
 			"problemMatcher": [
@@ -43,15 +51,19 @@
 		{
 			"label": "build-oloeditor-dist",
 			"type": "shell",
-			"command": "cmake",
+			"command": "pwsh",
 			"args": [
-				"--build",
+				"-NoProfile",
+				"-ExecutionPolicy",
+				"Bypass",
+				"-File",
+				"${workspaceFolder}/scripts/BuildCleanEnv.ps1",
+				"-BuildDir",
 				"${workspaceFolder}/build",
-				"--target",
+				"-Target",
 				"OloEditor",
-				"--config",
-				"Dist",
-				"--parallel"
+				"-Config",
+				"Dist"
 			],
 			"group": "build",
 			"problemMatcher": [
@@ -109,15 +121,19 @@
 		{
 			"label": "build-tests-debug",
 			"type": "shell",
-			"command": "cmake",
+			"command": "pwsh",
 			"args": [
-				"--build",
+				"-NoProfile",
+				"-ExecutionPolicy",
+				"Bypass",
+				"-File",
+				"${workspaceFolder}/scripts/BuildCleanEnv.ps1",
+				"-BuildDir",
 				"${workspaceFolder}/build",
-				"--target",
+				"-Target",
 				"OloEngine-Tests",
-				"--config",
-				"Debug",
-				"--parallel"
+				"-Config",
+				"Debug"
 			],
 			"group": "build",
 			"problemMatcher": [
@@ -146,15 +162,19 @@
 		{
 			"label": "build-oloruntime-debug",
 			"type": "shell",
-			"command": "cmake",
+			"command": "pwsh",
 			"args": [
-				"--build",
+				"-NoProfile",
+				"-ExecutionPolicy",
+				"Bypass",
+				"-File",
+				"${workspaceFolder}/scripts/BuildCleanEnv.ps1",
+				"-BuildDir",
 				"${workspaceFolder}/build",
-				"--target",
+				"-Target",
 				"OloRuntime",
-				"--config",
-				"Debug",
-				"--parallel"
+				"-Config",
+				"Debug"
 			],
 			"group": "build",
 			"problemMatcher": [
@@ -164,15 +184,19 @@
 		{
 			"label": "build-oloruntime-release",
 			"type": "shell",
-			"command": "cmake",
+			"command": "pwsh",
 			"args": [
-				"--build",
+				"-NoProfile",
+				"-ExecutionPolicy",
+				"Bypass",
+				"-File",
+				"${workspaceFolder}/scripts/BuildCleanEnv.ps1",
+				"-BuildDir",
 				"${workspaceFolder}/build",
-				"--target",
+				"-Target",
 				"OloRuntime",
-				"--config",
-				"Release",
-				"--parallel"
+				"-Config",
+				"Release"
 			],
 			"group": "build",
 			"problemMatcher": [
@@ -182,15 +206,19 @@
 		{
 			"label": "build-oloruntime-dist",
 			"type": "shell",
-			"command": "cmake",
+			"command": "pwsh",
 			"args": [
-				"--build",
+				"-NoProfile",
+				"-ExecutionPolicy",
+				"Bypass",
+				"-File",
+				"${workspaceFolder}/scripts/BuildCleanEnv.ps1",
+				"-BuildDir",
 				"${workspaceFolder}/build",
-				"--target",
+				"-Target",
 				"OloRuntime",
-				"--config",
-				"Dist",
-				"--parallel"
+				"-Config",
+				"Dist"
 			],
 			"group": "build",
 			"problemMatcher": [

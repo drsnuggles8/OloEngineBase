@@ -318,22 +318,73 @@ writes to a displacement texture. Benefits:
 
 ## 7. Visual Polish (Low–Medium Impact / Low Effort)
 
-### 7.1 Caustics
+### 7.1 Caustics — **shipped (`feature/underwater-caustics-refraction`)**
 
-Project animated caustic patterns onto underwater geometry:
+Animated caustic light is projected onto submerged geometry by the tone-map
+underwater stage (gated on the camera being below the surface, so it costs
+nothing above water):
 
-- Use a tileable caustic texture animated via scrolling or procedural noise.
-- Project onto surfaces using the water surface normal + light direction.
-- Modulate intensity by water depth and light angle.
+- ✅ **Procedural pattern (no texture asset).** A two-octave web of wavy ridge
+  lines (the union of two drifting sine fields) sampled at the fragment's
+  world-space XZ, animated by the wave clock. Mirrored on the CPU in
+  [`UnderwaterCaustics.h`](../OloEngine/src/OloEngine/Renderer/UnderwaterCaustics.h)
+  (`CausticPattern`) and pinned by `WaterRenderingTest`.
+- ✅ **Projected onto upward-facing surfaces.** The geometric normal is
+  reconstructed in-pass from screen-space derivatives of the depth-reconstructed
+  world position (`dFdx`/`dFdy`); caustics fade by `max(normal.y, 0)`.
+- ✅ **Modulated by depth and light angle.** Faded by depth below the per-pixel
+  water surface (`CausticDepthFade`, → 0 by `m_CausticsMaxDepth`) and by the
+  sun's overhead factor (`max(-sunDir.y, 0)`), then added to the surface radiance
+  *before* the underwater absorption so distant caustics fade into the fog.
+  Driven by `WaterComponent` (`m_CausticsIntensity` / `m_CausticsScale` /
+  `m_CausticsSpeed` / `m_CausticsMaxDepth` / `m_CausticsColor`; serialized,
+  save-game + Lua + editor-UI wired), uploaded to UBO binding 37
+  (`UnderwaterFogUBOData`) from
+  [`Scene.cpp`](../OloEngine/src/OloEngine/Scene/Scene.cpp) ~L4357, applied in
+  [`PostProcess_ToneMap.glsl`](../OloEditor/assets/shaders/PostProcess_ToneMap.glsl)
+  (`underwaterCausticPattern`). Visual evidence: `UnderwaterFx_Caustics_On.png`
+  vs `UnderwaterFx_Caustics_Off.png` (`UnderwaterCausticsVisualTest`).
 
-### 7.2 Underwater Rendering
+### 7.2 Underwater Rendering — **partially shipped (PR #259)**
 
 When the camera goes below the water surface:
 
-- Switch to underwater fog (exponential, tinted blue-green).
-- Apply chromatic distortion to simulate light refraction.
-- Render the water surface from below with inverted normals.
-- Add floating particle effects (dust, plankton).
+- ✅ **Switch to underwater fog (exponential, tinted blue-green) — shipped (PR #259).**
+  Per-pixel, *wave-aware* Beer–Lambert absorption: the tone-map pass fogs the
+  portion of each view ray that lies below the water plane (underwater half
+  fogged, above-water half clear) using a depth-only re-render of the nearest
+  wavy water surface rather than a flat plane. Driven by `WaterComponent`'s
+  `m_UnderwaterFogColor` / `m_UnderwaterFogDensity` (serialized, save-game + Lua
+  wired), uploaded to UBO binding 37 (`UnderwaterFogUBOData`) from
+  `Scene::OnUpdateRuntime` ([`Scene.cpp`](../OloEngine/src/OloEngine/Scene/Scene.cpp) ~L4357),
+  applied in [`PostProcess_ToneMap.glsl`](../OloEditor/assets/shaders/PostProcess_ToneMap.glsl)
+  (`applyUnderwaterFog`). The math is mirrored on the CPU in
+  [`UnderwaterFog.h`](../OloEngine/src/OloEngine/Renderer/UnderwaterFog.h) and
+  pinned by `UnderwaterFogMathTest` / `WaterRenderingTest`.
+- ✅ **Apply chromatic distortion to simulate light refraction — shipped
+  (`feature/underwater-caustics-refraction`).** When submerged, the tone-map pass
+  wobbles the scene-colour sample UV with two phase-shifted trig layers scrolled
+  by the wave clock, and splits the R/G/B channels by a fraction of that offset
+  for chromatic refraction (the global `ChromaticAberration` post-effect is
+  unrelated and stays decoupled from submersion). Hard-capped to 0.1 UV so a bad
+  param can't tear the image apart. Driven by `WaterComponent`
+  (`m_UnderwaterRefractionStrength` / `m_UnderwaterRefractionScale` /
+  `m_UnderwaterRefractionSpeed` / `m_UnderwaterChromaticStrength`), mirrored on
+  the CPU in
+  [`UnderwaterCaustics.h`](../OloEngine/src/OloEngine/Renderer/UnderwaterCaustics.h)
+  (`RefractionOffset`) and applied in
+  [`PostProcess_ToneMap.glsl`](../OloEditor/assets/shaders/PostProcess_ToneMap.glsl)
+  (`underwaterRefractionOffset`). Visual evidence: `UnderwaterFx_Refraction_On.png`
+  vs `UnderwaterFx_Refraction_Off.png` (`UnderwaterCausticsVisualTest`).
+- ✅ **Render the water surface from below with inverted normals — shipped (PR #259).**
+  [`Water.glsl`](../OloEditor/assets/shaders/Water.glsl) branches on
+  `gl_FrontFacing` (~L666–L755): the underside gets a cheap, stable tinted
+  shading path with a soft cubemap rim at grazing angles, and the grazing-angle
+  "see-through" artefact was fixed. Visual evidence: `Water_Submerged.png`,
+  `Water_WaterlineStraddle.png`.
+- ❌ **Add floating particle effects (dust, plankton) — not yet.** No underwater
+  particle path; would tie into the existing `Particle` subsystem gated on
+  `UnderwaterFogState::Active`.
 
 ### 7.3 Rain Impact
 

@@ -901,6 +901,33 @@ namespace OloEngine
                                          "underwaterFogDensity", sol::property([](const WaterComponent& w)
                                                                                { return w.m_UnderwaterFogDensity; }, [](WaterComponent& w, f32 v)
                                                                                { if (std::isfinite(v) && v >= 0.0f && v <= 10.0f) w.m_UnderwaterFogDensity = v; }),
+                                         "underwaterRefractionStrength", sol::property([](const WaterComponent& w)
+                                                                                       { return w.m_UnderwaterRefractionStrength; }, [](WaterComponent& w, f32 v)
+                                                                                       { if (std::isfinite(v) && v >= 0.0f && v <= 0.1f) w.m_UnderwaterRefractionStrength = v; }),
+                                         "underwaterRefractionScale", sol::property([](const WaterComponent& w)
+                                                                                    { return w.m_UnderwaterRefractionScale; }, [](WaterComponent& w, f32 v)
+                                                                                    { if (std::isfinite(v) && v >= 0.0f && v <= 200.0f) w.m_UnderwaterRefractionScale = v; }),
+                                         "underwaterRefractionSpeed", sol::property([](const WaterComponent& w)
+                                                                                    { return w.m_UnderwaterRefractionSpeed; }, [](WaterComponent& w, f32 v)
+                                                                                    { if (std::isfinite(v) && v >= 0.0f && v <= 50.0f) w.m_UnderwaterRefractionSpeed = v; }),
+                                         "underwaterChromaticStrength", sol::property([](const WaterComponent& w)
+                                                                                      { return w.m_UnderwaterChromaticStrength; }, [](WaterComponent& w, f32 v)
+                                                                                      { if (std::isfinite(v) && v >= 0.0f && v <= 1.0f) w.m_UnderwaterChromaticStrength = v; }),
+                                         "causticsIntensity", sol::property([](const WaterComponent& w)
+                                                                            { return w.m_CausticsIntensity; }, [](WaterComponent& w, f32 v)
+                                                                            { if (std::isfinite(v) && v >= 0.0f && v <= 10.0f) w.m_CausticsIntensity = v; }),
+                                         "causticsScale", sol::property([](const WaterComponent& w)
+                                                                        { return w.m_CausticsScale; }, [](WaterComponent& w, f32 v)
+                                                                        { if (std::isfinite(v) && v >= 0.001f && v <= 10.0f) w.m_CausticsScale = v; }),
+                                         "causticsSpeed", sol::property([](const WaterComponent& w)
+                                                                        { return w.m_CausticsSpeed; }, [](WaterComponent& w, f32 v)
+                                                                        { if (std::isfinite(v) && v >= 0.0f && v <= 50.0f) w.m_CausticsSpeed = v; }),
+                                         "causticsMaxDepth", sol::property([](const WaterComponent& w)
+                                                                           { return w.m_CausticsMaxDepth; }, [](WaterComponent& w, f32 v)
+                                                                           { if (std::isfinite(v) && v >= 0.1f && v <= 1000.0f) w.m_CausticsMaxDepth = v; }),
+                                         "causticsColor", sol::property([](const WaterComponent& w)
+                                                                        { return w.m_CausticsColor; }, [](WaterComponent& w, const glm::vec3& v)
+                                                                        { if (std::isfinite(v.x) && std::isfinite(v.y) && std::isfinite(v.z)) w.m_CausticsColor = glm::clamp(v, glm::vec3(0.0f), glm::vec3(1.0f)); }),
                                          "renderFromBelow", &WaterComponent::m_RenderFromBelow);
 
         // --- TerrainComponent ---

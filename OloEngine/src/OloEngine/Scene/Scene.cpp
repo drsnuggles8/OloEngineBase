@@ -4483,6 +4483,19 @@ namespace OloEngine
             {
                 UnderwaterFogState underwater{};
                 f32 bestSurfaceDist = std::numeric_limits<f32>::max();
+                // Refraction (§7.2) + caustics (§7.1) params from the winning water
+                // volume, sanitized here so the tone-map UBO never carries NaN/Inf.
+                // Defaults match WaterComponent so an old scene without these fields
+                // still looks right. vec4 packing matches UnderwaterFogUBOData.
+                glm::vec4 refractionParams(0.0f);          // strength, scale, speed, chromatic
+                glm::vec4 causticParams(0.0f);             // intensity, scale, speed, maxDepth
+                glm::vec3 causticColor(0.7f, 0.85f, 1.0f); // caustic light tint
+                auto sanitizeParam = [](f32 v, f32 lo, f32 hi, f32 fallback) -> f32
+                {
+                    if (!std::isfinite(v))
+                        return fallback;
+                    return std::clamp(v, lo, hi);
+                };
                 auto waterView = m_Registry.view<TransformComponent, WaterComponent>();
                 for (auto entity : waterView)
                 {
@@ -4523,14 +4536,50 @@ namespace OloEngine
                                                  ? std::clamp(water.m_UnderwaterFogDensity, 0.0f, 10.0f)
                                                  : 0.08f;
                         underwater.WaterSurfaceY = cameraPosition.y + gap;
+
+                        // Refraction wobble + chromatic split (§7.2 bullet 2).
+                        refractionParams = glm::vec4(
+                            sanitizeParam(water.m_UnderwaterRefractionStrength, 0.0f, 0.1f, 0.006f),
+                            sanitizeParam(water.m_UnderwaterRefractionScale, 0.0f, 200.0f, 18.0f),
+                            sanitizeParam(water.m_UnderwaterRefractionSpeed, 0.0f, 50.0f, 1.2f),
+                            sanitizeParam(water.m_UnderwaterChromaticStrength, 0.0f, 1.0f, 0.4f));
+                        // Caustics (§7.1). Scale is clamped to a small positive min
+                        // so the world-XZ projection always varies spatially.
+                        causticParams = glm::vec4(
+                            sanitizeParam(water.m_CausticsIntensity, 0.0f, 10.0f, 0.5f),
+                            sanitizeParam(water.m_CausticsScale, 0.001f, 10.0f, 0.35f),
+                            sanitizeParam(water.m_CausticsSpeed, 0.0f, 50.0f, 0.6f),
+                            sanitizeParam(water.m_CausticsMaxDepth, 0.1f, 1000.0f, 25.0f));
+                        const glm::vec3 rawCaustic = water.m_CausticsColor;
+                        const glm::vec3 finiteCaustic(std::isfinite(rawCaustic.x) ? rawCaustic.x : 0.7f,
+                                                      std::isfinite(rawCaustic.y) ? rawCaustic.y : 0.85f,
+                                                      std::isfinite(rawCaustic.z) ? rawCaustic.z : 1.0f);
+                        causticColor = glm::clamp(finiteCaustic, glm::vec3(0.0f), glm::vec3(1.0f));
                     }
                 }
 
                 Renderer3D::SetUnderwaterFogState(underwater);
+
+                // Sun "overhead" factor for the caustic fade: the sun's light
+                // travels along PrimaryDirectionalLightDir, so a downward (overhead)
+                // sun has a negative y. max(-y, 0) on the normalized direction is 1
+                // at noon and 0 at/below the horizon. Defaults to straight-down.
+                f32 sunOverhead = 0.0f;
+                {
+                    glm::vec3 sunDir = Renderer3D::GetPrimaryDirectionalLightDirection();
+                    if (const f32 len2 = glm::dot(sunDir, sunDir); std::isfinite(len2) && len2 > 1e-8f)
+                        sunOverhead = std::clamp(-sunDir.y / std::sqrt(len2), 0.0f, 1.0f);
+                }
+
                 UnderwaterFogUBOData uwData{};
                 uwData.ColorAndDensity = glm::vec4(underwater.FogColor, underwater.Density);
-                uwData.Flags = glm::vec4(underwater.Active ? 1.0f : 0.0f, underwater.WaterSurfaceY, 0.0f, 0.0f);
+                // Flags.z carries the animation clock for the refraction wobble +
+                // caustic scroll (mirrors the water surface's own wave time).
+                uwData.Flags = glm::vec4(underwater.Active ? 1.0f : 0.0f, underwater.WaterSurfaceY, animationTime, 0.0f);
                 uwData.CameraPos = glm::vec4(cameraPosition, 0.0f);
+                uwData.RefractionParams = refractionParams;
+                uwData.CausticParams = causticParams;
+                uwData.CausticColorAndSun = glm::vec4(causticColor, sunOverhead);
                 uwData.InverseViewProjection = glm::inverse(viewProjection);
                 Renderer3D::UploadUnderwaterFogUBO(uwData);
             }

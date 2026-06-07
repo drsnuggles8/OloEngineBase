@@ -540,6 +540,13 @@ namespace OloEngine
         // Scene::ProcessScene3DSharedLogic; replaces the retired single-light
         // SceneLight as the sun-direction source.
         static void SetPrimaryDirectionalLightDirection(const glm::vec3& direction);
+        // The direction set above (travel direction of the sun's light). Consumed
+        // by the underwater caustics term to fade caustics as the sun drops toward
+        // the horizon (§7.1). Defaults to straight down before any light is seen.
+        [[nodiscard]] static const glm::vec3& GetPrimaryDirectionalLightDirection()
+        {
+            return s_Data.PrimaryDirectionalLightDir;
+        }
         static void SetCameraClipPlanes(f32 nearClip, f32 farClip);
 
         // Upload multi-light UBO data for the current frame (partial: only header + activeLightCount lights)
