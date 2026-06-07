@@ -103,13 +103,30 @@ namespace OloEngine::MCP
                 {
                     if (std::smatch m; std::regex_search(line, m, typeRe))
                     {
-                        Json entry;
-                        entry["name"] = m[2].str();
-                        entry["kind"] = m[1].str();
-                        entry["file"] = fileName;
-                        entry["members"] = Json::array();
-                        types.push_back(std::move(entry));
-                        currentTypeIdx = static_cast<int>(types.size()) - 1;
+                        // C# types are often `partial`, split across files (e.g.
+                        // Components.cs + Components.Generated.cs). Merge declarations
+                        // with the same name+kind into one entry instead of fragmenting.
+                        const std::string name = m[2].str();
+                        const std::string kind = m[1].str();
+                        currentTypeIdx = -1;
+                        for (std::size_t ti = 0; ti < types.size(); ++ti)
+                        {
+                            if (types[ti]["name"] == name && types[ti]["kind"] == kind)
+                            {
+                                currentTypeIdx = static_cast<int>(ti);
+                                break;
+                            }
+                        }
+                        if (currentTypeIdx < 0)
+                        {
+                            Json entry;
+                            entry["name"] = name;
+                            entry["kind"] = kind;
+                            entry["file"] = fileName;
+                            entry["members"] = Json::array();
+                            types.push_back(std::move(entry));
+                            currentTypeIdx = static_cast<int>(types.size()) - 1;
+                        }
                     }
                     else if (currentTypeIdx >= 0 && std::regex_search(line, publicMemberRe))
                     {

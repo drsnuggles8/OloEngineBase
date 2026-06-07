@@ -373,6 +373,12 @@ namespace OloEngine::MCP
         // 5a. Batch: array of messages → array of responses (notifications drop out).
         if (parsed.is_array())
         {
+            // An empty batch is itself an invalid JSON-RPC request (spec §6).
+            if (parsed.empty())
+            {
+                sendJson(MakeError(Json(nullptr), kInvalidRequest, "Invalid Request"), 200);
+                return;
+            }
             Json responses = Json::array();
             for (const auto& message : parsed)
             {

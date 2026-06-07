@@ -289,9 +289,10 @@ namespace OloEngine::MCP
                 }
 
                 const auto total = static_cast<int>(matches.size());
-                const int start = page * pageSize;
+                // 64-bit to avoid int overflow when a large page is requested.
+                const long long start = static_cast<long long>(page) * pageSize;
                 Json entities = Json::array();
-                for (int i = start; i < total && i < start + pageSize; ++i)
+                for (long long i = start; i < total && i < start + pageSize; ++i)
                 {
                     Entity entity = matches[static_cast<sizet>(i)];
                     Json e;
@@ -462,7 +463,10 @@ namespace OloEngine::MCP
                 const std::size_t n = hist.size();
                 if (n > 0)
                 {
-                    const std::size_t step = std::max<std::size_t>(1, n / static_cast<std::size_t>(points));
+                    // Ceiling division so we emit at most `points` samples (floor
+                    // division would over-stride and return more than requested).
+                    const auto p = static_cast<std::size_t>(points);
+                    const std::size_t step = std::max<std::size_t>(1, (n + p - 1) / p);
                     for (std::size_t i = 0; i < n; i += step)
                     {
                         const auto& f = hist[i];
@@ -703,9 +707,10 @@ namespace OloEngine::MCP
                           [](AssetHandle a, AssetHandle b) { return static_cast<u64>(a) < static_cast<u64>(b); });
 
                 const auto total = static_cast<int>(handles.size());
-                const int start = page * pageSize;
+                // 64-bit to avoid int overflow when a large page is requested.
+                const long long start = static_cast<long long>(page) * pageSize;
                 Json assets = Json::array();
-                for (int i = start; i < total && i < start + pageSize; ++i)
+                for (long long i = start; i < total && i < start + pageSize; ++i)
                 {
                     const AssetMetadata meta = mgr->GetAssetMetadata(handles[static_cast<sizet>(i)]);
                     assets.push_back(Json{ { "handle", std::to_string(static_cast<u64>(handles[static_cast<sizet>(i)])) },

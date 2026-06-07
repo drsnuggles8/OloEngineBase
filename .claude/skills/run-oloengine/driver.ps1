@@ -221,8 +221,13 @@ function Wait-Window {
             }
             if ($exePath) {
                 $missing = $null
-                try { $missing = Get-UnresolvedDlls $exePath } catch {}
-                if ($null -eq $missing) {
+                $dllCheckError = $null
+                try { $missing = Get-UnresolvedDlls $exePath }
+                catch { $dllCheckError = $_.Exception.Message }
+                if ($dllCheckError) {
+                    $msg += "`n(DLL dependency check failed: $dllCheckError)"
+                }
+                elseif ($null -eq $missing) {
                     $msg += " (dumpbin not found — cannot list imports; install the VC++ toolset to enable this diagnostic.)"
                 }
                 elseif ($missing.Count -gt 0) {

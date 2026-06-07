@@ -208,8 +208,11 @@ namespace OloEngine
                 {
                     sol::error error = result;
                     OLO_CORE_ERROR("[LuaScriptEngine] OnUpdate error for entity {}: {}", entityID, error.what());
+                    const std::string scriptName = entity.HasComponent<LuaScriptComponent>()
+                                                       ? entity.GetComponent<LuaScriptComponent>().ScriptFile
+                                                       : std::string{};
                     ScriptErrorBuffer::Get().Push(
-                        ScriptError{ ScriptError::Language::Lua, std::string{}, entityID, std::string("OnUpdate: ") + error.what(), std::string{}, 0.0 });
+                        ScriptError{ ScriptError::Language::Lua, scriptName, entityID, std::string("OnUpdate: ") + error.what(), std::string{}, 0.0 });
                 }
             }
         }
@@ -234,8 +237,11 @@ namespace OloEngine
                 {
                     sol::error error = result;
                     OLO_CORE_ERROR("[LuaScriptEngine] OnDestroy error for entity {}: {}", entityID, error.what());
+                    const std::string scriptName = entity.HasComponent<LuaScriptComponent>()
+                                                       ? entity.GetComponent<LuaScriptComponent>().ScriptFile
+                                                       : std::string{};
                     ScriptErrorBuffer::Get().Push(
-                        ScriptError{ ScriptError::Language::Lua, std::string{}, entityID, std::string("OnDestroy: ") + error.what(), std::string{}, 0.0 });
+                        ScriptError{ ScriptError::Language::Lua, scriptName, entityID, std::string("OnDestroy: ") + error.what(), std::string{}, 0.0 });
                 }
             }
         }

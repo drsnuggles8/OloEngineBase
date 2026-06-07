@@ -271,7 +271,20 @@ namespace OloEngine
             mcpContext.IsPlaying = [this]() -> bool
             { return m_SceneState == SceneState::Play; };
             mcpContext.CaptureViewportPng = [this](int maxWidth) -> std::vector<u8>
-            { return CaptureFramebufferPng(m_Framebuffer, maxWidth); };
+            {
+                // Capture what the viewport actually displays (see UI_Viewport): in 3D
+                // mode that's the UICompositePass output (fallback SceneColor), not
+                // m_Framebuffer, which would otherwise yield a stale/blank image.
+                Ref<Framebuffer> target = m_Framebuffer;
+                if (m_Is3DMode)
+                {
+                    if (auto ui = Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::UIComposite); ui)
+                        target = ui;
+                    else if (auto scene = Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::SceneColor); scene)
+                        target = scene;
+                }
+                return CaptureFramebufferPng(target, maxWidth);
+            };
             m_McpServer = CreateScope<MCP::McpServer>(std::move(mcpContext));
             MCP::RegisterBuiltinTools(*m_McpServer);
             // Apply the persisted redaction preference (loaded by OpenProject above).
@@ -1631,6 +1644,12 @@ namespace OloEngine
 
         auto& physicsSettings = Physics3DSystem::GetSettings();
         physicsSettings.m_CaptureOnPlay = m_Prefs.CapturePhysicsOnPlay;
+
+        // Keep the live MCP server's redaction policy in sync with prefs whenever
+        // they're (re)applied — e.g. after OpenProject reloads m_Prefs. Guarded
+        // because the server is constructed later in OnAttach (#285).
+        if (m_McpServer)
+            m_McpServer->SetRedactPaths(m_Prefs.McpRedactPaths);
 
         if (auto project = Project::GetActive())
         {

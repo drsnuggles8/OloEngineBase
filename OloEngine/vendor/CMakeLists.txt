@@ -334,7 +334,8 @@ endif()
 # MCP diagnostics server (#285) for the localhost Streamable-HTTP transport. Header-only,
 # so DOWNLOAD_ONLY + an INTERFACE target whose include dir propagates. Non-imported
 # INTERFACE (not INTERFACE IMPORTED) so the target is global and can be linked from
-# OloEngine here. Pinned to a fixed tag SHA for reproducible builds (#294 convention).
+# OloEditor (the actual consumer; see OloEditor/CMakeLists.txt) and any other target.
+# Pinned to a fixed tag SHA for reproducible builds (#294 convention).
 CPMAddPackage(NAME cpp_httplib
   GIT_REPOSITORY https://github.com/yhirose/cpp-httplib.git
   GIT_TAG 5304464a53f793f8e3e4777ea5941d60cf8c91e3  # v0.29.0
