@@ -869,6 +869,73 @@ namespace OloEngine::Tests
     }
 
     // -------------------------------------------------------------------------
+    // PhysicsJoint3DComponent — every field set non-default (and inside the
+    // serializer's sanitize/clamp ranges so it round-trips exactly), including
+    // the UUID connected-entity reference and the local-space anchors/axis.
+    // -------------------------------------------------------------------------
+    TEST(ComponentRoundTrip, PhysicsJoint3DComponentSurvivesYAMLRoundTrip)
+    {
+        const auto expectedType = JointType3D::Slider; // non-default (default Fixed)
+        const UUID expectedConnected{ 0x1234'5678'9ABCULL };
+        const glm::vec3 expectedAnchorA{ 1.5f, -2.25f, 0.75f };
+        const glm::vec3 expectedAnchorB{ -0.5f, 3.25f, -1.125f };
+        const glm::vec3 expectedAxis{ 0.0f, 0.0f, 1.0f };
+        const f32 expectedMinDistance = 0.25f;
+        const f32 expectedMaxDistance = 4.5f;
+        const f32 expectedHingeMin = -45.0f; // within [-180, 0]
+        const f32 expectedHingeMax = 90.0f;  // within [0, 180]
+        const f32 expectedSliderMin = -2.5f;
+        const f32 expectedSliderMax = 3.5f;
+        const f32 expectedConeHalf = 60.0f; // within [0, 180]
+
+        std::string yaml;
+        {
+            auto scene = Scene::Create();
+            Entity entity = scene->CreateEntity(kTestTag);
+            auto& j = entity.AddComponent<PhysicsJoint3DComponent>();
+            j.m_Type = expectedType;
+            j.m_ConnectedEntity = expectedConnected;
+            j.m_LocalAnchorA = expectedAnchorA;
+            j.m_LocalAnchorB = expectedAnchorB;
+            j.m_Axis = expectedAxis;
+            j.m_MinDistance = expectedMinDistance;
+            j.m_MaxDistance = expectedMaxDistance;
+            j.m_HingeMinAngleDeg = expectedHingeMin;
+            j.m_HingeMaxAngleDeg = expectedHingeMax;
+            j.m_SliderMinLimit = expectedSliderMin;
+            j.m_SliderMaxLimit = expectedSliderMax;
+            j.m_ConeHalfAngleDeg = expectedConeHalf;
+            yaml = SceneSerializer(scene).SerializeToYAML();
+        }
+
+        auto reloaded = Scene::Create();
+        ASSERT_TRUE(SceneSerializer(reloaded).DeserializeFromYAML(yaml));
+
+        Entity restored = FindByTag(*reloaded, kTestTag);
+        ASSERT_TRUE(static_cast<bool>(restored));
+        ASSERT_TRUE(restored.HasComponent<PhysicsJoint3DComponent>())
+            << "PhysicsJoint3DComponent dropped during round-trip.";
+
+        const auto& j = restored.GetComponent<PhysicsJoint3DComponent>();
+        EXPECT_EQ(j.m_Type, expectedType);
+        EXPECT_EQ(static_cast<u64>(j.m_ConnectedEntity), static_cast<u64>(expectedConnected));
+        EXPECT_NEAR(j.m_LocalAnchorA.x, expectedAnchorA.x, kFloatEpsilon);
+        EXPECT_NEAR(j.m_LocalAnchorA.y, expectedAnchorA.y, kFloatEpsilon);
+        EXPECT_NEAR(j.m_LocalAnchorA.z, expectedAnchorA.z, kFloatEpsilon);
+        EXPECT_NEAR(j.m_LocalAnchorB.x, expectedAnchorB.x, kFloatEpsilon);
+        EXPECT_NEAR(j.m_LocalAnchorB.y, expectedAnchorB.y, kFloatEpsilon);
+        EXPECT_NEAR(j.m_LocalAnchorB.z, expectedAnchorB.z, kFloatEpsilon);
+        EXPECT_NEAR(j.m_Axis.z, expectedAxis.z, kFloatEpsilon);
+        EXPECT_NEAR(j.m_MinDistance, expectedMinDistance, kFloatEpsilon);
+        EXPECT_NEAR(j.m_MaxDistance, expectedMaxDistance, kFloatEpsilon);
+        EXPECT_NEAR(j.m_HingeMinAngleDeg, expectedHingeMin, kFloatEpsilon);
+        EXPECT_NEAR(j.m_HingeMaxAngleDeg, expectedHingeMax, kFloatEpsilon);
+        EXPECT_NEAR(j.m_SliderMinLimit, expectedSliderMin, kFloatEpsilon);
+        EXPECT_NEAR(j.m_SliderMaxLimit, expectedSliderMax, kFloatEpsilon);
+        EXPECT_NEAR(j.m_ConeHalfAngleDeg, expectedConeHalf, kFloatEpsilon);
+    }
+
+    // -------------------------------------------------------------------------
     // LightProbeComponent
     // -------------------------------------------------------------------------
     TEST(ComponentRoundTrip, LightProbeComponentSurvivesYAMLRoundTrip)

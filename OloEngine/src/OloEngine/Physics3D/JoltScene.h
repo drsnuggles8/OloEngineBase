@@ -14,10 +14,12 @@
 
 #include <Jolt/Jolt.h>
 #include <Jolt/Core/TempAllocator.h>
+#include <Jolt/Core/Reference.h>
 #include "JoltJobSystemAdapter.h"
 #include <Jolt/Physics/PhysicsSystem.h>
 #include <Jolt/Physics/Body/BodyInterface.h>
 #include <Jolt/Physics/Body/BodyType.h>
+#include <Jolt/Physics/Constraints/Constraint.h>
 
 #include <memory>
 #include <unordered_map>
@@ -58,6 +60,18 @@ namespace OloEngine
 
         // Entity lookup by body ID (for character controller integration)
         Entity GetEntityByBodyID(const JPH::BodyID& bodyID);
+
+        // Two-body constraint (joint) management. CreateConstraint builds the
+        // Jolt constraint for the PhysicsJoint3DComponent on `entity` (both
+        // endpoint bodies must already exist) and sets the component's
+        // m_RuntimeConstraintToken on success; it is called from the runtime-start
+        // second pass and from the runtime-add hook. DestroyConstraint releases it.
+        bool CreateConstraint(Entity entity);
+        void DestroyConstraint(Entity entity);
+        u32 GetConstraintCount() const
+        {
+            return static_cast<u32>(m_Constraints.size());
+        }
 
         // Character controller management
         Ref<JoltCharacterController> CreateCharacterController(Entity entity, const ContactCallbackFn& contactCallback = nullptr);
@@ -153,6 +167,12 @@ namespace OloEngine
 
       private:
         void CreateRigidBodies();
+        // Second pass after CreateRigidBodies(): build every authored joint's
+        // Jolt constraint now that all bodies exist.
+        void CreateConstraints();
+        // Remove and release every tracked constraint. Must run before the
+        // bodies they reference are destroyed.
+        void DestroyAllConstraints();
         void SynchronizeBody(Ref<JoltBody> body) const;
 
         // Internal Jolt setup
@@ -211,6 +231,11 @@ namespace OloEngine
         std::unordered_map<UUID, Ref<JoltBody>> m_Bodies;
         std::unordered_map<JPH::BodyID, UUID> m_BodyIDToEntity; // Reverse lookup for efficient GetEntityByBodyID
         std::vector<Ref<JoltBody>> m_BodiesToSync;
+
+        // Joints (two-body constraints), keyed by the owning entity (the one
+        // carrying the PhysicsJoint3DComponent). The JPH::Ref keeps the
+        // constraint alive while it is registered with m_JoltSystem.
+        std::unordered_map<UUID, JPH::Ref<JPH::Constraint>> m_Constraints;
 
         // Character controller management
         std::unordered_map<UUID, Ref<JoltCharacterController>> m_CharacterControllers;

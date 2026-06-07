@@ -205,6 +205,7 @@ namespace OloEngine
             REGISTER_COMPONENT(MeshCollider3DComponent),
             REGISTER_COMPONENT(ConvexMeshCollider3DComponent),
             REGISTER_COMPONENT(TriangleMeshCollider3DComponent),
+            REGISTER_COMPONENT(PhysicsJoint3DComponent),
             // UI
             REGISTER_COMPONENT(UICanvasComponent),
             REGISTER_COMPONENT(UIRectTransformComponent),
@@ -1002,6 +1003,45 @@ namespace OloEngine
                                                          "disableGravity", &CharacterController3DComponent::m_DisableGravity,
                                                          "controlMovementInAir", &CharacterController3DComponent::m_ControlMovementInAir,
                                                          "controlRotationInAir", &CharacterController3DComponent::m_ControlRotationInAir);
+
+        // --- PhysicsJoint3DComponent ---
+        lua.new_usertype<PhysicsJoint3DComponent>("PhysicsJoint3DComponent",
+                                                  "jointType", sol::property([](const PhysicsJoint3DComponent& j) -> int
+                                                                             { return std::to_underlying(j.m_Type); }, [](PhysicsJoint3DComponent& j, int v)
+                                                                             { if (v >= 0 && v <= static_cast<int>(JointType3D::Cone)) j.m_Type = static_cast<JointType3D>(v); }),
+                                                  "connectedEntity", sol::property([](const PhysicsJoint3DComponent& j)
+                                                                                   { return static_cast<u64>(j.m_ConnectedEntity); }, [](PhysicsJoint3DComponent& j, u64 v)
+                                                                                   { j.m_ConnectedEntity = UUID(v); }),
+                                                  "localAnchorA", sol::property([](const PhysicsJoint3DComponent& j)
+                                                                                { return j.m_LocalAnchorA; }, [](PhysicsJoint3DComponent& j, const glm::vec3& v)
+                                                                                { if (IsFiniteVec3(v)) j.m_LocalAnchorA = v; }),
+                                                  "localAnchorB", sol::property([](const PhysicsJoint3DComponent& j)
+                                                                                { return j.m_LocalAnchorB; }, [](PhysicsJoint3DComponent& j, const glm::vec3& v)
+                                                                                { if (IsFiniteVec3(v)) j.m_LocalAnchorB = v; }),
+                                                  "axis", sol::property([](const PhysicsJoint3DComponent& j)
+                                                                        { return j.m_Axis; }, [](PhysicsJoint3DComponent& j, const glm::vec3& v)
+                                                                        { if (IsFiniteVec3(v)) j.m_Axis = v; }),
+                                                  "minDistance", sol::property([](const PhysicsJoint3DComponent& j)
+                                                                               { return j.m_MinDistance; }, [](PhysicsJoint3DComponent& j, f32 v)
+                                                                               { if (std::isfinite(v)) j.m_MinDistance = v; }),
+                                                  "maxDistance", sol::property([](const PhysicsJoint3DComponent& j)
+                                                                               { return j.m_MaxDistance; }, [](PhysicsJoint3DComponent& j, f32 v)
+                                                                               { if (std::isfinite(v)) j.m_MaxDistance = v; }),
+                                                  "hingeMinAngleDeg", sol::property([](const PhysicsJoint3DComponent& j)
+                                                                                    { return j.m_HingeMinAngleDeg; }, [](PhysicsJoint3DComponent& j, f32 v)
+                                                                                    { if (std::isfinite(v)) j.m_HingeMinAngleDeg = v; }),
+                                                  "hingeMaxAngleDeg", sol::property([](const PhysicsJoint3DComponent& j)
+                                                                                    { return j.m_HingeMaxAngleDeg; }, [](PhysicsJoint3DComponent& j, f32 v)
+                                                                                    { if (std::isfinite(v)) j.m_HingeMaxAngleDeg = v; }),
+                                                  "sliderMinLimit", sol::property([](const PhysicsJoint3DComponent& j)
+                                                                                  { return j.m_SliderMinLimit; }, [](PhysicsJoint3DComponent& j, f32 v)
+                                                                                  { if (std::isfinite(v)) j.m_SliderMinLimit = v; }),
+                                                  "sliderMaxLimit", sol::property([](const PhysicsJoint3DComponent& j)
+                                                                                  { return j.m_SliderMaxLimit; }, [](PhysicsJoint3DComponent& j, f32 v)
+                                                                                  { if (std::isfinite(v)) j.m_SliderMaxLimit = v; }),
+                                                  "coneHalfAngleDeg", sol::property([](const PhysicsJoint3DComponent& j)
+                                                                                    { return j.m_ConeHalfAngleDeg; }, [](PhysicsJoint3DComponent& j, f32 v)
+                                                                                    { if (std::isfinite(v) && v >= 0.0f) j.m_ConeHalfAngleDeg = v; }));
 
         // --- PrefabComponent ---
         // Read-only window into prefab-instance identity & override state.

@@ -1686,6 +1686,7 @@ namespace OloEngine
             DisplayAddComponentEntry<ConvexMeshCollider3DComponent>("Convex Mesh Collider 3D");
             DisplayAddComponentEntry<TriangleMeshCollider3DComponent>("Triangle Mesh Collider 3D");
             DisplayAddComponentEntry<CharacterController3DComponent>("Character Controller 3D");
+            DisplayAddComponentEntry<PhysicsJoint3DComponent>("Physics Joint 3D");
 
             ImGui::Separator();
 
@@ -3393,6 +3394,82 @@ namespace OloEngine
             ImGui::Checkbox("Disable Gravity##CharacterController3D", &component.m_DisableGravity);
             ImGui::Checkbox("Control Movement In Air##CharacterController3D", &component.m_ControlMovementInAir);
             ImGui::Checkbox("Control Rotation In Air##CharacterController3D", &component.m_ControlRotationInAir); });
+
+        DrawComponent<PhysicsJoint3DComponent>("Physics Joint 3D", entity, [this, entity](auto& component)
+                                               {
+            const char* jointTypeStrings[] = { "Fixed", "Point", "Distance", "Hinge", "Slider", "Cone" };
+            if (const char* currentJointTypeString = jointTypeStrings[static_cast<int>(component.m_Type)]; ImGui::BeginCombo("Joint Type", currentJointTypeString))
+            {
+                for (int i = 0; i < IM_ARRAYSIZE(jointTypeStrings); ++i)
+                {
+                    const bool isSelected = currentJointTypeString == jointTypeStrings[i];
+                    if (ImGui::Selectable(jointTypeStrings[i], isSelected))
+                        component.m_Type = static_cast<JointType3D>(i);
+                    if (isSelected)
+                        ImGui::SetItemDefaultFocus();
+                }
+                ImGui::EndCombo();
+            }
+
+            // Connected-body picker. Empty (0) means "anchor to the world".
+            const u64 connected = static_cast<u64>(component.m_ConnectedEntity);
+            std::string connectedLabel;
+            if (connected == 0)
+                connectedLabel = "(World — fixed anchor)";
+            else if (auto opt = m_Context ? m_Context->TryGetEntityWithUUID(component.m_ConnectedEntity) : std::nullopt; opt)
+                connectedLabel = opt->GetComponent<TagComponent>().Tag;
+            else
+                connectedLabel = std::to_string(connected) + " (missing)";
+
+            ImGui::Text("Connected Body:");
+            ImGui::SameLine();
+            ImGui::Button((connectedLabel + "##JointConnectedBody").c_str());
+            if (ImGui::BeginDragDropTarget())
+            {
+                if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("ENTITY_REPARENT"))
+                {
+                    UUID dropped = *static_cast<const UUID*>(payload->Data);
+                    if (dropped != entity.GetUUID())
+                        component.m_ConnectedEntity = dropped;
+                }
+                ImGui::EndDragDropTarget();
+            }
+            if (connected != 0)
+            {
+                ImGui::SameLine();
+                if (ImGui::SmallButton("Clear##JointConnectedBody"))
+                    component.m_ConnectedEntity = 0;
+            }
+
+            DrawVec3Control("Anchor A (local)##PhysicsJoint3D", component.m_LocalAnchorA);
+            DrawVec3Control("Anchor B (local)##PhysicsJoint3D", component.m_LocalAnchorB);
+
+            // Axis only drives Hinge / Slider / Cone.
+            if (component.m_Type == JointType3D::Hinge || component.m_Type == JointType3D::Slider || component.m_Type == JointType3D::Cone)
+                DrawVec3Control("Axis (local)##PhysicsJoint3D", component.m_Axis);
+
+            switch (component.m_Type)
+            {
+                case JointType3D::Distance:
+                    ImGui::DragFloat("Min Distance##PhysicsJoint3D", &component.m_MinDistance, 0.01f, -1.0f, 10000.0f);
+                    ImGui::DragFloat("Max Distance##PhysicsJoint3D", &component.m_MaxDistance, 0.01f, -1.0f, 10000.0f);
+                    break;
+                case JointType3D::Hinge:
+                    ImGui::DragFloat("Min Angle (deg)##PhysicsJoint3D", &component.m_HingeMinAngleDeg, 1.0f, -180.0f, 0.0f);
+                    ImGui::DragFloat("Max Angle (deg)##PhysicsJoint3D", &component.m_HingeMaxAngleDeg, 1.0f, 0.0f, 180.0f);
+                    break;
+                case JointType3D::Slider:
+                    ImGui::DragFloat("Min Limit##PhysicsJoint3D", &component.m_SliderMinLimit, 0.01f, -10000.0f, 10000.0f);
+                    ImGui::DragFloat("Max Limit##PhysicsJoint3D", &component.m_SliderMaxLimit, 0.01f, -10000.0f, 10000.0f);
+                    break;
+                case JointType3D::Cone:
+                    ImGui::DragFloat("Cone Half-Angle (deg)##PhysicsJoint3D", &component.m_ConeHalfAngleDeg, 1.0f, 0.0f, 180.0f);
+                    break;
+                case JointType3D::Fixed:
+                case JointType3D::Point:
+                default:
+                    break;
+            } });
 
         // Audio Components
         DrawComponent<AudioSourceComponent>("Audio Source", entity, [this](auto& component)

@@ -2342,6 +2342,42 @@ namespace OloEngine
             cc3d.m_ControlRotationInAir = cc3dComponent["ControlRotationInAir"].as<bool>(cc3d.m_ControlRotationInAir);
         }
 
+        if (auto jointComponent = entity["PhysicsJoint3DComponent"]; jointComponent)
+        {
+            auto& joint = deserializedEntity.AddComponent<PhysicsJoint3DComponent>();
+
+            // Guard the joint type against an out-of-range enum value on disk.
+            if (i32 jointTypeInt = jointComponent["JointType"].as<i32>(std::to_underlying(joint.m_Type));
+                jointTypeInt >= 0 && jointTypeInt <= static_cast<i32>(JointType3D::Cone))
+            {
+                joint.m_Type = static_cast<JointType3D>(jointTypeInt);
+            }
+
+            joint.m_ConnectedEntity = jointComponent["ConnectedEntity"].as<u64>(static_cast<u64>(joint.m_ConnectedEntity));
+
+            // glm::vec3 decode already rejects non-finite components (falls back to default).
+            joint.m_LocalAnchorA = jointComponent["LocalAnchorA"].as<glm::vec3>(joint.m_LocalAnchorA);
+            joint.m_LocalAnchorB = jointComponent["LocalAnchorB"].as<glm::vec3>(joint.m_LocalAnchorB);
+            joint.m_Axis = jointComponent["Axis"].as<glm::vec3>(joint.m_Axis);
+
+            joint.m_MinDistance = jointComponent["MinDistance"].as<f32>(joint.m_MinDistance);
+            joint.m_MaxDistance = jointComponent["MaxDistance"].as<f32>(joint.m_MaxDistance);
+            joint.m_HingeMinAngleDeg = jointComponent["HingeMinAngleDeg"].as<f32>(joint.m_HingeMinAngleDeg);
+            joint.m_HingeMaxAngleDeg = jointComponent["HingeMaxAngleDeg"].as<f32>(joint.m_HingeMaxAngleDeg);
+            joint.m_SliderMinLimit = jointComponent["SliderMinLimit"].as<f32>(joint.m_SliderMinLimit);
+            joint.m_SliderMaxLimit = jointComponent["SliderMaxLimit"].as<f32>(joint.m_SliderMaxLimit);
+            joint.m_ConeHalfAngleDeg = jointComponent["ConeHalfAngleDeg"].as<f32>(joint.m_ConeHalfAngleDeg);
+
+            // Reject non-finite floats read from disk and clamp to physically/Jolt-valid ranges.
+            SanitizeFloat(joint.m_MinDistance, -1.0f, 10000.0f, 0.0f);
+            SanitizeFloat(joint.m_MaxDistance, -1.0f, 10000.0f, 1.0f);
+            SanitizeFloat(joint.m_HingeMinAngleDeg, -180.0f, 0.0f, -180.0f);
+            SanitizeFloat(joint.m_HingeMaxAngleDeg, 0.0f, 180.0f, 180.0f);
+            SanitizeFloat(joint.m_SliderMinLimit, -10000.0f, 10000.0f, 0.0f);
+            SanitizeFloat(joint.m_SliderMaxLimit, -10000.0f, 10000.0f, 1.0f);
+            SanitizeFloat(joint.m_ConeHalfAngleDeg, 0.0f, 180.0f, 45.0f);
+        }
+
         if (auto relComponent = entity["RelationshipComponent"]; relComponent)
         {
             auto& rel = deserializedEntity.AddComponent<RelationshipComponent>();
@@ -4177,6 +4213,28 @@ namespace OloEngine
             out << YAML::Key << "ControlRotationInAir" << YAML::Value << cc3dComponent.m_ControlRotationInAir;
 
             out << YAML::EndMap; // CharacterController3DComponent
+        }
+
+        if (entity.HasComponent<PhysicsJoint3DComponent>())
+        {
+            out << YAML::Key << "PhysicsJoint3DComponent";
+            out << YAML::BeginMap; // PhysicsJoint3DComponent
+
+            auto const& joint = entity.GetComponent<PhysicsJoint3DComponent>();
+            out << YAML::Key << "JointType" << YAML::Value << std::to_underlying(joint.m_Type);
+            out << YAML::Key << "ConnectedEntity" << YAML::Value << joint.m_ConnectedEntity;
+            out << YAML::Key << "LocalAnchorA" << YAML::Value << joint.m_LocalAnchorA;
+            out << YAML::Key << "LocalAnchorB" << YAML::Value << joint.m_LocalAnchorB;
+            out << YAML::Key << "Axis" << YAML::Value << joint.m_Axis;
+            out << YAML::Key << "MinDistance" << YAML::Value << joint.m_MinDistance;
+            out << YAML::Key << "MaxDistance" << YAML::Value << joint.m_MaxDistance;
+            out << YAML::Key << "HingeMinAngleDeg" << YAML::Value << joint.m_HingeMinAngleDeg;
+            out << YAML::Key << "HingeMaxAngleDeg" << YAML::Value << joint.m_HingeMaxAngleDeg;
+            out << YAML::Key << "SliderMinLimit" << YAML::Value << joint.m_SliderMinLimit;
+            out << YAML::Key << "SliderMaxLimit" << YAML::Value << joint.m_SliderMaxLimit;
+            out << YAML::Key << "ConeHalfAngleDeg" << YAML::Value << joint.m_ConeHalfAngleDeg;
+
+            out << YAML::EndMap; // PhysicsJoint3DComponent
         }
 
         if (entity.HasComponent<RelationshipComponent>())
