@@ -70,7 +70,7 @@ namespace OloEngine::MCP
         ToolResult Handle_SceneSummary(McpServer& server, const Json& /*arguments*/)
         {
             Json summary = server.MarshalRead([&server]() -> Json
-            {
+                                              {
                 Json j;
                 const Ref<Scene> scene = server.Context().GetActiveScene
                                              ? server.Context().GetActiveScene()
@@ -87,8 +87,7 @@ namespace OloEngine::MCP
                     // entity count without walking individual archetypes.
                     j["entityCount"] = static_cast<std::uint64_t>(scene->GetAllEntitiesWith<IDComponent>().size());
                 }
-                return j;
-            });
+                return j; });
 
             return ToolResult::Text(summary.dump(2));
         }
@@ -99,15 +98,33 @@ namespace OloEngine::MCP
         {
             if (value.is_string())
             {
-                try { out = std::stoull(value.get<std::string>()); return true; }
-                catch (...) { return false; }
+                try
+                {
+                    out = std::stoull(value.get<std::string>());
+                    return true;
+                }
+                catch (...)
+                {
+                    return false;
+                }
             }
-            if (value.is_number_unsigned()) { out = value.get<u64>(); return true; }
-            if (value.is_number_integer()) { out = static_cast<u64>(value.get<long long>()); return true; }
+            if (value.is_number_unsigned())
+            {
+                out = value.get<u64>();
+                return true;
+            }
+            if (value.is_number_integer())
+            {
+                out = static_cast<u64>(value.get<long long>());
+                return true;
+            }
             return false;
         }
 
-        std::string UuidToString(UUID id) { return std::to_string(static_cast<u64>(id)); }
+        std::string UuidToString(UUID id)
+        {
+            return std::to_string(static_cast<u64>(id));
+        }
 
         // ---- olo_scene_get_entity (main-marshaled) -----------------------------
         // Reuses SceneSerializer::SerializeEntity to dump every component of one
@@ -122,7 +139,7 @@ namespace OloEngine::MCP
                 return ToolResult::Error("Invalid 'id': expected a UUID as a string or number.");
 
             Json result = server.MarshalRead([&server, idValue]() -> Json
-            {
+                                             {
                 Json j;
                 const Ref<Scene> scene = server.Context().GetActiveScene
                                              ? server.Context().GetActiveScene()
@@ -152,8 +169,7 @@ namespace OloEngine::MCP
                 YAML::Emitter out;
                 SceneSerializer::SerializeEntity(out, entity);
                 j["componentsYaml"] = std::string(out.c_str());
-                return j;
-            });
+                return j; });
 
             if (result.contains("error"))
                 return ToolResult::Error(result["error"].get<std::string>());
@@ -179,7 +195,7 @@ namespace OloEngine::MCP
                 pageSize = static_cast<int>(std::clamp<long long>(args["pageSize"].get<long long>(), 1, 200));
 
             Json result = server.MarshalRead([&server, namePattern, page, pageSize]() -> Json
-            {
+                                             {
                 Json j;
                 const Ref<Scene> scene = server.Context().GetActiveScene
                                              ? server.Context().GetActiveScene()
@@ -227,8 +243,7 @@ namespace OloEngine::MCP
                 if (start + pageSize < total)
                     j["nextPage"] = page + 1;
                 j["entities"] = std::move(entities);
-                return j;
-            });
+                return j; });
 
             if (result.contains("error"))
                 return ToolResult::Error(result["error"].get<std::string>());
@@ -256,7 +271,8 @@ namespace OloEngine::MCP
                 { RT::Other, "Other" },
             } };
 
-            const auto toMB = [](sizet bytes) { return std::round(static_cast<f64>(bytes) / 1048576.0 * 100.0) / 100.0; };
+            const auto toMB = [](sizet bytes)
+            { return std::round(static_cast<f64>(bytes) / 1048576.0 * 100.0) / 100.0; };
 
             auto& tracker = RendererMemoryTracker::GetInstance();
             Json byType = Json::array();
@@ -284,17 +300,25 @@ namespace OloEngine::MCP
         }
 
         // ---- Perf / shader helpers ---------------------------------------------
-        f64 Round2(f64 v) { return std::round(v * 100.0) / 100.0; }
+        f64 Round2(f64 v)
+        {
+            return std::round(v * 100.0) / 100.0;
+        }
 
         const char* BottleneckTypeName(RendererProfiler::BottleneckInfo::Type type)
         {
             switch (type)
             {
-                case RendererProfiler::BottleneckInfo::CPU_Bound: return "CPU";
-                case RendererProfiler::BottleneckInfo::GPU_Bound: return "GPU";
-                case RendererProfiler::BottleneckInfo::Memory_Bound: return "Memory";
-                case RendererProfiler::BottleneckInfo::IO_Bound: return "IO";
-                case RendererProfiler::BottleneckInfo::Balanced: return "Balanced";
+                case RendererProfiler::BottleneckInfo::CPU_Bound:
+                    return "CPU";
+                case RendererProfiler::BottleneckInfo::GPU_Bound:
+                    return "GPU";
+                case RendererProfiler::BottleneckInfo::Memory_Bound:
+                    return "Memory";
+                case RendererProfiler::BottleneckInfo::IO_Bound:
+                    return "IO";
+                case RendererProfiler::BottleneckInfo::Balanced:
+                    return "Balanced";
             }
             return "Unknown";
         }
@@ -303,10 +327,14 @@ namespace OloEngine::MCP
         {
             switch (stage)
             {
-                case ShaderDebugger::ShaderStage::Vertex: return "vertex";
-                case ShaderDebugger::ShaderStage::Fragment: return "fragment";
-                case ShaderDebugger::ShaderStage::Geometry: return "geometry";
-                case ShaderDebugger::ShaderStage::Compute: return "compute";
+                case ShaderDebugger::ShaderStage::Vertex:
+                    return "vertex";
+                case ShaderDebugger::ShaderStage::Fragment:
+                    return "fragment";
+                case ShaderDebugger::ShaderStage::Geometry:
+                    return "geometry";
+                case ShaderDebugger::ShaderStage::Compute:
+                    return "compute";
             }
             return "unknown";
         }
@@ -315,7 +343,7 @@ namespace OloEngine::MCP
         ToolResult Handle_PerfSnapshot(McpServer& server, const Json& /*args*/)
         {
             Json j = server.MarshalRead([]() -> Json
-            {
+                                        {
                 const RendererProfiler::FrameData& f = RendererProfiler::GetInstance().GetCurrentFrameData();
                 Json o;
                 o["fps"] = f.m_FrameTime > 0.0 ? Round2(1000.0 / f.m_FrameTime) : 0.0;
@@ -334,8 +362,7 @@ namespace OloEngine::MCP
                 o["commandPackets"] = f.m_CommandPackets;
                 o["sortingMs"] = Round2(f.m_SortingTime);
                 o["cullingMs"] = Round2(f.m_CullingTime);
-                return o;
-            });
+                return o; });
             return ToolResult::Text(j.dump(2));
         }
 
@@ -343,15 +370,14 @@ namespace OloEngine::MCP
         ToolResult Handle_PerfBottlenecks(McpServer& server, const Json& /*args*/)
         {
             Json j = server.MarshalRead([]() -> Json
-            {
+                                        {
                 const RendererProfiler::BottleneckInfo b = RendererProfiler::GetInstance().AnalyzeBottlenecks();
                 Json o;
                 o["bottleneck"] = BottleneckTypeName(b.m_Type);
                 o["confidence"] = Round2(b.m_Confidence);
                 o["detail"] = b.m_Description;
                 o["recommendations"] = b.m_Recommendations;
-                return o;
-            });
+                return o; });
             return ToolResult::Text(j.dump(2));
         }
 
@@ -363,7 +389,7 @@ namespace OloEngine::MCP
                 points = static_cast<int>(std::clamp<long long>(args["points"].get<long long>(), 1, 300));
 
             Json j = server.MarshalRead([points]() -> Json
-            {
+                                        {
                 const std::vector<RendererProfiler::FrameData> hist = RendererProfiler::GetInstance().GetFrameHistoryCopy();
                 Json series = Json::array();
                 const std::size_t n = hist.size();
@@ -380,8 +406,7 @@ namespace OloEngine::MCP
                 }
                 return Json{ { "totalFrames", static_cast<u64>(n) },
                              { "returned", static_cast<int>(series.size()) },
-                             { "series", std::move(series) } };
-            });
+                             { "series", std::move(series) } }; });
             return ToolResult::Text(j.dump(2));
         }
 
@@ -393,7 +418,7 @@ namespace OloEngine::MCP
                 topK = static_cast<int>(std::clamp<long long>(args["topK"].get<long long>(), 1, 50));
 
             const Json result = server.MarshalRead([topK]() -> Json
-            {
+                                                   {
                 RendererProfiler& profiler = RendererProfiler::GetInstance();
                 profiler.CaptureFrame("MCP capture");
                 const std::vector<RendererProfiler::CapturedFrame>& captures = profiler.GetCapturedFrames();
@@ -436,8 +461,7 @@ namespace OloEngine::MCP
                 if (cap.m_RenderPasses.empty())
                     o["note"] = "Per-pass / per-draw-call detail is only recorded while the editor's frame-capture "
                                 "instrumentation is active; the frame-level totals above are always valid.";
-                return o;
-            });
+                return o; });
 
             if (result.is_object() && result.contains("__error"))
                 return ToolResult::Error(result["__error"].get<std::string>());
@@ -448,7 +472,7 @@ namespace OloEngine::MCP
         ToolResult Handle_ShaderErrors(McpServer& server, const Json& /*args*/)
         {
             Json j = server.MarshalRead([]() -> Json
-            {
+                                        {
                 const auto& shaders = ShaderDebugger::GetInstance().GetAllShaders();
                 Json arr = Json::array();
                 for (const auto& [id, info] : shaders)
@@ -458,8 +482,7 @@ namespace OloEngine::MCP
                     arr.push_back(Json{ { "name", info.m_Name },
                                         { "errorMessage", info.m_LastCompilation.m_ErrorMessage } });
                 }
-                return Json{ { "count", static_cast<int>(arr.size()) }, { "errors", std::move(arr) } };
-            });
+                return Json{ { "count", static_cast<int>(arr.size()) }, { "errors", std::move(arr) } }; });
             return ToolResult::Text(j.dump(2));
         }
 
@@ -481,7 +504,7 @@ namespace OloEngine::MCP
                 return ToolResult::Error("Provide a shader 'name' or numeric 'id'.");
 
             const Json result = server.MarshalRead([&name, haveId, id, includeGlsl]() -> Json
-            {
+                                                   {
                 const auto& shaders = ShaderDebugger::GetInstance().GetAllShaders();
                 const ShaderDebugger::ShaderInfo* found = nullptr;
                 for (const auto& [sid, info] : shaders)
@@ -525,8 +548,7 @@ namespace OloEngine::MCP
                         glsl[ShaderStageName(stage)] = source;
                     o["generatedGlsl"] = std::move(glsl);
                 }
-                return o;
-            });
+                return o; });
 
             if (result.is_object() && result.contains("__error"))
                 return ToolResult::Error(result["__error"].get<std::string>());
@@ -547,7 +569,7 @@ namespace OloEngine::MCP
                 pageSize = static_cast<int>(std::clamp<long long>(args["pageSize"].get<long long>(), 1, 200));
 
             const Json result = server.MarshalRead([typeFilter, page, pageSize]() -> Json
-            {
+                                                   {
                 const Ref<AssetManagerBase> mgr = Project::GetAssetManager();
                 if (!mgr)
                     return Json{ { "__error", "No active project / asset manager." } };
@@ -598,8 +620,7 @@ namespace OloEngine::MCP
                 if (start + pageSize < total)
                     out["nextPage"] = page + 1;
                 out["assets"] = std::move(assets);
-                return out;
-            });
+                return out; });
 
             if (result.is_object() && result.contains("__error"))
                 return ToolResult::Error(result["__error"].get<std::string>());
@@ -767,12 +788,11 @@ namespace OloEngine::MCP
                 return ToolResult::Error("Screenshot capture is not available in this editor build.");
 
             const Json marshaled = server.MarshalRead([&server, maxWidth]() -> Json
-            {
+                                                      {
                 const std::vector<u8> png = server.Context().CaptureViewportPng(maxWidth);
                 if (png.empty())
                     return Json{ { "__error", "Viewport capture failed (no framebuffer or empty viewport)." } };
-                return Json{ { "b64", Base64Encode(png) }, { "bytes", static_cast<u64>(png.size()) } };
-            });
+                return Json{ { "b64", Base64Encode(png) }, { "bytes", static_cast<u64>(png.size()) } }; });
 
             if (marshaled.is_object() && marshaled.contains("__error"))
                 return ToolResult::Error(marshaled["__error"].get<std::string>());
@@ -784,7 +804,7 @@ namespace OloEngine::MCP
             result.IsError = false;
             return result;
         }
-    }
+    } // namespace
 
     void RegisterBuiltinTools(McpServer& server)
     {
@@ -1088,13 +1108,12 @@ namespace OloEngine::MCP
             resource.Reader = [](McpServer& s) -> std::string
             {
                 const Json marshaled = s.MarshalRead([&s]() -> Json
-                {
+                                                     {
                     const Ref<Scene> scene = s.Context().GetActiveScene ? s.Context().GetActiveScene() : nullptr;
                     if (!scene)
                         return Json{ { "__error", "No active scene" } };
                     SceneSerializer serializer(scene);
-                    return Json(serializer.SerializeToYAML());
-                });
+                    return Json(serializer.SerializeToYAML()); });
                 if (marshaled.is_object() && marshaled.contains("__error"))
                     throw std::runtime_error(marshaled["__error"].get<std::string>());
                 return marshaled.get<std::string>();
@@ -1174,4 +1193,4 @@ namespace OloEngine::MCP
             server.RegisterPrompt(std::move(prompt));
         }
     }
-}
+} // namespace OloEngine::MCP

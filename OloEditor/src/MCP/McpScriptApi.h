@@ -18,4 +18,4 @@ namespace OloEngine::MCP
     // lock-safe and runs on the handler thread. Returns an object carrying an
     // "error" key if the sources are not present (e.g. a shipped editor).
     nlohmann::json BuildScriptApiDigest(const std::string& language, const std::string& typeFilter);
-}
+} // namespace OloEngine::MCP

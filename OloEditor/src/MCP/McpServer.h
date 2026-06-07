@@ -43,7 +43,7 @@ namespace httplib
     class Server;
     struct Request;
     struct Response;
-}
+} // namespace httplib
 
 namespace OloEngine::MCP
 {
@@ -137,18 +137,45 @@ namespace OloEngine::MCP
         bool Start(u16 port);
         void Stop();
 
-        [[nodiscard]] bool IsRunning() const { return m_Running.load(std::memory_order_acquire); }
-        [[nodiscard]] u16 GetPort() const { return m_Port; }
-        [[nodiscard]] const std::string& GetToken() const { return m_Token; }
+        [[nodiscard]] bool IsRunning() const
+        {
+            return m_Running.load(std::memory_order_acquire);
+        }
+        [[nodiscard]] u16 GetPort() const
+        {
+            return m_Port;
+        }
+        [[nodiscard]] const std::string& GetToken() const
+        {
+            return m_Token;
+        }
 
         // Optional redaction: when on, absolute filesystem paths are scrubbed from
         // text output before it leaves the process (off by default).
-        void SetRedactPaths(bool enabled) { m_RedactPaths.store(enabled, std::memory_order_relaxed); }
-        [[nodiscard]] bool RedactPaths() const { return m_RedactPaths.load(std::memory_order_relaxed); }
-        [[nodiscard]] const EditorMcpContext& Context() const { return m_Context; }
-        [[nodiscard]] const std::vector<ToolDef>& Tools() const { return m_Tools; }
-        [[nodiscard]] const std::vector<ResourceDef>& Resources() const { return m_Resources; }
-        [[nodiscard]] const std::vector<PromptDef>& Prompts() const { return m_Prompts; }
+        void SetRedactPaths(bool enabled)
+        {
+            m_RedactPaths.store(enabled, std::memory_order_relaxed);
+        }
+        [[nodiscard]] bool RedactPaths() const
+        {
+            return m_RedactPaths.load(std::memory_order_relaxed);
+        }
+        [[nodiscard]] const EditorMcpContext& Context() const
+        {
+            return m_Context;
+        }
+        [[nodiscard]] const std::vector<ToolDef>& Tools() const
+        {
+            return m_Tools;
+        }
+        [[nodiscard]] const std::vector<ResourceDef>& Resources() const
+        {
+            return m_Resources;
+        }
+        [[nodiscard]] const std::vector<PromptDef>& Prompts() const
+        {
+            return m_Prompts;
+        }
 
         // Discovery file written while the server runs: a small JSON blob with the
         // host/port/token/url so an agent (or a test harness) can attach without the
@@ -212,4 +239,4 @@ namespace OloEngine::MCP
         mutable std::mutex m_SessionMutex;
         std::unordered_set<std::string> m_Sessions;
     };
-}
+} // namespace OloEngine::MCP

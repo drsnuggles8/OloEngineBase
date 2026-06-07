@@ -8,4 +8,4 @@ namespace OloEngine::MCP
     // generated auth token, and a copy-paste `claude mcp add` connect command.
     // `p_open` drives the window's visibility (toggled from the Window menu).
     void RenderMcpServerPanel(McpServer& server, bool* p_open);
-}
+} // namespace OloEngine::MCP

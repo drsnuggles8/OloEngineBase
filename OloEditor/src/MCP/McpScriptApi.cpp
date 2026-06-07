@@ -34,7 +34,8 @@ namespace OloEngine::MCP
             const auto lower = [](std::string in)
             {
                 std::transform(in.begin(), in.end(), in.begin(),
-                               [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+                               [](unsigned char c)
+                               { return static_cast<char>(std::tolower(c)); });
                 return in;
             };
             return lower(std::string(hay)).find(lower(std::string(needle))) != std::string::npos;
@@ -207,7 +208,7 @@ namespace OloEngine::MCP
             result["types"] = std::move(matched);
             return result;
         }
-    }
+    } // namespace
 
     Json BuildScriptApiDigest(const std::string& language, const std::string& typeFilter)
     {
@@ -220,4 +221,4 @@ namespace OloEngine::MCP
         err["error"] = "Unknown language '" + language + "'. Use 'csharp' or 'lua'.";
         return err;
     }
-}
+} // namespace OloEngine::MCP

@@ -149,7 +149,7 @@ namespace OloEngine::MCP
             const std::string host = origin.substr(hostStart, hostEnd == std::string::npos ? std::string::npos : hostEnd - hostStart);
             return host == "127.0.0.1" || host == "localhost" || host == "[::1]" || host == "::1";
         }
-    }
+    } // namespace
 
     // ---- ToolResult ------------------------------------------------------------
 
@@ -638,4 +638,4 @@ namespace OloEngine::MCP
 
         return ConstantTimeEquals(std::string_view(auth).substr(kPrefix.size()), m_Token);
     }
-}
+} // namespace OloEngine::MCP

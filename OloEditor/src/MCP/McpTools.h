@@ -9,4 +9,4 @@ namespace OloEngine::MCP
     //   * olo_scene_summary — active-scene overview (main-marshaled)
     // Call once after constructing the server, before Start().
     void RegisterBuiltinTools(McpServer& server);
-}
+} // namespace OloEngine::MCP

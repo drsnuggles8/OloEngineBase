@@ -105,4 +105,4 @@ namespace OloEngine::MCP
 
         ImGui::End();
     }
-}
+} // namespace OloEngine::MCP

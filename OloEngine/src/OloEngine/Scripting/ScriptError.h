@@ -81,4 +81,4 @@ namespace OloEngine
         mutable std::mutex m_Mutex;
         std::deque<ScriptError> m_Errors;
     };
-}
+} // namespace OloEngine
