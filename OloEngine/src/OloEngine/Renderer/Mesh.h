@@ -121,6 +121,16 @@ namespace OloEngine
             return m_GenerateColliders;
         }
 
+        // Handle of the MeshColliderAsset auto-generated from this mesh's geometry
+        // when m_GenerateColliders is set. Zero when generation is disabled or the
+        // source mesh has no cookable geometry. Consumers (physics body creation,
+        // nav-mesh generation, the mesh-collider editor) cook it on demand through
+        // MeshColliderCache::GetMeshData(); cooking is intentionally NOT done here.
+        AssetHandle GetGeneratedCollider() const
+        {
+            return m_GeneratedColliderHandle;
+        }
+
         // Asset interface
         static constexpr AssetType GetStaticType() noexcept
         {
@@ -134,6 +144,10 @@ namespace OloEngine
       private:
         void SetupStaticMesh();
 
+        // Builds (or refreshes, on re-setup/hot-reload) the auto-generated
+        // MeshColliderAsset from meshSource when m_GenerateColliders is set.
+        void GenerateColliders(const Ref<MeshSource>& meshSource);
+
         AssetHandle m_MeshSource;
         TArray<u32> m_Submeshes; // Submesh indices to render
 
@@ -141,5 +155,12 @@ namespace OloEngine
         Ref<MaterialTable> m_Materials;
 
         bool m_GenerateColliders = false; // should we generate physics colliders when (re)loading this static mesh?
+
+        // Auto-generated collider plumbing (only populated when m_GenerateColliders):
+        // a memory-only MeshColliderAsset that references a memory-only wrapper Mesh
+        // (the cooker consumes a Mesh, not a bare MeshSource). Both are AssetManager
+        // handles so they round-trip through GetAsset<>/the collider cache.
+        AssetHandle m_GeneratedColliderHandle{ 0 };     // -> MeshColliderAsset
+        AssetHandle m_GeneratedColliderMeshHandle{ 0 }; // -> wrapper Mesh feeding the cooker
     };
 } // namespace OloEngine

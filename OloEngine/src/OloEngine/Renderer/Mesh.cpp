@@ -3,6 +3,8 @@
 #include "VertexArray.h"
 #include "MaterialAsset.h"
 #include "OloEngine/Asset/AssetManager.h"
+#include "OloEngine/Asset/MeshColliderAsset.h"
+#include "OloEngine/Physics3D/MeshColliderCache.h"
 #include <numeric>
 
 namespace OloEngine
@@ -247,11 +249,55 @@ namespace OloEngine
             }
         }
 
-        // TODO: Generate colliders if requested
+        // Generate physics colliders from the mesh geometry if requested.
         if (m_GenerateColliders)
         {
-            // Collider generation would go here
-            OLO_CORE_TRACE("StaticMesh::SetupStaticMesh - Collider generation not yet implemented");
+            GenerateColliders(meshSourceAsset);
         }
+    }
+
+    void StaticMesh::GenerateColliders(const Ref<MeshSource>& meshSource)
+    {
+        OLO_CORE_ASSERT(meshSource, "StaticMesh::GenerateColliders called with null mesh source");
+
+        // The mesh-collider cooker (MeshCookingFactory) consumes a Mesh asset and
+        // pulls geometry from its MeshSource. A StaticMesh only holds a MeshSource
+        // handle, so we wrap the source in a lightweight memory-only Mesh that the
+        // generated MeshColliderAsset can reference. Cooking itself stays lazy:
+        // physics-body creation / nav-mesh generation call
+        // MeshColliderCache::GetMeshData(asset) on demand (the engine's established
+        // path). We deliberately do not cook here — the cooker is disk-backed and
+        // its async secondary-cook path is unsafe to fire during asset (re)load.
+        if (meshSource->GetSubmeshes().IsEmpty())
+        {
+            OLO_CORE_WARN("StaticMesh::SetupStaticMesh - GenerateColliders requested but mesh source {} has no submeshes; skipping collider generation", m_MeshSource);
+            return;
+        }
+
+        // Re-setup (hot-reload of the source, or a submesh-set change): keep the
+        // same handles so any references stay valid, refresh the wrapper Mesh's
+        // geometry, and drop stale cooked data so the next consumer re-cooks.
+        if (m_GeneratedColliderHandle != 0)
+        {
+            if (auto wrapperMesh = AssetManager::GetAsset<Mesh>(m_GeneratedColliderMeshHandle))
+            {
+                wrapperMesh->SetMeshSource(meshSource);
+            }
+            if (auto colliderAsset = AssetManager::GetAsset<MeshColliderAsset>(m_GeneratedColliderHandle))
+            {
+                MeshColliderCache::GetInstance().InvalidateCache(colliderAsset);
+            }
+            OLO_CORE_TRACE("StaticMesh::SetupStaticMesh - Refreshed generated collider asset {}", m_GeneratedColliderHandle);
+            return;
+        }
+
+        Ref<Mesh> wrapperMesh = Ref<Mesh>::Create(meshSource, 0u);
+        m_GeneratedColliderMeshHandle = AssetManager::AddMemoryOnlyAsset<Mesh>(wrapperMesh);
+
+        Ref<MeshColliderAsset> colliderAsset = Ref<MeshColliderAsset>::Create(m_GeneratedColliderMeshHandle);
+        m_GeneratedColliderHandle = AssetManager::AddMemoryOnlyAsset<MeshColliderAsset>(colliderAsset);
+
+        OLO_CORE_TRACE("StaticMesh::SetupStaticMesh - Generated collider asset {} (wrapper mesh {}) for mesh source {}",
+                       m_GeneratedColliderHandle, m_GeneratedColliderMeshHandle, m_MeshSource);
     }
 } // namespace OloEngine
