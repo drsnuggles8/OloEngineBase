@@ -47,6 +47,25 @@ if(OLO_VIDEO_FFMPEG)
     else()
         # --- Build FFmpeg from source via ExternalProject. ---
         include(ExternalProject)
+
+        # Locate a bash to run build-ffmpeg.sh. On Windows the WSL launcher
+        # (C:/Windows/System32/bash.exe) identifies itself as bash but runs in
+        # the Linux filesystem, so it cannot read Windows-style paths (D:/...)
+        # and fails the build with a misleading "No such file or directory".
+        # Prefer a MSYS2/Git bash, which handles drive-letter paths. Search Git's
+        # install locations first; the unconditional find_program below then falls
+        # back to PATH for Linux / other setups (and is a no-op if already found).
+        if(WIN32)
+            find_program(OLO_BASH_EXE NAMES bash
+                PATHS
+                    "$ENV{PROGRAMFILES}/Git/usr/bin"
+                    "$ENV{PROGRAMFILES}/Git/bin"
+                    "$ENV{PROGRAMW6432}/Git/usr/bin"
+                    "$ENV{LOCALAPPDATA}/Programs/Git/usr/bin"
+                    "C:/msys64/usr/bin"
+                    "C:/msys64/mingw64/bin"
+                NO_DEFAULT_PATH)
+        endif()
         find_program(OLO_BASH_EXE NAMES bash REQUIRED)
 
         set(_ffmpeg_prefix "${PROJECT_SOURCE_DIR}/vendor/ffmpeg-install")

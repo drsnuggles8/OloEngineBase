@@ -17,6 +17,27 @@ SRC="${1:?ffmpeg source dir required}"
 PREFIX="${2:?install prefix required}"
 MODE="${3:-build}"
 
+# When CMake/MSBuild launches this script it inherits the *Windows* PATH, which
+# can lack the MSYS/Git coreutils dir (uname, tail, sed, cygpath, …) that lives
+# alongside bash itself — even when gmake/nasm resolve fine from the Windows PATH.
+# Without uname, the OS detection below silently falls through to the unix branch
+# and the build dies on the first missing coreutil. Put bash's own bin dir on PATH
+# first, using only shell builtins (no external tool is reachable yet). A drive-letter
+# path (C:/…/usr/bin) is converted to MSYS /c/… form so its ':' doesn't split the
+# PATH entry. No-op on Linux, where bash already lives on PATH.
+if [ -n "${BASH:-}" ]; then
+    _olo_bindir="${BASH%/*}"
+    case "$_olo_bindir" in
+        [A-Za-z]:/*) _olo_drive="${_olo_bindir%%:*}"; _olo_bindir="/${_olo_drive,,}${_olo_bindir#*:}" ;;
+    esac
+    case ":$PATH:" in
+        *":$_olo_bindir:"*) ;;                   # already present — leave PATH alone
+        *) PATH="$_olo_bindir:$PATH" ;;
+    esac
+    export PATH
+    unset _olo_bindir _olo_drive
+fi
+
 case "$(uname -s)" in
     MINGW*|MSYS*|CYGWIN*) OLO_OS=windows ;;
     *)                    OLO_OS=unix ;;
@@ -112,7 +133,27 @@ if [ "$OLO_OS" = windows ]; then
     echo "=== patched ffbuild/config.mak dep commands to no-op (Windows gmake) ==="
 fi
 
-"$MAKE" -j"$(nproc)" 2>&1 | tail -25
+# FFmpeg's makefile creates each unversioned <lib>.dll by symlinking the versioned one.
+# On MSYS without native-symlink privilege, `ln` falls back to a file copy, which can
+# transiently fail with "Device or resource busy" when it races a DLL that link.exe (or
+# an AV scanner) is still holding open — observed on avformat during a fresh parallel
+# build. make is fully incremental, so retry a few times: a retry only redoes the failed
+# symlink + downstream steps, and a genuine compile error fails fast at the same object
+# each time (already-built .o files stay up to date) rather than rebuilding from scratch.
+_make_attempt=1
+_make_max=5
+while :; do
+    if "$MAKE" -j"$(nproc)" 2>&1 | tail -25; then
+        break
+    fi
+    if [ "$_make_attempt" -ge "$_make_max" ]; then
+        echo "make failed after $_make_attempt attempts" >&2
+        exit 1
+    fi
+    echo "=== make attempt $_make_attempt failed (transient EBUSY symlink?) — retrying in 3s ===" >&2
+    _make_attempt=$((_make_attempt + 1))
+    sleep 3
+done
 "$MAKE" install 2>&1 | tail -15
 
 if [ "$OLO_OS" = windows ]; then
