@@ -20,8 +20,12 @@ target_include_directories(OloEditor PRIVATE
 
 # target_link_libraries implies a build-order dependency on OloEngine, so no
 # separate add_dependencies(... OloEngine) is needed.
+# cpp_httplib is a header-only INTERFACE target (defined in OloEngine/vendor); only
+# OloEditor's MCP module (#285) uses it, so link it here rather than on OloEngine to
+# avoid putting <winsock2.h> on the whole engine's include path.
 target_link_libraries(OloEditor
                     OloEngine
+                    cpp_httplib
 )
 
 # Suppress MSVC's "use the _s variant" CRT warnings (C4996 on strncpy/sscanf/etc.).

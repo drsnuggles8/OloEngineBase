@@ -4,6 +4,7 @@
 
 #include "OloEngine/Scene/Scene.h"
 #include "OloEngine/Scene/Components.h"
+#include "OloEngine/Scripting/ScriptError.h"
 
 #define SOL_ALL_SAFETIES_ON 1
 #include <sol/sol.hpp>
@@ -151,6 +152,8 @@ namespace OloEngine
         {
             sol::error error = loadResult;
             OLO_CORE_ERROR("[LuaScriptEngine] Failed to load '{}': {}", scriptFile, error.what());
+            ScriptErrorBuffer::Get().Push(
+                ScriptError{ ScriptError::Language::Lua, scriptFile, entityID, std::string("load: ") + error.what(), std::string{}, 0.0 });
             return;
         }
 
@@ -159,6 +162,8 @@ namespace OloEngine
         {
             sol::error error = result;
             OLO_CORE_ERROR("[LuaScriptEngine] Error executing '{}': {}", scriptFile, error.what());
+            ScriptErrorBuffer::Get().Push(
+                ScriptError{ ScriptError::Language::Lua, scriptFile, entityID, std::string("exec: ") + error.what(), std::string{}, 0.0 });
             return;
         }
 
@@ -180,6 +185,8 @@ namespace OloEngine
             {
                 sol::error error = createResult;
                 OLO_CORE_ERROR("[LuaScriptEngine] OnCreate error for entity {}: {}", entityID, error.what());
+                ScriptErrorBuffer::Get().Push(
+                    ScriptError{ ScriptError::Language::Lua, scriptFile, entityID, std::string("OnCreate: ") + error.what(), std::string{}, 0.0 });
                 return;
             }
         }
@@ -201,6 +208,8 @@ namespace OloEngine
                 {
                     sol::error error = result;
                     OLO_CORE_ERROR("[LuaScriptEngine] OnUpdate error for entity {}: {}", entityID, error.what());
+                    ScriptErrorBuffer::Get().Push(
+                        ScriptError{ ScriptError::Language::Lua, std::string{}, entityID, std::string("OnUpdate: ") + error.what(), std::string{}, 0.0 });
                 }
             }
         }
@@ -225,6 +234,8 @@ namespace OloEngine
                 {
                     sol::error error = result;
                     OLO_CORE_ERROR("[LuaScriptEngine] OnDestroy error for entity {}: {}", entityID, error.what());
+                    ScriptErrorBuffer::Get().Push(
+                        ScriptError{ ScriptError::Language::Lua, std::string{}, entityID, std::string("OnDestroy: ") + error.what(), std::string{}, 0.0 });
                 }
             }
         }

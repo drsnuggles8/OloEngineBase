@@ -255,6 +255,14 @@ namespace OloEngine
             return m_CapturedFrames;
         }
 
+        // @brief Copy of the per-frame ring buffer (oldest-first). Returns a copy so
+        // callers that read off the render thread (e.g. the MCP diagnostics server,
+        // #285, via a main-thread marshal) get a stable snapshot.
+        [[nodiscard]] std::vector<FrameData> GetFrameHistoryCopy() const
+        {
+            return m_FrameHistory;
+        }
+
         // @brief Clear captured frames
         void ClearCapturedFrames()
         {

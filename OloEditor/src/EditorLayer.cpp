@@ -2,7 +2,17 @@
 #include "EditorLayer.h"
 #include "Panels/AssetPackBuilderPanel.h"
 #include "Panels/BuildGamePanel.h"
+#include "MCP/McpServer.h"
+#include "MCP/McpServerPanel.h"
+#include "MCP/McpTools.h"
 #include "OloEngine/Renderer/Preview/AssetPreviewRenderer.h"
+
+#include <stb_image/stb_image_write.h>
+
+#include <cstdlib>
+#include <cstring>
+#include <string_view>
+#include <vector>
 #include "UndoRedo/EntityCommands.h"
 #include "UndoRedo/ComponentCommands.h"
 #include "OloEngine/Math/Math.h"
@@ -100,6 +110,75 @@ namespace OloEngine
         }
     }
 
+    namespace
+    {
+        // stbi write callback that appends the encoded bytes to a std::vector.
+        void StbiAppendToVector(void* context, void* data, int size)
+        {
+            auto* out = static_cast<std::vector<u8>*>(context);
+            const auto* bytes = static_cast<const u8*>(data);
+            out->insert(out->end(), bytes, bytes + size);
+        }
+
+        // Read back the framebuffer's color attachment 0 (RGBA8), flip it to PNG
+        // top-down orientation, optionally downscale so the width is <= maxWidth,
+        // and encode a PNG in memory. Mirrors SaveGame/ThumbnailCapture. MUST run on
+        // the main (GL) thread. Returns empty bytes on any failure.
+        std::vector<u8> CaptureFramebufferPng(const Ref<Framebuffer>& framebuffer, int maxWidth)
+        {
+            if (!framebuffer)
+                return {};
+            const auto& spec = framebuffer->GetSpecification();
+            const u32 width = spec.Width;
+            const u32 height = spec.Height;
+            if (width == 0 || height == 0)
+                return {};
+            const u32 textureId = framebuffer->GetColorAttachmentRendererID(0);
+            if (textureId == 0)
+                return {};
+
+            std::vector<u8> pixels(static_cast<sizet>(width) * height * 4);
+            ::glGetTextureImage(textureId, 0, GL_RGBA, GL_UNSIGNED_BYTE,
+                                static_cast<GLsizei>(pixels.size()), pixels.data());
+
+            // glGetTextureImage returns rows bottom-up; flip for PNG (top-down).
+            const u32 rowBytes = width * 4;
+            std::vector<u8> flipped(pixels.size());
+            for (u32 y = 0; y < height; ++y)
+                std::memcpy(flipped.data() + static_cast<sizet>(y) * rowBytes,
+                            pixels.data() + static_cast<sizet>(height - 1 - y) * rowBytes, rowBytes);
+
+            u32 outW = width;
+            u32 outH = height;
+            const std::vector<u8>* src = &flipped;
+            std::vector<u8> scaled;
+            if (maxWidth > 0 && width > static_cast<u32>(maxWidth))
+            {
+                outW = static_cast<u32>(maxWidth);
+                outH = std::max<u32>(1, static_cast<u32>((static_cast<u64>(height) * outW) / width));
+                scaled.assign(static_cast<sizet>(outW) * outH * 4, 0);
+                // Nearest-neighbour downscale — cheap and adequate for a debug frame.
+                for (u32 y = 0; y < outH; ++y)
+                {
+                    const u32 sy = std::min(height - 1, static_cast<u32>((static_cast<u64>(y) * height) / outH));
+                    for (u32 x = 0; x < outW; ++x)
+                    {
+                        const u32 sx = std::min(width - 1, static_cast<u32>((static_cast<u64>(x) * width) / outW));
+                        std::memcpy(&scaled[(static_cast<sizet>(y) * outW + x) * 4],
+                                    &flipped[(static_cast<sizet>(sy) * width + sx) * 4], 4);
+                    }
+                }
+                src = &scaled;
+            }
+
+            std::vector<u8> png;
+            if (::stbi_write_png_to_func(StbiAppendToVector, &png, static_cast<int>(outW), static_cast<int>(outH),
+                                         4, src->data(), static_cast<int>(outW * 4)) == 0)
+                return {};
+            return png;
+        }
+    } // namespace
+
     void EditorLayer::OnAttach()
     {
         OLO_PROFILE_FUNCTION();
@@ -179,11 +258,50 @@ namespace OloEngine
 
         // Initialize save game system
         SaveGameManager::Initialize();
+
+        // Read-only MCP diagnostics server (#285). Construct it (off by default)
+        // and register the tools now; the user starts it from Window > MCP Server.
+        // The context lambdas are only invoked on the game thread (inside the
+        // server's MarshalRead jobs), so reading m_ActiveScene / m_SceneState here
+        // is safe against the non-thread-safe EnTT registry.
+        {
+            MCP::EditorMcpContext mcpContext;
+            mcpContext.GetActiveScene = [this]() -> Ref<Scene>
+            { return m_ActiveScene; };
+            mcpContext.IsPlaying = [this]() -> bool
+            { return m_SceneState == SceneState::Play; };
+            mcpContext.CaptureViewportPng = [this](int maxWidth) -> std::vector<u8>
+            { return CaptureFramebufferPng(m_Framebuffer, maxWidth); };
+            m_McpServer = CreateScope<MCP::McpServer>(std::move(mcpContext));
+            MCP::RegisterBuiltinTools(*m_McpServer);
+
+            // Opt-in automation: setting OLO_MCP_AUTOSTART (to anything but "0")
+            // starts the server immediately — an explicit per-session consent that
+            // keeps the default off. Used for headless attach and the smoke test.
+            if (const char* autostart = std::getenv("OLO_MCP_AUTOSTART");
+                autostart != nullptr && std::string_view(autostart) != "0" && *autostart != '\0')
+            {
+                u16 port = MCP::DefaultPort;
+                if (const char* portEnv = std::getenv("OLO_MCP_PORT"); portEnv != nullptr)
+                {
+                    if (const unsigned long parsed = std::strtoul(portEnv, nullptr, 10);
+                        parsed >= 1024 && parsed <= 65535)
+                        port = static_cast<u16>(parsed);
+                }
+                if (m_McpServer->Start(port))
+                    m_ShowMcpPanel = true; // surface the panel so the token is visible
+            }
+        }
     }
 
     void EditorLayer::OnDetach()
     {
         OLO_PROFILE_FUNCTION();
+
+        // Stop the MCP server first so no in-flight marshaled read touches editor
+        // state while the rest of OnDetach tears it down.
+        if (m_McpServer)
+            m_McpServer->Stop();
 
         // Properly stop the scene if still in play/simulate mode
         // (e.g., user closed the window while playing)
@@ -803,6 +921,7 @@ namespace OloEngine
             ImGui::MenuItem("Gamepad Debug", nullptr, &m_ShowGamepadDebug);
             ImGui::MenuItem("Shader Editor", nullptr, &m_ShowShaderEditor);
             ImGui::MenuItem("Audio Events", nullptr, &m_ShowAudioEventsPanel);
+            ImGui::MenuItem("MCP Server", nullptr, &m_ShowMcpPanel);
 
             ImGui::EndMenu();
         }
@@ -1298,6 +1417,12 @@ namespace OloEngine
         if (m_ShowNetworkDebug)
         {
             m_NetworkDebugPanel.OnImGuiRender(&m_ShowNetworkDebug);
+        }
+
+        // MCP Diagnostics Server Panel
+        if (m_ShowMcpPanel && m_McpServer)
+        {
+            MCP::RenderMcpServerPanel(*m_McpServer, &m_ShowMcpPanel);
         }
 
         // Thread Inspector Panel
