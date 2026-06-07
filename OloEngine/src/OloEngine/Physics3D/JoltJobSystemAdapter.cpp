@@ -79,18 +79,32 @@ namespace OloEngine
                                                               u32 inNumDependencies)
     {
         // Allocate a job from the free list. ConstructObject returns cInvalidObjectIndex
-        // (0xffffffff) when the pool is exhausted; the previous code passed that straight
-        // into m_Jobs.Get(), which indexes mPages[index >> shift][...] — a wild
-        // out-of-bounds access, i.e. exactly the #281-class SEH 0xc0000005. Mirror Jolt's
-        // own JobSystemThreadPool::CreateJob and spin (with a yield back-off) until a slot
-        // frees up instead. Jobs are short-lived and cMaxPhysicsJobs (2048) dwarfs the
-        // handful of jobs a step needs, so in practice this loop never iterates.
+        // (0xffffffff) when the pool is exhausted; passing that into m_Jobs.Get() indexes
+        // mPages[index >> shift][...] — a wild out-of-bounds access, i.e. exactly the
+        // #281-class SEH 0xc0000005. Jobs are short-lived and cMaxPhysicsJobs (2048)
+        // dwarfs the handful a step needs, so the pool effectively never exhausts; if it
+        // ever does it signals a job leak or wedged scheduler. Unlike Jolt's own
+        // JobSystemThreadPool::CreateJob (which spins forever here), retry under a bounded
+        // deadline — an unbounded spin would hang PhysicsSystem::Update indefinitely,
+        // reproducing #281's 120 s ctest timeout and freezing the editor/runtime. On
+        // timeout, fail fast with an empty handle: Jolt's CreateJob has no error-return
+        // channel, so this is the documented "no job available" signal (a fast,
+        // deterministic, logged failure that the CI retry can absorb beats a silent hang).
         u32 index = m_Jobs.ConstructObject(inName, inColor, this, inJobFunction, inNumDependencies);
         if (index == FAvailableJobs::cInvalidObjectIndex)
         {
-            OLO_CORE_ERROR("JoltJobSystemAdapter::CreateJob: physics job free-list exhausted; spinning until a slot frees");
+            using clock = std::chrono::steady_clock;
+            constexpr auto kTimeout = std::chrono::seconds(5);
+            const auto deadline = clock::now() + kTimeout;
             do
             {
+                if (clock::now() > deadline)
+                {
+                    OLO_CORE_ERROR("JoltJobSystemAdapter::CreateJob: physics job free-list exhausted for {}s "
+                                   "(likely a job leak or wedged scheduler); returning an empty handle",
+                                   std::chrono::duration_cast<std::chrono::seconds>(kTimeout).count());
+                    return JPH::JobSystem::JobHandle();
+                }
                 std::this_thread::yield();
                 index = m_Jobs.ConstructObject(inName, inColor, this, inJobFunction, inNumDependencies);
             } while (index == FAvailableJobs::cInvalidObjectIndex);
