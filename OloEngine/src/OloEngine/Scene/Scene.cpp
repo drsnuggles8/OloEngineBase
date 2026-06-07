@@ -3024,6 +3024,8 @@ namespace OloEngine
                     auto baked = StarNestSky::Generate(params, sky.m_CubemapResolution);
                     if (baked)
                         sky.m_EnvironmentMap = baked;
+                    else
+                        sky.m_EnvironmentMap.Reset(); // drop the stale bake so the cache matches the (failed) current params
 
                     // Record the attempt regardless of outcome: a persistent
                     // bake failure (e.g. shader missing) must not re-run the
