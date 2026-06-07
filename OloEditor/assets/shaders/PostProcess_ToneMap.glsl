@@ -77,10 +77,55 @@ layout(std140, binding = 7) uniform PostProcessUBO
 layout(std140, binding = 37) uniform UnderwaterFogBlock
 {
     vec4 u_UnderwaterColorAndDensity; // rgb = fog colour, a = per-metre density
-    vec4 u_UnderwaterFlags;           // x = active (>0.5), y = waterSurfaceY, zw = pad
+    vec4 u_UnderwaterFlags;           // x = active (>0.5), y = waterSurfaceY, z = time, w = pad
     vec4 u_UnderwaterCameraPos;       // xyz = camera world position, w = pad
+    vec4 u_UnderwaterRefraction;      // x = strength (UV units, 0 = off), y = scale, z = speed, w = chromatic
+    vec4 u_UnderwaterCaustics;        // x = intensity (0 = off), y = scale, z = speed, w = maxDepth
+    vec4 u_UnderwaterCausticColor;    // rgb = caustic tint, w = sun-overhead factor max(-sunDir.y, 0)
     mat4 u_UnderwaterInvViewProj;     // NDC -> world reconstruction
 };
+
+// Animated screen-space UV offset for the submerged refraction wobble.
+// MUST match UnderwaterCaustics::RefractionOffset (UnderwaterCaustics.h).
+vec2 underwaterRefractionOffset(vec2 uv, float time, float strength, float scale, float speed)
+{
+    if (strength <= 0.0)
+        return vec2(0.0);
+    float s = clamp(strength, 0.0, 0.1);
+    float phase = time * speed;
+    float ox = sin(uv.y * scale + phase);
+    float oy = cos(uv.x * scale + phase * 0.9 + 1.3);
+    return vec2(ox, oy) * s;
+}
+
+// One octave of the caustic web — a thin wavy ridge along the zero-contour of a
+// pair of drifting sines. MUST match UnderwaterCaustics::CausticOctave.
+float underwaterCausticOctave(float x, float y, float t)
+{
+    float s = (sin(x + t) + sin(y * 1.2 - t * 0.8)) * 0.5;
+    float r = max(1.0 - abs(s), 0.0);
+    return r * r * r;
+}
+
+// Procedural caustic pattern in [0,1] from a world-space XZ point — two octaves
+// of wavy ridge lines unioned into a caustic web. MUST match
+// UnderwaterCaustics::CausticPattern.
+float underwaterCausticPattern(vec2 worldXZ, float time, float scale, float speed)
+{
+    vec2 q = worldXZ * scale;
+    float t = time * speed;
+    float o1 = underwaterCausticOctave(q.x, q.y, t);
+    float o2 = underwaterCausticOctave(q.x * 1.7 + 5.0, q.y * 1.7 - 3.0, -t * 1.1);
+    return max(o1, o2);
+}
+
+// Depth fade for caustics. MUST match UnderwaterCaustics::CausticDepthFade.
+float underwaterCausticDepthFade(float depthBelowSurface, float maxDepth)
+{
+    if (depthBelowSurface <= 0.0 || maxDepth <= 0.0)
+        return 0.0;
+    return clamp(1.0 - depthBelowSurface / maxDepth, 0.0, 1.0);
+}
 
 // Length of the part of segment [camPos -> worldPos] below the water plane.
 // MUST match UnderwaterFog::UnderwaterSegmentLength (UnderwaterFog.h).
@@ -100,8 +145,11 @@ float underwaterSegmentLength(vec3 camPos, vec3 worldPos, float waterY)
     return camUnder ? length(crossPoint - camPos) : length(worldPos - crossPoint);
 }
 
-// Beer-Lambert absorption over the underwater segment of this pixel's view ray.
-// Mirrors UnderwaterFog (UnderwaterFog.h), pinned by the WaterRendering tests.
+// Underwater shading for this pixel: adds animated caustics to the submerged
+// surface radiance (§7.1) and then applies Beer-Lambert absorption over the
+// underwater segment of the view ray (§7.2). The fog blend mirrors UnderwaterFog
+// (UnderwaterFog.h) and the caustic math mirrors UnderwaterCaustics
+// (UnderwaterCaustics.h); both are pinned by the WaterRendering tests.
 vec3 applyUnderwaterFog(vec3 color, vec2 uv)
 {
     if (u_UnderwaterFlags.x < 0.5)
@@ -127,6 +175,25 @@ vec3 applyUnderwaterFog(vec3 color, vec2 uv)
         vec4 sNdc = vec4(uv * 2.0 - 1.0, wDepth * 2.0 - 1.0, 1.0);
         vec4 sH = u_UnderwaterInvViewProj * sNdc;
         surfaceY = (sH.xyz / sH.w).y;
+    }
+
+    // Caustics (§7.1): animated light projected onto submerged geometry. Added to
+    // the surface radiance BEFORE the Beer-Lambert absorption below, so distant
+    // caustics fade into the fog exactly like the rest of the seabed's light.
+    // Derivatives are taken in uniform control flow (this whole function is gated
+    // by the UBO-uniform Active flag), then the per-pixel terms branch.
+    vec3 dPdx = dFdx(worldPos);
+    vec3 dPdy = dFdy(worldPos);
+    vec3 nCross = cross(dPdx, dPdy);
+    vec3 geoN = (dot(nCross, nCross) > 1e-12) ? normalize(nCross) : vec3(0.0, 1.0, 0.0);
+    if (depth < 0.9999 && u_UnderwaterCaustics.x > 0.0)
+    {
+        float upFacing = max(geoN.y, 0.0);
+        float fade = underwaterCausticDepthFade(surfaceY - worldPos.y, u_UnderwaterCaustics.w);
+        float pattern = underwaterCausticPattern(worldPos.xz, u_UnderwaterFlags.z,
+                                                 u_UnderwaterCaustics.y, u_UnderwaterCaustics.z);
+        float caustic = pattern * fade * upFacing * u_UnderwaterCausticColor.w * u_UnderwaterCaustics.x;
+        color += u_UnderwaterCausticColor.rgb * caustic;
     }
 
     float underwaterDist = underwaterSegmentLength(u_UnderwaterCameraPos.xyz, worldPos, surfaceY);
@@ -165,10 +232,41 @@ vec3 uncharted2ToneMapping(vec3 color)
 
 void main()
 {
-    vec3 hdrColor = texture(u_Texture, v_TexCoord).rgb;
+    // Submerged refraction distortion (§7.2, bullet 2): when the camera is below
+    // the surface, wobble the scene-colour sample UV and split RGB for a cheap
+    // chromatic refraction. Gated on the underwater flag so above-water rendering
+    // is bit-for-bit unchanged. The depth/world reconstruction in
+    // applyUnderwaterFog still uses the TRUE pixel UV (v_TexCoord) so fog distance
+    // and caustic projection stay geometrically correct.
+    vec3 hdrColor;
+    if (u_UnderwaterFlags.x >= 0.5 && u_UnderwaterRefraction.x > 0.0)
+    {
+        vec2 off = underwaterRefractionOffset(v_TexCoord, u_UnderwaterFlags.z,
+                                              u_UnderwaterRefraction.x,
+                                              u_UnderwaterRefraction.y,
+                                              u_UnderwaterRefraction.z);
+        vec2 baseUV = clamp(v_TexCoord + off, 0.0, 1.0);
+        float chroma = u_UnderwaterRefraction.w;
+        if (chroma > 0.0)
+        {
+            vec2 cOff = off * chroma;
+            hdrColor.r = texture(u_Texture, clamp(baseUV + cOff, 0.0, 1.0)).r;
+            hdrColor.g = texture(u_Texture, baseUV).g;
+            hdrColor.b = texture(u_Texture, clamp(baseUV - cOff, 0.0, 1.0)).b;
+        }
+        else
+        {
+            hdrColor = texture(u_Texture, baseUV).rgb;
+        }
+    }
+    else
+    {
+        hdrColor = texture(u_Texture, v_TexCoord).rgb;
+    }
 
-    // Underwater absorption — applied in linear HDR radiance before exposure
-    // so the in-scatter colour is exposed/tonemapped with the rest of the scene.
+    // Underwater absorption + caustics — applied in linear HDR radiance before
+    // exposure so the in-scatter colour is exposed/tonemapped with the rest of
+    // the scene.
     hdrColor = applyUnderwaterFog(hdrColor, v_TexCoord);
 
     // Apply exposure. Auto-exposure (when enabled) writes a positive metered

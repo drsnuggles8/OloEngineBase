@@ -5286,6 +5286,29 @@ namespace OloEngine
                 if (ImGui::IsItemHovered())
                     ImGui::SetTooltip("Per-metre exponential absorption applied to the scene while the camera is below this surface");
 
+                ImGui::SeparatorText("Underwater Refraction");
+                ImGui::DragFloat("Refraction Strength", &component.m_UnderwaterRefractionStrength, 0.0005f, 0.0f, 0.1f, "%.4f");
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Screen-space wobble amplitude (UV units) applied to the underwater image. 0 disables.");
+                ImGui::DragFloat("Refraction Scale", &component.m_UnderwaterRefractionScale, 0.5f, 0.0f, 200.0f, "%.1f");
+                ImGui::DragFloat("Refraction Speed", &component.m_UnderwaterRefractionSpeed, 0.05f, 0.0f, 50.0f, "%.2f");
+                ImGui::DragFloat("Chromatic Strength", &component.m_UnderwaterChromaticStrength, 0.01f, 0.0f, 1.0f, "%.2f");
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Per-channel RGB split of the refraction offset (chromatic aberration). 0 disables.");
+
+                ImGui::SeparatorText("Caustics");
+                ImGui::DragFloat("Caustics Intensity", &component.m_CausticsIntensity, 0.01f, 0.0f, 10.0f, "%.2f");
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Brightness of the animated caustic light projected onto submerged geometry. 0 disables.");
+                ImGui::DragFloat("Caustics Scale", &component.m_CausticsScale, 0.005f, 0.001f, 10.0f, "%.3f");
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("World-space frequency of the caustic cells (smaller = larger cells)");
+                ImGui::DragFloat("Caustics Speed", &component.m_CausticsSpeed, 0.01f, 0.0f, 50.0f, "%.2f");
+                ImGui::DragFloat("Caustics Max Depth", &component.m_CausticsMaxDepth, 0.5f, 0.1f, 1000.0f, "%.1f");
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Metres below the surface where caustics fade to zero");
+                ImGui::ColorEdit3("Caustics Color", glm::value_ptr(component.m_CausticsColor));
+
                 ImGui::Separator();
                 if (ImGui::Button("Rebuild Mesh"))
                 {

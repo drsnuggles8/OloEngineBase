@@ -6,6 +6,7 @@
 #include "OloEngine/Renderer/Commands/RenderCommand.h"
 #include "OloEngine/Renderer/PostProcessSettings.h"
 #include "OloEngine/Renderer/UnderwaterFog.h"
+#include "OloEngine/Renderer/UnderwaterCaustics.h"
 #include "OloEngine/Scene/Components.h"
 
 #include <glm/gtc/matrix_transform.hpp>
@@ -280,6 +281,10 @@ TEST(WaterRendering, WaterComponentCopyOmitsRuntime)
     original.m_UnderwaterFogColor = glm::vec3(0.1f, 0.2f, 0.3f);
     original.m_UnderwaterFogDensity = 0.25f;
     original.m_RenderFromBelow = false;
+    original.m_UnderwaterRefractionStrength = 0.05f;
+    original.m_UnderwaterChromaticStrength = 0.7f;
+    original.m_CausticsIntensity = 1.25f;
+    original.m_CausticsColor = glm::vec3(0.5f, 0.6f, 0.7f);
 
     WaterComponent copy(original);
 
@@ -301,6 +306,12 @@ TEST(WaterRendering, WaterComponentCopyOmitsRuntime)
     EXPECT_FLOAT_EQ(copy.m_UnderwaterFogColor.b, 0.3f);
     EXPECT_FLOAT_EQ(copy.m_UnderwaterFogDensity, 0.25f);
     EXPECT_FALSE(copy.m_RenderFromBelow);
+    EXPECT_FLOAT_EQ(copy.m_UnderwaterRefractionStrength, 0.05f);
+    EXPECT_FLOAT_EQ(copy.m_UnderwaterChromaticStrength, 0.7f);
+    EXPECT_FLOAT_EQ(copy.m_CausticsIntensity, 1.25f);
+    EXPECT_FLOAT_EQ(copy.m_CausticsColor.r, 0.5f);
+    EXPECT_FLOAT_EQ(copy.m_CausticsColor.g, 0.6f);
+    EXPECT_FLOAT_EQ(copy.m_CausticsColor.b, 0.7f);
 
     // Runtime state should NOT be copied — mesh is null, needs rebuild
     EXPECT_EQ(copy.m_WaterMesh, nullptr);
@@ -651,9 +662,24 @@ TEST(WaterRendering, UnderwaterFogUBOAlignment)
     EXPECT_EQ(sizeof(UnderwaterFogUBOData) % 16, 0u)
         << "UnderwaterFogUBOData must be 16-byte aligned for std140";
     EXPECT_EQ(UnderwaterFogUBOData::GetSize(), sizeof(UnderwaterFogUBOData));
-    // vec4 ColorAndDensity + vec4 Flags + vec4 CameraPos + mat4 InvViewProj
-    // = 16 + 16 + 16 + 64 = 112 bytes.
-    EXPECT_EQ(sizeof(UnderwaterFogUBOData), 112u);
+    // vec4 ColorAndDensity + vec4 Flags + vec4 CameraPos + vec4 RefractionParams
+    // + vec4 CausticParams + vec4 CausticColorAndSun + mat4 InvViewProj
+    // = 16 * 6 + 64 = 160 bytes. The §7.1/§7.2 refraction + caustics params were
+    // appended; if this changes, update the GLSL UnderwaterFogBlock layout too.
+    EXPECT_EQ(sizeof(UnderwaterFogUBOData), 160u);
+}
+
+TEST(WaterRendering, UnderwaterFogUBOFieldOffsets)
+{
+    // Pin the std140 packing so the GLSL UnderwaterFogBlock and the Scene.cpp
+    // populate code agree on where each param lands.
+    EXPECT_EQ(offsetof(UnderwaterFogUBOData, ColorAndDensity), 0u);
+    EXPECT_EQ(offsetof(UnderwaterFogUBOData, Flags), 16u);
+    EXPECT_EQ(offsetof(UnderwaterFogUBOData, CameraPos), 32u);
+    EXPECT_EQ(offsetof(UnderwaterFogUBOData, RefractionParams), 48u);
+    EXPECT_EQ(offsetof(UnderwaterFogUBOData, CausticParams), 64u);
+    EXPECT_EQ(offsetof(UnderwaterFogUBOData, CausticColorAndSun), 80u);
+    EXPECT_EQ(offsetof(UnderwaterFogUBOData, InverseViewProjection), 96u);
 }
 
 TEST(WaterRendering, UnderwaterFogUBOBindingSlot)
@@ -723,6 +749,152 @@ TEST(WaterRendering, UnderwaterFogStateDefaultsInactive)
     EXPECT_FLOAT_EQ(s.FogColor.g, 0.15f);
     EXPECT_FLOAT_EQ(s.FogColor.b, 0.25f);
     EXPECT_FLOAT_EQ(s.Density, 0.08f);
+}
+
+// =============================================================================
+// Submerged refraction distortion (WATER_FUTURE_IMPROVEMENTS.md §7.2 bullet 2)
+//
+// CPU mirror of underwaterRefractionOffset in PostProcess_ToneMap.glsl. Pins the
+// contract the shader relies on: the wobble never exceeds its (hard-capped)
+// amplitude, disables cleanly, and survives garbage input.
+// =============================================================================
+
+namespace
+{
+    // |a - b| summed over both components — used to assert two offsets/values
+    // differ without an == / != on floats (SonarQube float-comparison rule).
+    [[nodiscard]] f32 Vec2L1Diff(const glm::vec2& a, const glm::vec2& b)
+    {
+        return std::abs(a.x - b.x) + std::abs(a.y - b.y);
+    }
+} // namespace
+
+TEST(WaterRendering, RefractionOffsetDisabledWhenStrengthZeroOrNegative)
+{
+    const glm::vec2 off0 = UnderwaterCaustics::RefractionOffset({ 0.3f, 0.7f }, 5.0f, 0.0f, 18.0f, 1.2f);
+    EXPECT_FLOAT_EQ(off0.x, 0.0f);
+    EXPECT_FLOAT_EQ(off0.y, 0.0f);
+    const glm::vec2 offNeg = UnderwaterCaustics::RefractionOffset({ 0.3f, 0.7f }, 5.0f, -1.0f, 18.0f, 1.2f);
+    EXPECT_FLOAT_EQ(offNeg.x, 0.0f);
+    EXPECT_FLOAT_EQ(offNeg.y, 0.0f);
+}
+
+TEST(WaterRendering, RefractionOffsetBoundedByStrength)
+{
+    // |sin|,|cos| <= 1, so each component is bounded by the strength amplitude.
+    // Sweep uv/time so we exercise the full trig range.
+    constexpr f32 strength = 0.006f;
+    for (i32 i = 0; i < 64; ++i)
+    {
+        const f32 t = static_cast<f32>(i) * 0.37f;
+        const glm::vec2 uv(static_cast<f32>(i) * 0.013f, 1.0f - static_cast<f32>(i) * 0.011f);
+        const glm::vec2 off = UnderwaterCaustics::RefractionOffset(uv, t, strength, 18.0f, 1.2f);
+        EXPECT_LE(std::abs(off.x), strength + 1e-6f);
+        EXPECT_LE(std::abs(off.y), strength + 1e-6f);
+    }
+}
+
+TEST(WaterRendering, RefractionOffsetHardCapsRunawayStrength)
+{
+    // A bad/huge strength must never displace the sample more than the 0.1 UV cap
+    // — that's what stops a misconfigured param from tearing the image apart.
+    const glm::vec2 off = UnderwaterCaustics::RefractionOffset({ 0.5f, 0.5f }, 3.0f, 1000.0f, 18.0f, 1.2f);
+    EXPECT_LE(std::abs(off.x), 0.1f + 1e-6f);
+    EXPECT_LE(std::abs(off.y), 0.1f + 1e-6f);
+}
+
+TEST(WaterRendering, RefractionOffsetIsDeterministicAndAnimates)
+{
+    const glm::vec2 a = UnderwaterCaustics::RefractionOffset({ 0.4f, 0.6f }, 2.0f, 0.006f, 18.0f, 1.2f);
+    const glm::vec2 a2 = UnderwaterCaustics::RefractionOffset({ 0.4f, 0.6f }, 2.0f, 0.006f, 18.0f, 1.2f);
+    EXPECT_FLOAT_EQ(Vec2L1Diff(a, a2), 0.0f); // same inputs → same output
+    const glm::vec2 b = UnderwaterCaustics::RefractionOffset({ 0.4f, 0.6f }, 2.5f, 0.006f, 18.0f, 1.2f);
+    EXPECT_GT(Vec2L1Diff(a, b), 1e-5f); // advancing time changes the wobble
+}
+
+TEST(WaterRendering, RefractionOffsetSurvivesNonFiniteInput)
+{
+    const f32 nan = std::numeric_limits<f32>::quiet_NaN();
+    const f32 inf = std::numeric_limits<f32>::infinity();
+    const glm::vec2 off = UnderwaterCaustics::RefractionOffset({ 0.4f, 0.6f }, nan, 0.006f, inf, 1.2f);
+    EXPECT_TRUE(std::isfinite(off.x));
+    EXPECT_TRUE(std::isfinite(off.y));
+}
+
+// =============================================================================
+// Caustics (WATER_FUTURE_IMPROVEMENTS.md §7.1)
+//
+// CPU mirror of underwaterCausticPattern / underwaterCausticDepthFade in
+// PostProcess_ToneMap.glsl. Pins the pattern's [0,1] range + animation and the
+// depth-fade contract (zero at/above the surface and beyond maxDepth, monotonic
+// in between).
+// =============================================================================
+
+TEST(WaterRendering, CausticPatternInUnitRange)
+{
+    // The ridged-sine pattern must stay in [0,1] for any sample — it's added to
+    // HDR radiance, so an out-of-range value would over/under-shoot the seabed.
+    for (i32 i = 0; i < 200; ++i)
+    {
+        const f32 fi = static_cast<f32>(i);
+        const glm::vec2 p(fi * 1.7f - 80.0f, fi * -2.3f + 40.0f);
+        const f32 v = UnderwaterCaustics::CausticPattern(p, fi * 0.21f, 0.35f, 0.6f);
+        EXPECT_GE(v, 0.0f);
+        EXPECT_LE(v, 1.0f);
+        EXPECT_TRUE(std::isfinite(v));
+    }
+}
+
+TEST(WaterRendering, CausticPatternVariesInSpaceAndTime)
+{
+    const f32 base = UnderwaterCaustics::CausticPattern({ 3.0f, 5.0f }, 1.0f, 0.35f, 0.6f);
+    // A far-apart sample should generally differ (the pattern isn't flat).
+    const f32 moved = UnderwaterCaustics::CausticPattern({ 13.0f, -7.0f }, 1.0f, 0.35f, 0.6f);
+    EXPECT_GT(std::abs(base - moved), 1e-5f);
+    // Advancing time animates the pattern.
+    const f32 later = UnderwaterCaustics::CausticPattern({ 3.0f, 5.0f }, 4.0f, 0.35f, 0.6f);
+    EXPECT_GT(std::abs(base - later), 1e-5f);
+}
+
+TEST(WaterRendering, CausticPatternSurvivesNonFiniteInput)
+{
+    const f32 nan = std::numeric_limits<f32>::quiet_NaN();
+    EXPECT_FLOAT_EQ(UnderwaterCaustics::CausticPattern({ nan, 2.0f }, 1.0f, 0.35f, 0.6f), 0.0f);
+    EXPECT_TRUE(std::isfinite(UnderwaterCaustics::CausticPattern({ 2.0f, 2.0f }, nan, 0.35f, 0.6f)));
+}
+
+TEST(WaterRendering, CausticDepthFadeZeroAtAndAboveSurface)
+{
+    // At or above the surface (depthBelowSurface <= 0) there is no submerged
+    // geometry to project caustics onto → zero.
+    EXPECT_FLOAT_EQ(UnderwaterCaustics::CausticDepthFade(0.0f, 25.0f), 0.0f);
+    EXPECT_FLOAT_EQ(UnderwaterCaustics::CausticDepthFade(-3.0f, 25.0f), 0.0f);
+}
+
+TEST(WaterRendering, CausticDepthFadeZeroBeyondMaxDepth)
+{
+    EXPECT_FLOAT_EQ(UnderwaterCaustics::CausticDepthFade(25.0f, 25.0f), 0.0f);
+    EXPECT_FLOAT_EQ(UnderwaterCaustics::CausticDepthFade(40.0f, 25.0f), 0.0f);
+    // Degenerate maxDepth → no fade window → zero.
+    EXPECT_FLOAT_EQ(UnderwaterCaustics::CausticDepthFade(1.0f, 0.0f), 0.0f);
+}
+
+TEST(WaterRendering, CausticDepthFadeMonotonicBetween)
+{
+    constexpr f32 maxDepth = 25.0f;
+    // Linear ramp from ~1 just below the surface to 0 at maxDepth. (Exactly at
+    // the surface the fade is 0 by design — there's no submerged geometry there —
+    // so the monotonic-decrease contract is checked over the SUBMERGED range only,
+    // starting just below the surface.)
+    EXPECT_NEAR(UnderwaterCaustics::CausticDepthFade(0.0001f, maxDepth), 1.0f, 1e-3f);
+    EXPECT_NEAR(UnderwaterCaustics::CausticDepthFade(12.5f, maxDepth), 0.5f, 1e-4f);
+    f32 prev = 2.0f;
+    for (i32 i = 1; i <= 25; ++i)
+    {
+        const f32 v = UnderwaterCaustics::CausticDepthFade(static_cast<f32>(i), maxDepth);
+        EXPECT_LE(v, prev + 1e-6f) << "depth fade must not increase with depth (i=" << i << ")";
+        prev = v;
+    }
 }
 
 // =============================================================================

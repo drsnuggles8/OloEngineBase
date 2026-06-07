@@ -1397,6 +1397,15 @@ namespace OloEngine
         water.m_TessMaxDistance = waterComponent["TessMaxDistance"].as<f32>(water.m_TessMaxDistance);
         water.m_UnderwaterFogColor = waterComponent["UnderwaterFogColor"].as<glm::vec3>(water.m_UnderwaterFogColor);
         water.m_UnderwaterFogDensity = waterComponent["UnderwaterFogDensity"].as<f32>(water.m_UnderwaterFogDensity);
+        water.m_UnderwaterRefractionStrength = waterComponent["UnderwaterRefractionStrength"].as<f32>(water.m_UnderwaterRefractionStrength);
+        water.m_UnderwaterRefractionScale = waterComponent["UnderwaterRefractionScale"].as<f32>(water.m_UnderwaterRefractionScale);
+        water.m_UnderwaterRefractionSpeed = waterComponent["UnderwaterRefractionSpeed"].as<f32>(water.m_UnderwaterRefractionSpeed);
+        water.m_UnderwaterChromaticStrength = waterComponent["UnderwaterChromaticStrength"].as<f32>(water.m_UnderwaterChromaticStrength);
+        water.m_CausticsIntensity = waterComponent["CausticsIntensity"].as<f32>(water.m_CausticsIntensity);
+        water.m_CausticsScale = waterComponent["CausticsScale"].as<f32>(water.m_CausticsScale);
+        water.m_CausticsSpeed = waterComponent["CausticsSpeed"].as<f32>(water.m_CausticsSpeed);
+        water.m_CausticsMaxDepth = waterComponent["CausticsMaxDepth"].as<f32>(water.m_CausticsMaxDepth);
+        water.m_CausticsColor = waterComponent["CausticsColor"].as<glm::vec3>(water.m_CausticsColor);
         if (auto const renderFromBelow = waterComponent["RenderFromBelow"])
         {
             water.m_RenderFromBelow = renderFromBelow.as<bool>(water.m_RenderFromBelow);
@@ -1467,6 +1476,16 @@ namespace OloEngine
             water.m_TessMaxDistance = water.m_TessMinDistance + 1.0f;
         SanitizeVec3(water.m_UnderwaterFogColor, { 0.05f, 0.15f, 0.25f });
         SanitizeFloat(water.m_UnderwaterFogDensity, 0.0f, 10.0f, 0.08f);
+        // Underwater refraction distortion (§7.2) + caustics (§7.1)
+        SanitizeFloat(water.m_UnderwaterRefractionStrength, 0.0f, 0.1f, 0.006f);
+        SanitizeFloat(water.m_UnderwaterRefractionScale, 0.0f, 200.0f, 18.0f);
+        SanitizeFloat(water.m_UnderwaterRefractionSpeed, 0.0f, 50.0f, 1.2f);
+        SanitizeFloat(water.m_UnderwaterChromaticStrength, 0.0f, 1.0f, 0.4f);
+        SanitizeFloat(water.m_CausticsIntensity, 0.0f, 10.0f, 0.5f);
+        SanitizeFloat(water.m_CausticsScale, 0.001f, 10.0f, 0.35f);
+        SanitizeFloat(water.m_CausticsSpeed, 0.0f, 50.0f, 0.6f);
+        SanitizeFloat(water.m_CausticsMaxDepth, 0.1f, 1000.0f, 25.0f);
+        SanitizeVec3(water.m_CausticsColor, { 0.7f, 0.85f, 1.0f });
 
         water.m_NeedsRebuild = true;
     }
@@ -4951,6 +4970,15 @@ namespace OloEngine
             out << YAML::Key << "TessMaxDistance" << YAML::Value << water.m_TessMaxDistance;
             out << YAML::Key << "UnderwaterFogColor" << YAML::Value << water.m_UnderwaterFogColor;
             out << YAML::Key << "UnderwaterFogDensity" << YAML::Value << water.m_UnderwaterFogDensity;
+            out << YAML::Key << "UnderwaterRefractionStrength" << YAML::Value << water.m_UnderwaterRefractionStrength;
+            out << YAML::Key << "UnderwaterRefractionScale" << YAML::Value << water.m_UnderwaterRefractionScale;
+            out << YAML::Key << "UnderwaterRefractionSpeed" << YAML::Value << water.m_UnderwaterRefractionSpeed;
+            out << YAML::Key << "UnderwaterChromaticStrength" << YAML::Value << water.m_UnderwaterChromaticStrength;
+            out << YAML::Key << "CausticsIntensity" << YAML::Value << water.m_CausticsIntensity;
+            out << YAML::Key << "CausticsScale" << YAML::Value << water.m_CausticsScale;
+            out << YAML::Key << "CausticsSpeed" << YAML::Value << water.m_CausticsSpeed;
+            out << YAML::Key << "CausticsMaxDepth" << YAML::Value << water.m_CausticsMaxDepth;
+            out << YAML::Key << "CausticsColor" << YAML::Value << water.m_CausticsColor;
             out << YAML::Key << "RenderFromBelow" << YAML::Value << water.m_RenderFromBelow;
 
             out << YAML::EndMap; // WaterComponent

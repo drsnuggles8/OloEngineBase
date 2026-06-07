@@ -863,11 +863,23 @@ namespace OloEngine
     {
         // vec4(FogColor.rgb, Density)
         glm::vec4 ColorAndDensity = glm::vec4(0.05f, 0.15f, 0.25f, 0.08f);
-        // vec4(Active, WaterSurfaceY, pad, pad). Active is a float for
-        // straightforward branch-free GLSL evaluation; tested as > 0.5.
+        // vec4(Active, WaterSurfaceY, Time, pad). Active is a float for
+        // straightforward branch-free GLSL evaluation; tested as > 0.5. Time
+        // drives the refraction wobble + caustic animation (§7.1/§7.2).
         glm::vec4 Flags = glm::vec4(0.0f);
         // vec4(CameraPos.xyz, pad) — ray origin for the underwater-segment test.
         glm::vec4 CameraPos = glm::vec4(0.0f);
+        // Submerged refraction distortion (§7.2): vec4(Strength, Scale, Speed,
+        // ChromaticStrength). Strength is in UV units; 0 disables. Mirrored by
+        // UnderwaterCaustics::RefractionOffset.
+        glm::vec4 RefractionParams = glm::vec4(0.0f);
+        // Caustics (§7.1): vec4(Intensity, Scale, Speed, MaxDepth). Intensity 0
+        // disables. Mirrored by UnderwaterCaustics::CausticPattern / CausticDepthFade.
+        glm::vec4 CausticParams = glm::vec4(0.0f);
+        // vec4(CausticTint.rgb, SunOverhead). SunOverhead is max(-sunDir.y, 0) —
+        // precomputed so the tone-map pass needs no light UBO; fades caustics as
+        // the sun drops toward the horizon.
+        glm::vec4 CausticColorAndSun = glm::vec4(0.7f, 0.85f, 1.0f, 0.0f);
         // Reconstructs world position from depth (NDC → world). Avoids a
         // per-fragment matrix inverse in the shader.
         glm::mat4 InverseViewProjection = glm::mat4(1.0f);
@@ -879,7 +891,7 @@ namespace OloEngine
     };
 
     static_assert(sizeof(UnderwaterFogUBOData) % 16 == 0, "UnderwaterFogUBOData must be 16-byte aligned for std140");
-    static_assert(sizeof(UnderwaterFogUBOData) == 112, "UnderwaterFogUBOData unexpected size — update GLSL layout");
+    static_assert(sizeof(UnderwaterFogUBOData) == 160, "UnderwaterFogUBOData unexpected size — update GLSL layout");
 
     // Local fog volume shape type (matches FogVolumeShape enum in Components.h)
     static constexpr i32 FOG_VOLUME_SHAPE_BOX = 0;
