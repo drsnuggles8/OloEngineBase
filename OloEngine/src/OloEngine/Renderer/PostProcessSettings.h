@@ -310,6 +310,11 @@ namespace OloEngine
         glm::vec4 ScreenParams = glm::vec4(0.0f);
         // x = DebugView (0/1), yzw = pad
         glm::vec4 Flags = glm::vec4(0.0f);
+        // Min-depth HZB acceleration (#284). x = HZB UVFactor.x, y = HZB
+        // UVFactor.y (hzbUV = screenUV * UVFactor), z = HZB mip count, w =
+        // UseHiZ (0 = pure linear march, 1 = hierarchical-Z skip). The HZB
+        // texture itself is bound separately at TEX_SSR_HZB.
+        glm::vec4 HZBParams = glm::vec4(1.0f, 1.0f, 1.0f, 0.0f);
 
         static constexpr u32 GetSize()
         {
@@ -318,6 +323,7 @@ namespace OloEngine
     };
 
     static_assert(sizeof(SSRUBOData) % 16 == 0, "SSRUBOData must be 16-byte aligned for std140");
+    static_assert(sizeof(SSRUBOData) == 272, "SSRUBOData std140 size drifted — update PostProcess_SSR.glsl layout");
     // Snow rendering settings (scene-level, separate from PostProcess)
     struct SnowSettings
     {

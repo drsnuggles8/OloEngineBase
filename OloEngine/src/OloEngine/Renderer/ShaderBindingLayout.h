@@ -691,9 +691,10 @@ namespace OloEngine
         // plain sampler2DArray so the PCSS blocker search can read raw occluder
         // depth (the hardware sampler2DArrayShadow at TEX_SHADOW / TEX_SHADOW_SPOT
         // only yields the comparison result). Took the formerly GTAO-reserved
-        // slots 33-34 (GTAO binds low sequential slots 0-5 instead). Slot 35 free.
+        // slots 33-34 (GTAO binds low sequential slots 0-5 instead).
         static constexpr u32 TEX_SHADOW_CSM_RAW = 33;   // Raw-depth view of the CSM array (PCSS blocker search)
         static constexpr u32 TEX_SHADOW_SPOT_RAW = 34;  // Raw-depth view of the spot array (PCSS blocker search)
+        static constexpr u32 TEX_SSR_HZB = 35;          // Min-depth HZB pyramid for HiZ-accelerated SSR traversal (#284)
         static constexpr u32 TEX_WATER_NORMAL_0 = 36;   // Water scrolling normal map 0
         static constexpr u32 TEX_WATER_NORMAL_1 = 37;   // Water scrolling normal map 1
         static constexpr u32 TEX_WATER_NOISE = 38;      // Water specular noise texture

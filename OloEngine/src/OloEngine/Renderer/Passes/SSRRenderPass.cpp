@@ -75,7 +75,23 @@ namespace OloEngine
         m_FramebufferSpec = spec;
         m_SSRShader = Shader::Create("assets/shaders/PostProcess_SSR.glsl");
 
+        // Dedicated min-depth HZB for HiZ ray traversal (#284).
+        m_MinHZB.Initialize();
+        m_MinHZB.SetReduceMode(HZBGenerator::ReduceMode::Min);
+        if (spec.Width > 0 && spec.Height > 0)
+            m_MinHZB.Resize(spec.Width, spec.Height);
+
         OLO_CORE_INFO("SSRRenderPass: Initialized with viewport {}x{}", spec.Width, spec.Height);
+    }
+
+    glm::vec2 SSRRenderPass::GetHZBUVFactor() const noexcept
+    {
+        return HZBGenerator::ComputeDimensions(m_FramebufferSpec.Width, m_FramebufferSpec.Height).UVFactor;
+    }
+
+    u32 SSRRenderPass::GetHZBMipCount() const noexcept
+    {
+        return HZBGenerator::ComputeDimensions(m_FramebufferSpec.Width, m_FramebufferSpec.Height).MipCount;
     }
 
     void SSRRenderPass::Execute(RGCommandContext& context)
@@ -141,6 +157,18 @@ namespace OloEngine
 
         m_Target = outputFramebuffer;
 
+        // Build this frame's min-depth HZB pyramid from scene depth, then bind it
+        // for the HiZ ray march (#284). Generation is compute (dispatches + its
+        // own TextureFetch barrier inside Generate), so it must run before the
+        // fullscreen draw that samples it. Resize is a cheap no-op when the
+        // viewport hasn't changed bucket. If generation is unavailable the march
+        // still works against full-res scene depth — the HZB only skips empty
+        // space, the actual hit test is always against real depth — so fall back
+        // to binding scene depth so the sampler is never left unbound.
+        m_MinHZB.Resize(m_FramebufferSpec.Width, m_FramebufferSpec.Height);
+        m_MinHZB.Generate(sceneDepthID);
+        const u32 minHZBID = m_MinHZB.GetHZBTextureID() != 0 ? m_MinHZB.GetHZBTextureID() : sceneDepthID;
+
         // Rebind the SSR UBO (binding 38) — other passes may displace this
         // indexed binding between EndScene()'s upload and this Execute() call.
         if (m_SSRUBO)
@@ -167,6 +195,7 @@ namespace OloEngine
         context.BindTexture(ShaderBindingLayout::TEX_POSTPROCESS_DEPTH, sceneDepthID);
         context.BindTexture(ShaderBindingLayout::TEX_GBUFFER_NORMAL, gbufferNormalID);
         context.BindTexture(ShaderBindingLayout::TEX_GBUFFER_ALBEDO, gbufferAlbedoID);
+        context.BindTexture(ShaderBindingLayout::TEX_SSR_HZB, minHZBID);
 
         const auto va = MeshPrimitives::GetFullscreenTriangle();
         va->Bind();
@@ -180,6 +209,8 @@ namespace OloEngine
     {
         m_FramebufferSpec.Width = width;
         m_FramebufferSpec.Height = height;
+        if (width > 0 && height > 0)
+            m_MinHZB.Resize(width, height);
     }
 
     void SSRRenderPass::ResizeFramebuffer(u32 width, u32 height)
@@ -189,6 +220,7 @@ namespace OloEngine
 
         m_FramebufferSpec.Width = width;
         m_FramebufferSpec.Height = height;
+        m_MinHZB.Resize(width, height);
     }
 
     void SSRRenderPass::OnReset()
