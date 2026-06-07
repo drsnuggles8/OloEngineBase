@@ -42,6 +42,11 @@
 
 namespace OloEngine
 {
+    namespace MCP
+    {
+        class McpServer;
+    }
+
     class AssetLoadedEvent;
     class AssetReloadedEvent;
     class AssetPackBuilderPanel;
@@ -262,6 +267,11 @@ namespace OloEngine
         bool m_ShowShaderEditor = false;
         AudioEventsPanel m_AudioEventsPanel;
         bool m_ShowAudioEventsPanel = false;
+
+        // Read-only MCP diagnostics server (#285). Constructed in OnAttach (off by
+        // default), stopped in OnDetach. The user starts it from Window > MCP Server.
+        Scope<MCP::McpServer> m_McpServer;
+        bool m_ShowMcpPanel = false;
 
         // Undo/Redo
         CommandHistory m_CommandHistory;

@@ -250,6 +250,9 @@ namespace OloEngine
         out << YAML::Key << "RenderBudgetMs" << YAML::Value << prefs.RenderBudgetMs;
         out << YAML::Key << "EnableAutoSave" << YAML::Value << prefs.EnableAutoSave;
         out << YAML::Key << "AutoSaveIntervalSeconds" << YAML::Value << prefs.AutoSaveIntervalSeconds;
+        out << YAML::Key << "McpAutoStart" << YAML::Value << prefs.McpAutoStart;
+        out << YAML::Key << "McpPort" << YAML::Value << prefs.McpPort;
+        out << YAML::Key << "McpRedactPaths" << YAML::Value << prefs.McpRedactPaths;
 
         // Camera bookmarks
         out << YAML::Key << "Bookmarks" << YAML::Value << YAML::BeginSeq;
@@ -354,6 +357,12 @@ namespace OloEngine
                 prefs.EnableAutoSave = node["EnableAutoSave"].as<bool>();
             if (node["AutoSaveIntervalSeconds"])
                 prefs.AutoSaveIntervalSeconds = std::clamp(node["AutoSaveIntervalSeconds"].as<int>(), 10, 7200);
+            if (node["McpAutoStart"])
+                prefs.McpAutoStart = node["McpAutoStart"].as<bool>();
+            if (node["McpPort"])
+                prefs.McpPort = std::clamp(node["McpPort"].as<int>(), 1024, 65535);
+            if (node["McpRedactPaths"])
+                prefs.McpRedactPaths = node["McpRedactPaths"].as<bool>();
 
             // Camera bookmarks
             if (auto bookmarks = node["Bookmarks"])

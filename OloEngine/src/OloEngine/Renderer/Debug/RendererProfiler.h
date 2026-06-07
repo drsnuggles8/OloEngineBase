@@ -255,6 +255,21 @@ namespace OloEngine
             return m_CapturedFrames;
         }
 
+        // @brief Copy of the per-frame ring buffer in chronological (oldest-first)
+        // order. m_FrameHistory is a ring indexed by m_HistoryIndex (the next write
+        // slot, i.e. the oldest entry), so rotate it the same way RenderUI does.
+        // Returns a copy so callers reading off the render thread (e.g. the MCP
+        // diagnostics server, #285, via a main-thread marshal) get a stable snapshot.
+        [[nodiscard]] std::vector<FrameData> GetFrameHistoryCopy() const
+        {
+            const std::size_t n = m_FrameHistory.size();
+            std::vector<FrameData> ordered;
+            ordered.reserve(n);
+            for (std::size_t i = 0; i < n; ++i)
+                ordered.push_back(m_FrameHistory[(m_HistoryIndex + i) % n]);
+            return ordered;
+        }
+
         // @brief Clear captured frames
         void ClearCapturedFrames()
         {

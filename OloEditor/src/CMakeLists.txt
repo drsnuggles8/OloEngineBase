@@ -5,6 +5,15 @@
 		"GameplayEventLogger.h"
 		"GameplayEventLogger.cpp"
 
+		"MCP/McpServer.cpp"
+		"MCP/McpServer.h"
+		"MCP/McpTools.cpp"
+		"MCP/McpTools.h"
+		"MCP/McpScriptApi.cpp"
+		"MCP/McpScriptApi.h"
+		"MCP/McpServerPanel.cpp"
+		"MCP/McpServerPanel.h"
+
 		"UndoRedo/EditorCommand.h"
 		"UndoRedo/EntityCommands.h"
 		"UndoRedo/ComponentCommands.h"

@@ -4,6 +4,7 @@
 #if OLO_ENABLE_CSHARP_SCRIPTING
 
 #include "OloEngine/Scripting/C#/ScriptGlue.h"
+#include "OloEngine/Scripting/ScriptError.h"
 #include "OloEngine/Core/Application.h"
 #include "OloEngine/Core/Buffer.h"
 #include "OloEngine/Core/FileSystem.h"
@@ -16,6 +17,7 @@
 #include "mono/metadata/tabledefs.h"
 #include "mono/metadata/mono-debug.h"
 #include "mono/metadata/threads.h"
+#include "mono/metadata/debug-helpers.h"
 #include <mono/utils/mono-logger.h>
 
 #ifdef _MSC_VER
@@ -576,7 +578,36 @@ namespace OloEngine
     MonoObject* ScriptClass::InvokeMethod(MonoObject* instance, MonoMethod* method, void** params)
     {
         MonoObject* exception = nullptr;
-        return ::mono_runtime_invoke(method, instance, params, &exception);
+        MonoObject* result = ::mono_runtime_invoke(method, instance, params, &exception);
+
+        // Previously the exception out-param was ignored, so C# script errors were
+        // silently swallowed. Capture them: log + record in the script-error ring
+        // buffer so olo_script_get_last_errors (MCP, #285) can surface them.
+        if (exception != nullptr)
+        {
+            std::string message = "Unhandled C# exception";
+            if (MonoString* monoStr = ::mono_object_to_string(exception, nullptr); monoStr != nullptr)
+            {
+                if (char* utf8 = ::mono_string_to_utf8(monoStr); utf8 != nullptr)
+                {
+                    message = utf8;
+                    ::mono_free(utf8);
+                }
+            }
+
+            std::string scriptName;
+            if (char* fullName = ::mono_method_full_name(method, 1); fullName != nullptr)
+            {
+                scriptName = fullName;
+                ::mono_free(fullName);
+            }
+
+            OLO_CORE_ERROR_TAG("Script", "C# exception in {}: {}", scriptName, message);
+            ScriptErrorBuffer::Get().Push(
+                ScriptError{ ScriptError::Language::CSharp, scriptName, 0, message, std::string{}, 0.0 });
+        }
+
+        return result;
     }
 
     ScriptInstance::ScriptInstance(const Ref<ScriptClass>& scriptClass, Entity entity)

@@ -330,6 +330,22 @@ if(lua_ADDED)
 		RUNTIME_OUTPUT_DIRECTORY "${PROJECT_SOURCE_DIR}/vendor/lua-build")
 endif()
 
+# cpp-httplib: single-header HTTP/1.1 server+client. Used by OloEditor's read-only
+# MCP diagnostics server (#285) for the localhost Streamable-HTTP transport. Header-only,
+# so DOWNLOAD_ONLY + an INTERFACE target whose include dir propagates. Non-imported
+# INTERFACE (not INTERFACE IMPORTED) so the target is global and can be linked from
+# OloEditor (the actual consumer; see OloEditor/CMakeLists.txt) and any other target.
+# Pinned to a fixed tag SHA for reproducible builds (#294 convention).
+CPMAddPackage(NAME cpp_httplib
+  GIT_REPOSITORY https://github.com/yhirose/cpp-httplib.git
+  GIT_TAG 5304464a53f793f8e3e4777ea5941d60cf8c91e3  # v0.29.0
+  GIT_SHALLOW FALSE
+  DOWNLOAD_ONLY YES)
+if(cpp_httplib_ADDED)
+	add_library(cpp_httplib INTERFACE)
+	target_include_directories(cpp_httplib SYSTEM INTERFACE ${cpp_httplib_SOURCE_DIR})
+endif()
+
 set_target_properties(assimp PROPERTIES FOLDER "Utilities/assimp")
 if(TARGET UpdateAssimpLibsDebugSymbolsAndDLLs)
 	set_target_properties(UpdateAssimpLibsDebugSymbolsAndDLLs PROPERTIES FOLDER "Utilities/assimp")

@@ -110,6 +110,46 @@ function Resolve-Exe {
     throw "Could not find $Target.exe. Build it first: cmake --build build --target $Target --config $Config --parallel  (looked for $templated)"
 }
 
+# Locate dumpbin.exe from the latest VS install (via vswhere). Returns $null if
+# not found — the DLL diagnostic below then degrades to "skipped".
+function Find-Dumpbin {
+    $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+    if (-not (Test-Path $vswhere)) { return $null }
+    $vs = & $vswhere -latest -property installationPath 2>$null
+    if (-not $vs) { return $null }
+    $db = Get-ChildItem "$vs\VC\Tools\MSVC\*\bin\Hostx64\x64\dumpbin.exe" -ErrorAction SilentlyContinue |
+        Sort-Object FullName -Descending | Select-Object -First 1
+    if ($db) { return $db.FullName }
+    return $null
+}
+
+# Imported DLLs of $exePath that cannot be resolved against the loader search path
+# (exe dir, System32/SysWOW64, PATH). API-set stubs (api-ms-win-*, ext-ms-*) are
+# skipped — the OS resolves those. This is exactly the "which DLL is missing?"
+# answer behind a STATUS_DLL_NOT_FOUND (0xC0000135) early exit.
+function Get-UnresolvedDlls {
+    param($exePath)
+    $dumpbin = Find-Dumpbin
+    if (-not $dumpbin) { return $null }   # cannot determine
+    $out = & $dumpbin /dependents $exePath 2>$null
+    $deps = $out | Select-String -Pattern '^\s+(\S+\.dll)\s*$' |
+        ForEach-Object { $_.Matches[0].Groups[1].Value }
+    if (-not $deps) { return @() }
+    $exeDir = Split-Path $exePath
+    $searchDirs = @($exeDir, "$env:SystemRoot\System32", "$env:SystemRoot\SysWOW64") +
+        ($env:PATH -split ';' | Where-Object { $_ })
+    $missing = @()
+    foreach ($d in $deps) {
+        if ($d -like 'api-ms-win-*' -or $d -like 'ext-ms-*') { continue }
+        $found = $false
+        foreach ($dir in $searchDirs) {
+            if ($dir -and (Test-Path (Join-Path $dir $d) -ErrorAction SilentlyContinue)) { $found = $true; break }
+        }
+        if (-not $found) { $missing += $d }
+    }
+    return $missing
+}
+
 function Get-WindowRectFor {
     param($hwnd)
     $r = New-Object WinShot+RECT
@@ -171,11 +211,31 @@ function Start-Editor {
 }
 
 function Wait-Window {
-    param($proc, $timeoutSec)
+    param($proc, $timeoutSec, $exePath)
     $deadline = (Get-Date).AddSeconds($timeoutSec)
     while ((Get-Date) -lt $deadline) {
         if ($proc.HasExited) {
-            throw "Process exited early (exit code $($proc.ExitCode)) before a window appeared. Check OloEditor/OloEngine.log."
+            $msg = "Process exited early (exit code $($proc.ExitCode)) before a window appeared."
+            if ($proc.ExitCode -eq -1073741515) {
+                $msg += " Exit code 0xC0000135 = STATUS_DLL_NOT_FOUND: a required DLL is missing from the loader search path."
+            }
+            if ($exePath) {
+                $missing = $null
+                $dllCheckError = $null
+                try { $missing = Get-UnresolvedDlls $exePath }
+                catch { $dllCheckError = $_.Exception.Message }
+                if ($dllCheckError) {
+                    $msg += "`n(DLL dependency check failed: $dllCheckError)"
+                }
+                elseif ($null -eq $missing) {
+                    $msg += " (dumpbin not found — cannot list imports; install the VC++ toolset to enable this diagnostic.)"
+                }
+                elseif ($missing.Count -gt 0) {
+                    $msg += "`nUnresolved DLL imports: " + ($missing -join ', ')
+                }
+            }
+            $msg += " Check OloEditor/OloEngine.log."
+            throw $msg
         }
         $proc.Refresh()
         $h = $proc.MainWindowHandle
@@ -233,7 +293,7 @@ switch ($Action) {
     'launch' {
         $exePath = Resolve-Exe $repo
         $proc = Start-Editor $exePath $workDir $true   # detached: survives this script
-        $hwnd = Wait-Window $proc $WaitSeconds
+        $hwnd = Wait-Window $proc $WaitSeconds $exePath
         New-Item -ItemType Directory -Force -Path (Split-Path $pidFile) | Out-Null
         Set-Content -Path $pidFile -Value $proc.Id
         Write-Output "LAUNCHED $Target pid=$($proc.Id) hwnd=$hwnd (left running; use -Action shot / stop)"
@@ -243,7 +303,7 @@ switch ($Action) {
         Write-Output "Launching $exePath (cwd=$workDir)"
         $proc = Start-Editor $exePath $workDir $false  # inline: log streams here, we kill it
         try {
-            $hwnd = Wait-Window $proc $WaitSeconds
+            $hwnd = Wait-Window $proc $WaitSeconds $exePath
             $info = Save-Shot $hwnd $Out
             $info | Format-List | Out-String | Write-Output
             if ($info.StdLum -lt 3) {
