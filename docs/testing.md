@@ -1157,7 +1157,7 @@ subsystem unit tests (§9.3, grouped by directory).
 | [FreeFallLandingTest.cpp](../OloEngine/tests/Functional/AnimationPhysics/FreeFallLandingTest.cpp) | 1 | **FreeFallLandingTest** &mdash; `BallLandsAndAnimationKeepsTicking` |
 | [InitialLinearVelocityIsAppliedTest.cpp](../OloEngine/tests/Functional/AnimationPhysics/InitialLinearVelocityIsAppliedTest.cpp) | 1 | **InitialLinearVelocityIsAppliedTest** &mdash; `BodyTravelsFiveMetersInOneSecondAtFiveMetersPerSecond` |
 | [Physics2DSimulatesViaSceneTickTest.cpp](../OloEngine/tests/Functional/AnimationPhysics/Physics2DSimulatesViaSceneTickTest.cpp) | 1 | **Physics2DSimulatesViaSceneTickTest** &mdash; `BoxFallsAndLandsOnStaticFloor` |
-| [PhysicsJoint3DTest.cpp](../OloEngine/tests/Functional/AnimationPhysics/PhysicsJoint3DTest.cpp) | 7 | **PhysicsJoint3DTest** &mdash; `FixedJointWeldsDynamicBodyToStaticAnchor`, `PointJointActsAsBallSocketPendulum`, `DistanceJointCatchesFallingBodyAtMaxLength`, `HingeJointSwingsAboutAxisAndRespectsAngleLimit`, `SliderJointConstrainsMotionToAxisAndLimit`, `ConeJointConfinesSwingWithinHalfAngle`, `ComponentSurvivesSaveGameRoundTrip` |
+| [PhysicsJoint3DTest.cpp](../OloEngine/tests/Functional/AnimationPhysics/PhysicsJoint3DTest.cpp) | 11 | **PhysicsJoint3DTest** &mdash; `FixedJointWeldsDynamicBodyToStaticAnchor`, `PointJointActsAsBallSocketPendulum`, `DistanceJointCatchesFallingBodyAtMaxLength`, `HingeJointSwingsAboutAxisAndRespectsAngleLimit`, `SliderJointConstrainsMotionToAxisAndLimit`, `ConeJointConfinesSwingWithinHalfAngle`, `BreakableJointSurvivesLoadBelowBreakForce`, `BreakableJointBreaksWhenForceExceedsBreakForce`, `BreakableJointBreaksWhenTorqueExceedsBreakTorque`, `UnbreakableByDefaultIgnoresLoad`, `ComponentSurvivesSaveGameRoundTrip` |
 | [PhysicsLayerFilteringTest.cpp](../OloEngine/tests/Functional/AnimationPhysics/PhysicsLayerFilteringTest.cpp) | 1 | **PhysicsLayerFilteringTest** &mdash; `AlphaPassesThroughBetaAndBothLandOnGround` |
 | [RigidbodyDisableGravityFlagTest.cpp](../OloEngine/tests/Functional/AnimationPhysics/RigidbodyDisableGravityFlagTest.cpp) | 1 | **RigidbodyDisableGravityFlagTest** &mdash; `BodyWithDisableGravityStaysAtRestWhileControlFalls` |
 | [TriggerEndEventFiresOnSeparationTest.cpp](../OloEngine/tests/Functional/AnimationPhysics/TriggerEndEventFiresOnSeparationTest.cpp) | 1 | **TriggerEndEventFiresOnSeparationTest** &mdash; `EnterAndExitBothInvokeTheCallback` |
@@ -1283,7 +1283,7 @@ subsystem unit tests (§9.3, grouped by directory).
 | [LuaScriptSetsRigidbody2DVelocityTest.cpp](../OloEngine/tests/Functional/Scripting/LuaScriptSetsRigidbody2DVelocityTest.cpp) | 1 | **LuaScriptSetsRigidbody2DVelocityTest** &mdash; `BodyTranslatesAfterLuaSetsLinearVelocity` |
 | [LuaSetsAbilityAttributeViaSceneTickTest.cpp](../OloEngine/tests/Functional/Scripting/LuaSetsAbilityAttributeViaSceneTickTest.cpp) | 1 | **LuaSetsAbilityAttributeViaSceneTickTest** &mdash; `LuaDrivenHealthToZeroFlipsAliveToDeadOnSubsequentTick` |
 
-**Totals.** 85 Functional test files, 111 TEST / TEST_F declarations across all subsystems.
+**Totals.** 85 Functional test files, 115 TEST / TEST_F declarations across all subsystems.
 
 <!-- END: functional-catalogue -->
 

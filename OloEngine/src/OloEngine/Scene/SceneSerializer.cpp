@@ -2438,6 +2438,8 @@ namespace OloEngine
             joint.m_SliderMinLimit = jointComponent["SliderMinLimit"].as<f32>(joint.m_SliderMinLimit);
             joint.m_SliderMaxLimit = jointComponent["SliderMaxLimit"].as<f32>(joint.m_SliderMaxLimit);
             joint.m_ConeHalfAngleDeg = jointComponent["ConeHalfAngleDeg"].as<f32>(joint.m_ConeHalfAngleDeg);
+            joint.m_BreakForce = jointComponent["BreakForce"].as<f32>(joint.m_BreakForce);
+            joint.m_BreakTorque = jointComponent["BreakTorque"].as<f32>(joint.m_BreakTorque);
 
             // Reject non-finite floats read from disk and clamp to physically/Jolt-valid ranges.
             SanitizeFloat(joint.m_MinDistance, -1.0f, 10000.0f, 0.0f);
@@ -2447,6 +2449,10 @@ namespace OloEngine
             SanitizeFloat(joint.m_SliderMinLimit, -10000.0f, 10000.0f, 0.0f);
             SanitizeFloat(joint.m_SliderMaxLimit, -10000.0f, 10000.0f, 1.0f);
             SanitizeFloat(joint.m_ConeHalfAngleDeg, 0.0f, 180.0f, 45.0f);
+            // Break thresholds: a non-positive value is the "disabled" sentinel,
+            // so clamp negatives to 0 and reject non-finite to 0 (unbreakable).
+            SanitizeFloat(joint.m_BreakForce, 0.0f, 1.0e9f, 0.0f);
+            SanitizeFloat(joint.m_BreakTorque, 0.0f, 1.0e9f, 0.0f);
         }
 
         if (auto relComponent = entity["RelationshipComponent"]; relComponent)
@@ -4331,6 +4337,8 @@ namespace OloEngine
             out << YAML::Key << "SliderMinLimit" << YAML::Value << joint.m_SliderMinLimit;
             out << YAML::Key << "SliderMaxLimit" << YAML::Value << joint.m_SliderMaxLimit;
             out << YAML::Key << "ConeHalfAngleDeg" << YAML::Value << joint.m_ConeHalfAngleDeg;
+            out << YAML::Key << "BreakForce" << YAML::Value << joint.m_BreakForce;
+            out << YAML::Key << "BreakTorque" << YAML::Value << joint.m_BreakTorque;
 
             out << YAML::EndMap; // PhysicsJoint3DComponent
         }

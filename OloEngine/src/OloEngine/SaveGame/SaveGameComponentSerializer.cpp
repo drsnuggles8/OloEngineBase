@@ -677,6 +677,7 @@ namespace OloEngine
         ar << c.m_HingeMinAngleDeg << c.m_HingeMaxAngleDeg;
         ar << c.m_SliderMinLimit << c.m_SliderMaxLimit;
         ar << c.m_ConeHalfAngleDeg;
+        ar << c.m_BreakForce << c.m_BreakTorque;
         // m_RuntimeConstraintToken is a runtime Jolt handle — not serialized.
     }
 

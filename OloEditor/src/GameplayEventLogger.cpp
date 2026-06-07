@@ -6,6 +6,7 @@
 #include "OloEngine/Gameplay/GameplayEventBus.h"
 #include "OloEngine/Gameplay/Quest/QuestEvents.h"
 #include "OloEngine/Gameplay/Inventory/InventoryEvents.h"
+#include "OloEngine/Physics3D/PhysicsEvents.h"
 
 namespace OloEngine
 {
@@ -48,7 +49,11 @@ namespace OloEngine
         bus.Subscribe<ItemUnequippedEvent>([](const ItemUnequippedEvent& e)
                                            { OLO_CORE_INFO("[GameplayEvents] ItemUnequipped  entity={} instance={} slot='{}'", static_cast<u64>(e.EntityID), static_cast<u64>(e.ItemInstanceID), e.SlotName); });
 
-        OLO_CORE_INFO("[GameplayEvents] Logger attached — quest/inventory events will stream to the Console panel.");
+        // --- Physics events ---------------------------------------------------
+        bus.Subscribe<JointBrokeEvent>([](const JointBrokeEvent& e)
+                                       { OLO_CORE_INFO("[GameplayEvents] JointBroke      entity={} connected={} force={:.1f}N torque={:.1f}N·m by={}", static_cast<u64>(e.EntityID), static_cast<u64>(e.ConnectedEntityID), e.Force, e.Torque, e.BrokeByForce ? "force" : "torque"); });
+
+        OLO_CORE_INFO("[GameplayEvents] Logger attached — quest/inventory/physics events will stream to the Console panel.");
     }
 
 } // namespace OloEngine

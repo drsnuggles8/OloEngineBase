@@ -761,6 +761,18 @@ namespace OloEngine
 			get => InternalCalls.PhysicsJoint3DComponent_GetConeHalfAngleDeg(Entity.ID);
 			set => InternalCalls.PhysicsJoint3DComponent_SetConeHalfAngleDeg(Entity.ID, value);
 		}
+
+		public float BreakForce
+		{
+			get => InternalCalls.PhysicsJoint3DComponent_GetBreakForce(Entity.ID);
+			set => InternalCalls.PhysicsJoint3DComponent_SetBreakForce(Entity.ID, value);
+		}
+
+		public float BreakTorque
+		{
+			get => InternalCalls.PhysicsJoint3DComponent_GetBreakTorque(Entity.ID);
+			set => InternalCalls.PhysicsJoint3DComponent_SetBreakTorque(Entity.ID, value);
+		}
 	}
 
 	public partial class PointLightComponent : Component

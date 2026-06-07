@@ -173,6 +173,12 @@ namespace OloEngine
         // Remove and release every tracked constraint. Must run before the
         // bodies they reference are destroyed.
         void DestroyAllConstraints();
+        // After a simulation step, read back each breakable constraint's
+        // accumulated impulse (force/torque = impulse / dt), and for any that
+        // exceeds its authored PhysicsJoint3DComponent break threshold: remove
+        // the constraint, clear the component's m_RuntimeConstraintToken, and
+        // publish a JointBrokeEvent on the Scene's GameplayEventBus.
+        void BreakOverstressedJoints(f32 stepDeltaTime);
         void SynchronizeBody(Ref<JoltBody> body) const;
 
         // Internal Jolt setup

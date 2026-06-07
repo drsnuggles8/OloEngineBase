@@ -1069,7 +1069,14 @@ namespace OloEngine
                                                                                   { if (std::isfinite(v)) j.m_SliderMaxLimit = v; }),
                                                   "coneHalfAngleDeg", sol::property([](const PhysicsJoint3DComponent& j)
                                                                                     { return j.m_ConeHalfAngleDeg; }, [](PhysicsJoint3DComponent& j, f32 v)
-                                                                                    { if (std::isfinite(v) && v >= 0.0f) j.m_ConeHalfAngleDeg = v; }));
+                                                                                    { if (std::isfinite(v) && v >= 0.0f) j.m_ConeHalfAngleDeg = v; }),
+                                                  // Break thresholds (N / N·m). <= 0 means unbreakable on that axis.
+                                                  "breakForce", sol::property([](const PhysicsJoint3DComponent& j)
+                                                                              { return j.m_BreakForce; }, [](PhysicsJoint3DComponent& j, f32 v)
+                                                                              { if (std::isfinite(v)) j.m_BreakForce = v; }),
+                                                  "breakTorque", sol::property([](const PhysicsJoint3DComponent& j)
+                                                                               { return j.m_BreakTorque; }, [](PhysicsJoint3DComponent& j, f32 v)
+                                                                               { if (std::isfinite(v)) j.m_BreakTorque = v; }));
 
         // --- PrefabComponent ---
         // Read-only window into prefab-instance identity & override state.

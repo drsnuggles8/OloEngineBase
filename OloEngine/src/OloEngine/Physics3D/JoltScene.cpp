@@ -3,10 +3,12 @@
 #include "EntityExclusionBodyFilter.h"
 #include "SceneQueries.h"
 #include "JoltShapes.h"
+#include "PhysicsEvents.h"
 #include "OloEngine/Core/Log.h"
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Scene/Scene.h"
 #include "OloEngine/Scene/Components.h"
+#include "OloEngine/Gameplay/GameplayEventBus.h"
 
 #include <Jolt/RegisterTypes.h>
 #include <Jolt/Core/Factory.h>
@@ -34,6 +36,9 @@
 #include <Jolt/Physics/Constraints/ConeConstraint.h>
 
 #include <glm/gtc/constants.hpp>
+
+#include <cmath>
+#include <vector>
 
 namespace OloEngine
 {
@@ -189,6 +194,11 @@ namespace OloEngine
         {
             characterController->PostSimulate();
         }
+
+        // Break any joint whose accumulated constraint impulse this step exceeded
+        // its authored threshold. Done here (per fixed step) because the lambdas
+        // are per-step state that the next Update() overwrites.
+        BreakOverstressedJoints(fixedTimeStep);
     }
 
     glm::vec3 JoltScene::GetGravity() const
@@ -762,6 +772,69 @@ namespace OloEngine
             const glm::vec3 ref = (glm::abs(v.x) < 0.9f) ? glm::vec3(1.0f, 0.0f, 0.0f) : glm::vec3(0.0f, 1.0f, 0.0f);
             return glm::normalize(glm::cross(v, ref));
         }
+
+        // Read back the accumulated position (linear) and rotation (angular)
+        // constraint impulse magnitudes for the last solved step. The lambda
+        // accessors are type-specific, so dispatch on the concrete sub-type. The
+        // returned values are impulses (N·s / N·m·s); the caller divides by the
+        // step dt to get an average force/torque. Returns false for sub-types we
+        // don't monitor (none of ours, but keeps the switch total and safe if a
+        // new joint type is added without a break mapping). For each type the
+        // position impulse aggregates every locked translational part and the
+        // rotation impulse every locked angular part, so the magnitude reflects
+        // the full load the joint carries — not just one axis.
+        bool ReadConstraintImpulses(const JPH::Constraint& constraint, f32& outLinearImpulse, f32& outAngularImpulse)
+        {
+            switch (constraint.GetSubType())
+            {
+                case JPH::EConstraintSubType::Fixed:
+                {
+                    const auto& c = static_cast<const JPH::FixedConstraint&>(constraint);
+                    outLinearImpulse = c.GetTotalLambdaPosition().Length();
+                    outAngularImpulse = c.GetTotalLambdaRotation().Length();
+                    return true;
+                }
+                case JPH::EConstraintSubType::Point:
+                {
+                    const auto& c = static_cast<const JPH::PointConstraint&>(constraint);
+                    outLinearImpulse = c.GetTotalLambdaPosition().Length();
+                    outAngularImpulse = 0.0f; // rotation is unconstrained
+                    return true;
+                }
+                case JPH::EConstraintSubType::Distance:
+                {
+                    const auto& c = static_cast<const JPH::DistanceConstraint&>(constraint);
+                    outLinearImpulse = std::abs(c.GetTotalLambdaPosition()); // scalar along the axis
+                    outAngularImpulse = 0.0f;
+                    return true;
+                }
+                case JPH::EConstraintSubType::Hinge:
+                {
+                    const auto& c = static_cast<const JPH::HingeConstraint&>(constraint);
+                    outLinearImpulse = c.GetTotalLambdaPosition().Length();
+                    // Two locked rotational DOF + the angle-limit reaction.
+                    outAngularImpulse = c.GetTotalLambdaRotation().Length() + std::abs(c.GetTotalLambdaRotationLimits());
+                    return true;
+                }
+                case JPH::EConstraintSubType::Slider:
+                {
+                    const auto& c = static_cast<const JPH::SliderConstraint&>(constraint);
+                    // Two locked perpendicular axes + the translation-limit reaction.
+                    outLinearImpulse = c.GetTotalLambdaPosition().Length() + std::abs(c.GetTotalLambdaPositionLimits());
+                    outAngularImpulse = c.GetTotalLambdaRotation().Length();
+                    return true;
+                }
+                case JPH::EConstraintSubType::Cone:
+                {
+                    const auto& c = static_cast<const JPH::ConeConstraint&>(constraint);
+                    outLinearImpulse = c.GetTotalLambdaPosition().Length();
+                    outAngularImpulse = std::abs(c.GetTotalLambdaRotation()); // cone half-angle limit
+                    return true;
+                }
+                default:
+                    return false;
+            }
+        }
     } // namespace
 
     void JoltScene::CreateConstraints()
@@ -1005,6 +1078,73 @@ namespace OloEngine
             }
         }
         m_Constraints.clear();
+    }
+
+    void JoltScene::BreakOverstressedJoints(f32 stepDeltaTime)
+    {
+        // Nothing to break, or no scene to publish on / look up components from.
+        if (m_Constraints.empty() || !m_Scene || stepDeltaTime <= 0.0f)
+            return;
+
+        // Scan first, mutate after: DestroyConstraint() erases from m_Constraints,
+        // which would invalidate this iteration, and event handlers may touch the
+        // scene. So gather the events, then break + publish outside the loop.
+        std::vector<JointBrokeEvent> broken;
+        for (const auto& [entityID, constraint] : m_Constraints)
+        {
+            if (constraint == nullptr)
+                continue;
+
+            Entity entity = m_Scene->GetEntityByUUID(entityID);
+            if (!entity || !entity.HasComponent<PhysicsJoint3DComponent>())
+                continue;
+
+            const auto& joint = entity.GetComponent<PhysicsJoint3DComponent>();
+            const bool forceEnabled = joint.m_BreakForce > 0.0f;
+            const bool torqueEnabled = joint.m_BreakTorque > 0.0f;
+            if (!forceEnabled && !torqueEnabled)
+                continue; // unbreakable joint — skip the read entirely
+
+            f32 linearImpulse = 0.0f;
+            f32 angularImpulse = 0.0f;
+            if (!ReadConstraintImpulses(*constraint, linearImpulse, angularImpulse))
+                continue;
+
+            // lambda is an impulse (force·dt / torque·dt); recover the average
+            // force/torque the joint carried over the step.
+            const f32 force = linearImpulse / stepDeltaTime;
+            const f32 torque = angularImpulse / stepDeltaTime;
+            const bool brokeByForce = forceEnabled && (force > joint.m_BreakForce);
+            const bool brokeByTorque = torqueEnabled && (torque > joint.m_BreakTorque);
+            if (!brokeByForce && !brokeByTorque)
+                continue;
+
+            broken.push_back(JointBrokeEvent{
+                .EntityID = entityID,
+                .ConnectedEntityID = joint.m_ConnectedEntity,
+                .Type = joint.m_Type,
+                .Force = force,
+                .Torque = torque,
+                .BrokeByForce = brokeByForce,
+                .BrokeByTorque = brokeByTorque });
+        }
+
+        for (const JointBrokeEvent& event : broken)
+        {
+            Entity entity = m_Scene->GetEntityByUUID(event.EntityID);
+            // Remove the Jolt constraint (erases the m_Constraints entry) and
+            // clear the component's runtime token so it reads as "no constraint".
+            DestroyConstraint(entity);
+            if (entity && entity.HasComponent<PhysicsJoint3DComponent>())
+                entity.GetComponent<PhysicsJoint3DComponent>().m_RuntimeConstraintToken = 0;
+
+            OLO_CORE_TRACE("PhysicsJoint3D on entity {0} broke (force={1} N, torque={2} N·m)",
+                           (u64)event.EntityID, event.Force, event.Torque);
+
+            // Publish last so a handler that inspects the joint/entity sees the
+            // already-broken state.
+            m_Scene->GetGameplayEvents().Publish(event);
+        }
     }
 
     void JoltScene::SynchronizeBody(Ref<JoltBody> body) const

@@ -26,10 +26,14 @@
 #include "OloEngine/Scene/Entity.h"
 #include "OloEngine/Scene/Components.h"
 #include "OloEngine/SaveGame/SaveGameSerializer.h"
+#include "OloEngine/Gameplay/GameplayEventBus.h"
+#include "OloEngine/Physics3D/PhysicsEvents.h"
+#include "OloEngine/Physics3D/JoltScene.h"
 
 #include <glm/glm.hpp>
 #include <algorithm>
 #include <cmath>
+#include <vector>
 
 using namespace OloEngine;
 using namespace OloEngine::Functional;
@@ -259,6 +263,145 @@ TEST_F(PhysicsJoint3DTest, ConeJointConfinesSwingWithinHalfAngle)
     EXPECT_GT(maxHoriz, 0.25f) << "bob never swung out — initial velocity wasn't applied";
 }
 
+// =============================================================================
+// Breakable joints (issue #308 item 2). At runtime the per-step constraint
+// impulse is read back, converted to a force/torque, and compared against the
+// authored m_BreakForce / m_BreakTorque thresholds; over-threshold joints are
+// removed and a JointBrokeEvent is published on the Scene's GameplayEventBus.
+// A non-positive threshold disables that axis.
+//
+// The force cases pin a 1 kg body in place against gravity, so the Point
+// constraint must carry exactly m·g ≈ 9.81 N every step — a stable load that
+// is trivially above/below a chosen threshold. The torque case welds a
+// spinning body, so the Fixed constraint must shed a large angular impulse.
+// =============================================================================
+
+// -----------------------------------------------------------------------------
+// Below-threshold: the joint must survive — constraint kept, token intact, no
+// event, body held in place.
+// -----------------------------------------------------------------------------
+TEST_F(PhysicsJoint3DTest, BreakableJointSurvivesLoadBelowBreakForce)
+{
+    Entity bob = MakeBox("HeldBob", { 0.0f, 3.0f, 0.0f }, BodyType3D::Dynamic, 0.25f);
+    auto& joint = bob.AddComponent<PhysicsJoint3DComponent>();
+    joint.m_Type = JointType3D::Point;
+    // m_ConnectedEntity defaults to 0 → world anchor at the body's own position.
+    joint.m_BreakForce = 50.0f; // well above the ~9.81 N the joint must carry
+
+    EnablePhysics3D();
+
+    std::vector<JointBrokeEvent> breaks;
+    GetScene().GetGameplayEvents().Subscribe<JointBrokeEvent>([&](const JointBrokeEvent& e)
+                                                              { breaks.push_back(e); });
+
+    TickFor(2.0f);
+
+    EXPECT_TRUE(breaks.empty()) << "joint broke under a load below its break force";
+    EXPECT_NE(bob.GetComponent<PhysicsJoint3DComponent>().m_RuntimeConstraintToken, 0u)
+        << "surviving joint lost its runtime constraint token";
+    ASSERT_NE(GetScene().GetPhysicsScene(), nullptr);
+    EXPECT_EQ(GetScene().GetPhysicsScene()->GetConstraintCount(), 1u)
+        << "surviving joint's Jolt constraint was removed";
+    EXPECT_NEAR(Pos(bob).y, 3.0f, 0.1f) << "body was not held in place; y=" << Pos(bob).y;
+}
+
+// -----------------------------------------------------------------------------
+// Above-threshold (force): the joint must break — constraint removed, token
+// cleared, exactly one JointBrokeEvent fired (BrokeByForce), body falls free.
+// -----------------------------------------------------------------------------
+TEST_F(PhysicsJoint3DTest, BreakableJointBreaksWhenForceExceedsBreakForce)
+{
+    Entity bob = MakeBox("BreakBob", { 0.0f, 3.0f, 0.0f }, BodyType3D::Dynamic, 0.25f);
+    const UUID bobID = bob.GetUUID();
+    auto& joint = bob.AddComponent<PhysicsJoint3DComponent>();
+    joint.m_Type = JointType3D::Point; // world anchor at the body's own position
+    joint.m_BreakForce = 2.0f;         // below the ~9.81 N gravity load → snaps
+
+    EnablePhysics3D();
+
+    std::vector<JointBrokeEvent> breaks;
+    GetScene().GetGameplayEvents().Subscribe<JointBrokeEvent>([&](const JointBrokeEvent& e)
+                                                              { breaks.push_back(e); });
+
+    TickFor(2.0f);
+
+    ASSERT_EQ(breaks.size(), 1u) << "expected exactly one JointBrokeEvent";
+    EXPECT_EQ(static_cast<u64>(breaks[0].EntityID), static_cast<u64>(bobID));
+    EXPECT_TRUE(breaks[0].BrokeByForce) << "break should be attributed to the force threshold";
+    EXPECT_FALSE(breaks[0].BrokeByTorque);
+    EXPECT_GT(breaks[0].Force, joint.m_BreakForce) << "reported force should exceed the threshold";
+    EXPECT_EQ(bob.GetComponent<PhysicsJoint3DComponent>().m_RuntimeConstraintToken, 0u)
+        << "broken joint did not clear its runtime constraint token";
+    ASSERT_NE(GetScene().GetPhysicsScene(), nullptr);
+    EXPECT_EQ(GetScene().GetPhysicsScene()->GetConstraintCount(), 0u)
+        << "broken joint's Jolt constraint was not removed";
+    // Freed body falls (~19 m in 2 s); it must drop well below its pinned height.
+    EXPECT_LT(Pos(bob).y, 2.0f) << "body did not fall after the joint broke; y=" << Pos(bob).y;
+}
+
+// -----------------------------------------------------------------------------
+// Above-threshold (torque): a Fixed joint welds a spinning body, so the
+// rotation constraint must shed a large angular impulse. With break force
+// disabled (0), only the torque threshold can trip — proving the torque path.
+// -----------------------------------------------------------------------------
+TEST_F(PhysicsJoint3DTest, BreakableJointBreaksWhenTorqueExceedsBreakTorque)
+{
+    Entity anchor = MakeBox("TorqueAnchor", { 0.0f, 3.0f, 0.0f }, BodyType3D::Static, 0.3f);
+    Entity welded = MakeBox("TorqueWelded", { 1.0f, 3.0f, 0.0f }, BodyType3D::Dynamic, 0.3f);
+    const UUID weldedID = welded.GetUUID();
+    welded.GetComponent<Rigidbody3DComponent>().m_InitialAngularVelocity = { 0.0f, 0.0f, 15.0f };
+
+    auto& joint = welded.AddComponent<PhysicsJoint3DComponent>();
+    joint.m_Type = JointType3D::Fixed;
+    joint.m_ConnectedEntity = anchor.GetUUID();
+    joint.m_BreakForce = 0.0f;  // disabled — only torque may break this joint
+    joint.m_BreakTorque = 5.0f; // the spin-arresting torque dwarfs this
+
+    EnablePhysics3D();
+
+    std::vector<JointBrokeEvent> breaks;
+    GetScene().GetGameplayEvents().Subscribe<JointBrokeEvent>([&](const JointBrokeEvent& e)
+                                                              { breaks.push_back(e); });
+
+    TickFor(1.0f);
+
+    ASSERT_EQ(breaks.size(), 1u) << "expected exactly one JointBrokeEvent";
+    EXPECT_EQ(static_cast<u64>(breaks[0].EntityID), static_cast<u64>(weldedID));
+    EXPECT_TRUE(breaks[0].BrokeByTorque) << "break should be attributed to the torque threshold";
+    EXPECT_FALSE(breaks[0].BrokeByForce) << "break force was disabled, so it must not be the cause";
+    EXPECT_GT(breaks[0].Torque, joint.m_BreakTorque);
+    EXPECT_EQ(welded.GetComponent<PhysicsJoint3DComponent>().m_RuntimeConstraintToken, 0u);
+    ASSERT_NE(GetScene().GetPhysicsScene(), nullptr);
+    EXPECT_EQ(GetScene().GetPhysicsScene()->GetConstraintCount(), 0u);
+    // Once free, the welded body falls away from its held height.
+    EXPECT_LT(Pos(welded).y, 2.5f) << "body did not fall after the weld broke; y=" << Pos(welded).y;
+}
+
+// -----------------------------------------------------------------------------
+// Backward compatibility: with both thresholds at the 0 default, a joint is
+// unbreakable no matter how it is loaded — existing scenes keep their joints.
+// -----------------------------------------------------------------------------
+TEST_F(PhysicsJoint3DTest, UnbreakableByDefaultIgnoresLoad)
+{
+    Entity bob = MakeBox("UnbreakableBob", { 0.0f, 3.0f, 0.0f }, BodyType3D::Dynamic, 0.25f);
+    bob.AddComponent<PhysicsJoint3DComponent>().m_Type = JointType3D::Point;
+    // m_BreakForce / m_BreakTorque left at their 0 defaults → unbreakable.
+
+    EnablePhysics3D();
+
+    std::vector<JointBrokeEvent> breaks;
+    GetScene().GetGameplayEvents().Subscribe<JointBrokeEvent>([&](const JointBrokeEvent& e)
+                                                              { breaks.push_back(e); });
+
+    TickFor(2.0f);
+
+    EXPECT_TRUE(breaks.empty()) << "a default (0/0) joint must never break";
+    EXPECT_NE(bob.GetComponent<PhysicsJoint3DComponent>().m_RuntimeConstraintToken, 0u);
+    ASSERT_NE(GetScene().GetPhysicsScene(), nullptr);
+    EXPECT_EQ(GetScene().GetPhysicsScene()->GetConstraintCount(), 1u);
+    EXPECT_NEAR(Pos(bob).y, 3.0f, 0.1f);
+}
+
 // -----------------------------------------------------------------------------
 // Save-game round-trip — the authored joint data must survive
 // CaptureSceneState → RestoreSceneState (exercises SaveGameComponentSerializer).
@@ -281,6 +424,8 @@ TEST_F(PhysicsJoint3DTest, ComponentSurvivesSaveGameRoundTrip)
     j.m_SliderMinLimit = -1.5f;
     j.m_SliderMaxLimit = 2.0f;
     j.m_ConeHalfAngleDeg = 75.0f;
+    j.m_BreakForce = 320.0f;
+    j.m_BreakTorque = 64.0f;
 
     auto payload = SaveGameSerializer::CaptureSceneState(GetScene());
     ASSERT_GT(payload.size(), 0u);
@@ -308,4 +453,6 @@ TEST_F(PhysicsJoint3DTest, ComponentSurvivesSaveGameRoundTrip)
     EXPECT_NEAR(rj.m_SliderMinLimit, -1.5f, kEps);
     EXPECT_NEAR(rj.m_SliderMaxLimit, 2.0f, kEps);
     EXPECT_NEAR(rj.m_ConeHalfAngleDeg, 75.0f, kEps);
+    EXPECT_NEAR(rj.m_BreakForce, 320.0f, kEps);
+    EXPECT_NEAR(rj.m_BreakTorque, 64.0f, kEps);
 }
