@@ -143,12 +143,20 @@ Show-Tool 'olo_perf_bottlenecks' @{} | Out-Null
 Show-Tool 'olo_perf_frame_history' @{ points = 8 } | Out-Null
 Show-Tool 'olo_perf_capture_frame' @{ topK = 5 } | Out-Null
 
-# 19-20. Shader tools
+# 19-20. Shader tools (olo_shader_list discovers a real name for olo_shader_get)
 Show-Tool 'olo_shader_errors' @{} | Out-Null
-Show-Tool 'olo_shader_get' @{ name = 'PostProcess_SSR' } | Out-Null
+$shaders = Show-Tool 'olo_shader_list' @{}
+$shObj = $shaders.result.content[0].text | ConvertFrom-Json
+if ($shObj.shaders.Count -gt 0) {
+    Show-Tool 'olo_shader_get' @{ name = $shObj.shaders[0].name } | Out-Null
+}
 
-# 21. Assets
+# 21-22. Assets
 Show-Tool 'olo_assets_list' @{ pageSize = 5 } | Out-Null
+Show-Tool 'olo_assets_problems' @{} | Out-Null
+
+# A1 filtering: warnings+ only, and a tag filter
+Show-Tool 'olo_log_tail' @{ count = 5; minLevel = 'warn' } | Out-Null
 
 # 22. Crash reports
 Show-Tool 'olo_crash_list' @{} | Out-Null

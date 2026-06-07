@@ -86,18 +86,20 @@ the server, so update the config (or re-copy from the panel) accordingly.
 
 | Tool | What it returns |
 |---|---|
-| `olo_log_tail` | recent engine log lines |
+| `olo_log_tail` | recent engine log lines, filterable by `minLevel` and `tag` |
 | `olo_scene_summary` | active scene name, play state, entity count |
 | `olo_scene_list_entities` | paginated entity list (id, name, parent, child count) + name filter |
 | `olo_scene_get_entity` | one entity's full component data (YAML) by UUID |
 | `olo_perf_snapshot` | fps, frame/CPU/GPU time, draw calls, instancing, triangles |
 | `olo_perf_bottlenecks` | CPU/GPU/Memory/IO bottleneck + confidence + recommendations |
 | `olo_perf_frame_history` | downsampled recent-frame time series |
-| `olo_perf_capture_frame` | frame breakdown: passes + top-K draw calls by GPU time |
+| `olo_perf_capture_frame` | triggers a real frame capture: stats + top-K draw commands by GPU time |
 | `olo_memory_report` | GPU/CPU memory total + per-type breakdown + suspected leaks |
+| `olo_shader_list` | inventory of all registered shaders (id, name, hasErrors) |
 | `olo_shader_errors` | shaders with compile/link errors |
 | `olo_shader_get` | one shader's uniforms/buffers/samplers/instructions (+ optional GLSL) |
 | `olo_assets_list` | paginated registered assets (handle, type, path) + type filter |
+| `olo_assets_problems` | assets that failed to load or are missing/invalid |
 | `olo_script_get_api` | C# / Lua scripting API digest (types + members), with a type filter |
 | `olo_script_get_last_errors` | recent C# (Mono) / Lua (Sol2) script exceptions |
 | `olo_crash_list` / `olo_crash_get` | crash reports under `CrashReports/` |

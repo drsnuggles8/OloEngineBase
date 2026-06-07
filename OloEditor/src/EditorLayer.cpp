@@ -274,14 +274,17 @@ namespace OloEngine
             { return CaptureFramebufferPng(m_Framebuffer, maxWidth); };
             m_McpServer = CreateScope<MCP::McpServer>(std::move(mcpContext));
             MCP::RegisterBuiltinTools(*m_McpServer);
+            // Apply the persisted redaction preference (loaded by OpenProject above).
+            m_McpServer->SetRedactPaths(m_Prefs.McpRedactPaths);
 
-            // Opt-in automation: setting OLO_MCP_AUTOSTART (to anything but "0")
-            // starts the server immediately — an explicit per-session consent that
-            // keeps the default off. Used for headless attach and the smoke test.
-            if (const char* autostart = std::getenv("OLO_MCP_AUTOSTART");
-                autostart != nullptr && std::string_view(autostart) != "0" && *autostart != '\0')
+            // Auto-start is opt-in and explicit: either the persisted preference
+            // (Window > MCP Server > "Start automatically") or the OLO_MCP_AUTOSTART
+            // env var (for headless attach / the smoke test). Default stays off.
+            const char* autostartEnv = std::getenv("OLO_MCP_AUTOSTART");
+            const bool envAutoStart = autostartEnv != nullptr && std::string_view(autostartEnv) != "0" && *autostartEnv != '\0';
+            if (envAutoStart || m_Prefs.McpAutoStart)
             {
-                u16 port = MCP::DefaultPort;
+                auto port = static_cast<u16>(std::clamp(m_Prefs.McpPort, 1024, 65535));
                 if (const char* portEnv = std::getenv("OLO_MCP_PORT"); portEnv != nullptr)
                 {
                     if (const unsigned long parsed = std::strtoul(portEnv, nullptr, 10);
@@ -1422,7 +1425,7 @@ namespace OloEngine
         // MCP Diagnostics Server Panel
         if (m_ShowMcpPanel && m_McpServer)
         {
-            MCP::RenderMcpServerPanel(*m_McpServer, &m_ShowMcpPanel);
+            MCP::RenderMcpServerPanel(*m_McpServer, m_Prefs.McpPort, m_Prefs.McpAutoStart, &m_ShowMcpPanel);
         }
 
         // Thread Inspector Panel
@@ -1664,6 +1667,11 @@ namespace OloEngine
         m_Prefs.ThrottleEditMode = m_ThrottleEditMode;
         m_Prefs.ThrottlePlayMode = m_ThrottlePlayMode;
         m_Prefs.RenderBudgetMs = m_RenderBudgetMs;
+
+        // MCP: port + auto-start are edited in place by the panel; sync redaction
+        // (which lives on the server) back so it persists. (#285)
+        if (m_McpServer)
+            m_Prefs.McpRedactPaths = m_McpServer->RedactPaths();
 
         if (auto const project = Project::GetActive())
         {

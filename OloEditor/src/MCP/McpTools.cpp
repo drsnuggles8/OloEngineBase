@@ -8,6 +8,8 @@
 #include "OloEngine/Core/Log.h"
 #include "OloEngine/Core/UUID.h"
 #include "OloEngine/Project/Project.h"
+#include "OloEngine/Renderer/Debug/CapturedFrameData.h"
+#include "OloEngine/Renderer/Debug/FrameCaptureManager.h"
 #include "OloEngine/Renderer/Debug/RendererMemoryTracker.h"
 #include "OloEngine/Renderer/Debug/RendererProfiler.h"
 #include "OloEngine/Renderer/Debug/ShaderDebugger.h"
@@ -19,13 +21,16 @@
 
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <cmath>
 #include <cstdint>
+#include <deque>
 #include <filesystem>
 #include <fstream>
 #include <sstream>
 #include <stdexcept>
 #include <string>
+#include <thread>
 #include <unordered_set>
 #include <utility>
 #include <vector>
@@ -34,31 +39,93 @@ namespace OloEngine::MCP
 {
     namespace
     {
+        // spdlog %l level name -> severity rank, for the olo_log_tail minLevel filter.
+        int LogLevelRank(std::string_view level)
+        {
+            if (level == "trace")
+                return 0;
+            if (level == "debug")
+                return 1;
+            if (level == "info")
+                return 2;
+            if (level == "warning" || level == "warn")
+                return 3;
+            if (level == "error" || level == "err")
+                return 4;
+            if (level == "critical" || level == "fatal")
+                return 5;
+            return 2; // unknown -> treat as info
+        }
+
         // ---- olo_log_tail (lock-safe) ------------------------------------------
-        // Wraps Log::GetRecentLogMessages, which reads spdlog's mutex-guarded
-        // ring-buffer sink — safe to call straight from the handler thread.
+        // Wraps Log::GetRecentLogMessages (spdlog's mutex-guarded ring-buffer sink —
+        // safe from the handler thread). Parses each line's level + [tag] from the
+        // "[time] [level] logger: payload" pattern to support minLevel/tag filtering.
         ToolResult Handle_LogTail(McpServer& /*server*/, const Json& arguments)
         {
             std::size_t count = 50;
             if (arguments.contains("count") && arguments["count"].is_number_integer())
-            {
-                const auto requested = arguments["count"].get<std::int64_t>();
-                count = static_cast<std::size_t>(std::clamp<std::int64_t>(requested, 1, 200));
-            }
+                count = static_cast<std::size_t>(std::clamp<std::int64_t>(arguments["count"].get<std::int64_t>(), 1, 200));
 
-            const std::vector<std::string> messages = Log::Get().GetRecentLogMessages(count);
-            if (messages.empty())
-                return ToolResult::Text("(no log messages buffered yet)");
+            int minRank = 0;
+            if (arguments.contains("minLevel") && arguments["minLevel"].is_string())
+                minRank = LogLevelRank(arguments["minLevel"].get<std::string>());
 
-            // The ring-buffer entries are already pattern-formatted (and usually end
-            // with a newline). Normalise to exactly one '\n' between lines.
-            std::string out;
+            std::string tagFilter;
+            if (arguments.contains("tag") && arguments["tag"].is_string())
+                tagFilter = arguments["tag"].get<std::string>();
+
+            const std::vector<std::string> messages = Log::Get().GetRecentLogMessages(0); // all buffered, then filter
+            std::vector<std::string> matched;
             for (const auto& message : messages)
             {
-                std::string_view line = message;
+                std::string line = message;
                 while (!line.empty() && (line.back() == '\n' || line.back() == '\r'))
-                    line.remove_suffix(1);
-                out.append(line);
+                    line.pop_back();
+
+                // Parse "[HH:MM:SS] [level] logger: payload".
+                std::string level = "info";
+                std::string payload = line;
+                if (!line.empty() && line.front() == '[')
+                {
+                    if (const auto firstClose = line.find(']'); firstClose != std::string::npos)
+                    {
+                        if (const auto secondOpen = line.find('[', firstClose + 1); secondOpen != std::string::npos)
+                        {
+                            if (const auto secondClose = line.find(']', secondOpen + 1); secondClose != std::string::npos)
+                            {
+                                level = line.substr(secondOpen + 1, secondClose - secondOpen - 1);
+                                const auto colon = line.find(": ", secondClose + 1);
+                                payload = (colon != std::string::npos) ? line.substr(colon + 2) : line.substr(secondClose + 1);
+                            }
+                        }
+                    }
+                }
+
+                if (LogLevelRank(level) < minRank)
+                    continue;
+                if (!tagFilter.empty())
+                {
+                    std::string tag;
+                    if (!payload.empty() && payload.front() == '[')
+                    {
+                        if (const auto tagEnd = payload.find(']'); tagEnd != std::string::npos)
+                            tag = payload.substr(1, tagEnd - 1);
+                    }
+                    if (tag != tagFilter)
+                        continue;
+                }
+                matched.push_back(std::move(line));
+            }
+
+            if (matched.empty())
+                return ToolResult::Text("(no matching log messages)");
+
+            std::string out;
+            const std::size_t start = matched.size() > count ? matched.size() - count : 0;
+            for (std::size_t i = start; i < matched.size(); ++i)
+            {
+                out.append(matched[i]);
                 out.push_back('\n');
             }
             return ToolResult::Text(out);
@@ -417,55 +484,70 @@ namespace OloEngine::MCP
             if (args.contains("topK") && args["topK"].is_number_integer())
                 topK = static_cast<int>(std::clamp<long long>(args["topK"].get<long long>(), 1, 50));
 
-            const Json result = server.MarshalRead([topK]() -> Json
-                                                   {
-                RendererProfiler& profiler = RendererProfiler::GetInstance();
-                profiler.CaptureFrame("MCP capture");
-                const std::vector<RendererProfiler::CapturedFrame>& captures = profiler.GetCapturedFrames();
-                if (captures.empty())
-                    return Json{ { "__error", "No frame could be captured." } };
+            // Trigger a one-frame capture on the game thread and note how many frames
+            // were already retained, so we can detect the new one. FrameCaptureManager
+            // is FMutex-guarded, but marshaling keeps the trigger ordered with the loop.
+            const Json trigger = server.MarshalRead([]() -> Json
+                                                    {
+                FrameCaptureManager& fcm = FrameCaptureManager::GetInstance();
+                const auto before = static_cast<u64>(fcm.GetCapturedFramesCopy().size());
+                fcm.CaptureNextFrame();
+                return Json{ { "before", before } }; });
+            const auto before = trigger.value("before", static_cast<u64>(0));
 
-                const RendererProfiler::CapturedFrame& cap = captures.back();
-                Json o;
-                o["frameNumber"] = cap.m_FrameNumber;
-                o["drawCalls"] = cap.m_FrameData.m_DrawCalls;
-                o["triangles"] = cap.m_FrameData.m_TrianglesRendered;
-                o["gpuMs"] = Round2(cap.m_FrameData.m_GPUTime);
-                o["cpuMs"] = Round2(cap.m_FrameData.m_CPUTime);
-
-                Json passes = Json::array();
-                std::vector<const RendererProfiler::DrawCallInfo*> allDraws;
-                for (const auto& pass : cap.m_RenderPasses)
+            // Poll for the freshly captured frame (GetCapturedFramesCopy is thread-safe).
+            std::deque<CapturedFrameData> frames;
+            bool captured = false;
+            const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
+            while (std::chrono::steady_clock::now() < deadline)
+            {
+                frames = FrameCaptureManager::GetInstance().GetCapturedFramesCopy();
+                if (static_cast<u64>(frames.size()) > before && !frames.empty())
                 {
-                    passes.push_back(Json{ { "name", pass.m_Name },
-                                           { "durationMs", Round2(pass.m_Duration) },
-                                           { "drawCalls", pass.m_DrawCallCount } });
-                    for (const auto& draw : pass.m_DrawCalls)
-                        allDraws.push_back(&draw);
+                    captured = true;
+                    break;
                 }
-                std::sort(allDraws.begin(), allDraws.end(),
-                          [](const RendererProfiler::DrawCallInfo* a, const RendererProfiler::DrawCallInfo* b)
-                          { return a->m_GPUTime > b->m_GPUTime; });
+                std::this_thread::sleep_for(std::chrono::milliseconds(50));
+            }
+            if (!captured)
+                return ToolResult::Error("Frame capture timed out (is the editor rendering the viewport?).");
 
-                Json topDraws = Json::array();
-                for (std::size_t i = 0; i < allDraws.size() && i < static_cast<std::size_t>(topK); ++i)
-                {
-                    const auto* d = allDraws[i];
-                    topDraws.push_back(Json{ { "name", d->m_Name },
-                                             { "shader", d->m_ShaderName },
-                                             { "gpuMs", Round2(d->m_GPUTime) },
-                                             { "triangles", d->m_IndexCount / 3 } });
-                }
-                o["passes"] = std::move(passes);
-                o["topDrawCalls"] = std::move(topDraws);
-                if (cap.m_RenderPasses.empty())
-                    o["note"] = "Per-pass / per-draw-call detail is only recorded while the editor's frame-capture "
-                                "instrumentation is active; the frame-level totals above are always valid.";
-                return o; });
+            const CapturedFrameData& cap = frames.back();
+            Json o;
+            o["frameNumber"] = cap.FrameNumber;
+            o["stats"] = Json{ { "drawCalls", cap.Stats.DrawCalls },
+                               { "totalCommands", cap.Stats.TotalCommands },
+                               { "batchedCommands", cap.Stats.BatchedCommands },
+                               { "stateChanges", cap.Stats.StateChanges },
+                               { "shaderBinds", cap.Stats.ShaderBinds },
+                               { "textureBinds", cap.Stats.TextureBinds },
+                               { "sortMs", Round2(cap.Stats.SortTimeMs) },
+                               { "batchMs", Round2(cap.Stats.BatchTimeMs) },
+                               { "executeMs", Round2(cap.Stats.ExecuteTimeMs) },
+                               { "totalMs", Round2(cap.Stats.TotalFrameTimeMs) } };
 
-            if (result.is_object() && result.contains("__error"))
-                return ToolResult::Error(result["__error"].get<std::string>());
-            return ToolResult::Text(result.dump(2));
+            // Top-K draw commands by GPU time (post-batch = what actually executed).
+            std::vector<const CapturedCommandData*> draws;
+            for (const auto& cmd : cap.PostBatchCommands)
+            {
+                if (cmd.IsDrawCommand())
+                    draws.push_back(&cmd);
+            }
+            std::sort(draws.begin(), draws.end(),
+                      [](const CapturedCommandData* a, const CapturedCommandData* b)
+                      { return a->GetGpuTimeMs() > b->GetGpuTimeMs(); });
+
+            Json topDraws = Json::array();
+            for (std::size_t i = 0; i < draws.size() && i < static_cast<std::size_t>(topK); ++i)
+            {
+                topDraws.push_back(Json{ { "name", draws[i]->GetDebugName() },
+                                         { "type", draws[i]->GetCommandTypeString() },
+                                         { "gpuMs", Round2(draws[i]->GetGpuTimeMs()) } });
+            }
+            o["topDrawCalls"] = std::move(topDraws);
+            o["note"] = "Captured from the scene render command bucket (post-batch). GPU times come from the "
+                        "renderer's timer-query pool.";
+            return ToolResult::Text(o.dump(2));
         }
 
         // ---- olo_shader_errors (main-marshaled; GetAllShaders is unguarded) ----
@@ -555,6 +637,26 @@ namespace OloEngine::MCP
             return ToolResult::Text(result.dump(2));
         }
 
+        // ---- olo_shader_list (main-marshaled; GetAllShaders is unguarded) ------
+        // Inventory of every registered shader so the agent can discover names/ids
+        // to feed olo_shader_get.
+        ToolResult Handle_ShaderList(McpServer& server, const Json& /*args*/)
+        {
+            Json j = server.MarshalRead([]() -> Json
+                                        {
+                const auto& shaders = ShaderDebugger::GetInstance().GetAllShaders();
+                Json arr = Json::array();
+                for (const auto& [id, info] : shaders)
+                {
+                    arr.push_back(Json{ { "id", id },
+                                        { "name", info.m_Name },
+                                        { "hasErrors", info.m_HasErrors },
+                                        { "instructionCount", info.m_LastCompilation.m_InstructionCount } });
+                }
+                return Json{ { "count", static_cast<int>(arr.size()) }, { "shaders", std::move(arr) } }; });
+            return ToolResult::Text(j.dump(2));
+        }
+
         // ---- olo_assets_list (main-marshaled; reads the project asset registry) -
         ToolResult Handle_AssetsList(McpServer& server, const Json& args)
         {
@@ -621,6 +723,40 @@ namespace OloEngine::MCP
                     out["nextPage"] = page + 1;
                 out["assets"] = std::move(assets);
                 return out; });
+
+            if (result.is_object() && result.contains("__error"))
+                return ToolResult::Error(result["__error"].get<std::string>());
+            return ToolResult::Text(result.dump(2));
+        }
+
+        // ---- olo_assets_problems (main-marshaled; failed/missing/invalid assets) -
+        ToolResult Handle_AssetsProblems(McpServer& server, const Json& /*args*/)
+        {
+            const Json result = server.MarshalRead([]() -> Json
+                                                   {
+                const Ref<AssetManagerBase> mgr = Project::GetAssetManager();
+                if (!mgr)
+                    return Json{ { "__error", "No active project / asset manager." } };
+
+                std::unordered_set<u64> seen;
+                Json problems = Json::array();
+                constexpr u16 kMaxType = static_cast<u16>(AssetType::CinematicSequence);
+                for (u16 ti = 1; ti <= kMaxType; ++ti)
+                {
+                    for (const AssetHandle h : mgr->GetAllAssetsWithType(static_cast<AssetType>(ti)))
+                    {
+                        if (!seen.insert(static_cast<u64>(h)).second)
+                            continue;
+                        const AssetMetadata meta = mgr->GetAssetMetadata(h);
+                        if (!AssetStatusUtils::IsStatusError(meta.Status))
+                            continue;
+                        problems.push_back(Json{ { "handle", std::to_string(static_cast<u64>(h)) },
+                                                 { "type", AssetUtils::AssetTypeToString(meta.Type) },
+                                                 { "path", meta.FilePath.generic_string() },
+                                                 { "status", AssetStatusUtils::AssetStatusToString(meta.Status) } });
+                    }
+                }
+                return Json{ { "count", static_cast<int>(problems.size()) }, { "problems", std::move(problems) } }; });
 
             if (result.is_object() && result.contains("__error"))
                 return ToolResult::Error(result["__error"].get<std::string>());
@@ -819,10 +955,12 @@ namespace OloEngine::MCP
                 { "type", "object" },
                 { "properties",
                   { { "count",
-                      { { "type", "integer" },
-                        { "minimum", 1 },
-                        { "maximum", 200 },
-                        { "description", "How many of the most recent log lines to return (default 50)." } } } } },
+                      { { "type", "integer" }, { "minimum", 1 }, { "maximum", 200 }, { "description", "How many of the most recent matching log lines to return (default 50)." } } },
+                    { "minLevel",
+                      { { "type", "string" }, { "enum", Json::array({ "trace", "debug", "info", "warn", "error", "critical" }) }, { "description", "Only return lines at this severity or higher." } } },
+                    { "tag",
+                      { { "type", "string" },
+                        { "description", "Only return lines whose [Tag] matches exactly (e.g. Physics, Scene, Script)." } } } } },
                 { "additionalProperties", false }
             };
             tool.MainMarshaled = false;
@@ -994,6 +1132,18 @@ namespace OloEngine::MCP
 
         {
             ToolDef tool;
+            tool.Name = "olo_shader_list";
+            tool.Description =
+                "Inventory of all registered shaders (id, name, hasErrors, instruction count). Use it to "
+                "discover a shader name/id to pass to olo_shader_get.";
+            tool.InputSchema = Json{ { "type", "object" }, { "properties", Json::object() }, { "additionalProperties", false } };
+            tool.MainMarshaled = true;
+            tool.Handler = Handle_ShaderList;
+            server.RegisterTool(std::move(tool));
+        }
+
+        {
+            ToolDef tool;
             tool.Name = "olo_assets_list";
             tool.Description =
                 "List the project's registered assets (paginated): handle, type, project-relative path, and "
@@ -1008,6 +1158,18 @@ namespace OloEngine::MCP
             };
             tool.MainMarshaled = true;
             tool.Handler = Handle_AssetsList;
+            server.RegisterTool(std::move(tool));
+        }
+
+        {
+            ToolDef tool;
+            tool.Name = "olo_assets_problems";
+            tool.Description =
+                "List assets that failed to load or are missing/invalid (handle, type, path, status). The "
+                "first thing to check when something references an asset that isn't showing up.";
+            tool.InputSchema = Json{ { "type", "object" }, { "properties", Json::object() }, { "additionalProperties", false } };
+            tool.MainMarshaled = true;
+            tool.Handler = Handle_AssetsProblems;
             server.RegisterTool(std::move(tool));
         }
 

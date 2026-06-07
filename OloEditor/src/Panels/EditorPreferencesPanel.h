@@ -53,6 +53,13 @@ namespace OloEngine
         // Auto-save (synced with ProjectConfig)
         bool EnableAutoSave = true;
         int AutoSaveIntervalSeconds = 300;
+
+        // MCP diagnostics server (#285). Off by default; these just remember the
+        // user's last choice. McpAutoStart starting the server on launch is an
+        // explicit, persisted opt-in (the default stays off).
+        bool McpAutoStart = false;
+        int McpPort = 7345; // matches MCP::DefaultPort
+        bool McpRedactPaths = false;
     };
 
     class EditorPreferencesPanel

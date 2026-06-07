@@ -11,7 +11,7 @@
 
 namespace OloEngine::MCP
 {
-    void RenderMcpServerPanel(McpServer& server, bool* p_open)
+    void RenderMcpServerPanel(McpServer& server, int& port, bool& autoStart, bool* p_open)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -30,8 +30,7 @@ namespace OloEngine::MCP
 
         const bool running = server.IsRunning();
 
-        // Persisted between frames; only editable while the server is stopped.
-        static int s_PendingPort = static_cast<int>(DefaultPort);
+        // `port` / `autoStart` are persisted in EditorPreferences (owned by EditorLayer).
         static std::string s_StartError;
 
         if (running)
@@ -75,15 +74,15 @@ namespace OloEngine::MCP
             ImGui::TextColored(ImVec4(0.85f, 0.60f, 0.30f, 1.0f), "Status: stopped");
 
             ImGui::PushItemWidth(120.0f);
-            ImGui::InputInt("Port", &s_PendingPort);
+            ImGui::InputInt("Port", &port);
             ImGui::PopItemWidth();
-            s_PendingPort = std::clamp(s_PendingPort, 1024, 65535);
+            port = std::clamp(port, 1024, 65535);
 
             if (ImGui::Button("Start server"))
             {
-                s_StartError = server.Start(static_cast<u16>(s_PendingPort))
+                s_StartError = server.Start(static_cast<u16>(port))
                                    ? std::string{}
-                                   : std::format("Failed to start — could not bind 127.0.0.1:{} (port in use?).", s_PendingPort);
+                                   : std::format("Failed to start — could not bind 127.0.0.1:{} (port in use?).", port);
             }
             ImGui::SameLine();
             ImGui::TextDisabled("(binds 127.0.0.1 only)");
@@ -97,6 +96,10 @@ namespace OloEngine::MCP
             server.SetRedactPaths(redact);
         ImGui::SameLine();
         ImGui::TextDisabled("(scrubs absolute paths before they leave the process)");
+
+        ImGui::Checkbox("Start automatically when the editor launches", &autoStart);
+        ImGui::SameLine();
+        ImGui::TextDisabled("(persisted; default off)");
 
         ImGui::Text("Exposed (read-only): %d tools, %d resources, %d prompts",
                     static_cast<int>(server.Tools().size()),
