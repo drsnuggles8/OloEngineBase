@@ -424,6 +424,53 @@ namespace OloEngine
 		internal static extern void ParticleSystemComponent_SetWindInfluence(ulong entityID, float value);
 		#endregion
 
+		#region PhysicsJoint3DComponent
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern int PhysicsJoint3DComponent_GetJointType(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void PhysicsJoint3DComponent_SetJointType(ulong entityID, int value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void PhysicsJoint3DComponent_GetLocalAnchorA(ulong entityID, out Vector3 value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void PhysicsJoint3DComponent_SetLocalAnchorA(ulong entityID, ref Vector3 value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void PhysicsJoint3DComponent_GetLocalAnchorB(ulong entityID, out Vector3 value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void PhysicsJoint3DComponent_SetLocalAnchorB(ulong entityID, ref Vector3 value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void PhysicsJoint3DComponent_GetAxis(ulong entityID, out Vector3 value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void PhysicsJoint3DComponent_SetAxis(ulong entityID, ref Vector3 value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float PhysicsJoint3DComponent_GetMinDistance(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void PhysicsJoint3DComponent_SetMinDistance(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float PhysicsJoint3DComponent_GetMaxDistance(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void PhysicsJoint3DComponent_SetMaxDistance(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float PhysicsJoint3DComponent_GetHingeMinAngleDeg(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void PhysicsJoint3DComponent_SetHingeMinAngleDeg(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float PhysicsJoint3DComponent_GetHingeMaxAngleDeg(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void PhysicsJoint3DComponent_SetHingeMaxAngleDeg(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float PhysicsJoint3DComponent_GetSliderMinLimit(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void PhysicsJoint3DComponent_SetSliderMinLimit(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float PhysicsJoint3DComponent_GetSliderMaxLimit(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void PhysicsJoint3DComponent_SetSliderMaxLimit(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float PhysicsJoint3DComponent_GetConeHalfAngleDeg(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void PhysicsJoint3DComponent_SetConeHalfAngleDeg(ulong entityID, float value);
+		#endregion
+
 		#region PointLightComponent
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern void PointLightComponent_GetColor(ulong entityID, out Vector3 value);

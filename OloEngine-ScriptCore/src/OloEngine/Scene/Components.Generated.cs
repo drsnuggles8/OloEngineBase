@@ -682,6 +682,87 @@ namespace OloEngine
 		}
 	}
 
+	public partial class PhysicsJoint3DComponent : Component
+	{
+		public int JointType
+		{
+			get => InternalCalls.PhysicsJoint3DComponent_GetJointType(Entity.ID);
+			set => InternalCalls.PhysicsJoint3DComponent_SetJointType(Entity.ID, value);
+		}
+
+		public Vector3 LocalAnchorA
+		{
+			get
+			{
+				InternalCalls.PhysicsJoint3DComponent_GetLocalAnchorA(Entity.ID, out Vector3 value);
+				return value;
+			}
+			set => InternalCalls.PhysicsJoint3DComponent_SetLocalAnchorA(Entity.ID, ref value);
+		}
+
+		public Vector3 LocalAnchorB
+		{
+			get
+			{
+				InternalCalls.PhysicsJoint3DComponent_GetLocalAnchorB(Entity.ID, out Vector3 value);
+				return value;
+			}
+			set => InternalCalls.PhysicsJoint3DComponent_SetLocalAnchorB(Entity.ID, ref value);
+		}
+
+		public Vector3 Axis
+		{
+			get
+			{
+				InternalCalls.PhysicsJoint3DComponent_GetAxis(Entity.ID, out Vector3 value);
+				return value;
+			}
+			set => InternalCalls.PhysicsJoint3DComponent_SetAxis(Entity.ID, ref value);
+		}
+
+		public float MinDistance
+		{
+			get => InternalCalls.PhysicsJoint3DComponent_GetMinDistance(Entity.ID);
+			set => InternalCalls.PhysicsJoint3DComponent_SetMinDistance(Entity.ID, value);
+		}
+
+		public float MaxDistance
+		{
+			get => InternalCalls.PhysicsJoint3DComponent_GetMaxDistance(Entity.ID);
+			set => InternalCalls.PhysicsJoint3DComponent_SetMaxDistance(Entity.ID, value);
+		}
+
+		public float HingeMinAngleDeg
+		{
+			get => InternalCalls.PhysicsJoint3DComponent_GetHingeMinAngleDeg(Entity.ID);
+			set => InternalCalls.PhysicsJoint3DComponent_SetHingeMinAngleDeg(Entity.ID, value);
+		}
+
+		public float HingeMaxAngleDeg
+		{
+			get => InternalCalls.PhysicsJoint3DComponent_GetHingeMaxAngleDeg(Entity.ID);
+			set => InternalCalls.PhysicsJoint3DComponent_SetHingeMaxAngleDeg(Entity.ID, value);
+		}
+
+		public float SliderMinLimit
+		{
+			get => InternalCalls.PhysicsJoint3DComponent_GetSliderMinLimit(Entity.ID);
+			set => InternalCalls.PhysicsJoint3DComponent_SetSliderMinLimit(Entity.ID, value);
+		}
+
+		public float SliderMaxLimit
+		{
+			get => InternalCalls.PhysicsJoint3DComponent_GetSliderMaxLimit(Entity.ID);
+			set => InternalCalls.PhysicsJoint3DComponent_SetSliderMaxLimit(Entity.ID, value);
+		}
+
+		public float ConeHalfAngleDeg
+		{
+			get => InternalCalls.PhysicsJoint3DComponent_GetConeHalfAngleDeg(Entity.ID);
+			set => InternalCalls.PhysicsJoint3DComponent_SetConeHalfAngleDeg(Entity.ID, value);
+		}
+	}
+
 	public partial class PointLightComponent : Component
 	{
 		public Vector3 Color

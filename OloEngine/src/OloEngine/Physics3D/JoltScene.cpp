@@ -23,6 +23,17 @@
 #include <Jolt/Physics/Collision/ObjectLayer.h>
 #include <Jolt/Physics/Collision/CollisionCollectorImpl.h>
 #include <Jolt/Physics/Collision/CollideShape.h>
+#include <Jolt/Physics/Body/Body.h>
+#include <Jolt/Physics/Body/BodyLockMulti.h>
+#include <Jolt/Physics/Constraints/TwoBodyConstraint.h>
+#include <Jolt/Physics/Constraints/FixedConstraint.h>
+#include <Jolt/Physics/Constraints/PointConstraint.h>
+#include <Jolt/Physics/Constraints/DistanceConstraint.h>
+#include <Jolt/Physics/Constraints/HingeConstraint.h>
+#include <Jolt/Physics/Constraints/SliderConstraint.h>
+#include <Jolt/Physics/Constraints/ConeConstraint.h>
+
+#include <glm/gtc/constants.hpp>
 
 namespace OloEngine
 {
@@ -70,6 +81,9 @@ namespace OloEngine
             return;
 
         OLO_CORE_INFO("Shutting down JoltScene");
+
+        // Remove constraints before the bodies they reference are destroyed.
+        DestroyAllConstraints();
 
         // Destroy all bodies
         for (const auto& [entityID, body] : m_Bodies)
@@ -349,11 +363,16 @@ namespace OloEngine
         }
 
         CreateRigidBodies();
+        // Second pass: all bodies exist now, so joints can resolve both endpoints.
+        CreateConstraints();
     }
 
     void JoltScene::OnRuntimeStop()
     {
         OLO_CORE_INFO("JoltScene stopping runtime");
+
+        // Remove constraints before the bodies they reference are destroyed.
+        DestroyAllConstraints();
 
         // Destroy all bodies
         for (const auto& [entityID, body] : m_Bodies)
@@ -731,6 +750,261 @@ namespace OloEngine
         }
 
         OLO_CORE_INFO("Created {0} physics bodies", m_Bodies.size());
+    }
+
+    namespace
+    {
+        // Any unit vector perpendicular to `v` (assumed normalized). Used to
+        // derive the hinge/slider "normal" axis from the single authored primary
+        // axis, since both reference frames can share it in world space.
+        glm::vec3 PerpendicularTo(const glm::vec3& v)
+        {
+            const glm::vec3 ref = (glm::abs(v.x) < 0.9f) ? glm::vec3(1.0f, 0.0f, 0.0f) : glm::vec3(0.0f, 1.0f, 0.0f);
+            return glm::normalize(glm::cross(v, ref));
+        }
+    } // namespace
+
+    void JoltScene::CreateConstraints()
+    {
+        if (!m_Scene)
+            return;
+
+        // Second pass: every JoltBody now exists, so two-body constraints can
+        // resolve both endpoints.
+        auto view = m_Scene->GetAllEntitiesWith<PhysicsJoint3DComponent>();
+        for (auto entityID : view)
+        {
+            Entity entity{ entityID, m_Scene };
+            CreateConstraint(entity);
+        }
+
+        OLO_CORE_INFO("Created {0} physics constraints", m_Constraints.size());
+    }
+
+    bool JoltScene::CreateConstraint(Entity entity)
+    {
+        if (!m_JoltSystem || !entity || !entity.HasComponent<PhysicsJoint3DComponent>())
+            return false;
+
+        auto& joint = entity.GetComponent<PhysicsJoint3DComponent>();
+        UUID entityID = entity.GetUUID();
+
+        // Idempotent — already built for this entity.
+        if (m_Constraints.find(entityID) != m_Constraints.end())
+            return true;
+
+        // The joint owner must have a physics body to be a constraint endpoint.
+        Ref<JoltBody> bodyA = GetBodyByEntityID(entityID);
+        if (!bodyA || !bodyA->IsValid() || !entity.HasComponent<TransformComponent>())
+        {
+            OLO_CORE_WARN("PhysicsJoint3D on entity {0} has no valid rigidbody; skipping constraint", (u64)entityID);
+            return false;
+        }
+
+        const bool connectToWorld = (static_cast<u64>(joint.m_ConnectedEntity) == 0);
+
+        Entity connectedEntity{};
+        Ref<JoltBody> bodyB = nullptr;
+        if (!connectToWorld)
+        {
+            if (joint.m_ConnectedEntity == entityID)
+            {
+                OLO_CORE_WARN("PhysicsJoint3D on entity {0} connects to itself; skipping constraint", (u64)entityID);
+                return false;
+            }
+
+            connectedEntity = m_Scene->GetEntityByUUID(joint.m_ConnectedEntity);
+            bodyB = GetBodyByEntityID(joint.m_ConnectedEntity);
+            if (!bodyB || !bodyB->IsValid() || !connectedEntity || !connectedEntity.HasComponent<TransformComponent>())
+            {
+                OLO_CORE_WARN("PhysicsJoint3D on entity {0}: connected entity {1} has no valid rigidbody; skipping constraint",
+                              (u64)entityID, (u64)joint.m_ConnectedEntity);
+                return false;
+            }
+        }
+
+        // World-space anchors/axis, computed from the same authored transforms the
+        // bodies were created from (JoltBody places bodies at TransformComponent's
+        // local translation/rotation). With mSpace == WorldSpace, Jolt converts
+        // these world points to each body's COM frame internally.
+        const auto& tcA = entity.GetComponent<TransformComponent>();
+        const glm::quat rotA = tcA.GetRotation();
+        const glm::vec3 worldA = tcA.Translation + rotA * joint.m_LocalAnchorA;
+
+        glm::vec3 axis = rotA * joint.m_Axis;
+        axis = (glm::dot(axis, axis) < 1e-12f) ? glm::vec3(0.0f, 1.0f, 0.0f) : glm::normalize(axis);
+        const glm::vec3 normal = PerpendicularTo(axis);
+
+        glm::vec3 worldB;
+        if (connectToWorld)
+        {
+            // Pin body A's anchor at its current world location.
+            worldB = worldA;
+        }
+        else
+        {
+            const auto& tcB = connectedEntity.GetComponent<TransformComponent>();
+            worldB = tcB.Translation + tcB.GetRotation() * joint.m_LocalAnchorB;
+        }
+
+        // Build the constraint with body1 = connected/world, body2 = this body.
+        // Placing the (possibly infinite-mass) connected/world body first keeps
+        // the slider's "body 1 should be the heaviest body" guidance satisfied for
+        // the common static-anchor case.
+        auto buildConstraint = [&](JPH::Body& body1, JPH::Body& body2) -> JPH::TwoBodyConstraint*
+        {
+            const JPH::RVec3 p1 = JoltUtils::ToJoltRVec3(worldB);
+            const JPH::RVec3 p2 = JoltUtils::ToJoltRVec3(worldA);
+            const JPH::Vec3 jAxis = JoltUtils::ToJoltVector(axis);
+            const JPH::Vec3 jNormal = JoltUtils::ToJoltVector(normal);
+
+            switch (joint.m_Type)
+            {
+                case JointType3D::Fixed:
+                {
+                    JPH::FixedConstraintSettings s;
+                    // Body-to-body: auto-detect the point so the current relative
+                    // pose becomes the locked rest pose. World-fixed: pin explicitly.
+                    s.mSpace = JPH::EConstraintSpace::WorldSpace;
+                    s.mAutoDetectPoint = !connectToWorld;
+                    if (connectToWorld)
+                    {
+                        s.mPoint1 = p1;
+                        s.mPoint2 = p2;
+                    }
+                    return s.Create(body1, body2);
+                }
+                case JointType3D::Point:
+                {
+                    JPH::PointConstraintSettings s;
+                    s.mSpace = JPH::EConstraintSpace::WorldSpace;
+                    s.mPoint1 = p1;
+                    s.mPoint2 = p2;
+                    return s.Create(body1, body2);
+                }
+                case JointType3D::Distance:
+                {
+                    JPH::DistanceConstraintSettings s;
+                    s.mSpace = JPH::EConstraintSpace::WorldSpace;
+                    s.mPoint1 = p1;
+                    s.mPoint2 = p2;
+                    s.mMinDistance = joint.m_MinDistance;
+                    s.mMaxDistance = joint.m_MaxDistance;
+                    return s.Create(body1, body2);
+                }
+                case JointType3D::Hinge:
+                {
+                    JPH::HingeConstraintSettings s;
+                    s.mSpace = JPH::EConstraintSpace::WorldSpace;
+                    s.mPoint1 = p1;
+                    s.mPoint2 = p2;
+                    s.mHingeAxis1 = s.mHingeAxis2 = jAxis;
+                    s.mNormalAxis1 = s.mNormalAxis2 = jNormal;
+                    s.mLimitsMin = std::clamp(JoltUtils::DegreesToRadians(joint.m_HingeMinAngleDeg), -glm::pi<f32>(), 0.0f);
+                    s.mLimitsMax = std::clamp(JoltUtils::DegreesToRadians(joint.m_HingeMaxAngleDeg), 0.0f, glm::pi<f32>());
+                    return s.Create(body1, body2);
+                }
+                case JointType3D::Slider:
+                {
+                    JPH::SliderConstraintSettings s;
+                    s.mSpace = JPH::EConstraintSpace::WorldSpace;
+                    s.mAutoDetectPoint = false;
+                    s.mPoint1 = p1;
+                    s.mPoint2 = p2;
+                    s.mSliderAxis1 = s.mSliderAxis2 = jAxis;
+                    s.mNormalAxis1 = s.mNormalAxis2 = jNormal;
+                    s.mLimitsMin = joint.m_SliderMinLimit;
+                    s.mLimitsMax = joint.m_SliderMaxLimit;
+                    return s.Create(body1, body2);
+                }
+                case JointType3D::Cone:
+                {
+                    JPH::ConeConstraintSettings s;
+                    s.mSpace = JPH::EConstraintSpace::WorldSpace;
+                    s.mPoint1 = p1;
+                    s.mPoint2 = p2;
+                    s.mTwistAxis1 = s.mTwistAxis2 = jAxis;
+                    s.mHalfConeAngle = std::clamp(JoltUtils::DegreesToRadians(joint.m_ConeHalfAngleDeg), 0.0f, glm::pi<f32>());
+                    return s.Create(body1, body2);
+                }
+            }
+            return nullptr;
+        };
+
+        // Lock the endpoint bodies to obtain JPH::Body& for settings.Create().
+        // No simulation is running during the runtime-start second pass, but the
+        // runtime-add hook can call this mid-frame, so lock defensively.
+        JPH::TwoBodyConstraint* constraint = nullptr;
+        const JPH::BodyLockInterface& lockInterface = m_JoltSystem->GetBodyLockInterface();
+
+        if (connectToWorld)
+        {
+            JPH::BodyLockWrite lock(lockInterface, bodyA->GetBodyID());
+            if (!lock.Succeeded())
+            {
+                OLO_CORE_WARN("PhysicsJoint3D: failed to lock body for entity {0}", (u64)entityID);
+                return false;
+            }
+            constraint = buildConstraint(JPH::Body::sFixedToWorld, lock.GetBody());
+        }
+        else
+        {
+            const JPH::BodyID ids[2] = { bodyB->GetBodyID(), bodyA->GetBodyID() };
+            JPH::BodyLockMultiWrite lock(lockInterface, ids, 2);
+            JPH::Body* b1 = lock.GetBody(0); // connected body (B)
+            JPH::Body* b2 = lock.GetBody(1); // this body (A)
+            if (!b1 || !b2)
+            {
+                OLO_CORE_WARN("PhysicsJoint3D: failed to lock bodies for entity {0}", (u64)entityID);
+                return false;
+            }
+            constraint = buildConstraint(*b1, *b2);
+        }
+
+        if (!constraint)
+        {
+            OLO_CORE_ERROR("PhysicsJoint3D: failed to create constraint for entity {0}", (u64)entityID);
+            return false;
+        }
+
+        // AddConstraint and m_Constraints each hold a JPH::Ref, balancing the
+        // RemoveConstraint + map-erase pair in DestroyConstraint/DestroyAllConstraints.
+        m_JoltSystem->AddConstraint(constraint);
+        m_Constraints[entityID] = constraint;
+        joint.m_RuntimeConstraintToken = static_cast<u64>(entityID);
+
+        OLO_CORE_TRACE("Created physics constraint for entity {0}", (u64)entityID);
+        return true;
+    }
+
+    void JoltScene::DestroyConstraint(Entity entity)
+    {
+        if (!entity)
+            return;
+
+        UUID entityID = entity.GetUUID();
+        if (auto it = m_Constraints.find(entityID); it != m_Constraints.end())
+        {
+            if (m_JoltSystem && it->second != nullptr)
+                m_JoltSystem->RemoveConstraint(it->second);
+            m_Constraints.erase(it); // releases the JPH::Ref
+            OLO_CORE_TRACE("Destroyed physics constraint for entity {0}", (u64)entityID);
+        }
+    }
+
+    void JoltScene::DestroyAllConstraints()
+    {
+        // Constraints reference bodies, so they must be removed before the bodies
+        // they connect are destroyed.
+        if (m_JoltSystem)
+        {
+            for (auto& [entityID, constraint] : m_Constraints)
+            {
+                if (constraint != nullptr)
+                    m_JoltSystem->RemoveConstraint(constraint);
+            }
+        }
+        m_Constraints.clear();
     }
 
     void JoltScene::SynchronizeBody(Ref<JoltBody> body) const

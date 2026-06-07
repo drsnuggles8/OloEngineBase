@@ -669,6 +669,17 @@ namespace OloEngine
         ar << c.m_DisableGravity << c.m_ControlMovementInAir << c.m_ControlRotationInAir;
     }
 
+    void SaveGameComponentSerializer::Serialize(FArchive& ar, PhysicsJoint3DComponent& c)
+    {
+        ar << c.m_Type << c.m_ConnectedEntity;
+        ar << c.m_LocalAnchorA << c.m_LocalAnchorB << c.m_Axis;
+        ar << c.m_MinDistance << c.m_MaxDistance;
+        ar << c.m_HingeMinAngleDeg << c.m_HingeMaxAngleDeg;
+        ar << c.m_SliderMinLimit << c.m_SliderMaxLimit;
+        ar << c.m_ConeHalfAngleDeg;
+        // m_RuntimeConstraintToken is a runtime Jolt handle — not serialized.
+    }
+
     void SaveGameComponentSerializer::Serialize(FArchive& ar, TextComponent& c)
     {
         ar << c.TextString << c.Color;
@@ -2608,6 +2619,7 @@ namespace OloEngine
         REGISTER_SAVE_COMPONENT(ConvexMeshCollider3DComponent);
         REGISTER_SAVE_COMPONENT(TriangleMeshCollider3DComponent);
         REGISTER_SAVE_COMPONENT(CharacterController3DComponent);
+        REGISTER_SAVE_COMPONENT(PhysicsJoint3DComponent);
         REGISTER_SAVE_COMPONENT(TextComponent);
         REGISTER_SAVE_COMPONENT(ScriptComponent);
         REGISTER_SAVE_COMPONENT(AudioSourceComponent);

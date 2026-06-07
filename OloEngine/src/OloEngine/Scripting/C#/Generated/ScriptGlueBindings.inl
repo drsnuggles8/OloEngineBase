@@ -2083,6 +2083,253 @@ static void ParticleSystemComponent_SetWindInfluence(UUID entityID, float value)
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////
+// PhysicsJoint3DComponent                                                        //
+///////////////////////////////////////////////////////////////////////////////////////////
+
+static int PhysicsJoint3DComponent_GetJointType(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<PhysicsJoint3DComponent>();
+    return static_cast<int>(comp.m_Type);
+}
+
+static void PhysicsJoint3DComponent_SetJointType(UUID entityID, int value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<PhysicsJoint3DComponent>();
+    comp.m_Type = static_cast<JointType3D>(value);
+}
+
+static void PhysicsJoint3DComponent_GetLocalAnchorA(UUID entityID, glm::vec3* outValue)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<PhysicsJoint3DComponent>();
+    *outValue = comp.m_LocalAnchorA;
+}
+
+static void PhysicsJoint3DComponent_SetLocalAnchorA(UUID entityID, glm::vec3 const* value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<PhysicsJoint3DComponent>();
+    for (glm::length_t i = 0; i < value->length(); ++i)
+        if (!std::isfinite((*value)[i]))
+            return;
+    comp.m_LocalAnchorA = *value;
+}
+
+static void PhysicsJoint3DComponent_GetLocalAnchorB(UUID entityID, glm::vec3* outValue)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<PhysicsJoint3DComponent>();
+    *outValue = comp.m_LocalAnchorB;
+}
+
+static void PhysicsJoint3DComponent_SetLocalAnchorB(UUID entityID, glm::vec3 const* value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<PhysicsJoint3DComponent>();
+    for (glm::length_t i = 0; i < value->length(); ++i)
+        if (!std::isfinite((*value)[i]))
+            return;
+    comp.m_LocalAnchorB = *value;
+}
+
+static void PhysicsJoint3DComponent_GetAxis(UUID entityID, glm::vec3* outValue)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<PhysicsJoint3DComponent>();
+    *outValue = comp.m_Axis;
+}
+
+static void PhysicsJoint3DComponent_SetAxis(UUID entityID, glm::vec3 const* value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<PhysicsJoint3DComponent>();
+    for (glm::length_t i = 0; i < value->length(); ++i)
+        if (!std::isfinite((*value)[i]))
+            return;
+    comp.m_Axis = *value;
+}
+
+static float PhysicsJoint3DComponent_GetMinDistance(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<PhysicsJoint3DComponent>();
+    return comp.m_MinDistance;
+}
+
+static void PhysicsJoint3DComponent_SetMinDistance(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<PhysicsJoint3DComponent>();
+    comp.m_MinDistance = value;
+}
+
+static float PhysicsJoint3DComponent_GetMaxDistance(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<PhysicsJoint3DComponent>();
+    return comp.m_MaxDistance;
+}
+
+static void PhysicsJoint3DComponent_SetMaxDistance(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<PhysicsJoint3DComponent>();
+    comp.m_MaxDistance = value;
+}
+
+static float PhysicsJoint3DComponent_GetHingeMinAngleDeg(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<PhysicsJoint3DComponent>();
+    return comp.m_HingeMinAngleDeg;
+}
+
+static void PhysicsJoint3DComponent_SetHingeMinAngleDeg(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<PhysicsJoint3DComponent>();
+    comp.m_HingeMinAngleDeg = value;
+}
+
+static float PhysicsJoint3DComponent_GetHingeMaxAngleDeg(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<PhysicsJoint3DComponent>();
+    return comp.m_HingeMaxAngleDeg;
+}
+
+static void PhysicsJoint3DComponent_SetHingeMaxAngleDeg(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<PhysicsJoint3DComponent>();
+    comp.m_HingeMaxAngleDeg = value;
+}
+
+static float PhysicsJoint3DComponent_GetSliderMinLimit(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<PhysicsJoint3DComponent>();
+    return comp.m_SliderMinLimit;
+}
+
+static void PhysicsJoint3DComponent_SetSliderMinLimit(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<PhysicsJoint3DComponent>();
+    comp.m_SliderMinLimit = value;
+}
+
+static float PhysicsJoint3DComponent_GetSliderMaxLimit(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<PhysicsJoint3DComponent>();
+    return comp.m_SliderMaxLimit;
+}
+
+static void PhysicsJoint3DComponent_SetSliderMaxLimit(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<PhysicsJoint3DComponent>();
+    comp.m_SliderMaxLimit = value;
+}
+
+static float PhysicsJoint3DComponent_GetConeHalfAngleDeg(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<PhysicsJoint3DComponent>();
+    return comp.m_ConeHalfAngleDeg;
+}
+
+static void PhysicsJoint3DComponent_SetConeHalfAngleDeg(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<PhysicsJoint3DComponent>();
+    comp.m_ConeHalfAngleDeg = value;
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////
 // PointLightComponent                                                            //
 ///////////////////////////////////////////////////////////////////////////////////////////
 

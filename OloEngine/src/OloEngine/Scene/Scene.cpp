@@ -2292,6 +2292,33 @@ namespace OloEngine
         }
     }
 
+    template<>
+    void Scene::OnComponentAdded<PhysicsJoint3DComponent>(Entity entity, PhysicsJoint3DComponent& /*component*/)
+    {
+        // If physics is already running when a joint is added at runtime, create
+        // the Jolt constraint immediately (mirrors the Rigidbody3D runtime-add
+        // hook). Both endpoint bodies must already exist; CreateConstraint warns
+        // and skips otherwise, and sets m_RuntimeConstraintToken on success.
+        if (m_JoltScene && m_JoltScene->IsInitialized())
+        {
+            m_JoltScene->CreateConstraint(entity);
+        }
+    }
+
+    // Specialisation: when a PhysicsJoint3DComponent is removed at runtime, the
+    // owning JoltScene must release the Jolt constraint. Without this hook the
+    // constraint stays registered and keeps pulling on bodies that may have been
+    // re-purposed.
+    template<>
+    void Scene::OnComponentRemoved<PhysicsJoint3DComponent>(Entity entity, PhysicsJoint3DComponent& component)
+    {
+        if (m_JoltScene && component.m_RuntimeConstraintToken != 0)
+        {
+            m_JoltScene->DestroyConstraint(entity);
+            component.m_RuntimeConstraintToken = 0;
+        }
+    }
+
     // Specialisation: same idea for the character controller path.
     template<>
     void Scene::OnComponentRemoved<CharacterController3DComponent>(Entity entity, CharacterController3DComponent& /*component*/)
@@ -2578,6 +2605,17 @@ namespace OloEngine
             Entity ent = { entity, this };
             (void)m_JoltScene->CreateCharacterController(ent);
         }
+
+        // Joint second pass: every rigidbody now exists, so two-body constraints
+        // can resolve both endpoints. CreateConstraint sets m_RuntimeConstraintToken
+        // on success; runtime-added joints are covered by the
+        // OnComponentAdded<PhysicsJoint3DComponent> hook.
+        auto jointView = m_Registry.view<PhysicsJoint3DComponent>();
+        for (auto entity : jointView)
+        {
+            Entity ent = { entity, this };
+            (void)m_JoltScene->CreateConstraint(ent);
+        }
     }
 
     void Scene::OnPhysics3DStop()
@@ -2586,6 +2624,20 @@ namespace OloEngine
         if (!m_JoltScene)
         {
             return;
+        }
+
+        // Remove joints first — constraints reference bodies, so they must go
+        // before the bodies they connect are destroyed below.
+        auto jointView = m_Registry.view<PhysicsJoint3DComponent>();
+        for (auto entity : jointView)
+        {
+            Entity ent = { entity, this };
+            auto& joint = ent.GetComponent<PhysicsJoint3DComponent>();
+            if (joint.m_RuntimeConstraintToken != 0)
+            {
+                m_JoltScene->DestroyConstraint(ent);
+                joint.m_RuntimeConstraintToken = 0;
+            }
         }
 
         // Clean up all physics bodies

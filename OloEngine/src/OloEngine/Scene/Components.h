@@ -662,6 +662,83 @@ namespace OloEngine
         }
     };
 
+    // Two-body constraint types backed by Jolt's constraint library.
+    enum class JointType3D
+    {
+        Fixed = 0, // Welds two bodies rigidly (all 6 DOF locked).
+        Point,     // Ball-socket: keeps the two anchors coincident, rotation free.
+        Distance,  // Keeps the two anchors within [MinDistance, MaxDistance].
+        Hinge,     // Rotation only about Axis, with optional angle limits.
+        Slider,    // Translation only along Axis, with optional limits (prismatic).
+        Cone       // Ball-socket whose twist axis is limited to a cone half-angle.
+    };
+
+    // Connects this entity's rigidbody to another body (or the world) with a Jolt
+    // two-body constraint. The constraint is created in a second pass at runtime
+    // start, once every JoltBody exists (both endpoints must be present). Anchors
+    // are authored in each body's local space (relative to the entity origin);
+    // m_Axis is the primary axis (hinge axis / slide axis / cone twist axis) in
+    // this entity's local space. A zero m_ConnectedEntity anchors the joint to the
+    // world (JPH::Body::sFixedToWorld). The owning entity must have a
+    // Rigidbody3DComponent to be a constraint endpoint.
+    struct PhysicsJoint3DComponent
+    {
+        OLO_PROPERTY(Name = "JointType", Type = "int", Get = "static_cast<int>(comp.m_Type)", Set = "comp.m_Type = static_cast<JointType3D>({v})")
+        JointType3D m_Type = JointType3D::Fixed;
+
+        // The other body this joint connects to. 0 = connect to the world.
+        UUID m_ConnectedEntity = 0;
+
+        // Anchor on this body / the connected body, in their respective local spaces.
+        OLO_PROPERTY()
+        glm::vec3 m_LocalAnchorA = { 0.0f, 0.0f, 0.0f };
+        OLO_PROPERTY()
+        glm::vec3 m_LocalAnchorB = { 0.0f, 0.0f, 0.0f };
+
+        // Primary axis in this body's local space — hinge axis (Hinge), slide axis
+        // (Slider), or twist axis (Cone). Unused by Fixed / Point / Distance.
+        OLO_PROPERTY()
+        glm::vec3 m_Axis = { 0.0f, 1.0f, 0.0f };
+
+        // Distance joint: allowed separation range (meters). A negative value means
+        // "use the initial anchor distance" (Jolt convention), giving a rigid link.
+        OLO_PROPERTY()
+        f32 m_MinDistance = 0.0f;
+        OLO_PROPERTY()
+        f32 m_MaxDistance = 1.0f;
+
+        // Hinge joint: rotation limits about the hinge axis (degrees). Jolt clamps
+        // min to [-180, 0] and max to [0, 180]; the full range disables the limit.
+        OLO_PROPERTY()
+        f32 m_HingeMinAngleDeg = -180.0f;
+        OLO_PROPERTY()
+        f32 m_HingeMaxAngleDeg = 180.0f;
+
+        // Slider joint: translation limits along the slide axis (meters), measured
+        // from the position where the two anchors coincide.
+        OLO_PROPERTY()
+        f32 m_SliderMinLimit = 0.0f;
+        OLO_PROPERTY()
+        f32 m_SliderMaxLimit = 1.0f;
+
+        // Cone joint: half-angle of the allowed twist cone (degrees).
+        OLO_PROPERTY()
+        f32 m_ConeHalfAngleDeg = 45.0f;
+
+        // Storage for runtime - non-zero once the Jolt constraint has been created.
+        // Excluded from authored-state equality so play-mode enter/exit doesn't show
+        // as a change (mirrors Rigidbody3DComponent::m_RuntimeBodyToken).
+        u64 m_RuntimeConstraintToken = 0;
+
+        PhysicsJoint3DComponent() = default;
+        PhysicsJoint3DComponent(const PhysicsJoint3DComponent&) = default;
+
+        auto operator==(const PhysicsJoint3DComponent& other) const -> bool
+        {
+            return m_Type == other.m_Type && m_ConnectedEntity == other.m_ConnectedEntity && Math::BitwiseEqual(m_LocalAnchorA, other.m_LocalAnchorA) && Math::BitwiseEqual(m_LocalAnchorB, other.m_LocalAnchorB) && Math::BitwiseEqual(m_Axis, other.m_Axis) && Math::BitwiseEqual(m_MinDistance, other.m_MinDistance) && Math::BitwiseEqual(m_MaxDistance, other.m_MaxDistance) && Math::BitwiseEqual(m_HingeMinAngleDeg, other.m_HingeMinAngleDeg) && Math::BitwiseEqual(m_HingeMaxAngleDeg, other.m_HingeMaxAngleDeg) && Math::BitwiseEqual(m_SliderMinLimit, other.m_SliderMinLimit) && Math::BitwiseEqual(m_SliderMaxLimit, other.m_SliderMaxLimit) && Math::BitwiseEqual(m_ConeHalfAngleDeg, other.m_ConeHalfAngleDeg);
+        }
+    };
+
     struct TextComponent
     {
         OLO_PROPERTY(Name = "Text", Type = "string")
@@ -2721,6 +2798,7 @@ namespace OloEngine
         ConvexMeshCollider3DComponent,
         TriangleMeshCollider3DComponent,
         CharacterController3DComponent,
+        PhysicsJoint3DComponent,
         TextComponent,
         ScriptComponent,
         LuaScriptComponent,
