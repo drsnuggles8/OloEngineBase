@@ -54,17 +54,47 @@ namespace OloEngine
 
     i32 JoltJobSystemAdapter::GetMaxConcurrency() const
     {
-        // Return the number of worker threads in the scheduler
-        // FScheduler tracks workers; we add +1 for the calling thread that can also execute jobs during WaitForJobs
-        return static_cast<i32>(LowLevelTasks::FScheduler::Get().GetNumWorkers()) + 1;
+        // Jolt treats GetMaxConcurrency() as a CONSTANT for the lifetime of the job
+        // system — its own JobSystemThreadPool returns mThreads.size() + 1, fixed at
+        // construction — and calls it repeatedly within a single PhysicsSystem::Update
+        // to size the per-step arrays (mBodyPairQueues, mSolve*Constraints, …) and to
+        // derive the job indices that read those arrays back. We bridge to the shared
+        // FScheduler, whose active-worker count is a live atomic, so cache it on first
+        // use: every call within (and across) an Update then agrees, even if the
+        // scheduler's worker count were to change between calls (e.g. RestartWorkers).
+        // +1 for the calling thread, which also executes jobs while it waits on a Jolt
+        // barrier. (Jolt clamps this to PhysicsUpdateContext::cMaxConcurrency = 32, so
+        // the value can never overflow those StaticArrays regardless.)
+        i32 cached = m_CachedMaxConcurrency.load(std::memory_order_acquire);
+        if (cached == 0)
+        {
+            cached = static_cast<i32>(LowLevelTasks::FScheduler::Get().GetNumWorkers()) + 1;
+            m_CachedMaxConcurrency.store(cached, std::memory_order_release);
+        }
+        return cached;
     }
 
     JPH::JobSystem::JobHandle JoltJobSystemAdapter::CreateJob(const char* inName, JPH::ColorArg inColor,
                                                               const JPH::JobSystem::JobFunction& inJobFunction,
                                                               u32 inNumDependencies)
     {
-        // Allocate a job from the free list (returns index)
+        // Allocate a job from the free list. ConstructObject returns cInvalidObjectIndex
+        // (0xffffffff) when the pool is exhausted; the previous code passed that straight
+        // into m_Jobs.Get(), which indexes mPages[index >> shift][...] — a wild
+        // out-of-bounds access, i.e. exactly the #281-class SEH 0xc0000005. Mirror Jolt's
+        // own JobSystemThreadPool::CreateJob and spin (with a yield back-off) until a slot
+        // frees up instead. Jobs are short-lived and cMaxPhysicsJobs (2048) dwarfs the
+        // handful of jobs a step needs, so in practice this loop never iterates.
         u32 index = m_Jobs.ConstructObject(inName, inColor, this, inJobFunction, inNumDependencies);
+        if (index == FAvailableJobs::cInvalidObjectIndex)
+        {
+            OLO_CORE_ERROR("JoltJobSystemAdapter::CreateJob: physics job free-list exhausted; spinning until a slot frees");
+            do
+            {
+                std::this_thread::yield();
+                index = m_Jobs.ConstructObject(inName, inColor, this, inJobFunction, inNumDependencies);
+            } while (index == FAvailableJobs::cInvalidObjectIndex);
+        }
 
         // Get pointer to the job from index
         JPH::JobSystem::Job* job = &m_Jobs.Get(index);

@@ -68,6 +68,13 @@ namespace OloEngine
         /// The destructor spin-waits on this counter so all lambdas have fully returned
         /// before m_Jobs is torn down.
         std::atomic<i32> m_OutstandingTasks{ 0 };
+
+        /// Cached result of GetMaxConcurrency(). Jolt assumes this is constant for the
+        /// job system's lifetime (and calls it many times per PhysicsSystem::Update to
+        /// size per-step arrays and index them back), but our value derives from the
+        /// shared FScheduler's live active-worker count. Computed on first use (0 is the
+        /// "not yet computed" sentinel) and never changed after, so every call agrees.
+        mutable std::atomic<i32> m_CachedMaxConcurrency{ 0 };
     };
 
 } // namespace OloEngine
