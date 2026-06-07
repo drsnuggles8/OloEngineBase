@@ -178,7 +178,7 @@ namespace OloEngine
 
         u32 shaderIdx = 0;
         // NOTE: Keep totalShaders3D in sync with the number of Load() calls below.
-        constexpr u32 totalShaders3D = 42;
+        constexpr u32 totalShaders3D = 43;
 
         // Boot + fallback are idempotent — no-ops when already initialized by
         // Renderer::Init().  Needed here for the lazy-init path (EditorLayer
@@ -201,6 +201,7 @@ namespace OloEngine
             "assets/shaders/PBR_GBuffer_Skinned.glsl",
             "assets/shaders/EquirectangularToCubemap.glsl",
             "assets/shaders/ProceduralSky.glsl",
+            "assets/shaders/StarNestSky.glsl",
             "assets/shaders/IrradianceConvolution.glsl",
             "assets/shaders/IrradianceConvolutionAdvanced.glsl",
             "assets/shaders/IrradianceFromSH.glsl",

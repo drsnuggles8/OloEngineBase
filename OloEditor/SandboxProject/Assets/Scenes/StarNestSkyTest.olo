@@ -1,0 +1,244 @@
+Scene: StarNestSkyTest.olo
+PostProcessSettings:
+  TonemapOperator: 0
+  Exposure: 1
+  Gamma: 2.2
+  BloomEnabled: true
+  BloomThreshold: 1
+  BloomIntensity: 0.4
+  BloomIterations: 4
+  VignetteEnabled: false
+  VignetteIntensity: 0.5
+  VignetteSmoothness: 0.2
+  ChromaticAberrationEnabled: false
+  ChromaticAberrationIntensity: 0.5
+  FXAAEnabled: true
+  DOFEnabled: false
+  DOFFocusDistance: 10
+  DOFFocusRange: 5
+  DOFBokehRadius: 3
+  MotionBlurEnabled: false
+  MotionBlurStrength: 0.5
+  MotionBlurSamples: 4
+  ColorGradingEnabled: false
+  SSAOEnabled: true
+  SSAORadius: 0.5
+  SSAOBias: 0.025
+  SSAOIntensity: 1
+  SSAOSamples: 32
+  SSAODebugView: false
+Entities:
+  # ── Camera (looks across the metallic sphere rows so the nebula reflecting
+  #    off them is framed against the Star Nest skybox behind) ──
+  - Entity: 770000000000001
+    TagComponent:
+      Tag: Camera
+    TransformComponent:
+      Translation: [0, 2.2, 9]
+      Rotation: [-0.12, 0, 0]
+      Scale: [1, 1, 1]
+    CameraComponent:
+      Camera:
+        ProjectionType: 0
+        PerspectiveFOV: 0.785398185
+        PerspectiveNear: 0.01
+        PerspectiveFar: 1000
+        OrthographicSize: 10
+        OrthographicNear: -1
+        OrthographicFar: 1
+      Primary: true
+      FixedAspectRatio: false
+  # ── Star Nest nebula sky (issue #292). Bakes into the shared EnvironmentMap +
+  #    global IBL, so every metallic sphere below mirror-reflects the nebula and
+  #    every dielectric picks up its ambient colour bounce. ──
+  - Entity: 770000000000002
+    TagComponent:
+      Tag: Star Nest Sky
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    StarNestSkyComponent:
+      Offset: [1, 0.5, 0.5]
+      Rotation1: 0.5
+      Rotation2: 0.8
+      Formuparam: 0.53
+      StepSize: 0.1
+      Tile: 0.85
+      Brightness: 0.0015
+      DarkMatter: 0.3
+      DistFading: 0.73
+      Saturation: 0.85
+      Intensity: 3
+      Iterations: 17
+      VolSteps: 20
+      EnableSkybox: true
+      EnableIBL: true
+      IBLIntensity: 1
+      CubemapResolution: 256
+  # ── Fill directional light so the spheres aren't pure reflection — keeps the
+  #    metal readable while the nebula dominates the reflection. ──
+  - Entity: 770000000000003
+    TagComponent:
+      Tag: Fill Light
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    DirectionalLightComponent:
+      Direction: [-0.4, -0.7, -0.5]
+      Color: [0.6, 0.65, 0.8]
+      Intensity: 0.8
+      CastShadows: true
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+      MaxShadowDistance: 80
+      CascadeSplitLambda: 0.9
+  # ── Metallic row (Metallic=1): mirror-reflects the nebula. Roughness sweeps
+  #    left→right, blurring the reflection from crisp nebula to soft glow. ──
+  - Entity: 770000000000100
+    TagComponent:
+      Tag: Metal R0.02
+    TransformComponent:
+      Translation: [-4.5, 0.6, -1]
+      Rotation: [0, 0, 0]
+      Scale: [0.55, 0.55, 0.55]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.95, 0.95, 0.95]
+      Metallic: 1
+      Roughness: 0.02
+  - Entity: 770000000000101
+    TagComponent:
+      Tag: Metal R0.12
+    TransformComponent:
+      Translation: [-2.25, 0.6, -1]
+      Rotation: [0, 0, 0]
+      Scale: [0.55, 0.55, 0.55]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.95, 0.90, 0.85]
+      Metallic: 1
+      Roughness: 0.12
+  - Entity: 770000000000102
+    TagComponent:
+      Tag: Metal R0.3
+    TransformComponent:
+      Translation: [0, 0.6, -1]
+      Rotation: [0, 0, 0]
+      Scale: [0.55, 0.55, 0.55]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.85, 0.85, 0.90]
+      Metallic: 1
+      Roughness: 0.3
+  - Entity: 770000000000103
+    TagComponent:
+      Tag: Metal R0.5
+    TransformComponent:
+      Translation: [2.25, 0.6, -1]
+      Rotation: [0, 0, 0]
+      Scale: [0.55, 0.55, 0.55]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.90, 0.80, 0.85]
+      Metallic: 1
+      Roughness: 0.5
+  - Entity: 770000000000104
+    TagComponent:
+      Tag: Metal R0.75
+    TransformComponent:
+      Translation: [4.5, 0.6, -1]
+      Rotation: [0, 0, 0]
+      Scale: [0.55, 0.55, 0.55]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.80, 0.80, 0.95]
+      Metallic: 1
+      Roughness: 0.75
+  # ── Dielectric row (Metallic=0): shows the diffuse-IBL contribution from the
+  #    nebula (ambient colour bounce) rather than mirror reflection. ──
+  - Entity: 770000000000200
+    TagComponent:
+      Tag: Dielectric R0.1
+    TransformComponent:
+      Translation: [-4.5, 0.6, -3]
+      Rotation: [0, 0, 0]
+      Scale: [0.55, 0.55, 0.55]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.90, 0.20, 0.20]
+      Metallic: 0
+      Roughness: 0.1
+  - Entity: 770000000000201
+    TagComponent:
+      Tag: Dielectric R0.3
+    TransformComponent:
+      Translation: [-2.25, 0.6, -3]
+      Rotation: [0, 0, 0]
+      Scale: [0.55, 0.55, 0.55]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.90, 0.55, 0.15]
+      Metallic: 0
+      Roughness: 0.3
+  - Entity: 770000000000202
+    TagComponent:
+      Tag: Dielectric R0.5
+    TransformComponent:
+      Translation: [0, 0.6, -3]
+      Rotation: [0, 0, 0]
+      Scale: [0.55, 0.55, 0.55]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.30, 0.80, 0.35]
+      Metallic: 0
+      Roughness: 0.5
+  - Entity: 770000000000203
+    TagComponent:
+      Tag: Dielectric R0.7
+    TransformComponent:
+      Translation: [2.25, 0.6, -3]
+      Rotation: [0, 0, 0]
+      Scale: [0.55, 0.55, 0.55]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.25, 0.55, 0.90]
+      Metallic: 0
+      Roughness: 0.7
+  - Entity: 770000000000204
+    TagComponent:
+      Tag: Dielectric R0.9
+    TransformComponent:
+      Translation: [4.5, 0.6, -3]
+      Rotation: [0, 0, 0]
+      Scale: [0.55, 0.55, 0.55]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.65, 0.35, 0.85]
+      Metallic: 0
+      Roughness: 0.9
+  # ── Ground plane (matte; picks up the nebula's diffuse ambient) ──
+  - Entity: 770000000000300
+    TagComponent:
+      Tag: Ground
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [30, 1, 30]
+    MeshComponent:
+      Primitive: 3
+    MaterialComponent:
+      AlbedoColor: [0.18, 0.18, 0.22]
+      Metallic: 0
+      Roughness: 0.9

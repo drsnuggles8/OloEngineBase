@@ -3313,6 +3313,355 @@ static void SpriteRendererComponent_SetTilingFactor(UUID entityID, float value)
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////
+// StarNestSkyComponent                                                           //
+///////////////////////////////////////////////////////////////////////////////////////////
+
+static void StarNestSkyComponent_GetOffset(UUID entityID, glm::vec3* outValue)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<StarNestSkyComponent>();
+    *outValue = comp.m_Offset;
+}
+
+static void StarNestSkyComponent_SetOffset(UUID entityID, glm::vec3 const* value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<StarNestSkyComponent>();
+    for (glm::length_t i = 0; i < value->length(); ++i)
+        if (!std::isfinite((*value)[i]))
+            return;
+    comp.m_Offset = *value;
+}
+
+static float StarNestSkyComponent_GetRotation1(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<StarNestSkyComponent>();
+    return comp.m_Rotation1;
+}
+
+static void StarNestSkyComponent_SetRotation1(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<StarNestSkyComponent>();
+    comp.m_Rotation1 = value;
+}
+
+static float StarNestSkyComponent_GetRotation2(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<StarNestSkyComponent>();
+    return comp.m_Rotation2;
+}
+
+static void StarNestSkyComponent_SetRotation2(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<StarNestSkyComponent>();
+    comp.m_Rotation2 = value;
+}
+
+static float StarNestSkyComponent_GetFormuparam(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<StarNestSkyComponent>();
+    return comp.m_Formuparam;
+}
+
+static void StarNestSkyComponent_SetFormuparam(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<StarNestSkyComponent>();
+    comp.m_Formuparam = value;
+}
+
+static float StarNestSkyComponent_GetStepSize(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<StarNestSkyComponent>();
+    return comp.m_StepSize;
+}
+
+static void StarNestSkyComponent_SetStepSize(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<StarNestSkyComponent>();
+    comp.m_StepSize = value;
+}
+
+static float StarNestSkyComponent_GetTile(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<StarNestSkyComponent>();
+    return comp.m_Tile;
+}
+
+static void StarNestSkyComponent_SetTile(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<StarNestSkyComponent>();
+    comp.m_Tile = value;
+}
+
+static float StarNestSkyComponent_GetBrightness(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<StarNestSkyComponent>();
+    return comp.m_Brightness;
+}
+
+static void StarNestSkyComponent_SetBrightness(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<StarNestSkyComponent>();
+    comp.m_Brightness = value;
+}
+
+static float StarNestSkyComponent_GetDarkMatter(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<StarNestSkyComponent>();
+    return comp.m_DarkMatter;
+}
+
+static void StarNestSkyComponent_SetDarkMatter(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<StarNestSkyComponent>();
+    comp.m_DarkMatter = value;
+}
+
+static float StarNestSkyComponent_GetDistFading(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<StarNestSkyComponent>();
+    return comp.m_DistFading;
+}
+
+static void StarNestSkyComponent_SetDistFading(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<StarNestSkyComponent>();
+    comp.m_DistFading = value;
+}
+
+static float StarNestSkyComponent_GetSaturation(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<StarNestSkyComponent>();
+    return comp.m_Saturation;
+}
+
+static void StarNestSkyComponent_SetSaturation(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<StarNestSkyComponent>();
+    comp.m_Saturation = value;
+}
+
+static float StarNestSkyComponent_GetIntensity(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<StarNestSkyComponent>();
+    return comp.m_Intensity;
+}
+
+static void StarNestSkyComponent_SetIntensity(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<StarNestSkyComponent>();
+    comp.m_Intensity = value;
+}
+
+static int StarNestSkyComponent_GetIterations(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<StarNestSkyComponent>();
+    return comp.m_Iterations;
+}
+
+static void StarNestSkyComponent_SetIterations(UUID entityID, int value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<StarNestSkyComponent>();
+    comp.m_Iterations = value;
+}
+
+static int StarNestSkyComponent_GetVolSteps(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<StarNestSkyComponent>();
+    return comp.m_VolSteps;
+}
+
+static void StarNestSkyComponent_SetVolSteps(UUID entityID, int value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<StarNestSkyComponent>();
+    comp.m_VolSteps = value;
+}
+
+static bool StarNestSkyComponent_GetEnableSkybox(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<StarNestSkyComponent>();
+    return comp.m_EnableSkybox;
+}
+
+static void StarNestSkyComponent_SetEnableSkybox(UUID entityID, bool value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<StarNestSkyComponent>();
+    comp.m_EnableSkybox = value;
+}
+
+static bool StarNestSkyComponent_GetEnableIBL(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<StarNestSkyComponent>();
+    return comp.m_EnableIBL;
+}
+
+static void StarNestSkyComponent_SetEnableIBL(UUID entityID, bool value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<StarNestSkyComponent>();
+    comp.m_EnableIBL = value;
+}
+
+static float StarNestSkyComponent_GetIBLIntensity(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<StarNestSkyComponent>();
+    return comp.m_IBLIntensity;
+}
+
+static void StarNestSkyComponent_SetIBLIntensity(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<StarNestSkyComponent>();
+    comp.m_IBLIntensity = value;
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////
 // StreamingVolumeComponent                                                       //
 ///////////////////////////////////////////////////////////////////////////////////////////
 

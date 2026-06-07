@@ -86,6 +86,7 @@ add_executable(OloEngine-Tests
 		Rendering/ScatterBrushMathTest.cpp
 		Rendering/SphereAreaLightMathTest.cpp
 		Rendering/ProceduralSkyMathTest.cpp
+		Rendering/StarNestSkyMathTest.cpp
 		Rendering/AutoExposureMathTest.cpp
 		Rendering/ScreenSpaceReflectionMathTest.cpp
 		Rendering/SSRHiZTraversalTest.cpp
@@ -123,6 +124,9 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/SphereAreaLightVisualTest.cpp
 		Rendering/PropertyTests/ProceduralSkyBakeTest.cpp
 		Rendering/PropertyTests/ProceduralSkyVisualTest.cpp
+		Rendering/PropertyTests/StarNestSkyBakeTest.cpp
+		Rendering/PropertyTests/StarNestSkyVisualTest.cpp
+		Rendering/PropertyTests/StarNestReflectionEvidenceTest.cpp
 		Rendering/PropertyTests/WaterVisualEvidenceTest.cpp
 		Rendering/PropertyTests/SSRVisualEvidenceTest.cpp
 		Rendering/PropertyTests/PCSSVisualEvidenceTest.cpp

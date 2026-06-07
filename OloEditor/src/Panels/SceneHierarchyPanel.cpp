@@ -1674,6 +1674,7 @@ namespace OloEngine
             DisplayAddComponentEntry<SphereAreaLightComponent>("Sphere Area Light");
             DisplayAddComponentEntry<EnvironmentMapComponent>("Environment Map (Skybox/IBL)");
             DisplayAddComponentEntry<ProceduralSkyComponent>("Procedural Sky (Preetham)");
+            DisplayAddComponentEntry<StarNestSkyComponent>("Star Nest Sky (Nebula)");
 
             ImGui::Separator();
 
@@ -3154,6 +3155,81 @@ namespace OloEngine
 
             ImGui::Separator();
             if (ImGui::Button("Force Rebake##ProcSky"))
+            {
+                component.m_LastBakeHash = 0;
+                component.m_EnvironmentMap.Reset();
+            }
+            ImGui::SameLine();
+            if (component.m_EnvironmentMap)
+            {
+                ImGui::TextColored(ImVec4(0.6f, 0.85f, 0.6f, 1.0f), "Baked");
+            }
+            else
+            {
+                ImGui::TextColored(ImVec4(0.85f, 0.6f, 0.6f, 1.0f), "Not yet baked");
+            } });
+
+        DrawComponent<StarNestSkyComponent>("Star Nest Sky", entity, [](auto& component)
+                                            {
+            ImGui::DragFloat3("Offset##StarNest", glm::value_ptr(component.m_Offset), 0.02f);
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Virtual camera position inside the nebula field. Moving it gives a completely different cloud.");
+
+            ImGui::DragFloat("Rotation XZ##StarNest", &component.m_Rotation1, 0.01f);
+            ImGui::DragFloat("Rotation XY##StarNest", &component.m_Rotation2, 0.01f);
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Whole-sky rotation angles (radians).");
+
+            ImGui::Separator();
+            ImGui::DragFloat("Formuparam##StarNest", &component.m_Formuparam, 0.005f, 0.0f, 2.0f, "%.3f");
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Fold constant in p = abs(p)/dot(p,p) - formuparam. Small changes reshape the whole nebula.");
+            ImGui::DragFloat("Step Size##StarNest", &component.m_StepSize, 0.005f, 0.001f, 1.0f, "%.3f");
+            ImGui::DragFloat("Tile##StarNest", &component.m_Tile, 0.01f, 0.01f, 4.0f, "%.3f");
+            ImGui::DragFloat("Brightness##StarNest", &component.m_Brightness, 0.0001f, 0.0f, 1.0f, "%.4f");
+            ImGui::DragFloat("Dark Matter##StarNest", &component.m_DarkMatter, 0.01f, 0.0f, 5.0f, "%.3f");
+            ImGui::DragFloat("Distance Fading##StarNest", &component.m_DistFading, 0.01f, 0.0f, 1.0f, "%.3f");
+            ImGui::DragFloat("Saturation##StarNest", &component.m_Saturation, 0.01f, 0.0f, 1.0f, "%.3f");
+            ImGui::DragFloat("Intensity##StarNest", &component.m_Intensity, 0.05f, 0.0f, 100.0f, "%.2f");
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Overall brightness multiplier; drives how strongly the nebula lights and reflects off surfaces.");
+
+            int iterations = component.m_Iterations;
+            if (ImGui::DragInt("Iterations##StarNest", &iterations, 1.0f, 1, 40))
+                component.m_Iterations = std::clamp(iterations, 1, 40);
+            int volSteps = component.m_VolSteps;
+            if (ImGui::DragInt("Volume Steps##StarNest", &volSteps, 1.0f, 1, 40))
+                component.m_VolSteps = std::clamp(volSteps, 1, 40);
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("More steps = deeper, smoother nebula but slower bake (both capped at 40).");
+
+            ImGui::Separator();
+            ImGui::Checkbox("Enable Skybox##StarNest", &component.m_EnableSkybox);
+            ImGui::Checkbox("Enable IBL##StarNest", &component.m_EnableIBL);
+            if (component.m_EnableIBL)
+            {
+                ImGui::Indent();
+                ImGui::DragFloat("IBL Intensity##StarNest", &component.m_IBLIntensity, 0.01f, 0.0f, 5.0f);
+                ImGui::Unindent();
+            }
+
+            // Resolution: ints in steps the cubemap pipeline likes.
+            int res = static_cast<int>(component.m_CubemapResolution);
+            const int kSteps[] = { 64, 128, 256, 512, 1024 };
+            int currentIdx = 2;
+            for (int i = 0; i < IM_ARRAYSIZE(kSteps); ++i)
+            {
+                if (res <= kSteps[i]) { currentIdx = i; break; }
+            }
+            if (ImGui::Combo("Cubemap Resolution##StarNest", &currentIdx, "64\0""128\0""256\0""512\0""1024\0\0"))
+            {
+                component.m_CubemapResolution = static_cast<u32>(kSteps[currentIdx]);
+                component.m_LastBakeHash = 0; // force rebake at the new resolution
+                component.m_EnvironmentMap.Reset();
+            }
+
+            ImGui::Separator();
+            if (ImGui::Button("Force Rebake##StarNest"))
             {
                 component.m_LastBakeHash = 0;
                 component.m_EnvironmentMap.Reset();

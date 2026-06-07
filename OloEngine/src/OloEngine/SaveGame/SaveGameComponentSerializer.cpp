@@ -871,6 +871,46 @@ namespace OloEngine
         // Ref<EnvironmentMap> and bake hash are runtime — not serialised
     }
 
+    void SaveGameComponentSerializer::Serialize(FArchive& ar, StarNestSkyComponent& c)
+    {
+        ar << c.m_Offset << c.m_Rotation1 << c.m_Rotation2;
+        ar << c.m_Formuparam << c.m_StepSize << c.m_Tile;
+        ar << c.m_Brightness << c.m_DarkMatter << c.m_DistFading << c.m_Saturation;
+        ar << c.m_Intensity << c.m_Iterations << c.m_VolSteps;
+        ar << c.m_EnableSkybox << c.m_EnableIBL << c.m_IBLIntensity;
+        ar << c.m_CubemapResolution;
+
+        if (ar.IsLoading())
+        {
+            // Sanitise untrusted on-disk data — same boundary policy as the
+            // Preetham sky above: a NaN/inf would poison the baked cubemap and
+            // every IBL-lit draw, and a wild finite value would blow the nebula
+            // (or the loop counts) out of range. Clamp into the authoring ranges
+            // ComputeUBO expects; NaN/inf fall back to the component default.
+            for (int i = 0; i < 3; ++i)
+            {
+                if (!std::isfinite(c.m_Offset[i]))
+                    c.m_Offset = glm::vec3(1.0f, 0.5f, 0.5f);
+            }
+            c.m_Rotation1 = std::isfinite(c.m_Rotation1) ? c.m_Rotation1 : 0.5f;
+            c.m_Rotation2 = std::isfinite(c.m_Rotation2) ? c.m_Rotation2 : 0.8f;
+            c.m_Formuparam = std::isfinite(c.m_Formuparam) ? std::clamp(c.m_Formuparam, 0.0f, 2.0f) : 0.53f;
+            c.m_StepSize = std::isfinite(c.m_StepSize) ? std::clamp(c.m_StepSize, 1e-3f, 1.0f) : 0.1f;
+            c.m_Tile = std::isfinite(c.m_Tile) ? std::clamp(c.m_Tile, 1e-2f, 4.0f) : 0.85f;
+            c.m_Brightness = std::isfinite(c.m_Brightness) ? std::clamp(c.m_Brightness, 0.0f, 1.0f) : 0.0015f;
+            c.m_DarkMatter = std::isfinite(c.m_DarkMatter) ? std::clamp(c.m_DarkMatter, 0.0f, 5.0f) : 0.3f;
+            c.m_DistFading = std::isfinite(c.m_DistFading) ? std::clamp(c.m_DistFading, 0.0f, 1.0f) : 0.73f;
+            c.m_Saturation = std::isfinite(c.m_Saturation) ? std::clamp(c.m_Saturation, 0.0f, 1.0f) : 0.85f;
+            c.m_Intensity = std::isfinite(c.m_Intensity) ? std::clamp(c.m_Intensity, 0.0f, 100.0f) : 1.0f;
+            c.m_IBLIntensity = std::isfinite(c.m_IBLIntensity) ? std::clamp(c.m_IBLIntensity, 0.0f, 100.0f) : 1.0f;
+            c.m_Iterations = std::clamp(c.m_Iterations, 1, kStarNestMaxIterations);
+            c.m_VolSteps = std::clamp(c.m_VolSteps, 1, kStarNestMaxVolSteps);
+            if (c.m_CubemapResolution < 8u || c.m_CubemapResolution > 4096u)
+                c.m_CubemapResolution = 256u;
+        }
+        // Ref<EnvironmentMap> and bake hash are runtime — not serialised
+    }
+
     void SaveGameComponentSerializer::Serialize(FArchive& ar, EnvironmentMapComponent& c)
     {
         ar << c.m_EnvironmentMapAsset << c.m_FilePath;
@@ -2633,6 +2673,7 @@ namespace OloEngine
         REGISTER_SAVE_COMPONENT(SphereAreaLightComponent);
         REGISTER_SAVE_COMPONENT(EnvironmentMapComponent);
         REGISTER_SAVE_COMPONENT(ProceduralSkyComponent);
+        REGISTER_SAVE_COMPONENT(StarNestSkyComponent);
         REGISTER_SAVE_COMPONENT(LightProbeComponent);
         REGISTER_SAVE_COMPONENT(LightProbeVolumeComponent);
         REGISTER_SAVE_COMPONENT(ReflectionProbeComponent);

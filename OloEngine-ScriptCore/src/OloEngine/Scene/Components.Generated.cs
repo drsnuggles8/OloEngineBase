@@ -1082,6 +1082,109 @@ namespace OloEngine
 		}
 	}
 
+	public partial class StarNestSkyComponent : Component
+	{
+		public Vector3 Offset
+		{
+			get
+			{
+				InternalCalls.StarNestSkyComponent_GetOffset(Entity.ID, out Vector3 value);
+				return value;
+			}
+			set => InternalCalls.StarNestSkyComponent_SetOffset(Entity.ID, ref value);
+		}
+
+		public float Rotation1
+		{
+			get => InternalCalls.StarNestSkyComponent_GetRotation1(Entity.ID);
+			set => InternalCalls.StarNestSkyComponent_SetRotation1(Entity.ID, value);
+		}
+
+		public float Rotation2
+		{
+			get => InternalCalls.StarNestSkyComponent_GetRotation2(Entity.ID);
+			set => InternalCalls.StarNestSkyComponent_SetRotation2(Entity.ID, value);
+		}
+
+		public float Formuparam
+		{
+			get => InternalCalls.StarNestSkyComponent_GetFormuparam(Entity.ID);
+			set => InternalCalls.StarNestSkyComponent_SetFormuparam(Entity.ID, value);
+		}
+
+		public float StepSize
+		{
+			get => InternalCalls.StarNestSkyComponent_GetStepSize(Entity.ID);
+			set => InternalCalls.StarNestSkyComponent_SetStepSize(Entity.ID, value);
+		}
+
+		public float Tile
+		{
+			get => InternalCalls.StarNestSkyComponent_GetTile(Entity.ID);
+			set => InternalCalls.StarNestSkyComponent_SetTile(Entity.ID, value);
+		}
+
+		public float Brightness
+		{
+			get => InternalCalls.StarNestSkyComponent_GetBrightness(Entity.ID);
+			set => InternalCalls.StarNestSkyComponent_SetBrightness(Entity.ID, value);
+		}
+
+		public float DarkMatter
+		{
+			get => InternalCalls.StarNestSkyComponent_GetDarkMatter(Entity.ID);
+			set => InternalCalls.StarNestSkyComponent_SetDarkMatter(Entity.ID, value);
+		}
+
+		public float DistFading
+		{
+			get => InternalCalls.StarNestSkyComponent_GetDistFading(Entity.ID);
+			set => InternalCalls.StarNestSkyComponent_SetDistFading(Entity.ID, value);
+		}
+
+		public float Saturation
+		{
+			get => InternalCalls.StarNestSkyComponent_GetSaturation(Entity.ID);
+			set => InternalCalls.StarNestSkyComponent_SetSaturation(Entity.ID, value);
+		}
+
+		public float Intensity
+		{
+			get => InternalCalls.StarNestSkyComponent_GetIntensity(Entity.ID);
+			set => InternalCalls.StarNestSkyComponent_SetIntensity(Entity.ID, value);
+		}
+
+		public int Iterations
+		{
+			get => InternalCalls.StarNestSkyComponent_GetIterations(Entity.ID);
+			set => InternalCalls.StarNestSkyComponent_SetIterations(Entity.ID, value);
+		}
+
+		public int VolSteps
+		{
+			get => InternalCalls.StarNestSkyComponent_GetVolSteps(Entity.ID);
+			set => InternalCalls.StarNestSkyComponent_SetVolSteps(Entity.ID, value);
+		}
+
+		public bool EnableSkybox
+		{
+			get => InternalCalls.StarNestSkyComponent_GetEnableSkybox(Entity.ID);
+			set => InternalCalls.StarNestSkyComponent_SetEnableSkybox(Entity.ID, value);
+		}
+
+		public bool EnableIBL
+		{
+			get => InternalCalls.StarNestSkyComponent_GetEnableIBL(Entity.ID);
+			set => InternalCalls.StarNestSkyComponent_SetEnableIBL(Entity.ID, value);
+		}
+
+		public float IBLIntensity
+		{
+			get => InternalCalls.StarNestSkyComponent_GetIBLIntensity(Entity.ID);
+			set => InternalCalls.StarNestSkyComponent_SetIBLIntensity(Entity.ID, value);
+		}
+	}
+
 	public partial class StreamingVolumeComponent : Component
 	{
 		public float LoadRadius

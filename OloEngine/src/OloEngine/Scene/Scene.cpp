@@ -17,6 +17,7 @@
 #include "OloEngine/Renderer/EnvironmentMap.h"
 #include "OloEngine/Renderer/ReflectionProbeBaker.h"
 #include "OloEngine/Renderer/ProceduralSky.h"
+#include "OloEngine/Renderer/StarNestSky.h"
 #include "OloEngine/Renderer/TextureCubemap.h"
 #include "OloEngine/Scripting/C#/ScriptEngine.h"
 #include "OloEngine/Scripting/Lua/LuaScriptEngine.h"
@@ -2175,6 +2176,8 @@ namespace OloEngine
     template<>
     void Scene::OnComponentAdded<ProceduralSkyComponent>(Entity, ProceduralSkyComponent&) {}
     template<>
+    void Scene::OnComponentAdded<StarNestSkyComponent>(Entity, StarNestSkyComponent&) {}
+    template<>
     void Scene::OnComponentAdded<TerrainComponent>(Entity, TerrainComponent&) {}
     template<>
     void Scene::OnComponentAdded<FoliageComponent>(Entity, FoliageComponent&) {}
@@ -3036,6 +3039,78 @@ namespace OloEngine
         // Clear stale global IBL from previous scenes — only the current
         // scene's EnvironmentMap (if any) should provide IBL textures.
         Renderer3D::ClearGlobalIBL();
+
+        // StarNestSkyComponent has the highest precedence: the explicit
+        // raymarched nebula (issue #292) bakes its own cubemap and routes
+        // through the same Renderer3D::DrawSkybox + IBL path as every other
+        // sky, so reflective PBR surfaces / reflection probes / SSR all
+        // reflect the nebula. Early-return after wiring it so the procedural
+        // sky and file-based env-map loops below can't also fire.
+        if (auto starView = m_Registry.view<StarNestSkyComponent>(); starView.begin() != starView.end())
+        {
+            for (auto entity : starView)
+            {
+                auto& sky = starView.get<StarNestSkyComponent>(entity);
+
+                // Detect dirtiness via parameter hash; rebake only on change.
+                // The bake is expensive (six raymarched face renders + IBL
+                // convolve) so we gate on the hash rather than rebake per frame.
+                StarNestParameters params;
+                params.Offset = sky.m_Offset;
+                params.Rotation1 = sky.m_Rotation1;
+                params.Rotation2 = sky.m_Rotation2;
+                params.Formuparam = sky.m_Formuparam;
+                params.StepSize = sky.m_StepSize;
+                params.Tile = sky.m_Tile;
+                params.Brightness = sky.m_Brightness;
+                params.DarkMatter = sky.m_DarkMatter;
+                params.DistFading = sky.m_DistFading;
+                params.Saturation = sky.m_Saturation;
+                params.Intensity = sky.m_Intensity;
+                params.Iterations = sky.m_Iterations;
+                params.VolSteps = sky.m_VolSteps;
+
+                const u64 hash = StarNestSky::HashParameters(params, sky.m_CubemapResolution);
+                if (hash != sky.m_LastBakeHash)
+                {
+                    auto baked = StarNestSky::Generate(params, sky.m_CubemapResolution);
+                    if (baked)
+                        sky.m_EnvironmentMap = baked;
+                    else
+                        sky.m_EnvironmentMap.Reset(); // drop the stale bake so the cache matches the (failed) current params
+
+                    // Record the attempt regardless of outcome: a persistent
+                    // bake failure (e.g. shader missing) must not re-run the
+                    // expensive Generate — and re-log its error — every frame.
+                    // A real parameter edit moves the hash and re-triggers a
+                    // bake; the editor "Force Rebake" resets m_LastBakeHash to 0
+                    // (and clears m_EnvironmentMap) to force a retry on demand.
+                    sky.m_LastBakeHash = hash;
+                }
+
+                if (!sky.m_EnvironmentMap)
+                    continue;
+
+                if (sky.m_EnableSkybox && sky.m_EnvironmentMap->GetEnvironmentMap())
+                {
+                    auto* packet = Renderer3D::DrawSkybox(sky.m_EnvironmentMap->GetEnvironmentMap());
+                    if (packet)
+                        Renderer3D::SubmitPacket(packet);
+                }
+
+                if (sky.m_EnableIBL && sky.m_EnvironmentMap->HasIBL())
+                {
+                    auto& envMap = sky.m_EnvironmentMap;
+                    Renderer3D::SetGlobalIBL(
+                        envMap->GetIrradianceMap() ? envMap->GetIrradianceMap()->GetRendererID() : 0,
+                        envMap->GetPrefilterMap() ? envMap->GetPrefilterMap()->GetRendererID() : 0,
+                        envMap->GetBRDFLutMap() ? envMap->GetBRDFLutMap()->GetRendererID() : 0,
+                        envMap->GetEnvironmentMap() ? envMap->GetEnvironmentMap()->GetRendererID() : 0,
+                        sky.m_IBLIntensity);
+                }
+                return; // Only one Star Nest sky drives the scene
+            }
+        }
 
         // ProceduralSkyComponent wins over EnvironmentMapComponent when both
         // live in the same scene: the procedural sky bakes its own cubemap
@@ -5902,6 +5977,7 @@ namespace OloEngine
     OLO_ON_COMPONENT_REMOVED_NOOP(SphereAreaLightComponent)
     OLO_ON_COMPONENT_REMOVED_NOOP(EnvironmentMapComponent)
     OLO_ON_COMPONENT_REMOVED_NOOP(ProceduralSkyComponent)
+    OLO_ON_COMPONENT_REMOVED_NOOP(StarNestSkyComponent)
     OLO_ON_COMPONENT_REMOVED_NOOP(TerrainComponent)
     OLO_ON_COMPONENT_REMOVED_NOOP(FoliageComponent)
     OLO_ON_COMPONENT_REMOVED_NOOP(WaterComponent)
