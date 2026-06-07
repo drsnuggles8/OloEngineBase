@@ -1766,29 +1766,54 @@ namespace OloEngine
     {
         // Serialized properties
         std::string m_HeightmapPath;
+        OLO_PROPERTY()
         f32 m_WorldSizeX = 256.0f;
+        OLO_PROPERTY()
         f32 m_WorldSizeZ = 256.0f;
+        OLO_PROPERTY()
         f32 m_HeightScale = 64.0f;
 
-        // Procedural generation settings (serialized, used when m_HeightmapPath is empty)
+        // Procedural generation settings (serialized, used when m_HeightmapPath is empty).
+        // Exposed to C#/Lua via OLO_PROPERTY so gameplay scripts can drive procedural
+        // world generation at runtime (pick a seed per run, regenerate on a level
+        // transition, …). Setting any of these only takes effect once the script also
+        // calls Regenerate() (see below) — the params are inputs to the next rebuild.
+        OLO_PROPERTY(Name = "ProceduralEnabled")
         bool m_ProceduralEnabled = false;
+        OLO_PROPERTY(Name = "Seed")
         i32 m_ProceduralSeed = 42;
+        OLO_PROPERTY(Name = "Resolution")
         u32 m_ProceduralResolution = 512;
+        OLO_PROPERTY(Name = "Octaves")
         u32 m_ProceduralOctaves = 6;
+        OLO_PROPERTY(Name = "Frequency")
         f32 m_ProceduralFrequency = 3.0f;
+        OLO_PROPERTY(Name = "Lacunarity")
         f32 m_ProceduralLacunarity = 2.0f;
+        OLO_PROPERTY(Name = "Persistence")
         f32 m_ProceduralPersistence = 0.45f;
 
         // Advanced height-field shaping (serialized) — ridged mountains, domain
         // warp, terracing, height redistribution. Defaults are identity, so the
-        // base fBm above is unchanged unless these are touched.
+        // base fBm above is unchanged unless these are touched. The scalars live in
+        // the nested TerrainHeightShaping struct, which OLO_PROPERTY can't bind
+        // directly, so they're flattened onto the component via custom Get/Set
+        // expressions that forward to m_HeightShaping.
+        OLO_PROPERTY(Name = "RidgeBlend", Type = "float", Get = "comp.m_HeightShaping.RidgeBlend", Set = "comp.m_HeightShaping.RidgeBlend = {v}")
+        OLO_PROPERTY(Name = "WarpStrength", Type = "float", Get = "comp.m_HeightShaping.WarpStrength", Set = "comp.m_HeightShaping.WarpStrength = {v}")
+        OLO_PROPERTY(Name = "WarpFrequency", Type = "float", Get = "comp.m_HeightShaping.WarpFrequency", Set = "comp.m_HeightShaping.WarpFrequency = {v}")
+        OLO_PROPERTY(Name = "TerraceSteps", Type = "uint", Get = "comp.m_HeightShaping.TerraceSteps", Set = "comp.m_HeightShaping.TerraceSteps = {v}")
+        OLO_PROPERTY(Name = "TerraceSharpness", Type = "float", Get = "comp.m_HeightShaping.TerraceSharpness", Set = "comp.m_HeightShaping.TerraceSharpness = {v}")
+        OLO_PROPERTY(Name = "HeightExponent", Type = "float", Get = "comp.m_HeightShaping.HeightExponent", Set = "comp.m_HeightShaping.HeightExponent = {v}")
         TerrainHeightShaping m_HeightShaping;
 
         // Automatic material assignment (serialized). When enabled (and a material
         // with layers + rules exist), the splatmap is generated from m_LayerRules
         // by height/slope each rebuild instead of being hand-painted.
+        OLO_PROPERTY(Name = "AutoMaterial")
         bool m_AutoMaterial = false;
         std::vector<TerrainLayerRule> m_LayerRules;
+        OLO_PROPERTY(Name = "SplatmapGenResolution")
         u32 m_SplatmapGenResolution = 512;
 
         // LOD / tessellation settings (serialized)
@@ -1872,6 +1897,27 @@ namespace OloEngine
         }
         TerrainComponent(TerrainComponent&&) noexcept = default;
         TerrainComponent& operator=(TerrainComponent&&) noexcept = default;
+
+        // Script/runtime regeneration trigger. OLO_PROPERTY only generates field
+        // get/set, so a script that changes Seed/Octaves/… has no bound way to
+        // re-run generation. This is that trigger: drop the cached runtime data so
+        // the next Scene::ProcessScene3DSharedLogic tick rebuilds the height field
+        // from the current procedural params (instead of reusing the previously
+        // generated TerrainData), and re-derives the dependent chunks + auto-splat.
+        // Mirrors the copy-assignment "force rebuild" reset. The authored material
+        // asset (m_Material) is deliberately kept — only the procedural height field
+        // and what derives from it are regenerated. Bound to C# (Regenerate
+        // internal-call) and Lua (usertype "regenerate") so gameplay scripts can
+        // drive procedural worlds at runtime. Safe to call every frame; the actual
+        // work happens once, on the next render tick.
+        void Regenerate()
+        {
+            m_TerrainData = nullptr;  // force height-field regen from current params
+            m_ChunkManager = nullptr; // force chunk/quadtree rebuild from new data
+            m_Streamer = nullptr;     // streaming mode: re-init the streamer
+            m_NeedsRebuild = true;
+            m_AutoSplatNeedsRebuild = true; // re-derive auto-material splat from new heights
+        }
 
         // Compares the serialized fields only — runtime state is rebuild-on-load
         // so it's intentionally not considered for undo equality.

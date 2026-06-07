@@ -1551,10 +1551,16 @@ namespace OloEngine::Tests
     // image baselines. The asset registry is regenerated automatically by
     // OloEditor on next launch from on-disk asset discovery; when a
     // developer can't launch the editor (CI, headless dev box), this
-    // helper rebuilds the registry by deleting stale entries whose paths
-    // no longer resolve.
+    // helper rebuilds the registry to match disk:
+    //   1. drops stale entries whose paths no longer resolve, and
+    //   2. adds supported on-disk assets the registry is missing — the
+    //      clean-rebuild path the older "only removes" version invited.
+    // The two passes together make `EverySupportedAssetOnDiskIsInTheRegistry`
+    // and the stale-path checks pass again after assets are added/moved.
     //
-    // Disabled by default — only runs when explicitly filtered in.
+    // Disabled by default — only runs when explicitly filtered in:
+    //   --gtest_also_run_disabled_tests
+    //   --gtest_filter=AssetContentValidity.DISABLED_RebaseAssetRegistry
     // -------------------------------------------------------------------------
     TEST(AssetContentValidity, DISABLED_RebaseAssetRegistry)
     {
@@ -1565,6 +1571,7 @@ namespace OloEngine::Tests
         AssetRegistry registry;
         ASSERT_TRUE(registry.Deserialize(registryPath));
 
+        // Pass 1 — drop stale entries whose file no longer resolves.
         const auto allAssets = registry.GetAllAssets();
         u32 removedCount = 0;
         for (const auto& metadata : allAssets)
@@ -1578,9 +1585,73 @@ namespace OloEngine::Tests
             }
         }
 
+        // Pass 2 — reconcile supported on-disk assets with the registry.
+        // Mirror EverySupportedAssetOnDiskIsInTheRegistry's project-relative,
+        // forward-slash path comparison so the two stay in lockstep. A file
+        // whose path differs from its registry entry only by case (Windows /
+        // NTFS is case-insensitive) is RE-CASED in place rather than minting a
+        // duplicate — otherwise the helper would leave the stale wrong-case
+        // entry that SandboxAssetRegistryPathsMatchOnDiskCasing flags.
+        auto toLower = [](std::string s)
+        {
+            for (char& c : s)
+                c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+            return s;
+        };
+
+        std::set<std::string> registeredPaths;                      // exact-case generic
+        std::unordered_map<std::string, AssetMetadata> byLowerPath; // case-folded -> metadata
+        for (const auto& metadata : registry.GetAllAssets())
+        {
+            const std::string p = metadata.FilePath.generic_string();
+            registeredPaths.insert(p);
+            byLowerPath.emplace(toLower(p), metadata);
+        }
+
+        const fs::path assetsRoot = projectRoot / "Assets";
+        u32 addedCount = 0;
+        u32 recasedCount = 0;
+        std::error_code ec;
+        for (auto& entry : fs::recursive_directory_iterator(assetsRoot, ec))
+        {
+            if (ec)
+                break;
+            if (!entry.is_regular_file())
+                continue;
+            const std::string ext = entry.path().extension().string();
+            if (!AssetExtensions::IsExtensionSupported(ext))
+                continue;
+            const std::string relative = fs::relative(entry.path(), projectRoot, ec).generic_string();
+            if (ec || relative.empty() || registeredPaths.contains(relative))
+                continue; // already registered with exact casing
+
+            if (auto it = byLowerPath.find(toLower(relative)); it != byLowerPath.end())
+            {
+                // Registered under different casing — re-case in place, don't duplicate.
+                AssetMetadata fixed = it->second;
+                fixed.FilePath = relative;
+                registry.UpdateMetadata(fixed.Handle, fixed);
+                registeredPaths.insert(relative);
+                it->second.FilePath = relative;
+                ++recasedCount;
+                continue;
+            }
+
+            AssetMetadata md;
+            md.Handle = UUID(); // fresh random handle, editor-style
+            md.Type = AssetExtensions::GetAssetTypeFromExtension(ext);
+            md.FilePath = relative; // stored generic (forward-slash)
+            md.Status = AssetStatus::None;
+            registry.AddAsset(md);
+            registeredPaths.insert(relative);
+            byLowerPath.emplace(toLower(relative), md);
+            ++addedCount;
+        }
+
         ASSERT_TRUE(registry.Serialize(registryPath));
         std::cout << "Rebased AssetRegistry.oar: removed " << removedCount
-                  << " stale entries; " << registry.GetAssetCount() << " remain.\n";
+                  << " stale entries, added " << addedCount << " new on-disk asset(s), recased "
+                  << recasedCount << " path(s); " << registry.GetAssetCount() << " total.\n";
     }
 
     // -------------------------------------------------------------------------

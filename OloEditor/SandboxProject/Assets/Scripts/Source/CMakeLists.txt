@@ -9,6 +9,7 @@
 		"Player.cs"
 		"PlayerController.cs"
 		"SaveLoadTestPlayer.cs"
+		"TerrainController.cs"
 )
 
 add_library("Sandbox-Scripting" SHARED

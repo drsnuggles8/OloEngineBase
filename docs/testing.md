@@ -1263,11 +1263,12 @@ subsystem unit tests (§9.3, grouped by directory).
 | [ScenePauseFreezesAllSubsystemsTest.cpp](../OloEngine/tests/Functional/Scene/ScenePauseFreezesAllSubsystemsTest.cpp) | 1 | **ScenePauseFreezesAllSubsystemsTest** &mdash; `PauseStopsAllTickingSubsystemsResumeRestartsThem` |
 | [SceneStepAdvancesOneFrameTest.cpp](../OloEngine/tests/Functional/Scene/SceneStepAdvancesOneFrameTest.cpp) | 1 | **SceneStepAdvancesOneFrameTest** &mdash; `StepAdvancesExactlyTheRequestedFrameCountThenRePauses` |
 
-#### Scripting (7 files)
+#### Scripting (8 files)
 
 | File | Tests | Cases |
 |---|---:|---|
 | [LuaCompletesQuestViaIncrementObjectiveTest.cpp](../OloEngine/tests/Functional/Scripting/LuaCompletesQuestViaIncrementObjectiveTest.cpp) | 1 | **LuaCompletesQuestViaIncrementObjectiveTest** &mdash; `LuaIncrementObjectiveByThreeAutoCompletesSingleStageQuest` |
+| [LuaDrivesTerrainRegenerationTest.cpp](../OloEngine/tests/Functional/Scripting/LuaDrivesTerrainRegenerationTest.cpp) | 1 | **LuaDrivesTerrainRegenerationTest** &mdash; `LuaSetsSeedAndRegeneratesChangingTheHeightField` |
 | [LuaRaycastHitsPhysicsBodyTest.cpp](../OloEngine/tests/Functional/Scripting/LuaRaycastHitsPhysicsBodyTest.cpp) | 1 | **LuaRaycastHitsPhysicsBodyTest** &mdash; `ScriptCastingRayAlongXObservesNearFaceOfStaticTarget` |
 | [LuaReadsTransformOfAnotherEntityTest.cpp](../OloEngine/tests/Functional/Scripting/LuaReadsTransformOfAnotherEntityTest.cpp) | 1 | **LuaReadsTransformOfAnotherEntityTest** &mdash; `TrackerScriptCopiesTargetXIntoOwnTranslation` |
 | [LuaScriptMutatesTransformViaSceneTickTest.cpp](../OloEngine/tests/Functional/Scripting/LuaScriptMutatesTransformViaSceneTickTest.cpp) | 1 | **LuaScriptMutatesTransformViaSceneTickTest** &mdash; `OnUpdateRunsEachTickAndWritesTranslation` |
@@ -1275,7 +1276,7 @@ subsystem unit tests (§9.3, grouped by directory).
 | [LuaScriptSetsRigidbody2DVelocityTest.cpp](../OloEngine/tests/Functional/Scripting/LuaScriptSetsRigidbody2DVelocityTest.cpp) | 1 | **LuaScriptSetsRigidbody2DVelocityTest** &mdash; `BodyTranslatesAfterLuaSetsLinearVelocity` |
 | [LuaSetsAbilityAttributeViaSceneTickTest.cpp](../OloEngine/tests/Functional/Scripting/LuaSetsAbilityAttributeViaSceneTickTest.cpp) | 1 | **LuaSetsAbilityAttributeViaSceneTickTest** &mdash; `LuaDrivenHealthToZeroFlipsAliveToDeadOnSubsequentTick` |
 
-**Totals.** 83 Functional test files, 103 TEST / TEST_F declarations across all subsystems.
+**Totals.** 84 Functional test files, 104 TEST / TEST_F declarations across all subsystems.
 
 <!-- END: functional-catalogue -->
 

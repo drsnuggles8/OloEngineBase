@@ -1029,6 +1029,26 @@ namespace OloEngine
     }
 
     ///////////////////////////////////////////////////////////////////////////////////////////
+    // TerrainComponent (hand-written regeneration trigger) //////////////////////////////////
+    ///////////////////////////////////////////////////////////////////////////////////////////
+
+    // The scalar gen params (Seed / Octaves / Frequency / RidgeBlend / …) are auto-generated
+    // from OLO_PROPERTY annotations into ScriptGlueBindings.inl. Regeneration itself can't be:
+    // OLO_PROPERTY only emits field get/set, and re-running generation means dropping the cached
+    // runtime data so the next Scene::ProcessScene3DSharedLogic tick rebuilds the height field
+    // from the new params. This forwards to TerrainComponent::Regenerate(), reusing the existing
+    // rebuild path — no new generation code.
+    static void TerrainComponent_Regenerate(UUID entityID)
+    {
+        Scene* scene = ScriptEngine::GetSceneContext();
+        OLO_CORE_ASSERT(scene);
+        Entity entity = scene->GetEntityByUUID(entityID);
+        OLO_CORE_ASSERT(entity);
+        if (entity.HasComponent<TerrainComponent>())
+            entity.GetComponent<TerrainComponent>().Regenerate();
+    }
+
+    ///////////////////////////////////////////////////////////////////////////////////////////
     // ShaderLibrary3D /////////////////////////////////////////////////////////////////////////
     ///////////////////////////////////////////////////////////////////////////////////////////
 
@@ -3257,6 +3277,11 @@ namespace OloEngine
         ///////////////////////////////////////////////////////////////
         OLO_ADD_INTERNAL_CALL(MaterialComponent_GetShaderGraphHandle);
         OLO_ADD_INTERNAL_CALL(MaterialComponent_SetShaderGraphHandle);
+
+        ///////////////////////////////////////////////////////////////
+        // TerrainComponent (hand-written regeneration trigger) //////
+        ///////////////////////////////////////////////////////////////
+        OLO_ADD_INTERNAL_CALL(TerrainComponent_Regenerate);
 
         ///////////////////////////////////////////////////////////////
         // NavAgentComponent (hand-written action/query only) ////////

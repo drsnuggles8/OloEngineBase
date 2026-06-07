@@ -231,6 +231,8 @@ namespace OloEngine
             REGISTER_COMPONENT(LightProbeVolumeComponent),
             // Streaming
             REGISTER_COMPONENT(StreamingVolumeComponent),
+            // Terrain
+            REGISTER_COMPONENT(TerrainComponent),
             // Animation
             REGISTER_COMPONENT(AnimationGraphComponent),
             REGISTER_COMPONENT(MorphTargetComponent),
@@ -898,6 +900,66 @@ namespace OloEngine
                                                                                { return w.m_UnderwaterFogDensity; }, [](WaterComponent& w, f32 v)
                                                                                { if (std::isfinite(v) && v >= 0.0f && v <= 10.0f) w.m_UnderwaterFogDensity = v; }),
                                          "renderFromBelow", &WaterComponent::m_RenderFromBelow);
+
+        // --- TerrainComponent ---
+        // Exposes the scalar procedural-generation params so gameplay scripts can drive
+        // procedural worlds at runtime (pick a seed per run, regenerate on a level
+        // transition, scale heightScale from game state, …). Mirrors the C#/OLO_PROPERTY
+        // surface. Setting a param only takes effect once regenerate() is called — it
+        // drops the cached terrain so the next tick rebuilds the height field from the new
+        // params (reusing the existing Scene::ProcessScene3DSharedLogic rebuild path).
+        // Nested TerrainHeightShaping scalars are flattened onto the component here too.
+        // Setters validate finiteness / sane ranges (matching the WaterComponent style).
+        lua.new_usertype<TerrainComponent>("TerrainComponent",
+                                           "proceduralEnabled", &TerrainComponent::m_ProceduralEnabled,
+                                           "seed", &TerrainComponent::m_ProceduralSeed,
+                                           "resolution", sol::property([](const TerrainComponent& t)
+                                                                       { return t.m_ProceduralResolution; }, [](TerrainComponent& t, u32 v)
+                                                                       { if (v >= 2u && v <= 8192u) t.m_ProceduralResolution = v; }),
+                                           "octaves", sol::property([](const TerrainComponent& t)
+                                                                    { return t.m_ProceduralOctaves; }, [](TerrainComponent& t, u32 v)
+                                                                    { if (v >= 1u && v <= 20u) t.m_ProceduralOctaves = v; }),
+                                           "frequency", sol::property([](const TerrainComponent& t)
+                                                                      { return t.m_ProceduralFrequency; }, [](TerrainComponent& t, f32 v)
+                                                                      { if (std::isfinite(v) && v > 0.0f) t.m_ProceduralFrequency = v; }),
+                                           "lacunarity", sol::property([](const TerrainComponent& t)
+                                                                       { return t.m_ProceduralLacunarity; }, [](TerrainComponent& t, f32 v)
+                                                                       { if (std::isfinite(v) && v > 0.0f) t.m_ProceduralLacunarity = v; }),
+                                           "persistence", sol::property([](const TerrainComponent& t)
+                                                                        { return t.m_ProceduralPersistence; }, [](TerrainComponent& t, f32 v)
+                                                                        { if (std::isfinite(v) && v >= 0.0f) t.m_ProceduralPersistence = v; }),
+                                           "worldSizeX", sol::property([](const TerrainComponent& t)
+                                                                       { return t.m_WorldSizeX; }, [](TerrainComponent& t, f32 v)
+                                                                       { if (std::isfinite(v) && v > 0.0f) t.m_WorldSizeX = v; }),
+                                           "worldSizeZ", sol::property([](const TerrainComponent& t)
+                                                                       { return t.m_WorldSizeZ; }, [](TerrainComponent& t, f32 v)
+                                                                       { if (std::isfinite(v) && v > 0.0f) t.m_WorldSizeZ = v; }),
+                                           "heightScale", sol::property([](const TerrainComponent& t)
+                                                                        { return t.m_HeightScale; }, [](TerrainComponent& t, f32 v)
+                                                                        { if (std::isfinite(v)) t.m_HeightScale = v; }),
+                                           "autoMaterial", &TerrainComponent::m_AutoMaterial,
+                                           "splatmapGenResolution", sol::property([](const TerrainComponent& t)
+                                                                                  { return t.m_SplatmapGenResolution; }, [](TerrainComponent& t, u32 v)
+                                                                                  { if (v >= 2u && v <= 8192u) t.m_SplatmapGenResolution = v; }),
+                                           "ridgeBlend", sol::property([](const TerrainComponent& t)
+                                                                       { return t.m_HeightShaping.RidgeBlend; }, [](TerrainComponent& t, f32 v)
+                                                                       { if (std::isfinite(v)) t.m_HeightShaping.RidgeBlend = glm::clamp(v, 0.0f, 1.0f); }),
+                                           "warpStrength", sol::property([](const TerrainComponent& t)
+                                                                         { return t.m_HeightShaping.WarpStrength; }, [](TerrainComponent& t, f32 v)
+                                                                         { if (std::isfinite(v) && v >= 0.0f) t.m_HeightShaping.WarpStrength = v; }),
+                                           "warpFrequency", sol::property([](const TerrainComponent& t)
+                                                                          { return t.m_HeightShaping.WarpFrequency; }, [](TerrainComponent& t, f32 v)
+                                                                          { if (std::isfinite(v) && v > 0.0f) t.m_HeightShaping.WarpFrequency = v; }),
+                                           "terraceSteps", sol::property([](const TerrainComponent& t)
+                                                                         { return t.m_HeightShaping.TerraceSteps; }, [](TerrainComponent& t, u32 v)
+                                                                         { if (v <= 256u) t.m_HeightShaping.TerraceSteps = v; }),
+                                           "terraceSharpness", sol::property([](const TerrainComponent& t)
+                                                                             { return t.m_HeightShaping.TerraceSharpness; }, [](TerrainComponent& t, f32 v)
+                                                                             { if (std::isfinite(v)) t.m_HeightShaping.TerraceSharpness = glm::clamp(v, 0.0f, 0.999f); }),
+                                           "heightExponent", sol::property([](const TerrainComponent& t)
+                                                                           { return t.m_HeightShaping.HeightExponent; }, [](TerrainComponent& t, f32 v)
+                                                                           { if (std::isfinite(v) && v > 0.0f) t.m_HeightShaping.HeightExponent = v; }),
+                                           "regenerate", &TerrainComponent::Regenerate);
 
         // --- BuoyancyComponent ---
         // Lets gameplay scripts toggle / tune how a floating body responds to the

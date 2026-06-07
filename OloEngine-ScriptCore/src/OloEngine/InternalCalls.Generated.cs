@@ -638,6 +638,81 @@ namespace OloEngine
 		internal static extern void StreamingVolumeComponent_SetUnloadRadius(ulong entityID, float value);
 		#endregion
 
+		#region TerrainComponent
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float TerrainComponent_GetWorldSizeX(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void TerrainComponent_SetWorldSizeX(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float TerrainComponent_GetWorldSizeZ(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void TerrainComponent_SetWorldSizeZ(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float TerrainComponent_GetHeightScale(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void TerrainComponent_SetHeightScale(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool TerrainComponent_GetProceduralEnabled(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void TerrainComponent_SetProceduralEnabled(ulong entityID, bool value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern int TerrainComponent_GetSeed(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void TerrainComponent_SetSeed(ulong entityID, int value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern uint TerrainComponent_GetResolution(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void TerrainComponent_SetResolution(ulong entityID, uint value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern uint TerrainComponent_GetOctaves(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void TerrainComponent_SetOctaves(ulong entityID, uint value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float TerrainComponent_GetFrequency(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void TerrainComponent_SetFrequency(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float TerrainComponent_GetLacunarity(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void TerrainComponent_SetLacunarity(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float TerrainComponent_GetPersistence(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void TerrainComponent_SetPersistence(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float TerrainComponent_GetRidgeBlend(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void TerrainComponent_SetRidgeBlend(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float TerrainComponent_GetWarpStrength(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void TerrainComponent_SetWarpStrength(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float TerrainComponent_GetWarpFrequency(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void TerrainComponent_SetWarpFrequency(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern uint TerrainComponent_GetTerraceSteps(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void TerrainComponent_SetTerraceSteps(ulong entityID, uint value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float TerrainComponent_GetTerraceSharpness(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void TerrainComponent_SetTerraceSharpness(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float TerrainComponent_GetHeightExponent(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void TerrainComponent_SetHeightExponent(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool TerrainComponent_GetAutoMaterial(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void TerrainComponent_SetAutoMaterial(ulong entityID, bool value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern uint TerrainComponent_GetSplatmapGenResolution(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void TerrainComponent_SetSplatmapGenResolution(ulong entityID, uint value);
+		#endregion
+
 		#region TextComponent
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern string TextComponent_GetText(ulong entityID);

@@ -1,0 +1,167 @@
+Scene: ScriptedTerrainDemo.olo
+PostProcessSettings:
+  TonemapOperator: 1
+  Exposure: 1
+  Gamma: 2.2
+  BloomEnabled: false
+  BloomThreshold: 1
+  BloomIntensity: 0.5
+  BloomIterations: 5
+  VignetteEnabled: false
+  VignetteIntensity: 0.3
+  VignetteSmoothness: 0.5
+  ChromaticAberrationEnabled: false
+  ChromaticAberrationIntensity: 0.005
+  FXAAEnabled: false
+  DOFEnabled: false
+  DOFFocusDistance: 10
+  DOFFocusRange: 5
+  DOFBokehRadius: 3
+  MotionBlurEnabled: false
+  MotionBlurStrength: 0.5
+  MotionBlurSamples: 8
+  ColorGradingEnabled: false
+  SSAOEnabled: false
+  SSAORadius: 0.5
+  SSAOBias: 0.025
+  SSAOIntensity: 1
+  SSAOSamples: 32
+  SSAODebugView: false
+SnowSettings:
+  Enabled: false
+FogSettings:
+  Enabled: false
+WindSettings:
+  Enabled: false
+SnowAccumulationSettings:
+  Enabled: false
+SnowEjectaSettings:
+  Enabled: false
+PrecipitationSettings:
+  Enabled: false
+StreamingSettings:
+  Enabled: false
+Entities:
+  # Demonstrates issue #293 — script-driven procedural terrain. Two procedural
+  # terrains side by side: the left is driven by a Lua script, the right by a C#
+  # script. Both pick a fresh seed on start and regenerate on the R key. See
+  # docs/PROCEDURAL_TERRAIN.md → "Scripting (C# / Lua)".
+  - Entity: 7700000000000001
+    TagComponent:
+      Tag: camera
+    TransformComponent:
+      Translation: [0, 160, 360]
+      Rotation: [-0.4, 0, 0]
+      Scale: [1, 1, 1]
+    CameraComponent:
+      Camera:
+        ProjectionType: 0
+        PerspectiveFOV: 0.7853982
+        PerspectiveNear: 0.1
+        PerspectiveFar: 2000
+        OrthographicSize: 10
+        OrthographicNear: -1
+        OrthographicFar: 1
+      Primary: true
+      FixedAspectRatio: false
+      RuntimeControl: true
+      FlySpeed: 20
+  - Entity: 7700000000000002
+    TagComponent:
+      Tag: Directional Light
+    TransformComponent:
+      Translation: [21.055992, 25.520258, 26.569588]
+      Rotation: [-0.78539824, 0.39269903, 0]
+      Scale: [1, 1, 1]
+    DirectionalLightComponent:
+      Direction: [-0.4, -0.8, -0.3]
+      Color: [1, 0.9607843, 0.8980392]
+      Intensity: 2.5
+      CastShadows: true
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.01
+      MaxShadowDistance: 500
+      CascadeSplitLambda: 0.5
+      CascadeDebugVisualization: false
+  - Entity: 7700000000000003
+    TagComponent:
+      Tag: Lua-Driven Terrain
+    TransformComponent:
+      Translation: [-150, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    TerrainComponent:
+      HeightmapPath: ""
+      WorldSizeX: 256
+      WorldSizeZ: 256
+      HeightScale: 60
+      ProceduralEnabled: true
+      ProceduralSeed: 1337
+      ProceduralResolution: 256
+      ProceduralOctaves: 6
+      ProceduralFrequency: 3
+      ProceduralLacunarity: 2
+      ProceduralPersistence: 0.45
+      ShapingRidgeBlend: 0.5
+      ShapingWarpStrength: 0.12
+      ShapingWarpFrequency: 2
+      ShapingTerraceSteps: 0
+      ShapingTerraceSharpness: 0.6
+      ShapingHeightExponent: 1
+      AutoMaterial: false
+      SplatmapGenResolution: 256
+      TessellationEnabled: false
+      TargetTriangleSize: 8
+      MorphRegion: 0.3
+      StreamingEnabled: false
+      TileDirectory: ""
+      TileFilePattern: tile_%d_%d.raw
+      TileWorldSize: 256
+      TileResolution: 513
+      StreamingLoadRadius: 3
+      StreamingMaxTiles: 25
+      VoxelEnabled: false
+      VoxelSize: 1
+    LuaScriptComponent:
+      ScriptFile: Scripts/LuaScripts/LuaTerrainController.lua
+  - Entity: 7700000000000004
+    TagComponent:
+      Tag: CSharp-Driven Terrain
+    TransformComponent:
+      Translation: [150, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    TerrainComponent:
+      HeightmapPath: ""
+      WorldSizeX: 256
+      WorldSizeZ: 256
+      HeightScale: 60
+      ProceduralEnabled: true
+      ProceduralSeed: 2024
+      ProceduralResolution: 256
+      ProceduralOctaves: 7
+      ProceduralFrequency: 3
+      ProceduralLacunarity: 2
+      ProceduralPersistence: 0.45
+      ShapingRidgeBlend: 0.6
+      ShapingWarpStrength: 0.12
+      ShapingWarpFrequency: 2
+      ShapingTerraceSteps: 0
+      ShapingTerraceSharpness: 0.6
+      ShapingHeightExponent: 1
+      AutoMaterial: false
+      SplatmapGenResolution: 256
+      TessellationEnabled: false
+      TargetTriangleSize: 8
+      MorphRegion: 0.3
+      StreamingEnabled: false
+      TileDirectory: ""
+      TileFilePattern: tile_%d_%d.raw
+      TileWorldSize: 256
+      TileResolution: 513
+      StreamingLoadRadius: 3
+      StreamingMaxTiles: 25
+      VoxelEnabled: false
+      VoxelSize: 1
+    ScriptComponent:
+      ClassName: Sandbox.TerrainController
