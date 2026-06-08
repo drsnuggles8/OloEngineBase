@@ -72,6 +72,7 @@ add_executable(OloEngine-Tests
 		Rendering/LODTest.cpp
 		Rendering/MeshOptimizationTest.cpp
 		Rendering/MeshSourceBoundsTest.cpp
+		Rendering/MeshBVHRaycastTest.cpp
 		Rendering/PODCommandTest.cpp
 		Rendering/ShaderBindingLayoutTest.cpp
 		Rendering/ShaderReflectionBindingTest.cpp

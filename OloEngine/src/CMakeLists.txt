@@ -447,6 +447,9 @@
 		"OloEngine/Project/ProjectSerializer.h"
 		
 		"OloEngine/Renderer/BoundingVolume.h"
+		"OloEngine/Renderer/BoundingVolumeHierarchy.cpp"
+		"OloEngine/Renderer/BoundingVolumeHierarchy.h"
+		"OloEngine/Renderer/Ray.h"
 		"OloEngine/Renderer/Buffer.h"
 		"OloEngine/Renderer/Font.cpp"
 		"OloEngine/Renderer/Font.h"
