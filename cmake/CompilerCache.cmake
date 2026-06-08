@@ -54,6 +54,18 @@ if(OLO_ENABLE_COMPILER_CACHE)
         if(MSVC)
             set(CMAKE_MSVC_DEBUG_INFORMATION_FORMAT "$<$<CONFIG:Debug,Release>:Embedded>")
         endif()
+
+        # Some vendored libraries force MSVC /Zi + a separately-named PDB
+        # (COMPILE_PDB_NAME), which sccache/ccache cannot cache: it aborts the
+        # build with "failed to zip up compiler outputs ... failed to open
+        # <name>.pdb". The CMAKE_MSVC_DEBUG_INFORMATION_FORMAT override above does
+        # NOT reach them — assimp hardcodes `/Zi` in its own CMakeLists, gated on
+        # ASSIMP_INSTALL_PDB (its default ON; OloEngine/vendor/assimp-src/
+        # CMakeLists.txt). Turn that option off so assimp emits no separate PDB
+        # and its objects become cacheable; CI/test Release binaries don't need
+        # assimp symbols. Set here (before assimp's add_subdirectory) so its
+        # `if(ASSIMP_INSTALL_PDB)` sees the disabled value.
+        set(ASSIMP_INSTALL_PDB OFF CACHE BOOL "Disabled: separate PDBs defeat compiler caching" FORCE)
     else()
         message(WARNING
             "OLO_ENABLE_COMPILER_CACHE is ON but neither 'sccache' nor 'ccache' "
