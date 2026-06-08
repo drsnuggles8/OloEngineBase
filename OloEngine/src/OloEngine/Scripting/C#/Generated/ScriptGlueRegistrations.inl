@@ -241,6 +241,10 @@ OLO_ADD_INTERNAL_CALL(PhysicsJoint3DComponent_GetSliderMaxLimit);
 OLO_ADD_INTERNAL_CALL(PhysicsJoint3DComponent_SetSliderMaxLimit);
 OLO_ADD_INTERNAL_CALL(PhysicsJoint3DComponent_GetConeHalfAngleDeg);
 OLO_ADD_INTERNAL_CALL(PhysicsJoint3DComponent_SetConeHalfAngleDeg);
+OLO_ADD_INTERNAL_CALL(PhysicsJoint3DComponent_GetBreakForce);
+OLO_ADD_INTERNAL_CALL(PhysicsJoint3DComponent_SetBreakForce);
+OLO_ADD_INTERNAL_CALL(PhysicsJoint3DComponent_GetBreakTorque);
+OLO_ADD_INTERNAL_CALL(PhysicsJoint3DComponent_SetBreakTorque);
 
 // PointLightComponent
 OLO_ADD_INTERNAL_CALL(PointLightComponent_GetColor);

@@ -887,6 +887,8 @@ namespace OloEngine::Tests
         const f32 expectedSliderMin = -2.5f;
         const f32 expectedSliderMax = 3.5f;
         const f32 expectedConeHalf = 60.0f; // within [0, 180]
+        const f32 expectedBreakForce = 250.0f;
+        const f32 expectedBreakTorque = 75.0f;
 
         std::string yaml;
         {
@@ -905,6 +907,8 @@ namespace OloEngine::Tests
             j.m_SliderMinLimit = expectedSliderMin;
             j.m_SliderMaxLimit = expectedSliderMax;
             j.m_ConeHalfAngleDeg = expectedConeHalf;
+            j.m_BreakForce = expectedBreakForce;
+            j.m_BreakTorque = expectedBreakTorque;
             yaml = SceneSerializer(scene).SerializeToYAML();
         }
 
@@ -933,6 +937,8 @@ namespace OloEngine::Tests
         EXPECT_NEAR(j.m_SliderMinLimit, expectedSliderMin, kFloatEpsilon);
         EXPECT_NEAR(j.m_SliderMaxLimit, expectedSliderMax, kFloatEpsilon);
         EXPECT_NEAR(j.m_ConeHalfAngleDeg, expectedConeHalf, kFloatEpsilon);
+        EXPECT_NEAR(j.m_BreakForce, expectedBreakForce, kFloatEpsilon);
+        EXPECT_NEAR(j.m_BreakTorque, expectedBreakTorque, kFloatEpsilon);
     }
 
     // -------------------------------------------------------------------------

@@ -677,6 +677,34 @@ namespace OloEngine
         ar << c.m_HingeMinAngleDeg << c.m_HingeMaxAngleDeg;
         ar << c.m_SliderMinLimit << c.m_SliderMaxLimit;
         ar << c.m_ConeHalfAngleDeg;
+
+        // Break thresholds were appended after m_ConeHalfAngleDeg (which legacy
+        // archives ended with), so probe AtEnd() on load and default to 0
+        // (unbreakable) when absent. Mirrors EnvironmentMapComponent above.
+        if (ar.IsLoading())
+        {
+            if (ar.AtEnd())
+            {
+                c.m_BreakForce = 0.0f;
+                c.m_BreakTorque = 0.0f;
+            }
+            else
+            {
+                ar << c.m_BreakForce << c.m_BreakTorque;
+            }
+
+            // Sanitize untrusted on-disk values; 0 means unbreakable.
+            if (!std::isfinite(c.m_BreakForce))
+                c.m_BreakForce = 0.0f;
+            c.m_BreakForce = std::clamp(c.m_BreakForce, 0.0f, 1.0e9f);
+            if (!std::isfinite(c.m_BreakTorque))
+                c.m_BreakTorque = 0.0f;
+            c.m_BreakTorque = std::clamp(c.m_BreakTorque, 0.0f, 1.0e9f);
+        }
+        else
+        {
+            ar << c.m_BreakForce << c.m_BreakTorque;
+        }
         // m_RuntimeConstraintToken is a runtime Jolt handle — not serialized.
     }
 

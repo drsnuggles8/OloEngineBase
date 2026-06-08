@@ -726,9 +726,23 @@ namespace OloEngine
         OLO_PROPERTY()
         f32 m_ConeHalfAngleDeg = 45.0f;
 
+        // Breakable joints. At runtime the per-step constraint impulse is read
+        // back from Jolt, converted to an average force/torque (impulse / dt),
+        // and compared against these thresholds; when either is exceeded the
+        // constraint is removed and a JointBrokeEvent (Physics3D/PhysicsEvents.h)
+        // is published on the Scene's GameplayEventBus. A non-positive threshold
+        // (<= 0) means "disabled" — that axis never breaks the joint. Both
+        // default to 0, so an authored joint is unbreakable until a designer
+        // opts in. m_BreakForce is in newtons, m_BreakTorque in newton-metres.
+        OLO_PROPERTY()
+        f32 m_BreakForce = 0.0f;
+        OLO_PROPERTY()
+        f32 m_BreakTorque = 0.0f;
+
         // Storage for runtime - non-zero once the Jolt constraint has been created.
         // Excluded from authored-state equality so play-mode enter/exit doesn't show
-        // as a change (mirrors Rigidbody3DComponent::m_RuntimeBodyToken).
+        // as a change (mirrors Rigidbody3DComponent::m_RuntimeBodyToken). Cleared
+        // back to 0 when the constraint breaks at runtime (see JoltScene).
         u64 m_RuntimeConstraintToken = 0;
 
         PhysicsJoint3DComponent() = default;
@@ -736,7 +750,7 @@ namespace OloEngine
 
         auto operator==(const PhysicsJoint3DComponent& other) const -> bool
         {
-            return m_Type == other.m_Type && m_ConnectedEntity == other.m_ConnectedEntity && Math::BitwiseEqual(m_LocalAnchorA, other.m_LocalAnchorA) && Math::BitwiseEqual(m_LocalAnchorB, other.m_LocalAnchorB) && Math::BitwiseEqual(m_Axis, other.m_Axis) && Math::BitwiseEqual(m_MinDistance, other.m_MinDistance) && Math::BitwiseEqual(m_MaxDistance, other.m_MaxDistance) && Math::BitwiseEqual(m_HingeMinAngleDeg, other.m_HingeMinAngleDeg) && Math::BitwiseEqual(m_HingeMaxAngleDeg, other.m_HingeMaxAngleDeg) && Math::BitwiseEqual(m_SliderMinLimit, other.m_SliderMinLimit) && Math::BitwiseEqual(m_SliderMaxLimit, other.m_SliderMaxLimit) && Math::BitwiseEqual(m_ConeHalfAngleDeg, other.m_ConeHalfAngleDeg);
+            return m_Type == other.m_Type && m_ConnectedEntity == other.m_ConnectedEntity && Math::BitwiseEqual(m_LocalAnchorA, other.m_LocalAnchorA) && Math::BitwiseEqual(m_LocalAnchorB, other.m_LocalAnchorB) && Math::BitwiseEqual(m_Axis, other.m_Axis) && Math::BitwiseEqual(m_MinDistance, other.m_MinDistance) && Math::BitwiseEqual(m_MaxDistance, other.m_MaxDistance) && Math::BitwiseEqual(m_HingeMinAngleDeg, other.m_HingeMinAngleDeg) && Math::BitwiseEqual(m_HingeMaxAngleDeg, other.m_HingeMaxAngleDeg) && Math::BitwiseEqual(m_SliderMinLimit, other.m_SliderMinLimit) && Math::BitwiseEqual(m_SliderMaxLimit, other.m_SliderMaxLimit) && Math::BitwiseEqual(m_ConeHalfAngleDeg, other.m_ConeHalfAngleDeg) && Math::BitwiseEqual(m_BreakForce, other.m_BreakForce) && Math::BitwiseEqual(m_BreakTorque, other.m_BreakTorque);
         }
     };
 

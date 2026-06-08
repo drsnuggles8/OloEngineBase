@@ -2329,6 +2329,50 @@ static void PhysicsJoint3DComponent_SetConeHalfAngleDeg(UUID entityID, float val
     comp.m_ConeHalfAngleDeg = value;
 }
 
+static float PhysicsJoint3DComponent_GetBreakForce(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<PhysicsJoint3DComponent>();
+    return comp.m_BreakForce;
+}
+
+static void PhysicsJoint3DComponent_SetBreakForce(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<PhysicsJoint3DComponent>();
+    comp.m_BreakForce = value;
+}
+
+static float PhysicsJoint3DComponent_GetBreakTorque(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<PhysicsJoint3DComponent>();
+    return comp.m_BreakTorque;
+}
+
+static void PhysicsJoint3DComponent_SetBreakTorque(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<PhysicsJoint3DComponent>();
+    comp.m_BreakTorque = value;
+}
+
 ///////////////////////////////////////////////////////////////////////////////////////////
 // PointLightComponent                                                            //
 ///////////////////////////////////////////////////////////////////////////////////////////

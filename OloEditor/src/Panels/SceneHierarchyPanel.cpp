@@ -3545,7 +3545,15 @@ namespace OloEngine
                 case JointType3D::Point:
                 default:
                     break;
-            } });
+            }
+
+            // Breakable thresholds (any joint type). 0 = unbreakable on that axis;
+            // at runtime the joint snaps when its constraint force/torque exceeds
+            // the threshold, firing a JointBrokeEvent.
+            ImGui::Separator();
+            ImGui::TextDisabled("Breakable (0 = unbreakable)");
+            ImGui::DragFloat("Break Force (N)##PhysicsJoint3D", &component.m_BreakForce, 1.0f, 0.0f, 1.0e9f);
+            ImGui::DragFloat("Break Torque (N\xC2\xB7m)##PhysicsJoint3D", &component.m_BreakTorque, 1.0f, 0.0f, 1.0e9f); });
 
         // Audio Components
         DrawComponent<AudioSourceComponent>("Audio Source", entity, [this](auto& component)

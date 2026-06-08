@@ -469,6 +469,14 @@ namespace OloEngine
 		internal static extern float PhysicsJoint3DComponent_GetConeHalfAngleDeg(ulong entityID);
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern void PhysicsJoint3DComponent_SetConeHalfAngleDeg(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float PhysicsJoint3DComponent_GetBreakForce(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void PhysicsJoint3DComponent_SetBreakForce(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float PhysicsJoint3DComponent_GetBreakTorque(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void PhysicsJoint3DComponent_SetBreakTorque(ulong entityID, float value);
 		#endregion
 
 		#region PointLightComponent
