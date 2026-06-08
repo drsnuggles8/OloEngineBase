@@ -32,6 +32,7 @@
 #include <functional>
 #include <mutex>
 #include <string>
+#include <string_view>
 #include <thread>
 #include <unordered_set>
 #include <vector>
@@ -200,6 +201,51 @@ namespace OloEngine::MCP
         // run on handler threads, so this holds.
         [[nodiscard]] Json MarshalRead(const std::function<Json()>& readJob,
                                        std::chrono::milliseconds timeout = std::chrono::milliseconds(5000));
+
+        // ---- Dispatch / framing seam (httplib-free; transport-agnostic) --------
+        //
+        // The HTTP transport (HandlePost) is a thin shell around these: it adds the
+        // origin / auth / session-validation checks, then defers all JSON-RPC
+        // parsing and routing here. They are public so the protocol can be unit
+        // tested without binding a socket or constructing httplib types (issue
+        // #306 item D); they are also the reuse point for any future MCP transport.
+
+        // Route one parsed JSON-RPC message and return the response object, or a
+        // null Json for a notification (a message with no "id" — no response is
+        // sent). Tools / resources / prompts must already be registered.
+        [[nodiscard]] Json HandleMessage(const Json& message);
+
+        // Outcome of running a raw request body through the JSON-RPC framing layer.
+        struct FramedResponse
+        {
+            // Response payload to send back. A null Json means "send no body" (a
+            // notification, or an all-notification batch); see Status.
+            Json Body;
+            // Suggested HTTP status: 200 when Body carries a payload, 202 when
+            // there is nothing to return.
+            int Status = 200;
+            // Non-empty only after a successful single `initialize`: the freshly
+            // minted (and registered) session id the transport should echo back in
+            // the Mcp-Session-Id header. This is the one stateful side effect of
+            // the framing path.
+            std::string SessionId;
+        };
+
+        // Pure framing: parse `body`, route a single message or a batch through
+        // HandleMessage, and collect the response(s). Mirrors the JSON-RPC 2.0
+        // batch rules (notifications drop out; an empty batch is itself an invalid
+        // request). No httplib — HandlePost wraps this with the transport concerns.
+        [[nodiscard]] FramedResponse ProcessRequestBody(const std::string& body);
+
+        // Validate an "Authorization: Bearer <token>" header value against
+        // `expectedToken` with a length-independent, content-constant-time compare.
+        // An empty `expectedToken` (server not running) rejects everything. Pure.
+        [[nodiscard]] static bool CheckBearerAuth(std::string_view authorizationHeader,
+                                                  std::string_view expectedToken);
+
+        // DNS-rebinding defence: true if `origin` denotes a loopback host, or is
+        // absent / "null" (non-browser agents send no Origin). Pure.
+        [[nodiscard]] static bool IsOriginAllowed(std::string_view origin);
 
       private:
         // Top-level HTTP handler (cpp-httplib worker thread): auth + origin check,

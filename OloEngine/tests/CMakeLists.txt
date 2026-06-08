@@ -260,6 +260,13 @@ add_executable(OloEngine-Tests
 		ContentBrowser/ContentBrowserItemTest.cpp
 		${CMAKE_SOURCE_DIR}/OloEditor/src/Panels/ContentBrowser/DirectoryTree.cpp
 		${CMAKE_SOURCE_DIR}/OloEditor/src/Panels/ContentBrowser/ContentBrowserItem.cpp
+		# MCP JSON-RPC dispatch / framing tests (issue #306 item D). The dispatch
+		# core lives in the OloEditor target, so pull its single httplib-free-at-
+		# the-seam translation unit into the test binary (cpp_httplib is linked
+		# below). McpServerPanel.* (ImGui) and McpTools.* (real tools) are NOT
+		# needed — the test registers fake tools/resources/prompts.
+		MCP/McpDispatchTest.cpp
+		${CMAKE_SOURCE_DIR}/OloEditor/src/MCP/McpServer.cpp
 		# Lua Binding Tests
 		Lua/LuaBindingTest.cpp
 		# Functional / cross-subsystem world-tick tests (see ADR 0001).
@@ -352,7 +359,8 @@ add_executable(OloEngine-Tests
 )
 target_link_libraries(OloEngine-Tests
 	OloEngine
-	gtest)
+	gtest
+	cpp_httplib)
 
 # Copy FFmpeg DLLs next to the test exe so OLO_VIDEO_FFMPEG decode tests can run.
 olo_copy_ffmpeg_runtime(OloEngine-Tests)
@@ -376,6 +384,8 @@ target_include_directories(OloEngine-Tests PRIVATE
 	${CMAKE_CURRENT_SOURCE_DIR}
 	${CMAKE_CURRENT_SOURCE_DIR}/Rendering
 	${CMAKE_SOURCE_DIR}/OloEditor/src/Panels/ContentBrowser
+	# MCP dispatch test includes the editor's MCP headers as "MCP/McpServer.h".
+	${CMAKE_SOURCE_DIR}/OloEditor/src
 )
 
 # Register tests with CTest so `ctest` discovers them. The WORKING_DIRECTORY

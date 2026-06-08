@@ -271,6 +271,7 @@
     "OloEngine/tests/JoltShapesMeshMassPropertiesTest.cpp": "unit",
     "OloEngine/tests/LocalizationTest.cpp": "unit",
     "OloEngine/tests/Lua/LuaBindingTest.cpp": "unit",
+    "OloEngine/tests/MCP/McpDispatchTest.cpp": "unit",
     "OloEngine/tests/MathTest.cpp": "unit",
     "OloEngine/tests/ModelImporterTest.cpp": "unit",
     "OloEngine/tests/Memory/MemoryViewTest.cpp": "unit",
