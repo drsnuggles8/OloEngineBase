@@ -33,6 +33,10 @@ option(OLO_ENABLE_UNITY_BUILD "Enable Unity (Jumbo) Builds for faster compilatio
 include(cmake/SetupConfigurations.cmake)
 include(cmake/CommonProperties.cmake)
 include(cmake/Sanitizers.cmake)
+# Must come AFTER SetupConfigurations.cmake (it overrides that file's MSVC
+# debug-info default) and BEFORE the target subdirectories below (it sets the
+# compiler-launcher variables that initialize each target's property).
+include(cmake/CompilerCache.cmake)
 
 # Default FetchContent downloads to PROJECT_SOURCE_DIR/OloEngine/vendor so vendor
 # libraries live in a predictable location alongside the checked-in vendor tree.

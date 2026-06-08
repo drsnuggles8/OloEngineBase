@@ -22,7 +22,11 @@ concurrency:
 
 env:
   BUILD_TYPE: Release
-  
+  # Route sccache at its GitHub Actions cache backend (set up by the
+  # mozilla-actions/sccache-action step below). Object files are then reused
+  # across CI runs, so a push only recompiles the TUs that actually changed.
+  SCCACHE_GHA_ENABLED: "true"
+
 jobs:
   build:
     # The CMake configure and build commands are platform agnostic and should work equally well on Ubuntu or Mac.
@@ -48,6 +52,20 @@ jobs:
     - name: Setup Vulkan SDK
       uses: ./.github/actions/setup-vulkan
 
+    # We build with the Ninja generator (not the default Visual Studio generator)
+    # so CMAKE_<LANG>_COMPILER_LAUNCHER engages — the VS/MSBuild generator ignores
+    # it, so sccache would never run there. Ninja needs cl.exe + the Windows SDK
+    # include/lib paths on the job env; ilammy/msvc-dev-cmd runs vcvars and exports
+    # them to every subsequent step. (Trade-off: the Ninja path does not build the
+    # C# OloEngine-ScriptCore project — it is gated on the VS generator — so that
+    # one assembly's *compile* is no longer covered by this job. The C# source is
+    # still validated by the text-based AssetCSharpScriptValidityTest, and nothing
+    # in the test/runtime build links against the assembly.)
+    - name: Setup MSVC dev environment
+      uses: ilammy/msvc-dev-cmd@v1
+      with:
+        arch: x64
+
     # OLO_VIDEO_FFMPEG defaults ON, so the engine build compiles FFmpeg from source
     # (scripts/build-ffmpeg.sh). That needs nasm + a bash + Visual Studio; windows-latest
     # has Git-bash + Strawberry Perl (gmake), and we provision nasm here.
@@ -62,20 +80,50 @@ jobs:
         path: OloEngine/vendor/ffmpeg-install
         key: ffmpeg-${{ runner.os }}-n7.1-${{ hashFiles('scripts/build-ffmpeg.sh') }}
 
+    # Provisions sccache and wires it to the GitHub Actions cache backend
+    # (SCCACHE_GHA_ENABLED above). Must run before Configure so the launcher
+    # resolves on PATH.
+    - name: Setup sccache
+      uses: mozilla-actions/sccache-action@v0.0.6
+
     - name: Configure CMake
       # On a cache hit, point CMake at the prebuilt FFmpeg (ffmpeg.cmake's OLO_FFMPEG_PREFIX
       # fast path) so the build step doesn't rebuild it; on a miss it builds from source.
+      #
+      # -G "Ninja Multi-Config": required for the sccache compiler launcher to
+      #   engage (see the MSVC dev-env step above). -C Release still selects the
+      #   Release config in the build/ctest steps, exactly as the VS generator did.
+      # -DCMAKE_*_COMPILER=cl: force MSVC cl.exe (msvc-dev-cmd put it on PATH) so
+      #   Ninja doesn't auto-pick a clang/gcc that may also be on the runner.
+      # -DOLO_ENABLE_COMPILER_CACHE=ON: wires sccache as the launcher and switches
+      #   MSVC debug info to /Z7 (Embedded) so objects are cacheable (cmake/CompilerCache.cmake).
+      # -DOLO_ENABLE_LTO=OFF: CI binaries are for testing, not shipping. Dropping
+      #   LTO removes the slow /LTCG link AND the /GL flag that would otherwise make
+      #   sccache unable to cache the object files.
       shell: bash
       run: |
         PREFIX_ARG=""
         if [ "${{ steps.ffcache.outputs.cache-hit }}" = "true" ]; then
           PREFIX_ARG="-DOLO_FFMPEG_PREFIX=${GITHUB_WORKSPACE}/OloEngine/vendor/ffmpeg-install"
         fi
-        cmake -S . -B "${GITHUB_WORKSPACE}/build" -DPython_EXECUTABLE="${{ steps.py.outputs.python-path }}" $PREFIX_ARG
+        cmake -S . -B "${GITHUB_WORKSPACE}/build" \
+          -G "Ninja Multi-Config" \
+          -DCMAKE_C_COMPILER=cl -DCMAKE_CXX_COMPILER=cl \
+          -DOLO_ENABLE_COMPILER_CACHE=ON \
+          -DOLO_ENABLE_LTO=OFF \
+          -DPython_EXECUTABLE="${{ steps.py.outputs.python-path }}" \
+          $PREFIX_ARG
 
     - name: Build with CMake
       # Build your program with the given configuration
       run: cmake --build ${{github.workspace}}/build --config ${{env.BUILD_TYPE}}
+
+    # Read the cache hit rate. On a cold cache (first run / after a real source
+    # change) this is mostly writes; on a warm cache a high hit rate means the
+    # build step did almost no compiling.
+    - name: Show sccache stats
+      if: always()
+      run: sccache --show-stats
 
     # App-launch smoke test (issue #303). Run each shipped binary with
     # `--smoke-test`: it performs full startup (runtime-DLL load, subsystem init,
@@ -141,8 +189,8 @@ jobs:
       # has been observed to hang indefinitely on the hosted runner) from
       # deadlocking the entire job. Individual failures still surface in the
       # JUnit XML so the test-reporter can flag them. `-C ${{env.BUILD_TYPE}}`
-      # is required on the Visual Studio multi-config generator — without it
-      # CTest can't locate the per-config test binaries.
+      # is required on a multi-config generator (here Ninja Multi-Config) —
+      # without it CTest can't locate the per-config test binaries.
       #
       # --exclude-regex skips the Steam-networking / task-system suites that
       # flake on the hosted windows-latest runner (Timeouts + SEGFAULTs in
