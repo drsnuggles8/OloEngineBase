@@ -83,8 +83,17 @@ jobs:
     # Provisions sccache and wires it to the GitHub Actions cache backend
     # (SCCACHE_GHA_ENABLED above). Must run before Configure so the launcher
     # resolves on PATH.
+    #
+    # Action v0.0.10 + sccache >= v0.10.0 are REQUIRED: GitHub decommissioned the
+    # legacy Actions cache API on 2025-04-15, and older sccache builds still hit
+    # the dead endpoint — the server then fails to start ("cache storage failed to
+    # read: ... services aren't available") and, because sccache is the compiler
+    # launcher, every compile fails. v0.10.0+ speaks the new cache service (ghac
+    # v2, via opendal 0.52); we pin the current stable release for reproducibility.
     - name: Setup sccache
-      uses: mozilla-actions/sccache-action@v0.0.6
+      uses: mozilla-actions/sccache-action@v0.0.10
+      with:
+        version: "v0.15.0"
 
     - name: Configure CMake
       # On a cache hit, point CMake at the prebuilt FFmpeg (ffmpeg.cmake's OLO_FFMPEG_PREFIX
