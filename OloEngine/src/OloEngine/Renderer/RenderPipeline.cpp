@@ -432,6 +432,50 @@ namespace OloEngine
             PostProcessPasses.AOApply->SetPostProcessUBO(data.PostProcessGPU.PostProcess);
             PostProcessPasses.AOApply->SetSSAOUBO(data.PostProcessGPU.SSAO);
         }
+        // Wire SSGIPass (screen-space global illumination) before SSR in the
+        // dynamic post chain. Deferred-only: when the path is forward / forward+
+        // the SSGIColor resource is never declared (see PopulateBlackboard), so
+        // the pass self-skips and downstream aliases back to the upstream colour.
+        if (PostProcessPasses.SSGI)
+        {
+            const bool deferredPath = data.Settings.Path == RenderingPath::Deferred;
+            // Bind the UBO before the readiness check: IsReadyForExecution() now
+            // also validates the UBO, so setting it first avoids dropping the
+            // first frame SSGI is enabled.
+            PostProcessPasses.SSGI->SetSSGIUBO(data.PostProcessGPU.SSGI);
+            const bool ssgiEnabled = data.PostProcess.SSGIEnabled && deferredPath &&
+                                     PostProcessPasses.SSGI->IsReadyForExecution();
+            PostProcessPasses.SSGI->SetEnabled(ssgiEnabled);
+
+            if (ssgiEnabled)
+            {
+                auto& ssgi = data.PostProcessGPU.SSGIData;
+                ssgi.Projection = data.ProjectionMatrix;
+                ssgi.InverseProjection = glm::inverse(data.ProjectionMatrix);
+                ssgi.View = data.ViewMatrix;
+                ssgi.RayParams = glm::vec4(static_cast<f32>(std::clamp(data.PostProcess.SSGIMaxSteps, 1, kSSGIMaxSteps)),
+                                           std::max(0.1f, data.PostProcess.SSGIMaxDistance),
+                                           std::max(0.001f, data.PostProcess.SSGIThickness),
+                                           std::max(0.001f, data.PostProcess.SSGIStride));
+                ssgi.ShadeParams = glm::vec4(std::max(0.0f, data.PostProcess.SSGIIntensity),
+                                             static_cast<f32>(std::clamp(data.PostProcess.SSGIRayCount, 1, kSSGIMaxRays)),
+                                             std::clamp(data.PostProcess.SSGIEdgeFade, 0.0f, 0.5f),
+                                             0.0f);
+                f32 ssgiWidth = 1.0f;
+                f32 ssgiHeight = 1.0f;
+                if (FrameCorePasses.Scene)
+                {
+                    const auto& spec = FrameCorePasses.Scene->GetFramebufferSpecification();
+                    ssgiWidth = spec.Width > 0 ? static_cast<f32>(spec.Width) : 1.0f;
+                    ssgiHeight = spec.Height > 0 ? static_cast<f32>(spec.Height) : 1.0f;
+                }
+                ssgi.ScreenParams = glm::vec4(ssgiWidth, ssgiHeight, 1.0f / ssgiWidth, 1.0f / ssgiHeight);
+                ssgi.Flags = glm::vec4(data.PostProcess.SSGIDebugView ? 1.0f : 0.0f, 0.0f, 0.0f, 0.0f);
+
+                data.PostProcessGPU.SSGI->SetData(&ssgi, SSGIUBOData::GetSize());
+                data.PostProcessGPU.SSGI->Bind();
+            }
+        }
         // Wire SSRPass (screen-space reflections) before Bloom in the dynamic
         // post chain. Deferred-only: when the path is forward / forward+ the
         // SSRColor resource is never declared (see PopulateBlackboard), so the
@@ -945,6 +989,7 @@ namespace OloEngine
         HashU32(h, static_cast<u32>(std::to_underlying(data.PostProcess.ActiveAOTechnique)));
         HashBool(h, data.PostProcess.SSAOEnabled);
         HashBool(h, data.PostProcess.GTAOEnabled);
+        HashBool(h, data.PostProcess.SSGIEnabled);
         HashBool(h, data.PostProcess.SSREnabled);
         HashBool(h, data.PostProcess.BloomEnabled);
         HashBool(h, data.PostProcess.DOFEnabled);
@@ -1000,6 +1045,7 @@ namespace OloEngine
         HashPassState(h, RenderStreamPasses.Decal);
         HashPassState(h, PostProcessPasses.SSS);
         HashPassState(h, PostProcessPasses.AOApply);
+        HashPassState(h, PostProcessPasses.SSGI);
         HashPassState(h, PostProcessPasses.SSR);
         HashPassState(h, PostProcessPasses.Bloom);
         HashPassState(h, PostProcessPasses.DOF);
@@ -1633,6 +1679,27 @@ namespace OloEngine
             }
         }
 
+        // SSGIColor exists only on the deferred path when SSGI is enabled, ready,
+        // and the G-Buffer normal/albedo + scene depth it gathers against are
+        // available. Forward / forward+ never declares it, so downstream aliases
+        // back to the upstream colour.
+        if (pipeline.PostProcessPasses.SSGI)
+        {
+            if (pipeline.PostProcessPasses.SSGI->IsEnabled() &&
+                pipeline.PostProcessPasses.SSGI->IsReadyForExecution() &&
+                board.Scene.SceneDepth.IsValid() &&
+                board.GBuffer.GBufferNormal.IsValid() &&
+                board.GBuffer.GBufferAlbedo.IsValid())
+            {
+                const auto ssgiOutput = declareGraphOnlyPostProcessOutput(
+                    ResourceNames::SSGIColor,
+                    ResourceNames::SSGIColorTexture,
+                    RGResourceFormat::RGBA16Float);
+                board.Post.SSGIColor = ssgiOutput.Framebuffer;
+                board.Post.SSGIColorTexture = ssgiOutput.Texture;
+            }
+        }
+
         // SSRColor exists only on the deferred path when SSR is enabled, ready,
         // and the G-Buffer normal + scene depth it ray-marches against are
         // available. Forward / forward+ never declares it, so downstream aliases
@@ -1673,13 +1740,22 @@ namespace OloEngine
         std::string_view postProcessTargetTexture;
         if (board.Post.SSRColor.IsValid())
         {
-            // SSR runs after AOApply, so its output is the freshest pre-Bloom
+            // SSR runs after SSGI/AOApply, so its output is the freshest pre-Bloom
             // colour. Keep it first so name-based readers (DOF/MotionBlur/TAA)
             // pick up reflections even when Bloom is disabled.
             board.Post.PostProcessColor = board.Post.SSRColor;
             board.Post.PostProcessColorTexture = board.Post.SSRColorTexture;
             postProcessTargetFramebuffer = ResourceNames::SSRColor;
             postProcessTargetTexture = ResourceNames::SSRColorTexture;
+        }
+        else if (board.Post.SSGIColor.IsValid())
+        {
+            // SSGI runs after AOApply (and before SSR); when SSR is off its
+            // indirect-diffuse composite is the freshest pre-Bloom colour.
+            board.Post.PostProcessColor = board.Post.SSGIColor;
+            board.Post.PostProcessColorTexture = board.Post.SSGIColorTexture;
+            postProcessTargetFramebuffer = ResourceNames::SSGIColor;
+            postProcessTargetTexture = ResourceNames::SSGIColorTexture;
         }
         else if (board.Post.AOApplyColor.IsValid())
         {
@@ -2068,6 +2144,7 @@ namespace OloEngine
         inputs.Passes.OITResolve = SceneCompositePasses.OITResolve.Raw();
         inputs.Passes.SSS = PostProcessPasses.SSS.Raw();
         inputs.Passes.AOApply = PostProcessPasses.AOApply.Raw();
+        inputs.Passes.SSGI = PostProcessPasses.SSGI.Raw();
         inputs.Passes.SSR = PostProcessPasses.SSR.Raw();
         inputs.Passes.Bloom = PostProcessPasses.Bloom.Raw();
         inputs.Passes.DOF = PostProcessPasses.DOF.Raw();
@@ -2182,8 +2259,14 @@ namespace OloEngine
         PostProcessPasses.AOApply->SetName("AOApplyPass");
         PostProcessPasses.AOApply->Init(finalPassSpec);
 
+        // Screen-space global illumination standalone pass.
+        // Sits between AOApply and SSR in dynamic mode (deferred path only).
+        PostProcessPasses.SSGI = Ref<SSGIRenderPass>::Create();
+        PostProcessPasses.SSGI->SetName("SSGIPass");
+        PostProcessPasses.SSGI->Init(finalPassSpec);
+
         // Screen-space reflections standalone pass.
-        // Sits between AOApply and Bloom in dynamic mode (deferred path only).
+        // Sits between SSGI and Bloom in dynamic mode (deferred path only).
         PostProcessPasses.SSR = Ref<SSRRenderPass>::Create();
         PostProcessPasses.SSR->SetName("SSRPass");
         PostProcessPasses.SSR->Init(finalPassSpec);

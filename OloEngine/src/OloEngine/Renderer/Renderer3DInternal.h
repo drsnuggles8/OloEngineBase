@@ -24,6 +24,7 @@
 #include "OloEngine/Renderer/Passes/SelectionOutlineRenderPass.h"
 #include "OloEngine/Renderer/Passes/ShadowRenderPass.h"
 #include "OloEngine/Renderer/Passes/SSAORenderPass.h"
+#include "OloEngine/Renderer/Passes/SSGIRenderPass.h"
 #include "OloEngine/Renderer/Passes/SSRRenderPass.h"
 #include "OloEngine/Renderer/Passes/SSSRenderPass.h"
 #include "OloEngine/Renderer/Passes/TAARenderPass.h"
@@ -41,6 +42,7 @@ namespace OloEngine
     {
         Ref<SSSRenderPass> SSS;
         Ref<AOApplyRenderPass> AOApply;
+        Ref<SSGIRenderPass> SSGI;
         Ref<SSRRenderPass> SSR;
         Ref<BloomRenderPass> Bloom;
         Ref<DOFRenderPass> DOF;
@@ -61,6 +63,7 @@ namespace OloEngine
         {
             SSS.Reset();
             AOApply.Reset();
+            SSGI.Reset();
             SSR.Reset();
             Bloom.Reset();
             DOF.Reset();

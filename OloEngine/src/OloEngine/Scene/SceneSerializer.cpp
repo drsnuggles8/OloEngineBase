@@ -5939,6 +5939,15 @@ namespace OloEngine
             out << YAML::Key << "SSRMaxRoughness" << YAML::Value << pp.SSRMaxRoughness;
             out << YAML::Key << "SSREdgeFade" << YAML::Value << pp.SSREdgeFade;
             out << YAML::Key << "SSRDebugView" << YAML::Value << pp.SSRDebugView;
+            out << YAML::Key << "SSGIEnabled" << YAML::Value << pp.SSGIEnabled;
+            out << YAML::Key << "SSGIIntensity" << YAML::Value << pp.SSGIIntensity;
+            out << YAML::Key << "SSGIMaxDistance" << YAML::Value << pp.SSGIMaxDistance;
+            out << YAML::Key << "SSGIThickness" << YAML::Value << pp.SSGIThickness;
+            out << YAML::Key << "SSGIStride" << YAML::Value << pp.SSGIStride;
+            out << YAML::Key << "SSGIMaxSteps" << YAML::Value << pp.SSGIMaxSteps;
+            out << YAML::Key << "SSGIRayCount" << YAML::Value << pp.SSGIRayCount;
+            out << YAML::Key << "SSGIEdgeFade" << YAML::Value << pp.SSGIEdgeFade;
+            out << YAML::Key << "SSGIDebugView" << YAML::Value << pp.SSGIDebugView;
             out << YAML::Key << "AutoExposureEnabled" << YAML::Value << pp.AutoExposureEnabled;
             out << YAML::Key << "AutoExposureMinLogLuminance" << YAML::Value << pp.AutoExposureMinLogLuminance;
             out << YAML::Key << "AutoExposureMaxLogLuminance" << YAML::Value << pp.AutoExposureMaxLogLuminance;
@@ -6114,6 +6123,15 @@ namespace OloEngine
                 TrySet(pp.SSRMaxRoughness, ppNode["SSRMaxRoughness"]);
                 TrySet(pp.SSREdgeFade, ppNode["SSREdgeFade"]);
                 TrySet(pp.SSRDebugView, ppNode["SSRDebugView"]);
+                TrySet(pp.SSGIEnabled, ppNode["SSGIEnabled"]);
+                TrySet(pp.SSGIIntensity, ppNode["SSGIIntensity"]);
+                TrySet(pp.SSGIMaxDistance, ppNode["SSGIMaxDistance"]);
+                TrySet(pp.SSGIThickness, ppNode["SSGIThickness"]);
+                TrySet(pp.SSGIStride, ppNode["SSGIStride"]);
+                TrySet(pp.SSGIMaxSteps, ppNode["SSGIMaxSteps"]);
+                TrySet(pp.SSGIRayCount, ppNode["SSGIRayCount"]);
+                TrySet(pp.SSGIEdgeFade, ppNode["SSGIEdgeFade"]);
+                TrySet(pp.SSGIDebugView, ppNode["SSGIDebugView"]);
                 TrySet(pp.AutoExposureEnabled, ppNode["AutoExposureEnabled"]);
                 TrySet(pp.AutoExposureMinLogLuminance, ppNode["AutoExposureMinLogLuminance"]);
                 TrySet(pp.AutoExposureMaxLogLuminance, ppNode["AutoExposureMaxLogLuminance"]);
@@ -6126,6 +6144,7 @@ namespace OloEngine
                 // Floats read from YAML must be finite and ordered (min<=max).
                 SanitizeAutoExposure(pp);
                 SanitizeSSR(pp);
+                SanitizeSSGI(pp);
             }
 
             DeserializeSnowSettings(data, m_Scene->GetSnowSettings());
@@ -6274,6 +6293,15 @@ namespace OloEngine
             out << YAML::Key << "SSRMaxRoughness" << YAML::Value << pp.SSRMaxRoughness;
             out << YAML::Key << "SSREdgeFade" << YAML::Value << pp.SSREdgeFade;
             out << YAML::Key << "SSRDebugView" << YAML::Value << pp.SSRDebugView;
+            out << YAML::Key << "SSGIEnabled" << YAML::Value << pp.SSGIEnabled;
+            out << YAML::Key << "SSGIIntensity" << YAML::Value << pp.SSGIIntensity;
+            out << YAML::Key << "SSGIMaxDistance" << YAML::Value << pp.SSGIMaxDistance;
+            out << YAML::Key << "SSGIThickness" << YAML::Value << pp.SSGIThickness;
+            out << YAML::Key << "SSGIStride" << YAML::Value << pp.SSGIStride;
+            out << YAML::Key << "SSGIMaxSteps" << YAML::Value << pp.SSGIMaxSteps;
+            out << YAML::Key << "SSGIRayCount" << YAML::Value << pp.SSGIRayCount;
+            out << YAML::Key << "SSGIEdgeFade" << YAML::Value << pp.SSGIEdgeFade;
+            out << YAML::Key << "SSGIDebugView" << YAML::Value << pp.SSGIDebugView;
             out << YAML::Key << "AutoExposureEnabled" << YAML::Value << pp.AutoExposureEnabled;
             out << YAML::Key << "AutoExposureMinLogLuminance" << YAML::Value << pp.AutoExposureMinLogLuminance;
             out << YAML::Key << "AutoExposureMaxLogLuminance" << YAML::Value << pp.AutoExposureMaxLogLuminance;
@@ -6405,6 +6433,15 @@ namespace OloEngine
                 TrySet(pp.SSRMaxRoughness, ppNode["SSRMaxRoughness"]);
                 TrySet(pp.SSREdgeFade, ppNode["SSREdgeFade"]);
                 TrySet(pp.SSRDebugView, ppNode["SSRDebugView"]);
+                TrySet(pp.SSGIEnabled, ppNode["SSGIEnabled"]);
+                TrySet(pp.SSGIIntensity, ppNode["SSGIIntensity"]);
+                TrySet(pp.SSGIMaxDistance, ppNode["SSGIMaxDistance"]);
+                TrySet(pp.SSGIThickness, ppNode["SSGIThickness"]);
+                TrySet(pp.SSGIStride, ppNode["SSGIStride"]);
+                TrySet(pp.SSGIMaxSteps, ppNode["SSGIMaxSteps"]);
+                TrySet(pp.SSGIRayCount, ppNode["SSGIRayCount"]);
+                TrySet(pp.SSGIEdgeFade, ppNode["SSGIEdgeFade"]);
+                TrySet(pp.SSGIDebugView, ppNode["SSGIDebugView"]);
                 TrySet(pp.AutoExposureEnabled, ppNode["AutoExposureEnabled"]);
                 TrySet(pp.AutoExposureMinLogLuminance, ppNode["AutoExposureMinLogLuminance"]);
                 TrySet(pp.AutoExposureMaxLogLuminance, ppNode["AutoExposureMaxLogLuminance"]);
@@ -6417,6 +6454,7 @@ namespace OloEngine
                 // Floats read from YAML must be finite and ordered (min<=max).
                 SanitizeAutoExposure(pp);
                 SanitizeSSR(pp);
+                SanitizeSSGI(pp);
             }
 
             DeserializeSnowSettings(data, m_Scene->GetSnowSettings());
