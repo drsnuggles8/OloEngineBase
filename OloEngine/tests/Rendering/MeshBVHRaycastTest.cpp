@@ -367,6 +367,58 @@ TEST(MeshBVHRayAABB, TMaxPrunesAFarBox)
     EXPECT_FALSE(RayIntersect::RayAABB(origin, invDir, boxMin, boxMax, 0.0f, 1.0f, tNear));
 }
 
+// Regression: the parity sweeps use FibonacciSphere, which deliberately avoids
+// axis-aligned directions, so the slab test's invDir == +/-inf path — and the
+// 0*inf == NaN trap that fires when the origin sits exactly on a slab plane —
+// would otherwise be untested. These pin the explicit axis-parallel handling.
+
+TEST(MeshBVHRayAABB, AxisParallelRayOnSlabBoundaryHitsAndStaysFinite)
+{
+    const glm::vec3 boxMin(-1.0f);
+    const glm::vec3 boxMax(1.0f);
+    // -Z ray whose X origin lies exactly on the +X face (x == 1). dir = (0,0,-1)
+    // gives invDir = (+inf, +inf, -1): the X term is the 0*inf == NaN trap. With
+    // inclusive bounds the grazing ray is a hit — but the naive form returned a
+    // spurious miss here because NaN poisoned the X slab's far distance to -inf.
+    const glm::vec3 origin(1.0f, 0.0f, 5.0f);
+    const glm::vec3 dir(0.0f, 0.0f, -1.0f);
+    const glm::vec3 invDir = 1.0f / dir;
+
+    f32 tNear = -1.0f;
+    ASSERT_TRUE(RayIntersect::RayAABB(origin, invDir, boxMin, boxMax, 0.0f, 1e30f, tNear));
+    EXPECT_TRUE(std::isfinite(tNear)); // never NaN/inf
+    EXPECT_NEAR(tNear, 4.0f, kTol);    // enters the +Z face at z=1, from z=5
+}
+
+TEST(MeshBVHRayAABB, AxisParallelRayOutsideParallelSlabMisses)
+{
+    const glm::vec3 boxMin(-1.0f);
+    const glm::vec3 boxMax(1.0f);
+    // +X ray (invDir = (1, +inf, +inf)) whose Y origin (5) is outside the Y slab:
+    // parallel to Y and never within it, so it must miss — without a NaN result.
+    const glm::vec3 origin(-5.0f, 5.0f, 0.0f);
+    const glm::vec3 dir(1.0f, 0.0f, 0.0f);
+    const glm::vec3 invDir = 1.0f / dir;
+
+    f32 tNear = 0.0f;
+    EXPECT_FALSE(RayIntersect::RayAABB(origin, invDir, boxMin, boxMax, 0.0f, 1e30f, tNear));
+}
+
+TEST(MeshBVHRayAABB, AxisParallelRayThroughInteriorHits)
+{
+    const glm::vec3 boxMin(-1.0f);
+    const glm::vec3 boxMax(1.0f);
+    // +X ray with Y/Z origins strictly inside their slabs: both parallel axes are
+    // unconstraining, and the finite X axis sets the entry distance.
+    const glm::vec3 origin(-5.0f, 0.25f, -0.25f);
+    const glm::vec3 dir(1.0f, 0.0f, 0.0f);
+    const glm::vec3 invDir = 1.0f / dir;
+
+    f32 tNear = -1.0f;
+    ASSERT_TRUE(RayIntersect::RayAABB(origin, invDir, boxMin, boxMax, 0.0f, 1e30f, tNear));
+    EXPECT_NEAR(tNear, 4.0f, kTol); // enters the -X face at x=-1, from x=-5
+}
+
 // -----------------------------------------------------------------------------
 // BVH build / structure
 // -----------------------------------------------------------------------------
@@ -624,4 +676,74 @@ TEST(MeshBVHParity, MatchesBruteForceOverSphere)
     EXPECT_GT(bvh.GetNodeCount(), 1u) << "sphere should produce an internal tree, not one leaf";
 
     ExpectBVHMatchesBruteForce(sphere, /*originCount*/ 32);
+}
+
+TEST(MeshBVHParity, MatchesBruteForceForAxisAlignedRays)
+{
+    // Axis-aligned rays (a zero direction component => invDir == +/-inf) are the
+    // case FibonacciSphere deliberately skips. Drive the full BVH query path for
+    // all six axis directions and confirm it still matches the O(n) reference —
+    // this catches a RayAABB that mishandles infinite invDir and wrongly prunes a
+    // real hit. (Brute force uses only RayTriangle, so any AABB-pruning bug shows
+    // up as a divergence.)
+    const MeshData cube = MakeCube(1.0f);
+    BoundingVolumeHierarchy bvh;
+    bvh.Build(cube.Vertices.GetData(), static_cast<sizet>(cube.Vertices.Num()),
+              cube.Indices.GetData(), static_cast<sizet>(cube.Indices.Num()));
+    ASSERT_TRUE(bvh.IsBuilt());
+
+    const glm::vec3 axisDirs[6] = {
+        { 1.0f, 0.0f, 0.0f }, { -1.0f, 0.0f, 0.0f }, { 0.0f, 1.0f, 0.0f }, { 0.0f, -1.0f, 0.0f }, { 0.0f, 0.0f, 1.0f }, { 0.0f, 0.0f, -1.0f }
+    };
+    // Offsets on the two axes perpendicular to dir: |offset| < 1 lands inside the
+    // cube cross-section (a clean hit), |offset| > 1 misses. None are exactly +/-1,
+    // so the triangle hits stay off the face edges and remain unambiguous.
+    const f32 offsets[5] = { -1.4f, -0.5f, 0.0f, 0.6f, 1.4f };
+
+    u32 hitCount = 0;
+    u32 missCount = 0;
+    for (const glm::vec3& dir : axisDirs)
+    {
+        // Start 5 units outside the cube along -dir, then sweep the perpendicular plane.
+        const glm::vec3 along = dir * -5.0f;
+        for (f32 a : offsets)
+        {
+            for (f32 b : offsets)
+            {
+                glm::vec3 perp(0.0f);
+                if (std::abs(dir.x) > 0.5f)
+                    perp = glm::vec3(0.0f, a, b);
+                else if (std::abs(dir.y) > 0.5f)
+                    perp = glm::vec3(a, 0.0f, b);
+                else
+                    perp = glm::vec3(a, b, 0.0f);
+
+                const Ray ray(along + perp, dir, 0.0f, 100.0f);
+
+                RayHit bvhHit;
+                const bool bvhResult = bvh.CastRay(ray, bvhHit);
+                const RayHit reference = BruteForceClosest(cube, ray);
+
+                ASSERT_EQ(bvhResult, reference.Hit)
+                    << "axis dir (" << dir.x << "," << dir.y << "," << dir.z << ") offsets (" << a << "," << b << ")";
+                ASSERT_EQ(bvh.CastRayAny(ray), reference.Hit) << "CastRayAny disagreed with brute force";
+
+                if (reference.Hit)
+                {
+                    ++hitCount;
+                    EXPECT_NEAR(bvhHit.Distance, reference.Distance, kTol);
+                    EXPECT_NEAR(bvhHit.Point.x, reference.Point.x, kTol);
+                    EXPECT_NEAR(bvhHit.Point.y, reference.Point.y, kTol);
+                    EXPECT_NEAR(bvhHit.Point.z, reference.Point.z, kTol);
+                }
+                else
+                {
+                    ++missCount;
+                }
+            }
+        }
+    }
+
+    EXPECT_GT(hitCount, 0u);
+    EXPECT_GT(missCount, 0u);
 }

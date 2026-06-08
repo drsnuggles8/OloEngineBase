@@ -132,27 +132,47 @@ namespace OloEngine
 
         // @brief Ray-vs-AABB slab test used for BVH node pruning.
         //
-        // Reference: Kay & Kajiya slab method; the branch-free `invDir` form is the
-        // one popularised by Williams et al. ("An Efficient and Robust Ray-Box
+        // Reference: Kay & Kajiya slab method; the `invDir` form is the one
+        // popularised by Williams et al. ("An Efficient and Robust Ray-Box
         // Intersection Algorithm", 2005) and Jacco Bikker's BVH series.
         // `invDir` is the component-wise reciprocal of the (normalized) ray
-        // direction — pass +/-inf for axis-parallel components; the min/max ordering
-        // handles those. Returns true when the ray overlaps the box within
-        // [tMin, tMax], writing the entry distance (clamped to tMin) to `outTNear`.
-        // A ray originating inside the box reports a hit with outTNear == tMin.
+        // direction — +/-inf for axis-parallel components (a zero direction
+        // component) is expected and handled explicitly: see below. Returns true
+        // when the ray overlaps the box within [tMin, tMax], writing the entry
+        // distance (clamped to tMin) to `outTNear`. A ray originating inside the
+        // box reports a hit with outTNear == tMin. Box bounds are inclusive, so a
+        // ray grazing a face counts as a hit.
         [[nodiscard]] inline bool RayAABB(const glm::vec3& origin, const glm::vec3& invDir,
                                           const glm::vec3& boxMin, const glm::vec3& boxMax,
                                           f32 tMin, f32 tMax, f32& outTNear)
         {
-            const glm::vec3 t1 = (boxMin - origin) * invDir;
-            const glm::vec3 t2 = (boxMax - origin) * invDir;
-
             f32 tEnter = tMin;
             f32 tExit = tMax;
             for (glm::length_t axis = 0; axis < 3; ++axis)
             {
-                const f32 tNearAxis = glm::min(t1[axis], t2[axis]);
-                const f32 tFarAxis = glm::max(t1[axis], t2[axis]);
+                f32 tNearAxis;
+                f32 tFarAxis;
+                if (std::isinf(invDir[axis]))
+                {
+                    // Ray parallel to this axis (direction component is zero, so
+                    // invDir is +/-inf). The naive (box - origin) * invDir would
+                    // evaluate 0 * inf == NaN whenever the origin lies exactly on a
+                    // slab plane, and glm::min/max then poison tFar/tEnter and report
+                    // a spurious miss. Handle it directly: the ray can only intersect
+                    // if its origin is within the slab; if it is, the axis places no
+                    // bound on t (treat as the full -inf..+inf range).
+                    if (origin[axis] < boxMin[axis] || origin[axis] > boxMax[axis])
+                        return false;
+                    tNearAxis = -std::numeric_limits<f32>::infinity();
+                    tFarAxis = std::numeric_limits<f32>::infinity();
+                }
+                else
+                {
+                    const f32 t1 = (boxMin[axis] - origin[axis]) * invDir[axis];
+                    const f32 t2 = (boxMax[axis] - origin[axis]) * invDir[axis];
+                    tNearAxis = glm::min(t1, t2);
+                    tFarAxis = glm::max(t1, t2);
+                }
                 tEnter = glm::max(tEnter, tNearAxis);
                 tExit = glm::min(tExit, tFarAxis);
             }
