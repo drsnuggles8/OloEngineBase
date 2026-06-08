@@ -301,6 +301,16 @@ namespace OloEngine
         spec.HeadlessTickRate = config.TickRate;
         spec.CommandLineArgs = args;
 
+        // `--smoke-test`: run the full headless startup (DLL load, subsystem
+        // init, scene load if configured, network listen) and then auto-close
+        // after a few ticks with EXIT_SUCCESS. Used by CI and the in-suite
+        // AppLaunchSmokeTest to prove the shipped binary launches with all its
+        // runtime DLLs present (issue #303).
+        if (args.Contains("--smoke-test"))
+        {
+            spec.SmokeTestTickLimit = SmokeTestTickCount;
+        }
+
         return new OloServerApplication(spec, config);
     }
 } // namespace OloEngine

@@ -214,6 +214,7 @@
     "OloEngine/tests/Terrain/TerrainGeneratorTest.cpp": "unit",
     "OloEngine/tests/AnimationStateMachineTest.cpp": "unit",
     "OloEngine/tests/AnimationSystemTest.cpp": "unit",
+    "OloEngine/tests/AppLaunchSmokeTest.cpp": "unit",
     "OloEngine/tests/AssetBinaryIntegrityTest.cpp": "unit",
     "OloEngine/tests/AssetCSharpScriptValidityTest.cpp": "unit",
     "OloEngine/tests/AssetContentValidityTest.cpp": "unit",

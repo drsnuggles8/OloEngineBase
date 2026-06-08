@@ -30,6 +30,7 @@ add_executable(OloEngine-Tests
 		ComponentSerializerCoverageTest.cpp
 		SceneSerializerFuzzRegressionTest.cpp
 		EngineSubsystemSmokeTest.cpp
+		AppLaunchSmokeTest.cpp
 		FunctionalTestFixtureCoverageTest.cpp
 		PreCommitToolingSmokeTest.cpp
 		PrefabOverrideTest.cpp

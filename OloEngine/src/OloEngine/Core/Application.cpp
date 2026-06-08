@@ -326,6 +326,15 @@ namespace OloEngine
 
             // Snapshot per-function performance data for this frame
             m_PerformanceProfiler.EndFrame();
+
+            // Launch-smoke-test mode: after the configured number of ticks the
+            // app has proven it starts and the loop advances — close cleanly.
+            if (m_Specification.SmokeTestTickLimit > 0 &&
+                ++m_SmokeTestTicksCompleted >= m_Specification.SmokeTestTickLimit)
+            {
+                OLO_CORE_INFO("[SmokeTest] Completed {} tick(s); shutting down cleanly.", m_SmokeTestTicksCompleted);
+                m_Running = false;
+            }
         }
     }
 
@@ -369,6 +378,16 @@ namespace OloEngine
                 }
 
                 accumulator -= tickInterval;
+
+                // Launch-smoke-test mode: stop once the loop has advanced the
+                // configured number of ticks (proves headless startup works).
+                if (m_Specification.SmokeTestTickLimit > 0 &&
+                    ++m_SmokeTestTicksCompleted >= m_Specification.SmokeTestTickLimit)
+                {
+                    OLO_CORE_INFO("[SmokeTest] Completed {} tick(s); shutting down cleanly.", m_SmokeTestTicksCompleted);
+                    m_Running = false;
+                    break;
+                }
             }
 
             m_PerformanceProfiler.EndFrame();

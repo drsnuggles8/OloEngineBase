@@ -357,14 +357,22 @@ namespace OloEngine
     class OloGameRuntime : public Application
     {
       public:
-        explicit OloGameRuntime(const ApplicationSpecification& spec)
+        explicit OloGameRuntime(const ApplicationSpecification& spec, bool pushRuntimeLayer = true)
             : Application(spec)
         {
-            // Disable ImGui ini persistence — the runtime doesn't need it and
-            // loading the editor's imgui.ini from CWD would cause stale state.
-            ImGui::GetIO().IniFilename = nullptr;
+            // In `--smoke-test` mode the RuntimeLayer is skipped: it loads the
+            // asset pack / start scene and renders through the GL pipeline, which
+            // needs a real OpenGL 4.6 context. ImGui isn't initialized in that
+            // window-less path either, so GetIO() must not be touched. See
+            // CreateApplication below.
+            if (pushRuntimeLayer)
+            {
+                // Disable ImGui ini persistence — the runtime doesn't need it and
+                // loading the editor's imgui.ini from CWD would cause stale state.
+                ImGui::GetIO().IniFilename = nullptr;
 
-            PushLayer(std::make_unique<RuntimeLayer>());
+                PushLayer(std::make_unique<RuntimeLayer>());
+            }
         }
 
         ~OloGameRuntime() final = default;
@@ -375,6 +383,17 @@ namespace OloEngine
         ApplicationSpecification spec;
         spec.Name = "OloEngine Game";
         spec.CommandLineArgs = args;
+
+        // `--smoke-test`: window-less launch validation — see OloEditorApp.cpp for
+        // the rationale. Proves the runtime binary starts and resolves its runtime
+        // DLLs (issue #303) without needing a GPU; the GL-dependent RuntimeLayer is
+        // skipped and the app auto-closes after a few ticks with EXIT_SUCCESS.
+        if (args.Contains("--smoke-test"))
+        {
+            spec.IsHeadless = true;
+            spec.SmokeTestTickLimit = SmokeTestTickCount;
+            return new OloGameRuntime(spec, /*pushRuntimeLayer=*/false);
+        }
 
         // Read game name from manifest if available.
         // PreferredRenderer stays as Renderer2D (the default) — Renderer3D is
