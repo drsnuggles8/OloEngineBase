@@ -835,6 +835,72 @@ namespace OloEngine
                     return false;
             }
         }
+
+        // Clamp an authored, possibly non-finite motor/friction magnitude (a max
+        // torque, max force, or friction limit) to a safe, non-negative range. A
+        // negative or non-finite authored value collapses to 0 ("no authority" for
+        // a motor limit, "no friction" for a friction limit); the upper clamp keeps
+        // a fat-fingered field from feeding an absurd impulse into the solver.
+        f32 SanitizeMotorMagnitude(f32 value)
+        {
+            if (!std::isfinite(value) || value < 0.0f)
+                return 0.0f;
+            return std::min(value, 1.0e9f);
+        }
+
+        // A finite-or-zero pass-through for a motor target (velocity / angle /
+        // position). Targets are signed, so we only reject non-finite values.
+        f32 SanitizeMotorTarget(f32 value)
+        {
+            return std::isfinite(value) ? value : 0.0f;
+        }
+
+        // Put a freshly-created hinge constraint into the motor state authored on
+        // the component. Velocity drives toward the target angular velocity (the
+        // component stores deg/s; Jolt wants rad/s); Position drives toward the
+        // target angle (deg → rad, Jolt clamps to the hinge limits internally).
+        // Off leaves the motor disabled — any m_HingeMaxFrictionTorque set on the
+        // settings still resists rotation. The motor torque limit was already
+        // applied to s.mMotorSettings before Create().
+        void ConfigureHingeMotor(JPH::HingeConstraint& hinge, const PhysicsJoint3DComponent& joint)
+        {
+            switch (joint.m_HingeMotorMode)
+            {
+                case JointMotorMode::Velocity:
+                    hinge.SetMotorState(JPH::EMotorState::Velocity);
+                    hinge.SetTargetAngularVelocity(JoltUtils::DegreesToRadians(SanitizeMotorTarget(joint.m_HingeMotorTargetVelocityDeg)));
+                    break;
+                case JointMotorMode::Position:
+                    hinge.SetMotorState(JPH::EMotorState::Position);
+                    hinge.SetTargetAngle(JoltUtils::DegreesToRadians(SanitizeMotorTarget(joint.m_HingeMotorTargetAngleDeg)));
+                    break;
+                case JointMotorMode::Off:
+                default:
+                    break; // motor off; friction (if any) still applies
+            }
+        }
+
+        // Slider counterpart of ConfigureHingeMotor — drives along the slide axis.
+        // Velocity targets m/s, Position targets metres (Jolt clamps to the slide
+        // limits internally). The motor force limit was already applied to
+        // s.mMotorSettings before Create().
+        void ConfigureSliderMotor(JPH::SliderConstraint& slider, const PhysicsJoint3DComponent& joint)
+        {
+            switch (joint.m_SliderMotorMode)
+            {
+                case JointMotorMode::Velocity:
+                    slider.SetMotorState(JPH::EMotorState::Velocity);
+                    slider.SetTargetVelocity(SanitizeMotorTarget(joint.m_SliderMotorTargetVelocity));
+                    break;
+                case JointMotorMode::Position:
+                    slider.SetMotorState(JPH::EMotorState::Position);
+                    slider.SetTargetPosition(SanitizeMotorTarget(joint.m_SliderMotorTargetPosition));
+                    break;
+                case JointMotorMode::Off:
+                default:
+                    break; // motor off; friction (if any) still applies
+            }
+        }
     } // namespace
 
     void JoltScene::CreateConstraints()
@@ -975,7 +1041,14 @@ namespace OloEngine
                     s.mNormalAxis1 = s.mNormalAxis2 = jNormal;
                     s.mLimitsMin = std::clamp(JoltUtils::DegreesToRadians(joint.m_HingeMinAngleDeg), -glm::pi<f32>(), 0.0f);
                     s.mLimitsMax = std::clamp(JoltUtils::DegreesToRadians(joint.m_HingeMaxAngleDeg), 0.0f, glm::pi<f32>());
-                    return s.Create(body1, body2);
+                    // Friction torque (used only when the motor is Off) and the
+                    // motor torque authority. Configure these on the settings
+                    // before Create(); the motor *state* is set on the instance.
+                    s.mMaxFrictionTorque = SanitizeMotorMagnitude(joint.m_HingeMaxFrictionTorque);
+                    s.mMotorSettings.SetTorqueLimit(SanitizeMotorMagnitude(joint.m_HingeMaxMotorTorque));
+                    auto* hinge = static_cast<JPH::HingeConstraint*>(s.Create(body1, body2));
+                    ConfigureHingeMotor(*hinge, joint);
+                    return hinge;
                 }
                 case JointType3D::Slider:
                 {
@@ -988,7 +1061,14 @@ namespace OloEngine
                     s.mNormalAxis1 = s.mNormalAxis2 = jNormal;
                     s.mLimitsMin = joint.m_SliderMinLimit;
                     s.mLimitsMax = joint.m_SliderMaxLimit;
-                    return s.Create(body1, body2);
+                    // Friction force (used only when the motor is Off) and the
+                    // motor force authority. A linear motor uses the force limits,
+                    // not the torque limits (see Jolt MotorSettings).
+                    s.mMaxFrictionForce = SanitizeMotorMagnitude(joint.m_SliderMaxFrictionForce);
+                    s.mMotorSettings.SetForceLimit(SanitizeMotorMagnitude(joint.m_SliderMaxMotorForce));
+                    auto* slider = static_cast<JPH::SliderConstraint*>(s.Create(body1, body2));
+                    ConfigureSliderMotor(*slider, joint);
+                    return slider;
                 }
                 case JointType3D::Cone:
                 {

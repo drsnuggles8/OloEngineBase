@@ -2441,6 +2441,28 @@ namespace OloEngine
             joint.m_BreakForce = jointComponent["BreakForce"].as<f32>(joint.m_BreakForce);
             joint.m_BreakTorque = jointComponent["BreakTorque"].as<f32>(joint.m_BreakTorque);
 
+            // Motor + friction. The motor mode is an enum stored as int; guard it
+            // against an out-of-range value on disk, the same way m_Type is guarded.
+            if (i32 hingeModeInt = jointComponent["HingeMotorMode"].as<i32>(std::to_underlying(joint.m_HingeMotorMode));
+                hingeModeInt >= 0 && hingeModeInt <= static_cast<i32>(JointMotorMode::Position))
+            {
+                joint.m_HingeMotorMode = static_cast<JointMotorMode>(hingeModeInt);
+            }
+            joint.m_HingeMotorTargetVelocityDeg = jointComponent["HingeMotorTargetVelocityDeg"].as<f32>(joint.m_HingeMotorTargetVelocityDeg);
+            joint.m_HingeMotorTargetAngleDeg = jointComponent["HingeMotorTargetAngleDeg"].as<f32>(joint.m_HingeMotorTargetAngleDeg);
+            joint.m_HingeMaxMotorTorque = jointComponent["HingeMaxMotorTorque"].as<f32>(joint.m_HingeMaxMotorTorque);
+            joint.m_HingeMaxFrictionTorque = jointComponent["HingeMaxFrictionTorque"].as<f32>(joint.m_HingeMaxFrictionTorque);
+
+            if (i32 sliderModeInt = jointComponent["SliderMotorMode"].as<i32>(std::to_underlying(joint.m_SliderMotorMode));
+                sliderModeInt >= 0 && sliderModeInt <= static_cast<i32>(JointMotorMode::Position))
+            {
+                joint.m_SliderMotorMode = static_cast<JointMotorMode>(sliderModeInt);
+            }
+            joint.m_SliderMotorTargetVelocity = jointComponent["SliderMotorTargetVelocity"].as<f32>(joint.m_SliderMotorTargetVelocity);
+            joint.m_SliderMotorTargetPosition = jointComponent["SliderMotorTargetPosition"].as<f32>(joint.m_SliderMotorTargetPosition);
+            joint.m_SliderMaxMotorForce = jointComponent["SliderMaxMotorForce"].as<f32>(joint.m_SliderMaxMotorForce);
+            joint.m_SliderMaxFrictionForce = jointComponent["SliderMaxFrictionForce"].as<f32>(joint.m_SliderMaxFrictionForce);
+
             // Reject non-finite floats read from disk and clamp to physically/Jolt-valid ranges.
             SanitizeFloat(joint.m_MinDistance, -1.0f, 10000.0f, 0.0f);
             SanitizeFloat(joint.m_MaxDistance, -1.0f, 10000.0f, 1.0f);
@@ -2453,6 +2475,17 @@ namespace OloEngine
             // so clamp negatives to 0 and reject non-finite to 0 (unbreakable).
             SanitizeFloat(joint.m_BreakForce, 0.0f, 1.0e9f, 0.0f);
             SanitizeFloat(joint.m_BreakTorque, 0.0f, 1.0e9f, 0.0f);
+            // Motor targets are signed (a negative velocity/angle/position is
+            // valid); only reject non-finite. Max torque/force and friction are
+            // magnitudes — clamp to [0, 1e9]; 0 = no authority / no friction.
+            SanitizeFloat(joint.m_HingeMotorTargetVelocityDeg, -1.0e9f, 1.0e9f, 0.0f);
+            SanitizeFloat(joint.m_HingeMotorTargetAngleDeg, -360.0f, 360.0f, 0.0f);
+            SanitizeFloat(joint.m_HingeMaxMotorTorque, 0.0f, 1.0e9f, 0.0f);
+            SanitizeFloat(joint.m_HingeMaxFrictionTorque, 0.0f, 1.0e9f, 0.0f);
+            SanitizeFloat(joint.m_SliderMotorTargetVelocity, -1.0e9f, 1.0e9f, 0.0f);
+            SanitizeFloat(joint.m_SliderMotorTargetPosition, -10000.0f, 10000.0f, 0.0f);
+            SanitizeFloat(joint.m_SliderMaxMotorForce, 0.0f, 1.0e9f, 0.0f);
+            SanitizeFloat(joint.m_SliderMaxFrictionForce, 0.0f, 1.0e9f, 0.0f);
         }
 
         if (auto relComponent = entity["RelationshipComponent"]; relComponent)
@@ -4339,6 +4372,16 @@ namespace OloEngine
             out << YAML::Key << "ConeHalfAngleDeg" << YAML::Value << joint.m_ConeHalfAngleDeg;
             out << YAML::Key << "BreakForce" << YAML::Value << joint.m_BreakForce;
             out << YAML::Key << "BreakTorque" << YAML::Value << joint.m_BreakTorque;
+            out << YAML::Key << "HingeMotorMode" << YAML::Value << std::to_underlying(joint.m_HingeMotorMode);
+            out << YAML::Key << "HingeMotorTargetVelocityDeg" << YAML::Value << joint.m_HingeMotorTargetVelocityDeg;
+            out << YAML::Key << "HingeMotorTargetAngleDeg" << YAML::Value << joint.m_HingeMotorTargetAngleDeg;
+            out << YAML::Key << "HingeMaxMotorTorque" << YAML::Value << joint.m_HingeMaxMotorTorque;
+            out << YAML::Key << "HingeMaxFrictionTorque" << YAML::Value << joint.m_HingeMaxFrictionTorque;
+            out << YAML::Key << "SliderMotorMode" << YAML::Value << std::to_underlying(joint.m_SliderMotorMode);
+            out << YAML::Key << "SliderMotorTargetVelocity" << YAML::Value << joint.m_SliderMotorTargetVelocity;
+            out << YAML::Key << "SliderMotorTargetPosition" << YAML::Value << joint.m_SliderMotorTargetPosition;
+            out << YAML::Key << "SliderMaxMotorForce" << YAML::Value << joint.m_SliderMaxMotorForce;
+            out << YAML::Key << "SliderMaxFrictionForce" << YAML::Value << joint.m_SliderMaxFrictionForce;
 
             out << YAML::EndMap; // PhysicsJoint3DComponent
         }

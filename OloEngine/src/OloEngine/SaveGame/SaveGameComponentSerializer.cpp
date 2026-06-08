@@ -678,9 +678,11 @@ namespace OloEngine
         ar << c.m_SliderMinLimit << c.m_SliderMaxLimit;
         ar << c.m_ConeHalfAngleDeg;
 
-        // Break thresholds were appended after m_ConeHalfAngleDeg (which legacy
-        // archives ended with), so probe AtEnd() on load and default to 0
-        // (unbreakable) when absent. Mirrors EnvironmentMapComponent above.
+        // Two tails were appended over time, each after a once-final field, so
+        // probe AtEnd() before reading each on load and default to "disabled":
+        //   1. Break thresholds  (after m_ConeHalfAngleDeg — legacy archives end here)
+        //   2. Motor + friction  (after the break thresholds — pre-motor archives end here)
+        // Mirrors EnvironmentMapComponent above.
         if (ar.IsLoading())
         {
             if (ar.AtEnd())
@@ -700,10 +702,68 @@ namespace OloEngine
             if (!std::isfinite(c.m_BreakTorque))
                 c.m_BreakTorque = 0.0f;
             c.m_BreakTorque = std::clamp(c.m_BreakTorque, 0.0f, 1.0e9f);
+
+            // Motor + friction tail. Archives written before motors existed end
+            // after the break thresholds, so default to "motor off, no friction".
+            if (ar.AtEnd())
+            {
+                c.m_HingeMotorMode = JointMotorMode::Off;
+                c.m_HingeMotorTargetVelocityDeg = 0.0f;
+                c.m_HingeMotorTargetAngleDeg = 0.0f;
+                c.m_HingeMaxMotorTorque = 0.0f;
+                c.m_HingeMaxFrictionTorque = 0.0f;
+                c.m_SliderMotorMode = JointMotorMode::Off;
+                c.m_SliderMotorTargetVelocity = 0.0f;
+                c.m_SliderMotorTargetPosition = 0.0f;
+                c.m_SliderMaxMotorForce = 0.0f;
+                c.m_SliderMaxFrictionForce = 0.0f;
+            }
+            else
+            {
+                ar << c.m_HingeMotorMode << c.m_HingeMotorTargetVelocityDeg << c.m_HingeMotorTargetAngleDeg
+                   << c.m_HingeMaxMotorTorque << c.m_HingeMaxFrictionTorque;
+                ar << c.m_SliderMotorMode << c.m_SliderMotorTargetVelocity << c.m_SliderMotorTargetPosition
+                   << c.m_SliderMaxMotorForce << c.m_SliderMaxFrictionForce;
+            }
+
+            // Sanitize untrusted motor data. Mode is an int enum on disk; clamp an
+            // out-of-range value to Off. Max torque/force/friction are magnitudes
+            // (>= 0, 0 = no authority/friction); targets are signed (finite only).
+            const auto clampMode = [](JointMotorMode& m)
+            {
+                if (const auto v = static_cast<int>(m); v < 0 || v > static_cast<int>(JointMotorMode::Position))
+                    m = JointMotorMode::Off;
+            };
+            const auto clampMagnitude = [](f32& v)
+            {
+                if (!std::isfinite(v) || v < 0.0f)
+                    v = 0.0f;
+                v = std::min(v, 1.0e9f);
+            };
+            const auto clampTarget = [](f32& v, f32 lo, f32 hi)
+            {
+                if (!std::isfinite(v))
+                    v = 0.0f;
+                v = std::clamp(v, lo, hi);
+            };
+            clampMode(c.m_HingeMotorMode);
+            clampTarget(c.m_HingeMotorTargetVelocityDeg, -1.0e9f, 1.0e9f);
+            clampTarget(c.m_HingeMotorTargetAngleDeg, -360.0f, 360.0f);
+            clampMagnitude(c.m_HingeMaxMotorTorque);
+            clampMagnitude(c.m_HingeMaxFrictionTorque);
+            clampMode(c.m_SliderMotorMode);
+            clampTarget(c.m_SliderMotorTargetVelocity, -1.0e9f, 1.0e9f);
+            clampTarget(c.m_SliderMotorTargetPosition, -10000.0f, 10000.0f);
+            clampMagnitude(c.m_SliderMaxMotorForce);
+            clampMagnitude(c.m_SliderMaxFrictionForce);
         }
         else
         {
             ar << c.m_BreakForce << c.m_BreakTorque;
+            ar << c.m_HingeMotorMode << c.m_HingeMotorTargetVelocityDeg << c.m_HingeMotorTargetAngleDeg
+               << c.m_HingeMaxMotorTorque << c.m_HingeMaxFrictionTorque;
+            ar << c.m_SliderMotorMode << c.m_SliderMotorTargetVelocity << c.m_SliderMotorTargetPosition
+               << c.m_SliderMaxMotorForce << c.m_SliderMaxFrictionForce;
         }
         // m_RuntimeConstraintToken is a runtime Jolt handle — not serialized.
     }

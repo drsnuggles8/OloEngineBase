@@ -402,6 +402,209 @@ TEST_F(PhysicsJoint3DTest, UnbreakableByDefaultIgnoresLoad)
     EXPECT_NEAR(Pos(bob).y, 3.0f, 0.1f);
 }
 
+// =============================================================================
+// Powered joints — motors + friction (issue #308 item 3). The Hinge / Slider
+// arms of JoltScene::CreateConstraint read the authored motor fields and put the
+// Jolt constraint into the requested motor state at creation time. Each test
+// stands the joint up so that the motor / friction it configures produces motion
+// (or resists it) that a free joint would not — a wide-margin, sign-robust
+// signal that the constraint was actually powered.
+// =============================================================================
+
+// -----------------------------------------------------------------------------
+// Hinge velocity motor — drives the hinge to spin continuously, lifting the door
+// up and over the top of its arc against gravity. A free / gravity-only hinge
+// never rises above its horizontal start, so reaching the top is conclusive.
+// -----------------------------------------------------------------------------
+TEST_F(PhysicsJoint3DTest, HingeVelocityMotorDrivesRotationAgainstGravity)
+{
+    const glm::vec3 pivot{ 0.0f, 3.0f, 0.0f };
+    Entity door = MakeBox("MotorDoor", { 1.0f, 3.0f, 0.0f }, BodyType3D::Dynamic, 0.2f);
+
+    auto& joint = door.AddComponent<PhysicsJoint3DComponent>();
+    joint.m_Type = JointType3D::Hinge;
+    // m_ConnectedEntity defaults to 0 → anchored to the world.
+    joint.m_LocalAnchorA = { -1.0f, 0.0f, 0.0f }; // pivot at (0,3,0)
+    joint.m_Axis = { 0.0f, 0.0f, 1.0f };          // horizontal hinge → gravity opposes the lift
+    joint.m_HingeMinAngleDeg = -180.0f;           // full range → no limit, free to spin
+    joint.m_HingeMaxAngleDeg = 180.0f;
+    joint.m_HingeMotorMode = JointMotorMode::Velocity;
+    joint.m_HingeMotorTargetVelocityDeg = 180.0f; // half a turn per second
+    joint.m_HingeMaxMotorTorque = 100.0f;         // dwarfs the ~9.81 N·m gravity peak
+
+    EnablePhysics3D();
+
+    f32 maxY = Pos(door).y;
+    f32 maxDistErr = 0.0f;
+    for (int i = 0; i < 180; ++i) // 3 s at 60 Hz
+    {
+        RunFrames(1);
+        const glm::vec3 p = Pos(door);
+        maxY = std::max(maxY, p.y);
+        maxDistErr = std::max(maxDistErr, std::abs(glm::distance(p, pivot) - 1.0f));
+    }
+
+    EXPECT_LT(maxDistErr, 0.1f) << "motorised hinge did not keep the arm pinned to the pivot";
+    // Top of the arc is y = pivotY + armLength = 4.0; a gravity-only hinge never
+    // exceeds its 3.0 start. Reaching 3.7 proves the motor drove it over the top.
+    EXPECT_GT(maxY, 3.7f) << "velocity motor did not drive the hinge up over its arc; maxY=" << maxY;
+    EXPECT_TRUE(std::isfinite(Pos(door).y));
+}
+
+// -----------------------------------------------------------------------------
+// Hinge position motor — settles the hinge at a target angle. The hinge axis is
+// vertical so gravity exerts no torque about it; the body rotates in the
+// horizontal plane and the position motor parks it ~90° from its +X start.
+// -----------------------------------------------------------------------------
+TEST_F(PhysicsJoint3DTest, HingePositionMotorSettlesAtTargetAngle)
+{
+    const glm::vec3 pivot{ 0.0f, 3.0f, 0.0f };
+    Entity door = MakeBox("PosMotorDoor", { 1.0f, 3.0f, 0.0f }, BodyType3D::Dynamic, 0.2f);
+    door.GetComponent<Rigidbody3DComponent>().m_AngularDrag = 0.5f; // damp residual spin
+
+    auto& joint = door.AddComponent<PhysicsJoint3DComponent>();
+    joint.m_Type = JointType3D::Hinge;
+    joint.m_LocalAnchorA = { -1.0f, 0.0f, 0.0f }; // pivot at (0,3,0)
+    joint.m_Axis = { 0.0f, 1.0f, 0.0f };          // vertical hinge → gravity makes no torque about it
+    joint.m_HingeMinAngleDeg = -180.0f;           // full range → SetTargetAngle is not clamped
+    joint.m_HingeMaxAngleDeg = 180.0f;
+    joint.m_HingeMotorMode = JointMotorMode::Position;
+    joint.m_HingeMotorTargetAngleDeg = 90.0f; // quarter turn in the horizontal plane
+    joint.m_HingeMaxMotorTorque = 100.0f;
+
+    EnablePhysics3D();
+
+    TickFor(4.0f); // critically-damped spring → settles well within 4 s
+
+    const glm::vec3 p = Pos(door);
+    // A 90° rotation about the vertical axis moves the arm from +X (1,3,0) into
+    // the XZ plane: |x-pivot| → ~0 and |z| → ~1. Bounds allow ±20° of settle
+    // error and are agnostic to Jolt's rotation sign.
+    EXPECT_NEAR(glm::distance(p, pivot), 1.0f, 0.1f) << "position-motor hinge lost its pivot distance";
+    EXPECT_NEAR(p.y, 3.0f, 0.2f) << "vertical-axis hinge should hold the arm at pivot height; y=" << p.y;
+    EXPECT_LT(std::abs(p.x), 0.4f) << "hinge did not rotate away from its +X start; x=" << p.x;
+    EXPECT_GT(std::abs(p.z), 0.7f) << "hinge did not reach ~90° toward the target angle; z=" << p.z;
+}
+
+// -----------------------------------------------------------------------------
+// Slider velocity motor — drives the body up its vertical rail against gravity.
+// A gravity-only slider sinks to its lower limit, so rising past the start is a
+// clear sign the motor is powering it.
+// -----------------------------------------------------------------------------
+TEST_F(PhysicsJoint3DTest, SliderVelocityMotorDrivesBodyAlongAxis)
+{
+    Entity box = MakeBox("MotorSlide", { 0.0f, 5.0f, 0.0f }, BodyType3D::Dynamic, 0.2f);
+
+    auto& joint = box.AddComponent<PhysicsJoint3DComponent>();
+    joint.m_Type = JointType3D::Slider;
+    // m_ConnectedEntity defaults to 0 → anchored to the world.
+    joint.m_Axis = { 0.0f, 1.0f, 0.0f }; // vertical rail
+    joint.m_SliderMinLimit = -3.0f;
+    joint.m_SliderMaxLimit = 3.0f;
+    joint.m_SliderMotorMode = JointMotorMode::Velocity;
+    joint.m_SliderMotorTargetVelocity = 2.0f; // +2 m/s along +axis (up)
+    joint.m_SliderMaxMotorForce = 100.0f;     // dwarfs the ~9.81 N gravity load
+
+    EnablePhysics3D();
+    const f32 startY = Pos(box).y;
+
+    f32 maxLateral = 0.0f;
+    for (int i = 0; i < 180; ++i) // 3 s
+    {
+        RunFrames(1);
+        const glm::vec3 p = Pos(box);
+        maxLateral = std::max(maxLateral, std::max(std::abs(p.x), std::abs(p.z)));
+    }
+
+    const glm::vec3 p = Pos(box);
+    EXPECT_LT(maxLateral, 0.05f) << "slider motor let the body move off its axis; maxLateral=" << maxLateral;
+    // Drives up to the +3 limit (y ≈ 8); gravity alone would sink it to y ≈ 2.
+    EXPECT_GT(p.y, startY + 1.5f) << "velocity motor did not drive the body up its rail; y=" << p.y;
+    EXPECT_NEAR(p.y, startY + 3.0f, 0.3f) << "body did not reach the upper slider limit; y=" << p.y;
+}
+
+// -----------------------------------------------------------------------------
+// Slider position motor — parks the body at a target offset. A horizontal rail
+// removes gravity from the slide axis (the constraint carries the weight), so
+// the motor settles cleanly at the target distance from the start.
+// -----------------------------------------------------------------------------
+TEST_F(PhysicsJoint3DTest, SliderPositionMotorSettlesAtTargetPosition)
+{
+    Entity box = MakeBox("PosMotorSlide", { 0.0f, 5.0f, 0.0f }, BodyType3D::Dynamic, 0.2f);
+    box.GetComponent<Rigidbody3DComponent>().m_LinearDrag = 0.5f; // damp residual slide
+
+    auto& joint = box.AddComponent<PhysicsJoint3DComponent>();
+    joint.m_Type = JointType3D::Slider;
+    joint.m_Axis = { 1.0f, 0.0f, 0.0f }; // horizontal rail → gravity is perpendicular
+    joint.m_SliderMinLimit = -3.0f;
+    joint.m_SliderMaxLimit = 3.0f;
+    joint.m_SliderMotorMode = JointMotorMode::Position;
+    joint.m_SliderMotorTargetPosition = 2.0f; // 2 m from the start along the axis
+    joint.m_SliderMaxMotorForce = 100.0f;
+
+    EnablePhysics3D();
+
+    TickFor(4.0f);
+
+    const glm::vec3 p = Pos(box);
+    // Target is 2 m along the slide axis; |offset| ≈ 2 regardless of axis sign.
+    EXPECT_NEAR(std::abs(p.x), 2.0f, 0.3f) << "position motor did not park the body at the 2 m target; x=" << p.x;
+    EXPECT_NEAR(p.y, 5.0f, 0.1f) << "slider let the body fall off its horizontal rail; y=" << p.y;
+    EXPECT_LT(std::abs(p.z), 0.05f) << "body drifted off the slide axis; z=" << p.z;
+}
+
+// -----------------------------------------------------------------------------
+// Hinge friction (no motor) — a large friction torque holds the door against the
+// gravity that would otherwise swing it down. With the motor Off, friction is
+// the only thing that can keep it horizontal.
+// -----------------------------------------------------------------------------
+TEST_F(PhysicsJoint3DTest, HingeFrictionResistsSwingWithoutMotor)
+{
+    Entity door = MakeBox("FrictionDoor", { 1.0f, 3.0f, 0.0f }, BodyType3D::Dynamic, 0.2f);
+
+    auto& joint = door.AddComponent<PhysicsJoint3DComponent>();
+    joint.m_Type = JointType3D::Hinge;
+    joint.m_LocalAnchorA = { -1.0f, 0.0f, 0.0f }; // pivot at (0,3,0)
+    joint.m_Axis = { 0.0f, 0.0f, 1.0f };          // horizontal hinge → gravity swings it
+    joint.m_HingeMinAngleDeg = -180.0f;           // full range → no angle limit doing the holding
+    joint.m_HingeMaxAngleDeg = 180.0f;
+    joint.m_HingeMotorMode = JointMotorMode::Off; // friction only
+    joint.m_HingeMaxFrictionTorque = 100.0f;      // >> the ~9.81 N·m gravity peak → static hold
+
+    EnablePhysics3D();
+    const f32 startY = Pos(door).y;
+
+    TickFor(2.0f);
+
+    // A frictionless hinge swings to y ≈ 2.0; friction must keep it near the top.
+    EXPECT_NEAR(Pos(door).y, startY, 0.2f) << "friction torque did not resist the swing; y=" << Pos(door).y;
+}
+
+// -----------------------------------------------------------------------------
+// Slider friction (no motor) — a large friction force holds the body on its
+// vertical rail instead of letting gravity slide it down to the limit.
+// -----------------------------------------------------------------------------
+TEST_F(PhysicsJoint3DTest, SliderFrictionResistsSlideWithoutMotor)
+{
+    Entity box = MakeBox("FrictionSlide", { 0.0f, 5.0f, 0.0f }, BodyType3D::Dynamic, 0.2f);
+
+    auto& joint = box.AddComponent<PhysicsJoint3DComponent>();
+    joint.m_Type = JointType3D::Slider;
+    joint.m_Axis = { 0.0f, 1.0f, 0.0f }; // vertical rail → gravity slides it down
+    joint.m_SliderMinLimit = -3.0f;
+    joint.m_SliderMaxLimit = 3.0f;
+    joint.m_SliderMotorMode = JointMotorMode::Off; // friction only
+    joint.m_SliderMaxFrictionForce = 100.0f;       // >> the ~9.81 N gravity load → static hold
+
+    EnablePhysics3D();
+    const f32 startY = Pos(box).y;
+
+    TickFor(2.0f);
+
+    // A frictionless slider sinks to y ≈ 2.0; friction must keep it near the start.
+    EXPECT_NEAR(Pos(box).y, startY, 0.2f) << "friction force did not resist the slide; y=" << Pos(box).y;
+}
+
 // -----------------------------------------------------------------------------
 // Save-game round-trip — the authored joint data must survive
 // CaptureSceneState → RestoreSceneState (exercises SaveGameComponentSerializer).
@@ -426,6 +629,16 @@ TEST_F(PhysicsJoint3DTest, ComponentSurvivesSaveGameRoundTrip)
     j.m_ConeHalfAngleDeg = 75.0f;
     j.m_BreakForce = 320.0f;
     j.m_BreakTorque = 64.0f;
+    j.m_HingeMotorMode = JointMotorMode::Velocity;
+    j.m_HingeMotorTargetVelocityDeg = 120.0f;
+    j.m_HingeMotorTargetAngleDeg = -30.0f;
+    j.m_HingeMaxMotorTorque = 45.0f;
+    j.m_HingeMaxFrictionTorque = 12.0f;
+    j.m_SliderMotorMode = JointMotorMode::Position;
+    j.m_SliderMotorTargetVelocity = -1.5f;
+    j.m_SliderMotorTargetPosition = 2.25f;
+    j.m_SliderMaxMotorForce = 88.0f;
+    j.m_SliderMaxFrictionForce = 7.5f;
 
     auto payload = SaveGameSerializer::CaptureSceneState(GetScene());
     ASSERT_GT(payload.size(), 0u);
@@ -455,4 +668,14 @@ TEST_F(PhysicsJoint3DTest, ComponentSurvivesSaveGameRoundTrip)
     EXPECT_NEAR(rj.m_ConeHalfAngleDeg, 75.0f, kEps);
     EXPECT_NEAR(rj.m_BreakForce, 320.0f, kEps);
     EXPECT_NEAR(rj.m_BreakTorque, 64.0f, kEps);
+    EXPECT_EQ(rj.m_HingeMotorMode, JointMotorMode::Velocity);
+    EXPECT_NEAR(rj.m_HingeMotorTargetVelocityDeg, 120.0f, kEps);
+    EXPECT_NEAR(rj.m_HingeMotorTargetAngleDeg, -30.0f, kEps);
+    EXPECT_NEAR(rj.m_HingeMaxMotorTorque, 45.0f, kEps);
+    EXPECT_NEAR(rj.m_HingeMaxFrictionTorque, 12.0f, kEps);
+    EXPECT_EQ(rj.m_SliderMotorMode, JointMotorMode::Position);
+    EXPECT_NEAR(rj.m_SliderMotorTargetVelocity, -1.5f, kEps);
+    EXPECT_NEAR(rj.m_SliderMotorTargetPosition, 2.25f, kEps);
+    EXPECT_NEAR(rj.m_SliderMaxMotorForce, 88.0f, kEps);
+    EXPECT_NEAR(rj.m_SliderMaxFrictionForce, 7.5f, kEps);
 }

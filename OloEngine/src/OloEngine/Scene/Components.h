@@ -674,6 +674,18 @@ namespace OloEngine
         Cone       // Ball-socket whose twist axis is limited to a cone half-angle.
     };
 
+    // Drive mode for a powered Hinge / Slider joint. Off leaves the joint free
+    // (any authored friction still resists motion); Velocity drives toward a
+    // target angular / linear velocity, limited by the max motor torque / force;
+    // Position drives toward a target angle / offset via the motor spring.
+    // Serialized as int — keep the underlying values stable.
+    enum class JointMotorMode
+    {
+        Off = 0,  // Motor disabled; friction (if any) still resists motion.
+        Velocity, // Drive to a target velocity, capped by max motor torque/force.
+        Position  // Drive to a target angle/position via the motor spring.
+    };
+
     // Connects this entity's rigidbody to another body (or the world) with a Jolt
     // two-body constraint. The constraint is created in a second pass at runtime
     // start, once every JoltBody exists (both endpoints must be present). Anchors
@@ -739,6 +751,47 @@ namespace OloEngine
         OLO_PROPERTY()
         f32 m_BreakTorque = 0.0f;
 
+        // Powered joint motors + friction (issue #308 item 3). Only the Hinge and
+        // Slider arms of JoltScene::CreateConstraint read these; other joint types
+        // ignore them. The motor is configured once from these authored fields at
+        // constraint-creation time and left running — no per-frame scripting needed
+        // for v1.
+        //
+        // Hinge motor (acts about the hinge axis). m_HingeMotorMode selects the
+        // drive: Off leaves the hinge free, Velocity drives toward
+        // m_HingeMotorTargetVelocityDeg (deg/s), Position drives toward
+        // m_HingeMotorTargetAngleDeg (deg, clamped to the angle limits).
+        // m_HingeMaxMotorTorque (N·m, >= 0) caps the torque the motor may apply —
+        // 0 leaves the motor without authority, so set it when enabling a motor.
+        // m_HingeMaxFrictionTorque (N·m, >= 0) resists rotation when the motor is
+        // Off (Jolt ignores friction while a motor drives the joint).
+        OLO_PROPERTY(Name = "HingeMotorMode", Type = "int", Get = "static_cast<int>(comp.m_HingeMotorMode)", Set = "comp.m_HingeMotorMode = static_cast<JointMotorMode>({v})")
+        JointMotorMode m_HingeMotorMode = JointMotorMode::Off;
+        OLO_PROPERTY()
+        f32 m_HingeMotorTargetVelocityDeg = 0.0f;
+        OLO_PROPERTY()
+        f32 m_HingeMotorTargetAngleDeg = 0.0f;
+        OLO_PROPERTY()
+        f32 m_HingeMaxMotorTorque = 0.0f;
+        OLO_PROPERTY()
+        f32 m_HingeMaxFrictionTorque = 0.0f;
+
+        // Slider motor (acts along the slide axis) — same shape as the hinge.
+        // Velocity drives toward m_SliderMotorTargetVelocity (m/s), Position toward
+        // m_SliderMotorTargetPosition (m, clamped to the slide limits).
+        // m_SliderMaxMotorForce (N, >= 0) caps the motor force; 0 = no authority.
+        // m_SliderMaxFrictionForce (N, >= 0) resists sliding when the motor is Off.
+        OLO_PROPERTY(Name = "SliderMotorMode", Type = "int", Get = "static_cast<int>(comp.m_SliderMotorMode)", Set = "comp.m_SliderMotorMode = static_cast<JointMotorMode>({v})")
+        JointMotorMode m_SliderMotorMode = JointMotorMode::Off;
+        OLO_PROPERTY()
+        f32 m_SliderMotorTargetVelocity = 0.0f;
+        OLO_PROPERTY()
+        f32 m_SliderMotorTargetPosition = 0.0f;
+        OLO_PROPERTY()
+        f32 m_SliderMaxMotorForce = 0.0f;
+        OLO_PROPERTY()
+        f32 m_SliderMaxFrictionForce = 0.0f;
+
         // Storage for runtime - non-zero once the Jolt constraint has been created.
         // Excluded from authored-state equality so play-mode enter/exit doesn't show
         // as a change (mirrors Rigidbody3DComponent::m_RuntimeBodyToken). Cleared
@@ -750,7 +803,7 @@ namespace OloEngine
 
         auto operator==(const PhysicsJoint3DComponent& other) const -> bool
         {
-            return m_Type == other.m_Type && m_ConnectedEntity == other.m_ConnectedEntity && Math::BitwiseEqual(m_LocalAnchorA, other.m_LocalAnchorA) && Math::BitwiseEqual(m_LocalAnchorB, other.m_LocalAnchorB) && Math::BitwiseEqual(m_Axis, other.m_Axis) && Math::BitwiseEqual(m_MinDistance, other.m_MinDistance) && Math::BitwiseEqual(m_MaxDistance, other.m_MaxDistance) && Math::BitwiseEqual(m_HingeMinAngleDeg, other.m_HingeMinAngleDeg) && Math::BitwiseEqual(m_HingeMaxAngleDeg, other.m_HingeMaxAngleDeg) && Math::BitwiseEqual(m_SliderMinLimit, other.m_SliderMinLimit) && Math::BitwiseEqual(m_SliderMaxLimit, other.m_SliderMaxLimit) && Math::BitwiseEqual(m_ConeHalfAngleDeg, other.m_ConeHalfAngleDeg) && Math::BitwiseEqual(m_BreakForce, other.m_BreakForce) && Math::BitwiseEqual(m_BreakTorque, other.m_BreakTorque);
+            return m_Type == other.m_Type && m_ConnectedEntity == other.m_ConnectedEntity && Math::BitwiseEqual(m_LocalAnchorA, other.m_LocalAnchorA) && Math::BitwiseEqual(m_LocalAnchorB, other.m_LocalAnchorB) && Math::BitwiseEqual(m_Axis, other.m_Axis) && Math::BitwiseEqual(m_MinDistance, other.m_MinDistance) && Math::BitwiseEqual(m_MaxDistance, other.m_MaxDistance) && Math::BitwiseEqual(m_HingeMinAngleDeg, other.m_HingeMinAngleDeg) && Math::BitwiseEqual(m_HingeMaxAngleDeg, other.m_HingeMaxAngleDeg) && Math::BitwiseEqual(m_SliderMinLimit, other.m_SliderMinLimit) && Math::BitwiseEqual(m_SliderMaxLimit, other.m_SliderMaxLimit) && Math::BitwiseEqual(m_ConeHalfAngleDeg, other.m_ConeHalfAngleDeg) && Math::BitwiseEqual(m_BreakForce, other.m_BreakForce) && Math::BitwiseEqual(m_BreakTorque, other.m_BreakTorque) && m_HingeMotorMode == other.m_HingeMotorMode && Math::BitwiseEqual(m_HingeMotorTargetVelocityDeg, other.m_HingeMotorTargetVelocityDeg) && Math::BitwiseEqual(m_HingeMotorTargetAngleDeg, other.m_HingeMotorTargetAngleDeg) && Math::BitwiseEqual(m_HingeMaxMotorTorque, other.m_HingeMaxMotorTorque) && Math::BitwiseEqual(m_HingeMaxFrictionTorque, other.m_HingeMaxFrictionTorque) && m_SliderMotorMode == other.m_SliderMotorMode && Math::BitwiseEqual(m_SliderMotorTargetVelocity, other.m_SliderMotorTargetVelocity) && Math::BitwiseEqual(m_SliderMotorTargetPosition, other.m_SliderMotorTargetPosition) && Math::BitwiseEqual(m_SliderMaxMotorForce, other.m_SliderMaxMotorForce) && Math::BitwiseEqual(m_SliderMaxFrictionForce, other.m_SliderMaxFrictionForce);
         }
     };
 
