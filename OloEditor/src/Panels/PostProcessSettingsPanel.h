@@ -35,6 +35,7 @@ namespace OloEngine
         void DrawMotionBlurSection() const;
         void DrawAOSection() const;
         void DrawSSRSection() const;
+        void DrawSSGISection() const;
         void DrawSnowSection() const;
         void DrawWindSection() const;
         void DrawSnowAccumulationSection() const;

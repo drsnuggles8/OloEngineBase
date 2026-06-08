@@ -1,0 +1,163 @@
+Scene: SSGITest.olo
+# ─────────────────────────────────────────────────────────────────────────────
+# Screen-Space Global Illumination demo scene.
+#
+# A neutral white diffuse floor with a few neutral white boxes/sphere sitting on
+# it, in front of a large SATURATED RED wall. The sun lights the red wall, and
+# SSGI bounces that red light (one-bounce indirect diffuse) onto the white floor
+# and onto the wall-facing sides of the boxes — classic colour bleeding. Nothing
+# here is emissive: the red comes purely from the lit wall, exactly like real GI.
+#
+# IMPORTANT: SSGI is DEFERRED-ONLY. The render path lives in editor RendererSettings
+# (not in this .olo), so after opening this scene:
+#   1. Renderer Settings  -> Active Path -> Deferred
+#   2. Post Processing    -> Screen-Space Global Illumination -> Enable  (already on below)
+# Toggle "Enable" off/on to compare, or "Debug View (indirect only)" to see the
+# raw bounced-light buffer in isolation. SSR/SSAO/GTAO/Bloom are off so the only
+# thing changing the floor's colour is the SSGI bounce.
+# ─────────────────────────────────────────────────────────────────────────────
+PostProcessSettings:
+  TonemapOperator: 2
+  Exposure: 0.6
+  Gamma: 2.2
+  BloomEnabled: false
+  ColorGradingEnabled: false
+  FXAAEnabled: true
+  SSAOEnabled: false
+  GTAOEnabled: false
+  SSREnabled: false
+  SSGIEnabled: true
+  SSGIIntensity: 2
+  SSGIMaxDistance: 30
+  SSGIThickness: 1.5
+  SSGIStride: 0.5
+  SSGIMaxSteps: 32
+  SSGIRayCount: 16
+  SSGIEdgeFade: 0.1
+  SSGIDebugView: false
+Entities:
+  # -- Camera: above the floor, looking slightly down across it toward the wall --
+  - Entity: 810000000000001
+    TagComponent:
+      Tag: Camera
+    TransformComponent:
+      Translation: [0, 4, 11]
+      Rotation: [-0.2, 0, 0]
+      Scale: [1, 1, 1]
+    CameraComponent:
+      Camera:
+        ProjectionType: 0
+        PerspectiveFOV: 0.785398185
+        PerspectiveNear: 0.01
+        PerspectiveFar: 1000
+        OrthographicSize: 10
+        OrthographicNear: -1
+        OrthographicFar: 1
+      Primary: true
+      FixedAspectRatio: false
+  # -- Skybox + IBL (Newport Loft equirect HDR), kept dim so the bounce reads --
+  - Entity: 810000000000002
+    TagComponent:
+      Tag: Skybox
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    EnvironmentMapComponent:
+      FilePath: assets/textures/hdr/newport_loft.hdr
+      IsCubemapFolder: false
+      EnableSkybox: true
+      Rotation: 0
+      Exposure: 0.5
+      BlurAmount: 0
+      EnableIBL: true
+      IBLIntensity: 0.25
+      Tint: [1, 1, 1]
+  # -- Directional sun: comes from the front-top so it lights both the floor and
+  #    the red wall's camera-facing side (which is what bounces onto the floor) --
+  - Entity: 810000000000003
+    TagComponent:
+      Tag: Sun
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    DirectionalLightComponent:
+      Direction: [0.05, -0.45, -0.89]
+      Color: [1, 0.98, 0.95]
+      Intensity: 2.6
+      CastShadows: true
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+      MaxShadowDistance: 50
+      CascadeSplitLambda: 0.95
+  # -- White diffuse floor (the GI receiver) --
+  - Entity: 810000000000004
+    TagComponent:
+      Tag: WhiteFloor
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [30, 1, 30]
+    MeshComponent:
+      Primitive: 3
+    MaterialComponent:
+      AlbedoColor: [0.85, 0.85, 0.85]
+      Metallic: 0
+      Roughness: 1
+  # -- Saturated RED back wall: the colour source. Lit by the sun, not emissive --
+  - Entity: 810000000000005
+    TagComponent:
+      Tag: RedWall
+    TransformComponent:
+      Translation: [0, 4.5, -9]
+      Rotation: [0, 0, 0]
+      Scale: [24, 9, 0.6]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.85, 0.06, 0.06]
+      Metallic: 0
+      Roughness: 1
+  # -- Neutral white box (left): its back/right faces pick up red bounce --
+  - Entity: 810000000000006
+    TagComponent:
+      Tag: WhiteBoxL
+    TransformComponent:
+      Translation: [-3.2, 1, -4.5]
+      Rotation: [0, 0.3, 0]
+      Scale: [2, 2, 2]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.9, 0.9, 0.9]
+      Metallic: 0
+      Roughness: 1
+  # -- Neutral white tall box (right) --
+  - Entity: 810000000000007
+    TagComponent:
+      Tag: WhiteBoxR
+    TransformComponent:
+      Translation: [3, 1.75, -4]
+      Rotation: [0, -0.25, 0]
+      Scale: [1.8, 3.5, 1.8]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.9, 0.9, 0.9]
+      Metallic: 0
+      Roughness: 1
+  # -- Neutral white sphere (centre) --
+  - Entity: 810000000000008
+    TagComponent:
+      Tag: WhiteSphere
+    TransformComponent:
+      Translation: [0, 1, -5.5]
+      Rotation: [0, 0, 0]
+      Scale: [2, 2, 2]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.9, 0.9, 0.9]
+      Metallic: 0
+      Roughness: 1

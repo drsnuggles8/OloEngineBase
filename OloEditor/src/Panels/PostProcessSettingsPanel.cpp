@@ -137,6 +137,16 @@ namespace OloEngine
             AppendChange(changes, "SSREdgeFade", before.SSREdgeFade, after.SSREdgeFade);
             AppendChange(changes, "SSRDebugView", before.SSRDebugView, after.SSRDebugView);
 
+            AppendChange(changes, "SSGIEnabled", before.SSGIEnabled, after.SSGIEnabled);
+            AppendChange(changes, "SSGIIntensity", before.SSGIIntensity, after.SSGIIntensity);
+            AppendChange(changes, "SSGIMaxDistance", before.SSGIMaxDistance, after.SSGIMaxDistance);
+            AppendChange(changes, "SSGIThickness", before.SSGIThickness, after.SSGIThickness);
+            AppendChange(changes, "SSGIStride", before.SSGIStride, after.SSGIStride);
+            AppendChange(changes, "SSGIMaxSteps", before.SSGIMaxSteps, after.SSGIMaxSteps);
+            AppendChange(changes, "SSGIRayCount", before.SSGIRayCount, after.SSGIRayCount);
+            AppendChange(changes, "SSGIEdgeFade", before.SSGIEdgeFade, after.SSGIEdgeFade);
+            AppendChange(changes, "SSGIDebugView", before.SSGIDebugView, after.SSGIDebugView);
+
             SettingsChangeLog::EmitLog("PostProcessSettingsPanel", changes);
         }
     } // namespace
@@ -158,6 +168,7 @@ namespace OloEngine
         DrawToneMappingSection();
         DrawAOSection();
         DrawSSRSection();
+        DrawSSGISection();
         DrawSnowSection();
         DrawWindSection();
         DrawSnowAccumulationSection();
@@ -287,6 +298,33 @@ namespace OloEngine
                 ImGui::SliderFloat("Max Roughness##SSR", &settings.SSRMaxRoughness, 0.0f, 1.0f, "%.2f");
                 ImGui::SliderFloat("Edge Fade##SSR", &settings.SSREdgeFade, 0.0f, 0.5f, "%.2f");
                 ImGui::Checkbox("Debug View (reflection only)##SSR", &settings.SSRDebugView);
+            }
+
+            ImGui::Unindent();
+        }
+    }
+
+    void PostProcessSettingsPanel::DrawSSGISection() const
+    {
+        auto& settings = Renderer3D::GetPostProcessSettings();
+
+        if (ImGui::CollapsingHeader("Screen-Space Global Illumination"))
+        {
+            ImGui::Indent();
+
+            ImGui::Checkbox("Enable##SSGI", &settings.SSGIEnabled);
+            ImGui::TextDisabled("Deferred rendering path only");
+
+            if (settings.SSGIEnabled)
+            {
+                ImGui::DragFloat("Intensity##SSGI", &settings.SSGIIntensity, 0.01f, 0.0f, 8.0f, "%.2f");
+                ImGui::DragFloat("Max Distance##SSGI", &settings.SSGIMaxDistance, 0.1f, 0.1f, 100.0f, "%.1f");
+                ImGui::DragFloat("Thickness##SSGI", &settings.SSGIThickness, 0.01f, 0.001f, 10.0f, "%.3f");
+                ImGui::DragFloat("Stride##SSGI", &settings.SSGIStride, 0.01f, 0.001f, 5.0f, "%.3f");
+                ImGui::SliderInt("Max Steps##SSGI", &settings.SSGIMaxSteps, 1, 64);
+                ImGui::SliderInt("Rays##SSGI", &settings.SSGIRayCount, 1, 32);
+                ImGui::SliderFloat("Edge Fade##SSGI", &settings.SSGIEdgeFade, 0.0f, 0.5f, "%.2f");
+                ImGui::Checkbox("Debug View (indirect only)##SSGI", &settings.SSGIDebugView);
             }
 
             ImGui::Unindent();

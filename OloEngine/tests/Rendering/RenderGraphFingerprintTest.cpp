@@ -80,6 +80,8 @@ namespace OloEngine::Tests
               { s.GTAOEnabled = !s.GTAOEnabled; } },
             { "SSREnabled", [](PostProcessSettings& s)
               { s.SSREnabled = !s.SSREnabled; } },
+            { "SSGIEnabled", [](PostProcessSettings& s)
+              { s.SSGIEnabled = !s.SSGIEnabled; } },
             { "BloomEnabled", [](PostProcessSettings& s)
               { s.BloomEnabled = !s.BloomEnabled; } },
             { "DOFEnabled", [](PostProcessSettings& s)

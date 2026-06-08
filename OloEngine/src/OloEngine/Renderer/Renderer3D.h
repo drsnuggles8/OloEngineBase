@@ -1129,12 +1129,14 @@ namespace OloEngine
             Ref<UniformBuffer> SSAO;
             Ref<UniformBuffer> GTAO;
             Ref<UniformBuffer> SSR;
+            Ref<UniformBuffer> SSGI;
 
             PostProcessUBOData PostProcessData{};
             MotionBlurUBOData MotionBlurData{};
             SSAOUBOData SSAOData{};
             UBOStructures::GTAOUBO GTAOData{};
             SSRUBOData SSRData{};
+            SSGIUBOData SSGIData{};
 
             void Reset()
             {
@@ -1143,6 +1145,7 @@ namespace OloEngine
                 SSAO.Reset();
                 GTAO.Reset();
                 SSR.Reset();
+                SSGI.Reset();
             }
         };
 

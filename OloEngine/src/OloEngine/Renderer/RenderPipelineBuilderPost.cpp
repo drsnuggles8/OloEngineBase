@@ -9,9 +9,17 @@ namespace OloEngine::RenderPipelineBuilderInternal
                                   const PostProcessStageInputs& inputs)
     {
         OLO_CORE_ASSERT(inputs.Passes, "RegisterPostProcessNodes requires pass inputs");
-        // SSR (deferred-only) reflects the AO-applied scene colour, so it is
-        // registered first in the post stage — ahead of Bloom. It self-skips on
-        // the forward path (its SSRColor resource is never declared).
+        // SSGI (deferred-only) adds one-bounce indirect diffuse to the AO-applied
+        // scene colour. It runs BEFORE SSR so reflections include the bounced
+        // light, and self-skips on the forward path (its SSGIColor resource is
+        // never declared).
+        if (inputs.Passes->SSGI)
+        {
+            graph.AddNode(PrepareGraphNode("SSGIPass", inputs.Passes->SSGI));
+        }
+        // SSR (deferred-only) reflects the AO-applied (and SSGI-lit) scene colour,
+        // so it is registered ahead of Bloom. It self-skips on the forward path
+        // (its SSRColor resource is never declared).
         if (inputs.Passes->SSR)
         {
             graph.AddNode(PrepareGraphNode("SSRPass", inputs.Passes->SSR));

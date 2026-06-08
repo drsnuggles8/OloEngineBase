@@ -89,6 +89,7 @@ add_executable(OloEngine-Tests
 		Rendering/StarNestSkyMathTest.cpp
 		Rendering/AutoExposureMathTest.cpp
 		Rendering/ScreenSpaceReflectionMathTest.cpp
+		Rendering/ScreenSpaceGIMathTest.cpp
 		Rendering/SSRHiZTraversalTest.cpp
 		Rendering/RenderGraphFingerprintTest.cpp
 		Rendering/CommandPacketTest.cpp
@@ -130,6 +131,7 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/WaterVisualEvidenceTest.cpp
 		Rendering/PropertyTests/UnderwaterCausticsVisualTest.cpp
 		Rendering/PropertyTests/SSRVisualEvidenceTest.cpp
+		Rendering/PropertyTests/SSGIVisualEvidenceTest.cpp
 		Rendering/PropertyTests/PCSSVisualEvidenceTest.cpp
 		Rendering/PropertyTests/WaterSurfaceSamplerTest.cpp
 		Rendering/PropertyTests/WaterBuoyancyVisualEvidenceTest.cpp

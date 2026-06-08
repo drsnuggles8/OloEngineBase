@@ -194,6 +194,8 @@ namespace OloEngine
             RGTextureHandle SSSColorTexture;              // Color attachment view of SSSColor
             RGFramebufferHandle AOApplyColor;             // After AO apply (only valid when SSAO or GTAO is enabled)
             RGTextureHandle AOApplyColorTexture;          // Color attachment view of AOApplyColor
+            RGFramebufferHandle SSGIColor;                // After SSGI composite (only valid when SSGI is enabled, deferred path)
+            RGTextureHandle SSGIColorTexture;             // Color attachment view of SSGIColor
             RGFramebufferHandle SSRColor;                 // After SSR composite (only valid when SSR is enabled, deferred path)
             RGTextureHandle SSRColorTexture;              // Color attachment view of SSRColor
             RGFramebufferHandle PostProcessColor;         // Alias for the latest upstream full-resolution post-chain source (SSR, AOApply, SSS, or SceneColor)

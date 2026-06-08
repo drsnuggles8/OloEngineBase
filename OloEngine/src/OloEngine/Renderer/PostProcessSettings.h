@@ -138,6 +138,29 @@ namespace OloEngine
         f32 SSREdgeFade = 0.1f;       // Screen-border fade width in UV (0..0.5); larger = softer edges
         bool SSRDebugView = false;    // Show the raw reflection buffer instead of the composite
 
+        // Screen-Space Global Illumination (SSGI)
+        // Deferred-only: one-bounce indirect *diffuse* lighting. For each opaque
+        // pixel it casts a cosine-weighted hemisphere of short rays around the
+        // surface normal, marches each against scene depth, and on a hit samples
+        // the lit scene colour as incoming indirect radiance — so a saturated
+        // wall bleeds its colour onto a neutral floor. The averaged radiance is
+        // tinted by the receiver albedo and ADDED to the lit colour (unlike SSR,
+        // which is a replace/mix — indirect diffuse is extra bounced light, not a
+        // mirror substitution) into a fresh SSGIColor target inserted between
+        // AOApply and SSR. The math is pinned by ScreenSpaceGIMathTest and the
+        // frame is checked by SSGIVisualEvidenceTest. Screen-space only: light
+        // from off-screen or behind surfaces is unknown and contributes nothing,
+        // so rays that leave the screen fade out.
+        bool SSGIEnabled = false;
+        f32 SSGIIntensity = 1.0f;   // Overall indirect-diffuse strength multiplier
+        f32 SSGIMaxDistance = 8.0f; // Max ray length in view/world units (GI is local — keep short)
+        f32 SSGIThickness = 0.5f;   // View-space depth tolerance for accepting a hit (thin-surface guard)
+        f32 SSGIStride = 0.25f;     // Initial view-space marching step length
+        i32 SSGIMaxSteps = 24;      // Maximum linear march iterations per ray
+        i32 SSGIRayCount = 8;       // Cosine-weighted hemisphere rays per pixel
+        f32 SSGIEdgeFade = 0.1f;    // Screen-border fade width in UV (0..0.5); larger = softer edges
+        bool SSGIDebugView = false; // Show the indirect-diffuse buffer in isolation instead of the composite
+
         bool operator==(const PostProcessSettings&) const = default;
     };
 
@@ -166,6 +189,32 @@ namespace OloEngine
         s.SSRIntensity = std::clamp(finite(s.SSRIntensity, 1.0f), 0.0f, 16.0f);
         s.SSRMaxRoughness = std::clamp(finite(s.SSRMaxRoughness, 0.6f), 0.0f, 1.0f);
         s.SSREdgeFade = std::clamp(finite(s.SSREdgeFade, 0.1f), 0.0f, 0.5f);
+    }
+
+    // Upper bounds for the SSGI ray-march counts. These MUST match the runtime
+    // UBO upload clamp in RenderPipeline.cpp and the HARD_MAX_* loop caps in
+    // PostProcess_SSGI.glsl — a persisted/edited value above the runtime cap is
+    // otherwise saved but silently ignored when rendering. Single source of
+    // truth shared by the sanitizer and the upload path.
+    inline constexpr i32 kSSGIMaxSteps = 64;
+    inline constexpr i32 kSSGIMaxRays = 32;
+
+    // Clamp SSGI parameters to finite, sane ranges. Call after loading settings
+    // from disk (scene YAML / save-game), per the CLAUDE.md rule that floats read
+    // from external data are validated with std::isfinite. The shader also clamps
+    // at use-time, but persisted/edited settings should never carry NaN/Inf.
+    inline void SanitizeSSGI(PostProcessSettings& s) noexcept
+    {
+        const auto finite = [](f32 v, f32 fallback) noexcept
+        { return std::isfinite(v) ? v : fallback; };
+
+        s.SSGIIntensity = std::clamp(finite(s.SSGIIntensity, 1.0f), 0.0f, 16.0f);
+        s.SSGIMaxDistance = std::clamp(finite(s.SSGIMaxDistance, 8.0f), 0.1f, 10000.0f);
+        s.SSGIThickness = std::clamp(finite(s.SSGIThickness, 0.5f), 0.001f, 1000.0f);
+        s.SSGIStride = std::clamp(finite(s.SSGIStride, 0.25f), 0.001f, 100.0f);
+        s.SSGIMaxSteps = std::clamp(s.SSGIMaxSteps, 1, kSSGIMaxSteps);
+        s.SSGIRayCount = std::clamp(s.SSGIRayCount, 1, kSSGIMaxRays);
+        s.SSGIEdgeFade = std::clamp(finite(s.SSGIEdgeFade, 0.1f), 0.0f, 0.5f);
     }
 
     // Clamp the auto-exposure parameters to a finite, ordered, sane range.
@@ -324,6 +373,35 @@ namespace OloEngine
 
     static_assert(sizeof(SSRUBOData) % 16 == 0, "SSRUBOData must be 16-byte aligned for std140");
     static_assert(sizeof(SSRUBOData) == 272, "SSRUBOData std140 size drifted — update PostProcess_SSR.glsl layout");
+
+    // GPU-side UBO layout for screen-space global illumination (std140, binding 40).
+    // All math the PostProcess_SSGI.glsl hemisphere gather needs: camera matrices
+    // to reconstruct/project view-space positions, plus the ray-march + shading
+    // parameters. Mirrored on the CPU by ScreenSpaceGIMathTest so the contract is
+    // pinned without a GL context.
+    struct SSGIUBOData
+    {
+        glm::mat4 Projection = glm::mat4(1.0f);
+        glm::mat4 InverseProjection = glm::mat4(1.0f);
+        glm::mat4 View = glm::mat4(1.0f);
+
+        // x = MaxSteps, y = MaxDistance (view units), z = Thickness, w = Stride (view units)
+        glm::vec4 RayParams = glm::vec4(24.0f, 8.0f, 0.5f, 0.25f);
+        // x = Intensity, y = RayCount, z = EdgeFade (UV), w = unused
+        glm::vec4 ShadeParams = glm::vec4(1.0f, 8.0f, 0.1f, 0.0f);
+        // x = width, y = height, z = 1/width, w = 1/height
+        glm::vec4 ScreenParams = glm::vec4(0.0f);
+        // x = DebugView (0/1), yzw = pad
+        glm::vec4 Flags = glm::vec4(0.0f);
+
+        static constexpr u32 GetSize()
+        {
+            return sizeof(SSGIUBOData);
+        }
+    };
+
+    static_assert(sizeof(SSGIUBOData) % 16 == 0, "SSGIUBOData must be 16-byte aligned for std140");
+    static_assert(sizeof(SSGIUBOData) == 256, "SSGIUBOData std140 size drifted — update PostProcess_SSGI.glsl layout");
     // Snow rendering settings (scene-level, separate from PostProcess)
     struct SnowSettings
     {

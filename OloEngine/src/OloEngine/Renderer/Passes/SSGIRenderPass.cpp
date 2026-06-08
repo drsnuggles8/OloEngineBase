@@ -1,5 +1,5 @@
 #include "OloEnginePCH.h"
-#include "OloEngine/Renderer/Passes/SSRRenderPass.h"
+#include "OloEngine/Renderer/Passes/SSGIRenderPass.h"
 #include "OloEngine/Renderer/RGCommandContext.h"
 #include "OloEngine/Renderer/RenderCommand.h"
 #include "OloEngine/Renderer/MeshPrimitives.h"
@@ -14,36 +14,35 @@
 
 namespace OloEngine
 {
-    SSRRenderPass::SSRRenderPass()
+    SSGIRenderPass::SSGIRenderPass()
     {
-        SetName("SSRPass");
-        OLO_CORE_INFO("Creating SSRRenderPass.");
+        SetName("SSGIPass");
+        OLO_CORE_INFO("Creating SSGIRenderPass.");
     }
 
-    void SSRRenderPass::Setup(RGBuilder& builder, FrameBlackboard& blackboard)
+    void SSGIRenderPass::Setup(RGBuilder& builder, FrameBlackboard& blackboard)
     {
         RenderGraphNode::Setup(builder, blackboard);
         m_SelectedSceneDepthTexture = {};
         m_SelectedGBufferNormalTexture = {};
         m_SelectedGBufferAlbedoTexture = {};
 
-        // Pick the latest upstream colour to reflect: SSGI (if the indirect-diffuse
-        // bounce ran), AOApply (if AO ran), SSS, else raw SceneColor.
-        // PostProcessColor is intentionally NOT a candidate — its alias is
-        // repointed to SSRColor downstream, so reading it here would form a cycle.
+        // Pick the latest upstream colour to gather indirect light from: AOApply
+        // (if AO ran), SSS, else raw SceneColor. SSGI runs before SSR, so SSRColor
+        // is intentionally NOT a candidate; PostProcessColor is excluded too (its
+        // alias is repointed downstream, so reading it here would form a cycle).
         [[maybe_unused]] const auto input = RenderPipelineBuilderInternal::ReadFirstValidVersionedInputForPass(
             builder,
             this,
             {
-                RenderPipelineBuilderInternal::MakeCandidateBaseNames(ResourceNames::SSGIColor, ResourceNames::SSGIColorTexture),
                 RenderPipelineBuilderInternal::MakeCandidateBaseNames(ResourceNames::AOApplyColor, ResourceNames::AOApplyColorTexture),
                 RenderPipelineBuilderInternal::MakeCandidateBaseNames(ResourceNames::SSSColor, ResourceNames::SSSColorTexture),
                 RenderPipelineBuilderInternal::MakeCandidateBaseNames(ResourceNames::SceneColor, ResourceNames::SceneColorTexture),
             });
 
-        // SSRColor is only declared (deferred path) when the G-Buffer + depth are
+        // SSGIColor is only declared (deferred path) when the G-Buffer + depth are
         // available; without them the pass cannot run and downstream aliases back.
-        if (!m_Enabled || !blackboard.Post.SSRColor.IsValid() ||
+        if (!m_Enabled || !blackboard.Post.SSGIColor.IsValid() ||
             !blackboard.Scene.SceneDepth.IsValid() ||
             !blackboard.GBuffer.GBufferNormal.IsValid() ||
             !blackboard.GBuffer.GBufferAlbedo.IsValid())
@@ -56,46 +55,30 @@ namespace OloEngine
         m_SelectedGBufferNormalTexture = blackboard.GBuffer.GBufferNormal;
         m_SelectedGBufferAlbedoTexture = blackboard.GBuffer.GBufferAlbedo;
 
-        constexpr std::string_view ssrVersionTag = "SSRPass";
-        const auto outputHandle = builder.WriteNewVersion(blackboard.Post.SSRColor, RGWriteUsage::RenderTarget, ssrVersionTag);
+        constexpr std::string_view ssgiVersionTag = "SSGIPass";
+        const auto outputHandle = builder.WriteNewVersion(blackboard.Post.SSGIColor, RGWriteUsage::RenderTarget, ssgiVersionTag);
         if (!outputHandle.IsValid())
             return;
 
         SetPrimaryOutputFramebufferHandle(outputHandle);
         SetPrimaryOutputTextureHandle(
-            builder.CreateFramebufferAttachmentView(std::string(ResourceNames::SSRColorTexture) + "@" +
-                                                        std::string(ssrVersionTag),
+            builder.CreateFramebufferAttachmentView(std::string(ResourceNames::SSGIColorTexture) + "@" +
+                                                        std::string(ssgiVersionTag),
                                                     outputHandle,
                                                     0u));
     }
 
-    void SSRRenderPass::Init(const FramebufferSpecification& spec)
+    void SSGIRenderPass::Init(const FramebufferSpecification& spec)
     {
         OLO_PROFILE_FUNCTION();
 
         m_FramebufferSpec = spec;
-        m_SSRShader = Shader::Create("assets/shaders/PostProcess_SSR.glsl");
+        m_SSGIShader = Shader::Create("assets/shaders/PostProcess_SSGI.glsl");
 
-        // Dedicated min-depth HZB for HiZ ray traversal (#284).
-        m_MinHZB.Initialize();
-        m_MinHZB.SetReduceMode(HZBGenerator::ReduceMode::Min);
-        if (spec.Width > 0 && spec.Height > 0)
-            m_MinHZB.Resize(spec.Width, spec.Height);
-
-        OLO_CORE_INFO("SSRRenderPass: Initialized with viewport {}x{}", spec.Width, spec.Height);
+        OLO_CORE_INFO("SSGIRenderPass: Initialized with viewport {}x{}", spec.Width, spec.Height);
     }
 
-    glm::vec2 SSRRenderPass::GetHZBUVFactor() const noexcept
-    {
-        return HZBGenerator::ComputeDimensions(m_FramebufferSpec.Width, m_FramebufferSpec.Height).UVFactor;
-    }
-
-    u32 SSRRenderPass::GetHZBMipCount() const noexcept
-    {
-        return HZBGenerator::ComputeDimensions(m_FramebufferSpec.Width, m_FramebufferSpec.Height).MipCount;
-    }
-
-    void SSRRenderPass::Execute(RGCommandContext& context)
+    void SSGIRenderPass::Execute(RGCommandContext& context)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -132,48 +115,36 @@ namespace OloEngine
             m_Target = nullptr;
             if (static u32 s_MissingInputOrOutputWarnings = 0; s_MissingInputOrOutputWarnings++ < 10)
             {
-                OLO_CORE_WARN("SSRRenderPass: missing input/output (inputTex={}, outputFB={}, depthTex={}, normalTex={}, albedoTex={})",
+                OLO_CORE_WARN("SSGIRenderPass: missing input/output (inputTex={}, outputFB={}, depthTex={}, normalTex={}, albedoTex={})",
                               inputColorTextureID,
                               outputFramebuffer ? outputFramebuffer->GetRendererID() : 0u,
                               sceneDepthID,
                               gbufferNormalID,
                               gbufferAlbedoID);
             }
-            OLO_CORE_ASSERT(false, "SSRRenderPass enabled without resolved graph input/output");
+            OLO_CORE_ASSERT(false, "SSGIRenderPass enabled without resolved graph input/output");
             return;
         }
 
-        if (const bool shaderReady = m_SSRShader && m_SSRShader->IsReady();
+        if (const bool shaderReady = m_SSGIShader && m_SSGIShader->IsReady();
             !shaderReady || sceneDepthID == 0 || gbufferNormalID == 0 || gbufferAlbedoID == 0)
         {
             m_Target = nullptr;
             if (static u32 s_InvalidExecutionStateWarnings = 0; s_InvalidExecutionStateWarnings++ < 10)
             {
-                OLO_CORE_WARN("SSRRenderPass: enabled without complete execution state (shaderReady={}, depthTex={}, normalTex={}, albedoTex={})",
+                OLO_CORE_WARN("SSGIRenderPass: enabled without complete execution state (shaderReady={}, depthTex={}, normalTex={}, albedoTex={})",
                               shaderReady, sceneDepthID, gbufferNormalID, gbufferAlbedoID);
             }
-            OLO_CORE_ASSERT(false, "SSRRenderPass enabled without ready shader or resolved G-Buffer/depth inputs");
+            OLO_CORE_ASSERT(false, "SSGIRenderPass enabled without ready shader or resolved G-Buffer/depth inputs");
             return;
         }
 
         m_Target = outputFramebuffer;
 
-        // Build this frame's min-depth HZB pyramid from scene depth, then bind it
-        // for the HiZ ray march (#284). Generation is compute (dispatches + its
-        // own TextureFetch barrier inside Generate), so it must run before the
-        // fullscreen draw that samples it. Resize is a cheap no-op when the
-        // viewport hasn't changed bucket. If generation is unavailable the march
-        // still works against full-res scene depth — the HZB only skips empty
-        // space, the actual hit test is always against real depth — so fall back
-        // to binding scene depth so the sampler is never left unbound.
-        m_MinHZB.Resize(m_FramebufferSpec.Width, m_FramebufferSpec.Height);
-        m_MinHZB.Generate(sceneDepthID);
-        const u32 minHZBID = m_MinHZB.GetHZBTextureID() != 0 ? m_MinHZB.GetHZBTextureID() : sceneDepthID;
-
-        // Rebind the SSR UBO (binding 38) — other passes may displace this
+        // Rebind the SSGI UBO (binding 40) — other passes may displace this
         // indexed binding between EndScene()'s upload and this Execute() call.
-        if (m_SSRUBO)
-            m_SSRUBO->Bind();
+        if (m_SSGIUBO)
+            m_SSGIUBO->Bind();
 
         constexpr u32 colorAttachment = 0;
         outputFramebuffer->Bind();
@@ -191,12 +162,11 @@ namespace OloEngine
         context.SetClearColor({ 0.0f, 0.0f, 0.0f, 1.0f });
         context.Clear();
 
-        m_SSRShader->Bind();
+        m_SSGIShader->Bind();
         context.BindTexture(0, inputColorTextureID);
         context.BindTexture(ShaderBindingLayout::TEX_POSTPROCESS_DEPTH, sceneDepthID);
         context.BindTexture(ShaderBindingLayout::TEX_GBUFFER_NORMAL, gbufferNormalID);
         context.BindTexture(ShaderBindingLayout::TEX_GBUFFER_ALBEDO, gbufferAlbedoID);
-        context.BindTexture(ShaderBindingLayout::TEX_SSR_HZB, minHZBID);
 
         const auto va = MeshPrimitives::GetFullscreenTriangle();
         va->Bind();
@@ -206,25 +176,22 @@ namespace OloEngine
         outputFramebuffer->Unbind();
     }
 
-    void SSRRenderPass::SetupFramebuffer(u32 width, u32 height)
+    void SSGIRenderPass::SetupFramebuffer(u32 width, u32 height)
     {
         m_FramebufferSpec.Width = width;
         m_FramebufferSpec.Height = height;
-        if (width > 0 && height > 0)
-            m_MinHZB.Resize(width, height);
     }
 
-    void SSRRenderPass::ResizeFramebuffer(u32 width, u32 height)
+    void SSGIRenderPass::ResizeFramebuffer(u32 width, u32 height)
     {
         if (width == 0 || height == 0)
             return;
 
         m_FramebufferSpec.Width = width;
         m_FramebufferSpec.Height = height;
-        m_MinHZB.Resize(width, height);
     }
 
-    void SSRRenderPass::OnReset()
+    void SSGIRenderPass::OnReset()
     {
         m_Target = nullptr;
         m_SelectedSceneDepthTexture = {};

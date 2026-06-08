@@ -646,6 +646,7 @@ namespace OloEngine
         static constexpr u32 UBO_UNDERWATER = 37;           // Underwater fog parameters (camera-below-water tint, WATER_FUTURE_IMPROVEMENTS.md §7.2)
         static constexpr u32 UBO_SSR = 38;                  // Screen-space reflections parameters (camera matrices + ray-march settings)
         static constexpr u32 UBO_STAR_NEST_SKY = 39;        // Star Nest raymarched nebula sky parameters (StarNestSkyUBO, 4 vec4)
+        static constexpr u32 UBO_SSGI = 40;                 // Screen-space global illumination parameters (camera matrices + hemisphere ray-march settings)
 
         // =============================================================================
         // TEXTURE SAMPLER BINDINGS
@@ -877,6 +878,8 @@ namespace OloEngine
                     return name.contains("SSR") || name.contains("ssr");
                 case UBO_STAR_NEST_SKY:
                     return name.contains("StarNest") || name.contains("starNest");
+                case UBO_SSGI:
+                    return name.contains("SSGI") || name.contains("ssgi");
                 default:
                     return false;
             }
