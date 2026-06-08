@@ -130,12 +130,16 @@ namespace OloEngine
             return m_Specification.SmokeTestTickLimit > 0;
         }
 
-        // True once the run loop has completed the configured number of smoke
-        // ticks. If the app closed earlier (e.g. a layer aborted startup), this
-        // is false and main() reports the launch as failed.
+        // True only when a smoke test is active AND the run loop has completed
+        // the configured number of ticks. If the app closed earlier (e.g. a
+        // layer aborted startup), this is false and main() reports the launch as
+        // failed. The explicit SmokeTestTickLimit > 0 check means this is safe to
+        // call in any mode — it never reports "passed" for a normal (non-smoke)
+        // run, where the limit is 0.
         [[nodiscard("Store this!")]] bool SmokeTestPassed() const
         {
-            return m_SmokeTestTicksCompleted >= m_Specification.SmokeTestTickLimit;
+            return m_Specification.SmokeTestTickLimit > 0 &&
+                   m_SmokeTestTicksCompleted >= m_Specification.SmokeTestTickLimit;
         }
 
         [[nodiscard("Store this!")]] static const std::filesystem::path& GetStartupWorkingDirectory()
