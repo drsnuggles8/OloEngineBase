@@ -134,21 +134,6 @@ namespace OloEngine::MCP
             }
         }
 
-        // DNS-rebinding defence: a browser-originated request carries an Origin.
-        // Non-browser agents (Claude Code/Desktop) send none — accept those. When
-        // present, the host must be loopback.
-        bool IsLocalhostOrigin(const std::string& origin)
-        {
-            if (origin.empty() || origin == "null")
-                return true;
-            const auto schemeEnd = origin.find("://");
-            if (schemeEnd == std::string::npos)
-                return false;
-            const auto hostStart = schemeEnd + 3;
-            const auto hostEnd = origin.find_first_of(":/", hostStart);
-            const std::string host = origin.substr(hostStart, hostEnd == std::string::npos ? std::string::npos : hostEnd - hostStart);
-            return host == "127.0.0.1" || host == "localhost" || host == "[::1]" || host == "::1";
-        }
     } // namespace
 
     // ---- ToolResult ------------------------------------------------------------
@@ -330,7 +315,7 @@ namespace OloEngine::MCP
         };
 
         // 1. Origin check (DNS-rebinding defence).
-        if (req.has_header("Origin") && !IsLocalhostOrigin(req.get_header_value("Origin")))
+        if (req.has_header("Origin") && !IsOriginAllowed(req.get_header_value("Origin")))
         {
             res.status = 403;
             sendJson(MakeError(Json(nullptr), kInvalidRequest, "Origin not allowed"), 403);
@@ -358,26 +343,54 @@ namespace OloEngine::MCP
             }
         }
 
-        // 4. Parse the JSON-RPC body.
+        // 4-5. Parse + route the JSON-RPC body. All framing (parse error, batch
+        // handling, notification suppression, the initialize session-id side
+        // effect) lives in the transport-agnostic seam so it can be unit tested.
+        const FramedResponse framed = ProcessRequestBody(req.body);
+
+        // Echo the freshly minted session id on a successful initialize so
+        // subsequent requests can be correlated (and old sessions invalidated
+        // across server restarts).
+        if (!framed.SessionId.empty())
+            res.set_header("Mcp-Session-Id", framed.SessionId);
+
+        if (framed.Body.is_null())
+        {
+            res.status = framed.Status; // 202 — notification / all-notification batch
+            return;
+        }
+        sendJson(framed.Body, framed.Status);
+    }
+
+    Json McpServer::HandleMessage(const Json& message)
+    {
+        return DispatchRpc(message);
+    }
+
+    McpServer::FramedResponse McpServer::ProcessRequestBody(const std::string& body)
+    {
+        FramedResponse out;
+
+        // Parse the JSON-RPC body.
         Json parsed;
         try
         {
-            parsed = Json::parse(req.body);
+            parsed = Json::parse(body);
         }
         catch (const std::exception&)
         {
-            sendJson(MakeError(Json(nullptr), kParseError, "Parse error"), 200);
-            return;
+            out.Body = MakeError(Json(nullptr), kParseError, "Parse error");
+            return out;
         }
 
-        // 5a. Batch: array of messages → array of responses (notifications drop out).
+        // Batch: array of messages → array of responses (notifications drop out).
         if (parsed.is_array())
         {
             // An empty batch is itself an invalid JSON-RPC request (spec §6).
             if (parsed.empty())
             {
-                sendJson(MakeError(Json(nullptr), kInvalidRequest, "Invalid Request"), 200);
-                return;
+                out.Body = MakeError(Json(nullptr), kInvalidRequest, "Invalid Request");
+                return out;
             }
             Json responses = Json::array();
             for (const auto& message : parsed)
@@ -388,19 +401,19 @@ namespace OloEngine::MCP
             }
             if (responses.empty())
             {
-                res.status = 202; // all notifications
-                return;
+                out.Status = 202; // all notifications — nothing to return
+                return out;
             }
-            sendJson(responses, 200);
-            return;
+            out.Body = std::move(responses);
+            return out;
         }
 
-        // 5b. Single message.
+        // Single message.
         const std::string method = parsed.is_object() ? parsed.value("method", std::string{}) : std::string{};
         Json response = DispatchRpc(parsed);
 
-        // Issue a session id on a successful initialize so subsequent requests can
-        // be correlated (and old sessions invalidated across server restarts).
+        // A successful initialize mints + registers a session id; the transport
+        // surfaces it in the Mcp-Session-Id header.
         if (method == "initialize" && response.contains("result"))
         {
             std::string sid = GenerateHexToken(16);
@@ -408,15 +421,16 @@ namespace OloEngine::MCP
                 std::lock_guard lock(m_SessionMutex);
                 m_Sessions.insert(sid);
             }
-            res.set_header("Mcp-Session-Id", sid);
+            out.SessionId = std::move(sid);
         }
 
         if (response.is_null())
         {
-            res.status = 202; // notification — nothing to return
-            return;
+            out.Status = 202; // notification — nothing to return
+            return out;
         }
-        sendJson(response, 200);
+        out.Body = std::move(response);
+        return out;
     }
 
     Json McpServer::DispatchRpc(const Json& request)
@@ -632,16 +646,38 @@ namespace OloEngine::MCP
 
     bool McpServer::CheckAuth(const httplib::Request& req) const
     {
-        if (m_Token.empty())
-            return false;
         if (!req.has_header("Authorization"))
             return false;
+        return CheckBearerAuth(req.get_header_value("Authorization"), m_Token);
+    }
 
-        const std::string auth = req.get_header_value("Authorization");
-        constexpr std::string_view kPrefix = "Bearer ";
-        if (auth.size() <= kPrefix.size() || std::string_view(auth).substr(0, kPrefix.size()) != kPrefix)
+    bool McpServer::CheckBearerAuth(std::string_view authorizationHeader, std::string_view expectedToken)
+    {
+        // An empty expected token means the server isn't running (no token has been
+        // generated) — reject everything, including an empty presented token.
+        if (expectedToken.empty())
             return false;
 
-        return ConstantTimeEquals(std::string_view(auth).substr(kPrefix.size()), m_Token);
+        constexpr std::string_view kPrefix = "Bearer ";
+        if (authorizationHeader.size() <= kPrefix.size() || authorizationHeader.substr(0, kPrefix.size()) != kPrefix)
+            return false;
+
+        return ConstantTimeEquals(authorizationHeader.substr(kPrefix.size()), expectedToken);
+    }
+
+    bool McpServer::IsOriginAllowed(std::string_view origin)
+    {
+        // A browser-originated request carries an Origin; non-browser agents
+        // (Claude Code/Desktop) send none — accept those. When present, the host
+        // must be loopback.
+        if (origin.empty() || origin == "null")
+            return true;
+        const auto schemeEnd = origin.find("://");
+        if (schemeEnd == std::string_view::npos)
+            return false;
+        const auto hostStart = schemeEnd + 3;
+        const auto hostEnd = origin.find_first_of(":/", hostStart);
+        const std::string_view host = origin.substr(hostStart, hostEnd == std::string_view::npos ? std::string_view::npos : hostEnd - hostStart);
+        return host == "127.0.0.1" || host == "localhost" || host == "[::1]" || host == "::1";
     }
 } // namespace OloEngine::MCP
