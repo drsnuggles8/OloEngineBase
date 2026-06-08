@@ -315,6 +315,17 @@ TEST_F(McpDispatchTest, NonObjectMessageIsInvalidRequest)
     EXPECT_EQ(resp["error"]["code"], -32600);
 }
 
+// A non-string "method" must yield a clean Invalid Request, not throw (nlohmann's
+// value() would throw type_error.302 on the type mismatch).
+TEST_F(McpDispatchTest, NonStringMethodIsInvalidRequest)
+{
+    Json msg = { { "jsonrpc", "2.0" }, { "id", 18 }, { "method", 123 } };
+    Json resp;
+    ASSERT_NO_THROW(resp = m_Server.HandleMessage(msg));
+    ASSERT_TRUE(resp.contains("error"));
+    EXPECT_EQ(resp["error"]["code"], -32600); // invalid request
+}
+
 TEST_F(McpDispatchTest, NotificationProducesNoResponse)
 {
     // A message with no "id" is a notification — dispatch returns a null Json.
@@ -474,6 +485,11 @@ TEST(McpDispatchSecurity, OriginAllowsLoopbackHosts)
     EXPECT_TRUE(McpServer::IsOriginAllowed("http://127.0.0.1:7345"));
     EXPECT_TRUE(McpServer::IsOriginAllowed("http://localhost"));
     EXPECT_TRUE(McpServer::IsOriginAllowed("http://localhost:1234/mcp"));
+    // Bracketed IPv6 loopback — the ':' separators inside the address must not
+    // truncate the host (a port and/or path may follow the closing ']').
+    EXPECT_TRUE(McpServer::IsOriginAllowed("http://[::1]"));
+    EXPECT_TRUE(McpServer::IsOriginAllowed("http://[::1]:7345"));
+    EXPECT_TRUE(McpServer::IsOriginAllowed("http://[::1]:7345/mcp"));
 }
 
 TEST(McpDispatchSecurity, OriginRejectsRemoteHosts)

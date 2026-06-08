@@ -409,7 +409,12 @@ namespace OloEngine::MCP
         }
 
         // Single message.
-        const std::string method = parsed.is_object() ? parsed.value("method", std::string{}) : std::string{};
+        // Detect a successful initialize for the session-id side effect. Read
+        // "method" defensively (see DispatchRpc): value() would throw on a
+        // non-string method.
+        std::string method;
+        if (parsed.is_object() && parsed.contains("method") && parsed["method"].is_string())
+            method = parsed["method"].get<std::string>();
         Json response = DispatchRpc(parsed);
 
         // A successful initialize mints + registers a session id; the transport
@@ -440,7 +445,14 @@ namespace OloEngine::MCP
 
         const bool hasId = request.contains("id");
         const Json id = hasId ? request["id"] : Json(nullptr);
-        const std::string method = request.value("method", std::string{});
+
+        // Read "method" defensively: nlohmann's value() throws type_error.302 when
+        // the key is present but not a string, so a malformed `"method": 123` would
+        // escape as an exception instead of a clean JSON-RPC error. Treat any
+        // non-string (or absent) method as missing — handled as Invalid Request below.
+        std::string method;
+        if (request.contains("method") && request["method"].is_string())
+            method = request["method"].get<std::string>();
 
         // Notifications (no id) get no response; we have no notification side effects.
         if (!hasId)
@@ -676,8 +688,25 @@ namespace OloEngine::MCP
         if (schemeEnd == std::string_view::npos)
             return false;
         const auto hostStart = schemeEnd + 3;
-        const auto hostEnd = origin.find_first_of(":/", hostStart);
-        const std::string_view host = origin.substr(hostStart, hostEnd == std::string_view::npos ? std::string_view::npos : hostEnd - hostStart);
+        if (hostStart >= origin.size())
+            return false;
+
+        std::string_view host;
+        if (origin[hostStart] == '[')
+        {
+            // Bracketed IPv6 literal (e.g. http://[::1]:7345). The address itself
+            // is full of ':' separators, so the host runs to the closing ']', not
+            // the first ':'. Keep the brackets so it matches the allowlist form.
+            const auto bracketEnd = origin.find(']', hostStart);
+            if (bracketEnd == std::string_view::npos)
+                return false;
+            host = origin.substr(hostStart, bracketEnd - hostStart + 1);
+        }
+        else
+        {
+            const auto hostEnd = origin.find_first_of(":/", hostStart);
+            host = origin.substr(hostStart, hostEnd == std::string_view::npos ? std::string_view::npos : hostEnd - hostStart);
+        }
         return host == "127.0.0.1" || host == "localhost" || host == "[::1]" || host == "::1";
     }
 } // namespace OloEngine::MCP
