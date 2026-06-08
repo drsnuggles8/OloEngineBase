@@ -1485,10 +1485,11 @@ level of `tests/`). Grouped by directory.
 | [ZoneHandoffTest.cpp](../OloEngine/tests/Networking/ZoneHandoffTest.cpp) | 7 | **PlayerStatePacket** &mdash; `SerializeDeserializeRoundtrip`, `EmptyGameStateBlob`, `RejectsNonFiniteTransform`<br/>**ZoneHandoff** &mdash; `ThreePhaseHandoffProtocol`, `HandoffRejectionOnFull`, `GhostEntityVisibility`, `PlayerTransitioningState` |
 | [ZoneServerTest.cpp](../OloEngine/tests/Networking/ZoneServerTest.cpp) | 7 | **ZoneServer** &mdash; `StartStop`, `AddRemovePlayers`<br/>**ZoneManager** &mdash; `RegisterAndRoutePlayer`, `TransferPlayer`, `MaxPlayersEnforcement`<br/>**InterZoneMessageBus** &mdash; `PushAndDrainAll`, `DrainForZone` |
 
-#### Rendering (1 file)
+#### Rendering (2 files)
 
 | File | Tests | Cases |
 |---|---:|---|
+| [MeshBVHRaycastTest.cpp](../OloEngine/tests/Rendering/MeshBVHRaycastTest.cpp) | 20 | **MeshBVHRayTriangle** &mdash; `HitsThroughInteriorWithCorrectBarycentrics`, `MissesOutsideTheTriangle`, `ParallelRayMisses`, `BackFaceReportsFrontFaceFalse`, `RespectsTMinAndTMax`, `TriangleBehindOriginMisses`<br/>**MeshBVHRayAABB** &mdash; `HitsBoxAndReportsEntryDistance`, `MissesWhenAxisIntervalsDoNotOverlap`, `OriginInsideBoxHitsAtTMin`, `TMaxPrunesAFarBox`<br/>**MeshBVHBuild** &mdash; `EmptyBVHReportsUnbuiltAndNeverHits`, `SkipsTrianglesWithOutOfRangeIndices`, `RootBoundsEncloseTheMesh`<br/>**MeshBVHQuery** &mdash; `SingleTriangleHitReportsIndexPointAndNormal`, `ReturnsClosestOfManyStackedTriangles`, `RayFromInsideClosedMeshHitsAWall`, `CastRayAnyAgreesWithCastRayHitMiss`, `BuildsFromMeshSourceOverload`<br/>**MeshBVHParity** &mdash; `MatchesBruteForceOverCube`, `MatchesBruteForceOverSphere` |
 | [PCSSShadowTest.cpp](../OloEngine/tests/Rendering/PCSSShadowTest.cpp) | 12 | **PCSSShadow** &mdash; `ShadowUBOSizeUnchangedBySoftShadowModeField`, `SoftShadowModeFollowsCascadeDebugInLayout`, `RawDepthBindingSlotsMatchShaders`, `SoftShadowsDefaultsOn`, `QualityTieringMapsSoftShadows`, `LowPresetUsesHardShadows`, `NoBlockerReportsFullyLit`, `BlockerSearchAveragesOnlyOccluders`, `ZeroGapGivesSharpMinimumRadius`, `PenumbraGrowsMonotonicallyWithGap`, `PenumbraClampsToMaxRadius`, `LargerLightSizeGivesSofterMaxPenumbra` |
 
 #### SaveGame (4 files)
@@ -1530,7 +1531,7 @@ level of `tests/`). Grouped by directory.
 |---|---:|---|
 | [TerrainGeneratorTest.cpp](../OloEngine/tests/Terrain/TerrainGeneratorTest.cpp) | 15 | **TerrainGeneratorTest** &mdash; `HeightFieldIsDeterministic`, `HeightFieldIsNormalizedAndFinite`, `LargeSeedStillProducesVariedTerrain`, `DifferentSeedsProduceDifferentTerrain`, `RidgedAndWarpAndExponentStayValid`, `TerraceShapingStaysValidAndDeterministic`, `TerraceEndpointsAndIdentity`, `TerraceIsMonotonicAndBounded`, `TerraceProducesFlatPlateaus`, `RuleWeightPeaksInsideBandAndZeroOutside`, `SlopeBandSelectsRule`, `DefaultRulesAssignExpectedLayers`, `LayerWeightsAreNormalized`, `NoMatchingRuleFallsBackToLayerZero`, `PackLayerWeightsQuantizesToBothSplatmaps` |
 
-**Totals.** 130 unit / subsystem test files, 1582 TEST / TEST_F declarations across all subsystems.
+**Totals.** 131 unit / subsystem test files, 1602 TEST / TEST_F declarations across all subsystems.
 
 <!-- END: unit-catalogue -->
 
