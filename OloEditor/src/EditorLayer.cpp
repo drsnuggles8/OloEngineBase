@@ -12,6 +12,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <string_view>
+#include <system_error>
 #include <vector>
 #include "UndoRedo/EntityCommands.h"
 #include "UndoRedo/ComponentCommands.h"
@@ -182,6 +183,32 @@ namespace OloEngine
     void EditorLayer::OnAttach()
     {
         OLO_PROFILE_FUNCTION();
+
+        // First-run ImGui layout. The live `imgui.ini` is per-user state and is
+        // gitignored, so a fresh checkout / new git worktree has none — ImGui would
+        // then open with its default floating-window mess. Seed it once from the
+        // committed `imgui_default.ini` so the editor comes up with the curated
+        // docked layout. We only ever copy when `imgui.ini` is absent, so a user's
+        // own arrangement (written back to the gitignored `imgui.ini`) always wins
+        // and is never overwritten. Paths are CWD-relative to mirror ImGui's own
+        // IniFilename resolution (the editor runs with CWD = OloEditor/), and this
+        // runs before the first ImGui::NewFrame loads the ini (EditorLayer::OnAttach
+        // is invoked during construction, ahead of Application::Run()).
+        {
+            std::error_code seedEc;
+            if (!std::filesystem::exists("imgui.ini", seedEc) && std::filesystem::exists("imgui_default.ini", seedEc))
+            {
+                std::filesystem::copy_file("imgui_default.ini", "imgui.ini", seedEc);
+                if (seedEc)
+                {
+                    OLO_CORE_WARN("EditorLayer: failed to seed imgui.ini from imgui_default.ini: {0}", seedEc.message());
+                }
+                else
+                {
+                    OLO_CORE_INFO("EditorLayer: seeded imgui.ini from committed default layout (imgui_default.ini)");
+                }
+            }
+        }
 
         Application::Get().GetWindow().SetTitle("Test");
 
