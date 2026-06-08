@@ -51,7 +51,10 @@ namespace OloEngine
 
         // --- Physics events ---------------------------------------------------
         bus.Subscribe<JointBrokeEvent>([](const JointBrokeEvent& e)
-                                       { OLO_CORE_INFO("[GameplayEvents] JointBroke      entity={} connected={} force={:.1f}N torque={:.1f}N·m by={}", static_cast<u64>(e.EntityID), static_cast<u64>(e.ConnectedEntityID), e.Force, e.Torque, e.BrokeByForce ? "force" : "torque"); });
+                                       {
+            // A single step can exceed both thresholds, so report both causes.
+            const char* cause = (e.BrokeByForce && e.BrokeByTorque) ? "force+torque" : (e.BrokeByForce ? "force" : "torque");
+            OLO_CORE_INFO("[GameplayEvents] JointBroke      entity={} connected={} force={:.1f}N torque={:.1f}N·m by={}", static_cast<u64>(e.EntityID), static_cast<u64>(e.ConnectedEntityID), e.Force, e.Torque, cause); });
 
         OLO_CORE_INFO("[GameplayEvents] Logger attached — quest/inventory/physics events will stream to the Console panel.");
     }
