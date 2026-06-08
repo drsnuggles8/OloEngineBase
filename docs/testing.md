@@ -1298,12 +1298,13 @@ level of `tests/`). Grouped by directory.
 
 > **Do not edit by hand.** Generated from [test_catalogue.json](../OloEngine/tests/scripts/test_catalogue.json) by [generate_test_catalogue.py](../OloEngine/tests/scripts/generate_test_catalogue.py). Add new test files to the config and run the script (or pre-commit will run it with `--check`).
 
-#### (top-level) (60 files)
+#### (top-level) (61 files)
 
 | File | Tests | Cases |
 |---|---:|---|
 | [AnimationStateMachineTest.cpp](../OloEngine/tests/AnimationStateMachineTest.cpp) | 10 | **AnimationStateMachineTest** &mdash; `ParameterSetAndGet`, `TriggerConsumption`, `TransitionConditionFloat`, `TransitionConditionBool`, `TransitionConditionTrigger`, `TransitionANDLogic`, `BasicTransition`, `AnyStateTransition`, `ExitTimeTransition`, `CrossFadeBlending` |
 | [AnimationSystemTest.cpp](../OloEngine/tests/AnimationSystemTest.cpp) | 4 | **AnimationSystem** &mdash; `NonAnimatedBonePreservesBindPoseTransform`, `BindPoseResetSkippedWhenNotInitialized`, `BlendingPreservesNonAnimatedBoneTransform`, `AnimatedBoneIsUpdatedFromKeyframes` |
+| [AppLaunchSmokeTest.cpp](../OloEngine/tests/AppLaunchSmokeTest.cpp) | 3 | **AppLaunchSmoke** &mdash; `OloServerLaunchesCleanly`, `OloEditorLaunchesCleanly`, `OloRuntimeLaunchesCleanly` |
 | [AssetBinaryIntegrityTest.cpp](../OloEngine/tests/AssetBinaryIntegrityTest.cpp) | 2 | **AssetBinaryIntegrity** &mdash; `AllPngFilesHaveValidPngMagic`, `AllWavFilesHaveValidRiffWavePrefix` |
 | [AssetCSharpScriptValidityTest.cpp](../OloEngine/tests/AssetCSharpScriptValidityTest.cpp) | 4 | **AssetCSharpScriptValidity** &mdash; `EveryCSharpFileDeclaresClassMatchingFilename`, `EveryEntityDerivedScriptIsReferencedByAtLeastOneScene`, `EveryCSharpFileIsListedInCMakeSources`, `EveryNonEntityHelperClassIsReferencedByAnotherSource` |
 | [AssetContentValidityTest.cpp](../OloEngine/tests/AssetContentValidityTest.cpp) | 24 | **AssetContentValidity** &mdash; `AllSandboxScenesAreStructurallyValid`, `AllSandboxItemsAreStructurallyValid`, `AllSandboxQuestsAreStructurallyValid`, `AllSandboxDialoguesAreStructurallyValid`, `AllSandboxScenesHaveUniqueEntityUUIDs`, `AllSandboxScenePrefabComponentsHaveRequiredUUIDs`, `AllSandboxScenesHaveUniquePrefabEntityIDsPerPrefab`, `AllSandboxShaderGraphsAreStructurallyValid`, `SandboxSceneReferencedScriptsExistOnDisk`, `SandboxAssetRegistryDeserialisesAndPathsResolve`, `EverySupportedAssetOnDiskIsInTheRegistry`, `SandboxAssetRegistryPathsMatchOnDiskCasing`, `AllSandboxSceneAssetHandlesAreInTheRegistry`, `ShaderCacheEntriesAllHaveLiveGlslSources`, `AllCacheFilesMatchKnownPattern`, `EveryProductionShaderIsReferencedFromSource`, `SandboxProjectFilePathsAreAllRelative`, `DISABLED_RebaseAssetRegistry`, `SceneScriptFieldNamesMatchCSharpDeclarations`, `SandboxEditorPreferencesAreStructurallyValid`, `AllSandboxScenePathReferencesResolve`, `AllSandboxScenePathsUseForwardSlashes`, `AllSandboxAssetYAMLPathsUseForwardSlashes`, `SandboxInputActionsAreStructurallyValid` |
@@ -1527,7 +1528,7 @@ level of `tests/`). Grouped by directory.
 |---|---:|---|
 | [TerrainGeneratorTest.cpp](../OloEngine/tests/Terrain/TerrainGeneratorTest.cpp) | 15 | **TerrainGeneratorTest** &mdash; `HeightFieldIsDeterministic`, `HeightFieldIsNormalizedAndFinite`, `LargeSeedStillProducesVariedTerrain`, `DifferentSeedsProduceDifferentTerrain`, `RidgedAndWarpAndExponentStayValid`, `TerraceShapingStaysValidAndDeterministic`, `TerraceEndpointsAndIdentity`, `TerraceIsMonotonicAndBounded`, `TerraceProducesFlatPlateaus`, `RuleWeightPeaksInsideBandAndZeroOutside`, `SlopeBandSelectsRule`, `DefaultRulesAssignExpectedLayers`, `LayerWeightsAreNormalized`, `NoMatchingRuleFallsBackToLayerZero`, `PackLayerWeightsQuantizesToBothSplatmaps` |
 
-**Totals.** 129 unit / subsystem test files, 1579 TEST / TEST_F declarations across all subsystems.
+**Totals.** 130 unit / subsystem test files, 1582 TEST / TEST_F declarations across all subsystems.
 
 <!-- END: unit-catalogue -->
 

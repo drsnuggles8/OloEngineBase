@@ -107,6 +107,24 @@ add_subdirectory(OloServer)
 set_target_properties(OloEngine-LuaScriptCore PROPERTIES FOLDER "Scripting")
 set_target_properties(OloServer PROPERTIES FOLDER "Applications")
 
+# App-launch smoke test wiring (issue #303). Hand OloEngine-Tests the on-disk
+# paths of the three shipped executables so AppLaunchSmokeTest can spawn each one
+# with `--smoke-test` and assert a clean exit. Done here — after every app target
+# exists — because OloEngine/tests is configured before the app subdirectories,
+# so an `if(TARGET ...)` check inside tests/CMakeLists.txt would be premature.
+# $<PATH:CMAKE_PATH,...> normalises the native path to forward slashes so it
+# stays a valid C string literal on Windows. A target absent on this platform
+# simply leaves its macro undefined and the matching test SKIPs at runtime.
+if(TARGET OloEngine-Tests)
+    foreach(_olo_app OloServer OloEditor OloRuntime)
+        if(TARGET ${_olo_app})
+            string(TOUPPER ${_olo_app} _olo_app_uc)
+            target_compile_definitions(OloEngine-Tests PRIVATE
+                "OLO_TEST_${_olo_app_uc}_EXE=\"$<PATH:CMAKE_PATH,$<TARGET_FILE:${_olo_app}>>\"")
+        endif()
+    endforeach()
+endif()
+
 # Auto-run OloHeaderTool before compiling targets that consume its output.
 # OloEngine includes the generated .inl files; OloEngine-ScriptCore includes
 # the generated .cs files.

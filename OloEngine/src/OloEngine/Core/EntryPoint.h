@@ -42,6 +42,16 @@ int main(int argc, char** argv)
             app->Run();
         }
 #endif
+        // Launch-smoke-test mode (`--smoke-test`): the run loop auto-closes once
+        // it has completed the configured ticks. If the app instead shut down
+        // before that (e.g. a layer aborted startup), the launch did not fully
+        // succeed — report it as a failure so CI / the in-suite test catch it.
+        if (app->IsSmokeTest() && !app->SmokeTestPassed())
+        {
+            OLO_CORE_ERROR("[SmokeTest] FAILED — application shut down before completing startup validation.");
+            exitCode = EXIT_FAILURE;
+        }
+
         OLO_PROFILE_END_SESSION();
         profileSessionActive = false;
     }

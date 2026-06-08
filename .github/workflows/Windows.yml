@@ -77,6 +77,62 @@ jobs:
       # Build your program with the given configuration
       run: cmake --build ${{github.workspace}}/build --config ${{env.BUILD_TYPE}}
 
+    # App-launch smoke test (issue #303). Run each shipped binary with
+    # `--smoke-test`: it performs full startup (runtime-DLL load, subsystem init,
+    # network listen for the server) and exits 0 after a few ticks. This catches
+    # the "missing runtime DLL" regression class — FFmpeg is a static PE import,
+    # so a binary whose avcodec/avformat/... DLLs weren't deployed fails in the
+    # OS loader before main(). The GUI apps run window-less under the flag, so the
+    # check needs no GL 4.6 context (hosted runners have none). cwd is OloEditor so
+    # shaders/assets/Mono resolve as in a real run; DLLs load from beside each .exe.
+    # The in-suite AppLaunchSmokeTest covers the same ground via CTest below; this
+    # explicit step makes a launch regression obvious in the job log.
+    - name: Smoke-test app launches
+      shell: pwsh
+      working-directory: ${{github.workspace}}/OloEditor
+      timeout-minutes: 5
+      run: |
+        $ErrorActionPreference = 'Stop'
+        $bin = Join-Path '${{github.workspace}}' 'bin/${{env.BUILD_TYPE}}'
+        $cwd = Join-Path '${{github.workspace}}' 'OloEditor'
+        $apps = @(
+          @{ Name = 'OloServer';  Path = Join-Path $bin 'OloServer/OloServer.exe';   Args = '--smoke-test --port 28778' },
+          @{ Name = 'OloEditor';  Path = Join-Path $bin 'OloEditor/OloEditor.exe';   Args = '--smoke-test' },
+          @{ Name = 'OloRuntime'; Path = Join-Path $bin 'OloRuntime/OloRuntime.exe'; Args = '--smoke-test' }
+        )
+        $failed = $false
+        foreach ($a in $apps) {
+          if (-not (Test-Path $a.Path)) {
+            Write-Error "$($a.Name): binary not found at $($a.Path)"
+            $failed = $true
+            continue
+          }
+          Write-Host "::group::$($a.Name) launch smoke"
+          $psi = [System.Diagnostics.ProcessStartInfo]::new()
+          $psi.FileName = $a.Path
+          $psi.Arguments = $a.Args
+          $psi.WorkingDirectory = $cwd
+          $psi.UseShellExecute = $false
+          $proc = [System.Diagnostics.Process]::Start($psi)
+          if (-not $proc.WaitForExit(60000)) {
+            try { $proc.Kill() } catch {}
+            Write-Host "::endgroup::"
+            Write-Error "$($a.Name): did not exit within 60s — likely hung at startup."
+            $failed = $true
+            continue
+          }
+          $code = $proc.ExitCode
+          Write-Host "::endgroup::"
+          if ($code -ne 0) {
+            Write-Error "$($a.Name): exited with code $code — launch smoke FAILED (missing runtime DLL or startup crash)."
+            $failed = $true
+          } else {
+            Write-Host "$($a.Name): launched and exited cleanly (exit 0)."
+          }
+        }
+        if ($failed) { exit 1 }
+        Write-Host 'All shipped binaries passed the launch smoke test.'
+
     - name: Run tests with CTest
       working-directory: ${{github.workspace}}/build/OloEngine/tests
       # Execute tests defined by the CMake configuration.

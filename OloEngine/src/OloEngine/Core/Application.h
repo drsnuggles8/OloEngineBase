@@ -9,6 +9,7 @@
 #include "OloEngine/Renderer/RendererTypes.h"
 
 #include <memory>
+#include <string_view>
 
 #ifndef OLO_HEADLESS
 #include "OloEngine/Core/Window.h"
@@ -38,7 +39,26 @@ namespace OloEngine
             OLO_CORE_ASSERT(index < Count);
             return Args[index];
         }
+
+        // True if `flag` appears among the arguments (argv[0] / program name is
+        // skipped). Used to detect mode-switch flags like `--smoke-test`.
+        [[nodiscard]] bool Contains(std::string_view flag) const
+        {
+            for (int i = 1; i < Count; ++i)
+            {
+                if (Args[i] != nullptr && flag == Args[i])
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
     };
+
+    // Number of update ticks a `--smoke-test` launch runs before it auto-closes
+    // with EXIT_SUCCESS. A handful of ticks proves the main loop actually
+    // advances past construction while keeping the CI launch check fast.
+    inline constexpr u32 SmokeTestTickCount = 3;
 
     struct ApplicationSpecification
     {
@@ -49,6 +69,12 @@ namespace OloEngine
         bool IsHeadless = false;
         bool IsEditor = false;
         u32 HeadlessTickRate = 60; // Hz — only used when IsHeadless == true
+
+        // When > 0, the app runs in launch-smoke-test mode: it performs full
+        // startup (DLL load, subsystem init), runs this many ticks, then closes
+        // cleanly (EXIT_SUCCESS). 0 = normal run with no auto-close. See the
+        // `--smoke-test` handling in each app's CreateApplication.
+        u32 SmokeTestTickLimit = 0;
     };
 
     class Application
@@ -95,6 +121,21 @@ namespace OloEngine
         [[nodiscard("Store this!")]] bool IsHeadless() const
         {
             return m_Specification.IsHeadless;
+        }
+
+        // True if this app was launched in `--smoke-test` mode (auto-closes
+        // after SmokeTestTickLimit ticks). See main() in EntryPoint.h.
+        [[nodiscard("Store this!")]] bool IsSmokeTest() const
+        {
+            return m_Specification.SmokeTestTickLimit > 0;
+        }
+
+        // True once the run loop has completed the configured number of smoke
+        // ticks. If the app closed earlier (e.g. a layer aborted startup), this
+        // is false and main() reports the launch as failed.
+        [[nodiscard("Store this!")]] bool SmokeTestPassed() const
+        {
+            return m_SmokeTestTicksCompleted >= m_Specification.SmokeTestTickLimit;
         }
 
         [[nodiscard("Store this!")]] static const std::filesystem::path& GetStartupWorkingDirectory()
@@ -154,6 +195,7 @@ namespace OloEngine
         f32 m_LastFrameTime = 0.0f;
         f32 m_TimeScale = 1.0f;
         f32 m_UnscaledDeltaTime = 0.0f;
+        u32 m_SmokeTestTicksCompleted = 0; // see SmokeTestTickLimit / IsSmokeTest
         PerformanceProfiler m_PerformanceProfiler;
 
       private:
