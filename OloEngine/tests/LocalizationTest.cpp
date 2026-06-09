@@ -6,6 +6,7 @@
 // missing-key fallback.
 // =============================================================================
 
+#include "OloEnginePCH.h"
 #include <gtest/gtest.h>
 
 #include "OloEngine/Core/UTF8.h"

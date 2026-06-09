@@ -55,6 +55,20 @@ if(OLO_ENABLE_COMPILER_CACHE)
             set(CMAKE_MSVC_DEBUG_INFORMATION_FORMAT "$<$<CONFIG:Debug,Release>:Embedded>")
         endif()
 
+        # Disable precompiled headers while caching. sccache/ccache CANNOT cache a
+        # compile that consumes a PCH (it reports the TU non-cacheable for /Fp /Yu),
+        # so with PCH on the whole engine + editor + runtime + tests — the bulk of
+        # the build and the part that changes per push — recompiles every run and
+        # the cache only covers vendor libs. PCH and the cache optimize opposite
+        # cases: PCH speeds a *cold* compile; the cache makes a *warm* compile a
+        # near-instant hit. For CI's common case (incremental pushes = warm cache)
+        # caching the engine is the far bigger win; the occasional cold run (first
+        # build / toolchain bump / cache eviction) pays a re-parse penalty.
+        # Every engine TU #includes OloEnginePCH.h explicitly, so dropping the
+        # precompile (and its force-include) is safe. OLO_ENABLE_PCH is an option()
+        # in the top-level CMakeLists; override it here.
+        set(OLO_ENABLE_PCH OFF CACHE BOOL "Disabled: MSVC PCH (/Fp) is non-cacheable under sccache/ccache" FORCE)
+
         # NOTE: a few vendored libraries force MSVC /Zi + a separate PDB regardless
         # of the format above, which sccache/ccache cannot cache. Those are turned
         # off (only when caching) next to their other options in

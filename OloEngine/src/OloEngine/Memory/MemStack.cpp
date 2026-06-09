@@ -3,6 +3,7 @@
 //
 // Ported from Unreal Engine's MemStack.cpp
 
+#include "OloEnginePCH.h"
 #include "OloEngine/Memory/MemStack.h"
 
 namespace OloEngine

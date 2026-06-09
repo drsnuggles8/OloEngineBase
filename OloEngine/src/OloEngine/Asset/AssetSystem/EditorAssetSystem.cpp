@@ -1,3 +1,4 @@
+#include "OloEnginePCH.h"
 #include "EditorAssetSystem.h"
 
 #include "OloEngine/Asset/AssetImporter.h"

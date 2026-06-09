@@ -1,3 +1,4 @@
+#include "OloEnginePCH.h"
 #include "ConsolePanel.h"
 #include "OloEngine/Debug/Profiler.h"
 #include "OloEngine/Threading/UniqueLock.h"

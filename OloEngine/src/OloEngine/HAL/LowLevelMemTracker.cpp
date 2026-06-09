@@ -1,6 +1,7 @@
 // LowLevelMemTracker.cpp - Low-Level Memory Tracker implementation
 // Ported from UE5.7 HAL/LowLevelMemTracker.cpp
 
+#include "OloEnginePCH.h"
 #include "OloEngine/HAL/LowLevelMemTracker.h"
 #include "OloEngine/Core/Log.h"
 #include "OloEngine/Threading/Mutex.h"

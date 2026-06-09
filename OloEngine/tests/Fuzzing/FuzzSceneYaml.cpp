@@ -13,6 +13,7 @@
 // entity state from one input cannot influence the next.
 // =============================================================================
 
+#include "OloEnginePCH.h"
 #include "OloEngine/Scene/Scene.h"
 #include "OloEngine/Scene/SceneSerializer.h"
 

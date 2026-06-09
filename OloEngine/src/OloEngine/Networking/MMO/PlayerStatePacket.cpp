@@ -1,3 +1,4 @@
+#include "OloEnginePCH.h"
 #include "OloEngine/Networking/MMO/PlayerStatePacket.h"
 #include "OloEngine/Debug/Profiler.h"
 #include "OloEngine/Math/Math.h"

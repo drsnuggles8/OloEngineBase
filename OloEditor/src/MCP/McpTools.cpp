@@ -1,3 +1,4 @@
+#include "OloEnginePCH.h"
 #include "MCP/McpTools.h"
 #include "MCP/McpServer.h"
 #include "MCP/McpScriptApi.h"

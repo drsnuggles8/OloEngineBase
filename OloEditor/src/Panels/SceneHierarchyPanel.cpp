@@ -1,3 +1,4 @@
+#include "OloEnginePCH.h"
 #include "SceneHierarchyPanel.h"
 #include "OloEngine/Scene/Components.h"
 #include "OloEngine/Scene/ModelImporter.h"

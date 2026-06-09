@@ -6,6 +6,7 @@
  * Tests cover: Construction, slicing, comparison, iteration
  */
 
+#include "OloEnginePCH.h"
 #include <gtest/gtest.h>
 
 #include "OloEngine/Memory/MemoryView.h"

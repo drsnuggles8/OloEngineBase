@@ -1,3 +1,4 @@
+#include "OloEnginePCH.h"
 #include "StatisticsPanel.h"
 #include "OloEngine/Core/Application.h"
 #include "OloEngine/Audio/AudioEngine.h"

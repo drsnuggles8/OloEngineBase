@@ -9,6 +9,7 @@
 // rewritten.
 // Ported to OloEngine
 
+#include "OloEnginePCH.h"
 #include "OloEngine/Task/WaitingQueue.h"
 #include "OloEngine/Task/Scheduler.h"
 #include "OloEngine/Task/Oversubscription.h"

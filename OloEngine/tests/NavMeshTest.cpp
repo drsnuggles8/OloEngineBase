@@ -1,3 +1,4 @@
+#include "OloEnginePCH.h"
 #include <gtest/gtest.h>
 #include "OloEngine/Navigation/NavMeshSettings.h"
 #include "OloEngine/Navigation/NavMesh.h"

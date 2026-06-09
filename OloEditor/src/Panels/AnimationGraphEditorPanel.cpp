@@ -1,3 +1,4 @@
+#include "OloEnginePCH.h"
 #include "AnimationGraphEditorPanel.h"
 #include "OloEngine/Animation/AnimationGraphComponent.h"
 #include "OloEngine/Animation/AnimationGraph.h"

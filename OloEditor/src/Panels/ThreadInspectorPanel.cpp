@@ -1,3 +1,4 @@
+#include "OloEnginePCH.h"
 #include "ThreadInspectorPanel.h"
 
 #include "OloEngine/Core/Base.h"

@@ -1,3 +1,4 @@
+#include "OloEnginePCH.h"
 #include <gtest/gtest.h>
 #include "OloEngine/Animation/MorphTargets/MorphTarget.h"
 #include "OloEngine/Animation/MorphTargets/MorphTargetSet.h"

@@ -1,3 +1,4 @@
+#include "OloEnginePCH.h"
 #include "AnimationPanel.h"
 #include "OloEngine/Scene/Components.h"
 #include "OloEngine/Core/Timestep.h"

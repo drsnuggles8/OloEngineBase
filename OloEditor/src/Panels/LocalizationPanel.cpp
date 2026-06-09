@@ -1,3 +1,4 @@
+#include "OloEnginePCH.h"
 #include "LocalizationPanel.h"
 
 #include "OloEngine/Core/Application.h"

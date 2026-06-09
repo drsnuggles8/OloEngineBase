@@ -1,6 +1,7 @@
 // OloEngine Memory System
 // Ported from Unreal Engine's HAL/UnrealMemory.cpp
 
+#include "OloEnginePCH.h"
 #include "OloEngine/Memory/UnrealMemory.h"
 #include "OloEngine/Memory/Memory.h"
 #include "OloEngine/Memory/GenericPlatformMemory.h"

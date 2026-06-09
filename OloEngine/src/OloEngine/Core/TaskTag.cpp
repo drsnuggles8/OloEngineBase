@@ -1,6 +1,7 @@
 // TaskTag.cpp - Named thread identification and tagging system
 // Ported from UE5.7 ETaskTag and FTaskTagScope
 
+#include "OloEnginePCH.h"
 #include "OloEngine/Core/TaskTag.h"
 #include "OloEngine/Core/Assert.h"
 #include "OloEngine/Core/PlatformTLS.h"

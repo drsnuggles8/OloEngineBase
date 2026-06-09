@@ -2,6 +2,7 @@
 // <winsock2.h> wins the include race on Windows (windows.h would otherwise drag in
 // the legacy <winsock.h> and cause redefinition errors). OloEditor has no PCH, so
 // this single ordering rule is enough.
+#include "OloEnginePCH.h"
 #include <httplib.h>
 
 #include "MCP/McpServer.h"

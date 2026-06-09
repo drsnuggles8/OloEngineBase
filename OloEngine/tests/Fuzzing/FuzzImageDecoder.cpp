@@ -15,6 +15,7 @@
 // uploads them as build artefacts so they survive the runner cleanup.
 // =============================================================================
 
+#include "OloEnginePCH.h"
 #include <stb_image/stb_image.h>
 
 #include <cstddef>

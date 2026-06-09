@@ -1,3 +1,4 @@
+#include "OloEnginePCH.h"
 #include <gtest/gtest.h>
 #include "OloEngine/Gameplay/Quest/Quest.h"
 #include "OloEngine/Gameplay/Quest/QuestObjective.h"

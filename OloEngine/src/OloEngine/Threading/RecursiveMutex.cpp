@@ -1,6 +1,7 @@
 // RecursiveMutex.cpp - Recursive mutex with parking lot implementation
 // Ported 1:1 from UE5.7 FRecursiveMutex
 
+#include "OloEnginePCH.h"
 #include "OloEngine/Threading/RecursiveMutex.h"
 #include "OloEngine/Core/Assert.h"
 #include "OloEngine/Core/PlatformTLS.h"

@@ -1,6 +1,7 @@
 // ManualResetEvent.cpp - Platform-specific manual reset event implementation
 // Ported from UE5.7 FMicrosoftManualResetEvent / FUnixManualResetEvent
 
+#include "OloEnginePCH.h"
 #include "OloEngine/HAL/ManualResetEvent.h"
 #include "OloEngine/HAL/PlatformProcess.h"
 #include "OloEngine/Task/Oversubscription.h"

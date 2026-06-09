@@ -1,3 +1,4 @@
+#include "OloEnginePCH.h"
 #include "OloEngine/Animation/AnimationClip.h"
 
 namespace OloEngine

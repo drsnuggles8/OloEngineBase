@@ -1,3 +1,4 @@
+#include "OloEnginePCH.h"
 #include "AudioEventsPanel.h"
 
 #include "OloEngine/Audio/AudioEvents/CommandID.h"

@@ -6,6 +6,7 @@
  * Tests cover: Acquire, Release, TryAcquire, producer-consumer patterns
  */
 
+#include "OloEnginePCH.h"
 #include <gtest/gtest.h>
 
 #include "OloEngine/HAL/Semaphore.h"

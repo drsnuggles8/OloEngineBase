@@ -8,6 +8,7 @@
  * panel, so the registration contract is what we pin here.
  */
 
+#include "OloEnginePCH.h"
 #include <gtest/gtest.h>
 
 #include "OloEngine/Core/PlatformTLS.h"

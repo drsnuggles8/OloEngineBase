@@ -1,5 +1,6 @@
 // @brief Unit tests for TBitArray, TSparseArray, TSet, TMap containers
 
+#include "OloEnginePCH.h"
 #include <gtest/gtest.h>
 #include "OloEngine/Containers/BitArray.h"
 #include "OloEngine/Containers/SparseArray.h"

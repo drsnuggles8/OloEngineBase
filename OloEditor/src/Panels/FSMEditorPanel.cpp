@@ -1,3 +1,4 @@
+#include "OloEnginePCH.h"
 #include "FSMEditorPanel.h"
 #include "OloEngine/Scene/Scene.h"
 #include "OloEngine/Scene/Entity.h"

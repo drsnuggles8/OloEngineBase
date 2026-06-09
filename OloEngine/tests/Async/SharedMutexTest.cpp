@@ -6,6 +6,7 @@
  * Tests cover: Lock, LockShared, TryLock, TryLockShared, concurrent readers
  */
 
+#include "OloEnginePCH.h"
 #include <gtest/gtest.h>
 
 #include "OloEngine/Threading/SharedMutex.h"

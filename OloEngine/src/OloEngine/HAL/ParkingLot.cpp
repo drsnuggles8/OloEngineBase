@@ -1,6 +1,7 @@
 // ParkingLot.cpp - Global hash table of wait queues keyed by memory address
 // Ported 1:1 from UE5.7 UE::ParkingLot
 
+#include "OloEnginePCH.h"
 #include "OloEngine/HAL/ParkingLot.h"
 #include "OloEngine/HAL/ManualResetEvent.h"
 #include "OloEngine/HAL/PlatformProcess.h"

@@ -1,6 +1,7 @@
 // MonotonicTime.cpp - Monotonic time implementation
 // Ported from UE5.7
 
+#include "OloEnginePCH.h"
 #include "OloEngine/Core/MonotonicTime.h"
 #include "OloEngine/Core/PlatformTime.h"
 

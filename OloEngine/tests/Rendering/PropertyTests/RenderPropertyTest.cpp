@@ -3,6 +3,7 @@
 //
 // See RenderPropertyTest.h for design notes.
 // =============================================================================
+#include "OloEnginePCH.h"
 #include "RenderPropertyTest.h"
 
 #define GLFW_INCLUDE_NONE

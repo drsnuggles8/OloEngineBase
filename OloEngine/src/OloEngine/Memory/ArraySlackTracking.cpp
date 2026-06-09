@@ -1,3 +1,4 @@
+#include "OloEnginePCH.h"
 #include "OloEngine/Memory/ArraySlackTracking.h"
 
 #if OLO_ENABLE_ARRAY_SLACK_TRACKING

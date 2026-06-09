@@ -9,6 +9,7 @@
  * across varying thread counts. Run with --gtest_filter=*LockRate* for benchmark output.
  */
 
+#include "OloEnginePCH.h"
 #include <gtest/gtest.h>
 
 #include "OloEngine/Threading/Mutex.h"

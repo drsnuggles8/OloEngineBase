@@ -1,3 +1,4 @@
+#include "OloEnginePCH.h"
 #include <gtest/gtest.h>
 #include "OloEngine/Audio/DSP/Spatializer/VBAP.h"
 #include "OloEngine/Audio/AudioTransform.h"

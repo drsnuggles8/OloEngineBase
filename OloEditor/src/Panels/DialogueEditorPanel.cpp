@@ -1,3 +1,4 @@
+#include "OloEnginePCH.h"
 #include "DialogueEditorPanel.h"
 #include "../UndoRedo/SpecializedCommands.h"
 #include "OloEngine/Dialogue/DialogueTreeSerializer.h"

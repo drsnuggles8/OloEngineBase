@@ -14,6 +14,7 @@
 // fuzzer invokes us with sanitizers that abort rather than unwind.
 // =============================================================================
 
+#include "OloEnginePCH.h"
 #include "OloEngine/Serialization/MeshBinarySerializer.h"
 
 // MeshBinarySerializer.h forward-declares AnimationClip, but `Read()` returns

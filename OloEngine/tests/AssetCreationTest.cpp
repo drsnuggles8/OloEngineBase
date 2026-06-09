@@ -1,3 +1,4 @@
+#include "OloEnginePCH.h"
 #include <gtest/gtest.h>
 #include "OloEngine/Asset/MeshColliderAsset.h"
 #include "OloEngine/Asset/Asset.h"

@@ -6,6 +6,7 @@
  * Tests cover: IsLocked, TryLock, Lock, Unlock with external state
  */
 
+#include "OloEnginePCH.h"
 #include <gtest/gtest.h>
 
 #include "OloEngine/Threading/ExternalMutex.h"

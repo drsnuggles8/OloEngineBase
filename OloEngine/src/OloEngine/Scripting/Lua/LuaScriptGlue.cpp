@@ -1,3 +1,4 @@
+#include "OloEnginePCH.h"
 #include "LuaScriptGlue.h"
 
 #define SOL_ALL_SAFETIES_ON 1

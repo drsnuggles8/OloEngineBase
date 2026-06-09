@@ -11,6 +11,7 @@
 //   - bone name / morph target name length fields
 // =============================================================================
 
+#include "OloEnginePCH.h"
 #include "OloEngine/Serialization/MeshBinarySerializer.h"
 
 // MeshBinarySerializer.h forward-declares MeshSource, but `Read()` returns a

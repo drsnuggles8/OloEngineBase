@@ -10,8 +10,9 @@
 // third-party C code we do not want to fix; the engine's /W4 would otherwise spam
 // the build log (it is not /WX, so this is purely about keeping output readable).
 //
-// CMake force-includes OloEnginePCH.h at the top of every TU, so it is already
-// active before this point — nothing here depends on it.
+// This TU only compiles the third-party pl_mpeg implementation and depends on
+// nothing from OloEngine, so it intentionally does not include the engine PCH
+// (and is therefore unaffected when PCH is disabled for compiler caching).
 
 #if defined(_MSC_VER)
 #pragma warning(push, 0)
