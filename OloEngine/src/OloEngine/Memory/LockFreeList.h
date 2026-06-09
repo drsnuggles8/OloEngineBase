@@ -143,8 +143,8 @@ namespace OloEngine
             checkLockFreePointerList(Index < m_NextIndex.load(std::memory_order_relaxed) &&
                                      Index < MaxTotalItems &&
                                      BlockIndex < MaxBlocks &&
-                                     m_Pages[BlockIndex]);
-            return m_Pages[BlockIndex] + SubIndex;
+                                     m_Pages[BlockIndex].load(std::memory_order_relaxed));
+            return m_Pages[BlockIndex].load(std::memory_order_relaxed) + SubIndex;
         }
 
       private:
@@ -156,29 +156,35 @@ namespace OloEngine
                                      Index < m_NextIndex.load(std::memory_order_relaxed) &&
                                      Index < MaxTotalItems &&
                                      BlockIndex < MaxBlocks);
-            if (!m_Pages[BlockIndex])
+            if (!m_Pages[BlockIndex].load(std::memory_order_relaxed))
             {
                 T* NewBlock = static_cast<T*>(LockFreeAllocLinks(ItemsPerPage * sizeof(T)));
                 checkLockFreePointerList(IsAligned(NewBlock, alignof(T)));
 
-                // Atomic compare-exchange to set the page
+                // Atomic compare-exchange to publish the page exactly once.
                 T* Expected = nullptr;
-                if (!std::atomic_ref(m_Pages[BlockIndex]).compare_exchange_strong(Expected, NewBlock, std::memory_order_release, std::memory_order_relaxed))
+                if (!m_Pages[BlockIndex].compare_exchange_strong(Expected, NewBlock))
                 {
                     // Another thread beat us - discard our block
-                    checkLockFreePointerList(m_Pages[BlockIndex] && m_Pages[BlockIndex] != NewBlock);
+                    checkLockFreePointerList(m_Pages[BlockIndex].load(std::memory_order_relaxed) && m_Pages[BlockIndex].load(std::memory_order_relaxed) != NewBlock);
                     LockFreeFreeLinks(ItemsPerPage * sizeof(T), NewBlock);
                 }
                 else
                 {
-                    checkLockFreePointerList(m_Pages[BlockIndex]);
+                    checkLockFreePointerList(m_Pages[BlockIndex].load(std::memory_order_relaxed));
                 }
             }
-            return static_cast<void*>(m_Pages[BlockIndex] + SubIndex);
+            return static_cast<void*>(m_Pages[BlockIndex].load(std::memory_order_relaxed) + SubIndex);
         }
 
         alignas(OLO_PLATFORM_CACHE_LINE_SIZE) std::atomic<u32> m_NextIndex{ 0 };
-        alignas(OLO_PLATFORM_CACHE_LINE_SIZE) T* m_Pages[MaxBlocks];
+        // Each page pointer is published exactly once via a CAS but read
+        // concurrently by other threads, so it must be a real atomic — not a
+        // plain pointer. (UE5.8 declares this `std::atomic<T*> Pages[MaxBlocks]`;
+        // an earlier port kept a plain array and only made the CAS atomic via
+        // std::atomic_ref, leaving the reads as a data race that ThreadSanitizer
+        // flagged.)
+        alignas(OLO_PLATFORM_CACHE_LINE_SIZE) std::atomic<T*> m_Pages[MaxBlocks];
     };
 
     // ========================================================================
