@@ -194,6 +194,14 @@ namespace OloEngine::Tasks
                 // We wait until a task has actually been launched before retracting it (a
                 // slight wastage) so we don't have to duplicate ProcessQueue here.
                 // (Matches UE5.8 FTaskConcurrencyLimiter::Wait.)
+                // Honor a finite Timeout. If a full pass retracts nothing (bDidSomething ==
+                // false) but tasks are still in flight on other workers (NumWorkItems != 0),
+                // the loop would otherwise busy-spin re-scanning the slots, ignoring the
+                // caller's deadline. Capture the deadline once and stop spinning when it
+                // elapses with no progress, falling through to the timed event wait below.
+                const FMonotonicTimePoint Deadline = Timeout.IsInfinity()
+                                                         ? FMonotonicTimePoint::Infinity()
+                                                         : FMonotonicTimePoint::Now() + Timeout;
                 bool bDidSomething;
                 do
                 {
@@ -216,20 +224,31 @@ namespace OloEngine::Tasks
                             LimiterTask->Release();
                         }
                     }
+
+                    // While we keep retracting we keep going (deadlock-avoidance is active).
+                    // Once a pass finds nothing retractable, stop spinning if the caller's
+                    // deadline has elapsed; the remaining in-flight work is covered by the
+                    // timed event wait below.
+                    if (!bDidSomething && !Deadline.IsInfinity() && FMonotonicTimePoint::Now() >= Deadline)
+                    {
+                        break;
+                    }
+
                     // Keep retracting until every pushed item has completed; stopping at the
                     // first empty pass could deadlock if a worker finishes our task, queues
                     // the next, then gets pulled onto another system before starting it.
                 } while (bDidSomething || m_NumWorkItems.load(std::memory_order_acquire) != 0);
 
-                // Wait on the event (should fall through immediately, since the drain above
-                // ran the last task and CompleteWorkItem triggered the event).
-                if (Timeout == FMonotonicTimeSpan::Infinity())
+                // Wait on the event (should fall through immediately when the drain above ran
+                // the last task and CompleteWorkItem triggered the event).
+                if (Timeout.IsInfinity())
                 {
                     return LocalCompletionEvent->Wait(); // Infinite wait
                 }
-                // Convert timeout to milliseconds for FEvent::Wait
-                return LocalCompletionEvent->Wait(
-                    static_cast<u32>(Timeout.ToMilliseconds()));
+                // Wait only for the time remaining until the deadline; a non-positive
+                // remainder means the deadline already passed, so poll once (Wait(0)).
+                const f64 RemainingMs = (Deadline - FMonotonicTimePoint::Now()).ToMilliseconds();
+                return LocalCompletionEvent->Wait(RemainingMs > 0.0 ? static_cast<u32>(RemainingMs) : 0);
             }
 
           private:
@@ -261,11 +280,20 @@ namespace OloEngine::Tasks
                         // the executor can retrieve it.
                         Task.SetUserData(reinterpret_cast<void*>(static_cast<uptr>(ConcurrencySlot)));
 
+                        // Hold a local reference across the store + TryLaunch below. Once we
+                        // publish into ScheduledTasks, a concurrent Wait() can exchange the
+                        // slot, TryExecute the task inline, and Release it — destroying the
+                        // wrapper (and the FTask that `Task` references) before TryLaunch is
+                        // done touching it. ASan caught exactly this as a heap-use-after-free.
+                        // This keep-alive guarantees the task outlives the launch regardless
+                        // of a racing retraction.
+                        TRefCountPtr<FLimiterTask> KeepAlive(LimiterTask);
+
                         // Publish into ScheduledTasks before launching so Wait() can retract
-                        // it. The AddRef keeps the wrapper alive for that window; it is
-                        // balanced by the Release on whoever claims the slot (the task as it
-                        // starts, or Wait() retracting it). TryLaunch may fail if Wait()
-                        // already executed it, which is fine.
+                        // it. This AddRef is the slot's own reference, balanced by the Release
+                        // on whoever claims the slot (the task as it starts, or Wait()
+                        // retracting it). TryLaunch may fail if Wait() already executed it,
+                        // which is fine.
                         LimiterTask->AddRef();
                         m_ScheduledTasks[ConcurrencySlot].Task.store(LimiterTask, std::memory_order_release);
 
