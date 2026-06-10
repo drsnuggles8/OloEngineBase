@@ -11,6 +11,7 @@
 #include "OloEngine/Memory/LockFreeList.h"
 #include "OloEngine/Templates/SharedPointer.h"
 #include "OloEngine/Templates/FunctionRef.h"
+#include "OloEngine/Templates/RefCounting.h"
 #include "OloEngine/Containers/Array.h"
 
 #include <atomic_queue/atomic_queue.h>
@@ -78,10 +79,24 @@ namespace OloEngine::Tasks
         // Uses lock-free lists for both slot allocation and work queue.
         class FTaskConcurrencyLimiterImpl : public TSharedFromThis<FTaskConcurrencyLimiterImpl>
         {
+            // Reference-counted wrapper for FTask so the task's lifetime can be shared
+            // between the worker thread that runs it and any thread that retracts it in
+            // Wait(). NOTE: uses FThreadSafeRefCountedObject (the *atomic* base) because
+            // the refcount is touched from multiple threads concurrently. UE5.8 derives
+            // FLimiterTask from FRefCountedObject, but in UE5.8 FRefCountedObject was made
+            // atomic and FThreadSafeRefCountedObject deprecated as an alias for it; this
+            // engine is UE5.7-based, where FRefCountedObject is still the non-atomic legacy
+            // type, so the equivalent here is FThreadSafeRefCountedObject.
+            struct FLimiterTask : FThreadSafeRefCountedObject
+            {
+                LowLevelTasks::FTask Task;
+            };
+
           public:
             explicit FTaskConcurrencyLimiterImpl(u32 InMaxConcurrency, LowLevelTasks::ETaskPriority InTaskPriority)
                 : m_ConcurrencySlots(InMaxConcurrency), m_TaskPriority(InTaskPriority)
             {
+                m_ScheduledTasks.SetNum(InMaxConcurrency);
             }
 
             ~FTaskConcurrencyLimiterImpl()
@@ -102,28 +117,39 @@ namespace OloEngine::Tasks
             template<typename TaskFunctionType>
             void Push(const char* DebugName, TaskFunctionType&& TaskFunction)
             {
-                // Create a wrapper that captures the task function
-                TSharedPtr<LowLevelTasks::FTask> Task = MakeShared<LowLevelTasks::FTask>();
+                FLimiterTask* LimiterTask = new FLimiterTask();
+                LowLevelTasks::FTask& Task = LimiterTask->Task;
 
-                Task->Init(
+                Task.Init(
                     DebugName,
                     m_TaskPriority,
                     [TaskFunction = MoveTemp(TaskFunction),
                      this,
-                     Pimpl = AsShared(), // to keep it alive
-                     Task                // self-destruct
-                ]()
+                     // Keep the limiter alive as long as this task is alive.
+                     Pimpl = AsShared(),
+                     // Keep the FLimiterTask wrapper alive as long as its inner Task is
+                     // alive (TRefCountPtr AddRefs on construction: 0 -> 1).
+                     LimiterTask = TRefCountPtr<FLimiterTask>(LimiterTask)]()
                     {
-                        // We can't pass the ConcurrencySlot in the lambda during creation as
-                        // it's not actually acquired yet. The value will be passed using
-                        // the user data when the task is launched.
-                        u32 ConcurrencySlot = static_cast<u32>(reinterpret_cast<uptr>(Task->GetUserData()));
+                        // The slot isn't known at creation; it's passed via the task's
+                        // user data when the task is launched in ProcessQueue.
+                        u32 ConcurrencySlot = static_cast<u32>(reinterpret_cast<uptr>(LimiterTask->Task.GetUserData()));
+
+                        // Remove ourselves from ScheduledTasks as soon as we start, so the
+                        // wait-thread doesn't pointlessly retract us. Whoever wins the
+                        // exchange owns the AddRef done in ProcessQueue and must Release it.
+                        // If Wait() already retracted us, the exchange returns null here.
+                        bool bOwnLimiterTask = m_ScheduledTasks[ConcurrencySlot].Task.exchange(nullptr, std::memory_order_release) != nullptr;
+                        if (bOwnLimiterTask)
+                        {
+                            LimiterTask->Release();
+                        }
 
                         TaskFunction(ConcurrencySlot);
                         CompleteWorkItem(ConcurrencySlot);
                     });
 
-                AddWorkItem(Task.Get());
+                AddWorkItem(LimiterTask);
             }
 
             // @brief Wait for all tasks to complete
@@ -161,7 +187,42 @@ namespace OloEngine::Tasks
                     return true;
                 }
 
-                // Wait on the event
+                // Drive queued-but-not-started tasks to completion on this thread via the
+                // scheduler's retraction feature. All scheduler workers might be busy on
+                // another subsystem's tasks (e.g. a ParallelFor) and unable to run ours; if
+                // those tasks block on a resource this waiting thread holds, we'd deadlock.
+                // We wait until a task has actually been launched before retracting it (a
+                // slight wastage) so we don't have to duplicate ProcessQueue here.
+                // (Matches UE5.8 FTaskConcurrencyLimiter::Wait.)
+                bool bDidSomething;
+                do
+                {
+                    bDidSomething = false;
+                    for (i32 SlotIndex = 0; SlotIndex < m_ScheduledTasks.Num(); ++SlotIndex)
+                    {
+                        // The slot is null while a task executes; if we claim a pointer we
+                        // own the AddRef done in ProcessQueue and must Release it (and are
+                        // now responsible for driving the task to completion).
+                        if (FLimiterTask* LimiterTask = m_ScheduledTasks[SlotIndex].Task.exchange(nullptr, std::memory_order_acquire))
+                        {
+                            bDidSomething = true;
+                            // We populate ScheduledTasks before launching, so we may have
+                            // claimed a task that hasn't launched yet: TryExecute runs it
+                            // directly; if it's already scheduled, TryExpedite bumps it.
+                            if (!LimiterTask->Task.TryExecute())
+                            {
+                                LimiterTask->Task.TryExpedite();
+                            }
+                            LimiterTask->Release();
+                        }
+                    }
+                    // Keep retracting until every pushed item has completed; stopping at the
+                    // first empty pass could deadlock if a worker finishes our task, queues
+                    // the next, then gets pulled onto another system before starting it.
+                } while (bDidSomething || m_NumWorkItems.load(std::memory_order_acquire) != 0);
+
+                // Wait on the event (should fall through immediately, since the drain above
+                // ran the last task and CompleteWorkItem triggered the event).
                 if (Timeout == FMonotonicTimeSpan::Infinity())
                 {
                     return LocalCompletionEvent->Wait(); // Infinite wait
@@ -172,7 +233,7 @@ namespace OloEngine::Tasks
             }
 
           private:
-            void AddWorkItem(LowLevelTasks::FTask* Task)
+            void AddWorkItem(FLimiterTask* Task)
             {
                 m_NumWorkItems.fetch_add(1, std::memory_order_acquire);
 
@@ -192,13 +253,23 @@ namespace OloEngine::Tasks
                 bool bWakeUpWorker = !bSkipFirstWakeUp;
                 do
                 {
-                    if (LowLevelTasks::FTask* Task = m_WorkQueue.Pop())
+                    if (FLimiterTask* LimiterTask = m_WorkQueue.Pop())
                     {
+                        LowLevelTasks::FTask& Task = LimiterTask->Task;
+
                         // Now that we know the ConcurrencySlot, set it at launch time so
                         // the executor can retrieve it.
-                        Task->SetUserData(reinterpret_cast<void*>(static_cast<uptr>(ConcurrencySlot)));
+                        Task.SetUserData(reinterpret_cast<void*>(static_cast<uptr>(ConcurrencySlot)));
 
-                        LowLevelTasks::TryLaunch(*Task,
+                        // Publish into ScheduledTasks before launching so Wait() can retract
+                        // it. The AddRef keeps the wrapper alive for that window; it is
+                        // balanced by the Release on whoever claims the slot (the task as it
+                        // starts, or Wait() retracting it). TryLaunch may fail if Wait()
+                        // already executed it, which is fine.
+                        LimiterTask->AddRef();
+                        m_ScheduledTasks[ConcurrencySlot].Task.store(LimiterTask, std::memory_order_release);
+
+                        LowLevelTasks::TryLaunch(Task,
                                                  bWakeUpWorker ? LowLevelTasks::EQueuePreference::GlobalQueuePreference
                                                                : LowLevelTasks::EQueuePreference::LocalQueuePreference,
                                                  bWakeUpWorker);
@@ -218,10 +289,11 @@ namespace OloEngine::Tasks
 
             void ProcessQueueFromWorker(u32 ConcurrencySlot)
             {
-                // Once we are in a worker thread, we want to schedule on the local queue without waking up
-                // additional workers to allow our own worker to pick up the next item and avoid wake-up cost.
-                static constexpr bool bSkipFirstWakeUp = true;
-                ProcessQueue(ConcurrencySlot, bSkipFirstWakeUp);
+                // On a worker thread we schedule onto the local queue without waking another
+                // worker, so our own worker picks up the next item and avoids the wake-up
+                // cost. We must check IsWorkerThread() because Wait()'s retraction can run
+                // this on a non-worker thread, which cannot itself pick up a local-queue task.
+                ProcessQueue(ConcurrencySlot, LowLevelTasks::FScheduler::Get().IsWorkerThread());
             }
 
             void ProcessQueueFromPush(u32 ConcurrencySlot)
@@ -246,11 +318,22 @@ namespace OloEngine::Tasks
             }
 
           private:
+            // Cache-line padded so adjacent slots, read/written from different threads in
+            // ProcessQueue and Wait(), don't false-share.
+            struct alignas(OLO_PLATFORM_CACHE_LINE_SIZE) FPaddedSharedTask
+            {
+                std::atomic<FLimiterTask*> Task{ nullptr };
+            };
+
             FConcurrencySlots m_ConcurrencySlots;
             LowLevelTasks::ETaskPriority m_TaskPriority;
 
             // Lock-free FIFO work queue
-            TLockFreePointerListFIFO<LowLevelTasks::FTask, OLO_PLATFORM_CACHE_LINE_SIZE> m_WorkQueue;
+            TLockFreePointerListFIFO<FLimiterTask, OLO_PLATFORM_CACHE_LINE_SIZE> m_WorkQueue;
+
+            // One slot per concurrency unit, holding the launched-but-not-yet-started task so
+            // Wait() can retract it. Sized to MaxConcurrency in the constructor.
+            TArray<FPaddedSharedTask> m_ScheduledTasks;
 
             std::atomic<u32> m_NumWorkItems{ 0 };
             std::atomic<FEvent*> m_CompletionEvent{ nullptr }; // Lazy-allocated event

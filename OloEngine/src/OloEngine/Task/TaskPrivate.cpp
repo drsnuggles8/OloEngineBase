@@ -5,11 +5,21 @@
 #include "OloEngine/Task/NamedThreads.h"
 #include "OloEngine/Task/Pipe.h"
 #include "OloEngine/Core/Log.h"
+#include "OloEngine/Core/PlatformTLS.h"
 
 #include <limits>
 
 namespace OloEngine::Tasks::Private
 {
+    // Defined out-of-line (declared in TaskPrivate.h) so the header doesn't pull in
+    // <Windows.h> via PlatformTLS.h. Returns the real OS thread id; see the comment
+    // on the declaration and s_NotExecutingThreadId for why this replaced the old
+    // hashed std::thread::id.
+    u32 FTaskBase::GetCurrentThreadId()
+    {
+        return FPlatformTLS::GetCurrentThreadId();
+    }
+
     // ============================================================================
     // Task Retraction Tracking (TLS)
     // ============================================================================

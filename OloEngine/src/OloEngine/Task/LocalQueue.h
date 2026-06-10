@@ -258,18 +258,45 @@ namespace OloEngine::LowLevelTasks
                     }
                 }
 
-                // @brief Steal from own local queue
+                // @brief Steal from own local queue at a single priority level
+                OLO_FINLINE FTask* StealLocal(i32 PriorityIndex)
+                {
+                    FTask* Item;
+                    if (m_LocalQueues[PriorityIndex].Steal(Item))
+                    {
+                        return Item;
+                    }
+                    return nullptr;
+                }
+
+                // @brief Steal from own local queue across all priority levels
                 OLO_FINLINE FTask* StealLocal(bool GetBackGroundTasks)
                 {
                     const i32 MaxPriority = GetBackGroundTasks ? static_cast<i32>(std::to_underlying(ETaskPriority::Count)) : static_cast<i32>(std::to_underlying(ETaskPriority::ForegroundCount));
 
                     for (i32 PriorityIndex = 0; PriorityIndex < MaxPriority; ++PriorityIndex)
                     {
-                        FTask* Item;
-                        if (m_LocalQueues[PriorityIndex].Steal(Item))
+                        if (FTask* Item = StealLocal(PriorityIndex))
                         {
                             return Item;
                         }
+                    }
+                    return nullptr;
+                }
+
+                // @brief Check both the local and global queue at a single priority level
+                OLO_FINLINE FTask* Dequeue(i32 PriorityIndex)
+                {
+                    FTask* Item;
+                    if (m_LocalQueues[PriorityIndex].Get(Item))
+                    {
+                        return Item;
+                    }
+
+                    Item = m_Registry->m_OverflowQueues[PriorityIndex].Dequeue(m_DequeueHazards[PriorityIndex]);
+                    if (Item)
+                    {
+                        return Item;
                     }
                     return nullptr;
                 }
@@ -281,14 +308,7 @@ namespace OloEngine::LowLevelTasks
 
                     for (i32 PriorityIndex = 0; PriorityIndex < MaxPriority; ++PriorityIndex)
                     {
-                        FTask* Item;
-                        if (m_LocalQueues[PriorityIndex].Get(Item))
-                        {
-                            return Item;
-                        }
-
-                        Item = m_Registry->m_OverflowQueues[PriorityIndex].Dequeue(m_DequeueHazards[PriorityIndex]);
-                        if (Item)
+                        if (FTask* Item = Dequeue(PriorityIndex))
                         {
                             return Item;
                         }
