@@ -22,11 +22,21 @@ namespace OloEngine
     };
 
     MeshSource::MeshSource(const TArray<Vertex>& vertices, const TArray<u32>& indices)
-        : m_Vertices(vertices), m_Indices(indices)
+        // Copy the inputs into temporaries and delegate to the move constructor.
+        //
+        // Do NOT copy-initialise m_Vertices/m_Indices directly here. Doing so
+        // corrupted the heap: under an optimised (Release/LTO) build, copy-
+        // constructing these TArray members in place inside a heap-allocated
+        // MeshSource (the Ref<MeshSource>::Create path) overran the object and
+        // clobbered adjacent heap allocations. The fault was invisible on the
+        // stack (slack absorbed the overrun) and to ASan (the engine's custom
+        // FMemory allocator is not instrumented), so it only surfaced as an
+        // intermittent access violation in a later, unrelated allocation — e.g.
+        // the MeshBVHQuery.BuildsFromMeshSourceOverload cross-vendor crash.
+        // Copy-then-move routes construction through the move constructor below,
+        // which is unaffected, and removes the duplicated init logic.
+        : MeshSource(TArray<Vertex>(vertices), TArray<u32>(indices))
     {
-        // Initialize bone influences with same size as vertices (all zeroed)
-        m_BoneInfluences.SetNum(vertices.Num());
-        CalculateBounds();
     }
 
     MeshSource::MeshSource(TArray<Vertex>&& vertices, TArray<u32>&& indices)
