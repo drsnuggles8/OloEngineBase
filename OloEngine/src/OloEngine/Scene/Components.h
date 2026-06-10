@@ -19,6 +19,7 @@
 #include "OloEngine/Renderer/ProceduralSky.h"
 #include "OloEngine/Renderer/StarNestSky.h"
 #include "OloEngine/Renderer/Mesh.h"
+#include "OloEngine/Renderer/Ocean/OceanFFTField.h"
 #include "OloEngine/Renderer/Instancing/InstancedMeshComponent.h"
 #include "OloEngine/Particle/ParticleSystem.h"
 #include "OloEngine/Terrain/TerrainData.h"
@@ -2317,8 +2318,23 @@ namespace OloEngine
 
         bool m_RenderFromBelow = true; // Allow the water plane to be visible from below
 
+        // FFT ocean (WATER_FUTURE_IMPROVEMENTS.md §1 — Tessendorf spectral ocean).
+        // When enabled, the surface samples a GPU displacement/normal field derived
+        // from an ocean spectrum (OceanFFTField) instead of summing Gerstner waves.
+        // The Gerstner path stays available (toggle off) for comparison/fallback.
+        bool m_UseFFT = false;
+        u32 m_FFTResolution = 128;                     ///< FFT grid size N (power of two); CPU cost ~ N² log N
+        f32 m_FFTPatchSize = 80.0f;                    ///< L, world tile size in metres (the field repeats every L)
+        f32 m_FFTWindSpeed = 18.0f;                    ///< V, wind speed (m/s) — sets the dominant wavelength
+        glm::vec2 m_FFTWindDirection = { 1.0f, 0.0f }; ///< wind heading (normalised on use)
+        f32 m_FFTAmplitude = 2.0f;                     ///< Phillips spectrum energy scale
+        f32 m_FFTChoppiness = 1.2f;                    ///< horizontal-displacement (sharp crests) scale
+        f32 m_FFTHeightScale = 1.0f;                   ///< artistic multiplier on the vertical displacement
+        u32 m_FFTSeed = 1337;                          ///< RNG seed for the spectrum (deterministic look)
+
         // Runtime (not serialized)
         Ref<Mesh> m_WaterMesh;
+        Ref<Ocean::OceanFFTField> m_OceanField; ///< lazily-created FFT cascade (runtime)
         bool m_NeedsRebuild = true;
 
         // Pack wave direction + steepness + wavelength into a vec4 for shader UBO.
@@ -2369,7 +2385,12 @@ namespace OloEngine
                 && blkEq(m_UnderwaterFogColor, m_GodRayColor) // vec3 + f32 + f32*8 + vec3 + f32*4 + vec3
                 && m_GodRaySamples == o.m_GodRaySamples
                 && blkEq(m_GodRayDappleFloor, m_GodRaySunFalloff) // f32*2
-                && m_RenderFromBelow == o.m_RenderFromBelow;
+                && m_RenderFromBelow == o.m_RenderFromBelow
+                && m_UseFFT == o.m_UseFFT
+                && m_FFTResolution == o.m_FFTResolution
+                && blkEq(m_FFTPatchSize, m_FFTWindSpeed)       // f32*2
+                && blkEq(m_FFTWindDirection, m_FFTHeightScale) // vec2 + f32*3
+                && m_FFTSeed == o.m_FFTSeed;
             // clang-format on
         }
 
@@ -2466,6 +2487,15 @@ namespace OloEngine
             m_GodRayDappleFloor = src.m_GodRayDappleFloor;
             m_GodRaySunFalloff = src.m_GodRaySunFalloff;
             m_RenderFromBelow = src.m_RenderFromBelow;
+            m_UseFFT = src.m_UseFFT;
+            m_FFTResolution = src.m_FFTResolution;
+            m_FFTPatchSize = src.m_FFTPatchSize;
+            m_FFTWindSpeed = src.m_FFTWindSpeed;
+            m_FFTWindDirection = src.m_FFTWindDirection;
+            m_FFTAmplitude = src.m_FFTAmplitude;
+            m_FFTChoppiness = src.m_FFTChoppiness;
+            m_FFTHeightScale = src.m_FFTHeightScale;
+            m_FFTSeed = src.m_FFTSeed;
         }
     };
 

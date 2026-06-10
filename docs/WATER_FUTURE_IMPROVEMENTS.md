@@ -13,6 +13,44 @@ domain warping). This produces convincing results for a moderate number of
 waves, but cannot match the spectral realism of thousands of superimposed
 frequency components.
 
+### Status — **partially shipped (single cascade, toggleable)**
+
+A Tessendorf spectral ocean is wired end to end behind a `WaterComponent`
+toggle (`m_UseFFT`); the Gerstner path stays the default for comparison /
+fallback. Shipped:
+
+- ✅ **Phillips spectrum + dispersion + inverse-FFT math (CPU reference).**
+  [`OceanSpectrum`](../OloEngine/src/OloEngine/Renderer/Ocean/OceanSpectrum.h)
+  builds the frequency-domain heightfield $\tilde{h}_0(\mathbf{k})$, time-evolves
+  it with $\omega=\sqrt{g\lVert k\rVert}$ (the $\tilde h_0(k)e^{i\omega t} +
+  \tilde h_0^*(-k)e^{-i\omega t}$ Hermitian construction), and inverse-FFTs to a
+  spatial tile of height + choppy horizontal displacement + analytic normals +
+  Jacobian (folding → foam). A small radix-2 Cooley-Tukey FFT lives in
+  [`OceanFFT`](../OloEngine/src/OloEngine/Renderer/Ocean/OceanFFT.h). Pinned by
+  `OceanFFTSpectrumTest` (FFT round-trip / Parseval, spectrum shape, Hermitian
+  reality, determinism, Jacobian folding).
+- ✅ **Runtime field provider.**
+  [`OceanFFTField`](../OloEngine/src/OloEngine/Renderer/Ocean/OceanFFTField.h)
+  evaluates the field each tick and uploads it to two `RGBA32F` textures
+  (displacement `dx,h,dz` + foam; normal + Jacobian) the water shader samples,
+  RMS-normalised so `m_FFTAmplitude` maps to a predictable metre-scale wave
+  height. A CPU copy is retained for physics/buoyancy sampling with no readback.
+- ✅ **Shader integration.** [`Water.glsl`](../OloEditor/assets/shaders/Water.glsl)
+  samples the FFT displacement/normal textures in the vertex + tessellation-eval
+  stages (and Jacobian foam in the fragment stage) when `u_FFTParams.x > 0.5`,
+  instead of summing Gerstner waves. New textures at bindings 50/51; `FFTParams`
+  appended to the `WaterParams` UBO (binding 23). Visual evidence:
+  `OceanFFT_<Overview|GrazingAcross|Submerged|TopDown>.png` +
+  `OceanFFT_Toggle{On,Off}.png` (`OceanFFTVisualEvidenceTest`).
+- ✅ **Editor / scene / save-game / Lua wiring** for the FFT params on
+  `WaterComponent`.
+
+Still open (natural follow-ons): the **GPU compute butterfly port** (the
+generation is CPU-side today — `OceanFFTField` is structured so a compute FFT
+swaps in behind the same texture interface, §6.4's transition path), **cascaded
+FFT** (§1.3), **JONSWAP** spectrum (§1.4), and **buoyancy sampling from the FFT
+field** (§5.1 — `WaterSurface` still samples the Gerstner sum).
+
 ### 1.1 Tessendorf FFT Pipeline
 
 **Reference**: Jerry Tessendorf, *"Simulating Ocean Water"* (SIGGRAPH 2001

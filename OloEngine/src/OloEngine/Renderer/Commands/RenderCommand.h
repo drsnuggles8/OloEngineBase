@@ -889,12 +889,16 @@ namespace OloEngine
         glm::vec4 sssColor = glm::vec4(0.0f);              // rgb = SSS color
         glm::vec4 ssrParams = glm::vec4(0.0f);             // maxSteps, stepSize, maxDistance, thickness
         glm::vec4 tessParams = glm::vec4(0.0f);            // tessellationFactor, minDist, maxDist, frustumCullEnable
+        glm::vec4 fftParams = glm::vec4(0.0f);             // useFFT (0/1), 1/patchSize, heightScale, horizontalScale
 
         // Normal map / noise texture IDs
         RendererID normalMap0ID = 0;
         RendererID normalMap1ID = 0;
         RendererID noiseTextureID = 0;
         RendererID foamTextureID = 0;
+        // FFT ocean cascade textures (WATER_FUTURE_IMPROVEMENTS.md §1)
+        RendererID fftDisplacementID = 0; // rgb = (dx, height, dz), a = foam
+        RendererID fftDerivativesID = 0;  // rgb = normal, a = jacobian
 
         // Feature toggles
         bool refractionEnabled = true;

@@ -115,6 +115,7 @@ add_executable(OloEngine-Tests
 		# Rendering property tests (require GL 4.5+ context; skip gracefully if unavailable)
 		Rendering/PropertyTests/RenderPropertyTest.cpp
 		Rendering/PropertyTests/HZBGeneratorResizeTest.cpp
+		Rendering/PropertyTests/OceanFFTSpectrumTest.cpp
 		Rendering/PropertyTests/PostProcessPropertyTests.cpp
 		Rendering/PropertyTests/PbrPropertyTests.cpp
 		Rendering/PropertyTests/ShaderMathIdentityTests.cpp
@@ -131,6 +132,7 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/StarNestSkyVisualTest.cpp
 		Rendering/PropertyTests/StarNestReflectionEvidenceTest.cpp
 		Rendering/PropertyTests/WaterVisualEvidenceTest.cpp
+		Rendering/PropertyTests/OceanFFTVisualEvidenceTest.cpp
 		Rendering/PropertyTests/UnderwaterCausticsVisualTest.cpp
 		Rendering/PropertyTests/SSRVisualEvidenceTest.cpp
 		Rendering/PropertyTests/SSGIVisualEvidenceTest.cpp

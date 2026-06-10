@@ -1492,6 +1492,32 @@ namespace OloEngine
             ar << c.m_GodRayDappleFloor << c.m_GodRaySunFalloff;
         }
 
+        // FFT ocean (WATER_FUTURE_IMPROVEMENTS.md §1) was appended last (after the
+        // god-ray block). Same trailing-AtEnd() probe: archives written before this
+        // addition end after god rays (or caustics), so fall back to defaults.
+        auto loadFFTDefaults = [](WaterComponent& w)
+        {
+            w.m_UseFFT = false;
+            w.m_FFTResolution = 128u;
+            w.m_FFTPatchSize = 80.0f;
+            w.m_FFTWindSpeed = 18.0f;
+            w.m_FFTWindDirection = glm::vec2(1.0f, 0.0f);
+            w.m_FFTAmplitude = 2.0f;
+            w.m_FFTChoppiness = 1.2f;
+            w.m_FFTHeightScale = 1.0f;
+            w.m_FFTSeed = 1337u;
+        };
+        if (ar.IsLoading() && ar.AtEnd())
+        {
+            loadFFTDefaults(c);
+        }
+        else
+        {
+            ar << c.m_UseFFT << c.m_FFTResolution << c.m_FFTPatchSize << c.m_FFTWindSpeed;
+            ar << c.m_FFTWindDirection << c.m_FFTAmplitude << c.m_FFTChoppiness << c.m_FFTHeightScale;
+            ar << c.m_FFTSeed;
+        }
+
         if (ar.IsLoading())
         {
             auto sanitize = [](f32& v, f32 lo, f32 hi, f32 fallback)

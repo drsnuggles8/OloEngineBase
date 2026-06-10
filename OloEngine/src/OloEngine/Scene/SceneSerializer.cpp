@@ -1419,6 +1419,29 @@ namespace OloEngine
             water.m_RenderFromBelow = renderFromBelow.as<bool>(water.m_RenderFromBelow);
         }
 
+        // FFT ocean (WATER_FUTURE_IMPROVEMENTS.md §1)
+        water.m_UseFFT = waterComponent["UseFFT"].as<bool>(water.m_UseFFT);
+        water.m_FFTResolution = waterComponent["FFTResolution"].as<u32>(water.m_FFTResolution);
+        water.m_FFTPatchSize = waterComponent["FFTPatchSize"].as<f32>(water.m_FFTPatchSize);
+        water.m_FFTWindSpeed = waterComponent["FFTWindSpeed"].as<f32>(water.m_FFTWindSpeed);
+        water.m_FFTWindDirection = waterComponent["FFTWindDirection"].as<glm::vec2>(water.m_FFTWindDirection);
+        water.m_FFTAmplitude = waterComponent["FFTAmplitude"].as<f32>(water.m_FFTAmplitude);
+        water.m_FFTChoppiness = waterComponent["FFTChoppiness"].as<f32>(water.m_FFTChoppiness);
+        water.m_FFTHeightScale = waterComponent["FFTHeightScale"].as<f32>(water.m_FFTHeightScale);
+        water.m_FFTSeed = waterComponent["FFTSeed"].as<u32>(water.m_FFTSeed);
+
+        // Sanitize FFT fields (ranges match the clamps in Scene.cpp / the editor
+        // UI) so no NaN/Inf or out-of-range value reaches the spectrum/GPU.
+        water.m_FFTResolution = std::clamp(water.m_FFTResolution, 16u, 512u);
+        SanitizeFloat(water.m_FFTPatchSize, 1.0f, 5000.0f, 80.0f);
+        SanitizeFloat(water.m_FFTWindSpeed, 0.1f, 100.0f, 18.0f);
+        SanitizeVec2(water.m_FFTWindDirection, { 1.0f, 0.0f });
+        SanitizeFloat(water.m_FFTAmplitude, 0.0f, 100.0f, 2.0f);
+        SanitizeFloat(water.m_FFTChoppiness, 0.0f, 5.0f, 1.2f);
+        SanitizeFloat(water.m_FFTHeightScale, 0.0f, 20.0f, 1.0f);
+        // m_FFTSeed: any u32 is a valid RNG seed; m_UseFFT is a plain bool — no
+        // validation needed for either.
+
         // Clamp grid resolution to safe bounds
         water.m_GridResolutionX = std::clamp(water.m_GridResolutionX, 1u, 1024u);
         water.m_GridResolutionZ = std::clamp(water.m_GridResolutionZ, 1u, 1024u);
@@ -5056,6 +5079,17 @@ namespace OloEngine
             out << YAML::Key << "GodRayDappleFloor" << YAML::Value << water.m_GodRayDappleFloor;
             out << YAML::Key << "GodRaySunFalloff" << YAML::Value << water.m_GodRaySunFalloff;
             out << YAML::Key << "RenderFromBelow" << YAML::Value << water.m_RenderFromBelow;
+
+            // FFT ocean (WATER_FUTURE_IMPROVEMENTS.md §1)
+            out << YAML::Key << "UseFFT" << YAML::Value << water.m_UseFFT;
+            out << YAML::Key << "FFTResolution" << YAML::Value << water.m_FFTResolution;
+            out << YAML::Key << "FFTPatchSize" << YAML::Value << water.m_FFTPatchSize;
+            out << YAML::Key << "FFTWindSpeed" << YAML::Value << water.m_FFTWindSpeed;
+            out << YAML::Key << "FFTWindDirection" << YAML::Value << water.m_FFTWindDirection;
+            out << YAML::Key << "FFTAmplitude" << YAML::Value << water.m_FFTAmplitude;
+            out << YAML::Key << "FFTChoppiness" << YAML::Value << water.m_FFTChoppiness;
+            out << YAML::Key << "FFTHeightScale" << YAML::Value << water.m_FFTHeightScale;
+            out << YAML::Key << "FFTSeed" << YAML::Value << water.m_FFTSeed;
 
             out << YAML::EndMap; // WaterComponent
         }

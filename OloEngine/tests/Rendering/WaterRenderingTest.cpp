@@ -30,8 +30,9 @@ TEST(WaterRendering, WaterUBOAlignment)
 
 TEST(WaterRendering, WaterUBOSizeStable)
 {
-    // 17 x glm::vec4 = 17 x 16 = 272 bytes
-    EXPECT_EQ(sizeof(UBOStructures::WaterUBO), 272u);
+    // 18 x glm::vec4 = 18 x 16 = 288 bytes (FFTParams appended for the
+    // Tessendorf FFT ocean — WATER_FUTURE_IMPROVEMENTS.md §1)
+    EXPECT_EQ(sizeof(UBOStructures::WaterUBO), 288u);
 }
 
 TEST(WaterRendering, WaterUBOGetSizeMatchesSizeof)
@@ -63,6 +64,7 @@ TEST(WaterRendering, WaterUBOFieldRoundTrip)
     EXPECT_EQ(offsetof(UBOStructures::WaterUBO, NormalMapScroll), 96u);
     EXPECT_EQ(offsetof(UBOStructures::WaterUBO, DepthRefractionParams), 160u);
     EXPECT_EQ(offsetof(UBOStructures::WaterUBO, TessParams), 256u);
+    EXPECT_EQ(offsetof(UBOStructures::WaterUBO, FFTParams), 272u);
 
     UBOStructures::WaterUBO ubo{};
     ubo.WaveParams = glm::vec4(1.0f, 2.0f, 0.5f, 3.0f);

@@ -4439,6 +4439,55 @@ namespace OloEngine
                         }
                     }
 
+                    // FFT ocean (WATER_FUTURE_IMPROVEMENTS.md §1). When enabled,
+                    // (re)evaluate the Tessendorf spectral field and hand its
+                    // displacement/normal textures to the water shader; otherwise
+                    // the analytic Gerstner path runs (fftParams.x stays 0).
+                    if (water.m_UseFFT)
+                    {
+                        if (!water.m_OceanField)
+                            water.m_OceanField = Ref<Ocean::OceanFFTField>::Create();
+
+                        // Snap the grid to a power of two (the FFT requires it).
+                        u32 fftRes = std::clamp(water.m_FFTResolution, 16u, 512u);
+                        u32 pow2 = 16u;
+                        while (pow2 * 2u <= fftRes)
+                            pow2 *= 2u;
+
+                        Ocean::SpectrumParams sp;
+                        sp.m_Resolution = pow2;
+                        sp.m_PatchSize = clampF(water.m_FFTPatchSize, 1.0f, 5000.0f, 80.0f);
+                        sp.m_WindSpeed = clampF(water.m_FFTWindSpeed, 0.1f, 100.0f, 18.0f);
+                        glm::vec2 windDir = water.m_FFTWindDirection;
+                        if (!std::isfinite(windDir.x) || !std::isfinite(windDir.y) ||
+                            (windDir.x * windDir.x + windDir.y * windDir.y) < 1e-6f)
+                            windDir = glm::vec2(1.0f, 0.0f);
+                        sp.m_WindDirection = windDir;
+                        sp.m_Amplitude = clampF(water.m_FFTAmplitude, 0.0f, 100.0f, 2.0f);
+                        sp.m_Choppiness = clampF(water.m_FFTChoppiness, 0.0f, 5.0f, 1.2f);
+                        sp.m_Seed = water.m_FFTSeed;
+
+                        water.m_OceanField->Update(sp, animationTime, /*uploadToGpu=*/true);
+
+                        const u32 dispID = water.m_OceanField->GetDisplacementTextureID();
+                        const u32 derivID = water.m_OceanField->GetDerivativesTextureID();
+                        if (dispID != 0 && derivID != 0)
+                        {
+                            waterParams.fftDisplacementID = dispID;
+                            waterParams.fftDerivativesID = derivID;
+                            const f32 invPatch = 1.0f / sp.m_PatchSize;
+                            // x = enabled, y = 1/patchSize (UV scale), z = heightScale,
+                            // w = horizontalScale (choppiness is already baked into the
+                            // texture's dx/dz, so keep this at 1).
+                            waterParams.fftParams = glm::vec4(
+                                1.0f, invPatch, clampF(water.m_FFTHeightScale, 0.0f, 20.0f, 1.0f), 1.0f);
+                            // FFT crests can exceed the Gerstner-derived TCS cull
+                            // margin; disable the per-patch frustum cull so off-screen-
+                            // edge crests aren't clipped early.
+                            waterParams.tessParams.w = 0.0f;
+                        }
+                    }
+
                     // Compute bounding box for frustum culling — use sanitized values
                     f32 const safeWorldX = std::isfinite(water.m_WorldSizeX)
                                                ? std::clamp(water.m_WorldSizeX, 0.1f, 10000.0f)
@@ -4451,7 +4500,23 @@ namespace OloEngine
                                                   : 0.5f;
                     f32 halfX = safeWorldX * 0.5f;
                     f32 halfZ = safeWorldZ * 0.5f;
-                    f32 waveH = safeAmplitude * 2.0f; // Conservative height estimate
+                    // Conservative vertical extent for frustum culling. The FFT
+                    // field is RMS-normalised to ~0.3·amplitude m and the shader
+                    // scales it by m_FFTHeightScale; crests reach a few × RMS, so
+                    // 2·(amplitude·heightScale) is a safe upper bound that tracks
+                    // the actual displacement (with a small floor so a tiny
+                    // amplitude still leaves a usable band).
+                    f32 waveH;
+                    if (water.m_UseFFT)
+                    {
+                        const f32 fftAmp = clampF(water.m_FFTAmplitude, 0.0f, 100.0f, 2.0f);
+                        const f32 fftHeightScale = clampF(water.m_FFTHeightScale, 0.0f, 20.0f, 1.0f);
+                        waveH = std::max(fftAmp * fftHeightScale * 2.0f, 3.0f);
+                    }
+                    else
+                    {
+                        waveH = safeAmplitude * 2.0f;
+                    }
                     BoundingBox bounds;
                     bounds.Min = glm::vec3(-halfX, -waveH, -halfZ);
                     bounds.Max = glm::vec3(halfX, waveH, halfZ);

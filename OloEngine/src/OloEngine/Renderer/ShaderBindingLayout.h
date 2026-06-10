@@ -381,6 +381,7 @@ namespace OloEngine
             glm::vec4 SSSColor;              // rgb = subsurface scattering color, w = unused
             glm::vec4 SSRParams;             // x = maxSteps (0=disabled), y = stepSize, z = maxDistance, w = thickness
             glm::vec4 TessParams;            // x = tessellationFactor (0=disabled), y = minTessDistance, z = maxTessDistance, w = frustumCullEnable (1=on, 0=off)
+            glm::vec4 FFTParams;             // x = useFFT (0=Gerstner, 1=FFT ocean), y = 1/patchSize (UV scale), z = heightScale, w = horizontalScale
 
             static constexpr u32 GetSize()
             {
@@ -581,7 +582,7 @@ namespace OloEngine
     static_assert(sizeof(UBOStructures::LightProbeVolumeUBO) % 16 == 0, "LightProbeVolumeUBO size must be 16-byte aligned for std140");
     static_assert(sizeof(UBOStructures::LightProbeVolumeUBO) == 80, "LightProbeVolumeUBO unexpected size — update GLSL layout");
     static_assert(sizeof(UBOStructures::WaterUBO) % 16 == 0, "WaterUBO size must be 16-byte aligned for std140");
-    static_assert(sizeof(UBOStructures::WaterUBO) == 272, "WaterUBO unexpected size -- update GLSL layout");
+    static_assert(sizeof(UBOStructures::WaterUBO) == 288, "WaterUBO unexpected size -- update GLSL layout");
     static_assert(sizeof(UBOStructures::ForwardPlusUBO) % 16 == 0, "ForwardPlusUBO size must be 16-byte aligned for std140");
     static_assert(sizeof(UBOStructures::ForwardPlusUBO) == 16, "ForwardPlusUBO unexpected size — update GLSL layout");
     static_assert(sizeof(UBOStructures::PBRMaterialUBO) % 16 == 0, "PBRMaterialUBO size must be 16-byte aligned for std140");
@@ -717,9 +718,14 @@ namespace OloEngine
         // Weighted-blended OIT accumulation targets. Sampled by
         // OIT_Resolve.glsl; written to (not sampled) by transparent passes
         // when RendererSettings::OITEnabled is on (path-agnostic).
-        static constexpr u32 TEX_OIT_ACCUM = 48;      // OIT accum buffer (RGBA16F: sum(Ci*ai*wi), sum(ai*wi))
-        static constexpr u32 TEX_OIT_REVEALAGE = 49;  // OIT revealage buffer (R16F: prod(1 - ai))
-        static constexpr u32 TEX_SHADER_GRAPH_0 = 50; // First shader graph user texture slot (must be after all engine-reserved slots)
+        static constexpr u32 TEX_OIT_ACCUM = 48;     // OIT accum buffer (RGBA16F: sum(Ci*ai*wi), sum(ai*wi))
+        static constexpr u32 TEX_OIT_REVEALAGE = 49; // OIT revealage buffer (R16F: prod(1 - ai))
+        // FFT ocean cascade textures (WATER_FUTURE_IMPROVEMENTS.md §1). Sampled by
+        // Water.glsl when the surface is in FFT mode (rgb = choppy displacement,
+        // a = foam; and rgb = normal, a = Jacobian respectively).
+        static constexpr u32 TEX_WATER_FFT_DISPLACEMENT = 50; // dx, height, dz, foam
+        static constexpr u32 TEX_WATER_FFT_DERIVATIVES = 51;  // normal.xyz, jacobian
+        static constexpr u32 TEX_SHADER_GRAPH_0 = 52;         // First shader graph user texture slot (must be after all engine-reserved slots)
 
         // Tracker capacity for CommandDispatchData::BoundTextureIDs. Must be
         // strictly greater than the highest engine-reserved slot so redundant-
@@ -965,6 +971,13 @@ namespace OloEngine
                 case TEX_WATER_SSR:
                     return name.contains("SSR") || name.contains("ssr") ||
                            (name.contains("Screen") && name.contains("Reflection"));
+                case TEX_WATER_FFT_DISPLACEMENT:
+                case TEX_WATER_FFT_DERIVATIVES:
+                    // FFT ocean cascade textures: Water.glsl binds
+                    // u_FFTDisplacement / u_FFTDerivatives to these slots.
+                    return name.contains("FFT") || name.contains("fft") ||
+                           name.contains("Displacement") || name.contains("displacement") ||
+                           name.contains("Derivatives") || name.contains("derivatives");
                 case TEX_GBUFFER_ALBEDO:
                 case TEX_GBUFFER_NORMAL:
                 case TEX_GBUFFER_EMISSIVE:

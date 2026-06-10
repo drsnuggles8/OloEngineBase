@@ -117,6 +117,15 @@ Entities:
       UnderwaterFogColor: [0.04, 0.18, 0.3]
       UnderwaterFogDensity: 0.08
       RenderFromBelow: true
+      UseFFT: true
+      FFTResolution: 128
+      FFTPatchSize: 64
+      FFTWindSpeed: 18
+      FFTWindDirection: [1, 0.3]
+      FFTAmplitude: 3
+      FFTChoppiness: 1.4
+      FFTHeightScale: 1
+      FFTSeed: 1337
   - Entity: 900000000000003
     TagComponent:
       Tag: Backpack
