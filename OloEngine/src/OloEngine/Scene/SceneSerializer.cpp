@@ -1406,6 +1406,14 @@ namespace OloEngine
         water.m_CausticsSpeed = waterComponent["CausticsSpeed"].as<f32>(water.m_CausticsSpeed);
         water.m_CausticsMaxDepth = waterComponent["CausticsMaxDepth"].as<f32>(water.m_CausticsMaxDepth);
         water.m_CausticsColor = waterComponent["CausticsColor"].as<glm::vec3>(water.m_CausticsColor);
+        water.m_GodRayIntensity = waterComponent["GodRayIntensity"].as<f32>(water.m_GodRayIntensity);
+        water.m_GodRayDecay = waterComponent["GodRayDecay"].as<f32>(water.m_GodRayDecay);
+        water.m_GodRayDensity = waterComponent["GodRayDensity"].as<f32>(water.m_GodRayDensity);
+        water.m_GodRayWeight = waterComponent["GodRayWeight"].as<f32>(water.m_GodRayWeight);
+        water.m_GodRayColor = waterComponent["GodRayColor"].as<glm::vec3>(water.m_GodRayColor);
+        water.m_GodRaySamples = waterComponent["GodRaySamples"].as<u32>(water.m_GodRaySamples);
+        water.m_GodRayDappleFloor = waterComponent["GodRayDappleFloor"].as<f32>(water.m_GodRayDappleFloor);
+        water.m_GodRaySunFalloff = waterComponent["GodRaySunFalloff"].as<f32>(water.m_GodRaySunFalloff);
         if (auto const renderFromBelow = waterComponent["RenderFromBelow"])
         {
             water.m_RenderFromBelow = renderFromBelow.as<bool>(water.m_RenderFromBelow);
@@ -1486,6 +1494,15 @@ namespace OloEngine
         SanitizeFloat(water.m_CausticsSpeed, 0.0f, 50.0f, 0.6f);
         SanitizeFloat(water.m_CausticsMaxDepth, 0.1f, 1000.0f, 25.0f);
         SanitizeVec3(water.m_CausticsColor, { 0.7f, 0.85f, 1.0f });
+        // Volumetric light shafts / god rays (§3.3)
+        SanitizeFloat(water.m_GodRayIntensity, 0.0f, 10.0f, 0.5f);
+        SanitizeFloat(water.m_GodRayDecay, 0.0f, 0.999f, 0.97f);
+        SanitizeFloat(water.m_GodRayDensity, 0.0f, 2.0f, 0.85f);
+        SanitizeFloat(water.m_GodRayWeight, 0.0f, 2.0f, 1.0f);
+        SanitizeVec3(water.m_GodRayColor, { 1.0f, 0.95f, 0.8f });
+        water.m_GodRaySamples = std::clamp(water.m_GodRaySamples, 1u, 256u);
+        SanitizeFloat(water.m_GodRayDappleFloor, 0.0f, 1.0f, 0.35f);
+        SanitizeFloat(water.m_GodRaySunFalloff, 1.0f, 64.0f, 16.0f);
 
         water.m_NeedsRebuild = true;
     }
@@ -4987,6 +5004,14 @@ namespace OloEngine
             out << YAML::Key << "CausticsSpeed" << YAML::Value << water.m_CausticsSpeed;
             out << YAML::Key << "CausticsMaxDepth" << YAML::Value << water.m_CausticsMaxDepth;
             out << YAML::Key << "CausticsColor" << YAML::Value << water.m_CausticsColor;
+            out << YAML::Key << "GodRayIntensity" << YAML::Value << water.m_GodRayIntensity;
+            out << YAML::Key << "GodRayDecay" << YAML::Value << water.m_GodRayDecay;
+            out << YAML::Key << "GodRayDensity" << YAML::Value << water.m_GodRayDensity;
+            out << YAML::Key << "GodRayWeight" << YAML::Value << water.m_GodRayWeight;
+            out << YAML::Key << "GodRayColor" << YAML::Value << water.m_GodRayColor;
+            out << YAML::Key << "GodRaySamples" << YAML::Value << water.m_GodRaySamples;
+            out << YAML::Key << "GodRayDappleFloor" << YAML::Value << water.m_GodRayDappleFloor;
+            out << YAML::Key << "GodRaySunFalloff" << YAML::Value << water.m_GodRaySunFalloff;
             out << YAML::Key << "RenderFromBelow" << YAML::Value << water.m_RenderFromBelow;
 
             out << YAML::EndMap; // WaterComponent

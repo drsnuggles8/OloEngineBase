@@ -929,6 +929,30 @@ namespace OloEngine
                                          "causticsColor", sol::property([](const WaterComponent& w)
                                                                         { return w.m_CausticsColor; }, [](WaterComponent& w, const glm::vec3& v)
                                                                         { if (std::isfinite(v.x) && std::isfinite(v.y) && std::isfinite(v.z)) w.m_CausticsColor = glm::clamp(v, glm::vec3(0.0f), glm::vec3(1.0f)); }),
+                                         "godRayIntensity", sol::property([](const WaterComponent& w)
+                                                                          { return w.m_GodRayIntensity; }, [](WaterComponent& w, f32 v)
+                                                                          { if (std::isfinite(v) && v >= 0.0f && v <= 10.0f) w.m_GodRayIntensity = v; }),
+                                         "godRayDecay", sol::property([](const WaterComponent& w)
+                                                                      { return w.m_GodRayDecay; }, [](WaterComponent& w, f32 v)
+                                                                      { if (std::isfinite(v) && v >= 0.0f && v <= 0.999f) w.m_GodRayDecay = v; }),
+                                         "godRayDensity", sol::property([](const WaterComponent& w)
+                                                                        { return w.m_GodRayDensity; }, [](WaterComponent& w, f32 v)
+                                                                        { if (std::isfinite(v) && v >= 0.0f && v <= 2.0f) w.m_GodRayDensity = v; }),
+                                         "godRayWeight", sol::property([](const WaterComponent& w)
+                                                                       { return w.m_GodRayWeight; }, [](WaterComponent& w, f32 v)
+                                                                       { if (std::isfinite(v) && v >= 0.0f && v <= 2.0f) w.m_GodRayWeight = v; }),
+                                         "godRayColor", sol::property([](const WaterComponent& w)
+                                                                      { return w.m_GodRayColor; }, [](WaterComponent& w, const glm::vec3& v)
+                                                                      { if (std::isfinite(v.x) && std::isfinite(v.y) && std::isfinite(v.z)) w.m_GodRayColor = glm::clamp(v, glm::vec3(0.0f), glm::vec3(1.0f)); }),
+                                         "godRaySamples", sol::property([](const WaterComponent& w)
+                                                                        { return w.m_GodRaySamples; }, [](WaterComponent& w, u32 v)
+                                                                        { w.m_GodRaySamples = std::clamp(v, 1u, 256u); }),
+                                         "godRayDappleFloor", sol::property([](const WaterComponent& w)
+                                                                            { return w.m_GodRayDappleFloor; }, [](WaterComponent& w, f32 v)
+                                                                            { if (std::isfinite(v) && v >= 0.0f && v <= 1.0f) w.m_GodRayDappleFloor = v; }),
+                                         "godRaySunFalloff", sol::property([](const WaterComponent& w)
+                                                                           { return w.m_GodRaySunFalloff; }, [](WaterComponent& w, f32 v)
+                                                                           { if (std::isfinite(v) && v >= 1.0f && v <= 64.0f) w.m_GodRaySunFalloff = v; }),
                                          "renderFromBelow", &WaterComponent::m_RenderFromBelow);
 
         // --- TerrainComponent ---

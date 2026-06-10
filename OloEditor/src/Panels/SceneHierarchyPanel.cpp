@@ -5318,6 +5318,34 @@ namespace OloEngine
                     ImGui::SetTooltip("Metres below the surface where caustics fade to zero");
                 ImGui::ColorEdit3("Caustics Color", glm::value_ptr(component.m_CausticsColor));
 
+                ImGui::SeparatorText("God Rays");
+                ImGui::DragFloat("God Ray Intensity", &component.m_GodRayIntensity, 0.01f, 0.0f, 10.0f, "%.2f");
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Brightness of the volumetric light shafts streaming down through the "
+                                      "surface (only visible underwater, with the sun on screen). 0 disables.");
+                ImGui::DragFloat("God Ray Decay", &component.m_GodRayDecay, 0.005f, 0.0f, 0.999f, "%.3f");
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Per-sample falloff along the radial march toward the sun (lower = shorter shafts)");
+                ImGui::DragFloat("God Ray Density", &component.m_GodRayDensity, 0.01f, 0.0f, 2.0f, "%.2f");
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("How far toward the sun (in screen space) the shafts reach");
+                ImGui::DragFloat("God Ray Weight", &component.m_GodRayWeight, 0.005f, 0.0f, 2.0f, "%.3f");
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Per-sample additive weight (overall shaft strength along the march)");
+                int godRaySamples = static_cast<int>(component.m_GodRaySamples);
+                if (ImGui::DragInt("God Ray Samples", &godRaySamples, 1.0f, 1, 256))
+                    component.m_GodRaySamples = static_cast<u32>(std::clamp(godRaySamples, 1, 256));
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Radial-blur step count — higher is smoother but costs more");
+                ImGui::ColorEdit3("God Ray Color", glm::value_ptr(component.m_GodRayColor));
+                ImGui::DragFloat("God Ray Sun Falloff", &component.m_GodRaySunFalloff, 0.25f, 1.0f, 64.0f, "%.1f");
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Tightness of the sun source — higher = narrower, more focused shafts");
+                ImGui::DragFloat("God Ray Dapple Floor", &component.m_GodRayDappleFloor, 0.01f, 0.0f, 1.0f, "%.2f");
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Surface-wave shimmer depth: 0 = shafts fully extinguish in wave troughs, "
+                                      "1 = no dappling (smooth shafts)");
+
                 ImGui::Separator();
                 if (ImGui::Button("Rebuild Mesh"))
                 {

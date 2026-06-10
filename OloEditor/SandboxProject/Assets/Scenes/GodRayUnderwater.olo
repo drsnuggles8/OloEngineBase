@@ -1,0 +1,234 @@
+Scene: GodRayUnderwater.olo
+PostProcessSettings:
+  TonemapOperator: 1
+  Exposure: 1.2
+  Gamma: 2.2
+  BloomEnabled: true
+  BloomThreshold: 1.5
+  BloomIntensity: 0.2
+  BloomIterations: 4
+  VignetteEnabled: false
+  VignetteIntensity: 0.5
+  VignetteSmoothness: 0.2
+  ChromaticAberrationEnabled: false
+  ChromaticAberrationIntensity: 0.5
+  FXAAEnabled: true
+  DOFEnabled: false
+  DOFFocusDistance: 10
+  DOFFocusRange: 5
+  DOFBokehRadius: 3
+  MotionBlurEnabled: false
+  MotionBlurStrength: 0.5
+  MotionBlurSamples: 4
+  ColorGradingEnabled: false
+  SSAOEnabled: false
+  SSAORadius: 0.5
+  SSAOBias: 0.025
+  SSAOIntensity: 1
+  SSAOSamples: 32
+  SSAODebugView: false
+FogSettings:
+  Enabled: false
+  Mode: 0
+  Color: [0.6, 0.65, 0.75]
+  Density: 0.005
+  Start: 50
+  End: 500
+  HeightFalloff: 0
+  HeightOffset: 0
+  MaxOpacity: 0.8
+  EnableScattering: false
+  RayleighStrength: 0.5
+  MieStrength: 0.003
+Entities:
+  # NOTE: this scene is tuned so the editor's DEFAULT 3D camera pose
+  # (position (0,5,10), pitch -0.4, yaw 0 — see EditorLayer::ApplyDefault3DCameraPose)
+  # sits ~7 m UNDERWATER (ocean surface raised to y=12) looking UP toward the sun,
+  # whose direction is set to the camera's forward vector so its screen-space
+  # vanishing point lands centre-frame. That makes the underwater god rays (§3.3)
+  # visible in a screenshot captured straight from a fresh editor launch via the
+  # read-only MCP server (which cannot move the editor camera).
+  - Entity: 400000000000001
+    TagComponent:
+      Tag: Main Camera
+    TransformComponent:
+      Translation: [0, 5, 10]
+      Rotation: [0.4, 0, 0]
+      Scale: [1, 1, 1]
+    CameraComponent:
+      Camera:
+        ProjectionType: 0
+        PerspectiveFOV: 0.785398185
+        PerspectiveNear: 0.1
+        PerspectiveFar: 1000
+        OrthographicSize: 10
+        OrthographicNear: -1
+        OrthographicFar: 1
+      Primary: true
+      FixedAspectRatio: false
+  - Entity: 400000000000002
+    TagComponent:
+      Tag: Sun
+    TransformComponent:
+      Translation: [0, 30, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    DirectionalLightComponent:
+      # Aimed straight down the editor camera's forward vector (0, +0.389, -0.921)
+      # so the sun sits dead-centre in the up-looking view: Direction = -forward.
+      Direction: [0, -0.389, 0.921]
+      Color: [1, 0.96, 0.88]
+      Intensity: 6.0
+      CastShadows: true
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.01
+      MaxShadowDistance: 500
+      CascadeSplitLambda: 0.5
+      CascadeDebugVisualization: false
+  - Entity: 400000000000003
+    TagComponent:
+      Tag: Ocean
+    TransformComponent:
+      Translation: [0, 8, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    WaterComponent:
+      Enabled: true
+      WorldSizeX: 1000
+      WorldSizeZ: 1000
+      GridResolutionX: 256
+      GridResolutionZ: 256
+      WaveAmplitude: 0.5
+      WaveFrequency: 1.0
+      WaveSpeed: 0.8
+      WaveDir0: [1.0, 0.3]
+      WaveDir1: [-0.4, 0.9]
+      WaveSteepness0: 0.3
+      Wavelength0: 30
+      WaveSteepness1: 0.25
+      Wavelength1: 50
+      WaterColor: [0.08, 0.35, 0.45]
+      DeepColor: [0.03, 0.12, 0.25]
+      Transparency: 0.95
+      Reflectivity: 0.4
+      FresnelPower: 3.5
+      SpecularIntensity: 1.2
+      NormalMapScrollDir0: [1, 0.3]
+      NormalMapScrollDir1: [-0.3, 1]
+      NormalMapScrollSpeed0: 0.02
+      NormalMapScrollSpeed1: 0.015
+      NormalMapTiling: 1.0
+      NoiseIntensity: 0.25
+      NormalMap0: 0
+      NormalMap1: 0
+      NoiseTexture: 0
+      DepthSofteningDistance: 4.0
+      RefractionDistortion: 0.03
+      RefractionHeightFactor: 0.4
+      RefractionColor: [0, 0.03, 0.07]
+      FoamTexture: 0
+      FoamHeightStart: 0.75
+      FoamFadeDistance: 1.2
+      FoamTiling: 2.0
+      FoamBrightness: 0.8
+      FoamAngleExponent: 5.0
+      ShorelineFoamPower: 3.5
+      SSSColor: [0.03, 0.35, 0.3]
+      SSSIntensity: 0.3
+      SSRMaxSteps: 64
+      SSRStepSize: 0.1
+      SSRMaxDistance: 50
+      SSRThickness: 0.5
+      TessellationEnabled: false
+      TessellationFactor: 8
+      TessMinDistance: 10
+      TessMaxDistance: 200
+      UnderwaterFogColor: [0.03, 0.13, 0.22]
+      UnderwaterFogDensity: 0.015
+      UnderwaterRefractionStrength: 0.0
+      UnderwaterRefractionScale: 18
+      UnderwaterRefractionSpeed: 1.2
+      UnderwaterChromaticStrength: 0.4
+      CausticsIntensity: 0.0
+      CausticsScale: 0.35
+      CausticsSpeed: 0.6
+      CausticsMaxDepth: 25
+      CausticsColor: [0.7, 0.85, 1]
+      GodRayIntensity: 1.6
+      GodRayDecay: 0.95
+      GodRayDensity: 1.0
+      GodRayWeight: 1.0
+      GodRayColor: [1, 0.95, 0.8]
+      GodRaySamples: 48
+      GodRayDappleFloor: 0.35
+      GodRaySunFalloff: 16
+      RenderFromBelow: true
+  # A row of dark vertical occluder bars across the editor camera's up-gaze
+  # (C=(0,5,10), forward (0,+0.389,-0.921)), just under the y=8 surface. The
+  # occlusion-based god-ray march lets light through the open gaps between them
+  # and blocks it behind their silhouettes → crepuscular shafts.
+  - Entity: 400000000000004
+    TagComponent:
+      Tag: Bar0
+    TransformComponent:
+      Translation: [-3, 6.5, 5.5]
+      Rotation: [0, 0, 0]
+      Scale: [0.4, 3, 0.4]
+    MeshComponent:
+      MeshType: 0
+    MaterialComponent:
+      AlbedoColor: [0.05, 0.05, 0.06]
+      Roughness: 0.9
+      Metallic: 0.0
+  - Entity: 400000000000005
+    TagComponent:
+      Tag: Bar1
+    TransformComponent:
+      Translation: [-1.5, 6.5, 5.5]
+      Rotation: [0, 0, 0]
+      Scale: [0.4, 3, 0.4]
+    MeshComponent:
+      MeshType: 0
+    MaterialComponent:
+      AlbedoColor: [0.05, 0.05, 0.06]
+      Roughness: 0.9
+      Metallic: 0.0
+  - Entity: 400000000000006
+    TagComponent:
+      Tag: Bar2
+    TransformComponent:
+      Translation: [0, 6.5, 5.5]
+      Rotation: [0, 0, 0]
+      Scale: [0.4, 3, 0.4]
+    MeshComponent:
+      MeshType: 0
+    MaterialComponent:
+      AlbedoColor: [0.05, 0.05, 0.06]
+      Roughness: 0.9
+      Metallic: 0.0
+  - Entity: 400000000000007
+    TagComponent:
+      Tag: Bar3
+    TransformComponent:
+      Translation: [1.5, 6.5, 5.5]
+      Rotation: [0, 0, 0]
+      Scale: [0.4, 3, 0.4]
+    MeshComponent:
+      MeshType: 0
+    MaterialComponent:
+      AlbedoColor: [0.05, 0.05, 0.06]
+      Roughness: 0.9
+      Metallic: 0.0
+  - Entity: 400000000000008
+    TagComponent:
+      Tag: Bar4
+    TransformComponent:
+      Translation: [3, 6.5, 5.5]
+      Rotation: [0, 0, 0]
+      Scale: [0.4, 3, 0.4]
+    MeshComponent:
+      MeshType: 0
+    MaterialComponent:
+      AlbedoColor: [0.05, 0.05, 0.06]
+      Roughness: 0.9
+      Metallic: 0.0
