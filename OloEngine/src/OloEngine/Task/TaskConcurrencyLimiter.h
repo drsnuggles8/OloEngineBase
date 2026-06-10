@@ -239,6 +239,16 @@ namespace OloEngine::Tasks
                     // the next, then gets pulled onto another system before starting it.
                 } while (bDidSomething || m_NumWorkItems.load(std::memory_order_acquire) != 0);
 
+                // If all work is already done, succeed without waiting. This is authoritative
+                // even when the last worker has decremented m_NumWorkItems to 0 but not yet
+                // reached its CompleteWorkItem Trigger(): otherwise the finite branch below
+                // could call Wait(0) and report a spurious timeout for work that is in fact
+                // complete (the infinite branch would also block needlessly until the Trigger).
+                if (m_NumWorkItems.load(std::memory_order_acquire) == 0)
+                {
+                    return true;
+                }
+
                 // Wait on the event (should fall through immediately when the drain above ran
                 // the last task and CompleteWorkItem triggered the event).
                 if (Timeout.IsInfinity())
