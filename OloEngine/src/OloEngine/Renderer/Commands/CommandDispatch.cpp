@@ -2048,6 +2048,7 @@ namespace OloEngine
             waterData.SSSColor = cmd->sssColor;
             waterData.SSRParams = cmd->ssrParams;
             waterData.TessParams = cmd->tessParams;
+            waterData.FFTParams = cmd->fftParams;
             waterUBO->SetData(&waterData, ShaderBindingLayout::WaterUBO::GetSize());
             glBindBufferBase(GL_UNIFORM_BUFFER, ShaderBindingLayout::UBO_WATER, waterUBO->GetRendererID());
         }
@@ -2057,6 +2058,9 @@ namespace OloEngine
         BindTrackedTexture(cmd->normalMap1ID, ShaderBindingLayout::TEX_WATER_NORMAL_1, GL_TEXTURE_2D);
         BindTrackedTexture(cmd->noiseTextureID, ShaderBindingLayout::TEX_WATER_NOISE, GL_TEXTURE_2D);
         BindTrackedTexture(cmd->foamTextureID, ShaderBindingLayout::TEX_WATER_FOAM, GL_TEXTURE_2D);
+        // FFT ocean cascade textures (sampled when u_FFTParams.x > 0.5)
+        BindTrackedTexture(cmd->fftDisplacementID, ShaderBindingLayout::TEX_WATER_FFT_DISPLACEMENT, GL_TEXTURE_2D);
+        BindTrackedTexture(cmd->fftDerivativesID, ShaderBindingLayout::TEX_WATER_FFT_DERIVATIVES, GL_TEXTURE_2D);
 
         // Bind the global environment cubemap for water reflections (binding 9).
         // The water pass doesn't otherwise touch this slot, so set it explicitly

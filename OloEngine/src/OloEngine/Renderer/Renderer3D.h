@@ -994,10 +994,15 @@ namespace OloEngine
             glm::vec4 sssColor = glm::vec4(0.0f);
             glm::vec4 ssrParams = glm::vec4(0.0f);
             glm::vec4 tessParams = glm::vec4(0.0f);
+            // FFT ocean (WATER_FUTURE_IMPROVEMENTS.md §1): x = useFFT (0/1),
+            // y = 1/patchSize, z = heightScale, w = horizontalScale.
+            glm::vec4 fftParams = glm::vec4(0.0f);
             RendererID normalMap0ID = 0;
             RendererID normalMap1ID = 0;
             RendererID noiseTextureID = 0;
             RendererID foamTextureID = 0;
+            RendererID fftDisplacementID = 0; // rgb = (dx,h,dz), a = foam
+            RendererID fftDerivativesID = 0;  // rgb = normal, a = jacobian
             bool refractionEnabled = true;
             bool ssrEnabled = true;
             // When true the water plane draws double-sided so it stays visible

@@ -5154,6 +5154,36 @@ namespace OloEngine
                 ImGui::DragFloat("Steepness 1", &component.m_WaveSteepness1, 0.01f, 0.0f, 1.0f);
                 ImGui::DragFloat("Wavelength 1", &component.m_Wavelength1, 0.1f, 0.1f, 500.0f);
 
+                ImGui::SeparatorText("FFT Ocean (Tessendorf)");
+                ImGui::Checkbox("Use FFT Ocean", &component.m_UseFFT);
+                if (component.m_UseFFT)
+                {
+                    // Resolution snapped to a power of two (FFT requirement).
+                    static const i32 kFFTResOptions[] = { 32, 64, 128, 256, 512 };
+                    i32 resIdx = 2; // default 128
+                    for (i32 i = 0; i < 5; ++i)
+                        if (static_cast<u32>(kFFTResOptions[i]) == component.m_FFTResolution)
+                            resIdx = i;
+                    const char* kFFTResLabels[] = { "32", "64", "128", "256", "512" };
+                    if (ImGui::Combo("FFT Resolution", &resIdx, kFFTResLabels, 5))
+                        component.m_FFTResolution = static_cast<u32>(kFFTResOptions[resIdx]);
+
+                    ImGui::DragFloat("Patch Size (m)", &component.m_FFTPatchSize, 1.0f, 1.0f, 5000.0f);
+                    ImGui::DragFloat("Wind Speed (m/s)", &component.m_FFTWindSpeed, 0.1f, 0.1f, 100.0f);
+                    if (ImGui::DragFloat2("Wind Direction", glm::value_ptr(component.m_FFTWindDirection), 0.01f, -1.0f, 1.0f))
+                    {
+                        if (f32 len = glm::length(component.m_FFTWindDirection); len > 1e-6f)
+                            component.m_FFTWindDirection = glm::normalize(component.m_FFTWindDirection);
+                        else
+                            component.m_FFTWindDirection = { 1.0f, 0.0f };
+                    }
+                    ImGui::DragFloat("FFT Amplitude", &component.m_FFTAmplitude, 0.05f, 0.0f, 100.0f);
+                    ImGui::DragFloat("Choppiness", &component.m_FFTChoppiness, 0.01f, 0.0f, 5.0f);
+                    ImGui::DragFloat("Height Scale", &component.m_FFTHeightScale, 0.01f, 0.0f, 20.0f);
+                    if (i32 seed = static_cast<i32>(component.m_FFTSeed); ImGui::DragInt("Seed", &seed, 1, 0, 1000000))
+                        component.m_FFTSeed = static_cast<u32>(std::max(seed, 0));
+                }
+
                 ImGui::SeparatorText("Appearance");
                 ImGui::ColorEdit3("Shallow Color", glm::value_ptr(component.m_WaterColor));
                 ImGui::ColorEdit3("Deep Color", glm::value_ptr(component.m_DeepColor));

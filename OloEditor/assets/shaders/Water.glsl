@@ -48,9 +48,15 @@ layout(std140, binding = 23) uniform WaterParams
     vec4 u_SSSColor;               // rgb = subsurface color, w = unused
     vec4 u_SSRParams;              // x = maxSteps (0=disabled), y = stepSize, z = maxDistance, w = thickness
     vec4 u_TessParams;             // x = tessellationFactor (0=disabled), y = minTessDist, z = maxTessDist, w = unused
+    vec4 u_FFTParams;              // x = useFFT (0/1), y = 1/patchSize, z = heightScale, w = horizontalScale
 };
 
 #include "include/WaterCommon.glsl"
+
+// FFT ocean cascade textures (WATER_FUTURE_IMPROVEMENTS.md §1). Sampled when
+// u_FFTParams.x > 0.5 instead of summing Gerstner waves analytically.
+layout(binding = 50) uniform sampler2D u_FFTDisplacement; // rgb = (dx, h, dz), a = foam
+layout(binding = 51) uniform sampler2D u_FFTDerivatives;  // rgb = normal, a = jacobian
 
 layout(location = 0) out vec3 v_WorldPos;
 layout(location = 1) out vec3 v_Normal;
@@ -90,27 +96,43 @@ void main()
     }
 
     vec3 displacedNormal;
-    vec3 displacedPos = sumGerstnerWaves(
-        worldPos.xyz, time,
-        u_WaveDir0, u_WaveDir1,
-        frequency, amplitude,
-        displacedNormal
-    );
+    vec3 displacedPos;
+    if (u_FFTParams.x > 0.5)
+    {
+        // FFT ocean: sample the spectral displacement field (tiles by patch size).
+        vec2 fftUV = worldPos.xz * u_FFTParams.y;
+        vec4 disp = textureLod(u_FFTDisplacement, fftUV, 0.0);
+        displacedPos = worldPos.xyz + vec3(disp.x * u_FFTParams.w, disp.y * u_FFTParams.z, disp.z * u_FFTParams.w);
+        displacedNormal = normalize(textureLod(u_FFTDerivatives, fftUV, 0.0).xyz);
+        v_PrevWorldPos = displacedPos; // FFT field has no prev-frame copy → no wave reprojection
+    }
+    else
+    {
+        displacedPos = sumGerstnerWaves(
+            worldPos.xyz, time,
+            u_WaveDir0, u_WaveDir1,
+            frequency, amplitude,
+            displacedNormal
+        );
 
-    // Prev-frame displaced position — same Gerstner sum evaluated at prev time
-    // through the prev model transform so the motion vector captures wave sway.
-    vec3 _prevNormalUnused;
-    vec3 displacedPosPrev = sumGerstnerWaves(
-        worldPosPrev.xyz, prevTime,
-        u_WaveDir0, u_WaveDir1,
-        frequency, amplitude,
-        _prevNormalUnused
-    );
-    v_PrevWorldPos = displacedPosPrev;
+        // Prev-frame displaced position — same Gerstner sum evaluated at prev time
+        // through the prev model transform so the motion vector captures wave sway.
+        vec3 _prevNormalUnused;
+        vec3 displacedPosPrev = sumGerstnerWaves(
+            worldPosPrev.xyz, prevTime,
+            u_WaveDir0, u_WaveDir1,
+            frequency, amplitude,
+            _prevNormalUnused
+        );
+        v_PrevWorldPos = displacedPosPrev;
+    }
 
-    // Normalized wave height [-1, 1] for foam/SSS
+    // Normalized wave height for foam/SSS. Gerstner divides by amplitude to get a
+    // ~[-1,1] range; FFT height is already in metres (its own amplitude), so pass
+    // it through raw — foamHeightStart then reads as a metre threshold.
     float maxAmplitude = max(amplitude, 0.001);
-    v_WaveHeight = (displacedPos.y - worldPos.y) / maxAmplitude;
+    v_WaveHeight = (u_FFTParams.x > 0.5) ? (displacedPos.y - worldPos.y)
+                                         : (displacedPos.y - worldPos.y) / maxAmplitude;
 
     v_WorldPos = displacedPos;
     v_Normal = displacedNormal;
@@ -163,6 +185,7 @@ layout(std140, binding = 23) uniform WaterParams
     vec4 u_SSSColor;
     vec4 u_SSRParams;
     vec4 u_TessParams;
+    vec4 u_FFTParams;
 };
 
 layout(location = 0) in vec3 v_WorldPos[];
@@ -353,9 +376,14 @@ layout(std140, binding = 23) uniform WaterParams
     vec4 u_SSSColor;
     vec4 u_SSRParams;
     vec4 u_TessParams;
+    vec4 u_FFTParams;
 };
 
 #include "include/WaterCommon.glsl"
+
+// FFT ocean cascade textures (WATER_FUTURE_IMPROVEMENTS.md §1).
+layout(binding = 50) uniform sampler2D u_FFTDisplacement; // rgb = (dx, h, dz), a = foam
+layout(binding = 51) uniform sampler2D u_FFTDerivatives;  // rgb = normal, a = jacobian
 
 layout(location = 0) in vec3 tc_WorldPos[];
 layout(location = 1) in vec3 tc_Normal[];
@@ -384,32 +412,45 @@ void main()
             + gl_TessCoord.y * tc_TexCoord[1]
             + gl_TessCoord.z * tc_TexCoord[2];
 
-    // Apply Gerstner wave displacement
+    // Apply wave displacement (FFT ocean or analytic Gerstner)
     float time = u_WaveParams.x * u_WaveParams.y;
     float prevTime = u_NormalMapSpeed.z * u_WaveParams.y;
     float amplitude = u_WaveParams.z;
     float frequency = u_WaveParams.w;
 
     vec3 displacedNormal;
-    vec3 displacedPos = sumGerstnerWaves(
-        pos, time,
-        u_WaveDir0, u_WaveDir1,
-        frequency, amplitude,
-        displacedNormal
-    );
+    vec3 displacedPos;
+    if (u_FFTParams.x > 0.5)
+    {
+        vec2 fftUV = pos.xz * u_FFTParams.y;
+        vec4 disp = textureLod(u_FFTDisplacement, fftUV, 0.0);
+        displacedPos = pos + vec3(disp.x * u_FFTParams.w, disp.y * u_FFTParams.z, disp.z * u_FFTParams.w);
+        displacedNormal = normalize(textureLod(u_FFTDerivatives, fftUV, 0.0).xyz);
+        v_PrevWorldPos = displacedPos; // FFT field has no prev-frame copy
+    }
+    else
+    {
+        displacedPos = sumGerstnerWaves(
+            pos, time,
+            u_WaveDir0, u_WaveDir1,
+            frequency, amplitude,
+            displacedNormal
+        );
 
-    // Prev-frame displacement for velocity reprojection
-    vec3 _prevNormalUnused;
-    vec3 displacedPosPrev = sumGerstnerWaves(
-        posPrev, prevTime,
-        u_WaveDir0, u_WaveDir1,
-        frequency, amplitude,
-        _prevNormalUnused
-    );
-    v_PrevWorldPos = displacedPosPrev;
+        // Prev-frame displacement for velocity reprojection
+        vec3 _prevNormalUnused;
+        vec3 displacedPosPrev = sumGerstnerWaves(
+            posPrev, prevTime,
+            u_WaveDir0, u_WaveDir1,
+            frequency, amplitude,
+            _prevNormalUnused
+        );
+        v_PrevWorldPos = displacedPosPrev;
+    }
 
     float maxAmplitude = max(amplitude, 0.001);
-    v_WaveHeight = (displacedPos.y - pos.y) / maxAmplitude;
+    v_WaveHeight = (u_FFTParams.x > 0.5) ? (displacedPos.y - pos.y)
+                                         : (displacedPos.y - pos.y) / maxAmplitude;
 
     v_WorldPos = displacedPos;
     v_Normal = displacedNormal;
@@ -495,10 +536,14 @@ layout(std140, binding = 23) uniform WaterParams
     vec4 u_SSSColor;               // rgb = subsurface color, w = unused
     vec4 u_SSRParams;              // x = maxSteps (0=disabled), y = stepSize, z = maxDistance, w = thickness
     vec4 u_TessParams;             // x = tessellationFactor, y = minTessDist, z = maxTessDist, w = unused
+    vec4 u_FFTParams;              // x = useFFT (0/1), y = 1/patchSize, z = heightScale, w = horizontalScale
 };
 
 // Environment map for reflection (same slot as PBR shaders)
 layout(binding = 9) uniform samplerCube u_EnvironmentMap;
+
+// FFT ocean displacement (binding 50): a-channel carries the Jacobian-based foam.
+layout(binding = 50) uniform sampler2D u_FFTDisplacement;
 
 // Scrolling normal maps and noise texture
 layout(binding = 36) uniform sampler2D u_NormalMap0;
@@ -947,6 +992,16 @@ void main()
     angleFoam  *= foamGate;
 
     float foam = max(max(heightFoam, angleFoam), shorelineFoam);
+
+    // FFT ocean: Jacobian-based foam where the choppy surface folds (§2.1). The
+    // displacement texture's alpha is saturate(1 - J): 0 on smooth water, →1 in
+    // the pinched, breaking crests. This is far more physically plausible than
+    // the height/angle thresholds above, so fold it in as a strong contributor.
+    if (u_FFTParams.x > 0.5)
+    {
+        float fftFoam = textureLod(u_FFTDisplacement, v_WorldPos.xz * u_FFTParams.y, 0.0).a;
+        foam = max(foam, fftFoam);
+    }
 
     // Distance fade: at grazing angles the foam patches compress toward the
     // horizon into a continuous white wash that dominates the frame. Fade foam

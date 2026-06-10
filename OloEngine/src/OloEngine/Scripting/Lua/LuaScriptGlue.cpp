@@ -953,7 +953,24 @@ namespace OloEngine
                                          "godRaySunFalloff", sol::property([](const WaterComponent& w)
                                                                            { return w.m_GodRaySunFalloff; }, [](WaterComponent& w, f32 v)
                                                                            { if (std::isfinite(v) && v >= 1.0f && v <= 64.0f) w.m_GodRaySunFalloff = v; }),
-                                         "renderFromBelow", &WaterComponent::m_RenderFromBelow);
+                                         "renderFromBelow", &WaterComponent::m_RenderFromBelow,
+                                         // FFT ocean (WATER_FUTURE_IMPROVEMENTS.md §1)
+                                         "useFFT", &WaterComponent::m_UseFFT,
+                                         "fftPatchSize", sol::property([](const WaterComponent& w)
+                                                                       { return w.m_FFTPatchSize; }, [](WaterComponent& w, f32 v)
+                                                                       { if (std::isfinite(v) && v >= 1.0f && v <= 5000.0f) w.m_FFTPatchSize = v; }),
+                                         "fftWindSpeed", sol::property([](const WaterComponent& w)
+                                                                       { return w.m_FFTWindSpeed; }, [](WaterComponent& w, f32 v)
+                                                                       { if (std::isfinite(v) && v >= 0.1f && v <= 100.0f) w.m_FFTWindSpeed = v; }),
+                                         "fftAmplitude", sol::property([](const WaterComponent& w)
+                                                                       { return w.m_FFTAmplitude; }, [](WaterComponent& w, f32 v)
+                                                                       { if (std::isfinite(v) && v >= 0.0f && v <= 100.0f) w.m_FFTAmplitude = v; }),
+                                         "fftChoppiness", sol::property([](const WaterComponent& w)
+                                                                        { return w.m_FFTChoppiness; }, [](WaterComponent& w, f32 v)
+                                                                        { if (std::isfinite(v) && v >= 0.0f && v <= 5.0f) w.m_FFTChoppiness = v; }),
+                                         "fftHeightScale", sol::property([](const WaterComponent& w)
+                                                                         { return w.m_FFTHeightScale; }, [](WaterComponent& w, f32 v)
+                                                                         { if (std::isfinite(v) && v >= 0.0f && v <= 20.0f) w.m_FFTHeightScale = v; }));
 
         // --- TerrainComponent ---
         // Exposes the scalar procedural-generation params so gameplay scripts can drive

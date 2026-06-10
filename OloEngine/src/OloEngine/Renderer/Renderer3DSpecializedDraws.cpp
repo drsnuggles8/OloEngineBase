@@ -327,10 +327,13 @@ namespace OloEngine
         cmd->sssColor = params.sssColor;
         cmd->ssrParams = params.ssrParams;
         cmd->tessParams = params.tessParams;
+        cmd->fftParams = params.fftParams;
         cmd->normalMap0ID = params.normalMap0ID;
         cmd->normalMap1ID = params.normalMap1ID;
         cmd->noiseTextureID = params.noiseTextureID;
         cmd->foamTextureID = params.foamTextureID;
+        cmd->fftDisplacementID = params.fftDisplacementID;
+        cmd->fftDerivativesID = params.fftDerivativesID;
         cmd->refractionEnabled = params.refractionEnabled;
         cmd->ssrEnabled = params.ssrEnabled;
         cmd->entityID = entityID;
