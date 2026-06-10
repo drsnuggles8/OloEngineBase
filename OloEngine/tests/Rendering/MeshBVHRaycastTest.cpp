@@ -678,6 +678,67 @@ TEST(MeshBVHParity, MatchesBruteForceOverSphere)
     ExpectBVHMatchesBruteForce(sphere, /*originCount*/ 32);
 }
 
+// -----------------------------------------------------------------------------
+// Regression: heap-constructing a MeshSource by COPY must not corrupt the heap.
+//
+// MeshSource(const TArray<Vertex>&, const TArray<u32>&) used to copy-initialise
+// its TArray members in place. Under an optimised (Release/LTO) build that path
+// overran a heap-allocated MeshSource (the Ref<MeshSource>::Create route) and
+// clobbered adjacent heap allocations. The fault was invisible on the stack
+// (slack absorbed the overrun) and to ASan (the engine's custom FMemory
+// allocator is not instrumented), so it only surfaced as an intermittent access
+// violation in a later, unrelated allocation -- the SEH 0xC0000005 that crashed
+// MeshBVHQuery.BuildsFromMeshSourceOverload in the single-process cross-vendor
+// job. The copy constructor now delegates to the (unaffected) move constructor;
+// this test stresses that path: it kept many heap MeshSources alive (so an
+// overrun would clobber a live neighbour) and verifies their data, then runs the
+// full create -> BVH build -> query -> destroy cycle under heap churn.
+// -----------------------------------------------------------------------------
+TEST(MeshSourceHeapCopyRegression, RepeatedHeapCopyConstructionKeepsHeapIntact)
+{
+    const MeshData cube = MakeCube(0.5f);
+
+    constexpr int kCount = 4096;
+    std::vector<Ref<MeshSource>> sources;
+    sources.reserve(static_cast<sizet>(kCount));
+    for (int i = 0; i < kCount; ++i)
+    {
+        sources.push_back(Ref<MeshSource>::Create(cube.Vertices, cube.Indices));
+        ASSERT_TRUE(sources.back()) << "Ref<MeshSource>::Create returned null at " << i;
+        // Unrelated heap traffic of varying size, to drive allocator reuse the way
+        // the surrounding gtest machinery did when the crash first reproduced.
+        std::vector<u8> churn(static_cast<sizet>(13 + (i % 97)), static_cast<u8>(i));
+        ASSERT_FALSE(churn.empty());
+    }
+
+    for (int i = 0; i < kCount; ++i)
+    {
+        const MeshSource& ms = *sources[static_cast<sizet>(i)];
+        ASSERT_EQ(ms.GetVertices().Num(), cube.Vertices.Num()) << "vertex count corrupted at " << i;
+        ASSERT_EQ(ms.GetIndices().Num(), cube.Indices.Num()) << "index count corrupted at " << i;
+        const BoundingBox& bb = ms.GetBoundingBox();
+        ASSERT_TRUE(std::isfinite(bb.Min.x) && std::isfinite(bb.Max.x)) << "bounds corrupted at " << i;
+        EXPECT_NEAR(bb.Min.x, -0.5f, kTol);
+        EXPECT_NEAR(bb.Max.x, 0.5f, kTol);
+    }
+    sources.clear();
+
+    for (int i = 0; i < kCount; ++i)
+    {
+        auto source = Ref<MeshSource>::Create(cube.Vertices, cube.Indices);
+        ASSERT_TRUE(source);
+        BoundingVolumeHierarchy bvh;
+        bvh.Build(*source);
+        ASSERT_EQ(bvh.GetTriangleCount(), 12u);
+        Ray ray(glm::vec3(0.0f, 0.0f, 3.0f), glm::vec3(0.0f, 0.0f, -1.0f));
+        RayHit hit;
+        ASSERT_TRUE(bvh.CastRay(ray, hit));
+        EXPECT_NEAR(hit.Distance, 2.5f, kTol);
+        std::vector<char> churn(static_cast<sizet>(17 + (i % 64)), 'x');
+        ASSERT_FALSE(churn.empty());
+    }
+}
+
 TEST(MeshBVHParity, MatchesBruteForceForAxisAlignedRays)
 {
     // Axis-aligned rays (a zero direction component => invDir == +/-inf) are the
