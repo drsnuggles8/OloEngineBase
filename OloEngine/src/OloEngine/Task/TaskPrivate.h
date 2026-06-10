@@ -651,7 +651,7 @@ namespace OloEngine::Tasks
                         FinishPipeExecution();
                     }
 
-                    m_ExecutingThreadId.store(0, std::memory_order_relaxed);
+                    m_ExecutingThreadId.store(s_NotExecutingThreadId, std::memory_order_relaxed);
                     ExchangeCurrentTask(PrevTask);
 
                     // Check for pending nested tasks
@@ -717,7 +717,7 @@ namespace OloEngine::Tasks
                     FinishPipeExecution();
                 }
 
-                m_ExecutingThreadId.store(0, std::memory_order_relaxed);
+                m_ExecutingThreadId.store(s_NotExecutingThreadId, std::memory_order_relaxed);
                 ExchangeCurrentTask(PrevTask);
 
                 // Check for pending nested tasks
@@ -935,10 +935,16 @@ namespace OloEngine::Tasks
                 }
             }
 
-            static u32 GetCurrentThreadId()
-            {
-                return static_cast<u32>(std::hash<std::thread::id>{}(std::this_thread::get_id()) & 0xFFFFFFFF);
-            }
+            // The current thread's real OS thread id (FPlatformTLS::GetCurrentThreadId).
+            // Defined out-of-line in TaskPrivate.cpp so this widely-included header
+            // doesn't pull in <Windows.h> via PlatformTLS.h (mirrors NamedThreads).
+            // Using the OS id rather than a 64->32-truncated std::hash<thread::id>
+            // removes the collision risk that could make IsAwaitable() wrong, and
+            // pairs with the s_NotExecutingThreadId sentinel below — a value the OS
+            // never assigns to a live thread (matches UE's FThread::InvalidThreadId,
+            // unlike the old sentinel 0 which a legitimate hash could produce).
+            static u32 GetCurrentThreadId();
+            static constexpr u32 s_NotExecutingThreadId = ~static_cast<u32>(0);
 
             // @brief Try to wait while processing named thread tasks
             //
@@ -1004,7 +1010,7 @@ namespace OloEngine::Tasks
             FEventCount m_StateChangeEvent;
             EExtendedTaskPriority m_ExtendedPriority = EExtendedTaskPriority::None;
             std::atomic<bool> m_TaskTriggered{ false };
-            std::atomic<u32> m_ExecutingThreadId{ 0 };
+            std::atomic<u32> m_ExecutingThreadId{ s_NotExecutingThreadId };
 
 #if OLO_TASK_TRACE_ENABLED
             std::atomic<TaskTrace::FId> m_TraceId{ TaskTrace::GenerateTaskId() };

@@ -289,6 +289,17 @@ namespace OloEngine::LowLevelTasks::Private
             CheckStandbyState(NewState);
             if (m_StandbyState.compare_exchange_weak(LocalState, NewState))
             {
+                // Re-check shutdown after pushing ourselves onto the standby stack.
+                // StartShutdown drains the stack once and then stores
+                // m_StandbyState = StackMask; a node pushed after that drain would
+                // never be triggered, hanging StopWorkers on Thread->Join(). If
+                // shutdown has begun, trigger our own event and bail instead of
+                // blocking in EnterWait. (Matches UE5.8.)
+                if (m_IsShuttingDown.load(std::memory_order_acquire))
+                {
+                    Node->Event->Trigger();
+                    return;
+                }
                 EnterWait(Node);
             }
         }
@@ -311,6 +322,16 @@ namespace OloEngine::LowLevelTasks::Private
         CheckStandbyState(NewState);
         if (m_StandbyState.compare_exchange_strong(LocalState, NewState))
         {
+            // Same shutdown race as ConditionalStandby: re-check after pushing onto
+            // the standby stack. If StartShutdown already drained the stack, trigger
+            // our own event and return instead of blocking forever in EnterWait.
+            // (Matches UE5.8.)
+            if (m_IsShuttingDown.load(std::memory_order_acquire))
+            {
+                Node->Event->Trigger();
+                OutOfWork.Stop();
+                return true;
+            }
             // Fallthrough to wait
         }
         else

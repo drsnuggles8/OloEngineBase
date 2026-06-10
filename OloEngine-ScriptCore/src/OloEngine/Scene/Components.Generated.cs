@@ -773,6 +773,66 @@ namespace OloEngine
 			get => InternalCalls.PhysicsJoint3DComponent_GetBreakTorque(Entity.ID);
 			set => InternalCalls.PhysicsJoint3DComponent_SetBreakTorque(Entity.ID, value);
 		}
+
+		public int HingeMotorMode
+		{
+			get => InternalCalls.PhysicsJoint3DComponent_GetHingeMotorMode(Entity.ID);
+			set => InternalCalls.PhysicsJoint3DComponent_SetHingeMotorMode(Entity.ID, value);
+		}
+
+		public float HingeMotorTargetVelocityDeg
+		{
+			get => InternalCalls.PhysicsJoint3DComponent_GetHingeMotorTargetVelocityDeg(Entity.ID);
+			set => InternalCalls.PhysicsJoint3DComponent_SetHingeMotorTargetVelocityDeg(Entity.ID, value);
+		}
+
+		public float HingeMotorTargetAngleDeg
+		{
+			get => InternalCalls.PhysicsJoint3DComponent_GetHingeMotorTargetAngleDeg(Entity.ID);
+			set => InternalCalls.PhysicsJoint3DComponent_SetHingeMotorTargetAngleDeg(Entity.ID, value);
+		}
+
+		public float HingeMaxMotorTorque
+		{
+			get => InternalCalls.PhysicsJoint3DComponent_GetHingeMaxMotorTorque(Entity.ID);
+			set => InternalCalls.PhysicsJoint3DComponent_SetHingeMaxMotorTorque(Entity.ID, value);
+		}
+
+		public float HingeMaxFrictionTorque
+		{
+			get => InternalCalls.PhysicsJoint3DComponent_GetHingeMaxFrictionTorque(Entity.ID);
+			set => InternalCalls.PhysicsJoint3DComponent_SetHingeMaxFrictionTorque(Entity.ID, value);
+		}
+
+		public int SliderMotorMode
+		{
+			get => InternalCalls.PhysicsJoint3DComponent_GetSliderMotorMode(Entity.ID);
+			set => InternalCalls.PhysicsJoint3DComponent_SetSliderMotorMode(Entity.ID, value);
+		}
+
+		public float SliderMotorTargetVelocity
+		{
+			get => InternalCalls.PhysicsJoint3DComponent_GetSliderMotorTargetVelocity(Entity.ID);
+			set => InternalCalls.PhysicsJoint3DComponent_SetSliderMotorTargetVelocity(Entity.ID, value);
+		}
+
+		public float SliderMotorTargetPosition
+		{
+			get => InternalCalls.PhysicsJoint3DComponent_GetSliderMotorTargetPosition(Entity.ID);
+			set => InternalCalls.PhysicsJoint3DComponent_SetSliderMotorTargetPosition(Entity.ID, value);
+		}
+
+		public float SliderMaxMotorForce
+		{
+			get => InternalCalls.PhysicsJoint3DComponent_GetSliderMaxMotorForce(Entity.ID);
+			set => InternalCalls.PhysicsJoint3DComponent_SetSliderMaxMotorForce(Entity.ID, value);
+		}
+
+		public float SliderMaxFrictionForce
+		{
+			get => InternalCalls.PhysicsJoint3DComponent_GetSliderMaxFrictionForce(Entity.ID);
+			set => InternalCalls.PhysicsJoint3DComponent_SetSliderMaxFrictionForce(Entity.ID, value);
+		}
 	}
 
 	public partial class PointLightComponent : Component

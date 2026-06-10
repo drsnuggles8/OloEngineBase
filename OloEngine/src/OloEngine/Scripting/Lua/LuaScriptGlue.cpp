@@ -1103,7 +1103,43 @@ namespace OloEngine
                                                                               { if (std::isfinite(v)) j.m_BreakForce = std::clamp(v, 0.0f, 1.0e9f); }),
                                                   "breakTorque", sol::property([](const PhysicsJoint3DComponent& j)
                                                                                { return j.m_BreakTorque; }, [](PhysicsJoint3DComponent& j, f32 v)
-                                                                               { if (std::isfinite(v)) j.m_BreakTorque = std::clamp(v, 0.0f, 1.0e9f); }));
+                                                                               { if (std::isfinite(v)) j.m_BreakTorque = std::clamp(v, 0.0f, 1.0e9f); }),
+                                                  // Hinge motor + friction. Mode is exposed as an int
+                                                  // (0=Off, 1=Velocity, 2=Position); target velocity is deg/s
+                                                  // and target angle is deg. Max torque / friction are
+                                                  // magnitudes clamped to [0, 1e9] (0 = no authority/friction).
+                                                  "hingeMotorMode", sol::property([](const PhysicsJoint3DComponent& j) -> int
+                                                                                  { return std::to_underlying(j.m_HingeMotorMode); }, [](PhysicsJoint3DComponent& j, int v)
+                                                                                  { if (v >= 0 && v <= static_cast<int>(JointMotorMode::Position)) j.m_HingeMotorMode = static_cast<JointMotorMode>(v); }),
+                                                  "hingeMotorTargetVelocityDeg", sol::property([](const PhysicsJoint3DComponent& j)
+                                                                                               { return j.m_HingeMotorTargetVelocityDeg; }, [](PhysicsJoint3DComponent& j, f32 v)
+                                                                                               { if (std::isfinite(v)) j.m_HingeMotorTargetVelocityDeg = v; }),
+                                                  "hingeMotorTargetAngleDeg", sol::property([](const PhysicsJoint3DComponent& j)
+                                                                                            { return j.m_HingeMotorTargetAngleDeg; }, [](PhysicsJoint3DComponent& j, f32 v)
+                                                                                            { if (std::isfinite(v)) j.m_HingeMotorTargetAngleDeg = v; }),
+                                                  "hingeMaxMotorTorque", sol::property([](const PhysicsJoint3DComponent& j)
+                                                                                       { return j.m_HingeMaxMotorTorque; }, [](PhysicsJoint3DComponent& j, f32 v)
+                                                                                       { if (std::isfinite(v)) j.m_HingeMaxMotorTorque = std::clamp(v, 0.0f, 1.0e9f); }),
+                                                  "hingeMaxFrictionTorque", sol::property([](const PhysicsJoint3DComponent& j)
+                                                                                          { return j.m_HingeMaxFrictionTorque; }, [](PhysicsJoint3DComponent& j, f32 v)
+                                                                                          { if (std::isfinite(v)) j.m_HingeMaxFrictionTorque = std::clamp(v, 0.0f, 1.0e9f); }),
+                                                  // Slider motor + friction. Target velocity is m/s, target
+                                                  // position is m; max force / friction are magnitudes in N.
+                                                  "sliderMotorMode", sol::property([](const PhysicsJoint3DComponent& j) -> int
+                                                                                   { return std::to_underlying(j.m_SliderMotorMode); }, [](PhysicsJoint3DComponent& j, int v)
+                                                                                   { if (v >= 0 && v <= static_cast<int>(JointMotorMode::Position)) j.m_SliderMotorMode = static_cast<JointMotorMode>(v); }),
+                                                  "sliderMotorTargetVelocity", sol::property([](const PhysicsJoint3DComponent& j)
+                                                                                             { return j.m_SliderMotorTargetVelocity; }, [](PhysicsJoint3DComponent& j, f32 v)
+                                                                                             { if (std::isfinite(v)) j.m_SliderMotorTargetVelocity = v; }),
+                                                  "sliderMotorTargetPosition", sol::property([](const PhysicsJoint3DComponent& j)
+                                                                                             { return j.m_SliderMotorTargetPosition; }, [](PhysicsJoint3DComponent& j, f32 v)
+                                                                                             { if (std::isfinite(v)) j.m_SliderMotorTargetPosition = v; }),
+                                                  "sliderMaxMotorForce", sol::property([](const PhysicsJoint3DComponent& j)
+                                                                                       { return j.m_SliderMaxMotorForce; }, [](PhysicsJoint3DComponent& j, f32 v)
+                                                                                       { if (std::isfinite(v)) j.m_SliderMaxMotorForce = std::clamp(v, 0.0f, 1.0e9f); }),
+                                                  "sliderMaxFrictionForce", sol::property([](const PhysicsJoint3DComponent& j)
+                                                                                          { return j.m_SliderMaxFrictionForce; }, [](PhysicsJoint3DComponent& j, f32 v)
+                                                                                          { if (std::isfinite(v)) j.m_SliderMaxFrictionForce = std::clamp(v, 0.0f, 1.0e9f); }));
 
         // --- PrefabComponent ---
         // Read-only window into prefab-instance identity & override state.

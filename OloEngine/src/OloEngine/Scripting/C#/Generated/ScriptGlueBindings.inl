@@ -2373,6 +2373,222 @@ static void PhysicsJoint3DComponent_SetBreakTorque(UUID entityID, float value)
     comp.m_BreakTorque = value;
 }
 
+static int PhysicsJoint3DComponent_GetHingeMotorMode(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<PhysicsJoint3DComponent>();
+    return static_cast<int>(comp.m_HingeMotorMode);
+}
+
+static void PhysicsJoint3DComponent_SetHingeMotorMode(UUID entityID, int value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<PhysicsJoint3DComponent>();
+    comp.m_HingeMotorMode = static_cast<JointMotorMode>(value);
+}
+
+static float PhysicsJoint3DComponent_GetHingeMotorTargetVelocityDeg(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<PhysicsJoint3DComponent>();
+    return comp.m_HingeMotorTargetVelocityDeg;
+}
+
+static void PhysicsJoint3DComponent_SetHingeMotorTargetVelocityDeg(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<PhysicsJoint3DComponent>();
+    comp.m_HingeMotorTargetVelocityDeg = value;
+}
+
+static float PhysicsJoint3DComponent_GetHingeMotorTargetAngleDeg(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<PhysicsJoint3DComponent>();
+    return comp.m_HingeMotorTargetAngleDeg;
+}
+
+static void PhysicsJoint3DComponent_SetHingeMotorTargetAngleDeg(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<PhysicsJoint3DComponent>();
+    comp.m_HingeMotorTargetAngleDeg = value;
+}
+
+static float PhysicsJoint3DComponent_GetHingeMaxMotorTorque(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<PhysicsJoint3DComponent>();
+    return comp.m_HingeMaxMotorTorque;
+}
+
+static void PhysicsJoint3DComponent_SetHingeMaxMotorTorque(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<PhysicsJoint3DComponent>();
+    comp.m_HingeMaxMotorTorque = value;
+}
+
+static float PhysicsJoint3DComponent_GetHingeMaxFrictionTorque(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<PhysicsJoint3DComponent>();
+    return comp.m_HingeMaxFrictionTorque;
+}
+
+static void PhysicsJoint3DComponent_SetHingeMaxFrictionTorque(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<PhysicsJoint3DComponent>();
+    comp.m_HingeMaxFrictionTorque = value;
+}
+
+static int PhysicsJoint3DComponent_GetSliderMotorMode(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<PhysicsJoint3DComponent>();
+    return static_cast<int>(comp.m_SliderMotorMode);
+}
+
+static void PhysicsJoint3DComponent_SetSliderMotorMode(UUID entityID, int value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<PhysicsJoint3DComponent>();
+    comp.m_SliderMotorMode = static_cast<JointMotorMode>(value);
+}
+
+static float PhysicsJoint3DComponent_GetSliderMotorTargetVelocity(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<PhysicsJoint3DComponent>();
+    return comp.m_SliderMotorTargetVelocity;
+}
+
+static void PhysicsJoint3DComponent_SetSliderMotorTargetVelocity(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<PhysicsJoint3DComponent>();
+    comp.m_SliderMotorTargetVelocity = value;
+}
+
+static float PhysicsJoint3DComponent_GetSliderMotorTargetPosition(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<PhysicsJoint3DComponent>();
+    return comp.m_SliderMotorTargetPosition;
+}
+
+static void PhysicsJoint3DComponent_SetSliderMotorTargetPosition(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<PhysicsJoint3DComponent>();
+    comp.m_SliderMotorTargetPosition = value;
+}
+
+static float PhysicsJoint3DComponent_GetSliderMaxMotorForce(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<PhysicsJoint3DComponent>();
+    return comp.m_SliderMaxMotorForce;
+}
+
+static void PhysicsJoint3DComponent_SetSliderMaxMotorForce(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<PhysicsJoint3DComponent>();
+    comp.m_SliderMaxMotorForce = value;
+}
+
+static float PhysicsJoint3DComponent_GetSliderMaxFrictionForce(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<PhysicsJoint3DComponent>();
+    return comp.m_SliderMaxFrictionForce;
+}
+
+static void PhysicsJoint3DComponent_SetSliderMaxFrictionForce(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<PhysicsJoint3DComponent>();
+    comp.m_SliderMaxFrictionForce = value;
+}
+
 ///////////////////////////////////////////////////////////////////////////////////////////
 // PointLightComponent                                                            //
 ///////////////////////////////////////////////////////////////////////////////////////////

@@ -3525,6 +3525,26 @@ namespace OloEngine
             if (component.m_Type == JointType3D::Hinge || component.m_Type == JointType3D::Slider || component.m_Type == JointType3D::Cone)
                 DrawVec3Control("Axis (local)##PhysicsJoint3D", component.m_Axis);
 
+            // Motor-mode combo shared by the Hinge and Slider arms below
+            // (Off / Velocity / Position). Returns true when a target field is
+            // relevant — i.e. the motor is not Off.
+            const auto drawMotorModeCombo = [](const char* label, JointMotorMode& mode)
+            {
+                const char* motorModeStrings[] = { "Off", "Velocity", "Position" };
+                if (const char* current = motorModeStrings[static_cast<int>(mode)]; ImGui::BeginCombo(label, current))
+                {
+                    for (int i = 0; i < IM_ARRAYSIZE(motorModeStrings); ++i)
+                    {
+                        const bool isSelected = (current == motorModeStrings[i]);
+                        if (ImGui::Selectable(motorModeStrings[i], isSelected))
+                            mode = static_cast<JointMotorMode>(i);
+                        if (isSelected)
+                            ImGui::SetItemDefaultFocus();
+                    }
+                    ImGui::EndCombo();
+                }
+            };
+
             switch (component.m_Type)
             {
                 case JointType3D::Distance:
@@ -3532,13 +3552,35 @@ namespace OloEngine
                     ImGui::DragFloat("Max Distance##PhysicsJoint3D", &component.m_MaxDistance, 0.01f, -1.0f, 10000.0f);
                     break;
                 case JointType3D::Hinge:
+                {
                     ImGui::DragFloat("Min Angle (deg)##PhysicsJoint3D", &component.m_HingeMinAngleDeg, 1.0f, -180.0f, 0.0f);
                     ImGui::DragFloat("Max Angle (deg)##PhysicsJoint3D", &component.m_HingeMaxAngleDeg, 1.0f, 0.0f, 180.0f);
+                    // Powered hinge motor + friction.
+                    drawMotorModeCombo("Motor Mode##HingeMotor", component.m_HingeMotorMode);
+                    if (component.m_HingeMotorMode == JointMotorMode::Velocity)
+                        ImGui::DragFloat("Target Velocity (deg/s)##HingeMotor", &component.m_HingeMotorTargetVelocityDeg, 1.0f, -3600.0f, 3600.0f);
+                    else if (component.m_HingeMotorMode == JointMotorMode::Position)
+                        ImGui::DragFloat("Target Angle (deg)##HingeMotor", &component.m_HingeMotorTargetAngleDeg, 1.0f, -360.0f, 360.0f);
+                    if (component.m_HingeMotorMode != JointMotorMode::Off)
+                        ImGui::DragFloat("Max Motor Torque (N\xC2\xB7m)##HingeMotor", &component.m_HingeMaxMotorTorque, 1.0f, 0.0f, 1.0e9f);
+                    ImGui::DragFloat("Max Friction Torque (N\xC2\xB7m)##HingeMotor", &component.m_HingeMaxFrictionTorque, 1.0f, 0.0f, 1.0e9f);
                     break;
+                }
                 case JointType3D::Slider:
+                {
                     ImGui::DragFloat("Min Limit##PhysicsJoint3D", &component.m_SliderMinLimit, 0.01f, -10000.0f, 10000.0f);
                     ImGui::DragFloat("Max Limit##PhysicsJoint3D", &component.m_SliderMaxLimit, 0.01f, -10000.0f, 10000.0f);
+                    // Powered slider motor + friction.
+                    drawMotorModeCombo("Motor Mode##SliderMotor", component.m_SliderMotorMode);
+                    if (component.m_SliderMotorMode == JointMotorMode::Velocity)
+                        ImGui::DragFloat("Target Velocity (m/s)##SliderMotor", &component.m_SliderMotorTargetVelocity, 0.01f, -1000.0f, 1000.0f);
+                    else if (component.m_SliderMotorMode == JointMotorMode::Position)
+                        ImGui::DragFloat("Target Position (m)##SliderMotor", &component.m_SliderMotorTargetPosition, 0.01f, -10000.0f, 10000.0f);
+                    if (component.m_SliderMotorMode != JointMotorMode::Off)
+                        ImGui::DragFloat("Max Motor Force (N)##SliderMotor", &component.m_SliderMaxMotorForce, 1.0f, 0.0f, 1.0e9f);
+                    ImGui::DragFloat("Max Friction Force (N)##SliderMotor", &component.m_SliderMaxFrictionForce, 1.0f, 0.0f, 1.0e9f);
                     break;
+                }
                 case JointType3D::Cone:
                     ImGui::DragFloat("Cone Half-Angle (deg)##PhysicsJoint3D", &component.m_ConeHalfAngleDeg, 1.0f, 0.0f, 180.0f);
                     break;

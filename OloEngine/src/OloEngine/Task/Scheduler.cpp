@@ -874,15 +874,56 @@ namespace OloEngine::LowLevelTasks
         return AnyExecuted;
     }
 
+    // Interleaves the game-thread local queue and the worker's own local queue at
+    // each priority level (game-thread steal, then worker dequeue, per priority),
+    // so a higher-priority task in either queue is taken before any lower-priority
+    // task in the other. Restores UE5.8's TCombinedQueue: an earlier port replaced
+    // it with a sequential "drain all priorities of the game-thread queue, then all
+    // priorities of the worker queue" scan, which could invert the intended global
+    // task-priority order under load.
+    template<typename LocalQueueType>
+    class TCombinedQueue
+    {
+        LocalQueueType* m_GameThreadLocalQueue;
+        LocalQueueType* m_WorkerLocalQueue;
+
+      public:
+        TCombinedQueue(LocalQueueType* InGameThreadLocalQueue, LocalQueueType* InWorkerLocalQueue)
+            : m_GameThreadLocalQueue(InGameThreadLocalQueue), m_WorkerLocalQueue(InWorkerLocalQueue)
+        {
+        }
+
+        FTask* Dequeue(bool bPermitBackgroundWork)
+        {
+            const i32 MaxPriority = bPermitBackgroundWork ? static_cast<i32>(ETaskPriority::Count) : static_cast<i32>(ETaskPriority::ForegroundCount);
+            for (i32 PriorityIndex = 0; PriorityIndex < MaxPriority; ++PriorityIndex)
+            {
+                if (FTask* Item = m_GameThreadLocalQueue->StealLocal(PriorityIndex))
+                {
+                    return Item;
+                }
+                if (FTask* Item = m_WorkerLocalQueue->Dequeue(PriorityIndex))
+                {
+                    return Item;
+                }
+            }
+            return nullptr;
+        }
+    };
+
     void FScheduler::StandbyLoop(Private::FWaitEvent* WorkerEvent, FSchedulerTls::FLocalQueueType* WorkerLocalQueue,
                                  [[maybe_unused]] u32 WaitCycles, bool bPermitBackgroundWork)
     {
         bool bPreparingStandby = false;
         Private::FOutOfWork OutOfWork;
+
+        using FCombinedQueue = TCombinedQueue<FSchedulerTls::FLocalQueueType>;
+        FCombinedQueue CombinedQueue(m_GameThreadLocalQueue.get(), WorkerLocalQueue);
+
         while (true)
         {
             bool bExecutedSomething = false;
-            while (TryExecuteTaskFrom<FSchedulerTls::FLocalQueueType, &FSchedulerTls::FLocalQueueType::StealLocal, true>(WorkerEvent, m_GameThreadLocalQueue.get(), OutOfWork, bPermitBackgroundWork) || TryExecuteTaskFrom<FSchedulerTls::FLocalQueueType, &FSchedulerTls::FLocalQueueType::Dequeue, true>(WorkerEvent, WorkerLocalQueue, OutOfWork, bPermitBackgroundWork) || TryExecuteTaskFrom<FSchedulerTls::FLocalQueueType, &FSchedulerTls::FLocalQueueType::DequeueSteal, true>(WorkerEvent, WorkerLocalQueue, OutOfWork, bPermitBackgroundWork))
+            while (TryExecuteTaskFrom<FCombinedQueue, &FCombinedQueue::Dequeue, true>(WorkerEvent, &CombinedQueue, OutOfWork, bPermitBackgroundWork) || TryExecuteTaskFrom<FSchedulerTls::FLocalQueueType, &FSchedulerTls::FLocalQueueType::DequeueSteal, true>(WorkerEvent, WorkerLocalQueue, OutOfWork, bPermitBackgroundWork))
             {
                 bPreparingStandby = false;
                 bExecutedSomething = true;
@@ -924,10 +965,14 @@ namespace OloEngine::LowLevelTasks
     {
         bool bPreparingWait = false;
         Private::FOutOfWork OutOfWork;
+
+        using FCombinedQueue = TCombinedQueue<FSchedulerTls::FLocalQueueType>;
+        FCombinedQueue CombinedQueue(m_GameThreadLocalQueue.get(), WorkerLocalQueue);
+
         while (true)
         {
             bool bExecutedSomething = false;
-            while (TryExecuteTaskFrom<FSchedulerTls::FLocalQueueType, &FSchedulerTls::FLocalQueueType::StealLocal, false>(WorkerEvent, m_GameThreadLocalQueue.get(), OutOfWork, bPermitBackgroundWork) || TryExecuteTaskFrom<FSchedulerTls::FLocalQueueType, &FSchedulerTls::FLocalQueueType::Dequeue, false>(WorkerEvent, WorkerLocalQueue, OutOfWork, bPermitBackgroundWork) || TryExecuteTaskFrom<FSchedulerTls::FLocalQueueType, &FSchedulerTls::FLocalQueueType::DequeueSteal, false>(WorkerEvent, WorkerLocalQueue, OutOfWork, bPermitBackgroundWork))
+            while (TryExecuteTaskFrom<FCombinedQueue, &FCombinedQueue::Dequeue, false>(WorkerEvent, &CombinedQueue, OutOfWork, bPermitBackgroundWork) || TryExecuteTaskFrom<FSchedulerTls::FLocalQueueType, &FSchedulerTls::FLocalQueueType::DequeueSteal, false>(WorkerEvent, WorkerLocalQueue, OutOfWork, bPermitBackgroundWork))
             {
                 bPreparingWait = false;
                 bExecutedSomething = true;

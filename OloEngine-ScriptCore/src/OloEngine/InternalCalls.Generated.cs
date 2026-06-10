@@ -477,6 +477,46 @@ namespace OloEngine
 		internal static extern float PhysicsJoint3DComponent_GetBreakTorque(ulong entityID);
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern void PhysicsJoint3DComponent_SetBreakTorque(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern int PhysicsJoint3DComponent_GetHingeMotorMode(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void PhysicsJoint3DComponent_SetHingeMotorMode(ulong entityID, int value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float PhysicsJoint3DComponent_GetHingeMotorTargetVelocityDeg(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void PhysicsJoint3DComponent_SetHingeMotorTargetVelocityDeg(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float PhysicsJoint3DComponent_GetHingeMotorTargetAngleDeg(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void PhysicsJoint3DComponent_SetHingeMotorTargetAngleDeg(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float PhysicsJoint3DComponent_GetHingeMaxMotorTorque(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void PhysicsJoint3DComponent_SetHingeMaxMotorTorque(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float PhysicsJoint3DComponent_GetHingeMaxFrictionTorque(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void PhysicsJoint3DComponent_SetHingeMaxFrictionTorque(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern int PhysicsJoint3DComponent_GetSliderMotorMode(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void PhysicsJoint3DComponent_SetSliderMotorMode(ulong entityID, int value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float PhysicsJoint3DComponent_GetSliderMotorTargetVelocity(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void PhysicsJoint3DComponent_SetSliderMotorTargetVelocity(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float PhysicsJoint3DComponent_GetSliderMotorTargetPosition(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void PhysicsJoint3DComponent_SetSliderMotorTargetPosition(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float PhysicsJoint3DComponent_GetSliderMaxMotorForce(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void PhysicsJoint3DComponent_SetSliderMaxMotorForce(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float PhysicsJoint3DComponent_GetSliderMaxFrictionForce(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void PhysicsJoint3DComponent_SetSliderMaxFrictionForce(ulong entityID, float value);
 		#endregion
 
 		#region PointLightComponent

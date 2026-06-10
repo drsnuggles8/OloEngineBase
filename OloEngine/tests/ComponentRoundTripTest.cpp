@@ -889,6 +889,16 @@ namespace OloEngine::Tests
         const f32 expectedConeHalf = 60.0f; // within [0, 180]
         const f32 expectedBreakForce = 250.0f;
         const f32 expectedBreakTorque = 75.0f;
+        const auto expectedHingeMotorMode = JointMotorMode::Position; // non-default (default Off)
+        const f32 expectedHingeMotorVel = -150.0f;                    // signed target, within sanitize range
+        const f32 expectedHingeMotorAngle = 35.0f;                    // within [-360, 360]
+        const f32 expectedHingeMaxTorque = 42.0f;
+        const f32 expectedHingeFriction = 6.5f;
+        const auto expectedSliderMotorMode = JointMotorMode::Velocity;
+        const f32 expectedSliderMotorVel = 3.25f;
+        const f32 expectedSliderMotorPos = -1.75f; // within [-10000, 10000]
+        const f32 expectedSliderMaxForce = 64.0f;
+        const f32 expectedSliderFriction = 9.0f;
 
         std::string yaml;
         {
@@ -909,6 +919,16 @@ namespace OloEngine::Tests
             j.m_ConeHalfAngleDeg = expectedConeHalf;
             j.m_BreakForce = expectedBreakForce;
             j.m_BreakTorque = expectedBreakTorque;
+            j.m_HingeMotorMode = expectedHingeMotorMode;
+            j.m_HingeMotorTargetVelocityDeg = expectedHingeMotorVel;
+            j.m_HingeMotorTargetAngleDeg = expectedHingeMotorAngle;
+            j.m_HingeMaxMotorTorque = expectedHingeMaxTorque;
+            j.m_HingeMaxFrictionTorque = expectedHingeFriction;
+            j.m_SliderMotorMode = expectedSliderMotorMode;
+            j.m_SliderMotorTargetVelocity = expectedSliderMotorVel;
+            j.m_SliderMotorTargetPosition = expectedSliderMotorPos;
+            j.m_SliderMaxMotorForce = expectedSliderMaxForce;
+            j.m_SliderMaxFrictionForce = expectedSliderFriction;
             yaml = SceneSerializer(scene).SerializeToYAML();
         }
 
@@ -939,6 +959,16 @@ namespace OloEngine::Tests
         EXPECT_NEAR(j.m_ConeHalfAngleDeg, expectedConeHalf, kFloatEpsilon);
         EXPECT_NEAR(j.m_BreakForce, expectedBreakForce, kFloatEpsilon);
         EXPECT_NEAR(j.m_BreakTorque, expectedBreakTorque, kFloatEpsilon);
+        EXPECT_EQ(j.m_HingeMotorMode, expectedHingeMotorMode);
+        EXPECT_NEAR(j.m_HingeMotorTargetVelocityDeg, expectedHingeMotorVel, kFloatEpsilon);
+        EXPECT_NEAR(j.m_HingeMotorTargetAngleDeg, expectedHingeMotorAngle, kFloatEpsilon);
+        EXPECT_NEAR(j.m_HingeMaxMotorTorque, expectedHingeMaxTorque, kFloatEpsilon);
+        EXPECT_NEAR(j.m_HingeMaxFrictionTorque, expectedHingeFriction, kFloatEpsilon);
+        EXPECT_EQ(j.m_SliderMotorMode, expectedSliderMotorMode);
+        EXPECT_NEAR(j.m_SliderMotorTargetVelocity, expectedSliderMotorVel, kFloatEpsilon);
+        EXPECT_NEAR(j.m_SliderMotorTargetPosition, expectedSliderMotorPos, kFloatEpsilon);
+        EXPECT_NEAR(j.m_SliderMaxMotorForce, expectedSliderMaxForce, kFloatEpsilon);
+        EXPECT_NEAR(j.m_SliderMaxFrictionForce, expectedSliderFriction, kFloatEpsilon);
     }
 
     // -------------------------------------------------------------------------
