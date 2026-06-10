@@ -1,3 +1,4 @@
+#include "OloEnginePCH.h"
 #include <gtest/gtest.h>
 #include "OloEngine/Audio/DSP/Denormals.h"
 #include "OloEngine/Audio/DSP/AllpassFilter.h"

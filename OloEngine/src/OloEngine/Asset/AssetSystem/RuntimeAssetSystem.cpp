@@ -1,3 +1,4 @@
+#include "OloEnginePCH.h"
 #include "RuntimeAssetSystem.h"
 
 #include "OloEngine/Asset/AssetManager/RuntimeAssetManager.h"

@@ -6,6 +6,7 @@
  * Tests cover: TryLock, IsLocked, TUniqueLock, multi-threaded contention
  */
 
+#include "OloEnginePCH.h"
 #include <gtest/gtest.h>
 
 #include "OloEngine/Threading/Mutex.h"

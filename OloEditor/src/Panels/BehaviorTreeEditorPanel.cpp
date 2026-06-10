@@ -1,3 +1,4 @@
+#include "OloEnginePCH.h"
 #include "BehaviorTreeEditorPanel.h"
 #include "OloEngine/Scene/Scene.h"
 #include "OloEngine/Scene/Entity.h"

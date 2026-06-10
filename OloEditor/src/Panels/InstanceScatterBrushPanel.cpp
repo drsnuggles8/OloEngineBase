@@ -1,3 +1,4 @@
+#include "OloEnginePCH.h"
 #include "InstanceScatterBrushPanel.h"
 
 #include "../UndoRedo/EditorCommand.h"

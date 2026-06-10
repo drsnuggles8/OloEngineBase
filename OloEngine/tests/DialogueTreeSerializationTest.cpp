@@ -1,3 +1,4 @@
+#include "OloEnginePCH.h"
 #include <gtest/gtest.h>
 #include "OloEngine/Scene/Scene.h" // Required: AssetSerializer.h uses Ref<Scene> inline
 #include "OloEngine/Dialogue/DialogueTreeAsset.h"

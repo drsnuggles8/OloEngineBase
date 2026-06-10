@@ -9,6 +9,7 @@
 // explore both the YAML parser and our schema validation simultaneously.
 // =============================================================================
 
+#include "OloEnginePCH.h"
 #include "OloEngine/Core/InputActionSerializer.h"
 
 #include <cstddef>

@@ -1,6 +1,7 @@
 // PlatformMallocCrash.cpp - Emergency allocator for crash handling
 // Ported 1:1 from UE5.7 FPlatformMallocCrash
 
+#include "OloEnginePCH.h"
 #include "OloEngine/Memory/PlatformMallocCrash.h"
 #include <cstdint>
 #include <cstdlib>

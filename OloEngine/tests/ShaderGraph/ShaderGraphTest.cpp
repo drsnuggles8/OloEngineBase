@@ -1,3 +1,4 @@
+#include "OloEnginePCH.h"
 #include <gtest/gtest.h>
 #include "OloEngine/Renderer/ShaderGraph/ShaderGraph.h"
 #include "OloEngine/Renderer/ShaderGraph/ShaderGraphNode.h"

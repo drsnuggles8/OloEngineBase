@@ -228,6 +228,26 @@ if(NOT MSVC)
 	set(JPH_USE_VK OFF CACHE BOOL "" FORCE)
 endif()
 
+# Make MSVC vendor compiles cacheable when compiler caching is on (OLO_ENABLE_COMPILER_CACHE,
+# cmake/CompilerCache.cmake). sccache/ccache cannot cache a /Zi compile that writes a separate
+# PDB — it aborts with "failed to zip up compiler outputs ... failed to open <name>.pdb". These
+# three libs hardcode /Zi themselves, so the global Embedded (/Z7) default doesn't reach them.
+# Turn their debug-symbol/PDB generation off (only while caching) so their objects cache cleanly;
+# CI/test Release binaries don't need vendor symbols. Local non-cache builds are unchanged.
+if(OLO_ENABLE_COMPILER_CACHE AND MSVC)
+	# assimp gates its `/Zi` on ASSIMP_INSTALL_PDB (assimp-src/CMakeLists.txt); Jolt on
+	# GENERATE_DEBUG_SYMBOLS (joltphysics-src/Build/CMakeLists.txt). Disabling Jolt's also turns
+	# its large object set from non-cacheable into cacheable — a real repeat-run win.
+	set(ASSIMP_INSTALL_PDB OFF CACHE BOOL "Disabled: separate PDB defeats compiler caching" FORCE)
+	set(GENERATE_DEBUG_SYMBOLS OFF CACHE BOOL "Jolt: disabled, /Zi PDB defeats compiler caching" FORCE)
+	# filewatch hardcodes `/Zi` with no option to disable it (filewatch-src/CMakeLists.txt), but
+	# only its `filewatch_unit` test compiles — and that builds solely because the repo's global
+	# BUILD_TESTS=ON collides with filewatch's own BUILD_TESTS option. Shadow it OFF with a normal
+	# (non-cache) var so it applies to the FetchContent children below but not to OloEngine's own
+	# BUILD_TESTS in the parent scope — the same trick used for GameNetworkingSockets below.
+	set(BUILD_TESTS OFF)
+endif()
+
 
 FetchContent_MakeAvailable(assimp atomic_queue box2d entt filewatch glad glfw glm googletest joltphysics meshoptimizer miniaudio recastnavigation spdlog tracy yaml-cpp)
 

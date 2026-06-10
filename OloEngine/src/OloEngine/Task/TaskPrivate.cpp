@@ -1,6 +1,7 @@
 // TaskPrivate.cpp - High-level task system implementation
 // Ported from UE5.7 Tasks/TaskPrivate.cpp
 
+#include "OloEnginePCH.h"
 #include "OloEngine/Task/TaskPrivate.h"
 #include "OloEngine/Task/NamedThreads.h"
 #include "OloEngine/Task/Pipe.h"

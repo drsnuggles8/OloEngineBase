@@ -1,3 +1,4 @@
+#include "OloEnginePCH.h"
 #include "MCP/McpServerPanel.h"
 #include "MCP/McpServer.h"
 

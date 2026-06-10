@@ -8,6 +8,7 @@
  *              Worker restart stress tests
  */
 
+#include "OloEnginePCH.h"
 #include <gtest/gtest.h>
 
 #include "OloEngine/Task/Task.h"

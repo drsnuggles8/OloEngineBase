@@ -1,3 +1,4 @@
+#include "OloEnginePCH.h"
 #include "OloEngine/Core/Base.h"
 #include "SoundGraphSerializer.h"
 #include "SoundGraph.h"

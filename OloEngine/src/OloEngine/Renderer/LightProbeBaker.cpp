@@ -1,3 +1,4 @@
+#include "OloEnginePCH.h"
 #include "OloEngine/Renderer/LightProbeBaker.h"
 #include "OloEngine/Scene/Scene.h"
 #include "OloEngine/Scene/Components.h"

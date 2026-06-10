@@ -1,3 +1,4 @@
+#include "OloEnginePCH.h"
 #include "AssetExtensions.h"
 
 #include "OloEngine/Core/Log.h"

@@ -1,3 +1,4 @@
+#include "OloEnginePCH.h"
 #include "TerrainEditorPanel.h"
 #include "OloEngine/Core/FastRandom.h"
 #include "OloEngine/Scene/Components.h"

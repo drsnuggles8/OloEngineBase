@@ -1,3 +1,4 @@
+#include "OloEnginePCH.h"
 #include "GPUResourceInspector.h"
 #include "DebugUtils.h"
 #include "OloEngine/Core/Log.h"

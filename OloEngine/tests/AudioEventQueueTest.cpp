@@ -1,3 +1,4 @@
+#include "OloEnginePCH.h"
 #include <gtest/gtest.h>
 #include "OloEngine/Audio/LockFreeEventQueue.h"
 #include <choc/containers/choc_Value.h>

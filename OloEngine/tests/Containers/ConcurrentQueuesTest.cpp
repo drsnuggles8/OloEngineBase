@@ -6,6 +6,7 @@
  * Tests cover: TSpscQueue, TMpscQueue, TClosableMpscQueue, TConsumeAllMpmcQueue
  */
 
+#include "OloEnginePCH.h"
 #include <gtest/gtest.h>
 
 #include "OloEngine/Containers/SpscQueue.h"

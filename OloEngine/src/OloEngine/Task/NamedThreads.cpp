@@ -6,6 +6,7 @@
 //
 // @see NamedThreads.h for architecture notes and detailed documentation
 
+#include "OloEnginePCH.h"
 #include "OloEngine/Task/NamedThreads.h"
 
 #include "OloEngine/Core/PlatformTLS.h"

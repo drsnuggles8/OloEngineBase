@@ -1,3 +1,4 @@
+#include "OloEnginePCH.h"
 #include "AssetManager.h"
 
 #include "OloEngine/Core/Base.h"

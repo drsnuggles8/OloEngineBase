@@ -3,4 +3,5 @@
 // importantly in NodeTypes.cpp's INIT_ENDPOINTS_FUNCS expansions). This TU just
 // pulls the header in so any TU-local references the linker expects also resolve
 // here. See the header for the full explanation.
+#include "OloEnginePCH.h"
 #include "OloEngine/Audio/SoundGraph/Nodes/NodeDescriptions.h"

@@ -6,6 +6,7 @@
  * Tests cover: Recursive locking, shared locking, concurrent access patterns
  */
 
+#include "OloEnginePCH.h"
 #include <gtest/gtest.h>
 
 #include "OloEngine/Threading/SharedRecursiveMutex.h"

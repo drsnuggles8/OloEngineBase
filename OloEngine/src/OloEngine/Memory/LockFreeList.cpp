@@ -10,6 +10,7 @@
 //
 // Ported from Unreal Engine's LockFreeList.cpp
 
+#include "OloEnginePCH.h"
 #include "OloEngine/Memory/LockFreeList.h"
 #include "OloEngine/Core/Log.h"
 #include "OloEngine/Core/PlatformTLS.h"

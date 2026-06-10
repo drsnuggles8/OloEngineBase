@@ -1,3 +1,4 @@
+#include "OloEnginePCH.h"
 #include <gtest/gtest.h>
 #include "OloEngine/Gameplay/Abilities/Tags/GameplayTag.h"
 #include "OloEngine/Gameplay/Abilities/Tags/GameplayTagContainer.h"

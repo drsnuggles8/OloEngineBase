@@ -6,6 +6,7 @@
  * Tests cover: Wait, WaitFor, WaitUntil, WakeOne, FIFO ordering
  */
 
+#include "OloEnginePCH.h"
 #include <gtest/gtest.h>
 
 #include "OloEngine/HAL/ParkingLot.h"

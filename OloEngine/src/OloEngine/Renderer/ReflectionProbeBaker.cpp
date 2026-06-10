@@ -1,3 +1,4 @@
+#include "OloEnginePCH.h"
 #include "OloEngine/Renderer/ReflectionProbeBaker.h"
 
 #include "OloEngine/Core/Log.h"

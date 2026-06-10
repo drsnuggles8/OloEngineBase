@@ -1,6 +1,7 @@
 // SharedRecursiveMutex.cpp - Implementation of FSharedRecursiveMutex
 // Ported from UE5.7 UE::FSharedRecursiveMutex
 
+#include "OloEnginePCH.h"
 #include "OloEngine/Threading/SharedRecursiveMutex.h"
 #include "OloEngine/HAL/ParkingLot.h"
 #include "OloEngine/HAL/PlatformProcess.h"

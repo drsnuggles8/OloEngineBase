@@ -1,6 +1,7 @@
 // ParallelFor.cpp - Global configuration for ParallelFor
 // Ported from UE5.7 Async/ParallelFor.cpp
 
+#include "OloEnginePCH.h"
 #include "OloEngine/Task/ParallelFor.h"
 #include "OloEngine/HAL/PlatformMisc.h"
 

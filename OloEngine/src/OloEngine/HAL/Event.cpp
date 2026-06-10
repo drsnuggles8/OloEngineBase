@@ -9,6 +9,7 @@
 //
 // Ported from Unreal Engine's HAL/Event.cpp and related files
 
+#include "OloEnginePCH.h"
 #include "OloEngine/HAL/Event.h"
 #include "OloEngine/HAL/EventPool.h"
 

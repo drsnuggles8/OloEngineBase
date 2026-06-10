@@ -23,6 +23,7 @@
 // suite's "skip when the prerequisite is missing" convention.
 // =============================================================================
 
+#include "OloEnginePCH.h"
 #include <gtest/gtest.h>
 
 #include <chrono>

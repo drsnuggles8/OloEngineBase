@@ -1,3 +1,4 @@
+#include "OloEnginePCH.h"
 #include "RendererMemoryTracker.h"
 #include "DebugUtils.h"
 #include "OloEngine/Core/Log.h"

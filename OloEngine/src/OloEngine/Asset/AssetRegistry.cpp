@@ -1,3 +1,4 @@
+#include "OloEnginePCH.h"
 #include "AssetRegistry.h"
 
 #include "OloEngine/Core/Log.h"

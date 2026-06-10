@@ -1,3 +1,4 @@
+#include "OloEnginePCH.h"
 #include "SaveGamePanel.h"
 
 #include "OloEngine/SaveGame/ThumbnailCapture.h"

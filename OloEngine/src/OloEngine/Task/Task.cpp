@@ -1,6 +1,7 @@
 // Task.cpp - High-level task API implementation
 // Ported from UE5.7 Tasks/Task.cpp
 
+#include "OloEnginePCH.h"
 #include "OloEngine/Task/Task.h"
 
 namespace OloEngine::Tasks

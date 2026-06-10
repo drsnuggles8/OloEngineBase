@@ -30,6 +30,7 @@
 // OOB is the only thing that should terminate the process.
 // =============================================================================
 
+#include "OloEnginePCH.h"
 #include <spirv_cross/spirv_glsl.hpp>
 #include <spirv-tools/libspirv.h>
 

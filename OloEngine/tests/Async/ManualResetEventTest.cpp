@@ -6,6 +6,7 @@
  * Tests cover: Notify, Wait, Reset, WaitFor timeout behavior
  */
 
+#include "OloEnginePCH.h"
 #include <gtest/gtest.h>
 
 #include "OloEngine/HAL/ManualResetEvent.h"
