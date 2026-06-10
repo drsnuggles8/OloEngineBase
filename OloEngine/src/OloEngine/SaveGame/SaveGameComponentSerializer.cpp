@@ -1405,6 +1405,33 @@ namespace OloEngine
             ar << c.m_CausticsColor;
         }
 
+        // God rays (§3.3) were appended after the caustics block — a separate
+        // trailing-AtEnd() probe so a save written before god rays existed (but
+        // after caustics) still falls back to defaults instead of reading past the
+        // end of the component blob.
+        auto loadGodRayDefaults = [](WaterComponent& w)
+        {
+            w.m_GodRayIntensity = 0.5f;
+            w.m_GodRayDecay = 0.97f;
+            w.m_GodRayDensity = 0.85f;
+            w.m_GodRayWeight = 1.0f;
+            w.m_GodRayColor = glm::vec3(1.0f, 0.95f, 0.8f);
+            w.m_GodRaySamples = 48u;
+            w.m_GodRayDappleFloor = 0.35f;
+            w.m_GodRaySunFalloff = 16.0f;
+        };
+        if (ar.IsLoading() && ar.AtEnd())
+        {
+            loadGodRayDefaults(c);
+        }
+        else
+        {
+            ar << c.m_GodRayIntensity << c.m_GodRayDecay << c.m_GodRayDensity << c.m_GodRayWeight;
+            ar << c.m_GodRayColor;
+            ar << c.m_GodRaySamples;
+            ar << c.m_GodRayDappleFloor << c.m_GodRaySunFalloff;
+        }
+
         if (ar.IsLoading())
         {
             auto sanitize = [](f32& v, f32 lo, f32 hi, f32 fallback)
@@ -1498,6 +1525,14 @@ namespace OloEngine
             sanitize(c.m_CausticsSpeed, 0.0f, 50.0f, 0.6f);
             sanitize(c.m_CausticsMaxDepth, 0.1f, 1000.0f, 25.0f);
             sanitizeColor(c.m_CausticsColor, glm::vec3(0.7f, 0.85f, 1.0f));
+            sanitize(c.m_GodRayIntensity, 0.0f, 10.0f, 0.5f);
+            sanitize(c.m_GodRayDecay, 0.0f, 0.999f, 0.97f);
+            sanitize(c.m_GodRayDensity, 0.0f, 2.0f, 0.85f);
+            sanitize(c.m_GodRayWeight, 0.0f, 2.0f, 1.0f);
+            sanitizeColor(c.m_GodRayColor, glm::vec3(1.0f, 0.95f, 0.8f));
+            c.m_GodRaySamples = std::clamp(c.m_GodRaySamples, 1u, 256u);
+            sanitize(c.m_GodRayDappleFloor, 0.0f, 1.0f, 0.35f);
+            sanitize(c.m_GodRaySunFalloff, 1.0f, 64.0f, 16.0f);
         }
     }
 

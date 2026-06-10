@@ -150,6 +150,7 @@ namespace OloEngine::Tests
     {
       protected:
         Entity m_Ocean;
+        Entity m_Sun;
 
         void BuildScene() override
         {
@@ -159,10 +160,10 @@ namespace OloEngine::Tests
             // Sun pointing mostly straight down so caustics (faded by the sun's
             // overhead factor) read at full strength.
             {
-                Entity light = scene.CreateEntity("Sun");
-                auto& tc = light.GetComponent<TransformComponent>();
+                m_Sun = scene.CreateEntity("Sun");
+                auto& tc = m_Sun.GetComponent<TransformComponent>();
                 tc.Translation = { 0.0f, 30.0f, 0.0f };
-                auto& dl = light.AddComponent<DirectionalLightComponent>();
+                auto& dl = m_Sun.AddComponent<DirectionalLightComponent>();
                 dl.m_Direction = glm::normalize(glm::vec3(-0.15f, -0.95f, -0.2f));
                 dl.m_Color = glm::vec3(1.0f, 0.97f, 0.92f);
                 dl.m_Intensity = 1.6f;
@@ -191,6 +192,9 @@ namespace OloEngine::Tests
                 wc.m_UnderwaterRefractionScale = 16.0f;
                 wc.m_UnderwaterRefractionSpeed = 1.2f;
                 wc.m_UnderwaterChromaticStrength = 0.5f;
+                // God rays off by default so the caustic/refraction A/B contracts
+                // above are unaffected; the god-ray cases enable them explicitly.
+                wc.m_GodRayIntensity = 0.0f;
             }
 
             auto addPrimitive = [&scene](const char* name, MeshPrimitive prim, const glm::vec3& pos,
@@ -271,6 +275,11 @@ namespace OloEngine::Tests
         [[nodiscard]] WaterComponent& Water()
         {
             return m_Ocean.GetComponent<WaterComponent>();
+        }
+
+        [[nodiscard]] DirectionalLightComponent& Sun()
+        {
+            return m_Sun.GetComponent<DirectionalLightComponent>();
         }
     };
 
@@ -360,5 +369,194 @@ namespace OloEngine::Tests
         const f64 rmse = BandRmse(on, off, kWidth / 4u, (kWidth * 3u) / 4u, kHeight / 4u, (kHeight * 3u) / 4u);
         EXPECT_GT(rmse, 2.0) << "Refraction wobble produced no visible distortion (RMSE " << rmse
                              << "). See UnderwaterFx_Refraction_On/Off.png";
+    }
+
+    // God rays (§3.3) are an ADDITIVE screen-space radial blur toward the sun's
+    // on-screen position: looking up toward the surface with the sun overhead, the
+    // ON frame must be brighter than the same frame with intensity 0. Sun forced
+    // straight down so its vanishing point lands in the upper frame.
+    TEST_F(UnderwaterCausticsVisualTest, GodRaysBrightenWhenLookingTowardSun)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+        ScopedMockTime scopedMockTime(kCaptureTime);
+
+        Sun().m_Direction = glm::vec3(0.0f, -1.0f, 0.0f); // straight down → sun overhead
+        Water().m_CausticsIntensity = 0.0f;               // isolate the shafts
+        Water().m_UnderwaterRefractionStrength = 0.0f;
+
+        // Submerged, tilted steeply UP toward the surface (negative pitch) so the
+        // sun's screen-space vanishing point is in frame and in front of the eye.
+        const glm::vec3 eye(0.0f, -4.0f, 3.0f);
+        constexpr f32 yaw = 0.0f;
+        constexpr f32 pitch = -1.1f; // look up ~63°
+
+        // Strong shafts so the additive delta clears RGBA8 quantisation noise.
+        Water().m_GodRayIntensity = 1.6f;
+        Water().m_GodRayDecay = 0.95f;
+        Water().m_GodRayDensity = 1.0f;
+        Water().m_GodRayWeight = 1.0f;
+        Water().m_GodRaySamples = 48u;
+        std::vector<u8> on;
+        Capture("GodRays_On", eye, yaw, pitch, on);
+        if (::testing::Test::HasFatalFailure())
+            return;
+
+        Water().m_GodRayIntensity = 0.0f;
+        std::vector<u8> off;
+        Capture("GodRays_Off", eye, yaw, pitch, off);
+        if (::testing::Test::HasFatalFailure())
+            return;
+
+        const BandStats statsOn = LumaBandStats(on, 0u, kWidth, 0u, kHeight);
+        const BandStats statsOff = LumaBandStats(off, 0u, kWidth, 0u, kHeight);
+
+        // There must be something lit to scatter (not an all-black up-view).
+        EXPECT_GT(statsOff.Mean, 4.0) << "Up-looking frame rendered (near-)black — nothing for god rays to scatter";
+
+        // Additive in-scatter → the whole frame is brighter with shafts on.
+        EXPECT_GT(statsOn.Mean, statsOff.Mean + 1.0)
+            << "God rays did not brighten the submerged frame (meanOn=" << statsOn.Mean
+            << " meanOff=" << statsOff.Mean << "). See UnderwaterFx_GodRays_On/Off.png";
+    }
+
+    // God rays must read as discrete SHAFTS, not a uniform glow. The effect is an
+    // OCCLUSION radial blur (it marches the depth buffer toward the sun, accumulating
+    // where the path is open water), so the textbook setup is: the submerged camera
+    // looking up at the open water toward the sun, with a row of dark vertical
+    // occluder bars across the gaze. Light streams through the gaps between the bars
+    // and is blocked behind them → shafts. Contract: the ADDED light (On minus Off)
+    // must be spatially structured along x (alternating bright/dark columns) — a
+    // uniform glow would add the same amount everywhere and fail the column variance.
+    TEST_F(UnderwaterCausticsVisualTest, GodRaysFormVisibleShaftsThroughOccluders)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+        ScopedMockTime scopedMockTime(kCaptureTime);
+
+        Scene& scene = GetScene();
+
+        // Submerged camera tilted up toward the open water; sun aligned to that gaze
+        // so its screen-space vanishing point lands in the open region above the bars.
+        const glm::vec3 eye(0.0f, -5.0f, 8.0f);
+        constexpr f32 yaw = 0.0f;
+        constexpr f32 pitch = -0.5f; // look up ~29°
+        const glm::vec3 forward = glm::normalize(glm::vec3(0.0f, std::sin(0.5f), -std::cos(0.5f)));
+        Sun().m_Direction = -forward; // sun sits where the camera looks
+        Sun().m_Intensity = 2.0f;
+
+        // A row of dark vertical occluder bars across the gaze toward the sun: the
+        // open gaps between them let shafts through, their silhouettes cast the gaps.
+        for (int i = 0; i < 5; ++i)
+        {
+            Entity bar = scene.CreateEntity("GodRayBar");
+            auto& tc = bar.GetComponent<TransformComponent>();
+            tc.Translation = { -4.0f + 2.0f * static_cast<f32>(i), -1.0f, 0.0f };
+            tc.Scale = { 0.6f, 10.0f, 0.6f };
+            auto& mc = bar.AddComponent<MeshComponent>();
+            mc.m_Primitive = MeshPrimitive::Cube;
+            if (Ref<Mesh> mesh = MeshPrimitives::CreateCube())
+                mc.m_MeshSource = mesh->GetMeshSource();
+            auto& mat = bar.AddComponent<MaterialComponent>();
+            mat.m_Material.SetBaseColorFactor(glm::vec4(0.02f, 0.02f, 0.02f, 1.0f));
+        }
+
+        Water().m_CausticsIntensity = 0.0f;
+        Water().m_UnderwaterRefractionStrength = 0.0f;
+        Water().m_UnderwaterFogDensity = 0.02f; // light fog so the shafts stay crisp
+        // Bounded params: openness is [0,1], so weight*intensity is the peak shaft
+        // brightness (well under the tone-map's white point — no blow-out).
+        Water().m_GodRayIntensity = 1.6f;
+        Water().m_GodRayDecay = 0.95f;
+        Water().m_GodRayDensity = 1.0f;
+        Water().m_GodRayWeight = 1.0f;
+        Water().m_GodRaySamples = 48u;
+
+        std::vector<u8> on;
+        Capture("GodRays_Shafts_On", eye, yaw, pitch, on);
+        if (::testing::Test::HasFatalFailure())
+            return;
+
+        Water().m_GodRayIntensity = 0.0f;
+        std::vector<u8> off;
+        Capture("GodRays_Shafts_Off", eye, yaw, pitch, off);
+        if (::testing::Test::HasFatalFailure())
+            return;
+
+        // Band spanning the bars/shaft region (upper-middle of the frame).
+        const u32 y0 = kHeight / 5u;
+        const u32 y1 = (kHeight * 3u) / 5u;
+
+        // Additive in-scatter → brighter overall with shafts on.
+        const BandStats statsOn = LumaBandStats(on, 0u, kWidth, y0, y1);
+        const BandStats statsOff = LumaBandStats(off, 0u, kWidth, y0, y1);
+        EXPECT_GT(statsOff.Mean, 4.0) << "Scene rendered (near-)black — nothing visible to form shafts against";
+        EXPECT_GT(statsOn.Mean, statsOff.Mean + 2.0)
+            << "God rays added no light (meanOn=" << statsOn.Mean << " meanOff=" << statsOff.Mean << ")";
+
+        // "Shafts not glow": the ADDED light (On-Off) must vary across columns. Build
+        // per-column means of the On-Off luma difference, then take their variance.
+        std::vector<f64> colDiff(kWidth, 0.0);
+        for (u32 x = 0; x < kWidth; ++x)
+        {
+            f64 sum = 0.0;
+            for (u32 y = y0; y < y1; ++y)
+            {
+                const std::size_t idx = (static_cast<std::size_t>(y) * kWidth + x) * 4u;
+                auto luma = [&](const std::vector<u8>& p)
+                { return 0.299 * p[idx + 0] + 0.587 * p[idx + 1] + 0.114 * p[idx + 2]; };
+                sum += luma(on) - luma(off);
+            }
+            colDiff[x] = sum / static_cast<f64>(y1 - y0);
+        }
+        f64 mean = 0.0;
+        for (f64 v : colDiff)
+            mean += v;
+        mean /= static_cast<f64>(kWidth);
+        f64 var = 0.0;
+        for (f64 v : colDiff)
+            var += (v - mean) * (v - mean);
+        var /= static_cast<f64>(kWidth);
+        const f64 stddev = std::sqrt(var);
+        // A uniform glow would give near-zero column-to-column spread; real shafts
+        // make the per-column added brightness swing substantially.
+        EXPECT_GT(stddev, 3.0) << "Added light is a uniform glow, not shafts (column stddev=" << stddev
+                               << ", mean added=" << mean << "). See UnderwaterFx_GodRays_Shafts_On/Off.png";
+    }
+
+    // The shafts must be GATED on the sun being in front of the camera: looking
+    // DOWN (away from the overhead sun) the sun's vanishing point is behind the
+    // camera, so toggling god-ray intensity must make no difference at all.
+    TEST_F(UnderwaterCausticsVisualTest, GodRaysVanishWhenSunBehindCamera)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+        ScopedMockTime scopedMockTime(kCaptureTime);
+
+        Sun().m_Direction = glm::vec3(0.0f, -1.0f, 0.0f); // sun straight overhead
+        Water().m_CausticsIntensity = 0.0f;
+        Water().m_UnderwaterRefractionStrength = 0.0f;
+
+        // Submerged, tilted DOWN onto the seabed: the overhead sun is behind us.
+        const glm::vec3 eye(0.0f, -4.0f, 6.0f);
+        constexpr f32 yaw = 0.0f;
+        constexpr f32 pitch = 1.15f; // look down
+
+        Water().m_GodRayIntensity = 1.6f;
+        Water().m_GodRayWeight = 1.0f;
+        Water().m_GodRaySamples = 48u;
+        std::vector<u8> on;
+        Capture("GodRays_BehindOn", eye, yaw, pitch, on);
+        if (::testing::Test::HasFatalFailure())
+            return;
+
+        Water().m_GodRayIntensity = 0.0f;
+        std::vector<u8> off;
+        Capture("GodRays_BehindOff", eye, yaw, pitch, off);
+        if (::testing::Test::HasFatalFailure())
+            return;
+
+        // The shader skips the march entirely (sun-in-front flag is 0), so the two
+        // frames are identical apart from float/raster noise.
+        const f64 rmse = BandRmse(on, off, 0u, kWidth, 0u, kHeight);
+        EXPECT_LT(rmse, 1.0) << "God rays leaked with the sun behind the camera (RMSE " << rmse
+                             << "). See UnderwaterFx_GodRays_Behind*.png";
     }
 } // namespace OloEngine::Tests

@@ -2337,6 +2337,15 @@ namespace OloEngine::Tests
         const f32 expectedCausticsSpeed = 0.85f;
         const f32 expectedCausticsMaxDepth = 33.0f;
         const glm::vec3 expectedCausticsColor{ 0.65f, 0.8f, 0.95f };
+        // God rays (§3.3). Values inside each field's sanitize range.
+        const f32 expectedGodRayIntensity = 0.85f;
+        const f32 expectedGodRayDecay = 0.94f;
+        const f32 expectedGodRayDensity = 1.1f;
+        const f32 expectedGodRayWeight = 0.12f;
+        const glm::vec3 expectedGodRayColor{ 0.95f, 0.9f, 0.75f };
+        const u32 expectedGodRaySamples = 72u;
+        const f32 expectedGodRayDappleFloor = 0.4f;
+        const f32 expectedGodRaySunFalloff = 24.0f;
 
         std::string yaml;
         {
@@ -2355,6 +2364,14 @@ namespace OloEngine::Tests
             water.m_CausticsSpeed = expectedCausticsSpeed;
             water.m_CausticsMaxDepth = expectedCausticsMaxDepth;
             water.m_CausticsColor = expectedCausticsColor;
+            water.m_GodRayIntensity = expectedGodRayIntensity;
+            water.m_GodRayDecay = expectedGodRayDecay;
+            water.m_GodRayDensity = expectedGodRayDensity;
+            water.m_GodRayWeight = expectedGodRayWeight;
+            water.m_GodRayColor = expectedGodRayColor;
+            water.m_GodRaySamples = expectedGodRaySamples;
+            water.m_GodRayDappleFloor = expectedGodRayDappleFloor;
+            water.m_GodRaySunFalloff = expectedGodRaySunFalloff;
 
             yaml = SceneSerializer(scene).SerializeToYAML();
         }
@@ -2385,6 +2402,16 @@ namespace OloEngine::Tests
         EXPECT_NEAR(water.m_CausticsColor.r, expectedCausticsColor.r, kFloatEpsilon);
         EXPECT_NEAR(water.m_CausticsColor.g, expectedCausticsColor.g, kFloatEpsilon);
         EXPECT_NEAR(water.m_CausticsColor.b, expectedCausticsColor.b, kFloatEpsilon);
+        EXPECT_NEAR(water.m_GodRayIntensity, expectedGodRayIntensity, kFloatEpsilon);
+        EXPECT_NEAR(water.m_GodRayDecay, expectedGodRayDecay, kFloatEpsilon);
+        EXPECT_NEAR(water.m_GodRayDensity, expectedGodRayDensity, kFloatEpsilon);
+        EXPECT_NEAR(water.m_GodRayWeight, expectedGodRayWeight, kFloatEpsilon);
+        EXPECT_NEAR(water.m_GodRayColor.r, expectedGodRayColor.r, kFloatEpsilon);
+        EXPECT_NEAR(water.m_GodRayColor.g, expectedGodRayColor.g, kFloatEpsilon);
+        EXPECT_NEAR(water.m_GodRayColor.b, expectedGodRayColor.b, kFloatEpsilon);
+        EXPECT_EQ(water.m_GodRaySamples, expectedGodRaySamples);
+        EXPECT_NEAR(water.m_GodRayDappleFloor, expectedGodRayDappleFloor, kFloatEpsilon);
+        EXPECT_NEAR(water.m_GodRaySunFalloff, expectedGodRaySunFalloff, kFloatEpsilon);
     }
 
     // -------------------------------------------------------------------------

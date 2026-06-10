@@ -14,6 +14,7 @@
 #include "OloEngine/Core/PerformanceProfiler.h"
 #include "OloEngine/Renderer/Renderer2D.h"
 #include "OloEngine/Renderer/Renderer3D.h"
+#include "OloEngine/Renderer/UnderwaterCaustics.h"
 #include "OloEngine/Renderer/EnvironmentMap.h"
 #include "OloEngine/Renderer/ReflectionProbeBaker.h"
 #include "OloEngine/Renderer/ProceduralSky.h"
@@ -4490,6 +4491,12 @@ namespace OloEngine
                 glm::vec4 refractionParams(0.0f);          // strength, scale, speed, chromatic
                 glm::vec4 causticParams(0.0f);             // intensity, scale, speed, maxDepth
                 glm::vec3 causticColor(0.7f, 0.85f, 1.0f); // caustic light tint
+                // God rays (§3.3): intensity, decay, density, weight + sample count
+                // + tint. Captured from the winning volume; intensity 0 disables.
+                glm::vec4 godRayParams(0.0f);             // intensity, decay, density, weight
+                glm::vec3 godRayColor(1.0f, 0.95f, 0.8f); // warm shaft tint
+                f32 godRaySamples = 48.0f;                // radial-blur step count (as float for the UBO)
+                glm::vec2 godRayShape(0.35f, 16.0f);      // dappleFloor, sunFalloff
                 auto sanitizeParam = [](f32 v, f32 lo, f32 hi, f32 fallback) -> f32
                 {
                     if (!std::isfinite(v))
@@ -4555,6 +4562,23 @@ namespace OloEngine
                                                       std::isfinite(rawCaustic.y) ? rawCaustic.y : 0.85f,
                                                       std::isfinite(rawCaustic.z) ? rawCaustic.z : 1.0f);
                         causticColor = glm::clamp(finiteCaustic, glm::vec3(0.0f), glm::vec3(1.0f));
+
+                        // God rays (§3.3). Decay is kept strictly < 1 so the march
+                        // can't diverge; density bounds the screen-space reach.
+                        godRayParams = glm::vec4(
+                            sanitizeParam(water.m_GodRayIntensity, 0.0f, 10.0f, 0.5f),
+                            sanitizeParam(water.m_GodRayDecay, 0.0f, 0.999f, 0.97f),
+                            sanitizeParam(water.m_GodRayDensity, 0.0f, 2.0f, 0.85f),
+                            sanitizeParam(water.m_GodRayWeight, 0.0f, 2.0f, 1.0f));
+                        godRaySamples = std::clamp(static_cast<f32>(water.m_GodRaySamples), 1.0f, 256.0f);
+                        const glm::vec3 rawGodRay = water.m_GodRayColor;
+                        const glm::vec3 finiteGodRay(std::isfinite(rawGodRay.x) ? rawGodRay.x : 1.0f,
+                                                     std::isfinite(rawGodRay.y) ? rawGodRay.y : 0.95f,
+                                                     std::isfinite(rawGodRay.z) ? rawGodRay.z : 0.8f);
+                        godRayColor = glm::clamp(finiteGodRay, glm::vec3(0.0f), glm::vec3(1.0f));
+                        godRayShape = glm::vec2(
+                            sanitizeParam(water.m_GodRayDappleFloor, 0.0f, 1.0f, 0.35f),
+                            sanitizeParam(water.m_GodRaySunFalloff, 1.0f, 64.0f, 16.0f));
                     }
                 }
 
@@ -4565,11 +4589,19 @@ namespace OloEngine
                 // sun has a negative y. max(-y, 0) on the normalized direction is 1
                 // at noon and 0 at/below the horizon. Defaults to straight-down.
                 f32 sunOverhead = 0.0f;
-                {
-                    glm::vec3 sunDir = Renderer3D::GetPrimaryDirectionalLightDirection();
-                    if (const f32 len2 = glm::dot(sunDir, sunDir); std::isfinite(len2) && len2 > 1e-8f)
-                        sunOverhead = std::clamp(-sunDir.y / std::sqrt(len2), 0.0f, 1.0f);
-                }
+                glm::vec3 sunDir = Renderer3D::GetPrimaryDirectionalLightDirection();
+                if (const f32 len2 = glm::dot(sunDir, sunDir); std::isfinite(len2) && len2 > 1e-8f)
+                    sunOverhead = std::clamp(-sunDir.y / std::sqrt(len2), 0.0f, 1.0f);
+
+                // God rays (§3.3) need the sun's screen-space vanishing point so the
+                // tone-map pass can radial-blur toward it. The sun is opposite the
+                // light-travel direction, infinitely far, so it projects via the
+                // shared CPU mirror (kept in sync with the shader). When it's behind
+                // the camera the flag stays 0 and the shader skips the march.
+                glm::vec2 sunScreenUV(0.5f);
+                f32 sunInFront = 0.0f;
+                if (UnderwaterCaustics::GodRaySunScreenUV(viewProjection, sunDir, sunScreenUV))
+                    sunInFront = 1.0f;
 
                 UnderwaterFogUBOData uwData{};
                 uwData.ColorAndDensity = glm::vec4(underwater.FogColor, underwater.Density);
@@ -4580,6 +4612,10 @@ namespace OloEngine
                 uwData.RefractionParams = refractionParams;
                 uwData.CausticParams = causticParams;
                 uwData.CausticColorAndSun = glm::vec4(causticColor, sunOverhead);
+                uwData.GodRayParams = godRayParams;
+                uwData.GodRaySun = glm::vec4(godRaySamples, sunScreenUV.x, sunScreenUV.y, sunInFront);
+                uwData.GodRayColor = glm::vec4(godRayColor, 0.0f);
+                uwData.GodRayShape = glm::vec4(godRayShape, 0.0f, 0.0f);
                 uwData.InverseViewProjection = glm::inverse(viewProjection);
                 Renderer3D::UploadUnderwaterFogUBO(uwData);
             }

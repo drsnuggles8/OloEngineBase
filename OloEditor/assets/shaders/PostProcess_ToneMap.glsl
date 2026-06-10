@@ -33,6 +33,17 @@ layout(binding = 32) uniform sampler2D u_WaterSurfaceDepth;
 #define TONEMAP_ACES      2
 #define TONEMAP_UNCHARTED2 3
 
+// Depth above this (NDC [0,1], 1.0 = far plane) counts as "open water toward the
+// sun" — light gets through there. Opaque scene geometry writes a nearer depth and
+// reads as an occluder, casting the dark gaps between shafts. This is what makes
+// the radial blur produce discrete light shafts from occlusion (§3.3) rather than
+// needing a bright source in the colour buffer (there's no sky/sun rendered
+// underwater to scatter).
+#define GODRAY_OPEN_DEPTH 0.9995
+// Sun-source tightness (u_UnderwaterGodRayShape.y) and surface-wave dapple trough
+// floor (u_UnderwaterGodRayShape.x) are driven per-water from the WaterComponent;
+// see the GodRayShape vec4 in UnderwaterFogUBOData.
+
 // Automatic-exposure result written by AutoExposureAverage.comp.
 //   autoExposureState[0] = exposure multiplier; <= 0 means auto-exposure is off
 //   this frame, so the manual u_Exposure from the PostProcess UBO is used.
@@ -69,7 +80,7 @@ layout(std140, binding = 7) uniform PostProcessUBO
     float u_Far;
 };
 
-// Underwater fog UBO (binding 36) — mirrors UnderwaterFogUBOData. Drives a
+// Underwater fog UBO (binding 37) — mirrors UnderwaterFogUBOData. Drives a
 // per-pixel water-volume fog: each pixel's view ray is fogged by the length of
 // its segment that passes below the water plane, so the waterline is handled
 // per pixel (underwater half fogged, above-water half clear) rather than as a
@@ -82,6 +93,10 @@ layout(std140, binding = 37) uniform UnderwaterFogBlock
     vec4 u_UnderwaterRefraction;      // x = strength (UV units, 0 = off), y = scale, z = speed, w = chromatic
     vec4 u_UnderwaterCaustics;        // x = intensity (0 = off), y = scale, z = speed, w = maxDepth
     vec4 u_UnderwaterCausticColor;    // rgb = caustic tint, w = sun-overhead factor max(-sunDir.y, 0)
+    vec4 u_UnderwaterGodRay;          // x = intensity (0 = off), y = decay, z = density, w = weight
+    vec4 u_UnderwaterGodRaySun;       // x = sampleCount, y = sunScreenU, z = sunScreenV, w = sunInFront (>0.5)
+    vec4 u_UnderwaterGodRayColor;     // rgb = shaft tint, w = pad
+    vec4 u_UnderwaterGodRayShape;     // x = dappleFloor, y = sunFalloff, zw = pad
     mat4 u_UnderwaterInvViewProj;     // NDC -> world reconstruction
 };
 
@@ -125,6 +140,83 @@ float underwaterCausticDepthFade(float depthBelowSurface, float maxDepth)
     if (depthBelowSurface <= 0.0 || maxDepth <= 0.0)
         return 0.0;
     return clamp(1.0 - depthBelowSurface / maxDepth, 0.0, 1.0);
+}
+
+// Broad animated wave pattern in [0,1] (sum of sines, ~half-duty) used to dapple
+// the god-ray shafts with the surface waves. Deliberately broader/smoother than the
+// sparse seabed caustic web (underwaterCausticPattern) so the modulation survives
+// the radial blur's averaging and reads as shimmer rather than washing out.
+float underwaterGodRayDapple(vec2 worldXZ, float time, float scale, float speed)
+{
+    vec2 q = worldXZ * scale;
+    float t = time * speed;
+    float a = sin(q.x + t) + sin(q.y * 1.3 - t * 0.8) + sin((q.x + q.y) * 0.7 + t * 1.1);
+    return clamp(a * (1.0 / 3.0) * 0.5 + 0.5, 0.0, 1.0);
+}
+
+// Volumetric light shafts ("god rays", §3.3). Screen-space radial blur of an
+// OCCLUSION signal: march from this pixel toward the sun's screen position and, at
+// each step, add `weight` (scaled by a per-step decay) whenever the sampled pixel
+// is open water toward the sun rather than solid geometry. The result is how much
+// unobstructed sunlight reaches along that screen ray — bright where the path to
+// the sun is clear, dark in the silhouette of occluders — i.e. crepuscular shafts.
+// Occlusion-based on purpose: nothing bright is rendered in the colour buffer
+// underwater (no sky/sun), so a colour radial blur would only produce a uniform
+// glow; sampling depth lets the shafts come from real geometry occlusion.
+// Returns the bounded [0,1] openness scaled by `weight` in each channel (un-tinted
+// — the caller applies intensity, the sun-overhead fade and the colour tint). The
+// decay normaliser (the sum it divides by) mirrors UnderwaterCaustics::GodRayDecaySum,
+// which the CPU contract test pins. `density` controls how far along the screen-space
+// ray toward the sun it marches.
+vec3 underwaterGodRays(vec2 uv, vec2 sunUV, int samples, float decay, float density, float weight)
+{
+    // Step from the pixel toward the sun, covering `density` of the screen-space
+    // distance over `samples` steps.
+    vec2 delta = (uv - sunUV) * (density / float(samples));
+    vec2 coord = uv;
+    float illum = 1.0;
+    float accum = 0.0;
+    float norm = 0.0;
+    for (int i = 0; i < samples; i++)
+    {
+        coord -= delta;
+        illum *= decay; // decay BEFORE the add — matches the CPU mirror's loop
+        // Explicit LOD 0: the march UV is data-dependent, so an implicit-derivative
+        // sample inside the loop would be undefined; the depth texture has no mips.
+        vec2 c = clamp(coord, 0.0, 1.0);
+        float depth = textureLod(u_DepthTexture, c, 0.0).r;
+        float open = step(GODRAY_OPEN_DEPTH, depth); // 1 = clear toward sun, 0 = occluded
+        // Localise the source around the sun so shafts radiate from it and fade out,
+        // instead of the whole open sky lighting up uniformly (a white wash).
+        vec2 toSun = c - sunUV;
+        float disk = exp(-dot(toSun, toSun) * u_UnderwaterGodRayShape.y);
+        accum += open * disk * illum;
+        norm += illum; // = sum of decay^i (the normaliser; UnderwaterCaustics::GodRayDecaySum)
+    }
+    // Normalised openness toward the sun in [0,1] (1 = wholly unobstructed). Dividing
+    // by the decay sum makes the shaft brightness BOUNDED and independent of the
+    // sample count, so quality/intensity changes can't blow the frame to white.
+    // `weight` is the shaft strength; the caller then applies intensity + sun fade.
+    float openness = (norm > 1e-5) ? accum / norm : 0.0;
+
+    // Surface-wave dapple: modulate the shaft by the animated wave pattern where THIS
+    // pixel's view ray crosses the water surface, so the shafts shimmer with the
+    // waves. Applied once per pixel at full resolution — NOT inside the march — so it
+    // isn't averaged away by the radial blur (and it's far cheaper: one reconstruction
+    // instead of one per sample). Reuses the caustic scale/speed so the shimmer and
+    // the seabed caustics ride the same waves.
+    float dapple = 1.0;
+    vec4 farH = u_UnderwaterInvViewProj * vec4(uv * 2.0 - 1.0, 1.0, 1.0);
+    vec3 dir = farH.xyz / farH.w - u_UnderwaterCameraPos.xyz;
+    if (dir.y > 1e-4) // ray rises toward the surface above the camera
+    {
+        float tHit = (u_UnderwaterFlags.y - u_UnderwaterCameraPos.y) / dir.y;
+        vec3 hit = u_UnderwaterCameraPos.xyz + dir * tHit;
+        float pat = underwaterGodRayDapple(hit.xz, u_UnderwaterFlags.z,
+                                           u_UnderwaterCaustics.y, u_UnderwaterCaustics.z);
+        dapple = mix(u_UnderwaterGodRayShape.x, 1.0, pat);
+    }
+    return vec3(openness * weight * dapple);
 }
 
 // Length of the part of segment [camPos -> worldPos] below the water plane.
@@ -268,6 +360,20 @@ void main()
     // exposure so the in-scatter colour is exposed/tonemapped with the rest of
     // the scene.
     hdrColor = applyUnderwaterFog(hdrColor, v_TexCoord);
+
+    // Volumetric light shafts (§3.3): additive sunlight streaming down through the
+    // surface. Gated on being submerged (Flags.x), god rays enabled (intensity),
+    // the sun being on screen / in front (GodRaySun.w) and above the horizon
+    // (CausticColor.w = sun-overhead factor). Added on top of the fogged image —
+    // the shafts are in-scatter toward the eye, not absorbed by the same fog.
+    if (u_UnderwaterFlags.x >= 0.5 && u_UnderwaterGodRay.x > 0.0
+        && u_UnderwaterGodRaySun.w > 0.5 && u_UnderwaterCausticColor.w > 0.0)
+    {
+        int samples = clamp(int(u_UnderwaterGodRaySun.x), 1, 256);
+        vec3 shafts = underwaterGodRays(v_TexCoord, u_UnderwaterGodRaySun.yz, samples,
+                                        u_UnderwaterGodRay.y, u_UnderwaterGodRay.z, u_UnderwaterGodRay.w);
+        hdrColor += shafts * u_UnderwaterGodRay.x * u_UnderwaterCausticColor.w * u_UnderwaterGodRayColor.rgb;
+    }
 
     // Apply exposure. Auto-exposure (when enabled) writes a positive metered
     // multiplier into autoExposureState[0]. A non-positive sentinel — or an

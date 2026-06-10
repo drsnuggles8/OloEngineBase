@@ -285,6 +285,12 @@ TEST(WaterRendering, WaterComponentCopyOmitsRuntime)
     original.m_UnderwaterChromaticStrength = 0.7f;
     original.m_CausticsIntensity = 1.25f;
     original.m_CausticsColor = glm::vec3(0.5f, 0.6f, 0.7f);
+    original.m_GodRayIntensity = 0.8f;
+    original.m_GodRayDecay = 0.93f;
+    original.m_GodRaySamples = 64u;
+    original.m_GodRayColor = glm::vec3(0.9f, 0.85f, 0.7f);
+    original.m_GodRayDappleFloor = 0.42f;
+    original.m_GodRaySunFalloff = 22.0f;
 
     WaterComponent copy(original);
 
@@ -312,6 +318,13 @@ TEST(WaterRendering, WaterComponentCopyOmitsRuntime)
     EXPECT_FLOAT_EQ(copy.m_CausticsColor.r, 0.5f);
     EXPECT_FLOAT_EQ(copy.m_CausticsColor.g, 0.6f);
     EXPECT_FLOAT_EQ(copy.m_CausticsColor.b, 0.7f);
+    EXPECT_FLOAT_EQ(copy.m_GodRayIntensity, 0.8f);
+    EXPECT_FLOAT_EQ(copy.m_GodRayDecay, 0.93f);
+    EXPECT_EQ(copy.m_GodRaySamples, 64u);
+    EXPECT_FLOAT_EQ(copy.m_GodRayColor.r, 0.9f);
+    EXPECT_FLOAT_EQ(copy.m_GodRayColor.b, 0.7f);
+    EXPECT_FLOAT_EQ(copy.m_GodRayDappleFloor, 0.42f);
+    EXPECT_FLOAT_EQ(copy.m_GodRaySunFalloff, 22.0f);
 
     // Runtime state should NOT be copied — mesh is null, needs rebuild
     EXPECT_EQ(copy.m_WaterMesh, nullptr);
@@ -663,10 +676,11 @@ TEST(WaterRendering, UnderwaterFogUBOAlignment)
         << "UnderwaterFogUBOData must be 16-byte aligned for std140";
     EXPECT_EQ(UnderwaterFogUBOData::GetSize(), sizeof(UnderwaterFogUBOData));
     // vec4 ColorAndDensity + vec4 Flags + vec4 CameraPos + vec4 RefractionParams
-    // + vec4 CausticParams + vec4 CausticColorAndSun + mat4 InvViewProj
-    // = 16 * 6 + 64 = 160 bytes. The §7.1/§7.2 refraction + caustics params were
-    // appended; if this changes, update the GLSL UnderwaterFogBlock layout too.
-    EXPECT_EQ(sizeof(UnderwaterFogUBOData), 160u);
+    // + vec4 CausticParams + vec4 CausticColorAndSun + vec4 GodRayParams
+    // + vec4 GodRaySun + vec4 GodRayColor + vec4 GodRayShape + mat4 InvViewProj
+    // = 16 * 10 + 64 = 224 bytes. The §3.3 god-ray params were appended after the
+    // caustics block; if this changes, update the GLSL UnderwaterFogBlock layout too.
+    EXPECT_EQ(sizeof(UnderwaterFogUBOData), 224u);
 }
 
 TEST(WaterRendering, UnderwaterFogUBOFieldOffsets)
@@ -679,7 +693,11 @@ TEST(WaterRendering, UnderwaterFogUBOFieldOffsets)
     EXPECT_EQ(offsetof(UnderwaterFogUBOData, RefractionParams), 48u);
     EXPECT_EQ(offsetof(UnderwaterFogUBOData, CausticParams), 64u);
     EXPECT_EQ(offsetof(UnderwaterFogUBOData, CausticColorAndSun), 80u);
-    EXPECT_EQ(offsetof(UnderwaterFogUBOData, InverseViewProjection), 96u);
+    EXPECT_EQ(offsetof(UnderwaterFogUBOData, GodRayParams), 96u);
+    EXPECT_EQ(offsetof(UnderwaterFogUBOData, GodRaySun), 112u);
+    EXPECT_EQ(offsetof(UnderwaterFogUBOData, GodRayColor), 128u);
+    EXPECT_EQ(offsetof(UnderwaterFogUBOData, GodRayShape), 144u);
+    EXPECT_EQ(offsetof(UnderwaterFogUBOData, InverseViewProjection), 160u);
 }
 
 TEST(WaterRendering, UnderwaterFogUBOBindingSlot)
@@ -895,6 +913,119 @@ TEST(WaterRendering, CausticDepthFadeMonotonicBetween)
         EXPECT_LE(v, prev + 1e-6f) << "depth fade must not increase with depth (i=" << i << ")";
         prev = v;
     }
+}
+
+// =============================================================================
+// Volumetric light shafts / god rays (WATER_FUTURE_IMPROVEMENTS.md §3.3)
+//
+// The shader's occlusion radial blur accumulates decay^i for the open steps and
+// divides by the sum of all decay^i, giving a bounded [0,1] openness. That sum is
+// the texture-INDEPENDENT normaliser the shader and CPU must agree on (a wrong sum
+// would drift the shaft brightness scale), so GodRayDecaySum runs the exact same
+// loop and these contracts pin it. The sun-screen projection (GodRaySunScreenUV)
+// decides where the shafts point and whether they appear at all, so it gets its
+// own gating/center/behind-camera contracts.
+// =============================================================================
+
+TEST(WaterRendering, GodRayDecaySumZeroForDegenerateInput)
+{
+    EXPECT_FLOAT_EQ(UnderwaterCaustics::GodRayDecaySum(0, 0.97f), 0.0f);
+    EXPECT_FLOAT_EQ(UnderwaterCaustics::GodRayDecaySum(-5, 0.97f), 0.0f);
+}
+
+TEST(WaterRendering, GodRayDecaySumMatchesGeometricSeries)
+{
+    // The loop sums sum_{i=1..N} decay^i, a finite geometric series with closed
+    // form decay * (1 - decay^N) / (1 - decay).
+    constexpr i32 N = 48;
+    constexpr f32 decay = 0.97f;
+    const f32 closed = decay * (1.0f - std::pow(decay, static_cast<f32>(N))) / (1.0f - decay);
+    EXPECT_NEAR(UnderwaterCaustics::GodRayDecaySum(N, decay), closed, 1e-4f);
+}
+
+TEST(WaterRendering, GodRayDecaySumGrowsWithSamples)
+{
+    // Each extra sample adds a strictly positive term (positive decay), so the
+    // normaliser is monotonically increasing in the sample count.
+    f32 prev = -1.0f;
+    for (i32 n = 1; n <= 64; ++n)
+    {
+        const f32 v = UnderwaterCaustics::GodRayDecaySum(n, 0.95f);
+        EXPECT_GT(v, prev) << "more samples must accumulate a larger decay sum (n=" << n << ")";
+        prev = v;
+    }
+}
+
+TEST(WaterRendering, GodRayDecaySumSurvivesNonFiniteInput)
+{
+    const f32 nan = std::numeric_limits<f32>::quiet_NaN();
+    EXPECT_FLOAT_EQ(UnderwaterCaustics::GodRayDecaySum(48, nan), 0.0f);
+}
+
+TEST(WaterRendering, GodRayDappleInUnitRange)
+{
+    // The surface-wave dapple modulation that shimmers the shafts must stay in [0,1]
+    // for any input (it multiplies the shaft, so out-of-range would over/under-drive it).
+    for (i32 i = 0; i < 64; ++i)
+    {
+        const f32 x = static_cast<f32>(i) * 0.37f - 11.0f;
+        const f32 y = static_cast<f32>(i) * 0.53f - 7.0f;
+        const f32 v = UnderwaterCaustics::GodRayDapple({ x, y }, static_cast<f32>(i) * 0.25f, 0.5f, 0.6f);
+        EXPECT_GE(v, 0.0f);
+        EXPECT_LE(v, 1.0f);
+    }
+}
+
+TEST(WaterRendering, GodRayDappleVariesInSpaceAndTime)
+{
+    // It must actually vary (otherwise the shafts wouldn't shimmer) — across space
+    // at a fixed time, and across time at a fixed point.
+    const f32 a = UnderwaterCaustics::GodRayDapple({ 0.0f, 0.0f }, 2.0f, 0.5f, 0.6f);
+    const f32 b = UnderwaterCaustics::GodRayDapple({ 3.1f, 1.7f }, 2.0f, 0.5f, 0.6f);
+    EXPECT_GT(std::abs(a - b), 1e-3f) << "dapple is flat in space — shafts wouldn't shimmer";
+    const f32 c = UnderwaterCaustics::GodRayDapple({ 0.0f, 0.0f }, 5.0f, 0.5f, 0.6f);
+    EXPECT_GT(std::abs(a - c), 1e-3f) << "dapple is static in time — shafts wouldn't animate";
+}
+
+TEST(WaterRendering, GodRayDappleSurvivesNonFiniteInput)
+{
+    const f32 nan = std::numeric_limits<f32>::quiet_NaN();
+    EXPECT_TRUE(std::isfinite(UnderwaterCaustics::GodRayDapple({ nan, 1.0f }, 1.0f, 0.5f, 0.6f)));
+    EXPECT_TRUE(std::isfinite(UnderwaterCaustics::GodRayDapple({ 1.0f, 1.0f }, nan, 0.5f, 0.6f)));
+}
+
+TEST(WaterRendering, GodRaySunScreenUVCentersWhenLookingAtSun)
+{
+    // Sun light travels in -Z (so the sun itself sits in +Z); a camera at the
+    // origin looking toward +Z stares straight at it → the vanishing point lands
+    // at screen centre.
+    const glm::vec3 sunDir(0.0f, 0.0f, -1.0f);
+    const glm::mat4 proj = glm::perspective(glm::radians(60.0f), 16.0f / 9.0f, 0.05f, 1000.0f);
+    const glm::mat4 view = glm::lookAt(glm::vec3(0.0f), glm::vec3(0.0f, 0.0f, 1.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+    glm::vec2 uv(-1.0f);
+    ASSERT_TRUE(UnderwaterCaustics::GodRaySunScreenUV(proj * view, sunDir, uv));
+    EXPECT_NEAR(uv.x, 0.5f, 1e-3f);
+    EXPECT_NEAR(uv.y, 0.5f, 1e-3f);
+}
+
+TEST(WaterRendering, GodRaySunScreenUVRejectsSunBehindCamera)
+{
+    // Same sun, but the camera now faces -Z (away from the sun): the vanishing
+    // point is behind the camera plane → no shafts, projection rejected.
+    const glm::vec3 sunDir(0.0f, 0.0f, -1.0f);
+    const glm::mat4 proj = glm::perspective(glm::radians(60.0f), 16.0f / 9.0f, 0.05f, 1000.0f);
+    const glm::mat4 view = glm::lookAt(glm::vec3(0.0f), glm::vec3(0.0f, 0.0f, -1.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+    glm::vec2 uv(0.123f, 0.456f);
+    EXPECT_FALSE(UnderwaterCaustics::GodRaySunScreenUV(proj * view, sunDir, uv));
+}
+
+TEST(WaterRendering, GodRaySunScreenUVRejectsDegenerateSunDir)
+{
+    const glm::mat4 vp(1.0f);
+    glm::vec2 uv(0.0f);
+    const f32 nan = std::numeric_limits<f32>::quiet_NaN();
+    EXPECT_FALSE(UnderwaterCaustics::GodRaySunScreenUV(vp, glm::vec3(0.0f), uv));
+    EXPECT_FALSE(UnderwaterCaustics::GodRaySunScreenUV(vp, glm::vec3(nan, 1.0f, 0.0f), uv));
 }
 
 // =============================================================================

@@ -2243,6 +2243,25 @@ namespace OloEngine
         f32 m_CausticsMaxDepth = 25.0f;                    // metres below surface where caustics fade to zero
         glm::vec3 m_CausticsColor = { 0.7f, 0.85f, 1.0f }; // caustic light tint (slightly blue-white)
 
+        // Volumetric light shafts / "god rays" (§3.3) — a screen-space radial
+        // blur that marches from each pixel toward the sun's screen position,
+        // accumulating where the path through the water toward the sun is
+        // unoccluded (depth-based, so solid geometry casts the dark gaps between
+        // shafts). Added on top of the submerged image by the tone-map pass so
+        // shafts of sunlight stream down through the water, dappled by the surface
+        // waves (sharing the caustic scale/speed). Only visible when the camera is
+        // below the surface and the sun is above the horizon AND on screen (in front
+        // of the camera). Intensity 0 disables. The decay normaliser mirrors
+        // UnderwaterCaustics::GodRayDecaySum and the dapple UnderwaterCaustics::GodRayDapple.
+        f32 m_GodRayIntensity = 0.5f;                    // master brightness of the shafts (0 disables)
+        f32 m_GodRayDecay = 0.97f;                       // march weighting falloff toward the sun (<1)
+        f32 m_GodRayDensity = 0.85f;                     // march length toward the sun (fraction of screen distance)
+        f32 m_GodRayWeight = 1.0f;                       // shaft strength — peak in-scatter at full openness (x intensity)
+        glm::vec3 m_GodRayColor = { 1.0f, 0.95f, 0.8f }; // warm sun tint of the shafts
+        u32 m_GodRaySamples = 48;                        // radial-blur step count (quality/perf trade-off)
+        f32 m_GodRayDappleFloor = 0.35f;                 // surface-wave shimmer trough darkness (0 = full extinction, 1 = no dapple)
+        f32 m_GodRaySunFalloff = 16.0f;                  // sun-source tightness (higher = narrower shafts)
+
         bool m_RenderFromBelow = true; // Allow the water plane to be visible from below
 
         // Runtime (not serialized)
@@ -2294,7 +2313,9 @@ namespace OloEngine
                 && blkEq(m_TessellationFactor, m_TessellationFactor) // f32
                 && m_TessellationEnabled == o.m_TessellationEnabled
                 && blkEq(m_TessMinDistance, m_TessMaxDistance) // f32*2
-                && blkEq(m_UnderwaterFogColor, m_CausticsColor) // vec3 + f32 + f32*8 + vec3
+                && blkEq(m_UnderwaterFogColor, m_GodRayColor) // vec3 + f32 + f32*8 + vec3 + f32*4 + vec3
+                && m_GodRaySamples == o.m_GodRaySamples
+                && blkEq(m_GodRayDappleFloor, m_GodRaySunFalloff) // f32*2
                 && m_RenderFromBelow == o.m_RenderFromBelow;
             // clang-format on
         }
@@ -2383,6 +2404,14 @@ namespace OloEngine
             m_CausticsSpeed = src.m_CausticsSpeed;
             m_CausticsMaxDepth = src.m_CausticsMaxDepth;
             m_CausticsColor = src.m_CausticsColor;
+            m_GodRayIntensity = src.m_GodRayIntensity;
+            m_GodRayDecay = src.m_GodRayDecay;
+            m_GodRayDensity = src.m_GodRayDensity;
+            m_GodRayWeight = src.m_GodRayWeight;
+            m_GodRayColor = src.m_GodRayColor;
+            m_GodRaySamples = src.m_GodRaySamples;
+            m_GodRayDappleFloor = src.m_GodRayDappleFloor;
+            m_GodRaySunFalloff = src.m_GodRaySunFalloff;
             m_RenderFromBelow = src.m_RenderFromBelow;
         }
     };
