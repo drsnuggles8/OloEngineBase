@@ -18,7 +18,8 @@
 //      physics proxy keeps SampleHeight tracking the same surface.
 //
 // Requires a GL 4.6 context; SKIPs cleanly otherwise (RendererAttachedTest).
-// Classification: L8 / integration (compute dispatch + texture readback).
+// Classification: integration (numeric GPU-vs-CPU contract via compute
+// dispatch + texture readback — not a composed-frame golden/evidence test).
 // =============================================================================
 
 #include "OloEnginePCH.h"
@@ -113,8 +114,8 @@ namespace OloEngine::Tests
         const f32 expected = 1.0f / (static_cast<f32>(N) * static_cast<f32>(N));
         for (sizet i = 0; i < spatial.size(); ++i)
         {
-            ASSERT_NEAR(spatial[i].real(), expected, expected * 1e-3f) << "idx " << i;
-            ASSERT_NEAR(spatial[i].imag(), 0.0f, expected * 1e-3f) << "idx " << i;
+            EXPECT_NEAR(spatial[i].real(), expected, expected * 1e-3f) << "idx " << i;
+            EXPECT_NEAR(spatial[i].imag(), 0.0f, expected * 1e-3f) << "idx " << i;
         }
     }
 

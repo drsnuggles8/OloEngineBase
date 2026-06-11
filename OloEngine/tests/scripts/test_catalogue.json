@@ -38,7 +38,7 @@
     "OloEngine/tests/Rendering/PropertyTests/DrawIndexedRawOffsetTest.cpp": "L1",
     "OloEngine/tests/Rendering/PropertyTests/HZBGeneratorResizeTest.cpp": "L1",
     "OloEngine/tests/Rendering/PropertyTests/OceanFFTSpectrumTest.cpp": "L1",
-    "OloEngine/tests/Rendering/PropertyTests/OceanFFTGpuContractTest.cpp": "L8",
+    "OloEngine/tests/Rendering/PropertyTests/OceanFFTGpuContractTest.cpp": "integration",
     "OloEngine/tests/Rendering/PropertyTests/GLStateGuardTest.cpp": "L4",
     "OloEngine/tests/Rendering/PropertyTests/ModelLoadDeterminismTest.cpp": "L3",
     "OloEngine/tests/Rendering/RenderGraphTest.cpp": "L5",
