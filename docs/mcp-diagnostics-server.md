@@ -4,7 +4,9 @@ OloEditor can host a **localhost-only, read-only [MCP](https://modelcontextproto
 server** so you can point your own LLM agent (Claude Code, Claude Desktop, …) at the
 *running editor* and get grounded help debugging your game — using the diagnostics the
 engine already collects (logs, scene/ECS state, scripting errors and API, performance,
-memory, shaders, assets, crash reports, and a live screenshot).
+memory, shaders, assets, crash reports, and a live screenshot) — plus a Tier-0
+rendering-dev harness (camera control, viewport sizing, intermediate render-target
+capture; issue #316).
 
 Strategy is **"expose, don't embed"**: OloEditor does not ship a chat panel, an API key,
 or a model. It exposes data over a standard protocol; you bring your own agent. (Issue #285.)
@@ -16,7 +18,9 @@ or a model. It exposes data over a standard protocol; you bring your own agent. 
 - Every request must carry a **bearer token** the editor generates and displays. A fresh
   token is minted each time you start the server.
 - The `Origin` header is validated (DNS-rebinding defence) and the dispatch layer is
-  **read-only** — no tool modifies your project.
+  **read-only with respect to your project** — no tool writes scenes, assets, or files.
+  The Tier-0 inspection tools (issue #316) may adjust *editor-only viewport state* — the
+  editor camera pose and the viewport capture size — which is never persisted.
 - Optional **path redaction** scrubs absolute filesystem paths from text output (toggle in
   the panel) for when you don't want project layout / usernames leaving the process.
 
@@ -103,7 +107,30 @@ the server, so update the config (or re-copy from the panel) accordingly.
 | `olo_script_get_api` | C# / Lua scripting API digest (types + members), with a type filter |
 | `olo_script_get_last_errors` | recent C# (Mono) / Lua (Sol2) script exceptions |
 | `olo_crash_list` / `olo_crash_get` | crash reports under `CrashReports/` |
-| `olo_screenshot` | the viewport rendered to a PNG image block |
+| `olo_screenshot` | the viewport rendered to a PNG image block; optional one-shot camera pose (`camera`/`orbit` + `settleFrames`) with automatic save/restore of the user's camera |
+| `olo_camera_get` | the editor camera's pose (position, focal point, yaw/pitch, FOV, clips, viewport size) |
+| `olo_camera_set_pose` | move the editor camera: `position` + (`target` \| `yaw`/`pitch`), optional `fov` |
+| `olo_camera_orbit` | orbit-frame the camera around a world point: `target`, `yaw`, `pitch`, `distance` |
+| `olo_camera_frame_entity` | point the camera at an entity (by UUID) and fit it in view |
+| `olo_viewport_set_size` | override the viewport's logical render size for deterministic captures (`reset` to clear) |
+| `olo_render_list_targets` | the render graph's live texture/framebuffer resources (name, kind, format, size, producers) |
+| `olo_render_capture_target` | read back one intermediate render target (depth, normals, G-buffer, shadow map, AO, post-process stages, …) as a PNG image block; depth is min-max normalised by default |
+
+### Multi-angle visual verification (the CLAUDE.md water pattern)
+
+The camera tools exist so an agent can verify a rendering change from the angles where
+it is most likely to break, without touching the user's viewport. The intended loop:
+
+1. `olo_render_list_targets` → discover what the frame graph produced this frame.
+2. `olo_screenshot { camera: { position, target } }` (or `orbit`) per angle — e.g. for
+   water: from the side, straddling the waterline, fully submerged, top-down. Each call
+   saves the user's camera, renders the pose for `settleFrames` frames, captures, and
+   restores.
+3. `olo_render_capture_target { name: "SceneDepth" }` (or `GBufferNormal`,
+   `ShadowMapCSM`, `AOBuffer`, `BloomColor`, …) when the *final* frame looks wrong and
+   you need to see which intermediate buffer broke.
+4. `olo_viewport_set_size { width, height }` first when a deterministic resolution
+   matters (golden comparisons); `{ reset: true }` when done.
 
 ### Resources
 

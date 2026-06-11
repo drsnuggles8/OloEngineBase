@@ -86,6 +86,9 @@ namespace OloEngine
         // [0, worldSize] from its transform, so the default origin-focused camera
         // would otherwise look right past it). No-op when the scene has no terrain.
         void FrameEditorCameraOnTerrain(const Ref<Scene>& scene);
+        // Orbit-frame the editor camera on one entity (MCP olo_camera_frame_entity).
+        // Returns false when the entity doesn't exist in the active scene.
+        bool FrameEditorCameraOnEntity(u64 entityUuid);
         bool SaveScene();
         bool SaveSceneAs();
 
@@ -272,6 +275,18 @@ namespace OloEngine
         // default), stopped in OnDetach. The user starts it from Window > MCP Server.
         Scope<MCP::McpServer> m_McpServer;
         bool m_ShowMcpPanel = false;
+        // Tier-0 MCP viewport-size override (#316): when non-zero, UI_Viewport
+        // uses this logical size instead of the ImGui panel size so captures
+        // have a deterministic resolution. Set/cleared via olo_viewport_set_size.
+        glm::uvec2 m_McpViewportSizeOverride{ 0, 0 };
+        // Monotonic frame counter, exposed (with m_ViewportRenderSkipped and
+        // m_LastViewportResizeFrame) to the MCP tools so a camera change can be
+        // confirmed rendered before a capture is taken.
+        u64 m_FrameIndex = 0;
+        // Frame at which the viewport framebuffer was last resized. Freshly
+        // resized render-graph framebuffers render black for a couple of
+        // frames, so captures must not trust the first frames after a resize.
+        u64 m_LastViewportResizeFrame = 0;
 
         // Undo/Redo
         CommandHistory m_CommandHistory;

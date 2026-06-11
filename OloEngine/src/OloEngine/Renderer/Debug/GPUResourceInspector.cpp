@@ -9,6 +9,7 @@
 #include <stb_image/stb_image_write.h>
 
 #include <filesystem>
+#include <format>
 #include <fstream>
 #include <sstream>
 #include <iomanip>
@@ -17,6 +18,7 @@
 #include <cstring>
 #include <algorithm>
 #include <cctype>
+#include <limits>
 
 namespace OloEngine
 {
@@ -793,6 +795,251 @@ namespace OloEngine
         }
 
         return true;
+    }
+
+    GPUResourceInspector::TextureCaptureResult GPUResourceInspector::CaptureTexturePng(u32 textureId, u32 mipLevel,
+                                                                                       u32 faceOrLayer,
+                                                                                       CaptureNormalizeMode normalize,
+                                                                                       int maxWidth)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        TextureCaptureResult result;
+        if (textureId == 0 || glIsTexture(textureId) == GL_FALSE)
+        {
+            result.Error = "invalid texture id";
+            return result;
+        }
+
+        // GL 4.5 DSA: a texture object knows its own target.
+        GLint target = 0;
+        glGetTextureParameteriv(textureId, GL_TEXTURE_TARGET, &target);
+        const bool isLayered = target == GL_TEXTURE_CUBE_MAP || target == GL_TEXTURE_CUBE_MAP_ARRAY ||
+                               target == GL_TEXTURE_2D_ARRAY || target == GL_TEXTURE_3D;
+
+        GLint width = 0;
+        GLint height = 0;
+        GLint internalFormat = 0;
+        glGetTextureLevelParameteriv(textureId, static_cast<GLint>(mipLevel), GL_TEXTURE_WIDTH, &width);
+        glGetTextureLevelParameteriv(textureId, static_cast<GLint>(mipLevel), GL_TEXTURE_HEIGHT, &height);
+        glGetTextureLevelParameteriv(textureId, static_cast<GLint>(mipLevel), GL_TEXTURE_INTERNAL_FORMAT, &internalFormat);
+        if (width <= 0 || height <= 0)
+        {
+            result.Error = "texture has no storage at the requested mip level";
+            return result;
+        }
+
+        // Map the internal format to a readback (format, type). Same table as
+        // QueryTextureInfo, except packed depth-stencil reads as depth-only
+        // float — glGetTextureSubImage(GL_DEPTH_COMPONENT) legally extracts the
+        // depth plane, which is exactly what an inspection capture wants.
+        GLenum format = GL_NONE;
+        GLenum dataType = GL_NONE;
+        bool isDepth = false;
+        switch (internalFormat)
+        {
+            case GL_RGBA8:
+            case GL_SRGB8_ALPHA8:
+                format = GL_RGBA;
+                dataType = GL_UNSIGNED_BYTE;
+                break;
+            case GL_RGB8:
+            case GL_SRGB8:
+                format = GL_RGB;
+                dataType = GL_UNSIGNED_BYTE;
+                break;
+            case GL_RG8:
+                format = GL_RG;
+                dataType = GL_UNSIGNED_BYTE;
+                break;
+            case GL_R8:
+                format = GL_RED;
+                dataType = GL_UNSIGNED_BYTE;
+                break;
+            case GL_RGBA16F:
+            case GL_RGBA32F:
+                format = GL_RGBA;
+                dataType = GL_FLOAT;
+                break;
+            case GL_RGB16F:
+            case GL_RGB32F:
+            case GL_R11F_G11F_B10F:
+                format = GL_RGB;
+                dataType = GL_FLOAT;
+                break;
+            case GL_RG16F:
+            case GL_RG32F:
+                format = GL_RG;
+                dataType = GL_FLOAT;
+                break;
+            case GL_R16F:
+            case GL_R32F:
+                format = GL_RED;
+                dataType = GL_FLOAT;
+                break;
+            case GL_DEPTH_COMPONENT16:
+            case GL_DEPTH_COMPONENT24:
+            case GL_DEPTH_COMPONENT32:
+            case GL_DEPTH_COMPONENT32F:
+            case GL_DEPTH24_STENCIL8:
+            case GL_DEPTH32F_STENCIL8:
+                format = GL_DEPTH_COMPONENT;
+                dataType = GL_FLOAT;
+                isDepth = true;
+                break;
+            default:
+                result.Error = "unsupported internal format 0x" + std::format("{:X}", static_cast<u32>(internalFormat));
+                return result;
+        }
+
+        const i32 channels = ChannelsFromGLFormat(format);
+        const bool sourceIsFloat = (dataType == GL_FLOAT);
+        const sizet bytesPerChannel = sourceIsFloat ? sizeof(f32) : sizeof(u8);
+        const sizet rowStride = static_cast<sizet>(width) * static_cast<sizet>(channels) * bytesPerChannel;
+        const sizet bufferBytes = rowStride * static_cast<sizet>(height);
+        std::vector<u8> readBuffer(bufferBytes);
+
+        // Tight packing + PBO unbind guard — same rationale as SaveTextureToFile.
+        GLint prevPackAlignment = 4;
+        glGetIntegerv(GL_PACK_ALIGNMENT, &prevPackAlignment);
+        glPixelStorei(GL_PACK_ALIGNMENT, 1);
+        GLint prevPackPBO = 0;
+        glGetIntegerv(GL_PIXEL_PACK_BUFFER_BINDING, &prevPackPBO);
+        if (prevPackPBO != 0)
+            glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
+
+        glGetTextureSubImage(textureId,
+                             static_cast<GLint>(mipLevel),
+                             0, 0, isLayered ? static_cast<GLint>(faceOrLayer) : 0,
+                             width, height, 1,
+                             format, sourceIsFloat ? GL_FLOAT : GL_UNSIGNED_BYTE,
+                             static_cast<GLsizei>(bufferBytes), readBuffer.data());
+
+        if (prevPackPBO != 0)
+            glBindBuffer(GL_PIXEL_PACK_BUFFER, static_cast<GLuint>(prevPackPBO));
+        glPixelStorei(GL_PACK_ALIGNMENT, prevPackAlignment);
+
+        if (GLenum err = glGetError(); err != GL_NO_ERROR)
+        {
+            result.Error = "glGetTextureSubImage failed (GL 0x" + std::format("{:X}", err) + ")";
+            return result;
+        }
+
+        // Convert to 8-bit. Float sources optionally min-max normalise first
+        // (Auto = depth only) so a depth buffer / HDR target isn't a flat
+        // white/black image after the [0,1] clamp.
+        const sizet valueCount = static_cast<sizet>(width) * static_cast<sizet>(height) * static_cast<sizet>(channels);
+        std::vector<u8> pixels8;
+        if (sourceIsFloat)
+        {
+            const f32* src = reinterpret_cast<const f32*>(readBuffer.data());
+            const bool wantNormalize = normalize == CaptureNormalizeMode::On ||
+                                       (normalize == CaptureNormalizeMode::Auto && isDepth);
+            f32 minV = std::numeric_limits<f32>::max();
+            f32 maxV = std::numeric_limits<f32>::lowest();
+            for (sizet i = 0; i < valueCount; ++i)
+            {
+                if (std::isfinite(src[i]))
+                {
+                    minV = std::min(minV, src[i]);
+                    maxV = std::max(maxV, src[i]);
+                }
+            }
+            const bool haveRange = maxV > minV;
+            if (haveRange)
+            {
+                result.MinValue = minV;
+                result.MaxValue = maxV;
+            }
+            const bool doNormalize = wantNormalize && haveRange;
+            result.Normalized = doNormalize;
+            const f32 scale = doNormalize ? 1.0f / (maxV - minV) : 1.0f;
+            const f32 bias = doNormalize ? -minV : 0.0f;
+            pixels8.resize(valueCount);
+            for (sizet i = 0; i < valueCount; ++i)
+            {
+                const f32 safe = std::isnan(src[i]) ? 0.0f : src[i];
+                const f32 clamped = std::clamp((safe + bias) * scale, 0.0f, 1.0f);
+                pixels8[i] = static_cast<u8>(clamped * 255.0f + 0.5f);
+            }
+        }
+        else
+        {
+            pixels8 = std::move(readBuffer);
+        }
+
+        // Widen 2-channel output to RGB (B = 0): PNG comp=2 means grey+alpha,
+        // which would hide the G channel of an RG target in the alpha plane.
+        i32 outChannels = channels;
+        if (channels == 2)
+        {
+            outChannels = 3;
+            std::vector<u8> widened(static_cast<sizet>(width) * static_cast<sizet>(height) * 3, 0);
+            for (sizet i = 0; i < static_cast<sizet>(width) * static_cast<sizet>(height); ++i)
+            {
+                widened[i * 3 + 0] = pixels8[i * 2 + 0];
+                widened[i * 3 + 1] = pixels8[i * 2 + 1];
+            }
+            pixels8 = std::move(widened);
+        }
+
+        // Flip to PNG top-down orientation so the capture is upright when an
+        // agent views it (matches CaptureViewportPng / olo_screenshot, and
+        // intentionally differs from SaveTextureToFile's raw-memory dump).
+        const sizet outRowBytes = static_cast<sizet>(width) * static_cast<sizet>(outChannels);
+        std::vector<u8> flipped(pixels8.size());
+        for (sizet y = 0; y < static_cast<sizet>(height); ++y)
+            std::memcpy(flipped.data() + y * outRowBytes,
+                        pixels8.data() + (static_cast<sizet>(height) - 1 - y) * outRowBytes, outRowBytes);
+
+        // Optional nearest-neighbour downscale so width <= maxWidth.
+        u32 outW = static_cast<u32>(width);
+        u32 outH = static_cast<u32>(height);
+        const std::vector<u8>* encodeSrc = &flipped;
+        std::vector<u8> scaled;
+        if (maxWidth > 0 && outW > static_cast<u32>(maxWidth))
+        {
+            const u32 srcW = outW;
+            const u32 srcH = outH;
+            outW = static_cast<u32>(maxWidth);
+            outH = std::max<u32>(1, static_cast<u32>((static_cast<u64>(srcH) * outW) / srcW));
+            scaled.assign(static_cast<sizet>(outW) * outH * outChannels, 0);
+            for (u32 y = 0; y < outH; ++y)
+            {
+                const u32 sy = std::min(srcH - 1, static_cast<u32>((static_cast<u64>(y) * srcH) / outH));
+                for (u32 x = 0; x < outW; ++x)
+                {
+                    const u32 sx = std::min(srcW - 1, static_cast<u32>((static_cast<u64>(x) * srcW) / outW));
+                    std::memcpy(&scaled[(static_cast<sizet>(y) * outW + x) * outChannels],
+                                &flipped[(static_cast<sizet>(sy) * srcW + sx) * outChannels],
+                                static_cast<sizet>(outChannels));
+                }
+            }
+            encodeSrc = &scaled;
+        }
+
+        std::vector<u8> png;
+        const auto appendToVector = [](void* context, void* data, int size)
+        {
+            auto* out = static_cast<std::vector<u8>*>(context);
+            const auto* bytes = static_cast<const u8*>(data);
+            out->insert(out->end(), bytes, bytes + size);
+        };
+        if (stbi_write_png_to_func(appendToVector, &png, static_cast<int>(outW), static_cast<int>(outH),
+                                   outChannels, encodeSrc->data(), static_cast<int>(outW) * outChannels) == 0)
+        {
+            result.Error = "PNG encode failed";
+            return result;
+        }
+
+        result.PngBytes = std::move(png);
+        result.Width = outW;
+        result.Height = outH;
+        result.SourceWidth = static_cast<u32>(width);
+        result.SourceHeight = static_cast<u32>(height);
+        result.FormatName = GetInstance().FormatTextureFormat(static_cast<GLenum>(internalFormat));
+        result.IsDepth = isDepth;
+        return result;
     }
 
     GLenum GPUResourceInspector::GetBufferBindingQuery(GLenum target)

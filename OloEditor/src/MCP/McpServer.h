@@ -14,7 +14,10 @@
 //   * Every request must carry "Authorization: Bearer <token>"; the editor
 //     displays the token for the user to paste into their agent config.
 //   * The Origin header is validated (DNS-rebinding defence).
-//   * Read-only: the dispatch layer exposes only query tools; nothing mutates.
+//   * Read-only with respect to the user's PROJECT: no tool writes scenes,
+//     assets, or files. Tier-0 inspection tools (issue #316) may adjust
+//     editor-only viewport state — the editor camera pose and the viewport
+//     capture size — which is never persisted.
 //
 // Threading: cpp-httplib handles each request on its own worker thread. The
 // already-FMutex-guarded diagnostics (Profiler / MemoryTracker / ShaderDebugger /
@@ -25,6 +28,7 @@
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Scene/Scene.h"
 
+#include <glm/glm.hpp>
 #include <nlohmann/json.hpp>
 
 #include <atomic>
@@ -83,6 +87,24 @@ namespace OloEngine::MCP
         bool MainMarshaled = false;
     };
 
+    // Snapshot of the editor camera's full pose, returned by GetCameraPose and
+    // accepted by RestoreCameraPose. Angles are radians (EditorCamera's units);
+    // FOV is vertical degrees. Distance 0 means a collapsed orbit (free pose).
+    struct McpCameraPose
+    {
+        glm::vec3 Position{ 0.0f };
+        glm::vec3 FocalPoint{ 0.0f };
+        glm::vec3 Forward{ 0.0f, 0.0f, -1.0f };
+        f32 Distance = 0.0f;
+        f32 YawRadians = 0.0f;
+        f32 PitchRadians = 0.0f;
+        f32 FovDegrees = 45.0f;
+        f32 NearClip = 0.1f;
+        f32 FarClip = 1000.0f;
+        u32 ViewportWidth = 0;
+        u32 ViewportHeight = 0;
+    };
+
     // Editor state the main-marshaled tools read. EditorLayer fills these in; the
     // std::function bodies are ONLY safe to call on the main (game) thread, i.e.
     // from inside a MarshalRead() job.
@@ -95,6 +117,37 @@ namespace OloEngine::MCP
         // thread (does GL readback), so call it from inside a MarshalRead job.
         // Returns empty bytes on failure.
         std::function<std::vector<u8>(int maxWidth)> CaptureViewportPng;
+
+        // ---- Tier-0 camera / viewport control (issue #316) -----------------
+        // All main-thread-only, like the readers above. These mutate editor-only
+        // inspection state (never the project): the EditorCamera pose and the
+        // viewport's capture-size override.
+
+        std::function<McpCameraPose()> GetCameraPose;
+        // Pose the camera at an explicit eye position looking along yaw/pitch
+        // (radians); fovDegrees <= 0 keeps the current FOV. Collapses the orbit
+        // (EditorCamera::SetPose) so the pose renders exactly as requested.
+        std::function<void(const glm::vec3& eye, f32 yawRadians, f32 pitchRadians, f32 fovDegrees)> SetCameraPose;
+        // Orbit-frame the camera around `target` (EditorCamera::Focus).
+        std::function<void(const glm::vec3& target, f32 yawRadians, f32 pitchRadians, f32 distance)> OrbitCamera;
+        // Restore a previously captured pose (focal point / distance / angles /
+        // FOV) — the save/restore half of multi-angle screenshot capture.
+        std::function<void(const McpCameraPose& pose)> RestoreCameraPose;
+        // Orbit-frame the camera on the entity with this UUID so it fills the
+        // view. Returns false when the entity doesn't exist in the active scene.
+        std::function<bool(u64 entityUuid)> FrameEntity;
+        // Override the viewport's logical size (deterministic capture
+        // resolution); width/height 0 clears the override and returns the
+        // viewport to the ImGui panel size.
+        std::function<void(u32 width, u32 height)> SetViewportSizeOverride;
+        // Monotonic editor frame counter + whether the framebuffer is currently
+        // NOT capture-ready: the last frame skipped scene rendering (frame-budget
+        // throttle), or a viewport resize happened within the last few frames
+        // (resized render-graph framebuffers render black for a couple of frames).
+        // Together these let a tool wait until a camera change has actually been
+        // rendered before capturing.
+        std::function<u64()> GetFrameIndex;
+        std::function<bool()> IsCaptureUnready;
     };
 
     // An MCP resource: a passive, addressable blob (vs. an active tool). The reader

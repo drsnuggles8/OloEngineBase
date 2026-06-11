@@ -221,6 +221,50 @@ namespace OloEngine
         // @return true on success; false if the texture is invalid, the format is unsupported, or the file write fails.
         bool SaveTextureToFile(const TextureInfo& info, const std::string& filePath, u32 mipLevel, u32 faceIndex = 0) const;
 
+        // Whether float-valued sources should be min-max normalised to [0,1]
+        // before PNG quantisation in CaptureTexturePng. Auto = normalise depth
+        // formats only (raw depth is ~1.0 everywhere and encodes near-white).
+        enum class CaptureNormalizeMode : u8
+        {
+            Auto = 0,
+            Off,
+            On
+        };
+
+        // Result of CaptureTexturePng. PngBytes is empty (and Error non-empty)
+        // on failure. MinValue/MaxValue report the finite value range of float
+        // sources before quantisation — useful to interpret normalised output.
+        struct TextureCaptureResult
+        {
+            std::vector<u8> PngBytes;
+            u32 Width = 0;
+            u32 Height = 0;
+            u32 SourceWidth = 0;
+            u32 SourceHeight = 0;
+            std::string FormatName;
+            bool IsDepth = false;
+            bool Normalized = false;
+            f32 MinValue = 0.0f;
+            f32 MaxValue = 0.0f;
+            std::string Error;
+        };
+
+        // @brief Encode one mip/face of an arbitrary GL texture to PNG bytes in memory.
+        //        The in-memory sibling of SaveTextureToFile, built for the MCP
+        //        render-target capture tools (issue #316): same DSA readback and
+        //        float->u8 conversion, but returns the encoded PNG instead of
+        //        writing a file, supports min-max normalisation for depth/HDR
+        //        inspection, optionally downscales so width <= maxWidth (<=0 =
+        //        native), and — unlike SaveTextureToFile — flips rows to PNG
+        //        top-down orientation so the image is upright when viewed.
+        //        `faceOrLayer` selects the cubemap face / array layer (0 for 2D).
+        //        Packed depth-stencil textures are read back as depth-only.
+        //        Requires an active OpenGL 4.5+ context (main thread).
+        [[nodiscard]] static TextureCaptureResult CaptureTexturePng(u32 textureId, u32 mipLevel = 0,
+                                                                    u32 faceOrLayer = 0,
+                                                                    CaptureNormalizeMode normalize = CaptureNormalizeMode::Auto,
+                                                                    int maxWidth = 0);
+
         // @brief Get total number of tracked resources
         u32 GetResourceCount() const
         {

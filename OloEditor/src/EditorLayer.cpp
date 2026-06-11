@@ -312,6 +312,60 @@ namespace OloEngine
                 }
                 return CaptureFramebufferPng(target, maxWidth);
             };
+
+            // Tier-0 camera / viewport control (#316). Editor-only inspection
+            // state; nothing here touches the project.
+            mcpContext.GetCameraPose = [this]() -> MCP::McpCameraPose
+            {
+                MCP::McpCameraPose pose;
+                pose.Position = m_EditorCamera.GetPosition();
+                pose.FocalPoint = m_EditorCamera.GetFocalPoint();
+                pose.Forward = m_EditorCamera.GetForwardDirection();
+                pose.Distance = m_EditorCamera.GetDistance();
+                pose.YawRadians = m_EditorCamera.GetYaw();
+                pose.PitchRadians = m_EditorCamera.GetPitch();
+                pose.FovDegrees = m_EditorCamera.GetFOV();
+                pose.NearClip = m_EditorCamera.GetNearClip();
+                pose.FarClip = m_EditorCamera.GetFarClip();
+                pose.ViewportWidth = static_cast<u32>(m_ViewportSize.x);
+                pose.ViewportHeight = static_cast<u32>(m_ViewportSize.y);
+                return pose;
+            };
+            mcpContext.SetCameraPose = [this](const glm::vec3& eye, f32 yawRadians, f32 pitchRadians, f32 fovDegrees)
+            {
+                if (fovDegrees > 0.0f)
+                    m_EditorCamera.SetFOV(fovDegrees);
+                m_EditorCamera.SetPose(eye, yawRadians, pitchRadians);
+            };
+            mcpContext.OrbitCamera = [this](const glm::vec3& target, f32 yawRadians, f32 pitchRadians, f32 distance)
+            {
+                m_EditorCamera.Focus(target, distance, yawRadians, pitchRadians);
+            };
+            mcpContext.RestoreCameraPose = [this](const MCP::McpCameraPose& pose)
+            {
+                m_EditorCamera.SetFOV(pose.FovDegrees);
+                m_EditorCamera.Focus(pose.FocalPoint, pose.Distance, pose.YawRadians, pose.PitchRadians);
+            };
+            mcpContext.FrameEntity = [this](u64 entityUuid) -> bool
+            { return FrameEditorCameraOnEntity(entityUuid); };
+            mcpContext.SetViewportSizeOverride = [this](u32 width, u32 height)
+            {
+                m_McpViewportSizeOverride = { width, height };
+            };
+            mcpContext.GetFrameIndex = [this]() -> u64
+            { return m_FrameIndex; };
+            mcpContext.IsCaptureUnready = [this]() -> bool
+            {
+                // Unready while throttled, or within a few frames of a viewport
+                // resize: freshly resized render-graph framebuffers render black
+                // for the first couple of frames (verified against the live
+                // editor — 2 frames after a resize still captured black, 6 were
+                // clean), so wait out a conservative window.
+                constexpr u64 kResizeSettleFrames = 6;
+                return m_ViewportRenderSkipped ||
+                       (m_FrameIndex < m_LastViewportResizeFrame + kResizeSettleFrames);
+            };
+
             m_McpServer = CreateScope<MCP::McpServer>(std::move(mcpContext));
             MCP::RegisterBuiltinTools(*m_McpServer);
             // Apply the persisted redaction preference (loaded by OpenProject above).
@@ -393,6 +447,8 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
         OLO_PERF_SCOPE("EditorLayer::OnUpdate", Application::Get().GetPerformanceProfiler());
 
+        ++m_FrameIndex; // MCP capture tools key off this to await a rendered frame
+
         m_LastFrameTimeMs = ts.GetMilliseconds();
 
         // Sync with async asset loading thread
@@ -420,6 +476,7 @@ namespace OloEngine
             ((std::abs(static_cast<f32>(spec.Width) - static_cast<f32>(fbWidth)) > epsilon) || (std::abs(static_cast<f32>(spec.Height) - static_cast<f32>(fbHeight)) > epsilon)))
         {
             m_Framebuffer->Resize(fbWidth, fbHeight);
+            m_LastViewportResizeFrame = m_FrameIndex; // MCP captures must wait out the resize transient
             m_CameraController.OnResize(m_ViewportSize.x, m_ViewportSize.y);
             m_EditorCamera.SetViewportSize(m_ViewportSize.x, m_ViewportSize.y);
 
@@ -987,7 +1044,13 @@ namespace OloEngine
         Application::Get().GetImGuiLayer()->BlockEvents(!m_ViewportHovered);
 
         ImVec2 const viewportPanelSize = ImGui::GetContentRegionAvail();
-        m_ViewportSize = { viewportPanelSize.x, viewportPanelSize.y };
+        // MCP viewport override (#316): pin the render size for deterministic
+        // captures regardless of the panel's layout. The image is still drawn
+        // into the panel rect below (clipped/letterboxed as needed).
+        if (m_McpViewportSizeOverride.x > 0 && m_McpViewportSizeOverride.y > 0)
+            m_ViewportSize = { static_cast<f32>(m_McpViewportSizeOverride.x), static_cast<f32>(m_McpViewportSizeOverride.y) };
+        else
+            m_ViewportSize = { viewportPanelSize.x, viewportPanelSize.y };
 
         // Display appropriate framebuffer based on mode
         u64 textureID = 0;
@@ -2465,6 +2528,75 @@ namespace OloEngine
             // (grass) tops rather than a grazing angle full of steep rock faces.
             m_EditorCamera.Focus(center, distance, 0.0f, 0.65f);
         }
+    }
+
+    bool EditorLayer::FrameEditorCameraOnEntity(u64 entityUuid)
+    {
+        const Ref<Scene> scene = m_ActiveScene;
+        if (!scene)
+            return false;
+        const auto entityOpt = scene->TryGetEntityWithUUID(UUID(entityUuid));
+        if (!entityOpt)
+            return false;
+        Entity entity = *entityOpt;
+        if (!entity.HasComponent<TransformComponent>())
+            return false;
+
+        // World transform: compose local transforms up the parent chain (the
+        // scene stores parent-relative transforms; gizmos and rendering do the
+        // same composition).
+        glm::mat4 world = entity.GetComponent<TransformComponent>().GetTransform();
+        for (UUID parentId = entity.GetParentUUID(); static_cast<u64>(parentId) != 0;)
+        {
+            const auto parentOpt = scene->TryGetEntityWithUUID(parentId);
+            if (!parentOpt)
+                break;
+            Entity parent = *parentOpt;
+            if (parent.HasComponent<TransformComponent>())
+                world = parent.GetComponent<TransformComponent>().GetTransform() * world;
+            parentId = parent.GetParentUUID();
+        }
+
+        // Bounds: prefer real mesh bounds, fall back to a scale-derived radius.
+        glm::vec3 center = glm::vec3(world[3]);
+        f32 radius = 0.0f;
+        if (entity.HasComponent<ModelComponent>())
+        {
+            if (const auto& model = entity.GetComponent<ModelComponent>().m_Model; model)
+            {
+                const BoundingBox worldBox = model->GetTransformedBoundingBox(world);
+                center = worldBox.GetCenter();
+                radius = glm::length(worldBox.GetExtents());
+            }
+        }
+        else if (entity.HasComponent<MeshComponent>())
+        {
+            if (const auto& meshSource = entity.GetComponent<MeshComponent>().m_MeshSource; meshSource)
+            {
+                const BoundingBox worldBox = meshSource->GetBoundingBox().Transform(world);
+                center = worldBox.GetCenter();
+                radius = glm::length(worldBox.GetExtents());
+            }
+        }
+        else if (entity.HasComponent<TerrainComponent>())
+        {
+            const auto& tc = entity.GetComponent<TerrainComponent>();
+            center += glm::vec3(tc.m_WorldSizeX * 0.5f, tc.m_HeightScale * 0.4f, tc.m_WorldSizeZ * 0.5f);
+            radius = std::max(tc.m_WorldSizeX, tc.m_WorldSizeZ) * 0.5f;
+        }
+        if (radius < 0.5f)
+        {
+            // Scale-derived fallback: length of the world matrix's basis columns.
+            const f32 sx = glm::length(glm::vec3(world[0]));
+            const f32 sy = glm::length(glm::vec3(world[1]));
+            const f32 sz = glm::length(glm::vec3(world[2]));
+            radius = std::max({ sx, sy, sz, 0.5f });
+        }
+
+        // Keep the current view direction; just re-pivot and fit. 2.5x the
+        // bounding radius comfortably fits the entity at the default 30-45 FOV.
+        m_EditorCamera.Focus(center, radius * 2.5f, m_EditorCamera.GetYaw(), m_EditorCamera.GetPitch());
+        return true;
     }
 
     bool EditorLayer::SaveScene()

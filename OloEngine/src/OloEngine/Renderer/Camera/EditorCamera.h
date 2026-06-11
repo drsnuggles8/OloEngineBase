@@ -74,6 +74,23 @@ namespace OloEngine
             UpdateView();
         }
 
+        // Vertical field of view in degrees. Setting it rebuilds the projection
+        // immediately (used by the MCP camera tools for deterministic captures).
+        [[nodiscard("Store this!")]] f32 GetFOV() const
+        {
+            return m_FOV;
+        }
+        void SetFOV(const f32 fovDegrees)
+        {
+            m_FOV = std::clamp(fovDegrees, 1.0f, 170.0f);
+            UpdateProjection();
+        }
+
+        [[nodiscard("Store this!")]] const glm::vec3& GetFocalPoint() const
+        {
+            return m_FocalPoint;
+        }
+
         [[nodiscard("Store this!")]] const glm::mat4& GetViewMatrix() const
         {
             return m_ViewMatrix;
