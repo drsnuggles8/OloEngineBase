@@ -8,6 +8,9 @@
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/ResourceHandle.h"
 
+#include <cstring>
+#include <type_traits>
+
 namespace OloEngine::Tests
 {
     namespace
@@ -58,6 +61,14 @@ namespace OloEngine::Tests
             s_RendererInitialised = true;
         }
 
+        // Snapshot the process-wide renderer configuration before BuildScene
+        // gets a chance to mutate it; TearDown restores it. See the member
+        // comment in the header for why a leaked setting is worse than a
+        // leaked GL binding.
+        m_SavedRendererSettings = Renderer3D::GetRendererSettings();
+        m_SavedPostProcessSettings = Renderer3D::GetPostProcessSettings();
+        m_SettingsSnapshotted = true;
+
         m_Scene = Scene::Create();
         // Rendering is OFF by default: the cheap smoke tests only need the
         // cross-subsystem tick to run post-init. Subclasses that want the
@@ -70,6 +81,30 @@ namespace OloEngine::Tests
 
     void RendererAttachedTest::TearDown()
     {
+        // Restore the renderer configuration the test started with. memcmp
+        // is valid here (and avoids float-== on the settings' f32 fields):
+        // both structs are scalar-only, asserted below. Padding noise can
+        // only cause a spurious re-apply, never a missed restore.
+        if (m_SettingsSnapshotted)
+        {
+            static_assert(std::is_trivially_copyable_v<RendererSettings>);
+            static_assert(std::is_trivially_copyable_v<PostProcessSettings>);
+
+            Renderer3D::GetPostProcessSettings() = m_SavedPostProcessSettings;
+
+            auto& settings = Renderer3D::GetRendererSettings();
+            const bool settingsChanged =
+                std::memcmp(&settings, &m_SavedRendererSettings, sizeof(RendererSettings)) != 0;
+            if (settingsChanged)
+            {
+                settings = m_SavedRendererSettings;
+                // Re-applies the saved configuration; rebuilds the render
+                // graph only when the test switched the rendering path.
+                Renderer3D::ApplyRendererSettings();
+            }
+            m_SettingsSnapshotted = false;
+        }
+
         // Stopping physics is conditional on whether the test enabled it.
         // For the minimal smoke tests we don't enable physics, so just
         // drop the Scene ref.

@@ -62,6 +62,8 @@
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Core/Ref.h"
 #include "OloEngine/Core/Timestep.h"
+#include "OloEngine/Renderer/PostProcessSettings.h"
+#include "OloEngine/Renderer/RenderingPath.h"
 #include "OloEngine/Scene/Scene.h"
 
 #include <gtest/gtest.h>
@@ -151,5 +153,17 @@ namespace OloEngine::Tests
         bool m_RenderingEnabled = false;
         u32 m_RenderWidth = 0;
         u32 m_RenderHeight = 0;
+
+        // Per-test snapshot of the process-wide renderer configuration
+        // (rendering path, culling, post-process chain). Restored in
+        // TearDown so a test that reconfigures the renderer — e.g. the
+        // SSGI/SSR evidence tests switching to the deferred path — cannot
+        // leak the change into later tests in the same process. A leaked
+        // path renders every subsequent visual test through the wrong
+        // pipeline (dark frames, dead assertions, altered evidence PNGs)
+        // while GLStateGuard's raw-GL restore reports nothing wrong.
+        RendererSettings m_SavedRendererSettings{};
+        PostProcessSettings m_SavedPostProcessSettings{};
+        bool m_SettingsSnapshotted = false;
     };
 } // namespace OloEngine::Tests
