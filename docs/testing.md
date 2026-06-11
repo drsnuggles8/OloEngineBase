@@ -1248,7 +1248,7 @@ subsystem unit tests (§9.3, grouped by directory).
 |---|---:|---|
 | [ParticleSystemEmitsAndExpiresTest.cpp](../OloEngine/tests/Functional/Particles/ParticleSystemEmitsAndExpiresTest.cpp) | 1 | **ParticleSystemEmitsAndExpiresTest** &mdash; `BurstEmitsThenAllParticlesExpire` |
 
-#### SaveGame (7 files)
+#### SaveGame (8 files)
 
 | File | Tests | Cases |
 |---|---:|---|
@@ -1257,6 +1257,7 @@ subsystem unit tests (§9.3, grouped by directory).
 | [InventoryComponentSceneYAMLRoundTripTest.cpp](../OloEngine/tests/Functional/SaveGame/InventoryComponentSceneYAMLRoundTripTest.cpp) | 1 | **InventoryComponentSceneYAMLRoundTripTest** &mdash; `ItemsAndCurrencySurviveSceneYAMLRoundTrip` |
 | [NetworkIdentitySurvivesSaveLoadTest.cpp](../OloEngine/tests/Functional/SaveGame/NetworkIdentitySurvivesSaveLoadTest.cpp) | 1 | **NetworkIdentitySurvivesSaveLoadTest** &mdash; `AuthorityOwnerAndReplicatedFlagRoundTripCorrectly` |
 | [QuestJournalSceneYAMLRoundTripTest.cpp](../OloEngine/tests/Functional/SaveGame/QuestJournalSceneYAMLRoundTripTest.cpp) | 1 | **QuestJournalSceneYAMLRoundTripTest** &mdash; `ActiveAndCompletedQuestsAndPlayerStateSurviveSceneYAMLRoundTrip` |
+| [RegisteredComponentsSurviveSaveLoadTest.cpp](../OloEngine/tests/Functional/SaveGame/RegisteredComponentsSurviveSaveLoadTest.cpp) | 1 | **RegisteredComponentsSurviveSaveLoadTest** &mdash; `PreviouslyDroppedComponentsRoundTripThroughSaveGame` |
 | [Save2DBodyVelocityRoundTripTest.cpp](../OloEngine/tests/Functional/SaveGame/Save2DBodyVelocityRoundTripTest.cpp) | 1 | **Save2DBodyVelocityRoundTripTest** &mdash; `SavedRuntimeVelocityIsAppliedOnReload` |
 | [SceneRoundTripAfterTickTest.cpp](../OloEngine/tests/Functional/SaveGame/SceneRoundTripAfterTickTest.cpp) | 1 | **SceneRoundTripAfterTickTest** &mdash; `CapturedAfterTickRestoresIdenticalState` |
 
@@ -1289,7 +1290,7 @@ subsystem unit tests (§9.3, grouped by directory).
 | [LuaScriptSetsRigidbody2DVelocityTest.cpp](../OloEngine/tests/Functional/Scripting/LuaScriptSetsRigidbody2DVelocityTest.cpp) | 1 | **LuaScriptSetsRigidbody2DVelocityTest** &mdash; `BodyTranslatesAfterLuaSetsLinearVelocity` |
 | [LuaSetsAbilityAttributeViaSceneTickTest.cpp](../OloEngine/tests/Functional/Scripting/LuaSetsAbilityAttributeViaSceneTickTest.cpp) | 1 | **LuaSetsAbilityAttributeViaSceneTickTest** &mdash; `LuaDrivenHealthToZeroFlipsAliveToDeadOnSubsequentTick` |
 
-**Totals.** 86 Functional test files, 126 TEST / TEST_F declarations across all subsystems.
+**Totals.** 87 Functional test files, 127 TEST / TEST_F declarations across all subsystems.
 
 <!-- END: functional-catalogue -->
 
@@ -1505,11 +1506,12 @@ level of `tests/`). Grouped by directory.
 | [MeshBVHRaycastTest.cpp](../OloEngine/tests/Rendering/MeshBVHRaycastTest.cpp) | 25 | **MeshBVHRayTriangle** &mdash; `HitsThroughInteriorWithCorrectBarycentrics`, `MissesOutsideTheTriangle`, `ParallelRayMisses`, `BackFaceReportsFrontFaceFalse`, `RespectsTMinAndTMax`, `TriangleBehindOriginMisses`<br/>**MeshBVHRayAABB** &mdash; `HitsBoxAndReportsEntryDistance`, `MissesWhenAxisIntervalsDoNotOverlap`, `OriginInsideBoxHitsAtTMin`, `TMaxPrunesAFarBox`, `AxisParallelRayOnSlabBoundaryHitsAndStaysFinite`, `AxisParallelRayOutsideParallelSlabMisses`, `AxisParallelRayThroughInteriorHits`<br/>**MeshBVHBuild** &mdash; `EmptyBVHReportsUnbuiltAndNeverHits`, `SkipsTrianglesWithOutOfRangeIndices`, `RootBoundsEncloseTheMesh`<br/>**MeshBVHQuery** &mdash; `SingleTriangleHitReportsIndexPointAndNormal`, `ReturnsClosestOfManyStackedTriangles`, `RayFromInsideClosedMeshHitsAWall`, `CastRayAnyAgreesWithCastRayHitMiss`, `BuildsFromMeshSourceOverload`<br/>**MeshBVHParity** &mdash; `MatchesBruteForceOverCube`, `MatchesBruteForceOverSphere`, `MatchesBruteForceForAxisAlignedRays`<br/>**MeshSourceHeapCopyRegression** &mdash; `RepeatedHeapCopyConstructionKeepsHeapIntact` |
 | [PCSSShadowTest.cpp](../OloEngine/tests/Rendering/PCSSShadowTest.cpp) | 12 | **PCSSShadow** &mdash; `ShadowUBOSizeUnchangedBySoftShadowModeField`, `SoftShadowModeFollowsCascadeDebugInLayout`, `RawDepthBindingSlotsMatchShaders`, `SoftShadowsDefaultsOn`, `QualityTieringMapsSoftShadows`, `LowPresetUsesHardShadows`, `NoBlockerReportsFullyLit`, `BlockerSearchAveragesOnlyOccluders`, `ZeroGapGivesSharpMinimumRadius`, `PenumbraGrowsMonotonicallyWithGap`, `PenumbraClampsToMaxRadius`, `LargerLightSizeGivesSofterMaxPenumbra` |
 
-#### SaveGame (4 files)
+#### SaveGame (5 files)
 
 | File | Tests | Cases |
 |---|---:|---|
 | [SaveFileWorldDatabaseTest.cpp](../OloEngine/tests/SaveGame/SaveFileWorldDatabaseTest.cpp) | 3 | **SaveFileWorldDatabaseTest** &mdash; `ImplementsIWorldDatabase`, `DefaultIsNotInitialized`, `UninitializedOperationsFail` |
+| [SaveGameComponentSerializerCoverageTest.cpp](../OloEngine/tests/SaveGame/SaveGameComponentSerializerCoverageTest.cpp) | 2 | **SaveGameComponentSerializerCoverage** &mdash; `EveryRegisteredComponentIsCapturedAndRestored`, `EveryCapturedAndRestoredComponentIsRegistered` |
 | [SaveGameFileTest.cpp](../OloEngine/tests/SaveGame/SaveGameFileTest.cpp) | 15 | **SaveGameHeaderTest** &mdash; `DefaultValues`, `SizeIs128Bytes`, `CompressionFlags`, `InvalidMagic`<br/>**SaveGameMetadataTest** &mdash; `RoundTrip`<br/>**SaveGameCompressionTest** &mdash; `CompressDecompress`, `EmptyData`<br/>**SaveGameFileTest** &mdash; `WriteAndReadHeader`, `WriteAndReadMetadata`, `WriteAndReadThumbnail`, `WriteAndReadPayload`, `ChecksumValidation`, `ReadNonExistentFile`, `EmptyThumbnail`, `OverwriteInPlaceRetainsLatestData` |
 | [SaveGameIntegrationTest.cpp](../OloEngine/tests/SaveGame/SaveGameIntegrationTest.cpp) | 5 | **SaveGameIntegrationTest** &mdash; `CaptureAndRestoreEmptyScene`, `CaptureAndRestoreWithEntities`, `FullFileRoundTrip`, `EmptyPayloadReturnsError`, `CorruptedDataReturnsError` |
 | [SaveGameManagerTest.cpp](../OloEngine/tests/SaveGame/SaveGameManagerTest.cpp) | 4 | **SaveGameManagerTest** &mdash; `AutoSaveInterval`<br/>**SaveableRegistryTest** &mdash; `RegisterAndInvoke`, `InvokeNonExistent`, `RoundTripWithData` |
@@ -1544,7 +1546,7 @@ level of `tests/`). Grouped by directory.
 |---|---:|---|
 | [TerrainGeneratorTest.cpp](../OloEngine/tests/Terrain/TerrainGeneratorTest.cpp) | 15 | **TerrainGeneratorTest** &mdash; `HeightFieldIsDeterministic`, `HeightFieldIsNormalizedAndFinite`, `LargeSeedStillProducesVariedTerrain`, `DifferentSeedsProduceDifferentTerrain`, `RidgedAndWarpAndExponentStayValid`, `TerraceShapingStaysValidAndDeterministic`, `TerraceEndpointsAndIdentity`, `TerraceIsMonotonicAndBounded`, `TerraceProducesFlatPlateaus`, `RuleWeightPeaksInsideBandAndZeroOutside`, `SlopeBandSelectsRule`, `DefaultRulesAssignExpectedLayers`, `LayerWeightsAreNormalized`, `NoMatchingRuleFallsBackToLayerZero`, `PackLayerWeightsQuantizesToBothSplatmaps` |
 
-**Totals.** 135 unit / subsystem test files, 1685 TEST / TEST_F declarations across all subsystems.
+**Totals.** 136 unit / subsystem test files, 1687 TEST / TEST_F declarations across all subsystems.
 
 <!-- END: unit-catalogue -->
 

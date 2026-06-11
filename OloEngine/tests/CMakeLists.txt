@@ -210,6 +210,7 @@ add_executable(OloEngine-Tests
 		SaveGame/SaveGameFileTest.cpp
 		SaveGame/SaveGameManagerTest.cpp
 		SaveGame/SaveGameIntegrationTest.cpp
+		SaveGame/SaveGameComponentSerializerCoverageTest.cpp
 		SaveGame/SaveFileWorldDatabaseTest.cpp
 		# Navigation Tests
 		NavMeshTest.cpp
@@ -318,6 +319,7 @@ add_executable(OloEngine-Tests
 		Functional/Scene/EntitySetParentCycleRejectionTest.cpp
 		Functional/Scene/DuplicateTagFindableTest.cpp
 		Functional/SaveGame/NetworkIdentitySurvivesSaveLoadTest.cpp
+		Functional/SaveGame/RegisteredComponentsSurviveSaveLoadTest.cpp
 		Functional/AnimationPhysics/CharacterControllerJumpsTest.cpp
 		Functional/Scripting/LuaScriptMutatesTransformViaSceneTickTest.cpp
 		Functional/Scripting/LuaScriptOnDestroyFiresTest.cpp
