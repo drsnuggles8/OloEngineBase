@@ -1,29 +1,20 @@
 #pragma once
 
 #include "OloEngine/Audio/AudioCallback.h"
+#include "OloEngine/Audio/SoundGraph/StreamRefs.h"
 #include "OloEngine/Core/Identifier.h"
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Core/UUID.h"
 #include "OloEngine/Core/Ref.h"
 #include <choc/containers/choc_Value.h>
 
-#include <any>
-#include <complex>
 #include <functional>
 #include <memory>
-
-#include "OloEngine/Threading/SharedMutex.h"
-#include "OloEngine/Threading/SharedLock.h"
-#include "OloEngine/Threading/UniqueLock.h"
 #include <string>
 #include <type_traits>
 #include <unordered_map>
-#include <vector>
 #include <utility>
-
-#include <glm/gtc/constants.hpp>
-#include <glm/glm.hpp>
-#include <atomic>
+#include <vector>
 
 #define LOG_DBG_MESSAGES 0
 
@@ -46,8 +37,6 @@ namespace OloEngine::Audio::SoundGraph
 
 namespace OloEngine::Audio::SoundGraph
 {
-    struct StreamWriter;
-
     //==============================================================================
     /// NodeProcessor - Base class for all sound graph nodes
     struct NodeProcessor
@@ -60,6 +49,7 @@ namespace OloEngine::Audio::SoundGraph
         virtual ~NodeProcessor() = default;
 
         // Explicitly delete copy and move operations to prevent dangling pointers
+        // (typed connection refs capture raw pointers into this object's members).
         NodeProcessor(const NodeProcessor&) = delete;
         NodeProcessor& operator=(const NodeProcessor&) = delete;
         NodeProcessor(NodeProcessor&&) = delete;
@@ -154,7 +144,7 @@ namespace OloEngine::Audio::SoundGraph
         };
 
         //==============================================================================
-        /// Endpoint management
+        /// Event endpoint management
 
         InputEvent& AddInEvent(Identifier id, InputEvent::EventFunction function = nullptr)
         {
@@ -174,31 +164,229 @@ namespace OloEngine::Audio::SoundGraph
             OLO_CORE_ASSERT(inserted, "Output event with this ID already exists");
         }
 
-        choc::value::ValueView& AddInStream(Identifier id, choc::value::ValueView* source = nullptr)
+        //==============================================================================
+        /// Typed stream endpoints (Phase 2 — docs/soundgraph-metasounds-refactor.md)
+        ///
+        /// Inputs register a pointer to the node's ref member (AudioBufferRef /
+        /// ValueRef<T>); outputs register a pointer to the node's output storage
+        /// (AudioBuffer / scalar member). Wiring patches the consumer's ref to point
+        /// at the producer's storage — these maps are touched at construction and
+        /// wire time only, never on the audio thread.
+
+        struct InputStreamRef
         {
-            OLO_PROFILE_FUNCTION();
+            EStreamType m_Type;
+            void* m_Ref = nullptr; // AudioBufferRef* or ValueRef<T>* matching m_Type
+        };
 
-            const auto& [element, inserted] = InputStreams.try_emplace(id);
+        struct OutputStreamSource
+        {
+            EStreamType m_Type;
+            const void* m_Source = nullptr; // AudioBuffer* or const T* matching m_Type
+        };
+
+        std::unordered_map<Identifier, InputStreamRef> InputRefs;
+        std::unordered_map<Identifier, OutputStreamSource> OutputSources;
+
+        void AddAudioInRef(Identifier id, AudioBufferRef& ref)
+        {
+            [[maybe_unused]] const auto [it, inserted] =
+                InputRefs.try_emplace(id, InputStreamRef{ EStreamType::Audio, &ref });
             OLO_CORE_ASSERT(inserted, "Input stream with this ID already exists");
-
-            if (source)
-                element->second = *source;
-
-            return element->second;
         }
 
-        template<typename T>
-        choc::value::ValueView& AddOutStream(Identifier id, T& memberVariable)
+        template<StreamValue T>
+        void AddValueInRef(Identifier id, ValueRef<T>& ref)
         {
-            OLO_PROFILE_FUNCTION();
+            [[maybe_unused]] const auto [it, inserted] =
+                InputRefs.try_emplace(id, InputStreamRef{ StreamTypeFor<T>, &ref });
+            OLO_CORE_ASSERT(inserted, "Input stream with this ID already exists");
+        }
 
-            const auto& [element, inserted] = OutputStreams.try_emplace(id,
-                                                                        choc::value::ValueView(choc::value::Type::createPrimitive<T>(),
-                                                                                               &memberVariable,
-                                                                                               nullptr));
-
+        void AddAudioOutSource(Identifier id, const AudioBuffer& buffer)
+        {
+            [[maybe_unused]] const auto [it, inserted] =
+                OutputSources.try_emplace(id, OutputStreamSource{ EStreamType::Audio, &buffer });
             OLO_CORE_ASSERT(inserted, "Output stream with this ID already exists");
-            return element->second;
+        }
+
+        template<StreamValue T>
+        void AddValueOutSource(Identifier id, const T& member)
+        {
+            [[maybe_unused]] const auto [it, inserted] =
+                OutputSources.try_emplace(id, OutputStreamSource{ StreamTypeFor<T>, &member });
+            OLO_CORE_ASSERT(inserted, "Output stream with this ID already exists");
+        }
+
+        /// Patch a consumer input ref to read from a producer output. Returns false
+        /// (with a warning) when the types are incompatible — replaces the silent
+        /// mis-wiring the old ValueView re-aliasing allowed.
+        ///
+        /// Compatibility matrix:
+        ///   Audio in  ← Audio out (per-frame) | Float out (scalar broadcast)
+        ///   Float in  ← Float out             | Audio out (frame 0 of the block)
+        ///   Int32/Int64/Bool in ← same-type out only
+        static bool BindInputToOutput(InputStreamRef& dst, const OutputStreamSource& src)
+        {
+            switch (dst.m_Type)
+            {
+                case EStreamType::Audio:
+                {
+                    auto& ref = *static_cast<AudioBufferRef*>(dst.m_Ref);
+                    if (src.m_Type == EStreamType::Audio)
+                    {
+                        ref.BindBuffer(static_cast<const AudioBuffer*>(src.m_Source)->Data());
+                        return true;
+                    }
+                    if (src.m_Type == EStreamType::Float)
+                    {
+                        ref.BindScalar(static_cast<const f32*>(src.m_Source));
+                        return true;
+                    }
+                    return false;
+                }
+                case EStreamType::Float:
+                {
+                    auto& ref = *static_cast<FloatRef*>(dst.m_Ref);
+                    if (src.m_Type == EStreamType::Float)
+                    {
+                        ref.Bind(static_cast<const f32*>(src.m_Source));
+                        return true;
+                    }
+                    if (src.m_Type == EStreamType::Audio)
+                    {
+                        // Control consumer of an audio producer: sample frame 0 of the
+                        // block. AudioBuffer::Data() is stable (fixed capacity).
+                        ref.Bind(static_cast<const AudioBuffer*>(src.m_Source)->Data());
+                        return true;
+                    }
+                    return false;
+                }
+                case EStreamType::Int32:
+                {
+                    if (src.m_Type != EStreamType::Int32)
+                        return false;
+                    static_cast<IntRef*>(dst.m_Ref)->Bind(static_cast<const i32*>(src.m_Source));
+                    return true;
+                }
+                case EStreamType::Int64:
+                {
+                    if (src.m_Type != EStreamType::Int64)
+                        return false;
+                    static_cast<Int64Ref*>(dst.m_Ref)->Bind(static_cast<const i64*>(src.m_Source));
+                    return true;
+                }
+                case EStreamType::Bool:
+                {
+                    if (src.m_Type != EStreamType::Bool)
+                        return false;
+                    static_cast<BoolRef*>(dst.m_Ref)->Bind(static_cast<const bool*>(src.m_Source));
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        /// Wire `srcNode.srcID` (output) into `dstNode.dstID` (input). Endpoint
+        /// resolution + type check happen here, once, at wire time.
+        static bool ConnectStreams(NodeProcessor& srcNode, Identifier srcID,
+                                   NodeProcessor& dstNode, Identifier dstID)
+        {
+            auto srcIt = srcNode.OutputSources.find(srcID);
+            if (srcIt == srcNode.OutputSources.end())
+            {
+                OLO_CORE_WARN("ConnectStreams: source node '{}' has no output stream {}",
+                              srcNode.m_DebugName, static_cast<u32>(srcID));
+                return false;
+            }
+
+            auto dstIt = dstNode.InputRefs.find(dstID);
+            if (dstIt == dstNode.InputRefs.end())
+            {
+                OLO_CORE_WARN("ConnectStreams: destination node '{}' has no input stream {}",
+                              dstNode.m_DebugName, static_cast<u32>(dstID));
+                return false;
+            }
+
+            if (!BindInputToOutput(dstIt->second, srcIt->second))
+            {
+                OLO_CORE_WARN("ConnectStreams: incompatible stream types {} -> {} ('{}' -> '{}')",
+                              static_cast<i32>(srcIt->second.m_Type), static_cast<i32>(dstIt->second.m_Type),
+                              srcNode.m_DebugName, dstNode.m_DebugName);
+                return false;
+            }
+            return true;
+        }
+
+        /// Write an asset-authored default into an input's inline default cell.
+        /// Numeric values are converted to the endpoint's type (the editor stores
+        /// e.g. Int plugs for Int endpoints, but a hand-edited asset shouldn't
+        /// silently zero a parameter over a float-vs-int mismatch). Returns false
+        /// if no input stream with this ID exists.
+        bool SetInputDefault(Identifier id, const choc::value::Value& value)
+        {
+            auto it = InputRefs.find(id);
+            if (it == InputRefs.end())
+                return false;
+
+            const auto& type = value.getType();
+
+            f64 numeric = 0.0;
+            i64 integer = 0;
+            bool boolean = false;
+            if (type.isFloat32())
+            {
+                numeric = static_cast<f64>(value.getFloat32());
+                integer = static_cast<i64>(numeric);
+            }
+            else if (type.isFloat64())
+            {
+                numeric = value.getFloat64();
+                integer = static_cast<i64>(numeric);
+            }
+            else if (type.isInt32())
+            {
+                integer = static_cast<i64>(value.getInt32());
+                numeric = static_cast<f64>(integer);
+            }
+            else if (type.isInt64())
+            {
+                integer = value.getInt64();
+                numeric = static_cast<f64>(integer);
+            }
+            else if (type.isBool())
+            {
+                boolean = value.getBool();
+                integer = boolean ? 1 : 0;
+                numeric = static_cast<f64>(integer);
+            }
+            else
+            {
+                // Non-primitive plug (unsupported) — keep the compiled-in default.
+                return false;
+            }
+            if (!type.isBool())
+                boolean = (integer != 0) || (numeric != 0.0);
+
+            switch (it->second.m_Type)
+            {
+                case EStreamType::Audio:
+                    static_cast<AudioBufferRef*>(it->second.m_Ref)->SetDefault(static_cast<f32>(numeric));
+                    return true;
+                case EStreamType::Float:
+                    static_cast<FloatRef*>(it->second.m_Ref)->SetDefault(static_cast<f32>(numeric));
+                    return true;
+                case EStreamType::Int32:
+                    static_cast<IntRef*>(it->second.m_Ref)->SetDefault(static_cast<i32>(integer));
+                    return true;
+                case EStreamType::Int64:
+                    static_cast<Int64Ref*>(it->second.m_Ref)->SetDefault(integer);
+                    return true;
+                case EStreamType::Bool:
+                    static_cast<BoolRef*>(it->second.m_Ref)->SetDefault(boolean);
+                    return true;
+            }
+            return false;
         }
 
         //==============================================================================
@@ -209,12 +397,10 @@ namespace OloEngine::Audio::SoundGraph
             m_SampleRate = sampleRate;
         }
         virtual void Init() {}
-        // Block-rate process entry. Derived nodes produce `numFrames` samples per call.
-        // Most node bodies stay per-sample internally — they wrap their existing work
-        // in `for (u32 frame = 0; frame < numFrames; ++frame) { ... }`. Leaf audio
-        // generators (e.g. WavePlayer) override this to amortise per-block setup
-        // (event-flag checks, async-load polling) across the whole block instead of
-        // paying it 48 000 times per second.
+        // Block-rate process entry. Called once per block (Phase 2); derived nodes
+        // produce `numFrames` samples per call. Audio-rate outputs write into their
+        // AudioBuffer members; control-rate outputs update their scalar members once
+        // per block. numFrames is guaranteed <= kMaxAudioBlockFrames by SoundGraph.
         virtual void Process(u32 numFrames)
         {
             (void)numFrames;
@@ -226,23 +412,9 @@ namespace OloEngine::Audio::SoundGraph
         std::unordered_map<Identifier, std::shared_ptr<InputEvent>> InEvents;
         std::unordered_map<Identifier, std::reference_wrapper<OutputEvent>> OutEvents;
 
-        std::unordered_map<Identifier, choc::value::ValueView> InputStreams;
-        std::unordered_map<Identifier, choc::value::ValueView> OutputStreams;
-
-        /// Temporary storage for default value plugs when nothing is connected to an input
-        std::vector<std::shared_ptr<StreamWriter>> DefaultValuePlugs;
-
         //==============================================================================
         /// Convenience accessors
 
-        inline choc::value::ValueView& InValue(const Identifier& id)
-        {
-            return InputStreams.at(id);
-        }
-        inline choc::value::ValueView& OutValue(const Identifier& id)
-        {
-            return OutputStreams.at(id);
-        }
         inline InputEvent& InEvent(const Identifier& id)
         {
             return *InEvents.at(id);
@@ -269,223 +441,7 @@ namespace OloEngine::Audio::SoundGraph
         {
             return m_DebugName.c_str();
         }
-        inline bool HasParameter(const Identifier& id) const
-        {
-            return ParameterInfos.find(id) != ParameterInfos.end();
-        }
-
-        //==============================================================================
-        /// Parameter access wrapper for InitializeInputs functionality
-
-        template<typename T>
-        struct ParameterWrapper
-        {
-            T m_Value;
-            Identifier m_ID;
-
-            ParameterWrapper(const T& value, Identifier id) : m_Value(value), m_ID(id) {}
-        };
-
-        // Storage for parameter wrappers (must persist for pointer stability)
-        std::unordered_map<Identifier, std::shared_ptr<void>> m_ParameterWrappers;
-
-        // Mutex for thread-safe parameter access
-        mutable FSharedMutex m_ParameterMutex;
-
-        template<typename T>
-        std::shared_ptr<ParameterWrapper<T>> GetParameter(const Identifier& id)
-        {
-            OLO_PROFILE_FUNCTION();
-
-            // First, try to find existing wrapper with shared lock (read-only)
-            {
-                TSharedLock<FSharedMutex> lock(m_ParameterMutex);
-                auto wrapperIt = m_ParameterWrappers.find(id);
-                if (wrapperIt != m_ParameterWrappers.end())
-                {
-                    return std::static_pointer_cast<ParameterWrapper<T>>(wrapperIt->second);
-                }
-            }
-
-            // Not found in cache, need to create it - acquire exclusive lock
-            TUniqueLock<FSharedMutex> lock(m_ParameterMutex);
-
-            // Double-check: another thread might have created it while we were waiting for the lock
-            if (auto wrapperIt = m_ParameterWrappers.find(id); wrapperIt != m_ParameterWrappers.end())
-            {
-                return std::static_pointer_cast<ParameterWrapper<T>>(wrapperIt->second);
-            }
-
-            // Find the parameter in the storage
-            auto it = m_ParameterStorage.find(id);
-            if (it == m_ParameterStorage.end())
-                return nullptr;
-
-            // Try to get the typed value from the any storage
-            try
-            {
-                T value = std::any_cast<T>(it->second);
-                auto wrapper = std::make_shared<ParameterWrapper<T>>(value, id);
-                m_ParameterWrappers[id] = wrapper;
-                return wrapper;
-            }
-            catch (const std::bad_any_cast&)
-            {
-                return nullptr;
-            }
-        }
-
-        //==============================================================================
-        /// Parameter system
-        struct ParameterInfo
-        {
-            Identifier m_ID;
-            std::string m_DebugName;
-            std::string m_TypeName;
-        };
-        std::unordered_map<Identifier, ParameterInfo> ParameterInfos;
-
-        /// Storage for parameter values (for GetParameter access)
-        std::unordered_map<Identifier, std::any> m_ParameterStorage;
-
-        template<typename T>
-        void AddParameter(Identifier id, std::string_view debugName, const T& defaultValue)
-        {
-            OLO_PROFILE_FUNCTION();
-
-            // Add input stream for this parameter
-            auto& stream = AddInStream(id);
-
-            // Create default value plug
-            auto defaultPlug = std::make_shared<StreamWriter>(stream, T(defaultValue), id);
-            DefaultValuePlugs.push_back(defaultPlug);
-
-            // Store parameter value for GetParameter access (thread-safe)
-            {
-                TUniqueLock<FSharedMutex> lock(m_ParameterMutex);
-                m_ParameterStorage[id] = defaultValue;
-            }
-
-            // Store parameter info for debugging
-            ParameterInfo info;
-            info.m_ID = id;
-            info.m_DebugName = std::string(debugName);
-            info.m_TypeName = typeid(T).name();
-            ParameterInfos[id] = std::move(info);
-        }
-
-        // Write an asset-driven default into the parameter storage. AddParameter seeds the
-        // storage with `T{}` from reflection; the graph compiler then needs to overlay the
-        // user-authored value before InitializeInputs builds the ParameterWrapper that
-        // backs the node's `m_<Name>` pointer. Without this overlay the wrapper captures
-        // the bare default (zero handle, zero amplitude, etc.) regardless of what the asset
-        // file says — every WavePlayer ends up with no audio handle, every oscillator with
-        // zero amplitude, etc.
-        //
-        // Picks the std::any cell type based on the choc::value primitive type the compiler
-        // produced for this plug. Unsupported types are skipped silently — the parameter
-        // keeps its T{} default.
-        void ApplyAssetDefaultToParameter(Identifier id, const choc::value::Value& value)
-        {
-            TUniqueLock<FSharedMutex> lock(m_ParameterMutex);
-            auto it = m_ParameterStorage.find(id);
-            if (it == m_ParameterStorage.end())
-                return;
-
-            const auto& type = value.getType();
-            if (type.isFloat32())
-                it->second = static_cast<f32>(value.getFloat32());
-            else if (type.isFloat64())
-                it->second = static_cast<f32>(value.getFloat64());
-            else if (type.isInt32())
-                it->second = static_cast<i32>(value.getInt32());
-            else if (type.isInt64())
-                it->second = static_cast<i64>(value.getInt64());
-            else if (type.isBool())
-                it->second = static_cast<bool>(value.getBool());
-            else
-            {
-                // No additional handling required.
-            }
-        }
     };
-
-    //==============================================================================
-    /// StreamWriter - Utility for writing values to streams
-    struct StreamWriter : public NodeProcessor
-    {
-        template<typename T>
-        explicit StreamWriter(const choc::value::ValueView& destination, T&& externalObjectOrDefaultValue, Identifier destinationID, UUID id = UUID()) noexcept
-            : NodeProcessor("Stream Writer", id),
-              m_DestinationID(destinationID),
-              // choc::value::Value has no implicit conversion from i32/i64/f32/bool, so we
-              // route primitives through createPrimitive (its overload set covers every
-              // supported primitive). For callers that already hand us a Value (e.g. the
-              // graph compiler in GraphGeneration.cpp), forward it directly. Anything else
-              // tries Value's normal constructors and the compiler will tell us if a new
-              // type slips through.
-              m_OutputValue([&]() -> choc::value::Value
-                            {
-                  using U = std::remove_cvref_t<T>;
-                  if constexpr (std::is_same_v<U, choc::value::Value>)
-                      return std::forward<T>(externalObjectOrDefaultValue);
-                  else if constexpr (std::is_arithmetic_v<U>)
-                      return choc::value::createPrimitive(std::forward<T>(externalObjectOrDefaultValue));
-                  else
-                      return choc::value::Value(std::forward<T>(externalObjectOrDefaultValue)); }()),
-              m_DestinationView(destination)
-        {
-            // Write the default value into the destination immediately
-            m_DestinationView = m_OutputValue;
-        }
-
-        // Explicitly delete copy and move operations to prevent dangling references
-        StreamWriter(const StreamWriter&) = delete;
-        StreamWriter& operator=(const StreamWriter&) = delete;
-        StreamWriter(StreamWriter&&) = delete;
-        StreamWriter& operator=(StreamWriter&&) = delete;
-
-        inline void operator<<(f32 value) noexcept
-        {
-            // Hot path: called from SoundGraph::Process per audio frame for every
-            // interpolated input parameter still ramping. OLO_PROFILE_FUNCTION removed for
-            // the same reason as SoundGraph::Process — see comment there.
-            m_OutputValue = choc::value::Value(value);
-            m_DestinationView = m_OutputValue;
-        }
-
-        template<typename T>
-        inline void operator<<(T value) noexcept
-        {
-            m_OutputValue = choc::value::Value(value);
-            m_DestinationView = m_OutputValue;
-        }
-
-        Identifier m_DestinationID;
-        choc::value::Value m_OutputValue;
-        choc::value::ValueView m_DestinationView;
-    };
-
-    //==============================================================================
-    /// Template specializations for StreamWriter
-
-    template<>
-    inline void StreamWriter::operator<<(const choc::value::ValueView& value) noexcept
-    {
-        OLO_PROFILE_FUNCTION();
-
-        m_OutputValue = value;
-        m_DestinationView = m_OutputValue;
-    }
-
-    template<>
-    inline void StreamWriter::operator<<(choc::value::ValueView value) noexcept
-    {
-        OLO_PROFILE_FUNCTION();
-
-        m_OutputValue = value;
-        m_DestinationView = m_OutputValue;
-    }
 
 } // namespace OloEngine::Audio::SoundGraph
 

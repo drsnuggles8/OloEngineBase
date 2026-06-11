@@ -18,7 +18,9 @@
 #include <queue>
 #include <algorithm>
 #include <atomic>
+#include <cstring>
 #include <string_view>
+#include <utility>
 
 #define LOG_DBG_MESSAGES 0
 
@@ -79,7 +81,7 @@ namespace OloEngine::Audio::SoundGraph
         };
 
         explicit SoundGraph(std::string_view debugName, UUID id)
-            : NodeProcessor(debugName.data(), id), m_EndpointOutputStreams("Graph Output Endpoints", UUID())
+            : NodeProcessor(debugName.data(), id)
         {
             AddInEvent(IDs::Play);
 
@@ -99,8 +101,6 @@ namespace OloEngine::Audio::SoundGraph
                 m_OutOnFinish.AddDestination(finishHandlerPtr->second);
 
             AddOutEvent(IDs::OnFinished, m_OutOnFinish);
-
-            m_OutChannels.reserve(2);
         }
 
         //==============================================================================
@@ -114,22 +114,146 @@ namespace OloEngine::Audio::SoundGraph
         /// Wave players for audio file playback (subset of nodes)
         std::vector<NodeProcessor*> m_WavePlayers; // Raw pointers to nodes in m_Nodes vector
 
-        /// Input stream endpoints from external sources (O(1) lookup by Identifier)
-        std::unordered_map<Identifier, Scope<StreamWriter>> m_EndpointInputStreams;
+        //==============================================================================
+        /// Graph value cells — typed storage behind graph input parameters and local
+        /// variables. Consumers' input refs bind directly to a cell's scalar member
+        /// (control-rate) or to its ramp buffer (audio-rate float consumers). The map
+        /// is node-based, so cell addresses are stable across inserts.
 
-        /// Output stream endpoints (collects output from nodes)
-        NodeProcessor m_EndpointOutputStreams;
+        struct GraphValueCell
+        {
+            EStreamType m_Type = EStreamType::Float;
+
+            f32 m_Float = 0.0f;
+            i32 m_Int32 = 0;
+            i64 m_Int64 = 0;
+            bool m_Bool = false;
+
+            /// Float cells carry a block buffer so audio-rate consumers see smooth
+            /// per-sample parameter ramps (SendInputValue's 10 ms interpolation).
+            /// Refilled lazily: a broadcast fill when the scalar changed
+            /// (m_BufferDirty), per-frame writes while a ramp is active.
+            Scope<AudioBuffer> m_RampBuffer;
+            bool m_BufferDirty = true;
+
+            void InitFloat(f32 v)
+            {
+                m_Type = EStreamType::Float;
+                m_Float = v;
+                m_RampBuffer = CreateScope<AudioBuffer>();
+                m_BufferDirty = true;
+            }
+            void InitInt32(i32 v)
+            {
+                m_Type = EStreamType::Int32;
+                m_Int32 = v;
+            }
+            void InitInt64(i64 v)
+            {
+                m_Type = EStreamType::Int64;
+                m_Int64 = v;
+            }
+            void InitBool(bool v)
+            {
+                m_Type = EStreamType::Bool;
+                m_Bool = v;
+            }
+            void InitFromValue(const choc::value::ValueView& v)
+            {
+                if (v.isFloat32())
+                    InitFloat(v.getFloat32());
+                else if (v.isFloat64())
+                    InitFloat(static_cast<f32>(v.getFloat64()));
+                else if (v.isInt32())
+                    InitInt32(v.getInt32());
+                else if (v.isInt64())
+                    InitInt64(v.getInt64());
+                else if (v.isBool())
+                    InitBool(v.getBool());
+                else
+                    InitFloat(0.0f); // unsupported plug type — default-silent float
+            }
+
+            /// Typed scalar write with tolerant numeric conversion. Marks the ramp
+            /// buffer dirty so audio-rate consumers pick the change up next block.
+            bool SetScalarFromValue(const choc::value::ValueView& v)
+            {
+                f64 numeric = 0.0;
+                i64 integer = 0;
+                if (v.isFloat32())
+                {
+                    numeric = static_cast<f64>(v.getFloat32());
+                    integer = static_cast<i64>(numeric);
+                }
+                else if (v.isFloat64())
+                {
+                    numeric = v.getFloat64();
+                    integer = static_cast<i64>(numeric);
+                }
+                else if (v.isInt32())
+                {
+                    integer = static_cast<i64>(v.getInt32());
+                    numeric = static_cast<f64>(integer);
+                }
+                else if (v.isInt64())
+                {
+                    integer = v.getInt64();
+                    numeric = static_cast<f64>(integer);
+                }
+                else if (v.isBool())
+                {
+                    integer = v.getBool() ? 1 : 0;
+                    numeric = static_cast<f64>(integer);
+                }
+                else
+                {
+                    return false;
+                }
+
+                switch (m_Type)
+                {
+                    case EStreamType::Float:
+                        m_Float = static_cast<f32>(numeric);
+                        break;
+                    case EStreamType::Int32:
+                        m_Int32 = static_cast<i32>(integer);
+                        break;
+                    case EStreamType::Int64:
+                        m_Int64 = integer;
+                        break;
+                    case EStreamType::Bool:
+                        m_Bool = (integer != 0) || (numeric != 0.0);
+                        break;
+                    case EStreamType::Audio:
+                        return false; // cells are never audio-typed
+                }
+                m_BufferDirty = true;
+                return true;
+            }
+        };
+
+        /// Input parameter cells from external sources (O(1) lookup by Identifier)
+        std::unordered_map<Identifier, GraphValueCell> m_EndpointInputStreams;
+
+        /// Local variable cells (internal graph state) - O(1) lookup by Identifier
+        std::unordered_map<Identifier, GraphValueCell> m_LocalVariables;
+
+        /// Graph output endpoints. Each is an AudioBufferRef bound (by a
+        /// NodeValue_GraphValue connection) to the producing node's output buffer or
+        /// scalar; Process copies through them into m_OutputBuffers. Includes event
+        /// endpoints like OnFinished, which simply stay unbound.
+        std::unordered_map<Identifier, AudioBufferRef> m_GraphOutputRefs;
 
         //==============================================================================
         /// Parameter Interpolation System
 
         struct InterpolatedValue
         {
-            f32 m_Current;
-            f32 m_Target;
-            f32 m_Increment;
+            f32 m_Current = 0.0f;
+            f32 m_Target = 0.0f;
+            f32 m_Increment = 0.0f;
             i32 m_Steps = 0;
-            StreamWriter* m_Endpoint;
+            GraphValueCell* m_Cell = nullptr;
 
             void SetTarget(f32 newTarget, i32 numSteps) noexcept
             {
@@ -158,25 +282,37 @@ namespace OloEngine::Audio::SoundGraph
                 m_Steps = 0;
             }
 
-            inline void Process() noexcept
+            /// Advance the ramp by one block, writing per-frame values into the
+            /// cell's ramp buffer (audio-rate consumers) and the final value into
+            /// the scalar (control-rate consumers). No-op when idle.
+            inline void ProcessBlock(u32 numFrames) noexcept
             {
-                if (m_Steps > 0)
+                if (m_Steps <= 0 || !m_Cell)
+                    return;
+
+                f32* buffer = m_Cell->m_RampBuffer ? m_Cell->m_RampBuffer->Data() : nullptr;
+                for (u32 frame = 0; frame < numFrames; ++frame)
                 {
-                    m_Current += m_Increment;
-                    --m_Steps;
-
-                    if (m_Steps == 0)
-                        m_Current = m_Target;
-
-                    *m_Endpoint << m_Current;
+                    if (m_Steps > 0)
+                    {
+                        m_Current += m_Increment;
+                        --m_Steps;
+                        if (m_Steps == 0)
+                            m_Current = m_Target;
+                    }
+                    if (buffer)
+                        buffer[frame] = m_Current;
                 }
+
+                m_Cell->m_Float = m_Current;
+                // While ramping we own the buffer contents; once the ramp lands,
+                // request a full broadcast fill so frames beyond this block's
+                // numFrames hold the settled value too.
+                m_Cell->m_BufferDirty = (m_Steps == 0);
             }
         };
 
         std::unordered_map<Identifier, InterpolatedValue> m_InterpInputs;
-
-        /// Local variable streams (internal graph state) - O(1) lookup by Identifier
-        std::unordered_map<Identifier, Scope<StreamWriter>> m_LocalVariables;
 
         /// Output channel identifiers
         std::vector<Identifier> m_OutputChannelIDs;
@@ -188,16 +324,8 @@ namespace OloEngine::Audio::SoundGraph
         /// Capacity is reserved off the audio thread via SetMaxBlockSize so that
         /// Process(numFrames) on the audio thread only adjusts the logical size (no heap
         /// allocation). Each entry [c][i] is the i-th sample of channel c produced during
-        /// this block. SoundGraphSource bulk-copies these into the miniaudio output bus.
+        /// this block. SoundGraphSource bulk-copies these into the miniaudio bus.
         std::vector<std::vector<f32>> m_OutputBuffers;
-
-        /// Cached pointers to the endpoint output ValueViews, parallel to m_OutChannels /
-        /// m_OutputChannelIDs. Rebuilt lazily on first Process() after Init() so the
-        /// per-frame sync loop can read each output without doing an unordered_map::find
-        /// — which in Debug (_ITERATOR_DEBUG_LEVEL=2) cost ~1µs per call and at 96 000
-        /// lookups/sec (2 channels × 48 kHz) was a primary cause of the audio thread
-        /// failing to keep real-time.
-        std::vector<const choc::value::ValueView*> m_OutputChannelViews;
 
         //==============================================================================
         /// Graph Construction Public API
@@ -205,38 +333,68 @@ namespace OloEngine::Audio::SoundGraph
         template<typename T>
         void AddGraphInputStream(Identifier id, T&& externalObjectOrDefaultValue)
         {
-            auto [it, inserted] = m_EndpointInputStreams.try_emplace(id, CreateScope<StreamWriter>(AddInStream(id), std::forward<T>(externalObjectOrDefaultValue), id));
+            using U = std::remove_cvref_t<T>;
 
-            if (std::is_same_v<std::remove_cvref_t<T>, float>)
+            auto [it, inserted] = m_EndpointInputStreams.try_emplace(id);
+            if (!inserted)
+                return;
+            GraphValueCell& cell = it->second;
+
+            if constexpr (std::is_same_v<U, choc::value::Value>)
+                cell.InitFromValue(externalObjectOrDefaultValue.getViewReference());
+            else if constexpr (std::is_same_v<U, f32>)
+                cell.InitFloat(externalObjectOrDefaultValue);
+            else if constexpr (std::is_same_v<U, i32>)
+                cell.InitInt32(externalObjectOrDefaultValue);
+            else if constexpr (std::is_same_v<U, i64>)
+                cell.InitInt64(externalObjectOrDefaultValue);
+            else if constexpr (std::is_same_v<U, bool>)
+                cell.InitBool(externalObjectOrDefaultValue);
+            else
+                static_assert(std::is_same_v<U, choc::value::Value>,
+                              "Graph input default must be a stream value type or choc::value::Value");
+
+            if (cell.m_Type == EStreamType::Float)
             {
                 // Add interpolation for float parameters
                 m_InterpInputs.try_emplace(id, InterpolatedValue{
-                                                   .m_Current = 0.0f,
-                                                   .m_Target = 0.0f,
+                                                   .m_Current = cell.m_Float,
+                                                   .m_Target = cell.m_Float,
                                                    .m_Increment = 0.0f,
                                                    .m_Steps = 0,
-                                                   .m_Endpoint = it->second.get() });
+                                                   .m_Cell = &cell });
             }
         }
 
         void AddGraphOutputStream(Identifier id)
         {
-            AddOutStream<float>(id, m_OutChannels.emplace_back(0.0f));
-            m_EndpointOutputStreams.AddInStream(id);
-
-            AddConnection(OutValue(id), m_EndpointOutputStreams.InValue(id));
+            m_OutChannels.emplace_back(0.0f);
+            m_GraphOutputRefs.try_emplace(id); // default: silent constant until wired
         }
 
         template<typename T>
         void AddLocalVariableStream(Identifier id, T&& externalObjectOrDefaultValue)
         {
-            // StreamWriter requires a ValueView for the destination, but local variables don't
-            // write to external storage. We provide an empty ValueView that will never be written to.
-            // The actual storage is managed internally by StreamWriter's OutputValue member.
-            m_LocalVariables.try_emplace(id, CreateScope<StreamWriter>(
-                                                 choc::value::Value{}.getViewReference(),
-                                                 std::forward<T>(externalObjectOrDefaultValue),
-                                                 id));
+            using U = std::remove_cvref_t<T>;
+
+            auto [it, inserted] = m_LocalVariables.try_emplace(id);
+            if (!inserted)
+                return;
+            GraphValueCell& cell = it->second;
+
+            if constexpr (std::is_same_v<U, choc::value::Value>)
+                cell.InitFromValue(externalObjectOrDefaultValue.getViewReference());
+            else if constexpr (std::is_same_v<U, f32>)
+                cell.InitFloat(externalObjectOrDefaultValue);
+            else if constexpr (std::is_same_v<U, i32>)
+                cell.InitInt32(externalObjectOrDefaultValue);
+            else if constexpr (std::is_same_v<U, i64>)
+                cell.InitInt64(externalObjectOrDefaultValue);
+            else if constexpr (std::is_same_v<U, bool>)
+                cell.InitBool(externalObjectOrDefaultValue);
+            else
+                static_assert(std::is_same_v<U, choc::value::Value>,
+                              "Local variable default must be a stream value type or choc::value::Value");
         }
 
         void AddNode(Scope<NodeProcessor>&& node)
@@ -269,9 +427,28 @@ namespace OloEngine::Audio::SoundGraph
         //==============================================================================
         /// Graph Connections Internal Methods
 
-        void AddConnection(choc::value::ValueView& source, choc::value::ValueView& destination) const noexcept
+        /// Compile-time-typed connection helpers. The Identifier-based public API
+        /// below resolves endpoints from runtime (asset) data and validates types at
+        /// bind time; these overloads serve code-constructed graphs where both ends
+        /// are known statically — a type mismatch fails to compile.
+
+        /// Audio producer -> audio consumer (per-frame samples)
+        static void AddConnection(const AudioBuffer& source, AudioBufferRef& destination) noexcept
         {
-            destination = source;
+            destination.BindBuffer(source.Data());
+        }
+
+        /// Scalar f32 producer -> audio consumer (broadcast across the block)
+        static void AddConnection(const f32& source, AudioBufferRef& destination) noexcept
+        {
+            destination.BindScalar(&source);
+        }
+
+        /// Scalar producer -> scalar consumer of the same value type
+        template<StreamValue T>
+        static void AddConnection(const T& source, ValueRef<T>& destination) noexcept
+        {
+            destination.Bind(&source);
         }
 
         void AddConnection(OutputEvent& source, InputEvent& destination) const noexcept
@@ -311,7 +488,68 @@ namespace OloEngine::Audio::SoundGraph
             // Use the shared_ptr from InEvents for the newly created routeHandler
             if (auto routeHandlerPtr = InEvents.find(routeId); routeHandlerPtr != InEvents.end())
                 source.AddDestination(routeHandlerPtr->second);
-        } //==============================================================================
+        }
+
+        /// Bind a graph value cell (parameter / local variable) to a node input ref.
+        static bool ConnectCellToNodeInput(GraphValueCell& cell, NodeProcessor& node, Identifier endpointID)
+        {
+            auto it = node.InputRefs.find(endpointID);
+            if (it == node.InputRefs.end())
+            {
+                OLO_CORE_WARN("ConnectCellToNodeInput: node '{}' has no input stream {}",
+                              node.m_DebugName, static_cast<u32>(endpointID));
+                return false;
+            }
+
+            InputStreamRef& dst = it->second;
+            switch (dst.m_Type)
+            {
+                case EStreamType::Audio:
+                    if (cell.m_Type == EStreamType::Float)
+                    {
+                        // Audio-rate consumer reads the cell's ramp buffer so
+                        // interpolated parameter changes stay per-sample smooth.
+                        static_cast<AudioBufferRef*>(dst.m_Ref)->BindBuffer(cell.m_RampBuffer->Data());
+                        return true;
+                    }
+                    break;
+                case EStreamType::Float:
+                    if (cell.m_Type == EStreamType::Float)
+                    {
+                        static_cast<FloatRef*>(dst.m_Ref)->Bind(&cell.m_Float);
+                        return true;
+                    }
+                    break;
+                case EStreamType::Int32:
+                    if (cell.m_Type == EStreamType::Int32)
+                    {
+                        static_cast<IntRef*>(dst.m_Ref)->Bind(&cell.m_Int32);
+                        return true;
+                    }
+                    break;
+                case EStreamType::Int64:
+                    if (cell.m_Type == EStreamType::Int64)
+                    {
+                        static_cast<Int64Ref*>(dst.m_Ref)->Bind(&cell.m_Int64);
+                        return true;
+                    }
+                    break;
+                case EStreamType::Bool:
+                    if (cell.m_Type == EStreamType::Bool)
+                    {
+                        static_cast<BoolRef*>(dst.m_Ref)->Bind(&cell.m_Bool);
+                        return true;
+                    }
+                    break;
+            }
+
+            OLO_CORE_WARN("ConnectCellToNodeInput: incompatible types {} -> {} (node '{}', endpoint {})",
+                          static_cast<i32>(cell.m_Type), static_cast<i32>(dst.m_Type),
+                          node.m_DebugName, static_cast<u32>(endpointID));
+            return false;
+        }
+
+        //==============================================================================
         /// Graph Connections Public API
 
         /// Node Output Value -> Node Input Value
@@ -326,7 +564,12 @@ namespace OloEngine::Audio::SoundGraph
                 return false;
             }
 
-            AddConnection(sourceNode->OutValue(sourceNodeEndpointID), destinationNode->InValue(destinationNodeEndpointID));
+            if (!NodeProcessor::ConnectStreams(*sourceNode, sourceNodeEndpointID, *destinationNode, destinationNodeEndpointID))
+                return false;
+
+            // Record the dependency edge so Init() can order producers before
+            // consumers for the once-per-block Process walk.
+            m_ConnectionEdges.emplace_back(sourceNodeID, destinationNodeID);
             return true;
         }
 
@@ -347,6 +590,11 @@ namespace OloEngine::Audio::SoundGraph
             }
 
             AddConnection(sourceNode->OutEvent(sourceNodeEndpointID), destinationNode->InEvent(destinationNodeEndpointID));
+
+            // Event producers should also run before their consumers so triggers
+            // fired mid-block apply within the same block, matching the old
+            // per-sample propagation latency as closely as possible.
+            m_ConnectionEdges.emplace_back(sourceNodeID, destinationNodeID);
             return true;
         }
 
@@ -366,8 +614,7 @@ namespace OloEngine::Audio::SoundGraph
                 return false;
             }
 
-            AddConnection(endpointIt->second->m_OutputValue.getViewReference(), destinationNode->InValue(destinationNodeEndpointID));
-            return true;
+            return ConnectCellToNodeInput(endpointIt->second, *destinationNode, destinationNodeEndpointID);
         }
 
         /// Graph Input Event -> Node Input Event
@@ -396,7 +643,28 @@ namespace OloEngine::Audio::SoundGraph
                 return false;
             }
 
-            AddConnection(sourceNode->OutValue(sourceNodeEndpointID), m_EndpointOutputStreams.InValue(graphOutValueID));
+            auto refIt = m_GraphOutputRefs.find(graphOutValueID);
+            if (refIt == m_GraphOutputRefs.end())
+            {
+                OLO_CORE_ASSERT(false, "Failed to find graph output endpoint");
+                return false;
+            }
+
+            auto srcIt = sourceNode->OutputSources.find(sourceNodeEndpointID);
+            if (srcIt == sourceNode->OutputSources.end())
+            {
+                OLO_CORE_WARN("AddToGraphOutputConnection: source node '{}' has no output stream {}",
+                              sourceNode->m_DebugName, static_cast<u32>(sourceNodeEndpointID));
+                return false;
+            }
+
+            InputStreamRef dst{ EStreamType::Audio, &refIt->second };
+            if (!NodeProcessor::BindInputToOutput(dst, srcIt->second))
+            {
+                OLO_CORE_WARN("AddToGraphOutputConnection: incompatible source type for graph output (node '{}')",
+                              sourceNode->m_DebugName);
+                return false;
+            }
             return true;
         }
 
@@ -414,7 +682,7 @@ namespace OloEngine::Audio::SoundGraph
             return true;
         }
 
-        /// Graph Local Variable (StreamWriter) -> Node Input Value
+        /// Graph Local Variable -> Node Input Value
         bool AddLocalVariableRoute(Identifier graphLocalVariableID, UUID destinationNodeID, Identifier destinationNodeEndpointID) noexcept
         {
             auto* destinationNode = FindNodeByID(destinationNodeID);
@@ -426,8 +694,7 @@ namespace OloEngine::Audio::SoundGraph
                 return false;
             }
 
-            AddConnection(endpointIt->second->m_OutputValue.getViewReference(), destinationNode->InValue(destinationNodeEndpointID));
-            return true;
+            return ConnectCellToNodeInput(endpointIt->second, *destinationNode, destinationNodeEndpointID);
         }
 
         //==============================================================================
@@ -456,9 +723,6 @@ namespace OloEngine::Audio::SoundGraph
             // Rebuild node lookup map and find wave players
             m_NodeLookup.clear();
             m_WavePlayers.clear();
-            // Drop the cached endpoint-view pointers; Process() will rebuild them on
-            // its next call once the freshly-(re)wired endpoint map is stable.
-            m_OutputChannelViews.clear();
 
             for (const auto& node : m_Nodes)
             {
@@ -484,9 +748,9 @@ namespace OloEngine::Audio::SoundGraph
             // block size before the audio thread starts pulling samples.
             EnsureOutputBuffersCapacity(kDefaultMaxBlockSize);
 
-            // Pre-build the endpoint-view cache off the audio thread (was previously rebuilt
-            // lazily inside Process() — that path is allocation-prone on the audio thread).
-            RebuildOutputChannelViewsCache();
+            // Pre-build the per-block runtime caches off the audio thread (process
+            // order, output-ref pointers, ramp-buffer cell list).
+            RebuildRuntimeCaches();
 
             m_IsInitialized = true;
         }
@@ -500,9 +764,9 @@ namespace OloEngine::Audio::SoundGraph
             EnsureOutputBuffersCapacity(maxBlockSize);
             // Endpoint wiring may have completed *after* Init() in some construction paths
             // (e.g. SoundGraphSource::ReplaceGraph rewires before resuming). Refresh the
-            // cache here too so Process() can always observe a valid cache without doing
+            // caches here too so Process() can always observe valid caches without doing
             // the rebuild itself.
-            RebuildOutputChannelViewsCache();
+            RebuildRuntimeCaches();
         }
 
         void BeginProcessBlock() const
@@ -515,77 +779,32 @@ namespace OloEngine::Audio::SoundGraph
             }
         }
 
-        // Phase 1 block-rate entry point. Replaces the old per-sample Process() (which was
-        // called 48 000 times/sec from SoundGraphSource::ProcessSamples). The per-sample
-        // iteration is now hoisted INTO the graph so SoundGraphSource can hand us a whole
-        // block in a single call.
-        //
-        // Phase 1 scope: SoundGraphSource overhead (function dispatch, OLO_PROFILE_FUNCTION
-        // entry, ppFramesOut bounds-check) collapses from per-sample to per-block. The
-        // per-sample iteration inside this method still walks all nodes once per sample,
-        // because the ValueView wiring between nodes is scalar — moving the loop one level
-        // out without changing wiring would only deliver the LAST sample of the block to
-        // downstream consumers. Phase 2 introduces typed AudioBufferRef wiring; once that
-        // lands, this loop can collapse to a single per-node Process(numFrames) call and
-        // we get the real perf win documented in docs/soundgraph-metasounds-refactor.md.
+        // Phase 2 block-rate entry point: each node's Process(numFrames) is called
+        // exactly once per chunk, in producer-before-consumer order, with typed
+        // connections carrying whole blocks between nodes. This replaces the Phase 1
+        // per-sample node walk (numFrames=1, 48 000 node sweeps/sec) that scalar
+        // ValueView wiring forced, and with it the Debug-build real-time deficit
+        // documented in docs/soundgraph-metasounds-refactor.md.
         void Process(u32 numFrames) final
         {
-            // Block-rate entry point (~100 Hz at 48 kHz / 480-frame block) — profile macro
-            // is fine here. The matching note in WavePlayer::Process explains why the
-            // per-sample hot path called from this method still avoids OLO_PROFILE_FUNCTION.
+            // Block-rate entry point (~100 Hz at 48 kHz / 480-frame block).
             OLO_PROFILE_FUNCTION();
 
-            // The endpoint-view cache and per-channel block buffers were both pre-built off
-            // the audio thread (in Init() and SetMaxBlockSize()). The asserts below are the
-            // RT-safety contract: if any of them fire we'd be a missed off-thread setup
-            // call away from a heap allocation in the audio callback.
-            OLO_CORE_ASSERT(m_OutputChannelViews.size() == m_OutputChannelIDs.size(),
-                            "SoundGraph::Process: view cache is stale; call SetMaxBlockSize/Init off-thread after wiring");
-            OLO_CORE_ASSERT(m_OutputBuffers.size() >= m_OutChannels.size(),
-                            "SoundGraph::Process: output buffer count is short of channel count; call SetMaxBlockSize off-thread");
-            for ([[maybe_unused]] const auto& buf : m_OutputBuffers)
+            // Per-node output buffers are fixed at kMaxAudioBlockFrames capacity
+            // (pointer-stability contract in StreamRefs.h), so larger requests are
+            // processed in chunks. The normal miniaudio block is far below the cap —
+            // this loop runs exactly once.
+            u32 done = 0;
+            while (done < numFrames)
             {
-                // Check size(), not capacity() — operator[] writes below are bounds-checked
-                // against size() by MSVC Debug iterators (and are simply UB past size() in
-                // Release). EnsureOutputBuffersCapacity uses resize() so size == capacity in
-                // practice, but checking the dimension that actually gates operator[] keeps
-                // the contract honest.
-                OLO_CORE_ASSERT(buf.size() >= numFrames,
-                                "SoundGraph::Process: block buffer size insufficient for numFrames; call SetMaxBlockSize off-thread");
-            }
-
-            const sizet channelCount = std::min(m_OutChannels.size(), m_OutputChannelViews.size());
-
-            for (u32 frame = 0; frame < numFrames; ++frame)
-            {
-                // Per-sample parameter interpolation (10 ms ramps in SendInputValue).
-                for (auto& [id, interpValue] : m_InterpInputs)
-                    interpValue.Process();
-
-                // Walk the node graph. Phase 1 passes numFrames=1 here: each node produces
-                // one sample, downstream consumers read the scalar via ValueView, the chain
-                // works. Phase 2 swaps in typed buffer connections and lifts this call out
-                // of the per-sample loop.
-                for (const auto& node : m_Nodes)
-                    node->Process(1);
-
-                // Sample each graph output channel from its (possibly re-aliased) endpoint
-                // view into the per-channel block buffer. The view points at the producing
-                // node's storage — see the original comment preserved on m_OutputChannelViews.
-                for (sizet c = 0; c < channelCount; ++c)
-                {
-                    const auto* view = m_OutputChannelViews[c];
-                    if (view && view->getType().isFloat32())
-                        m_OutputBuffers[c][frame] = view->getFloat32();
-                    else
-                        m_OutputBuffers[c][frame] = 0.0f;
-                }
-
-                ++m_CurrentFrame;
+                const u32 chunk = std::min(numFrames - done, kMaxAudioBlockFrames);
+                ProcessChunk(chunk, done);
+                done += chunk;
             }
 
             // Mirror the final sample into the scalar m_OutChannels for any consumer that
             // reads it directly (debug UIs, telemetry). The block buffer is the real output.
+            const sizet channelCount = std::min(m_OutChannels.size(), m_OutputBuffers.size());
             for (sizet c = 0; c < channelCount; ++c)
             {
                 if (numFrames > 0)
@@ -658,42 +877,30 @@ namespace OloEngine::Audio::SoundGraph
             auto endpointIt = std::ranges::find_if(m_EndpointInputStreams,
                                                    [endpointID](const auto& pair)
                                                    {
-                                                       return (u32)pair.second->m_DestinationID == endpointID;
+                                                       return static_cast<u32>(pair.first) == endpointID;
                                                    });
             if (endpointIt == m_EndpointInputStreams.end())
                 return false;
 
-            const auto& endpoint = endpointIt->second;
+            GraphValueCell& cell = endpointIt->second;
 
-            if (value.isFloat32())
+            if (value.isFloat32() && cell.m_Type == EStreamType::Float)
             {
                 // Handle interpolation for float values - use safe lookup
-                auto interpIt = m_InterpInputs.find(endpoint->m_DestinationID);
+                auto interpIt = m_InterpInputs.find(endpointIt->first);
                 if (interpIt != m_InterpInputs.end())
                 {
                     auto& interpInput = interpIt->second;
                     if (interpolate)
                     {
                         interpInput.SetTarget(value.getFloat32(), 480); // 10ms at 48kHz
+                        return true;
                     }
-                    else
-                    {
-                        interpInput.Reset(value.getFloat32());
-                        *endpoint << value;
-                    }
+                    interpInput.Reset(value.getFloat32());
                 }
-                else
-                {
-                    // No interpolation registered, just set the value directly
-                    *endpoint << value;
-                }
-            }
-            else
-            {
-                *endpoint << value;
             }
 
-            return true;
+            return cell.SetScalarFromValue(value);
         }
 
         bool SendInputEvent(Identifier endpointID, choc::value::ValueView value)
@@ -761,7 +968,65 @@ namespace OloEngine::Audio::SoundGraph
         // Default per-channel block-buffer capacity used by Init() when SoundGraphSource
         // hasn't yet called SetMaxBlockSize. Sized generously so direct-Process callers
         // (tests, offline render) don't trip the capacity assert in Process.
-        static constexpr u32 kDefaultMaxBlockSize = 4096;
+        static constexpr u32 kDefaultMaxBlockSize = kMaxAudioBlockFrames;
+
+        /// One chunk of block processing (numFrames <= kMaxAudioBlockFrames).
+        /// outOffset is the write offset into m_OutputBuffers for multi-chunk calls.
+        void ProcessChunk(u32 numFrames, u32 outOffset)
+        {
+            // The caches and per-channel block buffers were all pre-built off the
+            // audio thread (Init() / SetMaxBlockSize()). The asserts below are the
+            // RT-safety contract: if any of them fire we'd be a missed off-thread
+            // setup call away from a heap allocation in the audio callback.
+            OLO_CORE_ASSERT(m_OutputChannelRefCache.size() == m_OutputChannelIDs.size(),
+                            "SoundGraph::Process: ref cache is stale; call SetMaxBlockSize/Init off-thread after wiring");
+            OLO_CORE_ASSERT(m_OutputBuffers.size() >= m_OutChannels.size(),
+                            "SoundGraph::Process: output buffer count is short of channel count; call SetMaxBlockSize off-thread");
+            for ([[maybe_unused]] const auto& buf : m_OutputBuffers)
+            {
+                OLO_CORE_ASSERT(buf.size() >= static_cast<sizet>(outOffset) + numFrames,
+                                "SoundGraph::Process: block buffer size insufficient for numFrames; call SetMaxBlockSize off-thread");
+            }
+
+            // 1. Parameter maintenance: broadcast-fill any ramp buffer whose scalar
+            //    changed since the last block, THEN advance active ramps (per-frame
+            //    writes). Fill-before-ramp matters: a ramp that lands inside this
+            //    block sets the dirty flag for the *next* block's broadcast — running
+            //    the fill afterwards would clobber the ramp samples it just wrote.
+            for (auto* cell : m_RampBufferCells)
+            {
+                if (cell->m_BufferDirty)
+                {
+                    std::fill_n(cell->m_RampBuffer->Data(), kMaxAudioBlockFrames, cell->m_Float);
+                    cell->m_BufferDirty = false;
+                }
+            }
+
+            for (auto& [id, interpValue] : m_InterpInputs)
+                interpValue.ProcessBlock(numFrames);
+
+            // 2. Walk the node graph once per chunk, producers before consumers.
+            //    Typed connections hand whole blocks (or stable scalars) downstream —
+            //    no per-sample re-walk, no hash lookups, no choc::value reads.
+            for (auto* node : m_ProcessOrder)
+                node->Process(numFrames);
+
+            // 3. Copy each graph output endpoint into its per-channel block buffer.
+            const sizet channelCount = std::min(m_OutChannels.size(), m_OutputChannelRefCache.size());
+            for (sizet c = 0; c < channelCount; ++c)
+            {
+                f32* dst = m_OutputBuffers[c].data() + outOffset;
+                const AudioBufferRef* ref = m_OutputChannelRefCache[c];
+                if (ref && ref->IsBuffer())
+                    std::memcpy(dst, ref->m_Data, static_cast<sizet>(numFrames) * sizeof(f32));
+                else if (ref)
+                    std::fill_n(dst, numFrames, *ref->m_Data);
+                else
+                    std::fill_n(dst, numFrames, 0.0f);
+            }
+
+            m_CurrentFrame += numFrames;
+        }
 
         /// Ensure m_OutputBuffers has one entry per output channel and each entry has
         /// `capacity` valid storage slots. Both .size() and .capacity() end up >= capacity.
@@ -777,18 +1042,94 @@ namespace OloEngine::Audio::SoundGraph
             }
         }
 
-        /// (Re-)build the endpoint-view pointer cache used by Process() to read the
-        /// graph's output channel values without an unordered_map::find per sample.
-        /// MUST be called off the audio thread (clear + reserve + push_back can allocate).
-        /// Safe to call repeatedly when wiring changes.
-        void RebuildOutputChannelViewsCache()
+        /// (Re-)build the per-block runtime caches: graph-output ref pointers,
+        /// ramp-buffer cell list, and the producer-before-consumer process order.
+        /// MUST be called off the audio thread (allocates). Safe to call repeatedly
+        /// when wiring changes.
+        void RebuildRuntimeCaches()
         {
-            m_OutputChannelViews.clear();
-            m_OutputChannelViews.reserve(m_OutputChannelIDs.size());
+            // Output channel refs, parallel to m_OutputChannelIDs.
+            m_OutputChannelRefCache.clear();
+            m_OutputChannelRefCache.reserve(m_OutputChannelIDs.size());
             for (const auto& id : m_OutputChannelIDs)
             {
-                auto it = m_EndpointOutputStreams.InputStreams.find(id);
-                m_OutputChannelViews.push_back(it != m_EndpointOutputStreams.InputStreams.end() ? &it->second : nullptr);
+                auto it = m_GraphOutputRefs.find(id);
+                m_OutputChannelRefCache.push_back(it != m_GraphOutputRefs.end() ? &it->second : nullptr);
+            }
+
+            // Float cells whose ramp buffers need per-block maintenance.
+            m_RampBufferCells.clear();
+            for (auto& [id, cell] : m_EndpointInputStreams)
+            {
+                if (cell.m_RampBuffer)
+                    m_RampBufferCells.push_back(&cell);
+            }
+            for (auto& [id, cell] : m_LocalVariables)
+            {
+                if (cell.m_RampBuffer)
+                    m_RampBufferCells.push_back(&cell);
+            }
+
+            BuildProcessOrder();
+        }
+
+        /// Topologically order m_Nodes using the recorded connection edges (Kahn's
+        /// algorithm, stable w.r.t. authoring order). With once-per-block node calls,
+        /// a consumer running before its producer would read the *previous* block —
+        /// a full block of added latency per mis-ordered hop (the per-sample walk
+        /// capped that error at one sample). Cycles get a warning and keep authoring
+        /// order for the nodes involved.
+        void BuildProcessOrder()
+        {
+            const sizet count = m_Nodes.size();
+            m_ProcessOrder.clear();
+            m_ProcessOrder.reserve(count);
+
+            std::unordered_map<UUID, sizet> indexOf;
+            indexOf.reserve(count);
+            for (sizet i = 0; i < count; ++i)
+                indexOf[m_Nodes[i]->m_ID] = i;
+
+            std::vector<std::vector<sizet>> adjacency(count);
+            std::vector<u32> inDegree(count, 0);
+            for (const auto& [srcID, dstID] : m_ConnectionEdges)
+            {
+                auto srcIt = indexOf.find(srcID);
+                auto dstIt = indexOf.find(dstID);
+                if (srcIt == indexOf.end() || dstIt == indexOf.end() || srcIt->second == dstIt->second)
+                    continue;
+                adjacency[srcIt->second].push_back(dstIt->second);
+                ++inDegree[dstIt->second];
+            }
+
+            std::vector<bool> emitted(count, false);
+            sizet emittedCount = 0;
+            bool progress = true;
+            while (emittedCount < count && progress)
+            {
+                progress = false;
+                for (sizet i = 0; i < count; ++i)
+                {
+                    if (emitted[i] || inDegree[i] != 0)
+                        continue;
+                    emitted[i] = true;
+                    ++emittedCount;
+                    progress = true;
+                    m_ProcessOrder.push_back(m_Nodes[i].get());
+                    for (sizet dependent : adjacency[i])
+                        --inDegree[dependent];
+                }
+            }
+
+            if (emittedCount < count)
+            {
+                OLO_CORE_WARN("SoundGraph: connection graph contains a cycle; {} node(s) keep authoring order",
+                              count - emittedCount);
+                for (sizet i = 0; i < count; ++i)
+                {
+                    if (!emitted[i])
+                        m_ProcessOrder.push_back(m_Nodes[i].get());
+                }
             }
         }
 
@@ -803,6 +1144,22 @@ namespace OloEngine::Audio::SoundGraph
         // Fast node lookup map (O(1) instead of O(n))
         std::unordered_map<UUID, NodeProcessor*> m_NodeLookup;
 
+        /// Value/event dependency edges (source node -> destination node) recorded at
+        /// wire time; input to BuildProcessOrder.
+        std::vector<std::pair<UUID, UUID>> m_ConnectionEdges;
+
+        /// Node pointers in producer-before-consumer order; the audio thread's
+        /// per-chunk walk. Rebuilt off-thread by RebuildRuntimeCaches.
+        std::vector<NodeProcessor*> m_ProcessOrder;
+
+        /// Cached pointers into m_GraphOutputRefs, parallel to m_OutputChannelIDs, so
+        /// the per-chunk output copy does no hash lookups on the audio thread.
+        std::vector<const AudioBufferRef*> m_OutputChannelRefCache;
+
+        /// Float cells (parameters + local variables) owning ramp buffers that need
+        /// per-block maintenance. Rebuilt off-thread by RebuildRuntimeCaches.
+        std::vector<GraphValueCell*> m_RampBufferCells;
+
         //==============================================================================
         /// Thread-safe Event/Message Queues
         /// Using lock-free queues with pre-allocated storage to avoid heap allocations in audio thread
@@ -810,27 +1167,6 @@ namespace OloEngine::Audio::SoundGraph
         Audio::AudioEventQueue<1024> m_OutgoingEvents;
         Audio::AudioMessageQueue<1024> m_OutgoingMessages;
     };
-
-    //==============================================================================
-    /// Template Specialization for choc::value::Value
-
-    template<>
-    inline void SoundGraph::AddGraphInputStream(Identifier id, choc::value::Value&& externalObjectOrDefaultValue)
-    {
-        const bool isFloat = externalObjectOrDefaultValue.isFloat32();
-
-        auto [it, inserted] = m_EndpointInputStreams.try_emplace(id, CreateScope<StreamWriter>(AddInStream(id), std::move(externalObjectOrDefaultValue), id));
-
-        if (isFloat)
-        {
-            m_InterpInputs.try_emplace(id, InterpolatedValue{
-                                               .m_Current = 0.0f,
-                                               .m_Target = 0.0f,
-                                               .m_Increment = 0.0f,
-                                               .m_Steps = 0,
-                                               .m_Endpoint = it->second.get() });
-        }
-    }
 
 } // namespace OloEngine::Audio::SoundGraph
 

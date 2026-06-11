@@ -9,10 +9,9 @@
 // have to be VISIBLE at the point of instantiation, otherwise
 // `IsDescribedNode_v<Node>` falls back to the primary template's
 // `std::false_type` and the entire reflection-driven endpoint registration
-// silently short-circuits. The graph then has no InputStreams / OutputStreams
-// entries, and EstablishConnections throws std::out_of_range
-// ("invalid unordered_map<K, T> key") the moment any node-to-graph wire is
-// resolved at runtime.
+// silently short-circuits. The graph then has no InputRefs / OutputSources
+// entries, and EstablishConnections fails (with a warning) the moment any
+// node-to-graph wire is resolved at runtime.
 //
 // Putting the specializations in a header (and #including it from NodeTypes.cpp
 // before INIT_ENDPOINTS_FUNCS) makes them visible at the right point. The

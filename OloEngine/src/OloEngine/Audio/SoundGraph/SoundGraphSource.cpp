@@ -854,6 +854,28 @@ namespace OloEngine::Audio::SoundGraph
             // Update frame counter
             m_CurrentFrame.fetch_add(frameCount, std::memory_order_relaxed);
 
+            // [SGSDiag] effective-rate telemetry: every 100 callbacks, report how
+            // fast we are actually producing audio relative to wall time. This is
+            // the metric the block-execution refactor is gated on
+            // (docs/soundgraph-metasounds-refactor.md): effectiveRateHz must stay
+            // within 10% of the configured sample rate in a Debug build. Cheap —
+            // one steady_clock read per callback, one log per ~second of audio.
+            {
+                const auto now = std::chrono::steady_clock::now();
+                if (m_DiagCallbackCount == 0)
+                    m_DiagWindowStart = now;
+                m_DiagFrameCount += frameCount;
+                if (++m_DiagCallbackCount >= 100)
+                {
+                    const f64 elapsedMs = std::chrono::duration<f64, std::milli>(now - m_DiagWindowStart).count();
+                    const f64 effectiveRateHz = (elapsedMs > 0.0) ? (static_cast<f64>(m_DiagFrameCount) * 1000.0 / elapsedMs) : 0.0;
+                    OLO_CORE_INFO("[SGSDiag] After {} ProcessSamples calls: {} frames in {:.1f} ms => effectiveRateHz {:.0f} (configured {})",
+                                  m_DiagCallbackCount, m_DiagFrameCount, elapsedMs, effectiveRateHz, m_SampleRate);
+                    m_DiagCallbackCount = 0;
+                    m_DiagFrameCount = 0;
+                }
+            }
+
             // Check if playback should finish
             if (AreAllDataSourcesAtEnd())
             {

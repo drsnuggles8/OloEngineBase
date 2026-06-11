@@ -42,6 +42,21 @@ namespace OloEngine::Audio::SoundGraph
     } // namespace detail
 
     //==============================================================================
+    // Member type selection for the math node templates.
+    //
+    // f32 math nodes are audio-rate: inputs are AudioBufferRef (per-frame samples
+    // from a producer buffer, or a scalar broadcast) and the output is a block
+    // AudioBuffer — an oscillator * envelope chain stays sample-accurate.
+    // Integer math nodes are control-rate: scalar refs in, scalar member out,
+    // computed once per block.
+    //==============================================================================
+    template<typename T>
+    using MathInRef = std::conditional_t<std::is_same_v<T, f32>, AudioBufferRef, ValueRef<T>>;
+
+    template<typename T>
+    using MathOut = std::conditional_t<std::is_same_v<T, f32>, AudioBuffer, T>;
+
+    //==============================================================================
     // Addition Node
     //==============================================================================
     template<typename T>
@@ -52,40 +67,27 @@ namespace OloEngine::Audio::SoundGraph
             RegisterEndpoints();
         }
 
-        void Init() final
-        {
-            InitializeInputs();
-        }
+        void RegisterEndpoints(); // defined out-of-line in NodeTypes.cpp where DESCRIBE_NODE specializations are visible
 
-        void RegisterEndpoints()
-        {
-            EndpointUtilities::RegisterEndpoints(this);
-        }
-
-        void InitializeInputs()
-        {
-            EndpointUtilities::InitializeInputs(this);
-        }
-
-        T* m_Value1 = nullptr;
-        T* m_Value2 = nullptr;
-        T m_Out{ 0 };
+        MathInRef<T> m_Value1;
+        MathInRef<T> m_Value2;
+        MathOut<T> m_Out{};
 
         void Process(u32 numFrames) final
         {
-            // Stateless: output depends only on current input values, so per-call
-            // cost is independent of numFrames. The graph still drives this once per
-            // sample-step in Phase 1 (numFrames == 1); when block-rate wiring lands
-            // in Phase 2, callers will pass the whole block here unchanged.
-            (void)numFrames;
             OLO_PROFILE_FUNCTION();
 
-            if (!m_Value1 || !m_Value2)
+            if constexpr (std::is_same_v<T, f32>)
             {
-                m_Out = T(0);
-                return;
+                f32* out = m_Out.Data();
+                for (u32 frame = 0; frame < numFrames; ++frame)
+                    out[frame] = m_Value1.Sample(frame) + m_Value2.Sample(frame);
             }
-            m_Out = (*m_Value1) + (*m_Value2);
+            else
+            {
+                (void)numFrames;
+                m_Out = m_Value1.Get() + m_Value2.Get();
+            }
         }
     };
 
@@ -100,40 +102,27 @@ namespace OloEngine::Audio::SoundGraph
             RegisterEndpoints();
         }
 
-        void Init() final
-        {
-            InitializeInputs();
-        }
+        void RegisterEndpoints(); // defined out-of-line in NodeTypes.cpp where DESCRIBE_NODE specializations are visible
 
-        void RegisterEndpoints()
-        {
-            EndpointUtilities::RegisterEndpoints(this);
-        }
-
-        void InitializeInputs()
-        {
-            EndpointUtilities::InitializeInputs(this);
-        }
-
-        T* m_Value1 = nullptr;
-        T* m_Value2 = nullptr;
-        T m_Out{ 0 };
+        MathInRef<T> m_Value1;
+        MathInRef<T> m_Value2;
+        MathOut<T> m_Out{};
 
         void Process(u32 numFrames) final
         {
-            // Stateless: output depends only on current input values, so per-call
-            // cost is independent of numFrames. The graph still drives this once per
-            // sample-step in Phase 1 (numFrames == 1); when block-rate wiring lands
-            // in Phase 2, callers will pass the whole block here unchanged.
-            (void)numFrames;
             OLO_PROFILE_FUNCTION();
 
-            if (!m_Value1 || !m_Value2)
+            if constexpr (std::is_same_v<T, f32>)
             {
-                m_Out = T(0);
-                return;
+                f32* out = m_Out.Data();
+                for (u32 frame = 0; frame < numFrames; ++frame)
+                    out[frame] = m_Value1.Sample(frame) - m_Value2.Sample(frame);
             }
-            m_Out = (*m_Value1) - (*m_Value2);
+            else
+            {
+                (void)numFrames;
+                m_Out = m_Value1.Get() - m_Value2.Get();
+            }
         }
     };
 
@@ -148,40 +137,27 @@ namespace OloEngine::Audio::SoundGraph
             RegisterEndpoints();
         }
 
-        void Init() final
-        {
-            InitializeInputs();
-        }
+        void RegisterEndpoints(); // defined out-of-line in NodeTypes.cpp where DESCRIBE_NODE specializations are visible
 
-        void RegisterEndpoints()
-        {
-            EndpointUtilities::RegisterEndpoints(this);
-        }
-
-        void InitializeInputs()
-        {
-            EndpointUtilities::InitializeInputs(this);
-        }
-
-        T* m_Value = nullptr;
-        T* m_Multiplier = nullptr;
-        T m_Out{ 0 };
+        MathInRef<T> m_Value;
+        MathInRef<T> m_Multiplier;
+        MathOut<T> m_Out{};
 
         void Process(u32 numFrames) final
         {
-            // Stateless: output depends only on current input values, so per-call
-            // cost is independent of numFrames. The graph still drives this once per
-            // sample-step in Phase 1 (numFrames == 1); when block-rate wiring lands
-            // in Phase 2, callers will pass the whole block here unchanged.
-            (void)numFrames;
             OLO_PROFILE_FUNCTION();
 
-            if (!m_Value || !m_Multiplier)
+            if constexpr (std::is_same_v<T, f32>)
             {
-                m_Out = T(0);
-                return;
+                f32* out = m_Out.Data();
+                for (u32 frame = 0; frame < numFrames; ++frame)
+                    out[frame] = m_Value.Sample(frame) * m_Multiplier.Sample(frame);
             }
-            m_Out = (*m_Value) * (*m_Multiplier);
+            else
+            {
+                (void)numFrames;
+                m_Out = m_Value.Get() * m_Multiplier.Get();
+            }
         }
     };
 
@@ -196,54 +172,35 @@ namespace OloEngine::Audio::SoundGraph
             RegisterEndpoints();
         }
 
-        void Init() final
-        {
-            InitializeInputs();
-        }
+        void RegisterEndpoints(); // defined out-of-line in NodeTypes.cpp where DESCRIBE_NODE specializations are visible
 
-        void RegisterEndpoints()
-        {
-            EndpointUtilities::RegisterEndpoints(this);
-        }
-
-        void InitializeInputs()
-        {
-            EndpointUtilities::InitializeInputs(this);
-        }
-
-        T* m_Value = nullptr;
-        T* m_Denominator = nullptr;
-        T m_Out{ 0 };
+        MathInRef<T> m_Value;
+        MathInRef<T> m_Denominator;
+        MathOut<T> m_Out{};
 
         void Process(u32 numFrames) final
         {
-            // Stateless: output depends only on current input values, so per-call
-            // cost is independent of numFrames. The graph still drives this once per
-            // sample-step in Phase 1 (numFrames == 1); when block-rate wiring lands
-            // in Phase 2, callers will pass the whole block here unchanged.
-            (void)numFrames;
             OLO_PROFILE_FUNCTION();
 
-            if (!m_Value || !m_Denominator)
+            if constexpr (std::is_same_v<T, f32>)
             {
-                m_Out = T(0);
-                return;
-            }
-
-            // Protect against division by zero
-            T denominator = *m_Denominator;
-            if constexpr (std::is_floating_point_v<T>)
-            {
-                if (glm::abs(denominator) < std::numeric_limits<T>::epsilon())
-                    denominator = std::copysign(std::numeric_limits<T>::epsilon(), denominator);
+                f32* out = m_Out.Data();
+                for (u32 frame = 0; frame < numFrames; ++frame)
+                {
+                    f32 denominator = m_Denominator.Sample(frame);
+                    if (glm::abs(denominator) < std::numeric_limits<f32>::epsilon())
+                        denominator = std::copysign(std::numeric_limits<f32>::epsilon(), denominator);
+                    out[frame] = m_Value.Sample(frame) / denominator;
+                }
             }
             else
             {
+                (void)numFrames;
+                T denominator = m_Denominator.Get();
                 if (denominator == T(0))
                     denominator = T(1);
+                m_Out = m_Value.Get() / denominator;
             }
-
-            m_Out = (*m_Value) / denominator;
         }
     };
 
@@ -258,40 +215,27 @@ namespace OloEngine::Audio::SoundGraph
             RegisterEndpoints();
         }
 
-        void Init() final
-        {
-            InitializeInputs();
-        }
+        void RegisterEndpoints(); // defined out-of-line in NodeTypes.cpp where DESCRIBE_NODE specializations are visible
 
-        void RegisterEndpoints()
-        {
-            EndpointUtilities::RegisterEndpoints(this);
-        }
-
-        void InitializeInputs()
-        {
-            EndpointUtilities::InitializeInputs(this);
-        }
-
-        T* m_Value1 = nullptr;
-        T* m_Value2 = nullptr;
-        T m_Out{ 0 };
+        MathInRef<T> m_Value1;
+        MathInRef<T> m_Value2;
+        MathOut<T> m_Out{};
 
         void Process(u32 numFrames) final
         {
-            // Stateless: output depends only on current input values, so per-call
-            // cost is independent of numFrames. The graph still drives this once per
-            // sample-step in Phase 1 (numFrames == 1); when block-rate wiring lands
-            // in Phase 2, callers will pass the whole block here unchanged.
-            (void)numFrames;
             OLO_PROFILE_FUNCTION();
 
-            if (!m_Value1 || !m_Value2)
+            if constexpr (std::is_same_v<T, f32>)
             {
-                m_Out = T(0);
-                return;
+                f32* out = m_Out.Data();
+                for (u32 frame = 0; frame < numFrames; ++frame)
+                    out[frame] = glm::min(m_Value1.Sample(frame), m_Value2.Sample(frame));
             }
-            m_Out = glm::min(*m_Value1, *m_Value2);
+            else
+            {
+                (void)numFrames;
+                m_Out = glm::min(m_Value1.Get(), m_Value2.Get());
+            }
         }
     };
 
@@ -306,40 +250,27 @@ namespace OloEngine::Audio::SoundGraph
             RegisterEndpoints();
         }
 
-        void Init() final
-        {
-            InitializeInputs();
-        }
+        void RegisterEndpoints(); // defined out-of-line in NodeTypes.cpp where DESCRIBE_NODE specializations are visible
 
-        void RegisterEndpoints()
-        {
-            EndpointUtilities::RegisterEndpoints(this);
-        }
-
-        void InitializeInputs()
-        {
-            EndpointUtilities::InitializeInputs(this);
-        }
-
-        T* m_Value1 = nullptr;
-        T* m_Value2 = nullptr;
-        T m_Out{ 0 };
+        MathInRef<T> m_Value1;
+        MathInRef<T> m_Value2;
+        MathOut<T> m_Out{};
 
         void Process(u32 numFrames) final
         {
-            // Stateless: output depends only on current input values, so per-call
-            // cost is independent of numFrames. The graph still drives this once per
-            // sample-step in Phase 1 (numFrames == 1); when block-rate wiring lands
-            // in Phase 2, callers will pass the whole block here unchanged.
-            (void)numFrames;
             OLO_PROFILE_FUNCTION();
 
-            if (!m_Value1 || !m_Value2)
+            if constexpr (std::is_same_v<T, f32>)
             {
-                m_Out = T(0);
-                return;
+                f32* out = m_Out.Data();
+                for (u32 frame = 0; frame < numFrames; ++frame)
+                    out[frame] = glm::max(m_Value1.Sample(frame), m_Value2.Sample(frame));
             }
-            m_Out = glm::max(*m_Value1, *m_Value2);
+            else
+            {
+                (void)numFrames;
+                m_Out = glm::max(m_Value1.Get(), m_Value2.Get());
+            }
         }
     };
 
@@ -354,49 +285,38 @@ namespace OloEngine::Audio::SoundGraph
             RegisterEndpoints();
         }
 
-        void Init() final
-        {
-            InitializeInputs();
-        }
+        void RegisterEndpoints(); // defined out-of-line in NodeTypes.cpp where DESCRIBE_NODE specializations are visible
 
-        void RegisterEndpoints()
-        {
-            EndpointUtilities::RegisterEndpoints(this);
-        }
-
-        void InitializeInputs()
-        {
-            EndpointUtilities::InitializeInputs(this);
-        }
-
-        T* m_Value = nullptr;
-        T* m_MinValue = nullptr;
-        T* m_MaxValue = nullptr;
-        T m_Out{ 0 };
+        MathInRef<T> m_Value;
+        MathInRef<T> m_MinValue;
+        MathInRef<T> m_MaxValue;
+        MathOut<T> m_Out{};
 
         void Process(u32 numFrames) final
         {
-            // Stateless: output depends only on current input values, so per-call
-            // cost is independent of numFrames. The graph still drives this once per
-            // sample-step in Phase 1 (numFrames == 1); when block-rate wiring lands
-            // in Phase 2, callers will pass the whole block here unchanged.
-            (void)numFrames;
             OLO_PROFILE_FUNCTION();
 
-            if (!m_Value || !m_MinValue || !m_MaxValue)
+            if constexpr (std::is_same_v<T, f32>)
             {
-                m_Out = T(0);
-                return;
+                f32* out = m_Out.Data();
+                for (u32 frame = 0; frame < numFrames; ++frame)
+                {
+                    f32 minVal = m_MinValue.Sample(frame);
+                    f32 maxVal = m_MaxValue.Sample(frame);
+                    if (minVal > maxVal)
+                        std::swap(minVal, maxVal);
+                    out[frame] = glm::clamp(m_Value.Sample(frame), minVal, maxVal);
+                }
             }
-
-            T minVal = *m_MinValue;
-            T maxVal = *m_MaxValue;
-
-            // Ensure min <= max
-            if (minVal > maxVal)
-                std::swap(minVal, maxVal);
-
-            m_Out = glm::clamp(*m_Value, minVal, maxVal);
+            else
+            {
+                (void)numFrames;
+                T minVal = m_MinValue.Get();
+                T maxVal = m_MaxValue.Get();
+                if (minVal > maxVal)
+                    std::swap(minVal, maxVal);
+                m_Out = glm::clamp(m_Value.Get(), minVal, maxVal);
+            }
         }
     };
 
@@ -411,48 +331,36 @@ namespace OloEngine::Audio::SoundGraph
             RegisterEndpoints();
         }
 
-        void Init() final
-        {
-            InitializeInputs();
-        }
+        void RegisterEndpoints(); // defined out-of-line in NodeTypes.cpp where DESCRIBE_NODE specializations are visible
 
-        void RegisterEndpoints()
-        {
-            EndpointUtilities::RegisterEndpoints(this);
-        }
-
-        void InitializeInputs()
-        {
-            EndpointUtilities::InitializeInputs(this);
-        }
-
-        T* m_Value = nullptr;
-        T* m_FromMin = nullptr;
-        T* m_FromMax = nullptr;
-        T* m_ToMin = nullptr;
-        T* m_ToMax = nullptr;
-        T m_Out{ 0 };
+        MathInRef<T> m_Value;
+        MathInRef<T> m_FromMin;
+        MathInRef<T> m_FromMax;
+        MathInRef<T> m_ToMin;
+        MathInRef<T> m_ToMax;
+        MathOut<T> m_Out{};
 
         void Process(u32 numFrames) final
         {
-            // Stateless: output depends only on current input values, so per-call
-            // cost is independent of numFrames. The graph still drives this once per
-            // sample-step in Phase 1 (numFrames == 1); when block-rate wiring lands
-            // in Phase 2, callers will pass the whole block here unchanged.
-            (void)numFrames;
             OLO_PROFILE_FUNCTION();
 
-            if (!m_Value || !m_FromMin || !m_FromMax || !m_ToMin || !m_ToMax)
+            if constexpr (std::is_same_v<T, f32>)
             {
-                m_Out = T(0);
-                return;
+                f32* out = m_Out.Data();
+                for (u32 frame = 0; frame < numFrames; ++frame)
+                    out[frame] = MapOne(m_Value.Sample(frame), m_FromMin.Sample(frame), m_FromMax.Sample(frame),
+                                        m_ToMin.Sample(frame), m_ToMax.Sample(frame));
             }
+            else
+            {
+                (void)numFrames;
+                m_Out = MapOne(m_Value.Get(), m_FromMin.Get(), m_FromMax.Get(), m_ToMin.Get(), m_ToMax.Get());
+            }
+        }
 
-            T fromMin = *m_FromMin;
-            T fromMax = *m_FromMax;
-            T toMin = *m_ToMin;
-            T toMax = *m_ToMax;
-
+      private:
+        static T MapOne(T value, T fromMin, T fromMax, T toMin, T toMax) noexcept
+        {
             // Use wider floating-point type to avoid integer overflow and division truncation
             using CalcType = std::conditional_t<std::is_integral_v<T>, f64, T>;
 
@@ -463,29 +371,18 @@ namespace OloEngine::Audio::SoundGraph
             if constexpr (std::is_floating_point_v<T>)
             {
                 if (glm::abs(fromRange) < std::numeric_limits<CalcType>::epsilon())
-                {
-                    m_Out = toMin;
-                    return;
-                }
+                    return toMin;
             }
             else
             {
                 if (fromRange == CalcType(0))
-                {
-                    m_Out = toMin;
-                    return;
-                }
+                    return toMin;
             }
 
             // Linear interpolation: normalize to [0,1] then scale to target range
-            // Cast all operands to CalcType before arithmetic to prevent overflow
-            CalcType valueCast = static_cast<CalcType>(*m_Value);
-            CalcType fromMinCast = static_cast<CalcType>(fromMin);
-            CalcType toMinCast = static_cast<CalcType>(toMin);
-            CalcType toMaxCast = static_cast<CalcType>(toMax);
-
-            CalcType normalized = (valueCast - fromMinCast) / fromRange;
-            m_Out = static_cast<T>(toMinCast + normalized * (toMaxCast - toMinCast));
+            CalcType normalized = (static_cast<CalcType>(value) - static_cast<CalcType>(fromMin)) / fromRange;
+            return static_cast<T>(static_cast<CalcType>(toMin) +
+                                  normalized * (static_cast<CalcType>(toMax) - static_cast<CalcType>(toMin)));
         }
     };
 
@@ -500,134 +397,101 @@ namespace OloEngine::Audio::SoundGraph
             RegisterEndpoints();
         }
 
-        void Init() final
-        {
-            InitializeInputs();
-        }
+        void RegisterEndpoints(); // defined out-of-line in NodeTypes.cpp where DESCRIBE_NODE specializations are visible
 
-        void RegisterEndpoints()
-        {
-            EndpointUtilities::RegisterEndpoints(this);
-        }
-
-        void InitializeInputs()
-        {
-            EndpointUtilities::InitializeInputs(this);
-        }
-
-        T* m_Base = nullptr;
-        T* m_Exponent = nullptr;
-        T m_Out{ 0 };
+        MathInRef<T> m_Base;
+        MathInRef<T> m_Exponent;
+        MathOut<T> m_Out{};
 
         void Process(u32 numFrames) final
         {
-            // Stateless: output depends only on current input values, so per-call
-            // cost is independent of numFrames. The graph still drives this once per
-            // sample-step in Phase 1 (numFrames == 1); when block-rate wiring lands
-            // in Phase 2, callers will pass the whole block here unchanged.
-            (void)numFrames;
             OLO_PROFILE_FUNCTION();
 
-            if (!m_Base || !m_Exponent)
+            if constexpr (std::is_same_v<T, f32>)
             {
-                m_Out = T(0);
-                return;
-            }
-
-            if constexpr (std::is_floating_point_v<T>)
-            {
-                m_Out = glm::pow(*m_Base, *m_Exponent);
+                f32* out = m_Out.Data();
+                for (u32 frame = 0; frame < numFrames; ++frame)
+                    out[frame] = glm::pow(m_Base.Sample(frame), m_Exponent.Sample(frame));
             }
             else
             {
-                // For integer types, use safe fast exponentiation with overflow protection
-                T base = *m_Base;
-                i32 exponent = static_cast<i32>(*m_Exponent);
+                (void)numFrames;
+                m_Out = IntegerPower(m_Base.Get(), static_cast<i32>(m_Exponent.Get()));
+            }
+        }
 
-                if (exponent == 0)
+      private:
+        // Safe fast exponentiation with overflow protection for integer types
+        static T IntegerPower(T base, i32 exponent) noexcept
+        {
+            if (exponent == 0)
+                return T(1);
+
+            if (exponent < 0)
+            {
+                // Handle negative exponents: return 0 for all bases except ±1
+                if (base == T(1))
+                    return T(1); // 1^(-n) = 1
+                if (base == T(-1))
                 {
-                    m_Out = T(1);
+                    // (-1)^(-n) = (-1)^n, so check parity of exponent
+                    return ((-exponent) % 2 == 0) ? T(1) : T(-1);
                 }
-                else if (exponent < 0)
+                return T(0); // All other integer bases with negative exponent
+            }
+
+            // Positive exponent: use binary exponentiation with overflow checking
+            // Clamp exponent to prevent runaway computation
+            if (constexpr i32 maxExponent = 63; exponent > maxExponent) // Safe limit for most integer types
+            {
+                // For very large exponents, result will be 0 (overflow) or ±1/0 for base ±1/0
+                if (base == T(0))
+                    return T(0);
+                if (base == T(1))
+                    return T(1);
+                if (base == T(-1))
+                    return (exponent % 2 == 0) ? T(1) : T(-1);
+                return T(0); // Overflow for other bases
+            }
+
+            // Binary exponentiation with overflow protection
+            T result = T(1);
+            T currentBase = base;
+            u32 exp = static_cast<u32>(exponent);
+
+            while (exp > 0)
+            {
+                if (exp & 1) // If exponent is odd
                 {
-                    // Handle negative exponents: return 0 for all bases except ±1
-                    if (base == T(1))
+                    // Check for overflow before multiplication
+                    if (result != T(0) && currentBase != T(0))
                     {
-                        m_Out = T(1); // 1^(-n) = 1
+                        T maxDiv = std::numeric_limits<T>::max() / detail::sat_abs(currentBase);
+                        if (detail::sat_abs(result) > maxDiv)
+                            return T(0); // Overflow
                     }
-                    else if (base == T(-1))
-                    {
-                        // (-1)^(-n) = (-1)^n, so check parity of exponent
-                        m_Out = ((-exponent) % 2 == 0) ? T(1) : T(-1);
-                    }
-                    else
-                    {
-                        m_Out = T(0); // All other integer bases with negative exponent
-                    }
+                    result *= currentBase;
                 }
-                else
+
+                exp >>= 1; // Divide exponent by 2
+                if (exp > 0)
                 {
-                    // Positive exponent: use binary exponentiation with overflow checking
-                    // Clamp exponent to prevent runaway computation
-                    if (constexpr i32 maxExponent = 63; exponent > maxExponent) // Safe limit for most integer types
+                    // Check for overflow before squaring base
+                    if (currentBase != T(0))
                     {
-                        // For very large exponents, result will be 0 (overflow) or ±1/0 for base ±1/0
-                        if (base == T(0))
-                            m_Out = T(0);
-                        else if (base == T(1))
-                            m_Out = T(1);
-                        else if (base == T(-1))
-                            m_Out = (exponent % 2 == 0) ? T(1) : T(-1);
-                        else
-                            m_Out = T(0); // Overflow for other bases
-                        return;
-                    }
-
-                    // Binary exponentiation with overflow protection
-                    T result = T(1);
-                    T currentBase = base;
-                    u32 exp = static_cast<u32>(exponent);
-
-                    while (exp > 0)
-                    {
-                        if (exp & 1) // If exponent is odd
+                        T maxSqrt = static_cast<T>(std::sqrt(static_cast<f64>(std::numeric_limits<T>::max())));
+                        if (detail::sat_abs(currentBase) > maxSqrt)
                         {
-                            // Check for overflow before multiplication
-                            if (result != T(0) && currentBase != T(0))
-                            {
-                                T maxDiv = std::numeric_limits<T>::max() / detail::sat_abs(currentBase);
-                                if (detail::sat_abs(result) > maxDiv)
-                                {
-                                    m_Out = T(0); // Overflow
-                                    return;
-                                }
-                            }
-                            result *= currentBase;
-                        }
-
-                        exp >>= 1; // Divide exponent by 2
-                        if (exp > 0)
-                        {
-                            // Check for overflow before squaring base
-                            if (currentBase != T(0))
-                            {
-                                T maxSqrt = static_cast<T>(std::sqrt(static_cast<f64>(std::numeric_limits<T>::max())));
-                                if (detail::sat_abs(currentBase) > maxSqrt)
-                                {
-                                    if (result == T(1)) // Only first iteration, so base^1 is still valid
-                                        m_Out = currentBase;
-                                    else
-                                        m_Out = T(0); // Overflow
-                                    return;
-                                }
-                            }
-                            currentBase *= currentBase;
+                            if (result == T(1)) // Only first iteration, so base^1 is still valid
+                                return currentBase;
+                            return T(0); // Overflow
                         }
                     }
-
-                    m_Out = result;
+                    currentBase *= currentBase;
                 }
             }
+
+            return result;
         }
     };
 
@@ -642,39 +506,26 @@ namespace OloEngine::Audio::SoundGraph
             RegisterEndpoints();
         }
 
-        void Init() final
-        {
-            InitializeInputs();
-        }
+        void RegisterEndpoints(); // defined out-of-line in NodeTypes.cpp where DESCRIBE_NODE specializations are visible
 
-        void RegisterEndpoints()
-        {
-            EndpointUtilities::RegisterEndpoints(this);
-        }
-
-        void InitializeInputs()
-        {
-            EndpointUtilities::InitializeInputs(this);
-        }
-
-        T* m_Value = nullptr;
-        T m_Out{ 0 };
+        MathInRef<T> m_Value;
+        MathOut<T> m_Out{};
 
         void Process(u32 numFrames) final
         {
-            // Stateless: output depends only on current input values, so per-call
-            // cost is independent of numFrames. The graph still drives this once per
-            // sample-step in Phase 1 (numFrames == 1); when block-rate wiring lands
-            // in Phase 2, callers will pass the whole block here unchanged.
-            (void)numFrames;
             OLO_PROFILE_FUNCTION();
 
-            if (!m_Value)
+            if constexpr (std::is_same_v<T, f32>)
             {
-                m_Out = T(0);
-                return;
+                f32* out = m_Out.Data();
+                for (u32 frame = 0; frame < numFrames; ++frame)
+                    out[frame] = detail::sat_abs(m_Value.Sample(frame));
             }
-            m_Out = detail::sat_abs(*m_Value);
+            else
+            {
+                (void)numFrames;
+                m_Out = detail::sat_abs(m_Value.Get());
+            }
         }
     };
 

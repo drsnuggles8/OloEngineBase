@@ -509,31 +509,17 @@ namespace OloEngine::Audio::SoundGraph
                     continue;
                 }
 
-                // Apply default value plugs to the node
+                // Apply default value plugs to the node: write the asset-authored
+                // value into the input ref's inline default cell. (Phase 2 removed
+                // the old double-bookkeeping where a StreamWriter wrote one state
+                // bucket and ApplyAssetDefaultToParameter had to overlay another.)
                 for (const auto& defaultPlug : nodeDesc.m_DefaultValuePlugs)
                 {
-                    // Find the corresponding input stream in the node and set default value
-                    if (auto inputIt = node->InputStreams.find(defaultPlug.m_EndpointID); inputIt != node->InputStreams.end())
+                    if (!node->SetInputDefault(defaultPlug.m_EndpointID, defaultPlug.m_DefaultValue))
                     {
-                        // Create a default value plug for this input
-                        auto defaultValuePlug = CreateScope<StreamWriter>(
-                            inputIt->second,
-                            defaultPlug.m_DefaultValue,
-                            defaultPlug.m_EndpointID);
-
-                        node->DefaultValuePlugs.push_back(std::move(defaultValuePlug));
+                        OLO_CORE_TRACE("CreateGraphNodes: node '{}' has no input stream for default plug {}",
+                                       node->m_DebugName, static_cast<u32>(defaultPlug.m_EndpointID));
                     }
-
-                    // Also overlay the asset's value onto the node's parameter storage.
-                    // The StreamWriter above only writes through its own m_DestinationView
-                    // copy of the InputStreams ValueView, but InitializeInputs builds the
-                    // node's `m_<Name>` pointer from m_ParameterStorage via GetParameter +
-                    // ParameterWrapper — a completely separate state bucket that the
-                    // StreamWriter path doesn't touch. Without this overlay the runtime
-                    // pointer reads whatever T{} default AddParameter seeded, instead of
-                    // the user-authored asset value (e.g. WavePlayer would always see a
-                    // zero WaveAsset handle regardless of which file is bound).
-                    node->ApplyAssetDefaultToParameter(defaultPlug.m_EndpointID, defaultPlug.m_DefaultValue);
                 }
 
                 graph->AddNode(std::move(node));

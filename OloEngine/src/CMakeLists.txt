@@ -233,7 +233,6 @@
 		# literal corruption when it picks the wrong one.
 		"OloEngine/Audio/SoundGraph/Nodes/NodeDescriptions.h"
 		"OloEngine/Audio/SoundGraph/Nodes/NodeDescriptors.cpp"
-		"OloEngine/Audio/SoundGraph/Nodes/NodeTypeImpls.h"
 		"OloEngine/Audio/SoundGraph/Nodes/NodeTypes.cpp"
 		"OloEngine/Audio/SoundGraph/Nodes/NodeTypes.h"
 		"OloEngine/Audio/SoundGraph/Nodes/TriggerNodes.h"
@@ -249,6 +248,7 @@
 		"OloEngine/Audio/SoundGraph/NodeSchema.h"
 		"OloEngine/Scene/AudioSoundGraphComponent.cpp"
 		"OloEngine/Audio/SoundGraph/NodeProcessor.h"
+		"OloEngine/Audio/SoundGraph/StreamRefs.h"
 		"OloEngine/Audio/SoundGraph/SoundGraph.cpp"
 		"OloEngine/Audio/SoundGraph/SoundGraph.h"
 		"OloEngine/Audio/SoundGraph/SoundGraphCache.cpp"

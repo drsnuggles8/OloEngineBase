@@ -11,6 +11,7 @@
 
 #include <miniaudio.h>
 #include <atomic>
+#include <chrono>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -278,6 +279,13 @@ namespace OloEngine::Audio::SoundGraph
         // One-shot trace gate so the per-callback ProcessSamples log only fires once per
         // graph swap. Reset to false in ReplaceGraph.
         std::atomic<bool> m_HasLoggedFirstProcess{ false };
+
+        // [SGSDiag] effective-rate telemetry window (audio thread only): counts
+        // ProcessSamples callbacks + frames produced, logs the effective output
+        // rate every 100 callbacks. See the block in ProcessSamples.
+        u32 m_DiagCallbackCount = 0;
+        u64 m_DiagFrameCount = 0;
+        std::chrono::steady_clock::time_point m_DiagWindowStart{};
 
         //============================================
         /// Event callbacks and thread-safe event handling

@@ -7,8 +7,8 @@
 // DESCRIBE_NODE specializations have to be visible at the point each
 // EndpointUtilities::RegisterEndpoints<Node> is instantiated, otherwise
 // IsDescribedNode_v<Node> short-circuits and endpoint registration silently
-// no-ops (which manifests as std::out_of_range in EstablishConnections
-// the moment any node->graph wire is resolved at runtime).
+// no-ops (which manifests as a failed wire in EstablishConnections the
+// moment any node->graph connection is resolved at runtime).
 #include "OloEngine/Audio/SoundGraph/Nodes/NodeDescriptions.h"
 
 namespace OloEngine::Audio::SoundGraph
@@ -16,21 +16,15 @@ namespace OloEngine::Audio::SoundGraph
     /// Moving all constructors and Init() function calls for non-template nodes here
     /// to avoid recursive includes nightmare caused by trying to inline as much as possible.
 
-    /// This macro can be used if a node processor type needs to have some custom stuff in constructor
-    /// or in its Init() function. In that case it has to declare 'void RegisterEndpoints()' and 'void InitializeInputs()'
-    /// functions to be defined by this macro
+    /// This macro defines the out-of-line 'void RegisterEndpoints()' declared by node
+    /// processor types that need custom constructor / Init() behavior. (The old
+    /// InitializeInputs step is gone — Phase 2 typed refs are born pointing at their
+    /// inline defaults and re-pointed by connections, so there is no second pass.)
 #define INIT_ENDPOINTS_FUNCS(TNodeProcessor)        \
     void TNodeProcessor::RegisterEndpoints()        \
     {                                               \
         EndpointUtilities::RegisterEndpoints(this); \
-    }                                               \
-    void TNodeProcessor::InitializeInputs()         \
-    {                                               \
-        EndpointUtilities::InitializeInputs(this);  \
     }
-
-    // Math nodes: template types (Subtract<f32>, etc.) already have inline
-    // RegisterEndpoints/InitializeInputs defined in MathNodes.h class body.
 
     // Generator nodes that need custom behavior use INIT_ENDPOINTS_FUNCS
     INIT_ENDPOINTS_FUNCS(Noise);
@@ -57,11 +51,6 @@ namespace OloEngine::Audio::SoundGraph
     void TNodeProcessor::RegisterEndpoints()          \
     {                                                 \
         EndpointUtilities::RegisterEndpoints(this);   \
-    }                                                 \
-    template<>                                        \
-    void TNodeProcessor::InitializeInputs()           \
-    {                                                 \
-        EndpointUtilities::InitializeInputs(this);    \
     }
 
     INIT_ENDPOINTS_FUNCS_TEMPLATE(Get<int>);
@@ -71,9 +60,32 @@ namespace OloEngine::Audio::SoundGraph
     INIT_ENDPOINTS_FUNCS_TEMPLATE(GetRandom<int>);
     INIT_ENDPOINTS_FUNCS_TEMPLATE(GetRandom<float>);
 
-#undef INIT_ENDPOINTS_FUNCS_TEMPLATE
+    // Math nodes — one explicit specialization per instantiation the Factory
+    // creates. These USED to be inline in MathNodes.h, which made registration
+    // an ODR coin-flip: TUs without NodeDescriptions.h (e.g. SoundGraphFactory.cpp)
+    // instantiated a no-op body (IsDescribedNode_v == false) and the linker was
+    // free to keep either copy. Out-of-line in this TU, registration always sees
+    // the DESCRIBE_NODE specializations.
+    INIT_ENDPOINTS_FUNCS_TEMPLATE(Add<f32>);
+    INIT_ENDPOINTS_FUNCS_TEMPLATE(Subtract<f32>);
+    INIT_ENDPOINTS_FUNCS_TEMPLATE(Multiply<f32>);
+    INIT_ENDPOINTS_FUNCS_TEMPLATE(Divide<f32>);
+    INIT_ENDPOINTS_FUNCS_TEMPLATE(Min<f32>);
+    INIT_ENDPOINTS_FUNCS_TEMPLATE(Max<f32>);
+    INIT_ENDPOINTS_FUNCS_TEMPLATE(Clamp<f32>);
+    INIT_ENDPOINTS_FUNCS_TEMPLATE(MapRange<f32>);
+    INIT_ENDPOINTS_FUNCS_TEMPLATE(Power<f32>);
+    INIT_ENDPOINTS_FUNCS_TEMPLATE(Abs<f32>);
+    INIT_ENDPOINTS_FUNCS_TEMPLATE(Add<i32>);
+    INIT_ENDPOINTS_FUNCS_TEMPLATE(Subtract<i32>);
+    INIT_ENDPOINTS_FUNCS_TEMPLATE(Multiply<i32>);
 
-    // Music nodes with custom conversion logic - inline definitions in MusicNodes.h
-    // (No out-of-line definitions needed)
+    // Music nodes — same ODR rationale as the math nodes above.
+    INIT_ENDPOINTS_FUNCS(BPMToSeconds);
+    INIT_ENDPOINTS_FUNCS(FrequencyToNote);
+    INIT_ENDPOINTS_FUNCS_TEMPLATE(NoteToFrequency<f32>);
+    INIT_ENDPOINTS_FUNCS_TEMPLATE(NoteToFrequency<i32>);
+
+#undef INIT_ENDPOINTS_FUNCS_TEMPLATE
 
 } // namespace OloEngine::Audio::SoundGraph
