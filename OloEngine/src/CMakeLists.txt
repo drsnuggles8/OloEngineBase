@@ -44,6 +44,11 @@
 		"OloEngine/Animation/IKTargetComponent.h"
 		"OloEngine/Animation/OneShotBlend.h"
 		"OloEngine/Animation/OneShotBlend.cpp"
+		"OloEngine/Animation/SpringBoneComponent.h"
+		"OloEngine/Animation/Procedural/SpringBoneSolver.h"
+		"OloEngine/Animation/Procedural/SpringBoneSolver.cpp"
+		"OloEngine/Animation/Procedural/SpringBonePostPass.h"
+		"OloEngine/Animation/Procedural/SpringBonePostPass.cpp"
 
 		"OloEngine/Animation/MorphTargets/MorphTarget.h"
 		"OloEngine/Animation/MorphTargets/MorphTargetSet.h"

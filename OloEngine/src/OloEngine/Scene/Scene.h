@@ -34,9 +34,15 @@ namespace OloEngine
     class JoltScene;
     class SceneStreamer;
     struct IKTargetComponent;
+    struct SpringBoneComponent;
     struct AudioSoundGraphComponent;
     class DialogueSystem;
     class GameplayEventBus;
+
+    namespace Animation
+    {
+        struct SpringBoneState;
+    } // namespace Animation
 
     namespace Audio
     {
@@ -124,6 +130,11 @@ namespace OloEngine
         // IK target resolution: copies IKTargetComponent and resolves entity-linked targets.
         // Returns true if entity has IKTargetComponent; resolved result written into `out`.
         bool ResolveIKTargets(Entity entity, IKTargetComponent& out) const;
+
+        // Spring-bone resolution: returns the entity's enabled SpringBoneComponent
+        // (or nullptr) and ensures the runtime SpringBoneStateComponent exists,
+        // writing a pointer to its state into `outState`.
+        const SpringBoneComponent* ResolveSpringBone(Entity entity, Animation::SpringBoneState*& outState);
 
         [[nodiscard("Store this!")]] bool IsRunning() const
         {

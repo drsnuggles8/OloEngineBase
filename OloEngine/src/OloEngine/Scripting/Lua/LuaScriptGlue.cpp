@@ -188,6 +188,7 @@ namespace OloEngine
             REGISTER_COMPONENT(DialogueComponent),
             REGISTER_COMPONENT(NetworkIdentityComponent),
             REGISTER_COMPONENT(IKTargetComponent),
+            REGISTER_COMPONENT(SpringBoneComponent),
             REGISTER_COMPONENT(NameplateComponent),
             REGISTER_COMPONENT(InventoryComponent),
             REGISTER_COMPONENT(ItemPickupComponent),
@@ -1715,6 +1716,24 @@ namespace OloEngine
                                             "limbTargetEntity", sol::property([](const IKTargetComponent& c)
                                                                               { return static_cast<u64>(c.LimbTargetEntity); }, [](IKTargetComponent& c, u64 id)
                                                                               { c.LimbTargetEntity = UUID(id); }));
+
+        // --- SpringBoneComponent ---
+        lua.new_usertype<SpringBoneComponent>("SpringBoneComponent",
+                                              "enabled", &SpringBoneComponent::Enabled,
+                                              "endBoneIndex", &SpringBoneComponent::EndBoneIndex,
+                                              "chainLength", &SpringBoneComponent::ChainLength,
+                                              "stiffness", sol::property([](const SpringBoneComponent& c)
+                                                                         { return c.Stiffness; }, [](SpringBoneComponent& c, f32 v)
+                                                                         { if (std::isfinite(v) && v >= 0.0f) c.Stiffness = v; }),
+                                              "damping", sol::property([](const SpringBoneComponent& c)
+                                                                       { return c.Damping; }, [](SpringBoneComponent& c, f32 v)
+                                                                       { if (std::isfinite(v) && v >= 0.0f) c.Damping = v; }),
+                                              "gravity", sol::property([](const SpringBoneComponent& c)
+                                                                       { return c.Gravity; }, [](SpringBoneComponent& c, const glm::vec3& v)
+                                                                       { if (IsFiniteVec3(v)) c.Gravity = v; }),
+                                              "weight", sol::property([](const SpringBoneComponent& c)
+                                                                      { return c.Weight; }, [](SpringBoneComponent& c, f32 v)
+                                                                      { if (std::isfinite(v)) c.Weight = std::clamp(v, 0.0f, 1.0f); }));
 
         // --- WindSettings (scene-level) ---
         lua.new_usertype<WindSettings>("WindSettings",

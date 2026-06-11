@@ -219,6 +219,7 @@ add_executable(OloEngine-Tests
 		Animation/LimbIKSolverTest.cpp
 		Animation/BlendUtilsTest.cpp
 		Animation/OneShotBlendTest.cpp
+		Animation/SpringBoneSolverTest.cpp
 		# Cinematic Sequencer Tests
 		Cinematic/CinematicCurveTest.cpp
 		Cinematic/CinematicPlayerTest.cpp
@@ -294,6 +295,7 @@ add_executable(OloEngine-Tests
 		Functional/Particles/ParticleSystemEmitsAndExpiresTest.cpp
 		Functional/AnimationPhysics/CharacterControllerWalksTest.cpp
 		Functional/AnimationPhysics/AnimationBlendCompletesViaSceneTickTest.cpp
+		Functional/AnimationPhysics/SpringBoneJiggleViaSceneTickTest.cpp
 		Functional/Networking/SnapshotApplyAcrossScenesTest.cpp
 		Functional/AnimationPhysics/Physics2DSimulatesViaSceneTickTest.cpp
 		Functional/AnimationPhysics/CharacterControllerContactCallbackTest.cpp

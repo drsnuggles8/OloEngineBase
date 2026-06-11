@@ -1825,6 +1825,7 @@ namespace OloEngine
 
             // Animation IK
             DisplayAddComponentEntry<IKTargetComponent>("IK Target");
+            DisplayAddComponentEntry<SpringBoneComponent>("Spring Bones");
 
             ImGui::EndPopup();
         }
@@ -6674,6 +6675,21 @@ namespace OloEngine
                         if (ImGui::SmallButton("Clear##LimbTarget"))
                             component.LimbTargetEntity = 0;
                     }
+                } });
+
+        DrawComponent<SpringBoneComponent>("Spring Bones", entity, [](auto& component)
+                                           {
+                ImGui::Checkbox("Enabled", &component.Enabled);
+                if (component.Enabled)
+                {
+                    if (auto endBone = static_cast<int>(component.EndBoneIndex); ImGui::DragInt("End Bone Index", &endBone, 1.0f, 0, 512))
+                        component.EndBoneIndex = static_cast<u32>(endBone);
+                    if (auto chainLen = static_cast<int>(component.ChainLength); ImGui::DragInt("Chain Length", &chainLen, 1.0f, 2, 64))
+                        component.ChainLength = static_cast<u32>(std::max(chainLen, 2));
+                    ImGui::DragFloat("Stiffness", &component.Stiffness, 1.0f, 0.0f, 1000.0f);
+                    ImGui::DragFloat("Damping", &component.Damping, 0.1f, 0.0f, 100.0f);
+                    ImGui::DragFloat3("Gravity", glm::value_ptr(component.Gravity), 0.1f);
+                    ImGui::DragFloat("Weight", &component.Weight, 0.01f, 0.0f, 1.0f);
                 } });
     }
 

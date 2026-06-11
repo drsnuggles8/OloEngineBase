@@ -727,6 +727,37 @@ namespace OloEngine
 		internal static extern void SpotLightComponent_SetCastShadows(ulong entityID, bool value);
 		#endregion
 
+		#region SpringBoneComponent
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool SpringBoneComponent_GetEnabled(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void SpringBoneComponent_SetEnabled(ulong entityID, bool value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern uint SpringBoneComponent_GetEndBoneIndex(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void SpringBoneComponent_SetEndBoneIndex(ulong entityID, uint value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern uint SpringBoneComponent_GetChainLength(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void SpringBoneComponent_SetChainLength(ulong entityID, uint value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float SpringBoneComponent_GetStiffness(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void SpringBoneComponent_SetStiffness(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float SpringBoneComponent_GetDamping(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void SpringBoneComponent_SetDamping(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void SpringBoneComponent_GetGravity(ulong entityID, out Vector3 value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void SpringBoneComponent_SetGravity(ulong entityID, ref Vector3 value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float SpringBoneComponent_GetWeight(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void SpringBoneComponent_SetWeight(ulong entityID, float value);
+		#endregion
+
 		#region SpriteRendererComponent
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern void SpriteRendererComponent_GetColor(ulong entityID, out Vector4 value);

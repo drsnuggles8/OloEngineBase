@@ -2,6 +2,8 @@
 #include "OloEngine/Animation/AnimationGraphSystem.h"
 #include "OloEngine/Animation/IKTargetComponent.h"
 #include "OloEngine/Animation/IK/IKPostPass.h"
+#include "OloEngine/Animation/SpringBoneComponent.h"
+#include "OloEngine/Animation/Procedural/SpringBonePostPass.h"
 #include "OloEngine/Core/Log.h"
 
 namespace OloEngine::Animation
@@ -11,7 +13,9 @@ namespace OloEngine::Animation
         Skeleton& skeleton,
         f32 deltaTime,
         const IKTargetComponent* ikTarget,
-        const glm::mat4& entityWorldTransform)
+        const glm::mat4& entityWorldTransform,
+        const SpringBoneComponent* springBone,
+        SpringBoneState* springBoneState)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -48,6 +52,13 @@ namespace OloEngine::Animation
         if (ikTarget && (ikTarget->AimIKEnabled || ikTarget->LimbIKEnabled))
         {
             ApplyIKPostPass(skeleton, *ikTarget, entityWorldTransform);
+        }
+
+        // Apply spring-bone secondary motion after IK so springs react to the
+        // IK-corrected pose
+        if (springBone && springBoneState && springBone->Enabled)
+        {
+            ApplySpringBonePostPass(skeleton, *springBone, *springBoneState, entityWorldTransform, deltaTime);
         }
 
         // Compute global transforms (forward kinematics)

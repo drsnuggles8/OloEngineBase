@@ -1119,8 +1119,10 @@ namespace OloEngine
                         IKTargetComponent tempIk;
                         Entity entity = { e, this };
                         const IKTargetComponent* ikTarget = ResolveIKTargets(entity, tempIk) ? &tempIk : nullptr;
+                        Animation::SpringBoneState* springState = nullptr;
+                        const SpringBoneComponent* springBone = ResolveSpringBone(entity, springState);
                         auto const& entityTransform = entity.GetComponent<TransformComponent>().GetTransform();
-                        Animation::AnimationSystem::Update(animState, *skelComp.m_Skeleton, ts.GetSeconds(), ikTarget, entityTransform);
+                        Animation::AnimationSystem::Update(animState, *skelComp.m_Skeleton, ts.GetSeconds(), ikTarget, entityTransform, springBone, springState);
 
                         // Sample morph target keyframes from the current animation clip
                         if (!animState.m_CurrentClip->MorphKeyframes.empty())
@@ -1334,8 +1336,10 @@ namespace OloEngine
                         IKTargetComponent graphTempIk;
                         Entity graphEntity = { e, this };
                         const IKTargetComponent* graphIkTarget = ResolveIKTargets(graphEntity, graphTempIk) ? &graphTempIk : nullptr;
+                        Animation::SpringBoneState* graphSpringState = nullptr;
+                        const SpringBoneComponent* graphSpringBone = ResolveSpringBone(graphEntity, graphSpringState);
                         auto const& graphEntityTransform = graphEntity.GetComponent<TransformComponent>().GetTransform();
-                        Animation::AnimationGraphSystem::Update(graphComp, *skelComp.m_Skeleton, ts.GetSeconds(), graphIkTarget, graphEntityTransform);
+                        Animation::AnimationGraphSystem::Update(graphComp, *skelComp.m_Skeleton, ts.GetSeconds(), graphIkTarget, graphEntityTransform, graphSpringBone, graphSpringState);
                     }
                 }
             }
@@ -1915,8 +1919,10 @@ namespace OloEngine
                     IKTargetComponent tempIk;
                     Entity entity = { e, this };
                     const IKTargetComponent* ikTarget = ResolveIKTargets(entity, tempIk) ? &tempIk : nullptr;
+                    Animation::SpringBoneState* springState = nullptr;
+                    const SpringBoneComponent* springBone = ResolveSpringBone(entity, springState);
                     auto const& entityTransform = entity.GetComponent<TransformComponent>().GetTransform();
-                    Animation::AnimationSystem::Update(animState, *skelComp.m_Skeleton, ts.GetSeconds(), ikTarget, entityTransform);
+                    Animation::AnimationSystem::Update(animState, *skelComp.m_Skeleton, ts.GetSeconds(), ikTarget, entityTransform, springBone, springState);
 
                     // Sample morph target keyframes from the current animation clip
                     if (!animState.m_CurrentClip->MorphKeyframes.empty())
@@ -2502,6 +2508,28 @@ namespace OloEngine
         }
 
         return true;
+    }
+
+    const SpringBoneComponent* Scene::ResolveSpringBone(Entity entity, Animation::SpringBoneState*& outState)
+    {
+        outState = nullptr;
+        if (!entity.HasComponent<SpringBoneComponent>())
+        {
+            return nullptr;
+        }
+
+        auto& springBone = entity.GetComponent<SpringBoneComponent>();
+        if (!springBone.Enabled)
+        {
+            return nullptr;
+        }
+
+        if (!entity.HasComponent<SpringBoneStateComponent>())
+        {
+            entity.AddComponent<SpringBoneStateComponent>();
+        }
+        outState = &entity.GetComponent<SpringBoneStateComponent>().State;
+        return &springBone;
     }
 
     void Scene::OnPhysics2DStart()
@@ -6088,6 +6116,16 @@ void OloEngine::Scene::OnComponentAdded<OloEngine::IKTargetComponent>([[maybe_un
 {
 }
 
+template<>
+void OloEngine::Scene::OnComponentAdded<OloEngine::SpringBoneComponent>([[maybe_unused]] OloEngine::Entity entity, [[maybe_unused]] OloEngine::SpringBoneComponent& component)
+{
+}
+
+template<>
+void OloEngine::Scene::OnComponentAdded<OloEngine::SpringBoneStateComponent>([[maybe_unused]] OloEngine::Entity entity, [[maybe_unused]] OloEngine::SpringBoneStateComponent& component)
+{
+}
+
 // ============================================================================
 // OnComponentRemoved specialisations — exhaustive no-op list mirroring the
 // OnComponentAdded set above. Component types whose removal needs to release
@@ -6241,8 +6279,23 @@ namespace OloEngine
     OLO_ON_COMPONENT_REMOVED_NOOP(AbilityComponent)
     OLO_ON_COMPONENT_REMOVED_NOOP(NameplateComponent)
     OLO_ON_COMPONENT_REMOVED_NOOP(IKTargetComponent)
+    OLO_ON_COMPONENT_REMOVED_NOOP(SpringBoneStateComponent)
     OLO_ON_COMPONENT_REMOVED_NOOP(Skeleton)
 
 #undef OLO_ON_COMPONENT_REMOVED_NOOP
+
+    // Specialisation: when a SpringBoneComponent is removed, drop the cached
+    // runtime simulation state so a re-added component starts fresh from the
+    // animated pose instead of popping from stale Verlet history.
+    // (Defined after the SpringBoneStateComponent no-op above so the
+    // RemoveComponent instantiation sees that explicit specialisation.)
+    template<>
+    void Scene::OnComponentRemoved<SpringBoneComponent>(Entity entity, SpringBoneComponent& /*component*/)
+    {
+        if (entity.HasComponent<SpringBoneStateComponent>())
+        {
+            entity.RemoveComponent<SpringBoneStateComponent>();
+        }
+    }
 
 } // namespace OloEngine

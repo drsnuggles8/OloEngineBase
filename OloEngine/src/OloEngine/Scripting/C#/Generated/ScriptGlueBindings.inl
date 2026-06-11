@@ -3612,6 +3612,159 @@ static void SpotLightComponent_SetCastShadows(UUID entityID, bool value)
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////
+// SpringBoneComponent                                                            //
+///////////////////////////////////////////////////////////////////////////////////////////
+
+static bool SpringBoneComponent_GetEnabled(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<SpringBoneComponent>();
+    return comp.Enabled;
+}
+
+static void SpringBoneComponent_SetEnabled(UUID entityID, bool value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<SpringBoneComponent>();
+    comp.Enabled = value;
+}
+
+static unsigned int SpringBoneComponent_GetEndBoneIndex(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<SpringBoneComponent>();
+    return comp.EndBoneIndex;
+}
+
+static void SpringBoneComponent_SetEndBoneIndex(UUID entityID, unsigned int value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<SpringBoneComponent>();
+    comp.EndBoneIndex = value;
+}
+
+static unsigned int SpringBoneComponent_GetChainLength(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<SpringBoneComponent>();
+    return comp.ChainLength;
+}
+
+static void SpringBoneComponent_SetChainLength(UUID entityID, unsigned int value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<SpringBoneComponent>();
+    comp.ChainLength = value;
+}
+
+static float SpringBoneComponent_GetStiffness(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<SpringBoneComponent>();
+    return comp.Stiffness;
+}
+
+static void SpringBoneComponent_SetStiffness(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<SpringBoneComponent>();
+    comp.Stiffness = value;
+}
+
+static float SpringBoneComponent_GetDamping(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<SpringBoneComponent>();
+    return comp.Damping;
+}
+
+static void SpringBoneComponent_SetDamping(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<SpringBoneComponent>();
+    comp.Damping = value;
+}
+
+static void SpringBoneComponent_GetGravity(UUID entityID, glm::vec3* outValue)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<SpringBoneComponent>();
+    *outValue = comp.Gravity;
+}
+
+static void SpringBoneComponent_SetGravity(UUID entityID, glm::vec3 const* value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<SpringBoneComponent>();
+    for (glm::length_t i = 0; i < value->length(); ++i)
+        if (!std::isfinite((*value)[i]))
+            return;
+    comp.Gravity = *value;
+}
+
+static float SpringBoneComponent_GetWeight(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<SpringBoneComponent>();
+    return comp.Weight;
+}
+
+static void SpringBoneComponent_SetWeight(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<SpringBoneComponent>();
+    comp.Weight = value;
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////
 // SpriteRendererComponent                                                        //
 ///////////////////////////////////////////////////////////////////////////////////////////
 

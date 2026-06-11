@@ -3602,6 +3602,25 @@ namespace OloEngine
             SanitizeFloat(ik.AimWeight, 0.0f, 1.0f, 1.0f);
             SanitizeFloat(ik.LimbWeight, 0.0f, 1.0f, 1.0f);
         }
+
+        if (auto springNode = entity["SpringBoneComponent"]; springNode)
+        {
+            auto& spring = deserializedEntity.AddComponent<SpringBoneComponent>();
+            TrySet(spring.Enabled, springNode["Enabled"]);
+            TrySet(spring.EndBoneIndex, springNode["EndBoneIndex"]);
+            TrySet(spring.ChainLength, springNode["ChainLength"]);
+            TrySet(spring.Stiffness, springNode["Stiffness"]);
+            TrySet(spring.Damping, springNode["Damping"]);
+            TrySet(spring.Gravity, springNode["Gravity"]);
+            TrySet(spring.Weight, springNode["Weight"]);
+
+            // Sanitize float/vector fields — replace NaN/Inf with defaults and clamp to valid ranges
+            spring.ChainLength = std::max(2u, spring.ChainLength);
+            SanitizeFloat(spring.Stiffness, 0.0f, 1e6f, 80.0f);
+            SanitizeFloat(spring.Damping, 0.0f, 1e6f, 12.0f);
+            SanitizeVec3(spring.Gravity, glm::vec3(0.0f, -9.81f, 0.0f));
+            SanitizeFloat(spring.Weight, 0.0f, 1.0f, 1.0f);
+        }
     }
 
     SceneSerializer::SceneSerializer(const Ref<Scene>& scene)
@@ -6001,6 +6020,23 @@ namespace OloEngine
             }
 
             out << YAML::EndMap; // IKTargetComponent
+        }
+
+        if (entity.HasComponent<SpringBoneComponent>())
+        {
+            out << YAML::Key << "SpringBoneComponent";
+            out << YAML::BeginMap;
+
+            auto const& spring = entity.GetComponent<SpringBoneComponent>();
+            out << YAML::Key << "Enabled" << YAML::Value << spring.Enabled;
+            out << YAML::Key << "EndBoneIndex" << YAML::Value << spring.EndBoneIndex;
+            out << YAML::Key << "ChainLength" << YAML::Value << spring.ChainLength;
+            out << YAML::Key << "Stiffness" << YAML::Value << spring.Stiffness;
+            out << YAML::Key << "Damping" << YAML::Value << spring.Damping;
+            out << YAML::Key << "Gravity" << YAML::Value << spring.Gravity;
+            out << YAML::Key << "Weight" << YAML::Value << spring.Weight;
+
+            out << YAML::EndMap; // SpringBoneComponent
         }
 
         out << YAML::EndMap; // Entity

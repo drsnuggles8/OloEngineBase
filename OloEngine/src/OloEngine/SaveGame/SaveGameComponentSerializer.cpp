@@ -6,6 +6,7 @@
 
 #include "OloEngine/Animation/AnimatedMeshComponents.h"
 #include "OloEngine/Animation/IKTargetComponent.h"
+#include "OloEngine/Animation/SpringBoneComponent.h"
 #include "OloEngine/Animation/MorphTargets/MorphTargetComponents.h"
 #include "OloEngine/Audio/AudioListener.h"
 #include "OloEngine/Audio/AudioSource.h"
@@ -1926,6 +1927,39 @@ namespace OloEngine
         ar << c.LimbTargetEntity;
     }
 
+    void SaveGameComponentSerializer::Serialize(FArchive& ar, SpringBoneComponent& c)
+    {
+        ar << c.Enabled << c.EndBoneIndex << c.ChainLength;
+        ar << c.Stiffness << c.Damping;
+        ar << c.Gravity.x << c.Gravity.y << c.Gravity.z;
+        ar << c.Weight;
+
+        if (!ar.IsSaving())
+        {
+            // Validate floats loaded from disk — replace NaN/Inf with defaults
+            auto sanitize = [](f32& v, f32 fallback)
+            {
+                if (!std::isfinite(v))
+                {
+                    v = fallback;
+                }
+            };
+            sanitize(c.Stiffness, 80.0f);
+            sanitize(c.Damping, 12.0f);
+            sanitize(c.Gravity.x, 0.0f);
+            sanitize(c.Gravity.y, -9.81f);
+            sanitize(c.Gravity.z, 0.0f);
+            sanitize(c.Weight, 1.0f);
+
+            // Clamp to the same valid ranges the scene-YAML deserializer
+            // enforces so finite-but-invalid values can't reach the solver.
+            c.ChainLength = std::max(2u, c.ChainLength);
+            c.Stiffness = std::clamp(c.Stiffness, 0.0f, 1e6f);
+            c.Damping = std::clamp(c.Damping, 0.0f, 1e6f);
+            c.Weight = std::clamp(c.Weight, 0.0f, 1.0f);
+        }
+    }
+
     void SaveGameComponentSerializer::Serialize(FArchive& ar, UIWorldAnchorComponent& c)
     {
         ar << c.m_TargetEntity;
@@ -2929,6 +2963,7 @@ namespace OloEngine
         REGISTER_SAVE_COMPONENT(NavAgentComponent);
         REGISTER_SAVE_COMPONENT(NameplateComponent);
         REGISTER_SAVE_COMPONENT(IKTargetComponent);
+        REGISTER_SAVE_COMPONENT(SpringBoneComponent);
         REGISTER_SAVE_COMPONENT(UIWorldAnchorComponent);
         REGISTER_SAVE_COMPONENT(MorphTargetComponent);
         REGISTER_SAVE_COMPONENT(InstancedMeshComponent);

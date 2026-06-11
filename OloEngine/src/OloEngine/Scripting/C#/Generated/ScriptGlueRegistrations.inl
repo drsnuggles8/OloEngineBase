@@ -374,6 +374,22 @@ OLO_ADD_INTERNAL_CALL(SpotLightComponent_SetOuterCutoff);
 OLO_ADD_INTERNAL_CALL(SpotLightComponent_GetCastShadows);
 OLO_ADD_INTERNAL_CALL(SpotLightComponent_SetCastShadows);
 
+// SpringBoneComponent
+OLO_ADD_INTERNAL_CALL(SpringBoneComponent_GetEnabled);
+OLO_ADD_INTERNAL_CALL(SpringBoneComponent_SetEnabled);
+OLO_ADD_INTERNAL_CALL(SpringBoneComponent_GetEndBoneIndex);
+OLO_ADD_INTERNAL_CALL(SpringBoneComponent_SetEndBoneIndex);
+OLO_ADD_INTERNAL_CALL(SpringBoneComponent_GetChainLength);
+OLO_ADD_INTERNAL_CALL(SpringBoneComponent_SetChainLength);
+OLO_ADD_INTERNAL_CALL(SpringBoneComponent_GetStiffness);
+OLO_ADD_INTERNAL_CALL(SpringBoneComponent_SetStiffness);
+OLO_ADD_INTERNAL_CALL(SpringBoneComponent_GetDamping);
+OLO_ADD_INTERNAL_CALL(SpringBoneComponent_SetDamping);
+OLO_ADD_INTERNAL_CALL(SpringBoneComponent_GetGravity);
+OLO_ADD_INTERNAL_CALL(SpringBoneComponent_SetGravity);
+OLO_ADD_INTERNAL_CALL(SpringBoneComponent_GetWeight);
+OLO_ADD_INTERNAL_CALL(SpringBoneComponent_SetWeight);
+
 // SpriteRendererComponent
 OLO_ADD_INTERNAL_CALL(SpriteRendererComponent_GetColor);
 OLO_ADD_INTERNAL_CALL(SpriteRendererComponent_SetColor);
