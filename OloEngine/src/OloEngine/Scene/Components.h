@@ -777,6 +777,19 @@ namespace OloEngine
         OLO_PROPERTY()
         f32 m_HingeMaxFrictionTorque = 0.0f;
 
+        // Springy (soft) hinge limits (Jolt mLimitsSpringSettings). A frequency
+        // > 0 turns the angle limits into a spring: exceeding a limit is allowed
+        // and a restoring torque at this oscillation frequency (Hz) pulls the
+        // joint back. 0 (the default, matching Jolt) keeps the limits hard.
+        // Damping is the spring's damping ratio (0 = undamped/bouncy,
+        // 1 = critical); ignored while the frequency is 0. The spring only acts
+        // when the limits do — a full-range [-180, 180] hinge has no limit to
+        // soften.
+        OLO_PROPERTY()
+        f32 m_HingeLimitSpringFrequency = 0.0f;
+        OLO_PROPERTY()
+        f32 m_HingeLimitSpringDamping = 0.0f;
+
         // Slider motor (acts along the slide axis) — same shape as the hinge.
         // Velocity drives toward m_SliderMotorTargetVelocity (m/s), Position toward
         // m_SliderMotorTargetPosition (m, clamped to the slide limits).
@@ -793,6 +806,13 @@ namespace OloEngine
         OLO_PROPERTY()
         f32 m_SliderMaxFrictionForce = 0.0f;
 
+        // Springy (soft) slider limits — same shape as the hinge: a frequency
+        // > 0 makes the translation limits soft springs, 0 keeps them hard.
+        OLO_PROPERTY()
+        f32 m_SliderLimitSpringFrequency = 0.0f;
+        OLO_PROPERTY()
+        f32 m_SliderLimitSpringDamping = 0.0f;
+
         // Storage for runtime - non-zero once the Jolt constraint has been created.
         // Excluded from authored-state equality so play-mode enter/exit doesn't show
         // as a change (mirrors Rigidbody3DComponent::m_RuntimeBodyToken). Cleared
@@ -804,7 +824,7 @@ namespace OloEngine
 
         auto operator==(const PhysicsJoint3DComponent& other) const -> bool
         {
-            return m_Type == other.m_Type && m_ConnectedEntity == other.m_ConnectedEntity && Math::BitwiseEqual(m_LocalAnchorA, other.m_LocalAnchorA) && Math::BitwiseEqual(m_LocalAnchorB, other.m_LocalAnchorB) && Math::BitwiseEqual(m_Axis, other.m_Axis) && Math::BitwiseEqual(m_MinDistance, other.m_MinDistance) && Math::BitwiseEqual(m_MaxDistance, other.m_MaxDistance) && Math::BitwiseEqual(m_HingeMinAngleDeg, other.m_HingeMinAngleDeg) && Math::BitwiseEqual(m_HingeMaxAngleDeg, other.m_HingeMaxAngleDeg) && Math::BitwiseEqual(m_SliderMinLimit, other.m_SliderMinLimit) && Math::BitwiseEqual(m_SliderMaxLimit, other.m_SliderMaxLimit) && Math::BitwiseEqual(m_ConeHalfAngleDeg, other.m_ConeHalfAngleDeg) && Math::BitwiseEqual(m_BreakForce, other.m_BreakForce) && Math::BitwiseEqual(m_BreakTorque, other.m_BreakTorque) && m_HingeMotorMode == other.m_HingeMotorMode && Math::BitwiseEqual(m_HingeMotorTargetVelocityDeg, other.m_HingeMotorTargetVelocityDeg) && Math::BitwiseEqual(m_HingeMotorTargetAngleDeg, other.m_HingeMotorTargetAngleDeg) && Math::BitwiseEqual(m_HingeMaxMotorTorque, other.m_HingeMaxMotorTorque) && Math::BitwiseEqual(m_HingeMaxFrictionTorque, other.m_HingeMaxFrictionTorque) && m_SliderMotorMode == other.m_SliderMotorMode && Math::BitwiseEqual(m_SliderMotorTargetVelocity, other.m_SliderMotorTargetVelocity) && Math::BitwiseEqual(m_SliderMotorTargetPosition, other.m_SliderMotorTargetPosition) && Math::BitwiseEqual(m_SliderMaxMotorForce, other.m_SliderMaxMotorForce) && Math::BitwiseEqual(m_SliderMaxFrictionForce, other.m_SliderMaxFrictionForce);
+            return m_Type == other.m_Type && m_ConnectedEntity == other.m_ConnectedEntity && Math::BitwiseEqual(m_LocalAnchorA, other.m_LocalAnchorA) && Math::BitwiseEqual(m_LocalAnchorB, other.m_LocalAnchorB) && Math::BitwiseEqual(m_Axis, other.m_Axis) && Math::BitwiseEqual(m_MinDistance, other.m_MinDistance) && Math::BitwiseEqual(m_MaxDistance, other.m_MaxDistance) && Math::BitwiseEqual(m_HingeMinAngleDeg, other.m_HingeMinAngleDeg) && Math::BitwiseEqual(m_HingeMaxAngleDeg, other.m_HingeMaxAngleDeg) && Math::BitwiseEqual(m_SliderMinLimit, other.m_SliderMinLimit) && Math::BitwiseEqual(m_SliderMaxLimit, other.m_SliderMaxLimit) && Math::BitwiseEqual(m_ConeHalfAngleDeg, other.m_ConeHalfAngleDeg) && Math::BitwiseEqual(m_BreakForce, other.m_BreakForce) && Math::BitwiseEqual(m_BreakTorque, other.m_BreakTorque) && m_HingeMotorMode == other.m_HingeMotorMode && Math::BitwiseEqual(m_HingeMotorTargetVelocityDeg, other.m_HingeMotorTargetVelocityDeg) && Math::BitwiseEqual(m_HingeMotorTargetAngleDeg, other.m_HingeMotorTargetAngleDeg) && Math::BitwiseEqual(m_HingeMaxMotorTorque, other.m_HingeMaxMotorTorque) && Math::BitwiseEqual(m_HingeMaxFrictionTorque, other.m_HingeMaxFrictionTorque) && Math::BitwiseEqual(m_HingeLimitSpringFrequency, other.m_HingeLimitSpringFrequency) && Math::BitwiseEqual(m_HingeLimitSpringDamping, other.m_HingeLimitSpringDamping) && m_SliderMotorMode == other.m_SliderMotorMode && Math::BitwiseEqual(m_SliderMotorTargetVelocity, other.m_SliderMotorTargetVelocity) && Math::BitwiseEqual(m_SliderMotorTargetPosition, other.m_SliderMotorTargetPosition) && Math::BitwiseEqual(m_SliderMaxMotorForce, other.m_SliderMaxMotorForce) && Math::BitwiseEqual(m_SliderMaxFrictionForce, other.m_SliderMaxFrictionForce) && Math::BitwiseEqual(m_SliderLimitSpringFrequency, other.m_SliderLimitSpringFrequency) && Math::BitwiseEqual(m_SliderLimitSpringDamping, other.m_SliderLimitSpringDamping);
         }
     };
 

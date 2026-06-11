@@ -498,6 +498,14 @@ namespace OloEngine
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern void PhysicsJoint3DComponent_SetHingeMaxFrictionTorque(ulong entityID, float value);
 		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float PhysicsJoint3DComponent_GetHingeLimitSpringFrequency(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void PhysicsJoint3DComponent_SetHingeLimitSpringFrequency(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float PhysicsJoint3DComponent_GetHingeLimitSpringDamping(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void PhysicsJoint3DComponent_SetHingeLimitSpringDamping(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern int PhysicsJoint3DComponent_GetSliderMotorMode(ulong entityID);
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern void PhysicsJoint3DComponent_SetSliderMotorMode(ulong entityID, int value);
@@ -517,6 +525,14 @@ namespace OloEngine
 		internal static extern float PhysicsJoint3DComponent_GetSliderMaxFrictionForce(ulong entityID);
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern void PhysicsJoint3DComponent_SetSliderMaxFrictionForce(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float PhysicsJoint3DComponent_GetSliderLimitSpringFrequency(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void PhysicsJoint3DComponent_SetSliderLimitSpringFrequency(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float PhysicsJoint3DComponent_GetSliderLimitSpringDamping(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void PhysicsJoint3DComponent_SetSliderLimitSpringDamping(ulong entityID, float value);
 		#endregion
 
 		#region PointLightComponent
