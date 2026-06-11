@@ -9,6 +9,7 @@
 #include "OloEngine/Core/MouseCodes.h"
 #include "OloEngine/Animation/AnimatedMeshComponents.h"
 #include "OloEngine/Animation/IKTargetComponent.h"
+#include "OloEngine/Animation/SpringBoneComponent.h"
 #include "OloEngine/Audio/AudioSource.h"
 #include "OloEngine/Particle/ParticleSystem.h"
 #include "OloEngine/Particle/ParticleEmitter.h"
@@ -868,6 +869,37 @@ TEST_F(LuaBindingTest, IKTargetComponent_LimbProperties)
 
     lua.script("ik.limbTargetEntity = 200");
     EXPECT_EQ(static_cast<u64>(ik.LimbTargetEntity), 200u);
+}
+
+// =============================================================================
+// SpringBoneComponent
+// =============================================================================
+
+TEST_F(LuaBindingTest, SpringBoneComponent_PropertyRoundTrip)
+{
+    SpringBoneComponent spring;
+    lua["spring"] = &spring;
+
+    lua.script("spring.enabled = false; spring.endBoneIndex = 7; spring.chainLength = 4");
+    EXPECT_FALSE(spring.Enabled);
+    EXPECT_EQ(spring.EndBoneIndex, 7u);
+    EXPECT_EQ(spring.ChainLength, 4u);
+
+    lua.script("spring.stiffness = 50.0; spring.damping = 6.5; spring.weight = 0.75");
+    EXPECT_FLOAT_EQ(spring.Stiffness, 50.0f);
+    EXPECT_FLOAT_EQ(spring.Damping, 6.5f);
+    EXPECT_FLOAT_EQ(spring.Weight, 0.75f);
+
+    lua.script("spring.gravity = vec3.new(1.0, -5.0, 0.5)");
+    EXPECT_FLOAT_EQ(spring.Gravity.x, 1.0f);
+    EXPECT_FLOAT_EQ(spring.Gravity.y, -5.0f);
+    EXPECT_FLOAT_EQ(spring.Gravity.z, 0.5f);
+
+    // Setters reject negative stiffness/damping and clamp weight to [0, 1]
+    lua.script("spring.stiffness = -10.0; spring.damping = -1.0; spring.weight = 5.0");
+    EXPECT_FLOAT_EQ(spring.Stiffness, 50.0f);
+    EXPECT_FLOAT_EQ(spring.Damping, 6.5f);
+    EXPECT_FLOAT_EQ(spring.Weight, 1.0f);
 }
 
 // =============================================================================

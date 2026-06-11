@@ -2644,4 +2644,84 @@ namespace OloEngine::Tests
             EXPECT_NEAR(d.Color[i], 1.0f, kFloatEpsilon) << "color [" << i << "] should be reset to white";
         }
     }
+
+    // -------------------------------------------------------------------------
+    // SpringBoneComponent
+    // -------------------------------------------------------------------------
+    TEST(ComponentRoundTrip, SpringBoneComponentSurvivesYAMLRoundTrip)
+    {
+        std::string yaml;
+        {
+            auto scene = Scene::Create();
+            Entity entity = scene->CreateEntity(kTestTag);
+            auto& spring = entity.AddComponent<SpringBoneComponent>();
+            // Distinctive non-default values on every field.
+            spring.Enabled = false;
+            spring.EndBoneIndex = 7;
+            spring.ChainLength = 5;
+            spring.Stiffness = 33.5f;
+            spring.Damping = 4.25f;
+            spring.Gravity = glm::vec3(0.5f, -3.0f, 1.25f);
+            spring.Weight = 0.625f;
+
+            yaml = SceneSerializer(scene).SerializeToYAML();
+        }
+
+        ASSERT_FALSE(yaml.empty()) << "SerializeToYAML produced an empty string.";
+
+        auto reloaded = Scene::Create();
+        ASSERT_TRUE(SceneSerializer(reloaded).DeserializeFromYAML(yaml))
+            << "DeserializeFromYAML rejected the just-serialised scene.";
+
+        Entity restored = FindByTag(*reloaded, kTestTag);
+        ASSERT_TRUE(static_cast<bool>(restored));
+        ASSERT_TRUE(restored.HasComponent<SpringBoneComponent>());
+
+        const auto& spring = restored.GetComponent<SpringBoneComponent>();
+        EXPECT_FALSE(spring.Enabled);
+        EXPECT_EQ(spring.EndBoneIndex, 7u);
+        EXPECT_EQ(spring.ChainLength, 5u);
+        EXPECT_NEAR(spring.Stiffness, 33.5f, kFloatEpsilon);
+        EXPECT_NEAR(spring.Damping, 4.25f, kFloatEpsilon);
+        EXPECT_NEAR(spring.Gravity.x, 0.5f, kFloatEpsilon);
+        EXPECT_NEAR(spring.Gravity.y, -3.0f, kFloatEpsilon);
+        EXPECT_NEAR(spring.Gravity.z, 1.25f, kFloatEpsilon);
+        EXPECT_NEAR(spring.Weight, 0.625f, kFloatEpsilon);
+    }
+
+    TEST(ComponentRoundTrip, SpringBoneComponentNonFiniteFieldsAreSanitizedOnLoad)
+    {
+        std::string yaml;
+        {
+            auto scene = Scene::Create();
+            Entity entity = scene->CreateEntity(kTestTag);
+            auto& spring = entity.AddComponent<SpringBoneComponent>();
+            spring.Stiffness = 33.5f;
+            spring.Damping = 4.25f;
+            spring.Weight = 0.625f;
+            yaml = SceneSerializer(scene).SerializeToYAML();
+        }
+
+        // Inject non-finite values into the SpringBoneComponent fields.
+        yaml = std::regex_replace(yaml, std::regex(R"(Stiffness: [0-9.e+-]+)"), "Stiffness: .nan");
+        yaml = std::regex_replace(yaml, std::regex(R"(Damping: [0-9.e+-]+)"), "Damping: .inf");
+        yaml = std::regex_replace(yaml, std::regex(R"(Weight: [0-9.e+-]+)"), "Weight: -.inf");
+
+        auto reloaded = Scene::Create();
+        ASSERT_TRUE(SceneSerializer(reloaded).DeserializeFromYAML(yaml))
+            << "Deserialize rejected the (structurally valid) NaN/Inf-injected scene.";
+
+        Entity restored = FindByTag(*reloaded, kTestTag);
+        ASSERT_TRUE(static_cast<bool>(restored));
+        ASSERT_TRUE(restored.HasComponent<SpringBoneComponent>());
+
+        const auto& spring = restored.GetComponent<SpringBoneComponent>();
+        EXPECT_TRUE(std::isfinite(spring.Stiffness));
+        EXPECT_TRUE(std::isfinite(spring.Damping));
+        EXPECT_TRUE(std::isfinite(spring.Weight));
+        EXPECT_NEAR(spring.Stiffness, 80.0f, kFloatEpsilon) << "NaN stiffness should fall back to the default";
+        EXPECT_NEAR(spring.Damping, 12.0f, kFloatEpsilon) << "Inf damping should fall back to the default";
+        EXPECT_GE(spring.Weight, 0.0f);
+        EXPECT_LE(spring.Weight, 1.0f);
+    }
 } // namespace OloEngine::Tests

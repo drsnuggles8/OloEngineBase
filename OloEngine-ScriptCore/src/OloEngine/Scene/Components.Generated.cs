@@ -1159,6 +1159,55 @@ namespace OloEngine
 		}
 	}
 
+	public partial class SpringBoneComponent : Component
+	{
+		public bool Enabled
+		{
+			get => InternalCalls.SpringBoneComponent_GetEnabled(Entity.ID);
+			set => InternalCalls.SpringBoneComponent_SetEnabled(Entity.ID, value);
+		}
+
+		public uint EndBoneIndex
+		{
+			get => InternalCalls.SpringBoneComponent_GetEndBoneIndex(Entity.ID);
+			set => InternalCalls.SpringBoneComponent_SetEndBoneIndex(Entity.ID, value);
+		}
+
+		public uint ChainLength
+		{
+			get => InternalCalls.SpringBoneComponent_GetChainLength(Entity.ID);
+			set => InternalCalls.SpringBoneComponent_SetChainLength(Entity.ID, value);
+		}
+
+		public float Stiffness
+		{
+			get => InternalCalls.SpringBoneComponent_GetStiffness(Entity.ID);
+			set => InternalCalls.SpringBoneComponent_SetStiffness(Entity.ID, value);
+		}
+
+		public float Damping
+		{
+			get => InternalCalls.SpringBoneComponent_GetDamping(Entity.ID);
+			set => InternalCalls.SpringBoneComponent_SetDamping(Entity.ID, value);
+		}
+
+		public Vector3 Gravity
+		{
+			get
+			{
+				InternalCalls.SpringBoneComponent_GetGravity(Entity.ID, out Vector3 value);
+				return value;
+			}
+			set => InternalCalls.SpringBoneComponent_SetGravity(Entity.ID, ref value);
+		}
+
+		public float Weight
+		{
+			get => InternalCalls.SpringBoneComponent_GetWeight(Entity.ID);
+			set => InternalCalls.SpringBoneComponent_SetWeight(Entity.ID, value);
+		}
+	}
+
 	public partial class SpriteRendererComponent : Component
 	{
 		public Vector4 Color

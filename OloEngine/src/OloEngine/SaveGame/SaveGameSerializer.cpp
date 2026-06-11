@@ -344,6 +344,7 @@ namespace OloEngine
             SAVE_COMPONENT(ModelComponent, entity, writer);
             SAVE_COMPONENT(AnimationStateComponent, entity, writer);
             SAVE_COMPONENT(StreamingVolumeComponent, entity, writer);
+            SAVE_COMPONENT(SpringBoneComponent, entity, writer);
 
             // ISaveable blob for ScriptComponent custom state
             if (entity.HasComponent<ScriptComponent>())
@@ -546,6 +547,7 @@ namespace OloEngine
                 TRY_LOAD_COMPONENT(ModelComponent);
                 TRY_LOAD_COMPONENT(AnimationStateComponent);
                 TRY_LOAD_COMPONENT(StreamingVolumeComponent);
+                TRY_LOAD_COMPONENT(SpringBoneComponent);
 
 #undef TRY_LOAD_COMPONENT
 
