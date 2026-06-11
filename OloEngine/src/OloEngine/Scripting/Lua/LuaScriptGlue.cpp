@@ -1140,6 +1140,14 @@ namespace OloEngine
                                                   "hingeMaxFrictionTorque", sol::property([](const PhysicsJoint3DComponent& j)
                                                                                           { return j.m_HingeMaxFrictionTorque; }, [](PhysicsJoint3DComponent& j, f32 v)
                                                                                           { if (std::isfinite(v)) j.m_HingeMaxFrictionTorque = std::clamp(v, 0.0f, 1.0e9f); }),
+                                                  // Springy (soft) hinge limits: frequency in Hz (0 = hard limits)
+                                                  // and damping ratio (0 = undamped, 1 = critical).
+                                                  "hingeLimitSpringFrequency", sol::property([](const PhysicsJoint3DComponent& j)
+                                                                                             { return j.m_HingeLimitSpringFrequency; }, [](PhysicsJoint3DComponent& j, f32 v)
+                                                                                             { if (std::isfinite(v)) j.m_HingeLimitSpringFrequency = std::clamp(v, 0.0f, 1.0e9f); }),
+                                                  "hingeLimitSpringDamping", sol::property([](const PhysicsJoint3DComponent& j)
+                                                                                           { return j.m_HingeLimitSpringDamping; }, [](PhysicsJoint3DComponent& j, f32 v)
+                                                                                           { if (std::isfinite(v)) j.m_HingeLimitSpringDamping = std::clamp(v, 0.0f, 1.0e9f); }),
                                                   // Slider motor + friction. Target velocity is m/s, target
                                                   // position is m; max force / friction are magnitudes in N.
                                                   "sliderMotorMode", sol::property([](const PhysicsJoint3DComponent& j) -> int
@@ -1156,7 +1164,14 @@ namespace OloEngine
                                                                                        { if (std::isfinite(v)) j.m_SliderMaxMotorForce = std::clamp(v, 0.0f, 1.0e9f); }),
                                                   "sliderMaxFrictionForce", sol::property([](const PhysicsJoint3DComponent& j)
                                                                                           { return j.m_SliderMaxFrictionForce; }, [](PhysicsJoint3DComponent& j, f32 v)
-                                                                                          { if (std::isfinite(v)) j.m_SliderMaxFrictionForce = std::clamp(v, 0.0f, 1.0e9f); }));
+                                                                                          { if (std::isfinite(v)) j.m_SliderMaxFrictionForce = std::clamp(v, 0.0f, 1.0e9f); }),
+                                                  // Springy (soft) slider limits — same shape as the hinge.
+                                                  "sliderLimitSpringFrequency", sol::property([](const PhysicsJoint3DComponent& j)
+                                                                                              { return j.m_SliderLimitSpringFrequency; }, [](PhysicsJoint3DComponent& j, f32 v)
+                                                                                              { if (std::isfinite(v)) j.m_SliderLimitSpringFrequency = std::clamp(v, 0.0f, 1.0e9f); }),
+                                                  "sliderLimitSpringDamping", sol::property([](const PhysicsJoint3DComponent& j)
+                                                                                            { return j.m_SliderLimitSpringDamping; }, [](PhysicsJoint3DComponent& j, f32 v)
+                                                                                            { if (std::isfinite(v)) j.m_SliderLimitSpringDamping = std::clamp(v, 0.0f, 1.0e9f); }));
 
         // --- PrefabComponent ---
         // Read-only window into prefab-instance identity & override state.

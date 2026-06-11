@@ -2492,6 +2492,8 @@ namespace OloEngine
             joint.m_HingeMotorTargetAngleDeg = jointComponent["HingeMotorTargetAngleDeg"].as<f32>(joint.m_HingeMotorTargetAngleDeg);
             joint.m_HingeMaxMotorTorque = jointComponent["HingeMaxMotorTorque"].as<f32>(joint.m_HingeMaxMotorTorque);
             joint.m_HingeMaxFrictionTorque = jointComponent["HingeMaxFrictionTorque"].as<f32>(joint.m_HingeMaxFrictionTorque);
+            joint.m_HingeLimitSpringFrequency = jointComponent["HingeLimitSpringFrequency"].as<f32>(joint.m_HingeLimitSpringFrequency);
+            joint.m_HingeLimitSpringDamping = jointComponent["HingeLimitSpringDamping"].as<f32>(joint.m_HingeLimitSpringDamping);
 
             if (i32 sliderModeInt = jointComponent["SliderMotorMode"].as<i32>(std::to_underlying(joint.m_SliderMotorMode));
                 sliderModeInt >= 0 && sliderModeInt <= static_cast<i32>(JointMotorMode::Position))
@@ -2502,6 +2504,8 @@ namespace OloEngine
             joint.m_SliderMotorTargetPosition = jointComponent["SliderMotorTargetPosition"].as<f32>(joint.m_SliderMotorTargetPosition);
             joint.m_SliderMaxMotorForce = jointComponent["SliderMaxMotorForce"].as<f32>(joint.m_SliderMaxMotorForce);
             joint.m_SliderMaxFrictionForce = jointComponent["SliderMaxFrictionForce"].as<f32>(joint.m_SliderMaxFrictionForce);
+            joint.m_SliderLimitSpringFrequency = jointComponent["SliderLimitSpringFrequency"].as<f32>(joint.m_SliderLimitSpringFrequency);
+            joint.m_SliderLimitSpringDamping = jointComponent["SliderLimitSpringDamping"].as<f32>(joint.m_SliderLimitSpringDamping);
 
             // Reject non-finite floats read from disk and clamp to physically/Jolt-valid ranges.
             SanitizeFloat(joint.m_MinDistance, -1.0f, 10000.0f, 0.0f);
@@ -2526,6 +2530,12 @@ namespace OloEngine
             SanitizeFloat(joint.m_SliderMotorTargetPosition, -10000.0f, 10000.0f, 0.0f);
             SanitizeFloat(joint.m_SliderMaxMotorForce, 0.0f, 1.0e9f, 0.0f);
             SanitizeFloat(joint.m_SliderMaxFrictionForce, 0.0f, 1.0e9f, 0.0f);
+            // Limit-spring frequency (Hz) and damping ratio are magnitudes —
+            // clamp to [0, 1e9]; 0 = hard limits / no damping.
+            SanitizeFloat(joint.m_HingeLimitSpringFrequency, 0.0f, 1.0e9f, 0.0f);
+            SanitizeFloat(joint.m_HingeLimitSpringDamping, 0.0f, 1.0e9f, 0.0f);
+            SanitizeFloat(joint.m_SliderLimitSpringFrequency, 0.0f, 1.0e9f, 0.0f);
+            SanitizeFloat(joint.m_SliderLimitSpringDamping, 0.0f, 1.0e9f, 0.0f);
         }
 
         if (auto relComponent = entity["RelationshipComponent"]; relComponent)
@@ -4417,11 +4427,15 @@ namespace OloEngine
             out << YAML::Key << "HingeMotorTargetAngleDeg" << YAML::Value << joint.m_HingeMotorTargetAngleDeg;
             out << YAML::Key << "HingeMaxMotorTorque" << YAML::Value << joint.m_HingeMaxMotorTorque;
             out << YAML::Key << "HingeMaxFrictionTorque" << YAML::Value << joint.m_HingeMaxFrictionTorque;
+            out << YAML::Key << "HingeLimitSpringFrequency" << YAML::Value << joint.m_HingeLimitSpringFrequency;
+            out << YAML::Key << "HingeLimitSpringDamping" << YAML::Value << joint.m_HingeLimitSpringDamping;
             out << YAML::Key << "SliderMotorMode" << YAML::Value << std::to_underlying(joint.m_SliderMotorMode);
             out << YAML::Key << "SliderMotorTargetVelocity" << YAML::Value << joint.m_SliderMotorTargetVelocity;
             out << YAML::Key << "SliderMotorTargetPosition" << YAML::Value << joint.m_SliderMotorTargetPosition;
             out << YAML::Key << "SliderMaxMotorForce" << YAML::Value << joint.m_SliderMaxMotorForce;
             out << YAML::Key << "SliderMaxFrictionForce" << YAML::Value << joint.m_SliderMaxFrictionForce;
+            out << YAML::Key << "SliderLimitSpringFrequency" << YAML::Value << joint.m_SliderLimitSpringFrequency;
+            out << YAML::Key << "SliderLimitSpringDamping" << YAML::Value << joint.m_SliderLimitSpringDamping;
 
             out << YAML::EndMap; // PhysicsJoint3DComponent
         }

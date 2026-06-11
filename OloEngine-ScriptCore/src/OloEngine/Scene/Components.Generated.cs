@@ -804,6 +804,18 @@ namespace OloEngine
 			set => InternalCalls.PhysicsJoint3DComponent_SetHingeMaxFrictionTorque(Entity.ID, value);
 		}
 
+		public float HingeLimitSpringFrequency
+		{
+			get => InternalCalls.PhysicsJoint3DComponent_GetHingeLimitSpringFrequency(Entity.ID);
+			set => InternalCalls.PhysicsJoint3DComponent_SetHingeLimitSpringFrequency(Entity.ID, value);
+		}
+
+		public float HingeLimitSpringDamping
+		{
+			get => InternalCalls.PhysicsJoint3DComponent_GetHingeLimitSpringDamping(Entity.ID);
+			set => InternalCalls.PhysicsJoint3DComponent_SetHingeLimitSpringDamping(Entity.ID, value);
+		}
+
 		public int SliderMotorMode
 		{
 			get => InternalCalls.PhysicsJoint3DComponent_GetSliderMotorMode(Entity.ID);
@@ -832,6 +844,18 @@ namespace OloEngine
 		{
 			get => InternalCalls.PhysicsJoint3DComponent_GetSliderMaxFrictionForce(Entity.ID);
 			set => InternalCalls.PhysicsJoint3DComponent_SetSliderMaxFrictionForce(Entity.ID, value);
+		}
+
+		public float SliderLimitSpringFrequency
+		{
+			get => InternalCalls.PhysicsJoint3DComponent_GetSliderLimitSpringFrequency(Entity.ID);
+			set => InternalCalls.PhysicsJoint3DComponent_SetSliderLimitSpringFrequency(Entity.ID, value);
+		}
+
+		public float SliderLimitSpringDamping
+		{
+			get => InternalCalls.PhysicsJoint3DComponent_GetSliderLimitSpringDamping(Entity.ID);
+			set => InternalCalls.PhysicsJoint3DComponent_SetSliderLimitSpringDamping(Entity.ID, value);
 		}
 	}
 

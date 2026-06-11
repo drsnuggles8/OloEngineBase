@@ -2481,6 +2481,50 @@ static void PhysicsJoint3DComponent_SetHingeMaxFrictionTorque(UUID entityID, flo
     comp.m_HingeMaxFrictionTorque = value;
 }
 
+static float PhysicsJoint3DComponent_GetHingeLimitSpringFrequency(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<PhysicsJoint3DComponent>();
+    return comp.m_HingeLimitSpringFrequency;
+}
+
+static void PhysicsJoint3DComponent_SetHingeLimitSpringFrequency(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<PhysicsJoint3DComponent>();
+    comp.m_HingeLimitSpringFrequency = value;
+}
+
+static float PhysicsJoint3DComponent_GetHingeLimitSpringDamping(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<PhysicsJoint3DComponent>();
+    return comp.m_HingeLimitSpringDamping;
+}
+
+static void PhysicsJoint3DComponent_SetHingeLimitSpringDamping(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<PhysicsJoint3DComponent>();
+    comp.m_HingeLimitSpringDamping = value;
+}
+
 static int PhysicsJoint3DComponent_GetSliderMotorMode(UUID entityID)
 {
     Scene* scene = ScriptEngine::GetSceneContext();
@@ -2587,6 +2631,50 @@ static void PhysicsJoint3DComponent_SetSliderMaxFrictionForce(UUID entityID, flo
         return;
     auto& comp = entity.GetComponent<PhysicsJoint3DComponent>();
     comp.m_SliderMaxFrictionForce = value;
+}
+
+static float PhysicsJoint3DComponent_GetSliderLimitSpringFrequency(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<PhysicsJoint3DComponent>();
+    return comp.m_SliderLimitSpringFrequency;
+}
+
+static void PhysicsJoint3DComponent_SetSliderLimitSpringFrequency(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<PhysicsJoint3DComponent>();
+    comp.m_SliderLimitSpringFrequency = value;
+}
+
+static float PhysicsJoint3DComponent_GetSliderLimitSpringDamping(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<PhysicsJoint3DComponent>();
+    return comp.m_SliderLimitSpringDamping;
+}
+
+static void PhysicsJoint3DComponent_SetSliderLimitSpringDamping(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<PhysicsJoint3DComponent>();
+    comp.m_SliderLimitSpringDamping = value;
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////

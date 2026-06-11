@@ -899,6 +899,10 @@ namespace OloEngine::Tests
         const f32 expectedSliderMotorPos = -1.75f; // within [-10000, 10000]
         const f32 expectedSliderMaxForce = 64.0f;
         const f32 expectedSliderFriction = 9.0f;
+        const f32 expectedHingeSpringFreq = 1.5f; // > 0 → soft hinge limits
+        const f32 expectedHingeSpringDamping = 0.7f;
+        const f32 expectedSliderSpringFreq = 3.0f;
+        const f32 expectedSliderSpringDamping = 1.1f; // overdamped is valid
 
         std::string yaml;
         {
@@ -929,6 +933,10 @@ namespace OloEngine::Tests
             j.m_SliderMotorTargetPosition = expectedSliderMotorPos;
             j.m_SliderMaxMotorForce = expectedSliderMaxForce;
             j.m_SliderMaxFrictionForce = expectedSliderFriction;
+            j.m_HingeLimitSpringFrequency = expectedHingeSpringFreq;
+            j.m_HingeLimitSpringDamping = expectedHingeSpringDamping;
+            j.m_SliderLimitSpringFrequency = expectedSliderSpringFreq;
+            j.m_SliderLimitSpringDamping = expectedSliderSpringDamping;
             yaml = SceneSerializer(scene).SerializeToYAML();
         }
 
@@ -969,6 +977,10 @@ namespace OloEngine::Tests
         EXPECT_NEAR(j.m_SliderMotorTargetPosition, expectedSliderMotorPos, kFloatEpsilon);
         EXPECT_NEAR(j.m_SliderMaxMotorForce, expectedSliderMaxForce, kFloatEpsilon);
         EXPECT_NEAR(j.m_SliderMaxFrictionForce, expectedSliderFriction, kFloatEpsilon);
+        EXPECT_NEAR(j.m_HingeLimitSpringFrequency, expectedHingeSpringFreq, kFloatEpsilon);
+        EXPECT_NEAR(j.m_HingeLimitSpringDamping, expectedHingeSpringDamping, kFloatEpsilon);
+        EXPECT_NEAR(j.m_SliderLimitSpringFrequency, expectedSliderSpringFreq, kFloatEpsilon);
+        EXPECT_NEAR(j.m_SliderLimitSpringDamping, expectedSliderSpringDamping, kFloatEpsilon);
     }
 
     // -------------------------------------------------------------------------

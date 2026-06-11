@@ -3564,6 +3564,11 @@ namespace OloEngine
                     if (component.m_HingeMotorMode != JointMotorMode::Off)
                         ImGui::DragFloat("Max Motor Torque (N\xC2\xB7m)##HingeMotor", &component.m_HingeMaxMotorTorque, 1.0f, 0.0f, 1.0e9f);
                     ImGui::DragFloat("Max Friction Torque (N\xC2\xB7m)##HingeMotor", &component.m_HingeMaxFrictionTorque, 1.0f, 0.0f, 1.0e9f);
+                    // Springy (soft) limits: frequency > 0 turns the angle limits
+                    // into a spring; damping ratio 1 = critical (no bounce).
+                    ImGui::DragFloat("Limit Spring Frequency (Hz)##HingeSpring", &component.m_HingeLimitSpringFrequency, 0.1f, 0.0f, 120.0f);
+                    if (component.m_HingeLimitSpringFrequency > 0.0f)
+                        ImGui::DragFloat("Limit Spring Damping##HingeSpring", &component.m_HingeLimitSpringDamping, 0.01f, 0.0f, 10.0f);
                     break;
                 }
                 case JointType3D::Slider:
@@ -3579,6 +3584,10 @@ namespace OloEngine
                     if (component.m_SliderMotorMode != JointMotorMode::Off)
                         ImGui::DragFloat("Max Motor Force (N)##SliderMotor", &component.m_SliderMaxMotorForce, 1.0f, 0.0f, 1.0e9f);
                     ImGui::DragFloat("Max Friction Force (N)##SliderMotor", &component.m_SliderMaxFrictionForce, 1.0f, 0.0f, 1.0e9f);
+                    // Springy (soft) limits — same shape as the hinge.
+                    ImGui::DragFloat("Limit Spring Frequency (Hz)##SliderSpring", &component.m_SliderLimitSpringFrequency, 0.1f, 0.0f, 120.0f);
+                    if (component.m_SliderLimitSpringFrequency > 0.0f)
+                        ImGui::DragFloat("Limit Spring Damping##SliderSpring", &component.m_SliderLimitSpringDamping, 0.01f, 0.0f, 10.0f);
                     break;
                 }
                 case JointType3D::Cone:

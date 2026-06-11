@@ -605,6 +605,88 @@ TEST_F(PhysicsJoint3DTest, SliderFrictionResistsSlideWithoutMotor)
     EXPECT_NEAR(Pos(box).y, startY, 0.2f) << "friction force did not resist the slide; y=" << Pos(box).y;
 }
 
+// =============================================================================
+// Springy (soft) limits — issue #308 item 3, SpringSettings. A limit-spring
+// frequency > 0 turns the hinge/slider limits into springs: the body may
+// overshoot the limit and a restoring force at that frequency pulls it back.
+// Jolt's frequency mode is mass-normalized, so the static sag under gravity is
+// g / ω² (ω = 2π·frequency) — at 0.5 Hz that is ~1 m, a wide, predictable
+// signal that cleanly separates "soft" (sags past the stop) from "hard"
+// (parks at the stop) and from "no limit at all" (falls/swings to the arc
+// bottom).
+// =============================================================================
+
+// -----------------------------------------------------------------------------
+// Slider soft limit — gravity drives the body down its vertical rail and ~1 m
+// past the lower limit, where the 0.5 Hz critically-damped spring holds it. A
+// hard-limit slider parks at the limit (y = 2.0); a slider with no working
+// limit free-falls. Settling near y = 1.0 proves the spring is both soft and
+// load-bearing.
+// -----------------------------------------------------------------------------
+TEST_F(PhysicsJoint3DTest, SliderSoftLimitSpringSagsPastHardStop)
+{
+    Entity box = MakeBox("SoftSlide", { 0.0f, 5.0f, 0.0f }, BodyType3D::Dynamic, 0.2f);
+
+    auto& joint = box.AddComponent<PhysicsJoint3DComponent>();
+    joint.m_Type = JointType3D::Slider;
+    // m_ConnectedEntity defaults to 0 → anchored to the world.
+    joint.m_Axis = { 0.0f, 1.0f, 0.0f }; // vertical rail → gravity loads the lower limit
+    joint.m_SliderMinLimit = -3.0f;      // lower stop at y = 2.0
+    joint.m_SliderMaxLimit = 3.0f;
+    joint.m_SliderLimitSpringFrequency = 0.5f; // sag = g/ω² ≈ 1.0 m
+    joint.m_SliderLimitSpringDamping = 1.0f;   // critical — settles without bouncing
+
+    EnablePhysics3D();
+
+    f32 maxLateral = 0.0f;
+    for (int i = 0; i < 240; ++i) // 4 s at 60 Hz
+    {
+        RunFrames(1);
+        const glm::vec3 p = Pos(box);
+        maxLateral = std::max(maxLateral, std::max(std::abs(p.x), std::abs(p.z)));
+    }
+
+    const f32 y = Pos(box).y;
+    EXPECT_LT(maxLateral, 0.05f) << "soft-limit slider let the body leave its rail; maxLateral=" << maxLateral;
+    EXPECT_LT(y, 1.7f) << "body parked at the hard stop — the limit spring did not soften it; y=" << y;
+    EXPECT_GT(y, 0.4f) << "body fell through the soft limit — the spring is not holding the load; y=" << y;
+}
+
+// -----------------------------------------------------------------------------
+// Hinge soft limit — gravity swings the door down to its -30° stop and the
+// 0.5 Hz spring lets it sag ~20° further (equilibrium ≈ -49°, y ≈ 1.5 for a
+// 2 m arm). A hard-limit hinge parks at -30° (y = 2.0); with no working limit
+// it swings to the arc bottom (y = 1.0). Settling between those proves the
+// spring both yields and holds.
+// -----------------------------------------------------------------------------
+TEST_F(PhysicsJoint3DTest, HingeSoftLimitSpringSagsPastHardStop)
+{
+    const glm::vec3 pivot{ 0.0f, 3.0f, 0.0f };
+    Entity door = MakeBox("SoftDoor", { 2.0f, 3.0f, 0.0f }, BodyType3D::Dynamic, 0.2f);
+    // The spring only damps while the limit is exceeded; inside the limits the
+    // hinge is free, so without drag the door oscillates indefinitely instead
+    // of settling onto the spring (same reason the position-motor test damps).
+    door.GetComponent<Rigidbody3DComponent>().m_AngularDrag = 0.5f;
+
+    auto& joint = door.AddComponent<PhysicsJoint3DComponent>();
+    joint.m_Type = JointType3D::Hinge;
+    joint.m_LocalAnchorA = { -2.0f, 0.0f, 0.0f }; // pivot at (0,3,0), 2 m arm
+    joint.m_Axis = { 0.0f, 0.0f, 1.0f };          // horizontal hinge → gravity swings it down
+    joint.m_HingeMinAngleDeg = -30.0f;            // stop at -30° → y = 3 - 2·sin(30°) = 2.0
+    joint.m_HingeMaxAngleDeg = 30.0f;
+    joint.m_HingeLimitSpringFrequency = 0.5f;
+    joint.m_HingeLimitSpringDamping = 1.0f;
+
+    EnablePhysics3D();
+
+    TickFor(6.0f); // settles where the limit spring balances gravity (~-50°)
+
+    const glm::vec3 p = Pos(door);
+    EXPECT_NEAR(glm::distance(p, pivot), 2.0f, 0.1f) << "soft-limit hinge lost its pivot distance";
+    EXPECT_LT(p.y, 1.85f) << "door parked at the hard stop — the limit spring did not soften it; y=" << p.y;
+    EXPECT_GT(p.y, 1.05f) << "door swung to the arc bottom — the limit spring is not restoring; y=" << p.y;
+}
+
 // -----------------------------------------------------------------------------
 // Save-game round-trip — the authored joint data must survive
 // CaptureSceneState → RestoreSceneState (exercises SaveGameComponentSerializer).
@@ -639,6 +721,10 @@ TEST_F(PhysicsJoint3DTest, ComponentSurvivesSaveGameRoundTrip)
     j.m_SliderMotorTargetPosition = 2.25f;
     j.m_SliderMaxMotorForce = 88.0f;
     j.m_SliderMaxFrictionForce = 7.5f;
+    j.m_HingeLimitSpringFrequency = 2.5f;
+    j.m_HingeLimitSpringDamping = 0.8f;
+    j.m_SliderLimitSpringFrequency = 4.0f;
+    j.m_SliderLimitSpringDamping = 1.2f;
 
     auto payload = SaveGameSerializer::CaptureSceneState(GetScene());
     ASSERT_GT(payload.size(), 0u);
@@ -678,4 +764,8 @@ TEST_F(PhysicsJoint3DTest, ComponentSurvivesSaveGameRoundTrip)
     EXPECT_NEAR(rj.m_SliderMotorTargetPosition, 2.25f, kEps);
     EXPECT_NEAR(rj.m_SliderMaxMotorForce, 88.0f, kEps);
     EXPECT_NEAR(rj.m_SliderMaxFrictionForce, 7.5f, kEps);
+    EXPECT_NEAR(rj.m_HingeLimitSpringFrequency, 2.5f, kEps);
+    EXPECT_NEAR(rj.m_HingeLimitSpringDamping, 0.8f, kEps);
+    EXPECT_NEAR(rj.m_SliderLimitSpringFrequency, 4.0f, kEps);
+    EXPECT_NEAR(rj.m_SliderLimitSpringDamping, 1.2f, kEps);
 }

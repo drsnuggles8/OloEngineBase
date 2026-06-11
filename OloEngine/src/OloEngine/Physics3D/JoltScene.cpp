@@ -34,6 +34,7 @@
 #include <Jolt/Physics/Constraints/HingeConstraint.h>
 #include <Jolt/Physics/Constraints/SliderConstraint.h>
 #include <Jolt/Physics/Constraints/ConeConstraint.h>
+#include <Jolt/Physics/Constraints/SpringSettings.h>
 
 #include <glm/gtc/constants.hpp>
 
@@ -855,6 +856,17 @@ namespace OloEngine
             return std::isfinite(value) ? value : 0.0f;
         }
 
+        // Build the limit-spring settings for a hinge/slider from the authored
+        // frequency (Hz) + damping ratio. A frequency <= 0 (after sanitizing)
+        // returns Jolt's default hard-limit spring, so the constraint behaves
+        // exactly as before the soft-limit fields existed.
+        JPH::SpringSettings MakeLimitSpring(f32 frequency, f32 damping)
+        {
+            return { JPH::ESpringMode::FrequencyAndDamping,
+                     SanitizeMotorMagnitude(frequency),
+                     SanitizeMotorMagnitude(damping) };
+        }
+
         // Put a freshly-created hinge constraint into the motor state authored on
         // the component. Velocity drives toward the target angular velocity (the
         // component stores deg/s; Jolt wants rad/s); Position drives toward the
@@ -1046,6 +1058,8 @@ namespace OloEngine
                     // before Create(); the motor *state* is set on the instance.
                     s.mMaxFrictionTorque = SanitizeMotorMagnitude(joint.m_HingeMaxFrictionTorque);
                     s.mMotorSettings.SetTorqueLimit(SanitizeMotorMagnitude(joint.m_HingeMaxMotorTorque));
+                    // Soft (springy) angle limits — a frequency of 0 keeps them hard.
+                    s.mLimitsSpringSettings = MakeLimitSpring(joint.m_HingeLimitSpringFrequency, joint.m_HingeLimitSpringDamping);
                     auto* hinge = static_cast<JPH::HingeConstraint*>(s.Create(body1, body2));
                     ConfigureHingeMotor(*hinge, joint);
                     return hinge;
@@ -1066,6 +1080,8 @@ namespace OloEngine
                     // not the torque limits (see Jolt MotorSettings).
                     s.mMaxFrictionForce = SanitizeMotorMagnitude(joint.m_SliderMaxFrictionForce);
                     s.mMotorSettings.SetForceLimit(SanitizeMotorMagnitude(joint.m_SliderMaxMotorForce));
+                    // Soft (springy) translation limits — a frequency of 0 keeps them hard.
+                    s.mLimitsSpringSettings = MakeLimitSpring(joint.m_SliderLimitSpringFrequency, joint.m_SliderLimitSpringDamping);
                     auto* slider = static_cast<JPH::SliderConstraint*>(s.Create(body1, body2));
                     ConfigureSliderMotor(*slider, joint);
                     return slider;

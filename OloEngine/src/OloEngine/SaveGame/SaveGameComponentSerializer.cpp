@@ -678,10 +678,11 @@ namespace OloEngine
         ar << c.m_SliderMinLimit << c.m_SliderMaxLimit;
         ar << c.m_ConeHalfAngleDeg;
 
-        // Two tails were appended over time, each after a once-final field, so
+        // Three tails were appended over time, each after a once-final field, so
         // probe AtEnd() before reading each on load and default to "disabled":
         //   1. Break thresholds  (after m_ConeHalfAngleDeg — legacy archives end here)
         //   2. Motor + friction  (after the break thresholds — pre-motor archives end here)
+        //   3. Limit springs     (after the motor block — pre-spring archives end here)
         // Mirrors EnvironmentMapComponent above.
         if (ar.IsLoading())
         {
@@ -756,6 +757,28 @@ namespace OloEngine
             clampTarget(c.m_SliderMotorTargetPosition, -10000.0f, 10000.0f);
             clampMagnitude(c.m_SliderMaxMotorForce);
             clampMagnitude(c.m_SliderMaxFrictionForce);
+
+            // Limit-spring tail. Archives written before soft limits existed end
+            // after the motor block, so default to "hard limits" (frequency 0).
+            if (ar.AtEnd())
+            {
+                c.m_HingeLimitSpringFrequency = 0.0f;
+                c.m_HingeLimitSpringDamping = 0.0f;
+                c.m_SliderLimitSpringFrequency = 0.0f;
+                c.m_SliderLimitSpringDamping = 0.0f;
+            }
+            else
+            {
+                ar << c.m_HingeLimitSpringFrequency << c.m_HingeLimitSpringDamping;
+                ar << c.m_SliderLimitSpringFrequency << c.m_SliderLimitSpringDamping;
+            }
+
+            // Frequency (Hz) and damping ratio are magnitudes; 0 = hard limit /
+            // no damping.
+            clampMagnitude(c.m_HingeLimitSpringFrequency);
+            clampMagnitude(c.m_HingeLimitSpringDamping);
+            clampMagnitude(c.m_SliderLimitSpringFrequency);
+            clampMagnitude(c.m_SliderLimitSpringDamping);
         }
         else
         {
@@ -764,6 +787,8 @@ namespace OloEngine
                << c.m_HingeMaxMotorTorque << c.m_HingeMaxFrictionTorque;
             ar << c.m_SliderMotorMode << c.m_SliderMotorTargetVelocity << c.m_SliderMotorTargetPosition
                << c.m_SliderMaxMotorForce << c.m_SliderMaxFrictionForce;
+            ar << c.m_HingeLimitSpringFrequency << c.m_HingeLimitSpringDamping;
+            ar << c.m_SliderLimitSpringFrequency << c.m_SliderLimitSpringDamping;
         }
         // m_RuntimeConstraintToken is a runtime Jolt handle — not serialized.
     }
