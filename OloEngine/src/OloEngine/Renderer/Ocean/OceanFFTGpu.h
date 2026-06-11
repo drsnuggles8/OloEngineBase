@@ -93,8 +93,8 @@ namespace OloEngine::Ocean
         f32 m_PatchSize = 0.0f;
         f32 m_Gravity = 9.81f;
 
-        Ref<Texture2D> m_H0Tex;        // rg = h0(k), ba = conj(h0(-k))
-        Ref<Texture2D> m_ButterflyTex; // log2(N)×N: rg = ±twiddle, ba = gather indices
+        Ref<Texture2D> m_H0Tex;                        // rg = h0(k), ba = conj(h0(-k))
+        Ref<Texture2D> m_ButterflyTex;                 // log2(N)×N: rg = ±twiddle, ba = gather indices
         std::array<Ref<Texture2DArray>, 2> m_PingPong; // 4-layer RGBA32F spectra arrays
 
         std::vector<glm::vec4> m_Scratch; // CPU staging for uploads
