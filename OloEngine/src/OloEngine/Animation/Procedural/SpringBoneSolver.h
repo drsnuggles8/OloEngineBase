@@ -11,10 +11,10 @@ namespace OloEngine::Animation
 {
     struct SpringBoneParams
     {
-        u32 EndBoneIndex = 0;  // chain tip bone; the chain walks up via parentIndices
-        u32 ChainLength = 3;   // number of bones in the chain including the tip (min 2)
-        f32 Stiffness = 80.0f; // acceleration toward the animated pose per unit offset (1/s^2)
-        f32 Damping = 12.0f;   // velocity damping rate (1/s)
+        u32 EndBoneIndex = 0;                    // chain tip bone; the chain walks up via parentIndices
+        u32 ChainLength = 3;                     // number of bones in the chain including the tip (min 2)
+        f32 Stiffness = 80.0f;                   // acceleration toward the animated pose per unit offset (1/s^2)
+        f32 Damping = 12.0f;                     // velocity damping rate (1/s)
         glm::vec3 Gravity{ 0.0f, -9.81f, 0.0f }; // model-space acceleration (units/s^2)
         f32 Weight = 1.0f;                       // 0..1 blend between animated and simulated pose
     };
