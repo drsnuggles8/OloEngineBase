@@ -1,0 +1,72 @@
+#version 460 core
+
+// ============================================================================
+// Ocean_FFTButterfly.comp — Tessendorf FFT ocean, radix-2 butterfly pass
+// (docs/WATER_FUTURE_IMPROVEMENTS.md §1.2).
+//
+// One pass of the iterative Cooley-Tukey *inverse* FFT (e^{+i2πkn/N} kernel),
+// the same algorithm as the CPU reference in OceanFFT.cpp so the two outputs
+// are directly comparable. The host dispatches log2(N) horizontal passes then
+// log2(N) vertical passes, ping-ponging between two 4-layer RGBA32F image
+// arrays. Each texel carries TWO complex numbers (rg and ba) and the same
+// twiddle applies to both, so the 8 ocean spectra transform in one chain.
+//
+// u_Butterfly is a log2(N)×N LUT (x = stage, y = output index):
+//   rg = twiddle factor (sign baked in: bottom butterfly wings store -w, so
+//        the kernel is uniformly out = in[a] + w·in[b])
+//   ba = the two gather indices a, b (stage 0's indices are bit-reversed,
+//        absorbing the reorder step of the CPU implementation)
+//
+// The 1/N² inverse normalisation is NOT applied here — Ocean_Assemble.comp
+// folds it in once at the end (the host's debug readback divides on the CPU).
+// ============================================================================
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+layout(binding = 0) uniform sampler2D u_Butterfly; // rg = twiddle, ba = gather indices
+
+layout(rgba32f, binding = 0) readonly uniform image2DArray u_Input;
+layout(rgba32f, binding = 1) writeonly uniform image2DArray u_Output;
+
+uniform int u_Resolution; // N (power of two)
+uniform int u_Stage;      // 0 .. log2(N)-1
+uniform int u_Vertical;   // 0 = transform rows, 1 = transform columns
+
+// Complex multiply.
+vec2 cmul(vec2 a, vec2 b)
+{
+    return vec2(a.x * b.x - a.y * b.y, a.x * b.y + a.y * b.x);
+}
+
+void main()
+{
+    ivec3 gid = ivec3(gl_GlobalInvocationID);
+    if (gid.x >= u_Resolution || gid.y >= u_Resolution)
+        return;
+
+    int coord = (u_Vertical == 1) ? gid.y : gid.x;
+    vec4 bf = texelFetch(u_Butterfly, ivec2(u_Stage, coord), 0);
+    vec2 w = bf.xy;
+    int ia = int(bf.z);
+    int ib = int(bf.w);
+
+    ivec2 pa;
+    ivec2 pb;
+    if (u_Vertical == 1)
+    {
+        pa = ivec2(gid.x, ia);
+        pb = ivec2(gid.x, ib);
+    }
+    else
+    {
+        pa = ivec2(ia, gid.y);
+        pb = ivec2(ib, gid.y);
+    }
+
+    vec4 va = imageLoad(u_Input, ivec3(pa, gid.z));
+    vec4 vb = imageLoad(u_Input, ivec3(pb, gid.z));
+
+    // Butterfly on both packed complex pairs: out = in[a] + w·in[b].
+    vec4 result = vec4(va.xy + cmul(w, vb.xy), va.zw + cmul(w, vb.zw));
+    imageStore(u_Output, gid, result);
+}

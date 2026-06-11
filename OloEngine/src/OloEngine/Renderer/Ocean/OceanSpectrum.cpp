@@ -87,6 +87,45 @@ namespace OloEngine::Ocean
         return h0;
     }
 
+    std::vector<Complex> ExtractBandLimitedH0(const std::vector<Complex>& h0, u32 resolution, u32 targetResolution)
+    {
+        const u32 N = resolution;
+        const u32 Ns = targetResolution;
+        OLO_CORE_ASSERT(IsPowerOfTwo(N) && IsPowerOfTwo(Ns), "ExtractBandLimitedH0: resolutions must be powers of two");
+        OLO_CORE_ASSERT(h0.size() == static_cast<sizet>(N) * N, "ExtractBandLimitedH0: h0 size mismatch");
+
+        if (Ns >= N)
+            return h0;
+
+        // FFT1D's inverse divides by the transform length, so the 2D inverse
+        // carries 1/N² — a grid-size-dependent factor. The same coefficient
+        // therefore comes out (N/Ns)² larger on the small grid; scale the
+        // copied bins by (Ns/N)² so the small-grid IFFT lands on the SAME
+        // spatial amplitudes (in metres) as the band-limited full surface.
+        const f32 scale = (static_cast<f32>(Ns) / static_cast<f32>(N)) * (static_cast<f32>(Ns) / static_cast<f32>(N));
+
+        std::vector<Complex> small(static_cast<sizet>(Ns) * Ns, Complex(0.0f, 0.0f));
+        const i32 nyquist = static_cast<i32>(Ns / 2u);
+        for (u32 m = 0u; m < Ns; ++m)
+        {
+            const i32 fm = SignedFrequency(m, Ns);
+            if (fm == nyquist)
+                continue; // small grid can't represent ±Ns/2 as distinct bins
+            for (u32 n = 0u; n < Ns; ++n)
+            {
+                const i32 fn = SignedFrequency(n, Ns);
+                if (fn == nyquist)
+                    continue;
+
+                // Same signed frequency ⇒ same wave vector (same patch size).
+                const u32 srcN = static_cast<u32>((fn + static_cast<i32>(N)) % static_cast<i32>(N));
+                const u32 srcM = static_cast<u32>((fm + static_cast<i32>(N)) % static_cast<i32>(N));
+                small[static_cast<sizet>(m) * Ns + n] = scale * h0[static_cast<sizet>(srcM) * N + srcN];
+            }
+        }
+        return small;
+    }
+
     DisplacementField EvaluateField(const SpectrumParams& params, const std::vector<Complex>& h0, f32 time)
     {
         const u32 N = params.m_Resolution;

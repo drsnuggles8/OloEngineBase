@@ -21,7 +21,16 @@ namespace OloEngine::Ocean
         return k;
     }
 
-    void OceanFFTField::Update(const SpectrumParams& params, f32 time, bool uploadToGpu)
+    namespace
+    {
+        // Resolution of the band-limited CPU physics proxy evaluated while the
+        // GPU owns the rendered field. 64² keeps SampleHeight() tracking the
+        // rendered waves (same h0 band, same phases) at roughly a fifth of the
+        // 128²-grid CPU cost — the IFFT work scales with N²·log2(N).
+        constexpr u32 kPhysicsProxyResolution = 64u;
+    } // namespace
+
+    void OceanFFTField::Update(const SpectrumParams& params, f32 time, bool uploadToGpu, bool useGpuCompute)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -67,6 +76,43 @@ namespace OloEngine::Ocean
             m_H0 = std::move(h0);
             m_H0Key = key;
             m_HasH0 = true;
+            m_GpuH0Dirty = true;
+            m_PhysicsH0.clear();
+            m_PhysicsResolution = 0u;
+        }
+
+        // GPU compute butterfly path (§1.2): the textures are generated on the
+        // GPU and the retained CPU field shrinks to a band-limited physics
+        // proxy. Falls back to the CPU reference when compute is unavailable.
+        if (uploadToGpu && useGpuCompute)
+        {
+            if (!m_GpuFFT)
+                m_GpuFFT = Ref<OceanFFTGpu>::Create();
+            if (m_GpuFFT->IsAvailable())
+            {
+                if (m_GpuH0Dirty)
+                {
+                    m_GpuFFT->SetH0(m_H0, params.m_Resolution, params.m_PatchSize, params.m_Gravity);
+                    m_GpuH0Dirty = false;
+                }
+
+                EnsureTextures(params.m_Resolution);
+                m_GpuFFT->Evaluate(time, params.m_Choppiness, m_DisplacementTex, m_DerivativesTex);
+
+                {
+                    OLO_PROFILE_SCOPE("OceanFFTField::PhysicsProxyEvaluate");
+                    const u32 proxyRes = std::min(params.m_Resolution, kPhysicsProxyResolution);
+                    if (m_PhysicsH0.empty() || m_PhysicsResolution != proxyRes)
+                    {
+                        m_PhysicsH0 = ExtractBandLimitedH0(m_H0, params.m_Resolution, proxyRes);
+                        m_PhysicsResolution = proxyRes;
+                    }
+                    SpectrumParams proxyParams = params;
+                    proxyParams.m_Resolution = proxyRes;
+                    m_Field = EvaluateField(proxyParams, m_PhysicsH0, time);
+                }
+                return;
+            }
         }
 
         m_Field = EvaluateField(params, m_H0, time);

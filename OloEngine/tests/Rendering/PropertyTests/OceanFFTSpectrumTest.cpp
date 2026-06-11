@@ -527,3 +527,98 @@ TEST(OceanFFTField, FlatSeaSamplesNearZero)
     field->Update(p, 1.0f, false);
     EXPECT_NEAR(field->SampleHeight(glm::vec2(10.0f, 20.0f)), 0.0f, 1e-4f);
 }
+
+// ---------------------------------------------------------------------------
+// ExtractBandLimitedH0 — the low-res CPU physics proxy used while the GPU
+// compute butterfly owns the rendered field (WATER_FUTURE_IMPROVEMENTS.md
+// §1.2). The proxy must be the SAME ocean (same wave vectors, same phases),
+// just band-limited — not a statistically-different re-roll.
+// ---------------------------------------------------------------------------
+
+TEST(OceanSpectrum, BandLimitedH0CopiesMatchingFrequencyBins)
+{
+    Ocean::SpectrumParams p{};
+    p.m_Resolution = 128u;
+    const auto h0 = Ocean::GenerateH0(p);
+    const auto small = Ocean::ExtractBandLimitedH0(h0, 128u, 32u);
+    ASSERT_EQ(small.size(), static_cast<sizet>(32u) * 32u);
+
+    constexpr u32 N = 128u, Ns = 32u;
+    // Bins are scaled by (Ns/N)² so the small grid's 1/Ns² inverse-FFT factor
+    // lands on the same spatial metres as the full grid's 1/N².
+    constexpr f32 kScale = (static_cast<f32>(Ns) / static_cast<f32>(N)) * (static_cast<f32>(Ns) / static_cast<f32>(N));
+    for (u32 m = 0u; m < Ns; ++m)
+    {
+        const i32 fm = Ocean::SignedFrequency(m, Ns);
+        for (u32 n = 0u; n < Ns; ++n)
+        {
+            const i32 fn = Ocean::SignedFrequency(n, Ns);
+            const Complex got = small[static_cast<sizet>(m) * Ns + n];
+            if (fn == static_cast<i32>(Ns / 2u) || fm == static_cast<i32>(Ns / 2u))
+            {
+                // Small-grid Nyquist bins are zeroed (the full grid keeps ±Ns/2
+                // distinct; the small grid can't).
+                EXPECT_EQ(got, Complex(0.0f, 0.0f)) << "bin (" << n << "," << m << ")";
+                continue;
+            }
+            const u32 srcN = static_cast<u32>((fn + static_cast<i32>(N)) % static_cast<i32>(N));
+            const u32 srcM = static_cast<u32>((fm + static_cast<i32>(N)) % static_cast<i32>(N));
+            const Complex expected = kScale * h0[static_cast<sizet>(srcM) * N + srcN];
+            EXPECT_NEAR(got.real(), expected.real(), 1e-7f) << "bin (" << n << "," << m << ")";
+            EXPECT_NEAR(got.imag(), expected.imag(), 1e-7f) << "bin (" << n << "," << m << ")";
+        }
+    }
+}
+
+TEST(OceanSpectrum, BandLimitedH0SameOrLargerResolutionIsIdentity)
+{
+    Ocean::SpectrumParams p{};
+    p.m_Resolution = 32u;
+    const auto h0 = Ocean::GenerateH0(p);
+    const auto same = Ocean::ExtractBandLimitedH0(h0, 32u, 32u);
+    ASSERT_EQ(same.size(), h0.size());
+    for (sizet i = 0; i < h0.size(); ++i)
+        EXPECT_EQ(same[i], h0[i]) << "idx " << i;
+}
+
+TEST(OceanSpectrum, BandLimitedFieldTracksFullResolutionSurface)
+{
+    // The proxy evaluated from the extracted band must follow the full-res
+    // surface point-for-point in world space (it IS the same surface low-pass
+    // filtered), not merely share its statistics. Phillips energy ~ 1/k⁴, so
+    // the dropped high-frequency band carries little height — the per-point
+    // error must be a small fraction of the wave RMS.
+    Ocean::SpectrumParams p{};
+    p.m_Resolution = 128u;
+    p.m_PatchSize = 64.0f;
+    p.m_WindSpeed = 18.0f;
+    p.m_WindDirection = glm::vec2(1.0f, 0.3f);
+    p.m_Choppiness = 0.0f; // compare raw heights (no horizontal shift)
+    const auto h0 = Ocean::GenerateH0(p);
+    const auto full = Ocean::EvaluateField(p, h0, 5.0f);
+
+    Ocean::SpectrumParams ps = p;
+    ps.m_Resolution = 64u;
+    const auto h0Small = Ocean::ExtractBandLimitedH0(h0, 128u, 64u);
+    const auto proxy = Ocean::EvaluateField(ps, h0Small, 5.0f);
+    ASSERT_TRUE(full.IsValid());
+    ASSERT_TRUE(proxy.IsValid());
+
+    const f32 fullRms = Rms(full.m_Height);
+    ASSERT_GT(fullRms, 0.0f);
+
+    f32 maxErr = 0.0f;
+    for (u32 z = 0u; z < 64u; ++z)
+        for (u32 x = 0u; x < 64u; ++x)
+        {
+            const glm::vec2 world(static_cast<f32>(x) * p.m_PatchSize / 64.0f,
+                                  static_cast<f32>(z) * p.m_PatchSize / 64.0f);
+            const f32 hFull = Ocean::SampleHeightBilinear(full, p.m_PatchSize, world);
+            const f32 hProxy = Ocean::SampleHeightBilinear(proxy, p.m_PatchSize, world);
+            maxErr = std::max(maxErr, std::abs(hFull - hProxy));
+        }
+    std::cout << "[ DIAG ] band-limit proxy max error = " << maxErr << " (full RMS " << fullRms << ")\n";
+    // With the default 1 m small-wave suppression the dropped |k| band carries
+    // almost no energy — the proxy should match to a few % of the wave RMS.
+    EXPECT_LT(maxErr, fullRms * 0.1f) << "proxy diverges from the full surface — wrong bins extracted?";
+}

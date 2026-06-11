@@ -1,0 +1,99 @@
+#version 460 core
+
+// ============================================================================
+// Ocean_SpectrumEvolve.comp — Tessendorf FFT ocean, time-evolution pass
+// (docs/WATER_FUTURE_IMPROVEMENTS.md §1.2).
+//
+// GPU mirror of the spectrum-evolution loop in OceanSpectrum.cpp::
+// EvaluateField. Each invocation handles one frequency bin (n, m):
+//
+//   h̃(k,t) = h0(k)·e^{iωt} + conj(h0(-k))·e^{-iωt},  ω = sqrt(g·|k|)
+//
+// and derives the seven dependent spectra (choppy displacement, slopes for
+// analytic normals, displacement gradients for the Jacobian). The eight
+// complex spectra are packed two-per-texel into a 4-layer RGBA32F image
+// array that the Ocean_FFTButterfly passes then inverse-transform:
+//
+//   layer 0: rg = h̃        ba = dispX
+//   layer 1: rg = dispZ     ba = slopeX
+//   layer 2: rg = slopeZ    ba = dxdx
+//   layer 3: rg = dzdz      ba = dxdz
+//
+// u_H0 packs rg = h0(k) and ba = conj(h0(-k)) (precomputed on upload so this
+// pass needs a single fetch). The math must stay in lock-step with the CPU
+// reference — OceanFFTGpuContractTest compares the two fields directly.
+// ============================================================================
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+layout(binding = 0) uniform sampler2D u_H0; // rg = h0(k), ba = conj(h0(-k))
+
+layout(rgba32f, binding = 0) writeonly uniform image2DArray u_Spectra;
+
+uniform int   u_Resolution; // N (power of two)
+uniform float u_PatchSize;  // L, world tile size (metres)
+uniform float u_Gravity;    // g
+uniform float u_Time;       // t (seconds)
+
+const float kTwoPi = 6.28318530717958647692;
+
+// Complex multiply.
+vec2 cmul(vec2 a, vec2 b)
+{
+    return vec2(a.x * b.x - a.y * b.y, a.x * b.y + a.y * b.x);
+}
+
+void main()
+{
+    ivec2 gid = ivec2(gl_GlobalInvocationID.xy);
+    if (gid.x >= u_Resolution || gid.y >= u_Resolution)
+        return;
+
+    int n = gid.x;
+    int m = gid.y;
+    int N = u_Resolution;
+
+    // Signed FFT frequency: lower half [0, N/2] keeps its index, upper half
+    // wraps negative (matches Ocean::SignedFrequency).
+    int sn = (n <= N / 2) ? n : n - N;
+    int sm = (m <= N / 2) ? m : m - N;
+    vec2 k = kTwoPi * vec2(float(sn), float(sm)) / u_PatchSize;
+    float kMag = length(k);
+
+    // Deep-water dispersion ω = sqrt(g·|k|); phase factors e^{±iωt}.
+    float omega = sqrt(max(u_Gravity * kMag, 0.0)) * u_Time;
+    float c = cos(omega);
+    float s = sin(omega);
+    vec2 phasePlus = vec2(c, s);
+    vec2 phaseMinus = vec2(c, -s);
+
+    vec4 h0 = texelFetch(u_H0, gid, 0);
+    vec2 h = cmul(h0.xy, phasePlus) + cmul(h0.zw, phaseMinus);
+
+    vec2 iH = vec2(-h.y, h.x);  //  i·h
+    vec2 miH = vec2(h.y, -h.x); // -i·h
+
+    vec2 dispX = vec2(0.0);
+    vec2 dispZ = vec2(0.0);
+    vec2 slopeX = vec2(0.0);
+    vec2 slopeZ = vec2(0.0);
+    vec2 dxdx = vec2(0.0);
+    vec2 dzdz = vec2(0.0);
+    vec2 dxdz = vec2(0.0);
+    if (kMag > 1e-6)
+    {
+        float invK = 1.0 / kMag;
+        dispX = (k.x * invK) * miH;
+        dispZ = (k.y * invK) * miH;
+        slopeX = k.x * iH;
+        slopeZ = k.y * iH;
+        dxdx = (k.x * k.x * invK) * h;
+        dzdz = (k.y * k.y * invK) * h;
+        dxdz = (k.x * k.y * invK) * h;
+    }
+
+    imageStore(u_Spectra, ivec3(gid, 0), vec4(h, dispX));
+    imageStore(u_Spectra, ivec3(gid, 1), vec4(dispZ, slopeX));
+    imageStore(u_Spectra, ivec3(gid, 2), vec4(slopeZ, dxdx));
+    imageStore(u_Spectra, ivec3(gid, 3), vec4(dzdz, dxdz));
+}

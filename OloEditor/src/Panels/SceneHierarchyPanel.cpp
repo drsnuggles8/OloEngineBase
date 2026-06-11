@@ -5192,6 +5192,9 @@ namespace OloEngine
                     ImGui::DragFloat("Height Scale", &component.m_FFTHeightScale, 0.01f, 0.0f, 20.0f);
                     if (i32 seed = static_cast<i32>(component.m_FFTSeed); ImGui::DragInt("Seed", &seed, 1, 0, 1000000))
                         component.m_FFTSeed = static_cast<u32>(std::max(seed, 0));
+                    ImGui::Checkbox("GPU Compute FFT", &component.m_FFTUseGpuCompute);
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("Generate the ocean field with compute shaders (butterfly FFT).\nUntick to use the CPU reference path for comparison.");
                 }
 
                 ImGui::SeparatorText("Appearance");

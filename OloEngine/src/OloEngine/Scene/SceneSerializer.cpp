@@ -1429,6 +1429,7 @@ namespace OloEngine
         water.m_FFTChoppiness = waterComponent["FFTChoppiness"].as<f32>(water.m_FFTChoppiness);
         water.m_FFTHeightScale = waterComponent["FFTHeightScale"].as<f32>(water.m_FFTHeightScale);
         water.m_FFTSeed = waterComponent["FFTSeed"].as<u32>(water.m_FFTSeed);
+        water.m_FFTUseGpuCompute = waterComponent["FFTUseGpuCompute"].as<bool>(water.m_FFTUseGpuCompute);
 
         // Sanitize FFT fields (ranges match the clamps in Scene.cpp / the editor
         // UI) so no NaN/Inf or out-of-range value reaches the spectrum/GPU.
@@ -5123,6 +5124,7 @@ namespace OloEngine
             out << YAML::Key << "FFTChoppiness" << YAML::Value << water.m_FFTChoppiness;
             out << YAML::Key << "FFTHeightScale" << YAML::Value << water.m_FFTHeightScale;
             out << YAML::Key << "FFTSeed" << YAML::Value << water.m_FFTSeed;
+            out << YAML::Key << "FFTUseGpuCompute" << YAML::Value << water.m_FFTUseGpuCompute;
 
             out << YAML::EndMap; // WaterComponent
         }

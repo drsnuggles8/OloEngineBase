@@ -1544,6 +1544,17 @@ namespace OloEngine
             ar << c.m_FFTSeed;
         }
 
+        // GPU-compute FFT toggle (§1.2) appended after the FFT block — same
+        // trailing-AtEnd() probe so archives written before it load fine.
+        if (ar.IsLoading() && ar.AtEnd())
+        {
+            c.m_FFTUseGpuCompute = true;
+        }
+        else
+        {
+            ar << c.m_FFTUseGpuCompute;
+        }
+
         if (ar.IsLoading())
         {
             auto sanitize = [](f32& v, f32 lo, f32 hi, f32 fallback)

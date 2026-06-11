@@ -580,6 +580,8 @@
 		"OloEngine/Renderer/Ocean/OceanSpectrum.h"
 		"OloEngine/Renderer/Ocean/OceanFFTField.cpp"
 		"OloEngine/Renderer/Ocean/OceanFFTField.h"
+		"OloEngine/Renderer/Ocean/OceanFFTGpu.cpp"
+		"OloEngine/Renderer/Ocean/OceanFFTGpu.h"
 		"OloEngine/Renderer/IBLPrecompute.cpp"
 		"OloEngine/Renderer/GPUResourceQueue.cpp"
 		"OloEngine/Renderer/GPUResourceQueue.h"

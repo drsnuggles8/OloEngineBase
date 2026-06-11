@@ -1,0 +1,61 @@
+#version 460 core
+
+// ============================================================================
+// Ocean_Assemble.comp — Tessendorf FFT ocean, output-assembly pass
+// (docs/WATER_FUTURE_IMPROVEMENTS.md §1.2).
+//
+// Reads the inverse-transformed spectra array (spatial domain after the
+// butterfly chain; real parts in .x/.z, imaginary parts ≈ 0 thanks to the
+// Hermitian h̃ construction), applies the deferred 1/N² inverse-FFT
+// normalisation, and packs the SAME two RGBA32F textures the CPU path
+// uploads — so Water.glsl is untouched (§6.4 transition path):
+//
+//   displacement: rgb = (λ·dx, height, λ·dz), a = foam = saturate(1 - J)
+//   derivatives:  rgb = unit surface normal,  a = Jacobian J
+//
+// Mirrors the final packing loop of OceanSpectrum.cpp::EvaluateField +
+// OceanFFTField::Upload.
+// ============================================================================
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+layout(rgba32f, binding = 0) readonly uniform image2DArray u_Spectra;
+layout(rgba32f, binding = 1) writeonly uniform image2D u_Displacement;
+layout(rgba32f, binding = 2) writeonly uniform image2D u_Derivatives;
+
+uniform int   u_Resolution; // N (power of two)
+uniform float u_Choppiness; // λ, horizontal-displacement scale
+
+void main()
+{
+    ivec2 gid = ivec2(gl_GlobalInvocationID.xy);
+    if (gid.x >= u_Resolution || gid.y >= u_Resolution)
+        return;
+
+    // Deferred inverse-FFT normalisation (1/N per dimension).
+    float s = 1.0 / (float(u_Resolution) * float(u_Resolution));
+
+    vec4 l0 = imageLoad(u_Spectra, ivec3(gid, 0)) * s; // h, dispX
+    vec4 l1 = imageLoad(u_Spectra, ivec3(gid, 1)) * s; // dispZ, slopeX
+    vec4 l2 = imageLoad(u_Spectra, ivec3(gid, 2)) * s; // slopeZ, dxdx
+    vec4 l3 = imageLoad(u_Spectra, ivec3(gid, 3)) * s; // dzdz, dxdz
+
+    float height = l0.x;
+    float lambda = u_Choppiness;
+    vec2 disp = lambda * vec2(l0.z, l1.x);
+
+    // Analytic normal from the slope field.
+    float sx = l1.z;
+    float sz = l2.x;
+    vec3 normal = normalize(vec3(-sx, 1.0, -sz));
+
+    // Folding Jacobian of the horizontal displacement (J < 1 ⇒ foam).
+    float jxx = 1.0 + lambda * l2.z;
+    float jzz = 1.0 + lambda * l3.x;
+    float jxz = lambda * l3.z;
+    float jacobian = jxx * jzz - jxz * jxz;
+    float foam = clamp(1.0 - jacobian, 0.0, 1.0);
+
+    imageStore(u_Displacement, gid, vec4(disp.x, height, disp.y, foam));
+    imageStore(u_Derivatives, gid, vec4(normal, jacobian));
+}

@@ -2352,6 +2352,7 @@ namespace OloEngine
         f32 m_FFTChoppiness = 1.2f;                    ///< horizontal-displacement (sharp crests) scale
         f32 m_FFTHeightScale = 1.0f;                   ///< artistic multiplier on the vertical displacement
         u32 m_FFTSeed = 1337;                          ///< RNG seed for the spectrum (deterministic look)
+        bool m_FFTUseGpuCompute = true;                ///< generate the field with the compute butterfly FFT (§1.2); off = CPU reference path
 
         // Runtime (not serialized)
         Ref<Mesh> m_WaterMesh;
@@ -2411,7 +2412,8 @@ namespace OloEngine
                 && m_FFTResolution == o.m_FFTResolution
                 && blkEq(m_FFTPatchSize, m_FFTWindSpeed)       // f32*2
                 && blkEq(m_FFTWindDirection, m_FFTHeightScale) // vec2 + f32*3
-                && m_FFTSeed == o.m_FFTSeed;
+                && m_FFTSeed == o.m_FFTSeed
+                && m_FFTUseGpuCompute == o.m_FFTUseGpuCompute;
             // clang-format on
         }
 
@@ -2517,6 +2519,7 @@ namespace OloEngine
             m_FFTChoppiness = src.m_FFTChoppiness;
             m_FFTHeightScale = src.m_FFTHeightScale;
             m_FFTSeed = src.m_FFTSeed;
+            m_FFTUseGpuCompute = src.m_FFTUseGpuCompute;
         }
     };
 
