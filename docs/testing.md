@@ -1164,7 +1164,7 @@ subsystem unit tests (§9.3, grouped by directory).
 | [PhysicsJoint3DTest.cpp](../OloEngine/tests/Functional/AnimationPhysics/PhysicsJoint3DTest.cpp) | 19 | **PhysicsJoint3DTest** &mdash; `FixedJointWeldsDynamicBodyToStaticAnchor`, `PointJointActsAsBallSocketPendulum`, `DistanceJointCatchesFallingBodyAtMaxLength`, `HingeJointSwingsAboutAxisAndRespectsAngleLimit`, `SliderJointConstrainsMotionToAxisAndLimit`, `ConeJointConfinesSwingWithinHalfAngle`, `BreakableJointSurvivesLoadBelowBreakForce`, `BreakableJointBreaksWhenForceExceedsBreakForce`, `BreakableJointBreaksWhenTorqueExceedsBreakTorque`, `UnbreakableByDefaultIgnoresLoad`, `HingeVelocityMotorDrivesRotationAgainstGravity`, `HingePositionMotorSettlesAtTargetAngle`, `SliderVelocityMotorDrivesBodyAlongAxis`, `SliderPositionMotorSettlesAtTargetPosition`, `HingeFrictionResistsSwingWithoutMotor`, `SliderFrictionResistsSlideWithoutMotor`, `SliderSoftLimitSpringSagsPastHardStop`, `HingeSoftLimitSpringSagsPastHardStop`, `ComponentSurvivesSaveGameRoundTrip` |
 | [PhysicsLayerFilteringTest.cpp](../OloEngine/tests/Functional/AnimationPhysics/PhysicsLayerFilteringTest.cpp) | 1 | **PhysicsLayerFilteringTest** &mdash; `AlphaPassesThroughBetaAndBothLandOnGround` |
 | [RigidbodyDisableGravityFlagTest.cpp](../OloEngine/tests/Functional/AnimationPhysics/RigidbodyDisableGravityFlagTest.cpp) | 1 | **RigidbodyDisableGravityFlagTest** &mdash; `BodyWithDisableGravityStaysAtRestWhileControlFalls` |
-| [SpringBoneJiggleViaSceneTickTest.cpp](../OloEngine/tests/Functional/AnimationPhysics/SpringBoneJiggleViaSceneTickTest.cpp) | 2 | **SpringBoneJiggleViaSceneTickTest** &mdash; `ChainLagsAnimatedRootAndStateComponentIsCreated`, `DisabledComponentIsPassthroughAndCreatesNoState` |
+| [SpringBoneJiggleViaSceneTickTest.cpp](../OloEngine/tests/Functional/AnimationPhysics/SpringBoneJiggleViaSceneTickTest.cpp) | 3 | **SpringBoneJiggleViaSceneTickTest** &mdash; `ChainLagsAnimatedRootAndStateComponentIsCreated`, `DisabledComponentIsPassthroughAndCreatesNoState`, `RemovingComponentDropsRuntimeState` |
 | [TriggerEndEventFiresOnSeparationTest.cpp](../OloEngine/tests/Functional/AnimationPhysics/TriggerEndEventFiresOnSeparationTest.cpp) | 1 | **TriggerEndEventFiresOnSeparationTest** &mdash; `EnterAndExitBothInvokeTheCallback` |
 | [TriggerVolumeFiresOverlapEventTest.cpp](../OloEngine/tests/Functional/AnimationPhysics/TriggerVolumeFiresOverlapEventTest.cpp) | 1 | **TriggerVolumeFiresOverlapEventTest** &mdash; `OverlapEventFiresWhenCharacterEntersTrigger` |
 | [TwoCharacterControllersCoexistTest.cpp](../OloEngine/tests/Functional/AnimationPhysics/TwoCharacterControllersCoexistTest.cpp) | 1 | **TwoCharacterControllersCoexistTest** &mdash; `EachControllerIntegratesItsOwnVelocityIndependently` |
@@ -1288,7 +1288,7 @@ subsystem unit tests (§9.3, grouped by directory).
 | [LuaScriptSetsRigidbody2DVelocityTest.cpp](../OloEngine/tests/Functional/Scripting/LuaScriptSetsRigidbody2DVelocityTest.cpp) | 1 | **LuaScriptSetsRigidbody2DVelocityTest** &mdash; `BodyTranslatesAfterLuaSetsLinearVelocity` |
 | [LuaSetsAbilityAttributeViaSceneTickTest.cpp](../OloEngine/tests/Functional/Scripting/LuaSetsAbilityAttributeViaSceneTickTest.cpp) | 1 | **LuaSetsAbilityAttributeViaSceneTickTest** &mdash; `LuaDrivenHealthToZeroFlipsAliveToDeadOnSubsequentTick` |
 
-**Totals.** 86 Functional test files, 125 TEST / TEST_F declarations across all subsystems.
+**Totals.** 86 Functional test files, 126 TEST / TEST_F declarations across all subsystems.
 
 <!-- END: functional-catalogue -->
 

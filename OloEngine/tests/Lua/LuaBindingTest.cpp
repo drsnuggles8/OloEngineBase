@@ -900,6 +900,16 @@ TEST_F(LuaBindingTest, SpringBoneComponent_PropertyRoundTrip)
     EXPECT_FLOAT_EQ(spring.Stiffness, 50.0f);
     EXPECT_FLOAT_EQ(spring.Damping, 6.5f);
     EXPECT_FLOAT_EQ(spring.Weight, 1.0f);
+
+    // Setters reject non-finite values (NaN, +/-Inf) — state must be unchanged
+    lua.script("spring.stiffness = 0/0; spring.damping = math.huge; spring.weight = -math.huge");
+    lua.script("spring.gravity = vec3.new(0/0, math.huge, -math.huge)");
+    EXPECT_FLOAT_EQ(spring.Stiffness, 50.0f);
+    EXPECT_FLOAT_EQ(spring.Damping, 6.5f);
+    EXPECT_FLOAT_EQ(spring.Weight, 1.0f);
+    EXPECT_FLOAT_EQ(spring.Gravity.x, 1.0f);
+    EXPECT_FLOAT_EQ(spring.Gravity.y, -5.0f);
+    EXPECT_FLOAT_EQ(spring.Gravity.z, 0.5f);
 }
 
 // =============================================================================

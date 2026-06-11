@@ -72,7 +72,8 @@ TEST(SpringBoneSolverTest, FirstSolveInitializesStateWithoutModifyingPose)
     EXPECT_EQ(state.CurrPositions.size(), 3u); // 4 chain bones -> 3 simulated joints
     for (sizet i = 0; i < pose.size(); ++i)
     {
-        EXPECT_NEAR(glm::length(pose[i].Rotation - originalPose[i].Rotation), 0.0f, 1e-6f)
+        // The init frame returns before any write-back, so this is bit-exact.
+        EXPECT_TRUE(Math::BitwiseEqual(pose[i].Rotation, originalPose[i].Rotation))
             << "First solve (state init) must leave bone " << i << " untouched";
     }
 }
@@ -94,7 +95,9 @@ TEST(SpringBoneSolverTest, RestPoseIsStableOverManySteps)
 
     for (sizet i = 0; i < pose.size(); ++i)
     {
-        EXPECT_NEAR(glm::length(pose[i].Rotation - originalPose[i].Rotation), 0.0f, 1e-4f)
+        // Sign-invariant rotation comparison: q and -q encode the same
+        // rotation, so compare via |dot| -> 1 instead of component deltas.
+        EXPECT_NEAR(1.0f - std::abs(glm::dot(pose[i].Rotation, originalPose[i].Rotation)), 0.0f, 1e-6f)
             << "Rest pose drifted at bone " << i << " after 300 frames";
     }
 }

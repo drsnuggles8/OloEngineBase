@@ -176,3 +176,15 @@ TEST_F(SpringBoneJiggleViaSceneTickTest, DisabledComponentIsPassthroughAndCreate
     EXPECT_LT(MaxChainDeflection(skeleton), 1e-4f)
         << "Disabled spring bones must leave the animated pose untouched";
 }
+
+TEST_F(SpringBoneJiggleViaSceneTickTest, RemovingComponentDropsRuntimeState)
+{
+    TickFor(/*seconds=*/0.2f);
+    ASSERT_TRUE(m_Animated.HasComponent<SpringBoneStateComponent>());
+
+    m_Animated.RemoveComponent<SpringBoneComponent>();
+
+    EXPECT_FALSE(m_Animated.HasComponent<SpringBoneStateComponent>())
+        << "Removing SpringBoneComponent must drop the cached simulation state "
+           "so a re-added component starts fresh from the animated pose";
+}

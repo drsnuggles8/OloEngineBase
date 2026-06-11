@@ -22,6 +22,8 @@ namespace OloEngine::Animation
         const SpringBoneComponent* springBone,
         SpringBoneState* springBoneState)
     {
+        OLO_PROFILE_FUNCTION();
+
         // Rotate current final bones into the previous-frame slot so the
         // G-Buffer skinned pass can compute per-bone motion vectors.
         skeleton.RotateBoneHistory();

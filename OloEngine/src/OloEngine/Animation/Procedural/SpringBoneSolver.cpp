@@ -70,8 +70,10 @@ namespace OloEngine::Animation
         auto boneCount = std::min(pose.size(), parentIndices.size());
 
         // Build the chain of bone indices from the tip up to the chain root.
+        // Cap the reservation at the actual bone count — ChainLength comes
+        // from user-facing data (YAML, scripts) and may be absurdly large.
         std::vector<u32> boneIndices;
-        boneIndices.reserve(params.ChainLength);
+        boneIndices.reserve(std::min<sizet>(params.ChainLength, boneCount));
         {
             auto idx = params.EndBoneIndex;
             for (u32 i = 0; i < params.ChainLength && idx < static_cast<u32>(boneCount); ++i)

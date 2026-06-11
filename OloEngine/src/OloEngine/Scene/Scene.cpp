@@ -6279,10 +6279,23 @@ namespace OloEngine
     OLO_ON_COMPONENT_REMOVED_NOOP(AbilityComponent)
     OLO_ON_COMPONENT_REMOVED_NOOP(NameplateComponent)
     OLO_ON_COMPONENT_REMOVED_NOOP(IKTargetComponent)
-    OLO_ON_COMPONENT_REMOVED_NOOP(SpringBoneComponent)
     OLO_ON_COMPONENT_REMOVED_NOOP(SpringBoneStateComponent)
     OLO_ON_COMPONENT_REMOVED_NOOP(Skeleton)
 
 #undef OLO_ON_COMPONENT_REMOVED_NOOP
+
+    // Specialisation: when a SpringBoneComponent is removed, drop the cached
+    // runtime simulation state so a re-added component starts fresh from the
+    // animated pose instead of popping from stale Verlet history.
+    // (Defined after the SpringBoneStateComponent no-op above so the
+    // RemoveComponent instantiation sees that explicit specialisation.)
+    template<>
+    void Scene::OnComponentRemoved<SpringBoneComponent>(Entity entity, SpringBoneComponent& /*component*/)
+    {
+        if (entity.HasComponent<SpringBoneStateComponent>())
+        {
+            entity.RemoveComponent<SpringBoneStateComponent>();
+        }
+    }
 
 } // namespace OloEngine

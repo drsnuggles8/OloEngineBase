@@ -1950,6 +1950,13 @@ namespace OloEngine
             sanitize(c.Gravity.y, -9.81f);
             sanitize(c.Gravity.z, 0.0f);
             sanitize(c.Weight, 1.0f);
+
+            // Clamp to the same valid ranges the scene-YAML deserializer
+            // enforces so finite-but-invalid values can't reach the solver.
+            c.ChainLength = std::max(2u, c.ChainLength);
+            c.Stiffness = std::clamp(c.Stiffness, 0.0f, 1e6f);
+            c.Damping = std::clamp(c.Damping, 0.0f, 1e6f);
+            c.Weight = std::clamp(c.Weight, 0.0f, 1.0f);
         }
     }
 

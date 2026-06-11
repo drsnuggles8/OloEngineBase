@@ -34,6 +34,12 @@ namespace OloEngine::Animation
         OLO_CORE_ASSERT(skeleton.m_ParentIndices.size() == boneCount, "ParentIndices/LocalTransforms size mismatch");
         OLO_CORE_ASSERT(skeleton.m_BonePreTransforms.empty() || skeleton.m_BonePreTransforms.size() == boneCount,
                         "BonePreTransforms size mismatch");
+        // Asserts compile out in release — guard the indexed accesses below
+        // (parent walk, solver spans) against a malformed skeleton at runtime.
+        if (skeleton.m_ParentIndices.size() != boneCount || (!skeleton.m_BonePreTransforms.empty() && skeleton.m_BonePreTransforms.size() != boneCount))
+        {
+            return;
+        }
 
         // Validate all floating-point component inputs (the solver validates
         // again, but rejecting here skips the decompose work too)
@@ -93,8 +99,11 @@ namespace OloEngine::Animation
         params.Damping = springBone.Damping;
         params.Weight = springBone.Weight;
 
-        // Rotate the world-space gravity into model space. Falls back to the
-        // raw vector when the entity transform is degenerate (zero scale).
+        // Map the world-space gravity acceleration into model space using the
+        // full inverse linear part (rotation AND scale): with x_world = M *
+        // x_model, accelerations map as a_model = M^-1 * a_world, so the
+        // world-space sag stays consistent regardless of entity scale. Falls
+        // back to the raw vector when the transform is degenerate (zero scale).
         auto entityRotScale = glm::mat3(entityWorldTransform);
         constexpr f32 kDeterminantEpsilon = 1e-12f;
         if (std::abs(glm::determinant(entityRotScale)) > kDeterminantEpsilon)
