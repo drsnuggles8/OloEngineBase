@@ -1099,7 +1099,7 @@ subsystem unit tests (§9.3, grouped by directory).
 | [ShaderGraphSerializationTest.cpp](../OloEngine/tests/ShaderGraph/ShaderGraphSerializationTest.cpp) | 12 | **ShaderGraphSerializationTest** &mdash; `SerializeProducesNonEmptyYAML`, `RoundTripPreservesGraphName`, `RoundTripPreservesNodeCount`, `RoundTripPreservesLinkCount`, `RoundTripPreservesParameterName`, `RoundTripPreservesNodeTypes`, `DeserializeInvalidYAMLReturnsFalse`, `DeserializeMissingRootNodeReturnsFalse`, `DeserializedGraphIsDirty`, `DeserializedGraphCanCompile`, `RoundTripPreservesComputeWorkgroupSize`, `RoundTripPreservesBufferBinding` |
 | [ShaderGraphTest.cpp](../OloEngine/tests/ShaderGraph/ShaderGraphTest.cpp) | 24 | **ShaderGraphTest** &mdash; `AddNodeAndFindIt`, `RemoveNodeCleansUpLinks`, `FindPinAcrossNodes`, `AddLinkConnectsCompatiblePins`, `AddLinkRejectsIncompatibleTypes`, `InputPinCanOnlyHaveOneLink`, `WouldCreateCycleDetectsCycle`, `WouldCreateCycleAllowsValidLink`, `ValidateEmptyGraphIsInvalid`, `ValidateGraphWithOutputNodeIsValid`, `ValidateGraphWithMultipleOutputsIsInvalid`, `TopologicalOrderPutsOutputLast`, `NodeFactoryCreatesAllRegisteredTypes`, `NodeFactoryReturnsNullForUnknown`, `ComputeOutputNodeCreation`, `ComputeBufferNodeCreation`, `ComputeInvocationIDNodes`, `ValidateComputeGraphIsValid`, `ValidateMixedOutputNodesIsInvalid`, `FindOutputNodeReturnsComputeOutput`<br/>**ShaderGraphTypeTest** &mdash; `FloatBroadcastsToVectors`, `Vec4TruncatesToVec3AndVec2`, `IncompatibleTypesCannotConvert`, `GenerateTypeConversionProducesValidGLSL` |
 
-#### integration — Feature-level integration tests (outside PropertyTests/)
+#### integration — Feature-level integration tests
 
 | File | Tests | Cases |
 |---|---:|---|

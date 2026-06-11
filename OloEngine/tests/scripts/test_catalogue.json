@@ -20,7 +20,7 @@
     { "id": "plumbing", "title": "Pipeline plumbing (command bucket, dispatch, frame data)", "anchor": "" },
     { "id": "cullinglod", "title": "Culling, LOD, occlusion",        "anchor": "" },
     { "id": "shaderpipe", "title": "Shader pack / binding layout / ShaderGraph", "anchor": "" },
-    { "id": "integration", "title": "Feature-level integration tests (outside PropertyTests/)", "anchor": "" },
+    { "id": "integration", "title": "Feature-level integration tests", "anchor": "" },
     { "id": "meta", "title": "Test-framework self-tests",            "anchor": "310-layer-10--automatic-diagnostic-escalation" }
   ],
   "file_layer_map": {
