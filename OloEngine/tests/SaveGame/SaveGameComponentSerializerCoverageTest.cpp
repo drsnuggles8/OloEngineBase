@@ -113,7 +113,8 @@ namespace OloEngine::Tests
                 oss << missing.size() << " component type(s) missing from " << missingFrom << ":\n";
                 for (const auto& n : missing)
                     oss << "  - " << n << "\n";
-                oss << "\n" << fixHint << "\n";
+                oss << "\n"
+                    << fixHint << "\n";
                 FAIL() << oss.str();
             }
         }

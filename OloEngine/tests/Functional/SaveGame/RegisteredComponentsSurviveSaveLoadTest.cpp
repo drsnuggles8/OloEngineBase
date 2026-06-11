@@ -349,8 +349,7 @@ TEST_F(RegisteredComponentsSurviveSaveLoadTest, PreviouslyDroppedComponentsRound
     ASSERT_TRUE(SaveGameSerializer::RestoreSceneState(*restoredScene, payload));
     Scene& restored = *restoredScene;
 
-    Verify<SkeletonComponent>(restored, "SkeletonComponent", [](const SkeletonComponent&)
-                              { /* marker-only serializer: presence is the contract */ });
+    Verify<SkeletonComponent>(restored, "SkeletonComponent", [](const SkeletonComponent&) { /* marker-only serializer: presence is the contract */ });
 
     Verify<IKTargetComponent>(restored, "IKTargetComponent",
                               [](const IKTargetComponent& ik)
