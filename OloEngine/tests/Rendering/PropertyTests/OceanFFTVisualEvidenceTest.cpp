@@ -308,4 +308,59 @@ namespace OloEngine::Tests
             << ") — the FFT surface is not actually being applied. Compare "
                "OceanFFT_ToggleOn.png vs OceanFFT_ToggleOff.png";
     }
+
+    // The GPU compute butterfly and the CPU reference must render the SAME
+    // ocean (§1.2 — same h0, same math, different producer): toggling
+    // m_FFTUseGpuCompute from the same pose must leave the frame essentially
+    // unchanged. This is the inverse assertion of the FFT on/off test above,
+    // and it goes through the full real pipeline (Scene update → compute
+    // dispatch / CPU upload → Water.glsl sampling → tonemap).
+    TEST_F(OceanFFTVisualEvidenceTest, GpuComputeToggleLeavesSurfaceUnchanged)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+
+        struct ScopedMockTime
+        {
+            explicit ScopedMockTime(f32 t)
+            {
+                Time::SetMockTime(t);
+            }
+            ~ScopedMockTime()
+            {
+                Time::ClearMockTime();
+            }
+        } scopedMockTime(kCaptureTime);
+
+        const glm::vec3 pos(0.0f, 6.0f, 40.0f);
+        const f32 yaw = 0.0f, pitch = 0.20f;
+
+        ASSERT_TRUE(static_cast<bool>(m_OceanEntity));
+        auto& wc = m_OceanEntity.GetComponent<WaterComponent>();
+        ASSERT_TRUE(wc.m_UseFFT);
+
+        wc.m_FFTUseGpuCompute = true;
+        std::vector<u8> gpuFrame;
+        Capture("GpuCompute", pos, yaw, pitch, gpuFrame);
+        if (::testing::Test::HasFatalFailure())
+            return;
+
+        wc.m_FFTUseGpuCompute = false;
+        std::vector<u8> cpuFrame;
+        Capture("CpuReference", pos, yaw, pitch, cpuFrame);
+        if (::testing::Test::HasFatalFailure())
+            return;
+
+        // Non-black sanity so "both frames empty" can't pass as "identical".
+        u64 lumaSum = 0;
+        for (std::size_t i = 0; i < gpuFrame.size(); i += 4)
+            lumaSum += gpuFrame[i] + gpuFrame[i + 1] + gpuFrame[i + 2];
+        const f64 meanChannel = static_cast<f64>(lumaSum) / (static_cast<f64>(kWidth) * kHeight * 3.0);
+        ASSERT_GT(meanChannel, 5.0) << "GPU-compute frame rendered (near-)black";
+
+        const f64 rmse = Rgba8Rmse(gpuFrame, cpuFrame);
+        EXPECT_LT(rmse, 2.0)
+            << "GPU-compute and CPU-reference frames differ visibly (RMSE " << rmse
+            << ") — the compute pipeline is not producing the reference ocean. Compare "
+               "OceanFFT_GpuCompute.png vs OceanFFT_CpuReference.png";
+    }
 } // namespace OloEngine::Tests

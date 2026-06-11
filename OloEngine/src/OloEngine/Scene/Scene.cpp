@@ -4467,7 +4467,8 @@ namespace OloEngine
                         sp.m_Choppiness = clampF(water.m_FFTChoppiness, 0.0f, 5.0f, 1.2f);
                         sp.m_Seed = water.m_FFTSeed;
 
-                        water.m_OceanField->Update(sp, animationTime, /*uploadToGpu=*/true);
+                        water.m_OceanField->Update(sp, animationTime, /*uploadToGpu=*/true,
+                                                   /*useGpuCompute=*/water.m_FFTUseGpuCompute);
 
                         const u32 dispID = water.m_OceanField->GetDisplacementTextureID();
                         const u32 derivID = water.m_OceanField->GetDerivativesTextureID();

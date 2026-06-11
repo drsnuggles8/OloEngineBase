@@ -52,6 +52,21 @@ namespace OloEngine::Ocean
     /// Deterministic for a fixed seed/params.
     [[nodiscard]] std::vector<Complex> GenerateH0(const SpectrumParams& params);
 
+    /// Extract the low-|k| band of a full-resolution h0 into a
+    /// targetResolution² spectrum (same patch size ⇒ same wave vectors per
+    /// signed frequency), so the small-grid IFFT reproduces the band-limited
+    /// full surface exactly — same phases, same metres — minus only the
+    /// high-frequency detail the small grid cannot represent. Copied bins are
+    /// scaled by (target/source)² to cancel the grid-size-dependent 1/N²
+    /// factor FFT2D's inverse applies, and the small grid's Nyquist
+    /// row/column is zeroed (the full grid keeps ±N'/2 as distinct bins; the
+    /// small grid cannot, and Phillips energy there is negligible). Used for
+    /// the low-res CPU physics proxy that keeps SampleHeight() working while
+    /// the GPU owns the rendered field.
+    /// Returns a copy when targetResolution >= the source resolution.
+    [[nodiscard]] std::vector<Complex> ExtractBandLimitedH0(const std::vector<Complex>& h0, u32 resolution,
+                                                            u32 targetResolution);
+
     /// One fully-evaluated ocean tile at a given time. All grids are row-major
     /// N×N (index = y*N + x); x/y step PatchSize/N metres in world XZ.
     struct DisplacementField

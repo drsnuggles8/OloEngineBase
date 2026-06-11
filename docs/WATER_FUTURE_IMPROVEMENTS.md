@@ -44,12 +44,28 @@ fallback. Shipped:
   `OceanFFT_Toggle{On,Off}.png` (`OceanFFTVisualEvidenceTest`).
 - ✅ **Editor / scene / save-game / Lua wiring** for the FFT params on
   `WaterComponent`.
+- ✅ **GPU compute butterfly port (§1.2)** — the default field producer.
+  [`OceanFFTGpu`](../OloEngine/src/OloEngine/Renderer/Ocean/OceanFFTGpu.h)
+  generates the field entirely on the GPU behind the same two-texture
+  interface (§6.4's transition path): `Ocean_SpectrumEvolve.comp` time-evolves
+  the CPU-generated h0(k) into 8 complex spectra packed two-per-texel in a
+  4-layer RGBA32F image array, `Ocean_FFTButterfly.comp` runs 2·log₂N
+  radix-2 inverse-FFT passes (ping-pong arrays + precomputed twiddle/index
+  LUT whose stage 0 absorbs the bit-reversal), and `Ocean_Assemble.comp`
+  packs the displacement/derivatives textures — `Water.glsl` untouched.
+  Toggleable per-component (`m_FFTUseGpuCompute`, editor/scene/save-game/Lua
+  wired) with automatic CPU fallback when compute is unavailable. While the
+  GPU owns the rendered field, physics' `SampleHeight` reads a band-limited
+  ≤64² CPU proxy (`ExtractBandLimitedH0` — same wave vectors and phases, so
+  it tracks the rendered surface, not a statistical re-roll). Pinned by
+  `OceanFFTGpuContractTest` (GPU-vs-CPU butterfly + full-field + end-to-end
+  texture comparison) and `OceanFFTVisualEvidenceTest::
+  GpuComputeToggleLeavesSurfaceUnchanged` (full-pipeline frame RMSE).
 
-Still open (natural follow-ons): the **GPU compute butterfly port** (the
-generation is CPU-side today — `OceanFFTField` is structured so a compute FFT
-swaps in behind the same texture interface, §6.4's transition path), **cascaded
-FFT** (§1.3), **JONSWAP** spectrum (§1.4), and **buoyancy sampling from the FFT
-field** (§5.1 — `WaterSurface` still samples the Gerstner sum).
+Still open (natural follow-ons): **cascaded FFT** (§1.3), **JONSWAP** spectrum
+(§1.4), and **buoyancy sampling from the FFT field** (§5.1 — `WaterSurface`
+still samples the Gerstner sum; once it reads the FFT field, the band-limited
+physics proxy in `OceanFFTField` is the natural source).
 
 ### 1.1 Tessendorf FFT Pipeline
 
