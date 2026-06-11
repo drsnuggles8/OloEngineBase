@@ -50,8 +50,14 @@ namespace OloEngine::Audio::SoundGraph
         AudioBuffer(AudioBuffer&&) = delete;
         AudioBuffer& operator=(AudioBuffer&&) = delete;
 
-        [[nodiscard]] f32* Data() noexcept { return m_Data.data(); }
-        [[nodiscard]] const f32* Data() const noexcept { return m_Data.data(); }
+        [[nodiscard]] f32* Data() noexcept
+        {
+            return m_Data.data();
+        }
+        [[nodiscard]] const f32* Data() const noexcept
+        {
+            return m_Data.data();
+        }
 
       private:
         std::vector<f32> m_Data;
@@ -74,8 +80,14 @@ namespace OloEngine::Audio::SoundGraph
         AudioBufferRef(AudioBufferRef&&) = delete;
         AudioBufferRef& operator=(AudioBufferRef&&) = delete;
 
-        [[nodiscard]] f32 Sample(u32 frame) const noexcept { return m_Data[frame * m_Stride]; }
-        [[nodiscard]] bool IsBuffer() const noexcept { return m_Stride == 1; }
+        [[nodiscard]] f32 Sample(u32 frame) const noexcept
+        {
+            return m_Data[frame * m_Stride];
+        }
+        [[nodiscard]] bool IsBuffer() const noexcept
+        {
+            return m_Stride == 1;
+        }
 
         void BindBuffer(const f32* blockData) noexcept
         {
@@ -87,7 +99,10 @@ namespace OloEngine::Audio::SoundGraph
             m_Data = cell;
             m_Stride = 0;
         }
-        void SetDefault(f32 value) noexcept { m_Default = value; }
+        void SetDefault(f32 value) noexcept
+        {
+            m_Default = value;
+        }
 
         const f32* m_Data;
         u32 m_Stride = 0;
@@ -114,10 +129,19 @@ namespace OloEngine::Audio::SoundGraph
         ValueRef(ValueRef&&) = delete;
         ValueRef& operator=(ValueRef&&) = delete;
 
-        [[nodiscard]] T Get() const noexcept { return *m_Ptr; }
+        [[nodiscard]] T Get() const noexcept
+        {
+            return *m_Ptr;
+        }
 
-        void Bind(const T* cell) noexcept { m_Ptr = cell; }
-        void SetDefault(T value) noexcept { m_Default = value; }
+        void Bind(const T* cell) noexcept
+        {
+            m_Ptr = cell;
+        }
+        void SetDefault(T value) noexcept
+        {
+            m_Default = value;
+        }
 
         const T* m_Ptr;
         T m_Default{};
@@ -130,7 +154,7 @@ namespace OloEngine::Audio::SoundGraph
 
     /// Maps a stream value type to its EStreamType tag.
     template<StreamValue T>
-    inline constexpr EStreamType StreamTypeFor = std::is_same_v<T, f32>  ? EStreamType::Float
+    inline constexpr EStreamType StreamTypeFor = std::is_same_v<T, f32>   ? EStreamType::Float
                                                  : std::is_same_v<T, i32> ? EStreamType::Int32
                                                  : std::is_same_v<T, i64> ? EStreamType::Int64
                                                                           : EStreamType::Bool;
