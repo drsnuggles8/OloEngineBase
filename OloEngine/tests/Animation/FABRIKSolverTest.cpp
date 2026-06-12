@@ -156,6 +156,36 @@ TEST(FABRIKSolverTest, PoleVectorBiasesBendDirection)
     }
 }
 
+// Target exactly on an interior joint of the straight chain: every pass hits
+// zero-length directions (the collinear FABRIK singularity — the chain has no
+// lateral information to bend with, so it cannot actually reach the target).
+// The required behavior is graceful degradation: bone lengths preserved and a
+// stable pose instead of collapsed joints.
+TEST(FABRIKSolverTest, TargetAtInteriorJointPreservesLengths)
+{
+    std::vector<BoneTransform> pose;
+    std::vector<int> parents;
+    BuildChain(pose, parents);
+
+    FABRIKParams params;
+    params.TargetBoneIndex = 4;
+    params.TargetPosition = glm::vec3(0.0f, 3.0f, 0.0f); // coincides with joint 3
+    params.ChainLength = 5;
+    params.MaxIterations = 20;
+    params.Weight = 1.0f;
+
+    FABRIKSolver::Solve(pose, parents, params);
+
+    auto modelSpace = ToModelSpace(pose, parents);
+    for (sizet i = 1; i < 5; ++i)
+    {
+        f32 segLen = glm::length(modelSpace[i].Translation - modelSpace[i - 1].Translation);
+        EXPECT_NEAR(segLen, 1.0f, 0.01f) << "Segment " << i << " length should be preserved";
+    }
+    // The chain stays straight; the tip ends one bone length past the target
+    EXPECT_NEAR(glm::length(modelSpace[4].Translation - params.TargetPosition), 1.0f, 0.05f);
+}
+
 // Zero weight: pose should remain unchanged
 TEST(FABRIKSolverTest, ZeroWeightPassthrough)
 {
