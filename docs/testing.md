@@ -1304,7 +1304,7 @@ level of `tests/`). Grouped by directory.
 
 > **Do not edit by hand.** Generated from [test_catalogue.json](../OloEngine/tests/scripts/test_catalogue.json) by [generate_test_catalogue.py](../OloEngine/tests/scripts/generate_test_catalogue.py). Add new test files to the config and run the script (or pre-commit will run it with `--check`).
 
-#### (top-level) (61 files)
+#### (top-level) (62 files)
 
 | File | Tests | Cases |
 |---|---:|---|
@@ -1364,6 +1364,7 @@ level of `tests/`). Grouped by directory.
 | [SnowSettingsTest.cpp](../OloEngine/tests/SnowSettingsTest.cpp) | 7 | **SnowUBOData** &mdash; `SizeIs80Bytes`, `FieldOffsets_Std140Compatible`, `DefaultsMatchSettings`<br/>**SSSUBOData** &mdash; `SizeIs32Bytes`, `FieldOffsets_Std140Compatible`, `DefaultsMatchSettings`<br/>**ShaderBindingLayout** &mdash; `SnowAndSSSBindingsExist` |
 | [SoundGraphBasicTest.cpp](../OloEngine/tests/SoundGraphBasicTest.cpp) | 8 | **SoundGraphBasicTest** &mdash; `SoundGraphAssetBasicOperations`, `SoundGraphConnections`, `SoundGraphRemoveConnection`, `CircularBufferSingleChannel`, `CircularBufferMultiChannel`, `SampleBufferOperationsInterleaving`, `SampleBufferOperationsGain`, `SoundGraphValidation` |
 | [SoundGraphInstantiationTest.cpp](../OloEngine/tests/SoundGraphInstantiationTest.cpp) | 2 | **SoundGraphInstantiation** &mdash; `NoiseToGraphOutputCompilesAndInstantiates`, `WavePlayerWithUnconfiguredAssetDoesNotCrash` |
+| [SoundGraphTypedConnectionTest.cpp](../OloEngine/tests/SoundGraphTypedConnectionTest.cpp) | 7 | **SoundGraphTypedConnections** &mdash; `NodeToNodeAudioConnectionDeliversSamples`, `AssetDefaultPlugsReachNodeInputs`, `EachNodeIsProcessedOncePerBlock`, `TypeMismatchedConnectionIsRejected`, `ScalarConnectionFlowsBetweenNodes`, `GraphFloatParameterRampsPerSample`, `DebugBlockProcessingKeepsRealTimeHeadroom` |
 | [StateMachineTest.cpp](../OloEngine/tests/StateMachineTest.cpp) | 12 | **StateMachineTest** &mdash; `StartCallsOnEnter`, `UpdateCallsOnUpdate`, `TransitionChangesState`, `ForceTransition`, `ForceTransition_ToSameState_DoesNothing`, `ForceTransition_InvalidState_DoesNothing`, `UpdateBeforeStart_DoesNothing`, `MultipleTransitions_FirstMatchWins`<br/>**StateMachineAssetTest** &mdash; `HasCorrectAssetType`, `StoresStatesAndTransitions`<br/>**FSMStateRegistryTest** &mdash; `RegisterAndCreate`, `UnknownTypeReturnsNull` |
 | [StaticMeshColliderGenerationTest.cpp](../OloEngine/tests/StaticMeshColliderGenerationTest.cpp) | 5 | **StaticMeshColliderGenerationTest** &mdash; `GenerateFlagWiresColliderAssetToMeshSource`, `GenerateFlagOffProducesNoCollider`, `EmptyMeshSourceSkipsGeneration`, `ReSetupKeepsColliderHandleStable`, `GeneratedColliderCooksAndIsHitByRaycast` |
 | [TransformComponentTest.cpp](../OloEngine/tests/TransformComponentTest.cpp) | 9 | **TransformComponent** &mdash; `DefaultsAreIdentity`, `SetRotationEulerUpdatesQuaternion`, `SetRotationQuaternionUpdatesEuler`, `SetRotationPreventsFlips`, `SetRotationContinuousAcrossPiBoundary`, `GetTransformUsesQuaternion`, `SetTransformRoundTrip`, `CopyPreservesPrivateFields`<br/>**MathDecompose** &mdash; `TRSMatrixRoundTripsThroughDecompose` |
@@ -1542,7 +1543,7 @@ level of `tests/`). Grouped by directory.
 |---|---:|---|
 | [TerrainGeneratorTest.cpp](../OloEngine/tests/Terrain/TerrainGeneratorTest.cpp) | 15 | **TerrainGeneratorTest** &mdash; `HeightFieldIsDeterministic`, `HeightFieldIsNormalizedAndFinite`, `LargeSeedStillProducesVariedTerrain`, `DifferentSeedsProduceDifferentTerrain`, `RidgedAndWarpAndExponentStayValid`, `TerraceShapingStaysValidAndDeterministic`, `TerraceEndpointsAndIdentity`, `TerraceIsMonotonicAndBounded`, `TerraceProducesFlatPlateaus`, `RuleWeightPeaksInsideBandAndZeroOutside`, `SlopeBandSelectsRule`, `DefaultRulesAssignExpectedLayers`, `LayerWeightsAreNormalized`, `NoMatchingRuleFallsBackToLayerZero`, `PackLayerWeightsQuantizesToBothSplatmaps` |
 
-**Totals.** 133 unit / subsystem test files, 1663 TEST / TEST_F declarations across all subsystems.
+**Totals.** 134 unit / subsystem test files, 1670 TEST / TEST_F declarations across all subsystems.
 
 <!-- END: unit-catalogue -->
 

@@ -524,34 +524,54 @@ namespace OloEngine::Audio::SoundGraph
         // WavePlayers vector (raw pointers, minimal overhead)
         totalMemory += graph->m_WavePlayers.capacity() * sizeof(NodeProcessor*);
 
-        // EndpointInputStreams map (changed from vector to unordered_map for O(1) lookups)
-        totalMemory += graph->m_EndpointInputStreams.size() * (sizeof(Identifier) + sizeof(Scope<StreamWriter>));
+        // EndpointInputStreams map (graph parameter value cells)
+        totalMemory += graph->m_EndpointInputStreams.size() * (sizeof(Identifier) + sizeof(SoundGraph::GraphValueCell));
         totalMemory += graph->m_EndpointInputStreams.bucket_count() * sizeof(void*); // Hash table overhead
-        for (const auto& [id, endpoint] : graph->m_EndpointInputStreams)
+        for (const auto& [id, cell] : graph->m_EndpointInputStreams)
         {
-            if (endpoint)
-                totalMemory += sizeof(StreamWriter) + 64; // StreamWriter + estimated choc::value overhead
+            if (cell.m_RampBuffer)
+                totalMemory += kMaxAudioBlockFrames * sizeof(f32); // float param ramp buffer
         }
 
         // InterpolatedValue map
         totalMemory += graph->m_InterpInputs.size() * (sizeof(Identifier) + sizeof(SoundGraph::InterpolatedValue));
         totalMemory += graph->m_InterpInputs.bucket_count() * sizeof(void*); // Hash table overhead
 
-        // LocalVariables map (changed from vector to unordered_map for O(1) lookups)
-        totalMemory += graph->m_LocalVariables.size() * (sizeof(Identifier) + sizeof(Scope<StreamWriter>));
+        // LocalVariables map (local variable value cells)
+        totalMemory += graph->m_LocalVariables.size() * (sizeof(Identifier) + sizeof(SoundGraph::GraphValueCell));
         totalMemory += graph->m_LocalVariables.bucket_count() * sizeof(void*); // Hash table overhead
-        for (const auto& [id, localVar] : graph->m_LocalVariables)
+        for (const auto& [id, cell] : graph->m_LocalVariables)
         {
-            if (localVar)
-                totalMemory += sizeof(StreamWriter) + 64; // StreamWriter + estimated overhead
+            if (cell.m_RampBuffer)
+                totalMemory += kMaxAudioBlockFrames * sizeof(f32); // float local-var ramp buffer
         }
 
         // Output channel vectors
         totalMemory += graph->m_OutputChannelIDs.capacity() * sizeof(Identifier);
         totalMemory += graph->m_OutChannels.capacity() * sizeof(float);
 
-        // EndpointOutputStreams (NodeProcessor)
-        totalMemory += sizeof(NodeProcessor) + 256; // Base size + estimated overhead
+        // Graph output endpoint refs
+        totalMemory += graph->m_GraphOutputRefs.size() * (sizeof(Identifier) + sizeof(AudioBufferRef));
+
+        // Per-channel block-output buffers (preallocated to max block size — use
+        // capacity, not logical size)
+        totalMemory += graph->m_OutputBuffers.capacity() * sizeof(std::vector<f32>);
+        for (const auto& buffer : graph->m_OutputBuffers)
+            totalMemory += buffer.capacity() * sizeof(f32);
+
+        // Per-node audio output block buffers (Phase 2: every audio-rate output owns
+        // a fixed kMaxAudioBlockFrames buffer). The per-node count isn't reachable
+        // from the base NodeProcessor interface, so approximate with one buffer per
+        // node — typical nodes have 1-2 audio outputs.
+        totalMemory += graph->m_Nodes.size() * kMaxAudioBlockFrames * sizeof(f32);
+
+        // Private per-block runtime caches (m_ProcessOrder, m_OutputChannelRefCache,
+        // m_RampBufferCells, m_ConnectionEdges) — not reachable from here; approximate
+        // from the public structures they mirror.
+        totalMemory += graph->m_Nodes.size() * sizeof(NodeProcessor*);                   // m_ProcessOrder
+        totalMemory += graph->m_OutputChannelIDs.size() * sizeof(const AudioBufferRef*); // m_OutputChannelRefCache
+        totalMemory += graph->m_InterpInputs.size() * sizeof(void*);                     // m_RampBufferCells (upper bound: float cells)
+        totalMemory += graph->m_Nodes.size() * 2 * (sizeof(UUID) * 2);                   // m_ConnectionEdges (~2 edges/node)
 
         // Thread-safe FIFO queues (choc::fifo::SingleReaderSingleWriterFIFO)
         // These are typically allocated with fixed sizes

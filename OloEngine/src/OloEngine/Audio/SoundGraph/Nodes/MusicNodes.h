@@ -32,7 +32,6 @@ namespace OloEngine::Audio::SoundGraph
         void Init() final
         {
             OLO_PROFILE_FUNCTION();
-            InitializeInputs();
             UpdateSeconds();
         }
 
@@ -45,31 +44,18 @@ namespace OloEngine::Audio::SoundGraph
 
         //==========================================================================
         /// NodeProcessor setup
-        f32* m_BPM = nullptr;
+        FloatRef m_BPM;
         f32 m_OutSeconds = 1.0f;
 
       private:
-        void RegisterEndpoints()
-        {
-            OLO_PROFILE_FUNCTION();
-            EndpointUtilities::RegisterEndpoints(this);
-        }
-
-        void InitializeInputs()
-        {
-            OLO_PROFILE_FUNCTION();
-            EndpointUtilities::InitializeInputs(this);
-        }
+        void RegisterEndpoints(); // defined out-of-line in NodeTypes.cpp where DESCRIBE_NODE specializations are visible
 
         void UpdateSeconds()
         {
             OLO_PROFILE_FUNCTION();
-            // Preserve existing output when BPM input is null
-            if (!m_BPM)
-                return;
 
             // Get BPM value and handle invalid/out-of-range values
-            f32 bpm = *m_BPM;
+            f32 bpm = m_BPM.Get();
 
             // Replace non-positive or out-of-range BPM with default
             if (bpm <= 0.0f || !std::isfinite(bpm))
@@ -103,7 +89,6 @@ namespace OloEngine::Audio::SoundGraph
         void Init() final
         {
             OLO_PROFILE_FUNCTION();
-            InitializeInputs();
             CalculateFrequency();
         }
 
@@ -116,35 +101,18 @@ namespace OloEngine::Audio::SoundGraph
 
         //==========================================================================
         /// NodeProcessor setup
-        T* m_MIDINote = nullptr;
+        ValueRef<T> m_MIDINote;
         f32 m_OutFrequency = 440.0f;
 
       private:
-        void RegisterEndpoints()
-        {
-            OLO_PROFILE_FUNCTION();
-            EndpointUtilities::RegisterEndpoints(this);
-        }
-
-        void InitializeInputs()
-        {
-            OLO_PROFILE_FUNCTION();
-            EndpointUtilities::InitializeInputs(this);
-        }
+        void RegisterEndpoints(); // defined out-of-line in NodeTypes.cpp where DESCRIBE_NODE specializations are visible
 
         void CalculateFrequency()
         {
             OLO_PROFILE_FUNCTION();
-            // Safety check: ensure input pointer is valid
-            if (!m_MIDINote)
-            {
-                // Return default frequency (A4 = 440 Hz) when input is invalid
-                m_OutFrequency = 440.0f;
-                return;
-            }
 
             // Clamp MIDI note to valid range (0-127) before conversion
-            f32 note = std::clamp(static_cast<f32>(*m_MIDINote), 0.0f, 127.0f);
+            f32 note = std::clamp(static_cast<f32>(m_MIDINote.Get()), 0.0f, 127.0f);
 
             // Convert MIDI note to frequency using A4 (440 Hz) as reference (MIDI note 69)
             // Formula: frequency = 440 * 2^((note - 69) / 12)
@@ -166,7 +134,6 @@ namespace OloEngine::Audio::SoundGraph
         void Init() final
         {
             OLO_PROFILE_FUNCTION();
-            InitializeInputs();
             CalculateNote();
         }
 
@@ -179,36 +146,20 @@ namespace OloEngine::Audio::SoundGraph
 
         //==========================================================================
         /// NodeProcessor setup
-        f32* m_Frequency = nullptr;
+        FloatRef m_Frequency;
         f32 m_OutMIDINote = 69.0f;
 
       private:
-        void RegisterEndpoints()
-        {
-            OLO_PROFILE_FUNCTION();
-            EndpointUtilities::RegisterEndpoints(this);
-        }
-
-        void InitializeInputs()
-        {
-            OLO_PROFILE_FUNCTION();
-            EndpointUtilities::InitializeInputs(this);
-        }
+        void RegisterEndpoints(); // defined out-of-line in NodeTypes.cpp where DESCRIBE_NODE specializations are visible
 
         void CalculateNote()
         {
             OLO_PROFILE_FUNCTION();
 
-            // Safety check: ensure input pointer is valid
-            if (!m_Frequency)
-            {
-                // Return default MIDI note (A4 = 69) when input is invalid
-                m_OutMIDINote = 69.0f;
-                return;
-            }
+            const f32 frequency = m_Frequency.Get();
 
             // Handle non-positive frequencies
-            if (*m_Frequency <= 0.0f || !std::isfinite(*m_Frequency))
+            if (frequency <= 0.0f || !std::isfinite(frequency))
             {
                 // Set to fallback for invalid frequencies
                 m_OutMIDINote = 0.0f; // MIDI note 0 (C-1)
@@ -217,7 +168,7 @@ namespace OloEngine::Audio::SoundGraph
 
             // Convert frequency to MIDI note using A4 (440 Hz) as reference (MIDI note 69)
             // Formula: note = 69 + 12 * log2(frequency / 440)
-            f32 midiNote = 69.0f + 12.0f * std::log2((*m_Frequency) / 440.0f);
+            f32 midiNote = 69.0f + 12.0f * std::log2(frequency / 440.0f);
 
             // Clamp to valid MIDI range [0.0f, 127.0f]
             m_OutMIDINote = std::clamp(midiNote, 0.0f, 127.0f);

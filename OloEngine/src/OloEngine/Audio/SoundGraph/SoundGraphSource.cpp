@@ -500,6 +500,18 @@ namespace OloEngine::Audio::SoundGraph
             }
         }
 
+        // [SGSDiag] consume the effective-rate snapshot published by ProcessSamples
+        // and do the (non-RT-safe) formatted logging here on the main thread.
+        if (m_DiagSnapshotReady.exchange(false, std::memory_order_acquire))
+        {
+            const u32 calls = m_DiagSnapshotCalls.load(std::memory_order_relaxed);
+            const u64 frames = m_DiagSnapshotFrames.load(std::memory_order_relaxed);
+            const f64 elapsedMs = m_DiagSnapshotElapsedMs.load(std::memory_order_relaxed);
+            const f64 effectiveRateHz = (elapsedMs > 0.0) ? (static_cast<f64>(frames) * 1000.0 / elapsedMs) : 0.0;
+            OLO_CORE_INFO("[SGSDiag] After {} ProcessSamples calls: {} frames in {:.1f} ms => effectiveRateHz {:.0f} (configured {})",
+                          calls, frames, elapsedMs, effectiveRateHz, m_SampleRate);
+        }
+
         // Handle automatic suspension when finished
         if (m_IsFinished.load(std::memory_order_relaxed) && m_IsPlaying.load(std::memory_order_relaxed))
         {
@@ -853,6 +865,31 @@ namespace OloEngine::Audio::SoundGraph
 
             // Update frame counter
             m_CurrentFrame.fetch_add(frameCount, std::memory_order_relaxed);
+
+            // [SGSDiag] effective-rate telemetry: every 100 callbacks, snapshot how
+            // fast we are actually producing audio relative to wall time. This is
+            // the metric the block-execution refactor is gated on
+            // (docs/soundgraph-metasounds-refactor.md): effectiveRateHz must stay
+            // within 10% of the configured sample rate in a Debug build. The audio
+            // thread only counts and publishes plain atomics — the formatted log
+            // call (allocation/IO, not RT-safe) happens in Update() on the main
+            // thread when it consumes the snapshot.
+            {
+                const auto now = std::chrono::steady_clock::now();
+                if (m_DiagCallbackCount == 0)
+                    m_DiagWindowStart = now;
+                m_DiagFrameCount += frameCount;
+                if (++m_DiagCallbackCount >= 100)
+                {
+                    const f64 elapsedMs = std::chrono::duration<f64, std::milli>(now - m_DiagWindowStart).count();
+                    m_DiagSnapshotCalls.store(m_DiagCallbackCount, std::memory_order_relaxed);
+                    m_DiagSnapshotFrames.store(m_DiagFrameCount, std::memory_order_relaxed);
+                    m_DiagSnapshotElapsedMs.store(elapsedMs, std::memory_order_relaxed);
+                    m_DiagSnapshotReady.store(true, std::memory_order_release);
+                    m_DiagCallbackCount = 0;
+                    m_DiagFrameCount = 0;
+                }
+            }
 
             // Check if playback should finish
             if (AreAllDataSourcesAtEnd())

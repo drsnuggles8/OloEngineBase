@@ -44,7 +44,37 @@ namespace OloEngine::Audio::SoundGraph
     constexpr bool IsDescribedNode_v = IsDescribedNode<T>::value;
 
     //==============================================================================
+    /// Detects ValueRef<T> members (any instantiation).
+    template<typename T>
+    struct IsValueRef : std::false_type
+    {
+    };
+
+    template<StreamValue T>
+    struct IsValueRef<ValueRef<T>> : std::true_type
+    {
+    };
+
+    template<typename T>
+    constexpr bool IsValueRef_v = IsValueRef<T>::value;
+
+    //==============================================================================
     /// Endpoint utilities for automatic registration
+    ///
+    /// Phase 2: endpoint registration dispatches on the *declared member type* —
+    /// that is where the typing of "typed connections" lives:
+    ///   - AudioBufferRef member  -> audio-rate input endpoint
+    ///   - ValueRef<T> member     -> control-rate input endpoint of type T
+    ///   - member function        -> input event
+    ///   - AudioBuffer member     -> audio-rate output endpoint
+    ///   - arithmetic member      -> control-rate output endpoint
+    ///   - OutputEvent member     -> output event
+    /// Anything else (e.g. the Array nodes' `std::vector<T>*` plugs) is left
+    /// unregistered, matching the pre-existing behavior; the node null-checks it.
+    ///
+    /// The old InitializeInputs step is gone: refs are born pointing at their
+    /// inline default cells, and connections re-point them at producers, so there
+    /// is no second "resolve parameters" pass (and nothing for Init to undo).
     namespace EndpointUtilities
     {
 
@@ -95,7 +125,6 @@ namespace OloEngine::Audio::SoundGraph
                                         {
                                             // No additional handling required.
                                         }
-                                        // TODO: Add support for other event parameter types as needed
                                         });
 
                                     // Register the input event with the node
@@ -106,33 +135,24 @@ namespace OloEngine::Audio::SoundGraph
                             }
                             else
                             {
-                                // Handle input parameters (member variables)
                                 using ValueType = typename Core::Reflection::MemberPointer::ReturnType<TMember>::Type;
 
-                                if constexpr (std::is_pointer_v<ValueType>)
+                                if constexpr (std::is_same_v<ValueType, AudioBufferRef>)
                                 {
-                                    // Pointer members - these will be connected to input streams.
-                                    // The parameter system only supports primitive value types
-                                    // (the ones choc::value::Value can hold): bool / int32 /
-                                    // int64 / float / double. Non-primitive pointer members
-                                    // (e.g. `std::vector<T>* m_Array` on Array nodes) aren't
-                                    // expressible as a Value, so they stay unregistered here
-                                    // and the node is responsible for null-checking. This
-                                    // matches the de-facto pre-existing behavior where the
-                                    // entire reflection path was silently no-op'd.
-                                    using UnderlyingType = std::remove_pointer_t<ValueType>;
-                                    if constexpr (std::is_arithmetic_v<UnderlyingType>)
-                                    {
-                                        node->template AddParameter<UnderlyingType>(OloEngine::Identifier(cleanName.c_str()), cleanName, UnderlyingType{});
-                                    }
-                                    return true;
+                                    node->AddAudioInRef(OloEngine::Identifier(cleanName.c_str()), node->*memberPtr);
+                                }
+                                else if constexpr (IsValueRef_v<ValueType>)
+                                {
+                                    node->AddValueInRef(OloEngine::Identifier(cleanName.c_str()), node->*memberPtr);
                                 }
                                 else
                                 {
-                                    // Direct value members
-                                    node->template AddParameter<ValueType>(OloEngine::Identifier(cleanName.c_str()), cleanName, node->*memberPtr);
-                                    return true;
+                                    // Non-stream member (e.g. `std::vector<T>* m_Array`) —
+                                    // not expressible as a typed connection; stays
+                                    // unregistered and the node is responsible for
+                                    // null-checking, matching pre-existing behavior.
                                 }
+                                return true;
                             }
                             };
 
@@ -183,20 +203,21 @@ namespace OloEngine::Audio::SoundGraph
 
                                 return true;
                             }
+                            else if constexpr (std::is_same_v<TMember, AudioBuffer>)
+                            {
+                                node->AddAudioOutSource(OloEngine::Identifier(cleanName.c_str()), node->*memberPtr);
+                                return true;
+                            }
+                            else if constexpr (StreamValue<TMember>)
+                            {
+                                node->AddValueOutSource(OloEngine::Identifier(cleanName.c_str()), node->*memberPtr);
+                                return true;
+                            }
                             else
                             {
-                                // Output value (f32 / i32 / bool member). Register a ValueView
-                                // into OutputStreams pointing at the member's storage so that
-                                // downstream wiring (NodeValue_NodeValue and NodeValue_GraphValue
-                                // connections) can resolve `node->OutValue(id)` via OutputStreams.at(id).
-                                // Without this registration, `OutputStreams.at` throws
-                                // out_of_range ("invalid unordered_map<K, T> key") the moment any
-                                // graph wires this output anywhere.
-                                using MemberValueType = std::remove_reference_t<decltype(node->*memberPtr)>;
-                                node->template AddOutStream<MemberValueType>(
-                                    OloEngine::Identifier(cleanName.c_str()),
-                                    node->*memberPtr);
-                                return true;
+                                static_assert(std::is_same_v<TMember, AudioBuffer> || StreamValue<TMember> || isOutputEvent,
+                                              "Described node output must be AudioBuffer, a stream value type, or OutputEvent");
+                                return false;
                             }
                     };
 
@@ -208,80 +229,17 @@ namespace OloEngine::Audio::SoundGraph
                     return false;
                 }
             }
-
-            /// Initialize input pointers to connect with parameter system
-            template<typename TNodeType>
-            bool InitializeInputs(TNodeType* node)
-            {
-                OLO_PROFILE_FUNCTION();
-
-                if constexpr (IsDescribedNode_v<TNodeType>)
-                {
-                    using InputsDescription = typename NodeDescription<std::remove_cvref_t<TNodeType>>::Inputs;
-
-                    return InputsDescription::MemberListType::ApplyToStaticType([node](const auto&... members)
-                                                                                {
-                        auto initializeInput = [node, memberIndex = 0](auto memberPtr) mutable
-                        {
-                            using TMember = std::remove_reference_t<decltype(memberPtr)>;
-                            constexpr bool isInputEvent = std::is_member_function_pointer_v<TMember>;
-
-                            const std::string_view memberName = InputsDescription::s_MemberNames[memberIndex++];
-                            const std::string cleanName = std::string(Core::Reflection::StringUtils::RemovePrefixAndSuffix(memberName));
-
-                            if constexpr (!isInputEvent)
-                            {
-                                using ValueType = typename Core::Reflection::MemberPointer::ReturnType<TMember>::Type;
-
-                                if constexpr (std::is_pointer_v<ValueType>)
-                                {
-                                    // Connect pointer members to parameter system
-                                    using UnderlyingType = std::remove_pointer_t<ValueType>;
-                                    auto param = node->template GetParameter<UnderlyingType>(OloEngine::Identifier(cleanName.c_str()));
-                                    if (param)
-                                    {
-                                        node->*memberPtr = &param->m_Value;
-                                    }
-                                    else
-                                    {
-                                        // Clear pointer when parameter lookup fails to avoid dangling references
-                                        node->*memberPtr = nullptr;
-                                    }
-                                }
-                            }
-
-                            return true;
-                        };
-
-                        return (initializeInput(members) && ...); });
-                }
-                else
-                {
-                    return false;
-                }
-            }
         } // namespace Impl
 
         /// Register all endpoints for a described node
         template<typename TNodeType>
         bool RegisterEndpoints(TNodeType* node)
         {
-            // static_assert(IsDescribedNode_v<TNodeType>, "Node must have NodeDescription specialization");
-
             bool success = true;
             success &= Impl::RegisterEndpointInputs(node);
             success &= Impl::RegisterEndpointOutputs(node);
 
             return success;
-        }
-
-        /// Initialize input pointers for a described node
-        template<typename TNodeType>
-        bool InitializeInputs(TNodeType* node)
-        {
-            // static_assert(IsDescribedNode_v<TNodeType>, "Node must have NodeDescription specialization");
-
-            return Impl::InitializeInputs(node);
         }
     } // namespace EndpointUtilities
 

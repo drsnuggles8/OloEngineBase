@@ -23,18 +23,14 @@ namespace OloEngine::Audio::SoundGraph
     /// Detail namespace for internal helper functions
     namespace Detail
     {
-        /// Helper function to get seed value with safe null checking
-        /// Returns: high-resolution clock value if seedPtr is null or *seedPtr == -1, otherwise the provided seed
-        inline i32 GetRandomSeedValue(const i32* seedPtr)
+        /// Helper function to resolve a seed input value.
+        /// Returns: high-resolution clock value if seed == -1 (the "unseeded"
+        /// sentinel), otherwise the provided seed.
+        inline i32 GetRandomSeedValue(i32 seed)
         {
-            if (!seedPtr)
-            {
-                // Fallback: use high-resolution clock when seedPtr is null
-                return static_cast<i32>(std::chrono::high_resolution_clock::now().time_since_epoch().count());
-            }
-            return (*seedPtr == -1)
+            return (seed == -1)
                        ? static_cast<i32>(std::chrono::high_resolution_clock::now().time_since_epoch().count())
-                       : *seedPtr;
+                       : seed;
         }
     } // namespace Detail
 
@@ -61,12 +57,16 @@ namespace OloEngine::Audio::SoundGraph
                        { (void)v; m_ResetFlag.SetDirty(); });
 
             RegisterEndpoints();
+
+            // Unwired seed defaults to the -1 "unseeded" sentinel so
+            // GetSeedValue() derives a clock seed — a 0 default would make every
+            // unconfigured instance produce the same sequence.
+            m_Seed.SetDefault(-1);
         }
 
         void Init() final
         {
             OLO_PROFILE_FUNCTION();
-            InitializeInputs();
 
             // Initialize random generator with seed
             m_Random.SetSeed(GetSeedValue());
@@ -88,10 +88,12 @@ namespace OloEngine::Audio::SoundGraph
 
         //==========================================================================
         /// NodeProcessor setup
+        // Array plugs aren't expressible as typed stream connections (no primitive
+        // type); they stay raw pointers and the node null-checks them.
         std::vector<T>* m_Array = nullptr;
-        i32* m_Min = nullptr;
-        i32* m_Max = nullptr;
-        i32* m_Seed = nullptr;
+        IntRef m_Min;
+        IntRef m_Max;
+        IntRef m_Seed;
 
         OutputEvent m_OnNext{ *this };
         OutputEvent m_OnReset{ *this };
@@ -103,13 +105,11 @@ namespace OloEngine::Audio::SoundGraph
         FastRandomPCG m_Random;
 
         void RegisterEndpoints();
-        void InitializeInputs();
 
-        /// Helper method to get seed value with safe null checking
-        /// Returns: high-resolution clock value if m_Seed is null or -1, otherwise the provided seed
+        /// Helper method to resolve the seed: -1 (default) means clock-derived.
         i32 GetSeedValue() const
         {
-            return Detail::GetRandomSeedValue(m_Seed);
+            return Detail::GetRandomSeedValue(m_Seed.Get());
         }
 
         void ProcessNext()
@@ -127,8 +127,8 @@ namespace OloEngine::Audio::SoundGraph
             i32 arraySize = static_cast<i32>(m_Array->size());
 
             // Clamp both bounds to valid array indices [0, arraySize-1]
-            i32 minIndex = (m_Min) ? std::clamp(*m_Min, 0, arraySize - 1) : 0;
-            i32 maxIndex = (m_Max) ? std::clamp(*m_Max, 0, arraySize - 1) : arraySize - 1;
+            i32 minIndex = std::clamp(m_Min.Get(), 0, arraySize - 1);
+            i32 maxIndex = std::clamp(m_Max.Get(), 0, arraySize - 1);
 
             // Ensure minIndex <= maxIndex by swapping if necessary
             if (minIndex > maxIndex)
@@ -189,7 +189,6 @@ namespace OloEngine::Audio::SoundGraph
         {
             OLO_PROFILE_FUNCTION();
 
-            InitializeInputs();
             m_OutElement = T{};
         }
 
@@ -204,8 +203,9 @@ namespace OloEngine::Audio::SoundGraph
 
         //==========================================================================
         /// NodeProcessor setup
+        // Array plugs aren't expressible as typed stream connections; see GetRandom.
         std::vector<T>* m_Array = nullptr;
-        i32* m_Index = nullptr;
+        IntRef m_Index;
 
         OutputEvent m_OnTrigger{ *this };
         T m_OutElement{ T{} };
@@ -214,7 +214,6 @@ namespace OloEngine::Audio::SoundGraph
         Flag m_TriggerFlag;
 
         void RegisterEndpoints();
-        void InitializeInputs();
 
         void TriggerOutput(const T& element)
         {
@@ -236,16 +235,8 @@ namespace OloEngine::Audio::SoundGraph
                 return;
             }
 
-            // Validate index pointer exists
-            if (!m_Index)
-            {
-                // No index provided - use first element (index 0)
-                TriggerOutput((*m_Array)[0]);
-                return;
-            }
-
             // Perform bounds checking against actual array size
-            i32 index = *m_Index;
+            i32 index = m_Index.Get();
             i32 arraySize = static_cast<i32>(m_Array->size());
 
             if (index >= 0 && index < arraySize)
@@ -286,12 +277,16 @@ namespace OloEngine::Audio::SoundGraph
                        { (void)v; m_ResetFlag.SetDirty(); });
 
             RegisterEndpoints();
+
+            // Unwired seed defaults to the -1 "unseeded" sentinel so
+            // GetSeedValue() derives a clock seed — a 0 default would make every
+            // unconfigured instance produce the same sequence.
+            m_Seed.SetDefault(-1);
         }
 
         void Init() final
         {
             OLO_PROFILE_FUNCTION();
-            InitializeInputs();
 
             // Initialize random generator with seed
             m_Random.SetSeed(GetSeedValue());
@@ -313,9 +308,9 @@ namespace OloEngine::Audio::SoundGraph
 
         //==========================================================================
         /// NodeProcessor setup
-        T* m_Min = nullptr;
-        T* m_Max = nullptr;
-        i32* m_Seed = nullptr;
+        ValueRef<T> m_Min;
+        ValueRef<T> m_Max;
+        IntRef m_Seed;
 
         OutputEvent m_OnNext{ *this };
         OutputEvent m_OnReset{ *this };
@@ -327,27 +322,15 @@ namespace OloEngine::Audio::SoundGraph
         FastRandomPCG m_Random;
 
         void RegisterEndpoints();
-        void InitializeInputs();
 
-        /// Helper method to get seed value with safe null checking
-        /// Returns: high-resolution clock value if m_Seed is null or -1, otherwise the provided seed
+        /// Helper method to resolve the seed: -1 (default) means clock-derived.
         i32 GetSeedValue() const
         {
-            return Detail::GetRandomSeedValue(m_Seed);
+            return Detail::GetRandomSeedValue(m_Seed.Get());
         }
 
         void ProcessNext()
         {
-            // Validate input pointers before dereferencing
-            if (!m_Min || !m_Max)
-            {
-                // Handle null pointers gracefully - set default value and return
-                m_OutValue = T{};
-                OLO_CORE_WARN("Random: m_Min or m_Max is null, using default value");
-                m_OnNext(1.0f);
-                return;
-            }
-
             T randomValue;
 
             // Get type-appropriate bounds and normalize min/max ordering
@@ -356,8 +339,8 @@ namespace OloEngine::Audio::SoundGraph
             if constexpr (std::is_same_v<T, f32>)
             {
                 // For f32, clamp to reasonable audio range
-                minValue = glm::clamp(*m_Min, static_cast<f32>(-1000.0), static_cast<f32>(1000.0));
-                maxValue = glm::clamp(*m_Max, static_cast<f32>(-1000.0), static_cast<f32>(1000.0));
+                minValue = glm::clamp(m_Min.Get(), static_cast<f32>(-1000.0), static_cast<f32>(1000.0));
+                maxValue = glm::clamp(m_Max.Get(), static_cast<f32>(-1000.0), static_cast<f32>(1000.0));
 
                 // Ensure min <= max
                 if (minValue > maxValue)
@@ -370,8 +353,8 @@ namespace OloEngine::Audio::SoundGraph
                 // For integers, clamp to reasonable range
                 constexpr T typeMin = static_cast<T>(-100000);
                 constexpr T typeMax = static_cast<T>(100000);
-                minValue = glm::clamp(*m_Min, typeMin, typeMax);
-                maxValue = glm::clamp(*m_Max, typeMin, typeMax);
+                minValue = glm::clamp(m_Min.Get(), typeMin, typeMax);
+                maxValue = glm::clamp(m_Max.Get(), typeMin, typeMax);
 
                 // Ensure min <= max
                 if (minValue > maxValue)

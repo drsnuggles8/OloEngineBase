@@ -85,8 +85,8 @@ JUCE).
 >
 > - ✓ `ProcessSamples` does one `m_Graph->Process(frameCount)` call.
 > - ✓ Existing SoundGraph instantiation + serializer tests pass.
-> - ⏳ HelloDing Debug perf — still per-sample chain inside the graph; gated on
->   Phase 2 buffer-rate wiring.
+> - ✓ HelloDing Debug perf — landed with Phase 2's buffer-rate wiring (see the
+>   Phase 2 status block below).
 
 ### Signature change
 
@@ -154,6 +154,39 @@ maps if profiling says so).
 Mostly a wiring/cleanup phase. No new runtime behavior. Removes the parameter
 overlay hack in `NodeProcessor::ApplyAssetDefaultToParameter`.
 
+> **Status (2026-06-11): landed**, including the block-rate flip Phase 1
+> deferred. What shipped (see `StreamRefs.h` for the type definitions):
+>
+> - `AudioBuffer` (fixed-capacity per-output block buffer, stable `Data()`),
+>   `AudioBufferRef` (stride-0 scalar broadcast / stride-1 buffer read, with
+>   an inline unconnected-default cell), `ValueRef<T>` (`FloatRef` / `IntRef` /
+>   `Int64Ref` / `BoolRef`, never null — points at its own default until
+>   wired), and the `TriggerRef` Phase 4 stub.
+> - `NodeProcessor` carries `InputRefs` / `OutputSources` typed endpoint
+>   registries (the plan's `unordered_map<Identifier, AnyRef>`; profiling did
+>   not justify per-type splits). `ConnectStreams` validates type compatibility
+>   at wire time and patches the consumer's ref; the compile-time-typed
+>   `SoundGraph::AddConnection` overloads cover code-constructed graphs, gated
+>   by the `StreamValue` concept.
+> - Deleted: `StreamWriter`, `InputStreams`/`OutputStreams` ValueView maps,
+>   `ParameterWrapper` + `m_ParameterStorage` (`std::any`),
+>   `ApplyAssetDefaultToParameter`, `EndpointUtilities::InitializeInputs`, and
+>   the `m_OutputChannelViews` Phase 1 stopgap. Asset default plugs now write
+>   the ref's default cell directly (`SetInputDefault`).
+> - Rate model: every f32 node output is audio-rate (`AudioBuffer`); int/bool
+>   outputs are control-rate scalars. Float math nodes process per-frame, int
+>   math nodes once per block. Graph float parameters keep per-sample ramp
+>   fidelity via a per-cell ramp buffer the graph maintains at block rate.
+> - **`SoundGraph::Process(numFrames)` now calls each node once per block**,
+>   in producer-before-consumer order (Kahn over the recorded connection
+>   edges — a small pull-forward from Phase 3, because once-per-block calls
+>   would otherwise turn a mis-ordered hop's 1-sample latency into a full
+>   block). Requests larger than `kMaxAudioBlockFrames` (4096) are chunked.
+> - Bonus fix: node→node *value* connections actually work now. The old
+>   ValueView re-aliasing only fed the graph-output path; interior value wires
+>   silently delivered nothing because nodes read their `ParameterWrapper`
+>   copies. `SoundGraphTypedConnectionTest.cpp` pins the working behavior.
+
 ## Phase 3 — compiled execution plan
 
 The "compiler" part, without LLVM. Done once on graph load, used every
@@ -211,3 +244,26 @@ inspect `SampleOffset` and split their `Execute` at that frame index.
 - **2026-05-20.** Chose phased rollout (1 → 4) over big-bang rewrite. Each
   phase ships an observable improvement; we can stop after Phase 1 if the
   perf bug is solved and the architecture is acceptable.
+- **2026-06-11.** Made *every* f32 stream audio-rate (block buffers) instead
+  of introducing a per-pin audio/control distinction. The editor's data model
+  has no pin-rate metadata, and a control-rate float wire silently delivering
+  only one sample per block (e.g. envelope → amplitude) is the kind of wrong
+  that no one debugs happily. Cost is 16 KB per float output (fixed 4096-frame
+  buffers, allocated once for pointer stability); Phase 3's contiguous pool
+  can shrink this if it ever matters. Int/bool stay control-rate scalars.
+- **2026-06-11.** Pulled the topological node ordering forward from Phase 3
+  (plain Kahn over recorded connection edges, stable w.r.t. authoring order,
+  cycles keep authoring order with a warning). Once-per-block calls without
+  ordering would give consumer-before-producer graphs a full block of latency
+  per hop where the per-sample walk had one sample. Phase 3 still owns the
+  flat-opcode lowering; this is just `std::vector<NodeProcessor*>` order.
+- **2026-06-11.** Float graph parameters keep per-sample ramp fidelity: each
+  float cell owns a block buffer the graph broadcast-fills lazily (dirty flag)
+  and per-frame-fills while a `SendInputValue(interpolate=true)` ramp is
+  active. The alternative (block-rate scalar updates) would have turned the
+  10 ms ramps into one-step jumps — audible zipper on volume automation.
+- **2026-06-11.** Moved the math/music template nodes' `RegisterEndpoints`
+  out-of-line into `NodeTypes.cpp` (same pattern as the array nodes). Inline
+  definitions made registration an ODR coin-flip: TUs that don't include
+  `NodeDescriptions.h` (e.g. `SoundGraphFactory.cpp`) instantiated a no-op
+  body and the linker was free to pick it.
