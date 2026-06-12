@@ -35,11 +35,24 @@ namespace OloEngine
         // Optional entity whose world position overrides LimbTarget each frame.
         UUID LimbTargetEntity = 0;
 
+        // --- Chain IK (FABRIK full N-bone chain — spines, tails, tentacles) ---
+        bool ChainIKEnabled = false;
+        u32 ChainBoneIndex = 0; // tip / end-effector bone of the chain
+        glm::vec3 ChainTarget{ 0.0f };
+        glm::vec3 ChainPoleVector{ 0.0f }; // world-space bend hint; zero = disabled
+        u32 ChainLength = 3;               // number of bones in the chain (>= 2)
+        u32 ChainIterations = 10;
+        f32 ChainTolerance = 0.001f;
+        f32 ChainWeight = 1.0f;
+
+        // Optional entity whose world position overrides ChainTarget each frame.
+        UUID ChainTargetEntity = 0;
+
         // Manual operator== — UUID's implicit operator u64() causes C2666 on MSVC
         // with defaulted ==; float members use Math::BitwiseEqual for bitwise-exact undo detection.
         auto operator==(const IKTargetComponent& o) const -> bool
         {
-            return AimIKEnabled == o.AimIKEnabled && AimBoneIndex == o.AimBoneIndex && Math::BitwiseEqual(AimTarget, o.AimTarget) && Math::BitwiseEqual(AimAxis, o.AimAxis) && Math::BitwiseEqual(AimOffset, o.AimOffset) && Math::BitwiseEqual(AimPoleVector, o.AimPoleVector) && AimChainLength == o.AimChainLength && Math::BitwiseEqual(AimChainFactor, o.AimChainFactor) && Math::BitwiseEqual(AimWeight, o.AimWeight) && static_cast<u64>(AimTargetEntity) == static_cast<u64>(o.AimTargetEntity) && LimbIKEnabled == o.LimbIKEnabled && LimbBoneIndex == o.LimbBoneIndex && Math::BitwiseEqual(LimbTarget, o.LimbTarget) && LimbChainLength == o.LimbChainLength && Math::BitwiseEqual(LimbWeight, o.LimbWeight) && static_cast<u64>(LimbTargetEntity) == static_cast<u64>(o.LimbTargetEntity);
+            return AimIKEnabled == o.AimIKEnabled && AimBoneIndex == o.AimBoneIndex && Math::BitwiseEqual(AimTarget, o.AimTarget) && Math::BitwiseEqual(AimAxis, o.AimAxis) && Math::BitwiseEqual(AimOffset, o.AimOffset) && Math::BitwiseEqual(AimPoleVector, o.AimPoleVector) && AimChainLength == o.AimChainLength && Math::BitwiseEqual(AimChainFactor, o.AimChainFactor) && Math::BitwiseEqual(AimWeight, o.AimWeight) && static_cast<u64>(AimTargetEntity) == static_cast<u64>(o.AimTargetEntity) && LimbIKEnabled == o.LimbIKEnabled && LimbBoneIndex == o.LimbBoneIndex && Math::BitwiseEqual(LimbTarget, o.LimbTarget) && LimbChainLength == o.LimbChainLength && Math::BitwiseEqual(LimbWeight, o.LimbWeight) && static_cast<u64>(LimbTargetEntity) == static_cast<u64>(o.LimbTargetEntity) && ChainIKEnabled == o.ChainIKEnabled && ChainBoneIndex == o.ChainBoneIndex && Math::BitwiseEqual(ChainTarget, o.ChainTarget) && Math::BitwiseEqual(ChainPoleVector, o.ChainPoleVector) && ChainLength == o.ChainLength && ChainIterations == o.ChainIterations && Math::BitwiseEqual(ChainTolerance, o.ChainTolerance) && Math::BitwiseEqual(ChainWeight, o.ChainWeight) && static_cast<u64>(ChainTargetEntity) == static_cast<u64>(o.ChainTargetEntity);
         }
     };
 } // namespace OloEngine

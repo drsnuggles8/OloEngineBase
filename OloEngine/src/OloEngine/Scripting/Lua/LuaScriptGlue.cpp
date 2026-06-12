@@ -1716,7 +1716,30 @@ namespace OloEngine
                                                                         { if (std::isfinite(v)) c.LimbWeight = std::clamp(v, 0.0f, 1.0f); }),
                                             "limbTargetEntity", sol::property([](const IKTargetComponent& c)
                                                                               { return static_cast<u64>(c.LimbTargetEntity); }, [](IKTargetComponent& c, u64 id)
-                                                                              { c.LimbTargetEntity = UUID(id); }));
+                                                                              { c.LimbTargetEntity = UUID(id); }),
+                                            "chainIKEnabled", &IKTargetComponent::ChainIKEnabled,
+                                            "chainBoneIndex", &IKTargetComponent::ChainBoneIndex,
+                                            "chainTarget", sol::property([](const IKTargetComponent& c)
+                                                                         { return c.ChainTarget; }, [](IKTargetComponent& c, const glm::vec3& v)
+                                                                         { if (IsFiniteVec3(v)) c.ChainTarget = v; }),
+                                            "chainPoleVector", sol::property([](const IKTargetComponent& c)
+                                                                             { return c.ChainPoleVector; }, [](IKTargetComponent& c, const glm::vec3& v)
+                                                                             { if (IsFiniteVec3(v)) c.ChainPoleVector = v; }),
+                                            "chainLength", sol::property([](const IKTargetComponent& c)
+                                                                         { return c.ChainLength; }, [](IKTargetComponent& c, u32 v)
+                                                                         { c.ChainLength = std::max(2u, v); }),
+                                            "chainIterations", sol::property([](const IKTargetComponent& c)
+                                                                             { return c.ChainIterations; }, [](IKTargetComponent& c, u32 v)
+                                                                             { c.ChainIterations = std::clamp(v, 1u, 128u); }),
+                                            "chainTolerance", sol::property([](const IKTargetComponent& c)
+                                                                            { return c.ChainTolerance; }, [](IKTargetComponent& c, f32 v)
+                                                                            { if (std::isfinite(v)) c.ChainTolerance = std::clamp(v, 0.0f, 10.0f); }),
+                                            "chainWeight", sol::property([](const IKTargetComponent& c)
+                                                                         { return c.ChainWeight; }, [](IKTargetComponent& c, f32 v)
+                                                                         { if (std::isfinite(v)) c.ChainWeight = std::clamp(v, 0.0f, 1.0f); }),
+                                            "chainTargetEntity", sol::property([](const IKTargetComponent& c)
+                                                                               { return static_cast<u64>(c.ChainTargetEntity); }, [](IKTargetComponent& c, u64 id)
+                                                                               { c.ChainTargetEntity = UUID(id); }));
 
         // --- SpringBoneComponent ---
         lua.new_usertype<SpringBoneComponent>("SpringBoneComponent",
