@@ -131,6 +131,10 @@ namespace OloEngine::Animation
         else
         {
             // --- FABRIK iterations ---
+            // Pre-solve positions provide a deterministic fallback direction
+            // when a pass produces coincident joints, so bone lengths are
+            // preserved instead of collapsing the segment.
+            const std::vector<glm::vec3> initialJointPositions = jointPositions;
             f32 tolerance2 = tolerance * tolerance;
             for (u32 iter = 0; iter < params.MaxIterations; ++iter)
             {
@@ -152,7 +156,12 @@ namespace OloEngine::Animation
                     }
                     else
                     {
-                        jointPositions[idx - 1] = jointPositions[idx];
+                        // Coincident joints: fall back to the pre-solve segment
+                        // direction to keep the bone length. (SafeNormalize
+                        // yields zero only for a genuine zero-length bone,
+                        // where boneLengths[idx] is 0 and this is exact.)
+                        auto fallbackDir = SafeNormalize(initialJointPositions[idx - 1] - initialJointPositions[idx]);
+                        jointPositions[idx - 1] = jointPositions[idx] + fallbackDir * boneLengths[idx];
                     }
                 }
 
@@ -168,7 +177,8 @@ namespace OloEngine::Animation
                     }
                     else
                     {
-                        jointPositions[i] = jointPositions[i - 1];
+                        auto fallbackDir = SafeNormalize(initialJointPositions[i] - initialJointPositions[i - 1]);
+                        jointPositions[i] = jointPositions[i - 1] + fallbackDir * boneLengths[i];
                     }
                 }
             }
