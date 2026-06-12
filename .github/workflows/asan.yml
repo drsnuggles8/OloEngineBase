@@ -199,12 +199,20 @@ jobs:
         python3 -m pip install --upgrade pip jinja2
 
     - name: Configure CMake (ASan + LSan)
+      # -fuse-ld=lld: the default GNU BFD ld holds the entire Debug +
+      # sanitizer-instrumented link (engine, vendored static libs, DWARF) in
+      # memory at once and can exceed the 16 GB on hosted runners — the OOM
+      # reaper then kills the runner agent mid-link ("The runner has received
+      # a shutdown signal", gmake "Terminated", partial output deleted). lld
+      # (installed above, version-matched via clang's own bin dir) links the
+      # same binary in a fraction of the memory and time.
       run: >
         cmake -S . -B build
         -DOLO_VIDEO_FFMPEG=OFF
         -DCMAKE_CXX_COMPILER=clang++-19
         -DCMAKE_C_COMPILER=clang-19
         -DCMAKE_BUILD_TYPE=Debug
+        -DCMAKE_EXE_LINKER_FLAGS=-fuse-ld=lld
         -DOLO_ENABLE_ASAN=ON
         -DBUILD_TESTS=ON
 
@@ -298,12 +306,15 @@ jobs:
         python3 -m pip install --upgrade pip jinja2
 
     - name: Configure CMake (UBSan)
+      # -fuse-ld=lld: see the ASan + LSan configure step above — BFD ld can
+      # OOM the runner during the final OloEngine-Tests link.
       run: >
         cmake -S . -B build
         -DOLO_VIDEO_FFMPEG=OFF
         -DCMAKE_CXX_COMPILER=clang++-19
         -DCMAKE_C_COMPILER=clang-19
         -DCMAKE_BUILD_TYPE=Debug
+        -DCMAKE_EXE_LINKER_FLAGS=-fuse-ld=lld
         -DOLO_ENABLE_UBSAN=ON
         -DBUILD_TESTS=ON
 
@@ -392,12 +403,15 @@ jobs:
         python3 -m pip install --upgrade pip jinja2
 
     - name: Configure CMake (TSan)
+      # -fuse-ld=lld: see the ASan + LSan configure step above — BFD ld can
+      # OOM the runner during the final OloEngine-Tests link.
       run: >
         cmake -S . -B build
         -DOLO_VIDEO_FFMPEG=OFF
         -DCMAKE_CXX_COMPILER=clang++-19
         -DCMAKE_C_COMPILER=clang-19
         -DCMAKE_BUILD_TYPE=Debug
+        -DCMAKE_EXE_LINKER_FLAGS=-fuse-ld=lld
         -DOLO_ENABLE_TSAN=ON
         -DBUILD_TESTS=ON
 
