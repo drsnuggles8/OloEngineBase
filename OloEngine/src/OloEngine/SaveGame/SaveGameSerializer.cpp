@@ -1,10 +1,19 @@
 #include "OloEnginePCH.h"
 #include "SaveGameSerializer.h"
 
+#include "OloEngine/AI/AIComponents.h"
 #include "OloEngine/Animation/AnimatedMeshComponents.h"
+#include "OloEngine/Animation/AnimationGraphComponent.h"
+#include "OloEngine/Animation/IKTargetComponent.h"
+#include "OloEngine/Animation/MorphTargets/MorphTargetComponents.h"
+#include "OloEngine/Cinematic/CinematicComponent.h"
 #include "OloEngine/Core/Hash.h"
+#include "OloEngine/Gameplay/Abilities/AbilityComponents.h"
+#include "OloEngine/Gameplay/Inventory/InventoryComponents.h"
+#include "OloEngine/Gameplay/Quest/QuestComponents.h"
 #include "OloEngine/Physics3D/JoltBody.h"
 #include "OloEngine/Physics3D/JoltScene.h"
+#include "OloEngine/Renderer/Instancing/InstancedMeshComponent.h"
 #include "OloEngine/SaveGame/ISaveable.h"
 #include "OloEngine/SaveGame/SaveGameComponentSerializer.h"
 #include "OloEngine/Scene/Components.h"
@@ -345,6 +354,34 @@ namespace OloEngine
             SAVE_COMPONENT(AnimationStateComponent, entity, writer);
             SAVE_COMPONENT(StreamingVolumeComponent, entity, writer);
             SAVE_COMPONENT(SpringBoneComponent, entity, writer);
+            SAVE_COMPONENT(SkeletonComponent, entity, writer);
+            SAVE_COMPONENT(IKTargetComponent, entity, writer);
+            SAVE_COMPONENT(MorphTargetComponent, entity, writer);
+            SAVE_COMPONENT(AnimationGraphComponent, entity, writer);
+            SAVE_COMPONENT(VideoOverlayComponent, entity, writer);
+            SAVE_COMPONENT(VideoSurfaceComponent, entity, writer);
+            SAVE_COMPONENT(SphereAreaLightComponent, entity, writer);
+            SAVE_COMPONENT(ProceduralSkyComponent, entity, writer);
+            SAVE_COMPONENT(StarNestSkyComponent, entity, writer);
+            SAVE_COMPONENT(TileRendererComponent, entity, writer);
+            SAVE_COMPONENT(InstancedMeshComponent, entity, writer);
+            SAVE_COMPONENT(BuoyancyComponent, entity, writer);
+            SAVE_COMPONENT(LuaScriptComponent, entity, writer);
+            SAVE_COMPONENT(DialogueComponent, entity, writer);
+            SAVE_COMPONENT(NavMeshBoundsComponent, entity, writer);
+            SAVE_COMPONENT(NavAgentComponent, entity, writer);
+            SAVE_COMPONENT(NameplateComponent, entity, writer);
+            SAVE_COMPONENT(UIWorldAnchorComponent, entity, writer);
+            SAVE_COMPONENT(CinematicComponent, entity, writer);
+            SAVE_COMPONENT(BehaviorTreeComponent, entity, writer);
+            SAVE_COMPONENT(StateMachineComponent, entity, writer);
+            SAVE_COMPONENT(GoapAgentComponent, entity, writer);
+            SAVE_COMPONENT(InventoryComponent, entity, writer);
+            SAVE_COMPONENT(ItemPickupComponent, entity, writer);
+            SAVE_COMPONENT(ItemContainerComponent, entity, writer);
+            SAVE_COMPONENT(QuestJournalComponent, entity, writer);
+            SAVE_COMPONENT(QuestGiverComponent, entity, writer);
+            SAVE_COMPONENT(AbilityComponent, entity, writer);
 
             // ISaveable blob for ScriptComponent custom state
             if (entity.HasComponent<ScriptComponent>())
@@ -548,6 +585,34 @@ namespace OloEngine
                 TRY_LOAD_COMPONENT(AnimationStateComponent);
                 TRY_LOAD_COMPONENT(StreamingVolumeComponent);
                 TRY_LOAD_COMPONENT(SpringBoneComponent);
+                TRY_LOAD_COMPONENT(SkeletonComponent);
+                TRY_LOAD_COMPONENT(IKTargetComponent);
+                TRY_LOAD_COMPONENT(MorphTargetComponent);
+                TRY_LOAD_COMPONENT(AnimationGraphComponent);
+                TRY_LOAD_COMPONENT(VideoOverlayComponent);
+                TRY_LOAD_COMPONENT(VideoSurfaceComponent);
+                TRY_LOAD_COMPONENT(SphereAreaLightComponent);
+                TRY_LOAD_COMPONENT(ProceduralSkyComponent);
+                TRY_LOAD_COMPONENT(StarNestSkyComponent);
+                TRY_LOAD_COMPONENT(TileRendererComponent);
+                TRY_LOAD_COMPONENT(InstancedMeshComponent);
+                TRY_LOAD_COMPONENT(BuoyancyComponent);
+                TRY_LOAD_COMPONENT(LuaScriptComponent);
+                TRY_LOAD_COMPONENT(DialogueComponent);
+                TRY_LOAD_COMPONENT(NavMeshBoundsComponent);
+                TRY_LOAD_COMPONENT(NavAgentComponent);
+                TRY_LOAD_COMPONENT(NameplateComponent);
+                TRY_LOAD_COMPONENT(UIWorldAnchorComponent);
+                TRY_LOAD_COMPONENT(CinematicComponent);
+                TRY_LOAD_COMPONENT(BehaviorTreeComponent);
+                TRY_LOAD_COMPONENT(StateMachineComponent);
+                TRY_LOAD_COMPONENT(GoapAgentComponent);
+                TRY_LOAD_COMPONENT(InventoryComponent);
+                TRY_LOAD_COMPONENT(ItemPickupComponent);
+                TRY_LOAD_COMPONENT(ItemContainerComponent);
+                TRY_LOAD_COMPONENT(QuestJournalComponent);
+                TRY_LOAD_COMPONENT(QuestGiverComponent);
+                TRY_LOAD_COMPONENT(AbilityComponent);
 
 #undef TRY_LOAD_COMPONENT
 
