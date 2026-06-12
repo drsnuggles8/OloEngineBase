@@ -161,7 +161,75 @@ Show-Tool 'olo_log_tail' @{ count = 5; minLevel = 'warn' } | Out-Null
 # 22. Crash reports
 Show-Tool 'olo_crash_list' @{} | Out-Null
 
-# 23-24. Prompts (third MCP primitive)
+# 25-29. Tier-0 camera / viewport control + render-target capture (#316)
+$camGet = Show-Tool 'olo_camera_get' @{}
+$camObj = $camGet.result.content[0].text | ConvertFrom-Json
+Show-Tool 'olo_camera_set_pose' @{ position = @(0, 5, 10); target = @(0, 0, 0) } | Out-Null
+Show-Tool 'olo_camera_orbit' @{ target = @(0, 0, 0); yaw = 45; pitch = 30; distance = 15 } | Out-Null
+
+# frame an entity if one exists
+if ($listObj.entities.Count -gt 0) {
+    Show-Tool 'olo_camera_frame_entity' @{ id = $listObj.entities[0].id } | Out-Null
+}
+
+# restore the original camera state: when it had a live orbit pivot (distance > 0)
+# restore via olo_camera_orbit so focal point + distance survive; otherwise restore
+# the free pose. Either way restore the FOV too.
+if ($camObj.distance -gt 0) {
+    Show-Tool 'olo_camera_orbit' @{ target = @($camObj.focalPoint[0], $camObj.focalPoint[1], $camObj.focalPoint[2]); yaw = $camObj.yawDegrees; pitch = $camObj.pitchDegrees; distance = $camObj.distance; fov = $camObj.fovDegrees } | Out-Null
+} else {
+    Show-Tool 'olo_camera_set_pose' @{ position = @($camObj.position[0], $camObj.position[1], $camObj.position[2]); yaw = $camObj.yawDegrees; pitch = $camObj.pitchDegrees; fov = $camObj.fovDegrees } | Out-Null
+}
+
+# viewport override + reset
+Show-Tool 'olo_viewport_set_size' @{ width = 1280; height = 720 } | Out-Null
+Show-Tool 'olo_viewport_set_size' @{ reset = $true } | Out-Null
+
+# 30. olo_screenshot with a one-shot camera pose (save/restore path).
+# Orbit the sandbox terrain's centre (terrain spans [0,256]^2) — orbiting the
+# world origin puts the camera underground here and captures a black frame.
+$posedShot = Invoke-Rpc 'tools/call' @{ name = 'olo_screenshot'; arguments = @{ maxWidth = 512; orbit = @{ target = @(128, 24, 128); yaw = 90; pitch = 35; distance = 300 }; settleFrames = 2 } }
+$posedBlock = $posedShot.result.content | Where-Object { $_.type -eq 'image' } | Select-Object -First 1
+if ($posedBlock -and $posedBlock.data) {
+    $bytes = [Convert]::FromBase64String($posedBlock.data)
+    $outPng = Join-Path $env:TEMP 'olo-mcp-screenshot-posed.png'
+    [IO.File]::WriteAllBytes($outPng, $bytes)
+    Write-Host "tools/call olo_screenshot(orbit) -> $($bytes.Length) bytes, saved to $outPng" -ForegroundColor Green
+} else {
+    Write-Error 'Posed screenshot did not return an image content block'
+}
+
+# 31-32. Render-target listing + capture. The tool errors (plain-text content,
+# not JSON) when no render graph is active, so guard before parsing.
+$targets = Show-Tool 'olo_render_list_targets' @{}
+$targetsObj = $null
+if (-not $targets.result -or $targets.result.isError -or -not $targets.result.content) {
+    Write-Host '(no render targets — editor not in 3D mode?)' -ForegroundColor Yellow
+} else {
+    $targetsObj = $targets.result.content[0].text | ConvertFrom-Json
+}
+if ($targetsObj -and $targetsObj.count -gt 0) {
+    foreach ($targetName in @('SceneColor', 'SceneDepth')) {
+        if ($targetsObj.targets | Where-Object { $_.name -eq $targetName }) {
+            $cap = Invoke-Rpc 'tools/call' @{ name = 'olo_render_capture_target'; arguments = @{ name = $targetName; maxWidth = 512 } }
+            $img = $cap.result.content | Where-Object { $_.type -eq 'image' } | Select-Object -First 1
+            $meta = $cap.result.content | Where-Object { $_.type -eq 'text' } | Select-Object -First 1
+            if ($img -and $img.data) {
+                $bytes = [Convert]::FromBase64String($img.data)
+                $outPng = Join-Path $env:TEMP "olo-mcp-target-$targetName.png"
+                [IO.File]::WriteAllBytes($outPng, $bytes)
+                Write-Host "tools/call olo_render_capture_target($targetName) -> $($bytes.Length) bytes, saved to $outPng" -ForegroundColor Green
+                Write-Host "  meta: $(($meta.text -replace '\s+', ' '))"
+            } else {
+                Write-Error "olo_render_capture_target($targetName) did not return an image"
+            }
+        }
+    }
+} elseif ($targetsObj) {
+    Write-Host '(no render targets — editor not in 3D mode?)' -ForegroundColor Yellow
+}
+
+# 33-34. Prompts (third MCP primitive)
 $plist = Invoke-Rpc 'prompts/list' $null
 Write-Host "prompts/list -> $($plist.result.prompts.Count) prompts: $(@($plist.result.prompts | ForEach-Object { $_.name }) -join ', ')" -ForegroundColor Green
 $pget = Invoke-Rpc 'prompts/get' @{ name = 'diagnose-performance' }
