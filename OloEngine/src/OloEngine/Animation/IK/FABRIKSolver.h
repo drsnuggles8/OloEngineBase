@@ -15,8 +15,8 @@ namespace OloEngine::Animation
         u32 ChainLength = 3;              // number of bones in IK chain (>= 2)
         glm::vec3 PoleVector{ 0.0f };     // model-space bend hint; zero-length = disabled
         u32 MaxIterations = 10;
-        f32 Tolerance = 0.001f;           // model-space distance at which the target counts as reached
-        f32 Weight = 1.0f;                // 0..1 blend between original and IK result
+        f32 Tolerance = 0.001f; // model-space distance at which the target counts as reached
+        f32 Weight = 1.0f;      // 0..1 blend between original and IK result
     };
 
     // General N-bone FABRIK chain solver for long chains (spines, tails,
