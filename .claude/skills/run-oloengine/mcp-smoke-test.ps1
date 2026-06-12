@@ -172,8 +172,14 @@ if ($listObj.entities.Count -gt 0) {
     Show-Tool 'olo_camera_frame_entity' @{ id = $listObj.entities[0].id } | Out-Null
 }
 
-# restore something close to the original camera pose
-Show-Tool 'olo_camera_set_pose' @{ position = @($camObj.position[0], $camObj.position[1], $camObj.position[2]); yaw = $camObj.yawDegrees; pitch = $camObj.pitchDegrees } | Out-Null
+# restore the original camera state: when it had a live orbit pivot (distance > 0)
+# restore via olo_camera_orbit so focal point + distance survive; otherwise restore
+# the free pose. Either way restore the FOV too.
+if ($camObj.distance -gt 0) {
+    Show-Tool 'olo_camera_orbit' @{ target = @($camObj.focalPoint[0], $camObj.focalPoint[1], $camObj.focalPoint[2]); yaw = $camObj.yawDegrees; pitch = $camObj.pitchDegrees; distance = $camObj.distance; fov = $camObj.fovDegrees } | Out-Null
+} else {
+    Show-Tool 'olo_camera_set_pose' @{ position = @($camObj.position[0], $camObj.position[1], $camObj.position[2]); yaw = $camObj.yawDegrees; pitch = $camObj.pitchDegrees; fov = $camObj.fovDegrees } | Out-Null
+}
 
 # viewport override + reset
 Show-Tool 'olo_viewport_set_size' @{ width = 1280; height = 720 } | Out-Null
@@ -193,10 +199,16 @@ if ($posedBlock -and $posedBlock.data) {
     Write-Error 'Posed screenshot did not return an image content block'
 }
 
-# 31-32. Render-target listing + capture
+# 31-32. Render-target listing + capture. The tool errors (plain-text content,
+# not JSON) when no render graph is active, so guard before parsing.
 $targets = Show-Tool 'olo_render_list_targets' @{}
-$targetsObj = $targets.result.content[0].text | ConvertFrom-Json
-if ($targetsObj.count -gt 0) {
+$targetsObj = $null
+if (-not $targets.result -or $targets.result.isError -or -not $targets.result.content) {
+    Write-Host '(no render targets — editor not in 3D mode?)' -ForegroundColor Yellow
+} else {
+    $targetsObj = $targets.result.content[0].text | ConvertFrom-Json
+}
+if ($targetsObj -and $targetsObj.count -gt 0) {
     foreach ($targetName in @('SceneColor', 'SceneDepth')) {
         if ($targetsObj.targets | Where-Object { $_.name -eq $targetName }) {
             $cap = Invoke-Rpc 'tools/call' @{ name = 'olo_render_capture_target'; arguments = @{ name = $targetName; maxWidth = 512 } }
@@ -213,7 +225,7 @@ if ($targetsObj.count -gt 0) {
             }
         }
     }
-} else {
+} elseif ($targetsObj) {
     Write-Host '(no render targets — editor not in 3D mode?)' -ForegroundColor Yellow
 }
 

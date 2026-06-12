@@ -814,7 +814,16 @@ namespace OloEngine
         // GL 4.5 DSA: a texture object knows its own target.
         GLint target = 0;
         glGetTextureParameteriv(textureId, GL_TEXTURE_TARGET, &target);
-        const bool isLayered = target == GL_TEXTURE_CUBE_MAP || target == GL_TEXTURE_CUBE_MAP_ARRAY ||
+        // Cube-map arrays encode the glGetTextureSubImage z offset as
+        // layer * 6 + face — a single faceOrLayer parameter can't express that
+        // contract unambiguously, so reject rather than guess. No engine render
+        // target uses cube-map arrays today; split the parameter if one appears.
+        if (target == GL_TEXTURE_CUBE_MAP_ARRAY)
+        {
+            result.Error = "cube-map-array textures are not supported (faceOrLayer cannot express layer+face)";
+            return result;
+        }
+        const bool isLayered = target == GL_TEXTURE_CUBE_MAP ||
                                target == GL_TEXTURE_2D_ARRAY || target == GL_TEXTURE_3D;
 
         GLint width = 0;

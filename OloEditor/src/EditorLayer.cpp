@@ -350,6 +350,14 @@ namespace OloEngine
             { return FrameEditorCameraOnEntity(entityUuid); };
             mcpContext.SetViewportSizeOverride = [this](u32 width, u32 height)
             {
+                // The MCP tool layer already clamps to [64, 8192]; re-clamp here so
+                // the framebuffer/render-graph resize in OnUpdate can never see an
+                // oversized request even if another caller appears. 0,0 = clear.
+                if (width != 0 || height != 0)
+                {
+                    width = std::clamp(width, 64u, 8192u);
+                    height = std::clamp(height, 64u, 8192u);
+                }
                 m_McpViewportSizeOverride = { width, height };
             };
             mcpContext.GetFrameIndex = [this]() -> u64
@@ -2593,9 +2601,14 @@ namespace OloEngine
             radius = std::max({ sx, sy, sz, 0.5f });
         }
 
-        // Keep the current view direction; just re-pivot and fit. 2.5x the
-        // bounding radius comfortably fits the entity at the default 30-45 FOV.
-        m_EditorCamera.Focus(center, radius * 2.5f, m_EditorCamera.GetYaw(), m_EditorCamera.GetPitch());
+        // Keep the current view direction; just re-pivot and fit. Derive the
+        // distance from the camera's vertical FOV so the bounding sphere fills
+        // the frame at any FOV (a fixed multiplier underfits at the editor's
+        // default 30 degrees), with a small margin so silhouettes don't touch
+        // the frame edge.
+        const f32 fovRadians = glm::radians(m_EditorCamera.GetFOV());
+        const f32 fitDistance = (radius / std::tan(fovRadians * 0.5f)) * 1.05f;
+        m_EditorCamera.Focus(center, fitDistance, m_EditorCamera.GetYaw(), m_EditorCamera.GetPitch());
         return true;
     }
 

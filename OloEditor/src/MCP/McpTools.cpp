@@ -1005,6 +1005,9 @@ namespace OloEngine::MCP
             }
             else if (hasAngles)
             {
+                if ((args.contains("yaw") && !args["yaw"].is_number()) ||
+                    (args.contains("pitch") && !args["pitch"].is_number()))
+                    return "Invalid 'yaw'/'pitch': expected numbers (degrees).";
                 const f32 yawDeg = args.value("yaw", 0.0f);
                 const f32 pitchDeg = args.value("pitch", 0.0f);
                 if (!std::isfinite(yawDeg) || !std::isfinite(pitchDeg))
@@ -1019,6 +1022,8 @@ namespace OloEngine::MCP
 
             if (args.contains("fov"))
             {
+                if (!args["fov"].is_number())
+                    return "Invalid 'fov': expected a number (degrees).";
                 const f32 fov = args.value("fov", 0.0f);
                 if (!std::isfinite(fov) || fov < 1.0f || fov > 170.0f)
                     return "Invalid 'fov': expected degrees in [1, 170].";
@@ -1033,6 +1038,10 @@ namespace OloEngine::MCP
             out.IsOrbit = true;
             if (!args.contains("target") || !ParseVec3(args["target"], out.EyeOrTarget))
                 return "Missing or invalid 'target': expected [x, y, z] finite numbers.";
+            if ((args.contains("yaw") && !args["yaw"].is_number()) ||
+                (args.contains("pitch") && !args["pitch"].is_number()) ||
+                (args.contains("distance") && !args["distance"].is_number()))
+                return "Invalid 'yaw'/'pitch'/'distance': expected numbers.";
             const f32 yawDeg = args.value("yaw", 0.0f);
             const f32 pitchDeg = args.value("pitch", 30.0f);
             const f32 distance = args.value("distance", 10.0f);
@@ -1043,6 +1052,8 @@ namespace OloEngine::MCP
             out.Distance = distance;
             if (args.contains("fov"))
             {
+                if (!args["fov"].is_number())
+                    return "Invalid 'fov': expected a number (degrees).";
                 const f32 fov = args.value("fov", 0.0f);
                 if (!std::isfinite(fov) || fov < 1.0f || fov > 170.0f)
                     return "Invalid 'fov': expected degrees in [1, 170].";

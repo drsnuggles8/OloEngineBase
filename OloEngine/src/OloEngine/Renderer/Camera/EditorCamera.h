@@ -7,6 +7,8 @@
 
 #include <glm/glm.hpp>
 
+#include <algorithm> // std::clamp (SetFOV), std::max (SetFlySpeed) — keep the header self-contained
+
 namespace OloEngine
 {
     class Gamepad;
