@@ -13,9 +13,11 @@ namespace OloEngine
     class CommandHistory;
 
     // Surface scatter brush for `InstancedMeshComponent` — paints placements
-    // onto the terrain heightmap each frame the left mouse is held. Designed
-    // to mirror `TerrainEditorPanel` so the EditorLayer plumbing
-    // (raycast / mouse intercept / overlay rendering) follows the same shape.
+    // onto the terrain heightmap or mesh surfaces (whichever the viewport ray
+    // hits first; EditorLayer resolves the precedence) each frame the left
+    // mouse is held. Designed to mirror `TerrainEditorPanel` so the
+    // EditorLayer plumbing (raycast / mouse intercept / overlay rendering)
+    // follows the same shape.
     //
     // Mode lifecycle: `Off` is the default (no viewport interception). `Paint`
     // enters tool mode — left-click + drag inside the viewport triggers
@@ -28,8 +30,6 @@ namespace OloEngine
     // into the live component; the undo command restores the snapshot.
     //
     // **Out of scope** (deferred):
-    //   - Mesh-surface scatter (no BVH ray-cast yet — see
-    //     `docs/GPU_INSTANCING_FUTURE_IMPROVEMENTS.md` §1.2).
     //   - Brush ring preview in the 3D overlay (debug-line ring helper
     //     would have to be added to Renderer3D; not blocking the workflow).
     class InstanceScatterBrushPanel
@@ -57,10 +57,14 @@ namespace OloEngine
         // that receives painted placements.
         void OnImGuiRender();
 
-        // Called from EditorLayer each frame with terrain raycast info.
-        // `surfaceNormal` should be the world-space normal at `hitPos`;
-        // pass `vec3(0, 1, 0)` for surfaces without a meaningful normal
-        // (the slope filter then trivially passes for any threshold ≤ 1).
+        // Called from EditorLayer each frame with the result of its
+        // dual-surface raycast (terrain heightmap or scene mesh surfaces —
+        // EditorLayer feeds in whichever hit is nearer along the view ray).
+        // `surfaceNormal` should be the world-space normal at `hitPos`
+        // (heightmap finite differences for terrain, the struck triangle's
+        // normal for meshes); pass `vec3(0, 1, 0)` for surfaces without a
+        // meaningful normal (the slope filter then trivially passes for any
+        // threshold ≤ 1).
         void OnUpdate(f32 deltaTime, const glm::vec3& hitPos, const glm::vec3& surfaceNormal,
                       bool hasHit, bool mouseDown);
 

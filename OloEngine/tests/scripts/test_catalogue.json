@@ -279,6 +279,7 @@
     "OloEngine/tests/MCP/McpDispatchTest.cpp": "unit",
     "OloEngine/tests/MathTest.cpp": "unit",
     "OloEngine/tests/ModelImporterTest.cpp": "unit",
+    "OloEngine/tests/SceneMeshRaycastTest.cpp": "unit",
     "OloEngine/tests/Memory/MemoryViewTest.cpp": "unit",
     "OloEngine/tests/MeshCookingFactoryCacheTest.cpp": "unit",
     "OloEngine/tests/StaticMeshColliderGenerationTest.cpp": "unit",

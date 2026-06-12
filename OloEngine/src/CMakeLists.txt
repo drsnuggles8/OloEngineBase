@@ -899,6 +899,8 @@
 		"OloEngine/Scene/Scene.h"
 		"OloEngine/Scene/SceneCamera.cpp"
 		"OloEngine/Scene/SceneCamera.h"
+		"OloEngine/Scene/SceneMeshRaycast.cpp"
+		"OloEngine/Scene/SceneMeshRaycast.h"
 		"OloEngine/Scene/SceneSerializer.cpp"
 		"OloEngine/Scene/SceneSerializer.h"
 		"OloEngine/Scene/ModelImporter.cpp"
