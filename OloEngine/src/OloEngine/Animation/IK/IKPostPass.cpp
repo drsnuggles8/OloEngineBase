@@ -3,6 +3,7 @@
 #include "OloEngine/Animation/BlendUtils.h"
 #include "OloEngine/Animation/IKTargetComponent.h"
 #include "OloEngine/Animation/IK/AimIKSolver.h"
+#include "OloEngine/Animation/IK/FABRIKSolver.h"
 #include "OloEngine/Animation/IK/LimbIKSolver.h"
 #include "OloEngine/Animation/Skeleton.h"
 
@@ -45,7 +46,7 @@ namespace OloEngine::Animation
     {
         OLO_PROFILE_FUNCTION();
 
-        if (!ikTarget.AimIKEnabled && !ikTarget.LimbIKEnabled)
+        if (!ikTarget.AimIKEnabled && !ikTarget.LimbIKEnabled && !ikTarget.ChainIKEnabled)
         {
             return;
         }
@@ -85,6 +86,40 @@ namespace OloEngine::Animation
         { return std::isfinite(v.x) && std::isfinite(v.y) && std::isfinite(v.z); };
 
         constexpr f32 kVecEpsilon = 1e-8f;
+
+        // Chain IK runs first: a full-chain solve sets the coarse posture
+        // (spine, tail), then Aim/Limb IK refine on top of it.
+        if (ikTarget.ChainIKEnabled && ikTarget.ChainBoneIndex < static_cast<u32>(boneCount))
+        {
+            bool validInputs = isFiniteVec3(ikTarget.ChainTarget) && isFiniteVec3(ikTarget.ChainPoleVector) && std::isfinite(ikTarget.ChainWeight) && std::isfinite(ikTarget.ChainTolerance);
+
+            if (validInputs)
+            {
+                // Skip if clamped weight is zero — no visible effect
+                if (auto chainWeight = glm::clamp(ikTarget.ChainWeight, 0.0f, 1.0f); chainWeight > 0.0f)
+                {
+                    // max() keeps hi >= lo for single-bone skeletons; the solver
+                    // no-ops there anyway (it needs at least 2 chain bones).
+                    auto chainLen = std::clamp(ikTarget.ChainLength, 2u, std::max(2u, static_cast<u32>(boneCount)));
+                    MarkIkChain(ikTarget.ChainBoneIndex, chainLen, boneCount, skeleton.m_ParentIndices, ikModified);
+
+                    FABRIKParams params;
+                    params.TargetBoneIndex = ikTarget.ChainBoneIndex;
+                    params.TargetPosition = BlendUtils::WorldToModelSpace(ikTarget.ChainTarget, entityWorldTransform);
+                    // Pole is a world-space position; zero disables it. Check
+                    // before converting — the world origin is a valid model-space point.
+                    if (glm::length2(ikTarget.ChainPoleVector) > kVecEpsilon)
+                    {
+                        params.PoleVector = BlendUtils::WorldToModelSpace(ikTarget.ChainPoleVector, entityWorldTransform);
+                    }
+                    params.ChainLength = chainLen;
+                    params.MaxIterations = std::clamp(ikTarget.ChainIterations, 1u, 128u);
+                    params.Tolerance = std::max(ikTarget.ChainTolerance, 0.0f);
+                    params.Weight = chainWeight;
+                    FABRIKSolver::Solve(localPose, skeleton.m_ParentIndices, params, skeleton.m_BonePreTransforms);
+                }
+            }
+        }
 
         if (ikTarget.AimIKEnabled && ikTarget.AimBoneIndex < static_cast<u32>(boneCount))
         {

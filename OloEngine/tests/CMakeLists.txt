@@ -217,6 +217,7 @@ add_executable(OloEngine-Tests
 		AnimationSystemTest.cpp
 		BlendTreeTest.cpp
 		Animation/AimIKSolverTest.cpp
+		Animation/FABRIKSolverTest.cpp
 		Animation/LimbIKSolverTest.cpp
 		Animation/BlendUtilsTest.cpp
 		Animation/OneShotBlendTest.cpp

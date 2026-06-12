@@ -2506,6 +2506,13 @@ namespace OloEngine
                 out.LimbTarget = targetEnt->GetComponent<TransformComponent>().Translation;
             }
         }
+        if (static_cast<u64>(out.ChainTargetEntity) != 0)
+        {
+            if (auto targetEnt = TryGetEntityWithUUID(out.ChainTargetEntity))
+            {
+                out.ChainTarget = targetEnt->GetComponent<TransformComponent>().Translation;
+            }
+        }
 
         return true;
     }

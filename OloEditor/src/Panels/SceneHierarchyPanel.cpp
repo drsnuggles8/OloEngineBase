@@ -6678,6 +6678,51 @@ namespace OloEngine
                         if (ImGui::SmallButton("Clear##LimbTarget"))
                             component.LimbTargetEntity = 0;
                     }
+                }
+
+                ImGui::SeparatorText("Chain IK (FABRIK)");
+                ImGui::Checkbox("Chain Enabled", &component.ChainIKEnabled);
+                if (component.ChainIKEnabled)
+                {
+                    if (auto chainBone = static_cast<int>(component.ChainBoneIndex); ImGui::DragInt("Chain Bone Index", &chainBone, 1.0f, 0, 512))
+                        component.ChainBoneIndex = static_cast<u32>(chainBone);
+                    ImGui::DragFloat3("Chain Target", glm::value_ptr(component.ChainTarget), 0.1f);
+                    ImGui::DragFloat3("Chain Pole Vector", glm::value_ptr(component.ChainPoleVector), 0.1f);
+                    if (auto chainLen = static_cast<int>(component.ChainLength); ImGui::DragInt("Chain Length", &chainLen, 1.0f, 2, 64))
+                        component.ChainLength = static_cast<u32>(std::max(chainLen, 2));
+                    if (auto chainIter = static_cast<int>(component.ChainIterations); ImGui::DragInt("Chain Iterations", &chainIter, 1.0f, 1, 128))
+                        component.ChainIterations = static_cast<u32>(std::max(chainIter, 1));
+                    ImGui::DragFloat("Chain Tolerance", &component.ChainTolerance, 0.001f, 0.0f, 10.0f, "%.4f");
+                    ImGui::DragFloat("Chain Weight", &component.ChainWeight, 0.01f, 0.0f, 1.0f);
+
+                    auto chainTarget = static_cast<u64>(component.ChainTargetEntity);
+                    ImGui::Text("Chain Target Entity:");
+                    ImGui::SameLine();
+                    // Use a Button as a consistent drag-drop target
+                    if (chainTarget != 0)
+                    {
+                        char label[64];
+                        snprintf(label, sizeof(label), "%llu##ChainTargetDrop", static_cast<unsigned long long>(chainTarget));
+                        ImGui::Button(label);
+                    }
+                    else
+                    {
+                        ImGui::Button("(none — drag entity here)##ChainTargetDrop");
+                    }
+                    if (ImGui::BeginDragDropTarget())
+                    {
+                        if (auto const* payload = ImGui::AcceptDragDropPayload("ENTITY_REPARENT"))
+                        {
+                            component.ChainTargetEntity = *static_cast<const UUID*>(payload->Data);
+                        }
+                        ImGui::EndDragDropTarget();
+                    }
+                    if (chainTarget != 0)
+                    {
+                        ImGui::SameLine();
+                        if (ImGui::SmallButton("Clear##ChainTarget"))
+                            component.ChainTargetEntity = 0;
+                    }
                 } });
 
         DrawComponent<SpringBoneComponent>("Spring Bones", entity, [](auto& component)

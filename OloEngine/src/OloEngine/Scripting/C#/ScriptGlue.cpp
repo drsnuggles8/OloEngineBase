@@ -1479,6 +1479,145 @@ namespace OloEngine
         }
     }
 
+    static bool IKTargetComponent_GetChainIKEnabled(UUID entityID)
+    {
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<IKTargetComponent>());
+        return entity.GetComponent<IKTargetComponent>().ChainIKEnabled;
+    }
+
+    static void IKTargetComponent_SetChainIKEnabled(UUID entityID, bool enabled)
+    {
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<IKTargetComponent>());
+        entity.GetComponent<IKTargetComponent>().ChainIKEnabled = enabled;
+    }
+
+    static u32 IKTargetComponent_GetChainBoneIndex(UUID entityID)
+    {
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<IKTargetComponent>());
+        return entity.GetComponent<IKTargetComponent>().ChainBoneIndex;
+    }
+
+    static void IKTargetComponent_SetChainBoneIndex(UUID entityID, u32 index)
+    {
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<IKTargetComponent>());
+        auto boneCount = GetSkeletonBoneCount(entity);
+        entity.GetComponent<IKTargetComponent>().ChainBoneIndex = (boneCount > 0) ? std::min(index, boneCount - 1) : 0u;
+    }
+
+    static void IKTargetComponent_GetChainTarget(UUID entityID, glm::vec3* out)
+    {
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<IKTargetComponent>());
+        *out = entity.GetComponent<IKTargetComponent>().ChainTarget;
+    }
+
+    static void IKTargetComponent_SetChainTarget(UUID entityID, glm::vec3 const* v)
+    {
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<IKTargetComponent>());
+        if (IsFiniteVec3(*v))
+        {
+            entity.GetComponent<IKTargetComponent>().ChainTarget = *v;
+        }
+    }
+
+    static void IKTargetComponent_GetChainPoleVector(UUID entityID, glm::vec3* out)
+    {
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<IKTargetComponent>());
+        *out = entity.GetComponent<IKTargetComponent>().ChainPoleVector;
+    }
+
+    static void IKTargetComponent_SetChainPoleVector(UUID entityID, glm::vec3 const* v)
+    {
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<IKTargetComponent>());
+        if (IsFiniteVec3(*v))
+        {
+            entity.GetComponent<IKTargetComponent>().ChainPoleVector = *v;
+        }
+    }
+
+    static u32 IKTargetComponent_GetChainLength(UUID entityID)
+    {
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<IKTargetComponent>());
+        return entity.GetComponent<IKTargetComponent>().ChainLength;
+    }
+
+    static void IKTargetComponent_SetChainLength(UUID entityID, u32 length)
+    {
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<IKTargetComponent>());
+        entity.GetComponent<IKTargetComponent>().ChainLength = std::clamp(length, 2u, std::max(2u, GetSkeletonBoneCount(entity)));
+    }
+
+    static u32 IKTargetComponent_GetChainIterations(UUID entityID)
+    {
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<IKTargetComponent>());
+        return entity.GetComponent<IKTargetComponent>().ChainIterations;
+    }
+
+    static void IKTargetComponent_SetChainIterations(UUID entityID, u32 iterations)
+    {
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<IKTargetComponent>());
+        entity.GetComponent<IKTargetComponent>().ChainIterations = std::clamp(iterations, 1u, 128u);
+    }
+
+    static f32 IKTargetComponent_GetChainTolerance(UUID entityID)
+    {
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<IKTargetComponent>());
+        return entity.GetComponent<IKTargetComponent>().ChainTolerance;
+    }
+
+    static void IKTargetComponent_SetChainTolerance(UUID entityID, f32 tolerance)
+    {
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<IKTargetComponent>());
+        if (std::isfinite(tolerance))
+        {
+            entity.GetComponent<IKTargetComponent>().ChainTolerance = glm::clamp(tolerance, 0.0f, 10.0f);
+        }
+    }
+
+    static f32 IKTargetComponent_GetChainWeight(UUID entityID)
+    {
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<IKTargetComponent>());
+        return entity.GetComponent<IKTargetComponent>().ChainWeight;
+    }
+
+    static void IKTargetComponent_SetChainWeight(UUID entityID, f32 weight)
+    {
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<IKTargetComponent>());
+        if (std::isfinite(weight))
+        {
+            entity.GetComponent<IKTargetComponent>().ChainWeight = glm::clamp(weight, 0.0f, 1.0f);
+        }
+    }
+
+    static u64 IKTargetComponent_GetChainTargetEntity(UUID entityID)
+    {
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<IKTargetComponent>());
+        return static_cast<u64>(entity.GetComponent<IKTargetComponent>().ChainTargetEntity);
+    }
+
+    static void IKTargetComponent_SetChainTargetEntity(UUID entityID, u64 targetID)
+    {
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<IKTargetComponent>());
+        entity.GetComponent<IKTargetComponent>().ChainTargetEntity = targetID;
+    }
+
     ///////////////////////////////////////////////////////////////////////////////////////////
     // Dialogue ///////////////////////////////////////////////////////////////////////////////
     ///////////////////////////////////////////////////////////////////////////////////////////
@@ -3330,6 +3469,24 @@ namespace OloEngine
         OLO_ADD_INTERNAL_CALL(IKTargetComponent_SetLimbTargetEntity);
         OLO_ADD_INTERNAL_CALL(IKTargetComponent_GetLimbWeight);
         OLO_ADD_INTERNAL_CALL(IKTargetComponent_SetLimbWeight);
+        OLO_ADD_INTERNAL_CALL(IKTargetComponent_GetChainIKEnabled);
+        OLO_ADD_INTERNAL_CALL(IKTargetComponent_SetChainIKEnabled);
+        OLO_ADD_INTERNAL_CALL(IKTargetComponent_GetChainBoneIndex);
+        OLO_ADD_INTERNAL_CALL(IKTargetComponent_SetChainBoneIndex);
+        OLO_ADD_INTERNAL_CALL(IKTargetComponent_GetChainTarget);
+        OLO_ADD_INTERNAL_CALL(IKTargetComponent_SetChainTarget);
+        OLO_ADD_INTERNAL_CALL(IKTargetComponent_GetChainPoleVector);
+        OLO_ADD_INTERNAL_CALL(IKTargetComponent_SetChainPoleVector);
+        OLO_ADD_INTERNAL_CALL(IKTargetComponent_GetChainLength);
+        OLO_ADD_INTERNAL_CALL(IKTargetComponent_SetChainLength);
+        OLO_ADD_INTERNAL_CALL(IKTargetComponent_GetChainIterations);
+        OLO_ADD_INTERNAL_CALL(IKTargetComponent_SetChainIterations);
+        OLO_ADD_INTERNAL_CALL(IKTargetComponent_GetChainTolerance);
+        OLO_ADD_INTERNAL_CALL(IKTargetComponent_SetChainTolerance);
+        OLO_ADD_INTERNAL_CALL(IKTargetComponent_GetChainWeight);
+        OLO_ADD_INTERNAL_CALL(IKTargetComponent_SetChainWeight);
+        OLO_ADD_INTERNAL_CALL(IKTargetComponent_GetChainTargetEntity);
+        OLO_ADD_INTERNAL_CALL(IKTargetComponent_SetChainTargetEntity);
 
         ///////////////////////////////////////////////////////////////
         // AnimationGraphComponent ////////////////////////////////////

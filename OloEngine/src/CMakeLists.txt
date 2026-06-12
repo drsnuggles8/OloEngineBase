@@ -37,6 +37,8 @@
 		"OloEngine/Animation/BlendUtils.cpp"
 		"OloEngine/Animation/IK/AimIKSolver.h"
 		"OloEngine/Animation/IK/AimIKSolver.cpp"
+		"OloEngine/Animation/IK/FABRIKSolver.h"
+		"OloEngine/Animation/IK/FABRIKSolver.cpp"
 		"OloEngine/Animation/IK/IKPostPass.h"
 		"OloEngine/Animation/IK/IKPostPass.cpp"
 		"OloEngine/Animation/IK/LimbIKSolver.h"

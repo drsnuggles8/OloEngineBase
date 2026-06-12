@@ -871,6 +871,56 @@ TEST_F(LuaBindingTest, IKTargetComponent_LimbProperties)
     EXPECT_EQ(static_cast<u64>(ik.LimbTargetEntity), 200u);
 }
 
+TEST_F(LuaBindingTest, IKTargetComponent_ChainProperties)
+{
+    IKTargetComponent ik;
+    lua["ik"] = &ik;
+
+    lua.script("ik.chainIKEnabled = true; ik.chainBoneIndex = 8");
+    EXPECT_TRUE(ik.ChainIKEnabled);
+    EXPECT_EQ(ik.ChainBoneIndex, 8u);
+
+    lua.script("ik.chainTarget = vec3.new(2.0, 1.0, -1.0)");
+    EXPECT_FLOAT_EQ(ik.ChainTarget.x, 2.0f);
+    EXPECT_FLOAT_EQ(ik.ChainTarget.y, 1.0f);
+    EXPECT_FLOAT_EQ(ik.ChainTarget.z, -1.0f);
+
+    lua.script("ik.chainPoleVector = vec3.new(0.0, 0.0, 5.0)");
+    EXPECT_FLOAT_EQ(ik.ChainPoleVector.z, 5.0f);
+
+    lua.script("ik.chainLength = 6; ik.chainIterations = 25");
+    EXPECT_EQ(ik.ChainLength, 6u);
+    EXPECT_EQ(ik.ChainIterations, 25u);
+
+    lua.script("ik.chainTolerance = 0.01; ik.chainWeight = 0.8");
+    EXPECT_FLOAT_EQ(ik.ChainTolerance, 0.01f);
+    EXPECT_FLOAT_EQ(ik.ChainWeight, 0.8f);
+
+    lua.script("ik.chainTargetEntity = 300");
+    EXPECT_EQ(static_cast<u64>(ik.ChainTargetEntity), 300u);
+}
+
+TEST_F(LuaBindingTest, IKTargetComponent_ChainPropertiesClamped)
+{
+    IKTargetComponent ik;
+    lua["ik"] = &ik;
+
+    // Setters clamp to the same valid ranges the deserializers enforce
+    lua.script("ik.chainLength = 1");
+    EXPECT_EQ(ik.ChainLength, 2u);
+
+    lua.script("ik.chainIterations = 0");
+    EXPECT_EQ(ik.ChainIterations, 1u);
+    lua.script("ik.chainIterations = 9999");
+    EXPECT_EQ(ik.ChainIterations, 128u);
+
+    lua.script("ik.chainWeight = 7.5");
+    EXPECT_FLOAT_EQ(ik.ChainWeight, 1.0f);
+
+    lua.script("ik.chainTolerance = -3.0");
+    EXPECT_FLOAT_EQ(ik.ChainTolerance, 0.0f);
+}
+
 // =============================================================================
 // SpringBoneComponent
 // =============================================================================

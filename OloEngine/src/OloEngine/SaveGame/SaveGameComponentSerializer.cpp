@@ -1936,6 +1936,43 @@ namespace OloEngine
         ar << c.LimbTarget.x << c.LimbTarget.y << c.LimbTarget.z;
         ar << c.LimbChainLength << c.LimbWeight;
         ar << c.LimbTargetEntity;
+
+        // ── Format v4: Chain IK (FABRIK full-chain) section ──
+        // Appended at the end; kSaveGameFormatVersion was bumped 3→4, so any
+        // pre-v4 archive is rejected by the header check before reaching here.
+        ar << c.ChainIKEnabled << c.ChainBoneIndex;
+        ar << c.ChainTarget.x << c.ChainTarget.y << c.ChainTarget.z;
+        ar << c.ChainPoleVector.x << c.ChainPoleVector.y << c.ChainPoleVector.z;
+        ar << c.ChainLength << c.ChainIterations;
+        ar << c.ChainTolerance << c.ChainWeight;
+        ar << c.ChainTargetEntity;
+
+        if (!ar.IsSaving())
+        {
+            // Validate floats loaded from disk — replace NaN/Inf with defaults
+            auto sanitize = [](f32& v, f32 fallback)
+            {
+                if (!std::isfinite(v))
+                {
+                    v = fallback;
+                }
+            };
+            sanitize(c.ChainTarget.x, 0.0f);
+            sanitize(c.ChainTarget.y, 0.0f);
+            sanitize(c.ChainTarget.z, 0.0f);
+            sanitize(c.ChainPoleVector.x, 0.0f);
+            sanitize(c.ChainPoleVector.y, 0.0f);
+            sanitize(c.ChainPoleVector.z, 0.0f);
+            sanitize(c.ChainTolerance, 0.001f);
+            sanitize(c.ChainWeight, 1.0f);
+
+            // Clamp to the same valid ranges the scene-YAML deserializer
+            // enforces so finite-but-invalid values can't reach the solver.
+            c.ChainLength = std::max(2u, c.ChainLength);
+            c.ChainIterations = std::clamp(c.ChainIterations, 1u, 128u);
+            c.ChainTolerance = std::clamp(c.ChainTolerance, 0.0f, 10.0f);
+            c.ChainWeight = std::clamp(c.ChainWeight, 0.0f, 1.0f);
+        }
     }
 
     void SaveGameComponentSerializer::Serialize(FArchive& ar, SpringBoneComponent& c)
