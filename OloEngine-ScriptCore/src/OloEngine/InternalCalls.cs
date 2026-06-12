@@ -391,6 +391,42 @@ namespace OloEngine
 		internal static extern float IKTargetComponent_GetLimbWeight(ulong entityID);
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern void IKTargetComponent_SetLimbWeight(ulong entityID, float weight);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool IKTargetComponent_GetChainIKEnabled(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void IKTargetComponent_SetChainIKEnabled(ulong entityID, bool enabled);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern uint IKTargetComponent_GetChainBoneIndex(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void IKTargetComponent_SetChainBoneIndex(ulong entityID, uint index);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void IKTargetComponent_GetChainTarget(ulong entityID, out Vector3 target);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void IKTargetComponent_SetChainTarget(ulong entityID, ref Vector3 target);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void IKTargetComponent_GetChainPoleVector(ulong entityID, out Vector3 poleVector);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void IKTargetComponent_SetChainPoleVector(ulong entityID, ref Vector3 poleVector);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern uint IKTargetComponent_GetChainLength(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void IKTargetComponent_SetChainLength(ulong entityID, uint length);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern uint IKTargetComponent_GetChainIterations(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void IKTargetComponent_SetChainIterations(ulong entityID, uint iterations);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float IKTargetComponent_GetChainTolerance(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void IKTargetComponent_SetChainTolerance(ulong entityID, float tolerance);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float IKTargetComponent_GetChainWeight(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void IKTargetComponent_SetChainWeight(ulong entityID, float weight);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern ulong IKTargetComponent_GetChainTargetEntity(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void IKTargetComponent_SetChainTargetEntity(ulong entityID, ulong targetID);
 		#endregion
 
 		#region AnimationGraphComponent

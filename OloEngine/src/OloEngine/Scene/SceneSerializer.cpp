@@ -3590,18 +3590,36 @@ namespace OloEngine
             {
                 ik.LimbTargetEntity = limbTargetNode.as<u64>(0);
             }
+            TrySet(ik.ChainIKEnabled, ikNode["ChainIKEnabled"]);
+            TrySet(ik.ChainBoneIndex, ikNode["ChainBoneIndex"]);
+            TrySet(ik.ChainTarget, ikNode["ChainTarget"]);
+            TrySet(ik.ChainPoleVector, ikNode["ChainPoleVector"]);
+            TrySet(ik.ChainLength, ikNode["ChainLength"]);
+            TrySet(ik.ChainIterations, ikNode["ChainIterations"]);
+            TrySet(ik.ChainTolerance, ikNode["ChainTolerance"]);
+            TrySet(ik.ChainWeight, ikNode["ChainWeight"]);
+            if (auto chainTargetNode = ikNode["ChainTargetEntity"]; chainTargetNode)
+            {
+                ik.ChainTargetEntity = chainTargetNode.as<u64>(0);
+            }
 
             // Sanitize float/vector fields — replace NaN/Inf with defaults and clamp to valid ranges
             ik.AimChainLength = std::max(1u, ik.AimChainLength);
             ik.LimbChainLength = std::max(2u, ik.LimbChainLength);
+            ik.ChainLength = std::max(2u, ik.ChainLength);
+            ik.ChainIterations = std::clamp(ik.ChainIterations, 1u, 128u);
             SanitizeVec3(ik.AimTarget, glm::vec3(0.0f));
             SanitizeVec3(ik.AimAxis, glm::vec3(0.0f, 0.0f, 1.0f));
             SanitizeVec3(ik.AimOffset, glm::vec3(0.0f));
             SanitizeVec3(ik.AimPoleVector, glm::vec3(0.0f, 1.0f, 0.0f));
             SanitizeVec3(ik.LimbTarget, glm::vec3(0.0f));
+            SanitizeVec3(ik.ChainTarget, glm::vec3(0.0f));
+            SanitizeVec3(ik.ChainPoleVector, glm::vec3(0.0f));
             SanitizeFloat(ik.AimChainFactor, 0.0f, 1.0f, 0.5f);
             SanitizeFloat(ik.AimWeight, 0.0f, 1.0f, 1.0f);
             SanitizeFloat(ik.LimbWeight, 0.0f, 1.0f, 1.0f);
+            SanitizeFloat(ik.ChainTolerance, 0.0f, 10.0f, 0.001f);
+            SanitizeFloat(ik.ChainWeight, 0.0f, 1.0f, 1.0f);
         }
 
         if (auto springNode = entity["SpringBoneComponent"]; springNode)
@@ -6019,6 +6037,18 @@ namespace OloEngine
             if (static_cast<u64>(ik.LimbTargetEntity) != 0)
             {
                 out << YAML::Key << "LimbTargetEntity" << YAML::Value << static_cast<u64>(ik.LimbTargetEntity);
+            }
+            out << YAML::Key << "ChainIKEnabled" << YAML::Value << ik.ChainIKEnabled;
+            out << YAML::Key << "ChainBoneIndex" << YAML::Value << ik.ChainBoneIndex;
+            out << YAML::Key << "ChainTarget" << YAML::Value << ik.ChainTarget;
+            out << YAML::Key << "ChainPoleVector" << YAML::Value << ik.ChainPoleVector;
+            out << YAML::Key << "ChainLength" << YAML::Value << ik.ChainLength;
+            out << YAML::Key << "ChainIterations" << YAML::Value << ik.ChainIterations;
+            out << YAML::Key << "ChainTolerance" << YAML::Value << ik.ChainTolerance;
+            out << YAML::Key << "ChainWeight" << YAML::Value << ik.ChainWeight;
+            if (static_cast<u64>(ik.ChainTargetEntity) != 0)
+            {
+                out << YAML::Key << "ChainTargetEntity" << YAML::Value << static_cast<u64>(ik.ChainTargetEntity);
             }
 
             out << YAML::EndMap; // IKTargetComponent
