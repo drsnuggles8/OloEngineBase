@@ -57,10 +57,14 @@ namespace OloEngine
         // that receives painted placements.
         void OnImGuiRender();
 
-        // Called from EditorLayer each frame with terrain raycast info.
-        // `surfaceNormal` should be the world-space normal at `hitPos`;
-        // pass `vec3(0, 1, 0)` for surfaces without a meaningful normal
-        // (the slope filter then trivially passes for any threshold ≤ 1).
+        // Called from EditorLayer each frame with the result of its
+        // dual-surface raycast (terrain heightmap or scene mesh surfaces —
+        // EditorLayer feeds in whichever hit is nearer along the view ray).
+        // `surfaceNormal` should be the world-space normal at `hitPos`
+        // (heightmap finite differences for terrain, the struck triangle's
+        // normal for meshes); pass `vec3(0, 1, 0)` for surfaces without a
+        // meaningful normal (the slope filter then trivially passes for any
+        // threshold ≤ 1).
         void OnUpdate(f32 deltaTime, const glm::vec3& hitPos, const glm::vec3& surfaceNormal,
                       bool hasHit, bool mouseDown);
 

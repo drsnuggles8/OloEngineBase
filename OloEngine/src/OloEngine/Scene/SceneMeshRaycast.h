@@ -27,7 +27,12 @@ namespace OloEngine
         glm::vec3 Point{ 0.0f };  // world-space hit position
         glm::vec3 Normal{ 0.0f }; // world-space geometric normal, oriented against the ray
         Entity HitEntity;         // entity that owns the struck triangle
-        u32 TriangleIndex = 0;    // triangle ordinal within the entity's raycast geometry range
+        // Triangle ordinal RELATIVE to the struck submesh's index range (the
+        // (firstIndex, indexCount) slice the BVH was built over) — i.e. the
+        // triangle's first index sits at firstIndex + TriangleIndex * 3 in the
+        // MeshSource index buffer. Not unique across a multi-submesh
+        // MeshComponent entity, which traces one range per submesh.
+        u32 TriangleIndex = 0;
     };
 
     // @brief World-space closest-hit raycaster over a scene's mesh entities,
@@ -72,11 +77,13 @@ namespace OloEngine
       public:
         SceneMeshRaycaster() = default;
 
-        // Closest-hit query against the scene's mesh entities. `worldRay` must
-        // have a normalized Direction; [TMin, TMax] bound the accepted hit
-        // range in world units (pass the terrain hit distance as TMax to only
-        // accept mesh hits in front of the terrain). Returns true and fills
-        // `outHit` on a hit; returns false (and resets outHit) on a miss.
+        // Closest-hit query against the scene's mesh entities. The ray's
+        // Direction is normalized internally, so [TMin, TMax] and the reported
+        // Distance are always world-space distances (pass the terrain hit
+        // distance as TMax to only accept mesh hits in front of the terrain).
+        // Degenerate rays (zero/non-finite direction, NaN or swapped bounds)
+        // miss. Returns true and fills `outHit` on a hit; returns false (and
+        // resets outHit) on a miss.
         bool CastRay(Scene& scene, const Ray& worldRay, SceneMeshRayHit& outHit);
 
         // Drop every cached BVH (next query rebuilds on demand). Call after

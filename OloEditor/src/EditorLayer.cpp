@@ -723,48 +723,53 @@ namespace OloEngine
 
                 glm::vec3 hitPos{};
                 glm::vec3 surfaceNormal{ 0.0f, 1.0f, 0.0f };
-                bool hasHit = TerrainRaycast({ mx, my }, viewportSize, hitPos);
-                if (hasHit && m_ActiveScene)
+                bool hasHit = false;
                 {
-                    // Pull the surface normal from the same terrain entity
-                    // TerrainRaycast hit. The normal is needed for slope
-                    // filtering (§1.4) and align-to-normal (§1.5 style).
-                    auto view = m_ActiveScene->GetAllEntitiesWith<TransformComponent, TerrainComponent>();
-                    if (auto it = view.begin(); it != view.end())
+                    OLO_PROFILE_SCOPE("EditorLayer::ScatterBrushRaycast");
+
+                    hasHit = TerrainRaycast({ mx, my }, viewportSize, hitPos);
+                    if (hasHit && m_ActiveScene)
                     {
-                        Entity terrainEntity(*it, m_ActiveScene.get());
-                        const auto& tc = terrainEntity.GetComponent<TerrainComponent>();
-                        const auto& tx = terrainEntity.GetComponent<TransformComponent>();
-                        if (tc.m_TerrainData && tc.m_WorldSizeX > 0.0f && tc.m_WorldSizeZ > 0.0f)
+                        // Pull the surface normal from the same terrain entity
+                        // TerrainRaycast hit. The normal is needed for slope
+                        // filtering (§1.4) and align-to-normal (§1.5 style).
+                        auto view = m_ActiveScene->GetAllEntitiesWith<TransformComponent, TerrainComponent>();
+                        if (auto it = view.begin(); it != view.end())
                         {
-                            const f32 normX = (hitPos.x - tx.Translation.x) / tc.m_WorldSizeX;
-                            const f32 normZ = (hitPos.z - tx.Translation.z) / tc.m_WorldSizeZ;
-                            surfaceNormal = tc.m_TerrainData->GetNormalAt(
-                                glm::clamp(normX, 0.0f, 1.0f),
-                                glm::clamp(normZ, 0.0f, 1.0f),
-                                tc.m_WorldSizeX, tc.m_WorldSizeZ, tc.m_HeightScale);
+                            Entity terrainEntity(*it, m_ActiveScene.get());
+                            const auto& tc = terrainEntity.GetComponent<TerrainComponent>();
+                            const auto& tx = terrainEntity.GetComponent<TransformComponent>();
+                            if (tc.m_TerrainData && tc.m_WorldSizeX > 0.0f && tc.m_WorldSizeZ > 0.0f)
+                            {
+                                const f32 normX = (hitPos.x - tx.Translation.x) / tc.m_WorldSizeX;
+                                const f32 normZ = (hitPos.z - tx.Translation.z) / tc.m_WorldSizeZ;
+                                surfaceNormal = tc.m_TerrainData->GetNormalAt(
+                                    glm::clamp(normX, 0.0f, 1.0f),
+                                    glm::clamp(normZ, 0.0f, 1.0f),
+                                    tc.m_WorldSizeX, tc.m_WorldSizeZ, tc.m_HeightScale);
+                            }
                         }
                     }
-                }
 
-                // Mesh-surface pass: capping the ray at the terrain hit means
-                // only a mesh in front of the terrain can win, so a single
-                // CastRay both finds the mesh hit and resolves the
-                // terrain-vs-mesh precedence.
-                if (m_ActiveScene)
-                {
-                    if (Ray mouseRay; BuildMouseRay({ mx, my }, viewportSize, mouseRay))
+                    // Mesh-surface pass: capping the ray at the terrain hit
+                    // means only a mesh in front of the terrain can win, so a
+                    // single CastRay both finds the mesh hit and resolves the
+                    // terrain-vs-mesh precedence.
+                    if (m_ActiveScene)
                     {
-                        if (hasHit)
+                        if (Ray mouseRay; BuildMouseRay({ mx, my }, viewportSize, mouseRay))
                         {
-                            mouseRay.TMax = glm::dot(hitPos - mouseRay.Origin, mouseRay.Direction);
-                        }
-                        SceneMeshRayHit meshHit;
-                        if (m_MeshRaycaster.CastRay(*m_ActiveScene, mouseRay, meshHit))
-                        {
-                            hitPos = meshHit.Point;
-                            surfaceNormal = meshHit.Normal;
-                            hasHit = true;
+                            if (hasHit)
+                            {
+                                mouseRay.TMax = glm::dot(hitPos - mouseRay.Origin, mouseRay.Direction);
+                            }
+                            SceneMeshRayHit meshHit;
+                            if (m_MeshRaycaster.CastRay(*m_ActiveScene, mouseRay, meshHit))
+                            {
+                                hitPos = meshHit.Point;
+                                surfaceNormal = meshHit.Normal;
+                                hasHit = true;
+                            }
                         }
                     }
                 }

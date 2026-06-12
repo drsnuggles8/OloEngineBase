@@ -12,6 +12,8 @@
 
 #include <glm/glm.hpp>
 
+#include <cmath>
+
 namespace OloEngine
 {
     namespace
@@ -40,9 +42,20 @@ namespace OloEngine
         if (!Math::IsFinite(worldRay.Origin) || !Math::IsFinite(worldRay.Direction))
             return false;
 
+        // Sanitize at the API boundary so TMin/TMax and the reported Distance
+        // are world distances even when a caller passes a non-unit direction:
+        // normalize here, keep the world-unit [TMin, TMax] as-is. Degenerate
+        // directions, NaN bounds (NaN slips through ordering comparisons), and
+        // swapped bounds can never hit anything — reject them up front.
+        const f32 dirLen = glm::length(worldRay.Direction);
+        if (dirLen < s_DegenerateDirEpsilon ||
+            std::isnan(worldRay.TMin) || std::isnan(worldRay.TMax) || worldRay.TMin > worldRay.TMax)
+            return false;
+        const Ray ray(worldRay.Origin, worldRay.Direction / dirLen, worldRay.TMin, worldRay.TMax);
+
         PruneDeadEntries();
 
-        f32 bestWorldT = worldRay.TMax;
+        f32 bestWorldT = ray.TMax;
 
         // MeshComponent — every submesh range of the source, drawn at the flat
         // entity transform. SkeletonComponent entities are skipped to mirror
@@ -65,7 +78,7 @@ namespace OloEngine
                 {
                     const Submesh& submesh = submeshes[i];
                     RaycastCandidate(mesh.m_MeshSource, submesh.m_BaseIndex, submesh.m_IndexCount,
-                                     transform.GetTransform(), entity, worldRay, bestWorldT, outHit);
+                                     transform.GetTransform(), entity, ray, bestWorldT, outHit);
                 }
             }
         }
@@ -84,7 +97,7 @@ namespace OloEngine
 
                 const Submesh& submesh = submeshComp.m_Mesh->GetSubmesh();
                 RaycastCandidate(submeshComp.m_Mesh->GetMeshSource(), submesh.m_BaseIndex, submesh.m_IndexCount,
-                                 transform.GetTransform(), Entity(entityHandle, &scene), worldRay, bestWorldT, outHit);
+                                 transform.GetTransform(), Entity(entityHandle, &scene), ray, bestWorldT, outHit);
             }
         }
 
@@ -105,7 +118,7 @@ namespace OloEngine
 
                     const Submesh& submesh = mesh->GetSubmesh();
                     RaycastCandidate(mesh->GetMeshSource(), submesh.m_BaseIndex, submesh.m_IndexCount,
-                                     transform.GetTransform(), Entity(entityHandle, &scene), worldRay, bestWorldT, outHit);
+                                     transform.GetTransform(), Entity(entityHandle, &scene), ray, bestWorldT, outHit);
                 }
             }
         }

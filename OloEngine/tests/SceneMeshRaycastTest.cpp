@@ -37,6 +37,8 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/constants.hpp>
 
+#include <limits>
+
 using namespace OloEngine; // NOLINT(google-build-using-namespace) — test file, brevity preferred
 
 namespace
@@ -456,4 +458,52 @@ TEST(SceneMeshRaycastTest, ClearCacheDropsEverything)
     // Still functional after the wipe (rebuilds on demand).
     ASSERT_TRUE(raycaster.CastRay(*scene, ray, hit));
     EXPECT_EQ(raycaster.GetCacheEntryCount(), 1u);
+}
+
+// ---- Ray sanitization at the API boundary ----------------------------------
+
+TEST(SceneMeshRaycastTest, NonUnitDirectionStillReportsWorldDistances)
+{
+    auto scene = Ref<Scene>::Create();
+    SceneMeshRaycaster raycaster;
+
+    MakeMeshEntity(*scene, MakeCubeSource(), "Cube"); // front face 9 units away
+
+    // CastRay normalizes internally: a 5x-length direction must yield the same
+    // world-space Distance/Point, and TMin/TMax stay world units throughout.
+    const Ray scaledRay(glm::vec3(0.0f, 0.0f, 10.0f), glm::vec3(0.0f, 0.0f, -5.0f));
+    SceneMeshRayHit hit;
+    ASSERT_TRUE(raycaster.CastRay(*scene, scaledRay, hit));
+    EXPECT_NEAR(hit.Distance, 9.0f, kTol);
+    EXPECT_NEAR(hit.Point.z, 1.0f, kTol);
+
+    // The world-unit TMax contract holds for non-unit directions too.
+    EXPECT_FALSE(raycaster.CastRay(
+        *scene, Ray(glm::vec3(0.0f, 0.0f, 10.0f), glm::vec3(0.0f, 0.0f, -5.0f), 0.0f, 5.0f), hit));
+}
+
+TEST(SceneMeshRaycastTest, DegenerateRaysMiss)
+{
+    auto scene = Ref<Scene>::Create();
+    SceneMeshRaycaster raycaster;
+
+    MakeMeshEntity(*scene, MakeCubeSource(), "Cube");
+
+    const glm::vec3 origin(0.0f, 0.0f, 10.0f);
+    const glm::vec3 toward(0.0f, 0.0f, -1.0f);
+    constexpr f32 kNaN = std::numeric_limits<f32>::quiet_NaN();
+
+    SceneMeshRayHit hit;
+    // Zero-length direction.
+    EXPECT_FALSE(raycaster.CastRay(*scene, Ray(origin, glm::vec3(0.0f)), hit));
+    // Non-finite direction / origin.
+    EXPECT_FALSE(raycaster.CastRay(*scene, Ray(origin, glm::vec3(0.0f, kNaN, -1.0f)), hit));
+    EXPECT_FALSE(raycaster.CastRay(*scene, Ray(glm::vec3(kNaN), toward), hit));
+    // NaN or swapped [TMin, TMax] bounds.
+    EXPECT_FALSE(raycaster.CastRay(*scene, Ray(origin, toward, kNaN, 100.0f), hit));
+    EXPECT_FALSE(raycaster.CastRay(*scene, Ray(origin, toward, 0.0f, kNaN), hit));
+    EXPECT_FALSE(raycaster.CastRay(*scene, Ray(origin, toward, 50.0f, 1.0f), hit));
+
+    // A well-formed ray still works afterwards.
+    EXPECT_TRUE(raycaster.CastRay(*scene, Ray(origin, toward), hit));
 }
