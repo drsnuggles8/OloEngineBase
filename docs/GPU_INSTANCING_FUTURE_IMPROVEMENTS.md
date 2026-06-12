@@ -6,36 +6,17 @@ doc now only tracks **what's still open** and why. Items that landed
 GPU-side frustum culling, shadow auto-batching, per-instance motion
 vectors, Color/Custom wiring, the `InstancePlacementAsset` merge cache,
 the scatter-brush editor panel with slope filter / variants / undo /
-bake) are documented in the source and pinned by tests
+bake, and the §1.2 mesh-surface raycast — `SceneMeshRaycaster` over the
+triangle `BoundingVolumeHierarchy`, wired into `EditorLayer`'s
+scatter-brush loop) are documented in the source and pinned by tests
 (`InstanceDataLayoutTest`, `CommandBucketBatchTest`,
-`GPUFrustumCullParityTest`, `ScatterBrushMathTest`).
+`GPUFrustumCullParityTest`, `ScatterBrushMathTest`,
+`MeshBVHRaycastTest`, `SceneMeshRaycastTest`).
 
-The three items below are deferred with concrete blockers — not
-oversights. Each waits on adjacent work (BVH, mesh asset format change,
+The two items below are deferred with concrete blockers — not
+oversights. Each waits on adjacent work (mesh asset format change,
 crowd-content authoring) that doesn't make sense to build
 speculatively.
-
----
-
-## §1.2 — Scatter Brush: Mesh-Surface Raycast
-
-**Current**: the brush raycasts onto the terrain heightmap only.
-[`InstanceScatterBrushPanel`](../OloEditor/src/Panels/InstanceScatterBrushPanel.cpp)
-already consumes a `(hitPos, normal, hasHit)` triple from `EditorLayer`
-— forward-compatible the moment a mesh ray-cast exists.
-
-**Blocker**: no `BoundingVolumeHierarchy` ray-vs-mesh capability today.
-An AABB-only fallback would return bad surface normals (slope filter
-can't work) and float placements above the actual geometry. The right
-unblock is the BVH itself, used by both the brush and any future tool
-that needs world raycasts (gizmo snapping, click-to-select on mesh
-backings, debug raycast viz).
-
-**Integration after BVH lands**: extend `EditorLayer`'s per-frame
-raycast loop in the scatter-brush branch to query the BVH after the
-terrain pass; surface the closer hit (plus the triangle normal) to
-`InstanceScatterBrushPanel::OnUpdate`. Nothing inside the panel
-changes.
 
 ---
 

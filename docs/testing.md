@@ -1304,7 +1304,7 @@ level of `tests/`). Grouped by directory.
 
 > **Do not edit by hand.** Generated from [test_catalogue.json](../OloEngine/tests/scripts/test_catalogue.json) by [generate_test_catalogue.py](../OloEngine/tests/scripts/generate_test_catalogue.py). Add new test files to the config and run the script (or pre-commit will run it with `--check`).
 
-#### (top-level) (62 files)
+#### (top-level) (63 files)
 
 | File | Tests | Cases |
 |---|---:|---|
@@ -1360,6 +1360,7 @@ level of `tests/`). Grouped by directory.
 | [RuntimeAssetManagerTest.cpp](../OloEngine/tests/RuntimeAssetManagerTest.cpp) | 5 | **RuntimeAssetManagerTest** &mdash; `LoadedPackAssetsAreDiscoverable`, `UnknownHandleIsNotValid`, `GetAllAssetsWithTypeReturnsMatchingHandles`, `UnloadingPackRemovesItsAssets`, `MetadataSurvivesUntilExplicitUnload` |
 | [RuntimeAssetPackTest.cpp](../OloEngine/tests/RuntimeAssetPackTest.cpp) | 4 | **RuntimeAssetPackTest** &mdash; `SceneSerializerPackRoundTrip`, `SceneRoutingUsesSceneInfoOffset`, `OffThreadCapabilityContract`, `AsyncLoadIntegratesThroughManager` |
 | [SRGBTextureSupportTest.cpp](../OloEngine/tests/SRGBTextureSupportTest.cpp) | 8 | **SRGBTextureSupport** &mdash; `TextureSpecificationDefaultsToLinear`, `TextureSpecificationCarriesSrgbFlag`, `RawTextureDataKeepsLinearDefault`, `FilenameHeuristic_ClassifiesAlbedoAsSrgb`, `FilenameHeuristic_ClassifiesDataTexturesAsLinear`, `FilenameHeuristic_DataKeywordsOverrideColorKeywords`, `FilenameHeuristic_AmbiguousFilesDefaultLinear`, `FilenameHeuristic_IsCaseInsensitive` |
+| [SceneMeshRaycastTest.cpp](../OloEngine/tests/SceneMeshRaycastTest.cpp) | 13 | **SceneMeshRaycastTest** &mdash; `HitsTranslatedCube`, `MissReturnsFalseAndResetsHit`, `RotatedEntityMapsNormalBack`, `NonUniformScaleNormalMatchesGeometricGroundTruth`, `ClosestOfTwoEntitiesWins`, `TMaxClampRejectsHitsBeyondIt`, `SubmeshComponentOnlyHitsItsOwnRange`, `InvisibleSubmeshComponentIsSkipped`, `SkeletonEntityIsSkipped`, `CacheReusesOneEntryPerMeshRange`, `CacheRebuildsWhenGeometryFingerprintChanges`, `CachePrunesDeadMeshSources`, `ClearCacheDropsEverything` |
 | [SceneSerializerFuzzRegressionTest.cpp](../OloEngine/tests/SceneSerializerFuzzRegressionTest.cpp) | 19 | **SceneSerializerFuzzRegression** &mdash; `CrashInput_OriginalSixBytes`, `EmptyInput`, `RootIsScalar`, `RootIsSequence`, `RootIsEmptyMap`, `SceneKeyMissing`, `SceneIsMap`, `SceneIsSequence`, `SceneIsNull`, `PostProcessSettingsIsScalar`, `StreamingSettingsIsSequence`, `EntitiesIsScalar`, `EntitiesContainsScalar`, `EntityIdIsMap`, `TagComponentIsScalar`, `BinaryGarbage`, `UnterminatedFlowMap`, `ParserThrowsOnAnchorOnlyDoc`, `SinglePrintableChar` |
 | [SnowSettingsTest.cpp](../OloEngine/tests/SnowSettingsTest.cpp) | 7 | **SnowUBOData** &mdash; `SizeIs80Bytes`, `FieldOffsets_Std140Compatible`, `DefaultsMatchSettings`<br/>**SSSUBOData** &mdash; `SizeIs32Bytes`, `FieldOffsets_Std140Compatible`, `DefaultsMatchSettings`<br/>**ShaderBindingLayout** &mdash; `SnowAndSSSBindingsExist` |
 | [SoundGraphBasicTest.cpp](../OloEngine/tests/SoundGraphBasicTest.cpp) | 8 | **SoundGraphBasicTest** &mdash; `SoundGraphAssetBasicOperations`, `SoundGraphConnections`, `SoundGraphRemoveConnection`, `CircularBufferSingleChannel`, `CircularBufferMultiChannel`, `SampleBufferOperationsInterleaving`, `SampleBufferOperationsGain`, `SoundGraphValidation` |
@@ -1543,7 +1544,7 @@ level of `tests/`). Grouped by directory.
 |---|---:|---|
 | [TerrainGeneratorTest.cpp](../OloEngine/tests/Terrain/TerrainGeneratorTest.cpp) | 15 | **TerrainGeneratorTest** &mdash; `HeightFieldIsDeterministic`, `HeightFieldIsNormalizedAndFinite`, `LargeSeedStillProducesVariedTerrain`, `DifferentSeedsProduceDifferentTerrain`, `RidgedAndWarpAndExponentStayValid`, `TerraceShapingStaysValidAndDeterministic`, `TerraceEndpointsAndIdentity`, `TerraceIsMonotonicAndBounded`, `TerraceProducesFlatPlateaus`, `RuleWeightPeaksInsideBandAndZeroOutside`, `SlopeBandSelectsRule`, `DefaultRulesAssignExpectedLayers`, `LayerWeightsAreNormalized`, `NoMatchingRuleFallsBackToLayerZero`, `PackLayerWeightsQuantizesToBothSplatmaps` |
 
-**Totals.** 134 unit / subsystem test files, 1670 TEST / TEST_F declarations across all subsystems.
+**Totals.** 135 unit / subsystem test files, 1683 TEST / TEST_F declarations across all subsystems.
 
 <!-- END: unit-catalogue -->
 

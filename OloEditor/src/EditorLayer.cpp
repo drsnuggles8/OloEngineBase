@@ -706,10 +706,12 @@ namespace OloEngine
                 m_TerrainEditorPanel.OnUpdate(ts, terrainHitPos, hasTerrainHit, mouseDown);
             }
 
-            // Instance scatter brush: shares the terrain raycast (the brush
-            // paints onto the heightmap surface). Approximated surface
-            // normal comes from the terrain CPU heightmap via finite
-            // differences — `vec3(0, 1, 0)` fallback when no terrain hit.
+            // Instance scatter brush: raycasts the terrain heightmap AND the
+            // scene's mesh surfaces (§1.2 — BVH closest hit), and feeds the
+            // brush whichever hit is closer along the ray. Terrain normals
+            // come from the CPU heightmap via finite differences, mesh
+            // normals from the struck triangle — `vec3(0, 1, 0)` fallback
+            // when nothing is hit.
             if (m_ShowInstanceScatterBrush && m_InstanceScatterBrushPanel.IsActive() &&
                 m_ViewportHovered && m_SceneState == SceneState::Edit)
             {
@@ -721,7 +723,7 @@ namespace OloEngine
 
                 glm::vec3 hitPos{};
                 glm::vec3 surfaceNormal{ 0.0f, 1.0f, 0.0f };
-                const bool hasHit = TerrainRaycast({ mx, my }, viewportSize, hitPos);
+                bool hasHit = TerrainRaycast({ mx, my }, viewportSize, hitPos);
                 if (hasHit && m_ActiveScene)
                 {
                     // Pull the surface normal from the same terrain entity
@@ -744,6 +746,29 @@ namespace OloEngine
                         }
                     }
                 }
+
+                // Mesh-surface pass: capping the ray at the terrain hit means
+                // only a mesh in front of the terrain can win, so a single
+                // CastRay both finds the mesh hit and resolves the
+                // terrain-vs-mesh precedence.
+                if (m_ActiveScene)
+                {
+                    if (Ray mouseRay; BuildMouseRay({ mx, my }, viewportSize, mouseRay))
+                    {
+                        if (hasHit)
+                        {
+                            mouseRay.TMax = glm::dot(hitPos - mouseRay.Origin, mouseRay.Direction);
+                        }
+                        SceneMeshRayHit meshHit;
+                        if (m_MeshRaycaster.CastRay(*m_ActiveScene, mouseRay, meshHit))
+                        {
+                            hitPos = meshHit.Point;
+                            surfaceNormal = meshHit.Normal;
+                            hasHit = true;
+                        }
+                    }
+                }
+
                 const bool mouseDown = Input::IsMouseButtonPressed(Mouse::ButtonLeft) &&
                                        !ImGuizmo::IsOver() && !Input::IsKeyPressed(Key::LeftAlt);
                 m_InstanceScatterBrushPanel.OnUpdate(ts, hitPos, surfaceNormal, hasHit, mouseDown);
@@ -3114,14 +3139,36 @@ namespace OloEngine
         return false;
     }
 
-    bool EditorLayer::TerrainRaycast(const glm::vec2& mousePos, const glm::vec2& viewportSize, glm::vec3& outHitPos) const
+    bool EditorLayer::BuildMouseRay(const glm::vec2& mousePos, const glm::vec2& viewportSize, Ray& outRay) const
     {
-        OLO_PROFILE_FUNCTION();
-
         if (viewportSize.x <= 0.0f || viewportSize.y <= 0.0f)
         {
             return false;
         }
+
+        // Convert mouse position to NDC [-1, 1]
+        f32 ndcX = (mousePos.x / viewportSize.x) * 2.0f - 1.0f;
+        f32 ndcY = (mousePos.y / viewportSize.y) * 2.0f - 1.0f;
+
+        // Unproject near and far points
+        glm::mat4 invVP = glm::inverse(m_EditorCamera.GetViewProjection());
+        glm::vec4 nearNDC(ndcX, ndcY, -1.0f, 1.0f);
+        glm::vec4 farNDC(ndcX, ndcY, 1.0f, 1.0f);
+
+        glm::vec4 nearWorld = invVP * nearNDC;
+        glm::vec4 farWorld = invVP * farNDC;
+        nearWorld /= nearWorld.w;
+        farWorld /= farWorld.w;
+
+        outRay = Ray(glm::vec3(nearWorld), glm::normalize(glm::vec3(farWorld) - glm::vec3(nearWorld)));
+        // A degenerate view-projection (uninitialized camera, zero-size
+        // viewport mid-resize) yields NaNs through the inverse/normalize.
+        return Math::IsFinite(outRay.Origin) && Math::IsFinite(outRay.Direction);
+    }
+
+    bool EditorLayer::TerrainRaycast(const glm::vec2& mousePos, const glm::vec2& viewportSize, glm::vec3& outHitPos) const
+    {
+        OLO_PROFILE_FUNCTION();
 
         // Find a terrain entity in the active scene
         Entity terrainEntity;
@@ -3138,22 +3185,13 @@ namespace OloEngine
         auto const& tc = terrainEntity.GetComponent<TerrainComponent>();
         auto const& transform = terrainEntity.GetComponent<TransformComponent>();
 
-        // Convert mouse position to NDC [-1, 1]
-        f32 ndcX = (mousePos.x / viewportSize.x) * 2.0f - 1.0f;
-        f32 ndcY = (mousePos.y / viewportSize.y) * 2.0f - 1.0f;
-
-        // Unproject near and far points
-        glm::mat4 invVP = glm::inverse(m_EditorCamera.GetViewProjection());
-        glm::vec4 nearNDC(ndcX, ndcY, -1.0f, 1.0f);
-        glm::vec4 farNDC(ndcX, ndcY, 1.0f, 1.0f);
-
-        glm::vec4 nearWorld = invVP * nearNDC;
-        glm::vec4 farWorld = invVP * farNDC;
-        nearWorld /= nearWorld.w;
-        farWorld /= farWorld.w;
-
-        glm::vec3 rayOrigin(nearWorld);
-        glm::vec3 rayDir = glm::normalize(glm::vec3(farWorld) - glm::vec3(nearWorld));
+        Ray mouseRay;
+        if (!BuildMouseRay(mousePos, viewportSize, mouseRay))
+        {
+            return false;
+        }
+        glm::vec3 rayOrigin = mouseRay.Origin;
+        glm::vec3 rayDir = mouseRay.Direction;
 
         // Step along ray to find heightmap intersection
         // Terrain origin is at entity transform position

@@ -33,6 +33,7 @@
 #include "OloEngine/Renderer/Camera/EditorCamera.h"
 #include "OloEngine/Asset/AssetPackBuilder.h"
 #include "OloEngine/Renderer/UniformBuffer.h"
+#include "OloEngine/Scene/SceneMeshRaycast.h"
 
 #include <atomic>
 #include <future>
@@ -154,6 +155,11 @@ namespace OloEngine
         // Terrain editing: screen-to-world raycast against heightmap
         bool TerrainRaycast(const glm::vec2& mousePos, const glm::vec2& viewportSize, glm::vec3& outHitPos) const;
 
+        // Unproject a viewport mouse position into a world-space picking ray
+        // (normalized direction, unbounded TMax). False when the viewport is
+        // degenerate or the camera matrix doesn't invert cleanly.
+        bool BuildMouseRay(const glm::vec2& mousePos, const glm::vec2& viewportSize, Ray& outRay) const;
+
         // Async entity picking (PBO double-buffered readback)
         void InitEntityPicking();
         void ShutdownEntityPicking();
@@ -226,6 +232,9 @@ namespace OloEngine
         TerrainEditorPanel m_TerrainEditorPanel;
         InstanceScatterBrushPanel m_InstanceScatterBrushPanel;
         bool m_ShowInstanceScatterBrush = false;
+        // Mesh-surface raycast for the scatter brush (§1.2) — owns the lazily
+        // built per-mesh BVH cache, so it must outlive per-frame queries.
+        SceneMeshRaycaster m_MeshRaycaster;
         StreamingPanel m_StreamingPanel;
         InputSettingsPanel m_InputSettingsPanel;
         NetworkDebugPanel m_NetworkDebugPanel;

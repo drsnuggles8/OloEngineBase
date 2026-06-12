@@ -11,6 +11,7 @@ add_executable(OloEngine-Tests
 		CoreUtilitiesTest.cpp
 		MathTest.cpp
 		ModelImporterTest.cpp
+		SceneMeshRaycastTest.cpp
 		SlugFontRenderingTest.cpp
 		AssetCreationTest.cpp
 		AssetBinaryIntegrityTest.cpp

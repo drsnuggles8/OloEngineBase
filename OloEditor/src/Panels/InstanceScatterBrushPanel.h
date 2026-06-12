@@ -13,9 +13,11 @@ namespace OloEngine
     class CommandHistory;
 
     // Surface scatter brush for `InstancedMeshComponent` — paints placements
-    // onto the terrain heightmap each frame the left mouse is held. Designed
-    // to mirror `TerrainEditorPanel` so the EditorLayer plumbing
-    // (raycast / mouse intercept / overlay rendering) follows the same shape.
+    // onto the terrain heightmap or mesh surfaces (whichever the viewport ray
+    // hits first; EditorLayer resolves the precedence) each frame the left
+    // mouse is held. Designed to mirror `TerrainEditorPanel` so the
+    // EditorLayer plumbing (raycast / mouse intercept / overlay rendering)
+    // follows the same shape.
     //
     // Mode lifecycle: `Off` is the default (no viewport interception). `Paint`
     // enters tool mode — left-click + drag inside the viewport triggers
@@ -28,8 +30,6 @@ namespace OloEngine
     // into the live component; the undo command restores the snapshot.
     //
     // **Out of scope** (deferred):
-    //   - Mesh-surface scatter (no BVH ray-cast yet — see
-    //     `docs/GPU_INSTANCING_FUTURE_IMPROVEMENTS.md` §1.2).
     //   - Brush ring preview in the 3D overlay (debug-line ring helper
     //     would have to be added to Renderer3D; not blocking the workflow).
     class InstanceScatterBrushPanel
