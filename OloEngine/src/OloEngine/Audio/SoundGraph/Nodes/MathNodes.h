@@ -434,8 +434,10 @@ namespace OloEngine::Audio::SoundGraph
                     return T(1); // 1^(-n) = 1
                 if (base == T(-1))
                 {
-                    // (-1)^(-n) = (-1)^n, so check parity of exponent
-                    return ((-exponent) % 2 == 0) ? T(1) : T(-1);
+                    // (-1)^(-n) = (-1)^n, so check parity of exponent. Parity is
+                    // sign-independent, so test the negative value directly —
+                    // negating first would overflow for INT_MIN.
+                    return (exponent % 2 == 0) ? T(1) : T(-1);
                 }
                 return T(0); // All other integer bases with negative exponent
             }
@@ -476,16 +478,16 @@ namespace OloEngine::Audio::SoundGraph
                 exp >>= 1; // Divide exponent by 2
                 if (exp > 0)
                 {
-                    // Check for overflow before squaring base
+                    // Check for overflow before squaring base. exp > 0 here means a
+                    // future bit still needs currentBase², so an overflowing square
+                    // always means an overflowing result — return the sentinel
+                    // unconditionally. (An exponent of 1 never reaches this branch:
+                    // its single multiply happens above and the loop ends.)
                     if (currentBase != T(0))
                     {
                         T maxSqrt = static_cast<T>(std::sqrt(static_cast<f64>(std::numeric_limits<T>::max())));
                         if (detail::sat_abs(currentBase) > maxSqrt)
-                        {
-                            if (result == T(1)) // Only first iteration, so base^1 is still valid
-                                return currentBase;
                             return T(0); // Overflow
-                        }
                     }
                     currentBase *= currentBase;
                 }

@@ -553,6 +553,26 @@ namespace OloEngine::Audio::SoundGraph
         // Graph output endpoint refs
         totalMemory += graph->m_GraphOutputRefs.size() * (sizeof(Identifier) + sizeof(AudioBufferRef));
 
+        // Per-channel block-output buffers (preallocated to max block size — use
+        // capacity, not logical size)
+        totalMemory += graph->m_OutputBuffers.capacity() * sizeof(std::vector<f32>);
+        for (const auto& buffer : graph->m_OutputBuffers)
+            totalMemory += buffer.capacity() * sizeof(f32);
+
+        // Per-node audio output block buffers (Phase 2: every audio-rate output owns
+        // a fixed kMaxAudioBlockFrames buffer). The per-node count isn't reachable
+        // from the base NodeProcessor interface, so approximate with one buffer per
+        // node — typical nodes have 1-2 audio outputs.
+        totalMemory += graph->m_Nodes.size() * kMaxAudioBlockFrames * sizeof(f32);
+
+        // Private per-block runtime caches (m_ProcessOrder, m_OutputChannelRefCache,
+        // m_RampBufferCells, m_ConnectionEdges) — not reachable from here; approximate
+        // from the public structures they mirror.
+        totalMemory += graph->m_Nodes.size() * sizeof(NodeProcessor*);                   // m_ProcessOrder
+        totalMemory += graph->m_OutputChannelIDs.size() * sizeof(const AudioBufferRef*); // m_OutputChannelRefCache
+        totalMemory += graph->m_InterpInputs.size() * sizeof(void*);                     // m_RampBufferCells (upper bound: float cells)
+        totalMemory += graph->m_Nodes.size() * 2 * (sizeof(UUID) * 2);                   // m_ConnectionEdges (~2 edges/node)
+
         // Thread-safe FIFO queues (choc::fifo::SingleReaderSingleWriterFIFO)
         // These are typically allocated with fixed sizes
         // Note: Cannot access private OutgoingEvent/OutgoingMessage structs directly

@@ -280,12 +280,18 @@ namespace OloEngine::Audio::SoundGraph
         // graph swap. Reset to false in ReplaceGraph.
         std::atomic<bool> m_HasLoggedFirstProcess{ false };
 
-        // [SGSDiag] effective-rate telemetry window (audio thread only): counts
-        // ProcessSamples callbacks + frames produced, logs the effective output
-        // rate every 100 callbacks. See the block in ProcessSamples.
+        // [SGSDiag] effective-rate telemetry. The window counters are audio-thread
+        // local; every 100 callbacks ProcessSamples publishes a snapshot through the
+        // atomics below and Update() does the (non-RT-safe) formatted logging on the
+        // main thread. A snapshot the main thread hasn't consumed yet is simply
+        // overwritten by the next window — losing a diagnostic line is fine.
         u32 m_DiagCallbackCount = 0;
         u64 m_DiagFrameCount = 0;
         std::chrono::steady_clock::time_point m_DiagWindowStart{};
+        std::atomic<u32> m_DiagSnapshotCalls{ 0 };
+        std::atomic<u64> m_DiagSnapshotFrames{ 0 };
+        std::atomic<f64> m_DiagSnapshotElapsedMs{ 0.0 };
+        std::atomic<bool> m_DiagSnapshotReady{ false };
 
         //============================================
         /// Event callbacks and thread-safe event handling

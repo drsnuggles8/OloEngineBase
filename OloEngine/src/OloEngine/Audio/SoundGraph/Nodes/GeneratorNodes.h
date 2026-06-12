@@ -16,6 +16,15 @@
 
 namespace OloEngine::Audio::SoundGraph
 {
+    /// Audio-rate inputs can be wired to arbitrary producers, so a NaN/Inf sample
+    /// must never reach the oscillator math: a single non-finite frequency would
+    /// permanently corrupt the phase accumulator (NaN is sticky through +=), and a
+    /// non-finite amplitude/phase would write garbage into the output block.
+    inline f32 FiniteOr(f32 value, f32 fallback) noexcept
+    {
+        return std::isfinite(value) ? value : fallback;
+    }
+
     //==============================================================================
     // Sine Wave Oscillator
     //==============================================================================
@@ -61,9 +70,9 @@ namespace OloEngine::Audio::SoundGraph
 
             for (u32 frame = 0; frame < numFrames; ++frame)
             {
-                const f32 frequency = glm::max(0.0f, m_Frequency.Sample(frame));
-                const f32 amplitude = glm::clamp(m_Amplitude.Sample(frame), 0.0f, 1.0f);
-                const f32 phaseOffset = m_Phase.Sample(frame);
+                const f32 frequency = glm::max(0.0f, FiniteOr(m_Frequency.Sample(frame), 0.0f));
+                const f32 amplitude = glm::clamp(FiniteOr(m_Amplitude.Sample(frame), 0.0f), 0.0f, 1.0f);
+                const f32 phaseOffset = FiniteOr(m_Phase.Sample(frame), 0.0f);
 
                 m_PhaseAccumulator += static_cast<f64>(frequency) * invSampleRate;
                 m_PhaseAccumulator -= std::floor(m_PhaseAccumulator); // wrap to [0, 1)
@@ -123,10 +132,10 @@ namespace OloEngine::Audio::SoundGraph
 
             for (u32 frame = 0; frame < numFrames; ++frame)
             {
-                const f32 frequency = glm::max(0.0f, m_Frequency.Sample(frame));
-                const f32 amplitude = glm::clamp(m_Amplitude.Sample(frame), 0.0f, 1.0f);
-                const f32 phaseOffset = m_Phase.Sample(frame);
-                const f32 pulseWidth = glm::clamp(m_PulseWidth.Sample(frame), 0.01f, 0.99f);
+                const f32 frequency = glm::max(0.0f, FiniteOr(m_Frequency.Sample(frame), 0.0f));
+                const f32 amplitude = glm::clamp(FiniteOr(m_Amplitude.Sample(frame), 0.0f), 0.0f, 1.0f);
+                const f32 phaseOffset = FiniteOr(m_Phase.Sample(frame), 0.0f);
+                const f32 pulseWidth = glm::clamp(FiniteOr(m_PulseWidth.Sample(frame), 0.5f), 0.01f, 0.99f);
 
                 m_PhaseAccumulator += static_cast<f64>(frequency) * invSampleRate;
                 m_PhaseAccumulator -= std::floor(m_PhaseAccumulator);
@@ -187,9 +196,9 @@ namespace OloEngine::Audio::SoundGraph
 
             for (u32 frame = 0; frame < numFrames; ++frame)
             {
-                const f32 frequency = glm::max(0.0f, m_Frequency.Sample(frame));
-                const f32 amplitude = glm::clamp(m_Amplitude.Sample(frame), 0.0f, 1.0f);
-                const f32 phaseOffset = m_Phase.Sample(frame);
+                const f32 frequency = glm::max(0.0f, FiniteOr(m_Frequency.Sample(frame), 0.0f));
+                const f32 amplitude = glm::clamp(FiniteOr(m_Amplitude.Sample(frame), 0.0f), 0.0f, 1.0f);
+                const f32 phaseOffset = FiniteOr(m_Phase.Sample(frame), 0.0f);
 
                 m_PhaseAccumulator += static_cast<f64>(frequency) * invSampleRate;
                 m_PhaseAccumulator = m_PhaseAccumulator - std::floor(m_PhaseAccumulator);
@@ -248,9 +257,9 @@ namespace OloEngine::Audio::SoundGraph
 
             for (u32 frame = 0; frame < numFrames; ++frame)
             {
-                const f32 frequency = glm::max(0.0f, m_Frequency.Sample(frame));
-                const f32 amplitude = glm::clamp(m_Amplitude.Sample(frame), 0.0f, 1.0f);
-                const f32 phaseOffset = m_Phase.Sample(frame);
+                const f32 frequency = glm::max(0.0f, FiniteOr(m_Frequency.Sample(frame), 0.0f));
+                const f32 amplitude = glm::clamp(FiniteOr(m_Amplitude.Sample(frame), 0.0f), 0.0f, 1.0f);
+                const f32 phaseOffset = FiniteOr(m_Phase.Sample(frame), 0.0f);
 
                 m_PhaseAccumulator += static_cast<f64>(frequency) * invSampleRate;
                 if (m_PhaseAccumulator >= 1.0)
@@ -357,7 +366,7 @@ namespace OloEngine::Audio::SoundGraph
             f32* out = m_OutValue.Data();
             for (u32 frame = 0; frame < numFrames; ++frame)
             {
-                out[frame] = m_Generator.GetNextValue() * m_Amplitude.Sample(frame);
+                out[frame] = m_Generator.GetNextValue() * FiniteOr(m_Amplitude.Sample(frame), 0.0f);
             }
         }
 

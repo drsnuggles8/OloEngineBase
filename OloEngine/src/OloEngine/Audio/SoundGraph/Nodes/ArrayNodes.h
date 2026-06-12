@@ -57,6 +57,11 @@ namespace OloEngine::Audio::SoundGraph
                        { (void)v; m_ResetFlag.SetDirty(); });
 
             RegisterEndpoints();
+
+            // Unwired seed defaults to the -1 "unseeded" sentinel so
+            // GetSeedValue() derives a clock seed — a 0 default would make every
+            // unconfigured instance produce the same sequence.
+            m_Seed.SetDefault(-1);
         }
 
         void Init() final
@@ -272,6 +277,11 @@ namespace OloEngine::Audio::SoundGraph
                        { (void)v; m_ResetFlag.SetDirty(); });
 
             RegisterEndpoints();
+
+            // Unwired seed defaults to the -1 "unseeded" sentinel so
+            // GetSeedValue() derives a clock seed — a 0 default would make every
+            // unconfigured instance produce the same sequence.
+            m_Seed.SetDefault(-1);
         }
 
         void Init() final

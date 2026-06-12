@@ -260,8 +260,13 @@ namespace OloEngine::Audio::SoundGraph
             if (m_ResetFlag.CheckAndResetIfDirty())
                 ProcessReset();
 
-            // Unwired delay defaults to zero — zero-delay passthrough.
-            const f32 delay = m_DelayTime.Get();
+            // Unwired delay defaults to zero — zero-delay passthrough. Sanitize once
+            // per block (mirroring RepeatTrigger's period handling): a NaN delay
+            // would make the >= comparison below permanently false and leave the
+            // trigger waiting forever.
+            f32 delay = m_DelayTime.Get();
+            if (!std::isfinite(delay) || delay < 0.0f)
+                delay = 0.0f;
 
             for (u32 frame = 0; frame < numFrames; ++frame)
             {

@@ -14,6 +14,7 @@
 #include <array>
 #include <atomic>
 #include <chrono>
+#include <cmath>
 #include <thread>
 #include <type_traits>
 #include <vector>
@@ -227,17 +228,7 @@ namespace OloEngine::Audio::SoundGraph
             // at load time (CheckAsyncLoadCompletion) but the plug can be written
             // afterwards via parameter automation or the editor's property panel; without
             // this each Play would replay from whatever StartTime was at load.
-            if (m_StartTime.Get() > 0.0f && m_AudioData.m_SampleRate > 0)
-            {
-                const f64 sampleRate = m_AudioData.m_SampleRate;
-                m_StartSample = static_cast<i64>(m_StartTime.Get() * sampleRate);
-                const i64 maxSample = (m_TotalFrames > 0 ? m_TotalFrames - 1 : 0);
-                m_StartSample = glm::min(m_StartSample, maxSample);
-            }
-            else
-            {
-                m_StartSample = 0;
-            }
+            UpdateStartSampleFromStartTime();
 
             // Set playback frame counters to start sample (respects start-time offset).
             m_FrameNumber = m_StartSample;
@@ -445,17 +436,7 @@ namespace OloEngine::Audio::SoundGraph
                 m_LoadState.store(LoadState::Ready, std::memory_order_relaxed);
 
                 // Apply start time offset now that we have the data
-                if (m_StartTime.Get() > 0.0f)
-                {
-                    f64 sampleRate = m_AudioData.m_SampleRate;
-                    m_StartSample = static_cast<i64>(m_StartTime.Get() * sampleRate);
-                    i64 maxSample = (m_TotalFrames > 0 ? m_TotalFrames - 1 : 0);
-                    m_StartSample = glm::min(m_StartSample, maxSample);
-                }
-                else
-                {
-                    m_StartSample = 0;
-                }
+                UpdateStartSampleFromStartTime();
 
                 m_FrameNumber = m_StartSample;
 
@@ -537,44 +518,68 @@ namespace OloEngine::Audio::SoundGraph
         }
 
       private:
+        /// Resolve the StartTime input into a clamped m_StartSample. Shared by
+        /// StartPlayback (per-Play recompute) and CheckAsyncLoadCompletion (initial
+        /// apply once the data is loaded). The input is user/graph-controlled, so a
+        /// non-finite or huge value must not reach the f32->i64 cast (UB) — compute
+        /// in f64 and clamp into [0, maxSample] first.
+        void UpdateStartSampleFromStartTime()
+        {
+            const f32 startTime = m_StartTime.Get();
+            if (!std::isfinite(startTime) || startTime <= 0.0f || m_AudioData.m_SampleRate == 0)
+            {
+                m_StartSample = 0;
+                return;
+            }
+
+            const i64 maxSample = (m_TotalFrames > 0 ? m_TotalFrames - 1 : 0);
+            const f64 startFrame = static_cast<f64>(startTime) * static_cast<f64>(m_AudioData.m_SampleRate);
+            m_StartSample = (startFrame >= static_cast<f64>(maxSample)) ? maxSample : static_cast<i64>(startFrame);
+        }
+
         void ReadNextFrame(f32& outLeft, f32& outRight)
         {
             // Iterative approach to avoid stack overflow from recursive refill attempts
             constexpr i32 maxRefillRetries = 5; // Reasonable limit to prevent infinite loops
 
+            // Pick the read shape from the SOURCE's channel count, not from how many
+            // samples happen to be queued: with the old Available()>=2 heuristic a
+            // mono stream was consumed two source frames per output frame (double
+            // speed) whenever the buffer held more than one sample.
+            const bool stereoSource = !m_AudioData.IsValid() || m_AudioData.m_NumChannels >= 2;
+            const i32 samplesPerFrame = stereoSource ? 2 : 1;
+
             for (i32 retryCount = 0; retryCount <= maxRefillRetries; ++retryCount)
             {
-                if (m_WaveSource.m_Channels.Available() >= 2) // Stereo frame
+                if (m_WaveSource.m_Channels.Available() >= samplesPerFrame)
                 {
-                    // Read interleaved stereo data
-                    outLeft = m_WaveSource.m_Channels.Get();
-                    outRight = m_WaveSource.m_Channels.Get();
-                    return; // Successfully read data
-                }
-                else if (m_WaveSource.m_Channels.Available() >= 1) // Mono frame
-                {
-                    // Mono - duplicate to both channels
-                    float sample = m_WaveSource.m_Channels.Get();
-                    outLeft = sample;
-                    outRight = sample;
-                    return; // Successfully read data
-                }
-                else
-                {
-                    // No data available - try to refill buffer (only if we haven't exceeded retry limit)
-                    if (retryCount < maxRefillRetries && m_WaveSource.m_OnRefill && m_WaveSource.Refill())
+                    if (stereoSource)
                     {
-                        // Buffer refilled, continue loop to try reading again
-                        continue;
+                        // Read interleaved stereo data
+                        outLeft = m_WaveSource.m_Channels.Get();
+                        outRight = m_WaveSource.m_Channels.Get();
                     }
                     else
                     {
-                        // No data available or max retries exceeded
-                        outLeft = 0.0f;
-                        outRight = 0.0f;
-                        return;
+                        // Mono - duplicate to both channels
+                        const float sample = m_WaveSource.m_Channels.Get();
+                        outLeft = sample;
+                        outRight = sample;
                     }
+                    return; // Successfully read data
                 }
+
+                // No data available - try to refill buffer (only if we haven't exceeded retry limit)
+                if (retryCount < maxRefillRetries && m_WaveSource.m_OnRefill && m_WaveSource.Refill())
+                {
+                    // Buffer refilled, continue loop to try reading again
+                    continue;
+                }
+
+                // No data available or max retries exceeded
+                outLeft = 0.0f;
+                outRight = 0.0f;
+                return;
             }
         }
 

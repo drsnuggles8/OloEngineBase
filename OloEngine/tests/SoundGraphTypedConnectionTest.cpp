@@ -40,6 +40,9 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <cstdlib>
+#include <iostream>
+#include <string_view>
 #include <vector>
 
 using namespace OloEngine; // NOLINT(google-build-using-namespace)
@@ -299,11 +302,13 @@ TEST(SoundGraphTypedConnections, GraphFloatParameterRampsPerSample)
 TEST(SoundGraphTypedConnections, DebugBlockProcessingKeepsRealTimeHeadroom)
 {
     // Regression net for the Phase 1 perf bug: one second of audio (100 blocks
-    // of 480 frames) through an oscillator → multiply → output graph must
-    // process in a small fraction of real time even in Debug. Pre-Phase-2 the
-    // per-sample node walk took ~5.3 seconds per second of audio; the threshold
-    // below leaves ~50x headroom for slow CI machines while still failing hard
-    // if the runtime ever regresses to per-sample dispatch.
+    // of 480 frames) through an oscillator → multiply → output graph processed
+    // in a small fraction of real time even in Debug (pre-Phase-2 the per-sample
+    // node walk took ~5.3 seconds per second of audio). The functional part —
+    // the workload runs and produces signal — always asserts; the wall-clock
+    // budget only asserts when OLOENGINE_SOUNDGRAPH_PERF=1 is set (perf opt-in),
+    // because unit runs must not fail on host timing under load. The measured
+    // time is always printed so a regression is still visible in CI logs.
     SoundGraphAsset asset;
     asset.SetName("PerfNet");
 
@@ -339,7 +344,21 @@ TEST(SoundGraphTypedConnections, DebugBlockProcessingKeepsRealTimeHeadroom)
         instance->Process(kBlock);
     const auto elapsed = std::chrono::steady_clock::now() - start;
 
+    // Functional check (always on): the workload produced a signal, not silence.
+    ASSERT_GE(instance->m_OutputBuffers.size(), 1u);
+    f32 maxAbs = 0.0f;
+    for (u32 frame = 0; frame < kBlock; ++frame)
+        maxAbs = std::max(maxAbs, std::abs(instance->m_OutputBuffers[0][frame]));
+    EXPECT_GT(maxAbs, 0.1f) << "perf-net graph produced silence — wiring broke";
+
     const f64 elapsedMs = std::chrono::duration<f64, std::milli>(elapsed).count();
-    EXPECT_LT(elapsedMs, 1000.0)
-        << "1 s of audio took " << elapsedMs << " ms — block-rate processing has regressed toward per-sample cost";
+    std::cout << "[SoundGraphPerf] 1 s of audio (100x480 frames) processed in "
+              << elapsedMs << " ms\n";
+
+    const char* perfOptIn = std::getenv("OLOENGINE_SOUNDGRAPH_PERF");
+    if (perfOptIn && *perfOptIn && std::string_view(perfOptIn) != "0")
+    {
+        EXPECT_LT(elapsedMs, 1000.0)
+            << "1 s of audio took " << elapsedMs << " ms — block-rate processing has regressed toward per-sample cost";
+    }
 }

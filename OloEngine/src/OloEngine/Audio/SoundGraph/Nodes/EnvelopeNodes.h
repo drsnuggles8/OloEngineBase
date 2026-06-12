@@ -26,6 +26,16 @@ namespace OloEngine::Audio::SoundGraph
         return std::fabs(a - b) > kEnvelopeParamEpsilon;
     }
 
+    // Control refs can be wired to arbitrary producers, so a NaN/Inf upstream must
+    // not poison the envelope's cached rates or progress state. Non-finite reads
+    // fall back to the last good (cached) value, or zero if none exists yet.
+    inline f32 SanitizeEnvelopeParam(f32 value, f32 fallback) noexcept
+    {
+        if (std::isfinite(value))
+            return value;
+        return std::isfinite(fallback) ? fallback : 0.0f;
+    }
+
     //==============================================================================
     // Attack-Decay Envelope Generator
     //==============================================================================
@@ -51,7 +61,10 @@ namespace OloEngine::Audio::SoundGraph
         void Init() final
         {
             // Sample rate is now set by NodeProcessor base class
-            RecalculateRates();
+            RecalculateRates(SanitizeEnvelopeParam(m_AttackTime.Get(), 0.0f),
+                             SanitizeEnvelopeParam(m_DecayTime.Get(), 0.0f),
+                             SanitizeEnvelopeParam(m_AttackCurve.Get(), 0.0f),
+                             SanitizeEnvelopeParam(m_DecayCurve.Get(), 0.0f));
 
             // Initialize state
             m_Value = 0.0f;
@@ -63,18 +76,23 @@ namespace OloEngine::Audio::SoundGraph
             OLO_PROFILE_FUNCTION();
 
             // Parameter check + recalc: block-rate (control inputs are stable across
-            // the block).
-            if (EnvelopeParamChanged(m_AttackTime.Get(), m_CachedAttackTime) ||
-                EnvelopeParamChanged(m_DecayTime.Get(), m_CachedDecayTime) ||
-                EnvelopeParamChanged(m_AttackCurve.Get(), m_CachedAttackCurve) ||
-                EnvelopeParamChanged(m_DecayCurve.Get(), m_CachedDecayCurve) ||
+            // the block). Sanitize before dirty-checking so a non-finite upstream
+            // value can never enter the rate math or the caches.
+            const f32 attackTime = SanitizeEnvelopeParam(m_AttackTime.Get(), m_CachedAttackTime);
+            const f32 decayTime = SanitizeEnvelopeParam(m_DecayTime.Get(), m_CachedDecayTime);
+            const f32 attackCurve = SanitizeEnvelopeParam(m_AttackCurve.Get(), m_CachedAttackCurve);
+            const f32 decayCurve = SanitizeEnvelopeParam(m_DecayCurve.Get(), m_CachedDecayCurve);
+            if (EnvelopeParamChanged(attackTime, m_CachedAttackTime) ||
+                EnvelopeParamChanged(decayTime, m_CachedDecayTime) ||
+                EnvelopeParamChanged(attackCurve, m_CachedAttackCurve) ||
+                EnvelopeParamChanged(decayCurve, m_CachedDecayCurve) ||
                 EnvelopeParamChanged(m_SampleRate, m_CachedSampleRate))
             {
-                RecalculateRates();
-                m_CachedAttackTime = m_AttackTime.Get();
-                m_CachedDecayTime = m_DecayTime.Get();
-                m_CachedAttackCurve = m_AttackCurve.Get();
-                m_CachedDecayCurve = m_DecayCurve.Get();
+                RecalculateRates(attackTime, decayTime, attackCurve, decayCurve);
+                m_CachedAttackTime = attackTime;
+                m_CachedDecayTime = decayTime;
+                m_CachedAttackCurve = attackCurve;
+                m_CachedDecayCurve = decayCurve;
                 m_CachedSampleRate = m_SampleRate;
             }
 
@@ -153,26 +171,27 @@ namespace OloEngine::Audio::SoundGraph
         f32 m_CachedDecayCurve = -1.0f;
         f32 m_CachedSampleRate = -1.0f;
 
-        void RecalculateRates()
+        // Inputs must be pre-sanitized (finite) by the caller — see SanitizeEnvelopeParam.
+        void RecalculateRates(f32 attackTime, f32 decayTime, f32 attackCurve, f32 decayCurve)
         {
             OLO_PROFILE_FUNCTION();
             if (m_SampleRate <= 0.0f)
                 return;
 
-            m_EffectiveAttackCurve = glm::max(0.1f, m_AttackCurve.Get());
-            m_EffectiveDecayCurve = glm::max(0.1f, m_DecayCurve.Get());
+            m_EffectiveAttackCurve = glm::max(0.1f, attackCurve);
+            m_EffectiveDecayCurve = glm::max(0.1f, decayCurve);
 
             // Calculate attack rate (linear per-sample increment to reach 1.0 in specified time)
-            if (m_AttackTime.Get() <= 0.0f)
+            if (attackTime <= 0.0f)
                 m_AttackRate = 1.0f; // Immediate
             else
-                m_AttackRate = 1.0f / (m_AttackTime.Get() * m_SampleRate);
+                m_AttackRate = 1.0f / (attackTime * m_SampleRate);
 
             // Calculate decay rate (linear per-sample increment to reach 1.0 in specified time)
-            if (m_DecayTime.Get() <= 0.0f)
+            if (decayTime <= 0.0f)
                 m_DecayRate = 1.0f; // Immediate
             else
-                m_DecayRate = 1.0f / (m_DecayTime.Get() * m_SampleRate);
+                m_DecayRate = 1.0f / (decayTime * m_SampleRate);
         }
 
         void StartAttack()
@@ -259,7 +278,12 @@ namespace OloEngine::Audio::SoundGraph
         void Init() final
         {
             // Sample rate is now set by NodeProcessor base class
-            RecalculateRates();
+            RecalculateRates(SanitizeEnvelopeParam(m_AttackTime.Get(), 0.0f),
+                             SanitizeEnvelopeParam(m_DecayTime.Get(), 0.0f),
+                             SanitizeEnvelopeParam(m_ReleaseTime.Get(), 0.0f),
+                             SanitizeEnvelopeParam(m_AttackCurve.Get(), 0.0f),
+                             SanitizeEnvelopeParam(m_DecayCurve.Get(), 0.0f),
+                             SanitizeEnvelopeParam(m_ReleaseCurve.Get(), 0.0f));
 
             // Initialize state
             m_Value = 0.0f;
@@ -270,22 +294,29 @@ namespace OloEngine::Audio::SoundGraph
         {
             OLO_PROFILE_FUNCTION();
 
-            // Parameter check + recalc: block-rate.
-            if (EnvelopeParamChanged(m_AttackTime.Get(), m_CachedAttackTime) ||
-                EnvelopeParamChanged(m_DecayTime.Get(), m_CachedDecayTime) ||
-                EnvelopeParamChanged(m_ReleaseTime.Get(), m_CachedReleaseTime) ||
-                EnvelopeParamChanged(m_AttackCurve.Get(), m_CachedAttackCurve) ||
-                EnvelopeParamChanged(m_DecayCurve.Get(), m_CachedDecayCurve) ||
-                EnvelopeParamChanged(m_ReleaseCurve.Get(), m_CachedReleaseCurve) ||
+            // Parameter check + recalc: block-rate. Sanitize before dirty-checking so
+            // a non-finite upstream value can never enter the rate math or the caches.
+            const f32 attackTime = SanitizeEnvelopeParam(m_AttackTime.Get(), m_CachedAttackTime);
+            const f32 decayTime = SanitizeEnvelopeParam(m_DecayTime.Get(), m_CachedDecayTime);
+            const f32 releaseTime = SanitizeEnvelopeParam(m_ReleaseTime.Get(), m_CachedReleaseTime);
+            const f32 attackCurve = SanitizeEnvelopeParam(m_AttackCurve.Get(), m_CachedAttackCurve);
+            const f32 decayCurve = SanitizeEnvelopeParam(m_DecayCurve.Get(), m_CachedDecayCurve);
+            const f32 releaseCurve = SanitizeEnvelopeParam(m_ReleaseCurve.Get(), m_CachedReleaseCurve);
+            if (EnvelopeParamChanged(attackTime, m_CachedAttackTime) ||
+                EnvelopeParamChanged(decayTime, m_CachedDecayTime) ||
+                EnvelopeParamChanged(releaseTime, m_CachedReleaseTime) ||
+                EnvelopeParamChanged(attackCurve, m_CachedAttackCurve) ||
+                EnvelopeParamChanged(decayCurve, m_CachedDecayCurve) ||
+                EnvelopeParamChanged(releaseCurve, m_CachedReleaseCurve) ||
                 EnvelopeParamChanged(m_SampleRate, m_CachedSampleRate))
             {
-                RecalculateRates();
-                m_CachedAttackTime = m_AttackTime.Get();
-                m_CachedDecayTime = m_DecayTime.Get();
-                m_CachedReleaseTime = m_ReleaseTime.Get();
-                m_CachedAttackCurve = m_AttackCurve.Get();
-                m_CachedDecayCurve = m_DecayCurve.Get();
-                m_CachedReleaseCurve = m_ReleaseCurve.Get();
+                RecalculateRates(attackTime, decayTime, releaseTime, attackCurve, decayCurve, releaseCurve);
+                m_CachedAttackTime = attackTime;
+                m_CachedDecayTime = decayTime;
+                m_CachedReleaseTime = releaseTime;
+                m_CachedAttackCurve = attackCurve;
+                m_CachedDecayCurve = decayCurve;
+                m_CachedReleaseCurve = releaseCurve;
                 m_CachedSampleRate = m_SampleRate;
             }
 
@@ -315,7 +346,10 @@ namespace OloEngine::Audio::SoundGraph
                         ProcessDecay();
                         break;
                     case Sustain:
-                        m_Value = m_SustainLevel.Get();
+                        // Clamp like ProcessDecay does, so an out-of-range (or
+                        // non-finite) control value can't push m_Value outside [0,1]
+                        // and later be captured by StartRelease().
+                        m_Value = glm::clamp(SanitizeEnvelopeParam(m_SustainLevel.Get(), 0.0f), 0.0f, 1.0f);
                         break;
                     case Release:
                         ProcessRelease();
@@ -384,30 +418,32 @@ namespace OloEngine::Audio::SoundGraph
         f32 m_CachedReleaseCurve = -1.0f;
         f32 m_CachedSampleRate = -1.0f;
 
-        void RecalculateRates()
+        // Inputs must be pre-sanitized (finite) by the caller — see SanitizeEnvelopeParam.
+        void RecalculateRates(f32 attackTime, f32 decayTime, f32 releaseTime,
+                              f32 attackCurve, f32 decayCurve, f32 releaseCurve)
         {
             OLO_PROFILE_FUNCTION();
             if (m_SampleRate <= 0.0f)
                 return;
-            m_EffectiveAttackCurve = glm::max(0.1f, m_AttackCurve.Get());
-            m_EffectiveDecayCurve = glm::max(0.1f, m_DecayCurve.Get());
-            m_EffectiveReleaseCurve = glm::max(0.1f, m_ReleaseCurve.Get());
+            m_EffectiveAttackCurve = glm::max(0.1f, attackCurve);
+            m_EffectiveDecayCurve = glm::max(0.1f, decayCurve);
+            m_EffectiveReleaseCurve = glm::max(0.1f, releaseCurve);
 
             // Calculate per-sample progress increments (1/durationInSamples)
-            if (m_AttackTime.Get() <= 0.0f)
+            if (attackTime <= 0.0f)
                 m_AttackRate = 1.0f; // Immediate (complete in one sample)
             else
-                m_AttackRate = 1.0f / (m_AttackTime.Get() * m_SampleRate);
+                m_AttackRate = 1.0f / (attackTime * m_SampleRate);
 
-            if (m_DecayTime.Get() <= 0.0f)
+            if (decayTime <= 0.0f)
                 m_DecayRate = 1.0f; // Immediate
             else
-                m_DecayRate = 1.0f / (m_DecayTime.Get() * m_SampleRate);
+                m_DecayRate = 1.0f / (decayTime * m_SampleRate);
 
-            if (m_ReleaseTime.Get() <= 0.0f)
+            if (releaseTime <= 0.0f)
                 m_ReleaseRate = 1.0f; // Immediate
             else
-                m_ReleaseRate = 1.0f / (m_ReleaseTime.Get() * m_SampleRate);
+                m_ReleaseRate = 1.0f / (releaseTime * m_SampleRate);
         }
 
         void StartAttack()
@@ -459,7 +495,7 @@ namespace OloEngine::Audio::SoundGraph
             f32 curvedProgress = glm::pow(m_DecayProgress, m_EffectiveDecayCurve);
 
             // Interpolate using curved progress (decay from 1.0 to sustain level)
-            f32 sustainLevel = glm::clamp(m_SustainLevel.Get(), 0.0f, 1.0f);
+            f32 sustainLevel = glm::clamp(SanitizeEnvelopeParam(m_SustainLevel.Get(), 0.0f), 0.0f, 1.0f);
             m_Value = 1.0f - curvedProgress * (1.0f - sustainLevel);
 
             // Check if decay is complete

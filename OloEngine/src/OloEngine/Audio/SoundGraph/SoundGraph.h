@@ -18,7 +18,9 @@
 #include <queue>
 #include <algorithm>
 #include <atomic>
+#include <cmath>
 #include <cstring>
+#include <limits>
 #include <string_view>
 #include <utility>
 
@@ -161,9 +163,12 @@ namespace OloEngine::Audio::SoundGraph
             void InitFromValue(const choc::value::ValueView& v)
             {
                 if (v.isFloat32())
-                    InitFloat(v.getFloat32());
+                    InitFloat(std::isfinite(v.getFloat32()) ? v.getFloat32() : 0.0f);
                 else if (v.isFloat64())
-                    InitFloat(static_cast<f32>(v.getFloat64()));
+                {
+                    const f64 value = v.getFloat64();
+                    InitFloat(std::isfinite(value) ? static_cast<f32>(value) : 0.0f);
+                }
                 else if (v.isInt32())
                     InitInt32(v.getInt32());
                 else if (v.isInt64())
@@ -174,8 +179,22 @@ namespace OloEngine::Audio::SoundGraph
                     InitFloat(0.0f); // unsupported plug type — default-silent float
             }
 
+            /// Saturating f64 -> i64: casting NaN/Inf or out-of-range doubles to an
+            /// integer is undefined behavior, so clamp into representable range first.
+            static i64 ToSaturatedInt(f64 v) noexcept
+            {
+                constexpr f64 kMin = static_cast<f64>(std::numeric_limits<i64>::min());
+                constexpr f64 kMax = static_cast<f64>(std::numeric_limits<i64>::max());
+                if (v <= kMin)
+                    return std::numeric_limits<i64>::min();
+                if (v >= kMax)
+                    return std::numeric_limits<i64>::max();
+                return static_cast<i64>(v);
+            }
+
             /// Typed scalar write with tolerant numeric conversion. Marks the ramp
             /// buffer dirty so audio-rate consumers pick the change up next block.
+            /// Non-finite floats are rejected (cell keeps its previous value).
             bool SetScalarFromValue(const choc::value::ValueView& v)
             {
                 f64 numeric = 0.0;
@@ -183,12 +202,16 @@ namespace OloEngine::Audio::SoundGraph
                 if (v.isFloat32())
                 {
                     numeric = static_cast<f64>(v.getFloat32());
-                    integer = static_cast<i64>(numeric);
+                    if (!std::isfinite(numeric))
+                        return false;
+                    integer = ToSaturatedInt(numeric);
                 }
                 else if (v.isFloat64())
                 {
                     numeric = v.getFloat64();
-                    integer = static_cast<i64>(numeric);
+                    if (!std::isfinite(numeric))
+                        return false;
+                    integer = ToSaturatedInt(numeric);
                 }
                 else if (v.isInt32())
                 {
@@ -368,8 +391,16 @@ namespace OloEngine::Audio::SoundGraph
 
         void AddGraphOutputStream(Identifier id)
         {
+            // m_OutChannels and m_GraphOutputRefs must stay parallel (the output copy
+            // in ProcessChunk sizes off both) — only grow the scalar mirror when the
+            // ref actually inserted, so a duplicate id can't skew the channel count.
+            auto [it, inserted] = m_GraphOutputRefs.try_emplace(id); // default: silent constant until wired
+            if (!inserted)
+            {
+                OLO_CORE_WARN("AddGraphOutputStream: duplicate graph output endpoint {} ignored", static_cast<u32>(id));
+                return;
+            }
             m_OutChannels.emplace_back(0.0f);
-            m_GraphOutputRefs.try_emplace(id); // default: silent constant until wired
         }
 
         template<typename T>

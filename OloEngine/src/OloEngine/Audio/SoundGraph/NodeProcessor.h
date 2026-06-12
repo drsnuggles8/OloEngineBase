@@ -8,7 +8,9 @@
 #include "OloEngine/Core/Ref.h"
 #include <choc/containers/choc_Value.h>
 
+#include <cmath>
 #include <functional>
+#include <limits>
 #include <memory>
 #include <string>
 #include <type_traits>
@@ -331,18 +333,37 @@ namespace OloEngine::Audio::SoundGraph
 
             const auto& type = value.getType();
 
+            // Saturating f64 -> i64: casting a NaN/Inf or out-of-range double to an
+            // integer is undefined behavior, so clamp into representable range first.
+            // (i64 max is not exactly representable as f64; the cast below relies on
+            // the comparison bounds being the nearest representable doubles.)
+            auto toSaturatedInt = [](f64 v) -> i64
+            {
+                constexpr f64 kMin = static_cast<f64>(std::numeric_limits<i64>::min());
+                constexpr f64 kMax = static_cast<f64>(std::numeric_limits<i64>::max());
+                if (v <= kMin)
+                    return std::numeric_limits<i64>::min();
+                if (v >= kMax)
+                    return std::numeric_limits<i64>::max();
+                return static_cast<i64>(v);
+            };
+
             f64 numeric = 0.0;
             i64 integer = 0;
             bool boolean = false;
             if (type.isFloat32())
             {
                 numeric = static_cast<f64>(value.getFloat32());
-                integer = static_cast<i64>(numeric);
+                if (!std::isfinite(numeric))
+                    return false; // reject NaN/Inf — keep the compiled-in default
+                integer = toSaturatedInt(numeric);
             }
             else if (type.isFloat64())
             {
                 numeric = value.getFloat64();
-                integer = static_cast<i64>(numeric);
+                if (!std::isfinite(numeric))
+                    return false; // reject NaN/Inf — keep the compiled-in default
+                integer = toSaturatedInt(numeric);
             }
             else if (type.isInt32())
             {

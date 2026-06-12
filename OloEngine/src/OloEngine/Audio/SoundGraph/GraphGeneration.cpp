@@ -517,8 +517,15 @@ namespace OloEngine::Audio::SoundGraph
                 {
                     if (!node->SetInputDefault(defaultPlug.m_EndpointID, defaultPlug.m_DefaultValue))
                     {
-                        OLO_CORE_TRACE("CreateGraphNodes: node '{}' has no input stream for default plug {}",
-                                       node->m_DebugName, static_cast<u32>(defaultPlug.m_EndpointID));
+                        // An authored default that doesn't land means the node runs on
+                        // its compiled-in default — audible (wrong parameter value) but
+                        // not fatal. Warn rather than abort: plugs are emitted for every
+                        // schema entry, so a schema<->node naming drift would otherwise
+                        // brick every instance of the node type instead of degrading one
+                        // parameter.
+                        OLO_CORE_WARN("CreateGraphNodes: node '{}' dropped authored default for endpoint {} "
+                                      "(no matching input stream or invalid value) — using compiled-in default",
+                                      node->m_DebugName, static_cast<u32>(defaultPlug.m_EndpointID));
                     }
                 }
 

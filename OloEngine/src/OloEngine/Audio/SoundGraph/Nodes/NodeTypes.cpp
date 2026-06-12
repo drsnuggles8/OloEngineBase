@@ -20,10 +20,15 @@ namespace OloEngine::Audio::SoundGraph
     /// processor types that need custom constructor / Init() behavior. (The old
     /// InitializeInputs step is gone — Phase 2 typed refs are born pointing at their
     /// inline defaults and re-pointed by connections, so there is no second pass.)
-#define INIT_ENDPOINTS_FUNCS(TNodeProcessor)        \
-    void TNodeProcessor::RegisterEndpoints()        \
-    {                                               \
-        EndpointUtilities::RegisterEndpoints(this); \
+    /// Registration returning false means the node has no visible DESCRIBE_NODE
+    /// specialization — every endpoint silently missing. Fail fast at construction
+    /// instead of surfacing later as inexplicable wire failures.
+#define INIT_ENDPOINTS_FUNCS(TNodeProcessor)                                                               \
+    void TNodeProcessor::RegisterEndpoints()                                                               \
+    {                                                                                                      \
+        [[maybe_unused]] const bool registered = EndpointUtilities::RegisterEndpoints(this);               \
+        OLO_CORE_ASSERT(registered, #TNodeProcessor ": endpoint registration failed — node is not"         \
+                                                    " described (missing DESCRIBE_NODE specialization?)"); \
     }
 
     // Generator nodes that need custom behavior use INIT_ENDPOINTS_FUNCS
@@ -46,11 +51,13 @@ namespace OloEngine::Audio::SoundGraph
     INIT_ENDPOINTS_FUNCS(DelayedTrigger);
 
     // Array nodes — template member definitions require template<> syntax
-#define INIT_ENDPOINTS_FUNCS_TEMPLATE(TNodeProcessor) \
-    template<>                                        \
-    void TNodeProcessor::RegisterEndpoints()          \
-    {                                                 \
-        EndpointUtilities::RegisterEndpoints(this);   \
+#define INIT_ENDPOINTS_FUNCS_TEMPLATE(TNodeProcessor)                                                      \
+    template<>                                                                                             \
+    void TNodeProcessor::RegisterEndpoints()                                                               \
+    {                                                                                                      \
+        [[maybe_unused]] const bool registered = EndpointUtilities::RegisterEndpoints(this);               \
+        OLO_CORE_ASSERT(registered, #TNodeProcessor ": endpoint registration failed — node is not"         \
+                                                    " described (missing DESCRIBE_NODE specialization?)"); \
     }
 
     INIT_ENDPOINTS_FUNCS_TEMPLATE(Get<int>);
