@@ -49,7 +49,7 @@ TEST(FABRIKSolverTest, ReachableTargetConverges)
     BuildChain(pose, parents);
 
     FABRIKParams params;
-    params.TargetBoneIndex = 4; // tip
+    params.TargetBoneIndex = 4;                          // tip
     params.TargetPosition = glm::vec3(2.0f, 2.0f, 0.0f); // within reach (total length 4)
     params.ChainLength = 5;
     params.MaxIterations = 20;
