@@ -165,7 +165,7 @@ namespace OloEngine::Animation
         }
 
         // Apply IK pass between pose evaluation and forward kinematics
-        if (ikTarget && (ikTarget->AimIKEnabled || ikTarget->LimbIKEnabled))
+        if (ikTarget && (ikTarget->AimIKEnabled || ikTarget->LimbIKEnabled || ikTarget->ChainIKEnabled))
         {
             ApplyIKPostPass(skeleton, *ikTarget, entityWorldTransform);
         }
