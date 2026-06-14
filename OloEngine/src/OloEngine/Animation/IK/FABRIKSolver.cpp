@@ -136,7 +136,11 @@ namespace OloEngine::Animation
             // preserved instead of collapsing the segment.
             const std::vector<glm::vec3> initialJointPositions = jointPositions;
             f32 tolerance2 = tolerance * tolerance;
-            for (u32 iter = 0; iter < params.MaxIterations; ++iter)
+            // Engine call sites clamp iterations to 1..128 already; cap here
+            // too so a direct caller cannot stall the frame with a huge value.
+            constexpr u32 kMaxIterationsCap = 128;
+            u32 maxIterations = std::min(params.MaxIterations, kMaxIterationsCap);
+            for (u32 iter = 0; iter < maxIterations; ++iter)
             {
                 if (glm::length2(jointPositions.back() - params.TargetPosition) < tolerance2)
                 {

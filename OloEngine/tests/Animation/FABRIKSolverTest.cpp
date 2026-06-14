@@ -205,7 +205,7 @@ TEST(FABRIKSolverTest, ZeroWeightPassthrough)
 
     for (sizet i = 0; i < pose.size(); ++i)
     {
-        EXPECT_NEAR(glm::length(pose[i].Rotation - originalPose[i].Rotation), 0.0f, 1e-5f)
+        EXPECT_NEAR(std::abs(glm::dot(pose[i].Rotation, originalPose[i].Rotation)), 1.0f, 1e-5f)
             << "Weight 0 should leave pose unchanged at bone " << i;
     }
 }
@@ -263,7 +263,7 @@ TEST(FABRIKSolverTest, ChainLengthBelowTwoIsNoOp)
 
     for (sizet i = 0; i < pose.size(); ++i)
     {
-        EXPECT_NEAR(glm::length(pose[i].Rotation - originalPose[i].Rotation), 0.0f, 1e-5f);
+        EXPECT_NEAR(std::abs(glm::dot(pose[i].Rotation, originalPose[i].Rotation)), 1.0f, 1e-5f);
     }
 }
 
@@ -285,7 +285,7 @@ TEST(FABRIKSolverTest, InvalidBoneIndexIsNoOp)
 
     for (sizet i = 0; i < pose.size(); ++i)
     {
-        EXPECT_NEAR(glm::length(pose[i].Rotation - originalPose[i].Rotation), 0.0f, 1e-5f);
+        EXPECT_NEAR(std::abs(glm::dot(pose[i].Rotation, originalPose[i].Rotation)), 1.0f, 1e-5f);
     }
 }
 
@@ -307,7 +307,7 @@ TEST(FABRIKSolverTest, NonFiniteTargetIsNoOp)
 
     for (sizet i = 0; i < pose.size(); ++i)
     {
-        EXPECT_NEAR(glm::length(pose[i].Rotation - originalPose[i].Rotation), 0.0f, 1e-5f);
+        EXPECT_NEAR(std::abs(glm::dot(pose[i].Rotation, originalPose[i].Rotation)), 1.0f, 1e-5f);
     }
 }
 
@@ -327,7 +327,7 @@ TEST(FABRIKSolverTest, ZeroLengthChainHandledGracefully)
     // All joints coincident — solver must bail out without modifying the pose
     for (sizet i = 0; i < pose.size(); ++i)
     {
-        EXPECT_NEAR(glm::length(pose[i].Rotation - glm::identity<glm::quat>()), 0.0f, 1e-5f);
+        EXPECT_NEAR(std::abs(glm::dot(pose[i].Rotation, glm::identity<glm::quat>())), 1.0f, 1e-5f);
     }
 }
 
@@ -350,7 +350,7 @@ TEST(FABRIKSolverTest, PartialChainLeavesRootBonesUntouched)
 
     for (sizet i = 0; i < 2; ++i)
     {
-        EXPECT_NEAR(glm::length(pose[i].Rotation - originalPose[i].Rotation), 0.0f, 1e-5f)
+        EXPECT_NEAR(std::abs(glm::dot(pose[i].Rotation, originalPose[i].Rotation)), 1.0f, 1e-5f)
             << "Bone " << i << " is outside the chain and must not move";
     }
 
