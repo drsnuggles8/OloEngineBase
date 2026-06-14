@@ -909,6 +909,14 @@ namespace OloEngine
             mb.InverseViewProjection = data.InverseViewProjectionMatrix;
             mb.PrevViewProjection = data.PrevViewProjectionMatrix;
             data.PostProcessGPU.MotionBlur->SetData(&mb, MotionBlurUBOData::GetSize());
+            // Re-establish the base-8 binding every upload: of this UBO's
+            // consumers only MotionBlurRenderPass binds it itself — the
+            // G-Buffer, deferred-lighting, fog, and TAA shaders read binding 8
+            // relying on the glBindBufferBase from the buffer's constructor,
+            // so anything else that creates a UBO on slot 8 (and then dies)
+            // leaves them reading an unbound buffer: zero matrices, broken
+            // world-position reconstruction, silently wrong deferred frames.
+            data.PostProcessGPU.MotionBlur->Bind();
         }
     }
 

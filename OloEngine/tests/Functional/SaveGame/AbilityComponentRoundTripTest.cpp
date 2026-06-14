@@ -15,12 +15,11 @@
 //     - OwnedTags survive (we add a fixed marker so the read path is
 //       observable).
 //
-// NOTE: This uses Scene's YAML serializer rather than the SaveGame binary
-// path. SaveGameSerializer maintains a curated whitelist of "gameplay
-// state" components, and AbilityComponent is deliberately not on it —
-// quicksaves shouldn't snapshot every gameplay attribute. Scene YAML
-// however is the format used for .olo scene files, where AbilityComponent
-// MUST round-trip exactly or whole authored scenes lose data.
+// NOTE: This uses Scene's YAML serializer — the format for authored .olo
+// scene files, where AbilityComponent MUST round-trip exactly or whole
+// scenes lose data. The SaveGame binary path also carries AbilityComponent
+// (since issue #325 wired it into the SAVE_COMPONENT/TRY_LOAD_COMPONENT
+// lists); that seam is covered by RegisteredComponentsSurviveSaveLoadTest.
 //
 // Scenario: build a player entity, give it attributes (Health=73.5,
 // Mana=12), one ability with a custom cooldown, and one owned tag.

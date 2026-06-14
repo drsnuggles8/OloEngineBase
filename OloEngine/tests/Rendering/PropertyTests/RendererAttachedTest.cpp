@@ -58,6 +58,14 @@ namespace OloEngine::Tests
             s_RendererInitialised = true;
         }
 
+        // Snapshot the process-wide renderer configuration before BuildScene
+        // gets a chance to mutate it; TearDown restores it. See the member
+        // comment in the header for why a leaked setting is worse than a
+        // leaked GL binding.
+        m_SavedRendererSettings = Renderer3D::GetRendererSettings();
+        m_SavedPostProcessSettings = Renderer3D::GetPostProcessSettings();
+        m_SettingsSnapshotted = true;
+
         m_Scene = Scene::Create();
         // Rendering is OFF by default: the cheap smoke tests only need the
         // cross-subsystem tick to run post-init. Subclasses that want the
@@ -70,6 +78,28 @@ namespace OloEngine::Tests
 
     void RendererAttachedTest::TearDown()
     {
+        // Restore the renderer configuration the test started with.
+        if (m_SettingsSnapshotted)
+        {
+            // Restore the authored settings, then re-apply unconditionally.
+            // The snapshot captures only these two structs — NOT the render
+            // graph's internal "configured-for" state (ActiveGraphPath /
+            // ActiveGraphAOTechnique). A struct-level comparison can therefore
+            // read "unchanged" while the graph was left reconfigured by an
+            // earlier ApplyRendererSettings call (e.g. a test that switched the
+            // path or AO technique and then reset the structs by hand), leaking
+            // a stale pipeline into later tests. Reasserting every teardown
+            // makes the graph match the restored settings regardless of how the
+            // test manipulated state. This is cheap: ApplyRendererSettings
+            // guards the expensive ConfigureRenderGraph behind an actual
+            // path/AO-technique mismatch, so an already-consistent graph costs
+            // only a few scalar setters.
+            Renderer3D::GetPostProcessSettings() = m_SavedPostProcessSettings;
+            Renderer3D::GetRendererSettings() = m_SavedRendererSettings;
+            Renderer3D::ApplyRendererSettings();
+            m_SettingsSnapshotted = false;
+        }
+
         // Stopping physics is conditional on whether the test enabled it.
         // For the minimal smoke tests we don't enable physics, so just
         // drop the Scene ref.
