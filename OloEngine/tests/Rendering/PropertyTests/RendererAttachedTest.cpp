@@ -8,9 +8,6 @@
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/ResourceHandle.h"
 
-#include <cstring>
-#include <type_traits>
-
 namespace OloEngine::Tests
 {
     namespace
@@ -81,41 +78,25 @@ namespace OloEngine::Tests
 
     void RendererAttachedTest::TearDown()
     {
-        // Restore the renderer configuration the test started with. memcmp
-        // is valid here (and avoids float-== on the settings' f32 fields):
-        // both structs are scalar-only, asserted below. Padding noise can
-        // only cause a spurious re-apply, never a missed restore.
+        // Restore the renderer configuration the test started with.
         if (m_SettingsSnapshotted)
         {
-            static_assert(std::is_trivially_copyable_v<RendererSettings>);
-            static_assert(std::is_trivially_copyable_v<PostProcessSettings>);
-
-            // Detect the PostProcess change BEFORE overwriting it:
-            // ApplyRendererSettings reconfigures the render graph when
-            // ActiveAOTechnique (a PostProcessSettings field) differs from the
-            // graph's current technique, so a test that switched only the AO
-            // technique would leave the graph mis-configured if we restored the
-            // value without re-applying — RendererSettings is untouched in that
-            // case, so settingsChanged alone would miss it.
-            auto& postProcess = Renderer3D::GetPostProcessSettings();
-            const bool postProcessChanged =
-                std::memcmp(&postProcess, &m_SavedPostProcessSettings, sizeof(PostProcessSettings)) != 0;
-            postProcess = m_SavedPostProcessSettings;
-
-            auto& settings = Renderer3D::GetRendererSettings();
-            const bool settingsChanged =
-                std::memcmp(&settings, &m_SavedRendererSettings, sizeof(RendererSettings)) != 0;
-            if (settingsChanged)
-            {
-                settings = m_SavedRendererSettings;
-            }
-            // Re-apply when either struct changed; ApplyRendererSettings itself
-            // rebuilds the render graph only when the rendering path or AO
-            // technique actually differs from the graph's current state.
-            if (settingsChanged || postProcessChanged)
-            {
-                Renderer3D::ApplyRendererSettings();
-            }
+            // Restore the authored settings, then re-apply unconditionally.
+            // The snapshot captures only these two structs — NOT the render
+            // graph's internal "configured-for" state (ActiveGraphPath /
+            // ActiveGraphAOTechnique). A struct-level comparison can therefore
+            // read "unchanged" while the graph was left reconfigured by an
+            // earlier ApplyRendererSettings call (e.g. a test that switched the
+            // path or AO technique and then reset the structs by hand), leaking
+            // a stale pipeline into later tests. Reasserting every teardown
+            // makes the graph match the restored settings regardless of how the
+            // test manipulated state. This is cheap: ApplyRendererSettings
+            // guards the expensive ConfigureRenderGraph behind an actual
+            // path/AO-technique mismatch, so an already-consistent graph costs
+            // only a few scalar setters.
+            Renderer3D::GetPostProcessSettings() = m_SavedPostProcessSettings;
+            Renderer3D::GetRendererSettings() = m_SavedRendererSettings;
+            Renderer3D::ApplyRendererSettings();
             m_SettingsSnapshotted = false;
         }
 
