@@ -90,7 +90,17 @@ namespace OloEngine::Tests
             static_assert(std::is_trivially_copyable_v<RendererSettings>);
             static_assert(std::is_trivially_copyable_v<PostProcessSettings>);
 
-            Renderer3D::GetPostProcessSettings() = m_SavedPostProcessSettings;
+            // Detect the PostProcess change BEFORE overwriting it:
+            // ApplyRendererSettings reconfigures the render graph when
+            // ActiveAOTechnique (a PostProcessSettings field) differs from the
+            // graph's current technique, so a test that switched only the AO
+            // technique would leave the graph mis-configured if we restored the
+            // value without re-applying — RendererSettings is untouched in that
+            // case, so settingsChanged alone would miss it.
+            auto& postProcess = Renderer3D::GetPostProcessSettings();
+            const bool postProcessChanged =
+                std::memcmp(&postProcess, &m_SavedPostProcessSettings, sizeof(PostProcessSettings)) != 0;
+            postProcess = m_SavedPostProcessSettings;
 
             auto& settings = Renderer3D::GetRendererSettings();
             const bool settingsChanged =
@@ -98,8 +108,12 @@ namespace OloEngine::Tests
             if (settingsChanged)
             {
                 settings = m_SavedRendererSettings;
-                // Re-applies the saved configuration; rebuilds the render
-                // graph only when the test switched the rendering path.
+            }
+            // Re-apply when either struct changed; ApplyRendererSettings itself
+            // rebuilds the render graph only when the rendering path or AO
+            // technique actually differs from the graph's current state.
+            if (settingsChanged || postProcessChanged)
+            {
                 Renderer3D::ApplyRendererSettings();
             }
             m_SettingsSnapshotted = false;
