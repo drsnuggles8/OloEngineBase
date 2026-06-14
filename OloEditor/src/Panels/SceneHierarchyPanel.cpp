@@ -1604,6 +1604,8 @@ namespace OloEngine
 
     void SceneHierarchyPanel::DrawEntityReferenceField(const char* label, const char* idSuffix, UUID& targetEntity)
     {
+        OLO_PROFILE_FUNCTION();
+
         if (!m_Context)
         {
             return;
@@ -1646,7 +1648,10 @@ namespace OloEngine
         {
             if (auto const* payload = ImGui::AcceptDragDropPayload("ENTITY_REPARENT"))
             {
-                targetEntity = *static_cast<const UUID*>(payload->Data);
+                if (payload->Data && payload->DataSize >= static_cast<int>(sizeof(UUID)))
+                {
+                    targetEntity = *static_cast<const UUID*>(payload->Data);
+                }
             }
             ImGui::EndDragDropTarget();
         }
