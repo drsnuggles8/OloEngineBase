@@ -38,7 +38,7 @@ param(
     [int]$ProcId = 0,                   # for shot/stop against an already-running process
     [switch]$KeepOpen,                  # capture: leave the app running afterwards
     [int]$McpPort = 0,                  # attach: override the per-worktree MCP port (0 = derive from worktree path)
-    [string]$McpName,                   # attach: override the per-worktree MCP server name (default oloeditor-<slug>)
+    [string]$McpName,                   # attach: override the per-worktree MCP server name (default oloeditor-<port>)
     # 'print' (default) uses PrintWindow -> captures THIS window's own surface even
     # when occluded/not focused. 'screen' BitBlts the desktop at the window rect and
     # only works if OloEditor is genuinely the top-most visible window (it usually is
@@ -290,16 +290,6 @@ function Write-LogTail {
 # default port / the single legacy discovery file. The engine honours
 # OLO_MCP_PORT and OLO_MCP_DISCOVERY_FILE (see McpServer::DiscoveryFilePath).
 
-# Stable, filesystem/CLI-safe identifier for this worktree: the leaf dir name,
-# lowercased with runs of non-alphanumerics collapsed to single dashes.
-function Get-WorktreeSlug {
-    param($repo)
-    $leaf = Split-Path $repo -Leaf
-    $slug = ($leaf.ToLowerInvariant() -replace '[^a-z0-9]+', '-').Trim('-')
-    if (-not $slug) { $slug = 'oloengine' }
-    return $slug
-}
-
 # Deterministic per-worktree port in [20000, 59999], stable across launches and
 # sessions. .NET's String.GetHashCode is per-process randomized, so we hash the
 # path bytes with MD5 ourselves (any stable hash would do — this is not security).
@@ -420,10 +410,14 @@ switch ($Action) {
         # this worktree's dedicated port + discovery file, then register it with
         # Claude Code so the olo_* tools become available in the session.
         $exePath = Resolve-Exe $repo
-        $slug = Get-WorktreeSlug $repo
         $port = if ($McpPort -gt 0) { $McpPort } else { Get-WorktreePort $repo }
-        $name = if ($McpName) { $McpName } else { "oloeditor-$slug" }
-        $discoveryPath = Join-Path $env:TEMP "oloengine-mcp-$slug.json"
+        # Name the discovery file + MCP server after the PORT (itself a stable
+        # full-path hash), not the worktree leaf dir. Two worktrees sharing a leaf
+        # name at different paths would otherwise get distinct ports but the SAME
+        # discovery file + MCP name and silently clobber each other — re-introducing
+        # the collision this feature prevents. The port disambiguates by full path.
+        $name = if ($McpName) { $McpName } else { "oloeditor-$port" }
+        $discoveryPath = Join-Path $env:TEMP "oloengine-mcp-$port.json"
 
         # Drop any stale discovery file so Wait-Discovery only returns this run's.
         Remove-Item $discoveryPath -ErrorAction SilentlyContinue

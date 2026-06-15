@@ -89,7 +89,7 @@ Driver options:
 | `-Out <path>` | output PNG (default `shots\<Target>-<Config>.png`) |
 | `-KeepOpen` | with `capture`: leave the app running after the shot |
 | `-McpPort <n>` | with `attach`: override the per-worktree MCP port (default: derived from the worktree path) |
-| `-McpName <name>` | with `attach`: override the registered MCP server name (default `oloeditor-<worktree-slug>`) |
+| `-McpName <name>` | with `attach`: override the registered MCP server name (default `oloeditor-<port>`) |
 
 ## Attach the MCP diagnostics server (live frame inspection)
 
@@ -109,10 +109,12 @@ pwsh -NoProfile -File .claude\skills\run-oloengine\driver.ps1 -Action stop   # k
 `attach` launches the editor detached with `OLO_MCP_AUTOSTART=1`, a **per-worktree
 port** (`OLO_MCP_PORT`, derived from a hash of the worktree path so parallel worktree
 sessions never collide), and a **per-worktree discovery file**
-(`OLO_MCP_DISCOVERY_FILE = %TEMP%\oloengine-mcp-<slug>.json`). It waits for that file,
+(`OLO_MCP_DISCOVERY_FILE = %TEMP%\oloengine-mcp-<port>.json`). It waits for that file,
 reads the URL + bearer token, and runs `claude mcp add --transport http
-oloeditor-<slug> <url> --header "Authorization: Bearer <token>"`. The server name is
-per-worktree too, so two attached editors don't clobber each other's registration.
+oloeditor-<port> <url> --header "Authorization: Bearer <token>"`. The discovery file
+and server name are keyed on the **port** (itself a full-path hash), not the worktree
+folder name, so two worktrees that happen to share a leaf directory name still get
+distinct identities and don't clobber each other's registration.
 
 Notes:
 - A fresh Claude Code session/reconnect may be needed before the newly registered
