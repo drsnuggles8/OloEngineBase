@@ -3625,6 +3625,12 @@ namespace OloEngine
                     component.m_ConnectedEntity = 0;
             }
 
+            // Whether the two connected bodies still collide. Only meaningful for
+            // a body-to-body joint; a world anchor has no second body to filter.
+            ImGui::Checkbox("Collide Connected##PhysicsJoint3D", &component.m_CollideConnected);
+            if (connected == 0 && ImGui::IsItemHovered())
+                ImGui::SetTooltip("Only applies to body-to-body joints; ignored for a world anchor.");
+
             DrawVec3Control("Anchor A (local)##PhysicsJoint3D", component.m_LocalAnchorA);
             DrawVec3Control("Anchor B (local)##PhysicsJoint3D", component.m_LocalAnchorB);
 

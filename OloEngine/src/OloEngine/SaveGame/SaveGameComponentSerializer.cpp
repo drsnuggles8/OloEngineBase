@@ -850,6 +850,15 @@ namespace OloEngine
             clampVec3(c.m_SixDOFTranslationMax, -10000.0f, 10000.0f, 0.5f);
             clampVec3(c.m_SixDOFRotationMinDeg, -180.0f, 180.0f, -45.0f);
             clampVec3(c.m_SixDOFRotationMaxDeg, -180.0f, 180.0f, 45.0f);
+
+            // CollideConnected tail (issue #308 item 1). Archives written before
+            // this flag existed end after the SwingTwist/SixDOF block, so default
+            // to true — the long-standing behavior where jointed bodies collide.
+            // A bool has no non-finite states, so no sanitization is needed.
+            if (ar.AtEnd())
+                c.m_CollideConnected = true;
+            else
+                ar << c.m_CollideConnected;
         }
         else
         {
@@ -866,6 +875,7 @@ namespace OloEngine
                << c.m_SixDOFRotXMode << c.m_SixDOFRotYMode << c.m_SixDOFRotZMode;
             ar << c.m_SixDOFTranslationMin << c.m_SixDOFTranslationMax
                << c.m_SixDOFRotationMinDeg << c.m_SixDOFRotationMaxDeg;
+            ar << c.m_CollideConnected;
         }
         // m_RuntimeConstraintToken is a runtime Jolt handle — not serialized.
     }

@@ -127,6 +127,7 @@
     "OloEngine/tests/Functional/Cinematic/CinematicAssetPlaybackTest.cpp": "Functional",
     "OloEngine/tests/Functional/AnimationPhysics/FreeFallLandingTest.cpp": "Functional",
     "OloEngine/tests/Functional/AnimationPhysics/PhysicsJoint3DTest.cpp": "Functional",
+    "OloEngine/tests/Functional/AnimationPhysics/PhysicsJointCollideConnectedTest.cpp": "Functional",
     "OloEngine/tests/Functional/AnimationPhysics/WaterBuoyancyTest.cpp": "Functional",
     "OloEngine/tests/Functional/AnimationPhysics/AnimationKeepsTickingUnderPhysicsLoadTest.cpp": "Functional",
     "OloEngine/tests/Functional/SaveGame/SceneRoundTripAfterTickTest.cpp": "Functional",

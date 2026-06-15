@@ -969,7 +969,95 @@ namespace OloEngine
             CreateConstraint(entity);
         }
 
+        // Every body and joint exists now, so the no-collide pairs can be filtered.
+        ApplyJointCollisionFilters();
+
         OLO_CORE_INFO("Created {0} physics constraints", m_Constraints.size());
+    }
+
+    void JoltScene::ApplyJointCollisionFilters()
+    {
+        if (!m_JoltSystem || !m_Scene)
+            return;
+
+        JPH::BodyInterface& bodyInterface = m_JoltSystem->GetBodyInterface();
+
+        // Reset every body a previous pass placed in the joint collision group
+        // back to the default (no group, no filter), so an edited/removed joint
+        // stops filtering. A body whose entity is gone is simply skipped. On the
+        // first call the set is empty, so this is a no-op.
+        for (UUID bodyEntityID : m_JointCollisionBodies)
+        {
+            if (Ref<JoltBody> body = GetBodyByEntityID(bodyEntityID); body && body->IsValid())
+                bodyInterface.SetCollisionGroup(body->GetBodyID(), JPH::CollisionGroup());
+        }
+        m_JointCollisionBodies.clear();
+        m_JointGroupFilter = nullptr;
+
+        // Collect every no-collide joint that connects two real, distinct bodies.
+        // World anchors (m_ConnectedEntity == 0) and self-joints have no second
+        // body to filter against, so they never contribute a pair.
+        struct NoCollidePair
+        {
+            UUID BodyA;
+            UUID BodyB;
+        };
+        std::vector<NoCollidePair> pairs;
+        std::unordered_map<UUID, JPH::CollisionGroup::SubGroupID> subGroupOf;
+
+        auto view = m_Scene->GetAllEntitiesWith<PhysicsJoint3DComponent>();
+        for (auto entityID : view)
+        {
+            Entity entity{ entityID, m_Scene };
+            const auto& joint = entity.GetComponent<PhysicsJoint3DComponent>();
+            if (joint.m_CollideConnected)
+                continue;
+
+            const UUID ownerID = entity.GetUUID();
+            const UUID otherID = joint.m_ConnectedEntity;
+            if (static_cast<u64>(otherID) == 0 || otherID == ownerID)
+                continue; // world anchor / self-joint: no second body to filter
+
+            Ref<JoltBody> bodyA = GetBodyByEntityID(ownerID);
+            Ref<JoltBody> bodyB = GetBodyByEntityID(otherID);
+            if (!bodyA || !bodyA->IsValid() || !bodyB || !bodyB->IsValid())
+                continue; // an endpoint has no live body — nothing to filter
+
+            // Assign each participating body a stable sub-group id the first time
+            // it is seen, so a body shared by several joints keeps one sub-group
+            // (and the table below encodes all of its no-collide partners). IDs
+            // stay contiguous in [0, N) — try_emplace is a no-op when present.
+            subGroupOf.try_emplace(ownerID, static_cast<JPH::CollisionGroup::SubGroupID>(subGroupOf.size()));
+            subGroupOf.try_emplace(otherID, static_cast<JPH::CollisionGroup::SubGroupID>(subGroupOf.size()));
+            pairs.push_back({ ownerID, otherID });
+        }
+
+        if (pairs.empty())
+            return; // nothing opts out — every body keeps the default collide-all group
+
+        // One shared table sized to the participant count. Its constructor enables
+        // every pair; we then disable exactly the authored no-collide pairs, so a
+        // body in two joints (chain A-B-C) stops colliding with each direct partner
+        // (A-B, B-C) but still collides with the indirect one (A-C) — pairwise, not
+        // whole-group, disabling.
+        const auto subGroupCount = static_cast<JPH::uint>(subGroupOf.size());
+        JPH::Ref<JPH::GroupFilterTable> filter = new JPH::GroupFilterTable(subGroupCount);
+        for (const NoCollidePair& pair : pairs)
+            filter->DisableCollision(subGroupOf[pair.BodyA], subGroupOf[pair.BodyB]);
+
+        // Place every participant in the shared group with its sub-group id, behind
+        // the shared filter, and record it so the next rebuild can reset it.
+        for (const auto& [bodyEntityID, subGroupID] : subGroupOf)
+        {
+            if (Ref<JoltBody> body = GetBodyByEntityID(bodyEntityID); body && body->IsValid())
+            {
+                bodyInterface.SetCollisionGroup(body->GetBodyID(),
+                                                JPH::CollisionGroup(filter.GetPtr(), s_JointCollisionGroupID, subGroupID));
+                m_JointCollisionBodies.insert(bodyEntityID);
+            }
+        }
+
+        m_JointGroupFilter = filter;
     }
 
     bool JoltScene::CreateConstraint(Entity entity)
@@ -1296,6 +1384,12 @@ namespace OloEngine
             }
         }
         m_Constraints.clear();
+
+        // The bodies these joints filtered are being torn down too, so drop the
+        // shared group filter and the tracked-body set. (The bodies need no group
+        // reset — they are about to be destroyed.)
+        m_JointGroupFilter = nullptr;
+        m_JointCollisionBodies.clear();
     }
 
     void JoltScene::BreakOverstressedJoints(f32 stepDeltaTime)

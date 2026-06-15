@@ -3215,6 +3215,26 @@ static void PhysicsJoint3DComponent_SetSixDOFRotationMaxDeg(UUID entityID, glm::
     comp.m_SixDOFRotationMaxDeg = *value;
 }
 
+static bool PhysicsJoint3DComponent_GetCollideConnected(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<PhysicsJoint3DComponent>();
+    return comp.m_CollideConnected;
+}
+
+static void PhysicsJoint3DComponent_SetCollideConnected(UUID entityID, bool value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<PhysicsJoint3DComponent>();
+    comp.m_CollideConnected = value;
+}
+
 ///////////////////////////////////////////////////////////////////////////////////////////
 // PointLightComponent                                                            //
 ///////////////////////////////////////////////////////////////////////////////////////////

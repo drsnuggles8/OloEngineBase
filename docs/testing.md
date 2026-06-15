@@ -1143,7 +1143,7 @@ subsystem unit tests (§9.3, grouped by directory).
 | [GoapAuthoredFromLuaViaSceneTickTest.cpp](../OloEngine/tests/Functional/AI/GoapAuthoredFromLuaViaSceneTickTest.cpp) | 2 | **GoapAuthoredFromLuaViaSceneTickTest** &mdash; `LuaBuiltAgentPlansAndReachesGoal`, `RuntimeStopReleasesLuaBuiltAgentBeforeStateTeardown` |
 | [StateMachineTransitionsViaSceneTickTest.cpp](../OloEngine/tests/Functional/AI/StateMachineTransitionsViaSceneTickTest.cpp) | 1 | **StateMachineTransitionsViaSceneTickTest** &mdash; `FsmStartsInIdleAndTransitionsToChaseAfterConditionMet` |
 
-#### AnimationPhysics (24 files)
+#### AnimationPhysics (25 files)
 
 | File | Tests | Cases |
 |---|---:|---|
@@ -1164,6 +1164,7 @@ subsystem unit tests (§9.3, grouped by directory).
 | [NoiseAnimatorViaSceneTickTest.cpp](../OloEngine/tests/Functional/AnimationPhysics/NoiseAnimatorViaSceneTickTest.cpp) | 3 | **NoiseAnimatorViaSceneTickTest** &mdash; `ChainWobblesAndStateComponentIsCreated`, `DisabledComponentIsPassthroughAndCreatesNoState`, `RemovingComponentDropsRuntimeState` |
 | [Physics2DSimulatesViaSceneTickTest.cpp](../OloEngine/tests/Functional/AnimationPhysics/Physics2DSimulatesViaSceneTickTest.cpp) | 1 | **Physics2DSimulatesViaSceneTickTest** &mdash; `BoxFallsAndLandsOnStaticFloor` |
 | [PhysicsJoint3DTest.cpp](../OloEngine/tests/Functional/AnimationPhysics/PhysicsJoint3DTest.cpp) | 25 | **PhysicsJoint3DTest** &mdash; `FixedJointWeldsDynamicBodyToStaticAnchor`, `PointJointActsAsBallSocketPendulum`, `DistanceJointCatchesFallingBodyAtMaxLength`, `HingeJointSwingsAboutAxisAndRespectsAngleLimit`, `SliderJointConstrainsMotionToAxisAndLimit`, `ConeJointConfinesSwingWithinHalfAngle`, `BreakableJointSurvivesLoadBelowBreakForce`, `BreakableJointBreaksWhenForceExceedsBreakForce`, `BreakableJointBreaksWhenTorqueExceedsBreakTorque`, `UnbreakableByDefaultIgnoresLoad`, `HingeVelocityMotorDrivesRotationAgainstGravity`, `HingePositionMotorSettlesAtTargetAngle`, `SliderVelocityMotorDrivesBodyAlongAxis`, `SliderPositionMotorSettlesAtTargetPosition`, `HingeFrictionResistsSwingWithoutMotor`, `SliderFrictionResistsSlideWithoutMotor`, `SliderSoftLimitSpringSagsPastHardStop`, `HingeSoftLimitSpringSagsPastHardStop`, `SwingTwistConfinesSwingWithinCone`, `SwingTwistLimitsTwistAboutAxis`, `SwingTwistNormalisesInvertedTwistRange`, `SixDOFAllLockedHoldsBodyLikeWeld`, `SixDOFFreeTranslationAxisAllowsMotion`, `SixDOFLimitedTranslationStopsAtBound`, `ComponentSurvivesSaveGameRoundTrip` |
+| [PhysicsJointCollideConnectedTest.cpp](../OloEngine/tests/Functional/AnimationPhysics/PhysicsJointCollideConnectedTest.cpp) | 5 | **PhysicsJointCollideConnectedTest** &mdash; `CollideConnectedFalseLetsBodyPassThroughConnectedBody`, `CollideConnectedTrueKeepsBodiesColliding`, `NoCollideDisablingIsPairwiseNotTransitive`, `CollideConnectedSurvivesSceneYAMLRoundTrip`, `CollideConnectedSurvivesSaveGameRoundTrip` |
 | [PhysicsLayerFilteringTest.cpp](../OloEngine/tests/Functional/AnimationPhysics/PhysicsLayerFilteringTest.cpp) | 1 | **PhysicsLayerFilteringTest** &mdash; `AlphaPassesThroughBetaAndBothLandOnGround` |
 | [RigidbodyDisableGravityFlagTest.cpp](../OloEngine/tests/Functional/AnimationPhysics/RigidbodyDisableGravityFlagTest.cpp) | 1 | **RigidbodyDisableGravityFlagTest** &mdash; `BodyWithDisableGravityStaysAtRestWhileControlFalls` |
 | [SpringBoneJiggleViaSceneTickTest.cpp](../OloEngine/tests/Functional/AnimationPhysics/SpringBoneJiggleViaSceneTickTest.cpp) | 3 | **SpringBoneJiggleViaSceneTickTest** &mdash; `ChainLagsAnimatedRootAndStateComponentIsCreated`, `DisabledComponentIsPassthroughAndCreatesNoState`, `RemovingComponentDropsRuntimeState` |
@@ -1291,7 +1292,7 @@ subsystem unit tests (§9.3, grouped by directory).
 | [LuaScriptSetsRigidbody2DVelocityTest.cpp](../OloEngine/tests/Functional/Scripting/LuaScriptSetsRigidbody2DVelocityTest.cpp) | 1 | **LuaScriptSetsRigidbody2DVelocityTest** &mdash; `BodyTranslatesAfterLuaSetsLinearVelocity` |
 | [LuaSetsAbilityAttributeViaSceneTickTest.cpp](../OloEngine/tests/Functional/Scripting/LuaSetsAbilityAttributeViaSceneTickTest.cpp) | 1 | **LuaSetsAbilityAttributeViaSceneTickTest** &mdash; `LuaDrivenHealthToZeroFlipsAliveToDeadOnSubsequentTick` |
 
-**Totals.** 88 Functional test files, 136 TEST / TEST_F declarations across all subsystems.
+**Totals.** 89 Functional test files, 141 TEST / TEST_F declarations across all subsystems.
 
 <!-- END: functional-catalogue -->
 

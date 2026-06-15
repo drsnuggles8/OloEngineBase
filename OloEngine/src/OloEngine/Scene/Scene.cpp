@@ -2318,6 +2318,9 @@ namespace OloEngine
         if (m_JoltScene && m_JoltScene->IsInitialized())
         {
             m_JoltScene->CreateConstraint(entity);
+            // Rebuild collision filtering so a runtime-added no-collide joint
+            // takes effect (and a collide joint leaves filtering unchanged).
+            m_JoltScene->ApplyJointCollisionFilters();
         }
     }
 
@@ -2332,6 +2335,10 @@ namespace OloEngine
         {
             m_JoltScene->DestroyConstraint(entity);
             component.m_RuntimeConstraintToken = 0;
+            // Rebuild collision filtering so removing a no-collide joint at runtime
+            // re-enables collision between the two bodies it had connected.
+            if (m_JoltScene->IsInitialized())
+                m_JoltScene->ApplyJointCollisionFilters();
         }
     }
 
@@ -2683,6 +2690,10 @@ namespace OloEngine
             Entity ent = { entity, this };
             (void)m_JoltScene->CreateConstraint(ent);
         }
+
+        // Every body and joint exists now, so joints that opted out of connected-
+        // body collision (m_CollideConnected == false) can be filtered.
+        m_JoltScene->ApplyJointCollisionFilters();
     }
 
     void Scene::OnPhysics3DStop()

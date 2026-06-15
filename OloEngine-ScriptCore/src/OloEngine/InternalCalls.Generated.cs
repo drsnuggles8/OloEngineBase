@@ -636,6 +636,10 @@ namespace OloEngine
 		internal static extern void PhysicsJoint3DComponent_GetSixDOFRotationMaxDeg(ulong entityID, out Vector3 value);
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern void PhysicsJoint3DComponent_SetSixDOFRotationMaxDeg(ulong entityID, ref Vector3 value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool PhysicsJoint3DComponent_GetCollideConnected(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void PhysicsJoint3DComponent_SetCollideConnected(ulong entityID, bool value);
 		#endregion
 
 		#region PointLightComponent
