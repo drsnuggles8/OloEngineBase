@@ -82,7 +82,14 @@ jobs:
             -DPython_EXECUTABLE="${{ steps.py.outputs.python-path }}"
 
       - name: Build tests (builds FFmpeg on cache miss)
-        run: cmake --build build --target OloEngine-Tests --config Debug --parallel
+        # Release, matching the main Windows.yml CI (BUILD_TYPE: Release). The
+        # shader libs (shaderc / spirv-cross-{core,glsl}) come from the headless
+        # Vulkan SDK installed above, which ships only release (/MD) import libs —
+        # no debug (…d.lib) variants. A Debug (/MDd) build of OloEngine-Tests then
+        # links release spirv-cross objects and dies with LNK2038 (_ITERATOR_DEBUG_LEVEL
+        # 0 vs 2 / MD_DynamicRelease vs MDd_DynamicDebug) → LNK1319. Release keeps the
+        # CRT consistent. The FFmpeg decode path under test is config-independent.
+        run: cmake --build build --target OloEngine-Tests --config Release --parallel
 
       # Fetch a small H.264 MP4 so the FFmpeg decode path runs end-to-end. -f fails on HTTP
       # errors and --retry rides out transient flakes; the existence check surfaces a genuine
@@ -99,7 +106,7 @@ jobs:
         env:
           OLO_TEST_VIDEO: ${{ github.workspace }}/sample.mp4
         # Run from the repo root so VideoPlaybackTest's relative fixture candidates resolve, and
-        # locate the binary per-OS: Windows (VS multi-config) emits it under Debug/ with a .exe
+        # locate the binary per-OS: Windows (VS multi-config) emits it under Release/ with a .exe
         # suffix; Linux (single-config) emits build/OloEngine/tests/OloEngine-Tests with neither.
         run: |
           BIN=$(find build/OloEngine/tests -type f \( -name OloEngine-Tests -o -name OloEngine-Tests.exe \) | head -1)

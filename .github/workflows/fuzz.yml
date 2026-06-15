@@ -103,12 +103,24 @@ jobs:
         run: |
           $clang = "$env:LLVM_PATH/bin/clang-cl.exe" -replace '\\','/'
           $lld = "$env:LLVM_PATH/bin/lld-link.exe" -replace '\\','/'
+          # Pin the resource compiler to llvm-rc for the same reason as clang-cl/
+          # lld-link above. ilammy/msvc-dev-cmd puts MSVC's rc.exe on PATH, so
+          # CMake auto-detects rc.exe; under Ninja it then wraps rc.exe with
+          # cmcldeps + clang-cl for #include scanning, and the clang-cl pass
+          # chokes on the rc-only flag `/C 1252` (ClangCLToolchain.cmake's
+          # CMAKE_RC_FLAGS_INIT, needed so llvm-rc accepts assimp's cp1252
+          # version resource): "clang-cl: error: no such file or directory:
+          # '1252'", failing the assimp.rc build. Forcing the pinned LLVM's
+          # llvm-rc keeps the resource path on the llvm-rc + `/C 1252` toolchain
+          # the comment in ClangCLToolchain.cmake already assumes.
+          $rc = "$env:LLVM_PATH/bin/llvm-rc.exe" -replace '\\','/'
           cmake -S . -B build-clang `
                 -G "Ninja Multi-Config" `
                 "-DCMAKE_TOOLCHAIN_FILE=${{ github.workspace }}/cmake/ClangCLToolchain.cmake" `
                 "-DCMAKE_C_COMPILER=$clang" `
                 "-DCMAKE_CXX_COMPILER=$clang" `
                 "-DCMAKE_LINKER=$lld" `
+                "-DCMAKE_RC_COMPILER=$rc" `
                 "-DFETCHCONTENT_BASE_DIR=${{ github.workspace }}/OloEngine/vendor/clang" `
                 -DBUILD_TESTS=ON `
                 "-DPython_EXECUTABLE=${{ steps.py.outputs.python-path }}" `
