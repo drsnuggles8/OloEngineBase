@@ -57,6 +57,12 @@ namespace OloEngine
         void DrawComponents(Entity entity);
         void CollectVisualOrder(Entity entity, std::vector<Entity>& out) const;
 
+        // Inspector field for an entity reference (e.g. an IK target). Renders a
+        // button showing the referenced entity's name; clicking opens a filterable
+        // picker popup. Still accepts an ENTITY_REPARENT drag payload as a fallback.
+        // idSuffix must be unique within the component to avoid ImGui ID clashes.
+        void DrawEntityReferenceField(const char* label, const char* idSuffix, UUID& targetEntity);
+
         Entity FindOrCreateCanvas();
         Entity CreateUIWidget(const std::string& name);
 

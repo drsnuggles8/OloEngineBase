@@ -1602,6 +1602,111 @@ namespace OloEngine
         }
     }
 
+    void SceneHierarchyPanel::DrawEntityReferenceField(const char* label, const char* idSuffix, UUID& targetEntity)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        if (!m_Context)
+        {
+            return;
+        }
+
+        ImGui::Text("%s:", label);
+        ImGui::SameLine();
+
+        // Resolve the current reference to a friendly display name.
+        std::string current;
+        if (static_cast<u64>(targetEntity) != 0)
+        {
+            if (auto ent = m_Context->TryGetEntityWithUUID(targetEntity); ent && ent->HasComponent<TagComponent>())
+            {
+                current = ent->GetComponent<TagComponent>().Tag;
+            }
+            else if (ent)
+            {
+                current = "Entity";
+            }
+            else
+            {
+                current = "(missing)";
+            }
+        }
+        else
+        {
+            current = "(none)";
+        }
+
+        const std::string popupId = std::string("##EntityPicker_") + idSuffix;
+        if (ImGui::Button((current + "##pick_" + idSuffix).c_str()))
+        {
+            ImGui::OpenPopup(popupId.c_str());
+        }
+
+        // Fallback: still accept an entity dragged from the hierarchy (works when
+        // the Properties panel stays on this entity, e.g. a single-entity scene).
+        if (ImGui::BeginDragDropTarget())
+        {
+            if (auto const* payload = ImGui::AcceptDragDropPayload("ENTITY_REPARENT"))
+            {
+                if (payload->Data && payload->DataSize >= static_cast<int>(sizeof(UUID)))
+                {
+                    targetEntity = *static_cast<const UUID*>(payload->Data);
+                }
+            }
+            ImGui::EndDragDropTarget();
+        }
+
+        if (static_cast<u64>(targetEntity) != 0)
+        {
+            ImGui::SameLine();
+            if (ImGui::SmallButton((std::string("Clear##") + idSuffix).c_str()))
+            {
+                targetEntity = 0;
+            }
+        }
+
+        if (ImGui::BeginPopup(popupId.c_str()))
+        {
+            // Shared across IK fields — only one picker popup is open at a time.
+            static ImGuiTextFilter filter;
+            if (ImGui::IsWindowAppearing())
+            {
+                filter.Clear();
+                ImGui::SetKeyboardFocusHere();
+            }
+            filter.Draw("##entityfilter", 200.0f);
+            ImGui::Separator();
+
+            if (ImGui::Selectable("(none)", static_cast<u64>(targetEntity) == 0))
+            {
+                targetEntity = 0;
+                ImGui::CloseCurrentPopup();
+            }
+
+            m_Context->m_Registry.view<entt::entity>().each([&](auto e)
+                                                            {
+                Entity ent{ e, *m_Context };
+                if (!ent.HasComponent<TagComponent>())
+                {
+                    return;
+                }
+                const std::string& tag = ent.GetComponent<TagComponent>().Tag;
+                if (!filter.PassFilter(tag.c_str()))
+                {
+                    return;
+                }
+                auto id = static_cast<u64>(ent.GetUUID());
+                std::string row = tag + "##ent_" + std::to_string(id);
+                if (ImGui::Selectable(row.c_str(), static_cast<u64>(targetEntity) == id))
+                {
+                    targetEntity = ent.GetUUID();
+                    ImGui::CloseCurrentPopup();
+                } });
+
+            ImGui::EndPopup();
+        }
+    }
+
     void SceneHierarchyPanel::DrawComponents(Entity entity)
     {
         // Set file-scope state for DrawComponent undo integration
@@ -6592,7 +6697,7 @@ namespace OloEngine
                 component.InitializeDefaultRPGAttributes(100.0f, 50.0f, 10.0f, 5.0f);
             } });
 
-        DrawComponent<IKTargetComponent>("IK Target", entity, [](auto& component)
+        DrawComponent<IKTargetComponent>("IK Target", entity, [this](auto& component)
                                          {
                 ImGui::SeparatorText("Aim IK");
                 ImGui::Checkbox("Aim Enabled", &component.AimIKEnabled);
@@ -6609,34 +6714,7 @@ namespace OloEngine
                     ImGui::DragFloat("Aim Chain Factor", &component.AimChainFactor, 0.01f, 0.0f, 1.0f);
                     ImGui::DragFloat("Aim Weight", &component.AimWeight, 0.01f, 0.0f, 1.0f);
 
-                    auto aimTarget = static_cast<u64>(component.AimTargetEntity);
-                    ImGui::Text("Aim Target Entity:");
-                    ImGui::SameLine();
-                    // Use a Button as a consistent drag-drop target
-                    if (aimTarget != 0)
-                    {
-                        char label[64];
-                        snprintf(label, sizeof(label), "%llu##AimTargetDrop", static_cast<unsigned long long>(aimTarget));
-                        ImGui::Button(label);
-                    }
-                    else
-                    {
-                        ImGui::Button("(none — drag entity here)##AimTargetDrop");
-                    }
-                    if (ImGui::BeginDragDropTarget())
-                    {
-                        if (auto const* payload = ImGui::AcceptDragDropPayload("ENTITY_REPARENT"))
-                        {
-                            component.AimTargetEntity = *static_cast<const UUID*>(payload->Data);
-                        }
-                        ImGui::EndDragDropTarget();
-                    }
-                    if (aimTarget != 0)
-                    {
-                        ImGui::SameLine();
-                        if (ImGui::SmallButton("Clear##AimTarget"))
-                            component.AimTargetEntity = 0;
-                    }
+                    DrawEntityReferenceField("Aim Target Entity", "AimTarget", component.AimTargetEntity);
                 }
 
                 ImGui::SeparatorText("Limb IK");
@@ -6650,34 +6728,25 @@ namespace OloEngine
                         component.LimbChainLength = static_cast<u32>(limbLen);
                     ImGui::DragFloat("Limb Weight", &component.LimbWeight, 0.01f, 0.0f, 1.0f);
 
-                    auto limbTarget = static_cast<u64>(component.LimbTargetEntity);
-                    ImGui::Text("Limb Target Entity:");
-                    ImGui::SameLine();
-                    // Use a Button as a consistent drag-drop target
-                    if (limbTarget != 0)
-                    {
-                        char label[64];
-                        snprintf(label, sizeof(label), "%llu##LimbTargetDrop", static_cast<unsigned long long>(limbTarget));
-                        ImGui::Button(label);
-                    }
-                    else
-                    {
-                        ImGui::Button("(none — drag entity here)##LimbTargetDrop");
-                    }
-                    if (ImGui::BeginDragDropTarget())
-                    {
-                        if (auto const* payload = ImGui::AcceptDragDropPayload("ENTITY_REPARENT"))
-                        {
-                            component.LimbTargetEntity = *static_cast<const UUID*>(payload->Data);
-                        }
-                        ImGui::EndDragDropTarget();
-                    }
-                    if (limbTarget != 0)
-                    {
-                        ImGui::SameLine();
-                        if (ImGui::SmallButton("Clear##LimbTarget"))
-                            component.LimbTargetEntity = 0;
-                    }
+                    DrawEntityReferenceField("Limb Target Entity", "LimbTarget", component.LimbTargetEntity);
+                }
+
+                ImGui::SeparatorText("Chain IK (FABRIK)");
+                ImGui::Checkbox("Chain Enabled", &component.ChainIKEnabled);
+                if (component.ChainIKEnabled)
+                {
+                    if (auto chainBone = static_cast<int>(component.ChainBoneIndex); ImGui::DragInt("Chain Bone Index", &chainBone, 1.0f, 0, 512))
+                        component.ChainBoneIndex = static_cast<u32>(chainBone);
+                    ImGui::DragFloat3("Chain Target", glm::value_ptr(component.ChainTarget), 0.1f);
+                    ImGui::DragFloat3("Chain Pole Vector", glm::value_ptr(component.ChainPoleVector), 0.1f);
+                    if (auto chainLen = static_cast<int>(component.ChainLength); ImGui::DragInt("Chain Length", &chainLen, 1.0f, 2, 64))
+                        component.ChainLength = static_cast<u32>(std::max(chainLen, 2));
+                    if (auto chainIter = static_cast<int>(component.ChainIterations); ImGui::DragInt("Chain Iterations", &chainIter, 1.0f, 1, 128))
+                        component.ChainIterations = static_cast<u32>(std::max(chainIter, 1));
+                    ImGui::DragFloat("Chain Tolerance", &component.ChainTolerance, 0.001f, 0.0f, 10.0f, "%.4f");
+                    ImGui::DragFloat("Chain Weight", &component.ChainWeight, 0.01f, 0.0f, 1.0f);
+
+                    DrawEntityReferenceField("Chain Target Entity", "ChainTarget", component.ChainTargetEntity);
                 } });
 
         DrawComponent<SpringBoneComponent>("Spring Bones", entity, [](auto& component)

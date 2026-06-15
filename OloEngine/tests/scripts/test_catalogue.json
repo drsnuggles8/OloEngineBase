@@ -213,6 +213,7 @@
     "OloEngine/tests/AI/GoapTest.cpp": "unit",
     "OloEngine/tests/Animation/AimIKSolverTest.cpp": "unit",
     "OloEngine/tests/Animation/BlendUtilsTest.cpp": "unit",
+    "OloEngine/tests/Animation/FABRIKSolverTest.cpp": "unit",
     "OloEngine/tests/Animation/LimbIKSolverTest.cpp": "unit",
     "OloEngine/tests/Animation/OneShotBlendTest.cpp": "unit",
     "OloEngine/tests/Animation/SpringBoneSolverTest.cpp": "unit",

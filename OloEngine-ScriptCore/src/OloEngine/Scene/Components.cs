@@ -513,6 +513,68 @@ namespace OloEngine
 			get => InternalCalls.IKTargetComponent_GetLimbWeight(Entity.ID);
 			set => InternalCalls.IKTargetComponent_SetLimbWeight(Entity.ID, value);
 		}
+
+		public bool ChainIKEnabled
+		{
+			get => InternalCalls.IKTargetComponent_GetChainIKEnabled(Entity.ID);
+			set => InternalCalls.IKTargetComponent_SetChainIKEnabled(Entity.ID, value);
+		}
+
+		public uint ChainBoneIndex
+		{
+			get => InternalCalls.IKTargetComponent_GetChainBoneIndex(Entity.ID);
+			set => InternalCalls.IKTargetComponent_SetChainBoneIndex(Entity.ID, value);
+		}
+
+		public Vector3 ChainTarget
+		{
+			get
+			{
+				InternalCalls.IKTargetComponent_GetChainTarget(Entity.ID, out Vector3 v);
+				return v;
+			}
+			set => InternalCalls.IKTargetComponent_SetChainTarget(Entity.ID, ref value);
+		}
+
+		public Vector3 ChainPoleVector
+		{
+			get
+			{
+				InternalCalls.IKTargetComponent_GetChainPoleVector(Entity.ID, out Vector3 v);
+				return v;
+			}
+			set => InternalCalls.IKTargetComponent_SetChainPoleVector(Entity.ID, ref value);
+		}
+
+		public uint ChainLength
+		{
+			get => InternalCalls.IKTargetComponent_GetChainLength(Entity.ID);
+			set => InternalCalls.IKTargetComponent_SetChainLength(Entity.ID, value);
+		}
+
+		public uint ChainIterations
+		{
+			get => InternalCalls.IKTargetComponent_GetChainIterations(Entity.ID);
+			set => InternalCalls.IKTargetComponent_SetChainIterations(Entity.ID, value);
+		}
+
+		public float ChainTolerance
+		{
+			get => InternalCalls.IKTargetComponent_GetChainTolerance(Entity.ID);
+			set => InternalCalls.IKTargetComponent_SetChainTolerance(Entity.ID, value);
+		}
+
+		public float ChainWeight
+		{
+			get => InternalCalls.IKTargetComponent_GetChainWeight(Entity.ID);
+			set => InternalCalls.IKTargetComponent_SetChainWeight(Entity.ID, value);
+		}
+
+		public ulong ChainTargetEntity
+		{
+			get => InternalCalls.IKTargetComponent_GetChainTargetEntity(Entity.ID);
+			set => InternalCalls.IKTargetComponent_SetChainTargetEntity(Entity.ID, value);
+		}
 	}
 
 	public class AnimationGraphComponent : Component
