@@ -54,6 +54,17 @@ namespace
 
 extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size)
 {
+    // Bound temp-file I/O for parity with the sibling harnesses
+    // (FuzzInputActionYaml, FuzzSceneYaml, FuzzAnimationBinary all cap input).
+    // 4 MiB is well above any realistic .omesh and keeps the write/read cost
+    // bounded under ASan. This is I/O hygiene, NOT an allocation guard:
+    // MeshBinarySerializer::Read already bounds its own allocations — the
+    // compressed payload (256 MiB), the zlib output (512 MiB), every count via
+    // OMeshFormat::Max* caps, and each string via MAX_STRING_LENGTH — so a
+    // corrupt header cannot drive an unbounded allocation regardless of this.
+    if (size > 4 * 1024 * 1024)
+        return 0;
+
     const auto path = MakeTempPath();
     {
         std::ofstream out(path, std::ios::binary | std::ios::trunc);

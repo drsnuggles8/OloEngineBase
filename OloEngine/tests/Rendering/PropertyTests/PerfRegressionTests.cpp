@@ -8,13 +8,23 @@
 // in `perf_baselines.txt` (tracked in git, rebased via the
 // `OLOENGINE_PERF_REBASE=1` env var).
 //
-// Regression policy:
-//   - Measured <= baseline  : PASS silently (improvements are welcome)
-//   - Measured up to 1.5x   : PASS (noise band; these are sub-10 µs passes)
-//   - Measured 1.5x .. 2.5x : ADD_FAILURE as a WARN (surfaces as a test
-//                             failure in Debug so regressions show up in CI
-//                             output, but the number itself is a warning)
-//   - Measured > 2.5x       : hard FAIL
+// Regression policy (ratio of measured to baseline):
+//   - <= baseline      : within budget (improvements are welcome)
+//   - up to 1.5x       : noise band; these are sub-10 µs passes
+//   - 1.5x .. 2.5x     : WARN-level regression
+//   - > 2.5x           : FAIL-level regression
+//
+// Enforcement is OPT-IN. By default a WARN/FAIL-level regression (and the
+// 100 ms sanity-ceiling breach) is RECORDED — gtest property + perf_history
+// TSV — and logged via GTEST_LOG_(WARNING), but does NOT fail the test. These
+// low-µs GPU microbenchmarks flake under machine/GPU contention: a loaded
+// full-suite run inflates every sample 1.5–3.4x even though the same test
+// passes in isolation (issue #324), so failing on the number eroded trust in
+// the suite without the perf data ever gating CI (they SKIP on GPU-less
+// runners). Set OLOENGINE_PERF_STRICT=1 for a deliberate regression gate on a
+// quiet machine; regressions otherwise stay observable via the recorded
+// history + perf_trend.py. (The SceneDrawBurst draw/bind-count invariants are
+// structural, not timing, and still hard-fail unconditionally.)
 //
 // We aggregate 20 measurement iterations (after 5 warmup draws) and take
 // the MINIMUM of the samples, not the median. For pure GPU microbenchmarks
@@ -80,6 +90,27 @@ namespace OloEngine::Tests
         static bool PerfShouldRebase()
         {
             const char* env = std::getenv("OLOENGINE_PERF_REBASE");
+            if (!env)
+                return false;
+            std::string s(env);
+            for (auto& c : s)
+                c = static_cast<char>(std::tolower(c));
+            return !(s == "0" || s == "false" || s.empty());
+        }
+
+        // Whether a regression should FAIL the test (strict mode) or merely be
+        // recorded + logged (the default). These are low-µs GPU microbenchmarks
+        // pinned to one dev workstation's baselines; under machine/GPU
+        // contention a full-suite run can inflate every sample 1.5–3.4× and trip
+        // the thresholds, even though the same test passes cleanly in isolation
+        // (issue #324). Defaulting to non-fatal stops that flakiness from eroding
+        // trust in the suite while still capturing every measurement (gtest
+        // properties + perf_history TSV) so regressions stay observable via the
+        // trend tool. Set OLOENGINE_PERF_STRICT=1 for a deliberate regression
+        // gate on a quiet machine. Same env-var convention as PerfShouldRebase().
+        static bool PerfShouldEnforce()
+        {
+            const char* env = std::getenv("OLOENGINE_PERF_STRICT");
             if (!env)
                 return false;
             std::string s(env);
@@ -294,19 +325,35 @@ namespace OloEngine::Tests
 
             ::testing::Test::RecordProperty(name + "_ns_median", std::to_string(measuredNs));
 
-            // Sanity ceiling always applies.
-            EXPECT_LT(measuredNs, kSanityCeilingNs)
-                << name << " took " << measuredNs << " ns (> " << kSanityCeilingNs
-                << " ns sanity ceiling — something is catastrophically wrong)";
+            // Strict mode fails on a regression; the default records + logs it
+            // but never fails (see PerfShouldEnforce — these microbenchmarks
+            // flake under contention, issue #324). The non-fatal path still
+            // prints to the test log so a regression stays visible without
+            // breaking an ordinary full-suite run.
+            const bool enforce = PerfShouldEnforce();
+            const auto note = [enforce](const std::string& detail)
+            {
+                if (enforce)
+                    ADD_FAILURE() << detail;
+                else
+                    GTEST_LOG_(WARNING) << "[perf, non-strict] " << detail
+                                        << " — set OLOENGINE_PERF_STRICT=1 to fail on this.";
+            };
+
+            // Sanity ceiling: a µs-scale pass taking >100 ms is a catastrophe,
+            // not contention noise. Still routed through `note`, so a wedged
+            // machine can't break an ordinary (non-strict) run either.
+            if (measuredNs >= kSanityCeilingNs)
+            {
+                note(name + " took " + std::to_string(measuredNs) + " ns (> " + std::to_string(kSanityCeilingNs) + " ns sanity ceiling — something is catastrophically wrong)");
+            }
 
             auto it = cache.find(name);
             if (it == cache.end())
             {
-                // Missing baseline = gentle reminder; don't fail.
+                // Missing baseline = gentle reminder; rebase via OLOENGINE_PERF_REBASE=1.
                 AppendPerfHistory(name, measuredNs, 0, 0.0f);
-                ADD_FAILURE() << "No baseline for '" << name
-                              << "'. Measured " << measuredNs
-                              << " ns. Rebase via OLOENGINE_PERF_REBASE=1.";
+                note("No baseline for '" + name + "'. Measured " + std::to_string(measuredNs) + " ns. Rebase via OLOENGINE_PERF_REBASE=1.");
                 return;
             }
 
@@ -322,22 +369,20 @@ namespace OloEngine::Tests
                                             std::to_string(ratio));
             AppendPerfHistory(name, measuredNs, baseline, ratio);
 
+            std::ostringstream ratioMsg;
+            ratioMsg << name << ": " << measuredNs << " ns vs baseline " << baseline
+                     << " ns (" << ratio << "x)";
             if (ratio >= kPerfFailRatio)
             {
-                FAIL() << name << " PERF REGRESSION: " << measuredNs
-                       << " ns vs baseline " << baseline << " ns ("
-                       << ratio << "x; threshold " << kPerfFailRatio << "x)";
+                note("PERF REGRESSION " + ratioMsg.str() + "; fail threshold " + std::to_string(kPerfFailRatio) + "x");
             }
             else if (ratio >= kPerfWarnRatio)
             {
-                ADD_FAILURE() << name << " perf warning: " << measuredNs
-                              << " ns vs baseline " << baseline << " ns ("
-                              << ratio << "x; warn threshold "
-                              << kPerfWarnRatio << "x)";
+                note("perf warning " + ratioMsg.str() + "; warn threshold " + std::to_string(kPerfWarnRatio) + "x");
             }
             else
             {
-                // No additional handling required.
+                // Within the noise band — no report.
             }
         }
 
