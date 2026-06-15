@@ -7,6 +7,7 @@
 #include "OloEngine/Networking/Replication/ComponentReplicator.h"
 #include "OloEngine/Core/Log.h"
 #include "OloEngine/Debug/Profiler.h"
+#include "OloEngine/Memory/Platform.h" // OLO_ASAN_ENABLED
 #include "OloEngine/Threading/UniqueLock.h"
 
 #include "OloEngine/Serialization/Archive.h"
@@ -79,11 +80,31 @@ namespace OloEngine
         SteamNetworkingUtils()->SetGlobalCallback_SteamNetConnectionStatusChanged(
             GNSConnectionStatusCallback);
 
+#if OLO_ASAN_ENABLED
+        // GameNetworkingSockets_Init spawns an internal service thread whose
+        // startup routine trips a stack-buffer-overflow under MSVC AddressSanitizer:
+        // a 48-byte read out of a 24-byte `info` stack object during thread
+        // bootstrap, inside vendored GNS code on the GNS-spawned thread — not
+        // OloEngine code, and clean under Linux ASan/UBSan. (In Release the
+        // internal frames get ICF-folded onto the nearest exported symbols, so CI
+        // stacks misreport it as SteamNetworkingSockets_* / pugi::xpath_*.)
+        // Skip the live GNS init under ASan so the rest of OloEngine's networking
+        // stack — the NetworkThread, task dispatch, message serialization and
+        // replication — still runs under the sanitizer. Tests that need a live
+        // socket (NetworkIntegrationTest) stay excluded from the ASan job; the
+        // debug-output/connection callbacks set above are harmless no-ops without
+        // a running service thread. Non-ASan production builds are unaffected.
+        // See issue #317; upstream GNS bug filed as
+        // ValveSoftware/GameNetworkingSockets#418 — remove this gate once a fixed
+        // GNS is vendored.
+        OLO_CORE_WARN("NetworkManager: skipping GameNetworkingSockets_Init under AddressSanitizer (issue #317)");
+#else
         if (SteamDatagramErrMsg errMsg; !GameNetworkingSockets_Init(nullptr, errMsg))
         {
             OLO_CORE_ERROR("GameNetworkingSockets_Init failed: {}", errMsg);
             return false;
         }
+#endif
 
         NetworkThread::Start(60);
 
@@ -110,7 +131,11 @@ namespace OloEngine
         Disconnect();
         NetworkThread::Stop();
 
+#if !OLO_ASAN_ENABLED
+        // Matches the Init() gate above: GameNetworkingSockets was never started
+        // under ASan, so there is nothing to tear down. See issue #317.
         GameNetworkingSockets_Kill();
+#endif
 
         TUniqueLock<FMutex> lock(s_Mutex);
         s_Initialized = false;

@@ -114,25 +114,27 @@ jobs:
 
     - name: Run tests under ASan
       working-directory: ${{github.workspace}}/build/OloEngine/tests
-      # Windows ASan + SteamNetworkingSockets incompatibility: every test
-      # process touching the task system / NetworkManager initializes the Steam
-      # service thread, whose startup callback AVs under MSVC ASan (see the
-      # `asan_thread_start -> SteamNetworkingSockets_*` stacks in CI logs:
-      # a 48-byte read from a 24-byte `info` stack object during thread
-      # bootstrap). In Release builds the internal frames get ICF-folded onto
-      # the nearest exported symbols, so they misresolve to bogus
-      # `SteamNetworkingSockets_*` / `pugi::xpath_*` names. This is pre-existing
-      # infrastructure fallout, not a test-code bug — the same suites pass under
-      # Linux ASan/UBSan.
+      # The SteamNetworkingSockets service thread tripped a stack-buffer-overflow
+      # under MSVC ASan during thread bootstrap (a 48-byte read from a 24-byte
+      # `info` stack object inside vendored GNS code on the GNS-spawned thread;
+      # Release ICF folding misreported the frames as `SteamNetworkingSockets_*` /
+      # `pugi::xpath_*`). That is now fixed at the source: NetworkManager::Init
+      # skips the live GameNetworkingSockets_Init under ASan (OLO_ASAN_ENABLED),
+      # so every suite that merely constructs/uses NetworkManager runs clean.
+      # (Upstream GNS bug: ValveSoftware/GameNetworkingSockets#418.)
       #
-      # The Shader* suites hit the same ICF-misresolved stacks during static
-      # init; NetworkManagerTest / NetworkThreadDispatchTest are excluded for the
-      # same root cause (they init NetworkManager -> the GNS service thread) and
-      # were already excluded under Linux UBSan — added here for parity.
+      # The Task* and Shader* suites were excluded here on a since-disproven "the
+      # task system starts the Steam service thread" theory — they never touched
+      # GNS (the ICF-folded stacks just looked like it) and all pass under MSVC
+      # ASan, so they are no longer excluded. See issue #317.
       #
-      # Tracked in #317: drop these exclusions once Steam init is made
-      # ASan-compatible (a test-time skip under ASan, or an upstream GNS fix).
-      run: ctest -C Release --output-on-failure --timeout 120 --exclude-regex '^NetworkIntegrationTest\.|^NetworkManagerTest\.|^NetworkThreadDispatchTest\.|^TaskSystemTest\.|^TaskEventTest\.|^NestedTasksTest\.|^PipeTest\.|^TaskDependenciesTest\.|^TaskStressTest\.|^MakeCompletedTaskTest\.|^IsAwaitableTest\.|^WaitAnyTest\.|^AnyTest\.|^DeepRetractionTest\.|^InlineTaskTest\.|^MoveOnlyResultTest\.|^TaskSelfAccessTest\.|^NestedTaskStressTest\.|^ConcurrentEventTriggerTest\.|^CancellationTokenTest\.|^WorkerRestartTest\.|^TaskConcurrencyLimiterTest\.|^ShaderReflectionBinding\.|^ShaderCrossConsistency\.|^ShaderUBOSizeConsistency\.|^ShaderStageInterface\.|^ShaderStageContract\.'
+      # Remaining exclusions match the Linux ASan job exactly:
+      #   NetworkIntegrationTest — drives a live client/server socket, which the
+      #     ASan GNS gate intentionally disables; excluded on every sanitizer job.
+      #   WorkerRestartTest — a tight 100-iteration worker-pool teardown/recreate
+      #     stress test that exceeds the 120 s timeout under sanitizer
+      #     instrumentation; excluded on every sanitizer job.
+      run: ctest -C Release --output-on-failure --timeout 120 --exclude-regex '^NetworkIntegrationTest\.|^WorkerRestartTest\.'
       env:
         ASAN_OPTIONS: halt_on_error=1
         GTEST_OUTPUT: xml:${{github.workspace}}/test_results/
