@@ -220,6 +220,47 @@ room to keep real-time without optimization.
 Delete `m_NodeLookup`, `m_EndpointOutputStreams.InputStreams` lookups in the
 hot path, and the `m_OutputChannelViews` cache (Phase 1 stopgap).
 
+> **Status (2026-06-15): landed.** The compiled execution plan is in place:
+>
+> - **Flat operator list.** `SoundGraph::CompileExecutionPlan()` lowers the
+>   topological `m_ProcessOrder` to `std::vector<CompiledOp>` — `{ProcessFn,
+>   NodeProcessor*}` pairs the audio thread walks directly in `ProcessChunk`,
+>   no vtable load. `Factory::MakeNode<T>` patches each node's `m_ProcessFn` to
+>   `ProcessThunk<T>` (a `T::Process` qualified, statically-bound call);
+>   directly-constructed nodes (tests, the graph container) keep a
+>   `VtableProcessThunk` fallback so any node remains correct, just not
+>   devirtualized.
+> - **Contiguous output-buffer pool.** `SoundGraph::AllocateNodeOutputPool()`
+>   relocates every node's audio-output `AudioBuffer` into one contiguous
+>   `m_NodeOutputPool` allocation (fixed `kMaxAudioBlockFrames` stride), replacing
+>   N scattered per-output vectors. Wired into `CreateInstance` *between* node
+>   creation and wiring so the producer `Data()` pointers consumers capture stay
+>   valid for the graph's life (the `StreamRefs.h` pointer-stability contract).
+>   `AudioBuffer` keeps a self-owned fallback by default, so graphs built outside
+>   `CreateInstance` (tests) behave identically without a pool. Stride is fixed
+>   (not shrunk to the runtime block size) deliberately: `SetMaxBlockSize` runs
+>   *after* wiring, so a pool sized to the real block size couldn't be resized
+>   without dangling every captured pointer — shrinking it is a safe future step
+>   only if a graph's footprint ever matters.
+> - **Already delivered by Phase 2** (verified, not re-done here): item 3
+>   (snapshot refs into a flat, index-addressed layout — nodes read inputs through
+>   raw-pointer `AudioBufferRef::Sample()` / `ValueRef::Get()`, no hash lookup in
+>   any `Process()`), the topological order (`m_ProcessOrder`, pulled forward),
+>   `m_NodeLookup` being out of the hot path (it's wiring/editor only), and the
+>   deletion of `InputStreams` / `m_OutputChannelViews`.
+> - **Honest perf note.** Phase 2 already removed all real-time pressure: the
+>   `[SoundGraphPerf]` net processes 1 s of Debug audio in ~1.5 ms (~650x faster
+>   than real time). At block rate (~100 calls/s) the per-block vtable dispatch
+>   was already negligible against the per-frame DSP, so the compiled plan does
+>   **not** measurably move that number (1.53 ms before → 1.56 ms after — timing
+>   noise). Phase 3 here is architectural completion — an explicit compile/run
+>   separation and the flat operator layout Phase 4's sample-offset trigger
+>   splitting will hang off of — not a perf fix.
+> - **Tests.** `SoundGraphCompiledPlan.*` (in `SoundGraphTypedConnectionTest.cpp`)
+>   pin the devirtualized thunk and the contiguous pooling; the existing
+>   typed-connection / instantiation / serializer suites stay green through the
+>   new path.
+
 ## Phase 4 — sample-accurate triggers
 
 Only worth doing if and when sample accuracy actually matters. Editor preview

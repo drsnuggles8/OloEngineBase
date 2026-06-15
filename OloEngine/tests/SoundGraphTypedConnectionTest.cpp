@@ -299,6 +299,114 @@ TEST(SoundGraphTypedConnections, GraphFloatParameterRampsPerSample)
     EXPECT_NEAR(capturePtr->m_Captured.back(), 0.25f, 1e-6f);
 }
 
+// =============================================================================
+// Phase 3 — compiled execution plan (docs/soundgraph-metasounds-refactor.md)
+//
+// Phase 3 lowers the topological node order to a flat array of operator handles
+// ({devirtualized thunk, node} pairs) the audio thread walks directly, and pools
+// every node's audio-output buffer into one contiguous allocation. The behavioural
+// contract is unchanged — the typed-connection tests above already run through the
+// compiled plan + pool and pin output correctness. These pin the Phase 3 mechanics:
+//   * Factory-created nodes carry a devirtualized process thunk (not the vtable
+//     fallback) and that thunk actually invokes the node's Process.
+//   * CreateInstance relocates node output buffers into the contiguous pool while
+//     preserving the data they produce.
+// =============================================================================
+
+TEST(SoundGraphCompiledPlan, FactoryNodeThunkIsDevirtualizedAndInvokesProcess)
+{
+    auto sine = sg::Factory::Create(Identifier("SineOscillator"), UUID());
+    ASSERT_NE(sine, nullptr);
+
+    // Factory::MakeNode patches m_ProcessFn to the concrete ProcessThunk<T>; only
+    // nodes built outside the factory keep the vtable fallback.
+    EXPECT_NE(sine->m_ProcessFn, &sg::NodeProcessor::VtableProcessThunk)
+        << "Factory-created node must carry a devirtualized process thunk";
+
+    auto* sineTyped = dynamic_cast<sg::SineOscillator*>(sine.get());
+    ASSERT_NE(sineTyped, nullptr);
+    sineTyped->m_Frequency.SetDefault(440.0f);
+    sineTyped->m_Amplitude.SetDefault(1.0f);
+    sine->SetSampleRate(48000.0f);
+    sine->Init();
+
+    // Dispatch through the stored thunk exactly as the compiled plan does. It must
+    // reach SineOscillator::Process and fill the output buffer with signal.
+    constexpr u32 kBlock = 128;
+    sine->m_ProcessFn(sine.get(), kBlock);
+
+    const f32* out = sineTyped->m_OutValue.Data();
+    f32 maxAbs = 0.0f;
+    for (u32 frame = 0; frame < kBlock; ++frame)
+        maxAbs = std::max(maxAbs, std::abs(out[frame]));
+    EXPECT_GT(maxAbs, 0.1f) << "compiled-plan thunk must invoke the node's Process";
+}
+
+TEST(SoundGraphCompiledPlan, NodeOutputBuffersArePooledContiguously)
+{
+    // sine -> multiply -> graph out, built via the asset path so CreateInstance runs
+    // AllocateNodeOutputPool. Both nodes' audio outputs must land inside the graph's
+    // single contiguous pool, on distinct kMaxAudioBlockFrames-spaced slots.
+    SoundGraphAsset asset;
+    asset.SetName("PooledOutputs");
+
+    SoundGraphNodeData sine;
+    sine.m_ID = UUID();
+    sine.m_Type = "SineOscillator";
+    sine.m_Name = "Sine";
+    sine.m_Properties["Frequency"] = "440";
+    sine.m_Properties["Amplitude"] = "1.0";
+    asset.AddNode(sine);
+
+    SoundGraphNodeData multiply;
+    multiply.m_ID = UUID();
+    multiply.m_Type = "Multiply<float>";
+    multiply.m_Name = "Volume";
+    multiply.m_Properties["Multiplier"] = "0.5";
+    asset.AddNode(multiply);
+
+    AddConn(asset, sine.m_ID, "OutValue", multiply.m_ID, "Value", /*isEvent=*/false);
+    AddConn(asset, multiply.m_ID, "Out", UUID(0), "OutLeft", /*isEvent=*/false);
+    AddConn(asset, multiply.m_ID, "Out", UUID(0), "OutRight", /*isEvent=*/false);
+
+    Ref<sg::Prototype> prototype = sg::CompileAssetToPrototype(asset);
+    ASSERT_NE(prototype, nullptr);
+    Ref<sg::SoundGraph> instance = sg::CreateInstance(prototype);
+    ASSERT_NE(instance, nullptr);
+
+    auto [poolBegin, poolEnd] = instance->GetNodeOutputPoolRange();
+    ASSERT_NE(poolBegin, nullptr) << "CreateInstance must pool node output buffers";
+
+    auto* sineNode = dynamic_cast<sg::SineOscillator*>(instance->FindNodeByID(sine.m_ID));
+    auto* mulNode = dynamic_cast<sg::Multiply<f32>*>(instance->FindNodeByID(multiply.m_ID));
+    ASSERT_NE(sineNode, nullptr);
+    ASSERT_NE(mulNode, nullptr);
+
+    const f32* sineOut = sineNode->m_OutValue.Data();
+    const f32* mulOut = mulNode->m_Out.Data();
+
+    // Both outputs live inside the one contiguous pool allocation...
+    EXPECT_GE(sineOut, poolBegin);
+    EXPECT_LT(sineOut, poolEnd);
+    EXPECT_GE(mulOut, poolBegin);
+    EXPECT_LT(mulOut, poolEnd);
+    // ...on distinct slots, spaced by whole kMaxAudioBlockFrames strides.
+    EXPECT_NE(sineOut, mulOut);
+    const std::ptrdiff_t slotDiff = mulOut > sineOut ? (mulOut - sineOut) : (sineOut - mulOut);
+    EXPECT_EQ(slotDiff % static_cast<std::ptrdiff_t>(sg::kMaxAudioBlockFrames), 0)
+        << "pooled outputs must sit on kMaxAudioBlockFrames-aligned slots";
+
+    // Pooling preserved behaviour: the graph still produces the sine*0.5 signal.
+    constexpr u32 kBlock = 480;
+    instance->Process(kBlock);
+    ASSERT_GE(instance->m_OutputBuffers.size(), 1u);
+    f32 maxAbs = 0.0f;
+    for (u32 frame = 0; frame < kBlock; ++frame)
+        maxAbs = std::max(maxAbs, std::abs(instance->m_OutputBuffers[0][frame]));
+    EXPECT_GT(maxAbs, 0.45f) << "pooled graph produced no signal";
+    EXPECT_LE(maxAbs, 0.5f + 1e-5f);
+}
+
 TEST(SoundGraphTypedConnections, DebugBlockProcessingKeepsRealTimeHeadroom)
 {
     // Regression net for the Phase 1 perf bug: one second of audio (100 blocks

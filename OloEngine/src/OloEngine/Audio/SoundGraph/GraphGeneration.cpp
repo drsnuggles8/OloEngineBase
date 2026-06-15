@@ -636,6 +636,12 @@ namespace OloEngine::Audio::SoundGraph
         // Step 3: Create all nodes
         CreateGraphNodes(graph, prototype);
 
+        // Step 3.5: Pool all node audio-output buffers into one contiguous allocation
+        // (Phase 3). MUST run after every node exists and before EstablishConnections
+        // captures producer Data() pointers — AllocateNodeOutputPool repoints those
+        // buffers, so wiring must observe the final (pooled) addresses.
+        graph->AllocateNodeOutputPool();
+
         // Step 4: Establish all connections between nodes
         EstablishConnections(graph, prototype);
 
