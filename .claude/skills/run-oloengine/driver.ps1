@@ -22,7 +22,7 @@
 #>
 [CmdletBinding()]
 param(
-    [ValidateSet('capture', 'launch', 'shot', 'stop')]
+    [ValidateSet('capture', 'launch', 'shot', 'stop', 'attach')]
     [string]$Action = 'capture',
 
     [ValidateSet('OloEditor', 'OloRuntime')]
@@ -37,6 +37,8 @@ param(
     [int]$SettleSeconds = 30,           # render-settle delay; the editor warms up 42 PBR shaders first
     [int]$ProcId = 0,                   # for shot/stop against an already-running process
     [switch]$KeepOpen,                  # capture: leave the app running afterwards
+    [int]$McpPort = 0,                  # attach: override the per-worktree MCP port (0 = derive from worktree path)
+    [string]$McpName,                   # attach: override the per-worktree MCP server name (default oloeditor-<slug>)
     # 'print' (default) uses PrintWindow -> captures THIS window's own surface even
     # when occluded/not focused. 'screen' BitBlts the desktop at the window rect and
     # only works if OloEditor is genuinely the top-most visible window (it usually is
@@ -282,11 +284,81 @@ function Write-LogTail {
     ($text -split "`r?`n") | Select-Object -Last $n | Write-Output
 }
 
+# --- MCP auto-attach (per-worktree isolation, issue #316) -----------------
+# Each worktree gets a STABLE, distinct MCP port + discovery file + server name
+# derived from its path, so parallel editor sessions never collide on the single
+# default port / the single legacy discovery file. The engine honours
+# OLO_MCP_PORT and OLO_MCP_DISCOVERY_FILE (see McpServer::DiscoveryFilePath).
+
+# Stable, filesystem/CLI-safe identifier for this worktree: the leaf dir name,
+# lowercased with runs of non-alphanumerics collapsed to single dashes.
+function Get-WorktreeSlug {
+    param($repo)
+    $leaf = Split-Path $repo -Leaf
+    $slug = ($leaf.ToLowerInvariant() -replace '[^a-z0-9]+', '-').Trim('-')
+    if (-not $slug) { $slug = 'oloengine' }
+    return $slug
+}
+
+# Deterministic per-worktree port in [20000, 59999], stable across launches and
+# sessions. .NET's String.GetHashCode is per-process randomized, so we hash the
+# path bytes with MD5 ourselves (any stable hash would do — this is not security).
+function Get-WorktreePort {
+    param($repo)
+    $md5 = [System.Security.Cryptography.MD5]::Create()
+    try {
+        $bytes = [System.Text.Encoding]::UTF8.GetBytes($repo.ToLowerInvariant())
+        $hash = $md5.ComputeHash($bytes)
+    }
+    finally { $md5.Dispose() }
+    $val = ([int]$hash[0] -shl 8) -bor [int]$hash[1]   # 0..65535
+    return 20000 + ($val % 40000)
+}
+
+# Block until the editor writes its discovery JSON (host/port/token/url), parse it,
+# and return the object. Retries through partial writes (best-effort ConvertFrom-Json).
+function Wait-Discovery {
+    param($path, $timeoutSec = 30)
+    $deadline = (Get-Date).AddSeconds($timeoutSec)
+    while ((Get-Date) -lt $deadline) {
+        if (Test-Path $path) {
+            try {
+                $obj = Get-Content $path -Raw | ConvertFrom-Json
+                if ($obj.url -and $obj.token) { return $obj }
+            }
+            catch { } # file caught mid-write; retry
+        }
+        Start-Sleep -Milliseconds 300
+    }
+    throw "MCP discovery file did not appear at $path within $timeoutSec s. Is OLO_MCP_AUTOSTART honoured? Check OloEditor/OloEngine.log for an [MCP] bind error."
+}
+
+# Register the running server with Claude Code via `claude mcp add` (idempotent:
+# drops any stale same-named registration first). Returns $true on success; if the
+# `claude` CLI is unavailable, prints the ready-to-paste command and returns $false.
+function Register-Mcp {
+    param($name, $url, $token)
+    $claude = Get-Command claude -ErrorAction SilentlyContinue
+    $manual = "claude mcp add --transport http $name $url --header `"Authorization: Bearer $token`""
+    if (-not $claude) {
+        Write-Warning "`claude` CLI not found on PATH — register manually:`n  $manual"
+        return $false
+    }
+    & claude mcp remove $name 2>$null | Out-Null   # idempotent
+    & claude mcp add --transport http $name $url --header "Authorization: Bearer $token" 2>&1 | Write-Output
+    if ($LASTEXITCODE -ne 0) {
+        Write-Warning "`claude mcp add` failed (exit $LASTEXITCODE). Register manually:`n  $manual"
+        return $false
+    }
+    return $true
+}
+
 # --- main -----------------------------------------------------------------
 $repo = Resolve-RepoRoot
 $workDir = Join-Path $repo 'OloEditor'          # editor & runtime resolve assets relative to here
 $skillDir = $PSScriptRoot
 $pidFile = Join-Path $skillDir 'shots\.pid'
+$mcpFile = Join-Path $skillDir 'shots\.mcp'   # attach: <name>\n<discoveryPath> for stop cleanup
 if (-not $Out) { $Out = Join-Path $skillDir "shots\$Target-$Config.png" }
 
 switch ($Action) {
@@ -343,6 +415,48 @@ switch ($Action) {
         $log = Save-Log $workDir $Out
         if ($log) { Write-Output "Log snapshot (live): $log" }
     }
+    'attach' {
+        # Launch the editor detached with its MCP diagnostics server auto-started on
+        # this worktree's dedicated port + discovery file, then register it with
+        # Claude Code so the olo_* tools become available in the session.
+        $exePath = Resolve-Exe $repo
+        $slug = Get-WorktreeSlug $repo
+        $port = if ($McpPort -gt 0) { $McpPort } else { Get-WorktreePort $repo }
+        $name = if ($McpName) { $McpName } else { "oloeditor-$slug" }
+        $discoveryPath = Join-Path $env:TEMP "oloengine-mcp-$slug.json"
+
+        # Drop any stale discovery file so Wait-Discovery only returns this run's.
+        Remove-Item $discoveryPath -ErrorAction SilentlyContinue
+
+        # The editor reads these on init (EditorLayer) + when writing the discovery
+        # file (McpServer::DiscoveryFilePath). A detached ShellExecute launch inherits
+        # this process's environment, so set them here and clean up afterwards.
+        $env:OLO_MCP_AUTOSTART = '1'
+        $env:OLO_MCP_PORT = "$port"
+        $env:OLO_MCP_DISCOVERY_FILE = $discoveryPath
+        try {
+            $proc = Start-Editor $exePath $workDir $true   # detached: survives this script
+            $hwnd = Wait-Window $proc $WaitSeconds $exePath
+        }
+        finally {
+            Remove-Item Env:OLO_MCP_AUTOSTART, Env:OLO_MCP_PORT, Env:OLO_MCP_DISCOVERY_FILE -ErrorAction SilentlyContinue
+        }
+
+        New-Item -ItemType Directory -Force -Path (Split-Path $pidFile) | Out-Null
+        Set-Content -Path $pidFile -Value $proc.Id
+        Write-Output "LAUNCHED $Target pid=$($proc.Id) hwnd=$hwnd (MCP port $port)"
+
+        # The window appears early, but MCP autostart runs at the END of editor init
+        # (after project load: asset scan, quest DB, save games + the ~10-25s shader
+        # warmup), so give the discovery file a generous window beyond -WaitSeconds.
+        $discovery = Wait-Discovery $discoveryPath ([Math]::Max(120, $WaitSeconds))
+        Write-Output "MCP discovery: $discoveryPath -> $($discovery.url)"
+        $registered = Register-Mcp $name $discovery.url $discovery.token
+        Set-Content -Path $mcpFile -Value @($name, $discoveryPath)
+        if ($registered) {
+            Write-Output "ATTACHED MCP server '$name' at $($discovery.url). The olo_* tools are registered for Claude Code (a session reconnect may be needed to surface them). Use -Action stop to kill the editor and deregister."
+        }
+    }
     'stop' {
         if (-not $ProcId) {
             if (Test-Path $pidFile) { $ProcId = [int](Get-Content $pidFile | Select-Object -First 1) }
@@ -351,5 +465,18 @@ switch ($Action) {
         Stop-Process -Id $ProcId -Force -ErrorAction SilentlyContinue
         Remove-Item $pidFile -ErrorAction SilentlyContinue
         Write-Output "Stopped pid $ProcId"
+
+        # Tear down an MCP registration left by `attach` (best-effort).
+        if (Test-Path $mcpFile) {
+            $lines = @(Get-Content $mcpFile)
+            $mcpName = $lines[0]
+            $disc = if ($lines.Count -gt 1) { $lines[1] } else { $null }
+            if ($mcpName -and (Get-Command claude -ErrorAction SilentlyContinue)) {
+                & claude mcp remove $mcpName 2>$null | Out-Null
+                Write-Output "Deregistered MCP server '$mcpName'"
+            }
+            if ($disc) { Remove-Item $disc -ErrorAction SilentlyContinue }
+            Remove-Item $mcpFile -ErrorAction SilentlyContinue
+        }
     }
 }

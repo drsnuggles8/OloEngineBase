@@ -233,8 +233,17 @@ namespace OloEngine::MCP
 
         // Discovery file written while the server runs: a small JSON blob with the
         // host/port/token/url so an agent (or a test harness) can attach without the
-        // user copy-pasting. Lives in the OS temp dir; removed on Stop.
-        [[nodiscard]] static std::string DiscoveryFilePath();
+        // user copy-pasting. Removed on Stop. Resolution order:
+        //   1. The OLO_MCP_DISCOVERY_FILE env var, verbatim, when set & non-empty —
+        //      the launching tool (e.g. the run-oloengine skill) picks the exact path
+        //      it reads back, so parallel worktrees never collide regardless of port.
+        //   2. Otherwise the OS temp dir. The default port keeps the legacy
+        //      `oloengine-mcp.json` name (back-compat for the panel / manual attach);
+        //      any other port namespaces the file as `oloengine-mcp-<port>.json` so
+        //      two editors on distinct ports don't clobber each other's host/token.
+        // Returns an empty string only if the temp dir can't be resolved and no
+        // override is set.
+        [[nodiscard]] static std::string DiscoveryFilePath(u16 port = DefaultPort);
 
         void RegisterTool(ToolDef tool);
         void RegisterResource(ResourceDef resource);

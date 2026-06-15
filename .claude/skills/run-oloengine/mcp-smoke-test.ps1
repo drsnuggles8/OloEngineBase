@@ -10,11 +10,22 @@
 #
 # Usage:  pwsh -File smoke_test.ps1
 
+param(
+    # Path to the editor's MCP discovery JSON. Precedence: this flag, then the
+    # OLO_MCP_DISCOVERY_FILE env var (the per-worktree path the run-oloengine
+    # `attach` action uses), then the legacy %TEMP%\oloengine-mcp.json (the
+    # default-port / manual-start location).
+    [string]$DiscoveryPath
+)
+
 $ErrorActionPreference = 'Stop'
 
-$discoveryPath = Join-Path $env:TEMP 'oloengine-mcp.json'
+if (-not $DiscoveryPath) {
+    $DiscoveryPath = if ($env:OLO_MCP_DISCOVERY_FILE) { $env:OLO_MCP_DISCOVERY_FILE } else { Join-Path $env:TEMP 'oloengine-mcp.json' }
+}
+$discoveryPath = $DiscoveryPath
 if (-not (Test-Path $discoveryPath)) {
-    Write-Error "Discovery file not found at $discoveryPath. Is the editor running with OLO_MCP_AUTOSTART=1?"
+    Write-Error "Discovery file not found at $discoveryPath. Is the editor running with OLO_MCP_AUTOSTART=1 (pass -DiscoveryPath or set OLO_MCP_DISCOVERY_FILE for a per-worktree attach)?"
 }
 
 $discovery = Get-Content $discoveryPath -Raw | ConvertFrom-Json

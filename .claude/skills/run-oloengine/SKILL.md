@@ -80,7 +80,7 @@ Driver options:
 
 | flag | meaning |
 |---|---|
-| `-Action capture\|launch\|shot\|stop` | one-shot capture (default), or detached launch / shoot / kill |
+| `-Action capture\|launch\|shot\|stop\|attach` | one-shot capture (default), detached launch / shoot / kill, or `attach` (launch + auto-start MCP + register with Claude Code) |
 | `-Target OloEditor\|OloRuntime` | which GUI binary (default `OloEditor`) |
 | `-Config Debug\|Release\|Dist` | build config to launch (default `Debug`) |
 | `-SettleSeconds <n>` | render-settle before capture (default 30 — covers the shader warmup) |
@@ -88,6 +88,43 @@ Driver options:
 | `-Method print\|screen` | `print` (default) = `PrintWindow`, captures the window even when occluded. `screen` = desktop BitBlt at the window rect, **only** correct if OloEditor is the top-most window |
 | `-Out <path>` | output PNG (default `shots\<Target>-<Config>.png`) |
 | `-KeepOpen` | with `capture`: leave the app running after the shot |
+| `-McpPort <n>` | with `attach`: override the per-worktree MCP port (default: derived from the worktree path) |
+| `-McpName <name>` | with `attach`: override the registered MCP server name (default `oloeditor-<worktree-slug>`) |
+
+## Attach the MCP diagnostics server (live frame inspection)
+
+OloEditor hosts a localhost-only, **read-only** MCP diagnostics server (issue #285/#316):
+`olo_log_tail`, `olo_scene_summary`, `olo_screenshot`, the `olo_camera_*` controls,
+`olo_shader_errors`, `olo_render_capture_target`, perf/memory/asset tools, etc. `attach`
+makes those tools available to **this** Claude Code session against a running editor —
+so you can inspect the *live* frame (multi-angle screenshots, intermediate render
+targets) without touching the user's viewport.
+
+```powershell
+pwsh -NoProfile -File .claude\skills\run-oloengine\driver.ps1 -Action attach
+# ... use the olo_* tools ...
+pwsh -NoProfile -File .claude\skills\run-oloengine\driver.ps1 -Action stop   # kills the editor + deregisters
+```
+
+`attach` launches the editor detached with `OLO_MCP_AUTOSTART=1`, a **per-worktree
+port** (`OLO_MCP_PORT`, derived from a hash of the worktree path so parallel worktree
+sessions never collide), and a **per-worktree discovery file**
+(`OLO_MCP_DISCOVERY_FILE = %TEMP%\oloengine-mcp-<slug>.json`). It waits for that file,
+reads the URL + bearer token, and runs `claude mcp add --transport http
+oloeditor-<slug> <url> --header "Authorization: Bearer <token>"`. The server name is
+per-worktree too, so two attached editors don't clobber each other's registration.
+
+Notes:
+- A fresh Claude Code session/reconnect may be needed before the newly registered
+  `olo_*` tools surface in the tool list — `attach` prints the registration result.
+- If the `claude` CLI isn't on PATH, `attach` prints the exact `claude mcp add` line to
+  run manually (same as the editor's `Window ▸ MCP Server` panel "Copy command" button).
+- `stop` runs `claude mcp remove <name>` and deletes the discovery file. The editor's
+  MCP panel still works for a manually started server (default port 7345, legacy
+  `%TEMP%\oloengine-mcp.json` discovery file) — `attach` only adds the per-worktree path.
+- To verify the full round-trip without depending on session tool surfacing, run
+  [mcp-smoke-test.ps1](.claude/skills/run-oloengine/mcp-smoke-test.ps1) (set
+  `$env:OLO_MCP_DISCOVERY_FILE` to the per-worktree path first, or pass `-DiscoveryPath`).
 
 ## Run the server (headless)
 
