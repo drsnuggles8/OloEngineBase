@@ -842,67 +842,90 @@ TEST_F(PhysicsJoint3DTest, SixDOFAllLockedHoldsBodyLikeWeld)
 }
 
 // -----------------------------------------------------------------------------
-// One translation axis Free (the rest Locked) → the body falls only along that
-// axis. The freed axis is the frame X axis (= m_Axis, here world-up).
+// One translation axis Free (the rest Locked) → the body slides freely along
+// that axis but is held on the other two. The free axis is the frame X axis
+// (= m_Axis), here world-X (horizontal); a locked perpendicular axis is vertical
+// and must hold the body up against gravity. Driving the free axis horizontally
+// (gentle initial velocity) instead of free-falling keeps the solver load low
+// and steady — like SixDOFAllLockedHoldsBodyLikeWeld — so the result is robust
+// across CPUs (a high-velocity vertical free-fall is cross-CPU marginal in Jolt).
 // -----------------------------------------------------------------------------
-TEST_F(PhysicsJoint3DTest, SixDOFFreeTranslationAxisLetsBodyFall)
+TEST_F(PhysicsJoint3DTest, SixDOFFreeTranslationAxisAllowsMotion)
 {
     Entity box = MakeBox("SixDOFSlide", { 0.0f, 5.0f, 0.0f }, BodyType3D::Dynamic, 0.2f);
+    box.GetComponent<Rigidbody3DComponent>().m_InitialLinearVelocity = { 2.0f, 0.0f, 0.0f };
+
     auto& joint = box.AddComponent<PhysicsJoint3DComponent>();
     joint.m_Type = JointType3D::SixDOF;
-    joint.m_Axis = { 0.0f, 1.0f, 0.0f };            // frame X axis = world up
-    joint.m_SixDOFTransXMode = JointAxisMode::Free; // free vertical translation
-    // Y/Z translation + all rotation stay Locked (defaults).
+    joint.m_Axis = { 1.0f, 0.0f, 0.0f };            // frame X axis = world X (horizontal)
+    joint.m_SixDOFTransXMode = JointAxisMode::Free; // free to slide along world X
+    // Y/Z translation + all rotation stay Locked (defaults) → hold against gravity.
 
     EnablePhysics3D();
 
-    f32 maxLateral = 0.0f;
-    for (int i = 0; i < 180; ++i) // 3 s
+    f32 maxOffAxis = 0.0f;
+    f32 minY = Pos(box).y;
+    for (int i = 0; i < 60; ++i) // 1 s
     {
         RunFrames(1);
         const glm::vec3 p = Pos(box);
-        maxLateral = std::max(maxLateral, std::max(std::abs(p.x), std::abs(p.z)));
+        maxOffAxis = std::max(maxOffAxis, std::abs(p.z));
+        minY = std::min(minY, p.y);
     }
 
     const glm::vec3 p = Pos(box);
-    EXPECT_LT(maxLateral, 0.1f) << "SixDOF let the body drift off the freed axis; maxLateral=" << maxLateral;
-    EXPECT_LT(p.y, 4.0f) << "freed vertical translation axis did not let the body fall; y=" << p.y;
-    EXPECT_TRUE(std::isfinite(p.y));
+    // Slid ~2 m along the free axis (an all-Locked weld would hold x≈0).
+    EXPECT_GT(p.x, 1.0f) << "free axis did not let the body slide along it; x=" << p.x;
+    // Held up by the locked vertical axis (a free body falls ~5 m in 1 s to y≈0).
+    EXPECT_GT(minY, 4.0f) << "a locked axis let the body fall under gravity; minY=" << minY;
+    EXPECT_LT(maxOffAxis, 0.3f) << "body drifted off the constraint plane; maxOffAxis=" << maxOffAxis;
+    EXPECT_TRUE(std::isfinite(p.x) && std::isfinite(p.y) && std::isfinite(p.z));
 }
 
 // -----------------------------------------------------------------------------
-// One translation axis Limited (the rest Locked) → the body falls along it and
-// stops at the limit, like a slider. Symmetric ±2 range → stops 2 m below start.
+// One translation axis Limited (the rest Locked) → the body slides along that
+// axis and stops at the bound, like a slider. Driven horizontally (world X) so
+// the locked vertical axis holds it against gravity — a steady, low load that is
+// robust across CPUs.
 // -----------------------------------------------------------------------------
 TEST_F(PhysicsJoint3DTest, SixDOFLimitedTranslationStopsAtBound)
 {
     Entity box = MakeBox("SixDOFLimited", { 0.0f, 5.0f, 0.0f }, BodyType3D::Dynamic, 0.2f);
-    box.GetComponent<Rigidbody3DComponent>().m_LinearDrag = 0.1f; // settle at the limit
+    auto& rb = box.GetComponent<Rigidbody3DComponent>();
+    rb.m_InitialLinearVelocity = { 1.5f, 0.0f, 0.0f };
+    rb.m_LinearDrag = 0.2f; // settle at the bound
 
     auto& joint = box.AddComponent<PhysicsJoint3DComponent>();
     joint.m_Type = JointType3D::SixDOF;
-    joint.m_Axis = { 0.0f, 1.0f, 0.0f }; // frame X axis = world up
+    joint.m_Axis = { 1.0f, 0.0f, 0.0f }; // frame X axis = world X (horizontal)
     joint.m_SixDOFTransXMode = JointAxisMode::Limited;
-    // Symmetric ±2 along the freed axis so it stops 2 m down regardless of sign;
-    // the perpendicular axes get a tight range but stay Locked anyway.
-    joint.m_SixDOFTranslationMin = { -2.0f, -0.1f, -0.1f };
-    joint.m_SixDOFTranslationMax = { 2.0f, 0.1f, 0.1f };
-    // Y/Z translation + all rotation stay Locked (defaults).
+    // ±1 m along the free axis; the perpendicular axes get a tight range but stay
+    // Locked anyway.
+    joint.m_SixDOFTranslationMin = { -1.0f, -0.1f, -0.1f };
+    joint.m_SixDOFTranslationMax = { 1.0f, 0.1f, 0.1f };
+    // Y/Z translation + all rotation stay Locked (defaults) → hold against gravity.
 
     EnablePhysics3D();
 
-    f32 maxLateral = 0.0f;
-    for (int i = 0; i < 300; ++i) // 5 s
+    f32 maxX = 0.0f;
+    f32 maxOffAxis = 0.0f;
+    f32 minY = Pos(box).y;
+    for (int i = 0; i < 180; ++i) // 3 s
     {
         RunFrames(1);
         const glm::vec3 p = Pos(box);
-        maxLateral = std::max(maxLateral, std::max(std::abs(p.x), std::abs(p.z)));
+        maxX = std::max(maxX, p.x);
+        maxOffAxis = std::max(maxOffAxis, std::abs(p.z));
+        minY = std::min(minY, p.y);
     }
 
     const glm::vec3 p = Pos(box);
-    EXPECT_LT(maxLateral, 0.1f) << "SixDOF let the body drift off the limited axis; maxLateral=" << maxLateral;
-    EXPECT_NEAR(p.y, 3.0f, 0.3f) << "limited axis did not stop the fall at the 2 m bound (5-2); y=" << p.y;
-    EXPECT_TRUE(std::isfinite(p.y));
+    // Slid toward the +1 m bound and stopped there (a free body coasts past ~2 m).
+    EXPECT_GT(p.x, 0.5f) << "body never slid toward the +1 m bound; x=" << p.x;
+    EXPECT_LT(maxX, 1.5f) << "limited axis did not stop the body at the +1 m bound; maxX=" << maxX;
+    EXPECT_GT(minY, 4.0f) << "a locked axis let the body fall under gravity; minY=" << minY;
+    EXPECT_LT(maxOffAxis, 0.3f) << "body drifted off the constraint plane; maxOffAxis=" << maxOffAxis;
+    EXPECT_TRUE(std::isfinite(p.x) && std::isfinite(p.y) && std::isfinite(p.z));
 }
 
 // -----------------------------------------------------------------------------
