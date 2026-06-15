@@ -94,7 +94,9 @@ namespace OloEngine
         // socket (NetworkIntegrationTest) stay excluded from the ASan job; the
         // debug-output/connection callbacks set above are harmless no-ops without
         // a running service thread. Non-ASan production builds are unaffected.
-        // See issue #317.
+        // See issue #317; upstream GNS bug filed as
+        // ValveSoftware/GameNetworkingSockets#418 — remove this gate once a fixed
+        // GNS is vendored.
         OLO_CORE_WARN("NetworkManager: skipping GameNetworkingSockets_Init under AddressSanitizer (issue #317)");
 #else
         if (SteamDatagramErrMsg errMsg; !GameNetworkingSockets_Init(nullptr, errMsg))

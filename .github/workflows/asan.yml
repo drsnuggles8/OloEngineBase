@@ -121,6 +121,7 @@ jobs:
       # `pugi::xpath_*`). That is now fixed at the source: NetworkManager::Init
       # skips the live GameNetworkingSockets_Init under ASan (OLO_ASAN_ENABLED),
       # so every suite that merely constructs/uses NetworkManager runs clean.
+      # (Upstream GNS bug: ValveSoftware/GameNetworkingSockets#418.)
       #
       # The Task* and Shader* suites were excluded here on a since-disproven "the
       # task system starts the Steam service thread" theory — they never touched
