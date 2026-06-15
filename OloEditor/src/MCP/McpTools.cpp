@@ -1883,11 +1883,21 @@ namespace OloEngine::MCP
 
             glm::vec3 direction{ 0.0f, 0.0f, 1.0f };
             glm::vec3 toPoint{ 0.0f };
-            const bool hasDir = args.contains("direction") && ParseVec3(args["direction"], direction);
-            const bool hasTo = args.contains("to") && ParseVec3(args["to"], toPoint);
-            if (!hasDir && !hasTo)
+            const bool hasDirKey = args.contains("direction");
+            const bool hasToKey = args.contains("to");
+            // Require exactly one of 'direction' / 'to', and reject a present-but-
+            // malformed field rather than silently falling back — keep the query
+            // intent unambiguous and surface bad input instead of ignoring it.
+            if (hasDirKey && hasToKey)
+                return ToolResult::Error("Provide either 'direction' or 'to', not both.");
+            if (!hasDirKey && !hasToKey)
                 return ToolResult::Error("Provide either 'direction' [x,y,z] or 'to' [x,y,z].");
-            if (hasDir && glm::length(direction) <= 0.0f)
+            if (hasDirKey && !ParseVec3(args["direction"], direction))
+                return ToolResult::Error("Invalid 'direction': expected [x, y, z] finite numbers.");
+            if (hasToKey && !ParseVec3(args["to"], toPoint))
+                return ToolResult::Error("Invalid 'to': expected [x, y, z] finite numbers.");
+            const bool hasTo = hasToKey;
+            if (hasDirKey && glm::length(direction) <= 0.0f)
                 return ToolResult::Error("'direction' must be non-zero.");
 
             f32 maxDistance = 500.0f;
@@ -1964,9 +1974,12 @@ namespace OloEngine::MCP
             if (!args.contains("origin") || !ParseVec3(args["origin"], origin))
                 return ToolResult::Error("Missing or invalid 'origin': expected [x, y, z] finite numbers.");
 
-            // Box if halfExtents given, else sphere (radius, default 0.5).
+            // Box if halfExtents given, else sphere (radius, default 0.5). A present-
+            // but-malformed halfExtents is an error, not a silent downgrade to sphere.
             glm::vec3 halfExtents{ 0.5f };
-            const bool isBox = args.contains("halfExtents") && ParseVec3(args["halfExtents"], halfExtents);
+            const bool isBox = args.contains("halfExtents");
+            if (isBox && !ParseVec3(args["halfExtents"], halfExtents))
+                return ToolResult::Error("Invalid 'halfExtents': expected [x, y, z] finite numbers.");
             f32 radius = 0.5f;
             if (args.contains("radius") && args["radius"].is_number())
             {

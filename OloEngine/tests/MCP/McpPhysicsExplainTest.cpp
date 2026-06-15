@@ -173,6 +173,26 @@ TEST(McpPhysicsExplain, EntityBNoRigidbody)
     EXPECT_EQ("entity_b_no_rigidbody", v.ReasonCode);
 }
 
+TEST(McpPhysicsExplain, EntityBNoCollider)
+{
+    WhyNoCollisionInput in = MakeCollidable();
+    in.B.HasRigidbody = true;
+    in.B.HasCollider = false;
+    in.B.HasBody = false;
+    const WhyNoCollisionVerdict v = ExplainWhyNoCollision(in);
+    EXPECT_EQ("entity_b_no_collider", v.ReasonCode);
+}
+
+TEST(McpPhysicsExplain, EntityBNoBody)
+{
+    WhyNoCollisionInput in = MakeCollidable();
+    in.B.HasRigidbody = true;
+    in.B.HasCollider = true;
+    in.B.HasBody = false;
+    const WhyNoCollisionVerdict v = ExplainWhyNoCollision(in);
+    EXPECT_EQ("entity_b_no_body", v.ReasonCode);
+}
+
 TEST(McpPhysicsExplain, BothStaticNeverCollide)
 {
     WhyNoCollisionInput in = MakeCollidable();
