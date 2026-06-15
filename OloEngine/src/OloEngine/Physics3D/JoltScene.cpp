@@ -749,6 +749,13 @@ namespace OloEngine
         }
     }
 
+    std::vector<std::pair<UUID, UUID>> JoltScene::GetActiveContactPairs() const
+    {
+        if (!m_ContactListener)
+            return {};
+        return m_ContactListener->GetActiveContactPairs();
+    }
+
     void JoltScene::CreateRigidBodies()
     {
         if (!m_Scene)

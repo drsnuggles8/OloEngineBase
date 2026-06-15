@@ -127,6 +127,12 @@ the server, so update the config (or re-copy from the panel) accordingly.
 | `olo_viewport_set_size` | override the viewport's logical render size for deterministic captures (`reset` to clear) |
 | `olo_render_list_targets` | the render graph's live texture/framebuffer resources (name, kind, format, size, producers) |
 | `olo_render_capture_target` | read back one intermediate render target (depth, normals, G-buffer, shadow map, AO, post-process stages, …) as a PNG image block; depth is min-max normalised by default |
+| `olo_physics_layer_matrix` | the collision-layer matrix the sim uses: built-in object layers + user-defined layers, with pairwise collide/no-collide (works in Edit mode) |
+| `olo_physics_list_colliders` | paginated entities with a rigidbody: authored body type / layer / trigger / collider shapes, plus live object layer, position, awake/asleep when playing |
+| `olo_physics_contacts` | entity pairs whose bodies are touching right now (live active-contact set, deduplicated); requires Play mode |
+| `olo_physics_raycast` | cast a ray (`origin` + `direction`\|`to`) through the live physics world: closest hit, or up to `maxHits` ordered hits (entity, position, normal, distance) |
+| `olo_physics_overlap` | bodies overlapping a sphere (`radius`) or box (`halfExtents`) at `origin`; requires Play mode |
+| `olo_physics_why_no_collision` | explain why two entities (`a`, `b`) are NOT colliding — the "player falls through the floor" debugger: root-cause `reasonCode`, summary, ordered checks, and per-entity facts |
 
 ### Multi-angle visual verification (the CLAUDE.md water pattern)
 
@@ -143,6 +149,56 @@ it is most likely to break, without touching the user's viewport. The intended l
    you need to see which intermediate buffer broke.
 4. `olo_viewport_set_size { width, height }` first when a deterministic resolution
    matters (golden comparisons); `{ reset: true }` when done.
+
+### Physics introspection (the `olo_physics_*` family)
+
+These expose Jolt's read-only query surface so an agent can debug collision/physics
+problems without guessing. They follow the same "expose, don't embed" rule — no tool
+moves a body, edits a layer, or steps the simulation.
+
+`olo_physics_layer_matrix` reads static registry data and works in **Edit mode**; the
+others read the live simulation, so they need **Play mode** (`olo_physics_list_colliders`
+still lists authored bodies in Edit mode, just without the live fields). Every live read
+is marshaled onto the editor's main thread at a frame boundary, like the `olo_scene_*`
+tools.
+
+The headline tool is **`olo_physics_why_no_collision`** — the "player falls through the
+floor" debugger. Given two entity UUIDs it walks a fixed cascade (physics running → both
+entities exist → each has a rigidbody + collider + live body → not both Static → layers
+allowed to collide → neither is a trigger → bounds overlap) and reports the **root cause**,
+not a downstream symptom. A worked example:
+
+```jsonc
+// olo_physics_why_no_collision { "a": "12758…", "b": "98321…" }
+{
+  "a": "12758…", "b": "98321…",
+  "reasonCode": "both_static",
+  "summary": "Both bodies are Static. Two static bodies never collide — at least one must be Dynamic …",
+  "canCollide": false,
+  "checks": [
+    "[ok] A and B are distinct entities",
+    "[ok] the 3D physics simulation is running",
+    "[ok] both entities exist in the active scene",
+    "[ok] A has a Rigidbody3DComponent",
+    "[ok] A has a collider component",
+    "[ok] A has a live physics body",
+    "[ok] B has a Rigidbody3DComponent",
+    "[ok] B has a collider component",
+    "[ok] B has a live physics body",
+    "[fail] both bodies are Static"
+  ],
+  "facts": {
+    "a": { "entityExists": true, "hasRigidbody": true, "hasCollider": true, "hasLiveBody": true,
+           "bodyType": "Static", "isTrigger": false, "layerId": 0, "layerName": "NON_MOVING" },
+    "b": { "…": "…", "bodyType": "Static" },
+    "layersCollide": false, "boundsOverlap": true
+  }
+}
+```
+
+Typical flow: `olo_physics_list_colliders` to find the two entities and their layers →
+`olo_physics_why_no_collision` for the verdict → `olo_physics_layer_matrix` if it blames
+the layer filter → `olo_physics_contacts` to confirm a contact actually fires once fixed.
 
 ### Resources
 
