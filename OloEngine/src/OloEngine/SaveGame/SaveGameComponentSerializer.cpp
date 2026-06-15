@@ -780,6 +780,75 @@ namespace OloEngine
             clampMagnitude(c.m_HingeLimitSpringDamping);
             clampMagnitude(c.m_SliderLimitSpringFrequency);
             clampMagnitude(c.m_SliderLimitSpringDamping);
+
+            // SwingTwist + SixDOF tail. Archives written before these joint types
+            // existed end after the limit-spring block, so default to the field
+            // defaults (a 45° ragdoll cone / twist and an all-Locked rigid SixDOF).
+            if (ar.AtEnd())
+            {
+                c.m_SwingNormalHalfAngleDeg = 45.0f;
+                c.m_SwingPlaneHalfAngleDeg = 45.0f;
+                c.m_TwistMinAngleDeg = -45.0f;
+                c.m_TwistMaxAngleDeg = 45.0f;
+                c.m_SixDOFTransXMode = JointAxisMode::Locked;
+                c.m_SixDOFTransYMode = JointAxisMode::Locked;
+                c.m_SixDOFTransZMode = JointAxisMode::Locked;
+                c.m_SixDOFRotXMode = JointAxisMode::Locked;
+                c.m_SixDOFRotYMode = JointAxisMode::Locked;
+                c.m_SixDOFRotZMode = JointAxisMode::Locked;
+                c.m_SixDOFTranslationMin = glm::vec3(-0.5f);
+                c.m_SixDOFTranslationMax = glm::vec3(0.5f);
+                c.m_SixDOFRotationMinDeg = glm::vec3(-45.0f);
+                c.m_SixDOFRotationMaxDeg = glm::vec3(45.0f);
+            }
+            else
+            {
+                ar << c.m_SwingNormalHalfAngleDeg << c.m_SwingPlaneHalfAngleDeg
+                   << c.m_TwistMinAngleDeg << c.m_TwistMaxAngleDeg;
+                ar << c.m_SixDOFTransXMode << c.m_SixDOFTransYMode << c.m_SixDOFTransZMode
+                   << c.m_SixDOFRotXMode << c.m_SixDOFRotYMode << c.m_SixDOFRotZMode;
+                ar << c.m_SixDOFTranslationMin << c.m_SixDOFTranslationMax
+                   << c.m_SixDOFRotationMinDeg << c.m_SixDOFRotationMaxDeg;
+            }
+
+            // Sanitize untrusted SwingTwist/SixDOF data. Modes are int enums on
+            // disk (clamp out-of-range to Locked); swing/twist angles and the
+            // SixDOF limits are clamped to the same ranges the scene serializer
+            // enforces so values round-trip identically through both paths.
+            const auto clampAxisMode = [](JointAxisMode& m)
+            {
+                if (const auto v = static_cast<int>(m); v < 0 || v > static_cast<int>(JointAxisMode::Free))
+                    m = JointAxisMode::Locked;
+            };
+            const auto clampAngle = [](f32& v, f32 lo, f32 hi, f32 fallback)
+            {
+                if (!std::isfinite(v))
+                    v = fallback;
+                v = std::clamp(v, lo, hi);
+            };
+            const auto clampVec3 = [](glm::vec3& v, f32 lo, f32 hi, f32 fallback)
+            {
+                for (int i = 0; i < 3; ++i)
+                {
+                    if (!std::isfinite(v[i]))
+                        v[i] = fallback;
+                    v[i] = std::clamp(v[i], lo, hi);
+                }
+            };
+            clampAngle(c.m_SwingNormalHalfAngleDeg, 0.0f, 180.0f, 45.0f);
+            clampAngle(c.m_SwingPlaneHalfAngleDeg, 0.0f, 180.0f, 45.0f);
+            clampAngle(c.m_TwistMinAngleDeg, -180.0f, 180.0f, -45.0f);
+            clampAngle(c.m_TwistMaxAngleDeg, -180.0f, 180.0f, 45.0f);
+            clampAxisMode(c.m_SixDOFTransXMode);
+            clampAxisMode(c.m_SixDOFTransYMode);
+            clampAxisMode(c.m_SixDOFTransZMode);
+            clampAxisMode(c.m_SixDOFRotXMode);
+            clampAxisMode(c.m_SixDOFRotYMode);
+            clampAxisMode(c.m_SixDOFRotZMode);
+            clampVec3(c.m_SixDOFTranslationMin, -10000.0f, 10000.0f, -0.5f);
+            clampVec3(c.m_SixDOFTranslationMax, -10000.0f, 10000.0f, 0.5f);
+            clampVec3(c.m_SixDOFRotationMinDeg, -180.0f, 180.0f, -45.0f);
+            clampVec3(c.m_SixDOFRotationMaxDeg, -180.0f, 180.0f, 45.0f);
         }
         else
         {
@@ -790,6 +859,12 @@ namespace OloEngine
                << c.m_SliderMaxMotorForce << c.m_SliderMaxFrictionForce;
             ar << c.m_HingeLimitSpringFrequency << c.m_HingeLimitSpringDamping;
             ar << c.m_SliderLimitSpringFrequency << c.m_SliderLimitSpringDamping;
+            ar << c.m_SwingNormalHalfAngleDeg << c.m_SwingPlaneHalfAngleDeg
+               << c.m_TwistMinAngleDeg << c.m_TwistMaxAngleDeg;
+            ar << c.m_SixDOFTransXMode << c.m_SixDOFTransYMode << c.m_SixDOFTransZMode
+               << c.m_SixDOFRotXMode << c.m_SixDOFRotYMode << c.m_SixDOFRotZMode;
+            ar << c.m_SixDOFTranslationMin << c.m_SixDOFTranslationMax
+               << c.m_SixDOFRotationMinDeg << c.m_SixDOFRotationMaxDeg;
         }
         // m_RuntimeConstraintToken is a runtime Jolt handle — not serialized.
     }

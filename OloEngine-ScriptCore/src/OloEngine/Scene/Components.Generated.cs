@@ -857,6 +857,106 @@ namespace OloEngine
 			get => InternalCalls.PhysicsJoint3DComponent_GetSliderLimitSpringDamping(Entity.ID);
 			set => InternalCalls.PhysicsJoint3DComponent_SetSliderLimitSpringDamping(Entity.ID, value);
 		}
+
+		public float SwingNormalHalfAngleDeg
+		{
+			get => InternalCalls.PhysicsJoint3DComponent_GetSwingNormalHalfAngleDeg(Entity.ID);
+			set => InternalCalls.PhysicsJoint3DComponent_SetSwingNormalHalfAngleDeg(Entity.ID, value);
+		}
+
+		public float SwingPlaneHalfAngleDeg
+		{
+			get => InternalCalls.PhysicsJoint3DComponent_GetSwingPlaneHalfAngleDeg(Entity.ID);
+			set => InternalCalls.PhysicsJoint3DComponent_SetSwingPlaneHalfAngleDeg(Entity.ID, value);
+		}
+
+		public float TwistMinAngleDeg
+		{
+			get => InternalCalls.PhysicsJoint3DComponent_GetTwistMinAngleDeg(Entity.ID);
+			set => InternalCalls.PhysicsJoint3DComponent_SetTwistMinAngleDeg(Entity.ID, value);
+		}
+
+		public float TwistMaxAngleDeg
+		{
+			get => InternalCalls.PhysicsJoint3DComponent_GetTwistMaxAngleDeg(Entity.ID);
+			set => InternalCalls.PhysicsJoint3DComponent_SetTwistMaxAngleDeg(Entity.ID, value);
+		}
+
+		public int SixDOFTransXMode
+		{
+			get => InternalCalls.PhysicsJoint3DComponent_GetSixDOFTransXMode(Entity.ID);
+			set => InternalCalls.PhysicsJoint3DComponent_SetSixDOFTransXMode(Entity.ID, value);
+		}
+
+		public int SixDOFTransYMode
+		{
+			get => InternalCalls.PhysicsJoint3DComponent_GetSixDOFTransYMode(Entity.ID);
+			set => InternalCalls.PhysicsJoint3DComponent_SetSixDOFTransYMode(Entity.ID, value);
+		}
+
+		public int SixDOFTransZMode
+		{
+			get => InternalCalls.PhysicsJoint3DComponent_GetSixDOFTransZMode(Entity.ID);
+			set => InternalCalls.PhysicsJoint3DComponent_SetSixDOFTransZMode(Entity.ID, value);
+		}
+
+		public int SixDOFRotXMode
+		{
+			get => InternalCalls.PhysicsJoint3DComponent_GetSixDOFRotXMode(Entity.ID);
+			set => InternalCalls.PhysicsJoint3DComponent_SetSixDOFRotXMode(Entity.ID, value);
+		}
+
+		public int SixDOFRotYMode
+		{
+			get => InternalCalls.PhysicsJoint3DComponent_GetSixDOFRotYMode(Entity.ID);
+			set => InternalCalls.PhysicsJoint3DComponent_SetSixDOFRotYMode(Entity.ID, value);
+		}
+
+		public int SixDOFRotZMode
+		{
+			get => InternalCalls.PhysicsJoint3DComponent_GetSixDOFRotZMode(Entity.ID);
+			set => InternalCalls.PhysicsJoint3DComponent_SetSixDOFRotZMode(Entity.ID, value);
+		}
+
+		public Vector3 SixDOFTranslationMin
+		{
+			get
+			{
+				InternalCalls.PhysicsJoint3DComponent_GetSixDOFTranslationMin(Entity.ID, out Vector3 value);
+				return value;
+			}
+			set => InternalCalls.PhysicsJoint3DComponent_SetSixDOFTranslationMin(Entity.ID, ref value);
+		}
+
+		public Vector3 SixDOFTranslationMax
+		{
+			get
+			{
+				InternalCalls.PhysicsJoint3DComponent_GetSixDOFTranslationMax(Entity.ID, out Vector3 value);
+				return value;
+			}
+			set => InternalCalls.PhysicsJoint3DComponent_SetSixDOFTranslationMax(Entity.ID, ref value);
+		}
+
+		public Vector3 SixDOFRotationMinDeg
+		{
+			get
+			{
+				InternalCalls.PhysicsJoint3DComponent_GetSixDOFRotationMinDeg(Entity.ID, out Vector3 value);
+				return value;
+			}
+			set => InternalCalls.PhysicsJoint3DComponent_SetSixDOFRotationMinDeg(Entity.ID, ref value);
+		}
+
+		public Vector3 SixDOFRotationMaxDeg
+		{
+			get
+			{
+				InternalCalls.PhysicsJoint3DComponent_GetSixDOFRotationMaxDeg(Entity.ID, out Vector3 value);
+				return value;
+			}
+			set => InternalCalls.PhysicsJoint3DComponent_SetSixDOFRotationMaxDeg(Entity.ID, ref value);
+		}
 	}
 
 	public partial class PointLightComponent : Component

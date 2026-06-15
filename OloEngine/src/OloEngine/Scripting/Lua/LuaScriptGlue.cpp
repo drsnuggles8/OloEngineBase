@@ -1080,7 +1080,7 @@ namespace OloEngine
         lua.new_usertype<PhysicsJoint3DComponent>("PhysicsJoint3DComponent",
                                                   "jointType", sol::property([](const PhysicsJoint3DComponent& j) -> int
                                                                              { return std::to_underlying(j.m_Type); }, [](PhysicsJoint3DComponent& j, int v)
-                                                                             { if (v >= 0 && v <= static_cast<int>(JointType3D::Cone)) j.m_Type = static_cast<JointType3D>(v); }),
+                                                                             { if (v >= 0 && v <= static_cast<int>(JointType3D::SixDOF)) j.m_Type = static_cast<JointType3D>(v); }),
                                                   "connectedEntity", sol::property([](const PhysicsJoint3DComponent& j)
                                                                                    { return static_cast<u64>(j.m_ConnectedEntity); }, [](PhysicsJoint3DComponent& j, u64 v)
                                                                                    { j.m_ConnectedEntity = UUID(v); }),
@@ -1173,7 +1173,54 @@ namespace OloEngine
                                                                                               { if (std::isfinite(v)) j.m_SliderLimitSpringFrequency = std::clamp(v, 0.0f, 1.0e9f); }),
                                                   "sliderLimitSpringDamping", sol::property([](const PhysicsJoint3DComponent& j)
                                                                                             { return j.m_SliderLimitSpringDamping; }, [](PhysicsJoint3DComponent& j, f32 v)
-                                                                                            { if (std::isfinite(v)) j.m_SliderLimitSpringDamping = std::clamp(v, 0.0f, 1.0e9f); }));
+                                                                                            { if (std::isfinite(v)) j.m_SliderLimitSpringDamping = std::clamp(v, 0.0f, 1.0e9f); }),
+                                                  // SwingTwist joint: swing cone half-angles (deg, clamped to [0,180])
+                                                  // about the derived plane normal / in-plane direction, and the twist
+                                                  // range about m_Axis (deg, clamped to [-180,180]).
+                                                  "swingNormalHalfAngleDeg", sol::property([](const PhysicsJoint3DComponent& j)
+                                                                                           { return j.m_SwingNormalHalfAngleDeg; }, [](PhysicsJoint3DComponent& j, f32 v)
+                                                                                           { if (std::isfinite(v)) j.m_SwingNormalHalfAngleDeg = std::clamp(v, 0.0f, 180.0f); }),
+                                                  "swingPlaneHalfAngleDeg", sol::property([](const PhysicsJoint3DComponent& j)
+                                                                                          { return j.m_SwingPlaneHalfAngleDeg; }, [](PhysicsJoint3DComponent& j, f32 v)
+                                                                                          { if (std::isfinite(v)) j.m_SwingPlaneHalfAngleDeg = std::clamp(v, 0.0f, 180.0f); }),
+                                                  "twistMinAngleDeg", sol::property([](const PhysicsJoint3DComponent& j)
+                                                                                    { return j.m_TwistMinAngleDeg; }, [](PhysicsJoint3DComponent& j, f32 v)
+                                                                                    { if (std::isfinite(v)) j.m_TwistMinAngleDeg = std::clamp(v, -180.0f, 180.0f); }),
+                                                  "twistMaxAngleDeg", sol::property([](const PhysicsJoint3DComponent& j)
+                                                                                    { return j.m_TwistMaxAngleDeg; }, [](PhysicsJoint3DComponent& j, f32 v)
+                                                                                    { if (std::isfinite(v)) j.m_TwistMaxAngleDeg = std::clamp(v, -180.0f, 180.0f); }),
+                                                  // SixDOF per-axis modes, exposed as ints (0=Locked, 1=Limited, 2=Free).
+                                                  "sixDOFTransXMode", sol::property([](const PhysicsJoint3DComponent& j) -> int
+                                                                                    { return std::to_underlying(j.m_SixDOFTransXMode); }, [](PhysicsJoint3DComponent& j, int v)
+                                                                                    { if (v >= 0 && v <= static_cast<int>(JointAxisMode::Free)) j.m_SixDOFTransXMode = static_cast<JointAxisMode>(v); }),
+                                                  "sixDOFTransYMode", sol::property([](const PhysicsJoint3DComponent& j) -> int
+                                                                                    { return std::to_underlying(j.m_SixDOFTransYMode); }, [](PhysicsJoint3DComponent& j, int v)
+                                                                                    { if (v >= 0 && v <= static_cast<int>(JointAxisMode::Free)) j.m_SixDOFTransYMode = static_cast<JointAxisMode>(v); }),
+                                                  "sixDOFTransZMode", sol::property([](const PhysicsJoint3DComponent& j) -> int
+                                                                                    { return std::to_underlying(j.m_SixDOFTransZMode); }, [](PhysicsJoint3DComponent& j, int v)
+                                                                                    { if (v >= 0 && v <= static_cast<int>(JointAxisMode::Free)) j.m_SixDOFTransZMode = static_cast<JointAxisMode>(v); }),
+                                                  "sixDOFRotXMode", sol::property([](const PhysicsJoint3DComponent& j) -> int
+                                                                                  { return std::to_underlying(j.m_SixDOFRotXMode); }, [](PhysicsJoint3DComponent& j, int v)
+                                                                                  { if (v >= 0 && v <= static_cast<int>(JointAxisMode::Free)) j.m_SixDOFRotXMode = static_cast<JointAxisMode>(v); }),
+                                                  "sixDOFRotYMode", sol::property([](const PhysicsJoint3DComponent& j) -> int
+                                                                                  { return std::to_underlying(j.m_SixDOFRotYMode); }, [](PhysicsJoint3DComponent& j, int v)
+                                                                                  { if (v >= 0 && v <= static_cast<int>(JointAxisMode::Free)) j.m_SixDOFRotYMode = static_cast<JointAxisMode>(v); }),
+                                                  "sixDOFRotZMode", sol::property([](const PhysicsJoint3DComponent& j) -> int
+                                                                                  { return std::to_underlying(j.m_SixDOFRotZMode); }, [](PhysicsJoint3DComponent& j, int v)
+                                                                                  { if (v >= 0 && v <= static_cast<int>(JointAxisMode::Free)) j.m_SixDOFRotZMode = static_cast<JointAxisMode>(v); }),
+                                                  // SixDOF limits used by axes in Limited mode (translation m, rotation deg).
+                                                  "sixDOFTranslationMin", sol::property([](const PhysicsJoint3DComponent& j)
+                                                                                        { return j.m_SixDOFTranslationMin; }, [](PhysicsJoint3DComponent& j, const glm::vec3& v)
+                                                                                        { if (IsFiniteVec3(v)) j.m_SixDOFTranslationMin = v; }),
+                                                  "sixDOFTranslationMax", sol::property([](const PhysicsJoint3DComponent& j)
+                                                                                        { return j.m_SixDOFTranslationMax; }, [](PhysicsJoint3DComponent& j, const glm::vec3& v)
+                                                                                        { if (IsFiniteVec3(v)) j.m_SixDOFTranslationMax = v; }),
+                                                  "sixDOFRotationMinDeg", sol::property([](const PhysicsJoint3DComponent& j)
+                                                                                        { return j.m_SixDOFRotationMinDeg; }, [](PhysicsJoint3DComponent& j, const glm::vec3& v)
+                                                                                        { if (IsFiniteVec3(v)) j.m_SixDOFRotationMinDeg = v; }),
+                                                  "sixDOFRotationMaxDeg", sol::property([](const PhysicsJoint3DComponent& j)
+                                                                                        { return j.m_SixDOFRotationMaxDeg; }, [](PhysicsJoint3DComponent& j, const glm::vec3& v)
+                                                                                        { if (IsFiniteVec3(v)) j.m_SixDOFRotationMaxDeg = v; }));
 
         // --- PrefabComponent ---
         // Read-only window into prefab-instance identity & override state.

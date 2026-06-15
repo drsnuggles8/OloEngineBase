@@ -2460,7 +2460,7 @@ namespace OloEngine
 
             // Guard the joint type against an out-of-range enum value on disk.
             if (i32 jointTypeInt = jointComponent["JointType"].as<i32>(std::to_underlying(joint.m_Type));
-                jointTypeInt >= 0 && jointTypeInt <= static_cast<i32>(JointType3D::Cone))
+                jointTypeInt >= 0 && jointTypeInt <= static_cast<i32>(JointType3D::SixDOF))
             {
                 joint.m_Type = static_cast<JointType3D>(jointTypeInt);
             }
@@ -2508,6 +2508,35 @@ namespace OloEngine
             joint.m_SliderLimitSpringFrequency = jointComponent["SliderLimitSpringFrequency"].as<f32>(joint.m_SliderLimitSpringFrequency);
             joint.m_SliderLimitSpringDamping = jointComponent["SliderLimitSpringDamping"].as<f32>(joint.m_SliderLimitSpringDamping);
 
+            // SwingTwist swing cone half-angles + twist range (degrees).
+            joint.m_SwingNormalHalfAngleDeg = jointComponent["SwingNormalHalfAngleDeg"].as<f32>(joint.m_SwingNormalHalfAngleDeg);
+            joint.m_SwingPlaneHalfAngleDeg = jointComponent["SwingPlaneHalfAngleDeg"].as<f32>(joint.m_SwingPlaneHalfAngleDeg);
+            joint.m_TwistMinAngleDeg = jointComponent["TwistMinAngleDeg"].as<f32>(joint.m_TwistMinAngleDeg);
+            joint.m_TwistMaxAngleDeg = jointComponent["TwistMaxAngleDeg"].as<f32>(joint.m_TwistMaxAngleDeg);
+
+            // SixDOF per-axis modes. Each is an int enum on disk; guard against an
+            // out-of-range value the same way m_Type is guarded.
+            const auto readAxisMode = [&](const char* key, JointAxisMode& mode)
+            {
+                if (i32 v = jointComponent[key].as<i32>(std::to_underlying(mode));
+                    v >= 0 && v <= static_cast<i32>(JointAxisMode::Free))
+                {
+                    mode = static_cast<JointAxisMode>(v);
+                }
+            };
+            readAxisMode("SixDOFTransXMode", joint.m_SixDOFTransXMode);
+            readAxisMode("SixDOFTransYMode", joint.m_SixDOFTransYMode);
+            readAxisMode("SixDOFTransZMode", joint.m_SixDOFTransZMode);
+            readAxisMode("SixDOFRotXMode", joint.m_SixDOFRotXMode);
+            readAxisMode("SixDOFRotYMode", joint.m_SixDOFRotYMode);
+            readAxisMode("SixDOFRotZMode", joint.m_SixDOFRotZMode);
+
+            // SixDOF limits. glm::vec3 decode already rejects non-finite components.
+            joint.m_SixDOFTranslationMin = jointComponent["SixDOFTranslationMin"].as<glm::vec3>(joint.m_SixDOFTranslationMin);
+            joint.m_SixDOFTranslationMax = jointComponent["SixDOFTranslationMax"].as<glm::vec3>(joint.m_SixDOFTranslationMax);
+            joint.m_SixDOFRotationMinDeg = jointComponent["SixDOFRotationMinDeg"].as<glm::vec3>(joint.m_SixDOFRotationMinDeg);
+            joint.m_SixDOFRotationMaxDeg = jointComponent["SixDOFRotationMaxDeg"].as<glm::vec3>(joint.m_SixDOFRotationMaxDeg);
+
             // Reject non-finite floats read from disk and clamp to physically/Jolt-valid ranges.
             SanitizeFloat(joint.m_MinDistance, -1.0f, 10000.0f, 0.0f);
             SanitizeFloat(joint.m_MaxDistance, -1.0f, 10000.0f, 1.0f);
@@ -2537,6 +2566,24 @@ namespace OloEngine
             SanitizeFloat(joint.m_HingeLimitSpringDamping, 0.0f, 1.0e9f, 0.0f);
             SanitizeFloat(joint.m_SliderLimitSpringFrequency, 0.0f, 1.0e9f, 0.0f);
             SanitizeFloat(joint.m_SliderLimitSpringDamping, 0.0f, 1.0e9f, 0.0f);
+            // SwingTwist: swing half-angles clamp to [0,180]; twist to [-180,180].
+            SanitizeFloat(joint.m_SwingNormalHalfAngleDeg, 0.0f, 180.0f, 45.0f);
+            SanitizeFloat(joint.m_SwingPlaneHalfAngleDeg, 0.0f, 180.0f, 45.0f);
+            SanitizeFloat(joint.m_TwistMinAngleDeg, -180.0f, 180.0f, -45.0f);
+            SanitizeFloat(joint.m_TwistMaxAngleDeg, -180.0f, 180.0f, 45.0f);
+            // SixDOF limits — clamp each component to a sane range (translation in
+            // meters, rotation in degrees). The vec3 decode above already rejected
+            // non-finite components; this guards against absurd-but-finite values.
+            const auto sanitizeVec3 = [](glm::vec3& v, f32 lo, f32 hi, f32 fallback)
+            {
+                SanitizeFloat(v.x, lo, hi, fallback);
+                SanitizeFloat(v.y, lo, hi, fallback);
+                SanitizeFloat(v.z, lo, hi, fallback);
+            };
+            sanitizeVec3(joint.m_SixDOFTranslationMin, -10000.0f, 10000.0f, -0.5f);
+            sanitizeVec3(joint.m_SixDOFTranslationMax, -10000.0f, 10000.0f, 0.5f);
+            sanitizeVec3(joint.m_SixDOFRotationMinDeg, -180.0f, 180.0f, -45.0f);
+            sanitizeVec3(joint.m_SixDOFRotationMaxDeg, -180.0f, 180.0f, 45.0f);
         }
 
         if (auto relComponent = entity["RelationshipComponent"]; relComponent)
@@ -4474,6 +4521,20 @@ namespace OloEngine
             out << YAML::Key << "SliderMaxFrictionForce" << YAML::Value << joint.m_SliderMaxFrictionForce;
             out << YAML::Key << "SliderLimitSpringFrequency" << YAML::Value << joint.m_SliderLimitSpringFrequency;
             out << YAML::Key << "SliderLimitSpringDamping" << YAML::Value << joint.m_SliderLimitSpringDamping;
+            out << YAML::Key << "SwingNormalHalfAngleDeg" << YAML::Value << joint.m_SwingNormalHalfAngleDeg;
+            out << YAML::Key << "SwingPlaneHalfAngleDeg" << YAML::Value << joint.m_SwingPlaneHalfAngleDeg;
+            out << YAML::Key << "TwistMinAngleDeg" << YAML::Value << joint.m_TwistMinAngleDeg;
+            out << YAML::Key << "TwistMaxAngleDeg" << YAML::Value << joint.m_TwistMaxAngleDeg;
+            out << YAML::Key << "SixDOFTransXMode" << YAML::Value << std::to_underlying(joint.m_SixDOFTransXMode);
+            out << YAML::Key << "SixDOFTransYMode" << YAML::Value << std::to_underlying(joint.m_SixDOFTransYMode);
+            out << YAML::Key << "SixDOFTransZMode" << YAML::Value << std::to_underlying(joint.m_SixDOFTransZMode);
+            out << YAML::Key << "SixDOFRotXMode" << YAML::Value << std::to_underlying(joint.m_SixDOFRotXMode);
+            out << YAML::Key << "SixDOFRotYMode" << YAML::Value << std::to_underlying(joint.m_SixDOFRotYMode);
+            out << YAML::Key << "SixDOFRotZMode" << YAML::Value << std::to_underlying(joint.m_SixDOFRotZMode);
+            out << YAML::Key << "SixDOFTranslationMin" << YAML::Value << joint.m_SixDOFTranslationMin;
+            out << YAML::Key << "SixDOFTranslationMax" << YAML::Value << joint.m_SixDOFTranslationMax;
+            out << YAML::Key << "SixDOFRotationMinDeg" << YAML::Value << joint.m_SixDOFRotationMinDeg;
+            out << YAML::Key << "SixDOFRotationMaxDeg" << YAML::Value << joint.m_SixDOFRotationMaxDeg;
 
             out << YAML::EndMap; // PhysicsJoint3DComponent
         }
