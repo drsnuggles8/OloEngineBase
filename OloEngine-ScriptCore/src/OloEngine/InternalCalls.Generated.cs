@@ -405,6 +405,53 @@ namespace OloEngine
 		internal static extern void NavMeshBoundsComponent_SetMax(ulong entityID, ref Vector3 value);
 		#endregion
 
+		#region NoiseAnimationComponent
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool NoiseAnimationComponent_GetEnabled(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void NoiseAnimationComponent_SetEnabled(ulong entityID, bool value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern uint NoiseAnimationComponent_GetEndBoneIndex(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void NoiseAnimationComponent_SetEndBoneIndex(ulong entityID, uint value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern uint NoiseAnimationComponent_GetChainLength(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void NoiseAnimationComponent_SetChainLength(ulong entityID, uint value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float NoiseAnimationComponent_GetFrequency(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void NoiseAnimationComponent_SetFrequency(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void NoiseAnimationComponent_GetRotationAmplitude(ulong entityID, out Vector3 value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void NoiseAnimationComponent_SetRotationAmplitude(ulong entityID, ref Vector3 value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void NoiseAnimationComponent_GetTranslationAmplitude(ulong entityID, out Vector3 value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void NoiseAnimationComponent_SetTranslationAmplitude(ulong entityID, ref Vector3 value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern uint NoiseAnimationComponent_GetOctaves(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void NoiseAnimationComponent_SetOctaves(ulong entityID, uint value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float NoiseAnimationComponent_GetLacunarity(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void NoiseAnimationComponent_SetLacunarity(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float NoiseAnimationComponent_GetGain(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void NoiseAnimationComponent_SetGain(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern uint NoiseAnimationComponent_GetSeed(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void NoiseAnimationComponent_SetSeed(ulong entityID, uint value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float NoiseAnimationComponent_GetWeight(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void NoiseAnimationComponent_SetWeight(ulong entityID, float value);
+		#endregion
+
 		#region ParticleSystemComponent
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern bool ParticleSystemComponent_GetPlaying(ulong entityID);

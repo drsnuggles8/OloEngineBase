@@ -14,6 +14,7 @@
 #include "OloEngine/Animation/AnimationGraphComponent.h"
 #include "OloEngine/Animation/IKTargetComponent.h"
 #include "OloEngine/Animation/SpringBoneComponent.h"
+#include "OloEngine/Animation/NoiseAnimationComponent.h"
 #include "OloEngine/Animation/MorphTargets/MorphTargetComponents.h"
 #include "OloEngine/Physics3D/Physics3DTypes.h"
 #include "OloEngine/Renderer/EnvironmentMap.h"
@@ -3200,6 +3201,7 @@ namespace OloEngine
         NameplateComponent,
         IKTargetComponent,
         SpringBoneComponent,
+        NoiseAnimationComponent,
         InstancedMeshComponent,
         CinematicComponent>;
 } // namespace OloEngine

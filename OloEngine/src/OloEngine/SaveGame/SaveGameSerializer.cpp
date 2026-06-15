@@ -354,6 +354,7 @@ namespace OloEngine
             SAVE_COMPONENT(AnimationStateComponent, entity, writer);
             SAVE_COMPONENT(StreamingVolumeComponent, entity, writer);
             SAVE_COMPONENT(SpringBoneComponent, entity, writer);
+            SAVE_COMPONENT(NoiseAnimationComponent, entity, writer);
             SAVE_COMPONENT(SkeletonComponent, entity, writer);
             SAVE_COMPONENT(IKTargetComponent, entity, writer);
             SAVE_COMPONENT(MorphTargetComponent, entity, writer);
@@ -585,6 +586,7 @@ namespace OloEngine
                 TRY_LOAD_COMPONENT(AnimationStateComponent);
                 TRY_LOAD_COMPONENT(StreamingVolumeComponent);
                 TRY_LOAD_COMPONENT(SpringBoneComponent);
+                TRY_LOAD_COMPONENT(NoiseAnimationComponent);
                 TRY_LOAD_COMPONENT(SkeletonComponent);
                 TRY_LOAD_COMPONENT(IKTargetComponent);
                 TRY_LOAD_COMPONENT(MorphTargetComponent);

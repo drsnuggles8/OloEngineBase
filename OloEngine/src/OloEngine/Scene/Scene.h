@@ -35,6 +35,7 @@ namespace OloEngine
     class SceneStreamer;
     struct IKTargetComponent;
     struct SpringBoneComponent;
+    struct NoiseAnimationComponent;
     struct AudioSoundGraphComponent;
     class DialogueSystem;
     class GameplayEventBus;
@@ -42,6 +43,7 @@ namespace OloEngine
     namespace Animation
     {
         struct SpringBoneState;
+        struct NoiseAnimationState;
     } // namespace Animation
 
     namespace Audio
@@ -135,6 +137,12 @@ namespace OloEngine
         // (or nullptr) and ensures the runtime SpringBoneStateComponent exists,
         // writing a pointer to its state into `outState`.
         const SpringBoneComponent* ResolveSpringBone(Entity entity, Animation::SpringBoneState*& outState);
+
+        // Noise-animator resolution: returns the entity's enabled
+        // NoiseAnimationComponent (or nullptr) and ensures the runtime
+        // NoiseAnimationStateComponent exists, writing a pointer to its state
+        // into `outState`.
+        const NoiseAnimationComponent* ResolveNoiseAnimation(Entity entity, Animation::NoiseAnimationState*& outState);
 
         [[nodiscard("Store this!")]] bool IsRunning() const
         {

@@ -655,6 +655,83 @@ namespace OloEngine
 		}
 	}
 
+	public partial class NoiseAnimationComponent : Component
+	{
+		public bool Enabled
+		{
+			get => InternalCalls.NoiseAnimationComponent_GetEnabled(Entity.ID);
+			set => InternalCalls.NoiseAnimationComponent_SetEnabled(Entity.ID, value);
+		}
+
+		public uint EndBoneIndex
+		{
+			get => InternalCalls.NoiseAnimationComponent_GetEndBoneIndex(Entity.ID);
+			set => InternalCalls.NoiseAnimationComponent_SetEndBoneIndex(Entity.ID, value);
+		}
+
+		public uint ChainLength
+		{
+			get => InternalCalls.NoiseAnimationComponent_GetChainLength(Entity.ID);
+			set => InternalCalls.NoiseAnimationComponent_SetChainLength(Entity.ID, value);
+		}
+
+		public float Frequency
+		{
+			get => InternalCalls.NoiseAnimationComponent_GetFrequency(Entity.ID);
+			set => InternalCalls.NoiseAnimationComponent_SetFrequency(Entity.ID, value);
+		}
+
+		public Vector3 RotationAmplitude
+		{
+			get
+			{
+				InternalCalls.NoiseAnimationComponent_GetRotationAmplitude(Entity.ID, out Vector3 value);
+				return value;
+			}
+			set => InternalCalls.NoiseAnimationComponent_SetRotationAmplitude(Entity.ID, ref value);
+		}
+
+		public Vector3 TranslationAmplitude
+		{
+			get
+			{
+				InternalCalls.NoiseAnimationComponent_GetTranslationAmplitude(Entity.ID, out Vector3 value);
+				return value;
+			}
+			set => InternalCalls.NoiseAnimationComponent_SetTranslationAmplitude(Entity.ID, ref value);
+		}
+
+		public uint Octaves
+		{
+			get => InternalCalls.NoiseAnimationComponent_GetOctaves(Entity.ID);
+			set => InternalCalls.NoiseAnimationComponent_SetOctaves(Entity.ID, value);
+		}
+
+		public float Lacunarity
+		{
+			get => InternalCalls.NoiseAnimationComponent_GetLacunarity(Entity.ID);
+			set => InternalCalls.NoiseAnimationComponent_SetLacunarity(Entity.ID, value);
+		}
+
+		public float Gain
+		{
+			get => InternalCalls.NoiseAnimationComponent_GetGain(Entity.ID);
+			set => InternalCalls.NoiseAnimationComponent_SetGain(Entity.ID, value);
+		}
+
+		public uint Seed
+		{
+			get => InternalCalls.NoiseAnimationComponent_GetSeed(Entity.ID);
+			set => InternalCalls.NoiseAnimationComponent_SetSeed(Entity.ID, value);
+		}
+
+		public float Weight
+		{
+			get => InternalCalls.NoiseAnimationComponent_GetWeight(Entity.ID);
+			set => InternalCalls.NoiseAnimationComponent_SetWeight(Entity.ID, value);
+		}
+	}
+
 	public partial class ParticleSystemComponent : Component
 	{
 		public bool Playing

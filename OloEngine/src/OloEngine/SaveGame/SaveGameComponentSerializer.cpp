@@ -7,6 +7,7 @@
 #include "OloEngine/Animation/AnimatedMeshComponents.h"
 #include "OloEngine/Animation/IKTargetComponent.h"
 #include "OloEngine/Animation/SpringBoneComponent.h"
+#include "OloEngine/Animation/NoiseAnimationComponent.h"
 #include "OloEngine/Animation/MorphTargets/MorphTargetComponents.h"
 #include "OloEngine/Audio/AudioListener.h"
 #include "OloEngine/Audio/AudioSource.h"
@@ -2083,6 +2084,46 @@ namespace OloEngine
         }
     }
 
+    void SaveGameComponentSerializer::Serialize(FArchive& ar, NoiseAnimationComponent& c)
+    {
+        ar << c.Enabled << c.EndBoneIndex << c.ChainLength;
+        ar << c.Frequency;
+        ar << c.RotationAmplitude.x << c.RotationAmplitude.y << c.RotationAmplitude.z;
+        ar << c.TranslationAmplitude.x << c.TranslationAmplitude.y << c.TranslationAmplitude.z;
+        ar << c.Octaves << c.Lacunarity << c.Gain << c.Seed << c.Weight;
+
+        if (!ar.IsSaving())
+        {
+            // Validate floats loaded from disk — replace NaN/Inf with defaults
+            auto sanitize = [](f32& v, f32 fallback)
+            {
+                if (!std::isfinite(v))
+                {
+                    v = fallback;
+                }
+            };
+            sanitize(c.Frequency, 1.0f);
+            sanitize(c.RotationAmplitude.x, 0.08f);
+            sanitize(c.RotationAmplitude.y, 0.08f);
+            sanitize(c.RotationAmplitude.z, 0.08f);
+            sanitize(c.TranslationAmplitude.x, 0.0f);
+            sanitize(c.TranslationAmplitude.y, 0.0f);
+            sanitize(c.TranslationAmplitude.z, 0.0f);
+            sanitize(c.Lacunarity, 2.0f);
+            sanitize(c.Gain, 0.5f);
+            sanitize(c.Weight, 1.0f);
+
+            // Clamp to the same valid ranges the scene-YAML deserializer enforces
+            // so finite-but-invalid values can't reach the solver.
+            c.ChainLength = std::max(1u, c.ChainLength);
+            c.Octaves = std::clamp(c.Octaves, 1u, 8u);
+            c.Frequency = std::clamp(c.Frequency, 0.0f, 1e4f);
+            c.Lacunarity = std::clamp(c.Lacunarity, 1.0f, 8.0f);
+            c.Gain = std::clamp(c.Gain, 0.0f, 1.0f);
+            c.Weight = std::clamp(c.Weight, 0.0f, 1.0f);
+        }
+    }
+
     void SaveGameComponentSerializer::Serialize(FArchive& ar, UIWorldAnchorComponent& c)
     {
         ar << c.m_TargetEntity;
@@ -3087,6 +3128,7 @@ namespace OloEngine
         REGISTER_SAVE_COMPONENT(NameplateComponent);
         REGISTER_SAVE_COMPONENT(IKTargetComponent);
         REGISTER_SAVE_COMPONENT(SpringBoneComponent);
+        REGISTER_SAVE_COMPONENT(NoiseAnimationComponent);
         REGISTER_SAVE_COMPONENT(UIWorldAnchorComponent);
         REGISTER_SAVE_COMPONENT(MorphTargetComponent);
         REGISTER_SAVE_COMPONENT(InstancedMeshComponent);

@@ -4,6 +4,8 @@
 #include "OloEngine/Animation/IK/IKPostPass.h"
 #include "OloEngine/Animation/SpringBoneComponent.h"
 #include "OloEngine/Animation/Procedural/SpringBonePostPass.h"
+#include "OloEngine/Animation/NoiseAnimationComponent.h"
+#include "OloEngine/Animation/Procedural/NoisePostPass.h"
 #include "OloEngine/Core/Log.h"
 
 namespace OloEngine::Animation
@@ -15,7 +17,9 @@ namespace OloEngine::Animation
         const IKTargetComponent* ikTarget,
         const glm::mat4& entityWorldTransform,
         const SpringBoneComponent* springBone,
-        SpringBoneState* springBoneState)
+        SpringBoneState* springBoneState,
+        const NoiseAnimationComponent* noise,
+        NoiseAnimationState* noiseState)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -47,6 +51,13 @@ namespace OloEngine::Animation
         // Rotate current final bones into the previous-frame slot so the
         // G-Buffer skinned pass can compute per-bone motion vectors.
         skeleton.RotateBoneHistory();
+
+        // Apply procedural noise (breathing / idle sway) before IK so the noise
+        // produces the organic "intent" pose that IK then corrects.
+        if (noise && noiseState && noise->Enabled)
+        {
+            ApplyNoisePostPass(skeleton, *noise, *noiseState, deltaTime);
+        }
 
         // Apply IK pass between pose evaluation and forward kinematics
         if (ikTarget && (ikTarget->AimIKEnabled || ikTarget->LimbIKEnabled || ikTarget->ChainIKEnabled))

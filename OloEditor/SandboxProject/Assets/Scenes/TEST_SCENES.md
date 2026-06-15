@@ -76,6 +76,40 @@ by the Newport Loft HDR environment + a soft fill directional. Camera at
 
 ---
 
+## Animation / Procedural
+
+### [AnimationNoiseTest.olo](AnimationNoiseTest.olo)
+
+**Purpose**: Validate the procedural **noise animator** (issue #107) — smooth
+fractal-noise-driven *additive* offsets layered on top of keyframe animation
+for organic idle motion (breathing, idle sway, gentle wind).
+**Contents**: Two CesiumMan characters on a grey floor, both playing their
+default clip:
+- **Left — "Idle Breathing"**: subtle `NoiseAnimationComponent` on the head
+  chain (`EndBoneIndex 4`, `ChainLength 3`), low frequency (0.5), small
+  amplitude (`[0.05, 0.03, 0.08]` rad), `Seed 1`.
+- **Right — "Wind Sway"**: stronger sway — same chain but `ChainLength 4`,
+  frequency 1.2, amplitude `[0.16, 0.08, 0.2]` rad, `Seed 77`.
+
+**Important**: the noise runs only in **Play mode** and only while the entity
+is actively playing an animation clip (same gate as the spring-bone pass) —
+press Play to see it.
+**Pass**:
+- In Play mode, both characters' upper body / head **sway smoothly and
+  continuously** — no jitter, no per-frame popping, no runaway drift.
+- The two characters move **independently** (different Seed) — they never
+  wobble in lock-step.
+- The left character's motion is clearly subtler than the right's.
+- Toggling a character's `NoiseAnimationComponent` → **Enabled** off freezes
+  its sway back to the plain clip; toggling **Weight** to 0 does the same.
+- `OloEngine.log` shows no animation/skeleton errors.
+**Fail**: jitter or discontinuous popping (noise not smooth); the head/body
+drifting away and not returning (offset not bounded by amplitude); both
+characters moving identically (seed de-correlation broken); the sway
+persisting in Edit mode or with the component disabled.
+
+---
+
 ## Suggested test order
 
 1. **PBRReference** — lightest scene, validates basic PBR + IBL. Broken here → everything else broken.

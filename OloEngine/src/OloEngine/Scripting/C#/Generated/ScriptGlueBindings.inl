@@ -1995,6 +1995,244 @@ static void NavMeshBoundsComponent_SetMax(UUID entityID, glm::vec3 const* value)
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////
+// NoiseAnimationComponent                                                        //
+///////////////////////////////////////////////////////////////////////////////////////////
+
+static bool NoiseAnimationComponent_GetEnabled(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<NoiseAnimationComponent>();
+    return comp.Enabled;
+}
+
+static void NoiseAnimationComponent_SetEnabled(UUID entityID, bool value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<NoiseAnimationComponent>();
+    comp.Enabled = value;
+}
+
+static unsigned int NoiseAnimationComponent_GetEndBoneIndex(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<NoiseAnimationComponent>();
+    return comp.EndBoneIndex;
+}
+
+static void NoiseAnimationComponent_SetEndBoneIndex(UUID entityID, unsigned int value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<NoiseAnimationComponent>();
+    comp.EndBoneIndex = value;
+}
+
+static unsigned int NoiseAnimationComponent_GetChainLength(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<NoiseAnimationComponent>();
+    return comp.ChainLength;
+}
+
+static void NoiseAnimationComponent_SetChainLength(UUID entityID, unsigned int value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<NoiseAnimationComponent>();
+    comp.ChainLength = value;
+}
+
+static float NoiseAnimationComponent_GetFrequency(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<NoiseAnimationComponent>();
+    return comp.Frequency;
+}
+
+static void NoiseAnimationComponent_SetFrequency(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<NoiseAnimationComponent>();
+    comp.Frequency = value;
+}
+
+static void NoiseAnimationComponent_GetRotationAmplitude(UUID entityID, glm::vec3* outValue)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<NoiseAnimationComponent>();
+    *outValue = comp.RotationAmplitude;
+}
+
+static void NoiseAnimationComponent_SetRotationAmplitude(UUID entityID, glm::vec3 const* value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<NoiseAnimationComponent>();
+    for (glm::length_t i = 0; i < value->length(); ++i)
+        if (!std::isfinite((*value)[i]))
+            return;
+    comp.RotationAmplitude = *value;
+}
+
+static void NoiseAnimationComponent_GetTranslationAmplitude(UUID entityID, glm::vec3* outValue)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<NoiseAnimationComponent>();
+    *outValue = comp.TranslationAmplitude;
+}
+
+static void NoiseAnimationComponent_SetTranslationAmplitude(UUID entityID, glm::vec3 const* value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<NoiseAnimationComponent>();
+    for (glm::length_t i = 0; i < value->length(); ++i)
+        if (!std::isfinite((*value)[i]))
+            return;
+    comp.TranslationAmplitude = *value;
+}
+
+static unsigned int NoiseAnimationComponent_GetOctaves(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<NoiseAnimationComponent>();
+    return comp.Octaves;
+}
+
+static void NoiseAnimationComponent_SetOctaves(UUID entityID, unsigned int value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<NoiseAnimationComponent>();
+    comp.Octaves = value;
+}
+
+static float NoiseAnimationComponent_GetLacunarity(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<NoiseAnimationComponent>();
+    return comp.Lacunarity;
+}
+
+static void NoiseAnimationComponent_SetLacunarity(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<NoiseAnimationComponent>();
+    comp.Lacunarity = value;
+}
+
+static float NoiseAnimationComponent_GetGain(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<NoiseAnimationComponent>();
+    return comp.Gain;
+}
+
+static void NoiseAnimationComponent_SetGain(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<NoiseAnimationComponent>();
+    comp.Gain = value;
+}
+
+static unsigned int NoiseAnimationComponent_GetSeed(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<NoiseAnimationComponent>();
+    return comp.Seed;
+}
+
+static void NoiseAnimationComponent_SetSeed(UUID entityID, unsigned int value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<NoiseAnimationComponent>();
+    comp.Seed = value;
+}
+
+static float NoiseAnimationComponent_GetWeight(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<NoiseAnimationComponent>();
+    return comp.Weight;
+}
+
+static void NoiseAnimationComponent_SetWeight(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<NoiseAnimationComponent>();
+    comp.Weight = value;
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////
 // ParticleSystemComponent                                                        //
 ///////////////////////////////////////////////////////////////////////////////////////////
 

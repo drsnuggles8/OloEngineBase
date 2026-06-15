@@ -189,6 +189,7 @@ namespace OloEngine
             REGISTER_COMPONENT(NetworkIdentityComponent),
             REGISTER_COMPONENT(IKTargetComponent),
             REGISTER_COMPONENT(SpringBoneComponent),
+            REGISTER_COMPONENT(NoiseAnimationComponent),
             REGISTER_COMPONENT(NameplateComponent),
             REGISTER_COMPONENT(InventoryComponent),
             REGISTER_COMPONENT(ItemPickupComponent),
@@ -1805,6 +1806,32 @@ namespace OloEngine
                                               "weight", sol::property([](const SpringBoneComponent& c)
                                                                       { return c.Weight; }, [](SpringBoneComponent& c, f32 v)
                                                                       { if (std::isfinite(v)) c.Weight = std::clamp(v, 0.0f, 1.0f); }));
+
+        // --- NoiseAnimationComponent ---
+        lua.new_usertype<NoiseAnimationComponent>("NoiseAnimationComponent",
+                                                  "enabled", &NoiseAnimationComponent::Enabled,
+                                                  "endBoneIndex", &NoiseAnimationComponent::EndBoneIndex,
+                                                  "chainLength", &NoiseAnimationComponent::ChainLength,
+                                                  "frequency", sol::property([](const NoiseAnimationComponent& c)
+                                                                             { return c.Frequency; }, [](NoiseAnimationComponent& c, f32 v)
+                                                                             { if (std::isfinite(v) && v >= 0.0f) c.Frequency = v; }),
+                                                  "rotationAmplitude", sol::property([](const NoiseAnimationComponent& c)
+                                                                                     { return c.RotationAmplitude; }, [](NoiseAnimationComponent& c, const glm::vec3& v)
+                                                                                     { if (IsFiniteVec3(v)) c.RotationAmplitude = v; }),
+                                                  "translationAmplitude", sol::property([](const NoiseAnimationComponent& c)
+                                                                                        { return c.TranslationAmplitude; }, [](NoiseAnimationComponent& c, const glm::vec3& v)
+                                                                                        { if (IsFiniteVec3(v)) c.TranslationAmplitude = v; }),
+                                                  "octaves", &NoiseAnimationComponent::Octaves,
+                                                  "lacunarity", sol::property([](const NoiseAnimationComponent& c)
+                                                                              { return c.Lacunarity; }, [](NoiseAnimationComponent& c, f32 v)
+                                                                              { if (std::isfinite(v)) c.Lacunarity = std::clamp(v, 1.0f, 8.0f); }),
+                                                  "gain", sol::property([](const NoiseAnimationComponent& c)
+                                                                        { return c.Gain; }, [](NoiseAnimationComponent& c, f32 v)
+                                                                        { if (std::isfinite(v)) c.Gain = std::clamp(v, 0.0f, 1.0f); }),
+                                                  "seed", &NoiseAnimationComponent::Seed,
+                                                  "weight", sol::property([](const NoiseAnimationComponent& c)
+                                                                          { return c.Weight; }, [](NoiseAnimationComponent& c, f32 v)
+                                                                          { if (std::isfinite(v)) c.Weight = std::clamp(v, 0.0f, 1.0f); }));
 
         // --- WindSettings (scene-level) ---
         lua.new_usertype<WindSettings>("WindSettings",
