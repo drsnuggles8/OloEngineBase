@@ -772,6 +772,45 @@ TEST_F(PhysicsJoint3DTest, SwingTwistLimitsTwistAboutAxis)
     EXPECT_LT(maxTwistDeg, 45.0f) << "twist blew past the ±25° limit (free spin); maxTwistDeg=" << maxTwistDeg;
 }
 
+// -----------------------------------------------------------------------------
+// Inverted twist range — an authored Min > Max (reachable from the editor's two
+// independent angle fields) must not reach Jolt as-is: SwingTwistConstraintPart
+// asserts on min > max. JoltScene normalises it by swapping, so the constraint
+// builds and behaves as the equivalent [-Max, -Min]-style valid span instead of
+// crashing. We assert only that it builds, simulates finitely, and still limits
+// the twist (i.e. it didn't silently become a free spin).
+// -----------------------------------------------------------------------------
+TEST_F(PhysicsJoint3DTest, SwingTwistNormalisesInvertedTwistRange)
+{
+    Entity bob = MakeBox("InvTwistBob", { 0.0f, 3.0f, 0.0f }, BodyType3D::Dynamic, 0.2f);
+    auto& rb = bob.GetComponent<Rigidbody3DComponent>();
+    rb.m_DisableGravity = true;
+    rb.m_InitialAngularVelocity = { 0.0f, 2.0f, 0.0f };
+
+    auto& joint = bob.AddComponent<PhysicsJoint3DComponent>();
+    joint.m_Type = JointType3D::SwingTwist;
+    joint.m_Axis = { 0.0f, 1.0f, 0.0f };
+    joint.m_SwingNormalHalfAngleDeg = 0.0f; // lock swing — only twist is free
+    joint.m_SwingPlaneHalfAngleDeg = 0.0f;
+    joint.m_TwistMinAngleDeg = 25.0f; // inverted: Min > Max
+    joint.m_TwistMaxAngleDeg = -25.0f;
+
+    EnablePhysics3D();
+
+    f32 maxTwistDeg = 0.0f;
+    for (int i = 0; i < 240; ++i) // 4 s
+    {
+        RunFrames(1);
+        const glm::quat q = bob.GetComponent<TransformComponent>().GetRotation();
+        const f32 twistDeg = glm::degrees(2.0f * std::atan2(std::abs(q.y), std::abs(q.w)));
+        maxTwistDeg = std::max(maxTwistDeg, twistDeg);
+        EXPECT_TRUE(std::isfinite(twistDeg)) << "inverted twist range produced a non-finite rotation";
+    }
+
+    // Normalised to a ±25° span — the twist must still be limited, not free.
+    EXPECT_LT(maxTwistDeg, 45.0f) << "inverted range was not normalised; twist ran free; maxTwistDeg=" << maxTwistDeg;
+}
+
 // =============================================================================
 // SixDOF (issue #308 item 4). Each of the 3 translation + 3 rotation DOF is
 // independently Locked / Limited / Free. The frame's X axis is m_Axis; the
@@ -973,9 +1012,15 @@ TEST_F(PhysicsJoint3DTest, ComponentSurvivesSaveGameRoundTrip)
     EXPECT_EQ(rj.m_SixDOFRotYMode, JointAxisMode::Free);
     EXPECT_EQ(rj.m_SixDOFRotZMode, JointAxisMode::Locked);
     EXPECT_NEAR(rj.m_SixDOFTranslationMin.x, -1.0f, kEps);
+    EXPECT_NEAR(rj.m_SixDOFTranslationMin.y, -0.25f, kEps);
     EXPECT_NEAR(rj.m_SixDOFTranslationMin.z, -2.0f, kEps);
+    EXPECT_NEAR(rj.m_SixDOFTranslationMax.x, 1.5f, kEps);
     EXPECT_NEAR(rj.m_SixDOFTranslationMax.y, 0.75f, kEps);
+    EXPECT_NEAR(rj.m_SixDOFTranslationMax.z, 2.5f, kEps);
     EXPECT_NEAR(rj.m_SixDOFRotationMinDeg.x, -60.0f, kEps);
+    EXPECT_NEAR(rj.m_SixDOFRotationMinDeg.y, -30.0f, kEps);
+    EXPECT_NEAR(rj.m_SixDOFRotationMinDeg.z, -15.0f, kEps);
+    EXPECT_NEAR(rj.m_SixDOFRotationMaxDeg.x, 60.0f, kEps);
     EXPECT_NEAR(rj.m_SixDOFRotationMaxDeg.y, 90.0f, kEps);
     EXPECT_NEAR(rj.m_SixDOFRotationMaxDeg.z, 45.0f, kEps);
 }

@@ -874,6 +874,21 @@ namespace OloEngine
             return std::isfinite(value) ? value : 0.0f;
         }
 
+        // Convert an authored joint-limit angle (degrees) to radians clamped to
+        // [loRad, hiRad], substituting fallbackDeg for a non-finite authored
+        // value. NaN/Inf must never reach a Jolt constraint:
+        // SwingTwistConstraintPart::SetLimits asserts on it (Debug) and the
+        // solver would otherwise propagate it across the whole island (Release).
+        // std::clamp alone does not filter NaN (it compares false both ways), so
+        // the finite check is explicit. Authoring boundaries (serializers, Lua)
+        // already validate, but a C# script can write a raw field, so this is the
+        // last line of defence before Jolt.
+        f32 SanitizeJointAngleDeg(f32 degrees, f32 loRad, f32 hiRad, f32 fallbackDeg)
+        {
+            const f32 radians = JoltUtils::DegreesToRadians(std::isfinite(degrees) ? degrees : fallbackDeg);
+            return std::clamp(radians, loRad, hiRad);
+        }
+
         // Build the limit-spring settings for a hinge/slider from the authored
         // frequency (Hz) + damping ratio. A frequency <= 0 (after sanitizing)
         // returns Jolt's default hard-limit spring, so the constraint behaves
@@ -1126,10 +1141,17 @@ namespace OloEngine
                     s.mPosition2 = p2;
                     s.mTwistAxis1 = s.mTwistAxis2 = jAxis;
                     s.mPlaneAxis1 = s.mPlaneAxis2 = jNormal;
-                    s.mNormalHalfConeAngle = std::clamp(JoltUtils::DegreesToRadians(joint.m_SwingNormalHalfAngleDeg), 0.0f, glm::pi<f32>());
-                    s.mPlaneHalfConeAngle = std::clamp(JoltUtils::DegreesToRadians(joint.m_SwingPlaneHalfAngleDeg), 0.0f, glm::pi<f32>());
-                    s.mTwistMinAngle = std::clamp(JoltUtils::DegreesToRadians(joint.m_TwistMinAngleDeg), -glm::pi<f32>(), glm::pi<f32>());
-                    s.mTwistMaxAngle = std::clamp(JoltUtils::DegreesToRadians(joint.m_TwistMaxAngleDeg), -glm::pi<f32>(), glm::pi<f32>());
+                    s.mNormalHalfConeAngle = SanitizeJointAngleDeg(joint.m_SwingNormalHalfAngleDeg, 0.0f, glm::pi<f32>(), 45.0f);
+                    s.mPlaneHalfConeAngle = SanitizeJointAngleDeg(joint.m_SwingPlaneHalfAngleDeg, 0.0f, glm::pi<f32>(), 45.0f);
+                    f32 twistMin = SanitizeJointAngleDeg(joint.m_TwistMinAngleDeg, -glm::pi<f32>(), glm::pi<f32>(), -45.0f);
+                    f32 twistMax = SanitizeJointAngleDeg(joint.m_TwistMaxAngleDeg, -glm::pi<f32>(), glm::pi<f32>(), 45.0f);
+                    // Jolt asserts mTwistMinAngle <= mTwistMaxAngle; normalise an
+                    // inverted authored range so it stays a valid (non-empty) twist
+                    // span (mirrors the SixDOF Limited-axis path below).
+                    if (twistMin > twistMax)
+                        std::swap(twistMin, twistMax);
+                    s.mTwistMinAngle = twistMin;
+                    s.mTwistMaxAngle = twistMax;
                     return s.Create(body1, body2);
                 }
                 case JointType3D::SixDOF:
@@ -1156,6 +1178,13 @@ namespace OloEngine
                                 s.MakeFreeAxis(ax);
                                 break;
                             case JointAxisMode::Limited:
+                                // NaN/Inf must never reach Jolt; collapse a
+                                // non-finite bound to 0 (Jolt then treats the axis
+                                // as fixed) rather than feeding garbage in.
+                                if (!std::isfinite(lo))
+                                    lo = 0.0f;
+                                if (!std::isfinite(hi))
+                                    hi = 0.0f;
                                 // An inverted range would make Jolt fix the axis;
                                 // normalise it so a Limited axis stays limited.
                                 if (hi < lo)
