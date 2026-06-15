@@ -3475,7 +3475,7 @@ namespace OloEngine
 
         DrawComponent<PhysicsJoint3DComponent>("Physics Joint 3D", entity, [this, entity](auto& component)
                                                {
-            const char* jointTypeStrings[] = { "Fixed", "Point", "Distance", "Hinge", "Slider", "Cone" };
+            const char* jointTypeStrings[] = { "Fixed", "Point", "Distance", "Hinge", "Slider", "Cone", "SwingTwist", "SixDOF" };
             if (const char* currentJointTypeString = jointTypeStrings[static_cast<int>(component.m_Type)]; ImGui::BeginCombo("Joint Type", currentJointTypeString))
             {
                 for (int i = 0; i < IM_ARRAYSIZE(jointTypeStrings); ++i)
@@ -3522,8 +3522,10 @@ namespace OloEngine
             DrawVec3Control("Anchor A (local)##PhysicsJoint3D", component.m_LocalAnchorA);
             DrawVec3Control("Anchor B (local)##PhysicsJoint3D", component.m_LocalAnchorB);
 
-            // Axis only drives Hinge / Slider / Cone.
-            if (component.m_Type == JointType3D::Hinge || component.m_Type == JointType3D::Slider || component.m_Type == JointType3D::Cone)
+            // Axis drives Hinge / Slider / Cone (primary axis) and the
+            // SwingTwist twist axis / SixDOF frame X axis.
+            if (component.m_Type == JointType3D::Hinge || component.m_Type == JointType3D::Slider || component.m_Type == JointType3D::Cone
+                || component.m_Type == JointType3D::SwingTwist || component.m_Type == JointType3D::SixDOF)
                 DrawVec3Control("Axis (local)##PhysicsJoint3D", component.m_Axis);
 
             // Motor-mode combo shared by the Hinge and Slider arms below
@@ -3594,6 +3596,51 @@ namespace OloEngine
                 case JointType3D::Cone:
                     ImGui::DragFloat("Cone Half-Angle (deg)##PhysicsJoint3D", &component.m_ConeHalfAngleDeg, 1.0f, 0.0f, 180.0f);
                     break;
+                case JointType3D::SwingTwist:
+                {
+                    // Ragdoll swing cone (two half-angles) + twist range about the axis.
+                    ImGui::DragFloat("Swing Normal Half-Angle (deg)##PhysicsJoint3D", &component.m_SwingNormalHalfAngleDeg, 1.0f, 0.0f, 180.0f);
+                    ImGui::DragFloat("Swing Plane Half-Angle (deg)##PhysicsJoint3D", &component.m_SwingPlaneHalfAngleDeg, 1.0f, 0.0f, 180.0f);
+                    ImGui::DragFloat("Twist Min Angle (deg)##PhysicsJoint3D", &component.m_TwistMinAngleDeg, 1.0f, -180.0f, 180.0f);
+                    ImGui::DragFloat("Twist Max Angle (deg)##PhysicsJoint3D", &component.m_TwistMaxAngleDeg, 1.0f, -180.0f, 180.0f);
+                    break;
+                }
+                case JointType3D::SixDOF:
+                {
+                    // Per-axis mode combo (Locked / Limited / Free), shared by all
+                    // six DOF. Only Limited axes use the matching min/max below.
+                    const auto drawAxisModeCombo = [](const char* label, JointAxisMode& mode)
+                    {
+                        const char* axisModeStrings[] = { "Locked", "Limited", "Free" };
+                        if (const char* current = axisModeStrings[static_cast<int>(mode)]; ImGui::BeginCombo(label, current))
+                        {
+                            for (int i = 0; i < IM_ARRAYSIZE(axisModeStrings); ++i)
+                            {
+                                const bool isSelected = (current == axisModeStrings[i]);
+                                if (ImGui::Selectable(axisModeStrings[i], isSelected))
+                                    mode = static_cast<JointAxisMode>(i);
+                                if (isSelected)
+                                    ImGui::SetItemDefaultFocus();
+                            }
+                            ImGui::EndCombo();
+                        }
+                    };
+
+                    ImGui::TextDisabled("Translation DOF");
+                    drawAxisModeCombo("Translation X##SixDOF", component.m_SixDOFTransXMode);
+                    drawAxisModeCombo("Translation Y##SixDOF", component.m_SixDOFTransYMode);
+                    drawAxisModeCombo("Translation Z##SixDOF", component.m_SixDOFTransZMode);
+                    DrawVec3Control("Translation Min (m)##SixDOF", component.m_SixDOFTranslationMin);
+                    DrawVec3Control("Translation Max (m)##SixDOF", component.m_SixDOFTranslationMax);
+
+                    ImGui::TextDisabled("Rotation DOF");
+                    drawAxisModeCombo("Rotation X##SixDOF", component.m_SixDOFRotXMode);
+                    drawAxisModeCombo("Rotation Y##SixDOF", component.m_SixDOFRotYMode);
+                    drawAxisModeCombo("Rotation Z##SixDOF", component.m_SixDOFRotZMode);
+                    DrawVec3Control("Rotation Min (deg)##SixDOF", component.m_SixDOFRotationMinDeg);
+                    DrawVec3Control("Rotation Max (deg)##SixDOF", component.m_SixDOFRotationMaxDeg);
+                    break;
+                }
                 case JointType3D::Fixed:
                 case JointType3D::Point:
                 default:

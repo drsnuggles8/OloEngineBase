@@ -668,12 +668,24 @@ namespace OloEngine
     // Two-body constraint types backed by Jolt's constraint library.
     enum class JointType3D
     {
-        Fixed = 0, // Welds two bodies rigidly (all 6 DOF locked).
-        Point,     // Ball-socket: keeps the two anchors coincident, rotation free.
-        Distance,  // Keeps the two anchors within [MinDistance, MaxDistance].
-        Hinge,     // Rotation only about Axis, with optional angle limits.
-        Slider,    // Translation only along Axis, with optional limits (prismatic).
-        Cone       // Ball-socket whose twist axis is limited to a cone half-angle.
+        Fixed = 0,  // Welds two bodies rigidly (all 6 DOF locked).
+        Point,      // Ball-socket: keeps the two anchors coincident, rotation free.
+        Distance,   // Keeps the two anchors within [MinDistance, MaxDistance].
+        Hinge,      // Rotation only about Axis, with optional angle limits.
+        Slider,     // Translation only along Axis, with optional limits (prismatic).
+        Cone,       // Ball-socket whose twist axis is limited to a cone half-angle.
+        SwingTwist, // Ragdoll cone + twist: separate swing cone half-angles and a twist range about Axis.
+        SixDOF      // Fully configurable: each of 3 translation + 3 rotation DOF is Locked/Limited/Free.
+    };
+
+    // Per-axis constraint mode for a SixDOF joint (one of the six degrees of
+    // freedom). Maps to Jolt's MakeFixedAxis / SetLimitedAxis / MakeFreeAxis.
+    // Serialized as int — keep the underlying values stable.
+    enum class JointAxisMode
+    {
+        Locked = 0, // Axis fixed at 0 — no motion on this DOF (Jolt MakeFixedAxis).
+        Limited,    // Axis constrained to the authored [min, max] (Jolt SetLimitedAxis).
+        Free        // Axis unconstrained (Jolt MakeFreeAxis).
     };
 
     // Drive mode for a powered Hinge / Slider joint. Off leaves the joint free
@@ -814,6 +826,53 @@ namespace OloEngine
         OLO_PROPERTY()
         f32 m_SliderLimitSpringDamping = 0.0f;
 
+        // SwingTwist joint (ragdoll cone + twist). m_Axis is the twist axis; a
+        // plane axis perpendicular to it is derived automatically. The swing is
+        // confined by an (elliptical) cone whose two half-angles need not be
+        // equal — m_SwingNormalHalfAngleDeg about the derived plane normal and
+        // m_SwingPlaneHalfAngleDeg in the plane — and the twist about m_Axis is
+        // limited to [m_TwistMinAngleDeg, m_TwistMaxAngleDeg]. Angles in degrees;
+        // half-cone angles clamp to [0, 180], twist angles to [-180, 180].
+        OLO_PROPERTY()
+        f32 m_SwingNormalHalfAngleDeg = 45.0f;
+        OLO_PROPERTY()
+        f32 m_SwingPlaneHalfAngleDeg = 45.0f;
+        OLO_PROPERTY()
+        f32 m_TwistMinAngleDeg = -45.0f;
+        OLO_PROPERTY()
+        f32 m_TwistMaxAngleDeg = 45.0f;
+
+        // SixDOF joint — fully configurable per-axis. The constraint frame's X
+        // axis is m_Axis (normalized); the other two axes (Y, Z) are derived
+        // perpendicular. Each translation and rotation DOF has a mode: Locked
+        // (fixed at 0), Limited (clamped to the matching min/max below), or Free
+        // (unconstrained). Default: every axis Locked → behaves as a rigid weld
+        // until a designer opens a DOF.
+        OLO_PROPERTY(Name = "SixDOFTransXMode", Type = "int", Get = "static_cast<int>(comp.m_SixDOFTransXMode)", Set = "comp.m_SixDOFTransXMode = static_cast<JointAxisMode>({v})")
+        JointAxisMode m_SixDOFTransXMode = JointAxisMode::Locked;
+        OLO_PROPERTY(Name = "SixDOFTransYMode", Type = "int", Get = "static_cast<int>(comp.m_SixDOFTransYMode)", Set = "comp.m_SixDOFTransYMode = static_cast<JointAxisMode>({v})")
+        JointAxisMode m_SixDOFTransYMode = JointAxisMode::Locked;
+        OLO_PROPERTY(Name = "SixDOFTransZMode", Type = "int", Get = "static_cast<int>(comp.m_SixDOFTransZMode)", Set = "comp.m_SixDOFTransZMode = static_cast<JointAxisMode>({v})")
+        JointAxisMode m_SixDOFTransZMode = JointAxisMode::Locked;
+        OLO_PROPERTY(Name = "SixDOFRotXMode", Type = "int", Get = "static_cast<int>(comp.m_SixDOFRotXMode)", Set = "comp.m_SixDOFRotXMode = static_cast<JointAxisMode>({v})")
+        JointAxisMode m_SixDOFRotXMode = JointAxisMode::Locked;
+        OLO_PROPERTY(Name = "SixDOFRotYMode", Type = "int", Get = "static_cast<int>(comp.m_SixDOFRotYMode)", Set = "comp.m_SixDOFRotYMode = static_cast<JointAxisMode>({v})")
+        JointAxisMode m_SixDOFRotYMode = JointAxisMode::Locked;
+        OLO_PROPERTY(Name = "SixDOFRotZMode", Type = "int", Get = "static_cast<int>(comp.m_SixDOFRotZMode)", Set = "comp.m_SixDOFRotZMode = static_cast<JointAxisMode>({v})")
+        JointAxisMode m_SixDOFRotZMode = JointAxisMode::Locked;
+
+        // Per-axis limits used only by SixDOF axes in Limited mode. Translation
+        // in meters (component frame), rotation in degrees. Each component's min
+        // should be <= its max (an inverted range is treated as Locked by Jolt).
+        OLO_PROPERTY()
+        glm::vec3 m_SixDOFTranslationMin = { -0.5f, -0.5f, -0.5f };
+        OLO_PROPERTY()
+        glm::vec3 m_SixDOFTranslationMax = { 0.5f, 0.5f, 0.5f };
+        OLO_PROPERTY()
+        glm::vec3 m_SixDOFRotationMinDeg = { -45.0f, -45.0f, -45.0f };
+        OLO_PROPERTY()
+        glm::vec3 m_SixDOFRotationMaxDeg = { 45.0f, 45.0f, 45.0f };
+
         // Storage for runtime - non-zero once the Jolt constraint has been created.
         // Excluded from authored-state equality so play-mode enter/exit doesn't show
         // as a change (mirrors Rigidbody3DComponent::m_RuntimeBodyToken). Cleared
@@ -825,7 +884,7 @@ namespace OloEngine
 
         auto operator==(const PhysicsJoint3DComponent& other) const -> bool
         {
-            return m_Type == other.m_Type && m_ConnectedEntity == other.m_ConnectedEntity && Math::BitwiseEqual(m_LocalAnchorA, other.m_LocalAnchorA) && Math::BitwiseEqual(m_LocalAnchorB, other.m_LocalAnchorB) && Math::BitwiseEqual(m_Axis, other.m_Axis) && Math::BitwiseEqual(m_MinDistance, other.m_MinDistance) && Math::BitwiseEqual(m_MaxDistance, other.m_MaxDistance) && Math::BitwiseEqual(m_HingeMinAngleDeg, other.m_HingeMinAngleDeg) && Math::BitwiseEqual(m_HingeMaxAngleDeg, other.m_HingeMaxAngleDeg) && Math::BitwiseEqual(m_SliderMinLimit, other.m_SliderMinLimit) && Math::BitwiseEqual(m_SliderMaxLimit, other.m_SliderMaxLimit) && Math::BitwiseEqual(m_ConeHalfAngleDeg, other.m_ConeHalfAngleDeg) && Math::BitwiseEqual(m_BreakForce, other.m_BreakForce) && Math::BitwiseEqual(m_BreakTorque, other.m_BreakTorque) && m_HingeMotorMode == other.m_HingeMotorMode && Math::BitwiseEqual(m_HingeMotorTargetVelocityDeg, other.m_HingeMotorTargetVelocityDeg) && Math::BitwiseEqual(m_HingeMotorTargetAngleDeg, other.m_HingeMotorTargetAngleDeg) && Math::BitwiseEqual(m_HingeMaxMotorTorque, other.m_HingeMaxMotorTorque) && Math::BitwiseEqual(m_HingeMaxFrictionTorque, other.m_HingeMaxFrictionTorque) && Math::BitwiseEqual(m_HingeLimitSpringFrequency, other.m_HingeLimitSpringFrequency) && Math::BitwiseEqual(m_HingeLimitSpringDamping, other.m_HingeLimitSpringDamping) && m_SliderMotorMode == other.m_SliderMotorMode && Math::BitwiseEqual(m_SliderMotorTargetVelocity, other.m_SliderMotorTargetVelocity) && Math::BitwiseEqual(m_SliderMotorTargetPosition, other.m_SliderMotorTargetPosition) && Math::BitwiseEqual(m_SliderMaxMotorForce, other.m_SliderMaxMotorForce) && Math::BitwiseEqual(m_SliderMaxFrictionForce, other.m_SliderMaxFrictionForce) && Math::BitwiseEqual(m_SliderLimitSpringFrequency, other.m_SliderLimitSpringFrequency) && Math::BitwiseEqual(m_SliderLimitSpringDamping, other.m_SliderLimitSpringDamping);
+            return m_Type == other.m_Type && m_ConnectedEntity == other.m_ConnectedEntity && Math::BitwiseEqual(m_LocalAnchorA, other.m_LocalAnchorA) && Math::BitwiseEqual(m_LocalAnchorB, other.m_LocalAnchorB) && Math::BitwiseEqual(m_Axis, other.m_Axis) && Math::BitwiseEqual(m_MinDistance, other.m_MinDistance) && Math::BitwiseEqual(m_MaxDistance, other.m_MaxDistance) && Math::BitwiseEqual(m_HingeMinAngleDeg, other.m_HingeMinAngleDeg) && Math::BitwiseEqual(m_HingeMaxAngleDeg, other.m_HingeMaxAngleDeg) && Math::BitwiseEqual(m_SliderMinLimit, other.m_SliderMinLimit) && Math::BitwiseEqual(m_SliderMaxLimit, other.m_SliderMaxLimit) && Math::BitwiseEqual(m_ConeHalfAngleDeg, other.m_ConeHalfAngleDeg) && Math::BitwiseEqual(m_BreakForce, other.m_BreakForce) && Math::BitwiseEqual(m_BreakTorque, other.m_BreakTorque) && m_HingeMotorMode == other.m_HingeMotorMode && Math::BitwiseEqual(m_HingeMotorTargetVelocityDeg, other.m_HingeMotorTargetVelocityDeg) && Math::BitwiseEqual(m_HingeMotorTargetAngleDeg, other.m_HingeMotorTargetAngleDeg) && Math::BitwiseEqual(m_HingeMaxMotorTorque, other.m_HingeMaxMotorTorque) && Math::BitwiseEqual(m_HingeMaxFrictionTorque, other.m_HingeMaxFrictionTorque) && Math::BitwiseEqual(m_HingeLimitSpringFrequency, other.m_HingeLimitSpringFrequency) && Math::BitwiseEqual(m_HingeLimitSpringDamping, other.m_HingeLimitSpringDamping) && m_SliderMotorMode == other.m_SliderMotorMode && Math::BitwiseEqual(m_SliderMotorTargetVelocity, other.m_SliderMotorTargetVelocity) && Math::BitwiseEqual(m_SliderMotorTargetPosition, other.m_SliderMotorTargetPosition) && Math::BitwiseEqual(m_SliderMaxMotorForce, other.m_SliderMaxMotorForce) && Math::BitwiseEqual(m_SliderMaxFrictionForce, other.m_SliderMaxFrictionForce) && Math::BitwiseEqual(m_SliderLimitSpringFrequency, other.m_SliderLimitSpringFrequency) && Math::BitwiseEqual(m_SliderLimitSpringDamping, other.m_SliderLimitSpringDamping) && Math::BitwiseEqual(m_SwingNormalHalfAngleDeg, other.m_SwingNormalHalfAngleDeg) && Math::BitwiseEqual(m_SwingPlaneHalfAngleDeg, other.m_SwingPlaneHalfAngleDeg) && Math::BitwiseEqual(m_TwistMinAngleDeg, other.m_TwistMinAngleDeg) && Math::BitwiseEqual(m_TwistMaxAngleDeg, other.m_TwistMaxAngleDeg) && m_SixDOFTransXMode == other.m_SixDOFTransXMode && m_SixDOFTransYMode == other.m_SixDOFTransYMode && m_SixDOFTransZMode == other.m_SixDOFTransZMode && m_SixDOFRotXMode == other.m_SixDOFRotXMode && m_SixDOFRotYMode == other.m_SixDOFRotYMode && m_SixDOFRotZMode == other.m_SixDOFRotZMode && Math::BitwiseEqual(m_SixDOFTranslationMin, other.m_SixDOFTranslationMin) && Math::BitwiseEqual(m_SixDOFTranslationMax, other.m_SixDOFTranslationMax) && Math::BitwiseEqual(m_SixDOFRotationMinDeg, other.m_SixDOFRotationMinDeg) && Math::BitwiseEqual(m_SixDOFRotationMaxDeg, other.m_SixDOFRotationMaxDeg);
         }
     };
 

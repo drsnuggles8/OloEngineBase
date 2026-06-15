@@ -34,6 +34,8 @@
 #include <Jolt/Physics/Constraints/HingeConstraint.h>
 #include <Jolt/Physics/Constraints/SliderConstraint.h>
 #include <Jolt/Physics/Constraints/ConeConstraint.h>
+#include <Jolt/Physics/Constraints/SwingTwistConstraint.h>
+#include <Jolt/Physics/Constraints/SixDOFConstraint.h>
 #include <Jolt/Physics/Constraints/SpringSettings.h>
 
 #include <glm/gtc/constants.hpp>
@@ -832,6 +834,22 @@ namespace OloEngine
                     outAngularImpulse = std::abs(c.GetTotalLambdaRotation()); // cone half-angle limit
                     return true;
                 }
+                case JPH::EConstraintSubType::SwingTwist:
+                {
+                    const auto& c = static_cast<const JPH::SwingTwistConstraint&>(constraint);
+                    outLinearImpulse = c.GetTotalLambdaPosition().Length();
+                    // Twist + two swing-limit reactions about the constraint axes.
+                    const JPH::Vec3 angular(c.GetTotalLambdaTwist(), c.GetTotalLambdaSwingY(), c.GetTotalLambdaSwingZ());
+                    outAngularImpulse = angular.Length();
+                    return true;
+                }
+                case JPH::EConstraintSubType::SixDOF:
+                {
+                    const auto& c = static_cast<const JPH::SixDOFConstraint&>(constraint);
+                    outLinearImpulse = c.GetTotalLambdaPosition().Length();
+                    outAngularImpulse = c.GetTotalLambdaRotation().Length();
+                    return true;
+                }
                 default:
                     return false;
             }
@@ -1094,6 +1112,74 @@ namespace OloEngine
                     s.mPoint2 = p2;
                     s.mTwistAxis1 = s.mTwistAxis2 = jAxis;
                     s.mHalfConeAngle = std::clamp(JoltUtils::DegreesToRadians(joint.m_ConeHalfAngleDeg), 0.0f, glm::pi<f32>());
+                    return s.Create(body1, body2);
+                }
+                case JointType3D::SwingTwist:
+                {
+                    // Ragdoll cone + twist. Twist axis = jAxis, plane axis =
+                    // jNormal (perpendicular to jAxis by construction). The two
+                    // swing half-cone angles clamp to [0, pi]; the twist range
+                    // clamps to [-pi, pi] (Jolt's valid twist domain).
+                    JPH::SwingTwistConstraintSettings s;
+                    s.mSpace = JPH::EConstraintSpace::WorldSpace;
+                    s.mPosition1 = p1;
+                    s.mPosition2 = p2;
+                    s.mTwistAxis1 = s.mTwistAxis2 = jAxis;
+                    s.mPlaneAxis1 = s.mPlaneAxis2 = jNormal;
+                    s.mNormalHalfConeAngle = std::clamp(JoltUtils::DegreesToRadians(joint.m_SwingNormalHalfAngleDeg), 0.0f, glm::pi<f32>());
+                    s.mPlaneHalfConeAngle = std::clamp(JoltUtils::DegreesToRadians(joint.m_SwingPlaneHalfAngleDeg), 0.0f, glm::pi<f32>());
+                    s.mTwistMinAngle = std::clamp(JoltUtils::DegreesToRadians(joint.m_TwistMinAngleDeg), -glm::pi<f32>(), glm::pi<f32>());
+                    s.mTwistMaxAngle = std::clamp(JoltUtils::DegreesToRadians(joint.m_TwistMaxAngleDeg), -glm::pi<f32>(), glm::pi<f32>());
+                    return s.Create(body1, body2);
+                }
+                case JointType3D::SixDOF:
+                {
+                    // Fully configurable per-axis constraint. The frame's X axis
+                    // is jAxis, Y is jNormal (Z is derived by Jolt). Each DOF maps
+                    // to a free / fixed / limited Jolt axis. Pyramid swing lets the
+                    // two rotation-limit axes (Y, Z) be asymmetric in [-pi, pi];
+                    // the twist (X) rotation limit is asymmetric in [-pi, pi] too.
+                    using ESix = JPH::SixDOFConstraintSettings::EAxis;
+                    JPH::SixDOFConstraintSettings s;
+                    s.mSpace = JPH::EConstraintSpace::WorldSpace;
+                    s.mPosition1 = p1;
+                    s.mPosition2 = p2;
+                    s.mAxisX1 = s.mAxisX2 = jAxis;
+                    s.mAxisY1 = s.mAxisY2 = jNormal;
+                    s.mSwingType = JPH::ESwingType::Pyramid;
+
+                    const auto applyAxis = [&s](ESix ax, JointAxisMode mode, f32 lo, f32 hi)
+                    {
+                        switch (mode)
+                        {
+                            case JointAxisMode::Free:
+                                s.MakeFreeAxis(ax);
+                                break;
+                            case JointAxisMode::Limited:
+                                // An inverted range would make Jolt fix the axis;
+                                // normalise it so a Limited axis stays limited.
+                                if (hi < lo)
+                                    std::swap(lo, hi);
+                                s.SetLimitedAxis(ax, lo, hi);
+                                break;
+                            case JointAxisMode::Locked:
+                            default:
+                                s.MakeFixedAxis(ax);
+                                break;
+                        }
+                    };
+
+                    const auto clampAngle = [](f32 radians)
+                    {
+                        return std::clamp(radians, -glm::pi<f32>(), glm::pi<f32>());
+                    };
+
+                    applyAxis(ESix::TranslationX, joint.m_SixDOFTransXMode, joint.m_SixDOFTranslationMin.x, joint.m_SixDOFTranslationMax.x);
+                    applyAxis(ESix::TranslationY, joint.m_SixDOFTransYMode, joint.m_SixDOFTranslationMin.y, joint.m_SixDOFTranslationMax.y);
+                    applyAxis(ESix::TranslationZ, joint.m_SixDOFTransZMode, joint.m_SixDOFTranslationMin.z, joint.m_SixDOFTranslationMax.z);
+                    applyAxis(ESix::RotationX, joint.m_SixDOFRotXMode, clampAngle(JoltUtils::DegreesToRadians(joint.m_SixDOFRotationMinDeg.x)), clampAngle(JoltUtils::DegreesToRadians(joint.m_SixDOFRotationMaxDeg.x)));
+                    applyAxis(ESix::RotationY, joint.m_SixDOFRotYMode, clampAngle(JoltUtils::DegreesToRadians(joint.m_SixDOFRotationMinDeg.y)), clampAngle(JoltUtils::DegreesToRadians(joint.m_SixDOFRotationMaxDeg.y)));
+                    applyAxis(ESix::RotationZ, joint.m_SixDOFRotZMode, clampAngle(JoltUtils::DegreesToRadians(joint.m_SixDOFRotationMinDeg.z)), clampAngle(JoltUtils::DegreesToRadians(joint.m_SixDOFRotationMaxDeg.z)));
                     return s.Create(body1, body2);
                 }
             }

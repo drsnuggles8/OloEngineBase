@@ -687,6 +687,185 @@ TEST_F(PhysicsJoint3DTest, HingeSoftLimitSpringSagsPastHardStop)
     EXPECT_GT(p.y, 1.05f) << "door swung to the arc bottom — the limit spring is not restoring; y=" << p.y;
 }
 
+// =============================================================================
+// SwingTwist (issue #308 item 4). A ragdoll-friendly ball joint: the swing is
+// confined to a cone (two half-angles) and the twist about the axis is limited
+// to an authored range. Both are exercised below with position / rotation
+// assertions that a broken constraint fails by a wide margin.
+// =============================================================================
+
+// -----------------------------------------------------------------------------
+// Swing — like the Cone joint, the bob hangs from a pivot and is pushed
+// sideways; the swing cone must clip the swing (a free ball joint swings past).
+// -----------------------------------------------------------------------------
+TEST_F(PhysicsJoint3DTest, SwingTwistConfinesSwingWithinCone)
+{
+    const glm::vec3 pivot{ 0.0f, 3.0f, 0.0f };
+    Entity bob = MakeBox("SwingBob", { 0.0f, 2.0f, 0.0f }, BodyType3D::Dynamic, 0.2f);
+    bob.GetComponent<Rigidbody3DComponent>().m_InitialLinearVelocity = { 2.5f, 0.0f, 0.0f };
+
+    auto& joint = bob.AddComponent<PhysicsJoint3DComponent>();
+    joint.m_Type = JointType3D::SwingTwist;
+    // m_ConnectedEntity defaults to 0 → anchored to the world.
+    joint.m_LocalAnchorA = { 0.0f, 1.0f, 0.0f }; // worldA = (0,2,0)+(0,1,0) = pivot
+    joint.m_Axis = { 0.0f, 1.0f, 0.0f };         // twist axis points up toward the pivot
+    joint.m_SwingNormalHalfAngleDeg = 20.0f;     // ~symmetric 20° swing cone
+    joint.m_SwingPlaneHalfAngleDeg = 20.0f;
+    joint.m_TwistMinAngleDeg = -5.0f;
+    joint.m_TwistMaxAngleDeg = 5.0f;
+
+    EnablePhysics3D();
+
+    f32 maxHoriz = 0.0f;
+    f32 maxDistErr = 0.0f;
+    for (int i = 0; i < 240; ++i) // 4 s
+    {
+        RunFrames(1);
+        const glm::vec3 p = Pos(bob);
+        maxHoriz = std::max(maxHoriz, std::sqrt(p.x * p.x + p.z * p.z));
+        maxDistErr = std::max(maxDistErr, std::abs(glm::distance(p, pivot) - 1.0f));
+    }
+
+    EXPECT_LT(maxDistErr, 0.15f) << "swing-twist joint did not keep the bob pinned to the pivot";
+    // 20° swing cone caps the horizontal offset at sin(20°)·1 ≈ 0.34. A free ball
+    // joint would swing past 0.7; the cone must clip it well under 0.55.
+    EXPECT_LT(maxHoriz, 0.55f) << "bob escaped the swing cone; maxHoriz=" << maxHoriz;
+    EXPECT_GT(maxHoriz, 0.25f) << "bob never swung out — initial velocity wasn't applied";
+}
+
+// -----------------------------------------------------------------------------
+// Twist — with swing locked (zero swing half-angles), the body may only twist
+// about the axis. Spun up about that axis with gravity disabled, the twist
+// limit must stop it; a free spin would pass 180°.
+// -----------------------------------------------------------------------------
+TEST_F(PhysicsJoint3DTest, SwingTwistLimitsTwistAboutAxis)
+{
+    Entity bob = MakeBox("TwistBob", { 0.0f, 3.0f, 0.0f }, BodyType3D::Dynamic, 0.2f);
+    auto& rb = bob.GetComponent<Rigidbody3DComponent>();
+    rb.m_DisableGravity = true;                         // isolate twist from swing
+    rb.m_InitialAngularVelocity = { 0.0f, 2.0f, 0.0f }; // spin about the twist axis
+
+    auto& joint = bob.AddComponent<PhysicsJoint3DComponent>();
+    joint.m_Type = JointType3D::SwingTwist;
+    // m_ConnectedEntity defaults to 0 → anchored to the world at the COM.
+    joint.m_Axis = { 0.0f, 1.0f, 0.0f };    // twist axis = world up
+    joint.m_SwingNormalHalfAngleDeg = 0.0f; // lock swing — only twist is free
+    joint.m_SwingPlaneHalfAngleDeg = 0.0f;
+    joint.m_TwistMinAngleDeg = -25.0f;
+    joint.m_TwistMaxAngleDeg = 25.0f;
+
+    EnablePhysics3D();
+
+    f32 maxTwistDeg = 0.0f;
+    for (int i = 0; i < 240; ++i) // 4 s
+    {
+        RunFrames(1);
+        // Swing is locked, so the body's orientation is ~a pure rotation about
+        // the (vertical) twist axis: q ≈ (cos(θ/2), 0, sin(θ/2), 0).
+        const glm::quat q = bob.GetComponent<TransformComponent>().GetRotation();
+        const f32 twistDeg = glm::degrees(2.0f * std::atan2(std::abs(q.y), std::abs(q.w)));
+        maxTwistDeg = std::max(maxTwistDeg, twistDeg);
+    }
+
+    EXPECT_GT(maxTwistDeg, 10.0f) << "body never twisted — initial angular velocity wasn't applied";
+    // ±25° limit; allow generous hard-limit overshoot but exclude a free spin.
+    EXPECT_LT(maxTwistDeg, 45.0f) << "twist blew past the ±25° limit (free spin); maxTwistDeg=" << maxTwistDeg;
+}
+
+// =============================================================================
+// SixDOF (issue #308 item 4). Each of the 3 translation + 3 rotation DOF is
+// independently Locked / Limited / Free. The frame's X axis is m_Axis; the
+// other two axes are derived perpendicular. Default: every axis Locked.
+// =============================================================================
+
+// -----------------------------------------------------------------------------
+// All axes Locked (the default) → a rigid weld; a falling body must be held.
+// -----------------------------------------------------------------------------
+TEST_F(PhysicsJoint3DTest, SixDOFAllLockedHoldsBodyLikeWeld)
+{
+    Entity box = MakeBox("SixDOFWeld", { 0.0f, 5.0f, 0.0f }, BodyType3D::Dynamic, 0.3f);
+    auto& joint = box.AddComponent<PhysicsJoint3DComponent>();
+    joint.m_Type = JointType3D::SixDOF;
+    // Every translation + rotation mode defaults to Locked → rigid weld.
+
+    EnablePhysics3D();
+
+    const glm::vec3 start = Pos(box);
+    f32 maxDrift = 0.0f;
+    for (int i = 0; i < 240; ++i) // 4 s
+    {
+        RunFrames(1);
+        maxDrift = std::max(maxDrift, glm::distance(Pos(box), start));
+    }
+
+    EXPECT_LT(maxDrift, 0.1f) << "all-Locked SixDOF let the body move; maxDrift=" << maxDrift;
+    EXPECT_TRUE(std::isfinite(Pos(box).y));
+}
+
+// -----------------------------------------------------------------------------
+// One translation axis Free (the rest Locked) → the body falls only along that
+// axis. The freed axis is the frame X axis (= m_Axis, here world-up).
+// -----------------------------------------------------------------------------
+TEST_F(PhysicsJoint3DTest, SixDOFFreeTranslationAxisLetsBodyFall)
+{
+    Entity box = MakeBox("SixDOFSlide", { 0.0f, 5.0f, 0.0f }, BodyType3D::Dynamic, 0.2f);
+    auto& joint = box.AddComponent<PhysicsJoint3DComponent>();
+    joint.m_Type = JointType3D::SixDOF;
+    joint.m_Axis = { 0.0f, 1.0f, 0.0f };            // frame X axis = world up
+    joint.m_SixDOFTransXMode = JointAxisMode::Free; // free vertical translation
+    // Y/Z translation + all rotation stay Locked (defaults).
+
+    EnablePhysics3D();
+
+    f32 maxLateral = 0.0f;
+    for (int i = 0; i < 180; ++i) // 3 s
+    {
+        RunFrames(1);
+        const glm::vec3 p = Pos(box);
+        maxLateral = std::max(maxLateral, std::max(std::abs(p.x), std::abs(p.z)));
+    }
+
+    const glm::vec3 p = Pos(box);
+    EXPECT_LT(maxLateral, 0.1f) << "SixDOF let the body drift off the freed axis; maxLateral=" << maxLateral;
+    EXPECT_LT(p.y, 4.0f) << "freed vertical translation axis did not let the body fall; y=" << p.y;
+    EXPECT_TRUE(std::isfinite(p.y));
+}
+
+// -----------------------------------------------------------------------------
+// One translation axis Limited (the rest Locked) → the body falls along it and
+// stops at the limit, like a slider. Symmetric ±2 range → stops 2 m below start.
+// -----------------------------------------------------------------------------
+TEST_F(PhysicsJoint3DTest, SixDOFLimitedTranslationStopsAtBound)
+{
+    Entity box = MakeBox("SixDOFLimited", { 0.0f, 5.0f, 0.0f }, BodyType3D::Dynamic, 0.2f);
+    box.GetComponent<Rigidbody3DComponent>().m_LinearDrag = 0.1f; // settle at the limit
+
+    auto& joint = box.AddComponent<PhysicsJoint3DComponent>();
+    joint.m_Type = JointType3D::SixDOF;
+    joint.m_Axis = { 0.0f, 1.0f, 0.0f }; // frame X axis = world up
+    joint.m_SixDOFTransXMode = JointAxisMode::Limited;
+    // Symmetric ±2 along the freed axis so it stops 2 m down regardless of sign;
+    // the perpendicular axes get a tight range but stay Locked anyway.
+    joint.m_SixDOFTranslationMin = { -2.0f, -0.1f, -0.1f };
+    joint.m_SixDOFTranslationMax = { 2.0f, 0.1f, 0.1f };
+    // Y/Z translation + all rotation stay Locked (defaults).
+
+    EnablePhysics3D();
+
+    f32 maxLateral = 0.0f;
+    for (int i = 0; i < 300; ++i) // 5 s
+    {
+        RunFrames(1);
+        const glm::vec3 p = Pos(box);
+        maxLateral = std::max(maxLateral, std::max(std::abs(p.x), std::abs(p.z)));
+    }
+
+    const glm::vec3 p = Pos(box);
+    EXPECT_LT(maxLateral, 0.1f) << "SixDOF let the body drift off the limited axis; maxLateral=" << maxLateral;
+    EXPECT_NEAR(p.y, 3.0f, 0.3f) << "limited axis did not stop the fall at the 2 m bound (5-2); y=" << p.y;
+    EXPECT_TRUE(std::isfinite(p.y));
+}
+
 // -----------------------------------------------------------------------------
 // Save-game round-trip — the authored joint data must survive
 // CaptureSceneState → RestoreSceneState (exercises SaveGameComponentSerializer).
@@ -725,6 +904,20 @@ TEST_F(PhysicsJoint3DTest, ComponentSurvivesSaveGameRoundTrip)
     j.m_HingeLimitSpringDamping = 0.8f;
     j.m_SliderLimitSpringFrequency = 4.0f;
     j.m_SliderLimitSpringDamping = 1.2f;
+    j.m_SwingNormalHalfAngleDeg = 33.0f;
+    j.m_SwingPlaneHalfAngleDeg = 18.0f;
+    j.m_TwistMinAngleDeg = -22.0f;
+    j.m_TwistMaxAngleDeg = 14.0f;
+    j.m_SixDOFTransXMode = JointAxisMode::Free;
+    j.m_SixDOFTransYMode = JointAxisMode::Limited;
+    j.m_SixDOFTransZMode = JointAxisMode::Locked;
+    j.m_SixDOFRotXMode = JointAxisMode::Limited;
+    j.m_SixDOFRotYMode = JointAxisMode::Free;
+    j.m_SixDOFRotZMode = JointAxisMode::Locked;
+    j.m_SixDOFTranslationMin = { -1.0f, -0.25f, -2.0f };
+    j.m_SixDOFTranslationMax = { 1.5f, 0.75f, 2.5f };
+    j.m_SixDOFRotationMinDeg = { -60.0f, -30.0f, -15.0f };
+    j.m_SixDOFRotationMaxDeg = { 60.0f, 90.0f, 45.0f };
 
     auto payload = SaveGameSerializer::CaptureSceneState(GetScene());
     ASSERT_GT(payload.size(), 0u);
@@ -768,4 +961,21 @@ TEST_F(PhysicsJoint3DTest, ComponentSurvivesSaveGameRoundTrip)
     EXPECT_NEAR(rj.m_HingeLimitSpringDamping, 0.8f, kEps);
     EXPECT_NEAR(rj.m_SliderLimitSpringFrequency, 4.0f, kEps);
     EXPECT_NEAR(rj.m_SliderLimitSpringDamping, 1.2f, kEps);
+    // SwingTwist + SixDOF fields (issue #308 item 4).
+    EXPECT_NEAR(rj.m_SwingNormalHalfAngleDeg, 33.0f, kEps);
+    EXPECT_NEAR(rj.m_SwingPlaneHalfAngleDeg, 18.0f, kEps);
+    EXPECT_NEAR(rj.m_TwistMinAngleDeg, -22.0f, kEps);
+    EXPECT_NEAR(rj.m_TwistMaxAngleDeg, 14.0f, kEps);
+    EXPECT_EQ(rj.m_SixDOFTransXMode, JointAxisMode::Free);
+    EXPECT_EQ(rj.m_SixDOFTransYMode, JointAxisMode::Limited);
+    EXPECT_EQ(rj.m_SixDOFTransZMode, JointAxisMode::Locked);
+    EXPECT_EQ(rj.m_SixDOFRotXMode, JointAxisMode::Limited);
+    EXPECT_EQ(rj.m_SixDOFRotYMode, JointAxisMode::Free);
+    EXPECT_EQ(rj.m_SixDOFRotZMode, JointAxisMode::Locked);
+    EXPECT_NEAR(rj.m_SixDOFTranslationMin.x, -1.0f, kEps);
+    EXPECT_NEAR(rj.m_SixDOFTranslationMin.z, -2.0f, kEps);
+    EXPECT_NEAR(rj.m_SixDOFTranslationMax.y, 0.75f, kEps);
+    EXPECT_NEAR(rj.m_SixDOFRotationMinDeg.x, -60.0f, kEps);
+    EXPECT_NEAR(rj.m_SixDOFRotationMaxDeg.y, 90.0f, kEps);
+    EXPECT_NEAR(rj.m_SixDOFRotationMaxDeg.z, 45.0f, kEps);
 }
