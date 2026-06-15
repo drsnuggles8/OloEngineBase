@@ -109,6 +109,13 @@ namespace OloEngine::Animation
         {
             return;
         }
+        // Reject non-finite time up front so a NaN/Inf phase can never reach the
+        // per-bone application (SampleBoneOffset would return zero anyway, but
+        // this keeps Apply a strict no-op).
+        if (!std::isfinite(time))
+        {
+            return;
+        }
 
         u32 bone = params.EndBoneIndex;
         for (u32 j = 0; j < params.ChainLength; ++j)

@@ -126,7 +126,7 @@ class NoiseAnimatorViaSceneTickTest : public FunctionalTest
         auto& noise = m_Animated.AddComponent<NoiseAnimationComponent>();
         noise.Enabled = true;
         noise.EndBoneIndex = 3; // Tip
-        noise.ChainLength = 3;   // Seg1 -> Seg2 -> Tip
+        noise.ChainLength = 3;  // Seg1 -> Seg2 -> Tip
         noise.Frequency = 2.0f;
         noise.RotationAmplitude = glm::vec3(0.2f);
         noise.TranslationAmplitude = glm::vec3(0.0f);
@@ -149,7 +149,8 @@ TEST_F(NoiseAnimatorViaSceneTickTest, ChainWobblesAndStateComponentIsCreated)
     // Noise crosses zero, so wait until the chain has visibly deflected rather
     // than sampling a single (possibly near-zero) frame.
     const bool deflected = TickUntil(
-        [&]() { return MaxChainDeflection(skeleton) > 0.01f; },
+        [&]()
+        { return MaxChainDeflection(skeleton) > 0.01f; },
         /*timeoutSeconds=*/2.0f);
     EXPECT_TRUE(deflected)
         << "Noise chain never deflected — the noise post-pass never fired through the Scene tick";

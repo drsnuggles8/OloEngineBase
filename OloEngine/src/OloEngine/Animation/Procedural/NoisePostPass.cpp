@@ -100,7 +100,10 @@ namespace OloEngine::Animation
             glm::vec4 perspective;
             if (!glm::decompose(skeleton.m_LocalTransforms[i], scale, rotation, translation, skew, perspective))
             {
-                localPose[i] = { glm::vec3(0.0f), glm::identity<glm::quat>(), glm::vec3(1.0f) };
+                // Degenerate/non-affine local transform — drop this bone from the
+                // write-back so we preserve its original matrix instead of
+                // snapping it to identity (origin).
+                chainModified[i] = false;
                 continue;
             }
             localPose[i] = { translation, rotation, scale };

@@ -2811,7 +2811,6 @@ namespace OloEngine::Tests
         EXPECT_TRUE(std::isfinite(noise.Weight));
         EXPECT_NEAR(noise.Frequency, 1.0f, kFloatEpsilon) << "NaN frequency should fall back to the default";
         EXPECT_NEAR(noise.Gain, 0.5f, kFloatEpsilon) << "Inf gain should fall back to the default";
-        EXPECT_GE(noise.Weight, 0.0f);
-        EXPECT_LE(noise.Weight, 1.0f);
+        EXPECT_NEAR(noise.Weight, 1.0f, kFloatEpsilon) << "-Inf weight should fall back to the default";
     }
 } // namespace OloEngine::Tests

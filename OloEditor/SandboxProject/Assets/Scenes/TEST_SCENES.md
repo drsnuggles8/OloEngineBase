@@ -117,6 +117,7 @@ persisting in Edit mode or with the component disabled.
 3. **SponzaCSM** — main shadows + alpha-mask + IBL test on a large scene. Stress the camera.
 4. **SponzaForwardPlus** — switch path, stress the light culling.
 5. **SponzaDeferred** — switch path again, validate the G-Buffer matches.
+6. **AnimationNoiseTest** — procedural animation; press **Play** and confirm the two characters sway smoothly and independently.
 
 ---
 

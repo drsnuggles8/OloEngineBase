@@ -1821,7 +1821,9 @@ namespace OloEngine
                                                   "translationAmplitude", sol::property([](const NoiseAnimationComponent& c)
                                                                                         { return c.TranslationAmplitude; }, [](NoiseAnimationComponent& c, const glm::vec3& v)
                                                                                         { if (IsFiniteVec3(v)) c.TranslationAmplitude = v; }),
-                                                  "octaves", &NoiseAnimationComponent::Octaves,
+                                                  "octaves", sol::property([](const NoiseAnimationComponent& c)
+                                                                           { return c.Octaves; }, [](NoiseAnimationComponent& c, u32 v)
+                                                                           { c.Octaves = std::clamp(v, 1u, 8u); }),
                                                   "lacunarity", sol::property([](const NoiseAnimationComponent& c)
                                                                               { return c.Lacunarity; }, [](NoiseAnimationComponent& c, f32 v)
                                                                               { if (std::isfinite(v)) c.Lacunarity = std::clamp(v, 1.0f, 8.0f); }),

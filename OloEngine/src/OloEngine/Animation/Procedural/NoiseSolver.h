@@ -13,16 +13,16 @@ namespace OloEngine::Animation
     // the chain receives a smooth, fractal-noise-driven additive offset.
     struct NoiseParams
     {
-        u32 EndBoneIndex = 0;                   // chain tip bone; chain walks up via parentIndices
-        u32 ChainLength = 1;                     // number of bones in the chain including the tip (>= 1)
-        f32 Frequency = 1.0f;                    // noise evolution speed — higher = faster wobble
+        u32 EndBoneIndex = 0;                               // chain tip bone; chain walks up via parentIndices
+        u32 ChainLength = 1;                                // number of bones in the chain including the tip (>= 1)
+        f32 Frequency = 1.0f;                               // noise evolution speed — higher = faster wobble
         glm::vec3 RotationAmplitude{ 0.08f, 0.08f, 0.08f }; // peak local-axis rotation offset (radians)
-        glm::vec3 TranslationAmplitude{ 0.0f };  // peak local translation offset (model units)
-        u32 Octaves = 2;                         // fractal octaves (clamped to 1..8)
-        f32 Lacunarity = 2.0f;                   // frequency multiplier per octave (clamped 1..8)
-        f32 Gain = 0.5f;                         // amplitude multiplier per octave (clamped 0..1)
-        u32 Seed = 0;                            // de-correlates entities/instances sharing a clip
-        f32 Weight = 1.0f;                       // 0..1 master blend (0 = animated pose unchanged)
+        glm::vec3 TranslationAmplitude{ 0.0f };             // peak local translation offset (model units)
+        u32 Octaves = 2;                                    // fractal octaves (clamped to 1..8)
+        f32 Lacunarity = 2.0f;                              // frequency multiplier per octave (clamped 1..8)
+        f32 Gain = 0.5f;                                    // amplitude multiplier per octave (clamped 0..1)
+        u32 Seed = 0;                                       // de-correlates entities/instances sharing a clip
+        f32 Weight = 1.0f;                                  // 0..1 master blend (0 = animated pose unchanged)
     };
 
     // Per-bone additive offset produced by the noise solver.

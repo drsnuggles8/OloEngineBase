@@ -11,6 +11,7 @@
 #include <glm/gtc/quaternion.hpp>
 #include <glm/gtx/quaternion.hpp>
 
+#include <algorithm>
 #include <cmath>
 #include <limits>
 #include <vector>
@@ -289,6 +290,21 @@ namespace
         c.Weight = 1.0f;
         return c;
     }
+
+    // Largest absolute per-element difference between two matrices. Keeps matrix
+    // comparisons element-wise — the project forbids ==/!= on glm::mat*.
+    f32 MaxComponentDiff(const glm::mat4& a, const glm::mat4& b)
+    {
+        f32 maxDiff = 0.0f;
+        for (int c = 0; c < 4; ++c)
+        {
+            for (int r = 0; r < 4; ++r)
+            {
+                maxDiff = std::max(maxDiff, std::abs(a[c][r] - b[c][r]));
+            }
+        }
+        return maxDiff;
+    }
 } // namespace
 
 // The post-pass actually displaces the chain when run on a fresh pose.
@@ -304,7 +320,7 @@ TEST(NoiseSolverTest, PostPassDisplacesChain)
     bool anyMoved = false;
     for (sizet i = 0; i < basePose.size(); ++i)
     {
-        if (skeleton->m_LocalTransforms[i] != basePose[i])
+        if (MaxComponentDiff(skeleton->m_LocalTransforms[i], basePose[i]) > 1e-6f)
         {
             anyMoved = true;
         }
@@ -337,7 +353,7 @@ TEST(NoiseSolverTest, PostPassIsFrameRateIndependent)
     NoiseAnimationState fineState;
     for (int i = 0; i < 4; ++i)
     {
-        skeletonFine->m_LocalTransforms = basePose; // Scene re-samples the pose each frame
+        skeletonFine->m_LocalTransforms = basePose;                // Scene re-samples the pose each frame
         ApplyNoisePostPass(*skeletonFine, comp, fineState, 0.05f); // four 0.05s steps
     }
 
@@ -369,6 +385,8 @@ TEST(NoiseSolverTest, PostPassDisabledIsPassthrough)
 
     for (sizet i = 0; i < basePose.size(); ++i)
     {
-        EXPECT_EQ(skeleton->m_LocalTransforms[i], basePose[i]) << "bone " << i;
+        // Disabled => early return before any decompose, so this is bit-exact;
+        // assert element-wise (no ==/!= on glm::mat*).
+        EXPECT_LT(MaxComponentDiff(skeleton->m_LocalTransforms[i], basePose[i]), 1e-6f) << "bone " << i;
     }
 }

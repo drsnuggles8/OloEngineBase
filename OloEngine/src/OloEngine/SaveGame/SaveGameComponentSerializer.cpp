@@ -2114,10 +2114,17 @@ namespace OloEngine
             sanitize(c.Weight, 1.0f);
 
             // Clamp to the same valid ranges the scene-YAML deserializer enforces
-            // so finite-but-invalid values can't reach the solver.
+            // (SanitizeVec3Clamped / SanitizeFloat) so finite-but-invalid values
+            // can't reach the solver.
             c.ChainLength = std::max(1u, c.ChainLength);
             c.Octaves = std::clamp(c.Octaves, 1u, 8u);
             c.Frequency = std::clamp(c.Frequency, 0.0f, 1e4f);
+            c.RotationAmplitude.x = std::clamp(c.RotationAmplitude.x, -6.2832f, 6.2832f);
+            c.RotationAmplitude.y = std::clamp(c.RotationAmplitude.y, -6.2832f, 6.2832f);
+            c.RotationAmplitude.z = std::clamp(c.RotationAmplitude.z, -6.2832f, 6.2832f);
+            c.TranslationAmplitude.x = std::clamp(c.TranslationAmplitude.x, -1e4f, 1e4f);
+            c.TranslationAmplitude.y = std::clamp(c.TranslationAmplitude.y, -1e4f, 1e4f);
+            c.TranslationAmplitude.z = std::clamp(c.TranslationAmplitude.z, -1e4f, 1e4f);
             c.Lacunarity = std::clamp(c.Lacunarity, 1.0f, 8.0f);
             c.Gain = std::clamp(c.Gain, 0.0f, 1.0f);
             c.Weight = std::clamp(c.Weight, 0.0f, 1.0f);
