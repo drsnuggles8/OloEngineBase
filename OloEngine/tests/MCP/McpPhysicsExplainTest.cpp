@@ -56,7 +56,8 @@ namespace
     bool HasCheckContaining(const WhyNoCollisionVerdict& v, const std::string& needle)
     {
         return std::any_of(v.Checks.begin(), v.Checks.end(),
-                           [&](const std::string& line) { return line.find(needle) != std::string::npos; });
+                           [&](const std::string& line)
+                           { return line.find(needle) != std::string::npos; });
     }
 } // namespace
 

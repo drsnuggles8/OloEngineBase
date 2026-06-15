@@ -59,8 +59,8 @@ namespace OloEngine::MCP::PhysicsExplain
     // live Jolt scene; this function never touches the engine.
     struct WhyNoCollisionInput
     {
-        bool SameEntity = false;      // the two requested UUIDs are identical
-        bool PhysicsRunning = false;  // a live, initialized 3D physics scene exists
+        bool SameEntity = false;     // the two requested UUIDs are identical
+        bool PhysicsRunning = false; // a live, initialized 3D physics scene exists
         EntityPhysicsFacts A;
         EntityPhysicsFacts B;
         // Whether the object-layer pair filter permits A's and B's layers to
