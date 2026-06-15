@@ -14,6 +14,7 @@
 #include <array>
 #include <chrono>
 #include <cstdint>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <future>
@@ -225,7 +226,7 @@ namespace OloEngine::MCP
             m_Http->listen_after_bind();
             m_Running.store(false, std::memory_order_release); });
 
-        WriteDiscoveryFile(DiscoveryFilePath(), m_Port, m_Token);
+        WriteDiscoveryFile(DiscoveryFilePath(m_Port), m_Port, m_Token);
 
         OLO_CORE_INFO("[MCP] Read-only diagnostics server listening on http://127.0.0.1:{}/mcp", port);
         return true;
@@ -247,7 +248,7 @@ namespace OloEngine::MCP
         // running once this returns — safe to clear the token afterwards.
         m_Http.reset();
 
-        RemoveDiscoveryFile(DiscoveryFilePath());
+        RemoveDiscoveryFile(DiscoveryFilePath(m_Port));
 
         {
             std::lock_guard lock(m_SessionMutex);
@@ -258,13 +259,25 @@ namespace OloEngine::MCP
         OLO_CORE_INFO("[MCP] Diagnostics server stopped");
     }
 
-    std::string McpServer::DiscoveryFilePath()
+    std::string McpServer::DiscoveryFilePath(u16 port)
     {
+        // An explicit override wins: the launching tool picks the exact path it will
+        // read back, so parallel worktree editors never collide regardless of port.
+        if (const char* overridePath = std::getenv("OLO_MCP_DISCOVERY_FILE");
+            overridePath != nullptr && *overridePath != '\0')
+            return overridePath;
+
         std::error_code ec;
         const std::filesystem::path dir = std::filesystem::temp_directory_path(ec);
         if (ec)
             return {};
-        return (dir / "oloengine-mcp.json").string();
+
+        // Default port keeps the legacy single-file name (back-compat for the panel /
+        // manual attach and the docs); any other port namespaces by port so two
+        // editors on distinct ports don't overwrite each other's host/token.
+        if (port == DefaultPort)
+            return (dir / "oloengine-mcp.json").string();
+        return (dir / ("oloengine-mcp-" + std::to_string(port) + ".json")).string();
     }
 
     Json McpServer::MarshalRead(const std::function<Json()>& readJob, std::chrono::milliseconds timeout)

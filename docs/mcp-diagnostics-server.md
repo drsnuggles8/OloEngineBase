@@ -33,9 +33,21 @@ or a model. It exposes data over a standard protocol; you bring your own agent. 
 **For automation / headless:** set `OLO_MCP_AUTOSTART=1` (optionally `OLO_MCP_PORT=<port>`)
 before launching OloEditor; the server starts during editor init.
 
-When running, the server writes a **discovery file** to `%TEMP%/oloengine-mcp.json`
-(`$TMPDIR` on POSIX) containing the host, port, token, and URL — handy for scripts/agents
-that can read it instead of copy-paste. It's removed when the server stops.
+When running, the server writes a **discovery file** containing the host, port, token, and
+URL — handy for scripts/agents that read it instead of copy-paste. It's removed when the
+server stops. The path is resolved in this order:
+
+1. **`OLO_MCP_DISCOVERY_FILE`** (verbatim, when set & non-empty) — the launching tool picks
+   the exact path it will read back, so **parallel worktree editors never collide** even
+   when several run at once.
+2. Otherwise the OS temp dir: the **default port (7345)** keeps the legacy single name
+   `%TEMP%/oloengine-mcp.json` (`$TMPDIR` on POSIX); **any other port** namespaces the file
+   as `oloengine-mcp-<port>.json` so two editors on distinct ports don't overwrite each
+   other's host/token.
+
+The `run-oloengine` skill's `attach` action automates this end-to-end: it picks a stable
+per-worktree port + `OLO_MCP_DISCOVERY_FILE`, launches the editor with the server
+auto-started, then runs `claude mcp add` so the `olo_*` tools attach to the session.
 
 ## Attaching an agent
 

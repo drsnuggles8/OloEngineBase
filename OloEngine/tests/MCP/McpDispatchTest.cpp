@@ -10,6 +10,7 @@
 // No live OloEditor, GPU, or agent is required.
 #include "MCP/McpServer.h"
 
+#include <cstdlib>
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -503,4 +504,84 @@ TEST(McpDispatchSecurity, OriginRejectsRemoteHosts)
 TEST(McpDispatchSecurity, OriginRejectsMalformed)
 {
     EXPECT_FALSE(McpServer::IsOriginAllowed("not-a-url"));
+}
+
+// ---- discovery-file path resolution (per-worktree isolation, issue #316) ----
+
+namespace
+{
+    // Cross-platform set ("" unsets) / unset of an environment variable, mirroring
+    // the _putenv_s / setenv split used in OloEngineTest.cpp's main().
+    void SetEnvVar(const char* name, const char* value)
+    {
+#if defined(_WIN32)
+        _putenv_s(name, value); // empty value removes the variable on the MSVC CRT
+#else
+        if (value != nullptr && *value != '\0')
+            ::setenv(name, value, 1);
+        else
+            ::unsetenv(name);
+#endif
+    }
+
+    // RAII: force OLO_MCP_DISCOVERY_FILE to `value` (pass "" to unset it) for the
+    // scope, then restore whatever was there before so tests don't leak into each
+    // other or the surrounding process.
+    class ScopedDiscoveryOverride
+    {
+      public:
+        explicit ScopedDiscoveryOverride(const char* value)
+        {
+            if (const char* prev = std::getenv(kName); prev != nullptr)
+            {
+                m_HadPrev = true;
+                m_Prev = prev;
+            }
+            SetEnvVar(kName, value);
+        }
+        ~ScopedDiscoveryOverride()
+        {
+            SetEnvVar(kName, m_HadPrev ? m_Prev.c_str() : "");
+        }
+        ScopedDiscoveryOverride(const ScopedDiscoveryOverride&) = delete;
+        ScopedDiscoveryOverride& operator=(const ScopedDiscoveryOverride&) = delete;
+
+      private:
+        static constexpr const char* kName = "OLO_MCP_DISCOVERY_FILE";
+        bool m_HadPrev = false;
+        std::string m_Prev;
+    };
+} // namespace
+
+TEST(McpDiscoveryFile, OverrideEnvWinsVerbatimRegardlessOfPort)
+{
+    const std::string custom = "C:/tmp/my-worktree/oloengine-mcp.json";
+    ScopedDiscoveryOverride guard(custom.c_str());
+
+    // The override is returned exactly, ignoring both the default and a custom port.
+    EXPECT_EQ(McpServer::DiscoveryFilePath(OloEngine::MCP::DefaultPort), custom);
+    EXPECT_EQ(McpServer::DiscoveryFilePath(54321), custom);
+}
+
+TEST(McpDiscoveryFile, DefaultPortKeepsLegacyUnsuffixedName)
+{
+    ScopedDiscoveryOverride guard(""); // ensure no override is in effect
+
+    const std::string path = McpServer::DiscoveryFilePath(OloEngine::MCP::DefaultPort);
+    ASSERT_FALSE(path.empty());
+    // Back-compat: the default port must keep the single legacy file name (no port
+    // suffix) so the panel / docs / manual attach still find oloengine-mcp.json.
+    EXPECT_TRUE(path.ends_with("oloengine-mcp.json"));
+    EXPECT_FALSE(path.ends_with("oloengine-mcp-7345.json"));
+}
+
+TEST(McpDiscoveryFile, NonDefaultPortNamespacesByPort)
+{
+    ScopedDiscoveryOverride guard(""); // ensure no override is in effect
+
+    const std::string path = McpServer::DiscoveryFilePath(54321);
+    ASSERT_FALSE(path.empty());
+    // Two editors on distinct ports must land on distinct files.
+    EXPECT_TRUE(path.ends_with("oloengine-mcp-54321.json"));
+    EXPECT_NE(path, McpServer::DiscoveryFilePath(54322));
 }
