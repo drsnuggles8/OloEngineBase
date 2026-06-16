@@ -800,6 +800,58 @@ namespace OloEngine::Audio::SoundGraph
             RebuildRuntimeCaches();
         }
 
+        /// Phase 3 contiguous output-buffer pool (docs/soundgraph-metasounds-refactor.md).
+        /// Gathers every node's audio-output AudioBuffer into one contiguous allocation
+        /// so the per-node output buffers live in a single block (cache locality, one
+        /// allocation) instead of N scattered kMaxAudioBlockFrames vectors.
+        ///
+        /// MUST be called off the audio thread, exactly once, AFTER all nodes are
+        /// created but BEFORE any connection captures a producer's Data() pointer (the
+        /// StreamRefs.h pointer-stability contract). CreateInstance calls it between
+        /// node creation and wiring. Graphs built without it (direct/test construction)
+        /// simply keep each buffer's self-owned storage — behaviour is identical.
+        ///
+        /// Stride is fixed at kMaxAudioBlockFrames (not the runtime block size) so the
+        /// pool is sized once and never resized: SetMaxBlockSize, which runs *after*
+        /// wiring, must never reallocate it or it would dangle every captured pointer.
+        void AllocateNodeOutputPool()
+        {
+            if (!m_NodeOutputPool.empty())
+                return; // already pooled (idempotent — never resize after wiring)
+
+            std::vector<AudioBuffer*> outputs;
+            for (const auto& node : m_Nodes)
+            {
+                for (auto& [id, source] : node->OutputSources)
+                {
+                    if (source.m_Type == EStreamType::Audio)
+                    {
+                        // OutputSources stores const void* into the node's own (mutable)
+                        // AudioBuffer member; the const_cast targets a non-const object.
+                        outputs.push_back(const_cast<AudioBuffer*>(static_cast<const AudioBuffer*>(source.m_Source)));
+                    }
+                }
+            }
+
+            if (outputs.empty())
+                return;
+
+            constexpr sizet stride = static_cast<sizet>(kMaxAudioBlockFrames);
+            m_NodeOutputPool.assign(outputs.size() * stride, 0.0f);
+            for (sizet i = 0; i < outputs.size(); ++i)
+                outputs[i]->AdoptPoolStorage(m_NodeOutputPool.data() + i * stride);
+        }
+
+        /// [begin, end) of the contiguous node-output pool, or {nullptr, nullptr} when
+        /// the graph isn't pooled (direct/test construction). Diagnostic / test hook:
+        /// lets callers confirm a node's output buffer was relocated into the pool.
+        std::pair<const f32*, const f32*> GetNodeOutputPoolRange() const
+        {
+            if (m_NodeOutputPool.empty())
+                return { nullptr, nullptr };
+            return { m_NodeOutputPool.data(), m_NodeOutputPool.data() + m_NodeOutputPool.size() };
+        }
+
         void BeginProcessBlock() const
         {
             // Refill wave player buffers
@@ -1011,6 +1063,8 @@ namespace OloEngine::Audio::SoundGraph
             // setup call away from a heap allocation in the audio callback.
             OLO_CORE_ASSERT(m_OutputChannelRefCache.size() == m_OutputChannelIDs.size(),
                             "SoundGraph::Process: ref cache is stale; call SetMaxBlockSize/Init off-thread after wiring");
+            OLO_CORE_ASSERT(m_CompiledOps.size() == m_ProcessOrder.size(),
+                            "SoundGraph::Process: compiled plan is stale; call SetMaxBlockSize/Init off-thread after wiring");
             OLO_CORE_ASSERT(m_OutputBuffers.size() >= m_OutChannels.size(),
                             "SoundGraph::Process: output buffer count is short of channel count; call SetMaxBlockSize off-thread");
             for ([[maybe_unused]] const auto& buf : m_OutputBuffers)
@@ -1036,11 +1090,13 @@ namespace OloEngine::Audio::SoundGraph
             for (auto& [id, interpValue] : m_InterpInputs)
                 interpValue.ProcessBlock(numFrames);
 
-            // 2. Walk the node graph once per chunk, producers before consumers.
-            //    Typed connections hand whole blocks (or stable scalars) downstream —
-            //    no per-sample re-walk, no hash lookups, no choc::value reads.
-            for (auto* node : m_ProcessOrder)
-                node->Process(numFrames);
+            // 2. Walk the compiled execution plan once per chunk, producers before
+            //    consumers. Each op is a {devirtualized thunk, node} pair; the call
+            //    goes through a stored function pointer — no hash lookups, no vtable
+            //    load, no choc::value reads. Typed connections hand whole blocks (or
+            //    stable scalars) downstream.
+            for (const CompiledOp& op : m_CompiledOps)
+                op.m_Fn(op.m_State, numFrames);
 
             // 3. Copy each graph output endpoint into its per-channel block buffer.
             const sizet channelCount = std::min(m_OutChannels.size(), m_OutputChannelRefCache.size());
@@ -1102,6 +1158,23 @@ namespace OloEngine::Audio::SoundGraph
             }
 
             BuildProcessOrder();
+            CompileExecutionPlan();
+        }
+
+        /// Lower the topological node order (m_ProcessOrder) to a flat array of
+        /// operator handles — the "compiled execution plan" (Phase 3,
+        /// docs/soundgraph-metasounds-refactor.md). Each op pairs a node's
+        /// devirtualized ProcessFn (set by the factory; vtable fallback otherwise)
+        /// with the node instance, so the audio-thread walk in ProcessChunk is a
+        /// straight-line sweep over a contiguous vector of {fn, state} pairs — no
+        /// hash lookups, no per-node vtable load. MUST run off the audio thread
+        /// (allocates); rebuilt whenever the process order changes.
+        void CompileExecutionPlan()
+        {
+            m_CompiledOps.clear();
+            m_CompiledOps.reserve(m_ProcessOrder.size());
+            for (auto* node : m_ProcessOrder)
+                m_CompiledOps.push_back(CompiledOp{ node->m_ProcessFn, node });
         }
 
         /// Topologically order m_Nodes using the recorded connection edges (Kahn's
@@ -1179,9 +1252,22 @@ namespace OloEngine::Audio::SoundGraph
         /// wire time; input to BuildProcessOrder.
         std::vector<std::pair<UUID, UUID>> m_ConnectionEdges;
 
-        /// Node pointers in producer-before-consumer order; the audio thread's
-        /// per-chunk walk. Rebuilt off-thread by RebuildRuntimeCaches.
+        /// Node pointers in producer-before-consumer order; input to
+        /// CompileExecutionPlan. Rebuilt off-thread by RebuildRuntimeCaches.
         std::vector<NodeProcessor*> m_ProcessOrder;
+
+        /// One entry per node: a devirtualized process thunk paired with the node
+        /// instance to pass it. The audio thread walks this flat vector directly.
+        struct CompiledOp
+        {
+            NodeProcessor::ProcessFn m_Fn; // devirtualized Process thunk (or vtable fallback)
+            NodeProcessor* m_State;        // node instance passed to m_Fn
+        };
+
+        /// The compiled execution plan: m_ProcessOrder lowered to flat {fn, state}
+        /// pairs (Phase 3). The audio thread's per-chunk node sweep. Rebuilt
+        /// off-thread by CompileExecutionPlan.
+        std::vector<CompiledOp> m_CompiledOps;
 
         /// Cached pointers into m_GraphOutputRefs, parallel to m_OutputChannelIDs, so
         /// the per-chunk output copy does no hash lookups on the audio thread.
@@ -1190,6 +1276,13 @@ namespace OloEngine::Audio::SoundGraph
         /// Float cells (parameters + local variables) owning ramp buffers that need
         /// per-block maintenance. Rebuilt off-thread by RebuildRuntimeCaches.
         std::vector<GraphValueCell*> m_RampBufferCells;
+
+        /// Contiguous backing store for all node audio-output buffers (Phase 3). Sized
+        /// once by AllocateNodeOutputPool (before wiring) and never resized — each
+        /// node's AudioBuffer points into a fixed kMaxAudioBlockFrames slot here, so
+        /// the pointers consumers capture at wire time stay valid for the graph's life.
+        /// Empty for graphs that never call AllocateNodeOutputPool (buffers self-owned).
+        std::vector<f32> m_NodeOutputPool;
 
         //==============================================================================
         /// Thread-safe Event/Message Queues

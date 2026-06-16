@@ -38,12 +38,19 @@ namespace OloEngine::Audio::SoundGraph
     };
 
     //==============================================================================
-    /// Owning per-output audio block buffer. Fixed capacity so Data() is stable for
-    /// the node's lifetime (consumers capture the raw pointer at wire time). The
-    /// producer writes the first numFrames samples each Process call.
+    /// Per-output audio block buffer. Fixed capacity (kMaxAudioBlockFrames) so Data()
+    /// is stable for the node's lifetime — consumers capture the raw pointer at wire
+    /// time. The producer writes the first numFrames samples each Process call.
+    ///
+    /// Storage modes (Phase 3 contiguous pool, docs/soundgraph-metasounds-refactor.md):
+    ///   * Default — self-owned fallback vector. Used by graph ramp buffers, directly
+    ///     constructed nodes (tests), and any buffer the graph chooses not to pool.
+    ///   * Pooled — after AdoptPoolStorage(slot), Data() points into the graph's one
+    ///     contiguous m_NodeOutputPool allocation and the fallback vector is released.
+    /// Either way Data() returns a pointer that never moves for the buffer's lifetime.
     struct AudioBuffer
     {
-        AudioBuffer() : m_Data(kMaxAudioBlockFrames, 0.0f) {}
+        AudioBuffer() : m_Storage(kMaxAudioBlockFrames, 0.0f), m_Data(m_Storage.data()) {}
 
         AudioBuffer(const AudioBuffer&) = delete;
         AudioBuffer& operator=(const AudioBuffer&) = delete;
@@ -52,15 +59,30 @@ namespace OloEngine::Audio::SoundGraph
 
         [[nodiscard]] f32* Data() noexcept
         {
-            return m_Data.data();
+            return m_Data;
         }
         [[nodiscard]] const f32* Data() const noexcept
         {
-            return m_Data.data();
+            return m_Data;
+        }
+
+        /// Repoint this buffer at graph-owned contiguous pool storage and release the
+        /// self-owned fallback. `slot` must have >= kMaxAudioBlockFrames capacity and
+        /// must outlive this buffer (the pool is sized once and never resized).
+        ///
+        /// CONTRACT: call exactly once, off the audio thread, BEFORE any consumer
+        /// captures Data() — i.e. before graph wiring. Repointing after a consumer has
+        /// cached the old (fallback) pointer would dangle it. See SoundGraph::
+        /// AllocateNodeOutputPool, which is the only caller and runs pre-wiring.
+        void AdoptPoolStorage(f32* slot) noexcept
+        {
+            m_Data = slot;
+            m_Storage = std::vector<f32>(); // release the fallback; m_Data now points at the pool
         }
 
       private:
-        std::vector<f32> m_Data;
+        std::vector<f32> m_Storage; // self-owned fallback (empty once pooled)
+        f32* m_Data;                // stable view: &m_Storage[0] or a pool slot
     };
 
     //==============================================================================

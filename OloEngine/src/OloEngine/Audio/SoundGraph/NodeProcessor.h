@@ -50,6 +50,31 @@ namespace OloEngine::Audio::SoundGraph
 
         virtual ~NodeProcessor() = default;
 
+        //==============================================================================
+        /// Compiled-plan dispatch (Phase 3 — docs/soundgraph-metasounds-refactor.md)
+        ///
+        /// A free-function thunk that invokes a node's Process *non-virtually*.
+        /// SoundGraph::CompileExecutionPlan snapshots one per node into a flat
+        /// m_CompiledOps array, so the audio-thread walk calls through a stored
+        /// function pointer instead of dispatching through the NodeProcessor vtable.
+        /// (At block rate the dispatch cost is tiny either way — see the doc's
+        /// honest-framing notes — but storing the operator handles flat is the
+        /// "compiled plan" the refactor specifies and the seam Phase 4's
+        /// sample-offset trigger splitting will hang off of.)
+        using ProcessFn = void (*)(NodeProcessor*, u32);
+
+        /// Default thunk: dispatches through the vtable. Directly-constructed nodes
+        /// (tests, the SoundGraph container itself) keep this; the factory overwrites
+        /// it with a devirtualized ProcessThunk<T> when the concrete type is known.
+        static void VtableProcessThunk(NodeProcessor* node, u32 numFrames)
+        {
+            node->Process(numFrames);
+        }
+
+        /// Operator handle used by the compiled plan. Set at construction (vtable
+        /// fallback) and patched by Factory::MakeNode<T> to the concrete thunk.
+        ProcessFn m_ProcessFn = &VtableProcessThunk;
+
         // Explicitly delete copy and move operations to prevent dangling pointers
         // (typed connection refs capture raw pointers into this object's members).
         NodeProcessor(const NodeProcessor&) = delete;
@@ -463,6 +488,16 @@ namespace OloEngine::Audio::SoundGraph
             return m_DebugName.c_str();
         }
     };
+
+    /// Devirtualized process thunk for a concrete node type. The `T::` qualification
+    /// statically binds the call (no vtable load). Factory::MakeNode<T> assigns
+    /// &ProcessThunk<T> to the node's m_ProcessFn so the compiled plan can invoke it
+    /// through a plain function pointer. T must derive from NodeProcessor.
+    template<typename T>
+    inline void ProcessThunk(NodeProcessor* node, u32 numFrames)
+    {
+        static_cast<T*>(node)->T::Process(numFrames);
+    }
 
 } // namespace OloEngine::Audio::SoundGraph
 
