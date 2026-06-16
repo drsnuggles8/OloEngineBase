@@ -260,6 +260,7 @@
     "OloEngine/tests/BlendTreeTest.cpp": "unit",
     "OloEngine/tests/ComponentRoundTripTest.cpp": "unit",
     "OloEngine/tests/ComponentSerializerCoverageTest.cpp": "unit",
+    "OloEngine/tests/ComponentTupleCoverageTest.cpp": "unit",
     "OloEngine/tests/SaveGame/SaveGameComponentSerializerCoverageTest.cpp": "unit",
     "OloEngine/tests/ContainerTest.cpp": "unit",
     "OloEngine/tests/Containers/ConcurrentQueuesTest.cpp": "unit",

@@ -29,6 +29,7 @@ add_executable(OloEngine-Tests
 		AssetLoadedEventTest.cpp
 		ComponentRoundTripTest.cpp
 		ComponentSerializerCoverageTest.cpp
+		ComponentTupleCoverageTest.cpp
 		SceneSerializerFuzzRegressionTest.cpp
 		EngineSubsystemSmokeTest.cpp
 		AppLaunchSmokeTest.cpp
