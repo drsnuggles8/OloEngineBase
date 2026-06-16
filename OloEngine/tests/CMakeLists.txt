@@ -288,6 +288,7 @@ add_executable(OloEngine-Tests
 		Functional/Cinematic/CinematicAssetPlaybackTest.cpp
 		Functional/AnimationPhysics/FreeFallLandingTest.cpp
 		Functional/AnimationPhysics/PhysicsJoint3DTest.cpp
+		Functional/AnimationPhysics/PhysicsJointCollideConnectedTest.cpp
 		Functional/AnimationPhysics/WaterBuoyancyTest.cpp
 		Functional/AnimationPhysics/AnimationKeepsTickingUnderPhysicsLoadTest.cpp
 		Functional/SaveGame/SceneRoundTripAfterTickTest.cpp

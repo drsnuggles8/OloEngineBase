@@ -20,9 +20,11 @@
 #include <Jolt/Physics/Body/BodyInterface.h>
 #include <Jolt/Physics/Body/BodyType.h>
 #include <Jolt/Physics/Constraints/Constraint.h>
+#include <Jolt/Physics/Collision/GroupFilterTable.h>
 
 #include <memory>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -73,6 +75,16 @@ namespace OloEngine
         {
             return static_cast<u32>(m_Constraints.size());
         }
+
+        // (Re)build the collision filtering for joints that opted out of letting
+        // their two connected bodies collide (PhysicsJoint3DComponent::
+        // m_CollideConnected == false). Idempotent: each call resets bodies a
+        // previous call grouped, then assigns a single shared collision group +
+        // a fresh GroupFilterTable that disables exactly the authored no-collide
+        // pairs. Call it after the constraint pass at runtime start and after a
+        // joint is added/removed at runtime. Safe to call when no joint opts out
+        // (it just clears any prior filtering).
+        void ApplyJointCollisionFilters();
 
         // Character controller management
         Ref<JoltCharacterController> CreateCharacterController(Entity entity, const ContactCallbackFn& contactCallback = nullptr);
@@ -250,6 +262,15 @@ namespace OloEngine
         // constraint alive while it is registered with m_JoltSystem.
         std::unordered_map<UUID, JPH::Ref<JPH::Constraint>> m_Constraints;
 
+        // Collision filtering for joints whose m_CollideConnected == false (see
+        // ApplyJointCollisionFilters). m_JointGroupFilter is the single shared
+        // GroupFilterTable referenced by every filtered body's CollisionGroup;
+        // holding a Ref here keeps it alive and makes its lifetime explicit.
+        // m_JointCollisionBodies is the set of body-owning entities that were
+        // assigned that group, so the next rebuild can reset them first.
+        JPH::Ref<JPH::GroupFilterTable> m_JointGroupFilter;
+        std::unordered_set<UUID> m_JointCollisionBodies;
+
         // Character controller management
         std::unordered_map<UUID, Ref<JoltCharacterController>> m_CharacterControllers;
         std::vector<Ref<JoltCharacterController>> m_CharacterControllersToUpdate;
@@ -261,6 +282,10 @@ namespace OloEngine
         i32 m_IntegrationSubSteps = 1;
 
         // Constants
+        // CollisionGroup group id reserved for joint "collide connected" filtering.
+        // The engine uses CollisionGroup for nothing else, so every filtered body
+        // shares this group id and a unique sub-group id (see ApplyJointCollisionFilters).
+        static constexpr u32 s_JointCollisionGroupID = 0;
         static constexpr u32 s_MaxBodies = 65536;
         static constexpr u32 s_NumBodyMutexes = 0; // Autodetect
         static constexpr u32 s_MaxBodyPairs = 65536;

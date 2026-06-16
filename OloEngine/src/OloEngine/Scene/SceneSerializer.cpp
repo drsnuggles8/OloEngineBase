@@ -2537,6 +2537,10 @@ namespace OloEngine
             joint.m_SixDOFRotationMinDeg = jointComponent["SixDOFRotationMinDeg"].as<glm::vec3>(joint.m_SixDOFRotationMinDeg);
             joint.m_SixDOFRotationMaxDeg = jointComponent["SixDOFRotationMaxDeg"].as<glm::vec3>(joint.m_SixDOFRotationMaxDeg);
 
+            // Whether the connected bodies still collide. A bool has no non-finite
+            // states to guard; absent on legacy scenes → keep the true default.
+            joint.m_CollideConnected = jointComponent["CollideConnected"].as<bool>(joint.m_CollideConnected);
+
             // Reject non-finite floats read from disk and clamp to physically/Jolt-valid ranges.
             SanitizeFloat(joint.m_MinDistance, -1.0f, 10000.0f, 0.0f);
             SanitizeFloat(joint.m_MaxDistance, -1.0f, 10000.0f, 1.0f);
@@ -4561,6 +4565,7 @@ namespace OloEngine
             out << YAML::Key << "SixDOFTranslationMax" << YAML::Value << joint.m_SixDOFTranslationMax;
             out << YAML::Key << "SixDOFRotationMinDeg" << YAML::Value << joint.m_SixDOFRotationMinDeg;
             out << YAML::Key << "SixDOFRotationMaxDeg" << YAML::Value << joint.m_SixDOFRotationMaxDeg;
+            out << YAML::Key << "CollideConnected" << YAML::Value << joint.m_CollideConnected;
 
             out << YAML::EndMap; // PhysicsJoint3DComponent
         }

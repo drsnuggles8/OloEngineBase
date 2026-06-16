@@ -1221,7 +1221,10 @@ namespace OloEngine
                                                                                         { if (IsFiniteVec3(v)) j.m_SixDOFRotationMinDeg = v; }),
                                                   "sixDOFRotationMaxDeg", sol::property([](const PhysicsJoint3DComponent& j)
                                                                                         { return j.m_SixDOFRotationMaxDeg; }, [](PhysicsJoint3DComponent& j, const glm::vec3& v)
-                                                                                        { if (IsFiniteVec3(v)) j.m_SixDOFRotationMaxDeg = v; }));
+                                                                                        { if (IsFiniteVec3(v)) j.m_SixDOFRotationMaxDeg = v; }),
+                                                  "collideConnected", sol::property([](const PhysicsJoint3DComponent& j)
+                                                                                    { return j.m_CollideConnected; }, [](PhysicsJoint3DComponent& j, bool v)
+                                                                                    { j.m_CollideConnected = v; }));
 
         // --- PrefabComponent ---
         // Read-only window into prefab-instance identity & override state.

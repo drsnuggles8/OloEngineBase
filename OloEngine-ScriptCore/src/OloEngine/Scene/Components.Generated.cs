@@ -1034,6 +1034,12 @@ namespace OloEngine
 			}
 			set => InternalCalls.PhysicsJoint3DComponent_SetSixDOFRotationMaxDeg(Entity.ID, ref value);
 		}
+
+		public bool CollideConnected
+		{
+			get => InternalCalls.PhysicsJoint3DComponent_GetCollideConnected(Entity.ID);
+			set => InternalCalls.PhysicsJoint3DComponent_SetCollideConnected(Entity.ID, value);
+		}
 	}
 
 	public partial class PointLightComponent : Component
