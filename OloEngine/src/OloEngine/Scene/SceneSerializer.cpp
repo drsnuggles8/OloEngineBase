@@ -3687,6 +3687,32 @@ namespace OloEngine
             SanitizeVec3(spring.Gravity, glm::vec3(0.0f, -9.81f, 0.0f));
             SanitizeFloat(spring.Weight, 0.0f, 1.0f, 1.0f);
         }
+
+        if (auto noiseNode = entity["NoiseAnimationComponent"]; noiseNode)
+        {
+            auto& noise = deserializedEntity.AddComponent<NoiseAnimationComponent>();
+            TrySet(noise.Enabled, noiseNode["Enabled"]);
+            TrySet(noise.EndBoneIndex, noiseNode["EndBoneIndex"]);
+            TrySet(noise.ChainLength, noiseNode["ChainLength"]);
+            TrySet(noise.Frequency, noiseNode["Frequency"]);
+            TrySet(noise.RotationAmplitude, noiseNode["RotationAmplitude"]);
+            TrySet(noise.TranslationAmplitude, noiseNode["TranslationAmplitude"]);
+            TrySet(noise.Octaves, noiseNode["Octaves"]);
+            TrySet(noise.Lacunarity, noiseNode["Lacunarity"]);
+            TrySet(noise.Gain, noiseNode["Gain"]);
+            TrySet(noise.Seed, noiseNode["Seed"]);
+            TrySet(noise.Weight, noiseNode["Weight"]);
+
+            // Sanitize float/vector fields — replace NaN/Inf with defaults and clamp to valid ranges
+            noise.ChainLength = std::max(1u, noise.ChainLength);
+            noise.Octaves = std::clamp(noise.Octaves, 1u, 8u);
+            SanitizeFloat(noise.Frequency, 0.0f, 1e4f, 1.0f);
+            SanitizeVec3Clamped(noise.RotationAmplitude, -6.2832f, 6.2832f, glm::vec3(0.08f));
+            SanitizeVec3Clamped(noise.TranslationAmplitude, -1e4f, 1e4f, glm::vec3(0.0f));
+            SanitizeFloat(noise.Lacunarity, 1.0f, 8.0f, 2.0f);
+            SanitizeFloat(noise.Gain, 0.0f, 1.0f, 0.5f);
+            SanitizeFloat(noise.Weight, 0.0f, 1.0f, 1.0f);
+        }
     }
 
     SceneSerializer::SceneSerializer(const Ref<Scene>& scene)
@@ -6130,6 +6156,27 @@ namespace OloEngine
             out << YAML::Key << "Weight" << YAML::Value << spring.Weight;
 
             out << YAML::EndMap; // SpringBoneComponent
+        }
+
+        if (entity.HasComponent<NoiseAnimationComponent>())
+        {
+            out << YAML::Key << "NoiseAnimationComponent";
+            out << YAML::BeginMap;
+
+            auto const& noise = entity.GetComponent<NoiseAnimationComponent>();
+            out << YAML::Key << "Enabled" << YAML::Value << noise.Enabled;
+            out << YAML::Key << "EndBoneIndex" << YAML::Value << noise.EndBoneIndex;
+            out << YAML::Key << "ChainLength" << YAML::Value << noise.ChainLength;
+            out << YAML::Key << "Frequency" << YAML::Value << noise.Frequency;
+            out << YAML::Key << "RotationAmplitude" << YAML::Value << noise.RotationAmplitude;
+            out << YAML::Key << "TranslationAmplitude" << YAML::Value << noise.TranslationAmplitude;
+            out << YAML::Key << "Octaves" << YAML::Value << noise.Octaves;
+            out << YAML::Key << "Lacunarity" << YAML::Value << noise.Lacunarity;
+            out << YAML::Key << "Gain" << YAML::Value << noise.Gain;
+            out << YAML::Key << "Seed" << YAML::Value << noise.Seed;
+            out << YAML::Key << "Weight" << YAML::Value << noise.Weight;
+
+            out << YAML::EndMap; // NoiseAnimationComponent
         }
 
         out << YAML::EndMap; // Entity

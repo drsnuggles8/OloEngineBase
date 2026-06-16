@@ -2724,4 +2724,93 @@ namespace OloEngine::Tests
         EXPECT_GE(spring.Weight, 0.0f);
         EXPECT_LE(spring.Weight, 1.0f);
     }
+
+    // -------------------------------------------------------------------------
+    // NoiseAnimationComponent
+    // -------------------------------------------------------------------------
+    TEST(ComponentRoundTrip, NoiseAnimationComponentSurvivesYAMLRoundTrip)
+    {
+        std::string yaml;
+        {
+            auto scene = Scene::Create();
+            Entity entity = scene->CreateEntity(kTestTag);
+            auto& noise = entity.AddComponent<NoiseAnimationComponent>();
+            // Distinctive non-default values on every field.
+            noise.Enabled = false;
+            noise.EndBoneIndex = 9;
+            noise.ChainLength = 4;
+            noise.Frequency = 2.75f;
+            noise.RotationAmplitude = glm::vec3(0.11f, 0.22f, 0.33f);
+            noise.TranslationAmplitude = glm::vec3(0.01f, 0.02f, 0.03f);
+            noise.Octaves = 4;
+            noise.Lacunarity = 2.5f;
+            noise.Gain = 0.4f;
+            noise.Seed = 1234;
+            noise.Weight = 0.625f;
+
+            yaml = SceneSerializer(scene).SerializeToYAML();
+        }
+
+        ASSERT_FALSE(yaml.empty()) << "SerializeToYAML produced an empty string.";
+
+        auto reloaded = Scene::Create();
+        ASSERT_TRUE(SceneSerializer(reloaded).DeserializeFromYAML(yaml))
+            << "DeserializeFromYAML rejected the just-serialised scene.";
+
+        Entity restored = FindByTag(*reloaded, kTestTag);
+        ASSERT_TRUE(static_cast<bool>(restored));
+        ASSERT_TRUE(restored.HasComponent<NoiseAnimationComponent>());
+
+        const auto& noise = restored.GetComponent<NoiseAnimationComponent>();
+        EXPECT_FALSE(noise.Enabled);
+        EXPECT_EQ(noise.EndBoneIndex, 9u);
+        EXPECT_EQ(noise.ChainLength, 4u);
+        EXPECT_NEAR(noise.Frequency, 2.75f, kFloatEpsilon);
+        EXPECT_NEAR(noise.RotationAmplitude.x, 0.11f, kFloatEpsilon);
+        EXPECT_NEAR(noise.RotationAmplitude.y, 0.22f, kFloatEpsilon);
+        EXPECT_NEAR(noise.RotationAmplitude.z, 0.33f, kFloatEpsilon);
+        EXPECT_NEAR(noise.TranslationAmplitude.x, 0.01f, kFloatEpsilon);
+        EXPECT_NEAR(noise.TranslationAmplitude.y, 0.02f, kFloatEpsilon);
+        EXPECT_NEAR(noise.TranslationAmplitude.z, 0.03f, kFloatEpsilon);
+        EXPECT_EQ(noise.Octaves, 4u);
+        EXPECT_NEAR(noise.Lacunarity, 2.5f, kFloatEpsilon);
+        EXPECT_NEAR(noise.Gain, 0.4f, kFloatEpsilon);
+        EXPECT_EQ(noise.Seed, 1234u);
+        EXPECT_NEAR(noise.Weight, 0.625f, kFloatEpsilon);
+    }
+
+    TEST(ComponentRoundTrip, NoiseAnimationComponentNonFiniteFieldsAreSanitizedOnLoad)
+    {
+        std::string yaml;
+        {
+            auto scene = Scene::Create();
+            Entity entity = scene->CreateEntity(kTestTag);
+            auto& noise = entity.AddComponent<NoiseAnimationComponent>();
+            noise.Frequency = 2.75f;
+            noise.Gain = 0.4f;
+            noise.Weight = 0.625f;
+            yaml = SceneSerializer(scene).SerializeToYAML();
+        }
+
+        // Inject non-finite values into the NoiseAnimationComponent fields.
+        yaml = std::regex_replace(yaml, std::regex(R"(Frequency: [0-9.e+-]+)"), "Frequency: .nan");
+        yaml = std::regex_replace(yaml, std::regex(R"(Gain: [0-9.e+-]+)"), "Gain: .inf");
+        yaml = std::regex_replace(yaml, std::regex(R"(Weight: [0-9.e+-]+)"), "Weight: -.inf");
+
+        auto reloaded = Scene::Create();
+        ASSERT_TRUE(SceneSerializer(reloaded).DeserializeFromYAML(yaml))
+            << "Deserialize rejected the (structurally valid) NaN/Inf-injected scene.";
+
+        Entity restored = FindByTag(*reloaded, kTestTag);
+        ASSERT_TRUE(static_cast<bool>(restored));
+        ASSERT_TRUE(restored.HasComponent<NoiseAnimationComponent>());
+
+        const auto& noise = restored.GetComponent<NoiseAnimationComponent>();
+        EXPECT_TRUE(std::isfinite(noise.Frequency));
+        EXPECT_TRUE(std::isfinite(noise.Gain));
+        EXPECT_TRUE(std::isfinite(noise.Weight));
+        EXPECT_NEAR(noise.Frequency, 1.0f, kFloatEpsilon) << "NaN frequency should fall back to the default";
+        EXPECT_NEAR(noise.Gain, 0.5f, kFloatEpsilon) << "Inf gain should fall back to the default";
+        EXPECT_NEAR(noise.Weight, 1.0f, kFloatEpsilon) << "-Inf weight should fall back to the default";
+    }
 } // namespace OloEngine::Tests

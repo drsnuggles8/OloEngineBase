@@ -1,0 +1,136 @@
+Scene: AnimationNoiseTest.olo
+PostProcessSettings:
+  {}
+Entities:
+  # ── Camera ──
+  - Entity: 2000000000000000001
+    TagComponent:
+      Tag: Camera
+    TransformComponent:
+      Translation: [0, 1.2, 4]
+      Rotation: [-0.15, 0, 0]
+      Scale: [1, 1, 1]
+    CameraComponent:
+      Camera:
+        ProjectionType: 0
+        PerspectiveFOV: 0.785398185
+        PerspectiveNear: 0.00999999978
+        PerspectiveFar: 1000
+        OrthographicSize: 10
+        OrthographicNear: -1
+        OrthographicFar: 1000
+      Primary: true
+      FixedAspectRatio: false
+
+  # ── Directional Light ──
+  - Entity: 2000000000000000002
+    TagComponent:
+      Tag: Directional Light
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    DirectionalLightComponent:
+      Direction: [0.5, -1, 0.3]
+      Color: [1, 1, 1]
+      Intensity: 2
+      CastShadows: true
+      ShadowBias: 0.02
+      ShadowNormalBias: 0.1
+      MaxShadowDistance: 200
+      CascadeSplitLambda: 1
+
+  # ── Floor ──
+  - Entity: 2000000000000000003
+    TagComponent:
+      Tag: Floor
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [50, 0.1, 50]
+    MeshComponent:
+      Primitive: 3
+    MaterialComponent:
+      AlbedoColor: [0.4, 0.4, 0.4]
+      Metallic: 0
+      Roughness: 0.8
+
+  # ── CesiumMan — subtle "idle breathing" sway on the upper body + head ──
+  # Noise runs only while an animation clip is playing (IsPlaying: true), the
+  # same gate the spring-bone pass uses. EndBoneIndex 4 is the head; the chain
+  # walks up 3 bones (head → neck → upper spine).
+  - Entity: 2000000000000000010
+    TagComponent:
+      Tag: CesiumMan (Idle Breathing)
+    TransformComponent:
+      Translation: [-1.5, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      {}
+    MaterialComponent:
+      AlbedoColor: [1, 1, 1]
+      Metallic: 0
+      Roughness: 0.5
+    AnimationStateComponent:
+      State: 0
+      CurrentTime: 0
+      BlendDuration: 0.3
+      CurrentClipIndex: 0
+      IsPlaying: true
+      SourceFilePath: ../../assets/models/CesiumMan/CesiumMan.gltf
+      CurrentClipName: ""
+    SkeletonComponent:
+      {}
+    NoiseAnimationComponent:
+      Enabled: true
+      EndBoneIndex: 4
+      ChainLength: 3
+      Frequency: 0.5
+      RotationAmplitude: [0.05, 0.03, 0.08]
+      TranslationAmplitude: [0, 0, 0]
+      Octaves: 2
+      Lacunarity: 2
+      Gain: 0.5
+      Seed: 1
+      Weight: 1
+
+  # ── CesiumMan — stronger "wind sway", different Seed (de-correlated) ──
+  # Same clip and chain as its neighbour, but a higher frequency/amplitude and
+  # a different Seed — proves the noise is independent per-instance (the two
+  # characters never wobble in lock-step).
+  - Entity: 2000000000000000020
+    TagComponent:
+      Tag: CesiumMan (Wind Sway)
+    TransformComponent:
+      Translation: [1.5, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      {}
+    MaterialComponent:
+      AlbedoColor: [1, 1, 1]
+      Metallic: 0
+      Roughness: 0.5
+    AnimationStateComponent:
+      State: 0
+      CurrentTime: 0
+      BlendDuration: 0.3
+      CurrentClipIndex: 0
+      IsPlaying: true
+      SourceFilePath: ../../assets/models/CesiumMan/CesiumMan.gltf
+      CurrentClipName: ""
+    SkeletonComponent:
+      {}
+    NoiseAnimationComponent:
+      Enabled: true
+      EndBoneIndex: 4
+      ChainLength: 4
+      Frequency: 1.2
+      RotationAmplitude: [0.16, 0.08, 0.2]
+      TranslationAmplitude: [0, 0, 0]
+      Octaves: 3
+      Lacunarity: 2
+      Gain: 0.5
+      Seed: 77
+      Weight: 1

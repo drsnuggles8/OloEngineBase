@@ -9,11 +9,13 @@ namespace OloEngine
 {
     struct IKTargetComponent;
     struct SpringBoneComponent;
+    struct NoiseAnimationComponent;
 } // namespace OloEngine
 
 namespace OloEngine::Animation
 {
     struct SpringBoneState;
+    struct NoiseAnimationState;
 
     // AnimationSystem: Updates animation state and computes bone transforms for animated entities.
     class AnimationSystem
@@ -22,8 +24,9 @@ namespace OloEngine::Animation
         // Call once per frame to update all animated entities.
         // entityWorldTransform is the entity's scene transform — used to convert
         // IK targets from world space to the model space expected by solvers.
-        // springBone/springBoneState enable the spring-bone post-pass (runs
-        // after IK); both must be non-null for the pass to run.
+        // noise/noiseState enable the procedural noise post-pass (runs *before*
+        // IK); springBone/springBoneState enable the spring-bone post-pass (runs
+        // after IK). Each pair must be non-null for its pass to run.
         static void Update(
             AnimationStateComponent& animState,
             Skeleton& skeleton,
@@ -31,6 +34,8 @@ namespace OloEngine::Animation
             const IKTargetComponent* ikTarget = nullptr,
             const glm::mat4& entityWorldTransform = glm::mat4(1.0f),
             const SpringBoneComponent* springBone = nullptr,
-            SpringBoneState* springBoneState = nullptr);
+            SpringBoneState* springBoneState = nullptr,
+            const NoiseAnimationComponent* noise = nullptr,
+            NoiseAnimationState* noiseState = nullptr);
     };
 } // namespace OloEngine::Animation

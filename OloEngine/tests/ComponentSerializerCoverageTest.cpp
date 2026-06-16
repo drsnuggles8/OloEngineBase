@@ -164,6 +164,7 @@ namespace OloEngine::Tests
             RepoRoot() / "OloEngine" / "src" / "OloEngine" / "Animation" / "MorphTargets" / "MorphTargetComponents.h",
             RepoRoot() / "OloEngine" / "src" / "OloEngine" / "Animation" / "IKTargetComponent.h",
             RepoRoot() / "OloEngine" / "src" / "OloEngine" / "Animation" / "SpringBoneComponent.h",
+            RepoRoot() / "OloEngine" / "src" / "OloEngine" / "Animation" / "NoiseAnimationComponent.h",
             RepoRoot() / "OloEngine" / "src" / "OloEngine" / "Gameplay" / "Inventory" / "InventoryComponents.h",
             RepoRoot() / "OloEngine" / "src" / "OloEngine" / "Gameplay" / "Quest" / "QuestComponents.h",
             RepoRoot() / "OloEngine" / "src" / "OloEngine" / "Gameplay" / "Abilities" / "AbilityComponents.h",

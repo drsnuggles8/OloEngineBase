@@ -1931,6 +1931,7 @@ namespace OloEngine
             // Animation IK
             DisplayAddComponentEntry<IKTargetComponent>("IK Target");
             DisplayAddComponentEntry<SpringBoneComponent>("Spring Bones");
+            DisplayAddComponentEntry<NoiseAnimationComponent>("Noise Animator");
 
             ImGui::EndPopup();
         }
@@ -6808,6 +6809,27 @@ namespace OloEngine
                     ImGui::DragFloat("Stiffness", &component.Stiffness, 1.0f, 0.0f, 1000.0f);
                     ImGui::DragFloat("Damping", &component.Damping, 0.1f, 0.0f, 100.0f);
                     ImGui::DragFloat3("Gravity", glm::value_ptr(component.Gravity), 0.1f);
+                    ImGui::DragFloat("Weight", &component.Weight, 0.01f, 0.0f, 1.0f);
+                } });
+
+        DrawComponent<NoiseAnimationComponent>("Noise Animator", entity, [](auto& component)
+                                               {
+                ImGui::Checkbox("Enabled", &component.Enabled);
+                if (component.Enabled)
+                {
+                    if (auto endBone = static_cast<int>(component.EndBoneIndex); ImGui::DragInt("End Bone Index", &endBone, 1.0f, 0, 512))
+                        component.EndBoneIndex = static_cast<u32>(std::max(endBone, 0));
+                    if (auto chainLen = static_cast<int>(component.ChainLength); ImGui::DragInt("Chain Length", &chainLen, 1.0f, 1, 64))
+                        component.ChainLength = static_cast<u32>(std::max(chainLen, 1));
+                    ImGui::DragFloat("Frequency", &component.Frequency, 0.05f, 0.0f, 100.0f);
+                    ImGui::DragFloat3("Rotation Amplitude", glm::value_ptr(component.RotationAmplitude), 0.01f, 0.0f, 6.2832f);
+                    ImGui::DragFloat3("Translation Amplitude", glm::value_ptr(component.TranslationAmplitude), 0.01f);
+                    if (auto octaves = static_cast<int>(component.Octaves); ImGui::DragInt("Octaves", &octaves, 1.0f, 1, 8))
+                        component.Octaves = static_cast<u32>(std::clamp(octaves, 1, 8));
+                    ImGui::DragFloat("Lacunarity", &component.Lacunarity, 0.05f, 1.0f, 8.0f);
+                    ImGui::DragFloat("Gain", &component.Gain, 0.01f, 0.0f, 1.0f);
+                    if (auto seed = static_cast<int>(component.Seed); ImGui::DragInt("Seed", &seed, 1.0f, 0, 100000))
+                        component.Seed = static_cast<u32>(std::max(seed, 0));
                     ImGui::DragFloat("Weight", &component.Weight, 0.01f, 0.0f, 1.0f);
                 } });
     }

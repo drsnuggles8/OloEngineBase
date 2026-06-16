@@ -1121,8 +1121,10 @@ namespace OloEngine
                         const IKTargetComponent* ikTarget = ResolveIKTargets(entity, tempIk) ? &tempIk : nullptr;
                         Animation::SpringBoneState* springState = nullptr;
                         const SpringBoneComponent* springBone = ResolveSpringBone(entity, springState);
+                        Animation::NoiseAnimationState* noiseState = nullptr;
+                        const NoiseAnimationComponent* noise = ResolveNoiseAnimation(entity, noiseState);
                         auto const& entityTransform = entity.GetComponent<TransformComponent>().GetTransform();
-                        Animation::AnimationSystem::Update(animState, *skelComp.m_Skeleton, ts.GetSeconds(), ikTarget, entityTransform, springBone, springState);
+                        Animation::AnimationSystem::Update(animState, *skelComp.m_Skeleton, ts.GetSeconds(), ikTarget, entityTransform, springBone, springState, noise, noiseState);
 
                         // Sample morph target keyframes from the current animation clip
                         if (!animState.m_CurrentClip->MorphKeyframes.empty())
@@ -1338,8 +1340,10 @@ namespace OloEngine
                         const IKTargetComponent* graphIkTarget = ResolveIKTargets(graphEntity, graphTempIk) ? &graphTempIk : nullptr;
                         Animation::SpringBoneState* graphSpringState = nullptr;
                         const SpringBoneComponent* graphSpringBone = ResolveSpringBone(graphEntity, graphSpringState);
+                        Animation::NoiseAnimationState* graphNoiseState = nullptr;
+                        const NoiseAnimationComponent* graphNoise = ResolveNoiseAnimation(graphEntity, graphNoiseState);
                         auto const& graphEntityTransform = graphEntity.GetComponent<TransformComponent>().GetTransform();
-                        Animation::AnimationGraphSystem::Update(graphComp, *skelComp.m_Skeleton, ts.GetSeconds(), graphIkTarget, graphEntityTransform, graphSpringBone, graphSpringState);
+                        Animation::AnimationGraphSystem::Update(graphComp, *skelComp.m_Skeleton, ts.GetSeconds(), graphIkTarget, graphEntityTransform, graphSpringBone, graphSpringState, graphNoise, graphNoiseState);
                     }
                 }
             }
@@ -1921,8 +1925,10 @@ namespace OloEngine
                     const IKTargetComponent* ikTarget = ResolveIKTargets(entity, tempIk) ? &tempIk : nullptr;
                     Animation::SpringBoneState* springState = nullptr;
                     const SpringBoneComponent* springBone = ResolveSpringBone(entity, springState);
+                    Animation::NoiseAnimationState* noiseState = nullptr;
+                    const NoiseAnimationComponent* noise = ResolveNoiseAnimation(entity, noiseState);
                     auto const& entityTransform = entity.GetComponent<TransformComponent>().GetTransform();
-                    Animation::AnimationSystem::Update(animState, *skelComp.m_Skeleton, ts.GetSeconds(), ikTarget, entityTransform, springBone, springState);
+                    Animation::AnimationSystem::Update(animState, *skelComp.m_Skeleton, ts.GetSeconds(), ikTarget, entityTransform, springBone, springState, noise, noiseState);
 
                     // Sample morph target keyframes from the current animation clip
                     if (!animState.m_CurrentClip->MorphKeyframes.empty())
@@ -2537,6 +2543,28 @@ namespace OloEngine
         }
         outState = &entity.GetComponent<SpringBoneStateComponent>().State;
         return &springBone;
+    }
+
+    const NoiseAnimationComponent* Scene::ResolveNoiseAnimation(Entity entity, Animation::NoiseAnimationState*& outState)
+    {
+        outState = nullptr;
+        if (!entity.HasComponent<NoiseAnimationComponent>())
+        {
+            return nullptr;
+        }
+
+        auto& noise = entity.GetComponent<NoiseAnimationComponent>();
+        if (!noise.Enabled)
+        {
+            return nullptr;
+        }
+
+        if (!entity.HasComponent<NoiseAnimationStateComponent>())
+        {
+            entity.AddComponent<NoiseAnimationStateComponent>();
+        }
+        outState = &entity.GetComponent<NoiseAnimationStateComponent>().State;
+        return &noise;
     }
 
     void Scene::OnPhysics2DStart()
@@ -6134,6 +6162,16 @@ void OloEngine::Scene::OnComponentAdded<OloEngine::SpringBoneStateComponent>([[m
 {
 }
 
+template<>
+void OloEngine::Scene::OnComponentAdded<OloEngine::NoiseAnimationComponent>([[maybe_unused]] OloEngine::Entity entity, [[maybe_unused]] OloEngine::NoiseAnimationComponent& component)
+{
+}
+
+template<>
+void OloEngine::Scene::OnComponentAdded<OloEngine::NoiseAnimationStateComponent>([[maybe_unused]] OloEngine::Entity entity, [[maybe_unused]] OloEngine::NoiseAnimationStateComponent& component)
+{
+}
+
 // ============================================================================
 // OnComponentRemoved specialisations — exhaustive no-op list mirroring the
 // OnComponentAdded set above. Component types whose removal needs to release
@@ -6288,6 +6326,7 @@ namespace OloEngine
     OLO_ON_COMPONENT_REMOVED_NOOP(NameplateComponent)
     OLO_ON_COMPONENT_REMOVED_NOOP(IKTargetComponent)
     OLO_ON_COMPONENT_REMOVED_NOOP(SpringBoneStateComponent)
+    OLO_ON_COMPONENT_REMOVED_NOOP(NoiseAnimationStateComponent)
     OLO_ON_COMPONENT_REMOVED_NOOP(Skeleton)
 
 #undef OLO_ON_COMPONENT_REMOVED_NOOP
@@ -6303,6 +6342,19 @@ namespace OloEngine
         if (entity.HasComponent<SpringBoneStateComponent>())
         {
             entity.RemoveComponent<SpringBoneStateComponent>();
+        }
+    }
+
+    // Specialisation: when a NoiseAnimationComponent is removed, drop the cached
+    // runtime phase accumulator so a re-added component restarts its noise phase
+    // from zero. (Defined after the NoiseAnimationStateComponent no-op above so
+    // the RemoveComponent instantiation sees that explicit specialisation.)
+    template<>
+    void Scene::OnComponentRemoved<NoiseAnimationComponent>(Entity entity, NoiseAnimationComponent& /*component*/)
+    {
+        if (entity.HasComponent<NoiseAnimationStateComponent>())
+        {
+            entity.RemoveComponent<NoiseAnimationStateComponent>();
         }
     }
 
