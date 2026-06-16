@@ -15,5 +15,8 @@ EditorPreferences:
   RenderBudgetMs: 33.3
   EnableAutoSave: true
   AutoSaveIntervalSeconds: 300
+  McpAutoStart: false
+  McpPort: 7345
+  McpRedactPaths: false
   Bookmarks:
     []

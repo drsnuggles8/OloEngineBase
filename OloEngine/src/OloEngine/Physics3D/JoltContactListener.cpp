@@ -6,6 +6,10 @@
 #include "JoltLayerInterface.h"
 #include "OloEngine/Core/Log.h"
 
+#include <set>
+#include <utility>
+#include <vector>
+
 namespace OloEngine
 {
 
@@ -99,6 +103,32 @@ namespace OloEngine
             // Send the contact event to the scene for processing
             m_Scene.OnContactEvent(event.m_Type, event.m_EntityA, event.m_EntityB);
         }
+    }
+
+    std::vector<std::pair<UUID, UUID>> JoltContactListener::GetActiveContactPairs() const
+    {
+        // Collapse the per-sub-shape m_ActiveContacts map down to unique entity
+        // pairs: one body pair can register several sub-shape contacts, and we
+        // only want to report each touching entity pair once. Order each pair so
+        // (A,B) and (B,A) dedupe to the same key.
+        std::set<std::pair<u64, u64>> uniquePairs;
+        {
+            TUniqueLock<FMutex> lock(m_ActiveContactsMutex);
+            for (const auto& [key, info] : m_ActiveContacts)
+            {
+                u64 lo = static_cast<u64>(info.m_EntityA);
+                u64 hi = static_cast<u64>(info.m_EntityB);
+                if (lo > hi)
+                    std::swap(lo, hi);
+                uniquePairs.emplace(lo, hi);
+            }
+        }
+
+        std::vector<std::pair<UUID, UUID>> pairs;
+        pairs.reserve(uniquePairs.size());
+        for (const auto& [a, b] : uniquePairs)
+            pairs.emplace_back(UUID(a), UUID(b));
+        return pairs;
     }
 
     void JoltContactListener::ProcessContactManifold(const JPH::Body& inBody1, const JPH::Body& inBody2, const JPH::ContactManifold& inManifold, ContactType type)

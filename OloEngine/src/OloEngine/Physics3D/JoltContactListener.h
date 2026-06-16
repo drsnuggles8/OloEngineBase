@@ -14,6 +14,8 @@
 #include <deque>
 #include <atomic>
 #include <unordered_map>
+#include <utility>
+#include <vector>
 
 namespace OloEngine
 {
@@ -46,6 +48,13 @@ namespace OloEngine
         {
             return m_QueueSize.load(std::memory_order_relaxed);
         }
+
+        // Read-only snapshot of the currently-touching entity pairs, deduplicated
+        // by entity pair (a single body pair can produce several sub-shape contacts;
+        // they collapse to one entry). Each pair is ordered so (A,B) and (B,A) are
+        // the same entry. Used by the read-only MCP diagnostics server's
+        // olo_physics_contacts tool; safe to call from any thread (mutex-guarded).
+        [[nodiscard]] std::vector<std::pair<UUID, UUID>> GetActiveContactPairs() const;
 
       private:
         struct ContactEvent

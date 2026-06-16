@@ -23,6 +23,7 @@
 
 #include <memory>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 namespace OloEngine
@@ -164,6 +165,12 @@ namespace OloEngine
         {
             return m_JoltSystem ? m_JoltSystem->GetNumActiveBodies(JPH::EBodyType::RigidBody) : 0;
         }
+
+        // Read-only snapshot of the entity pairs whose bodies are currently in
+        // contact, deduplicated per entity pair. Empty when the contact listener
+        // is absent (physics not initialized). Backs the read-only MCP
+        // olo_physics_contacts diagnostics tool. Thread-safe (listener-locked).
+        [[nodiscard]] std::vector<std::pair<UUID, UUID>> GetActiveContactPairs() const;
 
       private:
         void CreateRigidBodies();
