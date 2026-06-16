@@ -83,8 +83,8 @@ TEST_F(PhysicsJointCollideConnectedTest, CollideConnectedFalseLetsBodyPassThroug
     joint.m_Type = JointType3D::Distance;
     joint.m_ConnectedEntity = anchor.GetUUID();
     joint.m_MinDistance = 0.0f;
-    joint.m_MaxDistance = 3.0f;          // slack: starts at 1 m, catches the fall at 3 m
-    joint.m_CollideConnected = false;    // the body under test: bodies must NOT collide
+    joint.m_MaxDistance = 3.0f;       // slack: starts at 1 m, catches the fall at 3 m
+    joint.m_CollideConnected = false; // the body under test: bodies must NOT collide
 
     EnablePhysics3D();
 

@@ -175,9 +175,9 @@ namespace OloEngine::Tests
             "TagComponent",
             // Per-tick runtime-derived state: recomputed every frame, never
             // copied, serialized, or script-registered.
-            "UIResolvedRectComponent",  // Layout-resolved UI rect; recomputed each frame by the UI layout pass.
-            "DialogueStateComponent",   // Active dialogue progression (current node, text-reveal); rebuilt at runtime.
-            "SpringBoneStateComponent", // Spring-bone sim state; SpringBoneComponent.h documents it as deliberately out of the tuple (sim restarts fresh on scene copy).
+            "UIResolvedRectComponent",      // Layout-resolved UI rect; recomputed each frame by the UI layout pass.
+            "DialogueStateComponent",       // Active dialogue progression (current node, text-reveal); rebuilt at runtime.
+            "SpringBoneStateComponent",     // Spring-bone sim state; SpringBoneComponent.h documents it as deliberately out of the tuple (sim restarts fresh on scene copy).
             "NoiseAnimationStateComponent", // Noise phase accumulator; NoiseAnimationComponent.h documents it as deliberately out of the tuple (phase restarts fresh at zero on scene copy).
         };
 
