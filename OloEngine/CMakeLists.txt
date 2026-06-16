@@ -161,6 +161,7 @@ target_link_libraries(OloEngine
 	nlohmann_json::nlohmann_json
 	Recast
 	sol2
+	spdlog
 	stb_image
 	yaml-cpp
 	GameNetworkingSockets_s
