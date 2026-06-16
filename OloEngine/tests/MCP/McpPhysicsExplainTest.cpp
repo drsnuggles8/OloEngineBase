@@ -115,6 +115,7 @@ TEST(McpPhysicsExplain, EntityBMissing)
     in.B.EntityExists = false;
     const WhyNoCollisionVerdict v = ExplainWhyNoCollision(in);
     EXPECT_EQ("entity_b_missing", v.ReasonCode);
+    EXPECT_FALSE(v.CanCollide);
 }
 
 TEST(McpPhysicsExplain, EntityANoRigidbody)
@@ -171,6 +172,7 @@ TEST(McpPhysicsExplain, EntityBNoRigidbody)
     in.B.HasBody = false;
     const WhyNoCollisionVerdict v = ExplainWhyNoCollision(in);
     EXPECT_EQ("entity_b_no_rigidbody", v.ReasonCode);
+    EXPECT_FALSE(v.CanCollide);
 }
 
 TEST(McpPhysicsExplain, EntityBNoCollider)
@@ -181,6 +183,7 @@ TEST(McpPhysicsExplain, EntityBNoCollider)
     in.B.HasBody = false;
     const WhyNoCollisionVerdict v = ExplainWhyNoCollision(in);
     EXPECT_EQ("entity_b_no_collider", v.ReasonCode);
+    EXPECT_FALSE(v.CanCollide);
 }
 
 TEST(McpPhysicsExplain, EntityBNoBody)
@@ -191,6 +194,7 @@ TEST(McpPhysicsExplain, EntityBNoBody)
     in.B.HasBody = false;
     const WhyNoCollisionVerdict v = ExplainWhyNoCollision(in);
     EXPECT_EQ("entity_b_no_body", v.ReasonCode);
+    EXPECT_FALSE(v.CanCollide);
 }
 
 TEST(McpPhysicsExplain, BothStaticNeverCollide)

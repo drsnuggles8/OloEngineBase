@@ -1980,6 +1980,8 @@ namespace OloEngine::MCP
             const bool isBox = args.contains("halfExtents");
             if (isBox && !ParseVec3(args["halfExtents"], halfExtents))
                 return ToolResult::Error("Invalid 'halfExtents': expected [x, y, z] finite numbers.");
+            if (isBox && (halfExtents.x <= 0.0f || halfExtents.y <= 0.0f || halfExtents.z <= 0.0f))
+                return ToolResult::Error("Invalid 'halfExtents': all components must be positive (a box needs non-zero size).");
             f32 radius = 0.5f;
             if (args.contains("radius") && args["radius"].is_number())
             {
