@@ -71,7 +71,8 @@
 
 // Restore any previously defined macros
 #pragma pop_macro("TEXT")
-#pragma pop_macro("TRUE")
-#pragma pop_macro("FALSE")
+// NOTE: TRUE/FALSE are intentionally left as <Windows.h> defined them (1/0) — see
+// PreWindowsApi.h for the rationale (Win32 BOOL constants used by engine + vendored
+// code such as miniaudio.h / FileWatch.hpp).
 
 #endif // _WIN32
