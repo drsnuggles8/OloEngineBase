@@ -882,13 +882,14 @@ namespace OloEngine
             }
 
             // Sanitize untrusted on-disk values. Fixed points / connected axis are
-            // world-space vec3 (reject non-finite, clamp absurd magnitudes); the
-            // ratios are signed scalars (clampAngle here is just finite+clamp with
-            // a fallback); pulley lengths keep -1 as the "auto length" sentinel.
+            // world-space vec3 (reject non-finite, clamp absurd magnitudes). The
+            // pulley ratio is a length multiplier → non-negative; the gear ratio is
+            // signed (reversed coupling). Pulley lengths keep -1 as the "auto
+            // length" sentinel. (clampAngle here is just finite+clamp+fallback.)
             clampVec3(c.m_PulleyFixedPointA, -1.0e6f, 1.0e6f, 0.0f);
             clampVec3(c.m_PulleyFixedPointB, -1.0e6f, 1.0e6f, 0.0f);
             clampVec3(c.m_ConnectedAxis, -1.0e6f, 1.0e6f, 0.0f);
-            clampAngle(c.m_PulleyRatio, -1.0e9f, 1.0e9f, 1.0f);
+            clampAngle(c.m_PulleyRatio, 0.0f, 1.0e9f, 1.0f);
             clampAngle(c.m_PulleyMinLength, -1.0f, 1.0e9f, 0.0f);
             clampAngle(c.m_PulleyMaxLength, -1.0f, 1.0e9f, -1.0f);
             clampAngle(c.m_GearRatio, -1.0e9f, 1.0e9f, 1.0f);

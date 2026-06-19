@@ -1136,7 +1136,7 @@ TEST_F(PhysicsJoint3DTest, ComponentSurvivesSaveGameRoundTrip)
     j.m_PulleyRatio = 3.0f;
     j.m_PulleyMinLength = 0.5f;
     j.m_PulleyMaxLength = 9.0f;
-    j.m_ConnectedAxis = { 0.0f, 0.0f, 1.0f };
+    j.m_ConnectedAxis = { 0.4f, -0.6f, 0.5f }; // distinct components catch any axis-order bug
     j.m_GearRatio = -2.5f; // signed: a valid reversed coupling
 
     auto payload = SaveGameSerializer::CaptureSceneState(GetScene());
@@ -1214,6 +1214,8 @@ TEST_F(PhysicsJoint3DTest, ComponentSurvivesSaveGameRoundTrip)
     EXPECT_NEAR(rj.m_PulleyRatio, 3.0f, kEps);
     EXPECT_NEAR(rj.m_PulleyMinLength, 0.5f, kEps);
     EXPECT_NEAR(rj.m_PulleyMaxLength, 9.0f, kEps);
-    EXPECT_NEAR(rj.m_ConnectedAxis.z, 1.0f, kEps);
+    EXPECT_NEAR(rj.m_ConnectedAxis.x, 0.4f, kEps);
+    EXPECT_NEAR(rj.m_ConnectedAxis.y, -0.6f, kEps);
+    EXPECT_NEAR(rj.m_ConnectedAxis.z, 0.5f, kEps);
     EXPECT_NEAR(rj.m_GearRatio, -2.5f, kEps);
 }

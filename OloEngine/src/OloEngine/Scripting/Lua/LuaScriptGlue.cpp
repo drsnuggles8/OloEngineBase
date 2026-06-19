@@ -1234,13 +1234,13 @@ namespace OloEngine
                                                                                      { if (IsFiniteVec3(v)) j.m_PulleyFixedPointB = v; }),
                                                   "pulleyRatio", sol::property([](const PhysicsJoint3DComponent& j)
                                                                                { return j.m_PulleyRatio; }, [](PhysicsJoint3DComponent& j, f32 v)
-                                                                               { if (std::isfinite(v)) j.m_PulleyRatio = v; }),
+                                                                               { if (std::isfinite(v)) j.m_PulleyRatio = std::clamp(v, 0.0f, 1.0e9f); }), // length multiplier → non-negative
                                                   "pulleyMinLength", sol::property([](const PhysicsJoint3DComponent& j)
                                                                                    { return j.m_PulleyMinLength; }, [](PhysicsJoint3DComponent& j, f32 v)
-                                                                                   { if (std::isfinite(v)) j.m_PulleyMinLength = v; }),
+                                                                                   { if (std::isfinite(v)) j.m_PulleyMinLength = std::clamp(v, -1.0f, 1.0e9f); }), // -1 = auto-length sentinel
                                                   "pulleyMaxLength", sol::property([](const PhysicsJoint3DComponent& j)
                                                                                    { return j.m_PulleyMaxLength; }, [](PhysicsJoint3DComponent& j, f32 v)
-                                                                                   { if (std::isfinite(v)) j.m_PulleyMaxLength = v; }),
+                                                                                   { if (std::isfinite(v)) j.m_PulleyMaxLength = std::clamp(v, -1.0f, 1.0e9f); }),
                                                   // Gear / RackAndPinion (connected-body axis + ratio) — issue #308 item 4.
                                                   "connectedAxis", sol::property([](const PhysicsJoint3DComponent& j)
                                                                                  { return j.m_ConnectedAxis; }, [](PhysicsJoint3DComponent& j, const glm::vec3& v)

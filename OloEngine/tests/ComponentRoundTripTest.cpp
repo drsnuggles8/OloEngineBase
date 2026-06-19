@@ -909,7 +909,7 @@ namespace OloEngine::Tests
         const f32 expectedPulleyRatio = 2.5f;
         const f32 expectedPulleyMinLength = 0.75f; // within [-1, 1e9]
         const f32 expectedPulleyMaxLength = 12.0f;
-        const glm::vec3 expectedConnectedAxis{ 0.0f, 0.0f, 1.0f };
+        const glm::vec3 expectedConnectedAxis{ 0.25f, -0.5f, 0.75f }; // distinct components catch any axis-order bug
         const f32 expectedGearRatio = -1.5f; // signed: reversed coupling
 
         std::string yaml;
@@ -1005,6 +1005,8 @@ namespace OloEngine::Tests
         EXPECT_NEAR(j.m_PulleyRatio, expectedPulleyRatio, kFloatEpsilon);
         EXPECT_NEAR(j.m_PulleyMinLength, expectedPulleyMinLength, kFloatEpsilon);
         EXPECT_NEAR(j.m_PulleyMaxLength, expectedPulleyMaxLength, kFloatEpsilon);
+        EXPECT_NEAR(j.m_ConnectedAxis.x, expectedConnectedAxis.x, kFloatEpsilon);
+        EXPECT_NEAR(j.m_ConnectedAxis.y, expectedConnectedAxis.y, kFloatEpsilon);
         EXPECT_NEAR(j.m_ConnectedAxis.z, expectedConnectedAxis.z, kFloatEpsilon);
         EXPECT_NEAR(j.m_GearRatio, expectedGearRatio, kFloatEpsilon);
     }

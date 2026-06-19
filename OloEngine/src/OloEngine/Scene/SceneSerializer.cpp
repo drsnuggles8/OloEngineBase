@@ -2604,10 +2604,11 @@ namespace OloEngine
             sanitizeVec3(joint.m_PulleyFixedPointA, -1.0e6f, 1.0e6f, 0.0f);
             sanitizeVec3(joint.m_PulleyFixedPointB, -1.0e6f, 1.0e6f, 0.0f);
             sanitizeVec3(joint.m_ConnectedAxis, -1.0e6f, 1.0e6f, 0.0f);
-            // Ratios are signed scalars (a negative gear ratio is a valid reversed
-            // coupling); only reject non-finite and clamp the magnitude. Pulley
-            // lengths keep -1 as the "auto" sentinel, so their lower clamp is -1.
-            SanitizeFloat(joint.m_PulleyRatio, -1.0e9f, 1.0e9f, 1.0f);
+            // The pulley ratio is a length multiplier (|A| + ratio*|B|), so it
+            // must be non-negative; the gear ratio is signed (a negative value is
+            // a valid reversed coupling). Pulley lengths keep -1 as the "auto =
+            // current length" sentinel, so their lower clamp is -1.
+            SanitizeFloat(joint.m_PulleyRatio, 0.0f, 1.0e9f, 1.0f);
             SanitizeFloat(joint.m_PulleyMinLength, -1.0f, 1.0e9f, 0.0f);
             SanitizeFloat(joint.m_PulleyMaxLength, -1.0f, 1.0e9f, -1.0f);
             SanitizeFloat(joint.m_GearRatio, -1.0e9f, 1.0e9f, 1.0f);

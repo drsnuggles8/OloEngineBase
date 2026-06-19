@@ -1388,7 +1388,11 @@ namespace OloEngine
                     s.mBodyPoint2 = p2;
                     s.mFixedPoint1 = JoltUtils::ToJoltRVec3(joint.m_PulleyFixedPointB);
                     s.mFixedPoint2 = JoltUtils::ToJoltRVec3(joint.m_PulleyFixedPointA);
-                    s.mRatio = SanitizeConstraintRatio(joint.m_PulleyRatio);
+                    // The pulley ratio is a length multiplier, so it must be
+                    // non-negative — the shared SanitizeConstraintRatio passes
+                    // through the negative values a gear coupling may legitimately
+                    // use, so clamp it to [0, 1e9] here.
+                    s.mRatio = std::isfinite(joint.m_PulleyRatio) ? std::clamp(joint.m_PulleyRatio, 0.0f, 1.0e9f) : 1.0f;
                     f32 minLen = SanitizePulleyLength(joint.m_PulleyMinLength, 0.0f);
                     f32 maxLen = SanitizePulleyLength(joint.m_PulleyMaxLength, -1.0f);
                     if (minLen >= 0.0f && maxLen >= 0.0f && minLen > maxLen)
