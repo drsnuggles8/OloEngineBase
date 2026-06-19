@@ -2460,7 +2460,7 @@ namespace OloEngine
 
             // Guard the joint type against an out-of-range enum value on disk.
             if (i32 jointTypeInt = jointComponent["JointType"].as<i32>(std::to_underlying(joint.m_Type));
-                jointTypeInt >= 0 && jointTypeInt <= static_cast<i32>(JointType3D::SixDOF))
+                jointTypeInt >= 0 && jointTypeInt <= static_cast<i32>(JointType3D::RackAndPinion))
             {
                 joint.m_Type = static_cast<JointType3D>(jointTypeInt);
             }
@@ -2541,6 +2541,17 @@ namespace OloEngine
             // states to guard; absent on legacy scenes → keep the true default.
             joint.m_CollideConnected = jointComponent["CollideConnected"].as<bool>(joint.m_CollideConnected);
 
+            // Pulley fixed points (world space) + ratio/length, Gear/RackAndPinion
+            // connected axis + ratio (issue #308 item 4). glm::vec3 decode rejects
+            // non-finite components; floats are sanitized below.
+            joint.m_PulleyFixedPointA = jointComponent["PulleyFixedPointA"].as<glm::vec3>(joint.m_PulleyFixedPointA);
+            joint.m_PulleyFixedPointB = jointComponent["PulleyFixedPointB"].as<glm::vec3>(joint.m_PulleyFixedPointB);
+            joint.m_PulleyRatio = jointComponent["PulleyRatio"].as<f32>(joint.m_PulleyRatio);
+            joint.m_PulleyMinLength = jointComponent["PulleyMinLength"].as<f32>(joint.m_PulleyMinLength);
+            joint.m_PulleyMaxLength = jointComponent["PulleyMaxLength"].as<f32>(joint.m_PulleyMaxLength);
+            joint.m_ConnectedAxis = jointComponent["ConnectedAxis"].as<glm::vec3>(joint.m_ConnectedAxis);
+            joint.m_GearRatio = jointComponent["GearRatio"].as<f32>(joint.m_GearRatio);
+
             // Reject non-finite floats read from disk and clamp to physically/Jolt-valid ranges.
             SanitizeFloat(joint.m_MinDistance, -1.0f, 10000.0f, 0.0f);
             SanitizeFloat(joint.m_MaxDistance, -1.0f, 10000.0f, 1.0f);
@@ -2588,6 +2599,18 @@ namespace OloEngine
             sanitizeVec3(joint.m_SixDOFTranslationMax, -10000.0f, 10000.0f, 0.5f);
             sanitizeVec3(joint.m_SixDOFRotationMinDeg, -180.0f, 180.0f, -45.0f);
             sanitizeVec3(joint.m_SixDOFRotationMaxDeg, -180.0f, 180.0f, 45.0f);
+            // Pulley + Gear/RackAndPinion. Fixed points are world coords; the
+            // vec3 decode already rejected non-finite, so clamp absurd magnitudes.
+            sanitizeVec3(joint.m_PulleyFixedPointA, -1.0e6f, 1.0e6f, 0.0f);
+            sanitizeVec3(joint.m_PulleyFixedPointB, -1.0e6f, 1.0e6f, 0.0f);
+            sanitizeVec3(joint.m_ConnectedAxis, -1.0e6f, 1.0e6f, 0.0f);
+            // Ratios are signed scalars (a negative gear ratio is a valid reversed
+            // coupling); only reject non-finite and clamp the magnitude. Pulley
+            // lengths keep -1 as the "auto" sentinel, so their lower clamp is -1.
+            SanitizeFloat(joint.m_PulleyRatio, -1.0e9f, 1.0e9f, 1.0f);
+            SanitizeFloat(joint.m_PulleyMinLength, -1.0f, 1.0e9f, 0.0f);
+            SanitizeFloat(joint.m_PulleyMaxLength, -1.0f, 1.0e9f, -1.0f);
+            SanitizeFloat(joint.m_GearRatio, -1.0e9f, 1.0e9f, 1.0f);
         }
 
         if (auto relComponent = entity["RelationshipComponent"]; relComponent)
@@ -4566,6 +4589,14 @@ namespace OloEngine
             out << YAML::Key << "SixDOFRotationMinDeg" << YAML::Value << joint.m_SixDOFRotationMinDeg;
             out << YAML::Key << "SixDOFRotationMaxDeg" << YAML::Value << joint.m_SixDOFRotationMaxDeg;
             out << YAML::Key << "CollideConnected" << YAML::Value << joint.m_CollideConnected;
+            // Pulley (world-space fixed points) + Gear / RackAndPinion (issue #308 item 4).
+            out << YAML::Key << "PulleyFixedPointA" << YAML::Value << joint.m_PulleyFixedPointA;
+            out << YAML::Key << "PulleyFixedPointB" << YAML::Value << joint.m_PulleyFixedPointB;
+            out << YAML::Key << "PulleyRatio" << YAML::Value << joint.m_PulleyRatio;
+            out << YAML::Key << "PulleyMinLength" << YAML::Value << joint.m_PulleyMinLength;
+            out << YAML::Key << "PulleyMaxLength" << YAML::Value << joint.m_PulleyMaxLength;
+            out << YAML::Key << "ConnectedAxis" << YAML::Value << joint.m_ConnectedAxis;
+            out << YAML::Key << "GearRatio" << YAML::Value << joint.m_GearRatio;
 
             out << YAML::EndMap; // PhysicsJoint3DComponent
         }

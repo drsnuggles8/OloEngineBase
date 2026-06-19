@@ -859,6 +859,39 @@ namespace OloEngine
                 c.m_CollideConnected = true;
             else
                 ar << c.m_CollideConnected;
+
+            // Pulley + Gear/RackAndPinion tail (issue #308 item 4). Archives
+            // written before these constraint types existed end after the
+            // CollideConnected flag, so default to the field defaults (a 1:1
+            // rope that can contract but not extend, and a +Y connected axis).
+            if (ar.AtEnd())
+            {
+                c.m_PulleyFixedPointA = glm::vec3(0.0f);
+                c.m_PulleyFixedPointB = glm::vec3(0.0f);
+                c.m_PulleyRatio = 1.0f;
+                c.m_PulleyMinLength = 0.0f;
+                c.m_PulleyMaxLength = -1.0f;
+                c.m_ConnectedAxis = glm::vec3(0.0f, 1.0f, 0.0f);
+                c.m_GearRatio = 1.0f;
+            }
+            else
+            {
+                ar << c.m_PulleyFixedPointA << c.m_PulleyFixedPointB
+                   << c.m_PulleyRatio << c.m_PulleyMinLength << c.m_PulleyMaxLength;
+                ar << c.m_ConnectedAxis << c.m_GearRatio;
+            }
+
+            // Sanitize untrusted on-disk values. Fixed points / connected axis are
+            // world-space vec3 (reject non-finite, clamp absurd magnitudes); the
+            // ratios are signed scalars (clampAngle here is just finite+clamp with
+            // a fallback); pulley lengths keep -1 as the "auto length" sentinel.
+            clampVec3(c.m_PulleyFixedPointA, -1.0e6f, 1.0e6f, 0.0f);
+            clampVec3(c.m_PulleyFixedPointB, -1.0e6f, 1.0e6f, 0.0f);
+            clampVec3(c.m_ConnectedAxis, -1.0e6f, 1.0e6f, 0.0f);
+            clampAngle(c.m_PulleyRatio, -1.0e9f, 1.0e9f, 1.0f);
+            clampAngle(c.m_PulleyMinLength, -1.0f, 1.0e9f, 0.0f);
+            clampAngle(c.m_PulleyMaxLength, -1.0f, 1.0e9f, -1.0f);
+            clampAngle(c.m_GearRatio, -1.0e9f, 1.0e9f, 1.0f);
         }
         else
         {
@@ -876,6 +909,9 @@ namespace OloEngine
             ar << c.m_SixDOFTranslationMin << c.m_SixDOFTranslationMax
                << c.m_SixDOFRotationMinDeg << c.m_SixDOFRotationMaxDeg;
             ar << c.m_CollideConnected;
+            ar << c.m_PulleyFixedPointA << c.m_PulleyFixedPointB
+               << c.m_PulleyRatio << c.m_PulleyMinLength << c.m_PulleyMaxLength;
+            ar << c.m_ConnectedAxis << c.m_GearRatio;
         }
         // m_RuntimeConstraintToken is a runtime Jolt handle — not serialized.
     }

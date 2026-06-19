@@ -1081,7 +1081,7 @@ namespace OloEngine
         lua.new_usertype<PhysicsJoint3DComponent>("PhysicsJoint3DComponent",
                                                   "jointType", sol::property([](const PhysicsJoint3DComponent& j) -> int
                                                                              { return std::to_underlying(j.m_Type); }, [](PhysicsJoint3DComponent& j, int v)
-                                                                             { if (v >= 0 && v <= static_cast<int>(JointType3D::SixDOF)) j.m_Type = static_cast<JointType3D>(v); }),
+                                                                             { if (v >= 0 && v <= static_cast<int>(JointType3D::RackAndPinion)) j.m_Type = static_cast<JointType3D>(v); }),
                                                   "connectedEntity", sol::property([](const PhysicsJoint3DComponent& j)
                                                                                    { return static_cast<u64>(j.m_ConnectedEntity); }, [](PhysicsJoint3DComponent& j, u64 v)
                                                                                    { j.m_ConnectedEntity = UUID(v); }),
@@ -1224,7 +1224,30 @@ namespace OloEngine
                                                                                         { if (IsFiniteVec3(v)) j.m_SixDOFRotationMaxDeg = v; }),
                                                   "collideConnected", sol::property([](const PhysicsJoint3DComponent& j)
                                                                                     { return j.m_CollideConnected; }, [](PhysicsJoint3DComponent& j, bool v)
-                                                                                    { j.m_CollideConnected = v; }));
+                                                                                    { j.m_CollideConnected = v; }),
+                                                  // Pulley (world-space fixed points + ratio/length) — issue #308 item 4.
+                                                  "pulleyFixedPointA", sol::property([](const PhysicsJoint3DComponent& j)
+                                                                                     { return j.m_PulleyFixedPointA; }, [](PhysicsJoint3DComponent& j, const glm::vec3& v)
+                                                                                     { if (IsFiniteVec3(v)) j.m_PulleyFixedPointA = v; }),
+                                                  "pulleyFixedPointB", sol::property([](const PhysicsJoint3DComponent& j)
+                                                                                     { return j.m_PulleyFixedPointB; }, [](PhysicsJoint3DComponent& j, const glm::vec3& v)
+                                                                                     { if (IsFiniteVec3(v)) j.m_PulleyFixedPointB = v; }),
+                                                  "pulleyRatio", sol::property([](const PhysicsJoint3DComponent& j)
+                                                                               { return j.m_PulleyRatio; }, [](PhysicsJoint3DComponent& j, f32 v)
+                                                                               { if (std::isfinite(v)) j.m_PulleyRatio = v; }),
+                                                  "pulleyMinLength", sol::property([](const PhysicsJoint3DComponent& j)
+                                                                                   { return j.m_PulleyMinLength; }, [](PhysicsJoint3DComponent& j, f32 v)
+                                                                                   { if (std::isfinite(v)) j.m_PulleyMinLength = v; }),
+                                                  "pulleyMaxLength", sol::property([](const PhysicsJoint3DComponent& j)
+                                                                                   { return j.m_PulleyMaxLength; }, [](PhysicsJoint3DComponent& j, f32 v)
+                                                                                   { if (std::isfinite(v)) j.m_PulleyMaxLength = v; }),
+                                                  // Gear / RackAndPinion (connected-body axis + ratio) — issue #308 item 4.
+                                                  "connectedAxis", sol::property([](const PhysicsJoint3DComponent& j)
+                                                                                 { return j.m_ConnectedAxis; }, [](PhysicsJoint3DComponent& j, const glm::vec3& v)
+                                                                                 { if (IsFiniteVec3(v)) j.m_ConnectedAxis = v; }),
+                                                  "gearRatio", sol::property([](const PhysicsJoint3DComponent& j)
+                                                                             { return j.m_GearRatio; }, [](PhysicsJoint3DComponent& j, f32 v)
+                                                                             { if (std::isfinite(v)) j.m_GearRatio = v; }));
 
         // --- PrefabComponent ---
         // Read-only window into prefab-instance identity & override state.

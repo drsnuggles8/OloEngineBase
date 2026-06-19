@@ -928,6 +928,156 @@ TEST_F(PhysicsJoint3DTest, SixDOFLimitedTranslationStopsAtBound)
     EXPECT_TRUE(std::isfinite(p.x) && std::isfinite(p.y) && std::isfinite(p.z));
 }
 
+// =============================================================================
+// Pulley (issue #308 item 4). Two bodies hang from two fixed world-space points;
+// the rope keeps |A-FixedA| + Ratio*|B-FixedB| within [Min, Max]. A heavier body
+// descends and, through the taut rope, LIFTS the lighter body — which a free body
+// would never do (it would fall). The segment-length sum is conserved.
+// =============================================================================
+TEST_F(PhysicsJoint3DTest, PulleyLiftsLighterBodyAsHeavierBodyDescends)
+{
+    const glm::vec3 fixedA{ 0.0f, 8.0f, 0.0f }; // pulley point above the heavy body
+    const glm::vec3 fixedB{ 3.0f, 8.0f, 0.0f }; // pulley point above the light body
+    Entity heavy = MakeBox("PulleyHeavy", { 0.0f, 5.0f, 0.0f }, BodyType3D::Dynamic, 0.2f);
+    Entity light = MakeBox("PulleyLight", { 3.0f, 5.0f, 0.0f }, BodyType3D::Dynamic, 0.2f);
+    heavy.GetComponent<Rigidbody3DComponent>().m_Mass = 2.0f; // imbalance → heavy hauls light up
+
+    auto& joint = heavy.AddComponent<PhysicsJoint3DComponent>();
+    joint.m_Type = JointType3D::Pulley;
+    joint.m_ConnectedEntity = light.GetUUID();
+    // Anchors default to each body centre; fixed points are authored in world space.
+    joint.m_PulleyFixedPointA = fixedA; // this body (heavy)
+    joint.m_PulleyFixedPointB = fixedB; // connected body (light)
+    joint.m_PulleyRatio = 1.0f;
+    joint.m_PulleyMinLength = 0.0f;
+    joint.m_PulleyMaxLength = -1.0f; // auto = current total (3 + 3 = 6) → contract-only rope
+
+    EnablePhysics3D();
+    const glm::vec3 startHeavy = Pos(heavy);
+    const glm::vec3 startLight = Pos(light);
+    const f32 initialSum = glm::distance(startHeavy, fixedA) + glm::distance(startLight, fixedB);
+
+    f32 maxSum = initialSum;
+    f32 maxLateral = 0.0f;
+    for (int i = 0; i < 60; ++i) // 1 s — well before the light body reaches its pulley point
+    {
+        RunFrames(1);
+        const f32 sum = glm::distance(Pos(heavy), fixedA) + glm::distance(Pos(light), fixedB);
+        maxSum = std::max(maxSum, sum);
+        maxLateral = std::max(maxLateral, std::max(std::abs(Pos(heavy).x - startHeavy.x), std::abs(Pos(light).x - startLight.x)));
+    }
+
+    const glm::vec3 endHeavy = Pos(heavy);
+    const glm::vec3 endLight = Pos(light);
+    // Heavy side descended; light side ROSE (a free body would fall instead).
+    EXPECT_LT(endHeavy.y, startHeavy.y - 0.3f) << "heavy body did not descend; y=" << endHeavy.y;
+    EXPECT_GT(endLight.y, startLight.y + 0.3f) << "pulley did not lift the light body; y=" << endLight.y;
+    // Rope max-length held: the segment sum never grew past its starting value.
+    EXPECT_LT(maxSum, initialSum + 0.2f) << "rope stretched past its max length; maxSum=" << maxSum;
+    // Conservation (ratio 1): how far the heavy fell ≈ how far the light rose.
+    EXPECT_NEAR(startHeavy.y - endHeavy.y, endLight.y - startLight.y, 0.35f)
+        << "rope did not conserve length (rise != fall)";
+    EXPECT_LT(maxLateral, 0.3f) << "bodies swung off their vertical drop; maxLateral=" << maxLateral;
+    EXPECT_TRUE(std::isfinite(endHeavy.y) && std::isfinite(endLight.y));
+}
+
+// =============================================================================
+// Gear (issue #308 item 4), body-to-body v1 form. Couples two bodies' rotation
+// about their axes by a ratio: connectedRotation = -ratio * thisRotation. With
+// gravity off and only an initial spin on gear A, the gear must drive gear B in
+// the OPPOSITE direction at the authored ratio — a free gear B never moves.
+// =============================================================================
+TEST_F(PhysicsJoint3DTest, GearCouplesRotationByRatio)
+{
+    Entity gearA = MakeBox("GearA", { 0.0f, 3.0f, 0.0f }, BodyType3D::Dynamic, 0.2f);
+    Entity gearB = MakeBox("GearB", { 2.0f, 3.0f, 0.0f }, BodyType3D::Dynamic, 0.2f);
+    auto& rbA = gearA.GetComponent<Rigidbody3DComponent>();
+    rbA.m_DisableGravity = true;                         // isolate the gear coupling
+    rbA.m_InitialAngularVelocity = { 0.0f, 0.0f, 3.0f }; // spin gear A about Z
+    gearB.GetComponent<Rigidbody3DComponent>().m_DisableGravity = true;
+
+    auto& joint = gearA.AddComponent<PhysicsJoint3DComponent>();
+    joint.m_Type = JointType3D::Gear;
+    joint.m_ConnectedEntity = gearB.GetUUID();
+    joint.m_Axis = { 0.0f, 0.0f, 1.0f };          // gear A spins about Z
+    joint.m_ConnectedAxis = { 0.0f, 0.0f, 1.0f }; // gear B spins about Z
+    joint.m_GearRatio = 2.0f;                     // B spins twice as fast, opposite sense
+
+    EnablePhysics3D();
+
+    // Signed rotation about Z from a (near-pure-Z) orientation quaternion.
+    const auto zAngle = [](Entity e)
+    {
+        const glm::quat q = e.GetComponent<TransformComponent>().GetRotation();
+        return 2.0f * std::atan2(q.z, q.w);
+    };
+
+    f32 angleA = 0.0f;
+    f32 angleB = 0.0f;
+    for (int i = 0; i < 30; ++i) // 0.5 s — both stay well within ±pi (no wrap)
+    {
+        RunFrames(1);
+        angleA = zAngle(gearA);
+        angleB = zAngle(gearB);
+    }
+
+    // A free gear B never rotates; the gear must spin it the opposite way.
+    EXPECT_GT(angleA, 0.1f) << "gear A did not keep spinning; angleA=" << angleA;
+    EXPECT_LT(angleB, -0.1f) << "gear did not counter-rotate gear B; angleB=" << angleB;
+    // Ratio 2: the velocity constraint holds every step, so |angleB| ≈ 2·|angleA|.
+    EXPECT_NEAR(std::abs(angleB) / std::abs(angleA), 2.0f, 0.4f)
+        << "gear ratio not honoured; angleA=" << angleA << " angleB=" << angleB;
+}
+
+// =============================================================================
+// RackAndPinion (issue #308 item 4), body-to-body v1 form. The CONNECTED body is
+// the pinion (rotates about m_ConnectedAxis); THIS body is the rack (slides along
+// m_Axis): pinionRotation = ratio * rackTranslation. Pushing the rack along its
+// axis must spin the pinion — a free pinion never moves — by ratio·displacement.
+// =============================================================================
+TEST_F(PhysicsJoint3DTest, RackAndPinionCouplesRackSlideToPinionSpin)
+{
+    Entity pinion = MakeBox("Pinion", { 0.0f, 3.0f, 0.0f }, BodyType3D::Dynamic, 0.2f);
+    Entity rack = MakeBox("Rack", { 0.0f, 1.5f, 0.0f }, BodyType3D::Dynamic, 0.2f);
+    pinion.GetComponent<Rigidbody3DComponent>().m_DisableGravity = true;
+    auto& rbRack = rack.GetComponent<Rigidbody3DComponent>();
+    rbRack.m_DisableGravity = true;
+    rbRack.m_InitialLinearVelocity = { 1.0f, 0.0f, 0.0f }; // push the rack along +X
+
+    auto& joint = rack.AddComponent<PhysicsJoint3DComponent>();
+    joint.m_Type = JointType3D::RackAndPinion;
+    joint.m_ConnectedEntity = pinion.GetUUID();   // the connected body is the pinion
+    joint.m_Axis = { 1.0f, 0.0f, 0.0f };          // rack slides along X
+    joint.m_ConnectedAxis = { 0.0f, 0.0f, 1.0f }; // pinion spins about Z
+    joint.m_GearRatio = 2.0f;                     // 2 rad of pinion per metre of rack
+
+    EnablePhysics3D();
+    const f32 startRackX = Pos(rack).x;
+
+    const auto zAngle = [](Entity e)
+    {
+        const glm::quat q = e.GetComponent<TransformComponent>().GetRotation();
+        return 2.0f * std::atan2(q.z, q.w);
+    };
+
+    f32 rackDx = 0.0f;
+    f32 pinionAngle = 0.0f;
+    for (int i = 0; i < 40; ++i) // ~0.67 s — pinion stays under ±pi
+    {
+        RunFrames(1);
+        rackDx = Pos(rack).x - startRackX;
+        pinionAngle = zAngle(pinion);
+    }
+
+    // A free pinion never rotates; the rack's slide must spin it.
+    EXPECT_GT(rackDx, 0.2f) << "rack did not slide along +X; dx=" << rackDx;
+    EXPECT_GT(std::abs(pinionAngle), 0.2f) << "rack&pinion did not rotate the pinion; angle=" << pinionAngle;
+    // Position constraint: |pinionAngle| ≈ ratio · rackDisplacement.
+    EXPECT_NEAR(std::abs(pinionAngle), 2.0f * rackDx, 0.3f)
+        << "rack&pinion ratio not honoured; dx=" << rackDx << " angle=" << pinionAngle;
+    EXPECT_TRUE(std::isfinite(rackDx) && std::isfinite(pinionAngle));
+}
+
 // -----------------------------------------------------------------------------
 // Save-game round-trip — the authored joint data must survive
 // CaptureSceneState → RestoreSceneState (exercises SaveGameComponentSerializer).
@@ -980,6 +1130,14 @@ TEST_F(PhysicsJoint3DTest, ComponentSurvivesSaveGameRoundTrip)
     j.m_SixDOFTranslationMax = { 1.5f, 0.75f, 2.5f };
     j.m_SixDOFRotationMinDeg = { -60.0f, -30.0f, -15.0f };
     j.m_SixDOFRotationMaxDeg = { 60.0f, 90.0f, 45.0f };
+    // Pulley + Gear/RackAndPinion fields (issue #308 item 4).
+    j.m_PulleyFixedPointA = { 1.25f, 6.5f, -0.75f };
+    j.m_PulleyFixedPointB = { -2.0f, 7.0f, 1.5f };
+    j.m_PulleyRatio = 3.0f;
+    j.m_PulleyMinLength = 0.5f;
+    j.m_PulleyMaxLength = 9.0f;
+    j.m_ConnectedAxis = { 0.0f, 0.0f, 1.0f };
+    j.m_GearRatio = -2.5f; // signed: a valid reversed coupling
 
     auto payload = SaveGameSerializer::CaptureSceneState(GetScene());
     ASSERT_GT(payload.size(), 0u);
@@ -1046,4 +1204,16 @@ TEST_F(PhysicsJoint3DTest, ComponentSurvivesSaveGameRoundTrip)
     EXPECT_NEAR(rj.m_SixDOFRotationMaxDeg.x, 60.0f, kEps);
     EXPECT_NEAR(rj.m_SixDOFRotationMaxDeg.y, 90.0f, kEps);
     EXPECT_NEAR(rj.m_SixDOFRotationMaxDeg.z, 45.0f, kEps);
+    // Pulley + Gear/RackAndPinion fields (issue #308 item 4).
+    EXPECT_NEAR(rj.m_PulleyFixedPointA.x, 1.25f, kEps);
+    EXPECT_NEAR(rj.m_PulleyFixedPointA.y, 6.5f, kEps);
+    EXPECT_NEAR(rj.m_PulleyFixedPointA.z, -0.75f, kEps);
+    EXPECT_NEAR(rj.m_PulleyFixedPointB.x, -2.0f, kEps);
+    EXPECT_NEAR(rj.m_PulleyFixedPointB.y, 7.0f, kEps);
+    EXPECT_NEAR(rj.m_PulleyFixedPointB.z, 1.5f, kEps);
+    EXPECT_NEAR(rj.m_PulleyRatio, 3.0f, kEps);
+    EXPECT_NEAR(rj.m_PulleyMinLength, 0.5f, kEps);
+    EXPECT_NEAR(rj.m_PulleyMaxLength, 9.0f, kEps);
+    EXPECT_NEAR(rj.m_ConnectedAxis.z, 1.0f, kEps);
+    EXPECT_NEAR(rj.m_GearRatio, -2.5f, kEps);
 }

@@ -903,6 +903,14 @@ namespace OloEngine::Tests
         const f32 expectedHingeSpringDamping = 0.7f;
         const f32 expectedSliderSpringFreq = 3.0f;
         const f32 expectedSliderSpringDamping = 1.1f; // overdamped is valid
+        // Pulley + Gear/RackAndPinion (issue #308 item 4).
+        const glm::vec3 expectedPulleyFixedA{ 2.5f, -1.0f, 0.5f };
+        const glm::vec3 expectedPulleyFixedB{ -3.0f, 4.0f, -2.5f };
+        const f32 expectedPulleyRatio = 2.5f;
+        const f32 expectedPulleyMinLength = 0.75f; // within [-1, 1e9]
+        const f32 expectedPulleyMaxLength = 12.0f;
+        const glm::vec3 expectedConnectedAxis{ 0.0f, 0.0f, 1.0f };
+        const f32 expectedGearRatio = -1.5f; // signed: reversed coupling
 
         std::string yaml;
         {
@@ -937,6 +945,13 @@ namespace OloEngine::Tests
             j.m_HingeLimitSpringDamping = expectedHingeSpringDamping;
             j.m_SliderLimitSpringFrequency = expectedSliderSpringFreq;
             j.m_SliderLimitSpringDamping = expectedSliderSpringDamping;
+            j.m_PulleyFixedPointA = expectedPulleyFixedA;
+            j.m_PulleyFixedPointB = expectedPulleyFixedB;
+            j.m_PulleyRatio = expectedPulleyRatio;
+            j.m_PulleyMinLength = expectedPulleyMinLength;
+            j.m_PulleyMaxLength = expectedPulleyMaxLength;
+            j.m_ConnectedAxis = expectedConnectedAxis;
+            j.m_GearRatio = expectedGearRatio;
             yaml = SceneSerializer(scene).SerializeToYAML();
         }
 
@@ -981,6 +996,17 @@ namespace OloEngine::Tests
         EXPECT_NEAR(j.m_HingeLimitSpringDamping, expectedHingeSpringDamping, kFloatEpsilon);
         EXPECT_NEAR(j.m_SliderLimitSpringFrequency, expectedSliderSpringFreq, kFloatEpsilon);
         EXPECT_NEAR(j.m_SliderLimitSpringDamping, expectedSliderSpringDamping, kFloatEpsilon);
+        EXPECT_NEAR(j.m_PulleyFixedPointA.x, expectedPulleyFixedA.x, kFloatEpsilon);
+        EXPECT_NEAR(j.m_PulleyFixedPointA.y, expectedPulleyFixedA.y, kFloatEpsilon);
+        EXPECT_NEAR(j.m_PulleyFixedPointA.z, expectedPulleyFixedA.z, kFloatEpsilon);
+        EXPECT_NEAR(j.m_PulleyFixedPointB.x, expectedPulleyFixedB.x, kFloatEpsilon);
+        EXPECT_NEAR(j.m_PulleyFixedPointB.y, expectedPulleyFixedB.y, kFloatEpsilon);
+        EXPECT_NEAR(j.m_PulleyFixedPointB.z, expectedPulleyFixedB.z, kFloatEpsilon);
+        EXPECT_NEAR(j.m_PulleyRatio, expectedPulleyRatio, kFloatEpsilon);
+        EXPECT_NEAR(j.m_PulleyMinLength, expectedPulleyMinLength, kFloatEpsilon);
+        EXPECT_NEAR(j.m_PulleyMaxLength, expectedPulleyMaxLength, kFloatEpsilon);
+        EXPECT_NEAR(j.m_ConnectedAxis.z, expectedConnectedAxis.z, kFloatEpsilon);
+        EXPECT_NEAR(j.m_GearRatio, expectedGearRatio, kFloatEpsilon);
     }
 
     // -------------------------------------------------------------------------
