@@ -10,21 +10,19 @@
 
 namespace OloEngine::Tests
 {
-    namespace
-    {
-        // Track whether Renderer::Init has been called this process so
-        // that running multiple RendererAttachedTest-derived suites
-        // in one binary doesn't double-init.
-        //
-        // The matching teardown is NOT here: `Renderer3D::s_Data` is a static
-        // holding GL-resource `Ref<>`s that would SIGSEGV if left to destruct
-        // at process exit on a dead GL context. The test `main()`
-        // (OloEngineTest.cpp) calls `Renderer::Shutdown()` after
-        // RUN_ALL_TESTS() — while the shared GL context is still current —
-        // which releases those resources for the whole binary. We only need
-        // to lazily bring the renderer up here.
-        bool s_RendererInitialised = false;
-    } // namespace
+    // The process-wide renderer is brought up lazily (see SetUp). We dedup on
+    // the authoritative `Renderer3D::IsInitialized()` rather than a private
+    // static so that *any* suite which brings the renderer up — this fixture
+    // OR the standalone `AssetSceneLoad` test — is seen by every other, no
+    // matter the run order. A private flag would let a second initialiser
+    // double-init Renderer3D if it ran first.
+    //
+    // The matching teardown is NOT here: `Renderer3D::s_Data` is a static
+    // holding GL-resource `Ref<>`s that would SIGSEGV if left to destruct
+    // at process exit on a dead GL context. The test `main()`
+    // (OloEngineTest.cpp) calls `Renderer::Shutdown()` after
+    // RUN_ALL_TESTS() — while the shared GL context is still current —
+    // which releases those resources for the whole binary.
 
     void RendererAttachedTest::SetUpTestSuite()
     {
@@ -52,10 +50,9 @@ namespace OloEngine::Tests
                             "(CI without GPU or headless server).";
         }
 
-        if (!s_RendererInitialised)
+        if (!Renderer3D::IsInitialized())
         {
             Renderer::Init(RendererType::Renderer3D, /*loadingWindow=*/nullptr);
-            s_RendererInitialised = true;
         }
 
         // Snapshot the process-wide renderer configuration before BuildScene

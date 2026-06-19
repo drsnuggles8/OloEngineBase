@@ -419,6 +419,15 @@ namespace OloEngine
         static void Init();
         static void Shutdown();
 
+        // True once Init() has run (and before Shutdown()). Lets a caller that
+        // doesn't own the manager — e.g. a test fixture sharing the process
+        // with a renderer that already brought it up — reuse it instead of
+        // re-Init()-ing (which asserts).
+        static bool IsInitialized()
+        {
+            return s_Buffer != nullptr;
+        }
+
         static FrameDataBuffer& Get();
 
       private:

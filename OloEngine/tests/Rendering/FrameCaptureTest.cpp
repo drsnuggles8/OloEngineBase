@@ -317,7 +317,12 @@ class FrameCapturePipelineTest : public ::testing::Test
   protected:
     void SetUp() override
     {
-        FrameDataBufferManager::Init();
+        // Reuse a manager an earlier renderer test already brought up rather
+        // than re-Init()-ing it (which asserts). Only own/shutdown what we
+        // initialise — see FrameDataBufferFixture for the full rationale.
+        m_OwnsFrameData = !FrameDataBufferManager::IsInitialized();
+        if (m_OwnsFrameData)
+            FrameDataBufferManager::Init();
         FrameDataBufferManager::Get().Reset();
         m_Allocator = std::make_unique<CommandAllocator>();
 
@@ -335,8 +340,11 @@ class FrameCapturePipelineTest : public ::testing::Test
         mgr.ClearCaptures();
         mgr.SetSelectedFrameIndex(-1);
         m_Allocator.reset();
-        FrameDataBufferManager::Shutdown();
+        if (m_OwnsFrameData)
+            FrameDataBufferManager::Shutdown();
     }
+
+    bool m_OwnsFrameData = false;
 
     /// Build a bucket with N draw commands + 1 state command, sort it, return it.
     CommandBucket MakeTestBucket(u32 drawCount = 5) const
