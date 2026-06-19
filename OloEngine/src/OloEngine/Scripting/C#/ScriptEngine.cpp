@@ -436,7 +436,13 @@ namespace OloEngine
 
     Ref<ScriptClass> ScriptEngine::GetEntityClass(const std::string& name)
     {
-        if (!s_Data->EntityClasses.contains(name))
+        // s_Data is null until ScriptEngine::Init() runs. Callers on the
+        // headless deserialise path (tests, offline tools, a scripting-disabled
+        // runtime) legitimately query for a class before scripting is up —
+        // treat "engine not initialised" as "class not found" instead of
+        // dereferencing null. SceneSerializer relies on this nullptr to skip a
+        // ScriptComponent's field block when the C# engine isn't running.
+        if (!s_Data || !s_Data->EntityClasses.contains(name))
         {
             return nullptr;
         }

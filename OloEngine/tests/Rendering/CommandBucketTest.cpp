@@ -342,15 +342,24 @@ class CommandBucketBatchTest : public CommandBucketTest
     void SetUp() override
     {
         CommandBucketTest::SetUp();
-        FrameDataBufferManager::Init();
+        // Reuse a manager an earlier renderer test already brought up rather
+        // than re-Init()-ing it (which asserts). Only own/shutdown what we
+        // initialise — see FrameDataBufferFixture for the full rationale.
+        m_OwnsFrameData = !FrameDataBufferManager::IsInitialized();
+        if (m_OwnsFrameData)
+            FrameDataBufferManager::Init();
         FrameDataBufferManager::Get().Reset();
     }
 
     void TearDown() override
     {
-        FrameDataBufferManager::Shutdown();
+        if (m_OwnsFrameData)
+            FrameDataBufferManager::Shutdown();
         CommandBucketTest::TearDown();
     }
+
+  private:
+    bool m_OwnsFrameData = false;
 };
 
 TEST_F(CommandBucketBatchTest, BatchConvertsMeshToInstanced)

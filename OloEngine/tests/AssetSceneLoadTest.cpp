@@ -31,24 +31,26 @@
 //   - Missing required asset handles that the deserialiser does
 //     dereference (mesh primitives, default fonts, etc.).
 //
-// *** Current limitation ***
-// --------------------------
-// The test is `DISABLED_` because production deserialisers for
-// MeshComponent / AnimationStateComponent / SkeletonComponent /
-// ParticleComponent reach into Renderer3D state that's only valid
-// after `Renderer::Init()` has run. Loading `AnimationIKTest.olo`
-// SEH-crashes immediately after deserialising the Floor entity's
-// mesh data — the next component's deserialiser dereferences null.
+// Renderer dependency (why this needs a GL context, like the visual tests)
+// ------------------------------------------------------------------------
+// Deserialising a scene through the production path eagerly builds GPU
+// resources: `MeshComponent` primitives and animated/static models call
+// `MeshSource::Build()` (`glCreateVertexArrays` / `glCreate*Buffer`),
+// material/texture handles call `Texture2D::Create()`, text components call
+// `Font::Create()` (atlas upload), shader-graph materials compile shaders.
+// Every one of those needs a live GL 4.6 context (the function pointers are
+// only loaded after a context is current). Run headless, the first such call
+// is a null function-pointer dereference — `AnimationIKTest.olo` SEH-crashes
+// (0xc0000005) inside `MeshSource::Build()` right after the Floor plane's
+// `OptimizeMesh`, at the first `VertexBuffer::Create`.
 //
-// This is the same engine-side coupling documented in
-// `RendererAttachedTest`. The right unblock is a single engine
-// refactor: have the mesh / animation / particle component
-// deserialisers null-check the renderer state (or be re-entrant
-// post-`Renderer::Init`) so deserialisation works headlessly.
-//
-// To re-enable: filter in with `--gtest_also_run_disabled_tests
-// --gtest_filter=AssetSceneLoad.*`. Then expect failures until the
-// renderer-state refactor lands.
+// This is the SAME GL-context coupling the `RendererAttachedTest` /
+// visual-evidence tests have — not a deserialiser-specific bug — so the test
+// is no longer `DISABLED_`. Like those tests, it brings the process-wide
+// renderer up (when a GL 4.6 context exists) and exercises the full editor
+// "File → Open Scene" path; on a headless box with no GPU it `GTEST_SKIP`s
+// cleanly. The deserialise loop is wrapped in a `GLStateGuard(Restore)` so the
+// GPU resources it creates can't poison later GPU tests in the same process.
 // =============================================================================
 
 #include "OloEnginePCH.h"
@@ -57,8 +59,14 @@
 
 #include "OloEngine/Asset/AssetManager/EditorAssetManager.h"
 #include "OloEngine/Project/Project.h"
+#include "OloEngine/Renderer/Debug/GLStateGuard.h"
+#include "OloEngine/Renderer/Renderer.h"
+#include "OloEngine/Renderer/Renderer3D.h"
+#include "OloEngine/Renderer/RendererTypes.h"
 #include "OloEngine/Scene/Scene.h"
 #include "OloEngine/Scene/SceneSerializer.h"
+
+#include "Rendering/PropertyTests/RenderPropertyTest.h"
 
 #include <algorithm>
 #include <filesystem>
@@ -122,8 +130,29 @@ namespace OloEngine::Tests
         }
     } // namespace
 
-    TEST(AssetSceneLoad, DISABLED_AllSandboxScenesDeserialiseThroughEditorAssetManager)
+    TEST(AssetSceneLoad, AllSandboxScenesDeserialiseThroughEditorAssetManager)
     {
+        // The full deserialise path builds GPU resources (meshes, textures,
+        // fonts, shader-graph shaders), so it needs a live GL 4.6 context.
+        // Skip cleanly on a headless box — same gate as the visual-evidence
+        // tests — so this never *fails* CI without a GPU.
+        OLO_ENSURE_GPU_OR_SKIP();
+
+        // Bring the process-wide renderer up once (idempotent across suites via
+        // Renderer3D::IsInitialized — see RendererAttachedTest). Required so the
+        // shader library / default materials a scene may resolve are present,
+        // matching the editor's state on "File → Open Scene". Teardown is the
+        // process-wide Renderer::Shutdown in the test main(), not here.
+        if (!Renderer3D::IsInitialized())
+        {
+            Renderer::Init(RendererType::Renderer3D, /*loadingWindow=*/nullptr);
+        }
+
+        // Contain the GPU bindings the deserialise loop creates (bound VAO /
+        // buffers / textures) so they can't poison later GPU tests in the
+        // shared process+context.
+        GLStateGuard glGuard("AssetSceneLoad.Deserialize", GLStateGuard::Policy::Restore);
+
         const fs::path tempRoot = StageSandboxProjectIntoTemp();
         ASSERT_FALSE(tempRoot.empty())
             << "Failed to stage SandboxProject into temp dir.";
@@ -148,8 +177,29 @@ namespace OloEngine::Tests
             << "Project::Load failed on staged temp project.";
 
         auto assetManager = Ref<EditorAssetManager>::Create();
-        assetManager->Initialize();
+        // No file watcher: this test only reads. A watcher would spawn a
+        // background thread on the temp dir we delete at scope exit.
+        assetManager->Initialize(/*startFileWatcher=*/false);
         Project::SetAssetManager(assetManager);
+
+        // Deserialising loads GPU assets (textures / meshes / fonts) INTO the
+        // asset manager, which Project holds in a static Ref. Left to destruct
+        // at process exit, those GPU Refs free GL objects after the renderer's
+        // memory-tracker / FrameResourceManager singletons are gone — the same
+        // SIGSEGV the test main() avoids for the renderer statics. Release them
+        // here, while the GL context and those singletons are still alive.
+        // Declared AFTER `cleanup` so it destructs FIRST: Shutdown serialises
+        // the registry back to the temp project, which must happen before the
+        // temp dir is removed.
+        struct AssetManagerShutdown
+        {
+            Ref<EditorAssetManager> Mgr;
+            ~AssetManagerShutdown()
+            {
+                if (Mgr)
+                    Mgr->Shutdown();
+            }
+        } assetManagerShutdown{ assetManager };
 
         const fs::path scenesDir = tempRoot / "Assets" / "Scenes";
         std::vector<fs::path> scenes;
