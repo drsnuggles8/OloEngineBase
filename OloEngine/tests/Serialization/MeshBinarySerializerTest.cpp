@@ -12,6 +12,13 @@
 
 #include <filesystem>
 #include <fstream>
+#include <string>
+
+#ifdef _WIN32
+#include <process.h>
+#else
+#include <unistd.h>
+#endif
 
 using namespace OloEngine; // NOLINT(google-build-using-namespace)
 
@@ -88,7 +95,17 @@ static Ref<MeshSource> MakeRiggedMesh()
 
 static std::filesystem::path GetTestCacheDir()
 {
-    return std::filesystem::temp_directory_path() / "olo_test_cache";
+    // Per-process directory: under `ctest -j` every gtest case runs as its own
+    // OloEngine-Tests.exe process, so a shared fixed dir would let one process's
+    // TearDownTestSuite remove_all() wipe a concurrent process's cache files
+    // mid-test. Keying by PID isolates each process. (Matches the PID-keyed
+    // pattern in ShaderBinaryCacheRoundTripTest / RuntimeAssetManagerTest.)
+#ifdef _WIN32
+    const auto pid = static_cast<long long>(_getpid());
+#else
+    const auto pid = static_cast<long long>(::getpid());
+#endif
+    return std::filesystem::temp_directory_path() / ("olo_test_cache_" + std::to_string(pid));
 }
 
 static std::filesystem::path GetTestCachePath(const std::string& filename)

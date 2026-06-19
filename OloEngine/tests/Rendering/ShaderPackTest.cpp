@@ -5,6 +5,13 @@
 
 #include <filesystem>
 #include <fstream>
+#include <string>
+
+#ifdef _WIN32
+#include <process.h>
+#else
+#include <unistd.h>
+#endif
 
 using namespace OloEngine; // NOLINT(google-build-using-namespace) — test file, brevity preferred
 
@@ -123,7 +130,17 @@ namespace
 
         void SetUp() override
         {
-            m_TestDir = std::filesystem::temp_directory_path() / "olo_shaderpack_test";
+            // Per-process directory: under `ctest -j` each gtest case runs as its
+            // own OloEngine-Tests.exe process. A shared fixed dir would let one
+            // process's SetUp/TearDown remove_all() delete a concurrent process's
+            // .osp mid-test. Keying by PID isolates each process. (Matches the
+            // PID-keyed pattern in ShaderBinaryCacheRoundTripTest.)
+#ifdef _WIN32
+            const auto pid = static_cast<long long>(_getpid());
+#else
+            const auto pid = static_cast<long long>(::getpid());
+#endif
+            m_TestDir = std::filesystem::temp_directory_path() / ("olo_shaderpack_test_" + std::to_string(pid));
             std::filesystem::remove_all(m_TestDir);
             std::filesystem::create_directories(m_TestDir);
         }
