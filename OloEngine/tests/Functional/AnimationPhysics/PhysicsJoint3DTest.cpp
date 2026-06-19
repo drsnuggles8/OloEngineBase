@@ -1137,7 +1137,7 @@ TEST_F(PhysicsJoint3DTest, ComponentSurvivesSaveGameRoundTrip)
     j.m_PulleyMinLength = 0.5f;
     j.m_PulleyMaxLength = 9.0f;
     j.m_ConnectedAxis = { 0.4f, -0.6f, 0.5f }; // distinct components catch any axis-order bug
-    j.m_GearRatio = -2.5f; // signed: a valid reversed coupling
+    j.m_GearRatio = -2.5f;                     // signed: a valid reversed coupling
 
     auto payload = SaveGameSerializer::CaptureSceneState(GetScene());
     ASSERT_GT(payload.size(), 0u);
