@@ -280,6 +280,9 @@ add_executable(OloEngine-Tests
 		# Pure reasoning behind olo_physics_why_no_collision (#306 item A). Header-
 		# only (MCP/McpPhysicsExplain.h), so no extra editor TU is pulled in.
 		MCP/McpPhysicsExplainTest.cpp
+		# Pure reasoning behind olo_render_why_not_visible (#306 item A, rendering
+		# half). Header-only (MCP/McpRenderExplain.h), no extra editor TU pulled in.
+		MCP/McpRenderExplainTest.cpp
 		# Lua Binding Tests
 		Lua/LuaBindingTest.cpp
 		# Functional / cross-subsystem world-tick tests (see ADR 0001).
