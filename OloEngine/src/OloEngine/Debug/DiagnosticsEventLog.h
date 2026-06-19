@@ -109,6 +109,17 @@ namespace OloEngine
         std::vector<DiagnosticEventCategory> Categories; // empty = all categories.
     };
 
+    // A consistent snapshot from DiagnosticsEventLog::QueryWithCursor: the filtered
+    // events plus the highest Id present in the buffer at that same instant. Returning
+    // both under one lock is what makes incremental polling lossless — read LastId
+    // separately and a record landing between the two reads would advance the cursor
+    // past an event the query never returned.
+    struct DiagnosticEventQueryResult
+    {
+        std::vector<DiagnosticEvent> Events;
+        u64 LastId = 0; // highest Id assigned at snapshot time (0 if nothing recorded).
+    };
+
     class DiagnosticsEventLog
     {
       public:
@@ -147,21 +158,17 @@ namespace OloEngine
         [[nodiscard]] std::vector<DiagnosticEvent> Query(const DiagnosticEventQuery& query) const
         {
             std::lock_guard lock(m_Mutex);
+            return QueryLocked(query);
+        }
 
-            std::vector<DiagnosticEvent> matched;
-            for (const auto& event : m_Events)
-            {
-                if (query.SinceId != 0 && event.Id <= query.SinceId)
-                    continue;
-                if (!query.Categories.empty() &&
-                    std::find(query.Categories.begin(), query.Categories.end(), event.Category) == query.Categories.end())
-                    continue;
-                matched.push_back(event);
-            }
-
-            if (query.MaxCount != 0 && matched.size() > query.MaxCount)
-                matched.erase(matched.begin(), matched.end() - static_cast<std::ptrdiff_t>(query.MaxCount));
-            return matched;
+        // Filtered read PLUS the buffer's highest Id, captured under a single lock so the
+        // returned cursor is consistent with the returned events. Pollers must use this
+        // (not Query + LastId) so an event recorded between the two reads can't advance
+        // the cursor past an event that was never returned.
+        [[nodiscard]] DiagnosticEventQueryResult QueryWithCursor(const DiagnosticEventQuery& query) const
+        {
+            std::lock_guard lock(m_Mutex);
+            return DiagnosticEventQueryResult{ QueryLocked(query), m_NextId - 1 };
         }
 
         // Highest Id assigned so far (0 if nothing recorded). Lets a poller learn the
@@ -203,6 +210,27 @@ namespace OloEngine
 
       private:
         DiagnosticsEventLog() = default;
+
+        // Shared filter for Query / QueryWithCursor. Caller must hold m_Mutex (m_Mutex
+        // is not recursive). Oldest-first; SinceId lower bound, then category filter,
+        // then the newest-MaxCount cap.
+        [[nodiscard]] std::vector<DiagnosticEvent> QueryLocked(const DiagnosticEventQuery& query) const
+        {
+            std::vector<DiagnosticEvent> matched;
+            for (const auto& event : m_Events)
+            {
+                if (query.SinceId != 0 && event.Id <= query.SinceId)
+                    continue;
+                if (!query.Categories.empty() &&
+                    std::find(query.Categories.begin(), query.Categories.end(), event.Category) == query.Categories.end())
+                    continue;
+                matched.push_back(event);
+            }
+
+            if (query.MaxCount != 0 && matched.size() > query.MaxCount)
+                matched.erase(matched.begin(), matched.end() - static_cast<std::ptrdiff_t>(query.MaxCount));
+            return matched;
+        }
 
         static constexpr std::size_t kCapacity = 512;
         mutable std::mutex m_Mutex;

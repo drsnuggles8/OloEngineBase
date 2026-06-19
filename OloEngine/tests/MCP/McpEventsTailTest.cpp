@@ -17,6 +17,7 @@ namespace
     using OloEngine::DiagnosticEvent;
     using OloEngine::DiagnosticEventCategory;
     using OloEngine::DiagnosticEventQuery;
+    using OloEngine::DiagnosticEventQueryResult;
     using OloEngine::DiagnosticsEventLog;
 
     // The event log is a process-wide singleton, and other tests in this binary
@@ -230,6 +231,29 @@ TEST_F(DiagnosticsEventLogTest, ClearResetsBufferAndIdCounter)
     EXPECT_EQ(0u, Log().LastId());
     EXPECT_TRUE(All().empty());
     EXPECT_EQ(1u, Log().Record(DiagnosticEventCategory::SceneLoad, "fresh"));
+}
+
+TEST_F(DiagnosticsEventLogTest, QueryWithCursorReportsBufferCursorNotFilteredMax)
+{
+    Log().Record(DiagnosticEventCategory::Play, "1");
+    Log().Record(DiagnosticEventCategory::EntitySpawn, "2"); // filtered out below
+    Log().Record(DiagnosticEventCategory::Stop, "3");        // newest match
+    Log().Record(DiagnosticEventCategory::EntitySpawn, "4"); // filtered out, but newest in buffer
+
+    DiagnosticEventQuery query;
+    query.Categories = { DiagnosticEventCategory::Play, DiagnosticEventCategory::Stop };
+    const DiagnosticEventQueryResult result = Log().QueryWithCursor(query);
+
+    // Events match Query() exactly (the spawns are excluded)...
+    ASSERT_EQ(2u, result.Events.size());
+    EXPECT_EQ("1", result.Events.front().Message);
+    EXPECT_EQ("3", result.Events.back().Message);
+
+    // ...but the cursor is the newest id in the WHOLE buffer (the filtered-out id 4),
+    // not the newest returned event (id 3). Otherwise a follow-up sinceId poll would
+    // re-deliver id 4 the client deliberately filtered away.
+    EXPECT_EQ(4u, result.LastId);
+    EXPECT_EQ(Log().LastId(), result.LastId);
 }
 
 TEST(DiagnosticsEventCategory, StringRoundTripsForEveryCategory)

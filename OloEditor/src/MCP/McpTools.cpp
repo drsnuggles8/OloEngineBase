@@ -1009,10 +1009,12 @@ namespace OloEngine::MCP
                 }
             }
 
-            const std::vector<DiagnosticEvent> events = DiagnosticsEventLog::Get().Query(query);
+            // Events + cursor in one locked snapshot: reading LastId() separately would
+            // race a concurrent Record and skip an event on the next sinceId poll.
+            const DiagnosticEventQueryResult result = DiagnosticsEventLog::Get().QueryWithCursor(query);
 
             Json arr = Json::array();
-            for (const auto& event : events)
+            for (const auto& event : result.Events)
             {
                 Json j;
                 j["id"] = event.Id;
@@ -1029,9 +1031,10 @@ namespace OloEngine::MCP
 
             Json out;
             out["count"] = static_cast<int>(arr.size());
-            // The highest id assigned so far — pass it back as the next call's sinceId to
-            // poll only what happened since. Stable even when no events matched the filter.
-            out["lastId"] = DiagnosticsEventLog::Get().LastId();
+            // The highest id in the buffer at snapshot time — pass it back as the next
+            // call's sinceId to poll only what happened since. Consistent with the events
+            // above (same lock), and stable even when no events matched the filter.
+            out["lastId"] = result.LastId;
             out["events"] = std::move(arr);
             return ToolResult::Text(out.dump(2));
         }
@@ -2900,7 +2903,7 @@ namespace OloEngine::MCP
                   { { "count",
                       { { "type", "integer" }, { "minimum", 1 }, { "maximum", 500 }, { "description", "How many of the most recent matching events to return (default 50)." } } },
                     { "sinceId",
-                      { { "type", "integer" }, { "minimum", 0 }, { "description", "Only return events with id greater than this. Pass back the previous response's 'lastId' for incremental polling." } } },
+                      { { "type", Json::array({ "integer", "string" }) }, { "minimum", 0 }, { "description", "Only return events with id greater than this. Accepts the id as a number or its string form (for large cursors beyond JSON integer precision). Pass back the previous response's 'lastId' for incremental polling." } } },
                     { "categories",
                       { { "type", "array" },
                         { "items", { { "type", "string" }, { "enum", Json::array({ "scene_load", "play", "stop", "entity_spawn", "entity_destroy", "asset_reload", "script_error" }) } } },
