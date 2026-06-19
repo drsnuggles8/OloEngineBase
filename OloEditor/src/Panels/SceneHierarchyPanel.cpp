@@ -3581,7 +3581,7 @@ namespace OloEngine
 
         DrawComponent<PhysicsJoint3DComponent>("Physics Joint 3D", entity, [this, entity](auto& component)
                                                {
-            const char* jointTypeStrings[] = { "Fixed", "Point", "Distance", "Hinge", "Slider", "Cone", "SwingTwist", "SixDOF" };
+            const char* jointTypeStrings[] = { "Fixed", "Point", "Distance", "Hinge", "Slider", "Cone", "SwingTwist", "SixDOF", "Pulley", "Gear", "RackAndPinion" };
             if (const char* currentJointTypeString = jointTypeStrings[static_cast<int>(component.m_Type)]; ImGui::BeginCombo("Joint Type", currentJointTypeString))
             {
                 for (int i = 0; i < IM_ARRAYSIZE(jointTypeStrings); ++i)
@@ -3634,10 +3634,12 @@ namespace OloEngine
             DrawVec3Control("Anchor A (local)##PhysicsJoint3D", component.m_LocalAnchorA);
             DrawVec3Control("Anchor B (local)##PhysicsJoint3D", component.m_LocalAnchorB);
 
-            // Axis drives Hinge / Slider / Cone (primary axis) and the
-            // SwingTwist twist axis / SixDOF frame X axis.
+            // Axis drives Hinge / Slider / Cone (primary axis), the SwingTwist
+            // twist axis / SixDOF frame X axis, and the Gear hinge axis /
+            // RackAndPinion rack-slide axis on this body.
             if (component.m_Type == JointType3D::Hinge || component.m_Type == JointType3D::Slider || component.m_Type == JointType3D::Cone
-                || component.m_Type == JointType3D::SwingTwist || component.m_Type == JointType3D::SixDOF)
+                || component.m_Type == JointType3D::SwingTwist || component.m_Type == JointType3D::SixDOF
+                || component.m_Type == JointType3D::Gear || component.m_Type == JointType3D::RackAndPinion)
                 DrawVec3Control("Axis (local)##PhysicsJoint3D", component.m_Axis);
 
             // Motor-mode combo shared by the Hinge and Slider arms below
@@ -3751,6 +3753,41 @@ namespace OloEngine
                     drawAxisModeCombo("Rotation Z##SixDOF", component.m_SixDOFRotZMode);
                     DrawVec3Control("Rotation Min (deg)##SixDOF", component.m_SixDOFRotationMinDeg);
                     DrawVec3Control("Rotation Max (deg)##SixDOF", component.m_SixDOFRotationMaxDeg);
+                    break;
+                }
+                case JointType3D::Pulley:
+                {
+                    // Two bodies suspended over two fixed WORLD-space points; the
+                    // constraint keeps Length(A→FixedA) + Ratio·Length(B→FixedB)
+                    // within [Min, Max]. A negative length is "auto" (the length
+                    // at play start) — default Max -1 makes a rope (contract only).
+                    DrawVec3Control("Fixed Point A (world)##PhysicsJoint3D", component.m_PulleyFixedPointA);
+                    DrawVec3Control("Fixed Point B (world)##PhysicsJoint3D", component.m_PulleyFixedPointB);
+                    ImGui::DragFloat("Ratio##PulleyJoint", &component.m_PulleyRatio, 0.01f, 0.0f, 1.0e9f);
+                    ImGui::DragFloat("Min Length##PulleyJoint", &component.m_PulleyMinLength, 0.01f, -1.0f, 1.0e9f);
+                    ImGui::DragFloat("Max Length (-1 = auto)##PulleyJoint", &component.m_PulleyMaxLength, 0.01f, -1.0f, 1.0e9f);
+                    break;
+                }
+                case JointType3D::Gear:
+                {
+                    // Couples this body's rotation about its Axis to the connected
+                    // body's rotation about its Connected Axis, by Ratio. Both
+                    // bodies must already be hinged (separate Hinge joints).
+                    if (connected == 0)
+                        ImGui::TextColored(ImVec4(1.0f, 0.6f, 0.2f, 1.0f), "Gear needs a connected body.");
+                    DrawVec3Control("Connected Axis (local)##PhysicsJoint3D", component.m_ConnectedAxis);
+                    ImGui::DragFloat("Ratio##GearJoint", &component.m_GearRatio, 0.01f, -1.0e9f, 1.0e9f);
+                    break;
+                }
+                case JointType3D::RackAndPinion:
+                {
+                    // The CONNECTED body is the pinion (rotates about its Connected
+                    // Axis); THIS body is the rack (slides along its Axis). Needs a
+                    // companion Hinge on the pinion + Slider on the rack.
+                    if (connected == 0)
+                        ImGui::TextColored(ImVec4(1.0f, 0.6f, 0.2f, 1.0f), "Rack & Pinion needs a connected body (the pinion).");
+                    DrawVec3Control("Pinion Axis (connected, local)##PhysicsJoint3D", component.m_ConnectedAxis);
+                    ImGui::DragFloat("Ratio##RackPinionJoint", &component.m_GearRatio, 0.01f, -1.0e9f, 1.0e9f);
                     break;
                 }
                 case JointType3D::Fixed:

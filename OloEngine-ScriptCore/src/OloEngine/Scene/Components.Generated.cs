@@ -1040,6 +1040,60 @@ namespace OloEngine
 			get => InternalCalls.PhysicsJoint3DComponent_GetCollideConnected(Entity.ID);
 			set => InternalCalls.PhysicsJoint3DComponent_SetCollideConnected(Entity.ID, value);
 		}
+
+		public Vector3 PulleyFixedPointA
+		{
+			get
+			{
+				InternalCalls.PhysicsJoint3DComponent_GetPulleyFixedPointA(Entity.ID, out Vector3 value);
+				return value;
+			}
+			set => InternalCalls.PhysicsJoint3DComponent_SetPulleyFixedPointA(Entity.ID, ref value);
+		}
+
+		public Vector3 PulleyFixedPointB
+		{
+			get
+			{
+				InternalCalls.PhysicsJoint3DComponent_GetPulleyFixedPointB(Entity.ID, out Vector3 value);
+				return value;
+			}
+			set => InternalCalls.PhysicsJoint3DComponent_SetPulleyFixedPointB(Entity.ID, ref value);
+		}
+
+		public float PulleyRatio
+		{
+			get => InternalCalls.PhysicsJoint3DComponent_GetPulleyRatio(Entity.ID);
+			set => InternalCalls.PhysicsJoint3DComponent_SetPulleyRatio(Entity.ID, value);
+		}
+
+		public float PulleyMinLength
+		{
+			get => InternalCalls.PhysicsJoint3DComponent_GetPulleyMinLength(Entity.ID);
+			set => InternalCalls.PhysicsJoint3DComponent_SetPulleyMinLength(Entity.ID, value);
+		}
+
+		public float PulleyMaxLength
+		{
+			get => InternalCalls.PhysicsJoint3DComponent_GetPulleyMaxLength(Entity.ID);
+			set => InternalCalls.PhysicsJoint3DComponent_SetPulleyMaxLength(Entity.ID, value);
+		}
+
+		public Vector3 ConnectedAxis
+		{
+			get
+			{
+				InternalCalls.PhysicsJoint3DComponent_GetConnectedAxis(Entity.ID, out Vector3 value);
+				return value;
+			}
+			set => InternalCalls.PhysicsJoint3DComponent_SetConnectedAxis(Entity.ID, ref value);
+		}
+
+		public float GearRatio
+		{
+			get => InternalCalls.PhysicsJoint3DComponent_GetGearRatio(Entity.ID);
+			set => InternalCalls.PhysicsJoint3DComponent_SetGearRatio(Entity.ID, value);
+		}
 	}
 
 	public partial class PointLightComponent : Component

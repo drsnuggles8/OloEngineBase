@@ -36,6 +36,9 @@
 #include <Jolt/Physics/Constraints/ConeConstraint.h>
 #include <Jolt/Physics/Constraints/SwingTwistConstraint.h>
 #include <Jolt/Physics/Constraints/SixDOFConstraint.h>
+#include <Jolt/Physics/Constraints/PulleyConstraint.h>
+#include <Jolt/Physics/Constraints/GearConstraint.h>
+#include <Jolt/Physics/Constraints/RackAndPinionConstraint.h>
 #include <Jolt/Physics/Constraints/SpringSettings.h>
 
 #include <glm/gtc/constants.hpp>
@@ -857,6 +860,33 @@ namespace OloEngine
                     outAngularImpulse = c.GetTotalLambdaRotation().Length();
                     return true;
                 }
+                case JPH::EConstraintSubType::Pulley:
+                {
+                    const auto& c = static_cast<const JPH::PulleyConstraint&>(constraint);
+                    // A single scalar impulse along the rope — a genuine linear load.
+                    outLinearImpulse = std::abs(c.GetTotalLambdaPosition());
+                    outAngularImpulse = 0.0f;
+                    return true;
+                }
+                case JPH::EConstraintSubType::Gear:
+                {
+                    const auto& c = static_cast<const JPH::GearConstraint&>(constraint);
+                    // The gear-coupling impulse is angular (it relates the two
+                    // bodies' rotation rates); map it to the torque threshold.
+                    outLinearImpulse = 0.0f;
+                    outAngularImpulse = std::abs(c.GetTotalLambda());
+                    return true;
+                }
+                case JPH::EConstraintSubType::RackAndPinion:
+                {
+                    const auto& c = static_cast<const JPH::RackAndPinionConstraint&>(constraint);
+                    // The rack-and-pinion coupling impulse mixes the pinion's
+                    // rotation and the rack's translation; surface it on the
+                    // torque axis (best-effort — these units are not a pure N·m).
+                    outLinearImpulse = 0.0f;
+                    outAngularImpulse = std::abs(c.GetTotalLambda());
+                    return true;
+                }
                 default:
                     return false;
             }
@@ -894,6 +924,27 @@ namespace OloEngine
         {
             const f32 radians = JoltUtils::DegreesToRadians(std::isfinite(degrees) ? degrees : fallbackDeg);
             return std::clamp(radians, loRad, hiRad);
+        }
+
+        // A pulley length bound. A negative value is Jolt's "auto" sentinel
+        // (use the segment length at creation time), so the only clamp is to
+        // reject non-finite and absurdly large magnitudes; -1 is preserved.
+        f32 SanitizePulleyLength(f32 value, f32 fallback)
+        {
+            if (!std::isfinite(value))
+                return fallback;
+            return std::clamp(value, -1.0f, 1.0e9f);
+        }
+
+        // A gear / rack-and-pinion / pulley ratio. A non-finite or (for the gear
+        // coupling) effectively-zero ratio collapses to 1.0 so the joint still
+        // builds and couples; the sign is preserved (a negative gear ratio is a
+        // valid reversed coupling). The magnitude is clamped to a sane range.
+        f32 SanitizeConstraintRatio(f32 value)
+        {
+            if (!std::isfinite(value) || std::abs(value) < 1.0e-6f)
+                return 1.0f;
+            return std::clamp(value, -1.0e9f, 1.0e9f);
         }
 
         // Build the limit-spring settings for a hinge/slider from the authored
@@ -1082,6 +1133,15 @@ namespace OloEngine
 
         const bool connectToWorld = (static_cast<u64>(joint.m_ConnectedEntity) == 0);
 
+        // Gear / RackAndPinion couple two real bodies' motion rates — a world
+        // (infinite-mass) anchor would just lock this body's rate to zero, which
+        // is never what a designer means. Require a connected body for them.
+        if (connectToWorld && (joint.m_Type == JointType3D::Gear || joint.m_Type == JointType3D::RackAndPinion))
+        {
+            OLO_CORE_WARN("PhysicsJoint3D on entity {0}: Gear/RackAndPinion needs a connected body, not a world anchor; skipping constraint", (u64)entityID);
+            return false;
+        }
+
         Entity connectedEntity{};
         Ref<JoltBody> bodyB = nullptr;
         if (!connectToWorld)
@@ -1115,6 +1175,11 @@ namespace OloEngine
         const glm::vec3 normal = PerpendicularTo(axis);
 
         glm::vec3 worldB;
+        // The connected body's primary axis in world space (Gear / RackAndPinion).
+        // Mirrors how `axis` is m_Axis rotated into world by this body's rotation;
+        // for a world anchor (rejected above for those types) the identity rotation
+        // leaves it as authored.
+        glm::vec3 connectedAxis = joint.m_ConnectedAxis;
         if (connectToWorld)
         {
             // Pin body A's anchor at its current world location.
@@ -1124,7 +1189,9 @@ namespace OloEngine
         {
             const auto& tcB = connectedEntity.GetComponent<TransformComponent>();
             worldB = tcB.Translation + tcB.GetRotation() * joint.m_LocalAnchorB;
+            connectedAxis = tcB.GetRotation() * joint.m_ConnectedAxis;
         }
+        connectedAxis = (glm::dot(connectedAxis, connectedAxis) < 1e-12f) ? glm::vec3(0.0f, 1.0f, 0.0f) : glm::normalize(connectedAxis);
 
         // Build the constraint with body1 = connected/world, body2 = this body.
         // Placing the (possibly infinite-mass) connected/world body first keeps
@@ -1304,6 +1371,59 @@ namespace OloEngine
                     applyAxis(ESix::RotationX, joint.m_SixDOFRotXMode, clampAngle(JoltUtils::DegreesToRadians(joint.m_SixDOFRotationMinDeg.x)), clampAngle(JoltUtils::DegreesToRadians(joint.m_SixDOFRotationMaxDeg.x)));
                     applyAxis(ESix::RotationY, joint.m_SixDOFRotYMode, clampAngle(JoltUtils::DegreesToRadians(joint.m_SixDOFRotationMinDeg.y)), clampAngle(JoltUtils::DegreesToRadians(joint.m_SixDOFRotationMaxDeg.y)));
                     applyAxis(ESix::RotationZ, joint.m_SixDOFRotZMode, clampAngle(JoltUtils::DegreesToRadians(joint.m_SixDOFRotationMinDeg.z)), clampAngle(JoltUtils::DegreesToRadians(joint.m_SixDOFRotationMaxDeg.z)));
+                    return s.Create(body1, body2);
+                }
+                case JointType3D::Pulley:
+                {
+                    // Two bodies suspended over two fixed world points. body1 is
+                    // the connected/world body (anchor p1 = worldB, fixed point B),
+                    // body2 is this body (anchor p2 = worldA, fixed point A). The
+                    // fixed points are authored in world space, so pass them through
+                    // directly. A negative min/max is Jolt's "auto from current
+                    // length" sentinel; if both are positive but inverted, swap so
+                    // the [min,max] span stays non-empty.
+                    JPH::PulleyConstraintSettings s;
+                    s.mSpace = JPH::EConstraintSpace::WorldSpace;
+                    s.mBodyPoint1 = p1;
+                    s.mBodyPoint2 = p2;
+                    s.mFixedPoint1 = JoltUtils::ToJoltRVec3(joint.m_PulleyFixedPointB);
+                    s.mFixedPoint2 = JoltUtils::ToJoltRVec3(joint.m_PulleyFixedPointA);
+                    // The pulley ratio is a length multiplier, so it must be
+                    // non-negative — the shared SanitizeConstraintRatio passes
+                    // through the negative values a gear coupling may legitimately
+                    // use, so clamp it to [0, 1e9] here.
+                    s.mRatio = std::isfinite(joint.m_PulleyRatio) ? std::clamp(joint.m_PulleyRatio, 0.0f, 1.0e9f) : 1.0f;
+                    f32 minLen = SanitizePulleyLength(joint.m_PulleyMinLength, 0.0f);
+                    f32 maxLen = SanitizePulleyLength(joint.m_PulleyMaxLength, -1.0f);
+                    if (minLen >= 0.0f && maxLen >= 0.0f && minLen > maxLen)
+                        std::swap(minLen, maxLen);
+                    s.mMinLength = minLen;
+                    s.mMaxLength = maxLen;
+                    return s.Create(body1, body2);
+                }
+                case JointType3D::Gear:
+                {
+                    // Couple the two bodies' rotation about their hinge axes.
+                    // body1 = connected body (axis = connectedAxis), body2 = this
+                    // body (axis = jAxis). Jolt: body1Rot = -ratio * body2Rot.
+                    // No SetConstraints() — see the v1 note in Components.h.
+                    JPH::GearConstraintSettings s;
+                    s.mSpace = JPH::EConstraintSpace::WorldSpace;
+                    s.mHingeAxis1 = JoltUtils::ToJoltVector(connectedAxis);
+                    s.mHingeAxis2 = jAxis;
+                    s.mRatio = SanitizeConstraintRatio(joint.m_GearRatio);
+                    return s.Create(body1, body2);
+                }
+                case JointType3D::RackAndPinion:
+                {
+                    // body1 = connected body = the pinion (rotates about its hinge
+                    // axis connectedAxis); body2 = this body = the rack (slides
+                    // along jAxis). Jolt: pinionRotation = ratio * rackTranslation.
+                    JPH::RackAndPinionConstraintSettings s;
+                    s.mSpace = JPH::EConstraintSpace::WorldSpace;
+                    s.mHingeAxis = JoltUtils::ToJoltVector(connectedAxis);
+                    s.mSliderAxis = jAxis;
+                    s.mRatio = SanitizeConstraintRatio(joint.m_GearRatio);
                     return s.Create(body1, body2);
                 }
             }
