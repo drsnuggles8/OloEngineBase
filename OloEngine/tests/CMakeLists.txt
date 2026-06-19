@@ -283,6 +283,9 @@ add_executable(OloEngine-Tests
 		# Pure reasoning behind olo_render_why_not_visible (#306 item A, rendering
 		# half). Header-only (MCP/McpRenderExplain.h), no extra editor TU pulled in.
 		MCP/McpRenderExplainTest.cpp
+		# Pure image-diff core behind olo_render_compare_golden (#316 Part 4).
+		# Header-only (MCP/McpGoldenCompare.h), no extra editor TU pulled in.
+		MCP/McpGoldenCompareTest.cpp
 		# Unified diagnostics event ring buffer behind olo_events_tail (#306 item B).
 		# Header-only engine facility (Debug/DiagnosticsEventLog.h, compiled into
 		# OloEngine), so no extra editor TU is pulled in.

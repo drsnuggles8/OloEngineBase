@@ -6,7 +6,7 @@ server** so you can point your own LLM agent (Claude Code, Claude Desktop, …) 
 engine already collects (logs, scene/ECS state, scripting errors and API, performance,
 memory, shaders, assets, crash reports, and a live screenshot) — plus a Tier-0
 rendering-dev harness (camera control, viewport sizing, intermediate render-target
-capture; issue #316).
+capture, and golden-image comparison; issue #316).
 
 Strategy is **"expose, don't embed"**: OloEditor does not ship a chat panel, an API key,
 or a model. It exposes data over a standard protocol; you bring your own agent. (Issue #285.)
@@ -128,6 +128,7 @@ the server, so update the config (or re-copy from the panel) accordingly.
 | `olo_viewport_set_size` | override the viewport's logical render size for deterministic captures (`reset` to clear) |
 | `olo_render_list_targets` | the render graph's live texture/framebuffer resources (name, kind, format, size, producers) |
 | `olo_render_capture_target` | read back one intermediate render target (depth, normals, G-buffer, shadow map, AO, post-process stages, …) as a PNG image block; depth is min-max normalised by default |
+| `olo_render_compare_golden` | capture the viewport (optional `camera`/`orbit` pose) and diff it against a golden PNG (`goldenPath`): returns a numeric `similarity`/`rmse`/`ssim` + `pass` verdict; missing golden or `rebase`:true writes the capture as the new baseline (the `OLOENGINE_GOLDEN_REBASE` workflow) |
 | `olo_render_why_not_visible` | explain why one entity (`entity`) is NOT on screen — the "why can't I see my mesh?" debugger: root-cause `reasonCode`, summary, ordered checks, and the raw render facts |
 | `olo_physics_layer_matrix` | the collision-layer matrix the sim uses: built-in object layers + user-defined layers, with pairwise collide/no-collide (works in Edit mode) |
 | `olo_physics_list_colliders` | paginated entities with a rigidbody: authored body type / layer / trigger / collider shapes, plus live object layer, position, awake/asleep when playing |
@@ -151,6 +152,56 @@ it is most likely to break, without touching the user's viewport. The intended l
    you need to see which intermediate buffer broke.
 4. `olo_viewport_set_size { width, height }` first when a deterministic resolution
    matters (golden comparisons); `{ reset: true }` when done.
+5. `olo_render_compare_golden { goldenPath, camera }` to turn the eyeball check into a
+   **numeric** pass/fail against a saved baseline (see below).
+
+### Golden-image comparison (`olo_render_compare_golden`)
+
+This is the numeric half of CLAUDE.md's "rendering changes MUST be visually verified"
+rule — instead of eyeballing a screenshot, an agent gets a deterministic
+`similarity` + `pass` verdict against a baseline PNG. It captures the viewport (from
+an optional fixed `camera`/`orbit` pose, with the same save/restore as
+`olo_screenshot`), then diffs the result against `goldenPath` using the **same
+RMSE→SSIM metric as the `GoldenImageTests` suite**, so the MCP verdict agrees with the
+`OLOENGINE_GOLDEN_REBASE` test workflow.
+
+- **`goldenPath`** is a PNG under `assets/tests/visual/` (a bare name like
+  `water_side.png` lands there; absolute paths and `..` traversal are rejected — the
+  server stays read-only w.r.t. your project, only ever writing test artifacts).
+- **Missing golden, or `rebase`:true → it *writes* the capture as the new baseline**
+  and reports `created` instead of failing — the same "first run bootstraps, then you
+  compare" loop as the suite. Re-baseline deliberately with `rebase`:true after an
+  intended visual change.
+- **Verdict:** by default the suite cascade decides (RMSE ≤ 0.004 → pass, ≥ 0.02 →
+  fail, in-between → SSIM ≥ 0.985). Pass an explicit **`threshold`** (a minimum SSIM
+  similarity in `[0,1]`) to override it with a single gate you control.
+- Use the **same capture size** when creating and comparing (pin one with
+  `olo_viewport_set_size`); otherwise the dimensions mismatch and the tool says so.
+
+```jsonc
+// First run (no golden yet) — bootstraps the baseline:
+// olo_render_compare_golden { "goldenPath": "water_side.png",
+//                             "camera": { "position": [12,3,0], "target": [0,0,0] } }
+{ "goldenPath": "assets/tests/visual/water_side.png", "created": true, "rebased": false,
+  "bytes": 48213, "message": "Golden created at assets/tests/visual/water_side.png …" }
+
+// Later run after a shader change — compares against it:
+// olo_render_compare_golden { "goldenPath": "water_side.png",
+//                             "camera": { "position": [12,3,0], "target": [0,0,0] } }
+{
+  "goldenPath": "assets/tests/visual/water_side.png", "created": false,
+  "pass": false, "dimensionsMatch": true,
+  "actual": { "width": 1024, "height": 576 }, "golden": { "width": 1024, "height": 576 },
+  "similarity": 0.913, "ssim": 0.913, "rmse": 0.071, "mse": 0.005,
+  "threshold": 0.985, "thresholdMode": "suite-cascade",
+  "mismatchPixels": 142880, "totalPixels": 589824, "maxChannelDelta": 203,
+  "worstPixel": { "x": 511, "y": 300 },
+  "message": "RMSE 0.071 >= 0.02 (hard fail); SSIM 0.913. Worst pixel (511,300) …"
+}
+```
+
+The response also includes the captured frame as an image block, so the agent can SEE
+what it just verdicted on alongside the numbers.
 
 ### Physics introspection (the `olo_physics_*` family)
 
