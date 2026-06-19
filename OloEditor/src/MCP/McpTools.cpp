@@ -3,6 +3,7 @@
 #include "MCP/McpServer.h"
 #include "MCP/McpScriptApi.h"
 #include "MCP/McpPhysicsExplain.h"
+#include "MCP/McpRenderExplain.h"
 
 #include "OloEngine/Asset/AssetManager.h"
 #include "OloEngine/Asset/AssetMetadata.h"
@@ -17,10 +18,16 @@
 #include "OloEngine/Renderer/Debug/RendererMemoryTracker.h"
 #include "OloEngine/Renderer/Debug/RendererProfiler.h"
 #include "OloEngine/Renderer/Debug/ShaderDebugger.h"
+#include "OloEngine/Renderer/BoundingVolume.h"
 #include "OloEngine/Renderer/Framebuffer.h"
+#include "OloEngine/Renderer/Frustum.h"
+#include "OloEngine/Renderer/Mesh.h"
+#include "OloEngine/Renderer/MeshSource.h"
+#include "OloEngine/Renderer/Model.h"
 #include "OloEngine/Renderer/RenderGraph.h"
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/ResourceHandle.h"
+#include "OloEngine/Renderer/Shader.h"
 #include "OloEngine/Physics3D/JoltScene.h"
 #include "OloEngine/Physics3D/JoltBody.h"
 #include "OloEngine/Physics3D/JoltLayerInterface.h"
@@ -2176,6 +2183,315 @@ namespace OloEngine::MCP
                 return ToolResult::Error(result["__error"].get<std::string>());
             return ToolResult::Text(result.dump(2));
         }
+
+        // ---- olo_render_why_not_visible (main-marshaled) -----------------------
+        // The rendering counterpart of olo_physics_why_no_collision: explain why an
+        // entity isn't on screen. Gathers the render-relevant facts off the live
+        // scene/renderer, then runs the pure ExplainWhyNotVisible cascade. The
+        // per-frame occlusion (HZB) and LOD state are NOT queryable from here, so
+        // the tool reports them honestly as not-observable rather than guessing.
+        ToolResult Handle_RenderWhyNotVisible(McpServer& server, const Json& args)
+        {
+            if (!args.contains("entity"))
+                return ToolResult::Error("Missing required argument 'entity' (entity UUID).");
+            u64 id = 0;
+            if (!ParseUuid(args["entity"], id))
+                return ToolResult::Error("Invalid 'entity': expected a UUID as a string or number.");
+
+            Json result = server.MarshalRead([&server, id]() -> Json
+                                             {
+                Json j;
+                const Ref<Scene> scene = server.Context().GetActiveScene
+                                             ? server.Context().GetActiveScene()
+                                             : nullptr;
+
+                RenderExplain::WhyNotVisibleInput in;
+                in.SceneLoaded = scene != nullptr;
+
+                // Global shader-compile hint: a broken shared mesh shader can hide
+                // an otherwise correctly-configured object, but isn't attributable
+                // to one entity — surfaced as a warning, not a per-entity verdict.
+                int shaderErrorCount = 0;
+                const auto& allShaders = ShaderDebugger::GetInstance().GetAllShaders();
+                for (const auto& [sid, info] : allShaders)
+                {
+                    if (info.m_HasErrors || !info.m_LastCompilation.m_Success)
+                        ++shaderErrorCount;
+                }
+                in.ShaderErrorCount = shaderErrorCount;
+                in.AnyShaderHasErrors = shaderErrorCount > 0;
+
+                RenderExplain::EntityRenderFacts& f = in.Entity;
+
+                if (scene)
+                {
+                    const auto entityOpt = scene->TryGetEntityWithUUID(UUID(id));
+                    f.EntityExists = entityOpt.has_value();
+                    if (f.EntityExists)
+                    {
+                        Entity entity = *entityOpt;
+
+                        // World-space bounding sphere (from the entity's local
+                        // transform — the exact transform the renderer submits;
+                        // there is no world-transform flattening in that path).
+                        // Every scene entity carries a TransformComponent, but guard
+                        // defensively so a transform-less entity can't crash the read.
+                        const bool hasTransform = entity.HasComponent<TransformComponent>();
+                        const glm::mat4 modelMatrix = hasTransform
+                                                          ? entity.GetComponent<TransformComponent>().GetTransform()
+                                                          : glm::mat4(1.0f);
+                        BoundingSphere worldSphere;
+                        const auto setBoundsFromLocal = [&](const BoundingSphere& localSphere)
+                        {
+                            worldSphere = localSphere.Transform(modelMatrix);
+                            f.BoundsKnown = true;
+                        };
+
+                        // Resolve the entity material's OWN shader (custom-shader /
+                        // shader-graph materials). Standard meshes render through a
+                        // shared deferred PBR shader, so most materials carry no
+                        // m_Shader and this stays unresolved (the global hint covers
+                        // a broken shared shader).
+                        const auto resolveMaterialShader = [&](const Material& mat)
+                        {
+                            const Ref<Shader>& shader = mat.GetShader();
+                            if (!shader)
+                                return;
+                            f.HasMaterialShader = true;
+                            f.MaterialShaderName = shader->GetName();
+                            for (const auto& [sid, info] : allShaders)
+                            {
+                                if (info.m_Name == f.MaterialShaderName)
+                                {
+                                    f.MaterialShaderHasErrors = info.m_HasErrors || !info.m_LastCompilation.m_Success;
+                                    break;
+                                }
+                            }
+                        };
+
+                        // Pick the primary renderable, most-specific first. Detailed
+                        // geometry/visibility checks for the verified set; the rest
+                        // are detected as renderable (kind label only) so a niche
+                        // renderable is never mis-reported as "not renderable".
+                        if (entity.HasComponent<MeshComponent>())
+                        {
+                            f.HasRenderable = true;
+                            f.RenderableKind = "MeshComponent";
+                            const auto& mc = entity.GetComponent<MeshComponent>();
+                            f.GeometryRequired = true;
+                            f.GeometryPresent = static_cast<bool>(mc.m_MeshSource);
+                            if (!f.GeometryPresent)
+                                f.GeometryDetail = "the MeshComponent's MeshSource is null";
+                            else
+                                setBoundsFromLocal(mc.m_MeshSource->GetBoundingSphere());
+                            if (entity.HasComponent<MaterialComponent>())
+                                resolveMaterialShader(entity.GetComponent<MaterialComponent>().m_Material);
+                        }
+                        else if (entity.HasComponent<ModelComponent>())
+                        {
+                            f.HasRenderable = true;
+                            f.RenderableKind = "ModelComponent";
+                            const auto& model = entity.GetComponent<ModelComponent>();
+                            f.GeometryRequired = true;
+                            f.GeometryPresent = model.IsLoaded();
+                            if (!f.GeometryPresent)
+                                f.GeometryDetail = (model.m_Model == nullptr)
+                                                       ? "the ModelComponent's model is null"
+                                                       : "the model has no meshes loaded";
+                            else
+                                setBoundsFromLocal(model.m_Model->GetBoundingSphere());
+                            f.HasVisibilityFlag = true;
+                            f.VisibilityFlagOn = model.m_Visible;
+                            f.VisibilityFlagName = "ModelComponent.m_Visible";
+                            if (entity.HasComponent<MaterialComponent>())
+                                resolveMaterialShader(entity.GetComponent<MaterialComponent>().m_Material);
+                        }
+                        else if (entity.HasComponent<InstancedMeshComponent>())
+                        {
+                            f.HasRenderable = true;
+                            f.RenderableKind = "InstancedMeshComponent";
+                            const auto& imc = entity.GetComponent<InstancedMeshComponent>();
+                            f.GeometryRequired = true;
+                            const bool hasMesh = static_cast<bool>(imc.MeshSource);
+                            const bool hasInstances = !imc.Instances.empty() || imc.PlacementAssetHandle != 0;
+                            f.GeometryPresent = hasMesh && hasInstances;
+                            if (!hasMesh)
+                                f.GeometryDetail = "the InstancedMeshComponent's MeshSource is null";
+                            else if (!hasInstances)
+                                f.GeometryDetail = "no instances (inline list empty and no placement asset)";
+                            // Instances live in world space, not under the entity
+                            // transform, so a combined bound isn't computed here —
+                            // camera-relative checks are skipped (BoundsKnown stays false).
+                            if (imc.OverrideMaterial)
+                                resolveMaterialShader(*imc.OverrideMaterial);
+                            else if (entity.HasComponent<MaterialComponent>())
+                                resolveMaterialShader(entity.GetComponent<MaterialComponent>().m_Material);
+                        }
+                        else if (entity.HasComponent<SubmeshComponent>())
+                        {
+                            f.HasRenderable = true;
+                            f.RenderableKind = "SubmeshComponent";
+                            const auto& sm = entity.GetComponent<SubmeshComponent>();
+                            f.GeometryRequired = true;
+                            f.GeometryPresent = static_cast<bool>(sm.m_Mesh);
+                            if (!f.GeometryPresent)
+                                f.GeometryDetail = "the SubmeshComponent's mesh is null";
+                            else
+                                setBoundsFromLocal(sm.m_Mesh->GetBoundingSphere());
+                            f.HasVisibilityFlag = true;
+                            f.VisibilityFlagOn = sm.m_Visible;
+                            f.VisibilityFlagName = "SubmeshComponent.m_Visible";
+                            if (entity.HasComponent<MaterialComponent>())
+                                resolveMaterialShader(entity.GetComponent<MaterialComponent>().m_Material);
+                        }
+                        else if (entity.HasComponent<SpriteRendererComponent>())
+                        {
+                            f.HasRenderable = true;
+                            f.RenderableKind = "SpriteRendererComponent";
+                            f.GeometryRequired = false; // always drawn from the transform
+                            f.GeometryPresent = true;
+                            // 2D renderable: culled via the 2D path, not the 3D view
+                            // frustum, so camera-relative checks are left unevaluated.
+                        }
+                        else if (entity.HasComponent<CircleRendererComponent>())
+                        {
+                            f.HasRenderable = true;
+                            f.RenderableKind = "CircleRendererComponent";
+                            f.GeometryRequired = false;
+                            f.GeometryPresent = true;
+                        }
+                        else if (entity.HasComponent<TextComponent>())
+                        {
+                            f.HasRenderable = true;
+                            f.RenderableKind = "TextComponent";
+                            f.GeometryRequired = false;
+                            f.GeometryPresent = true;
+                        }
+                        else if (entity.HasComponent<WaterComponent>())
+                        {
+                            f.HasRenderable = true;
+                            f.RenderableKind = "WaterComponent";
+                            f.GeometryRequired = false;
+                            f.GeometryPresent = true;
+                            f.HasVisibilityFlag = true;
+                            f.VisibilityFlagOn = entity.GetComponent<WaterComponent>().m_Enabled;
+                            f.VisibilityFlagName = "WaterComponent.m_Enabled";
+                        }
+                        else if (entity.HasComponent<TerrainComponent>())
+                        {
+                            f.HasRenderable = true;
+                            f.RenderableKind = "TerrainComponent";
+                            f.GeometryRequired = false;
+                            f.GeometryPresent = true;
+                        }
+                        else if (entity.HasComponent<ParticleSystemComponent>())
+                        {
+                            f.HasRenderable = true;
+                            f.RenderableKind = "ParticleSystemComponent";
+                            f.GeometryRequired = false;
+                            f.GeometryPresent = true;
+                        }
+                        else if (entity.HasComponent<TileRendererComponent>())
+                        {
+                            f.HasRenderable = true;
+                            f.RenderableKind = "TileRendererComponent";
+                            f.GeometryRequired = false;
+                            f.GeometryPresent = true;
+                        }
+                        else if (entity.HasComponent<EnvironmentMapComponent>())
+                        {
+                            // The skybox background. It is gated on m_EnableSkybox
+                            // and a loaded environment map, not the entity transform.
+                            f.HasRenderable = true;
+                            f.RenderableKind = "EnvironmentMapComponent (skybox)";
+                            f.GeometryRequired = false;
+                            const auto& env = entity.GetComponent<EnvironmentMapComponent>();
+                            f.GeometryPresent = static_cast<bool>(env.m_EnvironmentMap);
+                            f.HasVisibilityFlag = true;
+                            f.VisibilityFlagOn = env.m_EnableSkybox;
+                            f.VisibilityFlagName = "EnvironmentMapComponent.m_EnableSkybox";
+                        }
+                        else if (entity.HasComponent<ProceduralSkyComponent>())
+                        {
+                            f.HasRenderable = true;
+                            f.RenderableKind = "ProceduralSkyComponent";
+                            f.GeometryRequired = false;
+                            f.GeometryPresent = true;
+                        }
+                        else if (entity.HasComponent<StarNestSkyComponent>())
+                        {
+                            f.HasRenderable = true;
+                            f.RenderableKind = "StarNestSkyComponent";
+                            f.GeometryRequired = false;
+                            f.GeometryPresent = true;
+                        }
+
+                        // Degenerate scale (any axis ~0) collapses the geometry to nothing.
+                        if (hasTransform)
+                        {
+                            const glm::vec3& scale = entity.GetComponent<TransformComponent>().Scale;
+                            constexpr f32 kScaleEpsilon = 1e-6f;
+                            f.ScaleDegenerate = std::abs(scale.x) < kScaleEpsilon ||
+                                                std::abs(scale.y) < kScaleEpsilon ||
+                                                std::abs(scale.z) < kScaleEpsilon;
+                        }
+
+                        // Camera-relative checks against the editor camera. BehindCamera
+                        // comes from the camera pose (robust); the frustum check uses the
+                        // engine's actual view frustum from the last rendered frame.
+                        if (server.Context().GetCameraPose && f.BoundsKnown)
+                        {
+                            const McpCameraPose pose = server.Context().GetCameraPose();
+                            in.CameraKnown = true;
+                            if (glm::dot(pose.Forward, pose.Forward) > 1e-12f)
+                            {
+                                const glm::vec3 forward = glm::normalize(pose.Forward);
+                                const glm::vec3 toCenter = worldSphere.Center - pose.Position;
+                                const f32 along = glm::dot(toCenter, forward);
+                                f.BehindCamera = (along + worldSphere.Radius) < 0.0f;
+                            }
+                            BoundingSphere cullSphere = worldSphere;
+                            cullSphere.Radius *= 1.3f; // match Renderer3D::IsVisibleInFrustum expansion
+                            f.InFrustum = Renderer3D::GetViewFrustum().IsBoundingSphereVisible(cullSphere);
+                        }
+                    }
+                }
+
+                const RenderExplain::WhyNotVisibleVerdict verdict = RenderExplain::ExplainWhyNotVisible(in);
+
+                Json facts;
+                facts["entityExists"] = f.EntityExists;
+                facts["hasRenderable"] = f.HasRenderable;
+                facts["renderableKind"] = f.RenderableKind;
+                facts["geometryRequired"] = f.GeometryRequired;
+                facts["geometryPresent"] = f.GeometryPresent;
+                facts["geometryDetail"] = f.GeometryDetail;
+                facts["hasVisibilityFlag"] = f.HasVisibilityFlag;
+                facts["visibilityFlagName"] = f.VisibilityFlagName;
+                facts["visibilityFlagOn"] = f.VisibilityFlagOn;
+                facts["scaleDegenerate"] = f.ScaleDegenerate;
+                facts["hasMaterialShader"] = f.HasMaterialShader;
+                facts["materialShaderName"] = f.MaterialShaderName;
+                facts["materialShaderHasErrors"] = f.MaterialShaderHasErrors;
+                facts["boundsKnown"] = f.BoundsKnown;
+                facts["behindCamera"] = f.BehindCamera;
+                facts["inFrustum"] = f.InFrustum;
+
+                j["entity"] = UuidToString(UUID(id));
+                j["reasonCode"] = verdict.ReasonCode;
+                j["summary"] = verdict.Summary;
+                j["renderableConfigOk"] = verdict.RenderableConfigOk;
+                j["visible"] = verdict.Visible;
+                j["checks"] = verdict.Checks;
+                j["facts"] = facts;
+                j["sceneLoaded"] = in.SceneLoaded;
+                j["cameraKnown"] = in.CameraKnown;
+                j["anyShaderHasErrors"] = in.AnyShaderHasErrors;
+                j["shaderErrorCount"] = in.ShaderErrorCount;
+                return j; });
+
+            return ToolResult::Text(result.dump(2));
+        }
     } // namespace
 
     void RegisterBuiltinTools(McpServer& server)
@@ -2774,6 +3090,30 @@ namespace OloEngine::MCP
             };
             tool.MainMarshaled = true;
             tool.Handler = Handle_PhysicsWhyNoCollision;
+            server.RegisterTool(std::move(tool));
+        }
+
+        {
+            ToolDef tool;
+            tool.Name = "olo_render_why_not_visible";
+            tool.Description =
+                "Explain why an entity is NOT visible on screen — the rendering counterpart of "
+                "olo_physics_why_no_collision ('why can't I see my mesh?'). Given an entity UUID, it checks, in "
+                "order: a scene is loaded, the entity exists, it has a renderable component (Mesh/Model/Sprite/"
+                "Circle/Text/InstancedMesh/...), its geometry asset is present, its visibility flag is on, its "
+                "transform scale is non-degenerate, its material's shader compiled, and (against the editor "
+                "camera) it is in front of the camera and inside the view frustum. Returns the root-cause "
+                "reasonCode, a human summary, the ordered checks, and the raw facts. Note: per-frame occlusion "
+                "(HZB) and LOD culling are not queryable from the editor and are reported as not-observable.";
+            tool.InputSchema = Json{
+                { "type", "object" },
+                { "properties",
+                  { { "entity", { { "type", "string" }, { "description", "Entity UUID (string; also accepts a number)." } } } } },
+                { "required", Json::array({ "entity" }) },
+                { "additionalProperties", false }
+            };
+            tool.MainMarshaled = true;
+            tool.Handler = Handle_RenderWhyNotVisible;
             server.RegisterTool(std::move(tool));
         }
 

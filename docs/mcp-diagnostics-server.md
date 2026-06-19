@@ -127,6 +127,7 @@ the server, so update the config (or re-copy from the panel) accordingly.
 | `olo_viewport_set_size` | override the viewport's logical render size for deterministic captures (`reset` to clear) |
 | `olo_render_list_targets` | the render graph's live texture/framebuffer resources (name, kind, format, size, producers) |
 | `olo_render_capture_target` | read back one intermediate render target (depth, normals, G-buffer, shadow map, AO, post-process stages, …) as a PNG image block; depth is min-max normalised by default |
+| `olo_render_why_not_visible` | explain why one entity (`entity`) is NOT on screen — the "why can't I see my mesh?" debugger: root-cause `reasonCode`, summary, ordered checks, and the raw render facts |
 | `olo_physics_layer_matrix` | the collision-layer matrix the sim uses: built-in object layers + user-defined layers, with pairwise collide/no-collide (works in Edit mode) |
 | `olo_physics_list_colliders` | paginated entities with a rigidbody: authored body type / layer / trigger / collider shapes, plus live object layer, position, awake/asleep when playing |
 | `olo_physics_contacts` | entity pairs whose bodies are touching right now (live active-contact set, deduplicated); requires Play mode |
@@ -199,6 +200,55 @@ not a downstream symptom. A worked example:
 Typical flow: `olo_physics_list_colliders` to find the two entities and their layers →
 `olo_physics_why_no_collision` for the verdict → `olo_physics_layer_matrix` if it blames
 the layer filter → `olo_physics_contacts` to confirm a contact actually fires once fixed.
+
+### Rendering introspection (`olo_render_why_not_visible`)
+
+The rendering counterpart of `olo_physics_why_no_collision` — the "why can't I see my
+mesh?" debugger that promotes the `why-cant-i-see-my-object` prompt's manual multi-tool
+flow into one call. Given one entity UUID it walks a fixed root-cause cascade (scene
+loaded → entity exists → has a renderable component → geometry asset present → visibility
+flag on → transform scale non-degenerate → material's shader compiled → in front of the
+editor camera → inside the view frustum) and reports the **root cause**, not a downstream
+symptom. It is read-only and works in **Edit mode** (it reads the live scene and the
+editor camera, marshaled onto the main thread at a frame boundary).
+
+**Honesty boundary:** the per-frame occlusion (HZB) cull result and the selected LOD
+level are private renderer state with no editor-side query, so the tool does **not** claim
+a verdict about them. When every observable check passes it returns `should_be_visible`
+and points you at `olo_screenshot` / `olo_render_capture_target` (and `olo_camera_frame_entity`
+to rule out the camera) for the causes it cannot observe. Camera-relative checks
+(behind-camera / frustum) are only evaluated when the entity has resolvable world-space
+bounds (3D meshes/models); 2D renderables and instanced batches skip them honestly. A
+worked example:
+
+```jsonc
+// olo_render_why_not_visible { "entity": "44120…" }
+{
+  "entity": "44120…",
+  "reasonCode": "degenerate_scale",
+  "summary": "The entity's transform scale has a zero (or near-zero) component, which collapses its geometry to nothing …",
+  "renderableConfigOk": false,
+  "visible": false,
+  "checks": [
+    "[ok] an active scene is loaded",
+    "[ok] the entity exists in the active scene",
+    "[ok] the entity has a renderable component (MeshComponent)",
+    "[ok] MeshComponent has geometry to draw",
+    "[fail] the entity's transform scale has a zero (or near-zero) component"
+  ],
+  "facts": {
+    "entityExists": true, "hasRenderable": true, "renderableKind": "MeshComponent",
+    "geometryRequired": true, "geometryPresent": true, "scaleDegenerate": true,
+    "hasMaterialShader": false, "boundsKnown": true, "behindCamera": false, "inFrustum": true
+  },
+  "sceneLoaded": true, "cameraKnown": true, "anyShaderHasErrors": false, "shaderErrorCount": 0
+}
+```
+
+Typical flow: `olo_scene_list_entities` to find the entity → `olo_render_why_not_visible`
+for the verdict → `olo_camera_frame_entity` + `olo_screenshot` when it returns
+`behind_camera` / `outside_frustum` / `should_be_visible`, or `olo_shader_get` when it
+blames a shader.
 
 ### Resources
 
