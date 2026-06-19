@@ -520,8 +520,10 @@ namespace OloEngine::MCP
                                      { "version", "0.0.1" } };
         result["instructions"] =
             "Read-only diagnostics for a running OloEngine editor session. Use olo_log_tail "
-            "to see the most recent engine log messages and olo_scene_summary to inspect the "
-            "active scene. Everything exposed here is read-only — no tool mutates the project.";
+            "to see the most recent engine log messages, olo_events_tail for a 'what just "
+            "happened?' timeline (scene load, play/stop, entity spawn/destroy, asset reload, "
+            "script error — poll incrementally with sinceId), and olo_scene_summary to inspect "
+            "the active scene. Everything exposed here is read-only — no tool mutates the project.";
         return MakeResult(id, result);
     }
 

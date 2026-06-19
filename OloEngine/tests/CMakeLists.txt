@@ -283,6 +283,10 @@ add_executable(OloEngine-Tests
 		# Pure reasoning behind olo_render_why_not_visible (#306 item A, rendering
 		# half). Header-only (MCP/McpRenderExplain.h), no extra editor TU pulled in.
 		MCP/McpRenderExplainTest.cpp
+		# Unified diagnostics event ring buffer behind olo_events_tail (#306 item B).
+		# Header-only engine facility (Debug/DiagnosticsEventLog.h, compiled into
+		# OloEngine), so no extra editor TU is pulled in.
+		MCP/McpEventsTailTest.cpp
 		# Lua Binding Tests
 		Lua/LuaBindingTest.cpp
 		# Functional / cross-subsystem world-tick tests (see ADR 0001).

@@ -3,6 +3,7 @@
 #include "OloEngine/Core/YAMLConverters.h"
 
 #include "OloEngine/Math/Math.h"
+#include "OloEngine/Debug/DiagnosticsEventLog.h"
 #include "OloEngine/Scene/Entity.h"
 #include "OloEngine/Scene/Components.h"
 #include "OloEngine/Scene/ModelImporter.h"
@@ -6318,6 +6319,12 @@ namespace OloEngine
 
     Entity SceneSerializer::DeserializeEntity(u64 uuid, const std::string& name, const YAML::Node& entityNode)
     {
+        // Deserialize-driven entity creation is bulk load, not an interactive/runtime
+        // spawn, so keep it out of the "what just happened" timeline (the editor records
+        // one SceneLoad event for the whole load instead). Also mutes the error-path
+        // DestroyEntity below. (#306 item B)
+        DiagnosticsEventLog::SuppressScope suppressSpawnFlood;
+
         Entity deserializedEntity = m_Scene->CreateEntityWithUUID(uuid, name);
         try
         {

@@ -103,6 +103,7 @@ the server, so update the config (or re-copy from the panel) accordingly.
 | Tool | What it returns |
 |---|---|
 | `olo_log_tail` | recent engine log lines, filterable by `minLevel` and `tag` |
+| `olo_events_tail` | unified "what just happened?" timeline — scene load, play/stop, entity spawn/destroy, asset reload, script error — newest last with a monotonic `id`; incremental polling via `sinceId`, plus a `categories` filter |
 | `olo_scene_summary` | active scene name, play state, entity count |
 | `olo_scene_list_entities` | paginated entity list (id, name, parent, child count) + name filter |
 | `olo_scene_get_entity` | one entity's full component data (YAML) by UUID |
@@ -249,6 +250,49 @@ Typical flow: `olo_scene_list_entities` to find the entity → `olo_render_why_n
 for the verdict → `olo_camera_frame_entity` + `olo_screenshot` when it returns
 `behind_camera` / `outside_frustum` / `should_be_visible`, or `olo_shader_get` when it
 blames a shader.
+
+### The event timeline (`olo_events_tail`)
+
+`olo_events_tail` is the "what just happened?" tool. The engine keeps a small
+mutex-guarded ring buffer (`Debug/DiagnosticsEventLog.h`) that real seams push
+structured records into: **scene load** (editor `OpenScene`), **play / stop**
+(`Scene::OnRuntimeStart` / `OnRuntimeStop`), runtime **entity spawn / destroy**
+(`Scene::CreateEntityWithUUID` / `DestroyEntity`), **asset reload** (the filewatch
+`AssetReloadedEvent`), and **script error** (folded in from the same buffer behind
+`olo_script_get_last_errors`, so the timeline is unified). Each record carries a
+monotonic `id`, a `category`, a UTC `time`, a `message`, and — when applicable — the
+`entity` UUID and a `context` string (scene name / asset path / script name).
+
+The headline feature is **incremental polling**. Every response includes a `lastId`
+cursor; pass it back as the next call's `sinceId` to get *only what happened since* —
+the agent-loop win over re-dumping the whole buffer:
+
+```jsonc
+// 1) baseline — note lastId
+// olo_events_tail { "count": 1 }            -> { "lastId": 312, "events": [ … ] }
+// 2) … do something in the editor: hit Play, spawn an entity, Stop …
+// 3) olo_events_tail { "sinceId": 312 }
+{
+  "count": 3, "lastId": 315,
+  "events": [
+    { "id": 313, "category": "play",           "time": "14:02:11.418", "message": "Entered Play mode", "context": "MyScene" },
+    { "id": 314, "category": "entity_spawn",   "time": "14:02:13.902", "message": "Spawned entity 'Bullet'", "entity": "57…" },
+    { "id": 315, "category": "stop",           "time": "14:02:15.110", "message": "Left Play mode", "context": "MyScene" }
+  ]
+}
+```
+
+Bulk churn is deliberately collapsed: a whole-scene copy on Play and entity
+deserialization on load would otherwise flood the ring with hundreds of
+`entity_spawn` records, so those paths are suppressed and represented by the single
+`play` / `scene_load` event instead. Filter with `categories` (e.g.
+`["script_error", "asset_reload"]`) to narrow further. The ring holds the most recent
+512 events; older ones are evicted, but `sinceId` polling means an agent that checks
+in regularly never misses anything between checks.
+
+> **Follow-up (still open under issue #306 item B):** this is the *poll-based* half.
+> Server-*initiated* push (MCP notifications / `resources/subscribe` / SSE — `GET /mcp`
+> currently returns 405) is a larger transport change and remains open.
 
 ### Resources
 

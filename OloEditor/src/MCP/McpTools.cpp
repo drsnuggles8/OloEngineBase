@@ -10,6 +10,7 @@
 #include "OloEngine/Asset/AssetTypes.h"
 #include "OloEngine/Core/Log.h"
 #include "OloEngine/Core/UUID.h"
+#include "OloEngine/Debug/DiagnosticsEventLog.h"
 #include "OloEngine/Project/Project.h"
 #include "OloEngine/Renderer/Debug/CapturedFrameData.h"
 #include "OloEngine/Renderer/Debug/FrameCaptureManager.h"
@@ -52,6 +53,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstdint>
+#include <cstdio>
 #include <deque>
 #include <filesystem>
 #include <fstream>
@@ -941,6 +943,99 @@ namespace OloEngine::MCP
             Json out;
             out["count"] = static_cast<int>(arr.size());
             out["errors"] = std::move(arr);
+            return ToolResult::Text(out.dump(2));
+        }
+
+        // ---- olo_events_tail (lock-safe; unified diagnostics event ring buffer) -
+
+        // Format an epoch-seconds timestamp as a UTC "HH:MM:SS.mmm" wall-clock string.
+        // Computed with modular arithmetic to dodge the non-thread-safe / platform-split
+        // gmtime APIs — the date is irrelevant for a "what just happened" timeline.
+        std::string FormatEpochUtcTime(f64 epochSeconds)
+        {
+            if (!std::isfinite(epochSeconds) || epochSeconds <= 0.0)
+                return std::string{};
+            const auto total = static_cast<std::int64_t>(epochSeconds);
+            const auto secOfDay = static_cast<int>(((total % 86400) + 86400) % 86400);
+            const int milliseconds = static_cast<int>((epochSeconds - static_cast<f64>(total)) * 1000.0);
+            char buffer[16];
+            std::snprintf(buffer, sizeof(buffer), "%02d:%02d:%02d.%03d",
+                          secOfDay / 3600, (secOfDay % 3600) / 60, secOfDay % 60, std::clamp(milliseconds, 0, 999));
+            return std::string(buffer);
+        }
+
+        // A unified "what just happened?" timeline backed by the engine's diagnostics
+        // event ring buffer (Debug/DiagnosticsEventLog.h, mutex-guarded — safe from the
+        // handler thread). Supports incremental polling via sinceId: pass back the
+        // returned lastId to get only events that happened since the previous call.
+        ToolResult Handle_EventsTail(McpServer& /*server*/, const Json& args)
+        {
+            DiagnosticEventQuery query;
+            if (args.contains("count") && args["count"].is_number_integer())
+                query.MaxCount = static_cast<std::size_t>(std::clamp<long long>(args["count"].get<long long>(), 1, 500));
+
+            if (args.contains("sinceId"))
+            {
+                const Json& since = args["sinceId"];
+                if (since.is_number_unsigned())
+                    query.SinceId = since.get<u64>();
+                else if (since.is_number_integer() && since.get<long long>() > 0)
+                    query.SinceId = static_cast<u64>(since.get<long long>());
+                else if (since.is_string())
+                {
+                    try
+                    {
+                        query.SinceId = std::stoull(since.get<std::string>());
+                    }
+                    catch (...)
+                    {
+                        return ToolResult::Error("Invalid 'sinceId': expected a non-negative integer (an event id).");
+                    }
+                }
+            }
+
+            if (args.contains("categories") && args["categories"].is_array())
+            {
+                for (const auto& entry : args["categories"])
+                {
+                    if (!entry.is_string())
+                        continue;
+                    if (DiagnosticEventCategory category; DiagnosticEvent::CategoryFromString(entry.get<std::string>(), category))
+                        query.Categories.push_back(category);
+                    else
+                        return ToolResult::Error(
+                            "Unknown category '" + entry.get<std::string>() +
+                            "'. Valid: scene_load, play, stop, entity_spawn, entity_destroy, asset_reload, script_error.");
+                }
+            }
+
+            // Events + cursor in one locked snapshot: reading LastId() separately would
+            // race a concurrent Record and skip an event on the next sinceId poll.
+            const DiagnosticEventQueryResult result = DiagnosticsEventLog::Get().QueryWithCursor(query);
+
+            Json arr = Json::array();
+            for (const auto& event : result.Events)
+            {
+                Json j;
+                j["id"] = event.Id;
+                j["category"] = DiagnosticEvent::CategoryToString(event.Category);
+                if (std::string time = FormatEpochUtcTime(event.Timestamp); !time.empty())
+                    j["time"] = std::move(time);
+                j["message"] = event.Message;
+                if (event.Entity != 0)
+                    j["entity"] = std::to_string(event.Entity);
+                if (!event.Context.empty())
+                    j["context"] = event.Context;
+                arr.push_back(std::move(j));
+            }
+
+            Json out;
+            out["count"] = static_cast<int>(arr.size());
+            // The highest id in the buffer at snapshot time — pass it back as the next
+            // call's sinceId to poll only what happened since. Consistent with the events
+            // above (same lock), and stable even when no events matched the filter.
+            out["lastId"] = result.LastId;
+            out["events"] = std::move(arr);
             return ToolResult::Text(out.dump(2));
         }
 
@@ -2789,6 +2884,34 @@ namespace OloEngine::MCP
             };
             tool.MainMarshaled = false;
             tool.Handler = Handle_ScriptGetLastErrors;
+            server.RegisterTool(std::move(tool));
+        }
+
+        {
+            ToolDef tool;
+            tool.Name = "olo_events_tail";
+            tool.Description =
+                "Return the unified 'what just happened?' event timeline from the engine's diagnostics "
+                "ring buffer: scene loads, entering/leaving Play mode, runtime entity spawn/destroy, asset "
+                "hot-reloads, and script errors — newest last, each with a monotonic 'id'. The key use is "
+                "INCREMENTAL POLLING: do an action, then pass the previous call's 'lastId' as 'sinceId' to "
+                "get only what happened since. Filter with 'categories'. Bulk churn (scene-copy on Play, "
+                "deserialize on load) is collapsed into single scene_load/play events, not per-entity spam.";
+            tool.InputSchema = Json{
+                { "type", "object" },
+                { "properties",
+                  { { "count",
+                      { { "type", "integer" }, { "minimum", 1 }, { "maximum", 500 }, { "description", "How many of the most recent matching events to return (default 50)." } } },
+                    { "sinceId",
+                      { { "type", Json::array({ "integer", "string" }) }, { "minimum", 0 }, { "description", "Only return events with id greater than this. Accepts the id as a number or its string form (for large cursors beyond JSON integer precision). Pass back the previous response's 'lastId' for incremental polling." } } },
+                    { "categories",
+                      { { "type", "array" },
+                        { "items", { { "type", "string" }, { "enum", Json::array({ "scene_load", "play", "stop", "entity_spawn", "entity_destroy", "asset_reload", "script_error" }) } } },
+                        { "description", "Only return events whose category is in this list. Omit for all categories." } } } } },
+                { "additionalProperties", false }
+            };
+            tool.MainMarshaled = false;
+            tool.Handler = Handle_EventsTail;
             server.RegisterTool(std::move(tool));
         }
 

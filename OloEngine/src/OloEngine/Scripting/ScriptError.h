@@ -9,6 +9,7 @@
 // function-local static is shared across every translation unit in the final binary.
 
 #include "OloEngine/Core/Base.h"
+#include "OloEngine/Debug/DiagnosticsEventLog.h"
 
 #include <chrono>
 #include <cstddef>
@@ -53,6 +54,18 @@ namespace OloEngine
         void Push(ScriptError error)
         {
             error.Timestamp = std::chrono::duration<f64>(std::chrono::system_clock::now().time_since_epoch()).count();
+
+            // Mirror every script error into the unified diagnostics timeline (#306
+            // item B) so olo_events_tail shows scripting failures inline with scene/
+            // play/spawn events; olo_script_get_last_errors still has the full detail
+            // (stack trace). Summarise to the first line — Lua messages embed a traceback.
+            {
+                const std::string summary = error.Message.substr(0, error.Message.find('\n'));
+                DiagnosticsEventLog::Get().Record(DiagnosticEventCategory::ScriptError,
+                                                  std::string("[") + ScriptError::LanguageString(error.Lang) + "] " + summary,
+                                                  error.EntityId, error.ScriptName);
+            }
+
             std::lock_guard lock(m_Mutex);
             m_Errors.push_back(std::move(error));
             while (m_Errors.size() > kCapacity)
