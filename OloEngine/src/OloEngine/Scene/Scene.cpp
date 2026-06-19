@@ -12,6 +12,7 @@
 #include "OloEngine/Asset/InstancePlacementAsset.h"
 #include "OloEngine/Core/Application.h"
 #include "OloEngine/Core/PerformanceProfiler.h"
+#include "OloEngine/Debug/DiagnosticsEventLog.h"
 #include "OloEngine/Renderer/Renderer2D.h"
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/UnderwaterCaustics.h"
@@ -253,6 +254,12 @@ namespace OloEngine
 
     Ref<Scene> Scene::Copy(Ref<Scene>& other)
     {
+        // Mute the per-entity EntitySpawn flood: a whole-scene copy (Play / Simulate /
+        // duplicate) recreates every entity, which is internal churn, not the kind of
+        // spawn the "what just happened" timeline cares about. Play itself is recorded
+        // once by OnRuntimeStart. (#306 item B)
+        DiagnosticsEventLog::SuppressScope suppressSpawnFlood;
+
         Ref<Scene> newScene = Ref<Scene>::Create();
 
         newScene->m_ViewportWidth = other->m_ViewportWidth;
@@ -302,6 +309,12 @@ namespace OloEngine
 
         m_EntityMap.Add(uuid, entity);
         m_EntityNameMap.emplace(tag.Tag, static_cast<entt::entity>(entity));
+
+        // Unified diagnostics timeline (#306 item B). Suppressed during whole-scene
+        // bulk creation (Scene::Copy on Play, deserialize on load) so the ring buffer
+        // records interactive/runtime spawns rather than internal churn.
+        DiagnosticsEventLog::Get().Record(DiagnosticEventCategory::EntitySpawn,
+                                          "Spawned entity '" + tag.Tag + "'", static_cast<u64>(uuid));
 
         return entity;
     }
@@ -435,8 +448,10 @@ namespace OloEngine
             return;
 
         // Capture UUID before the Lua callback — the script may re-entrantly
-        // destroy this entity, invalidating the handle.
+        // destroy this entity, invalidating the handle. Capture the name too, for
+        // the diagnostics timeline recorded once the destroy actually completes.
         UUID entityUUID = entity.GetUUID();
+        std::string entityName = entity.HasComponent<TagComponent>() ? entity.GetComponent<TagComponent>().Tag : std::string{};
 
         // Dispatch Lua OnDestroy before the entity is removed from the registry
         if (m_IsRunning && entity.HasComponent<LuaScriptComponent>())
@@ -493,6 +508,11 @@ namespace OloEngine
 
         m_RuntimeSnowPrevPositions.Remove(entityUUID);
         m_EditorSnowPrevPositions.Remove(entityUUID);
+
+        // Unified diagnostics timeline (#306 item B), recorded only once the destroy
+        // has actually gone through (the early returns above bail before this).
+        DiagnosticsEventLog::Get().Record(DiagnosticEventCategory::EntityDestroy,
+                                          "Destroyed entity '" + entityName + "'", static_cast<u64>(entityUUID));
     }
 
     void Scene::InitDialogueSystem()
@@ -673,6 +693,12 @@ namespace OloEngine
     {
         m_IsRunning = true;
 
+        // Unified diagnostics timeline (#306 item B): the single authoritative fire for
+        // "entered Play mode" — the editor copies the scene then calls this; OloRuntime
+        // calls it on game start. OnSimulationStart deliberately does not record (it is
+        // not a gameplay play).
+        DiagnosticsEventLog::Get().Record(DiagnosticEventCategory::Play, "Entered Play mode", 0, GetName());
+
         // Reset animation-time history so the first runtime frame seeds itself
         // (see OnUpdateRender's m_LastAnimationTime < 0.0f branch). Without
         // this, a stale value carried over from a previous edit-mode session
@@ -809,6 +835,12 @@ namespace OloEngine
 
     void Scene::OnRuntimeStop()
     {
+        // Unified diagnostics timeline (#306 item B): the authoritative "left Play mode"
+        // fire. Recorded up front, while the scene is still intact. Teardown below tears
+        // down systems but does not route through Scene::DestroyEntity, so no spurious
+        // EntityDestroy flood follows.
+        DiagnosticsEventLog::Get().Record(DiagnosticEventCategory::Stop, "Left Play mode", 0, GetName());
+
         // Stop any global fullscreen video while the GL context is still alive, so its
         // texture is freed here rather than at static-destruction time (no context).
         // Per-entity video players are torn down with their components on scene destruction.

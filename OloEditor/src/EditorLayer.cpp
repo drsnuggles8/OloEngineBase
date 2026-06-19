@@ -36,6 +36,7 @@
 #include "OloEngine/Renderer/Model.h"
 #include "OloEngine/Renderer/AnimatedModel.h"
 #include "OloEngine/Core/FileSystem.h"
+#include "OloEngine/Debug/DiagnosticsEventLog.h"
 #include "OloEngine/Localization/LocalizationManager.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
 #include "OloEngine/Utils/PlatformUtils.h"
@@ -2521,6 +2522,15 @@ namespace OloEngine
         m_EditorScenePath = path;
         FrameEditorCameraOnTerrain(newScene);
 
+        // One unified-timeline event for the whole load (#306 item B). The per-entity
+        // EntitySpawn flood is suppressed during deserialize (SceneSerializer), so this
+        // SceneLoad line stands in for it with the resulting entity count.
+        DiagnosticsEventLog::Get().Record(
+            DiagnosticEventCategory::SceneLoad,
+            "Loaded scene '" + newScene->GetName() + "' (" +
+                std::to_string(static_cast<u64>(newScene->GetAllEntitiesWith<IDComponent>().size())) + " entities)",
+            0, path.filename().string());
+
         Renderer3D::GetPostProcessSettings() = newScene->GetPostProcessSettings();
         Renderer3D::GetSnowSettings() = newScene->GetSnowSettings();
         Renderer3D::GetWindSettings() = newScene->GetWindSettings();
@@ -3482,6 +3492,14 @@ namespace OloEngine
 
     bool EditorLayer::OnAssetReloaded(AssetReloadedEvent const& e)
     {
+        // Unified diagnostics timeline (#306 item B): a hot-reload is exactly the kind of
+        // "what just happened" an agent wants to correlate with a visual/behaviour change.
+        DiagnosticsEventLog::Get().Record(
+            DiagnosticEventCategory::AssetReload,
+            std::string("Reloaded ") + AssetUtils::AssetTypeToString(e.GetAssetType()) + " '" +
+                e.GetPath().filename().string() + "'",
+            0, e.GetPath().string());
+
         // Notify the rendering system so it can log generation changes
         // and verify next-frame refresh is clean.
         Renderer3D::OnAssetReloaded(e);

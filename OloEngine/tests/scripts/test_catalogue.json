@@ -284,6 +284,7 @@
     "OloEngine/tests/LocalizationTest.cpp": "unit",
     "OloEngine/tests/Lua/LuaBindingTest.cpp": "unit",
     "OloEngine/tests/MCP/McpDispatchTest.cpp": "unit",
+    "OloEngine/tests/MCP/McpEventsTailTest.cpp": "unit",
     "OloEngine/tests/MCP/McpPhysicsExplainTest.cpp": "unit",
     "OloEngine/tests/MCP/McpRenderExplainTest.cpp": "unit",
     "OloEngine/tests/MathTest.cpp": "unit",
