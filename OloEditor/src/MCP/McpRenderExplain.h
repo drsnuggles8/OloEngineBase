@@ -209,7 +209,8 @@ namespace OloEngine::MCP::RenderExplain
             verdict.ReasonCode = "shader_compile_error";
             verdict.Summary = std::string("The material's shader '") + e.MaterialShaderName +
                               "' failed to compile, so the entity cannot be shaded and does not appear. Inspect the "
-                              "error with olo_shader_get (name '" + e.MaterialShaderName +
+                              "error with olo_shader_get (name '" +
+                              e.MaterialShaderName +
                               "') and fix the shader source.";
             return verdict;
         }
