@@ -2071,8 +2071,11 @@ namespace OloEngine::MCP
                 return ToolResult::Text(result.dump(2));
             }
 
+            // enabled:false takes precedence over mode: it is the explicit
+            // "clear all views" intent, so honour it even if a mode is also given
+            // (leaving view at None) rather than letting the mode override it.
             DebugView view = DebugView::None;
-            if (hasMode)
+            if (hasMode && !disableViaEnabled)
             {
                 const std::string mode = args["mode"].get<std::string>();
                 if (!ParseDebugView(mode, view))
