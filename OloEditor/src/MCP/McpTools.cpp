@@ -2,6 +2,7 @@
 #include "MCP/McpTools.h"
 #include "MCP/McpServer.h"
 #include "MCP/McpScriptApi.h"
+#include "MCP/McpGoldenCompare.h"
 #include "MCP/McpPhysicsExplain.h"
 #include "MCP/McpRenderExplain.h"
 
@@ -48,6 +49,8 @@
 #include <Jolt/Physics/Body/BodyLockInterface.h>
 #include <Jolt/Physics/Collision/ObjectLayer.h>
 
+#include <stb_image/stb_image.h>
+
 #include <algorithm>
 #include <array>
 #include <chrono>
@@ -57,6 +60,7 @@
 #include <deque>
 #include <filesystem>
 #include <fstream>
+#include <optional>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -1604,6 +1608,288 @@ namespace OloEngine::MCP
             return toolResult;
         }
 
+        // ---- olo_render_compare_golden (Part 4 of #316) ------------------------
+
+        // Resolve a caller-supplied golden path to a safe, repo-relative location
+        // under the visual-test artifact root. Rejects absolute paths and ".."
+        // traversal so a server that is read-only w.r.t. the project can only ever
+        // touch test artifacts (HANDOVER / #316 Tier-0 framing). On success `out`
+        // is relative to the editor CWD (OloEditor/), so a bare "foo.png" lands in
+        // assets/tests/visual/foo.png — the same root the suite visual tests use.
+        std::string ResolveGoldenPath(const std::string& input, std::filesystem::path& out)
+        {
+            namespace fs = std::filesystem;
+            if (input.empty())
+                return "Invalid 'goldenPath': must not be empty.";
+            const fs::path p = fs::path(input).lexically_normal();
+            if (p.is_absolute() || p.has_root_name() || p.has_root_directory())
+                return "Invalid 'goldenPath': must be a relative path (no drive letter or leading slash); "
+                       "it is resolved under assets/tests/visual/.";
+            for (const auto& part : p)
+            {
+                if (part == "..")
+                    return "Invalid 'goldenPath': must not contain '..' (no directory traversal).";
+            }
+            const fs::path root = fs::path("assets") / "tests" / "visual";
+            const fs::path rootNorm = root.lexically_normal();
+            // Accept either a bare name/subpath (placed under the root) or a path
+            // already rooted at assets/tests/visual.
+            const auto mm = std::mismatch(rootNorm.begin(), rootNorm.end(), p.begin(), p.end());
+            const bool alreadyUnderRoot = mm.first == rootNorm.end();
+            out = (alreadyUnderRoot ? p : (root / p)).lexically_normal();
+            // Force a .png extension so the format is unambiguous.
+            if (const fs::path ext = out.extension(); ext != ".png" && ext != ".PNG")
+                out += ".png";
+
+            // Defence-in-depth against symlink escape: the lexical checks above
+            // stop '..'/absolute paths, but a symlinked component inside the
+            // artifact root (e.g. a symlinked assets/tests/visual) could still
+            // redirect the write outside it. Resolve symlinks and confirm the
+            // real path stays under assets/tests/visual/, honouring the "only
+            // ever touches test artifacts" guarantee. weakly_canonical resolves
+            // the existing prefix (catching a symlinked root) and handles the
+            // not-yet-created golden file lexically.
+            std::error_code ec;
+            const fs::path canonicalRoot = fs::weakly_canonical(root, ec);
+            if (ec)
+                return "Could not resolve the golden artifact root (assets/tests/visual/).";
+            const fs::path canonicalOut = fs::weakly_canonical(out, ec);
+            if (ec)
+                return "Could not resolve 'goldenPath' to a canonical location.";
+            if (const fs::path rel = canonicalOut.lexically_relative(canonicalRoot); rel.empty() || *rel.begin() == "..")
+                return "Invalid 'goldenPath': resolves outside assets/tests/visual/ (possible symlink escape).";
+            return {};
+        }
+
+        // ---- olo_render_compare_golden (main-marshaled; GL readback + diff) -----
+        // Capture the viewport (optionally from a fixed pose), diff it against a
+        // golden PNG, and return a numeric similarity + pass/fail verdict — the
+        // numeric half of CLAUDE.md's "rendering changes MUST be visually verified"
+        // loop. When the golden is missing (or 'rebase' is set) the capture is
+        // written as the new golden instead of failing, mirroring the test suite's
+        // OLOENGINE_GOLDEN_REBASE workflow. The diff math itself lives in the pure,
+        // GL-free McpGoldenCompare.h so it is unit-tested headlessly and stays
+        // consistent with the GoldenImageTests.cpp suite metric.
+        ToolResult Handle_RenderCompareGolden(McpServer& server, const Json& args)
+        {
+            if (!args.contains("goldenPath") || !args["goldenPath"].is_string())
+                return ToolResult::Error("Missing required argument 'goldenPath' (PNG path under assets/tests/visual/).");
+            std::filesystem::path goldenPath;
+            if (const std::string err = ResolveGoldenPath(args["goldenPath"].get<std::string>(), goldenPath); !err.empty())
+                return ToolResult::Error(err);
+
+            if (!server.Context().CaptureViewportPng)
+                return ToolResult::Error("Screenshot capture is not available in this editor build.");
+
+            // Optional camera placement for this capture only (same shape as olo_screenshot).
+            const bool hasCamera = args.contains("camera");
+            const bool hasOrbit = args.contains("orbit");
+            if (hasCamera && hasOrbit)
+                return ToolResult::Error("Give either 'camera' or 'orbit', not both.");
+            CameraRequest request;
+            if (hasCamera || hasOrbit)
+            {
+                if (!CameraContextAvailable(server.Context()))
+                    return ToolResult::Error("Camera control is not available in this editor build.");
+                const std::string error = hasCamera ? ParsePoseRequest(args["camera"], request)
+                                                    : ParseOrbitRequest(args["orbit"], request);
+                if (!error.empty())
+                    return ToolResult::Error(error);
+            }
+
+            // Optional explicit similarity threshold in [0, 1]. Absent => the
+            // suite-cascade verdict (RMSE -> SSIM) from GoldenImageTests.cpp.
+            std::optional<f32> threshold;
+            if (args.contains("threshold"))
+            {
+                if (!args["threshold"].is_number())
+                    return ToolResult::Error("Invalid 'threshold': expected a number in [0, 1].");
+                const f32 t = args.value("threshold", -1.0f);
+                if (!std::isfinite(t) || t < 0.0f || t > 1.0f)
+                    return ToolResult::Error("Invalid 'threshold': expected a finite number in [0, 1].");
+                threshold = t;
+            }
+            const bool rebase = args.value("rebase", false);
+
+            int settleFrames = 2;
+            if (args.contains("settleFrames") && args["settleFrames"].is_number_integer())
+                settleFrames = static_cast<int>(std::clamp<long long>(args["settleFrames"].get<long long>(), 1, 30));
+            int maxWidth = 1024;
+            if (args.contains("maxWidth") && args["maxWidth"].is_number_integer())
+                maxWidth = static_cast<int>(std::clamp<long long>(args["maxWidth"].get<long long>(), 16, 4096));
+
+            // Save the user's pose and apply the requested one (identical machinery
+            // to Handle_Screenshot — the restore happens in the capture job / the
+            // error path so it runs exactly once).
+            bool posed = false;
+            Json savedPose;
+            bool waitTimedOut = false;
+            if (hasCamera || hasOrbit)
+            {
+                const Json applied = server.MarshalRead([&server, request]() -> Json
+                                                        {
+                    const McpCameraPose prior = server.Context().GetCameraPose();
+                    ApplyCameraRequest(server.Context(), request);
+                    Json j;
+                    j["focalPoint"] = Json::array({ prior.FocalPoint.x, prior.FocalPoint.y, prior.FocalPoint.z });
+                    j["distance"] = prior.Distance;
+                    j["yaw"] = prior.YawRadians;
+                    j["pitch"] = prior.PitchRadians;
+                    j["fov"] = prior.FovDegrees;
+                    j["frame"] = server.Context().GetFrameIndex ? server.Context().GetFrameIndex() : 0;
+                    return j; });
+                savedPose = applied;
+                posed = true;
+            }
+            const auto restorePriorPose = [&server, &savedPose]()
+            {
+                McpCameraPose prior;
+                prior.FocalPoint = glm::vec3{ savedPose["focalPoint"][0].get<f32>(),
+                                              savedPose["focalPoint"][1].get<f32>(),
+                                              savedPose["focalPoint"][2].get<f32>() };
+                prior.Distance = savedPose.value("distance", 0.0f);
+                prior.YawRadians = savedPose.value("yaw", 0.0f);
+                prior.PitchRadians = savedPose.value("pitch", 0.0f);
+                prior.FovDegrees = savedPose.value("fov", 45.0f);
+                server.Context().RestoreCameraPose(prior);
+            };
+
+            // Capture the viewport PNG (and restore the user's camera in the same
+            // main-thread job). The bytes are written into `capturedPng` by
+            // reference — MarshalRead runs synchronously, so this is safe.
+            std::vector<u8> capturedPng;
+            try
+            {
+                if (posed)
+                    waitTimedOut = !AwaitRenderedFrames(server, savedPose.value("frame", static_cast<u64>(0)), settleFrames);
+                const Json cap = server.MarshalRead([&server, maxWidth, posed, &restorePriorPose, &capturedPng]() -> Json
+                                                    {
+                    capturedPng = server.Context().CaptureViewportPng(maxWidth);
+                    if (posed)
+                        restorePriorPose();
+                    if (capturedPng.empty())
+                        return Json{ { "__error", "Viewport capture failed (no framebuffer or empty viewport)." } };
+                    return Json{ { "ok", true } }; });
+                if (cap.is_object() && cap.contains("__error"))
+                    return ToolResult::Error(cap["__error"].get<std::string>());
+            }
+            catch (...)
+            {
+                if (posed)
+                {
+                    try
+                    {
+                        (void)server.MarshalRead([&restorePriorPose]() -> Json
+                                                 {
+                            restorePriorPose();
+                            return Json{}; });
+                    }
+                    catch (...)
+                    {
+                    }
+                }
+                throw;
+            }
+
+            namespace fs = std::filesystem;
+            const std::string goldenPathStr = goldenPath.generic_string();
+            const bool goldenExists = fs::exists(goldenPath);
+
+            // Golden-missing / rebase: write the capture as the new golden and
+            // report it (a test-artifact write under assets/tests/visual/, never
+            // the user's scene/assets — see #316 Tier-0 framing).
+            if (!goldenExists || rebase)
+            {
+                std::error_code ec;
+                if (goldenPath.has_parent_path())
+                    fs::create_directories(goldenPath.parent_path(), ec);
+                std::ofstream f(goldenPath, std::ios::binary | std::ios::trunc);
+                if (f)
+                    f.write(reinterpret_cast<const char*>(capturedPng.data()), static_cast<std::streamsize>(capturedPng.size()));
+                if (!f)
+                    return ToolResult::Error("Failed to write golden PNG to: " + goldenPathStr);
+
+                Json j;
+                j["goldenPath"] = goldenPathStr;
+                j["created"] = true;
+                j["rebased"] = goldenExists; // existed AND we overwrote it
+                j["bytes"] = static_cast<u64>(capturedPng.size());
+                j["message"] = (goldenExists ? "Rebased golden at " : "Golden created at ") + goldenPathStr +
+                               " — captured the current frame as the new baseline. Re-run the tool (without 'rebase', "
+                               "same capture size) to compare against it.";
+                if (waitTimedOut)
+                    j["warning"] = "Timed out waiting for the new camera pose to render; the golden may be a stale frame.";
+
+                ToolResult result;
+                result.Content = Json::array({ Json{ { "type", "text" }, { "text", j.dump(2) } },
+                                               Json{ { "type", "image" }, { "data", Base64Encode(capturedPng) }, { "mimeType", "image/png" } } });
+                result.IsError = false;
+                return result;
+            }
+
+            // Compare path: decode both PNGs to RGBA8 and run the pure diff core.
+            // stb's flip flags can be left set by production asset-loading paths
+            // (Model.cpp / AssetSerializer.cpp set the thread-local one), which
+            // would load an image upside-down and produce a false mismatch — reset
+            // both global and thread-local flags so decode orientation is
+            // deterministic and matches how goldens are written (no flip). Same
+            // precaution as GoldenImageTests.cpp::CompareOrBootstrap.
+            ::stbi_set_flip_vertically_on_load(0);
+            ::stbi_set_flip_vertically_on_load_thread(0);
+
+            int aw = 0, ah = 0, ach = 0;
+            stbi_uc* actualRaw = ::stbi_load_from_memory(capturedPng.data(), static_cast<int>(capturedPng.size()), &aw, &ah, &ach, 4);
+            if (actualRaw == nullptr)
+                return ToolResult::Error("Failed to decode the captured frame PNG in memory.");
+            std::vector<u8> actual(actualRaw, actualRaw + (static_cast<std::size_t>(aw) * ah * 4));
+            ::stbi_image_free(actualRaw);
+
+            int gw = 0, gh = 0, gch = 0;
+            stbi_uc* goldenRaw = ::stbi_load(goldenPathStr.c_str(), &gw, &gh, &gch, 4);
+            if (goldenRaw == nullptr)
+            {
+                const char* reason = ::stbi_failure_reason();
+                return ToolResult::Error("Failed to read/decode the golden PNG at " + goldenPathStr + ": " +
+                                         (reason ? reason : "unknown error"));
+            }
+            std::vector<u8> golden(goldenRaw, goldenRaw + (static_cast<std::size_t>(gw) * gh * 4));
+            ::stbi_image_free(goldenRaw);
+
+            const GoldenCompare::CompareResult cmp =
+                GoldenCompare::Compare(actual, static_cast<u32>(aw), static_cast<u32>(ah),
+                                       golden, static_cast<u32>(gw), static_cast<u32>(gh), threshold);
+
+            Json j;
+            j["goldenPath"] = goldenPathStr;
+            j["created"] = false;
+            j["pass"] = cmp.Pass;
+            j["dimensionsMatch"] = cmp.DimensionsMatch;
+            j["actual"] = Json{ { "width", cmp.ActualWidth }, { "height", cmp.ActualHeight } };
+            j["golden"] = Json{ { "width", cmp.GoldenWidth }, { "height", cmp.GoldenHeight } };
+            if (cmp.DimensionsMatch)
+            {
+                j["similarity"] = cmp.Similarity;
+                j["ssim"] = cmp.Ssim;
+                j["rmse"] = cmp.Rmse;
+                j["mse"] = cmp.Mse;
+                j["threshold"] = cmp.Threshold;
+                j["thresholdMode"] = cmp.ThresholdMode;
+                j["mismatchPixels"] = cmp.MismatchPixels;
+                j["totalPixels"] = cmp.TotalPixels;
+                j["maxChannelDelta"] = cmp.MaxChannelDelta;
+                j["worstPixel"] = Json{ { "x", cmp.WorstX }, { "y", cmp.WorstY } };
+            }
+            j["message"] = cmp.Message;
+            if (waitTimedOut)
+                j["warning"] = "Timed out waiting for the new camera pose to render; the comparison may use a stale frame.";
+
+            ToolResult result;
+            result.Content = Json::array({ Json{ { "type", "text" }, { "text", j.dump(2) } },
+                                           Json{ { "type", "image" }, { "data", Base64Encode(capturedPng) }, { "mimeType", "image/png" } } });
+            result.IsError = false;
+            return result;
+        }
+
         // ======================================================================
         // olo_physics_* — physics introspection + "explain" tools (#306 item A).
         //
@@ -3091,6 +3377,45 @@ namespace OloEngine::MCP
             };
             tool.MainMarshaled = true;
             tool.Handler = Handle_RenderCaptureTarget;
+            server.RegisterTool(std::move(tool));
+        }
+
+        {
+            ToolDef tool;
+            tool.Name = "olo_render_compare_golden";
+            tool.Description =
+                "Capture the editor viewport and diff it against a golden PNG, returning a numeric "
+                "similarity + pass/fail verdict — the numeric half of the 'rendering changes MUST be "
+                "visually verified' loop: get a deterministic yes/no instead of eyeballing a screenshot. "
+                "'goldenPath' is a PNG under assets/tests/visual/ (bare names land there; '..'/absolute "
+                "paths are rejected). Optionally pose the camera for this capture only via 'camera' or "
+                "'orbit' (same shape as olo_screenshot; the user's camera is saved and restored). If the "
+                "golden does not exist (or 'rebase':true), the captured frame is WRITTEN as the new "
+                "golden and the tool reports 'created' instead of failing — mirroring the test suite's "
+                "OLOENGINE_GOLDEN_REBASE workflow. The verdict uses the same RMSE→SSIM metric as the "
+                "GoldenImageTests suite; pass an explicit 'threshold' (min SSIM similarity in [0,1]) to "
+                "override the default cascade. Use the SAME capture size when creating and comparing "
+                "(set one with olo_viewport_set_size) or the dimensions will mismatch. Returns the "
+                "verdict JSON plus the captured frame as an image block.";
+            tool.InputSchema = Json{
+                { "type", "object" },
+                { "properties",
+                  { { "goldenPath", { { "type", "string" }, { "description", "Golden PNG path under assets/tests/visual/ (e.g. 'water_side.png'). A '.png' extension is added if missing. Relative only — no '..' or absolute paths." } } },
+                    { "threshold", { { "type", "number" }, { "minimum", 0 }, { "maximum", 1 }, { "description", "Minimum SSIM similarity in [0,1] to pass (1 = identical). Omit to use the suite's RMSE→SSIM cascade verdict (the default, consistent with the golden test suite)." } } },
+                    { "rebase", { { "type", "boolean" }, { "description", "true = overwrite the golden with the current capture instead of comparing (re-baseline after a deliberate visual change). A missing golden is always created regardless." } } },
+                    { "camera",
+                      { { "type", "object" },
+                        { "description", "Capture from this pose, then restore the prior camera. Same shape as olo_camera_set_pose: position [x,y,z] plus target [x,y,z] or yaw/pitch (degrees); optional fov." } } },
+                    { "orbit",
+                      { { "type", "object" },
+                        { "description", "Capture from this orbit pose, then restore. Same shape as olo_camera_orbit: target [x,y,z], yaw/pitch (degrees), distance; optional fov." } } },
+                    { "settleFrames", { { "type", "integer" }, { "minimum", 1 }, { "maximum", 30 }, { "description", "Frames to render at the new pose before capturing (default 2). Raise for temporal effects (TAA, fog history) to settle." } } },
+                    { "maxWidth", { { "type", "integer" }, { "minimum", 16 }, { "maximum", 4096 }, { "description", "Max capture width in pixels (default 1024); aspect ratio preserved. Must match between create and compare." } } } } },
+                { "required", Json::array({ "goldenPath" }) },
+                { "additionalProperties", false }
+            };
+            tool.MainMarshaled = true; // reads main-thread-only camera/viewport state (like olo_screenshot)
+            tool.Handler = Handle_RenderCompareGolden;
             server.RegisterTool(std::move(tool));
         }
 
