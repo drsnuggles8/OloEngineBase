@@ -1640,6 +1640,24 @@ namespace OloEngine::MCP
             // Force a .png extension so the format is unambiguous.
             if (const fs::path ext = out.extension(); ext != ".png" && ext != ".PNG")
                 out += ".png";
+
+            // Defence-in-depth against symlink escape: the lexical checks above
+            // stop '..'/absolute paths, but a symlinked component inside the
+            // artifact root (e.g. a symlinked assets/tests/visual) could still
+            // redirect the write outside it. Resolve symlinks and confirm the
+            // real path stays under assets/tests/visual/, honouring the "only
+            // ever touches test artifacts" guarantee. weakly_canonical resolves
+            // the existing prefix (catching a symlinked root) and handles the
+            // not-yet-created golden file lexically.
+            std::error_code ec;
+            const fs::path canonicalRoot = fs::weakly_canonical(root, ec);
+            if (ec)
+                return "Could not resolve the golden artifact root (assets/tests/visual/).";
+            const fs::path canonicalOut = fs::weakly_canonical(out, ec);
+            if (ec)
+                return "Could not resolve 'goldenPath' to a canonical location.";
+            if (const fs::path rel = canonicalOut.lexically_relative(canonicalRoot); rel.empty() || *rel.begin() == "..")
+                return "Invalid 'goldenPath': resolves outside assets/tests/visual/ (possible symlink escape).";
             return {};
         }
 
