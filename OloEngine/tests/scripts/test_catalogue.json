@@ -288,6 +288,7 @@
     "OloEngine/tests/MCP/McpGoldenCompareTest.cpp": "unit",
     "OloEngine/tests/MCP/McpPhysicsExplainTest.cpp": "unit",
     "OloEngine/tests/MCP/McpRenderExplainTest.cpp": "unit",
+    "OloEngine/tests/MCP/McpShaderReloadTest.cpp": "unit",
     "OloEngine/tests/MathTest.cpp": "unit",
     "OloEngine/tests/ModelImporterTest.cpp": "unit",
     "OloEngine/tests/SceneMeshRaycastTest.cpp": "unit",
