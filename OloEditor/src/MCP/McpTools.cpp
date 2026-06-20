@@ -719,9 +719,13 @@ namespace OloEngine::MCP
                 r.Name = name;
 
                 // Reload in every library that holds the name (matches the editor's
-                // Recompile button). Renderer3D is checked first so it is the
-                // primary status/log source when a name lives in both.
-                Ref<Shader> primary;
+                // Recompile button). The reported status aggregates ALL reloaded
+                // copies: r.Ok is true only if every copy is Ready, and the
+                // representative used for the status / program-id / log is the
+                // first copy that FAILED (so a failure isn't masked by a sibling
+                // that linked) — otherwise the first copy.
+                Ref<Shader> representative;
+                bool allReady = true;
                 const auto reloadIn = [&](ShaderLibrary& lib, const char* label)
                 {
                     if (!lib.Exists(name))
@@ -732,13 +736,15 @@ namespace OloEngine::MCP
                     shader->Reload();
                     r.Found = true;
                     r.Libraries.emplace_back(label);
-                    if (!primary)
-                        primary = shader;
+                    const bool ready = shader->IsReady();
+                    allReady = allReady && ready;
+                    if (!representative || (!ready && representative->IsReady()))
+                        representative = shader;
                 };
                 reloadIn(Renderer3D::GetShaderLibrary(), "Renderer3D");
                 reloadIn(Renderer2D::GetShaderLibrary(), "Renderer2D");
 
-                if (!r.Found || !primary)
+                if (!r.Found || !representative)
                 {
                     // olo_shader_list reports every GL program the shader debugger
                     // knows about (post-process / compute shaders such as GTAO,
@@ -769,10 +775,12 @@ namespace OloEngine::MCP
                 }
 
                 // Authoritative, build-independent status (does not rely on the
-                // debug-only ShaderDebugger).
-                r.Status = primary->GetCompilationStatus();
-                r.Ok = (r.Status == ShaderCompilationStatus::Ready);
-                r.RendererId = primary->GetRendererID();
+                // debug-only ShaderDebugger). r.Ok reflects EVERY reloaded copy;
+                // the status / program-id / log come from the representative (a
+                // failed copy if any failed, else the first copy).
+                r.Status = representative->GetCompilationStatus();
+                r.Ok = allReady;
+                r.RendererId = representative->GetRendererID();
 
                 // Best-effort compile/link log via the same read path as
                 // olo_shader_errors (ShaderDebugger, populated in debug builds).
