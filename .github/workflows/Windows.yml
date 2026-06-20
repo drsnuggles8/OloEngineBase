@@ -207,18 +207,6 @@ jobs:
       # the Windows ASan job works around). Tracked separately; these are
       # not regressions introduced by this PR.
       #
-      # --repeat until-pass:3 is an INTERIM flaky-retry for issue #281
-      # (PhysicsLayerFilteringTest SEH 0xc0000005, a rare multithreaded-Jolt
-      # crash that only reproduces under the hosted runner's 2-4 core
-      # preemption — 100/100 Release passes locally). ctest reruns ONLY the
-      # tests that failed, up to 3 attempts each, so a green run is unaffected
-      # and the overhead is paid only on a flake. This is a stop-gap to keep CI
-      # from blocking merges (#304); it does NOT fix the underlying race — see
-      # #281 for the root-cause analysis. Deliberately NOT applied to the
-      # sanitizer workflows (asan.yml): a retry there would mask the very races
-      # those jobs exist to surface. Requires ctest >= 3.17 (windows-latest
-      # ships >= 3.29).
-      #
       # --parallel 4 runs up to 4 test processes at once (windows-latest has 4
       # vCPUs). Every test is its own ctest entry (gtest_discover_tests → one
       # OloEngine-Tests.exe per test), so serial execution pays full engine
@@ -227,15 +215,25 @@ jobs:
       # their temp paths by PID / gtest case name, and the handful that share the
       # engine's repo-relative mesh cache are serialized with a ctest
       # RESOURCE_LOCK (OloEngine/tests/CMakeLists.txt). Functional/Jolt tests
-      # oversubscribe cores under -j but run stable (verified to 16x locally);
-      # the --repeat above still nets the rare #281 race. See the "Parallel-safety
-      # contract" in docs/agent-rules/testing-architecture.md.
+      # oversubscribe cores under -j but run stable (verified to 16x locally).
+      # See the "Parallel-safety contract" in docs/agent-rules/testing-architecture.md.
       #
       # --output-on-failure replaces -V: full verbosity interleaves illegibly
       # across parallel workers and bloats the runner log. This keeps green runs
       # quiet and prints captured output only for failing tests; the per-test
       # JUnit XML uploaded below keeps the complete record either way.
-      run: ctest --parallel 4 --output-on-failure --timeout 120 --repeat until-pass:3 -C ${{env.BUILD_TYPE}} --exclude-regex '^NetworkIntegrationTest\.|^TaskSystemTest\.|^TaskEventTest\.|^NestedTasksTest\.|^PipeTest\.|^TaskDependenciesTest\.|^TaskStressTest\.|^MakeCompletedTaskTest\.|^IsAwaitableTest\.|^WaitAnyTest\.|^AnyTest\.|^DeepRetractionTest\.|^InlineTaskTest\.|^MoveOnlyResultTest\.|^TaskSelfAccessTest\.|^NestedTaskStressTest\.|^ConcurrentEventTriggerTest\.|^CancellationTokenTest\.|^WorkerRestartTest\.|^TaskConcurrencyLimiterTest\.'
+      #
+      # NOTE: the interim `--repeat until-pass:3` flaky-retry for issue #281
+      # (PhysicsLayerFilteringTest SEH 0xc0000005) was REMOVED — #281 is fixed at
+      # the root (JoltJobSystemAdapter::WaitForOutstandingTasks now blocks instead
+      # of busy-spinning, so the game thread stops starving the scheduler worker on
+      # a core-starved runner). The fix is in the shared job-system adapter, so it
+      # stabilises every physics / Functional test under -j oversubscription, not
+      # just this one — which is why the retry can go. Verified: a dedicated
+      # `flaky-repro-281.yml` hunt ran the test under the 2-core squeeze for the
+      # full step on the hosted runner with zero failures. If a physics test ever
+      # flakes here again, reinstate `--repeat until-pass:3` AND reopen #281.
+      run: ctest --parallel 4 --output-on-failure --timeout 120 -C ${{env.BUILD_TYPE}} --exclude-regex '^NetworkIntegrationTest\.|^TaskSystemTest\.|^TaskEventTest\.|^NestedTasksTest\.|^PipeTest\.|^TaskDependenciesTest\.|^TaskStressTest\.|^MakeCompletedTaskTest\.|^IsAwaitableTest\.|^WaitAnyTest\.|^AnyTest\.|^DeepRetractionTest\.|^InlineTaskTest\.|^MoveOnlyResultTest\.|^TaskSelfAccessTest\.|^NestedTaskStressTest\.|^ConcurrentEventTriggerTest\.|^CancellationTokenTest\.|^WorkerRestartTest\.|^TaskConcurrencyLimiterTest\.'
 
     - name: Upload test results
       uses: actions/upload-artifact@v7
