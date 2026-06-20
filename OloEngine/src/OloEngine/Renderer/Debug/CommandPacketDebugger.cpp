@@ -1244,15 +1244,36 @@ namespace OloEngine
             return false;
         }
 
-        const auto* frame = &*selectedFrame;
-
         try
         {
             std::ofstream file(outputPath);
             if (!file.is_open())
                 return false;
 
-            // Header
+            file << BuildMarkdownReport(*selectedFrame);
+
+            file.close();
+            OLO_CORE_INFO("Command packet analysis exported to: {}", outputPath);
+            return true;
+        }
+        catch (const std::exception& e)
+        {
+            OLO_CORE_ERROR("Failed to export Markdown analysis: {}", e.what());
+            return false;
+        }
+    }
+
+    namespace
+    {
+        // ---- BuildMarkdownReport section builders -------------------------------
+        // The Markdown report is assembled one "## ..." section at a time so the
+        // public BuildMarkdownReport orchestrator stays a flat, low-complexity
+        // sequence of Append* calls (each helper owns one section's branching). The
+        // `frame` pointer and the orchestrator-selected `commands` list are passed
+        // in; helpers only append to `file`.
+
+        void AppendFrameInfoSection(const CapturedFrameData* frame, std::ostringstream& file)
+        {
             file << "# Command Bucket Frame Capture Report\n\n";
             file << "## Frame Info\n\n";
             file << "- **Frame Number:** " << frame->FrameNumber << "\n";
@@ -1263,8 +1284,10 @@ namespace OloEngine
             if (!frame->Notes.empty())
                 file << "- **Notes:** " << frame->Notes << "\n";
             file << "\n";
+        }
 
-            // Pipeline statistics
+        void AppendPipelineStatisticsSection(const CapturedFrameData* frame, std::ostringstream& file)
+        {
             file << "## Pipeline Statistics\n\n";
             file << "| Metric | Value |\n";
             file << "|--------|-------|\n";
@@ -1278,10 +1301,10 @@ namespace OloEngine
             file << "| Texture Binds | " << frame->Stats.TextureBinds << " |\n";
             file << "| Batched Commands | " << frame->Stats.BatchedCommands << " |\n";
             file << "\n";
+        }
 
-            // Command list (post-sort is the most useful for analysis)
-            const auto& commands = !frame->PostSortCommands.empty() ? frame->PostSortCommands : frame->PreSortCommands;
-
+        void AppendCommandListSection(const std::vector<CapturedCommandData>& commands, std::ostringstream& file)
+        {
             file << "## Command List (Post-Sort Order)\n\n";
             file << "| # | Type | ShaderID | MaterialID | Depth | ViewLayer | RenderMode | Static | DebugName | GpuTimeMs |\n";
             file << "|---|------|----------|------------|-------|-----------|------------|--------|-----------|----------|\n";
@@ -1304,8 +1327,10 @@ namespace OloEngine
                      << " |\n";
             }
             file << "\n";
+        }
 
-            // Sort analysis
+        void AppendSortAnalysisSection(const CapturedFrameData* frame, std::ostringstream& file)
+        {
             file << "## Sort Analysis\n\n";
             if (!frame->PreSortCommands.empty() && !frame->PostSortCommands.empty())
             {
@@ -1334,8 +1359,10 @@ namespace OloEngine
             {
                 file << "Insufficient data for sort analysis.\n\n";
             }
+        }
 
-            // State change analysis
+        void AppendStateChangeAnalysisSection(const CapturedFrameData* frame, const std::vector<CapturedCommandData>& commands, std::ostringstream& file)
+        {
             file << "## State Change Analysis\n\n";
             if (commands.size() >= 2)
             {
@@ -1380,14 +1407,15 @@ namespace OloEngine
                 file << "| Depth State Changes | " << depthChanges << " |\n";
                 file << "| **Shader Coherence** | **" << std::fixed << std::setprecision(1) << (shaderCoherence * 100.0f) << "%** |\n\n";
             }
+        }
 
-            // Batching analysis
+        void AppendBatchingAnalysisSection(const CapturedFrameData* frame, const std::vector<CapturedCommandData>& commands, std::ostringstream& file)
+        {
             file << "## Batching Analysis\n\n";
             if (!frame->PostBatchCommands.empty())
             {
                 i32 merged = static_cast<i32>(frame->PostSortCommands.size()) - static_cast<i32>(frame->PostBatchCommands.size());
-                f32 batchRatio = frame->PostSortCommands.empty() ? 1.0f
-                                                                 : static_cast<f32>(frame->PostBatchCommands.size()) / static_cast<f32>(frame->PostSortCommands.size());
+                f32 batchRatio = frame->PostSortCommands.empty() ? 1.0f : static_cast<f32>(frame->PostBatchCommands.size()) / static_cast<f32>(frame->PostSortCommands.size());
 
                 file << "- **Pre-batch commands:** " << frame->PostSortCommands.size() << "\n";
                 file << "- **Post-batch commands:** " << frame->PostBatchCommands.size() << "\n";
@@ -1415,8 +1443,10 @@ namespace OloEngine
                 if (potentialMerges > 0)
                     file << "- **Potential batch merges** (same shader+material): " << potentialMerges << "\n\n";
             }
+        }
 
-            // Draw command material summary
+        void AppendDrawCommandDetailsSection(const CapturedFrameData* frame, const std::vector<CapturedCommandData>& commands, std::ostringstream& file)
+        {
             file << "## Draw Command Details\n\n";
             u32 drawIdx = 0;
             for (const auto& cmd : commands)
@@ -1464,8 +1494,10 @@ namespace OloEngine
                     // No additional handling required.
                 }
             }
+        }
 
-            // GPU timing section
+        void AppendGpuTimingSection(const std::vector<CapturedCommandData>& commands, std::ostringstream& file)
+        {
             bool hasGpuTiming = false;
             f64 totalGpuTime = 0.0;
             for (const auto& cmd : commands)
@@ -1497,8 +1529,10 @@ namespace OloEngine
                 }
                 file << "\n";
             }
+        }
 
-            // Auto-generated optimization suggestions
+        void AppendOptimizationSuggestionsSection(const CapturedFrameData* frame, const std::vector<CapturedCommandData>& commands, std::ostringstream& file)
+        {
             file << "## Optimization Suggestions\n\n";
             file << "The following are auto-detected observations. An LLM or engineer should review these in context.\n\n";
 
@@ -1577,17 +1611,31 @@ namespace OloEngine
 
             if (!hasSuggestions)
                 file << "No obvious optimization issues detected.\n";
-
-            file << "\n---\n*Generated by OloEngine Command Bucket Inspector*\n";
-
-            file.close();
-            OLO_CORE_INFO("Command packet analysis exported to: {}", outputPath);
-            return true;
         }
-        catch (const std::exception& e)
-        {
-            OLO_CORE_ERROR("Failed to export Markdown analysis: {}", e.what());
-            return false;
-        }
+    } // namespace
+
+    std::string CommandPacketDebugger::BuildMarkdownReport(const CapturedFrameData& capturedFrame)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        const auto* frame = &capturedFrame;
+        std::ostringstream file;
+
+        // Post-sort is the most useful for analysis; fall back to pre-sort when the
+        // sort stage wasn't captured. The section builders share this selection.
+        const auto& commands = !frame->PostSortCommands.empty() ? frame->PostSortCommands : frame->PreSortCommands;
+
+        AppendFrameInfoSection(frame, file);
+        AppendPipelineStatisticsSection(frame, file);
+        AppendCommandListSection(commands, file);
+        AppendSortAnalysisSection(frame, file);
+        AppendStateChangeAnalysisSection(frame, commands, file);
+        AppendBatchingAnalysisSection(frame, commands, file);
+        AppendDrawCommandDetailsSection(frame, commands, file);
+        AppendGpuTimingSection(commands, file);
+        AppendOptimizationSuggestionsSection(frame, commands, file);
+
+        file << "\n---\n*Generated by OloEngine Command Bucket Inspector*\n";
+        return file.str();
     }
 } // namespace OloEngine

@@ -111,6 +111,7 @@ the server, so update the config (or re-copy from the panel) accordingly.
 | `olo_perf_bottlenecks` | CPU/GPU/Memory/IO bottleneck + confidence + recommendations |
 | `olo_perf_frame_history` | downsampled recent-frame time series |
 | `olo_perf_capture_frame` | triggers a real frame capture: stats + top-K draw commands by GPU time |
+| `olo_render_frame_breakdown` | triggers a real frame capture and returns its **per-command / per-pipeline-stage** structural breakdown (the granularity `olo_perf_capture_frame` omits): pipeline stats + the ordered command list (type, debug-name pass label, draw key shader/material/depth, group, execution order, static flag, GPU time) + a command-type histogram, at the chosen `viewMode` (`presort`/`postsort`/`postbatch`); `format:"markdown"` returns the Command Bucket Inspector's LLM-analysis report (sort/state-change/batching analysis + optimization hints) |
 | `olo_memory_report` | GPU/CPU memory total + per-type breakdown + suspected leaks |
 | `olo_shader_list` | inventory of all registered shaders (id, name, hasErrors) |
 | `olo_shader_errors` | shaders with compile/link errors |

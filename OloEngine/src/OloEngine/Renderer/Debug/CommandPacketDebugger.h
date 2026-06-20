@@ -39,6 +39,13 @@ namespace OloEngine
         // @brief Exports captured frame data to Markdown for LLM analysis
         bool ExportToMarkdown(const std::string& outputPath) const;
 
+        // @brief Builds the LLM-analysis Markdown report for an arbitrary captured
+        // frame (the exact text ExportToMarkdown writes to disk). Pure w.r.t. the
+        // passed-in frame copy — no selected-frame / file-I/O coupling — so callers
+        // that already hold a CapturedFrameData (e.g. the olo_render_frame_breakdown
+        // MCP tool) can reuse the report without touching the UI selection state.
+        static std::string BuildMarkdownReport(const CapturedFrameData& frame);
+
         // @brief Generates a timestamped filename for exports
         static std::string GenerateExportFilename(const char* extension, u32 frameNumber);
 

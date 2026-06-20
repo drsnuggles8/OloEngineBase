@@ -286,6 +286,10 @@ add_executable(OloEngine-Tests
 		# Pure image-diff core behind olo_render_compare_golden (#316 Part 4).
 		# Header-only (MCP/McpGoldenCompare.h), no extra editor TU pulled in.
 		MCP/McpGoldenCompareTest.cpp
+		# Pure per-command / per-stage frame-breakdown shaping behind
+		# olo_render_frame_breakdown (#306 item D, bullet 2). Header-only
+		# (MCP/McpFrameBreakdown.h), no extra editor TU pulled in.
+		MCP/McpFrameBreakdownTest.cpp
 		# Unified diagnostics event ring buffer behind olo_events_tail (#306 item B).
 		# Header-only engine facility (Debug/DiagnosticsEventLog.h, compiled into
 		# OloEngine), so no extra editor TU is pulled in.
