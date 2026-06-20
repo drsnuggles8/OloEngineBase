@@ -3,12 +3,16 @@
 #
 # When `OLO_ENABLE_FUZZING=ON` is passed at configure time, this module:
 #
-#   1. Globally defines `_DISABLE_VECTOR_ANNOTATION` / `_DISABLE_STRING_
-#      ANNOTATION`. The MSVC STL flips its container ABI between
-#      sanitised and non-sanitised TUs (`annotate_string` /
-#      `annotate_vector`); when only some targets are sanitised the
-#      linker fires `/failifmismatch` errors. Forcing the flag off
-#      uniformly keeps the STL ABI consistent across the whole build.
+#   1. Globally defines the umbrella `_DISABLE_STL_ANNOTATION`. The MSVC
+#      STL annotates several containers for ASan container-overflow
+#      detection (`string`, `vector`, `optional`, … and the family keeps
+#      growing across toolset releases) and flips each one's ABI marker
+#      between sanitised and non-sanitised TUs; when only some targets are
+#      sanitised the linker fires `/failifmismatch` errors. The umbrella
+#      macro disables the whole family (string + vector + optional + any
+#      future one) in a single define, keeping every container's ABI
+#      marker identical in every TU regardless of `-fsanitize=address`.
+#      See the detailed note at the `add_compile_definitions` call below.
 #
 #   2. Builds libFuzzer from compiler-rt source (LLVM 19.1.7 release
 #      tarball) into a static `olo_libfuzzer` target. We can't use stock
@@ -101,12 +105,27 @@ message(STATUS "OloEngine fuzzing: enabled (Clang/libFuzzer + ${OLO_FUZZ_SANITIZ
 # the option() call leaves this value alone.
 set(TRACY_ENABLE OFF CACHE BOOL "Disabled automatically because OLO_ENABLE_FUZZING=ON (Tracy's static-init globals conflict with ASan/UBSan instrumentation)." FORCE)
 
-# Force-disable MSVC STL container annotations across the whole build so the
-# `annotate_string` ABI flag stays the same value in every TU regardless of
+# Force-disable MSVC STL container annotations across the whole build so each
+# container's ABI marker (`annotate_string`, `annotate_vector`,
+# `annotate_optional`, …) stays the same value in every TU regardless of
 # whether `-fsanitize=address` was passed. Without this, linking a sanitised
-# OloEngine into a non-sanitised OloEditor (or vice versa) fails with
-# `/failifmismatch: mismatch detected for 'annotate_string'`.
-add_compile_definitions(_DISABLE_VECTOR_ANNOTATION _DISABLE_STRING_ANNOTATION)
+# OloEngine into a non-sanitised OloEditor / olo_libfuzzer (or vice versa)
+# fails with `/failifmismatch: mismatch detected for 'annotate_<container>'`.
+#
+# Use the umbrella `_DISABLE_STL_ANNOTATION` rather than the per-container
+# `_DISABLE_STRING_ANNOTATION` / `_DISABLE_VECTOR_ANNOTATION` defines: the
+# MSVC STL keeps *adding* new container annotations over time. Originally it
+# annotated only `string` + `vector`; the VS 18 2026 toolset (MSVC 14.51,
+# `--msvc-ver=1951`) added a third, `annotate_optional`, which the two
+# per-container defines don't cover — so a build pinned to those two
+# silently re-broke at link time (`annotate_optional` 1-vs-0 mismatch
+# between ASan-instrumented OloEngine.lib and the non-instrumented
+# olo_libfuzzer.lib). Disabling them one-by-one is whack-a-mole. The
+# umbrella `_DISABLE_STL_ANNOTATION` (present in every supported toolset,
+# back to 14.44) cascades to *all* current per-container disables and any
+# future ones the STL adds — see
+# `<VC>/Tools/MSVC/<ver>/include/__msvc_sanitizer_annotate_container.hpp`.
+add_compile_definitions(_DISABLE_STL_ANNOTATION)
 
 if(WIN32)
     # MSVC ASan runtime requires the release dynamic CRT (/MD). Mixing with
@@ -293,9 +312,33 @@ if(WIN32)
     # UBSan, never both — see the header note on the
     # `sanitizer_coverage_win_sections.cpp.obj` duplicate-symbol issue.
     if(OLO_FUZZ_SANITIZER STREQUAL "asan")
+        # `-mllvm -asan-stack=0` disables ASan's *stack-local* instrumentation
+        # (the red-zones around stack variables). This is REQUIRED on the
+        # Windows/clang-cl ASan path: ASan's stack instrumentation is
+        # incompatible with MSVC C++ exception unwinding. When a C++ exception
+        # whose object owns an STL container (e.g. yaml-cpp's `YAML::Exception`,
+        # which derives from `std::runtime_error` and carries a `std::string`)
+        # is thrown and then caught in an ASan-instrumented function, the
+        # unwinder runs the catch/cleanup funclet, and under stack
+        # instrumentation that funclet faults with an access-violation while
+        # walking the parent frame — every malformed-YAML input that the
+        # FuzzSceneYaml / FuzzInputActionYaml harnesses feed to the (correctly
+        # `try`/`catch`-wrapped) deserializers crashes the process before
+        # libFuzzer can continue. `int`-valued throws are unaffected; the
+        # trigger is specifically the STL-bearing exception object. Reproduced
+        # on a ~12-line standalone repro across LLVM 20.1.8 *and* 21.x, MSVC STL
+        # 14.44 *and* 14.51, and both the static and dynamic ASan runtimes — so
+        # it is a clang-cl/Windows-EH-funclet codegen limitation, not a version
+        # quirk and not anything in OloEngine. We pay for green harnesses by
+        # giving up *stack*-buffer-overflow detection only; heap-buffer-overflow,
+        # heap-use-after-free, double-free and global-overflow detection (the
+        # high-value checks for the heap-allocating deserializers we fuzz) all
+        # remain active (verified). This is Windows-only — the Linux/macOS ASan
+        # branch below keeps full stack instrumentation.
         function(olo_apply_fuzz_sanitizer _target)
             target_compile_options(${_target} PRIVATE
                 -fsanitize=address -fno-omit-frame-pointer
+                -mllvm -asan-stack=0
             )
             target_link_libraries(${_target}
                 "${_OLO_CLANG_RT_DIR}/clang_rt.asan_dynamic-x86_64.lib"
@@ -314,6 +357,11 @@ if(WIN32)
         function(olo_apply_fuzzer_link _target)
             target_compile_options(${_target} PRIVATE
                 -fsanitize=fuzzer,address -fno-omit-frame-pointer
+                # Keep the harness TUs on the same `-asan-stack=0` footing as
+                # OloEngine (see the note on olo_apply_fuzz_sanitizer above) so
+                # an exception unwinding through a harness frame can't re-trip
+                # the Windows-EH-funclet access-violation.
+                -mllvm -asan-stack=0
             )
             target_link_libraries(${_target} PRIVATE olo_libfuzzer)
         endfunction()
