@@ -295,6 +295,7 @@
     "OloEngine/tests/ModelImporterTest.cpp": "unit",
     "OloEngine/tests/SceneMeshRaycastTest.cpp": "unit",
     "OloEngine/tests/Memory/MemoryViewTest.cpp": "unit",
+    "OloEngine/tests/Memory/LockFreeAllocatorConcurrencyTest.cpp": "unit",
     "OloEngine/tests/MeshCookingFactoryCacheTest.cpp": "unit",
     "OloEngine/tests/StaticMeshColliderGenerationTest.cpp": "unit",
     "OloEngine/tests/NavMeshTest.cpp": "unit",

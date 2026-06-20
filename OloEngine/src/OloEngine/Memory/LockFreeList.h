@@ -144,7 +144,10 @@ namespace OloEngine
                                      Index < MaxTotalItems &&
                                      BlockIndex < MaxBlocks &&
                                      m_Pages[BlockIndex].load(std::memory_order_relaxed));
-            return m_Pages[BlockIndex].load(std::memory_order_relaxed) + SubIndex;
+            // acquire (not relaxed) — pairs with the publishing CAS in GetRawItem so the
+            // page contents this pointer is dereferenced into happen-after publication.
+            // Deliberate divergence from UE5.8; see the m_Pages declaration note (#350).
+            return m_Pages[BlockIndex].load(std::memory_order_acquire) + SubIndex;
         }
 
       private:
@@ -174,7 +177,11 @@ namespace OloEngine
                     checkLockFreePointerList(m_Pages[BlockIndex].load(std::memory_order_relaxed));
                 }
             }
-            return static_cast<void*>(m_Pages[BlockIndex].load(std::memory_order_relaxed) + SubIndex);
+            // acquire (not relaxed) — pairs with the publishing CAS above so that when a
+            // racing thread lost the CAS and reads the winner's page here, the winner's
+            // allocation happens-before this dereference. Divergence from UE5.8; see the
+            // m_Pages declaration note (#350).
+            return static_cast<void*>(m_Pages[BlockIndex].load(std::memory_order_acquire) + SubIndex);
         }
 
         alignas(OLO_PLATFORM_CACHE_LINE_SIZE) std::atomic<u32> m_NextIndex{ 0 };
@@ -184,6 +191,19 @@ namespace OloEngine
         // an earlier port kept a plain array and only made the CAS atomic via
         // std::atomic_ref, leaving the reads as a data race that ThreadSanitizer
         // flagged.)
+        //
+        // Memory ordering — deliberate divergence from UE5.8 (#350): the two loads
+        // whose result is dereferenced (GetItem / GetRawItem return statements) use
+        // std::memory_order_acquire, pairing with the publishing CAS above to give a
+        // synchronizes-with / happens-before edge between the thread that mallocs+
+        // publishes a page and a thread that reads the pointer and constructs into it.
+        // UE5.8 leaves those loads relaxed; that is a formal C++ memory-model data race
+        // (TSan reports it) that is benign on x86-64 TSO but UB by the standard. We gate
+        // CI on TSan (job tsan-linux in asan.yml) and UE does not, so we strengthen here.
+        // Zero cost on x86-64: acquire and relaxed both lower to a plain mov. The
+        // remaining relaxed loads in this class are assertion guards / null-checks, not
+        // dereferenced values, and intentionally stay relaxed. A future "resync to UE"
+        // pass must not silently revert this.
         alignas(OLO_PLATFORM_CACHE_LINE_SIZE) std::atomic<T*> m_Pages[MaxBlocks];
     };
 

@@ -86,3 +86,31 @@ synchronization.
   check is material on this path, the escape hatch is the "UE-literal + main
   thread prime" option above — but only with the priming invariant made
   explicit and enforced.
+
+## Related divergence: page publish/consume ordering (#350)
+
+The same "we gate CI on TSan, UE does not, so we strengthen the memory ordering
+and record the divergence" reasoning applies a second time inside this allocator
+— at the **page pointers**, not the singleton init. In
+`TLockFreeAllocOnceIndexedAllocator` (header,
+[`LockFreeList.h`](../../OloEngine/src/OloEngine/Memory/LockFreeList.h)), each
+`m_Pages[BlockIndex]` is published exactly once with a release CAS in
+`GetRawItem` but was historically *consumed* with `memory_order_relaxed` loads
+whose result is dereferenced (`GetItem` and `GetRawItem` return statements).
+That is a formal C++ memory-model data race between the thread that
+mallocs+publishes a page and a thread that reads the page pointer and constructs
+into / dereferences it — benign on x86-64 (a relaxed load lowers to a plain
+`mov`, which already has acquire ordering on TSO hardware, and threads get
+disjoint index ranges from `m_NextIndex.fetch_add`), but UB by the standard, and
+ThreadSanitizer flags it intermittently — reddening the gating `tsan-linux` job.
+
+We promote those two dereferenced loads to `memory_order_acquire` so they pair
+with the publishing CAS (zero cost on x86-64 — acquire and relaxed emit the same
+`mov`). The remaining relaxed loads in the class are assertion guards /
+null-checks, not dereferenced values, and stay relaxed. UE5.8 leaves all of them
+relaxed; as with the singleton init above, the divergence is recorded in a code
+comment at the `m_Pages` declaration so a future "resync to UE" pass does not
+silently revert it. A concurrency regression test
+([`tests/Memory/LockFreeAllocatorConcurrencyTest.cpp`](../../OloEngine/tests/Memory/LockFreeAllocatorConcurrencyTest.cpp))
+hammers the allocator from many threads so the race is exercised — and caught by
+TSan — if the ordering is ever weakened again.
