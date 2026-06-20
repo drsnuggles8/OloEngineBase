@@ -1257,6 +1257,66 @@ add_library(OloEngine STATIC
 		${SOURCES}
 )
 
+# Unity (jumbo) build exclusions. The OloEngine target's UNITY_BUILD property is set in the
+# parent OloEngine/CMakeLists.txt (gated on OLO_ENABLE_UNITY_BUILD); the per-source
+# SKIP_UNITY_BUILD_INCLUSION below must live here, in the directory scope where the sources
+# are added to the target. See docs/BUILD.md "Unity (jumbo) builds for faster cold builds".
+#
+# Two groups, each empirically required (a unity ON build fails to compile without them):
+#
+# GROUP 1 — single-header third-party amalgamations. Each #defines a *_IMPLEMENTATION macro
+# and pulls an entire single-header library into one TU. They gain nothing from batching
+# (each is already a maximal, self-contained compile) and they poison the rest of the batch:
+# the implementation macros and the platform headers they drag in (miniaudio pulls
+# <windows.h> with its min/max + near/far macros; the FFmpeg C headers define a huge macro
+# surface) leak into the files concatenated after them in the same jumbo and break the build.
+#
+# GROUP 2 — engine TUs that define a file-local helper (an anonymous-namespace function or a
+# file-scope `static`/`const` constant) whose *name* is duplicated, by copy-paste, in a
+# sibling TU. In a jumbo the siblings concatenate into one TU and the duplicate names collide
+# (redefinition / ambiguous-overload). The clean fix is to de-duplicate the helpers into a
+# shared header — deliberately deferred as a follow-up to keep THIS change a low-risk,
+# CMake-only build-config PR (no source-logic edits). Excluding them is cheap: ~20 of ~470
+# TUs, so the remaining files still batch and the cold-build speedup stands. The one
+# engine-code collision fixed in place rather than excluded was a true root-cause bug, not a
+# name clash: Renderer/Vertex.h pulled the experimental <glm/gtx/integer.hpp> it never used,
+# so any jumbo that included it before GLM_ENABLE_EXPERIMENTAL was active #error'd — the unused
+# include is simply removed.
+if(OLO_ENABLE_UNITY_BUILD)
+	set_source_files_properties(
+		# GROUP 1 — third-party single-header amalgamations
+		"OloEngine/Audio/AudioEngine.cpp"          # miniaudio (MINIAUDIO_IMPLEMENTATION) + <windows.h>
+		"Platform/OpenGL/OpenGLTexture.cpp"        # stb_image (STB_IMAGE_IMPLEMENTATION)
+		"OloEngine/SaveGame/ThumbnailCapture.cpp"  # stb_image_write (STB_IMAGE_WRITE_IMPLEMENTATION)
+		"OloEngine/Renderer/Font.cpp"              # stb_truetype (STB_TRUETYPE_IMPLEMENTATION)
+		"OloEngine/Video/PlMpeg.cpp"               # pl_mpeg (PL_MPEG_IMPLEMENTATION)
+		"OloEngine/Video/FFmpegBackend.cpp"        # FFmpeg C headers (avcodec/avformat/...) — heavy macro surface
+		"OloEngine/ImGui/ImGuiBuild.cpp"           # Dear ImGui backend implementation TU
+		# GROUP 2 — duplicated file-local helper names that collide across a jumbo (de-dup TODO)
+		"OloEngine/Renderer/RenderPipeline.cpp"            # anon IsTruthyEnvironmentVariable / IsRenderGraphDiagnosticsEnabled
+		"OloEngine/Renderer/RenderGraph.cpp"              #   "
+		"OloEngine/Renderer/Renderer3DFrameExecution.cpp" #   "
+		"OloEngine/Renderer/Renderer3DLifecycle.cpp"      #   "
+		"OloEngine/Renderer/Renderer3DRenderGraphSetup.cpp" # "
+		"OloEngine/Renderer/Model.cpp"             # anon FindTextureInDirectory (+ IsTruthyEnvironmentVariable)
+		"OloEngine/Renderer/AnimatedModel.cpp"     # anon FindTextureInDirectory
+		"OloEngine/Renderer/Ocean/OceanFFT.cpp"    # anon constant kTwoPi
+		"OloEngine/Renderer/Ocean/OceanFFTGpu.cpp" # anon constant kTwoPi
+		"OloEngine/Renderer/Ocean/OceanSpectrum.cpp" # anon constant kTwoPi
+		"OloEngine/Renderer/WaterSurface.cpp"      # anon constant kTwoPi
+		"OloEngine/Animation/IK/FABRIKSolver.cpp"  # anon SafeNormalize
+		"OloEngine/Animation/IK/LimbIKSolver.cpp"  # anon SafeNormalize
+		"OloEngine/Animation/Procedural/SpringBoneSolver.cpp" # anon SafeNormalize + IsFiniteVec3
+		"OloEngine/Animation/Procedural/NoiseSolver.cpp"      # anon IsFiniteVec3
+		"OloEngine/Cinematic/CinematicCurve.cpp"   # anon SafeNormalize
+		"OloEngine/Scripting/C#/ScriptGlue.cpp"    # static IsFiniteVec3 (+ macro-heavy Mono glue)
+		"OloEngine/Scripting/Lua/LuaScriptGlue.cpp" # static IsFiniteVec3 (+ macro-heavy Sol2 glue)
+		"OloEngine/Audio/DSP/HighPassFilter.cpp"   # namespace-scope consts FilterOrder/Min/MaxFrequencyHz
+		"OloEngine/Audio/DSP/LowPassFilter.cpp"    #   "
+		PROPERTIES SKIP_UNITY_BUILD_INCLUSION ON
+	)
+endif()
+
 source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR}
 			FILES ${SOURCES}
 )

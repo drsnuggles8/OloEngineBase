@@ -2,7 +2,6 @@
 
 #include <cstddef>
 #include <glm/glm.hpp>
-#include <glm/gtx/integer.hpp>
 #include "OloEngine/Renderer/Buffer.h"
 
 namespace OloEngine
