@@ -33,22 +33,39 @@ namespace OloEngine
 
     void JoltJobSystemAdapter::WaitForOutstandingTasks() noexcept
     {
-        // Spin-wait until every in-flight QueueJob lambda has decremented m_OutstandingTasks,
-        // which it does only after Job::Execute() AND Job::Release() (→ possible FreeJob on
-        // m_Jobs) have both fully returned. See the header for why Jolt's barrier alone is
-        // not enough. Bounded by a timeout so a wedged worker can't hang the simulation.
-        using clock = std::chrono::steady_clock;
-        constexpr auto kTimeout = std::chrono::seconds(5);
-        const auto deadline = clock::now() + kTimeout;
-        while (m_OutstandingTasks.load(std::memory_order_acquire) > 0)
+        // BLOCK until every in-flight QueueJob lambda has decremented
+        // m_OutstandingTasks — which it does only after Job::Execute() AND
+        // Job::Release() (→ possible FreeJob on m_Jobs) have both fully returned.
+        // See the header for why Jolt's barrier alone isn't enough.
+        //
+        // Blocking (rather than the old yield-spin) is the #281 fix: the waiting
+        // game thread releases its core so the scheduler worker that still has to
+        // run the trailing Release() can be scheduled. The yield-spin instead
+        // hogged a core the parked worker needed — on a core-starved CI runner
+        // that stalled the step for seconds (the "hang to the 120s ctest timeout")
+        // and, if a worker stayed parked past the deadline, let this drain return
+        // and tear down / reuse m_Jobs while the lambda was mid-FreeJob (the SEH
+        // 0xc0000005 use-after-free). With the block the worker drains in
+        // microseconds, so the timeout below is a pure backstop that never fires
+        // in healthy operation. The lambda decrements under m_DrainMutex and
+        // notifies, so the wake can't be missed.
+        using namespace std::chrono_literals;
+        constexpr auto kTimeout = 5s;
+        try
         {
-            if (clock::now() > deadline)
+            std::unique_lock<std::mutex> lock(m_DrainMutex);
+            const bool drained = m_DrainCv.wait_for(lock, kTimeout, [this]() noexcept
+                                                    { return m_OutstandingTasks.load(std::memory_order_acquire) == 0; });
+            if (!drained)
             {
                 OLO_CORE_ERROR("JoltJobSystemAdapter: timed out waiting for {} outstanding physics job(s) to drain",
                                m_OutstandingTasks.load(std::memory_order_relaxed));
-                break;
             }
-            std::this_thread::yield();
+        }
+        catch (const std::system_error&)
+        {
+            // Locking / waiting failed (effectively unreachable). The function is
+            // noexcept, so swallow rather than std::terminate.
         }
     }
 
@@ -149,7 +166,16 @@ namespace OloEngine
                 // the outstanding-tasks counter is decremented strictly AFTER this.
                 inJob->Release();
 
-                m_OutstandingTasks.fetch_sub(1, std::memory_order_release);
+                // Decrement under m_DrainMutex and notify so a blocked
+                // WaitForOutstandingTasks wakes promptly and can't miss the wake
+                // (the decrement is paired with the drain's predicate re-check by
+                // the mutex). The brief lock is uncontended in the common case —
+                // the game thread only holds it while actually draining.
+                {
+                    std::lock_guard<std::mutex> lock(m_DrainMutex);
+                    m_OutstandingTasks.fetch_sub(1, std::memory_order_release);
+                }
+                m_DrainCv.notify_one();
             },
             LowLevelTasks::ETaskPriority::High);
     }

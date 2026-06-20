@@ -151,15 +151,23 @@ jobs:
       env:
         OLO_TASK_GRAPH_NUM_WORKERS: ${{ github.event.inputs.num_workers || '2' }}
       run: |
-        $cdbArg = @()
-        if ("${{ steps.cdb.outputs.path }}") { $cdbArg = @('-CdbPath', "${{ steps.cdb.outputs.path }}") }
-        & scripts/repro-flaky-test.ps1 `
-          -TestExe "build/OloEngine/tests/${{env.BUILD_TYPE}}/OloEngine-Tests.exe" `
-          -AffinityMask "${{ github.event.inputs.affinity || '0x3' }}" `
-          -Iterations ([int]"${{ github.event.inputs.iterations || '300' }}") `
-          -GtestArgs '--gtest_repeat=${{ github.event.inputs.repeat || '400' }}','--gtest_brief=1' `
-          -StallSec 40 -HardTimeoutSec 240 -CaptureStack -StopOnFailure $true `
-          -LogDir build/repro-logs @cdbArg
+        # Splatting (not backtick line-continuations, which silently break on a
+        # trailing space) so -Filter is reliably passed — the previous run lost
+        # the filter and hunted the whole suite instead of the #281 test.
+        $p = @{
+          TestExe        = "build/OloEngine/tests/${{env.BUILD_TYPE}}/OloEngine-Tests.exe"
+          Filter         = 'PhysicsLayerFilteringTest.AlphaPassesThroughBetaAndBothLandOnGround'
+          AffinityMask   = '${{ github.event.inputs.affinity || '0x3' }}'
+          Iterations     = [int]'${{ github.event.inputs.iterations || '300' }}'
+          GtestArgs      = @('--gtest_repeat=${{ github.event.inputs.repeat || '400' }}', '--gtest_brief=1')
+          StallSec       = 40
+          HardTimeoutSec = 240
+          CaptureStack   = $true
+          StopOnFailure  = $true
+          LogDir         = 'build/repro-logs'
+        }
+        if ("${{ steps.cdb.outputs.path }}") { $p.CdbPath = "${{ steps.cdb.outputs.path }}" }
+        & scripts/repro-flaky-test.ps1 @p
         "exitcode=$LASTEXITCODE" >> $env:GITHUB_OUTPUT
 
     - name: Report result
