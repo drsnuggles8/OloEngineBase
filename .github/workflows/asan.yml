@@ -18,6 +18,17 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' || github.event_name == 'push' }}
 
+env:
+  # Route sccache at its GitHub Actions cache backend (provisioned by the
+  # mozilla-actions/sccache-action step in each job below). Object files are
+  # then reused across CI runs, so a per-PR push only recompiles the TUs that
+  # actually changed instead of building OloEngine-Tests cold every run.
+  # Mirrors the Windows.yml pattern landed in #319. The -fsanitize=address|
+  # undefined|thread flag is part of each compile command line (and so part of
+  # sccache's hash), so the per-sanitizer object sets are distinct cache
+  # entries — a single shared backend cannot collide across jobs.
+  SCCACHE_GHA_ENABLED: "true"
+
 permissions:
   contents: read
   # dorny/paths-filter@v4 falls back to the GitHub REST API for PR-base
@@ -88,16 +99,60 @@ jobs:
     - name: Setup Vulkan SDK
       uses: ./.github/actions/setup-vulkan
 
+    # We build with the Ninja generator (not the default Visual Studio
+    # generator) so CMAKE_<LANG>_COMPILER_LAUNCHER engages — the VS/MSBuild
+    # generator IGNORES it, so sccache would never run there
+    # (cmake/CompilerCache.cmake even emits a warning in that case). Ninja needs
+    # cl.exe + the Windows SDK include/lib paths on the job env; ilammy/msvc-dev-cmd
+    # runs vcvars and exports them to every subsequent step. Mirrors Windows.yml.
+    # (Trade-off, same as Windows.yml: the Ninja path does not build the C#
+    # OloEngine-ScriptCore project — it is gated on the VS generator — but the
+    # OloEngine-Tests build never links that assembly, so ASan coverage is intact.)
+    - name: Setup MSVC dev environment
+      uses: ilammy/msvc-dev-cmd@v1
+      with:
+        arch: x64
+
+    # Provisions sccache and wires it to the GitHub Actions cache backend
+    # (SCCACHE_GHA_ENABLED above). Must run before Configure so the launcher
+    # resolves on PATH. See asan-lsan-linux for the action/sccache version-pin
+    # rationale (older builds hit the decommissioned legacy cache API and fail).
+    - name: Setup sccache
+      uses: mozilla-actions/sccache-action@v0.0.10
+      with:
+        version: "v0.15.0"
+
     - name: Configure CMake (ASan enabled)
+      # -G "Ninja Multi-Config": required for the sccache compiler launcher to
+      #   engage (see the MSVC dev-env step above). The build/ctest steps still
+      #   select Release via --config / -C Release, exactly as the VS generator did.
+      # -DCMAKE_*_COMPILER=cl: force MSVC cl.exe (msvc-dev-cmd put it on PATH) so
+      #   Ninja doesn't auto-pick a clang/gcc that may also be on the runner.
+      # -DOLO_ENABLE_COMPILER_CACHE=ON: wires sccache as the launcher and switches
+      #   MSVC debug info to /Z7 (Embedded) so objects are cacheable.
+      # -DOLO_ENABLE_LTO=OFF: this is a Release build, where LTO is on by default;
+      #   its /GL flag makes objects non-cacheable (and /GL + ASan is unsupported).
+      #   CI binaries are for testing, not shipping, so dropping LTO is free here.
       run: >
         cmake -S . -B build
+        -G "Ninja Multi-Config"
+        -DCMAKE_C_COMPILER=cl -DCMAKE_CXX_COMPILER=cl
         -DOLO_VIDEO_FFMPEG=OFF
+        -DOLO_ENABLE_COMPILER_CACHE=ON
+        -DOLO_ENABLE_LTO=OFF
         -DPython_EXECUTABLE="${{ steps.py.outputs.python-path }}"
         -DOLO_ENABLE_ASAN=ON
         -DBUILD_TESTS=ON
 
     - name: Build (Release)
       run: cmake --build build --config Release --target OloEngine-Tests --parallel
+
+    # Read the cache hit rate. A cold cache (first run / after a real source
+    # change) is mostly misses + writes; a warm cache shows a high hit rate,
+    # meaning the build step recompiled almost nothing.
+    - name: Show sccache stats
+      if: always()
+      run: sccache --show-stats
 
     - name: Create test results directory
       run: New-Item -ItemType Directory -Force -Path "${{github.workspace}}/test_results"
@@ -200,6 +255,22 @@ jobs:
           python3 python3-pip
         python3 -m pip install --upgrade pip jinja2
 
+    # Provisions sccache and wires it to the GitHub Actions cache backend
+    # (SCCACHE_GHA_ENABLED above). Must run before Configure so the launcher
+    # resolves on PATH. This job passes no -G, so CMake uses the Unix Makefiles
+    # generator, which honors CMAKE_<LANG>_COMPILER_LAUNCHER — sccache engages
+    # with no generator switch (unlike the Windows job, which had to move to
+    # Ninja for the launcher to take effect).
+    #
+    # Action v0.0.10 + sccache >= v0.10.0 are REQUIRED: GitHub decommissioned
+    # the legacy Actions cache API on 2025-04-15, and older sccache builds hit
+    # the dead endpoint and fail to start (and, as the compiler launcher, would
+    # break every compile). v0.15.0 is the current stable pin — matches Windows.yml.
+    - name: Setup sccache
+      uses: mozilla-actions/sccache-action@v0.0.10
+      with:
+        version: "v0.15.0"
+
     - name: Configure CMake (ASan + LSan)
       # -fuse-ld=lld: the default GNU BFD ld holds the entire Debug +
       # sanitizer-instrumented link (engine, vendored static libs, DWARF) in
@@ -215,6 +286,7 @@ jobs:
         -DCMAKE_C_COMPILER=clang-19
         -DCMAKE_BUILD_TYPE=Debug
         -DCMAKE_EXE_LINKER_FLAGS=-fuse-ld=lld
+        -DOLO_ENABLE_COMPILER_CACHE=ON
         -DOLO_ENABLE_ASAN=ON
         -DBUILD_TESTS=ON
 
@@ -224,6 +296,14 @@ jobs:
       # ~3 GB per translation unit), causing `The hosted runner lost
       # communication with the server` failures.
       run: cmake --build build --target OloEngine-Tests --parallel 2
+
+    # Read the cache hit rate. A cold cache (first run / after a real source
+    # change) is mostly misses + writes; a warm cache shows a high hit rate,
+    # meaning the build step recompiled almost nothing. The delta between a
+    # cold and a warm run is the proof this change works.
+    - name: Show sccache stats
+      if: always()
+      run: sccache --show-stats
 
     - name: Create test results directory
       run: mkdir -p "${GITHUB_WORKSPACE}/test_results"
@@ -307,6 +387,13 @@ jobs:
           python3 python3-pip
         python3 -m pip install --upgrade pip jinja2
 
+    # Provisions sccache before Configure (see asan-lsan-linux for the version-
+    # pin rationale and why no generator switch is needed on Linux).
+    - name: Setup sccache
+      uses: mozilla-actions/sccache-action@v0.0.10
+      with:
+        version: "v0.15.0"
+
     - name: Configure CMake (UBSan)
       # -fuse-ld=lld: see the ASan + LSan configure step above — BFD ld can
       # OOM the runner during the final OloEngine-Tests link.
@@ -317,6 +404,7 @@ jobs:
         -DCMAKE_C_COMPILER=clang-19
         -DCMAKE_BUILD_TYPE=Debug
         -DCMAKE_EXE_LINKER_FLAGS=-fuse-ld=lld
+        -DOLO_ENABLE_COMPILER_CACHE=ON
         -DOLO_ENABLE_UBSAN=ON
         -DBUILD_TESTS=ON
 
@@ -326,6 +414,14 @@ jobs:
       # ~3 GB per translation unit), causing `The hosted runner lost
       # communication with the server` failures.
       run: cmake --build build --target OloEngine-Tests --parallel 2
+
+    # Read the cache hit rate. A cold cache (first run / after a real source
+    # change) is mostly misses + writes; a warm cache shows a high hit rate,
+    # meaning the build step recompiled almost nothing. The delta between a
+    # cold and a warm run is the proof this change works.
+    - name: Show sccache stats
+      if: always()
+      run: sccache --show-stats
 
     - name: Create test results directory
       run: mkdir -p "${GITHUB_WORKSPACE}/test_results"
@@ -404,6 +500,13 @@ jobs:
           python3 python3-pip
         python3 -m pip install --upgrade pip jinja2
 
+    # Provisions sccache before Configure (see asan-lsan-linux for the version-
+    # pin rationale and why no generator switch is needed on Linux).
+    - name: Setup sccache
+      uses: mozilla-actions/sccache-action@v0.0.10
+      with:
+        version: "v0.15.0"
+
     - name: Configure CMake (TSan)
       # -fuse-ld=lld: see the ASan + LSan configure step above — BFD ld can
       # OOM the runner during the final OloEngine-Tests link.
@@ -414,6 +517,7 @@ jobs:
         -DCMAKE_C_COMPILER=clang-19
         -DCMAKE_BUILD_TYPE=Debug
         -DCMAKE_EXE_LINKER_FLAGS=-fuse-ld=lld
+        -DOLO_ENABLE_COMPILER_CACHE=ON
         -DOLO_ENABLE_TSAN=ON
         -DBUILD_TESTS=ON
 
@@ -423,6 +527,14 @@ jobs:
       # ~3 GB per translation unit), causing `The hosted runner lost
       # communication with the server` failures.
       run: cmake --build build --target OloEngine-Tests --parallel 2
+
+    # Read the cache hit rate. A cold cache (first run / after a real source
+    # change) is mostly misses + writes; a warm cache shows a high hit rate,
+    # meaning the build step recompiled almost nothing. The delta between a
+    # cold and a warm run is the proof this change works.
+    - name: Show sccache stats
+      if: always()
+      run: sccache --show-stats
 
     - name: Create test results directory
       run: mkdir -p "${GITHUB_WORKSPACE}/test_results"
