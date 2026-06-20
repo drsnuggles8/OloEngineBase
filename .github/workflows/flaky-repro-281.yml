@@ -102,7 +102,10 @@ jobs:
         if [ "${{ steps.ffcache.outputs.cache-hit }}" = "true" ]; then
           PREFIX_ARG="-DOLO_FFMPEG_PREFIX=${GITHUB_WORKSPACE}/OloEngine/vendor/ffmpeg-install"
         fi
-        cmake -S . -B "${GITHUB_WORKSPACE}/build" \
+        # MSYS_NO_PATHCONV=1: stop Git Bash from rewriting the leading-slash
+        # linker flag `/DEBUG` into a Windows path (C:/Program Files/Git/DEBUG),
+        # which then split at the space and broke the link (LNK1181 'C:\Program.obj').
+        MSYS_NO_PATHCONV=1 cmake -S . -B "${GITHUB_WORKSPACE}/build" \
           -G "Ninja Multi-Config" \
           -DCMAKE_C_COMPILER=cl -DCMAKE_CXX_COMPILER=cl \
           -DOLO_ENABLE_COMPILER_CACHE=ON \
