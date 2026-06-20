@@ -276,6 +276,22 @@ namespace OloEngine::LowLevelTasks
     // @brief Platform-specific function to get the number of worker threads to spawn
     static u32 NumberOfWorkerThreadsToSpawn()
     {
+        // Diagnostic override: pin worker-pool sizing to a fixed logical-core
+        // count regardless of the host's real core count. Lets a many-core dev
+        // box reproduce the constrained-core scheduling regime of a 2-core CI
+        // runner (issue #281 — the flaky Jolt physics race only surfaces under
+        // CI's low worker count; std::thread::hardware_concurrency() ignores
+        // process affinity, so a 2-core affinity pin alone still spawns one
+        // worker per physical core). Clamped to >=1; ignored if unset/invalid.
+        if (const char* EnvNumWorkers = std::getenv("OLO_TASK_GRAPH_NUM_WORKERS"))
+        {
+            const int Value = std::atoi(EnvNumWorkers);
+            if (Value >= 1)
+            {
+                return static_cast<u32>(Value);
+            }
+        }
+
         u32 NumCores = std::thread::hardware_concurrency();
         return NumCores > 0 ? NumCores : 4;
     }
