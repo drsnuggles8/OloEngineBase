@@ -2,6 +2,7 @@
 #include "MCP/McpTools.h"
 #include "MCP/McpServer.h"
 #include "MCP/McpScriptApi.h"
+#include "MCP/McpFrameBreakdown.h"
 #include "MCP/McpGoldenCompare.h"
 #include "MCP/McpPhysicsExplain.h"
 #include "MCP/McpRenderExplain.h"
@@ -15,6 +16,7 @@
 #include "OloEngine/Debug/DiagnosticsEventLog.h"
 #include "OloEngine/Project/Project.h"
 #include "OloEngine/Renderer/Debug/CapturedFrameData.h"
+#include "OloEngine/Renderer/Debug/CommandPacketDebugger.h"
 #include "OloEngine/Renderer/Debug/FrameCaptureManager.h"
 #include "OloEngine/Renderer/Debug/GPUResourceInspector.h"
 #include "OloEngine/Renderer/Debug/RenderGraphDebugRuntime.h"
@@ -586,7 +588,68 @@ namespace OloEngine::MCP
             }
             o["topDrawCalls"] = std::move(topDraws);
             o["note"] = "Captured from the scene render command bucket (post-batch). GPU times come from the "
-                        "renderer's timer-query pool.";
+                        "renderer's timer-query pool. For the per-command / per-stage structural breakdown "
+                        "(command list, draw keys, sort/batch analysis), use olo_render_frame_breakdown.";
+            return ToolResult::Text(o.dump(2));
+        }
+
+        // ---- olo_render_frame_breakdown (main-marshaled) -----------------------
+        // The per-command / per-pipeline-stage structural view olo_perf_capture_frame
+        // omits. Same capture-then-poll trigger as Handle_PerfCaptureFrame, then the
+        // freshly captured frame is shaped by the pure FrameBreakdown::BuildBreakdown
+        // (JSON) or CommandPacketDebugger::BuildMarkdownReport (the Command Bucket
+        // Inspector's LLM-analysis report). Pure read — no override / mutation.
+        ToolResult Handle_RenderFrameBreakdown(McpServer& server, const Json& args)
+        {
+            FrameBreakdown::ViewMode requested = FrameBreakdown::ViewMode::PostBatch;
+            if (args.contains("viewMode") && args["viewMode"].is_string())
+                requested = FrameBreakdown::ParseViewMode(args["viewMode"].get<std::string>());
+
+            int maxCommands = 200;
+            if (args.contains("maxCommands") && args["maxCommands"].is_number_integer())
+                maxCommands = static_cast<int>(std::clamp<long long>(args["maxCommands"].get<long long>(), 1, 5000));
+
+            std::string format = "json";
+            if (args.contains("format") && args["format"].is_string())
+            {
+                format = args["format"].get<std::string>();
+                if (format != "json" && format != "markdown")
+                    return ToolResult::Error("format must be \"json\" or \"markdown\".");
+            }
+
+            // Trigger a one-frame capture on the game thread and note how many frames
+            // were already retained, so we can detect the new one (identical to
+            // Handle_PerfCaptureFrame).
+            const Json trigger = server.MarshalRead([]() -> Json
+                                                    {
+                FrameCaptureManager& fcm = FrameCaptureManager::GetInstance();
+                const auto before = static_cast<u64>(fcm.GetCapturedFramesCopy().size());
+                fcm.CaptureNextFrame();
+                return Json{ { "before", before } }; });
+            const auto before = trigger.value("before", static_cast<u64>(0));
+
+            std::deque<CapturedFrameData> frames;
+            bool captured = false;
+            const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
+            while (std::chrono::steady_clock::now() < deadline)
+            {
+                frames = FrameCaptureManager::GetInstance().GetCapturedFramesCopy();
+                if (static_cast<u64>(frames.size()) > before && !frames.empty())
+                {
+                    captured = true;
+                    break;
+                }
+                std::this_thread::sleep_for(std::chrono::milliseconds(50));
+            }
+            if (!captured)
+                return ToolResult::Error("Frame capture timed out (is the editor rendering the viewport?).");
+
+            const CapturedFrameData& cap = frames.back();
+
+            if (format == "markdown")
+                return ToolResult::Text(CommandPacketDebugger::BuildMarkdownReport(cap));
+
+            const Json o = FrameBreakdown::BuildBreakdown(cap, requested, maxCommands);
             return ToolResult::Text(o.dump(2));
         }
 
@@ -3144,6 +3207,31 @@ namespace OloEngine::MCP
             };
             tool.MainMarshaled = true;
             tool.Handler = Handle_PerfCaptureFrame;
+            server.RegisterTool(std::move(tool));
+        }
+
+        {
+            ToolDef tool;
+            tool.Name = "olo_render_frame_breakdown";
+            tool.Description =
+                "Capture the current frame and return its per-command / per-pipeline-stage structural "
+                "breakdown — the granularity olo_perf_capture_frame omits. Triggers a one-frame capture of "
+                "the scene render command bucket and returns the pipeline stats plus the ordered command list "
+                "for the chosen stage: each command's type, debug-name pass label, draw key "
+                "(shader/material/depth/view-layer/render-mode), group id, execution order, static flag and "
+                "GPU time, plus a command-type histogram. Use format:\"markdown\" for the Command Bucket "
+                "Inspector's LLM-analysis report (sort displacement, state-change deltas, batching analysis, "
+                "optimization hints) instead of JSON.";
+            tool.InputSchema = Json{
+                { "type", "object" },
+                { "properties",
+                  { { "viewMode", { { "type", "string" }, { "enum", { "presort", "postsort", "postbatch" } }, { "description", "Pipeline stage to list: 'presort' (submission order), 'postsort' (after the radix sort), or 'postbatch' (what actually executed; default). Falls back to an earlier, populated stage when the requested one is empty." } } },
+                    { "maxCommands", { { "type", "integer" }, { "minimum", 1 }, { "maximum", 5000 }, { "description", "Cap on commands returned (default 200). The full count and a 'truncated' flag are always reported." } } },
+                    { "format", { { "type", "string" }, { "enum", { "json", "markdown" } }, { "description", "'json' (default): structured per-command breakdown. 'markdown': the human/LLM analysis report." } } } } },
+                { "additionalProperties", false }
+            };
+            tool.MainMarshaled = true;
+            tool.Handler = Handle_RenderFrameBreakdown;
             server.RegisterTool(std::move(tool));
         }
 
