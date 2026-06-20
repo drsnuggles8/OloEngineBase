@@ -601,12 +601,15 @@ namespace OloEngine::MCP
         // Inspector's LLM-analysis report). Pure read — no override / mutation.
         ToolResult Handle_RenderFrameBreakdown(McpServer& server, const Json& args)
         {
+            const bool explicitViewMode = args.contains("viewMode");
+            const bool explicitMaxCommands = args.contains("maxCommands");
+
             FrameBreakdown::ViewMode requested = FrameBreakdown::ViewMode::PostBatch;
-            if (args.contains("viewMode") && args["viewMode"].is_string())
+            if (explicitViewMode && args["viewMode"].is_string())
                 requested = FrameBreakdown::ParseViewMode(args["viewMode"].get<std::string>());
 
             int maxCommands = 200;
-            if (args.contains("maxCommands") && args["maxCommands"].is_number_integer())
+            if (explicitMaxCommands && args["maxCommands"].is_number_integer())
                 maxCommands = static_cast<int>(std::clamp<long long>(args["maxCommands"].get<long long>(), 1, 5000));
 
             std::string format = "json";
@@ -616,6 +619,14 @@ namespace OloEngine::MCP
                 if (format != "json" && format != "markdown")
                     return ToolResult::Error("format must be \"json\" or \"markdown\".");
             }
+
+            // viewMode / maxCommands shape the JSON command list; the markdown report
+            // is a fixed document that always covers all stages and every command, so
+            // reject them rather than silently ignoring them.
+            if (format == "markdown" && (explicitViewMode || explicitMaxCommands))
+                return ToolResult::Error("viewMode and maxCommands apply to format:\"json\" only — the markdown "
+                                         "report always covers all pipeline stages and every command. Omit them, "
+                                         "or use format:\"json\".");
 
             // Trigger a one-frame capture on the game thread and note how many frames
             // were already retained, so we can detect the new one (identical to
@@ -3225,9 +3236,26 @@ namespace OloEngine::MCP
             tool.InputSchema = Json{
                 { "type", "object" },
                 { "properties",
-                  { { "viewMode", { { "type", "string" }, { "enum", { "presort", "postsort", "postbatch" } }, { "description", "Pipeline stage to list: 'presort' (submission order), 'postsort' (after the radix sort), or 'postbatch' (what actually executed; default). Falls back to an earlier, populated stage when the requested one is empty." } } },
-                    { "maxCommands", { { "type", "integer" }, { "minimum", 1 }, { "maximum", 5000 }, { "description", "Cap on commands returned (default 200). The full count and a 'truncated' flag are always reported." } } },
-                    { "format", { { "type", "string" }, { "enum", { "json", "markdown" } }, { "description", "'json' (default): structured per-command breakdown. 'markdown': the human/LLM analysis report." } } } } },
+                  { { "viewMode",
+                      { { "type", "string" },
+                        { "enum", { "presort", "postsort", "postbatch" } },
+                        { "description",
+                          "(json format only) Pipeline stage to list: 'presort' (submission order), 'postsort' "
+                          "(after the radix sort), or 'postbatch' (what actually executed; default). Falls back "
+                          "to an earlier, populated stage when the requested one is empty." } } },
+                    { "maxCommands",
+                      { { "type", "integer" },
+                        { "minimum", 1 },
+                        { "maximum", 5000 },
+                        { "description",
+                          "(json format only) Cap on commands returned (default 200). The full count and a "
+                          "'truncated' flag are always reported." } } },
+                    { "format",
+                      { { "type", "string" },
+                        { "enum", { "json", "markdown" } },
+                        { "description",
+                          "'json' (default): structured per-command breakdown shaped by viewMode/maxCommands. "
+                          "'markdown': the human/LLM analysis report (covers all stages and commands)." } } } } },
                 { "additionalProperties", false }
             };
             tool.MainMarshaled = true;
