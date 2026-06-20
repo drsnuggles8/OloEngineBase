@@ -173,6 +173,47 @@ cd OloEditor && ../bin/Debug/OloEditor/OloEditor
 
 ---
 
+## Build speed options
+
+The build is tuned for fast compiles out of the box. Four CMake options control the levers;
+the defaults are what you want for local dev.
+
+| Option                     | Default | Helps               | Notes                                                         |
+|----------------------------|---------|---------------------|--------------------------------------------------------------|
+| `OLO_ENABLE_PCH`           | `ON`    | cold **and** warm   | Precompiles `OloEnginePCH.h`; PUBLIC, so editor/runtime/tests inherit it. This is the single biggest cold-build lever. |
+| `OLO_ENABLE_LTO`           | `ON`    | runtime perf        | Release/Dist only (it would cripple Debug link times).       |
+| `OLO_ENABLE_COMPILER_CACHE`| `OFF`   | warm/incremental    | sccache/ccache; Ninja-only (the VS generator ignores compiler launchers). CI's win. Force-disables PCH **and** unity (both are non-cacheable). |
+| `OLO_ENABLE_UNITY_BUILD`   | `OFF`   | cold (situationally)| Jumbo/unity build of `OloEngine`. See below — measured, marginal. |
+
+### Unity (jumbo) builds — `-DOLO_ENABLE_UNITY_BUILD=ON`
+
+Batches the `OloEngine` TUs 16-per-jumbo (`UNITY_BUILD_BATCH_SIZE`) so headers parse once per
+batch instead of once per file. **Opt-in and OFF by default**, and it auto-disables when the
+compiler cache is on (a one-line edit busts the whole 16-file jumbo's cache key — a net loss on
+warm-cache incremental builds; see `cmake/CompilerCache.cmake`). CI uses the cache, so CI never
+runs unity.
+
+**Measured cold-build result (isolated `OloEngine` recompile, vendor warm, Debug, MSVC, 28-core,
+cache OFF):** across 11 runs the median was **identical at 336s** ON vs OFF; the best run favoured
+ON (220s vs 275s, ~20%) and ON won 3 of 4 load-matched pairs, but one pair favoured OFF. So unity
+is **a modest, situational cold-build win at best, easily masked by machine load.** The reason it
+isn't bigger: **PCH already amortizes the header-parsing cost that unity targets**, so they don't
+stack — and on a many-core machine the 56 coarse unity TUs schedule across cores slightly worse
+than the ~470 fine ones. Unity is most likely to pay off on a **core-starved machine without
+PCH** — which OloEngine is not. **Recommendation: leave it OFF unless you're on a low-core machine
+doing repeated cold builds and have measured a win for your hardware.**
+
+Enabling it required two build-only changes (no engine-logic edits): `Renderer/Vertex.h` no longer
+pulls the unused experimental `<glm/gtx/integer.hpp>` (which `#error`'d in jumbos before
+`GLM_ENABLE_EXPERIMENTAL` was active), and 27 TUs are excluded from batching via
+`SKIP_UNITY_BUILD_INCLUSION` in `OloEngine/src/CMakeLists.txt` — 7 third-party single-header
+amalgamations (miniaudio/stb/pl_mpeg/ImGui/FFmpeg) plus 20 engine TUs whose copy-pasted
+file-local helpers (`IsTruthyEnvironmentVariable`, `SafeNormalize`, `kTwoPi`, …) collide when
+concatenated. De-duplicating those helpers into shared headers would let them rejoin the batches;
+it's deliberately left as a follow-up so this stays a low-risk, CMake-only change.
+
+---
+
 ## Troubleshooting
 
 ### Missing shaders / Mono assemblies at runtime

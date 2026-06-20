@@ -69,6 +69,17 @@ if(OLO_ENABLE_COMPILER_CACHE)
         # in the top-level CMakeLists; override it here.
         set(OLO_ENABLE_PCH OFF CACHE BOOL "Disabled: MSVC PCH (/Fp) is non-cacheable under sccache/ccache" FORCE)
 
+        # Disable unity (jumbo) builds while caching — same reasoning as PCH above, opposite
+        # trade-off. Unity batches 16 TUs into one object; editing a single line in any file
+        # of a batch changes that whole jumbo object's inputs, so its cache key misses and all
+        # 16 TUs recompile. On CI's common case (incremental push = warm cache) that turns a
+        # 1-TU recompile into a 16-TU recompile — a net loss. Unity speeds *cold* builds (it
+        # amortizes header re-parsing across the batch); the cache speeds *warm* builds. They
+        # optimize opposite cases and don't compose, so when caching is on the cache wins and
+        # unity is forced off. OLO_ENABLE_UNITY_BUILD is an option() in the top-level
+        # CMakeLists; override it here (mirrors the PCH override above).
+        set(OLO_ENABLE_UNITY_BUILD OFF CACHE BOOL "Disabled: jumbo TUs bust the per-object cache key under sccache/ccache" FORCE)
+
         # NOTE: a few vendored libraries force MSVC /Zi + a separate PDB regardless
         # of the format above, which sccache/ccache cannot cache. Those are turned
         # off (only when caching) next to their other options in
