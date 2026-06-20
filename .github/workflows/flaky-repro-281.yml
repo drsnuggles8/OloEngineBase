@@ -23,7 +23,10 @@ on:
       iterations:
         description: "Loop iterations (each runs --gtest_repeat in-process)"
         required: false
-        default: "300"
+        # ~100 x 400 = 40k repeats fits well inside the 55-min hunt step on the
+        # hosted runner (the fix removed the per-step stall, so each iteration is
+        # fast); pre-fix this reproduced within a few thousand repeats.
+        default: "100"
       repeat:
         description: "In-process --gtest_repeat per iteration"
         required: false
@@ -173,8 +176,12 @@ jobs:
     - name: Report result
       shell: pwsh
       run: |
+        # A real repro is signalled by a captured artifact OR the harness's own
+        # failure exit (exactly "1"). NOT a step-timeout: that kills the hunt
+        # before it writes exitcode, leaving it empty — which must NOT read as a
+        # repro (the harness produces no .stacks.txt/.dmp in that case).
         $repro = (Get-ChildItem build/repro-logs/*.stacks.txt,build/repro-logs/*.dmp -ErrorAction SilentlyContinue).Count -gt 0
-        if ($repro -or "${{ steps.hunt.outputs.exitcode }}" -ne "0") {
+        if ($repro -or "${{ steps.hunt.outputs.exitcode }}" -eq "1") {
           Write-Host "::warning::#281 flake REPRODUCED — see the uploaded repro-281-evidence artifact (stacks.txt + .dmp)."
           "## :rotating_light: #281 flake REPRODUCED" >> $env:GITHUB_STEP_SUMMARY
           Get-ChildItem build/repro-logs/*.stacks.txt -ErrorAction SilentlyContinue | ForEach-Object {
