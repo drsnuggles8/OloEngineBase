@@ -423,8 +423,36 @@ target_include_directories(OloEngine-Tests PRIVATE
 # 120s is very generous under normal conditions but gives sanitizer builds
 # ample headroom without masking a genuinely hung binary.
 include(GoogleTest)
+
+# Parallel-safety: CI runs the suite with `ctest --parallel`, and because
+# gtest_discover_tests registers every gtest case as its own ctest entry, each
+# case runs in its own OloEngine-Tests.exe process — different cases of the same
+# fixture run concurrently. Most tests are process-isolated already (temp paths
+# keyed by PID / gtest case name); see the "Parallel-safety contract" section in
+# docs/agent-rules/testing-architecture.md.
+#
+# The one resource that is NOT process-isolated is the engine's SHARED,
+# repo-relative mesh cache (OloEditor/assets/cache/mesh/, content-hash keyed).
+# These cases each load assets/backpack/backpack.obj and call
+# MeshCache::InvalidateCache on it, so under `--parallel` one case's invalidate
+# deletes another's just-written cache mid-test (observed:
+# ModelLoadDeterminism.Backpack_FreshVsCache failing IsMeshCacheValid). The cache
+# path is the engine's real on-disk location, not a test-controlled temp dir, so
+# we serialize these offenders against EACH OTHER with a shared RESOURCE_LOCK;
+# they still overlap freely with every unrelated test. Keep this list in sync if
+# a new test loads + invalidates a shared model cache.
+set(OLO_MESH_CACHE_TESTS
+	"ModelLoadDeterminism.Backpack_FreshVsCache:DataRoundTripTest.BackpackLegacyObjImportsPbrCompanionMaps:DataRoundTripTest.BackpackLegacyObjFlipsUvsToMatchTextureUploads")
+
 gtest_discover_tests(OloEngine-Tests
 	WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/OloEditor
 	DISCOVERY_TIMEOUT 120
+	TEST_FILTER "${OLO_MESH_CACHE_TESTS}"
+	PROPERTIES RESOURCE_LOCK "olo_mesh_cache"
+)
+gtest_discover_tests(OloEngine-Tests
+	WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/OloEditor
+	DISCOVERY_TIMEOUT 120
+	TEST_FILTER "-${OLO_MESH_CACHE_TESTS}"
 )
 

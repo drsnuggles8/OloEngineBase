@@ -8,8 +8,15 @@
 #include <cmath>
 #include <filesystem>
 #include <fstream>
+#include <string>
 #include <string_view>
 #include <unordered_set>
+
+#ifdef _WIN32
+#include <process.h>
+#else
+#include <unistd.h>
+#endif
 
 using namespace OloEngine;
 
@@ -220,7 +227,17 @@ class InputActionSerializerTest : public ::testing::Test
 
     void SetUp() override
     {
-        m_TempDir = std::filesystem::temp_directory_path() / "OloEngine_InputActionTest";
+        // Per-process directory: under `ctest -j` each gtest case runs as its own
+        // OloEngine-Tests.exe process. A shared fixed dir would let one process's
+        // TearDown remove_all() delete a concurrent process's .yaml between its
+        // write and read. Keying by PID isolates each process. (Matches the
+        // PID-keyed pattern in ShaderBinaryCacheRoundTripTest.)
+#ifdef _WIN32
+        const auto pid = static_cast<long long>(_getpid());
+#else
+        const auto pid = static_cast<long long>(::getpid());
+#endif
+        m_TempDir = std::filesystem::temp_directory_path() / ("OloEngine_InputActionTest_" + std::to_string(pid));
         std::filesystem::create_directories(m_TempDir);
     }
 

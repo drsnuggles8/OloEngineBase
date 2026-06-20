@@ -108,7 +108,35 @@ Working directory matters: run from the repo root so asset paths resolve.
 
 ---
 
-## 6. Relevant files
+## 6. Parallel-safety contract (`ctest --parallel`)
+
+CI runs the suite with `ctest --parallel` ([`.github/workflows/Windows.yml`](../../.github/workflows/Windows.yml)). Because `gtest_discover_tests` registers **every** `TEST` / `TEST_F` case as its own ctest entry, each case runs in its **own `OloEngine-Tests.exe` process** — and under `-j`, *different cases of the same fixture run concurrently in different processes*. Two rules follow for every test you write:
+
+### 6.1 Never share a mutable OS resource between test cases
+
+A fixed filesystem path, a fixed network port, or a named OS object that a **second** test case also touches will race across processes. The classic bug is a fixture whose `SetUp` / `TearDown` / `TearDownTestSuite` does `remove_all()` (or `InvalidateCache`) on a **fixed shared** location: one process's teardown deletes a concurrent process's files mid-test.
+
+**Fix — key any path you write by the process or the case**, mirroring the existing patterns:
+
+- **By PID** — `temp_directory_path() / ("olo_..._" + std::to_string(_getpid()))`. See [ShaderBinaryCacheRoundTripTest.cpp](../../OloEngine/tests/Rendering/ShaderBinaryCacheRoundTripTest.cpp), [MeshBinarySerializerTest.cpp](../../OloEngine/tests/Serialization/MeshBinarySerializerTest.cpp), [ShaderPackTest.cpp](../../OloEngine/tests/Rendering/ShaderPackTest.cpp), [InputActionTest.cpp](../../OloEngine/tests/InputActionTest.cpp).
+- **By gtest case name** — `temp_directory_path() / (test_info()->test_suite_name() + "." + test_info()->name())`. See [MeshAssetSerializerTest.cpp](../../OloEngine/tests/Serialization/MeshAssetSerializerTest.cpp), [AutoSaveTest.cpp](../../OloEngine/tests/AutoSaveTest.cpp), and the Functional Lua tests.
+
+A fixed path used by **exactly one** case is fine — only one process ever touches it. Fixed ports are fine here only because the offenders either never bind (GNS uninitialised → `StartListening` returns false) or are in the workflow's `--exclude-regex` (`NetworkIntegrationTest`).
+
+When you add a test that writes files, grep your new file for `temp_directory_path` and confirm the path is PID- or case-keyed.
+
+### 6.2 Shared resources that can't be process-keyed → serialize in CMake
+
+Some resources are **not** test-controlled and can't be PID-keyed — chiefly the engine's repo-relative **mesh cache** (`OloEditor/assets/cache/mesh/`, content-hash keyed). Tests that load the *same* model and call `MeshCache::InvalidateCache` race on the same `.omesh` file. These are serialized **against each other** with a shared ctest `RESOURCE_LOCK` in [OloEngine/tests/CMakeLists.txt](../../OloEngine/tests/CMakeLists.txt) (`OLO_MESH_CACHE_TESTS` → `RESOURCE_LOCK "olo_mesh_cache"`), applied via a filtered second `gtest_discover_tests` call. They still overlap freely with unrelated tests. **If you add a test that loads + invalidates a shared model cache, add its `Suite.Case` name to that filter.**
+
+### 6.3 GPU and CPU oversubscription are tolerated, not isolated
+
+- **GL-context tests** (`RendererAttachedTest` subclasses; the `*VisualEvidence*` / `*Bake*` / GPU-contract families) **SKIP** on CI (no GL 4.6 context), so they are no-ops under `-j` there. Locally they *run* and contend for the single GPU — expect them to be slow or to hit the per-test `--timeout` at high `-j`; that is a local artifact, **not** a CI failure. Verify GPU tests at a low `-j`.
+- **Functional / physics tests** each start an `FScheduler` worker pool sized to `hardware_concurrency` ([FunctionalTest.cpp](../../OloEngine/tests/Functional/FunctionalTest.cpp)), so concurrent physics processes oversubscribe the cores. We deliberately do **not** serialize them: the workflow's `--repeat until-pass:3` nets the rare #281 Jolt race, and the suite runs stable under heavy local oversubscription (verified at `-j16` on a 28-core box ≈ 16×, well above CI's 4-core `-j4` ≈ 4×). If a future change makes physics flakier under `-j`, the lever is a ctest `RESOURCE_LOCK` / `PROCESSORS` property on those cases — not lowering `-j` globally.
+
+---
+
+## 7. Relevant files
 
 | Purpose | Path |
 |---|---|
