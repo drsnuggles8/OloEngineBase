@@ -290,6 +290,10 @@ add_executable(OloEngine-Tests
 		# Header-only engine facility (Debug/DiagnosticsEventLog.h, compiled into
 		# OloEngine), so no extra editor TU is pulled in.
 		MCP/McpEventsTailTest.cpp
+		# Pure result-shaping behind olo_shader_reload (#316 Part 4). Header-only
+		# (MCP/McpShaderReload.h, depends only on the engine's ShaderCompilationStatus
+		# enum), so no extra editor TU is pulled in.
+		MCP/McpShaderReloadTest.cpp
 		# Lua Binding Tests
 		Lua/LuaBindingTest.cpp
 		# Functional / cross-subsystem world-tick tests (see ADR 0001).

@@ -115,6 +115,7 @@ the server, so update the config (or re-copy from the panel) accordingly.
 | `olo_shader_list` | inventory of all registered shaders (id, name, hasErrors) |
 | `olo_shader_errors` | shaders with compile/link errors |
 | `olo_shader_get` | one shader's uniforms/buffers/samplers/instructions (+ optional GLSL) |
+| `olo_shader_reload` | reload + recompile one shader from disk by name; returns post-reload status + the compile/link log (the shader inner loop) |
 | `olo_assets_list` | paginated registered assets (handle, type, path) + type filter |
 | `olo_assets_problems` | assets that failed to load or are missing/invalid |
 | `olo_script_get_api` | C# / Lua scripting API digest (types + members), with a type filter |
@@ -202,6 +203,50 @@ RMSE→SSIM metric as the `GoldenImageTests` suite**, so the MCP verdict agrees 
 
 The response also includes the captured frame as an image block, so the agent can SEE
 what it just verdicted on alongside the numbers.
+
+### The shader inner loop (`olo_shader_reload`)
+
+`olo_shader_reload { name }` recompiles one shader from disk by name without restarting
+the editor, so an agent can run the tight rendering inner loop: **edit the `.glsl` →
+reload → read the compile/link log → screenshot → repeat.** It re-reads the file and
+recompiles+links synchronously (force-finishing any async link) in both the Renderer3D
+and Renderer2D shader libraries — the same path the editor's own *Shader ▸ Recompile*
+action uses — and returns the post-reload `status`
+(`ready`/`failed`/`compiling`/`pending`), the GL program `id`, which `libraries` held the
+name, and the `log` (compile/link errors; empty on a clean reload). The status comes
+straight off the shader object so it is correct in release builds too; the `log` text is
+read from the shader debugger and is richest in debug builds. A worked loop:
+
+```jsonc
+// 1) olo_shader_list                          -> find the shader name
+// 2) … edit OloEditor/assets/shaders/PBR_MultiLight.glsl on disk …
+// 3) olo_shader_reload { "name": "PBR_MultiLight" }
+{ "name": "PBR_MultiLight", "found": true, "libraries": ["Renderer3D"],
+  "status": "ready", "ok": true, "rendererId": 195, "log": "" }
+// 4) olo_screenshot { … }                     -> confirm the pixels changed as intended
+```
+
+A clean recompile returns `status: "ready"` with an empty `log`; on failure you get
+`status: "failed"` and the compiler diagnostics in `log`.
+
+**Which shaders are reloadable.** `olo_shader_list` reports *every* GL program the shader
+debugger knows about, but only shaders owned by the Renderer3D / Renderer2D shader libraries
+(the main scene shaders — `PBR_MultiLight`, `Water`, `Terrain_PBR`, `InfiniteGrid`, `Decal`,
+`LightCube`, the `Renderer2D_*` shaders, …) can be hot-reloaded by name. Post-process and
+compute shaders (`GTAO`, `SSAO`, `SSR`, bloom, …) are owned by their render pass and the
+engine keeps no name-to-shader registry for them, so they are **not** reloadable; asking for
+one returns an error that lists the names that *are* reloadable. To inspect a shader's
+*existing* errors without recompiling, use `olo_shader_errors` / `olo_shader_get` instead.
+
+**Debug-build caveat (verified).** In a Debug build, recompiling a shader that contains a
+GLSL *syntax* error trips an engine debug assert (`OLO_CORE_VERIFY` → `__debugbreak`) on the
+render/main thread — the same behaviour as the editor's own *Shader ▸ Recompile* button. The
+reload then doesn't return a clean `status: "failed"`; instead the main-thread marshal times
+out (~5 s) and the tool returns *"Timed out waiting for the editor main thread"*, and the
+editor can crash. So reserve `olo_shader_reload` for applying an edit you **expect to
+compile** (the normal inner-loop case — confirm the result `status` is `ready`, then
+screenshot); to inspect a shader that you know is broken, read `olo_shader_errors` /
+`olo_shader_get` rather than recompiling it.
 
 ### Physics introspection (the `olo_physics_*` family)
 
