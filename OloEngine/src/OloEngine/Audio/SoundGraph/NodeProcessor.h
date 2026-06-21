@@ -112,22 +112,37 @@ namespace OloEngine::Audio::SoundGraph
         struct InputEvent : public Input
         {
             using EventFunction = std::function<void(f32)>;
+            // Phase 4: sample-accurate handler — receives the trigger's frame
+            // offset within the block (docs/soundgraph-metasounds-refactor.md).
+            // Trigger-consuming nodes register one of these so they can Fire their
+            // TriggerRef at the exact offset; value-only handlers ignore the offset.
+            using OffsetEventFunction = std::function<void(f32, i32)>;
 
             explicit InputEvent(NodeProcessor& owner, EventFunction ev) noexcept
                 : Input(owner), m_Event(std::move(ev))
             {
             }
+            explicit InputEvent(NodeProcessor& owner, OffsetEventFunction ev) noexcept
+                : Input(owner), m_OffsetEvent(std::move(ev))
+            {
+            }
 
-            inline virtual void operator()(f32 value) noexcept
+            // sampleOffset defaults to 0 ("at the start of the block") so legacy
+            // single-argument callers and routes keep their block-boundary timing.
+            inline virtual void operator()(f32 value, i32 sampleOffset = 0) noexcept
             {
                 OLO_PROFILE_FUNCTION();
 
-                if (m_Event)
+                if (m_OffsetEvent)
+                    m_OffsetEvent(value, sampleOffset);
+                else if (m_Event)
                     m_Event(value);
             }
 
-            // Should be bound to NodeProcessor member method
+            // Exactly one is bound (the active ctor picks). m_OffsetEvent takes
+            // precedence in operator() when set.
             EventFunction m_Event;
+            OffsetEventFunction m_OffsetEvent;
         };
 
         struct OutputEvent : public Output
@@ -137,7 +152,11 @@ namespace OloEngine::Audio::SoundGraph
             {
             }
 
-            inline void operator()(f32 value) noexcept
+            // sampleOffset (Phase 4) is forwarded to every destination so a node
+            // firing a trigger mid-block (at frame `sampleOffset`) lets downstream
+            // trigger consumers act at that exact frame. Defaults to 0 so existing
+            // single-argument fires keep their block-boundary timing.
+            inline void operator()(f32 value, i32 sampleOffset = 0) noexcept
             {
                 OLO_PROFILE_FUNCTION();
 
@@ -147,7 +166,7 @@ namespace OloEngine::Audio::SoundGraph
                 {
                     if (auto dest = it->lock()) // Check if still valid
                     {
-                        (*dest)(value);
+                        (*dest)(value, sampleOffset);
                         ++it;
                     }
                     else
@@ -177,7 +196,21 @@ namespace OloEngine::Audio::SoundGraph
         {
             OLO_PROFILE_FUNCTION();
 
-            auto inputEvent = std::make_shared<InputEvent>(*this, function);
+            auto inputEvent = std::make_shared<InputEvent>(*this, std::move(function));
+            const auto& [element, inserted] = InEvents.try_emplace(id, inputEvent);
+            OLO_CORE_ASSERT(inserted, "Input event with this ID already exists");
+            return *element->second;
+        }
+
+        // Phase 4 overload: registers a sample-offset-aware handler (a lambda taking
+        // (f32 value, i32 sampleOffset)). Distinct from the value-only overload by
+        // the handler's arity, so existing AddInEvent(id, [](f32){...}) call sites
+        // keep resolving to the legacy overload above.
+        InputEvent& AddInEvent(Identifier id, InputEvent::OffsetEventFunction function)
+        {
+            OLO_PROFILE_FUNCTION();
+
+            auto inputEvent = std::make_shared<InputEvent>(*this, std::move(function));
             const auto& [element, inserted] = InEvents.try_emplace(id, inputEvent);
             OLO_CORE_ASSERT(inserted, "Input event with this ID already exists");
             return *element->second;

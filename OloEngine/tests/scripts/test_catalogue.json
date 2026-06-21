@@ -351,6 +351,7 @@
     "OloEngine/tests/SnowSettingsTest.cpp": "unit",
     "OloEngine/tests/SoundGraphBasicTest.cpp": "unit",
     "OloEngine/tests/SoundGraphInstantiationTest.cpp": "unit",
+    "OloEngine/tests/SoundGraphSampleAccurateTriggerTest.cpp": "unit",
     "OloEngine/tests/SoundGraphTypedConnectionTest.cpp": "unit",
     "OloEngine/tests/StateMachineTest.cpp": "unit",
     "OloEngine/tests/Tasks/TaskSystemTest.cpp": "unit",
