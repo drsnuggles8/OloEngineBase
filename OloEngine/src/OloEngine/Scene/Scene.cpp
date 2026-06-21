@@ -1080,6 +1080,78 @@ namespace OloEngine
         RenderCommand::SetBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
     }
 
+    // Per-entity CPU morph-target deformation: deform the mesh by the component's
+    // active weights (or restore the base mesh when they go inactive) and re-upload
+    // the vertex buffer. Shared by the runtime (OnUpdateRuntime) and editor-preview
+    // (OnUpdateEditor) morph passes so the two can't drift. Weights are produced
+    // upstream by the animation/graph samplers or by script/preset writes.
+    static void EvaluateEntityMorphTargets(MorphTargetComponent& morphComp, MeshComponent& meshComp)
+    {
+        if (!meshComp.m_MeshSource)
+            return;
+
+        // Auto-populate MorphTargets from MeshSource if not already set
+        if (!morphComp.MorphTargets && meshComp.m_MeshSource->HasMorphTargets())
+            morphComp.MorphTargets = meshComp.m_MeshSource->GetMorphTargets();
+
+        if (!morphComp.HasActiveWeights() || !morphComp.MorphTargets)
+        {
+            // Restore base mesh only on transition from active → inactive
+            if (morphComp.WasMorphActive && !morphComp.BasePositions.empty() && meshComp.m_MeshSource)
+            {
+                auto& meshSource = meshComp.m_MeshSource;
+                auto& mutableVerts = meshSource->GetVertices();
+                for (u32 i = 0; i < static_cast<u32>(morphComp.BasePositions.size()) && i < static_cast<u32>(mutableVerts.Num()); ++i)
+                {
+                    mutableVerts[i].Position = morphComp.BasePositions[i];
+                    mutableVerts[i].Normal = morphComp.BaseNormals[i];
+                }
+                auto& vb = const_cast<Ref<VertexBuffer>&>(meshSource->GetVertexBuffer());
+                vb->SetData({ mutableVerts.GetData(), static_cast<u32>(mutableVerts.Num() * sizeof(Vertex)) });
+            }
+            morphComp.WasMorphActive = false;
+            return;
+        }
+
+        auto& meshSource = meshComp.m_MeshSource;
+        auto& vertices = meshSource->GetVertices();
+
+        // Cache base vertex data on first evaluation
+        if (morphComp.BasePositions.empty() && vertices.Num() > 0)
+        {
+            morphComp.BasePositions.resize(vertices.Num());
+            morphComp.BaseNormals.resize(vertices.Num());
+            for (u32 i = 0; i < static_cast<u32>(vertices.Num()); ++i)
+            {
+                morphComp.BasePositions[i] = vertices[i].Position;
+                morphComp.BaseNormals[i] = vertices[i].Normal;
+            }
+        }
+
+        if (morphComp.BasePositions.empty())
+            return;
+
+        // Evaluate morph deformation
+        std::vector<glm::vec3> outPositions;
+        std::vector<glm::vec3> outNormals;
+        if (MorphTargetSystem::EvaluateMorphTargets(morphComp,
+                                                    morphComp.BasePositions, morphComp.BaseNormals,
+                                                    outPositions, outNormals))
+        {
+            // Write deformed data back into MeshSource vertices and re-upload to the GPU
+            auto& mutableVerts = meshSource->GetVertices();
+            for (u32 i = 0; i < static_cast<u32>(outPositions.size()) && i < static_cast<u32>(mutableVerts.Num()); ++i)
+            {
+                mutableVerts[i].Position = outPositions[i];
+                mutableVerts[i].Normal = outNormals[i];
+            }
+
+            auto& vb = const_cast<Ref<VertexBuffer>&>(meshSource->GetVertexBuffer());
+            vb->SetData({ mutableVerts.GetData(), static_cast<u32>(mutableVerts.Num() * sizeof(Vertex)) });
+        }
+        morphComp.WasMorphActive = true;
+    }
+
     void Scene::OnUpdateRuntime(Timestep const ts)
     {
         PerformanceProfiler* perfProfiler = nullptr;
@@ -1193,86 +1265,6 @@ namespace OloEngine
                 }
             }
 
-            // Evaluate morph targets for all entities with active weights
-            // This runs after animation update so keyframe-driven weights are applied first.
-            // Morph deformation happens before skeletal skinning (morph first, then skin).
-            {
-                OLO_PROFILE_SCOPE("Morph Target Evaluation");
-                auto morphView = m_Registry.view<MorphTargetComponent, MeshComponent>();
-                for (auto e : morphView)
-                {
-                    auto& morphComp = morphView.get<MorphTargetComponent>(e);
-
-                    auto& meshComp = morphView.get<MeshComponent>(e);
-                    if (!meshComp.m_MeshSource)
-                        continue;
-
-                    // Auto-populate MorphTargets from MeshSource if not already set
-                    if (!morphComp.MorphTargets && meshComp.m_MeshSource->HasMorphTargets())
-                    {
-                        morphComp.MorphTargets = meshComp.m_MeshSource->GetMorphTargets();
-                    }
-
-                    if (!morphComp.HasActiveWeights() || !morphComp.MorphTargets)
-                    {
-                        // Restore base mesh only on transition from active → inactive
-                        if (morphComp.WasMorphActive && !morphComp.BasePositions.empty() && meshComp.m_MeshSource)
-                        {
-                            auto& meshSource = meshComp.m_MeshSource;
-                            auto& mutableVerts = meshSource->GetVertices();
-                            for (u32 i = 0; i < static_cast<u32>(morphComp.BasePositions.size()) && i < static_cast<u32>(mutableVerts.Num()); ++i)
-                            {
-                                mutableVerts[i].Position = morphComp.BasePositions[i];
-                                mutableVerts[i].Normal = morphComp.BaseNormals[i];
-                            }
-                            auto& vb = const_cast<Ref<VertexBuffer>&>(meshSource->GetVertexBuffer());
-                            vb->SetData({ mutableVerts.GetData(), static_cast<u32>(mutableVerts.Num() * sizeof(Vertex)) });
-                        }
-                        morphComp.WasMorphActive = false;
-                        continue;
-                    }
-
-                    auto& meshSource = meshComp.m_MeshSource;
-                    auto& vertices = meshSource->GetVertices();
-
-                    // Cache base vertex data on first evaluation
-                    if (morphComp.BasePositions.empty() && vertices.Num() > 0)
-                    {
-                        morphComp.BasePositions.resize(vertices.Num());
-                        morphComp.BaseNormals.resize(vertices.Num());
-                        for (u32 i = 0; i < static_cast<u32>(vertices.Num()); ++i)
-                        {
-                            morphComp.BasePositions[i] = vertices[i].Position;
-                            morphComp.BaseNormals[i] = vertices[i].Normal;
-                        }
-                    }
-
-                    if (morphComp.BasePositions.empty())
-                        continue;
-
-                    // Evaluate morph deformation
-                    std::vector<glm::vec3> outPositions;
-                    std::vector<glm::vec3> outNormals;
-                    if (MorphTargetSystem::EvaluateMorphTargets(morphComp,
-                                                                morphComp.BasePositions, morphComp.BaseNormals,
-                                                                outPositions, outNormals))
-                    {
-                        // Write deformed data back into MeshSource vertices
-                        auto& mutableVerts = meshSource->GetVertices();
-                        for (u32 i = 0; i < static_cast<u32>(outPositions.size()) && i < static_cast<u32>(mutableVerts.Num()); ++i)
-                        {
-                            mutableVerts[i].Position = outPositions[i];
-                            mutableVerts[i].Normal = outNormals[i];
-                        }
-
-                        // Re-upload vertex data to the GPU
-                        auto& vb = const_cast<Ref<VertexBuffer>&>(meshSource->GetVertexBuffer());
-                        vb->SetData({ mutableVerts.GetData(), static_cast<u32>(mutableVerts.Num() * sizeof(Vertex)) });
-                    }
-                    morphComp.WasMorphActive = true;
-                }
-            }
-
             // Update animation graphs
             {
                 OLO_PROFILE_SCOPE("Animation Graph Update");
@@ -1375,8 +1367,25 @@ namespace OloEngine
                         Animation::NoiseAnimationState* graphNoiseState = nullptr;
                         const NoiseAnimationComponent* graphNoise = ResolveNoiseAnimation(graphEntity, graphNoiseState);
                         auto const& graphEntityTransform = graphEntity.GetComponent<TransformComponent>().GetTransform();
-                        Animation::AnimationGraphSystem::Update(graphComp, *skelComp.m_Skeleton, ts.GetSeconds(), graphIkTarget, graphEntityTransform, graphSpringBone, graphSpringState, graphNoise, graphNoiseState);
+                        MorphTargetComponent* graphMorph = graphEntity.HasComponent<MorphTargetComponent>()
+                                                               ? &graphEntity.GetComponent<MorphTargetComponent>()
+                                                               : nullptr;
+                        Animation::AnimationGraphSystem::Update(graphComp, *skelComp.m_Skeleton, ts.GetSeconds(), graphIkTarget, graphEntityTransform, graphSpringBone, graphSpringState, graphNoise, graphNoiseState, graphMorph);
                     }
+                }
+            }
+
+            // Evaluate morph targets for all entities with active weights.
+            // Runs after BOTH the AnimationStateComponent and animation-graph
+            // updates so morph weights sampled from either path this frame are
+            // deformed this same frame (no one-frame lag). Morph deformation
+            // happens before skeletal skinning (morph first, then skin).
+            {
+                OLO_PROFILE_SCOPE("Morph Target Evaluation");
+                auto morphView = m_Registry.view<MorphTargetComponent, MeshComponent>();
+                for (auto e : morphView)
+                {
+                    EvaluateEntityMorphTargets(morphView.get<MorphTargetComponent>(e), morphView.get<MeshComponent>(e));
                 }
             }
 
@@ -1981,67 +1990,7 @@ namespace OloEngine
             auto morphView = m_Registry.view<MorphTargetComponent, MeshComponent>();
             for (auto e : morphView)
             {
-                auto& morphComp = morphView.get<MorphTargetComponent>(e);
-                auto& meshComp = morphView.get<MeshComponent>(e);
-                if (!meshComp.m_MeshSource)
-                    continue;
-
-                if (!morphComp.MorphTargets && meshComp.m_MeshSource->HasMorphTargets())
-                    morphComp.MorphTargets = meshComp.m_MeshSource->GetMorphTargets();
-
-                if (!morphComp.HasActiveWeights() || !morphComp.MorphTargets)
-                {
-                    // Restore base mesh only on transition from active → inactive
-                    if (morphComp.WasMorphActive && !morphComp.BasePositions.empty() && meshComp.m_MeshSource)
-                    {
-                        auto& meshSource = meshComp.m_MeshSource;
-                        auto& mutableVerts = meshSource->GetVertices();
-                        for (u32 i = 0; i < static_cast<u32>(morphComp.BasePositions.size()) && i < static_cast<u32>(mutableVerts.Num()); ++i)
-                        {
-                            mutableVerts[i].Position = morphComp.BasePositions[i];
-                            mutableVerts[i].Normal = morphComp.BaseNormals[i];
-                        }
-                        auto& vb = const_cast<Ref<VertexBuffer>&>(meshSource->GetVertexBuffer());
-                        vb->SetData({ mutableVerts.GetData(), static_cast<u32>(mutableVerts.Num() * sizeof(Vertex)) });
-                    }
-                    morphComp.WasMorphActive = false;
-                    continue;
-                }
-
-                auto& meshSource = meshComp.m_MeshSource;
-                auto& vertices = meshSource->GetVertices();
-
-                if (morphComp.BasePositions.empty() && vertices.Num() > 0)
-                {
-                    morphComp.BasePositions.resize(vertices.Num());
-                    morphComp.BaseNormals.resize(vertices.Num());
-                    for (u32 i = 0; i < static_cast<u32>(vertices.Num()); ++i)
-                    {
-                        morphComp.BasePositions[i] = vertices[i].Position;
-                        morphComp.BaseNormals[i] = vertices[i].Normal;
-                    }
-                }
-
-                if (morphComp.BasePositions.empty())
-                    continue;
-
-                std::vector<glm::vec3> outPositions;
-                std::vector<glm::vec3> outNormals;
-                if (MorphTargetSystem::EvaluateMorphTargets(morphComp,
-                                                            morphComp.BasePositions, morphComp.BaseNormals,
-                                                            outPositions, outNormals))
-                {
-                    auto& mutableVerts = meshSource->GetVertices();
-                    for (u32 i = 0; i < static_cast<u32>(outPositions.size()) && i < static_cast<u32>(mutableVerts.Num()); ++i)
-                    {
-                        mutableVerts[i].Position = outPositions[i];
-                        mutableVerts[i].Normal = outNormals[i];
-                    }
-
-                    auto& vb = const_cast<Ref<VertexBuffer>&>(meshSource->GetVertexBuffer());
-                    vb->SetData({ mutableVerts.GetData(), static_cast<u32>(mutableVerts.Num() * sizeof(Vertex)) });
-                }
-                morphComp.WasMorphActive = true;
+                EvaluateEntityMorphTargets(morphView.get<MorphTargetComponent>(e), morphView.get<MeshComponent>(e));
             }
         }
 
