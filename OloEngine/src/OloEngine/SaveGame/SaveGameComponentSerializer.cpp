@@ -933,6 +933,7 @@ namespace OloEngine
     void SaveGameComponentSerializer::Serialize(FArchive& ar, AudioSourceComponent& c)
     {
         SerializeAudioSourceConfig(ar, c.Config);
+        ar << c.SoundConfigHandle; // SoundConfig (.olosoundc) preset link
         // Ref<AudioSource> is runtime — not serialized
     }
 

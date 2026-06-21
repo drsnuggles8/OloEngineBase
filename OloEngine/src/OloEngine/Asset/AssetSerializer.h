@@ -25,7 +25,7 @@ namespace OloEngine
     class Prefab;
     class Scene;
     class ScriptFileAsset;
-    // struct SoundConfig;  // TODO(olbu): Implement once soundconfig exists
+    class SoundConfigAsset;
     class AnimationAsset;
     class AnimationGraphAsset;
     class SoundGraphAsset;
@@ -215,21 +215,33 @@ namespace OloEngine
         [[nodiscard]] bool GetWavFileInfo(const std::filesystem::path& filePath, double& duration, u32& samplingRate, u16& bitDepth, u16& numChannels) const;
     };
 
-    // SoundConfig not implemented yet - commented out to avoid compilation errors
-    /*
     class SoundConfigSerializer : public AssetSerializer
     {
-    public:
+      public:
         void Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const override;
-        bool TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const override;
+        [[nodiscard]] bool TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const override;
 
-        bool SerializeToAssetPack(AssetHandle handle, FileStreamWriter& stream, AssetSerializationInfo& outInfo) const override;
+        [[nodiscard]] bool SerializeToAssetPack(AssetHandle handle, FileStreamWriter& stream, AssetSerializationInfo& outInfo) const override;
         Ref<Asset> DeserializeFromAssetPack(FileStreamReader& stream, const AssetPackFile::AssetInfo& assetInfo) const override;
-    private:
-        std::string SerializeToYAML(Ref<SoundConfig> soundConfig) const;
-        bool DeserializeFromYAML(const std::string& yamlString, Ref<SoundConfig> targetSoundConfig) const;
+        [[nodiscard]] bool CanDeserializeFromAssetPackOffThread() const override
+        {
+            return true;
+        } // CPU-only: YAML -> SoundConfig, no GPU resources
+
+        // Public for testing
+        std::string TestSerializeToYAML(const Ref<SoundConfigAsset>& soundConfig) const
+        {
+            return SerializeToYAML(soundConfig);
+        }
+        [[nodiscard]] bool TestDeserializeFromYAML(const std::string& yamlString, Ref<SoundConfigAsset>& soundConfig) const
+        {
+            return DeserializeFromYAML(yamlString, soundConfig);
+        }
+
+      private:
+        std::string SerializeToYAML(const Ref<SoundConfigAsset>& soundConfig) const;
+        [[nodiscard]] bool DeserializeFromYAML(const std::string& yamlString, Ref<SoundConfigAsset>& targetSoundConfig) const;
     };
-    */
 
     class PrefabSerializer : public AssetSerializer
     {

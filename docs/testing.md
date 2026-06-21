@@ -1529,7 +1529,7 @@ level of `tests/`). Grouped by directory.
 | [SaveGameIntegrationTest.cpp](../OloEngine/tests/SaveGame/SaveGameIntegrationTest.cpp) | 5 | **SaveGameIntegrationTest** &mdash; `CaptureAndRestoreEmptyScene`, `CaptureAndRestoreWithEntities`, `FullFileRoundTrip`, `EmptyPayloadReturnsError`, `CorruptedDataReturnsError` |
 | [SaveGameManagerTest.cpp](../OloEngine/tests/SaveGame/SaveGameManagerTest.cpp) | 4 | **SaveGameManagerTest** &mdash; `AutoSaveInterval`<br/>**SaveableRegistryTest** &mdash; `RegisterAndInvoke`, `InvokeNonExistent`, `RoundTripWithData` |
 
-#### Serialization (6 files)
+#### Serialization (7 files)
 
 | File | Tests | Cases |
 |---|---:|---|
@@ -1538,6 +1538,7 @@ level of `tests/`). Grouped by directory.
 | [FontAssetPackSerializerTest.cpp](../OloEngine/tests/Serialization/FontAssetPackSerializerTest.cpp) | 3 | **FontMemoryLoadTest** &mdash; `MemoryLoadMatchesFileLoad`, `SanitizesOutOfRangeCodepoints`<br/>**FontAssetPackSerializerTest** &mdash; `AssetPackRoundTrip` |
 | [MeshAssetSerializerTest.cpp](../OloEngine/tests/Serialization/MeshAssetSerializerTest.cpp) | 3 | **MeshAssetSerializerYAMLTest** &mdash; `RoundTripsMeshSourceHandleAndSubmeshIndex`, `FailsWhenMeshSourceHandleIsMissing`, `ClampsOutOfRangeSubmeshIndexInsteadOfAsserting` |
 | [MeshBinarySerializerTest.cpp](../OloEngine/tests/Serialization/MeshBinarySerializerTest.cpp) | 8 | **MeshBinarySerializerTest** &mdash; `WriteAndReadStaticMesh`, `ReadTimestampWorks`, `ReadTimestampFailsOnMissingFile`, `WriteAndReadRiggedMesh`, `ReadRejectsCorruptFile`<br/>**AnimationBinarySerializerTest** &mdash; `WriteAndReadRoundTrip`, `ReadTimestampWorks`, `ReadReturnsEmptyOnCorruptFile` |
+| [SoundConfigSerializerTest.cpp](../OloEngine/tests/Serialization/SoundConfigSerializerTest.cpp) | 6 | **SoundConfigSerializerTest** &mdash; `DiskRoundTripPreservesEveryField`, `TryLoadDataFailsWhenSourceMissing`<br/>**SoundConfigSerializerYAML** &mdash; `RoundTripPreservesEveryField`, `MissingRootNodeFails`, `NonFiniteFloatsFallBackToDefaults`, `OutOfRangeValuesAreClamped` |
 | [SoundGraphSerializerTest.cpp](../OloEngine/tests/Serialization/SoundGraphSerializerTest.cpp) | 2 | **SoundGraphSerializer** &mdash; `RoundTripPreservesNodesConnectionsAndGraphIO`, `EmptyGraphRoundTripsWithoutData` |
 
 #### Tasks (1 file)
@@ -1559,7 +1560,7 @@ level of `tests/`). Grouped by directory.
 |---|---:|---|
 | [TerrainGeneratorTest.cpp](../OloEngine/tests/Terrain/TerrainGeneratorTest.cpp) | 15 | **TerrainGeneratorTest** &mdash; `HeightFieldIsDeterministic`, `HeightFieldIsNormalizedAndFinite`, `LargeSeedStillProducesVariedTerrain`, `DifferentSeedsProduceDifferentTerrain`, `RidgedAndWarpAndExponentStayValid`, `TerraceShapingStaysValidAndDeterministic`, `TerraceEndpointsAndIdentity`, `TerraceIsMonotonicAndBounded`, `TerraceProducesFlatPlateaus`, `RuleWeightPeaksInsideBandAndZeroOutside`, `SlopeBandSelectsRule`, `DefaultRulesAssignExpectedLayers`, `LayerWeightsAreNormalized`, `NoMatchingRuleFallsBackToLayerZero`, `PackLayerWeightsQuantizesToBothSplatmaps` |
 
-**Totals.** 147 unit / subsystem test files, 1813 TEST / TEST_F declarations across all subsystems.
+**Totals.** 148 unit / subsystem test files, 1819 TEST / TEST_F declarations across all subsystems.
 
 <!-- END: unit-catalogue -->
 

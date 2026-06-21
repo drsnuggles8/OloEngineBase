@@ -90,6 +90,10 @@ namespace OloEngine
 		internal static extern float AudioSourceComponent_GetDopplerFactor(ulong entityID);
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern void AudioSourceComponent_SetDopplerFactor(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern ulong AudioSourceComponent_GetSoundConfigHandle(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void AudioSourceComponent_SetSoundConfigHandle(ulong entityID, ulong value);
 		#endregion
 
 		#region BoxCollider2DComponent

@@ -18,6 +18,7 @@
 #include "OloEngine/Asset/AssetManager.h"
 #include "OloEngine/Asset/AssetManager/EditorAssetManager.h"
 #include "OloEngine/Asset/AssetImporter.h"
+#include "OloEngine/Asset/SoundConfigAsset.h"
 #include "OloEngine/Cinematic/CinematicSystem.h"
 #include "OloEngine/Cinematic/CinematicSequence.h"
 #include "OloEngine/Project/Project.h"
@@ -3812,6 +3813,52 @@ namespace OloEngine
             {
                 ImGui::Text("File: %s", component.Source->GetPath());
             }
+
+            // SoundConfig (.olosoundc) preset. Assigning one stamps its values into the inline
+            // Config below for instant editor feedback and is re-applied at play
+            // (Scene::InitAudioRuntime). Drag a .olosoundc from the content browser onto the button.
+            std::string presetLabel = component.SoundConfigHandle != 0
+                ? "Preset: " + std::to_string(static_cast<u64>(component.SoundConfigHandle))
+                : "Preset: <none — drag a .olosoundc here>";
+            ImGui::Button(presetLabel.c_str(), ImVec2(-1.0f, 0.0f));
+            if (ImGui::BeginDragDropTarget())
+            {
+                if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("CONTENT_BROWSER_ITEM"))
+                {
+                    std::filesystem::path assetPath = PathFromUtf8Payload(*payload);
+                    if (auto assetManager = Project::GetAssetManager().As<EditorAssetManager>())
+                    {
+                        AssetHandle handle = assetManager->ImportAsset(assetPath);
+                        if (handle != 0 && AssetManager::GetAssetType(handle) == AssetType::SoundConfig)
+                        {
+                            component.SoundConfigHandle = handle;
+                            // Stamp the preset into Config immediately so the fields below preview it.
+                            if (auto preset = AssetManager::GetAsset<SoundConfigAsset>(handle))
+                                component.Config = preset->m_Config;
+                        }
+                        else if (handle != 0)
+                        {
+                            OLO_WARN("Drag-dropped asset is not a SoundConfig (type: {0})",
+                                     AssetUtils::AssetTypeToString(AssetManager::GetAssetType(handle)));
+                        }
+                        else
+                        {
+                            // No additional handling required.
+                        }
+                    }
+                }
+                ImGui::EndDragDropTarget();
+            }
+            if (component.SoundConfigHandle != 0)
+            {
+                ImGui::SameLine();
+                if (ImGui::SmallButton("Clear##SoundConfig"))
+                {
+                    component.SoundConfigHandle = 0;
+                }
+                ImGui::SetItemTooltip("Unlinks the preset; the values already stamped into the fields below stay.");
+            }
+            ImGui::Separator();
 
             ImGui::DragFloat("Volume##AudioSource", &component.Config.VolumeMultiplier, 0.01f, 0.0f, 2.0f);
             ImGui::DragFloat("Pitch##AudioSource", &component.Config.PitchMultiplier, 0.01f, 0.1f, 3.0f);

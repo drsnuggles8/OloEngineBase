@@ -1008,6 +1008,13 @@ namespace OloEngine
         OLO_PROPERTY(Name = "DopplerFactor", Type = "float", Get = "comp.Config.DopplerFactor", Set = "comp.Config.DopplerFactor = {v}; if (comp.Source) comp.Source->SetDopplerFactor({v})")
         AudioSourceConfig Config;
 
+        // Optional SoundConfig (.olosoundc) preset. When non-zero, Scene::InitAudioRuntime
+        // loads the referenced SoundConfigAsset and overwrites Config with its values at
+        // playback — a reusable preset shared across entities. Zero means "use the inline
+        // Config above". Exposed as ulong so scripts can swap presets at runtime.
+        OLO_PROPERTY()
+        AssetHandle SoundConfigHandle = 0;
+
         Ref<AudioSource> Source = nullptr;
 
         // Event-driven audio
@@ -1019,7 +1026,7 @@ namespace OloEngine
         AudioSourceComponent() = default;
 
         AudioSourceComponent(const AudioSourceComponent& other)
-            : Config(other.Config), Source(other.Source), StartEvent(other.StartEvent), StartCommandID(other.StartCommandID), UseEventSystem(other.UseEventSystem)
+            : Config(other.Config), SoundConfigHandle(other.SoundConfigHandle), Source(other.Source), StartEvent(other.StartEvent), StartCommandID(other.StartCommandID), UseEventSystem(other.UseEventSystem)
         {
         }
 
@@ -1028,6 +1035,7 @@ namespace OloEngine
             if (this != &other)
             {
                 Config = other.Config;
+                SoundConfigHandle = other.SoundConfigHandle;
                 Source = other.Source;
                 StartEvent = other.StartEvent;
                 StartCommandID = other.StartCommandID;
@@ -1040,7 +1048,7 @@ namespace OloEngine
         // Equality for undo/redo — compares serialized/editor-visible fields only
         auto operator==(const AudioSourceComponent& other) const -> bool
         {
-            return Math::BitwiseEqual(Config, other.Config) && StartEvent == other.StartEvent && StartCommandID == other.StartCommandID && UseEventSystem == other.UseEventSystem;
+            return Math::BitwiseEqual(Config, other.Config) && SoundConfigHandle == other.SoundConfigHandle && StartEvent == other.StartEvent && StartCommandID == other.StartCommandID && UseEventSystem == other.UseEventSystem;
         }
     };
 
