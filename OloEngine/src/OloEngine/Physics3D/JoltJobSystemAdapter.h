@@ -9,6 +9,8 @@
 #include <Jolt/Core/FixedSizeFreeList.h>
 
 #include <atomic>
+#include <condition_variable>
+#include <mutex>
 
 namespace OloEngine
 {
@@ -63,11 +65,25 @@ namespace OloEngine
         /// Number of QueueJob-launched task lambdas currently in flight. Jolt's barrier
         /// wait only synchronises on Job::Execute() returning — but our scheduler lambda
         /// also runs Job::Release() after that, and Release can call back into FreeJob()
-        /// on m_Jobs. If the destructor runs while a lambda is still in Release(), the
-        /// scheduler worker thread dereferences memory that ~m_Jobs has just freed.
-        /// The destructor spin-waits on this counter so all lambdas have fully returned
-        /// before m_Jobs is torn down.
+        /// on m_Jobs. If the destructor (or the next step) runs while a lambda is still in
+        /// Release(), the scheduler worker thread dereferences memory that ~m_Jobs has
+        /// just freed. WaitForOutstandingTasks BLOCKS on this counter (via m_DrainCv) so
+        /// all lambdas have fully returned before m_Jobs is reused or torn down.
         std::atomic<i32> m_OutstandingTasks{ 0 };
+
+        /// Drain synchronisation. WaitForOutstandingTasks BLOCKS on m_DrainCv rather
+        /// than busy-spinning, so the waiting (game) thread yields its core to the
+        /// scheduler worker that still has to run the trailing Release()→FreeJob().
+        /// The busy-spin was the #281 pathology: on a core-starved CI runner the
+        /// game thread's yield-spin hogged a core the parked worker needed, stalling
+        /// the step for seconds (the "hang to the 120s ctest timeout") and — if a
+        /// worker stayed parked past the drain timeout — letting the drain tear down
+        /// m_Jobs while a lambda was mid-FreeJob (the SEH 0xc0000005 use-after-free).
+        /// The QueueJob lambda decrements m_OutstandingTasks under m_DrainMutex and
+        /// notifies m_DrainCv; the brief lock is uncontended unless the game thread is
+        /// actively draining.
+        std::mutex m_DrainMutex;
+        std::condition_variable m_DrainCv;
 
         /// Cached result of GetMaxConcurrency(). Jolt assumes this is constant for the
         /// job system's lifetime (and calls it many times per PhysicsSystem::Update to

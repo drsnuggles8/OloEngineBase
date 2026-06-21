@@ -106,6 +106,15 @@ If a feature touches multiple surfaces, write one test per surface — and write
 
 Working directory matters: run from the repo root so asset paths resolve.
 
+### Reproducing flaky CI-only core-starvation races
+
+A race that passes 100/100 locally but flakes on CI is usually starved into existence by CI's **few, slow cores**. To recreate that pressure on a fat dev box, use [`scripts/repro-flaky-test.ps1`](../../scripts/repro-flaky-test.ps1): it loops a gtest binary + `--gtest_filter` under a restricted **CPU-affinity mask** (default 2 cores), with stall-based hang detection (the #281 deadlock signature) and `cdb` stack/dump capture on the first crash/hang. Two non-obvious levers, **both** needed for a faithful repro:
+
+- **Affinity alone is not enough.** `FScheduler` sizes its worker pool from `std::thread::hardware_concurrency()`, which **ignores process affinity** — a 28-core box pinned to 2 cores still spawns ~28 workers, a different concurrency regime than a 2-core runner's ~2. Set env `OLO_TASK_GRAPH_NUM_WORKERS=N` (Scheduler.cpp) to pin the pool size to CI's count (verify: peak process thread count drops, e.g. ~63 → ~11). The CI-faithful combo is `OLO_TASK_GRAPH_NUM_WORKERS=2` + affinity `0x3`.
+- **Density beats cold restarts.** Process startup (~2 s) dwarfs a single physics test (~6–25 ms), so add `--gtest_repeat=N` to pile up step density per launch instead of relying on fresh processes.
+
+See the script header for parameters. Issue #281 (flaky Jolt physics-step crash) is the worked example.
+
 ---
 
 ## 6. Parallel-safety contract (`ctest --parallel`)
@@ -144,6 +153,7 @@ Some resources are **not** test-controlled and can't be PID-keyed — chiefly th
 | Classification config (renderer + Functional) | `OloEngine/tests/scripts/test_catalogue.json` |
 | Auto-catalogue generator | `OloEngine/tests/scripts/generate_test_catalogue.py` |
 | Functional test harness | `OloEngine/tests/Functional/FunctionalTest.{h,cpp}` |
+| Flaky-race repro harness (CPU-affinity + worker-count squeeze) | `scripts/repro-flaky-test.ps1` |
 | Perf baselines | `OloEngine/tests/Rendering/PropertyTests/perf_baselines.txt` |
 | Perf history + trend tool | `OloEngine/tests/Rendering/PropertyTests/perf_history/`, `OloEngine/tests/scripts/perf_trend.py` |
 | Fuzz corpus | `OloEngine/tests/Fuzzing/corpus/` |

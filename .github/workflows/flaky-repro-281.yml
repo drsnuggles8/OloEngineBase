@@ -1,0 +1,206 @@
+name: Flaky repro (#281)
+
+# Actively hunts the issue #281 flake (PhysicsLayerFilteringTest SEH 0xc0000005
+# in the multithreaded Jolt step) ON the hosted Windows runner — the one
+# environment it actually reproduces in. Unlike the normal Windows.yml job
+# (which runs each test once and papers over the flake with `ctest --repeat
+# until-pass:3`), this loops the single test hundreds of times under a 2-core
+# CPU-affinity + 2-worker squeeze, stops on the first crash/deadlock, and
+# captures a symbolised stack + full minidump as an artifact.
+#
+# Manual / scheduled only — it is a hunt, never a merge gate. See
+# scripts/repro-flaky-test.ps1 and docs/agent-rules/testing-architecture.md §5.
+
+on:
+  # Branch-scoped push trigger: lets the hunt run from this feature branch
+  # (workflow_dispatch alone needs the workflow on the default branch). Remove
+  # this block once the workflow lands on master and dispatch/schedule suffice.
+  push:
+    branches:
+      - fix/flaky-jolt-physics-race-281
+  workflow_dispatch:
+    inputs:
+      iterations:
+        description: "Loop iterations (each runs --gtest_repeat in-process)"
+        required: false
+        # ~100 x 400 = 40k repeats fits well inside the 55-min hunt step on the
+        # hosted runner (the fix removed the per-step stall, so each iteration is
+        # fast); pre-fix this reproduced within a few thousand repeats.
+        default: "100"
+      repeat:
+        description: "In-process --gtest_repeat per iteration"
+        required: false
+        default: "400"
+      affinity:
+        description: "CPU affinity mask (hex), e.g. 0x3 = 2 cores, 0x1 = 1 core"
+        required: false
+        default: "0x3"
+      num_workers:
+        description: "OLO_TASK_GRAPH_NUM_WORKERS (CI 2-core regime = 2)"
+        required: false
+        default: "2"
+  # Nightly hunt so a real repro (and its dump) accumulates over time without a
+  # human kicking it off. Comment out if too noisy.
+  schedule:
+    - cron: "0 7 * * *"
+
+concurrency:
+  group: flaky-repro-281
+  cancel-in-progress: false
+
+env:
+  BUILD_TYPE: Release
+  SCCACHE_GHA_ENABLED: "true"
+
+jobs:
+  hunt:
+    runs-on: windows-latest
+    timeout-minutes: 110
+
+    steps:
+    - uses: actions/checkout@v6
+
+    - name: Install Python 3.10
+      id: py
+      uses: actions/setup-python@v6
+      with:
+        python-version: '3.10'
+
+    - name: Install python dependencies
+      run: |
+        python -m pip install --upgrade pip
+        python -m pip install jinja2
+
+    - name: Setup Vulkan SDK
+      uses: ./.github/actions/setup-vulkan
+
+    - name: Setup MSVC dev environment
+      uses: ilammy/msvc-dev-cmd@v1
+      with:
+        arch: x64
+
+    - name: Install nasm
+      run: choco install nasm -y --no-progress
+
+    - name: Cache FFmpeg build
+      id: ffcache
+      uses: actions/cache@v4
+      with:
+        path: OloEngine/vendor/ffmpeg-install
+        key: ffmpeg-${{ runner.os }}-n7.1-${{ hashFiles('scripts/build-ffmpeg.sh') }}
+
+    - name: Setup sccache
+      uses: mozilla-actions/sccache-action@v0.0.10
+      with:
+        version: "v0.15.0"
+
+    # Mirror Windows.yml's fast Ninja+sccache build. /Z7 (embedded debug info,
+    # via the compiler-cache path) keeps objects cacheable AND lets the linker
+    # emit a PDB, so cdb can symbolise a crash. LTO OFF for the same reason as
+    # Windows.yml (cacheable objects, no slow LTCG).
+    - name: Configure CMake
+      shell: bash
+      run: |
+        PREFIX_ARG=""
+        if [ "${{ steps.ffcache.outputs.cache-hit }}" = "true" ]; then
+          PREFIX_ARG="-DOLO_FFMPEG_PREFIX=${GITHUB_WORKSPACE}/OloEngine/vendor/ffmpeg-install"
+        fi
+        # MSYS_NO_PATHCONV=1: stop Git Bash from rewriting the leading-slash
+        # linker flag `/DEBUG` into a Windows path (C:/Program Files/Git/DEBUG),
+        # which then split at the space and broke the link (LNK1181 'C:\Program.obj').
+        MSYS_NO_PATHCONV=1 cmake -S . -B "${GITHUB_WORKSPACE}/build" \
+          -G "Ninja Multi-Config" \
+          -DCMAKE_C_COMPILER=cl -DCMAKE_CXX_COMPILER=cl \
+          -DOLO_ENABLE_COMPILER_CACHE=ON \
+          -DOLO_ENABLE_LTO=OFF \
+          -DCMAKE_EXE_LINKER_FLAGS_RELEASE=/DEBUG \
+          -DPython_EXECUTABLE="${{ steps.py.outputs.python-path }}" \
+          $PREFIX_ARG
+
+    - name: Build tests
+      run: cmake --build "${{github.workspace}}/build" --target OloEngine-Tests --config ${{env.BUILD_TYPE}}
+
+    - name: Show sccache stats
+      if: always()
+      run: sccache --show-stats
+
+    # Locate cdb for the harness's stack capture. windows-latest ships the
+    # Windows SDK Debugging Tools; fall back to installing WinDbg if absent.
+    - name: Ensure cdb is available
+      id: cdb
+      shell: pwsh
+      run: |
+        $cdb = Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\cdb.exe","C:\Program Files\Windows Kits\10\Debuggers\x64\cdb.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+        if (-not $cdb) {
+          Write-Host "cdb not found in SDK; installing WinDbg..."
+          choco install windbg -y --no-progress | Out-Null
+          $pkg = Get-AppxPackage -Name "Microsoft.WinDbg" -ErrorAction SilentlyContinue | Select-Object -First 1
+          if ($pkg) { $cdb = Get-Item (Join-Path $pkg.InstallLocation "amd64\cdb.exe") -ErrorAction SilentlyContinue }
+        }
+        if ($cdb) { Write-Host "cdb: $($cdb.FullName)"; "path=$($cdb.FullName)" >> $env:GITHUB_OUTPUT }
+        else { Write-Warning "cdb unavailable — failures will be captured without a symbolised stack." }
+
+    # The hunt. The harness loops the single #281 test under the squeeze and
+    # stops on the first crash/deadlock, capturing <iter>.stacks.txt + .dmp.
+    # continue-on-error: a reproduced crash is the GOAL, not a job failure —
+    # the artifact is the signal, and the explicit summary line below reports it.
+    - name: Hunt the #281 flake
+      id: hunt
+      continue-on-error: true
+      # Bounded so a no-repro run still reaches the report + upload steps before
+      # the job timeout. StopOnFailure makes a repro end the step early anyway.
+      timeout-minutes: 55
+      shell: pwsh
+      env:
+        OLO_TASK_GRAPH_NUM_WORKERS: ${{ github.event.inputs.num_workers || '2' }}
+      run: |
+        # Splatting (not backtick line-continuations, which silently break on a
+        # trailing space) so -Filter is reliably passed — the previous run lost
+        # the filter and hunted the whole suite instead of the #281 test.
+        $p = @{
+          TestExe        = "build/OloEngine/tests/${{env.BUILD_TYPE}}/OloEngine-Tests.exe"
+          Filter         = 'PhysicsLayerFilteringTest.AlphaPassesThroughBetaAndBothLandOnGround'
+          AffinityMask   = '${{ github.event.inputs.affinity || '0x3' }}'
+          Iterations     = [int]'${{ github.event.inputs.iterations || '300' }}'
+          GtestArgs      = @('--gtest_repeat=${{ github.event.inputs.repeat || '400' }}', '--gtest_brief=1')
+          StallSec       = 40
+          HardTimeoutSec = 240
+          CaptureStack   = $true
+          StopOnFailure  = $true
+          LogDir         = 'build/repro-logs'
+        }
+        if ("${{ steps.cdb.outputs.path }}") { $p.CdbPath = "${{ steps.cdb.outputs.path }}" }
+        & scripts/repro-flaky-test.ps1 @p
+        "exitcode=$LASTEXITCODE" >> $env:GITHUB_OUTPUT
+
+    - name: Report result
+      shell: pwsh
+      run: |
+        # A real repro is signalled by a captured artifact OR the harness's own
+        # failure exit (exactly "1"). NOT a step-timeout: that kills the hunt
+        # before it writes exitcode, leaving it empty — which must NOT read as a
+        # repro (the harness produces no .stacks.txt/.dmp in that case).
+        $repro = (Get-ChildItem build/repro-logs/*.stacks.txt,build/repro-logs/*.dmp -ErrorAction SilentlyContinue).Count -gt 0
+        if ($repro -or "${{ steps.hunt.outputs.exitcode }}" -eq "1") {
+          Write-Host "::warning::#281 flake REPRODUCED — see the uploaded repro-281-evidence artifact (stacks.txt + .dmp)."
+          "## :rotating_light: #281 flake REPRODUCED" >> $env:GITHUB_STEP_SUMMARY
+          Get-ChildItem build/repro-logs/*.stacks.txt -ErrorAction SilentlyContinue | ForEach-Object {
+            "### $($_.Name)" >> $env:GITHUB_STEP_SUMMARY
+            "``````" >> $env:GITHUB_STEP_SUMMARY
+            (Get-Content $_.FullName -TotalCount 80) >> $env:GITHUB_STEP_SUMMARY
+            "``````" >> $env:GITHUB_STEP_SUMMARY
+          }
+        } else {
+          Write-Host "No repro this run."
+          "## :white_check_mark: No #281 repro this run" >> $env:GITHUB_STEP_SUMMARY
+        }
+
+    - name: Upload repro evidence
+      if: always()
+      uses: actions/upload-artifact@v7
+      with:
+        name: repro-281-evidence
+        path: |
+          build/repro-logs/**
+          build/OloEngine/tests/${{env.BUILD_TYPE}}/OloEngine-Tests.pdb
+        if-no-files-found: 'warn'
