@@ -55,8 +55,7 @@ namespace
             AddInEvent(Identifier("In"), [this](f32 value, i32 sampleOffset)
                        {
                            m_Values.push_back(value);
-                           m_Offsets.push_back(sampleOffset);
-                       });
+                           m_Offsets.push_back(sampleOffset); });
         }
 
         std::vector<f32> m_Values;
@@ -241,10 +240,10 @@ TEST_F(SoundGraphSampleAccurateTriggerTest, ADSREnvelopeReleaseTakesEffectAtItsE
     constexpr f32 kSustain = 0.5f;
 
     sg::ADSREnvelope env("ADSR", UUID());
-    env.m_AttackTime.SetDefault(0.0f);    // immediate attack
-    env.m_DecayTime.SetDefault(0.0f);     // immediate decay -> straight to sustain
+    env.m_AttackTime.SetDefault(0.0f); // immediate attack
+    env.m_DecayTime.SetDefault(0.0f);  // immediate decay -> straight to sustain
     env.m_SustainLevel.SetDefault(kSustain);
-    env.m_ReleaseTime.SetDefault(0.05f);  // ~2400-sample release
+    env.m_ReleaseTime.SetDefault(0.05f); // ~2400-sample release
     env.SetSampleRate(kSampleRate);
     env.Init();
 
