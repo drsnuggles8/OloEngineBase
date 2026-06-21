@@ -6,7 +6,11 @@
 #include "OloEngine/Animation/Procedural/SpringBonePostPass.h"
 #include "OloEngine/Animation/NoiseAnimationComponent.h"
 #include "OloEngine/Animation/Procedural/NoisePostPass.h"
+#include "OloEngine/Animation/MorphTargets/MorphTargetComponents.h"
+#include "OloEngine/Animation/MorphTargets/MorphTargetSystem.h"
 #include "OloEngine/Core/Log.h"
+
+#include <vector>
 
 namespace OloEngine::Animation
 {
@@ -19,7 +23,8 @@ namespace OloEngine::Animation
         const SpringBoneComponent* springBone,
         SpringBoneState* springBoneState,
         const NoiseAnimationComponent* noise,
-        NoiseAnimationState* noiseState)
+        NoiseAnimationState* noiseState,
+        MorphTargetComponent* morphTarget)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -42,6 +47,22 @@ namespace OloEngine::Animation
 
         // Copy parameters back (triggers may have been consumed)
         graphComp.Parameters = graphComp.RuntimeGraph->Parameters;
+
+        // Sample morph-target (blend-shape) weights from the graph's active
+        // clip(s) into the entity's MorphTargetComponent. The graph just
+        // advanced its state machines above, so the active state/time are
+        // current. CPU evaluation + mesh deformation run later in the global
+        // morph pass (Scene::OnUpdateRuntime), keeping this system free of any
+        // mesh/renderer dependency.
+        if (morphTarget)
+        {
+            std::vector<AnimationGraph::ActiveMorphClip> morphClips;
+            graphComp.RuntimeGraph->CollectActiveMorphClips(morphClips);
+            for (const auto& mc : morphClips)
+            {
+                MorphTargetSystem::SampleMorphKeyframes(mc.Clip, mc.Time, *morphTarget);
+            }
+        }
 
         // Ensure output vectors are sized before forward kinematics
         OLO_CORE_ASSERT(skeleton.m_ParentIndices.size() >= boneCount, "ParentIndices too small for boneCount");

@@ -173,6 +173,7 @@
     "OloEngine/tests/Functional/AnimationPhysics/InitialLinearVelocityIsAppliedTest.cpp": "Functional",
     "OloEngine/tests/Functional/Audio/AudioListenerPositionUpdatesViaSceneTickTest.cpp": "Functional",
     "OloEngine/tests/Functional/AnimationPhysics/AnimationGraphStateMachineTickTest.cpp": "Functional",
+    "OloEngine/tests/Functional/AnimationPhysics/MorphTargetGraphAnimationTest.cpp": "Functional",
     "OloEngine/tests/Functional/Navigation/NavAgentReachesTargetTest.cpp": "Functional",
     "OloEngine/tests/Functional/Asset/AssetManagerImportsStagedAssetTest.cpp": "Functional",
     "OloEngine/tests/Functional/Gameplay/TimedQuestFailsAfterDeadlineTest.cpp": "Functional",
