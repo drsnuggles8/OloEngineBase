@@ -1475,10 +1475,11 @@ level of `tests/`). Grouped by directory.
 | [McpRenderOverridesTest.cpp](../OloEngine/tests/MCP/McpRenderOverridesTest.cpp) | 15 | **McpRenderOverrides** &mdash; `ParsesEveryCanonicalPassToken`, `ParsePassIsCaseAndSeparatorInsensitive`, `ParsePassResolvesAliases`, `ParsePassRejectsUnknownAndEmpty`, `PassTokensCoversEveryPassAndDescribePassesMatches`, `ToggleResultJsonShape`, `ToggleResultIncludesNoteWhenSet`, `ToggleResultUnchangedWhenStateMatches`, `ParsesEveryDebugViewMode`, `ParseDebugViewTreatsEmptyAndOffAsNone`, `ParseDebugViewRejectsUnknown`, `DebugViewResultJsonShapeActive`, `DebugViewResultNotePresentWhenPassDisabled`, `DebugViewModesCoversEveryModeAndDescribeMatches`, `JoinTokensProducesCommaSeparatedList` |
 | [McpShaderReloadTest.cpp](../OloEngine/tests/MCP/McpShaderReloadTest.cpp) | 4 | **McpShaderReload** &mdash; `StatusTokenMapsEveryEnumToLowercase`, `CleanReloadIsReadyWithEmptyLog`, `FailedReloadCarriesStatusAndLog`, `NotFoundReportsFoundFalseAndNoLibraries` |
 
-#### Memory (1 file)
+#### Memory (2 files)
 
 | File | Tests | Cases |
 |---|---:|---|
+| [LockFreeAllocatorConcurrencyTest.cpp](../OloEngine/tests/Memory/LockFreeAllocatorConcurrencyTest.cpp) | 1 | **LockFreeAllocatorConcurrencyTest** &mdash; `ConcurrentAllocFirstTouchesPagesWithoutRace` |
 | [MemoryViewTest.cpp](../OloEngine/tests/Memory/MemoryViewTest.cpp) | 27 | **MemoryViewTest** &mdash; `DefaultConstruction`, `ConstructFromPointerAndSize`, `ConstructFromArray`, `ConstructFromStdArray`, `ConstructFromVector`, `LeftSlice`, `RightSlice`, `MidSlice`, `LeftChop`, `RightChop`, `Equality`, `CompareBytes`, `CompareBytesWithDifferentSizes`<br/>**MutableMemoryViewTest** &mdash; `DefaultConstruction`, `ConstructFromPointerAndSize`, `ModifyData`, `CopyFrom`, `CopyFromPartial`, `LeftSlice`, `RightSlice`, `MidSlice`, `ConversionToImmutable`<br/>**MemoryViewEdgeCasesTest** &mdash; `EmptySlices`, `SliceEntireView`, `EmptyViewOperations`, `SingleByteView`, `LargeView` |
 
 #### Networking (25 files)
@@ -1558,7 +1559,7 @@ level of `tests/`). Grouped by directory.
 |---|---:|---|
 | [TerrainGeneratorTest.cpp](../OloEngine/tests/Terrain/TerrainGeneratorTest.cpp) | 15 | **TerrainGeneratorTest** &mdash; `HeightFieldIsDeterministic`, `HeightFieldIsNormalizedAndFinite`, `LargeSeedStillProducesVariedTerrain`, `DifferentSeedsProduceDifferentTerrain`, `RidgedAndWarpAndExponentStayValid`, `TerraceShapingStaysValidAndDeterministic`, `TerraceEndpointsAndIdentity`, `TerraceIsMonotonicAndBounded`, `TerraceProducesFlatPlateaus`, `RuleWeightPeaksInsideBandAndZeroOutside`, `SlopeBandSelectsRule`, `DefaultRulesAssignExpectedLayers`, `LayerWeightsAreNormalized`, `NoMatchingRuleFallsBackToLayerZero`, `PackLayerWeightsQuantizesToBothSplatmaps` |
 
-**Totals.** 146 unit / subsystem test files, 1812 TEST / TEST_F declarations across all subsystems.
+**Totals.** 147 unit / subsystem test files, 1813 TEST / TEST_F declarations across all subsystems.
 
 <!-- END: unit-catalogue -->
 

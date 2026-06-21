@@ -64,6 +64,7 @@ add_executable(OloEngine-Tests
 		HAL/ThreadManagerTest.cpp
 		Containers/ConcurrentQueuesTest.cpp
 		Memory/MemoryViewTest.cpp
+		Memory/LockFreeAllocatorConcurrencyTest.cpp
 		Templates/FunctionWithContextTest.cpp
 		Templates/TypeTraitsTest.cpp
 
