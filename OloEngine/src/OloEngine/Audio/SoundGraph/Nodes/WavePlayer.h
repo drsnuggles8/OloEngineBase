@@ -52,11 +52,14 @@ namespace OloEngine::Audio::SoundGraph
 
         explicit WavePlayer(const char* dbgName, UUID id) : NodeProcessor(dbgName, id)
         {
-            // Input events using Flag system like Hazel
-            AddInEvent(IDs::Play, [this](float v)
-                       { (void)v; m_PlayFlag.SetDirty(); });
-            AddInEvent(IDs::Stop, [this](float v)
-                       { (void)v; m_StopFlag.SetDirty(); });
+            // Phase 4: sample-accurate Play/Stop. The handlers record the trigger's
+            // frame offset within the block (docs/soundgraph-metasounds-refactor.md);
+            // Process() applies Start/StopPlayback at that exact frame. A
+            // block-boundary event (no offset) fires at frame 0 — the old behavior.
+            AddInEvent(IDs::Play, [this](float v, i32 sampleOffset)
+                       { (void)v; m_PlayTrigger.Fire(sampleOffset); });
+            AddInEvent(IDs::Stop, [this](float v, i32 sampleOffset)
+                       { (void)v; m_StopTrigger.Fire(sampleOffset); });
 
             RegisterEndpoints();
         }
@@ -140,10 +143,23 @@ namespace OloEngine::Audio::SoundGraph
             OLO_PROFILE_FUNCTION();
 
             CheckAsyncLoadCompletion();
-            if (m_PlayFlag.CheckAndResetIfDirty())
-                StartPlayback();
-            if (m_StopFlag.CheckAndResetIfDirty())
-                StopPlayback(false);
+
+            // Phase 4: Play/Stop carry a frame offset within the block. Consume the
+            // pending offsets and apply the state change at the exact frame inside
+            // the per-sample loop below, instead of quantising to the block boundary.
+            // kNotFired (-1) never matches a frame index, so an un-fired trigger is a
+            // no-op. An offset at/after numFrames is clamped to the last frame so it
+            // still takes effect this block.
+            i32 playOffset = m_PlayTrigger.Consume();
+            i32 stopOffset = m_StopTrigger.Consume();
+            if (numFrames > 0)
+            {
+                const i32 lastFrame = static_cast<i32>(numFrames) - 1;
+                if (playOffset > lastFrame)
+                    playOffset = lastFrame;
+                if (stopOffset > lastFrame)
+                    stopOffset = lastFrame;
+            }
 
             f32* outLeft = m_OutLeft.Data();
             f32* outRight = m_OutRight.Data();
@@ -151,6 +167,15 @@ namespace OloEngine::Audio::SoundGraph
             // Per-sample loop writing straight into the block output buffers.
             for (u32 frame = 0; frame < numFrames; ++frame)
             {
+                const i32 frameIdx = static_cast<i32>(frame);
+                // Sample-accurate Play/Stop: apply at the trigger's frame. Play
+                // before Stop so a same-frame play+stop ends stopped (matches the
+                // old block-boundary order where Play was checked first).
+                if (playOffset == frameIdx)
+                    StartPlayback(frameIdx);
+                if (stopOffset == frameIdx)
+                    StopPlayback(false, frameIdx);
+
                 if (!m_IsPlaying)
                 {
                     outLeft[frame] = 0.0f;
@@ -163,11 +188,11 @@ namespace OloEngine::Audio::SoundGraph
                     if (m_Loop.Get())
                     {
                         ++m_LoopCount;
-                        m_OnLooped(2.0f);
+                        m_OnLooped(2.0f, frameIdx);
 
                         if (m_NumberOfLoops.Get() >= 0 && m_LoopCount > m_NumberOfLoops.Get())
                         {
-                            StopPlayback(true);
+                            StopPlayback(true, frameIdx);
                             outLeft[frame] = 0.0f;
                             outRight[frame] = 0.0f;
                         }
@@ -185,7 +210,7 @@ namespace OloEngine::Audio::SoundGraph
                     }
                     else
                     {
-                        StopPlayback(true);
+                        StopPlayback(true, frameIdx);
                         outLeft[frame] = 0.0f;
                         outRight[frame] = 0.0f;
                     }
@@ -200,7 +225,11 @@ namespace OloEngine::Audio::SoundGraph
         }
 
       private:
-        void StartPlayback()
+        // triggerOffset (Phase 4) is the frame within the current block at which
+        // the Play fired; it is forwarded to the OnPlay output event so chained
+        // trigger consumers stay sample-accurate. Defaults to 0 (block boundary)
+        // for the pending-playback path in CheckAsyncLoadCompletion.
+        void StartPlayback(i32 triggerOffset = 0)
         {
             // Check for completed async loads first (non-blocking)
             CheckAsyncLoadCompletion();
@@ -212,7 +241,7 @@ namespace OloEngine::Audio::SoundGraph
             if (!m_WaveSource.m_WaveHandle)
             {
                 OLO_CORE_WARN("[WavePlayer] StartPlayback: no wave asset handle bound — bailing");
-                StopPlayback(false);
+                StopPlayback(false, triggerOffset);
                 return;
             }
 
@@ -242,11 +271,13 @@ namespace OloEngine::Audio::SoundGraph
 
             m_IsPlaying = true;
             m_PendingPlayback.store(false, std::memory_order_relaxed);
-            m_OnPlay(2.0f);
+            m_OnPlay(2.0f, triggerOffset);
             DBG("WavePlayer: Started playing");
         }
 
-        void StopPlayback(bool notifyOnFinish)
+        // triggerOffset (Phase 4): the frame at which the Stop / natural-finish
+        // occurred, forwarded to OnStop / OnFinished. Defaults to 0 (block boundary).
+        void StopPlayback(bool notifyOnFinish, i32 triggerOffset = 0)
         {
             m_IsPlaying = false;
             m_PendingPlayback.store(false, std::memory_order_relaxed); // Cancel any pending playback
@@ -266,9 +297,9 @@ namespace OloEngine::Audio::SoundGraph
             CheckAsyncLoadCompletion();
 
             if (notifyOnFinish)
-                m_OnFinished(2.0f); // Natural completion
+                m_OnFinished(2.0f, triggerOffset); // Natural completion
             else
-                m_OnStop(2.0f); // Manual stop or error
+                m_OnStop(2.0f, triggerOffset); // Manual stop or error
 
             DBG("WavePlayer: Stopped playing");
         }
@@ -658,9 +689,12 @@ namespace OloEngine::Audio::SoundGraph
         FMutex m_LoadTasksMutex;
         std::vector<Tasks::TTask<void>> m_LoadTasks;
 
-        // Flag system for events (like Hazel)
-        Flag m_PlayFlag;
-        Flag m_StopFlag;
+        // Phase 4: sample-accurate Play/Stop triggers. The InputEvent handlers
+        // Fire() these with the event's frame offset; Process() Consume()s them and
+        // splits its per-sample loop at that frame. (Replaces the old block-boundary
+        // Flag dirty-bits.)
+        TriggerRef m_PlayTrigger;
+        TriggerRef m_StopTrigger;
 
         // Wave source using OloEngine's system
         Audio::WaveSource m_WaveSource;
