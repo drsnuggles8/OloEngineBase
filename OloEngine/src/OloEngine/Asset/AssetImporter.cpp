@@ -40,7 +40,7 @@ namespace OloEngine
         if (!serializers.empty())
             return;
 
-        serializers.reserve(32); // Reserve ahead of the registered serializer count (24) to avoid rehashing
+        serializers.reserve(32); // Reserve ahead of the registered serializer count (25) to avoid rehashing
         serializers[AssetType::Prefab] = CreateScope<PrefabSerializer>();
         serializers[AssetType::Texture2D] = CreateScope<TextureSerializer>();
         serializers[AssetType::TextureCube] = CreateScope<TextureSerializer>();
@@ -50,7 +50,7 @@ namespace OloEngine
         serializers[AssetType::Material] = CreateScope<MaterialAssetSerializer>();
         serializers[AssetType::EnvMap] = CreateScope<EnvironmentSerializer>();
         serializers[AssetType::Audio] = CreateScope<AudioFileSourceSerializer>();
-        // serializers[AssetType::SoundConfig] = CreateScope<SoundConfigSerializer>(); // Disabled - SoundConfig not implemented
+        serializers[AssetType::SoundConfig] = CreateScope<SoundConfigSerializer>();
         serializers[AssetType::Scene] = CreateScope<SceneAssetSerializer>();
         serializers[AssetType::Font] = CreateScope<FontSerializer>();
         serializers[AssetType::MeshCollider] = CreateScope<MeshColliderSerializer>();

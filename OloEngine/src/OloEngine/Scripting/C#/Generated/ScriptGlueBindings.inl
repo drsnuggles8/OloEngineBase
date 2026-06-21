@@ -463,6 +463,26 @@ static void AudioSourceComponent_SetDopplerFactor(UUID entityID, float value)
         comp.Source->SetDopplerFactor(value);
 }
 
+static u64 AudioSourceComponent_GetSoundConfigHandle(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<AudioSourceComponent>();
+    return comp.SoundConfigHandle;
+}
+
+static void AudioSourceComponent_SetSoundConfigHandle(UUID entityID, u64 value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<AudioSourceComponent>();
+    comp.SoundConfigHandle = value;
+}
+
 ///////////////////////////////////////////////////////////////////////////////////////////
 // BoxCollider2DComponent                                                         //
 ///////////////////////////////////////////////////////////////////////////////////////////

@@ -35,6 +35,7 @@
 #include "OloEngine/Cinematic/CinematicSequence.h"
 #include "OloEngine/Cinematic/CinematicSequenceSerializer.h"
 #include "OloEngine/Asset/MeshColliderAsset.h"
+#include "OloEngine/Asset/SoundConfigAsset.h"
 #include "OloEngine/Core/YAMLConverters.h"
 #include "OloEngine/Particle/ParticleSystemAsset.h"
 #include "OloEngine/Particle/EmissionShapeUtils.h"
@@ -1240,47 +1241,281 @@ namespace OloEngine
     }
 
     //////////////////////////////////////////////////////////////////////////////////
-    // SoundConfigSerializer - DISABLED (SoundConfig class not implemented)
+    // SoundConfigSerializer
     //////////////////////////////////////////////////////////////////////////////////
 
-    /*
     void SoundConfigSerializer::Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const
     {
-        // Implementation commented out - SoundConfig class not available
-        OLO_CORE_WARN("SoundConfigSerializer::Serialize - SoundConfig class not implemented");
+        OLO_PROFILE_FUNCTION();
+
+        Ref<SoundConfigAsset> soundConfig = asset.As<SoundConfigAsset>();
+        if (!soundConfig)
+        {
+            OLO_CORE_ERROR("SoundConfigSerializer::Serialize - Asset is not a SoundConfig");
+            return;
+        }
+
+        std::string yamlString = SerializeToYAML(soundConfig);
+
+        std::filesystem::path filepath = Project::GetProjectDirectory() / metadata.FilePath;
+
+        // Ensure parent directory exists
+        std::filesystem::path parentDir = filepath.parent_path();
+        if (!parentDir.empty())
+        {
+            std::error_code ec;
+            if (!std::filesystem::create_directories(parentDir, ec) && ec)
+            {
+                OLO_CORE_ERROR("SoundConfigSerializer::Serialize - Failed to create parent directories for: {}, error: {}", filepath.string(), ec.message());
+                return;
+            }
+        }
+
+        // Create temporary file for atomic write
+        std::filesystem::path tempFilepath = parentDir / (filepath.filename().string() + ".tmp");
+
+        // Write to temporary file
+        std::ofstream fout(tempFilepath);
+        if (!fout.is_open())
+        {
+            OLO_CORE_ERROR("SoundConfigSerializer::Serialize - Failed to open temporary file for writing: {}", tempFilepath.string());
+            return;
+        }
+
+        fout << yamlString;
+        fout.flush(); // Ensure data is written to the file
+
+        // Verify the write/flush succeeded before promoting the temp file — a failed
+        // stream (disk full, I/O error) must not be renamed over the good file.
+        if (!fout)
+        {
+            OLO_CORE_ERROR("SoundConfigSerializer::Serialize - Failed to write to temporary file: {}", tempFilepath.string());
+            fout.close();
+            std::error_code rmEc;
+            std::filesystem::remove(tempFilepath, rmEc);
+            return;
+        }
+        fout.close();
+
+        // Atomically rename temp file to final file
+        std::error_code ec;
+        std::filesystem::rename(tempFilepath, filepath, ec);
+        if (ec)
+        {
+            OLO_CORE_ERROR("SoundConfigSerializer::Serialize - Failed to rename temporary file {} to {}, error: {}", tempFilepath.string(), filepath.string(), ec.message());
+            // Clean up temporary file on failure
+            std::filesystem::remove(tempFilepath, ec);
+            return;
+        }
+
+        OLO_CORE_TRACE("SoundConfigSerializer::Serialize - Successfully serialized SoundConfig to: {}", filepath.string());
     }
 
     bool SoundConfigSerializer::TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const
     {
-        // Implementation commented out - SoundConfig class not available
-        OLO_CORE_WARN("SoundConfigSerializer::TryLoadData - SoundConfig class not implemented");
-        return false;
+        OLO_PROFILE_FUNCTION();
+
+        std::filesystem::path path = Project::GetProjectDirectory() / metadata.FilePath;
+
+        if (!std::filesystem::exists(path))
+        {
+            OLO_CORE_ERROR("SoundConfigSerializer::TryLoadData - File does not exist: {}", path.string());
+            return false;
+        }
+
+        std::ifstream stream(path);
+        if (!stream.is_open())
+        {
+            OLO_CORE_ERROR("SoundConfigSerializer::TryLoadData - Failed to open file: {}", path.string());
+            return false;
+        }
+
+        std::stringstream strStream;
+        strStream << stream.rdbuf();
+        stream.close();
+
+        auto soundConfig = Ref<SoundConfigAsset>::Create();
+        if (bool success = DeserializeFromYAML(strStream.str(), soundConfig); !success)
+        {
+            OLO_CORE_ERROR("SoundConfigSerializer::TryLoadData - Failed to deserialize from YAML");
+            return false;
+        }
+
+        soundConfig->SetHandle(metadata.Handle);
+        asset = soundConfig;
+
+        OLO_CORE_TRACE("SoundConfigSerializer::TryLoadData - Successfully loaded sound config: {}", path.string());
+        return true;
     }
 
     bool SoundConfigSerializer::SerializeToAssetPack(AssetHandle handle, FileStreamWriter& stream, AssetSerializationInfo& outInfo) const
     {
-        OLO_CORE_WARN("SoundConfigSerializer::SerializeToAssetPack - SoundConfig class not implemented");
-        return false;
+        OLO_PROFILE_FUNCTION();
+
+        Ref<SoundConfigAsset> soundConfig = AssetManager::GetAsset<SoundConfigAsset>(handle);
+        if (!soundConfig)
+        {
+            OLO_CORE_ERROR("SoundConfigSerializer: Failed to get SoundConfig for handle {0}", handle);
+            return false;
+        }
+
+        std::string yamlString = SerializeToYAML(soundConfig);
+        outInfo.Offset = stream.GetStreamPosition();
+        stream.WriteString(yamlString);
+        outInfo.Size = stream.GetStreamPosition() - outInfo.Offset;
+
+        OLO_CORE_TRACE("SoundConfigSerializer: Serialized SoundConfig to pack - Handle: {0}, Size: {1}", handle, outInfo.Size);
+        return true;
     }
 
     Ref<Asset> SoundConfigSerializer::DeserializeFromAssetPack(FileStreamReader& stream, const AssetPackFile::AssetInfo& assetInfo) const
     {
-        OLO_CORE_WARN("SoundConfigSerializer::DeserializeFromAssetPack - SoundConfig class not implemented");
-        return nullptr;
+        OLO_PROFILE_FUNCTION();
+
+        stream.SetStreamPosition(assetInfo.PackedOffset);
+
+        std::string yamlString;
+        stream.ReadString(yamlString);
+
+        auto soundConfig = Ref<SoundConfigAsset>::Create();
+        if (bool success = DeserializeFromYAML(yamlString, soundConfig); !success)
+        {
+            OLO_CORE_ERROR("SoundConfigSerializer: Failed to deserialize SoundConfig from YAML - Handle: {0}", assetInfo.Handle);
+            return nullptr;
+        }
+
+        soundConfig->SetHandle(assetInfo.Handle);
+        OLO_CORE_TRACE("SoundConfigSerializer: Deserialized SoundConfig from pack - Handle: {0}", assetInfo.Handle);
+        return soundConfig;
     }
 
-    std::string SoundConfigSerializer::SerializeToYAML(Ref<SoundConfig> soundConfig) const
+    std::string SoundConfigSerializer::SerializeToYAML(const Ref<SoundConfigAsset>& soundConfig) const
     {
-        OLO_CORE_WARN("SoundConfigSerializer::SerializeToYAML - SoundConfig class not implemented");
-        return "";
+        OLO_PROFILE_FUNCTION();
+
+        const AudioSourceConfig& config = soundConfig->m_Config;
+
+        YAML::Emitter out;
+        out << YAML::BeginMap; // root
+
+        out << YAML::Key << "SoundConfig" << YAML::Value;
+        out << YAML::BeginMap; // SoundConfig data
+
+        out << YAML::Key << "VolumeMultiplier" << YAML::Value << config.VolumeMultiplier;
+        out << YAML::Key << "PitchMultiplier" << YAML::Value << config.PitchMultiplier;
+        out << YAML::Key << "PlayOnAwake" << YAML::Value << config.PlayOnAwake;
+        out << YAML::Key << "Looping" << YAML::Value << config.Looping;
+
+        out << YAML::Key << "Spatialization" << YAML::Value << config.Spatialization;
+        out << YAML::Key << "AttenuationModel" << YAML::Value << static_cast<int>(config.AttenuationModel);
+        out << YAML::Key << "RollOff" << YAML::Value << config.RollOff;
+        out << YAML::Key << "MinGain" << YAML::Value << config.MinGain;
+        out << YAML::Key << "MaxGain" << YAML::Value << config.MaxGain;
+        out << YAML::Key << "MinDistance" << YAML::Value << config.MinDistance;
+        out << YAML::Key << "MaxDistance" << YAML::Value << config.MaxDistance;
+
+        out << YAML::Key << "ConeInnerAngle" << YAML::Value << config.ConeInnerAngle;
+        out << YAML::Key << "ConeOuterAngle" << YAML::Value << config.ConeOuterAngle;
+        out << YAML::Key << "ConeOuterGain" << YAML::Value << config.ConeOuterGain;
+
+        out << YAML::Key << "DopplerFactor" << YAML::Value << config.DopplerFactor;
+
+        out << YAML::Key << "Spread" << YAML::Value << config.Spread;
+        out << YAML::Key << "Focus" << YAML::Value << config.Focus;
+
+        out << YAML::Key << "LowPassCutoff" << YAML::Value << config.LowPassCutoff;
+        out << YAML::Key << "HighPassCutoff" << YAML::Value << config.HighPassCutoff;
+        out << YAML::Key << "ReverbSend" << YAML::Value << config.ReverbSend;
+
+        out << YAML::EndMap; // SoundConfig data
+        out << YAML::EndMap; // root
+
+        return std::string(out.c_str());
     }
 
-    bool SoundConfigSerializer::DeserializeFromYAML(const std::string& yamlString, Ref<SoundConfig> targetSoundConfig) const
+    bool SoundConfigSerializer::DeserializeFromYAML(const std::string& yamlString, Ref<SoundConfigAsset>& targetSoundConfig) const
     {
-        OLO_CORE_WARN("SoundConfigSerializer::DeserializeFromYAML - SoundConfig class not implemented");
-        return false;
+        OLO_PROFILE_FUNCTION();
+
+        try
+        {
+            YAML::Node data = YAML::Load(yamlString);
+            YAML::Node node = data["SoundConfig"];
+            if (!node)
+            {
+                OLO_CORE_ERROR("SoundConfigSerializer: No SoundConfig node found in YAML");
+                return false;
+            }
+
+            // Start from defaults so any missing key keeps its sensible value, and
+            // any non-finite value read from disk falls back to the default below.
+            AudioSourceConfig config{};
+
+            // Read a float, validating it is finite (NaN / Inf from a corrupt file
+            // are rejected in favour of the supplied default).
+            auto readFloat = [&node](const char* key, f32 defaultValue) -> f32
+            {
+                if (!node[key])
+                    return defaultValue;
+                f32 value = node[key].as<f32>(defaultValue);
+                if (!std::isfinite(value))
+                    return defaultValue;
+                return value;
+            };
+
+            // Multipliers: non-negative (a negative volume/pitch is meaningless).
+            config.VolumeMultiplier = std::max(0.0f, readFloat("VolumeMultiplier", config.VolumeMultiplier));
+            config.PitchMultiplier = std::max(0.0f, readFloat("PitchMultiplier", config.PitchMultiplier));
+
+            if (node["PlayOnAwake"])
+                config.PlayOnAwake = node["PlayOnAwake"].as<bool>(config.PlayOnAwake);
+            if (node["Looping"])
+                config.Looping = node["Looping"].as<bool>(config.Looping);
+            if (node["Spatialization"])
+                config.Spatialization = node["Spatialization"].as<bool>(config.Spatialization);
+
+            // Attenuation model: clamp the enum to its valid range, else keep default.
+            if (node["AttenuationModel"])
+            {
+                int model = node["AttenuationModel"].as<int>(static_cast<int>(config.AttenuationModel));
+                if (model >= static_cast<int>(AttenuationModelType::None) && model <= static_cast<int>(AttenuationModelType::Exponential))
+                    config.AttenuationModel = static_cast<AttenuationModelType>(model);
+            }
+
+            config.RollOff = std::max(0.0f, readFloat("RollOff", config.RollOff));
+
+            // Gains are normalized [0,1].
+            config.MinGain = std::clamp(readFloat("MinGain", config.MinGain), 0.0f, 1.0f);
+            config.MaxGain = std::clamp(readFloat("MaxGain", config.MaxGain), 0.0f, 1.0f);
+
+            // Distances are non-negative.
+            config.MinDistance = std::max(0.0f, readFloat("MinDistance", config.MinDistance));
+            config.MaxDistance = std::max(0.0f, readFloat("MaxDistance", config.MaxDistance));
+
+            // Cone angles are radians in [0, 2*pi]; outer gain is normalized [0,1].
+            constexpr f32 kTwoPi = glm::radians(360.0f);
+            config.ConeInnerAngle = std::clamp(readFloat("ConeInnerAngle", config.ConeInnerAngle), 0.0f, kTwoPi);
+            config.ConeOuterAngle = std::clamp(readFloat("ConeOuterAngle", config.ConeOuterAngle), 0.0f, kTwoPi);
+            config.ConeOuterGain = std::clamp(readFloat("ConeOuterGain", config.ConeOuterGain), 0.0f, 1.0f);
+
+            config.DopplerFactor = std::max(0.0f, readFloat("DopplerFactor", config.DopplerFactor));
+
+            // VBAP spread / focus and DSP sends are all normalized [0,1].
+            config.Spread = std::clamp(readFloat("Spread", config.Spread), 0.0f, 1.0f);
+            config.Focus = std::clamp(readFloat("Focus", config.Focus), 0.0f, 1.0f);
+            config.LowPassCutoff = std::clamp(readFloat("LowPassCutoff", config.LowPassCutoff), 0.0f, 1.0f);
+            config.HighPassCutoff = std::clamp(readFloat("HighPassCutoff", config.HighPassCutoff), 0.0f, 1.0f);
+            config.ReverbSend = std::clamp(readFloat("ReverbSend", config.ReverbSend), 0.0f, 1.0f);
+
+            targetSoundConfig->m_Config = config;
+            return true;
+        }
+        catch (const YAML::Exception& e)
+        {
+            OLO_CORE_ERROR("SoundConfigSerializer: YAML parsing error: {0}", e.what());
+            return false;
+        }
     }
-    */
 
     //////////////////////////////////////////////////////////////////////////////////
     // PrefabSerializer

@@ -126,6 +126,12 @@ namespace OloEngine
 			get => InternalCalls.AudioSourceComponent_GetDopplerFactor(Entity.ID);
 			set => InternalCalls.AudioSourceComponent_SetDopplerFactor(Entity.ID, value);
 		}
+
+		public ulong SoundConfigHandle
+		{
+			get => InternalCalls.AudioSourceComponent_GetSoundConfigHandle(Entity.ID);
+			set => InternalCalls.AudioSourceComponent_SetSoundConfigHandle(Entity.ID, value);
+		}
 	}
 
 	public partial class BoxCollider2DComponent : Component

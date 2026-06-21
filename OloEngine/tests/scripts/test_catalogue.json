@@ -346,6 +346,7 @@
     "OloEngine/tests/Serialization/FontAssetPackSerializerTest.cpp": "unit",
     "OloEngine/tests/Serialization/MeshAssetSerializerTest.cpp": "unit",
     "OloEngine/tests/Serialization/MeshBinarySerializerTest.cpp": "unit",
+    "OloEngine/tests/Serialization/SoundConfigSerializerTest.cpp": "unit",
     "OloEngine/tests/Serialization/SoundGraphSerializerTest.cpp": "unit",
     "OloEngine/tests/SnowSettingsTest.cpp": "unit",
     "OloEngine/tests/SoundGraphBasicTest.cpp": "unit",

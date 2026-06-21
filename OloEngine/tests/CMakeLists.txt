@@ -206,6 +206,7 @@ add_executable(OloEngine-Tests
 		Serialization/MeshBinarySerializerTest.cpp
 		Serialization/MeshAssetSerializerTest.cpp
 		Serialization/SoundGraphSerializerTest.cpp
+		Serialization/SoundConfigSerializerTest.cpp
 		Serialization/EnvironmentSerializerTest.cpp
 		Serialization/FontAssetPackSerializerTest.cpp
 		# SaveGame Tests

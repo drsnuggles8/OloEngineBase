@@ -43,6 +43,8 @@ OLO_ADD_INTERNAL_CALL(AudioSourceComponent_GetConeOuterGain);
 OLO_ADD_INTERNAL_CALL(AudioSourceComponent_SetConeOuterGain);
 OLO_ADD_INTERNAL_CALL(AudioSourceComponent_GetDopplerFactor);
 OLO_ADD_INTERNAL_CALL(AudioSourceComponent_SetDopplerFactor);
+OLO_ADD_INTERNAL_CALL(AudioSourceComponent_GetSoundConfigHandle);
+OLO_ADD_INTERNAL_CALL(AudioSourceComponent_SetSoundConfigHandle);
 
 // BoxCollider2DComponent
 OLO_ADD_INTERNAL_CALL(BoxCollider2DComponent_GetOffset);

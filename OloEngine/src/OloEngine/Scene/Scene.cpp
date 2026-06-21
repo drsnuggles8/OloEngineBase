@@ -26,6 +26,7 @@
 #include "OloEngine/Animation/BoneEntityUtils.h"
 #include "OloEngine/Animation/AnimationSystem.h"
 #include "OloEngine/Asset/SoundGraphAsset.h"
+#include "OloEngine/Asset/SoundConfigAsset.h"
 #include "OloEngine/Audio/SoundGraph/GraphGeneration.h"
 #include "OloEngine/Audio/SoundGraph/SoundGraph.h"
 #include "OloEngine/Animation/MorphTargets/MorphTargetSystem.h"
@@ -564,6 +565,15 @@ namespace OloEngine
 
         for (auto sourceView = m_Registry.group<AudioSourceComponent>(entt::get<TransformComponent>); auto&& [e, ac, tc] : sourceView.each())
         {
+            // A SoundConfig (.olosoundc) preset, when assigned, is the source of truth for this
+            // source's playback parameters: load it and stamp Config before either the event path
+            // or the direct-play path reads it.
+            if (ac.SoundConfigHandle != 0)
+            {
+                if (auto preset = AssetManager::GetAsset<SoundConfigAsset>(ac.SoundConfigHandle))
+                    ac.Config = preset->m_Config;
+            }
+
             // Event-driven audio: post the start event instead of direct play
             if (ac.UseEventSystem && ac.StartCommandID.IsValid() && ac.Config.PlayOnAwake)
             {

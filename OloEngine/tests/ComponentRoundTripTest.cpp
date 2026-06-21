@@ -2054,6 +2054,9 @@ namespace OloEngine::Tests
         const bool expectedLooping = true;
         const f32 expectedMinDistance = 2.5f;
         const f32 expectedMaxDistance = 50.0f;
+        // Full 64-bit, non-default — catches a missing emit/read of the SoundConfig
+        // (.olosoundc) preset link, or u64 precision loss in the AssetHandle path.
+        const AssetHandle expectedPreset = 0x0123456789ABCDEFULL;
 
         std::string yaml;
         {
@@ -2065,6 +2068,7 @@ namespace OloEngine::Tests
             as.Config.Looping = expectedLooping;
             as.Config.MinDistance = expectedMinDistance;
             as.Config.MaxDistance = expectedMaxDistance;
+            as.SoundConfigHandle = expectedPreset;
             yaml = SceneSerializer(scene).SerializeToYAML();
         }
 
@@ -2081,6 +2085,8 @@ namespace OloEngine::Tests
         EXPECT_EQ(as.Config.Looping, expectedLooping);
         EXPECT_NEAR(as.Config.MinDistance, expectedMinDistance, kFloatEpsilon);
         EXPECT_NEAR(as.Config.MaxDistance, expectedMaxDistance, kFloatEpsilon);
+        EXPECT_EQ(as.SoundConfigHandle, expectedPreset)
+            << "SoundConfigHandle dropped on scene YAML round-trip — check SceneSerializer emit/read.";
     }
 
     // -------------------------------------------------------------------------
