@@ -6,7 +6,7 @@ server** so you can point your own LLM agent (Claude Code, Claude Desktop, …) 
 engine already collects (logs, scene/ECS state, scripting errors and API, performance,
 memory, shaders, assets, crash reports, and a live screenshot) — plus a Tier-0
 rendering-dev harness (camera control, viewport sizing, intermediate render-target
-capture, and golden-image comparison; issue #316).
+capture, golden-image comparison, and ephemeral render-override A/B; issue #316).
 
 Strategy is **"expose, don't embed"**: OloEditor does not ship a chat panel, an API key,
 or a model. It exposes data over a standard protocol; you bring your own agent. (Issue #285.)
@@ -20,7 +20,11 @@ or a model. It exposes data over a standard protocol; you bring your own agent. 
 - The `Origin` header is validated (DNS-rebinding defence) and the dispatch layer is
   **read-only with respect to your project** — no tool writes scenes, assets, or files.
   The Tier-0 inspection tools (issue #316) may adjust *editor-only viewport state* — the
-  editor camera pose and the viewport capture size — which is never persisted.
+  editor camera pose and the viewport capture size — which is never persisted. The
+  render-override tools (`olo_render_toggle_pass` / `olo_render_set_debug_view`) likewise
+  edit only the renderer's *session-global* post-process / fog settings, never the loaded
+  scene's own copy, so the change is ephemeral (a scene reload restores it) and never
+  written to disk.
 - Optional **path redaction** scrubs absolute filesystem paths from text output (toggle in
   the panel) for when you don't want project layout / usernames leaving the process.
 
@@ -131,6 +135,8 @@ the server, so update the config (or re-copy from the panel) accordingly.
 | `olo_render_list_targets` | the render graph's live texture/framebuffer resources (name, kind, format, size, producers) |
 | `olo_render_capture_target` | read back one intermediate render target (depth, normals, G-buffer, shadow map, AO, post-process stages, …) as a PNG image block; depth is min-max normalised by default |
 | `olo_render_compare_golden` | capture the viewport (optional `camera`/`orbit` pose) and diff it against a golden PNG (`goldenPath`): returns a numeric `similarity`/`rmse`/`ssim` + `pass` verdict; missing golden or `rebase`:true writes the capture as the new baseline (the `OLOENGINE_GOLDEN_REBASE` workflow) |
+| `olo_render_toggle_pass` | flip a post-process / fog feature on/off (`name` + optional `enabled`) — the ephemeral A/B loop: toggle off → `olo_screenshot` → toggle on → `olo_screenshot`. No `name` lists every pass + its live state |
+| `olo_render_set_debug_view` | switch the viewport to a raw AO/SSR/SSGI buffer (`mode`: none/ssao/gtao/ssr/ssgi); reports whether the backing pass is actually running. No `mode` lists the modes + current state |
 | `olo_render_why_not_visible` | explain why one entity (`entity`) is NOT on screen — the "why can't I see my mesh?" debugger: root-cause `reasonCode`, summary, ordered checks, and the raw render facts |
 | `olo_physics_layer_matrix` | the collision-layer matrix the sim uses: built-in object layers + user-defined layers, with pairwise collide/no-collide (works in Edit mode) |
 | `olo_physics_list_colliders` | paginated entities with a rigidbody: authored body type / layer / trigger / collider shapes, plus live object layer, position, awake/asleep when playing |
@@ -248,6 +254,66 @@ editor can crash. So reserve `olo_shader_reload` for applying an edit you **expe
 compile** (the normal inner-loop case — confirm the result `status` is `ready`, then
 screenshot); to inspect a shader that you know is broken, read `olo_shader_errors` /
 `olo_shader_get` rather than recompiling it.
+
+### Render override A/B (`olo_render_toggle_pass` / `olo_render_set_debug_view`)
+
+These are the **ephemeral render-override** tools — the rendering counterpart of the
+shader inner loop. They let an agent A/B a rendering feature and inspect intermediate
+visualizations without restarting the editor or touching the user's project.
+
+**Crucially, the change is ephemeral.** Both tools mutate only the renderer's
+*session-global* settings (`Renderer3D::GetPostProcessSettings()` /
+`GetFogSettings()`), **not the loaded scene's own copy** — so a flip is visible on the
+next rendered frame, is never written to disk, and a scene reload restores it. That
+keeps the server read-only with respect to your project, the same boundary the
+camera/viewport tools respect.
+
+`olo_render_toggle_pass { name, enabled? }` flips one post-process / fog feature. The
+core A/B loop:
+
+```jsonc
+// 1) olo_render_toggle_pass { "name": "bloom", "enabled": false }
+{ "pass": "bloom", "enabled": false, "previous": true, "changed": true }
+// 2) olo_screenshot { … }                       -> the "off" reference
+// 3) olo_render_toggle_pass { "name": "bloom", "enabled": true }
+{ "pass": "bloom", "enabled": true, "previous": false, "changed": true }
+// 4) olo_screenshot { … }                       -> compare against the "off" frame
+```
+
+`name` is one of **bloom, ssao, gtao, ssr, ssgi, fxaa, taa, vignette,
+chromaticaberration (alias ca), depthoffield (alias dof), motionblur, colorgrading,
+autoexposure, fog, fogscattering, fogvolumetric, godrays** (case- and
+separator-insensitive). Omit `enabled` to flip the current value (the quick A/B form);
+pass it to set the state explicitly. Calling the tool **with no `name`** returns the
+full list with each pass's live `enabled` state plus the `activeAOTechnique`.
+
+Some toggles carry preconditions, surfaced as a `note` so an A/B that shows no change
+isn't a mystery:
+
+- **ssao / gtao** share one AO slot (`ActiveAOTechnique`); enabling either also selects
+  that technique so it actually renders.
+- **ssr / ssgi** render only in the **Deferred** rendering path; enabling one in
+  Forward / Forward+ returns a `note` saying so.
+- **fogscattering / fogvolumetric / godrays** need the master **fog** pass enabled
+  first; the `note` reminds you.
+
+`olo_render_set_debug_view { mode }` switches the viewport to a single raw intermediate
+buffer for AO / reflection / GI debugging. `mode` is one of **none, ssao, gtao, ssr,
+ssgi** (exactly one is shown at a time; `none`, or `enabled:false`, clears them all). It
+reports the four `*DebugView` flag states and **`passEnabled`** — whether the pass that
+produces the chosen buffer is actually running this frame — with an actionable `note`
+when it is not:
+
+```jsonc
+// olo_render_set_debug_view { "mode": "ssao" }   (with SSAO not yet enabled)
+{ "mode": "ssao", "ssaoDebugView": true, "gtaoDebugView": false,
+  "ssrDebugView": false, "ssgiDebugView": false, "passEnabled": false,
+  "note": "SSAO is not active; enable it with olo_render_toggle_pass { name: 'ssao' }." }
+```
+
+So the usual debug-view flow is two steps: `olo_render_toggle_pass { name: "ssao",
+enabled: true }` then `olo_render_set_debug_view { mode: "ssao" }`. Calling the tool
+with no `mode` lists the modes + the current state.
 
 ### Physics introspection (the `olo_physics_*` family)
 

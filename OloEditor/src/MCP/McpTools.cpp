@@ -6,6 +6,7 @@
 #include "MCP/McpGoldenCompare.h"
 #include "MCP/McpPhysicsExplain.h"
 #include "MCP/McpRenderExplain.h"
+#include "MCP/McpRenderOverrides.h"
 #include "MCP/McpShaderReload.h"
 
 #include "OloEngine/Asset/AssetManager.h"
@@ -1795,6 +1796,303 @@ namespace OloEngine::MCP
                                                      { "mimeType", "image/png" } } });
             toolResult.IsError = false;
             return toolResult;
+        }
+
+        // ---- olo_render_toggle_pass / olo_render_set_debug_view (#316 Part 4) ---
+        // Ephemeral render-override A/B harness. Both tools mutate ONLY the
+        // renderer's session-global settings (Renderer3D::GetPostProcessSettings()
+        // / GetFogSettings()), never the loaded scene's own copy — so a change is
+        // visible on the next rendered frame and a scene reload restores it. That
+        // keeps the server read-only with respect to the project, the same boundary
+        // the camera/viewport tools respect. All renderer state is main-thread-only,
+        // so the work runs inside MarshalRead.
+
+        // Canonical token for the active AO technique (reported by the toggle-pass
+        // introspection so the agent can tell whether enabling SSAO vs GTAO will
+        // actually apply — the two share PostProcessSettings::ActiveAOTechnique).
+        const char* AOTechniqueToken(AOTechnique technique)
+        {
+            switch (technique)
+            {
+                case AOTechnique::None:
+                    return "none";
+                case AOTechnique::SSAO:
+                    return "ssao";
+                case AOTechnique::GTAO:
+                    return "gtao";
+            }
+            return "unknown";
+        }
+
+        // Human-readable name of a rendering path, for the SSR/SSGI deferred-only
+        // precondition note.
+        const char* RenderingPathName(RenderingPath path)
+        {
+            switch (path)
+            {
+                case RenderingPath::Forward:
+                    return "Forward";
+                case RenderingPath::ForwardPlus:
+                    return "Forward+";
+                case RenderingPath::Deferred:
+                    return "Deferred";
+            }
+            return "Unknown";
+        }
+
+        // Map a pass token to the single bool field it flips. PostProcess* fields
+        // live on PostProcessSettings; Fog* on FogSettings. Returns nullptr only if
+        // a new RenderOverrides::Pass enumerator is added without a mapping here
+        // (the caller surfaces that as an internal error rather than crashing).
+        bool* ResolvePassField(RenderOverrides::Pass pass, PostProcessSettings& pp, FogSettings& fog)
+        {
+            using RenderOverrides::Pass;
+            switch (pass)
+            {
+                case Pass::Bloom:
+                    return &pp.BloomEnabled;
+                case Pass::SSAO:
+                    return &pp.SSAOEnabled;
+                case Pass::GTAO:
+                    return &pp.GTAOEnabled;
+                case Pass::SSR:
+                    return &pp.SSREnabled;
+                case Pass::SSGI:
+                    return &pp.SSGIEnabled;
+                case Pass::FXAA:
+                    return &pp.FXAAEnabled;
+                case Pass::TAA:
+                    return &pp.TAAEnabled;
+                case Pass::Vignette:
+                    return &pp.VignetteEnabled;
+                case Pass::ChromaticAberration:
+                    return &pp.ChromaticAberrationEnabled;
+                case Pass::DepthOfField:
+                    return &pp.DOFEnabled;
+                case Pass::MotionBlur:
+                    return &pp.MotionBlurEnabled;
+                case Pass::ColorGrading:
+                    return &pp.ColorGradingEnabled;
+                case Pass::AutoExposure:
+                    return &pp.AutoExposureEnabled;
+                case Pass::Fog:
+                    return &fog.Enabled;
+                case Pass::FogScattering:
+                    return &fog.EnableScattering;
+                case Pass::FogVolumetric:
+                    return &fog.EnableVolumetric;
+                case Pass::GodRays:
+                    return &fog.EnableLightShafts;
+            }
+            return nullptr;
+        }
+
+        ToolResult Handle_RenderTogglePass(McpServer& server, const Json& args)
+        {
+            using namespace RenderOverrides;
+
+            const bool hasName = args.contains("name") && args["name"].is_string() &&
+                                 !args["name"].get<std::string>().empty();
+
+            // Introspection: no name -> list every toggleable pass with its live
+            // enabled state plus the active AO technique.
+            if (!hasName)
+            {
+                const Json result = server.MarshalRead([]() -> Json
+                                                       {
+                    PostProcessSettings& pp = Renderer3D::GetPostProcessSettings();
+                    FogSettings& fog = Renderer3D::GetFogSettings();
+                    Json passes = DescribePasses();
+                    for (auto& entry : passes)
+                    {
+                        Pass pass{};
+                        if (ParsePass(entry.at("name").get<std::string>(), pass))
+                        {
+                            const bool* field = ResolvePassField(pass, pp, fog);
+                            entry["enabled"] = (field != nullptr) && *field;
+                        }
+                    }
+                    Json j;
+                    j["passes"] = std::move(passes);
+                    j["activeAOTechnique"] = AOTechniqueToken(pp.ActiveAOTechnique);
+                    return j; });
+                return ToolResult::Text(result.dump(2));
+            }
+
+            const std::string name = args["name"].get<std::string>();
+            Pass pass{};
+            if (!ParsePass(name, pass))
+                return ToolResult::Error("Unknown pass '" + name + "'. Valid passes: " + JoinTokens(PassTokens()) +
+                                         ". Call olo_render_toggle_pass with no arguments to list them with their current state.");
+
+            // 'enabled' is optional: when given, set explicitly; when omitted, flip
+            // the current value (the quick A/B form).
+            const bool hasEnabled = args.contains("enabled") && args["enabled"].is_boolean();
+            const bool desired = hasEnabled && args["enabled"].get<bool>();
+
+            const Json result = server.MarshalRead([pass, hasEnabled, desired]() -> Json
+                                                   {
+                PostProcessSettings& pp = Renderer3D::GetPostProcessSettings();
+                FogSettings& fog = Renderer3D::GetFogSettings();
+                bool* field = ResolvePassField(pass, pp, fog);
+                if (field == nullptr)
+                    return Json{ { "__error", "Internal error: pass has no field mapping." } };
+
+                ToggleResult r;
+                r.Pass = PassToken(pass);
+                r.Previous = *field;
+                r.Enabled = hasEnabled ? desired : !*field;
+                *field = r.Enabled;
+                r.Changed = r.Enabled != r.Previous;
+
+                // Side effects + preconditions, so a freshly enabled effect actually
+                // appears (otherwise an agent A/Bs a toggle and sees no change).
+                if (r.Enabled)
+                {
+                    switch (pass)
+                    {
+                        case Pass::SSAO:
+                            // SSAO and GTAO share ActiveAOTechnique; point it at SSAO
+                            // so enabling SSAO is what renders.
+                            if (pp.ActiveAOTechnique != AOTechnique::SSAO)
+                            {
+                                pp.ActiveAOTechnique = AOTechnique::SSAO;
+                                r.Note = "Active AO technique set to SSAO so the effect is visible.";
+                            }
+                            break;
+                        case Pass::GTAO:
+                            if (pp.ActiveAOTechnique != AOTechnique::GTAO)
+                            {
+                                pp.ActiveAOTechnique = AOTechnique::GTAO;
+                                r.Note = "Active AO technique set to GTAO so the effect is visible.";
+                            }
+                            break;
+                        case Pass::SSR:
+                        case Pass::SSGI:
+                            if (Renderer3D::GetRendererSettings().Path != RenderingPath::Deferred)
+                                r.Note = std::string(PassToken(pass)) +
+                                         " renders only in the Deferred rendering path (current path: " +
+                                         RenderingPathName(Renderer3D::GetRendererSettings().Path) + ").";
+                            break;
+                        case Pass::FogScattering:
+                        case Pass::FogVolumetric:
+                        case Pass::GodRays:
+                            if (!fog.Enabled)
+                                r.Note = "Fog is disabled; enable the 'fog' pass for this to take effect.";
+                            break;
+                        default:
+                            break;
+                    }
+                }
+                return ToJson(r); });
+
+            if (result.is_object() && result.contains("__error"))
+                return ToolResult::Error(result["__error"].get<std::string>());
+            return ToolResult::Text(result.dump(2));
+        }
+
+        // Which debug view (if any) is currently on. Our tool keeps these mutually
+        // exclusive, but the editor panel can set several; report the first.
+        RenderOverrides::DebugView ActiveDebugView(const PostProcessSettings& pp)
+        {
+            using RenderOverrides::DebugView;
+            if (pp.SSAODebugView)
+                return DebugView::SSAO;
+            if (pp.GTAODebugView)
+                return DebugView::GTAO;
+            if (pp.SSRDebugView)
+                return DebugView::SSR;
+            if (pp.SSGIDebugView)
+                return DebugView::SSGI;
+            return DebugView::None;
+        }
+
+        // Build the debug-view result for a (post-change or current) state: the four
+        // flags from `pp`, the requested mode, and whether the backing pass is
+        // actually producing the buffer this frame (with an actionable hint if not).
+        RenderOverrides::DebugViewResult BuildDebugViewResult(const PostProcessSettings& pp, RenderOverrides::DebugView view)
+        {
+            using RenderOverrides::DebugView;
+            RenderOverrides::DebugViewResult r;
+            r.Mode = RenderOverrides::DebugViewToken(view);
+            r.SSAODebugView = pp.SSAODebugView;
+            r.GTAODebugView = pp.GTAODebugView;
+            r.SSRDebugView = pp.SSRDebugView;
+            r.SSGIDebugView = pp.SSGIDebugView;
+            const bool deferred = Renderer3D::GetRendererSettings().Path == RenderingPath::Deferred;
+            switch (view)
+            {
+                case DebugView::None:
+                    r.PassEnabled = true;
+                    break;
+                case DebugView::SSAO:
+                    r.PassEnabled = pp.ActiveAOTechnique == AOTechnique::SSAO && pp.SSAOEnabled;
+                    if (!r.PassEnabled)
+                        r.Note = "SSAO is not active; enable it with olo_render_toggle_pass { name: 'ssao' }.";
+                    break;
+                case DebugView::GTAO:
+                    r.PassEnabled = pp.ActiveAOTechnique == AOTechnique::GTAO && pp.GTAOEnabled;
+                    if (!r.PassEnabled)
+                        r.Note = "GTAO is not active; enable it with olo_render_toggle_pass { name: 'gtao' }.";
+                    break;
+                case DebugView::SSR:
+                    r.PassEnabled = pp.SSREnabled && deferred;
+                    if (!r.PassEnabled)
+                        r.Note = "SSR is not active; enable it with olo_render_toggle_pass { name: 'ssr' } (Deferred path only).";
+                    break;
+                case DebugView::SSGI:
+                    r.PassEnabled = pp.SSGIEnabled && deferred;
+                    if (!r.PassEnabled)
+                        r.Note = "SSGI is not active; enable it with olo_render_toggle_pass { name: 'ssgi' } (Deferred path only).";
+                    break;
+            }
+            return r;
+        }
+
+        ToolResult Handle_RenderSetDebugView(McpServer& server, const Json& args)
+        {
+            using namespace RenderOverrides;
+
+            const bool hasMode = args.contains("mode") && args["mode"].is_string();
+            // Accept enabled:false as an alias for mode:"none" (turn all views off).
+            const bool disableViaEnabled = args.contains("enabled") && args["enabled"].is_boolean() &&
+                                           !args["enabled"].get<bool>();
+
+            // Introspection: no actionable argument -> list modes + current state.
+            if (!hasMode && !disableViaEnabled)
+            {
+                const Json result = server.MarshalRead([]() -> Json
+                                                       {
+                    const PostProcessSettings& pp = Renderer3D::GetPostProcessSettings();
+                    Json j;
+                    j["modes"] = DescribeDebugViews();
+                    j["current"] = ToJson(BuildDebugViewResult(pp, ActiveDebugView(pp)));
+                    return j; });
+                return ToolResult::Text(result.dump(2));
+            }
+
+            // enabled:false takes precedence over mode: it is the explicit
+            // "clear all views" intent, so honour it even if a mode is also given
+            // (leaving view at None) rather than letting the mode override it.
+            DebugView view = DebugView::None;
+            if (hasMode && !disableViaEnabled)
+            {
+                const std::string mode = args["mode"].get<std::string>();
+                if (!ParseDebugView(mode, view))
+                    return ToolResult::Error("Unknown debug view '" + mode + "'. Valid modes: " +
+                                             JoinTokens(DebugViewModes()) + ".");
+            }
+
+            const Json result = server.MarshalRead([view]() -> Json
+                                                   {
+                PostProcessSettings& pp = Renderer3D::GetPostProcessSettings();
+                // Exactly one debug view active at a time (or none).
+                pp.SSAODebugView = (view == DebugView::SSAO);
+                pp.GTAODebugView = (view == DebugView::GTAO);
+                pp.SSRDebugView = (view == DebugView::SSR);
+                pp.SSGIDebugView = (view == DebugView::SSGI);
+                return ToJson(BuildDebugViewResult(pp, view)); });
+            return ToolResult::Text(result.dump(2));
         }
 
         // ---- olo_render_compare_golden (Part 4 of #316) ------------------------
@@ -3637,6 +3935,56 @@ namespace OloEngine::MCP
             };
             tool.MainMarshaled = true;
             tool.Handler = Handle_RenderCaptureTarget;
+            server.RegisterTool(std::move(tool));
+        }
+
+        {
+            ToolDef tool;
+            tool.Name = "olo_render_toggle_pass";
+            tool.Description =
+                "Flip a post-process / fog feature on or off — the rendering A/B loop: toggle off, "
+                "olo_screenshot, toggle on, olo_screenshot, compare. 'name' is one of bloom, ssao, gtao, "
+                "ssr, ssgi, fxaa, taa, vignette, chromaticaberration (ca), depthoffield (dof), motionblur, "
+                "colorgrading, autoexposure, fog, fogscattering, fogvolumetric, godrays. 'enabled' sets the "
+                "state explicitly; omit it to flip the current value. Returns the affected pass and its "
+                "new/previous state. Enabling ssao/gtao also selects that AO technique (they share one "
+                "slot); ssr/ssgi render only in the Deferred path and the fog sub-features need fog enabled "
+                "— a 'note' flags these. The change is EPHEMERAL: it edits the renderer's session-global "
+                "settings, not the scene, so it is never saved and a scene reload restores it. Call with no "
+                "arguments to list every pass with its current enabled state.";
+            tool.InputSchema = Json{
+                { "type", "object" },
+                { "properties",
+                  { { "name", { { "type", "string" }, { "description", "Pass token (e.g. 'bloom', 'ssao', 'ssr', 'fog', 'godrays'). Omit to list all passes + state." } } },
+                    { "enabled", { { "type", "boolean" }, { "description", "Desired state. Omit to toggle (flip the current value)." } } } } },
+                { "additionalProperties", false }
+            };
+            tool.MainMarshaled = true;
+            tool.Handler = Handle_RenderTogglePass;
+            server.RegisterTool(std::move(tool));
+        }
+
+        {
+            ToolDef tool;
+            tool.Name = "olo_render_set_debug_view";
+            tool.Description =
+                "Switch the viewport to a raw intermediate buffer for AO/reflection/GI debugging. 'mode' is "
+                "one of none (the normal composite), ssao, gtao, ssr, ssgi — exactly one is shown at a time; "
+                "mode 'none' (or 'enabled':false) clears them all. Returns the active mode, the four "
+                "*DebugView flag states, and 'passEnabled' — whether the pass that produces the chosen "
+                "buffer is actually running this frame (with an actionable 'note' if not, e.g. enable SSAO "
+                "first with olo_render_toggle_pass). The change is EPHEMERAL: it edits the renderer's "
+                "session-global settings, not the scene, so it is never saved and a scene reload restores "
+                "it. Call with no arguments to list the modes + current state.";
+            tool.InputSchema = Json{
+                { "type", "object" },
+                { "properties",
+                  { { "mode", { { "type", "string" }, { "enum", Json::array({ "none", "ssao", "gtao", "ssr", "ssgi" }) }, { "description", "Debug view to show. 'none' clears all. Omit to list modes + state." } } },
+                    { "enabled", { { "type", "boolean" }, { "description", "Set false as an alias for mode:'none' (clear all debug views)." } } } } },
+                { "additionalProperties", false }
+            };
+            tool.MainMarshaled = true;
+            tool.Handler = Handle_RenderSetDebugView;
             server.RegisterTool(std::move(tool));
         }
 

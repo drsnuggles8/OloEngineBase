@@ -298,6 +298,10 @@ add_executable(OloEngine-Tests
 		# (MCP/McpShaderReload.h, depends only on the engine's ShaderCompilationStatus
 		# enum), so no extra editor TU is pulled in.
 		MCP/McpShaderReloadTest.cpp
+		# Pure name tables + result-shaping behind olo_render_toggle_pass /
+		# olo_render_set_debug_view (#316 Part 4). Header-only (MCP/McpRenderOverrides.h,
+		# nlohmann::json + stdlib only), so no extra editor TU is pulled in.
+		MCP/McpRenderOverridesTest.cpp
 		# Lua Binding Tests
 		Lua/LuaBindingTest.cpp
 		# Functional / cross-subsystem world-tick tests (see ADR 0001).
