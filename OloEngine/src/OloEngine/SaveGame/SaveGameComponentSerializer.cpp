@@ -933,7 +933,18 @@ namespace OloEngine
     void SaveGameComponentSerializer::Serialize(FArchive& ar, AudioSourceComponent& c)
     {
         SerializeAudioSourceConfig(ar, c.Config);
-        ar << c.SoundConfigHandle; // SoundConfig (.olosoundc) preset link
+
+        // SoundConfig (.olosoundc) preset link — appended after the config block, so
+        // probe AtEnd() on load and default to "no preset" for legacy archives written
+        // before this field existed (the per-component buffer ends after the config).
+        if (ar.IsLoading() && ar.AtEnd())
+        {
+            c.SoundConfigHandle = 0;
+        }
+        else
+        {
+            ar << c.SoundConfigHandle;
+        }
         // Ref<AudioSource> is runtime — not serialized
     }
 

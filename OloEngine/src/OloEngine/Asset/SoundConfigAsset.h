@@ -21,10 +21,10 @@ namespace OloEngine
      * AssetType enum value and `.olosoundc` extension all keep the plain
      * `SoundConfig` name.
      *
-     * The preset is stored verbatim as an @ref AudioSourceConfig so applying it
-     * at playback is a direct `AudioSource::SetConfig(asset->m_Config)` (that
-     * wiring is a deferred follow-up — this type only round-trips through the
-     * asset load/save path for now).
+     * The preset is stored verbatim as an @ref AudioSourceConfig. An
+     * AudioSourceComponent references one via its SoundConfigHandle; when set,
+     * Scene::InitAudioRuntime stamps the preset into the component's Config at
+     * playback (effectively AudioSource::SetConfig(asset->m_Config)).
      */
     class SoundConfigAsset : public Asset
     {

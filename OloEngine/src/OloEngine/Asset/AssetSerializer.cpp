@@ -1246,6 +1246,8 @@ namespace OloEngine
 
     void SoundConfigSerializer::Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const
     {
+        OLO_PROFILE_FUNCTION();
+
         Ref<SoundConfigAsset> soundConfig = asset.As<SoundConfigAsset>();
         if (!soundConfig)
         {
@@ -1282,6 +1284,17 @@ namespace OloEngine
 
         fout << yamlString;
         fout.flush(); // Ensure data is written to the file
+
+        // Verify the write/flush succeeded before promoting the temp file — a failed
+        // stream (disk full, I/O error) must not be renamed over the good file.
+        if (!fout)
+        {
+            OLO_CORE_ERROR("SoundConfigSerializer::Serialize - Failed to write to temporary file: {}", tempFilepath.string());
+            fout.close();
+            std::error_code rmEc;
+            std::filesystem::remove(tempFilepath, rmEc);
+            return;
+        }
         fout.close();
 
         // Atomically rename temp file to final file
@@ -1300,6 +1313,8 @@ namespace OloEngine
 
     bool SoundConfigSerializer::TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const
     {
+        OLO_PROFILE_FUNCTION();
+
         std::filesystem::path path = Project::GetProjectDirectory() / metadata.FilePath;
 
         if (!std::filesystem::exists(path))
@@ -1376,6 +1391,8 @@ namespace OloEngine
 
     std::string SoundConfigSerializer::SerializeToYAML(const Ref<SoundConfigAsset>& soundConfig) const
     {
+        OLO_PROFILE_FUNCTION();
+
         const AudioSourceConfig& config = soundConfig->m_Config;
 
         YAML::Emitter out;
@@ -1418,6 +1435,8 @@ namespace OloEngine
 
     bool SoundConfigSerializer::DeserializeFromYAML(const std::string& yamlString, Ref<SoundConfigAsset>& targetSoundConfig) const
     {
+        OLO_PROFILE_FUNCTION();
+
         try
         {
             YAML::Node data = YAML::Load(yamlString);
