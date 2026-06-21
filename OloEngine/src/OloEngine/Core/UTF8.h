@@ -96,6 +96,41 @@ namespace OloEngine::UTF8
         outAdvance = need;
     }
 
+    // Encode a single Unicode scalar `cp` as UTF-8, appending 1–4 bytes to
+    // `out`. Surrogates and codepoints above U+10FFFF are not valid scalars;
+    // they are emitted as U+FFFD (REPLACEMENT CHARACTER) so `out` always stays
+    // well-formed UTF-8 — the inverse of DecodeCodepoint's error recovery.
+    inline void EncodeCodepoint(u32 cp, std::string& out)
+    {
+        if (cp > 0x10FFFFu || (cp >= 0xD800u && cp <= 0xDFFFu))
+        {
+            cp = 0xFFFDu;
+        }
+
+        if (cp < 0x80u)
+        {
+            out.push_back(static_cast<char>(cp));
+        }
+        else if (cp < 0x800u)
+        {
+            out.push_back(static_cast<char>(0xC0u | (cp >> 6)));
+            out.push_back(static_cast<char>(0x80u | (cp & 0x3Fu)));
+        }
+        else if (cp < 0x10000u)
+        {
+            out.push_back(static_cast<char>(0xE0u | (cp >> 12)));
+            out.push_back(static_cast<char>(0x80u | ((cp >> 6) & 0x3Fu)));
+            out.push_back(static_cast<char>(0x80u | (cp & 0x3Fu)));
+        }
+        else
+        {
+            out.push_back(static_cast<char>(0xF0u | (cp >> 18)));
+            out.push_back(static_cast<char>(0x80u | ((cp >> 12) & 0x3Fu)));
+            out.push_back(static_cast<char>(0x80u | ((cp >> 6) & 0x3Fu)));
+            out.push_back(static_cast<char>(0x80u | (cp & 0x3Fu)));
+        }
+    }
+
     // Count how many UTF-8 codepoints are in `bytes`. Invalid sequences
     // are counted as one replacement codepoint each (matching the
     // decoder's "advance by 1 byte on error" recovery).

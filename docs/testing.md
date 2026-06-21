@@ -1559,7 +1559,13 @@ level of `tests/`). Grouped by directory.
 |---|---:|---|
 | [TerrainGeneratorTest.cpp](../OloEngine/tests/Terrain/TerrainGeneratorTest.cpp) | 15 | **TerrainGeneratorTest** &mdash; `HeightFieldIsDeterministic`, `HeightFieldIsNormalizedAndFinite`, `LargeSeedStillProducesVariedTerrain`, `DifferentSeedsProduceDifferentTerrain`, `RidgedAndWarpAndExponentStayValid`, `TerraceShapingStaysValidAndDeterministic`, `TerraceEndpointsAndIdentity`, `TerraceIsMonotonicAndBounded`, `TerraceProducesFlatPlateaus`, `RuleWeightPeaksInsideBandAndZeroOutside`, `SlopeBandSelectsRule`, `DefaultRulesAssignExpectedLayers`, `LayerWeightsAreNormalized`, `NoMatchingRuleFallsBackToLayerZero`, `PackLayerWeightsQuantizesToBothSplatmaps` |
 
-**Totals.** 147 unit / subsystem test files, 1813 TEST / TEST_F declarations across all subsystems.
+#### UI (1 file)
+
+| File | Tests | Cases |
+|---|---:|---|
+| [UIInputFieldKeyboardTest.cpp](../OloEngine/tests/UI/UIInputFieldKeyboardTest.cpp) | 21 | **UIInputFieldKeyboardTest** &mdash; `TypingIntoFocusedFieldInsertsTextAndAdvancesCursor`, `TypingInsertsAtCursorInMiddle`, `ControlCharactersAreIgnored`, `UnfocusedFieldIgnoresTypedText`, `NonInteractableFieldIsBlurredAndIgnoresInput`, `BackspaceRemovesCodepointBeforeCursor`, `BackspaceAtStartIsNoOp`, `DeleteRemovesCodepointAtCursor`, `DeleteAtEndIsNoOp`, `CursorLeftRightMoveByOneCodepoint`, `CursorClampsAtBothEnds`, `HomeAndEndJumpToBounds`, `CharacterLimitIsEnforced`, `ZeroCharacterLimitMeansUnlimited`, `MultibyteCodepointInsertedAndBackspacedAtomically`, `CursorMovesOverMultibyteCodepointAtomically`, `CharacterLimitCountsMultibyteAsOneCharacter`, `ClickFocusesFieldThenKeyboardEditsSameFrame`, `ClickOutsideBlursAndStopsEditingSameFrame`, `OutOfRangeCursorIsClampedBeforeEditing`<br/>**UIInputBufferTest** &mdash; `TypedCharacterBufferRotatesPerUpdate` |
+
+**Totals.** 148 unit / subsystem test files, 1834 TEST / TEST_F declarations across all subsystems.
 
 <!-- END: unit-catalogue -->
 

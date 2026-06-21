@@ -1,6 +1,7 @@
 #include "OloEnginePCH.h"
 #include "UIInputSystem.h"
 
+#include "OloEngine/Core/UTF8.h"
 #include "OloEngine/Scene/Scene.h"
 #include "OloEngine/Scene/Components.h"
 
@@ -13,7 +14,105 @@ namespace OloEngine
                point.y >= rectPos.y && point.y <= rectPos.y + rectSize.y;
     }
 
-    void UIInputSystem::ProcessInput(Scene& scene, const glm::vec2& mousePos, bool mouseDown, bool mousePressed, f32 scrollDeltaX, f32 scrollDeltaY)
+    // m_CursorPosition is a byte offset into the UTF-8 m_Text (matching the
+    // renderer, which iterates m_Text by codepoint). These helpers keep the
+    // cursor on codepoint boundaries so edits never split a multi-byte char.
+
+    // Byte index of the codepoint immediately before `pos` (or 0 at the start).
+    static i32 PrevCodepointStart(const std::string& text, i32 pos)
+    {
+        i32 i = pos - 1;
+        // Walk back over UTF-8 continuation bytes (10xxxxxx) to the lead byte.
+        while (i > 0 && (static_cast<unsigned char>(text[static_cast<sizet>(i)]) & 0xC0u) == 0x80u)
+        {
+            --i;
+        }
+        return glm::max(i, 0);
+    }
+
+    // Byte index of the codepoint immediately after the one starting at `pos`
+    // (or the end of the string).
+    static i32 NextCodepointStart(const std::string& text, i32 pos)
+    {
+        const i32 size = static_cast<i32>(text.size());
+        if (pos >= size)
+        {
+            return size;
+        }
+        u32 cp = 0;
+        sizet adv = 0;
+        UTF8::DecodeCodepoint(text, static_cast<sizet>(pos), cp, adv);
+        return glm::min(pos + static_cast<i32>(adv), size);
+    }
+
+    // Apply this frame's keyboard input to a single focused input field.
+    static void ApplyKeyboardToInputField(UIInputFieldComponent& field, const UIKeyboardInput& keyboard)
+    {
+        // Clamp the cursor in case m_Text changed externally (serialization,
+        // scripting) since it was last driven here.
+        i32 cursor = glm::clamp(field.m_CursorPosition, 0, static_cast<i32>(field.m_Text.size()));
+
+        // 1. Insert typed characters at the cursor.
+        for (const u32 cp : keyboard.m_TypedCharacters)
+        {
+            // Skip control characters. GLFW routes Enter/Tab/Backspace through
+            // key events (not char events), but guard defensively so a stray
+            // control codepoint never lands in the text.
+            if (cp < 0x20u || cp == 0x7Fu)
+            {
+                continue;
+            }
+
+            // Enforce the character limit, counted in codepoints (not bytes).
+            if (field.m_CharacterLimit > 0 &&
+                static_cast<i32>(UTF8::CountCodepoints(field.m_Text)) >= field.m_CharacterLimit)
+            {
+                break;
+            }
+
+            std::string encoded;
+            UTF8::EncodeCodepoint(cp, encoded);
+            field.m_Text.insert(static_cast<sizet>(cursor), encoded);
+            cursor += static_cast<i32>(encoded.size());
+        }
+
+        // 2. Backspace — remove the codepoint before the cursor.
+        if (keyboard.m_Backspace && cursor > 0)
+        {
+            const i32 prev = PrevCodepointStart(field.m_Text, cursor);
+            field.m_Text.erase(static_cast<sizet>(prev), static_cast<sizet>(cursor - prev));
+            cursor = prev;
+        }
+
+        // 3. Delete — remove the codepoint at the cursor.
+        if (keyboard.m_Delete && cursor < static_cast<i32>(field.m_Text.size()))
+        {
+            const i32 next = NextCodepointStart(field.m_Text, cursor);
+            field.m_Text.erase(static_cast<sizet>(cursor), static_cast<sizet>(next - cursor));
+        }
+
+        // 4. Cursor movement (codepoint-wise).
+        if (keyboard.m_CursorLeft)
+        {
+            cursor = PrevCodepointStart(field.m_Text, cursor);
+        }
+        if (keyboard.m_CursorRight)
+        {
+            cursor = NextCodepointStart(field.m_Text, cursor);
+        }
+        if (keyboard.m_Home)
+        {
+            cursor = 0;
+        }
+        if (keyboard.m_End)
+        {
+            cursor = static_cast<i32>(field.m_Text.size());
+        }
+
+        field.m_CursorPosition = glm::clamp(cursor, 0, static_cast<i32>(field.m_Text.size()));
+    }
+
+    void UIInputSystem::ProcessInput(Scene& scene, const glm::vec2& mousePos, bool mouseDown, bool mousePressed, f32 scrollDeltaX, f32 scrollDeltaY, const UIKeyboardInput& keyboard)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -243,6 +342,14 @@ namespace OloEngine
                             consumed = true;
                         }
                     }
+                }
+
+                // Keyboard text editing applies only to the focused field. Focus
+                // is resolved above, so a field focused by this frame's click can
+                // also receive this frame's typed characters.
+                if (inputField.m_IsFocused)
+                {
+                    ApplyKeyboardToInputField(inputField, keyboard);
                 }
             }
         }

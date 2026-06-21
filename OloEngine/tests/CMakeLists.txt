@@ -68,6 +68,9 @@ add_executable(OloEngine-Tests
 		Templates/FunctionWithContextTest.cpp
 		Templates/TypeTraitsTest.cpp
 
+		# UI subsystem tests
+		UI/UIInputFieldKeyboardTest.cpp
+
 		# Rendering subsystem tests (Tiers 1-5)
 		Rendering/DrawKeyTest.cpp
 		Rendering/BoundingVolumeTest.cpp
