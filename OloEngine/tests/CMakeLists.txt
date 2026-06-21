@@ -359,6 +359,7 @@ add_executable(OloEngine-Tests
 		Functional/AnimationPhysics/InitialLinearVelocityIsAppliedTest.cpp
 		Functional/Audio/AudioListenerPositionUpdatesViaSceneTickTest.cpp
 		Functional/AnimationPhysics/AnimationGraphStateMachineTickTest.cpp
+		Functional/AnimationPhysics/MorphTargetGraphAnimationTest.cpp
 		Functional/Navigation/NavAgentReachesTargetTest.cpp
 		Functional/Asset/AssetManagerImportsStagedAssetTest.cpp
 		Functional/Gameplay/TimedQuestFailsAfterDeadlineTest.cpp

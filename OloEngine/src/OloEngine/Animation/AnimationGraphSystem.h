@@ -10,6 +10,7 @@ namespace OloEngine
     struct IKTargetComponent;
     struct SpringBoneComponent;
     struct NoiseAnimationComponent;
+    struct MorphTargetComponent;
 } // namespace OloEngine
 
 namespace OloEngine::Animation
@@ -24,6 +25,9 @@ namespace OloEngine::Animation
         // noise/noiseState enable the procedural noise post-pass (runs *before*
         // IK); springBone/springBoneState enable the spring-bone post-pass (runs
         // after IK). Each pair must be non-null for its pass to run.
+        // morphTarget, when non-null, receives morph-target (blend-shape) weights
+        // sampled from the active clip(s) of the graph this frame; CPU evaluation
+        // and mesh deformation happen later in the global morph pass.
         static void Update(
             AnimationGraphComponent& graphComp,
             Skeleton& skeleton,
@@ -33,6 +37,7 @@ namespace OloEngine::Animation
             const SpringBoneComponent* springBone = nullptr,
             SpringBoneState* springBoneState = nullptr,
             const NoiseAnimationComponent* noise = nullptr,
-            NoiseAnimationState* noiseState = nullptr);
+            NoiseAnimationState* noiseState = nullptr,
+            MorphTargetComponent* morphTarget = nullptr);
     };
 } // namespace OloEngine::Animation
