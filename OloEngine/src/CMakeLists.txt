@@ -1146,6 +1146,8 @@
 		"OloEngine/Gameplay/Quest/QuestComponents.h"
 		"OloEngine/Gameplay/Quest/QuestSystem.h"
 		"OloEngine/Gameplay/Quest/QuestSystem.cpp"
+		"OloEngine/Gameplay/Quest/QuestDialogueBridge.h"
+		"OloEngine/Gameplay/Quest/QuestDialogueBridge.cpp"
 
 		"OloEngine/Gameplay/Abilities/Tags/GameplayTag.h"
 		"OloEngine/Gameplay/Abilities/Tags/GameplayTag.cpp"

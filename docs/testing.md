@@ -1199,10 +1199,11 @@ subsystem unit tests (§9.3, grouped by directory).
 |---|---:|---|
 | [EmptyTickReproTest.cpp](../OloEngine/tests/Functional/Diagnostics/EmptyTickReproTest.cpp) | 3 | **EmptyTickReproTest** &mdash; `EmptySceneSingleTickReturns`<br/>**CameraOnlyTickTest** &mdash; `CameraOnlySceneTickReturns`<br/>**SpriteOnlyTickTest** &mdash; `SpriteOnlySceneTickReturns` |
 
-#### Dialogue (3 files)
+#### Dialogue (4 files)
 
 | File | Tests | Cases |
 |---|---:|---|
+| [DialogueAcceptsQuestAndGatesOnStateTest.cpp](../OloEngine/tests/Functional/Dialogue/DialogueAcceptsQuestAndGatesOnStateTest.cpp) | 3 | **DialogueAcceptsQuestAndGatesOnStateTest** &mdash; `AcceptActionMovesQuestToActiveAndPublishesStarted`, `BareAcceptActionUsesQuestGiverOfferedQuest`, `ConditionNodeBranchesOnQuestActiveState` |
 | [DialogueAdvanceMovesToNextNodeTest.cpp](../OloEngine/tests/Functional/Dialogue/DialogueAdvanceMovesToNextNodeTest.cpp) | 1 | **DialogueAdvanceMovesToNextNodeTest** &mdash; `AdvanceTraversesGraphEdgeAndEndsAfterTerminalNode` |
 | [DialogueSelectChoiceBranchesToTargetTest.cpp](../OloEngine/tests/Functional/Dialogue/DialogueSelectChoiceBranchesToTargetTest.cpp) | 1 | **DialogueSelectChoiceBranchesToTargetTest** &mdash; `SelectChoiceWalksTheChosenEdgeAndLandsOnTargetNode` |
 | [DialogueTextRevealsOverTicksTest.cpp](../OloEngine/tests/Functional/Dialogue/DialogueTextRevealsOverTicksTest.cpp) | 1 | **DialogueTextRevealsOverTicksTest** &mdash; `StartDialogueDisplaysAndRevealProgressesAcrossTicks` |
@@ -1293,7 +1294,7 @@ subsystem unit tests (§9.3, grouped by directory).
 | [LuaScriptSetsRigidbody2DVelocityTest.cpp](../OloEngine/tests/Functional/Scripting/LuaScriptSetsRigidbody2DVelocityTest.cpp) | 1 | **LuaScriptSetsRigidbody2DVelocityTest** &mdash; `BodyTranslatesAfterLuaSetsLinearVelocity` |
 | [LuaSetsAbilityAttributeViaSceneTickTest.cpp](../OloEngine/tests/Functional/Scripting/LuaSetsAbilityAttributeViaSceneTickTest.cpp) | 1 | **LuaSetsAbilityAttributeViaSceneTickTest** &mdash; `LuaDrivenHealthToZeroFlipsAliveToDeadOnSubsequentTick` |
 
-**Totals.** 90 Functional test files, 151 TEST / TEST_F declarations across all subsystems.
+**Totals.** 91 Functional test files, 154 TEST / TEST_F declarations across all subsystems.
 
 <!-- END: functional-catalogue -->
 

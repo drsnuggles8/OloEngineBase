@@ -197,6 +197,7 @@
     "OloEngine/tests/Functional/Scripting/LuaRaycastHitsPhysicsBodyTest.cpp": "Functional",
     "OloEngine/tests/Functional/Scripting/LuaCompletesQuestViaIncrementObjectiveTest.cpp": "Functional",
     "OloEngine/tests/Functional/Dialogue/DialogueAdvanceMovesToNextNodeTest.cpp": "Functional",
+    "OloEngine/tests/Functional/Dialogue/DialogueAcceptsQuestAndGatesOnStateTest.cpp": "Functional",
     "OloEngine/tests/Functional/Gameplay/InventoryTransferItemBetweenContainersTest.cpp": "Functional",
     "OloEngine/tests/Functional/Gameplay/ChanneledAbilityAutoDeactivatesAtEndOfDurationTest.cpp": "Functional",
     "OloEngine/tests/Functional/Gameplay/MultiStageQuestAdvancesThroughStagesTest.cpp": "Functional",
