@@ -39,6 +39,8 @@
 #include <Jolt/Physics/Constraints/PulleyConstraint.h>
 #include <Jolt/Physics/Constraints/GearConstraint.h>
 #include <Jolt/Physics/Constraints/RackAndPinionConstraint.h>
+#include <Jolt/Physics/Constraints/PathConstraint.h>
+#include <Jolt/Physics/Constraints/PathConstraintPathHermite.h>
 #include <Jolt/Physics/Constraints/SpringSettings.h>
 
 #include <glm/gtc/constants.hpp>
@@ -887,6 +889,18 @@ namespace OloEngine
                     outAngularImpulse = std::abs(c.GetTotalLambda());
                     return true;
                 }
+                case JPH::EConstraintSubType::Path:
+                {
+                    const auto& c = static_cast<const JPH::PathConstraint&>(constraint);
+                    // Linear load: the two perpendicular axes that hold the body on
+                    // the path, plus the path-end limit reaction, plus the
+                    // motor/friction impulse along the tangent — all genuine forces.
+                    outLinearImpulse = c.GetTotalLambdaPosition().Length() + std::abs(c.GetTotalLambdaPositionLimits()) + std::abs(c.GetTotalLambdaMotor());
+                    // Angular load: the hinge + rotation parts that constrain the
+                    // body's orientation to the path (per the rotation mode).
+                    outAngularImpulse = c.GetTotalLambdaRotationHinge().Length() + c.GetTotalLambdaRotation().Length();
+                    return true;
+                }
                 default:
                     return false;
             }
@@ -999,6 +1013,138 @@ namespace OloEngine
                     slider.SetMotorState(JPH::EMotorState::Position);
                     slider.SetTargetPosition(SanitizeMotorTarget(joint.m_SliderMotorTargetPosition));
                     break;
+                case JointMotorMode::Off:
+                default:
+                    break; // motor off; friction (if any) still applies
+            }
+        }
+
+        // Map the authored path-rotation mode onto Jolt's enum. The values match
+        // 1:1 (JointPathRotationMode mirrors EPathRotationConstraintType); an
+        // out-of-range value falls back to Free (rotation unconstrained).
+        JPH::EPathRotationConstraintType ToJoltPathRotation(JointPathRotationMode mode)
+        {
+            switch (mode)
+            {
+                case JointPathRotationMode::ConstrainAroundTangent:
+                    return JPH::EPathRotationConstraintType::ConstrainAroundTangent;
+                case JointPathRotationMode::ConstrainAroundNormal:
+                    return JPH::EPathRotationConstraintType::ConstrainAroundNormal;
+                case JointPathRotationMode::ConstrainAroundBinormal:
+                    return JPH::EPathRotationConstraintType::ConstrainAroundBinormal;
+                case JointPathRotationMode::ConstrainToPath:
+                    return JPH::EPathRotationConstraintType::ConstrainToPath;
+                case JointPathRotationMode::FullyConstrained:
+                    return JPH::EPathRotationConstraintType::FullyConstrained;
+                case JointPathRotationMode::Free:
+                default:
+                    return JPH::EPathRotationConstraintType::Free;
+            }
+        }
+
+        // Build a Jolt Hermite path from the authored control points. Returns
+        // nullptr when there are too few usable points (Jolt needs at least one
+        // segment) or any point is non-finite — the caller then logs and skips
+        // the constraint.
+        //
+        // Tangents are central differences (a Catmull-Rom spline through the
+        // points), one-sided at the ends of a non-looping path and wrapped for a
+        // looping one. Each point's normal is derived perpendicular to its
+        // tangent so Jolt's binormal = normal x tangent never degenerates (the
+        // Free rotation mode ignores the normal, but the ConstrainAround* / ToPath
+        // modes rely on it). `looping` is honoured only with >= 3 distinct points;
+        // a 2-point loop has a zero central-difference tangent, so it is treated
+        // as a straight (non-looping) path.
+        JPH::Ref<JPH::PathConstraintPathHermite> BuildHermitePath(const std::vector<glm::vec3>& points, bool looping)
+        {
+            const sizet n = points.size();
+            if (n < 2)
+                return nullptr;
+            for (const glm::vec3& p : points)
+            {
+                if (!std::isfinite(p.x) || !std::isfinite(p.y) || !std::isfinite(p.z))
+                    return nullptr;
+            }
+
+            // A looping path needs a distinct first/last point (Jolt asserts they
+            // differ) and at least one interior point for the wrapped central
+            // differences to be non-zero.
+            const glm::vec3 firstToLast = points.front() - points.back();
+            const bool loop = looping && n >= 3 && glm::dot(firstToLast, firstToLast) > 1.0e-12f;
+
+            JPH::Ref<JPH::PathConstraintPathHermite> path = new JPH::PathConstraintPathHermite();
+            path->SetIsLooping(loop);
+
+            for (sizet i = 0; i < n; ++i)
+            {
+                glm::vec3 prev;
+                glm::vec3 next;
+                if (loop)
+                {
+                    prev = points[(i + n - 1) % n];
+                    next = points[(i + 1) % n];
+                }
+                else
+                {
+                    prev = points[i == 0 ? 0 : i - 1];
+                    next = points[i + 1 >= n ? n - 1 : i + 1];
+                }
+
+                glm::vec3 tangent = 0.5f * (next - prev);
+                // A coincident neighbour pair yields a zero tangent (a degenerate
+                // Hermite segment); fall back to the segment direction, then +X.
+                if (glm::dot(tangent, tangent) < 1.0e-12f)
+                {
+                    tangent = next - points[i];
+                    if (glm::dot(tangent, tangent) < 1.0e-12f)
+                        tangent = points[i] - prev;
+                    if (glm::dot(tangent, tangent) < 1.0e-12f)
+                        tangent = glm::vec3(1.0f, 0.0f, 0.0f);
+                }
+
+                // Derive a normal perpendicular to the tangent. Use world up
+                // unless the tangent is near-vertical, then fall back to world +X.
+                const glm::vec3 tdir = glm::normalize(tangent);
+                const glm::vec3 ref = (std::abs(tdir.y) > 0.99f) ? glm::vec3(1.0f, 0.0f, 0.0f) : glm::vec3(0.0f, 1.0f, 0.0f);
+                glm::vec3 binormal = glm::cross(ref, tdir);
+                if (glm::dot(binormal, binormal) < 1.0e-12f)
+                    binormal = glm::cross(glm::vec3(0.0f, 0.0f, 1.0f), tdir);
+                binormal = glm::normalize(binormal);
+                const glm::vec3 normal = glm::normalize(glm::cross(tdir, binormal));
+
+                path->AddPoint(JoltUtils::ToJoltVector(points[i]),
+                               JoltUtils::ToJoltVector(tangent),
+                               JoltUtils::ToJoltVector(normal));
+            }
+            return path;
+        }
+
+        // Put a freshly-created path constraint into the motor state authored on
+        // the component. The position motor drives body 2 ALONG the path:
+        // Velocity targets m/s along the path tangent; Position targets a path
+        // fraction (clamped to the valid [0, max] domain for a non-looping path,
+        // since Jolt asserts on an out-of-range fraction; a looping path accepts
+        // any fraction and wraps). Off leaves the motor disabled — any max
+        // friction force set on the settings still resists motion. The motor
+        // force limit was already applied to s.mPositionMotorSettings before
+        // Create().
+        void ConfigurePathMotor(JPH::PathConstraint& path, const PhysicsJoint3DComponent& joint)
+        {
+            switch (joint.m_PathMotorMode)
+            {
+                case JointMotorMode::Velocity:
+                    path.SetPositionMotorState(JPH::EMotorState::Velocity);
+                    path.SetTargetVelocity(SanitizeMotorTarget(joint.m_PathMotorTargetVelocity));
+                    break;
+                case JointMotorMode::Position:
+                {
+                    path.SetPositionMotorState(JPH::EMotorState::Position);
+                    f32 target = SanitizeMotorTarget(joint.m_PathMotorTargetFraction);
+                    if (const JPH::PathConstraintPath* p = path.GetPath(); p != nullptr && !p->IsLooping())
+                        target = std::clamp(target, 0.0f, p->GetPathMaxFraction());
+                    path.SetTargetPathFraction(target);
+                    break;
+                }
                 case JointMotorMode::Off:
                 default:
                     break; // motor off; friction (if any) still applies
@@ -1425,6 +1571,37 @@ namespace OloEngine
                     s.mSliderAxis = jAxis;
                     s.mRatio = SanitizeConstraintRatio(joint.m_GearRatio);
                     return s.Create(body1, body2);
+                }
+                case JointType3D::Path:
+                {
+                    // body1 = connected/world body, body2 = this body. The
+                    // Hermite path is authored in body1's local frame (world frame
+                    // for a world anchor), so mPathPosition places the path origin
+                    // at body1's local anchor (m_LocalAnchorB) with no extra
+                    // rotation; Jolt converts to body1's COM space internally.
+                    // body2 is pulled onto the path and may be driven along it by
+                    // the position motor. Returns nullptr (skips the constraint)
+                    // when the authored points can't form a valid path.
+                    JPH::Ref<JPH::PathConstraintPathHermite> path = BuildHermitePath(joint.m_PathPoints, joint.m_PathIsLooping);
+                    if (path == nullptr)
+                    {
+                        OLO_CORE_WARN("PhysicsJoint3D on entity {0}: Path joint needs >= 2 finite points; skipping constraint", (u64)entityID);
+                        return nullptr;
+                    }
+                    JPH::PathConstraintSettings s;
+                    s.mPath = path;
+                    s.mPathPosition = JoltUtils::ToJoltVector(joint.m_LocalAnchorB);
+                    s.mPathRotation = JPH::Quat::sIdentity();
+                    s.mPathFraction = 0.0f;
+                    // Friction force (used only when the motor is Off) and the
+                    // along-path motor force authority. Both clamp non-finite /
+                    // negative authored values to 0 ("no friction" / "no authority").
+                    s.mMaxFrictionForce = SanitizeMotorMagnitude(joint.m_PathMaxFrictionForce);
+                    s.mPositionMotorSettings.SetForceLimit(SanitizeMotorMagnitude(joint.m_PathMaxMotorForce));
+                    s.mRotationConstraintType = ToJoltPathRotation(joint.m_PathRotationMode);
+                    auto* pathConstraint = static_cast<JPH::PathConstraint*>(s.Create(body1, body2));
+                    ConfigurePathMotor(*pathConstraint, joint);
+                    return pathConstraint;
                 }
             }
             return nullptr;
