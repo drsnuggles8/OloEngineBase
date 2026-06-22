@@ -72,7 +72,10 @@ namespace OloEngine::Audio::SoundGraph
                 while (m_Counter >= safePeriod)
                 {
                     m_Counter -= safePeriod;
-                    m_OutTrigger(1.0f);
+                    // Phase 4: fire at this frame's offset so downstream trigger
+                    // consumers (WavePlayer, envelopes) retrigger sample-accurately
+                    // instead of snapping every tick to the block boundary.
+                    m_OutTrigger(1.0f, static_cast<i32>(frame));
                 }
             }
         }
@@ -274,7 +277,9 @@ namespace OloEngine::Audio::SoundGraph
                 {
                     m_Waiting = false;
                     m_Counter = 0.0f;
-                    m_OutDelayedTrigger(1.0f);
+                    // Phase 4: fire at this frame's offset so the delayed trigger lands
+                    // sample-accurately on downstream consumers (not the block boundary).
+                    m_OutDelayedTrigger(1.0f, static_cast<i32>(frame));
                 }
             }
         }

@@ -42,6 +42,7 @@ add_executable(OloEngine-Tests
 		SoundGraphBasicTest.cpp
 		SoundGraphInstantiationTest.cpp
 		SoundGraphTypedConnectionTest.cpp
+		SoundGraphSampleAccurateTriggerTest.cpp
 		AudioEventQueueTest.cpp
 		AudioDSPTest.cpp
 		AudioSpatializerTest.cpp
@@ -304,6 +305,10 @@ add_executable(OloEngine-Tests
 		# olo_render_set_debug_view (#316 Part 4). Header-only (MCP/McpRenderOverrides.h,
 		# nlohmann::json + stdlib only), so no extra editor TU is pulled in.
 		MCP/McpRenderOverridesTest.cpp
+		# Tool behavioural annotations + title serialization and tool-name validation
+		# (#357 Tier 1). Exercises HandleToolsList / RegisterTool / IsValidToolName in
+		# the McpServer.cpp TU already pulled in above; no extra editor TU is needed.
+		MCP/McpToolAnnotationsTest.cpp
 		# Lua Binding Tests
 		Lua/LuaBindingTest.cpp
 		# Functional / cross-subsystem world-tick tests (see ADR 0001).

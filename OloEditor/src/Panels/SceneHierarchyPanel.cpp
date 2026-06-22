@@ -3582,7 +3582,7 @@ namespace OloEngine
 
         DrawComponent<PhysicsJoint3DComponent>("Physics Joint 3D", entity, [this, entity](auto& component)
                                                {
-            const char* jointTypeStrings[] = { "Fixed", "Point", "Distance", "Hinge", "Slider", "Cone", "SwingTwist", "SixDOF", "Pulley", "Gear", "RackAndPinion" };
+            const char* jointTypeStrings[] = { "Fixed", "Point", "Distance", "Hinge", "Slider", "Cone", "SwingTwist", "SixDOF", "Pulley", "Gear", "RackAndPinion", "Path" };
             if (const char* currentJointTypeString = jointTypeStrings[static_cast<int>(component.m_Type)]; ImGui::BeginCombo("Joint Type", currentJointTypeString))
             {
                 for (int i = 0; i < IM_ARRAYSIZE(jointTypeStrings); ++i)
@@ -3789,6 +3789,63 @@ namespace OloEngine
                         ImGui::TextColored(ImVec4(1.0f, 0.6f, 0.2f, 1.0f), "Rack & Pinion needs a connected body (the pinion).");
                     DrawVec3Control("Pinion Axis (connected, local)##PhysicsJoint3D", component.m_ConnectedAxis);
                     ImGui::DragFloat("Ratio##RackPinionJoint", &component.m_GearRatio, 0.01f, -1.0e9f, 1.0e9f);
+                    break;
+                }
+                case JointType3D::Path:
+                {
+                    // This body follows a Hermite path defined relative to the
+                    // connected body (world space for a world anchor), with the
+                    // path origin at Anchor B. Author the control points below;
+                    // >= 2 are required for the constraint to build.
+                    ImGui::TextDisabled("Path Points (local to connected body / world)");
+                    int removeIndex = -1;
+                    for (int i = 0; i < static_cast<int>(component.m_PathPoints.size()); ++i)
+                    {
+                        ImGui::PushID(i);
+                        DrawVec3Control(("Point " + std::to_string(i) + "##PathJoint").c_str(), component.m_PathPoints[i]);
+                        ImGui::SameLine();
+                        if (ImGui::SmallButton("X"))
+                            removeIndex = i;
+                        ImGui::PopID();
+                    }
+                    if (removeIndex >= 0)
+                        component.m_PathPoints.erase(component.m_PathPoints.begin() + removeIndex);
+                    if (ImGui::Button("Add Point##PathJoint"))
+                    {
+                        const glm::vec3 next = component.m_PathPoints.empty()
+                                                   ? glm::vec3(0.0f)
+                                                   : component.m_PathPoints.back() + glm::vec3(1.0f, 0.0f, 0.0f);
+                        component.m_PathPoints.push_back(next);
+                    }
+                    if (component.m_PathPoints.size() < 2)
+                        ImGui::TextColored(ImVec4(1.0f, 0.6f, 0.2f, 1.0f), "Path needs at least 2 points.");
+
+                    ImGui::Checkbox("Looping##PathJoint", &component.m_PathIsLooping);
+
+                    // Rotation constraint mode (mirrors Jolt EPathRotationConstraintType).
+                    const char* pathRotStrings[] = { "Free", "Constrain Tangent", "Constrain Normal", "Constrain Binormal", "Constrain To Path", "Fully Constrained" };
+                    if (const char* current = pathRotStrings[static_cast<int>(component.m_PathRotationMode)]; ImGui::BeginCombo("Rotation Mode##PathJoint", current))
+                    {
+                        for (int i = 0; i < IM_ARRAYSIZE(pathRotStrings); ++i)
+                        {
+                            const bool isSelected = (current == pathRotStrings[i]);
+                            if (ImGui::Selectable(pathRotStrings[i], isSelected))
+                                component.m_PathRotationMode = static_cast<JointPathRotationMode>(i);
+                            if (isSelected)
+                                ImGui::SetItemDefaultFocus();
+                        }
+                        ImGui::EndCombo();
+                    }
+
+                    // Along-path motor + friction (mirrors the Hinge/Slider motors).
+                    drawMotorModeCombo("Motor Mode##PathMotor", component.m_PathMotorMode);
+                    if (component.m_PathMotorMode == JointMotorMode::Velocity)
+                        ImGui::DragFloat("Target Velocity (m/s)##PathMotor", &component.m_PathMotorTargetVelocity, 0.01f, -1000.0f, 1000.0f);
+                    else if (component.m_PathMotorMode == JointMotorMode::Position)
+                        ImGui::DragFloat("Target Fraction##PathMotor", &component.m_PathMotorTargetFraction, 0.01f, 0.0f, 1.0e9f);
+                    if (component.m_PathMotorMode != JointMotorMode::Off)
+                        ImGui::DragFloat("Max Motor Force (N)##PathMotor", &component.m_PathMaxMotorForce, 1.0f, 0.0f, 1.0e9f);
+                    ImGui::DragFloat("Max Friction Force (N)##PathMotor", &component.m_PathMaxFrictionForce, 1.0f, 0.0f, 1.0e9f);
                     break;
                 }
                 case JointType3D::Fixed:

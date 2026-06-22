@@ -3412,6 +3412,154 @@ static void PhysicsJoint3DComponent_SetGearRatio(UUID entityID, float value)
     comp.m_GearRatio = value;
 }
 
+static bool PhysicsJoint3DComponent_GetPathIsLooping(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<PhysicsJoint3DComponent>();
+    return comp.m_PathIsLooping;
+}
+
+static void PhysicsJoint3DComponent_SetPathIsLooping(UUID entityID, bool value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<PhysicsJoint3DComponent>();
+    comp.m_PathIsLooping = value;
+}
+
+static int PhysicsJoint3DComponent_GetPathRotationMode(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<PhysicsJoint3DComponent>();
+    return static_cast<int>(comp.m_PathRotationMode);
+}
+
+static void PhysicsJoint3DComponent_SetPathRotationMode(UUID entityID, int value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<PhysicsJoint3DComponent>();
+    comp.m_PathRotationMode = static_cast<JointPathRotationMode>(value);
+}
+
+static int PhysicsJoint3DComponent_GetPathMotorMode(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<PhysicsJoint3DComponent>();
+    return static_cast<int>(comp.m_PathMotorMode);
+}
+
+static void PhysicsJoint3DComponent_SetPathMotorMode(UUID entityID, int value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<PhysicsJoint3DComponent>();
+    comp.m_PathMotorMode = static_cast<JointMotorMode>(value);
+}
+
+static float PhysicsJoint3DComponent_GetPathMotorTargetVelocity(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<PhysicsJoint3DComponent>();
+    return comp.m_PathMotorTargetVelocity;
+}
+
+static void PhysicsJoint3DComponent_SetPathMotorTargetVelocity(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<PhysicsJoint3DComponent>();
+    comp.m_PathMotorTargetVelocity = value;
+}
+
+static float PhysicsJoint3DComponent_GetPathMotorTargetFraction(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<PhysicsJoint3DComponent>();
+    return comp.m_PathMotorTargetFraction;
+}
+
+static void PhysicsJoint3DComponent_SetPathMotorTargetFraction(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<PhysicsJoint3DComponent>();
+    comp.m_PathMotorTargetFraction = value;
+}
+
+static float PhysicsJoint3DComponent_GetPathMaxMotorForce(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<PhysicsJoint3DComponent>();
+    return comp.m_PathMaxMotorForce;
+}
+
+static void PhysicsJoint3DComponent_SetPathMaxMotorForce(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<PhysicsJoint3DComponent>();
+    comp.m_PathMaxMotorForce = value;
+}
+
+static float PhysicsJoint3DComponent_GetPathMaxFrictionForce(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<PhysicsJoint3DComponent>();
+    return comp.m_PathMaxFrictionForce;
+}
+
+static void PhysicsJoint3DComponent_SetPathMaxFrictionForce(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<PhysicsJoint3DComponent>();
+    comp.m_PathMaxFrictionForce = value;
+}
+
 ///////////////////////////////////////////////////////////////////////////////////////////
 // PointLightComponent                                                            //
 ///////////////////////////////////////////////////////////////////////////////////////////
