@@ -56,6 +56,10 @@
 		"OloEngine/Animation/Procedural/NoiseSolver.cpp"
 		"OloEngine/Animation/Procedural/NoisePostPass.h"
 		"OloEngine/Animation/Procedural/NoisePostPass.cpp"
+		"OloEngine/Animation/Retargeting/SkeletonRetargetMap.h"
+		"OloEngine/Animation/Retargeting/SkeletonRetargetMap.cpp"
+		"OloEngine/Animation/Retargeting/AnimationRetargeter.h"
+		"OloEngine/Animation/Retargeting/AnimationRetargeter.cpp"
 
 		"OloEngine/Animation/MorphTargets/MorphTarget.h"
 		"OloEngine/Animation/MorphTargets/MorphTargetSet.h"
