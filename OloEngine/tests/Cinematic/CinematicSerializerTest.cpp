@@ -206,8 +206,8 @@ TEST(CinematicSerializerTest, LegacyFileWithoutTangentsLoadsAsFlatDefaults)
   TransformTracks:
     - Target: 5
       Translation:
-        - { Time: 0.0, Value: [0, 0, 0], Interp: 2 }
-        - { Time: 1.0, Value: [10, 0, 0], Interp: 3 }
+        - { Time: 0.0, Value: [0, 0, 0], Interp: 3 }
+        - { Time: 1.0, Value: [10, 0, 0], Interp: 2 }
 )";
 
     auto seq = CinematicSequenceSerializer::DeserializeFromString(yaml);
@@ -215,14 +215,16 @@ TEST(CinematicSerializerTest, LegacyFileWithoutTangentsLoadsAsFlatDefaults)
     ASSERT_EQ(seq->TransformTracks.size(), 1u);
     const auto& tt = seq->TransformTracks[0];
     ASSERT_EQ(tt.Translation.Keys.size(), 2u);
-    EXPECT_EQ(tt.Translation.Keys[0].Interp, CinematicInterp::EaseInOut);
-    EXPECT_EQ(tt.Translation.Keys[1].Interp, CinematicInterp::Bezier);
+    // Both interp values round-trip; the Bezier key governs the evaluated segment.
+    EXPECT_EQ(tt.Translation.Keys[0].Interp, CinematicInterp::Bezier);
+    EXPECT_EQ(tt.Translation.Keys[1].Interp, CinematicInterp::EaseInOut);
     for (const auto& k : tt.Translation.Keys)
     {
         EXPECT_NEAR(k.InTangent, 0.0f, kEps);
         EXPECT_NEAR(k.OutTangent, 0.0f, kEps);
     }
-    // Flat-tangent Bezier first segment is smoothstep: midpoint == half.
+    // The segment [0->1] is governed by the left (Bezier) key with flat tangents,
+    // so it must evaluate as smoothstep: midpoint == half.
     EXPECT_NEAR(tt.Translation.Evaluate(0.5f).x, 5.0f, 1e-3f);
 }
 
@@ -240,6 +242,7 @@ TEST(CinematicSerializerTest, OutOfRangeInterpClampsButBezierIsAccepted)
 
     auto seq = CinematicSequenceSerializer::DeserializeFromString(yaml);
     ASSERT_TRUE(seq);
+    ASSERT_EQ(seq->TransformTracks.size(), 1u); // guard the [0] access below
     const auto& keys = seq->TransformTracks[0].Translation.Keys;
     ASSERT_EQ(keys.size(), 2u);
     EXPECT_EQ(keys[0].Interp, CinematicInterp::Bezier); // 3 is in range now

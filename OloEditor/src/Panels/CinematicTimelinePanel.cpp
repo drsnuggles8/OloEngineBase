@@ -762,12 +762,17 @@ namespace OloEngine
         }
         ImGui::Separator();
 
-        // Common: interpolation mode + (for Bezier) the in/out tangent handles.
-        // Generic over the key type so the float / vec3 / quat keys share it —
-        // each exposes Interp / InTangent / OutTangent. Implemented per-kind below
-        // so we can re-fetch the right vector for the time editor.
-        const auto editKeyInterp = [&](auto& key)
+        // Common: interpolation mode + the in/out tangent handles. Generic over the
+        // key type so the float / vec3 / quat keys share it — each exposes Interp /
+        // InTangent / OutTangent. Takes the keys vector + index (not just the key)
+        // so it can see the previous key, because a Bezier *segment* uses the left
+        // key's OutTangent and the right key's InTangent: a key's OutTangent is live
+        // when this key is Bezier, and its InTangent is live when the *previous* key
+        // is Bezier. Show both handles whenever either applies so the relevant one is
+        // always reachable (e.g. the InTangent of a non-Bezier key after a Bezier key).
+        const auto editKeyInterp = [&](auto& keys, sizet idx)
         {
+            auto& key = keys[idx];
             int cur = static_cast<int>(key.Interp);
             const char* items[] = { "Constant", "Linear", "EaseInOut", "Bezier" };
             if (ImGui::Combo("Interpolation", &cur, items, 4))
@@ -775,16 +780,19 @@ namespace OloEngine
                 key.Interp = static_cast<CinematicInterp>(std::clamp(cur, 0, 3));
                 changed = true;
             }
-            if (key.Interp == CinematicInterp::Bezier)
+            const bool prevIsBezier = idx > 0 && keys[idx - 1].Interp == CinematicInterp::Bezier;
+            if (key.Interp == CinematicInterp::Bezier || prevIsBezier)
             {
                 // Tangents are slopes of the normalized ease curve: 0 = smoothstep
-                // ends, 1 = straight (linear), higher = steeper / overshoot. The
-                // out-tangent shapes the segment leaving this key; the in-tangent
-                // shapes the segment arriving at it (from the previous key).
+                // ends, 1 = straight (linear), higher = steeper / overshoot.
                 if (ImGui::DragFloat("In tangent", &key.InTangent, 0.02f, -8.0f, 8.0f, "%.3f"))
                     changed = true;
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Used when the previous key is Bezier (shapes the segment arriving here).");
                 if (ImGui::DragFloat("Out tangent", &key.OutTangent, 0.02f, -8.0f, 8.0f, "%.3f"))
                     changed = true;
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Used when this key is Bezier (shapes the segment leaving here).");
                 ImGui::TextDisabled("0 = ease (smoothstep), 1 = linear");
             }
         };
@@ -808,7 +816,7 @@ namespace OloEngine
                 }
                 if (ImGui::DragFloat3("Value", &key.Value.x, 0.02f))
                     changed = true;
-                editKeyInterp(key);
+                editKeyInterp(channel.Keys, m_Selection.KeyIndex);
                 break;
             }
             case LaneKind::CameraPosition:
@@ -826,7 +834,7 @@ namespace OloEngine
                 }
                 if (ImGui::DragFloat3("Value", &key.Value.x, 0.02f))
                     changed = true;
-                editKeyInterp(key);
+                editKeyInterp(channel.Keys, m_Selection.KeyIndex);
                 break;
             }
             case LaneKind::TransformRotation:
@@ -851,7 +859,7 @@ namespace OloEngine
                     key.Value = glm::quat(glm::radians(euler));
                     changed = true;
                 }
-                editKeyInterp(key);
+                editKeyInterp(channel->Keys, m_Selection.KeyIndex);
                 break;
             }
             case LaneKind::CameraFov:
@@ -873,7 +881,7 @@ namespace OloEngine
                     key.Value = glm::radians(deg);
                     changed = true;
                 }
-                editKeyInterp(key);
+                editKeyInterp(channel.Keys, m_Selection.KeyIndex);
                 break;
             }
             case LaneKind::Visibility:
