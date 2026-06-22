@@ -21,6 +21,19 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' || github.event_name == 'push' }}
 
+env:
+  # Route sccache at its GitHub Actions cache backend (provisioned by the
+  # mozilla-actions/sccache-action step in each matrix leg below). Object files
+  # are reused across runs, so a nightly fuzz build only recompiles the TUs that
+  # actually changed instead of building the whole sanitised engine + harnesses
+  # cold every night. Mirrors the Windows.yml (#319) / asan.yml (#358) pattern.
+  # The clang-cl Ninja Multi-Config generator here honors
+  # CMAKE_<LANG>_COMPILER_LAUNCHER, so the launcher engages with no extra switch.
+  # The -fsanitize=fuzzer,address|undefined flags are part of each compile
+  # command line (and so part of sccache's hash), so the asan and ubsan matrix
+  # legs are distinct cache entries — a single shared backend cannot collide.
+  SCCACHE_GHA_ENABLED: "true"
+
 jobs:
   fuzz:
     # Two parallel jobs — `asan` and `ubsan` — because compiler-rt's Windows
@@ -37,11 +50,11 @@ jobs:
       matrix:
         sanitizer: [asan, ubsan]
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
 
       - name: Install Python 3.10
         id: py
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
         with:
           python-version: '3.10'
 
@@ -58,7 +71,7 @@ jobs:
         # needs the Windows SDK libpath and MSVC's CRT import libs, which
         # come from MSVC's vcvars setup. ilammy/msvc-dev-cmd loads them
         # into the job env for every subsequent step.
-        uses: ilammy/msvc-dev-cmd@v1
+        uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1.13.0
         with:
           arch: x64
 
@@ -84,10 +97,21 @@ jobs:
         # install root (so binaries live at `$LLVM_PATH/bin`) and caches the
         # download via actions/cache. Pinned to a specific 20.1.x release so
         # we don't drift with the action's "latest 20.x" interpretation.
-        uses: KyleMayes/install-llvm-action@v2
+        uses: KyleMayes/install-llvm-action@ebc0426251bc40c7cd31162802432c68818ab8f0 # v2.0.9
         with:
           version: "20.1.8"
           cached: true
+
+      # Provisions sccache and wires it to the GitHub Actions cache backend
+      # (SCCACHE_GHA_ENABLED above). Must run before Configure so the launcher
+      # resolves on PATH. Action v0.0.10 + sccache >= v0.10.0 are REQUIRED:
+      # GitHub decommissioned the legacy Actions cache API on 2025-04-15 and
+      # older sccache builds hit the dead endpoint and fail to start (and, as the
+      # compiler launcher, would break every compile). v0.15.0 matches Windows.yml.
+      - name: Setup sccache
+        uses: mozilla-actions/sccache-action@9e7fa8a12102821edf02ca5dbea1acd0f89a2696 # v0.0.10
+        with:
+          version: "v0.15.0"
 
       - name: Configure CMake (standalone clang-cl via Ninja Multi-Config)
         # We replicate the `clangcl` CMake preset's settings inline instead
@@ -126,7 +150,18 @@ jobs:
                 "-DPython_EXECUTABLE=${{ steps.py.outputs.python-path }}" `
                 -DOLO_ENABLE_FUZZING=ON `
                 -DOLO_FUZZ_SANITIZER=${{ matrix.sanitizer }} `
-                -DOLO_VIDEO_FFMPEG=OFF
+                -DOLO_VIDEO_FFMPEG=OFF `
+                -DOLO_ENABLE_COMPILER_CACHE=ON `
+                -DOLO_ENABLE_LTO=OFF
+          # -DOLO_ENABLE_COMPILER_CACHE=ON: wires sccache as the compiler
+          #   launcher (cmake/CompilerCache.cmake). The Ninja generator honors
+          #   CMAKE_<LANG>_COMPILER_LAUNCHER, so clang-cl compiles route through
+          #   sccache; it also force-disables PCH and unity (both non-cacheable)
+          #   and switches MSVC-style debug info to /Z7 so objects are cacheable.
+          # -DOLO_ENABLE_LTO=OFF: LTO defaults ON, but a fuzz harness is never
+          #   shipped — its codegen quality is irrelevant, and ThinLTO would add a
+          #   slow whole-program link for no benefit. Dropping it also keeps every
+          #   object a pure function of its TU (cacheable). Mirrors Windows.yml.
 
       - name: Build fuzzers
         # OloEngine + fuzz harnesses are sanitised (see cmake/Fuzzing.cmake);
@@ -137,6 +172,14 @@ jobs:
         # path would need the DLL on PATH at build time. The "Run fuzz smoke"
         # step below handles the actual harness execution.
         run: cmake --build build-clang --target OloEngine-Fuzz --config Release --parallel
+
+      # Read the cache hit rate. A cold cache (first run / after a real source
+      # change) is mostly misses + writes; a warm cache shows a high hit rate,
+      # meaning the build step recompiled almost nothing. Two consecutive nightly
+      # runs of the same matrix leg are the cold-vs-warm proof.
+      - name: Show sccache stats
+        if: always()
+        run: sccache --show-stats
 
       - name: Run fuzz smoke (per-target 30s)
         working-directory: OloEditor
@@ -203,7 +246,7 @@ jobs:
 
       - name: Upload crash artifacts
         if: failure()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           # Per-sanitizer name so the asan and ubsan jobs don't try to
           # upload to the same artifact (actions/upload-artifact@v7

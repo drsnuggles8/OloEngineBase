@@ -44,12 +44,12 @@ jobs:
     outputs:
       native: ${{ steps.filter.outputs.native }}
     steps:
-    - uses: actions/checkout@v6
+    - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
       with:
         fetch-depth: 0
     - name: Detect changed paths
       id: filter
-      uses: dorny/paths-filter@v4
+      uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4.0.1
       with:
         filters: |
           native:
@@ -83,11 +83,11 @@ jobs:
       checks: write
 
     steps:
-    - uses: actions/checkout@v6
+    - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
 
     - name: Install Python 3.10
       id: py
-      uses: actions/setup-python@v6
+      uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
       with:
         python-version: '3.10'
 
@@ -109,7 +109,7 @@ jobs:
     # OloEngine-ScriptCore project — it is gated on the VS generator — but the
     # OloEngine-Tests build never links that assembly, so ASan coverage is intact.)
     - name: Setup MSVC dev environment
-      uses: ilammy/msvc-dev-cmd@v1
+      uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1.13.0
       with:
         arch: x64
 
@@ -118,7 +118,7 @@ jobs:
     # resolves on PATH. See asan-lsan-linux for the action/sccache version-pin
     # rationale (older builds hit the decommissioned legacy cache API and fail).
     - name: Setup sccache
-      uses: mozilla-actions/sccache-action@v0.0.10
+      uses: mozilla-actions/sccache-action@9e7fa8a12102821edf02ca5dbea1acd0f89a2696 # v0.0.10
       with:
         version: "v0.15.0"
 
@@ -199,7 +199,7 @@ jobs:
       # to read for forks). Skip the reporter there; same-repo PRs and
       # push/workflow_dispatch runs retain full permissions.
       if: always() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
-      uses: dorny/test-reporter@v3
+      uses: dorny/test-reporter@a43b3a5f7366b97d083190328d2c652e1a8b6aa2 # v3.0.0
       with:
         name: ASan (Windows)
         path: test_results/*.xml
@@ -223,7 +223,7 @@ jobs:
       checks: write
 
     steps:
-    - uses: actions/checkout@v6
+    - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
 
     - name: Free up disk space
       # GitHub-hosted runners ship ~14 GB free; a sanitizer Debug link of
@@ -267,7 +267,7 @@ jobs:
     # the dead endpoint and fail to start (and, as the compiler launcher, would
     # break every compile). v0.15.0 is the current stable pin — matches Windows.yml.
     - name: Setup sccache
-      uses: mozilla-actions/sccache-action@v0.0.10
+      uses: mozilla-actions/sccache-action@9e7fa8a12102821edf02ca5dbea1acd0f89a2696 # v0.0.10
       with:
         version: "v0.15.0"
 
@@ -333,7 +333,7 @@ jobs:
       # to read for forks). Skip the reporter there; same-repo PRs and
       # push/workflow_dispatch runs retain full permissions.
       if: always() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
-      uses: dorny/test-reporter@v3
+      uses: dorny/test-reporter@a43b3a5f7366b97d083190328d2c652e1a8b6aa2 # v3.0.0
       with:
         name: ASan + LSan (Linux)
         path: test_results/*.xml
@@ -355,7 +355,7 @@ jobs:
       checks: write
 
     steps:
-    - uses: actions/checkout@v6
+    - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
 
     - name: Free up disk space
       # GitHub-hosted runners ship ~14 GB free; a sanitizer Debug link of
@@ -390,7 +390,7 @@ jobs:
     # Provisions sccache before Configure (see asan-lsan-linux for the version-
     # pin rationale and why no generator switch is needed on Linux).
     - name: Setup sccache
-      uses: mozilla-actions/sccache-action@v0.0.10
+      uses: mozilla-actions/sccache-action@9e7fa8a12102821edf02ca5dbea1acd0f89a2696 # v0.0.10
       with:
         version: "v0.15.0"
 
@@ -445,7 +445,7 @@ jobs:
       # to read for forks). Skip the reporter there; same-repo PRs and
       # push/workflow_dispatch runs retain full permissions.
       if: always() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
-      uses: dorny/test-reporter@v3
+      uses: dorny/test-reporter@a43b3a5f7366b97d083190328d2c652e1a8b6aa2 # v3.0.0
       with:
         name: UBSan (Linux)
         path: test_results/*.xml
@@ -468,7 +468,7 @@ jobs:
       checks: write
 
     steps:
-    - uses: actions/checkout@v6
+    - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
 
     - name: Free up disk space
       # GitHub-hosted runners ship ~14 GB free; a sanitizer Debug link of
@@ -503,7 +503,7 @@ jobs:
     # Provisions sccache before Configure (see asan-lsan-linux for the version-
     # pin rationale and why no generator switch is needed on Linux).
     - name: Setup sccache
-      uses: mozilla-actions/sccache-action@v0.0.10
+      uses: mozilla-actions/sccache-action@9e7fa8a12102821edf02ca5dbea1acd0f89a2696 # v0.0.10
       with:
         version: "v0.15.0"
 
@@ -562,7 +562,7 @@ jobs:
       # to read for forks). Skip the reporter there; same-repo PRs and
       # push/workflow_dispatch runs retain full permissions.
       if: always() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
-      uses: dorny/test-reporter@v3
+      uses: dorny/test-reporter@a43b3a5f7366b97d083190328d2c652e1a8b6aa2 # v3.0.0
       with:
         name: TSan (Linux)
         path: test_results/*.xml

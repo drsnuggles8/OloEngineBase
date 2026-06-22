@@ -13,7 +13,7 @@ runs:
   using: 'composite'
   steps:
     - name: Install Vulkan SDK
-      uses: humbletim/install-vulkan-sdk@033219e2d69dd4d3e873e217eb385fdd4b4438f4
+      uses: humbletim/install-vulkan-sdk@033219e2d69dd4d3e873e217eb385fdd4b4438f4 # main @ 2025-08-05 (no release tag; newest is v1.2)
       with:
         version: ${{ inputs.version }}
         cache: ${{ inputs.cache }}
