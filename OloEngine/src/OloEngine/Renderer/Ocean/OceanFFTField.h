@@ -102,6 +102,9 @@ namespace OloEngine::Ocean
             f32 SmallWaveSuppression = 0.0f;
             f32 DirectionalExponent = 0.0f;
             u32 Seed = 0u;
+            u32 SpectrumType = 0u; ///< SpectrumType cast to u32 (selector affects h0)
+            f32 JonswapGamma = 0.0f;
+            f32 JonswapFetch = 0.0f;
 
             // Bit-exact change detection (a "slider moved" check, not a math
             // equality test) — Math::BitwiseEqual is the sanctioned form, so we

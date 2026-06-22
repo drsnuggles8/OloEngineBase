@@ -2483,6 +2483,14 @@ namespace OloEngine
         u32 m_FFTSeed = 1337;                          ///< RNG seed for the spectrum (deterministic look)
         bool m_FFTUseGpuCompute = true;                ///< generate the field with the compute butterfly FFT (§1.2); off = CPU reference path
 
+        // Spectrum selection (WATER_FUTURE_IMPROVEMENTS.md §1.4). Phillips is the
+        // classic Tessendorf spectrum; JONSWAP gives a sharper fetch-limited peak
+        // (Atlantic/Pacific swell). Defaults to Phillips so existing scenes look
+        // unchanged. Gamma/fetch only affect the JONSWAP path.
+        Ocean::SpectrumType m_FFTSpectrumType = Ocean::SpectrumType::Phillips;
+        f32 m_FFTJonswapGamma = 3.3f;      ///< γ peak-enhancement (JONSWAP only); 1 ≈ Pierson-Moskowitz
+        f32 m_FFTJonswapFetch = 100000.0f; ///< fetch in metres the wind blows over (JONSWAP only) — sets the peak frequency
+
         // Runtime (not serialized)
         Ref<Mesh> m_WaterMesh;
         Ref<Ocean::OceanFFTField> m_OceanField; ///< lazily-created FFT cascade (runtime)
@@ -2542,7 +2550,9 @@ namespace OloEngine
                 && blkEq(m_FFTPatchSize, m_FFTWindSpeed)       // f32*2
                 && blkEq(m_FFTWindDirection, m_FFTHeightScale) // vec2 + f32*3
                 && m_FFTSeed == o.m_FFTSeed
-                && m_FFTUseGpuCompute == o.m_FFTUseGpuCompute;
+                && m_FFTUseGpuCompute == o.m_FFTUseGpuCompute
+                && m_FFTSpectrumType == o.m_FFTSpectrumType
+                && blkEq(m_FFTJonswapGamma, m_FFTJonswapFetch); // f32*2
             // clang-format on
         }
 
@@ -2649,6 +2659,9 @@ namespace OloEngine
             m_FFTHeightScale = src.m_FFTHeightScale;
             m_FFTSeed = src.m_FFTSeed;
             m_FFTUseGpuCompute = src.m_FFTUseGpuCompute;
+            m_FFTSpectrumType = src.m_FFTSpectrumType;
+            m_FFTJonswapGamma = src.m_FFTJonswapGamma;
+            m_FFTJonswapFetch = src.m_FFTJonswapFetch;
         }
     };
 

@@ -5438,6 +5438,23 @@ namespace OloEngine
                     ImGui::Checkbox("GPU Compute FFT", &component.m_FFTUseGpuCompute);
                     if (ImGui::IsItemHovered())
                         ImGui::SetTooltip("Generate the ocean field with compute shaders (butterfly FFT).\nUntick to use the CPU reference path for comparison.");
+
+                    // Spectrum selection (WATER_FUTURE_IMPROVEMENTS.md §1.4).
+                    const char* kSpectrumLabels[] = { "Phillips", "JONSWAP" };
+                    i32 spectrumIdx = static_cast<i32>(component.m_FFTSpectrumType);
+                    if (ImGui::Combo("Spectrum", &spectrumIdx, kSpectrumLabels, 2))
+                        component.m_FFTSpectrumType = static_cast<Ocean::SpectrumType>(std::clamp(spectrumIdx, 0, 1));
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("Phillips: classic Tessendorf spectrum.\nJONSWAP: sharper fetch-limited peak (Atlantic/Pacific swell).");
+                    if (component.m_FFTSpectrumType == Ocean::SpectrumType::JONSWAP)
+                    {
+                        ImGui::DragFloat("Peak Enhancement (gamma)", &component.m_FFTJonswapGamma, 0.05f, 1.0f, 10.0f);
+                        if (ImGui::IsItemHovered())
+                            ImGui::SetTooltip("JONSWAP peak sharpness. 1 = Pierson-Moskowitz, 3.3 = mean JONSWAP.");
+                        ImGui::DragFloat("Fetch (m)", &component.m_FFTJonswapFetch, 1000.0f, 1.0f, 1000000.0f, "%.0f");
+                        if (ImGui::IsItemHovered())
+                            ImGui::SetTooltip("Distance the wind blows over. Shorter fetch raises the peak frequency (choppier, shorter waves).");
+                    }
                 }
 
                 ImGui::SeparatorText("Appearance");

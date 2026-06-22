@@ -1690,6 +1690,24 @@ namespace OloEngine
             ar << c.m_FFTUseGpuCompute;
         }
 
+        // Spectrum selection (§1.4) appended after the GPU-compute toggle — same
+        // trailing-AtEnd() probe so archives written before it fall back to the
+        // Phillips default. The enum rides the archive as its underlying u32.
+        if (ar.IsLoading() && ar.AtEnd())
+        {
+            c.m_FFTSpectrumType = Ocean::SpectrumType::Phillips;
+            c.m_FFTJonswapGamma = 3.3f;
+            c.m_FFTJonswapFetch = 100000.0f;
+        }
+        else
+        {
+            u32 spectrumType = static_cast<u32>(c.m_FFTSpectrumType);
+            ar << spectrumType;
+            if (ar.IsLoading())
+                c.m_FFTSpectrumType = static_cast<Ocean::SpectrumType>(spectrumType);
+            ar << c.m_FFTJonswapGamma << c.m_FFTJonswapFetch;
+        }
+
         if (ar.IsLoading())
         {
             auto sanitize = [](f32& v, f32 lo, f32 hi, f32 fallback)
@@ -1791,6 +1809,12 @@ namespace OloEngine
             c.m_GodRaySamples = std::clamp(c.m_GodRaySamples, 1u, 256u);
             sanitize(c.m_GodRayDappleFloor, 0.0f, 1.0f, 0.35f);
             sanitize(c.m_GodRaySunFalloff, 1.0f, 64.0f, 16.0f);
+
+            // Spectrum (§1.4): unknown enum values fall back to Phillips.
+            if (static_cast<u32>(c.m_FFTSpectrumType) > static_cast<u32>(Ocean::SpectrumType::JONSWAP))
+                c.m_FFTSpectrumType = Ocean::SpectrumType::Phillips;
+            sanitize(c.m_FFTJonswapGamma, 1.0f, 10.0f, 3.3f);
+            sanitize(c.m_FFTJonswapFetch, 1.0f, 1.0e6f, 100000.0f);
         }
     }
 

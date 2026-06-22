@@ -62,10 +62,21 @@ fallback. Shipped:
   texture comparison) and `OceanFFTVisualEvidenceTest::
   GpuComputeToggleLeavesSurfaceUnchanged` (full-pipeline frame RMSE).
 
-Still open (natural follow-ons): **cascaded FFT** (§1.3), **JONSWAP** spectrum
-(§1.4), and **buoyancy sampling from the FFT field** (§5.1 — `WaterSurface`
-still samples the Gerstner sum; once it reads the FFT field, the band-limited
-physics proxy in `OceanFFTField` is the natural source).
+- ✅ **JONSWAP spectrum (§1.4)** — a fetch-limited sharper-peak alternative to
+  Phillips, selectable per-component (`m_FFTSpectrumType` + `m_FFTJonswapGamma`
+  / `m_FFTJonswapFetch`, editor/scene/save-game wired). Because the base
+  heightfield $\tilde h_0(\mathbf k)$ is CPU-generated (the GPU only evolves it),
+  the new spectrum lives entirely in
+  [`OceanSpectrum`](../OloEngine/src/OloEngine/Renderer/Ocean/OceanSpectrum.h)
+  (`JonswapSpectrum` + a `SpectrumEnergy` dispatch `GenerateH0` routes through)
+  — no shader change. Defaults to Phillips so existing scenes are unchanged.
+  Pinned by `OceanFFTSpectrumTest` (γ peak enhancement, fetch→peak-frequency
+  shift, dispatch routing, metre-scale field) + a `ComponentRoundTrip` YAML test.
+
+Still open (natural follow-ons): **cascaded FFT** (§1.3) and **buoyancy
+sampling from the FFT field** (§5.1 — `WaterSurface` still samples the Gerstner
+sum; once it reads the FFT field, the band-limited physics proxy in
+`OceanFFTField` is the natural source).
 
 ### 1.1 Tessendorf FFT Pipeline
 
@@ -118,7 +129,7 @@ all cascades are sampled and summed in the vertex/tessellation shader.
 Whitecaps"* (SIGGRAPH Asia 2012) — describes a multi-cascade approach with
 correct filtering.
 
-### 1.4 JONSWAP Spectrum
+### 1.4 JONSWAP Spectrum — **shipped**
 
 The Phillips spectrum is the simplest; real-world measurements show a sharper
 peak. The JONSWAP (Joint North Sea Wave Project) spectrum adds a peak
@@ -129,6 +140,22 @@ $$S(\omega) = \frac{\alpha g^2}{\omega^5} \exp\!\left[-\frac{5}{4}\left(\frac{\o
 This gives more energy near the spectral peak, producing the characteristic
 dominant swell with suppressed high-frequency tail — closer to the look of
 Atlantic / Pacific seas.
+
+`JonswapSpectrum`
+([`OceanSpectrum.cpp`](../OloEngine/src/OloEngine/Renderer/Ocean/OceanSpectrum.cpp))
+evaluates this 1-D frequency spectrum at $\omega=\sqrt{g\lVert k\rVert}$, derives
+the peak frequency $\omega_p = 22\,(g^2/(VF))^{1/3}$ from wind speed $V$
+(`m_FFTWindSpeed`) and fetch $F$ (`m_FFTJonswapFetch`), uses $\sigma=0.07/0.09$
+below/above $\omega_p$, then maps $S(\omega)$ to a 2-D wave-vector density via
+the polar Jacobian $\Psi(\mathbf k)=S(\omega)\,(d\omega/dk)/k$. The directional
+term and small-wave suppression are shared with Phillips so the wind controls
+behave identically. The equilibrium constant $\alpha$ folds into `m_FFTAmplitude`
+because `OceanFFTField` RMS-normalises the field — only the *shape* differs.
+Selected per-component via `m_FFTSpectrumType` (`SpectrumType::{Phillips,
+JONSWAP}`); a `SpectrumEnergy` dispatch is what `GenerateH0` calls, so the choice
+flows through both the CPU and GPU-compute producers (the GPU only time-evolves
+the already-built $\tilde h_0$, so no shader changes were needed). Defaults to
+Phillips. Pinned by `OceanFFTSpectrumTest`.
 
 ---
 
