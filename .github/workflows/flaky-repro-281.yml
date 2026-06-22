@@ -58,11 +58,11 @@ jobs:
     timeout-minutes: 110
 
     steps:
-    - uses: actions/checkout@v6
+    - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
 
     - name: Install Python 3.10
       id: py
-      uses: actions/setup-python@v6
+      uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
       with:
         python-version: '3.10'
 
@@ -75,7 +75,7 @@ jobs:
       uses: ./.github/actions/setup-vulkan
 
     - name: Setup MSVC dev environment
-      uses: ilammy/msvc-dev-cmd@v1
+      uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1.13.0
       with:
         arch: x64
 
@@ -84,13 +84,13 @@ jobs:
 
     - name: Cache FFmpeg build
       id: ffcache
-      uses: actions/cache@v4
+      uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
       with:
         path: OloEngine/vendor/ffmpeg-install
         key: ffmpeg-${{ runner.os }}-n7.1-${{ hashFiles('scripts/build-ffmpeg.sh') }}
 
     - name: Setup sccache
-      uses: mozilla-actions/sccache-action@v0.0.10
+      uses: mozilla-actions/sccache-action@9e7fa8a12102821edf02ca5dbea1acd0f89a2696 # v0.0.10
       with:
         version: "v0.15.0"
 
@@ -197,7 +197,7 @@ jobs:
 
     - name: Upload repro evidence
       if: always()
-      uses: actions/upload-artifact@v7
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
       with:
         name: repro-281-evidence
         path: |
