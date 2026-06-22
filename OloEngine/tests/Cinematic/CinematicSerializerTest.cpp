@@ -149,6 +149,109 @@ TEST(CinematicSerializerTest, NullSequenceSerializesToEmptyString)
     EXPECT_TRUE(CinematicSequenceSerializer::SerializeToString(nullSeq).empty());
 }
 
+TEST(CinematicSerializerTest, BezierTangentsRoundTrip)
+{
+    // A Bezier key's interp + in/out tangents must survive the YAML round-trip on
+    // every keyed channel type (vec3 / float / quat).
+    auto seq = Ref<CinematicSequence>::Create();
+    seq->Name = "Bez";
+    seq->Duration = 4.0f;
+
+    CinematicTransformTrack tt;
+    tt.Target = UUID(7);
+    tt.Translation.Keys.push_back({ 0.0f, glm::vec3(0.0f), CinematicInterp::Bezier, /*In*/ -0.5f, /*Out*/ 2.5f });
+    tt.Translation.Keys.push_back({ 2.0f, glm::vec3(1.0f), CinematicInterp::Linear, /*In*/ 1.25f, /*Out*/ 0.0f });
+    tt.Rotation.Keys.push_back({ 0.0f, glm::angleAxis(glm::radians(45.0f), glm::vec3(0, 1, 0)), CinematicInterp::Bezier, 0.3f, -0.8f });
+    seq->TransformTracks.push_back(std::move(tt));
+
+    CinematicCameraTrack ct;
+    ct.Target = UUID(8);
+    ct.VerticalFovRadians.Keys.push_back({ 0.0f, glm::radians(40.0f), CinematicInterp::Bezier, 0.0f, 3.0f });
+    seq->CameraTracks.push_back(std::move(ct));
+
+    const std::string yaml = CinematicSequenceSerializer::SerializeToString(seq);
+    ASSERT_FALSE(yaml.empty());
+    auto restored = CinematicSequenceSerializer::DeserializeFromString(yaml);
+    ASSERT_TRUE(restored);
+
+    ASSERT_EQ(restored->TransformTracks.size(), 1u);
+    const auto& tr = restored->TransformTracks[0];
+    ASSERT_EQ(tr.Translation.Keys.size(), 2u);
+    EXPECT_EQ(tr.Translation.Keys[0].Interp, CinematicInterp::Bezier);
+    EXPECT_NEAR(tr.Translation.Keys[0].InTangent, -0.5f, kEps);
+    EXPECT_NEAR(tr.Translation.Keys[0].OutTangent, 2.5f, kEps);
+    // The non-Bezier right key's in-tangent must also round-trip (a Bezier segment
+    // reads it), so emission can't be gated on the key's own mode.
+    EXPECT_NEAR(tr.Translation.Keys[1].InTangent, 1.25f, kEps);
+    ASSERT_EQ(tr.Rotation.Keys.size(), 1u);
+    EXPECT_EQ(tr.Rotation.Keys[0].Interp, CinematicInterp::Bezier);
+    EXPECT_NEAR(tr.Rotation.Keys[0].InTangent, 0.3f, kEps);
+    EXPECT_NEAR(tr.Rotation.Keys[0].OutTangent, -0.8f, kEps);
+
+    ASSERT_EQ(restored->CameraTracks.size(), 1u);
+    ASSERT_EQ(restored->CameraTracks[0].VerticalFovRadians.Keys.size(), 1u);
+    const auto& fk = restored->CameraTracks[0].VerticalFovRadians.Keys[0];
+    EXPECT_EQ(fk.Interp, CinematicInterp::Bezier);
+    EXPECT_NEAR(fk.OutTangent, 3.0f, kEps);
+}
+
+TEST(CinematicSerializerTest, LegacyFileWithoutTangentsLoadsAsFlatDefaults)
+{
+    // A pre-v2 file has no Version and no InTangent/OutTangent fields. It must
+    // load with tangents defaulting to 0 (flat), and a Bezier (Interp:3) key with
+    // no tangents must therefore behave like the old EaseInOut.
+    const std::string yaml = R"(CinematicSequence:
+  Name: Legacy
+  Duration: 2
+  TransformTracks:
+    - Target: 5
+      Translation:
+        - { Time: 0.0, Value: [0, 0, 0], Interp: 3 }
+        - { Time: 1.0, Value: [10, 0, 0], Interp: 2 }
+)";
+
+    auto seq = CinematicSequenceSerializer::DeserializeFromString(yaml);
+    ASSERT_TRUE(seq);
+    ASSERT_EQ(seq->TransformTracks.size(), 1u);
+    const auto& tt = seq->TransformTracks[0];
+    ASSERT_EQ(tt.Translation.Keys.size(), 2u);
+    // Both interp values round-trip; the Bezier key governs the evaluated segment.
+    EXPECT_EQ(tt.Translation.Keys[0].Interp, CinematicInterp::Bezier);
+    EXPECT_EQ(tt.Translation.Keys[1].Interp, CinematicInterp::EaseInOut);
+    for (const auto& k : tt.Translation.Keys)
+    {
+        EXPECT_NEAR(k.InTangent, 0.0f, kEps);
+        EXPECT_NEAR(k.OutTangent, 0.0f, kEps);
+    }
+    // The segment [0->1] is governed by the left (Bezier) key with flat tangents,
+    // so it must evaluate as smoothstep: midpoint == half.
+    EXPECT_NEAR(tt.Translation.Evaluate(0.5f).x, 5.0f, 1e-3f);
+}
+
+TEST(CinematicSerializerTest, OutOfRangeInterpClampsButBezierIsAccepted)
+{
+    const std::string yaml = R"(CinematicSequence:
+  Name: Clamp
+  Duration: 2
+  TransformTracks:
+    - Target: 1
+      Translation:
+        - { Time: 0.0, Value: [0, 0, 0], Interp: 3, InTangent: 1.5, OutTangent: 2.0 }
+        - { Time: 1.0, Value: [1, 0, 0], Interp: 9, InTangent: .nan, OutTangent: 0.5 }
+)";
+
+    auto seq = CinematicSequenceSerializer::DeserializeFromString(yaml);
+    ASSERT_TRUE(seq);
+    ASSERT_EQ(seq->TransformTracks.size(), 1u); // guard the [0] access below
+    const auto& keys = seq->TransformTracks[0].Translation.Keys;
+    ASSERT_EQ(keys.size(), 2u);
+    EXPECT_EQ(keys[0].Interp, CinematicInterp::Bezier); // 3 is in range now
+    EXPECT_NEAR(keys[0].InTangent, 1.5f, kEps);
+    EXPECT_EQ(keys[1].Interp, CinematicInterp::Linear); // 9 -> clamped to Linear
+    EXPECT_NEAR(keys[1].InTangent, 0.0f, kEps);         // NaN tangent rejected -> 0
+    EXPECT_NEAR(keys[1].OutTangent, 0.5f, kEps);        // finite tangent kept
+}
+
 TEST(CinematicSerializerTest, MalformedKeysAreSkippedNotMaterialized)
 {
     // A Translation channel with one well-formed key plus two malformed ones
