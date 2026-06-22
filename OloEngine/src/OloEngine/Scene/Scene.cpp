@@ -3873,6 +3873,7 @@ namespace OloEngine
                                 params.Lacunarity = terrain.m_ProceduralLacunarity;
                                 params.Persistence = terrain.m_ProceduralPersistence;
                                 params.Shaping = terrain.m_HeightShaping;
+                                params.ErosionIterations = terrain.m_ProceduralErosionIterations;
                                 TerrainGenerator::GenerateHeightmap(*terrain.m_TerrainData, params);
                             }
                             else

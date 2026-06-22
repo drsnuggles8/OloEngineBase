@@ -1650,6 +1650,12 @@ namespace OloEngine
 			set => InternalCalls.TerrainComponent_SetPersistence(Entity.ID, value);
 		}
 
+		public int ErosionIterations
+		{
+			get => InternalCalls.TerrainComponent_GetErosionIterations(Entity.ID);
+			set => InternalCalls.TerrainComponent_SetErosionIterations(Entity.ID, value);
+		}
+
 		public float RidgeBlend
 		{
 			get => InternalCalls.TerrainComponent_GetRidgeBlend(Entity.ID);

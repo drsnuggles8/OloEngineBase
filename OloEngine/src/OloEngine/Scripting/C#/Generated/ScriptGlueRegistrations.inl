@@ -527,6 +527,8 @@ OLO_ADD_INTERNAL_CALL(TerrainComponent_GetLacunarity);
 OLO_ADD_INTERNAL_CALL(TerrainComponent_SetLacunarity);
 OLO_ADD_INTERNAL_CALL(TerrainComponent_GetPersistence);
 OLO_ADD_INTERNAL_CALL(TerrainComponent_SetPersistence);
+OLO_ADD_INTERNAL_CALL(TerrainComponent_GetErosionIterations);
+OLO_ADD_INTERNAL_CALL(TerrainComponent_SetErosionIterations);
 OLO_ADD_INTERNAL_CALL(TerrainComponent_GetRidgeBlend);
 OLO_ADD_INTERNAL_CALL(TerrainComponent_SetRidgeBlend);
 OLO_ADD_INTERNAL_CALL(TerrainComponent_GetWarpStrength);

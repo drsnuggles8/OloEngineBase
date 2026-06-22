@@ -5161,6 +5161,26 @@ static void TerrainComponent_SetPersistence(UUID entityID, float value)
     comp.m_ProceduralPersistence = value;
 }
 
+static int TerrainComponent_GetErosionIterations(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<TerrainComponent>();
+    return comp.m_ProceduralErosionIterations;
+}
+
+static void TerrainComponent_SetErosionIterations(UUID entityID, int value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<TerrainComponent>();
+    comp.m_ProceduralErosionIterations = value;
+}
+
 static float TerrainComponent_GetRidgeBlend(UUID entityID)
 {
     Scene* scene = ScriptEngine::GetSceneContext();

@@ -1033,6 +1033,9 @@ namespace OloEngine
                                            "heightExponent", sol::property([](const TerrainComponent& t)
                                                                            { return t.m_HeightShaping.HeightExponent; }, [](TerrainComponent& t, f32 v)
                                                                            { if (std::isfinite(v) && v > 0.0f) t.m_HeightShaping.HeightExponent = v; }),
+                                           "erosionIterations", sol::property([](const TerrainComponent& t)
+                                                                              { return t.m_ProceduralErosionIterations; }, [](TerrainComponent& t, i32 v)
+                                                                              { t.m_ProceduralErosionIterations = std::clamp(v, 0, 64); }),
                                            "regenerate", &TerrainComponent::Regenerate);
 
         // --- BuoyancyComponent ---
