@@ -672,6 +672,34 @@ namespace OloEngine
 		internal static extern float PhysicsJoint3DComponent_GetGearRatio(ulong entityID);
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern void PhysicsJoint3DComponent_SetGearRatio(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool PhysicsJoint3DComponent_GetPathIsLooping(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void PhysicsJoint3DComponent_SetPathIsLooping(ulong entityID, bool value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern int PhysicsJoint3DComponent_GetPathRotationMode(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void PhysicsJoint3DComponent_SetPathRotationMode(ulong entityID, int value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern int PhysicsJoint3DComponent_GetPathMotorMode(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void PhysicsJoint3DComponent_SetPathMotorMode(ulong entityID, int value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float PhysicsJoint3DComponent_GetPathMotorTargetVelocity(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void PhysicsJoint3DComponent_SetPathMotorTargetVelocity(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float PhysicsJoint3DComponent_GetPathMotorTargetFraction(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void PhysicsJoint3DComponent_SetPathMotorTargetFraction(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float PhysicsJoint3DComponent_GetPathMaxMotorForce(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void PhysicsJoint3DComponent_SetPathMaxMotorForce(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float PhysicsJoint3DComponent_GetPathMaxFrictionForce(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void PhysicsJoint3DComponent_SetPathMaxFrictionForce(ulong entityID, float value);
 		#endregion
 
 		#region PointLightComponent
