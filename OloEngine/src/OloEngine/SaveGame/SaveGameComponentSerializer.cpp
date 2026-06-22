@@ -893,6 +893,43 @@ namespace OloEngine
             clampAngle(c.m_PulleyMinLength, -1.0f, 1.0e9f, 0.0f);
             clampAngle(c.m_PulleyMaxLength, -1.0f, 1.0e9f, -1.0f);
             clampAngle(c.m_GearRatio, -1.0e9f, 1.0e9f, 1.0f);
+
+            // Path joint tail (issue #308). Archives written before the Path
+            // constraint existed end after the Gear ratio, so default to "no
+            // path" (empty points, motor off, hard Free rotation).
+            if (ar.AtEnd())
+            {
+                c.m_PathPoints.clear();
+                c.m_PathIsLooping = false;
+                c.m_PathRotationMode = JointPathRotationMode::Free;
+                c.m_PathMotorMode = JointMotorMode::Off;
+                c.m_PathMotorTargetVelocity = 0.0f;
+                c.m_PathMotorTargetFraction = 0.0f;
+                c.m_PathMaxMotorForce = 0.0f;
+                c.m_PathMaxFrictionForce = 0.0f;
+            }
+            else
+            {
+                ar << c.m_PathPoints;
+                ar << c.m_PathIsLooping;
+                ar << c.m_PathRotationMode;
+                ar << c.m_PathMotorMode;
+                ar << c.m_PathMotorTargetVelocity << c.m_PathMotorTargetFraction
+                   << c.m_PathMaxMotorForce << c.m_PathMaxFrictionForce;
+            }
+
+            // Sanitize untrusted path data: drop non-finite control points; clamp
+            // the rotation/motor modes to valid enum ranges; target velocity is
+            // signed, target fraction non-negative, max force/friction magnitudes.
+            std::erase_if(c.m_PathPoints, [](const glm::vec3& p)
+                          { return !std::isfinite(p.x) || !std::isfinite(p.y) || !std::isfinite(p.z); });
+            if (const auto v = static_cast<int>(c.m_PathRotationMode); v < 0 || v > static_cast<int>(JointPathRotationMode::FullyConstrained))
+                c.m_PathRotationMode = JointPathRotationMode::Free;
+            clampMode(c.m_PathMotorMode);
+            clampTarget(c.m_PathMotorTargetVelocity, -1.0e9f, 1.0e9f);
+            clampTarget(c.m_PathMotorTargetFraction, 0.0f, 1.0e9f);
+            clampMagnitude(c.m_PathMaxMotorForce);
+            clampMagnitude(c.m_PathMaxFrictionForce);
         }
         else
         {
@@ -913,6 +950,12 @@ namespace OloEngine
             ar << c.m_PulleyFixedPointA << c.m_PulleyFixedPointB
                << c.m_PulleyRatio << c.m_PulleyMinLength << c.m_PulleyMaxLength;
             ar << c.m_ConnectedAxis << c.m_GearRatio;
+            ar << c.m_PathPoints;
+            ar << c.m_PathIsLooping;
+            ar << c.m_PathRotationMode;
+            ar << c.m_PathMotorMode;
+            ar << c.m_PathMotorTargetVelocity << c.m_PathMotorTargetFraction
+               << c.m_PathMaxMotorForce << c.m_PathMaxFrictionForce;
         }
         // m_RuntimeConstraintToken is a runtime Jolt handle — not serialized.
     }
