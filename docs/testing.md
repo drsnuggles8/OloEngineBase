@@ -1308,7 +1308,7 @@ level of `tests/`). Grouped by directory.
 
 > **Do not edit by hand.** Generated from [test_catalogue.json](../OloEngine/tests/scripts/test_catalogue.json) by [generate_test_catalogue.py](../OloEngine/tests/scripts/generate_test_catalogue.py). Add new test files to the config and run the script (or pre-commit will run it with `--check`).
 
-#### (top-level) (65 files)
+#### (top-level) (66 files)
 
 | File | Tests | Cases |
 |---|---:|---|
@@ -1370,6 +1370,7 @@ level of `tests/`). Grouped by directory.
 | [SnowSettingsTest.cpp](../OloEngine/tests/SnowSettingsTest.cpp) | 7 | **SnowUBOData** &mdash; `SizeIs80Bytes`, `FieldOffsets_Std140Compatible`, `DefaultsMatchSettings`<br/>**SSSUBOData** &mdash; `SizeIs32Bytes`, `FieldOffsets_Std140Compatible`, `DefaultsMatchSettings`<br/>**ShaderBindingLayout** &mdash; `SnowAndSSSBindingsExist` |
 | [SoundGraphBasicTest.cpp](../OloEngine/tests/SoundGraphBasicTest.cpp) | 8 | **SoundGraphBasicTest** &mdash; `SoundGraphAssetBasicOperations`, `SoundGraphConnections`, `SoundGraphRemoveConnection`, `CircularBufferSingleChannel`, `CircularBufferMultiChannel`, `SampleBufferOperationsInterleaving`, `SampleBufferOperationsGain`, `SoundGraphValidation` |
 | [SoundGraphInstantiationTest.cpp](../OloEngine/tests/SoundGraphInstantiationTest.cpp) | 2 | **SoundGraphInstantiation** &mdash; `NoiseToGraphOutputCompilesAndInstantiates`, `WavePlayerWithUnconfiguredAssetDoesNotCrash` |
+| [SoundGraphParameterWiringTest.cpp](../OloEngine/tests/SoundGraphParameterWiringTest.cpp) | 5 | **SoundGraphParameterWiring** &mdash; `UpdateParameterSetDiscoversExposedParameters`, `SetParameterReachesGraph`, `ApplyParameterPresetAppliesDescriptorDefaults`, `ApplyParameterPresetRejectsUnresolvedParameters`, `GraphSwapDiscardsQueuedUpdatesForOldGraph` |
 | [SoundGraphSampleAccurateTriggerTest.cpp](../OloEngine/tests/SoundGraphSampleAccurateTriggerTest.cpp) | 16 | **SoundGraphSampleAccurateTriggerTest** &mdash; `TriggerStartsUnfired`, `TriggerFireRecordsOffsetAndConsumeClears`, `TriggerFirstFireWinsWithinABlock`, `TriggerNegativeOffsetClampsToBlockStart`, `OutputEventForwardsSampleOffsetToInputEvent`, `LegacySingleArgFireDeliversBlockBoundaryOffset`, `ADEnvelopeTriggerOffsetShiftsAttackByExactlyThatManyFrames`, `ADEnvelopeOffsetZeroStartsAtFrameZero`, `ADEnvelopeWithoutTriggerStaysSilent`, `ADSREnvelopeReleaseTakesEffectAtItsExactFrame`, `ADSREnvelopeTriggerOffsetShiftsAttackByExactlyThatManyFrames`, `ProducerFiringMidBlockRetriggersWiredEnvelopeAtThatFrame`, `RepeatTriggerEmitsSampleAccurateOffsets`, `WavePlayerStopTriggerFiresOnStopAtItsExactFrame`, `WavePlayerPlayWithoutAssetIsConsumedAtItsExactFrame`, `WavePlayerWithoutTriggersFiresNoEvents` |
 | [SoundGraphTypedConnectionTest.cpp](../OloEngine/tests/SoundGraphTypedConnectionTest.cpp) | 9 | **SoundGraphTypedConnections** &mdash; `NodeToNodeAudioConnectionDeliversSamples`, `AssetDefaultPlugsReachNodeInputs`, `EachNodeIsProcessedOncePerBlock`, `TypeMismatchedConnectionIsRejected`, `ScalarConnectionFlowsBetweenNodes`, `GraphFloatParameterRampsPerSample`, `DebugBlockProcessingKeepsRealTimeHeadroom`<br/>**SoundGraphCompiledPlan** &mdash; `FactoryNodeThunkIsDevirtualizedAndInvokesProcess`, `NodeOutputBuffersArePooledContiguously` |
 | [StateMachineTest.cpp](../OloEngine/tests/StateMachineTest.cpp) | 12 | **StateMachineTest** &mdash; `StartCallsOnEnter`, `UpdateCallsOnUpdate`, `TransitionChangesState`, `ForceTransition`, `ForceTransition_ToSameState_DoesNothing`, `ForceTransition_InvalidState_DoesNothing`, `UpdateBeforeStart_DoesNothing`, `MultipleTransitions_FirstMatchWins`<br/>**StateMachineAssetTest** &mdash; `HasCorrectAssetType`, `StoresStatesAndTransitions`<br/>**FSMStateRegistryTest** &mdash; `RegisterAndCreate`, `UnknownTypeReturnsNull` |
@@ -1563,7 +1564,7 @@ level of `tests/`). Grouped by directory.
 |---|---:|---|
 | [TerrainGeneratorTest.cpp](../OloEngine/tests/Terrain/TerrainGeneratorTest.cpp) | 15 | **TerrainGeneratorTest** &mdash; `HeightFieldIsDeterministic`, `HeightFieldIsNormalizedAndFinite`, `LargeSeedStillProducesVariedTerrain`, `DifferentSeedsProduceDifferentTerrain`, `RidgedAndWarpAndExponentStayValid`, `TerraceShapingStaysValidAndDeterministic`, `TerraceEndpointsAndIdentity`, `TerraceIsMonotonicAndBounded`, `TerraceProducesFlatPlateaus`, `RuleWeightPeaksInsideBandAndZeroOutside`, `SlopeBandSelectsRule`, `DefaultRulesAssignExpectedLayers`, `LayerWeightsAreNormalized`, `NoMatchingRuleFallsBackToLayerZero`, `PackLayerWeightsQuantizesToBothSplatmaps` |
 
-**Totals.** 150 unit / subsystem test files, 1844 TEST / TEST_F declarations across all subsystems.
+**Totals.** 151 unit / subsystem test files, 1849 TEST / TEST_F declarations across all subsystems.
 
 <!-- END: unit-catalogue -->
 
