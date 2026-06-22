@@ -3,6 +3,7 @@
 #include "OloEngine/AI/BehaviorTree/BTComposites.h"
 #include "OloEngine/AI/BehaviorTree/BTDecorators.h"
 #include "OloEngine/AI/BehaviorTree/BTTasks.h"
+#include "OloEngine/AI/BehaviorTree/BTPerceptionNodes.h"
 
 namespace OloEngine
 {
@@ -40,5 +41,9 @@ namespace OloEngine
                                  { return Ref<BTMoveTo>(new BTMoveTo()); });
         BTNodeRegistry::Register("PlayAnimation", []()
                                  { return Ref<BTPlayAnimation>(new BTPlayAnimation()); });
+
+        // Perception condition nodes
+        BTNodeRegistry::Register("CanSeeTarget", []()
+                                 { return Ref<BTCanSeeTarget>(new BTCanSeeTarget()); });
     }
 } // namespace OloEngine

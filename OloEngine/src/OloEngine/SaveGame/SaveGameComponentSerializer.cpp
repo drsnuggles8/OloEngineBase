@@ -2991,6 +2991,25 @@ namespace OloEngine
         // layer rebuilds after load.
     }
 
+    void SaveGameComponentSerializer::Serialize(FArchive& ar, PerceptibleComponent& c)
+    {
+        ar << c.Team;
+        ar << c.IsPerceptible;
+    }
+
+    void SaveGameComponentSerializer::Serialize(FArchive& ar, PerceptionComponent& c)
+    {
+        // Authored config only — the runtime sensor result (HasVisibleTarget,
+        // VisibleTarget, LastKnownPosition, ...) is recomputed by PerceptionSystem
+        // on the first tick after load.
+        ar << c.SightRange;
+        ar << c.FovDegrees;
+        ar << c.EyeOffset.x << c.EyeOffset.y << c.EyeOffset.z;
+        ar << c.RequireLineOfSight;
+        ar << c.PerceiverTeam;
+        ar << c.DetectSameTeam;
+    }
+
     void SaveGameComponentSerializer::Serialize(FArchive& ar, InventoryComponent& c)
     {
         SerializeInventory(ar, c.PlayerInventory);
@@ -3246,6 +3265,8 @@ namespace OloEngine
         REGISTER_SAVE_COMPONENT(BehaviorTreeComponent);
         REGISTER_SAVE_COMPONENT(StateMachineComponent);
         REGISTER_SAVE_COMPONENT(GoapAgentComponent);
+        REGISTER_SAVE_COMPONENT(PerceptibleComponent);
+        REGISTER_SAVE_COMPONENT(PerceptionComponent);
         REGISTER_SAVE_COMPONENT(InventoryComponent);
         REGISTER_SAVE_COMPONENT(ItemPickupComponent);
         REGISTER_SAVE_COMPONENT(ItemContainerComponent);

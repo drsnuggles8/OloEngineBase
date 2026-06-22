@@ -1133,7 +1133,7 @@ subsystem unit tests (§9.3, grouped by directory).
 
 > **Do not edit by hand.** Generated from [test_catalogue.json](../OloEngine/tests/scripts/test_catalogue.json) by [generate_test_catalogue.py](../OloEngine/tests/scripts/generate_test_catalogue.py). Add new test files to the config and run the script (or pre-commit will run it with `--check`).
 
-#### AI (5 files)
+#### AI (7 files)
 
 | File | Tests | Cases |
 |---|---:|---|
@@ -1141,6 +1141,8 @@ subsystem unit tests (§9.3, grouped by directory).
 | [BehaviorTreeSequenceShortCircuitsOnFailureTest.cpp](../OloEngine/tests/Functional/AI/BehaviorTreeSequenceShortCircuitsOnFailureTest.cpp) | 1 | **BehaviorTreeSequenceShortCircuitsOnFailureTest** &mdash; `FirstChildRunsThirdChildSkippedAfterMiddleFails` |
 | [GoapAgentPlansViaSceneTickTest.cpp](../OloEngine/tests/Functional/AI/GoapAgentPlansViaSceneTickTest.cpp) | 1 | **GoapAgentPlansViaSceneTickTest** &mdash; `AgentPlansAndExecutesToGoalAcrossSceneTicks` |
 | [GoapAuthoredFromLuaViaSceneTickTest.cpp](../OloEngine/tests/Functional/AI/GoapAuthoredFromLuaViaSceneTickTest.cpp) | 2 | **GoapAuthoredFromLuaViaSceneTickTest** &mdash; `LuaBuiltAgentPlansAndReachesGoal`, `RuntimeStopReleasesLuaBuiltAgentBeforeStateTeardown` |
+| [PerceptionDetectsTargetViaSceneTickTest.cpp](../OloEngine/tests/Functional/AI/PerceptionDetectsTargetViaSceneTickTest.cpp) | 7 | **PerceptionDetectsTargetViaSceneTickTest** &mdash; `SeesTargetAheadAndDrivesBehaviorTree`, `DoesNotSeeTargetOutOfRange`, `DoesNotSeeTargetBehind`, `DoesNotSeeSameTeamTarget`, `SeesSameTeamWhenDetectSameTeamEnabled`, `DoesNotSeeNonPerceptibleTarget`, `RetainsLastKnownPositionAfterTargetLeavesView` |
+| [PerceptionLineOfSightBlockedByWallViaSceneTickTest.cpp](../OloEngine/tests/Functional/AI/PerceptionLineOfSightBlockedByWallViaSceneTickTest.cpp) | 2 | **PerceptionLineOfSightBlockedByWallViaSceneTickTest** &mdash; `WallBetweenWatcherAndTargetBlocksSight`, `DisablingLineOfSightSeesThroughWall` |
 | [StateMachineTransitionsViaSceneTickTest.cpp](../OloEngine/tests/Functional/AI/StateMachineTransitionsViaSceneTickTest.cpp) | 1 | **StateMachineTransitionsViaSceneTickTest** &mdash; `FsmStartsInIdleAndTransitionsToChaseAfterConditionMet` |
 
 #### AnimationPhysics (26 files)
@@ -1293,7 +1295,7 @@ subsystem unit tests (§9.3, grouped by directory).
 | [LuaScriptSetsRigidbody2DVelocityTest.cpp](../OloEngine/tests/Functional/Scripting/LuaScriptSetsRigidbody2DVelocityTest.cpp) | 1 | **LuaScriptSetsRigidbody2DVelocityTest** &mdash; `BodyTranslatesAfterLuaSetsLinearVelocity` |
 | [LuaSetsAbilityAttributeViaSceneTickTest.cpp](../OloEngine/tests/Functional/Scripting/LuaSetsAbilityAttributeViaSceneTickTest.cpp) | 1 | **LuaSetsAbilityAttributeViaSceneTickTest** &mdash; `LuaDrivenHealthToZeroFlipsAliveToDeadOnSubsequentTick` |
 
-**Totals.** 90 Functional test files, 151 TEST / TEST_F declarations across all subsystems.
+**Totals.** 92 Functional test files, 160 TEST / TEST_F declarations across all subsystems.
 
 <!-- END: functional-catalogue -->
 
@@ -1378,11 +1380,12 @@ level of `tests/`). Grouped by directory.
 | [VideoPlaybackTest.cpp](../OloEngine/tests/VideoPlaybackTest.cpp) | 15 | **VideoDecoder** &mdash; `DefaultIsClosed`, `OpenEmptyPathFails`, `OpenMissingFileFails`, `DecodeWithoutOpenReturnsFalse`<br/>**VideoFrameInfo** &mdash; `DefaultsAreZero`<br/>**VideoPlayer** &mdash; `DefaultState`, `LoadMissingFileFails`, `PlayPauseStopTransitions`, `SeekClampsToNonNegative`, `PlaybackSpeedClamping`, `VolumeClamping`, `LoopingToggles`, `UpdateOnUnloadedPlayerIsInert`<br/>**VideoTexture** &mdash; `UninitializedContract`<br/>**VideoDecoderFixture** &mdash; `DecodesFrameWhenFixtureAvailable` |
 | [WindSettingsTest.cpp](../OloEngine/tests/WindSettingsTest.cpp) | 6 | **WindUBOData** &mdash; `SizeIs64Bytes`, `FieldOffsets_Std140Compatible`, `DefaultsMatchSettings`<br/>**ShaderBindingLayout** &mdash; `WindBindingsExist`<br/>**SnowSettings** &mdash; `WindDriftFactorDefaultIsZero`, `WindDriftFactorInUBOFlags` |
 
-#### AI (1 file)
+#### AI (2 files)
 
 | File | Tests | Cases |
 |---|---:|---|
 | [GoapTest.cpp](../OloEngine/tests/AI/GoapTest.cpp) | 26 | **GoapWorldState** &mdash; `SetGetHasRemove`, `GetOrFallsBackOnMissingOrWrongType`, `SatisfiesSemantics`, `SatisfiesDistinguishesBoolAndIntTypes`, `ApplyEffectsOverlays`, `UnsatisfiedCount`, `EqualityAndHashAreOrderIndependent`, `HashSeparatesBoolFalseFromIntZero`<br/>**GoapPlanner** &mdash; `GoalAlreadySatisfiedYieldsEmptyFoundPlan`, `SingleActionPlan`, `MultiStepChainIsOrderedCorrectly`, `UnreachableGoalIsNotFound`, `ChoosesCheaperOfCompetingPlans`, `DijkstraModeFindsMinimumCostMultiStepPlan`, `IsUsableGateExcludesAction`, `MaxPlanLengthBoundsTheSearch`, `IterationCapTerminatesAndReports`, `NoOpActionsDoNotCauseInfiniteLoop`, `ClassicWoodcutterScenario`<br/>**GoapAgent** &mdash; `PlansAndExecutesToGoalWithInstantActions`, `PicksHighestPriorityRelevantGoal`, `SkipsGoalWhoseRelevanceGateIsClosed`, `RunningActionSpansMultipleTicks`, `ReplansWhenAnActionFails`, `SensorRefreshesWorldStateBeforePlanning`, `NoSatisfiableGoalLeavesAgentIdle` |
+| [PerceptionMathTest.cpp](../OloEngine/tests/AI/PerceptionMathTest.cpp) | 10 | **PerceptionMathTest** &mdash; `TargetDirectlyAheadInRangeIsSeen`, `TargetBeyondRangeIsNotSeen`, `RangeBoundaryIsInclusive`, `TargetBehindIsNotSeen`, `FovHalfAngleGatesTheCone`, `NarrowFovRejectsModerateOffAxis`, `FullCircleFovSeesEvenBehind`, `CoincidentTargetIsInside`, `ForwardNeedNotBeNormalized`, `EyeOffsetShiftsTheConeOrigin` |
 
 #### Animation (7 files)
 
@@ -1563,7 +1566,7 @@ level of `tests/`). Grouped by directory.
 |---|---:|---|
 | [TerrainGeneratorTest.cpp](../OloEngine/tests/Terrain/TerrainGeneratorTest.cpp) | 15 | **TerrainGeneratorTest** &mdash; `HeightFieldIsDeterministic`, `HeightFieldIsNormalizedAndFinite`, `LargeSeedStillProducesVariedTerrain`, `DifferentSeedsProduceDifferentTerrain`, `RidgedAndWarpAndExponentStayValid`, `TerraceShapingStaysValidAndDeterministic`, `TerraceEndpointsAndIdentity`, `TerraceIsMonotonicAndBounded`, `TerraceProducesFlatPlateaus`, `RuleWeightPeaksInsideBandAndZeroOutside`, `SlopeBandSelectsRule`, `DefaultRulesAssignExpectedLayers`, `LayerWeightsAreNormalized`, `NoMatchingRuleFallsBackToLayerZero`, `PackLayerWeightsQuantizesToBothSplatmaps` |
 
-**Totals.** 150 unit / subsystem test files, 1844 TEST / TEST_F declarations across all subsystems.
+**Totals.** 151 unit / subsystem test files, 1854 TEST / TEST_F declarations across all subsystems.
 
 <!-- END: unit-catalogue -->
 

@@ -244,6 +244,8 @@ add_executable(OloEngine-Tests
 		StateMachineTest.cpp
 		# AI GOAP (Goal-Oriented Action Planning) Tests
 		AI/GoapTest.cpp
+		# AI Sight-Perception Tests
+		AI/PerceptionMathTest.cpp
 		# Inventory Tests
 		InventoryTest.cpp
 		# Quest Tests
@@ -332,6 +334,8 @@ add_executable(OloEngine-Tests
 		Functional/AI/BehaviorTreeAdvancesViaSceneTickTest.cpp
 		Functional/AI/GoapAgentPlansViaSceneTickTest.cpp
 		Functional/AI/GoapAuthoredFromLuaViaSceneTickTest.cpp
+		Functional/AI/PerceptionDetectsTargetViaSceneTickTest.cpp
+		Functional/AI/PerceptionLineOfSightBlockedByWallViaSceneTickTest.cpp
 		Functional/Particles/ParticleSystemEmitsAndExpiresTest.cpp
 		Functional/AnimationPhysics/CharacterControllerWalksTest.cpp
 		Functional/AnimationPhysics/AnimationBlendCompletesViaSceneTickTest.cpp

@@ -248,6 +248,8 @@ namespace OloEngine
             REGISTER_COMPONENT(BehaviorTreeComponent),
             REGISTER_COMPONENT(StateMachineComponent),
             REGISTER_COMPONENT(GoapAgentComponent),
+            REGISTER_COMPONENT(PerceptibleComponent),
+            REGISTER_COMPONENT(PerceptionComponent),
             #undef REGISTER_COMPONENT
         };
         return s_Registry;
@@ -2980,6 +2982,37 @@ namespace OloEngine
             "Running", static_cast<i32>(GoapActionStatus::Running),
             "Success", static_cast<i32>(GoapActionStatus::Success),
             "Failure", static_cast<i32>(GoapActionStatus::Failure));
+
+        // --- PerceptibleComponent ---
+        // Marks the entity as something AI sight can sense. Scripts flip
+        // isPerceptible for stealth or swap team at runtime.
+        lua.new_usertype<PerceptibleComponent>("PerceptibleComponent",
+                                               "team", &PerceptibleComponent::Team,
+                                               "isPerceptible", &PerceptibleComponent::IsPerceptible);
+
+        // --- PerceptionComponent ---
+        // Authored sight config is read/write (float/vec3 setters validate
+        // finiteness); the per-tick sensor result is read-only — PerceptionSystem
+        // owns it. `visibleTarget` is surfaced as a u64 UUID (0 = nothing seen).
+        lua.new_usertype<PerceptionComponent>("PerceptionComponent",
+                                              "sightRange", sol::property([](const PerceptionComponent& c)
+                                                                          { return c.SightRange; }, [](PerceptionComponent& c, f32 v)
+                                                                          { if (std::isfinite(v) && v >= 0.0f) c.SightRange = v; }),
+                                              "fovDegrees", sol::property([](const PerceptionComponent& c)
+                                                                          { return c.FovDegrees; }, [](PerceptionComponent& c, f32 v)
+                                                                          { if (std::isfinite(v)) c.FovDegrees = glm::clamp(v, 0.0f, 360.0f); }),
+                                              "eyeOffset", sol::property([](const PerceptionComponent& c)
+                                                                         { return c.EyeOffset; }, [](PerceptionComponent& c, const glm::vec3& v)
+                                                                         { if (IsFiniteVec3(v)) c.EyeOffset = v; }),
+                                              "requireLineOfSight", &PerceptionComponent::RequireLineOfSight,
+                                              "perceiverTeam", &PerceptionComponent::PerceiverTeam,
+                                              "detectSameTeam", &PerceptionComponent::DetectSameTeam,
+                                              "hasVisibleTarget", sol::readonly(&PerceptionComponent::HasVisibleTarget),
+                                              "visibleTarget", sol::property([](const PerceptionComponent& c) -> u64
+                                                                             { return static_cast<u64>(c.VisibleTarget); }),
+                                              "lastKnownPosition", sol::readonly(&PerceptionComponent::LastKnownPosition),
+                                              "hasLastKnownPosition", sol::readonly(&PerceptionComponent::HasLastKnownPosition),
+                                              "timeSinceLastSeen", sol::readonly(&PerceptionComponent::TimeSinceLastSeen));
 
         // --- InventoryComponent ---
         lua.new_usertype<InventoryComponent>("InventoryComponent", "currency", &InventoryComponent::Currency, "AddItem", [](InventoryComponent& comp, const std::string& itemId, sol::optional<i32> count)

@@ -78,6 +78,7 @@
 #include "OloEngine/Precipitation/PrecipitationSystem.h"
 #include "OloEngine/Navigation/NavigationSystem.h"
 #include "OloEngine/AI/AISystem.h"
+#include "OloEngine/AI/Perception/PerceptionSystem.h"
 #include "OloEngine/Gameplay/Inventory/InventorySystem.h"
 #include "OloEngine/Gameplay/Inventory/InventoryComponents.h"
 #include "OloEngine/Gameplay/Quest/QuestSystem.h"
@@ -1496,6 +1497,10 @@ namespace OloEngine
             // Update navigation / pathfinding
             NavigationSystem::OnUpdate(this, ts.GetSeconds());
 
+            // Refresh AI sight perception before AI decisions so behavior trees /
+            // FSMs / GOAP see fresh sensor data the same frame.
+            PerceptionSystem::OnUpdate(this, ts.GetSeconds());
+
             // Update AI (behavior trees and state machines)
             AISystem::OnUpdate(this, ts.GetSeconds());
 
@@ -2229,6 +2234,10 @@ namespace OloEngine
     void Scene::OnComponentAdded<StateMachineComponent>(Entity, StateMachineComponent&) {}
     template<>
     void Scene::OnComponentAdded<GoapAgentComponent>(Entity, GoapAgentComponent&) {}
+    template<>
+    void Scene::OnComponentAdded<PerceptibleComponent>(Entity, PerceptibleComponent&) {}
+    template<>
+    void Scene::OnComponentAdded<PerceptionComponent>(Entity, PerceptionComponent&) {}
     template<>
     void Scene::OnComponentAdded<TileRendererComponent>(Entity, TileRendererComponent&) {}
 
@@ -6234,6 +6243,8 @@ namespace OloEngine
     OLO_ON_COMPONENT_REMOVED_NOOP(BehaviorTreeComponent)
     OLO_ON_COMPONENT_REMOVED_NOOP(StateMachineComponent)
     OLO_ON_COMPONENT_REMOVED_NOOP(GoapAgentComponent)
+    OLO_ON_COMPONENT_REMOVED_NOOP(PerceptibleComponent)
+    OLO_ON_COMPONENT_REMOVED_NOOP(PerceptionComponent)
     OLO_ON_COMPONENT_REMOVED_NOOP(TileRendererComponent)
 
     // Specialisation: when a Rigidbody2DComponent is removed at runtime,
