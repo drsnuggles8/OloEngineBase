@@ -97,6 +97,7 @@ add_executable(OloEngine-Tests
 		Rendering/AutoExposureMathTest.cpp
 		Rendering/ScreenSpaceReflectionMathTest.cpp
 		Rendering/ScreenSpaceGIMathTest.cpp
+		Rendering/ContactShadowMathTest.cpp
 		Rendering/SSRHiZTraversalTest.cpp
 		Rendering/RenderGraphFingerprintTest.cpp
 		Rendering/CommandPacketTest.cpp
@@ -142,6 +143,7 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/UnderwaterCausticsVisualTest.cpp
 		Rendering/PropertyTests/SSRVisualEvidenceTest.cpp
 		Rendering/PropertyTests/SSGIVisualEvidenceTest.cpp
+		Rendering/PropertyTests/ContactShadowVisualEvidenceTest.cpp
 		Rendering/PropertyTests/PCSSVisualEvidenceTest.cpp
 		Rendering/PropertyTests/WaterSurfaceSamplerTest.cpp
 		Rendering/PropertyTests/WaterBuoyancyVisualEvidenceTest.cpp

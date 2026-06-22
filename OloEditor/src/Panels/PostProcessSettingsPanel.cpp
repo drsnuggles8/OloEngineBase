@@ -147,6 +147,16 @@ namespace OloEngine
             AppendChange(changes, "SSGIEdgeFade", before.SSGIEdgeFade, after.SSGIEdgeFade);
             AppendChange(changes, "SSGIDebugView", before.SSGIDebugView, after.SSGIDebugView);
 
+            AppendChange(changes, "ContactShadowEnabled", before.ContactShadowEnabled, after.ContactShadowEnabled);
+            AppendChange(changes, "ContactShadowIntensity", before.ContactShadowIntensity, after.ContactShadowIntensity);
+            AppendChange(changes, "ContactShadowMaxDistance", before.ContactShadowMaxDistance, after.ContactShadowMaxDistance);
+            AppendChange(changes, "ContactShadowThickness", before.ContactShadowThickness, after.ContactShadowThickness);
+            AppendChange(changes, "ContactShadowStride", before.ContactShadowStride, after.ContactShadowStride);
+            AppendChange(changes, "ContactShadowMaxSteps", before.ContactShadowMaxSteps, after.ContactShadowMaxSteps);
+            AppendChange(changes, "ContactShadowBias", before.ContactShadowBias, after.ContactShadowBias);
+            AppendChange(changes, "ContactShadowEdgeFade", before.ContactShadowEdgeFade, after.ContactShadowEdgeFade);
+            AppendChange(changes, "ContactShadowDebugView", before.ContactShadowDebugView, after.ContactShadowDebugView);
+
             SettingsChangeLog::EmitLog("PostProcessSettingsPanel", changes);
         }
     } // namespace
@@ -169,6 +179,7 @@ namespace OloEngine
         DrawAOSection();
         DrawSSRSection();
         DrawSSGISection();
+        DrawContactShadowSection();
         DrawSnowSection();
         DrawWindSection();
         DrawSnowAccumulationSection();
@@ -325,6 +336,33 @@ namespace OloEngine
                 ImGui::SliderInt("Rays##SSGI", &settings.SSGIRayCount, 1, 32);
                 ImGui::SliderFloat("Edge Fade##SSGI", &settings.SSGIEdgeFade, 0.0f, 0.5f, "%.2f");
                 ImGui::Checkbox("Debug View (indirect only)##SSGI", &settings.SSGIDebugView);
+            }
+
+            ImGui::Unindent();
+        }
+    }
+
+    void PostProcessSettingsPanel::DrawContactShadowSection() const
+    {
+        auto& settings = Renderer3D::GetPostProcessSettings();
+
+        if (ImGui::CollapsingHeader("Screen-Space Contact Shadows"))
+        {
+            ImGui::Indent();
+
+            ImGui::Checkbox("Enable##ContactShadow", &settings.ContactShadowEnabled);
+            ImGui::TextDisabled("Deferred rendering path only");
+
+            if (settings.ContactShadowEnabled)
+            {
+                ImGui::DragFloat("Intensity##ContactShadow", &settings.ContactShadowIntensity, 0.01f, 0.0f, 1.0f, "%.2f");
+                ImGui::DragFloat("Max Distance##ContactShadow", &settings.ContactShadowMaxDistance, 0.01f, 0.01f, 10.0f, "%.2f");
+                ImGui::DragFloat("Thickness##ContactShadow", &settings.ContactShadowThickness, 0.01f, 0.001f, 10.0f, "%.3f");
+                ImGui::DragFloat("Stride##ContactShadow", &settings.ContactShadowStride, 0.005f, 0.001f, 1.0f, "%.3f");
+                ImGui::SliderInt("Max Steps##ContactShadow", &settings.ContactShadowMaxSteps, 1, 128);
+                ImGui::SliderFloat("Bias##ContactShadow", &settings.ContactShadowBias, 0.0f, 0.2f, "%.3f");
+                ImGui::SliderFloat("Edge Fade##ContactShadow", &settings.ContactShadowEdgeFade, 0.0f, 0.5f, "%.2f");
+                ImGui::Checkbox("Debug View (shadow factor)##ContactShadow", &settings.ContactShadowDebugView);
             }
 
             ImGui::Unindent();

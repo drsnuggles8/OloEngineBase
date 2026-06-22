@@ -1029,6 +1029,7 @@ subsystem unit tests (§9.3, grouped by directory).
 | File | Tests | Cases |
 |---|---:|---|
 | [AutoExposureEvidenceTest.cpp](../OloEngine/tests/Rendering/PropertyTests/AutoExposureEvidenceTest.cpp) | 1 | **AutoExposureBrightScene** &mdash; `AutoExposureDarkensAnOverBrightScene` |
+| [ContactShadowVisualEvidenceTest.cpp](../OloEngine/tests/Rendering/PropertyTests/ContactShadowVisualEvidenceTest.cpp) | 1 | **ContactShadowVisualEvidenceTest** &mdash; `ContactShadowDarkensFloorBesideOccluder` |
 | [GoldenImageTests.cpp](../OloEngine/tests/Rendering/PropertyTests/GoldenImageTests.cpp) | 8 | **GoldenImageSsimTest** &mdash; `IdenticalImagesYieldSsimOne`, `TinyUniformShiftKeepsSsimHigh`, `StructuralDestructionCollapsesSsim`, `SsimIsSymmetric`<br/>**GoldenImageTest** &mdash; `ReinhardHdrRampGolden`, `FxaaHardEdgeGolden`, `SceneShadowIntegrationGolden`, `SceneSplatmapIntegrationGolden` |
 | [OceanFFTVisualEvidenceTest.cpp](../OloEngine/tests/Rendering/PropertyTests/OceanFFTVisualEvidenceTest.cpp) | 3 | **OceanFFTVisualEvidenceTest** &mdash; `CaptureFFTOceanFromMultipleAngles`, `FFTToggleVisiblyChangesSurface`, `GpuComputeToggleLeavesSurfaceUnchanged` |
 | [PCSSVisualEvidenceTest.cpp](../OloEngine/tests/Rendering/PropertyTests/PCSSVisualEvidenceTest.cpp) | 1 | **PCSSVisualEvidenceTest** &mdash; `SoftShadowsRenderAndDifferFromHardPCF` |
@@ -1078,6 +1079,7 @@ subsystem unit tests (§9.3, grouped by directory).
 | File | Tests | Cases |
 |---|---:|---|
 | [AutoExposureMathTest.cpp](../OloEngine/tests/Rendering/AutoExposureMathTest.cpp) | 19 | **AutoExposureMathTest** &mdash; `LuminanceUsesRec709Weights`, `BlackPixelsGoToBinZero`, `BinMappingIsMonotonicAndClamped`, `BinRoundTripRecoversLuminance`, `UniformHistogramRecoversThatLuminance`, `AllBlackFloorsAtMinLogLum`, `BlackPixelsDoNotDragTheAverage`, `MixedHistogramAveragesBetweenExtremes`, `AdaptationConvergesToTarget`, `AdaptationIsFrameRateIndependent`, `SeparateUpAndDownSpeeds`, `AdaptationEdgeCases`, `DoublingLuminanceIsOneStopOfEV`, `BrighterSceneGivesSmallerExposure`, `ExposureCompensationIsInStops`, `ExposureRespectsClamp`, `StepDrivesExposureTowardSceneOverTime`, `SanitizeReplacesNonFiniteWithFiniteDefaults`, `SanitizeOrdersInvertedMinMaxPairs` |
+| [ContactShadowMathTest.cpp](../OloEngine/tests/Rendering/ContactShadowMathTest.cpp) | 15 | **ContactShadow** &mdash; `UBOAlignment`, `UBOGetSizeMatchesSizeof`, `UBOLayoutSizeMatchesShader`, `BindingIsUniqueAndExpected`, `ViewPositionProjectRoundTrip`, `OctahedralNormalRoundTrip`, `TowardLightIsNegatedTravelDirection`, `ViewSpaceLightTransform`, `NdotLEarlyOutGate`, `MarchStepsBoundedByDistanceAndStepCap`, `OcclusionPredicateThicknessWindow`, `DistanceFadeFavoursCloseHits`, `EdgeFadeVanishesAtBorders`, `CompositeIsMultiplicativeDarkening`, `SanitizeClampsNonFiniteAndRanges` |
 | [GPUFrustumCullParityTest.cpp](../OloEngine/tests/Rendering/GPUFrustumCullParityTest.cpp) | 2 | **GPUFrustumCullParity** &mdash; `RandomisedInstancesMatchCPU`, `EdgeCaseInstancesMatchCPU` |
 | [InstanceDataLayoutTest.cpp](../OloEngine/tests/Rendering/InstanceDataLayoutTest.cpp) | 6 | **InstanceDataLayout** &mdash; `StructSizeMatchesStd430`, `FieldOffsetsMatchGLSLBlock`, `DefaultsAreIdentityAndNeutral`, `BindingConstantIsStable`, `GLSLLayoutMentionsAllFieldsAndBinding`<br/>**InstancedMeshComponentDefaults** &mdash; `FieldsHaveSafeDefaults` |
 | [ProceduralSkyMathTest.cpp](../OloEngine/tests/Rendering/ProceduralSkyMathTest.cpp) | 11 | **ProceduralSkyMath** &mdash; `PerezCoefficientsAreLinearInTurbidity`, `CoefficientsMatchReferenceAtT2_5`, `ZenithLuminanceIsPositiveAtCommonElevations`, `ZenithChromaticityIsInPlausibleRange`, `SubHorizonSunIsClampedAboveHorizon`, `ZeroLengthSunDefaultsToZenith`, `SunDiskCosAngleIsConsistent`, `HashChangesWhenParametersChange`, `SkyIsBrighterTowardSunThanAntiSun`, `BluerAwayFromSunForClearSky`, `AllOutputsAreFinite` |
@@ -1123,7 +1125,7 @@ subsystem unit tests (§9.3, grouped by directory).
 |---|---:|---|
 | [TestFailureCaptureTest.cpp](../OloEngine/tests/Rendering/PropertyTests/TestFailureCaptureTest.cpp) | 6 | **TestFailureCaptureTest** &mdash; `DirectoryForSanitizesNames`, `MetadataIsWrittenWithoutGlContext`, `LatestFrameSummaryIsNoOpWithoutCaptures`, `GLStateSnapshotIsWrittenWhenGpuAvailable`, `FboPngIsWrittenWhenGpuAvailable`, `CaptureAllProducesExpectedArtefacts` |
 
-**Totals.** 97 renderer-scope test files, 1320 TEST / TEST_F / TEST_P declarations across all layers.
+**Totals.** 99 renderer-scope test files, 1336 TEST / TEST_F / TEST_P declarations across all layers.
 
 <!-- END: renderer-catalogue -->
 
