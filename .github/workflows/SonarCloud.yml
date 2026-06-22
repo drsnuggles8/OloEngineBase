@@ -26,12 +26,16 @@ jobs:
     env:
       BUILD_WRAPPER_OUT_DIR: build_wrapper_output_directory # Directory where build-wrapper output will be placed
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           fetch-depth: 0  # Shallow clones should be disabled for a better relevancy of analysis
+          # The scan reads local git blame (no network auth) and pushes nothing,
+          # so drop the persisted GITHUB_TOKEN to minimise its exposure. SONAR_TOKEN
+          # (the scan's own credential) is passed explicitly to that step below.
+          persist-credentials: false
 
       - name: Install Python 3.10
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
         with:
           python-version: '3.10'
           
@@ -45,16 +49,28 @@ jobs:
         uses: ./.github/actions/setup-vulkan
       
       - name: Install Build Wrapper
-        uses: SonarSource/sonarqube-scan-action/install-build-wrapper@v8.1.0
+        uses: SonarSource/sonarqube-scan-action/install-build-wrapper@7006c4492b2e0ee0f816d36501671557c97f5995 # v8.1.0
 
       - name: Run build-wrapper
+        # NO sccache here, on purpose (issue #304). Two independent blockers:
+        #   1. This uses CMake's default Visual Studio (MSBuild) generator, which
+        #      IGNORES CMAKE_<LANG>_COMPILER_LAUNCHER — sccache would never engage
+        #      (cmake/CompilerCache.cmake even warns in that case). Windows.yml had
+        #      to switch to Ninja Multi-Config for the launcher to take effect.
+        #   2. More fundamentally, sccache is INCOMPATIBLE with SonarQube's
+        #      build-wrapper even on Ninja: build-wrapper analyses C/C++ by
+        #      capturing each real compiler invocation. A warm sccache cache
+        #      serves objects WITHOUT invoking the compiler, so those translation
+        #      units would silently vanish from the analysis — a worse outcome
+        #      than a slow build. Caching is therefore deliberately omitted; the
+        #      cold build is the correct behaviour for this job.
         run: |
           New-Item -ItemType directory -Path build
           cmake -S . -B build -DPython_EXECUTABLE="${{ env.pythonLocation }}/python.exe" -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -DOLO_VIDEO_FFMPEG=OFF
           build-wrapper-win-x86-64 --out-dir ${{ env.BUILD_WRAPPER_OUT_DIR }} cmake --build build/ --config Release
 
       - name: SonarQube Scan
-        uses: SonarSource/sonarqube-scan-action@v8.1.0
+        uses: SonarSource/sonarqube-scan-action@7006c4492b2e0ee0f816d36501671557c97f5995 # v8.1.0
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
         with:
