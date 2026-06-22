@@ -1207,7 +1207,7 @@ subsystem unit tests (§9.3, grouped by directory).
 | [DialogueSelectChoiceBranchesToTargetTest.cpp](../OloEngine/tests/Functional/Dialogue/DialogueSelectChoiceBranchesToTargetTest.cpp) | 1 | **DialogueSelectChoiceBranchesToTargetTest** &mdash; `SelectChoiceWalksTheChosenEdgeAndLandsOnTargetNode` |
 | [DialogueTextRevealsOverTicksTest.cpp](../OloEngine/tests/Functional/Dialogue/DialogueTextRevealsOverTicksTest.cpp) | 1 | **DialogueTextRevealsOverTicksTest** &mdash; `StartDialogueDisplaysAndRevealProgressesAcrossTicks` |
 
-#### Gameplay (19 files)
+#### Gameplay (20 files)
 
 | File | Tests | Cases |
 |---|---:|---|
@@ -1221,6 +1221,7 @@ subsystem unit tests (§9.3, grouped by directory).
 | [GameplayEffectExpiresAndRevertsAttributeTest.cpp](../OloEngine/tests/Functional/Gameplay/GameplayEffectExpiresAndRevertsAttributeTest.cpp) | 1 | **GameplayEffectExpiresAndRevertsAttributeTest** &mdash; `DurationEffectModifiesCurrentValueThenRevertsOnExpiry` |
 | [InventoryAutoPickupOnProximityTest.cpp](../OloEngine/tests/Functional/Gameplay/InventoryAutoPickupOnProximityTest.cpp) | 1 | **InventoryAutoPickupOnProximityTest** &mdash; `NearbyAutoPickupIsConsumedIntoInventory` |
 | [InventoryEventsEmittedTest.cpp](../OloEngine/tests/Functional/Gameplay/InventoryEventsEmittedTest.cpp) | 4 | **InventoryEventsEmittedTest** &mdash; `AddItemPublishesItemAdded`, `RemoveItemByDefinitionPublishesItemRemoved`, `EquipAndUnequipPublishEvents`, `AutoPickupPublishesItemAddedViaTick` |
+| [InventoryShopTradingTest.cpp](../OloEngine/tests/Functional/Gameplay/InventoryShopTradingTest.cpp) | 10 | **InventoryShopTradingTest** &mdash; `BuyDebitsCurrencyTransfersItemAndPublishesEvent`, `BuyFailsWhenBrokeAndChangesNothing`, `BuyFailsWhenOutOfStockEvenIfAffordable`, `BuyFailsWhenContainerIsNotAShop`, `BuyRollsBackWhenBuyerInventoryHasNoRoom`, `SellCreditsCurrencyTransfersItemAndPublishesEvent`, `SellUsesHalfBuyPriceBuybackWhenNoSellPrice`, `SellBuybackTruncatesToZeroForCheapItems`, `SellFailsWhenSellerLacksTheItem`, `BuyQuantitySpanningMultipleStacksSplitsAcrossSlots` |
 | [InventoryStackConsolidationTest.cpp](../OloEngine/tests/Functional/Gameplay/InventoryStackConsolidationTest.cpp) | 1 | **InventoryStackConsolidationTest** &mdash; `TwoAddsOfStackableItemMergeIntoOneSlotWithStackCountTwo` |
 | [InventoryTransferItemBetweenContainersTest.cpp](../OloEngine/tests/Functional/Gameplay/InventoryTransferItemBetweenContainersTest.cpp) | 1 | **InventoryTransferItemBetweenContainersTest** &mdash; `TransferFromPlayerToChestMovesItemAndClearsSource` |
 | [MultiStageQuestAdvancesThroughStagesTest.cpp](../OloEngine/tests/Functional/Gameplay/MultiStageQuestAdvancesThroughStagesTest.cpp) | 1 | **MultiStageQuestAdvancesThroughStagesTest** &mdash; `FinishingStageZeroSwitchesToStageOneObjectives` |
@@ -1293,7 +1294,7 @@ subsystem unit tests (§9.3, grouped by directory).
 | [LuaScriptSetsRigidbody2DVelocityTest.cpp](../OloEngine/tests/Functional/Scripting/LuaScriptSetsRigidbody2DVelocityTest.cpp) | 1 | **LuaScriptSetsRigidbody2DVelocityTest** &mdash; `BodyTranslatesAfterLuaSetsLinearVelocity` |
 | [LuaSetsAbilityAttributeViaSceneTickTest.cpp](../OloEngine/tests/Functional/Scripting/LuaSetsAbilityAttributeViaSceneTickTest.cpp) | 1 | **LuaSetsAbilityAttributeViaSceneTickTest** &mdash; `LuaDrivenHealthToZeroFlipsAliveToDeadOnSubsequentTick` |
 
-**Totals.** 90 Functional test files, 151 TEST / TEST_F declarations across all subsystems.
+**Totals.** 91 Functional test files, 161 TEST / TEST_F declarations across all subsystems.
 
 <!-- END: functional-catalogue -->
 
