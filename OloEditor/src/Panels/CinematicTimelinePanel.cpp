@@ -28,15 +28,16 @@ namespace OloEngine
 {
     namespace
     {
-        constexpr ImU32 kColInterp[3] = {
+        constexpr ImU32 kColInterp[4] = {
             IM_COL32(150, 150, 160, 255), // Constant
             IM_COL32(90, 170, 250, 255),  // Linear
             IM_COL32(250, 180, 70, 255),  // EaseInOut
+            IM_COL32(180, 120, 240, 255), // Bezier
         };
 
         ImU32 KeyColor(CinematicInterp interp, bool selected)
         {
-            const ImU32 base = kColInterp[std::min<sizet>(static_cast<sizet>(interp), 2)];
+            const ImU32 base = kColInterp[std::min<sizet>(static_cast<sizet>(interp), 3)];
             return selected ? IM_COL32(255, 255, 255, 255) : base;
         }
 
@@ -761,16 +762,38 @@ namespace OloEngine
         }
         ImGui::Separator();
 
-        // Common: time editor (re-sorts via MoveKeyTime). Implemented per-kind so
-        // we can re-fetch the right vector.
-        const auto editInterp = [&](CinematicInterp& interp)
+        // Common: interpolation mode + the in/out tangent handles. Generic over the
+        // key type so the float / vec3 / quat keys share it — each exposes Interp /
+        // InTangent / OutTangent. Takes the keys vector + index (not just the key)
+        // so it can see the previous key, because a Bezier *segment* uses the left
+        // key's OutTangent and the right key's InTangent: a key's OutTangent is live
+        // when this key is Bezier, and its InTangent is live when the *previous* key
+        // is Bezier. Show both handles whenever either applies so the relevant one is
+        // always reachable (e.g. the InTangent of a non-Bezier key after a Bezier key).
+        const auto editKeyInterp = [&](auto& keys, sizet idx)
         {
-            int cur = static_cast<int>(interp);
-            const char* items[] = { "Constant", "Linear", "EaseInOut" };
-            if (ImGui::Combo("Interpolation", &cur, items, 3))
+            auto& key = keys[idx];
+            int cur = static_cast<int>(key.Interp);
+            const char* items[] = { "Constant", "Linear", "EaseInOut", "Bezier" };
+            if (ImGui::Combo("Interpolation", &cur, items, 4))
             {
-                interp = static_cast<CinematicInterp>(std::clamp(cur, 0, 2));
+                key.Interp = static_cast<CinematicInterp>(std::clamp(cur, 0, 3));
                 changed = true;
+            }
+            const bool prevIsBezier = idx > 0 && keys[idx - 1].Interp == CinematicInterp::Bezier;
+            if (key.Interp == CinematicInterp::Bezier || prevIsBezier)
+            {
+                // Tangents are slopes of the normalized ease curve: 0 = smoothstep
+                // ends, 1 = straight (linear), higher = steeper / overshoot.
+                if (ImGui::DragFloat("In tangent", &key.InTangent, 0.02f, -8.0f, 8.0f, "%.3f"))
+                    changed = true;
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Used when the previous key is Bezier (shapes the segment arriving here).");
+                if (ImGui::DragFloat("Out tangent", &key.OutTangent, 0.02f, -8.0f, 8.0f, "%.3f"))
+                    changed = true;
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Used when this key is Bezier (shapes the segment leaving here).");
+                ImGui::TextDisabled("0 = ease (smoothstep), 1 = linear");
             }
         };
 
@@ -793,7 +816,7 @@ namespace OloEngine
                 }
                 if (ImGui::DragFloat3("Value", &key.Value.x, 0.02f))
                     changed = true;
-                editInterp(key.Interp);
+                editKeyInterp(channel.Keys, m_Selection.KeyIndex);
                 break;
             }
             case LaneKind::CameraPosition:
@@ -811,7 +834,7 @@ namespace OloEngine
                 }
                 if (ImGui::DragFloat3("Value", &key.Value.x, 0.02f))
                     changed = true;
-                editInterp(key.Interp);
+                editKeyInterp(channel.Keys, m_Selection.KeyIndex);
                 break;
             }
             case LaneKind::TransformRotation:
@@ -836,7 +859,7 @@ namespace OloEngine
                     key.Value = glm::quat(glm::radians(euler));
                     changed = true;
                 }
-                editInterp(key.Interp);
+                editKeyInterp(channel->Keys, m_Selection.KeyIndex);
                 break;
             }
             case LaneKind::CameraFov:
@@ -858,7 +881,7 @@ namespace OloEngine
                     key.Value = glm::radians(deg);
                     changed = true;
                 }
-                editInterp(key.Interp);
+                editKeyInterp(channel.Keys, m_Selection.KeyIndex);
                 break;
             }
             case LaneKind::Visibility:
