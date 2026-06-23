@@ -1152,6 +1152,15 @@ namespace OloEngine
     {
     };
 
+    // PerceptibleComponent is trivially copyable but has tail padding (i32 + bool
+    // → 8 bytes, 3 padding bytes), so the default memcmp path compares
+    // indeterminate padding (SonarCloud cpp:S5000). It defines operator==, so use
+    // the value-comparison path instead.
+    template<>
+    struct PreferValueComparison<PerceptibleComponent> : std::true_type
+    {
+    };
+
     template<typename T, typename UIFunction>
     static void DrawComponent(const std::string& name, Entity entity, UIFunction uiFunction)
     {
@@ -1908,6 +1917,8 @@ namespace OloEngine
             DisplayAddComponentEntry<BehaviorTreeComponent>("Behavior Tree");
             DisplayAddComponentEntry<StateMachineComponent>("State Machine");
             DisplayAddComponentEntry<GoapAgentComponent>("GOAP Agent");
+            DisplayAddComponentEntry<PerceptionComponent>("Perception");
+            DisplayAddComponentEntry<PerceptibleComponent>("Perceptible");
 
             ImGui::Separator();
 
@@ -6349,6 +6360,35 @@ namespace OloEngine
                                    "No runtime agent — build one from a script (see");
                 ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f),
                                    "  LuaGoapHungryNPC.lua) or native code, then press Play.");
+            } });
+
+        DrawComponent<PerceptibleComponent>("Perceptible", entity, [](auto& component)
+                                            {
+            ImGui::DragInt("Team", &component.Team);
+            ImGui::Checkbox("Is Perceptible", &component.IsPerceptible);
+            ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f),
+                               "Marks this entity as sensable by AI sight."); });
+
+        DrawComponent<PerceptionComponent>("Perception", entity, [](auto& component)
+                                           {
+            ImGui::DragFloat("Sight Range", &component.SightRange, 0.1f, 0.0f, 100000.0f);
+            ImGui::DragFloat("FOV (degrees)", &component.FovDegrees, 1.0f, 0.0f, 360.0f);
+            ImGui::DragFloat3("Eye Offset", glm::value_ptr(component.EyeOffset), 0.05f);
+            ImGui::Checkbox("Require Line Of Sight", &component.RequireLineOfSight);
+            ImGui::DragInt("Perceiver Team", &component.PerceiverTeam);
+            ImGui::Checkbox("Detect Same Team", &component.DetectSameTeam);
+            ImGui::Separator(); // below: read-only live sensor result, filled each tick by PerceptionSystem
+            if (component.HasVisibleTarget)
+            {
+                ImGui::TextColored(ImVec4(0.4f, 0.9f, 0.4f, 1.0f), "Target visible: %llu", static_cast<unsigned long long>(static_cast<u64>(component.VisibleTarget)));
+            }
+            else
+            {
+                ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "No target in sight");
+            }
+            if (component.HasLastKnownPosition)
+            {
+                ImGui::Text("Last seen (%.2f, %.2f, %.2f), %.1fs ago", component.LastKnownPosition.x, component.LastKnownPosition.y, component.LastKnownPosition.z, component.TimeSinceLastSeen);
             } });
 
         DrawComponent<InventoryComponent>("Inventory", entity, [](auto& component)

@@ -89,6 +89,8 @@
 		"OloEngine/AI/BehaviorTree/BTDecorators.cpp"
 		"OloEngine/AI/BehaviorTree/BTTasks.h"
 		"OloEngine/AI/BehaviorTree/BTTasks.cpp"
+		"OloEngine/AI/BehaviorTree/BTPerceptionNodes.h"
+		"OloEngine/AI/BehaviorTree/BTPerceptionNodes.cpp"
 		"OloEngine/AI/BehaviorTree/BehaviorTree.h"
 		"OloEngine/AI/BehaviorTree/BehaviorTree.cpp"
 		"OloEngine/AI/BehaviorTree/BehaviorTreeAsset.h"
@@ -111,6 +113,9 @@
 		"OloEngine/AI/AISystem.cpp"
 		"OloEngine/AI/AIRegistry.h"
 		"OloEngine/AI/AIRegistry.cpp"
+		"OloEngine/AI/Perception/PerceptionMath.h"
+		"OloEngine/AI/Perception/PerceptionSystem.h"
+		"OloEngine/AI/Perception/PerceptionSystem.cpp"
 		"OloEngine/AI/BehaviorTree/BehaviorTreeSerializer.cpp"
 		"OloEngine/AI/FSM/StateMachineSerializer.cpp"
 		

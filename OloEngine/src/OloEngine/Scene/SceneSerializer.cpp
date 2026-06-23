@@ -3247,6 +3247,27 @@ namespace OloEngine
             TrySet(gac.Enabled, goapAgentComponent["Enabled"]);
         }
 
+        if (auto perceptibleComponent = entity["PerceptibleComponent"]; perceptibleComponent)
+        {
+            auto& perc = deserializedEntity.AddComponent<PerceptibleComponent>();
+            TrySet(perc.Team, perceptibleComponent["Team"]);
+            TrySet(perc.IsPerceptible, perceptibleComponent["IsPerceptible"]);
+        }
+
+        if (auto perceptionComponent = entity["PerceptionComponent"]; perceptionComponent)
+        {
+            auto& pcp = deserializedEntity.AddComponent<PerceptionComponent>();
+            TrySet(pcp.SightRange, perceptionComponent["SightRange"]);
+            SanitizeFloat(pcp.SightRange, 0.0f, 100000.0f, 15.0f);
+            TrySet(pcp.FovDegrees, perceptionComponent["FovDegrees"]);
+            SanitizeFloat(pcp.FovDegrees, 0.0f, 360.0f, 90.0f);
+            TrySet(pcp.EyeOffset, perceptionComponent["EyeOffset"]);
+            SanitizeVec3(pcp.EyeOffset, glm::vec3{ 0.0f, 1.7f, 0.0f });
+            TrySet(pcp.RequireLineOfSight, perceptionComponent["RequireLineOfSight"]);
+            TrySet(pcp.PerceiverTeam, perceptionComponent["PerceiverTeam"]);
+            TrySet(pcp.DetectSameTeam, perceptionComponent["DetectSameTeam"]);
+        }
+
         if (auto inventoryComponent = entity["InventoryComponent"]; inventoryComponent)
         {
             auto& ic = deserializedEntity.AddComponent<InventoryComponent>();
@@ -5764,6 +5785,34 @@ namespace OloEngine
             out << YAML::Key << "Enabled" << YAML::Value << gac.Enabled;
 
             out << YAML::EndMap; // GoapAgentComponent
+        }
+
+        if (entity.HasComponent<PerceptibleComponent>())
+        {
+            out << YAML::Key << "PerceptibleComponent";
+            out << YAML::BeginMap;
+
+            auto const& perc = entity.GetComponent<PerceptibleComponent>();
+            out << YAML::Key << "Team" << YAML::Value << perc.Team;
+            out << YAML::Key << "IsPerceptible" << YAML::Value << perc.IsPerceptible;
+
+            out << YAML::EndMap; // PerceptibleComponent
+        }
+
+        if (entity.HasComponent<PerceptionComponent>())
+        {
+            out << YAML::Key << "PerceptionComponent";
+            out << YAML::BeginMap;
+
+            auto const& pcp = entity.GetComponent<PerceptionComponent>();
+            out << YAML::Key << "SightRange" << YAML::Value << pcp.SightRange;
+            out << YAML::Key << "FovDegrees" << YAML::Value << pcp.FovDegrees;
+            out << YAML::Key << "EyeOffset" << YAML::Value << pcp.EyeOffset;
+            out << YAML::Key << "RequireLineOfSight" << YAML::Value << pcp.RequireLineOfSight;
+            out << YAML::Key << "PerceiverTeam" << YAML::Value << pcp.PerceiverTeam;
+            out << YAML::Key << "DetectSameTeam" << YAML::Value << pcp.DetectSameTeam;
+
+            out << YAML::EndMap; // PerceptionComponent
         }
 
         if (entity.HasComponent<InventoryComponent>())

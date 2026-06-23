@@ -3352,6 +3352,8 @@ namespace OloEngine
         BehaviorTreeComponent,
         StateMachineComponent,
         GoapAgentComponent,
+        PerceptibleComponent,
+        PerceptionComponent,
         TileRendererComponent,
         InventoryComponent,
         ItemPickupComponent,
