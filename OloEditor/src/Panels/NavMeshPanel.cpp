@@ -95,6 +95,7 @@ namespace OloEngine
 
         auto boundsView = m_Context->GetAllEntitiesWith<NavMeshBoundsComponent>();
         bool firstBounds = true;
+        std::vector<OffMeshLink> links;
         for (auto e : boundsView)
         {
             Entity entity = { e, m_Context.Raw() };
@@ -110,17 +111,19 @@ namespace OloEngine
                 boundsMin = glm::min(boundsMin, bounds.m_Min);
                 boundsMax = glm::max(boundsMax, bounds.m_Max);
             }
+            links.insert(links.end(), bounds.m_Links.begin(), bounds.m_Links.end());
         }
 
         ImGui::Text("Bounds: (%.1f, %.1f, %.1f) to (%.1f, %.1f, %.1f)",
                     boundsMin.x, boundsMin.y, boundsMin.z,
                     boundsMax.x, boundsMax.y, boundsMax.z);
+        ImGui::Text("Off-mesh links: %d", static_cast<int>(links.size()));
 
         if (ImGui::Button("Bake NavMesh"))
         {
             auto startTime = std::chrono::high_resolution_clock::now();
 
-            auto navMesh = NavMeshGenerator::Generate(m_Context.Raw(), m_Settings, boundsMin, boundsMax);
+            auto navMesh = NavMeshGenerator::Generate(m_Context.Raw(), m_Settings, boundsMin, boundsMax, links);
 
             auto endTime = std::chrono::high_resolution_clock::now();
             m_LastBakeTimeMs = std::chrono::duration<f32, std::milli>(endTime - startTime).count();

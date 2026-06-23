@@ -385,6 +385,7 @@ add_executable(OloEngine-Tests
 		Functional/Gameplay/AbilityBlockedByOwnerTagTest.cpp
 		Functional/Gameplay/InventoryStackConsolidationTest.cpp
 		Functional/Navigation/NavMeshQueryFindPathBetweenPointsTest.cpp
+		Functional/Navigation/NavMeshOffMeshLinkBridgesGapTest.cpp
 		Functional/Scripting/LuaRaycastHitsPhysicsBodyTest.cpp
 		Functional/Scripting/LuaCompletesQuestViaIncrementObjectiveTest.cpp
 		Functional/Dialogue/DialogueAdvanceMovesToNextNodeTest.cpp
