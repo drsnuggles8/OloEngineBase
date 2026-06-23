@@ -57,6 +57,80 @@ namespace OloEngine::Ocean
         return spectrum;
     }
 
+    f32 JonswapSpectrum(const SpectrumParams& params, glm::vec2 k)
+    {
+        const f32 kSqr = glm::dot(k, k);
+        if (kSqr < 1e-12f)
+            return 0.0f; // no energy at the zero wave vector (k = 0)
+
+        const f32 kMag = std::sqrt(kSqr);
+        const f32 g = std::max(params.m_Gravity, 1e-4f);
+
+        // Deep-water dispersion maps the wave vector to an angular frequency:
+        // ω = sqrt(g·|k|) (same relation as Dispersion()).
+        const f32 omega = std::sqrt(g * kMag);
+        if (omega < 1e-4f)
+            return 0.0f;
+
+        // JONSWAP peak angular frequency from the fetch relation
+        // (Hasselmann et al. 1973): ωₚ = 22·(g²/(V·F))^(1/3). Shorter fetch /
+        // weaker wind ⇒ higher ωₚ ⇒ the peak sits at a shorter wavelength.
+        const f32 windSpeed = std::max(params.m_WindSpeed, 1e-3f);
+        const f32 fetch = std::max(params.m_JonswapFetch, 1.0f);
+        const f32 omegaPeak = 22.0f * std::cbrt((g * g) / (windSpeed * fetch));
+
+        // 1-D fetch-limited frequency spectrum (the §1.4 formula):
+        //   S(ω) = α·g²/ω⁵ · exp(-5/4·(ωₚ/ω)⁴) · γ^r,
+        //   r = exp(-(ω-ωₚ)²/(2σ²ωₚ²)),  σ = 0.07 (ω≤ωₚ) else 0.09.
+        // α (the Phillips equilibrium constant) is a constant scale that the
+        // OceanFFTField RMS normalisation absorbs, so it folds into m_Amplitude
+        // exactly as the Phillips spectrum's A does — only the *shape* differs.
+        const f32 peakRatio = omegaPeak / omega;
+        const f32 peakRatio4 = peakRatio * peakRatio * peakRatio * peakRatio;
+        const f32 omega5 = omega * omega * omega * omega * omega;
+        const f32 pm = (g * g) / omega5 * std::exp(-1.25f * peakRatio4);
+
+        const f32 sigma = (omega <= omegaPeak) ? 0.07f : 0.09f;
+        const f32 dOmega = omega - omegaPeak;
+        const f32 r = std::exp(-(dOmega * dOmega) / (2.0f * sigma * sigma * omegaPeak * omegaPeak));
+        const f32 gamma = std::max(params.m_JonswapGamma, 1.0f);
+        const f32 sOmega = pm * std::pow(gamma, r);
+
+        // Convert the 1-D frequency density S(ω) to a 2-D wave-vector density:
+        //   Ψ(k) = S(ω)·(dω/dk)·(1/k),  dω/dk = g/(2ω) (deep water).
+        // The 1/k is the polar→cartesian Jacobian (dk dθ → dkx dkz) so the
+        // energy spreads correctly across the (kx, kz) plane.
+        const f32 dOmegaDk = g / (2.0f * omega);
+        f32 spectrum = params.m_Amplitude * sOmega * dOmegaDk / kMag;
+
+        // Directional term — identical to Phillips so the wind-direction and
+        // directional-exponent controls behave the same across both spectra.
+        const glm::vec2 windDir = glm::normalize(params.m_WindDirection + glm::vec2(1e-6f, 0.0f));
+        const f32 kDotW = glm::dot(k / kMag, windDir);
+        spectrum *= std::pow(std::abs(kDotW), params.m_DirectionalExponent);
+
+        // Suppress sub-grid waves (Tessendorf's exp(-k²l²) term), same as Phillips.
+        if (params.m_SmallWaveSuppression > 0.0f)
+        {
+            const f32 l = params.m_SmallWaveSuppression;
+            spectrum *= std::exp(-kSqr * l * l);
+        }
+
+        return spectrum;
+    }
+
+    f32 SpectrumEnergy(const SpectrumParams& params, glm::vec2 k)
+    {
+        switch (params.m_SpectrumType)
+        {
+            case SpectrumType::JONSWAP:
+                return JonswapSpectrum(params, k);
+            case SpectrumType::Phillips:
+            default:
+                return PhillipsSpectrum(params, k);
+        }
+    }
+
     f32 Dispersion(f32 kMagnitude, f32 gravity)
     {
         return std::sqrt(std::max(gravity * kMagnitude, 0.0f));
@@ -78,7 +152,7 @@ namespace OloEngine::Ocean
             for (u32 n = 0u; n < N; ++n)
             {
                 const glm::vec2 k = WaveVector(n, m, N, params.m_PatchSize);
-                const f32 amp = std::sqrt(PhillipsSpectrum(params, k));
+                const f32 amp = std::sqrt(SpectrumEnergy(params, k));
                 const f32 xr = gauss(rng);
                 const f32 xi = gauss(rng);
                 h0[static_cast<sizet>(m) * N + n] = invSqrt2 * Complex(xr, xi) * amp;
