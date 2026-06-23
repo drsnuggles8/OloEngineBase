@@ -73,7 +73,10 @@ namespace OloEngine::Tests
             f64 G = 0.0;
             f64 B = 0.0;
 
-            [[nodiscard]] f64 Luma() const { return 0.2126 * R + 0.7152 * G + 0.0722 * B; }
+            [[nodiscard]] f64 Luma() const
+            {
+                return 0.2126 * R + 0.7152 * G + 0.0722 * B;
+            }
         };
 
         // Mean RGB over a rectangular band (UV fractions), rows top-down.

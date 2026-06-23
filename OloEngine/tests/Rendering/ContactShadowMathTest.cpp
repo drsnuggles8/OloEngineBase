@@ -279,11 +279,11 @@ TEST(ContactShadow, OcclusionPredicateThicknessWindow)
     // Ray exactly on the surface: delta == 0 -> not a hit (avoids self-shadow).
     EXPECT_FALSE(isHit(-5.0f, -5.0f));
     // Ray just behind a near surface within the thickness window -> hit.
-    EXPECT_TRUE(isHit(-5.2f, -5.0f));   // delta = 0.2 in (0, 0.3)
+    EXPECT_TRUE(isHit(-5.2f, -5.0f)); // delta = 0.2 in (0, 0.3)
     // Ray in front of the surface (closer to camera) -> no occluder.
-    EXPECT_FALSE(isHit(-4.8f, -5.0f));  // delta = -0.2
+    EXPECT_FALSE(isHit(-4.8f, -5.0f)); // delta = -0.2
     // Surface far in front of the ray (background) -> beyond thickness, ignored.
-    EXPECT_FALSE(isHit(-6.0f, -5.0f));  // delta = 1.0 >= 0.3
+    EXPECT_FALSE(isHit(-6.0f, -5.0f)); // delta = 1.0 >= 0.3
 }
 
 // ---- Distance + edge fades --------------------------------------------------
