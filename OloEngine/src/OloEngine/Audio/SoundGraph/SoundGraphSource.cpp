@@ -1,12 +1,12 @@
 #include "OloEnginePCH.h"
 #include "SoundGraphSource.h"
 #include "OloEngine/Audio/AudioLoader.h"
-#include "OloEngine/Threading/UniqueLock.h"
 #include "OloEngine/Asset/AssetManager.h"
 #include "OloEngine/Core/Hash.h"
 #include "OloEngine/Project/Project.h"
 #include <chrono>
 #include <thread>
+#include <variant>
 
 namespace OloEngine::Audio::SoundGraph
 {
@@ -185,108 +185,6 @@ namespace OloEngine::Audio::SoundGraph
                 return false;
         }
         return true;
-    }
-
-    //==============================================================================
-    /// SoundGraphSource::ThreadSafePreset Implementation
-
-    void SoundGraphSource::ThreadSafePreset::SetPreset(const SoundGraphPatchPreset& preset)
-    {
-        // Create a new shared_ptr copy using deep copying
-        auto newPreset = std::make_shared<SoundGraphPatchPreset>();
-
-        // Copy preset metadata
-        newPreset->SetName(preset.GetName());
-        newPreset->SetDescription(preset.GetDescription());
-        newPreset->SetVersion(preset.GetVersion());
-        newPreset->SetAuthor(preset.GetAuthor());
-
-        // Copy parameter descriptors
-        auto descriptors = preset.GetAllParameterDescriptors();
-        for (const auto& descriptor : descriptors)
-        {
-            newPreset->RegisterParameter(descriptor);
-        }
-
-        // Copy patches
-        auto patchNames = preset.GetPatchNames();
-        for (const auto& patchName : patchNames)
-        {
-            const auto* sourcePatch = preset.GetPatch(patchName);
-            if (sourcePatch)
-            {
-                if (newPreset->CreatePatch(patchName, "Copied patch"))
-                {
-                    auto* destPatch = newPreset->GetPatch(patchName);
-                    if (destPatch)
-                    {
-                        // Copy all parameter values from source patch
-                        *destPatch = *sourcePatch; // Use assignment operator if available
-                    }
-                }
-            }
-        }
-
-        // Atomically swap in the new preset while holding the lock
-        {
-            TUniqueLock<FMutex> lock(m_PresetMutex);
-            m_Preset = newPreset;
-        }
-
-        // Signal changes after publishing the new preset
-        m_HasChanges.store(true, std::memory_order_release);
-    }
-
-    bool SoundGraphSource::ThreadSafePreset::GetPresetIfChanged(SoundGraphPatchPreset& outPreset)
-    {
-        if (m_HasChanges.exchange(false, std::memory_order_acq_rel))
-        {
-            // Take a local copy of the shared_ptr while holding the lock briefly
-            std::shared_ptr<SoundGraphPatchPreset> localPreset;
-            {
-                TUniqueLock<FMutex> lock(m_PresetMutex);
-                localPreset = m_Preset;
-            }
-
-            // Now work with the stable snapshot without holding the lock
-            if (localPreset)
-            {
-                outPreset.Clear();
-                // Copy preset data to output
-                outPreset.SetName(localPreset->GetName());
-                outPreset.SetDescription(localPreset->GetDescription());
-                outPreset.SetVersion(localPreset->GetVersion());
-                outPreset.SetAuthor(localPreset->GetAuthor());
-
-                // Copy parameter descriptors
-                auto descriptors = localPreset->GetAllParameterDescriptors();
-                for (const auto& descriptor : descriptors)
-                {
-                    outPreset.RegisterParameter(descriptor);
-                }
-
-                // Copy patches
-                auto patchNames = localPreset->GetPatchNames();
-                for (const auto& patchName : patchNames)
-                {
-                    const auto* sourcePatch = localPreset->GetPatch(patchName);
-                    if (sourcePatch)
-                    {
-                        if (outPreset.CreatePatch(patchName, "Copied patch"))
-                        {
-                            auto* destPatch = outPreset.GetPatch(patchName);
-                            if (destPatch)
-                            {
-                                *destPatch = *sourcePatch;
-                            }
-                        }
-                    }
-                }
-
-                return true;
-            }
-        }
-        return false;
     }
 
     //==============================================================================
@@ -587,6 +485,13 @@ namespace OloEngine::Audio::SoundGraph
         {
             m_Graph = newGraph;
 
+            // Discard parameter writes still queued for the previous graph. We hold the
+            // suspend protocol here (the audio thread is parked in the silence path and not
+            // draining — see ProcessSamples), so clearing is safe. Without this a value
+            // validated against the old graph's endpoints could land on the new graph the
+            // next time the audio thread drains.
+            m_ParameterUpdateQueue.Clear();
+
             if (m_Graph)
             {
                 // Initialize the sound graph with our sample rate before we resume; the audio
@@ -612,6 +517,11 @@ namespace OloEngine::Audio::SoundGraph
     //==============================================================================
     /// Parameter Interface
 
+    bool SoundGraphSource::HasParameter(std::string_view parameterName) const
+    {
+        return !parameterName.empty() && HasParameter(OloEngine::Hash::GenerateFNVHash(parameterName));
+    }
+
     bool SoundGraphSource::SetParameter(std::string_view parameterName, const choc::value::Value& value)
     {
         if (!m_Graph || parameterName.empty())
@@ -624,15 +534,17 @@ namespace OloEngine::Audio::SoundGraph
 
     bool SoundGraphSource::SetParameter(u32 parameterID, const choc::value::Value& value)
     {
-        // m_ParameterHandles is populated by UpdateParameterSet, which is still a stub
-        // pending the full parameter-handle integration (see TODO inside that function).
-        // Until that lands, forward the write straight to the graph: SoundGraph::SendInputValue
-        // matches parameterID against its endpoint streams by the same FNV hash we use here
-        // (see SoundGraphSource::SetParameter(string_view) one frame up the stack). This keeps
-        // the AudioSoundGraphComponent::SetParameter scripting API functional today instead
-        // of always returning false because the handle map is empty.
+        // Single live parameter write from gameplay (main thread). This applies
+        // synchronously and immediately: SoundGraph::SendInputValue matches parameterID
+        // against the graph's endpoint input streams by the same FNV hash UpdateParameterSet
+        // keyed m_ParameterHandles with (and that SetParameter(string_view) hashed). The
+        // handle map is the fast existence check; SendInputValue is still the writer so the
+        // value (and its 10 ms float interpolation) lands without waiting for an audio block.
+        // Bulk preset application instead goes through the lock-free queue (ApplyParameterPreset).
         if (!m_Graph)
             return false;
+        if (!m_ParameterHandles.empty() && !HasParameter(parameterID))
+            return false; // not an exposed graph parameter — avoid the O(n) SendInputValue scan
         return m_Graph->SendInputValue(parameterID, value.getView(), /*interpolate=*/false);
     }
 
@@ -646,12 +558,60 @@ namespace OloEngine::Audio::SoundGraph
             return false;
         }
 
-        // Set the preset for thread-safe access from audio thread
-        m_ThreadSafePreset.SetPreset(preset);
+        // Flatten the preset's registered parameter descriptors into the lock-free
+        // hand-off queue. Each descriptor's ID is the FNV hash of a graph endpoint name
+        // (the same key UpdateParameterSet built m_ParameterHandles from); its DefaultValue
+        // is the baseline this preset establishes. Resolution and packing happen here on the
+        // main thread so the audio thread only ever drains pre-validated, inline-packed
+        // writes (no locks, no allocation).
+        //
+        // Two distinct outcomes per descriptor, kept separate so the return value is honest:
+        //   * unresolved — the descriptor isn't a parameter of *this* graph (a preset may
+        //     carry parameters for several graph variants). Skipped; not a failure.
+        //   * resolved but not queued — the hand-off queue was full, so a parameter that
+        //     SHOULD have applied was dropped. That's a partial application and must fail the
+        //     call, otherwise a full queue silently reports success.
+        const u32 total = static_cast<u32>(preset.GetParameterCount());
+        u32 resolved = 0;
+        u32 applied = 0;
+        for (const ParameterDescriptor& descriptor : preset.GetAllParameterDescriptors())
+        {
+            if (!HasParameter(descriptor.ID))
+                continue; // belongs to a different graph — skip, not a failure
 
-        OLO_CORE_TRACE("[SoundGraphSource] Applied parameter preset with {0} parameters",
-                       preset.GetParameterCount());
-        return true;
+            ++resolved;
+            const choc::value::Value value = std::visit(
+                [](const auto& scalar) -> choc::value::Value
+                {
+                    using T = std::decay_t<decltype(scalar)>;
+                    if constexpr (std::is_same_v<T, f32>)
+                        return choc::value::createFloat32(scalar);
+                    else if constexpr (std::is_same_v<T, i32>)
+                        return choc::value::createInt32(scalar);
+                    else
+                        return choc::value::createBool(scalar);
+                },
+                descriptor.DefaultValue);
+
+            if (EnqueueParameterUpdate(descriptor.ID, value))
+                ++applied;
+        }
+
+        if (resolved < total)
+        {
+            OLO_CORE_WARN("[SoundGraphSource] ApplyParameterPreset: {0} of {1} preset parameters are not exposed by the current graph (skipped)",
+                          total - resolved, total);
+        }
+        if (applied < resolved)
+        {
+            OLO_CORE_ERROR("[SoundGraphSource] ApplyParameterPreset: hand-off queue full — only {0} of {1} resolvable parameters were queued",
+                           applied, resolved);
+        }
+
+        OLO_CORE_TRACE("[SoundGraphSource] Queued {0} preset parameter(s) for the audio thread", applied);
+        // Success requires every resolvable parameter to have been queued (no queue-full
+        // partial apply) and at least one to have applied. An empty preset is a no-op success.
+        return (resolved > 0 && applied == resolved) || total == 0;
     }
 
     //==============================================================================
@@ -710,42 +670,82 @@ namespace OloEngine::Audio::SoundGraph
         if (!m_Graph)
             return;
 
+        // Rebuild the handle map from the graph's real exposed input-stream endpoints.
+        // SoundGraph::GetParameters() returns the Identifier of every graph input
+        // parameter cell (m_EndpointInputStreams); each Identifier's u32 value is the FNV
+        // hash of the endpoint name — the same key SetParameter(name) hashes to and that
+        // SendInputValue matches against. Called from ReplaceGraph off the audio thread
+        // (under the suspend protocol), so the clear/rebuild allocation is safe here.
         m_ParameterHandles.clear();
-
-        // Get parameter endpoints from the sound graph
-        // This would need to be adapted to OloEngine's sound graph parameter system
-        // auto parameters = m_Graph->GetParameterEndpoints();
-
-        // For now, create placeholder parameter mapping
-        // In a real implementation, you'd iterate through the sound graph's exposed parameters
+        for (const Identifier parameterID : m_Graph->GetParameters())
+        {
+            const u32 handle = static_cast<u32>(parameterID);
+            m_ParameterHandles.try_emplace(handle, ParameterInfo(handle));
+        }
 
         OLO_CORE_TRACE("[SoundGraphSource] Updated parameter set with {0} parameters",
                        m_ParameterHandles.size());
     }
 
-    bool SoundGraphSource::ApplyParameterPresetInternal() const
+    bool SoundGraphSource::EnqueueParameterUpdate(u32 parameterID, const choc::value::Value& value)
+    {
+        // Main thread. Defensive guard: only enqueue parameters the current graph exposes
+        // (callers that need to distinguish "not a parameter" from "queue full" pre-check
+        // HasParameter — see ApplyParameterPreset). Pack the value into PreAllocatedValue
+        // inline storage so the audio thread reconstructs a ValueView without allocating.
+        if (!HasParameter(parameterID))
+            return false;
+
+        ParameterUpdate update;
+        update.m_ParameterID = parameterID;
+        if (!update.m_Value.CopyFrom(value.getView()))
+            return false; // value too large for inline storage (never happens for scalars)
+
+        return m_ParameterUpdateQueue.Push(update);
+    }
+
+    u32 SoundGraphSource::DrainParameterUpdates()
+    {
+        // Audio thread. Wait-free, allocation-free: pop each queued write and apply it to
+        // the graph. PreAllocatedValue::GetView() aliases the inline storage (no heap), and
+        // SendInputValue writes the endpoint cell directly. Non-interpolated so the value is
+        // observed from frame 0 of this block — a preset apply is a discrete state change,
+        // not a glide.
+        if (!m_Graph)
+            return 0;
+
+        u32 applied = 0;
+        ParameterUpdate update;
+        while (m_ParameterUpdateQueue.Pop(update))
+        {
+            if (m_Graph->SendInputValue(update.m_ParameterID, update.m_Value.GetView(), /*interpolate=*/false))
+                ++applied;
+        }
+        return applied;
+    }
+
+    bool SoundGraphSource::ApplyParameterPresetInternal()
     {
         OLO_PROFILE_FUNCTION();
 
         if (!m_Graph)
             return false;
 
-        // For now, we'll skip the preset application since it needs proper integration
-        // In a real implementation, you'd:
-        // 1. Get the preset from the thread-safe container
-        // 2. Apply each parameter to the sound graph
-        // 3. Track which parameters were successfully set
-        // TODO(implement preset application)
-
-        // Placeholder - just mark as initialized
+        // One-shot, before the first processed block: apply whatever parameter writes were
+        // queued ahead of playback (e.g. an ApplyParameterPreset issued before the graph
+        // started pulling). Draining an empty queue is a no-op. Returning true flips
+        // m_PresetIsInitialized so this runs once; live changes after this are handled
+        // per-block by UpdateChangedParameters.
+        DrainParameterUpdates();
         return true;
     }
 
-    void SoundGraphSource::UpdateChangedParameters() const
+    void SoundGraphSource::UpdateChangedParameters()
     {
-        // TODO(implement parameter change detection)
-        // Handle any parameter changes that occurred since last audio block
-        // This would integrate with OloEngine's parameter change detection system
+        // Audio thread, once per block. Apply any parameter writes the main thread queued
+        // since the last block (the lock-free queue is the dirty-signal: empty => nothing
+        // changed => early return inside Pop). RT-safe — see DrainParameterUpdates.
+        DrainParameterUpdates();
     }
 
     void SoundGraphSource::SilenceOutputBuffers(float** ppFramesOut, u32 frameCount) const
@@ -809,6 +809,10 @@ namespace OloEngine::Audio::SoundGraph
         // Process the sound graph
         if (m_PresetIsInitialized && m_Graph->IsPlayable())
         {
+            // Apply any parameter writes the main thread queued since the last block,
+            // before the graph reads its input cells. Wait-free and allocation-free.
+            UpdateChangedParameters();
+
             // Begin processing block (refill wave player buffers)
             m_Graph->BeginProcessBlock();
 
