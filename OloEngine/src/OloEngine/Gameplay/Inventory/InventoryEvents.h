@@ -40,4 +40,26 @@ namespace OloEngine
         std::string SlotName;
     };
 
+    // Published when a buyer purchases items from a shop container. TotalPrice
+    // is the currency the buyer paid (unit BuyPrice × Quantity).
+    struct ItemBoughtEvent
+    {
+        UUID BuyerEntityID;
+        UUID ShopEntityID;
+        std::string ItemDefinitionID;
+        i32 Quantity = 0;
+        i32 TotalPrice = 0;
+    };
+
+    // Published when a seller offloads items to a shop container. TotalPrice is
+    // the currency the seller received (unit SellPrice × Quantity).
+    struct ItemSoldEvent
+    {
+        UUID SellerEntityID;
+        UUID ShopEntityID;
+        std::string ItemDefinitionID;
+        i32 Quantity = 0;
+        i32 TotalPrice = 0;
+    };
+
 } // namespace OloEngine
