@@ -1432,6 +1432,12 @@ namespace OloEngine
         water.m_FFTSeed = waterComponent["FFTSeed"].as<u32>(water.m_FFTSeed);
         water.m_FFTUseGpuCompute = waterComponent["FFTUseGpuCompute"].as<bool>(water.m_FFTUseGpuCompute);
 
+        // Spectrum selection (§1.4) — stored as the SpectrumType underlying u32.
+        water.m_FFTSpectrumType = static_cast<Ocean::SpectrumType>(
+            waterComponent["FFTSpectrumType"].as<u32>(static_cast<u32>(water.m_FFTSpectrumType)));
+        water.m_FFTJonswapGamma = waterComponent["FFTJonswapGamma"].as<f32>(water.m_FFTJonswapGamma);
+        water.m_FFTJonswapFetch = waterComponent["FFTJonswapFetch"].as<f32>(water.m_FFTJonswapFetch);
+
         // Sanitize FFT fields (ranges match the clamps in Scene.cpp / the editor
         // UI) so no NaN/Inf or out-of-range value reaches the spectrum/GPU.
         water.m_FFTResolution = std::clamp(water.m_FFTResolution, 16u, 512u);
@@ -1443,6 +1449,11 @@ namespace OloEngine
         SanitizeFloat(water.m_FFTHeightScale, 0.0f, 20.0f, 1.0f);
         // m_FFTSeed: any u32 is a valid RNG seed; m_UseFFT is a plain bool — no
         // validation needed for either.
+        // Spectrum: clamp unknown enum values back to Phillips; bound JONSWAP shape.
+        if (static_cast<u32>(water.m_FFTSpectrumType) > static_cast<u32>(Ocean::SpectrumType::JONSWAP))
+            water.m_FFTSpectrumType = Ocean::SpectrumType::Phillips;
+        SanitizeFloat(water.m_FFTJonswapGamma, 1.0f, 10.0f, 3.3f);
+        SanitizeFloat(water.m_FFTJonswapFetch, 1.0f, 1.0e6f, 100000.0f);
 
         // Clamp grid resolution to safe bounds
         water.m_GridResolutionX = std::clamp(water.m_GridResolutionX, 1u, 1024u);
@@ -2464,7 +2475,7 @@ namespace OloEngine
 
             // Guard the joint type against an out-of-range enum value on disk.
             if (i32 jointTypeInt = jointComponent["JointType"].as<i32>(std::to_underlying(joint.m_Type));
-                jointTypeInt >= 0 && jointTypeInt <= static_cast<i32>(JointType3D::RackAndPinion))
+                jointTypeInt >= 0 && jointTypeInt <= static_cast<i32>(JointType3D::Path))
             {
                 joint.m_Type = static_cast<JointType3D>(jointTypeInt);
             }
@@ -2556,6 +2567,37 @@ namespace OloEngine
             joint.m_ConnectedAxis = jointComponent["ConnectedAxis"].as<glm::vec3>(joint.m_ConnectedAxis);
             joint.m_GearRatio = jointComponent["GearRatio"].as<f32>(joint.m_GearRatio);
 
+            // Path joint (issue #308). Control points are a sequence of vec3;
+            // drop any non-finite point rather than admitting a garbage anchor.
+            // The looping flag, rotation mode (int enum, guarded), and along-path
+            // motor + friction round-trip like the other motor fields.
+            if (auto pathPointsNode = jointComponent["PathPoints"]; pathPointsNode && pathPointsNode.IsSequence())
+            {
+                joint.m_PathPoints.clear();
+                joint.m_PathPoints.reserve(pathPointsNode.size());
+                for (auto const& ptNode : pathPointsNode)
+                {
+                    glm::vec3 p = ptNode.as<glm::vec3>(glm::vec3(0.0f));
+                    if (std::isfinite(p.x) && std::isfinite(p.y) && std::isfinite(p.z))
+                        joint.m_PathPoints.push_back(p);
+                }
+            }
+            joint.m_PathIsLooping = jointComponent["PathIsLooping"].as<bool>(joint.m_PathIsLooping);
+            if (i32 pathRotInt = jointComponent["PathRotationMode"].as<i32>(std::to_underlying(joint.m_PathRotationMode));
+                pathRotInt >= 0 && pathRotInt <= static_cast<i32>(JointPathRotationMode::FullyConstrained))
+            {
+                joint.m_PathRotationMode = static_cast<JointPathRotationMode>(pathRotInt);
+            }
+            if (i32 pathModeInt = jointComponent["PathMotorMode"].as<i32>(std::to_underlying(joint.m_PathMotorMode));
+                pathModeInt >= 0 && pathModeInt <= static_cast<i32>(JointMotorMode::Position))
+            {
+                joint.m_PathMotorMode = static_cast<JointMotorMode>(pathModeInt);
+            }
+            joint.m_PathMotorTargetVelocity = jointComponent["PathMotorTargetVelocity"].as<f32>(joint.m_PathMotorTargetVelocity);
+            joint.m_PathMotorTargetFraction = jointComponent["PathMotorTargetFraction"].as<f32>(joint.m_PathMotorTargetFraction);
+            joint.m_PathMaxMotorForce = jointComponent["PathMaxMotorForce"].as<f32>(joint.m_PathMaxMotorForce);
+            joint.m_PathMaxFrictionForce = jointComponent["PathMaxFrictionForce"].as<f32>(joint.m_PathMaxFrictionForce);
+
             // Reject non-finite floats read from disk and clamp to physically/Jolt-valid ranges.
             SanitizeFloat(joint.m_MinDistance, -1.0f, 10000.0f, 0.0f);
             SanitizeFloat(joint.m_MaxDistance, -1.0f, 10000.0f, 1.0f);
@@ -2616,6 +2658,14 @@ namespace OloEngine
             SanitizeFloat(joint.m_PulleyMinLength, -1.0f, 1.0e9f, 0.0f);
             SanitizeFloat(joint.m_PulleyMaxLength, -1.0f, 1.0e9f, -1.0f);
             SanitizeFloat(joint.m_GearRatio, -1.0e9f, 1.0e9f, 1.0f);
+            // Path motor: target velocity is signed (m/s); target fraction is a
+            // non-negative path coordinate; max force/friction are magnitudes
+            // (>= 0, 0 = no authority / no friction). The control points were
+            // finite-filtered above.
+            SanitizeFloat(joint.m_PathMotorTargetVelocity, -1.0e9f, 1.0e9f, 0.0f);
+            SanitizeFloat(joint.m_PathMotorTargetFraction, 0.0f, 1.0e9f, 0.0f);
+            SanitizeFloat(joint.m_PathMaxMotorForce, 0.0f, 1.0e9f, 0.0f);
+            SanitizeFloat(joint.m_PathMaxFrictionForce, 0.0f, 1.0e9f, 0.0f);
         }
 
         if (auto relComponent = entity["RelationshipComponent"]; relComponent)
@@ -4603,6 +4653,19 @@ namespace OloEngine
             out << YAML::Key << "PulleyMaxLength" << YAML::Value << joint.m_PulleyMaxLength;
             out << YAML::Key << "ConnectedAxis" << YAML::Value << joint.m_ConnectedAxis;
             out << YAML::Key << "GearRatio" << YAML::Value << joint.m_GearRatio;
+            // Path joint (issue #308): control points (sequence of vec3) + looping
+            // flag + rotation mode + along-path motor & friction.
+            out << YAML::Key << "PathPoints" << YAML::Value << YAML::BeginSeq;
+            for (glm::vec3 const& p : joint.m_PathPoints)
+                out << p;
+            out << YAML::EndSeq;
+            out << YAML::Key << "PathIsLooping" << YAML::Value << joint.m_PathIsLooping;
+            out << YAML::Key << "PathRotationMode" << YAML::Value << std::to_underlying(joint.m_PathRotationMode);
+            out << YAML::Key << "PathMotorMode" << YAML::Value << std::to_underlying(joint.m_PathMotorMode);
+            out << YAML::Key << "PathMotorTargetVelocity" << YAML::Value << joint.m_PathMotorTargetVelocity;
+            out << YAML::Key << "PathMotorTargetFraction" << YAML::Value << joint.m_PathMotorTargetFraction;
+            out << YAML::Key << "PathMaxMotorForce" << YAML::Value << joint.m_PathMaxMotorForce;
+            out << YAML::Key << "PathMaxFrictionForce" << YAML::Value << joint.m_PathMaxFrictionForce;
 
             out << YAML::EndMap; // PhysicsJoint3DComponent
         }
@@ -5272,6 +5335,9 @@ namespace OloEngine
             out << YAML::Key << "FFTHeightScale" << YAML::Value << water.m_FFTHeightScale;
             out << YAML::Key << "FFTSeed" << YAML::Value << water.m_FFTSeed;
             out << YAML::Key << "FFTUseGpuCompute" << YAML::Value << water.m_FFTUseGpuCompute;
+            out << YAML::Key << "FFTSpectrumType" << YAML::Value << static_cast<u32>(water.m_FFTSpectrumType);
+            out << YAML::Key << "FFTJonswapGamma" << YAML::Value << water.m_FFTJonswapGamma;
+            out << YAML::Key << "FFTJonswapFetch" << YAML::Value << water.m_FFTJonswapFetch;
 
             out << YAML::EndMap; // WaterComponent
         }

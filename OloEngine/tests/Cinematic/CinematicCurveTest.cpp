@@ -86,6 +86,164 @@ TEST(CinematicCurveTest, ApplyInterpContract)
     EXPECT_NEAR(CinematicCurve::ApplyInterp(CinematicInterp::Linear, 0.7f), 0.7f, kEps);
     EXPECT_NEAR(CinematicCurve::ApplyInterp(CinematicInterp::EaseInOut, 0.0f), 0.0f, kEps);
     EXPECT_NEAR(CinematicCurve::ApplyInterp(CinematicInterp::EaseInOut, 1.0f), 1.0f, kEps);
+    // Bezier has no tangents at this call site, so ApplyInterp degrades to Linear.
+    EXPECT_NEAR(CinematicCurve::ApplyInterp(CinematicInterp::Bezier, 0.3f), 0.3f, kEps);
+}
+
+// ============================ Bezier tangent ease ============================
+// BezierBlend is the pure 1D cubic-Hermite reparam of the segment parameter. Its
+// two anchor identities (flat -> smoothstep, unit -> linear) are what let a Bezier
+// key default to the old EaseInOut behaviour and only deviate once a handle moves.
+
+TEST(CinematicCurveTest, BezierBlendEndpointsAreClamped01)
+{
+    // Regardless of the tangents, the segment must start at the left value (0)
+    // and end at the right value (1) — otherwise keys wouldn't be honoured.
+    for (const f32 mIn : { -3.0f, 0.0f, 1.0f, 4.0f })
+    {
+        for (const f32 mOut : { -3.0f, 0.0f, 1.0f, 4.0f })
+        {
+            EXPECT_NEAR(CinematicCurve::BezierBlend(0.0f, mOut, mIn), 0.0f, kEps);
+            EXPECT_NEAR(CinematicCurve::BezierBlend(1.0f, mOut, mIn), 1.0f, kEps);
+        }
+    }
+}
+
+TEST(CinematicCurveTest, BezierBlendZeroTangentsIsSmoothstep)
+{
+    // Flat in/out tangents reproduce EaseInOut (smoothstep) exactly — the chosen
+    // "neutral" default so a fresh Bezier key matches the prior behaviour.
+    for (const f32 u : { 0.0f, 0.1f, 0.25f, 0.5f, 0.75f, 0.9f, 1.0f })
+    {
+        EXPECT_NEAR(CinematicCurve::BezierBlend(u, 0.0f, 0.0f),
+                    CinematicCurve::ApplyInterp(CinematicInterp::EaseInOut, u), kEps)
+            << "u=" << u;
+    }
+}
+
+TEST(CinematicCurveTest, BezierBlendUnitTangentsIsLinear)
+{
+    // Slopes of 1 at both ends mean the cubic collapses to the straight chord.
+    for (const f32 u : { 0.0f, 0.2f, 0.4f, 0.6f, 0.8f, 1.0f })
+    {
+        EXPECT_NEAR(CinematicCurve::BezierBlend(u, 1.0f, 1.0f), u, kEps) << "u=" << u;
+    }
+}
+
+TEST(CinematicCurveTest, BezierBlendSteepOutTangentLeadsFaster)
+{
+    // A steeper out-tangent makes the segment cover ground faster early on than
+    // the smoothstep default.
+    EXPECT_GT(CinematicCurve::BezierBlend(0.25f, 3.0f, 0.0f),
+              CinematicCurve::BezierBlend(0.25f, 0.0f, 0.0f));
+    // A large out-tangent overshoots past the right value mid-segment (the point
+    // of tangent handles — anticipation / overshoot for float & vec3 channels).
+    EXPECT_GT(CinematicCurve::BezierBlend(0.6f, 4.0f, 0.0f), 1.0f);
+}
+
+TEST(CinematicCurveTest, FloatChannelBezierFlatTangentsMatchEaseInOut)
+{
+    CinematicFloatChannel bez;
+    bez.Keys.push_back({ 0.0f, 0.0f, CinematicInterp::Bezier }); // tangents default 0
+    bez.Keys.push_back({ 2.0f, 10.0f, CinematicInterp::Linear });
+
+    CinematicFloatChannel ease;
+    ease.Keys.push_back({ 0.0f, 0.0f, CinematicInterp::EaseInOut });
+    ease.Keys.push_back({ 2.0f, 10.0f, CinematicInterp::Linear });
+
+    for (const f32 t : { 0.0f, 0.5f, 1.0f, 1.5f, 2.0f })
+    {
+        EXPECT_NEAR(bez.Evaluate(t), ease.Evaluate(t), kEps) << "t=" << t;
+    }
+}
+
+TEST(CinematicCurveTest, FloatChannelBezierUnitTangentsMatchLinear)
+{
+    // Left key Bezier with out-tangent 1, right key in-tangent 1 => straight line.
+    CinematicFloatChannel bez;
+    bez.Keys.push_back({ 0.0f, 0.0f, CinematicInterp::Bezier, /*In*/ 0.0f, /*Out*/ 1.0f });
+    bez.Keys.push_back({ 2.0f, 10.0f, CinematicInterp::Linear, /*In*/ 1.0f, /*Out*/ 0.0f });
+
+    EXPECT_NEAR(bez.Evaluate(0.5f), 2.5f, kEps);
+    EXPECT_NEAR(bez.Evaluate(1.0f), 5.0f, kEps);
+    EXPECT_NEAR(bez.Evaluate(1.5f), 7.5f, kEps);
+}
+
+TEST(CinematicCurveTest, FloatChannelBezierUsesRightKeyInTangent)
+{
+    // The segment reads the *right* key's InTangent even when the right key's own
+    // mode isn't Bezier — proving in/out are paired correctly across the segment.
+    CinematicFloatChannel a;
+    a.Keys.push_back({ 0.0f, 0.0f, CinematicInterp::Bezier, 0.0f, 0.0f }); // out = 0
+    a.Keys.push_back({ 1.0f, 1.0f, CinematicInterp::Linear, 0.0f, 0.0f }); // in  = 0
+
+    CinematicFloatChannel b = a;
+    b.Keys[1].InTangent = 2.0f; // steepen arrival only
+
+    // Changing the right key's in-tangent must change the sampled mid value.
+    EXPECT_GT(std::abs(a.Evaluate(0.75f) - b.Evaluate(0.75f)), 1e-3f);
+}
+
+TEST(CinematicCurveTest, FloatChannelBezierOvershoots)
+{
+    // out-tangent 4 pushes the blend > 1 mid-segment, so the value exceeds the
+    // right key's value (overshoot is allowed for scalar/vector channels).
+    CinematicFloatChannel ch;
+    ch.Keys.push_back({ 0.0f, 0.0f, CinematicInterp::Bezier, 0.0f, 4.0f });
+    ch.Keys.push_back({ 1.0f, 10.0f, CinematicInterp::Linear, 0.0f, 0.0f });
+    EXPECT_GT(ch.Evaluate(0.6f), 10.0f);
+    // Endpoints are still honoured exactly.
+    EXPECT_NEAR(ch.Evaluate(0.0f), 0.0f, kEps);
+    EXPECT_NEAR(ch.Evaluate(1.0f), 10.0f, kEps);
+}
+
+TEST(CinematicCurveTest, Vec3ChannelBezierEasesUniformly)
+{
+    // Flat-tangent Bezier eases every component by the same smoothstep blend.
+    CinematicVec3Channel ch;
+    ch.Keys.push_back({ 0.0f, glm::vec3(0.0f), CinematicInterp::Bezier });
+    ch.Keys.push_back({ 1.0f, glm::vec3(2.0f, 4.0f, 6.0f), CinematicInterp::Linear });
+
+    const f32 blend = CinematicCurve::ApplyInterp(CinematicInterp::EaseInOut, 0.25f); // smoothstep(0.25)
+    const glm::vec3 v = ch.Evaluate(0.25f);
+    EXPECT_NEAR(v.x, 2.0f * blend, kEps);
+    EXPECT_NEAR(v.y, 4.0f * blend, kEps);
+    EXPECT_NEAR(v.z, 6.0f * blend, kEps);
+}
+
+TEST(CinematicCurveTest, QuatChannelBezierStaysFiniteUnitAndClamped)
+{
+    // Even with steep tangents, the quaternion ease is clamped to [0,1] before
+    // slerp, so the result stays finite, unit, and never rotates past the
+    // endpoints. Flat tangents must also match the EaseInOut slerp.
+    CinematicQuatChannel bez;
+    bez.Keys.push_back({ 0.0f, glm::angleAxis(0.0f, glm::vec3(0, 1, 0)), CinematicInterp::Bezier, 0.0f, 6.0f });
+    bez.Keys.push_back({ 1.0f, glm::angleAxis(glm::radians(90.0f), glm::vec3(0, 1, 0)), CinematicInterp::Linear, -4.0f, 0.0f });
+
+    const glm::quat a = glm::angleAxis(0.0f, glm::vec3(0, 1, 0));
+    const glm::quat b = glm::angleAxis(glm::radians(90.0f), glm::vec3(0, 1, 0));
+    for (const f32 t : { 0.0f, 0.2f, 0.5f, 0.8f, 1.0f })
+    {
+        const glm::quat q = bez.Evaluate(t);
+        EXPECT_TRUE(std::isfinite(q.x) && std::isfinite(q.y) && std::isfinite(q.z) && std::isfinite(q.w)) << "t=" << t;
+        EXPECT_NEAR(glm::length(q), 1.0f, 1e-4f) << "t=" << t;
+        // Clamped blend => the rotation never leaves the [a, b] arc: its angle to
+        // a never exceeds the full 90deg sweep (allowing a tiny epsilon).
+        const f32 angToA = glm::degrees(glm::angle(glm::normalize(q * glm::inverse(a))));
+        EXPECT_LE(angToA, 90.0f + 0.5f) << "t=" << t;
+    }
+
+    // Flat-tangent Bezier == EaseInOut slerp.
+    CinematicQuatChannel flat;
+    flat.Keys.push_back({ 0.0f, a, CinematicInterp::Bezier });
+    flat.Keys.push_back({ 1.0f, b, CinematicInterp::Linear });
+    CinematicQuatChannel ease;
+    ease.Keys.push_back({ 0.0f, a, CinematicInterp::EaseInOut });
+    ease.Keys.push_back({ 1.0f, b, CinematicInterp::Linear });
+    for (const f32 t : { 0.25f, 0.5f, 0.75f })
+    {
+        EXPECT_NEAR(std::abs(glm::dot(flat.Evaluate(t), ease.Evaluate(t))), 1.0f, 1e-4f) << "t=" << t;
+    }
 }
 
 TEST(CinematicCurveTest, Vec3ChannelLinearMidpoint)

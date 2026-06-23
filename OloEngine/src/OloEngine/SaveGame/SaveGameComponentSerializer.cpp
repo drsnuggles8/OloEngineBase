@@ -893,6 +893,43 @@ namespace OloEngine
             clampAngle(c.m_PulleyMinLength, -1.0f, 1.0e9f, 0.0f);
             clampAngle(c.m_PulleyMaxLength, -1.0f, 1.0e9f, -1.0f);
             clampAngle(c.m_GearRatio, -1.0e9f, 1.0e9f, 1.0f);
+
+            // Path joint tail (issue #308). Archives written before the Path
+            // constraint existed end after the Gear ratio, so default to "no
+            // path" (empty points, motor off, hard Free rotation).
+            if (ar.AtEnd())
+            {
+                c.m_PathPoints.clear();
+                c.m_PathIsLooping = false;
+                c.m_PathRotationMode = JointPathRotationMode::Free;
+                c.m_PathMotorMode = JointMotorMode::Off;
+                c.m_PathMotorTargetVelocity = 0.0f;
+                c.m_PathMotorTargetFraction = 0.0f;
+                c.m_PathMaxMotorForce = 0.0f;
+                c.m_PathMaxFrictionForce = 0.0f;
+            }
+            else
+            {
+                ar << c.m_PathPoints;
+                ar << c.m_PathIsLooping;
+                ar << c.m_PathRotationMode;
+                ar << c.m_PathMotorMode;
+                ar << c.m_PathMotorTargetVelocity << c.m_PathMotorTargetFraction
+                   << c.m_PathMaxMotorForce << c.m_PathMaxFrictionForce;
+            }
+
+            // Sanitize untrusted path data: drop non-finite control points; clamp
+            // the rotation/motor modes to valid enum ranges; target velocity is
+            // signed, target fraction non-negative, max force/friction magnitudes.
+            std::erase_if(c.m_PathPoints, [](const glm::vec3& p)
+                          { return !std::isfinite(p.x) || !std::isfinite(p.y) || !std::isfinite(p.z); });
+            if (const auto v = static_cast<int>(c.m_PathRotationMode); v < 0 || v > static_cast<int>(JointPathRotationMode::FullyConstrained))
+                c.m_PathRotationMode = JointPathRotationMode::Free;
+            clampMode(c.m_PathMotorMode);
+            clampTarget(c.m_PathMotorTargetVelocity, -1.0e9f, 1.0e9f);
+            clampTarget(c.m_PathMotorTargetFraction, 0.0f, 1.0e9f);
+            clampMagnitude(c.m_PathMaxMotorForce);
+            clampMagnitude(c.m_PathMaxFrictionForce);
         }
         else
         {
@@ -913,6 +950,12 @@ namespace OloEngine
             ar << c.m_PulleyFixedPointA << c.m_PulleyFixedPointB
                << c.m_PulleyRatio << c.m_PulleyMinLength << c.m_PulleyMaxLength;
             ar << c.m_ConnectedAxis << c.m_GearRatio;
+            ar << c.m_PathPoints;
+            ar << c.m_PathIsLooping;
+            ar << c.m_PathRotationMode;
+            ar << c.m_PathMotorMode;
+            ar << c.m_PathMotorTargetVelocity << c.m_PathMotorTargetFraction
+               << c.m_PathMaxMotorForce << c.m_PathMaxFrictionForce;
         }
         // m_RuntimeConstraintToken is a runtime Jolt handle — not serialized.
     }
@@ -1690,6 +1733,24 @@ namespace OloEngine
             ar << c.m_FFTUseGpuCompute;
         }
 
+        // Spectrum selection (§1.4) appended after the GPU-compute toggle — same
+        // trailing-AtEnd() probe so archives written before it fall back to the
+        // Phillips default. The enum rides the archive as its underlying u32.
+        if (ar.IsLoading() && ar.AtEnd())
+        {
+            c.m_FFTSpectrumType = Ocean::SpectrumType::Phillips;
+            c.m_FFTJonswapGamma = 3.3f;
+            c.m_FFTJonswapFetch = 100000.0f;
+        }
+        else
+        {
+            u32 spectrumType = static_cast<u32>(c.m_FFTSpectrumType);
+            ar << spectrumType;
+            if (ar.IsLoading())
+                c.m_FFTSpectrumType = static_cast<Ocean::SpectrumType>(spectrumType);
+            ar << c.m_FFTJonswapGamma << c.m_FFTJonswapFetch;
+        }
+
         if (ar.IsLoading())
         {
             auto sanitize = [](f32& v, f32 lo, f32 hi, f32 fallback)
@@ -1791,6 +1852,12 @@ namespace OloEngine
             c.m_GodRaySamples = std::clamp(c.m_GodRaySamples, 1u, 256u);
             sanitize(c.m_GodRayDappleFloor, 0.0f, 1.0f, 0.35f);
             sanitize(c.m_GodRaySunFalloff, 1.0f, 64.0f, 16.0f);
+
+            // Spectrum (§1.4): unknown enum values fall back to Phillips.
+            if (static_cast<u32>(c.m_FFTSpectrumType) > static_cast<u32>(Ocean::SpectrumType::JONSWAP))
+                c.m_FFTSpectrumType = Ocean::SpectrumType::Phillips;
+            sanitize(c.m_FFTJonswapGamma, 1.0f, 10.0f, 3.3f);
+            sanitize(c.m_FFTJonswapFetch, 1.0f, 1.0e6f, 100000.0f);
         }
     }
 

@@ -669,17 +669,18 @@ namespace OloEngine
     // Two-body constraint types backed by Jolt's constraint library.
     enum class JointType3D
     {
-        Fixed = 0,    // Welds two bodies rigidly (all 6 DOF locked).
-        Point,        // Ball-socket: keeps the two anchors coincident, rotation free.
-        Distance,     // Keeps the two anchors within [MinDistance, MaxDistance].
-        Hinge,        // Rotation only about Axis, with optional angle limits.
-        Slider,       // Translation only along Axis, with optional limits (prismatic).
-        Cone,         // Ball-socket whose twist axis is limited to a cone half-angle.
-        SwingTwist,   // Ragdoll cone + twist: separate swing cone half-angles and a twist range about Axis.
-        SixDOF,       // Fully configurable: each of 3 translation + 3 rotation DOF is Locked/Limited/Free.
-        Pulley,       // Two bodies over two fixed world points: keeps Length1 + Ratio*Length2 within [Min,Max].
-        Gear,         // Couples two bodies' rotation about their axes by a ratio (body-to-body v1; no tooth-tracking).
-        RackAndPinion // Couples the connected body's rotation (pinion) to this body's translation (rack), by a ratio.
+        Fixed = 0,     // Welds two bodies rigidly (all 6 DOF locked).
+        Point,         // Ball-socket: keeps the two anchors coincident, rotation free.
+        Distance,      // Keeps the two anchors within [MinDistance, MaxDistance].
+        Hinge,         // Rotation only about Axis, with optional angle limits.
+        Slider,        // Translation only along Axis, with optional limits (prismatic).
+        Cone,          // Ball-socket whose twist axis is limited to a cone half-angle.
+        SwingTwist,    // Ragdoll cone + twist: separate swing cone half-angles and a twist range about Axis.
+        SixDOF,        // Fully configurable: each of 3 translation + 3 rotation DOF is Locked/Limited/Free.
+        Pulley,        // Two bodies over two fixed world points: keeps Length1 + Ratio*Length2 within [Min,Max].
+        Gear,          // Couples two bodies' rotation about their axes by a ratio (body-to-body v1; no tooth-tracking).
+        RackAndPinion, // Couples the connected body's rotation (pinion) to this body's translation (rack), by a ratio.
+        Path           // Constrains this body to follow a parametric Hermite path relative to the connected/world body.
     };
 
     // Per-axis constraint mode for a SixDOF joint (one of the six degrees of
@@ -702,6 +703,24 @@ namespace OloEngine
         Off = 0,  // Motor disabled; friction (if any) still resists motion.
         Velocity, // Drive to a target velocity, capped by max motor torque/force.
         Position  // Drive to a target angle/position via the motor spring.
+    };
+
+    // How a Path joint constrains the orientation of the path-following body
+    // (issue #308). Mirrors Jolt's EPathRotationConstraintType — the underlying
+    // values map 1:1, so keep them in sync (serialized as int). Free leaves the
+    // body's rotation unconstrained (it slides along the path but spins freely);
+    // the ConstrainAround* modes allow rotation only about the path frame's
+    // tangent / normal / binormal at the attachment point; ConstrainToPath locks
+    // the body to follow the path's tangent and normal; FullyConstrained welds
+    // the body's rotation to the connected (body 1) rotation.
+    enum class JointPathRotationMode
+    {
+        Free = 0,                // Rotation unconstrained.
+        ConstrainAroundTangent,  // Rotate only about the path tangent (following the path).
+        ConstrainAroundNormal,   // Rotate only about the path normal.
+        ConstrainAroundBinormal, // Rotate only about the path binormal.
+        ConstrainToPath,         // Follow the path's tangent + normal (2 rotational DOF removed).
+        FullyConstrained         // Weld rotation to the connected body.
     };
 
     // Connects this entity's rigidbody to another body (or the world) with a Jolt
@@ -935,6 +954,53 @@ namespace OloEngine
         OLO_PROPERTY()
         f32 m_GearRatio = 1.0f;
 
+        // Path joint (issue #308). This body (Jolt body 2) is constrained to
+        // follow a parametric Hermite curve defined relative to the connected
+        // body (body 1) — or relative to the world for a world anchor
+        // (m_ConnectedEntity == 0). m_PathPoints are the control points, authored
+        // in the connected body's local space (world space for a world anchor)
+        // and offset by m_LocalAnchorB; JoltScene::CreateConstraint builds a
+        // Catmull-Rom Hermite spline through them (tangents from central
+        // differences, per-point normals derived perpendicular to the tangent so
+        // Jolt's binormal never degenerates). At least two points are required;
+        // a path with fewer is skipped at creation. m_PathIsLooping connects the
+        // last point back to the first (which must differ) and is downgraded to
+        // a non-looping path when there are fewer than three points. The points
+        // vector is not OLO_PROPERTY-annotated (variable length); scripts author
+        // it through the Lua `pathPoints` table accessor instead.
+        std::vector<glm::vec3> m_PathPoints;
+        OLO_PROPERTY()
+        bool m_PathIsLooping = false;
+
+        // How the body's rotation is constrained while it follows the path.
+        OLO_PROPERTY(Name = "PathRotationMode", Type = "int", Get = "static_cast<int>(comp.m_PathRotationMode)", Set = "comp.m_PathRotationMode = static_cast<JointPathRotationMode>({v})")
+        JointPathRotationMode m_PathRotationMode = JointPathRotationMode::Free;
+
+        // Powered path motor (drives this body ALONG the path) + friction,
+        // mirroring the Hinge/Slider motors. m_PathMotorMode selects the drive:
+        // Off leaves the body free to slide (any m_PathMaxFrictionForce still
+        // resists it), Velocity drives toward m_PathMotorTargetVelocity (m/s
+        // along the path tangent), Position drives toward m_PathMotorTargetFraction
+        // (a path fraction; the valid range is [0, point count] for a non-looping
+        // path — see Jolt PathConstraintPath::GetPathMaxFraction — and any value
+        // for a looping path, where the constraint wraps). m_PathMaxMotorForce
+        // (N, >= 0) caps the motor force; 0 leaves the motor without authority,
+        // so set it when enabling a motor. m_PathMaxFrictionForce (N, >= 0)
+        // resists sliding only when the motor is Off (Jolt ignores friction while
+        // a motor drives the joint). The Position motor uses Jolt's default motor
+        // spring (2 Hz, critically damped), matching the Hinge/Slider position
+        // motors — no per-joint spring tuning in v1.
+        OLO_PROPERTY(Name = "PathMotorMode", Type = "int", Get = "static_cast<int>(comp.m_PathMotorMode)", Set = "comp.m_PathMotorMode = static_cast<JointMotorMode>({v})")
+        JointMotorMode m_PathMotorMode = JointMotorMode::Off;
+        OLO_PROPERTY()
+        f32 m_PathMotorTargetVelocity = 0.0f;
+        OLO_PROPERTY()
+        f32 m_PathMotorTargetFraction = 0.0f;
+        OLO_PROPERTY()
+        f32 m_PathMaxMotorForce = 0.0f;
+        OLO_PROPERTY()
+        f32 m_PathMaxFrictionForce = 0.0f;
+
         // Storage for runtime - non-zero once the Jolt constraint has been created.
         // Excluded from authored-state equality so play-mode enter/exit doesn't show
         // as a change (mirrors Rigidbody3DComponent::m_RuntimeBodyToken). Cleared
@@ -946,7 +1012,9 @@ namespace OloEngine
 
         auto operator==(const PhysicsJoint3DComponent& other) const -> bool
         {
-            return m_Type == other.m_Type && m_ConnectedEntity == other.m_ConnectedEntity && Math::BitwiseEqual(m_LocalAnchorA, other.m_LocalAnchorA) && Math::BitwiseEqual(m_LocalAnchorB, other.m_LocalAnchorB) && Math::BitwiseEqual(m_Axis, other.m_Axis) && Math::BitwiseEqual(m_MinDistance, other.m_MinDistance) && Math::BitwiseEqual(m_MaxDistance, other.m_MaxDistance) && Math::BitwiseEqual(m_HingeMinAngleDeg, other.m_HingeMinAngleDeg) && Math::BitwiseEqual(m_HingeMaxAngleDeg, other.m_HingeMaxAngleDeg) && Math::BitwiseEqual(m_SliderMinLimit, other.m_SliderMinLimit) && Math::BitwiseEqual(m_SliderMaxLimit, other.m_SliderMaxLimit) && Math::BitwiseEqual(m_ConeHalfAngleDeg, other.m_ConeHalfAngleDeg) && Math::BitwiseEqual(m_BreakForce, other.m_BreakForce) && Math::BitwiseEqual(m_BreakTorque, other.m_BreakTorque) && m_HingeMotorMode == other.m_HingeMotorMode && Math::BitwiseEqual(m_HingeMotorTargetVelocityDeg, other.m_HingeMotorTargetVelocityDeg) && Math::BitwiseEqual(m_HingeMotorTargetAngleDeg, other.m_HingeMotorTargetAngleDeg) && Math::BitwiseEqual(m_HingeMaxMotorTorque, other.m_HingeMaxMotorTorque) && Math::BitwiseEqual(m_HingeMaxFrictionTorque, other.m_HingeMaxFrictionTorque) && Math::BitwiseEqual(m_HingeLimitSpringFrequency, other.m_HingeLimitSpringFrequency) && Math::BitwiseEqual(m_HingeLimitSpringDamping, other.m_HingeLimitSpringDamping) && m_SliderMotorMode == other.m_SliderMotorMode && Math::BitwiseEqual(m_SliderMotorTargetVelocity, other.m_SliderMotorTargetVelocity) && Math::BitwiseEqual(m_SliderMotorTargetPosition, other.m_SliderMotorTargetPosition) && Math::BitwiseEqual(m_SliderMaxMotorForce, other.m_SliderMaxMotorForce) && Math::BitwiseEqual(m_SliderMaxFrictionForce, other.m_SliderMaxFrictionForce) && Math::BitwiseEqual(m_SliderLimitSpringFrequency, other.m_SliderLimitSpringFrequency) && Math::BitwiseEqual(m_SliderLimitSpringDamping, other.m_SliderLimitSpringDamping) && Math::BitwiseEqual(m_SwingNormalHalfAngleDeg, other.m_SwingNormalHalfAngleDeg) && Math::BitwiseEqual(m_SwingPlaneHalfAngleDeg, other.m_SwingPlaneHalfAngleDeg) && Math::BitwiseEqual(m_TwistMinAngleDeg, other.m_TwistMinAngleDeg) && Math::BitwiseEqual(m_TwistMaxAngleDeg, other.m_TwistMaxAngleDeg) && m_SixDOFTransXMode == other.m_SixDOFTransXMode && m_SixDOFTransYMode == other.m_SixDOFTransYMode && m_SixDOFTransZMode == other.m_SixDOFTransZMode && m_SixDOFRotXMode == other.m_SixDOFRotXMode && m_SixDOFRotYMode == other.m_SixDOFRotYMode && m_SixDOFRotZMode == other.m_SixDOFRotZMode && Math::BitwiseEqual(m_SixDOFTranslationMin, other.m_SixDOFTranslationMin) && Math::BitwiseEqual(m_SixDOFTranslationMax, other.m_SixDOFTranslationMax) && Math::BitwiseEqual(m_SixDOFRotationMinDeg, other.m_SixDOFRotationMinDeg) && Math::BitwiseEqual(m_SixDOFRotationMaxDeg, other.m_SixDOFRotationMaxDeg) && m_CollideConnected == other.m_CollideConnected && Math::BitwiseEqual(m_PulleyFixedPointA, other.m_PulleyFixedPointA) && Math::BitwiseEqual(m_PulleyFixedPointB, other.m_PulleyFixedPointB) && Math::BitwiseEqual(m_PulleyRatio, other.m_PulleyRatio) && Math::BitwiseEqual(m_PulleyMinLength, other.m_PulleyMinLength) && Math::BitwiseEqual(m_PulleyMaxLength, other.m_PulleyMaxLength) && Math::BitwiseEqual(m_ConnectedAxis, other.m_ConnectedAxis) && Math::BitwiseEqual(m_GearRatio, other.m_GearRatio);
+            return m_Type == other.m_Type && m_ConnectedEntity == other.m_ConnectedEntity && Math::BitwiseEqual(m_LocalAnchorA, other.m_LocalAnchorA) && Math::BitwiseEqual(m_LocalAnchorB, other.m_LocalAnchorB) && Math::BitwiseEqual(m_Axis, other.m_Axis) && Math::BitwiseEqual(m_MinDistance, other.m_MinDistance) && Math::BitwiseEqual(m_MaxDistance, other.m_MaxDistance) && Math::BitwiseEqual(m_HingeMinAngleDeg, other.m_HingeMinAngleDeg) && Math::BitwiseEqual(m_HingeMaxAngleDeg, other.m_HingeMaxAngleDeg) && Math::BitwiseEqual(m_SliderMinLimit, other.m_SliderMinLimit) && Math::BitwiseEqual(m_SliderMaxLimit, other.m_SliderMaxLimit) && Math::BitwiseEqual(m_ConeHalfAngleDeg, other.m_ConeHalfAngleDeg) && Math::BitwiseEqual(m_BreakForce, other.m_BreakForce) && Math::BitwiseEqual(m_BreakTorque, other.m_BreakTorque) && m_HingeMotorMode == other.m_HingeMotorMode && Math::BitwiseEqual(m_HingeMotorTargetVelocityDeg, other.m_HingeMotorTargetVelocityDeg) && Math::BitwiseEqual(m_HingeMotorTargetAngleDeg, other.m_HingeMotorTargetAngleDeg) && Math::BitwiseEqual(m_HingeMaxMotorTorque, other.m_HingeMaxMotorTorque) && Math::BitwiseEqual(m_HingeMaxFrictionTorque, other.m_HingeMaxFrictionTorque) && Math::BitwiseEqual(m_HingeLimitSpringFrequency, other.m_HingeLimitSpringFrequency) && Math::BitwiseEqual(m_HingeLimitSpringDamping, other.m_HingeLimitSpringDamping) && m_SliderMotorMode == other.m_SliderMotorMode && Math::BitwiseEqual(m_SliderMotorTargetVelocity, other.m_SliderMotorTargetVelocity) && Math::BitwiseEqual(m_SliderMotorTargetPosition, other.m_SliderMotorTargetPosition) && Math::BitwiseEqual(m_SliderMaxMotorForce, other.m_SliderMaxMotorForce) && Math::BitwiseEqual(m_SliderMaxFrictionForce, other.m_SliderMaxFrictionForce) && Math::BitwiseEqual(m_SliderLimitSpringFrequency, other.m_SliderLimitSpringFrequency) && Math::BitwiseEqual(m_SliderLimitSpringDamping, other.m_SliderLimitSpringDamping) && Math::BitwiseEqual(m_SwingNormalHalfAngleDeg, other.m_SwingNormalHalfAngleDeg) && Math::BitwiseEqual(m_SwingPlaneHalfAngleDeg, other.m_SwingPlaneHalfAngleDeg) && Math::BitwiseEqual(m_TwistMinAngleDeg, other.m_TwistMinAngleDeg) && Math::BitwiseEqual(m_TwistMaxAngleDeg, other.m_TwistMaxAngleDeg) && m_SixDOFTransXMode == other.m_SixDOFTransXMode && m_SixDOFTransYMode == other.m_SixDOFTransYMode && m_SixDOFTransZMode == other.m_SixDOFTransZMode && m_SixDOFRotXMode == other.m_SixDOFRotXMode && m_SixDOFRotYMode == other.m_SixDOFRotYMode && m_SixDOFRotZMode == other.m_SixDOFRotZMode && Math::BitwiseEqual(m_SixDOFTranslationMin, other.m_SixDOFTranslationMin) && Math::BitwiseEqual(m_SixDOFTranslationMax, other.m_SixDOFTranslationMax) && Math::BitwiseEqual(m_SixDOFRotationMinDeg, other.m_SixDOFRotationMinDeg) && Math::BitwiseEqual(m_SixDOFRotationMaxDeg, other.m_SixDOFRotationMaxDeg) && m_CollideConnected == other.m_CollideConnected && Math::BitwiseEqual(m_PulleyFixedPointA, other.m_PulleyFixedPointA) && Math::BitwiseEqual(m_PulleyFixedPointB, other.m_PulleyFixedPointB) && Math::BitwiseEqual(m_PulleyRatio, other.m_PulleyRatio) && Math::BitwiseEqual(m_PulleyMinLength, other.m_PulleyMinLength) && Math::BitwiseEqual(m_PulleyMaxLength, other.m_PulleyMaxLength) && Math::BitwiseEqual(m_ConnectedAxis, other.m_ConnectedAxis) && Math::BitwiseEqual(m_GearRatio, other.m_GearRatio) && m_PathPoints.size() == other.m_PathPoints.size() && std::equal(m_PathPoints.begin(), m_PathPoints.end(), other.m_PathPoints.begin(), [](const glm::vec3& a, const glm::vec3& b)
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            { return Math::BitwiseEqual(a, b); }) &&
+                   m_PathIsLooping == other.m_PathIsLooping && m_PathRotationMode == other.m_PathRotationMode && m_PathMotorMode == other.m_PathMotorMode && Math::BitwiseEqual(m_PathMotorTargetVelocity, other.m_PathMotorTargetVelocity) && Math::BitwiseEqual(m_PathMotorTargetFraction, other.m_PathMotorTargetFraction) && Math::BitwiseEqual(m_PathMaxMotorForce, other.m_PathMaxMotorForce) && Math::BitwiseEqual(m_PathMaxFrictionForce, other.m_PathMaxFrictionForce);
         }
     };
 
@@ -2483,6 +2551,14 @@ namespace OloEngine
         u32 m_FFTSeed = 1337;                          ///< RNG seed for the spectrum (deterministic look)
         bool m_FFTUseGpuCompute = true;                ///< generate the field with the compute butterfly FFT (§1.2); off = CPU reference path
 
+        // Spectrum selection (WATER_FUTURE_IMPROVEMENTS.md §1.4). Phillips is the
+        // classic Tessendorf spectrum; JONSWAP gives a sharper fetch-limited peak
+        // (Atlantic/Pacific swell). Defaults to Phillips so existing scenes look
+        // unchanged. Gamma/fetch only affect the JONSWAP path.
+        Ocean::SpectrumType m_FFTSpectrumType = Ocean::SpectrumType::Phillips;
+        f32 m_FFTJonswapGamma = 3.3f;      ///< γ peak-enhancement (JONSWAP only); 1 ≈ Pierson-Moskowitz
+        f32 m_FFTJonswapFetch = 100000.0f; ///< fetch in metres the wind blows over (JONSWAP only) — sets the peak frequency
+
         // Runtime (not serialized)
         Ref<Mesh> m_WaterMesh;
         Ref<Ocean::OceanFFTField> m_OceanField; ///< lazily-created FFT cascade (runtime)
@@ -2542,7 +2618,9 @@ namespace OloEngine
                 && blkEq(m_FFTPatchSize, m_FFTWindSpeed)       // f32*2
                 && blkEq(m_FFTWindDirection, m_FFTHeightScale) // vec2 + f32*3
                 && m_FFTSeed == o.m_FFTSeed
-                && m_FFTUseGpuCompute == o.m_FFTUseGpuCompute;
+                && m_FFTUseGpuCompute == o.m_FFTUseGpuCompute
+                && m_FFTSpectrumType == o.m_FFTSpectrumType
+                && blkEq(m_FFTJonswapGamma, m_FFTJonswapFetch); // f32*2
             // clang-format on
         }
 
@@ -2649,6 +2727,9 @@ namespace OloEngine
             m_FFTHeightScale = src.m_FFTHeightScale;
             m_FFTSeed = src.m_FFTSeed;
             m_FFTUseGpuCompute = src.m_FFTUseGpuCompute;
+            m_FFTSpectrumType = src.m_FFTSpectrumType;
+            m_FFTJonswapGamma = src.m_FFTJonswapGamma;
+            m_FFTJonswapFetch = src.m_FFTJonswapFetch;
         }
     };
 

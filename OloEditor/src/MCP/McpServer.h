@@ -81,8 +81,18 @@ namespace OloEngine::MCP
     struct ToolDef
     {
         std::string Name;
+        // Optional human-friendly display name (MCP Tool.title, spec 2025-06-18).
+        // Clients prefer it over `Name` for display (precedence: title >
+        // annotations.title > name). Emitted as the top-level `title` only when
+        // non-empty.
+        std::string Title;
         std::string Description;
         Json InputSchema;
+        // Optional MCP ToolAnnotations object — behavioural hints the client may
+        // use to e.g. auto-approve a read-only tool: `readOnlyHint`,
+        // `destructiveHint`, `idempotentHint`, `openWorldHint`. Defaults to null;
+        // emitted under `annotations` only when it is a non-empty object.
+        Json Annotations;
         ToolHandler Handler;
         bool MainMarshaled = false;
     };
@@ -308,6 +318,13 @@ namespace OloEngine::MCP
         // DNS-rebinding defence: true if `origin` denotes a loopback host, or is
         // absent / "null" (non-browser agents send no Origin). Pure.
         [[nodiscard]] static bool IsOriginAllowed(std::string_view origin);
+
+        // Validate a tool name against the MCP registration contract: length 1..128
+        // and every character in [A-Za-z0-9_.-]. A malformed name is a programmer
+        // error (tools are registered at startup), which RegisterTool surfaces
+        // loudly via OLO_CORE_VERIFY. Exposed as a pure helper so it can be unit
+        // tested without tripping that assert. Pure.
+        [[nodiscard]] static bool IsValidToolName(std::string_view name);
 
       private:
         // Top-level HTTP handler (cpp-httplib worker thread): auth + origin check,
