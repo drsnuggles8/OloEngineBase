@@ -4533,6 +4533,10 @@ namespace OloEngine
                         sp.m_Amplitude = clampF(water.m_FFTAmplitude, 0.0f, 100.0f, 2.0f);
                         sp.m_Choppiness = clampF(water.m_FFTChoppiness, 0.0f, 5.0f, 1.2f);
                         sp.m_Seed = water.m_FFTSeed;
+                        // Spectrum selection (§1.4): Phillips or fetch-limited JONSWAP.
+                        sp.m_SpectrumType = water.m_FFTSpectrumType;
+                        sp.m_JonswapGamma = clampF(water.m_FFTJonswapGamma, 1.0f, 10.0f, 3.3f);
+                        sp.m_JonswapFetch = clampF(water.m_FFTJonswapFetch, 1.0f, 1.0e6f, 100000.0f);
 
                         water.m_OceanField->Update(sp, animationTime, /*uploadToGpu=*/true,
                                                    /*useGpuCompute=*/water.m_FFTUseGpuCompute);

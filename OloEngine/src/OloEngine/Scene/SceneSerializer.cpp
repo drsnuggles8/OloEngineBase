@@ -1432,6 +1432,12 @@ namespace OloEngine
         water.m_FFTSeed = waterComponent["FFTSeed"].as<u32>(water.m_FFTSeed);
         water.m_FFTUseGpuCompute = waterComponent["FFTUseGpuCompute"].as<bool>(water.m_FFTUseGpuCompute);
 
+        // Spectrum selection (§1.4) — stored as the SpectrumType underlying u32.
+        water.m_FFTSpectrumType = static_cast<Ocean::SpectrumType>(
+            waterComponent["FFTSpectrumType"].as<u32>(static_cast<u32>(water.m_FFTSpectrumType)));
+        water.m_FFTJonswapGamma = waterComponent["FFTJonswapGamma"].as<f32>(water.m_FFTJonswapGamma);
+        water.m_FFTJonswapFetch = waterComponent["FFTJonswapFetch"].as<f32>(water.m_FFTJonswapFetch);
+
         // Sanitize FFT fields (ranges match the clamps in Scene.cpp / the editor
         // UI) so no NaN/Inf or out-of-range value reaches the spectrum/GPU.
         water.m_FFTResolution = std::clamp(water.m_FFTResolution, 16u, 512u);
@@ -1443,6 +1449,11 @@ namespace OloEngine
         SanitizeFloat(water.m_FFTHeightScale, 0.0f, 20.0f, 1.0f);
         // m_FFTSeed: any u32 is a valid RNG seed; m_UseFFT is a plain bool — no
         // validation needed for either.
+        // Spectrum: clamp unknown enum values back to Phillips; bound JONSWAP shape.
+        if (static_cast<u32>(water.m_FFTSpectrumType) > static_cast<u32>(Ocean::SpectrumType::JONSWAP))
+            water.m_FFTSpectrumType = Ocean::SpectrumType::Phillips;
+        SanitizeFloat(water.m_FFTJonswapGamma, 1.0f, 10.0f, 3.3f);
+        SanitizeFloat(water.m_FFTJonswapFetch, 1.0f, 1.0e6f, 100000.0f);
 
         // Clamp grid resolution to safe bounds
         water.m_GridResolutionX = std::clamp(water.m_GridResolutionX, 1u, 1024u);
@@ -5342,6 +5353,9 @@ namespace OloEngine
             out << YAML::Key << "FFTHeightScale" << YAML::Value << water.m_FFTHeightScale;
             out << YAML::Key << "FFTSeed" << YAML::Value << water.m_FFTSeed;
             out << YAML::Key << "FFTUseGpuCompute" << YAML::Value << water.m_FFTUseGpuCompute;
+            out << YAML::Key << "FFTSpectrumType" << YAML::Value << static_cast<u32>(water.m_FFTSpectrumType);
+            out << YAML::Key << "FFTJonswapGamma" << YAML::Value << water.m_FFTJonswapGamma;
+            out << YAML::Key << "FFTJonswapFetch" << YAML::Value << water.m_FFTJonswapFetch;
 
             out << YAML::EndMap; // WaterComponent
         }

@@ -160,6 +160,31 @@
 			]
 		},
 		{
+			"label": "run-fast-tests-debug",
+			"detail": "Build + run the suite MINUS perf/golden/visual (L6/L7/L8) for a fast inner loop. The exclude filter is derived from the test catalogue, so it stays in sync as tests are added.",
+			"type": "shell",
+			"command": "pwsh",
+			"args": [
+				"-NoProfile",
+				"-Command",
+				"$f = (python OloEngine/tests/scripts/generate_test_catalogue.py --gtest-filter --exclude L6,L7,L8); & build/OloEngine/tests/Debug/OloEngine-Tests.exe \"--gtest_filter=$f\""
+			],
+			"options": {
+				"cwd": "${workspaceFolder}"
+			},
+			"group": "test",
+			"presentation": {
+				"echo": true,
+				"reveal": "always",
+				"focus": false,
+				"panel": "shared"
+			},
+			"problemMatcher": [],
+			"dependsOn": [
+				"build-tests-debug"
+			]
+		},
+		{
 			"label": "build-oloruntime-debug",
 			"type": "shell",
 			"command": "pwsh",
