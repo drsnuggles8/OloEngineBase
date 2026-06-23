@@ -1,8 +1,8 @@
 {
-  "_comment": "Authoritative classification of EVERY gtest .cpp under OloEngine/tests/ - there are no exclusions. Three axes are tracked: (1) the renderer testing pyramid (L1-L11 + plumbing/cullinglod/shaderpipe/integration/meta) for rendering-scope tests, (2) Functional / cross-subsystem tests (tag 'Functional') driven via Scene::OnUpdateRuntime, and (3) plain subsystem unit tests (tag 'unit'), grouped by directory. The generator scans the whole tree and rewrites three auto-catalogue blocks in docs/testing.md. Every .cpp that declares at least one TEST/TEST_F/TEST_P/TYPED_TEST must appear in file_layer_map - pre-commit fails otherwise. Files with no test macros (the gtest main, libFuzzer targets, fixtures/helpers) are not tests and need no entry; this is not a configurable exclusion.",
+  "_comment": "Authoritative classification of EVERY gtest .cpp under OloEngine/tests/ - there are no exclusions. Three axes are tracked: (1) the renderer testing pyramid (L1-L11 + plumbing/cullinglod/shaderpipe/integration/meta) for rendering-scope tests, (2) Functional / cross-subsystem tests (tag 'Functional') driven via Scene::OnUpdateRuntime, and (3) plain subsystem unit tests (tag 'unit'), grouped by directory. The generator scans the whole tree and writes three GENERATED, git-ignored catalogue documents (docs/test-catalogue.{renderer,functional,unit}.md). Every .cpp that declares at least one TEST/TEST_F/TEST_P/TYPED_TEST must appear in file_layer_map (or carry an in-file // OLO_TEST_LAYER marker) - pre-commit fails otherwise. Files with no test macros (the gtest main, libFuzzer targets, fixtures/helpers) are not tests and need no entry; this is not a configurable exclusion.",
   "version": 2,
   "test_root": "OloEngine/tests",
-  "doc": "docs/testing.md",
+  "catalogue_dir": "docs",
   "functional_tag": "Functional",
   "layers": [
     { "id": "L1",   "title": "Property / behavioural tests",         "anchor": "31-layer-1--property--behavioural-tests" },
