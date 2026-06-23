@@ -91,3 +91,10 @@ OloEditor/cmake_test_discovery_*.json
 .claude/skills/**/shots/
 skills-lock.json
 docs/agents/
+
+# Generated per-file test catalogues. Rendered from test_catalogue.json + in-file
+# // OLO_TEST_LAYER markers by OloEngine/tests/scripts/generate_test_catalogue.py.
+# Deliberately NOT committed: the tables change on essentially every test, and a
+# tracked generated file made every parallel PR false-conflict on docs/testing.md
+# (GitHub ignores the merge=union driver). Regenerate locally on demand.
+docs/test-catalogue.*.md
