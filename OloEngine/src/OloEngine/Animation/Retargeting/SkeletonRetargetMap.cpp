@@ -80,6 +80,7 @@ namespace OloEngine::Animation
     sizet SkeletonRetargetMap::GetMappedBoneCount() const
     {
         return static_cast<sizet>(std::ranges::count_if(m_TargetToSource,
-                                                        [](int s) { return s != kUnmapped; }));
+                                                        [](int s)
+                                                        { return s != kUnmapped; }));
     }
 } // namespace OloEngine::Animation

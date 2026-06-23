@@ -46,10 +46,16 @@ namespace OloEngine::Animation
         [[nodiscard]] int GetSourceBone(int targetBoneIndex) const;
         [[nodiscard]] bool HasMapping(int targetBoneIndex) const;
 
-        [[nodiscard]] sizet GetTargetBoneCount() const { return m_TargetToSource.size(); }
+        [[nodiscard]] sizet GetTargetBoneCount() const
+        {
+            return m_TargetToSource.size();
+        }
         [[nodiscard]] sizet GetMappedBoneCount() const;
 
-        [[nodiscard]] const std::vector<int>& GetTargetToSourceTable() const { return m_TargetToSource; }
+        [[nodiscard]] const std::vector<int>& GetTargetToSourceTable() const
+        {
+            return m_TargetToSource;
+        }
 
         /**
          * @brief Normalize a bone name for fuzzy matching.

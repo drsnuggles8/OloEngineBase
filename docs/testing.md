@@ -1564,7 +1564,7 @@ level of `tests/`). Grouped by directory.
 |---|---:|---|
 | [TerrainGeneratorTest.cpp](../OloEngine/tests/Terrain/TerrainGeneratorTest.cpp) | 15 | **TerrainGeneratorTest** &mdash; `HeightFieldIsDeterministic`, `HeightFieldIsNormalizedAndFinite`, `LargeSeedStillProducesVariedTerrain`, `DifferentSeedsProduceDifferentTerrain`, `RidgedAndWarpAndExponentStayValid`, `TerraceShapingStaysValidAndDeterministic`, `TerraceEndpointsAndIdentity`, `TerraceIsMonotonicAndBounded`, `TerraceProducesFlatPlateaus`, `RuleWeightPeaksInsideBandAndZeroOutside`, `SlopeBandSelectsRule`, `DefaultRulesAssignExpectedLayers`, `LayerWeightsAreNormalized`, `NoMatchingRuleFallsBackToLayerZero`, `PackLayerWeightsQuantizesToBothSplatmaps` |
 
-**Totals.** 150 unit / subsystem test files, 1844 TEST / TEST_F declarations across all subsystems.
+**Totals.** 151 unit / subsystem test files, 1853 TEST / TEST_F declarations across all subsystems.
 
 <!-- END: unit-catalogue -->
 
