@@ -232,6 +232,7 @@ add_executable(OloEngine-Tests
 		Animation/OneShotBlendTest.cpp
 		Animation/SpringBoneSolverTest.cpp
 		Animation/NoiseSolverTest.cpp
+		Animation/AnimationRetargetTest.cpp
 		# Cinematic Sequencer Tests
 		Cinematic/CinematicCurveTest.cpp
 		Cinematic/CinematicPlayerTest.cpp

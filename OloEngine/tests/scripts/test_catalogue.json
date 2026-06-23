@@ -228,6 +228,7 @@
     "OloEngine/tests/Animation/OneShotBlendTest.cpp": "unit",
     "OloEngine/tests/Animation/SpringBoneSolverTest.cpp": "unit",
     "OloEngine/tests/Animation/NoiseSolverTest.cpp": "unit",
+    "OloEngine/tests/Animation/AnimationRetargetTest.cpp": "unit",
     "OloEngine/tests/Cinematic/CinematicCurveTest.cpp": "unit",
     "OloEngine/tests/Cinematic/CinematicPlayerTest.cpp": "unit",
     "OloEngine/tests/Cinematic/CinematicSerializerTest.cpp": "unit",
