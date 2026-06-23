@@ -6184,7 +6184,30 @@ namespace OloEngine
             {
                 if (component.m_Min[i] > component.m_Max[i])
                     std::swap(component.m_Min[i], component.m_Max[i]);
-            } });
+            }
+
+            ImGui::Separator();
+            ImGui::Text("Off-Mesh Links (%d)", static_cast<int>(component.m_Links.size()));
+            ImGui::TextDisabled("Point-to-point connections agents jump/drop/ladder across. Re-bake to apply.");
+            if (ImGui::Button("Add Link"))
+                component.m_Links.emplace_back();
+
+            int removeIndex = -1;
+            for (int i = 0; i < static_cast<int>(component.m_Links.size()); ++i)
+            {
+                ImGui::PushID(i);
+                auto& link = component.m_Links[static_cast<sizet>(i)];
+                ImGui::DragFloat3("Start", &link.m_Start.x, 0.1f);
+                ImGui::DragFloat3("End", &link.m_End.x, 0.1f);
+                ImGui::DragFloat("Radius", &link.m_Radius, 0.01f, 0.01f, 100.0f);
+                ImGui::Checkbox("Bidirectional", &link.m_Bidirectional);
+                if (ImGui::Button("Remove Link"))
+                    removeIndex = i;
+                ImGui::Separator();
+                ImGui::PopID();
+            }
+            if (removeIndex >= 0)
+                component.m_Links.erase(component.m_Links.begin() + removeIndex); });
 
         DrawComponent<NavAgentComponent>("Nav Agent", entity, [](auto& component)
                                          {
