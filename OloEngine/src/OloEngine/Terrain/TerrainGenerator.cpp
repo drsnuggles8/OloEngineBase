@@ -240,6 +240,13 @@ namespace OloEngine
             return;
         }
 
+        // Cap the iteration count the same way dropletCount/maxSteps below are
+        // capped, so a corrupt param can't spin the generator. The editor, Lua,
+        // and both serializers already clamp ErosionIterations to [0,64]; this
+        // also defends the raw C# binding (generated, unclamped) and any direct
+        // caller of this public API. 64 passes is well past the point of relief.
+        iterations = std::min(iterations, 64u);
+
         const i32 maxIdx = static_cast<i32>(resolution) - 1;
         const f32 fMaxIdx = static_cast<f32>(maxIdx);
 
