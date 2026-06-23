@@ -126,6 +126,12 @@ namespace OloEngine
 			get => InternalCalls.AudioSourceComponent_GetDopplerFactor(Entity.ID);
 			set => InternalCalls.AudioSourceComponent_SetDopplerFactor(Entity.ID, value);
 		}
+
+		public ulong SoundConfigHandle
+		{
+			get => InternalCalls.AudioSourceComponent_GetSoundConfigHandle(Entity.ID);
+			set => InternalCalls.AudioSourceComponent_SetSoundConfigHandle(Entity.ID, value);
+		}
 	}
 
 	public partial class BoxCollider2DComponent : Component
@@ -1094,6 +1100,48 @@ namespace OloEngine
 			get => InternalCalls.PhysicsJoint3DComponent_GetGearRatio(Entity.ID);
 			set => InternalCalls.PhysicsJoint3DComponent_SetGearRatio(Entity.ID, value);
 		}
+
+		public bool PathIsLooping
+		{
+			get => InternalCalls.PhysicsJoint3DComponent_GetPathIsLooping(Entity.ID);
+			set => InternalCalls.PhysicsJoint3DComponent_SetPathIsLooping(Entity.ID, value);
+		}
+
+		public int PathRotationMode
+		{
+			get => InternalCalls.PhysicsJoint3DComponent_GetPathRotationMode(Entity.ID);
+			set => InternalCalls.PhysicsJoint3DComponent_SetPathRotationMode(Entity.ID, value);
+		}
+
+		public int PathMotorMode
+		{
+			get => InternalCalls.PhysicsJoint3DComponent_GetPathMotorMode(Entity.ID);
+			set => InternalCalls.PhysicsJoint3DComponent_SetPathMotorMode(Entity.ID, value);
+		}
+
+		public float PathMotorTargetVelocity
+		{
+			get => InternalCalls.PhysicsJoint3DComponent_GetPathMotorTargetVelocity(Entity.ID);
+			set => InternalCalls.PhysicsJoint3DComponent_SetPathMotorTargetVelocity(Entity.ID, value);
+		}
+
+		public float PathMotorTargetFraction
+		{
+			get => InternalCalls.PhysicsJoint3DComponent_GetPathMotorTargetFraction(Entity.ID);
+			set => InternalCalls.PhysicsJoint3DComponent_SetPathMotorTargetFraction(Entity.ID, value);
+		}
+
+		public float PathMaxMotorForce
+		{
+			get => InternalCalls.PhysicsJoint3DComponent_GetPathMaxMotorForce(Entity.ID);
+			set => InternalCalls.PhysicsJoint3DComponent_SetPathMaxMotorForce(Entity.ID, value);
+		}
+
+		public float PathMaxFrictionForce
+		{
+			get => InternalCalls.PhysicsJoint3DComponent_GetPathMaxFrictionForce(Entity.ID);
+			set => InternalCalls.PhysicsJoint3DComponent_SetPathMaxFrictionForce(Entity.ID, value);
+		}
 	}
 
 	public partial class PointLightComponent : Component
@@ -1642,6 +1690,12 @@ namespace OloEngine
 		{
 			get => InternalCalls.TerrainComponent_GetPersistence(Entity.ID);
 			set => InternalCalls.TerrainComponent_SetPersistence(Entity.ID, value);
+		}
+
+		public int ErosionIterations
+		{
+			get => InternalCalls.TerrainComponent_GetErosionIterations(Entity.ID);
+			set => InternalCalls.TerrainComponent_SetErosionIterations(Entity.ID, value);
 		}
 
 		public float RidgeBlend

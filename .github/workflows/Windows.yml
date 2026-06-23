@@ -35,11 +35,16 @@ jobs:
     runs-on: windows-latest
 
     steps:
-    - uses: actions/checkout@v6
+    - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      with:
+        # This job only builds, tests, and uploads artifacts — it makes no
+        # authenticated git writes — so don't leave the GITHUB_TOKEN in
+        # .git/config where a later step or a compromised dependency could read it.
+        persist-credentials: false
 
     - name: Install Python 3.10
       id: py
-      uses: actions/setup-python@v6
+      uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
       with:
        python-version: '3.10'
 
@@ -62,7 +67,7 @@ jobs:
     # still validated by the text-based AssetCSharpScriptValidityTest, and nothing
     # in the test/runtime build links against the assembly.)
     - name: Setup MSVC dev environment
-      uses: ilammy/msvc-dev-cmd@v1
+      uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1.13.0
       with:
         arch: x64
 
@@ -75,7 +80,7 @@ jobs:
     # Cache the built FFmpeg so only the first (or post-bump) run pays the ~10-15 min build.
     - name: Cache FFmpeg build
       id: ffcache
-      uses: actions/cache@v4
+      uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
       with:
         path: OloEngine/vendor/ffmpeg-install
         key: ffmpeg-${{ runner.os }}-n7.1-${{ hashFiles('scripts/build-ffmpeg.sh') }}
@@ -91,7 +96,7 @@ jobs:
     # launcher, every compile fails. v0.10.0+ speaks the new cache service (ghac
     # v2, via opendal 0.52); we pin the current stable release for reproducibility.
     - name: Setup sccache
-      uses: mozilla-actions/sccache-action@v0.0.10
+      uses: mozilla-actions/sccache-action@9e7fa8a12102821edf02ca5dbea1acd0f89a2696 # v0.0.10
       with:
         version: "v0.15.0"
 
@@ -194,18 +199,39 @@ jobs:
       working-directory: ${{github.workspace}}/build/OloEngine/tests
       # Execute tests defined by the CMake configuration.
       # See https://cmake.org/cmake/help/latest/manual/ctest.1.html for more detail
-      # `--timeout 120` prevents a stuck test (e.g. TaskSystemTest.TaskWithResultPostponed
-      # has been observed to hang indefinitely on the hosted runner) from
-      # deadlocking the entire job. Individual failures still surface in the
-      # JUnit XML so the test-reporter can flag them. `-C ${{env.BUILD_TYPE}}`
-      # is required on a multi-config generator (here Ninja Multi-Config) —
-      # without it CTest can't locate the per-config test binaries.
+      # `--timeout 120` is a backstop: a stuck test fails its own ctest entry
+      # instead of deadlocking the whole job, and the failure still surfaces in
+      # the JUnit XML for the test-reporter. `-C ${{env.BUILD_TYPE}}` is required
+      # on a multi-config generator (here Ninja Multi-Config) — without it CTest
+      # can't locate the per-config test binaries.
       #
-      # --exclude-regex skips the Steam-networking / task-system suites that
-      # flake on the hosted windows-latest runner (Timeouts + SEGFAULTs in
-      # the Task/Pipe/Event/Dependencies/etc. families — same failure mode
-      # the Windows ASan job works around). Tracked separately; these are
-      # not regressions introduced by this PR.
+      # --exclude-regex now skips only one case:
+      #   NetworkIntegrationTest        — drives a live Steam (GameNetworkingSockets)
+      #     client/server socket; excluded on every sanitizer job too.
+      #
+      # CancellationTokenTest.MultipleTasks was previously also excluded (issue
+      # #359): it intermittently DEADLOCKED under `--parallel` oversubscription —
+      # not in the test body but in scheduler teardown. FWaitingQueue::StartShutdown
+      # drained the standby-worker stack by walking Node->Next in place while
+      # triggering each node's event; a woken ConditionalStandby worker could
+      # re-push itself onto a head it still owned, forming a Node->Next self-cycle
+      # that spun the drain forever. Fixed by draining via an atomic exchange of the
+      # whole stack (reading Next before Trigger). The test is RE-ENABLED here.
+      #
+      # The rest of the Task/Async family (TaskSystemTest, PipeTest, TaskEventTest,
+      # NestedTasksTest, TaskDependenciesTest, TaskStressTest, MakeCompletedTaskTest,
+      # IsAwaitableTest, WaitAnyTest, AnyTest, DeepRetractionTest, InlineTaskTest,
+      # MoveOnlyResultTest, TaskSelfAccessTest, NestedTaskStressTest,
+      # ConcurrentEventTriggerTest, TaskConcurrencyLimiterTest, WorkerRestartTest,
+      # and CancellationTokenTest.BasicCancellation) was previously excluded
+      # wholesale on a "Timeouts + SEGFAULTs" note but is now RE-ENABLED: the
+      # concurrency core had had no Windows-CI coverage since dc4c836d (2026-04-21).
+      # Each suite was classified under a faithful hosted-runner squeeze (4-core
+      # affinity + OLO_TASK_GRAPH_NUM_WORKERS=4 to match the runner's worker fleet
+      # + `ctest --parallel 4`) and held up at 30x faithful + 20x a harsher 2-core
+      # squeeze with zero failures; the wholesale exclusion was far broader than the
+      # single genuine fault. See the "Parallel-safety contract" in
+      # docs/agent-rules/testing-architecture.md §6.3.
       #
       # --parallel 4 runs up to 4 test processes at once (windows-latest has 4
       # vCPUs). Every test is its own ctest entry (gtest_discover_tests → one
@@ -233,10 +259,10 @@ jobs:
       # `flaky-repro-281.yml` hunt ran the test under the 2-core squeeze for the
       # full step on the hosted runner with zero failures. If a physics test ever
       # flakes here again, reinstate `--repeat until-pass:3` AND reopen #281.
-      run: ctest --parallel 4 --output-on-failure --timeout 120 -C ${{env.BUILD_TYPE}} --exclude-regex '^NetworkIntegrationTest\.|^TaskSystemTest\.|^TaskEventTest\.|^NestedTasksTest\.|^PipeTest\.|^TaskDependenciesTest\.|^TaskStressTest\.|^MakeCompletedTaskTest\.|^IsAwaitableTest\.|^WaitAnyTest\.|^AnyTest\.|^DeepRetractionTest\.|^InlineTaskTest\.|^MoveOnlyResultTest\.|^TaskSelfAccessTest\.|^NestedTaskStressTest\.|^ConcurrentEventTriggerTest\.|^CancellationTokenTest\.|^WorkerRestartTest\.|^TaskConcurrencyLimiterTest\.'
+      run: ctest --parallel 4 --output-on-failure --timeout 120 -C ${{env.BUILD_TYPE}} --exclude-regex '^NetworkIntegrationTest\.'
 
     - name: Upload test results
-      uses: actions/upload-artifact@v7
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
       with:
         name: googletest_results_xml
         path: ${{runner.workspace}}/OloEngineBase/test_results/*.xml

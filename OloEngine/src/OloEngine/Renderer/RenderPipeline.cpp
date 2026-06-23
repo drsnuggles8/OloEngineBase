@@ -530,6 +530,66 @@ namespace OloEngine
                 data.PostProcessGPU.SSR->Bind();
             }
         }
+        // Wire ContactShadowPass (screen-space contact shadows) before Bloom in
+        // the dynamic post chain. Deferred-only: when the path is forward /
+        // forward+ the ContactShadowColor resource is never declared (see
+        // PopulateBlackboard), so the pass self-skips and downstream aliases back
+        // to the upstream colour.
+        if (PostProcessPasses.ContactShadow)
+        {
+            const bool deferredPath = data.Settings.Path == RenderingPath::Deferred;
+            // Bind the UBO before the readiness check: IsReadyForExecution() also
+            // validates the UBO, so setting it first avoids dropping the first
+            // frame contact shadows are enabled.
+            PostProcessPasses.ContactShadow->SetContactShadowUBO(data.PostProcessGPU.ContactShadow);
+            const bool contactShadowEnabled = data.PostProcess.ContactShadowEnabled && deferredPath &&
+                                              PostProcessPasses.ContactShadow->IsReadyForExecution();
+            PostProcessPasses.ContactShadow->SetEnabled(contactShadowEnabled);
+
+            if (contactShadowEnabled)
+            {
+                auto& cs = data.PostProcessGPU.ContactShadowData;
+                cs.Projection = data.ProjectionMatrix;
+                cs.InverseProjection = glm::inverse(data.ProjectionMatrix);
+                cs.View = data.ViewMatrix;
+
+                // World-space direction TOWARD the light (= -lightTravelDir). Mark
+                // HasDirectionalLight=0 when the scene has no usable sun so the
+                // shader passes the colour through instead of marching at a
+                // meaningless default direction.
+                glm::vec3 towardLight(0.0f, 1.0f, 0.0f);
+                f32 hasLight = 0.0f;
+                if (const f32 dirLen2 = glm::dot(data.PrimaryDirectionalLightDir, data.PrimaryDirectionalLightDir);
+                    std::isfinite(dirLen2) && dirLen2 > 1e-8f)
+                {
+                    towardLight = glm::normalize(-data.PrimaryDirectionalLightDir);
+                    hasLight = 1.0f;
+                }
+                cs.LightDirection = glm::vec4(towardLight, hasLight);
+
+                cs.RayParams = glm::vec4(static_cast<f32>(std::clamp(data.PostProcess.ContactShadowMaxSteps, 1, kContactShadowMaxSteps)),
+                                         std::max(0.01f, data.PostProcess.ContactShadowMaxDistance),
+                                         std::max(0.001f, data.PostProcess.ContactShadowThickness),
+                                         std::max(0.001f, data.PostProcess.ContactShadowStride));
+                cs.ShadeParams = glm::vec4(std::clamp(data.PostProcess.ContactShadowIntensity, 0.0f, 1.0f),
+                                           std::clamp(data.PostProcess.ContactShadowEdgeFade, 0.0f, 0.5f),
+                                           std::clamp(data.PostProcess.ContactShadowBias, 0.0f, 1.0f),
+                                           0.0f);
+                f32 csWidth = 1.0f;
+                f32 csHeight = 1.0f;
+                if (FrameCorePasses.Scene)
+                {
+                    const auto& spec = FrameCorePasses.Scene->GetFramebufferSpecification();
+                    csWidth = spec.Width > 0 ? static_cast<f32>(spec.Width) : 1.0f;
+                    csHeight = spec.Height > 0 ? static_cast<f32>(spec.Height) : 1.0f;
+                }
+                cs.ScreenParams = glm::vec4(csWidth, csHeight, 1.0f / csWidth, 1.0f / csHeight);
+                cs.Flags = glm::vec4(data.PostProcess.ContactShadowDebugView ? 1.0f : 0.0f, 0.0f, 0.0f, 0.0f);
+
+                data.PostProcessGPU.ContactShadow->SetData(&cs, ContactShadowUBOData::GetSize());
+                data.PostProcessGPU.ContactShadow->Bind();
+            }
+        }
         // Standalone dynamic post-chain configuration.
         if (PostProcessPasses.Bloom)
         {
@@ -999,6 +1059,7 @@ namespace OloEngine
         HashBool(h, data.PostProcess.GTAOEnabled);
         HashBool(h, data.PostProcess.SSGIEnabled);
         HashBool(h, data.PostProcess.SSREnabled);
+        HashBool(h, data.PostProcess.ContactShadowEnabled);
         HashBool(h, data.PostProcess.BloomEnabled);
         HashBool(h, data.PostProcess.DOFEnabled);
         HashBool(h, data.PostProcess.MotionBlurEnabled);
@@ -1055,6 +1116,7 @@ namespace OloEngine
         HashPassState(h, PostProcessPasses.AOApply);
         HashPassState(h, PostProcessPasses.SSGI);
         HashPassState(h, PostProcessPasses.SSR);
+        HashPassState(h, PostProcessPasses.ContactShadow);
         HashPassState(h, PostProcessPasses.Bloom);
         HashPassState(h, PostProcessPasses.DOF);
         HashPassState(h, PostProcessPasses.MotionBlur);
@@ -1729,6 +1791,27 @@ namespace OloEngine
             }
         }
 
+        // ContactShadowColor exists only on the deferred path when contact
+        // shadows are enabled, ready, and the G-Buffer normal + scene depth the
+        // ray march needs are available. Forward / forward+ never declares it, so
+        // downstream aliases back to the upstream colour. It runs after SSR, so
+        // its composite darkens the freshest pre-Bloom colour.
+        if (pipeline.PostProcessPasses.ContactShadow)
+        {
+            if (pipeline.PostProcessPasses.ContactShadow->IsEnabled() &&
+                pipeline.PostProcessPasses.ContactShadow->IsReadyForExecution() &&
+                board.Scene.SceneDepth.IsValid() &&
+                board.GBuffer.GBufferNormal.IsValid())
+            {
+                const auto contactShadowOutput = declareGraphOnlyPostProcessOutput(
+                    ResourceNames::ContactShadowColor,
+                    ResourceNames::ContactShadowColorTexture,
+                    RGResourceFormat::RGBA16Float);
+                board.Post.ContactShadowColor = contactShadowOutput.Framebuffer;
+                board.Post.ContactShadowColorTexture = contactShadowOutput.Texture;
+            }
+        }
+
         // PostProcessColor is an alias handle to the latest upstream graph
         // resource in the dynamic chain, NOT a separate imported resource.
         // This preserves declaration-derived reachability:
@@ -1746,7 +1829,18 @@ namespace OloEngine
         // every possible chain source explicitly in their candidate arrays.
         std::string_view postProcessTargetFramebuffer;
         std::string_view postProcessTargetTexture;
-        if (board.Post.SSRColor.IsValid())
+        if (board.Post.ContactShadowColor.IsValid())
+        {
+            // ContactShadow runs after SSR (last in the screen-space chain), so
+            // its contact-shadow composite is the freshest pre-Bloom colour. Keep
+            // it first so name-based readers (DOF/MotionBlur/TAA) pick up the
+            // shadowed colour even when Bloom is disabled.
+            board.Post.PostProcessColor = board.Post.ContactShadowColor;
+            board.Post.PostProcessColorTexture = board.Post.ContactShadowColorTexture;
+            postProcessTargetFramebuffer = ResourceNames::ContactShadowColor;
+            postProcessTargetTexture = ResourceNames::ContactShadowColorTexture;
+        }
+        else if (board.Post.SSRColor.IsValid())
         {
             // SSR runs after SSGI/AOApply, so its output is the freshest pre-Bloom
             // colour. Keep it first so name-based readers (DOF/MotionBlur/TAA)
@@ -2154,6 +2248,7 @@ namespace OloEngine
         inputs.Passes.AOApply = PostProcessPasses.AOApply.Raw();
         inputs.Passes.SSGI = PostProcessPasses.SSGI.Raw();
         inputs.Passes.SSR = PostProcessPasses.SSR.Raw();
+        inputs.Passes.ContactShadow = PostProcessPasses.ContactShadow.Raw();
         inputs.Passes.Bloom = PostProcessPasses.Bloom.Raw();
         inputs.Passes.DOF = PostProcessPasses.DOF.Raw();
         inputs.Passes.MotionBlur = PostProcessPasses.MotionBlur.Raw();
@@ -2274,10 +2369,16 @@ namespace OloEngine
         PostProcessPasses.SSGI->Init(finalPassSpec);
 
         // Screen-space reflections standalone pass.
-        // Sits between SSGI and Bloom in dynamic mode (deferred path only).
+        // Sits between SSGI and ContactShadow in dynamic mode (deferred path only).
         PostProcessPasses.SSR = Ref<SSRRenderPass>::Create();
         PostProcessPasses.SSR->SetName("SSRPass");
         PostProcessPasses.SSR->Init(finalPassSpec);
+
+        // Screen-space contact shadows standalone pass.
+        // Sits between SSR and Bloom in dynamic mode (deferred path only).
+        PostProcessPasses.ContactShadow = Ref<ContactShadowRenderPass>::Create();
+        PostProcessPasses.ContactShadow->SetName("ContactShadowPass");
+        PostProcessPasses.ContactShadow->Init(finalPassSpec);
 
         // Bloom standalone pass.
         // Sits between PostProcess and DOF.

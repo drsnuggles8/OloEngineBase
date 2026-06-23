@@ -6,6 +6,7 @@
 // the capture directory appears. These tests drive the underlying primitives
 // directly so a regression surfaces without waiting for a real failure.
 // =============================================================================
+// OLO_TEST_LAYER: meta
 #include "OloEnginePCH.h"
 #include "TestFailureCapture.h"
 #include "RenderPropertyTest.h"

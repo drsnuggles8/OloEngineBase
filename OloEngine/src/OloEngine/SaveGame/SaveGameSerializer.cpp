@@ -377,6 +377,8 @@ namespace OloEngine
             SAVE_COMPONENT(BehaviorTreeComponent, entity, writer);
             SAVE_COMPONENT(StateMachineComponent, entity, writer);
             SAVE_COMPONENT(GoapAgentComponent, entity, writer);
+            SAVE_COMPONENT(PerceptibleComponent, entity, writer);
+            SAVE_COMPONENT(PerceptionComponent, entity, writer);
             SAVE_COMPONENT(InventoryComponent, entity, writer);
             SAVE_COMPONENT(ItemPickupComponent, entity, writer);
             SAVE_COMPONENT(ItemContainerComponent, entity, writer);
@@ -609,6 +611,8 @@ namespace OloEngine
                 TRY_LOAD_COMPONENT(BehaviorTreeComponent);
                 TRY_LOAD_COMPONENT(StateMachineComponent);
                 TRY_LOAD_COMPONENT(GoapAgentComponent);
+                TRY_LOAD_COMPONENT(PerceptibleComponent);
+                TRY_LOAD_COMPONENT(PerceptionComponent);
                 TRY_LOAD_COMPONENT(InventoryComponent);
                 TRY_LOAD_COMPONENT(ItemPickupComponent);
                 TRY_LOAD_COMPONENT(ItemContainerComponent);

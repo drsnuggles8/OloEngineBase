@@ -18,7 +18,13 @@ namespace OloEngine
 {
     namespace
     {
-        constexpr i32 kCinematicSequenceVersion = 1;
+        // v2 (this build) adds per-key InTangent / OutTangent for the
+        // CinematicInterp::Bezier ease. Reading is forward/backward tolerant:
+        // every new field has a 0 default, so a v1 file (no tangents, no Bezier
+        // keys) round-trips identically and a v2 file loads in an older build as
+        // plain Linear/EaseInOut keys. The version is bumped for provenance and to
+        // warn loudly if a *newer* (unknown) format is ever opened here.
+        constexpr i32 kCinematicSequenceVersion = 2;
 
         [[nodiscard]] bool IsFinite(f32 v) noexcept
         {
@@ -65,6 +71,20 @@ namespace OloEngine
             return (len2 > 1e-12f) ? glm::normalize(q) : identity;
         }
 
+        // Interp + tangents are common to every keyed (curve) channel. Tangents
+        // are emitted unconditionally (two floats per key) so that *either*
+        // endpoint of a Bezier segment round-trips its handle, regardless of its
+        // own interp mode — a Bezier segment reads the left key's OutTangent and
+        // the right key's InTangent, so gating emission on the key's own mode
+        // would silently drop a non-Bezier right key's InTangent.
+        template<typename KeyT>
+        void EmitInterpAndTangents(YAML::Emitter& out, const KeyT& k)
+        {
+            out << YAML::Key << "Interp" << YAML::Value << static_cast<i32>(k.Interp);
+            out << YAML::Key << "InTangent" << YAML::Value << k.InTangent;
+            out << YAML::Key << "OutTangent" << YAML::Value << k.OutTangent;
+        }
+
         // ----- channel emit -----
         void EmitFloatChannel(YAML::Emitter& out, std::string_view key, const CinematicFloatChannel& channel)
         {
@@ -74,7 +94,7 @@ namespace OloEngine
                 out << YAML::BeginMap;
                 out << YAML::Key << "Time" << YAML::Value << k.Time;
                 out << YAML::Key << "Value" << YAML::Value << k.Value;
-                out << YAML::Key << "Interp" << YAML::Value << static_cast<i32>(k.Interp);
+                EmitInterpAndTangents(out, k);
                 out << YAML::EndMap;
             }
             out << YAML::EndSeq;
@@ -88,7 +108,7 @@ namespace OloEngine
                 out << YAML::Key << "Time" << YAML::Value << k.Time;
                 out << YAML::Key << "Value" << YAML::Value;
                 EmitVec3(out, k.Value);
-                out << YAML::Key << "Interp" << YAML::Value << static_cast<i32>(k.Interp);
+                EmitInterpAndTangents(out, k);
                 out << YAML::EndMap;
             }
             out << YAML::EndSeq;
@@ -102,7 +122,7 @@ namespace OloEngine
                 out << YAML::Key << "Time" << YAML::Value << k.Time;
                 out << YAML::Key << "Value" << YAML::Value;
                 EmitQuat(out, k.Value);
-                out << YAML::Key << "Interp" << YAML::Value << static_cast<i32>(k.Interp);
+                EmitInterpAndTangents(out, k);
                 out << YAML::EndMap;
             }
             out << YAML::EndSeq;
@@ -112,11 +132,23 @@ namespace OloEngine
         [[nodiscard]] CinematicInterp ReadInterp(const YAML::Node& node)
         {
             const i32 raw = node ? node.as<i32>(static_cast<i32>(CinematicInterp::Linear)) : static_cast<i32>(CinematicInterp::Linear);
-            if (raw < 0 || raw > static_cast<i32>(CinematicInterp::EaseInOut))
+            if (raw < 0 || raw > static_cast<i32>(CinematicInterp::Bezier))
             {
                 return CinematicInterp::Linear;
             }
             return static_cast<CinematicInterp>(raw);
+        }
+        // Read a single tangent slope, defaulting to 0 (flat) when absent (a v1
+        // file) and rejecting non-finite values per the "validate every float read
+        // from YAML" rule. A zero tangent makes a Bezier segment a smoothstep.
+        [[nodiscard]] f32 ReadTangent(const YAML::Node& node)
+        {
+            if (!node)
+            {
+                return 0.0f;
+            }
+            const f32 v = node.as<f32>(0.0f);
+            return std::isfinite(v) ? v : 0.0f;
         }
         // CinematicCurve evaluation assumes keys are sorted by Time ascending.
         // YAML preserves authoring order, which a hand-edited file may not honour,
@@ -146,7 +178,8 @@ namespace OloEngine
                 {
                     continue;
                 }
-                channel.Keys.push_back({ time, value, ReadInterp(keyNode["Interp"]) });
+                channel.Keys.push_back({ time, value, ReadInterp(keyNode["Interp"]),
+                                         ReadTangent(keyNode["InTangent"]), ReadTangent(keyNode["OutTangent"]) });
             }
             SortKeysByTime(channel.Keys);
         }
@@ -163,7 +196,8 @@ namespace OloEngine
                 {
                     continue; // skip keys with a missing/unparseable Time or no Value
                 }
-                channel.Keys.push_back({ time, ReadVec3(keyNode["Value"], glm::vec3(0.0f)), ReadInterp(keyNode["Interp"]) });
+                channel.Keys.push_back({ time, ReadVec3(keyNode["Value"], glm::vec3(0.0f)), ReadInterp(keyNode["Interp"]),
+                                         ReadTangent(keyNode["InTangent"]), ReadTangent(keyNode["OutTangent"]) });
             }
             SortKeysByTime(channel.Keys);
         }
@@ -180,7 +214,8 @@ namespace OloEngine
                 {
                     continue; // skip keys with a missing/unparseable Time or no Value
                 }
-                channel.Keys.push_back({ time, ReadQuat(keyNode["Value"]), ReadInterp(keyNode["Interp"]) });
+                channel.Keys.push_back({ time, ReadQuat(keyNode["Value"]), ReadInterp(keyNode["Interp"]),
+                                         ReadTangent(keyNode["InTangent"]), ReadTangent(keyNode["OutTangent"]) });
             }
             SortKeysByTime(channel.Keys);
         }
@@ -291,6 +326,16 @@ namespace OloEngine
         {
             OLO_CORE_ERROR("CinematicSequenceSerializer: missing 'CinematicSequence' root node");
             return nullptr;
+        }
+
+        // Tolerant version handling: every field added since v1 has a safe
+        // default, so an unknown future version still loads (just without whatever
+        // it added) — warn so the lossy read isn't silent. Missing Version => v1.
+        if (const i32 version = seqNode["Version"].as<i32>(1); version > kCinematicSequenceVersion)
+        {
+            OLO_CORE_WARN("CinematicSequenceSerializer: file version {} is newer than supported version {}; "
+                          "unknown fields will be ignored",
+                          version, kCinematicSequenceVersion);
         }
 
         auto sequence = Ref<CinematicSequence>::Create();

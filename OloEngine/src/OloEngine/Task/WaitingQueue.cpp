@@ -246,16 +246,31 @@ namespace OloEngine::LowLevelTasks::Private
         // Wake up all workers.
         NotifyInternal(m_NodesArray.Num());
 
-        // Notification above doesn't trigger standby threads
-        // during shutdown so trigger them here.
-        u64 LocalState = m_StandbyState;
+        // Notification above doesn't trigger standby threads during shutdown so we
+        // trigger them here. Atomically take the whole standby stack (resetting the
+        // head to empty in one step) instead of walking it in place and clearing it
+        // only at the end. Two reasons, both required to avoid hanging StopWorkers
+        // (issue #359):
+        //
+        //  1. Clearing the head up front means a standby worker we wake below cannot
+        //     re-push itself onto a head it still believes it owns. ConditionalStandby
+        //     re-evaluates its loop after EnterWait returns using a *stale* snapshot,
+        //     and relies on the thread that woke it having changed m_StandbyState so
+        //     its retry CAS fails and reloads. TryStartNewThread (the normal waker)
+        //     does change it by popping; this drain did not. Leaving the head live let
+        //     the woken worker's retry CAS succeed and store Node->Next = <its own
+        //     index> — a self-cycle that made this loop spin forever in Node->Event->
+        //     Trigger() (SetEvent), with every worker already gone.
+        //  2. Read each captured node's Next BEFORE triggering it: the woken worker may
+        //     reuse the node immediately, so reading Next after the trigger could follow
+        //     a mutated/stale link. This is the same ordering Unpark already relies on.
+        u64 LocalState = m_StandbyState.exchange(StackMask);
         while ((LocalState & StackMask) != StackMask)
         {
             const FWaitEvent* Node = &m_NodesArray[LocalState & StackMask];
+            LocalState = Node->Next.load(std::memory_order_relaxed);
             Node->Event->Trigger();
-            LocalState = Node->Next;
         }
-        m_StandbyState = StackMask;
     }
 
     void FWaitingQueue::PrepareStandby(FWaitEvent* Node) const

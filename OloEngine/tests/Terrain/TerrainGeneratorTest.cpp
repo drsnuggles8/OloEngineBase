@@ -4,9 +4,13 @@
 #include "OloEngine/Terrain/TerrainGenerator.h"
 #include "OloEngine/Terrain/TerrainLayer.h"
 
+#include <stb_image/stb_image_write.h>
+
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstdint>
+#include <string>
 #include <vector>
 
 // =============================================================================
@@ -131,6 +135,90 @@ TEST(TerrainGeneratorTest, TerraceShapingStaysValidAndDeterministic)
     TerrainGenerator::GenerateHeightField(b, params);
     ExpectNormalizedField(a, params.Resolution);
     EXPECT_EQ(a, b);
+}
+
+// ── Erosion post-pass ───────────────────────────────────────────────────────
+
+TEST(TerrainGeneratorTest, ErosionPostPassIsDeterministic)
+{
+    // Same seed + iteration count → bit-identical field. This is the whole point
+    // of the CPU post-pass: the GPU editor brush races (parallel droplet writes),
+    // the generation pass must be reproducible so scenes regenerate identically.
+    auto params = MakeParams();
+    params.ErosionIterations = 2;
+    std::vector<f32> a;
+    std::vector<f32> b;
+    TerrainGenerator::GenerateHeightField(a, params);
+    TerrainGenerator::GenerateHeightField(b, params);
+    EXPECT_EQ(a, b);
+}
+
+TEST(TerrainGeneratorTest, ErosionStaysNormalizedAndFinite)
+{
+    auto params = MakeParams();
+    params.ErosionIterations = 2;
+    std::vector<f32> heights;
+    TerrainGenerator::GenerateHeightField(heights, params);
+    // Erosion deposits/erodes without bound internally, but the field is clamped
+    // back into the [0,1] contract every downstream consumer relies on.
+    ExpectNormalizedField(heights, params.Resolution);
+}
+
+TEST(TerrainGeneratorTest, ErosionActuallyChangesTheField)
+{
+    // The gate must do something: an eroded field differs from the same seed's
+    // un-eroded field, and ErosionIterations == 0 is exactly the un-eroded field.
+    auto base = MakeParams();
+    std::vector<f32> plain;
+    TerrainGenerator::GenerateHeightField(plain, base);
+
+    auto eroded = base;
+    eroded.ErosionIterations = 2;
+    std::vector<f32> carved;
+    TerrainGenerator::GenerateHeightField(carved, eroded);
+
+    ASSERT_EQ(plain.size(), carved.size());
+    EXPECT_NE(plain, carved) << "erosion post-pass left the field unchanged";
+
+    // Zero iterations is the disabled path — identical to never calling erosion.
+    auto off = base;
+    off.ErosionIterations = 0;
+    std::vector<f32> untouched;
+    TerrainGenerator::GenerateHeightField(untouched, off);
+    EXPECT_EQ(plain, untouched);
+}
+
+TEST(TerrainGeneratorTest, ApplyErosionStandaloneIsDeterministicAndGuarded)
+{
+    constexpr u32 kRes = 48;
+    auto params = MakeParams(1337, kRes);
+    std::vector<f32> field;
+    TerrainGenerator::GenerateHeightField(field, params);
+
+    const ErosionParams erosion; // defaults (namespace-scope struct, like TerrainLayerRule)
+
+    // Two independent runs on copies of the same field → identical results.
+    std::vector<f32> a = field;
+    std::vector<f32> b = field;
+    TerrainGenerator::ApplyErosion(a, kRes, 2, erosion, /*seed*/ 99);
+    TerrainGenerator::ApplyErosion(b, kRes, 2, erosion, /*seed*/ 99);
+    EXPECT_EQ(a, b);
+    ExpectNormalizedField(a, kRes);
+
+    // A different seed carves a different field.
+    std::vector<f32> c = field;
+    TerrainGenerator::ApplyErosion(c, kRes, 2, erosion, /*seed*/ 1234);
+    EXPECT_NE(a, c);
+
+    // Guards: zero iterations and a mismatched buffer are no-ops (not crashes).
+    std::vector<f32> noop = field;
+    TerrainGenerator::ApplyErosion(noop, kRes, 0, erosion, 99);
+    EXPECT_EQ(noop, field);
+
+    std::vector<f32> wrongSize(kRes * kRes + 1, 0.5f);
+    const std::vector<f32> before = wrongSize;
+    TerrainGenerator::ApplyErosion(wrongSize, kRes, 2, erosion, 99);
+    EXPECT_EQ(wrongSize, before);
 }
 
 // ── Terrace remap ─────────────────────────────────────────────────────────
@@ -279,4 +367,49 @@ TEST(TerrainGeneratorTest, PackLayerWeightsQuantizesToBothSplatmaps)
     EXPECT_EQ(s0[3], 0);
     EXPECT_EQ(s1[0], 0);
     EXPECT_EQ(s1[1], 128); // round(0.5 * 255)
+}
+
+// ── Visual evidence (manual) ────────────────────────────────────────────────
+// DISABLED so it never runs in CI (writes files); run on demand with
+//   OloEngine-Tests.exe --gtest_also_run_disabled_tests \
+//       --gtest_filter=TerrainGeneratorTest.DISABLED_DumpErosionHeightmapPNGs
+// to eyeball that the post-pass carves dendritic drainage channels rather than
+// just perturbing the noise. Writes grayscale heightmaps (plus a signed
+// erosion/deposition diff) to OloEditor/assets/tests/visual/.
+namespace
+{
+    void WriteGrayscalePNG(const std::string& path, const std::vector<f32>& field, u32 res)
+    {
+        std::vector<std::uint8_t> px(static_cast<sizet>(res) * res);
+        for (sizet i = 0; i < px.size(); ++i)
+            px[i] = static_cast<std::uint8_t>(std::lround(std::clamp(field[i], 0.0f, 1.0f) * 255.0f));
+        stbi_write_png(path.c_str(), static_cast<int>(res), static_cast<int>(res), 1, px.data(), static_cast<int>(res));
+    }
+} // namespace
+
+TEST(TerrainGeneratorTest, DISABLED_DumpErosionHeightmapPNGs)
+{
+    constexpr u32 kRes = 256;
+    auto params = MakeParams(1337, kRes);
+    params.Octaves = 7;
+    params.Shaping.RidgeBlend = 0.55f; // some mountains so channels are visible
+
+    std::vector<f32> plain;
+    TerrainGenerator::GenerateHeightField(plain, params);
+
+    params.ErosionIterations = 4;
+    std::vector<f32> eroded;
+    TerrainGenerator::GenerateHeightField(eroded, params);
+
+    // Signed diff centered at 0.5: darker = eroded away, brighter = deposited.
+    std::vector<f32> diff(plain.size());
+    for (sizet i = 0; i < diff.size(); ++i)
+        diff[i] = 0.5f + std::clamp((eroded[i] - plain[i]) * 6.0f, -0.5f, 0.5f);
+
+    const std::string dir = "assets/tests/visual/";
+    WriteGrayscalePNG(dir + "terrain_erosion_before.png", plain, kRes);
+    WriteGrayscalePNG(dir + "terrain_erosion_after.png", eroded, kRes);
+    WriteGrayscalePNG(dir + "terrain_erosion_diff.png", diff, kRes);
+
+    SUCCEED() << "wrote terrain_erosion_{before,after,diff}.png to " << dir;
 }

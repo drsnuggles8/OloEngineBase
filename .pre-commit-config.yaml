@@ -27,14 +27,16 @@ repos:
 
 - repo: local
   hooks:
-    - id: test-catalogue-in-sync
-      name: test catalogue is in sync
+    - id: test-catalogue-classified
+      name: every test file is classified
       description: >-
-        Fails if a test file has been added without a layer mapping (renderer)
-        or Functional tag in OloEngine/tests/scripts/test_catalogue.json, or if
-        the auto-generated blocks in docs/testing.md are stale. Regenerate with
+        Fails if a test .cpp is classified by neither an in-file
+        '// OLO_TEST_LAYER: <id>' marker nor a file_layer_map entry in
+        OloEngine/tests/scripts/test_catalogue.json. The rendered catalogue tables
+        are generated, git-ignored documents (docs/test-catalogue.*.md) and are NOT
+        checked for staleness here. Regenerate them with
         'python OloEngine/tests/scripts/generate_test_catalogue.py'.
       entry: python OloEngine/tests/scripts/generate_test_catalogue.py --check
       language: system
       pass_filenames: false
-      files: '(OloEngine/tests/.*\.cpp|OloEngine/tests/scripts/(test_catalogue\.json|generate_test_catalogue\.py)|docs/testing\.md)$'
+      files: '(OloEngine/tests/.*\.cpp|OloEngine/tests/scripts/(test_catalogue\.json|generate_test_catalogue\.py))$'

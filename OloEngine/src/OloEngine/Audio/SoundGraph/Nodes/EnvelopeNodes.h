@@ -51,9 +51,11 @@ namespace OloEngine::Audio::SoundGraph
 
         explicit ADEnvelope(const char* dbgName, UUID id) : NodeProcessor(dbgName, id)
         {
-            // Input events
-            AddInEvent(IDs::s_Trigger, [this](float v)
-                       { (void)v; m_TriggerFlag.SetDirty(); });
+            // Phase 4: the trigger handler records the event's frame offset within
+            // the block (docs/soundgraph-metasounds-refactor.md); Process() starts
+            // the attack at that exact frame. A block-boundary event fires at frame 0.
+            AddInEvent(IDs::s_Trigger, [this](float v, i32 sampleOffset)
+                       { (void)v; m_TriggerInput.Fire(sampleOffset); });
 
             RegisterEndpoints();
         }
@@ -96,18 +98,22 @@ namespace OloEngine::Audio::SoundGraph
                 m_CachedSampleRate = m_SampleRate;
             }
 
-            // Handle trigger events: block boundary is acceptable for now (Phase 4 adds
-            // sample-offset triggers when sample accuracy matters).
-            if (m_TriggerFlag.IsDirty())
-            {
-                m_TriggerFlag.CheckAndResetIfDirty();
-                StartAttack();
-            }
+            // Phase 4: the trigger carries a frame offset within the block. Consume
+            // it and start the attack at that exact frame inside the loop, instead
+            // of quantising to the block boundary. kNotFired (-1) never matches a
+            // frame; an offset at/after numFrames clamps to the last frame.
+            i32 triggerOffset = m_TriggerInput.Consume();
+            if (numFrames > 0 && triggerOffset > static_cast<i32>(numFrames) - 1)
+                triggerOffset = static_cast<i32>(numFrames) - 1;
 
             // State machine advances one sample per iteration.
             f32* out = m_OutEnvelope.Data();
             for (u32 frame = 0; frame < numFrames; ++frame)
             {
+                const i32 frameIdx = static_cast<i32>(frame);
+                if (triggerOffset == frameIdx)
+                    StartAttack(frameIdx);
+
                 switch (m_State)
                 {
                     case Idle:
@@ -116,7 +122,7 @@ namespace OloEngine::Audio::SoundGraph
                         ProcessAttack();
                         break;
                     case Decay:
-                        ProcessDecay();
+                        ProcessDecay(frameIdx);
                         break;
                 }
                 out[frame] = m_Value;
@@ -162,7 +168,10 @@ namespace OloEngine::Audio::SoundGraph
         f32 m_AttackProgress{ 0.0f };
         f32 m_DecayProgress{ 0.0f };
 
-        Flag m_TriggerFlag;
+        // Phase 4: sample-accurate retrigger. The InputEvent handler Fire()s this
+        // with the event's frame offset; Process() Consume()s it to start the attack
+        // at that exact frame (replaces the old block-boundary Flag).
+        TriggerRef m_TriggerInput;
 
         // Cached parameter values for runtime change detection
         f32 m_CachedAttackTime = -1.0f;
@@ -194,11 +203,13 @@ namespace OloEngine::Audio::SoundGraph
                 m_DecayRate = 1.0f / (decayTime * m_SampleRate);
         }
 
-        void StartAttack()
+        // triggerOffset (Phase 4) is the frame the attack started at, forwarded to
+        // the OnTrigger output event so chained trigger consumers stay sample-accurate.
+        void StartAttack(i32 triggerOffset = 0)
         {
             m_State = Attack;
             m_AttackProgress = 0.0f; // Reset attack progress
-            m_OnTrigger(1.0f);
+            m_OnTrigger(1.0f, triggerOffset);
         }
 
         void ProcessAttack()
@@ -222,7 +233,10 @@ namespace OloEngine::Audio::SoundGraph
             }
         }
 
-        void ProcessDecay()
+        // frame (Phase 4) is the current block frame, so a decay that completes
+        // mid-block fires OnComplete — and, when looping, the retrigger's OnTrigger —
+        // at that exact frame rather than at the block boundary.
+        void ProcessDecay(i32 frame)
         {
             // Increment normalized progress using the solved rate (preserves timing)
             m_DecayProgress += m_DecayRate;
@@ -239,12 +253,12 @@ namespace OloEngine::Audio::SoundGraph
             {
                 m_Value = 0.0f;
                 m_State = Idle;
-                m_OnComplete(1.0f);
+                m_OnComplete(1.0f, frame);
 
                 // Handle looping
                 if (m_Looping.Get())
                 {
-                    StartAttack();
+                    StartAttack(frame);
                 }
             }
         }
@@ -266,11 +280,13 @@ namespace OloEngine::Audio::SoundGraph
 
         explicit ADSREnvelope(const char* dbgName, UUID id) : NodeProcessor(dbgName, id)
         {
-            // Input events
-            AddInEvent(IDs::s_Trigger, [this](float v)
-                       { (void)v; m_TriggerFlag.SetDirty(); });
-            AddInEvent(IDs::s_Release, [this](float v)
-                       { (void)v; m_ReleaseFlag.SetDirty(); });
+            // Phase 4: the trigger / release handlers record the event's frame
+            // offset within the block; Process() starts the attack / release at that
+            // exact frame. A block-boundary event fires at frame 0.
+            AddInEvent(IDs::s_Trigger, [this](float v, i32 sampleOffset)
+                       { (void)v; m_TriggerInput.Fire(sampleOffset); });
+            AddInEvent(IDs::s_Release, [this](float v, i32 sampleOffset)
+                       { (void)v; m_ReleaseInput.Fire(sampleOffset); });
 
             RegisterEndpoints();
         }
@@ -320,21 +336,33 @@ namespace OloEngine::Audio::SoundGraph
                 m_CachedSampleRate = m_SampleRate;
             }
 
-            if (m_TriggerFlag.IsDirty())
+            // Phase 4: trigger and release each carry a frame offset within the
+            // block. Consume them and apply the attack / release at their exact
+            // frames inside the loop. kNotFired (-1) never matches a frame; an
+            // offset at/after numFrames clamps to the last frame.
+            i32 triggerOffset = m_TriggerInput.Consume();
+            i32 releaseOffset = m_ReleaseInput.Consume();
+            if (numFrames > 0)
             {
-                m_TriggerFlag.CheckAndResetIfDirty();
-                StartAttack();
-            }
-
-            if (m_ReleaseFlag.IsDirty())
-            {
-                m_ReleaseFlag.CheckAndResetIfDirty();
-                StartRelease();
+                const i32 lastFrame = static_cast<i32>(numFrames) - 1;
+                if (triggerOffset > lastFrame)
+                    triggerOffset = lastFrame;
+                if (releaseOffset > lastFrame)
+                    releaseOffset = lastFrame;
             }
 
             f32* out = m_OutEnvelope.Data();
             for (u32 frame = 0; frame < numFrames; ++frame)
             {
+                const i32 frameIdx = static_cast<i32>(frame);
+                // Sample-accurate trigger / release. Trigger before release so a
+                // same-frame trigger+release ends up releasing (matches the old
+                // block-boundary order where trigger was checked first).
+                if (triggerOffset == frameIdx)
+                    StartAttack(frameIdx);
+                if (releaseOffset == frameIdx)
+                    StartRelease(frameIdx);
+
                 switch (m_State)
                 {
                     case Idle:
@@ -352,7 +380,7 @@ namespace OloEngine::Audio::SoundGraph
                         m_Value = glm::clamp(SanitizeEnvelopeParam(m_SustainLevel.Get(), 0.0f), 0.0f, 1.0f);
                         break;
                     case Release:
-                        ProcessRelease();
+                        ProcessRelease(frameIdx);
                         break;
                 }
                 out[frame] = m_Value;
@@ -406,8 +434,11 @@ namespace OloEngine::Audio::SoundGraph
         f32 m_DecayProgress{ 0.0f };
         f32 m_ReleaseProgress{ 0.0f };
 
-        Flag m_TriggerFlag;
-        Flag m_ReleaseFlag;
+        // Phase 4: sample-accurate trigger / release. The InputEvent handlers Fire()
+        // these with the event's frame offset; Process() Consume()s them to start the
+        // attack / release at that exact frame (replaces the old block-boundary Flags).
+        TriggerRef m_TriggerInput;
+        TriggerRef m_ReleaseInput;
 
         // Cached parameter values for runtime change detection
         f32 m_CachedAttackTime = -1.0f;
@@ -446,21 +477,24 @@ namespace OloEngine::Audio::SoundGraph
                 m_ReleaseRate = 1.0f / (releaseTime * m_SampleRate);
         }
 
-        void StartAttack()
+        // triggerOffset / releaseOffset (Phase 4): the frame the attack / release
+        // started at, forwarded to OnTrigger / OnRelease so chained trigger consumers
+        // stay sample-accurate.
+        void StartAttack(i32 triggerOffset = 0)
         {
             m_State = Attack;
             m_AttackProgress = 0.0f; // Reset attack progress
-            m_OnTrigger(1.0f);
+            m_OnTrigger(1.0f, triggerOffset);
         }
 
-        void StartRelease()
+        void StartRelease(i32 releaseOffset = 0)
         {
             if (m_State != Idle && m_State != Release)
             {
                 m_State = Release;
                 m_SustainStartValue = m_Value;
                 m_ReleaseProgress = 0.0f; // Reset release progress
-                m_OnRelease(1.0f);
+                m_OnRelease(1.0f, releaseOffset);
             }
         }
 
@@ -506,7 +540,9 @@ namespace OloEngine::Audio::SoundGraph
             }
         }
 
-        void ProcessRelease()
+        // frame (Phase 4) is the current block frame, so a release that completes
+        // mid-block fires OnComplete at that exact frame rather than the block boundary.
+        void ProcessRelease(i32 frame)
         {
             // Increment normalized progress using the solved rate (preserves timing)
             m_ReleaseProgress += m_ReleaseRate;
@@ -523,7 +559,7 @@ namespace OloEngine::Audio::SoundGraph
             {
                 m_Value = 0.0f;
                 m_State = Idle;
-                m_OnComplete(1.0f);
+                m_OnComplete(1.0f, frame);
             }
         }
     };

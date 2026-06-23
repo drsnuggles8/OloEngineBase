@@ -187,6 +187,8 @@ class RegisteredComponentsSurviveSaveLoadTest : public FunctionalTest
             auto& bounds = make("NavMeshBoundsComponent").AddComponent<NavMeshBoundsComponent>();
             bounds.m_Min = { -5.0f, -1.0f, -5.0f };
             bounds.m_Max = { 5.0f, 9.0f, 5.0f };
+            bounds.m_Links.emplace_back(glm::vec3{ -3.0f, 0.5f, 1.0f }, glm::vec3{ 3.0f, 0.5f, -1.0f },
+                                        /*radius=*/0.75f, /*bidirectional=*/false);
         }
         {
             auto& agent = make("NavAgentComponent").AddComponent<NavAgentComponent>();
@@ -491,6 +493,12 @@ TEST_F(RegisteredComponentsSurviveSaveLoadTest, PreviouslyDroppedComponentsRound
                                    {
                                        EXPECT_FLOAT_EQ(bounds.m_Min.x, -5.0f);
                                        EXPECT_FLOAT_EQ(bounds.m_Max.y, 9.0f);
+                                       ASSERT_EQ(bounds.m_Links.size(), 1u);
+                                       const auto& link = bounds.m_Links.front();
+                                       EXPECT_FLOAT_EQ(link.m_Start.x, -3.0f);
+                                       EXPECT_FLOAT_EQ(link.m_End.z, -1.0f);
+                                       EXPECT_FLOAT_EQ(link.m_Radius, 0.75f);
+                                       EXPECT_FALSE(link.m_Bidirectional);
                                    });
 
     Verify<NavAgentComponent>(restored, "NavAgentComponent",

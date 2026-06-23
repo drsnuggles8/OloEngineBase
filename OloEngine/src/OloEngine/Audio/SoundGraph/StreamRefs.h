@@ -182,11 +182,107 @@ namespace OloEngine::Audio::SoundGraph
                                                                           : EStreamType::Bool;
 
     //==============================================================================
-    /// Placeholder for Phase 4 sample-accurate triggers. Until then trigger events
-    /// fire at block boundaries through the InputEvent/OutputEvent system.
+    /// Sample-accurate trigger (Phase 4 — docs/soundgraph-metasounds-refactor.md).
+    ///
+    /// Carries the frame offset within the current block at which a trigger fires.
+    /// kNotFired (-1) means "did not fire this block". Trigger-consuming nodes
+    /// (WavePlayer Play/Stop, envelope retrigger/release) read the offset in
+    /// Process() and split their per-frame loop at that frame, so an event that
+    /// arrives mid-block takes effect at the exact sample instead of being
+    /// quantised to the block boundary.
+    ///
+    /// Single-fire-per-block model: a node holds one Trigger per trigger input.
+    /// Fire() records the *earliest* pending offset for the block — multiple fires
+    /// in one block collapse to the first, matching the old Flag/dirty semantics
+    /// (N SetDirty()s = one action) while keeping the earliest moment requested.
+    /// Genuine sub-block multi-fire needs the full event-queue scheduling that is
+    /// out of Phase 4's scope.
+    struct Trigger
+    {
+        static constexpr i32 kNotFired = -1;
+
+        i32 m_SampleOffset = kNotFired; // [0, numFrames) when fired; kNotFired otherwise
+
+        [[nodiscard]] bool IsFired() const noexcept
+        {
+            return m_SampleOffset != kNotFired;
+        }
+        [[nodiscard]] i32 Offset() const noexcept
+        {
+            return m_SampleOffset;
+        }
+
+        /// Record a fire at `sampleOffset` (negative offsets — e.g. a legacy
+        /// block-boundary event with no frame info — clamp to frame 0). If the
+        /// trigger already fired earlier this block, keep the earlier offset so
+        /// the node acts at the earliest requested frame (first-fire-wins).
+        void Fire(i32 sampleOffset) noexcept
+        {
+            const i32 offset = sampleOffset < 0 ? 0 : sampleOffset;
+            if (m_SampleOffset == kNotFired || offset < m_SampleOffset)
+                m_SampleOffset = offset;
+        }
+
+        void Reset() noexcept
+        {
+            m_SampleOffset = kNotFired;
+        }
+
+        /// Read-and-clear: returns the pending offset (or kNotFired) and resets.
+        [[nodiscard]] i32 Consume() noexcept
+        {
+            const i32 offset = m_SampleOffset;
+            m_SampleOffset = kNotFired;
+            return offset;
+        }
+    };
+
+    //==============================================================================
+    /// Trigger input reference (Phase 4). Mirrors AudioBufferRef / ValueRef: it
+    /// owns an inline default Trigger and points at it until Bind() repoints it at
+    /// a producer's Trigger. Trigger-consuming nodes own a TriggerRef per trigger
+    /// input; the node's InputEvent handler Fire()s it with the event's sample
+    /// offset, and Process() Consume()s the offset to split its per-frame loop.
+    ///
+    /// Bind() is the seam for future typed trigger connections (the doc's "snapshot
+    /// TriggerRef pointers"); nothing wires them yet, so today every node uses its
+    /// inline default. On a bound ref, prefer the non-destructive IsFired()/Offset()
+    /// reads (Consume() read-clears the shared producer trigger).
     struct TriggerRef
     {
-        i32 m_SampleOffset = -1; // frame offset within the block; -1 = not fired
+        TriggerRef() noexcept : m_Trigger(&m_Default) {}
+
+        // Self-referential default pointer: copying would alias another ref's
+        // default cell, so forbid it (same contract as the other refs).
+        TriggerRef(const TriggerRef&) = delete;
+        TriggerRef& operator=(const TriggerRef&) = delete;
+        TriggerRef(TriggerRef&&) = delete;
+        TriggerRef& operator=(TriggerRef&&) = delete;
+
+        void Fire(i32 sampleOffset) noexcept
+        {
+            m_Trigger->Fire(sampleOffset);
+        }
+        [[nodiscard]] bool IsFired() const noexcept
+        {
+            return m_Trigger->IsFired();
+        }
+        [[nodiscard]] i32 Offset() const noexcept
+        {
+            return m_Trigger->Offset();
+        }
+        [[nodiscard]] i32 Consume() noexcept
+        {
+            return m_Trigger->Consume();
+        }
+
+        void Bind(Trigger* producer) noexcept
+        {
+            m_Trigger = producer;
+        }
+
+        Trigger* m_Trigger;
+        Trigger m_Default;
     };
 
 } // namespace OloEngine::Audio::SoundGraph

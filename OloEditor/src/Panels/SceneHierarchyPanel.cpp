@@ -18,6 +18,7 @@
 #include "OloEngine/Asset/AssetManager.h"
 #include "OloEngine/Asset/AssetManager/EditorAssetManager.h"
 #include "OloEngine/Asset/AssetImporter.h"
+#include "OloEngine/Asset/SoundConfigAsset.h"
 #include "OloEngine/Cinematic/CinematicSystem.h"
 #include "OloEngine/Cinematic/CinematicSequence.h"
 #include "OloEngine/Project/Project.h"
@@ -1151,6 +1152,15 @@ namespace OloEngine
     {
     };
 
+    // PerceptibleComponent is trivially copyable but has tail padding (i32 + bool
+    // → 8 bytes, 3 padding bytes), so the default memcmp path compares
+    // indeterminate padding (SonarCloud cpp:S5000). It defines operator==, so use
+    // the value-comparison path instead.
+    template<>
+    struct PreferValueComparison<PerceptibleComponent> : std::true_type
+    {
+    };
+
     template<typename T, typename UIFunction>
     static void DrawComponent(const std::string& name, Entity entity, UIFunction uiFunction)
     {
@@ -1907,6 +1917,8 @@ namespace OloEngine
             DisplayAddComponentEntry<BehaviorTreeComponent>("Behavior Tree");
             DisplayAddComponentEntry<StateMachineComponent>("State Machine");
             DisplayAddComponentEntry<GoapAgentComponent>("GOAP Agent");
+            DisplayAddComponentEntry<PerceptionComponent>("Perception");
+            DisplayAddComponentEntry<PerceptibleComponent>("Perceptible");
 
             ImGui::Separator();
 
@@ -3581,7 +3593,7 @@ namespace OloEngine
 
         DrawComponent<PhysicsJoint3DComponent>("Physics Joint 3D", entity, [this, entity](auto& component)
                                                {
-            const char* jointTypeStrings[] = { "Fixed", "Point", "Distance", "Hinge", "Slider", "Cone", "SwingTwist", "SixDOF", "Pulley", "Gear", "RackAndPinion" };
+            const char* jointTypeStrings[] = { "Fixed", "Point", "Distance", "Hinge", "Slider", "Cone", "SwingTwist", "SixDOF", "Pulley", "Gear", "RackAndPinion", "Path" };
             if (const char* currentJointTypeString = jointTypeStrings[static_cast<int>(component.m_Type)]; ImGui::BeginCombo("Joint Type", currentJointTypeString))
             {
                 for (int i = 0; i < IM_ARRAYSIZE(jointTypeStrings); ++i)
@@ -3790,6 +3802,63 @@ namespace OloEngine
                     ImGui::DragFloat("Ratio##RackPinionJoint", &component.m_GearRatio, 0.01f, -1.0e9f, 1.0e9f);
                     break;
                 }
+                case JointType3D::Path:
+                {
+                    // This body follows a Hermite path defined relative to the
+                    // connected body (world space for a world anchor), with the
+                    // path origin at Anchor B. Author the control points below;
+                    // >= 2 are required for the constraint to build.
+                    ImGui::TextDisabled("Path Points (local to connected body / world)");
+                    int removeIndex = -1;
+                    for (int i = 0; i < static_cast<int>(component.m_PathPoints.size()); ++i)
+                    {
+                        ImGui::PushID(i);
+                        DrawVec3Control(("Point " + std::to_string(i) + "##PathJoint").c_str(), component.m_PathPoints[i]);
+                        ImGui::SameLine();
+                        if (ImGui::SmallButton("X"))
+                            removeIndex = i;
+                        ImGui::PopID();
+                    }
+                    if (removeIndex >= 0)
+                        component.m_PathPoints.erase(component.m_PathPoints.begin() + removeIndex);
+                    if (ImGui::Button("Add Point##PathJoint"))
+                    {
+                        const glm::vec3 next = component.m_PathPoints.empty()
+                                                   ? glm::vec3(0.0f)
+                                                   : component.m_PathPoints.back() + glm::vec3(1.0f, 0.0f, 0.0f);
+                        component.m_PathPoints.push_back(next);
+                    }
+                    if (component.m_PathPoints.size() < 2)
+                        ImGui::TextColored(ImVec4(1.0f, 0.6f, 0.2f, 1.0f), "Path needs at least 2 points.");
+
+                    ImGui::Checkbox("Looping##PathJoint", &component.m_PathIsLooping);
+
+                    // Rotation constraint mode (mirrors Jolt EPathRotationConstraintType).
+                    const char* pathRotStrings[] = { "Free", "Constrain Tangent", "Constrain Normal", "Constrain Binormal", "Constrain To Path", "Fully Constrained" };
+                    if (const char* current = pathRotStrings[static_cast<int>(component.m_PathRotationMode)]; ImGui::BeginCombo("Rotation Mode##PathJoint", current))
+                    {
+                        for (int i = 0; i < IM_ARRAYSIZE(pathRotStrings); ++i)
+                        {
+                            const bool isSelected = (current == pathRotStrings[i]);
+                            if (ImGui::Selectable(pathRotStrings[i], isSelected))
+                                component.m_PathRotationMode = static_cast<JointPathRotationMode>(i);
+                            if (isSelected)
+                                ImGui::SetItemDefaultFocus();
+                        }
+                        ImGui::EndCombo();
+                    }
+
+                    // Along-path motor + friction (mirrors the Hinge/Slider motors).
+                    drawMotorModeCombo("Motor Mode##PathMotor", component.m_PathMotorMode);
+                    if (component.m_PathMotorMode == JointMotorMode::Velocity)
+                        ImGui::DragFloat("Target Velocity (m/s)##PathMotor", &component.m_PathMotorTargetVelocity, 0.01f, -1000.0f, 1000.0f);
+                    else if (component.m_PathMotorMode == JointMotorMode::Position)
+                        ImGui::DragFloat("Target Fraction##PathMotor", &component.m_PathMotorTargetFraction, 0.01f, 0.0f, 1.0e9f);
+                    if (component.m_PathMotorMode != JointMotorMode::Off)
+                        ImGui::DragFloat("Max Motor Force (N)##PathMotor", &component.m_PathMaxMotorForce, 1.0f, 0.0f, 1.0e9f);
+                    ImGui::DragFloat("Max Friction Force (N)##PathMotor", &component.m_PathMaxFrictionForce, 1.0f, 0.0f, 1.0e9f);
+                    break;
+                }
                 case JointType3D::Fixed:
                 case JointType3D::Point:
                 default:
@@ -3812,6 +3881,52 @@ namespace OloEngine
             {
                 ImGui::Text("File: %s", component.Source->GetPath());
             }
+
+            // SoundConfig (.olosoundc) preset. Assigning one stamps its values into the inline
+            // Config below for instant editor feedback and is re-applied at play
+            // (Scene::InitAudioRuntime). Drag a .olosoundc from the content browser onto the button.
+            std::string presetLabel = component.SoundConfigHandle != 0
+                ? "Preset: " + std::to_string(static_cast<u64>(component.SoundConfigHandle))
+                : "Preset: <none — drag a .olosoundc here>";
+            ImGui::Button(presetLabel.c_str(), ImVec2(-1.0f, 0.0f));
+            if (ImGui::BeginDragDropTarget())
+            {
+                if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("CONTENT_BROWSER_ITEM"))
+                {
+                    std::filesystem::path assetPath = PathFromUtf8Payload(*payload);
+                    if (auto assetManager = Project::GetAssetManager().As<EditorAssetManager>())
+                    {
+                        AssetHandle handle = assetManager->ImportAsset(assetPath);
+                        if (handle != 0 && AssetManager::GetAssetType(handle) == AssetType::SoundConfig)
+                        {
+                            component.SoundConfigHandle = handle;
+                            // Stamp the preset into Config immediately so the fields below preview it.
+                            if (auto preset = AssetManager::GetAsset<SoundConfigAsset>(handle))
+                                component.Config = preset->m_Config;
+                        }
+                        else if (handle != 0)
+                        {
+                            OLO_WARN("Drag-dropped asset is not a SoundConfig (type: {0})",
+                                     AssetUtils::AssetTypeToString(AssetManager::GetAssetType(handle)));
+                        }
+                        else
+                        {
+                            // No additional handling required.
+                        }
+                    }
+                }
+                ImGui::EndDragDropTarget();
+            }
+            if (component.SoundConfigHandle != 0)
+            {
+                ImGui::SameLine();
+                if (ImGui::SmallButton("Clear##SoundConfig"))
+                {
+                    component.SoundConfigHandle = 0;
+                }
+                ImGui::SetItemTooltip("Unlinks the preset; the values already stamped into the fields below stay.");
+            }
+            ImGui::Separator();
 
             ImGui::DragFloat("Volume##AudioSource", &component.Config.VolumeMultiplier, 0.01f, 0.0f, 2.0f);
             ImGui::DragFloat("Pitch##AudioSource", &component.Config.PitchMultiplier, 0.01f, 0.1f, 3.0f);
@@ -4859,6 +4974,16 @@ namespace OloEngine
                     component.m_NeedsRebuild = true;
                 ImGui::SetItemTooltip(">1 flattens lowlands and sharpens peaks (islands / deep valleys)");
 
+                // Hydraulic-erosion generation post-pass. 0 = off; each iteration
+                // is one full droplet pass over the field. Deterministic in Seed.
+                // Applies on Regenerate, like the other procedural params.
+                if (ImGui::DragInt("Erosion Iterations", &component.m_ProceduralErosionIterations, 0.2f, 0, 64))
+                {
+                    component.m_ProceduralErosionIterations = std::clamp(component.m_ProceduralErosionIterations, 0, 64);
+                    component.m_NeedsRebuild = true;
+                }
+                ImGui::SetItemTooltip("0 = off; carves drainage channels / talus slopes (CPU, runs once on Regenerate)");
+
                 if (ImGui::Button("Randomize Seed"))
                 {
                     component.m_ProceduralSeed = RandomUtils::Int32(0, std::numeric_limits<i32>::max());
@@ -5391,6 +5516,23 @@ namespace OloEngine
                     ImGui::Checkbox("GPU Compute FFT", &component.m_FFTUseGpuCompute);
                     if (ImGui::IsItemHovered())
                         ImGui::SetTooltip("Generate the ocean field with compute shaders (butterfly FFT).\nUntick to use the CPU reference path for comparison.");
+
+                    // Spectrum selection (WATER_FUTURE_IMPROVEMENTS.md §1.4).
+                    const char* kSpectrumLabels[] = { "Phillips", "JONSWAP" };
+                    i32 spectrumIdx = static_cast<i32>(component.m_FFTSpectrumType);
+                    if (ImGui::Combo("Spectrum", &spectrumIdx, kSpectrumLabels, 2))
+                        component.m_FFTSpectrumType = static_cast<Ocean::SpectrumType>(std::clamp(spectrumIdx, 0, 1));
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("Phillips: classic Tessendorf spectrum.\nJONSWAP: sharper fetch-limited peak (Atlantic/Pacific swell).");
+                    if (component.m_FFTSpectrumType == Ocean::SpectrumType::JONSWAP)
+                    {
+                        ImGui::DragFloat("Peak Enhancement (gamma)", &component.m_FFTJonswapGamma, 0.05f, 1.0f, 10.0f);
+                        if (ImGui::IsItemHovered())
+                            ImGui::SetTooltip("JONSWAP peak sharpness. 1 = Pierson-Moskowitz, 3.3 = mean JONSWAP.");
+                        ImGui::DragFloat("Fetch (m)", &component.m_FFTJonswapFetch, 1000.0f, 1.0f, 1000000.0f, "%.0f");
+                        if (ImGui::IsItemHovered())
+                            ImGui::SetTooltip("Distance the wind blows over. Shorter fetch raises the peak frequency (choppier, shorter waves).");
+                    }
                 }
 
                 ImGui::SeparatorText("Appearance");
@@ -6052,7 +6194,30 @@ namespace OloEngine
             {
                 if (component.m_Min[i] > component.m_Max[i])
                     std::swap(component.m_Min[i], component.m_Max[i]);
-            } });
+            }
+
+            ImGui::Separator();
+            ImGui::Text("Off-Mesh Links (%d)", static_cast<int>(component.m_Links.size()));
+            ImGui::TextDisabled("Point-to-point connections agents jump/drop/ladder across. Re-bake to apply.");
+            if (ImGui::Button("Add Link"))
+                component.m_Links.emplace_back();
+
+            int removeIndex = -1;
+            for (int i = 0; i < static_cast<int>(component.m_Links.size()); ++i)
+            {
+                ImGui::PushID(i);
+                auto& link = component.m_Links[static_cast<sizet>(i)];
+                ImGui::DragFloat3("Start", &link.m_Start.x, 0.1f);
+                ImGui::DragFloat3("End", &link.m_End.x, 0.1f);
+                ImGui::DragFloat("Radius", &link.m_Radius, 0.01f, 0.01f, 100.0f);
+                ImGui::Checkbox("Bidirectional", &link.m_Bidirectional);
+                if (ImGui::Button("Remove Link"))
+                    removeIndex = i;
+                ImGui::Separator();
+                ImGui::PopID();
+            }
+            if (removeIndex >= 0)
+                component.m_Links.erase(component.m_Links.begin() + removeIndex); });
 
         DrawComponent<NavAgentComponent>("Nav Agent", entity, [](auto& component)
                                          {
@@ -6205,6 +6370,35 @@ namespace OloEngine
                                    "No runtime agent — build one from a script (see");
                 ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f),
                                    "  LuaGoapHungryNPC.lua) or native code, then press Play.");
+            } });
+
+        DrawComponent<PerceptibleComponent>("Perceptible", entity, [](auto& component)
+                                            {
+            ImGui::DragInt("Team", &component.Team);
+            ImGui::Checkbox("Is Perceptible", &component.IsPerceptible);
+            ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f),
+                               "Marks this entity as sensable by AI sight."); });
+
+        DrawComponent<PerceptionComponent>("Perception", entity, [](auto& component)
+                                           {
+            ImGui::DragFloat("Sight Range", &component.SightRange, 0.1f, 0.0f, 100000.0f);
+            ImGui::DragFloat("FOV (degrees)", &component.FovDegrees, 1.0f, 0.0f, 360.0f);
+            ImGui::DragFloat3("Eye Offset", glm::value_ptr(component.EyeOffset), 0.05f);
+            ImGui::Checkbox("Require Line Of Sight", &component.RequireLineOfSight);
+            ImGui::DragInt("Perceiver Team", &component.PerceiverTeam);
+            ImGui::Checkbox("Detect Same Team", &component.DetectSameTeam);
+            ImGui::Separator(); // below: read-only live sensor result, filled each tick by PerceptionSystem
+            if (component.HasVisibleTarget)
+            {
+                ImGui::TextColored(ImVec4(0.4f, 0.9f, 0.4f, 1.0f), "Target visible: %llu", static_cast<unsigned long long>(static_cast<u64>(component.VisibleTarget)));
+            }
+            else
+            {
+                ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "No target in sight");
+            }
+            if (component.HasLastKnownPosition)
+            {
+                ImGui::Text("Last seen (%.2f, %.2f, %.2f), %.1fs ago", component.LastKnownPosition.x, component.LastKnownPosition.y, component.LastKnownPosition.z, component.TimeSinceLastSeen);
             } });
 
         DrawComponent<InventoryComponent>("Inventory", entity, [](auto& component)

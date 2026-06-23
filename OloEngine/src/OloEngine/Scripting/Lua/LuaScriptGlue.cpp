@@ -248,6 +248,8 @@ namespace OloEngine
             REGISTER_COMPONENT(BehaviorTreeComponent),
             REGISTER_COMPONENT(StateMachineComponent),
             REGISTER_COMPONENT(GoapAgentComponent),
+            REGISTER_COMPONENT(PerceptibleComponent),
+            REGISTER_COMPONENT(PerceptionComponent),
             #undef REGISTER_COMPONENT
         };
         return s_Registry;
@@ -1033,6 +1035,9 @@ namespace OloEngine
                                            "heightExponent", sol::property([](const TerrainComponent& t)
                                                                            { return t.m_HeightShaping.HeightExponent; }, [](TerrainComponent& t, f32 v)
                                                                            { if (std::isfinite(v) && v > 0.0f) t.m_HeightShaping.HeightExponent = v; }),
+                                           "erosionIterations", sol::property([](const TerrainComponent& t)
+                                                                              { return t.m_ProceduralErosionIterations; }, [](TerrainComponent& t, i32 v)
+                                                                              { t.m_ProceduralErosionIterations = std::clamp(v, 0, 64); }),
                                            "regenerate", &TerrainComponent::Regenerate);
 
         // --- BuoyancyComponent ---
@@ -1081,7 +1086,7 @@ namespace OloEngine
         lua.new_usertype<PhysicsJoint3DComponent>("PhysicsJoint3DComponent",
                                                   "jointType", sol::property([](const PhysicsJoint3DComponent& j) -> int
                                                                              { return std::to_underlying(j.m_Type); }, [](PhysicsJoint3DComponent& j, int v)
-                                                                             { if (v >= 0 && v <= static_cast<int>(JointType3D::RackAndPinion)) j.m_Type = static_cast<JointType3D>(v); }),
+                                                                             { if (v >= 0 && v <= static_cast<int>(JointType3D::Path)) j.m_Type = static_cast<JointType3D>(v); }),
                                                   "connectedEntity", sol::property([](const PhysicsJoint3DComponent& j)
                                                                                    { return static_cast<u64>(j.m_ConnectedEntity); }, [](PhysicsJoint3DComponent& j, u64 v)
                                                                                    { j.m_ConnectedEntity = UUID(v); }),
@@ -1247,7 +1252,51 @@ namespace OloEngine
                                                                                  { if (IsFiniteVec3(v)) j.m_ConnectedAxis = v; }),
                                                   "gearRatio", sol::property([](const PhysicsJoint3DComponent& j)
                                                                              { return j.m_GearRatio; }, [](PhysicsJoint3DComponent& j, f32 v)
-                                                                             { if (std::isfinite(v)) j.m_GearRatio = v; }));
+                                                                             { if (std::isfinite(v)) j.m_GearRatio = v; }),
+                                                  // Path joint (issue #308). pathPoints is a 1-indexed Lua table of
+                                                  // vec3 control points (path-local space); the setter drops any
+                                                  // non-finite point. The motor drives the body ALONG the path.
+                                                  "pathPoints", sol::property([](const PhysicsJoint3DComponent& j, sol::this_state s) -> sol::table
+                                                                              {
+                                                                                  sol::state_view lua_state(s);
+                                                                                  sol::table t = lua_state.create_table(static_cast<int>(j.m_PathPoints.size()), 0);
+                                                                                  for (sizet i = 0; i < j.m_PathPoints.size(); ++i)
+                                                                                      t[i + 1] = j.m_PathPoints[i];
+                                                                                  return t; }, [](PhysicsJoint3DComponent& j, const sol::table& t)
+                                                                              {
+                                                                                  std::vector<glm::vec3> pts;
+                                                                                  pts.reserve(t.size());
+                                                                                  for (sizet i = 1; i <= t.size(); ++i)
+                                                                                  {
+                                                                                      if (sol::optional<glm::vec3> v = t[i]; v && IsFiniteVec3(*v))
+                                                                                          pts.push_back(*v);
+                                                                                  }
+                                                                                  j.m_PathPoints = std::move(pts); }),
+                                                  "pathIsLooping", sol::property([](const PhysicsJoint3DComponent& j)
+                                                                                 { return j.m_PathIsLooping; }, [](PhysicsJoint3DComponent& j, bool v)
+                                                                                 { j.m_PathIsLooping = v; }),
+                                                  // Rotation mode (0=Free .. 5=FullyConstrained) and motor mode
+                                                  // (0=Off, 1=Velocity, 2=Position) are ints, guarded to range.
+                                                  "pathRotationMode", sol::property([](const PhysicsJoint3DComponent& j) -> int
+                                                                                    { return std::to_underlying(j.m_PathRotationMode); }, [](PhysicsJoint3DComponent& j, int v)
+                                                                                    { if (v >= 0 && v <= static_cast<int>(JointPathRotationMode::FullyConstrained)) j.m_PathRotationMode = static_cast<JointPathRotationMode>(v); }),
+                                                  "pathMotorMode", sol::property([](const PhysicsJoint3DComponent& j) -> int
+                                                                                 { return std::to_underlying(j.m_PathMotorMode); }, [](PhysicsJoint3DComponent& j, int v)
+                                                                                 { if (v >= 0 && v <= static_cast<int>(JointMotorMode::Position)) j.m_PathMotorMode = static_cast<JointMotorMode>(v); }),
+                                                  // Target velocity is m/s along the path (signed); target fraction is
+                                                  // a non-negative path coordinate; max force/friction are magnitudes.
+                                                  "pathMotorTargetVelocity", sol::property([](const PhysicsJoint3DComponent& j)
+                                                                                           { return j.m_PathMotorTargetVelocity; }, [](PhysicsJoint3DComponent& j, f32 v)
+                                                                                           { if (std::isfinite(v)) j.m_PathMotorTargetVelocity = v; }),
+                                                  "pathMotorTargetFraction", sol::property([](const PhysicsJoint3DComponent& j)
+                                                                                           { return j.m_PathMotorTargetFraction; }, [](PhysicsJoint3DComponent& j, f32 v)
+                                                                                           { if (std::isfinite(v)) j.m_PathMotorTargetFraction = std::clamp(v, 0.0f, 1.0e9f); }),
+                                                  "pathMaxMotorForce", sol::property([](const PhysicsJoint3DComponent& j)
+                                                                                     { return j.m_PathMaxMotorForce; }, [](PhysicsJoint3DComponent& j, f32 v)
+                                                                                     { if (std::isfinite(v)) j.m_PathMaxMotorForce = std::clamp(v, 0.0f, 1.0e9f); }),
+                                                  "pathMaxFrictionForce", sol::property([](const PhysicsJoint3DComponent& j)
+                                                                                        { return j.m_PathMaxFrictionForce; }, [](PhysicsJoint3DComponent& j, f32 v)
+                                                                                        { if (std::isfinite(v)) j.m_PathMaxFrictionForce = std::clamp(v, 0.0f, 1.0e9f); }));
 
         // --- PrefabComponent ---
         // Read-only window into prefab-instance identity & override state.
@@ -2936,6 +2985,37 @@ namespace OloEngine
             "Running", static_cast<i32>(GoapActionStatus::Running),
             "Success", static_cast<i32>(GoapActionStatus::Success),
             "Failure", static_cast<i32>(GoapActionStatus::Failure));
+
+        // --- PerceptibleComponent ---
+        // Marks the entity as something AI sight can sense. Scripts flip
+        // isPerceptible for stealth or swap team at runtime.
+        lua.new_usertype<PerceptibleComponent>("PerceptibleComponent",
+                                               "team", &PerceptibleComponent::Team,
+                                               "isPerceptible", &PerceptibleComponent::IsPerceptible);
+
+        // --- PerceptionComponent ---
+        // Authored sight config is read/write (float/vec3 setters validate
+        // finiteness); the per-tick sensor result is read-only — PerceptionSystem
+        // owns it. `visibleTarget` is surfaced as a u64 UUID (0 = nothing seen).
+        lua.new_usertype<PerceptionComponent>("PerceptionComponent",
+                                              "sightRange", sol::property([](const PerceptionComponent& c)
+                                                                          { return c.SightRange; }, [](PerceptionComponent& c, f32 v)
+                                                                          { if (std::isfinite(v) && v >= 0.0f) c.SightRange = v; }),
+                                              "fovDegrees", sol::property([](const PerceptionComponent& c)
+                                                                          { return c.FovDegrees; }, [](PerceptionComponent& c, f32 v)
+                                                                          { if (std::isfinite(v)) c.FovDegrees = glm::clamp(v, 0.0f, 360.0f); }),
+                                              "eyeOffset", sol::property([](const PerceptionComponent& c)
+                                                                         { return c.EyeOffset; }, [](PerceptionComponent& c, const glm::vec3& v)
+                                                                         { if (IsFiniteVec3(v)) c.EyeOffset = v; }),
+                                              "requireLineOfSight", &PerceptionComponent::RequireLineOfSight,
+                                              "perceiverTeam", &PerceptionComponent::PerceiverTeam,
+                                              "detectSameTeam", &PerceptionComponent::DetectSameTeam,
+                                              "hasVisibleTarget", sol::readonly(&PerceptionComponent::HasVisibleTarget),
+                                              "visibleTarget", sol::property([](const PerceptionComponent& c)
+                                                                             { return static_cast<u64>(c.VisibleTarget); }),
+                                              "lastKnownPosition", sol::readonly(&PerceptionComponent::LastKnownPosition),
+                                              "hasLastKnownPosition", sol::readonly(&PerceptionComponent::HasLastKnownPosition),
+                                              "timeSinceLastSeen", sol::readonly(&PerceptionComponent::TimeSinceLastSeen));
 
         // --- InventoryComponent ---
         lua.new_usertype<InventoryComponent>("InventoryComponent", "currency", &InventoryComponent::Currency, "AddItem", [](InventoryComponent& comp, const std::string& itemId, sol::optional<i32> count)

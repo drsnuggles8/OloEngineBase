@@ -18,7 +18,6 @@
 #include <functional>
 #include <memory>
 #include <vector>
-#include "OloEngine/Threading/Mutex.h"
 
 namespace OloEngine::Audio::SoundGraph
 {
@@ -133,6 +132,23 @@ namespace OloEngine::Audio::SoundGraph
         /** Apply parameter preset to the sound graph */
         bool ApplyParameterPreset(const SoundGraphPatchPreset& preset);
 
+        /** Number of graph parameters discovered by the last graph swap
+            (UpdateParameterSet). Zero until a graph is installed via ReplaceGraph. */
+        sizet GetParameterCount() const
+        {
+            return m_ParameterHandles.size();
+        }
+
+        /** True if the current graph exposes a settable parameter with this hashed ID
+            (the FNV hash of the endpoint name, i.e. static_cast<u32>(Identifier{name})). */
+        bool HasParameter(u32 parameterID) const
+        {
+            return m_ParameterHandles.contains(parameterID);
+        }
+
+        /** True if the current graph exposes a settable parameter with this name. */
+        bool HasParameter(std::string_view parameterName) const;
+
         //==============================================================================
         /// Playback Interface
 
@@ -197,11 +213,22 @@ namespace OloEngine::Audio::SoundGraph
         /** Called after SoundGraph has been reset to collect parameter handles */
         void UpdateParameterSet();
 
-        /** Called from audio thread to apply preset changes */
-        bool ApplyParameterPresetInternal() const;
+        /** Queue a single parameter write for the audio thread to apply (main thread).
+            Returns false if the parameter isn't exposed by the current graph or the
+            hand-off queue is full. The value is packed into inline storage so the audio
+            thread can apply it without allocating. */
+        bool EnqueueParameterUpdate(u32 parameterID, const choc::value::Value& value);
 
-        /** Called from audio thread to send updated parameters */
-        void UpdateChangedParameters() const;
+        /** Drain the parameter hand-off queue, applying each pending write to the graph.
+            Audio-thread only: wait-free and allocation-free (no locks, no heap). Returns
+            the number of updates applied. */
+        u32 DrainParameterUpdates();
+
+        /** Called from audio thread to apply the initial preset before playback starts. */
+        bool ApplyParameterPresetInternal();
+
+        /** Called from audio thread each block to push queued parameter changes. */
+        void UpdateChangedParameters();
 
         /** SoundGraph event handlers (called from audio thread) */
         static void HandleGraphEvent(void* context, u64 frameIndex, Identifier endpointID, const choc::value::ValueView& eventData);
@@ -260,19 +287,20 @@ namespace OloEngine::Audio::SoundGraph
         //============================================
         /// Thread communication
 
-        // Thread-safe parameter preset for communication between main and audio threads
-        struct ThreadSafePreset
+        // Lock-free hand-off of bulk preset parameter writes from the main thread
+        // (producer: ApplyParameterPreset enqueues) to the audio thread (consumer:
+        // ProcessSamples drains and applies). Each entry carries the target endpoint
+        // hash plus the value packed into PreAllocatedValue inline storage, so the
+        // audio thread applies it through SoundGraph::SendInputValue with no lock and
+        // no heap allocation. This replaces the old mutex + deep-copied preset snapshot,
+        // which could not be read on the audio thread without allocating. (Single live
+        // SetParameter writes still apply synchronously — see SetParameter.)
+        struct ParameterUpdate
         {
-            std::atomic<bool> m_HasChanges{ false };
-            mutable FMutex m_PresetMutex;
-            std::shared_ptr<SoundGraphPatchPreset> m_Preset;
-
-            // Only one writer at a time expected - called from main thread
-            void SetPreset(const SoundGraphPatchPreset& preset);
-
-            // Read from audio thread - takes a stable snapshot for safe reading
-            bool GetPresetIfChanged(SoundGraphPatchPreset& outPreset);
-        } m_ThreadSafePreset;
+            u32 m_ParameterID = 0;
+            Audio::PreAllocatedValue m_Value;
+        };
+        Audio::LockFreeEventQueue<ParameterUpdate, 256> m_ParameterUpdateQueue;
 
         AtomicFlag m_PlayRequestFlag;
         bool m_PresetIsInitialized = false;

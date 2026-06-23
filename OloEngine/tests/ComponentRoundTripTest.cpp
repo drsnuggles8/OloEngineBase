@@ -2054,6 +2054,9 @@ namespace OloEngine::Tests
         const bool expectedLooping = true;
         const f32 expectedMinDistance = 2.5f;
         const f32 expectedMaxDistance = 50.0f;
+        // Full 64-bit, non-default — catches a missing emit/read of the SoundConfig
+        // (.olosoundc) preset link, or u64 precision loss in the AssetHandle path.
+        const AssetHandle expectedPreset = 0x0123456789ABCDEFULL;
 
         std::string yaml;
         {
@@ -2065,6 +2068,7 @@ namespace OloEngine::Tests
             as.Config.Looping = expectedLooping;
             as.Config.MinDistance = expectedMinDistance;
             as.Config.MaxDistance = expectedMaxDistance;
+            as.SoundConfigHandle = expectedPreset;
             yaml = SceneSerializer(scene).SerializeToYAML();
         }
 
@@ -2081,6 +2085,8 @@ namespace OloEngine::Tests
         EXPECT_EQ(as.Config.Looping, expectedLooping);
         EXPECT_NEAR(as.Config.MinDistance, expectedMinDistance, kFloatEpsilon);
         EXPECT_NEAR(as.Config.MaxDistance, expectedMaxDistance, kFloatEpsilon);
+        EXPECT_EQ(as.SoundConfigHandle, expectedPreset)
+            << "SoundConfigHandle dropped on scene YAML round-trip — check SceneSerializer emit/read.";
     }
 
     // -------------------------------------------------------------------------
@@ -2485,6 +2491,77 @@ namespace OloEngine::Tests
     }
 
     // -------------------------------------------------------------------------
+    // WaterComponent — FFT ocean + spectrum-selection fields (§1, §1.4)
+    //
+    // Covers the Tessendorf FFT block, including the JONSWAP spectrum selector
+    // and its gamma/fetch params. A dropped read/write on the spectrum fields
+    // would silently revert a JONSWAP scene to Phillips on reload.
+    // -------------------------------------------------------------------------
+    TEST(ComponentRoundTrip, WaterComponentFFTSpectrumFieldsSurviveYAMLRoundTrip)
+    {
+        const bool expectedUseFFT = true;
+        const u32 expectedResolution = 256u;
+        const f32 expectedPatchSize = 120.0f;
+        const f32 expectedWindSpeed = 22.0f;
+        const glm::vec2 expectedWindDir{ 0.6f, 0.8f };
+        const f32 expectedAmplitude = 3.5f;
+        const f32 expectedChoppiness = 1.5f;
+        const f32 expectedHeightScale = 1.3f;
+        const u32 expectedSeed = 4242u;
+        const bool expectedGpuCompute = false; // default is true
+        const Ocean::SpectrumType expectedSpectrum = Ocean::SpectrumType::JONSWAP;
+        const f32 expectedGamma = 4.2f;
+        const f32 expectedFetch = 50000.0f;
+
+        std::string yaml;
+        {
+            auto scene = Scene::Create();
+            Entity entity = scene->CreateEntity(kTestTag);
+            auto& water = entity.AddComponent<WaterComponent>();
+            water.m_UseFFT = expectedUseFFT;
+            water.m_FFTResolution = expectedResolution;
+            water.m_FFTPatchSize = expectedPatchSize;
+            water.m_FFTWindSpeed = expectedWindSpeed;
+            water.m_FFTWindDirection = expectedWindDir;
+            water.m_FFTAmplitude = expectedAmplitude;
+            water.m_FFTChoppiness = expectedChoppiness;
+            water.m_FFTHeightScale = expectedHeightScale;
+            water.m_FFTSeed = expectedSeed;
+            water.m_FFTUseGpuCompute = expectedGpuCompute;
+            water.m_FFTSpectrumType = expectedSpectrum;
+            water.m_FFTJonswapGamma = expectedGamma;
+            water.m_FFTJonswapFetch = expectedFetch;
+
+            yaml = SceneSerializer(scene).SerializeToYAML();
+        }
+
+        ASSERT_FALSE(yaml.empty());
+
+        auto reloaded = Scene::Create();
+        ASSERT_TRUE(SceneSerializer(reloaded).DeserializeFromYAML(yaml));
+
+        Entity restored = FindByTag(*reloaded, kTestTag);
+        ASSERT_TRUE(static_cast<bool>(restored));
+        ASSERT_TRUE(restored.HasComponent<WaterComponent>());
+
+        const auto& water = restored.GetComponent<WaterComponent>();
+        EXPECT_EQ(water.m_UseFFT, expectedUseFFT);
+        EXPECT_EQ(water.m_FFTResolution, expectedResolution);
+        EXPECT_NEAR(water.m_FFTPatchSize, expectedPatchSize, kFloatEpsilon);
+        EXPECT_NEAR(water.m_FFTWindSpeed, expectedWindSpeed, kFloatEpsilon);
+        EXPECT_NEAR(water.m_FFTWindDirection.x, expectedWindDir.x, kFloatEpsilon);
+        EXPECT_NEAR(water.m_FFTWindDirection.y, expectedWindDir.y, kFloatEpsilon);
+        EXPECT_NEAR(water.m_FFTAmplitude, expectedAmplitude, kFloatEpsilon);
+        EXPECT_NEAR(water.m_FFTChoppiness, expectedChoppiness, kFloatEpsilon);
+        EXPECT_NEAR(water.m_FFTHeightScale, expectedHeightScale, kFloatEpsilon);
+        EXPECT_EQ(water.m_FFTSeed, expectedSeed);
+        EXPECT_EQ(water.m_FFTUseGpuCompute, expectedGpuCompute);
+        EXPECT_EQ(water.m_FFTSpectrumType, expectedSpectrum);
+        EXPECT_NEAR(water.m_FFTJonswapGamma, expectedGamma, kFloatEpsilon);
+        EXPECT_NEAR(water.m_FFTJonswapFetch, expectedFetch, kFloatEpsilon);
+    }
+
+    // -------------------------------------------------------------------------
     // BuoyancyComponent — every serialized field must survive a YAML round-trip
     // (one of the five component touch-points; a dropped read/write here would
     // silently desync a saved scene from its in-editor setup). See
@@ -2840,5 +2917,48 @@ namespace OloEngine::Tests
         EXPECT_NEAR(noise.Frequency, 1.0f, kFloatEpsilon) << "NaN frequency should fall back to the default";
         EXPECT_NEAR(noise.Gain, 0.5f, kFloatEpsilon) << "Inf gain should fall back to the default";
         EXPECT_NEAR(noise.Weight, 1.0f, kFloatEpsilon) << "-Inf weight should fall back to the default";
+    }
+
+    // -------------------------------------------------------------------------
+    // NavMeshBoundsComponent — off-mesh links (vector-of-structs YAML sequence).
+    // Guards the SceneSerializer emit/read sides for the m_Links field added with
+    // the off-mesh-link feature: a forgotten Start/End/Radius/Bidirectional key,
+    // or a dropped sequence, vanishes silently from saved scenes otherwise.
+    // -------------------------------------------------------------------------
+    TEST(ComponentRoundTrip, NavMeshBoundsOffMeshLinksSurviveYAMLRoundTrip)
+    {
+        std::string yaml;
+        {
+            auto scene = Scene::Create();
+            Entity entity = scene->CreateEntity(kTestTag);
+            auto& nmb = entity.AddComponent<NavMeshBoundsComponent>();
+            nmb.m_Min = { -7.0f, -2.0f, -7.0f };
+            nmb.m_Max = { 7.0f, 12.0f, 7.0f };
+            nmb.m_Links.emplace_back(glm::vec3{ -3.0f, 0.25f, 1.0f }, glm::vec3{ 3.5f, 0.5f, -1.5f },
+                                     /*radius=*/0.8f, /*bidirectional=*/false);
+            nmb.m_Links.emplace_back(glm::vec3{ 1.0f, 0.0f, 2.0f }, glm::vec3{ -1.0f, 1.0f, -2.0f },
+                                     /*radius=*/1.25f, /*bidirectional=*/true);
+            yaml = SceneSerializer(scene).SerializeToYAML();
+        }
+
+        auto reloaded = Scene::Create();
+        ASSERT_TRUE(SceneSerializer(reloaded).DeserializeFromYAML(yaml));
+
+        Entity restored = FindByTag(*reloaded, kTestTag);
+        ASSERT_TRUE(static_cast<bool>(restored));
+        ASSERT_TRUE(restored.HasComponent<NavMeshBoundsComponent>())
+            << "NavMeshBoundsComponent was dropped during round-trip.";
+
+        const auto& nmb = restored.GetComponent<NavMeshBoundsComponent>();
+        ASSERT_EQ(nmb.m_Links.size(), 2u) << "off-mesh link list lost entries during round-trip.";
+
+        EXPECT_NEAR(nmb.m_Links[0].m_Start.x, -3.0f, kFloatEpsilon);
+        EXPECT_NEAR(nmb.m_Links[0].m_End.z, -1.5f, kFloatEpsilon);
+        EXPECT_NEAR(nmb.m_Links[0].m_Radius, 0.8f, kFloatEpsilon);
+        EXPECT_FALSE(nmb.m_Links[0].m_Bidirectional);
+
+        EXPECT_NEAR(nmb.m_Links[1].m_Start.z, 2.0f, kFloatEpsilon);
+        EXPECT_NEAR(nmb.m_Links[1].m_Radius, 1.25f, kFloatEpsilon);
+        EXPECT_TRUE(nmb.m_Links[1].m_Bidirectional);
     }
 } // namespace OloEngine::Tests

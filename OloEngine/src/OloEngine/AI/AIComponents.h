@@ -7,6 +7,9 @@
 #include "OloEngine/Asset/Asset.h"
 #include "OloEngine/Core/Ref.h"
 #include "OloEngine/Core/UUID.h"
+#include "OloEngine/Math/Math.h"
+
+#include <glm/glm.hpp>
 
 namespace OloEngine
 {
@@ -116,5 +119,96 @@ namespace OloEngine
         // Move = transfer ownership including runtime state.
         GoapAgentComponent(GoapAgentComponent&&) noexcept = default;
         GoapAgentComponent& operator=(GoapAgentComponent&&) noexcept = default;
+    };
+
+    // Marks an entity as something a PerceptionComponent can sense (a stimulus
+    // source). A perceiver only ever considers entities carrying this marker, so
+    // it doubles as the target filter: Team gates which factions notice each
+    // other (see PerceptionComponent::PerceiverTeam / DetectSameTeam) and
+    // IsPerceptible can be toggled off for stealth / cloaking without removing
+    // the component. Pure authored data — no runtime state.
+    struct PerceptibleComponent
+    {
+        i32 Team = 0;              // faction id used by perceiver team-filtering
+        bool IsPerceptible = true; // when false the entity is invisible to sight
+
+        PerceptibleComponent() = default;
+        PerceptibleComponent(const PerceptibleComponent&) = default;
+        PerceptibleComponent& operator=(const PerceptibleComponent&) = default;
+
+        auto operator==(const PerceptibleComponent& other) const -> bool = default;
+    };
+
+    // Sight sensor: lets an NPC "see" PerceptibleComponent-tagged entities that
+    // fall inside a forward cone (range + field of view), optionally gated by a
+    // physics line-of-sight raycast. PerceptionSystem refreshes the runtime
+    // result fields each tick from inside Scene::OnUpdateRuntime and mirrors
+    // them into the entity's AI Blackboard under PerceptionKeys::*, so behavior
+    // trees, FSMs, GOAP and scripts can all react. The look direction is the
+    // entity's local -Z forward (engine convention; see EditorCamera/camera fly).
+    struct PerceptionComponent
+    {
+        // --- Authored / serialized ---
+        f32 SightRange = 15.0f;                     // max distance a target can be seen (metres)
+        f32 FovDegrees = 90.0f;                     // full angular width of the sight cone
+        glm::vec3 EyeOffset = { 0.0f, 1.7f, 0.0f }; // local-space eye position (eye height)
+        bool RequireLineOfSight = true;             // when true, an occluded target is not seen
+        i32 PerceiverTeam = 0;                      // this sensor's faction id
+        bool DetectSameTeam = false;                // when false, same-team perceptibles are ignored
+
+        // --- Runtime result (not serialized; recomputed every tick) ---
+        bool HasVisibleTarget = false;                      // a target is currently visible this tick
+        UUID VisibleTarget = 0;                             // UUID of the nearest visible target (0 = none)
+        glm::vec3 LastKnownPosition = { 0.0f, 0.0f, 0.0f }; // where the target was last seen
+        bool HasLastKnownPosition = false;                  // true once any target has been seen
+        f32 TimeSinceLastSeen = 0.0f;                       // seconds since a target was last visible
+
+        PerceptionComponent() = default;
+
+        // Copy / move duplicate the authored config only; the runtime sensor
+        // result is rebuilt by PerceptionSystem each tick. Mirrors
+        // NavAgentComponent's authored-only copy semantics.
+        PerceptionComponent(const PerceptionComponent& other)
+            : SightRange(other.SightRange), FovDegrees(other.FovDegrees), EyeOffset(other.EyeOffset),
+              RequireLineOfSight(other.RequireLineOfSight), PerceiverTeam(other.PerceiverTeam),
+              DetectSameTeam(other.DetectSameTeam)
+        {
+        }
+        PerceptionComponent(PerceptionComponent&&) noexcept = default;
+
+        PerceptionComponent& operator=(const PerceptionComponent& other)
+        {
+            if (this != &other)
+            {
+                SightRange = other.SightRange;
+                FovDegrees = other.FovDegrees;
+                EyeOffset = other.EyeOffset;
+                RequireLineOfSight = other.RequireLineOfSight;
+                PerceiverTeam = other.PerceiverTeam;
+                DetectSameTeam = other.DetectSameTeam;
+                HasVisibleTarget = false;
+                VisibleTarget = 0;
+                LastKnownPosition = { 0.0f, 0.0f, 0.0f };
+                HasLastKnownPosition = false;
+                TimeSinceLastSeen = 0.0f;
+            }
+            return *this;
+        }
+        PerceptionComponent& operator=(PerceptionComponent&&) noexcept = default;
+
+        ~PerceptionComponent() = default;
+
+        // Compares serialized fields only — runtime sensor results are excluded
+        // (they are tick-derived, not authoring-visible). Mirrors NavAgentComponent.
+        auto operator==(const PerceptionComponent& other) const -> bool
+        {
+            const bool sameCone = Math::BitwiseEqual(SightRange, other.SightRange) &&
+                                  Math::BitwiseEqual(FovDegrees, other.FovDegrees) &&
+                                  Math::BitwiseEqual(EyeOffset, other.EyeOffset);
+            const bool sameFilter = (RequireLineOfSight == other.RequireLineOfSight) &&
+                                    (PerceiverTeam == other.PerceiverTeam) &&
+                                    (DetectSameTeam == other.DetectSameTeam);
+            return sameCone && sameFilter;
+        }
     };
 } // namespace OloEngine
