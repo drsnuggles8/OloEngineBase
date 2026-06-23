@@ -387,6 +387,7 @@ add_executable(OloEngine-Tests
 		Functional/Scripting/LuaCompletesQuestViaIncrementObjectiveTest.cpp
 		Functional/Dialogue/DialogueAdvanceMovesToNextNodeTest.cpp
 		Functional/Gameplay/InventoryTransferItemBetweenContainersTest.cpp
+		Functional/Gameplay/InventoryShopTradingTest.cpp
 		Functional/Gameplay/ChanneledAbilityAutoDeactivatesAtEndOfDurationTest.cpp
 		Functional/Gameplay/MultiStageQuestAdvancesThroughStagesTest.cpp
 		Functional/AnimationPhysics/AnimationGraphMultipleEntitiesAdvanceIndependentlyTest.cpp

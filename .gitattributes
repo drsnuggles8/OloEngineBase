@@ -36,3 +36,13 @@ bin/** export-ignore
 
 # Make sure large generated files don't get diffs
 *.pbxproj -diff
+
+# docs/testing.md is auto-generated from OloEngine/tests/scripts/test_catalogue.json
+# (the three catalogue blocks). Two branches adding tests would otherwise collide
+# on the per-block Totals line and adjacent table rows. union auto-merges both
+# sides' additions instead of producing conflict markers; the pre-commit
+# `test-catalogue-in-sync` --check still guards correctness and will prompt a
+# regenerate (python OloEngine/tests/scripts/generate_test_catalogue.py) when the
+# union'd result is stale. Do NOT union test_catalogue.json itself — it's strict
+# JSON and a tail-append union would drop a comma.
+docs/testing.md merge=union
