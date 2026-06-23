@@ -68,7 +68,6 @@
     "OloEngine/tests/Rendering/PropertyTests/PCSSVisualEvidenceTest.cpp": "L8",
     "OloEngine/tests/Rendering/PropertyTests/WaterSurfaceSamplerTest.cpp": "L1",
     "OloEngine/tests/Rendering/PropertyTests/WaterBuoyancyVisualEvidenceTest.cpp": "L8",
-    "OloEngine/tests/Rendering/PropertyTests/TestFailureCaptureTest.cpp": "meta",
     "OloEngine/tests/Rendering/CommandAllocatorTest.cpp": "plumbing",
     "OloEngine/tests/Rendering/CommandBucketTest.cpp": "plumbing",
     "OloEngine/tests/Rendering/CommandDispatchTest.cpp": "plumbing",
