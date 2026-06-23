@@ -60,13 +60,25 @@ namespace OloEngine::MCP
     // Result of a tool invocation. `Content` is the MCP content array
     // (e.g. [{ "type": "text", "text": "..." }]); `IsError` maps to the
     // tools/call `isError` flag (a tool-level error, not a JSON-RPC protocol error).
+    //
+    // `StructuredContent` is the optional typed result (MCP `structuredContent`,
+    // spec 2025-06-18): a JSON object an agent can parse directly instead of
+    // scraping the `content` text. It is null (omitted) for inherently-textual
+    // tools; a tool that sets it should also declare a matching `ToolDef::OutputSchema`.
+    // Per the spec, when `structuredContent` is present `content` must still carry a
+    // backward-compatible serialized mirror — `Structured()` builds both at once.
     struct ToolResult
     {
         Json Content = Json::array();
         bool IsError = false;
+        Json StructuredContent; // null => omitted; must be a JSON object when set.
 
         [[nodiscard]] static ToolResult Text(const std::string& text);
         [[nodiscard]] static ToolResult Error(const std::string& message);
+        // Typed success result: sets `StructuredContent` to `data` (must be a JSON
+        // object) and mirrors it into `content` as pretty-printed text for clients
+        // that don't read structured output. `IsError` stays false.
+        [[nodiscard]] static ToolResult Structured(const Json& data);
     };
 
     class McpServer;
@@ -88,6 +100,11 @@ namespace OloEngine::MCP
         std::string Title;
         std::string Description;
         Json InputSchema;
+        // Optional JSON Schema for the tool's structured result (MCP `outputSchema`,
+        // spec 2025-06-18). Emitted under `outputSchema` in tools/list only when it is
+        // a non-empty object; pairs with a handler that returns ToolResult::Structured.
+        // Default-null tools stay text-only and omit the field.
+        Json OutputSchema;
         // Optional MCP ToolAnnotations object — behavioural hints the client may
         // use to e.g. auto-approve a read-only tool: `readOnlyHint`,
         // `destructiveHint`, `idempotentHint`, `openWorldHint`. Defaults to null;

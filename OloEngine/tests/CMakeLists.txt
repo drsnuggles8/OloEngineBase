@@ -310,6 +310,11 @@ add_executable(OloEngine-Tests
 		# (#357 Tier 1). Exercises HandleToolsList / RegisterTool / IsValidToolName in
 		# the McpServer.cpp TU already pulled in above; no extra editor TU is needed.
 		MCP/McpToolAnnotationsTest.cpp
+		# Structured/typed tool output: outputSchema in tools/list, structuredContent
+		# in tools/call, and redaction of the typed result (#357 Tier 2 P2). Exercises
+		# HandleToolsList / HandleToolsCall / ToolResult::Structured in the McpServer.cpp
+		# TU already pulled in above; no extra editor TU is needed.
+		MCP/McpStructuredOutputTest.cpp
 		# Lua Binding Tests
 		Lua/LuaBindingTest.cpp
 		# Functional / cross-subsystem world-tick tests (see ADR 0001).
