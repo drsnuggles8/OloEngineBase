@@ -4974,6 +4974,16 @@ namespace OloEngine
                     component.m_NeedsRebuild = true;
                 ImGui::SetItemTooltip(">1 flattens lowlands and sharpens peaks (islands / deep valleys)");
 
+                // Hydraulic-erosion generation post-pass. 0 = off; each iteration
+                // is one full droplet pass over the field. Deterministic in Seed.
+                // Applies on Regenerate, like the other procedural params.
+                if (ImGui::DragInt("Erosion Iterations", &component.m_ProceduralErosionIterations, 0.2f, 0, 64))
+                {
+                    component.m_ProceduralErosionIterations = std::clamp(component.m_ProceduralErosionIterations, 0, 64);
+                    component.m_NeedsRebuild = true;
+                }
+                ImGui::SetItemTooltip("0 = off; carves drainage channels / talus slopes (CPU, runs once on Regenerate)");
+
                 if (ImGui::Button("Randomize Seed"))
                 {
                     component.m_ProceduralSeed = RandomUtils::Int32(0, std::numeric_limits<i32>::max());

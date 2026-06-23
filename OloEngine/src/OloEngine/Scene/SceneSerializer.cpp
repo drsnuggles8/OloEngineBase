@@ -1182,6 +1182,7 @@ namespace OloEngine
         terrain.m_ProceduralFrequency = terrainComponent["ProceduralFrequency"].as<f32>(terrain.m_ProceduralFrequency);
         terrain.m_ProceduralLacunarity = terrainComponent["ProceduralLacunarity"].as<f32>(terrain.m_ProceduralLacunarity);
         terrain.m_ProceduralPersistence = terrainComponent["ProceduralPersistence"].as<f32>(terrain.m_ProceduralPersistence);
+        terrain.m_ProceduralErosionIterations = terrainComponent["ProceduralErosionIterations"].as<i32>(terrain.m_ProceduralErosionIterations);
 
         // Advanced height-field shaping
         terrain.m_HeightShaping.RidgeBlend = terrainComponent["ShapingRidgeBlend"].as<f32>(terrain.m_HeightShaping.RidgeBlend);
@@ -1228,6 +1229,7 @@ namespace OloEngine
             sanitize(terrain.m_HeightShaping.HeightExponent, 0.05f, 16.0f, 1.0f);
             terrain.m_HeightShaping.TerraceSteps = std::min(terrain.m_HeightShaping.TerraceSteps, 256u);
             terrain.m_SplatmapGenResolution = std::clamp(terrain.m_SplatmapGenResolution, 16u, 4096u);
+            terrain.m_ProceduralErosionIterations = std::clamp(terrain.m_ProceduralErosionIterations, 0, 64);
             for (TerrainLayerRule& r : terrain.m_LayerRules)
             {
                 if (r.LayerIndex >= MAX_TERRAIN_LAYERS)
@@ -5162,6 +5164,7 @@ namespace OloEngine
             out << YAML::Key << "ProceduralFrequency" << YAML::Value << terrain.m_ProceduralFrequency;
             out << YAML::Key << "ProceduralLacunarity" << YAML::Value << terrain.m_ProceduralLacunarity;
             out << YAML::Key << "ProceduralPersistence" << YAML::Value << terrain.m_ProceduralPersistence;
+            out << YAML::Key << "ProceduralErosionIterations" << YAML::Value << terrain.m_ProceduralErosionIterations;
 
             // Advanced height-field shaping
             out << YAML::Key << "ShapingRidgeBlend" << YAML::Value << terrain.m_HeightShaping.RidgeBlend;

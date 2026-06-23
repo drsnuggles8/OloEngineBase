@@ -1520,6 +1520,11 @@ namespace OloEngine
             }
         }
 
+        // ── Format v5: hydraulic-erosion generation post-pass iteration count ──
+        // Appended at the end; kSaveGameFormatVersion was bumped 4→5, so any
+        // pre-v5 archive is rejected by the header check before reaching here.
+        ar << c.m_ProceduralErosionIterations;
+
         if (ar.IsLoading())
         {
             // Sanitize untrusted on-disk values so corrupt save data can't poison
@@ -1537,6 +1542,7 @@ namespace OloEngine
             sanitize(c.m_HeightShaping.HeightExponent, 0.05f, 16.0f, 1.0f);
             c.m_HeightShaping.TerraceSteps = std::min(c.m_HeightShaping.TerraceSteps, 256u);
             c.m_SplatmapGenResolution = std::clamp(c.m_SplatmapGenResolution, 16u, 4096u);
+            c.m_ProceduralErosionIterations = std::clamp(c.m_ProceduralErosionIterations, 0, 64);
             for (TerrainLayerRule& r : c.m_LayerRules)
             {
                 if (r.LayerIndex >= MAX_TERRAIN_LAYERS)

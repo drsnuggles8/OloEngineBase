@@ -1056,6 +1056,10 @@ namespace OloEngine
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern void TerrainComponent_SetPersistence(ulong entityID, float value);
 		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern int TerrainComponent_GetErosionIterations(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void TerrainComponent_SetErosionIterations(ulong entityID, int value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern float TerrainComponent_GetRidgeBlend(ulong entityID);
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern void TerrainComponent_SetRidgeBlend(ulong entityID, float value);
