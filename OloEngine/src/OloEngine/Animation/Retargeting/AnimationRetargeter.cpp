@@ -7,7 +7,6 @@
 #include <algorithm>
 #include <vector>
 
-#define GLM_ENABLE_EXPERIMENTAL
 #include <glm/gtc/quaternion.hpp>
 #include <glm/geometric.hpp>
 

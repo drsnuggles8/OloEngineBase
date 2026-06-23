@@ -39,7 +39,11 @@ namespace OloEngine::Animation
         for (sizet s = 0; s < source.m_BoneNames.size(); ++s)
         {
             exact.try_emplace(source.m_BoneNames[s], static_cast<int>(s));
-            normalized.try_emplace(NormalizeBoneName(source.m_BoneNames[s]), static_cast<int>(s));
+            // A name that is only a namespace/rig prefix or separators normalizes to
+            // "" — don't index it, or every such name would collide on one bucket and
+            // produce false-positive matches between unrelated bones.
+            if (std::string norm = NormalizeBoneName(source.m_BoneNames[s]); !norm.empty())
+                normalized.try_emplace(std::move(norm), static_cast<int>(s));
         }
 
         for (sizet t = 0; t < target.m_BoneNames.size(); ++t)
@@ -49,8 +53,11 @@ namespace OloEngine::Animation
                 map.m_TargetToSource[t] = it->second;
                 continue;
             }
-            if (const auto it = normalized.find(NormalizeBoneName(target.m_BoneNames[t])); it != normalized.end())
-                map.m_TargetToSource[t] = it->second;
+            if (const std::string norm = NormalizeBoneName(target.m_BoneNames[t]); !norm.empty())
+            {
+                if (const auto it = normalized.find(norm); it != normalized.end())
+                    map.m_TargetToSource[t] = it->second;
+            }
         }
 
         return map;

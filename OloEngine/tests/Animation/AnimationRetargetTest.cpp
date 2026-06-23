@@ -140,6 +140,23 @@ TEST(AnimationRetarget, BuildByNamePrefersExactOverNormalizedCollision)
     EXPECT_EQ(map.GetSourceBone(0), 1) << "exact 'Root' must beat the normalized 'root' collision";
 }
 
+TEST(AnimationRetarget, BuildByNameIgnoresEmptyNormalizedNames)
+{
+    // Names that are only a namespace/rig prefix or separators normalize to "".
+    // Such names must NOT collide on a shared empty bucket and produce a spurious
+    // match between unrelated bones.
+    SkeletonData source;
+    source.m_BoneNames = { "Hips", "mixamorig:" }; // index 1 normalizes to ""
+    SkeletonData target;
+    target.m_BoneNames = { "Pelvis", "Armature|" }; // index 1 also normalizes to ""
+
+    const SkeletonRetargetMap map = SkeletonRetargetMap::BuildByName(source, target);
+    EXPECT_EQ(map.GetSourceBone(0), SkeletonRetargetMap::kUnmapped) << "Pelvis has no Hips match";
+    EXPECT_EQ(map.GetSourceBone(1), SkeletonRetargetMap::kUnmapped)
+        << "an empty-normalized target must not match an empty-normalized source";
+    EXPECT_EQ(map.GetMappedBoneCount(), 0u);
+}
+
 // -----------------------------------------------------------------------------
 // RetargetLocalPose — rotation transferred, target proportions preserved.
 // Source bone lengths are 1, target bone lengths are 2; after retargeting the
