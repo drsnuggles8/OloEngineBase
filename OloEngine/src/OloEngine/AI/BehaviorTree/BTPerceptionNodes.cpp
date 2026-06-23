@@ -11,10 +11,9 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        const bool canSee = entity.HasComponent<PerceptionComponent>() &&
-                            entity.GetComponent<PerceptionComponent>().HasVisibleTarget;
-
-        if (!canSee)
+        if (const bool canSee = entity.HasComponent<PerceptionComponent>() &&
+                                entity.GetComponent<PerceptionComponent>().HasVisibleTarget;
+            !canSee)
         {
             if (!Children.empty())
             {

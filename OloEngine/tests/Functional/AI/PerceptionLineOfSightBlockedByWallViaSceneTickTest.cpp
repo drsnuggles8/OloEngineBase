@@ -65,7 +65,7 @@ class PerceptionLineOfSightBlockedByWallViaSceneTickTest : public FunctionalTest
         EnablePhysics3D();
     }
 
-    [[nodiscard]] const PerceptionComponent& Perception() const
+    [[nodiscard("test asserts on the returned sensor result")]] const PerceptionComponent& Perception() const
     {
         return m_Watcher.GetComponent<PerceptionComponent>();
     }

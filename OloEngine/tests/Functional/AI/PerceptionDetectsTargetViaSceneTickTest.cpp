@@ -78,11 +78,11 @@ class PerceptionDetectsTargetViaSceneTickTest : public FunctionalTest
         perc.IsPerceptible = true;
     }
 
-    [[nodiscard]] const PerceptionComponent& Perception() const
+    [[nodiscard("test asserts on the returned sensor result")]] const PerceptionComponent& Perception() const
     {
         return m_Watcher.GetComponent<PerceptionComponent>();
     }
-    [[nodiscard]] const BTBlackboard& WatcherBlackboard() const
+    [[nodiscard("test asserts on the returned blackboard")]] const BTBlackboard& WatcherBlackboard() const
     {
         return m_Watcher.GetComponent<BehaviorTreeComponent>().Blackboard;
     }

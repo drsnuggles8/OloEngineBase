@@ -63,7 +63,7 @@ namespace OloEngine
         // (range + FOV already passed) — sight degrades to "see-through" rather
         // than blind, which is the useful default for headless / editor-stopped
         // contexts.
-        bool IsOccluded(Scene* scene, const glm::vec3& eye, const glm::vec3& targetPos,
+        bool IsOccluded(const Scene* scene, const glm::vec3& eye, const glm::vec3& targetPos,
                         UUID perceiver, UUID target)
         {
             JoltScene* physics = scene->GetPhysicsScene();

@@ -1152,6 +1152,15 @@ namespace OloEngine
     {
     };
 
+    // PerceptibleComponent is trivially copyable but has tail padding (i32 + bool
+    // → 8 bytes, 3 padding bytes), so the default memcmp path compares
+    // indeterminate padding (SonarCloud cpp:S5000). It defines operator==, so use
+    // the value-comparison path instead.
+    template<>
+    struct PreferValueComparison<PerceptibleComponent> : std::true_type
+    {
+    };
+
     template<typename T, typename UIFunction>
     static void DrawComponent(const std::string& name, Entity entity, UIFunction uiFunction)
     {
@@ -6328,13 +6337,10 @@ namespace OloEngine
             ImGui::Checkbox("Require Line Of Sight", &component.RequireLineOfSight);
             ImGui::DragInt("Perceiver Team", &component.PerceiverTeam);
             ImGui::Checkbox("Detect Same Team", &component.DetectSameTeam);
-
-            // Live sensor result (read-only; PerceptionSystem fills it at runtime).
-            ImGui::Separator();
+            ImGui::Separator(); // below: read-only live sensor result, filled each tick by PerceptionSystem
             if (component.HasVisibleTarget)
             {
-                ImGui::TextColored(ImVec4(0.4f, 0.9f, 0.4f, 1.0f), "Target visible: %llu",
-                                   static_cast<unsigned long long>(static_cast<u64>(component.VisibleTarget)));
+                ImGui::TextColored(ImVec4(0.4f, 0.9f, 0.4f, 1.0f), "Target visible: %llu", static_cast<unsigned long long>(static_cast<u64>(component.VisibleTarget)));
             }
             else
             {
@@ -6342,9 +6348,7 @@ namespace OloEngine
             }
             if (component.HasLastKnownPosition)
             {
-                ImGui::Text("Last seen (%.2f, %.2f, %.2f), %.1fs ago",
-                            component.LastKnownPosition.x, component.LastKnownPosition.y,
-                            component.LastKnownPosition.z, component.TimeSinceLastSeen);
+                ImGui::Text("Last seen (%.2f, %.2f, %.2f), %.1fs ago", component.LastKnownPosition.x, component.LastKnownPosition.y, component.LastKnownPosition.z, component.TimeSinceLastSeen);
             } });
 
         DrawComponent<InventoryComponent>("Inventory", entity, [](auto& component)

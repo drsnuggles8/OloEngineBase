@@ -136,10 +136,7 @@ namespace OloEngine
         PerceptibleComponent(const PerceptibleComponent&) = default;
         PerceptibleComponent& operator=(const PerceptibleComponent&) = default;
 
-        auto operator==(const PerceptibleComponent& other) const -> bool
-        {
-            return Team == other.Team && IsPerceptible == other.IsPerceptible;
-        }
+        auto operator==(const PerceptibleComponent& other) const -> bool = default;
     };
 
     // Sight sensor: lets an NPC "see" PerceptibleComponent-tagged entities that
@@ -177,6 +174,8 @@ namespace OloEngine
               DetectSameTeam(other.DetectSameTeam)
         {
         }
+        PerceptionComponent(PerceptionComponent&&) noexcept = default;
+
         PerceptionComponent& operator=(const PerceptionComponent& other)
         {
             if (this != &other)
@@ -195,14 +194,21 @@ namespace OloEngine
             }
             return *this;
         }
-        PerceptionComponent(PerceptionComponent&&) noexcept = default;
         PerceptionComponent& operator=(PerceptionComponent&&) noexcept = default;
+
+        ~PerceptionComponent() = default;
 
         // Compares serialized fields only — runtime sensor results are excluded
         // (they are tick-derived, not authoring-visible). Mirrors NavAgentComponent.
         auto operator==(const PerceptionComponent& other) const -> bool
         {
-            return Math::BitwiseEqual(SightRange, other.SightRange) && Math::BitwiseEqual(FovDegrees, other.FovDegrees) && Math::BitwiseEqual(EyeOffset, other.EyeOffset) && RequireLineOfSight == other.RequireLineOfSight && PerceiverTeam == other.PerceiverTeam && DetectSameTeam == other.DetectSameTeam;
+            const bool sameCone = Math::BitwiseEqual(SightRange, other.SightRange) &&
+                                  Math::BitwiseEqual(FovDegrees, other.FovDegrees) &&
+                                  Math::BitwiseEqual(EyeOffset, other.EyeOffset);
+            const bool sameFilter = (RequireLineOfSight == other.RequireLineOfSight) &&
+                                    (PerceiverTeam == other.PerceiverTeam) &&
+                                    (DetectSameTeam == other.DetectSameTeam);
+            return sameCone && sameFilter;
         }
     };
 } // namespace OloEngine

@@ -21,8 +21,8 @@ namespace OloEngine::PerceptionMath
     // defensively so callers may pass an un-normalized look vector. This is the
     // single source of truth for the range+FOV gate; PerceptionSystem and its
     // unit tests both call it.
-    [[nodiscard]] inline bool IsInSightCone(const glm::vec3& eye, const glm::vec3& forward,
-                                            const glm::vec3& targetPos, f32 range, f32 fovDegrees)
+    [[nodiscard("sight-cone membership result must be used")]] inline bool IsInSightCone(const glm::vec3& eye, const glm::vec3& forward,
+                                                                                         const glm::vec3& targetPos, f32 range, f32 fovDegrees)
     {
         const glm::vec3 toTarget = targetPos - eye;
         const f32 distSq = glm::dot(toTarget, toTarget);

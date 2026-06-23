@@ -3008,7 +3008,7 @@ namespace OloEngine
                                               "perceiverTeam", &PerceptionComponent::PerceiverTeam,
                                               "detectSameTeam", &PerceptionComponent::DetectSameTeam,
                                               "hasVisibleTarget", sol::readonly(&PerceptionComponent::HasVisibleTarget),
-                                              "visibleTarget", sol::property([](const PerceptionComponent& c) -> u64
+                                              "visibleTarget", sol::property([](const PerceptionComponent& c)
                                                                              { return static_cast<u64>(c.VisibleTarget); }),
                                               "lastKnownPosition", sol::readonly(&PerceptionComponent::LastKnownPosition),
                                               "hasLastKnownPosition", sol::readonly(&PerceptionComponent::HasLastKnownPosition),
