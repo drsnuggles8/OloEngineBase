@@ -4,6 +4,7 @@
 #include "OloEngine/Navigation/NavMesh.h"
 #include "OloEngine/Navigation/NavMeshQuery.h"
 #include "OloEngine/Navigation/CrowdManager.h"
+#include "OloEngine/Navigation/OffMeshLink.h"
 #include "OloEngine/Scene/Components.h"
 #include "OloEngine/Asset/AssetTypes.h"
 
@@ -157,6 +158,44 @@ TEST(NavMeshBoundsComponentTest, DefaultValues)
     NavMeshBoundsComponent comp;
     EXPECT_EQ(comp.m_Min, glm::vec3(-100.0f, -10.0f, -100.0f));
     EXPECT_EQ(comp.m_Max, glm::vec3(100.0f, 50.0f, 100.0f));
+    EXPECT_TRUE(comp.m_Links.empty());
+}
+
+TEST(OffMeshLinkTest, DefaultValues)
+{
+    OffMeshLink link;
+    EXPECT_EQ(link.m_Start, glm::vec3(0.0f));
+    EXPECT_EQ(link.m_End, glm::vec3(0.0f));
+    EXPECT_FLOAT_EQ(link.m_Radius, 0.6f);
+    EXPECT_TRUE(link.m_Bidirectional);
+}
+
+TEST(OffMeshLinkTest, EqualityComparesAllFields)
+{
+    OffMeshLink a({ 1.0f, 0.0f, 0.0f }, { 2.0f, 0.0f, 0.0f }, 0.5f, true);
+    OffMeshLink b = a;
+    EXPECT_TRUE(a == b);
+
+    b.m_Bidirectional = false;
+    EXPECT_FALSE(a == b);
+
+    b = a;
+    b.m_End.z = 5.0f;
+    EXPECT_FALSE(a == b);
+}
+
+TEST(NavMeshBoundsComponentTest, CopyPreservesLinks)
+{
+    NavMeshBoundsComponent comp;
+    comp.m_Links.emplace_back(glm::vec3{ -1.0f, 0.0f, 0.0f }, glm::vec3{ 1.0f, 0.0f, 0.0f }, 0.5f, false);
+
+    NavMeshBoundsComponent copy(comp);
+    ASSERT_EQ(copy.m_Links.size(), 1u);
+    EXPECT_TRUE(copy == comp);
+
+    // operator== must reflect link differences (drives editor undo detection).
+    copy.m_Links.front().m_Radius = 2.0f;
+    EXPECT_FALSE(copy == comp);
 }
 
 TEST(NavAgentComponentTest, DefaultValues)
