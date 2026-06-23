@@ -2106,6 +2106,54 @@ namespace OloEngine
     {
         ar << c.m_Min.x << c.m_Min.y << c.m_Min.z;
         ar << c.m_Max.x << c.m_Max.y << c.m_Max.z;
+
+        // Off-mesh links: length-prefixed list, same save/load-symmetric idiom as the
+        // terrain layer rules above. ar.operator<< reads on load, writes on save.
+        auto serializeLink = [&ar](OffMeshLink& link)
+        {
+            ar << link.m_Start.x << link.m_Start.y << link.m_Start.z;
+            ar << link.m_End.x << link.m_End.y << link.m_End.z;
+            ar << link.m_Radius;
+            ar << link.m_Bidirectional;
+        };
+
+        u32 linkCount = static_cast<u32>(c.m_Links.size());
+        ar << linkCount;
+        if (ar.IsLoading())
+        {
+            constexpr u32 kMaxLinks = 4096u;
+            u32 clampedLinks = std::min(linkCount, kMaxLinks);
+            c.m_Links.assign(clampedLinks, OffMeshLink{});
+            for (u32 i = 0; i < clampedLinks; ++i)
+            {
+                serializeLink(c.m_Links[i]);
+                if (ar.IsError())
+                    return;
+            }
+            // Drain any excess entries to keep the stream aligned.
+            for (u32 i = clampedLinks; i < linkCount; ++i)
+            {
+                OffMeshLink discard{};
+                serializeLink(discard);
+                if (ar.IsError())
+                    return;
+            }
+            // Sanitize untrusted on-disk values so corrupt save data can't poison the bake.
+            for (OffMeshLink& link : c.m_Links)
+            {
+                if (!Math::IsFinite(link.m_Start))
+                    link.m_Start = glm::vec3(0.0f);
+                if (!Math::IsFinite(link.m_End))
+                    link.m_End = glm::vec3(0.0f);
+                if (!std::isfinite(link.m_Radius) || link.m_Radius <= 0.0f)
+                    link.m_Radius = 0.6f;
+            }
+        }
+        else
+        {
+            for (OffMeshLink& link : c.m_Links)
+                serializeLink(link);
+        }
     }
 
     void SaveGameComponentSerializer::Serialize(FArchive& ar, NavAgentComponent& c)

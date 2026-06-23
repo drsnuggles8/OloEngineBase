@@ -3194,6 +3194,24 @@ namespace OloEngine
                 if (nmb.m_Min[i] > nmb.m_Max[i])
                     std::swap(nmb.m_Min[i], nmb.m_Max[i]);
             }
+
+            if (auto linksNode = navMeshBoundsComponent["Links"]; linksNode)
+            {
+                for (auto linkNode : linksNode)
+                {
+                    OffMeshLink link;
+                    TrySet(link.m_Start, linkNode["Start"]);
+                    TrySet(link.m_End, linkNode["End"]);
+                    TrySet(link.m_Radius, linkNode["Radius"]);
+                    if (linkNode["Bidirectional"])
+                        link.m_Bidirectional = linkNode["Bidirectional"].as<bool>(true);
+                    // Drop links with non-finite endpoints — they'd corrupt the Detour bake.
+                    if (!Math::IsFinite(link.m_Start) || !Math::IsFinite(link.m_End))
+                        continue;
+                    SanitizeFloat(link.m_Radius, 0.01f, 1000.0f, 0.6f);
+                    nmb.m_Links.push_back(link);
+                }
+            }
         }
 
         if (auto navAgentComponent = entity["NavAgentComponent"]; navAgentComponent)
@@ -5685,6 +5703,18 @@ namespace OloEngine
             auto const& nmb = entity.GetComponent<NavMeshBoundsComponent>();
             out << YAML::Key << "Min" << YAML::Value << nmb.m_Min;
             out << YAML::Key << "Max" << YAML::Value << nmb.m_Max;
+
+            out << YAML::Key << "Links" << YAML::Value << YAML::BeginSeq;
+            for (const auto& link : nmb.m_Links)
+            {
+                out << YAML::BeginMap;
+                out << YAML::Key << "Start" << YAML::Value << link.m_Start;
+                out << YAML::Key << "End" << YAML::Value << link.m_End;
+                out << YAML::Key << "Radius" << YAML::Value << link.m_Radius;
+                out << YAML::Key << "Bidirectional" << YAML::Value << link.m_Bidirectional;
+                out << YAML::EndMap;
+            }
+            out << YAML::EndSeq;
 
             out << YAML::EndMap; // NavMeshBoundsComponent
         }

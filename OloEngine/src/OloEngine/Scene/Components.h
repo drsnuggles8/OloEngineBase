@@ -39,6 +39,7 @@
 #include "OloEngine/Dialogue/DialogueTypes.h"
 #include "OloEngine/Localization/LocalizedTextComponent.h"
 #include "OloEngine/AI/AIComponents.h"
+#include "OloEngine/Navigation/OffMeshLink.h"
 #include "OloEngine/Gameplay/Inventory/InventoryComponents.h"
 #include "OloEngine/Gameplay/Quest/QuestComponents.h"
 #include "OloEngine/Gameplay/Abilities/AbilityComponents.h"
@@ -3137,12 +3138,22 @@ namespace OloEngine
         OLO_PROPERTY()
         glm::vec3 m_Max = { 100.0f, 50.0f, 100.0f };
 
+        // Off-mesh links authored for this navmesh region: point-to-point
+        // connections (jump/drop/ladder/teleport) the bake stamps into the
+        // Detour navmesh so agents can cross gaps the walkable surface can't
+        // span. Not OLO_PROPERTY-annotated — a vector-of-structs isn't a
+        // scriptable scalar; scene/save serialization carries it instead.
+        std::vector<OffMeshLink> m_Links;
+
         NavMeshBoundsComponent() = default;
         NavMeshBoundsComponent(const NavMeshBoundsComponent&) = default;
 
+        // Explicit field compare — the m_Links vector makes this no longer
+        // trivially copyable, so Math::BitwiseEqual(*this, other) (which
+        // static_asserts trivially-copyable) can't be used wholesale.
         auto operator==(const NavMeshBoundsComponent& other) const -> bool
         {
-            return Math::BitwiseEqual(*this, other);
+            return Math::BitwiseEqual(m_Min, other.m_Min) && Math::BitwiseEqual(m_Max, other.m_Max) && m_Links == other.m_Links;
         }
     };
 
