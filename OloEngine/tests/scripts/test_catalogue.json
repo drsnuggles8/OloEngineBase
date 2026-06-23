@@ -193,6 +193,7 @@
     "OloEngine/tests/Functional/Gameplay/AbilityBlockedByOwnerTagTest.cpp": "Functional",
     "OloEngine/tests/Functional/Gameplay/InventoryStackConsolidationTest.cpp": "Functional",
     "OloEngine/tests/Functional/Navigation/NavMeshQueryFindPathBetweenPointsTest.cpp": "Functional",
+    "OloEngine/tests/Functional/Navigation/NavMeshOffMeshLinkBridgesGapTest.cpp": "Functional",
     "OloEngine/tests/Functional/Scripting/LuaRaycastHitsPhysicsBodyTest.cpp": "Functional",
     "OloEngine/tests/Functional/Scripting/LuaCompletesQuestViaIncrementObjectiveTest.cpp": "Functional",
     "OloEngine/tests/Functional/Dialogue/DialogueAdvanceMovesToNextNodeTest.cpp": "Functional",
