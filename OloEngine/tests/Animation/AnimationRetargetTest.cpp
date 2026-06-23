@@ -157,6 +157,25 @@ TEST(AnimationRetarget, BuildByNameIgnoresEmptyNormalizedNames)
     EXPECT_EQ(map.GetMappedBoneCount(), 0u);
 }
 
+TEST(AnimationRetarget, SetBoneMappingNormalizesInvalidNegative)
+{
+    // An out-of-range negative source index must collapse to kUnmapped so the
+    // mapping metadata (HasMapping / GetMappedBoneCount) stays consistent.
+    SkeletonRetargetMap map;
+    map.SetBoneMapping(0, 2);  // valid
+    map.SetBoneMapping(1, -5); // invalid negative -> kUnmapped
+
+    EXPECT_EQ(map.GetSourceBone(0), 2);
+    EXPECT_EQ(map.GetSourceBone(1), SkeletonRetargetMap::kUnmapped);
+    EXPECT_FALSE(map.HasMapping(1));
+    EXPECT_EQ(map.GetMappedBoneCount(), 1u) << "an invalid negative must not be counted as mapped";
+
+    // kUnmapped itself clears a previously-set mapping.
+    map.SetBoneMapping(0, SkeletonRetargetMap::kUnmapped);
+    EXPECT_FALSE(map.HasMapping(0));
+    EXPECT_EQ(map.GetMappedBoneCount(), 0u);
+}
+
 // -----------------------------------------------------------------------------
 // RetargetLocalPose — rotation transferred, target proportions preserved.
 // Source bone lengths are 1, target bone lengths are 2; after retargeting the

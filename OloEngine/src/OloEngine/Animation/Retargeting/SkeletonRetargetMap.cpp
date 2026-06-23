@@ -67,6 +67,11 @@ namespace OloEngine::Animation
     {
         if (targetBoneIndex < 0)
             return;
+        // Normalize any invalid negative (e.g. caller passing -5, or kUnmapped to
+        // clear) to kUnmapped, so HasMapping / GetMappedBoneCount stay consistent
+        // (they treat kUnmapped as "no mapping").
+        if (sourceBoneIndex < 0)
+            sourceBoneIndex = kUnmapped;
         if (static_cast<sizet>(targetBoneIndex) >= m_TargetToSource.size())
             m_TargetToSource.resize(static_cast<sizet>(targetBoneIndex) + 1, kUnmapped);
         m_TargetToSource[static_cast<sizet>(targetBoneIndex)] = sourceBoneIndex;

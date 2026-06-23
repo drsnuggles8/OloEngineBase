@@ -65,7 +65,11 @@ namespace OloEngine::Animation
 
         const int rootBone = (options.RootBoneIndex == RetargetOptions::kUseFirstRoot) ? 0 : options.RootBoneIndex;
 
-        for (sizet t = 0; t < targetCount; ++t)
+        // Clamp the iteration to both spans so a mis-sized outTargetPose can never
+        // write out of bounds — OLO_CORE_ASSERT above compiles out in non-debug
+        // builds, so the bound must also hold at runtime.
+        const sizet count = std::min(targetCount, outTargetPose.size());
+        for (sizet t = 0; t < count; ++t)
         {
             const BoneTransform& targetRest = targetRestLocal[t];
 
