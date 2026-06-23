@@ -42,6 +42,8 @@ add_executable(OloEngine-Tests
 		SoundGraphBasicTest.cpp
 		SoundGraphInstantiationTest.cpp
 		SoundGraphTypedConnectionTest.cpp
+		SoundGraphSampleAccurateTriggerTest.cpp
+		SoundGraphParameterWiringTest.cpp
 		AudioEventQueueTest.cpp
 		AudioDSPTest.cpp
 		AudioSpatializerTest.cpp
@@ -96,6 +98,7 @@ add_executable(OloEngine-Tests
 		Rendering/AutoExposureMathTest.cpp
 		Rendering/ScreenSpaceReflectionMathTest.cpp
 		Rendering/ScreenSpaceGIMathTest.cpp
+		Rendering/ContactShadowMathTest.cpp
 		Rendering/SSRHiZTraversalTest.cpp
 		Rendering/RenderGraphFingerprintTest.cpp
 		Rendering/CommandPacketTest.cpp
@@ -141,6 +144,7 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/UnderwaterCausticsVisualTest.cpp
 		Rendering/PropertyTests/SSRVisualEvidenceTest.cpp
 		Rendering/PropertyTests/SSGIVisualEvidenceTest.cpp
+		Rendering/PropertyTests/ContactShadowVisualEvidenceTest.cpp
 		Rendering/PropertyTests/PCSSVisualEvidenceTest.cpp
 		Rendering/PropertyTests/WaterSurfaceSamplerTest.cpp
 		Rendering/PropertyTests/WaterBuoyancyVisualEvidenceTest.cpp
@@ -206,6 +210,7 @@ add_executable(OloEngine-Tests
 		Serialization/MeshBinarySerializerTest.cpp
 		Serialization/MeshAssetSerializerTest.cpp
 		Serialization/SoundGraphSerializerTest.cpp
+		Serialization/SoundConfigSerializerTest.cpp
 		Serialization/EnvironmentSerializerTest.cpp
 		Serialization/FontAssetPackSerializerTest.cpp
 		# SaveGame Tests
@@ -228,6 +233,7 @@ add_executable(OloEngine-Tests
 		Animation/OneShotBlendTest.cpp
 		Animation/SpringBoneSolverTest.cpp
 		Animation/NoiseSolverTest.cpp
+		Animation/AnimationRetargetTest.cpp
 		# Cinematic Sequencer Tests
 		Cinematic/CinematicCurveTest.cpp
 		Cinematic/CinematicPlayerTest.cpp
@@ -242,6 +248,8 @@ add_executable(OloEngine-Tests
 		StateMachineTest.cpp
 		# AI GOAP (Goal-Oriented Action Planning) Tests
 		AI/GoapTest.cpp
+		# AI Sight-Perception Tests
+		AI/PerceptionMathTest.cpp
 		# Inventory Tests
 		InventoryTest.cpp
 		# Quest Tests
@@ -303,6 +311,15 @@ add_executable(OloEngine-Tests
 		# olo_render_set_debug_view (#316 Part 4). Header-only (MCP/McpRenderOverrides.h,
 		# nlohmann::json + stdlib only), so no extra editor TU is pulled in.
 		MCP/McpRenderOverridesTest.cpp
+		# Tool behavioural annotations + title serialization and tool-name validation
+		# (#357 Tier 1). Exercises HandleToolsList / RegisterTool / IsValidToolName in
+		# the McpServer.cpp TU already pulled in above; no extra editor TU is needed.
+		MCP/McpToolAnnotationsTest.cpp
+		# Structured/typed tool output: outputSchema in tools/list, structuredContent
+		# in tools/call, and redaction of the typed result (#357 Tier 2 P2). Exercises
+		# HandleToolsList / HandleToolsCall / ToolResult::Structured in the McpServer.cpp
+		# TU already pulled in above; no extra editor TU is needed.
+		MCP/McpStructuredOutputTest.cpp
 		# Lua Binding Tests
 		Lua/LuaBindingTest.cpp
 		# Functional / cross-subsystem world-tick tests (see ADR 0001).
@@ -326,6 +343,8 @@ add_executable(OloEngine-Tests
 		Functional/AI/BehaviorTreeAdvancesViaSceneTickTest.cpp
 		Functional/AI/GoapAgentPlansViaSceneTickTest.cpp
 		Functional/AI/GoapAuthoredFromLuaViaSceneTickTest.cpp
+		Functional/AI/PerceptionDetectsTargetViaSceneTickTest.cpp
+		Functional/AI/PerceptionLineOfSightBlockedByWallViaSceneTickTest.cpp
 		Functional/Particles/ParticleSystemEmitsAndExpiresTest.cpp
 		Functional/AnimationPhysics/CharacterControllerWalksTest.cpp
 		Functional/AnimationPhysics/AnimationBlendCompletesViaSceneTickTest.cpp
@@ -358,6 +377,7 @@ add_executable(OloEngine-Tests
 		Functional/AnimationPhysics/InitialLinearVelocityIsAppliedTest.cpp
 		Functional/Audio/AudioListenerPositionUpdatesViaSceneTickTest.cpp
 		Functional/AnimationPhysics/AnimationGraphStateMachineTickTest.cpp
+		Functional/AnimationPhysics/MorphTargetGraphAnimationTest.cpp
 		Functional/Navigation/NavAgentReachesTargetTest.cpp
 		Functional/Asset/AssetManagerImportsStagedAssetTest.cpp
 		Functional/Gameplay/TimedQuestFailsAfterDeadlineTest.cpp
@@ -376,10 +396,12 @@ add_executable(OloEngine-Tests
 		Functional/Gameplay/AbilityBlockedByOwnerTagTest.cpp
 		Functional/Gameplay/InventoryStackConsolidationTest.cpp
 		Functional/Navigation/NavMeshQueryFindPathBetweenPointsTest.cpp
+		Functional/Navigation/NavMeshOffMeshLinkBridgesGapTest.cpp
 		Functional/Scripting/LuaRaycastHitsPhysicsBodyTest.cpp
 		Functional/Scripting/LuaCompletesQuestViaIncrementObjectiveTest.cpp
 		Functional/Dialogue/DialogueAdvanceMovesToNextNodeTest.cpp
 		Functional/Gameplay/InventoryTransferItemBetweenContainersTest.cpp
+		Functional/Gameplay/InventoryShopTradingTest.cpp
 		Functional/Gameplay/ChanneledAbilityAutoDeactivatesAtEndOfDurationTest.cpp
 		Functional/Gameplay/MultiStageQuestAdvancesThroughStagesTest.cpp
 		Functional/AnimationPhysics/AnimationGraphMultipleEntitiesAdvanceIndependentlyTest.cpp
@@ -390,6 +412,7 @@ add_executable(OloEngine-Tests
 		Functional/AnimationPhysics/TwoCharacterControllersCoexistTest.cpp
 		Functional/Gameplay/AbilityResourceCostDeductedFromManaTest.cpp
 		Functional/Dialogue/DialogueSelectChoiceBranchesToTargetTest.cpp
+		Functional/Dialogue/DialogueAcceptsQuestAndGatesOnStateTest.cpp
 		Functional/AI/BehaviorTreeSequenceShortCircuitsOnFailureTest.cpp
 		Functional/Scripting/LuaReadsTransformOfAnotherEntityTest.cpp
 		Functional/SaveGame/InventoryComponentSceneYAMLRoundTripTest.cpp

@@ -1,5 +1,7 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Animation/AnimationGraph.h"
+#include "OloEngine/Animation/AnimationState.h"
+#include "OloEngine/Animation/AnimationStateMachine.h"
 #include "OloEngine/Core/Log.h"
 #include <unordered_set>
 
@@ -234,6 +236,40 @@ namespace OloEngine
             }
         }
         return false;
+    }
+
+    void AnimationGraph::CollectActiveMorphClips(std::vector<ActiveMorphClip>& outClips) const
+    {
+        OLO_PROFILE_FUNCTION();
+        outClips.clear();
+
+        for (const auto& layer : Layers)
+        {
+            if (!layer.StateMachine || layer.Weight <= 0.0f)
+            {
+                continue;
+            }
+
+            // The active (source) state during a transition — morph cross-fade
+            // between two states is deferred (see header note).
+            const AnimationState* state = layer.StateMachine->GetState(layer.StateMachine->GetCurrentStateName());
+            if (!state || state->Type != AnimationState::MotionType::SingleClip || !state->Clip)
+            {
+                continue;
+            }
+            if (state->Clip->MorphKeyframes.empty())
+            {
+                continue;
+            }
+
+            // Convert the state machine's normalized playback position into the
+            // clip's own time domain (seconds). Morph keyframes share the clip's
+            // time domain with the bone channels, so this matches the time used
+            // by AnimationState::Evaluate (normalizedTime * Clip->Duration).
+            const f64 clipTime = static_cast<f64>(layer.StateMachine->GetCurrentStateNormalizedTime()) *
+                                 static_cast<f64>(state->Clip->Duration);
+            outClips.push_back({ state->Clip, clipTime });
+        }
     }
 
     void AnimationGraph::ApplyLayerTransforms(const AnimationLayer& layer,

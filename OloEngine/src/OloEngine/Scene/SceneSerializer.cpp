@@ -1182,6 +1182,7 @@ namespace OloEngine
         terrain.m_ProceduralFrequency = terrainComponent["ProceduralFrequency"].as<f32>(terrain.m_ProceduralFrequency);
         terrain.m_ProceduralLacunarity = terrainComponent["ProceduralLacunarity"].as<f32>(terrain.m_ProceduralLacunarity);
         terrain.m_ProceduralPersistence = terrainComponent["ProceduralPersistence"].as<f32>(terrain.m_ProceduralPersistence);
+        terrain.m_ProceduralErosionIterations = terrainComponent["ProceduralErosionIterations"].as<i32>(terrain.m_ProceduralErosionIterations);
 
         // Advanced height-field shaping
         terrain.m_HeightShaping.RidgeBlend = terrainComponent["ShapingRidgeBlend"].as<f32>(terrain.m_HeightShaping.RidgeBlend);
@@ -1228,6 +1229,7 @@ namespace OloEngine
             sanitize(terrain.m_HeightShaping.HeightExponent, 0.05f, 16.0f, 1.0f);
             terrain.m_HeightShaping.TerraceSteps = std::min(terrain.m_HeightShaping.TerraceSteps, 256u);
             terrain.m_SplatmapGenResolution = std::clamp(terrain.m_SplatmapGenResolution, 16u, 4096u);
+            terrain.m_ProceduralErosionIterations = std::clamp(terrain.m_ProceduralErosionIterations, 0, 64);
             for (TerrainLayerRule& r : terrain.m_LayerRules)
             {
                 if (r.LayerIndex >= MAX_TERRAIN_LAYERS)
@@ -1432,6 +1434,12 @@ namespace OloEngine
         water.m_FFTSeed = waterComponent["FFTSeed"].as<u32>(water.m_FFTSeed);
         water.m_FFTUseGpuCompute = waterComponent["FFTUseGpuCompute"].as<bool>(water.m_FFTUseGpuCompute);
 
+        // Spectrum selection (§1.4) — stored as the SpectrumType underlying u32.
+        water.m_FFTSpectrumType = static_cast<Ocean::SpectrumType>(
+            waterComponent["FFTSpectrumType"].as<u32>(static_cast<u32>(water.m_FFTSpectrumType)));
+        water.m_FFTJonswapGamma = waterComponent["FFTJonswapGamma"].as<f32>(water.m_FFTJonswapGamma);
+        water.m_FFTJonswapFetch = waterComponent["FFTJonswapFetch"].as<f32>(water.m_FFTJonswapFetch);
+
         // Sanitize FFT fields (ranges match the clamps in Scene.cpp / the editor
         // UI) so no NaN/Inf or out-of-range value reaches the spectrum/GPU.
         water.m_FFTResolution = std::clamp(water.m_FFTResolution, 16u, 512u);
@@ -1443,6 +1451,11 @@ namespace OloEngine
         SanitizeFloat(water.m_FFTHeightScale, 0.0f, 20.0f, 1.0f);
         // m_FFTSeed: any u32 is a valid RNG seed; m_UseFFT is a plain bool — no
         // validation needed for either.
+        // Spectrum: clamp unknown enum values back to Phillips; bound JONSWAP shape.
+        if (static_cast<u32>(water.m_FFTSpectrumType) > static_cast<u32>(Ocean::SpectrumType::JONSWAP))
+            water.m_FFTSpectrumType = Ocean::SpectrumType::Phillips;
+        SanitizeFloat(water.m_FFTJonswapGamma, 1.0f, 10.0f, 3.3f);
+        SanitizeFloat(water.m_FFTJonswapFetch, 1.0f, 1.0e6f, 100000.0f);
 
         // Clamp grid resolution to safe bounds
         water.m_GridResolutionX = std::clamp(water.m_GridResolutionX, 1u, 1024u);
@@ -1703,6 +1716,9 @@ namespace OloEngine
             TrySetDsp(src.Config.LowPassCutoff, "LowPassCutoff", 0.0f, 1.0f, 1.0f);
             TrySetDsp(src.Config.HighPassCutoff, "HighPassCutoff", 0.0f, 1.0f, 0.0f);
             TrySetDsp(src.Config.ReverbSend, "ReverbSend", 0.0f, 1.0f, 0.0f);
+
+            if (const auto handleNode = audioSourceComponent["SoundConfigHandle"])
+                src.SoundConfigHandle = handleNode.as<u64>(0);
 
             TrySet(src.UseEventSystem, audioSourceComponent["UseEventSystem"]);
             TrySet(src.StartEvent, audioSourceComponent["StartEvent"]);
@@ -2461,7 +2477,7 @@ namespace OloEngine
 
             // Guard the joint type against an out-of-range enum value on disk.
             if (i32 jointTypeInt = jointComponent["JointType"].as<i32>(std::to_underlying(joint.m_Type));
-                jointTypeInt >= 0 && jointTypeInt <= static_cast<i32>(JointType3D::RackAndPinion))
+                jointTypeInt >= 0 && jointTypeInt <= static_cast<i32>(JointType3D::Path))
             {
                 joint.m_Type = static_cast<JointType3D>(jointTypeInt);
             }
@@ -2553,6 +2569,37 @@ namespace OloEngine
             joint.m_ConnectedAxis = jointComponent["ConnectedAxis"].as<glm::vec3>(joint.m_ConnectedAxis);
             joint.m_GearRatio = jointComponent["GearRatio"].as<f32>(joint.m_GearRatio);
 
+            // Path joint (issue #308). Control points are a sequence of vec3;
+            // drop any non-finite point rather than admitting a garbage anchor.
+            // The looping flag, rotation mode (int enum, guarded), and along-path
+            // motor + friction round-trip like the other motor fields.
+            if (auto pathPointsNode = jointComponent["PathPoints"]; pathPointsNode && pathPointsNode.IsSequence())
+            {
+                joint.m_PathPoints.clear();
+                joint.m_PathPoints.reserve(pathPointsNode.size());
+                for (auto const& ptNode : pathPointsNode)
+                {
+                    glm::vec3 p = ptNode.as<glm::vec3>(glm::vec3(0.0f));
+                    if (std::isfinite(p.x) && std::isfinite(p.y) && std::isfinite(p.z))
+                        joint.m_PathPoints.push_back(p);
+                }
+            }
+            joint.m_PathIsLooping = jointComponent["PathIsLooping"].as<bool>(joint.m_PathIsLooping);
+            if (i32 pathRotInt = jointComponent["PathRotationMode"].as<i32>(std::to_underlying(joint.m_PathRotationMode));
+                pathRotInt >= 0 && pathRotInt <= static_cast<i32>(JointPathRotationMode::FullyConstrained))
+            {
+                joint.m_PathRotationMode = static_cast<JointPathRotationMode>(pathRotInt);
+            }
+            if (i32 pathModeInt = jointComponent["PathMotorMode"].as<i32>(std::to_underlying(joint.m_PathMotorMode));
+                pathModeInt >= 0 && pathModeInt <= static_cast<i32>(JointMotorMode::Position))
+            {
+                joint.m_PathMotorMode = static_cast<JointMotorMode>(pathModeInt);
+            }
+            joint.m_PathMotorTargetVelocity = jointComponent["PathMotorTargetVelocity"].as<f32>(joint.m_PathMotorTargetVelocity);
+            joint.m_PathMotorTargetFraction = jointComponent["PathMotorTargetFraction"].as<f32>(joint.m_PathMotorTargetFraction);
+            joint.m_PathMaxMotorForce = jointComponent["PathMaxMotorForce"].as<f32>(joint.m_PathMaxMotorForce);
+            joint.m_PathMaxFrictionForce = jointComponent["PathMaxFrictionForce"].as<f32>(joint.m_PathMaxFrictionForce);
+
             // Reject non-finite floats read from disk and clamp to physically/Jolt-valid ranges.
             SanitizeFloat(joint.m_MinDistance, -1.0f, 10000.0f, 0.0f);
             SanitizeFloat(joint.m_MaxDistance, -1.0f, 10000.0f, 1.0f);
@@ -2613,6 +2660,14 @@ namespace OloEngine
             SanitizeFloat(joint.m_PulleyMinLength, -1.0f, 1.0e9f, 0.0f);
             SanitizeFloat(joint.m_PulleyMaxLength, -1.0f, 1.0e9f, -1.0f);
             SanitizeFloat(joint.m_GearRatio, -1.0e9f, 1.0e9f, 1.0f);
+            // Path motor: target velocity is signed (m/s); target fraction is a
+            // non-negative path coordinate; max force/friction are magnitudes
+            // (>= 0, 0 = no authority / no friction). The control points were
+            // finite-filtered above.
+            SanitizeFloat(joint.m_PathMotorTargetVelocity, -1.0e9f, 1.0e9f, 0.0f);
+            SanitizeFloat(joint.m_PathMotorTargetFraction, 0.0f, 1.0e9f, 0.0f);
+            SanitizeFloat(joint.m_PathMaxMotorForce, 0.0f, 1.0e9f, 0.0f);
+            SanitizeFloat(joint.m_PathMaxFrictionForce, 0.0f, 1.0e9f, 0.0f);
         }
 
         if (auto relComponent = entity["RelationshipComponent"]; relComponent)
@@ -3139,6 +3194,24 @@ namespace OloEngine
                 if (nmb.m_Min[i] > nmb.m_Max[i])
                     std::swap(nmb.m_Min[i], nmb.m_Max[i]);
             }
+
+            if (auto linksNode = navMeshBoundsComponent["Links"]; linksNode)
+            {
+                for (auto linkNode : linksNode)
+                {
+                    OffMeshLink link;
+                    TrySet(link.m_Start, linkNode["Start"]);
+                    TrySet(link.m_End, linkNode["End"]);
+                    TrySet(link.m_Radius, linkNode["Radius"]);
+                    if (linkNode["Bidirectional"])
+                        link.m_Bidirectional = linkNode["Bidirectional"].as<bool>(true);
+                    // Drop links with non-finite endpoints — they'd corrupt the Detour bake.
+                    if (!Math::IsFinite(link.m_Start) || !Math::IsFinite(link.m_End))
+                        continue;
+                    SanitizeFloat(link.m_Radius, 0.01f, 1000.0f, 0.6f);
+                    nmb.m_Links.push_back(link);
+                }
+            }
         }
 
         if (auto navAgentComponent = entity["NavAgentComponent"]; navAgentComponent)
@@ -3174,6 +3247,27 @@ namespace OloEngine
         {
             auto& gac = deserializedEntity.AddComponent<GoapAgentComponent>();
             TrySet(gac.Enabled, goapAgentComponent["Enabled"]);
+        }
+
+        if (auto perceptibleComponent = entity["PerceptibleComponent"]; perceptibleComponent)
+        {
+            auto& perc = deserializedEntity.AddComponent<PerceptibleComponent>();
+            TrySet(perc.Team, perceptibleComponent["Team"]);
+            TrySet(perc.IsPerceptible, perceptibleComponent["IsPerceptible"]);
+        }
+
+        if (auto perceptionComponent = entity["PerceptionComponent"]; perceptionComponent)
+        {
+            auto& pcp = deserializedEntity.AddComponent<PerceptionComponent>();
+            TrySet(pcp.SightRange, perceptionComponent["SightRange"]);
+            SanitizeFloat(pcp.SightRange, 0.0f, 100000.0f, 15.0f);
+            TrySet(pcp.FovDegrees, perceptionComponent["FovDegrees"]);
+            SanitizeFloat(pcp.FovDegrees, 0.0f, 360.0f, 90.0f);
+            TrySet(pcp.EyeOffset, perceptionComponent["EyeOffset"]);
+            SanitizeVec3(pcp.EyeOffset, glm::vec3{ 0.0f, 1.7f, 0.0f });
+            TrySet(pcp.RequireLineOfSight, perceptionComponent["RequireLineOfSight"]);
+            TrySet(pcp.PerceiverTeam, perceptionComponent["PerceiverTeam"]);
+            TrySet(pcp.DetectSameTeam, perceptionComponent["DetectSameTeam"]);
         }
 
         if (auto inventoryComponent = entity["InventoryComponent"]; inventoryComponent)
@@ -3901,6 +3995,7 @@ namespace OloEngine
             out << YAML::Key << "LowPassCutoff" << YAML::Value << audioSourceComponent.Config.LowPassCutoff;
             out << YAML::Key << "HighPassCutoff" << YAML::Value << audioSourceComponent.Config.HighPassCutoff;
             out << YAML::Key << "ReverbSend" << YAML::Value << audioSourceComponent.Config.ReverbSend;
+            out << YAML::Key << "SoundConfigHandle" << YAML::Value << static_cast<u64>(audioSourceComponent.SoundConfigHandle);
             out << YAML::Key << "UseEventSystem" << YAML::Value << audioSourceComponent.UseEventSystem;
             out << YAML::Key << "StartEvent" << YAML::Value << audioSourceComponent.StartEvent;
             // Derive CommandID from StartEvent to keep YAML consistent
@@ -4599,6 +4694,19 @@ namespace OloEngine
             out << YAML::Key << "PulleyMaxLength" << YAML::Value << joint.m_PulleyMaxLength;
             out << YAML::Key << "ConnectedAxis" << YAML::Value << joint.m_ConnectedAxis;
             out << YAML::Key << "GearRatio" << YAML::Value << joint.m_GearRatio;
+            // Path joint (issue #308): control points (sequence of vec3) + looping
+            // flag + rotation mode + along-path motor & friction.
+            out << YAML::Key << "PathPoints" << YAML::Value << YAML::BeginSeq;
+            for (glm::vec3 const& p : joint.m_PathPoints)
+                out << p;
+            out << YAML::EndSeq;
+            out << YAML::Key << "PathIsLooping" << YAML::Value << joint.m_PathIsLooping;
+            out << YAML::Key << "PathRotationMode" << YAML::Value << std::to_underlying(joint.m_PathRotationMode);
+            out << YAML::Key << "PathMotorMode" << YAML::Value << std::to_underlying(joint.m_PathMotorMode);
+            out << YAML::Key << "PathMotorTargetVelocity" << YAML::Value << joint.m_PathMotorTargetVelocity;
+            out << YAML::Key << "PathMotorTargetFraction" << YAML::Value << joint.m_PathMotorTargetFraction;
+            out << YAML::Key << "PathMaxMotorForce" << YAML::Value << joint.m_PathMaxMotorForce;
+            out << YAML::Key << "PathMaxFrictionForce" << YAML::Value << joint.m_PathMaxFrictionForce;
 
             out << YAML::EndMap; // PhysicsJoint3DComponent
         }
@@ -5056,6 +5164,7 @@ namespace OloEngine
             out << YAML::Key << "ProceduralFrequency" << YAML::Value << terrain.m_ProceduralFrequency;
             out << YAML::Key << "ProceduralLacunarity" << YAML::Value << terrain.m_ProceduralLacunarity;
             out << YAML::Key << "ProceduralPersistence" << YAML::Value << terrain.m_ProceduralPersistence;
+            out << YAML::Key << "ProceduralErosionIterations" << YAML::Value << terrain.m_ProceduralErosionIterations;
 
             // Advanced height-field shaping
             out << YAML::Key << "ShapingRidgeBlend" << YAML::Value << terrain.m_HeightShaping.RidgeBlend;
@@ -5268,6 +5377,9 @@ namespace OloEngine
             out << YAML::Key << "FFTHeightScale" << YAML::Value << water.m_FFTHeightScale;
             out << YAML::Key << "FFTSeed" << YAML::Value << water.m_FFTSeed;
             out << YAML::Key << "FFTUseGpuCompute" << YAML::Value << water.m_FFTUseGpuCompute;
+            out << YAML::Key << "FFTSpectrumType" << YAML::Value << static_cast<u32>(water.m_FFTSpectrumType);
+            out << YAML::Key << "FFTJonswapGamma" << YAML::Value << water.m_FFTJonswapGamma;
+            out << YAML::Key << "FFTJonswapFetch" << YAML::Value << water.m_FFTJonswapFetch;
 
             out << YAML::EndMap; // WaterComponent
         }
@@ -5613,6 +5725,18 @@ namespace OloEngine
             out << YAML::Key << "Min" << YAML::Value << nmb.m_Min;
             out << YAML::Key << "Max" << YAML::Value << nmb.m_Max;
 
+            out << YAML::Key << "Links" << YAML::Value << YAML::BeginSeq;
+            for (const auto& link : nmb.m_Links)
+            {
+                out << YAML::BeginMap;
+                out << YAML::Key << "Start" << YAML::Value << link.m_Start;
+                out << YAML::Key << "End" << YAML::Value << link.m_End;
+                out << YAML::Key << "Radius" << YAML::Value << link.m_Radius;
+                out << YAML::Key << "Bidirectional" << YAML::Value << link.m_Bidirectional;
+                out << YAML::EndMap;
+            }
+            out << YAML::EndSeq;
+
             out << YAML::EndMap; // NavMeshBoundsComponent
         }
 
@@ -5664,6 +5788,34 @@ namespace OloEngine
             out << YAML::Key << "Enabled" << YAML::Value << gac.Enabled;
 
             out << YAML::EndMap; // GoapAgentComponent
+        }
+
+        if (entity.HasComponent<PerceptibleComponent>())
+        {
+            out << YAML::Key << "PerceptibleComponent";
+            out << YAML::BeginMap;
+
+            auto const& perc = entity.GetComponent<PerceptibleComponent>();
+            out << YAML::Key << "Team" << YAML::Value << perc.Team;
+            out << YAML::Key << "IsPerceptible" << YAML::Value << perc.IsPerceptible;
+
+            out << YAML::EndMap; // PerceptibleComponent
+        }
+
+        if (entity.HasComponent<PerceptionComponent>())
+        {
+            out << YAML::Key << "PerceptionComponent";
+            out << YAML::BeginMap;
+
+            auto const& pcp = entity.GetComponent<PerceptionComponent>();
+            out << YAML::Key << "SightRange" << YAML::Value << pcp.SightRange;
+            out << YAML::Key << "FovDegrees" << YAML::Value << pcp.FovDegrees;
+            out << YAML::Key << "EyeOffset" << YAML::Value << pcp.EyeOffset;
+            out << YAML::Key << "RequireLineOfSight" << YAML::Value << pcp.RequireLineOfSight;
+            out << YAML::Key << "PerceiverTeam" << YAML::Value << pcp.PerceiverTeam;
+            out << YAML::Key << "DetectSameTeam" << YAML::Value << pcp.DetectSameTeam;
+
+            out << YAML::EndMap; // PerceptionComponent
         }
 
         if (entity.HasComponent<InventoryComponent>())
@@ -6278,6 +6430,15 @@ namespace OloEngine
             out << YAML::Key << "SSGIRayCount" << YAML::Value << pp.SSGIRayCount;
             out << YAML::Key << "SSGIEdgeFade" << YAML::Value << pp.SSGIEdgeFade;
             out << YAML::Key << "SSGIDebugView" << YAML::Value << pp.SSGIDebugView;
+            out << YAML::Key << "ContactShadowEnabled" << YAML::Value << pp.ContactShadowEnabled;
+            out << YAML::Key << "ContactShadowIntensity" << YAML::Value << pp.ContactShadowIntensity;
+            out << YAML::Key << "ContactShadowMaxDistance" << YAML::Value << pp.ContactShadowMaxDistance;
+            out << YAML::Key << "ContactShadowThickness" << YAML::Value << pp.ContactShadowThickness;
+            out << YAML::Key << "ContactShadowStride" << YAML::Value << pp.ContactShadowStride;
+            out << YAML::Key << "ContactShadowMaxSteps" << YAML::Value << pp.ContactShadowMaxSteps;
+            out << YAML::Key << "ContactShadowBias" << YAML::Value << pp.ContactShadowBias;
+            out << YAML::Key << "ContactShadowEdgeFade" << YAML::Value << pp.ContactShadowEdgeFade;
+            out << YAML::Key << "ContactShadowDebugView" << YAML::Value << pp.ContactShadowDebugView;
             out << YAML::Key << "AutoExposureEnabled" << YAML::Value << pp.AutoExposureEnabled;
             out << YAML::Key << "AutoExposureMinLogLuminance" << YAML::Value << pp.AutoExposureMinLogLuminance;
             out << YAML::Key << "AutoExposureMaxLogLuminance" << YAML::Value << pp.AutoExposureMaxLogLuminance;
@@ -6468,6 +6629,15 @@ namespace OloEngine
                 TrySet(pp.SSGIRayCount, ppNode["SSGIRayCount"]);
                 TrySet(pp.SSGIEdgeFade, ppNode["SSGIEdgeFade"]);
                 TrySet(pp.SSGIDebugView, ppNode["SSGIDebugView"]);
+                TrySet(pp.ContactShadowEnabled, ppNode["ContactShadowEnabled"]);
+                TrySet(pp.ContactShadowIntensity, ppNode["ContactShadowIntensity"]);
+                TrySet(pp.ContactShadowMaxDistance, ppNode["ContactShadowMaxDistance"]);
+                TrySet(pp.ContactShadowThickness, ppNode["ContactShadowThickness"]);
+                TrySet(pp.ContactShadowStride, ppNode["ContactShadowStride"]);
+                TrySet(pp.ContactShadowMaxSteps, ppNode["ContactShadowMaxSteps"]);
+                TrySet(pp.ContactShadowBias, ppNode["ContactShadowBias"]);
+                TrySet(pp.ContactShadowEdgeFade, ppNode["ContactShadowEdgeFade"]);
+                TrySet(pp.ContactShadowDebugView, ppNode["ContactShadowDebugView"]);
                 TrySet(pp.AutoExposureEnabled, ppNode["AutoExposureEnabled"]);
                 TrySet(pp.AutoExposureMinLogLuminance, ppNode["AutoExposureMinLogLuminance"]);
                 TrySet(pp.AutoExposureMaxLogLuminance, ppNode["AutoExposureMaxLogLuminance"]);
@@ -6481,6 +6651,7 @@ namespace OloEngine
                 SanitizeAutoExposure(pp);
                 SanitizeSSR(pp);
                 SanitizeSSGI(pp);
+                SanitizeContactShadow(pp);
             }
 
             DeserializeSnowSettings(data, m_Scene->GetSnowSettings());
@@ -6638,6 +6809,15 @@ namespace OloEngine
             out << YAML::Key << "SSGIRayCount" << YAML::Value << pp.SSGIRayCount;
             out << YAML::Key << "SSGIEdgeFade" << YAML::Value << pp.SSGIEdgeFade;
             out << YAML::Key << "SSGIDebugView" << YAML::Value << pp.SSGIDebugView;
+            out << YAML::Key << "ContactShadowEnabled" << YAML::Value << pp.ContactShadowEnabled;
+            out << YAML::Key << "ContactShadowIntensity" << YAML::Value << pp.ContactShadowIntensity;
+            out << YAML::Key << "ContactShadowMaxDistance" << YAML::Value << pp.ContactShadowMaxDistance;
+            out << YAML::Key << "ContactShadowThickness" << YAML::Value << pp.ContactShadowThickness;
+            out << YAML::Key << "ContactShadowStride" << YAML::Value << pp.ContactShadowStride;
+            out << YAML::Key << "ContactShadowMaxSteps" << YAML::Value << pp.ContactShadowMaxSteps;
+            out << YAML::Key << "ContactShadowBias" << YAML::Value << pp.ContactShadowBias;
+            out << YAML::Key << "ContactShadowEdgeFade" << YAML::Value << pp.ContactShadowEdgeFade;
+            out << YAML::Key << "ContactShadowDebugView" << YAML::Value << pp.ContactShadowDebugView;
             out << YAML::Key << "AutoExposureEnabled" << YAML::Value << pp.AutoExposureEnabled;
             out << YAML::Key << "AutoExposureMinLogLuminance" << YAML::Value << pp.AutoExposureMinLogLuminance;
             out << YAML::Key << "AutoExposureMaxLogLuminance" << YAML::Value << pp.AutoExposureMaxLogLuminance;
@@ -6778,6 +6958,15 @@ namespace OloEngine
                 TrySet(pp.SSGIRayCount, ppNode["SSGIRayCount"]);
                 TrySet(pp.SSGIEdgeFade, ppNode["SSGIEdgeFade"]);
                 TrySet(pp.SSGIDebugView, ppNode["SSGIDebugView"]);
+                TrySet(pp.ContactShadowEnabled, ppNode["ContactShadowEnabled"]);
+                TrySet(pp.ContactShadowIntensity, ppNode["ContactShadowIntensity"]);
+                TrySet(pp.ContactShadowMaxDistance, ppNode["ContactShadowMaxDistance"]);
+                TrySet(pp.ContactShadowThickness, ppNode["ContactShadowThickness"]);
+                TrySet(pp.ContactShadowStride, ppNode["ContactShadowStride"]);
+                TrySet(pp.ContactShadowMaxSteps, ppNode["ContactShadowMaxSteps"]);
+                TrySet(pp.ContactShadowBias, ppNode["ContactShadowBias"]);
+                TrySet(pp.ContactShadowEdgeFade, ppNode["ContactShadowEdgeFade"]);
+                TrySet(pp.ContactShadowDebugView, ppNode["ContactShadowDebugView"]);
                 TrySet(pp.AutoExposureEnabled, ppNode["AutoExposureEnabled"]);
                 TrySet(pp.AutoExposureMinLogLuminance, ppNode["AutoExposureMinLogLuminance"]);
                 TrySet(pp.AutoExposureMaxLogLuminance, ppNode["AutoExposureMaxLogLuminance"]);
@@ -6791,6 +6980,7 @@ namespace OloEngine
                 SanitizeAutoExposure(pp);
                 SanitizeSSR(pp);
                 SanitizeSSGI(pp);
+                SanitizeContactShadow(pp);
             }
 
             DeserializeSnowSettings(data, m_Scene->GetSnowSettings());

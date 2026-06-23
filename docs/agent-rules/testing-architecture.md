@@ -39,32 +39,32 @@ Every new test belongs to exactly one renderer Layer **or** carries the `"Functi
 | L10 Diagnostic escalation | auto-capture framebuffer + metadata on `ASSERT_` failure | `TestFailureCapture.{h,cpp}` (consumed automatically) |
 | L11 Sanitizers & fuzzing | libFuzzer harnesses + ASan / UBSan in CI | `OloEngine/tests/Fuzzing/Fuzz*.cpp` + `.github/workflows/fuzz.yml` |
 
-Files outside `PropertyTests/` are also classified — see the auto-catalogue in `docs/testing.md` §9.1 for the full inventory.
+Files outside `PropertyTests/` are also classified — see the generated `docs/test-catalogue.renderer.md` (run `generate_test_catalogue.py`) for the full inventory.
 
 ### Functional / cross-subsystem axis (tag `"Functional"`)
 
-Anything that drives a real `Scene::OnUpdateRuntime` to pin a contract at the seam between two or more subsystems — Animation × Physics × Scripting × Networking × Audio × Asset × Nav × Save-game × Gameplay × AI. Lives under `OloEngine/tests/Functional/<Subsystem>/`. Inherits `OloEngine::Functional::FunctionalTest`. Catalogued in [`../testing.md`](../testing.md) §9.2. See `docs/adr/0001-functional-tests-as-separate-axis.md` for rationale.
+Anything that drives a real `Scene::OnUpdateRuntime` to pin a contract at the seam between two or more subsystems — Animation × Physics × Scripting × Networking × Audio × Asset × Nav × Save-game × Gameplay × AI. Lives under `OloEngine/tests/Functional/<Subsystem>/`. Inherits `OloEngine::Functional::FunctionalTest`. Catalogued in the generated `docs/test-catalogue.functional.md`. See `docs/adr/0001-functional-tests-as-separate-axis.md` for rationale.
 
 ---
 
 ## 2. The registration contract (NON-NEGOTIABLE)
 
-The generator scans the **entire** `OloEngine/tests/` tree (recursively) — there is no allowlist and no exclude list. Every `.cpp` that declares at least one `TEST` / `TEST_F` / `TEST_P` / `TYPED_TEST` macro must appear in `file_layer_map` in [`OloEngine/tests/scripts/test_catalogue.json`](../../OloEngine/tests/scripts/test_catalogue.json), classified on one of three axes:
+The generator scans the **entire** `OloEngine/tests/` tree (recursively) — there is no allowlist and no exclude list. Every `.cpp` that declares at least one `TEST` / `TEST_F` / `TEST_P` / `TYPED_TEST` macro must be classified — by **either** an in-file `// OLO_TEST_LAYER: <id>` comment near the top of the `.cpp` (**preferred**: lives in the test file, so adding a test touches no shared file and two branches can't collide on it) **or** an entry in `file_layer_map` in [`OloEngine/tests/scripts/test_catalogue.json`](../../OloEngine/tests/scripts/test_catalogue.json) (a file uses one or the other, not both; the marker wins). The classification is one of three axes:
 
 - a renderer-pyramid layer id (`L1`–`L11`, `plumbing`, `cullinglod`, `shaderpipe`, `integration`, `meta`) — rendering-scope tests;
 - `"Functional"` — cross-subsystem tests driven via `Scene::OnUpdateRuntime`;
 - `"unit"` — plain per-subsystem unit tests (everything else), grouped by directory in the doc.
 
-The `test-catalogue-in-sync` pre-commit hook **fails the commit** otherwise. Files with no test macros (the gtest `main`, libFuzzer targets, fixtures/helpers) are not tests and need no entry — that is the definition of a non-test, not a configurable exclusion.
+The `test-catalogue-classified` pre-commit hook **fails the commit** otherwise. Files with no test macros (the gtest `main`, libFuzzer targets, fixtures/helpers) are not tests and need no entry — that is the definition of a non-test, not a configurable exclusion.
 
 **Workflow when adding a test file:**
 
 1. Write the test(s). Use `TEST`, `TEST_F`, `TEST_P`, or `TYPED_TEST` — the scanner's regex relies on these macros.
-2. Register the file in `test_catalogue.json` → `file_layer_map` with the correct classification: a renderer-pyramid layer id (`L1`–`L11`/`plumbing`/…) for rendering-scope tests, `"Functional"` for cross-subsystem tests, or `"unit"` for plain per-subsystem unit tests.
-3. Run `python OloEngine/tests/scripts/generate_test_catalogue.py` to regenerate all three auto-catalogue blocks inside `docs/testing.md` (renderer block in §9.1, Functional block in §9.2, unit block in §9.3).
-4. Commit the .cpp, the JSON entry, and the doc diff together.
+2. Classify the file. **Preferred:** add a `// OLO_TEST_LAYER: <id>` comment near the top of the `.cpp` — a renderer-pyramid layer id (`L1`–`L11`/`plumbing`/…) for rendering-scope tests, `Functional` for cross-subsystem tests, or `unit` for plain per-subsystem unit tests. Or, as a fallback, add the file to `file_layer_map` in `test_catalogue.json` with the same classification.
+3. (Optional) Run `python OloEngine/tests/scripts/generate_test_catalogue.py` to (re)build the three per-axis catalogue documents (`docs/test-catalogue.{renderer,functional,unit}.md`). These are git-ignored, not committed — regenerate only if you want a fresh local copy to browse.
+4. Commit just the .cpp (with its marker) — the catalogue docs are git-ignored, and no shared JSON edit is needed when you use a marker.
 
-**Do not hand-edit** the blocks between `<!-- BEGIN: renderer-catalogue ... -->` / `<!-- END: renderer-catalogue -->`, `<!-- BEGIN: functional-catalogue ... -->` / `<!-- END: functional-catalogue -->`, or `<!-- BEGIN: unit-catalogue ... -->` / `<!-- END: unit-catalogue -->` in `docs/testing.md`. The generator overwrites them.
+**Do not hand-edit** the generated catalogue documents (`docs/test-catalogue.renderer.md`, `docs/test-catalogue.functional.md`, `docs/test-catalogue.unit.md`) — they are git-ignored and overwritten on every regenerate. Classify via the in-file `// OLO_TEST_LAYER` marker or `test_catalogue.json` instead.
 
 ---
 
@@ -142,6 +142,7 @@ Some resources are **not** test-controlled and can't be PID-keyed — chiefly th
 
 - **GL-context tests** (`RendererAttachedTest` subclasses; the `*VisualEvidence*` / `*Bake*` / GPU-contract families) **SKIP** on CI (no GL 4.6 context), so they are no-ops under `-j` there. Locally they *run* and contend for the single GPU — expect them to be slow or to hit the per-test `--timeout` at high `-j`; that is a local artifact, **not** a CI failure. Verify GPU tests at a low `-j`.
 - **Functional / physics tests** each start an `FScheduler` worker pool sized to `hardware_concurrency` ([FunctionalTest.cpp](../../OloEngine/tests/Functional/FunctionalTest.cpp)), so concurrent physics processes oversubscribe the cores. We deliberately do **not** serialize them: the workflow's `--repeat until-pass:3` nets the rare #281 Jolt race, and the suite runs stable under heavy local oversubscription (verified at `-j16` on a 28-core box ≈ 16×, well above CI's 4-core `-j4` ≈ 4×). If a future change makes physics flakier under `-j`, the lever is a ctest `RESOURCE_LOCK` / `PROCESSORS` property on those cases — not lowering `-j` globally.
+- **Task / Async suites** ([TaskSystemTest.cpp](../../OloEngine/tests/Tasks/TaskSystemTest.cpp)) likewise each spin an `FScheduler` worker pool, so under `-j` you get *N* test processes × `hardware_concurrency` workers competing for the cores. They tolerate this and run on `Windows.yml`. **Lesson (don't repeat it):** this whole family was once excluded *wholesale* from the Windows test step on a vague "Timeouts + SEGFAULTs" note — a ~2-month coverage hole over the entire concurrency core. Re-classifying each suite under a **faithful runner squeeze** (4-core affinity + `OLO_TASK_GRAPH_NUM_WORKERS=4` to match the 4-vCPU runner's small worker fleet + `ctest --parallel 4`; see §5 "Reproducing flaky CI-only core-starvation races") showed **exactly one** genuinely-flaky case — everything else held up at 30× faithful + 20× a harsher 2-core squeeze. When a concurrency test flakes on CI, exclude the **specific failing case** with a tight regex and file an issue; never blanket-exclude the family — the rest is your only coverage. There are now **no** residual Task/Async exclusions. `CancellationTokenTest.MultipleTasks` (issue #359) used to be excluded for an intermittent **deadlock** under `--parallel` oversubscription; it is now fixed and re-enabled. The deadlock was *not* in the test body (the test passed — `[ OK ]` printed) but in scheduler teardown: `FWaitingQueue::StartShutdown` drained the standby-worker stack by walking `Node->Next` *in place* while triggering each node's event, and a woken `ConditionalStandby` worker — relying on its waker having mutated `m_StandbyState` (which the normal waker `TryStartNewThread` does by popping, but the in-place drain did not) — re-pushed itself onto a head it still owned, forming a `Node->Next == self` cycle that spun the drain (a tight `SetEvent` loop) forever with every worker already gone. Fix: drain via an atomic `m_StandbyState.exchange(StackMask)` (clear the head up front so re-push CASes fail) and read `Node->Next` *before* `Trigger()` (the ordering `Unpark` already uses). **Lesson for this scheduler family (UE5 `LowLevelTasks` port):** a node-stack waker that signals without changing the shared state head breaks the EventCount invariant that woken parkers re-validate against a changed state — always pop/clear atomically and capture `Next` before signaling.
 
 ---
 

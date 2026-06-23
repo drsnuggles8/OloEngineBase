@@ -195,7 +195,7 @@ namespace OloEngine::MCP
                 }
                 return j; });
 
-            return ToolResult::Text(summary.dump(2));
+            return ToolResult::Structured(summary);
         }
 
         // Parse a UUID argument that may arrive as a string (preferred — u64 exceeds
@@ -281,7 +281,7 @@ namespace OloEngine::MCP
                 return ToolResult::Error(result["error"].get<std::string>());
             if (!result.value("found", false))
                 return ToolResult::Error("No entity with that UUID in the active scene.");
-            return ToolResult::Text(result.dump(2));
+            return ToolResult::Structured(result);
         }
 
         // ---- olo_scene_list_entities (main-marshaled) --------------------------
@@ -403,7 +403,7 @@ namespace OloEngine::MCP
             j["totalMB"] = toMB(total);
             j["byType"] = std::move(byType);
             j["suspectedLeakCount"] = static_cast<int>(leaks.size());
-            return ToolResult::Text(j.dump(2));
+            return ToolResult::Structured(j);
         }
 
         // ---- Perf / shader helpers ---------------------------------------------
@@ -470,7 +470,7 @@ namespace OloEngine::MCP
                 o["sortingMs"] = Round2(f.m_SortingTime);
                 o["cullingMs"] = Round2(f.m_CullingTime);
                 return o; });
-            return ToolResult::Text(j.dump(2));
+            return ToolResult::Structured(j);
         }
 
         // ---- olo_perf_bottlenecks (main-marshaled) -----------------------------
@@ -2838,7 +2838,7 @@ namespace OloEngine::MCP
 
             if (result.is_object() && result.contains("__error"))
                 return ToolResult::Error(result["__error"].get<std::string>());
-            return ToolResult::Text(result.dump(2));
+            return ToolResult::Structured(result);
         }
 
         // ---- olo_physics_overlap (main-marshaled) ------------------------------
@@ -3360,6 +3360,40 @@ namespace OloEngine::MCP
 
             return ToolResult::Text(result.dump(2));
         }
+
+        // ---- MCP ToolAnnotations builders (spec 2025-06-18) ---------------------
+        // Behavioural hints emitted under a tool's `annotations`. Every tool here
+        // sets openWorldHint:false — they all act on the local editor session, not
+        // an "open world" of external systems (the spec's web-search example).
+
+        // A tool that does not modify its environment — the signal a client uses to
+        // auto-approve a diagnostic read. The frame/target capture tools count as
+        // read-only: they trigger a transient one-frame diagnostic readback that
+        // changes no camera, setting, file, or scene state the caller can observe.
+        Json ReadOnlyAnnotations()
+        {
+            return Json{ { "readOnlyHint", true }, { "openWorldHint", false } };
+        }
+
+        // A tool that mutates transient editor/session state (camera pose, viewport
+        // size, ephemeral render overrides, a shader recompile).
+        //   idempotent  — the same arguments leave the editor in the same state
+        //                 (the camera / viewport setters); omitted otherwise (a
+        //                 toggle that flips, a reload that re-reads from disk).
+        //   destructive — may overwrite or destroy data (e.g. rebasing a golden
+        //                 PNG). When false we emit destructiveHint:false (additive
+        //                 only); when true we omit it, keeping the spec default of
+        //                 true. destructiveHint / idempotentHint are meaningful only
+        //                 while readOnlyHint is false, which holds here.
+        Json MutatingAnnotations(bool idempotent, bool destructive = false)
+        {
+            Json a{ { "readOnlyHint", false }, { "openWorldHint", false } };
+            if (!destructive)
+                a["destructiveHint"] = false;
+            if (idempotent)
+                a["idempotentHint"] = true;
+            return a;
+        }
     } // namespace
 
     void RegisterBuiltinTools(McpServer& server)
@@ -3367,6 +3401,8 @@ namespace OloEngine::MCP
         {
             ToolDef tool;
             tool.Name = "olo_log_tail";
+            tool.Title = "Tail engine log";
+            tool.Annotations = ReadOnlyAnnotations();
             tool.Description =
                 "Return the most recent engine log messages from OloEditor's in-memory ring buffer "
                 "(up to 200 lines). Use this to see what the engine just logged — warnings, errors, "
@@ -3391,6 +3427,8 @@ namespace OloEngine::MCP
         {
             ToolDef tool;
             tool.Name = "olo_scene_summary";
+            tool.Title = "Scene summary";
+            tool.Annotations = ReadOnlyAnnotations();
             tool.Description =
                 "Summarise the active scene currently open in the editor: its name, whether the game "
                 "is playing or paused, whether a scene is loaded, and the total entity count. Read "
@@ -3400,6 +3438,16 @@ namespace OloEngine::MCP
                 { "properties", Json::object() },
                 { "additionalProperties", false }
             };
+            tool.OutputSchema = Json{
+                { "type", "object" },
+                { "properties",
+                  { { "hasActiveScene", { { "type", "boolean" }, { "description", "Whether a scene is currently loaded." } } },
+                    { "isPlaying", { { "type", "boolean" }, { "description", "Whether the game is in Play mode." } } },
+                    { "name", { { "type", "string" }, { "description", "Active scene name (only when a scene is loaded)." } } },
+                    { "isPaused", { { "type", "boolean" }, { "description", "Whether the playing scene is paused (only when a scene is loaded)." } } },
+                    { "entityCount", { { "type", "integer" }, { "minimum", 0 }, { "description", "Total entity count (only when a scene is loaded)." } } } } },
+                { "required", Json::array({ "hasActiveScene", "isPlaying" }) }
+            };
             tool.MainMarshaled = true;
             tool.Handler = Handle_SceneSummary;
             server.RegisterTool(std::move(tool));
@@ -3408,6 +3456,8 @@ namespace OloEngine::MCP
         {
             ToolDef tool;
             tool.Name = "olo_scene_list_entities";
+            tool.Title = "List scene entities";
+            tool.Annotations = ReadOnlyAnnotations();
             tool.Description =
                 "List entities in the active scene (paginated). Each entry has the entity's UUID, name, "
                 "parent UUID (if any), and child count. Optionally filter by a name substring. Use this "
@@ -3428,6 +3478,8 @@ namespace OloEngine::MCP
         {
             ToolDef tool;
             tool.Name = "olo_scene_get_entity";
+            tool.Title = "Get entity components";
+            tool.Annotations = ReadOnlyAnnotations();
             tool.Description =
                 "Get the full component data of one entity by UUID, serialized from the live scene (YAML "
                 "in 'componentsYaml', plus structured id/name/parent/children). Pair with "
@@ -3439,6 +3491,17 @@ namespace OloEngine::MCP
                 { "required", Json::array({ "id" }) },
                 { "additionalProperties", false }
             };
+            tool.OutputSchema = Json{
+                { "type", "object" },
+                { "properties",
+                  { { "found", { { "type", "boolean" }, { "description", "True when the entity exists (a miss is returned as isError instead)." } } },
+                    { "id", { { "type", "string" }, { "description", "Entity UUID." } } },
+                    { "name", { { "type", "string" }, { "description", "Entity tag/name (empty when it has no TagComponent)." } } },
+                    { "parent", { { "type", "string" }, { "description", "Parent entity UUID; omitted when the entity has no parent." } } },
+                    { "children", { { "type", "array" }, { "items", { { "type", "string" } } }, { "description", "Child entity UUIDs." } } },
+                    { "componentsYaml", { { "type", "string" }, { "description", "All components serialized as scene YAML." } } } } },
+                { "required", Json::array({ "found", "id", "name", "children", "componentsYaml" }) }
+            };
             tool.MainMarshaled = true;
             tool.Handler = Handle_SceneGetEntity;
             server.RegisterTool(std::move(tool));
@@ -3447,6 +3510,8 @@ namespace OloEngine::MCP
         {
             ToolDef tool;
             tool.Name = "olo_memory_report";
+            tool.Title = "Renderer memory report";
+            tool.Annotations = ReadOnlyAnnotations();
             tool.Description =
                 "Renderer GPU/CPU memory usage: total bytes/MB, a per-resource-type breakdown (vertex/index/"
                 "uniform/storage buffers, textures, framebuffers, shaders, render targets), and the count of "
@@ -3456,6 +3521,24 @@ namespace OloEngine::MCP
                 { "properties", Json::object() },
                 { "additionalProperties", false }
             };
+            tool.OutputSchema = Json{
+                { "type", "object" },
+                { "properties",
+                  { { "totalBytes", { { "type", "integer" }, { "minimum", 0 }, { "description", "Total tracked renderer memory, bytes." } } },
+                    { "totalMB", { { "type", "number" }, { "description", "Total tracked renderer memory, MB." } } },
+                    { "byType",
+                      { { "type", "array" },
+                        { "description", "Per-resource-type breakdown; only non-empty types are listed." },
+                        { "items",
+                          { { "type", "object" },
+                            { "properties",
+                              { { "type", { { "type", "string" } } },
+                                { "bytes", { { "type", "integer" }, { "minimum", 0 } } },
+                                { "mb", { { "type", "number" } } },
+                                { "count", { { "type", "integer" }, { "minimum", 0 } } } } } } } } },
+                    { "suspectedLeakCount", { { "type", "integer" }, { "minimum", 0 }, { "description", "Number of suspected leaks detected." } } } } },
+                { "required", Json::array({ "totalBytes", "totalMB", "byType", "suspectedLeakCount" }) }
+            };
             tool.MainMarshaled = false;
             tool.Handler = Handle_MemoryReport;
             server.RegisterTool(std::move(tool));
@@ -3464,11 +3547,34 @@ namespace OloEngine::MCP
         {
             ToolDef tool;
             tool.Name = "olo_perf_snapshot";
+            tool.Title = "Performance snapshot";
+            tool.Annotations = ReadOnlyAnnotations();
             tool.Description =
                 "Current-frame renderer performance: fps, frame/CPU/GPU time (ms), draw calls, instanced "
                 "draw calls, triangles, state/shader/texture binds. Server-computed snapshot from the live "
                 "profiler. Map a low fps back to draw calls / lack of instancing.";
             tool.InputSchema = Json{ { "type", "object" }, { "properties", Json::object() }, { "additionalProperties", false } };
+            tool.OutputSchema = Json{
+                { "type", "object" },
+                { "properties",
+                  { { "fps", { { "type", "number" } } },
+                    { "frameTimeMs", { { "type", "number" } } },
+                    { "cpuMs", { { "type", "number" } } },
+                    { "gpuMs", { { "type", "number" } } },
+                    { "drawCalls", { { "type", "integer" }, { "minimum", 0 } } },
+                    { "instancedDrawCalls", { { "type", "integer" }, { "minimum", 0 } } },
+                    { "instancesRendered", { { "type", "integer" }, { "minimum", 0 } } },
+                    { "instancesBatched", { { "type", "integer" }, { "minimum", 0 } } },
+                    { "triangles", { { "type", "integer" }, { "minimum", 0 } } },
+                    { "vertices", { { "type", "integer" }, { "minimum", 0 } } },
+                    { "stateChanges", { { "type", "integer" }, { "minimum", 0 } } },
+                    { "shaderBinds", { { "type", "integer" }, { "minimum", 0 } } },
+                    { "textureBinds", { { "type", "integer" }, { "minimum", 0 } } },
+                    { "commandPackets", { { "type", "integer" }, { "minimum", 0 } } },
+                    { "sortingMs", { { "type", "number" } } },
+                    { "cullingMs", { { "type", "number" } } } } },
+                { "required", Json::array({ "fps", "frameTimeMs", "cpuMs", "gpuMs", "drawCalls", "triangles" }) }
+            };
             tool.MainMarshaled = true;
             tool.Handler = Handle_PerfSnapshot;
             server.RegisterTool(std::move(tool));
@@ -3477,6 +3583,8 @@ namespace OloEngine::MCP
         {
             ToolDef tool;
             tool.Name = "olo_perf_bottlenecks";
+            tool.Title = "Bottleneck analysis";
+            tool.Annotations = ReadOnlyAnnotations();
             tool.Description =
                 "The engine's automatic bottleneck analysis: which of CPU/GPU/Memory/IO is limiting the "
                 "frame, a confidence score, a human description, and concrete recommendations.";
@@ -3489,6 +3597,8 @@ namespace OloEngine::MCP
         {
             ToolDef tool;
             tool.Name = "olo_perf_frame_history";
+            tool.Title = "Frame-time history";
+            tool.Annotations = ReadOnlyAnnotations();
             tool.Description =
                 "A downsampled time series of recent frames (frameTimeMs, fps, drawCalls) from the profiler's "
                 "ring buffer, for spotting spikes/trends. The server downsamples to 'points' samples.";
@@ -3505,6 +3615,10 @@ namespace OloEngine::MCP
         {
             ToolDef tool;
             tool.Name = "olo_perf_capture_frame";
+            tool.Title = "Capture frame profile";
+            // Triggers a one-frame diagnostic capture but observes-only — no
+            // camera/setting/file/scene change the caller can see (see builder note).
+            tool.Annotations = ReadOnlyAnnotations();
             tool.Description =
                 "Capture the current frame and return its breakdown: frame totals, render passes, and the "
                 "top-K draw calls by GPU time. Per-pass detail requires the editor's frame-capture "
@@ -3522,6 +3636,9 @@ namespace OloEngine::MCP
         {
             ToolDef tool;
             tool.Name = "olo_render_frame_breakdown";
+            tool.Title = "Frame command breakdown";
+            // Same transient one-frame capture as olo_perf_capture_frame — read-only.
+            tool.Annotations = ReadOnlyAnnotations();
             tool.Description =
                 "Capture the current frame and return its per-command / per-pipeline-stage structural "
                 "breakdown — the granularity olo_perf_capture_frame omits. Triggers a one-frame capture of "
@@ -3564,6 +3681,8 @@ namespace OloEngine::MCP
         {
             ToolDef tool;
             tool.Name = "olo_shader_errors";
+            tool.Title = "Shader compile errors";
+            tool.Annotations = ReadOnlyAnnotations();
             tool.Description =
                 "Shaders that currently have compile/link errors, with the error message. Empty when all "
                 "shaders compiled cleanly.";
@@ -3576,6 +3695,8 @@ namespace OloEngine::MCP
         {
             ToolDef tool;
             tool.Name = "olo_shader_get";
+            tool.Title = "Get shader details";
+            tool.Annotations = ReadOnlyAnnotations();
             tool.Description =
                 "Details of one shader by name or numeric id: instruction count, compile time, uniforms, "
                 "uniform buffers, samplers, reload count, and (with includeGlsl) the cross-compiled GLSL per stage.";
@@ -3595,6 +3716,8 @@ namespace OloEngine::MCP
         {
             ToolDef tool;
             tool.Name = "olo_shader_list";
+            tool.Title = "List shaders";
+            tool.Annotations = ReadOnlyAnnotations();
             tool.Description =
                 "Inventory of all registered shaders (id, name, hasErrors, instruction count). Use it to "
                 "discover a shader name/id to pass to olo_shader_get.";
@@ -3607,6 +3730,10 @@ namespace OloEngine::MCP
         {
             ToolDef tool;
             tool.Name = "olo_shader_reload";
+            tool.Title = "Reload shader";
+            // Recompiles a shader from disk (mutates GL program state, new program
+            // id each call), so not read-only and not idempotent; destroys nothing.
+            tool.Annotations = MutatingAnnotations(/*idempotent*/ false);
             tool.Description =
                 "Reload and recompile one shader from disk by name — the shader inner loop: edit a .glsl, "
                 "reload, read the compile/link log, screenshot, all without restarting the editor. Re-reads "
@@ -3636,6 +3763,8 @@ namespace OloEngine::MCP
         {
             ToolDef tool;
             tool.Name = "olo_assets_list";
+            tool.Title = "List assets";
+            tool.Annotations = ReadOnlyAnnotations();
             tool.Description =
                 "List the project's registered assets (paginated): handle, type, project-relative path, and "
                 "filename. Optionally filter by asset type (e.g. Texture2D, Mesh, Material, Scene, Script).";
@@ -3655,6 +3784,8 @@ namespace OloEngine::MCP
         {
             ToolDef tool;
             tool.Name = "olo_assets_problems";
+            tool.Title = "List asset problems";
+            tool.Annotations = ReadOnlyAnnotations();
             tool.Description =
                 "List assets that failed to load or are missing/invalid (handle, type, path, status). The "
                 "first thing to check when something references an asset that isn't showing up.";
@@ -3667,6 +3798,8 @@ namespace OloEngine::MCP
         {
             ToolDef tool;
             tool.Name = "olo_crash_list";
+            tool.Title = "List crash reports";
+            tool.Annotations = ReadOnlyAnnotations();
             tool.Description =
                 "List crash reports written by the engine (crash_<timestamp>.txt under CrashReports/). Each "
                 "entry has an id and size. Use olo_crash_get to read one.";
@@ -3679,6 +3812,8 @@ namespace OloEngine::MCP
         {
             ToolDef tool;
             tool.Name = "olo_crash_get";
+            tool.Title = "Get crash report";
+            tool.Annotations = ReadOnlyAnnotations();
             tool.Description =
                 "Read a crash report's full text (exception, system info, last 200 log lines) by its id from "
                 "olo_crash_list. Useful for an AI-summarised, shareable bug report.";
@@ -3696,6 +3831,8 @@ namespace OloEngine::MCP
         {
             ToolDef tool;
             tool.Name = "olo_script_get_api";
+            tool.Title = "Get scripting API";
+            tool.Annotations = ReadOnlyAnnotations();
             tool.Description =
                 "Describe the scripting API a game can call. language='csharp' lists the C# bindings "
                 "(OloEngine-ScriptCore); language='lua' lists the Sol2 usertypes. Without typeFilter you get "
@@ -3716,6 +3853,8 @@ namespace OloEngine::MCP
         {
             ToolDef tool;
             tool.Name = "olo_script_get_last_errors";
+            tool.Title = "Recent script errors";
+            tool.Annotations = ReadOnlyAnnotations();
             tool.Description =
                 "Return the most recent C# (Mono) and Lua (Sol2) script exceptions captured by the engine "
                 "(message, originating script/method, entity UUID when known, timestamp). This is the #1 "
@@ -3734,6 +3873,8 @@ namespace OloEngine::MCP
         {
             ToolDef tool;
             tool.Name = "olo_events_tail";
+            tool.Title = "Tail diagnostics events";
+            tool.Annotations = ReadOnlyAnnotations();
             tool.Description =
                 "Return the unified 'what just happened?' event timeline from the engine's diagnostics "
                 "ring buffer: scene loads, entering/leaving Play mode, runtime entity spawn/destroy, asset "
@@ -3762,6 +3903,12 @@ namespace OloEngine::MCP
         {
             ToolDef tool;
             tool.Name = "olo_screenshot";
+            tool.Title = "Screenshot viewport";
+            // Read-only without a pose, but with a 'camera'/'orbit' pose it moves the
+            // editor camera (saving/restoring it) — a transient mutation. Flag it
+            // readOnlyHint:false to be safe so a client doesn't auto-approve a call
+            // that nudges the user's viewport; destroys nothing.
+            tool.Annotations = MutatingAnnotations(/*idempotent*/ false);
             tool.Description =
                 "Capture the editor's 3D viewport as a PNG image so you can SEE the rendered frame — "
                 "decisive for visual problems ('my material looks wrong', 'I can't see my object'). "
@@ -3794,6 +3941,8 @@ namespace OloEngine::MCP
         {
             ToolDef tool;
             tool.Name = "olo_camera_get";
+            tool.Title = "Get camera pose";
+            tool.Annotations = ReadOnlyAnnotations();
             tool.Description =
                 "Get the editor camera's current pose: position, focal point, forward vector, yaw/pitch "
                 "(degrees), orbit distance, FOV, near/far clip, and the viewport size in logical pixels. "
@@ -3808,6 +3957,9 @@ namespace OloEngine::MCP
         {
             ToolDef tool;
             tool.Name = "olo_camera_set_pose";
+            tool.Title = "Set camera pose";
+            // Moves the editor camera; same args => same pose (idempotent), destroys nothing.
+            tool.Annotations = MutatingAnnotations(/*idempotent*/ true);
             tool.Description =
                 "Move the editor camera to an explicit pose (Tier-0 inspection state; never touches the "
                 "project). Give 'position' plus either 'target' (a point to look at) or 'yaw'/'pitch' in "
@@ -3832,6 +3984,8 @@ namespace OloEngine::MCP
         {
             ToolDef tool;
             tool.Name = "olo_camera_orbit";
+            tool.Title = "Orbit camera";
+            tool.Annotations = MutatingAnnotations(/*idempotent*/ true);
             tool.Description =
                 "Orbit-frame the editor camera around a world-space target point: the camera pivots at "
                 "'distance' from 'target' looking at it, with 'yaw'/'pitch' in degrees (positive pitch "
@@ -3856,6 +4010,8 @@ namespace OloEngine::MCP
         {
             ToolDef tool;
             tool.Name = "olo_camera_frame_entity";
+            tool.Title = "Frame entity in view";
+            tool.Annotations = MutatingAnnotations(/*idempotent*/ true);
             tool.Description =
                 "Point the editor camera at one entity and fit it in view (like pressing 'frame selected' "
                 "in a DCC tool). Uses the entity's mesh/model/terrain bounds when available, otherwise its "
@@ -3876,6 +4032,8 @@ namespace OloEngine::MCP
         {
             ToolDef tool;
             tool.Name = "olo_viewport_set_size";
+            tool.Title = "Set viewport size";
+            tool.Annotations = MutatingAnnotations(/*idempotent*/ true);
             tool.Description =
                 "Override the editor viewport's logical render size for deterministic capture resolution "
                 "(e.g. 1280x720 golden-image comparisons), independent of the panel layout. Pass "
@@ -3899,6 +4057,8 @@ namespace OloEngine::MCP
         {
             ToolDef tool;
             tool.Name = "olo_render_list_targets";
+            tool.Title = "List render targets";
+            tool.Annotations = ReadOnlyAnnotations();
             tool.Description =
                 "List the render graph's live texture/framebuffer resources for the current frame — "
                 "scene colour, depth, G-buffer attachments, shadow maps, AO, post-process chain stages, "
@@ -3914,6 +4074,9 @@ namespace OloEngine::MCP
         {
             ToolDef tool;
             tool.Name = "olo_render_capture_target";
+            tool.Title = "Capture render target";
+            // Reads back one render-graph texture; changes no observable state.
+            tool.Annotations = ReadOnlyAnnotations();
             tool.Description =
                 "Read back one intermediate render target as a PNG image — THE tool for rendering-feature "
                 "development: inspect depth, normals, G-buffer albedo/emissive, shadow maps, AO, bloom, or "
@@ -3941,6 +4104,10 @@ namespace OloEngine::MCP
         {
             ToolDef tool;
             tool.Name = "olo_render_toggle_pass";
+            tool.Title = "Toggle render pass";
+            // Edits ephemeral session render settings; flips state when 'enabled' is
+            // omitted (so not idempotent), destroys nothing.
+            tool.Annotations = MutatingAnnotations(/*idempotent*/ false);
             tool.Description =
                 "Flip a post-process / fog feature on or off — the rendering A/B loop: toggle off, "
                 "olo_screenshot, toggle on, olo_screenshot, compare. 'name' is one of bloom, ssao, gtao, "
@@ -3967,6 +4134,9 @@ namespace OloEngine::MCP
         {
             ToolDef tool;
             tool.Name = "olo_render_set_debug_view";
+            tool.Title = "Set render debug view";
+            // Edits ephemeral session render settings; destroys nothing.
+            tool.Annotations = MutatingAnnotations(/*idempotent*/ false);
             tool.Description =
                 "Switch the viewport to a raw intermediate buffer for AO/reflection/GI debugging. 'mode' is "
                 "one of none (the normal composite), ssao, gtao, ssr, ssgi — exactly one is shown at a time; "
@@ -3991,6 +4161,11 @@ namespace OloEngine::MCP
         {
             ToolDef tool;
             tool.Name = "olo_render_compare_golden";
+            tool.Title = "Compare against golden image";
+            // Poses the camera (save/restore) and can WRITE/overwrite a golden PNG
+            // on create or rebase — a real, potentially destructive filesystem
+            // mutation, so leave destructiveHint at its spec default (true).
+            tool.Annotations = MutatingAnnotations(/*idempotent*/ false, /*destructive*/ true);
             tool.Description =
                 "Capture the editor viewport and diff it against a golden PNG, returning a numeric "
                 "similarity + pass/fail verdict — the numeric half of the 'rendering changes MUST be "
@@ -4032,6 +4207,8 @@ namespace OloEngine::MCP
         {
             ToolDef tool;
             tool.Name = "olo_physics_layer_matrix";
+            tool.Title = "Physics layer matrix";
+            tool.Annotations = ReadOnlyAnnotations();
             tool.Description =
                 "Dump the physics collision-layer matrix the simulation actually uses: the five built-in "
                 "Jolt object layers (NON_MOVING, MOVING, TRIGGER, CHARACTER, DEBRIS) plus every user-defined "
@@ -4046,6 +4223,8 @@ namespace OloEngine::MCP
         {
             ToolDef tool;
             tool.Name = "olo_physics_list_colliders";
+            tool.Title = "List physics colliders";
+            tool.Annotations = ReadOnlyAnnotations();
             tool.Description =
                 "List every entity with a Rigidbody3DComponent (paginated): authored body type "
                 "(Static/Dynamic/Kinematic), collision layer id, trigger flag, and collider shape(s). When "
@@ -4066,6 +4245,8 @@ namespace OloEngine::MCP
         {
             ToolDef tool;
             tool.Name = "olo_physics_contacts";
+            tool.Title = "List physics contacts";
+            tool.Annotations = ReadOnlyAnnotations();
             tool.Description =
                 "List the entity pairs whose physics bodies are touching right now (live active-contact set, "
                 "deduplicated per pair). Requires Play mode. Use this to confirm a collision/trigger is "
@@ -4084,6 +4265,8 @@ namespace OloEngine::MCP
         {
             ToolDef tool;
             tool.Name = "olo_physics_raycast";
+            tool.Title = "Physics raycast";
+            tool.Annotations = ReadOnlyAnnotations();
             tool.Description =
                 "Cast a ray through the live physics world and return what it hits. Specify 'origin' plus "
                 "either 'direction' (a vector) or 'to' (an end point). Returns the closest hit by default, or "
@@ -4100,6 +4283,29 @@ namespace OloEngine::MCP
                 { "required", Json::array({ "origin" }) },
                 { "additionalProperties", false }
             };
+            tool.OutputSchema = Json{
+                { "type", "object" },
+                { "properties",
+                  { { "origin", { { "type", "array" }, { "items", { { "type", "number" } } }, { "description", "Resolved ray origin [x, y, z]." } } },
+                    { "direction", { { "type", "array" }, { "items", { { "type", "number" } } }, { "description", "Resolved normalised ray direction [x, y, z]." } } },
+                    { "maxDistance", { { "type", "number" }, { "description", "Resolved ray length." } } },
+                    { "hitCount", { { "type", "integer" }, { "minimum", 0 }, { "description", "Number of hits returned." } } },
+                    { "hits",
+                      { { "type", "array" },
+                        { "description", "Hits ordered nearest-first." },
+                        { "items",
+                          { { "type", "object" },
+                            { "properties",
+                              { { "entity",
+                                  { { "type", "object" },
+                                    { "properties",
+                                      { { "id", { { "type", "string" } } },
+                                        { "name", { { "type", "string" } } } } } } },
+                                { "position", { { "type", "array" }, { "items", { { "type", "number" } } } } },
+                                { "normal", { { "type", "array" }, { "items", { { "type", "number" } } } } },
+                                { "distance", { { "type", "number" } } } } } } } } } } },
+                { "required", Json::array({ "origin", "direction", "maxDistance", "hitCount", "hits" }) }
+            };
             tool.MainMarshaled = true;
             tool.Handler = Handle_PhysicsRaycast;
             server.RegisterTool(std::move(tool));
@@ -4108,6 +4314,8 @@ namespace OloEngine::MCP
         {
             ToolDef tool;
             tool.Name = "olo_physics_overlap";
+            tool.Title = "Physics overlap query";
+            tool.Annotations = ReadOnlyAnnotations();
             tool.Description =
                 "Find the physics bodies overlapping a shape at a world point. Pass 'origin' plus 'radius' "
                 "for a sphere (the default), or 'halfExtents' [x,y,z] for a box. Returns the overlapping "
@@ -4130,6 +4338,8 @@ namespace OloEngine::MCP
         {
             ToolDef tool;
             tool.Name = "olo_physics_why_no_collision";
+            tool.Title = "Explain missing collision";
+            tool.Annotations = ReadOnlyAnnotations();
             tool.Description =
                 "Explain why two entities are NOT colliding — the 'player falls through the floor' debugger. "
                 "Given two entity UUIDs ('a' and 'b'), it checks, in order: physics running, both entities "
@@ -4152,6 +4362,8 @@ namespace OloEngine::MCP
         {
             ToolDef tool;
             tool.Name = "olo_render_why_not_visible";
+            tool.Title = "Explain entity not visible";
+            tool.Annotations = ReadOnlyAnnotations();
             tool.Description =
                 "Explain why an entity is NOT visible on screen — the rendering counterpart of "
                 "olo_physics_why_no_collision ('why can't I see my mesh?'). Given an entity UUID, it checks, in "

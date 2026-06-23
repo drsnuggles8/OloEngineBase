@@ -5,6 +5,7 @@
 #include "OloEngine/Renderer/Passes/BloomRenderPass.h"
 #include "OloEngine/Renderer/Passes/ChromaticAberrationRenderPass.h"
 #include "OloEngine/Renderer/Passes/ColorGradingRenderPass.h"
+#include "OloEngine/Renderer/Passes/ContactShadowRenderPass.h"
 #include "OloEngine/Renderer/Passes/DOFRenderPass.h"
 #include "OloEngine/Renderer/Passes/DecalRenderPass.h"
 #include "OloEngine/Renderer/Passes/DeferredLightingPass.h"
@@ -44,6 +45,7 @@ namespace OloEngine
         Ref<AOApplyRenderPass> AOApply;
         Ref<SSGIRenderPass> SSGI;
         Ref<SSRRenderPass> SSR;
+        Ref<ContactShadowRenderPass> ContactShadow;
         Ref<BloomRenderPass> Bloom;
         Ref<DOFRenderPass> DOF;
         Ref<MotionBlurRenderPass> MotionBlur;
@@ -65,6 +67,7 @@ namespace OloEngine
             AOApply.Reset();
             SSGI.Reset();
             SSR.Reset();
+            ContactShadow.Reset();
             Bloom.Reset();
             DOF.Reset();
             MotionBlur.Reset();

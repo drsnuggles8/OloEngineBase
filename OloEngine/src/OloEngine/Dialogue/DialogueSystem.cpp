@@ -344,7 +344,7 @@ namespace OloEngine
                 // Check condition if specified
                 if (!choice.Condition.empty())
                 {
-                    if (!EvaluateCondition(choice.Condition, ""))
+                    if (!EvaluateCondition(entity.GetUUID(), choice.Condition, ""))
                         continue; // Skip unavailable choices
                 }
 
@@ -380,7 +380,7 @@ namespace OloEngine
                     conditionArgs = *str;
             }
 
-            bool result = EvaluateCondition(conditionName, conditionArgs);
+            bool result = EvaluateCondition(entity.GetUUID(), conditionName, conditionArgs);
 
             // Find connections by port name ("true" or "false")
             auto connections = dialogueTree->GetConnectionsFrom(nodeID);
@@ -431,7 +431,7 @@ namespace OloEngine
                     actionArgs = *str;
             }
 
-            ExecuteAction(actionName, actionArgs);
+            ExecuteAction(entity.GetUUID(), actionName, actionArgs);
 
             // Proceed to next connected node
             auto connections = dialogueTree->GetConnectionsFrom(nodeID);
@@ -449,41 +449,41 @@ namespace OloEngine
         }
     }
 
-    bool DialogueSystem::EvaluateCondition(const std::string& conditionName, const std::string& args)
+    bool DialogueSystem::EvaluateCondition(UUID dialogueEntity, const std::string& conditionName, const std::string& args)
     {
         OLO_PROFILE_FUNCTION();
 
         // Check registered handlers first
         if (auto it = m_ConditionHandlers.find(conditionName); it != m_ConditionHandlers.end())
         {
-            return it->second(conditionName, args);
+            return it->second(dialogueEntity, conditionName, args);
         }
 
         // Check wildcard handler
         if (auto it = m_ConditionHandlers.find("*"); it != m_ConditionHandlers.end())
         {
-            return it->second(conditionName, args);
+            return it->second(dialogueEntity, conditionName, args);
         }
 
         // Fallback: check DialogueVariables for a simple bool
         return m_Scene->GetDialogueVariables().GetBool(conditionName);
     }
 
-    void DialogueSystem::ExecuteAction(const std::string& actionName, const std::string& args)
+    void DialogueSystem::ExecuteAction(UUID dialogueEntity, const std::string& actionName, const std::string& args)
     {
         OLO_PROFILE_FUNCTION();
 
         // Check registered handlers first
         if (auto it = m_ActionHandlers.find(actionName); it != m_ActionHandlers.end())
         {
-            it->second(actionName, args);
+            it->second(dialogueEntity, actionName, args);
             return;
         }
 
         // Check wildcard handler
         if (auto it = m_ActionHandlers.find("*"); it != m_ActionHandlers.end())
         {
-            it->second(actionName, args);
+            it->second(dialogueEntity, actionName, args);
             return;
         }
 

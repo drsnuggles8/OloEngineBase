@@ -5,21 +5,27 @@
 # Scans EVERY .cpp under test_root (OloEngine/tests) — the whole tree, no
 # allowlist and no exclude list — extracts `TEST`, `TEST_F`, `TEST_P`,
 # `TYPED_TEST`, and `INSTANTIATE_TEST_SUITE_P` invocations with a regex,
-# classifies each via the file_layer_map, and rewrites THREE auto-catalogue
-# blocks in docs/testing.md:
+# classifies each via the file_layer_map, and writes THREE generated, git-ignored
+# catalogue documents under docs/ (one per axis):
 #
-#   * Renderer-scope tests (L1–L11 + plumbing/cullinglod/shaderpipe/...)
-#     → renderer testing pyramid
-#   * Functional / cross-subsystem tests (tagged "Functional")
-#     → engine-wide cross-subsystem axis
-#   * Plain subsystem unit tests (tagged "unit")
-#     → grouped by directory; everything that is neither of the above
+#   * docs/test-catalogue.renderer.md   — renderer-scope tests
+#       (L1–L11 + plumbing/cullinglod/shaderpipe/integration/meta)
+#   * docs/test-catalogue.functional.md — Functional / cross-subsystem tests
+#       (tagged "Functional"), grouped by subdirectory
+#   * docs/test-catalogue.unit.md       — plain subsystem unit tests
+#       (tagged "unit"), grouped by directory
+#
+# These are NOT committed (see .gitignore): the tables change on essentially every
+# test, and a tracked generated file made every parallel PR false-conflict on
+# docs/testing.md (GitHub ignores the merge=union driver). The human-written
+# testing guide (docs/testing.md) links to them; regenerate locally on demand.
 #
 # Modes:
-#   (default)   Rewrite all three blocks in docs/testing.md in place.
-#   --check     Exit 1 if any generated block would differ from what's already
-#               on disk, OR if any test .cpp is missing from file_layer_map.
-#               Used by pre-commit / CI.
+#   (default)   (Re)generate the three per-axis catalogue documents.
+#   --check     Exit 1 if any test .cpp is classified by neither an in-file
+#               // OLO_TEST_LAYER marker nor a file_layer_map entry. Used by
+#               pre-commit / CI. The rendered tables are git-ignored, so there
+#               is nothing to diff — only the classification gate is enforced.
 #
 # This is the registration mechanism that replaces manual doc edits: every test
 # file (any .cpp declaring >=1 TEST macro) must be in file_layer_map — there are
@@ -55,7 +61,7 @@ UNIT_END = "<!-- END: unit-catalogue -->"
 UNIT_TAG = "unit"
 
 # Shared boilerplate emitted into every one of the three catalogue blocks.
-DOC_GENERATED_NOTE = "> **Do not edit by hand.** Generated from [test_catalogue.json](../OloEngine/tests/scripts/test_catalogue.json) by [generate_test_catalogue.py](../OloEngine/tests/scripts/generate_test_catalogue.py). Add new test files to the config and run the script (or pre-commit will run it with `--check`)."
+DOC_GENERATED_NOTE = "> **Generated, do not edit — and git-ignored, not committed.** Rendered by [generate_test_catalogue.py](../OloEngine/tests/scripts/generate_test_catalogue.py). Classify a new test in-file with a `// OLO_TEST_LAYER: <id>` comment near the top (preferred — no shared file to conflict on), or add it to [test_catalogue.json](../OloEngine/tests/scripts/test_catalogue.json), then re-run the script. Pre-commit runs it with `--check` to verify every test is classified."
 TABLE_HEADER = "| File | Tests | Cases |"
 TABLE_SEPARATOR = "|---|---:|---|"
 
@@ -68,6 +74,18 @@ TEST_RE = re.compile(
 )
 INSTANTIATE_RE = re.compile(
     r"^\s*INSTANTIATE_TEST_SUITE_P\s*\(\s*(\w+)\s*,\s*(\w+)",
+    re.MULTILINE,
+)
+
+# In-file classification marker. A test .cpp can carry its own layer/tag with a
+# one-line comment near the top, e.g. `// OLO_TEST_LAYER: L1` or
+# `// OLO_TEST_LAYER: Functional`. This is the preferred way to classify a NEW
+# test: it lives in the test file itself, so adding a test never touches the
+# shared test_catalogue.json and two branches adding tests can't collide on it.
+# The central file_layer_map remains as a fallback for files that don't (yet)
+# carry a marker; a file may use one or the other, not both.
+LAYER_MARKER_RE = re.compile(
+    r"^[ \t]*//[ \t]*OLO_TEST_LAYER:[ \t]*([A-Za-z0-9_]+)",
     re.MULTILINE,
 )
 
@@ -115,30 +133,132 @@ def extract_instantiations(file_path):
     return instances
 
 
-def validate(cfg, files):
-    """Every test file must be classified — no exclusions.
+def extract_layer_marker(file_path):
+    """Return (layer_id, error) for the in-file `// OLO_TEST_LAYER: <id>` marker.
+
+    layer_id is the marker's value, or None if the file carries no marker. error
+    is a message string if the file carries multiple *conflicting* markers, else
+    None (duplicate identical markers are tolerated)."""
+    try:
+        text = file_path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return None, None
+    found = LAYER_MARKER_RE.findall(text)
+    if not found:
+        return None, None
+    distinct = sorted(set(found))
+    if len(distinct) > 1:
+        return None, f"multiple conflicting // OLO_TEST_LAYER markers: {distinct}"
+    return found[0], None
+
+
+def known_layer_ids(cfg):
+    """The set of layer ids a marker or file_layer_map entry may use."""
+    ids = {layer["id"] for layer in cfg["layers"]}
+    ids.add(UNIT_TAG)
+    ids.add(cfg.get("functional_tag", "Functional"))
+    return ids
+
+
+def classify_files(cfg, files):
+    """Build the effective rel->layer classification for every test file.
 
     A file is a "test file" iff it declares at least one TEST / TEST_F / TEST_P /
     TYPED_TEST macro. Files with none (the gtest main, libFuzzer targets,
     fixtures/helpers) are not tests and need no entry — that is the definition of
-    a non-test, not a configurable exclusion. Every test file must appear in
-    file_layer_map; there is no exclude escape hatch."""
-    classified = set(cfg["file_layer_map"].keys())
-    unknown = []
+    a non-test, not a configurable exclusion.
+
+    Each test file is classified by EITHER an in-file `// OLO_TEST_LAYER: <id>`
+    marker (preferred — see LAYER_MARKER_RE) OR an entry in the central
+    file_layer_map, never both. The marker wins where present. There is no
+    exclude escape hatch: an unclassified test file is an error.
+
+    Returns (effective_map, errors). effective_map maps rel -> layer id; errors is
+    a list of human-readable problem strings (empty == valid)."""
+    json_map = cfg["file_layer_map"]
+    valid = known_layer_ids(cfg)
+    effective = {}
+    errors = []
+
     for rel in files:
-        if rel in classified:
+        abs_path = REPO_ROOT / rel
+        if not extract_tests(abs_path):  # not a test file -> needs no classification
             continue
-        if extract_tests(REPO_ROOT / rel):  # has >=1 test macro -> must be classified
-            unknown.append(rel)
 
-    # Also flag stale entries (in config but not on disk).
-    stale = []
-    all_on_disk = set(files)
-    for rel in classified:
-        if rel not in all_on_disk:
-            stale.append(rel)
+        marker, marker_err = extract_layer_marker(abs_path)
+        in_json = rel in json_map
+        if marker_err:
+            errors.append(f"{rel}: {marker_err}")
+            continue
+        if marker and in_json:
+            errors.append(
+                f"{rel}: has an // OLO_TEST_LAYER:{marker} marker AND a "
+                f"file_layer_map entry - remove the JSON entry (the marker "
+                f"supersedes it)."
+            )
 
-    return unknown, stale
+        layer = marker if marker else json_map.get(rel)
+        if layer is None:
+            errors.append(
+                f"{rel}: unclassified test file. Add '// OLO_TEST_LAYER: <id>' "
+                f"near the top (preferred), or a file_layer_map entry. "
+                f"Valid ids: {sorted(valid)}."
+            )
+            continue
+        if layer not in valid:
+            src = "marker" if marker else "file_layer_map"
+            errors.append(
+                f"{rel}: {src} layer '{layer}' is not a known id. "
+                f"Valid ids: {sorted(valid)}."
+            )
+            continue
+        effective[rel] = layer
+
+    # Flag stale file_layer_map entries (in config but not on disk).
+    on_disk = set(files)
+    for rel in json_map:
+        if rel not in on_disk:
+            errors.append(
+                f"{rel}: file_layer_map entry points at a file that no longer exists."
+            )
+
+    return effective, errors
+
+
+def build_gtest_filter(effective, include, exclude):
+    """Build a GoogleTest --gtest_filter value from layer classifications.
+
+    include / exclude are sets of layer ids. The filter selects every test suite
+    that lives in an `include` layer (or all suites when include is empty) and
+    subtracts every suite that lives in an `exclude` layer. Suites are matched
+    with both `Suite.*` and `*/Suite.*` so value-parametrised instantiations
+    (`Prefix/Suite.Case/0`) are covered; typed-test forms (`Suite/0.Case`) are a
+    known gap — see docs/testing.md."""
+    def suites_for(labels):
+        seen = []
+        seen_set = set()
+        for rel, layer in sorted(effective.items()):
+            if layer not in labels:
+                continue
+            for suite, _name in extract_tests(REPO_ROOT / rel):
+                if suite not in seen_set:
+                    seen_set.add(suite)
+                    seen.append(suite)
+        return seen
+
+    def patterns(suites):
+        out = []
+        for s in suites:
+            out.append(f"{s}.*")
+            out.append(f"*/{s}.*")
+        return out
+
+    positives = patterns(suites_for(include)) if include else ["*"]
+    filt = ":".join(positives)
+    negatives = patterns(suites_for(exclude))
+    if negatives:
+        filt += ":-" + ":".join(negatives)
+    return filt
 
 
 def file_row(rel):
@@ -319,17 +439,6 @@ def build_unit_block(cfg):
     return "\n".join(lines)
 
 
-def replace_block(doc_path, original_text, new_block, begin_marker, end_marker):
-    if begin_marker not in original_text or end_marker not in original_text:
-        raise RuntimeError(
-            f"Markers not found in {doc_path}. Insert "
-            f"'{begin_marker}' and '{end_marker}' lines at the target location."
-        )
-    before, rest = original_text.split(begin_marker, 1)
-    _old, after = rest.split(end_marker, 1)
-    return before + new_block + after
-
-
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -337,60 +446,75 @@ def main():
         action="store_true",
         help="Validate and diff without writing; exit 1 on unclassified files or stale blocks.",
     )
+    parser.add_argument(
+        "--gtest-filter",
+        action="store_true",
+        help="Print a GoogleTest --gtest_filter value (selecting/excluding tests "
+        "by layer via --include / --exclude) and exit, instead of touching the doc.",
+    )
+    parser.add_argument(
+        "--include",
+        default="",
+        help="Comma-separated layer ids to INCLUDE in --gtest-filter (default: all).",
+    )
+    parser.add_argument(
+        "--exclude",
+        default="",
+        help="Comma-separated layer ids to EXCLUDE in --gtest-filter "
+        "(e.g. 'L6,L7,L8' for a fast inner loop that skips perf/golden/visual tests).",
+    )
     args = parser.parse_args()
 
     cfg = load_config()
     files = scan_cpp_files(cfg)
-    unknown, stale = validate(cfg, files)
+    effective, errors = classify_files(cfg, files)
 
-    if unknown:
-        print("ERROR: the following test files are not registered in test_catalogue.json:", file=sys.stderr)
-        for u in unknown:
-            print(f"  - {u}", file=sys.stderr)
-        print("Add each to file_layer_map with a layer id (L1-L11/plumbing/...), 'Functional', or 'unit'. There are no exclusions.", file=sys.stderr)
-
-    if stale:
-        print("ERROR: the following file_layer_map entries point at files that no longer exist:", file=sys.stderr)
-        for s in stale:
-            print(f"  - {s}", file=sys.stderr)
-
-    if unknown or stale:
+    if errors:
+        print("ERROR: test-catalogue classification problems:", file=sys.stderr)
+        for e in errors:
+            print(f"  - {e}", file=sys.stderr)
         sys.exit(1)
 
-    # Both blocks land in the same consolidated doc -- docs/testing.md by
-    # default. The script first updates the renderer block, then the
-    # functional block, reading the doc fresh after the first update so
-    # the second replacement sees the modified content.
-    doc_path = REPO_ROOT / cfg["doc"]
-    if not doc_path.exists():
-        print(f"ERROR: target doc does not exist: {doc_path}", file=sys.stderr)
-        sys.exit(1)
+    # The effective map (markers overlaying file_layer_map) is the source of
+    # truth for every downstream consumer below.
+    cfg["file_layer_map"] = effective
 
-    original_text = doc_path.read_text(encoding="utf-8")
-    new_text = replace_block(doc_path, original_text,
-                             build_renderer_block(cfg),
-                             RENDERER_BEGIN, RENDERER_END)
-    new_text = replace_block(doc_path, new_text,
-                             build_functional_block(cfg),
-                             FUNCTIONAL_BEGIN, FUNCTIONAL_END)
-    new_text = replace_block(doc_path, new_text,
-                             build_unit_block(cfg),
-                             UNIT_BEGIN, UNIT_END)
-
-    if new_text == original_text:
-        if args.check:
-            print(f"OK: catalogues in sync ({len(files)} files classified).")
-        else:
-            print(f"No changes ({len(files)} files, blocks already current).")
+    if args.gtest_filter:
+        inc = {x.strip() for x in args.include.split(",") if x.strip()}
+        exc = {x.strip() for x in args.exclude.split(",") if x.strip()}
+        print(build_gtest_filter(effective, inc, exc))
         return
 
+    # In --check mode the only thing we enforce is that every test .cpp is
+    # classified (the classify_files() errors above already exit non-zero if not).
+    # The rendered catalogue tables are a GENERATED, git-ignored artifact
+    # (docs/test-catalogue.*.md) — there is no committed file to diff, so reaching
+    # here means the classification gate passed. (The tables used to be inlined and
+    # committed into docs/testing.md, which made every parallel PR false-conflict
+    # on the catalogue whenever any test landed, because GitHub ignores the
+    # merge=union driver. They now live outside version control.)
     if args.check:
-        print(f"ERROR: auto-catalogue blocks in {doc_path.relative_to(REPO_ROOT).as_posix()} are out of date.", file=sys.stderr)
-        print("Run 'python OloEngine/tests/scripts/generate_test_catalogue.py' to regenerate.", file=sys.stderr)
-        sys.exit(1)
+        print(f"OK: {len(files)} test files classified.")
+        return
 
-    doc_path.write_text(new_text, encoding="utf-8")
-    print(f"Rewrote {doc_path.relative_to(REPO_ROOT).as_posix()} ({len(files)} files classified).")
+    # Default: (re)generate the three per-axis catalogue documents. file_row() and
+    # DOC_GENERATED_NOTE emit links with a `../` prefix, i.e. relative to a doc one
+    # level under the repo root, so catalogue_dir must stay at `docs/`.
+    out_dir = REPO_ROOT / cfg.get("catalogue_dir", "docs")
+    out_dir.mkdir(parents=True, exist_ok=True)
+    catalogues = {
+        "test-catalogue.renderer.md": (
+            "Renderer testing pyramid — test catalogue (generated)", build_renderer_block(cfg)),
+        "test-catalogue.functional.md": (
+            "Functional / cross-subsystem — test catalogue (generated)", build_functional_block(cfg)),
+        "test-catalogue.unit.md": (
+            "Unit / subsystem — test catalogue (generated)", build_unit_block(cfg)),
+    }
+    for fname, (title, block) in catalogues.items():
+        (out_dir / fname).write_text(f"# {title}\n\n{block}\n", encoding="utf-8")
+    rel_dir = out_dir.relative_to(REPO_ROOT).as_posix()
+    print(f"Wrote {len(catalogues)} catalogue docs to {rel_dir}/ "
+          f"({', '.join(sorted(catalogues))}); {len(files)} files classified.")
 
 
 if __name__ == "__main__":

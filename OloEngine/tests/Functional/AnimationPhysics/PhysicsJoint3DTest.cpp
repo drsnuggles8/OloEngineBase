@@ -1079,6 +1079,124 @@ TEST_F(PhysicsJoint3DTest, RackAndPinionCouplesRackSlideToPinionSpin)
 }
 
 // -----------------------------------------------------------------------------
+// Path — a horizontal Hermite rail anchored to the world. A free body would
+// fall ~19 m in 2 s; the path constraint must hold it at the rail height while
+// leaving it free to slide along the (gravity-free) tangent.
+// -----------------------------------------------------------------------------
+TEST_F(PhysicsJoint3DTest, PathJointHoldsBodyOnHorizontalRail)
+{
+    // Body starts exactly on the first control point so its COM rides the path.
+    Entity slider = MakeBox("PathRider", { -3.0f, 5.0f, 0.0f }, BodyType3D::Dynamic, 0.2f);
+
+    auto& joint = slider.AddComponent<PhysicsJoint3DComponent>();
+    joint.m_Type = JointType3D::Path;
+    // m_ConnectedEntity defaults to 0 → path is authored in world space.
+    joint.m_PathPoints = { { -3.0f, 5.0f, 0.0f }, { 0.0f, 5.0f, 0.0f }, { 3.0f, 5.0f, 0.0f } };
+
+    EnablePhysics3D();
+
+    f32 maxYErr = 0.0f;
+    f32 maxLateral = 0.0f;
+    for (int i = 0; i < 120; ++i) // 2 s
+    {
+        RunFrames(1);
+        const glm::vec3 p = Pos(slider);
+        maxYErr = std::max(maxYErr, std::abs(p.y - 5.0f));
+        maxLateral = std::max(maxLateral, std::abs(p.z));
+    }
+
+    const glm::vec3 p = Pos(slider);
+    EXPECT_LT(maxYErr, 0.3f) << "body left the rail height — Path constraint didn't hold it; y=" << p.y;
+    EXPECT_LT(maxLateral, 0.1f) << "body drifted off the rail in Z; z=" << p.z;
+    // Free along the tangent, but a horizontal rail has no tangential gravity,
+    // so it should stay within the authored span.
+    EXPECT_GE(p.x, -3.2f);
+    EXPECT_LE(p.x, 3.2f);
+    EXPECT_TRUE(std::isfinite(p.x) && std::isfinite(p.y) && std::isfinite(p.z));
+}
+
+// -----------------------------------------------------------------------------
+// Path velocity motor — drives the body along the rail tangent. A 2 m/s motor
+// must walk it from the start point toward the far end (a free body just sits).
+// -----------------------------------------------------------------------------
+TEST_F(PhysicsJoint3DTest, PathVelocityMotorDrivesBodyAlongRail)
+{
+    Entity rider = MakeBox("PathMotor", { -3.0f, 5.0f, 0.0f }, BodyType3D::Dynamic, 0.2f);
+
+    auto& joint = rider.AddComponent<PhysicsJoint3DComponent>();
+    joint.m_Type = JointType3D::Path;
+    joint.m_PathPoints = { { -3.0f, 5.0f, 0.0f }, { 0.0f, 5.0f, 0.0f }, { 3.0f, 5.0f, 0.0f } };
+    joint.m_PathMotorMode = JointMotorMode::Velocity;
+    joint.m_PathMotorTargetVelocity = 2.0f; // m/s along +tangent (toward +X)
+    joint.m_PathMaxMotorForce = 200.0f;     // dwarfs the body's weight
+
+    EnablePhysics3D();
+    const f32 startX = Pos(rider).x;
+
+    f32 maxYErr = 0.0f;
+    for (int i = 0; i < 180; ++i) // 3 s
+    {
+        RunFrames(1);
+        maxYErr = std::max(maxYErr, std::abs(Pos(rider).y - 5.0f));
+    }
+
+    const glm::vec3 p = Pos(rider);
+    EXPECT_GT(p.x, startX + 2.0f) << "path motor did not drive the body along the rail; x=" << p.x;
+    EXPECT_LT(maxYErr, 0.3f) << "body left the rail while the motor drove it; maxYErr=" << maxYErr;
+    EXPECT_LT(std::abs(p.z), 0.1f) << "body drifted off the rail in Z; z=" << p.z;
+}
+
+// -----------------------------------------------------------------------------
+// Path position motor — parks the body at a target path fraction. Fraction 1.0
+// is the middle control point (x ≈ 0); the motor must settle the body there.
+// -----------------------------------------------------------------------------
+TEST_F(PhysicsJoint3DTest, PathPositionMotorSettlesAtTargetFraction)
+{
+    Entity rider = MakeBox("PathPosMotor", { -3.0f, 5.0f, 0.0f }, BodyType3D::Dynamic, 0.2f);
+    rider.GetComponent<Rigidbody3DComponent>().m_LinearDrag = 0.5f; // damp residual slide
+
+    auto& joint = rider.AddComponent<PhysicsJoint3DComponent>();
+    joint.m_Type = JointType3D::Path;
+    joint.m_PathPoints = { { -3.0f, 5.0f, 0.0f }, { 0.0f, 5.0f, 0.0f }, { 3.0f, 5.0f, 0.0f } };
+    joint.m_PathMotorMode = JointMotorMode::Position;
+    joint.m_PathMotorTargetFraction = 1.0f; // the middle control point at x = 0
+    joint.m_PathMaxMotorForce = 200.0f;
+
+    EnablePhysics3D();
+
+    TickFor(4.0f);
+
+    const glm::vec3 p = Pos(rider);
+    EXPECT_NEAR(p.x, 0.0f, 0.4f) << "position motor did not park the body at fraction 1.0 (x≈0); x=" << p.x;
+    EXPECT_NEAR(p.y, 5.0f, 0.3f) << "body left the rail height; y=" << p.y;
+    EXPECT_LT(std::abs(p.z), 0.1f) << "body drifted off the rail in Z; z=" << p.z;
+}
+
+// -----------------------------------------------------------------------------
+// Path with too few points — BuildHermitePath needs at least two points, so a
+// single-point path must be skipped gracefully (no constraint, no crash) and
+// the body free-falls as if unjointed.
+// -----------------------------------------------------------------------------
+TEST_F(PhysicsJoint3DTest, PathWithTooFewPointsSkipsConstraint)
+{
+    Entity body = MakeBox("PathDegenerate", { 0.0f, 8.0f, 0.0f }, BodyType3D::Dynamic, 0.2f);
+
+    auto& joint = body.AddComponent<PhysicsJoint3DComponent>();
+    joint.m_Type = JointType3D::Path;
+    joint.m_PathPoints = { { 0.0f, 8.0f, 0.0f } }; // only one point — invalid
+
+    EnablePhysics3D();
+    const f32 startY = Pos(body).y;
+
+    TickFor(1.0f);
+
+    const glm::vec3 p = Pos(body);
+    // No constraint was built, so gravity should have pulled it well below start.
+    EXPECT_LT(p.y, startY - 2.0f) << "body did not free-fall — a degenerate Path was constrained anyway; y=" << p.y;
+    EXPECT_TRUE(std::isfinite(p.x) && std::isfinite(p.y) && std::isfinite(p.z));
+}
+
+// -----------------------------------------------------------------------------
 // Save-game round-trip — the authored joint data must survive
 // CaptureSceneState → RestoreSceneState (exercises SaveGameComponentSerializer).
 // -----------------------------------------------------------------------------
@@ -1138,6 +1256,15 @@ TEST_F(PhysicsJoint3DTest, ComponentSurvivesSaveGameRoundTrip)
     j.m_PulleyMaxLength = 9.0f;
     j.m_ConnectedAxis = { 0.4f, -0.6f, 0.5f }; // distinct components catch any axis-order bug
     j.m_GearRatio = -2.5f;                     // signed: a valid reversed coupling
+    // Path joint fields (issue #308).
+    j.m_PathPoints = { { -1.0f, 2.0f, -3.0f }, { 0.5f, 2.5f, 1.0f }, { 4.0f, -1.5f, 2.0f } };
+    j.m_PathIsLooping = true;
+    j.m_PathRotationMode = JointPathRotationMode::ConstrainToPath;
+    j.m_PathMotorMode = JointMotorMode::Velocity;
+    j.m_PathMotorTargetVelocity = 3.5f;
+    j.m_PathMotorTargetFraction = 1.75f;
+    j.m_PathMaxMotorForce = 150.0f;
+    j.m_PathMaxFrictionForce = 22.0f;
 
     auto payload = SaveGameSerializer::CaptureSceneState(GetScene());
     ASSERT_GT(payload.size(), 0u);
@@ -1218,4 +1345,18 @@ TEST_F(PhysicsJoint3DTest, ComponentSurvivesSaveGameRoundTrip)
     EXPECT_NEAR(rj.m_ConnectedAxis.y, -0.6f, kEps);
     EXPECT_NEAR(rj.m_ConnectedAxis.z, 0.5f, kEps);
     EXPECT_NEAR(rj.m_GearRatio, -2.5f, kEps);
+    // Path joint fields (issue #308).
+    ASSERT_EQ(rj.m_PathPoints.size(), 3u) << "Path control points dropped by the save-game round-trip";
+    EXPECT_NEAR(rj.m_PathPoints[0].x, -1.0f, kEps);
+    EXPECT_NEAR(rj.m_PathPoints[0].y, 2.0f, kEps);
+    EXPECT_NEAR(rj.m_PathPoints[0].z, -3.0f, kEps);
+    EXPECT_NEAR(rj.m_PathPoints[1].x, 0.5f, kEps);
+    EXPECT_NEAR(rj.m_PathPoints[2].z, 2.0f, kEps);
+    EXPECT_TRUE(rj.m_PathIsLooping);
+    EXPECT_EQ(rj.m_PathRotationMode, JointPathRotationMode::ConstrainToPath);
+    EXPECT_EQ(rj.m_PathMotorMode, JointMotorMode::Velocity);
+    EXPECT_NEAR(rj.m_PathMotorTargetVelocity, 3.5f, kEps);
+    EXPECT_NEAR(rj.m_PathMotorTargetFraction, 1.75f, kEps);
+    EXPECT_NEAR(rj.m_PathMaxMotorForce, 150.0f, kEps);
+    EXPECT_NEAR(rj.m_PathMaxFrictionForce, 22.0f, kEps);
 }

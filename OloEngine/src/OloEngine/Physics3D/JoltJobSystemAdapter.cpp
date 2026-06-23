@@ -166,16 +166,25 @@ namespace OloEngine
                 // the outstanding-tasks counter is decremented strictly AFTER this.
                 inJob->Release();
 
-                // Decrement under m_DrainMutex and notify so a blocked
-                // WaitForOutstandingTasks wakes promptly and can't miss the wake
-                // (the decrement is paired with the drain's predicate re-check by
-                // the mutex). The brief lock is uncontended in the common case —
-                // the game thread only holds it while actually draining.
+                // Decrement under m_DrainMutex and notify *while still holding it* so a
+                // blocked WaitForOutstandingTasks wakes promptly and can't miss the wake
+                // (the decrement is paired with the drain's predicate re-check by the
+                // mutex). The notify MUST stay inside the lock: ~JoltJobSystemAdapter
+                // destroys m_DrainCv the instant WaitForOutstandingTasks returns, so if
+                // this lambda decremented to zero, released the mutex, and the game thread
+                // then woke + returned + ran the destructor, a notify_one() issued after
+                // the unlock would signal an already-destroyed condition variable — the
+                // pthread_cond_signal-vs-pthread_cond_destroy data race ThreadSanitizer
+                // flagged across the Functional physics suite. Holding the mutex across
+                // notify_one() keeps the waiter from re-acquiring it (and thus from
+                // returning + destroying the CV) until the notify has fully completed. The
+                // brief lock is uncontended in the common case — the game thread only holds
+                // it while actually draining.
                 {
                     std::lock_guard<std::mutex> lock(m_DrainMutex);
                     m_OutstandingTasks.fetch_sub(1, std::memory_order_release);
+                    m_DrainCv.notify_one();
                 }
-                m_DrainCv.notify_one();
             },
             LowLevelTasks::ETaskPriority::High);
     }

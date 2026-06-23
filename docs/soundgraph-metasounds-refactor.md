@@ -276,6 +276,45 @@ struct Trigger {
 Nodes that consume triggers (WavePlayer Play/Stop, envelope retrigger, etc.)
 inspect `SampleOffset` and split their `Execute` at that frame index.
 
+> **Status (2026-06-21): landed (node-level mechanism).** Trigger-consuming nodes
+> now split their per-frame `Process()` at a trigger's frame offset; the firing
+> path threads that offset end to end. What shipped (see `StreamRefs.h`):
+>
+> - **`Trigger` value type + `TriggerRef` input ref** (`StreamRefs.h`). `Trigger`
+>   carries `i32 m_SampleOffset` (`kNotFired = -1`) with `Fire()/Consume()/IsFired()/
+>   Offset()/Reset()`. `Fire()` is *first-fire-wins* within a block (multiple fires
+>   collapse to the earliest offset — the old Flag/dirty "N sets = one action"
+>   semantics, kept sample-aware) and clamps a negative (no-frame-info) offset to
+>   frame 0. `TriggerRef` mirrors `AudioBufferRef`/`ValueRef`: an inline default
+>   `Trigger` plus a `Bind()` seam for future typed trigger connections (nothing
+>   wires them yet — every node uses its inline default).
+> - **Offset-aware events** (`NodeProcessor.h`). `OutputEvent::operator()` and
+>   `InputEvent::operator()` take an `i32 sampleOffset = 0`, forwarded producer →
+>   consumer; a new `AddInEvent` overload registers an offset-aware handler
+>   (`void(f32, i32)`). Both default to offset 0, so every existing value-only fire
+>   and route keeps its block-boundary timing — no other node changed behavior.
+> - **WavePlayer Play/Stop** and the **AD / ADSR envelopes** (trigger + release)
+>   replaced their block-boundary `Flag`s with `TriggerRef`s, `Consume()` the offset
+>   each block, and apply `StartPlayback`/`StopPlayback` / `StartAttack` /
+>   `StartRelease` at that exact frame — propagating the offset onto their own
+>   `OnPlay`/`OnStop`/`OnTrigger`/`OnComplete`/… outputs so chains stay accurate.
+> - **Producers** `RepeatTrigger` and `DelayedTrigger` now fire their outputs at the
+>   loop's frame offset, so a metronome → envelope / WavePlayer chain retriggers
+>   sample-accurately instead of snapping every tick to the block boundary.
+> - **Tests.** `SoundGraphSampleAccurateTriggerTest.cpp` pins the `Trigger` type, the
+>   event offset plumbing, the AD/ADSR split (a trigger at offset N shifts the whole
+>   envelope by exactly N frames; offset 0 == legacy frame-0 start), an end-to-end
+>   producer-fires-mid-block → wired-consumer-reacts case, and WavePlayer Play/Stop
+>   consumed at their exact frame (observed via the output-event offset, since audio
+>   output needs a loaded asset a unit test doesn't mount).
+> - **Out of scope (follow-on).** External triggers from game code still arrive via
+>   `SoundGraphSource`'s `SendInputEvent`/lock-free queue, which is drained *before*
+>   `Process` and carries no per-event frame index, so an externally-scheduled
+>   footstep is still block-quantised until that queue learns to carry offsets. The
+>   node-level machinery and the intra-graph producer→consumer path are sample-accurate
+>   today; wiring the external scheduler and typed `TriggerRef` connections is the
+>   remaining increment.
+
 ## Decision log
 
 - **2026-05-20.** Chose block-based runtime over LLVM-backed JIT. Block

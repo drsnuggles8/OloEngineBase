@@ -648,6 +648,7 @@ namespace OloEngine
         static constexpr u32 UBO_SSR = 38;                  // Screen-space reflections parameters (camera matrices + ray-march settings)
         static constexpr u32 UBO_STAR_NEST_SKY = 39;        // Star Nest raymarched nebula sky parameters (StarNestSkyUBO, 4 vec4)
         static constexpr u32 UBO_SSGI = 40;                 // Screen-space global illumination parameters (camera matrices + hemisphere ray-march settings)
+        static constexpr u32 UBO_CONTACT_SHADOW = 41;       // Screen-space contact shadows parameters (camera matrices + toward-light dir + ray-march settings)
 
         // =============================================================================
         // TEXTURE SAMPLER BINDINGS
@@ -886,6 +887,8 @@ namespace OloEngine
                     return name.contains("StarNest") || name.contains("starNest");
                 case UBO_SSGI:
                     return name.contains("SSGI") || name.contains("ssgi");
+                case UBO_CONTACT_SHADOW:
+                    return name.contains("ContactShadow") || name.contains("contactShadow");
                 default:
                     return false;
             }

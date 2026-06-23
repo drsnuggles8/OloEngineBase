@@ -36,3 +36,10 @@ bin/** export-ignore
 
 # Make sure large generated files don't get diffs
 *.pbxproj -diff
+
+# NOTE: docs/testing.md previously carried `merge=union` because the three
+# auto-generated catalogue blocks lived inline and made parallel PRs collide on
+# the per-block Totals line. Those tables now generate into git-ignored files
+# (docs/test-catalogue.*.md, see generate_test_catalogue.py), so docs/testing.md
+# is plain hand-written prose again — a normal 3-way merge is correct, and union
+# is deliberately NOT used here (it would silently duplicate prose on conflict).

@@ -893,6 +893,43 @@ namespace OloEngine
             clampAngle(c.m_PulleyMinLength, -1.0f, 1.0e9f, 0.0f);
             clampAngle(c.m_PulleyMaxLength, -1.0f, 1.0e9f, -1.0f);
             clampAngle(c.m_GearRatio, -1.0e9f, 1.0e9f, 1.0f);
+
+            // Path joint tail (issue #308). Archives written before the Path
+            // constraint existed end after the Gear ratio, so default to "no
+            // path" (empty points, motor off, hard Free rotation).
+            if (ar.AtEnd())
+            {
+                c.m_PathPoints.clear();
+                c.m_PathIsLooping = false;
+                c.m_PathRotationMode = JointPathRotationMode::Free;
+                c.m_PathMotorMode = JointMotorMode::Off;
+                c.m_PathMotorTargetVelocity = 0.0f;
+                c.m_PathMotorTargetFraction = 0.0f;
+                c.m_PathMaxMotorForce = 0.0f;
+                c.m_PathMaxFrictionForce = 0.0f;
+            }
+            else
+            {
+                ar << c.m_PathPoints;
+                ar << c.m_PathIsLooping;
+                ar << c.m_PathRotationMode;
+                ar << c.m_PathMotorMode;
+                ar << c.m_PathMotorTargetVelocity << c.m_PathMotorTargetFraction
+                   << c.m_PathMaxMotorForce << c.m_PathMaxFrictionForce;
+            }
+
+            // Sanitize untrusted path data: drop non-finite control points; clamp
+            // the rotation/motor modes to valid enum ranges; target velocity is
+            // signed, target fraction non-negative, max force/friction magnitudes.
+            std::erase_if(c.m_PathPoints, [](const glm::vec3& p)
+                          { return !std::isfinite(p.x) || !std::isfinite(p.y) || !std::isfinite(p.z); });
+            if (const auto v = static_cast<int>(c.m_PathRotationMode); v < 0 || v > static_cast<int>(JointPathRotationMode::FullyConstrained))
+                c.m_PathRotationMode = JointPathRotationMode::Free;
+            clampMode(c.m_PathMotorMode);
+            clampTarget(c.m_PathMotorTargetVelocity, -1.0e9f, 1.0e9f);
+            clampTarget(c.m_PathMotorTargetFraction, 0.0f, 1.0e9f);
+            clampMagnitude(c.m_PathMaxMotorForce);
+            clampMagnitude(c.m_PathMaxFrictionForce);
         }
         else
         {
@@ -913,6 +950,12 @@ namespace OloEngine
             ar << c.m_PulleyFixedPointA << c.m_PulleyFixedPointB
                << c.m_PulleyRatio << c.m_PulleyMinLength << c.m_PulleyMaxLength;
             ar << c.m_ConnectedAxis << c.m_GearRatio;
+            ar << c.m_PathPoints;
+            ar << c.m_PathIsLooping;
+            ar << c.m_PathRotationMode;
+            ar << c.m_PathMotorMode;
+            ar << c.m_PathMotorTargetVelocity << c.m_PathMotorTargetFraction
+               << c.m_PathMaxMotorForce << c.m_PathMaxFrictionForce;
         }
         // m_RuntimeConstraintToken is a runtime Jolt handle — not serialized.
     }
@@ -933,6 +976,18 @@ namespace OloEngine
     void SaveGameComponentSerializer::Serialize(FArchive& ar, AudioSourceComponent& c)
     {
         SerializeAudioSourceConfig(ar, c.Config);
+
+        // SoundConfig (.olosoundc) preset link — appended after the config block, so
+        // probe AtEnd() on load and default to "no preset" for legacy archives written
+        // before this field existed (the per-component buffer ends after the config).
+        if (ar.IsLoading() && ar.AtEnd())
+        {
+            c.SoundConfigHandle = 0;
+        }
+        else
+        {
+            ar << c.SoundConfigHandle;
+        }
         // Ref<AudioSource> is runtime — not serialized
     }
 
@@ -1465,6 +1520,11 @@ namespace OloEngine
             }
         }
 
+        // ── Format v5: hydraulic-erosion generation post-pass iteration count ──
+        // Appended at the end; kSaveGameFormatVersion was bumped 4→5, so any
+        // pre-v5 archive is rejected by the header check before reaching here.
+        ar << c.m_ProceduralErosionIterations;
+
         if (ar.IsLoading())
         {
             // Sanitize untrusted on-disk values so corrupt save data can't poison
@@ -1482,6 +1542,7 @@ namespace OloEngine
             sanitize(c.m_HeightShaping.HeightExponent, 0.05f, 16.0f, 1.0f);
             c.m_HeightShaping.TerraceSteps = std::min(c.m_HeightShaping.TerraceSteps, 256u);
             c.m_SplatmapGenResolution = std::clamp(c.m_SplatmapGenResolution, 16u, 4096u);
+            c.m_ProceduralErosionIterations = std::clamp(c.m_ProceduralErosionIterations, 0, 64);
             for (TerrainLayerRule& r : c.m_LayerRules)
             {
                 if (r.LayerIndex >= MAX_TERRAIN_LAYERS)
@@ -1678,6 +1739,24 @@ namespace OloEngine
             ar << c.m_FFTUseGpuCompute;
         }
 
+        // Spectrum selection (§1.4) appended after the GPU-compute toggle — same
+        // trailing-AtEnd() probe so archives written before it fall back to the
+        // Phillips default. The enum rides the archive as its underlying u32.
+        if (ar.IsLoading() && ar.AtEnd())
+        {
+            c.m_FFTSpectrumType = Ocean::SpectrumType::Phillips;
+            c.m_FFTJonswapGamma = 3.3f;
+            c.m_FFTJonswapFetch = 100000.0f;
+        }
+        else
+        {
+            u32 spectrumType = static_cast<u32>(c.m_FFTSpectrumType);
+            ar << spectrumType;
+            if (ar.IsLoading())
+                c.m_FFTSpectrumType = static_cast<Ocean::SpectrumType>(spectrumType);
+            ar << c.m_FFTJonswapGamma << c.m_FFTJonswapFetch;
+        }
+
         if (ar.IsLoading())
         {
             auto sanitize = [](f32& v, f32 lo, f32 hi, f32 fallback)
@@ -1779,6 +1858,12 @@ namespace OloEngine
             c.m_GodRaySamples = std::clamp(c.m_GodRaySamples, 1u, 256u);
             sanitize(c.m_GodRayDappleFloor, 0.0f, 1.0f, 0.35f);
             sanitize(c.m_GodRaySunFalloff, 1.0f, 64.0f, 16.0f);
+
+            // Spectrum (§1.4): unknown enum values fall back to Phillips.
+            if (static_cast<u32>(c.m_FFTSpectrumType) > static_cast<u32>(Ocean::SpectrumType::JONSWAP))
+                c.m_FFTSpectrumType = Ocean::SpectrumType::Phillips;
+            sanitize(c.m_FFTJonswapGamma, 1.0f, 10.0f, 3.3f);
+            sanitize(c.m_FFTJonswapFetch, 1.0f, 1.0e6f, 100000.0f);
         }
     }
 
@@ -2021,6 +2106,54 @@ namespace OloEngine
     {
         ar << c.m_Min.x << c.m_Min.y << c.m_Min.z;
         ar << c.m_Max.x << c.m_Max.y << c.m_Max.z;
+
+        // Off-mesh links: length-prefixed list, same save/load-symmetric idiom as the
+        // terrain layer rules above. ar.operator<< reads on load, writes on save.
+        auto serializeLink = [&ar](OffMeshLink& link)
+        {
+            ar << link.m_Start.x << link.m_Start.y << link.m_Start.z;
+            ar << link.m_End.x << link.m_End.y << link.m_End.z;
+            ar << link.m_Radius;
+            ar << link.m_Bidirectional;
+        };
+
+        u32 linkCount = static_cast<u32>(c.m_Links.size());
+        ar << linkCount;
+        if (ar.IsLoading())
+        {
+            constexpr u32 kMaxLinks = 4096u;
+            u32 clampedLinks = std::min(linkCount, kMaxLinks);
+            c.m_Links.assign(clampedLinks, OffMeshLink{});
+            for (u32 i = 0; i < clampedLinks; ++i)
+            {
+                serializeLink(c.m_Links[i]);
+                if (ar.IsError())
+                    return;
+            }
+            // Drain any excess entries to keep the stream aligned.
+            for (u32 i = clampedLinks; i < linkCount; ++i)
+            {
+                OffMeshLink discard{};
+                serializeLink(discard);
+                if (ar.IsError())
+                    return;
+            }
+            // Sanitize untrusted on-disk values so corrupt save data can't poison the bake.
+            for (OffMeshLink& link : c.m_Links)
+            {
+                if (!Math::IsFinite(link.m_Start))
+                    link.m_Start = glm::vec3(0.0f);
+                if (!Math::IsFinite(link.m_End))
+                    link.m_End = glm::vec3(0.0f);
+                if (!std::isfinite(link.m_Radius) || link.m_Radius <= 0.0f)
+                    link.m_Radius = 0.6f;
+            }
+        }
+        else
+        {
+            for (OffMeshLink& link : c.m_Links)
+                serializeLink(link);
+        }
     }
 
     void SaveGameComponentSerializer::Serialize(FArchive& ar, NavAgentComponent& c)
@@ -2936,6 +3069,25 @@ namespace OloEngine
         // layer rebuilds after load.
     }
 
+    void SaveGameComponentSerializer::Serialize(FArchive& ar, PerceptibleComponent& c)
+    {
+        ar << c.Team;
+        ar << c.IsPerceptible;
+    }
+
+    void SaveGameComponentSerializer::Serialize(FArchive& ar, PerceptionComponent& c)
+    {
+        // Authored config only — the runtime sensor result (HasVisibleTarget,
+        // VisibleTarget, LastKnownPosition, ...) is recomputed by PerceptionSystem
+        // on the first tick after load.
+        ar << c.SightRange;
+        ar << c.FovDegrees;
+        ar << c.EyeOffset.x << c.EyeOffset.y << c.EyeOffset.z;
+        ar << c.RequireLineOfSight;
+        ar << c.PerceiverTeam;
+        ar << c.DetectSameTeam;
+    }
+
     void SaveGameComponentSerializer::Serialize(FArchive& ar, InventoryComponent& c)
     {
         SerializeInventory(ar, c.PlayerInventory);
@@ -3191,6 +3343,8 @@ namespace OloEngine
         REGISTER_SAVE_COMPONENT(BehaviorTreeComponent);
         REGISTER_SAVE_COMPONENT(StateMachineComponent);
         REGISTER_SAVE_COMPONENT(GoapAgentComponent);
+        REGISTER_SAVE_COMPONENT(PerceptibleComponent);
+        REGISTER_SAVE_COMPONENT(PerceptionComponent);
         REGISTER_SAVE_COMPONENT(InventoryComponent);
         REGISTER_SAVE_COMPONENT(ItemPickupComponent);
         REGISTER_SAVE_COMPONENT(ItemContainerComponent);

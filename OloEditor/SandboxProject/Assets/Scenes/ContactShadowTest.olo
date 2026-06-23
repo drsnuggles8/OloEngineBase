@@ -1,0 +1,164 @@
+Scene: ContactShadowTest.olo
+# ─────────────────────────────────────────────────────────────────────────────
+# Screen-Space Contact Shadows demo scene.
+#
+# A neutral grey floor with several small boxes and spheres RESTING on it, lit by
+# a low grazing sun. The directional light's cascaded shadow map is intentionally
+# OFF here so the only thing darkening the floor is the screen-space contact-shadow
+# pass: with it on, each object gets a crisp short shadow hugging its base (the
+# grounding the coarse CSM misses), stretching away from the sun.
+#
+# IMPORTANT: Contact shadows are DEFERRED-ONLY. The render path lives in editor
+# RendererSettings (not in this .olo), so after opening this scene:
+#   1. Renderer Settings  -> Active Path -> Deferred
+#   2. Post Processing    -> Screen-Space Contact Shadows -> Enable (already on below)
+# Toggle "Enable" off/on to compare, or "Debug View (shadow factor)" to see the
+# raw per-pixel shadow factor in isolation. SSR/SSGI/SSAO/GTAO/Bloom are off so the
+# only thing changing the floor is the contact-shadow darkening.
+# ─────────────────────────────────────────────────────────────────────────────
+PostProcessSettings:
+  TonemapOperator: 2
+  Exposure: 0.7
+  Gamma: 2.2
+  BloomEnabled: false
+  ColorGradingEnabled: false
+  FXAAEnabled: true
+  SSAOEnabled: false
+  GTAOEnabled: false
+  SSREnabled: false
+  SSGIEnabled: false
+  ContactShadowEnabled: true
+  ContactShadowIntensity: 1
+  ContactShadowMaxDistance: 3
+  ContactShadowThickness: 1
+  ContactShadowStride: 0.05
+  ContactShadowMaxSteps: 64
+  ContactShadowBias: 0.02
+  ContactShadowEdgeFade: 0.1
+  ContactShadowDebugView: false
+Entities:
+  # -- Camera: above the floor, looking down across the props --
+  - Entity: 820000000000001
+    TagComponent:
+      Tag: Camera
+    TransformComponent:
+      Translation: [0, 5, 12]
+      Rotation: [-0.35, 0, 0]
+      Scale: [1, 1, 1]
+    CameraComponent:
+      Camera:
+        ProjectionType: 0
+        PerspectiveFOV: 0.785398185
+        PerspectiveNear: 0.01
+        PerspectiveFar: 1000
+        OrthographicSize: 10
+        OrthographicNear: -1
+        OrthographicFar: 1
+      Primary: true
+      FixedAspectRatio: false
+  # -- Skybox + IBL (kept dim so the contact shadow reads on the floor) --
+  - Entity: 820000000000002
+    TagComponent:
+      Tag: Skybox
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    EnvironmentMapComponent:
+      FilePath: assets/textures/hdr/newport_loft.hdr
+      IsCubemapFolder: false
+      EnableSkybox: true
+      Rotation: 0
+      Exposure: 0.5
+      BlurAmount: 0
+      EnableIBL: true
+      IBLIntensity: 0.2
+      Tint: [1, 1, 1]
+  # -- Low grazing sun from the left. CastShadows OFF so the only floor shadow is
+  #    the contact-shadow pass; the low elevation stretches the contact shadows. --
+  - Entity: 820000000000003
+    TagComponent:
+      Tag: Sun
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    DirectionalLightComponent:
+      Direction: [0.65, -0.4, -0.2]
+      Color: [1, 0.98, 0.95]
+      Intensity: 2.4
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+      MaxShadowDistance: 50
+      CascadeSplitLambda: 0.95
+  # -- Neutral grey floor (the contact-shadow receiver) --
+  - Entity: 820000000000004
+    TagComponent:
+      Tag: GreyFloor
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [40, 1, 40]
+    MeshComponent:
+      Primitive: 3
+    MaterialComponent:
+      AlbedoColor: [0.72, 0.72, 0.72]
+      Metallic: 0
+      Roughness: 1
+  # -- Small box resting on the floor (left) --
+  - Entity: 820000000000005
+    TagComponent:
+      Tag: BoxL
+    TransformComponent:
+      Translation: [-3, 0.5, -1]
+      Rotation: [0, 0.2, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.85, 0.85, 0.88]
+      Metallic: 0
+      Roughness: 1
+  # -- Small sphere resting on the floor (centre) --
+  - Entity: 820000000000006
+    TagComponent:
+      Tag: SphereC
+    TransformComponent:
+      Translation: [0, 0.6, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1.2, 1.2, 1.2]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.85, 0.85, 0.88]
+      Metallic: 0
+      Roughness: 1
+  # -- Low slab resting on the floor (right) — its base contact is the strongest --
+  - Entity: 820000000000007
+    TagComponent:
+      Tag: SlabR
+    TransformComponent:
+      Translation: [3.2, 0.35, 0.5]
+      Rotation: [0, -0.15, 0]
+      Scale: [2.2, 0.7, 1.4]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.85, 0.85, 0.88]
+      Metallic: 0
+      Roughness: 1
+  # -- Thin tall post (back) to show a long grazing contact shadow --
+  - Entity: 820000000000008
+    TagComponent:
+      Tag: Post
+    TransformComponent:
+      Translation: [1.2, 1.5, -3]
+      Rotation: [0, 0, 0]
+      Scale: [0.5, 3, 0.5]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.85, 0.85, 0.88]
+      Metallic: 0
+      Roughness: 1

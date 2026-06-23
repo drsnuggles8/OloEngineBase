@@ -46,6 +46,26 @@ Every shaping field defaults to an identity transform, so a default
 scenes are unchanged. Generation is fully deterministic in `Seed`, which is the
 precondition for the golden-render evidence test and for reproducible scenes.
 
+### Erosion post-pass
+
+`HeightParams::ErosionIterations` (0 = off) optionally runs a **hydraulic-erosion
+post-pass** over the shaped field before it's returned, carving drainage channels
+and depositing talus/sediment. `TerrainGenerator::ApplyErosion(heights, res,
+iterations, ErosionParams, seed)` is a pure-CPU droplet simulation: each droplet
+starts at a seeded random texel, follows the height gradient downhill, erodes when
+it has spare sediment capacity and deposits when it's over capacity (the
+Sebastian-Lague / "Interactive erosion" droplet model). The physics knobs in
+`ErosionParams` mirror the GPU editor brush's `ErosionSettings` one-for-one — the
+**difference is determinism**: the editor brush
+([`TerrainErosion`](../OloEngine/src/OloEngine/Terrain/Editor/TerrainErosion.h)) is a
+compute shader whose one-thread-per-droplet writes race, so it's non-reproducible;
+the generation post-pass runs droplets *sequentially* on the CPU so the same
+`(Seed, ErosionIterations)` always yields a bit-identical field (the same
+reproducibility contract the rest of generation keeps). Each iteration drops one
+droplet per cell (`resolution²`); the field is re-clamped to `[0,1]` on return.
+It's off by default and headless-safe (no GL), so it runs in the same CPU
+generation path as the noise — no GPU readback required.
+
 ### Auto-material (splatmap)
 
 `TerrainGenerator::GenerateSplatmap(material, data, rules, splatRes, worldX,
@@ -78,8 +98,8 @@ material" yields a textured planet out of the box.
 
 - **Component** — [`TerrainComponent`](../OloEngine/src/OloEngine/Scene/Components.h)
   gains `m_HeightShaping`, `m_AutoMaterial`, `m_LayerRules`,
-  `m_SplatmapGenResolution` (all serialized) and a runtime
-  `m_AutoSplatNeedsRebuild` flag.
+  `m_SplatmapGenResolution`, `m_ProceduralErosionIterations` (all serialized) and
+  a runtime `m_AutoSplatNeedsRebuild` flag.
 - **Runtime** — [`Scene::ProcessScene3DSharedLogic`](../OloEngine/src/OloEngine/Scene/Scene.cpp)
   routes the procedural path through `TerrainGenerator::GenerateHeightmap`, and
   after the material's texture arrays are built, regenerates the splatmap via
@@ -87,8 +107,9 @@ material" yields a textured planet out of the box.
   the runtime and editor render paths.
 - **Serialization** — `SceneSerializer` (YAML) and `SaveGameComponentSerializer`
   (binary) round-trip the new fields. The save-game format version was bumped
-  **2 → 3** (`kSaveGameFormatVersion`); older saves are rejected by the header
-  check rather than misread.
+  **2 → 3** for the shaping/auto-material fields and **4 → 5** for
+  `ProceduralErosionIterations` (`kSaveGameFormatVersion`); older saves are
+  rejected by the header check rather than misread.
 - **Editor** — the Terrain inspector
   ([`SceneHierarchyPanel`](../OloEditor/src/Panels/SceneHierarchyPanel.cpp)) adds
   the shaping sliders under *Procedural Generation* and an *Auto-Material*
@@ -119,6 +140,7 @@ Exposed (read/write) on `TerrainComponent`:
 | `RidgeBlend` / `WarpStrength` / `WarpFrequency` | `m_HeightShaping.*` | float |
 | `TerraceSteps` | `m_HeightShaping.TerraceSteps` | uint |
 | `TerraceSharpness` / `HeightExponent` | `m_HeightShaping.*` | float |
+| `ErosionIterations` | `m_ProceduralErosionIterations` | int |
 | `AutoMaterial` | `m_AutoMaterial` | bool |
 | `SplatmapGenResolution` | `m_SplatmapGenResolution` | uint |
 
@@ -179,7 +201,11 @@ C#); each picks a fresh seed on start and regenerates on the **R** key.
   (`unit`, runs in CI): determinism, [0,1]/finite range under every shaping
   knob, seed sensitivity, terrace endpoints/monotonicity/plateaus, rule band
   membership + slope selection, weight normalization, the no-match → layer 0
-  fallback, and splatmap byte packing.
+  fallback, and splatmap byte packing. The erosion post-pass adds its own
+  contracts: same-`(Seed, ErosionIterations)` determinism, still-[0,1]/finite
+  after carving, `ErosionIterations == 0` ≡ the un-eroded field, and the
+  standalone `ApplyErosion` guards (seed sensitivity, no-op on 0 iterations or a
+  mismatched buffer).
 - **Visual evidence** —
   [`TerrainGenerationEvidenceTest.cpp`](../OloEngine/tests/Rendering/PropertyTests/TerrainGenerationEvidenceTest.cpp)
   (`L8`): renders a generated, auto-materialed terrain through the full editor
@@ -203,11 +229,12 @@ C#); each picks a fresh seed on start and regenerates on the **R** key.
 
 ## Future work
 
-- **Hydraulic/thermal erosion as a generation stage.** Erosion already exists as
-  an editor brush
-  ([`TerrainErosion`](../OloEngine/src/OloEngine/Terrain/Editor/TerrainErosion.h));
-  running it as an automatic post-pass of `GenerateHeightmap` (with a serialized
-  iteration count) would add realistic drainage channels and talus slopes.
+- ~~**Hydraulic/thermal erosion as a generation stage.**~~ **Done** — a
+  deterministic CPU hydraulic-erosion post-pass now runs inside
+  `GenerateHeightField`, gated on the serialized `ErosionIterations` count (see
+  *Erosion post-pass* above). Still open: **thermal** (talus-angle) erosion as a
+  distinct mode, and porting the pass to the GPU with a deterministic ordering for
+  large heightmaps.
 - **Biome masks.** A low-frequency biome noise selecting between rule *sets*
   (desert / alpine / temperate) instead of one global rule list.
 - **Foliage auto-population from rules.** Foliage already reads splatmap channels

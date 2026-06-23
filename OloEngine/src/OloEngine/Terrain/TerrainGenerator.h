@@ -40,6 +40,29 @@ namespace OloEngine
         auto operator==(const TerrainHeightShaping& o) const -> bool;
     };
 
+    // Hydraulic-erosion knobs for the deterministic CPU generation post-pass
+    // (TerrainGenerator::ApplyErosion). These mirror the GPU editor brush's
+    // ErosionSettings one-for-one so the physics is identical; the only
+    // difference is the CPU path runs droplets sequentially (reproducible)
+    // instead of one-thread-per-droplet (racy). Defaults match the editor brush.
+    struct ErosionParams
+    {
+        // Droplets simulated per iteration. 0 → auto: resolution² (one droplet
+        // per cell), the standard density. A higher value erodes more per pass.
+        u32 DropletCount = 0;
+        u32 MaxDropletSteps = 64;        // Max simulation steps per droplet
+        f32 Inertia = 0.05f;             // Direction inertia [0,1]
+        f32 SedimentCapacity = 4.0f;     // Sediment capacity multiplier
+        f32 MinSedimentCapacity = 0.01f; // Minimum capacity floor
+        f32 DepositSpeed = 0.3f;         // Deposit rate [0,1]
+        f32 ErodeSpeed = 0.3f;           // Erosion rate [0,1]
+        f32 EvaporateSpeed = 0.01f;      // Water evaporation per step [0,1]
+        f32 Gravity = 4.0f;              // Gravity constant
+        f32 InitialWater = 1.0f;         // Starting water volume
+        f32 InitialSpeed = 1.0f;         // Starting droplet speed
+        u32 ErosionRadius = 3;           // Brush radius for erosion/deposition (texels)
+    };
+
     // One automatic material-assignment rule: a height band crossed with a slope
     // band selects a material layer. Rules are evaluated per splatmap texel and
     // their weights summed per layer, then normalized — so overlapping rules blend.
@@ -86,16 +109,34 @@ namespace OloEngine
             f32 Lacunarity = 2.0f;
             f32 Persistence = 0.45f;
             TerrainHeightShaping Shaping;
+
+            // Optional hydraulic-erosion post-pass. 0 = off (the field is returned
+            // un-eroded, exactly as before). > 0 runs that many deterministic
+            // erosion iterations on the shaped field, seeded from Seed.
+            i32 ErosionIterations = 0;
+            ErosionParams Erosion;
         };
 
         // ── Height field ────────────────────────────────────────────────────
 
         // Pure CPU. Fills a normalized [0,1] height field (Resolution × Resolution,
-        // row-major). No GPU access — safe to call headless / in unit tests.
+        // row-major). No GPU access — safe to call headless / in unit tests. When
+        // params.ErosionIterations > 0 the shaped field is run through the
+        // deterministic erosion post-pass (ApplyErosion) before returning.
         static void GenerateHeightField(std::vector<f32>& outHeights, const HeightParams& params);
 
         // Generate the field and push it into a TerrainData (re-uploads to GPU).
         static void GenerateHeightmap(TerrainData& data, const HeightParams& params);
+
+        // Deterministic CPU hydraulic erosion. Mutates `heights` (row-major,
+        // resolution × resolution) in place: `iterations` batches of water
+        // droplets carve channels and deposit sediment, then the field is
+        // re-clamped to [0,1]. Reproducible for a given (seed, params) — droplets
+        // run sequentially, unlike the GPU editor brush whose parallel writes
+        // race. Pure CPU; safe headless / in unit tests. A no-op if iterations or
+        // resolution is 0, or `heights` isn't resolution² long.
+        static void ApplyErosion(std::vector<f32>& heights, u32 resolution, u32 iterations,
+                                 const ErosionParams& params, i32 seed);
 
         // ── Material / splatmap auto-assignment ─────────────────────────────
 

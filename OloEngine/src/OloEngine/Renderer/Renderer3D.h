@@ -1135,6 +1135,7 @@ namespace OloEngine
             Ref<UniformBuffer> GTAO;
             Ref<UniformBuffer> SSR;
             Ref<UniformBuffer> SSGI;
+            Ref<UniformBuffer> ContactShadow;
 
             PostProcessUBOData PostProcessData{};
             MotionBlurUBOData MotionBlurData{};
@@ -1142,6 +1143,7 @@ namespace OloEngine
             UBOStructures::GTAOUBO GTAOData{};
             SSRUBOData SSRData{};
             SSGIUBOData SSGIData{};
+            ContactShadowUBOData ContactShadowData{};
 
             void Reset()
             {
@@ -1151,6 +1153,7 @@ namespace OloEngine
                 GTAO.Reset();
                 SSR.Reset();
                 SSGI.Reset();
+                ContactShadow.Reset();
             }
         };
 

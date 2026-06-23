@@ -161,6 +161,29 @@ namespace OloEngine
         f32 SSGIEdgeFade = 0.1f;    // Screen-border fade width in UV (0..0.5); larger = softer edges
         bool SSGIDebugView = false; // Show the indirect-diffuse buffer in isolation instead of the composite
 
+        // Screen-Space Contact Shadows (SSCS)
+        // Deferred-only: short-range per-pixel hard shadows for the primary
+        // directional light. For each lit opaque pixel it reconstructs the
+        // view-space position from depth and marches a single ray TOWARD the sun
+        // against scene depth; if a nearby occluder crosses the ray within a thin
+        // thickness window the pixel is darkened. This grounds dynamic geometry
+        // that the coarse shadow map misses (an object's base where it touches a
+        // surface). The shadow factor MULTIPLIES the lit colour (occlusion of
+        // direct light — unlike SSGI's add or SSR's replace/mix) into a fresh
+        // ContactShadowColor target inserted between SSR and Bloom. Screen-space
+        // only: occluders off-screen or behind surfaces are unknown, so rays that
+        // leave the screen fade out. The math is pinned by ContactShadowMathTest
+        // and the frame is checked by ContactShadowVisualEvidenceTest.
+        bool ContactShadowEnabled = false;
+        f32 ContactShadowIntensity = 1.0f;   // Strength of the darkening at full occlusion (0 = none, 1 = black)
+        f32 ContactShadowMaxDistance = 1.0f; // Max ray length toward the light in view/world units (keep short — contact range)
+        f32 ContactShadowThickness = 0.3f;   // View-space depth tolerance for accepting an occluder (thin-surface guard)
+        f32 ContactShadowStride = 0.04f;     // View-space marching step length
+        i32 ContactShadowMaxSteps = 24;      // Maximum linear march iterations along the ray
+        f32 ContactShadowBias = 0.02f;       // Depth-proportional start offset along the normal (self-intersection guard)
+        f32 ContactShadowEdgeFade = 0.1f;    // Screen-border fade width in UV (0..0.5); larger = softer edges
+        bool ContactShadowDebugView = false; // Show the shadow factor as greyscale instead of the composite
+
         bool operator==(const PostProcessSettings&) const = default;
     };
 
@@ -215,6 +238,32 @@ namespace OloEngine
         s.SSGIMaxSteps = std::clamp(s.SSGIMaxSteps, 1, kSSGIMaxSteps);
         s.SSGIRayCount = std::clamp(s.SSGIRayCount, 1, kSSGIMaxRays);
         s.SSGIEdgeFade = std::clamp(finite(s.SSGIEdgeFade, 0.1f), 0.0f, 0.5f);
+    }
+
+    // Upper bound for the contact-shadow march step count. MUST match the runtime
+    // UBO upload clamp in RenderPipeline.cpp and the HARD_MAX_STEPS loop cap in
+    // PostProcess_ContactShadow.glsl — a persisted/edited value above the runtime
+    // cap is otherwise saved but silently ignored when rendering. Single source of
+    // truth shared by the sanitizer and the upload path.
+    inline constexpr i32 kContactShadowMaxSteps = 128;
+
+    // Clamp contact-shadow parameters to finite, sane ranges. Call after loading
+    // settings from disk (scene YAML / save-game), per the CLAUDE.md rule that
+    // floats read from external data are validated with std::isfinite. The shader
+    // also clamps at use-time, but persisted/edited settings should never carry
+    // NaN/Inf.
+    inline void SanitizeContactShadow(PostProcessSettings& s) noexcept
+    {
+        const auto finite = [](f32 v, f32 fallback) noexcept
+        { return std::isfinite(v) ? v : fallback; };
+
+        s.ContactShadowIntensity = std::clamp(finite(s.ContactShadowIntensity, 1.0f), 0.0f, 1.0f);
+        s.ContactShadowMaxDistance = std::clamp(finite(s.ContactShadowMaxDistance, 1.0f), 0.01f, 1000.0f);
+        s.ContactShadowThickness = std::clamp(finite(s.ContactShadowThickness, 0.3f), 0.001f, 1000.0f);
+        s.ContactShadowStride = std::clamp(finite(s.ContactShadowStride, 0.04f), 0.001f, 100.0f);
+        s.ContactShadowMaxSteps = std::clamp(s.ContactShadowMaxSteps, 1, kContactShadowMaxSteps);
+        s.ContactShadowBias = std::clamp(finite(s.ContactShadowBias, 0.02f), 0.0f, 1.0f);
+        s.ContactShadowEdgeFade = std::clamp(finite(s.ContactShadowEdgeFade, 0.1f), 0.0f, 0.5f);
     }
 
     // Clamp the auto-exposure parameters to a finite, ordered, sane range.
@@ -402,6 +451,38 @@ namespace OloEngine
 
     static_assert(sizeof(SSGIUBOData) % 16 == 0, "SSGIUBOData must be 16-byte aligned for std140");
     static_assert(sizeof(SSGIUBOData) == 256, "SSGIUBOData std140 size drifted — update PostProcess_SSGI.glsl layout");
+
+    // GPU-side UBO layout for screen-space contact shadows (std140, binding 41).
+    // All math the PostProcess_ContactShadow.glsl ray march needs: camera matrices
+    // to reconstruct/project view-space positions, the world-space toward-light
+    // direction, plus the ray-march + shading parameters. Mirrored on the CPU by
+    // ContactShadowMathTest so the contract is pinned without a GL context.
+    struct ContactShadowUBOData
+    {
+        glm::mat4 Projection = glm::mat4(1.0f);
+        glm::mat4 InverseProjection = glm::mat4(1.0f);
+        glm::mat4 View = glm::mat4(1.0f);
+
+        // xyz = world-space direction TOWARD the light (normalized, = -lightTravelDir),
+        // w = HasDirectionalLight (0/1). When 0 the pass passes the colour through.
+        glm::vec4 LightDirection = glm::vec4(0.0f, 1.0f, 0.0f, 0.0f);
+        // x = MaxSteps, y = MaxDistance (view units), z = Thickness, w = Stride (view units)
+        glm::vec4 RayParams = glm::vec4(24.0f, 1.0f, 0.3f, 0.04f);
+        // x = Intensity, y = EdgeFade (UV), z = Bias (depth-proportional), w = unused
+        glm::vec4 ShadeParams = glm::vec4(1.0f, 0.1f, 0.02f, 0.0f);
+        // x = width, y = height, z = 1/width, w = 1/height
+        glm::vec4 ScreenParams = glm::vec4(0.0f);
+        // x = DebugView (0/1), yzw = pad
+        glm::vec4 Flags = glm::vec4(0.0f);
+
+        static constexpr u32 GetSize()
+        {
+            return sizeof(ContactShadowUBOData);
+        }
+    };
+
+    static_assert(sizeof(ContactShadowUBOData) % 16 == 0, "ContactShadowUBOData must be 16-byte aligned for std140");
+    static_assert(sizeof(ContactShadowUBOData) == 272, "ContactShadowUBOData std140 size drifted — update PostProcess_ContactShadow.glsl layout");
     // Snow rendering settings (scene-level, separate from PostProcess)
     struct SnowSettings
     {

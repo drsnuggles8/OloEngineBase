@@ -80,7 +80,7 @@ asset file).
 
 | Track | Target | Drives | Interpolation |
 |-------|--------|--------|---------------|
-| `CinematicTransformTrack` | any entity w/ `TransformComponent` | translation / rotation / scale | per-channel (Constant / Linear / EaseInOut; rotation = slerp) |
+| `CinematicTransformTrack` | any entity w/ `TransformComponent` | translation / rotation / scale | per-key (Constant / Linear / EaseInOut / Bezier; rotation = slerp) |
 | `CinematicCameraTrack` | entity w/ `Transform` + `CameraComponent` | position, rotation, vertical FOV | as above |
 | `CinematicVisibilityTrack` | entity w/ `ModelComponent` | `m_Visible` | step (latest key ≤ playhead wins) |
 | `CinematicEventTrack` | — | named events at timestamps | edge-triggered |
@@ -120,13 +120,15 @@ with `std::isfinite`.
 ### Tests
 
 - `CinematicCurveTest` (unit) — channel interpolation, endpoint clamping,
-  the three interp modes, quat slerp/normalization, degenerate-segment
-  safety, visibility step semantics.
+  the four interp modes (incl. the Bezier tangent ease and its
+  smoothstep/linear anchor identities), quat slerp/normalization, degenerate-
+  segment safety, visibility step semantics.
 - `CinematicPlayerTest` (unit) — time advance (normal / clamp / loop-wrap /
   zero-duration / non-negative speed), half-open event windows, and the
   composite `Tick` (t==0 firing, no double-fire, loop wrap).
 - `CinematicSerializerTest` (unit) — full `.olocine` round-trip across every
-  track/channel + malformed-input guard.
+  track/channel + malformed-input guard + Bezier tangent round-trip and the v1
+  back-compat path (legacy files with no tangent fields load flat).
 - `CinematicDrivesEntitiesTest` (Functional) — drives a real `Scene` through
   `OnUpdateRuntime` and asserts the sequence poses entities, fires its event,
   finishes (non-looping) and never finishes / re-fires t==0 (looping).
@@ -151,9 +153,11 @@ What it does:
   time, snapshotting the target entity's current value. **Snap** to a configurable
   grid. Right-panel inspector edits the selected key's time, value (vec3 / euler /
   FOV-degrees / visible / event-name) and interpolation; **Delete Key** removes it.
+  Picking **Bezier** reveals the key's **In / Out tangent** handles (numeric drags).
 - **Curve preview** — the inspector plots the channel's *evaluated* output across
   the sequence, so the chosen interp modes are visible (Constant = steps, Linear =
-  straight, EaseInOut = smooth).
+  straight, EaseInOut = smooth, Bezier = the tangent-shaped ease — drag the handles
+  and watch the curve flex live).
 - **Playhead** — drag the ruler to scrub (poses the scene live through
   `CinematicSystem::ApplyAtTime`), or **Play/Pause/Stop** for an edit-mode preview
   (Loop optional). The explicit **Duration** field (0 = auto) and **Add Track**
@@ -168,11 +172,28 @@ that playback depends on is enforced in one place
 ([`CinematicEditTest`](../OloEngine/tests/Cinematic/CinematicEditTest.cpp)). The
 panel itself is editor UI and isn't auto-tested.
 
-### Still deferred
+### Bezier tangents — **shipped**
 
-- **Bezier tangents** — the curve model is per-key Constant / Linear / EaseInOut
-  only; the preview reflects that. Free tangent handles would need new fields on
-  `CinematicCurve` (+ serializer version bump) before the panel could edit them.
+`CinematicInterp::Bezier` adds per-key **in/out tangent handles** evaluated as a
+cubic-Hermite ease. Each tangent is a *slope of the normalized 0→1 segment ease*:
+a Bezier segment leaving `key[i]` reads `key[i].OutTangent` and `key[i+1].InTangent`.
+The anchor identities make it a clean superset of the older modes — **(0, 0)
+reproduces EaseInOut** (smoothstep), so a fresh Bezier key matches prior behaviour
+until a handle moves, and **(1, 1) reproduces Linear**. Larger tangents give
+anticipation / overshoot; the shaped blend is applied uniformly to the value the
+same way the other modes are, so tangents control a segment's *timing/ease* (and
+overshoot for float & vec3) — the quaternion ease is clamped to [0,1] before slerp
+so rotations never whip past their endpoints. Persisted in `.olocine` **v2** as two
+extra floats per key; older v1 files (no tangent fields) load unchanged with flat
+(0) tangents. Math pinned by `CinematicCurveTest`, round-trip + back-compat by
+`CinematicSerializerTest`.
+
+> What's *not* covered: free **value-space** tangents (a curved spatial path
+> between two position keys, or independent per-axis overshoot). The current model
+> shapes the segment's easing uniformly across components — the path between two
+> keys stays a straight line, only the speed along it curves. Per-component value
+> splines would be a larger change to the channel evaluation (each component would
+> need its own tangent, and quaternions a squad-style scheme) and are left open.
 
 ### Additional track types
 

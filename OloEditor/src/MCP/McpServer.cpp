@@ -136,6 +136,22 @@ namespace OloEngine::MCP
             }
         }
 
+        // Apply redaction in place to every string leaf of a structured-content
+        // value, recursing through objects and arrays. The text mirror in `content`
+        // is redacted by RedactContentArray; this keeps the same path-scrubbing
+        // guarantee for the parallel `structuredContent` (e.g. asset paths embedded
+        // in a serialized component dump) before it leaves the process.
+        void RedactStructuredContent(Json& value)
+        {
+            if (value.is_string())
+                value = RedactPathsInText(value.get<std::string>());
+            else if (value.is_object() || value.is_array())
+            {
+                for (auto& child : value)
+                    RedactStructuredContent(child);
+            }
+        }
+
     } // namespace
 
     // ---- ToolResult ------------------------------------------------------------
@@ -156,6 +172,17 @@ namespace OloEngine::MCP
         return r;
     }
 
+    ToolResult ToolResult::Structured(const Json& data)
+    {
+        ToolResult r;
+        // Mirror the structured object into a text block (spec: keep a back-compat
+        // serialization in `content` for clients that don't parse structuredContent).
+        r.Content = Json::array({ Json{ { "type", "text" }, { "text", data.dump(2) } } });
+        r.StructuredContent = data;
+        r.IsError = false;
+        return r;
+    }
+
     // ---- McpServer -------------------------------------------------------------
 
     McpServer::McpServer(EditorMcpContext context)
@@ -168,8 +195,30 @@ namespace OloEngine::MCP
         Stop();
     }
 
+    bool McpServer::IsValidToolName(std::string_view name)
+    {
+        // MCP places no hard length cap on tool names, but the broader spec uses
+        // 1..128 for identifier-like fields and clients/UIs assume a bounded,
+        // shell-safe character set. Enforce 1..128 chars of [A-Za-z0-9_.-].
+        if (name.empty() || name.size() > 128)
+            return false;
+        for (const char c : name)
+        {
+            const bool ok = (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') ||
+                            (c >= '0' && c <= '9') || c == '_' || c == '.' || c == '-';
+            if (!ok)
+                return false;
+        }
+        return true;
+    }
+
     void McpServer::RegisterTool(ToolDef tool)
     {
+        // Fail loudly at registration: every tool is registered in code at startup,
+        // so a malformed name is a programmer error, not a runtime condition. Catch
+        // it here instead of letting clients choke on the name later.
+        OLO_CORE_VERIFY(IsValidToolName(tool.Name),
+                        "[MCP] Invalid tool name '{}': must be 1-128 chars of [A-Za-z0-9_.-].", tool.Name);
         m_Tools.push_back(std::move(tool));
     }
 
@@ -534,10 +583,23 @@ namespace OloEngine::MCP
         {
             Json entry;
             entry["name"] = tool.Name;
+            // Top-level display title (spec 2025-06-18); omitted when unset so the
+            // client falls back to the name.
+            if (!tool.Title.empty())
+                entry["title"] = tool.Title;
             entry["description"] = tool.Description;
             entry["inputSchema"] = tool.InputSchema.is_null()
                                        ? Json{ { "type", "object" } }
                                        : tool.InputSchema;
+            // JSON Schema for the structured result (spec 2025-06-18); omitted unless
+            // a non-empty object so text-only tools stay clean. A client may validate
+            // a tool's structuredContent against this.
+            if (tool.OutputSchema.is_object() && !tool.OutputSchema.empty())
+                entry["outputSchema"] = tool.OutputSchema;
+            // Behavioural hints (readOnlyHint, etc.); omitted unless a non-empty
+            // object so a tool without annotations stays clean.
+            if (tool.Annotations.is_object() && !tool.Annotations.empty())
+                entry["annotations"] = tool.Annotations;
             tools.push_back(std::move(entry));
         }
         return MakeResult(id, Json{ { "tools", std::move(tools) } });
@@ -568,9 +630,18 @@ namespace OloEngine::MCP
         }
 
         if (RedactPaths())
+        {
             RedactContentArray(result.Content);
+            if (!result.StructuredContent.is_null())
+                RedactStructuredContent(result.StructuredContent);
+        }
 
-        return MakeResult(id, Json{ { "content", std::move(result.Content) }, { "isError", result.IsError } });
+        Json resultObj = Json{ { "content", std::move(result.Content) }, { "isError", result.IsError } };
+        // Typed result alongside the text mirror (spec 2025-06-18); omitted for
+        // text-only tools so their result shape is unchanged.
+        if (!result.StructuredContent.is_null())
+            resultObj["structuredContent"] = std::move(result.StructuredContent);
+        return MakeResult(id, std::move(resultObj));
     }
 
     const ToolDef* McpServer::FindTool(const std::string& name) const

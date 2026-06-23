@@ -11,6 +11,7 @@
 #include "OloEngine/Asset/MeshColliderAsset.h"
 #include "OloEngine/Terrain/TerrainData.h"
 #include "OloEngine/Core/Log.h"
+#include "OloEngine/Math/Math.h"
 
 #include <Recast.h>
 #include <DetourNavMesh.h>
@@ -477,7 +478,8 @@ namespace OloEngine
     }
 
     Ref<NavMesh> NavMeshGenerator::Generate(Scene* scene, const NavMeshSettings& settings,
-                                            const glm::vec3& boundsMin, const glm::vec3& boundsMax)
+                                            const glm::vec3& boundsMin, const glm::vec3& boundsMax,
+                                            const std::vector<OffMeshLink>& links)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -669,6 +671,62 @@ namespace OloEngine
         params.cs = cfg.cs;
         params.ch = cfg.ch;
         params.buildBvTree = true;
+
+        // Off-mesh connections (jump / drop / ladder / teleport links). dtCreateNavMeshData reads
+        // these as parallel flat arrays which must outlive the call below, so keep the buffers in
+        // scope here. Endpoint flags/area are pinned to the walkable poly's (flags=1, area=walkable)
+        // so the default query filter (include 0xFFFF, unit area cost) routes across them.
+        std::vector<f32> offMeshVerts; // 6 floats per link: ax,ay,az, bx,by,bz
+        std::vector<f32> offMeshRads;
+        std::vector<u16> offMeshFlags;
+        std::vector<u8> offMeshAreas;
+        std::vector<u8> offMeshDirs;
+        std::vector<u32> offMeshUserIds;
+        if (!links.empty())
+        {
+            offMeshVerts.reserve(links.size() * 6);
+            offMeshRads.reserve(links.size());
+            offMeshFlags.reserve(links.size());
+            offMeshAreas.reserve(links.size());
+            offMeshDirs.reserve(links.size());
+            offMeshUserIds.reserve(links.size());
+
+            u32 userId = 0;
+            for (const auto& link : links)
+            {
+                // Defensive: drop links carrying non-finite coordinates (e.g. corrupt save data
+                // that slipped past deserialization) — feeding NaN to Detour corrupts the build.
+                if (!Math::IsFinite(link.m_Start) || !Math::IsFinite(link.m_End) || !std::isfinite(link.m_Radius))
+                {
+                    OLO_CORE_WARN("NavMeshGenerator: skipping off-mesh link with non-finite coordinates");
+                    continue;
+                }
+
+                offMeshVerts.push_back(link.m_Start.x);
+                offMeshVerts.push_back(link.m_Start.y);
+                offMeshVerts.push_back(link.m_Start.z);
+                offMeshVerts.push_back(link.m_End.x);
+                offMeshVerts.push_back(link.m_End.y);
+                offMeshVerts.push_back(link.m_End.z);
+                offMeshRads.push_back(link.m_Radius > 0.0f ? link.m_Radius : settings.AgentRadius);
+                offMeshFlags.push_back(static_cast<u16>(1));
+                offMeshAreas.push_back(static_cast<u8>(RC_WALKABLE_AREA));
+                offMeshDirs.push_back(link.m_Bidirectional ? static_cast<u8>(DT_OFFMESH_CON_BIDIR) : static_cast<u8>(0));
+                offMeshUserIds.push_back(userId++);
+            }
+
+            if (!offMeshRads.empty())
+            {
+                params.offMeshConVerts = offMeshVerts.data();
+                params.offMeshConRad = offMeshRads.data();
+                params.offMeshConFlags = offMeshFlags.data();
+                params.offMeshConAreas = offMeshAreas.data();
+                params.offMeshConDir = offMeshDirs.data();
+                params.offMeshConUserID = offMeshUserIds.data();
+                params.offMeshConCount = static_cast<i32>(offMeshRads.size());
+                OLO_CORE_INFO("NavMeshGenerator: baking {} off-mesh link(s)", offMeshRads.size());
+            }
+        }
 
         u8* navData = nullptr;
         i32 navDataSize = 0;

@@ -28,11 +28,15 @@ jobs:
           - { name: windows, runner: windows-latest, os: Windows }
           - { name: linux,   runner: ubuntu-24.04,    os: Linux }
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          # Build + decode-test only; no authenticated git writes — so don't leave
+          # the GITHUB_TOKEN in .git/config for later steps/dependencies to read.
+          persist-credentials: false
 
       - name: Install Python 3.10
         id: py
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
         with:
           python-version: '3.10'
       - name: Python deps (OloHeaderTool)
@@ -63,7 +67,7 @@ jobs:
       # Cache the built FFmpeg so only the first (or post-bump) run pays the build cost.
       - name: Cache FFmpeg build
         id: ffcache
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: OloEngine/vendor/ffmpeg-install
           key: ffmpeg-${{ runner.os }}-n7.1-${{ hashFiles('scripts/build-ffmpeg.sh') }}

@@ -26,6 +26,7 @@
 #include "OloEngine/Animation/BoneEntityUtils.h"
 #include "OloEngine/Animation/AnimationSystem.h"
 #include "OloEngine/Asset/SoundGraphAsset.h"
+#include "OloEngine/Asset/SoundConfigAsset.h"
 #include "OloEngine/Audio/SoundGraph/GraphGeneration.h"
 #include "OloEngine/Audio/SoundGraph/SoundGraph.h"
 #include "OloEngine/Animation/MorphTargets/MorphTargetSystem.h"
@@ -77,10 +78,12 @@
 #include "OloEngine/Precipitation/PrecipitationSystem.h"
 #include "OloEngine/Navigation/NavigationSystem.h"
 #include "OloEngine/AI/AISystem.h"
+#include "OloEngine/AI/Perception/PerceptionSystem.h"
 #include "OloEngine/Gameplay/Inventory/InventorySystem.h"
 #include "OloEngine/Gameplay/Inventory/InventoryComponents.h"
 #include "OloEngine/Gameplay/Quest/QuestSystem.h"
 #include "OloEngine/Gameplay/Quest/QuestComponents.h"
+#include "OloEngine/Gameplay/Quest/QuestDialogueBridge.h"
 #include "OloEngine/Gameplay/Abilities/GameplayAbilitySystem.h"
 #include "OloEngine/Gameplay/GameplayEventBus.h"
 #include "OloEngine/Audio/AudioEvents/AudioEventsManager.h"
@@ -518,6 +521,11 @@ namespace OloEngine
     void Scene::InitDialogueSystem()
     {
         m_DialogueSystem = std::make_unique<DialogueSystem>(this);
+        // Composition root: bridge dialogue action/condition nodes to the quest
+        // system so NPC conversations can accept/advance/complete quests and
+        // branch on quest state. Lives here so both the runtime (OnRuntimeStart)
+        // and headless test harnesses (EnableDialogue) wire the same handlers.
+        RegisterQuestDialogueHandlers(*m_DialogueSystem, *this);
     }
 
     void Scene::InitAudioRuntime()
@@ -564,6 +572,15 @@ namespace OloEngine
 
         for (auto sourceView = m_Registry.group<AudioSourceComponent>(entt::get<TransformComponent>); auto&& [e, ac, tc] : sourceView.each())
         {
+            // A SoundConfig (.olosoundc) preset, when assigned, is the source of truth for this
+            // source's playback parameters: load it and stamp Config before either the event path
+            // or the direct-play path reads it.
+            if (ac.SoundConfigHandle != 0)
+            {
+                if (auto preset = AssetManager::GetAsset<SoundConfigAsset>(ac.SoundConfigHandle))
+                    ac.Config = preset->m_Config;
+            }
+
             // Event-driven audio: post the start event instead of direct play
             if (ac.UseEventSystem && ac.StartCommandID.IsValid() && ac.Config.PlayOnAwake)
             {
@@ -799,6 +816,7 @@ namespace OloEngine
 
                 auto boundsView = GetAllEntitiesWith<NavMeshBoundsComponent>();
                 bool firstBounds = true;
+                std::vector<OffMeshLink> links;
                 for (auto e : boundsView)
                 {
                     const auto& bounds = m_Registry.get<NavMeshBoundsComponent>(e);
@@ -813,13 +831,14 @@ namespace OloEngine
                         boundsMin = glm::min(boundsMin, bounds.m_Min);
                         boundsMax = glm::max(boundsMax, bounds.m_Max);
                     }
+                    links.insert(links.end(), bounds.m_Links.begin(), bounds.m_Links.end());
                 }
 
                 OLO_CORE_INFO("[Scene] Auto-baking NavMesh for {} agent(s)...",
                               std::distance(agentView.begin(), agentView.end()));
 
                 NavMeshSettings settings;
-                auto navMesh = NavMeshGenerator::Generate(this, settings, boundsMin, boundsMax);
+                auto navMesh = NavMeshGenerator::Generate(this, settings, boundsMin, boundsMax, links);
                 if (navMesh)
                 {
                     SetNavMesh(navMesh);
@@ -1080,6 +1099,78 @@ namespace OloEngine
         RenderCommand::SetBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
     }
 
+    // Per-entity CPU morph-target deformation: deform the mesh by the component's
+    // active weights (or restore the base mesh when they go inactive) and re-upload
+    // the vertex buffer. Shared by the runtime (OnUpdateRuntime) and editor-preview
+    // (OnUpdateEditor) morph passes so the two can't drift. Weights are produced
+    // upstream by the animation/graph samplers or by script/preset writes.
+    static void EvaluateEntityMorphTargets(MorphTargetComponent& morphComp, MeshComponent& meshComp)
+    {
+        if (!meshComp.m_MeshSource)
+            return;
+
+        // Auto-populate MorphTargets from MeshSource if not already set
+        if (!morphComp.MorphTargets && meshComp.m_MeshSource->HasMorphTargets())
+            morphComp.MorphTargets = meshComp.m_MeshSource->GetMorphTargets();
+
+        if (!morphComp.HasActiveWeights() || !morphComp.MorphTargets)
+        {
+            // Restore base mesh only on transition from active → inactive
+            if (morphComp.WasMorphActive && !morphComp.BasePositions.empty() && meshComp.m_MeshSource)
+            {
+                auto& meshSource = meshComp.m_MeshSource;
+                auto& mutableVerts = meshSource->GetVertices();
+                for (u32 i = 0; i < static_cast<u32>(morphComp.BasePositions.size()) && i < static_cast<u32>(mutableVerts.Num()); ++i)
+                {
+                    mutableVerts[i].Position = morphComp.BasePositions[i];
+                    mutableVerts[i].Normal = morphComp.BaseNormals[i];
+                }
+                auto& vb = const_cast<Ref<VertexBuffer>&>(meshSource->GetVertexBuffer());
+                vb->SetData({ mutableVerts.GetData(), static_cast<u32>(mutableVerts.Num() * sizeof(Vertex)) });
+            }
+            morphComp.WasMorphActive = false;
+            return;
+        }
+
+        auto& meshSource = meshComp.m_MeshSource;
+        auto& vertices = meshSource->GetVertices();
+
+        // Cache base vertex data on first evaluation
+        if (morphComp.BasePositions.empty() && vertices.Num() > 0)
+        {
+            morphComp.BasePositions.resize(vertices.Num());
+            morphComp.BaseNormals.resize(vertices.Num());
+            for (u32 i = 0; i < static_cast<u32>(vertices.Num()); ++i)
+            {
+                morphComp.BasePositions[i] = vertices[i].Position;
+                morphComp.BaseNormals[i] = vertices[i].Normal;
+            }
+        }
+
+        if (morphComp.BasePositions.empty())
+            return;
+
+        // Evaluate morph deformation
+        std::vector<glm::vec3> outPositions;
+        std::vector<glm::vec3> outNormals;
+        if (MorphTargetSystem::EvaluateMorphTargets(morphComp,
+                                                    morphComp.BasePositions, morphComp.BaseNormals,
+                                                    outPositions, outNormals))
+        {
+            // Write deformed data back into MeshSource vertices and re-upload to the GPU
+            auto& mutableVerts = meshSource->GetVertices();
+            for (u32 i = 0; i < static_cast<u32>(outPositions.size()) && i < static_cast<u32>(mutableVerts.Num()); ++i)
+            {
+                mutableVerts[i].Position = outPositions[i];
+                mutableVerts[i].Normal = outNormals[i];
+            }
+
+            auto& vb = const_cast<Ref<VertexBuffer>&>(meshSource->GetVertexBuffer());
+            vb->SetData({ mutableVerts.GetData(), static_cast<u32>(mutableVerts.Num() * sizeof(Vertex)) });
+        }
+        morphComp.WasMorphActive = true;
+    }
+
     void Scene::OnUpdateRuntime(Timestep const ts)
     {
         PerformanceProfiler* perfProfiler = nullptr;
@@ -1193,86 +1284,6 @@ namespace OloEngine
                 }
             }
 
-            // Evaluate morph targets for all entities with active weights
-            // This runs after animation update so keyframe-driven weights are applied first.
-            // Morph deformation happens before skeletal skinning (morph first, then skin).
-            {
-                OLO_PROFILE_SCOPE("Morph Target Evaluation");
-                auto morphView = m_Registry.view<MorphTargetComponent, MeshComponent>();
-                for (auto e : morphView)
-                {
-                    auto& morphComp = morphView.get<MorphTargetComponent>(e);
-
-                    auto& meshComp = morphView.get<MeshComponent>(e);
-                    if (!meshComp.m_MeshSource)
-                        continue;
-
-                    // Auto-populate MorphTargets from MeshSource if not already set
-                    if (!morphComp.MorphTargets && meshComp.m_MeshSource->HasMorphTargets())
-                    {
-                        morphComp.MorphTargets = meshComp.m_MeshSource->GetMorphTargets();
-                    }
-
-                    if (!morphComp.HasActiveWeights() || !morphComp.MorphTargets)
-                    {
-                        // Restore base mesh only on transition from active → inactive
-                        if (morphComp.WasMorphActive && !morphComp.BasePositions.empty() && meshComp.m_MeshSource)
-                        {
-                            auto& meshSource = meshComp.m_MeshSource;
-                            auto& mutableVerts = meshSource->GetVertices();
-                            for (u32 i = 0; i < static_cast<u32>(morphComp.BasePositions.size()) && i < static_cast<u32>(mutableVerts.Num()); ++i)
-                            {
-                                mutableVerts[i].Position = morphComp.BasePositions[i];
-                                mutableVerts[i].Normal = morphComp.BaseNormals[i];
-                            }
-                            auto& vb = const_cast<Ref<VertexBuffer>&>(meshSource->GetVertexBuffer());
-                            vb->SetData({ mutableVerts.GetData(), static_cast<u32>(mutableVerts.Num() * sizeof(Vertex)) });
-                        }
-                        morphComp.WasMorphActive = false;
-                        continue;
-                    }
-
-                    auto& meshSource = meshComp.m_MeshSource;
-                    auto& vertices = meshSource->GetVertices();
-
-                    // Cache base vertex data on first evaluation
-                    if (morphComp.BasePositions.empty() && vertices.Num() > 0)
-                    {
-                        morphComp.BasePositions.resize(vertices.Num());
-                        morphComp.BaseNormals.resize(vertices.Num());
-                        for (u32 i = 0; i < static_cast<u32>(vertices.Num()); ++i)
-                        {
-                            morphComp.BasePositions[i] = vertices[i].Position;
-                            morphComp.BaseNormals[i] = vertices[i].Normal;
-                        }
-                    }
-
-                    if (morphComp.BasePositions.empty())
-                        continue;
-
-                    // Evaluate morph deformation
-                    std::vector<glm::vec3> outPositions;
-                    std::vector<glm::vec3> outNormals;
-                    if (MorphTargetSystem::EvaluateMorphTargets(morphComp,
-                                                                morphComp.BasePositions, morphComp.BaseNormals,
-                                                                outPositions, outNormals))
-                    {
-                        // Write deformed data back into MeshSource vertices
-                        auto& mutableVerts = meshSource->GetVertices();
-                        for (u32 i = 0; i < static_cast<u32>(outPositions.size()) && i < static_cast<u32>(mutableVerts.Num()); ++i)
-                        {
-                            mutableVerts[i].Position = outPositions[i];
-                            mutableVerts[i].Normal = outNormals[i];
-                        }
-
-                        // Re-upload vertex data to the GPU
-                        auto& vb = const_cast<Ref<VertexBuffer>&>(meshSource->GetVertexBuffer());
-                        vb->SetData({ mutableVerts.GetData(), static_cast<u32>(mutableVerts.Num() * sizeof(Vertex)) });
-                    }
-                    morphComp.WasMorphActive = true;
-                }
-            }
-
             // Update animation graphs
             {
                 OLO_PROFILE_SCOPE("Animation Graph Update");
@@ -1375,8 +1386,25 @@ namespace OloEngine
                         Animation::NoiseAnimationState* graphNoiseState = nullptr;
                         const NoiseAnimationComponent* graphNoise = ResolveNoiseAnimation(graphEntity, graphNoiseState);
                         auto const& graphEntityTransform = graphEntity.GetComponent<TransformComponent>().GetTransform();
-                        Animation::AnimationGraphSystem::Update(graphComp, *skelComp.m_Skeleton, ts.GetSeconds(), graphIkTarget, graphEntityTransform, graphSpringBone, graphSpringState, graphNoise, graphNoiseState);
+                        MorphTargetComponent* graphMorph = graphEntity.HasComponent<MorphTargetComponent>()
+                                                               ? &graphEntity.GetComponent<MorphTargetComponent>()
+                                                               : nullptr;
+                        Animation::AnimationGraphSystem::Update(graphComp, *skelComp.m_Skeleton, ts.GetSeconds(), graphIkTarget, graphEntityTransform, graphSpringBone, graphSpringState, graphNoise, graphNoiseState, graphMorph);
                     }
+                }
+            }
+
+            // Evaluate morph targets for all entities with active weights.
+            // Runs after BOTH the AnimationStateComponent and animation-graph
+            // updates so morph weights sampled from either path this frame are
+            // deformed this same frame (no one-frame lag). Morph deformation
+            // happens before skeletal skinning (morph first, then skin).
+            {
+                OLO_PROFILE_SCOPE("Morph Target Evaluation");
+                auto morphView = m_Registry.view<MorphTargetComponent, MeshComponent>();
+                for (auto e : morphView)
+                {
+                    EvaluateEntityMorphTargets(morphView.get<MorphTargetComponent>(e), morphView.get<MeshComponent>(e));
                 }
             }
 
@@ -1476,6 +1504,10 @@ namespace OloEngine
 
             // Update navigation / pathfinding
             NavigationSystem::OnUpdate(this, ts.GetSeconds());
+
+            // Refresh AI sight perception before AI decisions so behavior trees /
+            // FSMs / GOAP see fresh sensor data the same frame.
+            PerceptionSystem::OnUpdate(this, ts.GetSeconds());
 
             // Update AI (behavior trees and state machines)
             AISystem::OnUpdate(this, ts.GetSeconds());
@@ -1981,67 +2013,7 @@ namespace OloEngine
             auto morphView = m_Registry.view<MorphTargetComponent, MeshComponent>();
             for (auto e : morphView)
             {
-                auto& morphComp = morphView.get<MorphTargetComponent>(e);
-                auto& meshComp = morphView.get<MeshComponent>(e);
-                if (!meshComp.m_MeshSource)
-                    continue;
-
-                if (!morphComp.MorphTargets && meshComp.m_MeshSource->HasMorphTargets())
-                    morphComp.MorphTargets = meshComp.m_MeshSource->GetMorphTargets();
-
-                if (!morphComp.HasActiveWeights() || !morphComp.MorphTargets)
-                {
-                    // Restore base mesh only on transition from active → inactive
-                    if (morphComp.WasMorphActive && !morphComp.BasePositions.empty() && meshComp.m_MeshSource)
-                    {
-                        auto& meshSource = meshComp.m_MeshSource;
-                        auto& mutableVerts = meshSource->GetVertices();
-                        for (u32 i = 0; i < static_cast<u32>(morphComp.BasePositions.size()) && i < static_cast<u32>(mutableVerts.Num()); ++i)
-                        {
-                            mutableVerts[i].Position = morphComp.BasePositions[i];
-                            mutableVerts[i].Normal = morphComp.BaseNormals[i];
-                        }
-                        auto& vb = const_cast<Ref<VertexBuffer>&>(meshSource->GetVertexBuffer());
-                        vb->SetData({ mutableVerts.GetData(), static_cast<u32>(mutableVerts.Num() * sizeof(Vertex)) });
-                    }
-                    morphComp.WasMorphActive = false;
-                    continue;
-                }
-
-                auto& meshSource = meshComp.m_MeshSource;
-                auto& vertices = meshSource->GetVertices();
-
-                if (morphComp.BasePositions.empty() && vertices.Num() > 0)
-                {
-                    morphComp.BasePositions.resize(vertices.Num());
-                    morphComp.BaseNormals.resize(vertices.Num());
-                    for (u32 i = 0; i < static_cast<u32>(vertices.Num()); ++i)
-                    {
-                        morphComp.BasePositions[i] = vertices[i].Position;
-                        morphComp.BaseNormals[i] = vertices[i].Normal;
-                    }
-                }
-
-                if (morphComp.BasePositions.empty())
-                    continue;
-
-                std::vector<glm::vec3> outPositions;
-                std::vector<glm::vec3> outNormals;
-                if (MorphTargetSystem::EvaluateMorphTargets(morphComp,
-                                                            morphComp.BasePositions, morphComp.BaseNormals,
-                                                            outPositions, outNormals))
-                {
-                    auto& mutableVerts = meshSource->GetVertices();
-                    for (u32 i = 0; i < static_cast<u32>(outPositions.size()) && i < static_cast<u32>(mutableVerts.Num()); ++i)
-                    {
-                        mutableVerts[i].Position = outPositions[i];
-                        mutableVerts[i].Normal = outNormals[i];
-                    }
-
-                    auto& vb = const_cast<Ref<VertexBuffer>&>(meshSource->GetVertexBuffer());
-                    vb->SetData({ mutableVerts.GetData(), static_cast<u32>(mutableVerts.Num() * sizeof(Vertex)) });
-                }
-                morphComp.WasMorphActive = true;
+                EvaluateEntityMorphTargets(morphView.get<MorphTargetComponent>(e), morphView.get<MeshComponent>(e));
             }
         }
 
@@ -2270,6 +2242,10 @@ namespace OloEngine
     void Scene::OnComponentAdded<StateMachineComponent>(Entity, StateMachineComponent&) {}
     template<>
     void Scene::OnComponentAdded<GoapAgentComponent>(Entity, GoapAgentComponent&) {}
+    template<>
+    void Scene::OnComponentAdded<PerceptibleComponent>(Entity, PerceptibleComponent&) {}
+    template<>
+    void Scene::OnComponentAdded<PerceptionComponent>(Entity, PerceptionComponent&) {}
     template<>
     void Scene::OnComponentAdded<TileRendererComponent>(Entity, TileRendererComponent&) {}
 
@@ -3914,6 +3890,7 @@ namespace OloEngine
                                 params.Lacunarity = terrain.m_ProceduralLacunarity;
                                 params.Persistence = terrain.m_ProceduralPersistence;
                                 params.Shaping = terrain.m_HeightShaping;
+                                params.ErosionIterations = terrain.m_ProceduralErosionIterations;
                                 TerrainGenerator::GenerateHeightmap(*terrain.m_TerrainData, params);
                             }
                             else
@@ -4572,6 +4549,10 @@ namespace OloEngine
                         sp.m_Amplitude = clampF(water.m_FFTAmplitude, 0.0f, 100.0f, 2.0f);
                         sp.m_Choppiness = clampF(water.m_FFTChoppiness, 0.0f, 5.0f, 1.2f);
                         sp.m_Seed = water.m_FFTSeed;
+                        // Spectrum selection (§1.4): Phillips or fetch-limited JONSWAP.
+                        sp.m_SpectrumType = water.m_FFTSpectrumType;
+                        sp.m_JonswapGamma = clampF(water.m_FFTJonswapGamma, 1.0f, 10.0f, 3.3f);
+                        sp.m_JonswapFetch = clampF(water.m_FFTJonswapFetch, 1.0f, 1.0e6f, 100000.0f);
 
                         water.m_OceanField->Update(sp, animationTime, /*uploadToGpu=*/true,
                                                    /*useGpuCompute=*/water.m_FFTUseGpuCompute);
@@ -6275,6 +6256,8 @@ namespace OloEngine
     OLO_ON_COMPONENT_REMOVED_NOOP(BehaviorTreeComponent)
     OLO_ON_COMPONENT_REMOVED_NOOP(StateMachineComponent)
     OLO_ON_COMPONENT_REMOVED_NOOP(GoapAgentComponent)
+    OLO_ON_COMPONENT_REMOVED_NOOP(PerceptibleComponent)
+    OLO_ON_COMPONENT_REMOVED_NOOP(PerceptionComponent)
     OLO_ON_COMPONENT_REMOVED_NOOP(TileRendererComponent)
 
     // Specialisation: when a Rigidbody2DComponent is removed at runtime,

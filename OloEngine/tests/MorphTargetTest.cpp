@@ -342,6 +342,46 @@ TEST(MorphTargetKeyframeTest, AnimationClipStoresMorphKeyframes)
     EXPECT_FLOAT_EQ(clip->MorphKeyframes[1].Weight, 1.0f);
 }
 
+// GetMorphTracks() lazy-builds a sorted per-target cache; it is the structure
+// the runtime morph samplers (AnimationSystem + AnimationGraphSystem) read every
+// frame. Confirm it groups + sorts keyframes by target, and that a post-build
+// mutation only becomes visible after InvalidateMorphTrackCache() — the contract
+// callers rely on if they ever rewrite MorphKeyframes after first sampling.
+TEST(MorphTargetKeyframeTest, GetMorphTracksLazyBuildsSortsAndInvalidates)
+{
+    auto clip = Ref<AnimationClip>::Create();
+    clip->Duration = 2.0f;
+
+    // Intentionally out of time order and interleaved across two targets.
+    clip->MorphKeyframes.push_back({ 2.0, "Smile", 0.0f });
+    clip->MorphKeyframes.push_back({ 0.0, "Smile", 0.0f });
+    clip->MorphKeyframes.push_back({ 1.0, "Blink", 1.0f });
+    clip->MorphKeyframes.push_back({ 1.0, "Smile", 1.0f });
+
+    const auto& tracks = clip->GetMorphTracks();
+    ASSERT_EQ(tracks.size(), 2u);
+    ASSERT_TRUE(tracks.contains("Smile"));
+    ASSERT_TRUE(tracks.contains("Blink"));
+
+    const auto& smile = tracks.at("Smile");
+    ASSERT_EQ(smile.size(), 3u);
+    EXPECT_DOUBLE_EQ(smile[0].first, 0.0); // sorted ascending by time
+    EXPECT_DOUBLE_EQ(smile[1].first, 1.0);
+    EXPECT_DOUBLE_EQ(smile[2].first, 2.0);
+
+    // Mutate after the cache was built: still stale (same reference, cached map).
+    clip->MorphKeyframes.push_back({ 0.5, "Smile", 0.25f });
+    EXPECT_EQ(clip->GetMorphTracks().at("Smile").size(), 3u)
+        << "cache must not silently rebuild on mutation — callers own invalidation";
+
+    // After invalidation the new keyframe is picked up and re-sorted in place.
+    clip->InvalidateMorphTrackCache();
+    const auto& rebuilt = clip->GetMorphTracks().at("Smile");
+    ASSERT_EQ(rebuilt.size(), 4u);
+    EXPECT_DOUBLE_EQ(rebuilt[1].first, 0.5);
+    EXPECT_FLOAT_EQ(rebuilt[1].second, 0.25f);
+}
+
 // =============================================================================
 // MorphTargetSystem Tests
 // =============================================================================
