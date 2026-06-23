@@ -195,7 +195,7 @@ namespace OloEngine::MCP
                 }
                 return j; });
 
-            return ToolResult::Text(summary.dump(2));
+            return ToolResult::Structured(summary);
         }
 
         // Parse a UUID argument that may arrive as a string (preferred — u64 exceeds
@@ -281,7 +281,7 @@ namespace OloEngine::MCP
                 return ToolResult::Error(result["error"].get<std::string>());
             if (!result.value("found", false))
                 return ToolResult::Error("No entity with that UUID in the active scene.");
-            return ToolResult::Text(result.dump(2));
+            return ToolResult::Structured(result);
         }
 
         // ---- olo_scene_list_entities (main-marshaled) --------------------------
@@ -403,7 +403,7 @@ namespace OloEngine::MCP
             j["totalMB"] = toMB(total);
             j["byType"] = std::move(byType);
             j["suspectedLeakCount"] = static_cast<int>(leaks.size());
-            return ToolResult::Text(j.dump(2));
+            return ToolResult::Structured(j);
         }
 
         // ---- Perf / shader helpers ---------------------------------------------
@@ -470,7 +470,7 @@ namespace OloEngine::MCP
                 o["sortingMs"] = Round2(f.m_SortingTime);
                 o["cullingMs"] = Round2(f.m_CullingTime);
                 return o; });
-            return ToolResult::Text(j.dump(2));
+            return ToolResult::Structured(j);
         }
 
         // ---- olo_perf_bottlenecks (main-marshaled) -----------------------------
@@ -2838,7 +2838,7 @@ namespace OloEngine::MCP
 
             if (result.is_object() && result.contains("__error"))
                 return ToolResult::Error(result["__error"].get<std::string>());
-            return ToolResult::Text(result.dump(2));
+            return ToolResult::Structured(result);
         }
 
         // ---- olo_physics_overlap (main-marshaled) ------------------------------
@@ -3438,6 +3438,16 @@ namespace OloEngine::MCP
                 { "properties", Json::object() },
                 { "additionalProperties", false }
             };
+            tool.OutputSchema = Json{
+                { "type", "object" },
+                { "properties",
+                  { { "hasActiveScene", { { "type", "boolean" }, { "description", "Whether a scene is currently loaded." } } },
+                    { "isPlaying", { { "type", "boolean" }, { "description", "Whether the game is in Play mode." } } },
+                    { "name", { { "type", "string" }, { "description", "Active scene name (only when a scene is loaded)." } } },
+                    { "isPaused", { { "type", "boolean" }, { "description", "Whether the playing scene is paused (only when a scene is loaded)." } } },
+                    { "entityCount", { { "type", "integer" }, { "minimum", 0 }, { "description", "Total entity count (only when a scene is loaded)." } } } } },
+                { "required", Json::array({ "hasActiveScene", "isPlaying" }) }
+            };
             tool.MainMarshaled = true;
             tool.Handler = Handle_SceneSummary;
             server.RegisterTool(std::move(tool));
@@ -3481,6 +3491,17 @@ namespace OloEngine::MCP
                 { "required", Json::array({ "id" }) },
                 { "additionalProperties", false }
             };
+            tool.OutputSchema = Json{
+                { "type", "object" },
+                { "properties",
+                  { { "found", { { "type", "boolean" }, { "description", "True when the entity exists (a miss is returned as isError instead)." } } },
+                    { "id", { { "type", "string" }, { "description", "Entity UUID." } } },
+                    { "name", { { "type", "string" }, { "description", "Entity tag/name (empty when it has no TagComponent)." } } },
+                    { "parent", { { "type", "string" }, { "description", "Parent entity UUID; omitted when the entity has no parent." } } },
+                    { "children", { { "type", "array" }, { "items", { { "type", "string" } } }, { "description", "Child entity UUIDs." } } },
+                    { "componentsYaml", { { "type", "string" }, { "description", "All components serialized as scene YAML." } } } } },
+                { "required", Json::array({ "found", "id", "name", "children", "componentsYaml" }) }
+            };
             tool.MainMarshaled = true;
             tool.Handler = Handle_SceneGetEntity;
             server.RegisterTool(std::move(tool));
@@ -3500,6 +3521,24 @@ namespace OloEngine::MCP
                 { "properties", Json::object() },
                 { "additionalProperties", false }
             };
+            tool.OutputSchema = Json{
+                { "type", "object" },
+                { "properties",
+                  { { "totalBytes", { { "type", "integer" }, { "minimum", 0 }, { "description", "Total tracked renderer memory, bytes." } } },
+                    { "totalMB", { { "type", "number" }, { "description", "Total tracked renderer memory, MB." } } },
+                    { "byType",
+                      { { "type", "array" },
+                        { "description", "Per-resource-type breakdown; only non-empty types are listed." },
+                        { "items",
+                          { { "type", "object" },
+                            { "properties",
+                              { { "type", { { "type", "string" } } },
+                                { "bytes", { { "type", "integer" }, { "minimum", 0 } } },
+                                { "mb", { { "type", "number" } } },
+                                { "count", { { "type", "integer" }, { "minimum", 0 } } } } } } } } },
+                    { "suspectedLeakCount", { { "type", "integer" }, { "minimum", 0 }, { "description", "Number of suspected leaks detected." } } } } },
+                { "required", Json::array({ "totalBytes", "totalMB", "byType", "suspectedLeakCount" }) }
+            };
             tool.MainMarshaled = false;
             tool.Handler = Handle_MemoryReport;
             server.RegisterTool(std::move(tool));
@@ -3515,6 +3554,27 @@ namespace OloEngine::MCP
                 "draw calls, triangles, state/shader/texture binds. Server-computed snapshot from the live "
                 "profiler. Map a low fps back to draw calls / lack of instancing.";
             tool.InputSchema = Json{ { "type", "object" }, { "properties", Json::object() }, { "additionalProperties", false } };
+            tool.OutputSchema = Json{
+                { "type", "object" },
+                { "properties",
+                  { { "fps", { { "type", "number" } } },
+                    { "frameTimeMs", { { "type", "number" } } },
+                    { "cpuMs", { { "type", "number" } } },
+                    { "gpuMs", { { "type", "number" } } },
+                    { "drawCalls", { { "type", "integer" }, { "minimum", 0 } } },
+                    { "instancedDrawCalls", { { "type", "integer" }, { "minimum", 0 } } },
+                    { "instancesRendered", { { "type", "integer" }, { "minimum", 0 } } },
+                    { "instancesBatched", { { "type", "integer" }, { "minimum", 0 } } },
+                    { "triangles", { { "type", "integer" }, { "minimum", 0 } } },
+                    { "vertices", { { "type", "integer" }, { "minimum", 0 } } },
+                    { "stateChanges", { { "type", "integer" }, { "minimum", 0 } } },
+                    { "shaderBinds", { { "type", "integer" }, { "minimum", 0 } } },
+                    { "textureBinds", { { "type", "integer" }, { "minimum", 0 } } },
+                    { "commandPackets", { { "type", "integer" }, { "minimum", 0 } } },
+                    { "sortingMs", { { "type", "number" } } },
+                    { "cullingMs", { { "type", "number" } } } } },
+                { "required", Json::array({ "fps", "frameTimeMs", "cpuMs", "gpuMs", "drawCalls", "triangles" }) }
+            };
             tool.MainMarshaled = true;
             tool.Handler = Handle_PerfSnapshot;
             server.RegisterTool(std::move(tool));
@@ -4222,6 +4282,29 @@ namespace OloEngine::MCP
                     { "maxHits", { { "type", "integer" }, { "minimum", 1 }, { "maximum", 64 }, { "description", "Return up to N ordered hits (default 1 = closest only)." } } } } },
                 { "required", Json::array({ "origin" }) },
                 { "additionalProperties", false }
+            };
+            tool.OutputSchema = Json{
+                { "type", "object" },
+                { "properties",
+                  { { "origin", { { "type", "array" }, { "items", { { "type", "number" } } }, { "description", "Resolved ray origin [x, y, z]." } } },
+                    { "direction", { { "type", "array" }, { "items", { { "type", "number" } } }, { "description", "Resolved normalised ray direction [x, y, z]." } } },
+                    { "maxDistance", { { "type", "number" }, { "description", "Resolved ray length." } } },
+                    { "hitCount", { { "type", "integer" }, { "minimum", 0 }, { "description", "Number of hits returned." } } },
+                    { "hits",
+                      { { "type", "array" },
+                        { "description", "Hits ordered nearest-first." },
+                        { "items",
+                          { { "type", "object" },
+                            { "properties",
+                              { { "entity",
+                                  { { "type", "object" },
+                                    { "properties",
+                                      { { "id", { { "type", "string" } } },
+                                        { "name", { { "type", "string" } } } } } } },
+                                { "position", { { "type", "array" }, { "items", { { "type", "number" } } } } },
+                                { "normal", { { "type", "array" }, { "items", { { "type", "number" } } } } },
+                                { "distance", { { "type", "number" } } } } } } } } } } },
+                { "required", Json::array({ "origin", "direction", "maxDistance", "hitCount", "hits" }) }
             };
             tool.MainMarshaled = true;
             tool.Handler = Handle_PhysicsRaycast;
