@@ -49,9 +49,9 @@ namespace OloEngine
         Entity ResolveJournalEntity(Scene& scene)
         {
             auto view = scene.GetAllEntitiesWith<QuestJournalComponent>();
-            for (auto e : view)
+            if (auto it = view.begin(); it != view.end())
             {
-                return Entity{ e, &scene };
+                return Entity{ *it, &scene };
             }
             return {};
         }
@@ -59,13 +59,9 @@ namespace OloEngine
         // The speaking NPC the dialogue is running on, by the UUID the
         // DialogueSystem hands each handler. Invalid Entity if it can't be
         // resolved (e.g. destroyed mid-frame).
-        Entity ResolveDialogueEntity(Scene& scene, UUID dialogueEntity)
+        Entity ResolveDialogueEntity(const Scene& scene, UUID dialogueEntity)
         {
-            if (auto opt = scene.TryGetEntityWithUUID(dialogueEntity))
-            {
-                return *opt;
-            }
-            return {};
+            return scene.TryGetEntityWithUUID(dialogueEntity).value_or(Entity{});
         }
 
         // Quest id for an accept action: an explicit arg wins; an empty arg
@@ -158,7 +154,7 @@ namespace OloEngine
 
         // --------------------------- conditions ------------------------------
 
-        dialogue.RegisterConditionHandler("quest_active", [scenePtr](UUID, const std::string&, const std::string& args) -> bool
+        dialogue.RegisterConditionHandler("quest_active", [scenePtr](UUID, const std::string&, const std::string& args)
                                           {
             const std::string questId = Trim(args);
             const Entity player = ResolveJournalEntity(*scenePtr);
@@ -168,7 +164,7 @@ namespace OloEngine
             }
             return player.GetComponent<QuestJournalComponent>().Journal.IsQuestActive(questId); });
 
-        dialogue.RegisterConditionHandler("quest_completed", [scenePtr](UUID, const std::string&, const std::string& args) -> bool
+        dialogue.RegisterConditionHandler("quest_completed", [scenePtr](UUID, const std::string&, const std::string& args)
                                           {
             const std::string questId = Trim(args);
             const Entity player = ResolveJournalEntity(*scenePtr);
@@ -178,7 +174,7 @@ namespace OloEngine
             }
             return player.GetComponent<QuestJournalComponent>().Journal.HasCompletedQuest(questId); });
 
-        dialogue.RegisterConditionHandler("has_quest", [scenePtr](UUID, const std::string&, const std::string& args) -> bool
+        dialogue.RegisterConditionHandler("has_quest", [scenePtr](UUID, const std::string&, const std::string& args)
                                           {
             const std::string questId = Trim(args);
             const Entity player = ResolveJournalEntity(*scenePtr);

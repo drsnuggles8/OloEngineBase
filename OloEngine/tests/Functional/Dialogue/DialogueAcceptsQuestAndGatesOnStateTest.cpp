@@ -44,6 +44,7 @@
 #include "OloEngine/Gameplay/Quest/QuestObjective.h"
 
 #include <string>
+#include <string_view>
 #include <vector>
 
 using namespace OloEngine;
@@ -56,11 +57,11 @@ namespace
     // A minimal single-stage, single-objective quest so AcceptQuest's
     // "non-empty stages / requirements met" guards pass; the objective itself
     // is irrelevant to acceptance and state-gating.
-    QuestDefinition MakeSimpleQuest(const std::string& id)
+    QuestDefinition MakeSimpleQuest(std::string_view id)
     {
         QuestDefinition def;
-        def.QuestID = id;
-        def.Title = id;
+        def.QuestID = std::string(id);
+        def.Title = std::string(id);
 
         QuestStage stage;
         stage.StageID = "stage0";
@@ -94,7 +95,7 @@ class DialogueAcceptsQuestAndGatesOnStateTest : public FunctionalTest
 
         m_Npc = GetScene().CreateEntity("NPC");
         auto& giver = m_Npc.AddComponent<QuestGiverComponent>();
-        giver.OfferedQuestIDs.push_back(kQuestId);
+        giver.OfferedQuestIDs.emplace_back(kQuestId);
         // TriggerOnce off so the condition test can re-run the same dialogue.
         m_Npc.AddComponent<DialogueComponent>().m_TriggerOnce = false;
         m_Npc.AddComponent<DialogueStateComponent>();
@@ -138,14 +139,14 @@ TEST_F(DialogueAcceptsQuestAndGatesOnStateTest, AcceptActionMovesQuestToActiveAn
     action.ID = UUID{ 0xA1ULL };
     action.Type = "action";
     action.Name = "Accept";
-    action.Properties.emplace("actionName", DialoguePropertyValue{ std::string("accept_quest") });
-    action.Properties.emplace("actionArgs", DialoguePropertyValue{ std::string(kQuestId) });
+    action.Properties.try_emplace("actionName", DialoguePropertyValue{ std::string("accept_quest") });
+    action.Properties.try_emplace("actionArgs", DialoguePropertyValue{ std::string(kQuestId) });
 
     DialogueNodeData say;
     say.ID = UUID{ 0xB1ULL };
     say.Type = "dialogue";
     say.Name = "Done";
-    say.Properties.emplace("text", DialoguePropertyValue{ std::string("Accepted!") });
+    say.Properties.try_emplace("text", DialoguePropertyValue{ std::string("Accepted!") });
 
     tree->GetNodesWritable().push_back(std::move(action));
     tree->GetNodesWritable().push_back(std::move(say));
@@ -161,7 +162,7 @@ TEST_F(DialogueAcceptsQuestAndGatesOnStateTest, AcceptActionMovesQuestToActiveAn
     EXPECT_EQ(PlayerJournal().GetQuestStatus(kQuestId), QuestStatus::Unavailable);
 
     std::vector<QuestStartedEvent> started;
-    GetScene().GetGameplayEvents().Subscribe<QuestStartedEvent>([&](const QuestStartedEvent& e)
+    GetScene().GetGameplayEvents().Subscribe<QuestStartedEvent>([&started](const QuestStartedEvent& e)
                                                                 { started.push_back(e); });
 
     auto* dialogueSystem = GetScene().GetDialogueSystem();
@@ -196,14 +197,14 @@ TEST_F(DialogueAcceptsQuestAndGatesOnStateTest, BareAcceptActionUsesQuestGiverOf
     action.ID = UUID{ 0xA2ULL };
     action.Type = "action";
     action.Name = "Offer";
-    action.Properties.emplace("actionName", DialoguePropertyValue{ std::string("accept_quest") });
+    action.Properties.try_emplace("actionName", DialoguePropertyValue{ std::string("accept_quest") });
     // intentionally no "actionArgs" property
 
     DialogueNodeData say;
     say.ID = UUID{ 0xB2ULL };
     say.Type = "dialogue";
     say.Name = "Done";
-    say.Properties.emplace("text", DialoguePropertyValue{ std::string("Take this.") });
+    say.Properties.try_emplace("text", DialoguePropertyValue{ std::string("Take this.") });
 
     tree->GetNodesWritable().push_back(std::move(action));
     tree->GetNodesWritable().push_back(std::move(say));
@@ -235,20 +236,20 @@ TEST_F(DialogueAcceptsQuestAndGatesOnStateTest, ConditionNodeBranchesOnQuestActi
     cond.ID = UUID{ 0xC1ULL };
     cond.Type = "condition";
     cond.Name = "CheckQuest";
-    cond.Properties.emplace("conditionExpression", DialoguePropertyValue{ std::string("quest_active") });
-    cond.Properties.emplace("conditionArgs", DialoguePropertyValue{ std::string(kQuestId) });
+    cond.Properties.try_emplace("conditionExpression", DialoguePropertyValue{ std::string("quest_active") });
+    cond.Properties.try_emplace("conditionArgs", DialoguePropertyValue{ std::string(kQuestId) });
 
     DialogueNodeData yes;
     yes.ID = UUID{ 0xD1ULL };
     yes.Type = "dialogue";
     yes.Name = "Yes";
-    yes.Properties.emplace("text", DialoguePropertyValue{ std::string("HaveIt") });
+    yes.Properties.try_emplace("text", DialoguePropertyValue{ std::string("HaveIt") });
 
     DialogueNodeData no;
     no.ID = UUID{ 0xE1ULL };
     no.Type = "dialogue";
     no.Name = "No";
-    no.Properties.emplace("text", DialoguePropertyValue{ std::string("GoGetIt") });
+    no.Properties.try_emplace("text", DialoguePropertyValue{ std::string("GoGetIt") });
 
     tree->GetNodesWritable().push_back(std::move(cond));
     tree->GetNodesWritable().push_back(std::move(yes));
