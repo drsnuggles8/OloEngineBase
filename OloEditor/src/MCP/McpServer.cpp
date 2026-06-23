@@ -136,6 +136,22 @@ namespace OloEngine::MCP
             }
         }
 
+        // Apply redaction in place to every string leaf of a structured-content
+        // value, recursing through objects and arrays. The text mirror in `content`
+        // is redacted by RedactContentArray; this keeps the same path-scrubbing
+        // guarantee for the parallel `structuredContent` (e.g. asset paths embedded
+        // in a serialized component dump) before it leaves the process.
+        void RedactStructuredContent(Json& value)
+        {
+            if (value.is_string())
+                value = RedactPathsInText(value.get<std::string>());
+            else if (value.is_object() || value.is_array())
+            {
+                for (auto& child : value)
+                    RedactStructuredContent(child);
+            }
+        }
+
     } // namespace
 
     // ---- ToolResult ------------------------------------------------------------
@@ -153,6 +169,17 @@ namespace OloEngine::MCP
         ToolResult r;
         r.Content = Json::array({ Json{ { "type", "text" }, { "text", message } } });
         r.IsError = true;
+        return r;
+    }
+
+    ToolResult ToolResult::Structured(const Json& data)
+    {
+        ToolResult r;
+        // Mirror the structured object into a text block (spec: keep a back-compat
+        // serialization in `content` for clients that don't parse structuredContent).
+        r.Content = Json::array({ Json{ { "type", "text" }, { "text", data.dump(2) } } });
+        r.StructuredContent = data;
+        r.IsError = false;
         return r;
     }
 
@@ -564,6 +591,11 @@ namespace OloEngine::MCP
             entry["inputSchema"] = tool.InputSchema.is_null()
                                        ? Json{ { "type", "object" } }
                                        : tool.InputSchema;
+            // JSON Schema for the structured result (spec 2025-06-18); omitted unless
+            // a non-empty object so text-only tools stay clean. A client may validate
+            // a tool's structuredContent against this.
+            if (tool.OutputSchema.is_object() && !tool.OutputSchema.empty())
+                entry["outputSchema"] = tool.OutputSchema;
             // Behavioural hints (readOnlyHint, etc.); omitted unless a non-empty
             // object so a tool without annotations stays clean.
             if (tool.Annotations.is_object() && !tool.Annotations.empty())
@@ -598,9 +630,18 @@ namespace OloEngine::MCP
         }
 
         if (RedactPaths())
+        {
             RedactContentArray(result.Content);
+            if (!result.StructuredContent.is_null())
+                RedactStructuredContent(result.StructuredContent);
+        }
 
-        return MakeResult(id, Json{ { "content", std::move(result.Content) }, { "isError", result.IsError } });
+        Json resultObj = Json{ { "content", std::move(result.Content) }, { "isError", result.IsError } };
+        // Typed result alongside the text mirror (spec 2025-06-18); omitted for
+        // text-only tools so their result shape is unchanged.
+        if (!result.StructuredContent.is_null())
+            resultObj["structuredContent"] = std::move(result.StructuredContent);
+        return MakeResult(id, std::move(resultObj));
     }
 
     const ToolDef* McpServer::FindTool(const std::string& name) const
