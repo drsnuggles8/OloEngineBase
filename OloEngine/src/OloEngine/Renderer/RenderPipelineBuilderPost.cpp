@@ -24,6 +24,14 @@ namespace OloEngine::RenderPipelineBuilderInternal
         {
             graph.AddNode(PrepareGraphNode("SSRPass", inputs.Passes->SSR));
         }
+        // ContactShadow (deferred-only) darkens the SSR/SSGI/AO-lit scene colour
+        // with short-range contact shadows for the sun. It runs last in the
+        // screen-space chain (after SSR, before Bloom) and self-skips on the
+        // forward path (its ContactShadowColor resource is never declared).
+        if (inputs.Passes->ContactShadow)
+        {
+            graph.AddNode(PrepareGraphNode("ContactShadowPass", inputs.Passes->ContactShadow));
+        }
         graph.AddNode(PrepareGraphNode("BloomPass",
                                        inputs.Passes->Bloom));
         graph.AddNode(PrepareGraphNode("DOFPass",

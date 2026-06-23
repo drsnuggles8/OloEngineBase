@@ -750,6 +750,8 @@
 		"OloEngine/Renderer/Passes/SSRRenderPass.cpp"
 		"OloEngine/Renderer/Passes/SSGIRenderPass.h"
 		"OloEngine/Renderer/Passes/SSGIRenderPass.cpp"
+		"OloEngine/Renderer/Passes/ContactShadowRenderPass.h"
+		"OloEngine/Renderer/Passes/ContactShadowRenderPass.cpp"
 		"OloEngine/Renderer/Passes/GTAORenderPass.h"
 		"OloEngine/Renderer/Passes/GTAORenderPass.cpp"
 		"OloEngine/Renderer/Passes/SSSRenderPass.h"

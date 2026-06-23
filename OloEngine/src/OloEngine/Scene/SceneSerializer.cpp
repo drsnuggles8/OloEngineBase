@@ -6427,6 +6427,15 @@ namespace OloEngine
             out << YAML::Key << "SSGIRayCount" << YAML::Value << pp.SSGIRayCount;
             out << YAML::Key << "SSGIEdgeFade" << YAML::Value << pp.SSGIEdgeFade;
             out << YAML::Key << "SSGIDebugView" << YAML::Value << pp.SSGIDebugView;
+            out << YAML::Key << "ContactShadowEnabled" << YAML::Value << pp.ContactShadowEnabled;
+            out << YAML::Key << "ContactShadowIntensity" << YAML::Value << pp.ContactShadowIntensity;
+            out << YAML::Key << "ContactShadowMaxDistance" << YAML::Value << pp.ContactShadowMaxDistance;
+            out << YAML::Key << "ContactShadowThickness" << YAML::Value << pp.ContactShadowThickness;
+            out << YAML::Key << "ContactShadowStride" << YAML::Value << pp.ContactShadowStride;
+            out << YAML::Key << "ContactShadowMaxSteps" << YAML::Value << pp.ContactShadowMaxSteps;
+            out << YAML::Key << "ContactShadowBias" << YAML::Value << pp.ContactShadowBias;
+            out << YAML::Key << "ContactShadowEdgeFade" << YAML::Value << pp.ContactShadowEdgeFade;
+            out << YAML::Key << "ContactShadowDebugView" << YAML::Value << pp.ContactShadowDebugView;
             out << YAML::Key << "AutoExposureEnabled" << YAML::Value << pp.AutoExposureEnabled;
             out << YAML::Key << "AutoExposureMinLogLuminance" << YAML::Value << pp.AutoExposureMinLogLuminance;
             out << YAML::Key << "AutoExposureMaxLogLuminance" << YAML::Value << pp.AutoExposureMaxLogLuminance;
@@ -6617,6 +6626,15 @@ namespace OloEngine
                 TrySet(pp.SSGIRayCount, ppNode["SSGIRayCount"]);
                 TrySet(pp.SSGIEdgeFade, ppNode["SSGIEdgeFade"]);
                 TrySet(pp.SSGIDebugView, ppNode["SSGIDebugView"]);
+                TrySet(pp.ContactShadowEnabled, ppNode["ContactShadowEnabled"]);
+                TrySet(pp.ContactShadowIntensity, ppNode["ContactShadowIntensity"]);
+                TrySet(pp.ContactShadowMaxDistance, ppNode["ContactShadowMaxDistance"]);
+                TrySet(pp.ContactShadowThickness, ppNode["ContactShadowThickness"]);
+                TrySet(pp.ContactShadowStride, ppNode["ContactShadowStride"]);
+                TrySet(pp.ContactShadowMaxSteps, ppNode["ContactShadowMaxSteps"]);
+                TrySet(pp.ContactShadowBias, ppNode["ContactShadowBias"]);
+                TrySet(pp.ContactShadowEdgeFade, ppNode["ContactShadowEdgeFade"]);
+                TrySet(pp.ContactShadowDebugView, ppNode["ContactShadowDebugView"]);
                 TrySet(pp.AutoExposureEnabled, ppNode["AutoExposureEnabled"]);
                 TrySet(pp.AutoExposureMinLogLuminance, ppNode["AutoExposureMinLogLuminance"]);
                 TrySet(pp.AutoExposureMaxLogLuminance, ppNode["AutoExposureMaxLogLuminance"]);
@@ -6630,6 +6648,7 @@ namespace OloEngine
                 SanitizeAutoExposure(pp);
                 SanitizeSSR(pp);
                 SanitizeSSGI(pp);
+                SanitizeContactShadow(pp);
             }
 
             DeserializeSnowSettings(data, m_Scene->GetSnowSettings());
@@ -6787,6 +6806,15 @@ namespace OloEngine
             out << YAML::Key << "SSGIRayCount" << YAML::Value << pp.SSGIRayCount;
             out << YAML::Key << "SSGIEdgeFade" << YAML::Value << pp.SSGIEdgeFade;
             out << YAML::Key << "SSGIDebugView" << YAML::Value << pp.SSGIDebugView;
+            out << YAML::Key << "ContactShadowEnabled" << YAML::Value << pp.ContactShadowEnabled;
+            out << YAML::Key << "ContactShadowIntensity" << YAML::Value << pp.ContactShadowIntensity;
+            out << YAML::Key << "ContactShadowMaxDistance" << YAML::Value << pp.ContactShadowMaxDistance;
+            out << YAML::Key << "ContactShadowThickness" << YAML::Value << pp.ContactShadowThickness;
+            out << YAML::Key << "ContactShadowStride" << YAML::Value << pp.ContactShadowStride;
+            out << YAML::Key << "ContactShadowMaxSteps" << YAML::Value << pp.ContactShadowMaxSteps;
+            out << YAML::Key << "ContactShadowBias" << YAML::Value << pp.ContactShadowBias;
+            out << YAML::Key << "ContactShadowEdgeFade" << YAML::Value << pp.ContactShadowEdgeFade;
+            out << YAML::Key << "ContactShadowDebugView" << YAML::Value << pp.ContactShadowDebugView;
             out << YAML::Key << "AutoExposureEnabled" << YAML::Value << pp.AutoExposureEnabled;
             out << YAML::Key << "AutoExposureMinLogLuminance" << YAML::Value << pp.AutoExposureMinLogLuminance;
             out << YAML::Key << "AutoExposureMaxLogLuminance" << YAML::Value << pp.AutoExposureMaxLogLuminance;
@@ -6927,6 +6955,15 @@ namespace OloEngine
                 TrySet(pp.SSGIRayCount, ppNode["SSGIRayCount"]);
                 TrySet(pp.SSGIEdgeFade, ppNode["SSGIEdgeFade"]);
                 TrySet(pp.SSGIDebugView, ppNode["SSGIDebugView"]);
+                TrySet(pp.ContactShadowEnabled, ppNode["ContactShadowEnabled"]);
+                TrySet(pp.ContactShadowIntensity, ppNode["ContactShadowIntensity"]);
+                TrySet(pp.ContactShadowMaxDistance, ppNode["ContactShadowMaxDistance"]);
+                TrySet(pp.ContactShadowThickness, ppNode["ContactShadowThickness"]);
+                TrySet(pp.ContactShadowStride, ppNode["ContactShadowStride"]);
+                TrySet(pp.ContactShadowMaxSteps, ppNode["ContactShadowMaxSteps"]);
+                TrySet(pp.ContactShadowBias, ppNode["ContactShadowBias"]);
+                TrySet(pp.ContactShadowEdgeFade, ppNode["ContactShadowEdgeFade"]);
+                TrySet(pp.ContactShadowDebugView, ppNode["ContactShadowDebugView"]);
                 TrySet(pp.AutoExposureEnabled, ppNode["AutoExposureEnabled"]);
                 TrySet(pp.AutoExposureMinLogLuminance, ppNode["AutoExposureMinLogLuminance"]);
                 TrySet(pp.AutoExposureMaxLogLuminance, ppNode["AutoExposureMaxLogLuminance"]);
@@ -6940,6 +6977,7 @@ namespace OloEngine
                 SanitizeAutoExposure(pp);
                 SanitizeSSR(pp);
                 SanitizeSSGI(pp);
+                SanitizeContactShadow(pp);
             }
 
             DeserializeSnowSettings(data, m_Scene->GetSnowSettings());
