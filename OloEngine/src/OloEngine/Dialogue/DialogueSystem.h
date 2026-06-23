@@ -18,8 +18,14 @@ namespace OloEngine
     class DialogueSystem
     {
       public:
-        using ConditionCallback = std::function<bool(const std::string& conditionName, const std::string& args)>;
-        using ActionCallback = std::function<void(const std::string& actionName, const std::string& args)>;
+        // Handlers receive the UUID of the entity whose dialogue is being
+        // processed (the speaking NPC), so a bridge can recover the actor
+        // context the node properties alone don't carry — e.g. read that NPC's
+        // QuestGiverComponent. UUID (not Entity) keeps this header free of the
+        // heavy Scene/Entity/EnTT include; callers resolve the Entity from the
+        // scene when they need it.
+        using ConditionCallback = std::function<bool(UUID dialogueEntity, const std::string& conditionName, const std::string& args)>;
+        using ActionCallback = std::function<void(UUID dialogueEntity, const std::string& actionName, const std::string& args)>;
 
         explicit DialogueSystem(Scene* scene);
         ~DialogueSystem();
@@ -36,8 +42,8 @@ namespace OloEngine
 
       private:
         void ProcessNode(Entity entity, UUID nodeID, u32 hopCount = 0);
-        bool EvaluateCondition(const std::string& conditionName, const std::string& args);
-        void ExecuteAction(const std::string& actionName, const std::string& args);
+        bool EvaluateCondition(UUID dialogueEntity, const std::string& conditionName, const std::string& args);
+        void ExecuteAction(UUID dialogueEntity, const std::string& actionName, const std::string& args);
 
         static constexpr u32 s_MaxHopCount = 256;
 

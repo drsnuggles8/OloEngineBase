@@ -404,6 +404,7 @@ add_executable(OloEngine-Tests
 		Functional/AnimationPhysics/TwoCharacterControllersCoexistTest.cpp
 		Functional/Gameplay/AbilityResourceCostDeductedFromManaTest.cpp
 		Functional/Dialogue/DialogueSelectChoiceBranchesToTargetTest.cpp
+		Functional/Dialogue/DialogueAcceptsQuestAndGatesOnStateTest.cpp
 		Functional/AI/BehaviorTreeSequenceShortCircuitsOnFailureTest.cpp
 		Functional/Scripting/LuaReadsTransformOfAnotherEntityTest.cpp
 		Functional/SaveGame/InventoryComponentSceneYAMLRoundTripTest.cpp

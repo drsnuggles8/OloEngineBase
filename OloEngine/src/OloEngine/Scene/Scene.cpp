@@ -82,6 +82,7 @@
 #include "OloEngine/Gameplay/Inventory/InventoryComponents.h"
 #include "OloEngine/Gameplay/Quest/QuestSystem.h"
 #include "OloEngine/Gameplay/Quest/QuestComponents.h"
+#include "OloEngine/Gameplay/Quest/QuestDialogueBridge.h"
 #include "OloEngine/Gameplay/Abilities/GameplayAbilitySystem.h"
 #include "OloEngine/Gameplay/GameplayEventBus.h"
 #include "OloEngine/Audio/AudioEvents/AudioEventsManager.h"
@@ -519,6 +520,11 @@ namespace OloEngine
     void Scene::InitDialogueSystem()
     {
         m_DialogueSystem = std::make_unique<DialogueSystem>(this);
+        // Composition root: bridge dialogue action/condition nodes to the quest
+        // system so NPC conversations can accept/advance/complete quests and
+        // branch on quest state. Lives here so both the runtime (OnRuntimeStart)
+        // and headless test harnesses (EnableDialogue) wire the same handlers.
+        RegisterQuestDialogueHandlers(*m_DialogueSystem, *this);
     }
 
     void Scene::InitAudioRuntime()
