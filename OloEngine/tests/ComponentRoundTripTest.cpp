@@ -2918,4 +2918,47 @@ namespace OloEngine::Tests
         EXPECT_NEAR(noise.Gain, 0.5f, kFloatEpsilon) << "Inf gain should fall back to the default";
         EXPECT_NEAR(noise.Weight, 1.0f, kFloatEpsilon) << "-Inf weight should fall back to the default";
     }
+
+    // -------------------------------------------------------------------------
+    // NavMeshBoundsComponent — off-mesh links (vector-of-structs YAML sequence).
+    // Guards the SceneSerializer emit/read sides for the m_Links field added with
+    // the off-mesh-link feature: a forgotten Start/End/Radius/Bidirectional key,
+    // or a dropped sequence, vanishes silently from saved scenes otherwise.
+    // -------------------------------------------------------------------------
+    TEST(ComponentRoundTrip, NavMeshBoundsOffMeshLinksSurviveYAMLRoundTrip)
+    {
+        std::string yaml;
+        {
+            auto scene = Scene::Create();
+            Entity entity = scene->CreateEntity(kTestTag);
+            auto& nmb = entity.AddComponent<NavMeshBoundsComponent>();
+            nmb.m_Min = { -7.0f, -2.0f, -7.0f };
+            nmb.m_Max = { 7.0f, 12.0f, 7.0f };
+            nmb.m_Links.emplace_back(glm::vec3{ -3.0f, 0.25f, 1.0f }, glm::vec3{ 3.5f, 0.5f, -1.5f },
+                                     /*radius=*/0.8f, /*bidirectional=*/false);
+            nmb.m_Links.emplace_back(glm::vec3{ 1.0f, 0.0f, 2.0f }, glm::vec3{ -1.0f, 1.0f, -2.0f },
+                                     /*radius=*/1.25f, /*bidirectional=*/true);
+            yaml = SceneSerializer(scene).SerializeToYAML();
+        }
+
+        auto reloaded = Scene::Create();
+        ASSERT_TRUE(SceneSerializer(reloaded).DeserializeFromYAML(yaml));
+
+        Entity restored = FindByTag(*reloaded, kTestTag);
+        ASSERT_TRUE(static_cast<bool>(restored));
+        ASSERT_TRUE(restored.HasComponent<NavMeshBoundsComponent>())
+            << "NavMeshBoundsComponent was dropped during round-trip.";
+
+        const auto& nmb = restored.GetComponent<NavMeshBoundsComponent>();
+        ASSERT_EQ(nmb.m_Links.size(), 2u) << "off-mesh link list lost entries during round-trip.";
+
+        EXPECT_NEAR(nmb.m_Links[0].m_Start.x, -3.0f, kFloatEpsilon);
+        EXPECT_NEAR(nmb.m_Links[0].m_End.z, -1.5f, kFloatEpsilon);
+        EXPECT_NEAR(nmb.m_Links[0].m_Radius, 0.8f, kFloatEpsilon);
+        EXPECT_FALSE(nmb.m_Links[0].m_Bidirectional);
+
+        EXPECT_NEAR(nmb.m_Links[1].m_Start.z, 2.0f, kFloatEpsilon);
+        EXPECT_NEAR(nmb.m_Links[1].m_Radius, 1.25f, kFloatEpsilon);
+        EXPECT_TRUE(nmb.m_Links[1].m_Bidirectional);
+    }
 } // namespace OloEngine::Tests

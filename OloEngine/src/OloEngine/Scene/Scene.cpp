@@ -815,6 +815,7 @@ namespace OloEngine
 
                 auto boundsView = GetAllEntitiesWith<NavMeshBoundsComponent>();
                 bool firstBounds = true;
+                std::vector<OffMeshLink> links;
                 for (auto e : boundsView)
                 {
                     const auto& bounds = m_Registry.get<NavMeshBoundsComponent>(e);
@@ -829,13 +830,14 @@ namespace OloEngine
                         boundsMin = glm::min(boundsMin, bounds.m_Min);
                         boundsMax = glm::max(boundsMax, bounds.m_Max);
                     }
+                    links.insert(links.end(), bounds.m_Links.begin(), bounds.m_Links.end());
                 }
 
                 OLO_CORE_INFO("[Scene] Auto-baking NavMesh for {} agent(s)...",
                               std::distance(agentView.begin(), agentView.end()));
 
                 NavMeshSettings settings;
-                auto navMesh = NavMeshGenerator::Generate(this, settings, boundsMin, boundsMax);
+                auto navMesh = NavMeshGenerator::Generate(this, settings, boundsMin, boundsMax, links);
                 if (navMesh)
                 {
                     SetNavMesh(navMesh);
