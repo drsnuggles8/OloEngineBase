@@ -363,4 +363,111 @@ namespace OloEngine::Tests
             << ") — the compute pipeline is not producing the reference ocean. Compare "
                "OceanFFT_GpuCompute.png vs OceanFFT_CpuReference.png";
     }
+
+    // Switching the spectrum Phillips → JONSWAP (§1.4) must (a) still render an
+    // opaque ocean (not a see-through / broken surface) and (b) visibly change
+    // the wave field — end-to-end proof the spectrum selector reaches real
+    // pixels through the full pipeline (Scene update → JONSWAP h0 regeneration →
+    // GPU compute evolve/IFFT → Water.glsl sampling → tonemap), not just that
+    // the enum is plumbed. Evidence: OceanFFT_{Phillips,Jonswap}Spectrum.png.
+    TEST_F(OceanFFTVisualEvidenceTest, JonswapSpectrumRendersOpaqueAndDiffersFromPhillips)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+
+        struct ScopedMockTime
+        {
+            explicit ScopedMockTime(f32 t)
+            {
+                Time::SetMockTime(t);
+            }
+            ~ScopedMockTime()
+            {
+                Time::ClearMockTime();
+            }
+        } scopedMockTime(kCaptureTime);
+
+        // Grazing pose so wave shape dominates the frame and the foreground band
+        // can be checked for water opacity.
+        const glm::vec3 pos(0.0f, 3.0f, 42.0f);
+        const f32 yaw = 0.0f, pitch = 0.05f;
+
+        ASSERT_TRUE(static_cast<bool>(m_OceanEntity));
+        auto& wc = m_OceanEntity.GetComponent<WaterComponent>();
+        ASSERT_TRUE(wc.m_UseFFT);
+
+        // Use an open-ocean-scale patch so the realistic JONSWAP peak wavelength
+        // (tens of metres) is BOTH grid-resolvable AND gently sloped. A small
+        // patch can't do this: the realistic long-swell peak falls below the
+        // grid fundamental (invisible toggle), and forcing the peak on-grid with
+        // a short fetch yields ~10 m waves that the field's RMS height
+        // normalisation over-steepens into an unphysical breaking mess. A larger
+        // patch keeps the dominant wave both visible and physically plausible.
+        wc.m_FFTPatchSize = 200.0f;
+        wc.m_FFTAmplitude = 4.0f;
+
+        // Default spectrum is Phillips.
+        wc.m_FFTSpectrumType = Ocean::SpectrumType::Phillips;
+        std::vector<u8> phillipsFrame;
+        Capture("PhillipsSpectrum", pos, yaw, pitch, phillipsFrame);
+        if (::testing::Test::HasFatalFailure())
+            return;
+
+        // Fetch-limited JONSWAP. With V=18 m/s and F≈70 km the peak frequency
+        // ωp = 22·(g²/(V·F))^(1/3) sits at a ~70 m wavelength — resolved on the
+        // 200 m patch (~3 dominant waves across it) and gentle enough to read as
+        // a regular swell rather than breaking chop. JONSWAP concentrates energy
+        // at that peak, so its sea looks more regular/organised than the broader
+        // multi-scale Phillips field at the same wind and wave height.
+        wc.m_FFTSpectrumType = Ocean::SpectrumType::JONSWAP;
+        wc.m_FFTJonswapGamma = 3.3f;
+        wc.m_FFTJonswapFetch = 70000.0f;
+        std::vector<u8> jonswapFrame;
+        Capture("JonswapSpectrum", pos, yaw, pitch, jonswapFrame);
+        if (::testing::Test::HasFatalFailure())
+            return;
+
+        // Both frames must be non-black.
+        auto meanChannelOf = [](const std::vector<u8>& px)
+        {
+            u64 lumaSum = 0;
+            for (std::size_t i = 0; i < px.size(); i += 4)
+                lumaSum += px[i] + px[i + 1] + px[i + 2];
+            return static_cast<f64>(lumaSum) / (static_cast<f64>(kWidth) * kHeight * 3.0);
+        };
+        EXPECT_GT(meanChannelOf(phillipsFrame), 5.0) << "Phillips frame rendered (near-)black";
+        EXPECT_GT(meanChannelOf(jonswapFrame), 5.0) << "JONSWAP frame rendered (near-)black";
+
+        // The JONSWAP foreground band must read as opaque water (blue/teal), not
+        // the magenta seafloor showing through a see-through surface.
+        const u32 bandY0 = (kHeight * 3u) / 4u;
+        const u32 bandY1 = (kHeight * 7u) / 8u;
+        u64 sumR = 0, sumG = 0, sumB = 0, count = 0;
+        for (u32 y = bandY0; y < bandY1; ++y)
+            for (u32 x = kWidth / 4u; x < (kWidth * 3u) / 4u; ++x)
+            {
+                const std::size_t idx = (static_cast<std::size_t>(y) * kWidth + x) * 4u;
+                sumR += jonswapFrame[idx + 0];
+                sumG += jonswapFrame[idx + 1];
+                sumB += jonswapFrame[idx + 2];
+                ++count;
+            }
+        ASSERT_GT(count, 0u);
+        const f64 meanR = static_cast<f64>(sumR) / count;
+        const f64 meanG = static_cast<f64>(sumG) / count;
+        const f64 meanB = static_cast<f64>(sumB) / count;
+        const bool looksLikeMagentaSeafloor =
+            (meanR > 110.0) && (meanB > 110.0) && (meanG < meanR * 0.55) && (meanG < meanB * 0.55);
+        EXPECT_FALSE(looksLikeMagentaSeafloor)
+            << "JONSWAP foreground band reads as the magenta seafloor (R=" << meanR << " G=" << meanG
+            << " B=" << meanB << ") — surface see-through. See OceanFFT_JonswapSpectrum.png";
+        EXPECT_GE(meanB, meanR)
+            << "JONSWAP foreground band is not water-blue (R=" << meanR << " G=" << meanG << " B=" << meanB << ")";
+
+        // Phillips vs JONSWAP must visibly differ — the selector reaches pixels.
+        const f64 rmse = Rgba8Rmse(phillipsFrame, jonswapFrame);
+        EXPECT_GT(rmse, 3.0)
+            << "Phillips and JONSWAP frames are nearly identical (RMSE " << rmse
+            << ") — the spectrum selection is not reaching the rendered surface. Compare "
+               "OceanFFT_PhillipsSpectrum.png vs OceanFFT_JonswapSpectrum.png";
+    }
 } // namespace OloEngine::Tests

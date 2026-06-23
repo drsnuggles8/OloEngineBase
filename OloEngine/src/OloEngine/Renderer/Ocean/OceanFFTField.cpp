@@ -18,6 +18,9 @@ namespace OloEngine::Ocean
         k.SmallWaveSuppression = p.m_SmallWaveSuppression;
         k.DirectionalExponent = p.m_DirectionalExponent;
         k.Seed = p.m_Seed;
+        k.SpectrumType = static_cast<u32>(p.m_SpectrumType);
+        k.JonswapGamma = p.m_JonswapGamma;
+        k.JonswapFetch = p.m_JonswapFetch;
         return k;
     }
 
