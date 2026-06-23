@@ -228,6 +228,176 @@ TEST(OceanSpectrum, DispersionMonotonicAndDeepWater)
 }
 
 // ---------------------------------------------------------------------------
+// JONSWAP spectrum shape (WATER_FUTURE_IMPROVEMENTS.md §1.4)
+//
+// JONSWAP is the fetch-limited sharpened-peak alternative to Phillips. These
+// pin the defining properties: the γ^r peak enhancement, the fetch→peak-
+// frequency relation, the wind directional behaviour shared with Phillips, and
+// that the SpectrumType selector actually routes GenerateH0 through it.
+// ---------------------------------------------------------------------------
+
+namespace
+{
+    // k_p = ωp²/g, with the JONSWAP fetch relation ωp = 22·(g²/(V·F))^(1/3).
+    // The 1-D frequency spectrum peaks at ωp; this is the matching wavenumber.
+    f32 JonswapPeakWavenumber(const Ocean::SpectrumParams& p)
+    {
+        const f32 g = p.m_Gravity;
+        const f32 omegaPeak = 22.0f * std::cbrt((g * g) / (p.m_WindSpeed * p.m_JonswapFetch));
+        return omegaPeak * omegaPeak / g;
+    }
+} // namespace
+
+TEST(OceanSpectrum, JonswapZeroAtOrigin)
+{
+    Ocean::SpectrumParams p{};
+    p.m_SpectrumType = Ocean::SpectrumType::JONSWAP;
+    EXPECT_FLOAT_EQ(Ocean::JonswapSpectrum(p, glm::vec2(0.0f)), 0.0f);
+}
+
+TEST(OceanSpectrum, JonswapZeroPerpendicularToWind)
+{
+    Ocean::SpectrumParams p{};
+    p.m_SpectrumType = Ocean::SpectrumType::JONSWAP;
+    p.m_WindDirection = glm::vec2(1.0f, 0.0f);
+    const f32 kp = JonswapPeakWavenumber(p);
+    EXPECT_NEAR(Ocean::JonswapSpectrum(p, glm::vec2(0.0f, kp)), 0.0f, 1e-9f); // ⟂ wind
+    EXPECT_GT(Ocean::JonswapSpectrum(p, glm::vec2(kp, 0.0f)), 0.0f);          // ∥ wind
+}
+
+TEST(OceanSpectrum, JonswapFavoursWindAlignment)
+{
+    Ocean::SpectrumParams p{};
+    p.m_SpectrumType = Ocean::SpectrumType::JONSWAP;
+    p.m_WindDirection = glm::vec2(1.0f, 0.0f);
+    const f32 kp = JonswapPeakWavenumber(p);
+    const f32 aligned = Ocean::JonswapSpectrum(p, glm::vec2(kp, 0.0f));
+    const f32 diagonal = Ocean::JonswapSpectrum(p, glm::vec2(kp * 0.70710678f, kp * 0.70710678f));
+    EXPECT_GT(aligned, diagonal);
+}
+
+TEST(OceanSpectrum, JonswapGammaEnhancesThePeak)
+{
+    // The peak-enhancement factor is γ^r with r = exp(-(ω-ωp)²/(2σ²ωp²)). At the
+    // peak (ω = ωp) r = 1, so a γ=3.3 spectrum carries ≈3.3× the energy of the
+    // γ=1 (Pierson-Moskowitz) baseline there — that IS the sharper JONSWAP peak.
+    Ocean::SpectrumParams baseline{};
+    baseline.m_SpectrumType = Ocean::SpectrumType::JONSWAP;
+    baseline.m_WindDirection = glm::vec2(1.0f, 0.0f);
+    baseline.m_SmallWaveSuppression = 0.0f; // isolate the peak-enhancement term
+    baseline.m_JonswapGamma = 1.0f;
+
+    Ocean::SpectrumParams peaked = baseline;
+    peaked.m_JonswapGamma = 3.3f;
+
+    const f32 kp = JonswapPeakWavenumber(baseline); // same V/F ⇒ same peak
+    const glm::vec2 kAtPeak(kp, 0.0f);
+    const f32 eBaseline = Ocean::JonswapSpectrum(baseline, kAtPeak);
+    const f32 ePeaked = Ocean::JonswapSpectrum(peaked, kAtPeak);
+    ASSERT_GT(eBaseline, 0.0f);
+    EXPECT_NEAR(ePeaked / eBaseline, 3.3f, 0.1f) << "γ should multiply the energy at the spectral peak";
+
+    // Far above the peak r → 0, so γ stops mattering: both spectra coincide.
+    const glm::vec2 kFar(kp * 25.0f, 0.0f);
+    const f32 fBaseline = Ocean::JonswapSpectrum(baseline, kFar);
+    const f32 fPeaked = Ocean::JonswapSpectrum(peaked, kFar);
+    ASSERT_GT(fBaseline, 0.0f);
+    EXPECT_NEAR(fPeaked / fBaseline, 1.0f, 0.02f) << "γ must not change energy away from the peak";
+}
+
+TEST(OceanSpectrum, JonswapPeakShiftsToHigherWavenumberWithShorterFetch)
+{
+    // ωp ∝ F^(-1/3): a shorter fetch raises the peak frequency, so the dominant
+    // wavelength shrinks (the peak wave vector moves to higher |k|). Scan along
+    // the wind axis and confirm the empirical peak shifts the right way.
+    auto peakOf = [](const Ocean::SpectrumParams& p)
+    {
+        f32 bestK = 0.0f, bestE = -1.0f;
+        for (i32 i = 1; i <= 4000; ++i)
+        {
+            const f32 k = static_cast<f32>(i) * 0.0005f; // 0.0005 .. 2.0 rad/m
+            const f32 e = Ocean::JonswapSpectrum(p, glm::vec2(k, 0.0f));
+            if (e > bestE)
+            {
+                bestE = e;
+                bestK = k;
+            }
+        }
+        return bestK;
+    };
+
+    Ocean::SpectrumParams longFetch{};
+    longFetch.m_SpectrumType = Ocean::SpectrumType::JONSWAP;
+    longFetch.m_WindDirection = glm::vec2(1.0f, 0.0f);
+    longFetch.m_SmallWaveSuppression = 0.0f;
+    longFetch.m_JonswapFetch = 300000.0f;
+
+    Ocean::SpectrumParams shortFetch = longFetch;
+    shortFetch.m_JonswapFetch = 10000.0f;
+
+    const f32 kLong = peakOf(longFetch);
+    const f32 kShort = peakOf(shortFetch);
+    std::cout << "[ DIAG ] JONSWAP peak k: long fetch = " << kLong << ", short fetch = " << kShort << "\n";
+    EXPECT_GT(kShort, kLong) << "shorter fetch should raise the peak wavenumber";
+}
+
+TEST(OceanSpectrum, JonswapHighFrequencyFalloff)
+{
+    // Past the peak the α·g²/ω⁵ envelope drives energy down steeply.
+    Ocean::SpectrumParams p{};
+    p.m_SpectrumType = Ocean::SpectrumType::JONSWAP;
+    p.m_WindDirection = glm::vec2(1.0f, 0.0f);
+    p.m_SmallWaveSuppression = 0.0f;
+    const f32 kp = JonswapPeakWavenumber(p);
+    const f32 nearPeak = Ocean::JonswapSpectrum(p, glm::vec2(kp, 0.0f));
+    const f32 highK = Ocean::JonswapSpectrum(p, glm::vec2(kp * 10.0f, 0.0f));
+    EXPECT_GT(nearPeak, highK * 10.0f);
+}
+
+TEST(OceanSpectrum, SpectrumEnergyDefaultsToPhillips)
+{
+    // Default SpectrumType is Phillips, so existing scenes are byte-for-byte
+    // unchanged: the dispatch must return exactly the Phillips value.
+    Ocean::SpectrumParams p{};
+    p.m_WindDirection = glm::vec2(1.0f, 0.0f);
+    for (glm::vec2 k : { glm::vec2(0.2f, 0.0f), glm::vec2(0.5f, 0.3f), glm::vec2(1.0f, -0.4f) })
+        EXPECT_FLOAT_EQ(Ocean::SpectrumEnergy(p, k), Ocean::PhillipsSpectrum(p, k)) << "k=(" << k.x << "," << k.y << ")";
+}
+
+TEST(OceanSpectrum, SpectrumEnergyRoutesJonswapWhenSelected)
+{
+    Ocean::SpectrumParams p{};
+    p.m_SpectrumType = Ocean::SpectrumType::JONSWAP;
+    p.m_WindDirection = glm::vec2(1.0f, 0.0f);
+    const glm::vec2 k(JonswapPeakWavenumber(p), 0.0f);
+    EXPECT_FLOAT_EQ(Ocean::SpectrumEnergy(p, k), Ocean::JonswapSpectrum(p, k));
+    // The two spectra genuinely differ in shape (not the same function).
+    Ocean::SpectrumParams phillips = p;
+    phillips.m_SpectrumType = Ocean::SpectrumType::Phillips;
+    EXPECT_GT(std::abs(Ocean::SpectrumEnergy(p, k) - Ocean::SpectrumEnergy(phillips, k)), 0.0f);
+}
+
+TEST(OceanSpectrum, GenerateH0RoutesThroughSelectedSpectrum)
+{
+    // Same seed (⇒ same Gaussian phases) but a different spectrum ⇒ different
+    // per-bin amplitudes ⇒ a substantially different h0. Proves the selector
+    // reaches the base heightfield, not just the standalone spectrum function.
+    Ocean::SpectrumParams phillips{};
+    phillips.m_Resolution = 64u;
+    Ocean::SpectrumParams jonswap = phillips;
+    jonswap.m_SpectrumType = Ocean::SpectrumType::JONSWAP;
+
+    const auto a = Ocean::GenerateH0(phillips);
+    const auto b = Ocean::GenerateH0(jonswap);
+    ASSERT_EQ(a.size(), b.size());
+    sizet diff = 0;
+    for (sizet i = 0; i < a.size(); ++i)
+        if (a[i] != b[i])
+            ++diff;
+    EXPECT_GT(diff, a.size() / 2) << "the spectrum selector did not reach GenerateH0";
+}
+
+// ---------------------------------------------------------------------------
 // h0 generation
 // ---------------------------------------------------------------------------
 
@@ -526,6 +696,57 @@ TEST(OceanFFTField, FlatSeaSamplesNearZero)
     auto field = Ref<Ocean::OceanFFTField>::Create();
     field->Update(p, 1.0f, false);
     EXPECT_NEAR(field->SampleHeight(glm::vec2(10.0f, 20.0f)), 0.0f, 1e-4f);
+}
+
+TEST(OceanFFTField, JonswapProducesValidMetreScaleFieldAndDiffersFromPhillips)
+{
+    // The JONSWAP spectrum must drive a healthy field through the full runtime
+    // path: RMS-normalised to a sensible metre band (so it isn't mirror-flat or
+    // absurd), finite everywhere, and visibly different from the Phillips field
+    // at the same wind/seed (otherwise the toggle would be a no-op).
+    auto rmsOf = [](const Ocean::DisplacementField& f)
+    {
+        f64 sumSq = 0.0;
+        for (f32 h : f.m_Height)
+            sumSq += static_cast<f64>(h) * h;
+        return f.m_Height.empty() ? 0.0 : std::sqrt(sumSq / static_cast<f64>(f.m_Height.size()));
+    };
+
+    Ocean::SpectrumParams phillips{};
+    phillips.m_Resolution = 128u;
+    phillips.m_PatchSize = 64.0f;
+    phillips.m_WindSpeed = 18.0f;
+    phillips.m_WindDirection = glm::vec2(1.0f, 0.3f);
+    phillips.m_Amplitude = 3.0f;
+    phillips.m_Choppiness = 1.2f;
+
+    Ocean::SpectrumParams jonswap = phillips;
+    jonswap.m_SpectrumType = Ocean::SpectrumType::JONSWAP;
+    jonswap.m_JonswapGamma = 3.3f;
+    jonswap.m_JonswapFetch = 80000.0f;
+
+    auto phillipsField = Ref<Ocean::OceanFFTField>::Create();
+    phillipsField->Update(phillips, 2.0f, /*uploadToGpu=*/false);
+    auto jonswapField = Ref<Ocean::OceanFFTField>::Create();
+    jonswapField->Update(jonswap, 2.0f, /*uploadToGpu=*/false);
+
+    ASSERT_TRUE(jonswapField->GetField().IsValid());
+    const f64 rms = rmsOf(jonswapField->GetField());
+    std::cout << "[ DIAG ] JONSWAP normalised RMS = " << rms << " m\n";
+    EXPECT_GT(rms, 0.3); // not mirror-flat
+    EXPECT_LT(rms, 3.0); // not absurd
+
+    for (f32 h : jonswapField->GetField().m_Height)
+        ASSERT_TRUE(std::isfinite(h));
+
+    // Same wind/seed, different spectrum ⇒ a different surface.
+    const auto& a = phillipsField->GetField().m_Height;
+    const auto& b = jonswapField->GetField().m_Height;
+    ASSERT_EQ(a.size(), b.size());
+    f32 maxDelta = 0.0f;
+    for (sizet i = 0; i < a.size(); ++i)
+        maxDelta = std::max(maxDelta, std::abs(a[i] - b[i]));
+    EXPECT_GT(maxDelta, 1e-2f) << "JONSWAP and Phillips fields are indistinguishable";
 }
 
 // ---------------------------------------------------------------------------

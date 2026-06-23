@@ -2491,6 +2491,77 @@ namespace OloEngine::Tests
     }
 
     // -------------------------------------------------------------------------
+    // WaterComponent — FFT ocean + spectrum-selection fields (§1, §1.4)
+    //
+    // Covers the Tessendorf FFT block, including the JONSWAP spectrum selector
+    // and its gamma/fetch params. A dropped read/write on the spectrum fields
+    // would silently revert a JONSWAP scene to Phillips on reload.
+    // -------------------------------------------------------------------------
+    TEST(ComponentRoundTrip, WaterComponentFFTSpectrumFieldsSurviveYAMLRoundTrip)
+    {
+        const bool expectedUseFFT = true;
+        const u32 expectedResolution = 256u;
+        const f32 expectedPatchSize = 120.0f;
+        const f32 expectedWindSpeed = 22.0f;
+        const glm::vec2 expectedWindDir{ 0.6f, 0.8f };
+        const f32 expectedAmplitude = 3.5f;
+        const f32 expectedChoppiness = 1.5f;
+        const f32 expectedHeightScale = 1.3f;
+        const u32 expectedSeed = 4242u;
+        const bool expectedGpuCompute = false; // default is true
+        const Ocean::SpectrumType expectedSpectrum = Ocean::SpectrumType::JONSWAP;
+        const f32 expectedGamma = 4.2f;
+        const f32 expectedFetch = 50000.0f;
+
+        std::string yaml;
+        {
+            auto scene = Scene::Create();
+            Entity entity = scene->CreateEntity(kTestTag);
+            auto& water = entity.AddComponent<WaterComponent>();
+            water.m_UseFFT = expectedUseFFT;
+            water.m_FFTResolution = expectedResolution;
+            water.m_FFTPatchSize = expectedPatchSize;
+            water.m_FFTWindSpeed = expectedWindSpeed;
+            water.m_FFTWindDirection = expectedWindDir;
+            water.m_FFTAmplitude = expectedAmplitude;
+            water.m_FFTChoppiness = expectedChoppiness;
+            water.m_FFTHeightScale = expectedHeightScale;
+            water.m_FFTSeed = expectedSeed;
+            water.m_FFTUseGpuCompute = expectedGpuCompute;
+            water.m_FFTSpectrumType = expectedSpectrum;
+            water.m_FFTJonswapGamma = expectedGamma;
+            water.m_FFTJonswapFetch = expectedFetch;
+
+            yaml = SceneSerializer(scene).SerializeToYAML();
+        }
+
+        ASSERT_FALSE(yaml.empty());
+
+        auto reloaded = Scene::Create();
+        ASSERT_TRUE(SceneSerializer(reloaded).DeserializeFromYAML(yaml));
+
+        Entity restored = FindByTag(*reloaded, kTestTag);
+        ASSERT_TRUE(static_cast<bool>(restored));
+        ASSERT_TRUE(restored.HasComponent<WaterComponent>());
+
+        const auto& water = restored.GetComponent<WaterComponent>();
+        EXPECT_EQ(water.m_UseFFT, expectedUseFFT);
+        EXPECT_EQ(water.m_FFTResolution, expectedResolution);
+        EXPECT_NEAR(water.m_FFTPatchSize, expectedPatchSize, kFloatEpsilon);
+        EXPECT_NEAR(water.m_FFTWindSpeed, expectedWindSpeed, kFloatEpsilon);
+        EXPECT_NEAR(water.m_FFTWindDirection.x, expectedWindDir.x, kFloatEpsilon);
+        EXPECT_NEAR(water.m_FFTWindDirection.y, expectedWindDir.y, kFloatEpsilon);
+        EXPECT_NEAR(water.m_FFTAmplitude, expectedAmplitude, kFloatEpsilon);
+        EXPECT_NEAR(water.m_FFTChoppiness, expectedChoppiness, kFloatEpsilon);
+        EXPECT_NEAR(water.m_FFTHeightScale, expectedHeightScale, kFloatEpsilon);
+        EXPECT_EQ(water.m_FFTSeed, expectedSeed);
+        EXPECT_EQ(water.m_FFTUseGpuCompute, expectedGpuCompute);
+        EXPECT_EQ(water.m_FFTSpectrumType, expectedSpectrum);
+        EXPECT_NEAR(water.m_FFTJonswapGamma, expectedGamma, kFloatEpsilon);
+        EXPECT_NEAR(water.m_FFTJonswapFetch, expectedFetch, kFloatEpsilon);
+    }
+
+    // -------------------------------------------------------------------------
     // BuoyancyComponent — every serialized field must survive a YAML round-trip
     // (one of the five component touch-points; a dropped read/write here would
     // silently desync a saved scene from its in-editor setup). See
