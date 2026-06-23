@@ -39,11 +39,11 @@ Every new test belongs to exactly one renderer Layer **or** carries the `"Functi
 | L10 Diagnostic escalation | auto-capture framebuffer + metadata on `ASSERT_` failure | `TestFailureCapture.{h,cpp}` (consumed automatically) |
 | L11 Sanitizers & fuzzing | libFuzzer harnesses + ASan / UBSan in CI | `OloEngine/tests/Fuzzing/Fuzz*.cpp` + `.github/workflows/fuzz.yml` |
 
-Files outside `PropertyTests/` are also classified — see the auto-catalogue in `docs/testing.md` §9.1 for the full inventory.
+Files outside `PropertyTests/` are also classified — see the generated `docs/test-catalogue.renderer.md` (run `generate_test_catalogue.py`) for the full inventory.
 
 ### Functional / cross-subsystem axis (tag `"Functional"`)
 
-Anything that drives a real `Scene::OnUpdateRuntime` to pin a contract at the seam between two or more subsystems — Animation × Physics × Scripting × Networking × Audio × Asset × Nav × Save-game × Gameplay × AI. Lives under `OloEngine/tests/Functional/<Subsystem>/`. Inherits `OloEngine::Functional::FunctionalTest`. Catalogued in [`../testing.md`](../testing.md) §9.2. See `docs/adr/0001-functional-tests-as-separate-axis.md` for rationale.
+Anything that drives a real `Scene::OnUpdateRuntime` to pin a contract at the seam between two or more subsystems — Animation × Physics × Scripting × Networking × Audio × Asset × Nav × Save-game × Gameplay × AI. Lives under `OloEngine/tests/Functional/<Subsystem>/`. Inherits `OloEngine::Functional::FunctionalTest`. Catalogued in the generated `docs/test-catalogue.functional.md`. See `docs/adr/0001-functional-tests-as-separate-axis.md` for rationale.
 
 ---
 
@@ -55,16 +55,16 @@ The generator scans the **entire** `OloEngine/tests/` tree (recursively) — the
 - `"Functional"` — cross-subsystem tests driven via `Scene::OnUpdateRuntime`;
 - `"unit"` — plain per-subsystem unit tests (everything else), grouped by directory in the doc.
 
-The `test-catalogue-in-sync` pre-commit hook **fails the commit** otherwise. Files with no test macros (the gtest `main`, libFuzzer targets, fixtures/helpers) are not tests and need no entry — that is the definition of a non-test, not a configurable exclusion.
+The `test-catalogue-classified` pre-commit hook **fails the commit** otherwise. Files with no test macros (the gtest `main`, libFuzzer targets, fixtures/helpers) are not tests and need no entry — that is the definition of a non-test, not a configurable exclusion.
 
 **Workflow when adding a test file:**
 
 1. Write the test(s). Use `TEST`, `TEST_F`, `TEST_P`, or `TYPED_TEST` — the scanner's regex relies on these macros.
 2. Classify the file. **Preferred:** add a `// OLO_TEST_LAYER: <id>` comment near the top of the `.cpp` — a renderer-pyramid layer id (`L1`–`L11`/`plumbing`/…) for rendering-scope tests, `Functional` for cross-subsystem tests, or `unit` for plain per-subsystem unit tests. Or, as a fallback, add the file to `file_layer_map` in `test_catalogue.json` with the same classification.
-3. Run `python OloEngine/tests/scripts/generate_test_catalogue.py` to regenerate all three auto-catalogue blocks inside `docs/testing.md` (renderer block in §9.1, Functional block in §9.2, unit block in §9.3).
-4. Commit the .cpp (with its marker) and the doc diff together — no shared JSON edit needed when you use a marker.
+3. (Optional) Run `python OloEngine/tests/scripts/generate_test_catalogue.py` to (re)build the three per-axis catalogue documents (`docs/test-catalogue.{renderer,functional,unit}.md`). These are git-ignored, not committed — regenerate only if you want a fresh local copy to browse.
+4. Commit just the .cpp (with its marker) — the catalogue docs are git-ignored, and no shared JSON edit is needed when you use a marker.
 
-**Do not hand-edit** the blocks between `<!-- BEGIN: renderer-catalogue ... -->` / `<!-- END: renderer-catalogue -->`, `<!-- BEGIN: functional-catalogue ... -->` / `<!-- END: functional-catalogue -->`, or `<!-- BEGIN: unit-catalogue ... -->` / `<!-- END: unit-catalogue -->` in `docs/testing.md`. The generator overwrites them.
+**Do not hand-edit** the generated catalogue documents (`docs/test-catalogue.renderer.md`, `docs/test-catalogue.functional.md`, `docs/test-catalogue.unit.md`) — they are git-ignored and overwritten on every regenerate. Classify via the in-file `// OLO_TEST_LAYER` marker or `test_catalogue.json` instead.
 
 ---
 
