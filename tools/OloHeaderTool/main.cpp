@@ -685,9 +685,14 @@ static std::set<std::string> CollectComponentStructs(const fs::path& scanDir)
                 continue;
             if (!trimmed.starts_with("struct ") && !trimmed.starts_with("class "))
                 continue;
-            // Forward declaration (or any one-line `struct Foo ...;`) — not a
-            // definition we want to instantiate in the tuple.
-            if (trimmed.find(';') != std::string::npos)
+            // Skip forward declarations / semicolon-only declarations (`struct
+            // Foo;`) — they have a ';' and never open a body. A definition that
+            // opens a body ('{') on this line is kept even when it's a one-liner
+            // like `struct MarkerComponent {};` (a valid empty/tag component); a
+            // multi-line definition opens its body on a later line, so the line
+            // here has neither ';' nor '{' and is kept too. The skip therefore
+            // fires only for a ';' with no brace on the same line.
+            if (trimmed.find('{') == std::string::npos && trimmed.find(';') != std::string::npos)
                 continue;
 
             // The type name is the identifier just before the base-class list or
