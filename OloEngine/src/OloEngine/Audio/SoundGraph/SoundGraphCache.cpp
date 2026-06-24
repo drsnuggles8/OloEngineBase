@@ -11,20 +11,19 @@
 
 #include <filesystem>
 #include <fstream>
-#include <sstream>
 #include <algorithm>
-
-#include <yaml-cpp/yaml.h>
 
 namespace OloEngine::Audio::SoundGraph
 {
     //==============================================================================
     /// SoundGraphCache Implementation
-
-    // Persistent cache-metadata schema version. Written by SaveCacheMetadata and
-    // checked by LoadCacheMetadata; bump it whenever the on-disk layout changes so
-    // stale files from an older layout can be detected and rejected.
-    static constexpr u32 kCacheMetadataVersion = 1;
+    //
+    // This is a purely in-memory LRU cache of *live* compiled SoundGraph instances.
+    // Cross-run persistence of the audio-graph compilation cache is owned solely by
+    // CompilerCache (SaveToDisk/LoadFromDisk, wired into its ctor/shutdown), which
+    // already persists each source's path, hash, and timestamps PLUS the compiled
+    // bytecode — a superset of anything this cache could record. SoundGraphCache
+    // therefore intentionally has no on-disk format of its own.
 
     SoundGraphCache::SoundGraphCache(sizet maxCacheSize, sizet maxMemoryUsage)
         : m_MaxCacheSize(maxCacheSize), m_MaxMemoryUsage(maxMemoryUsage)
@@ -60,9 +59,7 @@ namespace OloEngine::Audio::SoundGraph
         OLO_PROFILE_FUNCTION();
         TDynamicUniqueLock<FMutex> lock(m_Mutex);
         auto it = m_CacheEntries.find(sourcePath);
-        // A metadata-only entry restored by LoadCacheMetadata is valid but holds no
-        // in-memory graph, so require the graph pointer too: "Has" means usable now.
-        return it != m_CacheEntries.end() && it->second.m_IsValid && static_cast<bool>(it->second.m_CachedGraph);
+        return it != m_CacheEntries.end() && it->second.m_IsValid;
     }
 
     Ref<SoundGraph> SoundGraphCache::Get(const std::string& sourcePath)
@@ -70,10 +67,7 @@ namespace OloEngine::Audio::SoundGraph
         TDynamicUniqueLock<FMutex> lock(m_Mutex);
 
         auto it = m_CacheEntries.find(sourcePath);
-        // Treat a metadata-only entry (restored from disk, no live graph) as a miss:
-        // there's nothing in memory to hand back, and reporting a hit would return a
-        // null graph to a caller that asked for a usable one.
-        if (it == m_CacheEntries.end() || !it->second.m_IsValid || !it->second.m_CachedGraph)
+        if (it == m_CacheEntries.end() || !it->second.m_IsValid)
         {
             ++m_MissCount;
             return nullptr;
@@ -406,9 +400,7 @@ namespace OloEngine::Audio::SoundGraph
 
         for (const auto& [path, entry] : m_CacheEntries)
         {
-            // Skip metadata-only entries (restored from disk, no live graph) — this
-            // lists paths whose graph is actually resident, matching Has()/Get().
-            if (entry.m_IsValid && entry.m_CachedGraph)
+            if (entry.m_IsValid)
             {
                 paths.push_back(path);
             }
@@ -446,226 +438,6 @@ namespace OloEngine::Audio::SoundGraph
         f32 hitRatio = totalAccesses > 0 ? static_cast<f32>(m_HitCount) / static_cast<f32>(totalAccesses) : 0.0f;
         OLO_CORE_INFO("  Hit Ratio: {:.1f}% ({}/{} requests)",
                       hitRatio * 100.0f, m_HitCount.load(), totalAccesses);
-    }
-
-    bool SoundGraphCache::SaveCacheMetadata(const std::string& filePath) const
-    {
-        OLO_PROFILE_FUNCTION();
-
-        // The compiled SoundGraph itself is runtime-only state and is never
-        // serialized. What persists is the per-entry *metadata* — source path,
-        // compiled-artifact path, source hash, and timestamps — so a later run can
-        // tell which sources were compiled and whether the on-disk artifact is still
-        // fresh (matching source hash / mtime) without recompiling.
-        //
-        // Snapshot under the lock, then do the filesystem I/O outside it (the same
-        // lock discipline the rest of this class uses for disk access).
-        struct PersistEntry
-        {
-            std::string m_SourcePath;
-            std::string m_CompiledPath;
-            u64 m_SourceHash = 0;
-            i64 m_LastModified = 0; // system_clock ticks since epoch
-            i64 m_LastAccessed = 0; // system_clock ticks since epoch
-            u32 m_AccessCount = 0;
-        };
-
-        std::vector<PersistEntry> entries;
-        {
-            TDynamicUniqueLock<FMutex> lock(m_Mutex);
-            entries.reserve(m_CacheEntries.size());
-            for (const auto& [path, entry] : m_CacheEntries)
-            {
-                // Only persist genuinely cached graphs; an invalidated or metadata-
-                // only entry carries no useful staleness record.
-                if (!entry.m_IsValid || !entry.m_CachedGraph)
-                    continue;
-
-                entries.push_back(PersistEntry{
-                    entry.m_SourcePath,
-                    entry.m_CompiledPath,
-                    static_cast<u64>(entry.m_SourceHash),
-                    entry.m_LastModified.time_since_epoch().count(),
-                    entry.m_LastAccessed.time_since_epoch().count(),
-                    entry.m_AccessCount });
-            }
-        }
-
-        try
-        {
-            YAML::Emitter out;
-            out << YAML::BeginMap;
-            out << YAML::Key << "SoundGraphCache" << YAML::Value << YAML::BeginMap;
-            out << YAML::Key << "Version" << YAML::Value << kCacheMetadataVersion;
-            out << YAML::Key << "Entries" << YAML::Value << YAML::BeginSeq;
-            for (const auto& e : entries)
-            {
-                out << YAML::BeginMap;
-                out << YAML::Key << "SourcePath" << YAML::Value << e.m_SourcePath;
-                out << YAML::Key << "CompiledPath" << YAML::Value << e.m_CompiledPath;
-                out << YAML::Key << "SourceHash" << YAML::Value << e.m_SourceHash;
-                out << YAML::Key << "LastModified" << YAML::Value << e.m_LastModified;
-                out << YAML::Key << "LastAccessed" << YAML::Value << e.m_LastAccessed;
-                out << YAML::Key << "AccessCount" << YAML::Value << e.m_AccessCount;
-                out << YAML::EndMap;
-            }
-            out << YAML::EndSeq; // Entries
-            out << YAML::EndMap; // SoundGraphCache
-            out << YAML::EndMap; // root
-
-            // Make sure the parent directory exists before writing.
-            const std::filesystem::path fsPath(filePath);
-            if (fsPath.has_parent_path())
-            {
-                std::error_code ec;
-                std::filesystem::create_directories(fsPath.parent_path(), ec);
-                // create_directories reports false-with-no-ec when the directory
-                // already exists; only a populated error_code is a real failure.
-                if (ec)
-                {
-                    OLO_CORE_ERROR("SoundGraphCache: Failed to create directory for metadata '{}': {}", filePath, ec.message());
-                    return false;
-                }
-            }
-
-            std::ofstream fout(filePath, std::ios::trunc);
-            if (!fout.is_open())
-            {
-                OLO_CORE_ERROR("SoundGraphCache: Failed to open metadata file for writing: '{}'", filePath);
-                return false;
-            }
-            fout << out.c_str();
-            if (!fout)
-            {
-                OLO_CORE_ERROR("SoundGraphCache: Failed to write metadata to '{}'", filePath);
-                return false;
-            }
-        }
-        catch (const std::exception& ex)
-        {
-            OLO_CORE_ERROR("SoundGraphCache: Exception while saving metadata to '{}': {}", filePath, ex.what());
-            return false;
-        }
-
-        OLO_CORE_INFO("SoundGraphCache: Saved {} cache metadata entr{} to '{}'",
-                      entries.size(), entries.size() == 1 ? "y" : "ies", filePath);
-        return true;
-    }
-
-    bool SoundGraphCache::LoadCacheMetadata(const std::string& filePath)
-    {
-        OLO_PROFILE_FUNCTION();
-
-        // This reads untrusted on-disk input: a missing, unreadable, or malformed
-        // file must fail cleanly (return false) and leave the in-memory cache
-        // untouched — never throw, never partially corrupt state.
-        std::error_code ec;
-        if (!std::filesystem::exists(filePath, ec) || ec)
-        {
-            OLO_CORE_WARN("SoundGraphCache: Metadata file not found: '{}'", filePath);
-            return false;
-        }
-
-        std::ifstream fin(filePath, std::ios::binary);
-        if (!fin.is_open())
-        {
-            OLO_CORE_ERROR("SoundGraphCache: Failed to open metadata file for reading: '{}'", filePath);
-            return false;
-        }
-        std::stringstream buffer;
-        buffer << fin.rdbuf();
-        fin.close();
-
-        // Parse + validate fully before touching cache state (parsing never reads
-        // cache members, so it stays outside the lock).
-        std::vector<SoundGraphCacheEntry> restored;
-        try
-        {
-            YAML::Node data = YAML::Load(buffer.str());
-
-            YAML::Node root = data["SoundGraphCache"];
-            if (!root || !root.IsMap())
-            {
-                OLO_CORE_ERROR("SoundGraphCache: Invalid metadata file (missing 'SoundGraphCache' root): '{}'", filePath);
-                return false;
-            }
-
-            if (const YAML::Node versionNode = root["Version"]; versionNode)
-            {
-                if (const auto version = versionNode.as<u32>(0); version != kCacheMetadataVersion)
-                {
-                    OLO_CORE_WARN("SoundGraphCache: Metadata file '{}' has version {} (expected {}); ignoring",
-                                  filePath, version, kCacheMetadataVersion);
-                    return false;
-                }
-            }
-
-            if (const YAML::Node entriesNode = root["Entries"]; entriesNode && entriesNode.IsSequence())
-            {
-                restored.reserve(entriesNode.size());
-                for (const auto& entryNode : entriesNode)
-                {
-                    // Skip malformed entries individually so one bad record doesn't
-                    // discard the rest of an otherwise-good file.
-                    if (!entryNode.IsMap() || !entryNode["SourcePath"])
-                        continue;
-
-                    SoundGraphCacheEntry entry;
-                    entry.m_SourcePath = entryNode["SourcePath"].as<std::string>("");
-                    if (entry.m_SourcePath.empty())
-                        continue;
-
-                    entry.m_CompiledPath = entryNode["CompiledPath"].as<std::string>("");
-                    entry.m_SourceHash = static_cast<sizet>(entryNode["SourceHash"].as<u64>(0));
-
-                    // Timestamps are stored as raw system_clock tick counts, so the
-                    // round-trip is exact (no float / unit conversion involved).
-                    using Clock = std::chrono::system_clock;
-                    using Rep = Clock::duration::rep;
-                    const auto lastModified = entryNode["LastModified"].as<i64>(0);
-                    const auto lastAccessed = entryNode["LastAccessed"].as<i64>(0);
-                    entry.m_LastModified = Clock::time_point(Clock::duration(static_cast<Rep>(lastModified)));
-                    entry.m_LastAccessed = Clock::time_point(Clock::duration(static_cast<Rep>(lastAccessed)));
-
-                    entry.m_AccessCount = entryNode["AccessCount"].as<u32>(0);
-
-                    // No graph is restored — the compiled graph is runtime-only.
-                    // m_IsValid records that the metadata is valid; Has()/Get()
-                    // additionally require a live graph, so this entry reads as a
-                    // miss until something recompiles and Put()s the real graph.
-                    entry.m_CachedGraph = nullptr;
-                    entry.m_IsValid = true;
-                    restored.push_back(std::move(entry));
-                }
-            }
-        }
-        catch (const std::exception& ex)
-        {
-            OLO_CORE_ERROR("SoundGraphCache: Exception while loading metadata from '{}': {}", filePath, ex.what());
-            return false;
-        }
-
-        // Merge restored metadata in. Don't clobber a path that already has a live
-        // in-memory graph; the restored record would only downgrade it to a
-        // placeholder. New placeholders join the LRU/size bookkeeping like any
-        // entry (they add zero memory since the graph is null).
-        sizet added = 0;
-        {
-            TDynamicUniqueLock<FMutex> lock(m_Mutex);
-            for (auto& entry : restored)
-            {
-                if (m_CacheEntries.contains(entry.m_SourcePath))
-                    continue;
-                const std::string path = entry.m_SourcePath; // copy: entry is moved below
-                m_CacheEntries.emplace(path, std::move(entry));
-                UpdateLRU(path);
-                ++added;
-            }
-        }
-
-        OLO_CORE_INFO("SoundGraphCache: Loaded {} cache metadata entr{} from '{}'",
-                      added, added == 1 ? "y" : "ies", filePath);
-        return true;
     }
 
     //==============================================================================
@@ -725,13 +497,13 @@ namespace OloEngine::Audio::SoundGraph
                 // NodeProcessor maps and vectors (approximate overhead)
                 totalMemory += 256; // Estimated overhead for maps/vectors per node
 
-                // WavePlayer nodes own the only large per-node heap buffer: the
-                // decoded audio samples. Introspect the real footprint instead of
-                // assuming a flat per-node estimate — an unloaded clip costs nothing,
-                // a long one costs what it actually uses. Other node types carry no
-                // comparable buffer and add nothing here.
-                if (const auto* wavePlayer = dynamic_cast<const WavePlayer*>(node.get()))
-                    totalMemory += wavePlayer->GetAudioDataSizeBytes();
+                // Add any large heap buffer the node owns (e.g. a WavePlayer's
+                // decoded audio samples). The node reports it through the virtual
+                // GetHeapBytes() hook, so accounting stays type-agnostic — an
+                // unloaded clip costs nothing, a long one costs what it actually
+                // uses, and a future buffer-owning node is counted automatically
+                // without another special case here.
+                totalMemory += node->GetHeapBytes();
             }
         }
 
