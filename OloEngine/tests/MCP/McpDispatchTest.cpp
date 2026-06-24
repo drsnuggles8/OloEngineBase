@@ -353,6 +353,40 @@ TEST_F(McpDispatchTest, ToolsSearchEntriesKeepToolListShape)
     EXPECT_TRUE(entry["inputSchema"]["properties"].contains("text"));
 }
 
+// Regression: the toolset catalogue is keyed on the case-folded toolset and the
+// filter compares case-folded, so a mixed-case Toolset value cannot split the
+// catalogue (two "Render"/"render" entries) while a single case-insensitive filter
+// still matches both — the catalogue count must reconcile with the filtered result.
+// Standalone (own server) so the shared fixture's tool-count assertions are unaffected.
+TEST(McpToolsSearchCaseFold, MixedCaseToolsetCollapsesInCatalogueAndFilter)
+{
+    McpServer server(EditorMcpContext{});
+
+    const auto addTool = [&server](std::string name, std::string toolset)
+    {
+        ToolDef tool;
+        tool.Name = std::move(name);
+        tool.Toolset = std::move(toolset);
+        tool.Description = "fake";
+        tool.Handler = [](McpServer&, const Json&)
+        { return ToolResult::Text("ok"); };
+        server.RegisterTool(std::move(tool));
+    };
+    addTool("fake_a", "Render"); // capitalized
+    addTool("fake_b", "render"); // lowercase — same logical toolset
+
+    // Catalogue collapses to ONE canonical "render" entry covering both tools.
+    const Json all = server.HandleMessage(MakeRequest(1, "tools/search"));
+    const Json& toolsets = all["result"]["toolsets"];
+    ASSERT_EQ(toolsets.size(), 1u);
+    EXPECT_EQ(toolsets[0]["name"], "render");
+    EXPECT_EQ(toolsets[0]["count"], 2);
+
+    // A filter of any case returns BOTH tools, reconciling with the catalogue count.
+    const Json filtered = server.HandleMessage(MakeRequest(2, "tools/search", Json{ { "toolset", "RENDER" } }));
+    EXPECT_EQ(filtered["result"]["tools"].size(), 2u);
+}
+
 TEST_F(McpDispatchTest, ResourcesListSurfacesRegisteredResources)
 {
     const Json resp = m_Server.HandleMessage(MakeRequest(4, "resources/list"));

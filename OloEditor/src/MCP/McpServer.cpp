@@ -668,15 +668,22 @@ namespace OloEngine::MCP
         }
 
         Json matched = Json::array();
-        std::map<std::string, std::size_t> toolsetCounts; // sorted by toolset name
+        std::map<std::string, std::size_t> toolsetCounts; // sorted by canonical (lowercased) name
         for (const auto& tool : m_Tools)
         {
+            // Case-fold each tool's toolset once and reuse it for both the catalogue
+            // key and the filter compare. This keeps the two in lockstep: a mixed-case
+            // value (e.g. "Render" alongside "render") collapses into one catalogue
+            // entry instead of splitting into two that a single case-insensitive filter
+            // would still match — and it avoids re-lowercasing the toolset per tool.
+            const std::string toolsetKey = ToLowerAscii(tool.Toolset);
+
             // Count every categorized tool for the catalogue before applying filters,
             // so the catalogue always describes the full surface, not the matches.
-            if (!tool.Toolset.empty())
-                ++toolsetCounts[tool.Toolset];
+            if (!toolsetKey.empty())
+                ++toolsetCounts[toolsetKey];
 
-            if (!toolsetFilter.empty() && ToLowerAscii(tool.Toolset) != toolsetFilter)
+            if (!toolsetFilter.empty() && toolsetKey != toolsetFilter)
                 continue;
 
             if (!terms.empty())
