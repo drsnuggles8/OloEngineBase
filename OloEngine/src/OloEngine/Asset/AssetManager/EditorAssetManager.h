@@ -3,6 +3,7 @@
 #include "AssetManagerBase.h"
 #include "OloEngine/Asset/AssetManager.h"
 #include "OloEngine/Core/Base.h"
+#include "OloEngine/Asset/AssetFileWatchPolicy.h"
 #include "OloEngine/Asset/AssetRegistry.h"
 #include "OloEngine/Asset/AssetImporter.h"
 #include "OloEngine/Asset/AssetSystem/EditorAssetSystem.h"
@@ -352,6 +353,21 @@ namespace OloEngine
          * @param directory Directory to scan
          */
         void ScanDirectoryForAssets(const std::filesystem::path& directory);
+
+#if OLO_ASYNC_ASSETS
+        /**
+         * @brief Auto-import a newly discovered, untracked asset file (filewatch path)
+         *
+         * Registers metadata for a file the watcher saw appear under the project,
+         * persists the registry, and fires an AssetImportedEvent so the editor can
+         * surface it live. Called only from OnFileSystemEvent (game thread) after
+         * the decision policy resolves to FileWatchAction::Import.
+         *
+         * @param absolutePath Absolute path of the new file on disk (already verified to exist)
+         * @param assetType    Asset type resolved from the file extension
+         */
+        void AutoImportNewAsset(const std::filesystem::path& absolutePath, AssetType assetType);
+#endif
 
       private:
         // Asset registry for metadata management

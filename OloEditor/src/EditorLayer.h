@@ -50,6 +50,7 @@ namespace OloEngine
 
     class AssetLoadedEvent;
     class AssetReloadedEvent;
+    class AssetImportedEvent;
     class AssetPackBuilderPanel;
     class BuildGamePanel;
 
@@ -71,6 +72,7 @@ namespace OloEngine
         bool OnMouseButtonPressed(MouseButtonPressedEvent const& e);
         bool OnAssetLoaded(AssetLoadedEvent const& e);
         bool OnAssetReloaded(AssetReloadedEvent const& e);
+        bool OnAssetImported(AssetImportedEvent const& e);
 
         void OnOverlayRender() const;
         void OnOverlayRender3D() const;

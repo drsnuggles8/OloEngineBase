@@ -1882,6 +1882,7 @@ namespace OloEngine
         dispatcher.Dispatch<MouseButtonPressedEvent>(OLO_BIND_EVENT_FN(EditorLayer::OnMouseButtonPressed));
         dispatcher.Dispatch<AssetLoadedEvent>(OLO_BIND_EVENT_FN(EditorLayer::OnAssetLoaded));
         dispatcher.Dispatch<AssetReloadedEvent>(OLO_BIND_EVENT_FN(EditorLayer::OnAssetReloaded));
+        dispatcher.Dispatch<AssetImportedEvent>(OLO_BIND_EVENT_FN(EditorLayer::OnAssetImported));
         dispatcher.Dispatch<WindowCloseEvent>(OLO_BIND_EVENT_FN(EditorLayer::OnWindowClose));
     }
 
@@ -3483,6 +3484,35 @@ namespace OloEngine
         }
 
         OLO_TRACE("📦 Asset Loaded Event Received!");
+        OLO_TRACE("   Handle: {}", static_cast<u64>(e.GetHandle()));
+        OLO_TRACE("   Type: {}", (int)e.GetAssetType());
+        OLO_TRACE("   Path: {}", e.GetPath().string());
+
+        return false; // Don't consume — other listeners may want this too.
+    }
+
+    bool EditorLayer::OnAssetImported(AssetImportedEvent const& e)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        // A brand-new file was auto-imported from disk by the asset manager's
+        // filesystem watcher. Surface it in the Content Browser so it appears
+        // without a manual import or F5: mark the directory that now contains it
+        // dirty so the panel rescans it on the next paint. (The Content Browser
+        // grid is built from a cached filesystem tree, not the asset registry,
+        // so the registry import alone wouldn't make it show up.)
+        if (m_ContentBrowserPanel)
+        {
+            m_ContentBrowserPanel->OnAssetImported(e.GetPath());
+        }
+
+        DiagnosticsEventLog::Get().Record(
+            DiagnosticEventCategory::AssetReload,
+            std::string("Auto-imported ") + AssetUtils::AssetTypeToString(e.GetAssetType()) + " '" +
+                e.GetPath().filename().string() + "'",
+            static_cast<u64>(e.GetHandle()), e.GetPath().string());
+
+        OLO_TRACE("✨ Asset Imported Event Received!");
         OLO_TRACE("   Handle: {}", static_cast<u64>(e.GetHandle()));
         OLO_TRACE("   Type: {}", (int)e.GetAssetType());
         OLO_TRACE("   Path: {}", e.GetPath().string());

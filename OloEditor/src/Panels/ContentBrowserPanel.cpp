@@ -1069,6 +1069,34 @@ namespace OloEngine
         m_PendingVisibleItemsRefresh = true;
     }
 
+    void ContentBrowserPanel::OnAssetImported(const std::filesystem::path& absoluteAssetPath)
+    {
+        const auto& assetRoot = m_DirectoryTree.GetAssetRoot();
+        if (assetRoot.empty() || absoluteAssetPath.empty())
+            return;
+
+        // Map the absolute file path to a directory relative to our asset root.
+        // The new file lives in its parent directory, so that's what must rescan.
+        std::error_code ec;
+        std::filesystem::path relativeDir =
+            std::filesystem::relative(absoluteAssetPath.parent_path(), assetRoot, ec);
+        if (ec)
+            return;
+
+        // A leading ".." means the path is outside the content browser's asset
+        // tree (e.g. a project-config file under the project root but not Assets/).
+        // Nothing for this panel to show.
+        if (relativeDir.empty())
+            relativeDir = ".";
+        else if (relativeDir.begin() != relativeDir.end() && *relativeDir.begin() == "..")
+            return;
+
+        // Mark the containing directory (and its ancestors) dirty. RefreshIfDirty
+        // at the top of OnImGuiRender then rescans the current directory if it is
+        // the one that changed, so the file appears on the next paint.
+        m_DirectoryTree.MarkDirty(relativeDir);
+    }
+
     // =========================================================================
     // Create Menu (preserved from original)
     // =========================================================================

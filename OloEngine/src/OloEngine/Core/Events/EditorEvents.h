@@ -156,4 +156,57 @@ namespace OloEngine
         std::filesystem::path m_Path;
     };
 
+    /**
+     * @brief Engine event fired when a brand-new asset file is auto-imported from disk.
+     *
+     * Unlike `AssetLoadedEvent` (which fires for every async load completion) this
+     * fires only when the editor's filesystem watcher discovers a previously
+     * untracked file under the project assets dir and registers it in the asset
+     * registry. Editor layers listen for it to surface the new asset live — e.g.
+     * the Content Browser refreshes the containing directory so the file appears
+     * without a manual import or F5.
+     *
+     * The carried path is **absolute**, so listeners can resolve it against their
+     * own root (the Content Browser's asset root differs from the project root)
+     * without needing the project base.
+     *
+     * Dispatched on the game thread by `EditorAssetManager::AutoImportNewAsset`.
+     */
+    class AssetImportedEvent : public Event
+    {
+      public:
+        AssetImportedEvent(AssetHandle handle, AssetType type, const std::filesystem::path& absolutePath)
+            : m_Handle(handle), m_Type(type), m_Path(absolutePath) {}
+
+        EVENT_CLASS_TYPE(AssetImported)
+        EVENT_CLASS_CATEGORY(EventCategory::Application)
+
+        AssetHandle GetHandle() const
+        {
+            return m_Handle;
+        }
+        AssetType GetAssetType() const
+        {
+            return m_Type;
+        }
+        /// Absolute filesystem path of the newly imported asset.
+        const std::filesystem::path& GetPath() const
+        {
+            return m_Path;
+        }
+
+        std::string ToString() const override
+        {
+            return std::format("AssetImportedEvent: handle={}, type={}, path={}",
+                               static_cast<u64>(m_Handle),
+                               static_cast<int>(std::to_underlying(m_Type)),
+                               m_Path.string());
+        }
+
+      private:
+        AssetHandle m_Handle = 0;
+        AssetType m_Type = AssetType::None;
+        std::filesystem::path m_Path;
+    };
+
 } // namespace OloEngine
