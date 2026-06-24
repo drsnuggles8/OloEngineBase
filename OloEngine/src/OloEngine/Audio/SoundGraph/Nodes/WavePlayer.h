@@ -548,6 +548,23 @@ namespace OloEngine::Audio::SoundGraph
             return m_WaveSource;
         }
 
+        /// Heap bytes currently held by this node's decoded audio samples
+        /// (m_AudioData.m_Samples). Zero until an asset finishes loading. Reports
+        /// capacity() — the real allocation still resident in RAM — so a node whose
+        /// clip was Clear()'d (which empties but does not shrink the vector) is still
+        /// counted until its buffer is actually released. WavePlayer is the only node
+        /// type that owns a large per-node buffer today; it surfaces it through the
+        /// NodeProcessor::GetHeapBytes() hook the cache accounting consumes.
+        [[nodiscard]] sizet GetAudioDataSizeBytes() const
+        {
+            return m_AudioData.m_Samples.capacity() * sizeof(f32);
+        }
+
+        [[nodiscard]] sizet GetHeapBytes() const override
+        {
+            return GetAudioDataSizeBytes();
+        }
+
       private:
         /// Resolve the StartTime input into a clamped m_StartSample. Shared by
         /// StartPlayback (per-Play recompute) and CheckAsyncLoadCompletion (initial

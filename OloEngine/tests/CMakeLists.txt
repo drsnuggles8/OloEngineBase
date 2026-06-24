@@ -44,6 +44,7 @@ add_executable(OloEngine-Tests
 		SoundGraphTypedConnectionTest.cpp
 		SoundGraphSampleAccurateTriggerTest.cpp
 		SoundGraphParameterWiringTest.cpp
+		SoundGraphCacheTest.cpp
 		AudioEventQueueTest.cpp
 		AudioDSPTest.cpp
 		AudioSpatializerTest.cpp
