@@ -690,21 +690,27 @@ static std::set<std::string> CollectComponentStructs(const fs::path& scanDir)
             if (trimmed.find(';') != std::string::npos)
                 continue;
 
-            // Extract the type name: "struct Foo", "struct Foo {", "struct Foo : Base {".
-            auto nameStart = trimmed.find(' ') + 1;
-            auto nameEnd = trimmed.find_first_of(" :{", nameStart);
-            if (nameEnd == std::string::npos)
-                nameEnd = trimmed.size();
-            std::string name = Trim(trimmed.substr(nameStart, nameEnd - nameStart));
-
-            // Guard against template parameter lists and stray tokens.
-            if (name.empty() || name.find('(') != std::string::npos)
-                continue;
-
-            // Require a non-empty prefix before "Component" (matches the test's
-            // `\w+Component` regex — "Component" alone or "ComponentGroup" won't pass).
+            // The type name is the identifier just before the base-class list or
+            // body. Scan the tokens between the keyword and the first ':' or '{'
+            // and take the one ending in "Component". Picking by suffix (rather
+            // than grabbing the first token after "struct") tolerates leading
+            // specifiers/attributes — `struct alignas(16) FooComponent`,
+            // `struct [[deprecated]] BarComponent` — which would otherwise be
+            // *silently* dropped from the tuple. Requiring a non-empty prefix
+            // before "Component" matches the guard test's `\w+Component` regex
+            // ("Component" alone or "ComponentGroup" won't pass).
             constexpr std::string_view kSuffix = "Component";
-            if (name.size() > kSuffix.size() && name.ends_with(kSuffix))
+            auto bodyPos = trimmed.find_first_of(":{");
+            std::string head = (bodyPos == std::string::npos) ? trimmed : trimmed.substr(0, bodyPos);
+            std::istringstream tokenStream(head);
+            std::string token;
+            std::string name;
+            while (tokenStream >> token)
+            {
+                if (token.size() > kSuffix.size() && token.ends_with(kSuffix))
+                    name = token;
+            }
+            if (!name.empty())
                 names.insert(name);
         }
     }
@@ -1117,22 +1123,29 @@ int main(int argc, char* argv[])
     // is independent of OLO_PROPERTY — emit it before the no-properties early-out so
     // it is always written, even for a tree with components but no scripting props.
     auto componentStructs = CollectComponentStructs(scanDir);
+
+    bool errors = false;
+
     if (componentStructs.empty())
     {
-        std::cerr << "WARNING: No `struct *Component` definitions found under " << scanDir
-                  << " — AllComponents tuple will be empty. Is the scan dir correct?\n";
+        // Almost certainly a misconfiguration (wrong scan dir, IO failure walking
+        // the tree) — NOT a legitimately component-free engine. Writing an empty
+        // `ComponentGroup<>` would silently strip every component from scene copy /
+        // prefab / HasComponent<T>() registration. Refuse: leave the existing good
+        // generated file untouched and fail the build loudly instead.
+        std::cerr << "ERROR: No `struct *Component` definitions found under " << scanDir
+                  << " — refusing to overwrite AllComponents.Generated.inl with an empty "
+                     "tuple. Is the scan dir correct?\n";
+        errors = true;
     }
     else
     {
         std::cout << "OloHeaderTool: Found " << componentStructs.size()
                   << " component structs (" << kComponentsNotInTuple.size()
                   << " excluded from the tuple)\n";
+        if (!WriteAllComponentsTuple(sceneOutDir, componentStructs))
+            errors = true;
     }
-
-    bool errors = false;
-
-    if (!WriteAllComponentsTuple(sceneOutDir, componentStructs))
-        errors = true;
 
     if (components.empty())
     {
