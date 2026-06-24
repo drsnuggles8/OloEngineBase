@@ -39,6 +39,42 @@ namespace OloEngine::Animation
         }
     }
 
+    // Decompose the skeleton's mat4 local transforms into TRS BoneTransforms for
+    // the IK solvers (identity TRS on a degenerate / non-decomposable matrix).
+    static std::vector<BoneTransform> DecomposeLocalPose(const Skeleton& skeleton, sizet boneCount)
+    {
+        std::vector<BoneTransform> localPose(boneCount);
+        for (sizet i = 0; i < boneCount; ++i)
+        {
+            glm::vec3 scale;
+            glm::vec3 translation;
+            glm::quat rotation;
+            glm::vec3 skew;
+            glm::vec4 perspective;
+            if (!glm::decompose(skeleton.m_LocalTransforms[i], scale, rotation, translation, skew, perspective))
+            {
+                localPose[i] = { glm::vec3(0.0f), glm::identity<glm::quat>(), glm::vec3(1.0f) };
+                continue;
+            }
+            localPose[i] = { translation, rotation, scale };
+        }
+        return localPose;
+    }
+
+    // Write IK-modified TRS bones back into the skeleton's mat4 local transforms.
+    static void WriteBackModifiedBones(Skeleton& skeleton, const std::vector<BoneTransform>& localPose,
+                                       const std::vector<bool>& ikModified, sizet boneCount)
+    {
+        for (sizet i = 0; i < boneCount; ++i)
+        {
+            if (ikModified[i])
+            {
+                skeleton.m_LocalTransforms[i] =
+                    glm::translate(glm::mat4(1.0f), localPose[i].Translation) * glm::mat4_cast(localPose[i].Rotation) * glm::scale(glm::mat4(1.0f), localPose[i].Scale);
+            }
+        }
+    }
+
     void ApplyIKPostPass(
         Skeleton& skeleton,
         const IKTargetComponent& ikTarget,
@@ -66,21 +102,7 @@ namespace OloEngine::Animation
         std::vector<bool> ikModified(boneCount, false);
 
         // Decompose mat4 local transforms to BoneTransform for IK solvers
-        std::vector<BoneTransform> localPose(boneCount);
-        for (sizet i = 0; i < boneCount; ++i)
-        {
-            glm::vec3 scale;
-            glm::vec3 translation;
-            glm::quat rotation;
-            glm::vec3 skew;
-            glm::vec4 perspective;
-            if (!glm::decompose(skeleton.m_LocalTransforms[i], scale, rotation, translation, skew, perspective))
-            {
-                localPose[i] = { glm::vec3(0.0f), glm::identity<glm::quat>(), glm::vec3(1.0f) };
-                continue;
-            }
-            localPose[i] = { translation, rotation, scale };
-        }
+        std::vector<BoneTransform> localPose = DecomposeLocalPose(skeleton, boneCount);
 
         auto isFiniteVec3 = [](const glm::vec3& v)
         { return std::isfinite(v.x) && std::isfinite(v.y) && std::isfinite(v.z); };
@@ -124,7 +146,10 @@ namespace OloEngine::Animation
         if (ikTarget.AimIKEnabled && ikTarget.AimBoneIndex < static_cast<u32>(boneCount))
         {
             // Validate all floating-point inputs individually for clarity
-            bool validInputs = isFiniteVec3(ikTarget.AimTarget) && isFiniteVec3(ikTarget.AimAxis) && isFiniteVec3(ikTarget.AimOffset) && isFiniteVec3(ikTarget.AimPoleVector) && std::isfinite(ikTarget.AimWeight) && std::isfinite(ikTarget.AimChainFactor);
+            bool finiteVecs = isFiniteVec3(ikTarget.AimTarget) && isFiniteVec3(ikTarget.AimAxis) &&
+                              isFiniteVec3(ikTarget.AimOffset) && isFiniteVec3(ikTarget.AimPoleVector);
+            bool finiteScalars = std::isfinite(ikTarget.AimWeight) && std::isfinite(ikTarget.AimChainFactor);
+            bool validInputs = finiteVecs && finiteScalars;
             bool validDirections = glm::length2(ikTarget.AimAxis) > kVecEpsilon && glm::length2(ikTarget.AimPoleVector) > kVecEpsilon;
 
             if (validInputs && validDirections)
@@ -170,13 +195,6 @@ namespace OloEngine::Animation
         }
 
         // Only write back bones that IK actually modified
-        for (sizet i = 0; i < boneCount; ++i)
-        {
-            if (ikModified[i])
-            {
-                skeleton.m_LocalTransforms[i] =
-                    glm::translate(glm::mat4(1.0f), localPose[i].Translation) * glm::mat4_cast(localPose[i].Rotation) * glm::scale(glm::mat4(1.0f), localPose[i].Scale);
-            }
-        }
+        WriteBackModifiedBones(skeleton, localPose, ikModified, boneCount);
     }
 } // namespace OloEngine::Animation

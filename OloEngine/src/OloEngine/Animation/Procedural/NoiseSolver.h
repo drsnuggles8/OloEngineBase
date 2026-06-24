@@ -51,7 +51,7 @@ namespace OloEngine::Animation
         //   |Translation[a]|  <= |TranslationAmplitude[a]| * clamp(Weight, 0, 1)
         // Returns a zero offset for a non-finite or zero-weight configuration.
         [[nodiscard]] static NoiseBoneOffset SampleBoneOffset(
-            const NoiseParams& params, u32 chainIndex, u32 boneIndex, f32 time);
+            const NoiseParams& params, u32 chainIndex, u32 boneIndex, f32 timeSeconds);
 
         // Adds noise offsets to the local-space pose of the bone chain in place.
         // The chain is walked from EndBoneIndex up ChainLength parents. No-op for
@@ -61,6 +61,6 @@ namespace OloEngine::Animation
             std::span<BoneTransform> pose,
             std::span<const int> parentIndices,
             const NoiseParams& params,
-            f32 time);
+            f32 timeSeconds);
     };
 } // namespace OloEngine::Animation

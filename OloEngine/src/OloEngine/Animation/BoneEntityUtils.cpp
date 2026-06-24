@@ -143,27 +143,22 @@ namespace OloEngine
         const SkeletonComponent& skeletonComponent,
         const Scene* scene)
     {
-        std::vector<UUID> boneEntityIds;
-
         if (!skeletonComponent.m_Skeleton || !scene || !rootEntity)
-            return boneEntityIds;
+            return {};
 
         const auto& boneNames = skeletonComponent.m_Skeleton->m_BoneNames;
-        boneEntityIds.reserve(boneNames.size());
 
-        // Single lock for cache validation, potential rebuild, and reading to ensure atomicity
-        bool foundAtLeastOne = false;
-        {
-            TUniqueLock<FMutex> lock(skeletonComponent.m_CacheMutex);
-
-            // Check if cache is valid, if not rebuild it
-            if (!skeletonComponent.m_CacheValid)
+        // The component owns the cache and its mutex; it (re)builds the tag map
+        // under its own lock and invokes this callback only when a rebuild is
+        // needed. The traversal stays here because it needs the Scene.
+        return skeletonComponent.ResolveBoneEntities(
+            boneNames,
+            [&scene, rootEntity](std::unordered_map<std::string, UUID>& tagEntityCache)
             {
-                skeletonComponent.m_TagEntityCache.clear();
                 std::unordered_set<UUID> visited;
 
                 // Build tag map with cycle detection
-                std::function<void(Entity)> buildTagMap = [&scene, &visited, &skeletonComponent, &buildTagMap](Entity entity)
+                std::function<void(Entity)> buildTagMap = [&scene, &visited, &tagEntityCache, &buildTagMap](Entity entity)
                 {
                     if (!entity || !scene)
                         return;
@@ -177,7 +172,7 @@ namespace OloEngine
                     if (entity.HasComponent<TagComponent>())
                     {
                         const auto& tagComponent = entity.GetComponent<TagComponent>();
-                        skeletonComponent.m_TagEntityCache[tagComponent.Tag] = entity.GetUUID();
+                        tagEntityCache[tagComponent.Tag] = entity.GetUUID();
                     }
 
                     for (const auto& childId : entity.Children())
@@ -191,32 +186,7 @@ namespace OloEngine
                 };
 
                 buildTagMap(rootEntity);
-                skeletonComponent.m_CacheValid = true;
-            }
-
-            // Use cached map for O(1) lookups
-            for (const auto& boneName : boneNames)
-            {
-                auto it = skeletonComponent.m_TagEntityCache.find(boneName);
-                if (it != skeletonComponent.m_TagEntityCache.end() && it->second != UUID{})
-                {
-                    boneEntityIds.emplace_back(it->second);
-                    foundAtLeastOne = true;
-                }
-                else
-                {
-                    boneEntityIds.emplace_back(UUID{}); // Invalid/null UUID as placeholder
-                }
-            }
-        }
-
-        // If no bones were found, clear the array (consistent with other overload)
-        if (!foundAtLeastOne)
-        {
-            boneEntityIds.clear();
-        }
-
-        return boneEntityIds;
+            });
     }
 
     glm::mat4 BoneEntityUtils::FindRootBoneTransform(
@@ -255,43 +225,49 @@ namespace OloEngine
         return transform;
     }
 
-    // Internal helper with cycle detection
+    // Internal helper with cycle detection (iterative DFS to avoid recursion)
     static void BuildMeshBoneEntityIdsImpl(Entity entity, Entity rootEntity, Scene* scene, std::unordered_set<UUID>& visited)
     {
-        if (!scene)
-            return;
-        if (!entity)
+        if (!scene || !entity)
             return;
 
-        // Check for cycles - if this entity was already visited, skip to prevent infinite recursion
-        UUID entityUUID = entity.GetUUID();
-        if (visited.find(entityUUID) != visited.end())
-            return;
+        std::vector<Entity> stack;
+        stack.push_back(entity);
 
-        // Mark this entity as visited
-        visited.insert(entityUUID);
-
-        // Process current entity if it has a SubmeshComponent
-        if (entity.HasComponent<SubmeshComponent>())
+        while (!stack.empty())
         {
-            auto& submeshComponent = entity.GetComponent<SubmeshComponent>();
-            if (submeshComponent.m_Mesh && submeshComponent.m_Mesh->GetMeshSource())
+            Entity current = stack.back();
+            stack.pop_back();
+            if (!current)
+                continue;
+
+            // Cycle detection — skip if this entity was already visited
+            if (!visited.insert(current.GetUUID()).second)
+                continue;
+
+            // Process current entity if it has a SubmeshComponent
+            if (current.HasComponent<SubmeshComponent>())
             {
-                const Skeleton* skeleton = submeshComponent.m_Mesh->GetMeshSource()->GetSkeleton();
-                if (skeleton)
+                auto& submeshComponent = current.GetComponent<SubmeshComponent>();
+                if (submeshComponent.m_Mesh && submeshComponent.m_Mesh->GetMeshSource())
                 {
-                    submeshComponent.m_BoneEntityIds = BoneEntityUtils::FindBoneEntityIds(rootEntity, skeleton, scene);
+                    const Skeleton* skeleton = submeshComponent.m_Mesh->GetMeshSource()->GetSkeleton();
+                    if (skeleton)
+                    {
+                        submeshComponent.m_BoneEntityIds = BoneEntityUtils::FindBoneEntityIds(rootEntity, skeleton, scene);
+                    }
                 }
             }
-        }
 
-        // Recursively process children
-        for (const auto& childId : entity.Children())
-        {
-            auto childOpt = scene->TryGetEntityWithUUID(childId);
-            if (childOpt) // Check if entity is valid before recursive call
+            // Queue children in reverse so the first child is processed next — preserves pre-order DFS
+            const auto& children = current.Children();
+            for (auto it = children.rbegin(); it != children.rend(); ++it)
             {
-                BuildMeshBoneEntityIdsImpl(*childOpt, rootEntity, scene, visited);
+                auto childOpt = scene->TryGetEntityWithUUID(*it);
+                if (childOpt)
+                {
+                    stack.push_back(*childOpt);
+                }
             }
         }
     }
@@ -302,43 +278,49 @@ namespace OloEngine
         BuildMeshBoneEntityIdsImpl(entity, rootEntity, scene, visited);
     }
 
-    // Internal helper with cycle detection
+    // Internal helper with cycle detection (iterative DFS to avoid recursion)
     static void BuildAnimationBoneEntityIdsImpl(Entity entity, Entity rootEntity, Scene* scene, std::unordered_set<UUID>& visited)
     {
-        if (!scene)
-            return;
-        if (!entity)
+        if (!scene || !entity)
             return;
 
-        // Check for cycles - if this entity was already visited, skip to prevent infinite recursion
-        UUID entityUUID = entity.GetUUID();
-        if (visited.find(entityUUID) != visited.end())
-            return;
+        std::vector<Entity> stack;
+        stack.push_back(entity);
 
-        // Mark this entity as visited
-        visited.insert(entityUUID);
-
-        // Process current entity if it has an AnimationStateComponent
-        if (entity.HasComponent<AnimationStateComponent>() && entity.HasComponent<SkeletonComponent>())
+        while (!stack.empty())
         {
-            auto& animComponent = entity.GetComponent<AnimationStateComponent>();
-            const auto& skeletonComponent = entity.GetComponent<SkeletonComponent>();
+            Entity current = stack.back();
+            stack.pop_back();
+            if (!current)
+                continue;
 
-            if (skeletonComponent.m_Skeleton)
+            // Cycle detection — skip if this entity was already visited
+            if (!visited.insert(current.GetUUID()).second)
+                continue;
+
+            // Process current entity if it has an AnimationStateComponent
+            if (current.HasComponent<AnimationStateComponent>() && current.HasComponent<SkeletonComponent>())
             {
-                // Use cached version to avoid repeated hierarchy walks
-                animComponent.m_BoneEntityIds = BoneEntityUtils::FindBoneEntityIds(rootEntity, skeletonComponent, scene);
-                animComponent.m_RootBoneTransform = BoneEntityUtils::FindRootBoneTransform(entity, animComponent.m_BoneEntityIds, scene);
+                auto& animComponent = current.GetComponent<AnimationStateComponent>();
+                const auto& skeletonComponent = current.GetComponent<SkeletonComponent>();
+
+                if (skeletonComponent.m_Skeleton)
+                {
+                    // Use cached version to avoid repeated hierarchy walks
+                    animComponent.m_BoneEntityIds = BoneEntityUtils::FindBoneEntityIds(rootEntity, skeletonComponent, scene);
+                    animComponent.m_RootBoneTransform = BoneEntityUtils::FindRootBoneTransform(current, animComponent.m_BoneEntityIds, scene);
+                }
             }
-        }
 
-        // Recursively process children
-        for (const auto& childId : entity.Children())
-        {
-            auto childOpt = scene->TryGetEntityWithUUID(childId);
-            if (childOpt) // Check if entity is valid before recursive call
+            // Queue children in reverse so the first child is processed next — preserves pre-order DFS
+            const auto& children = current.Children();
+            for (auto it = children.rbegin(); it != children.rend(); ++it)
             {
-                BuildAnimationBoneEntityIdsImpl(*childOpt, rootEntity, scene, visited);
+                auto childOpt = scene->TryGetEntityWithUUID(*it);
+                if (childOpt)
+                {
+                    stack.push_back(*childOpt);
+                }
             }
         }
     }
@@ -349,37 +331,43 @@ namespace OloEngine
         BuildAnimationBoneEntityIdsImpl(entity, rootEntity, scene, visited);
     }
 
-    // Internal helper with cycle detection
+    // Internal helper with cycle detection (iterative pre-order DFS to avoid recursion)
     static Entity FindEntityWithTagImpl(Entity entity, const std::string& tag, const Scene* scene, std::unordered_set<UUID>& visited)
     {
         if (!entity || !scene)
             return Entity();
 
-        // Check for cycles - if this entity was already visited, skip to prevent infinite recursion
-        UUID entityUUID = entity.GetUUID();
-        if (visited.find(entityUUID) != visited.end())
-            return Entity();
+        std::vector<Entity> stack;
+        stack.push_back(entity);
 
-        // Mark this entity as visited
-        visited.insert(entityUUID);
-
-        // Check current entity
-        if (entity.HasComponent<TagComponent>())
+        while (!stack.empty())
         {
-            const auto& tagComponent = entity.GetComponent<TagComponent>();
-            if (tagComponent.Tag == tag)
-                return entity;
-        }
+            Entity current = stack.back();
+            stack.pop_back();
+            if (!current)
+                continue;
 
-        // Recursively search children
-        for (const auto& childId : entity.Children())
-        {
-            auto childOpt = scene->TryGetEntityWithUUID(childId);
-            if (childOpt) // Check if entity is valid before recursive call
+            // Cycle detection — skip if this entity was already visited
+            if (!visited.insert(current.GetUUID()).second)
+                continue;
+
+            // Check current entity
+            if (current.HasComponent<TagComponent>())
             {
-                Entity found = FindEntityWithTagImpl(*childOpt, tag, scene, visited);
-                if (found)
-                    return found;
+                const auto& tagComponent = current.GetComponent<TagComponent>();
+                if (tagComponent.Tag == tag)
+                    return current;
+            }
+
+            // Queue children in reverse so the first child is searched next — preserves pre-order DFS
+            const auto& children = current.Children();
+            for (auto it = children.rbegin(); it != children.rend(); ++it)
+            {
+                auto childOpt = scene->TryGetEntityWithUUID(*it);
+                if (childOpt)
+                {
+                    stack.push_back(*childOpt);
+                }
             }
         }
 

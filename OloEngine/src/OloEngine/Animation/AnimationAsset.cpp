@@ -9,14 +9,11 @@ namespace OloEngine
 {
 
     AnimationAsset::AnimationAsset(AssetHandle animationSource, AssetHandle mesh, std::string animationName,
-                                   bool extractRootMotion, u32 rootBoneIndex,
-                                   const glm::vec3& rootTranslationMask,
-                                   const glm::vec3& rootRotationMask,
-                                   bool discardRootMotion)
+                                   const RootMotionSettings& rootMotion)
         : m_AnimationSource(animationSource), m_Mesh(mesh), m_AnimationName(std::move(animationName)),
-          m_IsExtractRootMotion(extractRootMotion), m_RootBoneIndex(rootBoneIndex),
-          m_RootTranslationMask(rootTranslationMask), m_RootRotationMask(rootRotationMask),
-          m_IsDiscardRootMotion(discardRootMotion)
+          m_IsExtractRootMotion(rootMotion.ExtractRootMotion), m_RootBoneIndex(rootMotion.RootBoneIndex),
+          m_RootTranslationMask(rootMotion.RootTranslationMask), m_RootRotationMask(rootMotion.RootRotationMask),
+          m_IsDiscardRootMotion(rootMotion.DiscardRootMotion)
     {
     }
 

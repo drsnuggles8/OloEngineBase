@@ -36,7 +36,11 @@ namespace OloEngine
             }
             return *this;
         }
-        AnimationGraphComponent(AnimationGraphComponent&&) = default;
-        AnimationGraphComponent& operator=(AnimationGraphComponent&&) = default;
+        AnimationGraphComponent(AnimationGraphComponent&&) noexcept = default;
+        AnimationGraphComponent& operator=(AnimationGraphComponent&&) noexcept = default;
+
+        // Rule of five: a user-managed copy/move set should also declare the
+        // destructor (S3624). The members clean themselves up, so default it.
+        ~AnimationGraphComponent() = default;
     };
 } // namespace OloEngine

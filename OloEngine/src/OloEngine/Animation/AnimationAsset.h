@@ -19,12 +19,21 @@ namespace OloEngine
     class AnimationAsset : public Asset
     {
       public:
+        // Root-motion extraction / baking configuration. Bundled into one parameter
+        // object so the constructor does not take multiple bool arguments (which are
+        // easy to transpose at a call site).
+        struct RootMotionSettings
+        {
+            bool ExtractRootMotion = false;
+            u32 RootBoneIndex = 0;
+            glm::vec3 RootTranslationMask = glm::vec3(1.0f);
+            glm::vec3 RootRotationMask = glm::vec3(1.0f);
+            bool DiscardRootMotion = false;
+        };
+
         AnimationAsset() = default;
         explicit AnimationAsset(AssetHandle animationSource, AssetHandle mesh, std::string animationName,
-                                bool extractRootMotion = false, u32 rootBoneIndex = 0,
-                                const glm::vec3& rootTranslationMask = glm::vec3(1.0f),
-                                const glm::vec3& rootRotationMask = glm::vec3(1.0f),
-                                bool discardRootMotion = false);
+                                const RootMotionSettings& rootMotion = {});
 
         static AssetType GetStaticType()
         {

@@ -53,7 +53,11 @@ namespace OloEngine::Animation
 
         // Validate floating-point parameters — reject the whole solve rather
         // than feeding NaN/Inf into the persistent state.
-        if (!std::isfinite(params.Stiffness) || !std::isfinite(params.Damping) || !std::isfinite(params.Weight) || !IsFiniteVec3(params.Gravity) || !std::isfinite(deltaTime))
+        if (!std::isfinite(params.Stiffness) || !std::isfinite(params.Damping) || !std::isfinite(params.Weight))
+        {
+            return;
+        }
+        if (!IsFiniteVec3(params.Gravity) || !std::isfinite(deltaTime))
         {
             return;
         }

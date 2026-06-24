@@ -63,6 +63,74 @@ namespace OloEngine::Animation
         return { halfCos, halfSin * axis };
     }
 
+    // Compute the bone-local correction quaternion that aims `forward` (with pivot
+    // `offset`) at `boneToTarget`, twisted so the joint's up axis lines up with the
+    // pole vector. Returns identity for degenerate geometry. jointIndex is the
+    // chain position (last joint gets full weight, others get ChainFactor).
+    static glm::quat ComputeAimJointCorrection(
+        const glm::vec3& forward,
+        const glm::vec3& offset,
+        const glm::vec3& boneToTarget,
+        const glm::vec3& up,
+        const BoneTransform& invBone,
+        const AimIKParams& params,
+        u32 jointIndex,
+        u32 actualChainLength)
+    {
+        f32 boneToTargetLen2 = glm::length2(boneToTarget);
+        glm::vec3 offsettedForward;
+        glm::quat correction = glm::identity<glm::quat>();
+
+        constexpr f32 kEpsilon = 1e-7f;
+        if (boneToTargetLen2 > kEpsilon && ComputeOffsettedForward(forward, offset, boneToTarget, offsettedForward))
+        {
+            // Quaternion that rotates offsetted forward onto target direction
+            glm::quat boneToTargetRotation(offsettedForward, boneToTarget);
+
+            // Align joint up to the pole vector
+            auto correctedUp = boneToTargetRotation * up;
+
+            // Compute reference plane normal and bone plane normal
+            auto poleVec = BlendUtils::TransformVector(invBone, params.PoleVector);
+            auto refBoneNormal = glm::cross(poleVec, boneToTarget);
+            auto boneNormal = glm::cross(correctedUp, boneToTarget);
+            f32 refBoneNormalLen2 = glm::length2(refBoneNormal);
+            f32 boneNormalLen2 = glm::length2(boneNormal);
+
+            glm::quat planeRotation = glm::identity<glm::quat>();
+            if ((boneToTargetLen2 > kEpsilon) && (boneNormalLen2 > kEpsilon) && (refBoneNormalLen2 > kEpsilon))
+            {
+                auto rsqrts = glm::inversesqrt(glm::vec3{ boneToTargetLen2, boneNormalLen2, refBoneNormalLen2 });
+
+                auto planeRotationAxis = rsqrts.x * boneToTarget;
+
+                f32 planeRotationCosAngle = glm::clamp(
+                    glm::dot(boneNormal * rsqrts.y, refBoneNormal * rsqrts.z),
+                    -1.0f, 1.0f);
+                bool axisFlip = glm::dot(refBoneNormal, correctedUp) < 0.0f;
+                auto planeRotationAxisFlipped = axisFlip ? -planeRotationAxis : planeRotationAxis;
+
+                planeRotation = FromAxisAndCosAngle(planeRotationAxisFlipped, planeRotationCosAngle);
+            }
+
+            correction = planeRotation * boneToTargetRotation;
+
+            // Ensure w is positive for correct NLerp direction
+            if (correction.w < 0.0f)
+            {
+                correction *= -1.0f;
+            }
+
+            // Apply chain factor: last bone gets full weight, others get chainFactor
+            f32 weight = (jointIndex == actualChainLength - 1) ? 1.0f : params.ChainFactor;
+            if (weight < 1.0f)
+            {
+                correction = glm::normalize(glm::mix(glm::identity<glm::quat>(), correction, weight));
+            }
+        }
+        return correction;
+    }
+
     void AimIKSolver::Solve(
         std::span<BoneTransform> pose,
         std::span<const int> parentIndices,
@@ -156,61 +224,9 @@ namespace OloEngine::Animation
                 offset = BlendUtils::TransformPoint(invBone, correctedOffset);
             }
 
-            // Joint-to-target in bone-local space
+            // Joint-to-target in bone-local space, then compute the aim correction.
             auto boneToTarget = BlendUtils::TransformPoint(invBone, params.TargetPosition);
-            f32 boneToTargetLen2 = glm::length2(boneToTarget);
-
-            // Recompute forward to account for offset
-            glm::vec3 offsettedForward;
-            correction = glm::identity<glm::quat>();
-
-            constexpr f32 kEpsilon = 1e-7f;
-            if (boneToTargetLen2 > kEpsilon && ComputeOffsettedForward(forward, offset, boneToTarget, offsettedForward))
-            {
-                // Quaternion that rotates offsetted forward onto target direction
-                glm::quat boneToTargetRotation(offsettedForward, boneToTarget);
-
-                // Align joint up to the pole vector
-                auto correctedUp = boneToTargetRotation * up;
-
-                // Compute reference plane normal and bone plane normal
-                auto poleVec = BlendUtils::TransformVector(invBone, params.PoleVector);
-                auto refBoneNormal = glm::cross(poleVec, boneToTarget);
-                auto boneNormal = glm::cross(correctedUp, boneToTarget);
-                f32 refBoneNormalLen2 = glm::length2(refBoneNormal);
-                f32 boneNormalLen2 = glm::length2(boneNormal);
-
-                glm::quat planeRotation = glm::identity<glm::quat>();
-                if ((boneToTargetLen2 > kEpsilon) && (boneNormalLen2 > kEpsilon) && (refBoneNormalLen2 > kEpsilon))
-                {
-                    auto rsqrts = glm::inversesqrt(glm::vec3{ boneToTargetLen2, boneNormalLen2, refBoneNormalLen2 });
-
-                    auto planeRotationAxis = rsqrts.x * boneToTarget;
-
-                    f32 planeRotationCosAngle = glm::clamp(
-                        glm::dot(boneNormal * rsqrts.y, refBoneNormal * rsqrts.z),
-                        -1.0f, 1.0f);
-                    bool axisFlip = glm::dot(refBoneNormal, correctedUp) < 0.0f;
-                    auto planeRotationAxisFlipped = axisFlip ? -planeRotationAxis : planeRotationAxis;
-
-                    planeRotation = FromAxisAndCosAngle(planeRotationAxisFlipped, planeRotationCosAngle);
-                }
-
-                correction = planeRotation * boneToTargetRotation;
-
-                // Ensure w is positive for correct NLerp direction
-                if (correction.w < 0.0f)
-                {
-                    correction *= -1.0f;
-                }
-
-                // Apply chain factor: last bone gets full weight, others get chainFactor
-                f32 weight = (i == actualChainLength - 1) ? 1.0f : params.ChainFactor;
-                if (weight < 1.0f)
-                {
-                    correction = glm::normalize(glm::mix(glm::identity<glm::quat>(), correction, weight));
-                }
-            }
+            correction = ComputeAimJointCorrection(forward, offset, boneToTarget, up, invBone, params, i, actualChainLength);
 
             // Apply correction to the bone's local rotation.
             // The correction is in bone-local space (post all transforms), so

@@ -25,6 +25,8 @@ namespace OloEngine
                 return "Bool";
             case AnimationParameterType::Trigger:
                 return "Trigger";
+            default:
+                break;
         }
         return "Float";
     }
@@ -54,6 +56,8 @@ namespace OloEngine
                 return "NotEqual";
             case TransitionCondition::Comparison::TriggerSet:
                 return "TriggerSet";
+            default:
+                break;
         }
         return "Greater";
     }
@@ -83,6 +87,8 @@ namespace OloEngine
                 return "FreeformDirectional2D";
             case BlendTree::BlendType::FreeformCartesian2D:
                 return "FreeformCartesian2D";
+            default:
+                break;
         }
         return "Simple1D";
     }
@@ -106,6 +112,8 @@ namespace OloEngine
                 return "Override";
             case AnimationLayer::BlendMode::Additive:
                 return "Additive";
+            default:
+                break;
         }
         return "Override";
     }
@@ -262,6 +270,8 @@ namespace OloEngine
                     out << YAML::Key << "default" << YAML::Value << param.BoolValue;
                     break;
                 case AnimationParameterType::Trigger:
+                    break;
+                default:
                     break;
             }
             out << YAML::EndMap;
@@ -448,6 +458,85 @@ namespace OloEngine
         return DeserializeFromString(buffer.str());
     }
 
+    // Deserialize the "parameters" sequence into a parameter set.
+    static void DeserializeParameters(AnimationParameterSet& parameters, const YAML::Node& paramsNode)
+    {
+        if (!paramsNode || !paramsNode.IsSequence())
+        {
+            return;
+        }
+        for (auto const& paramNode : paramsNode)
+        {
+            std::string name = paramNode["name"].as<std::string>("");
+            auto type = StringToParameterType(paramNode["type"].as<std::string>("Float"));
+            switch (type)
+            {
+                case AnimationParameterType::Float:
+                    parameters.DefineFloat(name, paramNode["default"].as<f32>(0.0f));
+                    break;
+                case AnimationParameterType::Int:
+                    parameters.DefineInt(name, paramNode["default"].as<i32>(0));
+                    break;
+                case AnimationParameterType::Bool:
+                    parameters.DefineBool(name, paramNode["default"].as<bool>(false));
+                    break;
+                case AnimationParameterType::Trigger:
+                    parameters.DefineTrigger(name);
+                    break;
+                default:
+                    break;
+            }
+        }
+    }
+
+    // Deserialize a single "layers" entry (mask, blend mode, and its state machine).
+    static AnimationLayer DeserializeLayer(const YAML::Node& layerNode)
+    {
+        AnimationLayer layer;
+        layer.Name = layerNode["name"].as<std::string>("Base Layer");
+        layer.Mode = StringToBlendMode(layerNode["blend_mode"].as<std::string>("Override"));
+        layer.Weight = layerNode["weight"].as<f32>(1.0f);
+
+        if (auto affectedBones = layerNode["affected_bones"]; affectedBones && affectedBones.IsSequence())
+        {
+            for (auto const& boneNode : affectedBones)
+            {
+                layer.AffectedBones.push_back(boneNode.as<std::string>(""));
+            }
+        }
+
+        if (layerNode["avatar_mask"])
+        {
+            layer.AvatarMask = layerNode["avatar_mask"].as<std::string>("");
+        }
+
+        auto sm = Ref<AnimationStateMachine>::Create();
+
+        if (auto defaultState = layerNode["default_state"]; defaultState)
+        {
+            sm->SetDefaultState(defaultState.as<std::string>(""));
+        }
+
+        if (auto states = layerNode["states"]; states && states.IsSequence())
+        {
+            for (auto const& stateNode : states)
+            {
+                sm->AddState(DeserializeState(stateNode));
+            }
+        }
+
+        if (auto transitions = layerNode["transitions"]; transitions && transitions.IsSequence())
+        {
+            for (auto const& transNode : transitions)
+            {
+                sm->AddTransition(DeserializeTransition(transNode));
+            }
+        }
+
+        layer.StateMachine = sm;
+        return layer;
+    }
+
     Ref<AnimationGraph> AnimationGraphSerializer::DeserializeFromString(const std::string& yamlString)
     {
         OLO_PROFILE_FUNCTION();
@@ -475,81 +564,13 @@ namespace OloEngine
 
         auto graph = Ref<AnimationGraph>::Create();
 
-        // Parameters
-        if (auto params = root["parameters"]; params && params.IsSequence())
-        {
-            for (auto const& paramNode : params)
-            {
-                std::string name = paramNode["name"].as<std::string>("");
-                auto type = StringToParameterType(paramNode["type"].as<std::string>("Float"));
-                switch (type)
-                {
-                    case AnimationParameterType::Float:
-                        graph->Parameters.DefineFloat(name, paramNode["default"].as<f32>(0.0f));
-                        break;
-                    case AnimationParameterType::Int:
-                        graph->Parameters.DefineInt(name, paramNode["default"].as<i32>(0));
-                        break;
-                    case AnimationParameterType::Bool:
-                        graph->Parameters.DefineBool(name, paramNode["default"].as<bool>(false));
-                        break;
-                    case AnimationParameterType::Trigger:
-                        graph->Parameters.DefineTrigger(name);
-                        break;
-                }
-            }
-        }
+        DeserializeParameters(graph->Parameters, root["parameters"]);
 
-        // Layers
         if (auto layers = root["layers"]; layers && layers.IsSequence())
         {
             for (auto const& layerNode : layers)
             {
-                AnimationLayer layer;
-                layer.Name = layerNode["name"].as<std::string>("Base Layer");
-                layer.Mode = StringToBlendMode(layerNode["blend_mode"].as<std::string>("Override"));
-                layer.Weight = layerNode["weight"].as<f32>(1.0f);
-
-                if (auto affectedBones = layerNode["affected_bones"]; affectedBones && affectedBones.IsSequence())
-                {
-                    for (auto const& boneNode : affectedBones)
-                    {
-                        layer.AffectedBones.push_back(boneNode.as<std::string>(""));
-                    }
-                }
-
-                if (layerNode["avatar_mask"])
-                {
-                    layer.AvatarMask = layerNode["avatar_mask"].as<std::string>("");
-                }
-
-                auto sm = Ref<AnimationStateMachine>::Create();
-
-                if (auto defaultState = layerNode["default_state"]; defaultState)
-                {
-                    sm->SetDefaultState(defaultState.as<std::string>(""));
-                }
-
-                if (auto states = layerNode["states"]; states && states.IsSequence())
-                {
-                    for (auto const& stateNode : states)
-                    {
-                        auto state = DeserializeState(stateNode);
-                        sm->AddState(state);
-                    }
-                }
-
-                if (auto transitions = layerNode["transitions"]; transitions && transitions.IsSequence())
-                {
-                    for (auto const& transNode : transitions)
-                    {
-                        auto transition = DeserializeTransition(transNode);
-                        sm->AddTransition(transition);
-                    }
-                }
-
-                layer.StateMachine = sm;
-                graph->Layers.push_back(layer);
+                graph->Layers.push_back(DeserializeLayer(layerNode));
             }
         }
 

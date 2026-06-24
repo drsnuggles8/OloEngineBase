@@ -45,7 +45,7 @@ namespace OloEngine
         [[nodiscard("duration needed for time normalization")]] f32 GetDuration(const AnimationParameterSet& params) const;
 
         // Static blend utilities - used by BlendTree and AnimationStateMachine
-        static void SampleClipBoneTransforms(const Ref<AnimationClip>& clip, f32 time,
+        static void SampleClipBoneTransforms(const Ref<AnimationClip>& clip, f32 timeSeconds,
                                              sizet boneCount,
                                              std::vector<BoneTransform>& out);
         static void BlendBoneTransforms(const std::vector<BoneTransform>& a,

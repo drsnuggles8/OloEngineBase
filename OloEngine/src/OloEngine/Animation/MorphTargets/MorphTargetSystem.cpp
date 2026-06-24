@@ -8,7 +8,7 @@ namespace OloEngine
 {
     void MorphTargetSystem::SampleMorphKeyframes(
         const Ref<AnimationClip>& clip,
-        f64 time,
+        f64 timeSeconds,
         MorphTargetComponent& morphComp)
     {
         OLO_PROFILE_FUNCTION();
@@ -23,8 +23,8 @@ namespace OloEngine
             if (keys.empty())
                 continue;
 
-            // Binary search for the first key with time >= 'time'
-            auto it = std::lower_bound(keys.begin(), keys.end(), time,
+            // Binary search for the first key with time >= 'timeSeconds'
+            auto it = std::lower_bound(keys.begin(), keys.end(), timeSeconds,
                                        [](const std::pair<f64, f32>& key, f64 t)
                                        { return key.first < t; });
 
@@ -49,7 +49,7 @@ namespace OloEngine
                 }
                 else
                 {
-                    f32 t = static_cast<f32>((time - prev->first) / dt);
+                    f32 t = static_cast<f32>((timeSeconds - prev->first) / dt);
                     weight = prev->second + t * (it->second - prev->second);
                 }
             }

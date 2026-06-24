@@ -3,6 +3,8 @@
 #include "MorphTarget.h"
 #include "OloEngine/Core/Log.h"
 #include "OloEngine/Core/Ref.h"
+#include "OloEngine/Threading/Mutex.h"
+#include "OloEngine/Threading/UniqueLock.h"
 
 #include <string>
 #include <unordered_map>
@@ -55,7 +57,10 @@ namespace OloEngine
                                Targets[0].Vertices.size(), target.Vertices.size(), target.Name);
                 return false;
             }
-            m_NameIndexCache.clear(); // Invalidate cache
+            {
+                TUniqueLock<FMutex> lock(m_CacheMutex);
+                m_NameIndexCache.clear(); // Invalidate cache
+            }
             Targets.push_back(std::move(target));
             return true;
         }
@@ -63,13 +68,15 @@ namespace OloEngine
         // O(1) name-to-index lookup via cached map
         [[nodiscard("cached target index needed for weight mapping")]] i32 FindTargetCached(const std::string& name) const
         {
-            BuildNameIndexCache();
+            TUniqueLock<FMutex> lock(m_CacheMutex);
+            BuildNameIndexCacheLocked();
             auto it = m_NameIndexCache.find(name);
             return (it != m_NameIndexCache.end()) ? it->second : -1;
         }
 
       private:
-        void BuildNameIndexCache() const
+        // Caller must hold m_CacheMutex.
+        void BuildNameIndexCacheLocked() const
         {
             if (!m_NameIndexCache.empty() || Targets.empty())
                 return;
@@ -77,6 +84,9 @@ namespace OloEngine
                 m_NameIndexCache[Targets[i].Name] = i;
         }
 
+        // Guards the mutable cache so const lookups can rebuild it from multiple
+        // threads without a data race (S8379).
+        mutable FMutex m_CacheMutex;
         mutable std::unordered_map<std::string, i32> m_NameIndexCache;
     };
 } // namespace OloEngine

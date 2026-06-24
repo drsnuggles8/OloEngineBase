@@ -179,7 +179,7 @@ TEST(SpringBoneSolverTest, ConvergesBackToRestAfterDisturbance)
         p += glm::vec3(0.3f, 0.0f, 0.0f);
     }
 
-    auto tipError = [&](const std::vector<BoneTransform>& solved)
+    auto tipError = [&pose, &parents](const std::vector<BoneTransform>& solved)
     {
         auto rest = ModelSpacePositions(pose, parents);
         auto sim = ModelSpacePositions(solved, parents);

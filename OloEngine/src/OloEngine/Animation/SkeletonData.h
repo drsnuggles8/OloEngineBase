@@ -45,7 +45,7 @@ namespace OloEngine
 
         SkeletonData() = default;
 
-        SkeletonData(sizet boneCount)
+        explicit SkeletonData(sizet boneCount)
         {
             m_ParentIndices.resize(boneCount, -1); // Initialize with -1 to indicate root bones
             m_BoneNames.resize(boneCount);

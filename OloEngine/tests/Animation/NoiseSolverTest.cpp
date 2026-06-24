@@ -64,10 +64,10 @@ TEST(NoiseSolverTest, OffsetBoundedByAmplitude)
 
     for (int step = 0; step < 2000; ++step)
     {
-        const f32 time = static_cast<f32>(step) * 0.013f;
+        const f32 timeSeconds = static_cast<f32>(step) * 0.013f;
         for (u32 chainIdx = 0; chainIdx < 4; ++chainIdx)
         {
-            const NoiseBoneOffset o = NoiseSolver::SampleBoneOffset(params, chainIdx, chainIdx, time);
+            const NoiseBoneOffset o = NoiseSolver::SampleBoneOffset(params, chainIdx, chainIdx, timeSeconds);
             EXPECT_LE(std::abs(o.EulerRadians.x), params.RotationAmplitude.x + kEps);
             EXPECT_LE(std::abs(o.EulerRadians.y), params.RotationAmplitude.y + kEps);
             EXPECT_LE(std::abs(o.EulerRadians.z), params.RotationAmplitude.z + kEps);
@@ -88,8 +88,8 @@ TEST(NoiseSolverTest, WeightScalesBound)
 
     for (int step = 0; step < 500; ++step)
     {
-        const f32 time = static_cast<f32>(step) * 0.021f;
-        const NoiseBoneOffset o = NoiseSolver::SampleBoneOffset(params, 1, 2, time);
+        const f32 timeSeconds = static_cast<f32>(step) * 0.021f;
+        const NoiseBoneOffset o = NoiseSolver::SampleBoneOffset(params, 1, 2, timeSeconds);
         EXPECT_LE(std::abs(o.EulerRadians.x), 0.5f * params.RotationAmplitude.x + kEps);
         EXPECT_LE(std::abs(o.EulerRadians.y), 0.5f * params.RotationAmplitude.y + kEps);
         EXPECT_LE(std::abs(o.EulerRadians.z), 0.5f * params.RotationAmplitude.z + kEps);
@@ -112,9 +112,9 @@ TEST(NoiseSolverTest, DeterministicGivenParamsAndTime)
     auto params = DefaultParams();
     for (int step = 0; step < 50; ++step)
     {
-        const f32 time = static_cast<f32>(step) * 0.1f;
-        const NoiseBoneOffset a = NoiseSolver::SampleBoneOffset(params, 2, 3, time);
-        const NoiseBoneOffset b = NoiseSolver::SampleBoneOffset(params, 2, 3, time);
+        const f32 timeSeconds = static_cast<f32>(step) * 0.1f;
+        const NoiseBoneOffset a = NoiseSolver::SampleBoneOffset(params, 2, 3, timeSeconds);
+        const NoiseBoneOffset b = NoiseSolver::SampleBoneOffset(params, 2, 3, timeSeconds);
         EXPECT_TRUE(Math::BitwiseEqual(a.EulerRadians, b.EulerRadians));
         EXPECT_TRUE(Math::BitwiseEqual(a.Translation, b.Translation));
     }
@@ -128,9 +128,9 @@ TEST(NoiseSolverTest, BonesAreDecorrelated)
     bool anyDifference = false;
     for (int step = 0; step < 20 && !anyDifference; ++step)
     {
-        const f32 time = static_cast<f32>(step) * 0.25f;
-        const NoiseBoneOffset a = NoiseSolver::SampleBoneOffset(params, 0, 3, time);
-        const NoiseBoneOffset b = NoiseSolver::SampleBoneOffset(params, 1, 2, time);
+        const f32 timeSeconds = static_cast<f32>(step) * 0.25f;
+        const NoiseBoneOffset a = NoiseSolver::SampleBoneOffset(params, 0, 3, timeSeconds);
+        const NoiseBoneOffset b = NoiseSolver::SampleBoneOffset(params, 1, 2, timeSeconds);
         if (!Math::BitwiseEqual(a.EulerRadians, b.EulerRadians))
         {
             anyDifference = true;
@@ -148,9 +148,9 @@ TEST(NoiseSolverTest, SeedChangesMotion)
     bool anyDifference = false;
     for (int step = 0; step < 20 && !anyDifference; ++step)
     {
-        const f32 time = static_cast<f32>(step) * 0.25f;
-        if (!Math::BitwiseEqual(NoiseSolver::SampleBoneOffset(a, 0, 3, time).EulerRadians,
-                                NoiseSolver::SampleBoneOffset(b, 0, 3, time).EulerRadians))
+        const f32 timeSeconds = static_cast<f32>(step) * 0.25f;
+        if (!Math::BitwiseEqual(NoiseSolver::SampleBoneOffset(a, 0, 3, timeSeconds).EulerRadians,
+                                NoiseSolver::SampleBoneOffset(b, 0, 3, timeSeconds).EulerRadians))
         {
             anyDifference = true;
         }
@@ -167,8 +167,8 @@ TEST(NoiseSolverTest, MotionIsSmoothOverTime)
     f32 prevX = NoiseSolver::SampleBoneOffset(params, 1, 1, 0.0f).EulerRadians.x;
     for (int step = 1; step < 1000; ++step)
     {
-        const f32 time = static_cast<f32>(step) * kDt;
-        const f32 x = NoiseSolver::SampleBoneOffset(params, 1, 1, time).EulerRadians.x;
+        const f32 timeSeconds = static_cast<f32>(step) * kDt;
+        const f32 x = NoiseSolver::SampleBoneOffset(params, 1, 1, timeSeconds).EulerRadians.x;
         // A small time step must yield a small change relative to the amplitude.
         // A genuine discontinuity would jump a large fraction of the amplitude;
         // smooth fbm advances only a few percent per 1/120 s step.

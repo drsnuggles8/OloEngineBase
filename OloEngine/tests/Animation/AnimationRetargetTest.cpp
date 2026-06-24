@@ -13,6 +13,7 @@
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/quaternion.hpp>
 
+#include <string_view>
 #include <vector>
 
 using namespace OloEngine;
@@ -31,7 +32,7 @@ using namespace OloEngine::Animation;
 
 namespace
 {
-    void ExpectQuatNear(const glm::quat& a, const glm::quat& b, f32 eps, const char* msg)
+    void ExpectQuatNear(const glm::quat& a, const glm::quat& b, f32 eps, std::string_view msg)
     {
         // q and -q are the same rotation — align sign before comparing components.
         const glm::quat bb = (glm::dot(a, b) < 0.0f) ? -b : b;
@@ -41,7 +42,7 @@ namespace
         EXPECT_NEAR(a.z, bb.z, eps) << msg;
     }
 
-    void ExpectVec3Near(const glm::vec3& a, const glm::vec3& b, f32 eps, const char* msg)
+    void ExpectVec3Near(const glm::vec3& a, const glm::vec3& b, f32 eps, std::string_view msg)
     {
         EXPECT_NEAR(a.x, b.x, eps) << msg;
         EXPECT_NEAR(a.y, b.y, eps) << msg;

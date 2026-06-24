@@ -2,7 +2,7 @@
 #include "OloEngine/Animation/Retargeting/SkeletonRetargetMap.h"
 
 #include <algorithm>
-#include <cctype>
+#include <locale>
 #include <unordered_map>
 
 namespace OloEngine::Animation
@@ -14,13 +14,16 @@ namespace OloEngine::Animation
         if (const sizet sep = name.find_last_of(":|"); sep != std::string_view::npos)
             name.remove_prefix(sep + 1);
 
+        // Use the locale-aware <locale> overloads (MISRA C++ 24.5.1 forbids the
+        // <cctype> character functions). The classic "C" locale keeps ASCII-only
+        // classification/case-folding, matching the previous behaviour.
+        const std::locale& loc = std::locale::classic();
         std::string out;
         out.reserve(name.size());
         for (const char c : name)
         {
-            const auto uc = static_cast<unsigned char>(c);
-            if (std::isalnum(uc) != 0)
-                out.push_back(static_cast<char>(std::tolower(uc)));
+            if (std::isalnum(c, loc))
+                out.push_back(std::tolower(c, loc));
         }
         return out;
     }
