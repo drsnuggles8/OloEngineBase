@@ -110,6 +110,12 @@ namespace OloEngine::MCP
         // `destructiveHint`, `idempotentHint`, `openWorldHint`. Defaults to null;
         // emitted under `annotations` only when it is a non-empty object.
         Json Annotations;
+        // Lightweight grouping category (e.g. "render", "physics", "shader") so the
+        // 39-tool surface can be browsed/filtered instead of paged through flat. Used
+        // by `tools/search` (filter + catalogue) and surfaced under each tool's `_meta`
+        // in `tools/list`. Empty => uncategorized (omitted from the metadata). Purely
+        // descriptive — it does not affect dispatch or tool resolution.
+        std::string Toolset;
         ToolHandler Handler;
         bool MainMarshaled = false;
     };
@@ -354,6 +360,13 @@ namespace OloEngine::MCP
 
         [[nodiscard]] Json HandleInitialize(const Json& id, const Json& params);
         [[nodiscard]] Json HandleToolsList(const Json& id) const;
+        // Custom (non-standard) discovery method `tools/search`: filter the tool
+        // surface by a free-text `query` (whitespace-separated terms, all must match
+        // name/title/description/toolset, case-insensitive) and/or a `toolset`
+        // category, and return the matching tools plus a catalogue of every toolset
+        // with its tool count. Additive: `tools/list` is unchanged, so a standard MCP
+        // client that never calls this keeps working.
+        [[nodiscard]] Json HandleToolsSearch(const Json& id, const Json& params) const;
         [[nodiscard]] Json HandleToolsCall(const Json& id, const Json& params);
         [[nodiscard]] Json HandleResourcesList(const Json& id) const;
         [[nodiscard]] Json HandleResourcesRead(const Json& id, const Json& params);
