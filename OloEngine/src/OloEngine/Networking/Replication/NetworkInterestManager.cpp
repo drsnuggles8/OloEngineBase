@@ -63,16 +63,19 @@ namespace OloEngine
 
             u64 const uuid = static_cast<u64>(entity.GetUUID());
 
-            // Partition the replicated entity: a positive RelevanceRadius makes it distance-filterable
-            // (lives in the spatial grid); anything else is always-relevant (flat list, no distance
-            // cull — only a group filter may still exclude it at query time).
+            // Partition the replicated entity: a finite, positive RelevanceRadius makes it distance-
+            // filterable (lives in the spatial grid). Radius 0, a negative radius, or a non-finite
+            // (corrupt) radius are not distance-filterable and go in the flat always-relevant list —
+            // keeping NaN/inf out of the grid so it can never poison m_MaxRelevanceRadius (which would
+            // force every query to fall back to the full scan). The query-time gate in
+            // EvaluateEntityRelevance then rejects a corrupt-radius entity outright.
             f32 relevanceRadius = 0.0f;
             if (entity.HasComponent<NetworkInterestComponent>())
             {
                 relevanceRadius = entity.GetComponent<NetworkInterestComponent>().RelevanceRadius;
             }
 
-            if (relevanceRadius > 0.0f)
+            if (std::isfinite(relevanceRadius) && relevanceRadius > 0.0f)
             {
                 auto const& tc = entity.GetComponent<TransformComponent>();
                 m_SpatialGrid.InsertOrUpdate(uuid, tc.Translation);
@@ -93,6 +96,23 @@ namespace OloEngine
     bool NetworkInterestManager::EvaluateEntityRelevance(Entity entity, const glm::vec3& clientPos,
                                                          const std::unordered_set<u32>* clientGroups) const
     {
+        // The full-scan candidate set is GetAllEntitiesWith<IDComponent, TransformComponent>; an entity
+        // whose TransformComponent was removed after the grid snapshotted its UUID must drop out here
+        // (and we must not dereference the now-missing component below).
+        if (!entity.HasComponent<TransformComponent>())
+        {
+            return false;
+        }
+
+        // Replication gate: an entity carrying a NetworkIdentityComponent is only relevant while it is
+        // marked replicated. Re-checked live (not trusted from the grid snapshot) so a mid-tick toggle
+        // to IsReplicated == false can't leak an entity the full scan would now exclude.
+        if (entity.HasComponent<NetworkIdentityComponent>() &&
+            !entity.GetComponent<NetworkIdentityComponent>().IsReplicated)
+        {
+            return false;
+        }
+
         // No interest component → always relevant (no group, no distance cull).
         if (!entity.HasComponent<NetworkInterestComponent>())
         {
@@ -110,13 +130,20 @@ namespace OloEngine
             }
         }
 
-        // Distance-based relevance (radius 0 means "always relevant").
-        if (interest.RelevanceRadius > 0.0f)
+        // Distance-based relevance (radius 0 means "always relevant"). A non-finite radius is corrupt
+        // input — RelevanceRadius is not isfinite-validated on scene/save-game load — so reject the
+        // entity rather than letting NaN/inf bypass distance culling or read as always-relevant.
+        f32 const radius = interest.RelevanceRadius;
+        if (!std::isfinite(radius))
+        {
+            return false;
+        }
+        if (radius > 0.0f)
         {
             auto const& tc = entity.GetComponent<TransformComponent>();
             f32 const distSq = glm::distance2(clientPos, tc.Translation);
             // Reject a non-finite position (corrupt transform) rather than leaning on NaN-compare quirks.
-            if (!std::isfinite(distSq) || distSq > interest.RelevanceRadius * interest.RelevanceRadius)
+            if (!std::isfinite(distSq) || distSq > radius * radius)
             {
                 return false; // Too far away (or invalid position).
             }
@@ -162,8 +189,7 @@ namespace OloEngine
             for (u64 const uuid : m_AlwaysRelevant)
             {
                 if (auto entity = scene.TryGetEntityWithUUID(UUID(uuid));
-                    entity && entity->HasComponent<TransformComponent>() &&
-                    EvaluateEntityRelevance(*entity, clientPos, clientGroups))
+                    entity && EvaluateEntityRelevance(*entity, clientPos, clientGroups))
                 {
                     result.push_back(uuid);
                 }
@@ -177,8 +203,7 @@ namespace OloEngine
             for (u64 const uuid : candidates)
             {
                 if (auto entity = scene.TryGetEntityWithUUID(UUID(uuid));
-                    entity && entity->HasComponent<TransformComponent>() &&
-                    EvaluateEntityRelevance(*entity, clientPos, clientGroups))
+                    entity && EvaluateEntityRelevance(*entity, clientPos, clientGroups))
                 {
                     result.push_back(uuid);
                 }
@@ -188,21 +213,11 @@ namespace OloEngine
         }
 
         // Fallback: full scene scan (grid not populated yet, or radius too wide for the grid to help).
+        // The shared gate applies the replication + interest/distance rules per entity.
         auto view = scene.GetAllEntitiesWith<IDComponent, TransformComponent>();
         for (auto entityHandle : view)
         {
             Entity entity{ entityHandle, &scene };
-
-            // Only replicate entities with NetworkIdentityComponent that are marked as replicated
-            if (entity.HasComponent<NetworkIdentityComponent>())
-            {
-                auto const& nic = entity.GetComponent<NetworkIdentityComponent>();
-                if (!nic.IsReplicated)
-                {
-                    continue;
-                }
-            }
-
             if (EvaluateEntityRelevance(entity, clientPos, clientGroups))
             {
                 result.push_back(static_cast<u64>(entity.GetUUID()));
@@ -230,32 +245,15 @@ namespace OloEngine
             clientGroups = &it->second;
         }
 
-        // Direct UUID lookup instead of scanning the whole scene to find one entity.
+        // Direct UUID lookup instead of scanning the whole scene to find one entity. The shared gate
+        // re-checks transform presence, the replication flag, and the interest/distance rules, so this
+        // matches GetRelevantEntities membership exactly (including for a stale-snapshot entity).
         auto entityOpt = scene.TryGetEntityWithUUID(UUID(entityUUID));
         if (!entityOpt)
         {
             return false; // Entity not in scene.
         }
 
-        Entity entity = *entityOpt;
-
-        // The full-scan path only ever considers entities with a TransformComponent; match that set
-        // so a transform-less entity is reported irrelevant identically.
-        if (!entity.HasComponent<TransformComponent>())
-        {
-            return false;
-        }
-
-        // Replication gate (same as GetRelevantEntities).
-        if (entity.HasComponent<NetworkIdentityComponent>())
-        {
-            auto const& nic = entity.GetComponent<NetworkIdentityComponent>();
-            if (!nic.IsReplicated)
-            {
-                return false;
-            }
-        }
-
-        return EvaluateEntityRelevance(entity, clientPos, clientGroups);
+        return EvaluateEntityRelevance(*entityOpt, clientPos, clientGroups);
     }
 } // namespace OloEngine

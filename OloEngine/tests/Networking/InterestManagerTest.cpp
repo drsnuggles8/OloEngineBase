@@ -7,6 +7,7 @@
 #include "OloEngine/Scene/Components.h"
 
 #include <algorithm>
+#include <limits>
 #include <vector>
 
 using namespace OloEngine;
@@ -380,6 +381,86 @@ TEST_F(InterestManagerTest, EntityLosingTransformAfterSnapshotDropsOutOfAllPaths
     EXPECT_TRUE(actual.empty());
 
     // IsEntityRelevant already guards the missing transform; confirm both managers agree with it.
+    EXPECT_FALSE(grid.IsEntityRelevant(1, 1u, *m_Scene));
+    EXPECT_FALSE(grid.IsEntityRelevant(1, 2u, *m_Scene));
+}
+
+// A NaN or infinite RelevanceRadius is corrupt input (RelevanceRadius is not isfinite-validated on
+// scene/save-game load). It must NOT read as always-relevant or bypass distance culling, must drop
+// out of every query path identically, and — for inf — must not poison the grid for well-behaved
+// siblings by forcing every query onto the full-scan fallback.
+TEST_F(InterestManagerTest, NonFiniteRelevanceRadiusIsRejectedAndConsistent)
+{
+    auto make = [&](u64 id, const glm::vec3& pos, f32 radius)
+    {
+        Entity e = m_Scene->CreateEntityWithUUID(UUID(id), "E");
+        e.GetComponent<TransformComponent>().Translation = pos;
+        e.AddComponent<NetworkIdentityComponent>().IsReplicated = true;
+        e.AddComponent<NetworkInterestComponent>().RelevanceRadius = radius;
+    };
+    make(1, { 10.0f, 0.0f, 0.0f }, std::numeric_limits<f32>::quiet_NaN()); // NaN → rejected
+    make(2, { 12.0f, 0.0f, 0.0f }, std::numeric_limits<f32>::infinity());  // inf → rejected
+    make(3, { 14.0f, 0.0f, 0.0f }, 50.0f);                                 // finite, in range → relevant
+
+    NetworkInterestManager scan;
+    scan.SetClientPosition(1, { 0.0f, 0.0f, 0.0f });
+    auto expected = scan.GetRelevantEntities(1, *m_Scene);
+
+    NetworkInterestManager grid;
+    grid.SetClientPosition(1, { 0.0f, 0.0f, 0.0f });
+    grid.UpdateSpatialGrid(*m_Scene);
+    auto actual = grid.GetRelevantEntities(1, *m_Scene);
+
+    std::ranges::sort(expected);
+    std::ranges::sort(actual);
+    EXPECT_EQ(expected, actual);
+    EXPECT_EQ(actual, (std::vector<u64>{ 3u })); // only the finite, in-range entity survives
+
+    // The inf radius was kept out of the grid, so m_MaxRelevanceRadius stayed finite (== 50) and only
+    // the one finite-radius entity is distance-filterable — the grid still accelerated the query.
+    EXPECT_EQ(grid.GetSpatialGrid().GetEntityCount(), 1u);
+
+    // IsEntityRelevant agrees per-entity, grid-populated or not.
+    for (u64 id : { 1u, 2u, 3u })
+    {
+        bool const inList = std::ranges::find(actual, id) != actual.end();
+        EXPECT_EQ(inList, grid.IsEntityRelevant(1, id, *m_Scene)) << "grid entity " << id;
+        EXPECT_EQ(inList, scan.IsEntityRelevant(1, id, *m_Scene)) << "scan entity " << id;
+    }
+}
+
+// Toggling IsReplicated off AFTER the grid snapshot must exclude the entity from the grid path too —
+// the replication gate is re-checked live, so the grid path can't leak an entity the full scan now
+// hides. Covers both the distance-filterable (grid) and always-relevant (flat list) buckets.
+TEST_F(InterestManagerTest, ReplicationToggledOffAfterSnapshotDropsOutOfGridPath)
+{
+    Entity distance = m_Scene->CreateEntityWithUUID(UUID(1), "Distance");
+    distance.GetComponent<TransformComponent>().Translation = { 10.0f, 0.0f, 0.0f };
+    distance.AddComponent<NetworkIdentityComponent>().IsReplicated = true;
+    distance.AddComponent<NetworkInterestComponent>().RelevanceRadius = 50.0f;
+
+    Entity always = m_Scene->CreateEntityWithUUID(UUID(2), "Always");
+    always.GetComponent<TransformComponent>().Translation = { 20.0f, 0.0f, 0.0f };
+    always.AddComponent<NetworkIdentityComponent>().IsReplicated = true;
+
+    NetworkInterestManager grid;
+    grid.SetClientPosition(1, { 0.0f, 0.0f, 0.0f });
+    grid.UpdateSpatialGrid(*m_Scene); // both replicated at snapshot time → both captured
+
+    // Toggle replication off after the snapshot was taken.
+    distance.GetComponent<NetworkIdentityComponent>().IsReplicated = false;
+    always.GetComponent<NetworkIdentityComponent>().IsReplicated = false;
+
+    NetworkInterestManager scan;
+    scan.SetClientPosition(1, { 0.0f, 0.0f, 0.0f });
+    auto expected = scan.GetRelevantEntities(1, *m_Scene); // live scan excludes both
+    auto actual = grid.GetRelevantEntities(1, *m_Scene);   // grid path must also exclude both
+
+    std::ranges::sort(expected);
+    std::ranges::sort(actual);
+    EXPECT_EQ(expected, actual);
+    EXPECT_TRUE(actual.empty());
+
     EXPECT_FALSE(grid.IsEntityRelevant(1, 1u, *m_Scene));
     EXPECT_FALSE(grid.IsEntityRelevant(1, 2u, *m_Scene));
 }
