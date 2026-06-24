@@ -76,7 +76,7 @@ class SoundGraphCacheTest : public ::testing::Test
 
     // Create a real source file so Put()'s HashFile()/GetFileModificationTime()
     // operate on an existing path, and return that path.
-    std::string MakeSourceFile(const std::string& name, const std::string& content)
+    std::string MakeSourceFile(const std::string& name, const std::string& content) const
     {
         const std::filesystem::path path = m_TempDir / name;
         std::ofstream fout(path);
