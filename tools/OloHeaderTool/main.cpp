@@ -1,14 +1,20 @@
-// OloHeaderTool — Generates scripting bindings from OLO_PROPERTY() annotations.
+// OloHeaderTool — Generates scripting bindings from OLO_PROPERTY() annotations,
+// plus the ECS AllComponents type list from `struct *Component` definitions.
 //
-// Scans C++ headers for OLO_PROPERTY() markers, parses the next field
-// declaration, and emits:
+// Scans C++ headers and emits:
 //   1. C++ Mono getter/setter functions       (ScriptGlueBindings.inl)
 //   2. C++ OLO_ADD_INTERNAL_CALL registrations (ScriptGlueRegistrations.inl)
 //   3. C# proxy Component classes             (Components.Generated.cs)
 //   4. C# InternalCall declarations           (InternalCalls.Generated.cs)
+//   5. The AllComponents type list            (AllComponents.Generated.inl)
+//      — one entry per `struct *Component` definition under the scan dir,
+//        included by Scene/Components.h. This collapses one of the six
+//        hand-maintained ECS component touch-points into codegen so a new
+//        component is registered for scene-copy / prefab / HasComponent<T>()
+//        automatically instead of by remembering to edit the tuple.
 //
 // Usage:
-//   OloHeaderTool <scan_dir> <cpp_out_dir> <cs_out_dir>
+//   OloHeaderTool <scan_dir> <cpp_out_dir> <cs_out_dir> <scene_out_dir>
 
 #include <algorithm>
 #include <filesystem>
@@ -16,8 +22,10 @@
 #include <iostream>
 #include <iterator>
 #include <map>
+#include <set>
 #include <sstream>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace fs = std::filesystem;
@@ -619,6 +627,122 @@ static std::vector<ComponentDef> ParseHeaders(const fs::path& scanDir)
     return components;
 }
 
+// ─── Component Struct Collector (for the AllComponents tuple) ─────────────────────
+
+// Components intentionally kept OUT of the AllComponents tuple. This MUST mirror
+// the `kNotInTuple` set in OloEngine/tests/ComponentTupleCoverageTest.cpp — that
+// test guards the generated tuple in both directions, but it cannot catch a
+// runtime-only component that the generator wrongly *adds* to the tuple, so these
+// two lists are the shared source of truth and have to be kept in sync. See the
+// test for the per-entry rationale:
+//   * IDComponent / TagComponent — entity identity, copied by hand in Scene.cpp.
+//   * *StateComponent / UIResolvedRectComponent — per-tick runtime-derived state,
+//     recomputed each frame and never copied / serialized / script-registered.
+static const std::set<std::string> kComponentsNotInTuple = {
+    "IDComponent",
+    "TagComponent",
+    "UIResolvedRectComponent",
+    "DialogueStateComponent",
+    "SpringBoneStateComponent",
+    "NoiseAnimationStateComponent",
+};
+
+// Collect the name of every `struct *Component` *definition* under the scan dir.
+// This is the input to the generated AllComponents tuple — independent of the
+// OLO_PROPERTY scan above, since most components have no scripting properties.
+//
+// Discrimination rules are kept deliberately close to ComponentTupleCoverageTest
+// (which guards the output) so the two agree:
+//   * definitions only — a `struct Foo;` forward declaration (the line contains
+//     a ';') is skipped; only the brace-opening definition counts.
+//   * line- and block-comments are stripped first, so a `// struct FooComponent`
+//     mention or a commented-out struct is never collected.
+//   * the type name must end in "Component".
+static std::set<std::string> CollectComponentStructs(const fs::path& scanDir)
+{
+    std::set<std::string> names;
+
+    for (auto const& entry : fs::recursive_directory_iterator(scanDir))
+    {
+        if (!entry.is_regular_file())
+            continue;
+        if (auto ext = entry.path().extension().string(); ext != ".h" && ext != ".hpp")
+            continue;
+
+        std::ifstream file(entry.path());
+        if (!file.is_open())
+            continue;
+
+        bool inBlockComment = false;
+        std::string line;
+        while (std::getline(file, line))
+        {
+            std::string trimmed = Trim(StripBlockComments(Trim(line), inBlockComment));
+            if (trimmed.empty())
+                continue;
+            // Whole-line comment — ignore (block comments already stripped above).
+            if (trimmed.starts_with("//"))
+                continue;
+            if (!trimmed.starts_with("struct ") && !trimmed.starts_with("class "))
+                continue;
+            // Forward declaration (or any one-line `struct Foo ...;`) — not a
+            // definition we want to instantiate in the tuple.
+            if (trimmed.find(';') != std::string::npos)
+                continue;
+
+            // Extract the type name: "struct Foo", "struct Foo {", "struct Foo : Base {".
+            auto nameStart = trimmed.find(' ') + 1;
+            auto nameEnd = trimmed.find_first_of(" :{", nameStart);
+            if (nameEnd == std::string::npos)
+                nameEnd = trimmed.size();
+            std::string name = Trim(trimmed.substr(nameStart, nameEnd - nameStart));
+
+            // Guard against template parameter lists and stray tokens.
+            if (name.empty() || name.find('(') != std::string::npos)
+                continue;
+
+            // Require a non-empty prefix before "Component" (matches the test's
+            // `\w+Component` regex — "Component" alone or "ComponentGroup" won't pass).
+            constexpr std::string_view kSuffix = "Component";
+            if (name.size() > kSuffix.size() && name.ends_with(kSuffix))
+                names.insert(name);
+        }
+    }
+
+    return names;
+}
+
+// ─── AllComponents Tuple Emitter ─────────────────────────────────────────────────
+
+static void EmitAllComponentsTuple(std::ostream& out, const std::set<std::string>& componentNames)
+{
+    out << "// Auto-generated by OloHeaderTool — DO NOT EDIT MANUALLY\n";
+    out << "// Re-generate with: cmake --build build --target GenerateBindings\n";
+    out << "//\n";
+    out << "// The AllComponents type list iterated by Scene::CopyComponent / prefab\n";
+    out << "// instantiation and ScriptGlue's C# HasComponent<T>() registration. One entry\n";
+    out << "// per `struct *Component` definition under OloEngine/src, minus the entity-\n";
+    out << "// identity / runtime-derived components the generator excludes (kept in sync\n";
+    out << "// with ComponentTupleCoverageTest::kNotInTuple). Entries are alphabetical;\n";
+    out << "// tuple order is irrelevant to copy / registration correctness.\n";
+    out << "//\n";
+    out << "// Included at namespace scope from Scene/Components.h, immediately after the\n";
+    out << "// ComponentGroup<> template and every component definition.\n\n";
+
+    out << "using AllComponents = ComponentGroup<\n";
+    bool first = true;
+    for (auto const& name : componentNames)
+    {
+        if (kComponentsNotInTuple.contains(name))
+            continue;
+        if (!first)
+            out << ",\n";
+        out << "    " << name;
+        first = false;
+    }
+    out << ">;\n";
+}
+
 // ─── C++ Mono Bindings Emitter ──────────────────────────────────────────────────
 
 static void EmitCppBindings(std::ostream& out, const std::vector<ComponentDef>& components)
@@ -944,17 +1068,40 @@ static WriteResult WriteIfChanged(const fs::path& path, const std::string& conte
 
 // ─── Main ───────────────────────────────────────────────────────────────────────
 
+// Emit the AllComponents tuple to <scene_out_dir>/AllComponents.Generated.inl,
+// reporting the outcome. Returns false on a write failure.
+static bool WriteAllComponentsTuple(const fs::path& sceneOutDir, const std::set<std::string>& componentStructs)
+{
+    std::ostringstream ss;
+    EmitAllComponentsTuple(ss, componentStructs);
+    auto path = sceneOutDir / "AllComponents.Generated.inl";
+    switch (WriteIfChanged(path, ss.str()))
+    {
+        case WriteResult::Written:
+            std::cout << "  Wrote " << path << "\n";
+            return true;
+        case WriteResult::Unchanged:
+            std::cout << "  " << path << " (unchanged)\n";
+            return true;
+        case WriteResult::Failed:
+            std::cerr << "  FAILED " << path << "\n";
+            return false;
+    }
+    return false;
+}
+
 int main(int argc, char* argv[])
 {
-    if (argc < 4)
+    if (argc < 5)
     {
-        std::cerr << "Usage: OloHeaderTool <scan_dir> <cpp_out_dir> <cs_out_dir>\n";
+        std::cerr << "Usage: OloHeaderTool <scan_dir> <cpp_out_dir> <cs_out_dir> <scene_out_dir>\n";
         return 1;
     }
 
     fs::path scanDir = argv[1];
     fs::path cppOutDir = argv[2];
     fs::path csOutDir = argv[3];
+    fs::path sceneOutDir = argv[4];
 
     if (!fs::exists(scanDir))
     {
@@ -966,10 +1113,30 @@ int main(int argc, char* argv[])
 
     auto components = ParseHeaders(scanDir);
 
+    // The AllComponents tuple is generated from `struct *Component` definitions and
+    // is independent of OLO_PROPERTY — emit it before the no-properties early-out so
+    // it is always written, even for a tree with components but no scripting props.
+    auto componentStructs = CollectComponentStructs(scanDir);
+    if (componentStructs.empty())
+    {
+        std::cerr << "WARNING: No `struct *Component` definitions found under " << scanDir
+                  << " — AllComponents tuple will be empty. Is the scan dir correct?\n";
+    }
+    else
+    {
+        std::cout << "OloHeaderTool: Found " << componentStructs.size()
+                  << " component structs (" << kComponentsNotInTuple.size()
+                  << " excluded from the tuple)\n";
+    }
+
+    bool errors = false;
+
+    if (!WriteAllComponentsTuple(sceneOutDir, componentStructs))
+        errors = true;
+
     if (components.empty())
     {
         std::cout << "OloHeaderTool: No OLO_PROPERTY() annotations found. Writing empty stubs.\n";
-        bool errors = false;
         auto const stub = "// Auto-generated by OloHeaderTool — DO NOT EDIT MANUALLY\n"
                           "// No OLO_PROPERTY() annotations found.\n";
         // Write empty generated files to avoid leaving stale content from previous runs
@@ -991,8 +1158,6 @@ int main(int argc, char* argv[])
 
     std::cout << "OloHeaderTool: Found " << components.size() << " components, "
               << totalProps << " properties (" << totalProps * 2 << " getter/setter pairs)\n";
-
-    bool errors = false;
 
     // Generate C++ bindings
     {
