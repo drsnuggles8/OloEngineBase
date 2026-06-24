@@ -1,0 +1,78 @@
+{
+  // Renovate config — tracks ONLY the C++ vendored dependencies that Dependabot
+  // cannot read (CMake FetchContent / CPM in OloEngine/vendor/CMakeLists.txt).
+  //
+  // Requires the Mend Renovate GitHub App installed on the repo (free for this
+  // project). On first install Renovate opens an onboarding PR + a "Dependency
+  // Dashboard" issue listing exactly what these custom managers detected — use
+  // that to validate the regexes below before relying on them, since regex
+  // managers are fiddly and can't be dry-run locally.
+  //
+  // Division of labour: Dependabot owns GitHub Actions (.github/dependabot.yml);
+  // Renovate runs ONLY the custom managers here, so the two never double-PR.
+  $schema: "https://docs.renovatebot.com/renovate-schema.json",
+  extends: ["config:recommended"],
+  enabledManagers: ["custom.regex"],
+
+  // The vendored deps move as a batch (note the shared "# <branch> @ <date>"
+  // stamps in the CMakeLists). Keep them in ONE PR on a weekly cadence so each
+  // bump isn't a separate ~2h SonarCloud run.
+  schedule: ["before 6am on monday"],
+  labels: ["dependencies"],
+
+  packageRules: [
+    {
+      matchManagers: ["custom.regex"],
+      groupName: "vendored C++ deps",
+    },
+  ],
+
+  customManagers: [
+    {
+      // Style 1 — pinned to a moving branch by full commit SHA, with a
+      //   "# <branch> @ <date>" comment, e.g.:
+      //     GIT_REPOSITORY https://github.com/assimp/assimp.git
+      //     GIT_TAG        ace8c31...ccd07  # master @ 2026-06-05
+      //   and the CPMAddPackage GITHUB_REPOSITORY form (imgui "docking", etc.).
+      // Bump the pinned digest to the current tip of that branch.
+      customType: "regex",
+      managerFilePatterns: ["/^OloEngine/vendor/CMakeLists\\.txt$/"],
+      datasourceTemplate: "git-refs",
+      packageNameTemplate: "https://github.com/{{{depName}}}",
+      matchStrings: [
+        "GIT_REPOSITORY\\s+https://github\\.com/(?<depName>[\\w.-]+/[\\w.-]+?)(?:\\.git)?\\s+GIT_TAG\\s+(?<currentDigest>[0-9a-f]{40})\\s+#\\s*(?<currentValue>[\\w./-]+)\\s+@",
+        "GITHUB_REPOSITORY\\s+(?<depName>[\\w.-]+/[\\w.-]+)\\s+GIT_TAG\\s+(?<currentDigest>[0-9a-f]{40})\\s+#\\s*(?<currentValue>[\\w./-]+)\\s+@",
+      ],
+    },
+    {
+      // Style 2 — pinned to a release tag, e.g. "GIT_TAG v3.0.0".
+      // Tags here always contain a "." (v3.0.0, 3.4, 1.0.20-RELEASE, ...) while
+      // the digest pins above are dot-free hex, so requiring a "." in the value
+      // cleanly separates the two styles (and skips bare-SHA pins like Jolt,
+      // which carry no branch hint and can't be auto-tracked — left manual).
+      customType: "regex",
+      managerFilePatterns: ["/^OloEngine/vendor/CMakeLists\\.txt$/"],
+      datasourceTemplate: "github-tags",
+      versioningTemplate: "loose",
+      matchStrings: [
+        "GIT_REPOSITORY\\s+https://github\\.com/(?<depName>[\\w.-]+/[\\w.-]+?)(?:\\.git)?\\s+GIT_TAG\\s+(?<currentValue>v?\\d[\\w-]*\\.[\\w.-]*)",
+      ],
+    },
+    {
+      // Style 3 — SHA pinned to a *release tag*, with the tag in the comment:
+      //     GIT_TAG 5304464...c91e3  # v0.29.0   (cpp_httplib)
+      // The gold-standard pin (same shape as our SHA-pinned GitHub Actions).
+      // currentValue = the tag (drives version bumps), currentDigest = the SHA
+      // (Renovate re-pins it to the new tag's commit). The "# v<num>" comment
+      // distinguishes this from the "# <branch> @ <date>" digest pins above.
+      customType: "regex",
+      managerFilePatterns: ["/^OloEngine/vendor/CMakeLists\\.txt$/"],
+      datasourceTemplate: "github-tags",
+      versioningTemplate: "loose",
+      matchStrings: [
+        "GIT_REPOSITORY\\s+https://github\\.com/(?<depName>[\\w.-]+/[\\w.-]+?)(?:\\.git)?\\s+GIT_TAG\\s+(?<currentDigest>[0-9a-f]{40})\\s+#\\s*(?<currentValue>v?\\d[\\w.-]*)",
+        "GITHUB_REPOSITORY\\s+(?<depName>[\\w.-]+/[\\w.-]+)\\s+GIT_TAG\\s+(?<currentDigest>[0-9a-f]{40})\\s+#\\s*(?<currentValue>v?\\d[\\w.-]*)",
+      ],
+    },
+  ],
+}
