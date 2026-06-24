@@ -36,7 +36,7 @@
       //   and the CPMAddPackage GITHUB_REPOSITORY form (imgui "docking", etc.).
       // Bump the pinned digest to the current tip of that branch.
       customType: "regex",
-      fileMatch: ["^OloEngine/vendor/CMakeLists\\.txt$"],
+      managerFilePatterns: ["/^OloEngine/vendor/CMakeLists\\.txt$/"],
       datasourceTemplate: "git-refs",
       packageNameTemplate: "https://github.com/{{{depName}}}",
       matchStrings: [
@@ -51,7 +51,7 @@
       // cleanly separates the two styles (and skips bare-SHA pins like Jolt,
       // which carry no branch hint and can't be auto-tracked — left manual).
       customType: "regex",
-      fileMatch: ["^OloEngine/vendor/CMakeLists\\.txt$"],
+      managerFilePatterns: ["/^OloEngine/vendor/CMakeLists\\.txt$/"],
       datasourceTemplate: "github-tags",
       versioningTemplate: "loose",
       matchStrings: [
@@ -66,7 +66,7 @@
       // (Renovate re-pins it to the new tag's commit). The "# v<num>" comment
       // distinguishes this from the "# <branch> @ <date>" digest pins above.
       customType: "regex",
-      fileMatch: ["^OloEngine/vendor/CMakeLists\\.txt$"],
+      managerFilePatterns: ["/^OloEngine/vendor/CMakeLists\\.txt$/"],
       datasourceTemplate: "github-tags",
       versioningTemplate: "loose",
       matchStrings: [
