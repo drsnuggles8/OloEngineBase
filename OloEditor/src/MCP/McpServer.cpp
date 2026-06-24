@@ -12,20 +12,24 @@
 
 #include <algorithm>
 #include <array>
+#include <cctype>
 #include <chrono>
 #include <cstdint>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <future>
+#include <map>
 #include <memory>
 #include <random>
 #include <regex>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <string_view>
 #include <system_error>
 #include <utility>
+#include <vector>
 
 namespace OloEngine::MCP
 {
@@ -47,6 +51,55 @@ namespace OloEngine::MCP
             return Json{ { "jsonrpc", "2.0" },
                          { "id", id },
                          { "error", { { "code", code }, { "message", message } } } };
+        }
+
+        // Reverse-DNS-namespaced `_meta` key carrying a tool's toolset (grouping
+        // category) in tools/list / tools/search entries. `_meta` is the MCP-blessed
+        // extension point (spec 2025-06-18), so surfacing the category there keeps
+        // tools/list conformant — a strict client validating the Tool schema won't
+        // reject an unknown top-level field.
+        constexpr const char* kToolsetMetaKey = "io.oloengine/toolset";
+
+        // ASCII-lowercase a string for case-insensitive search/compare. The tool
+        // surface is all ASCII identifiers and English prose, so a locale-independent
+        // byte fold is correct and avoids std::tolower's locale baggage.
+        std::string ToLowerAscii(std::string_view s)
+        {
+            std::string out(s);
+            std::transform(out.begin(), out.end(), out.begin(),
+                           [](unsigned char c)
+                           { return static_cast<char>(std::tolower(c)); });
+            return out;
+        }
+
+        // Serialize one registered tool into its MCP tools/list entry. Shared by
+        // tools/list and the custom tools/search so both present byte-identical
+        // entries; the only optional field beyond the spec basics is the toolset,
+        // carried under `_meta` (omitted for uncategorized tools).
+        Json BuildToolEntry(const ToolDef& tool)
+        {
+            Json entry;
+            entry["name"] = tool.Name;
+            // Top-level display title (spec 2025-06-18); omitted when unset so the
+            // client falls back to the name.
+            if (!tool.Title.empty())
+                entry["title"] = tool.Title;
+            entry["description"] = tool.Description;
+            entry["inputSchema"] = tool.InputSchema.is_null()
+                                       ? Json{ { "type", "object" } }
+                                       : tool.InputSchema;
+            // JSON Schema for the structured result (spec 2025-06-18); omitted unless
+            // a non-empty object so text-only tools stay clean.
+            if (tool.OutputSchema.is_object() && !tool.OutputSchema.empty())
+                entry["outputSchema"] = tool.OutputSchema;
+            // Behavioural hints (readOnlyHint, etc.); omitted unless a non-empty object.
+            if (tool.Annotations.is_object() && !tool.Annotations.empty())
+                entry["annotations"] = tool.Annotations;
+            // Grouping category under the spec's `_meta` extension point; omitted for
+            // uncategorized tools so their entry is unchanged from before toolsets.
+            if (!tool.Toolset.empty())
+                entry["_meta"] = Json{ { kToolsetMetaKey, tool.Toolset } };
+            return entry;
         }
 
         // Random lowercase-hex string of `bytes` bytes (so 2*bytes characters).
@@ -530,6 +583,8 @@ namespace OloEngine::MCP
             return MakeResult(id, Json::object());
         if (method == "tools/list")
             return HandleToolsList(id);
+        if (method == "tools/search")
+            return HandleToolsSearch(id, request.value("params", Json::object()));
         if (method == "tools/call")
             return HandleToolsCall(id, request.value("params", Json::object()));
         if (method == "resources/list")
@@ -580,29 +635,74 @@ namespace OloEngine::MCP
     {
         Json tools = Json::array();
         for (const auto& tool : m_Tools)
-        {
-            Json entry;
-            entry["name"] = tool.Name;
-            // Top-level display title (spec 2025-06-18); omitted when unset so the
-            // client falls back to the name.
-            if (!tool.Title.empty())
-                entry["title"] = tool.Title;
-            entry["description"] = tool.Description;
-            entry["inputSchema"] = tool.InputSchema.is_null()
-                                       ? Json{ { "type", "object" } }
-                                       : tool.InputSchema;
-            // JSON Schema for the structured result (spec 2025-06-18); omitted unless
-            // a non-empty object so text-only tools stay clean. A client may validate
-            // a tool's structuredContent against this.
-            if (tool.OutputSchema.is_object() && !tool.OutputSchema.empty())
-                entry["outputSchema"] = tool.OutputSchema;
-            // Behavioural hints (readOnlyHint, etc.); omitted unless a non-empty
-            // object so a tool without annotations stays clean.
-            if (tool.Annotations.is_object() && !tool.Annotations.empty())
-                entry["annotations"] = tool.Annotations;
-            tools.push_back(std::move(entry));
-        }
+            tools.push_back(BuildToolEntry(tool));
         return MakeResult(id, Json{ { "tools", std::move(tools) } });
+    }
+
+    Json McpServer::HandleToolsSearch(const Json& id, const Json& params) const
+    {
+        // Both filters are optional, but a present-and-non-string filter is a client
+        // error (invalid params) rather than a silent no-op — matching the strictness
+        // of tools/call's `name` check.
+        if (params.contains("query") && !params["query"].is_string())
+            return MakeError(id, kInvalidParams, "Invalid params: 'query' must be a string");
+        if (params.contains("toolset") && !params["toolset"].is_string())
+            return MakeError(id, kInvalidParams, "Invalid params: 'toolset' must be a string");
+
+        const std::string toolsetFilter = params.contains("toolset")
+                                              ? ToLowerAscii(params["toolset"].get<std::string>())
+                                              : std::string{};
+
+        // Split the free-text query into whitespace-separated terms; a tool matches
+        // only when EVERY term appears (case-insensitive substring) somewhere in its
+        // searchable text. A missing / whitespace-only query matches everything
+        // (subject to the toolset filter), so tools/search with no useful query mirrors
+        // tools/list while still returning the toolset catalogue.
+        std::vector<std::string> terms;
+        if (params.contains("query"))
+        {
+            std::istringstream stream(ToLowerAscii(params["query"].get<std::string>()));
+            std::string term;
+            while (stream >> term)
+                terms.push_back(std::move(term));
+        }
+
+        Json matched = Json::array();
+        std::map<std::string, std::size_t> toolsetCounts; // sorted by toolset name
+        for (const auto& tool : m_Tools)
+        {
+            // Count every categorized tool for the catalogue before applying filters,
+            // so the catalogue always describes the full surface, not the matches.
+            if (!tool.Toolset.empty())
+                ++toolsetCounts[tool.Toolset];
+
+            if (!toolsetFilter.empty() && ToLowerAscii(tool.Toolset) != toolsetFilter)
+                continue;
+
+            if (!terms.empty())
+            {
+                const std::string haystack =
+                    ToLowerAscii(tool.Name + ' ' + tool.Title + ' ' + tool.Description + ' ' + tool.Toolset);
+                const bool allTermsMatch = std::all_of(terms.begin(), terms.end(),
+                                                       [&haystack](const std::string& t)
+                                                       { return haystack.find(t) != std::string::npos; });
+                if (!allTermsMatch)
+                    continue;
+            }
+
+            Json entry = BuildToolEntry(tool);
+            // Friendly top-level field on this custom method (we own its shape) so an
+            // agent reading search results doesn't have to dig into `_meta`.
+            if (!tool.Toolset.empty())
+                entry["toolset"] = tool.Toolset;
+            matched.push_back(std::move(entry));
+        }
+
+        Json toolsets = Json::array();
+        for (const auto& [name, count] : toolsetCounts)
+            toolsets.push_back(Json{ { "name", name }, { "count", count } });
+
+        return MakeResult(id, Json{ { "tools", std::move(matched) }, { "toolsets", std::move(toolsets) } });
     }
 
     Json McpServer::HandleToolsCall(const Json& id, const Json& params)

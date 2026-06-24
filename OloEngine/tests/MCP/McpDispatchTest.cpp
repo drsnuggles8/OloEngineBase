@@ -41,9 +41,25 @@ namespace
         return req;
     }
 
+    // Return the first entry of a JSON tools array whose "name" equals `name`, else
+    // nullptr. Used by the tools/list and tools/search assertions below.
+    const Json* FindToolNamed(const Json& tools, const std::string& name)
+    {
+        for (const auto& tool : tools)
+        {
+            if (tool.contains("name") && tool["name"] == name)
+                return &tool;
+        }
+        return nullptr;
+    }
+
     // Fixture: an McpServer with a stub (empty) editor context plus a handful of
-    // fake registrations, so dispatch can be exercised without the real 19 tools
+    // fake registrations, so dispatch can be exercised without the real 39 tools
     // / 2 resources / 3 prompts and without an editor backing the server.
+    //
+    // Toolsets for the tools/search tests: fake_echo and fake_boom are both in the
+    // "diag" toolset; fake_tool_error is deliberately left uncategorized (empty
+    // Toolset) to exercise the _meta-omission and catalogue-exclusion paths.
     class McpDispatchTest : public ::testing::Test
     {
       protected:
@@ -53,6 +69,7 @@ namespace
             ToolDef echo;
             echo.Name = "fake_echo";
             echo.Description = "Echo back the 'text' argument.";
+            echo.Toolset = "diag";
             echo.InputSchema = Json{ { "type", "object" },
                                      { "properties", { { "text", { { "type", "string" } } } } } };
             echo.Handler = [](McpServer&, const Json& args)
@@ -63,6 +80,7 @@ namespace
             ToolDef boom;
             boom.Name = "fake_boom";
             boom.Description = "Always throws.";
+            boom.Toolset = "diag";
             boom.Handler = [](McpServer&, const Json&) -> ToolResult
             { throw std::runtime_error("kaboom"); };
             m_Server.RegisterTool(std::move(boom));
@@ -70,6 +88,7 @@ namespace
             ToolDef toolError;
             toolError.Name = "fake_tool_error";
             toolError.Description = "Returns a tool-level error (isError=true).";
+            // Intentionally no Toolset (uncategorized).
             toolError.Handler = [](McpServer&, const Json&)
             { return ToolResult::Error("nope"); };
             m_Server.RegisterTool(std::move(toolError));
@@ -167,6 +186,171 @@ TEST_F(McpDispatchTest, ToolsListSurfacesRegisteredToolsWithSchema)
     // A tool with no InputSchema must still advertise a default object schema.
     ASSERT_NE(boom, nullptr);
     EXPECT_EQ((*boom)["inputSchema"], (Json{ { "type", "object" } }));
+}
+
+// A categorized tool surfaces its toolset under `_meta` (the spec extension point)
+// in tools/list; an uncategorized tool omits `_meta` entirely, so tools/list is
+// byte-for-byte unchanged for tools that predate toolsets.
+TEST_F(McpDispatchTest, ToolsListSurfacesToolsetUnderMeta)
+{
+    const Json resp = m_Server.HandleMessage(MakeRequest(3, "tools/list"));
+    const Json& tools = resp["result"]["tools"];
+
+    const Json* echo = FindToolNamed(tools, "fake_echo");
+    ASSERT_NE(echo, nullptr);
+    ASSERT_TRUE(echo->contains("_meta"));
+    EXPECT_EQ((*echo)["_meta"]["io.oloengine/toolset"], "diag");
+
+    // The uncategorized tool stays clean — no _meta, no toolset.
+    const Json* toolError = FindToolNamed(tools, "fake_tool_error");
+    ASSERT_NE(toolError, nullptr);
+    EXPECT_FALSE(toolError->contains("_meta"));
+    EXPECT_FALSE(toolError->contains("toolset"));
+}
+
+// ---- tools/search (custom discovery method) --------------------------------
+
+// No query / no toolset: returns every tool (uncategorized included) plus a
+// catalogue of toolsets with per-toolset counts. The uncategorized tool is in
+// `tools` but contributes nothing to the catalogue.
+TEST_F(McpDispatchTest, ToolsSearchNoArgsReturnsAllToolsAndCatalogue)
+{
+    const Json resp = m_Server.HandleMessage(MakeRequest(20, "tools/search"));
+    ASSERT_TRUE(resp.contains("result"));
+    const Json& result = resp["result"];
+
+    ASSERT_TRUE(result["tools"].is_array());
+    EXPECT_EQ(result["tools"].size(), 3u); // all three fakes, including uncategorized
+
+    ASSERT_TRUE(result["toolsets"].is_array());
+    ASSERT_EQ(result["toolsets"].size(), 1u); // only "diag" is categorized
+    EXPECT_EQ(result["toolsets"][0]["name"], "diag");
+    EXPECT_EQ(result["toolsets"][0]["count"], 2); // fake_echo + fake_boom
+}
+
+// A matched, categorized entry carries both the friendly top-level `toolset` field
+// and the `_meta` mirror; an uncategorized matched entry carries neither.
+TEST_F(McpDispatchTest, ToolsSearchEntryCarriesToolsetFieldAndMeta)
+{
+    const Json resp = m_Server.HandleMessage(MakeRequest(21, "tools/search"));
+    const Json& tools = resp["result"]["tools"];
+
+    const Json* echo = FindToolNamed(tools, "fake_echo");
+    ASSERT_NE(echo, nullptr);
+    EXPECT_EQ((*echo)["toolset"], "diag");
+    EXPECT_EQ((*echo)["_meta"]["io.oloengine/toolset"], "diag");
+
+    const Json* toolError = FindToolNamed(tools, "fake_tool_error");
+    ASSERT_NE(toolError, nullptr);
+    EXPECT_FALSE(toolError->contains("toolset"));
+    EXPECT_FALSE(toolError->contains("_meta"));
+}
+
+// Filtering by toolset returns exactly the tools in that category.
+TEST_F(McpDispatchTest, ToolsSearchFiltersByToolset)
+{
+    const Json resp = m_Server.HandleMessage(MakeRequest(22, "tools/search", Json{ { "toolset", "diag" } }));
+    const Json& tools = resp["result"]["tools"];
+    ASSERT_EQ(tools.size(), 2u);
+    EXPECT_NE(FindToolNamed(tools, "fake_echo"), nullptr);
+    EXPECT_NE(FindToolNamed(tools, "fake_boom"), nullptr);
+    EXPECT_EQ(FindToolNamed(tools, "fake_tool_error"), nullptr); // uncategorized excluded
+
+    // The catalogue is always the full set, regardless of the active filter.
+    EXPECT_EQ(resp["result"]["toolsets"].size(), 1u);
+}
+
+TEST_F(McpDispatchTest, ToolsSearchToolsetFilterIsCaseInsensitive)
+{
+    const Json resp = m_Server.HandleMessage(MakeRequest(23, "tools/search", Json{ { "toolset", "DIAG" } }));
+    EXPECT_EQ(resp["result"]["tools"].size(), 2u);
+}
+
+TEST_F(McpDispatchTest, ToolsSearchUnknownToolsetReturnsNoToolsButFullCatalogue)
+{
+    const Json resp = m_Server.HandleMessage(MakeRequest(24, "tools/search", Json{ { "toolset", "nope" } }));
+    EXPECT_TRUE(resp["result"]["tools"].empty());
+    EXPECT_EQ(resp["result"]["toolsets"].size(), 1u); // catalogue still lists "diag"
+}
+
+// A query matches against name AND description (and title/toolset).
+TEST_F(McpDispatchTest, ToolsSearchQueryMatchesNameAndDescription)
+{
+    const Json byName = m_Server.HandleMessage(MakeRequest(25, "tools/search", Json{ { "query", "echo" } }));
+    ASSERT_EQ(byName["result"]["tools"].size(), 1u);
+    EXPECT_EQ(byName["result"]["tools"][0]["name"], "fake_echo");
+
+    const Json byDesc = m_Server.HandleMessage(MakeRequest(26, "tools/search", Json{ { "query", "throws" } }));
+    ASSERT_EQ(byDesc["result"]["tools"].size(), 1u);
+    EXPECT_EQ(byDesc["result"]["tools"][0]["name"], "fake_boom");
+}
+
+TEST_F(McpDispatchTest, ToolsSearchQueryIsCaseInsensitive)
+{
+    const Json resp = m_Server.HandleMessage(MakeRequest(27, "tools/search", Json{ { "query", "ECHO" } }));
+    ASSERT_EQ(resp["result"]["tools"].size(), 1u);
+    EXPECT_EQ(resp["result"]["tools"][0]["name"], "fake_echo");
+}
+
+// Multi-term query is AND: every whitespace-separated term must appear somewhere.
+TEST_F(McpDispatchTest, ToolsSearchQueryRequiresAllTerms)
+{
+    // "fake" + "throws" both live in fake_boom (name + description) -> one match.
+    const Json both = m_Server.HandleMessage(MakeRequest(28, "tools/search", Json{ { "query", "fake throws" } }));
+    ASSERT_EQ(both["result"]["tools"].size(), 1u);
+    EXPECT_EQ(both["result"]["tools"][0]["name"], "fake_boom");
+
+    // No single tool has both "echo" and "throws" -> zero matches.
+    const Json none = m_Server.HandleMessage(MakeRequest(29, "tools/search", Json{ { "query", "echo throws" } }));
+    EXPECT_TRUE(none["result"]["tools"].empty());
+}
+
+// A whitespace-only query is treated as "no query" (matches all, toolset filter
+// still applies).
+TEST_F(McpDispatchTest, ToolsSearchBlankQueryMatchesAll)
+{
+    const Json resp = m_Server.HandleMessage(MakeRequest(30, "tools/search", Json{ { "query", "   " } }));
+    EXPECT_EQ(resp["result"]["tools"].size(), 3u);
+}
+
+// Query and toolset combine with AND.
+TEST_F(McpDispatchTest, ToolsSearchCombinesQueryAndToolset)
+{
+    const Json hit = m_Server.HandleMessage(
+        MakeRequest(31, "tools/search", Json{ { "query", "throws" }, { "toolset", "diag" } }));
+    ASSERT_EQ(hit["result"]["tools"].size(), 1u);
+    EXPECT_EQ(hit["result"]["tools"][0]["name"], "fake_boom");
+
+    // Right query, wrong toolset -> no match.
+    const Json miss = m_Server.HandleMessage(
+        MakeRequest(32, "tools/search", Json{ { "query", "throws" }, { "toolset", "other" } }));
+    EXPECT_TRUE(miss["result"]["tools"].empty());
+}
+
+TEST_F(McpDispatchTest, ToolsSearchRejectsNonStringQuery)
+{
+    const Json resp = m_Server.HandleMessage(MakeRequest(33, "tools/search", Json{ { "query", 123 } }));
+    ASSERT_TRUE(resp.contains("error"));
+    EXPECT_EQ(resp["error"]["code"], -32602); // invalid params
+}
+
+TEST_F(McpDispatchTest, ToolsSearchRejectsNonStringToolset)
+{
+    const Json resp = m_Server.HandleMessage(MakeRequest(34, "tools/search", Json{ { "toolset", true } }));
+    ASSERT_TRUE(resp.contains("error"));
+    EXPECT_EQ(resp["error"]["code"], -32602);
+}
+
+// Matched search entries keep the full tools/list entry shape (name, description,
+// inputSchema) so an agent can call a tool straight from a search result.
+TEST_F(McpDispatchTest, ToolsSearchEntriesKeepToolListShape)
+{
+    const Json resp = m_Server.HandleMessage(MakeRequest(35, "tools/search", Json{ { "query", "echo" } }));
+    const Json& entry = resp["result"]["tools"][0];
+    EXPECT_EQ(entry["name"], "fake_echo");
+    EXPECT_EQ(entry["description"], "Echo back the 'text' argument.");
+    EXPECT_EQ(entry["inputSchema"]["type"], "object");
+    EXPECT_TRUE(entry["inputSchema"]["properties"].contains("text"));
 }
 
 TEST_F(McpDispatchTest, ResourcesListSurfacesRegisteredResources)
