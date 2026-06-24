@@ -2670,6 +2670,50 @@ namespace OloEngine
             SanitizeFloat(joint.m_PathMaxFrictionForce, 0.0f, 1.0e9f, 0.0f);
         }
 
+        if (auto vehicleComponent = entity["VehicleComponent"]; vehicleComponent)
+        {
+            auto& vehicle = deserializedEntity.AddComponent<VehicleComponent>();
+
+            vehicle.m_HalfTrackWidth = vehicleComponent["HalfTrackWidth"].as<f32>(vehicle.m_HalfTrackWidth);
+            vehicle.m_FrontAxleOffset = vehicleComponent["FrontAxleOffset"].as<f32>(vehicle.m_FrontAxleOffset);
+            vehicle.m_RearAxleOffset = vehicleComponent["RearAxleOffset"].as<f32>(vehicle.m_RearAxleOffset);
+            vehicle.m_WheelAttachmentHeight = vehicleComponent["WheelAttachmentHeight"].as<f32>(vehicle.m_WheelAttachmentHeight);
+            vehicle.m_WheelRadius = vehicleComponent["WheelRadius"].as<f32>(vehicle.m_WheelRadius);
+            vehicle.m_WheelWidth = vehicleComponent["WheelWidth"].as<f32>(vehicle.m_WheelWidth);
+            vehicle.m_SuspensionMinLength = vehicleComponent["SuspensionMinLength"].as<f32>(vehicle.m_SuspensionMinLength);
+            vehicle.m_SuspensionMaxLength = vehicleComponent["SuspensionMaxLength"].as<f32>(vehicle.m_SuspensionMaxLength);
+            vehicle.m_SuspensionFrequency = vehicleComponent["SuspensionFrequency"].as<f32>(vehicle.m_SuspensionFrequency);
+            vehicle.m_SuspensionDamping = vehicleComponent["SuspensionDamping"].as<f32>(vehicle.m_SuspensionDamping);
+            vehicle.m_MaxEngineTorque = vehicleComponent["MaxEngineTorque"].as<f32>(vehicle.m_MaxEngineTorque);
+            vehicle.m_MaxSteerAngleDeg = vehicleComponent["MaxSteerAngleDeg"].as<f32>(vehicle.m_MaxSteerAngleDeg);
+            vehicle.m_MaxBrakeTorque = vehicleComponent["MaxBrakeTorque"].as<f32>(vehicle.m_MaxBrakeTorque);
+            vehicle.m_ThrottleInput = vehicleComponent["ThrottleInput"].as<f32>(vehicle.m_ThrottleInput);
+            vehicle.m_SteerInput = vehicleComponent["SteerInput"].as<f32>(vehicle.m_SteerInput);
+            vehicle.m_BrakeInput = vehicleComponent["BrakeInput"].as<f32>(vehicle.m_BrakeInput);
+
+            // Reject non-finite floats read from disk and clamp to Jolt-valid
+            // ranges (JoltScene::CreateVehicle re-sanitizes as a last line of
+            // defence, but keep on-disk values sane here too). Dimensions are
+            // strictly positive; the attachment height is signed; the damping
+            // ratio is [0,1]; inputs are clamped to their driver-input ranges.
+            SanitizeFloat(vehicle.m_HalfTrackWidth, 1.0e-3f, 100.0f, 0.9f);
+            SanitizeFloat(vehicle.m_FrontAxleOffset, 1.0e-3f, 100.0f, 1.25f);
+            SanitizeFloat(vehicle.m_RearAxleOffset, 1.0e-3f, 100.0f, 1.25f);
+            SanitizeFloat(vehicle.m_WheelAttachmentHeight, -100.0f, 100.0f, -0.4f);
+            SanitizeFloat(vehicle.m_WheelRadius, 1.0e-3f, 100.0f, 0.35f);
+            SanitizeFloat(vehicle.m_WheelWidth, 1.0e-3f, 100.0f, 0.25f);
+            SanitizeFloat(vehicle.m_SuspensionMinLength, 0.0f, 100.0f, 0.3f);
+            SanitizeFloat(vehicle.m_SuspensionMaxLength, 0.0f, 100.0f, 0.5f);
+            SanitizeFloat(vehicle.m_SuspensionFrequency, 1.0e-3f, 1000.0f, 1.5f);
+            SanitizeFloat(vehicle.m_SuspensionDamping, 0.0f, 1.0f, 0.5f);
+            SanitizeFloat(vehicle.m_MaxEngineTorque, 0.0f, 1.0e9f, 500.0f);
+            SanitizeFloat(vehicle.m_MaxSteerAngleDeg, 0.0f, 180.0f, 30.0f);
+            SanitizeFloat(vehicle.m_MaxBrakeTorque, 0.0f, 1.0e9f, 1500.0f);
+            SanitizeFloat(vehicle.m_ThrottleInput, -1.0f, 1.0f, 0.0f);
+            SanitizeFloat(vehicle.m_SteerInput, -1.0f, 1.0f, 0.0f);
+            SanitizeFloat(vehicle.m_BrakeInput, 0.0f, 1.0f, 0.0f);
+        }
+
         if (auto relComponent = entity["RelationshipComponent"]; relComponent)
         {
             auto& rel = deserializedEntity.AddComponent<RelationshipComponent>();
@@ -4709,6 +4753,32 @@ namespace OloEngine
             out << YAML::Key << "PathMaxFrictionForce" << YAML::Value << joint.m_PathMaxFrictionForce;
 
             out << YAML::EndMap; // PhysicsJoint3DComponent
+        }
+
+        if (entity.HasComponent<VehicleComponent>())
+        {
+            out << YAML::Key << "VehicleComponent";
+            out << YAML::BeginMap; // VehicleComponent
+
+            auto const& vehicle = entity.GetComponent<VehicleComponent>();
+            out << YAML::Key << "HalfTrackWidth" << YAML::Value << vehicle.m_HalfTrackWidth;
+            out << YAML::Key << "FrontAxleOffset" << YAML::Value << vehicle.m_FrontAxleOffset;
+            out << YAML::Key << "RearAxleOffset" << YAML::Value << vehicle.m_RearAxleOffset;
+            out << YAML::Key << "WheelAttachmentHeight" << YAML::Value << vehicle.m_WheelAttachmentHeight;
+            out << YAML::Key << "WheelRadius" << YAML::Value << vehicle.m_WheelRadius;
+            out << YAML::Key << "WheelWidth" << YAML::Value << vehicle.m_WheelWidth;
+            out << YAML::Key << "SuspensionMinLength" << YAML::Value << vehicle.m_SuspensionMinLength;
+            out << YAML::Key << "SuspensionMaxLength" << YAML::Value << vehicle.m_SuspensionMaxLength;
+            out << YAML::Key << "SuspensionFrequency" << YAML::Value << vehicle.m_SuspensionFrequency;
+            out << YAML::Key << "SuspensionDamping" << YAML::Value << vehicle.m_SuspensionDamping;
+            out << YAML::Key << "MaxEngineTorque" << YAML::Value << vehicle.m_MaxEngineTorque;
+            out << YAML::Key << "MaxSteerAngleDeg" << YAML::Value << vehicle.m_MaxSteerAngleDeg;
+            out << YAML::Key << "MaxBrakeTorque" << YAML::Value << vehicle.m_MaxBrakeTorque;
+            out << YAML::Key << "ThrottleInput" << YAML::Value << vehicle.m_ThrottleInput;
+            out << YAML::Key << "SteerInput" << YAML::Value << vehicle.m_SteerInput;
+            out << YAML::Key << "BrakeInput" << YAML::Value << vehicle.m_BrakeInput;
+
+            out << YAML::EndMap; // VehicleComponent
         }
 
         if (entity.HasComponent<RelationshipComponent>())

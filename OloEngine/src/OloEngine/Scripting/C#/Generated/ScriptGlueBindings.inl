@@ -6733,6 +6733,362 @@ static void UIWorldAnchorComponent_SetWorldOffset(UUID entityID, glm::vec3 const
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////
+// VehicleComponent                                                               //
+///////////////////////////////////////////////////////////////////////////////////////////
+
+static float VehicleComponent_GetHalfTrackWidth(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<VehicleComponent>();
+    return comp.m_HalfTrackWidth;
+}
+
+static void VehicleComponent_SetHalfTrackWidth(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<VehicleComponent>();
+    comp.m_HalfTrackWidth = value;
+}
+
+static float VehicleComponent_GetFrontAxleOffset(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<VehicleComponent>();
+    return comp.m_FrontAxleOffset;
+}
+
+static void VehicleComponent_SetFrontAxleOffset(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<VehicleComponent>();
+    comp.m_FrontAxleOffset = value;
+}
+
+static float VehicleComponent_GetRearAxleOffset(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<VehicleComponent>();
+    return comp.m_RearAxleOffset;
+}
+
+static void VehicleComponent_SetRearAxleOffset(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<VehicleComponent>();
+    comp.m_RearAxleOffset = value;
+}
+
+static float VehicleComponent_GetWheelAttachmentHeight(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<VehicleComponent>();
+    return comp.m_WheelAttachmentHeight;
+}
+
+static void VehicleComponent_SetWheelAttachmentHeight(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<VehicleComponent>();
+    comp.m_WheelAttachmentHeight = value;
+}
+
+static float VehicleComponent_GetWheelRadius(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<VehicleComponent>();
+    return comp.m_WheelRadius;
+}
+
+static void VehicleComponent_SetWheelRadius(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<VehicleComponent>();
+    comp.m_WheelRadius = value;
+}
+
+static float VehicleComponent_GetWheelWidth(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<VehicleComponent>();
+    return comp.m_WheelWidth;
+}
+
+static void VehicleComponent_SetWheelWidth(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<VehicleComponent>();
+    comp.m_WheelWidth = value;
+}
+
+static float VehicleComponent_GetSuspensionMinLength(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<VehicleComponent>();
+    return comp.m_SuspensionMinLength;
+}
+
+static void VehicleComponent_SetSuspensionMinLength(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<VehicleComponent>();
+    comp.m_SuspensionMinLength = value;
+}
+
+static float VehicleComponent_GetSuspensionMaxLength(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<VehicleComponent>();
+    return comp.m_SuspensionMaxLength;
+}
+
+static void VehicleComponent_SetSuspensionMaxLength(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<VehicleComponent>();
+    comp.m_SuspensionMaxLength = value;
+}
+
+static float VehicleComponent_GetSuspensionFrequency(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<VehicleComponent>();
+    return comp.m_SuspensionFrequency;
+}
+
+static void VehicleComponent_SetSuspensionFrequency(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<VehicleComponent>();
+    comp.m_SuspensionFrequency = value;
+}
+
+static float VehicleComponent_GetSuspensionDamping(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<VehicleComponent>();
+    return comp.m_SuspensionDamping;
+}
+
+static void VehicleComponent_SetSuspensionDamping(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<VehicleComponent>();
+    comp.m_SuspensionDamping = value;
+}
+
+static float VehicleComponent_GetMaxEngineTorque(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<VehicleComponent>();
+    return comp.m_MaxEngineTorque;
+}
+
+static void VehicleComponent_SetMaxEngineTorque(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<VehicleComponent>();
+    comp.m_MaxEngineTorque = value;
+}
+
+static float VehicleComponent_GetMaxSteerAngleDeg(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<VehicleComponent>();
+    return comp.m_MaxSteerAngleDeg;
+}
+
+static void VehicleComponent_SetMaxSteerAngleDeg(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<VehicleComponent>();
+    comp.m_MaxSteerAngleDeg = value;
+}
+
+static float VehicleComponent_GetMaxBrakeTorque(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<VehicleComponent>();
+    return comp.m_MaxBrakeTorque;
+}
+
+static void VehicleComponent_SetMaxBrakeTorque(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<VehicleComponent>();
+    comp.m_MaxBrakeTorque = value;
+}
+
+static float VehicleComponent_GetThrottleInput(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<VehicleComponent>();
+    return comp.m_ThrottleInput;
+}
+
+static void VehicleComponent_SetThrottleInput(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<VehicleComponent>();
+    comp.m_ThrottleInput = value;
+}
+
+static float VehicleComponent_GetSteerInput(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<VehicleComponent>();
+    return comp.m_SteerInput;
+}
+
+static void VehicleComponent_SetSteerInput(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<VehicleComponent>();
+    comp.m_SteerInput = value;
+}
+
+static float VehicleComponent_GetBrakeInput(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<VehicleComponent>();
+    return comp.m_BrakeInput;
+}
+
+static void VehicleComponent_SetBrakeInput(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<VehicleComponent>();
+    comp.m_BrakeInput = value;
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////
 // VideoOverlayComponent                                                          //
 ///////////////////////////////////////////////////////////////////////////////////////////
 

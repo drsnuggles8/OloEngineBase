@@ -1356,6 +1356,73 @@ namespace OloEngine
 		internal static extern void UIWorldAnchorComponent_SetWorldOffset(ulong entityID, ref Vector3 value);
 		#endregion
 
+		#region VehicleComponent
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float VehicleComponent_GetHalfTrackWidth(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void VehicleComponent_SetHalfTrackWidth(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float VehicleComponent_GetFrontAxleOffset(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void VehicleComponent_SetFrontAxleOffset(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float VehicleComponent_GetRearAxleOffset(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void VehicleComponent_SetRearAxleOffset(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float VehicleComponent_GetWheelAttachmentHeight(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void VehicleComponent_SetWheelAttachmentHeight(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float VehicleComponent_GetWheelRadius(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void VehicleComponent_SetWheelRadius(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float VehicleComponent_GetWheelWidth(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void VehicleComponent_SetWheelWidth(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float VehicleComponent_GetSuspensionMinLength(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void VehicleComponent_SetSuspensionMinLength(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float VehicleComponent_GetSuspensionMaxLength(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void VehicleComponent_SetSuspensionMaxLength(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float VehicleComponent_GetSuspensionFrequency(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void VehicleComponent_SetSuspensionFrequency(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float VehicleComponent_GetSuspensionDamping(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void VehicleComponent_SetSuspensionDamping(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float VehicleComponent_GetMaxEngineTorque(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void VehicleComponent_SetMaxEngineTorque(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float VehicleComponent_GetMaxSteerAngleDeg(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void VehicleComponent_SetMaxSteerAngleDeg(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float VehicleComponent_GetMaxBrakeTorque(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void VehicleComponent_SetMaxBrakeTorque(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float VehicleComponent_GetThrottleInput(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void VehicleComponent_SetThrottleInput(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float VehicleComponent_GetSteerInput(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void VehicleComponent_SetSteerInput(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float VehicleComponent_GetBrakeInput(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void VehicleComponent_SetBrakeInput(ulong entityID, float value);
+		#endregion
+
 		#region VideoOverlayComponent
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern bool VideoOverlayComponent_GetPlayOnStart(ulong entityID);

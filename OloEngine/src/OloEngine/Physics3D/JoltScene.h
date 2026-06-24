@@ -28,6 +28,11 @@
 #include <utility>
 #include <vector>
 
+namespace JPH
+{
+    class VehicleConstraint; // Forward declaration — full type only needed in JoltScene.cpp
+}
+
 namespace OloEngine
 {
 
@@ -85,6 +90,20 @@ namespace OloEngine
         // joint is added/removed at runtime. Safe to call when no joint opts out
         // (it just clears any prior filtering).
         void ApplyJointCollisionFilters();
+
+        // Vehicle (wheeled) management. CreateVehicle builds the Jolt
+        // VehicleConstraint + WheeledVehicleController for the VehicleComponent on
+        // `entity` (the chassis body must already exist), registers it as both a
+        // constraint and a step listener, and sets the component's
+        // m_RuntimeVehicleToken on success; it is called from the runtime-start
+        // pass and the runtime-add hook. DestroyVehicle removes the step listener,
+        // releases the constraint, and clears the token. Both are idempotent.
+        bool CreateVehicle(Entity entity);
+        void DestroyVehicle(Entity entity);
+        u32 GetVehicleCount() const
+        {
+            return static_cast<u32>(m_Vehicles.size());
+        }
 
         // Character controller management
         Ref<JoltCharacterController> CreateCharacterController(Entity entity, const ContactCallbackFn& contactCallback = nullptr);
@@ -192,6 +211,16 @@ namespace OloEngine
         // Remove and release every tracked constraint. Must run before the
         // bodies they reference are destroyed.
         void DestroyAllConstraints();
+        // Second pass after CreateRigidBodies(): build every authored vehicle's
+        // Jolt VehicleConstraint now that the chassis bodies exist.
+        void CreateVehicles();
+        // Remove (and unregister the step listener for) every tracked vehicle.
+        // Must run before the chassis bodies they reference are destroyed.
+        void DestroyAllVehicles();
+        // Before each simulation step, push the authored driver input from every
+        // VehicleComponent into its WheeledVehicleController (and wake the chassis
+        // when there is input), so the vehicle's OnStep listener acts on it.
+        void UpdateVehicleControllers();
         // After a simulation step, read back each breakable constraint's
         // accumulated impulse (force/torque = impulse / dt), and for any that
         // exceeds its authored PhysicsJoint3DComponent break threshold: remove
@@ -261,6 +290,14 @@ namespace OloEngine
         // carrying the PhysicsJoint3DComponent). The JPH::Ref keeps the
         // constraint alive while it is registered with m_JoltSystem.
         std::unordered_map<UUID, JPH::Ref<JPH::Constraint>> m_Constraints;
+
+        // Wheeled vehicles, keyed by the owning entity (the chassis carrying the
+        // VehicleComponent). The JPH::Ref keeps the VehicleConstraint alive while
+        // it is registered with m_JoltSystem; it owns its WheeledVehicleController
+        // and VehicleCollisionTester. The constraint is ALSO registered as a step
+        // listener (raw pointer, not ref-counted), so DestroyVehicle must
+        // RemoveStepListener before releasing the ref.
+        std::unordered_map<UUID, JPH::Ref<JPH::VehicleConstraint>> m_Vehicles;
 
         // Collision filtering for joints whose m_CollideConnected == false (see
         // ApplyJointCollisionFilters). m_JointGroupFilter is the single shared

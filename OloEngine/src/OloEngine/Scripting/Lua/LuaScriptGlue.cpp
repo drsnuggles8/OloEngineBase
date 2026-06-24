@@ -209,6 +209,7 @@ namespace OloEngine
             REGISTER_COMPONENT(ConvexMeshCollider3DComponent),
             REGISTER_COMPONENT(TriangleMeshCollider3DComponent),
             REGISTER_COMPONENT(PhysicsJoint3DComponent),
+            REGISTER_COMPONENT(VehicleComponent),
             // UI
             REGISTER_COMPONENT(UICanvasComponent),
             REGISTER_COMPONENT(UIRectTransformComponent),
@@ -1297,6 +1298,61 @@ namespace OloEngine
                                                   "pathMaxFrictionForce", sol::property([](const PhysicsJoint3DComponent& j)
                                                                                         { return j.m_PathMaxFrictionForce; }, [](PhysicsJoint3DComponent& j, f32 v)
                                                                                         { if (std::isfinite(v)) j.m_PathMaxFrictionForce = std::clamp(v, 0.0f, 1.0e9f); }));
+
+        // --- VehicleComponent ---
+        // Authored geometry / drivetrain setters validate finiteness + positivity
+        // (a degenerate value would NaN the Jolt vehicle); the live driver inputs
+        // (throttle/steer/brake) are what gameplay scripts drive each frame, so
+        // they clamp to their valid ranges. m_RuntimeVehicleToken is not exposed.
+        lua.new_usertype<VehicleComponent>("VehicleComponent",
+                                           "halfTrackWidth", sol::property([](const VehicleComponent& v)
+                                                                           { return v.m_HalfTrackWidth; }, [](VehicleComponent& v, f32 x)
+                                                                           { if (std::isfinite(x) && x > 0.0f) v.m_HalfTrackWidth = x; }),
+                                           "frontAxleOffset", sol::property([](const VehicleComponent& v)
+                                                                            { return v.m_FrontAxleOffset; }, [](VehicleComponent& v, f32 x)
+                                                                            { if (std::isfinite(x) && x > 0.0f) v.m_FrontAxleOffset = x; }),
+                                           "rearAxleOffset", sol::property([](const VehicleComponent& v)
+                                                                           { return v.m_RearAxleOffset; }, [](VehicleComponent& v, f32 x)
+                                                                           { if (std::isfinite(x) && x > 0.0f) v.m_RearAxleOffset = x; }),
+                                           "wheelAttachmentHeight", sol::property([](const VehicleComponent& v)
+                                                                                  { return v.m_WheelAttachmentHeight; }, [](VehicleComponent& v, f32 x)
+                                                                                  { if (std::isfinite(x)) v.m_WheelAttachmentHeight = x; }),
+                                           "wheelRadius", sol::property([](const VehicleComponent& v)
+                                                                        { return v.m_WheelRadius; }, [](VehicleComponent& v, f32 x)
+                                                                        { if (std::isfinite(x) && x > 0.0f) v.m_WheelRadius = x; }),
+                                           "wheelWidth", sol::property([](const VehicleComponent& v)
+                                                                       { return v.m_WheelWidth; }, [](VehicleComponent& v, f32 x)
+                                                                       { if (std::isfinite(x) && x > 0.0f) v.m_WheelWidth = x; }),
+                                           "suspensionMinLength", sol::property([](const VehicleComponent& v)
+                                                                                { return v.m_SuspensionMinLength; }, [](VehicleComponent& v, f32 x)
+                                                                                { if (std::isfinite(x) && x >= 0.0f) v.m_SuspensionMinLength = x; }),
+                                           "suspensionMaxLength", sol::property([](const VehicleComponent& v)
+                                                                                { return v.m_SuspensionMaxLength; }, [](VehicleComponent& v, f32 x)
+                                                                                { if (std::isfinite(x) && x >= 0.0f) v.m_SuspensionMaxLength = x; }),
+                                           "suspensionFrequency", sol::property([](const VehicleComponent& v)
+                                                                                { return v.m_SuspensionFrequency; }, [](VehicleComponent& v, f32 x)
+                                                                                { if (std::isfinite(x) && x > 0.0f) v.m_SuspensionFrequency = x; }),
+                                           "suspensionDamping", sol::property([](const VehicleComponent& v)
+                                                                              { return v.m_SuspensionDamping; }, [](VehicleComponent& v, f32 x)
+                                                                              { if (std::isfinite(x)) v.m_SuspensionDamping = std::clamp(x, 0.0f, 1.0f); }),
+                                           "maxEngineTorque", sol::property([](const VehicleComponent& v)
+                                                                            { return v.m_MaxEngineTorque; }, [](VehicleComponent& v, f32 x)
+                                                                            { if (std::isfinite(x) && x >= 0.0f) v.m_MaxEngineTorque = x; }),
+                                           "maxSteerAngleDeg", sol::property([](const VehicleComponent& v)
+                                                                             { return v.m_MaxSteerAngleDeg; }, [](VehicleComponent& v, f32 x)
+                                                                             { if (std::isfinite(x)) v.m_MaxSteerAngleDeg = std::clamp(x, 0.0f, 180.0f); }),
+                                           "maxBrakeTorque", sol::property([](const VehicleComponent& v)
+                                                                           { return v.m_MaxBrakeTorque; }, [](VehicleComponent& v, f32 x)
+                                                                           { if (std::isfinite(x) && x >= 0.0f) v.m_MaxBrakeTorque = x; }),
+                                           "throttleInput", sol::property([](const VehicleComponent& v)
+                                                                          { return v.m_ThrottleInput; }, [](VehicleComponent& v, f32 x)
+                                                                          { if (std::isfinite(x)) v.m_ThrottleInput = std::clamp(x, -1.0f, 1.0f); }),
+                                           "steerInput", sol::property([](const VehicleComponent& v)
+                                                                       { return v.m_SteerInput; }, [](VehicleComponent& v, f32 x)
+                                                                       { if (std::isfinite(x)) v.m_SteerInput = std::clamp(x, -1.0f, 1.0f); }),
+                                           "brakeInput", sol::property([](const VehicleComponent& v)
+                                                                       { return v.m_BrakeInput; }, [](VehicleComponent& v, f32 x)
+                                                                       { if (std::isfinite(x)) v.m_BrakeInput = std::clamp(x, 0.0f, 1.0f); }));
 
         // --- PrefabComponent ---
         // Read-only window into prefab-instance identity & override state.

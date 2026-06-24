@@ -42,6 +42,10 @@
 #include <Jolt/Physics/Constraints/PathConstraint.h>
 #include <Jolt/Physics/Constraints/PathConstraintPathHermite.h>
 #include <Jolt/Physics/Constraints/SpringSettings.h>
+#include <Jolt/Physics/Vehicle/VehicleConstraint.h>
+#include <Jolt/Physics/Vehicle/WheeledVehicleController.h>
+#include <Jolt/Physics/Vehicle/VehicleCollisionTester.h>
+#include <Jolt/Physics/Body/BodyLock.h>
 
 #include <glm/gtc/constants.hpp>
 
@@ -176,6 +180,11 @@ namespace OloEngine
         {
             characterController->Simulate(fixedTimeStep);
         }
+
+        // Push authored driver input into each vehicle controller before the
+        // update, so the VehicleConstraint step listener (which runs inside
+        // Update below) acts on this frame's throttle / steering / brake.
+        UpdateVehicleControllers();
 
         // Step the physics simulation
         JPH::EPhysicsUpdateError error = m_JoltSystem->Update(
@@ -383,13 +392,17 @@ namespace OloEngine
         CreateRigidBodies();
         // Second pass: all bodies exist now, so joints can resolve both endpoints.
         CreateConstraints();
+        // Vehicles likewise need their chassis bodies to exist first.
+        CreateVehicles();
     }
 
     void JoltScene::OnRuntimeStop()
     {
         OLO_CORE_INFO("JoltScene stopping runtime");
 
-        // Remove constraints before the bodies they reference are destroyed.
+        // Remove vehicles and constraints before the bodies they reference are
+        // destroyed (vehicles also unregister their step listeners here).
+        DestroyAllVehicles();
         DestroyAllConstraints();
 
         // Destroy all bodies
@@ -970,6 +983,19 @@ namespace OloEngine
             return { JPH::ESpringMode::FrequencyAndDamping,
                      SanitizeMotorMagnitude(frequency),
                      SanitizeMotorMagnitude(damping) };
+        }
+
+        // A strictly-positive vehicle dimension (wheel radius/width, suspension
+        // length, spring frequency, engine/brake torque). A non-finite or
+        // non-positive authored value collapses to the type's sensible default so
+        // a fat-fingered field can never feed a degenerate vehicle into Jolt
+        // (a zero radius / zero-length suspension asserts in Debug and NaNs the
+        // solver in Release). The upper clamp keeps an absurd value bounded.
+        f32 SanitizeVehiclePositive(f32 value, f32 fallback)
+        {
+            if (!std::isfinite(value) || value <= 0.0f)
+                return fallback;
+            return std::min(value, 1.0e6f);
         }
 
         // Put a freshly-created hinge constraint into the motor state authored on
@@ -1687,6 +1713,215 @@ namespace OloEngine
         // reset — they are about to be destroyed.)
         m_JointGroupFilter = nullptr;
         m_JointCollisionBodies.clear();
+    }
+
+    void JoltScene::CreateVehicles()
+    {
+        if (!m_Scene)
+            return;
+
+        // Build every authored vehicle now that the chassis bodies exist.
+        auto view = m_Scene->GetAllEntitiesWith<VehicleComponent>();
+        for (auto entityID : view)
+        {
+            Entity entity{ entityID, m_Scene };
+            CreateVehicle(entity);
+        }
+
+        OLO_CORE_INFO("Created {0} physics vehicles", m_Vehicles.size());
+    }
+
+    bool JoltScene::CreateVehicle(Entity entity)
+    {
+        if (!m_JoltSystem || !entity || !entity.HasComponent<VehicleComponent>())
+            return false;
+
+        auto& vehicle = entity.GetComponent<VehicleComponent>();
+        const UUID entityID = entity.GetUUID();
+
+        // Idempotent — already built for this entity.
+        if (m_Vehicles.find(entityID) != m_Vehicles.end())
+            return true;
+
+        // The chassis IS this entity's rigidbody; it must exist and be dynamic to
+        // be driven by suspension / traction forces.
+        Ref<JoltBody> chassis = GetBodyByEntityID(entityID);
+        if (!chassis || !chassis->IsValid())
+        {
+            OLO_CORE_WARN("VehicleComponent on entity {0} has no valid rigidbody; skipping vehicle", (u64)entityID);
+            return false;
+        }
+
+        // Sanitize all authored geometry — a degenerate wheel (zero radius,
+        // inverted suspension travel) asserts in Debug Jolt and NaNs the solver in
+        // Release, and a C# script can write a raw field, so this is the last line
+        // of defence (mirrors the joint arms).
+        const f32 wheelRadius = SanitizeVehiclePositive(vehicle.m_WheelRadius, 0.35f);
+        const f32 wheelWidth = SanitizeVehiclePositive(vehicle.m_WheelWidth, 0.25f);
+        const f32 attachHeight = std::isfinite(vehicle.m_WheelAttachmentHeight) ? vehicle.m_WheelAttachmentHeight : -0.4f;
+        const f32 halfTrack = SanitizeVehiclePositive(vehicle.m_HalfTrackWidth, 0.9f);
+        const f32 frontOffset = SanitizeVehiclePositive(vehicle.m_FrontAxleOffset, 1.25f);
+        const f32 rearOffset = SanitizeVehiclePositive(vehicle.m_RearAxleOffset, 1.25f);
+        // Suspension travel must satisfy 0 <= min <= max (Jolt asserts otherwise).
+        f32 suspMin = SanitizeVehiclePositive(vehicle.m_SuspensionMinLength, 0.3f);
+        f32 suspMax = SanitizeVehiclePositive(vehicle.m_SuspensionMaxLength, 0.5f);
+        if (suspMax < suspMin)
+            std::swap(suspMin, suspMax);
+        const f32 suspFreq = SanitizeVehiclePositive(vehicle.m_SuspensionFrequency, 1.5f);
+        // Damping is a ratio in [0, 1]; a negative / non-finite value collapses to
+        // the bouncy-but-stable default, and it is clamped to critically damped.
+        const f32 suspDamping = std::clamp(std::isfinite(vehicle.m_SuspensionDamping) ? vehicle.m_SuspensionDamping : 0.5f, 0.0f, 1.0f);
+        const f32 maxEngineTorque = SanitizeVehiclePositive(vehicle.m_MaxEngineTorque, 500.0f);
+        const f32 maxBrakeTorque = SanitizeMotorMagnitude(vehicle.m_MaxBrakeTorque);
+        // Steer angle: a non-finite value disables steering rather than NaNing it.
+        const f32 maxSteerRad = SanitizeJointAngleDeg(vehicle.m_MaxSteerAngleDeg, 0.0f, glm::pi<f32>(), 30.0f);
+
+        JPH::VehicleConstraintSettings settings;
+        settings.mUp = JPH::Vec3(0.0f, 1.0f, 0.0f);
+        settings.mForward = JPH::Vec3(0.0f, 0.0f, 1.0f);
+        // mMaxPitchRollAngle left at its JPH_PI default (anti-topple off).
+
+        // Standard four-wheel layout: 0=FL, 1=FR (steerable), 2=RL, 3=RR (driven).
+        const auto makeWheel = [&](f32 localX, f32 localZ, f32 steerRad) -> JPH::WheelSettingsWV*
+        {
+            auto* wheel = new JPH::WheelSettingsWV();
+            wheel->mPosition = JPH::Vec3(localX, attachHeight, localZ);
+            wheel->mSuspensionDirection = JPH::Vec3(0.0f, -1.0f, 0.0f);
+            wheel->mSuspensionMinLength = suspMin;
+            wheel->mSuspensionMaxLength = suspMax;
+            wheel->mSuspensionSpring = JPH::SpringSettings(JPH::ESpringMode::FrequencyAndDamping, suspFreq, suspDamping);
+            wheel->mRadius = wheelRadius;
+            wheel->mWidth = wheelWidth;
+            wheel->mMaxSteerAngle = steerRad;
+            wheel->mMaxBrakeTorque = maxBrakeTorque;
+            // Only the rear wheels hand-brake by convention; the MVP doesn't drive
+            // the hand brake, so leave mMaxHandBrakeTorque at its default.
+            return wheel;
+        };
+
+        settings.mWheels.push_back(makeWheel(-halfTrack, frontOffset, maxSteerRad)); // 0 FL
+        settings.mWheels.push_back(makeWheel(halfTrack, frontOffset, maxSteerRad));  // 1 FR
+        settings.mWheels.push_back(makeWheel(-halfTrack, -rearOffset, 0.0f));        // 2 RL
+        settings.mWheels.push_back(makeWheel(halfTrack, -rearOffset, 0.0f));         // 3 RR
+
+        auto* controllerSettings = new JPH::WheeledVehicleControllerSettings();
+        controllerSettings->mEngine.mMaxTorque = maxEngineTorque;
+        // One differential driving the rear axle (rear-wheel drive for the MVP).
+        controllerSettings->mDifferentials.resize(1);
+        controllerSettings->mDifferentials[0].mLeftWheel = 2;  // RL
+        controllerSettings->mDifferentials[0].mRightWheel = 3; // RR
+        controllerSettings->mDifferentials[0].mEngineTorqueRatio = 1.0f;
+        settings.mController = controllerSettings;
+
+        // VehicleConstraint takes a Body&; lock the chassis to obtain one. The
+        // constraint stores the (stable) Body* so it stays valid after the lock
+        // releases — the same pattern as the two-body constraints above.
+        JPH::VehicleConstraint* constraint = nullptr;
+        {
+            JPH::BodyLockWrite lock(m_JoltSystem->GetBodyLockInterface(), chassis->GetBodyID());
+            if (!lock.Succeeded())
+            {
+                OLO_CORE_WARN("VehicleComponent: failed to lock chassis body for entity {0}", (u64)entityID);
+                return false;
+            }
+            constraint = new JPH::VehicleConstraint(lock.GetBody(), settings);
+        }
+
+        // The wheels are virtual: a ray cast from each suspension attachment finds
+        // the ground. ObjectLayers::MOVING collides with everything (see
+        // JoltLayerInterface), so the wheels rest on static ground and dynamic
+        // bodies alike; the constraint's default body filter excludes the chassis.
+        // SetVehicleCollisionTester stores it in a RefConst, so the tester (and the
+        // controller / wheels owned by the constraint) live as long as the
+        // constraint Ref we hold below.
+        constraint->SetVehicleCollisionTester(new JPH::VehicleCollisionTesterRay(ObjectLayers::MOVING, JPH::Vec3(0.0f, 1.0f, 0.0f)));
+
+        // A VehicleConstraint is BOTH a Constraint and a PhysicsStepListener — the
+        // suspension/traction run in OnStep, so it MUST be registered as a step
+        // listener too (Jolt's own warning). AddConstraint + m_Vehicles each hold a
+        // ref; AddStepListener stores a raw pointer, so DestroyVehicle must
+        // RemoveStepListener before the ref drops to zero.
+        m_JoltSystem->AddConstraint(constraint);
+        m_JoltSystem->AddStepListener(constraint);
+        m_Vehicles[entityID] = constraint;
+        vehicle.m_RuntimeVehicleToken = static_cast<u64>(entityID);
+
+        OLO_CORE_TRACE("Created physics vehicle for entity {0}", (u64)entityID);
+        return true;
+    }
+
+    void JoltScene::DestroyVehicle(Entity entity)
+    {
+        if (!entity)
+            return;
+
+        const UUID entityID = entity.GetUUID();
+        if (auto it = m_Vehicles.find(entityID); it != m_Vehicles.end())
+        {
+            if (m_JoltSystem && it->second != nullptr)
+            {
+                // Unregister the step listener (raw pointer) BEFORE releasing the
+                // ref, then remove the constraint.
+                m_JoltSystem->RemoveStepListener(it->second);
+                m_JoltSystem->RemoveConstraint(it->second);
+            }
+            m_Vehicles.erase(it); // releases the JPH::Ref
+            OLO_CORE_TRACE("Destroyed physics vehicle for entity {0}", (u64)entityID);
+        }
+    }
+
+    void JoltScene::DestroyAllVehicles()
+    {
+        // Vehicles reference (and step-listen on) the chassis bodies, so they must
+        // be removed before the bodies they drive are destroyed.
+        if (m_JoltSystem)
+        {
+            for (auto& [entityID, constraint] : m_Vehicles)
+            {
+                if (constraint != nullptr)
+                {
+                    m_JoltSystem->RemoveStepListener(constraint);
+                    m_JoltSystem->RemoveConstraint(constraint);
+                }
+            }
+        }
+        m_Vehicles.clear();
+    }
+
+    void JoltScene::UpdateVehicleControllers()
+    {
+        if (m_Vehicles.empty() || !m_Scene)
+            return;
+
+        JPH::BodyInterface& bodyInterface = m_JoltSystem->GetBodyInterface();
+        for (auto& [entityID, constraint] : m_Vehicles)
+        {
+            if (constraint == nullptr)
+                continue;
+
+            Entity entity = m_Scene->GetEntityByUUID(entityID);
+            if (!entity || !entity.HasComponent<VehicleComponent>())
+                continue;
+
+            auto* controller = static_cast<JPH::WheeledVehicleController*>(constraint->GetController());
+            if (controller == nullptr)
+                continue;
+
+            // Sanitize the live driver input (a script can write any value).
+            const auto& vc = entity.GetComponent<VehicleComponent>();
+            const f32 forward = std::isfinite(vc.m_ThrottleInput) ? std::clamp(vc.m_ThrottleInput, -1.0f, 1.0f) : 0.0f;
+            const f32 right = std::isfinite(vc.m_SteerInput) ? std::clamp(vc.m_SteerInput, -1.0f, 1.0f) : 0.0f;
+            const f32 brake = std::isfinite(vc.m_BrakeInput) ? std::clamp(vc.m_BrakeInput, 0.0f, 1.0f) : 0.0f;
+            controller->SetDriverInput(forward, right, brake, 0.0f);
+
+            // A settled vehicle sleeps; without this it would ignore throttle /
+            // steering / brake input until something else woke it.
+            if (JPH::Body* body = constraint->GetVehicleBody();
+                body != nullptr && (std::abs(forward) > 1.0e-4f || std::abs(right) > 1.0e-4f || brake > 1.0e-4f))
+            {
+                bodyInterface.ActivateBody(body->GetID());
+            }
+        }
     }
 
     void JoltScene::BreakOverstressedJoints(f32 stepDeltaTime)

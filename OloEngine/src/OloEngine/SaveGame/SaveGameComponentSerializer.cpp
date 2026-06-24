@@ -960,6 +960,50 @@ namespace OloEngine
         // m_RuntimeConstraintToken is a runtime Jolt handle — not serialized.
     }
 
+    void SaveGameComponentSerializer::Serialize(FArchive& ar, VehicleComponent& c)
+    {
+        ar << c.m_HalfTrackWidth << c.m_FrontAxleOffset << c.m_RearAxleOffset << c.m_WheelAttachmentHeight;
+        ar << c.m_WheelRadius << c.m_WheelWidth;
+        ar << c.m_SuspensionMinLength << c.m_SuspensionMaxLength << c.m_SuspensionFrequency << c.m_SuspensionDamping;
+        ar << c.m_MaxEngineTorque << c.m_MaxSteerAngleDeg << c.m_MaxBrakeTorque;
+        ar << c.m_ThrottleInput << c.m_SteerInput << c.m_BrakeInput;
+
+        // Sanitize untrusted on-disk values (mirrors SceneSerializer): dimensions
+        // are strictly positive, the attachment height is signed, damping is a
+        // [0,1] ratio, and the live inputs clamp to their driver-input ranges.
+        // JoltScene::CreateVehicle re-sanitizes before handing values to Jolt.
+        if (ar.IsLoading())
+        {
+            const auto positive = [](f32& v, f32 fallback)
+            {
+                if (!std::isfinite(v) || v <= 0.0f)
+                    v = fallback;
+            };
+            positive(c.m_HalfTrackWidth, 0.9f);
+            positive(c.m_FrontAxleOffset, 1.25f);
+            positive(c.m_RearAxleOffset, 1.25f);
+            if (!std::isfinite(c.m_WheelAttachmentHeight))
+                c.m_WheelAttachmentHeight = -0.4f;
+            positive(c.m_WheelRadius, 0.35f);
+            positive(c.m_WheelWidth, 0.25f);
+            if (!std::isfinite(c.m_SuspensionMinLength) || c.m_SuspensionMinLength < 0.0f)
+                c.m_SuspensionMinLength = 0.3f;
+            if (!std::isfinite(c.m_SuspensionMaxLength) || c.m_SuspensionMaxLength < 0.0f)
+                c.m_SuspensionMaxLength = 0.5f;
+            positive(c.m_SuspensionFrequency, 1.5f);
+            c.m_SuspensionDamping = std::isfinite(c.m_SuspensionDamping) ? std::clamp(c.m_SuspensionDamping, 0.0f, 1.0f) : 0.5f;
+            if (!std::isfinite(c.m_MaxEngineTorque) || c.m_MaxEngineTorque < 0.0f)
+                c.m_MaxEngineTorque = 500.0f;
+            c.m_MaxSteerAngleDeg = std::isfinite(c.m_MaxSteerAngleDeg) ? std::clamp(c.m_MaxSteerAngleDeg, 0.0f, 180.0f) : 30.0f;
+            if (!std::isfinite(c.m_MaxBrakeTorque) || c.m_MaxBrakeTorque < 0.0f)
+                c.m_MaxBrakeTorque = 1500.0f;
+            c.m_ThrottleInput = std::isfinite(c.m_ThrottleInput) ? std::clamp(c.m_ThrottleInput, -1.0f, 1.0f) : 0.0f;
+            c.m_SteerInput = std::isfinite(c.m_SteerInput) ? std::clamp(c.m_SteerInput, -1.0f, 1.0f) : 0.0f;
+            c.m_BrakeInput = std::isfinite(c.m_BrakeInput) ? std::clamp(c.m_BrakeInput, 0.0f, 1.0f) : 0.0f;
+        }
+        // m_RuntimeVehicleToken is a runtime Jolt handle — not serialized.
+    }
+
     void SaveGameComponentSerializer::Serialize(FArchive& ar, TextComponent& c)
     {
         ar << c.TextString << c.Color;
@@ -3275,6 +3319,7 @@ namespace OloEngine
         REGISTER_SAVE_COMPONENT(TriangleMeshCollider3DComponent);
         REGISTER_SAVE_COMPONENT(CharacterController3DComponent);
         REGISTER_SAVE_COMPONENT(PhysicsJoint3DComponent);
+        REGISTER_SAVE_COMPONENT(VehicleComponent);
         REGISTER_SAVE_COMPONENT(TextComponent);
         REGISTER_SAVE_COMPONENT(ScriptComponent);
         REGISTER_SAVE_COMPONENT(AudioSourceComponent);
