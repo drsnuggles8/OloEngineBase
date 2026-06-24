@@ -338,6 +338,26 @@ TEST_F(UIInputFieldKeyboardTest, CharacterLimitCountsMultibyteAsOneCharacter)
     EXPECT_EQ(f.m_Text.size(), 4u);                 // 2 codepoints * 2 bytes
 }
 
+TEST_F(UIInputFieldKeyboardTest, CursorMidCodepointIsSnappedToBoundaryBeforeEditing)
+{
+    auto& f = Field();
+    f.m_IsFocused = true;
+    // External mutation (e.g. a script assigning m_Text) can leave the byte
+    // cursor pointing inside a multi-byte codepoint.
+    f.m_Text = "a\xC3\xA9"; // 'a' + 'é' (é = 2 bytes: 0xC3 0xA9)
+    f.m_CursorPosition = 2; // points at é's continuation byte — mid-codepoint
+
+    UIKeyboardInput bs;
+    bs.m_Backspace = true;
+    Process(bs);
+
+    // The cursor snaps back onto é's boundary (byte 1) before editing, so
+    // backspace removes the whole 'a' before it and leaves 'é' well-formed —
+    // never an orphaned 0xA9 continuation byte.
+    EXPECT_EQ(f.m_Text, "\xC3\xA9"); // "é"
+    EXPECT_EQ(f.m_CursorPosition, 0);
+}
+
 // --- Focus via click then edit ---------------------------------------------
 
 TEST_F(UIInputFieldKeyboardTest, ClickFocusesFieldThenKeyboardEditsSameFrame)

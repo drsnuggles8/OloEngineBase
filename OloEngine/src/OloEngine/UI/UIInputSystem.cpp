@@ -52,6 +52,16 @@ namespace OloEngine
         // scripting) since it was last driven here.
         i32 cursor = glm::clamp(field.m_CursorPosition, 0, static_cast<i32>(field.m_Text.size()));
 
+        // The range-clamp alone can still leave the cursor inside a multi-byte
+        // codepoint if m_Text was rewritten externally (e.g. a script assigning
+        // m_Text while a stale byte offset persists). Snap it back onto a
+        // codepoint boundary so the edits below never split a character into
+        // orphaned continuation bytes.
+        while (cursor > 0 && (static_cast<unsigned char>(field.m_Text[static_cast<sizet>(cursor)]) & 0xC0u) == 0x80u)
+        {
+            --cursor;
+        }
+
         // 1. Insert typed characters at the cursor.
         for (const u32 cp : keyboard.m_TypedCharacters)
         {
