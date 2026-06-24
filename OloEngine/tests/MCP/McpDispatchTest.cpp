@@ -341,6 +341,21 @@ TEST_F(McpDispatchTest, ToolsSearchRejectsNonStringToolset)
     EXPECT_EQ(resp["error"]["code"], -32602);
 }
 
+// A present-but-non-object params (e.g. [] or "x") would otherwise skip both
+// optional filters and silently return the unfiltered catalogue — reject it as a
+// client error instead. (An absent params is dispatched as an empty object and
+// still succeeds; that path is covered by ToolsSearchNoArgsReturnsAllToolsAndCatalogue.)
+TEST_F(McpDispatchTest, ToolsSearchRejectsNonObjectParams)
+{
+    const Json fromArray = m_Server.HandleMessage(MakeRequest(36, "tools/search", Json::array()));
+    ASSERT_TRUE(fromArray.contains("error"));
+    EXPECT_EQ(fromArray["error"]["code"], -32602); // invalid params
+
+    const Json fromString = m_Server.HandleMessage(MakeRequest(37, "tools/search", Json("x")));
+    ASSERT_TRUE(fromString.contains("error"));
+    EXPECT_EQ(fromString["error"]["code"], -32602);
+}
+
 // Matched search entries keep the full tools/list entry shape (name, description,
 // inputSchema) so an agent can call a tool straight from a search result.
 TEST_F(McpDispatchTest, ToolsSearchEntriesKeepToolListShape)

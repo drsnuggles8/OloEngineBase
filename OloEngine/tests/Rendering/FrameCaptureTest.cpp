@@ -663,7 +663,10 @@ class FrameExportTest : public FrameCapturePipelineTest
         m_TestOutputDir = std::filesystem::temp_directory_path() / "olo_frame_export_test" / (testSuite + "_" + testName);
         std::error_code ec;
         std::filesystem::remove_all(m_TestOutputDir, ec);
+        ASSERT_FALSE(ec) << "Failed to clear test output dir: " << ec.message();
+        ec.clear();
         std::filesystem::create_directories(m_TestOutputDir, ec);
+        ASSERT_FALSE(ec) << "Failed to create test output dir: " << ec.message();
     }
 
     void TearDown() override

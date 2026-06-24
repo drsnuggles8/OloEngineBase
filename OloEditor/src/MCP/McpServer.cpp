@@ -641,6 +641,14 @@ namespace OloEngine::MCP
 
     Json McpServer::HandleToolsSearch(const Json& id, const Json& params) const
     {
+        // A non-object params (e.g. [] or "x") would otherwise skip both optional
+        // filters below and silently return the unfiltered catalogue. Reject it as a
+        // client error — matching the strictness of tools/call's `name` check. (An
+        // absent params is dispatched as an empty object, so the no-filter "search
+        // everything" call still passes here.)
+        if (!params.is_object())
+            return MakeError(id, kInvalidParams, "Invalid params: 'params' must be an object");
+
         // Both filters are optional, but a present-and-non-string filter is a client
         // error (invalid params) rather than a silent no-op — matching the strictness
         // of tools/call's `name` check.
