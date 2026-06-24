@@ -234,6 +234,7 @@
     "OloEngine/tests/Cinematic/CinematicSerializerTest.cpp": "unit",
     "OloEngine/tests/Cinematic/CinematicEditTest.cpp": "unit",
     "OloEngine/tests/Terrain/TerrainGeneratorTest.cpp": "unit",
+    "OloEngine/tests/UI/UIInputFieldKeyboardTest.cpp": "unit",
     "OloEngine/tests/AnimationStateMachineTest.cpp": "unit",
     "OloEngine/tests/AnimationSystemTest.cpp": "unit",
     "OloEngine/tests/AppLaunchSmokeTest.cpp": "unit",
