@@ -112,9 +112,11 @@ namespace OloEngine::Audio::SoundGraph
         std::optional<SoundGraphCacheEntry> GetCacheEntry(const std::string& sourcePath) const;
         void LogStatistics() const;
 
-        /// Serialization for persistent cache
+        /// Serialization for persistent cache.
+        /// Save is read-only (const); Load mutates the cache (restores metadata
+        /// entries) so it is intentionally non-const.
         bool SaveCacheMetadata(const std::string& filePath) const;
-        bool LoadCacheMetadata(const std::string& filePath) const;
+        bool LoadCacheMetadata(const std::string& filePath);
 
       private:
         mutable FMutex m_Mutex;

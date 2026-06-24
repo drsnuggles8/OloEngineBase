@@ -548,6 +548,16 @@ namespace OloEngine::Audio::SoundGraph
             return m_WaveSource;
         }
 
+        /// Heap bytes currently held by this node's decoded audio samples
+        /// (m_AudioData.m_Samples). Zero until an asset finishes loading and zero
+        /// again after Clear(). This is the only large per-node heap buffer in the
+        /// graph, so the SoundGraphCache memory accounting introspects it directly
+        /// instead of assuming a flat per-node estimate.
+        [[nodiscard]] sizet GetAudioDataSizeBytes() const
+        {
+            return m_AudioData.m_Samples.capacity() * sizeof(f32);
+        }
+
       private:
         /// Resolve the StartTime input into a clamped m_StartSample. Shared by
         /// StartPlayback (per-Play recompute) and CheckAsyncLoadCompletion (initial
