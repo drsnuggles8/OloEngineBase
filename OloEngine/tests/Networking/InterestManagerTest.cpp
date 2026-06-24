@@ -338,3 +338,48 @@ TEST_F(InterestManagerTest, IsEntityRelevantAgreesWithGetRelevantEntities)
     gridMgr.UpdateSpatialGrid(*m_Scene);
     check(gridMgr);
 }
+
+// An entity that loses its TransformComponent AFTER UpdateSpatialGrid snapshotted it must drop out
+// of every query path identically — the full scan only sees entities with a TransformComponent, so
+// the grid path (which fetches stale snapshot UUIDs by lookup) and IsEntityRelevant must agree and,
+// crucially, must not deref the now-missing component. Guards against the grid path and full scan
+// diverging (and an assert/UB on GetComponent<TransformComponent>) when the snapshot goes stale.
+TEST_F(InterestManagerTest, EntityLosingTransformAfterSnapshotDropsOutOfAllPaths)
+{
+    // 1: distance-filterable (positive radius) → lives in the grid snapshot.
+    Entity distance = m_Scene->CreateEntityWithUUID(UUID(1), "Distance");
+    distance.GetComponent<TransformComponent>().Translation = { 10.0f, 0.0f, 0.0f };
+    distance.AddComponent<NetworkIdentityComponent>().IsReplicated = true;
+    distance.AddComponent<NetworkInterestComponent>().RelevanceRadius = 50.0f;
+
+    // 2: always-relevant (no interest) → lives in the flat snapshot list.
+    Entity always = m_Scene->CreateEntityWithUUID(UUID(2), "Always");
+    always.GetComponent<TransformComponent>().Translation = { 20.0f, 0.0f, 0.0f };
+    always.AddComponent<NetworkIdentityComponent>().IsReplicated = true;
+
+    NetworkInterestManager grid;
+    grid.SetClientPosition(1, { 0.0f, 0.0f, 0.0f });
+    grid.UpdateSpatialGrid(*m_Scene); // snapshot taken while both still have a TransformComponent
+
+    // Now strip the transforms — the snapshot still references the UUIDs, but the live entities no
+    // longer satisfy the GetAllEntitiesWith<IDComponent, TransformComponent> filter.
+    distance.RemoveComponent<TransformComponent>();
+    always.RemoveComponent<TransformComponent>();
+
+    // Full scan never considers them (no TransformComponent) → empty expected set.
+    NetworkInterestManager scan;
+    scan.SetClientPosition(1, { 0.0f, 0.0f, 0.0f });
+    auto expected = scan.GetRelevantEntities(1, *m_Scene);
+
+    // Grid path must not crash on the stale snapshot and must produce the same (empty) set.
+    auto actual = grid.GetRelevantEntities(1, *m_Scene);
+
+    std::ranges::sort(expected);
+    std::ranges::sort(actual);
+    EXPECT_EQ(expected, actual);
+    EXPECT_TRUE(actual.empty());
+
+    // IsEntityRelevant already guards the missing transform; confirm both managers agree with it.
+    EXPECT_FALSE(grid.IsEntityRelevant(1, 1u, *m_Scene));
+    EXPECT_FALSE(grid.IsEntityRelevant(1, 2u, *m_Scene));
+}

@@ -162,7 +162,8 @@ namespace OloEngine
             for (u64 const uuid : m_AlwaysRelevant)
             {
                 if (auto entity = scene.TryGetEntityWithUUID(UUID(uuid));
-                    entity && EvaluateEntityRelevance(*entity, clientPos, clientGroups))
+                    entity && entity->HasComponent<TransformComponent>() &&
+                    EvaluateEntityRelevance(*entity, clientPos, clientGroups))
                 {
                     result.push_back(uuid);
                 }
@@ -176,7 +177,8 @@ namespace OloEngine
             for (u64 const uuid : candidates)
             {
                 if (auto entity = scene.TryGetEntityWithUUID(UUID(uuid));
-                    entity && EvaluateEntityRelevance(*entity, clientPos, clientGroups))
+                    entity && entity->HasComponent<TransformComponent>() &&
+                    EvaluateEntityRelevance(*entity, clientPos, clientGroups))
                 {
                     result.push_back(uuid);
                 }
