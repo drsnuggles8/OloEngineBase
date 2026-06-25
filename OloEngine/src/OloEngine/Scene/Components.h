@@ -1109,6 +1109,82 @@ namespace OloEngine
         }
     };
 
+    // A physics ragdoll (issue #308 item 5) built from an animation skeleton's
+    // bone hierarchy. FOUNDATION slice: at physics start, JoltScene expands this
+    // component into a chain of per-bone rigidbodies linked by SwingTwist joints
+    // (the ragdoll-friendly cone + twist constraint), reusing the existing
+    // Rigidbody3D / collider / PhysicsJoint3D infrastructure rather than Jolt's
+    // dedicated JPH::Ragdoll class. The generated bodies/joints are removed again
+    // at physics stop, restoring the authored scene.
+    //
+    // Skeleton resolution: m_Skeleton (a runtime Ref, NOT serialized) takes
+    // precedence; otherwise the skeleton is taken from the SkeletonComponent on
+    // m_SkeletonEntity (0 = the entity that owns this component). The bone
+    // entities (scene entities tagged with the skeleton's bone names) are found
+    // under that same entity's hierarchy via BoneEntityUtils::FindBoneEntityIds.
+    //
+    // Per parent->child bone link a SwingTwist PhysicsJoint3DComponent is created
+    // on the CHILD bone, connected to the parent, pivoting about the parent
+    // bone's origin (so the child hangs from its parent like a pendulum link),
+    // with m_CollideConnected = false so the ragdoll can fold. A bone that already
+    // carries a Rigidbody3DComponent is kept as-is — so authoring the root bone as
+    // Static/Kinematic anchors the ragdoll to the world; bones without one get a
+    // generated Dynamic body + sphere collider.
+    //
+    // Foundation limitations (explicit follow-ups, NOT in this slice): no
+    // physics->animation pose write-back, no blend modes, no mid-game
+    // enable/disable, simple uniform sphere colliders (no per-bone capsule
+    // fitting), the joint pivots at the parent bone origin (no anatomically-fitted
+    // head/tail placement), and bone transforms are read as world-space (a flat
+    // bone layout, matching how JoltBody/JoltScene already interpret transforms).
+    struct RagdollComponent
+    {
+        // Runtime skeleton link. NOT serialized and excluded from operator==;
+        // when null the skeleton is resolved from m_SkeletonEntity's
+        // SkeletonComponent at physics start.
+        Ref<Skeleton> m_Skeleton;
+
+        // Entity whose SkeletonComponent provides the skeleton and under whose
+        // hierarchy the bone entities are found. 0 = the entity that owns this
+        // RagdollComponent.
+        UUID m_SkeletonEntity = 0;
+
+        // Build the ragdoll at physics start when true.
+        OLO_PROPERTY()
+        bool m_Enabled = true;
+
+        // Per-bone generated body: mass (kg) and the sphere-collider radius (m).
+        // Only bones missing a Rigidbody3DComponent get a generated body.
+        OLO_PROPERTY()
+        f32 m_BoneMass = 1.0f;
+        OLO_PROPERTY()
+        f32 m_BoneRadius = 0.05f;
+
+        // SwingTwist limits applied to every generated parent->child bone joint:
+        // the swing cone half-angle (degrees, used for both cone axes) and the
+        // symmetric twist half-range (degrees, applied as [-twist, +twist] about
+        // the bone). Both clamp to Jolt-valid ranges in JoltScene::CreateRagdoll.
+        OLO_PROPERTY()
+        f32 m_SwingLimitDeg = 45.0f;
+        OLO_PROPERTY()
+        f32 m_TwistLimitDeg = 45.0f;
+
+        // Storage for runtime — non-zero once the ragdoll has been built (mirrors
+        // PhysicsJoint3DComponent::m_RuntimeConstraintToken). Excluded from
+        // authored-state equality so play-mode enter/exit isn't seen as a change.
+        u64 m_RuntimeRagdollToken = 0;
+
+        RagdollComponent() = default;
+        RagdollComponent(const RagdollComponent&) = default;
+
+        // m_Skeleton (runtime link) and m_RuntimeRagdollToken (runtime handle) are
+        // excluded — compare only the authored fields.
+        auto operator==(const RagdollComponent& other) const -> bool
+        {
+            return m_SkeletonEntity == other.m_SkeletonEntity && m_Enabled == other.m_Enabled && Math::BitwiseEqual(m_BoneMass, other.m_BoneMass) && Math::BitwiseEqual(m_BoneRadius, other.m_BoneRadius) && Math::BitwiseEqual(m_SwingLimitDeg, other.m_SwingLimitDeg) && Math::BitwiseEqual(m_TwistLimitDeg, other.m_TwistLimitDeg);
+        }
+    };
+
     struct TextComponent
     {
         OLO_PROPERTY(Name = "Text", Type = "string")

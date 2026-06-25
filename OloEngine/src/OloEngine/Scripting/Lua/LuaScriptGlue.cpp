@@ -210,6 +210,7 @@ namespace OloEngine
             REGISTER_COMPONENT(TriangleMeshCollider3DComponent),
             REGISTER_COMPONENT(PhysicsJoint3DComponent),
             REGISTER_COMPONENT(VehicleComponent),
+            REGISTER_COMPONENT(RagdollComponent),
             // UI
             REGISTER_COMPONENT(UICanvasComponent),
             REGISTER_COMPONENT(UIRectTransformComponent),
@@ -1353,6 +1354,29 @@ namespace OloEngine
                                            "brakeInput", sol::property([](const VehicleComponent& v)
                                                                        { return v.m_BrakeInput; }, [](VehicleComponent& v, f32 x)
                                                                        { if (std::isfinite(x)) v.m_BrakeInput = std::clamp(x, 0.0f, 1.0f); }));
+
+        // --- RagdollComponent ---
+        // Authored ragdoll tuning. m_Skeleton (a runtime Ref), m_SkeletonEntity,
+        // and m_RuntimeRagdollToken are not exposed to scripts: the skeleton link
+        // is established by the editor / scene, not from Lua. Mass/radius setters
+        // require finite positive values; the swing/twist limits clamp to the
+        // [0, 180]-degree range JoltScene::CreateRagdoll enforces.
+        lua.new_usertype<RagdollComponent>("RagdollComponent",
+                                           "enabled", sol::property([](const RagdollComponent& r)
+                                                                    { return r.m_Enabled; }, [](RagdollComponent& r, bool v)
+                                                                    { r.m_Enabled = v; }),
+                                           "boneMass", sol::property([](const RagdollComponent& r)
+                                                                     { return r.m_BoneMass; }, [](RagdollComponent& r, f32 x)
+                                                                     { if (std::isfinite(x) && x > 0.0f) r.m_BoneMass = x; }),
+                                           "boneRadius", sol::property([](const RagdollComponent& r)
+                                                                       { return r.m_BoneRadius; }, [](RagdollComponent& r, f32 x)
+                                                                       { if (std::isfinite(x) && x > 0.0f) r.m_BoneRadius = x; }),
+                                           "swingLimitDeg", sol::property([](const RagdollComponent& r)
+                                                                          { return r.m_SwingLimitDeg; }, [](RagdollComponent& r, f32 x)
+                                                                          { if (std::isfinite(x)) r.m_SwingLimitDeg = std::clamp(x, 0.0f, 180.0f); }),
+                                           "twistLimitDeg", sol::property([](const RagdollComponent& r)
+                                                                          { return r.m_TwistLimitDeg; }, [](RagdollComponent& r, f32 x)
+                                                                          { if (std::isfinite(x)) r.m_TwistLimitDeg = std::clamp(x, 0.0f, 180.0f); }));
 
         // --- PrefabComponent ---
         // Read-only window into prefab-instance identity & override state.

@@ -764,6 +764,29 @@ namespace OloEngine
 		internal static extern void ProceduralSkyComponent_SetIBLIntensity(ulong entityID, float value);
 		#endregion
 
+		#region RagdollComponent
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool RagdollComponent_GetEnabled(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void RagdollComponent_SetEnabled(ulong entityID, bool value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float RagdollComponent_GetBoneMass(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void RagdollComponent_SetBoneMass(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float RagdollComponent_GetBoneRadius(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void RagdollComponent_SetBoneRadius(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float RagdollComponent_GetSwingLimitDeg(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void RagdollComponent_SetSwingLimitDeg(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float RagdollComponent_GetTwistLimitDeg(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void RagdollComponent_SetTwistLimitDeg(ulong entityID, float value);
+		#endregion
+
 		#region ReflectionProbeComponent
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern float ReflectionProbeComponent_GetInfluenceRadius(ulong entityID);

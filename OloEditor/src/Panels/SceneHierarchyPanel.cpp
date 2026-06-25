@@ -1804,6 +1804,7 @@ namespace OloEngine
             DisplayAddComponentEntry<TriangleMeshCollider3DComponent>("Triangle Mesh Collider 3D");
             DisplayAddComponentEntry<CharacterController3DComponent>("Character Controller 3D");
             DisplayAddComponentEntry<PhysicsJoint3DComponent>("Physics Joint 3D");
+            DisplayAddComponentEntry<RagdollComponent>("Ragdoll");
 
             ImGui::Separator();
 
@@ -3872,6 +3873,16 @@ namespace OloEngine
             ImGui::TextDisabled("Breakable (0 = unbreakable)");
             ImGui::DragFloat("Break Force (N)##PhysicsJoint3D", &component.m_BreakForce, 1.0f, 0.0f, 1.0e9f);
             ImGui::DragFloat("Break Torque (N\xC2\xB7m)##PhysicsJoint3D", &component.m_BreakTorque, 1.0f, 0.0f, 1.0e9f); });
+
+        DrawComponent<RagdollComponent>("Ragdoll", entity, [](auto& component)
+                                        {
+            ImGui::Checkbox("Enabled##Ragdoll", &component.m_Enabled);
+            ImGui::DragFloat("Bone Mass (kg)##Ragdoll", &component.m_BoneMass, 0.01f, 1.0e-3f, 1.0e6f);
+            ImGui::DragFloat("Bone Radius (m)##Ragdoll", &component.m_BoneRadius, 0.005f, 1.0e-3f, 1.0e3f);
+            ImGui::DragFloat("Swing Limit (deg)##Ragdoll", &component.m_SwingLimitDeg, 0.5f, 0.0f, 180.0f);
+            ImGui::DragFloat("Twist Limit (deg)##Ragdoll", &component.m_TwistLimitDeg, 0.5f, 0.0f, 180.0f);
+            ImGui::TextDisabled("Skeleton: from this entity's SkeletonComponent");
+            ImGui::TextDisabled("Built at play; bones missing a body get a dynamic one."); });
 
         // Audio Components
         DrawComponent<AudioSourceComponent>("Audio Source", entity, [this](auto& component)

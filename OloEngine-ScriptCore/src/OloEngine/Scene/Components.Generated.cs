@@ -1242,6 +1242,39 @@ namespace OloEngine
 		}
 	}
 
+	public partial class RagdollComponent : Component
+	{
+		public bool Enabled
+		{
+			get => InternalCalls.RagdollComponent_GetEnabled(Entity.ID);
+			set => InternalCalls.RagdollComponent_SetEnabled(Entity.ID, value);
+		}
+
+		public float BoneMass
+		{
+			get => InternalCalls.RagdollComponent_GetBoneMass(Entity.ID);
+			set => InternalCalls.RagdollComponent_SetBoneMass(Entity.ID, value);
+		}
+
+		public float BoneRadius
+		{
+			get => InternalCalls.RagdollComponent_GetBoneRadius(Entity.ID);
+			set => InternalCalls.RagdollComponent_SetBoneRadius(Entity.ID, value);
+		}
+
+		public float SwingLimitDeg
+		{
+			get => InternalCalls.RagdollComponent_GetSwingLimitDeg(Entity.ID);
+			set => InternalCalls.RagdollComponent_SetSwingLimitDeg(Entity.ID, value);
+		}
+
+		public float TwistLimitDeg
+		{
+			get => InternalCalls.RagdollComponent_GetTwistLimitDeg(Entity.ID);
+			set => InternalCalls.RagdollComponent_SetTwistLimitDeg(Entity.ID, value);
+		}
+	}
+
 	public partial class ReflectionProbeComponent : Component
 	{
 		public float InfluenceRadius
