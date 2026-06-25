@@ -1763,7 +1763,10 @@ namespace OloEngine
         const f32 frontOffset = SanitizeVehiclePositive(vehicle.m_FrontAxleOffset, 1.25f);
         const f32 rearOffset = SanitizeVehiclePositive(vehicle.m_RearAxleOffset, 1.25f);
         // Suspension travel must satisfy 0 <= min <= max (Jolt asserts otherwise).
-        f32 suspMin = SanitizeVehiclePositive(vehicle.m_SuspensionMinLength, 0.3f);
+        // min may legitimately be 0 (wheel can compress fully to the attachment
+        // point) — the serializers preserve 0, so don't let SanitizeVehiclePositive
+        // (which rejects <= 0) silently rewrite an authored 0 to the default here.
+        f32 suspMin = (std::isfinite(vehicle.m_SuspensionMinLength) && vehicle.m_SuspensionMinLength >= 0.0f) ? std::min(vehicle.m_SuspensionMinLength, 1.0e6f) : 0.3f;
         f32 suspMax = SanitizeVehiclePositive(vehicle.m_SuspensionMaxLength, 0.5f);
         if (suspMax < suspMin)
             std::swap(suspMin, suspMax);
@@ -1773,8 +1776,9 @@ namespace OloEngine
         const f32 suspDamping = std::clamp(std::isfinite(vehicle.m_SuspensionDamping) ? vehicle.m_SuspensionDamping : 0.5f, 0.0f, 1.0f);
         const f32 maxEngineTorque = SanitizeVehiclePositive(vehicle.m_MaxEngineTorque, 500.0f);
         const f32 maxBrakeTorque = SanitizeMotorMagnitude(vehicle.m_MaxBrakeTorque);
-        // Steer angle: a non-finite value disables steering rather than NaNing it.
-        const f32 maxSteerRad = SanitizeJointAngleDeg(vehicle.m_MaxSteerAngleDeg, 0.0f, glm::pi<f32>(), 30.0f);
+        // Steer angle: a non-finite value disables steering (0) rather than NaNing
+        // it — fail safe to wheels-straight on a corrupt/scripted garbage field.
+        const f32 maxSteerRad = SanitizeJointAngleDeg(vehicle.m_MaxSteerAngleDeg, 0.0f, glm::pi<f32>(), 0.0f);
 
         JPH::VehicleConstraintSettings settings;
         settings.mUp = JPH::Vec3(0.0f, 1.0f, 0.0f);
@@ -1899,9 +1903,13 @@ namespace OloEngine
             if (constraint == nullptr)
                 continue;
 
-            Entity entity = m_Scene->GetEntityByUUID(entityID);
-            if (!entity || !entity.HasComponent<VehicleComponent>())
+            // Non-asserting lookup: m_Vehicles can briefly outlive the entity in
+            // teardown edge cases, and GetEntityByUUID would assert on a missing
+            // UUID — skip cleanly instead of crashing the physics tick.
+            auto entityOpt = m_Scene->TryGetEntityWithUUID(entityID);
+            if (!entityOpt || !entityOpt->HasComponent<VehicleComponent>())
                 continue;
+            Entity entity = *entityOpt;
 
             auto* controller = static_cast<JPH::WheeledVehicleController*>(constraint->GetController());
             if (controller == nullptr)

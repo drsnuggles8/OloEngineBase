@@ -186,6 +186,59 @@ TEST_F(VehicleTest, RemovingVehicleComponentDestroysTheConstraint)
     EXPECT_TRUE(std::isfinite(Pos(car).y));
 }
 
+// -----------------------------------------------------------------------------
+// Destroying the whole entity at runtime must also release the vehicle. Unlike
+// RemoveComponent<>, Scene::DestroyEntity goes through entt's registry.destroy,
+// which does NOT fire OnComponentRemoved — so DestroyEntity tears the vehicle
+// down explicitly (vehicle-before-body). Without that, the VehicleConstraint
+// step listener would dereference the freed chassis body on the next tick (and
+// UpdateVehicleControllers would look up the now-gone entity).
+// -----------------------------------------------------------------------------
+TEST_F(VehicleTest, DestroyingVehicleEntityReleasesTheConstraint)
+{
+    MakeGround();
+    Entity car = MakeCar({ 0.0f, 1.3f, 0.0f });
+
+    EnablePhysics3D();
+    TickFor(1.0f);
+    ASSERT_NE(GetScene().GetPhysicsScene(), nullptr);
+    ASSERT_EQ(GetScene().GetPhysicsScene()->GetVehicleCount(), 1u);
+
+    GetScene().DestroyEntity(car);
+    EXPECT_EQ(GetScene().GetPhysicsScene()->GetVehicleCount(), 0u)
+        << "vehicle constraint was not released when the entity was destroyed";
+
+    // A few more ticks would assert / use-after-free if a stale step listener
+    // outlived its freed chassis body; reaching the end of the test is the pass.
+    TickFor(1.0f);
+}
+
+// -----------------------------------------------------------------------------
+// Removing the chassis Rigidbody3DComponent (while keeping the VehicleComponent)
+// must release the vehicle too: the constraint step-listens on that body, so a
+// surviving vehicle would drive a freed body each tick. OnComponentRemoved
+// <Rigidbody3DComponent> tears the vehicle down before destroying the body.
+// -----------------------------------------------------------------------------
+TEST_F(VehicleTest, RemovingChassisRigidbodyReleasesTheVehicle)
+{
+    MakeGround();
+    Entity car = MakeCar({ 0.0f, 1.3f, 0.0f });
+
+    EnablePhysics3D();
+    TickFor(1.0f);
+    ASSERT_NE(GetScene().GetPhysicsScene(), nullptr);
+    ASSERT_EQ(GetScene().GetPhysicsScene()->GetVehicleCount(), 1u);
+
+    car.RemoveComponent<Rigidbody3DComponent>();
+    EXPECT_EQ(GetScene().GetPhysicsScene()->GetVehicleCount(), 0u)
+        << "vehicle constraint was not released when its chassis rigidbody was removed";
+    EXPECT_EQ(car.GetComponent<VehicleComponent>().m_RuntimeVehicleToken, 0u)
+        << "runtime token not cleared after the chassis body was removed";
+
+    // No live step listener should touch the freed body on subsequent ticks.
+    TickFor(1.0f);
+}
+
 // =============================================================================
 // Save-game round-trip — every authored VehicleComponent field must survive
 // capture + restore (mirrors the PhysicsJoint3DComponent round-trip test). No
