@@ -227,34 +227,46 @@ TEST_F(WaterBuoyancyTest, RestsAtTheFFTSurfaceHeight)
     const auto& wc = water.GetComponent<WaterComponent>();
     ASSERT_TRUE(wc.m_OceanField && wc.m_OceanField->GetField().IsValid());
 
-    // Pick a column where the FFT surface is clearly off the plane (deterministic
-    // seed ⇒ reproducible), and predict the rest height from the same sampler the
-    // system uses.
+    // Rest-height tolerance: a band wide enough to absorb box-scale surface
+    // curvature, yet — critically — strictly narrower than the displacement we
+    // pick below. If the tolerance exceeded the displacement, a body that settled
+    // on the flat plane (y=0) would still satisfy the EXPECT_NEAR band and the
+    // FFT-vs-plane discriminator would be vacuous.
+    constexpr f32 kRestTolerance = 0.6f;
+
+    // Scan the whole patch (deterministic seed ⇒ reproducible) for the *most*
+    // displaced column. The extreme |h| keeps the discriminator sound (it must
+    // clear 2× the tolerance, see the assert) and is also where the box tracks
+    // the surface best: a crest/trough is a local gradient zero, so the surface
+    // is ~flat over the 1 m box footprint.
     glm::vec2 sampleXZ(0.0f);
     f32 expectedSurfaceY = 0.0f;
-    for (f32 ox = 1.0f; ox < 70.0f; ox += 2.0f)
-    {
-        const glm::vec2 cand(ox, ox * 0.5f);
-        const f32 h = WaterSurface::SampleHeightFFT(*wc.m_OceanField, cand, 0.0f, wc.m_FFTHeightScale);
-        if (std::abs(h) > 0.3f)
+    for (f32 ox = 0.0f; ox < 80.0f; ox += 2.0f)
+        for (f32 oz = 0.0f; oz < 80.0f; oz += 2.0f)
         {
-            sampleXZ = cand;
-            expectedSurfaceY = h;
-            break;
+            const glm::vec2 cand(ox, oz);
+            const f32 h = WaterSurface::SampleHeightFFT(*wc.m_OceanField, cand, 0.0f, wc.m_FFTHeightScale);
+            if (std::abs(h) > std::abs(expectedSurfaceY))
+            {
+                sampleXZ = cand;
+                expectedSurfaceY = h;
+            }
         }
-    }
-    ASSERT_GT(std::abs(expectedSurfaceY), 0.3f)
-        << "no displaced FFT column found — cannot distinguish FFT surface from a flat plane";
+    // Displacement must clear the tolerance with margin, so the EXPECT_NEAR band
+    // around expectedSurfaceY cannot include y=0 — otherwise a flat-plane rest
+    // (FFT branch never fired) would masquerade as success.
+    ASSERT_GT(std::abs(expectedSurfaceY), 2.0f * kRestTolerance)
+        << "FFT surface not displaced enough to distinguish from a flat plane; max |h|=" << std::abs(expectedSurfaceY);
 
     Entity box = SpawnBuoyantBox({ sampleXZ.x, expectedSurfaceY + 5.0f, sampleXZ.y }, kFloatingMass);
     EnablePhysics3D();
 
     TickFor(15.0f);
 
-    // Settles on the FFT surface (a generous band absorbs box-scale surface
-    // curvature), and crucially NOT at the flat plane (y=0) — that would mean the
-    // FFT branch never fired.
-    EXPECT_NEAR(Y(box), expectedSurfaceY, 0.6f)
+    // Settles on the FFT surface. Because |expectedSurfaceY| > 2·kRestTolerance,
+    // this band excludes y=0 — so passing here proves the body tracked the FFT
+    // surface, not the flat plane (the FFT branch genuinely fired).
+    EXPECT_NEAR(Y(box), expectedSurfaceY, kRestTolerance)
         << "floating body did not rest at the sampled FFT height; y=" << Y(box) << " expected≈" << expectedSurfaceY;
     EXPECT_TRUE(std::isfinite(Y(box)));
 
