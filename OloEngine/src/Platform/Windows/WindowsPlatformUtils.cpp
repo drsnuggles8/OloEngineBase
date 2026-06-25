@@ -3,6 +3,8 @@
 #include "OloEngine/Core/Application.h"
 
 #include <commdlg.h>
+#include <shellapi.h>
+#include <filesystem>
 #include <GLFW/glfw3.h>
 #define GLFW_EXPOSE_NATIVE_WIN32
 #include <GLFW/glfw3native.h>
@@ -84,6 +86,33 @@ namespace OloEngine
         }
         return {};
     }
+
+    void FileDialogs::ShowInFileManager(const std::filesystem::path& path)
+    {
+        // canonical() resolves the path relative to the process cwd and fails (sets
+        // ec) when it does not exist — so it doubles as the existence check.
+        std::error_code ec;
+        const std::filesystem::path canonical = std::filesystem::canonical(path, ec);
+        if (ec)
+        {
+            OLO_CORE_WARN("ShowInFileManager: cannot resolve path '{}': {}", path.string(), ec.message());
+            return;
+        }
+
+        if (std::filesystem::is_directory(canonical, ec) && !ec)
+        {
+            // Open the directory itself in a new Explorer window.
+            ::ShellExecuteW(nullptr, L"explore", canonical.wstring().c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+        }
+        else
+        {
+            // Select the file inside its parent folder. The path is quoted because
+            // /select treats everything after the comma as the (possibly spaced) path.
+            const std::wstring args = L"/select,\"" + canonical.wstring() + L"\"";
+            ::ShellExecuteW(nullptr, L"open", L"explorer.exe", args.c_str(), nullptr, SW_SHOWNORMAL);
+        }
+    }
+
     MessagePromptResult MessagePrompt::YesNoCancel(const char* const title, const char* const message)
     {
         OLO_PROFILE_FUNCTION();

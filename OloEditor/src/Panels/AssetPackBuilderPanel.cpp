@@ -4,6 +4,7 @@
 #include "OloEngine/Core/Log.h"
 #include "OloEngine/Core/FileSystem.h"
 #include "OloEngine/Project/Project.h"
+#include "OloEngine/Utils/PlatformUtils.h"
 
 #include <imgui.h>
 #include <cstring>
@@ -146,14 +147,44 @@ namespace OloEngine
             ImGui::SameLine();
             if (ImGui::Button("Browse"))
             {
-                // For now, just use default extension
-                std::string defaultPath = m_OutputPathBuffer.data();
-                if (defaultPath.empty())
+                // Default the dialog to the active project's asset directory, falling
+                // back to the directory of whatever path is already in the buffer.
+                std::string initialDir;
+                if (Project::GetActive())
                 {
-                    defaultPath = "Assets/AssetPack.olopack";
+                    initialDir = Project::GetAssetDirectory().string();
                 }
-                // Could implement file dialog here in the future
-                OLO_CORE_INFO("File dialog not implemented yet, using: {}", defaultPath);
+                else if (std::filesystem::path current(m_OutputPathBuffer.data()); current.has_parent_path())
+                {
+                    initialDir = current.parent_path().string();
+                }
+
+                // Win32 commdlg double-NUL-terminated filter; the Linux backend parses
+                // the same format (see LinuxPlatformUtils::ParseWin32Filter).
+                std::string selected = FileDialogs::SaveFile(
+                    "Asset Pack (*.olopack)\0*.olopack\0",
+                    initialDir.empty() ? nullptr : initialDir.c_str());
+
+                // Empty result == user cancelled — leave the current path untouched.
+                if (!selected.empty())
+                {
+                    // Mirror the manual-entry normalisation: append .olopack if missing.
+                    if (std::filesystem::path fsPath(selected); fsPath.extension() != ".olopack")
+                    {
+                        selected += ".olopack";
+                    }
+
+                    // Write the chosen path into the buffer and run it through the same
+                    // validation the text field uses, so the error UX is identical.
+                    sizet len = std::min(selected.length(), m_OutputPathBuffer.size() - 1);
+                    std::memcpy(m_OutputPathBuffer.data(), selected.c_str(), len);
+                    m_OutputPathBuffer[len] = '\0';
+
+                    if (ValidateOutputPath(selected, m_OutputPathError))
+                    {
+                        m_BuildSettings.m_OutputPath = std::filesystem::path(selected);
+                    }
+                }
             }
 
             // Basic settings
@@ -268,7 +299,8 @@ namespace OloEngine
 
                 // Show file size if file exists
                 std::error_code ec;
-                if (std::filesystem::exists(m_LastBuildResult.m_OutputPath, ec) && !ec)
+                bool outputExists = std::filesystem::exists(m_LastBuildResult.m_OutputPath, ec) && !ec;
+                if (outputExists)
                 {
                     auto fileSize = std::filesystem::file_size(m_LastBuildResult.m_OutputPath, ec);
                     if (!ec)
@@ -278,8 +310,22 @@ namespace OloEngine
                     }
                 }
 
-                // Note: Explorer functionality not yet implemented in OloEngine
-                // TODO: Add platform-specific directory opening functionality
+                // Reveal the built pack in the OS file manager. Only meaningful once
+                // the file actually exists on disk, so disable it otherwise.
+                if (!outputExists)
+                {
+                    ImGui::BeginDisabled();
+                }
+                if (ImGui::Button("Open Output Folder"))
+                {
+                    FileDialogs::ShowInFileManager(m_LastBuildResult.m_OutputPath);
+                }
+                if (!outputExists)
+                {
+                    ImGui::EndDisabled();
+                }
+
+                ImGui::SameLine();
                 if (ImGui::Button("Copy Output Path"))
                 {
                     ImGui::SetClipboardText(m_LastBuildResult.m_OutputPath.string().c_str());

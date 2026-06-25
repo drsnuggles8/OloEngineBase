@@ -1,5 +1,6 @@
 #pragma once
 
+#include <filesystem>
 #include <string>
 #include <optional>
 
@@ -12,6 +13,14 @@ namespace OloEngine
         // initialDir overrides the OS-remembered last-used directory when provided
         static std::string OpenFile(const char* filter, const char* initialDir = nullptr);
         static std::string SaveFile(const char* filter, const char* initialDir = nullptr);
+
+        // Reveal a path in the OS file manager (Explorer on Windows, the default
+        // file manager via xdg-open on Linux). When `path` is a regular file it is
+        // selected inside its parent folder on platforms that support selection
+        // (Windows); otherwise the containing / target directory is opened. No-op
+        // with a warning when the path does not exist or no file manager is
+        // available. Non-blocking — returns as soon as the launch is dispatched.
+        static void ShowInFileManager(const std::filesystem::path& path);
     };
 
     enum class MessagePromptResult
