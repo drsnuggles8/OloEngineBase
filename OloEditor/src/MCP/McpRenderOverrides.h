@@ -16,6 +16,19 @@
 // server stays read-only with respect to the project — the same boundary the
 // Tier-0 camera/viewport tools respect.
 //
+//   * olo_scene_set_time_of_day — set an ephemeral time-of-day (0-24h) that
+//                                  drives the procedural sky's sun direction.
+//   * olo_scene_set_sun_angle    — set the sun direction directly from a
+//                                  yaw (azimuth) / pitch (elevation) pair.
+//     Both back the lighting inner loop: move the sun -> olo_screenshot ->
+//     move it again. They mutate ONLY a session-global Renderer3D sun-direction
+//     override (read by Scene::LoadAndRenderSkybox when baking the procedural
+//     sky), never the ProceduralSkyComponent's serialized m_SunDirection — so
+//     the change is visible next frame, never saved, and resets on scene reload
+//     / play-stop / server-stop / explicit clear. The sun-direction math lives
+//     here as pure float functions (NO glm) so it unit-tests without a renderer;
+//     the handler converts the result to glm::vec3.
+//
 // The handler in McpTools.cpp does the renderer-bound work on the main thread
 // (resolve the token to the bool field on PostProcessSettings / FogSettings, flip
 // it, read back the new value) and hands the gathered facts here to be turned into
@@ -30,6 +43,8 @@
 #include <algorithm>
 #include <array>
 #include <cctype>
+#include <cmath>
+#include <numbers>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -325,6 +340,108 @@ namespace OloEngine::MCP::RenderOverrides
         j["ssrDebugView"] = r.SSRDebugView;
         j["ssgiDebugView"] = r.SSGIDebugView;
         j["passEnabled"] = r.PassEnabled;
+        if (!r.Note.empty())
+            j["note"] = r.Note;
+        return j;
+    }
+
+    // ---- Sun / time-of-day override ----------------------------------------
+    // Pure sun-direction math for olo_scene_set_time_of_day / olo_scene_set_sun_angle.
+    // A "toward-sun" unit direction in world space (Y up), kept as plain doubles so
+    // this header stays free of glm; the handler converts to glm::vec3 before
+    // handing it to Renderer3D::SetSunDirectionOverride.
+
+    struct SunVec3
+    {
+        double X = 0.0;
+        double Y = 1.0;
+        double Z = 0.0;
+    };
+
+    // Normalise to a unit vector; a (near-)zero vector collapses to straight up so
+    // a degenerate input never yields a NaN direction.
+    [[nodiscard]] inline SunVec3 NormalizeSun(SunVec3 d)
+    {
+        const double len = std::sqrt(d.X * d.X + d.Y * d.Y + d.Z * d.Z);
+        if (len < 1e-9)
+            return SunVec3{ 0.0, 1.0, 0.0 };
+        return SunVec3{ d.X / len, d.Y / len, d.Z / len };
+    }
+
+    // Build a toward-sun unit direction from an azimuth (yaw) and elevation (pitch),
+    // both in degrees. Azimuth is measured from +Z toward +X: 0deg -> +Z, 90deg ->
+    // +X. Elevation is the angle above the horizon: 0deg on the horizon, 90deg
+    // straight up, negative below. This is the shared spherical->cartesian core both
+    // tools resolve to.
+    [[nodiscard]] inline SunVec3 SunDirectionFromAngles(double azimuthDegrees, double elevationDegrees)
+    {
+        constexpr double kDeg2Rad = std::numbers::pi / 180.0;
+        const double az = azimuthDegrees * kDeg2Rad;
+        const double el = elevationDegrees * kDeg2Rad;
+        const double cosE = std::cos(el);
+        return NormalizeSun(SunVec3{ cosE * std::sin(az), std::sin(el), cosE * std::cos(az) });
+    }
+
+    // Map a 24-hour clock time to a toward-sun direction. The sun rises on the east
+    // horizon (+X) at 06:00, climbs to overhead (+Y) at noon, and sets on the west
+    // horizon (-X) at 18:00; before 06:00 / after 18:00 the elevation is negative
+    // (the sun is below the horizon -> night). Elevation follows a smooth
+    // 90*sin(pi*(h-6)/12) arc and the azimuth sweeps east->south->west at 15deg/hr,
+    // so the mapping is monotonic and continuous across the day.
+    [[nodiscard]] inline SunVec3 SunDirectionFromTimeOfDay(double hours)
+    {
+        const double elevationDegrees = 90.0 * std::sin(std::numbers::pi * (hours - 6.0) / 12.0);
+        const double azimuthDegrees = 90.0 + (hours - 6.0) * 15.0;
+        return SunDirectionFromAngles(azimuthDegrees, elevationDegrees);
+    }
+
+    // Elevation (degrees above the horizon) of a toward-sun direction; expects a
+    // roughly-unit vector. Clamped so a slightly-denormalised input can't trip asin.
+    [[nodiscard]] inline double SunElevationDegrees(SunVec3 d)
+    {
+        constexpr double kRad2Deg = 180.0 / std::numbers::pi;
+        return std::asin(std::clamp(d.Y, -1.0, 1.0)) * kRad2Deg;
+    }
+
+    // Azimuth (degrees, measured from +Z toward +X, normalised to [0, 360)) of a
+    // toward-sun direction — the inverse of SunDirectionFromAngles' azimuth.
+    [[nodiscard]] inline double SunAzimuthDegrees(SunVec3 d)
+    {
+        constexpr double kRad2Deg = 180.0 / std::numbers::pi;
+        double az = std::atan2(d.X, d.Z) * kRad2Deg;
+        if (az < 0.0)
+            az += 360.0;
+        return az;
+    }
+
+    // Facts gathered by the handler after a set / clear / introspect call on the
+    // ephemeral sun-direction override.
+    struct SunOverrideResult
+    {
+        bool Active = false;   // an override is in effect after this call
+        bool Cleared = false;  // this call cleared a previously-active override
+        SunVec3 Direction{};   // toward-sun unit direction (meaningful when Active)
+        bool HasHours = false; // Hours is meaningful (the override came from set_time_of_day)
+        double Hours = 0.0;    // 0-24 clock time
+        std::string Source;    // "timeOfDay" | "sunAngle" | "cleared" | "current"
+        std::string Note;      // optional hint (no procedural sky / below-horizon); empty if none
+    };
+
+    [[nodiscard]] inline Json ToJson(const SunOverrideResult& r)
+    {
+        Json j;
+        j["active"] = r.Active;
+        j["source"] = r.Source;
+        if (r.Cleared)
+            j["cleared"] = true;
+        if (r.Active)
+        {
+            j["sunDirection"] = Json::array({ r.Direction.X, r.Direction.Y, r.Direction.Z });
+            j["elevationDegrees"] = SunElevationDegrees(r.Direction);
+            j["azimuthDegrees"] = SunAzimuthDegrees(r.Direction);
+            if (r.HasHours)
+                j["hours"] = r.Hours;
+        }
         if (!r.Note.empty())
             j["note"] = r.Note;
         return j;

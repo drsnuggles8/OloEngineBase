@@ -594,6 +594,24 @@ namespace OloEngine
             return s_Data.GlobalIBLIntensity;
         }
 
+        // Ephemeral sun-direction override (#316 Part 4). Set by the MCP
+        // olo_scene_set_time_of_day / olo_scene_set_sun_angle tools to drive the
+        // procedural sky's sun from the editor for lighting iteration; consumed by
+        // Scene::LoadAndRenderSkybox, which bakes with this toward-sun direction
+        // instead of the ProceduralSkyComponent's serialized m_SunDirection while it
+        // is Active — without mutating the component, so it is never saved. `dir`
+        // need not be normalised (the bake handles that, like the authored value).
+        static void SetSunDirectionOverride(const glm::vec3& towardSunDirection);
+        static void ClearSunDirectionOverride();
+        [[nodiscard]] static bool HasSunDirectionOverride()
+        {
+            return s_Data.SunDirectionOverrideActive;
+        }
+        [[nodiscard]] static const glm::vec3& GetSunDirectionOverride()
+        {
+            return s_Data.SunDirectionOverride;
+        }
+
         // Culling methods
         static void EnableFrustumCulling(bool enable);
         static bool IsFrustumCullingEnabled();
@@ -1355,6 +1373,17 @@ namespace OloEngine
             Ref<Shader> DecalGBufferEmissiveShader;
             Ref<Mesh> DecalCubeMesh;
             Ref<Texture2D> WhiteTexture; // 1x1 fallback for untextured decals
+
+            // Ephemeral MCP sun-direction override (#316 Part 4 —
+            // olo_scene_set_time_of_day / olo_scene_set_sun_angle). When Active,
+            // Scene::LoadAndRenderSkybox bakes the ProceduralSkyComponent with this
+            // toward-sun direction INSTEAD of the component's serialized
+            // m_SunDirection — without writing the component — so an agent can
+            // iterate lighting from the editor. Session-global like PostProcess /
+            // Fog below, so the change is never saved and a scene reload, play-stop,
+            // server-stop, or explicit clear restores the authored sun.
+            bool SunDirectionOverrideActive = false;
+            glm::vec3 SunDirectionOverride = glm::vec3(0.0f, 1.0f, 0.0f);
 
             // Post-processing
             PostProcessSettings PostProcess;

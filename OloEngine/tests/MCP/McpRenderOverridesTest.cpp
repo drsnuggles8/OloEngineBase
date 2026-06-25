@@ -13,6 +13,7 @@
 // the response shapes the agent reads.
 #include "MCP/McpRenderOverrides.h"
 
+#include <cmath>
 #include <string>
 
 namespace
@@ -229,4 +230,134 @@ TEST(McpRenderOverrides, JoinTokensProducesCommaSeparatedList)
     EXPECT_EQ("a, b, c", RO::JoinTokens({ "a", "b", "c" }));
     // The real error message joins every pass token; sanity-check it mentions one.
     EXPECT_NE(std::string::npos, RO::JoinTokens(RO::PassTokens()).find("bloom"));
+}
+
+// ---- Sun / time-of-day override ------------------------------------------
+// Pure sun-direction math behind olo_scene_set_time_of_day / olo_scene_set_sun_angle.
+// The live bake/override is verified over the MCP attach loop; this pins the
+// time -> direction / angle -> direction mapping and the result JSON shape.
+
+TEST(McpRenderOverridesSun, TimeOfDayNoonIsOverhead)
+{
+    const RO::SunVec3 d = RO::SunDirectionFromTimeOfDay(12.0);
+    EXPECT_NEAR(0.0, d.X, 1e-9);
+    EXPECT_NEAR(1.0, d.Y, 1e-9);
+    EXPECT_NEAR(0.0, d.Z, 1e-9);
+    EXPECT_NEAR(90.0, RO::SunElevationDegrees(d), 1e-6);
+}
+
+TEST(McpRenderOverridesSun, TimeOfDaySunriseAndSunsetSitOnHorizon)
+{
+    const RO::SunVec3 sunrise = RO::SunDirectionFromTimeOfDay(6.0);
+    EXPECT_NEAR(0.0, RO::SunElevationDegrees(sunrise), 1e-6); // on the horizon
+    EXPECT_GT(sunrise.X, 0.5);                                // rises in the east (+X)
+
+    const RO::SunVec3 sunset = RO::SunDirectionFromTimeOfDay(18.0);
+    EXPECT_NEAR(0.0, RO::SunElevationDegrees(sunset), 1e-6);
+    EXPECT_LT(sunset.X, -0.5); // sets in the west (-X)
+}
+
+TEST(McpRenderOverridesSun, TimeOfDayNightIsBelowHorizonAndDayIsAbove)
+{
+    EXPECT_LT(RO::SunElevationDegrees(RO::SunDirectionFromTimeOfDay(0.0)), 0.0);  // midnight
+    EXPECT_LT(RO::SunElevationDegrees(RO::SunDirectionFromTimeOfDay(24.0)), 0.0); // wraps to midnight
+    EXPECT_LT(RO::SunElevationDegrees(RO::SunDirectionFromTimeOfDay(3.0)), 0.0);  // pre-dawn
+    EXPECT_GT(RO::SunElevationDegrees(RO::SunDirectionFromTimeOfDay(9.0)), 0.0);  // mid-morning
+    EXPECT_GT(RO::SunElevationDegrees(RO::SunDirectionFromTimeOfDay(15.0)), 0.0); // mid-afternoon
+}
+
+TEST(McpRenderOverridesSun, EveryDirectionIsUnitLength)
+{
+    for (double h = 0.0; h <= 24.0; h += 1.5)
+    {
+        const RO::SunVec3 d = RO::SunDirectionFromTimeOfDay(h);
+        EXPECT_NEAR(1.0, std::sqrt(d.X * d.X + d.Y * d.Y + d.Z * d.Z), 1e-9) << "hours=" << h;
+    }
+}
+
+TEST(McpRenderOverridesSun, SunAnglesRoundTripThroughDirection)
+{
+    struct Case
+    {
+        double Yaw;
+        double Pitch;
+    };
+    // Avoid pitch == +/-90 where azimuth is degenerate (the pole).
+    const Case cases[] = { { 0.0, 0.0 }, { 90.0, 0.0 }, { 45.0, 30.0 }, { 200.0, -20.0 }, { 270.0, 15.0 } };
+    for (const Case& c : cases)
+    {
+        const RO::SunVec3 d = RO::SunDirectionFromAngles(c.Yaw, c.Pitch);
+        EXPECT_NEAR(c.Pitch, RO::SunElevationDegrees(d), 1e-6) << "yaw=" << c.Yaw;
+        EXPECT_NEAR(c.Yaw, RO::SunAzimuthDegrees(d), 1e-6) << "yaw=" << c.Yaw;
+    }
+}
+
+TEST(McpRenderOverridesSun, SunAnglePitchStraightUpIsOverhead)
+{
+    const RO::SunVec3 d = RO::SunDirectionFromAngles(123.0 /*any yaw*/, 90.0);
+    EXPECT_NEAR(0.0, d.X, 1e-9);
+    EXPECT_NEAR(1.0, d.Y, 1e-9);
+    EXPECT_NEAR(0.0, d.Z, 1e-9);
+}
+
+TEST(McpRenderOverridesSun, NormalizeSunCollapsesZeroToUp)
+{
+    const RO::SunVec3 d = RO::NormalizeSun(RO::SunVec3{ 0.0, 0.0, 0.0 });
+    EXPECT_NEAR(0.0, d.X, 1e-12);
+    EXPECT_NEAR(1.0, d.Y, 1e-12);
+    EXPECT_NEAR(0.0, d.Z, 1e-12);
+}
+
+TEST(McpRenderOverridesSun, OverrideJsonActiveFromTimeOfDay)
+{
+    RO::SunOverrideResult r;
+    r.Active = true;
+    r.Direction = RO::SunDirectionFromTimeOfDay(12.0);
+    r.HasHours = true;
+    r.Hours = 12.0;
+    r.Source = "timeOfDay";
+
+    const Json j = RO::ToJson(r);
+    EXPECT_TRUE(j.at("active").get<bool>());
+    EXPECT_EQ("timeOfDay", j.at("source").get<std::string>());
+    ASSERT_TRUE(j.at("sunDirection").is_array());
+    ASSERT_EQ(3u, j.at("sunDirection").size());
+    EXPECT_NEAR(90.0, j.at("elevationDegrees").get<double>(), 1e-6);
+    EXPECT_TRUE(j.contains("azimuthDegrees"));
+    EXPECT_DOUBLE_EQ(12.0, j.at("hours").get<double>());
+    EXPECT_FALSE(j.contains("cleared")); // only present when a clear happened
+    EXPECT_FALSE(j.contains("note"));
+}
+
+TEST(McpRenderOverridesSun, OverrideJsonClearedOmitsDirection)
+{
+    RO::SunOverrideResult r;
+    r.Active = false;
+    r.Cleared = true;
+    r.Source = "cleared";
+
+    const Json j = RO::ToJson(r);
+    EXPECT_FALSE(j.at("active").get<bool>());
+    EXPECT_TRUE(j.at("cleared").get<bool>());
+    EXPECT_EQ("cleared", j.at("source").get<std::string>());
+    // No direction-derived fields when no override is active.
+    EXPECT_FALSE(j.contains("sunDirection"));
+    EXPECT_FALSE(j.contains("elevationDegrees"));
+    EXPECT_FALSE(j.contains("azimuthDegrees"));
+    EXPECT_FALSE(j.contains("hours"));
+}
+
+TEST(McpRenderOverridesSun, OverrideJsonAngleSourceOmitsHoursAndKeepsNote)
+{
+    RO::SunOverrideResult r;
+    r.Active = true;
+    r.Direction = RO::SunDirectionFromAngles(45.0, 30.0);
+    r.Source = "sunAngle";
+    r.Note = "No ProceduralSkyComponent in the active scene, so this sun override has no visible effect yet.";
+
+    const Json j = RO::ToJson(r);
+    EXPECT_TRUE(j.at("active").get<bool>());
+    EXPECT_FALSE(j.contains("hours")); // HasHours is false for the angle path
+    ASSERT_TRUE(j.contains("note"));
+    EXPECT_NE(std::string::npos, j.at("note").get<std::string>().find("ProceduralSky"));
 }
