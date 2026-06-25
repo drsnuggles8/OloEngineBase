@@ -2130,6 +2130,29 @@ namespace OloEngine::MCP
             return RenderOverrides::ToJson(r);
         }
 
+        // (main thread) Clear the ephemeral sun override and record the outcome —
+        // the clear branch shared verbatim by both sun-override handlers.
+        void ApplySunClear(RenderOverrides::SunOverrideResult& r)
+        {
+            r.Cleared = Renderer3D::HasSunDirectionOverride();
+            Renderer3D::ClearSunDirectionOverride();
+            r.Active = false;
+            r.Source = "cleared";
+        }
+
+        // (main thread) Read the current override state into the result — the
+        // no-argument introspection branch shared by both sun-override handlers.
+        void ApplySunIntrospect(RenderOverrides::SunOverrideResult& r)
+        {
+            r.Active = Renderer3D::HasSunDirectionOverride();
+            if (r.Active)
+            {
+                const glm::vec3& d = Renderer3D::GetSunDirectionOverride();
+                r.Direction = RenderOverrides::SunVec3{ d.x, d.y, d.z };
+            }
+            r.Source = "current";
+        }
+
         ToolResult Handle_SceneSetTimeOfDay(McpServer& server, const Json& args)
         {
             using namespace RenderOverrides;
@@ -2150,10 +2173,7 @@ namespace OloEngine::MCP
                 SunOverrideResult r;
                 if (wantClear)
                 {
-                    r.Cleared = Renderer3D::HasSunDirectionOverride();
-                    Renderer3D::ClearSunDirectionOverride();
-                    r.Active = false;
-                    r.Source = "cleared";
+                    ApplySunClear(r);
                 }
                 else if (hasHours)
                 {
@@ -2168,14 +2188,7 @@ namespace OloEngine::MCP
                 }
                 else
                 {
-                    // Introspection: report the current override state.
-                    r.Active = Renderer3D::HasSunDirectionOverride();
-                    if (r.Active)
-                    {
-                        const glm::vec3& d = Renderer3D::GetSunDirectionOverride();
-                        r.Direction = SunVec3{ d.x, d.y, d.z };
-                    }
-                    r.Source = "current";
+                    ApplySunIntrospect(r);
                 }
                 return FinalizeSunOverride(server, r); });
             return ToolResult::Text(result.dump(2));
@@ -2216,10 +2229,7 @@ namespace OloEngine::MCP
                 SunOverrideResult r;
                 if (wantClear)
                 {
-                    r.Cleared = Renderer3D::HasSunDirectionOverride();
-                    Renderer3D::ClearSunDirectionOverride();
-                    r.Active = false;
-                    r.Source = "cleared";
+                    ApplySunClear(r);
                 }
                 else if (doSet)
                 {
@@ -2232,13 +2242,7 @@ namespace OloEngine::MCP
                 }
                 else
                 {
-                    r.Active = Renderer3D::HasSunDirectionOverride();
-                    if (r.Active)
-                    {
-                        const glm::vec3& d = Renderer3D::GetSunDirectionOverride();
-                        r.Direction = SunVec3{ d.x, d.y, d.z };
-                    }
-                    r.Source = "current";
+                    ApplySunIntrospect(r);
                 }
                 return FinalizeSunOverride(server, r); });
             return ToolResult::Text(result.dump(2));

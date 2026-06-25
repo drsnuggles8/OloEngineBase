@@ -268,8 +268,11 @@ TEST(McpRenderOverridesSun, TimeOfDayNightIsBelowHorizonAndDayIsAbove)
 
 TEST(McpRenderOverridesSun, EveryDirectionIsUnitLength)
 {
-    for (double h = 0.0; h <= 24.0; h += 1.5)
+    // Integer step counter (avoids a floating-point loop counter); samples
+    // h = 0.0, 1.5, ... 24.0 inclusive.
+    for (std::size_t step = 0; step <= 16; ++step)
     {
+        const double h = static_cast<double>(step) * 1.5;
         const RO::SunVec3 d = RO::SunDirectionFromTimeOfDay(h);
         EXPECT_NEAR(1.0, std::sqrt(d.X * d.X + d.Y * d.Y + d.Z * d.Z), 1e-9) << "hours=" << h;
     }
