@@ -957,7 +957,6 @@ namespace OloEngine
         stream.WriteRaw(iblConfig.BRDFLutResolution);
         stream.WriteRaw(iblConfig.IrradianceSamples);
         stream.WriteRaw(iblConfig.PrefilterSamples);
-        stream.WriteRaw(iblConfig.EnableMultithreading);
 
         outInfo.Size = stream.GetStreamPosition() - outInfo.Offset;
         OLO_CORE_TRACE("EnvironmentSerializer::SerializeToAssetPack - Serialized environment: {}", spec.FilePath);
@@ -992,7 +991,6 @@ namespace OloEngine
         stream.ReadRaw(spec.IBLConfig.BRDFLutResolution);
         stream.ReadRaw(spec.IBLConfig.IrradianceSamples);
         stream.ReadRaw(spec.IBLConfig.PrefilterSamples);
-        stream.ReadRaw(spec.IBLConfig.EnableMultithreading);
 
         // Recreate environment map from specification
         auto environment = EnvironmentMap::Create(spec);

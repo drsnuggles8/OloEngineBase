@@ -211,6 +211,24 @@ namespace OloEngine
         return TextureCubemap::Create(facePaths);
     }
 
+    // The cubemap bake is intentionally a serial, one-pass-per-face render.
+    //
+    // Why not multithread it: the engine renders on a single OpenGL 4.6
+    // context, so GL commands for the six faces cannot be submitted from
+    // multiple threads. A former IBLConfiguration::EnableMultithreading flag
+    // promised exactly that and was a permanent no-op (no code ever read it);
+    // it has been removed rather than left to mislead.
+    //
+    // Why not single-pass layered rendering: the genuine single-context win
+    // would be drawing all six faces in one pass via a geometry shader writing
+    // gl_Layer into a whole-cubemap attachment. But the shaderc->SPIR-V shader
+    // pipeline here only supports vertex/fragment/tess stages (there is no
+    // geometry stage anywhere in the project), and the bake is fragment-bound
+    // (Monte-Carlo importance sampling, up to 2048 samples per texel) — layered
+    // rendering would cut only the per-face CPU draw/FBO overhead, not the
+    // dominant per-texel sampling cost. The bake is also a cold path: it runs
+    // once per unique (environment, IBLConfiguration) and is then served from
+    // IBLCache on disk. So the serial per-face loop below is by design.
     void IBLPrecompute::RenderToCubemap(const Ref<TextureCubemap>& cubemap, const Ref<Shader>& shader,
                                         const Ref<Mesh>& cubeMesh, u32 mipLevel)
     {
@@ -424,10 +442,10 @@ namespace OloEngine
         // Bind environment map
         environmentMap->Bind(ShaderBindingLayout::TEX_ENVIRONMENT);
 
-        const f64 elapsedMs = MeasureMillisecondsWithGPUSync([&irradianceMap, &shader, &config]()
+        const f64 elapsedMs = MeasureMillisecondsWithGPUSync([&irradianceMap, &shader]()
                                                              {
-            // Use enhanced rendering with configuration
-            RenderToCubemapAdvanced(irradianceMap, shader, GetCubeMesh(), config); });
+            // Single-context, single-pass-per-face bake (see RenderToCubemap).
+            RenderToCubemap(irradianceMap, shader, GetCubeMesh()); });
 
         OLO_CORE_INFO("Enhanced irradiance map generation complete ({:.2f} ms, Monte-Carlo, {} samples)",
                       elapsedMs, config.IrradianceSamples);
@@ -529,7 +547,7 @@ namespace OloEngine
             }
             paramsUBO->Bind();
 
-            RenderToCubemapAdvanced(prefilterMap, shader, GetCubeMesh(), config, mip);
+            RenderToCubemap(prefilterMap, shader, GetCubeMesh(), mip);
         }
 
         OLO_CORE_INFO("Enhanced prefilter map generation complete");
@@ -598,34 +616,14 @@ namespace OloEngine
             paramsUBO->Bind();
         }
 
-        RenderToTextureAdvanced(brdfLutMap, shader, config);
+        // config.Quality already selected the integrator's sample budget above
+        // (256/512/1024/2048). The BRDF LUT is view-independent and cached on
+        // disk, and the split-sum integral converges well at these counts, so
+        // no extra multi-pass accumulation / higher-precision intermediate is
+        // pursued — the straight render is the production path.
+        RenderToTexture(brdfLutMap, shader);
 
         OLO_CORE_INFO("Enhanced BRDF LUT generation complete");
-    }
-
-    // Enhanced rendering methods
-    void IBLPrecompute::RenderToCubemapAdvanced(const Ref<TextureCubemap>& cubemap, const Ref<Shader>& shader,
-                                                const Ref<Mesh>& cubeMesh, [[maybe_unused]] const IBLConfiguration& config, u32 mipLevel)
-    {
-        // Use standard render method for now - can be enhanced with parallel rendering if needed
-        RenderToCubemap(cubemap, shader, cubeMesh, mipLevel);
-
-        // TODO(IBL): Implement parallel face rendering when config.EnableMultithreading is true.
-        //   Goal: Render all 6 cubemap faces concurrently using separate framebuffers/command lists.
-        //   Acceptance: >=2x speedup for cubemap generation on multi-threaded GL contexts;
-        //   output must be bit-identical to serial path when multithreading is disabled.
-    }
-
-    void IBLPrecompute::RenderToTextureAdvanced(const Ref<Texture2D>& texture, const Ref<Shader>& shader,
-                                                [[maybe_unused]] const IBLConfiguration& config)
-    {
-        // Use standard render method for now - can be enhanced with additional quality parameters
-        RenderToTexture(texture, shader);
-
-        // TODO(IBL): Implement quality-based optimizations for BRDF LUT / texture generation.
-        //   Goal: Use config.Quality to select multi-pass accumulation, higher-precision intermediate
-        //   formats, or progressive refinement for Ultra quality.
-        //   Acceptance: Measurable quality improvement at Ultra vs Medium; no regression at Low/Medium.
     }
 
     namespace
