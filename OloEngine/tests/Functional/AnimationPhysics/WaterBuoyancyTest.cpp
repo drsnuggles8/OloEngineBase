@@ -21,8 +21,11 @@
 
 #include "Functional/FunctionalTest.h"
 
+#include "OloEngine/Core/Ref.h"
 #include "OloEngine/Scene/Entity.h"
 #include "OloEngine/Scene/Components.h"
+#include "OloEngine/Renderer/Ocean/OceanFFTField.h"
+#include "OloEngine/Renderer/Ocean/OceanSpectrum.h"
 #include "OloEngine/Renderer/WaterSurface.h"
 #include "OloEngine/Utils/PlatformUtils.h"
 
@@ -66,6 +69,31 @@ class WaterBuoyancyTest : public FunctionalTest
         wc.m_WorldSizeX = 200.0f;
         wc.m_WorldSizeZ = 200.0f;
         wc.m_WaveAmplitude = amplitude;
+        return water;
+    }
+
+    // FFT-backed water. Gerstner waves are disabled (amplitude 0) so any displaced
+    // rest height can ONLY come from the FFT field — a clean discriminator that
+    // BuoyancySystem really took the FFT path. The CPU proxy is built here (no GPU
+    // upload) exactly as the renderer's water pass would, at the frozen test time.
+    Entity SpawnFFTWater(f32 planeY, f32 fieldTime)
+    {
+        Entity water = GetScene().CreateEntity("FFTWater");
+        water.GetComponent<TransformComponent>().Translation = { 0.0f, planeY, 0.0f };
+        auto& wc = water.AddComponent<WaterComponent>();
+        wc.m_Enabled = true;
+        wc.m_WorldSizeX = 200.0f;
+        wc.m_WorldSizeZ = 200.0f;
+        wc.m_WaveAmplitude = 0.0f; // kill Gerstner: the FFT field is the only wave source
+        wc.m_UseFFT = true;
+        wc.m_FFTHeightScale = 1.0f;
+
+        Ocean::SpectrumParams sp{};
+        sp.m_Resolution = 64u;
+        sp.m_PatchSize = 80.0f;
+        sp.m_Amplitude = 2.0f;
+        wc.m_OceanField = Ref<Ocean::OceanFFTField>::Create();
+        wc.m_OceanField->Update(sp, fieldTime, /*uploadToGpu=*/false);
         return water;
     }
 
@@ -183,6 +211,52 @@ TEST_F(WaterBuoyancyTest, RestsAtTheWaveSurfaceHeight)
     EXPECT_NEAR(Y(box), expectedSurfaceY, 0.35f)
         << "floating body did not rest at the sampled wave height; y=" << Y(box)
         << " expected≈" << expectedSurfaceY;
+
+    Time::ClearMockTime();
+}
+
+TEST_F(WaterBuoyancyTest, RestsAtTheFFTSurfaceHeight)
+{
+    // The §5.1 deliverable: with an FFT-backed water tile, the body must rest on
+    // the FFT surface (the one rendered), sampled via WaterSurface::SampleHeightFFT
+    // — not the Gerstner field and not the flat plane. Gerstner is disabled, so a
+    // displaced rest height proves BuoyancySystem switched to the FFT proxy.
+    Time::SetMockTime(0.0f);
+
+    Entity water = SpawnFFTWater(/*planeY=*/0.0f, /*fieldTime=*/0.0f);
+    const auto& wc = water.GetComponent<WaterComponent>();
+    ASSERT_TRUE(wc.m_OceanField && wc.m_OceanField->GetField().IsValid());
+
+    // Pick a column where the FFT surface is clearly off the plane (deterministic
+    // seed ⇒ reproducible), and predict the rest height from the same sampler the
+    // system uses.
+    glm::vec2 sampleXZ(0.0f);
+    f32 expectedSurfaceY = 0.0f;
+    for (f32 ox = 1.0f; ox < 70.0f; ox += 2.0f)
+    {
+        const glm::vec2 cand(ox, ox * 0.5f);
+        const f32 h = WaterSurface::SampleHeightFFT(*wc.m_OceanField, cand, 0.0f, wc.m_FFTHeightScale);
+        if (std::abs(h) > 0.3f)
+        {
+            sampleXZ = cand;
+            expectedSurfaceY = h;
+            break;
+        }
+    }
+    ASSERT_GT(std::abs(expectedSurfaceY), 0.3f)
+        << "no displaced FFT column found — cannot distinguish FFT surface from a flat plane";
+
+    Entity box = SpawnBuoyantBox({ sampleXZ.x, expectedSurfaceY + 5.0f, sampleXZ.y }, kFloatingMass);
+    EnablePhysics3D();
+
+    TickFor(15.0f);
+
+    // Settles on the FFT surface (a generous band absorbs box-scale surface
+    // curvature), and crucially NOT at the flat plane (y=0) — that would mean the
+    // FFT branch never fired.
+    EXPECT_NEAR(Y(box), expectedSurfaceY, 0.6f)
+        << "floating body did not rest at the sampled FFT height; y=" << Y(box) << " expected≈" << expectedSurfaceY;
+    EXPECT_TRUE(std::isfinite(Y(box)));
 
     Time::ClearMockTime();
 }

@@ -4,6 +4,11 @@
 
 #include <glm/glm.hpp>
 
+namespace OloEngine::Ocean
+{
+    class OceanFFTField; // FFT ocean cascade (Renderer/Ocean/OceanFFTField.h) — sampled by SampleHeightFFT.
+}
+
 namespace OloEngine::WaterSurface
 {
     // =========================================================================
@@ -43,4 +48,30 @@ namespace OloEngine::WaterSurface
     /// iterations before reading the vertical displacement. Returns the flat
     /// plane height on any non-finite intermediate (fail-safe for physics).
     [[nodiscard]] f32 SampleHeight(const Params& params, glm::vec2 queryXZ, f32 rawTime);
+
+    // =========================================================================
+    // FFT ocean sampling (WATER_FUTURE_IMPROVEMENTS.md §5.1).
+    //
+    // When a WaterComponent renders the Tessendorf FFT ocean instead of summing
+    // Gerstner waves, physics must follow *that* surface. This reads the
+    // OceanFFTField's retained band-limited CPU proxy so a floating body tracks
+    // the rendered FFT crest with no GPU readback — the FFT counterpart to the
+    // Gerstner SampleHeight above. The CPU/GPU mirror (the field's spectrum + FFT
+    // math) is pinned by OceanFFTSpectrumTest; the buoyancy mapping by
+    // WaterSurfaceSamplerTest's FFT cases.
+    // =========================================================================
+
+    /// World-space water height of the FFT ocean surface column directly above
+    /// world `queryXZ`, mirroring Water.glsl's FFT vertex path
+    /// (`displacedPos.y = worldPos.y + disp.y * u_FFTParams.z`):
+    /// `planeHeight + field.SampleHeight(queryXZ) * heightScale`. The field's
+    /// SampleHeight already inverts the choppy horizontal displacement (so the
+    /// height belongs to the column above the query) and returns 0 before its
+    /// first evaluation, so an un-built field reads as the flat plane.
+    /// `heightScale` is the artist multiplier (WaterComponent::m_FFTHeightScale,
+    /// `u_FFTParams.z`). Returns `planeHeight` on any non-finite intermediate
+    /// (fail-safe for physics). The field is sampled at world XZ — the same
+    /// world-anchored mapping the shader uses (`worldPos.xz * 1/patchSize`).
+    [[nodiscard]] f32 SampleHeightFFT(const Ocean::OceanFFTField& field, glm::vec2 queryXZ,
+                                      f32 planeHeight, f32 heightScale);
 } // namespace OloEngine::WaterSurface

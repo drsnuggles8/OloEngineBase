@@ -1,6 +1,8 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Renderer/WaterSurface.h"
 
+#include "OloEngine/Renderer/Ocean/OceanFFTField.h"
+
 #include <glm/glm.hpp>
 
 #include <array>
@@ -171,5 +173,32 @@ namespace OloEngine::WaterSurface
 
         const f32 height = params.m_PlaneHeight + SampleDisplacement(params, base, rawTime).y;
         return std::isfinite(height) ? height : params.m_PlaneHeight;
+    }
+
+    f32 SampleHeightFFT(const Ocean::OceanFFTField& field, glm::vec2 queryXZ, f32 planeHeight, f32 heightScale)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        // Fail-safe: physics must never see a NaN/Inf surface height. If the
+        // plane height itself is bad we can't recover a sensible value, so fall
+        // back to a flat sea-level 0.
+        if (!std::isfinite(planeHeight))
+            return 0.0f;
+        if (!std::isfinite(heightScale))
+            return planeHeight;
+
+        // OceanFFTField::SampleHeight reads the retained band-limited CPU proxy
+        // and already inverts the choppy horizontal displacement (so the height
+        // belongs to the column above queryXZ). It returns 0 before the first
+        // Update() / when the field is invalid, so an un-built field reads as the
+        // flat plane.
+        const f32 fieldHeight = field.SampleHeight(queryXZ);
+        if (!std::isfinite(fieldHeight))
+            return planeHeight;
+
+        // Water.glsl FFT path: displacedPos.y = worldPos.y + disp.y * u_FFTParams.z
+        // (worldPos.y == the undisplaced plane height; u_FFTParams.z == heightScale).
+        const f32 height = planeHeight + fieldHeight * heightScale;
+        return std::isfinite(height) ? height : planeHeight;
     }
 } // namespace OloEngine::WaterSurface
