@@ -5,6 +5,10 @@
 #include "OloEngine/Scene/Components.h"
 #include "OloEngine/Serialization/Archive.h"
 
+#include <array>
+#include <cmath>
+#include <limits>
+
 TEST(ComponentReplicatorTest, TransformRoundtrip)
 {
     using namespace OloEngine;
@@ -160,4 +164,151 @@ TEST_F(ComponentRegistryTest, RegisteredTransformSerializerWorks)
     EXPECT_FLOAT_EQ(loaded.Scale.x, 2.0f);
     EXPECT_FLOAT_EQ(loaded.Scale.y, 3.0f);
     EXPECT_FLOAT_EQ(loaded.Scale.z, 4.0f);
+}
+
+// ── Untrusted wire-float hardening ───────────────────────────────────
+// Snapshot bytes come from the network and are untrusted. A NaN/±inf float must
+// be replaced with a safe fallback on deserialize, never reach the scene.
+
+// Serialize a raw transform payload (9 floats, in wire order: translation, euler,
+// scale) so we can inject arbitrary bit patterns the way a malicious peer would.
+// (u8 / f32 are global typedefs from Core/Base.h, not members of namespace OloEngine.)
+static std::vector<u8> MakeRawTransformBytes(std::array<f32, 9> values)
+{
+    using namespace OloEngine;
+
+    std::vector<u8> buffer;
+    FMemoryWriter writer(buffer);
+    writer.ArIsNetArchive = true;
+    for (f32& v : values)
+    {
+        writer << v;
+    }
+    return buffer;
+}
+
+TEST(ComponentReplicatorTest, TransformRejectsNonFiniteWireFloats)
+{
+    using namespace OloEngine;
+
+    const f32 nan = std::numeric_limits<f32>::quiet_NaN();
+    const f32 inf = std::numeric_limits<f32>::infinity();
+
+    // Every field poisoned: translation, rotation euler, and scale.
+    auto buffer = MakeRawTransformBytes({ nan, inf, -inf, nan, inf, -inf, nan, inf, -inf });
+
+    TransformComponent loaded;
+    FMemoryReader reader(buffer);
+    reader.ArIsNetArchive = true;
+    ComponentReplicator::Serialize(reader, loaded);
+
+    EXPECT_FALSE(reader.IsError());
+
+    // Nothing non-finite survives into the component.
+    EXPECT_TRUE(std::isfinite(loaded.Translation.x));
+    EXPECT_TRUE(std::isfinite(loaded.Translation.y));
+    EXPECT_TRUE(std::isfinite(loaded.Translation.z));
+    EXPECT_TRUE(std::isfinite(loaded.Scale.x));
+    EXPECT_TRUE(std::isfinite(loaded.Scale.y));
+    EXPECT_TRUE(std::isfinite(loaded.Scale.z));
+    EXPECT_TRUE(std::isfinite(loaded.GetRotationEuler().x));
+    EXPECT_TRUE(std::isfinite(loaded.GetRotationEuler().y));
+    EXPECT_TRUE(std::isfinite(loaded.GetRotationEuler().z));
+
+    // Fallbacks: translation/rotation → 0, scale → 1.
+    EXPECT_FLOAT_EQ(loaded.Translation.x, 0.0f);
+    EXPECT_FLOAT_EQ(loaded.Translation.y, 0.0f);
+    EXPECT_FLOAT_EQ(loaded.Translation.z, 0.0f);
+    EXPECT_FLOAT_EQ(loaded.Scale.x, 1.0f);
+    EXPECT_FLOAT_EQ(loaded.Scale.y, 1.0f);
+    EXPECT_FLOAT_EQ(loaded.Scale.z, 1.0f);
+}
+
+TEST(ComponentReplicatorTest, TransformKeepsFiniteFieldsWhenSanitizing)
+{
+    using namespace OloEngine;
+
+    const f32 nan = std::numeric_limits<f32>::quiet_NaN();
+
+    // Only Translation.y is poisoned; the rest must round-trip untouched.
+    auto buffer = MakeRawTransformBytes({ 1.0f, nan, 3.0f, 0.0f, 0.0f, 0.0f, 2.0f, 4.0f, 8.0f });
+
+    TransformComponent loaded;
+    FMemoryReader reader(buffer);
+    reader.ArIsNetArchive = true;
+    ComponentReplicator::Serialize(reader, loaded);
+
+    EXPECT_FLOAT_EQ(loaded.Translation.x, 1.0f);
+    EXPECT_FLOAT_EQ(loaded.Translation.y, 0.0f); // sanitized
+    EXPECT_FLOAT_EQ(loaded.Translation.z, 3.0f);
+    EXPECT_FLOAT_EQ(loaded.Scale.x, 2.0f);
+    EXPECT_FLOAT_EQ(loaded.Scale.y, 4.0f);
+    EXPECT_FLOAT_EQ(loaded.Scale.z, 8.0f);
+}
+
+TEST(ComponentReplicatorTest, Rigidbody3DRejectsNonFiniteWireFloats)
+{
+    using namespace OloEngine;
+
+    const f32 nan = std::numeric_limits<f32>::quiet_NaN();
+    const f32 inf = std::numeric_limits<f32>::infinity();
+
+    // Wire layout: i32 bodyType, f32 mass, vec3 linear velocity, vec3 angular velocity.
+    std::vector<u8> buffer;
+    {
+        FMemoryWriter writer(buffer);
+        writer.ArIsNetArchive = true;
+        i32 bodyType = 0;
+        f32 mass = nan;
+        std::array<f32, 6> vel = { inf, -inf, nan, inf, -inf, nan };
+        writer << bodyType;
+        writer << mass;
+        for (f32& v : vel)
+        {
+            writer << v;
+        }
+    }
+
+    Rigidbody3DComponent loaded;
+    FMemoryReader reader(buffer);
+    reader.ArIsNetArchive = true;
+    ComponentReplicator::Serialize(reader, loaded);
+
+    EXPECT_FALSE(reader.IsError());
+
+    EXPECT_TRUE(std::isfinite(loaded.m_Mass));
+    EXPECT_GE(loaded.m_Mass, 0.0f);
+    EXPECT_TRUE(std::isfinite(loaded.m_InitialLinearVelocity.x));
+    EXPECT_TRUE(std::isfinite(loaded.m_InitialLinearVelocity.y));
+    EXPECT_TRUE(std::isfinite(loaded.m_InitialLinearVelocity.z));
+    EXPECT_TRUE(std::isfinite(loaded.m_InitialAngularVelocity.x));
+    EXPECT_TRUE(std::isfinite(loaded.m_InitialAngularVelocity.y));
+    EXPECT_TRUE(std::isfinite(loaded.m_InitialAngularVelocity.z));
+}
+
+TEST(ComponentReplicatorTest, Rigidbody3DRejectsNegativeMass)
+{
+    using namespace OloEngine;
+
+    std::vector<u8> buffer;
+    {
+        FMemoryWriter writer(buffer);
+        writer.ArIsNetArchive = true;
+        i32 bodyType = 0;
+        f32 mass = -5.0f;
+        std::array<f32, 6> vel = { 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f };
+        writer << bodyType;
+        writer << mass;
+        for (f32& v : vel)
+        {
+            writer << v;
+        }
+    }
+
+    Rigidbody3DComponent loaded;
+    FMemoryReader reader(buffer);
+    reader.ArIsNetArchive = true;
+    ComponentReplicator::Serialize(reader, loaded);
+
+    EXPECT_GE(loaded.m_Mass, 0.0f);
 }

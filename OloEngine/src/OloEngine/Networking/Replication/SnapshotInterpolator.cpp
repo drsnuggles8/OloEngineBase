@@ -8,6 +8,7 @@
 #include "OloEngine/Serialization/Archive.h"
 
 #include <algorithm>
+#include <cmath>
 #include <unordered_map>
 
 #include <glm/gtc/quaternion.hpp>
@@ -68,7 +69,11 @@ namespace OloEngine
         f32 const delayTicks = m_RenderDelay * static_cast<f32>(m_ServerTickRate);
         f32 const renderTick = static_cast<f32>(m_LatestReceivedTick) - delayTicks;
 
-        if (renderTick < 0.0f)
+        // Defend the integer cast below: a non-finite renderTick (which a NaN slips
+        // past `< 0.0f`, since every comparison with NaN is false) would make the
+        // static_cast<u32> undefined behaviour. m_RenderDelay is validated at the
+        // setter, but guard here too — wire/config data is untrusted.
+        if (!std::isfinite(renderTick) || renderTick < 0.0f)
         {
             return;
         }
@@ -165,6 +170,15 @@ namespace OloEngine
 
     void SnapshotInterpolator::SetRenderDelay(f32 seconds)
     {
+        // Render delay feeds the tick math in Interpolate()/GetRenderTick(); a
+        // non-finite or negative value would poison renderTick and the u32 cast
+        // (NaN slips past `< 0.0f`). Reject it and keep the previous valid delay.
+        if (!std::isfinite(seconds) || seconds < 0.0f)
+        {
+            OLO_CORE_WARN("[SnapshotInterpolator] Ignoring invalid render delay {} (must be finite and >= 0); keeping {}", seconds, m_RenderDelay);
+            return;
+        }
+
         m_RenderDelay = seconds;
     }
 

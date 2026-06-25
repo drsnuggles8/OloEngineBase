@@ -81,6 +81,14 @@ if (!std::isfinite(value) || value <= 0.0f)
     value = defaultValue;
 ```
 
+This applies at **every** untrusted-float boundary, not just YAML — network deserialization
+(`Networking/Replication/ComponentReplicator.cpp`) and environment-variable config
+(`Task/Scheduler.cpp`) included. Guard **before** the value reaches arithmetic that casts to
+an integer: a non-finite float must be rejected before `static_cast<u32>` / `static_cast<i32>`,
+because the cast is undefined behaviour for `NaN`/`±inf`, and a `NaN` silently slips past sign
+checks (`x < 0.0f` is `false` for `NaN`). When validating a setter/parser, prefer a pure helper
+that returns the sanitized value (or `std::optional` to signal rejection) so it stays unit-testable.
+
 ---
 
 ## 3. Use `auto` to avoid redundant type names

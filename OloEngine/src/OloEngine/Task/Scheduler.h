@@ -18,9 +18,23 @@
 
 #include <atomic>
 #include <memory>
+#include <optional>
 
 namespace OloEngine::LowLevelTasks
 {
+    // Upper bound accepted for the task-graph oversubscription ratio. The ratio
+    // multiplies the worker-thread count, so an unbounded (or non-finite) value
+    // read from config would blow up the thread budget — clamp it to something sane.
+    inline constexpr f32 kMaxOversubscriptionRatio = 64.0f;
+
+    // Parse and validate the OLO_TASK_GRAPH_OVERSUBSCRIPTION_RATIO environment value.
+    // Environment config is untrusted input: a non-finite (NaN / ±inf) or out-of-range
+    // value must be rejected before it reaches the scheduler's worker-budget math
+    // (std::atof yields inf for "inf", and `inf >= 1.0f` is true). Returns the
+    // validated ratio, or std::nullopt when the value is null/unparsable/out of the
+    // accepted [1, kMaxOversubscriptionRatio] range. Pure + side-effect free for testing.
+    [[nodiscard]] std::optional<f32> ParseOversubscriptionRatio(const char* envValue);
+
     // @enum EQueuePreference
     // @brief Preference for which queue to use when launching tasks
     enum class EQueuePreference

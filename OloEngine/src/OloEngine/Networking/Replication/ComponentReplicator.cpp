@@ -3,8 +3,31 @@
 #include "OloEngine/Scene/Components.h"
 #include "OloEngine/Serialization/Archive.h"
 
+#include <cmath>
+
 namespace OloEngine
 {
+    namespace
+    {
+        // Snapshot bytes arrive from the network, which is untrusted: a NaN / ±inf
+        // float poisons transform math (and, downstream, integer tick casts —
+        // see SnapshotInterpolator). Replace any non-finite wire float with a safe
+        // fallback. See docs/agent-rules/cpp-coding-quality.md §2.
+        [[nodiscard]] f32 SanitizeWireFloat(f32 value, f32 fallback)
+        {
+            return std::isfinite(value) ? value : fallback;
+        }
+
+        [[nodiscard]] glm::vec3 SanitizeWireVec3(const glm::vec3& value, const glm::vec3& fallback)
+        {
+            return {
+                SanitizeWireFloat(value.x, fallback.x),
+                SanitizeWireFloat(value.y, fallback.y),
+                SanitizeWireFloat(value.z, fallback.z),
+            };
+        }
+    } // namespace
+
     void ComponentReplicator::Serialize(FArchive& ar, TransformComponent& component)
     {
         OLO_PROFILE_FUNCTION();
@@ -12,11 +35,14 @@ namespace OloEngine
         ar << component.Translation.x << component.Translation.y << component.Translation.z;
         glm::vec3 euler = component.GetRotationEuler();
         ar << euler.x << euler.y << euler.z;
+        ar << component.Scale.x << component.Scale.y << component.Scale.z;
         if (ar.IsLoading())
         {
-            component.SetRotationEuler(euler);
+            // Validate every float pulled off the wire before it reaches the scene.
+            component.Translation = SanitizeWireVec3(component.Translation, glm::vec3(0.0f));
+            component.Scale = SanitizeWireVec3(component.Scale, glm::vec3(1.0f));
+            component.SetRotationEuler(SanitizeWireVec3(euler, glm::vec3(0.0f)));
         }
-        ar << component.Scale.x << component.Scale.y << component.Scale.z;
     }
 
     void ComponentReplicator::Serialize(FArchive& ar, Rigidbody2DComponent& component)
@@ -45,6 +71,16 @@ namespace OloEngine
         ar << component.m_Mass;
         ar << component.m_InitialLinearVelocity.x << component.m_InitialLinearVelocity.y << component.m_InitialLinearVelocity.z;
         ar << component.m_InitialAngularVelocity.x << component.m_InitialAngularVelocity.y << component.m_InitialAngularVelocity.z;
+        if (ar.IsLoading())
+        {
+            // Untrusted wire floats: mass must be finite and non-negative; velocities finite.
+            if (!std::isfinite(component.m_Mass) || component.m_Mass < 0.0f)
+            {
+                component.m_Mass = 1.0f;
+            }
+            component.m_InitialLinearVelocity = SanitizeWireVec3(component.m_InitialLinearVelocity, glm::vec3(0.0f));
+            component.m_InitialAngularVelocity = SanitizeWireVec3(component.m_InitialAngularVelocity, glm::vec3(0.0f));
+        }
     }
 
     std::unordered_map<std::string, ComponentSerializeFn> ComponentReplicator::s_Registry;

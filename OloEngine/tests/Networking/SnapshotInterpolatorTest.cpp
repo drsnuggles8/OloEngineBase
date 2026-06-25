@@ -6,6 +6,9 @@
 #include "OloEngine/Scene/Components.h"
 #include "OloEngine/Serialization/Archive.h"
 
+#include <cmath>
+#include <limits>
+
 // Helper to create a serialized snapshot (UUID + transform) without a Scene.
 static std::vector<u8> MakeSnapshot(u64 uuid, const glm::vec3& translation)
 {
@@ -96,4 +99,86 @@ TEST(SnapshotInterpolatorTest, InterpolateNeedsAtLeastTwoSnapshots)
     // This should safely do nothing (only 1 snapshot < 2 required)
     // No Scene to pass, but the method guards against < 2 entries early.
     EXPECT_EQ(interp.GetBuffer().Size(), 1u);
+}
+
+// ── Untrusted render-delay hardening ─────────────────────────────────
+// SetRenderDelay feeds the tick math: a non-finite delay makes renderTick NaN,
+// which slips past the `renderTick < 0.0f` guard (every NaN comparison is false)
+// and then UB-casts to u32. The setter must reject such values and keep the
+// previous valid delay; GetRenderTick must stay finite.
+
+TEST(SnapshotInterpolatorTest, SetRenderDelayRejectsNaN)
+{
+    using namespace OloEngine;
+
+    SnapshotInterpolator interp;
+    interp.SetRenderDelay(0.2f);
+
+    interp.SetRenderDelay(std::numeric_limits<f32>::quiet_NaN());
+
+    // Invalid value ignored — prior delay retained.
+    EXPECT_FLOAT_EQ(interp.GetRenderDelay(), 0.2f);
+    EXPECT_TRUE(std::isfinite(interp.GetRenderDelay()));
+}
+
+TEST(SnapshotInterpolatorTest, SetRenderDelayRejectsPositiveInfinity)
+{
+    using namespace OloEngine;
+
+    SnapshotInterpolator interp;
+    interp.SetRenderDelay(0.25f);
+
+    interp.SetRenderDelay(std::numeric_limits<f32>::infinity());
+
+    EXPECT_FLOAT_EQ(interp.GetRenderDelay(), 0.25f);
+}
+
+TEST(SnapshotInterpolatorTest, SetRenderDelayRejectsNegativeInfinity)
+{
+    using namespace OloEngine;
+
+    SnapshotInterpolator interp;
+    interp.SetRenderDelay(0.15f);
+
+    interp.SetRenderDelay(-std::numeric_limits<f32>::infinity());
+
+    EXPECT_FLOAT_EQ(interp.GetRenderDelay(), 0.15f);
+}
+
+TEST(SnapshotInterpolatorTest, SetRenderDelayRejectsNegative)
+{
+    using namespace OloEngine;
+
+    SnapshotInterpolator interp;
+    interp.SetRenderDelay(0.3f);
+
+    interp.SetRenderDelay(-1.0f);
+
+    EXPECT_FLOAT_EQ(interp.GetRenderDelay(), 0.3f);
+}
+
+TEST(SnapshotInterpolatorTest, SetRenderDelayAcceptsZero)
+{
+    using namespace OloEngine;
+
+    // Zero is a legitimate (no-delay) value and must still be accepted.
+    SnapshotInterpolator interp;
+    interp.SetRenderDelay(0.0f);
+    EXPECT_FLOAT_EQ(interp.GetRenderDelay(), 0.0f);
+}
+
+TEST(SnapshotInterpolatorTest, RenderTickStaysFiniteAfterPoisonedDelay)
+{
+    using namespace OloEngine;
+
+    SnapshotInterpolator interp;
+    interp.SetServerTickRate(20);
+    interp.SetRenderDelay(0.1f);
+    interp.PushSnapshot(10, MakeSnapshot(1, { 0.0f, 0.0f, 0.0f }));
+
+    // A rejected NaN must not corrupt the cached delay → render tick stays finite.
+    interp.SetRenderDelay(std::numeric_limits<f32>::quiet_NaN());
+
+    EXPECT_TRUE(std::isfinite(interp.GetRenderTick()));
+    EXPECT_FLOAT_EQ(interp.GetRenderTick(), 8.0f);
 }

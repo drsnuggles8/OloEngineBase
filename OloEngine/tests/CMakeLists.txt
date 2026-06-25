@@ -203,6 +203,8 @@ add_executable(OloEngine-Tests
 		Networking/ChatTest.cpp
 		Networking/PersistenceTest.cpp
 		Networking/MMOOptimizationTest.cpp
+		# Task / Scheduler config tests
+		Task/SchedulerConfigTest.cpp
 		# Localization tests
 		LocalizationTest.cpp
 		# Dialogue system tests
