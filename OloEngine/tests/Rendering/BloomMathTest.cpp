@@ -91,10 +91,10 @@ TEST(BloomMathTest, SubThresholdPixelSuppressed)
     EXPECT_FLOAT_EQ(bright.g, 0.0f);
     EXPECT_FLOAT_EQ(bright.b, 0.0f);
 
-    // Right at the gate edge: brightness + 0.5 == threshold passes the step but
-    // softness is (0.5)^2 wait — at brightness = threshold - 0.5, softness =
-    // clamp(0,0,1)^2 = 0, so the extracted value is still zero. The knee starts
-    // exactly here.
+    // Right at the gate edge (brightness = threshold - 0.5): brightness + 0.5
+    // == threshold passes the step(), but softness = clamp(brightness -
+    // threshold + 0.5, 0, 1)^2 = clamp(0, 0, 1)^2 = 0, so the extracted value
+    // is still exactly zero. The soft knee starts here.
     const f32 b = kThreshold - 0.5f;
     const glm::vec3 atEdge = ExtractBright(glm::vec3(b), kThreshold); // grey, brightness ≈ b
     EXPECT_NEAR(atEdge.r, 0.0f, 1e-6f);
