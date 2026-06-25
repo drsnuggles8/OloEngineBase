@@ -684,32 +684,36 @@ namespace OloEngine::Tasks
         FNamedThreadManager::Get().EnqueueTask(Priority, Forward<TaskBody>(Task), DebugName);
     }
 
-    // @brief Enqueue a task to the render thread
+    // Dependent always-false constant so the static_assert in EnqueueRenderThreadTask
+    // only fires when the function is actually instantiated (i.e. a caller exists),
+    // not merely when this header is included.
+    template<typename>
+    inline constexpr bool kRenderThreadTaskUnavailable = false;
+
+    // @brief Enqueue a task to the render thread — INTENTIONALLY DISABLED (hard compile error).
     //
-    // @note CURRENTLY UNUSED: RenderThread is not activated in OloEngine.
-    //       Rendering runs on the GameThread. This function is provided for
-    //       future multi-threaded rendering support. Tasks enqueued here will
-    //       NOT be processed until a RenderThread is created and attached.
+    // ENamedThread::RenderThread is *reserved* but not activated: no thread is attached to
+    // it and nothing drains its queue (rendering runs on the GameThread), so a task enqueued
+    // here would be silently lost. To make that trap impossible, calling this function is a
+    // compile error rather than a silent no-op.
+    //
+    // To enable multi-threaded rendering in the future: create a dedicated render thread,
+    // AttachToThread(ENamedThread::RenderThread) from it, pump its queue (e.g. via
+    // ProcessUntilRequestReturn), then restore this function's body to mirror
+    // EnqueueGameThreadTask. Until then, run rendering work via EnqueueGameThreadTask.
     //
     // @see ENamedThread for thread activation status
     //
     template<typename TaskBody>
-    void EnqueueRenderThreadTask(TaskBody&& Task, const char* DebugName = "RenderThreadTask",
-                                 bool bHighPriority = false, bool bLocalQueue = false)
+    void EnqueueRenderThreadTask(TaskBody&& /*Task*/, const char* /*DebugName*/ = "RenderThreadTask",
+                                 bool /*bHighPriority*/ = false, bool /*bLocalQueue*/ = false)
     {
-        EExtendedTaskPriority Priority;
-        if (bLocalQueue)
-        {
-            Priority = bHighPriority ? EExtendedTaskPriority::RenderThreadHiPriLocalQueue
-                                     : EExtendedTaskPriority::RenderThreadNormalPriLocalQueue;
-        }
-        else
-        {
-            Priority = bHighPriority ? EExtendedTaskPriority::RenderThreadHiPri
-                                     : EExtendedTaskPriority::RenderThreadNormalPri;
-        }
-
-        FNamedThreadManager::Get().EnqueueTask(Priority, Forward<TaskBody>(Task), DebugName);
+        static_assert(kRenderThreadTaskUnavailable<TaskBody>,
+                      "EnqueueRenderThreadTask is disabled: ENamedThread::RenderThread is reserved but "
+                      "not attached, so nothing drains its queue and the task would be silently dropped. "
+                      "Run rendering work on the GameThread via EnqueueGameThreadTask, or first create "
+                      "and attach a real RenderThread (and pump its queue) before restoring this body. "
+                      "See ENamedThread in NamedThreads.h.");
     }
 
     // @brief Enqueue a task to the Audio thread
