@@ -1,0 +1,259 @@
+Scene: FoliageGenerationTest.olo
+PostProcessSettings:
+  TonemapOperator: 1
+  Exposure: 1
+  Gamma: 2.2
+  BloomEnabled: false
+  BloomThreshold: 1
+  BloomIntensity: 0.5
+  BloomIterations: 5
+  VignetteEnabled: false
+  VignetteIntensity: 0.3
+  VignetteSmoothness: 0.5
+  ChromaticAberrationEnabled: false
+  ChromaticAberrationIntensity: 0.005
+  FXAAEnabled: false
+  DOFEnabled: false
+  DOFFocusDistance: 10
+  DOFFocusRange: 5
+  DOFBokehRadius: 3
+  MotionBlurEnabled: false
+  MotionBlurStrength: 0.5
+  MotionBlurSamples: 8
+  ColorGradingEnabled: false
+  SSAOEnabled: false
+  SSAORadius: 0.5
+  SSAOBias: 0.025
+  SSAOIntensity: 1
+  SSAOSamples: 32
+  SSAODebugView: false
+SnowSettings:
+  Enabled: false
+FogSettings:
+  Enabled: false
+WindSettings:
+  Enabled: false
+SnowAccumulationSettings:
+  Enabled: false
+SnowEjectaSettings:
+  Enabled: false
+PrecipitationSettings:
+  Enabled: false
+StreamingSettings:
+  Enabled: false
+Entities:
+  - Entity: 9977033210160945020
+    TagComponent:
+      Tag: camera
+    TransformComponent:
+      Translation: [128, 30, 235]
+      Rotation: [-0.18, 0, 0]
+      Scale: [1, 1, 1]
+    CameraComponent:
+      Camera:
+        ProjectionType: 0
+        PerspectiveFOV: 0.7853982
+        PerspectiveNear: 0.1
+        PerspectiveFar: 2000
+        OrthographicSize: 10
+        OrthographicNear: -1
+        OrthographicFar: 1
+      Primary: true
+      FixedAspectRatio: false
+      RuntimeControl: true
+      FlySpeed: 20
+  - Entity: 100000000000040
+    TagComponent:
+      Tag: Grassland Terrain
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    TerrainComponent:
+      HeightmapPath: ""
+      WorldSizeX: 256
+      WorldSizeZ: 256
+      HeightScale: 30
+      ProceduralEnabled: true
+      ProceduralSeed: 7
+      ProceduralResolution: 256
+      ProceduralOctaves: 5
+      ProceduralFrequency: 2
+      ProceduralLacunarity: 2
+      ProceduralPersistence: 0.45
+      ShapingRidgeBlend: 0
+      ShapingWarpStrength: 0.12
+      ShapingWarpFrequency: 2
+      ShapingTerraceSteps: 0
+      ShapingTerraceSharpness: 0.6
+      ShapingHeightExponent: 1.3
+      AutoMaterial: true
+      SplatmapGenResolution: 256
+      LayerRules:
+        - LayerIndex: 0
+          MinHeight: 0
+          MaxHeight: 0.1
+          HeightBlend: 0.05
+          MinSlopeDeg: 0
+          MaxSlopeDeg: 35
+          SlopeBlend: 8
+          Strength: 1
+        - LayerIndex: 1
+          MinHeight: 0.06
+          MaxHeight: 0.7
+          HeightBlend: 0.16
+          MinSlopeDeg: 0
+          MaxSlopeDeg: 30
+          SlopeBlend: 8
+          Strength: 1
+        - LayerIndex: 2
+          MinHeight: 0
+          MaxHeight: 1
+          HeightBlend: 0
+          MinSlopeDeg: 34
+          MaxSlopeDeg: 90
+          SlopeBlend: 10
+          Strength: 1
+        - LayerIndex: 3
+          MinHeight: 0.82
+          MaxHeight: 1
+          HeightBlend: 0.12
+          MinSlopeDeg: 0
+          MaxSlopeDeg: 50
+          SlopeBlend: 10
+          Strength: 1
+      TessellationEnabled: false
+      TargetTriangleSize: 8
+      MorphRegion: 0.3
+      StreamingEnabled: false
+      TileDirectory: ""
+      TileFilePattern: tile_%d_%d.raw
+      TileWorldSize: 256
+      TileResolution: 513
+      StreamingLoadRadius: 3
+      StreamingMaxTiles: 25
+      VoxelEnabled: false
+      VoxelSize: 1
+      SplatmapPath0: ""
+      SplatmapPath1: ""
+      Layers:
+        - Name: Sand
+          AlbedoPath: ""
+          NormalPath: ""
+          ARMPath: ""
+          TilingScale: 16
+          HeightBlendSharpness: 4
+          TriplanarSharpness: 8
+          BaseColor: [0.76, 0.7, 0.5]
+          Roughness: 0.95
+          Metallic: 0
+        - Name: Grass
+          AlbedoPath: ""
+          NormalPath: ""
+          ARMPath: ""
+          TilingScale: 20
+          HeightBlendSharpness: 4
+          TriplanarSharpness: 8
+          BaseColor: [0.28, 0.45, 0.17]
+          Roughness: 0.9
+          Metallic: 0
+        - Name: Rock
+          AlbedoPath: ""
+          NormalPath: ""
+          ARMPath: ""
+          TilingScale: 12
+          HeightBlendSharpness: 4
+          TriplanarSharpness: 8
+          BaseColor: [0.42, 0.4, 0.38]
+          Roughness: 0.8
+          Metallic: 0
+        - Name: Snow
+          AlbedoPath: ""
+          NormalPath: ""
+          ARMPath: ""
+          TilingScale: 18
+          HeightBlendSharpness: 4
+          TriplanarSharpness: 8
+          BaseColor: [0.92, 0.93, 0.96]
+          Roughness: 0.6
+          Metallic: 0
+    FoliageComponent:
+      Enabled: true
+      Layers:
+        - Name: Grass
+          MeshPath: ""
+          AlbedoPath: assets/textures/grass.png
+          Density: 6
+          SplatmapChannel: 1
+          MinSlopeAngle: 0
+          MaxSlopeAngle: 30
+          MinScale: 0.9
+          MaxScale: 1.9
+          MinHeight: 1.2
+          MaxHeight: 2.6
+          RandomRotation: true
+          ViewDistance: 180
+          FadeStartDistance: 144
+          WindStrength: 0.35
+          WindSpeed: 1.6
+          BaseColor: [0.3, 0.46, 0.16]
+          Roughness: 0.8
+          AlphaCutoff: 0.5
+          Enabled: true
+        - Name: Wildflowers
+          MeshPath: ""
+          AlbedoPath: assets/textures/grass.png
+          Density: 1.5
+          SplatmapChannel: 1
+          MinSlopeAngle: 0
+          MaxSlopeAngle: 22
+          MinScale: 0.7
+          MaxScale: 1.3
+          MinHeight: 0.8
+          MaxHeight: 1.6
+          RandomRotation: true
+          ViewDistance: 140
+          FadeStartDistance: 112
+          WindStrength: 0.25
+          WindSpeed: 1.2
+          BaseColor: [0.66, 0.56, 0.24]
+          Roughness: 0.8
+          AlphaCutoff: 0.5
+          Enabled: true
+        - Name: Dune Grass
+          MeshPath: ""
+          AlbedoPath: assets/textures/grass.png
+          Density: 1
+          SplatmapChannel: 0
+          MinSlopeAngle: 0
+          MaxSlopeAngle: 18
+          MinScale: 0.8
+          MaxScale: 1.4
+          MinHeight: 0.9
+          MaxHeight: 1.8
+          RandomRotation: true
+          ViewDistance: 140
+          FadeStartDistance: 112
+          WindStrength: 0.4
+          WindSpeed: 1.4
+          BaseColor: [0.62, 0.6, 0.32]
+          Roughness: 0.8
+          AlphaCutoff: 0.5
+          Enabled: true
+  - Entity: 100000000000041
+    TagComponent:
+      Tag: Directional Light
+    TransformComponent:
+      Translation: [21.055992, 25.520258, 26.569588]
+      Rotation: [-0.78539824, 0.39269903, 0]
+      Scale: [1, 1, 1]
+    DirectionalLightComponent:
+      Direction: [-0.4, -0.8, -0.3]
+      Color: [1, 0.9607843, 0.8980392]
+      Intensity: 2.5
+      CastShadows: true
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.01
+      MaxShadowDistance: 500
+      CascadeSplitLambda: 0.5
+      CascadeDebugVisualization: false

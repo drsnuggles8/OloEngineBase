@@ -92,6 +92,27 @@ layer 0 (never an all-zero/black splat weight).
 biome (solid colours — no texture files needed) so "enable procedural + auto
 material" yields a textured planet out of the box.
 
+### Foliage auto-population
+
+The foliage scatter already places vegetation by reading a splatmap channel +
+slope (`FoliageLayer::SplatmapChannel` / `MinSlopeAngle` / `MaxSlopeAngle`), but
+nothing connected it to generation — you hand-authored each layer. `TerrainGenerator::MakeFoliageLayersFromRules(rules)`
+closes that loop: it emits a `std::vector<FoliageLayer>` from the *same*
+`TerrainLayerRule`s that paint the splatmap, so generating a textured world also
+vegetates it.
+
+A small built-in vegetation table (dense grass + sparse wildflowers on the grass
+layer, sparse dune grass on the sand layer — the default sand/grass/rock/snow
+biome) decides *what* to scatter; the *where* is taken from the matching rule:
+each emitted layer's `SplatmapChannel` is the material layer it grows on, and its
+slope band is the rule's slope band tightened by the profile's own ceiling — so
+vegetation lands exactly on the band the splatmap paints and never climbs the
+cliffs above it. A profile whose material layer no rule references is skipped (no
+painted texture → no vegetation), and bare rock / snow carry none. The result is
+an ordinary serialized `FoliageComponent` layer set — **no new ECS state**, it
+round-trips through the existing `FoliageLayer` (de)serializers. `MakeDefaultFoliageLayers()`
+is the convenience preset (`MakeFoliageLayersFromRules(MakeDefaultRules())`).
+
 ---
 
 ## Wiring
@@ -115,7 +136,14 @@ material" yields a textured planet out of the box.
   the shaping sliders under *Procedural Generation* and an *Auto-Material*
   section with an "Apply Default Biome Preset" button, an editable rule list and
   "Generate Splatmap Now". Height-shaping edits apply on **Regenerate** (the
-  same deferred-apply model the existing procedural params use).
+  same deferred-apply model the existing procedural params use). The Foliage
+  inspector adds a **"Generate from Terrain Rules"** button that fills the
+  layer list from the sibling `TerrainComponent`'s auto-material rules (falling
+  back to the default biome when none exist) — the one-click "vegetate this
+  world". The sandbox ships a `FoliageGenerationTest.olo` demo scene (rolling
+  grassland + auto-material + the emitted foliage) wired as the project's
+  `StartScene` so the result is visible on open; the grass renders with the
+  stock `assets/textures/grass.png` cutout billboard.
 
 ---
 
@@ -237,8 +265,13 @@ C#); each picks a fresh seed on start and regenerates on the **R** key.
   large heightmaps.
 - **Biome masks.** A low-frequency biome noise selecting between rule *sets*
   (desert / alpine / temperate) instead of one global rule list.
-- **Foliage auto-population from rules.** Foliage already reads splatmap channels
-  and slope; a generator preset that emits matching `FoliageLayer`s would make
-  "generate a vegetated world" one click.
+- ~~**Foliage auto-population from rules.**~~ **Done** —
+  `TerrainGenerator::MakeFoliageLayersFromRules` emits matching `FoliageLayer`s
+  from the auto-material rules, and the Foliage inspector's *Generate from
+  Terrain Rules* button makes "generate a vegetated world" one click (see
+  *Foliage auto-population* above). Still open: per-rule authoring of vegetation
+  profiles (the kind/density table is currently built-in for the default biome)
+  and mesh-asset foliage (the preset emits billboard-quad grass — assigning real
+  plant meshes is still manual).
 - **Non-square / streamed generation.** The generator is single-tile; wiring it
   into `TerrainStreamer` would allow infinite procedural worlds.

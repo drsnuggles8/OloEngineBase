@@ -1,6 +1,7 @@
 #include "OloEnginePCH.h"
 #include <gtest/gtest.h>
 
+#include "OloEngine/Terrain/Foliage/FoliageLayer.h"
 #include "OloEngine/Terrain/TerrainGenerator.h"
 #include "OloEngine/Terrain/TerrainLayer.h"
 
@@ -367,6 +368,143 @@ TEST(TerrainGeneratorTest, PackLayerWeightsQuantizesToBothSplatmaps)
     EXPECT_EQ(s0[3], 0);
     EXPECT_EQ(s1[0], 0);
     EXPECT_EQ(s1[1], 128); // round(0.5 * 255)
+}
+
+// ── Foliage auto-population ─────────────────────────────────────────────────
+// The rule → FoliageLayer mapping that closes the loop: the same height/slope
+// rules that paint the splatmap also emit matching foliage. Pure CPU, so these
+// pin the mapping in CI; the actual on-screen vegetation is checked in the
+// editor (rendering-adjacent change).
+
+namespace
+{
+    // A FoliageLayer is well-formed: finite floats, ordered ranges, a fade that
+    // begins before the cull distance, and a real splat channel.
+    void ExpectValidFoliageLayer(const FoliageLayer& layer)
+    {
+        EXPECT_FALSE(layer.Name.empty());
+        // A foliage billboard alpha-tests against its albedo cutout; without one
+        // it renders as solid/garbage quads, so the preset must supply a texture.
+        EXPECT_FALSE(layer.AlbedoPath.empty()) << "emitted foliage needs an albedo cutout to render as blades";
+        EXPECT_GT(layer.Density, 0.0f);
+        EXPECT_GE(layer.SplatmapChannel, 0);
+        EXPECT_LT(layer.SplatmapChannel, 8);
+
+        EXPECT_TRUE(std::isfinite(layer.MinSlopeAngle));
+        EXPECT_TRUE(std::isfinite(layer.MaxSlopeAngle));
+        EXPECT_GE(layer.MinSlopeAngle, 0.0f);
+        EXPECT_LE(layer.MaxSlopeAngle, 90.0f);
+        EXPECT_LE(layer.MinSlopeAngle, layer.MaxSlopeAngle);
+
+        EXPECT_TRUE(std::isfinite(layer.Density));
+        EXPECT_TRUE(std::isfinite(layer.MinScale));
+        EXPECT_TRUE(std::isfinite(layer.MaxScale));
+        EXPECT_LE(layer.MinScale, layer.MaxScale);
+        EXPECT_TRUE(std::isfinite(layer.MinHeight));
+        EXPECT_TRUE(std::isfinite(layer.MaxHeight));
+        EXPECT_LE(layer.MinHeight, layer.MaxHeight);
+
+        EXPECT_TRUE(std::isfinite(layer.ViewDistance));
+        EXPECT_TRUE(std::isfinite(layer.FadeStartDistance));
+        EXPECT_GT(layer.ViewDistance, 0.0f);
+        EXPECT_LT(layer.FadeStartDistance, layer.ViewDistance) << "fade must begin before the cull distance";
+
+        EXPECT_TRUE(std::isfinite(layer.BaseColor.x));
+        EXPECT_TRUE(std::isfinite(layer.BaseColor.y));
+        EXPECT_TRUE(std::isfinite(layer.BaseColor.z));
+        EXPECT_TRUE(std::isfinite(layer.WindStrength));
+        EXPECT_TRUE(std::isfinite(layer.WindSpeed));
+    }
+} // namespace
+
+TEST(TerrainGeneratorTest, DefaultFoliageLayersAreVegetatedAndWellFormed)
+{
+    const auto layers = TerrainGenerator::MakeDefaultFoliageLayers();
+    ASSERT_FALSE(layers.empty()) << "default biome must emit some vegetation";
+
+    bool sawGrassChannel = false;
+    for (const auto& layer : layers)
+    {
+        ExpectValidFoliageLayer(layer);
+        if (layer.SplatmapChannel == 1) // grass material layer
+            sawGrassChannel = true;
+    }
+    EXPECT_TRUE(sawGrassChannel) << "default biome should grow foliage on the grass layer (channel 1)";
+}
+
+TEST(TerrainGeneratorTest, DefaultFoliageEqualsMappingOfDefaultRules)
+{
+    // The convenience preset is exactly the rule-driven mapping applied to the
+    // default rules — not a separate hand-authored list that could drift.
+    const auto preset = TerrainGenerator::MakeDefaultFoliageLayers();
+    const auto fromRules = TerrainGenerator::MakeFoliageLayersFromRules(TerrainGenerator::MakeDefaultRules());
+    ASSERT_EQ(preset.size(), fromRules.size());
+    for (sizet i = 0; i < preset.size(); ++i)
+        EXPECT_TRUE(preset[i] == fromRules[i]) << "preset layer " << i << " differs from the rule mapping";
+}
+
+TEST(TerrainGeneratorTest, FoliageInheritsPlacementBandFromMatchingRule)
+{
+    // The placement mask is taken from the material rule, so vegetation lands
+    // exactly on the band the splatmap paints. A rule with a tight slope band
+    // clamps the emitted foliage's slope band the same way.
+    std::vector<TerrainLayerRule> rules;
+    TerrainLayerRule grass;
+    grass.LayerIndex = 1; // grass layer → grass + wildflowers profiles
+    grass.MinSlopeDeg = 4.0f;
+    grass.MaxSlopeDeg = 12.0f; // tighter than either profile's own ceiling
+    rules.push_back(grass);
+
+    const auto layers = TerrainGenerator::MakeFoliageLayersFromRules(rules);
+    ASSERT_FALSE(layers.empty());
+    for (const auto& layer : layers)
+    {
+        EXPECT_EQ(layer.SplatmapChannel, 1) << "foliage must read the layer its rule paints";
+        EXPECT_GE(layer.MinSlopeAngle, 4.0f - kEps) << "min slope inherited from the rule";
+        EXPECT_LE(layer.MaxSlopeAngle, 12.0f + kEps) << "rule's slope ceiling must clamp the foliage band";
+    }
+}
+
+TEST(TerrainGeneratorTest, ProfileSlopeCeilingClampsPermissiveRule)
+{
+    // The reverse direction: a wide-open rule (0..90°) must still be tightened
+    // by the profile's own slope ceiling so grass never climbs onto cliffs.
+    std::vector<TerrainLayerRule> rules;
+    TerrainLayerRule grass;
+    grass.LayerIndex = 1;
+    grass.MinSlopeDeg = 0.0f;
+    grass.MaxSlopeDeg = 90.0f;
+    rules.push_back(grass);
+
+    const auto layers = TerrainGenerator::MakeFoliageLayersFromRules(rules);
+    ASSERT_FALSE(layers.empty());
+    for (const auto& layer : layers)
+        EXPECT_LT(layer.MaxSlopeAngle, 90.0f) << "profile slope ceiling must cap a permissive rule";
+}
+
+TEST(TerrainGeneratorTest, FoliageOnlyEmittedForLayersWithRules)
+{
+    // No rules → no vegetation (nothing painted to grow on).
+    EXPECT_TRUE(TerrainGenerator::MakeFoliageLayersFromRules({}).empty());
+
+    // A rule set that only paints rock (layer 2) has no vegetation profile, so
+    // it emits nothing — bare cliffs stay bare.
+    std::vector<TerrainLayerRule> rockOnly;
+    TerrainLayerRule rock;
+    rock.LayerIndex = 2;
+    rockOnly.push_back(rock);
+    EXPECT_TRUE(TerrainGenerator::MakeFoliageLayersFromRules(rockOnly).empty());
+
+    // A rule set that only paints grass (layer 1) emits the grass-layer
+    // profiles (grass + wildflowers) but no sand dune grass (layer 0 unpainted).
+    std::vector<TerrainLayerRule> grassOnly;
+    TerrainLayerRule grass;
+    grass.LayerIndex = 1;
+    grassOnly.push_back(grass);
+    const auto layers = TerrainGenerator::MakeFoliageLayersFromRules(grassOnly);
+    EXPECT_FALSE(layers.empty());
+    for (const auto& layer : layers)
+        EXPECT_EQ(layer.SplatmapChannel, 1) << "only the painted (grass) layer should carry foliage";
 }
 
 // ── Visual evidence (manual) ────────────────────────────────────────────────
