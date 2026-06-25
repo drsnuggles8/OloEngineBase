@@ -307,13 +307,39 @@ inspect `SampleOffset` and split their `Execute` at that frame index.
 >   producer-fires-mid-block → wired-consumer-reacts case, and WavePlayer Play/Stop
 >   consumed at their exact frame (observed via the output-event offset, since audio
 >   output needs a loaded asset a unit test doesn't mount).
-> - **Out of scope (follow-on).** External triggers from game code still arrive via
->   `SoundGraphSource`'s `SendInputEvent`/lock-free queue, which is drained *before*
->   `Process` and carries no per-event frame index, so an externally-scheduled
->   footstep is still block-quantised until that queue learns to carry offsets. The
->   node-level machinery and the intra-graph producer→consumer path are sample-accurate
->   today; wiring the external scheduler and typed `TriggerRef` connections is the
->   remaining increment.
+> **Status (2026-06-24): external (game-code) triggers now sample-accurate too.**
+> The remaining increment landed. External triggers no longer snap to the block
+> boundary — `SoundGraphSource` carries a per-event sample offset end to end:
+>
+> - **Offset-carrying external queue** (`SoundGraphSource.{h,cpp}`). A new lock-free
+>   `m_InputEventQueue` of `{endpointID, value, sampleOffset}` plus a public
+>   `SendInputEvent(u32 | std::string_view, value, sampleOffset)` (the name overload
+>   FNV-hashes, matching the parameter path). Game code (main thread, single producer)
+>   schedules a trigger at a frame within the next block; the audio thread drains it in
+>   `ProcessSamples` via `DrainInputEvents`, *before* `SoundGraph::Process`, so the
+>   consuming node observes the trigger when it processes. The queue is cleared under
+>   the suspend protocol on `ReplaceGraph` (no stale triggers leak onto a new graph).
+> - **Offset validation.** `SoundGraphSource::ClampInputEventOffset` clamps each
+>   incoming offset to `[0, blockSize)` on the audio thread (negative → frame 0;
+>   at/over the block end → last frame, so the event still fires this block). Static +
+>   pure, so it is unit-tested without a device.
+> - **Offset-threaded `SendInputEvent` + routes** (`SoundGraph.{h,cpp}`).
+>   `SoundGraph::SendInputEvent` gained an `i32 sampleOffset = 0` and now dispatches
+>   through `InputEvent::operator()` (so it reaches an offset-aware *or* a value-only
+>   handler), and **both** `AddRoute` overloads forward the offset — the graph-input →
+>   node-input hop an external trigger takes now preserves the frame instead of
+>   dropping it. Defaults keep every existing caller block-boundary.
+> - **Typed `TriggerRef` connections** stay future work and are **not** needed for the
+>   external path: the offset flows through the offset-aware event system to the node's
+>   `TriggerRef.Fire(offset)`, which is the same proven mechanism the intra-graph path
+>   uses. Direct producer-`Trigger` → consumer-`TriggerRef` binding (bypassing events)
+>   remains the only unused `TriggerRef::Bind` seam.
+> - **Tests.** `SoundGraphSampleAccurateTriggerTest.cpp` adds: the offset clamp; that a
+>   graph `SendInputEvent` offset survives the input route to the consumer (and defaults
+>   to frame 0, and no-ops on an unknown endpoint); and the end-to-end case — a footstep
+>   handed to `SoundGraphSource::SendInputEvent` with a mid-block offset, drained through
+>   the real `ProcessSamples` path, retriggers a wired AD envelope at that exact frame
+>   (and an out-of-range offset clamps into the block instead of vanishing).
 
 ## Decision log
 

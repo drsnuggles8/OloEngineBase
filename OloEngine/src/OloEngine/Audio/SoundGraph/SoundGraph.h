@@ -500,9 +500,18 @@ namespace OloEngine::Audio::SoundGraph
         /// Connect Input Event to Input Event
         void AddRoute(InputEvent& source, InputEvent& destination) const noexcept
         {
+            // Phase 4 (docs/soundgraph-metasounds-refactor.md): forward the sample
+            // offset so a graph-input trigger fired at frame N reaches the destination
+            // node's trigger input at frame N instead of being quantised to the block
+            // boundary. This is the hop an *external* (game-code) trigger takes —
+            // SoundGraphSource enqueues the event with an offset, the audio thread
+            // drains it into SoundGraph::SendInputEvent, and this route carries the
+            // offset the last hop to the consuming node. Binding m_OffsetEvent makes
+            // InputEvent::operator() prefer the offset-aware path; a value-only fire
+            // still arrives with the default offset 0 (block start).
             InputEvent* dest = &destination;
-            source.m_Event = [dest](float v)
-            { (*dest)(v); };
+            source.m_OffsetEvent = [dest](float v, i32 sampleOffset)
+            { (*dest)(v, sampleOffset); };
         }
 
         /// Connect Output Event to Output Event
@@ -514,8 +523,11 @@ namespace OloEngine::Audio::SoundGraph
             sizet currentRouteId = routeCounter.fetch_add(1, std::memory_order_relaxed);
             std::string routeIdStr = "Route_" + std::to_string(currentRouteId);
             Identifier routeId(routeIdStr);
-            AddInEvent(routeId, [dest](float v)
-                       { (*dest)(v); });
+            // Phase 4: forward the sample offset through the output→output hop too, so
+            // a node firing its output trigger mid-block keeps the exact frame as the
+            // event propagates onward (the offset defaults to 0 for value-only fires).
+            AddInEvent(routeId, [dest](float v, i32 sampleOffset)
+                       { (*dest)(v, sampleOffset); });
             // Use the shared_ptr from InEvents for the newly created routeHandler
             if (auto routeHandlerPtr = InEvents.find(routeId); routeHandlerPtr != InEvents.end())
                 source.AddDestination(routeHandlerPtr->second);
@@ -986,15 +998,28 @@ namespace OloEngine::Audio::SoundGraph
             return cell.SetScalarFromValue(value);
         }
 
-        bool SendInputEvent(Identifier endpointID, choc::value::ValueView value)
+        /// Fire a graph input event. `sampleOffset` (Phase 4) is the frame within the
+        /// current block at which the event takes effect; it threads through the
+        /// offset-aware event system to the consuming node's trigger so an externally
+        /// scheduled (game-code) trigger lands on the exact sample instead of being
+        /// quantised to the block start. Defaults to 0 (block boundary) so existing
+        /// callers keep their behaviour.
+        bool SendInputEvent(Identifier endpointID, choc::value::ValueView value, i32 sampleOffset = 0)
         {
             auto endpoint = InEvents.find(endpointID);
 
-            if (endpoint == InEvents.end() || !endpoint->second || !endpoint->second->m_Event)
+            if (endpoint == InEvents.end() || !endpoint->second)
                 return false;
 
-            // Handle float values for events
-            endpoint->second->m_Event(value.isFloat32() ? value.getFloat32() : 1.0f);
+            // A trigger-consuming node (and, after Phase 4, a graph-input route) binds
+            // m_OffsetEvent; a value-only consumer binds m_Event. Dispatch through
+            // operator() so whichever is bound is invoked and the sample offset is
+            // forwarded — the offset is dropped only if the endpoint has no handler.
+            InputEvent& inEvent = *endpoint->second;
+            if (!inEvent.m_Event && !inEvent.m_OffsetEvent)
+                return false;
+
+            inEvent(value.isFloat32() ? value.getFloat32() : 1.0f, sampleOffset);
             return true;
         }
 

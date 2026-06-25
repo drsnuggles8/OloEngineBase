@@ -28,17 +28,33 @@
 //   * WavePlayer: Play/Stop are consumed at their exact frame (observed through
 //     the OnStop / OnFinished output-event offset, since audio output needs a
 //     loaded asset which a unit test does not mount).
+//
+// The follow-on increment (external, game-code triggers) is pinned here too:
+//   * SoundGraph::SendInputEvent forwards a sample offset through a graph-input
+//     route to the consuming node's trigger (the last intra-graph hop).
+//   * SoundGraphSource::ClampInputEventOffset validates an externally supplied
+//     offset into [0, blockSize).
+//   * End-to-end through the real audio path: a trigger handed to
+//     SoundGraphSource::SendInputEvent with a mid-block offset is drained by
+//     ProcessSamples and retriggers a wired envelope at that exact frame —
+//     i.e. an external footstep is sample-accurate, not block-quantised.
 // =============================================================================
 
 #include "OloEngine/Audio/SoundGraph/NodeProcessor.h"
+#include "OloEngine/Audio/SoundGraph/SoundGraph.h"
+#include "OloEngine/Audio/SoundGraph/SoundGraphSource.h"
 #include "OloEngine/Audio/SoundGraph/StreamRefs.h"
 #include "OloEngine/Audio/SoundGraph/Nodes/EnvelopeNodes.h"
 #include "OloEngine/Audio/SoundGraph/Nodes/TriggerNodes.h"
 #include "OloEngine/Audio/SoundGraph/Nodes/WavePlayer.h"
 #include "OloEngine/Core/Identifier.h"
 #include "OloEngine/Core/Log.h"
+#include "OloEngine/Core/Ref.h"
 #include "OloEngine/Core/UUID.h"
 
+#include <choc/containers/choc_Value.h>
+
+#include <array>
 #include <vector>
 
 using namespace OloEngine; // NOLINT(google-build-using-namespace)
@@ -405,4 +421,154 @@ TEST_F(SoundGraphSampleAccurateTriggerTest, WavePlayerWithoutTriggersFiresNoEven
     wp.Process(kBlock);
 
     EXPECT_TRUE(capture.m_Offsets.empty()) << "no trigger fired -> no Play/Stop events";
+}
+
+// -----------------------------------------------------------------------------
+// External (game-code) trigger path: offset survives the graph-input route, the
+// source clamps it, and an externally scheduled trigger lands on the exact frame.
+// -----------------------------------------------------------------------------
+
+namespace
+{
+    /// Build a graph exposing input event `eventName`, routed to the (already
+    /// constructed) `node`'s `nodeEvent` input. The graph takes ownership of `node`;
+    /// the caller keeps a raw pointer (node.get()) for inspection. Sample rate is set
+    /// before Init so node rates compute.
+    Ref<sg::SoundGraph> MakeEventRoutedGraph(Scope<sg::NodeProcessor> node, UUID nodeID,
+                                             Identifier eventName, Identifier nodeEvent)
+    {
+        auto graph = Ref<sg::SoundGraph>::Create("ExternalTrigger", UUID());
+        graph->AddInEvent(eventName); // graph input-event endpoint
+        graph->AddNode(std::move(node));
+
+        EXPECT_TRUE(graph->AddInputEventsRoute(eventName, nodeID, nodeEvent))
+            << "MakeEventRoutedGraph: failed to route the graph input event to the node";
+        graph->SetSampleRate(kSampleRate);
+        graph->Init();
+        return graph;
+    }
+} // namespace
+
+TEST_F(SoundGraphSampleAccurateTriggerTest, ClampInputEventOffsetKeepsOffsetsWithinTheBlock)
+{
+    using sg::SoundGraphSource;
+    // Negative (no frame info) clamps to the block start.
+    EXPECT_EQ(SoundGraphSource::ClampInputEventOffset(-1, 480), 0);
+    EXPECT_EQ(SoundGraphSource::ClampInputEventOffset(-1000, 480), 0);
+    // In-range offsets pass through untouched.
+    EXPECT_EQ(SoundGraphSource::ClampInputEventOffset(0, 480), 0);
+    EXPECT_EQ(SoundGraphSource::ClampInputEventOffset(137, 480), 137);
+    EXPECT_EQ(SoundGraphSource::ClampInputEventOffset(479, 480), 479);
+    // At/over the block end clamps to the last frame so the event still fires this block.
+    EXPECT_EQ(SoundGraphSource::ClampInputEventOffset(480, 480), 479);
+    EXPECT_EQ(SoundGraphSource::ClampInputEventOffset(99999, 480), 479);
+    // A zero-length block has no frame to land on.
+    EXPECT_EQ(SoundGraphSource::ClampInputEventOffset(10, 0), 0);
+}
+
+TEST_F(SoundGraphSampleAccurateTriggerTest, GraphSendInputEventForwardsSampleOffsetThroughRoute)
+{
+    constexpr i32 kOffset = 271;
+
+    auto capture = CreateScope<OffsetCaptureNode>(UUID());
+    auto* capturePtr = capture.get();
+    const UUID captureID = capture->m_ID;
+    Ref<sg::SoundGraph> graph = MakeEventRoutedGraph(std::move(capture), captureID, Identifier("Footstep"), Identifier("In"));
+
+    // Fire the graph input event with a mid-block offset — the increment under test
+    // is that the offset reaches the consumer instead of being snapped to frame 0.
+    ASSERT_TRUE(graph->SendInputEvent(Identifier("Footstep"), choc::value::createFloat32(1.0f), kOffset));
+
+    ASSERT_EQ(capturePtr->m_Offsets.size(), 1u);
+    EXPECT_EQ(capturePtr->m_Offsets[0], kOffset) << "external trigger offset must survive the graph-input route";
+    EXPECT_FLOAT_EQ(capturePtr->m_Values[0], 1.0f);
+}
+
+TEST_F(SoundGraphSampleAccurateTriggerTest, GraphSendInputEventDefaultsToBlockStart)
+{
+    auto capture = CreateScope<OffsetCaptureNode>(UUID());
+    auto* capturePtr = capture.get();
+    const UUID captureID = capture->m_ID;
+    Ref<sg::SoundGraph> graph = MakeEventRoutedGraph(std::move(capture), captureID, Identifier("Footstep"), Identifier("In"));
+
+    // No offset argument -> legacy block-boundary timing (frame 0).
+    ASSERT_TRUE(graph->SendInputEvent(Identifier("Footstep"), choc::value::createFloat32(1.0f)));
+
+    ASSERT_EQ(capturePtr->m_Offsets.size(), 1u);
+    EXPECT_EQ(capturePtr->m_Offsets[0], 0) << "a value-only external fire must land at the block start";
+}
+
+TEST_F(SoundGraphSampleAccurateTriggerTest, GraphSendInputEventOnUnknownEndpointReturnsFalse)
+{
+    auto capture = CreateScope<OffsetCaptureNode>(UUID());
+    auto* capturePtr = capture.get();
+    const UUID captureID = capture->m_ID;
+    Ref<sg::SoundGraph> graph = MakeEventRoutedGraph(std::move(capture), captureID, Identifier("Footstep"), Identifier("In"));
+
+    EXPECT_FALSE(graph->SendInputEvent(Identifier("NoSuchEvent"), choc::value::createFloat32(1.0f), 100));
+    EXPECT_TRUE(capturePtr->m_Offsets.empty()) << "an unknown endpoint must fire nothing";
+}
+
+TEST_F(SoundGraphSampleAccurateTriggerTest, ExternalTriggerThroughSourceRetriggersEnvelopeAtExactFrame)
+{
+    constexpr i32 kOffset = 222;
+    constexpr u32 kChannels = 2; // SoundGraphSource default output channel count
+
+    // AD envelope wired to a graph input event named "Footstep".
+    auto env = CreateScope<sg::ADEnvelope>("AD", UUID());
+    env->m_AttackTime.SetDefault(0.05f); // ~2400-sample attack, still rising across the block
+    env->m_DecayTime.SetDefault(0.05f);
+    auto* envPtr = env.get();
+    const UUID envID = env->m_ID;
+    Ref<sg::SoundGraph> graph = MakeEventRoutedGraph(std::move(env), envID, Identifier("Footstep"), sg::ADEnvelope::IDs::s_Trigger);
+
+    sg::SoundGraphSource source;
+    source.ReplaceGraph(graph);
+
+    // Game code schedules a footstep at a mid-block sample offset (the external path).
+    ASSERT_TRUE(source.SendInputEvent("Footstep", 1.0f, kOffset));
+
+    // Drive one real audio block through the source; it drains the queue and fires the
+    // trigger at its exact frame before SoundGraph::Process runs (device-free, same as
+    // SoundGraphParameterWiringTest).
+    std::array<f32, kBlock * kChannels> bus{};
+    f32* busPtr = bus.data();
+    source.ProcessSamples(&busPtr, kBlock);
+
+    const f32* out = envPtr->m_OutEnvelope.Data();
+    for (i32 f = 0; f < kOffset; ++f)
+        EXPECT_FLOAT_EQ(out[static_cast<u32>(f)], 0.0f)
+            << "envelope must be silent before the external trigger's frame " << f;
+    EXPECT_GT(out[static_cast<u32>(kOffset)], 0.0f)
+        << "attack must start at the external trigger's exact frame, not the block boundary";
+    EXPECT_GT(out[static_cast<u32>(kOffset) + 50], out[static_cast<u32>(kOffset)])
+        << "attack must be rising after the external trigger";
+}
+
+TEST_F(SoundGraphSampleAccurateTriggerTest, ExternalTriggerThroughSourceClampsOutOfRangeOffsetIntoTheBlock)
+{
+    constexpr u32 kChannels = 2;
+
+    auto env = CreateScope<sg::ADEnvelope>("AD", UUID());
+    env->m_AttackTime.SetDefault(0.05f);
+    env->m_DecayTime.SetDefault(0.05f);
+    auto* envPtr = env.get();
+    const UUID envID = env->m_ID;
+    Ref<sg::SoundGraph> graph = MakeEventRoutedGraph(std::move(env), envID, Identifier("Footstep"), sg::ADEnvelope::IDs::s_Trigger);
+
+    sg::SoundGraphSource source;
+    source.ReplaceGraph(graph);
+
+    // An offset past the block end must clamp to the last frame and still fire this block,
+    // not vanish — so only the final frame shows the attack onset.
+    ASSERT_TRUE(source.SendInputEvent("Footstep", 1.0f, /*sampleOffset=*/100000));
+
+    std::array<f32, kBlock * kChannels> bus{};
+    f32* busPtr = bus.data();
+    source.ProcessSamples(&busPtr, kBlock);
+
+    const f32* out = envPtr->m_OutEnvelope.Data();
+    for (u32 f = 0; f < kBlock - 1; ++f)
+        EXPECT_FLOAT_EQ(out[f], 0.0f) << "clamped trigger must stay silent until the last frame, was at " << f;
+    EXPECT_GT(out[kBlock - 1], 0.0f) << "an out-of-range offset must clamp to the block's last frame";
 }

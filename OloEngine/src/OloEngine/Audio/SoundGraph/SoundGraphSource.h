@@ -160,6 +160,31 @@ namespace OloEngine::Audio::SoundGraph
         }
 
         bool SendPlayEvent();
+
+        /** Schedule a sample-accurate external (game-code) trigger/event into the graph.
+            `endpointID` is the hashed graph input-event name (== static_cast<u32>(Identifier{name})
+            == Hash::GenerateFNVHash(name)); the string_view overload hashes for you.
+            `sampleOffset` is the frame within the NEXT processed audio block at which the
+            event fires (e.g. a footstep synced to an animation frame); the audio thread
+            clamps it to [0, blockSize) via ClampInputEventOffset, so an out-of-range or
+            negative offset still lands sanely. `value` is the event's float payload (NaN/Inf
+            sanitised to 1.0f); trigger consumers ignore it and act on the offset only.
+
+            Main thread / single producer (same contract as SetParameter): the event is
+            handed to the audio thread through a lock-free queue and applied just before the
+            graph's Process for that block. Returns false only if the hand-off queue is full
+            (event dropped — preferable to blocking gameplay); it does NOT verify the endpoint
+            exists (unknown names no-op on the audio thread). */
+        bool SendInputEvent(u32 endpointID, f32 value = 1.0f, i32 sampleOffset = 0);
+        bool SendInputEvent(std::string_view endpointName, f32 value = 1.0f, i32 sampleOffset = 0);
+
+        /** Clamp an externally supplied per-event frame offset into the valid range for a
+            block of `blockSize` frames: [0, blockSize). A negative offset (a legacy
+            block-boundary event with no frame info) clamps to 0; an offset at or beyond the
+            block end clamps to the last frame so the event still fires this block. blockSize
+            == 0 yields 0. Static + pure so the validation is unit-testable without a device. */
+        static i32 ClampInputEventOffset(i32 sampleOffset, u32 blockSize) noexcept;
+
         void ResetPlayback();
         u64 GetCurrentFrame() const
         {
@@ -229,6 +254,14 @@ namespace OloEngine::Audio::SoundGraph
 
         /** Called from audio thread each block to push queued parameter changes. */
         void UpdateChangedParameters();
+
+        /** Drain the external input-event hand-off queue, firing each queued trigger/event
+            into the graph at its (block-clamped) sample offset. Audio-thread only: wait-free
+            and allocation-free. Must run before SoundGraph::Process for the same block so the
+            consuming nodes observe the trigger when they process. `frameCount` is the block
+            size used to clamp each event's offset to [0, frameCount). Returns the number of
+            events the graph accepted. */
+        u32 DrainInputEvents(u32 frameCount);
 
         /** SoundGraph event handlers (called from audio thread) */
         static void HandleGraphEvent(void* context, u64 frameIndex, Identifier endpointID, const choc::value::ValueView& eventData);
@@ -301,6 +334,24 @@ namespace OloEngine::Audio::SoundGraph
             Audio::PreAllocatedValue m_Value;
         };
         Audio::LockFreeEventQueue<ParameterUpdate, 256> m_ParameterUpdateQueue;
+
+        // Lock-free hand-off of external (game-code) trigger/event fires from the main
+        // thread (producer: SendInputEvent enqueues) to the audio thread (consumer:
+        // ProcessSamples drains via DrainInputEvents just before SoundGraph::Process).
+        // Each entry carries the target graph input-event hash, the float payload, and
+        // the per-event sample offset within the block. Unlike the Play flag (always
+        // block-quantised to frame 0), this is what makes an externally scheduled
+        // footstep/SFX land on its exact sample — the audio thread clamps the offset to
+        // the block and threads it through SoundGraph::SendInputEvent's offset-aware path.
+        // Events are float-valued (triggers ignore the value), so a plain f32 suffices —
+        // no PreAllocatedValue needed.
+        struct InputEventEntry
+        {
+            u32 m_EndpointID = 0;
+            f32 m_Value = 1.0f;
+            i32 m_SampleOffset = 0;
+        };
+        Audio::LockFreeEventQueue<InputEventEntry, 256> m_InputEventQueue;
 
         AtomicFlag m_PlayRequestFlag;
         bool m_PresetIsInitialized = false;
