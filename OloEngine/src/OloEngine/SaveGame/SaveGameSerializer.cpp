@@ -309,6 +309,7 @@ namespace OloEngine
             SAVE_COMPONENT(TriangleMeshCollider3DComponent, entity, writer);
             SAVE_COMPONENT(CharacterController3DComponent, entity, writer);
             SAVE_COMPONENT(PhysicsJoint3DComponent, entity, writer);
+            SAVE_COMPONENT(VehicleComponent, entity, writer);
             SAVE_COMPONENT(TextComponent, entity, writer);
             SAVE_COMPONENT(ScriptComponent, entity, writer);
             SAVE_COMPONENT(AudioSourceComponent, entity, writer);
@@ -543,6 +544,7 @@ namespace OloEngine
                 TRY_LOAD_COMPONENT(TriangleMeshCollider3DComponent);
                 TRY_LOAD_COMPONENT(CharacterController3DComponent);
                 TRY_LOAD_COMPONENT(PhysicsJoint3DComponent);
+                TRY_LOAD_COMPONENT(VehicleComponent);
                 TRY_LOAD_COMPONENT(TextComponent);
                 TRY_LOAD_COMPONENT(ScriptComponent);
                 TRY_LOAD_COMPONENT(AudioSourceComponent);

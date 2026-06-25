@@ -484,6 +484,22 @@ namespace OloEngine
             }
         }
 
+        // A VehicleConstraint references (and step-listens on) the chassis body,
+        // so it must be torn down before that body is destroyed below — otherwise
+        // the still-registered step listener dereferences a freed body on the next
+        // physics tick (and UpdateVehicleControllers would look up the now-gone
+        // entity). m_Registry.destroy() does NOT fire OnComponentRemoved, so do it
+        // explicitly here, vehicle-before-body, matching OnPhysics3DStop's order.
+        if (m_JoltScene && entity.HasComponent<VehicleComponent>())
+        {
+            auto& vehicle = entity.GetComponent<VehicleComponent>();
+            if (vehicle.m_RuntimeVehicleToken != 0)
+            {
+                m_JoltScene->DestroyVehicle(entity);
+                vehicle.m_RuntimeVehicleToken = 0;
+            }
+        }
+
         // Tear down physics bodies before the registry forgets about the entity —
         // otherwise JoltScene's body table holds a dangling entity ID and trips
         // an entt assertion at JoltScene::Shutdown when it tries to release the
@@ -2320,6 +2336,20 @@ namespace OloEngine
     template<>
     void Scene::OnComponentRemoved<Rigidbody3DComponent>(Entity entity, Rigidbody3DComponent& component)
     {
+        // The chassis body backs any VehicleConstraint on this entity, and that
+        // constraint step-listens on the body, so destroy the vehicle before the
+        // body it drives — otherwise the constraint dereferences a freed body on
+        // the next physics tick (a vehicle without its chassis can't simulate).
+        if (m_JoltScene && entity.HasComponent<VehicleComponent>())
+        {
+            auto& vehicle = entity.GetComponent<VehicleComponent>();
+            if (vehicle.m_RuntimeVehicleToken != 0)
+            {
+                m_JoltScene->DestroyVehicle(entity);
+                vehicle.m_RuntimeVehicleToken = 0;
+            }
+        }
+
         if (m_JoltScene && component.m_RuntimeBodyToken != 0)
         {
             m_JoltScene->DestroyBody(entity);
@@ -2358,6 +2388,33 @@ namespace OloEngine
             // re-enables collision between the two bodies it had connected.
             if (m_JoltScene->IsInitialized())
                 m_JoltScene->ApplyJointCollisionFilters();
+        }
+    }
+
+    template<>
+    void Scene::OnComponentAdded<VehicleComponent>(Entity entity, VehicleComponent& /*component*/)
+    {
+        // If physics is already running when a vehicle is added at runtime, build
+        // the Jolt VehicleConstraint immediately (mirrors the joint runtime-add
+        // hook). The chassis rigidbody must already exist; CreateVehicle warns and
+        // skips otherwise, and sets m_RuntimeVehicleToken on success.
+        if (m_JoltScene && m_JoltScene->IsInitialized())
+        {
+            (void)m_JoltScene->CreateVehicle(entity);
+        }
+    }
+
+    // Specialisation: when a VehicleComponent is removed at runtime, the owning
+    // JoltScene must release the Jolt VehicleConstraint (and unregister its step
+    // listener). Without this hook the constraint stays registered and keeps
+    // driving a chassis body that may have been re-purposed.
+    template<>
+    void Scene::OnComponentRemoved<VehicleComponent>(Entity entity, VehicleComponent& component)
+    {
+        if (m_JoltScene && component.m_RuntimeVehicleToken != 0)
+        {
+            m_JoltScene->DestroyVehicle(entity);
+            component.m_RuntimeVehicleToken = 0;
         }
     }
 
@@ -2713,6 +2770,17 @@ namespace OloEngine
         // Every body and joint exists now, so joints that opted out of connected-
         // body collision (m_CollideConnected == false) can be filtered.
         m_JoltScene->ApplyJointCollisionFilters();
+
+        // Vehicle pass: every chassis rigidbody now exists, so the Jolt
+        // VehicleConstraint can be built around it. CreateVehicle sets
+        // m_RuntimeVehicleToken on success; runtime-added vehicles are covered by
+        // the OnComponentAdded<VehicleComponent> hook.
+        auto vehicleView = m_Registry.view<VehicleComponent>();
+        for (auto entity : vehicleView)
+        {
+            Entity ent = { entity, this };
+            (void)m_JoltScene->CreateVehicle(ent);
+        }
     }
 
     void Scene::OnPhysics3DStop()
@@ -2723,8 +2791,20 @@ namespace OloEngine
             return;
         }
 
-        // Remove joints first — constraints reference bodies, so they must go
-        // before the bodies they connect are destroyed below.
+        // Remove vehicles and joints first — both reference (and vehicles also
+        // step-listen on) bodies, so they must go before the bodies are destroyed.
+        auto vehicleView = m_Registry.view<VehicleComponent>();
+        for (auto entity : vehicleView)
+        {
+            Entity ent = { entity, this };
+            auto& vehicle = ent.GetComponent<VehicleComponent>();
+            if (vehicle.m_RuntimeVehicleToken != 0)
+            {
+                m_JoltScene->DestroyVehicle(ent);
+                vehicle.m_RuntimeVehicleToken = 0;
+            }
+        }
+
         auto jointView = m_Registry.view<PhysicsJoint3DComponent>();
         for (auto entity : jointView)
         {

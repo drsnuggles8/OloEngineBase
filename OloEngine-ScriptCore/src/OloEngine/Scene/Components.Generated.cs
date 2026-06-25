@@ -2208,6 +2208,105 @@ namespace OloEngine
 		}
 	}
 
+	public partial class VehicleComponent : Component
+	{
+		public float HalfTrackWidth
+		{
+			get => InternalCalls.VehicleComponent_GetHalfTrackWidth(Entity.ID);
+			set => InternalCalls.VehicleComponent_SetHalfTrackWidth(Entity.ID, value);
+		}
+
+		public float FrontAxleOffset
+		{
+			get => InternalCalls.VehicleComponent_GetFrontAxleOffset(Entity.ID);
+			set => InternalCalls.VehicleComponent_SetFrontAxleOffset(Entity.ID, value);
+		}
+
+		public float RearAxleOffset
+		{
+			get => InternalCalls.VehicleComponent_GetRearAxleOffset(Entity.ID);
+			set => InternalCalls.VehicleComponent_SetRearAxleOffset(Entity.ID, value);
+		}
+
+		public float WheelAttachmentHeight
+		{
+			get => InternalCalls.VehicleComponent_GetWheelAttachmentHeight(Entity.ID);
+			set => InternalCalls.VehicleComponent_SetWheelAttachmentHeight(Entity.ID, value);
+		}
+
+		public float WheelRadius
+		{
+			get => InternalCalls.VehicleComponent_GetWheelRadius(Entity.ID);
+			set => InternalCalls.VehicleComponent_SetWheelRadius(Entity.ID, value);
+		}
+
+		public float WheelWidth
+		{
+			get => InternalCalls.VehicleComponent_GetWheelWidth(Entity.ID);
+			set => InternalCalls.VehicleComponent_SetWheelWidth(Entity.ID, value);
+		}
+
+		public float SuspensionMinLength
+		{
+			get => InternalCalls.VehicleComponent_GetSuspensionMinLength(Entity.ID);
+			set => InternalCalls.VehicleComponent_SetSuspensionMinLength(Entity.ID, value);
+		}
+
+		public float SuspensionMaxLength
+		{
+			get => InternalCalls.VehicleComponent_GetSuspensionMaxLength(Entity.ID);
+			set => InternalCalls.VehicleComponent_SetSuspensionMaxLength(Entity.ID, value);
+		}
+
+		public float SuspensionFrequency
+		{
+			get => InternalCalls.VehicleComponent_GetSuspensionFrequency(Entity.ID);
+			set => InternalCalls.VehicleComponent_SetSuspensionFrequency(Entity.ID, value);
+		}
+
+		public float SuspensionDamping
+		{
+			get => InternalCalls.VehicleComponent_GetSuspensionDamping(Entity.ID);
+			set => InternalCalls.VehicleComponent_SetSuspensionDamping(Entity.ID, value);
+		}
+
+		public float MaxEngineTorque
+		{
+			get => InternalCalls.VehicleComponent_GetMaxEngineTorque(Entity.ID);
+			set => InternalCalls.VehicleComponent_SetMaxEngineTorque(Entity.ID, value);
+		}
+
+		public float MaxSteerAngleDeg
+		{
+			get => InternalCalls.VehicleComponent_GetMaxSteerAngleDeg(Entity.ID);
+			set => InternalCalls.VehicleComponent_SetMaxSteerAngleDeg(Entity.ID, value);
+		}
+
+		public float MaxBrakeTorque
+		{
+			get => InternalCalls.VehicleComponent_GetMaxBrakeTorque(Entity.ID);
+			set => InternalCalls.VehicleComponent_SetMaxBrakeTorque(Entity.ID, value);
+		}
+
+		public float ThrottleInput
+		{
+			get => InternalCalls.VehicleComponent_GetThrottleInput(Entity.ID);
+			set => InternalCalls.VehicleComponent_SetThrottleInput(Entity.ID, value);
+		}
+
+		public float SteerInput
+		{
+			get => InternalCalls.VehicleComponent_GetSteerInput(Entity.ID);
+			set => InternalCalls.VehicleComponent_SetSteerInput(Entity.ID, value);
+		}
+
+		public float BrakeInput
+		{
+			get => InternalCalls.VehicleComponent_GetBrakeInput(Entity.ID);
+			set => InternalCalls.VehicleComponent_SetBrakeInput(Entity.ID, value);
+		}
+	}
+
 	public partial class VideoOverlayComponent : Component
 	{
 		public bool PlayOnStart

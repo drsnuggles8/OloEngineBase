@@ -105,6 +105,7 @@ using AllComponents = ComponentGroup<
     UITextComponent,
     UIToggleComponent,
     UIWorldAnchorComponent,
+    VehicleComponent,
     VideoOverlayComponent,
     VideoSurfaceComponent,
     WaterComponent>;

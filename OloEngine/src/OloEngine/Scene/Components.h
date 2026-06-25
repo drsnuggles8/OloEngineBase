@@ -1019,6 +1019,96 @@ namespace OloEngine
         }
     };
 
+    // A wheeled vehicle (issue #308 item 5) backed by Jolt's VehicleConstraint +
+    // WheeledVehicleController. MVP slice: the chassis IS this entity's
+    // Rigidbody3DComponent (which must be Dynamic to be driven). JoltScene builds
+    // a standard four-wheel car around the chassis at runtime start — two
+    // steerable front wheels + two rear (driven) wheels, laid out symmetrically
+    // from the geometry below, all in the body's LOCAL space (meters). The Jolt
+    // forward axis is local +Z and up is local +Y. The constraint is created in a
+    // pass after every rigidbody exists (mirrors PhysicsJoint3DComponent) and torn
+    // down at physics stop; it is registered as a Jolt step listener so the wheel
+    // collision + suspension run each physics tick. Driver input
+    // (m_ThrottleInput / m_SteerInput / m_BrakeInput) is read each step — leave it
+    // at 0 for a car that just settles on its suspension, or drive it from a
+    // script. A keyboard hookup and a designer-tunable wheel array are follow-ups;
+    // Ragdolls (the other half of #308 item 5) remain open.
+    struct VehicleComponent
+    {
+        // --- Wheel layout, in the chassis body's local space (meters) ---
+        // Half the track width: the left/right wheels sit at -/+ this on local X.
+        OLO_PROPERTY()
+        f32 m_HalfTrackWidth = 0.9f;
+        // Forward offset of the front axle and backward offset of the rear axle
+        // along local Z (Jolt's vehicle forward). Both authored positive.
+        OLO_PROPERTY()
+        f32 m_FrontAxleOffset = 1.25f;
+        OLO_PROPERTY()
+        f32 m_RearAxleOffset = 1.25f;
+        // Height (local Y) of the suspension attachment point relative to the body
+        // origin. Usually negative so the wheels hang below the chassis.
+        OLO_PROPERTY()
+        f32 m_WheelAttachmentHeight = -0.4f;
+
+        // --- Wheel + suspension ---
+        OLO_PROPERTY()
+        f32 m_WheelRadius = 0.35f;
+        OLO_PROPERTY()
+        f32 m_WheelWidth = 0.25f;
+        // Suspension travel relative to the attachment point: min = max raised,
+        // max = max droop. Jolt requires 0 <= min <= max.
+        OLO_PROPERTY()
+        f32 m_SuspensionMinLength = 0.3f;
+        OLO_PROPERTY()
+        f32 m_SuspensionMaxLength = 0.5f;
+        // Suspension spring (Jolt ESpringMode::FrequencyAndDamping). Frequency in
+        // Hz (> 0); damping is the ratio (0 = undamped/bouncy, 1 = critical).
+        OLO_PROPERTY()
+        f32 m_SuspensionFrequency = 1.5f;
+        OLO_PROPERTY()
+        f32 m_SuspensionDamping = 0.5f;
+
+        // --- Drivetrain ---
+        // Peak engine torque (N·m), delivered through one differential to the
+        // rear axle (rear-wheel drive for the MVP).
+        OLO_PROPERTY()
+        f32 m_MaxEngineTorque = 500.0f;
+        // Max steering angle of the front wheels (degrees), reached at |steer| = 1.
+        OLO_PROPERTY()
+        f32 m_MaxSteerAngleDeg = 30.0f;
+        // Brake torque (N·m) applied to every wheel at full m_BrakeInput.
+        OLO_PROPERTY()
+        f32 m_MaxBrakeTorque = 1500.0f;
+
+        // --- Live driver input (sanitized + read each physics step) ---
+        // Throttle in [-1, 1] (negative drives in reverse for the auto
+        // transmission), steer-right in [-1, 1] (1 = full right), brake in [0, 1].
+        // Default 0 = a parked car that just settles on its suspension. Scripts
+        // (or a future keyboard hookup) set these to drive it.
+        OLO_PROPERTY()
+        f32 m_ThrottleInput = 0.0f;
+        OLO_PROPERTY()
+        f32 m_SteerInput = 0.0f;
+        OLO_PROPERTY()
+        f32 m_BrakeInput = 0.0f;
+
+        // Storage for runtime — non-zero once the Jolt VehicleConstraint has been
+        // created (mirrors PhysicsJoint3DComponent::m_RuntimeConstraintToken).
+        // Excluded from authored-state equality so play-mode enter/exit isn't seen
+        // as a change; cleared back to 0 when the vehicle is destroyed.
+        u64 m_RuntimeVehicleToken = 0;
+
+        VehicleComponent() = default;
+        VehicleComponent(const VehicleComponent&) = default;
+
+        // m_RuntimeVehicleToken is excluded (runtime-only), so compare authored
+        // fields explicitly rather than via a whole-struct Math::BitwiseEqual.
+        auto operator==(const VehicleComponent& other) const -> bool
+        {
+            return Math::BitwiseEqual(m_HalfTrackWidth, other.m_HalfTrackWidth) && Math::BitwiseEqual(m_FrontAxleOffset, other.m_FrontAxleOffset) && Math::BitwiseEqual(m_RearAxleOffset, other.m_RearAxleOffset) && Math::BitwiseEqual(m_WheelAttachmentHeight, other.m_WheelAttachmentHeight) && Math::BitwiseEqual(m_WheelRadius, other.m_WheelRadius) && Math::BitwiseEqual(m_WheelWidth, other.m_WheelWidth) && Math::BitwiseEqual(m_SuspensionMinLength, other.m_SuspensionMinLength) && Math::BitwiseEqual(m_SuspensionMaxLength, other.m_SuspensionMaxLength) && Math::BitwiseEqual(m_SuspensionFrequency, other.m_SuspensionFrequency) && Math::BitwiseEqual(m_SuspensionDamping, other.m_SuspensionDamping) && Math::BitwiseEqual(m_MaxEngineTorque, other.m_MaxEngineTorque) && Math::BitwiseEqual(m_MaxSteerAngleDeg, other.m_MaxSteerAngleDeg) && Math::BitwiseEqual(m_MaxBrakeTorque, other.m_MaxBrakeTorque) && Math::BitwiseEqual(m_ThrottleInput, other.m_ThrottleInput) && Math::BitwiseEqual(m_SteerInput, other.m_SteerInput) && Math::BitwiseEqual(m_BrakeInput, other.m_BrakeInput);
+        }
+    };
+
     struct TextComponent
     {
         OLO_PROPERTY(Name = "Text", Type = "string")
