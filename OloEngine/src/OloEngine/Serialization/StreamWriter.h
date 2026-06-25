@@ -6,6 +6,7 @@
 #include <unordered_map>
 #include <vector>
 #include <string>
+#include <type_traits>
 
 namespace OloEngine
 {
@@ -47,87 +48,50 @@ namespace OloEngine
             T::Serialize(this, obj);
         }
 
-        template<typename Key, typename Value>
-        void WriteMap(const std::map<Key, Value>& map, bool writeSize = true)
+        /// @brief Writes any associative container (std::map / std::unordered_map).
+        /// @note Each key and value is written via WriteElement, so std::string keys/values go
+        ///       through WriteString (length-prefixed) while trivially-copyable elements are raw
+        ///       and the rest use their static Serialize. Wire format: optional u32 count, then
+        ///       count × { key, value }.
+        template<typename Map>
+        void WriteMap(const Map& map, bool writeSize = true)
         {
             if (writeSize)
-                WriteRaw<u32>((u32)map.size());
+                WriteRaw<u32>(static_cast<u32>(map.size()));
 
             for (const auto& [key, value] : map)
             {
-                if constexpr (std::is_trivially_copyable_v<Key>)
-                    WriteRaw<Key>(key);
-                else
-                    WriteObject<Key>(key);
-
-                if constexpr (std::is_trivially_copyable_v<Value>)
-                    WriteRaw<Value>(value);
-                else
-                    WriteObject<Value>(value);
+                WriteElement(key);
+                WriteElement(value);
             }
         }
 
-        template<typename Key, typename Value>
-        void WriteMap(const std::unordered_map<Key, Value>& map, bool writeSize = true)
-        {
-            if (writeSize)
-                WriteRaw<u32>((u32)map.size());
-
-            for (const auto& [key, value] : map)
-            {
-                if constexpr (std::is_trivially_copyable_v<Key>)
-                    WriteRaw<Key>(key);
-                else
-                    WriteObject<Key>(key);
-
-                if constexpr (std::is_trivially_copyable_v<Value>)
-                    WriteRaw<Value>(value);
-                else
-                    WriteObject<Value>(value);
-            }
-        }
-
-        template<typename Value>
-        void WriteMap(const std::unordered_map<std::string, Value>& map, bool writeSize = true)
-        {
-            if (writeSize)
-                WriteRaw<u32>((u32)map.size());
-
-            for (const auto& [key, value] : map)
-            {
-                WriteString(key);
-
-                if constexpr (std::is_trivially_copyable_v<Value>)
-                    WriteRaw<Value>(value);
-                else
-                    WriteObject<Value>(value);
-            }
-        }
-
+        /// @brief Writes a vector. Each element is written via WriteElement (see WriteMap).
+        /// @note Wire format: optional u32 count, then count × element.
         template<typename T>
         void WriteArray(const std::vector<T>& array, bool writeSize = true)
         {
             if (writeSize)
-                WriteRaw<u32>((u32)array.size());
+                WriteRaw<u32>(static_cast<u32>(array.size()));
 
             for (const auto& element : array)
-            {
-                if constexpr (std::is_trivially_copyable_v<T>)
-                    WriteRaw<T>(element);
-                else
-                    WriteObject<T>(element);
-            }
+                WriteElement(element);
+        }
+
+      private:
+        /// @brief Writes a single container element with the right primitive: std::string →
+        ///        WriteString (length-prefixed), trivially-copyable → WriteRaw (raw bytes),
+        ///        otherwise WriteObject (static Serialize).
+        template<typename T>
+        void WriteElement(const T& element)
+        {
+            if constexpr (std::is_same_v<T, std::string>)
+                WriteString(element);
+            else if constexpr (std::is_trivially_copyable_v<T>)
+                WriteRaw<T>(element);
+            else
+                WriteObject<T>(element);
         }
     };
-
-    template<>
-    inline void StreamWriter::WriteArray(const std::vector<std::string>& array, bool writeSize)
-    {
-        if (writeSize)
-            WriteRaw<u32>((u32)array.size());
-
-        for (const auto& element : array)
-            WriteString(element);
-    }
 
 } // namespace OloEngine
