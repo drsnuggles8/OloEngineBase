@@ -491,6 +491,9 @@ namespace OloEngine::Audio::SoundGraph
             // validated against the old graph's endpoints could land on the new graph the
             // next time the audio thread drains.
             m_ParameterUpdateQueue.Clear();
+            // Likewise discard external triggers queued for the previous graph so a footstep
+            // aimed at the old graph's endpoints can't leak onto the new one.
+            m_InputEventQueue.Clear();
 
             if (m_Graph)
             {
@@ -642,6 +645,40 @@ namespace OloEngine::Audio::SoundGraph
         return true;
     }
 
+    i32 SoundGraphSource::ClampInputEventOffset(i32 sampleOffset, u32 blockSize) noexcept
+    {
+        if (blockSize == 0)
+            return 0;
+        if (sampleOffset < 0)
+            return 0; // legacy block-boundary event with no frame info -> frame 0
+        const i32 maxOffset = static_cast<i32>(blockSize) - 1;
+        return sampleOffset > maxOffset ? maxOffset : sampleOffset;
+    }
+
+    bool SoundGraphSource::SendInputEvent(u32 endpointID, f32 value, i32 sampleOffset)
+    {
+        // Main thread (single producer). Hand the event off to the audio thread; it is
+        // applied at its clamped sample offset just before the next Process (see
+        // DrainInputEvents). We deliberately do NOT touch m_Graph here — it may be swapped
+        // by ReplaceGraph on this thread, and InEvents is the audio thread's to read.
+        // Endpoint existence is resolved on the audio thread; an unknown name simply no-ops.
+        InputEventEntry entry;
+        entry.m_EndpointID = endpointID;
+        // Triggers act on the offset, not the value; keep the payload finite regardless.
+        entry.m_Value = std::isfinite(value) ? value : 1.0f;
+        entry.m_SampleOffset = sampleOffset;
+        return m_InputEventQueue.Push(entry);
+    }
+
+    bool SoundGraphSource::SendInputEvent(std::string_view endpointName, f32 value, i32 sampleOffset)
+    {
+        if (endpointName.empty())
+            return false;
+        // FNV hash matches static_cast<u32>(Identifier{name}), the key InEvents is built
+        // from, so the audio thread reconstructs the same Identifier to find the endpoint.
+        return SendInputEvent(OloEngine::Hash::GenerateFNVHash(endpointName), value, sampleOffset);
+    }
+
     void SoundGraphSource::ResetPlayback()
     {
         OLO_PROFILE_FUNCTION();
@@ -719,6 +756,31 @@ namespace OloEngine::Audio::SoundGraph
         while (m_ParameterUpdateQueue.Pop(update))
         {
             if (m_Graph->SendInputValue(update.m_ParameterID, update.m_Value.GetView(), /*interpolate=*/false))
+                ++applied;
+        }
+        return applied;
+    }
+
+    u32 SoundGraphSource::DrainInputEvents(u32 frameCount)
+    {
+        // Audio thread. Wait-free, allocation-free hand-off drain: pop each externally
+        // scheduled trigger/event and fire it into the graph at its block-clamped sample
+        // offset. Must run before SoundGraph::Process for this block so the consuming
+        // node's offset-aware InputEvent handler Fire()s its trigger before Process()
+        // Consume()s and splits the per-frame loop at that frame — that is what makes the
+        // external trigger sample-accurate instead of block-quantised. A zero-length block
+        // has no frame to schedule into, so leave the queue for the next non-empty block.
+        if (!m_Graph || frameCount == 0)
+            return 0;
+
+        u32 applied = 0;
+        InputEventEntry entry;
+        while (m_InputEventQueue.Pop(entry))
+        {
+            const i32 offset = ClampInputEventOffset(entry.m_SampleOffset, frameCount);
+            // createFloat32 here mirrors the existing Play-request fire below; the event
+            // system only reads the float, and trigger consumers ignore even that.
+            if (m_Graph->SendInputEvent(Identifier(entry.m_EndpointID), choc::value::createFloat32(entry.m_Value), offset))
                 ++applied;
         }
         return applied;
@@ -812,6 +874,12 @@ namespace OloEngine::Audio::SoundGraph
             // Apply any parameter writes the main thread queued since the last block,
             // before the graph reads its input cells. Wait-free and allocation-free.
             UpdateChangedParameters();
+
+            // Fire any external (game-code) triggers the main thread queued since the last
+            // block, each at its sample offset within THIS block (clamped to [0, frameCount)).
+            // Must precede Process so the consuming nodes split their per-frame loop at the
+            // exact frame — sample-accurate external triggers, not block-quantised.
+            DrainInputEvents(frameCount);
 
             // Begin processing block (refill wave player buffers)
             m_Graph->BeginProcessBlock();
