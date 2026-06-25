@@ -756,6 +756,17 @@ namespace OloEngine
     void EditorAssetManager::SyncWithAssetThread() noexcept
     {
 #if OLO_ASYNC_ASSETS
+        // Centralized, once-per-frame registry flush. Auto-import marks the
+        // registry dirty (m_RegistryFlushPending) instead of writing per file;
+        // here we coalesce a frame's worth of imports into a single disk write.
+        // Done before the m_AssetThread early-return so a pending flush can't be
+        // dropped, and exchange()d so an import that arrives after this point just
+        // flushes next frame. SerializeAssetRegistry() is internally noexcept.
+        if (m_RegistryFlushPending.exchange(false, std::memory_order_acq_rel))
+        {
+            SerializeAssetRegistry();
+        }
+
         if (!m_AssetThread)
             return;
 
@@ -1083,8 +1094,16 @@ namespace OloEngine
         // Convert to filesystem path for easier manipulation
         std::filesystem::path filePath(file);
 
-        // Only handle modification events (ignoring added/removed for now)
-        if (change_type != filewatch::Event::modified)
+        // Accept events that mean "this file now exists / changed at this path":
+        // added (new file), modified (edited), and renamed_new (the common
+        // write-temp-then-rename save pattern). removed / renamed_old are drops —
+        // we neither reload nor import those. Handling added/renamed_new (not just
+        // modified) is what lets brand-new files be auto-imported: a freshly
+        // copied or moved-in file usually surfaces first as `added`.
+        const bool isPresenceEvent = (change_type == filewatch::Event::added) ||
+                                     (change_type == filewatch::Event::modified) ||
+                                     (change_type == filewatch::Event::renamed_new);
+        if (!isPresenceEvent)
             return;
 
         // Filter by asset extensions to avoid processing non-asset files
@@ -1152,24 +1171,88 @@ namespace OloEngine
                 }
             }
 
-            // If we found the asset, reload it
-            if (assetHandle != 0)
+            const bool alreadyTracked = (assetHandle != 0);
+
+            // Resolve the absolute path once for the existence check and import.
+            const std::filesystem::path absolutePath =
+                filePath.is_absolute() ? filePath : (m_ProjectPath / filePath);
+
+            // Gather the pure decision inputs (see AssetFileWatchPolicy.h).
+            // Existence is a single stat; loaded-status is a cheap shared lock.
+            FileWatchDecisionInput decision;
+            decision.IsPresenceEvent = true; // already filtered above
+            decision.Type = assetType;
+            decision.AlreadyTracked = alreadyTracked;
+            decision.CurrentlyLoaded = alreadyTracked && IsAssetLoaded(assetHandle);
             {
-                OLO_CORE_INFO("🔄 Hot-reload triggered for asset: {} (Handle: {}, Type: {})",
-                              pathStr, (u64)assetHandle, (int)assetType);
-                ReloadDataAsync(assetHandle);
+                std::error_code statEc;
+                decision.ExistsAsRegularFile = std::filesystem::is_regular_file(absolutePath, statEc) && !statEc;
             }
-            else
+
+            switch (DecideFileWatchAction(decision))
             {
-                // Check if this might be a new asset file
-                OLO_CORE_TRACE("File change detected for untracked file: {} (Type: {})",
-                               pathStr, (int)assetType);
-                // TODO: In the future, we could auto-import new assets here
+                case FileWatchAction::Reload:
+                    OLO_CORE_INFO("🔄 Hot-reload triggered for asset: {} (Handle: {}, Type: {})",
+                                  pathStr, (u64)assetHandle, (int)assetType);
+                    ReloadDataAsync(assetHandle);
+                    break;
+
+                case FileWatchAction::Import:
+                    AutoImportNewAsset(absolutePath, assetType);
+                    break;
+
+                case FileWatchAction::Ignore:
+                    OLO_CORE_TRACE("File change ignored: {} (tracked={}, loaded={}, exists={}, type={})",
+                                   pathStr, alreadyTracked, decision.CurrentlyLoaded,
+                                   decision.ExistsAsRegularFile, (int)assetType);
+                    break;
             }
         }
         catch (const std::exception& e)
         {
             OLO_CORE_ERROR("Error handling file system event for {}: {}", file, e.what());
+        }
+    }
+
+    void EditorAssetManager::AutoImportNewAsset(const std::filesystem::path& absolutePath, AssetType assetType)
+    {
+        OLO_PROFILER_SCOPE("EditorAssetManager::AutoImportNewAsset");
+
+        // ImportAsset is idempotent (returns the existing handle if the path is
+        // already registered) and writes *metadata only* — it does not read the
+        // file's contents, so registering a file that is still being flushed to
+        // disk is safe; the bytes are parsed lazily on first GetAsset. A burst of
+        // create/modify events for one new file therefore imports exactly once;
+        // later events fall through to the (loaded-only) reload branch.
+        const AssetHandle handle = ImportAsset(absolutePath);
+        if (handle == 0)
+        {
+            OLO_CORE_WARN("Auto-import failed for new file: {}", absolutePath.string());
+            return;
+        }
+
+        OLO_CORE_INFO("✨ Auto-imported new asset: {} (Handle: {}, Type: {})",
+                      absolutePath.string(), (u64)handle, (int)assetType);
+
+        // Mark the registry dirty rather than writing it here: dropping a folder
+        // of N files fires N separate game-thread import tasks, and a per-file
+        // SerializeAssetRegistry() would rewrite the whole registry N times. The
+        // single per-frame flush in SyncWithAssetThread() coalesces the burst
+        // into one write. (AssetRegistry.oar's extension maps to no AssetType, so
+        // writing it can't re-enter this handler — no import loop.) The handle is
+        // already live in the in-memory registry; only the disk write is deferred
+        // (by at most a frame), and Shutdown() serializes unconditionally.
+        m_RegistryFlushPending.store(true, std::memory_order_relaxed);
+
+        // Surface it: notify the editor (Content Browser) that a new asset
+        // appeared so it refreshes without a manual import. We are already on the
+        // game thread (OnFileSystemEvent is dispatched via EnqueueGameThreadTask),
+        // so dispatch inline. The event carries the absolute path so listeners can
+        // resolve it against their own root without the project base.
+        if (Application* app = Application::TryGet())
+        {
+            AssetImportedEvent evt(handle, assetType, absolutePath);
+            app->OnEvent(evt);
         }
     }
 #endif

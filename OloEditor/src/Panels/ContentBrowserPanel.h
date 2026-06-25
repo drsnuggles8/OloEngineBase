@@ -33,6 +33,15 @@ namespace OloEngine
         // etc.) propagate visually without restarting the editor.
         void InvalidateThumbnail(AssetHandle handle, const std::filesystem::path& path);
 
+        // React to a brand-new asset auto-imported from disk by the editor's
+        // filesystem watcher (EditorAssetManager::AutoImportNewAsset →
+        // AssetImportedEvent → EditorLayer). Marks the directory that should
+        // now contain `absoluteAssetPath` as needing a rescan, so the file
+        // shows up on the next paint without a manual import or F5. The path is
+        // absolute and resolved against this panel's asset root; paths outside
+        // the asset tree are ignored.
+        void OnAssetImported(const std::filesystem::path& absoluteAssetPath);
+
         // Drop every preview thumbnail — both the handle-keyed cache
         // and the path-keyed fast path. Called when a *texture* changes
         // because we don't track which materials reference which

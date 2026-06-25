@@ -40,6 +40,7 @@ namespace OloEngine
         // Editor/Engine custom events
         AssetLoaded,
         AssetReloaded,
+        AssetImported,
         LocaleChanged,
     };
 

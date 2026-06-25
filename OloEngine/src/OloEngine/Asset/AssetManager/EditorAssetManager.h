@@ -3,6 +3,7 @@
 #include "AssetManagerBase.h"
 #include "OloEngine/Asset/AssetManager.h"
 #include "OloEngine/Core/Base.h"
+#include "OloEngine/Asset/AssetFileWatchPolicy.h"
 #include "OloEngine/Asset/AssetRegistry.h"
 #include "OloEngine/Asset/AssetImporter.h"
 #include "OloEngine/Asset/AssetSystem/EditorAssetSystem.h"
@@ -353,6 +354,21 @@ namespace OloEngine
          */
         void ScanDirectoryForAssets(const std::filesystem::path& directory);
 
+#if OLO_ASYNC_ASSETS
+        /**
+         * @brief Auto-import a newly discovered, untracked asset file (filewatch path)
+         *
+         * Registers metadata for a file the watcher saw appear under the project,
+         * persists the registry, and fires an AssetImportedEvent so the editor can
+         * surface it live. Called only from OnFileSystemEvent (game thread) after
+         * the decision policy resolves to FileWatchAction::Import.
+         *
+         * @param absolutePath Absolute path of the new file on disk (already verified to exist)
+         * @param assetType    Asset type resolved from the file extension
+         */
+        void AutoImportNewAsset(const std::filesystem::path& absolutePath, AssetType assetType);
+#endif
+
       private:
         // Asset registry for metadata management
         AssetRegistry m_AssetRegistry;
@@ -383,6 +399,14 @@ namespace OloEngine
 
         // Async reload tracking
         std::atomic<u32> m_ActiveReloadTasks{ 0 };
+
+        // Coalesced registry persistence. Auto-import (and any other game-thread
+        // path that wants the registry persisted) sets this instead of calling
+        // SerializeAssetRegistry() directly; SyncWithAssetThread() flushes it once
+        // per frame. A burst of N new files dropped at once therefore produces a
+        // single full-registry rewrite, not N. Game-thread-only in practice, but
+        // atomic to match the other watcher flags and stay defensive.
+        std::atomic<bool> m_RegistryFlushPending{ false };
 
         // Real-time file watching using filewatch library
         std::unique_ptr<filewatch::FileWatch<std::string>> m_ProjectFileWatcher;

@@ -98,3 +98,59 @@ TEST(AssetLoadedEventTest, DispatcherSkipsMismatchedHandler)
     EXPECT_FALSE(reloadedHandlerRan);
     EXPECT_FALSE(evt.Handled);
 }
+
+// ----------------------------------------------------------------------------
+// AssetImportedEvent — fired only when the filewatch auto-imports a new file.
+// Must be a distinct EventType so its Content Browser-refresh listener never
+// fires for the much more frequent AssetLoaded / AssetReloaded events.
+// ----------------------------------------------------------------------------
+
+TEST(AssetImportedEventTest, ExposesPayload)
+{
+    const AssetHandle handle = 9876543ULL;
+    const AssetType type = AssetType::Texture2D;
+    const std::filesystem::path path = "C:/proj/Assets/textures/new.png";
+
+    AssetImportedEvent evt(handle, type, path);
+
+    EXPECT_EQ(evt.GetHandle(), handle);
+    EXPECT_EQ(evt.GetAssetType(), type);
+    EXPECT_EQ(evt.GetPath(), path);
+}
+
+TEST(AssetImportedEventTest, IdentifiesItselfAsAssetImported)
+{
+    AssetImportedEvent evt(1ULL, AssetType::Mesh, "Assets/m.olomesh");
+
+    EXPECT_EQ(AssetImportedEvent::GetStaticType(), EventType::AssetImported);
+    EXPECT_EQ(evt.GetEventType(), EventType::AssetImported);
+    EXPECT_STREQ(evt.GetName(), "AssetImported");
+    EXPECT_TRUE(evt.IsInCategory(EventCategory::Application));
+}
+
+TEST(AssetImportedEventTest, IsDistinctFromLoadedAndReloaded)
+{
+    // A listener wired for AssetImported (Content Browser refresh) must not also
+    // fire for AssetLoaded (every async load) or AssetReloaded (every hot-reload).
+    EXPECT_NE(AssetImportedEvent::GetStaticType(), AssetLoadedEvent::GetStaticType());
+    EXPECT_NE(AssetImportedEvent::GetStaticType(), AssetReloadedEvent::GetStaticType());
+}
+
+TEST(AssetImportedEventTest, DispatcherInvokesMatchingHandler)
+{
+    AssetImportedEvent evt(55ULL, AssetType::Audio, "Assets/sfx/blip.wav");
+
+    bool handlerRan = false;
+    EventDispatcher dispatcher(evt);
+    const bool dispatched = dispatcher.Dispatch<AssetImportedEvent>(
+        [&](AssetImportedEvent& e)
+        {
+            handlerRan = true;
+            EXPECT_EQ(e.GetHandle(), 55ULL);
+            return true;
+        });
+
+    EXPECT_TRUE(dispatched);
+    EXPECT_TRUE(handlerRan);
+    EXPECT_TRUE(evt.Handled);
+}
