@@ -1,6 +1,7 @@
 #pragma once
 
 #include "OloEngine/Core/Base.h"
+#include "OloEngine/Terrain/Foliage/FoliageLayer.h"
 #include "OloEngine/Terrain/TerrainLayer.h"
 
 #include <array>
@@ -176,5 +177,32 @@ namespace OloEngine
         // out of the box.
         [[nodiscard]] static std::vector<TerrainLayer> MakeDefaultLayers();
         [[nodiscard]] static std::vector<TerrainLayerRule> MakeDefaultRules();
+
+        // ── Foliage auto-population ─────────────────────────────────────────
+
+        // Emit a FoliageComponent layer set from the terrain's auto-material
+        // rules. The foliage system already places vegetation by reading a
+        // splatmap channel + slope; this closes the loop so the *same* rules
+        // that paint the splatmap also vegetate the world — "generate a
+        // textured world" becomes "generate a vegetated world" in one step.
+        //
+        // For each built-in vegetation profile (grass + wildflowers on the
+        // grass layer, sparse dune grass on the sand layer — the default
+        // sand/grass/rock/snow biome shared with MakeDefaultLayers /
+        // MakeDefaultRules, layer indices 0..3) the emitted FoliageLayer takes
+        // its placement mask straight from the matching TerrainLayerRule:
+        // SplatmapChannel = the layer it grows on, and the slope band is the
+        // rule's slope band tightened by the profile's own slope ceiling — so
+        // vegetation lands exactly where its ground texture is and never on the
+        // cliffs above it. A profile whose layer no rule references is skipped
+        // (no painted texture → no vegetation), and bare rock / snow get none.
+        // Pure CPU — safe headless / in unit tests; the returned layers are
+        // ordinary serialized FoliageLayers (no new ECS state).
+        [[nodiscard]] static std::vector<FoliageLayer> MakeFoliageLayersFromRules(const std::vector<TerrainLayerRule>& rules);
+
+        // One-click preset: the foliage that matches MakeDefaultLayers() /
+        // MakeDefaultRules(). Equivalent to
+        // MakeFoliageLayersFromRules(MakeDefaultRules()).
+        [[nodiscard]] static std::vector<FoliageLayer> MakeDefaultFoliageLayers();
     };
 } // namespace OloEngine

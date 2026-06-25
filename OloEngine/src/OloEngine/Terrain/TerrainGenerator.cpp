@@ -66,6 +66,50 @@ namespace OloEngine
             i32 Dy;
             f32 Weight;
         };
+
+        // ── Foliage auto-population profiles ────────────────────────────────
+        // One vegetation kind for the default sand/grass/rock/snow biome:
+        // *what* to scatter (look + density), keyed to the material layer it
+        // grows on. The *where* (splat channel + slope band) is not stored here
+        // — it's taken from the matching TerrainLayerRule at emit time, so the
+        // foliage tracks whatever band the rule paints. Densities (instances per
+        // world unit²) are tuned so "generate a vegetated world" comes out
+        // visibly lush out of the box, while the per-cell channel/slope mask
+        // still keeps the total instance count bounded.
+        struct FoliageProfile
+        {
+            u32 MaterialLayer; // material layer / splat channel this grows on
+            const char* Name;
+            const char* AlbedoPath; // grass cutout so billboards render as blades, not solid quads
+            f32 Density;            // instances per world unit²
+            f32 SlopeCeilingDeg;    // own slope ceiling (min'd with the rule's MaxSlopeDeg)
+            f32 MinScale;
+            f32 MaxScale;
+            f32 MinHeight;
+            f32 MaxHeight;
+            glm::vec3 Color;
+            f32 WindStrength;
+            f32 WindSpeed;
+            f32 ViewDistance;
+        };
+
+        // Default biome foliage: dense grass + sparse wildflowers on the grass
+        // layer (1), and sparse dune grass on the sand layer (0). Rock (2) and
+        // snow (3) carry no vegetation. Order here is the emit order.
+        //
+        // The albedo points at the engine's stock grass-cutout texture (a 512²
+        // RGBA blade billboard shipped under OloEditor/assets — the documented
+        // run directory, shared by editor + runtime). The foliage shader
+        // alpha-tests against this texture's alpha, so without a cutout the
+        // billboards would sample whatever was last bound to the diffuse unit and
+        // render as solid/garbage quads. The BaseColor tint modulates the
+        // texture, differentiating the kinds.
+        constexpr const char* kGrassCutout = "assets/textures/grass.png";
+        constexpr std::array<FoliageProfile, 3> kDefaultFoliageProfiles{ {
+            { 1u, "Grass", kGrassCutout, 6.0f, 30.0f, 0.9f, 1.9f, 1.2f, 2.6f, glm::vec3(0.30f, 0.46f, 0.16f), 0.35f, 1.6f, 180.0f },
+            { 1u, "Wildflowers", kGrassCutout, 1.5f, 22.0f, 0.7f, 1.3f, 0.8f, 1.6f, glm::vec3(0.66f, 0.56f, 0.24f), 0.25f, 1.2f, 140.0f },
+            { 0u, "Dune Grass", kGrassCutout, 1.0f, 18.0f, 0.8f, 1.4f, 0.9f, 1.8f, glm::vec3(0.62f, 0.60f, 0.32f), 0.40f, 1.4f, 140.0f },
+        } };
     } // namespace
 
     auto TerrainHeightShaping::operator==(const TerrainHeightShaping& o) const -> bool
@@ -575,5 +619,62 @@ namespace OloEngine
         rules.push_back({ 3, 0.62f, 1.0f, 0.14f, 0.0f, 50.0f, 10.0f, 1.0f });
 
         return rules;
+    }
+
+    std::vector<FoliageLayer> TerrainGenerator::MakeFoliageLayersFromRules(const std::vector<TerrainLayerRule>& rules)
+    {
+        std::vector<FoliageLayer> layers;
+        layers.reserve(kDefaultFoliageProfiles.size());
+
+        for (const FoliageProfile& profile : kDefaultFoliageProfiles)
+        {
+            // Find the first rule that paints this profile's material layer. No
+            // rule → the layer is never textured, so growing foliage on it would
+            // float over bare ground; skip it.
+            const TerrainLayerRule* match = nullptr;
+            for (const TerrainLayerRule& rule : rules)
+            {
+                if (rule.LayerIndex == profile.MaterialLayer)
+                {
+                    match = &rule;
+                    break;
+                }
+            }
+            if (!match)
+                continue;
+
+            FoliageLayer layer;
+            layer.Name = profile.Name;
+            layer.AlbedoPath = profile.AlbedoPath; // grass cutout → visible blades
+            // Placement mask derived from the material rule, so vegetation
+            // follows the exact band the splatmap paints.
+            layer.SplatmapChannel = static_cast<i32>(profile.MaterialLayer);
+            layer.MinSlopeAngle = std::clamp(match->MinSlopeDeg, 0.0f, 90.0f);
+            // Tighten the rule's slope ceiling by the profile's own (grass falls
+            // off cliffs sooner than the rock band it might overlap).
+            layer.MaxSlopeAngle = std::clamp(std::min(match->MaxSlopeDeg, profile.SlopeCeilingDeg), layer.MinSlopeAngle, 90.0f);
+
+            layer.Density = profile.Density;
+            layer.MinScale = profile.MinScale;
+            layer.MaxScale = profile.MaxScale;
+            layer.MinHeight = profile.MinHeight;
+            layer.MaxHeight = profile.MaxHeight;
+            layer.BaseColor = profile.Color;
+            layer.WindStrength = profile.WindStrength;
+            layer.WindSpeed = profile.WindSpeed;
+            layer.ViewDistance = profile.ViewDistance;
+            layer.FadeStartDistance = profile.ViewDistance * 0.8f; // begin fade before the cull distance
+            layer.RandomRotation = true;
+            layer.Enabled = true;
+
+            layers.push_back(std::move(layer));
+        }
+
+        return layers;
+    }
+
+    std::vector<FoliageLayer> TerrainGenerator::MakeDefaultFoliageLayers()
+    {
+        return MakeFoliageLayersFromRules(MakeDefaultRules());
     }
 } // namespace OloEngine

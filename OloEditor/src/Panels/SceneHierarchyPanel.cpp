@@ -5311,7 +5311,7 @@ namespace OloEngine
                 }
             } });
 
-        DrawComponent<FoliageComponent>("Foliage", entity, [](auto& component)
+        DrawComponent<FoliageComponent>("Foliage", entity, [entity](auto& component)
                                         {
                 ImGui::Checkbox("Enabled", &component.m_Enabled);
 
@@ -5325,6 +5325,34 @@ namespace OloEngine
                     component.m_Layers.push_back(newLayer);
                     component.m_NeedsRebuild = true;
                 }
+
+                // One-click vegetation: emit foliage layers that match this
+                // entity's terrain auto-material rules (the same height/slope
+                // rules that paint the splatmap), so a generated world is
+                // vegetated without hand-authoring each layer. Falls back to the
+                // default sand/grass/rock/snow biome when no terrain rules exist.
+                ImGui::SameLine();
+                if (ImGui::Button("Generate from Terrain Rules"))
+                {
+                    std::vector<FoliageLayer> generated;
+                    if (entity.HasComponent<TerrainComponent>())
+                    {
+                        const auto& terrain = entity.GetComponent<TerrainComponent>();
+                        generated = terrain.m_LayerRules.empty()
+                                        ? TerrainGenerator::MakeDefaultFoliageLayers()
+                                        : TerrainGenerator::MakeFoliageLayersFromRules(terrain.m_LayerRules);
+                    }
+                    else
+                    {
+                        generated = TerrainGenerator::MakeDefaultFoliageLayers();
+                    }
+                    component.m_Layers = std::move(generated);
+                    component.m_NeedsRebuild = true;
+                }
+                ImGui::SetItemTooltip(
+                    "Replace layers with vegetation matching the terrain's auto-material rules "
+                    "(grass + wildflowers on grass, dune grass on sand). Requires Auto-Material "
+                    "splatmaps for per-channel masking.");
 
                 i32 removeIdx = -1;
                 for (sizet i = 0; i < component.m_Layers.size(); ++i)
