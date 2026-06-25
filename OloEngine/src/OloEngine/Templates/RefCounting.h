@@ -197,6 +197,11 @@ namespace OloEngine
     //
     // This class should not be used for new code as it does not use atomic operations to update
     // the reference count.
+    //
+    // KEPT FOR UE5.7 PARITY: this header is a faithful port of UE5.7's Templates/RefCounting.h,
+    // where FRefCountedObject is the non-atomic legacy base and FThreadSafeRefCountedObject is the
+    // atomic one. Task/TaskConcurrencyLimiter.h documents and relies on exactly that distinction.
+    // It is intentionally unused (use FThreadSafeRefCountedObject instead) — do not delete.
     class FRefCountedObject
     {
       public:
