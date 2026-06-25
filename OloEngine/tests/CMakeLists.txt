@@ -209,6 +209,7 @@ add_executable(OloEngine-Tests
 		# Dialogue system tests
 		DialogueVariablesTest.cpp
 		DialogueTreeSerializationTest.cpp
+		DialogueTreeFloatValidationTest.cpp
 		DialogueSystemTest.cpp
 		# Shader Graph Tests
 		ShaderGraph/ShaderGraphTest.cpp
@@ -262,8 +263,10 @@ add_executable(OloEngine-Tests
 		AI/PerceptionMathTest.cpp
 		# Inventory Tests
 		InventoryTest.cpp
+		ItemDatabaseFloatValidationTest.cpp
 		# Quest Tests
 		QuestSystemTest.cpp
+		QuestDatabaseFloatValidationTest.cpp
 		# Gameplay event bus
 		GameplayEventBusTest.cpp
 		# Auto-Save Tests

@@ -2,10 +2,28 @@
 #include "OloEngine/Gameplay/Quest/QuestDatabase.h"
 
 #include <yaml-cpp/yaml.h>
+
+#include <cmath>
 #include <filesystem>
 
 namespace OloEngine
 {
+    namespace
+    {
+        // Validate a float read from an .oloquest YAML file (cpp-coding-quality §2b).
+        // A corrupt or hand-edited asset can carry NaN/±inf; substitute a safe fallback
+        // so it never reaches quest timers / cooldowns.
+        [[nodiscard]] f32 SanitizeFinite(f32 value, f32 fallback, const char* field, const std::string& questId)
+        {
+            if (!std::isfinite(value))
+            {
+                OLO_CORE_WARN("[QuestDatabase] Quest '{}' has non-finite {} ({}); using {}", questId, field, value, fallback);
+                return fallback;
+            }
+            return value;
+        }
+    } // namespace
+
     static std::optional<QuestRequirement> ParseRequirementNode(const YAML::Node& node)
     {
         QuestRequirement req;
@@ -90,9 +108,17 @@ namespace OloEngine
                     def.Description = root["Description"].as<std::string>("");
                     def.Category = root["Category"].as<std::string>("Side");
                     def.CanFail = root["CanFail"].as<bool>(false);
-                    def.TimeLimit = root["TimeLimit"].as<f32>(-1.0f);
+                    // TimeLimit: -1 (or any value <= 0) means "no time limit"; reject NaN/±inf.
+                    def.TimeLimit = SanitizeFinite(root["TimeLimit"].as<f32>(-1.0f), -1.0f, "TimeLimit", def.QuestID);
                     def.IsRepeatable = root["IsRepeatable"].as<bool>(false);
-                    def.RepeatCooldownSeconds = root["RepeatCooldownSeconds"].as<f32>(0.0f);
+                    // RepeatCooldownSeconds: reject NaN/±inf and negative cooldowns; fall back to 0 (no cooldown).
+                    f32 cooldown = SanitizeFinite(root["RepeatCooldownSeconds"].as<f32>(0.0f), 0.0f, "RepeatCooldownSeconds", def.QuestID);
+                    if (cooldown < 0.0f)
+                    {
+                        OLO_CORE_WARN("[QuestDatabase] Quest '{}' has negative RepeatCooldownSeconds ({}); using 0", def.QuestID, cooldown);
+                        cooldown = 0.0f;
+                    }
+                    def.RepeatCooldownSeconds = cooldown;
 
                     if (auto failTags = root["FailOnTags"]; failTags && failTags.IsSequence())
                     {
