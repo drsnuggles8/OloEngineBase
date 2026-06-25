@@ -5,6 +5,7 @@
 #include "OloEngine/Project/Project.h"
 #include "OloEngine/Scene/Scene.h"
 
+#include <cmath>
 #include <fstream>
 #include <sstream>
 #include <unordered_set>
@@ -49,6 +50,19 @@ namespace OloEngine
                     return "unknown"; }, value);
         }
 
+        // Validate a float read from a content YAML file (cpp-coding-quality §2b): a
+        // hand-edited ".nan"/".inf" value parses cleanly but must not enter graph/condition
+        // logic. Returns 0 on non-finite input.
+        [[nodiscard]] f32 SanitizeFinite(f32 value, const char* context)
+        {
+            if (!std::isfinite(value))
+            {
+                OLO_CORE_WARN("DialogueTreeSerializer - Non-finite {} (NaN/inf); using 0", context);
+                return 0.0f;
+            }
+            return value;
+        }
+
         // Contract: typeStr must be one of "bool", "int", "float", or treated as "string".
         // Both parameters are const std::string& — callers must not swap them.
         DialoguePropertyValue ParsePropertyValue(const std::string& typeStr, const std::string& valueStr)
@@ -60,7 +74,18 @@ namespace OloEngine
                 if (typeStr == "int")
                     return static_cast<i32>(std::stoi(valueStr));
                 if (typeStr == "float")
-                    return std::stof(valueStr);
+                {
+                    // std::stof accepts "nan"/"inf"; reject those so a non-finite value never
+                    // enters dialogue condition/branch logic. Fall through to the raw string
+                    // (the same fallback the parse-failure path already uses).
+                    f32 parsed = std::stof(valueStr);
+                    if (!std::isfinite(parsed))
+                    {
+                        OLO_CORE_WARN("DialogueTreeSerializer - Non-finite float property value '{}'; storing as string", valueStr);
+                        return valueStr;
+                    }
+                    return parsed;
+                }
             }
             catch (const std::exception& e)
             {
@@ -309,8 +334,9 @@ namespace OloEngine
                 {
                     try
                     {
-                        node.EditorPosition.x = editorPos[0].as<f32>();
-                        node.EditorPosition.y = editorPos[1].as<f32>();
+                        // A non-finite editor position breaks graph-UI layout; clamp to origin.
+                        node.EditorPosition.x = SanitizeFinite(editorPos[0].as<f32>(), "EditorPosition.x");
+                        node.EditorPosition.y = SanitizeFinite(editorPos[1].as<f32>(), "EditorPosition.y");
                     }
                     catch (const YAML::Exception& e)
                     {

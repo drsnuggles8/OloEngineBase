@@ -3,10 +3,28 @@
 #include "OloEngine/Core/Log.h"
 
 #include <yaml-cpp/yaml.h>
+
+#include <cmath>
 #include <filesystem>
 
 namespace OloEngine
 {
+    namespace
+    {
+        // Validate a float read from an .oloitem YAML file (cpp-coding-quality §2b).
+        // A corrupt or hand-edited asset can carry NaN/±inf; substitute a safe fallback
+        // so it never reaches inventory weight / attribute math.
+        [[nodiscard]] f32 SanitizeFinite(f32 value, f32 fallback, const char* field, const std::string& itemId)
+        {
+            if (!std::isfinite(value))
+            {
+                OLO_CORE_WARN("[ItemDatabase] Item '{}' has non-finite {} ({}); using {}", itemId, field, value, fallback);
+                return fallback;
+            }
+            return value;
+        }
+    } // namespace
+
     std::unordered_map<std::string, ItemDefinition>& ItemDatabase::GetItems()
     {
         static std::unordered_map<std::string, ItemDefinition> s_Items;
@@ -51,7 +69,13 @@ namespace OloEngine
                     def.Rarity = ItemRarityFromString(itemNode["Rarity"].as<std::string>("Common"));
 
                     def.MaxStackSize = itemNode["MaxStackSize"].as<i32>(1);
-                    def.Weight = itemNode["Weight"].as<f32>(0.0f);
+                    // Weight feeds carry-capacity math (Inventory::GetTotalWeight); reject NaN/±inf and negatives.
+                    def.Weight = SanitizeFinite(itemNode["Weight"].as<f32>(0.0f), 0.0f, "Weight", def.ItemID);
+                    if (def.Weight < 0.0f)
+                    {
+                        OLO_CORE_WARN("[ItemDatabase] Item '{}' has negative Weight ({}); using 0", def.ItemID, def.Weight);
+                        def.Weight = 0.0f;
+                    }
                     def.BuyPrice = itemNode["BuyPrice"].as<i32>(0);
                     def.SellPrice = itemNode["SellPrice"].as<i32>(0);
 
@@ -62,9 +86,10 @@ namespace OloEngine
                     {
                         for (auto const& mod : modifiers)
                         {
+                            // Negative modifiers are legitimate (debuffs); only reject NaN/±inf.
                             def.AttributeModifiers.emplace_back(
                                 mod["Attribute"].as<std::string>(),
-                                mod["Value"].as<f32>(0.0f));
+                                SanitizeFinite(mod["Value"].as<f32>(0.0f), 0.0f, "AttributeModifier Value", def.ItemID));
                         }
                     }
 
