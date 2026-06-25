@@ -756,6 +756,17 @@ namespace OloEngine
     void EditorAssetManager::SyncWithAssetThread() noexcept
     {
 #if OLO_ASYNC_ASSETS
+        // Centralized, once-per-frame registry flush. Auto-import marks the
+        // registry dirty (m_RegistryFlushPending) instead of writing per file;
+        // here we coalesce a frame's worth of imports into a single disk write.
+        // Done before the m_AssetThread early-return so a pending flush can't be
+        // dropped, and exchange()d so an import that arrives after this point just
+        // flushes next frame. SerializeAssetRegistry() is internally noexcept.
+        if (m_RegistryFlushPending.exchange(false, std::memory_order_acq_rel))
+        {
+            SerializeAssetRegistry();
+        }
+
         if (!m_AssetThread)
             return;
 
@@ -1223,11 +1234,15 @@ namespace OloEngine
         OLO_CORE_INFO("✨ Auto-imported new asset: {} (Handle: {}, Type: {})",
                       absolutePath.string(), (u64)handle, (int)assetType);
 
-        // Persist immediately so the new handle survives an editor restart even
-        // before the next explicit save. The registry file (AssetRegistry.oar)
-        // lives under the watched project dir, but its extension maps to no
-        // AssetType, so writing it can't re-enter this handler — no import loop.
-        SerializeAssetRegistry();
+        // Mark the registry dirty rather than writing it here: dropping a folder
+        // of N files fires N separate game-thread import tasks, and a per-file
+        // SerializeAssetRegistry() would rewrite the whole registry N times. The
+        // single per-frame flush in SyncWithAssetThread() coalesces the burst
+        // into one write. (AssetRegistry.oar's extension maps to no AssetType, so
+        // writing it can't re-enter this handler — no import loop.) The handle is
+        // already live in the in-memory registry; only the disk write is deferred
+        // (by at most a frame), and Shutdown() serializes unconditionally.
+        m_RegistryFlushPending.store(true, std::memory_order_relaxed);
 
         // Surface it: notify the editor (Content Browser) that a new asset
         // appeared so it refreshes without a manual import. We are already on the

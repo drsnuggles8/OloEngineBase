@@ -400,6 +400,14 @@ namespace OloEngine
         // Async reload tracking
         std::atomic<u32> m_ActiveReloadTasks{ 0 };
 
+        // Coalesced registry persistence. Auto-import (and any other game-thread
+        // path that wants the registry persisted) sets this instead of calling
+        // SerializeAssetRegistry() directly; SyncWithAssetThread() flushes it once
+        // per frame. A burst of N new files dropped at once therefore produces a
+        // single full-registry rewrite, not N. Game-thread-only in practice, but
+        // atomic to match the other watcher flags and stay defensive.
+        std::atomic<bool> m_RegistryFlushPending{ false };
+
         // Real-time file watching using filewatch library
         std::unique_ptr<filewatch::FileWatch<std::string>> m_ProjectFileWatcher;
 
