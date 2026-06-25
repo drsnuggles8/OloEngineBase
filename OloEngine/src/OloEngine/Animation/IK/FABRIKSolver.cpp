@@ -23,6 +23,133 @@ namespace OloEngine::Animation
         return glm::vec3(0.0f);
     }
 
+    // Solve the FABRIK joint positions in model space (in place). Returns false if
+    // the chain geometry is too degenerate to solve (caller should abort).
+    static bool SolveFabrikPositions(
+        std::vector<glm::vec3>& jointPositions,
+        const std::vector<f32>& boneLengths,
+        const glm::vec3& basePosition,
+        const glm::vec3& targetPosition,
+        u32 jointCount,
+        f32 totalLength,
+        u32 maxIterations,
+        f32 tolerance)
+    {
+        constexpr f32 kDirectionEpsilon = 1e-6f;
+
+        if (glm::length(targetPosition - basePosition) >= totalLength)
+        {
+            // Unreachable target: straighten the chain toward it directly —
+            // this is the exact FABRIK fixed point, no iteration needed.
+            auto dir = SafeNormalize(targetPosition - basePosition);
+            if (glm::length2(dir) < kDirectionEpsilon)
+            {
+                return false;
+            }
+            for (sizet i = 1; i < jointCount; ++i)
+            {
+                jointPositions[i] = jointPositions[i - 1] + dir * boneLengths[i];
+            }
+            return true;
+        }
+
+        // --- FABRIK iterations ---
+        // Pre-solve positions provide a deterministic fallback direction
+        // when a pass produces coincident joints, so bone lengths are
+        // preserved instead of collapsing the segment.
+        const std::vector<glm::vec3> initialJointPositions = jointPositions;
+        f32 tolerance2 = tolerance * tolerance;
+        // Engine call sites clamp iterations to 1..128 already; cap here
+        // too so a direct caller cannot stall the frame with a huge value.
+        constexpr u32 kMaxIterationsCap = 128;
+        u32 cappedIterations = std::min(maxIterations, kMaxIterationsCap);
+        for (u32 iter = 0; iter < cappedIterations; ++iter)
+        {
+            if (glm::length2(jointPositions.back() - targetPosition) < tolerance2)
+            {
+                break;
+            }
+
+            // Backward pass: move end-effector to target, pull chain backward
+            jointPositions.back() = targetPosition;
+            for (auto i = static_cast<i32>(jointCount) - 1; i > 0; --i)
+            {
+                auto idx = static_cast<sizet>(i);
+                auto dir = jointPositions[idx - 1] - jointPositions[idx];
+                f32 len = glm::length(dir);
+                if (len > kDirectionEpsilon)
+                {
+                    jointPositions[idx - 1] = jointPositions[idx] + (dir / len) * boneLengths[idx];
+                }
+                else
+                {
+                    // Coincident joints: fall back to the pre-solve segment
+                    // direction to keep the bone length. (SafeNormalize
+                    // yields zero only for a genuine zero-length bone,
+                    // where boneLengths[idx] is 0 and this is exact.)
+                    auto fallbackDir = SafeNormalize(initialJointPositions[idx - 1] - initialJointPositions[idx]);
+                    jointPositions[idx - 1] = jointPositions[idx] + fallbackDir * boneLengths[idx];
+                }
+            }
+
+            // Forward pass: pin root, push chain forward
+            jointPositions[0] = basePosition;
+            for (sizet i = 1; i < jointCount; ++i)
+            {
+                auto dir = jointPositions[i] - jointPositions[i - 1];
+                f32 len = glm::length(dir);
+                if (len > kDirectionEpsilon)
+                {
+                    jointPositions[i] = jointPositions[i - 1] + (dir / len) * boneLengths[i];
+                }
+                else
+                {
+                    auto fallbackDir = SafeNormalize(initialJointPositions[i] - initialJointPositions[i - 1]);
+                    jointPositions[i] = jointPositions[i - 1] + fallbackDir * boneLengths[i];
+                }
+            }
+        }
+        return true;
+    }
+
+    // Optional pole constraint: rotate each intermediate joint around the axis
+    // through its two neighbours so it lies on the half-plane containing the pole
+    // vector. Adjacent bone lengths are preserved exactly; root/tip never move.
+    static void ApplyPoleConstraint(std::vector<glm::vec3>& jointPositions, const glm::vec3& poleVector, u32 jointCount)
+    {
+        constexpr f32 kDirectionEpsilon = 1e-6f;
+        if (glm::length2(poleVector) <= kDirectionEpsilon || jointCount < 3)
+        {
+            return;
+        }
+
+        for (sizet i = 1; i + 1 < jointCount; ++i)
+        {
+            auto axis = SafeNormalize(jointPositions[i + 1] - jointPositions[i - 1]);
+            if (glm::length2(axis) < kDirectionEpsilon)
+            {
+                continue;
+            }
+
+            auto toJoint = jointPositions[i] - jointPositions[i - 1];
+            auto toPole = poleVector - jointPositions[i - 1];
+            auto projJoint = toJoint - axis * glm::dot(toJoint, axis);
+            auto projPole = toPole - axis * glm::dot(toPole, axis);
+
+            if (glm::length2(projJoint) > kDirectionEpsilon && glm::length2(projPole) > kDirectionEpsilon)
+            {
+                auto from = SafeNormalize(projJoint);
+                auto to = SafeNormalize(projPole);
+                f32 angle = std::acos(glm::clamp(glm::dot(from, to), -1.0f, 1.0f));
+                if (glm::dot(glm::cross(from, to), axis) < 0.0f)
+                {
+                    angle = -angle;
+                }
+                jointPositions[i] = jointPositions[i - 1] + glm::angleAxis(angle, axis) * toJoint;
+            }
+        }
+    }
+
     void FABRIKSolver::Solve(
         std::span<BoneTransform> pose,
         std::span<const int> parentIndices,
@@ -37,7 +164,10 @@ namespace OloEngine::Animation
         }
 
         // Validate floating-point parameters
-        if (!std::isfinite(params.TargetPosition.x) || !std::isfinite(params.TargetPosition.y) || !std::isfinite(params.TargetPosition.z) || !std::isfinite(params.PoleVector.x) || !std::isfinite(params.PoleVector.y) || !std::isfinite(params.PoleVector.z) || !std::isfinite(params.Weight) || !std::isfinite(params.Tolerance))
+        auto isFiniteVec3 = [](const glm::vec3& v)
+        { return std::isfinite(v.x) && std::isfinite(v.y) && std::isfinite(v.z); };
+        if (!isFiniteVec3(params.TargetPosition) || !isFiniteVec3(params.PoleVector) ||
+            !std::isfinite(params.Weight) || !std::isfinite(params.Tolerance))
         {
             return;
         }
@@ -114,113 +244,14 @@ namespace OloEngine::Animation
 
         auto basePosition = jointPositions[0];
 
-        if (glm::length(params.TargetPosition - basePosition) >= totalLength)
+        if (!SolveFabrikPositions(jointPositions, boneLengths, basePosition, params.TargetPosition,
+                                  jointCount, totalLength, params.MaxIterations, tolerance))
         {
-            // Unreachable target: straighten the chain toward it directly —
-            // this is the exact FABRIK fixed point, no iteration needed.
-            auto dir = SafeNormalize(params.TargetPosition - basePosition);
-            if (glm::length2(dir) < kDirectionEpsilon)
-            {
-                return;
-            }
-            for (sizet i = 1; i < jointCount; ++i)
-            {
-                jointPositions[i] = jointPositions[i - 1] + dir * boneLengths[i];
-            }
-        }
-        else
-        {
-            // --- FABRIK iterations ---
-            // Pre-solve positions provide a deterministic fallback direction
-            // when a pass produces coincident joints, so bone lengths are
-            // preserved instead of collapsing the segment.
-            const std::vector<glm::vec3> initialJointPositions = jointPositions;
-            f32 tolerance2 = tolerance * tolerance;
-            // Engine call sites clamp iterations to 1..128 already; cap here
-            // too so a direct caller cannot stall the frame with a huge value.
-            constexpr u32 kMaxIterationsCap = 128;
-            u32 maxIterations = std::min(params.MaxIterations, kMaxIterationsCap);
-            for (u32 iter = 0; iter < maxIterations; ++iter)
-            {
-                if (glm::length2(jointPositions.back() - params.TargetPosition) < tolerance2)
-                {
-                    break;
-                }
-
-                // Backward pass: move end-effector to target, pull chain backward
-                jointPositions.back() = params.TargetPosition;
-                for (auto i = static_cast<i32>(jointCount) - 1; i > 0; --i)
-                {
-                    auto idx = static_cast<sizet>(i);
-                    auto dir = jointPositions[idx - 1] - jointPositions[idx];
-                    f32 len = glm::length(dir);
-                    if (len > kDirectionEpsilon)
-                    {
-                        jointPositions[idx - 1] = jointPositions[idx] + (dir / len) * boneLengths[idx];
-                    }
-                    else
-                    {
-                        // Coincident joints: fall back to the pre-solve segment
-                        // direction to keep the bone length. (SafeNormalize
-                        // yields zero only for a genuine zero-length bone,
-                        // where boneLengths[idx] is 0 and this is exact.)
-                        auto fallbackDir = SafeNormalize(initialJointPositions[idx - 1] - initialJointPositions[idx]);
-                        jointPositions[idx - 1] = jointPositions[idx] + fallbackDir * boneLengths[idx];
-                    }
-                }
-
-                // Forward pass: pin root, push chain forward
-                jointPositions[0] = basePosition;
-                for (sizet i = 1; i < jointCount; ++i)
-                {
-                    auto dir = jointPositions[i] - jointPositions[i - 1];
-                    f32 len = glm::length(dir);
-                    if (len > kDirectionEpsilon)
-                    {
-                        jointPositions[i] = jointPositions[i - 1] + (dir / len) * boneLengths[i];
-                    }
-                    else
-                    {
-                        auto fallbackDir = SafeNormalize(initialJointPositions[i] - initialJointPositions[i - 1]);
-                        jointPositions[i] = jointPositions[i - 1] + fallbackDir * boneLengths[i];
-                    }
-                }
-            }
+            return;
         }
 
         // --- Optional pole constraint ---
-        // Rotate each intermediate joint around the axis through its two
-        // neighbours so it lies on the half-plane containing the pole vector.
-        // Both adjacent bone lengths are preserved exactly (the neighbours lie
-        // on the rotation axis), and the root/tip never move.
-        if (glm::length2(params.PoleVector) > kDirectionEpsilon && jointCount >= 3)
-        {
-            for (sizet i = 1; i + 1 < jointCount; ++i)
-            {
-                auto axis = SafeNormalize(jointPositions[i + 1] - jointPositions[i - 1]);
-                if (glm::length2(axis) < kDirectionEpsilon)
-                {
-                    continue;
-                }
-
-                auto toJoint = jointPositions[i] - jointPositions[i - 1];
-                auto toPole = params.PoleVector - jointPositions[i - 1];
-                auto projJoint = toJoint - axis * glm::dot(toJoint, axis);
-                auto projPole = toPole - axis * glm::dot(toPole, axis);
-
-                if (glm::length2(projJoint) > kDirectionEpsilon && glm::length2(projPole) > kDirectionEpsilon)
-                {
-                    auto from = SafeNormalize(projJoint);
-                    auto to = SafeNormalize(projPole);
-                    f32 angle = std::acos(glm::clamp(glm::dot(from, to), -1.0f, 1.0f));
-                    if (glm::dot(glm::cross(from, to), axis) < 0.0f)
-                    {
-                        angle = -angle;
-                    }
-                    jointPositions[i] = jointPositions[i - 1] + glm::angleAxis(angle, axis) * toJoint;
-                }
-            }
-        }
+        ApplyPoleConstraint(jointPositions, params.PoleVector, jointCount);
 
         // --- Convert new positions back to local rotations ---
         // For each bone except the last (end-effector), rotate it so

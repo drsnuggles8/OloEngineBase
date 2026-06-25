@@ -36,56 +36,50 @@ namespace OloEngine
                 Evaluate2D(paramX, paramY, normalizedTime, boneCount, outBoneTransforms);
                 break;
             }
+            default:
+            {
+                // Unknown blend type — emit default transforms so the output is
+                // always sized for the caller.
+                outBoneTransforms.resize(boneCount);
+                break;
+            }
         }
     }
 
-    f32 BlendTree::GetDuration(const AnimationParameterSet& params) const
+    namespace
     {
-        OLO_PROFILE_FUNCTION();
-
-        if (Children.empty())
+        // Weighted-average duration between the two 1D children bracketing paramValue.
+        f32 Compute1DDuration(const std::vector<BlendTree::BlendChild>& children, f32 paramValue)
         {
-            return 0.0f;
-        }
-
-        // For 1D: weighted average of durations between two neighboring children
-        if (Type == BlendType::Simple1D && !BlendParameterX.empty())
-        {
-            f32 paramValue = params.GetFloat(BlendParameterX);
-
-            if (Children.size() == 1)
+            if (children.size() == 1)
             {
-                return (Children[0].Clip && Children[0].Speed > 0.0f) ? Children[0].Clip->Duration / Children[0].Speed : 0.0f;
+                return (children[0].Clip && children[0].Speed > 0.0f) ? children[0].Clip->Duration / children[0].Speed : 0.0f;
             }
 
             // Find the two neighbors
-            for (sizet i = 0; i < Children.size() - 1; ++i)
+            for (sizet i = 0; i < children.size() - 1; ++i)
             {
-                if (paramValue <= Children[i + 1].Threshold)
+                if (paramValue <= children[i + 1].Threshold)
                 {
-                    f32 range = Children[i + 1].Threshold - Children[i].Threshold;
-                    f32 t = (range > 0.0f) ? (paramValue - Children[i].Threshold) / range : 0.0f;
+                    f32 range = children[i + 1].Threshold - children[i].Threshold;
+                    f32 t = (range > 0.0f) ? (paramValue - children[i].Threshold) / range : 0.0f;
                     t = glm::clamp(t, 0.0f, 1.0f);
-                    f32 durA = (Children[i].Clip && Children[i].Speed > 0.0f) ? Children[i].Clip->Duration / Children[i].Speed : 0.0f;
-                    f32 durB = (Children[i + 1].Clip && Children[i + 1].Speed > 0.0f) ? Children[i + 1].Clip->Duration / Children[i + 1].Speed : 0.0f;
+                    f32 durA = (children[i].Clip && children[i].Speed > 0.0f) ? children[i].Clip->Duration / children[i].Speed : 0.0f;
+                    f32 durB = (children[i + 1].Clip && children[i + 1].Speed > 0.0f) ? children[i + 1].Clip->Duration / children[i + 1].Speed : 0.0f;
                     return glm::mix(durA, durB, t);
                 }
             }
-            auto& last = Children.back();
+            auto& last = children.back();
             return (last.Clip && last.Speed > 0.0f) ? last.Clip->Duration / last.Speed : 0.0f;
         }
 
-        // For 2D types: inverse-distance weighted average matching Evaluate2D
-        if (Type != BlendType::Simple1D)
+        // Inverse-distance-weighted average duration of the 2D children (matches Evaluate2D).
+        f32 Compute2DDuration(const std::vector<BlendTree::BlendChild>& children, const glm::vec2& paramPos)
         {
-            f32 paramX = params.GetFloat(BlendParameterX);
-            f32 paramY = params.GetFloat(BlendParameterY);
-            glm::vec2 paramPos(paramX, paramY);
-
             f32 weightedDuration = 0.0f;
             f32 totalWeight = 0.0f;
 
-            for (auto const& child : Children)
+            for (auto const& child : children)
             {
                 if (!child.Clip || child.Speed <= 0.0f)
                 {
@@ -103,18 +97,47 @@ namespace OloEngine
             return totalWeight > 0.0f ? weightedDuration / totalWeight : 0.0f;
         }
 
-        // Fallback: average duration
-        f32 totalDuration = 0.0f;
-        i32 count = 0;
-        for (auto const& child : Children)
+        // Fallback: plain average duration over all playable children.
+        f32 ComputeAverageDuration(const std::vector<BlendTree::BlendChild>& children)
         {
-            if (child.Clip && child.Speed > 0.0f)
+            f32 totalDuration = 0.0f;
+            i32 count = 0;
+            for (auto const& child : children)
             {
-                totalDuration += child.Clip->Duration / child.Speed;
-                ++count;
+                if (child.Clip && child.Speed > 0.0f)
+                {
+                    totalDuration += child.Clip->Duration / child.Speed;
+                    ++count;
+                }
             }
+            return count > 0 ? totalDuration / static_cast<f32>(count) : 0.0f;
         }
-        return count > 0 ? totalDuration / static_cast<f32>(count) : 0.0f;
+    } // namespace
+
+    f32 BlendTree::GetDuration(const AnimationParameterSet& params) const
+    {
+        OLO_PROFILE_FUNCTION();
+
+        if (Children.empty())
+        {
+            return 0.0f;
+        }
+
+        // For 1D: weighted average of durations between two neighboring children
+        if (Type == BlendType::Simple1D && !BlendParameterX.empty())
+        {
+            return Compute1DDuration(Children, params.GetFloat(BlendParameterX));
+        }
+
+        // For 2D types: inverse-distance weighted average matching Evaluate2D
+        if (Type != BlendType::Simple1D)
+        {
+            glm::vec2 paramPos(params.GetFloat(BlendParameterX), params.GetFloat(BlendParameterY));
+            return Compute2DDuration(Children, paramPos);
+        }
+
+        // Fallback: average duration
+        return ComputeAverageDuration(Children);
     }
 
     void BlendTree::Evaluate1D(f32 paramValue, f32 normalizedTime, sizet boneCount,
@@ -142,8 +165,8 @@ namespace OloEngine
         if (playableIndices.size() == 1)
         {
             auto const& child = Children[playableIndices[0]];
-            f32 time = normalizedTime * child.Clip->Duration;
-            SampleClipBoneTransforms(child.Clip, time, boneCount, out);
+            f32 timeSeconds = normalizedTime * child.Clip->Duration;
+            SampleClipBoneTransforms(child.Clip, timeSeconds, boneCount, out);
             return;
         }
 
@@ -186,8 +209,8 @@ namespace OloEngine
 
         // Past the last playable child
         auto const& lastChild = Children[playableIndices.back()];
-        f32 time = normalizedTime * lastChild.Clip->Duration;
-        SampleClipBoneTransforms(lastChild.Clip, time, boneCount, out);
+        f32 timeSeconds = normalizedTime * lastChild.Clip->Duration;
+        SampleClipBoneTransforms(lastChild.Clip, timeSeconds, boneCount, out);
     }
 
     void BlendTree::Evaluate2D(f32 paramX, f32 paramY, f32 normalizedTime, sizet boneCount,
@@ -211,8 +234,8 @@ namespace OloEngine
             if (dist < 1e-6f)
             {
                 // Exact match - use this child exclusively
-                f32 time = normalizedTime * Children[i].Clip->Duration;
-                SampleClipBoneTransforms(Children[i].Clip, time, boneCount, out);
+                f32 timeSeconds = normalizedTime * Children[i].Clip->Duration;
+                SampleClipBoneTransforms(Children[i].Clip, timeSeconds, boneCount, out);
                 return;
             }
             weights[i] = 1.0f / (dist * dist);
@@ -242,8 +265,8 @@ namespace OloEngine
             std::vector<BoneTransform> childTransforms;
             f32 clipDur = Children[i].Clip ? Children[i].Clip->Duration : 0.0f;
             // Speed is already factored into GetDuration (and thus normalizedTime)
-            f32 time = normalizedTime * clipDur;
-            SampleClipBoneTransforms(Children[i].Clip, time, boneCount, childTransforms);
+            f32 timeSeconds = normalizedTime * clipDur;
+            SampleClipBoneTransforms(Children[i].Clip, timeSeconds, boneCount, childTransforms);
 
             accumulatedWeight += weights[i];
 
@@ -271,7 +294,7 @@ namespace OloEngine
         }
     }
 
-    void BlendTree::SampleClipBoneTransforms(const Ref<AnimationClip>& clip, f32 time,
+    void BlendTree::SampleClipBoneTransforms(const Ref<AnimationClip>& clip, f32 timeSeconds,
                                              sizet boneCount,
                                              std::vector<BoneTransform>& out)
     {
@@ -286,9 +309,9 @@ namespace OloEngine
         for (sizet i = 0; i < boneCount && i < clip->BoneAnimations.size(); ++i)
         {
             auto const& boneAnim = clip->BoneAnimations[i];
-            out[i].Translation = AnimatedModel::SampleBonePosition(boneAnim.PositionKeys, time);
-            out[i].Rotation = AnimatedModel::SampleBoneRotation(boneAnim.RotationKeys, time);
-            out[i].Scale = AnimatedModel::SampleBoneScale(boneAnim.ScaleKeys, time);
+            out[i].Translation = AnimatedModel::SampleBonePosition(boneAnim.PositionKeys, timeSeconds);
+            out[i].Rotation = AnimatedModel::SampleBoneRotation(boneAnim.RotationKeys, timeSeconds);
+            out[i].Scale = AnimatedModel::SampleBoneScale(boneAnim.ScaleKeys, timeSeconds);
         }
     }
 

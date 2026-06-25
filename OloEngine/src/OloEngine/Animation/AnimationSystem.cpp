@@ -11,9 +11,92 @@
 #include "OloEngine/Renderer/AnimatedModel.h"
 #include "OloEngine/Core/Log.h"
 #include <algorithm>
+#include <optional>
 
 namespace OloEngine::Animation
 {
+    namespace
+    {
+        // TRS components sampled from a clip for a single bone.
+        struct TRSFrame
+        {
+            glm::vec3 translation;
+            glm::quat rotation;
+            glm::vec3 scale;
+        };
+
+        // Sample a clip at a given time and return the bone's TRS. A cached
+        // BoneAnimation pointer skips the per-bone lookup when the caller has it.
+        TRSFrame SampleClipTRS(const Ref<AnimationClip>& clip, f32 timeSeconds, const std::string& boneName,
+                               const BoneAnimation* cachedBoneAnim = nullptr)
+        {
+            TRSFrame result = { glm::vec3(0.0f), glm::quat(1.0f, 0.0f, 0.0f, 0.0f), glm::vec3(1.0f) };
+            if (!clip)
+                return result;
+            if (const auto* boneAnim = cachedBoneAnim ? cachedBoneAnim : clip->FindBoneAnimation(boneName); boneAnim)
+            {
+                result.translation = AnimatedModel::SampleBonePosition(boneAnim->PositionKeys, timeSeconds);
+                result.rotation = AnimatedModel::SampleBoneRotation(boneAnim->RotationKeys, timeSeconds);
+                result.scale = AnimatedModel::SampleBoneScale(boneAnim->ScaleKeys, timeSeconds);
+            }
+            return result;
+        }
+
+        glm::mat4 TRSToMatrix(const TRSFrame& trs)
+        {
+            return glm::translate(glm::mat4(1.0f), trs.translation) *
+                   glm::mat4_cast(trs.rotation) *
+                   glm::scale(glm::mat4(1.0f), trs.scale);
+        }
+
+        // Compute the animated local transform for a single bone, blending the
+        // current/next clip as needed. Returns nullopt when no active clip
+        // animates this bone (the caller keeps the bind-pose transform).
+        std::optional<glm::mat4> EvaluateBoneLocalTransform(const AnimationStateComponent& animState, const std::string& boneName)
+        {
+            if (animState.m_Blending && animState.m_NextClip)
+            {
+                const auto* boneAnimA = animState.m_CurrentClip
+                                            ? animState.m_CurrentClip->FindBoneAnimation(boneName)
+                                            : nullptr;
+                const auto* boneAnimB = animState.m_NextClip->FindBoneAnimation(boneName);
+
+                if (boneAnimA && boneAnimB)
+                {
+                    TRSFrame trsA = SampleClipTRS(animState.m_CurrentClip, animState.m_CurrentTime, boneName, boneAnimA);
+                    TRSFrame trsB = SampleClipTRS(animState.m_NextClip, animState.m_NextTime, boneName, boneAnimB);
+
+                    TRSFrame blendedTRS;
+                    blendedTRS.translation = glm::mix(trsA.translation, trsB.translation, animState.m_BlendFactor);
+                    blendedTRS.rotation = glm::slerp(trsA.rotation, trsB.rotation, animState.m_BlendFactor);
+                    blendedTRS.scale = glm::mix(trsA.scale, trsB.scale, animState.m_BlendFactor);
+
+                    return TRSToMatrix(blendedTRS);
+                }
+                if (boneAnimA)
+                {
+                    return TRSToMatrix(SampleClipTRS(animState.m_CurrentClip, animState.m_CurrentTime, boneName, boneAnimA));
+                }
+                if (boneAnimB)
+                {
+                    return TRSToMatrix(SampleClipTRS(animState.m_NextClip, animState.m_NextTime, boneName, boneAnimB));
+                }
+                // Neither clip animates this bone — keep bind-pose local transform.
+                return std::nullopt;
+            }
+
+            if (animState.m_CurrentClip)
+            {
+                if (const auto* boneAnim = animState.m_CurrentClip->FindBoneAnimation(boneName); boneAnim)
+                {
+                    return TRSToMatrix(SampleClipTRS(animState.m_CurrentClip, animState.m_CurrentTime, boneName, boneAnim));
+                }
+            }
+            // No current clip / bone not animated — keep bind-pose local transform.
+            return std::nullopt;
+        }
+    } // namespace
+
     // Animation update: advances time, samples animation, computes bone transforms
     void AnimationSystem::Update(
         AnimationStateComponent& animState,
@@ -67,39 +150,6 @@ namespace OloEngine::Animation
             }
         }
 
-        // Helper structure to hold TRS components
-        struct TRSFrame
-        {
-            glm::vec3 translation;
-            glm::quat rotation;
-            glm::vec3 scale;
-        };
-
-        // Helper lambda to sample a clip at a given time and return TRS components
-        auto SampleClipTRS = [](const Ref<AnimationClip>& clip, f32 time, const std::string& boneName,
-                                const BoneAnimation* cachedBoneAnim = nullptr) -> TRSFrame
-        {
-            TRSFrame result = { glm::vec3(0.0f), glm::quat(1.0f, 0.0f, 0.0f, 0.0f), glm::vec3(1.0f) };
-            if (!clip)
-                return result;
-            if (const auto* boneAnim = cachedBoneAnim ? cachedBoneAnim : clip->FindBoneAnimation(boneName); boneAnim)
-            {
-                // Sample each channel separately using the new optimized functions
-                result.translation = AnimatedModel::SampleBonePosition(boneAnim->PositionKeys, time);
-                result.rotation = AnimatedModel::SampleBoneRotation(boneAnim->RotationKeys, time);
-                result.scale = AnimatedModel::SampleBoneScale(boneAnim->ScaleKeys, time);
-            }
-            return result;
-        };
-
-        // Helper lambda to convert TRS to matrix
-        auto TRSToMatrix = [](const TRSFrame& trs) -> glm::mat4
-        {
-            return glm::translate(glm::mat4(1.0f), trs.translation) *
-                   glm::mat4_cast(trs.rotation) *
-                   glm::scale(glm::mat4(1.0f), trs.scale);
-        };
-
         // Reset all local transforms to bind-pose so bones not animated in
         // the current clip fall back to their rest pose (not stale values
         // from a previously active clip).
@@ -108,63 +158,15 @@ namespace OloEngine::Animation
             skeleton.m_LocalTransforms = skeleton.m_BindPoseLocalTransforms;
         }
 
-        // For each bone, sample and blend if needed.
-        // Bones without animation channels in a clip keep their bind-pose
-        // local transform (e.g. b_Root_00 carries a -90° X rotation in the
-        // fox.gltf model but has no keyframes in the animation).
+        // For each bone, sample and blend if needed. Bones without animation
+        // channels in the active clip(s) keep their bind-pose local transform
+        // (e.g. b_Root_00 carries a -90° X rotation in the fox.gltf model but has
+        // no keyframes in the animation).
         for (sizet i = 0; i < skeleton.m_BoneNames.size(); ++i)
         {
-            const std::string& boneName = skeleton.m_BoneNames[i];
-
-            if (animState.m_Blending && animState.m_NextClip)
+            if (auto animatedLocal = EvaluateBoneLocalTransform(animState, skeleton.m_BoneNames[i]); animatedLocal)
             {
-                const auto* boneAnimA = animState.m_CurrentClip
-                                            ? animState.m_CurrentClip->FindBoneAnimation(boneName)
-                                            : nullptr;
-                const auto* boneAnimB = animState.m_NextClip->FindBoneAnimation(boneName);
-
-                if (boneAnimA && boneAnimB)
-                {
-                    TRSFrame trsA = SampleClipTRS(animState.m_CurrentClip, animState.m_CurrentTime, boneName, boneAnimA);
-                    TRSFrame trsB = SampleClipTRS(animState.m_NextClip, animState.m_NextTime, boneName, boneAnimB);
-
-                    TRSFrame blendedTRS;
-                    blendedTRS.translation = glm::mix(trsA.translation, trsB.translation, animState.m_BlendFactor);
-                    blendedTRS.rotation = glm::slerp(trsA.rotation, trsB.rotation, animState.m_BlendFactor);
-                    blendedTRS.scale = glm::mix(trsA.scale, trsB.scale, animState.m_BlendFactor);
-
-                    skeleton.m_LocalTransforms[i] = TRSToMatrix(blendedTRS);
-                }
-                else if (boneAnimA)
-                {
-                    TRSFrame trs = SampleClipTRS(animState.m_CurrentClip, animState.m_CurrentTime, boneName, boneAnimA);
-                    skeleton.m_LocalTransforms[i] = TRSToMatrix(trs);
-                }
-                else if (boneAnimB)
-                {
-                    TRSFrame trs = SampleClipTRS(animState.m_NextClip, animState.m_NextTime, boneName, boneAnimB);
-                    skeleton.m_LocalTransforms[i] = TRSToMatrix(trs);
-                }
-                else
-                {
-                    // No additional handling required.
-                    // (neither clip animates this bone — keep bind-pose local transform)
-                }
-            }
-            else if (animState.m_CurrentClip)
-            {
-                const auto* boneAnim = animState.m_CurrentClip->FindBoneAnimation(boneName);
-                if (boneAnim)
-                {
-                    TRSFrame trs = SampleClipTRS(animState.m_CurrentClip, animState.m_CurrentTime, boneName, boneAnim);
-                    skeleton.m_LocalTransforms[i] = TRSToMatrix(trs);
-                }
-                // else: bone not animated in this clip — keep bind-pose local transform
-            }
-            else
-            {
-                // No additional handling required.
-                // (no current clip — keep existing bind-pose transforms)
+                skeleton.m_LocalTransforms[i] = *animatedLocal;
             }
         }
 

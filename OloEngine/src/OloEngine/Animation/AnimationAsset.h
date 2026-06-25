@@ -16,15 +16,26 @@ namespace OloEngine
      * It follows the Hazel pattern for compatibility while adapting to OloEngine's
      * AnimationClip-based system.
      */
+    // Root-motion extraction / baking configuration. Bundled into one parameter
+    // object so the AnimationAsset constructor does not take multiple bool
+    // arguments (which are easy to transpose at a call site). Defined at namespace
+    // scope rather than nested so it can be used as a defaulted (`= {}`)
+    // constructor argument — Clang rejects that for a nested aggregate.
+    struct AnimationRootMotionSettings
+    {
+        bool ExtractRootMotion = false;
+        u32 RootBoneIndex = 0;
+        glm::vec3 RootTranslationMask = glm::vec3(1.0f);
+        glm::vec3 RootRotationMask = glm::vec3(1.0f);
+        bool DiscardRootMotion = false;
+    };
+
     class AnimationAsset : public Asset
     {
       public:
         AnimationAsset() = default;
         explicit AnimationAsset(AssetHandle animationSource, AssetHandle mesh, std::string animationName,
-                                bool extractRootMotion = false, u32 rootBoneIndex = 0,
-                                const glm::vec3& rootTranslationMask = glm::vec3(1.0f),
-                                const glm::vec3& rootRotationMask = glm::vec3(1.0f),
-                                bool discardRootMotion = false);
+                                const AnimationRootMotionSettings& rootMotion = {});
 
         static AssetType GetStaticType()
         {

@@ -48,11 +48,13 @@ namespace OloEngine
         // Optional entity whose world position overrides ChainTarget each frame.
         UUID ChainTargetEntity = 0;
 
-        // Manual operator== — UUID's implicit operator u64() causes C2666 on MSVC
-        // with defaulted ==; float members use Math::BitwiseEqual for bitwise-exact undo detection.
+        // Trivially-copyable POD component (UUID is a trivially-copyable u64
+        // wrapper). A single whole-struct bitwise compare avoids the per-member
+        // UUID C2666 ambiguity and matches the editor's tier-1 memcmp undo
+        // detection (see docs/agent-rules/cpp-coding-quality.md §7).
         auto operator==(const IKTargetComponent& o) const -> bool
         {
-            return AimIKEnabled == o.AimIKEnabled && AimBoneIndex == o.AimBoneIndex && Math::BitwiseEqual(AimTarget, o.AimTarget) && Math::BitwiseEqual(AimAxis, o.AimAxis) && Math::BitwiseEqual(AimOffset, o.AimOffset) && Math::BitwiseEqual(AimPoleVector, o.AimPoleVector) && AimChainLength == o.AimChainLength && Math::BitwiseEqual(AimChainFactor, o.AimChainFactor) && Math::BitwiseEqual(AimWeight, o.AimWeight) && static_cast<u64>(AimTargetEntity) == static_cast<u64>(o.AimTargetEntity) && LimbIKEnabled == o.LimbIKEnabled && LimbBoneIndex == o.LimbBoneIndex && Math::BitwiseEqual(LimbTarget, o.LimbTarget) && LimbChainLength == o.LimbChainLength && Math::BitwiseEqual(LimbWeight, o.LimbWeight) && static_cast<u64>(LimbTargetEntity) == static_cast<u64>(o.LimbTargetEntity) && ChainIKEnabled == o.ChainIKEnabled && ChainBoneIndex == o.ChainBoneIndex && Math::BitwiseEqual(ChainTarget, o.ChainTarget) && Math::BitwiseEqual(ChainPoleVector, o.ChainPoleVector) && ChainLength == o.ChainLength && ChainIterations == o.ChainIterations && Math::BitwiseEqual(ChainTolerance, o.ChainTolerance) && Math::BitwiseEqual(ChainWeight, o.ChainWeight) && static_cast<u64>(ChainTargetEntity) == static_cast<u64>(o.ChainTargetEntity);
+            return Math::BitwiseEqual(*this, o);
         }
     };
 } // namespace OloEngine

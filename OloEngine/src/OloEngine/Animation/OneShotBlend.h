@@ -27,6 +27,15 @@ namespace OloEngine::Animation
             BlendOut
         };
 
+        // The unordered_map / std::function / vector members have moves that are
+        // not all guaranteed noexcept; declare the moves noexcept so this type —
+        // and AnimationLayer, which embeds it — moves without throwing (S5018).
+        OneShotBlend() = default;
+        OneShotBlend(const OneShotBlend&) = default;
+        OneShotBlend& operator=(const OneShotBlend&) = default;
+        OneShotBlend(OneShotBlend&&) noexcept = default;
+        OneShotBlend& operator=(OneShotBlend&&) noexcept = default;
+
         void Trigger();
         void Cancel();
         [[nodiscard("check if one-shot is still playing")]] bool IsActive() const
@@ -59,6 +68,11 @@ namespace OloEngine::Animation
         FinishedCallback OnFinished;
 
       private:
+        // Advance phase transitions for the time already accumulated this frame.
+        // Returns false when the one-shot has finished (state reset + OnFinished
+        // fired) and Update should stop early.
+        bool AdvancePhase();
+
         Phase m_Phase = Phase::Idle;
         f32 m_PlaybackTime = 0.0f;
         f32 m_PhaseTime = 0.0f; // time within the current phase (for blend-in/out)

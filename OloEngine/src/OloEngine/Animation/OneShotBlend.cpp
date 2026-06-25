@@ -29,32 +29,10 @@ namespace OloEngine::Animation
         m_PhaseTime = 0.0f;
     }
 
-    void OneShotBlend::Update(
-        f32 dt,
-        std::span<BoneTransform> basePose,
-        std::span<const int> parentIndices,
-        std::span<const std::string> boneNames)
+    bool OneShotBlend::AdvancePhase()
     {
-        if (m_Phase == Phase::Idle || !Clip || basePose.empty())
-        {
-            return;
-        }
-
-        // Validate floating-point parameters before any arithmetic
-        if (!std::isfinite(Weight) || !std::isfinite(BlendInDuration) || !std::isfinite(BlendOutDuration))
-        {
-            m_Phase = Phase::Idle;
-            m_PlaybackTime = 0.0f;
-            m_PhaseTime = 0.0f;
-            return;
-        }
-
-        // Advance playback time (always moving forward, no looping — one-shot)
-        m_PlaybackTime += dt;
-        m_PhaseTime += dt;
-
-        // Determine phase transitions — loop to handle instant transitions
-        // (e.g., zero-duration blend-in/out can skip multiple phases in one frame)
+        // Loop to handle instant transitions (e.g., zero-duration blend-in/out can
+        // skip multiple phases in one frame).
         bool transitioned = true;
         while (transitioned)
         {
@@ -89,12 +67,46 @@ namespace OloEngine::Animation
                         {
                             OnFinished();
                         }
-                        return;
+                        return false;
                     }
                     break;
                 case Phase::Idle:
-                    return;
+                    return false;
+                default:
+                    break;
             }
+        }
+        return true;
+    }
+
+    void OneShotBlend::Update(
+        f32 dt,
+        std::span<BoneTransform> basePose,
+        std::span<const int> parentIndices,
+        std::span<const std::string> boneNames)
+    {
+        if (m_Phase == Phase::Idle || !Clip || basePose.empty())
+        {
+            return;
+        }
+
+        // Validate floating-point parameters before any arithmetic
+        if (!std::isfinite(Weight) || !std::isfinite(BlendInDuration) || !std::isfinite(BlendOutDuration))
+        {
+            m_Phase = Phase::Idle;
+            m_PlaybackTime = 0.0f;
+            m_PhaseTime = 0.0f;
+            return;
+        }
+
+        // Advance playback time (always moving forward, no looping — one-shot)
+        m_PlaybackTime += dt;
+        m_PhaseTime += dt;
+
+        // Determine phase transitions; bail out if the one-shot finished this frame.
+        if (!AdvancePhase())
+        {
+            return;
         }
 
         // Compute effective blend weight for this frame
@@ -134,7 +146,7 @@ namespace OloEngine::Animation
         sizet nameHash = 0;
         for (auto const& name : boneNames)
         {
-            nameHash ^= std::hash<std::string_view>{}(name) + 0x9e3779b9 + (nameHash << 6) + (nameHash >> 2);
+            nameHash ^= std::hash<std::string_view>{}(name) + 0x9e3779b9U + (nameHash << 6) + (nameHash >> 2);
         }
         if (m_CachedBoneCount != boneCount || m_CachedBoneNamesHash != nameHash)
         {

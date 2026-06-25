@@ -190,8 +190,8 @@ namespace OloEngine
         glm::mat4 m_RootBoneTransform = glm::mat4(1.0f); // Transform of animated root bone relative to entity
 
         AnimationStateComponent() = default;
-        AnimationStateComponent(const Ref<AnimationClip>& clip, float time = 0.0f)
-            : m_CurrentClip(clip), m_CurrentTime(time) {}
+        explicit AnimationStateComponent(const Ref<AnimationClip>& clip, float timeSeconds = 0.0f)
+            : m_CurrentClip(clip), m_CurrentTime(timeSeconds) {}
     };
 
     /**
@@ -203,13 +203,11 @@ namespace OloEngine
      */
     struct SkeletonComponent
     {
-        Ref<Skeleton> m_Skeleton;                                       // Shared skeleton reference
-        mutable FMutex m_CacheMutex;                                    // Protects cache members from concurrent access
-        mutable std::unordered_map<std::string, UUID> m_TagEntityCache; // Cache for tag-to-entity UUID mapping
-        mutable bool m_CacheValid = false;                              // Whether the cache is still valid
+        Ref<Skeleton> m_Skeleton; // Shared skeleton reference
 
         SkeletonComponent() = default;
-        SkeletonComponent(const Ref<Skeleton>& skeleton) : m_Skeleton(skeleton) {}
+        explicit SkeletonComponent(const Ref<Skeleton>& skeleton) : m_Skeleton(skeleton) {}
+        ~SkeletonComponent() = default;
 
         // Custom copy constructor - mutex cannot be copied
         SkeletonComponent(const SkeletonComponent& other)
@@ -296,6 +294,57 @@ namespace OloEngine
             m_CacheValid = false;
             m_TagEntityCache.clear();
         }
+
+        // Resolve the given bone names to scene-entity UUIDs using the tag cache.
+        // Cache validation, rebuild, and read all happen under a single lock; when
+        // the cache is invalid, rebuildCache(map) is invoked (still under the lock)
+        // to repopulate it. Encapsulating the access here lets the mutable cache
+        // members stay private and guarded by m_CacheMutex.
+        template<typename RebuildFn>
+        [[nodiscard]] std::vector<UUID> ResolveBoneEntities(
+            const std::vector<std::string>& boneNames, RebuildFn&& rebuildCache) const
+        {
+            std::vector<UUID> boneEntityIds;
+            boneEntityIds.reserve(boneNames.size());
+
+            bool foundAtLeastOne = false;
+            {
+                TUniqueLock<FMutex> lock(m_CacheMutex);
+                if (!m_CacheValid)
+                {
+                    m_TagEntityCache.clear();
+                    rebuildCache(m_TagEntityCache);
+                    m_CacheValid = true;
+                }
+
+                for (const auto& boneName : boneNames)
+                {
+                    auto it = m_TagEntityCache.find(boneName);
+                    if (it != m_TagEntityCache.end() && it->second != UUID{})
+                    {
+                        boneEntityIds.emplace_back(it->second);
+                        foundAtLeastOne = true;
+                    }
+                    else
+                    {
+                        boneEntityIds.emplace_back(UUID{}); // Invalid/null UUID as placeholder
+                    }
+                }
+            }
+
+            // If no bones were found, clear the array (consistent with the other overload)
+            if (!foundAtLeastOne)
+            {
+                boneEntityIds.clear();
+            }
+
+            return boneEntityIds;
+        }
+
+      private:
+        mutable FMutex m_CacheMutex;                                    // Protects cache members from concurrent access
+        mutable std::unordered_map<std::string, UUID> m_TagEntityCache; // Cache for tag-to-entity UUID mapping
+        mutable bool m_CacheValid = false;                              // Whether the cache is still valid
     };
 
     /**

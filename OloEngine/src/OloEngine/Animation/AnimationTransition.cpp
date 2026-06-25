@@ -50,6 +50,9 @@ namespace OloEngine
                 if (param->ParamType == AnimationParameterType::Bool)
                     return param->BoolValue != BoolValue;
                 return false;
+
+            default:
+                return false;
         }
 
         return false;

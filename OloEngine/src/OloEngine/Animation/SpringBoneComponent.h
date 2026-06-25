@@ -30,10 +30,12 @@ namespace OloEngine
         OLO_PROPERTY()
         f32 Weight = 1.0f; // 0 = animated pose, 1 = full spring result
 
-        // Float members use Math::BitwiseEqual for bitwise-exact undo detection.
+        // Trivially-copyable POD component: a single whole-struct bitwise compare
+        // gives the same bitwise-exact undo detection as the editor's tier-1 memcmp
+        // path (see docs/agent-rules/cpp-coding-quality.md §7).
         auto operator==(const SpringBoneComponent& o) const -> bool
         {
-            return Enabled == o.Enabled && EndBoneIndex == o.EndBoneIndex && ChainLength == o.ChainLength && Math::BitwiseEqual(Stiffness, o.Stiffness) && Math::BitwiseEqual(Damping, o.Damping) && Math::BitwiseEqual(Gravity, o.Gravity) && Math::BitwiseEqual(Weight, o.Weight);
+            return Math::BitwiseEqual(*this, o);
         }
     };
 

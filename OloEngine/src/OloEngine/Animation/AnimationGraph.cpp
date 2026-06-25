@@ -317,6 +317,10 @@ namespace OloEngine
                     }
                     dst.Scale *= glm::mix(glm::vec3(1.0f), src.Scale, weight);
                     break;
+
+                default:
+                    // Unknown blend mode — leave the accumulated transform unchanged.
+                    break;
             }
         }
     }

@@ -37,18 +37,26 @@ namespace OloEngine::Animation
             f32 normalized = (totalAmplitude > 0.0f) ? (sum / totalAmplitude) : 0.0f;
             return std::clamp(normalized, -1.0f, 1.0f);
         }
+
+        // All scalar/vector inputs that feed the noise sample must be finite — a
+        // single NaN/Inf would propagate straight into the skeleton's transforms.
+        bool AreNoiseInputsFinite(const NoiseParams& params, f32 timeSeconds)
+        {
+            if (!std::isfinite(timeSeconds) || !std::isfinite(params.Frequency) || !std::isfinite(params.Lacunarity))
+                return false;
+            if (!std::isfinite(params.Gain) || !std::isfinite(params.Weight))
+                return false;
+            return IsFiniteVec3(params.RotationAmplitude) && IsFiniteVec3(params.TranslationAmplitude);
+        }
     } // namespace
 
-    NoiseBoneOffset NoiseSolver::SampleBoneOffset(const NoiseParams& params, u32 chainIndex, u32 boneIndex, f32 time)
+    NoiseBoneOffset NoiseSolver::SampleBoneOffset(const NoiseParams& params, u32 chainIndex, u32 boneIndex, f32 timeSeconds)
     {
         NoiseBoneOffset offset;
 
         // Reject a non-finite configuration outright — a NaN/Inf would propagate
         // straight into the skeleton's local transforms.
-        if (!std::isfinite(time) || !std::isfinite(params.Frequency) ||
-            !std::isfinite(params.Lacunarity) || !std::isfinite(params.Gain) ||
-            !std::isfinite(params.Weight) || !IsFiniteVec3(params.RotationAmplitude) ||
-            !IsFiniteVec3(params.TranslationAmplitude))
+        if (!AreNoiseInputsFinite(params, timeSeconds))
         {
             return offset;
         }
@@ -68,11 +76,11 @@ namespace OloEngine::Animation
         // independent. Per-bone and per-axis sampling coordinates are spread far
         // apart in the noise field so the six channels de-correlate (avoids the
         // rigid "every bone moves identically" look).
-        f32 phase = time * params.Frequency;
+        f32 phase = timeSeconds * params.Frequency;
         f32 seedOffset = static_cast<f32>(params.Seed) * 19.19f;
         f32 boneDecorr = static_cast<f32>(chainIndex) * 5.31f + static_cast<f32>(boneIndex) * 0.733f + seedOffset;
 
-        auto sample = [&](f32 lane) -> f32
+        auto sample = [&params, phase, boneDecorr, lacunarity, gain](f32 lane) -> f32
         {
             return Fbm(phase, boneDecorr + lane, lane * 1.7f, params.Octaves, lacunarity, gain);
         };
@@ -87,7 +95,7 @@ namespace OloEngine::Animation
         return offset;
     }
 
-    void NoiseSolver::Apply(std::span<BoneTransform> pose, std::span<const int> parentIndices, const NoiseParams& params, f32 time)
+    void NoiseSolver::Apply(std::span<BoneTransform> pose, std::span<const int> parentIndices, const NoiseParams& params, f32 timeSeconds)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -112,7 +120,7 @@ namespace OloEngine::Animation
         // Reject non-finite time up front so a NaN/Inf phase can never reach the
         // per-bone application (SampleBoneOffset would return zero anyway, but
         // this keeps Apply a strict no-op).
-        if (!std::isfinite(time))
+        if (!std::isfinite(timeSeconds))
         {
             return;
         }
@@ -125,7 +133,7 @@ namespace OloEngine::Animation
                 break;
             }
 
-            const NoiseBoneOffset bo = SampleBoneOffset(params, j, bone, time);
+            const NoiseBoneOffset bo = SampleBoneOffset(params, j, bone, timeSeconds);
 
             // Additive in the bone's local frame: post-multiplying the noise
             // rotation makes RotationAmplitude.x a wobble about the bone's own

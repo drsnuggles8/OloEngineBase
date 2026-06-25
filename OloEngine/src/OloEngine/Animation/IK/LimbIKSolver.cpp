@@ -22,6 +22,62 @@ namespace OloEngine::Animation
         return glm::vec3(0.0f);
     }
 
+    // Iterative FABRIK position solve for a limb chain (in place): pin the root,
+    // drag the tip onto the target. Coincident joints collapse onto the previous
+    // joint (the limb variant's degenerate fallback).
+    static void SolveLimbPositions(
+        std::vector<glm::vec3>& jointPositions,
+        const std::vector<f32>& boneLengths,
+        const glm::vec3& basePosition,
+        const glm::vec3& targetPosition,
+        u32 jointCount,
+        u32 maxIterations,
+        f32 convergenceThreshold)
+    {
+        constexpr f32 kDirectionEpsilon = 1e-6f;
+        f32 convergenceThreshold2 = convergenceThreshold * convergenceThreshold;
+        for (u32 iter = 0; iter < maxIterations; ++iter)
+        {
+            if (glm::length2(jointPositions.back() - targetPosition) < convergenceThreshold2)
+            {
+                break;
+            }
+
+            // Backward pass: move end-effector to target, pull chain backward
+            jointPositions.back() = targetPosition;
+            for (auto i = static_cast<i32>(jointCount) - 1; i > 0; --i)
+            {
+                auto idx = static_cast<sizet>(i);
+                auto dir = jointPositions[idx - 1] - jointPositions[idx];
+                f32 len = glm::length(dir);
+                if (len > kDirectionEpsilon)
+                {
+                    jointPositions[idx - 1] = jointPositions[idx] + (dir / len) * boneLengths[idx];
+                }
+                else
+                {
+                    jointPositions[idx - 1] = jointPositions[idx];
+                }
+            }
+
+            // Forward pass: pin root, push chain forward
+            jointPositions[0] = basePosition;
+            for (sizet i = 1; i < jointCount; ++i)
+            {
+                auto dir = jointPositions[i] - jointPositions[i - 1];
+                f32 len = glm::length(dir);
+                if (len > kDirectionEpsilon)
+                {
+                    jointPositions[i] = jointPositions[i - 1] + (dir / len) * boneLengths[i];
+                }
+                else
+                {
+                    jointPositions[i] = jointPositions[i - 1];
+                }
+            }
+        }
+    }
+
     void LimbIKSolver::Solve(
         std::span<BoneTransform> pose,
         std::span<const int> parentIndices,
@@ -36,7 +92,11 @@ namespace OloEngine::Animation
         }
 
         // Validate floating-point parameters
-        if (!std::isfinite(params.TargetPosition.x) || !std::isfinite(params.TargetPosition.y) || !std::isfinite(params.TargetPosition.z) || !std::isfinite(params.Weight) || !std::isfinite(params.ConvergenceThreshold))
+        if (!std::isfinite(params.TargetPosition.x) || !std::isfinite(params.TargetPosition.y) || !std::isfinite(params.TargetPosition.z))
+        {
+            return;
+        }
+        if (!std::isfinite(params.Weight) || !std::isfinite(params.ConvergenceThreshold))
         {
             return;
         }
@@ -111,48 +171,8 @@ namespace OloEngine::Animation
         auto basePosition = jointPositions[0];
 
         // --- FABRIK iterations ---
-        constexpr f32 kDirectionEpsilon = 1e-6f;
-        f32 convergenceThreshold2 = convergenceThreshold * convergenceThreshold;
-        for (u32 iter = 0; iter < params.MaxIterations; ++iter)
-        {
-            if (glm::length2(jointPositions.back() - params.TargetPosition) < convergenceThreshold2)
-            {
-                break;
-            }
-
-            // Backward pass: move end-effector to target, pull chain backward
-            jointPositions.back() = params.TargetPosition;
-            for (auto i = static_cast<i32>(jointCount) - 1; i > 0; --i)
-            {
-                auto idx = static_cast<sizet>(i);
-                auto dir = jointPositions[idx - 1] - jointPositions[idx];
-                f32 len = glm::length(dir);
-                if (len > kDirectionEpsilon)
-                {
-                    jointPositions[idx - 1] = jointPositions[idx] + (dir / len) * boneLengths[idx];
-                }
-                else
-                {
-                    jointPositions[idx - 1] = jointPositions[idx];
-                }
-            }
-
-            // Forward pass: pin root, push chain forward
-            jointPositions[0] = basePosition;
-            for (sizet i = 1; i < jointCount; ++i)
-            {
-                auto dir = jointPositions[i] - jointPositions[i - 1];
-                f32 len = glm::length(dir);
-                if (len > kDirectionEpsilon)
-                {
-                    jointPositions[i] = jointPositions[i - 1] + (dir / len) * boneLengths[i];
-                }
-                else
-                {
-                    jointPositions[i] = jointPositions[i - 1];
-                }
-            }
-        }
+        SolveLimbPositions(jointPositions, boneLengths, basePosition, params.TargetPosition,
+                           jointCount, params.MaxIterations, convergenceThreshold);
 
         // --- Convert new positions back to local rotations ---
         // For each bone except the last (end-effector), rotate it so

@@ -16,7 +16,7 @@ namespace OloEngine
         // and apply the resulting weights to the MorphTargetComponent
         static void SampleMorphKeyframes(
             const Ref<AnimationClip>& clip,
-            f64 time,
+            f64 timeSeconds,
             MorphTargetComponent& morphComp);
 
         // Evaluate morph targets for an entity that has active weights.

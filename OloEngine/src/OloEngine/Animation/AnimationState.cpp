@@ -19,16 +19,16 @@ namespace OloEngine
                     outBoneTransforms.assign(boneCount, BoneTransform{});
                     return;
                 }
-                f32 time = normalizedTime * Clip->Duration;
+                f32 timeSeconds = normalizedTime * Clip->Duration;
                 outBoneTransforms.assign(boneCount, BoneTransform{});
                 for (sizet i = 0; i < boneCount; ++i)
                 {
                     if (i < Clip->BoneAnimations.size())
                     {
                         auto const& boneAnim = Clip->BoneAnimations[i];
-                        outBoneTransforms[i].Translation = AnimatedModel::SampleBonePosition(boneAnim.PositionKeys, time);
-                        outBoneTransforms[i].Rotation = AnimatedModel::SampleBoneRotation(boneAnim.RotationKeys, time);
-                        outBoneTransforms[i].Scale = AnimatedModel::SampleBoneScale(boneAnim.ScaleKeys, time);
+                        outBoneTransforms[i].Translation = AnimatedModel::SampleBonePosition(boneAnim.PositionKeys, timeSeconds);
+                        outBoneTransforms[i].Rotation = AnimatedModel::SampleBoneRotation(boneAnim.RotationKeys, timeSeconds);
+                        outBoneTransforms[i].Scale = AnimatedModel::SampleBoneScale(boneAnim.ScaleKeys, timeSeconds);
                     }
                 }
                 break;
@@ -41,6 +41,13 @@ namespace OloEngine
                     return;
                 }
                 Tree->Evaluate(normalizedTime, params, boneCount, outBoneTransforms);
+                break;
+            }
+            default:
+            {
+                // Unknown motion type — emit identity transforms so the output is
+                // always fully initialised for the caller.
+                outBoneTransforms.assign(boneCount, BoneTransform{});
                 break;
             }
         }

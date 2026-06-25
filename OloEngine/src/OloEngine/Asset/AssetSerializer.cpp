@@ -4109,10 +4109,13 @@ namespace OloEngine
 
         bool discardRootMotion = animationNode["DiscardRootMotion"] ? animationNode["DiscardRootMotion"].as<bool>() : false;
 
-        animationAsset = Ref<AnimationAsset>(new AnimationAsset(animationSource, mesh, animationName,
-                                                                extractRootMotion, rootBoneIndex,
-                                                                rootTranslationMask, rootRotationMask,
-                                                                discardRootMotion));
+        AnimationRootMotionSettings rootMotion;
+        rootMotion.ExtractRootMotion = extractRootMotion;
+        rootMotion.RootBoneIndex = rootBoneIndex;
+        rootMotion.RootTranslationMask = rootTranslationMask;
+        rootMotion.RootRotationMask = rootRotationMask;
+        rootMotion.DiscardRootMotion = discardRootMotion;
+        animationAsset = Ref<AnimationAsset>(new AnimationAsset(animationSource, mesh, animationName, rootMotion));
         return true;
     }
 

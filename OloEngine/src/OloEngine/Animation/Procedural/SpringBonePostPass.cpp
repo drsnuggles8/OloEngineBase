@@ -45,7 +45,11 @@ namespace OloEngine::Animation
         // again, but rejecting here skips the decompose work too)
         auto isFiniteVec3 = [](const glm::vec3& v)
         { return std::isfinite(v.x) && std::isfinite(v.y) && std::isfinite(v.z); };
-        if (!std::isfinite(springBone.Stiffness) || !std::isfinite(springBone.Damping) || !std::isfinite(springBone.Weight) || !isFiniteVec3(springBone.Gravity) || !std::isfinite(deltaTime))
+        if (!std::isfinite(springBone.Stiffness) || !std::isfinite(springBone.Damping) || !std::isfinite(springBone.Weight))
+        {
+            return;
+        }
+        if (!isFiniteVec3(springBone.Gravity) || !std::isfinite(deltaTime))
         {
             return;
         }

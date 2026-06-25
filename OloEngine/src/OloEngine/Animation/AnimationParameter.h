@@ -28,6 +28,16 @@ namespace OloEngine
     class AnimationParameterSet
     {
       public:
+        // The sole member is a std::unordered_map whose move constructor is not
+        // guaranteed noexcept (it may allocate). Declare the moves noexcept so
+        // this type — and anything that holds it (AnimationGraphComponent,
+        // AnimationLayer) — moves without throwing (S5018).
+        AnimationParameterSet() = default;
+        AnimationParameterSet(const AnimationParameterSet&) = default;
+        AnimationParameterSet& operator=(const AnimationParameterSet&) = default;
+        AnimationParameterSet(AnimationParameterSet&&) noexcept = default;
+        AnimationParameterSet& operator=(AnimationParameterSet&&) noexcept = default;
+
         void DefineFloat(const std::string& name, f32 defaultValue = 0.0f);
         void DefineBool(const std::string& name, bool defaultValue = false);
         void DefineInt(const std::string& name, i32 defaultValue = 0);
