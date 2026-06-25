@@ -5,6 +5,8 @@
 
 #include <glm/glm.hpp>
 
+#include <vector>
+
 namespace OloEngine
 {
     // How the OS mouse cursor behaves. `Locked` is the FPS mode: the cursor is
@@ -33,7 +35,19 @@ namespace OloEngine
         static void SetCursorMode(CursorMode mode);
         static CursorMode GetCursorMode();
 
-        // Called once per frame from Application::Run() to snapshot keyboard state
+        // Unicode codepoints typed (text entry) during the frame that the most
+        // recent Update() snapshotted. This is the text-input counterpart to the
+        // key-state polling above: GLFW routes printable characters through a
+        // separate char callback (which honours layout, modifiers, IME), so they
+        // can't be reconstructed from IsKeyPressed. UI text fields consume this.
+        static const std::vector<u32>& GetTypedCharacters();
+
+        // Record a typed codepoint. Called by the platform window's char
+        // callback; accumulated until the next Update() rotates the buffer.
+        static void OnCharTyped(u32 codepoint);
+
+        // Called once per frame from Application::Run() to snapshot keyboard
+        // state and rotate the typed-character buffer for this frame.
         static void Update();
     };
 } // namespace OloEngine

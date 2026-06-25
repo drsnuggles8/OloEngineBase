@@ -112,9 +112,12 @@ namespace OloEngine::Audio::SoundGraph
         std::optional<SoundGraphCacheEntry> GetCacheEntry(const std::string& sourcePath) const;
         void LogStatistics() const;
 
-        /// Serialization for persistent cache
-        bool SaveCacheMetadata(const std::string& filePath) const;
-        bool LoadCacheMetadata(const std::string& filePath) const;
+        // NOTE: This cache holds only live, in-memory compiled graphs. Cross-run
+        // persistence of the audio-graph compilation cache is owned by CompilerCache
+        // (CompilerCache::SaveToDisk / LoadFromDisk), which persists each source's
+        // path, hash, and timestamps PLUS the compiled bytecode — a superset of what
+        // this cache could record — so there is intentionally no Save/LoadCacheMetadata
+        // here. See CompilerCache.h.
 
       private:
         mutable FMutex m_Mutex;

@@ -652,14 +652,26 @@ class FrameExportTest : public FrameCapturePipelineTest
     {
         FrameCapturePipelineTest::SetUp();
 
-        // Determine a temp directory for test output
-        m_TestOutputDir = std::filesystem::temp_directory_path() / "olo_frame_export_test";
-        std::filesystem::create_directories(m_TestOutputDir);
+        // Per-test subdir so parallel ctest runs (each test is its own process) don't
+        // fight over a shared directory: a sibling FrameExportTest's TearDown
+        // remove_all would otherwise delete the dir mid-write and make an export's
+        // ofstream open fail (the export then returns false). Keyed by suite+test name
+        // so each test owns a unique leaf and only ever removes its own.
+        const auto* info = ::testing::UnitTest::GetInstance()->current_test_info();
+        const std::string testSuite = info ? info->test_suite_name() : "FrameExportTest";
+        const std::string testName = info ? info->name() : "unknown";
+        m_TestOutputDir = std::filesystem::temp_directory_path() / "olo_frame_export_test" / (testSuite + "_" + testName);
+        std::error_code ec;
+        std::filesystem::remove_all(m_TestOutputDir, ec);
+        ASSERT_FALSE(ec) << "Failed to clear test output dir: " << ec.message();
+        ec.clear();
+        std::filesystem::create_directories(m_TestOutputDir, ec);
+        ASSERT_FALSE(ec) << "Failed to create test output dir: " << ec.message();
     }
 
     void TearDown() override
     {
-        // Clean up test files
+        // Clean up this test's own files only — never the shared parent dir.
         std::error_code ec;
         std::filesystem::remove_all(m_TestOutputDir, ec);
 

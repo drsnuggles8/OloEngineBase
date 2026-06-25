@@ -485,6 +485,16 @@ namespace OloEngine::Audio::SoundGraph
             (void)numFrames;
         }
 
+        /// Large heap buffers this node owns beyond its own sizeof — e.g. a
+        /// WavePlayer's decoded audio samples. Base nodes own none; a node type
+        /// with a significant buffer overrides this so SoundGraphCache memory
+        /// accounting stays type-agnostic (no per-type dynamic_cast) and counts
+        /// any future buffer-owning node automatically.
+        [[nodiscard]] virtual sizet GetHeapBytes() const
+        {
+            return 0;
+        }
+
         //==============================================================================
         /// Endpoint access
 

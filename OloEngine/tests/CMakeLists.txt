@@ -44,6 +44,7 @@ add_executable(OloEngine-Tests
 		SoundGraphTypedConnectionTest.cpp
 		SoundGraphSampleAccurateTriggerTest.cpp
 		SoundGraphParameterWiringTest.cpp
+		SoundGraphCacheTest.cpp
 		AudioEventQueueTest.cpp
 		AudioDSPTest.cpp
 		AudioSpatializerTest.cpp
@@ -69,6 +70,9 @@ add_executable(OloEngine-Tests
 		Memory/LockFreeAllocatorConcurrencyTest.cpp
 		Templates/FunctionWithContextTest.cpp
 		Templates/TypeTraitsTest.cpp
+
+		# UI subsystem tests
+		UI/UIInputFieldKeyboardTest.cpp
 
 		# Rendering subsystem tests (Tiers 1-5)
 		Rendering/DrawKeyTest.cpp

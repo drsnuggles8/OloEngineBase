@@ -3401,6 +3401,7 @@ namespace OloEngine::MCP
         {
             ToolDef tool;
             tool.Name = "olo_log_tail";
+            tool.Toolset = "diagnostics";
             tool.Title = "Tail engine log";
             tool.Annotations = ReadOnlyAnnotations();
             tool.Description =
@@ -3427,6 +3428,7 @@ namespace OloEngine::MCP
         {
             ToolDef tool;
             tool.Name = "olo_scene_summary";
+            tool.Toolset = "scene";
             tool.Title = "Scene summary";
             tool.Annotations = ReadOnlyAnnotations();
             tool.Description =
@@ -3456,6 +3458,7 @@ namespace OloEngine::MCP
         {
             ToolDef tool;
             tool.Name = "olo_scene_list_entities";
+            tool.Toolset = "scene";
             tool.Title = "List scene entities";
             tool.Annotations = ReadOnlyAnnotations();
             tool.Description =
@@ -3478,6 +3481,7 @@ namespace OloEngine::MCP
         {
             ToolDef tool;
             tool.Name = "olo_scene_get_entity";
+            tool.Toolset = "scene";
             tool.Title = "Get entity components";
             tool.Annotations = ReadOnlyAnnotations();
             tool.Description =
@@ -3510,6 +3514,7 @@ namespace OloEngine::MCP
         {
             ToolDef tool;
             tool.Name = "olo_memory_report";
+            tool.Toolset = "perf";
             tool.Title = "Renderer memory report";
             tool.Annotations = ReadOnlyAnnotations();
             tool.Description =
@@ -3547,6 +3552,7 @@ namespace OloEngine::MCP
         {
             ToolDef tool;
             tool.Name = "olo_perf_snapshot";
+            tool.Toolset = "perf";
             tool.Title = "Performance snapshot";
             tool.Annotations = ReadOnlyAnnotations();
             tool.Description =
@@ -3583,6 +3589,7 @@ namespace OloEngine::MCP
         {
             ToolDef tool;
             tool.Name = "olo_perf_bottlenecks";
+            tool.Toolset = "perf";
             tool.Title = "Bottleneck analysis";
             tool.Annotations = ReadOnlyAnnotations();
             tool.Description =
@@ -3597,6 +3604,7 @@ namespace OloEngine::MCP
         {
             ToolDef tool;
             tool.Name = "olo_perf_frame_history";
+            tool.Toolset = "perf";
             tool.Title = "Frame-time history";
             tool.Annotations = ReadOnlyAnnotations();
             tool.Description =
@@ -3615,6 +3623,7 @@ namespace OloEngine::MCP
         {
             ToolDef tool;
             tool.Name = "olo_perf_capture_frame";
+            tool.Toolset = "perf";
             tool.Title = "Capture frame profile";
             // Triggers a one-frame diagnostic capture but observes-only — no
             // camera/setting/file/scene change the caller can see (see builder note).
@@ -3636,6 +3645,7 @@ namespace OloEngine::MCP
         {
             ToolDef tool;
             tool.Name = "olo_render_frame_breakdown";
+            tool.Toolset = "render";
             tool.Title = "Frame command breakdown";
             // Same transient one-frame capture as olo_perf_capture_frame — read-only.
             tool.Annotations = ReadOnlyAnnotations();
@@ -3681,6 +3691,7 @@ namespace OloEngine::MCP
         {
             ToolDef tool;
             tool.Name = "olo_shader_errors";
+            tool.Toolset = "shader";
             tool.Title = "Shader compile errors";
             tool.Annotations = ReadOnlyAnnotations();
             tool.Description =
@@ -3695,6 +3706,7 @@ namespace OloEngine::MCP
         {
             ToolDef tool;
             tool.Name = "olo_shader_get";
+            tool.Toolset = "shader";
             tool.Title = "Get shader details";
             tool.Annotations = ReadOnlyAnnotations();
             tool.Description =
@@ -3716,6 +3728,7 @@ namespace OloEngine::MCP
         {
             ToolDef tool;
             tool.Name = "olo_shader_list";
+            tool.Toolset = "shader";
             tool.Title = "List shaders";
             tool.Annotations = ReadOnlyAnnotations();
             tool.Description =
@@ -3730,6 +3743,7 @@ namespace OloEngine::MCP
         {
             ToolDef tool;
             tool.Name = "olo_shader_reload";
+            tool.Toolset = "shader";
             tool.Title = "Reload shader";
             // Recompiles a shader from disk (mutates GL program state, new program
             // id each call), so not read-only and not idempotent; destroys nothing.
@@ -3763,6 +3777,7 @@ namespace OloEngine::MCP
         {
             ToolDef tool;
             tool.Name = "olo_assets_list";
+            tool.Toolset = "assets";
             tool.Title = "List assets";
             tool.Annotations = ReadOnlyAnnotations();
             tool.Description =
@@ -3784,6 +3799,7 @@ namespace OloEngine::MCP
         {
             ToolDef tool;
             tool.Name = "olo_assets_problems";
+            tool.Toolset = "assets";
             tool.Title = "List asset problems";
             tool.Annotations = ReadOnlyAnnotations();
             tool.Description =
@@ -3798,6 +3814,7 @@ namespace OloEngine::MCP
         {
             ToolDef tool;
             tool.Name = "olo_crash_list";
+            tool.Toolset = "diagnostics";
             tool.Title = "List crash reports";
             tool.Annotations = ReadOnlyAnnotations();
             tool.Description =
@@ -3812,6 +3829,7 @@ namespace OloEngine::MCP
         {
             ToolDef tool;
             tool.Name = "olo_crash_get";
+            tool.Toolset = "diagnostics";
             tool.Title = "Get crash report";
             tool.Annotations = ReadOnlyAnnotations();
             tool.Description =
@@ -3831,6 +3849,7 @@ namespace OloEngine::MCP
         {
             ToolDef tool;
             tool.Name = "olo_script_get_api";
+            tool.Toolset = "scripting";
             tool.Title = "Get scripting API";
             tool.Annotations = ReadOnlyAnnotations();
             tool.Description =
@@ -3853,6 +3872,7 @@ namespace OloEngine::MCP
         {
             ToolDef tool;
             tool.Name = "olo_script_get_last_errors";
+            tool.Toolset = "scripting";
             tool.Title = "Recent script errors";
             tool.Annotations = ReadOnlyAnnotations();
             tool.Description =
@@ -3873,6 +3893,7 @@ namespace OloEngine::MCP
         {
             ToolDef tool;
             tool.Name = "olo_events_tail";
+            tool.Toolset = "diagnostics";
             tool.Title = "Tail diagnostics events";
             tool.Annotations = ReadOnlyAnnotations();
             tool.Description =
@@ -3903,6 +3924,7 @@ namespace OloEngine::MCP
         {
             ToolDef tool;
             tool.Name = "olo_screenshot";
+            tool.Toolset = "camera";
             tool.Title = "Screenshot viewport";
             // Read-only without a pose, but with a 'camera'/'orbit' pose it moves the
             // editor camera (saving/restoring it) — a transient mutation. Flag it
@@ -3941,6 +3963,7 @@ namespace OloEngine::MCP
         {
             ToolDef tool;
             tool.Name = "olo_camera_get";
+            tool.Toolset = "camera";
             tool.Title = "Get camera pose";
             tool.Annotations = ReadOnlyAnnotations();
             tool.Description =
@@ -3957,6 +3980,7 @@ namespace OloEngine::MCP
         {
             ToolDef tool;
             tool.Name = "olo_camera_set_pose";
+            tool.Toolset = "camera";
             tool.Title = "Set camera pose";
             // Moves the editor camera; same args => same pose (idempotent), destroys nothing.
             tool.Annotations = MutatingAnnotations(/*idempotent*/ true);
@@ -3984,6 +4008,7 @@ namespace OloEngine::MCP
         {
             ToolDef tool;
             tool.Name = "olo_camera_orbit";
+            tool.Toolset = "camera";
             tool.Title = "Orbit camera";
             tool.Annotations = MutatingAnnotations(/*idempotent*/ true);
             tool.Description =
@@ -4010,6 +4035,7 @@ namespace OloEngine::MCP
         {
             ToolDef tool;
             tool.Name = "olo_camera_frame_entity";
+            tool.Toolset = "camera";
             tool.Title = "Frame entity in view";
             tool.Annotations = MutatingAnnotations(/*idempotent*/ true);
             tool.Description =
@@ -4032,6 +4058,7 @@ namespace OloEngine::MCP
         {
             ToolDef tool;
             tool.Name = "olo_viewport_set_size";
+            tool.Toolset = "camera";
             tool.Title = "Set viewport size";
             tool.Annotations = MutatingAnnotations(/*idempotent*/ true);
             tool.Description =
@@ -4057,6 +4084,7 @@ namespace OloEngine::MCP
         {
             ToolDef tool;
             tool.Name = "olo_render_list_targets";
+            tool.Toolset = "render";
             tool.Title = "List render targets";
             tool.Annotations = ReadOnlyAnnotations();
             tool.Description =
@@ -4074,6 +4102,7 @@ namespace OloEngine::MCP
         {
             ToolDef tool;
             tool.Name = "olo_render_capture_target";
+            tool.Toolset = "render";
             tool.Title = "Capture render target";
             // Reads back one render-graph texture; changes no observable state.
             tool.Annotations = ReadOnlyAnnotations();
@@ -4104,6 +4133,7 @@ namespace OloEngine::MCP
         {
             ToolDef tool;
             tool.Name = "olo_render_toggle_pass";
+            tool.Toolset = "render";
             tool.Title = "Toggle render pass";
             // Edits ephemeral session render settings; flips state when 'enabled' is
             // omitted (so not idempotent), destroys nothing.
@@ -4134,6 +4164,7 @@ namespace OloEngine::MCP
         {
             ToolDef tool;
             tool.Name = "olo_render_set_debug_view";
+            tool.Toolset = "render";
             tool.Title = "Set render debug view";
             // Edits ephemeral session render settings; destroys nothing.
             tool.Annotations = MutatingAnnotations(/*idempotent*/ false);
@@ -4161,6 +4192,7 @@ namespace OloEngine::MCP
         {
             ToolDef tool;
             tool.Name = "olo_render_compare_golden";
+            tool.Toolset = "render";
             tool.Title = "Compare against golden image";
             // Poses the camera (save/restore) and can WRITE/overwrite a golden PNG
             // on create or rebase — a real, potentially destructive filesystem
@@ -4207,6 +4239,7 @@ namespace OloEngine::MCP
         {
             ToolDef tool;
             tool.Name = "olo_physics_layer_matrix";
+            tool.Toolset = "physics";
             tool.Title = "Physics layer matrix";
             tool.Annotations = ReadOnlyAnnotations();
             tool.Description =
@@ -4223,6 +4256,7 @@ namespace OloEngine::MCP
         {
             ToolDef tool;
             tool.Name = "olo_physics_list_colliders";
+            tool.Toolset = "physics";
             tool.Title = "List physics colliders";
             tool.Annotations = ReadOnlyAnnotations();
             tool.Description =
@@ -4245,6 +4279,7 @@ namespace OloEngine::MCP
         {
             ToolDef tool;
             tool.Name = "olo_physics_contacts";
+            tool.Toolset = "physics";
             tool.Title = "List physics contacts";
             tool.Annotations = ReadOnlyAnnotations();
             tool.Description =
@@ -4265,6 +4300,7 @@ namespace OloEngine::MCP
         {
             ToolDef tool;
             tool.Name = "olo_physics_raycast";
+            tool.Toolset = "physics";
             tool.Title = "Physics raycast";
             tool.Annotations = ReadOnlyAnnotations();
             tool.Description =
@@ -4314,6 +4350,7 @@ namespace OloEngine::MCP
         {
             ToolDef tool;
             tool.Name = "olo_physics_overlap";
+            tool.Toolset = "physics";
             tool.Title = "Physics overlap query";
             tool.Annotations = ReadOnlyAnnotations();
             tool.Description =
@@ -4338,6 +4375,7 @@ namespace OloEngine::MCP
         {
             ToolDef tool;
             tool.Name = "olo_physics_why_no_collision";
+            tool.Toolset = "physics";
             tool.Title = "Explain missing collision";
             tool.Annotations = ReadOnlyAnnotations();
             tool.Description =
@@ -4362,6 +4400,7 @@ namespace OloEngine::MCP
         {
             ToolDef tool;
             tool.Name = "olo_render_why_not_visible";
+            tool.Toolset = "render";
             tool.Title = "Explain entity not visible";
             tool.Annotations = ReadOnlyAnnotations();
             tool.Description =

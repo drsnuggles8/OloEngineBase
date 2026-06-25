@@ -150,6 +150,10 @@ namespace OloEngine
                                      {
 			WindowData const& data = *static_cast<WindowData*>(GLFWAPI::glfwGetWindowUserPointer(window));
 
+			// Record the typed codepoint so polled consumers (e.g. UI text
+			// fields, which run off Input rather than the event stream) see it.
+			Input::OnCharTyped(static_cast<u32>(keycode));
+
 			KeyTypedEvent event(static_cast<OloEngine::KeyCode>(keycode));
 			data.EventCallback(event); });
 

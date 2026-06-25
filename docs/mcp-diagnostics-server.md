@@ -145,6 +145,42 @@ the server, so update the config (or re-copy from the panel) accordingly.
 | `olo_physics_overlap` | bodies overlapping a sphere (`radius`) or box (`halfExtents`) at `origin`; requires Play mode |
 | `olo_physics_why_no_collision` | explain why two entities (`a`, `b`) are NOT colliding — the "player falls through the floor" debugger: root-cause `reasonCode`, summary, ordered checks, and per-entity facts |
 
+### Toolsets & on-demand tool discovery (`tools/search`)
+
+The tool surface is large enough (39 tools) that paging the whole flat `tools/list`
+to find the right one is wasteful. Every tool is tagged with a **toolset** (grouping
+category), and a custom `tools/search` JSON-RPC method lets an agent discover tools by
+keyword and/or category instead of pulling the entire list:
+
+| Toolset | Tools |
+|---|---|
+| `diagnostics` | `olo_log_tail`, `olo_events_tail`, `olo_crash_list`, `olo_crash_get` |
+| `scene` | `olo_scene_summary`, `olo_scene_list_entities`, `olo_scene_get_entity` |
+| `perf` | `olo_memory_report`, `olo_perf_snapshot`, `olo_perf_bottlenecks`, `olo_perf_frame_history`, `olo_perf_capture_frame` |
+| `render` | `olo_render_frame_breakdown`, `olo_render_list_targets`, `olo_render_capture_target`, `olo_render_toggle_pass`, `olo_render_set_debug_view`, `olo_render_compare_golden`, `olo_render_why_not_visible` |
+| `shader` | `olo_shader_list`, `olo_shader_errors`, `olo_shader_get`, `olo_shader_reload` |
+| `assets` | `olo_assets_list`, `olo_assets_problems` |
+| `scripting` | `olo_script_get_api`, `olo_script_get_last_errors` |
+| `camera` | `olo_screenshot`, `olo_camera_get`, `olo_camera_set_pose`, `olo_camera_orbit`, `olo_camera_frame_entity`, `olo_viewport_set_size` |
+| `physics` | `olo_physics_layer_matrix`, `olo_physics_list_colliders`, `olo_physics_contacts`, `olo_physics_raycast`, `olo_physics_overlap`, `olo_physics_why_no_collision` |
+
+`tools/search` params (both optional):
+
+- `query` — free text; whitespace-separated terms are ANDed and matched
+  case-insensitively against each tool's name, title, description, and toolset.
+- `toolset` — restrict to one category (case-insensitive exact match).
+
+It returns `{ "tools": [...], "toolsets": [{ "name", "count" }, ...] }`. The `tools`
+entries are the same shape as `tools/list` (so a tool can be called straight from a
+search hit), plus a convenience top-level `toolset` field. The `toolsets` array is the
+full category catalogue (every toolset + its tool count, regardless of the active
+filter) so an agent can discover categories and refine. With no `query` and no
+`toolset`, it returns every tool plus the catalogue.
+
+This is **additive**: `tools/list` is unchanged (a standard MCP client that never calls
+`tools/search` keeps working) — it now also carries each tool's toolset under the
+spec's `_meta` extension key `io.oloengine/toolset`, which strict clients ignore.
+
 ### Multi-angle visual verification (the CLAUDE.md water pattern)
 
 The camera tools exist so an agent can verify a rendering change from the angles where

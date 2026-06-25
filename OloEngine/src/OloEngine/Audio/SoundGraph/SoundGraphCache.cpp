@@ -17,6 +17,13 @@ namespace OloEngine::Audio::SoundGraph
 {
     //==============================================================================
     /// SoundGraphCache Implementation
+    //
+    // This is a purely in-memory LRU cache of *live* compiled SoundGraph instances.
+    // Cross-run persistence of the audio-graph compilation cache is owned solely by
+    // CompilerCache (SaveToDisk/LoadFromDisk, wired into its ctor/shutdown), which
+    // already persists each source's path, hash, and timestamps PLUS the compiled
+    // bytecode — a superset of anything this cache could record. SoundGraphCache
+    // therefore intentionally has no on-disk format of its own.
 
     SoundGraphCache::SoundGraphCache(sizet maxCacheSize, sizet maxMemoryUsage)
         : m_MaxCacheSize(maxCacheSize), m_MaxMemoryUsage(maxMemoryUsage)
@@ -433,23 +440,6 @@ namespace OloEngine::Audio::SoundGraph
                       hitRatio * 100.0f, m_HitCount.load(), totalAccesses);
     }
 
-    bool SoundGraphCache::SaveCacheMetadata(const std::string& filePath) const
-    {
-        OLO_PROFILE_FUNCTION();
-        // TODO: Implementation would serialize cache metadata to JSON/binary format
-        // This is a placeholder for persistent cache functionality
-        OLO_CORE_INFO("SoundGraphCache: Saving cache metadata to '{}'", filePath);
-        return true;
-    }
-
-    bool SoundGraphCache::LoadCacheMetadata(const std::string& filePath) const
-    {
-        // TODO: Implementation would deserialize cache metadata from JSON/binary format
-        // This is a placeholder for persistent cache functionality
-        OLO_CORE_INFO("SoundGraphCache: Loading cache metadata from '{}'", filePath);
-        return true;
-    }
-
     //==============================================================================
     /// Private Helper Methods
 
@@ -507,12 +497,13 @@ namespace OloEngine::Audio::SoundGraph
                 // NodeProcessor maps and vectors (approximate overhead)
                 totalMemory += 256; // Estimated overhead for maps/vectors per node
 
-                // TODO: Check if this is a WavePlayer with audio data
-                // WavePlayer nodes can consume significant memory for audio samples
-                // AudioData.samples is std::vector<f32> with interleaved audio
-                // Estimate: typical audio file might be 1-5MB of samples
-                // We'll use a conservative estimate since we can't easily inspect the actual AudioData
-                totalMemory += 2 * 1024 * 1024; // 2MB per node (conservative estimate for potential audio data)
+                // Add any large heap buffer the node owns (e.g. a WavePlayer's
+                // decoded audio samples). The node reports it through the virtual
+                // GetHeapBytes() hook, so accounting stays type-agnostic — an
+                // unloaded clip costs nothing, a long one costs what it actually
+                // uses, and a future buffer-owning node is counted automatically
+                // without another special case here.
+                totalMemory += node->GetHeapBytes();
             }
         }
 

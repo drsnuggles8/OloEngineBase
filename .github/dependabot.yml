@@ -1,11 +1,28 @@
-# To get started with Dependabot version updates, you'll need to specify which
-# package ecosystems to update and where the package manifests are located.
-# Please see the documentation for all configuration options:
+# Dependabot config. See:
 # https://docs.github.com/github/administering-a-repository/configuration-options-for-dependency-updates
+#
+# Scope note: Dependabot only covers the GitHub Actions used by our workflows
+# (and the composite action under .github/actions/, which `directory: "/"`
+# scans too). It CANNOT read the C++ vendored deps, which are fetched via CMake
+# FetchContent / CPM in OloEngine/vendor/CMakeLists.txt — there is no CMake
+# ecosystem in Dependabot. Those are tracked by Renovate instead; see
+# .github/renovate.json5. The two bots are kept strictly non-overlapping:
+# Dependabot owns Actions, Renovate owns the vendored C++ deps only.
 
 version: 2
 updates:
-  - package-ecosystem: "github-actions" # See documentation for possible values
-    directory: "/" # Location of package manifests
+  - package-ecosystem: "github-actions"
+    directory: "/"
     schedule:
       interval: "monthly"
+    # One combined PR per run instead of up to ~11 — each PR otherwise triggers
+    # the full CI matrix (SonarCloud Scan alone is a ~1.5-2h long pole).
+    groups:
+      github-actions:
+        patterns:
+          - "*"
+    open-pull-requests-limit: 5
+    labels:
+      - "github_actions"
+    commit-message:
+      prefix: "ci"

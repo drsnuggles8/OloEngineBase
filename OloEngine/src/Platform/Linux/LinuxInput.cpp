@@ -5,6 +5,7 @@
 
 #include <GLFW/glfw3.h>
 #include <cstring>
+#include <vector>
 
 namespace OloEngine
 {
@@ -12,6 +13,12 @@ namespace OloEngine
     static constexpr i32 s_MaxKeys = GLFW_KEY_LAST + 1;
     static bool s_CurrentKeys[s_MaxKeys]{};
     static bool s_PreviousKeys[s_MaxKeys]{};
+
+    // Typed-character (text-entry) double buffer. The char callback appends to
+    // s_TypedCharsPending; Update() rotates it into s_TypedCharsFrame so readers
+    // see exactly the codepoints typed during the just-polled frame.
+    static std::vector<u32> s_TypedCharsPending;
+    static std::vector<u32> s_TypedCharsFrame;
 
     namespace
     {
@@ -39,8 +46,25 @@ namespace OloEngine
         }
     } // namespace
 
+    const std::vector<u32>& Input::GetTypedCharacters()
+    {
+        return s_TypedCharsFrame;
+    }
+
+    void Input::OnCharTyped(const u32 codepoint)
+    {
+        s_TypedCharsPending.push_back(codepoint);
+    }
+
     void Input::Update()
     {
+        // Rotate the typed-character buffer: codepoints accumulated since the
+        // previous Update() (i.e. during the poll that just ran) become this
+        // frame's text input. Done before the window check so headless ticks
+        // and tests that pump OnCharTyped/Update directly behave identically.
+        s_TypedCharsFrame.swap(s_TypedCharsPending);
+        s_TypedCharsPending.clear();
+
         auto* const window = TryGetGlfwWindow();
         if (!window)
         {

@@ -20,7 +20,7 @@ UICanvasComponent          ← Root: defines render mode, sort order, reference 
 Every frame the system runs three passes:
 1. **Layout** (`UILayoutSystem::ResolveLayout`) — walks the canvas hierarchy and resolves anchor-based `UIRectTransformComponent` values into pixel-space `UIResolvedRectComponent`
 2. **Rendering** (`UIRenderer`) — draws each resolved widget as a screen-space overlay using `Renderer2D`
-3. **Input** (`UIInputSystem::ProcessInput`) — hit-tests mouse position against resolved rects and updates interactive widget state (buttons, sliders, checkboxes, etc.)
+3. **Input** (`UIInputSystem::ProcessInput`) — hit-tests mouse position against resolved rects and updates interactive widget state (buttons, sliders, checkboxes, etc.), and routes keyboard input (typed characters + edit keys) to the focused input field
 
 ## Entity Structure
 
@@ -102,7 +102,8 @@ All interactive widgets have an `m_Interactable` flag. Set to `false` to disable
 **UIInputFieldComponent** — Editable text input.
 - `m_Text`, `m_Placeholder`, `m_FontAsset`, `m_FontSize`
 - `m_TextColor`, `m_PlaceholderColor`, `m_BackgroundColor`
-- `m_CharacterLimit` — 0 = no limit
+- `m_CharacterLimit` — 0 = no limit (counted in Unicode codepoints, not bytes)
+- `m_IsFocused`, `m_CursorPosition` — runtime state (not serialized). When the field is focused, `UIInputSystem::ProcessInput` inserts typed characters at the cursor and handles Backspace/Delete, Left/Right, Home/End. `m_CursorPosition` is a **byte offset** into the UTF-8 `m_Text`; the system keeps it on codepoint boundaries so edits never split a multi-byte character. The runtime gathers typed characters from `Input::GetTypedCharacters()` and edit keys via `Input::IsKeyJustPressed` (edge-triggered, so editing keys do not auto-repeat).
 
 **UIDropdownComponent** — Selection from a list of options.
 - `m_Options` — Vector of `UIDropdownOption` (each has `m_Label`)

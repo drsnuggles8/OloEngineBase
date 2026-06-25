@@ -1693,7 +1693,18 @@ namespace OloEngine
             const bool mouseDown = Input::IsMouseButtonPressed(Mouse::ButtonLeft);
             const bool mousePressed = mouseDown && !m_PreviousMouseButtonDown;
             m_PreviousMouseButtonDown = mouseDown;
-            UIInputSystem::ProcessInput(*this, mousePos, mouseDown, mousePressed);
+
+            // Gather keyboard input for focused UI text fields: typed characters
+            // come from the Input char buffer; edit keys are edge-triggered.
+            UIKeyboardInput keyboard;
+            keyboard.m_TypedCharacters = Input::GetTypedCharacters();
+            keyboard.m_Backspace = Input::IsKeyJustPressed(Key::Backspace);
+            keyboard.m_Delete = Input::IsKeyJustPressed(Key::Delete);
+            keyboard.m_CursorLeft = Input::IsKeyJustPressed(Key::Left);
+            keyboard.m_CursorRight = Input::IsKeyJustPressed(Key::Right);
+            keyboard.m_Home = Input::IsKeyJustPressed(Key::Home);
+            keyboard.m_End = Input::IsKeyJustPressed(Key::End);
+            UIInputSystem::ProcessInput(*this, mousePos, mouseDown, mousePressed, 0.0f, 0.0f, keyboard);
         }
 
         if (mainCamera && m_RenderingEnabled)

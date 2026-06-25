@@ -13,15 +13,18 @@ set_target_properties(OloHeaderTool PROPERTIES
 )
 
 # Define the output paths for generated files
-set(OHT_SCAN_DIR "${CMAKE_SOURCE_DIR}/OloEngine/src" CACHE PATH "Directory to scan for OLO_PROPERTY annotations")
-set(OHT_CPP_OUT  "${CMAKE_SOURCE_DIR}/OloEngine/src/OloEngine/Scripting/C#/Generated" CACHE PATH "C++ generated output directory")
-set(OHT_CS_OUT   "${CMAKE_SOURCE_DIR}/OloEngine-ScriptCore/src/OloEngine" CACHE PATH "C# generated output directory")
+set(OHT_SCAN_DIR  "${CMAKE_SOURCE_DIR}/OloEngine/src" CACHE PATH "Directory to scan for OLO_PROPERTY annotations and *Component definitions")
+set(OHT_CPP_OUT   "${CMAKE_SOURCE_DIR}/OloEngine/src/OloEngine/Scripting/C#/Generated" CACHE PATH "C++ generated output directory")
+set(OHT_CS_OUT    "${CMAKE_SOURCE_DIR}/OloEngine-ScriptCore/src/OloEngine" CACHE PATH "C# generated output directory")
+# Scene-domain generated output (the AllComponents tuple) — kept separate from the
+# scripting bindings so Components.h can #include it with a clean path.
+set(OHT_SCENE_OUT "${CMAKE_SOURCE_DIR}/OloEngine/src/OloEngine/Scene/Generated" CACHE PATH "Scene generated output directory (AllComponents tuple)")
 
 # Custom target to run the tool
 add_custom_target(GenerateBindings
-    COMMAND OloHeaderTool "${OHT_SCAN_DIR}" "${OHT_CPP_OUT}" "${OHT_CS_OUT}"
+    COMMAND OloHeaderTool "${OHT_SCAN_DIR}" "${OHT_CPP_OUT}" "${OHT_CS_OUT}" "${OHT_SCENE_OUT}"
     DEPENDS OloHeaderTool
     WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
-    COMMENT "Running OloHeaderTool to generate scripting bindings..."
+    COMMENT "Running OloHeaderTool to generate scripting bindings and the AllComponents tuple..."
     VERBATIM
 )
