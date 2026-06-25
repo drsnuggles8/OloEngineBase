@@ -1,0 +1,40 @@
+name: Cancel merged-PR runs
+
+# When a PR is closed or merged, GitHub does NOT cancel that PR branch's
+# in-flight workflow runs: the per-PR `concurrency` groups in the other
+# workflows only cancel on a *new push* to the same branch, and a merge pushes
+# nothing to the branch. Those orphaned runs keep burning hosted-runner slots
+# and slow down the still-open PRs. This workflow closes that gap by cancelling
+# any in-progress / queued runs for the closed PR's head branch.
+
+on:
+  pull_request:
+    types: [closed]
+
+permissions:
+  actions: write
+
+concurrency:
+  group: cancel-merged-pr-runs-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+jobs:
+  cancel:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Cancel in-progress / queued runs for the closed PR's branch
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          BRANCH: ${{ github.event.pull_request.head.ref }}
+        run: |
+          echo "Cancelling leftover runs on branch: $BRANCH"
+          for state in in_progress queued; do
+            gh run list --repo "$REPO" --branch "$BRANCH" --status "$state" \
+              --json databaseId,workflowName \
+              --jq '.[] | "\(.databaseId)\t\(.workflowName)"' \
+            | while IFS=$'\t' read -r id name; do
+                echo "Cancelling $id ($name)"
+                gh run cancel --repo "$REPO" "$id" || true
+              done
+          done
