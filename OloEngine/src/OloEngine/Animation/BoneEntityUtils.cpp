@@ -6,12 +6,43 @@
 #include "OloEngine/Renderer/MeshSource.h"
 #include <algorithm>
 #include <functional>
+#include <string_view>
 #include <unordered_map>
 #include <unordered_set>
 #include "OloEngine/Threading/UniqueLock.h"
 
 namespace OloEngine
 {
+    namespace
+    {
+        // Recursively maps each TagComponent's tag to its entity UUID, walking
+        // the hierarchy from `entity`. `visited` guards against cycles.
+        void BuildTagEntityMap(Entity entity, const Scene* scene,
+                               std::unordered_set<UUID>& visited,
+                               std::unordered_map<std::string, UUID>& out)
+        {
+            if (!entity || !scene)
+                return;
+
+            UUID entityUUID = entity.GetUUID();
+            if (visited.contains(entityUUID))
+                return;
+            visited.insert(entityUUID);
+
+            if (entity.HasComponent<TagComponent>())
+            {
+                const auto& tagComponent = entity.GetComponent<TagComponent>();
+                out[tagComponent.Tag] = entity.GetUUID();
+            }
+
+            for (const auto& childId : entity.Children())
+            {
+                if (auto childOpt = scene->TryGetEntityWithUUID(childId))
+                    BuildTagEntityMap(*childOpt, scene, visited, out);
+            }
+        }
+    } // namespace
+
     std::vector<glm::mat4> BoneEntityUtils::GetModelSpaceBoneTransforms(
         const std::vector<UUID>& boneEntityIds,
         const MeshSource* meshSource,
@@ -83,36 +114,7 @@ namespace OloEngine
         // Build tag-to-entity map once for O(1) lookups
         std::unordered_map<std::string, UUID> tagEntityMap;
         std::unordered_set<UUID> visited;
-
-        // Build tag map with cycle detection
-        std::function<void(Entity)> buildTagMap = [&scene, &visited, &tagEntityMap, &buildTagMap](Entity entity)
-        {
-            if (!entity || !scene)
-                return;
-
-            UUID entityUUID = entity.GetUUID();
-            if (visited.find(entityUUID) != visited.end())
-                return;
-
-            visited.insert(entityUUID);
-
-            if (entity.HasComponent<TagComponent>())
-            {
-                const auto& tagComponent = entity.GetComponent<TagComponent>();
-                tagEntityMap[tagComponent.Tag] = entity.GetUUID();
-            }
-
-            for (const auto& childId : entity.Children())
-            {
-                auto childOpt = scene->TryGetEntityWithUUID(childId);
-                if (childOpt)
-                {
-                    buildTagMap(*childOpt);
-                }
-            }
-        };
-
-        buildTagMap(rootEntity);
+        BuildTagEntityMap(rootEntity, scene, visited, tagEntityMap);
 
         bool foundAtLeastOne = false;
         for (const auto& boneName : boneNames)
@@ -156,36 +158,7 @@ namespace OloEngine
             [&scene, rootEntity](std::unordered_map<std::string, UUID>& tagEntityCache)
             {
                 std::unordered_set<UUID> visited;
-
-                // Build tag map with cycle detection
-                std::function<void(Entity)> buildTagMap = [&scene, &visited, &tagEntityCache, &buildTagMap](Entity entity)
-                {
-                    if (!entity || !scene)
-                        return;
-
-                    UUID entityUUID = entity.GetUUID();
-                    if (visited.find(entityUUID) != visited.end())
-                        return;
-
-                    visited.insert(entityUUID);
-
-                    if (entity.HasComponent<TagComponent>())
-                    {
-                        const auto& tagComponent = entity.GetComponent<TagComponent>();
-                        tagEntityCache[tagComponent.Tag] = entity.GetUUID();
-                    }
-
-                    for (const auto& childId : entity.Children())
-                    {
-                        auto childOpt = scene->TryGetEntityWithUUID(childId);
-                        if (childOpt)
-                        {
-                            buildTagMap(*childOpt);
-                        }
-                    }
-                };
-
-                buildTagMap(rootEntity);
+                BuildTagEntityMap(rootEntity, scene, visited, tagEntityCache);
             });
     }
 
@@ -207,7 +180,7 @@ namespace OloEngine
             {
                 // Check for cycles - if this parent was already visited, break to prevent infinite loop
                 UUID parentUUID = parentEntity.GetUUID();
-                if (visitedParents.find(parentUUID) != visitedParents.end())
+                if (visitedParents.contains(parentUUID))
                     break;
 
                 // Mark this parent as visited
@@ -261,7 +234,8 @@ namespace OloEngine
 
             // Queue children in reverse so the first child is processed next — preserves pre-order DFS
             const auto& children = current.Children();
-            for (auto it = children.rbegin(); it != children.rend(); ++it)
+            auto childrenEnd = children.rend();
+            for (auto it = children.rbegin(); it != childrenEnd; ++it)
             {
                 auto childOpt = scene->TryGetEntityWithUUID(*it);
                 if (childOpt)
@@ -314,7 +288,8 @@ namespace OloEngine
 
             // Queue children in reverse so the first child is processed next — preserves pre-order DFS
             const auto& children = current.Children();
-            for (auto it = children.rbegin(); it != children.rend(); ++it)
+            auto childrenEnd = children.rend();
+            for (auto it = children.rbegin(); it != childrenEnd; ++it)
             {
                 auto childOpt = scene->TryGetEntityWithUUID(*it);
                 if (childOpt)
@@ -332,7 +307,7 @@ namespace OloEngine
     }
 
     // Internal helper with cycle detection (iterative pre-order DFS to avoid recursion)
-    static Entity FindEntityWithTagImpl(Entity entity, const std::string& tag, const Scene* scene, std::unordered_set<UUID>& visited)
+    static Entity FindEntityWithTagImpl(Entity entity, std::string_view tag, const Scene* scene, std::unordered_set<UUID>& visited)
     {
         if (!entity || !scene)
             return Entity();
@@ -355,13 +330,14 @@ namespace OloEngine
             if (current.HasComponent<TagComponent>())
             {
                 const auto& tagComponent = current.GetComponent<TagComponent>();
-                if (tagComponent.Tag == tag)
+                if (tag == tagComponent.Tag)
                     return current;
             }
 
             // Queue children in reverse so the first child is searched next — preserves pre-order DFS
             const auto& children = current.Children();
-            for (auto it = children.rbegin(); it != children.rend(); ++it)
+            auto childrenEnd = children.rend();
+            for (auto it = children.rbegin(); it != childrenEnd; ++it)
             {
                 auto childOpt = scene->TryGetEntityWithUUID(*it);
                 if (childOpt)

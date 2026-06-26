@@ -25,7 +25,11 @@ namespace OloEngine
             GetExpressions()[expr.Name] = expr;
         }
 
-        static void ApplyExpression(MorphTargetComponent& morphComp, const std::string& exprName, f32 blend = 1.0f)
+        static void ApplyExpression(MorphTargetComponent& morphComp, const std::string& exprName)
+        {
+            ApplyExpression(morphComp, exprName, 1.0f);
+        }
+        static void ApplyExpression(MorphTargetComponent& morphComp, const std::string& exprName, f32 blend)
         {
             OLO_PROFILE_FUNCTION();
 
@@ -106,7 +110,7 @@ namespace OloEngine
         static bool LoadExpression(const std::string& filePath);
 
       private:
-        static std::unordered_map<std::string, FacialExpression>& GetExpressions()
+        [[nodiscard("expression registry reference must be used")]] static std::unordered_map<std::string, FacialExpression>& GetExpressions()
         {
             static std::unordered_map<std::string, FacialExpression> s_Expressions;
             return s_Expressions;

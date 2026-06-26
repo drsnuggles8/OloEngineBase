@@ -39,20 +39,25 @@ namespace OloEngine
         }
 
         // Convert dense representation to sparse (only non-zero deltas)
-        void ConvertToSparse(f32 epsilon = 1e-6f)
+        void ConvertToSparse()
+        {
+            ConvertToSparse(1e-6f);
+        }
+        void ConvertToSparse(f32 epsilon)
         {
             if (IsSparse)
                 return;
 
             SparseVertices.clear();
-            for (u32 i = 0; i < static_cast<u32>(Vertices.size()); ++i)
+            auto vertexCount = static_cast<u32>(Vertices.size());
+            for (u32 i = 0; i < vertexCount; ++i)
             {
                 const auto& v = Vertices[i];
                 if (glm::length(v.DeltaPosition) > epsilon ||
                     glm::length(v.DeltaNormal) > epsilon ||
                     glm::length(v.DeltaTangent) > epsilon)
                 {
-                    SparseVertices.push_back({ i, v });
+                    SparseVertices.emplace_back(i, v);
                 }
             }
             IsSparse = true;

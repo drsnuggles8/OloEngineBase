@@ -34,13 +34,25 @@ namespace OloEngine
         // AnimationLayer) — moves without throwing (S5018).
         AnimationParameterSet() = default;
         AnimationParameterSet(const AnimationParameterSet&) = default;
-        AnimationParameterSet& operator=(const AnimationParameterSet&) = default;
         AnimationParameterSet(AnimationParameterSet&&) noexcept = default;
+        AnimationParameterSet& operator=(const AnimationParameterSet&) = default;
         AnimationParameterSet& operator=(AnimationParameterSet&&) noexcept = default;
 
-        void DefineFloat(const std::string& name, f32 defaultValue = 0.0f);
-        void DefineBool(const std::string& name, bool defaultValue = false);
-        void DefineInt(const std::string& name, i32 defaultValue = 0);
+        void DefineFloat(const std::string& name, f32 defaultValue);
+        void DefineFloat(const std::string& name)
+        {
+            DefineFloat(name, 0.0f);
+        }
+        void DefineBool(const std::string& name, bool defaultValue);
+        void DefineBool(const std::string& name)
+        {
+            DefineBool(name, false);
+        }
+        void DefineInt(const std::string& name, i32 defaultValue);
+        void DefineInt(const std::string& name)
+        {
+            DefineInt(name, 0);
+        }
         void DefineTrigger(const std::string& name);
         void RemoveParameter(const std::string& name);
 

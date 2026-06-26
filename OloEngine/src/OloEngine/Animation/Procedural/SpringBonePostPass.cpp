@@ -87,8 +87,7 @@ namespace OloEngine::Animation
             glm::vec3 translation;
             glm::quat rotation;
             glm::vec3 skew;
-            glm::vec4 perspective;
-            if (!glm::decompose(skeleton.m_LocalTransforms[i], scale, rotation, translation, skew, perspective))
+            if (glm::vec4 perspective; !glm::decompose(skeleton.m_LocalTransforms[i], scale, rotation, translation, skew, perspective))
             {
                 localPose[i] = { glm::vec3(0.0f), glm::identity<glm::quat>(), glm::vec3(1.0f) };
                 continue;
@@ -109,8 +108,7 @@ namespace OloEngine::Animation
         // world-space sag stays consistent regardless of entity scale. Falls
         // back to the raw vector when the transform is degenerate (zero scale).
         auto entityRotScale = glm::mat3(entityWorldTransform);
-        constexpr f32 kDeterminantEpsilon = 1e-12f;
-        if (std::abs(glm::determinant(entityRotScale)) > kDeterminantEpsilon)
+        if (constexpr f32 kDeterminantEpsilon = 1e-12f; std::abs(glm::determinant(entityRotScale)) > kDeterminantEpsilon)
         {
             params.Gravity = glm::inverse(entityRotScale) * springBone.Gravity;
             if (!isFiniteVec3(params.Gravity))

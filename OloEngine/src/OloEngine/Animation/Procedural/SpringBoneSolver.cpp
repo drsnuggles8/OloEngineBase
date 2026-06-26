@@ -34,6 +34,24 @@ namespace OloEngine::Animation
         {
             return std::isfinite(v.x) && std::isfinite(v.y) && std::isfinite(v.z);
         }
+
+        // True when the cached simulation state matches the current chain size
+        // and contains only finite positions (so it can be reused this frame).
+        bool IsSpringStateValid(const SpringBoneState& state, sizet simCount)
+        {
+            if (!state.Initialized || state.CurrPositions.size() != simCount || state.PrevPositions.size() != simCount)
+            {
+                return false;
+            }
+            for (sizet i = 0; i < simCount; ++i)
+            {
+                if (!IsFiniteVec3(state.CurrPositions[i]) || !IsFiniteVec3(state.PrevPositions[i]))
+                {
+                    return false;
+                }
+            }
+            return true;
+        }
     } // namespace
 
     void SpringBoneSolver::Solve(
@@ -123,16 +141,7 @@ namespace OloEngine::Animation
         // position is driven by the parent hierarchy, not the simulation.
         auto simCount = static_cast<sizet>(jointCount) - 1;
 
-        auto stateValid = state.Initialized && state.CurrPositions.size() == simCount && state.PrevPositions.size() == simCount;
-        if (stateValid)
-        {
-            for (sizet i = 0; i < simCount && stateValid; ++i)
-            {
-                stateValid = IsFiniteVec3(state.CurrPositions[i]) && IsFiniteVec3(state.PrevPositions[i]);
-            }
-        }
-
-        if (!stateValid)
+        if (!IsSpringStateValid(state, simCount))
         {
             // (Re-)initialize to the animated pose: the chain starts at rest,
             // so the first solved frame leaves the pose untouched.
@@ -187,8 +196,9 @@ namespace OloEngine::Animation
         bool needWeightBlend = (weight < 1.0f - 1e-6f);
         if (needWeightBlend)
         {
-            originalRotations.resize(boneIndices.size());
-            for (sizet i = 0; i < boneIndices.size(); ++i)
+            auto chainSize = boneIndices.size();
+            originalRotations.resize(chainSize);
+            for (sizet i = 0; i < chainSize; ++i)
             {
                 originalRotations[i] = pose[boneIndices[i]].Rotation;
             }
@@ -232,9 +242,9 @@ namespace OloEngine::Animation
             // Compute the correction in the bone's local frame
             auto invRot = glm::conjugate(thisBoneMS.Rotation);
             auto toOriginal = SafeNormalize(invRot * originalDir);
-            auto toTarget = SafeNormalize(invRot * targetDir);
 
-            if (glm::length2(toOriginal) > 1e-10f && glm::length2(toTarget) > 1e-10f)
+            if (auto toTarget = SafeNormalize(invRot * targetDir);
+                glm::length2(toOriginal) > 1e-10f && glm::length2(toTarget) > 1e-10f)
             {
                 pose[thisIdx].Rotation *= glm::rotation(toOriginal, toTarget);
             }
@@ -246,7 +256,8 @@ namespace OloEngine::Animation
         // Apply global weight: blend between the animated and simulated result
         if (needWeightBlend)
         {
-            for (sizet i = 0; i < boneIndices.size(); ++i)
+            auto blendCount = boneIndices.size();
+            for (sizet i = 0; i < blendCount; ++i)
             {
                 auto bi = boneIndices[i];
                 pose[bi].Rotation = glm::slerp(originalRotations[i], pose[bi].Rotation, weight);

@@ -4,6 +4,7 @@
 #include "OloEngine/Animation/AnimationClip.h"
 #include "OloEngine/Core/Base.h"
 #include <string>
+#include <utility>
 #include <glm/glm.hpp>
 
 namespace OloEngine
@@ -35,7 +36,9 @@ namespace OloEngine
       public:
         AnimationAsset() = default;
         explicit AnimationAsset(AssetHandle animationSource, AssetHandle mesh, std::string animationName,
-                                const AnimationRootMotionSettings& rootMotion = {});
+                                const AnimationRootMotionSettings& rootMotion);
+        explicit AnimationAsset(AssetHandle animationSource, AssetHandle mesh, std::string animationName)
+            : AnimationAsset(animationSource, mesh, std::move(animationName), {}) {}
 
         static AssetType GetStaticType()
         {

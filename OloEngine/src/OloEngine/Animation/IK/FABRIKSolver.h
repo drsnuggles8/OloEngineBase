@@ -34,6 +34,13 @@ namespace OloEngine::Animation
             std::span<BoneTransform> pose,
             std::span<const int> parentIndices,
             const FABRIKParams& params,
-            std::span<const glm::mat4> preTransforms = {});
+            std::span<const glm::mat4> preTransforms);
+        static void Solve(
+            std::span<BoneTransform> pose,
+            std::span<const int> parentIndices,
+            const FABRIKParams& params)
+        {
+            Solve(pose, parentIndices, params, {});
+        }
     };
 } // namespace OloEngine::Animation

@@ -31,6 +31,7 @@ namespace OloEngine::Animation
 
     bool OneShotBlend::AdvancePhase()
     {
+        using enum Phase;
         // Loop to handle instant transitions (e.g., zero-duration blend-in/out can
         // skip multiple phases in one frame).
         bool transitioned = true;
@@ -39,28 +40,28 @@ namespace OloEngine::Animation
             transitioned = false;
             switch (m_Phase)
             {
-                case Phase::BlendIn:
+                case BlendIn:
                     if (BlendInDuration <= 0.0f || m_PhaseTime >= BlendInDuration)
                     {
-                        m_Phase = Phase::Playing;
+                        m_Phase = Playing;
                         m_PhaseTime = (BlendInDuration > 0.0f) ? (m_PhaseTime - BlendInDuration) : 0.0f;
                         transitioned = true;
                     }
                     break;
-                case Phase::Playing:
+                case Playing:
                 {
                     if (f32 blendOutStart = Clip->Duration - BlendOutDuration; m_PlaybackTime >= blendOutStart)
                     {
-                        m_Phase = Phase::BlendOut;
+                        m_Phase = BlendOut;
                         m_PhaseTime = m_PlaybackTime - blendOutStart;
                         transitioned = true;
                     }
                     break;
                 }
-                case Phase::BlendOut:
+                case BlendOut:
                     if (BlendOutDuration <= 0.0f || m_PhaseTime >= BlendOutDuration || m_PlaybackTime >= Clip->Duration)
                     {
-                        m_Phase = Phase::Idle;
+                        m_Phase = Idle;
                         m_PlaybackTime = 0.0f;
                         m_PhaseTime = 0.0f;
                         if (OnFinished)
@@ -70,7 +71,7 @@ namespace OloEngine::Animation
                         return false;
                     }
                     break;
-                case Phase::Idle:
+                case Idle:
                     return false;
                 default:
                     break;
@@ -151,7 +152,8 @@ namespace OloEngine::Animation
         if (m_CachedBoneCount != boneCount || m_CachedBoneNamesHash != nameHash)
         {
             m_BoneNameToIndex.clear();
-            for (sizet i = 0; i < boneCount && i < boneNames.size(); ++i)
+            auto boneNameCount = boneNames.size();
+            for (sizet i = 0; i < boneCount && i < boneNameCount; ++i)
             {
                 m_BoneNameToIndex[boneNames[i]] = i;
             }

@@ -19,17 +19,18 @@ namespace OloEngine
             return;
         }
 
+        using enum BlendType;
         switch (Type)
         {
-            case BlendType::Simple1D:
+            case Simple1D:
             {
                 f32 paramValue = params.GetFloat(BlendParameterX);
                 Evaluate1D(paramValue, normalizedTime, boneCount, outBoneTransforms);
                 break;
             }
-            case BlendType::SimpleDirectional2D:
-            case BlendType::FreeformDirectional2D:
-            case BlendType::FreeformCartesian2D:
+            case SimpleDirectional2D:
+            case FreeformDirectional2D:
+            case FreeformCartesian2D:
             {
                 f32 paramX = params.GetFloat(BlendParameterX);
                 f32 paramY = params.GetFloat(BlendParameterY);
@@ -49,7 +50,7 @@ namespace OloEngine
     namespace
     {
         // Weighted-average duration between the two 1D children bracketing paramValue.
-        f32 Compute1DDuration(const std::vector<BlendTree::BlendChild>& children, f32 paramValue)
+        [[nodiscard("blended duration must be used")]] f32 Compute1DDuration(const std::vector<BlendTree::BlendChild>& children, f32 paramValue)
         {
             if (children.size() == 1)
             {
@@ -57,7 +58,8 @@ namespace OloEngine
             }
 
             // Find the two neighbors
-            for (sizet i = 0; i < children.size() - 1; ++i)
+            auto neighborCount = children.size() - 1;
+            for (sizet i = 0; i < neighborCount; ++i)
             {
                 if (paramValue <= children[i + 1].Threshold)
                 {
@@ -98,7 +100,7 @@ namespace OloEngine
         }
 
         // Fallback: plain average duration over all playable children.
-        f32 ComputeAverageDuration(const std::vector<BlendTree::BlendChild>& children)
+        [[nodiscard("average duration must be used")]] f32 ComputeAverageDuration(const std::vector<BlendTree::BlendChild>& children)
         {
             f32 totalDuration = 0.0f;
             i32 count = 0;
@@ -123,21 +125,18 @@ namespace OloEngine
             return 0.0f;
         }
 
-        // For 1D: weighted average of durations between two neighboring children
-        if (Type == BlendType::Simple1D && !BlendParameterX.empty())
+        // 1D: weighted average between neighbors when a blend param is set,
+        // otherwise a plain average over all playable children.
+        if (Type == BlendType::Simple1D)
         {
-            return Compute1DDuration(Children, params.GetFloat(BlendParameterX));
+            return BlendParameterX.empty()
+                       ? ComputeAverageDuration(Children)
+                       : Compute1DDuration(Children, params.GetFloat(BlendParameterX));
         }
 
-        // For 2D types: inverse-distance weighted average matching Evaluate2D
-        if (Type != BlendType::Simple1D)
-        {
-            glm::vec2 paramPos(params.GetFloat(BlendParameterX), params.GetFloat(BlendParameterY));
-            return Compute2DDuration(Children, paramPos);
-        }
-
-        // Fallback: average duration
-        return ComputeAverageDuration(Children);
+        // 2D types: inverse-distance weighted average matching Evaluate2D.
+        glm::vec2 paramPos(params.GetFloat(BlendParameterX), params.GetFloat(BlendParameterY));
+        return Compute2DDuration(Children, paramPos);
     }
 
     void BlendTree::Evaluate1D(f32 paramValue, f32 normalizedTime, sizet boneCount,
@@ -147,8 +146,9 @@ namespace OloEngine
 
         // Collect playable children (valid clip and positive speed)
         std::vector<sizet> playableIndices;
-        playableIndices.reserve(Children.size());
-        for (sizet i = 0; i < Children.size(); ++i)
+        auto childCount = Children.size();
+        playableIndices.reserve(childCount);
+        for (sizet i = 0; i < childCount; ++i)
         {
             if (Children[i].Clip && Children[i].Speed > 0.0f)
             {
@@ -181,7 +181,8 @@ namespace OloEngine
         paramValue = glm::clamp(paramValue, minThreshold, maxThreshold);
 
         // Find the two neighboring playable children
-        for (sizet pi = 0; pi < playableIndices.size() - 1; ++pi)
+        auto playablePairs = playableIndices.size() - 1;
+        for (sizet pi = 0; pi < playablePairs; ++pi)
         {
             sizet idxA = playableIndices[pi];
             sizet idxB = playableIndices[pi + 1];
@@ -221,10 +222,11 @@ namespace OloEngine
         // Inverse distance weighting for 2D blend
         glm::vec2 paramPos(paramX, paramY);
 
-        std::vector<f32> weights(Children.size(), 0.0f);
+        auto childCount = Children.size();
+        std::vector<f32> weights(childCount, 0.0f);
         f32 totalWeight = 0.0f;
 
-        for (sizet i = 0; i < Children.size(); ++i)
+        for (sizet i = 0; i < childCount; ++i)
         {
             if (!Children[i].Clip || Children[i].Speed <= 0.0f)
             {
@@ -255,7 +257,7 @@ namespace OloEngine
         out.resize(boneCount);
         f32 accumulatedWeight = 0.0f;
         bool first = true;
-        for (sizet i = 0; i < Children.size(); ++i)
+        for (sizet i = 0; i < childCount; ++i)
         {
             if (weights[i] < 1e-6f)
             {
@@ -306,7 +308,8 @@ namespace OloEngine
             return;
         }
 
-        for (sizet i = 0; i < boneCount && i < clip->BoneAnimations.size(); ++i)
+        auto boneAnimCount = clip->BoneAnimations.size();
+        for (sizet i = 0; i < boneCount && i < boneAnimCount; ++i)
         {
             auto const& boneAnim = clip->BoneAnimations[i];
             out[i].Translation = AnimatedModel::SampleBonePosition(boneAnim.PositionKeys, timeSeconds);

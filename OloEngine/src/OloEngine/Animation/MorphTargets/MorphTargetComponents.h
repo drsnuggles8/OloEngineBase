@@ -52,12 +52,8 @@ namespace OloEngine
         // Check if any morph target has a non-zero weight
         [[nodiscard("active weight check drives morph target updates")]] bool HasActiveWeights() const
         {
-            for (const auto& [name, weight] : Weights)
-            {
-                if (weight > 1e-4f)
-                    return true;
-            }
-            return false;
+            return std::ranges::any_of(Weights, [](const auto& kv)
+                                       { return kv.second > 1e-4f; });
         }
 
         // Build a flat weight vector matching the MorphTargetSet order
@@ -70,7 +66,7 @@ namespace OloEngine
             for (const auto& [name, weight] : Weights)
             {
                 if (auto idx = MorphTargets->FindTargetCached(name); idx >= 0)
-                    ordered[idx] = weight;
+                    ordered[static_cast<sizet>(idx)] = weight;
             }
             return ordered;
         }

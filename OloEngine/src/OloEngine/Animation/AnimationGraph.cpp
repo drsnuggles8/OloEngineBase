@@ -3,6 +3,7 @@
 #include "OloEngine/Animation/AnimationState.h"
 #include "OloEngine/Animation/AnimationStateMachine.h"
 #include "OloEngine/Core/Log.h"
+#include <algorithm>
 #include <unordered_set>
 
 namespace OloEngine
@@ -215,12 +216,9 @@ namespace OloEngine
     const std::string& AnimationGraph::GetCurrentStateName(i32 layerIndex) const
     {
         OLO_PROFILE_FUNCTION();
-        if (layerIndex >= 0 && layerIndex < static_cast<i32>(Layers.size()))
+        if (layerIndex >= 0 && layerIndex < static_cast<i32>(Layers.size()) && Layers[static_cast<sizet>(layerIndex)].StateMachine)
         {
-            if (Layers[layerIndex].StateMachine)
-            {
-                return Layers[layerIndex].StateMachine->GetCurrentStateName();
-            }
+            return Layers[static_cast<sizet>(layerIndex)].StateMachine->GetCurrentStateName();
         }
         return s_EmptyString;
     }
@@ -228,12 +226,9 @@ namespace OloEngine
     bool AnimationGraph::IsInTransition(i32 layerIndex) const
     {
         OLO_PROFILE_FUNCTION();
-        if (layerIndex >= 0 && layerIndex < static_cast<i32>(Layers.size()))
+        if (layerIndex >= 0 && layerIndex < static_cast<i32>(Layers.size()) && Layers[static_cast<sizet>(layerIndex)].StateMachine)
         {
-            if (Layers[layerIndex].StateMachine)
-            {
-                return Layers[layerIndex].StateMachine->IsInTransition();
-            }
+            return Layers[static_cast<sizet>(layerIndex)].StateMachine->IsInTransition();
         }
         return false;
     }
@@ -283,13 +278,15 @@ namespace OloEngine
         std::unordered_set<std::string> affectedBoneSet(layer.AffectedBones.begin(), layer.AffectedBones.end());
         bool hasMask = !affectedBoneSet.empty();
 
-        for (sizet i = 0; i < accumulatedTransforms.size() && i < layerTransforms.size(); ++i)
+        auto accumulatedCount = accumulatedTransforms.size();
+        auto layerCount = layerTransforms.size();
+        for (sizet i = 0; i < accumulatedCount && i < layerCount; ++i)
         {
             // Check bone mask using cached set
             if (hasMask)
             {
                 std::string boneName = (i < boneNames.size()) ? boneNames[i] : "";
-                if (boneName.empty() || affectedBoneSet.find(boneName) == affectedBoneSet.end())
+                if (boneName.empty() || !affectedBoneSet.contains(boneName))
                 {
                     continue;
                 }
@@ -340,14 +337,7 @@ namespace OloEngine
             return false;
         }
 
-        for (auto const& affectedBone : layer.AffectedBones)
-        {
-            if (affectedBone == boneName)
-            {
-                return true;
-            }
-        }
-        return false;
+        return std::ranges::contains(layer.AffectedBones, boneName);
     }
 
     glm::mat4 AnimationGraph::BoneTransformToMatrix(const BoneTransform& transform)

@@ -32,8 +32,8 @@ namespace OloEngine::Animation
         // and AnimationLayer, which embeds it — moves without throwing (S5018).
         OneShotBlend() = default;
         OneShotBlend(const OneShotBlend&) = default;
-        OneShotBlend& operator=(const OneShotBlend&) = default;
         OneShotBlend(OneShotBlend&&) noexcept = default;
+        OneShotBlend& operator=(const OneShotBlend&) = default;
         OneShotBlend& operator=(OneShotBlend&&) noexcept = default;
 
         void Trigger();

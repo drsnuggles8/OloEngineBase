@@ -208,8 +208,9 @@ namespace OloEngine::Animation
         bool needWeightBlend = (weight < 1.0f - 1e-6f);
         if (needWeightBlend)
         {
-            originalRotations.resize(boneIndices.size());
-            for (sizet i = 0; i < boneIndices.size(); ++i)
+            auto chainSize = boneIndices.size();
+            originalRotations.resize(chainSize);
+            for (sizet i = 0; i < chainSize; ++i)
             {
                 originalRotations[i] = pose[boneIndices[i]].Rotation;
             }
@@ -236,15 +237,13 @@ namespace OloEngine::Animation
             totalLength += boneLengths[i];
         }
 
-        constexpr f32 kDirectionEpsilon = 1e-6f;
-        if (totalLength < kDirectionEpsilon)
+        if (constexpr f32 kDirectionEpsilon = 1e-6f; totalLength < kDirectionEpsilon)
         {
             return; // All joints coincident — no usable chain geometry
         }
 
-        auto basePosition = jointPositions[0];
-
-        if (!SolveFabrikPositions(jointPositions, boneLengths, basePosition, params.TargetPosition,
+        if (auto basePosition = jointPositions[0];
+            !SolveFabrikPositions(jointPositions, boneLengths, basePosition, params.TargetPosition,
                                   jointCount, totalLength, params.MaxIterations, tolerance))
         {
             return;
@@ -297,9 +296,9 @@ namespace OloEngine::Animation
             // Compute rotation in bone's local frame
             auto invRot = glm::conjugate(thisBoneMS.Rotation);
             auto toOriginal = SafeNormalize(invRot * originalDir);
-            auto toTarget = SafeNormalize(invRot * targetDir);
 
-            if (glm::length2(toOriginal) > 1e-10f && glm::length2(toTarget) > 1e-10f)
+            if (auto toTarget = SafeNormalize(invRot * targetDir);
+                glm::length2(toOriginal) > 1e-10f && glm::length2(toTarget) > 1e-10f)
             {
                 pose[thisIdx].Rotation *= glm::rotation(toOriginal, toTarget);
             }
@@ -311,7 +310,8 @@ namespace OloEngine::Animation
         // Apply global weight: blend between original and IK result (chain bones only)
         if (needWeightBlend)
         {
-            for (sizet i = 0; i < boneIndices.size(); ++i)
+            auto blendCount = boneIndices.size();
+            for (sizet i = 0; i < blendCount; ++i)
             {
                 auto bi = boneIndices[i];
                 pose[bi].Rotation = glm::slerp(originalRotations[i], pose[bi].Rotation, weight);

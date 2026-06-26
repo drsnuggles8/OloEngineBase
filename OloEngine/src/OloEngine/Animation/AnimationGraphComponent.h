@@ -26,6 +26,7 @@ namespace OloEngine
             : AnimationGraphAssetHandle(other.AnimationGraphAssetHandle), Parameters(other.Parameters)
         {
         }
+        AnimationGraphComponent(AnimationGraphComponent&&) noexcept = default;
         AnimationGraphComponent& operator=(const AnimationGraphComponent& other)
         {
             if (this != &other)
@@ -36,7 +37,6 @@ namespace OloEngine
             }
             return *this;
         }
-        AnimationGraphComponent(AnimationGraphComponent&&) noexcept = default;
         AnimationGraphComponent& operator=(AnimationGraphComponent&&) noexcept = default;
 
         // Rule of five: a user-managed copy/move set should also declare the

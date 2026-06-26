@@ -81,8 +81,7 @@ namespace OloEngine::Animation
         glm::vec3 offsettedForward;
         glm::quat correction = glm::identity<glm::quat>();
 
-        constexpr f32 kEpsilon = 1e-7f;
-        if (boneToTargetLen2 > kEpsilon && ComputeOffsettedForward(forward, offset, boneToTarget, offsettedForward))
+        if (constexpr f32 kEpsilon = 1e-7f; boneToTargetLen2 > kEpsilon && ComputeOffsettedForward(forward, offset, boneToTarget, offsettedForward))
         {
             // Quaternion that rotates offsetted forward onto target direction
             glm::quat boneToTargetRotation(offsettedForward, boneToTarget);
@@ -164,8 +163,9 @@ namespace OloEngine::Animation
                 }
                 idx = static_cast<u32>(parent);
             }
-            originalRotations.resize(chainIndices.size());
-            for (sizet i = 0; i < chainIndices.size(); ++i)
+            auto chainSize = chainIndices.size();
+            originalRotations.resize(chainSize);
+            for (sizet i = 0; i < chainSize; ++i)
             {
                 originalRotations[i] = pose[chainIndices[i]].Rotation;
             }
@@ -247,7 +247,8 @@ namespace OloEngine::Animation
         // Apply global weight: blend between original and IK result (chain bones only)
         if (needWeightBlend)
         {
-            for (sizet i = 0; i < chainIndices.size(); ++i)
+            auto blendCount = chainIndices.size();
+            for (sizet i = 0; i < blendCount; ++i)
             {
                 auto bi = chainIndices[i];
                 pose[bi].Rotation = glm::slerp(originalRotations[i], pose[bi].Rotation, params.Weight);

@@ -16,6 +16,7 @@
 #include <string>
 #include <vector>
 #include <unordered_map>
+#include <utility>
 #include "OloEngine/Threading/Mutex.h"
 #include "OloEngine/Threading/UniqueLock.h"
 
@@ -41,7 +42,9 @@ namespace OloEngine
 
         SubmeshComponent() = default;
         SubmeshComponent(const SubmeshComponent& other) = default;
-        explicit SubmeshComponent(const Ref<OloEngine::Mesh>& mesh, u32 submeshIndex = 0)
+        explicit SubmeshComponent(const Ref<OloEngine::Mesh>& mesh)
+            : SubmeshComponent(mesh, 0) {}
+        explicit SubmeshComponent(const Ref<OloEngine::Mesh>& mesh, u32 submeshIndex)
             : m_Mesh(mesh), m_SubmeshIndex(submeshIndex)
         {
             // Validate mesh reference
@@ -55,11 +58,10 @@ namespace OloEngine
         // default vector== implementation. Compare UUIDs via u64.
         auto operator==(const SubmeshComponent& other) const -> bool
         {
-            if (m_Mesh != other.m_Mesh || m_SubmeshIndex != other.m_SubmeshIndex || m_Visible != other.m_Visible)
+            auto boneCount = m_BoneEntityIds.size();
+            if (m_Mesh != other.m_Mesh || m_SubmeshIndex != other.m_SubmeshIndex || m_Visible != other.m_Visible || boneCount != other.m_BoneEntityIds.size())
                 return false;
-            if (m_BoneEntityIds.size() != other.m_BoneEntityIds.size())
-                return false;
-            for (sizet i = 0; i < m_BoneEntityIds.size(); ++i)
+            for (sizet i = 0; i < boneCount; ++i)
             {
                 if (static_cast<u64>(m_BoneEntityIds[i]) != static_cast<u64>(other.m_BoneEntityIds[i]))
                     return false;
@@ -214,7 +216,7 @@ namespace OloEngine
             : m_Skeleton(other.m_Skeleton)
         {
             // Thread-safe copy of cache data
-            TUniqueLock<FMutex> lock(other.m_CacheMutex);
+            TUniqueLock lock(other.m_CacheMutex);
             m_TagEntityCache = other.m_TagEntityCache;
             m_CacheValid = other.m_CacheValid;
             // Each component gets its own mutex
@@ -233,8 +235,8 @@ namespace OloEngine
                 {
                     std::swap(first, second);
                 }
-                TUniqueLock<FMutex> lock1(*first);
-                TUniqueLock<FMutex> lock2(*second);
+                TUniqueLock lock1(*first);
+                TUniqueLock lock2(*second);
                 m_Skeleton = other.m_Skeleton;
                 m_TagEntityCache = other.m_TagEntityCache;
                 m_CacheValid = other.m_CacheValid;
@@ -248,7 +250,7 @@ namespace OloEngine
             : m_Skeleton(std::move(other.m_Skeleton))
         {
             // Transfer cache data under lock from the source
-            TUniqueLock<FMutex> lock(other.m_CacheMutex);
+            TUniqueLock lock(other.m_CacheMutex);
             m_TagEntityCache = std::move(other.m_TagEntityCache);
             m_CacheValid = other.m_CacheValid;
             other.m_CacheValid = false; // Invalidate source cache
@@ -268,8 +270,8 @@ namespace OloEngine
                 {
                     std::swap(first, second);
                 }
-                TUniqueLock<FMutex> lock1(*first);
-                TUniqueLock<FMutex> lock2(*second);
+                TUniqueLock lock1(*first);
+                TUniqueLock lock2(*second);
                 m_Skeleton = std::move(other.m_Skeleton);
                 m_TagEntityCache = std::move(other.m_TagEntityCache);
                 m_CacheValid = other.m_CacheValid;
@@ -281,7 +283,7 @@ namespace OloEngine
         // Invalidate cache when skeleton changes
         void InvalidateCache() const noexcept
         {
-            TUniqueLock<FMutex> lock(m_CacheMutex);
+            TUniqueLock lock(m_CacheMutex);
             m_CacheValid = false;
             m_TagEntityCache.clear();
         }
@@ -289,7 +291,7 @@ namespace OloEngine
         // Thread-safe setter for skeleton that automatically invalidates cache
         void SetSkeleton(const Ref<Skeleton>& skeleton) noexcept
         {
-            TUniqueLock<FMutex> lock(m_CacheMutex);
+            TUniqueLock lock(m_CacheMutex);
             m_Skeleton = skeleton;
             m_CacheValid = false;
             m_TagEntityCache.clear();
@@ -301,7 +303,7 @@ namespace OloEngine
         // to repopulate it. Encapsulating the access here lets the mutable cache
         // members stay private and guarded by m_CacheMutex.
         template<typename RebuildFn>
-        [[nodiscard]] std::vector<UUID> ResolveBoneEntities(
+        [[nodiscard("resolved bone entity IDs must be used")]] std::vector<UUID> ResolveBoneEntities(
             const std::vector<std::string>& boneNames, RebuildFn&& rebuildCache) const
         {
             std::vector<UUID> boneEntityIds;
@@ -309,11 +311,11 @@ namespace OloEngine
 
             bool foundAtLeastOne = false;
             {
-                TUniqueLock<FMutex> lock(m_CacheMutex);
+                TUniqueLock lock(m_CacheMutex);
                 if (!m_CacheValid)
                 {
                     m_TagEntityCache.clear();
-                    rebuildCache(m_TagEntityCache);
+                    std::forward<RebuildFn>(rebuildCache)(m_TagEntityCache);
                     m_CacheValid = true;
                 }
 

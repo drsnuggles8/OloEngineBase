@@ -46,6 +46,15 @@ namespace OloEngine::Animation
             const SpringBoneParams& params,
             SpringBoneState& state,
             f32 deltaTime,
-            std::span<const glm::mat4> preTransforms = {});
+            std::span<const glm::mat4> preTransforms);
+        static void Solve(
+            std::span<BoneTransform> pose,
+            std::span<const int> parentIndices,
+            const SpringBoneParams& params,
+            SpringBoneState& state,
+            f32 deltaTime)
+        {
+            Solve(pose, parentIndices, params, state, deltaTime, {});
+        }
     };
 } // namespace OloEngine::Animation
