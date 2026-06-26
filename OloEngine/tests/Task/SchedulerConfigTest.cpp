@@ -6,7 +6,7 @@
 
 // Hardening for OLO_TASK_GRAPH_OVERSUBSCRIPTION_RATIO: the value is read from the
 // environment (untrusted config) and feeds the worker-thread budget math, where
-// `ceil(workers * ratio)` is cast to i32. std::atof("inf") yields +inf, and the
+// `ceil(workers * ratio)` is cast to i32. std::strtof("inf") yields +inf, and the
 // old `inf >= 1.0f` guard let it through — non-finite / out-of-range values must
 // be rejected. ParseOversubscriptionRatio is the pure boundary that does that.
 
@@ -23,13 +23,13 @@ TEST(SchedulerConfigTest, NullEnvValueRejected)
 
 TEST(SchedulerConfigTest, EmptyStringRejected)
 {
-    // std::atof("") == 0.0, which is below the minimum of 1.0.
+    // std::strtof("") consumes no characters → rejected as not-a-number.
     EXPECT_FALSE(ParseOversubscriptionRatio("").has_value());
 }
 
 TEST(SchedulerConfigTest, GarbageStringRejected)
 {
-    // Unparsable → atof returns 0.0 → below minimum.
+    // Unparsable → strtof consumes no characters → rejected as not-a-number.
     EXPECT_FALSE(ParseOversubscriptionRatio("not-a-number").has_value());
 }
 

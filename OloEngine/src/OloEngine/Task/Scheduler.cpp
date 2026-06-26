@@ -51,10 +51,20 @@ namespace OloEngine::LowLevelTasks
             return std::nullopt;
         }
 
-        // std::atof returns inf for "inf" and nan for "nan" — both must be rejected
-        // before they reach the worker-budget math (inf >= 1.0f is true; the product
-        // ceil(workers * inf) then casts to i32, which is undefined behaviour).
-        const f32 value = static_cast<f32>(std::atof(envValue));
+        // Parse with std::strtof rather than std::atof: atof has no error reporting and
+        // undefined behaviour on overflow, whereas strtof reports "not a number at all"
+        // via endPtr and overflow via ±HUGE_VALF (== ±inf). "inf"/"nan" likewise parse to
+        // non-finite values. All of those must be rejected before they reach the
+        // worker-budget math (inf >= 1.0f is true; the product ceil(workers * inf) then
+        // casts to i32, which is undefined behaviour) — the endPtr and isfinite guards
+        // below do exactly that.
+        char* endPtr = nullptr;
+        const f32 value = std::strtof(envValue, &endPtr);
+        if (endPtr == envValue)
+        {
+            // No characters consumed → the value is not a number.
+            return std::nullopt;
+        }
         if (!std::isfinite(value) || value < 1.0f || value > kMaxOversubscriptionRatio)
         {
             return std::nullopt;

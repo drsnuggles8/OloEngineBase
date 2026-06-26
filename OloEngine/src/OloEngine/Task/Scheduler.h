@@ -30,7 +30,7 @@ namespace OloEngine::LowLevelTasks
     // Parse and validate the OLO_TASK_GRAPH_OVERSUBSCRIPTION_RATIO environment value.
     // Environment config is untrusted input: a non-finite (NaN / ±inf) or out-of-range
     // value must be rejected before it reaches the scheduler's worker-budget math
-    // (std::atof yields inf for "inf", and `inf >= 1.0f` is true). Returns the
+    // (std::strtof yields inf for "inf", and `inf >= 1.0f` is true). Returns the
     // validated ratio, or std::nullopt when the value is null/unparsable/out of the
     // accepted [1, kMaxOversubscriptionRatio] range. Pure + side-effect free for testing.
     [[nodiscard]] std::optional<f32> ParseOversubscriptionRatio(const char* envValue);
