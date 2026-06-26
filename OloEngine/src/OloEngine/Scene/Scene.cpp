@@ -967,6 +967,12 @@ namespace OloEngine
         {
             m_GameplayEventBus->Clear();
         }
+
+        // Drop any ephemeral MCP sun-direction override (#316 Part 4) so leaving
+        // Play mode restores the authored procedural-sky sun. The override is a
+        // diagnostics-server lighting-iteration aid; it must never outlive a
+        // play/stop cycle. A no-op when none is active.
+        Renderer3D::ClearSunDirectionOverride();
     }
 
     void Scene::OnSimulationStart()
@@ -3315,12 +3321,26 @@ namespace OloEngine
                     }
                 }
 
+                // Ephemeral MCP sun-direction override (#316 Part 4): when an
+                // agent has set a time-of-day / sun-angle via the diagnostics
+                // server (olo_scene_set_time_of_day / olo_scene_set_sun_angle),
+                // bake with that toward-sun direction instead of the component's
+                // serialized value — WITHOUT writing m_SunDirection, so the
+                // override stays ephemeral and a scene reload / play-stop /
+                // server-stop / explicit clear restores the authored sun. Applied
+                // after the directional-light link above so it also wins over it.
+                glm::vec3 effectiveSunDirection = sky.m_SunDirection;
+                if (Renderer3D::HasSunDirectionOverride())
+                    effectiveSunDirection = Renderer3D::GetSunDirectionOverride();
+
                 // Detect dirtiness via parameter hash; rebake on change. The
                 // bake is expensive (six cubemap face renders + IBL convolve)
                 // so we deliberately gate on the hash rather than rebake every
-                // frame.
+                // frame. Because the override feeds the same hashed params, a
+                // changed (or cleared) override moves the hash and triggers
+                // exactly one rebake — no per-frame rebake while it is steady.
                 PreethamParameters params;
-                params.SunDirection = sky.m_SunDirection;
+                params.SunDirection = effectiveSunDirection;
                 params.Turbidity = sky.m_Turbidity;
                 params.Exposure = sky.m_Exposure;
                 params.SunIntensity = sky.m_SunIntensity;

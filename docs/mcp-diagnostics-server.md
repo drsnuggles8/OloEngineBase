@@ -137,6 +137,8 @@ the server, so update the config (or re-copy from the panel) accordingly.
 | `olo_render_compare_golden` | capture the viewport (optional `camera`/`orbit` pose) and diff it against a golden PNG (`goldenPath`): returns a numeric `similarity`/`rmse`/`ssim` + `pass` verdict; missing golden or `rebase`:true writes the capture as the new baseline (the `OLOENGINE_GOLDEN_REBASE` workflow) |
 | `olo_render_toggle_pass` | flip a post-process / fog feature on/off (`name` + optional `enabled`) — the ephemeral A/B loop: toggle off → `olo_screenshot` → toggle on → `olo_screenshot`. No `name` lists every pass + its live state |
 | `olo_render_set_debug_view` | switch the viewport to a raw AO/SSR/SSGI buffer (`mode`: none/ssao/gtao/ssr/ssgi); reports whether the backing pass is actually running. No `mode` lists the modes + current state |
+| `olo_scene_set_time_of_day` | move the procedural sky's sun to a 24-hour clock time (`hours` 0–24) for lighting iteration — ephemeral session override of the sun direction, never written to the scene. `clear`:true restores the authored sun; no args reports the current override |
+| `olo_scene_set_sun_angle` | aim the procedural sky's sun directly from a `yaw` (azimuth) / `pitch` (elevation) pair — the precise sibling of `olo_scene_set_time_of_day`, same ephemeral session override. `clear`:true restores; no args reports state |
 | `olo_render_why_not_visible` | explain why one entity (`entity`) is NOT on screen — the "why can't I see my mesh?" debugger: root-cause `reasonCode`, summary, ordered checks, and the raw render facts |
 | `olo_physics_layer_matrix` | the collision-layer matrix the sim uses: built-in object layers + user-defined layers, with pairwise collide/no-collide (works in Edit mode) |
 | `olo_physics_list_colliders` | paginated entities with a rigidbody: authored body type / layer / trigger / collider shapes, plus live object layer, position, awake/asleep when playing |
@@ -147,7 +149,7 @@ the server, so update the config (or re-copy from the panel) accordingly.
 
 ### Toolsets & on-demand tool discovery (`tools/search`)
 
-The tool surface is large enough (39 tools) that paging the whole flat `tools/list`
+The tool surface is large enough (41 tools) that paging the whole flat `tools/list`
 to find the right one is wasteful. Every tool is tagged with a **toolset** (grouping
 category), and a custom `tools/search` JSON-RPC method lets an agent discover tools by
 keyword and/or category instead of pulling the entire list:
@@ -157,7 +159,7 @@ keyword and/or category instead of pulling the entire list:
 | `diagnostics` | `olo_log_tail`, `olo_events_tail`, `olo_crash_list`, `olo_crash_get` |
 | `scene` | `olo_scene_summary`, `olo_scene_list_entities`, `olo_scene_get_entity` |
 | `perf` | `olo_memory_report`, `olo_perf_snapshot`, `olo_perf_bottlenecks`, `olo_perf_frame_history`, `olo_perf_capture_frame` |
-| `render` | `olo_render_frame_breakdown`, `olo_render_list_targets`, `olo_render_capture_target`, `olo_render_toggle_pass`, `olo_render_set_debug_view`, `olo_render_compare_golden`, `olo_render_why_not_visible` |
+| `render` | `olo_render_frame_breakdown`, `olo_render_list_targets`, `olo_render_capture_target`, `olo_render_toggle_pass`, `olo_render_set_debug_view`, `olo_scene_set_time_of_day`, `olo_scene_set_sun_angle`, `olo_render_compare_golden`, `olo_render_why_not_visible` |
 | `shader` | `olo_shader_list`, `olo_shader_errors`, `olo_shader_get`, `olo_shader_reload` |
 | `assets` | `olo_assets_list`, `olo_assets_problems` |
 | `scripting` | `olo_script_get_api`, `olo_script_get_last_errors` |
@@ -350,6 +352,49 @@ when it is not:
 So the usual debug-view flow is two steps: `olo_render_toggle_pass { name: "ssao",
 enabled: true }` then `olo_render_set_debug_view { mode: "ssao" }`. Calling the tool
 with no `mode` lists the modes + the current state.
+
+### Sun / time-of-day override (`olo_scene_set_time_of_day` / `olo_scene_set_sun_angle`)
+
+The **lighting** counterpart of the render-override A/B loop: move the procedural
+sky's sun from the editor so an agent can iterate lighting for any rendering / water
+/ GI / god-ray work, without restarting the editor or touching the user's project.
+
+**Like the toggle/debug-view tools, the change is ephemeral.** Both tools edit only a
+session-global Renderer3D sun-direction override that `Scene::LoadAndRenderSkybox`
+bakes the **`ProceduralSkyComponent`** with — instead of the component's serialized
+`m_SunDirection` — **without ever writing the component**. So a move is visible on the
+next baked frame, is never saved, and the authored sun is restored on **scene reload,
+play-stop, server-stop, or an explicit `clear`**. The sky is hash-gated, so a changed
+(or cleared) sun triggers exactly one re-bake, not a per-frame one.
+
+`olo_scene_set_time_of_day { hours }` maps a 24-hour clock time to the sun direction —
+`0` = midnight, `6` = sunrise (sun on the east horizon, +X), `12` = noon (overhead),
+`18` = sunset (west horizon, −X); before 06:00 / after 18:00 the sun is below the
+horizon (night). The lighting inner loop:
+
+```jsonc
+// 1) olo_scene_set_time_of_day { "hours": 8 }
+{ "active": true, "source": "timeOfDay", "sunDirection": [0.61, 0.71, -0.35],
+  "elevationDegrees": 45.0, "azimuthDegrees": 120.0, "hours": 8 }
+// 2) olo_screenshot { … }                       -> the morning reference
+// 3) olo_scene_set_time_of_day { "hours": 17 }   -> low evening sun
+// 4) olo_screenshot { … }                        -> compare
+// 5) olo_scene_set_time_of_day { "clear": true } -> restore the authored sun
+{ "active": false, "cleared": true, "source": "cleared" }
+```
+
+`olo_scene_set_sun_angle { yaw, pitch }` aims the sun directly: `yaw` is the azimuth in
+degrees (measured from +Z toward +X: `0` = +Z, `90` = +X/east, `270` = −X/west) and
+`pitch` is the elevation in degrees in `[-90, 90]` (`90` = straight up, `0` = horizon,
+negative = below). **Both are required to set** — a half-specified direction is
+rejected with guidance rather than guessed.
+
+Both validate every numeric input with `std::isfinite`, report the resulting
+`sunDirection` with its `elevationDegrees` / `azimuthDegrees`, and surface a **`note`**
+when the override can't be seen — there is **no `ProceduralSkyComponent` in the active
+scene** (nothing to bake), or the **sun is below the horizon** (the sky bakes dark).
+Calling either tool with no arguments reports the current override state; `clear`:true
+removes it.
 
 ### Physics introspection (the `olo_physics_*` family)
 

@@ -2095,6 +2095,159 @@ namespace OloEngine::MCP
             return ToolResult::Text(result.dump(2));
         }
 
+        // ---- olo_scene_set_time_of_day / olo_scene_set_sun_angle (#316 Part 4) -
+        // Ephemeral sun-direction override for lighting iteration. Like the
+        // toggle/debug-view tools above, these edit ONLY a session-global renderer
+        // override (Renderer3D::SetSunDirectionOverride), never the
+        // ProceduralSkyComponent's serialized m_SunDirection — so the moved sun is
+        // visible next frame, never saved, and resets on scene reload / play-stop /
+        // server-stop / explicit clear. The sun-direction math + result shaping is
+        // the pure RenderOverrides module; the handler does the renderer/scene-bound
+        // work on the main thread inside MarshalRead.
+
+        // (main thread) Finish a sun-override result: annotate it from the active
+        // scene (the override only affects a procedural-sky bake) and the resulting
+        // sun elevation (below the horizon bakes a dark night sky), then shape JSON.
+        Json FinalizeSunOverride(McpServer& server, RenderOverrides::SunOverrideResult& r)
+        {
+            bool skyPresent = false;
+            const Ref<Scene> scene = server.Context().GetActiveScene
+                                         ? server.Context().GetActiveScene()
+                                         : nullptr;
+            if (scene)
+            {
+                auto view = scene->GetAllEntitiesWith<ProceduralSkyComponent>();
+                skyPresent = view.begin() != view.end();
+            }
+
+            if (r.Active && !skyPresent)
+                r.Note = "No ProceduralSkyComponent in the active scene, so this sun override has no visible "
+                         "effect yet. Add a Procedural Sky to the scene to iterate time-of-day lighting.";
+            else if (r.Active && RenderOverrides::SunElevationDegrees(r.Direction) < 0.0)
+                r.Note = "The sun is below the horizon at this setting, so the sky bakes dark (night). Move "
+                         "toward noon (hours ~12) or a positive pitch for daylight.";
+
+            return RenderOverrides::ToJson(r);
+        }
+
+        // (main thread) Clear the ephemeral sun override and record the outcome —
+        // the clear branch shared verbatim by both sun-override handlers.
+        void ApplySunClear(RenderOverrides::SunOverrideResult& r)
+        {
+            r.Cleared = Renderer3D::HasSunDirectionOverride();
+            Renderer3D::ClearSunDirectionOverride();
+            r.Active = false;
+            r.Source = "cleared";
+        }
+
+        // (main thread) Read the current override state into the result — the
+        // no-argument introspection branch shared by both sun-override handlers.
+        void ApplySunIntrospect(RenderOverrides::SunOverrideResult& r)
+        {
+            r.Active = Renderer3D::HasSunDirectionOverride();
+            if (r.Active)
+            {
+                const glm::vec3& d = Renderer3D::GetSunDirectionOverride();
+                r.Direction = RenderOverrides::SunVec3{ d.x, d.y, d.z };
+            }
+            r.Source = "current";
+        }
+
+        ToolResult Handle_SceneSetTimeOfDay(McpServer& server, const Json& args)
+        {
+            using namespace RenderOverrides;
+
+            const bool wantClear = args.contains("clear") && args["clear"].is_boolean() && args["clear"].get<bool>();
+            const bool hasHours = !wantClear && args.contains("hours") && args["hours"].is_number();
+            double hours = 0.0;
+            if (hasHours)
+            {
+                hours = args["hours"].get<double>();
+                if (!std::isfinite(hours) || hours < 0.0 || hours > 24.0)
+                    return ToolResult::Error("Invalid 'hours': expected a finite number in [0, 24] "
+                                             "(0 = midnight, 6 = sunrise, 12 = noon, 18 = sunset).");
+            }
+
+            const Json result = server.MarshalRead([&server, wantClear, hasHours, hours]() -> Json
+                                                   {
+                SunOverrideResult r;
+                if (wantClear)
+                {
+                    ApplySunClear(r);
+                }
+                else if (hasHours)
+                {
+                    const SunVec3 dir = SunDirectionFromTimeOfDay(hours);
+                    Renderer3D::SetSunDirectionOverride(glm::vec3(
+                        static_cast<f32>(dir.X), static_cast<f32>(dir.Y), static_cast<f32>(dir.Z)));
+                    r.Active = true;
+                    r.Direction = dir;
+                    r.HasHours = true;
+                    r.Hours = hours;
+                    r.Source = "timeOfDay";
+                }
+                else
+                {
+                    ApplySunIntrospect(r);
+                }
+                return FinalizeSunOverride(server, r); });
+            return ToolResult::Text(result.dump(2));
+        }
+
+        ToolResult Handle_SceneSetSunAngle(McpServer& server, const Json& args)
+        {
+            using namespace RenderOverrides;
+
+            const bool wantClear = args.contains("clear") && args["clear"].is_boolean() && args["clear"].get<bool>();
+            const bool hasYaw = !wantClear && args.contains("yaw") && args["yaw"].is_number();
+            const bool hasPitch = !wantClear && args.contains("pitch") && args["pitch"].is_number();
+
+            // A set needs BOTH angles — a half-specified direction is ambiguous, so
+            // reject it with guidance rather than silently using a default.
+            if (!wantClear && (hasYaw != hasPitch))
+                return ToolResult::Error("olo_scene_set_sun_angle needs both 'yaw' (azimuth, degrees) and "
+                                         "'pitch' (elevation, degrees). Provide both, pass 'clear':true to "
+                                         "remove the override, or call with no arguments to read the current "
+                                         "state.");
+
+            const bool doSet = !wantClear && hasYaw && hasPitch;
+            double yaw = 0.0;
+            double pitch = 0.0;
+            if (doSet)
+            {
+                yaw = args["yaw"].get<double>();
+                pitch = args["pitch"].get<double>();
+                if (!std::isfinite(yaw) || !std::isfinite(pitch))
+                    return ToolResult::Error("Invalid 'yaw'/'pitch': expected finite numbers in degrees.");
+                if (pitch < -90.0 || pitch > 90.0)
+                    return ToolResult::Error("Invalid 'pitch': expected an elevation in [-90, 90] degrees "
+                                             "(90 = straight up, 0 = horizon, negative = below the horizon).");
+            }
+
+            const Json result = server.MarshalRead([&server, wantClear, doSet, yaw, pitch]() -> Json
+                                                   {
+                SunOverrideResult r;
+                if (wantClear)
+                {
+                    ApplySunClear(r);
+                }
+                else if (doSet)
+                {
+                    const SunVec3 dir = SunDirectionFromAngles(yaw, pitch);
+                    Renderer3D::SetSunDirectionOverride(glm::vec3(
+                        static_cast<f32>(dir.X), static_cast<f32>(dir.Y), static_cast<f32>(dir.Z)));
+                    r.Active = true;
+                    r.Direction = dir;
+                    r.Source = "sunAngle";
+                }
+                else
+                {
+                    ApplySunIntrospect(r);
+                }
+                return FinalizeSunOverride(server, r); });
+            return ToolResult::Text(result.dump(2));
+        }
+
         // ---- olo_render_compare_golden (Part 4 of #316) ------------------------
 
         // Resolve a caller-supplied golden path to a safe, repo-relative location
@@ -4186,6 +4339,69 @@ namespace OloEngine::MCP
             };
             tool.MainMarshaled = true;
             tool.Handler = Handle_RenderSetDebugView;
+            server.RegisterTool(std::move(tool));
+        }
+
+        {
+            ToolDef tool;
+            tool.Name = "olo_scene_set_time_of_day";
+            tool.Toolset = "render";
+            tool.Title = "Set time of day (sun)";
+            // Edits an ephemeral session render override; setting the same hours
+            // twice yields the same sun (idempotent), destroys nothing.
+            tool.Annotations = MutatingAnnotations(/*idempotent*/ true);
+            tool.Description =
+                "Move the procedural sky's sun to a time of day for lighting iteration — the lighting inner "
+                "loop: set the hour, olo_screenshot, set another, compare. 'hours' is a 24-hour clock time "
+                "in [0,24] (0 = midnight, 6 = sunrise, 12 = noon/overhead, 18 = sunset); the sun rises in "
+                "the east, peaks overhead at noon, and sets in the west, dropping below the horizon at night. "
+                "Returns the resulting toward-sun direction with its elevation/azimuth (a 'note' warns when "
+                "the scene has no Procedural Sky to affect, or when the sun is below the horizon). The change "
+                "is EPHEMERAL: it edits a session-global renderer override, NOT the ProceduralSkyComponent, "
+                "so it is never saved and resets on scene reload, play-stop, server-stop, or 'clear':true. "
+                "Pass 'clear':true to restore the authored sun; call with no arguments to read the current "
+                "override state.";
+            tool.InputSchema = Json{
+                { "type", "object" },
+                { "properties",
+                  { { "hours", { { "type", "number" }, { "minimum", 0 }, { "maximum", 24 }, { "description", "Time of day on a 24-hour clock (0=midnight, 6=sunrise, 12=noon, 18=sunset). Omit to read current state." } } },
+                    { "clear", { { "type", "boolean" }, { "description", "Set true to remove the override and restore the scene's authored sun direction." } } } } },
+                { "additionalProperties", false }
+            };
+            tool.MainMarshaled = true;
+            tool.Handler = Handle_SceneSetTimeOfDay;
+            server.RegisterTool(std::move(tool));
+        }
+
+        {
+            ToolDef tool;
+            tool.Name = "olo_scene_set_sun_angle";
+            tool.Toolset = "render";
+            tool.Title = "Set sun angle (yaw/pitch)";
+            // Edits an ephemeral session render override; same angles -> same sun
+            // (idempotent), destroys nothing.
+            tool.Annotations = MutatingAnnotations(/*idempotent*/ true);
+            tool.Description =
+                "Aim the procedural sky's sun directly from a yaw/pitch pair — the precise sibling of "
+                "olo_scene_set_time_of_day for lighting iteration. 'yaw' is the azimuth in degrees (measured "
+                "from +Z toward +X: 0=+Z, 90=+X/east, 270=-X/west) and 'pitch' is the elevation in degrees "
+                "in [-90,90] (90=straight up, 0=horizon, negative=below horizon); both are required to set. "
+                "Returns the resulting toward-sun direction with its elevation/azimuth (a 'note' warns when "
+                "the scene has no Procedural Sky to affect, or when the sun is below the horizon). The change "
+                "is EPHEMERAL: it edits a session-global renderer override, NOT the ProceduralSkyComponent, "
+                "so it is never saved and resets on scene reload, play-stop, server-stop, or 'clear':true. "
+                "Pass 'clear':true to restore the authored sun; call with no arguments to read the current "
+                "override state.";
+            tool.InputSchema = Json{
+                { "type", "object" },
+                { "properties",
+                  { { "yaw", { { "type", "number" }, { "description", "Azimuth in degrees (0=+Z, 90=+X/east, 180=-Z, 270=-X/west). Required together with 'pitch' to set." } } },
+                    { "pitch", { { "type", "number" }, { "minimum", -90 }, { "maximum", 90 }, { "description", "Elevation in degrees above the horizon (90=up, 0=horizon, negative=below). Required together with 'yaw' to set." } } },
+                    { "clear", { { "type", "boolean" }, { "description", "Set true to remove the override and restore the scene's authored sun direction." } } } } },
+                { "additionalProperties", false }
+            };
+            tool.MainMarshaled = true;
+            tool.Handler = Handle_SceneSetSunAngle;
             server.RegisterTool(std::move(tool));
         }
 

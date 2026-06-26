@@ -3033,6 +3033,13 @@ namespace OloEngine
         // Clear undo history when switching scenes
         m_CommandHistory.Clear();
 
+        // Drop any ephemeral MCP sun-direction override (#316 Part 4) so loading
+        // or creating a scene restores its authored procedural-sky sun. This is the
+        // single choke point for every editor scene swap (NewScene / OpenScene /
+        // auto-save recovery), so clearing here honours the documented "resets on
+        // scene reload" contract; a no-op when no override is active.
+        Renderer3D::ClearSunDirectionOverride();
+
         SyncWindowTitle();
     }
 

@@ -8,6 +8,7 @@
 #include "MCP/McpServer.h"
 
 #include "OloEngine/Core/Log.h"
+#include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Task/NamedThreads.h"
 
 #include <algorithm>
@@ -357,6 +358,13 @@ namespace OloEngine::MCP
             m_Sessions.clear();
         }
         m_Token.clear();
+
+        // Drop any ephemeral sun-direction override an agent left active
+        // (olo_scene_set_time_of_day / olo_scene_set_sun_angle, #316 Part 4) so the
+        // editor returns to the authored procedural-sky sun once its agent is gone.
+        // Stop() runs on the game thread, so touching renderer session state here is
+        // safe; a no-op when no override is active.
+        Renderer3D::ClearSunDirectionOverride();
 
         OLO_CORE_INFO("[MCP] Diagnostics server stopped");
     }
