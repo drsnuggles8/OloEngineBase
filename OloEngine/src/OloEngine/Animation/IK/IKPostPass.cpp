@@ -27,7 +27,10 @@ namespace OloEngine::Animation
         auto bone = startBone;
         for (u32 j = 0; j < chainLength; ++j)
         {
-            if (bone >= static_cast<u32>(boneCount))
+            // boneCount comes from the caller's LocalTransforms; parentIndices is a
+            // separate span only asserted (not enforced) to match it, so bound the
+            // read against both to stay safe on a malformed skeleton in release.
+            if (bone >= static_cast<u32>(boneCount) || bone >= parentIndices.size())
             {
                 break;
             }
