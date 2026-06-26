@@ -7,6 +7,7 @@
 
 #include <array>
 #include <cstdlib> // getenv
+#include <filesystem>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -264,6 +265,54 @@ namespace OloEngine
             return false;
         }
 
+        // Fire-and-forget launch of argv[0] (resolved via PATH) with no shell — no
+        // quoting/escaping pitfalls. Used to open the OS file manager without
+        // blocking the editor UI thread. Double-forks so the grandchild that runs
+        // the file manager is reparented to init and never lingers as a zombie.
+        bool LaunchDetached(const std::vector<std::string>& argv)
+        {
+            if (argv.empty())
+                return false;
+
+            // Build the char* vector in the parent — after fork() only async-signal-safe
+            // calls are allowed in the child, so keep its path malloc-free.
+            std::vector<char*> cargv;
+            cargv.reserve(argv.size() + 1);
+            for (const std::string& arg : argv)
+                cargv.push_back(const_cast<char*>(arg.c_str()));
+            cargv.push_back(nullptr);
+
+            const pid_t pid = ::fork();
+            if (pid < 0)
+            {
+                OLO_CORE_ERROR("ShowInFileManager: fork() failed (errno={})", errno);
+                return false;
+            }
+
+            if (pid == 0)
+            {
+                // Intermediate child: fork again and exit immediately so the grandchild
+                // is orphaned onto init (PID 1), which reaps it — the parent never has
+                // to wait on the file manager itself.
+                const pid_t grandchild = ::fork();
+                if (grandchild == 0)
+                {
+                    ::execvp(cargv[0], cargv.data());
+                    _exit(127); // only reached if exec failed
+                }
+                _exit(grandchild < 0 ? 127 : 0);
+            }
+
+            // Parent: reap the intermediate child, which exits right away.
+            int status = 0;
+            while (::waitpid(pid, &status, 0) == -1)
+            {
+                if (errno != EINTR)
+                    break;
+            }
+            return true;
+        }
+
         std::vector<std::string> BuildZenityArgs(const std::vector<FileFilter>& filters, const std::string& startDir, bool save)
         {
             std::vector<std::string> argv;
@@ -415,6 +464,33 @@ namespace OloEngine
     std::string FileDialogs::SaveFile(const char* const filter, const char* const initialDir)
     {
         return RunFileDialog(filter, initialDir, /*save=*/true);
+    }
+
+    void FileDialogs::ShowInFileManager(const std::filesystem::path& path)
+    {
+        std::error_code ec;
+        if (!std::filesystem::exists(path, ec) || ec)
+        {
+            OLO_CORE_WARN("ShowInFileManager: path does not exist: '{}'", path.string());
+            return;
+        }
+
+        // xdg-open has no "select this file" mode, so when handed a file we open its
+        // containing directory — which is what the caller wants (reveal where it lives).
+        std::filesystem::path target = (std::filesystem::is_directory(path, ec) && !ec)
+                                           ? path
+                                           : path.parent_path();
+        if (target.empty())
+            target = std::filesystem::path(".");
+
+        if (!IsExecutableInPath("xdg-open"))
+        {
+            OLO_CORE_ERROR("ShowInFileManager: 'xdg-open' not found on PATH; cannot reveal '{}'.", target.string());
+            return;
+        }
+
+        if (!LaunchDetached({ "xdg-open", target.string() }))
+            OLO_CORE_ERROR("ShowInFileManager: failed to launch xdg-open for '{}'.", target.string());
     }
 
 } // namespace OloEngine
