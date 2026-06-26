@@ -68,20 +68,15 @@ namespace OloEngine
         static Ref<TextureCubemap> CreateCubemapFromFaces(const std::vector<std::string>& facePaths);
 
       private:
-        // Enhanced rendering methods
-        static void RenderToCubemapAdvanced(const Ref<TextureCubemap>& cubemap, const Ref<Shader>& shader,
-                                            const Ref<Mesh>& cubeMesh, const IBLConfiguration& config, u32 mipLevel = 0);
-
-        // Render to cubemap helper
+        // Render to cubemap helper. Serial, one pass per face by design — the
+        // engine's single GL context rules out a multithreaded bake, and the
+        // bake is fragment-bound and disk-cached; see the definition for the
+        // full rationale.
         static void RenderToCubemap(const Ref<TextureCubemap>& cubemap, const Ref<Shader>& shader,
                                     const Ref<Mesh>& cubeMesh, u32 mipLevel = 0);
 
         // Render to texture helper
         static void RenderToTexture(const Ref<Texture2D>& texture, const Ref<Shader>& shader);
-
-        // Render to texture with advanced configuration
-        static void RenderToTextureAdvanced(const Ref<Texture2D>& texture, const Ref<Shader>& shader,
-                                            const IBLConfiguration& config);
 
         // Get cube mesh for rendering
         static const Ref<Mesh>& GetCubeMesh();

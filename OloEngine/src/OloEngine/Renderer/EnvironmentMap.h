@@ -38,8 +38,12 @@ namespace OloEngine
         u32 IrradianceSamples = 1024; // Samples for irradiance generation
         u32 PrefilterSamples = 1024;  // Samples for prefilter generation
 
-        // Performance optimization
-        bool EnableMultithreading = true; // Use multiple threads for generation
+        // NOTE: there is deliberately no multithreading/parallel-bake knob here.
+        // The engine renders on a single OpenGL 4.6 context, so the six cubemap
+        // faces cannot be submitted from multiple threads. A former
+        // EnableMultithreading flag promised exactly that and was a permanent
+        // no-op; it was removed. See IBLPrecompute::RenderToCubemap for the
+        // single-context bake rationale.
 
         // Disk-cache control. The IBL disk cache is keyed on the source
         // cubemap's path + this config. That's correct for file-backed
