@@ -1,5 +1,6 @@
 #pragma once
 
+#include <functional>
 #include <string>
 #include "OloEngine/Core/Ref.h"
 #include "OloEngine/Asset/AssetTypes.h"
@@ -51,5 +52,34 @@ namespace OloEngine
 
         static Ref<ComputeShader> Create(const std::string& filepath);
         static Ref<ComputeShader> CreateFromSource(const std::string& name, const std::string& source);
+
+        // Result of the CPU-only load step of a compute shader: the source file
+        // read from disk with its #include directives resolved. Holds no GPU
+        // resources, so it can be produced on a worker thread.
+        struct SourceLoadResult
+        {
+            std::string Name;   // Derived from the filename (no directory, no extension).
+            std::string Source; // Fully preprocessed GLSL; empty when the load failed.
+
+            [[nodiscard]] bool IsValid() const
+            {
+                return !Source.empty();
+            }
+        };
+
+        // Read a compute shader file and resolve its #include directives. This is
+        // pure disk + string work (no GPU calls), so it is safe to call from any
+        // thread — it is the off-main-thread half of CreateFromFileAsync().
+        // Returns an invalid result (empty Source) if the file cannot be read.
+        static SourceLoadResult LoadSourceFromFile(const std::string& filepath);
+
+        // Asynchronously create a compute shader from a file. The file read and
+        // #include preprocessing run on a background worker thread; the GPU
+        // program is then created on the main thread the next time
+        // GPUResourceQueue::ProcessAll() runs, at which point `onReady` is invoked
+        // (always on the main thread) with the created shader — or nullptr if the
+        // file could not be read or compilation failed. This is the asynchronous
+        // counterpart to the blocking Create(filepath).
+        static void CreateFromFileAsync(std::string filepath, std::function<void(Ref<ComputeShader>)> onReady);
     };
 } // namespace OloEngine
