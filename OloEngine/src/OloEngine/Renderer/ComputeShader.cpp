@@ -54,12 +54,13 @@ namespace OloEngine
         SourceLoadResult result;
 
         // Derive the shader name from the filename (strip directory + extension),
-        // matching the naming used by OpenGLComputeShader(filepath).
-        auto lastSlash = filepath.find_last_of("/\\");
+        // matching the naming used by OpenGLComputeShader(filepath). The same
+        // last-separator position is reused below for the #include search directory.
+        const auto lastSlash = filepath.find_last_of("/\\");
         const auto lastDot = filepath.rfind('.');
-        lastSlash = (lastSlash == std::string::npos) ? 0 : (lastSlash + 1);
-        const auto count = (lastDot == std::string::npos) ? (filepath.size() - lastSlash) : (lastDot - lastSlash);
-        result.Name = filepath.substr(lastSlash, count);
+        const auto nameStart = (lastSlash == std::string::npos) ? 0 : (lastSlash + 1);
+        const auto count = (lastDot == std::string::npos) ? (filepath.size() - nameStart) : (lastDot - nameStart);
+        result.Name = filepath.substr(nameStart, count);
 
         const std::string rawSource = FileSystem::ReadFileText(filepath);
         if (rawSource.empty())
@@ -71,8 +72,7 @@ namespace OloEngine
         // Resolve #include directives relative to the shader's own directory.
         // This is plain text/file work (no GPU calls); the GLSL include processor
         // is shared with the regular shader path.
-        const auto dirEnd = filepath.find_last_of("/\\");
-        const std::string directory = (dirEnd != std::string::npos) ? filepath.substr(0, dirEnd) : "";
+        const std::string directory = (lastSlash != std::string::npos) ? filepath.substr(0, lastSlash) : "";
         result.Source = OpenGLShader::ProcessIncludes(rawSource, directory);
 
         if (result.Source.empty())

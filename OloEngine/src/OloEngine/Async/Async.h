@@ -131,13 +131,10 @@ namespace OloEngine
          * @brief Heap owner for a fire-and-forget LowLevelTasks::FTask.
          *
          * Mirrors UE's Tasks::Private::FTaskBase, which owns its LowLevelTasks::FTask
-         * as a member and is cleaned up via a LowLevelTasks::TDeleter<FTaskBase,
-         * &FTaskBase::Release> captured by value in the task's runnable (see UE
-         * Tasks/TaskPrivate.h). The deleter is destroyed together with the runnable —
-         * which the scheduler does AFTER it flags the task Completed — so deletion
-         * never trips ~FTask()'s IsCompleted() assertion. These tasks are fire-and-
-         * forget (no TFuture/waiter holds a reference), so Release() is a plain delete
-         * rather than the refcount decrement UE uses for referenced high-level tasks.
+         * as a member and is released via a TDeleter captured in the runnable. These
+         * tasks are fire-and-forget (no TFuture/waiter holds a reference), so Release()
+         * is a plain delete rather than the refcount decrement UE uses for referenced
+         * high-level tasks. Use LaunchFireAndForget() rather than touching this directly.
          */
         struct FFireAndForgetTask
         {
@@ -148,6 +145,35 @@ namespace OloEngine
                 delete this;
             }
         };
+
+        /**
+         * @brief Launch a fire-and-forget task on the low-level scheduler.
+         *
+         * The heap task owns itself through a LowLevelTasks::TDeleter captured by value
+         * in its runnable, so it is freed when the runnable is destroyed — which the
+         * scheduler does AFTER flagging the task Completed (FTask::ExecuteTask moves the
+         * runnable out, runs it, sets CompletedFlag, then destroys the moved runnable).
+         * Deleting the task from inside the body instead runs while it is still Running,
+         * tripping ~FTask()'s IsCompleted() assertion and handing the scheduler a freed
+         * task — which crashes StopWorkers / scheduler teardown. This mirrors UE's
+         * FTaskBase / TDeleter<FTaskBase, &FTaskBase::Release> ownership
+         * (Tasks/TaskPrivate.h); every fire-and-forget launch must route through here so
+         * that contract lives in exactly one place.
+         */
+        inline void LaunchFireAndForget(const char* DebugName, LowLevelTasks::ETaskPriority Priority, TUniqueFunction<void()> Runnable)
+        {
+            FFireAndForgetTask* Owner = new FFireAndForgetTask();
+            Owner->Task.Init(
+                DebugName,
+                Priority,
+                [Runnable = MoveTemp(Runnable),
+                 Deleter = LowLevelTasks::TDeleter<FFireAndForgetTask, &FFireAndForgetTask::Release>{ Owner }]() mutable
+                {
+                    Runnable();
+                },
+                LowLevelTasks::ETaskFlags::DefaultFlags);
+            LowLevelTasks::TryLaunch(Owner->Task);
+        }
 
         /**
          * @brief Clean up completed async threads
@@ -205,26 +231,18 @@ namespace OloEngine
         {
             case EAsyncExecution::TaskGraph:
             {
-                // Launch on the task scheduler. The runnable owns the heap task and
-                // cleans it up with a TDeleter captured by value, so it is deleted
-                // after the scheduler marks it Completed, not from inside the body —
-                // see AsyncTask() for why.
-                Private::FFireAndForgetTask* Owner = new Private::FFireAndForgetTask();
-                Owner->Task.Init(
+                Private::LaunchFireAndForget(
                     "AsyncTask",
                     LowLevelTasks::ETaskPriority::Normal,
                     [Function = MoveTemp(Function), Promise = MoveTemp(Promise),
-                     Callback = MoveTemp(CompletionCallback),
-                     Deleter = LowLevelTasks::TDeleter<Private::FFireAndForgetTask, &Private::FFireAndForgetTask::Release>{ Owner }]() mutable
+                     Callback = MoveTemp(CompletionCallback)]() mutable
                     {
                         SetPromise(Promise, Function);
                         if (Callback)
                         {
                             Callback();
                         }
-                    },
-                    LowLevelTasks::ETaskFlags::DefaultFlags);
-                LowLevelTasks::TryLaunch(Owner->Task);
+                    });
             }
             break;
 
@@ -247,17 +265,12 @@ namespace OloEngine
                     {
                         Runnable->SetThread(Thread);
 
-                        // Schedule cleanup on task graph after completion
-                        // The thread will self-clean via the runnable's Exit().
-                        // The cleanup task deletes itself via a TDeleter captured in
-                        // its runnable (deleted after it is flagged Completed) — see
-                        // AsyncTask() for why a body-side delete is unsafe.
-                        Private::FFireAndForgetTask* CleanupOwner = new Private::FFireAndForgetTask();
-                        CleanupOwner->Task.Init(
+                        // Schedule cleanup on the task graph after completion. The
+                        // thread will self-clean via the runnable's Exit().
+                        Private::LaunchFireAndForget(
                             "AsyncCleanup",
                             LowLevelTasks::ETaskPriority::BackgroundLow,
-                            [Runnable, Thread, Callback = MoveTemp(CompletionCallback),
-                             Deleter = LowLevelTasks::TDeleter<Private::FFireAndForgetTask, &Private::FFireAndForgetTask::Release>{ CleanupOwner }]() mutable
+                            [Runnable, Thread, Callback = MoveTemp(CompletionCallback)]() mutable
                             {
                                 // Wait for completion and clean up
                                 Thread->WaitForCompletion();
@@ -267,9 +280,7 @@ namespace OloEngine
                                 {
                                     Callback();
                                 }
-                            },
-                            LowLevelTasks::ETaskFlags::DefaultFlags);
-                        LowLevelTasks::TryLaunch(CleanupOwner->Task);
+                            });
                     }
                     else
                     {
@@ -300,25 +311,18 @@ namespace OloEngine
                 // ThreadPool requires FQueuedThreadPool - use AsyncPool() directly
                 // Fall back to TaskGraph for now
                 {
-                    // Runnable owns the heap task and cleans it up with a TDeleter
-                    // captured by value (deleted post-completion), not via a delete in
-                    // the body — see AsyncTask() for why.
-                    Private::FFireAndForgetTask* Owner = new Private::FFireAndForgetTask();
-                    Owner->Task.Init(
+                    Private::LaunchFireAndForget(
                         "AsyncPoolTask",
                         LowLevelTasks::ETaskPriority::BackgroundNormal,
                         [Function = MoveTemp(Function), Promise = MoveTemp(Promise),
-                         Callback = MoveTemp(CompletionCallback),
-                         Deleter = LowLevelTasks::TDeleter<Private::FFireAndForgetTask, &Private::FFireAndForgetTask::Release>{ Owner }]() mutable
+                         Callback = MoveTemp(CompletionCallback)]() mutable
                         {
                             SetPromise(Promise, Function);
                             if (Callback)
                             {
                                 Callback();
                             }
-                        },
-                        LowLevelTasks::ETaskFlags::DefaultFlags);
-                    LowLevelTasks::TryLaunch(Owner->Task);
+                        });
                 }
                 break;
         }
@@ -364,15 +368,11 @@ namespace OloEngine
             {
                 Runnable->SetThread(Thread);
 
-                // Schedule cleanup. The cleanup task deletes itself via a TDeleter
-                // captured in its runnable (deleted after it is flagged Completed) —
-                // see AsyncTask() for why a body-side delete is unsafe.
-                Private::FFireAndForgetTask* CleanupOwner = new Private::FFireAndForgetTask();
-                CleanupOwner->Task.Init(
+                // Schedule cleanup after completion.
+                Private::LaunchFireAndForget(
                     "AsyncThreadCleanup",
                     LowLevelTasks::ETaskPriority::BackgroundLow,
-                    [Runnable, Thread, Callback = MoveTemp(CompletionCallback),
-                     Deleter = LowLevelTasks::TDeleter<Private::FFireAndForgetTask, &Private::FFireAndForgetTask::Release>{ CleanupOwner }]() mutable
+                    [Runnable, Thread, Callback = MoveTemp(CompletionCallback)]() mutable
                     {
                         Thread->WaitForCompletion();
                         delete Thread;
@@ -381,9 +381,7 @@ namespace OloEngine
                         {
                             Callback();
                         }
-                    },
-                    LowLevelTasks::ETaskFlags::DefaultFlags);
-                LowLevelTasks::TryLaunch(CleanupOwner->Task);
+                    });
             }
             else
             {
@@ -421,23 +419,7 @@ namespace OloEngine
      */
     inline void AsyncTask(LowLevelTasks::ETaskPriority Priority, TUniqueFunction<void()> Function)
     {
-        // Own the heap task and clean it up with a TDeleter captured in the runnable,
-        // exactly as UE's FTaskBase does (Tasks/TaskPrivate.h). The deleter fires when
-        // the runnable is destroyed — which the scheduler does AFTER flagging the task
-        // Completed — so deletion never trips ~FTask()'s IsCompleted() assertion.
-        // (Deleting the task from inside the runnable body would run while it is still
-        // Running and crash scheduler teardown / StopWorkers.)
-        Private::FFireAndForgetTask* Owner = new Private::FFireAndForgetTask();
-        Owner->Task.Init(
-            "AsyncTask",
-            Priority,
-            [Function = MoveTemp(Function),
-             Deleter = LowLevelTasks::TDeleter<Private::FFireAndForgetTask, &Private::FFireAndForgetTask::Release>{ Owner }]() mutable
-            {
-                Function();
-            },
-            LowLevelTasks::ETaskFlags::DefaultFlags);
-        LowLevelTasks::TryLaunch(Owner->Task);
+        Private::LaunchFireAndForget("AsyncTask", Priority, MoveTemp(Function));
     }
 
     /**
