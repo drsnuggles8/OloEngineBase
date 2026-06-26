@@ -1929,7 +1929,7 @@ namespace OloEngine
         const UUID entityID = entity.GetUUID();
 
         // Idempotent — already built for this entity.
-        if (m_Ragdolls.find(entityID) != m_Ragdolls.end())
+        if (m_Ragdolls.contains(entityID))
             return true;
 
         if (!ragdoll.m_Enabled)
@@ -1978,12 +1978,11 @@ namespace OloEngine
         const sizet boneCount = boneEntityIds.size();
 
         // Resolve a bone index to its (valid) entity, or a null Entity.
-        const auto boneEntity = [&](sizet i) -> Entity
+        const auto boneEntity = [this, boneCount, &boneEntityIds](sizet i)
         {
             if (i >= boneCount || static_cast<u64>(boneEntityIds[i]) == 0)
                 return Entity{};
-            auto opt = m_Scene->TryGetEntityWithUUID(boneEntityIds[i]);
-            return opt ? *opt : Entity{};
+            return m_Scene->TryGetEntityWithUUID(boneEntityIds[i]).value_or(Entity{});
         };
 
         RagdollRuntime runtime;

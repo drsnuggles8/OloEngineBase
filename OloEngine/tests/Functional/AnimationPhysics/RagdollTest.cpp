@@ -49,7 +49,9 @@ class RagdollTest : public FunctionalTest
   protected:
     // Each test builds its own scene in the body, then calls EnablePhysics3D()
     // (which snapshots whatever exists at call time), so BuildScene stays empty.
-    void BuildScene() override {}
+    void BuildScene() override
+    { /* intentionally empty — each test authors its own scene before EnablePhysics3D() */
+    }
 
     // A two-bone skeleton: a root and one child limb (parentIndices {-1, 0}).
     static Ref<Skeleton> MakeTwoBoneSkeleton(const std::string& rootName, const std::string& limbName)
