@@ -1184,7 +1184,7 @@ static bool WriteAllComponentsTuple(const fs::path& sceneOutDir, const std::set<
 }
 
 // Report a single WriteIfChanged outcome; returns false only on a write failure.
-static bool ReportWrite(const fs::path& path, const std::string& content, bool& errors)
+static bool ReportWrite(const fs::path& path, const std::string& content)
 {
     switch (WriteIfChanged(path, content))
     {
@@ -1196,7 +1196,6 @@ static bool ReportWrite(const fs::path& path, const std::string& content, bool& 
             return true;
         case WriteResult::Failed:
             std::cerr << "  FAILED " << path << "\n";
-            errors = true;
             return false;
     }
     return false;
@@ -1204,23 +1203,19 @@ static bool ReportWrite(const fs::path& path, const std::string& content, bool& 
 
 // Emit the save-game capture/restore enumeration lists to
 // <savegame_out_dir>/SaveGameComponent{Capture,Restore}.Generated.inl.
-// Returns false on a write failure.
+// Returns false on a write failure. Both lists are always written (no
+// short-circuit) so a single failure still reports the other file's outcome.
 static bool WriteSaveGameComponentLists(const fs::path& saveGameOutDir, const std::set<std::string>& componentStructs)
 {
-    bool errors = false;
+    std::ostringstream captureSs;
+    EmitSaveGameCaptureList(captureSs, componentStructs);
+    const bool captureOk = ReportWrite(saveGameOutDir / "SaveGameComponentCapture.Generated.inl", captureSs.str());
 
-    {
-        std::ostringstream ss;
-        EmitSaveGameCaptureList(ss, componentStructs);
-        ReportWrite(saveGameOutDir / "SaveGameComponentCapture.Generated.inl", ss.str(), errors);
-    }
-    {
-        std::ostringstream ss;
-        EmitSaveGameRestoreList(ss, componentStructs);
-        ReportWrite(saveGameOutDir / "SaveGameComponentRestore.Generated.inl", ss.str(), errors);
-    }
+    std::ostringstream restoreSs;
+    EmitSaveGameRestoreList(restoreSs, componentStructs);
+    const bool restoreOk = ReportWrite(saveGameOutDir / "SaveGameComponentRestore.Generated.inl", restoreSs.str());
 
-    return !errors;
+    return captureOk && restoreOk;
 }
 
 int main(int argc, char* argv[])
