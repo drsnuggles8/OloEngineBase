@@ -390,6 +390,18 @@ OLO_ADD_INTERNAL_CALL(ProceduralSkyComponent_SetEnableIBL);
 OLO_ADD_INTERNAL_CALL(ProceduralSkyComponent_GetIBLIntensity);
 OLO_ADD_INTERNAL_CALL(ProceduralSkyComponent_SetIBLIntensity);
 
+// RagdollComponent
+OLO_ADD_INTERNAL_CALL(RagdollComponent_GetEnabled);
+OLO_ADD_INTERNAL_CALL(RagdollComponent_SetEnabled);
+OLO_ADD_INTERNAL_CALL(RagdollComponent_GetBoneMass);
+OLO_ADD_INTERNAL_CALL(RagdollComponent_SetBoneMass);
+OLO_ADD_INTERNAL_CALL(RagdollComponent_GetBoneRadius);
+OLO_ADD_INTERNAL_CALL(RagdollComponent_SetBoneRadius);
+OLO_ADD_INTERNAL_CALL(RagdollComponent_GetSwingLimitDeg);
+OLO_ADD_INTERNAL_CALL(RagdollComponent_SetSwingLimitDeg);
+OLO_ADD_INTERNAL_CALL(RagdollComponent_GetTwistLimitDeg);
+OLO_ADD_INTERNAL_CALL(RagdollComponent_SetTwistLimitDeg);
+
 // ReflectionProbeComponent
 OLO_ADD_INTERNAL_CALL(ReflectionProbeComponent_GetInfluenceRadius);
 OLO_ADD_INTERNAL_CALL(ReflectionProbeComponent_SetInfluenceRadius);

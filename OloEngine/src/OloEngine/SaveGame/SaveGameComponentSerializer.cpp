@@ -1004,6 +1004,30 @@ namespace OloEngine
         // m_RuntimeVehicleToken is a runtime Jolt handle — not serialized.
     }
 
+    void SaveGameComponentSerializer::Serialize(FArchive& ar, RagdollComponent& c)
+    {
+        // m_Skeleton is a runtime Ref (resolved from m_SkeletonEntity's
+        // SkeletonComponent at physics start) and m_RuntimeRagdollToken is a
+        // runtime handle — neither is serialized.
+        ar << c.m_SkeletonEntity << c.m_Enabled;
+        ar << c.m_BoneMass << c.m_BoneRadius << c.m_SwingLimitDeg << c.m_TwistLimitDeg;
+
+        // Sanitize untrusted on-disk values (mirrors SceneSerializer); mass/radius
+        // are strictly positive, swing/twist half-angles clamp to [0, 180] degrees.
+        // JoltScene::CreateRagdoll re-sanitizes before handing values to Jolt.
+        if (ar.IsLoading())
+        {
+            if (!std::isfinite(c.m_BoneMass) || c.m_BoneMass <= 0.0f)
+                c.m_BoneMass = 1.0f;
+            c.m_BoneMass = std::min(c.m_BoneMass, 1.0e6f);
+            if (!std::isfinite(c.m_BoneRadius) || c.m_BoneRadius <= 0.0f)
+                c.m_BoneRadius = 0.05f;
+            c.m_BoneRadius = std::min(c.m_BoneRadius, 1.0e3f);
+            c.m_SwingLimitDeg = std::isfinite(c.m_SwingLimitDeg) ? std::clamp(c.m_SwingLimitDeg, 0.0f, 180.0f) : 45.0f;
+            c.m_TwistLimitDeg = std::isfinite(c.m_TwistLimitDeg) ? std::clamp(c.m_TwistLimitDeg, 0.0f, 180.0f) : 45.0f;
+        }
+    }
+
     void SaveGameComponentSerializer::Serialize(FArchive& ar, TextComponent& c)
     {
         ar << c.TextString << c.Color;
@@ -3320,6 +3344,7 @@ namespace OloEngine
         REGISTER_SAVE_COMPONENT(CharacterController3DComponent);
         REGISTER_SAVE_COMPONENT(PhysicsJoint3DComponent);
         REGISTER_SAVE_COMPONENT(VehicleComponent);
+        REGISTER_SAVE_COMPONENT(RagdollComponent);
         REGISTER_SAVE_COMPONENT(TextComponent);
         REGISTER_SAVE_COMPONENT(ScriptComponent);
         REGISTER_SAVE_COMPONENT(AudioSourceComponent);

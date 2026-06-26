@@ -105,6 +105,28 @@ namespace OloEngine
             return static_cast<u32>(m_Vehicles.size());
         }
 
+        // Ragdoll (skeleton-driven SwingTwist chain) management, issue #308 item 5.
+        // CreateRagdoll expands the RagdollComponent on `entity` into a chain of
+        // Rigidbody3D + collider + SwingTwist-joint components authored onto the
+        // skeleton's bone entities; it does NOT touch Jolt itself, so it must run
+        // before the body/constraint creation passes (see Scene::OnPhysics3DStart).
+        // DestroyRagdoll removes exactly the components it generated, restoring the
+        // authored scene. Both are idempotent. CreateRagdolls builds every enabled
+        // ragdoll in the scene; DestroyAllRagdolls tears them all down. The plural
+        // forms are driven by Scene::OnPhysics3DStart / OnPhysics3DStop.
+        bool CreateRagdoll(Entity entity);
+        void DestroyRagdoll(Entity entity);
+        // Authoring pass (no Jolt objects created here): expand every enabled
+        // RagdollComponent into per-bone Rigidbody3D + collider + SwingTwist-joint
+        // components. MUST run BEFORE Initialize / the body + constraint passes.
+        void CreateRagdolls();
+        // Remove every generated ragdoll component (restoring the authored scene).
+        void DestroyAllRagdolls();
+        u32 GetRagdollCount() const
+        {
+            return static_cast<u32>(m_Ragdolls.size());
+        }
+
         // Character controller management
         Ref<JoltCharacterController> CreateCharacterController(Entity entity, const ContactCallbackFn& contactCallback = nullptr);
         void DestroyCharacterController(Entity entity);
@@ -298,6 +320,22 @@ namespace OloEngine
         // listener (raw pointer, not ref-counted), so DestroyVehicle must
         // RemoveStepListener before releasing the ref.
         std::unordered_map<UUID, JPH::Ref<JPH::VehicleConstraint>> m_Vehicles;
+
+        // Ragdolls (issue #308 item 5), keyed by the owning entity (the one
+        // carrying the RagdollComponent). A ragdoll holds no Jolt object of its
+        // own — it authors Rigidbody3D + collider + SwingTwist-joint components
+        // onto the skeleton's bone entities, which the normal body/constraint
+        // passes then realise. We only track which components we generated on
+        // which bone entities so DestroyRagdoll can remove exactly those (and
+        // their Jolt body/constraint, via the OnComponentRemoved hooks) on stop,
+        // leaving any pre-authored bone bodies/joints untouched.
+        struct RagdollRuntime
+        {
+            std::vector<UUID> m_GeneratedBodyEntities;     // got a generated Rigidbody3DComponent
+            std::vector<UUID> m_GeneratedColliderEntities; // got a generated SphereCollider3DComponent
+            std::vector<UUID> m_GeneratedJointEntities;    // got a generated PhysicsJoint3DComponent
+        };
+        std::unordered_map<UUID, RagdollRuntime> m_Ragdolls;
 
         // Collision filtering for joints whose m_CollideConnected == false (see
         // ApplyJointCollisionFilters). m_JointGroupFilter is the single shared

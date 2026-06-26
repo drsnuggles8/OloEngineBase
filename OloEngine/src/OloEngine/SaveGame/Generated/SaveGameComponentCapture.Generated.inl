@@ -70,6 +70,7 @@ SAVE_COMPONENT(PrefabComponent, entity, writer);
 SAVE_COMPONENT(ProceduralSkyComponent, entity, writer);
 SAVE_COMPONENT(QuestGiverComponent, entity, writer);
 SAVE_COMPONENT(QuestJournalComponent, entity, writer);
+SAVE_COMPONENT(RagdollComponent, entity, writer);
 SAVE_COMPONENT(ReflectionProbeComponent, entity, writer);
 SAVE_COMPONENT(RelationshipComponent, entity, writer);
 SAVE_COMPONENT(Rigidbody2DComponent, entity, writer);

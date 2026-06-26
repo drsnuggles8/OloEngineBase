@@ -70,6 +70,7 @@ TRY_LOAD_COMPONENT(PrefabComponent);
 TRY_LOAD_COMPONENT(ProceduralSkyComponent);
 TRY_LOAD_COMPONENT(QuestGiverComponent);
 TRY_LOAD_COMPONENT(QuestJournalComponent);
+TRY_LOAD_COMPONENT(RagdollComponent);
 TRY_LOAD_COMPONENT(ReflectionProbeComponent);
 TRY_LOAD_COMPONENT(RelationshipComponent);
 TRY_LOAD_COMPONENT(Rigidbody2DComponent);

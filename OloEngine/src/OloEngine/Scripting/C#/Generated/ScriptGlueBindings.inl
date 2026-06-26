@@ -3869,6 +3869,118 @@ static void ProceduralSkyComponent_SetIBLIntensity(UUID entityID, float value)
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////
+// RagdollComponent                                                               //
+///////////////////////////////////////////////////////////////////////////////////////////
+
+static bool RagdollComponent_GetEnabled(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<RagdollComponent>();
+    return comp.m_Enabled;
+}
+
+static void RagdollComponent_SetEnabled(UUID entityID, bool value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<RagdollComponent>();
+    comp.m_Enabled = value;
+}
+
+static float RagdollComponent_GetBoneMass(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<RagdollComponent>();
+    return comp.m_BoneMass;
+}
+
+static void RagdollComponent_SetBoneMass(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<RagdollComponent>();
+    comp.m_BoneMass = value;
+}
+
+static float RagdollComponent_GetBoneRadius(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<RagdollComponent>();
+    return comp.m_BoneRadius;
+}
+
+static void RagdollComponent_SetBoneRadius(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<RagdollComponent>();
+    comp.m_BoneRadius = value;
+}
+
+static float RagdollComponent_GetSwingLimitDeg(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<RagdollComponent>();
+    return comp.m_SwingLimitDeg;
+}
+
+static void RagdollComponent_SetSwingLimitDeg(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<RagdollComponent>();
+    comp.m_SwingLimitDeg = value;
+}
+
+static float RagdollComponent_GetTwistLimitDeg(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<RagdollComponent>();
+    return comp.m_TwistLimitDeg;
+}
+
+static void RagdollComponent_SetTwistLimitDeg(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<RagdollComponent>();
+    comp.m_TwistLimitDeg = value;
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////
 // ReflectionProbeComponent                                                       //
 ///////////////////////////////////////////////////////////////////////////////////////////
 

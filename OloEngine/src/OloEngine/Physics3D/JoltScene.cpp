@@ -9,6 +9,8 @@
 #include "OloEngine/Scene/Scene.h"
 #include "OloEngine/Scene/Components.h"
 #include "OloEngine/Gameplay/GameplayEventBus.h"
+#include "OloEngine/Animation/AnimatedMeshComponents.h" // SkeletonComponent (ragdoll skeleton resolution)
+#include "OloEngine/Animation/BoneEntityUtils.h"        // FindBoneEntityIds (ragdoll bone -> entity mapping)
 
 #include <Jolt/RegisterTypes.h>
 #include <Jolt/Core/Factory.h>
@@ -48,6 +50,7 @@
 #include <Jolt/Physics/Body/BodyLock.h>
 
 #include <glm/gtc/constants.hpp>
+#include <glm/gtc/quaternion.hpp> // glm::inverse(quat) for ragdoll bone-local anchors
 
 #include <cmath>
 #include <vector>
@@ -1890,6 +1893,246 @@ namespace OloEngine
             }
         }
         m_Vehicles.clear();
+    }
+
+    void JoltScene::CreateRagdolls()
+    {
+        if (!m_Scene)
+            return;
+
+        // Build every authored ragdoll now. This is a pure ECS-authoring pass —
+        // see CreateRagdoll — so it runs BEFORE the body/constraint creation passes.
+        // Snapshot the ragdoll entities first: CreateRagdoll adds components to the
+        // bone entities, so don't mutate the registry while iterating a live view.
+        std::vector<UUID> ragdollEntities;
+        {
+            auto view = m_Scene->GetAllEntitiesWith<RagdollComponent>();
+            for (auto entityID : view)
+                ragdollEntities.push_back(Entity{ entityID, m_Scene }.GetUUID());
+        }
+        for (UUID entityID : ragdollEntities)
+        {
+            if (auto opt = m_Scene->TryGetEntityWithUUID(entityID))
+                (void)CreateRagdoll(*opt);
+        }
+
+        if (!m_Ragdolls.empty())
+            OLO_CORE_INFO("Created {0} physics ragdolls", m_Ragdolls.size());
+    }
+
+    bool JoltScene::CreateRagdoll(Entity entity)
+    {
+        if (!m_Scene || !entity || !entity.HasComponent<RagdollComponent>())
+            return false;
+
+        auto& ragdoll = entity.GetComponent<RagdollComponent>();
+        const UUID entityID = entity.GetUUID();
+
+        // Idempotent — already built for this entity.
+        if (m_Ragdolls.contains(entityID))
+            return true;
+
+        if (!ragdoll.m_Enabled)
+            return false;
+
+        // Resolve the skeleton-owning entity: m_SkeletonEntity, or this entity for 0.
+        Entity skeletonEntity = entity;
+        if (ragdoll.m_SkeletonEntity != 0)
+        {
+            auto opt = m_Scene->TryGetEntityWithUUID(ragdoll.m_SkeletonEntity);
+            if (!opt)
+            {
+                OLO_CORE_WARN("RagdollComponent on entity {0}: skeleton entity {1} not found; skipping ragdoll", (u64)entityID, (u64)ragdoll.m_SkeletonEntity);
+                return false;
+            }
+            skeletonEntity = *opt;
+        }
+
+        // The runtime Ref wins; otherwise take the skeleton from a SkeletonComponent.
+        Ref<Skeleton> skeleton = ragdoll.m_Skeleton;
+        if (!skeleton && skeletonEntity.HasComponent<SkeletonComponent>())
+            skeleton = skeletonEntity.GetComponent<SkeletonComponent>().m_Skeleton;
+        if (!skeleton)
+        {
+            OLO_CORE_WARN("RagdollComponent on entity {0}: no skeleton (set m_Skeleton or add a SkeletonComponent on the skeleton entity); skipping ragdoll", (u64)entityID);
+            return false;
+        }
+
+        // Map each bone (by name == entity tag) to its scene entity under the
+        // skeleton entity's hierarchy. One UUID per bone; a null UUID for bones
+        // that have no matching entity.
+        const std::vector<UUID> boneEntityIds = BoneEntityUtils::FindBoneEntityIds(skeletonEntity, skeleton.Raw(), m_Scene);
+        if (boneEntityIds.empty())
+        {
+            OLO_CORE_WARN("RagdollComponent on entity {0}: no bone entities found under the skeleton hierarchy; skipping ragdoll", (u64)entityID);
+            return false;
+        }
+
+        // Sanitize the authored per-bone params (a script can write garbage).
+        const f32 boneMass = (std::isfinite(ragdoll.m_BoneMass) && ragdoll.m_BoneMass > 0.0f) ? std::min(ragdoll.m_BoneMass, 1.0e6f) : 1.0f;
+        const f32 boneRadius = (std::isfinite(ragdoll.m_BoneRadius) && ragdoll.m_BoneRadius > 0.0f) ? std::min(ragdoll.m_BoneRadius, 1.0e3f) : 0.05f;
+        const f32 swingLimitDeg = std::clamp(std::isfinite(ragdoll.m_SwingLimitDeg) ? ragdoll.m_SwingLimitDeg : 45.0f, 0.0f, 180.0f);
+        const f32 twistLimitDeg = std::clamp(std::isfinite(ragdoll.m_TwistLimitDeg) ? ragdoll.m_TwistLimitDeg : 45.0f, 0.0f, 180.0f);
+
+        const auto& parentIndices = skeleton->m_ParentIndices;
+        const sizet boneCount = boneEntityIds.size();
+
+        // Resolve a bone index to its (valid) entity, or a null Entity.
+        const auto boneEntity = [this, boneCount, &boneEntityIds](sizet i)
+        {
+            if (i >= boneCount || static_cast<u64>(boneEntityIds[i]) == 0)
+                return Entity{};
+            return m_Scene->TryGetEntityWithUUID(boneEntityIds[i]).value_or(Entity{});
+        };
+
+        RagdollRuntime runtime;
+
+        // Pass A — ensure a dynamic body (+ sphere collider) on every bone that
+        // doesn't already carry one. Add the collider BEFORE the rigidbody so the
+        // body resolves its shape (the documented OnComponentAdded convention).
+        for (sizet i = 0; i < boneCount; ++i)
+        {
+            Entity bone = boneEntity(i);
+            if (!bone || !bone.HasComponent<TransformComponent>())
+                continue;
+            if (bone.HasComponent<Rigidbody3DComponent>())
+                continue; // pre-authored body (e.g. a Static root anchor) — keep it
+
+            if (!bone.HasComponent<SphereCollider3DComponent>())
+            {
+                auto& col = bone.AddComponent<SphereCollider3DComponent>();
+                col.m_Radius = boneRadius;
+                runtime.m_GeneratedColliderEntities.push_back(bone.GetUUID());
+            }
+            auto& rb = bone.AddComponent<Rigidbody3DComponent>();
+            rb.m_Type = BodyType3D::Dynamic;
+            rb.m_Mass = boneMass;
+            runtime.m_GeneratedBodyEntities.push_back(bone.GetUUID());
+        }
+
+        // Pass B — link each child bone to its parent with a SwingTwist joint that
+        // pivots about the parent bone's origin (so the child hangs from it like a
+        // pendulum link), with CollideConnected = false so the ragdoll can fold.
+        for (sizet i = 0; i < boneCount; ++i)
+        {
+            Entity child = boneEntity(i);
+            if (!child || !child.HasComponent<TransformComponent>())
+                continue;
+            const int parentIdx = (i < parentIndices.size()) ? parentIndices[i] : -1;
+            if (parentIdx < 0)
+                continue; // root bone — no parent to hang from (author it Static to anchor)
+            Entity parent = boneEntity(static_cast<sizet>(parentIdx));
+            if (!parent || !parent.HasComponent<TransformComponent>())
+                continue;
+            if (child.HasComponent<PhysicsJoint3DComponent>())
+                continue; // don't clobber a pre-authored joint on this bone
+
+            const auto& childTc = child.GetComponent<TransformComponent>();
+            const auto& parentTc = parent.GetComponent<TransformComponent>();
+            const glm::vec3 childPos = childTc.Translation;
+            const glm::vec3 parentPos = parentTc.Translation;
+            const glm::quat invChildRot = glm::inverse(childTc.GetRotation());
+
+            glm::vec3 worldDir = childPos - parentPos;
+            worldDir = (glm::dot(worldDir, worldDir) < 1.0e-12f) ? glm::vec3(0.0f, 1.0f, 0.0f) : glm::normalize(worldDir);
+
+            auto& joint = child.AddComponent<PhysicsJoint3DComponent>();
+            joint.m_Type = JointType3D::SwingTwist;
+            joint.m_ConnectedEntity = parent.GetUUID();
+            // Pivot at the parent bone's origin, expressed in each body's local space.
+            // CreateConstraint recomputes the world anchors from the bone transforms;
+            // these make worldA == worldB == parentPos and the twist axis run along
+            // the bone (CreateConstraint applies childRot to m_Axis).
+            joint.m_LocalAnchorA = invChildRot * (parentPos - childPos); // on the child
+            joint.m_LocalAnchorB = glm::vec3(0.0f);                      // on the parent (its origin)
+            joint.m_Axis = invChildRot * worldDir;
+            joint.m_SwingNormalHalfAngleDeg = swingLimitDeg;
+            joint.m_SwingPlaneHalfAngleDeg = swingLimitDeg;
+            joint.m_TwistMinAngleDeg = -twistLimitDeg;
+            joint.m_TwistMaxAngleDeg = twistLimitDeg;
+            joint.m_CollideConnected = false;
+            runtime.m_GeneratedJointEntities.push_back(child.GetUUID());
+        }
+
+        // A ragdoll that generated neither bodies nor joints did nothing useful —
+        // don't register it, so GetRagdollCount reflects real ragdolls.
+        if (runtime.m_GeneratedBodyEntities.empty() && runtime.m_GeneratedJointEntities.empty())
+        {
+            OLO_CORE_WARN("RagdollComponent on entity {0}: resolved a skeleton but generated no bodies/joints; skipping ragdoll", (u64)entityID);
+            return false;
+        }
+
+        const sizet bodyCount = runtime.m_GeneratedBodyEntities.size();
+        const sizet jointCount = runtime.m_GeneratedJointEntities.size();
+        m_Ragdolls[entityID] = std::move(runtime);
+        ragdoll.m_RuntimeRagdollToken = static_cast<u64>(entityID);
+        OLO_CORE_TRACE("Created physics ragdoll for entity {0} ({1} generated bodies, {2} joints)", (u64)entityID, bodyCount, jointCount);
+        return true;
+    }
+
+    void JoltScene::DestroyRagdoll(Entity entity)
+    {
+        if (!entity || !m_Scene)
+            return;
+
+        const UUID entityID = entity.GetUUID();
+        auto it = m_Ragdolls.find(entityID);
+        if (it == m_Ragdolls.end())
+            return;
+
+        // Move the lists out before removing components — RemoveComponent fires the
+        // OnComponentRemoved hooks (which release the matching Jolt body/constraint)
+        // and could, in principle, re-enter; work off a local copy and erase first.
+        const RagdollRuntime runtime = std::move(it->second);
+        m_Ragdolls.erase(it);
+
+        // Remove joints FIRST (a constraint references its two bodies), then the
+        // generated bodies, then the generated colliders.
+        for (UUID boneId : runtime.m_GeneratedJointEntities)
+        {
+            if (auto opt = m_Scene->TryGetEntityWithUUID(boneId); opt && opt->HasComponent<PhysicsJoint3DComponent>())
+                opt->RemoveComponent<PhysicsJoint3DComponent>();
+        }
+        for (UUID boneId : runtime.m_GeneratedBodyEntities)
+        {
+            if (auto opt = m_Scene->TryGetEntityWithUUID(boneId); opt && opt->HasComponent<Rigidbody3DComponent>())
+                opt->RemoveComponent<Rigidbody3DComponent>();
+        }
+        for (UUID boneId : runtime.m_GeneratedColliderEntities)
+        {
+            if (auto opt = m_Scene->TryGetEntityWithUUID(boneId); opt && opt->HasComponent<SphereCollider3DComponent>())
+                opt->RemoveComponent<SphereCollider3DComponent>();
+        }
+
+        if (entity.HasComponent<RagdollComponent>())
+            entity.GetComponent<RagdollComponent>().m_RuntimeRagdollToken = 0;
+
+        OLO_CORE_TRACE("Destroyed physics ragdoll for entity {0}", (u64)entityID);
+    }
+
+    void JoltScene::DestroyAllRagdolls()
+    {
+        if (!m_Scene)
+        {
+            m_Ragdolls.clear();
+            return;
+        }
+
+        // Snapshot the keys first: DestroyRagdoll erases from m_Ragdolls (and its
+        // RemoveComponent calls fire hooks), so don't iterate the map while mutating it.
+        std::vector<UUID> ragdollEntities;
+        ragdollEntities.reserve(m_Ragdolls.size());
+        for (const auto& [entityID, runtime] : m_Ragdolls)
+            ragdollEntities.push_back(entityID);
+
+        for (UUID entityID : ragdollEntities)
+        {
+            if (auto opt = m_Scene->TryGetEntityWithUUID(entityID))
+                DestroyRagdoll(*opt);
+            else
+                m_Ragdolls.erase(entityID); // entity gone — drop the stale tracking
+        }
+        m_Ragdolls.clear();
     }
 
     void JoltScene::UpdateVehicleControllers()
