@@ -65,6 +65,12 @@ namespace OloEngine::LowLevelTasks
             // No characters consumed → the value is not a number.
             return std::nullopt;
         }
+        if (*endPtr != '\0')
+        {
+            // Trailing, unconsumed characters → a partially-numeric string like "2.0abc".
+            // strtof would silently parse the "2.0" prefix; require the whole string instead.
+            return std::nullopt;
+        }
         if (!std::isfinite(value) || value < 1.0f || value > kMaxOversubscriptionRatio)
         {
             return std::nullopt;

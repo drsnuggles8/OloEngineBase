@@ -33,6 +33,15 @@ TEST(SchedulerConfigTest, GarbageStringRejected)
     EXPECT_FALSE(ParseOversubscriptionRatio("not-a-number").has_value());
 }
 
+TEST(SchedulerConfigTest, PartiallyNumericStringRejected)
+{
+    // strtof parses the "2.0" prefix and stops at "abc"; requiring the whole string be
+    // consumed rejects it rather than silently accepting the leading number.
+    EXPECT_FALSE(ParseOversubscriptionRatio("2.0abc").has_value());
+    EXPECT_FALSE(ParseOversubscriptionRatio("2.0 ").has_value());
+    EXPECT_FALSE(ParseOversubscriptionRatio("2x").has_value());
+}
+
 TEST(SchedulerConfigTest, PositiveInfinityRejected)
 {
     // The crux: "inf" parses to +inf and must NOT pass the >= 1.0 guard.

@@ -73,8 +73,10 @@ namespace OloEngine
         ar << component.m_InitialAngularVelocity.x << component.m_InitialAngularVelocity.y << component.m_InitialAngularVelocity.z;
         if (ar.IsLoading())
         {
-            // Untrusted wire floats: mass must be finite and non-negative; velocities finite.
-            if (!std::isfinite(component.m_Mass) || component.m_Mass < 0.0f)
+            // Untrusted wire floats: mass must be finite and strictly positive; velocities finite.
+            // Zero is rejected too — a dynamic body with zero mass divides by zero in the Jolt
+            // mass-properties override (JoltBody.cpp), so default it to the safe positive minimum.
+            if (!std::isfinite(component.m_Mass) || component.m_Mass <= 0.0f)
             {
                 component.m_Mass = 1.0f;
             }

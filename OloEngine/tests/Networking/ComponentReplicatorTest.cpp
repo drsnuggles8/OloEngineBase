@@ -312,3 +312,34 @@ TEST(ComponentReplicatorTest, Rigidbody3DRejectsNegativeMass)
 
     EXPECT_GE(loaded.m_Mass, 0.0f);
 }
+
+TEST(ComponentReplicatorTest, Rigidbody3DRejectsZeroMass)
+{
+    using namespace OloEngine;
+
+    // A finite, non-negative-but-zero mass passes an `< 0` guard yet is a degenerate
+    // dynamic-body mass (divide-by-zero in the Jolt mass-properties override). It must
+    // be defaulted to a safe, strictly-positive minimum on deserialize.
+    std::vector<u8> buffer;
+    {
+        FMemoryWriter writer(buffer);
+        writer.ArIsNetArchive = true;
+        i32 bodyType = 0;
+        f32 mass = 0.0f;
+        std::array<f32, 6> vel = { 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f };
+        writer << bodyType;
+        writer << mass;
+        for (f32& v : vel)
+        {
+            writer << v;
+        }
+    }
+
+    Rigidbody3DComponent loaded;
+    FMemoryReader reader(buffer);
+    reader.ArIsNetArchive = true;
+    ComponentReplicator::Serialize(reader, loaded);
+
+    EXPECT_TRUE(std::isfinite(loaded.m_Mass));
+    EXPECT_GT(loaded.m_Mass, 0.0f);
+}
