@@ -2425,6 +2425,32 @@ namespace OloEngine
         }
     }
 
+    template<>
+    void Scene::OnComponentAdded<RagdollComponent>(Entity /*entity*/, RagdollComponent& /*component*/)
+    {
+        // Intentionally empty. Unlike rigidbodies / joints / vehicles, a ragdoll
+        // is NOT built on a mid-play add: JoltScene::CreateRagdolls authors a
+        // chain of Rigidbody3D + collider + SwingTwist-joint components onto the
+        // bone entities, and that must run BEFORE the body/constraint creation
+        // passes (i.e. before JoltScene::Initialize) so the bodies resolve their
+        // shapes and the joints resolve both endpoints — see Scene::OnPhysics3DStart.
+        // Mid-game ragdoll enable/disable is an explicit follow-up (issue #308).
+    }
+
+    // Specialisation: when a RagdollComponent is removed at runtime, drop any
+    // generated bodies/joints the ragdoll authored onto its bone entities so they
+    // don't linger after the ragdoll is gone. DestroyRagdoll is idempotent (a
+    // no-op when nothing was generated), so this is safe in edit mode too.
+    template<>
+    void Scene::OnComponentRemoved<RagdollComponent>(Entity entity, RagdollComponent& component)
+    {
+        if (m_JoltScene && component.m_RuntimeRagdollToken != 0)
+        {
+            m_JoltScene->DestroyRagdoll(entity);
+            component.m_RuntimeRagdollToken = 0;
+        }
+    }
+
     // Specialisation: same idea for the character controller path.
     template<>
     void Scene::OnComponentRemoved<CharacterController3DComponent>(Entity entity, CharacterController3DComponent& /*component*/)
@@ -2728,6 +2754,14 @@ namespace OloEngine
         // Ensure JoltScene was properly initialized in constructor
         OLO_CORE_ASSERT(m_JoltScene, "JoltScene should be initialized in constructor");
 
+        // Ragdoll pass FIRST: expand every enabled RagdollComponent into a chain
+        // of Rigidbody3D + collider + SwingTwist-joint components on its bone
+        // entities. This is a pure ECS-authoring pass (no Jolt yet) and must run
+        // before Initialize() so (a) the body/joint loops below pick the generated
+        // components up, and (b) the OnComponentAdded hooks stay no-ops here
+        // (m_JoltScene is not initialized yet), avoiding redundant body creation.
+        m_JoltScene->CreateRagdolls();
+
         m_JoltScene->Initialize();
 
         if (!m_JoltScene->IsInitialized())
@@ -2797,6 +2831,13 @@ namespace OloEngine
         {
             return;
         }
+
+        // Tear ragdolls down FIRST: this removes the generated Rigidbody3D /
+        // collider / SwingTwist-joint components from the bone entities (via their
+        // OnComponentRemoved hooks, which release the matching Jolt body/constraint
+        // while they still exist), restoring the authored scene before the bulk
+        // body/constraint teardown below handles any pre-authored physics.
+        m_JoltScene->DestroyAllRagdolls();
 
         // Remove vehicles and joints first — both reference (and vehicles also
         // step-listen on) bodies, so they must go before the bodies are destroyed.

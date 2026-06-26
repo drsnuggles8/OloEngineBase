@@ -2714,6 +2714,28 @@ namespace OloEngine
             SanitizeFloat(vehicle.m_BrakeInput, 0.0f, 1.0f, 0.0f);
         }
 
+        if (auto ragdollComponent = entity["RagdollComponent"]; ragdollComponent)
+        {
+            auto& ragdoll = deserializedEntity.AddComponent<RagdollComponent>();
+
+            // m_Skeleton is a runtime Ref, resolved from m_SkeletonEntity's
+            // SkeletonComponent at physics start — not stored on disk.
+            ragdoll.m_SkeletonEntity = ragdollComponent["SkeletonEntity"].as<u64>(static_cast<u64>(ragdoll.m_SkeletonEntity));
+            ragdoll.m_Enabled = ragdollComponent["Enabled"].as<bool>(ragdoll.m_Enabled);
+            ragdoll.m_BoneMass = ragdollComponent["BoneMass"].as<f32>(ragdoll.m_BoneMass);
+            ragdoll.m_BoneRadius = ragdollComponent["BoneRadius"].as<f32>(ragdoll.m_BoneRadius);
+            ragdoll.m_SwingLimitDeg = ragdollComponent["SwingLimitDeg"].as<f32>(ragdoll.m_SwingLimitDeg);
+            ragdoll.m_TwistLimitDeg = ragdollComponent["TwistLimitDeg"].as<f32>(ragdoll.m_TwistLimitDeg);
+
+            // Reject non-finite floats and clamp to the same ranges
+            // JoltScene::CreateRagdoll re-sanitizes (mass/radius strictly positive,
+            // swing/twist half-angles in [0, 180] degrees).
+            SanitizeFloat(ragdoll.m_BoneMass, 1.0e-6f, 1.0e6f, 1.0f);
+            SanitizeFloat(ragdoll.m_BoneRadius, 1.0e-6f, 1.0e3f, 0.05f);
+            SanitizeFloat(ragdoll.m_SwingLimitDeg, 0.0f, 180.0f, 45.0f);
+            SanitizeFloat(ragdoll.m_TwistLimitDeg, 0.0f, 180.0f, 45.0f);
+        }
+
         if (auto relComponent = entity["RelationshipComponent"]; relComponent)
         {
             auto& rel = deserializedEntity.AddComponent<RelationshipComponent>();
@@ -4779,6 +4801,23 @@ namespace OloEngine
             out << YAML::Key << "BrakeInput" << YAML::Value << vehicle.m_BrakeInput;
 
             out << YAML::EndMap; // VehicleComponent
+        }
+
+        if (entity.HasComponent<RagdollComponent>())
+        {
+            out << YAML::Key << "RagdollComponent";
+            out << YAML::BeginMap; // RagdollComponent
+
+            auto const& ragdoll = entity.GetComponent<RagdollComponent>();
+            // m_Skeleton (runtime Ref) and m_RuntimeRagdollToken are not serialized.
+            out << YAML::Key << "SkeletonEntity" << YAML::Value << ragdoll.m_SkeletonEntity;
+            out << YAML::Key << "Enabled" << YAML::Value << ragdoll.m_Enabled;
+            out << YAML::Key << "BoneMass" << YAML::Value << ragdoll.m_BoneMass;
+            out << YAML::Key << "BoneRadius" << YAML::Value << ragdoll.m_BoneRadius;
+            out << YAML::Key << "SwingLimitDeg" << YAML::Value << ragdoll.m_SwingLimitDeg;
+            out << YAML::Key << "TwistLimitDeg" << YAML::Value << ragdoll.m_TwistLimitDeg;
+
+            out << YAML::EndMap; // RagdollComponent
         }
 
         if (entity.HasComponent<RelationshipComponent>())

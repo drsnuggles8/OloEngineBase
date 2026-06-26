@@ -344,6 +344,7 @@ add_executable(OloEngine-Tests
 		Functional/AnimationPhysics/PhysicsJoint3DTest.cpp
 		Functional/AnimationPhysics/PhysicsJointCollideConnectedTest.cpp
 		Functional/AnimationPhysics/VehicleTest.cpp
+		Functional/AnimationPhysics/RagdollTest.cpp
 		Functional/AnimationPhysics/WaterBuoyancyTest.cpp
 		Functional/AnimationPhysics/AnimationKeepsTickingUnderPhysicsLoadTest.cpp
 		Functional/SaveGame/SceneRoundTripAfterTickTest.cpp

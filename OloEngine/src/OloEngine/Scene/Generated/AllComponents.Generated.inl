@@ -69,6 +69,7 @@ using AllComponents = ComponentGroup<
     ProceduralSkyComponent,
     QuestGiverComponent,
     QuestJournalComponent,
+    RagdollComponent,
     ReflectionProbeComponent,
     RelationshipComponent,
     Rigidbody2DComponent,

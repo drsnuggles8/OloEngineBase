@@ -37,6 +37,7 @@ namespace OloEngine
     struct CharacterController3DComponent;
     struct PhysicsJoint3DComponent;
     struct VehicleComponent;
+    struct RagdollComponent;
     struct TextComponent;
     struct ScriptComponent;
     struct AudioSourceComponent;
@@ -147,6 +148,7 @@ namespace OloEngine
         static void Serialize(FArchive& ar, CharacterController3DComponent& c);
         static void Serialize(FArchive& ar, PhysicsJoint3DComponent& c);
         static void Serialize(FArchive& ar, VehicleComponent& c);
+        static void Serialize(FArchive& ar, RagdollComponent& c);
         static void Serialize(FArchive& ar, TextComponent& c);
         static void Serialize(FArchive& ar, ScriptComponent& c);
         static void Serialize(FArchive& ar, AudioSourceComponent& c);
