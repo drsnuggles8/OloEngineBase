@@ -73,10 +73,10 @@ fallback. Shipped:
   Pinned by `OceanFFTSpectrumTest` (γ peak enhancement, fetch→peak-frequency
   shift, dispatch routing, metre-scale field) + a `ComponentRoundTrip` YAML test.
 
-Still open (natural follow-ons): **cascaded FFT** (§1.3) and **buoyancy
-sampling from the FFT field** (§5.1 — `WaterSurface` still samples the Gerstner
-sum; once it reads the FFT field, the band-limited physics proxy in
-`OceanFFTField` is the natural source).
+Still open (natural follow-on): **cascaded FFT** (§1.3). **Buoyancy sampling
+from the FFT field** (§5.1) is now **shipped** — `BuoyancySystem` reads
+`OceanFFTField`'s band-limited CPU proxy via `WaterSurface::SampleHeightFFT`
+when a tile uses the FFT ocean, falling back to the Gerstner sum otherwise.
 
 ### 1.1 Tessendorf FFT Pipeline
 
@@ -316,11 +316,24 @@ dense bodies sink, tracks a frozen wave surface) by `WaterBuoyancyTest`
 (Functional). Editor UI, Lua bindings, scene + save-game serialization are all
 wired.
 
+**FFT displacement source — shipped.** When a `WaterComponent` renders the
+Tessendorf FFT ocean (`m_UseFFT`), `BuoyancySystem` samples that surface instead
+of the Gerstner approximation, so a floater tracks the ocean that's actually
+rendered. It reads `OceanFFTField`'s retained **band-limited CPU proxy** via
+`WaterSurface::SampleHeightFFT`, which maps the proxy exactly the way
+`Water.glsl`'s FFT vertex path does (`planeHeight + disp.y * heightScale`); the
+proxy already inverts the choppy horizontal shift, so the height belongs to the
+column above the probe. No GPU readback — the proxy is the same one the renderer
+maintains each frame. The switch is purely runtime-derived (no new serialized
+field): a tile uses the FFT path only when `m_UseFFT` **and** its `m_OceanField`
+proxy has been evaluated; otherwise it falls back to Gerstner (so headless
+physics with no render pass, and all non-FFT water, are unchanged). Pinned by
+`WaterSurfaceSamplerTest`'s FFT cases (the proxy-mapping contract) and
+`WaterBuoyancyTest::RestsAtTheFFTSurfaceHeight` (a body resting on a displaced
+FFT column with Gerstner disabled — proving the branch fired).
+
 Still open:
 
-- **FFT displacement source** — once the §1 FFT pipeline lands, `WaterSurface`
-  should sample its displacement texture (GPU readback or a shared CPU copy)
-  instead of summing Gerstner octaves on the CPU.
 - **GPU readback for many objects** — the current path is CPU per-probe
   (cheap for tens of floaters). A crowd of hundreds wants a batched GPU height
   query.

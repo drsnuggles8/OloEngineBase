@@ -1,24 +1,35 @@
 #include "OloEnginePCH.h"
 
 // =============================================================================
-// WaterSurfaceSamplerTest — L1 property tests for the CPU Gerstner sampler.
+// WaterSurfaceSamplerTest — L1 property tests for the CPU water samplers.
 //
-// `OloEngine::WaterSurface` (Renderer/WaterSurface.h) is a 1:1 CPU port of
-// WaterCommon.glsl :: sumGerstnerWaves. The BuoyancySystem samples it so a
-// floating body tracks the *rendered* wave surface rather than a flat plane.
-// These tests pin the shared invariants of that port — flatness, plane-height
-// linearity, the displacement bound (shared with the renderer's frustum-cull
-// margin), temporal animation and determinism — so the CPU and GPU copies can't
-// silently drift apart. See docs/agent-rules/testing-architecture.md (the same
-// CPU/GPU-mirror discipline as WaterRenderingTest's ComputeMaxWaveDisplacementCpu).
+// `OloEngine::WaterSurface` (Renderer/WaterSurface.h) is the CPU surface the
+// BuoyancySystem reads so a floating body tracks the *rendered* wave surface
+// rather than a flat plane. Two sampling paths share these tests:
+//   * SampleHeight/SampleDisplacement — a 1:1 CPU port of
+//     WaterCommon.glsl :: sumGerstnerWaves (the analytic Gerstner ocean).
+//   * SampleHeightFFT — reads the OceanFFTField band-limited CPU proxy for the
+//     Tessendorf FFT ocean (WATER_FUTURE_IMPROVEMENTS.md §5.1), mapped exactly
+//     the way Water.glsl's FFT path maps it (planeHeight + disp.y * heightScale).
+// These pin the shared invariants — flatness, plane-height linearity, the
+// Gerstner displacement bound (shared with the renderer's frustum-cull margin),
+// temporal animation, determinism, and the FFT proxy mapping — so the CPU and
+// GPU copies can't silently drift apart. See
+// docs/agent-rules/testing-architecture.md (the same CPU/GPU-mirror discipline
+// as WaterRenderingTest's ComputeMaxWaveDisplacementCpu).
 // =============================================================================
 
+#include "OloEngine/Core/Ref.h"
+#include "OloEngine/Renderer/Ocean/OceanFFTField.h"
+#include "OloEngine/Renderer/Ocean/OceanSpectrum.h"
 #include "OloEngine/Renderer/WaterSurface.h"
 #include "OloEngine/Scene/Components.h"
 
 #include <gtest/gtest.h>
+#include <glm/glm.hpp>
 
 #include <cmath>
+#include <limits>
 
 using namespace OloEngine;
 
@@ -57,6 +68,38 @@ namespace
         const f32 maxOctaveA = avgSt * avgWL / kTwoPi;
         const f32 octaveSum = maxOctaveA * 1.67f; // 0.5+0.4+0.3+0.22+0.15+0.1
         return amp * (a0 * 0.55f + a1 * 0.55f + octaveSum) * 1.5f;
+    }
+
+    // Build the FFT ocean's CPU proxy headlessly (no GPU upload), exactly the
+    // surface BuoyancySystem reads for an FFT-backed water tile. Deterministic
+    // for a fixed seed/params, so chosen sample points are reproducible.
+    Ref<Ocean::OceanFFTField> MakeFftField(f32 amplitude = 2.0f, f32 evolveTime = 2.0f, u32 resolution = 64u,
+                                           f32 patchSize = 80.0f)
+    {
+        Ocean::SpectrumParams sp{};
+        sp.m_Resolution = resolution;
+        sp.m_PatchSize = patchSize;
+        sp.m_Amplitude = amplitude;
+        auto field = Ref<Ocean::OceanFFTField>::Create();
+        field->Update(sp, evolveTime, /*uploadToGpu=*/false);
+        return field;
+    }
+
+    // First world-XZ from a deterministic scan where the FFT surface is clearly
+    // displaced (|height| > minMagnitude), so a test distinguishes the FFT
+    // surface from a flat plane. Returns {0,0} if none found (the caller asserts).
+    glm::vec2 FindDisplacedColumn(const Ocean::OceanFFTField& field, f32 minMagnitude = 0.3f)
+    {
+        // Integer counter, float position derived — avoids float-accumulation
+        // drift (ox sweeps 1,3,…,69 over the 70 m scan on a 2 m grid).
+        for (int ix = 0; ix < 35; ++ix)
+        {
+            const f32 ox = 1.0f + static_cast<f32>(ix) * 2.0f;
+            const glm::vec2 cand(ox, ox * 0.5f);
+            if (std::abs(field.SampleHeight(cand)) > minMagnitude)
+                return cand;
+        }
+        return glm::vec2(0.0f);
     }
 } // namespace
 
@@ -189,4 +232,109 @@ TEST(WaterSurfaceSampler, HeightInversionLandsOverTheQueryColumn)
     EXPECT_NEAR(imaged.y, query.y, 1e-2f);
     // The well-converged base reproduces the same height the sampler returned.
     EXPECT_NEAR(p.m_PlaneHeight + dFinal.y, h, 5e-2f);
+}
+
+// ---------------------------------------------------------------------------
+// FFT ocean sampling (WATER_FUTURE_IMPROVEMENTS.md §5.1).
+//
+// When a WaterComponent renders the Tessendorf FFT ocean, BuoyancySystem reads
+// WaterSurface::SampleHeightFFT instead of the Gerstner SampleHeight, so a
+// floating body tracks the *FFT* surface that's actually rendered. These pin
+// the contract that the buoyancy sample equals the field's band-limited CPU
+// proxy height, mapped exactly the way Water.glsl's FFT vertex path maps it
+// (planeHeight + disp.y * heightScale), plus the physics fail-safes.
+// ---------------------------------------------------------------------------
+
+TEST(WaterSurfaceFFTSampler, MatchesFieldProxyAtSameWorldPosition)
+{
+    // The headline contract: the height BuoyancySystem applies is exactly the
+    // FFT proxy's column height, offset by the plane and scaled by heightScale —
+    // i.e. buoyancy sees the same surface the renderer does.
+    auto field = MakeFftField();
+    ASSERT_TRUE(field->GetField().IsValid());
+
+    for (f32 planeHeight : { 0.0f, 3.0f, -2.0f })
+        for (f32 heightScale : { 1.0f, 0.5f, 2.0f })
+            for (glm::vec2 xz : { glm::vec2(0.0f), glm::vec2(17.0f, -23.0f), glm::vec2(123.0f, 45.0f) })
+            {
+                const f32 expected = planeHeight + field->SampleHeight(xz) * heightScale;
+                EXPECT_NEAR(WaterSurface::SampleHeightFFT(*field, xz, planeHeight, heightScale), expected, 1e-5f)
+                    << "plane=" << planeHeight << " scale=" << heightScale << " xz=(" << xz.x << "," << xz.y << ")";
+            }
+}
+
+TEST(WaterSurfaceFFTSampler, PlaneHeightShiftsResultByExactlyDelta)
+{
+    // The FFT field is sampled in world XZ and only offset vertically by the
+    // plane height — raising the plane must raise the surface 1:1.
+    auto field = MakeFftField();
+    const glm::vec2 xz(7.0f, -4.0f);
+    const f32 h0 = WaterSurface::SampleHeightFFT(*field, xz, 0.0f, 1.0f);
+    const f32 h1 = WaterSurface::SampleHeightFFT(*field, xz, 10.0f, 1.0f);
+    EXPECT_NEAR(h1 - h0, 10.0f, 1e-4f);
+}
+
+TEST(WaterSurfaceFFTSampler, HeightScaleScalesTheWaveContributionLinearly)
+{
+    // heightScale multiplies the wave displacement (matching u_FFTParams.z): the
+    // deviation from the plane scales linearly while the plane stays fixed, and
+    // zero heightScale collapses the surface onto the flat plane.
+    auto field = MakeFftField();
+    const glm::vec2 xz = FindDisplacedColumn(*field);
+    ASSERT_GT(std::abs(field->SampleHeight(xz)), 0.0f) << "no displaced FFT column found for scaling test";
+
+    constexpr f32 plane = 4.0f;
+    const f32 baseDev = WaterSurface::SampleHeightFFT(*field, xz, plane, 1.0f) - plane;
+    const f32 doubledDev = WaterSurface::SampleHeightFFT(*field, xz, plane, 2.0f) - plane;
+    ASSERT_GT(std::abs(baseDev), 0.1f) << "chosen column is ~flat; pick another";
+    EXPECT_NEAR(doubledDev, 2.0f * baseDev, 1e-4f);
+    EXPECT_NEAR(WaterSurface::SampleHeightFFT(*field, xz, plane, 0.0f), plane, 1e-5f);
+}
+
+TEST(WaterSurfaceFFTSampler, FlatSeaReturnsPlaneHeight)
+{
+    // Zero spectrum amplitude ⇒ a flat field ⇒ the surface is the plane.
+    auto field = MakeFftField(/*amplitude=*/0.0f);
+    ASSERT_TRUE(field->GetField().IsValid());
+
+    for (f32 plane : { 0.0f, 5.5f, -3.25f })
+        for (glm::vec2 xz : { glm::vec2(0.0f), glm::vec2(10.0f, 20.0f), glm::vec2(-44.0f, 77.0f) })
+            EXPECT_NEAR(WaterSurface::SampleHeightFFT(*field, xz, plane, 1.0f), plane, 1e-3f);
+}
+
+TEST(WaterSurfaceFFTSampler, UnevaluatedFieldReadsAsTheFlatPlane)
+{
+    // A field that was never Update()d (e.g. headless physics before the first
+    // render) is invalid; SampleHeight returns 0, so buoyancy sees the flat
+    // plane rather than a bogus height — and falls back to Gerstner upstream.
+    auto fresh = Ref<Ocean::OceanFFTField>::Create();
+    ASSERT_FALSE(fresh->GetField().IsValid());
+    EXPECT_NEAR(WaterSurface::SampleHeightFFT(*fresh, glm::vec2(1.0f, 2.0f), 4.0f, 3.0f), 4.0f, 1e-5f);
+}
+
+TEST(WaterSurfaceFFTSampler, NonFinitePlaneOrScaleIsSafe)
+{
+    // Defence in depth against bad serialized data: physics must never receive a
+    // NaN/Inf surface height. A bad heightScale collapses to the plane; a bad
+    // plane height collapses to sea-level 0.
+    auto field = MakeFftField();
+    const glm::vec2 xz(6.0f, 6.0f);
+    const f32 nanValue = std::numeric_limits<f32>::quiet_NaN();
+    const f32 inf = std::numeric_limits<f32>::infinity();
+
+    EXPECT_FLOAT_EQ(WaterSurface::SampleHeightFFT(*field, xz, 5.0f, nanValue), 5.0f);
+    EXPECT_FLOAT_EQ(WaterSurface::SampleHeightFFT(*field, xz, 5.0f, inf), 5.0f);
+    EXPECT_FLOAT_EQ(WaterSurface::SampleHeightFFT(*field, xz, nanValue, 1.0f), 0.0f);
+    EXPECT_FLOAT_EQ(WaterSurface::SampleHeightFFT(*field, xz, inf, 1.0f), 0.0f);
+}
+
+TEST(WaterSurfaceFFTSampler, IsFiniteAndDeterministic)
+{
+    auto field = MakeFftField();
+    for (glm::vec2 xz : { glm::vec2(0.0f), glm::vec2(33.0f, -12.0f), glm::vec2(250.0f, 250.0f) })
+    {
+        const f32 h = WaterSurface::SampleHeightFFT(*field, xz, 1.0f, 1.5f);
+        EXPECT_TRUE(std::isfinite(h));
+        EXPECT_FLOAT_EQ(h, WaterSurface::SampleHeightFFT(*field, xz, 1.0f, 1.5f));
+    }
 }

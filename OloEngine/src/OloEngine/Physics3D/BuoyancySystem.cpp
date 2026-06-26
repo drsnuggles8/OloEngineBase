@@ -4,6 +4,7 @@
 #include "OloEngine/Physics3D/JoltScene.h"
 #include "OloEngine/Physics3D/JoltBody.h"
 #include "OloEngine/Physics3D/Physics3DTypes.h"
+#include "OloEngine/Renderer/Ocean/OceanFFTField.h"
 #include "OloEngine/Renderer/WaterSurface.h"
 #include "OloEngine/Scene/Scene.h"
 #include "OloEngine/Scene/Entity.h"
@@ -30,6 +31,11 @@ namespace OloEngine
             glm::mat4 m_InvModel{ 1.0f };
             f32 m_HalfX = 0.0f;
             f32 m_HalfZ = 0.0f;
+            // When the tile renders the Tessendorf FFT ocean and its CPU proxy has
+            // been evaluated, sample that surface (the one actually rendered)
+            // instead of the analytic Gerstner field above. Null ⇒ Gerstner.
+            Ref<Ocean::OceanFFTField> m_OceanField;
+            f32 m_FFTHeightScale = 1.0f; ///< artist multiplier (WaterComponent::m_FFTHeightScale, u_FFTParams.z)
         };
 
         [[nodiscard]] bool IsOverFootprint(const WaterVolume& w, const glm::vec3& worldPos)
@@ -103,6 +109,22 @@ namespace OloEngine
                 w.m_InvModel = glm::inverse(model);
                 w.m_HalfX = std::clamp(safeSizeX, 0.1f, 10000.0f) * 0.5f;
                 w.m_HalfZ = std::clamp(safeSizeZ, 0.1f, 10000.0f) * 0.5f;
+
+                // FFT ocean (WATER §5.1): when the entity renders the Tessendorf
+                // spectral surface and its CPU proxy has been evaluated, the
+                // buoyant body should track *that* surface, not the Gerstner
+                // approximation. The proxy is produced by the renderer's water
+                // pass (Scene.cpp); fall back to Gerstner if it hasn't been built
+                // yet (e.g. headless physics with no render pass), so non-rendered
+                // scenes stay backward-compatible. Clamp the height scale through
+                // the shared helper the render path uses so buoyancy and the
+                // shader agree (single source of truth, can't drift).
+                if (wc.m_UseFFT && wc.m_OceanField && wc.m_OceanField->GetField().IsValid())
+                {
+                    w.m_OceanField = wc.m_OceanField;
+                    w.m_FFTHeightScale = WaterSurface::ClampFFTHeightScale(wc.m_FFTHeightScale);
+                }
+
                 waters.push_back(w);
             }
         }
@@ -169,8 +191,16 @@ namespace OloEngine
             for (const glm::vec3& sign : kCornerSigns)
             {
                 const glm::vec3 probeWorld = bodyPos + bodyRot * (sign * ext);
-                const f32 surfaceY = WaterSurface::SampleHeight(water->m_Params,
-                                                                glm::vec2(probeWorld.x, probeWorld.z), rawTime);
+                // FFT ocean if the tile is backed by an evaluated CPU proxy,
+                // otherwise the analytic Gerstner field. Both read the column
+                // height above the probe's world XZ (the FFT path mirrors the
+                // shader's planeHeight + disp.y * heightScale).
+                const glm::vec2 probeXZ(probeWorld.x, probeWorld.z);
+                const f32 surfaceY =
+                    water->m_OceanField
+                        ? WaterSurface::SampleHeightFFT(*water->m_OceanField, probeXZ,
+                                                        water->m_Params.m_PlaneHeight, water->m_FFTHeightScale)
+                        : WaterSurface::SampleHeight(water->m_Params, probeXZ, rawTime);
                 const f32 depth = surfaceY - probeWorld.y;
                 if (!(depth > 0.0f)) // dry (the negation also rejects NaN)
                     continue;
