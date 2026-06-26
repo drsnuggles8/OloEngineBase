@@ -5,6 +5,7 @@
 
 #include <glm/glm.hpp>
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 
@@ -200,5 +201,13 @@ namespace OloEngine::WaterSurface
         // (worldPos.y == the undisplaced plane height; u_FFTParams.z == heightScale).
         const f32 height = planeHeight + fieldHeight * heightScale;
         return std::isfinite(height) ? height : planeHeight;
+    }
+
+    f32 ClampFFTHeightScale(f32 heightScale)
+    {
+        // Mirror the render path (Scene.cpp's clampF on m_FFTHeightScale): a
+        // non-finite value falls back to the 1.0 default, otherwise clamp to the
+        // [0, 20] authoring range. Keep buoyancy and the shader in lock-step.
+        return std::isfinite(heightScale) ? std::clamp(heightScale, 0.0f, 20.0f) : 1.0f;
     }
 } // namespace OloEngine::WaterSurface

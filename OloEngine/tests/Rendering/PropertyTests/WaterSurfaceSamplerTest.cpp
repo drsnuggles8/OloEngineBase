@@ -73,7 +73,7 @@ namespace
     // Build the FFT ocean's CPU proxy headlessly (no GPU upload), exactly the
     // surface BuoyancySystem reads for an FFT-backed water tile. Deterministic
     // for a fixed seed/params, so chosen sample points are reproducible.
-    Ref<Ocean::OceanFFTField> MakeFftField(f32 amplitude = 2.0f, f32 time = 2.0f, u32 resolution = 64u,
+    Ref<Ocean::OceanFFTField> MakeFftField(f32 amplitude = 2.0f, f32 evolveTime = 2.0f, u32 resolution = 64u,
                                            f32 patchSize = 80.0f)
     {
         Ocean::SpectrumParams sp{};
@@ -81,7 +81,7 @@ namespace
         sp.m_PatchSize = patchSize;
         sp.m_Amplitude = amplitude;
         auto field = Ref<Ocean::OceanFFTField>::Create();
-        field->Update(sp, time, /*uploadToGpu=*/false);
+        field->Update(sp, evolveTime, /*uploadToGpu=*/false);
         return field;
     }
 
@@ -90,8 +90,11 @@ namespace
     // surface from a flat plane. Returns {0,0} if none found (the caller asserts).
     glm::vec2 FindDisplacedColumn(const Ocean::OceanFFTField& field, f32 minMagnitude = 0.3f)
     {
-        for (f32 ox = 1.0f; ox < 70.0f; ox += 2.0f)
+        // Integer counter, float position derived — avoids float-accumulation
+        // drift (ox sweeps 1,3,…,69 over the 70 m scan on a 2 m grid).
+        for (int ix = 0; ix < 35; ++ix)
         {
+            const f32 ox = 1.0f + static_cast<f32>(ix) * 2.0f;
             const glm::vec2 cand(ox, ox * 0.5f);
             if (std::abs(field.SampleHeight(cand)) > minMagnitude)
                 return cand;
@@ -316,12 +319,12 @@ TEST(WaterSurfaceFFTSampler, NonFinitePlaneOrScaleIsSafe)
     // plane height collapses to sea-level 0.
     auto field = MakeFftField();
     const glm::vec2 xz(6.0f, 6.0f);
-    const f32 nan = std::numeric_limits<f32>::quiet_NaN();
+    const f32 nanValue = std::numeric_limits<f32>::quiet_NaN();
     const f32 inf = std::numeric_limits<f32>::infinity();
 
-    EXPECT_FLOAT_EQ(WaterSurface::SampleHeightFFT(*field, xz, 5.0f, nan), 5.0f);
+    EXPECT_FLOAT_EQ(WaterSurface::SampleHeightFFT(*field, xz, 5.0f, nanValue), 5.0f);
     EXPECT_FLOAT_EQ(WaterSurface::SampleHeightFFT(*field, xz, 5.0f, inf), 5.0f);
-    EXPECT_FLOAT_EQ(WaterSurface::SampleHeightFFT(*field, xz, nan, 1.0f), 0.0f);
+    EXPECT_FLOAT_EQ(WaterSurface::SampleHeightFFT(*field, xz, nanValue, 1.0f), 0.0f);
     EXPECT_FLOAT_EQ(WaterSurface::SampleHeightFFT(*field, xz, inf, 1.0f), 0.0f);
 }
 

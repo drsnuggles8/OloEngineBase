@@ -74,4 +74,11 @@ namespace OloEngine::WaterSurface
     /// world-anchored mapping the shader uses (`worldPos.xz * 1/patchSize`).
     [[nodiscard]] f32 SampleHeightFFT(const Ocean::OceanFFTField& field, glm::vec2 queryXZ,
                                       f32 planeHeight, f32 heightScale);
+
+    /// Clamp a raw `WaterComponent::m_FFTHeightScale` (the shader's `u_FFTParams.z`
+    /// artist multiplier) to the authoring range, mapping a non-finite value to
+    /// the 1.0 default. Single source of truth shared by the renderer (Scene.cpp)
+    /// and the buoyancy sampler (BuoyancySystem.cpp) so the rendered FFT crest and
+    /// the physics surface can't silently drift apart.
+    [[nodiscard]] f32 ClampFFTHeightScale(f32 heightScale);
 } // namespace OloEngine::WaterSurface

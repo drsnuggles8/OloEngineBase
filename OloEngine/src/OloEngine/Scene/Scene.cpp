@@ -21,6 +21,7 @@
 #include "OloEngine/Renderer/ProceduralSky.h"
 #include "OloEngine/Renderer/StarNestSky.h"
 #include "OloEngine/Renderer/TextureCubemap.h"
+#include "OloEngine/Renderer/WaterSurface.h"
 #include "OloEngine/Scripting/C#/ScriptEngine.h"
 #include "OloEngine/Scripting/Lua/LuaScriptEngine.h"
 #include "OloEngine/Animation/BoneEntityUtils.h"
@@ -4579,7 +4580,7 @@ namespace OloEngine
                             // w = horizontalScale (choppiness is already baked into the
                             // texture's dx/dz, so keep this at 1).
                             waterParams.fftParams = glm::vec4(
-                                1.0f, invPatch, clampF(water.m_FFTHeightScale, 0.0f, 20.0f, 1.0f), 1.0f);
+                                1.0f, invPatch, WaterSurface::ClampFFTHeightScale(water.m_FFTHeightScale), 1.0f);
                             // FFT crests can exceed the Gerstner-derived TCS cull
                             // margin; disable the per-patch frustum cull so off-screen-
                             // edge crests aren't clipped early.
@@ -4609,7 +4610,7 @@ namespace OloEngine
                     if (water.m_UseFFT)
                     {
                         const f32 fftAmp = clampF(water.m_FFTAmplitude, 0.0f, 100.0f, 2.0f);
-                        const f32 fftHeightScale = clampF(water.m_FFTHeightScale, 0.0f, 20.0f, 1.0f);
+                        const f32 fftHeightScale = WaterSurface::ClampFFTHeightScale(water.m_FFTHeightScale);
                         waveH = std::max(fftAmp * fftHeightScale * 2.0f, 3.0f);
                     }
                     else

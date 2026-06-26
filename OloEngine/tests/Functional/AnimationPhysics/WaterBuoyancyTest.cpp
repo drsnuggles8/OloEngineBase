@@ -241,9 +241,14 @@ TEST_F(WaterBuoyancyTest, RestsAtTheFFTSurfaceHeight)
     // is ~flat over the 1 m box footprint.
     glm::vec2 sampleXZ(0.0f);
     f32 expectedSurfaceY = 0.0f;
-    for (f32 ox = 0.0f; ox < 80.0f; ox += 2.0f)
-        for (f32 oz = 0.0f; oz < 80.0f; oz += 2.0f)
+    // Integer counters, float positions derived — scans the 80 m patch on a 2 m
+    // grid without accumulating float-step drift (ox/oz sweep 0,2,…,78).
+    constexpr int kGridSteps = 40; // 80 m patch / 2 m step
+    for (int ix = 0; ix < kGridSteps; ++ix)
+        for (int iz = 0; iz < kGridSteps; ++iz)
         {
+            const f32 ox = static_cast<f32>(ix) * 2.0f;
+            const f32 oz = static_cast<f32>(iz) * 2.0f;
             const glm::vec2 cand(ox, oz);
             const f32 h = WaterSurface::SampleHeightFFT(*wc.m_OceanField, cand, 0.0f, wc.m_FFTHeightScale);
             if (std::abs(h) > std::abs(expectedSurfaceY))

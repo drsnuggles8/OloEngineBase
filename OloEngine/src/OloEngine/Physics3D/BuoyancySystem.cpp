@@ -116,13 +116,13 @@ namespace OloEngine
                 // approximation. The proxy is produced by the renderer's water
                 // pass (Scene.cpp); fall back to Gerstner if it hasn't been built
                 // yet (e.g. headless physics with no render pass), so non-rendered
-                // scenes stay backward-compatible. Clamp the height scale exactly
-                // as the render path does so buoyancy and the shader agree.
+                // scenes stay backward-compatible. Clamp the height scale through
+                // the shared helper the render path uses so buoyancy and the
+                // shader agree (single source of truth, can't drift).
                 if (wc.m_UseFFT && wc.m_OceanField && wc.m_OceanField->GetField().IsValid())
                 {
                     w.m_OceanField = wc.m_OceanField;
-                    w.m_FFTHeightScale =
-                        std::isfinite(wc.m_FFTHeightScale) ? std::clamp(wc.m_FFTHeightScale, 0.0f, 20.0f) : 1.0f;
+                    w.m_FFTHeightScale = WaterSurface::ClampFFTHeightScale(wc.m_FFTHeightScale);
                 }
 
                 waters.push_back(w);
