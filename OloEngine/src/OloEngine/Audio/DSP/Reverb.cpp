@@ -21,15 +21,15 @@ namespace OloEngine::Audio::DSP
 
         auto* node = static_cast<Reverb::ReverbNode*>(pNode);
         const auto* pNodeBase = &node->base;
-        u32 outBuses = ma_node_get_output_bus_count(pNodeBase);
+        u32 outBuses = ::ma_node_get_output_bus_count(pNodeBase);
 
         // If no input connected, silence the output
         if (ppFramesIn == nullptr)
         {
             for (u32 oBus = 0; oBus < outBuses; ++oBus)
             {
-                ma_silence_pcm_frames(ppFramesOut[oBus], *pFrameCountOut, ma_format_f32,
-                                      ma_node_get_output_channels(pNodeBase, oBus));
+                ::ma_silence_pcm_frames(ppFramesOut[oBus], *pFrameCountOut, ma_format_f32,
+                                        ::ma_node_get_output_channels(pNodeBase, oBus));
             }
             return;
         }
@@ -42,22 +42,22 @@ namespace OloEngine::Audio::DSP
         {
             for (u32 oBus = 0; oBus < outBuses; ++oBus)
             {
-                ma_silence_pcm_frames(ppFramesOut[oBus], *pFrameCountOut, ma_format_f32,
-                                      ma_node_get_output_channels(pNodeBase, oBus));
+                ::ma_silence_pcm_frames(ppFramesOut[oBus], *pFrameCountOut, ma_format_f32,
+                                        ::ma_node_get_output_channels(pNodeBase, oBus));
             }
             return;
         }
 
         float* pFramesOut0 = ppFramesOut[0];
 
-        u32 channels = ma_node_get_input_channels(pNodeBase, 0);
+        u32 channels = ::ma_node_get_input_channels(pNodeBase, 0);
         if (channels != 2)
         {
             // Only stereo is supported — silence output for unsupported channel counts
             for (u32 oBus = 0; oBus < outBuses; ++oBus)
             {
-                ma_silence_pcm_frames(ppFramesOut[oBus], *pFrameCountOut, ma_format_f32,
-                                      ma_node_get_output_channels(pNodeBase, oBus));
+                ::ma_silence_pcm_frames(ppFramesOut[oBus], *pFrameCountOut, ma_format_f32,
+                                        ::ma_node_get_output_channels(pNodeBase, oBus));
             }
             return;
         }
@@ -117,8 +117,8 @@ namespace OloEngine::Audio::DSP
     {
         OLO_CORE_ASSERT(!m_Initialized);
 
-        double sampleRate = ma_engine_get_sample_rate(engine);
-        u8 numChannels = static_cast<u8>(ma_node_get_output_channels(nodeToAttachTo, 0));
+        double sampleRate = ::ma_engine_get_sample_rate(engine);
+        u8 numChannels = static_cast<u8>(::ma_node_get_output_channels(nodeToAttachTo, 0));
         if (numChannels != 2)
         {
             OLO_CORE_ERROR("[Reverb] Only stereo (2 channels) is supported, got {}", numChannels);
@@ -130,7 +130,7 @@ namespace OloEngine::Audio::DSP
 
         ma_uint32 inChannels[1]{ numChannels };
         ma_uint32 outChannels[1]{ numChannels };
-        ma_node_config nodeConfig = ma_node_config_init();
+        ma_node_config nodeConfig = ::ma_node_config_init();
         nodeConfig.vtable = &s_ReverbVtable;
         nodeConfig.pInputChannels = inChannels;
         nodeConfig.pOutputChannels = outChannels;
@@ -143,30 +143,30 @@ namespace OloEngine::Audio::DSP
         }
         ma_allocation_callbacks allocationCallbacks = engine->pResourceManager->config.allocationCallbacks;
 
-        ma_result result = ma_node_init(&engine->nodeGraph, &nodeConfig, &allocationCallbacks, m_Node);
+        ma_result result = ::ma_node_init(&engine->nodeGraph, &nodeConfig, &allocationCallbacks, m_Node);
         if (result != MA_SUCCESS)
         {
             OLO_CORE_ERROR("[Reverb] Node init failed: {}", static_cast<int>(result));
             return false;
         }
 
-        m_DelayLine->SetConfig(ma_node_get_input_channels(&m_Node->base, 0), sampleRate);
+        m_DelayLine->SetConfig(::ma_node_get_input_channels(&m_Node->base, 0), sampleRate);
         m_DelayLine->SetDelayMs(50); // Default 50ms pre-delay
 
         // Assign pointers before starting the node so the audio callback never sees nulls
         m_Node->delayLine = m_DelayLine.get();
         m_Node->reverb = m_RevModel.get();
 
-        result = ma_node_attach_output_bus(m_Node, 0, nodeToAttachTo, 0);
+        result = ::ma_node_attach_output_bus(m_Node, 0, nodeToAttachTo, 0);
         if (result != MA_SUCCESS)
         {
             OLO_CORE_ERROR("[Reverb] Node attach failed: {}", static_cast<int>(result));
-            ma_node_uninit(m_Node, nullptr);
+            ::ma_node_uninit(m_Node, nullptr);
             return false;
         }
 
         // Start processing now that pointers and routing are fully set up
-        ma_node_set_state(m_Node, ma_node_state_started);
+        ::ma_node_set_state(m_Node, ma_node_state_started);
 
         m_Initialized = true;
         return true;
@@ -178,7 +178,7 @@ namespace OloEngine::Audio::DSP
         {
             if (m_Node && m_Node->base.vtable != nullptr)
             {
-                ma_node_uninit(m_Node, nullptr);
+                ::ma_node_uninit(m_Node, nullptr);
             }
         }
         m_Initialized = false;

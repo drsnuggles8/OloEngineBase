@@ -490,7 +490,7 @@ namespace OloEngine::Audio::SoundGraph
         /// with a significant buffer overrides this so SoundGraphCache memory
         /// accounting stays type-agnostic (no per-type dynamic_cast) and counts
         /// any future buffer-owning node automatically.
-        [[nodiscard]] virtual sizet GetHeapBytes() const
+        [[nodiscard("heap byte count must be used")]] virtual sizet GetHeapBytes() const
         {
             return 0;
         }

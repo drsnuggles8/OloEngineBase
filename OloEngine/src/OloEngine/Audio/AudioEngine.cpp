@@ -36,12 +36,12 @@ namespace OloEngine
         ma_engine_config config = ::ma_engine_config_init();
         config.listenerCount = 1;
 
-        s_Engine = new ma_engine();
+        s_Engine = new ::ma_engine();
         ma_result result = ::ma_engine_init(&config, s_Engine);
 
         if (result == MA_SUCCESS)
         {
-            OLO_CORE_TRACE("[AudioEngine] Initialized successfully with sample rate {}", ma_engine_get_sample_rate(s_Engine));
+            OLO_CORE_TRACE("[AudioEngine] Initialized successfully with sample rate {}", ::ma_engine_get_sample_rate(s_Engine));
 
             // Start dedicated audio thread with TimeCritical priority
             s_AudioThreadRunning.store(true, std::memory_order_release);

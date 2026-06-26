@@ -137,15 +137,15 @@ namespace OloEngine::Audio
             }
 
             // Read-only accessors for inspection
-            [[nodiscard]] FuncPtr GetFunctionPointer() const noexcept
+            [[nodiscard("function pointer must be used")]] FuncPtr GetFunctionPointer() const noexcept
             {
                 return m_FuncPtr;
             }
-            [[nodiscard]] void* GetContext() const noexcept
+            [[nodiscard("context pointer must be used")]] void* GetContext() const noexcept
             {
                 return m_Context;
             }
-            [[nodiscard]] bool IsInstanceBacked() const noexcept
+            [[nodiscard("query result must be used")]] bool IsInstanceBacked() const noexcept
             {
                 return static_cast<bool>(m_InstanceFunc);
             }

@@ -68,7 +68,7 @@ namespace OloEngine::Audio::DSP
         }
 
         // Read the latest gains from the realtime thread (lockfree, returns snapshot by value)
-        [[nodiscard]] ChannelGains Read() const
+        [[nodiscard("channel gains must be used")]] ChannelGains Read() const
         {
             return m_Buffers[m_ActiveIndex.load(std::memory_order_acquire)];
         }

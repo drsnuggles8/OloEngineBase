@@ -28,7 +28,7 @@ namespace OloEngine::Audio::DSP
             m_Damp1 = val;
             m_Damp2 = 1.0f - val;
         }
-        [[nodiscard]] float GetDamp() const
+        [[nodiscard("damping coefficient must be used")]] float GetDamp() const
         {
             return m_Damp1;
         }
@@ -37,7 +37,7 @@ namespace OloEngine::Audio::DSP
         {
             m_Feedback = val;
         }
-        [[nodiscard]] float GetFeedback() const
+        [[nodiscard("feedback coefficient must be used")]] float GetFeedback() const
         {
             return m_Feedback;
         }

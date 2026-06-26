@@ -31,15 +31,15 @@ namespace OloEngine::Audio::DSP
             SetDelay(static_cast<float>(static_cast<double>(milliseconds) / 1000.0 * m_SampleRate));
         }
 
-        [[nodiscard]] float GetDelay() const
+        [[nodiscard("delay value must be used")]] float GetDelay() const
         {
             return m_Delay;
         }
-        [[nodiscard]] u32 GetDelayMs() const
+        [[nodiscard("delay in milliseconds must be used")]] u32 GetDelayMs() const
         {
             return static_cast<u32>(m_Delay / m_SampleRate * 1000.0);
         }
-        [[nodiscard]] double GetSampleRate() const
+        [[nodiscard("sample rate must be used")]] double GetSampleRate() const
         {
             return m_SampleRate;
         }

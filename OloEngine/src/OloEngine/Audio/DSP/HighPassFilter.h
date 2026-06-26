@@ -24,13 +24,13 @@ namespace OloEngine::Audio::DSP
 
         bool Initialize(ma_engine* engine, ma_node_base* nodeToInsertAfter);
         void Uninitialize();
-        [[nodiscard]] ma_node_base* GetNode();
+        [[nodiscard("node pointer must be used")]] ma_node_base* GetNode();
 
         // Set cutoff as a normalized value [0,1] (maps to 20 Hz – 20 kHz)
         void SetCutoffValue(double cutoffNormalized);
         // Set cutoff directly in Hz
         void SetCutoffFrequency(double frequency);
-        [[nodiscard]] double GetCutoffFrequency() const
+        [[nodiscard("cutoff frequency must be used")]] double GetCutoffFrequency() const
         {
             return m_CutoffFrequency.load();
         }

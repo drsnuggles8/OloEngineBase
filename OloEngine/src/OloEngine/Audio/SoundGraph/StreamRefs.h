@@ -57,11 +57,11 @@ namespace OloEngine::Audio::SoundGraph
         AudioBuffer(AudioBuffer&&) = delete;
         AudioBuffer& operator=(AudioBuffer&&) = delete;
 
-        [[nodiscard]] f32* Data() noexcept
+        [[nodiscard("buffer pointer must be used")]] f32* Data() noexcept
         {
             return m_Data;
         }
-        [[nodiscard]] const f32* Data() const noexcept
+        [[nodiscard("buffer pointer must be used")]] const f32* Data() const noexcept
         {
             return m_Data;
         }
@@ -102,11 +102,11 @@ namespace OloEngine::Audio::SoundGraph
         AudioBufferRef(AudioBufferRef&&) = delete;
         AudioBufferRef& operator=(AudioBufferRef&&) = delete;
 
-        [[nodiscard]] f32 Sample(u32 frame) const noexcept
+        [[nodiscard("sampled value must be used")]] f32 Sample(u32 frame) const noexcept
         {
             return m_Data[frame * m_Stride];
         }
-        [[nodiscard]] bool IsBuffer() const noexcept
+        [[nodiscard("query result must be used")]] bool IsBuffer() const noexcept
         {
             return m_Stride == 1;
         }
@@ -151,7 +151,7 @@ namespace OloEngine::Audio::SoundGraph
         ValueRef(ValueRef&&) = delete;
         ValueRef& operator=(ValueRef&&) = delete;
 
-        [[nodiscard]] T Get() const noexcept
+        [[nodiscard("stream value must be used")]] T Get() const noexcept
         {
             return *m_Ptr;
         }
@@ -203,11 +203,11 @@ namespace OloEngine::Audio::SoundGraph
 
         i32 m_SampleOffset = kNotFired; // [0, numFrames) when fired; kNotFired otherwise
 
-        [[nodiscard]] bool IsFired() const noexcept
+        [[nodiscard("query result must be used")]] bool IsFired() const noexcept
         {
             return m_SampleOffset != kNotFired;
         }
-        [[nodiscard]] i32 Offset() const noexcept
+        [[nodiscard("trigger offset must be used")]] i32 Offset() const noexcept
         {
             return m_SampleOffset;
         }
@@ -229,7 +229,7 @@ namespace OloEngine::Audio::SoundGraph
         }
 
         /// Read-and-clear: returns the pending offset (or kNotFired) and resets.
-        [[nodiscard]] i32 Consume() noexcept
+        [[nodiscard("Consume() read-clears the trigger; the returned offset must be used")]] i32 Consume() noexcept
         {
             const i32 offset = m_SampleOffset;
             m_SampleOffset = kNotFired;
@@ -263,15 +263,15 @@ namespace OloEngine::Audio::SoundGraph
         {
             m_Trigger->Fire(sampleOffset);
         }
-        [[nodiscard]] bool IsFired() const noexcept
+        [[nodiscard("query result must be used")]] bool IsFired() const noexcept
         {
             return m_Trigger->IsFired();
         }
-        [[nodiscard]] i32 Offset() const noexcept
+        [[nodiscard("trigger offset must be used")]] i32 Offset() const noexcept
         {
             return m_Trigger->Offset();
         }
-        [[nodiscard]] i32 Consume() noexcept
+        [[nodiscard("Consume() read-clears the trigger; the returned offset must be used")]] i32 Consume() noexcept
         {
             return m_Trigger->Consume();
         }

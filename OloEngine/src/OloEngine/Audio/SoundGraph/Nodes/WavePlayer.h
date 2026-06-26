@@ -555,12 +555,12 @@ namespace OloEngine::Audio::SoundGraph
         /// counted until its buffer is actually released. WavePlayer is the only node
         /// type that owns a large per-node buffer today; it surfaces it through the
         /// NodeProcessor::GetHeapBytes() hook the cache accounting consumes.
-        [[nodiscard]] sizet GetAudioDataSizeBytes() const
+        [[nodiscard("size in bytes must be used")]] sizet GetAudioDataSizeBytes() const
         {
             return m_AudioData.m_Samples.capacity() * sizeof(f32);
         }
 
-        [[nodiscard]] sizet GetHeapBytes() const override
+        [[nodiscard("heap byte count must be used")]] sizet GetHeapBytes() const override
         {
             return GetAudioDataSizeBytes();
         }

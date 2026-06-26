@@ -79,8 +79,8 @@ namespace OloEngine::Audio::DSP
         : Angle(angle), Channel(channel)
     {
         u32 gainSmoothTimeInFrames = 360; // ~7.5ms at 48kHz
-        ma_gainer_config gainerConfig = ma_gainer_config_init(numberOfOutputChannels, gainSmoothTimeInFrames);
-        if (ma_result result = ma_gainer_init(&gainerConfig, nullptr, &Gainer); result != MA_SUCCESS)
+        ma_gainer_config gainerConfig = ::ma_gainer_config_init(numberOfOutputChannels, gainSmoothTimeInFrames);
+        if (ma_result result = ::ma_gainer_init(&gainerConfig, nullptr, &Gainer); result != MA_SUCCESS)
         {
             OLO_CORE_ERROR("[VBAP] ma_gainer_init failed: {}", static_cast<int>(result));
             return;
@@ -120,10 +120,11 @@ namespace OloEngine::Audio::DSP
         SortChannelLayout(vbap->spPos, vbap->spPosSorted);
 
         // Pre-compute inverse matrices for each sorted speaker pair
-        for (sizet i = 0; i < vbap->spPosSorted.size(); ++i)
+        const sizet sortedSpeakerCount = vbap->spPosSorted.size();
+        for (sizet i = 0; i < sortedSpeakerCount; ++i)
         {
             const auto& [p, idx] = vbap->spPosSorted.at(i);
-            const auto& [p2, idx2] = vbap->spPosSorted.at((i + 1) % vbap->spPosSorted.size());
+            const auto& [p2, idx2] = vbap->spPosSorted.at((i + 1) % sortedSpeakerCount);
 
             const glm::mat2 L(glm::vec2(p.x, p.y), glm::vec2(p2.x, p2.y));
             vbap->InverseMats.push_back(glm::inverse(L));
@@ -204,7 +205,7 @@ namespace OloEngine::Audio::DSP
         // Uninitialize gainers before clearing to avoid leaking internal allocations
         for (auto& chg : vbap->ChannelGroups)
         {
-            ma_gainer_uninit(&chg.Gainer, nullptr);
+            ::ma_gainer_uninit(&chg.Gainer, nullptr);
         }
         *vbap = VBAPData();
     }
@@ -231,12 +232,13 @@ namespace OloEngine::Audio::DSP
         for (auto& chg : vbap->ChannelGroups)
         {
             ChannelGains gainsLocal{};
-            ma_silence_pcm_frames(gainsLocal.data(), MA_MAX_CHANNELS, ma_format_f32, 1);
+            ::ma_silence_pcm_frames(gainsLocal.data(), MA_MAX_CHANNELS, ma_format_f32, 1);
 
             for (auto& vsID : chg.VirtualSourceIDs)
             {
                 const auto& vsGains = vbap->VirtualSources[static_cast<sizet>(vsID)].Gains;
-                for (sizet i = 0; i < gainsLocal.size(); ++i)
+                const sizet gainCount = gainsLocal.size();
+                for (sizet i = 0; i < gainCount; ++i)
                 {
                     gainsLocal[i] += vsGains[i] * vsGains[i];
                 }
@@ -271,7 +273,8 @@ namespace OloEngine::Audio::DSP
     void VBAP::SortChannelLayout(const std::vector<glm::vec2>& speakerVectors,
                                  std::vector<std::pair<glm::vec2, u32>>& sorted)
     {
-        for (sizet i = 0; i < speakerVectors.size(); ++i)
+        const sizet speakerCount = speakerVectors.size();
+        for (sizet i = 0; i < speakerCount; ++i)
         {
             sorted.push_back({ speakerVectors.at(i), static_cast<u32>(i) });
         }
@@ -369,8 +372,8 @@ namespace OloEngine::Audio::DSP
         i32 idx1 = -1;
         i32 idx2 = -1;
 
-        const float x = sinf(azimuthRadians);
-        const float y = -cosf(azimuthRadians);
+        const float x = ::sinf(azimuthRadians);
+        const float y = -::cosf(azimuthRadians);
 
         const auto& sortedPositions = vbap->spPosSorted;
         const auto& inverseMats = vbap->InverseMats;
@@ -388,7 +391,7 @@ namespace OloEngine::Audio::DSP
             // Both gains positive → this is the active speaker pair
             if (gi1 > -1e-6f && gi2 > -1e-6f)
             {
-                powr = sqrtf(gi1 * gi1 + gi2 * gi2);
+                powr = ::sqrtf(gi1 * gi1 + gi2 * gi2);
                 if (powr > ref)
                 {
                     ref = powr;

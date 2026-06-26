@@ -36,10 +36,10 @@ namespace OloEngine::Audio::DSP
 
         bool Initialize(ma_engine* engine, ma_node_base* nodeToAttachTo);
         void Uninitialize();
-        [[nodiscard]] ma_node_base* GetNode();
+        [[nodiscard("node pointer must be used")]] ma_node_base* GetNode();
 
         void SetParameter(ReverbParameter parameter, float value);
-        [[nodiscard]] float GetParameter(ReverbParameter parameter) const;
+        [[nodiscard("parameter value must be used")]] float GetParameter(ReverbParameter parameter) const;
 
       private:
         friend void ReverbNodeProcessPcmFrames(void* pNode, const float** ppFramesIn, unsigned int* pFrameCountIn,

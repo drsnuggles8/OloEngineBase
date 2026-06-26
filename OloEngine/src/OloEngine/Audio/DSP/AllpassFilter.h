@@ -27,7 +27,7 @@ namespace OloEngine::Audio::DSP
         {
             m_Feedback = val;
         }
-        [[nodiscard]] float GetFeedback() const
+        [[nodiscard("feedback coefficient must be used")]] float GetFeedback() const
         {
             return m_Feedback;
         }

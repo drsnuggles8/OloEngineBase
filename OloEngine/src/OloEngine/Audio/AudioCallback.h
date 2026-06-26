@@ -116,14 +116,16 @@ namespace OloEngine::Audio
         bool InitBase(u32 sampleRate, u32 maxBlockSize, const BusConfig& busConfig) final
         {
             m_InDeinterleavedBuses.resize(busConfig.m_InputBuses.size());
-            for (sizet i = 0; i < m_InDeinterleavedBuses.size(); ++i)
+            const sizet inputBusCount = m_InDeinterleavedBuses.size();
+            for (sizet i = 0; i < inputBusCount; ++i)
             {
                 m_InDeinterleavedBuses[i].resize({ busConfig.m_InputBuses[i], maxBlockSize });
                 m_InDeinterleavedBuses[i].clear();
             }
 
             m_OutDeinterleavedBuses.resize(busConfig.m_OutputBuses.size());
-            for (sizet i = 0; i < m_OutDeinterleavedBuses.size(); ++i)
+            const sizet outputBusCount = m_OutDeinterleavedBuses.size();
+            for (sizet i = 0; i < outputBusCount; ++i)
             {
                 m_OutDeinterleavedBuses[i].resize({ busConfig.m_OutputBuses[i], maxBlockSize });
                 m_OutDeinterleavedBuses[i].clear();
@@ -172,10 +174,13 @@ namespace OloEngine::Audio
                 return;
             }
 
+            const sizet inputBusCount = m_InDeinterleavedBuses.size();
+            const sizet outputBusCount = m_OutDeinterleavedBuses.size();
+
             if (ppFramesIn != nullptr)
             {
                 // Use actual deinterleaved buffer count for safety, not m_BusConfig size
-                for (sizet i = 0; i < m_InDeinterleavedBuses.size(); ++i)
+                for (sizet i = 0; i < inputBusCount; ++i)
                 {
                     // Verify buffer was pre-allocated to correct size (no resize in real-time thread!)
                     OLO_CORE_ASSERT(m_InDeinterleavedBuses[i].getSize().numFrames >= frameCount,
@@ -201,7 +206,7 @@ namespace OloEngine::Audio
             else
             {
                 // Clear all input buses when no input provided (only active frames)
-                for (sizet i = 0; i < m_InDeinterleavedBuses.size(); ++i)
+                for (sizet i = 0; i < inputBusCount; ++i)
                 {
                     auto numChannels = m_InDeinterleavedBuses[i].getNumChannels();
                     auto* channelPtrs = m_InDeinterleavedBuses[i].getView().data.channels;
@@ -211,7 +216,7 @@ namespace OloEngine::Audio
             }
 
             // Verify output buffers are pre-allocated (no resize in real-time thread!)
-            for (sizet i = 0; i < m_OutDeinterleavedBuses.size(); ++i)
+            for (sizet i = 0; i < outputBusCount; ++i)
             {
                 OLO_CORE_ASSERT(m_OutDeinterleavedBuses[i].getSize().numFrames >= frameCount,
                                 "Output buffer {} has {} frames but {} requested. Buffer should be pre-allocated to maxBlockSize.",
@@ -223,7 +228,7 @@ namespace OloEngine::Audio
             // Use actual deinterleaved buffer count and check for null output pointers
             if (ppFramesOut != nullptr)
             {
-                for (sizet i = 0; i < m_OutDeinterleavedBuses.size(); ++i)
+                for (sizet i = 0; i < outputBusCount; ++i)
                 {
                     // Only interleave if the output pointer is non-null
                     if (ppFramesOut[i] != nullptr)
@@ -363,7 +368,8 @@ namespace OloEngine::Audio
                 if (ppFramesOut != nullptr && requestedFrames > 0)
                 {
                     // Zero all output channels for the requested frames
-                    for (u32 busIndex = 0; busIndex < m_BusConfig.m_OutputBuses.size(); ++busIndex)
+                    const sizet outputBusCount = m_BusConfig.m_OutputBuses.size();
+                    for (u32 busIndex = 0; busIndex < outputBusCount; ++busIndex)
                     {
                         if (ppFramesOut[busIndex] != nullptr)
                         {

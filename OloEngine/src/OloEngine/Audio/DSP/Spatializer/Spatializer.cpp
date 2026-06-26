@@ -59,8 +59,8 @@ namespace OloEngine::Audio::DSP
     {
         if (coneInnerAngleInRadians < 6.283185f)
         {
-            float cutoffInner = cosf(coneInnerAngleInRadians * 0.5f);
-            float cutoffOuter = cosf(coneOuterAngleInRadians * 0.5f);
+            float cutoffInner = ::cosf(coneInnerAngleInRadians * 0.5f);
+            float cutoffOuter = ::cosf(coneOuterAngleInRadians * 0.5f);
             float d = glm::dot(dirSourceToListener, dirSource);
 
             if (d > cutoffInner)
@@ -135,7 +135,7 @@ namespace OloEngine::Audio::DSP
         }
 
         // Apply panning to output
-        ma_silence_pcm_frames(pFramesOut_0, frameCount, ma_format_f32, channelsOut);
+        ::ma_silence_pcm_frames(pFramesOut_0, frameCount, ma_format_f32, channelsOut);
 
         const u32 numSourceInputs = static_cast<u32>(vbap.ChannelGroups.size());
         for (u32 iChannelIn = 0; iChannelIn < numSourceInputs; ++iChannelIn)
@@ -258,7 +258,7 @@ namespace OloEngine::Audio::DSP
         {
             return 1.0f;
         }
-        float degreeSpread = glm::degrees(atanf((0.5f * sourceSize) / distance)) * 2.0f;
+        float degreeSpread = glm::degrees(::atanf((0.5f * sourceSize) / distance)) * 2.0f;
         return degreeSpread / 180.0f;
     }
 
@@ -308,7 +308,7 @@ namespace OloEngine::Audio::DSP
         // Doppler effect
         if (source.DopplerFactor > 0.0f && listener != nullptr)
         {
-            ma_vec3f lpos = ma_spatializer_listener_get_position(listener);
+            ma_vec3f lpos = ::ma_spatializer_listener_get_position(listener);
             glm::vec3 lp(lpos.x, lpos.y, lpos.z);
             source.SpatializerNode.DopplerPitch = ProcessDopplerPitch(lp - position, velocity, listenerVel, SPEED_OF_SOUND, source.DopplerFactor);
             pEngineNode->spatializer.dopplerPitch = source.SpatializerNode.DopplerPitch;
@@ -359,19 +359,19 @@ namespace OloEngine::Audio::DSP
         source.InternalChannelCount = 4; // Quad virtual speaker layout
 
         const u32 sourceChannels = nodeToInsertAfter->resampler.channels;
-        const u32 sourceNodeChannels = ma_node_get_output_channels(nodeToInsertAfter, 0);
+        const u32 sourceNodeChannels = ::ma_node_get_output_channels(nodeToInsertAfter, 0);
 
         const u32 numInputChannels[1]{ sourceNodeChannels };
         const u32 numOutputChannels[1]{ sourceNodeChannels };
 
-        ma_node_config nodeConfig = ma_node_config_init();
+        ma_node_config nodeConfig = ::ma_node_config_init();
         nodeConfig.vtable = &s_SpatializerNodeVtable;
         nodeConfig.pInputChannels = numInputChannels;
         nodeConfig.pOutputChannels = numOutputChannels;
         nodeConfig.initialState = ma_node_state_stopped;
 
-        ma_result result = ma_node_init(&m_Engine->nodeGraph, &nodeConfig, allocationCallbacks,
-                                        &source.SpatializerNode);
+        ma_result result = ::ma_node_init(&m_Engine->nodeGraph, &nodeConfig, allocationCallbacks,
+                                          &source.SpatializerNode);
         if (abortIfFailed(result, "SpatializerNode init failed"))
         {
             return false;
@@ -382,23 +382,23 @@ namespace OloEngine::Audio::DSP
         source.SpatializerNode.targetEngineNode = nodeToInsertAfter;
 
         // VBAP channel converter
-        ma_channel_map_init_standard(ma_standard_channel_map_default, source.InternalChannelMap,
-                                     sizeof(source.InternalChannelMap) / sizeof(source.InternalChannelMap[0]),
-                                     source.InternalChannelCount);
+        ::ma_channel_map_init_standard(ma_standard_channel_map_default, source.InternalChannelMap,
+                                       sizeof(source.InternalChannelMap) / sizeof(source.InternalChannelMap[0]),
+                                       source.InternalChannelCount);
 
-        ma_channel_converter_config channelMapConfig = ma_channel_converter_config_init(
+        ma_channel_converter_config channelMapConfig = ::ma_channel_converter_config_init(
             ma_format_f32, source.InternalChannelCount, source.InternalChannelMap, numOutputChannels[0], nullptr,
             ma_channel_mix_mode_rectangular);
 
-        result = ma_channel_converter_init(&channelMapConfig, nullptr, &source.Converter);
+        result = ::ma_channel_converter_init(&channelMapConfig, nullptr, &source.Converter);
         if (abortIfFailed(result, "Channel converter init failed"))
         {
             return false;
         }
 
-        ma_channel_map_init_standard(ma_standard_channel_map_default, source.SourceChannelMap,
-                                     sizeof(source.SourceChannelMap) / sizeof(source.SourceChannelMap[0]),
-                                     sourceChannels);
+        ::ma_channel_map_init_standard(ma_standard_channel_map_default, source.SourceChannelMap,
+                                       sizeof(source.SourceChannelMap) / sizeof(source.SourceChannelMap[0]),
+                                       sourceChannels);
 
         // Config snapshot
         source.MinGain = config.MinGain;
@@ -427,13 +427,13 @@ namespace OloEngine::Audio::DSP
         auto* output = nodeToInsertAfter->baseNode.pOutputBuses->pInputNode;
         ma_uint8 downstreamInputBus = nodeToInsertAfter->baseNode.pOutputBuses->inputNodeInputBusIndex;
 
-        result = ma_node_attach_output_bus(&source.SpatializerNode, 0, output, downstreamInputBus);
+        result = ::ma_node_attach_output_bus(&source.SpatializerNode, 0, output, downstreamInputBus);
         if (abortIfFailed(result, "Spatializer output attach failed"))
         {
             return false;
         }
 
-        result = ma_node_attach_output_bus(nodeToInsertAfter, 0, &source.SpatializerNode, 0);
+        result = ::ma_node_attach_output_bus(nodeToInsertAfter, 0, &source.SpatializerNode, 0);
         if (abortIfFailed(result, "Spatializer input attach failed"))
         {
             return false;
@@ -462,7 +462,7 @@ namespace OloEngine::Audio::DSP
             auto* output = source.SpatializerNode.base.pOutputBuses->pInputNode;
             auto* input = source.SpatializerNode.targetEngineNode;
 
-            ma_result result = ma_node_attach_output_bus(input, 0, output, source.DownstreamInputBus);
+            ma_result result = ::ma_node_attach_output_bus(input, 0, output, source.DownstreamInputBus);
             if (result != MA_SUCCESS)
             {
                 OLO_CORE_ASSERT(false, "Node reattach failed during ReleaseSource");
@@ -472,14 +472,14 @@ namespace OloEngine::Audio::DSP
         // Always clean up the node if it was initialized (vtable set)
         if (((ma_node_base*)&source.SpatializerNode)->vtable != nullptr)
         {
-            ma_node_set_state(&source.SpatializerNode, ma_node_state_stopped);
+            ::ma_node_set_state(&source.SpatializerNode, ma_node_state_stopped);
 
             const auto* allocationCallbacks = &m_Engine->pResourceManager->config.allocationCallbacks;
             if (!allocationCallbacks->onFree)
             {
                 allocationCallbacks = nullptr;
             }
-            ma_node_uninit(&source.SpatializerNode, allocationCallbacks);
+            ::ma_node_uninit(&source.SpatializerNode, allocationCallbacks);
             source.SpatializerNode.targetEngineNode = nullptr;
         }
 
@@ -561,7 +561,7 @@ namespace OloEngine::Audio::DSP
         // Start audio callback after first position update (prevents volume spike)
         if (!source.bInitialPositionSet)
         {
-            ma_node_set_state(&source.SpatializerNode, ma_node_state_started);
+            ::ma_node_set_state(&source.SpatializerNode, ma_node_state_started);
             source.bInitialPositionSet = true;
         }
 

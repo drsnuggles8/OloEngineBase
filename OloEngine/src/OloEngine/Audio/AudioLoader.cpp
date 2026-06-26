@@ -37,11 +37,11 @@ namespace OloEngine::Audio
 
         // Initialize miniaudio decoder
         ma_decoder decoder;
-        ma_decoder_config config = ma_decoder_config_init(ma_format_f32, 0, 0); // Let miniaudio determine channels and sample rate
+        ma_decoder_config config = ::ma_decoder_config_init(ma_format_f32, 0, 0); // Let miniaudio determine channels and sample rate
 
         auto u8str = filePath.u8string();
         std::string utf8Path(reinterpret_cast<const char*>(u8str.c_str()), u8str.size());
-        if (ma_result result = ma_decoder_init_file(utf8Path.c_str(), &config, &decoder); result != MA_SUCCESS)
+        if (ma_result result = ::ma_decoder_init_file(utf8Path.c_str(), &config, &decoder); result != MA_SUCCESS)
         {
             OLO_CORE_ERROR("[AudioLoader] Failed to initialize decoder for file: {} (error: {})",
                            utf8Path, static_cast<int>(result));
@@ -52,7 +52,7 @@ namespace OloEngine::Audio
         bool success = DecodeAudioData(decoder, outAudioData, utf8Path);
 
         // Clean up decoder
-        ma_decoder_uninit(&decoder);
+        ::ma_decoder_uninit(&decoder);
 
         if (!success)
         {
@@ -83,9 +83,9 @@ namespace OloEngine::Audio
 
         // Initialize miniaudio decoder from memory
         ma_decoder decoder;
-        ma_decoder_config config = ma_decoder_config_init(ma_format_f32, 0, 0);
+        ma_decoder_config config = ::ma_decoder_config_init(ma_format_f32, 0, 0);
 
-        if (ma_result result = ma_decoder_init_memory(data, dataSize, &config, &decoder); result != MA_SUCCESS)
+        if (ma_result result = ::ma_decoder_init_memory(data, dataSize, &config, &decoder); result != MA_SUCCESS)
         {
             OLO_CORE_ERROR("[AudioLoader] Failed to initialize decoder from memory (error: {})", static_cast<int>(result));
             return false;
@@ -95,7 +95,7 @@ namespace OloEngine::Audio
         bool success = DecodeAudioData(decoder, outAudioData, "memory");
 
         // Clean up decoder
-        ma_decoder_uninit(&decoder);
+        ::ma_decoder_uninit(&decoder);
 
         if (!success)
         {
@@ -115,7 +115,7 @@ namespace OloEngine::Audio
 
         // Get audio file information
         ma_uint64 totalFrames = 0;
-        ma_result result = ma_decoder_get_length_in_pcm_frames(&decoder, &totalFrames);
+        ma_result result = ::ma_decoder_get_length_in_pcm_frames(&decoder, &totalFrames);
 
         bool knownLength = (result == MA_SUCCESS && totalFrames > 0);
         bool streamingMode = (result == MA_NOT_IMPLEMENTED || totalFrames == 0);
@@ -167,7 +167,7 @@ namespace OloEngine::Audio
 
             // Read audio data in one go
             ma_uint64 framesRead;
-            result = ma_decoder_read_pcm_frames(&decoder, outAudioData.m_Samples.data(), totalFrames, &framesRead);
+            result = ::ma_decoder_read_pcm_frames(&decoder, outAudioData.m_Samples.data(), totalFrames, &framesRead);
 
             if (result != MA_SUCCESS || framesRead != totalFrames)
             {
@@ -192,7 +192,7 @@ namespace OloEngine::Audio
             while (true)
             {
                 ma_uint64 framesRead;
-                result = ma_decoder_read_pcm_frames(&decoder, chunkBuffer.data(), chunkFrames, &framesRead);
+                result = ::ma_decoder_read_pcm_frames(&decoder, chunkBuffer.data(), chunkFrames, &framesRead);
 
                 if (result != MA_SUCCESS && result != MA_AT_END)
                 {
@@ -274,11 +274,11 @@ namespace OloEngine::Audio
 
         // Initialize miniaudio decoder for format detection
         ma_decoder decoder;
-        ma_decoder_config config = ma_decoder_config_init(ma_format_unknown, 0, 0); // Don't force format conversion
+        ma_decoder_config config = ::ma_decoder_config_init(ma_format_unknown, 0, 0); // Don't force format conversion
 
         auto u8str = filePath.u8string();
         std::string utf8Path(reinterpret_cast<const char*>(u8str.c_str()), u8str.size());
-        ma_result result = ma_decoder_init_file(utf8Path.c_str(), &config, &decoder);
+        ma_result result = ::ma_decoder_init_file(utf8Path.c_str(), &config, &decoder);
         if (result != MA_SUCCESS)
         {
             OLO_CORE_ERROR("[AudioLoader] Failed to initialize decoder for info query: {} (error: {})",
@@ -288,7 +288,7 @@ namespace OloEngine::Audio
 
         // Get audio file information
         ma_uint64 totalFrames;
-        result = ma_decoder_get_length_in_pcm_frames(&decoder, &totalFrames);
+        result = ::ma_decoder_get_length_in_pcm_frames(&decoder, &totalFrames);
 
         // Handle frame length query results
         if (result == MA_SUCCESS && totalFrames > 0)
@@ -298,7 +298,7 @@ namespace OloEngine::Audio
             {
                 OLO_CORE_ERROR("[AudioLoader] Info query: file has too many frames: {} ({} frames > {} max)",
                                utf8Path, totalFrames, UINT32_MAX);
-                ma_decoder_uninit(&decoder);
+                ::ma_decoder_uninit(&decoder);
                 return false;
             }
 
@@ -318,7 +318,7 @@ namespace OloEngine::Audio
             // Genuine error occurred
             OLO_CORE_ERROR("[AudioLoader] Failed to get frame count for info query: {} (error: {})",
                            filePath.string(), static_cast<int>(result));
-            ma_decoder_uninit(&decoder);
+            ::ma_decoder_uninit(&decoder);
             return false;
         }
 
@@ -351,7 +351,7 @@ namespace OloEngine::Audio
         }
 
         // Clean up decoder
-        ma_decoder_uninit(&decoder);
+        ::ma_decoder_uninit(&decoder);
 
         // Validate essential audio properties (frame count can be 0 for streaming formats)
         if (outNumChannels == 0 || outSampleRate <= 0.0 || outBitDepth == 0)
