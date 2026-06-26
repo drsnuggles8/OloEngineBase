@@ -152,6 +152,7 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/SSRVisualEvidenceTest.cpp
 		Rendering/PropertyTests/BloomVisualEvidenceTest.cpp
 		Rendering/PropertyTests/FogVisualEvidenceTest.cpp
+		Rendering/PropertyTests/ReflectionProbeVisualEvidenceTest.cpp
 		Rendering/PropertyTests/SSGIVisualEvidenceTest.cpp
 		Rendering/PropertyTests/ContactShadowVisualEvidenceTest.cpp
 		Rendering/PropertyTests/PCSSVisualEvidenceTest.cpp
