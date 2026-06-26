@@ -20,8 +20,10 @@
 #include "OloEngine/Debug/Instrumentor.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstdlib>
 #include <cstring>
+#include <optional>
 
 // Platform cache line size (typically 64 bytes on x86/x64)
 #ifndef PLATFORM_CACHE_LINE_SIZE
@@ -41,6 +43,41 @@ namespace OloEngine::LowLevelTasks
     static float g_TaskGraphOversubscriptionRatio = 2.0f;
     static bool g_TaskGraphUseDynamicThreadCreation = false;
     static bool g_TaskGraphConfigInitialized = false;
+
+    std::optional<f32> ParseOversubscriptionRatio(const char* envValue)
+    {
+        if (envValue == nullptr)
+        {
+            return std::nullopt;
+        }
+
+        // Parse with std::strtof rather than std::atof: atof has no error reporting and
+        // undefined behaviour on overflow, whereas strtof reports "not a number at all"
+        // via endPtr and overflow via ±HUGE_VALF (== ±inf). "inf"/"nan" likewise parse to
+        // non-finite values. All of those must be rejected before they reach the
+        // worker-budget math (inf >= 1.0f is true; the product ceil(workers * inf) then
+        // casts to i32, which is undefined behaviour) — the endPtr and isfinite guards
+        // below do exactly that.
+        char* endPtr = nullptr;
+        const f32 value = std::strtof(envValue, &endPtr);
+        if (endPtr == envValue)
+        {
+            // No characters consumed → the value is not a number.
+            return std::nullopt;
+        }
+        if (*endPtr != '\0')
+        {
+            // Trailing, unconsumed characters → a partially-numeric string like "2.0abc".
+            // strtof would silently parse the "2.0" prefix; require the whole string instead.
+            return std::nullopt;
+        }
+        if (!std::isfinite(value) || value < 1.0f || value > kMaxOversubscriptionRatio)
+        {
+            return std::nullopt;
+        }
+
+        return value;
+    }
 
     // @brief Parse command-line or environment configuration for task graph settings
     //
@@ -96,10 +133,15 @@ namespace OloEngine::LowLevelTasks
 
         if (const char* EnvOversubscriptionRatio = std::getenv("OLO_TASK_GRAPH_OVERSUBSCRIPTION_RATIO"))
         {
-            float Value = static_cast<float>(std::atof(EnvOversubscriptionRatio));
-            if (Value >= 1.0f)
+            if (const std::optional<f32> Ratio = ParseOversubscriptionRatio(EnvOversubscriptionRatio))
             {
-                g_TaskGraphOversubscriptionRatio = Value;
+                g_TaskGraphOversubscriptionRatio = *Ratio;
+            }
+            else
+            {
+                OLO_CORE_WARN("[TaskGraph] Ignoring invalid OLO_TASK_GRAPH_OVERSUBSCRIPTION_RATIO='{}' "
+                              "(must be finite and within [1, {}]); keeping {}",
+                              EnvOversubscriptionRatio, kMaxOversubscriptionRatio, g_TaskGraphOversubscriptionRatio);
             }
         }
     }
