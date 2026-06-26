@@ -8,6 +8,7 @@
 #include <vector>
 #include <string>
 #include <span>
+#include <type_traits>
 
 namespace OloEngine
 {
@@ -53,66 +54,28 @@ namespace OloEngine
             T::Deserialize(this, obj);
         }
 
-        template<typename Key, typename Value>
-        void ReadMap(std::map<Key, Value>& map, u32 size = 0)
+        /// @brief Reads any associative container (std::map / std::unordered_map).
+        /// @note Each key and value is read via ReadElement, mirroring StreamWriter::WriteMap:
+        ///       std::string keys/values come from ReadString, trivially-copyable elements are
+        ///       raw, the rest use their static Deserialize. A size of 0 means "read the u32
+        ///       count first"; pass a non-zero size to skip the prefix.
+        template<typename Map>
+        void ReadMap(Map& map, u32 size = 0)
         {
             if (size == 0)
                 ReadRaw<u32>(size);
 
+            using KeyType = typename Map::key_type;
             for (u32 i = 0; i < size; ++i)
             {
-                Key key;
-                if constexpr (std::is_trivially_copyable_v<Key>)
-                    ReadRaw<Key>(key);
-                else
-                    ReadObject<Key>(key);
-
-                if constexpr (std::is_trivially_copyable_v<Value>)
-                    ReadRaw<Value>(map[key]);
-                else
-                    ReadObject<Value>(map[key]);
+                KeyType key;
+                ReadElement(key);
+                ReadElement(map[key]);
             }
         }
 
-        template<typename Key, typename Value>
-        void ReadMap(std::unordered_map<Key, Value>& map, u32 size = 0)
-        {
-            if (size == 0)
-                ReadRaw<u32>(size);
-
-            for (u32 i = 0; i < size; ++i)
-            {
-                Key key;
-                if constexpr (std::is_trivially_copyable_v<Key>)
-                    ReadRaw<Key>(key);
-                else
-                    ReadObject<Key>(key);
-
-                if constexpr (std::is_trivially_copyable_v<Value>)
-                    ReadRaw<Value>(map[key]);
-                else
-                    ReadObject<Value>(map[key]);
-            }
-        }
-
-        template<typename Value>
-        void ReadMap(std::unordered_map<std::string, Value>& map, u32 size = 0)
-        {
-            if (size == 0)
-                ReadRaw<u32>(size);
-
-            for (u32 i = 0; i < size; ++i)
-            {
-                std::string key;
-                ReadString(key);
-
-                if constexpr (std::is_trivially_copyable_v<Value>)
-                    ReadRaw<Value>(map[key]);
-                else
-                    ReadObject<Value>(map[key]);
-            }
-        }
-
+        /// @brief Reads a vector. Each element is read via ReadElement (see ReadMap).
+        /// @note A size of 0 means "read the u32 count first"; pass a non-zero size to skip it.
         template<typename T>
         void ReadArray(std::vector<T>& array, u32 size = 0)
         {
@@ -122,25 +85,23 @@ namespace OloEngine
             array.resize(size);
 
             for (u32 i = 0; i < size; ++i)
-            {
-                if constexpr (std::is_trivially_copyable_v<T>)
-                    ReadRaw<T>(array[i]);
-                else
-                    ReadObject<T>(array[i]);
-            }
+                ReadElement(array[i]);
+        }
+
+      private:
+        /// @brief Reads a single container element with the right primitive: std::string →
+        ///        ReadString (length-prefixed), trivially-copyable → ReadRaw (raw bytes),
+        ///        otherwise ReadObject (static Deserialize).
+        template<typename T>
+        void ReadElement(T& element)
+        {
+            if constexpr (std::is_same_v<T, std::string>)
+                ReadString(element);
+            else if constexpr (std::is_trivially_copyable_v<T>)
+                ReadRaw<T>(element);
+            else
+                ReadObject<T>(element);
         }
     };
-
-    template<>
-    inline void StreamReader::ReadArray(std::vector<std::string>& array, u32 size)
-    {
-        if (size == 0)
-            ReadRaw<u32>(size);
-
-        array.resize(size);
-
-        for (u32 i = 0; i < size; ++i)
-            ReadString(array[i]);
-    }
 
 } // namespace OloEngine

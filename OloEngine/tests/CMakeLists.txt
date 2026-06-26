@@ -218,6 +218,7 @@ add_executable(OloEngine-Tests
 		ShaderGraph/ShaderGraphCommandTest.cpp
 		# Serialization Tests
 		Serialization/ArchiveExtensionsTest.cpp
+		Serialization/StreamHelpersTest.cpp
 		Serialization/MeshBinarySerializerTest.cpp
 		Serialization/MeshAssetSerializerTest.cpp
 		Serialization/SoundGraphSerializerTest.cpp
