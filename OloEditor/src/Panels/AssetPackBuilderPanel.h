@@ -82,6 +82,16 @@ namespace OloEngine
          */
         bool ValidateOutputPath(const std::string& path, std::string& errorMessage) const;
 
+        /**
+         * @brief Normalise, store, validate and (if valid) commit an output path.
+         *
+         * Shared by the manual text-entry handler and the Browse dialog so both
+         * apply identical .olopack normalisation, buffer writes and validation.
+         * Rejects paths that don't fit m_OutputPathBuffer rather than truncating.
+         * @param path Candidate output path (taken by value; mutated internally).
+         */
+        void ApplyOutputPath(std::string path);
+
       private:
         // Build settings
         AssetPackBuilder::BuildSettings m_BuildSettings;

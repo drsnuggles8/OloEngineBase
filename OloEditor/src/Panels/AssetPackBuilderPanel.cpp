@@ -116,25 +116,7 @@ namespace OloEngine
             // Validate path on change
             if (bool pathChanged = ImGui::InputText("##OutputPath", m_OutputPathBuffer.data(), m_OutputPathBuffer.size()); pathChanged)
             {
-                std::string inputPath = m_OutputPathBuffer.data();
-
-                // Automatically append .olopack extension if missing
-                if (std::filesystem::path fsPath(inputPath); fsPath.extension() != ".olopack")
-                {
-                    inputPath += ".olopack";
-                    // Update buffer with corrected path
-                    sizet len = std::min(inputPath.length(), m_OutputPathBuffer.size() - 1);
-                    std::memcpy(m_OutputPathBuffer.data(), inputPath.c_str(), len);
-                    m_OutputPathBuffer[len] = '\0';
-                }
-
-                // Validate the path
-                if (ValidateOutputPath(inputPath, m_OutputPathError))
-                {
-                    // Path is valid, update settings
-                    m_BuildSettings.m_OutputPath = std::filesystem::path(inputPath);
-                }
-                // If invalid, don't update m_OutputPath but keep the error message for display
+                ApplyOutputPath(m_OutputPathBuffer.data());
             }
 
             // Display validation error if any
@@ -166,24 +148,11 @@ namespace OloEngine
                     initialDir.empty() ? nullptr : initialDir.c_str());
 
                 // Empty result == user cancelled — leave the current path untouched.
+                // Otherwise route through the shared helper so normalisation, the
+                // buffer write and validation match the manual-entry path exactly.
                 if (!selected.empty())
                 {
-                    // Mirror the manual-entry normalisation: append .olopack if missing.
-                    if (std::filesystem::path fsPath(selected); fsPath.extension() != ".olopack")
-                    {
-                        selected += ".olopack";
-                    }
-
-                    // Write the chosen path into the buffer and run it through the same
-                    // validation the text field uses, so the error UX is identical.
-                    sizet len = std::min(selected.length(), m_OutputPathBuffer.size() - 1);
-                    std::memcpy(m_OutputPathBuffer.data(), selected.c_str(), len);
-                    m_OutputPathBuffer[len] = '\0';
-
-                    if (ValidateOutputPath(selected, m_OutputPathError))
-                    {
-                        m_BuildSettings.m_OutputPath = std::filesystem::path(selected);
-                    }
+                    ApplyOutputPath(std::move(selected));
                 }
             }
 
@@ -420,6 +389,36 @@ namespace OloEngine
         // sets m_IsBuildInProgress=false; OnImGuiRender (or the destructor) joins.
     }
 
+    void AssetPackBuilderPanel::ApplyOutputPath(std::string path)
+    {
+        // Normalise the extension identically for manual entry and the Browse dialog.
+        if (std::filesystem::path fsPath(path); fsPath.extension() != ".olopack")
+        {
+            path += ".olopack";
+        }
+
+        // Reject anything that wouldn't fit the fixed UI buffer rather than silently
+        // truncating it: a truncated buffer would desync from the string that
+        // ValidateOutputPath checked and from what StartBuild() later reads back out
+        // of m_OutputPathBuffer.
+        if (path.length() >= m_OutputPathBuffer.size())
+        {
+            m_OutputPathError = "Output path is too long";
+            return;
+        }
+
+        std::memcpy(m_OutputPathBuffer.data(), path.c_str(), path.length());
+        m_OutputPathBuffer[path.length()] = '\0';
+
+        // Validate; only commit to the build settings when the path is accepted.
+        if (ValidateOutputPath(path, m_OutputPathError))
+        {
+            m_BuildSettings.m_OutputPath = std::filesystem::path(path);
+        }
+        // If invalid, keep the buffer (so the user sees what they entered) and the
+        // error message for display, but don't update m_BuildSettings.m_OutputPath.
+    }
+
     bool AssetPackBuilderPanel::ValidateOutputPath(const std::string& path, std::string& errorMessage) const
     {
         if (path.empty())
@@ -428,24 +427,32 @@ namespace OloEngine
             return false;
         }
 
-        // Check for invalid filename characters (Windows and Unix common restrictions)
-        if (std::regex invalidChars(R"([<>:"|?*\x00-\x1f])"); std::regex_search(path, invalidChars))
+        const std::filesystem::path fsPath(path);
+
+        // Check for invalid filename characters (Windows and Unix common restrictions).
+        // The drive-letter colon (e.g. "C:") is the only legal ':' on Windows, so strip
+        // the root-name before scanning — otherwise every absolute path the Save dialog
+        // returns ("X:\...") would be rejected and the Build button would stay disabled.
+        const sizet rootLen = std::min(path.size(), fsPath.root_name().string().size());
+        const std::string scanText = path.substr(rootLen);
+        if (std::regex invalidChars(R"([<>:"|?*\x00-\x1f])"); std::regex_search(scanText, invalidChars))
         {
             errorMessage = "Path contains invalid characters (< > : \" | ? * or control characters)";
             return false;
         }
 
         // Ensure .olopack extension
-        std::filesystem::path fsPath(path);
         if (fsPath.extension() != ".olopack")
         {
             errorMessage = "Path must end with .olopack extension";
             return false;
         }
 
-        // Check if parent directory exists
-        std::filesystem::path parentDir = fsPath.parent_path();
-        if (!parentDir.empty() && !std::filesystem::exists(parentDir))
+        // Check if parent directory exists. The error_code overload keeps a transient
+        // filesystem error from throwing out of the ImGui render loop.
+        std::error_code existsEc;
+        const std::filesystem::path parentDir = fsPath.parent_path();
+        if (!parentDir.empty() && !std::filesystem::exists(parentDir, existsEc))
         {
             errorMessage = "Parent directory does not exist: " + parentDir.string();
             return false;
