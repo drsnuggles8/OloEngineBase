@@ -74,6 +74,26 @@ TEST_F(TaskSystemTest, FireAndForgetTask)
     std::this_thread::sleep_for(std::chrono::milliseconds(50));
 }
 
+// Regression for the fire-and-forget AsyncTask FTask lifecycle. AsyncTask used to
+// `delete Task;` from inside the runnable body while the task was still in the
+// Running state, tripping ~FTask()'s IsCompleted() assertion and handing the
+// scheduler a freed task — which then crashed StopWorkers / scheduler teardown
+// once any AsyncTask had actually run. The fix makes the runnable OWN the heap
+// task (deleted after the scheduler marks it Completed). This drives a real
+// AsyncTask to completion; the suite's StopWorkers (TearDownTestSuite) is the
+// teardown that used to fault.
+TEST_F(TaskSystemTest, AsyncTaskFireAndForgetCompletesAndTearsDownCleanly)
+{
+    std::atomic<int> ran{ 0 };
+    AsyncTask([&ran]
+              { ran.fetch_add(1, std::memory_order_relaxed); });
+
+    for (int i = 0; i < 500 && ran.load(std::memory_order_relaxed) == 0; ++i)
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+
+    EXPECT_EQ(ran.load(std::memory_order_relaxed), 1);
+}
+
 TEST_F(TaskSystemTest, LaunchAndWait)
 {
     // Launch a task and wait till it's executed
