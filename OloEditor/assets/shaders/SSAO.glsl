@@ -15,9 +15,20 @@ void main()
 #type fragment
 #version 460 core
 
-// GTAO — Ground Truth Ambient Occlusion
-// Horizon-based screen-space AO using G-buffer normals (octahedral encoded in RG16F).
-// Based on Jimenez et al. "Practical Real-Time Strategies for Accurate Indirect Occlusion" (2016).
+// SSAO — Screen-Space Ambient Occlusion (normal-oriented hemisphere obscurance).
+//
+// For each opaque pixel we walk a noise-rotated spiral of taps inside the
+// screen-space projection of the world-space radius, reconstruct each tap's
+// view-space position from depth, and measure how far the tap sits ABOVE this
+// pixel's tangent plane (the cosine dot(normal, dir) past a small bias). A flat
+// surface keeps every neighbouring tap in its own tangent plane (dot ~= 0), so
+// it does NOT self-occlude — the earlier horizon variant measured horizons in
+// camera-elevation space without subtracting the surface tangent and therefore
+// darkened flat ground at any grazing/tilted angle. A crease, wall or contact
+// lifts taps above the plane -> occlusion. A WORLD-SPACE range falloff discards
+// taps beyond the radius (so the foreshortened far end of a grazing disk can't
+// add phantom occlusion). Output R channel = AO (1 = unoccluded, 0 = fully
+// occluded); intensity is applied later in PostProcess_SSAOApply.
 
 layout(location = 0) out vec4 o_Color;
 
@@ -29,7 +40,7 @@ layout(binding = 19) uniform sampler2D u_DepthTexture;
 // View-space normals (from ScenePass G-buffer, octahedral encoded in RG16F, attachment 2)
 layout(binding = 22) uniform sampler2D u_NormalsTexture;
 
-// 4x4 random rotation noise texture
+// 4x4 random rotation noise texture (unit vectors)
 layout(binding = 21) uniform sampler2D u_NoiseTexture;
 
 // SSAO UBO (binding 9)
@@ -50,7 +61,7 @@ layout(std140, binding = 9) uniform SSAOUBO
 };
 
 const float PI = 3.14159265359;
-const float HALF_PI = 1.57079632679;
+const float TWO_PI = 6.28318530718;
 
 // Octahedral decode: RG16F [-1,1]² → unit normal on sphere
 vec3 octDecode(vec2 f)
@@ -70,52 +81,32 @@ vec3 reconstructViewPos(vec2 uv, float depth)
     return viewPos.xyz / viewPos.w;
 }
 
-// Interleaved gradient noise for per-pixel jitter (Jorge Jimenez, 2014)
+// Interleaved gradient noise for per-pixel radial jitter (Jorge Jimenez, 2014)
 float interleavedGradientNoise(vec2 pixelCoord)
 {
     vec3 magic = vec3(0.06711056, 0.00583715, 52.9829189);
     return fract(magic.z * fract(dot(pixelCoord, magic.xy)));
 }
 
-// Compute the inverse of the projected radius in screen pixels at given view depth
+// World-space AO radius projected to a pixel count at the given view depth.
 float projectedRadiusInPixels(float viewZ)
 {
     // u_Projection[1][1] is the Y scale factor (1 / tan(fov/2))
     return (u_Radius * u_Projection[1][1] * float(u_ScreenHeight)) / (2.0 * abs(viewZ));
 }
 
-// Fast atan approximation for horizon angle computation
-float fastAcos(float x)
-{
-    // Polynomial approximation (max error ~0.02 rad)
-    float ax = abs(x);
-    float res = -0.156583 * ax + HALF_PI;
-    res *= sqrt(1.0 - ax);
-    return (x >= 0.0) ? res : PI - res;
-}
-
-// Integrate the cosine-weighted visible angle for a single horizon slice
-// n_dot_v: dot(normal, viewDir), sinN/cosN: sin/cos of normal projected angle in slice
-float integrateArc(float h1, float h2, float sinN, float cosN)
-{
-    // Integrated form of cos(theta - n) over [h1, h2]
-    float a1 = -cos(2.0 * h1 - acos(cosN)) + cosN + 2.0 * h1 * sinN;
-    float a2 = -cos(2.0 * h2 - acos(cosN)) + cosN + 2.0 * h2 * sinN;
-    return 0.25 * (a1 + a2);
-}
-
 void main()
 {
     float depth = texture(u_DepthTexture, v_TexCoord).r;
 
-    // Skip skybox / far plane
+    // Skip skybox / far plane — no surface to occlude.
     if (depth >= 1.0)
     {
         o_Color = vec4(1.0, 0.0, 0.0, 1.0);
         return;
     }
 
-    // Read octahedral-encoded normal — sentinel value (-2,-2) means "no normal"
+    // Read octahedral-encoded normal — sentinel value (-2,-2) means "no normal".
     vec2 encodedNormal = texture(u_NormalsTexture, v_TexCoord).rg;
     if (encodedNormal.x < -1.5)
     {
@@ -123,12 +114,11 @@ void main()
         return;
     }
 
-    // Reconstruct view-space position and decode normal
     vec3 viewPos = reconstructViewPos(v_TexCoord, depth);
     vec3 viewNormal = octDecode(encodedNormal);
-    vec3 viewDir = normalize(-viewPos);
 
-    // Compute projected radius in pixels — clamp to avoid oversampling
+    // Projected radius in pixels — clamp to avoid oversampling. Below 1px the
+    // world radius is sub-texel (distant surface) so AO contributes nothing.
     float radiusPixels = projectedRadiusInPixels(viewPos.z);
     if (radiusPixels < 1.0)
     {
@@ -137,113 +127,59 @@ void main()
     }
     radiusPixels = min(radiusPixels, 256.0);
 
-    // Per-pixel noise rotation and spatial jitter
+    // Per-4x4-block angular rotation + per-pixel radial jitter to break up the
+    // fixed spiral pattern (the bilateral blur cleans up the residual noise).
     vec2 pixelCoord = v_TexCoord * vec2(float(u_ScreenWidth), float(u_ScreenHeight));
     vec2 noiseVec = texture(u_NoiseTexture, pixelCoord / 4.0).rg;
-    float noiseAngle = noiseVec.x * PI;
-    float noiseOffset = noiseVec.y;
+    float rotAngle = atan(noiseVec.y, noiseVec.x);
+    float radialJitter = interleavedGradientNoise(pixelCoord);
 
-    // Number of direction slices and steps per slice
-    int numSlices = clamp(u_Samples / 4, 2, 16);
-    int stepsPerSlice = clamp(u_Samples / numSlices, 2, 16);
-
+    int numSamples = clamp(u_Samples, 8, 64);
     vec2 texelSize = 1.0 / vec2(float(u_ScreenWidth), float(u_ScreenHeight));
+
+    const float kNumTurns = 7.0;     // spiral turns across the disk
+    const float kMinCos = 0.1;       // ignore taps within ~this cosine of the tangent plane (rejects grazing same-surface taps that would otherwise self-occlude flat ground)
+    const float kBiasWindow = 0.25;  // cosine width above the threshold over which a tap ramps to full weight
+    const float kNearScale = 0.3;    // proximity emphasis: taps beyond ~sqrt(kNearScale)*radius are down-weighted, so a NEAR crease/wall dominates over far grazing taps
+    const float kStrength = 4.0;     // internal obscurance gain (AO punch); final strength still scaled by u_Intensity downstream
+    float biasFloor = kMinCos + u_Bias;
+    float radius2 = u_Radius * u_Radius;
 
     float occlusion = 0.0;
 
-    for (int slice = 0; slice < numSlices; ++slice)
+    for (int i = 0; i < numSamples; ++i)
     {
-        // Direction angle for this slice, rotated by per-pixel noise
-        float phi = (PI / float(numSlices)) * (float(slice) + noiseOffset) + noiseAngle;
-        vec2 dir = vec2(cos(phi), sin(phi));
-        vec2 stepDir = dir * texelSize;
+        // Spiral tap: angle winds kNumTurns times, radius grows ~uniformly over
+        // the disk (sqrt keeps area density even). Rotated/jittered per pixel.
+        float t = (float(i) + 0.5) / float(numSamples);
+        float angle = t * kNumTurns * TWO_PI + rotAngle;
+        float r = sqrt(min(t + (radialJitter - 0.5) / float(numSamples), 1.0));
+        vec2 sampleUV = v_TexCoord + vec2(cos(angle), sin(angle)) * (r * radiusPixels) * texelSize;
+        if (sampleUV.x < 0.0 || sampleUV.x > 1.0 || sampleUV.y < 0.0 || sampleUV.y > 1.0)
+            continue;
 
-        // Project the normal onto the slice plane to get the normal's angle in this slice
-        // sliceDir in view space (approximate: we use screen-space direction mapped to view)
-        vec3 sliceDirVS = vec3(dir.x, dir.y, 0.0);
-        vec3 orthoDir = normalize(cross(sliceDirVS, vec3(0.0, 0.0, 1.0)));
-        vec3 projNormal = viewNormal - orthoDir * dot(viewNormal, orthoDir);
-        float projNormalLen = length(projNormal);
+        float sampleDepth = texture(u_DepthTexture, sampleUV).r;
+        if (sampleDepth >= 1.0)
+            continue; // sky tap — unoccluded
 
-        // The angle of the projected normal relative to the view direction in the slice plane
-        float cosNormalAngle = clamp(dot(normalize(projNormal), viewDir), -1.0, 1.0);
-        float normalAngle = -sign(dot(projNormal, sliceDirVS)) * fastAcos(cosNormalAngle);
-        float sinN = sin(normalAngle);
-        float cosN = cos(normalAngle);
+        vec3 samplePos = reconstructViewPos(sampleUV, sampleDepth);
+        vec3 toSample = samplePos - viewPos;
+        float dist2 = dot(toSample, toSample);
+        if (dist2 < 1e-8)
+            continue;
 
-        // March in both directions along the slice to find max horizon angles.
-        // h1 (negative direction): starts at -π/2 (unoccluded), pushed toward 0 by occluders.
-        // h2 (positive direction): starts at +π/2 (unoccluded), pushed toward 0 by occluders.
-        // The integrateArc formula requires h1 < 0 and h2 > 0, spanning opposite sides of the view dir.
-        float h1 = -HALF_PI;
-        float h2 = HALF_PI;
-
-        for (int step = 1; step <= stepsPerSlice; ++step)
-        {
-            float stepScale = (float(step) + noiseOffset * 0.5) / float(stepsPerSlice);
-            float marchPixels = stepScale * radiusPixels;
-
-            // Positive direction
-            {
-                vec2 sampleUV = v_TexCoord + stepDir * marchPixels;
-                if (sampleUV.x >= 0.0 && sampleUV.x <= 1.0 && sampleUV.y >= 0.0 && sampleUV.y <= 1.0)
-                {
-                    float sampleDepth = texture(u_DepthTexture, sampleUV).r;
-                    if (sampleDepth < 1.0)
-                    {
-                        vec3 samplePos = reconstructViewPos(sampleUV, sampleDepth);
-                        vec3 horizonVec = samplePos - viewPos;
-                        float horizonLen = length(horizonVec);
-                        if (horizonLen > 0.001)
-                        {
-                            float elevAngle = atan(horizonVec.z / max(length(horizonVec.xy), 0.0001));
-                            elevAngle -= u_Bias;
-                            float rangeAtten = 1.0 - smoothstep(u_Radius * 0.8, u_Radius, horizonLen);
-                            // Convert elevation to h2 convention: π/2 - elevation (higher elevation → lower h2 → more occlusion)
-                            float candidateH = HALF_PI - elevAngle;
-                            h2 = min(h2, mix(h2, candidateH, rangeAtten));
-                        }
-                    }
-                }
-            }
-
-            // Negative direction
-            {
-                vec2 sampleUV = v_TexCoord - stepDir * marchPixels;
-                if (sampleUV.x >= 0.0 && sampleUV.x <= 1.0 && sampleUV.y >= 0.0 && sampleUV.y <= 1.0)
-                {
-                    float sampleDepth = texture(u_DepthTexture, sampleUV).r;
-                    if (sampleDepth < 1.0)
-                    {
-                        vec3 samplePos = reconstructViewPos(sampleUV, sampleDepth);
-                        vec3 horizonVec = samplePos - viewPos;
-                        float horizonLen = length(horizonVec);
-                        if (horizonLen > 0.001)
-                        {
-                            float elevAngle = atan(horizonVec.z / max(length(horizonVec.xy), 0.0001));
-                            elevAngle -= u_Bias;
-                            float rangeAtten = 1.0 - smoothstep(u_Radius * 0.8, u_Radius, horizonLen);
-                            // Convert elevation to h1 convention: elevation - π/2 (higher elevation → higher h1 → more occlusion)
-                            float candidateH = elevAngle - HALF_PI;
-                            h1 = max(h1, mix(h1, candidateH, rangeAtten));
-                        }
-                    }
-                }
-            }
-        }
-
-        // Clamp horizon angles to hemisphere centered on the projected normal
-        h1 = clamp(h1, normalAngle - HALF_PI, normalAngle + HALF_PI);
-        h2 = clamp(h2, normalAngle - HALF_PI, normalAngle + HALF_PI);
-
-        // Integrate visibility over the arc defined by the two horizon angles
-        float sliceAO = integrateArc(h1, h2, sinN, cosN);
-        occlusion += sliceAO * projNormalLen;
+        float invLen = inversesqrt(dist2);
+        // How far the tap sits above this pixel's tangent plane (cosine).
+        float ndotv = dot(viewNormal, toSample) * invLen;
+        // Fade taps as they approach / pass the world-space radius so a
+        // foreshortened grazing disk cannot reach distant geometry, AND weight
+        // closer taps more so a near crease/wall outweighs the far grazing floor.
+        float rangeFalloff = 1.0 - smoothstep(radius2 * 0.64, radius2, dist2);
+        float proximity = 1.0 / (1.0 + dist2 / (kNearScale * radius2));
+        occlusion += smoothstep(biasFloor, biasFloor + kBiasWindow, ndotv) * rangeFalloff * proximity;
     }
 
-    // Normalize and apply intensity
-    occlusion /= float(numSlices);
-    float ao = clamp(occlusion, 0.0, 1.0);
+    float ao = 1.0 - clamp(kStrength * occlusion / float(numSamples), 0.0, 1.0);
 
     o_Color = vec4(ao, 0.0, 0.0, 1.0);
 }
