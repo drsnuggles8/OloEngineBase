@@ -135,6 +135,9 @@ TEST_F(McpDispatchTest, InitializeReturnsHandshakeShape)
     EXPECT_TRUE(caps.contains("tools"));
     EXPECT_TRUE(caps.contains("resources"));
     EXPECT_TRUE(caps.contains("prompts"));
+    // `logging` is advertised because GET /mcp pushes diagnostics events as
+    // notifications/message log notifications (#306 item B server-push stream).
+    EXPECT_TRUE(caps.contains("logging"));
 }
 
 TEST_F(McpDispatchTest, InitializeEchoesSupportedProtocolVersion)

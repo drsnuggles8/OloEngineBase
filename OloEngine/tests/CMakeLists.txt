@@ -322,6 +322,10 @@ add_executable(OloEngine-Tests
 		# Header-only engine facility (Debug/DiagnosticsEventLog.h, compiled into
 		# OloEngine), so no extra editor TU is pulled in.
 		MCP/McpEventsTailTest.cpp
+		# Event -> MCP-notification -> SSE-frame serialization behind the GET /mcp
+		# server-push stream (#306 item B). Header-only (MCP/McpEventStream.h,
+		# DiagnosticsEventLog + nlohmann::json only), so no extra editor TU is pulled in.
+		MCP/McpEventStreamTest.cpp
 		# Pure result-shaping behind olo_shader_reload (#316 Part 4). Header-only
 		# (MCP/McpShaderReload.h, depends only on the engine's ShaderCompilationStatus
 		# enum), so no extra editor TU is pulled in.

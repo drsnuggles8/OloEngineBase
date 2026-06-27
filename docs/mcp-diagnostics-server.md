@@ -534,9 +534,54 @@ deserialization on load would otherwise flood the ring with hundreds of
 512 events; older ones are evicted, but `sinceId` polling means an agent that checks
 in regularly never misses anything between checks.
 
-> **Follow-up (still open under issue #306 item B):** this is the *poll-based* half.
-> Server-*initiated* push (MCP notifications / `resources/subscribe` / SSE — `GET /mcp`
-> currently returns 405) is a larger transport change and remains open.
+> **Companion (issue #306 item B, server-push half — done):** `olo_events_tail` is the
+> *poll-based* read of the ring buffer; the same buffer is now also **pushed live** over a
+> persistent SSE stream on `GET /mcp` (previously `405`). See **Live event push** below.
+> `resources/subscribe` remains the one unimplemented sub-item.
+
+### Live event push (server-initiated SSE stream)
+
+`GET /mcp` opens a persistent **`text/event-stream`** (Server-Sent Events) — the
+server-*initiated* counterpart of `olo_events_tail`. Instead of polling, an agent
+holds the stream open and is **pushed** each new diagnostics event the instant it is
+recorded, so a session watching a playtest sees script errors, scene loads, asset
+hot-reloads, and play/stop transitions arrive on their own. It is the same ring buffer
+(`Debug/DiagnosticsEventLog.h`) behind `olo_events_tail`, so the push and the poll
+surface byte-identical event records.
+
+- **Same gate as everything else.** The stream is behind the identical
+  `127.0.0.1`-bind + `Origin` check + **bearer token** (+ `Mcp-Session-Id` validation
+  when presented) as `POST /mcp`. It stays read-only: it only *reads* the event log.
+- **Each event is an MCP `notifications/message`** — the spec's logging notification —
+  carrying the structured event (the same `id` / `category` / `time` / `message` /
+  `entity` / `context` fields `olo_events_tail` returns) under `params.data`, with a
+  severity `level` (a script error is `error`, entity spawn/destroy are `debug`, the
+  rest `info`) and `logger: "olo.events"`. Each SSE frame's `id:` line is the event's
+  monotonic id. The server advertises the `logging` capability in `initialize`.
+- **No backlog flood.** A fresh subscriber starts at the *current* head of the ring, so
+  it receives only events recorded *after* it connects — not a 512-event dump. A
+  reconnecting client that sends the standard SSE **`Last-Event-ID`** header resumes
+  from exactly that id, with no gap and no duplicates (it maps straight onto the ring's
+  `sinceId` cursor).
+- **Keep-alive.** When idle the stream emits an SSE comment (`: keep-alive`) every ~15 s,
+  which also detects a vanished client. New events carry a worst-case latency of ~250 ms
+  (the stream's internal poll cadence). The MCP panel shows how many push streams are
+  connected.
+
+```jsonc
+// Wire format (one frame per event), pushed over GET /mcp:
+// id: 313
+// data: {"jsonrpc":"2.0","method":"notifications/message","params":{
+//          "level":"info","logger":"olo.events",
+//          "data":{"id":313,"category":"play","time":"14:02:11.418",
+//                  "message":"Entered Play mode","context":"MyScene"}}}
+```
+
+Attach with a streaming-capable client (the same `claude mcp add` line works — Claude
+Code opens the GET stream automatically alongside the POST channel). The threading is
+the same lock-safe path as `olo_events_tail`: the stream runs on an httplib worker
+thread and only touches the mutex-guarded event log, so it never marshals to or blocks
+the editor's main thread.
 
 ### Resources
 

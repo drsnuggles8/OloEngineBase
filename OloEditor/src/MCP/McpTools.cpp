@@ -8,6 +8,7 @@
 #include "MCP/McpRenderExplain.h"
 #include "MCP/McpRenderOverrides.h"
 #include "MCP/McpShaderReload.h"
+#include "MCP/McpEventStream.h"
 
 #include "OloEngine/Asset/AssetManager.h"
 #include "OloEngine/Asset/AssetMetadata.h"
@@ -1142,22 +1143,6 @@ namespace OloEngine::MCP
 
         // ---- olo_events_tail (lock-safe; unified diagnostics event ring buffer) -
 
-        // Format an epoch-seconds timestamp as a UTC "HH:MM:SS.mmm" wall-clock string.
-        // Computed with modular arithmetic to dodge the non-thread-safe / platform-split
-        // gmtime APIs — the date is irrelevant for a "what just happened" timeline.
-        std::string FormatEpochUtcTime(f64 epochSeconds)
-        {
-            if (!std::isfinite(epochSeconds) || epochSeconds <= 0.0)
-                return std::string{};
-            const auto total = static_cast<std::int64_t>(epochSeconds);
-            const auto secOfDay = static_cast<int>(((total % 86400) + 86400) % 86400);
-            const int milliseconds = static_cast<int>((epochSeconds - static_cast<f64>(total)) * 1000.0);
-            char buffer[16];
-            std::snprintf(buffer, sizeof(buffer), "%02d:%02d:%02d.%03d",
-                          secOfDay / 3600, (secOfDay % 3600) / 60, secOfDay % 60, std::clamp(milliseconds, 0, 999));
-            return std::string(buffer);
-        }
-
         // A unified "what just happened?" timeline backed by the engine's diagnostics
         // event ring buffer (Debug/DiagnosticsEventLog.h, mutex-guarded — safe from the
         // handler thread). Supports incremental polling via sinceId: pass back the
@@ -1209,19 +1194,7 @@ namespace OloEngine::MCP
 
             Json arr = Json::array();
             for (const auto& event : result.Events)
-            {
-                Json j;
-                j["id"] = event.Id;
-                j["category"] = DiagnosticEvent::CategoryToString(event.Category);
-                if (std::string time = FormatEpochUtcTime(event.Timestamp); !time.empty())
-                    j["time"] = std::move(time);
-                j["message"] = event.Message;
-                if (event.Entity != 0)
-                    j["entity"] = std::to_string(event.Entity);
-                if (!event.Context.empty())
-                    j["context"] = event.Context;
-                arr.push_back(std::move(j));
-            }
+                arr.push_back(EventToJson(event)); // shared with the SSE push path (McpEventStream.h)
 
             Json out;
             out["count"] = static_cast<int>(arr.size());

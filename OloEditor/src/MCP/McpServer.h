@@ -236,6 +236,13 @@ namespace OloEngine::MCP
         {
             return m_Token;
         }
+        // Number of live server-push SSE streams currently connected on GET /mcp
+        // (issue #306 item B). Surfaced in the panel so the user can see an agent is
+        // watching; lock-free, safe to read from any thread.
+        [[nodiscard]] int ActiveStreamCount() const
+        {
+            return m_ActiveStreams.load(std::memory_order_relaxed);
+        }
 
         // Optional redaction: when on, absolute filesystem paths are scrubbed from
         // text output before it leaves the process (off by default).
@@ -354,6 +361,13 @@ namespace OloEngine::MCP
         // JSON-RPC parse, dispatch. Defined in McpServer.cpp.
         void HandlePost(const httplib::Request& req, httplib::Response& res);
 
+        // GET /mcp handler: opens a persistent text/event-stream (SSE) and pushes
+        // newly-recorded diagnostics events to the agent as MCP JSON-RPC
+        // notifications (issue #306 item B). Same origin + bearer + session gates as
+        // HandlePost; then it streams on the worker thread until the client
+        // disconnects or the server stops. Defined in McpServer.cpp.
+        void HandleGetStream(const httplib::Request& req, httplib::Response& res);
+
         // Dispatch one JSON-RPC message. Returns the response object, or a null Json
         // for notifications (no response is sent).
         [[nodiscard]] Json DispatchRpc(const Json& request);
@@ -390,6 +404,10 @@ namespace OloEngine::MCP
         std::string m_Token;
 
         std::atomic<bool> m_RedactPaths{ false };
+
+        // Count of live GET /mcp SSE push streams (issue #306 item B). Bumped while a
+        // stream's content provider runs; surfaced via ActiveStreamCount().
+        std::atomic<int> m_ActiveStreams{ 0 };
 
         mutable std::mutex m_SessionMutex;
         std::unordered_set<std::string> m_Sessions;

@@ -66,6 +66,13 @@ namespace OloEngine::MCP
             if (ImGui::Button("Copy command"))
                 ImGui::SetClipboardText(command.c_str());
 
+            ImGui::Spacing();
+            if (const int streams = server.ActiveStreamCount(); streams > 0)
+                ImGui::TextColored(ImVec4(0.30f, 0.85f, 0.30f, 1.0f),
+                                   "Live event push: %d stream(s) connected (GET /mcp SSE)", streams);
+            else
+                ImGui::TextDisabled("Live event push: idle (an agent's GET /mcp opens a live event stream)");
+
             ImGui::Separator();
             if (ImGui::Button("Stop server"))
                 server.Stop();
