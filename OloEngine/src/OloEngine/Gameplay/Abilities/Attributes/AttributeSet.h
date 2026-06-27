@@ -1,6 +1,7 @@
 #pragma once
 
 #include "OloEngine/Core/Base.h"
+#include "OloEngine/Core/TransparentStringHash.h"
 #include "OloEngine/Gameplay/Abilities/Attributes/AttributeModifier.h"
 #include "OloEngine/Gameplay/Abilities/Tags/GameplayTag.h"
 
@@ -18,10 +19,10 @@ namespace OloEngine
 
         void DefineAttribute(const std::string& name, f32 baseValue);
 
-        [[nodiscard]] f32 GetBaseValue(const std::string& name) const;
-        [[nodiscard]] f32 GetCurrentValue(const std::string& name) const;
-        [[nodiscard]] bool HasAttribute(const std::string& name) const;
-        [[nodiscard]] std::vector<std::string> GetAttributeNames() const;
+        [[nodiscard("attribute base value must be used")]] f32 GetBaseValue(const std::string& name) const;
+        [[nodiscard("attribute current value must be used")]] f32 GetCurrentValue(const std::string& name) const;
+        [[nodiscard("existence check must be used")]] bool HasAttribute(const std::string& name) const;
+        [[nodiscard("attribute name list must be used")]] std::vector<std::string> GetAttributeNames() const;
 
         void SetBaseValue(const std::string& name, f32 value);
         void AddModifier(const std::string& attribute, const AttributeModifier& modifier);
@@ -29,7 +30,7 @@ namespace OloEngine
         void RemoveAllModifiers(const std::string& attribute);
         void ClearAllModifiers();
 
-        [[nodiscard]] const std::vector<AttributeModifier>& GetModifiers(const std::string& attribute) const;
+        [[nodiscard("modifier list must be used")]] const std::vector<AttributeModifier>& GetModifiers(const std::string& attribute) const;
 
         // For deserialization — restores base values + raw modifier list bypassing
         // ApplyEffect / removal bookkeeping. Caller is responsible for ensuring the
@@ -50,7 +51,7 @@ namespace OloEngine
 
         void RecalculateAttribute(const Attribute& attr) const;
 
-        std::unordered_map<std::string, Attribute> m_Attributes;
+        std::unordered_map<std::string, Attribute, StringHash, StringEqual> m_Attributes;
     };
 
 } // namespace OloEngine

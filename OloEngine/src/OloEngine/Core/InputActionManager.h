@@ -2,6 +2,7 @@
 
 #include "OloEngine/Core/IInputProvider.h"
 #include "OloEngine/Core/InputAction.h"
+#include "OloEngine/Core/TransparentStringHash.h"
 
 #include <string>
 #include <string_view>
@@ -9,24 +10,8 @@
 
 namespace OloEngine
 {
-    // Transparent hash/equal for heterogeneous lookup with std::string_view
-    struct StringHash
-    {
-        using is_transparent = void;
-        [[nodiscard]] std::size_t operator()(std::string_view sv) const
-        {
-            return std::hash<std::string_view>{}(sv);
-        }
-    };
-
-    struct StringEqual
-    {
-        using is_transparent = void;
-        [[nodiscard]] bool operator()(std::string_view lhs, std::string_view rhs) const
-        {
-            return lhs == rhs;
-        }
-    };
+    // StringHash / StringEqual (transparent heterogeneous lookup) now live in
+    // Core/TransparentStringHash.h so other subsystems can reuse them.
 
     class InputActionManager
     {

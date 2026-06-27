@@ -25,37 +25,40 @@ namespace OloEngine
             }
 
             const GameplayEventBus& bus = scene->GetGameplayEvents();
+            using enum QuestJournalChange::Type;
             for (auto const& c : changes)
             {
                 switch (c.Kind)
                 {
-                    case QuestJournalChange::Type::QuestStarted:
+                    case QuestStarted:
                         bus.Publish(QuestStartedEvent{ entityId, c.QuestID });
                         break;
-                    case QuestJournalChange::Type::QuestAbandoned:
+                    case QuestAbandoned:
                         bus.Publish(QuestAbandonedEvent{ entityId, c.QuestID });
                         break;
-                    case QuestJournalChange::Type::QuestFailed:
+                    case QuestFailed:
                         bus.Publish(QuestFailedEvent{ entityId, c.QuestID });
                         break;
-                    case QuestJournalChange::Type::QuestCompleted:
+                    case QuestCompleted:
                         bus.Publish(QuestCompletedEvent{ entityId, c.QuestID, c.BranchChoice });
                         break;
-                    case QuestJournalChange::Type::ObjectiveProgress:
+                    case ObjectiveProgress:
                         bus.Publish(ObjectiveProgressEvent{ entityId, c.QuestID, c.ObjectiveID, c.CurrentCount, c.RequiredCount });
                         break;
-                    case QuestJournalChange::Type::ObjectiveCompleted:
+                    case ObjectiveCompleted:
                         bus.Publish(ObjectiveCompletedEvent{ entityId, c.QuestID, c.ObjectiveID });
                         break;
-                    case QuestJournalChange::Type::StageAdvanced:
+                    case StageAdvanced:
                         bus.Publish(QuestStageAdvancedEvent{ entityId, c.QuestID, c.NewStageIndex });
+                        break;
+                    default:
                         break;
                 }
             }
         }
 
         // Common guard: returns the QuestJournalComponent pointer or nullptr.
-        QuestJournalComponent* ResolveJournal(Scene* scene, Entity entity)
+        QuestJournalComponent* ResolveJournal(const Scene* scene, Entity entity)
         {
             if (!scene || !entity || !entity.HasComponent<QuestJournalComponent>())
             {

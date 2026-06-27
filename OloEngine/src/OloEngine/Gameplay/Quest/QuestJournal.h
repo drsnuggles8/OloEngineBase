@@ -2,9 +2,11 @@
 
 #include "OloEngine/Gameplay/Quest/Quest.h"
 #include "OloEngine/Core/Log.h"
+#include "OloEngine/Core/TransparentStringHash.h"
 
 #include <optional>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -51,6 +53,13 @@ namespace OloEngine
     class QuestJournal
     {
       public:
+        // Transparent string-keyed containers enable heterogeneous lookup
+        // (std::string_view / const char*) without materialising a temporary
+        // std::string (cpp:S6045).
+        using StringSet = std::unordered_set<std::string, StringHash, StringEqual>;
+        template<typename V>
+        using StringMap = std::unordered_map<std::string, V, StringHash, StringEqual>;
+
         // Accept a quest (moves from Available/Unavailable to Active).
         // When `sink` is non-null, appends a QuestStarted record on success.
         bool AcceptQuest(const std::string& questId, const QuestDefinition& definition, QuestEventSink* sink = nullptr);
@@ -73,13 +82,13 @@ namespace OloEngine
         std::optional<QuestRewards> TryAdvanceStage(const std::string& questId, QuestEventSink* sink = nullptr);
 
         // Queries
-        [[nodiscard]] QuestStatus GetQuestStatus(const std::string& questId) const;
-        [[nodiscard]] const QuestObjective* GetObjective(const std::string& questId, const std::string& objectiveId) const;
-        [[nodiscard]] i32 GetCurrentStageIndex(const std::string& questId) const;
-        [[nodiscard]] std::vector<std::string> GetActiveQuests() const;
-        [[nodiscard]] std::vector<std::string> GetCompletedQuests() const;
-        [[nodiscard]] bool HasCompletedQuest(const std::string& questId) const;
-        [[nodiscard]] bool IsQuestActive(const std::string& questId) const;
+        [[nodiscard("quest status must be used")]] QuestStatus GetQuestStatus(const std::string& questId) const;
+        [[nodiscard("objective pointer must be used")]] const QuestObjective* GetObjective(std::string_view questId, std::string_view objectiveId) const;
+        [[nodiscard("stage index must be used")]] i32 GetCurrentStageIndex(const std::string& questId) const;
+        [[nodiscard("active quest list must be used")]] std::vector<std::string> GetActiveQuests() const;
+        [[nodiscard("completed quest list must be used")]] std::vector<std::string> GetCompletedQuests() const;
+        [[nodiscard("completion check must be used")]] bool HasCompletedQuest(const std::string& questId) const;
+        [[nodiscard("active check must be used")]] bool IsQuestActive(const std::string& questId) const;
 
         // Notify-based progress by objective type. When `sink` is non-null,
         // records the same ObjectiveProgress / ObjectiveCompleted /
@@ -92,56 +101,56 @@ namespace OloEngine
 
         // Tag management (quest-granted tags on the player)
         void AddTag(const std::string& tag);
-        [[nodiscard]] bool HasTag(const std::string& tag) const;
-        [[nodiscard]] const std::unordered_set<std::string>& GetTags() const
+        [[nodiscard("tag-presence check must be used")]] bool HasTag(const std::string& tag) const;
+        [[nodiscard("tag set must be used")]] const StringSet& GetTags() const
         {
             return m_Tags;
         }
 
         // Player state for requirement evaluation (fed by external systems)
         void SetPlayerLevel(i32 level);
-        [[nodiscard]] i32 GetPlayerLevel() const
+        [[nodiscard("player level must be used")]] i32 GetPlayerLevel() const
         {
             return m_PlayerLevel;
         }
 
         void SetReputation(const std::string& factionId, i32 value);
-        [[nodiscard]] i32 GetReputation(const std::string& factionId) const;
-        [[nodiscard]] const std::unordered_map<std::string, i32>& GetReputations() const
+        [[nodiscard("reputation must be used")]] i32 GetReputation(const std::string& factionId) const;
+        [[nodiscard("reputations map must be used")]] const StringMap<i32>& GetReputations() const
         {
             return m_Reputations;
         }
 
         void SetItemCount(const std::string& itemId, i32 count);
-        [[nodiscard]] i32 GetItemCount(const std::string& itemId) const;
-        [[nodiscard]] const std::unordered_map<std::string, i32>& GetItems() const
+        [[nodiscard("item count must be used")]] i32 GetItemCount(const std::string& itemId) const;
+        [[nodiscard("items map must be used")]] const StringMap<i32>& GetItems() const
         {
             return m_Items;
         }
 
         void SetStat(const std::string& statName, i32 value);
-        [[nodiscard]] i32 GetStat(const std::string& statName) const;
-        [[nodiscard]] const std::unordered_map<std::string, i32>& GetStats() const
+        [[nodiscard("stat value must be used")]] i32 GetStat(const std::string& statName) const;
+        [[nodiscard("stats map must be used")]] const StringMap<i32>& GetStats() const
         {
             return m_Stats;
         }
 
-        void SetPlayerClass(const std::string& className);
-        [[nodiscard]] const std::string& GetPlayerClass() const
+        void SetPlayerClass(std::string_view className);
+        [[nodiscard("player class must be used")]] const std::string& GetPlayerClass() const
         {
             return m_PlayerClass;
         }
 
-        void SetPlayerFaction(const std::string& factionName);
-        [[nodiscard]] const std::string& GetPlayerFaction() const
+        void SetPlayerFaction(std::string_view factionName);
+        [[nodiscard("player faction must be used")]] const std::string& GetPlayerFaction() const
         {
             return m_PlayerFaction;
         }
 
         // Requirement evaluation
-        [[nodiscard]] bool CheckRequirement(const QuestRequirement& requirement) const;
-        [[nodiscard]] bool CheckRequirements(const std::vector<QuestRequirement>& requirements) const;
-        [[nodiscard]] std::vector<const QuestRequirement*> GetUnmetRequirements(const std::vector<QuestRequirement>& requirements) const;
+        [[nodiscard("requirement result must be used")]] bool CheckRequirement(const QuestRequirement& requirement) const;
+        [[nodiscard("requirements result must be used")]] bool CheckRequirements(const std::vector<QuestRequirement>& requirements) const;
+        [[nodiscard("unmet requirement list must be used")]] std::vector<const QuestRequirement*> GetUnmetRequirements(const std::vector<QuestRequirement>& requirements) const;
 
         // Time update (called each frame for timed quests). Records QuestFailed
         // into `sink` for any quest that hits its deadline / fail tag this tick.
@@ -160,15 +169,15 @@ namespace OloEngine
             auto operator==(const ActiveQuestState&) const -> bool = default;
         };
 
-        [[nodiscard]] const std::unordered_map<std::string, ActiveQuestState>& GetActiveQuestStates() const
+        [[nodiscard("active quest states must be used")]] const StringMap<ActiveQuestState>& GetActiveQuestStates() const
         {
             return m_ActiveQuests;
         }
-        [[nodiscard]] const std::unordered_set<std::string>& GetCompletedQuestIDs() const
+        [[nodiscard("completed quest IDs must be used")]] const StringSet& GetCompletedQuestIDs() const
         {
             return m_CompletedQuestIDs;
         }
-        [[nodiscard]] const std::unordered_set<std::string>& GetFailedQuestIDs() const
+        [[nodiscard("failed quest IDs must be used")]] const StringSet& GetFailedQuestIDs() const
         {
             return m_FailedQuestIDs;
         }
@@ -179,14 +188,14 @@ namespace OloEngine
         void AddFailedQuestID(const std::string& questId);
 
         // Branch tracking for completed quests
-        [[nodiscard]] const std::string& GetCompletedQuestBranch(const std::string& questId) const;
-        [[nodiscard]] const std::unordered_map<std::string, std::string>& GetCompletedQuestBranches() const
+        [[nodiscard("completed quest branch must be used")]] const std::string& GetCompletedQuestBranch(const std::string& questId) const;
+        [[nodiscard("completed quest branches must be used")]] const StringMap<std::string>& GetCompletedQuestBranches() const
         {
             return m_CompletedQuestBranches;
         }
 
         // Cooldown tracking for repeatable quests
-        [[nodiscard]] const std::unordered_map<std::string, f32>& GetQuestCooldowns() const
+        [[nodiscard("quest cooldowns must be used")]] const StringMap<f32>& GetQuestCooldowns() const
         {
             return m_QuestCooldowns;
         }
@@ -195,20 +204,20 @@ namespace OloEngine
         auto operator==(const QuestJournal&) const -> bool = default;
 
       private:
-        void NotifyObjectiveProgress(QuestObjective::Type type, const std::string& targetId, i32 amount, QuestEventSink* sink = nullptr);
+        void NotifyObjectiveProgress(QuestObjective::Type type, std::string_view targetId, i32 amount, QuestEventSink* sink = nullptr);
 
-        std::unordered_map<std::string, ActiveQuestState> m_ActiveQuests;
-        std::unordered_set<std::string> m_CompletedQuestIDs;
-        std::unordered_set<std::string> m_FailedQuestIDs;
-        std::unordered_set<std::string> m_Tags;
-        std::unordered_map<std::string, std::string> m_CompletedQuestBranches;
-        std::unordered_map<std::string, f32> m_QuestCooldowns;
+        StringMap<ActiveQuestState> m_ActiveQuests;
+        StringSet m_CompletedQuestIDs;
+        StringSet m_FailedQuestIDs;
+        StringSet m_Tags;
+        StringMap<std::string> m_CompletedQuestBranches;
+        StringMap<f32> m_QuestCooldowns;
 
         // External player state for requirement evaluation
         i32 m_PlayerLevel = 0;
-        std::unordered_map<std::string, i32> m_Reputations;
-        std::unordered_map<std::string, i32> m_Items;
-        std::unordered_map<std::string, i32> m_Stats;
+        StringMap<i32> m_Reputations;
+        StringMap<i32> m_Items;
+        StringMap<i32> m_Stats;
         std::string m_PlayerClass;
         std::string m_PlayerFaction;
     };

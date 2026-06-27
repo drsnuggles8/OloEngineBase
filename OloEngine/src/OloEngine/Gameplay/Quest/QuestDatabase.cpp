@@ -5,6 +5,7 @@
 
 #include <cmath>
 #include <filesystem>
+#include <string_view>
 
 namespace OloEngine
 {
@@ -13,7 +14,7 @@ namespace OloEngine
         // Validate a float read from an .oloquest YAML file (cpp-coding-quality §2b).
         // A corrupt or hand-edited asset can carry NaN/±inf; substitute a safe fallback
         // so it never reaches quest timers / cooldowns.
-        [[nodiscard]] f32 SanitizeFinite(f32 value, f32 fallback, const char* field, const std::string& questId)
+        [[nodiscard("sanitized value must be used")]] f32 SanitizeFinite(f32 value, f32 fallback, std::string_view field, const std::string& questId)
         {
             if (!std::isfinite(value))
             {
@@ -70,9 +71,9 @@ namespace OloEngine
         return req;
     }
 
-    std::unordered_map<std::string, QuestDefinition>& QuestDatabase::GetQuests()
+    std::unordered_map<std::string, QuestDefinition, StringHash, StringEqual>& QuestDatabase::GetQuests()
     {
-        static std::unordered_map<std::string, QuestDefinition> s_Quests;
+        static std::unordered_map<std::string, QuestDefinition, StringHash, StringEqual> s_Quests;
         return s_Quests;
     }
 
@@ -247,7 +248,7 @@ namespace OloEngine
         return it != quests.end() ? &it->second : nullptr;
     }
 
-    std::vector<const QuestDefinition*> QuestDatabase::GetByCategory(const std::string& category)
+    std::vector<const QuestDefinition*> QuestDatabase::GetByCategory(std::string_view category)
     {
         std::vector<const QuestDefinition*> result;
         for (auto const& [id, def] : GetQuests())

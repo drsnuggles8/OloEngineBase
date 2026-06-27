@@ -3,6 +3,7 @@
 #include "OloEngine/Core/Base.h"
 
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace OloEngine
@@ -13,7 +14,7 @@ namespace OloEngine
         Suffix
     };
 
-    inline const char* AffixTypeToString(AffixType type)
+    [[nodiscard("affix type string must be used")]] inline const char* AffixTypeToString(AffixType type)
     {
         switch (type)
         {
@@ -21,11 +22,13 @@ namespace OloEngine
                 return "Prefix";
             case AffixType::Suffix:
                 return "Suffix";
+            default:
+                break;
         }
         return "Prefix";
     }
 
-    inline AffixType AffixTypeFromString(const std::string& str)
+    inline AffixType AffixTypeFromString(std::string_view str)
     {
         if (str == "Suffix")
             return AffixType::Suffix;

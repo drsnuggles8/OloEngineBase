@@ -38,15 +38,15 @@ namespace OloEngine
 
         void Tick(f32 dt, AttributeSet& attributes, GameplayTagContainer& ownerTags);
 
-        [[nodiscard]] const std::vector<ActiveEffect>& GetActiveEffects() const
+        [[nodiscard("active-effects list must be used")]] const std::vector<ActiveEffect>& GetActiveEffects() const
         {
             return m_ActiveEffects;
         }
-        [[nodiscard]] const std::unordered_map<GameplayTag, i32>& GetTagGrantCounts() const
+        [[nodiscard("tag-grant counts must be used")]] const std::unordered_map<GameplayTag, i32>& GetTagGrantCounts() const
         {
             return m_TagGrantCounts;
         }
-        [[nodiscard]] bool HasAnyEffects() const
+        [[nodiscard("effects-presence check must be used")]] bool HasAnyEffects() const
         {
             return !m_ActiveEffects.empty();
         }

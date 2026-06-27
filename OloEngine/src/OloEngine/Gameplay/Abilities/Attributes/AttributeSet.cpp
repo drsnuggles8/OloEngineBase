@@ -158,19 +158,22 @@ namespace OloEngine
         bool hasOverride = false;
         f32 overrideValue = 0.0f;
 
+        using enum AttributeModifier::Operation;
         for (auto const& mod : attr.Modifiers)
         {
             switch (mod.Op)
             {
-                case AttributeModifier::Operation::Add:
+                case Add:
                     additive += mod.Magnitude;
                     break;
-                case AttributeModifier::Operation::Multiply:
+                case Multiply:
                     multiplicative *= mod.Magnitude;
                     break;
-                case AttributeModifier::Operation::Override:
+                case Override:
                     hasOverride = true;
                     overrideValue = mod.Magnitude;
+                    break;
+                default:
                     break;
             }
         }

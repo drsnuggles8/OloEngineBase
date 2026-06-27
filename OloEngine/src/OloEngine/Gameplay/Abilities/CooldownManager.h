@@ -17,9 +17,9 @@ namespace OloEngine
         void StartCooldown(const GameplayTag& abilityTag, f32 duration);
         void Tick(f32 dt);
 
-        [[nodiscard]] bool IsOnCooldown(const GameplayTag& abilityTag) const;
-        [[nodiscard]] f32 GetRemainingCooldown(const GameplayTag& abilityTag) const;
-        [[nodiscard]] f32 GetCooldownFraction(const GameplayTag& abilityTag) const;
+        [[nodiscard("cooldown state must be checked")]] bool IsOnCooldown(const GameplayTag& abilityTag) const;
+        [[nodiscard("remaining cooldown must be used")]] f32 GetRemainingCooldown(const GameplayTag& abilityTag) const;
+        [[nodiscard("cooldown fraction must be used")]] f32 GetCooldownFraction(const GameplayTag& abilityTag) const;
 
         void ResetCooldown(const GameplayTag& abilityTag);
         void ResetAll();
@@ -38,7 +38,7 @@ namespace OloEngine
                 fn(tag, entry.Duration, entry.Remaining);
             }
         }
-        [[nodiscard]] std::size_t Size() const
+        [[nodiscard("active-cooldown count must be used")]] std::size_t Size() const
         {
             return m_Cooldowns.size();
         }

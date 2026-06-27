@@ -31,7 +31,7 @@ namespace OloEngine
         i32 MaxDrops = 3;
         f32 NothingWeight = 0.0f;
 
-        [[nodiscard]] std::vector<ItemInstance> Roll(f32 itemLevel = 1.0f) const;
+        [[nodiscard("rolled loot must be used")]] std::vector<ItemInstance> Roll(f32 itemLevel = 1.0f) const;
     };
 
 } // namespace OloEngine

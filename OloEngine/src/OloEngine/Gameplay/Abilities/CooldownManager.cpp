@@ -20,18 +20,10 @@ namespace OloEngine
         {
             return;
         }
-        for (auto it = m_Cooldowns.begin(); it != m_Cooldowns.end();)
-        {
-            it->second.Remaining -= dt;
-            if (it->second.Remaining <= 0.0f)
-            {
-                it = m_Cooldowns.erase(it);
-            }
-            else
-            {
-                ++it;
-            }
-        }
+        std::erase_if(m_Cooldowns, [dt](auto& pair)
+                      {
+            pair.second.Remaining -= dt;
+            return pair.second.Remaining <= 0.0f; });
     }
 
     bool CooldownManager::IsOnCooldown(const GameplayTag& abilityTag) const

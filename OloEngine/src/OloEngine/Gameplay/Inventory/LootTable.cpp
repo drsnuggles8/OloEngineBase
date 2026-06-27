@@ -141,12 +141,9 @@ namespace OloEngine
                             const AffixTier* selectedTier = nullptr;
                             for (auto const& tier : affixDef->Tiers)
                             {
-                                if (itemLevel >= tier.MinItemLevel)
+                                if (itemLevel >= tier.MinItemLevel && (!selectedTier || tier.Tier > selectedTier->Tier))
                                 {
-                                    if (!selectedTier || tier.Tier > selectedTier->Tier)
-                                    {
-                                        selectedTier = &tier;
-                                    }
+                                    selectedTier = &tier;
                                 }
                             }
                             if (!selectedTier)

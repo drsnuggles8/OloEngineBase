@@ -65,7 +65,7 @@ namespace OloEngine
 
         // Number of handlers registered for E (diagnostics / tests).
         template<typename E>
-        [[nodiscard]] sizet HandlerCount() const
+        [[nodiscard("handler count must be used")]] sizet HandlerCount() const
         {
             auto it = m_Handlers.find(std::type_index(typeid(E)));
             return it == m_Handlers.end() ? 0 : it->second.size();

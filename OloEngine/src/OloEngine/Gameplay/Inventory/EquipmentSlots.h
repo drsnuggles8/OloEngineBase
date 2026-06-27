@@ -5,6 +5,8 @@
 
 #include <array>
 #include <optional>
+#include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -35,21 +37,21 @@ namespace OloEngine
         bool Equip(Slot slot, const ItemInstance& item, Inventory& sourceInventory);
         bool DirectEquip(Slot slot, const ItemInstance& item);
         bool Unequip(Slot slot, Inventory& targetInventory);
-        [[nodiscard]] const ItemInstance* GetEquipped(Slot slot) const;
-        [[nodiscard]] bool IsSlotEmpty(Slot slot) const;
+        [[nodiscard("equipped item pointer must be used")]] const ItemInstance* GetEquipped(Slot slot) const;
+        [[nodiscard("slot-empty check must be used")]] bool IsSlotEmpty(Slot slot) const;
 
-        [[nodiscard]] std::vector<std::pair<std::string, f32>> GetAllAttributeModifiers() const;
+        [[nodiscard("attribute modifiers must be used")]] std::vector<std::pair<std::string, f32>> GetAllAttributeModifiers() const;
 
         // Direct access for serialization
-        [[nodiscard]] const auto& GetAllSlots() const
+        [[nodiscard("slot array must be used")]] const auto& GetAllSlots() const
         {
             return m_Equipped;
         }
 
         static constexpr i32 SlotCount = static_cast<i32>(std::to_underlying(Slot::Count));
 
-        static const char* SlotToString(Slot slot);
-        static Slot SlotFromString(const std::string& str);
+        [[nodiscard("slot string must be used")]] static const char* SlotToString(Slot slot);
+        static Slot SlotFromString(std::string_view str);
 
         auto operator==(const EquipmentSlots&) const -> bool = default;
 

@@ -203,7 +203,9 @@ namespace OloEngine
     {
         for (auto const& tag : effect.GrantedTags.GetTags())
         {
-            if (++m_TagGrantCounts[tag] == 1)
+            auto& count = m_TagGrantCounts[tag];
+            ++count;
+            if (count == 1)
             {
                 ownerTags.AddTag(tag);
             }
@@ -215,7 +217,12 @@ namespace OloEngine
         for (auto const& tag : effect.GrantedTags.GetTags())
         {
             auto it = m_TagGrantCounts.find(tag);
-            if (it != m_TagGrantCounts.end() && --it->second <= 0)
+            if (it == m_TagGrantCounts.end())
+            {
+                continue;
+            }
+            --it->second;
+            if (it->second <= 0)
             {
                 m_TagGrantCounts.erase(it);
                 ownerTags.RemoveTag(tag);
