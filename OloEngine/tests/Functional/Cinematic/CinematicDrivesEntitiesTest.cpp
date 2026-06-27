@@ -224,13 +224,15 @@ class CinematicReversePlaybackTest : public FunctionalTest
         m_Director = GetScene().CreateEntity("Director");
         auto& cine = m_Director.AddComponent<CinematicComponent>();
         cine.RuntimeSequence = seq;
-        // Park the playhead at the end and play backward. PreviousTime mirrors
-        // Time so the first reverse step's event window starts clean (no
-        // "start from the end" sentinel exists — see CINEMATIC_SEQUENCER.md).
+        // Reverse playback through the *normal* start path. PlayFromStart()
+        // rewinds to Time=0 (the forward start), and CinematicSystem::Advance
+        // seeds the playhead to the end for a negative speed so the sequence
+        // actually plays backward instead of finishing instantly at 0. This is
+        // the exact path PlayOnStart / the editor Play button / a Lua
+        // PlayFromStart() all take — so the test proves the seed, not a manual
+        // Time=duration workaround.
         cine.PlaybackSpeed = -1.0f;
-        cine.Time = seq->Duration;
-        cine.PreviousTime = seq->Duration;
-        cine.Play();
+        cine.PlayFromStart();
     }
 
     Entity m_Hero, m_Director;
@@ -238,7 +240,20 @@ class CinematicReversePlaybackTest : public FunctionalTest
 
 TEST_F(CinematicReversePlaybackTest, PlaysBackwardFiresDescendingEventsAndFinishesAtZero)
 {
-    // Capture the event firing order across the whole backward run.
+    // First frame: the seed must move the playhead to (near) the end and keep
+    // playing — the bug this guards is a reverse PlayFromStart() finishing
+    // instantly at 0 having played nothing.
+    RunFrames(1);
+    {
+        const auto& cine = m_Director.GetComponent<CinematicComponent>();
+        EXPECT_TRUE(cine.Playing) << "reverse sequence must not finish on its first step";
+        EXPECT_FALSE(cine.Finished);
+        EXPECT_GT(cine.Time, 0.5f) << "playhead should be seeded near the end, not stuck at 0";
+        const f32 heroY = m_Hero.GetComponent<TransformComponent>().Translation.y;
+        EXPECT_GT(heroY, 5.0f) << "Hero should start posed near the end key (y=10), not the start (y=0)";
+    }
+
+    // Capture the event firing order across the rest of the backward run.
     std::vector<std::string> firedOrder;
     bool reachedZero = false;
     for (u32 i = 0; i < 120 && !reachedZero; ++i) // up to 2s; a 1s reverse run finishes well within

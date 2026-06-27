@@ -3109,8 +3109,9 @@ namespace OloEngine
             else
             {
                 // Clamp to the inspector's authoring range so a corrupted save
-                // can't inject a negative or absurd time scale.
-                c.PlaybackSpeed = std::clamp(c.PlaybackSpeed, 0.0f, 16.0f);
+                // can't inject an absurd time scale. Negative is valid (reverse
+                // playback); the range is symmetric.
+                c.PlaybackSpeed = std::clamp(c.PlaybackSpeed, -16.0f, 16.0f);
             }
         }
     }

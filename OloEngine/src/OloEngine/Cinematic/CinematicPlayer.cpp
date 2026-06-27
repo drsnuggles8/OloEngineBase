@@ -69,15 +69,12 @@ namespace OloEngine::CinematicPlayer
 
             if (loop)
             {
-                // Wrap into (0, duration]. fmod keeps the sign of `raw` (<= 0),
-                // so the result lands in (-duration, 0]; shifting up by duration
-                // mirrors the forward wrap and maps an exact landing on 0 to
+                // Wrap into (0, duration]. fmod of a non-positive `raw` against a
+                // positive `duration` always lands in (-duration, 0], so the
+                // unconditional shift up by duration maps it into (0, duration] —
+                // mirroring the forward wrap and mapping an exact landing on 0 to
                 // `duration` (the start of a backward lap).
-                f32 wrapped = std::fmod(raw, duration);
-                if (wrapped <= 0.0f)
-                {
-                    wrapped += duration;
-                }
+                const f32 wrapped = std::fmod(raw, duration) + duration;
                 result.NewTime = wrapped;
                 result.Looped = true;
                 // Full laps crossed this step (>=1). floor(-raw/duration)+1
