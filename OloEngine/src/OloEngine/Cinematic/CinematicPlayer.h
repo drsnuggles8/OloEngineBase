@@ -24,20 +24,28 @@ namespace OloEngine
         struct AdvanceResult
         {
             f32 NewTime = 0.0f;
-            bool Looped = false;       ///< playhead wrapped past the end this step
+            bool Looped = false;       ///< playhead wrapped past an end (duration forward, 0 backward) this step
             bool JustFinished = false; ///< reached the end this step (non-looping / empty)
             u32 LoopCount = 0;         ///< full laps crossed this step (>=1 when Looped; >1 on a huge dt)
         };
 
-        /// Advance `fromTime` by `dt * max(speed, 0)`, honouring `duration` and
-        /// `loop`. Reverse playback (speed < 0) is treated as a hold for now.
-        /// A non-positive `duration` finishes immediately.
+        /// Advance `fromTime` by `dt * speed`, honouring `duration` and `loop`.
+        /// Positive speed plays forward toward `duration`; negative speed plays
+        /// backward toward 0 (mirrored finish-at-0 / wrap 0 -> duration);
+        /// zero speed holds the playhead. A non-positive `duration` finishes
+        /// immediately.
         [[nodiscard]] AdvanceResult AdvanceTime(f32 fromTime, f32 dt, f32 speed, f32 duration, bool loop) noexcept;
 
         /// Append event identifiers whose key time lies in
         /// (lowerExclusive, upperInclusive], in ascending time order.
         void CollectEvents(const CinematicSequence& sequence, f32 lowerExclusive, f32 upperInclusive,
                            std::vector<std::string>& out);
+
+        /// Reverse mirror of CollectEvents for backward playback: append event
+        /// identifiers whose key time lies in [lowerInclusive, upperExclusive),
+        /// in descending time order (the order a receding playhead crosses them).
+        void CollectEventsReverse(const CinematicSequence& sequence, f32 lowerInclusive, f32 upperExclusive,
+                                  std::vector<std::string>& out);
 
         struct TickResult
         {

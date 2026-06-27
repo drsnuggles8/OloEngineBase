@@ -194,3 +194,76 @@ TEST_F(CinematicLoopTest, LoopingSequenceNeverFinishesAndRefiresZeroEvent)
     // t==0 event fires on the first tick and again on each wrap; expect several.
     EXPECT_GE(loopStartCount, 3u) << "t==0 event should re-fire on each loop";
 }
+
+// Reverse playback: a negative PlaybackSpeed drives the playhead from the end
+// back to 0 through the real runtime, poses entities backward, fires events in
+// descending order, and finishes at 0 (the mirror of the forward case above).
+class CinematicReversePlaybackTest : public FunctionalTest
+{
+  protected:
+    void BuildScene() override
+    {
+        m_Hero = GetScene().CreateEntity("Hero");
+
+        auto seq = Ref<CinematicSequence>::Create();
+        seq->Name = "ReverseCutscene";
+        seq->Duration = 1.0f;
+
+        CinematicTransformTrack tt;
+        tt.Target = m_Hero.GetUUID();
+        tt.Translation.Keys.push_back({ 0.0f, glm::vec3(0.0f), CinematicInterp::Linear });
+        tt.Translation.Keys.push_back({ 1.0f, glm::vec3(0.0f, 10.0f, 0.0f), CinematicInterp::Linear });
+        seq->TransformTracks.push_back(std::move(tt));
+
+        CinematicEventTrack et;
+        et.Name = "cues";
+        et.Keys.push_back({ 0.25f, "low" });
+        et.Keys.push_back({ 0.75f, "high" });
+        seq->EventTracks.push_back(std::move(et));
+
+        m_Director = GetScene().CreateEntity("Director");
+        auto& cine = m_Director.AddComponent<CinematicComponent>();
+        cine.RuntimeSequence = seq;
+        // Park the playhead at the end and play backward. PreviousTime mirrors
+        // Time so the first reverse step's event window starts clean (no
+        // "start from the end" sentinel exists — see CINEMATIC_SEQUENCER.md).
+        cine.PlaybackSpeed = -1.0f;
+        cine.Time = seq->Duration;
+        cine.PreviousTime = seq->Duration;
+        cine.Play();
+    }
+
+    Entity m_Hero, m_Director;
+};
+
+TEST_F(CinematicReversePlaybackTest, PlaysBackwardFiresDescendingEventsAndFinishesAtZero)
+{
+    // Capture the event firing order across the whole backward run.
+    std::vector<std::string> firedOrder;
+    bool reachedZero = false;
+    for (u32 i = 0; i < 120 && !reachedZero; ++i) // up to 2s; a 1s reverse run finishes well within
+    {
+        RunFrames(1);
+        const auto& cine = m_Director.GetComponent<CinematicComponent>();
+        for (const auto& e : cine.EventsFiredThisFrame)
+        {
+            firedOrder.push_back(e);
+        }
+        reachedZero = cine.Finished;
+    }
+
+    const auto& cine = m_Director.GetComponent<CinematicComponent>();
+    EXPECT_TRUE(cine.Finished) << "reverse sequence should finish when the playhead reaches 0";
+    EXPECT_FALSE(cine.Playing) << "finished sequence should stop playing";
+    EXPECT_NEAR(cine.Time, 0.0f, 1e-3f) << "reverse playhead should land on 0";
+
+    // Hero ended at the first translation key (it started at the last).
+    const glm::vec3 heroPos = m_Hero.GetComponent<TransformComponent>().Translation;
+    EXPECT_NEAR(heroPos.y, 0.0f, 1e-2f) << "Hero should be back at the start pose";
+
+    // Events fired in descending time order: "high" (t=0.75) before "low"
+    // (t=0.25) as the playhead receded from the end.
+    ASSERT_EQ(firedOrder.size(), 2u);
+    EXPECT_EQ(firedOrder[0], "high");
+    EXPECT_EQ(firedOrder[1], "low");
+}
