@@ -48,8 +48,7 @@ namespace OloEngine::Animation
         // float-precision danger zone by wrapping; simplex noise is aperiodic so
         // a large wrap point is visually seamless.
         state.Time += deltaTime;
-        constexpr f32 kPhaseWrap = 100000.0f;
-        if (!std::isfinite(state.Time) || std::abs(state.Time) > kPhaseWrap)
+        if (constexpr f32 kPhaseWrap = 100000.0f; !std::isfinite(state.Time) || std::abs(state.Time) > kPhaseWrap)
         {
             state.Time = std::fmod(state.Time, kPhaseWrap);
             if (!std::isfinite(state.Time))
@@ -97,8 +96,7 @@ namespace OloEngine::Animation
             glm::vec3 translation;
             glm::quat rotation;
             glm::vec3 skew;
-            glm::vec4 perspective;
-            if (!glm::decompose(skeleton.m_LocalTransforms[i], scale, rotation, translation, skew, perspective))
+            if (glm::vec4 perspective; !glm::decompose(skeleton.m_LocalTransforms[i], scale, rotation, translation, skew, perspective))
             {
                 // Degenerate/non-affine local transform — drop this bone from the
                 // write-back so we preserve its original matrix instead of

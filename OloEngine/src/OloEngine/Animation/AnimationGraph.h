@@ -28,8 +28,16 @@ namespace OloEngine
         [[nodiscard("cloned graph must be assigned")]] Ref<AnimationGraph> Clone() const;
         void ResolveClips(const std::vector<Ref<AnimationClip>>& availableClips);
         [[nodiscard("check needed to avoid sampling missing clips")]] bool HasUnresolvedClips() const;
-        [[nodiscard("state name needed for UI or logic")]] const std::string& GetCurrentStateName(i32 layerIndex = 0) const;
-        [[nodiscard("transition check needed for blend decisions")]] bool IsInTransition(i32 layerIndex = 0) const;
+        [[nodiscard("state name needed for UI or logic")]] const std::string& GetCurrentStateName(i32 layerIndex) const;
+        [[nodiscard("state name needed for UI or logic")]] const std::string& GetCurrentStateName() const
+        {
+            return GetCurrentStateName(0);
+        }
+        [[nodiscard("transition check needed for blend decisions")]] bool IsInTransition(i32 layerIndex) const;
+        [[nodiscard("transition check needed for blend decisions")]] bool IsInTransition() const
+        {
+            return IsInTransition(0);
+        }
 
         // Morph-target (blend-shape) sampling support: the active single clip on
         // a layer plus the clip-space time (seconds) at which to sample its

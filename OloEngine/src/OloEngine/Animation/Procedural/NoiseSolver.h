@@ -50,7 +50,7 @@ namespace OloEngine::Animation
         //   |EulerRadians[a]| <= |RotationAmplitude[a]| * clamp(Weight, 0, 1)
         //   |Translation[a]|  <= |TranslationAmplitude[a]| * clamp(Weight, 0, 1)
         // Returns a zero offset for a non-finite or zero-weight configuration.
-        [[nodiscard]] static NoiseBoneOffset SampleBoneOffset(
+        [[nodiscard("sampled bone offset must be applied to the pose")]] static NoiseBoneOffset SampleBoneOffset(
             const NoiseParams& params, u32 chainIndex, u32 boneIndex, f32 timeSeconds);
 
         // Adds noise offsets to the local-space pose of the bone chain in place.

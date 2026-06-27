@@ -95,7 +95,8 @@ namespace OloEngine::Animation
 
         // Compute global transforms (forward kinematics)
         // Pre-transforms account for non-bone intermediate nodes in the hierarchy
-        for (sizet i = 0; i < skeleton.m_LocalTransforms.size(); ++i)
+        auto localTransformCount = skeleton.m_LocalTransforms.size();
+        for (sizet i = 0; i < localTransformCount; ++i)
         {
             const glm::mat4& preTransform = (i < skeleton.m_BonePreTransforms.size())
                                                 ? skeleton.m_BonePreTransforms[i]
@@ -103,7 +104,7 @@ namespace OloEngine::Animation
             i32 parent = skeleton.m_ParentIndices[i];
             if (parent >= 0)
             {
-                skeleton.m_GlobalTransforms[i] = skeleton.m_GlobalTransforms[parent] * preTransform * skeleton.m_LocalTransforms[i];
+                skeleton.m_GlobalTransforms[i] = skeleton.m_GlobalTransforms[static_cast<sizet>(parent)] * preTransform * skeleton.m_LocalTransforms[i];
             }
             else
             {
@@ -112,7 +113,8 @@ namespace OloEngine::Animation
         }
 
         // Compute final bone matrices for GPU skinning (GlobalTransform * InverseBindPose)
-        for (sizet i = 0; i < skeleton.m_GlobalTransforms.size(); ++i)
+        auto globalTransformCount = skeleton.m_GlobalTransforms.size();
+        for (sizet i = 0; i < globalTransformCount; ++i)
         {
             if (i < skeleton.m_InverseBindPoses.size())
             {

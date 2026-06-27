@@ -80,7 +80,7 @@ namespace OloEngine::Animation
         f32 seedOffset = static_cast<f32>(params.Seed) * 19.19f;
         f32 boneDecorr = static_cast<f32>(chainIndex) * 5.31f + static_cast<f32>(boneIndex) * 0.733f + seedOffset;
 
-        auto sample = [&params, phase, boneDecorr, lacunarity, gain](f32 lane) -> f32
+        auto sample = [&params, phase, boneDecorr, lacunarity, gain](f32 lane)
         {
             return Fbm(phase, boneDecorr + lane, lane * 1.7f, params.Octaves, lacunarity, gain);
         };
@@ -142,12 +142,10 @@ namespace OloEngine::Animation
             pose[bone].Rotation = glm::normalize(pose[bone].Rotation * noiseRot);
             pose[bone].Translation += bo.Translation;
 
+            // Walk to the parent; a missing parent (< 0) ends the chain via the
+            // out-of-range guard on the next iteration (keeps a single break).
             const int parent = parentIndices[bone];
-            if (parent < 0)
-            {
-                break;
-            }
-            bone = static_cast<u32>(parent);
+            bone = (parent < 0) ? static_cast<u32>(boneCount) : static_cast<u32>(parent);
         }
     }
 } // namespace OloEngine::Animation

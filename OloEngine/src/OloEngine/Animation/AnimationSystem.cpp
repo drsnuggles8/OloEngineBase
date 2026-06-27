@@ -28,7 +28,7 @@ namespace OloEngine::Animation
         // Sample a clip at a given time and return the bone's TRS. A cached
         // BoneAnimation pointer skips the per-bone lookup when the caller has it.
         TRSFrame SampleClipTRS(const Ref<AnimationClip>& clip, f32 timeSeconds, const std::string& boneName,
-                               const BoneAnimation* cachedBoneAnim = nullptr)
+                               const BoneAnimation* cachedBoneAnim)
         {
             TRSFrame result = { glm::vec3(0.0f), glm::quat(1.0f, 0.0f, 0.0f, 0.0f), glm::vec3(1.0f) };
             if (!clip)
@@ -42,7 +42,7 @@ namespace OloEngine::Animation
             return result;
         }
 
-        glm::mat4 TRSToMatrix(const TRSFrame& trs)
+        [[nodiscard("composed matrix must be used")]] glm::mat4 TRSToMatrix(const TRSFrame& trs)
         {
             return glm::translate(glm::mat4(1.0f), trs.translation) *
                    glm::mat4_cast(trs.rotation) *
@@ -116,7 +116,7 @@ namespace OloEngine::Animation
         skeleton.RotateBoneHistory();
 
         // Advance and loop animation time for current and next clips
-        auto LoopTime = [](f32 t, const Ref<AnimationClip>& clip) -> f32
+        auto LoopTime = [](f32 t, const Ref<AnimationClip>& clip)
         {
             if (clip && clip->Duration > 0.0f)
             {
@@ -162,7 +162,8 @@ namespace OloEngine::Animation
         // channels in the active clip(s) keep their bind-pose local transform
         // (e.g. b_Root_00 carries a -90° X rotation in the fox.gltf model but has
         // no keyframes in the animation).
-        for (sizet i = 0; i < skeleton.m_BoneNames.size(); ++i)
+        auto boneNameCount = skeleton.m_BoneNames.size();
+        for (sizet i = 0; i < boneNameCount; ++i)
         {
             if (auto animatedLocal = EvaluateBoneLocalTransform(animState, skeleton.m_BoneNames[i]); animatedLocal)
             {
@@ -194,20 +195,22 @@ namespace OloEngine::Animation
 
         // Compute global transforms, applying pre-transforms for non-bone ancestor nodes
         static const glm::mat4 identityTransform(1.0f);
-        for (sizet i = 0; i < skeleton.m_LocalTransforms.size(); ++i)
+        auto localTransformCount = skeleton.m_LocalTransforms.size();
+        for (sizet i = 0; i < localTransformCount; ++i)
         {
             const glm::mat4& preTransform = (i < skeleton.m_BonePreTransforms.size())
                                                 ? skeleton.m_BonePreTransforms[i]
                                                 : identityTransform;
             i32 parent = skeleton.m_ParentIndices[i];
             if (parent >= 0)
-                skeleton.m_GlobalTransforms[i] = skeleton.m_GlobalTransforms[parent] * preTransform * skeleton.m_LocalTransforms[i];
+                skeleton.m_GlobalTransforms[i] = skeleton.m_GlobalTransforms[static_cast<sizet>(parent)] * preTransform * skeleton.m_LocalTransforms[i];
             else
                 skeleton.m_GlobalTransforms[i] = preTransform * skeleton.m_LocalTransforms[i];
         }
 
         // Compute final bone matrices for GPU skinning (GlobalTransform * InverseBindPose)
-        for (sizet i = 0; i < skeleton.m_GlobalTransforms.size(); ++i)
+        auto globalTransformCount = skeleton.m_GlobalTransforms.size();
+        for (sizet i = 0; i < globalTransformCount; ++i)
         {
             if (i < skeleton.m_InverseBindPoses.size())
             {

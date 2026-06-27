@@ -10,20 +10,22 @@
 #include <yaml-cpp/yaml.h>
 #include <fstream>
 #include <sstream>
+#include <string_view>
 
 namespace OloEngine
 {
     static std::string ParameterTypeToString(AnimationParameterType type)
     {
+        using enum AnimationParameterType;
         switch (type)
         {
-            case AnimationParameterType::Float:
+            case Float:
                 return "Float";
-            case AnimationParameterType::Int:
+            case Int:
                 return "Int";
-            case AnimationParameterType::Bool:
+            case Bool:
                 return "Bool";
-            case AnimationParameterType::Trigger:
+            case Trigger:
                 return "Trigger";
             default:
                 break;
@@ -31,30 +33,32 @@ namespace OloEngine
         return "Float";
     }
 
-    static AnimationParameterType StringToParameterType(const std::string& str)
+    static AnimationParameterType StringToParameterType(std::string_view str)
     {
+        using enum AnimationParameterType;
         if (str == "Int")
-            return AnimationParameterType::Int;
+            return Int;
         if (str == "Bool")
-            return AnimationParameterType::Bool;
+            return Bool;
         if (str == "Trigger")
-            return AnimationParameterType::Trigger;
-        return AnimationParameterType::Float;
+            return Trigger;
+        return Float;
     }
 
     static std::string ComparisonToString(TransitionCondition::Comparison op)
     {
+        using enum TransitionCondition::Comparison;
         switch (op)
         {
-            case TransitionCondition::Comparison::Greater:
+            case Greater:
                 return "Greater";
-            case TransitionCondition::Comparison::Less:
+            case Less:
                 return "Less";
-            case TransitionCondition::Comparison::Equal:
+            case Equal:
                 return "Equal";
-            case TransitionCondition::Comparison::NotEqual:
+            case NotEqual:
                 return "NotEqual";
-            case TransitionCondition::Comparison::TriggerSet:
+            case TriggerSet:
                 return "TriggerSet";
             default:
                 break;
@@ -62,30 +66,32 @@ namespace OloEngine
         return "Greater";
     }
 
-    static TransitionCondition::Comparison StringToComparison(const std::string& str)
+    static TransitionCondition::Comparison StringToComparison(std::string_view str)
     {
+        using enum TransitionCondition::Comparison;
         if (str == "Less")
-            return TransitionCondition::Comparison::Less;
+            return Less;
         if (str == "Equal")
-            return TransitionCondition::Comparison::Equal;
+            return Equal;
         if (str == "NotEqual")
-            return TransitionCondition::Comparison::NotEqual;
+            return NotEqual;
         if (str == "TriggerSet")
-            return TransitionCondition::Comparison::TriggerSet;
-        return TransitionCondition::Comparison::Greater;
+            return TriggerSet;
+        return Greater;
     }
 
     static std::string BlendTypeToString(BlendTree::BlendType type)
     {
+        using enum BlendTree::BlendType;
         switch (type)
         {
-            case BlendTree::BlendType::Simple1D:
+            case Simple1D:
                 return "Simple1D";
-            case BlendTree::BlendType::SimpleDirectional2D:
+            case SimpleDirectional2D:
                 return "SimpleDirectional2D";
-            case BlendTree::BlendType::FreeformDirectional2D:
+            case FreeformDirectional2D:
                 return "FreeformDirectional2D";
-            case BlendTree::BlendType::FreeformCartesian2D:
+            case FreeformCartesian2D:
                 return "FreeformCartesian2D";
             default:
                 break;
@@ -93,15 +99,16 @@ namespace OloEngine
         return "Simple1D";
     }
 
-    static BlendTree::BlendType StringToBlendType(const std::string& str)
+    static BlendTree::BlendType StringToBlendType(std::string_view str)
     {
+        using enum BlendTree::BlendType;
         if (str == "SimpleDirectional2D")
-            return BlendTree::BlendType::SimpleDirectional2D;
+            return SimpleDirectional2D;
         if (str == "FreeformDirectional2D")
-            return BlendTree::BlendType::FreeformDirectional2D;
+            return FreeformDirectional2D;
         if (str == "FreeformCartesian2D")
-            return BlendTree::BlendType::FreeformCartesian2D;
-        return BlendTree::BlendType::Simple1D;
+            return FreeformCartesian2D;
+        return Simple1D;
     }
 
     static std::string BlendModeToString(AnimationLayer::BlendMode mode)
@@ -118,7 +125,7 @@ namespace OloEngine
         return "Override";
     }
 
-    static AnimationLayer::BlendMode StringToBlendMode(const std::string& str)
+    static AnimationLayer::BlendMode StringToBlendMode(std::string_view str)
     {
         if (str == "Additive")
             return AnimationLayer::BlendMode::Additive;
@@ -258,18 +265,19 @@ namespace OloEngine
             out << YAML::BeginMap;
             out << YAML::Key << "name" << YAML::Value << param.Name;
             out << YAML::Key << "type" << YAML::Value << ParameterTypeToString(param.ParamType);
+            using enum AnimationParameterType;
             switch (param.ParamType)
             {
-                case AnimationParameterType::Float:
+                case Float:
                     out << YAML::Key << "default" << YAML::Value << param.FloatValue;
                     break;
-                case AnimationParameterType::Int:
+                case Int:
                     out << YAML::Key << "default" << YAML::Value << param.IntValue;
                     break;
-                case AnimationParameterType::Bool:
+                case Bool:
                     out << YAML::Key << "default" << YAML::Value << param.BoolValue;
                     break;
-                case AnimationParameterType::Trigger:
+                case Trigger:
                     break;
                 default:
                     break;
@@ -469,18 +477,19 @@ namespace OloEngine
         {
             std::string name = paramNode["name"].as<std::string>("");
             auto type = StringToParameterType(paramNode["type"].as<std::string>("Float"));
+            using enum AnimationParameterType;
             switch (type)
             {
-                case AnimationParameterType::Float:
+                case Float:
                     parameters.DefineFloat(name, paramNode["default"].as<f32>(0.0f));
                     break;
-                case AnimationParameterType::Int:
+                case Int:
                     parameters.DefineInt(name, paramNode["default"].as<i32>(0));
                     break;
-                case AnimationParameterType::Bool:
+                case Bool:
                     parameters.DefineBool(name, paramNode["default"].as<bool>(false));
                     break;
-                case AnimationParameterType::Trigger:
+                case Trigger:
                     parameters.DefineTrigger(name);
                     break;
                 default:

@@ -7,6 +7,7 @@
 #include "OloEngine/Threading/UniqueLock.h"
 
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -20,12 +21,12 @@ namespace OloEngine
 
         MorphTargetSet() = default;
 
-        [[nodiscard("target index needed for weight mapping")]] i32 FindTarget(const std::string& name) const
+        [[nodiscard("target index needed for weight mapping")]] i32 FindTarget(std::string_view name) const
         {
             auto count = static_cast<i32>(Targets.size());
             for (i32 i = 0; i < count; ++i)
             {
-                if (Targets[i].Name == name)
+                if (name == Targets[static_cast<sizet>(i)].Name)
                     return i;
             }
             return -1;
@@ -58,7 +59,7 @@ namespace OloEngine
                 return false;
             }
             {
-                TUniqueLock<FMutex> lock(m_CacheMutex);
+                TUniqueLock lock(m_CacheMutex);
                 m_NameIndexCache.clear(); // Invalidate cache
             }
             Targets.push_back(std::move(target));
@@ -68,7 +69,7 @@ namespace OloEngine
         // O(1) name-to-index lookup via cached map
         [[nodiscard("cached target index needed for weight mapping")]] i32 FindTargetCached(const std::string& name) const
         {
-            TUniqueLock<FMutex> lock(m_CacheMutex);
+            TUniqueLock lock(m_CacheMutex);
             BuildNameIndexCacheLocked();
             auto it = m_NameIndexCache.find(name);
             return (it != m_NameIndexCache.end()) ? it->second : -1;
@@ -80,8 +81,9 @@ namespace OloEngine
         {
             if (!m_NameIndexCache.empty() || Targets.empty())
                 return;
-            for (i32 i = 0; i < static_cast<i32>(Targets.size()); ++i)
-                m_NameIndexCache[Targets[i].Name] = i;
+            auto targetCount = static_cast<i32>(Targets.size());
+            for (i32 i = 0; i < targetCount; ++i)
+                m_NameIndexCache[Targets[static_cast<sizet>(i)].Name] = i;
         }
 
         // Guards the mutable cache so const lookups can rebuild it from multiple

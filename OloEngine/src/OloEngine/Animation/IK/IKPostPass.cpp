@@ -25,17 +25,20 @@ namespace OloEngine::Animation
         std::vector<bool>& ikModified)
     {
         auto bone = startBone;
-        for (u32 j = 0; j < chainLength && bone < static_cast<u32>(boneCount); ++j)
+        for (u32 j = 0; j < chainLength; ++j)
         {
-            ikModified[bone] = true;
-            if (auto parent = parentIndices[bone]; parent < 0)
+            // boneCount comes from the caller's LocalTransforms; parentIndices is a
+            // separate span only asserted (not enforced) to match it, so bound the
+            // read against both to stay safe on a malformed skeleton in release.
+            if (bone >= static_cast<u32>(boneCount) || bone >= parentIndices.size())
             {
                 break;
             }
-            else
-            {
-                bone = static_cast<u32>(parent);
-            }
+            ikModified[bone] = true;
+            // Walk to the parent; a missing parent (< 0) ends the chain via the
+            // out-of-range guard on the next iteration (keeps a single break).
+            const int parent = parentIndices[bone];
+            bone = (parent < 0) ? static_cast<u32>(boneCount) : static_cast<u32>(parent);
         }
     }
 
@@ -50,8 +53,7 @@ namespace OloEngine::Animation
             glm::vec3 translation;
             glm::quat rotation;
             glm::vec3 skew;
-            glm::vec4 perspective;
-            if (!glm::decompose(skeleton.m_LocalTransforms[i], scale, rotation, translation, skew, perspective))
+            if (glm::vec4 perspective; !glm::decompose(skeleton.m_LocalTransforms[i], scale, rotation, translation, skew, perspective))
             {
                 localPose[i] = { glm::vec3(0.0f), glm::identity<glm::quat>(), glm::vec3(1.0f) };
                 continue;

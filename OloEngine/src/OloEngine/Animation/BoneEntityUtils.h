@@ -27,8 +27,8 @@ namespace OloEngine
         // Delete constructor and copy operations to prevent instantiation
         BoneEntityUtils() = delete;
         BoneEntityUtils(const BoneEntityUtils&) = delete;
-        BoneEntityUtils& operator=(const BoneEntityUtils&) = delete;
         BoneEntityUtils(BoneEntityUtils&&) = delete;
+        BoneEntityUtils& operator=(const BoneEntityUtils&) = delete;
         BoneEntityUtils& operator=(BoneEntityUtils&&) = delete;
 
         /**
@@ -115,33 +115,6 @@ namespace OloEngine
         static void BuildAnimationBoneEntityIds(
             Entity entity,
             Entity rootEntity,
-            Scene* scene);
-
-        /**
-         * @brief Find the entity with a specific bone name and index
-         *
-         * @param rootEntity The root entity to search from
-         * @param boneName The name of the bone to find
-         * @param boneIndex The index of the bone to find
-         * @param scene The scene containing the entities
-         * @return The entity containing the bone, or null entity if not found
-         */
-        static Entity FindBoneEntity(
-            Entity rootEntity,
-            const std::string& boneName,
-            sizet boneIndex,
-            const Scene* scene);
-
-        /**
-         * @brief Create bone entities for a skeleton hierarchy
-         *
-         * @param rootEntity The root entity to create bone entities under
-         * @param skeleton The skeleton data to create entities from
-         * @param scene The scene to create entities in
-         */
-        static void CreateBoneEntities(
-            Entity rootEntity,
-            const Skeleton* skeleton,
             Scene* scene);
 
         /**

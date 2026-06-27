@@ -4,6 +4,29 @@
 
 namespace OloEngine
 {
+    namespace
+    {
+        // Sample a single clip into the output pose: clear to bind pose, then
+        // per-bone TRS for every bone that has an animation channel.
+        void SampleClipIntoPose(const AnimationClip& clip, f32 normalizedTime, sizet boneCount,
+                                std::vector<BoneTransform>& out)
+        {
+            f32 timeSeconds = normalizedTime * clip.Duration;
+            out.assign(boneCount, BoneTransform{});
+            auto boneAnimCount = clip.BoneAnimations.size();
+            for (sizet i = 0; i < boneCount; ++i)
+            {
+                if (i < boneAnimCount)
+                {
+                    auto const& boneAnim = clip.BoneAnimations[i];
+                    out[i].Translation = AnimatedModel::SampleBonePosition(boneAnim.PositionKeys, timeSeconds);
+                    out[i].Rotation = AnimatedModel::SampleBoneRotation(boneAnim.RotationKeys, timeSeconds);
+                    out[i].Scale = AnimatedModel::SampleBoneScale(boneAnim.ScaleKeys, timeSeconds);
+                }
+            }
+        }
+    } // namespace
+
     void AnimationState::Evaluate(f32 normalizedTime, const AnimationParameterSet& params,
                                   sizet boneCount,
                                   std::vector<BoneTransform>& outBoneTransforms) const
@@ -19,18 +42,7 @@ namespace OloEngine
                     outBoneTransforms.assign(boneCount, BoneTransform{});
                     return;
                 }
-                f32 timeSeconds = normalizedTime * Clip->Duration;
-                outBoneTransforms.assign(boneCount, BoneTransform{});
-                for (sizet i = 0; i < boneCount; ++i)
-                {
-                    if (i < Clip->BoneAnimations.size())
-                    {
-                        auto const& boneAnim = Clip->BoneAnimations[i];
-                        outBoneTransforms[i].Translation = AnimatedModel::SampleBonePosition(boneAnim.PositionKeys, timeSeconds);
-                        outBoneTransforms[i].Rotation = AnimatedModel::SampleBoneRotation(boneAnim.RotationKeys, timeSeconds);
-                        outBoneTransforms[i].Scale = AnimatedModel::SampleBoneScale(boneAnim.ScaleKeys, timeSeconds);
-                    }
-                }
+                SampleClipIntoPose(*Clip, normalizedTime, boneCount, outBoneTransforms);
                 break;
             }
             case MotionType::BlendTree:

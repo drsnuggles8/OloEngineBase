@@ -3,6 +3,7 @@
 #include "OloEngine/Core/Log.h"
 
 #include <algorithm>
+#include <functional>
 
 namespace OloEngine
 {
@@ -24,9 +25,8 @@ namespace OloEngine
                 continue;
 
             // Binary search for the first key with time >= 'timeSeconds'
-            auto it = std::lower_bound(keys.begin(), keys.end(), timeSeconds,
-                                       [](const std::pair<f64, f32>& key, f64 t)
-                                       { return key.first < t; });
+            auto it = std::ranges::lower_bound(keys, timeSeconds, std::ranges::less{},
+                                               &std::pair<f64, f32>::first);
 
             f32 weight = 0.0f;
             if (it == keys.end())

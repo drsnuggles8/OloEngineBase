@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Animation/AnimationTransition.h"
+#include <algorithm>
 #include <cmath>
 
 namespace OloEngine
@@ -8,6 +9,7 @@ namespace OloEngine
 
     bool TransitionCondition::Evaluate(const AnimationParameterSet& params) const
     {
+        using enum AnimationParameterType;
         const AnimationParameter* param = params.GetParameter(ParameterName);
         if (!param)
         {
@@ -20,34 +22,34 @@ namespace OloEngine
                 return params.IsTriggerSet(ParameterName);
 
             case Comparison::Greater:
-                if (param->ParamType == AnimationParameterType::Float)
+                if (param->ParamType == Float)
                     return param->FloatValue > FloatThreshold;
-                if (param->ParamType == AnimationParameterType::Int)
+                if (param->ParamType == Int)
                     return param->IntValue > IntThreshold;
                 return false;
 
             case Comparison::Less:
-                if (param->ParamType == AnimationParameterType::Float)
+                if (param->ParamType == Float)
                     return param->FloatValue < FloatThreshold;
-                if (param->ParamType == AnimationParameterType::Int)
+                if (param->ParamType == Int)
                     return param->IntValue < IntThreshold;
                 return false;
 
             case Comparison::Equal:
-                if (param->ParamType == AnimationParameterType::Float)
+                if (param->ParamType == Float)
                     return std::abs(param->FloatValue - FloatThreshold) < kFloatEpsilon;
-                if (param->ParamType == AnimationParameterType::Int)
+                if (param->ParamType == Int)
                     return param->IntValue == IntThreshold;
-                if (param->ParamType == AnimationParameterType::Bool)
+                if (param->ParamType == Bool)
                     return param->BoolValue == BoolValue;
                 return false;
 
             case Comparison::NotEqual:
-                if (param->ParamType == AnimationParameterType::Float)
+                if (param->ParamType == Float)
                     return std::abs(param->FloatValue - FloatThreshold) >= kFloatEpsilon;
-                if (param->ParamType == AnimationParameterType::Int)
+                if (param->ParamType == Int)
                     return param->IntValue != IntThreshold;
-                if (param->ParamType == AnimationParameterType::Bool)
+                if (param->ParamType == Bool)
                     return param->BoolValue != BoolValue;
                 return false;
 
@@ -60,13 +62,7 @@ namespace OloEngine
 
     bool AnimationTransition::Evaluate(const AnimationParameterSet& params) const
     {
-        for (const auto& condition : Conditions)
-        {
-            if (!condition.Evaluate(params))
-            {
-                return false;
-            }
-        }
-        return true;
+        return std::ranges::all_of(Conditions, [&params](const auto& condition)
+                                   { return condition.Evaluate(params); });
     }
 } // namespace OloEngine

@@ -60,8 +60,7 @@ namespace OloEngine::Animation::BlendUtils
         glm::vec3 translation;
         glm::quat rotation;
         glm::vec3 skew;
-        glm::vec4 perspective;
-        if (!glm::decompose(m, scale, rotation, translation, skew, perspective))
+        if (glm::vec4 perspective; !glm::decompose(m, scale, rotation, translation, skew, perspective))
         {
             return { glm::vec3(0.0f), glm::identity<glm::quat>(), glm::vec3(1.0f) };
         }
@@ -115,7 +114,7 @@ namespace OloEngine::Animation::BlendUtils
         }
 
         // Build effective local transform: preTransform[i] * localPose[i]
-        auto effectiveLocal = [&preTransforms, &localPose](u32 idx) -> BoneTransform
+        auto effectiveLocal = [&preTransforms, &localPose](u32 idx)
         {
             if (idx < preTransforms.size())
             {
@@ -132,10 +131,13 @@ namespace OloEngine::Animation::BlendUtils
         // Build the chain from root to boneIndex
         std::vector<u32> chain;
         chain.reserve(16);
-        for (auto idx = static_cast<int>(boneIndex); idx >= 0 && static_cast<sizet>(idx) < localPose.size() && static_cast<sizet>(idx) < parentIndices.size();)
+        auto localPoseSize = localPose.size();
+        auto parentSize = parentIndices.size();
+        auto idx = static_cast<int>(boneIndex);
+        while (idx >= 0 && static_cast<sizet>(idx) < localPoseSize && static_cast<sizet>(idx) < parentSize)
         {
             chain.push_back(static_cast<u32>(idx));
-            if (chain.size() > localPose.size())
+            if (chain.size() > localPoseSize)
             {
                 return {}; // cycle guard — return identity
             }
@@ -144,7 +146,8 @@ namespace OloEngine::Animation::BlendUtils
 
         BoneTransform result;
         // Process from root (back of chain) to leaf (front of chain)
-        for (auto it = chain.rbegin(); it != chain.rend(); ++it)
+        auto chainEnd = chain.rend();
+        for (auto it = chain.rbegin(); it != chainEnd; ++it)
         {
             result = MultiplyTransforms(result, effectiveLocal(*it));
         }

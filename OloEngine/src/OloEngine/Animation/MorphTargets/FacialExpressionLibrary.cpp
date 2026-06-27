@@ -79,7 +79,8 @@ namespace OloEngine
 
         if (auto weightsNode = exprNode["TargetWeights"]; weightsNode && weightsNode.IsMap())
         {
-            for (auto it = weightsNode.begin(); it != weightsNode.end(); ++it)
+            auto weightsEnd = weightsNode.end();
+            for (auto it = weightsNode.begin(); it != weightsEnd; ++it)
             {
                 expr.TargetWeights[it->first.as<std::string>()] = it->second.as<f32>(0.0f);
             }
