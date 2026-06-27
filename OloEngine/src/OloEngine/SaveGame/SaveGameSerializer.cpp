@@ -288,105 +288,13 @@ namespace OloEngine
             UUID uuid = id.ID;
             writer << uuid;
 
-            // Serialize all present components
-            SAVE_COMPONENT(IDComponent, entity, writer);
-            SAVE_COMPONENT(TagComponent, entity, writer);
-            SAVE_COMPONENT(PrefabComponent, entity, writer);
-            SAVE_COMPONENT(TransformComponent, entity, writer);
-            SAVE_COMPONENT(RelationshipComponent, entity, writer);
-            SAVE_COMPONENT(SpriteRendererComponent, entity, writer);
-            SAVE_COMPONENT(CircleRendererComponent, entity, writer);
-            SAVE_COMPONENT(CameraComponent, entity, writer);
-            SAVE_COMPONENT(Rigidbody2DComponent, entity, writer);
-            SAVE_COMPONENT(BoxCollider2DComponent, entity, writer);
-            SAVE_COMPONENT(CircleCollider2DComponent, entity, writer);
-            SAVE_COMPONENT(Rigidbody3DComponent, entity, writer);
-            SAVE_COMPONENT(BoxCollider3DComponent, entity, writer);
-            SAVE_COMPONENT(SphereCollider3DComponent, entity, writer);
-            SAVE_COMPONENT(CapsuleCollider3DComponent, entity, writer);
-            SAVE_COMPONENT(MeshCollider3DComponent, entity, writer);
-            SAVE_COMPONENT(ConvexMeshCollider3DComponent, entity, writer);
-            SAVE_COMPONENT(TriangleMeshCollider3DComponent, entity, writer);
-            SAVE_COMPONENT(CharacterController3DComponent, entity, writer);
-            SAVE_COMPONENT(PhysicsJoint3DComponent, entity, writer);
-            SAVE_COMPONENT(VehicleComponent, entity, writer);
-            SAVE_COMPONENT(RagdollComponent, entity, writer);
-            SAVE_COMPONENT(TextComponent, entity, writer);
-            SAVE_COMPONENT(ScriptComponent, entity, writer);
-            SAVE_COMPONENT(AudioSourceComponent, entity, writer);
-            SAVE_COMPONENT(AudioListenerComponent, entity, writer);
-            SAVE_COMPONENT(MaterialComponent, entity, writer);
-            SAVE_COMPONENT(DirectionalLightComponent, entity, writer);
-            SAVE_COMPONENT(PointLightComponent, entity, writer);
-            SAVE_COMPONENT(SpotLightComponent, entity, writer);
-            SAVE_COMPONENT(EnvironmentMapComponent, entity, writer);
-            SAVE_COMPONENT(LightProbeComponent, entity, writer);
-            SAVE_COMPONENT(LightProbeVolumeComponent, entity, writer);
-            SAVE_COMPONENT(ReflectionProbeComponent, entity, writer);
-            SAVE_COMPONENT(UICanvasComponent, entity, writer);
-            SAVE_COMPONENT(UIRectTransformComponent, entity, writer);
-            SAVE_COMPONENT(UIImageComponent, entity, writer);
-            SAVE_COMPONENT(UIPanelComponent, entity, writer);
-            SAVE_COMPONENT(UITextComponent, entity, writer);
-            SAVE_COMPONENT(UIButtonComponent, entity, writer);
-            SAVE_COMPONENT(UISliderComponent, entity, writer);
-            SAVE_COMPONENT(UICheckboxComponent, entity, writer);
-            SAVE_COMPONENT(UIProgressBarComponent, entity, writer);
-            SAVE_COMPONENT(UIInputFieldComponent, entity, writer);
-            SAVE_COMPONENT(UIScrollViewComponent, entity, writer);
-            SAVE_COMPONENT(UIDropdownComponent, entity, writer);
-            SAVE_COMPONENT(UIGridLayoutComponent, entity, writer);
-            SAVE_COMPONENT(UIToggleComponent, entity, writer);
-            SAVE_COMPONENT(ParticleSystemComponent, entity, writer);
-            SAVE_COMPONENT(TerrainComponent, entity, writer);
-            SAVE_COMPONENT(FoliageComponent, entity, writer);
-            SAVE_COMPONENT(WaterComponent, entity, writer);
-            SAVE_COMPONENT(SnowDeformerComponent, entity, writer);
-            SAVE_COMPONENT(FogVolumeComponent, entity, writer);
-            SAVE_COMPONENT(DecalComponent, entity, writer);
-            SAVE_COMPONENT(LODGroupComponent, entity, writer);
-            SAVE_COMPONENT(NetworkIdentityComponent, entity, writer);
-            SAVE_COMPONENT(NetworkInterestComponent, entity, writer);
-            SAVE_COMPONENT(PhaseComponent, entity, writer);
-            SAVE_COMPONENT(InstancePortalComponent, entity, writer);
-            SAVE_COMPONENT(NetworkLODComponent, entity, writer);
-            SAVE_COMPONENT(SubmeshComponent, entity, writer);
-            SAVE_COMPONENT(MeshComponent, entity, writer);
-            SAVE_COMPONENT(ModelComponent, entity, writer);
-            SAVE_COMPONENT(AnimationStateComponent, entity, writer);
-            SAVE_COMPONENT(StreamingVolumeComponent, entity, writer);
-            SAVE_COMPONENT(SpringBoneComponent, entity, writer);
-            SAVE_COMPONENT(NoiseAnimationComponent, entity, writer);
-            SAVE_COMPONENT(SkeletonComponent, entity, writer);
-            SAVE_COMPONENT(IKTargetComponent, entity, writer);
-            SAVE_COMPONENT(MorphTargetComponent, entity, writer);
-            SAVE_COMPONENT(AnimationGraphComponent, entity, writer);
-            SAVE_COMPONENT(VideoOverlayComponent, entity, writer);
-            SAVE_COMPONENT(VideoSurfaceComponent, entity, writer);
-            SAVE_COMPONENT(SphereAreaLightComponent, entity, writer);
-            SAVE_COMPONENT(ProceduralSkyComponent, entity, writer);
-            SAVE_COMPONENT(StarNestSkyComponent, entity, writer);
-            SAVE_COMPONENT(TileRendererComponent, entity, writer);
-            SAVE_COMPONENT(InstancedMeshComponent, entity, writer);
-            SAVE_COMPONENT(BuoyancyComponent, entity, writer);
-            SAVE_COMPONENT(LuaScriptComponent, entity, writer);
-            SAVE_COMPONENT(DialogueComponent, entity, writer);
-            SAVE_COMPONENT(NavMeshBoundsComponent, entity, writer);
-            SAVE_COMPONENT(NavAgentComponent, entity, writer);
-            SAVE_COMPONENT(NameplateComponent, entity, writer);
-            SAVE_COMPONENT(UIWorldAnchorComponent, entity, writer);
-            SAVE_COMPONENT(CinematicComponent, entity, writer);
-            SAVE_COMPONENT(BehaviorTreeComponent, entity, writer);
-            SAVE_COMPONENT(StateMachineComponent, entity, writer);
-            SAVE_COMPONENT(GoapAgentComponent, entity, writer);
-            SAVE_COMPONENT(PerceptibleComponent, entity, writer);
-            SAVE_COMPONENT(PerceptionComponent, entity, writer);
-            SAVE_COMPONENT(InventoryComponent, entity, writer);
-            SAVE_COMPONENT(ItemPickupComponent, entity, writer);
-            SAVE_COMPONENT(ItemContainerComponent, entity, writer);
-            SAVE_COMPONENT(QuestJournalComponent, entity, writer);
-            SAVE_COMPONENT(QuestGiverComponent, entity, writer);
-            SAVE_COMPONENT(AbilityComponent, entity, writer);
+            // Serialize all present components. The SAVE_COMPONENT(...) enumeration
+            // is generated by OloHeaderTool from every `struct *Component` with a
+            // save serializer (see SaveGameComponentSerializer.cpp) — DO NOT hand-
+            // edit. Add a Serialize() overload + REGISTER_SAVE_COMPONENT and the
+            // next GenerateBindings run adds the component here automatically.
+            // Guarded by SaveGameComponentSerializerCoverageTest.
+#include "OloEngine/SaveGame/Generated/SaveGameComponentCapture.Generated.inl"
 
             // ISaveable blob for ScriptComponent custom state
             if (entity.HasComponent<ScriptComponent>())
@@ -525,104 +433,13 @@ namespace OloEngine
     if (!matched)                         \
     LOAD_COMPONENT(ComponentType, entity, typeHash, compData)
 
-                LOAD_COMPONENT(IDComponent, entity, typeHash, compData);
-                TRY_LOAD_COMPONENT(TagComponent);
-                TRY_LOAD_COMPONENT(PrefabComponent);
-                TRY_LOAD_COMPONENT(TransformComponent);
-                TRY_LOAD_COMPONENT(RelationshipComponent);
-                TRY_LOAD_COMPONENT(SpriteRendererComponent);
-                TRY_LOAD_COMPONENT(CircleRendererComponent);
-                TRY_LOAD_COMPONENT(CameraComponent);
-                TRY_LOAD_COMPONENT(Rigidbody2DComponent);
-                TRY_LOAD_COMPONENT(BoxCollider2DComponent);
-                TRY_LOAD_COMPONENT(CircleCollider2DComponent);
-                TRY_LOAD_COMPONENT(Rigidbody3DComponent);
-                TRY_LOAD_COMPONENT(BoxCollider3DComponent);
-                TRY_LOAD_COMPONENT(SphereCollider3DComponent);
-                TRY_LOAD_COMPONENT(CapsuleCollider3DComponent);
-                TRY_LOAD_COMPONENT(MeshCollider3DComponent);
-                TRY_LOAD_COMPONENT(ConvexMeshCollider3DComponent);
-                TRY_LOAD_COMPONENT(TriangleMeshCollider3DComponent);
-                TRY_LOAD_COMPONENT(CharacterController3DComponent);
-                TRY_LOAD_COMPONENT(PhysicsJoint3DComponent);
-                TRY_LOAD_COMPONENT(VehicleComponent);
-                TRY_LOAD_COMPONENT(RagdollComponent);
-                TRY_LOAD_COMPONENT(TextComponent);
-                TRY_LOAD_COMPONENT(ScriptComponent);
-                TRY_LOAD_COMPONENT(AudioSourceComponent);
-                TRY_LOAD_COMPONENT(AudioListenerComponent);
-                TRY_LOAD_COMPONENT(MaterialComponent);
-                TRY_LOAD_COMPONENT(DirectionalLightComponent);
-                TRY_LOAD_COMPONENT(PointLightComponent);
-                TRY_LOAD_COMPONENT(SpotLightComponent);
-                TRY_LOAD_COMPONENT(EnvironmentMapComponent);
-                TRY_LOAD_COMPONENT(LightProbeComponent);
-                TRY_LOAD_COMPONENT(LightProbeVolumeComponent);
-                TRY_LOAD_COMPONENT(ReflectionProbeComponent);
-                TRY_LOAD_COMPONENT(UICanvasComponent);
-                TRY_LOAD_COMPONENT(UIRectTransformComponent);
-                TRY_LOAD_COMPONENT(UIImageComponent);
-                TRY_LOAD_COMPONENT(UIPanelComponent);
-                TRY_LOAD_COMPONENT(UITextComponent);
-                TRY_LOAD_COMPONENT(UIButtonComponent);
-                TRY_LOAD_COMPONENT(UISliderComponent);
-                TRY_LOAD_COMPONENT(UICheckboxComponent);
-                TRY_LOAD_COMPONENT(UIProgressBarComponent);
-                TRY_LOAD_COMPONENT(UIInputFieldComponent);
-                TRY_LOAD_COMPONENT(UIScrollViewComponent);
-                TRY_LOAD_COMPONENT(UIDropdownComponent);
-                TRY_LOAD_COMPONENT(UIGridLayoutComponent);
-                TRY_LOAD_COMPONENT(UIToggleComponent);
-                TRY_LOAD_COMPONENT(ParticleSystemComponent);
-                TRY_LOAD_COMPONENT(TerrainComponent);
-                TRY_LOAD_COMPONENT(FoliageComponent);
-                TRY_LOAD_COMPONENT(WaterComponent);
-                TRY_LOAD_COMPONENT(SnowDeformerComponent);
-                TRY_LOAD_COMPONENT(FogVolumeComponent);
-                TRY_LOAD_COMPONENT(DecalComponent);
-                TRY_LOAD_COMPONENT(LODGroupComponent);
-                TRY_LOAD_COMPONENT(NetworkIdentityComponent);
-                TRY_LOAD_COMPONENT(NetworkInterestComponent);
-                TRY_LOAD_COMPONENT(PhaseComponent);
-                TRY_LOAD_COMPONENT(InstancePortalComponent);
-                TRY_LOAD_COMPONENT(NetworkLODComponent);
-                TRY_LOAD_COMPONENT(SubmeshComponent);
-                TRY_LOAD_COMPONENT(MeshComponent);
-                TRY_LOAD_COMPONENT(ModelComponent);
-                TRY_LOAD_COMPONENT(AnimationStateComponent);
-                TRY_LOAD_COMPONENT(StreamingVolumeComponent);
-                TRY_LOAD_COMPONENT(SpringBoneComponent);
-                TRY_LOAD_COMPONENT(NoiseAnimationComponent);
-                TRY_LOAD_COMPONENT(SkeletonComponent);
-                TRY_LOAD_COMPONENT(IKTargetComponent);
-                TRY_LOAD_COMPONENT(MorphTargetComponent);
-                TRY_LOAD_COMPONENT(AnimationGraphComponent);
-                TRY_LOAD_COMPONENT(VideoOverlayComponent);
-                TRY_LOAD_COMPONENT(VideoSurfaceComponent);
-                TRY_LOAD_COMPONENT(SphereAreaLightComponent);
-                TRY_LOAD_COMPONENT(ProceduralSkyComponent);
-                TRY_LOAD_COMPONENT(StarNestSkyComponent);
-                TRY_LOAD_COMPONENT(TileRendererComponent);
-                TRY_LOAD_COMPONENT(InstancedMeshComponent);
-                TRY_LOAD_COMPONENT(BuoyancyComponent);
-                TRY_LOAD_COMPONENT(LuaScriptComponent);
-                TRY_LOAD_COMPONENT(DialogueComponent);
-                TRY_LOAD_COMPONENT(NavMeshBoundsComponent);
-                TRY_LOAD_COMPONENT(NavAgentComponent);
-                TRY_LOAD_COMPONENT(NameplateComponent);
-                TRY_LOAD_COMPONENT(UIWorldAnchorComponent);
-                TRY_LOAD_COMPONENT(CinematicComponent);
-                TRY_LOAD_COMPONENT(BehaviorTreeComponent);
-                TRY_LOAD_COMPONENT(StateMachineComponent);
-                TRY_LOAD_COMPONENT(GoapAgentComponent);
-                TRY_LOAD_COMPONENT(PerceptibleComponent);
-                TRY_LOAD_COMPONENT(PerceptionComponent);
-                TRY_LOAD_COMPONENT(InventoryComponent);
-                TRY_LOAD_COMPONENT(ItemPickupComponent);
-                TRY_LOAD_COMPONENT(ItemContainerComponent);
-                TRY_LOAD_COMPONENT(QuestJournalComponent);
-                TRY_LOAD_COMPONENT(QuestGiverComponent);
-                TRY_LOAD_COMPONENT(AbilityComponent);
+                // The TRY_LOAD_COMPONENT(...) restore matcher is generated by
+                // OloHeaderTool — the exact complement of the SAVE_COMPONENT capture
+                // list above, so a captured component is always restorable. DO NOT
+                // hand-edit; see SaveGameComponentSerializer.cpp. Order is irrelevant
+                // (each stream block is matched by typeHash), so unlike the former
+                // hand list IDComponent is just another TRY_LOAD_COMPONENT entry.
+#include "OloEngine/SaveGame/Generated/SaveGameComponentRestore.Generated.inl"
 
 #undef TRY_LOAD_COMPONENT
 

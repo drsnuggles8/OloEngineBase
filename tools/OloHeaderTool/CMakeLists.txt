@@ -19,12 +19,15 @@ set(OHT_CS_OUT    "${CMAKE_SOURCE_DIR}/OloEngine-ScriptCore/src/OloEngine" CACHE
 # Scene-domain generated output (the AllComponents tuple) — kept separate from the
 # scripting bindings so Components.h can #include it with a clean path.
 set(OHT_SCENE_OUT "${CMAKE_SOURCE_DIR}/OloEngine/src/OloEngine/Scene/Generated" CACHE PATH "Scene generated output directory (AllComponents tuple)")
+# Save-game generated output (the SAVE_COMPONENT / TRY_LOAD_COMPONENT enumeration
+# lists) — kept next to SaveGameSerializer.cpp so it can #include them by path.
+set(OHT_SAVEGAME_OUT "${CMAKE_SOURCE_DIR}/OloEngine/src/OloEngine/SaveGame/Generated" CACHE PATH "Save-game generated output directory (component capture/restore lists)")
 
 # Custom target to run the tool
 add_custom_target(GenerateBindings
-    COMMAND OloHeaderTool "${OHT_SCAN_DIR}" "${OHT_CPP_OUT}" "${OHT_CS_OUT}" "${OHT_SCENE_OUT}"
+    COMMAND OloHeaderTool "${OHT_SCAN_DIR}" "${OHT_CPP_OUT}" "${OHT_CS_OUT}" "${OHT_SCENE_OUT}" "${OHT_SAVEGAME_OUT}"
     DEPENDS OloHeaderTool
     WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
-    COMMENT "Running OloHeaderTool to generate scripting bindings and the AllComponents tuple..."
+    COMMENT "Running OloHeaderTool to generate scripting bindings, the AllComponents tuple, and the save-game component lists..."
     VERBATIM
 )
