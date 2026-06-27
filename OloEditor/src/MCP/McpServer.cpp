@@ -16,6 +16,7 @@
 #include <algorithm>
 #include <array>
 #include <cctype>
+#include <charconv>
 #include <chrono>
 #include <cstdint>
 #include <cstdlib>
@@ -569,14 +570,16 @@ namespace OloEngine::MCP
         u64 startCursor = DiagnosticsEventLog::Get().LastId();
         if (req.has_header("Last-Event-ID"))
         {
-            try
-            {
-                startCursor = std::stoull(req.get_header_value("Last-Event-ID"));
-            }
-            catch (...)
-            {
-                // Malformed cursor — ignore it and start at the head.
-            }
+            // Resume only on a cleanly-parsed cursor. from_chars rejects a leading sign
+            // and trailing junk, unlike std::stoull which would accept "123abc" as 123
+            // or "-1" as a wrapped ULLONG_MAX (silently starving the stream). Requiring
+            // full-string consumption means a malformed header falls back to the head.
+            const std::string lastEventId = req.get_header_value("Last-Event-ID");
+            u64 parsed = 0;
+            const char* const first = lastEventId.data();
+            const char* const last = first + lastEventId.size();
+            if (const auto [ptr, ec] = std::from_chars(first, last, parsed); ec == std::errc{} && ptr == last)
+                startCursor = parsed;
         }
 
         res.set_header("Cache-Control", "no-cache");

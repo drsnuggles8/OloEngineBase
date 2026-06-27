@@ -561,8 +561,10 @@ surface byte-identical event records.
 - **No backlog flood.** A fresh subscriber starts at the *current* head of the ring, so
   it receives only events recorded *after* it connects — not a 512-event dump. A
   reconnecting client that sends the standard SSE **`Last-Event-ID`** header resumes
-  from exactly that id, with no gap and no duplicates (it maps straight onto the ring's
-  `sinceId` cursor).
+  from that id while the requested history is still retained in the ring (it maps
+  straight onto the ring's `sinceId` cursor). If more than 512 events arrive while the
+  client is away, the oldest may already have been evicted, so a long gap can still drop
+  the events in between.
 - **Keep-alive.** When idle the stream emits an SSE comment (`: keep-alive`) every ~15 s,
   which also detects a vanished client. New events carry a worst-case latency of ~250 ms
   (the stream's internal poll cadence). The MCP panel shows how many push streams are
