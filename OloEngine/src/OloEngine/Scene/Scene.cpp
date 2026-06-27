@@ -2194,72 +2194,36 @@ namespace OloEngine
         return {};
     }
 
-    // Animation/ECS explicit specializations
-    template<>
-    void Scene::OnComponentAdded<MeshComponent>(Entity, MeshComponent&) {}
-    template<>
-    void Scene::OnComponentAdded<InstancedMeshComponent>(Entity, InstancedMeshComponent&) {}
-    template<>
-    void Scene::OnComponentAdded<ModelComponent>(Entity, ModelComponent&) {}
-    template<>
-    void Scene::OnComponentAdded<SubmeshComponent>(Entity, SubmeshComponent&) {}
-    template<>
-    void Scene::OnComponentAdded<AnimationStateComponent>(Entity, AnimationStateComponent&) {}
-    template<>
-    void Scene::OnComponentAdded<MorphTargetComponent>(Entity, MorphTargetComponent&) {}
+    // ─────────────────────────────────────────────────────────────────────────
+    // Scene::OnComponentAdded / OnComponentRemoved explicit specializations.
+    //
+    // The primary templates (Scene.h) are declaration-only, so every component
+    // that supports Add/RemoveComponent<T>() needs an explicit specialization in
+    // this TU — a missing one is a link error (engine for add, OloEditor for
+    // remove). The overwhelming majority are pure no-ops; OloHeaderTool generates
+    // those from the `struct *Component` scan (minus the custom-handler exclusion
+    // sets kComponentsCustomOnAdd / kComponentsCustomOnRemove) into
+    // Scene/Generated/OnComponent{Added,Removed}.Generated.inl, #include'd here and
+    // (for the remove list) further below. Only the specializations with real
+    // init/teardown bodies are hand-written. A component given a real body here
+    // MUST be in the matching exclusion set, or its generated no-op collides with
+    // it (duplicate-definition build error). ComponentHandlerCoverageTest guards
+    // the generated lists against drift.
+    // ─────────────────────────────────────────────────────────────────────────
+
+    // Generated no-op OnComponentAdded specializations (see header above).
+#define OLO_ON_COMPONENT_ADDED_NOOP(T) \
+    template<>                         \
+    void Scene::OnComponentAdded<T>(Entity, T&) {}
+#include "OloEngine/Scene/Generated/OnComponentAdded.Generated.inl"
+#undef OLO_ON_COMPONENT_ADDED_NOOP
+
+    // Skeleton is used as a bare component type, not a `struct *Component`, so the
+    // generator's scan never emits it — its no-op specialization stays hand-written
+    // (both the add here and the remove in the no-op block below).
     template<>
     void Scene::OnComponentAdded<Skeleton>(Entity, Skeleton&) {}
-    // If you use SkeletonComponent as a struct, add this too:
-    template<>
-    void Scene::OnComponentAdded<SkeletonComponent>(Entity, SkeletonComponent&) {}
-    template<>
-    void Scene::OnComponentAdded<MaterialComponent>(Entity, MaterialComponent&) {}
-    template<>
-    void Scene::OnComponentAdded<DirectionalLightComponent>(Entity, DirectionalLightComponent&) {}
-    template<>
-    void Scene::OnComponentAdded<PointLightComponent>(Entity, PointLightComponent&) {}
-    template<>
-    void Scene::OnComponentAdded<SphereAreaLightComponent>(Entity, SphereAreaLightComponent&) {}
-    template<>
-    void Scene::OnComponentAdded<SpotLightComponent>(Entity, SpotLightComponent&) {}
-    template<>
-    void Scene::OnComponentAdded<EnvironmentMapComponent>(Entity, EnvironmentMapComponent&) {}
-    template<>
-    void Scene::OnComponentAdded<ProceduralSkyComponent>(Entity, ProceduralSkyComponent&) {}
-    template<>
-    void Scene::OnComponentAdded<StarNestSkyComponent>(Entity, StarNestSkyComponent&) {}
-    template<>
-    void Scene::OnComponentAdded<TerrainComponent>(Entity, TerrainComponent&) {}
-    template<>
-    void Scene::OnComponentAdded<FoliageComponent>(Entity, FoliageComponent&) {}
-    template<>
-    void Scene::OnComponentAdded<WaterComponent>(Entity, WaterComponent&) {}
-    template<>
-    void Scene::OnComponentAdded<BuoyancyComponent>(Entity, BuoyancyComponent&) {}
-    template<>
-    void Scene::OnComponentAdded<SnowDeformerComponent>(Entity, SnowDeformerComponent&) {}
-    template<>
-    void Scene::OnComponentAdded<FogVolumeComponent>(Entity, FogVolumeComponent&) {}
-    template<>
-    void Scene::OnComponentAdded<DecalComponent>(Entity, DecalComponent&) {}
-    template<>
-    void Scene::OnComponentAdded<LODGroupComponent>(Entity, LODGroupComponent&) {}
-    template<>
-    void Scene::OnComponentAdded<LightProbeComponent>(Entity, LightProbeComponent&) {}
-    template<>
-    void Scene::OnComponentAdded<LightProbeVolumeComponent>(Entity, LightProbeVolumeComponent&) {}
-    template<>
-    void Scene::OnComponentAdded<ReflectionProbeComponent>(Entity, ReflectionProbeComponent&) {}
-    template<>
-    void Scene::OnComponentAdded<DialogueComponent>(Entity, DialogueComponent&) {}
-    template<>
-    void Scene::OnComponentAdded<DialogueStateComponent>(Entity, DialogueStateComponent&) {}
-    template<>
-    void Scene::OnComponentAdded<NavMeshBoundsComponent>(Entity, NavMeshBoundsComponent&) {}
-    template<>
-    void Scene::OnComponentAdded<NavAgentComponent>(Entity, NavAgentComponent&) {}
-    template<>
-    void Scene::OnComponentAdded<AnimationGraphComponent>(Entity, AnimationGraphComponent&) {}
+
     template<>
     void Scene::OnComponentAdded<CinematicComponent>(Entity, CinematicComponent& component)
     {
@@ -2270,18 +2234,6 @@ namespace OloEngine
             component.PlayFromStart();
         }
     }
-    template<>
-    void Scene::OnComponentAdded<BehaviorTreeComponent>(Entity, BehaviorTreeComponent&) {}
-    template<>
-    void Scene::OnComponentAdded<StateMachineComponent>(Entity, StateMachineComponent&) {}
-    template<>
-    void Scene::OnComponentAdded<GoapAgentComponent>(Entity, GoapAgentComponent&) {}
-    template<>
-    void Scene::OnComponentAdded<PerceptibleComponent>(Entity, PerceptibleComponent&) {}
-    template<>
-    void Scene::OnComponentAdded<PerceptionComponent>(Entity, PerceptionComponent&) {}
-    template<>
-    void Scene::OnComponentAdded<TileRendererComponent>(Entity, TileRendererComponent&) {}
 
     // Runtime-spawned AudioSoundGraphComponent entities (script-spawned, networked
     // actors arriving mid-session, dropped loot, etc.) need their Sound wrapper
@@ -6038,17 +5990,10 @@ namespace OloEngine
 
 } // namespace OloEngine
 
-// Template specializations for component callbacks
-template<>
-void OloEngine::Scene::OnComponentAdded<OloEngine::IDComponent>([[maybe_unused]] OloEngine::Entity entity, [[maybe_unused]] OloEngine::IDComponent& component)
-{
-}
-
-template<>
-void OloEngine::Scene::OnComponentAdded<OloEngine::TransformComponent>([[maybe_unused]] OloEngine::Entity entity, [[maybe_unused]] OloEngine::TransformComponent& component)
-{
-}
-
+// Hand-written OnComponentAdded specializations that do real init work and are
+// therefore excluded from the generated no-op list (kComponentsCustomOnAdd in
+// tools/OloHeaderTool/main.cpp). The no-op add specializations are generated and
+// #include'd inside the OloEngine namespace earlier in this file.
 template<>
 void OloEngine::Scene::OnComponentAdded<OloEngine::CameraComponent>([[maybe_unused]] OloEngine::Entity entity, OloEngine::CameraComponent& component)
 {
@@ -6056,51 +6001,6 @@ void OloEngine::Scene::OnComponentAdded<OloEngine::CameraComponent>([[maybe_unus
     {
         component.Camera.SetViewportSize(m_ViewportWidth, m_ViewportHeight);
     }
-}
-
-template<>
-void OloEngine::Scene::OnComponentAdded<OloEngine::ScriptComponent>([[maybe_unused]] OloEngine::Entity entity, [[maybe_unused]] OloEngine::ScriptComponent& component)
-{
-}
-
-template<>
-void OloEngine::Scene::OnComponentAdded<OloEngine::LuaScriptComponent>([[maybe_unused]] OloEngine::Entity entity, [[maybe_unused]] OloEngine::LuaScriptComponent& component)
-{
-}
-
-template<>
-void OloEngine::Scene::OnComponentAdded<OloEngine::SpriteRendererComponent>([[maybe_unused]] OloEngine::Entity entity, [[maybe_unused]] OloEngine::SpriteRendererComponent& component)
-{
-}
-
-template<>
-void OloEngine::Scene::OnComponentAdded<OloEngine::CircleRendererComponent>([[maybe_unused]] OloEngine::Entity entity, [[maybe_unused]] OloEngine::CircleRendererComponent& component)
-{
-}
-
-template<>
-void OloEngine::Scene::OnComponentAdded<OloEngine::TagComponent>([[maybe_unused]] OloEngine::Entity entity, [[maybe_unused]] OloEngine::TagComponent& component)
-{
-}
-
-template<>
-void OloEngine::Scene::OnComponentAdded<OloEngine::Rigidbody2DComponent>([[maybe_unused]] OloEngine::Entity entity, [[maybe_unused]] OloEngine::Rigidbody2DComponent& component)
-{
-}
-
-template<>
-void OloEngine::Scene::OnComponentAdded<OloEngine::BoxCollider2DComponent>([[maybe_unused]] OloEngine::Entity entity, [[maybe_unused]] OloEngine::BoxCollider2DComponent& component)
-{
-}
-
-template<>
-void OloEngine::Scene::OnComponentAdded<OloEngine::CircleCollider2DComponent>([[maybe_unused]] OloEngine::Entity entity, [[maybe_unused]] OloEngine::CircleCollider2DComponent& component)
-{
-}
-
-template<>
-void OloEngine::Scene::OnComponentAdded<OloEngine::TextComponent>([[maybe_unused]] OloEngine::Entity entity, [[maybe_unused]] OloEngine::TextComponent& component)
-{
 }
 
 template<>
@@ -6116,244 +6016,20 @@ void OloEngine::Scene::OnComponentAdded<OloEngine::LocalizedTextComponent>([[may
     m_LocalizationGeneration = std::numeric_limits<u64>::max();
 }
 
-template<>
-void OloEngine::Scene::OnComponentAdded<OloEngine::AudioSourceComponent>([[maybe_unused]] OloEngine::Entity entity, [[maybe_unused]] OloEngine::AudioSourceComponent& component)
-{
-}
-
-template<>
-void OloEngine::Scene::OnComponentAdded<OloEngine::AudioListenerComponent>([[maybe_unused]] OloEngine::Entity entity, [[maybe_unused]] OloEngine::AudioListenerComponent& component)
-{
-}
-
-template<>
-void OloEngine::Scene::OnComponentAdded<OloEngine::RelationshipComponent>([[maybe_unused]] OloEngine::Entity entity, [[maybe_unused]] OloEngine::RelationshipComponent& component)
-{
-}
-
-template<>
-void OloEngine::Scene::OnComponentAdded<OloEngine::PrefabComponent>([[maybe_unused]] OloEngine::Entity entity, [[maybe_unused]] OloEngine::PrefabComponent& component)
-{
-}
-
 // Rigidbody3DComponent specialization is defined inside the OloEngine
 // namespace earlier in this file (look for the runtime-add hook that creates
 // a Jolt body when physics is already running).
-
-template<>
-void OloEngine::Scene::OnComponentAdded<OloEngine::BoxCollider3DComponent>([[maybe_unused]] OloEngine::Entity entity, [[maybe_unused]] OloEngine::BoxCollider3DComponent& component)
-{
-}
-
-template<>
-void OloEngine::Scene::OnComponentAdded<OloEngine::SphereCollider3DComponent>([[maybe_unused]] OloEngine::Entity entity, [[maybe_unused]] OloEngine::SphereCollider3DComponent& component)
-{
-}
-
-template<>
-void OloEngine::Scene::OnComponentAdded<OloEngine::CapsuleCollider3DComponent>([[maybe_unused]] OloEngine::Entity entity, [[maybe_unused]] OloEngine::CapsuleCollider3DComponent& component)
-{
-}
 
 // CharacterController3DComponent specialization is defined inside the
 // OloEngine namespace earlier in this file (look for the runtime-add hook
 // that creates a JoltCharacterController when physics is already running).
 
-template<>
-void OloEngine::Scene::OnComponentAdded<OloEngine::MeshCollider3DComponent>([[maybe_unused]] OloEngine::Entity entity, [[maybe_unused]] OloEngine::MeshCollider3DComponent& component)
-{
-}
-
-template<>
-void OloEngine::Scene::OnComponentAdded<OloEngine::ConvexMeshCollider3DComponent>([[maybe_unused]] OloEngine::Entity entity, [[maybe_unused]] OloEngine::ConvexMeshCollider3DComponent& component)
-{
-}
-
-template<>
-void OloEngine::Scene::OnComponentAdded<OloEngine::TriangleMeshCollider3DComponent>([[maybe_unused]] OloEngine::Entity entity, [[maybe_unused]] OloEngine::TriangleMeshCollider3DComponent& component)
-{
-}
-
-template<>
-void OloEngine::Scene::OnComponentAdded<OloEngine::UICanvasComponent>([[maybe_unused]] OloEngine::Entity entity, [[maybe_unused]] OloEngine::UICanvasComponent& component)
-{
-}
-
-template<>
-void OloEngine::Scene::OnComponentAdded<OloEngine::UIRectTransformComponent>([[maybe_unused]] OloEngine::Entity entity, [[maybe_unused]] OloEngine::UIRectTransformComponent& component)
-{
-}
-
-template<>
-void OloEngine::Scene::OnComponentAdded<OloEngine::UIResolvedRectComponent>([[maybe_unused]] OloEngine::Entity entity, [[maybe_unused]] OloEngine::UIResolvedRectComponent& component)
-{
-}
-
-template<>
-void OloEngine::Scene::OnComponentAdded<OloEngine::UIImageComponent>([[maybe_unused]] OloEngine::Entity entity, [[maybe_unused]] OloEngine::UIImageComponent& component)
-{
-}
-
-template<>
-void OloEngine::Scene::OnComponentAdded<OloEngine::UIPanelComponent>([[maybe_unused]] OloEngine::Entity entity, [[maybe_unused]] OloEngine::UIPanelComponent& component)
-{
-}
-
-template<>
-void OloEngine::Scene::OnComponentAdded<OloEngine::UITextComponent>([[maybe_unused]] OloEngine::Entity entity, [[maybe_unused]] OloEngine::UITextComponent& component)
-{
-}
-
-template<>
-void OloEngine::Scene::OnComponentAdded<OloEngine::UIButtonComponent>([[maybe_unused]] OloEngine::Entity entity, [[maybe_unused]] OloEngine::UIButtonComponent& component)
-{
-}
-
-template<>
-void OloEngine::Scene::OnComponentAdded<OloEngine::UISliderComponent>([[maybe_unused]] OloEngine::Entity entity, [[maybe_unused]] OloEngine::UISliderComponent& component)
-{
-}
-
-template<>
-void OloEngine::Scene::OnComponentAdded<OloEngine::UICheckboxComponent>([[maybe_unused]] OloEngine::Entity entity, [[maybe_unused]] OloEngine::UICheckboxComponent& component)
-{
-}
-
-template<>
-void OloEngine::Scene::OnComponentAdded<OloEngine::UIProgressBarComponent>([[maybe_unused]] OloEngine::Entity entity, [[maybe_unused]] OloEngine::UIProgressBarComponent& component)
-{
-}
-
-template<>
-void OloEngine::Scene::OnComponentAdded<OloEngine::UIWorldAnchorComponent>([[maybe_unused]] OloEngine::Entity entity, [[maybe_unused]] OloEngine::UIWorldAnchorComponent& component)
-{
-}
-
-template<>
-void OloEngine::Scene::OnComponentAdded<OloEngine::UIInputFieldComponent>([[maybe_unused]] OloEngine::Entity entity, [[maybe_unused]] OloEngine::UIInputFieldComponent& component)
-{
-}
-
-template<>
-void OloEngine::Scene::OnComponentAdded<OloEngine::UIScrollViewComponent>([[maybe_unused]] OloEngine::Entity entity, [[maybe_unused]] OloEngine::UIScrollViewComponent& component)
-{
-}
-
-template<>
-void OloEngine::Scene::OnComponentAdded<OloEngine::UIDropdownComponent>([[maybe_unused]] OloEngine::Entity entity, [[maybe_unused]] OloEngine::UIDropdownComponent& component)
-{
-}
-
-template<>
-void OloEngine::Scene::OnComponentAdded<OloEngine::UIGridLayoutComponent>([[maybe_unused]] OloEngine::Entity entity, [[maybe_unused]] OloEngine::UIGridLayoutComponent& component)
-{
-}
-
-template<>
-void OloEngine::Scene::OnComponentAdded<OloEngine::UIToggleComponent>([[maybe_unused]] OloEngine::Entity entity, [[maybe_unused]] OloEngine::UIToggleComponent& component)
-{
-}
-
-template<>
-void OloEngine::Scene::OnComponentAdded<OloEngine::ParticleSystemComponent>([[maybe_unused]] OloEngine::Entity entity, [[maybe_unused]] OloEngine::ParticleSystemComponent& component)
-{
-}
-
-template<>
-void OloEngine::Scene::OnComponentAdded<OloEngine::StreamingVolumeComponent>([[maybe_unused]] OloEngine::Entity entity, [[maybe_unused]] OloEngine::StreamingVolumeComponent& component)
-{
-}
-
-template<>
-void OloEngine::Scene::OnComponentAdded<OloEngine::NetworkIdentityComponent>([[maybe_unused]] OloEngine::Entity entity, [[maybe_unused]] OloEngine::NetworkIdentityComponent& component)
-{
-}
-
-template<>
-void OloEngine::Scene::OnComponentAdded<OloEngine::NetworkInterestComponent>([[maybe_unused]] OloEngine::Entity entity, [[maybe_unused]] OloEngine::NetworkInterestComponent& component)
-{
-}
-
-template<>
-void OloEngine::Scene::OnComponentAdded<OloEngine::PhaseComponent>([[maybe_unused]] OloEngine::Entity entity, [[maybe_unused]] OloEngine::PhaseComponent& component)
-{
-}
-
-template<>
-void OloEngine::Scene::OnComponentAdded<OloEngine::InstancePortalComponent>([[maybe_unused]] OloEngine::Entity entity, [[maybe_unused]] OloEngine::InstancePortalComponent& component)
-{
-}
-
-template<>
-void OloEngine::Scene::OnComponentAdded<OloEngine::NetworkLODComponent>([[maybe_unused]] OloEngine::Entity entity, [[maybe_unused]] OloEngine::NetworkLODComponent& component)
-{
-}
-
-template<>
-void OloEngine::Scene::OnComponentAdded<OloEngine::InventoryComponent>([[maybe_unused]] OloEngine::Entity entity, [[maybe_unused]] OloEngine::InventoryComponent& component)
-{
-}
-
-template<>
-void OloEngine::Scene::OnComponentAdded<OloEngine::ItemPickupComponent>([[maybe_unused]] OloEngine::Entity entity, [[maybe_unused]] OloEngine::ItemPickupComponent& component)
-{
-}
-
-template<>
-void OloEngine::Scene::OnComponentAdded<OloEngine::ItemContainerComponent>([[maybe_unused]] OloEngine::Entity entity, [[maybe_unused]] OloEngine::ItemContainerComponent& component)
-{
-}
-
-template<>
-void OloEngine::Scene::OnComponentAdded<OloEngine::QuestJournalComponent>([[maybe_unused]] OloEngine::Entity entity, [[maybe_unused]] OloEngine::QuestJournalComponent& component)
-{
-}
-
-template<>
-void OloEngine::Scene::OnComponentAdded<OloEngine::QuestGiverComponent>([[maybe_unused]] OloEngine::Entity entity, [[maybe_unused]] OloEngine::QuestGiverComponent& component)
-{
-}
-
-template<>
-void OloEngine::Scene::OnComponentAdded<OloEngine::AbilityComponent>([[maybe_unused]] OloEngine::Entity entity, [[maybe_unused]] OloEngine::AbilityComponent& component)
-{
-}
-
-template<>
-void OloEngine::Scene::OnComponentAdded<OloEngine::NameplateComponent>([[maybe_unused]] OloEngine::Entity entity, [[maybe_unused]] OloEngine::NameplateComponent& component)
-{
-}
-
-template<>
-void OloEngine::Scene::OnComponentAdded<OloEngine::IKTargetComponent>([[maybe_unused]] OloEngine::Entity entity, [[maybe_unused]] OloEngine::IKTargetComponent& component)
-{
-}
-
-template<>
-void OloEngine::Scene::OnComponentAdded<OloEngine::SpringBoneComponent>([[maybe_unused]] OloEngine::Entity entity, [[maybe_unused]] OloEngine::SpringBoneComponent& component)
-{
-}
-
-template<>
-void OloEngine::Scene::OnComponentAdded<OloEngine::SpringBoneStateComponent>([[maybe_unused]] OloEngine::Entity entity, [[maybe_unused]] OloEngine::SpringBoneStateComponent& component)
-{
-}
-
-template<>
-void OloEngine::Scene::OnComponentAdded<OloEngine::NoiseAnimationComponent>([[maybe_unused]] OloEngine::Entity entity, [[maybe_unused]] OloEngine::NoiseAnimationComponent& component)
-{
-}
-
-template<>
-void OloEngine::Scene::OnComponentAdded<OloEngine::NoiseAnimationStateComponent>([[maybe_unused]] OloEngine::Entity entity, [[maybe_unused]] OloEngine::NoiseAnimationStateComponent& component)
-{
-}
-
 // ============================================================================
-// OnComponentRemoved specialisations — exhaustive no-op list mirroring the
-// OnComponentAdded set above. Component types whose removal needs to release
-// external resources (Jolt body, Box2D body, etc.) are specialised inside
-// the OloEngine namespace earlier in this file.
+// OnComponentRemoved specializations. The pure no-ops are generated by
+// OloHeaderTool (the #include below); the hand-written ones here release an
+// external resource (Box2D body, audio SoundGraph source, video decode thread)
+// or drop cached runtime state. The 3D-physics teardown specializations live in
+// the OloEngine namespace earlier in this file, alongside their add hooks.
 // ============================================================================
 
 namespace OloEngine
@@ -6363,55 +6039,11 @@ namespace OloEngine
     template<>                           \
     void Scene::OnComponentRemoved<T>(Entity, T&) {}
 
-    OLO_ON_COMPONENT_REMOVED_NOOP(IDComponent)
-    OLO_ON_COMPONENT_REMOVED_NOOP(TransformComponent)
-    OLO_ON_COMPONENT_REMOVED_NOOP(TagComponent)
-    OLO_ON_COMPONENT_REMOVED_NOOP(RelationshipComponent)
-    OLO_ON_COMPONENT_REMOVED_NOOP(CameraComponent)
-    OLO_ON_COMPONENT_REMOVED_NOOP(ScriptComponent)
-    OLO_ON_COMPONENT_REMOVED_NOOP(LuaScriptComponent)
-    OLO_ON_COMPONENT_REMOVED_NOOP(SpriteRendererComponent)
-    OLO_ON_COMPONENT_REMOVED_NOOP(CircleRendererComponent)
-    OLO_ON_COMPONENT_REMOVED_NOOP(TextComponent)
-    OLO_ON_COMPONENT_REMOVED_NOOP(LocalizedTextComponent)
-    OLO_ON_COMPONENT_REMOVED_NOOP(MeshComponent)
-    OLO_ON_COMPONENT_REMOVED_NOOP(InstancedMeshComponent)
-    OLO_ON_COMPONENT_REMOVED_NOOP(ModelComponent)
-    OLO_ON_COMPONENT_REMOVED_NOOP(SubmeshComponent)
-    OLO_ON_COMPONENT_REMOVED_NOOP(AnimationStateComponent)
-    OLO_ON_COMPONENT_REMOVED_NOOP(MorphTargetComponent)
-    OLO_ON_COMPONENT_REMOVED_NOOP(SkeletonComponent)
-    OLO_ON_COMPONENT_REMOVED_NOOP(MaterialComponent)
-    OLO_ON_COMPONENT_REMOVED_NOOP(DirectionalLightComponent)
-    OLO_ON_COMPONENT_REMOVED_NOOP(PointLightComponent)
-    OLO_ON_COMPONENT_REMOVED_NOOP(SpotLightComponent)
-    OLO_ON_COMPONENT_REMOVED_NOOP(SphereAreaLightComponent)
-    OLO_ON_COMPONENT_REMOVED_NOOP(EnvironmentMapComponent)
-    OLO_ON_COMPONENT_REMOVED_NOOP(ProceduralSkyComponent)
-    OLO_ON_COMPONENT_REMOVED_NOOP(StarNestSkyComponent)
-    OLO_ON_COMPONENT_REMOVED_NOOP(TerrainComponent)
-    OLO_ON_COMPONENT_REMOVED_NOOP(FoliageComponent)
-    OLO_ON_COMPONENT_REMOVED_NOOP(WaterComponent)
-    OLO_ON_COMPONENT_REMOVED_NOOP(BuoyancyComponent)
-    OLO_ON_COMPONENT_REMOVED_NOOP(SnowDeformerComponent)
-    OLO_ON_COMPONENT_REMOVED_NOOP(FogVolumeComponent)
-    OLO_ON_COMPONENT_REMOVED_NOOP(DecalComponent)
-    OLO_ON_COMPONENT_REMOVED_NOOP(LODGroupComponent)
-    OLO_ON_COMPONENT_REMOVED_NOOP(LightProbeComponent)
-    OLO_ON_COMPONENT_REMOVED_NOOP(LightProbeVolumeComponent)
-    OLO_ON_COMPONENT_REMOVED_NOOP(ReflectionProbeComponent)
-    OLO_ON_COMPONENT_REMOVED_NOOP(DialogueComponent)
-    OLO_ON_COMPONENT_REMOVED_NOOP(DialogueStateComponent)
-    OLO_ON_COMPONENT_REMOVED_NOOP(NavMeshBoundsComponent)
-    OLO_ON_COMPONENT_REMOVED_NOOP(NavAgentComponent)
-    OLO_ON_COMPONENT_REMOVED_NOOP(AnimationGraphComponent)
-    OLO_ON_COMPONENT_REMOVED_NOOP(CinematicComponent)
-    OLO_ON_COMPONENT_REMOVED_NOOP(BehaviorTreeComponent)
-    OLO_ON_COMPONENT_REMOVED_NOOP(StateMachineComponent)
-    OLO_ON_COMPONENT_REMOVED_NOOP(GoapAgentComponent)
-    OLO_ON_COMPONENT_REMOVED_NOOP(PerceptibleComponent)
-    OLO_ON_COMPONENT_REMOVED_NOOP(PerceptionComponent)
-    OLO_ON_COMPONENT_REMOVED_NOOP(TileRendererComponent)
+    // Generated no-op OnComponentRemoved specializations — the mirror of the
+    // OnComponentAdded include earlier in this file. Components whose removal
+    // releases an external resource or drops cached runtime state are hand-written:
+    // the 3D-physics ones in the specialization block above, the rest just below.
+#include "OloEngine/Scene/Generated/OnComponentRemoved.Generated.inl"
 
     // Specialisation: when a Rigidbody2DComponent is removed at runtime,
     // the Box2D world must release the body. Without this hook, the body
@@ -6426,16 +6058,6 @@ namespace OloEngine
         }
     }
 
-    OLO_ON_COMPONENT_REMOVED_NOOP(BoxCollider2DComponent)
-    OLO_ON_COMPONENT_REMOVED_NOOP(CircleCollider2DComponent)
-    OLO_ON_COMPONENT_REMOVED_NOOP(BoxCollider3DComponent)
-    OLO_ON_COMPONENT_REMOVED_NOOP(SphereCollider3DComponent)
-    OLO_ON_COMPONENT_REMOVED_NOOP(CapsuleCollider3DComponent)
-    OLO_ON_COMPONENT_REMOVED_NOOP(MeshCollider3DComponent)
-    OLO_ON_COMPONENT_REMOVED_NOOP(ConvexMeshCollider3DComponent)
-    OLO_ON_COMPONENT_REMOVED_NOOP(TriangleMeshCollider3DComponent)
-    OLO_ON_COMPONENT_REMOVED_NOOP(AudioSourceComponent)
-    OLO_ON_COMPONENT_REMOVED_NOOP(AudioListenerComponent)
     template<>
     void Scene::OnComponentRemoved<AudioSoundGraphComponent>(Entity, AudioSoundGraphComponent& component)
     {
@@ -6472,40 +6094,6 @@ namespace OloEngine
             component.Player = nullptr;
         }
     }
-    OLO_ON_COMPONENT_REMOVED_NOOP(PrefabComponent)
-    OLO_ON_COMPONENT_REMOVED_NOOP(UICanvasComponent)
-    OLO_ON_COMPONENT_REMOVED_NOOP(UIRectTransformComponent)
-    OLO_ON_COMPONENT_REMOVED_NOOP(UIResolvedRectComponent)
-    OLO_ON_COMPONENT_REMOVED_NOOP(UIImageComponent)
-    OLO_ON_COMPONENT_REMOVED_NOOP(UIPanelComponent)
-    OLO_ON_COMPONENT_REMOVED_NOOP(UITextComponent)
-    OLO_ON_COMPONENT_REMOVED_NOOP(UIButtonComponent)
-    OLO_ON_COMPONENT_REMOVED_NOOP(UISliderComponent)
-    OLO_ON_COMPONENT_REMOVED_NOOP(UICheckboxComponent)
-    OLO_ON_COMPONENT_REMOVED_NOOP(UIProgressBarComponent)
-    OLO_ON_COMPONENT_REMOVED_NOOP(UIWorldAnchorComponent)
-    OLO_ON_COMPONENT_REMOVED_NOOP(UIInputFieldComponent)
-    OLO_ON_COMPONENT_REMOVED_NOOP(UIScrollViewComponent)
-    OLO_ON_COMPONENT_REMOVED_NOOP(UIDropdownComponent)
-    OLO_ON_COMPONENT_REMOVED_NOOP(UIGridLayoutComponent)
-    OLO_ON_COMPONENT_REMOVED_NOOP(UIToggleComponent)
-    OLO_ON_COMPONENT_REMOVED_NOOP(ParticleSystemComponent)
-    OLO_ON_COMPONENT_REMOVED_NOOP(StreamingVolumeComponent)
-    OLO_ON_COMPONENT_REMOVED_NOOP(NetworkIdentityComponent)
-    OLO_ON_COMPONENT_REMOVED_NOOP(NetworkInterestComponent)
-    OLO_ON_COMPONENT_REMOVED_NOOP(PhaseComponent)
-    OLO_ON_COMPONENT_REMOVED_NOOP(InstancePortalComponent)
-    OLO_ON_COMPONENT_REMOVED_NOOP(NetworkLODComponent)
-    OLO_ON_COMPONENT_REMOVED_NOOP(InventoryComponent)
-    OLO_ON_COMPONENT_REMOVED_NOOP(ItemPickupComponent)
-    OLO_ON_COMPONENT_REMOVED_NOOP(ItemContainerComponent)
-    OLO_ON_COMPONENT_REMOVED_NOOP(QuestJournalComponent)
-    OLO_ON_COMPONENT_REMOVED_NOOP(QuestGiverComponent)
-    OLO_ON_COMPONENT_REMOVED_NOOP(AbilityComponent)
-    OLO_ON_COMPONENT_REMOVED_NOOP(NameplateComponent)
-    OLO_ON_COMPONENT_REMOVED_NOOP(IKTargetComponent)
-    OLO_ON_COMPONENT_REMOVED_NOOP(SpringBoneStateComponent)
-    OLO_ON_COMPONENT_REMOVED_NOOP(NoiseAnimationStateComponent)
     OLO_ON_COMPONENT_REMOVED_NOOP(Skeleton)
 
 #undef OLO_ON_COMPONENT_REMOVED_NOOP

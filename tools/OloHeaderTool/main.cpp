@@ -20,6 +20,16 @@
 //      SaveGameComponentSerializer::Serialize() overload). Collapses the two
 //      most dangerous unguarded ECS touch-points — a component missing from
 //      either list was silently dropped from every save-game.
+//   7. The Scene OnComponent{Added,Removed} no-op lists (OnComponentAdded/
+//      Removed.Generated.inl in the same Scene/Generated dir) — the
+//      OLO_ON_COMPONENT_ADDED_NOOP(T) / OLO_ON_COMPONENT_REMOVED_NOOP(T)
+//      invocations #include'd by Scene/Scene.cpp. Same `struct *Component` scan
+//      as the tuple, minus two custom-handler exclusion sets (the components
+//      whose add/remove callback is hand-written because it does real init/
+//      teardown). The OnComponentAdded/Removed primary templates are
+//      declaration-only, so a component added/removed without a specialization
+//      is an engine/editor link error — this collapses the touch-point while
+//      keeping that link error as the safety net for anything mis-excluded.
 //
 // Usage:
 //   OloHeaderTool <scan_dir> <cpp_out_dir> <cs_out_dir> <scene_out_dir> <savegame_out_dir>
@@ -681,6 +691,65 @@ static const std::set<std::string> kComponentsNotInSaveGame = {
     "LocalizedTextComponent",
 };
 
+// Components whose Scene::OnComponentAdded<T> specialization is HAND-WRITTEN in
+// Scene.cpp — either it does real init work, or it is an intentionally-empty
+// exception whose inline comment documents why (and must not be regenerated).
+// Every OTHER `struct *Component` gets a generated no-op
+// `template<> void Scene::OnComponentAdded<T>(Entity, T&) {}`.
+//
+// DELIBERATELY a THIRD, distinct exclusion set — unrelated to scene-copy tuple
+// membership (kComponentsNotInTuple) or save serialization (kComponentsNotInSaveGame).
+// It even differs from the remove set below: CameraComponent / CinematicComponent /
+// LocalizedTextComponent / AudioSoundGraphComponent do real work on ADD but their
+// removal is a plain no-op, while Rigidbody2D / SpringBone / NoiseAnimation are the
+// reverse (no-op add, real teardown on remove).
+//
+// Self-checking against drift: the OnComponentAdded primary template is
+// declaration-only, so a component listed here but lacking a hand-written
+// specialization is an engine LINK error, and a component with a hand-written
+// body NOT listed here is a DUPLICATE-DEFINITION compile error against the
+// generated no-op. ComponentHandlerCoverageTest also guards the generated list.
+// NOTE: `Skeleton` is intentionally absent — it is not a `struct *Component`, so
+// the scan never emits it and its no-op specialization stays hand-written.
+static const std::set<std::string> kComponentsCustomOnAdd = {
+    "CameraComponent",
+    "LocalizedTextComponent",
+    "CinematicComponent",
+    "AudioSoundGraphComponent",
+    "VideoOverlayComponent",
+    "VideoSurfaceComponent",
+    "Rigidbody3DComponent",
+    "PhysicsJoint3DComponent",
+    "VehicleComponent",
+    "RagdollComponent",
+    "CharacterController3DComponent",
+};
+
+// Components whose Scene::OnComponentRemoved<T> specialization is HAND-WRITTEN in
+// Scene.cpp because removal must release an external resource (a Jolt body /
+// constraint / vehicle / ragdoll / character-controller, a Box2D body, an audio
+// SoundGraph source, a video decode thread) or drop cached runtime state (the
+// SpringBone / NoiseAnimation state component). Every OTHER `struct *Component`
+// gets a generated no-op `OLO_ON_COMPONENT_REMOVED_NOOP(T)`.
+//
+// See kComponentsCustomOnAdd for why this is its own set and how it self-checks
+// (a missing specialization fails the OloEditor link via RemoveComponent<T>; a
+// stray hand-written body collides with the generated no-op). `Skeleton` is again
+// intentionally absent — not a `struct *Component`, so its no-op stays hand-written.
+static const std::set<std::string> kComponentsCustomOnRemove = {
+    "Rigidbody2DComponent",
+    "Rigidbody3DComponent",
+    "PhysicsJoint3DComponent",
+    "VehicleComponent",
+    "RagdollComponent",
+    "CharacterController3DComponent",
+    "AudioSoundGraphComponent",
+    "VideoOverlayComponent",
+    "VideoSurfaceComponent",
+    "SpringBoneComponent",
+    "NoiseAnimationComponent",
+};
+
 // Collect the name of every `struct *Component` *definition* under the scan dir.
 // This is the input to the generated AllComponents tuple — independent of the
 // OLO_PROPERTY scan above, since most components have no scripting properties.
@@ -833,6 +902,55 @@ static void EmitSaveGameRestoreList(std::ostream& out, const std::set<std::strin
         if (kComponentsNotInSaveGame.contains(name))
             continue;
         out << "TRY_LOAD_COMPONENT(" << name << ");\n";
+    }
+}
+
+// ─── Scene OnComponent{Added,Removed} No-op List Emitters ─────────────────────
+
+// Shared doc header for both Scene handler no-op files. `verb` is the callback
+// ("Added" / "Removed"); `macro` names the macro the caller must have in scope at
+// the #include site; `customSet` is the name of the exclusion set in this file.
+static void EmitHandlerNoopHeader(std::ostream& out, const char* verb, const char* macro, const char* customSet)
+{
+    out << "// Auto-generated by OloHeaderTool — DO NOT EDIT MANUALLY\n";
+    out << "// Re-generate with: cmake --build build --target GenerateBindings\n";
+    out << "//\n";
+    out << "// One " << macro << "(T) per `struct *Component` definition under\n";
+    out << "// OloEngine/src whose Scene::OnComponent" << verb << "<T> is a pure no-op\n";
+    out << "// (i.e. minus the generator's " << customSet << " exclusion set — the\n";
+    out << "// components whose " << verb << " callback is hand-written in Scene.cpp because\n";
+    out << "// it does real work). #include'd inside Scene.cpp where " << macro << "\n";
+    out << "// is defined and the OloEngine namespace is open. Entries are alphabetical;\n";
+    out << "// specialization order is irrelevant (the primary template is declaration-only).\n";
+    out << "//\n";
+    out << "// A component added/removed via Add/RemoveComponent<T>() with no specialization\n";
+    out << "// is a link error (engine for add, OloEditor for remove) — this list is what\n";
+    out << "// keeps every component linkable. Guarded by ComponentHandlerCoverageTest.\n";
+    out << "// `Skeleton` is deliberately absent (not a `struct *Component`); its no-op\n";
+    out << "// stays hand-written in Scene.cpp.\n\n";
+}
+
+// OLO_ON_COMPONENT_ADDED_NOOP(Name) — the empty-body add specializations.
+static void EmitOnComponentAddedNoops(std::ostream& out, const std::set<std::string>& componentNames)
+{
+    EmitHandlerNoopHeader(out, "Added", "OLO_ON_COMPONENT_ADDED_NOOP", "kComponentsCustomOnAdd");
+    for (auto const& name : componentNames)
+    {
+        if (kComponentsCustomOnAdd.contains(name))
+            continue;
+        out << "OLO_ON_COMPONENT_ADDED_NOOP(" << name << ")\n";
+    }
+}
+
+// OLO_ON_COMPONENT_REMOVED_NOOP(Name) — the empty-body remove specializations.
+static void EmitOnComponentRemovedNoops(std::ostream& out, const std::set<std::string>& componentNames)
+{
+    EmitHandlerNoopHeader(out, "Removed", "OLO_ON_COMPONENT_REMOVED_NOOP", "kComponentsCustomOnRemove");
+    for (auto const& name : componentNames)
+    {
+        if (kComponentsCustomOnRemove.contains(name))
+            continue;
+        out << "OLO_ON_COMPONENT_REMOVED_NOOP(" << name << ")\n";
     }
 }
 
@@ -1218,6 +1336,23 @@ static bool WriteSaveGameComponentLists(const fs::path& saveGameOutDir, const st
     return captureOk && restoreOk;
 }
 
+// Emit the Scene OnComponent{Added,Removed} no-op lists to
+// <scene_out_dir>/OnComponent{Added,Removed}.Generated.inl (the same Scene/Generated
+// dir as the AllComponents tuple). Returns false on a write failure. Both lists are
+// always written (no short-circuit) so a single failure still reports the other.
+static bool WriteSceneComponentHandlerLists(const fs::path& sceneOutDir, const std::set<std::string>& componentStructs)
+{
+    std::ostringstream addedSs;
+    EmitOnComponentAddedNoops(addedSs, componentStructs);
+    const bool addedOk = ReportWrite(sceneOutDir / "OnComponentAdded.Generated.inl", addedSs.str());
+
+    std::ostringstream removedSs;
+    EmitOnComponentRemovedNoops(removedSs, componentStructs);
+    const bool removedOk = ReportWrite(sceneOutDir / "OnComponentRemoved.Generated.inl", removedSs.str());
+
+    return addedOk && removedOk;
+}
+
 int main(int argc, char* argv[])
 {
     if (argc < 6)
@@ -1272,6 +1407,11 @@ int main(int argc, char* argv[])
         // Same non-empty componentStructs guard as the tuple: an empty save-game
         // list would silently drop EVERY component from every save-game.
         if (!WriteSaveGameComponentLists(saveGameOutDir, componentStructs))
+            errors = true;
+        // Same guard again: an empty handler list would drop every component's
+        // OnComponentAdded/Removed specialization → a wall of engine/editor link
+        // errors. Written to the same Scene/Generated dir as the tuple.
+        if (!WriteSceneComponentHandlerLists(sceneOutDir, componentStructs))
             errors = true;
     }
 
