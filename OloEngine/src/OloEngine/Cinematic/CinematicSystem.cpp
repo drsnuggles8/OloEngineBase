@@ -10,6 +10,7 @@
 #include "OloEngine/Scene/Scene.h"
 #include "OloEngine/Scene/Components.h"
 
+#include <cmath>
 #include <optional>
 
 namespace OloEngine
@@ -114,7 +115,9 @@ namespace OloEngine
         if (component.PlaybackSpeed < 0.0f && component.PreviousTime < 0.0f)
         {
             const f32 startDuration = sequence.GetEffectiveDuration();
-            if (startDuration > 0.0f)
+            // isfinite rejects a corrupt +Inf duration (NaN already fails > 0)
+            // so a bad asset can't poison the playhead before Tick/ApplyAtTime.
+            if (std::isfinite(startDuration) && startDuration > 0.0f)
             {
                 component.Time = startDuration;
                 component.PreviousTime = startDuration;
