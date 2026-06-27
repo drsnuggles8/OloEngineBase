@@ -288,3 +288,36 @@ TEST(BlendTreeTest, Simple1D_UnboundParam_DurationMatchesEvaluatedPose)
     // plain average (1+2+3)/3 = 2.0s that the removed special case returned.
     EXPECT_FLOAT_EQ(tree.GetDuration(params), 1.0f);
 }
+
+TEST(BlendTreeTest, Simple1D_NonPlayableMiddleChild_DurationMatchesEvaluatedPose)
+{
+    // Issue #410 (follow-up): Evaluate1D filters to *playable* children (valid clip,
+    // positive speed) and brackets between adjacent playable ones, so a non-playable
+    // child sitting between two playable children is skipped during the pose blend.
+    // Compute1DDuration must apply the same playable filtering, otherwise it brackets
+    // a different pair (e.g. against the null child) and duration diverges from pose.
+    auto firstClip = CreateBlendTestClip("First", 1.0f, glm::vec3(10.0f, 0.0f, 0.0f), glm::vec3(10.0f, 0.0f, 0.0f));
+    auto lastClip = CreateBlendTestClip("Last", 3.0f, glm::vec3(30.0f, 0.0f, 0.0f), glm::vec3(30.0f, 0.0f, 0.0f));
+
+    BlendTree tree;
+    tree.Type = BlendTree::BlendType::Simple1D;
+    tree.BlendParameterX = "Speed";
+
+    tree.Children.push_back({ firstClip, 0.0f, {}, 1.0f });
+    tree.Children.push_back({ Ref<AnimationClip>{}, 0.5f, {}, 1.0f }); // non-playable: null clip
+    tree.Children.push_back({ lastClip, 1.0f, {}, 1.0f });
+
+    AnimationParameterSet params;
+    params.DefineFloat("Speed", 0.5f);
+
+    // Evaluate skips the null middle child and blends First<->Last at t=0.5:
+    // x = mix(10, 30, 0.5) = 20.
+    std::vector<BoneTransform> result;
+    tree.Evaluate(0.0f, params, 1, result);
+    ASSERT_EQ(result.size(), 1u);
+    EXPECT_NEAR(result[0].Translation.x, 20.0f, 0.01f);
+
+    // GetDuration must bracket the SAME playable pair: mix(1.0s, 3.0s, 0.5) = 2.0s.
+    // The old all-children bracketing produced mix(1.0s, 0.0s, 1.0) = 0.0s here.
+    EXPECT_FLOAT_EQ(tree.GetDuration(params), 2.0f);
+}
