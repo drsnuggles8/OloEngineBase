@@ -3,6 +3,7 @@
 
 #include "OloEngine/Renderer/Framebuffer.h"
 #include "OloEngine/Renderer/MeshPrimitives.h"
+#include "OloEngine/Renderer/PostProcessSettings.h"
 #include "OloEngine/Renderer/RGCommandContext.h"
 #include "OloEngine/Renderer/RenderCommand.h"
 #include "OloEngine/Renderer/RenderPipelineBuilderInternal.h"
@@ -24,8 +25,8 @@ namespace OloEngine
     {
         RenderGraphNode::Setup(builder, blackboard);
         m_SelectedSceneDepthTexture = {};
+        m_SelectedVelocityTexture = {};
 
-        (void)blackboard;
         [[maybe_unused]] const auto input = RenderPipelineBuilderInternal::ReadFirstValidVersionedInputForPass(
             builder,
             this,
@@ -42,6 +43,13 @@ namespace OloEngine
         {
             m_SelectedSceneDepthTexture = blackboard.Scene.SceneDepth;
             [[maybe_unused]] const auto sceneDepthRead = builder.Read(blackboard.Scene.SceneDepth, RGReadUsage::ShaderSample);
+        }
+        // Per-pixel velocity (Deferred G-Buffer RT3 / Forward attachment 3). Optional:
+        // when absent the shader reconstructs camera-only motion for every pixel.
+        if (blackboard.GBuffer.Velocity.IsValid())
+        {
+            m_SelectedVelocityTexture = blackboard.GBuffer.Velocity;
+            [[maybe_unused]] const auto velocityRead = builder.Read(blackboard.GBuffer.Velocity, RGReadUsage::ShaderSample);
         }
         if (blackboard.Post.MotionBlurColor.IsValid())
         {
@@ -68,6 +76,7 @@ namespace OloEngine
         CreateFramebuffer(spec.Width, spec.Height);
 
         m_MotionBlurShader = Shader::Create("assets/shaders/PostProcess_MotionBlur.glsl");
+        m_MotionBlurParamsUBO = UniformBuffer::Create(MotionBlurParamsUBOData::GetSize(), ShaderBindingLayout::UBO_MOTION_BLUR_PARAMS);
 
         OLO_CORE_INFO("MotionBlurRenderPass: Initialized with viewport {}x{}", spec.Width, spec.Height);
     }
@@ -122,12 +131,23 @@ namespace OloEngine
             return;
         }
 
+        const u32 velocityTextureID = m_SelectedVelocityTexture.IsValid()
+                                          ? context.ResolveTexture(m_SelectedVelocityTexture)
+                                          : 0u;
+
         m_Target = outputFramebuffer;
 
         if (m_PostProcessUBO)
             m_PostProcessUBO->Bind();
         if (m_MotionBlurUBO)
             m_MotionBlurUBO->Bind();
+        if (m_MotionBlurParamsUBO)
+        {
+            MotionBlurParamsUBOData params;
+            params.Params.x = (velocityTextureID != 0) ? 1.0f : 0.0f;
+            m_MotionBlurParamsUBO->SetData(&params, MotionBlurParamsUBOData::GetSize());
+            m_MotionBlurParamsUBO->Bind();
+        }
 
         outputFramebuffer->Bind();
 
@@ -152,6 +172,11 @@ namespace OloEngine
 
         context.BindTexture(0, inputColorTextureID);
         m_MotionBlurShader->SetInt("u_Texture", 0);
+
+        // Velocity slot mirrors TAA (slot 2 = u_Velocity). Bound even when 0
+        // (the params UBO's hasVelocity flag gates whether the shader reads it).
+        context.BindTexture(2, velocityTextureID);
+        m_MotionBlurShader->SetInt("u_Velocity", 2);
 
         context.BindTexture(ShaderBindingLayout::TEX_POSTPROCESS_DEPTH, sceneDepthTextureID);
         m_MotionBlurShader->SetInt("u_DepthTexture", ShaderBindingLayout::TEX_POSTPROCESS_DEPTH);
@@ -184,5 +209,6 @@ namespace OloEngine
     {
         m_Target = nullptr;
         m_SelectedSceneDepthTexture = {};
+        m_SelectedVelocityTexture = {};
     }
 } // namespace OloEngine

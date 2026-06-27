@@ -61,7 +61,8 @@ namespace OloEngine
 
         [[nodiscard]] bool IsReadyForExecution() const noexcept override
         {
-            return m_MotionBlurShader && m_MotionBlurShader->IsReady() && m_MotionBlurUBO;
+            return m_MotionBlurShader && m_MotionBlurShader->IsReady() &&
+                   m_MotionBlurUBO && m_PostProcessUBO && m_MotionBlurParamsUBO;
         }
 
       private:
@@ -73,6 +74,11 @@ namespace OloEngine
         Ref<Shader> m_MotionBlurShader;
         Ref<UniformBuffer> m_MotionBlurUBO;
         Ref<UniformBuffer> m_PostProcessUBO;
+        // Pass-owned UBO (binding 42) carrying the per-pass hasVelocity flag.
+        Ref<UniformBuffer> m_MotionBlurParamsUBO;
         RGTextureHandle m_SelectedSceneDepthTexture{};
+        // Per-pixel velocity buffer (G-Buffer RT3 / Forward attachment 3);
+        // 0/invalid → shader uses camera-only reconstruction for every pixel.
+        RGTextureHandle m_SelectedVelocityTexture{};
     };
 } // namespace OloEngine

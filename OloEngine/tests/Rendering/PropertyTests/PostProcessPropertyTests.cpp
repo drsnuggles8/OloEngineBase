@@ -38,7 +38,10 @@
 #include "OloEngine/Renderer/Framebuffer.h"
 #include "OloEngine/Renderer/PostProcessSettings.h"
 #include "OloEngine/Renderer/Shader.h"
+#include "OloEngine/Renderer/ShaderBindingLayout.h"
 #include "OloEngine/Renderer/UniformBuffer.h"
+
+#include <glm/glm.hpp>
 
 #include <cmath>
 #include <vector>
@@ -74,6 +77,35 @@ namespace OloEngine::Tests
             ubo.TexelSizeX = ubo.InverseScreenWidth;
             ubo.TexelSizeY = ubo.InverseScreenHeight;
             return ubo;
+        }
+
+        // Holds the motion-blur auxiliary UBOs alive for the duration of a draw.
+        // PostProcess_MotionBlur reads binding 8 (camera matrices, for the
+        // camera-only fallback) and binding 42 (the hasVelocity flag). Both must
+        // be bound or the shader reads undefined UBO memory.
+        struct MotionBlurAuxUBOs
+        {
+            Ref<UniformBuffer> Matrices;
+            Ref<UniformBuffer> Params;
+        };
+
+        MotionBlurAuxUBOs BindMotionBlurAuxUBOs(bool hasVelocity,
+                                                const glm::mat4& inverseViewProjection = glm::mat4(1.0f),
+                                                const glm::mat4& prevViewProjection = glm::mat4(1.0f))
+        {
+            MotionBlurUBOData matricesData{};
+            matricesData.InverseViewProjection = inverseViewProjection;
+            matricesData.PrevViewProjection = prevViewProjection;
+            Ref<UniformBuffer> matrices = UniformBuffer::Create(MotionBlurUBOData::GetSize(), ShaderBindingLayout::UBO_USER_1);
+            matrices->SetData(&matricesData, MotionBlurUBOData::GetSize());
+
+            MotionBlurParamsUBOData paramsData{};
+            paramsData.Params.x = hasVelocity ? 1.0f : 0.0f;
+            Ref<UniformBuffer> params =
+                UniformBuffer::Create(MotionBlurParamsUBOData::GetSize(), ShaderBindingLayout::UBO_MOTION_BLUR_PARAMS);
+            params->SetData(&paramsData, MotionBlurParamsUBOData::GetSize());
+
+            return { matrices, params };
         }
 
         // Common setup: input texture + output framebuffer + UBO binding 7 +
@@ -577,11 +609,10 @@ namespace OloEngine::Tests
         const u32 depthTex = CreateUniformFloatTexture2D(kSize, kSize, 0.5f, 0.5f, 0.5f, 1.0f);
         ::glBindTextureUnit(19, static_cast<GLuint>(depthTex));
 
-        // MotionBlur UBO at binding 8: identity matrices.
-        MotionBlurUBOData mbUbo{};
-        // (default-initialized matrices are already identity)
-        Ref<UniformBuffer> mbBuffer = UniformBuffer::Create(MotionBlurUBOData::GetSize(), 8);
-        mbBuffer->SetData(&mbUbo, MotionBlurUBOData::GetSize());
+        // MotionBlur UBO (binding 8, identity matrices) + params UBO (binding 42,
+        // hasVelocity = 0). With no velocity buffer the shader reconstructs
+        // camera-only motion, and identity matrices make that zero everywhere.
+        [[maybe_unused]] auto aux = BindMotionBlurAuxUBOs(/*hasVelocity*/ false);
 
         harness.Draw();
 
@@ -598,6 +629,133 @@ namespace OloEngine::Tests
             EXPECT_NEAR(static_cast<int>(rgba[i * 4 + 1]), static_cast<int>(expected), 2);
             EXPECT_NEAR(static_cast<int>(rgba[i * 4 + 2]), static_cast<int>(expected), 2);
         }
+    }
+
+    // =========================================================================
+    // Motion blur — per-pixel velocity path (the feature this PR wires up).
+    //
+    // With hasVelocity = 1 the shader reads the per-object velocity buffer
+    // (slot 2) on geometry pixels (depth < 1) instead of reconstructing
+    // camera-only motion from depth. A zero velocity buffer must therefore
+    // still reduce to an identity pass — proving the new sampling path does not
+    // introduce spurious blur on stationary geometry.
+    //
+    // Catches: a wrong sign/scale on the velocity sample, or the geometry
+    // branch firing with a non-zero default when the buffer reads zero.
+    // =========================================================================
+    TEST(MotionBlurVelocityTest, ZeroVelocityBufferIsIdentity)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+
+        constexpr u32 kSize = 32;
+        PostProcessUBOData ubo = MakeDefaultPostProcessUBO(kSize, kSize);
+        ubo.MotionBlurStrength = 1.0f;
+        ubo.MotionBlurSamples = 8;
+
+        PostProcessHarness harness(kSize, kSize, "assets/shaders/PostProcess_MotionBlur.glsl", ubo);
+        harness.SetInputTexture(CreateUniformFloatTexture2D(kSize, kSize, 0.5f, 0.5f, 0.5f, 1.0f));
+
+        // Depth < 1 everywhere → the geometry branch reads the velocity buffer.
+        const u32 depthTex = CreateUniformFloatTexture2D(kSize, kSize, 0.5f, 0.5f, 0.5f, 1.0f);
+        ::glBindTextureUnit(ShaderBindingLayout::TEX_POSTPROCESS_DEPTH, static_cast<GLuint>(depthTex));
+        // Velocity buffer (slot 2) holds zero motion for every pixel.
+        const u32 velTex = CreateUniformFloatTexture2D(kSize, kSize, 0.0f, 0.0f, 0.0f, 0.0f);
+        ::glBindTextureUnit(2, static_cast<GLuint>(velTex));
+
+        [[maybe_unused]] auto aux = BindMotionBlurAuxUBOs(/*hasVelocity*/ true);
+
+        harness.Draw();
+
+        std::vector<u8> rgba;
+        harness.ReadOutputRgba8(rgba);
+        ::glDeleteTextures(1, &depthTex);
+        ::glDeleteTextures(1, &velTex);
+
+        const u8 expected = static_cast<u8>(std::lround(0.5f * 255.0f));
+        for (std::size_t i = 0; i < static_cast<std::size_t>(kSize) * kSize; ++i)
+        {
+            EXPECT_NEAR(static_cast<int>(rgba[i * 4 + 0]), static_cast<int>(expected), 2)
+                << "pixel " << i << " drifted (velocity-path blur activated at zero velocity)";
+            EXPECT_NEAR(static_cast<int>(rgba[i * 4 + 1]), static_cast<int>(expected), 2);
+            EXPECT_NEAR(static_cast<int>(rgba[i * 4 + 2]), static_cast<int>(expected), 2);
+        }
+    }
+
+    // The blur must follow the per-pixel velocity *vector*, not just its
+    // magnitude. Feed a vertical white→black edge and the same velocity
+    // magnitude in two directions: a horizontal velocity bleeds the edge
+    // sideways into the black region, while a vertical velocity leaves a
+    // vertical edge untouched (it is invariant under vertical smearing). This
+    // is the core behaviour the PR adds — motion blur consuming the per-object
+    // velocity buffer rather than camera-only depth reprojection.
+    TEST(MotionBlurVelocityTest, VelocityDirectionDrivesBlur)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+
+        constexpr u32 kSize = 32;
+        PostProcessUBOData ubo = MakeDefaultPostProcessUBO(kSize, kSize);
+        ubo.MotionBlurStrength = 1.0f;
+        ubo.MotionBlurSamples = 16;
+
+        PostProcessHarness harness(kSize, kSize, "assets/shaders/PostProcess_MotionBlur.glsl", ubo);
+
+        // Input: left half white, right half black, full height → a vertical edge
+        // at the x = kSize/2 boundary.
+        std::vector<f32> edge(static_cast<std::size_t>(kSize) * kSize * 4, 0.0f);
+        for (u32 y = 0; y < kSize; ++y)
+        {
+            for (u32 x = 0; x < kSize; ++x)
+            {
+                const f32 v = (x < kSize / 2) ? 1.0f : 0.0f;
+                const std::size_t i = (static_cast<std::size_t>(y) * kSize + x) * 4;
+                edge[i + 0] = v;
+                edge[i + 1] = v;
+                edge[i + 2] = v;
+                edge[i + 3] = 1.0f;
+            }
+        }
+        harness.SetInputTexture(CreateFloatTexture2D(kSize, kSize, edge.data()));
+
+        const u32 depthTex = CreateUniformFloatTexture2D(kSize, kSize, 0.5f, 0.5f, 0.5f, 1.0f);
+        ::glBindTextureUnit(ShaderBindingLayout::TEX_POSTPROCESS_DEPTH, static_cast<GLuint>(depthTex));
+
+        [[maybe_unused]] auto aux = BindMotionBlurAuxUBOs(/*hasVelocity*/ true);
+
+        const auto sampleR = [kSize](const std::vector<u8>& px, u32 x, u32 y)
+        {
+            return static_cast<int>(px[(static_cast<std::size_t>(y) * kSize + x) * 4 + 0]);
+        };
+
+        // Horizontal velocity (0.25 UV ≈ 8 px) — smears the edge left↔right.
+        const u32 horizontalVel = CreateUniformFloatTexture2D(kSize, kSize, 0.25f, 0.0f, 0.0f, 0.0f);
+        ::glBindTextureUnit(2, static_cast<GLuint>(horizontalVel));
+        harness.Draw();
+        std::vector<u8> horizontal;
+        harness.ReadOutputRgba8(horizontal);
+
+        // Same magnitude, vertical — a vertical edge is invariant under it.
+        const u32 verticalVel = CreateUniformFloatTexture2D(kSize, kSize, 0.0f, 0.25f, 0.0f, 0.0f);
+        ::glBindTextureUnit(2, static_cast<GLuint>(verticalVel));
+        harness.Draw();
+        std::vector<u8> vertical;
+        harness.ReadOutputRgba8(vertical);
+
+        ::glDeleteTextures(1, &depthTex);
+        ::glDeleteTextures(1, &horizontalVel);
+        ::glDeleteTextures(1, &verticalVel);
+
+        const u32 row = kSize / 2;
+        // Column 18 sits in the black region but within horizontal blur reach of
+        // the edge at column 16 → horizontal blur bleeds white in; vertical cannot.
+        EXPECT_GT(sampleR(horizontal, 18, row), 25)
+            << "horizontal velocity should smear the vertical edge rightward into the black region";
+        EXPECT_LT(sampleR(vertical, 18, row), 15)
+            << "vertical velocity must not smear a vertical edge horizontally";
+        // Deep white / deep black regions stay put under either direction.
+        EXPECT_GT(sampleR(horizontal, 4, row), 230);
+        EXPECT_GT(sampleR(vertical, 4, row), 230);
+        EXPECT_LT(sampleR(horizontal, 28, row), 15);
+        EXPECT_LT(sampleR(vertical, 28, row), 15);
     }
 
     // =========================================================================
