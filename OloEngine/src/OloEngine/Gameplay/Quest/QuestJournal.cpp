@@ -1,6 +1,8 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Gameplay/Quest/QuestJournal.h"
 
+#include <algorithm>
+
 namespace OloEngine
 {
     namespace
@@ -215,8 +217,7 @@ namespace OloEngine
             {
                 // Overflow-safe: clamp addition to [0, RequiredCount]
                 i32 headroom = obj.RequiredCount - obj.CurrentCount;
-                i32 added = std::min(amount, headroom);
-                if (added > 0)
+                if (i32 added = std::min(amount, headroom); added > 0)
                 {
                     obj.CurrentCount += added;
                     Record(sink, { .Kind = QuestJournalChange::Type::ObjectiveProgress, .QuestID = questId, .ObjectiveID = objectiveId, .CurrentCount = obj.CurrentCount, .RequiredCount = obj.RequiredCount });
@@ -277,7 +278,7 @@ namespace OloEngine
 
         auto const& currentStage = definition.Stages[static_cast<size_t>(state.CurrentStageIndex)];
 
-        bool stageComplete;
+        bool stageComplete = false;
         if (currentStage.RequireAllObjectives)
         {
             stageComplete = true;
@@ -337,22 +338,23 @@ namespace OloEngine
 
     QuestStatus QuestJournal::GetQuestStatus(const std::string& questId) const
     {
+        using enum QuestStatus;
         if (auto it = m_ActiveQuests.find(questId); it != m_ActiveQuests.end())
         {
             return it->second.Status;
         }
         if (m_CompletedQuestIDs.contains(questId))
         {
-            return QuestStatus::Completed;
+            return Completed;
         }
         if (m_FailedQuestIDs.contains(questId))
         {
-            return QuestStatus::Failed;
+            return Failed;
         }
-        return QuestStatus::Unavailable;
+        return Unavailable;
     }
 
-    const QuestObjective* QuestJournal::GetObjective(const std::string& questId, const std::string& objectiveId) const
+    const QuestObjective* QuestJournal::GetObjective(std::string_view questId, std::string_view objectiveId) const
     {
         auto it = m_ActiveQuests.find(questId);
         if (it == m_ActiveQuests.end())
@@ -483,18 +485,10 @@ namespace OloEngine
         }
 
         // Decrement quest cooldowns
-        for (auto it = m_QuestCooldowns.begin(); it != m_QuestCooldowns.end();)
-        {
-            it->second -= dt;
-            if (it->second <= 0.0f)
-            {
-                it = m_QuestCooldowns.erase(it);
-            }
-            else
-            {
-                ++it;
-            }
-        }
+        std::erase_if(m_QuestCooldowns, [dt](auto& pair)
+                      {
+            pair.second -= dt;
+            return pair.second <= 0.0f; });
     }
 
     void QuestJournal::SetActiveQuestState(const std::string& questId, ActiveQuestState state)
@@ -555,12 +549,12 @@ namespace OloEngine
         return it != m_Stats.end() ? it->second : 0;
     }
 
-    void QuestJournal::SetPlayerClass(const std::string& className)
+    void QuestJournal::SetPlayerClass(std::string_view className)
     {
         m_PlayerClass = className;
     }
 
-    void QuestJournal::SetPlayerFaction(const std::string& factionName)
+    void QuestJournal::SetPlayerFaction(std::string_view factionName)
     {
         m_PlayerFaction = factionName;
     }
@@ -623,26 +617,14 @@ namespace OloEngine
 
             case QuestRequirementType::All:
             {
-                for (auto const& child : req.Children)
-                {
-                    if (!CheckRequirement(child))
-                    {
-                        return false;
-                    }
-                }
-                return true;
+                return std::ranges::all_of(req.Children, [this](const QuestRequirement& child)
+                                           { return CheckRequirement(child); });
             }
 
             case QuestRequirementType::Any:
             {
-                for (auto const& child : req.Children)
-                {
-                    if (CheckRequirement(child))
-                    {
-                        return true;
-                    }
-                }
-                return false;
+                return std::ranges::any_of(req.Children, [this](const QuestRequirement& child)
+                                           { return CheckRequirement(child); });
             }
 
             case QuestRequirementType::Not:
@@ -661,14 +643,8 @@ namespace OloEngine
 
     bool QuestJournal::CheckRequirements(const std::vector<QuestRequirement>& requirements) const
     {
-        for (auto const& req : requirements)
-        {
-            if (!CheckRequirement(req))
-            {
-                return false;
-            }
-        }
-        return true;
+        return std::ranges::all_of(requirements, [this](const QuestRequirement& req)
+                                   { return CheckRequirement(req); });
     }
 
     std::vector<const QuestRequirement*> QuestJournal::GetUnmetRequirements(const std::vector<QuestRequirement>& requirements) const
@@ -684,7 +660,7 @@ namespace OloEngine
         return unmet;
     }
 
-    void QuestJournal::NotifyObjectiveProgress(QuestObjective::Type type, const std::string& targetId, i32 amount, QuestEventSink* sink)
+    void QuestJournal::NotifyObjectiveProgress(QuestObjective::Type type, std::string_view targetId, i32 amount, QuestEventSink* sink)
     {
         if (amount <= 0)
         {

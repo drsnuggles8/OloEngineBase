@@ -20,7 +20,7 @@ namespace OloEngine
 {
     namespace
     {
-        InventoryComponent* ResolveInventory(Scene* scene, Entity entity)
+        InventoryComponent* ResolveInventory(const Scene* scene, Entity entity)
         {
             if (!scene || !entity || !entity.HasComponent<InventoryComponent>())
             {
@@ -29,7 +29,7 @@ namespace OloEngine
             return &entity.GetComponent<InventoryComponent>();
         }
 
-        ItemContainerComponent* ResolveContainer(Scene* scene, Entity entity)
+        ItemContainerComponent* ResolveContainer(const Scene* scene, Entity entity)
         {
             if (!scene || !entity || !entity.HasComponent<ItemContainerComponent>())
             {
@@ -45,12 +45,12 @@ namespace OloEngine
         constexpr i32 kBuybackNumerator = 1;
         constexpr i32 kBuybackDenominator = 2;
 
-        i32 UnitBuyPrice(const ItemDefinition& def)
+        [[nodiscard("unit buy price must be used")]] i32 UnitBuyPrice(const ItemDefinition& def)
         {
             return def.BuyPrice;
         }
 
-        i32 UnitSellPrice(const ItemDefinition& def)
+        [[nodiscard("unit sell price must be used")]] i32 UnitSellPrice(const ItemDefinition& def)
         {
             if (def.SellPrice > 0)
             {
@@ -66,7 +66,7 @@ namespace OloEngine
         // Saturating total = unitPrice * quantity, clamped to i32 range. Used by
         // the GetBuyPrice / GetSellPrice UI helpers; the trade paths compute in
         // i64 and reject overflow rather than clamp.
-        i32 SaturatingTotal(i32 unitPrice, i32 quantity)
+        [[nodiscard("computed total must be used")]] i32 SaturatingTotal(i32 unitPrice, i32 quantity)
         {
             if (unitPrice <= 0 || quantity <= 0)
             {
@@ -113,12 +113,17 @@ namespace OloEngine
             std::vector<Pull> pulls;
             i32 remaining = quantity;
             const auto& slots = source.GetSlots();
-            for (sizet i = 0; i < slots.size() && remaining > 0; ++i)
+            const sizet slotCount = slots.size();
+            for (sizet i = 0; i < slotCount; ++i)
             {
+                if (remaining <= 0)
+                {
+                    break;
+                }
                 if (slots[i].has_value() && slots[i]->ItemDefinitionID == definitionId)
                 {
                     const i32 take = std::min(slots[i]->StackCount, remaining);
-                    pulls.push_back(Pull{ *slots[i], take });
+                    pulls.emplace_back(*slots[i], take);
                     remaining -= take;
                 }
             }
@@ -153,10 +158,11 @@ namespace OloEngine
         // Best-effort slot lookup for an item instance after an add/before a
         // remove. Stacked items merge into an existing slot and drop the new
         // instance's ID, so this can legitimately return -1.
-        i32 FindSlotOfInstance(const Inventory& inventory, const UUID& instanceId)
+        [[nodiscard("slot index must be used")]] i32 FindSlotOfInstance(const Inventory& inventory, const UUID& instanceId)
         {
             const auto& slots = inventory.GetSlots();
-            for (sizet i = 0; i < slots.size(); ++i)
+            const sizet slotCount = slots.size();
+            for (sizet i = 0; i < slotCount; ++i)
             {
                 if (slots[i].has_value() && slots[i]->InstanceID == instanceId)
                 {
@@ -230,14 +236,11 @@ namespace OloEngine
                 f32 distSq = glm::dot(diff, diff);
                 f32 radiusSq = pickupComp.PickupRadius * pickupComp.PickupRadius;
 
-                if (distSq <= radiusSq)
+                if (distSq <= radiusSq && invComp.PlayerInventory.AddItem(pickupComp.Item))
                 {
-                    if (invComp.PlayerInventory.AddItem(pickupComp.Item))
-                    {
-                        const i32 slot = FindSlotOfInstance(invComp.PlayerInventory, pickupComp.Item.InstanceID);
-                        added.push_back(ItemAddedEvent{ invEnt.GetUUID(), pickupComp.Item.InstanceID, pickupComp.Item.ItemDefinitionID, slot });
-                        entitiesToDestroy.insert(pickupEntity);
-                    }
+                    const i32 slot = FindSlotOfInstance(invComp.PlayerInventory, pickupComp.Item.InstanceID);
+                    added.emplace_back(invEnt.GetUUID(), pickupComp.Item.InstanceID, pickupComp.Item.ItemDefinitionID, slot);
+                    entitiesToDestroy.insert(pickupEntity);
                 }
             }
         }

@@ -19,14 +19,11 @@ namespace OloEngine
         }
 
         // If slot is occupied, unequip first
-        if (m_Equipped[slotIdx].has_value())
+        if (m_Equipped[slotIdx].has_value() && !Unequip(slot, sourceInventory))
         {
-            if (!Unequip(slot, sourceInventory))
-            {
-                // Rollback: re-add the removed item
-                sourceInventory.AddItem(item);
-                return false;
-            }
+            // Rollback: re-add the removed item
+            sourceInventory.AddItem(item);
+            return false;
         }
 
         m_Equipped[slotIdx] = item;
@@ -116,73 +113,77 @@ namespace OloEngine
 
     const char* EquipmentSlots::SlotToString(Slot slot)
     {
+        using enum Slot;
         switch (slot)
         {
-            case Slot::Head:
+            case Head:
                 return "Head";
-            case Slot::Chest:
+            case Chest:
                 return "Chest";
-            case Slot::Legs:
+            case Legs:
                 return "Legs";
-            case Slot::Feet:
+            case Feet:
                 return "Feet";
-            case Slot::Hands:
+            case Hands:
                 return "Hands";
-            case Slot::Shoulders:
+            case Shoulders:
                 return "Shoulders";
-            case Slot::Back:
+            case Back:
                 return "Back";
-            case Slot::MainHand:
+            case MainHand:
                 return "MainHand";
-            case Slot::OffHand:
+            case OffHand:
                 return "OffHand";
-            case Slot::Ring1:
+            case Ring1:
                 return "Ring1";
-            case Slot::Ring2:
+            case Ring2:
                 return "Ring2";
-            case Slot::Necklace:
+            case Necklace:
                 return "Necklace";
-            case Slot::Trinket1:
+            case Trinket1:
                 return "Trinket1";
-            case Slot::Trinket2:
+            case Trinket2:
                 return "Trinket2";
-            case Slot::Count:
+            case Count:
                 return "Count";
+            default:
+                break;
         }
         return "Unknown";
     }
 
-    EquipmentSlots::Slot EquipmentSlots::SlotFromString(const std::string& str)
+    EquipmentSlots::Slot EquipmentSlots::SlotFromString(std::string_view str)
     {
+        using enum Slot;
         if (str == "Head")
-            return Slot::Head;
+            return Head;
         if (str == "Chest")
-            return Slot::Chest;
+            return Chest;
         if (str == "Legs")
-            return Slot::Legs;
+            return Legs;
         if (str == "Feet")
-            return Slot::Feet;
+            return Feet;
         if (str == "Hands")
-            return Slot::Hands;
+            return Hands;
         if (str == "Shoulders")
-            return Slot::Shoulders;
+            return Shoulders;
         if (str == "Back")
-            return Slot::Back;
+            return Back;
         if (str == "MainHand")
-            return Slot::MainHand;
+            return MainHand;
         if (str == "OffHand")
-            return Slot::OffHand;
+            return OffHand;
         if (str == "Ring1")
-            return Slot::Ring1;
+            return Ring1;
         if (str == "Ring2")
-            return Slot::Ring2;
+            return Ring2;
         if (str == "Necklace")
-            return Slot::Necklace;
+            return Necklace;
         if (str == "Trinket1")
-            return Slot::Trinket1;
+            return Trinket1;
         if (str == "Trinket2")
-            return Slot::Trinket2;
-        return Slot::Count; // Invalid
+            return Trinket2;
+        return Count; // Invalid
     }
 
 } // namespace OloEngine

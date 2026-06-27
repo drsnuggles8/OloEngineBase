@@ -14,18 +14,18 @@ namespace OloEngine
         GameplayTag() = default;
         explicit GameplayTag(std::string tagPath);
 
-        [[nodiscard]] bool MatchesExact(const GameplayTag& other) const;
-        [[nodiscard]] bool MatchesPartial(const GameplayTag& parent) const;
+        [[nodiscard("match result must be used")]] bool MatchesExact(const GameplayTag& other) const;
+        [[nodiscard("match result must be used")]] bool MatchesPartial(const GameplayTag& parent) const;
 
-        [[nodiscard]] const std::string& GetTagString() const
+        [[nodiscard("tag string must be used")]] const std::string& GetTagString() const
         {
             return m_TagPath;
         }
-        [[nodiscard]] u32 GetHash() const
+        [[nodiscard("tag hash must be used")]] u32 GetHash() const
         {
             return m_Hash;
         }
-        [[nodiscard]] bool IsValid() const
+        [[nodiscard("validity check must be used")]] bool IsValid() const
         {
             return !m_TagPath.empty();
         }
@@ -34,10 +34,7 @@ namespace OloEngine
         {
             return m_Hash == other.m_Hash && m_TagPath == other.m_TagPath;
         }
-        auto operator!=(const GameplayTag& other) const -> bool
-        {
-            return !(*this == other);
-        }
+        // operator!= is synthesized from operator== in C++20 (was cpp:S6186).
         auto operator<(const GameplayTag& other) const -> bool
         {
             return m_TagPath < other.m_TagPath;

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "OloEngine/Core/TransparentStringHash.h"
 #include "OloEngine/Gameplay/Inventory/AffixDefinition.h"
 
 #include <string>
@@ -19,8 +20,8 @@ namespace OloEngine
         static void Clear();
 
       private:
-        static std::unordered_map<std::string, AffixDefinition>& GetDefinitions();
-        static std::unordered_map<std::string, AffixPool>& GetPools();
+        [[nodiscard("affix definitions map must be used")]] static std::unordered_map<std::string, AffixDefinition, StringHash, StringEqual>& GetDefinitions();
+        [[nodiscard("affix pools map must be used")]] static std::unordered_map<std::string, AffixPool, StringHash, StringEqual>& GetPools();
     };
 
 } // namespace OloEngine

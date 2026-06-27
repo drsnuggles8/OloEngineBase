@@ -4,15 +4,15 @@
 
 namespace OloEngine
 {
-    std::unordered_map<std::string, AffixDefinition>& AffixDatabase::GetDefinitions()
+    std::unordered_map<std::string, AffixDefinition, StringHash, StringEqual>& AffixDatabase::GetDefinitions()
     {
-        static std::unordered_map<std::string, AffixDefinition> s_Definitions;
+        static std::unordered_map<std::string, AffixDefinition, StringHash, StringEqual> s_Definitions;
         return s_Definitions;
     }
 
-    std::unordered_map<std::string, AffixPool>& AffixDatabase::GetPools()
+    std::unordered_map<std::string, AffixPool, StringHash, StringEqual>& AffixDatabase::GetPools()
     {
-        static std::unordered_map<std::string, AffixPool> s_Pools;
+        static std::unordered_map<std::string, AffixPool, StringHash, StringEqual> s_Pools;
         return s_Pools;
     }
 

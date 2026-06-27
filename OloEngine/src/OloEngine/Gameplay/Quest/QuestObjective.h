@@ -3,6 +3,7 @@
 #include "OloEngine/Core/Base.h"
 
 #include <string>
+#include <string_view>
 
 namespace OloEngine
 {
@@ -33,40 +34,42 @@ namespace OloEngine
         auto operator==(const QuestObjective&) const -> bool = default;
     };
 
-    inline const char* ObjectiveTypeToString(QuestObjective::Type type)
+    [[nodiscard("objective type string must be used")]] inline const char* ObjectiveTypeToString(QuestObjective::Type type)
     {
+        using enum QuestObjective::Type;
         switch (type)
         {
-            case QuestObjective::Type::Kill:
+            case Kill:
                 return "Kill";
-            case QuestObjective::Type::Collect:
+            case Collect:
                 return "Collect";
-            case QuestObjective::Type::Interact:
+            case Interact:
                 return "Interact";
-            case QuestObjective::Type::Reach:
+            case Reach:
                 return "Reach";
-            case QuestObjective::Type::Escort:
+            case Escort:
                 return "Escort";
-            case QuestObjective::Type::Custom:
+            case Custom:
                 return "Custom";
             default:
                 return "Unknown";
         }
     }
 
-    inline QuestObjective::Type ObjectiveTypeFromString(const std::string& str)
+    inline QuestObjective::Type ObjectiveTypeFromString(std::string_view str)
     {
+        using enum QuestObjective::Type;
         if (str == "Kill")
-            return QuestObjective::Type::Kill;
+            return Kill;
         if (str == "Collect")
-            return QuestObjective::Type::Collect;
+            return Collect;
         if (str == "Interact")
-            return QuestObjective::Type::Interact;
+            return Interact;
         if (str == "Reach")
-            return QuestObjective::Type::Reach;
+            return Reach;
         if (str == "Escort")
-            return QuestObjective::Type::Escort;
-        return QuestObjective::Type::Custom;
+            return Escort;
+        return Custom;
     }
 
 } // namespace OloEngine

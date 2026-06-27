@@ -4,6 +4,7 @@
 #include "OloEngine/Gameplay/Quest/QuestRequirement.h"
 
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace OloEngine
@@ -18,42 +19,44 @@ namespace OloEngine
         TurnedIn     // Completed and acknowledged
     };
 
-    inline const char* QuestStatusToString(QuestStatus status)
+    [[nodiscard("status string must be used")]] inline const char* QuestStatusToString(QuestStatus status)
     {
+        using enum QuestStatus;
         switch (status)
         {
-            case QuestStatus::Unavailable:
+            case Unavailable:
                 return "Unavailable";
-            case QuestStatus::Available:
+            case Available:
                 return "Available";
-            case QuestStatus::Active:
+            case Active:
                 return "Active";
-            case QuestStatus::Completed:
+            case Completed:
                 return "Completed";
-            case QuestStatus::Failed:
+            case Failed:
                 return "Failed";
-            case QuestStatus::TurnedIn:
+            case TurnedIn:
                 return "TurnedIn";
             default:
                 return "Unknown";
         }
     }
 
-    inline QuestStatus QuestStatusFromString(const std::string& str)
+    inline QuestStatus QuestStatusFromString(std::string_view str)
     {
+        using enum QuestStatus;
         if (str == "Unavailable")
-            return QuestStatus::Unavailable;
+            return Unavailable;
         if (str == "Available")
-            return QuestStatus::Available;
+            return Available;
         if (str == "Active")
-            return QuestStatus::Active;
+            return Active;
         if (str == "Completed")
-            return QuestStatus::Completed;
+            return Completed;
         if (str == "Failed")
-            return QuestStatus::Failed;
+            return Failed;
         if (str == "TurnedIn")
-            return QuestStatus::TurnedIn;
-        return QuestStatus::Unavailable;
+            return TurnedIn;
+        return Unavailable;
     }
 
     struct QuestStage

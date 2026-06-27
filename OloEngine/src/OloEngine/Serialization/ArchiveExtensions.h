@@ -180,8 +180,8 @@ namespace OloEngine
         return ar;
     }
 
-    template<std::derived_from<FArchive> Ar, typename K, typename V>
-    Ar& operator<<(Ar& ar, std::unordered_map<K, V>& map)
+    template<std::derived_from<FArchive> Ar, typename K, typename V, typename... Rest>
+    Ar& operator<<(Ar& ar, std::unordered_map<K, V, Rest...>& map)
     {
         if (!ar.IsLoading())
         {
@@ -207,7 +207,7 @@ namespace OloEngine
                 ar.SetError();
                 return ar;
             }
-            std::unordered_map<K, V> temp;
+            std::unordered_map<K, V, Rest...> temp;
             temp.reserve(count);
             for (u32 i = 0; i < count; ++i)
             {

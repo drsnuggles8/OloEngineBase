@@ -16,19 +16,19 @@ namespace OloEngine
         void RemoveTag(const GameplayTag& tag);
         void Clear();
 
-        [[nodiscard]] bool HasTagExact(const GameplayTag& tag) const;
-        [[nodiscard]] bool HasTagPartial(const GameplayTag& parent) const;
-        [[nodiscard]] bool HasAll(const GameplayTagContainer& required) const;
-        [[nodiscard]] bool HasAny(const GameplayTagContainer& tags) const;
-        [[nodiscard]] bool IsEmpty() const
+        [[nodiscard("tag-presence check must be used")]] bool HasTagExact(const GameplayTag& tag) const;
+        [[nodiscard("tag-presence check must be used")]] bool HasTagPartial(const GameplayTag& parent) const;
+        [[nodiscard("tag-presence check must be used")]] bool HasAll(const GameplayTagContainer& required) const;
+        [[nodiscard("tag-presence check must be used")]] bool HasAny(const GameplayTagContainer& tags) const;
+        [[nodiscard("emptiness check must be used")]] bool IsEmpty() const
         {
             return m_Tags.empty();
         }
-        [[nodiscard]] std::size_t Count() const
+        [[nodiscard("tag count must be used")]] std::size_t Count() const
         {
             return m_Tags.size();
         }
-        [[nodiscard]] const std::vector<GameplayTag>& GetTags() const
+        [[nodiscard("tag list must be used")]] const std::vector<GameplayTag>& GetTags() const
         {
             return m_Tags;
         }

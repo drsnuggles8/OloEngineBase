@@ -112,13 +112,10 @@ namespace OloEngine
         if (slot.has_value())
         {
             // Try stacking
-            if (slot->IsStackCompatible(item))
+            if (slot->IsStackCompatible(item) && slot->StackCount + item.StackCount <= maxStack)
             {
-                if (slot->StackCount + item.StackCount <= maxStack)
-                {
-                    slot->StackCount += item.StackCount;
-                    return true;
-                }
+                slot->StackCount += item.StackCount;
+                return true;
             }
             return false;
         }
@@ -156,7 +153,7 @@ namespace OloEngine
         return false;
     }
 
-    bool Inventory::RemoveItemByDefinition(const std::string& definitionId, i32 count)
+    bool Inventory::RemoveItemByDefinition(std::string_view definitionId, i32 count)
     {
         if (count <= 0)
         {
@@ -304,7 +301,7 @@ namespace OloEngine
         return s.has_value() ? &s.value() : nullptr;
     }
 
-    i32 Inventory::FindItem(const std::string& definitionId) const
+    i32 Inventory::FindItem(std::string_view definitionId) const
     {
         for (i32 i = 0; i < m_Capacity; ++i)
         {
@@ -317,7 +314,7 @@ namespace OloEngine
         return -1;
     }
 
-    i32 Inventory::CountItem(const std::string& definitionId) const
+    i32 Inventory::CountItem(std::string_view definitionId) const
     {
         i32 total = 0;
         for (auto const& slot : m_Slots)
@@ -330,7 +327,7 @@ namespace OloEngine
         return total;
     }
 
-    bool Inventory::HasItem(const std::string& definitionId, i32 count) const
+    bool Inventory::HasItem(std::string_view definitionId, i32 count) const
     {
         return CountItem(definitionId) >= count;
     }

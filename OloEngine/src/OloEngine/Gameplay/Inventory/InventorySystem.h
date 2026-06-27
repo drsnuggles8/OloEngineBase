@@ -72,14 +72,14 @@ namespace OloEngine
         // Total price (currency) to buy `quantity` of `definitionId`, or 0 if
         // the definition is unknown / not for sale. UI/preview helper — the
         // single source of truth for the buy-side number BuyItem charges.
-        [[nodiscard]] static i32 GetBuyPrice(const std::string& definitionId, i32 quantity = 1);
+        [[nodiscard("buy price must be used")]] static i32 GetBuyPrice(const std::string& definitionId, i32 quantity = 1);
 
         // Total price (currency) a shop pays to buy `quantity` of `definitionId`
         // back, or 0 if unknown. Uses ItemDefinition::SellPrice when set,
         // otherwise falls back to half the BuyPrice (integer division truncates,
         // so a BuyPrice of 1 sells for 0). Single source of truth for the
         // sell-side number SellItem credits.
-        [[nodiscard]] static i32 GetSellPrice(const std::string& definitionId, i32 quantity = 1);
+        [[nodiscard("sell price must be used")]] static i32 GetSellPrice(const std::string& definitionId, i32 quantity = 1);
     };
 
 } // namespace OloEngine

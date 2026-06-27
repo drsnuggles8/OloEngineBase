@@ -300,6 +300,44 @@ Triaged as **not-a-fix** (left in place, reasoning recorded):
 
 ---
 
+## 9. `cpp:S1771` — "A `struct` should not have member functions" (on defaulted `operator==` PODs)
+
+**Where seen:** ≈10 hits in the `Gameplay/` sweep alone (AttributeModifier, GameplayEffect's nested structs, ItemAffix, QuestStage/QuestBranchChoice/QuestRewards/QuestDefinition, QuestObjective, QuestRequirement, …) plus every ECS `*Component` struct.
+**Status:** False positive on this codebase's idioms — **not fixed**, left in place.
+
+### Why it's a false positive here
+
+The flagged structs are POD aggregates whose *only* member function is a defaulted comparison:
+
+```cpp
+struct QuestRewards
+{
+    i32 ExperiencePoints = 0;
+    i32 Currency = 0;
+    std::vector<std::string> ItemRewards;
+    auto operator==(const QuestRewards&) const -> bool = default;   // ← S1771 fires here
+};
+```
+
+`auto operator==(...) const -> bool = default;` is the **sanctioned house idiom** — [CLAUDE.md §"Editor undo/redo for components"](../CLAUDE.md) and [cpp-coding-quality §7](agent-rules/cpp-coding-quality.md) require it so `SceneHierarchyPanel::DrawComponent<T>` can opt a non-trivially-copyable component into undo via `std::equality_comparable<T>`. The two "compliant" fixes the rule suggests both make the code worse:
+
+- **Remove the member function** — impossible; the comparison is load-bearing for undo / round-trip tests.
+- **Change `struct`→`class`** — flips default access (needs `public:` everywhere), and for the `*Component` structs it risks aggregate-initialisation and must stay a `struct` for the OloHeaderTool `struct *Component` scan to keep generating the `AllComponents` tuple / SaveGame lists.
+
+Same root cause feeds the `cpp:S1067` hits (§3) on those same defaulted `operator==` — you cannot "reduce the conditional operators" of a `= default` comparison without un-defaulting it.
+
+### Action
+
+Scope `cpp:S1771` (and the related `cpp:S1067` on defaulted comparisons) out for `OloEngine/src/OloEngine/**` in `sonar-project.properties`, or deactivate in the Quality Profile. They flag a documented, mandatory idiom.
+
+### Honourable mentions (one-off FPs found in the same sweep, left in place)
+
+- **`cpp:S1706`** ("exceptions should not be used") — the YAML asset-loading `try/catch` in `ItemDatabase`/`QuestDatabase` is the intentional per-file parse-error handler; the project deliberately uses exceptions there. Removing it changes error handling.
+- **`cpp:S5008`** ("replace `void *`") — deliberate type-erasure in `GameplayEventBus` (handlers stored as `std::function<void(const void*)>`, cast back to `const E*`).
+- **`cpp:M23_280`** ("use of a potentially moved-from object") — `optional::reset()` after `std::move(opt)` is well-defined and is exactly how `Inventory::MoveItem` clears the vacated slot.
+
+---
+
 ## High-volume rules to deactivate or scope (full-corpus histogram)
 
 A full-corpus facet query (≈31,800 open issues) surfaced four very high-count rules that are **MISRA / stylistic rules fighting idiomatic modern C++**. These dwarf everything else and are the reason the raw issue count looks alarming. "Fixing" them mechanically would be harmful or pointless; the right move is to deactivate (or tightly scope) them in the C++ Quality Profile.
