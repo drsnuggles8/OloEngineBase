@@ -81,15 +81,17 @@ All UBO blocks use `layout(std140, binding = N)`. Block names and members follow
 
 ## 4. MRT output (forward pass)
 
-All forward-rendered geometry outputs **three render targets**:
+All forward-rendered geometry outputs **four render targets**:
 
 ```glsl
 layout(location = 0) out vec4 o_Color;       // RGBA16F — final shaded color
 layout(location = 1) out int  o_EntityID;    // R32I   — entity ID for editor picking
 layout(location = 2) out vec2 o_ViewNormal;  // RG16F  — octahedral view-space normal (SSAO input)
+layout(location = 3) out vec2 o_Velocity;    // RG16F  — screen-space motion vector (TAA / motion blur)
 ```
 
 Omitting `o_EntityID` breaks editor selection. Omitting `o_ViewNormal` breaks SSAO.
+Omitting `o_Velocity` ghosts moving objects under TAA and drops per-object motion blur.
 
 Octahedral encoding for normals:
 
@@ -102,6 +104,47 @@ vec2 octEncode(vec3 n)
     return n.xy * 0.5 + 0.5;
 }
 ```
+
+---
+
+## 4a. Motion vectors / velocity buffer (G-Buffer RT3 / forward attachment 3)
+
+Per-object screen-space velocity is written by every opaque geometry shader
+(`PBR_GBuffer*.glsl` deferred, `PBR_MultiLight*.glsl` forward) and consumed by
+TAA (`PostProcess_TAA.glsl`) and motion blur (`PostProcess_MotionBlur.glsl`).
+
+Convention — the velocity stored is a **UV-space delta**, current minus previous:
+
+```glsl
+vec2 ndcCurr = v_ClipPosCurr.xy / v_ClipPosCurr.w;   // u_ViewProjection     * u_Model     * pos
+vec2 ndcPrev = v_ClipPosPrev.xy / v_ClipPosPrev.w;   // u_PrevViewProjection * u_PrevModel * pos
+o_Velocity   = (ndcCurr - ndcPrev) * 0.5;            // = uvCurr - uvPrev  → consumers do prevUV = uv - velocity
+```
+
+Per-frame previous data comes from the renderer: `u_PrevModel` (per-entity
+prev transform, `ModelMatrices` tail), `u_PrevViewProjection` (`MotionBlurMatrices`,
+binding 8), and `u_PrevBoneTransforms` (`PrevBoneMatrices`, binding 31) for skinned
+meshes. All alias their current value on the first frame, so velocity is zero for
+newly-spawned geometry — never undefined.
+
+Three gotchas for any **consumer** of this buffer:
+
+- **It is geometry-only.** Background / sky pixels are never written, so they keep
+  the buffer's clear value (zero). A consumer that wants *camera* motion on the
+  background (e.g. motion blur streaking the sky as the camera turns) must
+  depth-gate: where `depth == 1.0` (far plane), fall back to camera-only
+  reconstruction (`InverseViewProjection` + `PrevViewProjection` from binding 8)
+  instead of sampling the velocity buffer.
+- **It carries TAA jitter.** Both `u_ViewProjection` and `u_PrevViewProjection`
+  bake in their frame's Halton jitter (so TAA history reprojection stays
+  self-consistent). Consumers inherit a sub-pixel (~1 px) jitter velocity on
+  static geometry — harmless for motion blur, deliberately kept for TAA; don't
+  "unjitter" it in one consumer without accounting for the other.
+- **Gate optional velocity with a flag, don't assume it exists.** Forward and
+  deferred both produce it today, but pass a `hasVelocity` flag (TAA's
+  `TAAParams`, motion blur's `MotionBlurParams` at binding 42) so a path without
+  a velocity buffer degrades to camera-only reconstruction rather than reading an
+  unbound sampler.
 
 ---
 

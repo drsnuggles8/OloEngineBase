@@ -107,6 +107,7 @@ add_executable(OloEngine-Tests
 		Rendering/SSAOMathTest.cpp
 		Rendering/BloomMathTest.cpp
 		Rendering/FogMathTest.cpp
+		Rendering/MotionVectorMathTest.cpp
 		Rendering/SSRHiZTraversalTest.cpp
 		Rendering/RenderGraphFingerprintTest.cpp
 		Rendering/CommandPacketTest.cpp

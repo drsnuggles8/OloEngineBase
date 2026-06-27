@@ -337,6 +337,22 @@ namespace OloEngine
         }
     };
 
+    // GPU-side UBO layout for motion-blur per-pass flags (std140, binding 42).
+    // Set by MotionBlurRenderPass each frame from whether a per-pixel velocity
+    // texture resolved for this path. x = hasVelocityTexture (0/1): when 1 the
+    // shader reads full camera+object motion from the velocity buffer on
+    // geometry pixels; when 0 every pixel falls back to camera-only
+    // reconstruction from depth.
+    struct MotionBlurParamsUBOData
+    {
+        glm::vec4 Params = glm::vec4(0.0f); // x = hasVelocityTexture, yzw reserved
+
+        static constexpr u32 GetSize()
+        {
+            return sizeof(MotionBlurParamsUBOData);
+        }
+    };
+
     // GPU-side UBO layout for TAA (std140, binding 32)
     struct TAAUBOData
     {
