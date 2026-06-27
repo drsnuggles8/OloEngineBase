@@ -657,7 +657,7 @@ namespace OloEngine::Tests
 
         // Depth < 1 everywhere → the geometry branch reads the velocity buffer.
         const u32 depthTex = CreateUniformFloatTexture2D(kSize, kSize, 0.5f, 0.5f, 0.5f, 1.0f);
-        ::glBindTextureUnit(19, static_cast<GLuint>(depthTex));
+        ::glBindTextureUnit(ShaderBindingLayout::TEX_POSTPROCESS_DEPTH, static_cast<GLuint>(depthTex));
         // Velocity buffer (slot 2) holds zero motion for every pixel.
         const u32 velTex = CreateUniformFloatTexture2D(kSize, kSize, 0.0f, 0.0f, 0.0f, 0.0f);
         ::glBindTextureUnit(2, static_cast<GLuint>(velTex));
@@ -717,7 +717,7 @@ namespace OloEngine::Tests
         harness.SetInputTexture(CreateFloatTexture2D(kSize, kSize, edge.data()));
 
         const u32 depthTex = CreateUniformFloatTexture2D(kSize, kSize, 0.5f, 0.5f, 0.5f, 1.0f);
-        ::glBindTextureUnit(19, static_cast<GLuint>(depthTex));
+        ::glBindTextureUnit(ShaderBindingLayout::TEX_POSTPROCESS_DEPTH, static_cast<GLuint>(depthTex));
 
         [[maybe_unused]] auto aux = BindMotionBlurAuxUBOs(/*hasVelocity*/ true);
 

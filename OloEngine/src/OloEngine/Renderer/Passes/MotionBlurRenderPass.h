@@ -61,7 +61,8 @@ namespace OloEngine
 
         [[nodiscard]] bool IsReadyForExecution() const noexcept override
         {
-            return m_MotionBlurShader && m_MotionBlurShader->IsReady() && m_MotionBlurUBO && m_MotionBlurParamsUBO;
+            return m_MotionBlurShader && m_MotionBlurShader->IsReady() &&
+                   m_MotionBlurUBO && m_PostProcessUBO && m_MotionBlurParamsUBO;
         }
 
       private:

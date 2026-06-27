@@ -37,6 +37,7 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 
+#include <algorithm>
 #include <cmath>
 
 using namespace OloEngine; // NOLINT(google-build-using-namespace) — test brevity
@@ -54,8 +55,11 @@ namespace
     {
         const glm::vec4 clipCurr = viewProjection * model * glm::vec4(localPos, 1.0f);
         const glm::vec4 clipPrev = prevViewProjection * prevModel * glm::vec4(localPos, 1.0f);
-        const glm::vec2 ndcCurr = glm::vec2(clipCurr) / clipCurr.w;
-        const glm::vec2 ndcPrev = glm::vec2(clipPrev) / clipPrev.w;
+        // Mirror the G-buffer shader's guarded divide (max(w, 1e-6)) so the
+        // contract validates the same near-zero/invalid clip-W behaviour.
+        constexpr f32 kClipWEpsilon = 1.0e-6f;
+        const glm::vec2 ndcCurr = glm::vec2(clipCurr) / std::max(clipCurr.w, kClipWEpsilon);
+        const glm::vec2 ndcPrev = glm::vec2(clipPrev) / std::max(clipPrev.w, kClipWEpsilon);
         return (ndcCurr - ndcPrev) * 0.5f;
     }
 
