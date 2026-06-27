@@ -49,30 +49,103 @@ namespace OloEngine
 
     namespace
     {
-        // Weighted-average duration between the two 1D children bracketing paramValue.
-        [[nodiscard("blended duration must be used")]] f32 Compute1DDuration(const std::vector<BlendTree::BlendChild>& children, f32 paramValue)
+        // Selection of the playable 1D children bracketing paramValue. Evaluate1D
+        // (pose) and Compute1DDuration (duration) both run through this, so the
+        // rendered pose and the duration used to normalize time always blend the
+        // SAME pair of clips with the SAME weight — the core invariant behind #410.
+        // A child is "playable" when it has a valid clip and a positive speed;
+        // non-playable children are skipped and the param is clamped to the playable
+        // threshold range.
+        struct Blend1DSelection
         {
-            if (children.size() == 1)
-            {
-                return (children[0].Clip && children[0].Speed > 0.0f) ? children[0].Clip->Duration / children[0].Speed : 0.0f;
-            }
+            sizet IndexA = 0;         // lower bracketing playable child (or the sole source)
+            sizet IndexB = 0;         // upper bracketing playable child (unused when Single)
+            f32 Weight = 0.0f;        // blend factor: IndexA at 0, IndexB at 1
+            bool HasPlayable = false; // false when no child has a valid clip + positive speed
+            bool Single = false;      // true when one clip is sampled fully (only IndexA valid)
+        };
 
-            // Find the two neighbors
-            auto neighborCount = children.size() - 1;
-            for (sizet i = 0; i < neighborCount; ++i)
+        [[nodiscard("blend selection must be used")]] Blend1DSelection SelectBlend1DNeighbors(const std::vector<BlendTree::BlendChild>& children, f32 paramValue)
+        {
+            Blend1DSelection selection;
+
+            // Collect playable children (valid clip and positive speed).
+            std::vector<sizet> playableIndices;
+            auto childCount = children.size();
+            playableIndices.reserve(childCount);
+            for (sizet i = 0; i < childCount; ++i)
             {
-                if (paramValue <= children[i + 1].Threshold)
+                if (children[i].Clip && children[i].Speed > 0.0f)
                 {
-                    f32 range = children[i + 1].Threshold - children[i].Threshold;
-                    f32 t = (range > 0.0f) ? (paramValue - children[i].Threshold) / range : 0.0f;
-                    t = glm::clamp(t, 0.0f, 1.0f);
-                    f32 durA = (children[i].Clip && children[i].Speed > 0.0f) ? children[i].Clip->Duration / children[i].Speed : 0.0f;
-                    f32 durB = (children[i + 1].Clip && children[i + 1].Speed > 0.0f) ? children[i + 1].Clip->Duration / children[i + 1].Speed : 0.0f;
-                    return glm::mix(durA, durB, t);
+                    playableIndices.push_back(i);
                 }
             }
-            auto& last = children.back();
-            return (last.Clip && last.Speed > 0.0f) ? last.Clip->Duration / last.Speed : 0.0f;
+
+            if (playableIndices.empty())
+            {
+                return selection; // HasPlayable stays false
+            }
+            selection.HasPlayable = true;
+
+            if (playableIndices.size() == 1)
+            {
+                selection.Single = true;
+                selection.IndexA = playableIndices.front();
+                return selection;
+            }
+
+            // Clamp param to the playable child threshold range.
+            f32 minThreshold = children[playableIndices.front()].Threshold;
+            f32 maxThreshold = children[playableIndices.back()].Threshold;
+            for (sizet idx : playableIndices)
+            {
+                minThreshold = std::min(minThreshold, children[idx].Threshold);
+                maxThreshold = std::max(maxThreshold, children[idx].Threshold);
+            }
+            paramValue = glm::clamp(paramValue, minThreshold, maxThreshold);
+
+            // Find the two neighboring playable children bracketing paramValue.
+            auto playablePairs = playableIndices.size() - 1;
+            for (sizet pi = 0; pi < playablePairs; ++pi)
+            {
+                sizet idxA = playableIndices[pi];
+                sizet idxB = playableIndices[pi + 1];
+
+                if (paramValue <= children[idxB].Threshold)
+                {
+                    f32 range = children[idxB].Threshold - children[idxA].Threshold;
+                    selection.IndexA = idxA;
+                    selection.IndexB = idxB;
+                    selection.Weight = (range > 0.0f) ? (paramValue - children[idxA].Threshold) / range : 0.0f;
+                    return selection;
+                }
+            }
+
+            // Past the last playable child: sample it fully.
+            selection.Single = true;
+            selection.IndexA = playableIndices.back();
+            return selection;
+        }
+
+        // Weighted-average effective duration of the playable 1D children bracketing
+        // paramValue. Shares SelectBlend1DNeighbors with Evaluate1D so duration and
+        // pose can never bracket different clips (issue #410). Speed is folded in so
+        // time normalization plays each clip at its true rate.
+        [[nodiscard("blended duration must be used")]] f32 Compute1DDuration(const std::vector<BlendTree::BlendChild>& children, f32 paramValue)
+        {
+            Blend1DSelection selection = SelectBlend1DNeighbors(children, paramValue);
+            if (!selection.HasPlayable)
+            {
+                return 0.0f;
+            }
+
+            auto effectiveDuration = [&children](sizet idx)
+            { return children[idx].Clip->Duration / children[idx].Speed; };
+            if (selection.Single)
+            {
+                return effectiveDuration(selection.IndexA);
+            }
+            return glm::mix(effectiveDuration(selection.IndexA), effectiveDuration(selection.IndexB), selection.Weight);
         }
 
         // Inverse-distance-weighted average duration of the 2D children (matches Evaluate2D).
@@ -98,22 +171,6 @@ namespace OloEngine
             }
             return totalWeight > 0.0f ? weightedDuration / totalWeight : 0.0f;
         }
-
-        // Fallback: plain average duration over all playable children.
-        [[nodiscard("average duration must be used")]] f32 ComputeAverageDuration(const std::vector<BlendTree::BlendChild>& children)
-        {
-            f32 totalDuration = 0.0f;
-            i32 count = 0;
-            for (auto const& child : children)
-            {
-                if (child.Clip && child.Speed > 0.0f)
-                {
-                    totalDuration += child.Clip->Duration / child.Speed;
-                    ++count;
-                }
-            }
-            return count > 0 ? totalDuration / static_cast<f32>(count) : 0.0f;
-        }
     } // namespace
 
     f32 BlendTree::GetDuration(const AnimationParameterSet& params) const
@@ -125,13 +182,13 @@ namespace OloEngine
             return 0.0f;
         }
 
-        // 1D: weighted average between neighbors when a blend param is set,
-        // otherwise a plain average over all playable children.
+        // 1D: weighted average between the neighbors bracketing the blend param.
+        // An unbound (empty) BlendParameterX resolves to GetFloat("") == 0.0f, the
+        // same value Evaluate() feeds Evaluate1D -- so duration and pose stay
+        // consistent for an unconfigured tree (issue #410).
         if (Type == BlendType::Simple1D)
         {
-            return BlendParameterX.empty()
-                       ? ComputeAverageDuration(Children)
-                       : Compute1DDuration(Children, params.GetFloat(BlendParameterX));
+            return Compute1DDuration(Children, params.GetFloat(BlendParameterX));
         }
 
         // 2D types: inverse-distance weighted average matching Evaluate2D.
@@ -144,74 +201,37 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        // Collect playable children (valid clip and positive speed)
-        std::vector<sizet> playableIndices;
-        auto childCount = Children.size();
-        playableIndices.reserve(childCount);
-        for (sizet i = 0; i < childCount; ++i)
-        {
-            if (Children[i].Clip && Children[i].Speed > 0.0f)
-            {
-                playableIndices.push_back(i);
-            }
-        }
+        // Same selection as Compute1DDuration, so the sampled pose and the
+        // normalization duration always blend the same clip pair (issue #410).
+        Blend1DSelection selection = SelectBlend1DNeighbors(Children, paramValue);
 
-        if (playableIndices.empty())
+        if (!selection.HasPlayable)
         {
             out.resize(boneCount);
             return;
         }
 
-        if (playableIndices.size() == 1)
+        if (selection.Single)
         {
-            auto const& child = Children[playableIndices[0]];
+            auto const& child = Children[selection.IndexA];
             f32 timeSeconds = normalizedTime * child.Clip->Duration;
             SampleClipBoneTransforms(child.Clip, timeSeconds, boneCount, out);
             return;
         }
 
-        // Clamp param to playable child range
-        f32 minThreshold = Children[playableIndices.front()].Threshold;
-        f32 maxThreshold = Children[playableIndices.back()].Threshold;
-        for (sizet idx : playableIndices)
-        {
-            minThreshold = std::min(minThreshold, Children[idx].Threshold);
-            maxThreshold = std::max(maxThreshold, Children[idx].Threshold);
-        }
-        paramValue = glm::clamp(paramValue, minThreshold, maxThreshold);
+        // Blend the two bracketing playable children at the selected weight.
+        auto const& childA = Children[selection.IndexA];
+        auto const& childB = Children[selection.IndexB];
 
-        // Find the two neighboring playable children
-        auto playablePairs = playableIndices.size() - 1;
-        for (sizet pi = 0; pi < playablePairs; ++pi)
-        {
-            sizet idxA = playableIndices[pi];
-            sizet idxB = playableIndices[pi + 1];
+        std::vector<BoneTransform> transformsA;
+        std::vector<BoneTransform> transformsB;
+        f32 timeA = normalizedTime * childA.Clip->Duration;
+        f32 timeB = normalizedTime * childB.Clip->Duration;
 
-            if (paramValue <= Children[idxB].Threshold)
-            {
-                f32 range = Children[idxB].Threshold - Children[idxA].Threshold;
-                f32 t = (range > 0.0f) ? (paramValue - Children[idxA].Threshold) / range : 0.0f;
+        SampleClipBoneTransforms(childA.Clip, timeA, boneCount, transformsA);
+        SampleClipBoneTransforms(childB.Clip, timeB, boneCount, transformsB);
 
-                std::vector<BoneTransform> transformsA;
-                std::vector<BoneTransform> transformsB;
-
-                f32 durA = Children[idxA].Clip->Duration;
-                f32 durB = Children[idxB].Clip->Duration;
-                f32 timeA = normalizedTime * durA;
-                f32 timeB = normalizedTime * durB;
-
-                SampleClipBoneTransforms(Children[idxA].Clip, timeA, boneCount, transformsA);
-                SampleClipBoneTransforms(Children[idxB].Clip, timeB, boneCount, transformsB);
-
-                BlendBoneTransforms(transformsA, transformsB, t, out);
-                return;
-            }
-        }
-
-        // Past the last playable child
-        auto const& lastChild = Children[playableIndices.back()];
-        f32 timeSeconds = normalizedTime * lastChild.Clip->Duration;
-        SampleClipBoneTransforms(lastChild.Clip, timeSeconds, boneCount, out);
+        BlendBoneTransforms(transformsA, transformsB, selection.Weight, out);
     }
 
     void BlendTree::Evaluate2D(f32 paramX, f32 paramY, f32 normalizedTime, sizet boneCount,
