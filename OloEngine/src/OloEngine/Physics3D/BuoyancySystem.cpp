@@ -38,7 +38,7 @@ namespace OloEngine
             f32 m_FFTHeightScale = 1.0f; ///< artist multiplier (WaterComponent::m_FFTHeightScale, u_FFTParams.z)
         };
 
-        [[nodiscard]] bool IsOverFootprint(const WaterVolume& w, const glm::vec3& worldPos)
+        [[nodiscard("footprint test result must be used")]] bool IsOverFootprint(const WaterVolume& w, const glm::vec3& worldPos)
         {
             const glm::vec4 local = w.m_InvModel * glm::vec4(worldPos, 1.0f);
             if (!std::isfinite(local.x) || !std::isfinite(local.z))
@@ -46,7 +46,7 @@ namespace OloEngine
             return local.x >= -w.m_HalfX && local.x <= w.m_HalfX && local.z >= -w.m_HalfZ && local.z <= w.m_HalfZ;
         }
 
-        [[nodiscard]] WaterSurface::Params MakeParams(const WaterComponent& wc, f32 planeHeight)
+        [[nodiscard("constructed water-surface params must be used")]] WaterSurface::Params MakeParams(const WaterComponent& wc, f32 planeHeight)
         {
             WaterSurface::Params p;
             p.m_WaveDir0 = wc.PackWaveDir0();

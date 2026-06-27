@@ -501,7 +501,7 @@ namespace OloEngine
             JPH::ConvexHullBuilder builder(joltVertices);
 
             const char* error = nullptr;
-            if (JPH::ConvexHullBuilder::EResult result = builder.Initialize(i32_max, 1e-5f, error); result != JPH::ConvexHullBuilder::EResult::Success)
+            if (JPH::ConvexHullBuilder::EResult result = builder.Initialize(::i32_max, 1e-5f, error); result != JPH::ConvexHullBuilder::EResult::Success)
             {
                 std::string errorMsg = error ? error : "Unknown error";
                 LogCookingError("GenerateConvexHull", "Convex hull generation failed: " + errorMsg);
@@ -679,7 +679,7 @@ namespace OloEngine
             std::set<sizet> selectedIndices;
 
             // Always include the 6 axis-aligned extremes (min/max X, Y, Z)
-            auto findExtreme = [&inputVertices, &center](const glm::vec3& direction) -> sizet
+            auto findExtreme = [&inputVertices, &center](const glm::vec3& direction)
             {
                 f32 maxDot = -std::numeric_limits<f32>::max();
                 sizet bestIndex = 0;

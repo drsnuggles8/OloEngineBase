@@ -76,7 +76,7 @@ namespace OloEngine
         // second pass and from the runtime-add hook. DestroyConstraint releases it.
         bool CreateConstraint(Entity entity);
         void DestroyConstraint(Entity entity);
-        u32 GetConstraintCount() const
+        [[nodiscard("constraint count query result must be used")]] u32 GetConstraintCount() const
         {
             return static_cast<u32>(m_Constraints.size());
         }
@@ -100,7 +100,7 @@ namespace OloEngine
         // releases the constraint, and clears the token. Both are idempotent.
         bool CreateVehicle(Entity entity);
         void DestroyVehicle(Entity entity);
-        u32 GetVehicleCount() const
+        [[nodiscard("vehicle count query result must be used")]] u32 GetVehicleCount() const
         {
             return static_cast<u32>(m_Vehicles.size());
         }
@@ -122,7 +122,7 @@ namespace OloEngine
         void CreateRagdolls();
         // Remove every generated ragdoll component (restoring the authored scene).
         void DestroyAllRagdolls();
-        u32 GetRagdollCount() const
+        [[nodiscard("ragdoll count query result must be used")]] u32 GetRagdollCount() const
         {
             return static_cast<u32>(m_Ragdolls.size());
         }
@@ -223,7 +223,7 @@ namespace OloEngine
         // contact, deduplicated per entity pair. Empty when the contact listener
         // is absent (physics not initialized). Backs the read-only MCP
         // olo_physics_contacts diagnostics tool. Thread-safe (listener-locked).
-        [[nodiscard]] std::vector<std::pair<UUID, UUID>> GetActiveContactPairs() const;
+        [[nodiscard("contact-pair snapshot must be used")]] std::vector<std::pair<UUID, UUID>> GetActiveContactPairs() const;
 
       private:
         void CreateRigidBodies();
