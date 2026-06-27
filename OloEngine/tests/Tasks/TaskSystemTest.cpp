@@ -84,14 +84,18 @@ TEST_F(TaskSystemTest, FireAndForgetTask)
 // teardown that used to fault.
 TEST_F(TaskSystemTest, AsyncTaskFireAndForgetCompletesAndTearsDownCleanly)
 {
-    std::atomic<int> ran{ 0 };
-    AsyncTask([&ran]
-              { ran.fetch_add(1, std::memory_order_relaxed); });
+    // Capture shared state by value, not a stack reference: the bounded wait below
+    // can expire and let the test return before the fire-and-forget task runs. With a
+    // `&ran` capture that would write to freed stack memory (use-after-free); the
+    // shared_ptr keeps the atomic alive for as long as the task body might still run.
+    auto ran = std::make_shared<std::atomic<int>>(0);
+    AsyncTask([ran]
+              { ran->fetch_add(1, std::memory_order_relaxed); });
 
-    for (int i = 0; i < 500 && ran.load(std::memory_order_relaxed) == 0; ++i)
+    for (int i = 0; i < 500 && ran->load(std::memory_order_relaxed) == 0; ++i)
         std::this_thread::sleep_for(std::chrono::milliseconds(5));
 
-    EXPECT_EQ(ran.load(std::memory_order_relaxed), 1);
+    EXPECT_EQ(ran->load(std::memory_order_relaxed), 1);
 }
 
 TEST_F(TaskSystemTest, LaunchAndWait)
