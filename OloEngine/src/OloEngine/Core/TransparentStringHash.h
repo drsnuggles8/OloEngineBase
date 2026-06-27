@@ -8,10 +8,11 @@
 namespace OloEngine
 {
     // Transparent hash/equal functors for heterogeneous lookup on associative
-    // containers keyed by std::string. Pairing these (plus std::equal_to<>) with
-    // an unordered container lets find/count/contains/erase accept std::string_view
-    // and const char* without materialising a temporary std::string (SonarQube
-    // cpp:S6045). The is_transparent marker is what enables the heterogeneous
+    // containers keyed by std::string. Pairing StringHash + StringEqual with an
+    // unordered container (std::unordered_map<std::string, V, StringHash, StringEqual>)
+    // lets find/count/contains/erase accept std::string_view and const char*
+    // without materialising a temporary std::string (SonarQube cpp:S6045). The
+    // is_transparent marker on both functors is what enables the heterogeneous
     // overloads.
     struct StringHash
     {

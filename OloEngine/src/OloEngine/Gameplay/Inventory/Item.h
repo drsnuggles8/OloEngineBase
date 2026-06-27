@@ -3,6 +3,7 @@
 #include "OloEngine/Core/Base.h"
 
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -80,7 +81,7 @@ namespace OloEngine
         return "Misc";
     }
 
-    inline ItemCategory ItemCategoryFromString(const std::string& str)
+    inline ItemCategory ItemCategoryFromString(std::string_view str)
     {
         using enum ItemCategory;
         if (str == "Weapon")
@@ -99,7 +100,7 @@ namespace OloEngine
         {
             OLO_CORE_WARN("[Item] Unrecognized ItemCategory '{}' \u2014 defaulting to Misc", str);
         }
-        return ItemCategory::Misc;
+        return Misc;
     }
 
     [[nodiscard("rarity string must be used")]] inline const char* ItemRarityToString(ItemRarity rarity)
@@ -123,7 +124,7 @@ namespace OloEngine
         return "Common";
     }
 
-    inline ItemRarity ItemRarityFromString(const std::string& str)
+    inline ItemRarity ItemRarityFromString(std::string_view str)
     {
         using enum ItemRarity;
         if (str == "Uncommon")
@@ -138,7 +139,7 @@ namespace OloEngine
         {
             OLO_CORE_WARN("[Item] Unrecognized ItemRarity '{}' \u2014 defaulting to Common", str);
         }
-        return ItemRarity::Common;
+        return Common;
     }
 
 } // namespace OloEngine
