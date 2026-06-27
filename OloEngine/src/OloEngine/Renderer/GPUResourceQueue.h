@@ -16,6 +16,7 @@ namespace OloEngine
     // Forward declarations
     class Texture2D;
     class Shader;
+    class ComputeShader;
     class Mesh;
 
     /**
@@ -29,6 +30,7 @@ namespace OloEngine
         CreateTexture2D,
         CreateCubemap,
         CreateShader,
+        CreateComputeShader,
         CreateMesh,
         CreateBuffer,
         DeleteTexture,
@@ -167,6 +169,41 @@ namespace OloEngine
       private:
         RawShaderData m_Data;
         std::function<void(Ref<Shader>)> m_Callback;
+    };
+
+    /**
+     * @brief Command to compile/link a compute shader from source
+     *
+     * Compute shaders are a distinct resource type from graphics shaders
+     * (they yield a Ref<ComputeShader>, not a Ref<Shader>, and the two are
+     * unrelated sibling types under RendererResource), so they get their own
+     * command with a correspondingly-typed completion callback. This mirrors
+     * the synchronous ComputeShader::CreateFromSource() contract on the async
+     * path. Reuses RawShaderData (only ComputeSource + Name are consulted).
+     */
+    class CreateComputeShaderCommand : public GPUResourceCommand
+    {
+      public:
+        CreateComputeShaderCommand(RawShaderData&& data, std::function<void(Ref<ComputeShader>)> callback)
+            : m_Data(std::move(data)), m_Callback(std::move(callback))
+        {
+            AssociatedAsset = m_Data.Handle;
+        }
+
+        void Execute() override;
+        GPUResourceCommandType GetType() const override
+        {
+            return GPUResourceCommandType::CreateComputeShader;
+        }
+
+        const RawShaderData& GetData() const
+        {
+            return m_Data;
+        }
+
+      private:
+        RawShaderData m_Data;
+        std::function<void(Ref<ComputeShader>)> m_Callback;
     };
 
     /**

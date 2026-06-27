@@ -244,6 +244,11 @@ jobs:
 
     - name: Install dependencies
       run: |
+        # The ubuntu-24.04 runner image ships Microsoft apt repos (azure-cli, prod)
+        # that periodically return 403 Forbidden; we never use them (Clang comes from
+        # apt.llvm.org), and `apt-get update` fails hard on any single repo error.
+        # Drop any Microsoft source so a Microsoft-side outage can't break our update.
+        sudo grep -rlZ packages.microsoft.com /etc/apt/sources.list.d/ 2>/dev/null | sudo xargs -0 -r rm -f || true
         sudo apt-get update
         sudo apt-get install -y \
           clang-19 lld-19 \
@@ -376,6 +381,11 @@ jobs:
 
     - name: Install dependencies
       run: |
+        # The ubuntu-24.04 runner image ships Microsoft apt repos (azure-cli, prod)
+        # that periodically return 403 Forbidden; we never use them (Clang comes from
+        # apt.llvm.org), and `apt-get update` fails hard on any single repo error.
+        # Drop any Microsoft source so a Microsoft-side outage can't break our update.
+        sudo grep -rlZ packages.microsoft.com /etc/apt/sources.list.d/ 2>/dev/null | sudo xargs -0 -r rm -f || true
         sudo apt-get update
         sudo apt-get install -y \
           clang-19 lld-19 \
@@ -489,6 +499,11 @@ jobs:
 
     - name: Install dependencies
       run: |
+        # The ubuntu-24.04 runner image ships Microsoft apt repos (azure-cli, prod)
+        # that periodically return 403 Forbidden; we never use them (Clang comes from
+        # apt.llvm.org), and `apt-get update` fails hard on any single repo error.
+        # Drop any Microsoft source so a Microsoft-side outage can't break our update.
+        sudo grep -rlZ packages.microsoft.com /etc/apt/sources.list.d/ 2>/dev/null | sudo xargs -0 -r rm -f || true
         sudo apt-get update
         sudo apt-get install -y \
           clang-19 lld-19 \

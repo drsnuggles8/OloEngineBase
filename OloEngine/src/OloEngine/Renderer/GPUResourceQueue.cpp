@@ -2,6 +2,7 @@
 #include "GPUResourceQueue.h"
 #include "OloEngine/Renderer/Texture.h"
 #include "OloEngine/Renderer/Shader.h"
+#include "OloEngine/Renderer/ComputeShader.h"
 
 namespace OloEngine
 {
@@ -188,20 +189,21 @@ namespace OloEngine
 
         try
         {
-            Ref<Shader> shader = nullptr;
-
             if (!m_Data.ComputeSource.empty())
             {
-                // Compute shader
-                // Note: If Shader::CreateCompute exists, use it; otherwise this is a placeholder
-                OLO_CORE_WARN("CreateShaderCommand: Compute shader creation not yet implemented for '{}'", m_Data.Name);
-                // shader = Shader::CreateCompute(m_Data.Name, m_Data.ComputeSource);
+                // A compute shader is a Ref<ComputeShader>, an unrelated sibling
+                // type to Shader, so it cannot be delivered through this command's
+                // Ref<Shader> callback — enqueue a CreateComputeShaderCommand instead.
+                OLO_CORE_ERROR("CreateShaderCommand: '{}' carries a compute source; "
+                               "enqueue a CreateComputeShaderCommand instead",
+                               m_Data.Name);
+                if (m_Callback)
+                    m_Callback(nullptr);
+                return;
             }
-            else
-            {
-                // Traditional vertex/fragment shader
-                shader = Shader::Create(m_Data.Name, m_Data.VertexSource, m_Data.FragmentSource);
-            }
+
+            // Traditional vertex/fragment shader
+            Ref<Shader> shader = Shader::Create(m_Data.Name, m_Data.VertexSource, m_Data.FragmentSource);
 
             if (shader)
             {
@@ -218,6 +220,48 @@ namespace OloEngine
         catch (const std::exception& e)
         {
             OLO_CORE_ERROR("CreateShaderCommand: Exception during shader creation for '{}': {}",
+                           m_Data.Name, e.what());
+            if (m_Callback)
+                m_Callback(nullptr);
+        }
+    }
+
+    // ========================================================================
+    // CreateComputeShaderCommand Implementation
+    // ========================================================================
+
+    void CreateComputeShaderCommand::Execute()
+    {
+        OLO_PROFILE_FUNCTION();
+
+        if (m_Data.ComputeSource.empty())
+        {
+            OLO_CORE_ERROR("CreateComputeShaderCommand: No compute source provided for '{}'", m_Data.Name);
+            if (m_Callback)
+                m_Callback(nullptr);
+            return;
+        }
+
+        try
+        {
+            // Mirrors the synchronous path: ComputeShader::CreateFromSource().
+            Ref<ComputeShader> shader = ComputeShader::CreateFromSource(m_Data.Name, m_Data.ComputeSource);
+
+            if (shader)
+            {
+                OLO_CORE_TRACE("CreateComputeShaderCommand: Created compute shader '{}'", m_Data.Name);
+            }
+            else
+            {
+                OLO_CORE_ERROR("CreateComputeShaderCommand: Failed to create compute shader '{}'", m_Data.Name);
+            }
+
+            if (m_Callback)
+                m_Callback(shader);
+        }
+        catch (const std::exception& e)
+        {
+            OLO_CORE_ERROR("CreateComputeShaderCommand: Exception during compute shader creation for '{}': {}",
                            m_Data.Name, e.what());
             if (m_Callback)
                 m_Callback(nullptr);
