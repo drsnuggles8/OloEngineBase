@@ -583,9 +583,6 @@ namespace OloEngine::MCP
         // Conventional SSE hint: tell any intermediary not to buffer the stream.
         res.set_header("X-Accel-Buffering", "no");
 
-        // Balanced by the resource-releaser below, which httplib calls once the
-        // provider finishes (client disconnect, server stop, or write failure).
-        m_ActiveStreams.fetch_add(1, std::memory_order_relaxed);
         res.set_chunked_content_provider(
             "text/event-stream",
             [this, cursor = startCursor, lastWrite = std::chrono::steady_clock::now(), greeted = false](
@@ -623,6 +620,12 @@ namespace OloEngine::MCP
             {
                 m_ActiveStreams.fetch_sub(1, std::memory_order_relaxed);
             });
+        // Count the stream only once the provider + its releaser are registered: if
+        // set_chunked_content_provider had thrown, the releaser would never run, so an
+        // increment before it could leak. The provider/releaser run later (during
+        // response writing, after this handler returns), so the matching decrement
+        // can't race ahead of this increment.
+        m_ActiveStreams.fetch_add(1, std::memory_order_relaxed);
     }
 
     Json McpServer::HandleMessage(const Json& message)
