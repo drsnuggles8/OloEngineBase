@@ -27,7 +27,6 @@ namespace OloEngine
         m_SelectedSceneDepthTexture = {};
         m_SelectedVelocityTexture = {};
 
-        (void)blackboard;
         [[maybe_unused]] const auto input = RenderPipelineBuilderInternal::ReadFirstValidVersionedInputForPass(
             builder,
             this,
