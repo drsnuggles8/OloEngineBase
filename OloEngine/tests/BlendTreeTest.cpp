@@ -255,3 +255,36 @@ TEST(BlendTreeTest, GetDurationReturnsWeightedAverageDuration)
     // GetDuration returns weighted average: mix(0.5, 2.0, 0.5) = 1.25
     EXPECT_FLOAT_EQ(tree.GetDuration(params), 1.25f);
 }
+
+TEST(BlendTreeTest, Simple1D_UnboundParam_DurationMatchesEvaluatedPose)
+{
+    // Issue #410: with no blend parameter bound (empty BlendParameterX),
+    // Evaluate() samples params.GetFloat("") == 0.0f -> the lowest-threshold child.
+    // GetDuration() must resolve the SAME unbound value so the tree advances time
+    // using the duration of the child it actually renders -- not a plain average of
+    // all children (the old behavior, which played the wrong child at the wrong speed:
+    // average duration 2.0s vs. the 1.0s child whose pose was rendered).
+    auto firstClip = CreateBlendTestClip("First", 1.0f, glm::vec3(10.0f, 0.0f, 0.0f), glm::vec3(10.0f, 0.0f, 0.0f));
+    auto midClip = CreateBlendTestClip("Mid", 2.0f, glm::vec3(20.0f, 0.0f, 0.0f), glm::vec3(20.0f, 0.0f, 0.0f));
+    auto lastClip = CreateBlendTestClip("Last", 3.0f, glm::vec3(30.0f, 0.0f, 0.0f), glm::vec3(30.0f, 0.0f, 0.0f));
+
+    BlendTree tree;
+    tree.Type = BlendTree::BlendType::Simple1D;
+    // BlendParameterX intentionally left empty (unbound).
+
+    tree.Children.push_back({ firstClip, 0.0f, {}, 1.0f });
+    tree.Children.push_back({ midClip, 0.5f, {}, 1.0f });
+    tree.Children.push_back({ lastClip, 1.0f, {}, 1.0f });
+
+    AnimationParameterSet params; // no parameters defined -> GetFloat("") == 0.0f
+
+    // Evaluate samples the lowest-threshold child (First, x=10), not the 2.0s average child.
+    std::vector<BoneTransform> result;
+    tree.Evaluate(0.0f, params, 1, result);
+    ASSERT_EQ(result.size(), 1u);
+    EXPECT_NEAR(result[0].Translation.x, 10.0f, 0.01f);
+
+    // GetDuration must agree: the First child's effective duration (1.0s), not the
+    // plain average (1+2+3)/3 = 2.0s that the removed special case returned.
+    EXPECT_FLOAT_EQ(tree.GetDuration(params), 1.0f);
+}

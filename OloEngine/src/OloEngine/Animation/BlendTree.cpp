@@ -98,22 +98,6 @@ namespace OloEngine
             }
             return totalWeight > 0.0f ? weightedDuration / totalWeight : 0.0f;
         }
-
-        // Fallback: plain average duration over all playable children.
-        [[nodiscard("average duration must be used")]] f32 ComputeAverageDuration(const std::vector<BlendTree::BlendChild>& children)
-        {
-            f32 totalDuration = 0.0f;
-            i32 count = 0;
-            for (auto const& child : children)
-            {
-                if (child.Clip && child.Speed > 0.0f)
-                {
-                    totalDuration += child.Clip->Duration / child.Speed;
-                    ++count;
-                }
-            }
-            return count > 0 ? totalDuration / static_cast<f32>(count) : 0.0f;
-        }
     } // namespace
 
     f32 BlendTree::GetDuration(const AnimationParameterSet& params) const
@@ -125,13 +109,13 @@ namespace OloEngine
             return 0.0f;
         }
 
-        // 1D: weighted average between neighbors when a blend param is set,
-        // otherwise a plain average over all playable children.
+        // 1D: weighted average between the neighbors bracketing the blend param.
+        // An unbound (empty) BlendParameterX resolves to GetFloat("") == 0.0f, the
+        // same value Evaluate() feeds Evaluate1D -- so duration and pose stay
+        // consistent for an unconfigured tree (issue #410).
         if (Type == BlendType::Simple1D)
         {
-            return BlendParameterX.empty()
-                       ? ComputeAverageDuration(Children)
-                       : Compute1DDuration(Children, params.GetFloat(BlendParameterX));
+            return Compute1DDuration(Children, params.GetFloat(BlendParameterX));
         }
 
         // 2D types: inverse-distance weighted average matching Evaluate2D.
