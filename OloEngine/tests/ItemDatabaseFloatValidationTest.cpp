@@ -25,7 +25,13 @@ namespace
         void SetUp() override
         {
             ItemDatabase::Clear();
-            m_Dir = std::filesystem::temp_directory_path() / "olo_item_floatval_test";
+            // Per-test subdir so parallel ctest runs (each case is its own process)
+            // don't fight over a shared path — see testing-architecture.md §6.1.
+            const auto* info = ::testing::UnitTest::GetInstance()->current_test_info();
+            const std::string testSuite = info ? info->test_suite_name() : "x";
+            const std::string testName = info ? info->name() : "y";
+            const std::filesystem::path baseDir = std::filesystem::temp_directory_path() / "olo_item_floatval_test";
+            m_Dir = baseDir / (testSuite + "_" + testName);
             std::error_code ec;
             std::filesystem::remove_all(m_Dir, ec);
             std::filesystem::create_directories(m_Dir, ec);
