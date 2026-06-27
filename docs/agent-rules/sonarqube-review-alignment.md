@@ -10,11 +10,12 @@ The authoritative *rationale* for every suppression lives in
 exclusions are enforced in [`sonar-project.properties`](../../sonar-project.properties).
 This file is the **operational digest** for a reviewer.
 
-**Profile:** `C++ Extended` (cpp) — **582 active rules** (83 BLOCKER / 132 CRITICAL /
-241 MAJOR / 117 MINOR / 9 INFO). Source of truth is the SonarCloud Quality Profile
+**Profile:** `C++ Extended` (cpp) — **579 active rules** (83 BLOCKER / 132 CRITICAL /
+240 MAJOR / 116 MINOR / 8 INFO). Source of truth is the SonarCloud Quality Profile
 (*Quality Profiles → C++ Extended*); a point-in-time export lives at the repo root as
-`c++ extended profile.xml`. Editing that XML changes nothing until it is re-imported in
-the SonarCloud UI — treat it as read-only reference.
+`c++ extended profile.xml` (it predates the S5536/S1271/S1712 deactivation below, so it
+still lists 582). Editing that XML changes nothing until it is re-imported in the
+SonarCloud UI — treat it as read-only reference.
 
 ---
 
@@ -41,12 +42,10 @@ test harness is structurally same by design, not copy-paste rot. **Don't propose
 
 **Deactivated profile-wide** (not just scoped) — never raise these at all:
 
+- `cpp:S5536` "unused functions should be removed" — an engine is a *library codebase*; public API is invoked by games / scripts / reflection / serialization / tests the analyzer can't see. (`cpp:S1144`, unused *private* members, stays **active** — those are real dead code.)
+- `cpp:S1271` "use `::` to access globals" — huge churn across a 312k-LOC engine for negligible gain.
+- `cpp:S1712` "no default parameters" — default arguments are idiomatic C++.
 - `cpp:S909` "no `continue`" — MISRA-style; `continue` is idiomatic here.
-
-> ⚠️ Still **active** despite being flagged as low-signal in the suggestions doc:
-> `cpp:S5536` (unused functions, INFO), `cpp:S1271` (use `::`, MAJOR), `cpp:S1712` (no
-> default args, MINOR). They were *downgraded, not deactivated* (a deliberate call).
-> Mention them only if genuinely relevant; don't treat them as must-fix.
 
 ---
 
