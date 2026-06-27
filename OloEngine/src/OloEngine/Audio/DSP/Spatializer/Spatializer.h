@@ -31,10 +31,10 @@ namespace OloEngine::Audio::DSP
         bool Initialize(ma_engine* engine);
         void Uninitialize();
 
-        [[nodiscard]] bool IsInitialized(u32 sourceID) const;
-        [[nodiscard]] float GetCurrentDistanceAttenuation(u32 sourceID) const;
-        [[nodiscard]] float GetCurrentConeAngleAttenuation(u32 sourceID) const;
-        [[nodiscard]] float GetCurrentDistance(u32 sourceID) const;
+        [[nodiscard("initialization state must be used")]] bool IsInitialized(u32 sourceID) const;
+        [[nodiscard("attenuation value must be used")]] float GetCurrentDistanceAttenuation(u32 sourceID) const;
+        [[nodiscard("attenuation value must be used")]] float GetCurrentConeAngleAttenuation(u32 sourceID) const;
+        [[nodiscard("distance must be used")]] float GetCurrentDistance(u32 sourceID) const;
 
         // Spatialized Sources
         bool InitSource(u32 sourceID, ma_engine_node* nodeToInsertAfter, const AudioSourceConfig& config);

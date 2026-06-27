@@ -21,7 +21,13 @@ namespace
         void SetUp() override
         {
             std::error_code ec;
-            m_TempDir = std::filesystem::temp_directory_path(ec) / "oloengine_crash_reporter_tests";
+            // Per-test subdir so parallel ctest runs (each case is its own process)
+            // don't fight over a shared path — see testing-architecture.md §6.1.
+            const auto* info = ::testing::UnitTest::GetInstance()->current_test_info();
+            const std::string testSuite = info ? info->test_suite_name() : "x";
+            const std::string testName = info ? info->name() : "y";
+            const std::filesystem::path baseDir = std::filesystem::temp_directory_path(ec) / "oloengine_crash_reporter_tests";
+            m_TempDir = baseDir / (testSuite + "_" + testName);
             std::filesystem::remove_all(m_TempDir, ec);
             std::filesystem::create_directories(m_TempDir, ec);
             ASSERT_FALSE(ec) << "failed to create temp dir: " << ec.message();

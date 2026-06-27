@@ -849,8 +849,9 @@ namespace OloEngine::Audio::SoundGraph
                 return;
 
             constexpr sizet stride = static_cast<sizet>(kMaxAudioBlockFrames);
-            m_NodeOutputPool.assign(outputs.size() * stride, 0.0f);
-            for (sizet i = 0; i < outputs.size(); ++i)
+            const sizet outputCount = outputs.size();
+            m_NodeOutputPool.assign(outputCount * stride, 0.0f);
+            for (sizet i = 0; i < outputCount; ++i)
                 outputs[i]->AdoptPoolStorage(m_NodeOutputPool.data() + i * stride);
         }
 

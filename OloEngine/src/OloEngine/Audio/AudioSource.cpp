@@ -251,12 +251,12 @@ namespace OloEngine
                           : m_LowPassFilter ? m_LowPassFilter->GetNode()
                                             : soundNode;
 
-        u32 numChannels = ma_node_get_output_channels(chainTail, 0);
+        u32 numChannels = ::ma_node_get_output_channels(chainTail, 0);
         numChannels = std::max(numChannels, 2u); // Ensure at least stereo for reverb send
-        ma_splitter_node_config splitterConfig = ma_splitter_node_config_init(numChannels);
+        ma_splitter_node_config splitterConfig = ::ma_splitter_node_config_init(numChannels);
 
-        m_SplitterNode = new ma_splitter_node();
-        ma_result result = ma_splitter_node_init(
+        m_SplitterNode = new ::ma_splitter_node();
+        ma_result result = ::ma_splitter_node_init(
             chainTail->pNodeGraph,
             &splitterConfig,
             &engine->pResourceManager->config.allocationCallbacks,
@@ -275,12 +275,12 @@ namespace OloEngine
             ma_uint8 oldInputBus = chainTail->pOutputBuses[0].inputNodeInputBusIndex;
 
             // Splitter bus 0 (dry) → old destination
-            result = ma_node_attach_output_bus(m_SplitterNode, 0, oldOutput, oldInputBus);
+            result = ::ma_node_attach_output_bus(m_SplitterNode, 0, oldOutput, oldInputBus);
             if (result != MA_SUCCESS)
             {
                 OLO_CORE_ERROR("[AudioSource] Splitter dry-bus attach failed for: {}", m_Path);
-                ma_splitter_node_uninit(AsSplitter(m_SplitterNode),
-                                        &engine->pResourceManager->config.allocationCallbacks);
+                ::ma_splitter_node_uninit(AsSplitter(m_SplitterNode),
+                                          &engine->pResourceManager->config.allocationCallbacks);
                 delete AsSplitter(m_SplitterNode);
                 m_SplitterNode = nullptr;
             }
@@ -288,12 +288,12 @@ namespace OloEngine
             if (m_SplitterNode)
             {
                 // chainTail → splitter input
-                result = ma_node_attach_output_bus(chainTail, 0, m_SplitterNode, 0);
+                result = ::ma_node_attach_output_bus(chainTail, 0, m_SplitterNode, 0);
                 if (result != MA_SUCCESS)
                 {
                     OLO_CORE_ERROR("[AudioSource] Chain-to-splitter attach failed for: {}", m_Path);
-                    ma_splitter_node_uninit(AsSplitter(m_SplitterNode),
-                                            &engine->pResourceManager->config.allocationCallbacks);
+                    ::ma_splitter_node_uninit(AsSplitter(m_SplitterNode),
+                                              &engine->pResourceManager->config.allocationCallbacks);
                     delete AsSplitter(m_SplitterNode);
                     m_SplitterNode = nullptr;
                 }
@@ -302,15 +302,15 @@ namespace OloEngine
             if (m_SplitterNode)
             {
                 // Bus 0 volume = 1.0 (main output)
-                ma_node_set_output_bus_volume(m_SplitterNode, 0, 1.0f);
+                ::ma_node_set_output_bus_volume(m_SplitterNode, 0, 1.0f);
                 // Bus 1 volume = 0.0 (muted until reverb send is set)
-                ma_node_set_output_bus_volume(m_SplitterNode, 1, 0.0f);
+                ::ma_node_set_output_bus_volume(m_SplitterNode, 1, 0.0f);
 
                 // Connect bus 1 to master reverb if available
                 auto* masterReverb = AudioEngine::GetMasterReverb();
                 if (masterReverb && masterReverb->GetNode())
                 {
-                    result = ma_node_attach_output_bus(m_SplitterNode, 1, masterReverb->GetNode(), 0);
+                    result = ::ma_node_attach_output_bus(m_SplitterNode, 1, masterReverb->GetNode(), 0);
                     if (result != MA_SUCCESS)
                     {
                         OLO_CORE_WARN("[AudioSource] Failed to attach reverb send for: {}", m_Path);
@@ -329,8 +329,8 @@ namespace OloEngine
         if (m_SplitterNode)
         {
             const auto* engine = static_cast<ma_engine*>(AudioEngine::GetEngine());
-            ma_splitter_node_uninit(AsSplitter(m_SplitterNode),
-                                    engine ? &engine->pResourceManager->config.allocationCallbacks : nullptr);
+            ::ma_splitter_node_uninit(AsSplitter(m_SplitterNode),
+                                      engine ? &engine->pResourceManager->config.allocationCallbacks : nullptr);
             delete AsSplitter(m_SplitterNode);
             m_SplitterNode = nullptr;
         }
@@ -380,7 +380,7 @@ namespace OloEngine
         if (m_SplitterNode)
         {
             sendLevel = std::clamp(sendLevel, 0.0f, 1.0f);
-            ma_node_set_output_bus_volume(m_SplitterNode, 1, sendLevel);
+            ::ma_node_set_output_bus_volume(m_SplitterNode, 1, sendLevel);
         }
     }
 } // namespace OloEngine

@@ -47,8 +47,8 @@ namespace OloEngine::Audio::DSP
     {
         OLO_CORE_ASSERT(!m_Initialized);
 
-        m_SampleRate = ma_engine_get_sample_rate(engine);
-        m_Channels = ma_node_get_output_channels(nodeToInsertAfter, 0);
+        m_SampleRate = ::ma_engine_get_sample_rate(engine);
+        m_Channels = ::ma_node_get_output_channels(nodeToInsertAfter, 0);
 
         m_Impl = std::make_unique<Impl>();
 
@@ -60,10 +60,10 @@ namespace OloEngine::Audio::DSP
         double nyquist = m_SampleRate / 2.0;
         initCutoff = std::min(initCutoff, nyquist);
 
-        ma_hpf_node_config config = ma_hpf_node_config_init(
+        ma_hpf_node_config config = ::ma_hpf_node_config_init(
             m_Channels, static_cast<ma_uint32>(m_SampleRate), initCutoff, FilterOrder);
 
-        ma_result result = ma_hpf_node_init(&engine->nodeGraph, &config, nullptr, &m_Impl->node);
+        ma_result result = ::ma_hpf_node_init(&engine->nodeGraph, &config, nullptr, &m_Impl->node);
         if (result != MA_SUCCESS)
         {
             OLO_CORE_ERROR("[HighPassFilter] Node init failed: {}", static_cast<int>(result));
@@ -78,7 +78,7 @@ namespace OloEngine::Audio::DSP
         auto* destination = nodeToInsertAfter->pOutputBuses[0].pInputNode;
         ma_uint8 destInputBus = nodeToInsertAfter->pOutputBuses[0].inputNodeInputBusIndex;
 
-        result = ma_node_attach_output_bus(&m_Impl->node, 0, destination, destInputBus);
+        result = ::ma_node_attach_output_bus(&m_Impl->node, 0, destination, destInputBus);
         if (result != MA_SUCCESS)
         {
             OLO_CORE_ERROR("[HighPassFilter] Output attach failed: {}", static_cast<int>(result));
@@ -86,7 +86,7 @@ namespace OloEngine::Audio::DSP
             return false;
         }
 
-        result = ma_node_attach_output_bus(nodeToInsertAfter, 0, &m_Impl->node, 0);
+        result = ::ma_node_attach_output_bus(nodeToInsertAfter, 0, &m_Impl->node, 0);
         if (result != MA_SUCCESS)
         {
             OLO_CORE_ERROR("[HighPassFilter] Input attach failed: {}", static_cast<int>(result));
@@ -101,7 +101,7 @@ namespace OloEngine::Audio::DSP
     {
         if (m_Initialized && m_Impl)
         {
-            ma_hpf_node_uninit(&m_Impl->node, nullptr);
+            ::ma_hpf_node_uninit(&m_Impl->node, nullptr);
         }
         m_Impl = nullptr;
         m_Initialized = false;
@@ -124,9 +124,9 @@ namespace OloEngine::Audio::DSP
         {
             double nyquist = m_SampleRate / 2.0;
             double clampedFreq = std::min(frequency, nyquist);
-            ma_hpf_config config = ma_hpf_config_init(
+            ma_hpf_config config = ::ma_hpf_config_init(
                 ma_format_f32, m_Channels, static_cast<ma_uint32>(m_SampleRate), clampedFreq, FilterOrder);
-            ma_result result = ma_hpf_node_reinit(&config, &m_Impl->node);
+            ma_result result = ::ma_hpf_node_reinit(&config, &m_Impl->node);
             if (result != MA_SUCCESS)
             {
                 OLO_CORE_ERROR("[HighPassFilter] Reinit failed: {}", static_cast<int>(result));

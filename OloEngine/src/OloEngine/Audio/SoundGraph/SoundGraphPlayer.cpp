@@ -81,7 +81,7 @@ namespace OloEngine::Audio::SoundGraph
         auto source = CreateScope<SoundGraphSource>();
 
         // Initialize the source with our engine and sample rate
-        u32 sampleRate = ma_engine_get_sample_rate(m_Engine);
+        u32 sampleRate = ::ma_engine_get_sample_rate(m_Engine);
         u32 blockSize = 512;
 
         // Channel count configuration:
@@ -135,7 +135,7 @@ namespace OloEngine::Audio::SoundGraph
                 ++len;
             }
 
-            memcpy(msg.m_Text, message, len);
+            ::memcpy(msg.m_Text, message, len);
             msg.m_Text[len] = '\0';
 
             // Try to push to queue (drop if full to maintain real-time safety)
@@ -159,7 +159,7 @@ namespace OloEngine::Audio::SoundGraph
             {
                 ++len;
             }
-            memcpy(msg.m_Text, eventMsg, len);
+            ::memcpy(msg.m_Text, eventMsg, len);
             msg.m_Text[len] = '\0';
 
             // Try to push to queue (drop if full to maintain real-time safety)
@@ -321,9 +321,9 @@ namespace OloEngine::Audio::SoundGraph
         f32 clampedVolume = glm::clamp(volume, 0.0f, 2.0f);
 
         // Apply the master volume to the underlying miniaudio engine first
-        if (ma_result result = ma_engine_set_volume(m_Engine, clampedVolume); result != MA_SUCCESS)
+        if (ma_result result = ::ma_engine_set_volume(m_Engine, clampedVolume); result != MA_SUCCESS)
         {
-            OLO_CORE_ERROR("[SoundGraphPlayer] Failed to set master volume on audio engine: {}", ma_result_description(result));
+            OLO_CORE_ERROR("[SoundGraphPlayer] Failed to set master volume on audio engine: {}", ::ma_result_description(result));
             return;
         }
 

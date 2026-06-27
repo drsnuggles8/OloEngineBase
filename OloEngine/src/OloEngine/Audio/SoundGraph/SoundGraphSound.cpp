@@ -64,7 +64,7 @@ namespace OloEngine::Audio::SoundGraph
         // ma_engine reports its native sample rate; using it keeps the source in lock-step
         // with the engine's processing rate. Block size 1024 is the typical miniaudio
         // default for engine nodes.
-        const u32 sampleRate = ma_engine_get_sample_rate(engine);
+        const u32 sampleRate = ::ma_engine_get_sample_rate(engine);
         constexpr u32 kBlockSize = 1024;
         if (!m_Source->Initialize(engine, sampleRate, kBlockSize, /*channelCount=*/2))
         {

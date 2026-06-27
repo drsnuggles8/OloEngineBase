@@ -25,17 +25,17 @@ namespace OloEngine::Audio::DSP
         void ProcessReplace(const float* inputL, const float* inputR, float* outputL, float* outputR, i64 numSamples, int skip);
 
         void SetRoomSize(float value);
-        [[nodiscard]] float GetRoomSize() const;
+        [[nodiscard("room size must be used")]] float GetRoomSize() const;
         void SetDamp(float value);
-        [[nodiscard]] float GetDamp() const;
+        [[nodiscard("damping must be used")]] float GetDamp() const;
         void SetWet(float value);
-        [[nodiscard]] float GetWet() const;
+        [[nodiscard("wet level must be used")]] float GetWet() const;
         void SetDry(float value);
-        [[nodiscard]] float GetDry() const;
+        [[nodiscard("dry level must be used")]] float GetDry() const;
         void SetWidth(float value);
-        [[nodiscard]] float GetWidth() const;
+        [[nodiscard("stereo width must be used")]] float GetWidth() const;
         void SetMode(float value);
-        [[nodiscard]] float GetMode() const;
+        [[nodiscard("mode must be used")]] float GetMode() const;
 
       private:
         void Update();

@@ -11,8 +11,8 @@ namespace OloEngine::Audio::SoundGraph
     class Factory
     {
       public:
-        [[nodiscard]] static std::unique_ptr<NodeProcessor> Create(Identifier nodeTypeID, UUID nodeID);
-        [[nodiscard]] static bool Contains(Identifier nodeTypeID);
+        [[nodiscard("the created node must be used; discarding it destroys it immediately")]] static std::unique_ptr<NodeProcessor> Create(Identifier nodeTypeID, UUID nodeID);
+        [[nodiscard("lookup result must be used")]] static bool Contains(Identifier nodeTypeID);
 
       private:
         Factory() = delete;

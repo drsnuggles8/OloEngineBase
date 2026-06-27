@@ -40,7 +40,7 @@ namespace OloEngine::Audio::SoundGraph
                 // keep stale samples.
                 if (ppFramesOut[0])
                 {
-                    const ma_uint32 channelCount = ma_node_get_output_channels(pNode, 0);
+                    const ma_uint32 channelCount = ::ma_node_get_output_channels(pNode, 0);
                     std::memset(ppFramesOut[0], 0, sizeof(float) * frameCount * channelCount);
                 }
             }
@@ -252,12 +252,12 @@ namespace OloEngine::Audio::SoundGraph
         // output bus channel count via pOutputChannels.
         m_Node.m_Owner = this;
 
-        ma_node_config nodeConfig = ma_node_config_init();
+        ma_node_config nodeConfig = ::ma_node_config_init();
         nodeConfig.vtable = &s_SoundGraphNodeVtable;
         nodeConfig.pOutputChannels = &channelCount;
 
-        ma_node_graph* nodeGraph = ma_engine_get_node_graph(engine);
-        ma_result result = ma_node_init(nodeGraph, &nodeConfig, nullptr, &m_Node.m_Base);
+        ma_node_graph* nodeGraph = ::ma_engine_get_node_graph(engine);
+        ma_result result = ::ma_node_init(nodeGraph, &nodeConfig, nullptr, &m_Node.m_Base);
         if (result != MA_SUCCESS)
         {
             OLO_CORE_ERROR("[SoundGraphSource] Failed to initialize miniaudio node: {0}", (int)result);
@@ -266,11 +266,11 @@ namespace OloEngine::Audio::SoundGraph
         }
 
         // Attach to the engine's endpoint so the audio thread actually pulls from us.
-        result = ma_node_attach_output_bus(&m_Node.m_Base, 0, ma_node_graph_get_endpoint(nodeGraph), 0);
+        result = ::ma_node_attach_output_bus(&m_Node.m_Base, 0, ::ma_node_graph_get_endpoint(nodeGraph), 0);
         if (result != MA_SUCCESS)
         {
             OLO_CORE_ERROR("[SoundGraphSource] Failed to attach output bus: {0}", (int)result);
-            ma_node_uninit(&m_Node.m_Base, nullptr);
+            ::ma_node_uninit(&m_Node.m_Base, nullptr);
             m_Node.m_Owner = nullptr;
             return false;
         }
@@ -282,10 +282,10 @@ namespace OloEngine::Audio::SoundGraph
         // resample our output (and pull from us at the wrong rate to compensate).
         OLO_CORE_INFO("[SoundGraphSource] Initialized with sample rate: {0}, block size: {1}, channels: {2} | engine sampleRate={3} nodeGraphChannels={4} nodeGraphProcessingSize={5} ourOutputChannels={6}",
                       sampleRate, maxBlockSize, channelCount,
-                      ma_engine_get_sample_rate(engine),
-                      ma_node_graph_get_channels(nodeGraph),
-                      ma_node_graph_get_processing_size_in_frames(nodeGraph),
-                      ma_node_get_output_channels(&m_Node.m_Base, 0));
+                      ::ma_engine_get_sample_rate(engine),
+                      ::ma_node_graph_get_channels(nodeGraph),
+                      ::ma_node_graph_get_processing_size_in_frames(nodeGraph),
+                      ::ma_node_get_output_channels(&m_Node.m_Base, 0));
         return true;
     }
 
@@ -317,7 +317,7 @@ namespace OloEngine::Audio::SoundGraph
 
         UninitializeDataSources();
 
-        ma_node_uninit(&m_Node.m_Base, nullptr);
+        ::ma_node_uninit(&m_Node.m_Base, nullptr);
         m_Node.m_Owner = nullptr;
 
         m_Engine = nullptr;
@@ -818,7 +818,7 @@ namespace OloEngine::Audio::SoundGraph
         // dereferencing it crashes. Silence the whole bus in one call.
         if (ppFramesOut && ppFramesOut[0])
         {
-            ma_silence_pcm_frames(ppFramesOut[0], frameCount, ma_format_f32, m_ChannelCount);
+            ::ma_silence_pcm_frames(ppFramesOut[0], frameCount, ma_format_f32, m_ChannelCount);
         }
     }
 
@@ -903,7 +903,7 @@ namespace OloEngine::Audio::SoundGraph
                     // copy loop below would no-op and leave busOut holding whatever
                     // miniaudio handed us — which is not guaranteed to be silent.
                     // Zero the bus explicitly so we never emit junk audio.
-                    ma_silence_pcm_frames(busOut, frameCount, ma_format_f32, m_ChannelCount);
+                    ::ma_silence_pcm_frames(busOut, frameCount, ma_format_f32, m_ChannelCount);
                 }
                 else
                 {
