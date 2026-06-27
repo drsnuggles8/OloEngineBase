@@ -543,9 +543,10 @@ in regularly never misses anything between checks.
 
 `GET /mcp` opens a persistent **`text/event-stream`** (Server-Sent Events) — the
 server-*initiated* counterpart of `olo_events_tail`. Instead of polling, an agent
-holds the stream open and is **pushed** each new diagnostics event the instant it is
-recorded, so a session watching a playtest sees script errors, scene loads, asset
-hot-reloads, and play/stop transitions arrive on their own. It is the same ring buffer
+holds the stream open and is **pushed** each new diagnostics event shortly after it is
+recorded (within ~250 ms — see the keep-alive note below), so a session watching a
+playtest sees script errors, scene loads, asset hot-reloads, and play/stop transitions
+arrive on their own. It is the same ring buffer
 (`Debug/DiagnosticsEventLog.h`) behind `olo_events_tail`, so the push and the poll
 surface byte-identical event records.
 
