@@ -25,8 +25,8 @@ namespace OloEngine
         {
           public:
             explicit ScopedFormula(CustomFormula formula);
-            ~ScopedFormula();
             ScopedFormula(const ScopedFormula&) = delete;
+            ~ScopedFormula();
             ScopedFormula& operator=(const ScopedFormula&) = delete;
 
           private:

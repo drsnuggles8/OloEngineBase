@@ -6,6 +6,7 @@
 
 #include <cmath>
 #include <filesystem>
+#include <string_view>
 
 namespace OloEngine
 {
@@ -14,7 +15,7 @@ namespace OloEngine
         // Validate a float read from an .oloitem YAML file (cpp-coding-quality §2b).
         // A corrupt or hand-edited asset can carry NaN/±inf; substitute a safe fallback
         // so it never reaches inventory weight / attribute math.
-        [[nodiscard]] f32 SanitizeFinite(f32 value, f32 fallback, const char* field, const std::string& itemId)
+        [[nodiscard("sanitized value must be used")]] f32 SanitizeFinite(f32 value, f32 fallback, std::string_view field, const std::string& itemId)
         {
             if (!std::isfinite(value))
             {
@@ -25,9 +26,9 @@ namespace OloEngine
         }
     } // namespace
 
-    std::unordered_map<std::string, ItemDefinition>& ItemDatabase::GetItems()
+    std::unordered_map<std::string, ItemDefinition, StringHash, StringEqual>& ItemDatabase::GetItems()
     {
-        static std::unordered_map<std::string, ItemDefinition> s_Items;
+        static std::unordered_map<std::string, ItemDefinition, StringHash, StringEqual> s_Items;
         return s_Items;
     }
 
@@ -146,7 +147,7 @@ namespace OloEngine
         return result;
     }
 
-    std::vector<const ItemDefinition*> ItemDatabase::GetByTag(const std::string& tag)
+    std::vector<const ItemDefinition*> ItemDatabase::GetByTag(std::string_view tag)
     {
         std::vector<const ItemDefinition*> result;
         for (auto const& [id, def] : GetItems())

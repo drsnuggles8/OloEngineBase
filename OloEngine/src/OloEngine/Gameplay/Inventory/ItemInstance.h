@@ -2,6 +2,7 @@
 
 #include "OloEngine/Gameplay/Inventory/AffixDefinition.h"
 #include "OloEngine/Gameplay/Inventory/Item.h"
+#include "OloEngine/Core/TransparentStringHash.h"
 #include "OloEngine/Core/UUID.h"
 
 #include <string>
@@ -32,11 +33,11 @@ namespace OloEngine
         f32 MaxDurability = -1.0f;
 
         std::vector<ItemAffix> Affixes;
-        std::unordered_map<std::string, std::string> CustomData;
+        std::unordered_map<std::string, std::string, StringHash, StringEqual> CustomData;
 
         // Returns true when two instances can be merged into one stack
         // (same definition, no per-instance state differences)
-        [[nodiscard]] bool IsStackCompatible(const ItemInstance& other) const
+        [[nodiscard("stack-compatibility result must be used")]] bool IsStackCompatible(const ItemInstance& other) const
         {
             return ItemDefinitionID == other.ItemDefinitionID && Durability == other.Durability && MaxDurability == other.MaxDurability && Affixes == other.Affixes && CustomData == other.CustomData;
         }

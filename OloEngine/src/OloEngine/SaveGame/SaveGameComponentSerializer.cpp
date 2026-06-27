@@ -3032,7 +3032,8 @@ namespace OloEngine
         SerializeQuestDefinition(ar, s.Definition);
     }
 
-    static void SerializeStringSet(FArchive& ar, std::unordered_set<std::string>& set)
+    template<typename Hash, typename Equal>
+    static void SerializeStringSet(FArchive& ar, std::unordered_set<std::string, Hash, Equal>& set)
     {
         if (ar.IsSaving())
         {

@@ -3,6 +3,7 @@
 #include "OloEngine/Core/Base.h"
 
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -55,82 +56,90 @@ namespace OloEngine
     };
 
     // String conversion helpers
-    inline const char* ItemCategoryToString(ItemCategory category)
+    [[nodiscard("category string must be used")]] inline const char* ItemCategoryToString(ItemCategory category)
     {
+        using enum ItemCategory;
         switch (category)
         {
-            case ItemCategory::Weapon:
+            case Weapon:
                 return "Weapon";
-            case ItemCategory::Armor:
+            case Armor:
                 return "Armor";
-            case ItemCategory::Consumable:
+            case Consumable:
                 return "Consumable";
-            case ItemCategory::QuestItem:
+            case QuestItem:
                 return "QuestItem";
-            case ItemCategory::Material:
+            case Material:
                 return "Material";
-            case ItemCategory::Currency:
+            case Currency:
                 return "Currency";
-            case ItemCategory::Misc:
+            case Misc:
                 return "Misc";
+            default:
+                break;
         }
         return "Misc";
     }
 
-    inline ItemCategory ItemCategoryFromString(const std::string& str)
+    inline ItemCategory ItemCategoryFromString(std::string_view str)
     {
+        using enum ItemCategory;
         if (str == "Weapon")
-            return ItemCategory::Weapon;
+            return Weapon;
         if (str == "Armor")
-            return ItemCategory::Armor;
+            return Armor;
         if (str == "Consumable")
-            return ItemCategory::Consumable;
+            return Consumable;
         if (str == "QuestItem")
-            return ItemCategory::QuestItem;
+            return QuestItem;
         if (str == "Material")
-            return ItemCategory::Material;
+            return Material;
         if (str == "Currency")
-            return ItemCategory::Currency;
+            return Currency;
         if (str != "Misc")
         {
             OLO_CORE_WARN("[Item] Unrecognized ItemCategory '{}' \u2014 defaulting to Misc", str);
         }
-        return ItemCategory::Misc;
+        return Misc;
     }
 
-    inline const char* ItemRarityToString(ItemRarity rarity)
+    [[nodiscard("rarity string must be used")]] inline const char* ItemRarityToString(ItemRarity rarity)
     {
+        using enum ItemRarity;
         switch (rarity)
         {
-            case ItemRarity::Common:
+            case Common:
                 return "Common";
-            case ItemRarity::Uncommon:
+            case Uncommon:
                 return "Uncommon";
-            case ItemRarity::Rare:
+            case Rare:
                 return "Rare";
-            case ItemRarity::Epic:
+            case Epic:
                 return "Epic";
-            case ItemRarity::Legendary:
+            case Legendary:
                 return "Legendary";
+            default:
+                break;
         }
         return "Common";
     }
 
-    inline ItemRarity ItemRarityFromString(const std::string& str)
+    inline ItemRarity ItemRarityFromString(std::string_view str)
     {
+        using enum ItemRarity;
         if (str == "Uncommon")
-            return ItemRarity::Uncommon;
+            return Uncommon;
         if (str == "Rare")
-            return ItemRarity::Rare;
+            return Rare;
         if (str == "Epic")
-            return ItemRarity::Epic;
+            return Epic;
         if (str == "Legendary")
-            return ItemRarity::Legendary;
+            return Legendary;
         if (str != "Common")
         {
             OLO_CORE_WARN("[Item] Unrecognized ItemRarity '{}' \u2014 defaulting to Common", str);
         }
-        return ItemRarity::Common;
+        return Common;
     }
 
 } // namespace OloEngine

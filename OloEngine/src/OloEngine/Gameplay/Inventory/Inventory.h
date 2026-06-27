@@ -4,6 +4,8 @@
 
 #include <algorithm>
 #include <optional>
+#include <string>
+#include <string_view>
 #include <vector>
 
 namespace OloEngine
@@ -17,23 +19,23 @@ namespace OloEngine
         bool AddItem(const ItemInstance& item);
         bool AddItemToSlot(i32 slotIndex, const ItemInstance& item);
         bool RemoveItem(const UUID& instanceId, i32 count = 1);
-        bool RemoveItemByDefinition(const std::string& definitionId, i32 count = 1);
+        bool RemoveItemByDefinition(std::string_view definitionId, i32 count = 1);
         bool MoveItem(i32 fromSlot, i32 toSlot);
         bool SwapItems(i32 slotA, i32 slotB);
         bool TransferItem(i32 fromSlot, Inventory& targetInventory);
 
         // Queries
-        [[nodiscard]] const ItemInstance* GetItemAtSlot(i32 slot) const;
-        [[nodiscard]] ItemInstance* GetMutableItemAtSlot(i32 slot);
-        [[nodiscard]] i32 FindItem(const std::string& definitionId) const;
-        [[nodiscard]] i32 CountItem(const std::string& definitionId) const;
-        [[nodiscard]] bool HasItem(const std::string& definitionId, i32 count = 1) const;
-        [[nodiscard]] i32 GetCapacity() const
+        [[nodiscard("item pointer must be used")]] const ItemInstance* GetItemAtSlot(i32 slot) const;
+        [[nodiscard("item pointer must be used")]] ItemInstance* GetMutableItemAtSlot(i32 slot);
+        [[nodiscard("found slot index must be used")]] i32 FindItem(std::string_view definitionId) const;
+        [[nodiscard("item count must be used")]] i32 CountItem(std::string_view definitionId) const;
+        [[nodiscard("presence check must be used")]] bool HasItem(std::string_view definitionId, i32 count = 1) const;
+        [[nodiscard("capacity must be used")]] i32 GetCapacity() const
         {
             return m_Capacity;
         }
-        [[nodiscard]] i32 GetUsedSlots() const;
-        [[nodiscard]] f32 GetTotalWeight() const;
+        [[nodiscard("used-slot count must be used")]] i32 GetUsedSlots() const;
+        [[nodiscard("total weight must be used")]] f32 GetTotalWeight() const;
 
         // Sorting
         void SortByCategory();
@@ -41,7 +43,7 @@ namespace OloEngine
         void SortByName();
 
         // Direct access for serialization
-        [[nodiscard]] const std::vector<std::optional<ItemInstance>>& GetSlots() const
+        [[nodiscard("slot list must be used")]] const std::vector<std::optional<ItemInstance>>& GetSlots() const
         {
             return m_Slots;
         }

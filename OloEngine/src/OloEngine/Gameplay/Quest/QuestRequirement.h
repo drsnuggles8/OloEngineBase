@@ -4,6 +4,7 @@
 
 #include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace OloEngine
@@ -48,133 +49,138 @@ namespace OloEngine
         LessThanOrEqual,
     };
 
-    inline const char* RequirementTypeToString(QuestRequirementType type)
+    [[nodiscard("requirement type string must be used")]] inline const char* RequirementTypeToString(QuestRequirementType type)
     {
+        using enum QuestRequirementType;
         switch (type)
         {
-            case QuestRequirementType::QuestCompleted:
+            case QuestCompleted:
                 return "QuestCompleted";
-            case QuestRequirementType::QuestActive:
+            case QuestActive:
                 return "QuestActive";
-            case QuestRequirementType::QuestFailed:
+            case QuestFailed:
                 return "QuestFailed";
-            case QuestRequirementType::QuestNotStarted:
+            case QuestNotStarted:
                 return "QuestNotStarted";
-            case QuestRequirementType::Level:
+            case Level:
                 return "Level";
-            case QuestRequirementType::Reputation:
+            case Reputation:
                 return "Reputation";
-            case QuestRequirementType::HasTag:
+            case HasTag:
                 return "HasTag";
-            case QuestRequirementType::DoesNotHaveTag:
+            case DoesNotHaveTag:
                 return "DoesNotHaveTag";
-            case QuestRequirementType::HasItem:
+            case HasItem:
                 return "HasItem";
-            case QuestRequirementType::Stat:
+            case Stat:
                 return "Stat";
-            case QuestRequirementType::IsClass:
+            case IsClass:
                 return "IsClass";
-            case QuestRequirementType::IsFaction:
+            case IsFaction:
                 return "IsFaction";
-            case QuestRequirementType::All:
+            case All:
                 return "All";
-            case QuestRequirementType::Any:
+            case Any:
                 return "Any";
-            case QuestRequirementType::Not:
+            case Not:
                 return "Not";
             default:
                 return "Unknown";
         }
     }
 
-    inline std::optional<QuestRequirementType> RequirementTypeFromString(const std::string& str)
+    inline std::optional<QuestRequirementType> RequirementTypeFromString(std::string_view str)
     {
+        using enum QuestRequirementType;
         if (str == "QuestCompleted")
-            return QuestRequirementType::QuestCompleted;
+            return QuestCompleted;
         if (str == "QuestActive")
-            return QuestRequirementType::QuestActive;
+            return QuestActive;
         if (str == "QuestFailed")
-            return QuestRequirementType::QuestFailed;
+            return QuestFailed;
         if (str == "QuestNotStarted")
-            return QuestRequirementType::QuestNotStarted;
+            return QuestNotStarted;
         if (str == "Level")
-            return QuestRequirementType::Level;
+            return Level;
         if (str == "Reputation")
-            return QuestRequirementType::Reputation;
+            return Reputation;
         if (str == "HasTag")
-            return QuestRequirementType::HasTag;
+            return HasTag;
         if (str == "DoesNotHaveTag")
-            return QuestRequirementType::DoesNotHaveTag;
+            return DoesNotHaveTag;
         if (str == "HasItem")
-            return QuestRequirementType::HasItem;
+            return HasItem;
         if (str == "Stat")
-            return QuestRequirementType::Stat;
+            return Stat;
         if (str == "IsClass")
-            return QuestRequirementType::IsClass;
+            return IsClass;
         if (str == "IsFaction")
-            return QuestRequirementType::IsFaction;
+            return IsFaction;
         if (str == "All")
-            return QuestRequirementType::All;
+            return All;
         if (str == "Any")
-            return QuestRequirementType::Any;
+            return Any;
         if (str == "Not")
-            return QuestRequirementType::Not;
+            return Not;
         return std::nullopt;
     }
 
-    inline const char* ComparisonOpToString(ComparisonOp op)
+    [[nodiscard("comparison op string must be used")]] inline const char* ComparisonOpToString(ComparisonOp op)
     {
+        using enum ComparisonOp;
         switch (op)
         {
-            case ComparisonOp::Equal:
+            case Equal:
                 return "Equal";
-            case ComparisonOp::NotEqual:
+            case NotEqual:
                 return "NotEqual";
-            case ComparisonOp::GreaterThan:
+            case GreaterThan:
                 return "GreaterThan";
-            case ComparisonOp::GreaterThanOrEqual:
+            case GreaterThanOrEqual:
                 return "GreaterThanOrEqual";
-            case ComparisonOp::LessThan:
+            case LessThan:
                 return "LessThan";
-            case ComparisonOp::LessThanOrEqual:
+            case LessThanOrEqual:
                 return "LessThanOrEqual";
             default:
                 return "GreaterThanOrEqual";
         }
     }
 
-    inline std::optional<ComparisonOp> ComparisonOpFromString(const std::string& str)
+    inline std::optional<ComparisonOp> ComparisonOpFromString(std::string_view str)
     {
+        using enum ComparisonOp;
         if (str == "Equal" || str == "==" || str == "EQ")
-            return ComparisonOp::Equal;
+            return Equal;
         if (str == "NotEqual" || str == "!=" || str == "NE")
-            return ComparisonOp::NotEqual;
+            return NotEqual;
         if (str == "GreaterThan" || str == ">" || str == "GT")
-            return ComparisonOp::GreaterThan;
+            return GreaterThan;
         if (str == "GreaterThanOrEqual" || str == ">=" || str == "GTE")
-            return ComparisonOp::GreaterThanOrEqual;
+            return GreaterThanOrEqual;
         if (str == "LessThan" || str == "<" || str == "LT")
-            return ComparisonOp::LessThan;
+            return LessThan;
         if (str == "LessThanOrEqual" || str == "<=" || str == "LTE")
-            return ComparisonOp::LessThanOrEqual;
+            return LessThanOrEqual;
         return std::nullopt;
     }
 
-    inline bool EvaluateComparison(i32 actual, ComparisonOp op, i32 expected)
+    [[nodiscard("comparison result must be used")]] inline bool EvaluateComparison(i32 actual, ComparisonOp op, i32 expected)
     {
+        using enum ComparisonOp;
         switch (op)
         {
-            case ComparisonOp::Equal:
+            case Equal:
                 return actual == expected;
-            case ComparisonOp::NotEqual:
+            case NotEqual:
                 return actual != expected;
-            case ComparisonOp::GreaterThan:
+            case GreaterThan:
                 return actual > expected;
-            case ComparisonOp::GreaterThanOrEqual:
+            case GreaterThanOrEqual:
                 return actual >= expected;
-            case ComparisonOp::LessThan:
+            case LessThan:
                 return actual < expected;
-            case ComparisonOp::LessThanOrEqual:
+            case LessThanOrEqual:
                 return actual <= expected;
             default:
                 return false;
