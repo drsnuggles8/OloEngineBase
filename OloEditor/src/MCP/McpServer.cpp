@@ -6,14 +6,17 @@
 #include <httplib.h>
 
 #include "MCP/McpServer.h"
+#include "MCP/McpEventStream.h"
 
 #include "OloEngine/Core/Log.h"
+#include "OloEngine/Debug/DiagnosticsEventLog.h"
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Task/NamedThreads.h"
 
 #include <algorithm>
 #include <array>
 #include <cctype>
+#include <charconv>
 #include <chrono>
 #include <cstdint>
 #include <cstdlib>
@@ -29,6 +32,7 @@
 #include <string>
 #include <string_view>
 #include <system_error>
+#include <thread>
 #include <utility>
 #include <vector>
 
@@ -206,6 +210,53 @@ namespace OloEngine::MCP
             }
         }
 
+        // ---- SSE server-push stream (issue #306 item B) -------------------------
+
+        // Worst-case push latency: the content provider is invoked back-to-back by
+        // httplib, so the stream loop sleeps this long each cycle to avoid busy-spin.
+        // Imperceptible for a live-watch loop, and bounds how long after Stop() a
+        // stream takes to notice the server is gone.
+        constexpr std::chrono::milliseconds kStreamPollInterval{ 250 };
+        // Idle keep-alive cadence: emit an SSE comment after this long with no event,
+        // so intermediaries see traffic and a dead client is detected via a failed write.
+        constexpr std::chrono::seconds kStreamHeartbeat{ 15 };
+
+        // One service cycle of a GET /mcp push stream, run on an httplib worker
+        // thread. Drains every diagnostics event newer than `cursor` from the
+        // (mutex-guarded, lock-safe) ring buffer and writes each as an MCP
+        // notification SSE frame, advances the cursor, then emits a keep-alive
+        // heartbeat once the stream has been idle. Returns false when a write fails
+        // (client gone) so the caller ends the stream. Reads only the lock-safe event
+        // log — no main-thread marshal needed (mirrors olo_events_tail).
+        [[nodiscard]] bool ServiceEventStream(httplib::DataSink& sink, u64& cursor,
+                                              std::chrono::steady_clock::time_point& lastWrite)
+        {
+            DiagnosticEventQuery query;
+            query.SinceId = cursor;
+            query.MaxCount = 0; // deliver every new event — no newest-N cap on a live stream.
+            const DiagnosticEventQueryResult snap = DiagnosticsEventLog::Get().QueryWithCursor(query);
+            for (const auto& event : snap.Events)
+            {
+                const std::string frame = FormatSseEvent(event.Id, MakeEventNotification(event));
+                if (!sink.write(frame.data(), frame.size()))
+                    return false;
+                lastWrite = std::chrono::steady_clock::now();
+            }
+            // Advance to the buffer head (past events that were filtered or none) so a
+            // later cycle never rescans the same ids — same cursor semantics as
+            // olo_events_tail's lastId.
+            cursor = snap.LastId;
+
+            if (std::chrono::steady_clock::now() - lastWrite >= kStreamHeartbeat)
+            {
+                const std::string hb = FormatSseComment("keep-alive");
+                if (!sink.write(hb.data(), hb.size()))
+                    return false;
+                lastWrite = std::chrono::steady_clock::now();
+            }
+            return true;
+        }
+
     } // namespace
 
     // ---- ToolResult ------------------------------------------------------------
@@ -298,10 +349,10 @@ namespace OloEngine::MCP
         m_Http->Post("/mcp", [this](const httplib::Request& req, httplib::Response& res)
                      { HandlePost(req, res); });
 
-        // We never push server-initiated messages, so the Streamable-HTTP GET
-        // stream is unsupported — 405 is the spec-sanctioned response.
-        m_Http->Get("/mcp", [](const httplib::Request&, httplib::Response& res)
-                    { res.status = 405; });
+        // Streamable-HTTP GET opens a persistent server-push SSE stream: new
+        // diagnostics events are pushed as MCP notifications (issue #306 item B).
+        m_Http->Get("/mcp", [this](const httplib::Request& req, httplib::Response& res)
+                    { HandleGetStream(req, res); });
 
         // Explicit session teardown.
         m_Http->Delete("/mcp", [this](const httplib::Request& req, httplib::Response& res)
@@ -486,6 +537,100 @@ namespace OloEngine::MCP
         sendJson(framed.Body, framed.Status);
     }
 
+    void McpServer::HandleGetStream(const httplib::Request& req, httplib::Response& res)
+    {
+        // Same gates as HandlePost: Origin (DNS-rebinding defence), bearer auth, and
+        // session validation when the client presents an Mcp-Session-Id.
+        if (req.has_header("Origin") && !IsOriginAllowed(req.get_header_value("Origin")))
+        {
+            res.status = 403;
+            return;
+        }
+        if (!CheckAuth(req))
+        {
+            res.set_header("WWW-Authenticate", "Bearer");
+            res.status = 401;
+            return;
+        }
+        if (req.has_header("Mcp-Session-Id"))
+        {
+            const std::string sid = req.get_header_value("Mcp-Session-Id");
+            std::lock_guard lock(m_SessionMutex);
+            if (!m_Sessions.contains(sid))
+            {
+                res.status = 404;
+                return;
+            }
+        }
+
+        // Where to resume: SSE reconnection replays the last id via Last-Event-ID, so
+        // honour it to resume without gaps. Otherwise start at the current head so a
+        // fresh subscriber receives only NEW events — not a backlog flood (the ring
+        // holds 512). This is the per-connection cursor the plan calls for.
+        u64 startCursor = DiagnosticsEventLog::Get().LastId();
+        if (req.has_header("Last-Event-ID"))
+        {
+            // Resume only on a cleanly-parsed cursor. from_chars rejects a leading sign
+            // and trailing junk, unlike std::stoull which would accept "123abc" as 123
+            // or "-1" as a wrapped ULLONG_MAX (silently starving the stream). Requiring
+            // full-string consumption means a malformed header falls back to the head.
+            const std::string lastEventId = req.get_header_value("Last-Event-ID");
+            u64 parsed = 0;
+            const char* const first = lastEventId.data();
+            const char* const last = first + lastEventId.size();
+            if (const auto [ptr, ec] = std::from_chars(first, last, parsed); ec == std::errc{} && ptr == last)
+                startCursor = parsed;
+        }
+
+        res.set_header("Cache-Control", "no-cache");
+        // Conventional SSE hint: tell any intermediary not to buffer the stream.
+        res.set_header("X-Accel-Buffering", "no");
+
+        res.set_chunked_content_provider(
+            "text/event-stream",
+            [this, cursor = startCursor, lastWrite = std::chrono::steady_clock::now(), greeted = false](
+                std::size_t /*offset*/, httplib::DataSink& sink) mutable -> bool
+            {
+                // Server tearing down: end the stream gracefully so the worker thread
+                // is free to be joined by Stop().
+                if (!m_Running.load(std::memory_order_acquire))
+                {
+                    sink.done();
+                    return true;
+                }
+                if (!sink.is_writable())
+                    return false; // client gone
+
+                // One-time greeting comment so the client sees the stream is open
+                // before the first event, and as an immediate disconnect probe.
+                if (!greeted)
+                {
+                    const std::string hello = FormatSseComment("olo-mcp event stream connected");
+                    if (!sink.write(hello.data(), hello.size()))
+                        return false;
+                    greeted = true;
+                    lastWrite = std::chrono::steady_clock::now();
+                }
+
+                if (!ServiceEventStream(sink, cursor, lastWrite))
+                    return false;
+
+                // Pace the loop (httplib calls the provider back-to-back).
+                std::this_thread::sleep_for(kStreamPollInterval);
+                return true;
+            },
+            [this](bool /*success*/)
+            {
+                m_ActiveStreams.fetch_sub(1, std::memory_order_relaxed);
+            });
+        // Count the stream only once the provider + its releaser are registered: if
+        // set_chunked_content_provider had thrown, the releaser would never run, so an
+        // increment before it could leak. The provider/releaser run later (during
+        // response writing, after this handler returns), so the matching decrement
+        // can't race ahead of this increment.
+        m_ActiveStreams.fetch_add(1, std::memory_order_relaxed);
+    }
+
     Json McpServer::HandleMessage(const Json& message)
     {
         return DispatchRpc(message);
@@ -624,9 +769,12 @@ namespace OloEngine::MCP
 
         Json result;
         result["protocolVersion"] = version;
+        // `logging` is advertised because the GET /mcp SSE stream pushes diagnostics
+        // events as `notifications/message` log notifications (issue #306 item B).
         result["capabilities"] = Json{ { "tools", { { "listChanged", false } } },
                                        { "resources", { { "subscribe", false }, { "listChanged", false } } },
-                                       { "prompts", { { "listChanged", false } } } };
+                                       { "prompts", { { "listChanged", false } } },
+                                       { "logging", Json::object() } };
         result["serverInfo"] = Json{ { "name", "OloEditor" },
                                      { "title", "OloEngine Editor Diagnostics" },
                                      { "version", "0.0.1" } };
