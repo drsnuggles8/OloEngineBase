@@ -5,6 +5,9 @@
 #include "OloEngine/Cinematic/CinematicSequence.h"
 #include "OloEngine/Core/Ref.h"
 
+#include <cmath>
+#include <limits>
+
 // =============================================================================
 // CinematicPlayerTest — unit tests for the pure playback math: time advance
 // (forward / reverse / clamp-on-end / finish-at-0 / loop-wrap both directions /
@@ -103,6 +106,30 @@ TEST(CinematicPlayerTest, AdvanceTimeZeroSpeedHolds)
     EXPECT_NEAR(r.NewTime, 2.0f, kEps); // speed 0 holds the playhead — no movement
     EXPECT_FALSE(r.Looped);
     EXPECT_FALSE(r.JustFinished);
+}
+
+TEST(CinematicPlayerTest, AdvanceTimeNonFiniteInputsHoldWithoutNaN)
+{
+    const f32 nan = std::numeric_limits<f32>::quiet_NaN();
+    const f32 inf = std::numeric_limits<f32>::infinity();
+
+    // A non-finite duration / dt / speed must not reach fmod or the lap-count
+    // cast (NaN / UB). Each holds the (finite) playhead and never finishes.
+    for (const auto& bad : { CinematicPlayer::AdvanceTime(2.0f, 0.1f, 1.0f, nan, true),
+                             CinematicPlayer::AdvanceTime(2.0f, inf, 1.0f, 5.0f, true),
+                             CinematicPlayer::AdvanceTime(2.0f, 0.1f, nan, 5.0f, false),
+                             CinematicPlayer::AdvanceTime(2.0f, 0.1f, -1.0f, inf, true) })
+    {
+        EXPECT_TRUE(std::isfinite(bad.NewTime));
+        EXPECT_NEAR(bad.NewTime, 2.0f, kEps); // held at fromTime
+        EXPECT_FALSE(bad.JustFinished);
+        EXPECT_FALSE(bad.Looped);
+    }
+
+    // A non-finite fromTime can't be held meaningfully; pin to 0, still finite.
+    const auto r = CinematicPlayer::AdvanceTime(nan, 0.1f, -1.0f, 5.0f, true);
+    EXPECT_TRUE(std::isfinite(r.NewTime));
+    EXPECT_NEAR(r.NewTime, 0.0f, kEps);
 }
 
 TEST(CinematicPlayerTest, AdvanceTimeForwardBackwardSymmetry)

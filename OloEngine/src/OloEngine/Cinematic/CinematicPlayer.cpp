@@ -15,6 +15,17 @@ namespace OloEngine::CinematicPlayer
 
         AdvanceResult result;
 
+        // Non-finite inputs (a corrupt key time feeding `duration`, a NaN `dt`,
+        // etc.) must never reach std::fmod or the lap-count cast below — both
+        // produce NaN / undefined behaviour. Hold the playhead at the last good
+        // value instead (no movement, no finish). speed is already finite-guarded
+        // on every external write path, but this keeps the pure function total.
+        if (!std::isfinite(fromTime) || !std::isfinite(dt) || !std::isfinite(speed) || !std::isfinite(duration))
+        {
+            result.NewTime = std::isfinite(fromTime) ? fromTime : 0.0f;
+            return result;
+        }
+
         if (duration <= 0.0f)
         {
             // Nothing to play — finish immediately and pin to the start.
@@ -90,7 +101,8 @@ namespace OloEngine::CinematicPlayer
             return result;
         }
 
-        // speed == 0 (or NaN): hold the playhead — no movement, no finish.
+        // speed == 0: hold the playhead — no movement, no finish. (NaN speed was
+        // already handled by the finite guard above.)
         result.NewTime = fromTime;
         return result;
     }
