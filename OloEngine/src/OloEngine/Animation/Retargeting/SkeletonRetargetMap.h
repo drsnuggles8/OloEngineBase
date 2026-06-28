@@ -9,18 +9,23 @@
 
 namespace OloEngine::Animation
 {
+    class HumanoidBoneMap;
+
     /**
      * @brief Bone correspondence between a SOURCE skeleton and a TARGET skeleton.
      *
      * Stores, for every target bone, the index of the source bone whose animation
-     * drives it (or kUnmapped). Built by matching bone names: an exact pass first,
-     * then a normalized pass (namespace/rig prefix stripped, case-folded, separators
-     * removed) so common humanoid naming differences resolve — e.g. the source's
-     * "mixamorig:LeftArm" maps to the target's "Left_Arm".
+     * drives it (or kUnmapped). Two ways to build it:
      *
-     * Full humanoid-bone-enum mapping (relating anatomically equivalent bones whose
-     * names share nothing — e.g. 3ds Max biped "Bip01 L UpperArm" <-> UE "upperarm_l")
-     * is a documented follow-up; see docs/animation-retargeting.md.
+     * - BuildByName matches bone names: an exact pass first, then a normalized pass
+     *   (namespace/rig prefix stripped, case-folded, separators removed) so common
+     *   humanoid naming differences resolve — e.g. the source's "mixamorig:LeftArm"
+     *   maps to the target's "Left_Arm".
+     * - BuildByHumanoidRole pairs bones by their canonical HumanoidBone role instead
+     *   of by name, so anatomically-equivalent bones whose names share nothing — e.g.
+     *   3ds Max biped "Bip01 L UpperArm" <-> UE "upperarm_l" <-> Mixamo "LeftArm" —
+     *   still map. FillUnmappedFrom then composes the two (role map first, name map
+     *   for whatever the roles didn't cover).
      */
     class SkeletonRetargetMap
     {
@@ -38,6 +43,41 @@ namespace OloEngine::Animation
          * bones with no match are left kUnmapped.
          */
         [[nodiscard]] static SkeletonRetargetMap BuildByName(const SkeletonData& source, const SkeletonData& target);
+
+        /**
+         * @brief Build a map by pairing bones whose canonical HumanoidBone role matches.
+         *
+         * For every humanoid role assigned in BOTH @p sourceRoles and @p targetRoles,
+         * the target's bone for that role is driven by the source's bone for that role.
+         * Target bones with no shared role are left kUnmapped. Works even when the two
+         * rigs' bone names share nothing — that is the whole point of role mapping.
+         */
+        [[nodiscard]] static SkeletonRetargetMap BuildByHumanoidRole(const SkeletonData& source,
+                                                                     const SkeletonData& target,
+                                                                     const HumanoidBoneMap& sourceRoles,
+                                                                     const HumanoidBoneMap& targetRoles);
+
+        /**
+         * @brief BuildByHumanoidRole using HumanoidBoneMap::AutoDetect for both rigs.
+         *
+         * Convenience for the common "just retarget these two humanoid rigs" case: the
+         * roles are detected from the bone names heuristically. Supply explicit
+         * HumanoidBoneMaps to the four-argument overload when the heuristic needs help.
+         */
+        [[nodiscard]] static SkeletonRetargetMap BuildByHumanoidRole(const SkeletonData& source,
+                                                                     const SkeletonData& target);
+
+        /**
+         * @brief Fill this map's still-unmapped target bones from @p fallback.
+         *
+         * Composes two maps without disturbing existing mappings: every target bone
+         * that is kUnmapped here takes @p fallback's mapping (if any). The canonical
+         * use is role map first, name map second —
+         * `roleMap.FillUnmappedFrom(SkeletonRetargetMap::BuildByName(src, tgt))` — so
+         * bones the roles covered keep their role mapping and the rest fall back to
+         * name matching. Entries past the smaller of the two tables are left untouched.
+         */
+        void FillUnmappedFrom(const SkeletonRetargetMap& fallback);
 
         /// Manually set (or clear, with kUnmapped) the source bone driving a target bone.
         void SetBoneMapping(int targetBoneIndex, int sourceBoneIndex);

@@ -3,6 +3,8 @@
 
 #include "OloEngine/Animation/Retargeting/SkeletonRetargetMap.h"
 #include "OloEngine/Animation/Retargeting/AnimationRetargeter.h"
+#include "OloEngine/Animation/Retargeting/HumanoidBone.h"
+#include "OloEngine/Animation/Retargeting/HumanoidBoneMap.h"
 #include "OloEngine/Animation/AnimationClip.h"
 #include "OloEngine/Animation/AnimationSystem.h"
 #include "OloEngine/Animation/Skeleton.h"
@@ -381,4 +383,225 @@ TEST(AnimationRetarget, ComputeRootTranslationScaleFromRigExtents)
     // Degenerate source (all bones at origin) => safe 1.0 fallback.
     auto degenerate = BuildSkeleton({ "Root" }, { -1 }, { MakeBone({ 0.0f, 0.0f, 0.0f }) });
     EXPECT_NEAR(AnimationRetargeter::ComputeRootTranslationScale(*degenerate, *target), 1.0f, 1e-4f);
+}
+
+// =============================================================================
+// Humanoid bone-enum mapping — relate anatomically-equivalent bones across rigs
+// whose names share nothing (the deferred-item-#1 follow-up to name mapping).
+// =============================================================================
+
+// -----------------------------------------------------------------------------
+// ClassifyBoneName — one anatomical role recognised across four rig naming
+// conventions, with helper/finger/sideless bones rejected.
+// -----------------------------------------------------------------------------
+TEST(AnimationRetarget, HumanoidClassifyAcrossNamingConventions)
+{
+    using HB = HumanoidBone;
+    const auto classify = [](std::string_view n)
+    { return HumanoidBoneMap::ClassifyBoneName(n); };
+
+    // Mixamo (bare "Arm"/"Leg" are the UPPER arm / LOWER leg by convention).
+    EXPECT_EQ(classify("mixamorig:Hips"), HB::Hips);
+    EXPECT_EQ(classify("mixamorig:LeftArm"), HB::LeftUpperArm);
+    EXPECT_EQ(classify("mixamorig:LeftForeArm"), HB::LeftLowerArm);
+    EXPECT_EQ(classify("mixamorig:RightHand"), HB::RightHand);
+    EXPECT_EQ(classify("mixamorig:LeftUpLeg"), HB::LeftUpperLeg);
+    EXPECT_EQ(classify("mixamorig:LeftLeg"), HB::LeftLowerLeg);
+    EXPECT_EQ(classify("mixamorig:RightToeBase"), HB::RightToes);
+
+    // Unreal Engine mannequin.
+    EXPECT_EQ(classify("pelvis"), HB::Hips);
+    EXPECT_EQ(classify("clavicle_l"), HB::LeftShoulder);
+    EXPECT_EQ(classify("upperarm_l"), HB::LeftUpperArm);
+    EXPECT_EQ(classify("lowerarm_r"), HB::RightLowerArm);
+    EXPECT_EQ(classify("thigh_r"), HB::RightUpperLeg);
+    EXPECT_EQ(classify("calf_l"), HB::LeftLowerLeg);
+    EXPECT_EQ(classify("foot_l"), HB::LeftFoot);
+    EXPECT_EQ(classify("ball_r"), HB::RightToes);
+
+    // 3ds Max Biped (space-separated, "Bip01 <Side> <Part>").
+    EXPECT_EQ(classify("Bip01 Pelvis"), HB::Hips);
+    EXPECT_EQ(classify("Bip01 L UpperArm"), HB::LeftUpperArm);
+    EXPECT_EQ(classify("Bip01 R Forearm"), HB::RightLowerArm);
+    EXPECT_EQ(classify("Bip01 L Thigh"), HB::LeftUpperLeg);
+    EXPECT_EQ(classify("Bip01 R Calf"), HB::RightLowerLeg);
+    EXPECT_EQ(classify("Bip01 L Foot"), HB::LeftFoot);
+
+    // Blender / Rigify (".L"/".R" suffix).
+    EXPECT_EQ(classify("upper_arm.L"), HB::LeftUpperArm);
+    EXPECT_EQ(classify("forearm.R"), HB::RightLowerArm);
+    EXPECT_EQ(classify("shin.L"), HB::LeftLowerLeg);
+    EXPECT_EQ(classify("foot.R"), HB::RightFoot);
+
+    // All four spell LeftUpperArm identically — the whole point of the role enum.
+    EXPECT_EQ(classify("mixamorig:LeftArm"), classify("upperarm_l"));
+    EXPECT_EQ(classify("upperarm_l"), classify("Bip01 L UpperArm"));
+    EXPECT_EQ(classify("Bip01 L UpperArm"), classify("upper_arm.L"));
+
+    // Helper / finger / sideless bones carry no role.
+    EXPECT_EQ(classify("mixamorig:LeftHandIndex1"), HB::None) << "finger bone is not the hand";
+    EXPECT_EQ(classify("upperarm_twist_01_l"), HB::None) << "twist bone is not the arm";
+    EXPECT_EQ(classify("ik_hand_l"), HB::None) << "IK helper is not the hand";
+    EXPECT_EQ(classify("Tail"), HB::None) << "non-humanoid bone has no role";
+    EXPECT_EQ(classify("UpperArm"), HB::None) << "a limb with no detectable side can't be placed";
+
+    EXPECT_EQ(ToString(HB::LeftUpperArm), "leftUpperArm");
+    EXPECT_EQ(ToString(HB::None), "none");
+}
+
+// -----------------------------------------------------------------------------
+// AutoDetect — full skeleton classified; the multi-bone spine collapses onto
+// Spine (lowest) + Chest (highest), and helper / middle bones get no role.
+// -----------------------------------------------------------------------------
+TEST(AnimationRetarget, HumanoidAutoDetectAssignsRolesAndResolvesSpine)
+{
+    SkeletonData skel;
+    skel.m_BoneNames = {
+        "pelvis", "spine_01", "spine_02", "spine_03", "neck_01", "head", // 0..5
+        "clavicle_l", "upperarm_l", "lowerarm_l", "hand_l",              // 6..9
+        "thigh_r", "calf_r", "foot_r", "ball_r",                         // 10..13
+        "ik_foot_root"                                                   // 14 (helper)
+    };
+
+    const HumanoidBoneMap map = HumanoidBoneMap::AutoDetect(skel);
+
+    EXPECT_EQ(map.GetBone(HumanoidBone::Hips), 0);
+    EXPECT_EQ(map.GetBone(HumanoidBone::Spine), 1) << "lowest-numbered spine -> Spine";
+    EXPECT_EQ(map.GetBone(HumanoidBone::Chest), 3) << "highest spine -> Chest (no explicit chest bone)";
+    EXPECT_EQ(map.GetBone(HumanoidBone::Neck), 4);
+    EXPECT_EQ(map.GetBone(HumanoidBone::Head), 5);
+    EXPECT_EQ(map.GetBone(HumanoidBone::LeftShoulder), 6);
+    EXPECT_EQ(map.GetBone(HumanoidBone::LeftUpperArm), 7);
+    EXPECT_EQ(map.GetBone(HumanoidBone::LeftLowerArm), 8);
+    EXPECT_EQ(map.GetBone(HumanoidBone::LeftHand), 9);
+    EXPECT_EQ(map.GetBone(HumanoidBone::RightUpperLeg), 10);
+    EXPECT_EQ(map.GetBone(HumanoidBone::RightLowerLeg), 11);
+    EXPECT_EQ(map.GetBone(HumanoidBone::RightFoot), 12);
+    EXPECT_EQ(map.GetBone(HumanoidBone::RightToes), 13);
+
+    EXPECT_EQ(map.GetRole(2), HumanoidBone::None) << "the middle spine bone is left unassigned";
+    EXPECT_EQ(map.GetRole(14), HumanoidBone::None) << "the IK helper bone gets no role";
+    EXPECT_EQ(map.GetRole(7), HumanoidBone::LeftUpperArm) << "reverse lookup agrees";
+
+    // 6 center/spine roles resolved (Hips, Spine, Chest, Neck, Head) — UpperChest
+    // absent — plus 8 limb roles = 13 assigned.
+    EXPECT_EQ(map.GetAssignedRoleCount(), 13u);
+    EXPECT_FALSE(map.HasRole(HumanoidBone::UpperChest));
+}
+
+// -----------------------------------------------------------------------------
+// BuildByHumanoidRole — two rigs with ZERO name overlap map anatomically where
+// name matching finds nothing.
+// -----------------------------------------------------------------------------
+TEST(AnimationRetarget, BuildByHumanoidRoleMapsDisjointlyNamedRigs)
+{
+    SkeletonData source; // Unreal naming
+    source.m_BoneNames = { "pelvis", "upperarm_l", "lowerarm_l" };
+    SkeletonData target; // Mixamo naming — shares no normalized name with the source
+    target.m_BoneNames = { "mixamorig:Hips", "mixamorig:LeftArm", "mixamorig:LeftForeArm" };
+
+    EXPECT_EQ(SkeletonRetargetMap::BuildByName(source, target).GetMappedBoneCount(), 0u)
+        << "the rigs share no name — name matching must find nothing";
+
+    const SkeletonRetargetMap byRole = SkeletonRetargetMap::BuildByHumanoidRole(source, target);
+    EXPECT_EQ(byRole.GetMappedBoneCount(), 3u);
+    EXPECT_EQ(byRole.GetSourceBone(0), 0) << "Hips <- pelvis";
+    EXPECT_EQ(byRole.GetSourceBone(1), 1) << "LeftArm (upper) <- upperarm_l";
+    EXPECT_EQ(byRole.GetSourceBone(2), 2) << "LeftForeArm (lower) <- lowerarm_l";
+}
+
+// -----------------------------------------------------------------------------
+// Explicit override + name fallback compose: a custom-named source bone the
+// heuristic can't classify is supplied by hand, and a same-named non-humanoid
+// bone is picked up by FillUnmappedFrom(BuildByName(...)).
+// -----------------------------------------------------------------------------
+TEST(AnimationRetarget, HumanoidExplicitOverrideAndNameFallbackCompose)
+{
+    SkeletonData source;
+    source.m_BoneNames = { "pelvis", "CustomBone1", "Tail" }; // index 1 unclassifiable
+    SkeletonData target;
+    target.m_BoneNames = { "mixamorig:Hips", "mixamorig:LeftArm", "Tail" };
+
+    HumanoidBoneMap sourceRoles = HumanoidBoneMap::AutoDetect(source);
+    const HumanoidBoneMap targetRoles = HumanoidBoneMap::AutoDetect(target);
+
+    ASSERT_FALSE(sourceRoles.HasRole(HumanoidBone::LeftUpperArm)) << "the custom name isn't auto-detected";
+    sourceRoles.SetBone(HumanoidBone::LeftUpperArm, 1); // hand-authored override
+
+    SkeletonRetargetMap map = SkeletonRetargetMap::BuildByHumanoidRole(source, target, sourceRoles, targetRoles);
+    EXPECT_EQ(map.GetSourceBone(0), 0) << "Hips by role";
+    EXPECT_EQ(map.GetSourceBone(1), 1) << "LeftArm by overridden role";
+    EXPECT_EQ(map.GetSourceBone(2), SkeletonRetargetMap::kUnmapped) << "Tail has no humanoid role";
+
+    map.FillUnmappedFrom(SkeletonRetargetMap::BuildByName(source, target));
+    EXPECT_EQ(map.GetSourceBone(2), 2) << "Tail resolved by the name fallback";
+    EXPECT_EQ(map.GetMappedBoneCount(), 3u);
+}
+
+// -----------------------------------------------------------------------------
+// End-to-end: a clip authored for an Unreal-named SOURCE retargets, via the
+// humanoid ROLE map, onto a disjointly Mixamo-named TARGET and drives it through
+// the real AnimationSystem::Update — names never matched, roles did.
+// -----------------------------------------------------------------------------
+TEST(AnimationRetarget, RetargetClipViaHumanoidRoleDrivesDisjointTarget)
+{
+    const glm::quat srcArmRest = glm::angleAxis(glm::radians(15.0f), glm::vec3(1.0f, 0.0f, 0.0f));
+    const glm::quat tgtArmRest = glm::angleAxis(glm::radians(-25.0f), glm::vec3(0.0f, 0.0f, 1.0f));
+    const glm::quat armDelta = glm::angleAxis(glm::radians(40.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+
+    // Source: Unreal names, bone length 1.
+    auto source = BuildSkeleton(
+        { "pelvis", "spine_01", "upperarm_l" }, { -1, 0, 1 },
+        { MakeBone({ 0.0f, 1.0f, 0.0f }), MakeBone({ 0.0f, 1.0f, 0.0f }), MakeBone({ 0.0f, 1.0f, 0.0f }, srcArmRest) });
+
+    // Target: Mixamo names (zero overlap with the source), bone length 2 + arm rest.
+    auto target = BuildSkeleton(
+        { "mixamorig:Hips", "mixamorig:Spine", "mixamorig:LeftArm" }, { -1, 0, 1 },
+        { MakeBone({ 0.0f, 2.0f, 0.0f }), MakeBone({ 0.0f, 2.0f, 0.0f }), MakeBone({ 0.0f, 2.0f, 0.0f }, tgtArmRest) });
+
+    ASSERT_EQ(SkeletonRetargetMap::BuildByName(*source, *target).GetMappedBoneCount(), 0u)
+        << "names must not match — this proves the role path";
+    const SkeletonRetargetMap map = SkeletonRetargetMap::BuildByHumanoidRole(*source, *target);
+    ASSERT_EQ(map.GetMappedBoneCount(), 3u);
+
+    auto clip = Ref<AnimationClip>::Create();
+    clip->Name = "Walk";
+    clip->Duration = 1.0f;
+    {
+        BoneAnimation arm;
+        arm.BoneName = "upperarm_l";
+        arm.RotationKeys.push_back({ 0.0, glm::normalize(srcArmRest * armDelta) });
+        clip->BoneAnimations.push_back(std::move(arm));
+
+        BoneAnimation hips;
+        hips.BoneName = "pelvis";
+        hips.PositionKeys.push_back({ 0.0, glm::vec3(0.0f, 1.5f, 0.3f) }); // rest (0,1,0) => delta (0,.5,.3)
+        clip->BoneAnimations.push_back(std::move(hips));
+        clip->InitializeBoneCache();
+    }
+
+    RetargetOptions options;
+    options.RetargetRootTranslation = true;
+    options.RootTranslationScale = 2.0f;
+
+    Ref<AnimationClip> baked = AnimationRetargeter::RetargetClip(clip, *source, *target, map, options);
+    ASSERT_TRUE(baked);
+    EXPECT_TRUE(baked->FindBoneAnimation("mixamorig:LeftArm")) << "baked track named for the target bone";
+    EXPECT_TRUE(baked->FindBoneAnimation("mixamorig:Hips"));
+
+    AnimationStateComponent animState;
+    animState.m_CurrentClip = baked;
+    animState.m_CurrentTime = 0.0f;
+    animState.m_IsPlaying = true;
+    AnimationSystem::Update(animState, *target, 0.1f);
+
+    // LeftArm (index 2): rotation re-based onto the target rest; proportions kept.
+    const BoneTransform arm = BlendUtils::DecomposeMatrix(target->m_LocalTransforms[2]);
+    const glm::quat expectedArm = ExpectedRebase(srcArmRest, glm::normalize(srcArmRest * armDelta), tgtArmRest);
+    ExpectQuatNear(arm.Rotation, expectedArm, 2e-4f, "role-retargeted arm rotation through AnimationSystem");
+    ExpectVec3Near(arm.Translation, glm::vec3(0.0f, 2.0f, 0.0f), 1e-4f, "arm keeps target rest translation");
+
+    // Hips (index 0, root): target rest (0,2,0) + 2 * delta(0,.5,.3) = (0,3,0.6).
+    const BoneTransform hips = BlendUtils::DecomposeMatrix(target->m_LocalTransforms[0]);
+    ExpectVec3Near(hips.Translation, glm::vec3(0.0f, 3.0f, 0.6f), 1e-4f, "role-retargeted scaled root translation");
 }

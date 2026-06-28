@@ -34,6 +34,35 @@ Rotation-based, name-mapped retargeting:
 - **`AnimationRetargeter::ComputeRootTranslationScale`** — derives a uniform
   root-translation scale from the ratio of the two rigs' bind-pose extents.
 
+## Humanoid bone-enum mapping
+
+Name matching cannot relate bones whose names share nothing — 3ds Max biped
+`Bip01 L UpperArm`, Unreal `upperarm_l`, and Mixamo `LeftArm` all denote the same
+joint but normalize to three different strings. The humanoid-role layer bridges
+them by anatomy instead of name:
+
+- **`HumanoidBone`** ([HumanoidBone.h](../OloEngine/src/OloEngine/Animation/Retargeting/HumanoidBone.h))
+  — a canonical role enum (Hips, Spine, Chest, Neck, Head, and the L/R arm and leg
+  chains down to a single toe joint), modeled on Unity's `HumanBodyBones` / UE's
+  humanoid rig. Pragmatic, not exhaustive: no individual fingers, eyes, or jaw.
+- **`HumanoidBoneMap`** ([HumanoidBoneMap.h](../OloEngine/src/OloEngine/Animation/Retargeting/HumanoidBoneMap.h))
+  — one skeleton's bone→role assignment. `AutoDetect` fills it heuristically from
+  the bone names, recognizing the four common conventions (Mixamo, Unreal, 3ds Max
+  Biped, Blender/Rigify): it tokenizes each name (stripping rig prefixes, splitting
+  camelCase and letter/digit boundaries), detects a left/right side, and matches a
+  body-part keyword. It folds a multi-bone spine onto Spine (lowest) + Chest
+  (highest), and rejects finger/twist/IK helper bones. `SetBone` overrides a
+  mis-detected or missed role by hand. `ClassifyBoneName` exposes the single-name
+  classifier for tests/tooling.
+- **`SkeletonRetargetMap::BuildByHumanoidRole`** pairs a source and target
+  `HumanoidBoneMap` role-by-role into the same per-target-bone table the rest of the
+  pipeline consumes — so the rebasing math, clip baking, and `AnimationSystem`
+  play-out are all **unchanged**; only the *correspondence* source differs. A
+  two-argument overload auto-detects both rigs. Compose role + name with
+  **`FillUnmappedFrom`**: `roleMap.FillUnmappedFrom(SkeletonRetargetMap::BuildByName(src, tgt))`
+  keeps every role-mapped bone and falls back to name matching for the rest
+  (e.g. a same-named non-humanoid `Tail`).
+
 ### Why a clip-bake (and no ECS component) for slice 1
 
 The integration deliberately avoids adding an ECS component (which would pull in
@@ -47,9 +76,14 @@ component.
 
 Tracked so the next pass knows what's left:
 
-1. **Humanoid bone-enum mapping** — map anatomically equivalent bones whose names
-   share nothing (3ds Max biped `Bip01 L UpperArm` ↔ UE `upperarm_l`) via a
-   canonical humanoid-bone enum, not just name normalization.
+1. ~~**Humanoid bone-enum mapping**~~ — **done** (see "Humanoid bone-enum mapping"
+   above): `HumanoidBone` + `HumanoidBoneMap::AutoDetect` +
+   `SkeletonRetargetMap::BuildByHumanoidRole`. Still deferred within this area:
+   per-bone *translation* retargeting via role (item #2), a live runtime
+   `RetargetingComponent` driving role mapping (item #3), and editor UI to pick a
+   role source / hand-correct a mis-detected role (item #4). The auto-mapper is
+   heuristic — Blender/Rigify's numbered-spine metarig is best-effort, and an
+   unconventional rig may need `SetBone` overrides.
 2. **Full per-bone translation retargeting** — only the root translation is
    transferred today; non-root bones take the target rest translation. A
    bone-length-ratio scheme for limbs (and IK-preserving foot/hand placement) is
@@ -67,4 +101,10 @@ it's a direct-API CPU contract test, not a `Scene::OnUpdateRuntime`-driven
 Functional test) covers: name normalization, exact/normalized mapping precedence,
 rotation transfer with preserved proportions, the rest-orientation delta re-base,
 scaled root-translation transfer, and the end-to-end baked-clip → `AnimationSystem`
-path on a differently-proportioned target rig.
+path on a differently-proportioned target rig. For the humanoid-role layer it adds:
+single-name classification across all four naming conventions (and rejection of
+finger/twist/IK/sideless bones), `AutoDetect` over a full skeleton with the
+Spine/Chest collapse, `BuildByHumanoidRole` mapping two rigs whose names share
+*nothing* (where `BuildByName` maps zero bones), the explicit-override +
+`FillUnmappedFrom` name-fallback compose, and the end-to-end role-mapped clip bake
+driving a disjointly-named target through `AnimationSystem::Update`.
