@@ -35,6 +35,7 @@
 #include <chrono>
 #include <functional>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <thread>
@@ -355,6 +356,23 @@ namespace OloEngine::MCP
         // loudly via OLO_CORE_VERIFY. Exposed as a pure helper so it can be unit
         // tested without tripping that assert. Pure.
         [[nodiscard]] static bool IsValidToolName(std::string_view name);
+
+        // Validate a tools/call `arguments` object against a tool's declared
+        // `inputSchema` BEFORE the handler runs, so a malformed call fails with a
+        // clean kInvalidParams naming the offending field instead of reaching the
+        // handler's ad-hoc checks (or worse, silently not being checked at all).
+        // Supports exactly the JSON-Schema vocabulary the schema-builder DSL
+        // (McpSchemaBuilder.h) can emit: object / integer / number / boolean /
+        // string / array (incl. a multi-type `type` array), `properties`, `items`,
+        // `required`, `enum`, `minimum` / `maximum` / `exclusiveMinimum`,
+        // `minItems` / `maxItems`, and `additionalProperties:false`. It is NOT a
+        // general JSON-Schema implementation.
+        //
+        // Returns a human-readable error (e.g. "missing required property
+        // 'entity'", "'count' must be <= 200", "unexpected property 'foo'") or
+        // std::nullopt when `args` satisfies `schema`. A non-object / empty schema
+        // is treated as permissive (returns nullopt — nothing to enforce). Pure.
+        [[nodiscard]] static std::optional<std::string> ValidateArguments(const Json& schema, const Json& args);
 
       private:
         // Top-level HTTP handler (cpp-httplib worker thread): auth + origin check,
