@@ -171,13 +171,13 @@ namespace OloEngine
         }
     }
 
-    [[nodiscard]] UUID JoltContactListener::GetEntityIDFromBody(const JPH::Body& body) const noexcept
+    [[nodiscard("entity UUID lookup result must be used")]] UUID JoltContactListener::GetEntityIDFromBody(const JPH::Body& body) const noexcept
     {
         // The entity ID is stored in the body's user data
         return static_cast<UUID>(body.GetUserData());
     }
 
-    [[nodiscard]] u32 JoltContactListener::GetPhysicsLayerFromBody(const JPH::Body& body) const noexcept
+    [[nodiscard("physics layer lookup result must be used")]] u32 JoltContactListener::GetPhysicsLayerFromBody(const JPH::Body& body) const noexcept
     {
         // Check if this is a custom physics layer (offset by NUM_LAYERS)
         if (JPH::ObjectLayer objectLayer = body.GetObjectLayer(); objectLayer >= ObjectLayers::NUM_LAYERS)

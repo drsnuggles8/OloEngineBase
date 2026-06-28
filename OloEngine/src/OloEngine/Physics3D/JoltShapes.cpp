@@ -130,7 +130,7 @@ namespace OloEngine
     std::filesystem::path JoltShapes::GetDefaultCacheDirectory()
     {
         // Check environment variable first
-        if (const char* envCacheDir = std::getenv("OLO_PHYSICS_CACHE_DIR"); envCacheDir && strlen(envCacheDir) > 0)
+        if (const char* envCacheDir = std::getenv("OLO_PHYSICS_CACHE_DIR"); envCacheDir && ::strlen(envCacheDir) > 0)
         {
             return std::filesystem::path(envCacheDir);
         }
@@ -1055,7 +1055,7 @@ namespace OloEngine
                 bool syncSuccess = false;
 #ifdef _WIN32
                 // On Windows, use _open and _commit for guaranteed persistence
-                if (int fd = _open(tempFilePath.string().c_str(), _O_WRONLY); fd != -1)
+                if (int fd = ::_open(tempFilePath.string().c_str(), _O_WRONLY); fd != -1)
                 {
                     if (_commit(fd) == 0)
                     {

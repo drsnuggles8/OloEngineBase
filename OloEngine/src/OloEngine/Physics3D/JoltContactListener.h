@@ -54,7 +54,7 @@ namespace OloEngine
         // they collapse to one entry). Each pair is ordered so (A,B) and (B,A) are
         // the same entry. Used by the read-only MCP diagnostics server's
         // olo_physics_contacts tool; safe to call from any thread (mutex-guarded).
-        [[nodiscard]] std::vector<std::pair<UUID, UUID>> GetActiveContactPairs() const;
+        [[nodiscard("contact-pair snapshot must be used")]] std::vector<std::pair<UUID, UUID>> GetActiveContactPairs() const;
 
       private:
         struct ContactEvent
@@ -92,10 +92,10 @@ namespace OloEngine
         }
 
         // Retrieves entity UUID from JPH::Body::GetUserData (expects u64 UUID); returns 0 when no valid UUID is present
-        [[nodiscard]] UUID GetEntityIDFromBody(const JPH::Body& body) const noexcept;
+        [[nodiscard("entity UUID lookup result must be used")]] UUID GetEntityIDFromBody(const JPH::Body& body) const noexcept;
 
         // Retrieves physics layer ID from JPH::Body::GetObjectLayer; returns INVALID_LAYER_ID for built-in layers
-        [[nodiscard]] u32 GetPhysicsLayerFromBody(const JPH::Body& body) const noexcept;
+        [[nodiscard("physics layer lookup result must be used")]] u32 GetPhysicsLayerFromBody(const JPH::Body& body) const noexcept;
 
         // Helper method to process contact manifolds and avoid duplicate logic
         void ProcessContactManifold(const JPH::Body& inBody1, const JPH::Body& inBody2, const JPH::ContactManifold& inManifold, ContactType type);

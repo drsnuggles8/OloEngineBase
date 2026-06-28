@@ -53,7 +53,7 @@ namespace OloEngine
         constexpr auto kTimeout = 5s;
         try
         {
-            std::unique_lock<std::mutex> lock(m_DrainMutex);
+            std::unique_lock lock(m_DrainMutex);
             const bool drained = m_DrainCv.wait_for(lock, kTimeout, [this]() noexcept
                                                     { return m_OutstandingTasks.load(std::memory_order_acquire) == 0; });
             if (!drained)
@@ -110,12 +110,12 @@ namespace OloEngine
         u32 index = m_Jobs.ConstructObject(inName, inColor, this, inJobFunction, inNumDependencies);
         if (index == FAvailableJobs::cInvalidObjectIndex)
         {
-            using clock = std::chrono::steady_clock;
+            using Clock = std::chrono::steady_clock;
             constexpr auto kTimeout = std::chrono::seconds(5);
-            const auto deadline = clock::now() + kTimeout;
+            const auto deadline = Clock::now() + kTimeout;
             do
             {
-                if (clock::now() > deadline)
+                if (Clock::now() > deadline)
                 {
                     OLO_CORE_ERROR("JoltJobSystemAdapter::CreateJob: physics job free-list exhausted for {}s "
                                    "(likely a job leak or wedged scheduler); returning an empty handle",
@@ -181,7 +181,7 @@ namespace OloEngine
                 // brief lock is uncontended in the common case — the game thread only holds
                 // it while actually draining.
                 {
-                    std::lock_guard<std::mutex> lock(m_DrainMutex);
+                    std::lock_guard lock(m_DrainMutex);
                     m_OutstandingTasks.fetch_sub(1, std::memory_order_release);
                     m_DrainCv.notify_one();
                 }

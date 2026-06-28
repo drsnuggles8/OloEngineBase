@@ -408,11 +408,8 @@ namespace OloEngine
         DestroyAllVehicles();
         DestroyAllConstraints();
 
-        // Destroy all bodies
-        for (const auto& [entityID, body] : m_Bodies)
-        {
-            // Body destructor will handle cleanup
-        }
+        // Destroy all bodies — the JoltBody destructors run as clear() releases
+        // each Ref; the reverse-lookup and sync sets are dropped with them.
         m_Bodies.clear();
         m_BodyIDToEntity.clear(); // Clear reverse lookup map
         m_BodiesToSync.clear();
@@ -1051,7 +1048,7 @@ namespace OloEngine
         // Map the authored path-rotation mode onto Jolt's enum. The values match
         // 1:1 (JointPathRotationMode mirrors EPathRotationConstraintType); an
         // out-of-range value falls back to Free (rotation unconstrained).
-        JPH::EPathRotationConstraintType ToJoltPathRotation(JointPathRotationMode mode)
+        [[nodiscard("mapped Jolt path-rotation enum must be used")]] JPH::EPathRotationConstraintType ToJoltPathRotation(JointPathRotationMode mode)
         {
             switch (mode)
             {
@@ -1244,9 +1241,8 @@ namespace OloEngine
             if (static_cast<u64>(otherID) == 0 || otherID == ownerID)
                 continue; // world anchor / self-joint: no second body to filter
 
-            Ref<JoltBody> bodyA = GetBodyByEntityID(ownerID);
-            Ref<JoltBody> bodyB = GetBodyByEntityID(otherID);
-            if (!bodyA || !bodyA->IsValid() || !bodyB || !bodyB->IsValid())
+            if (Ref<JoltBody> bodyA = GetBodyByEntityID(ownerID), bodyB = GetBodyByEntityID(otherID);
+                !bodyA || !bodyA->IsValid() || !bodyB || !bodyB->IsValid())
                 continue; // an endpoint has no live body — nothing to filter
 
             // Assign each participating body a stable sub-group id the first time
@@ -1295,7 +1291,7 @@ namespace OloEngine
         UUID entityID = entity.GetUUID();
 
         // Idempotent — already built for this entity.
-        if (m_Constraints.find(entityID) != m_Constraints.end())
+        if (m_Constraints.contains(entityID))
             return true;
 
         // The joint owner must have a physics body to be a constraint endpoint.
@@ -1419,8 +1415,10 @@ namespace OloEngine
                     s.mSpace = JPH::EConstraintSpace::WorldSpace;
                     s.mPoint1 = p1;
                     s.mPoint2 = p2;
-                    s.mHingeAxis1 = s.mHingeAxis2 = jAxis;
-                    s.mNormalAxis1 = s.mNormalAxis2 = jNormal;
+                    s.mHingeAxis1 = jAxis;
+                    s.mHingeAxis2 = jAxis;
+                    s.mNormalAxis1 = jNormal;
+                    s.mNormalAxis2 = jNormal;
                     s.mLimitsMin = std::clamp(JoltUtils::DegreesToRadians(joint.m_HingeMinAngleDeg), -glm::pi<f32>(), 0.0f);
                     s.mLimitsMax = std::clamp(JoltUtils::DegreesToRadians(joint.m_HingeMaxAngleDeg), 0.0f, glm::pi<f32>());
                     // Friction torque (used only when the motor is Off) and the
@@ -1441,8 +1439,10 @@ namespace OloEngine
                     s.mAutoDetectPoint = false;
                     s.mPoint1 = p1;
                     s.mPoint2 = p2;
-                    s.mSliderAxis1 = s.mSliderAxis2 = jAxis;
-                    s.mNormalAxis1 = s.mNormalAxis2 = jNormal;
+                    s.mSliderAxis1 = jAxis;
+                    s.mSliderAxis2 = jAxis;
+                    s.mNormalAxis1 = jNormal;
+                    s.mNormalAxis2 = jNormal;
                     s.mLimitsMin = joint.m_SliderMinLimit;
                     s.mLimitsMax = joint.m_SliderMaxLimit;
                     // Friction force (used only when the motor is Off) and the
@@ -1462,7 +1462,8 @@ namespace OloEngine
                     s.mSpace = JPH::EConstraintSpace::WorldSpace;
                     s.mPoint1 = p1;
                     s.mPoint2 = p2;
-                    s.mTwistAxis1 = s.mTwistAxis2 = jAxis;
+                    s.mTwistAxis1 = jAxis;
+                    s.mTwistAxis2 = jAxis;
                     s.mHalfConeAngle = std::clamp(JoltUtils::DegreesToRadians(joint.m_ConeHalfAngleDeg), 0.0f, glm::pi<f32>());
                     return s.Create(body1, body2);
                 }
@@ -1476,8 +1477,10 @@ namespace OloEngine
                     s.mSpace = JPH::EConstraintSpace::WorldSpace;
                     s.mPosition1 = p1;
                     s.mPosition2 = p2;
-                    s.mTwistAxis1 = s.mTwistAxis2 = jAxis;
-                    s.mPlaneAxis1 = s.mPlaneAxis2 = jNormal;
+                    s.mTwistAxis1 = jAxis;
+                    s.mTwistAxis2 = jAxis;
+                    s.mPlaneAxis1 = jNormal;
+                    s.mPlaneAxis2 = jNormal;
                     s.mNormalHalfConeAngle = SanitizeJointAngleDeg(joint.m_SwingNormalHalfAngleDeg, 0.0f, glm::pi<f32>(), 45.0f);
                     s.mPlaneHalfConeAngle = SanitizeJointAngleDeg(joint.m_SwingPlaneHalfAngleDeg, 0.0f, glm::pi<f32>(), 45.0f);
                     f32 twistMin = SanitizeJointAngleDeg(joint.m_TwistMinAngleDeg, -glm::pi<f32>(), glm::pi<f32>(), -45.0f);
@@ -1503,8 +1506,10 @@ namespace OloEngine
                     s.mSpace = JPH::EConstraintSpace::WorldSpace;
                     s.mPosition1 = p1;
                     s.mPosition2 = p2;
-                    s.mAxisX1 = s.mAxisX2 = jAxis;
-                    s.mAxisY1 = s.mAxisY2 = jNormal;
+                    s.mAxisX1 = jAxis;
+                    s.mAxisX2 = jAxis;
+                    s.mAxisY1 = jNormal;
+                    s.mAxisY2 = jNormal;
                     s.mSwingType = JPH::ESwingType::Pyramid;
 
                     const auto applyAxis = [&s](ESix ax, JointAxisMode mode, f32 lo, f32 hi)
@@ -1703,7 +1708,7 @@ namespace OloEngine
         // they connect are destroyed.
         if (m_JoltSystem)
         {
-            for (auto& [entityID, constraint] : m_Constraints)
+            for (const auto& [entityID, constraint] : m_Constraints)
             {
                 if (constraint != nullptr)
                     m_JoltSystem->RemoveConstraint(constraint);
@@ -1743,7 +1748,7 @@ namespace OloEngine
         const UUID entityID = entity.GetUUID();
 
         // Idempotent — already built for this entity.
-        if (m_Vehicles.find(entityID) != m_Vehicles.end())
+        if (m_Vehicles.contains(entityID))
             return true;
 
         // The chassis IS this entity's rigidbody; it must exist and be dynamic to
@@ -1789,7 +1794,7 @@ namespace OloEngine
         // mMaxPitchRollAngle left at its JPH_PI default (anti-topple off).
 
         // Standard four-wheel layout: 0=FL, 1=FR (steerable), 2=RL, 3=RR (driven).
-        const auto makeWheel = [&](f32 localX, f32 localZ, f32 steerRad) -> JPH::WheelSettingsWV*
+        const auto makeWheel = [&](f32 localX, f32 localZ, f32 steerRad)
         {
             auto* wheel = new JPH::WheelSettingsWV();
             wheel->mPosition = JPH::Vec3(localX, attachHeight, localZ);
@@ -1883,7 +1888,7 @@ namespace OloEngine
         // be removed before the bodies they drive are destroyed.
         if (m_JoltSystem)
         {
-            for (auto& [entityID, constraint] : m_Vehicles)
+            for (const auto& [entityID, constraint] : m_Vehicles)
             {
                 if (constraint != nullptr)
                 {
@@ -2141,7 +2146,7 @@ namespace OloEngine
             return;
 
         JPH::BodyInterface& bodyInterface = m_JoltSystem->GetBodyInterface();
-        for (auto& [entityID, constraint] : m_Vehicles)
+        for (const auto& [entityID, constraint] : m_Vehicles)
         {
             if (constraint == nullptr)
                 continue;
@@ -2167,7 +2172,7 @@ namespace OloEngine
 
             // A settled vehicle sleeps; without this it would ignore throttle /
             // steering / brake input until something else woke it.
-            if (JPH::Body* body = constraint->GetVehicleBody();
+            if (const JPH::Body* body = constraint->GetVehicleBody();
                 body != nullptr && (std::abs(forward) > 1.0e-4f || std::abs(right) > 1.0e-4f || brake > 1.0e-4f))
             {
                 bodyInterface.ActivateBody(body->GetID());
