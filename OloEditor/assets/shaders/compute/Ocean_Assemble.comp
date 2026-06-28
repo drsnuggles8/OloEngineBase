@@ -2,7 +2,7 @@
 
 // ============================================================================
 // Ocean_Assemble.comp — Tessendorf FFT ocean, output-assembly pass
-// (docs/WATER_FUTURE_IMPROVEMENTS.md §1.2).
+// (docs/design/WATER_FUTURE_IMPROVEMENTS.md §1.2).
 //
 // Reads the inverse-transformed spectra array (spatial domain after the
 // butterfly chain; real parts in .x/.z, imaginary parts ≈ 0 thanks to the

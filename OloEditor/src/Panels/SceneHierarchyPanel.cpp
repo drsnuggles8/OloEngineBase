@@ -2448,7 +2448,7 @@ namespace OloEngine
             // bindings + flag editors + a basic scatter-brush MVP for inline
             // placements. Procedural density / slope-aware surface scatter is
             // a dedicated viewport-tool feature — see
-            // docs/GPU_INSTANCING_FUTURE_IMPROVEMENTS.md §1 for the spec.
+            // docs/design/GPU_INSTANCING_FUTURE_IMPROVEMENTS.md §1 for the spec.
             // The volume-scatter controls below let an author drop N random
             // placements in an authored AABB via a single button — enough
             // for a working foliage demo without leaving the inspector.

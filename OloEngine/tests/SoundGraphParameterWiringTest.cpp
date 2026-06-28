@@ -3,7 +3,7 @@
 
 // =============================================================================
 // SoundGraphParameterWiringTest — runtime parameter / preset wiring
-// (docs/soundgraph-metasounds-refactor.md, runtime completion of Phases 2-4)
+// (docs/design/soundgraph-metasounds.md, runtime completion of Phases 2-4)
 //
 // SoundGraphSource exposed three parameter methods that used to be silent
 // no-op stubs: UpdateParameterSet (built no handles), ApplyParameterPresetInternal

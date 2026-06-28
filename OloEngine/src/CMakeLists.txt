@@ -1276,7 +1276,7 @@ add_library(OloEngine STATIC
 # Unity (jumbo) build exclusions. The OloEngine target's UNITY_BUILD property is set in the
 # parent OloEngine/CMakeLists.txt (gated on OLO_ENABLE_UNITY_BUILD); the per-source
 # SKIP_UNITY_BUILD_INCLUSION below must live here, in the directory scope where the sources
-# are added to the target. See docs/BUILD.md "Unity (jumbo) builds for faster cold builds".
+# are added to the target. See docs/ops/build.md "Unity (jumbo) builds for faster cold builds".
 #
 # Two groups, each empirically required (a unity ON build fails to compile without them):
 #

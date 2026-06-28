@@ -9,7 +9,7 @@ namespace OloEngine::Ocean
 {
     // =========================================================================
     // CPU radix-2 Cooley-Tukey FFT — the reference implementation for the
-    // Tessendorf FFT ocean (docs/WATER_FUTURE_IMPROVEMENTS.md §1).
+    // Tessendorf FFT ocean (docs/design/WATER_FUTURE_IMPROVEMENTS.md §1).
     //
     // This is a *reference*: it pins the spectrum + inverse-FFT math on the CPU
     // so the GPU butterfly compute port (Phase 2) can be validated against a

@@ -2,7 +2,7 @@
 
 // ============================================================================
 // Ocean_SpectrumEvolve.comp — Tessendorf FFT ocean, time-evolution pass
-// (docs/WATER_FUTURE_IMPROVEMENTS.md §1.2).
+// (docs/design/WATER_FUTURE_IMPROVEMENTS.md §1.2).
 //
 // GPU mirror of the spectrum-evolution loop in OceanSpectrum.cpp::
 // EvaluateField. Each invocation handles one frequency bin (n, m):

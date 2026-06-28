@@ -45,7 +45,7 @@ Entities:
   # Demonstrates issue #293 — script-driven procedural terrain. Two procedural
   # terrains side by side: the left is driven by a Lua script, the right by a C#
   # script. Both pick a fresh seed on start and regenerate on the R key. See
-  # docs/PROCEDURAL_TERRAIN.md → "Scripting (C# / Lua)".
+  # docs/guides/procedural-terrain.md → "Scripting (C# / Lua)".
   - Entity: 7700000000000001
     TagComponent:
       Tag: camera

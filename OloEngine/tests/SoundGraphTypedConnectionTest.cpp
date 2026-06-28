@@ -3,7 +3,7 @@
 
 // =============================================================================
 // SoundGraphTypedConnectionTest — Phase 2 typed connections
-// (docs/soundgraph-metasounds-refactor.md)
+// (docs/design/soundgraph-metasounds.md)
 //
 // Phase 2 replaced the choc::value::ValueView wiring (which never actually
 // delivered node-to-node values at runtime — nodes read ParameterWrapper
@@ -300,7 +300,7 @@ TEST(SoundGraphTypedConnections, GraphFloatParameterRampsPerSample)
 }
 
 // =============================================================================
-// Phase 3 — compiled execution plan (docs/soundgraph-metasounds-refactor.md)
+// Phase 3 — compiled execution plan (docs/design/soundgraph-metasounds.md)
 //
 // Phase 3 lowers the topological node order to a flat array of operator handles
 // ({devirtualized thunk, node} pairs) the audio thread walks directly, and pools

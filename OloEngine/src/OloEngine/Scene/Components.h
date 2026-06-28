@@ -2920,7 +2920,7 @@ namespace OloEngine
     // m_ProbeExtents, applies an upward force per submerged probe (which yields a
     // self-righting torque because the forces act at the corners), and damps
     // bobbing/rocking with submerged linear + angular drag. See
-    // docs/WATER_FUTURE_IMPROVEMENTS.md §5.1.
+    // docs/design/WATER_FUTURE_IMPROVEMENTS.md §5.1.
     //
     // Trivially copyable on purpose: the editor's DrawComponent undo path uses a
     // byte-wise memcmp for trivially-copyable components, so no operator== is

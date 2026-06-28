@@ -5,7 +5,7 @@
 //
 // Pins OloEngine::SceneMeshRaycaster, the world-space closest-hit raycast over
 // a scene's mesh entities that backs the instance scatter brush's mesh-surface
-// placement (docs/GPU_INSTANCING_FUTURE_IMPROVEMENTS.md §1.2). The local-space
+// placement (docs/design/GPU_INSTANCING_FUTURE_IMPROVEMENTS.md §1.2). The local-space
 // BVH itself is pinned by MeshBVHRaycastTest; what's under test here is the
 // scene layer on top:
 //   - the world↔local transform dance (translate / rotate / non-uniform scale,

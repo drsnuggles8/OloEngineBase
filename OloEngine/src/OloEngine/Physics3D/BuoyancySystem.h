@@ -20,7 +20,7 @@ namespace OloEngine
     // Bridges three subsystems — Scene (components), Physics3D (Jolt forces) and
     // the renderer's wave field — so it lives behind a small static entry point
     // mirroring NavigationSystem / AISystem. See
-    // docs/WATER_FUTURE_IMPROVEMENTS.md §5.1.
+    // docs/design/WATER_FUTURE_IMPROVEMENTS.md §5.1.
     // =========================================================================
     class BuoyancySystem
     {

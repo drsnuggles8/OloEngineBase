@@ -21,7 +21,7 @@ namespace OloEngine::Animation
      * even when the two rigs' bone names share nothing
      * (SkeletonRetargetMap::BuildByHumanoidRole).
      *
-     * @see docs/animation-retargeting.md
+     * @see docs/design/animation-retargeting.md
      */
     class HumanoidBoneMap
     {

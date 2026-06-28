@@ -53,7 +53,7 @@ namespace OloEngine::Audio::SoundGraph
         explicit WavePlayer(const char* dbgName, UUID id) : NodeProcessor(dbgName, id)
         {
             // Phase 4: sample-accurate Play/Stop. The handlers record the trigger's
-            // frame offset within the block (docs/soundgraph-metasounds-refactor.md);
+            // frame offset within the block (docs/design/soundgraph-metasounds.md);
             // Process() applies Start/StopPlayback at that exact frame. A
             // block-boundary event (no offset) fires at frame 0 — the old behavior.
             AddInEvent(IDs::Play, [this](float v, i32 sampleOffset)

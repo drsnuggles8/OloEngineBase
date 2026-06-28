@@ -19,7 +19,7 @@ namespace OloEngine
     {
         Forward,     // Classic forward: all lights via UBO loop (low overhead, < ~8 lights)
         ForwardPlus, // Tiled Forward+: compute-culled per-tile light lists (scales to 256+ lights)
-        Deferred,    // G-buffer + tiled deferred lighting (see docs/deferred-renderer.md)
+        Deferred,    // G-buffer + tiled deferred lighting (reuses the Forward+ tile-culling compute)
 
         // ----- Future paths (reserved, not yet implemented) -----
         // VisibilityBuffer, // Visibility buffer + material resolve

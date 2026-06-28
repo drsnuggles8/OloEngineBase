@@ -2604,7 +2604,7 @@ namespace OloEngine::Tests
     // BuoyancyComponent — every serialized field must survive a YAML round-trip
     // (one of the five component touch-points; a dropped read/write here would
     // silently desync a saved scene from its in-editor setup). See
-    // docs/WATER_FUTURE_IMPROVEMENTS.md §5.1.
+    // docs/design/WATER_FUTURE_IMPROVEMENTS.md §5.1.
     // -------------------------------------------------------------------------
     TEST(ComponentRoundTrip, BuoyancyComponentSurvivesYAMLRoundTrip)
     {

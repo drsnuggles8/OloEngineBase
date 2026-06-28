@@ -5,7 +5,7 @@
 // math (Renderer/Ocean/OceanFFT.{h,cpp} + OceanSpectrum.{h,cpp}).
 //
 // These pin the *reference* spectrum + inverse-FFT pipeline that the GPU
-// butterfly compute port (docs/WATER_FUTURE_IMPROVEMENTS.md §1.2) is validated
+// butterfly compute port (docs/design/WATER_FUTURE_IMPROVEMENTS.md §1.2) is validated
 // against, and that the physics/buoyancy sampler can read without a GPU
 // readback. The discipline mirrors WaterSurfaceSamplerTest's CPU/GPU mirror:
 // nail the math on the CPU so the GPU copy can't silently drift.

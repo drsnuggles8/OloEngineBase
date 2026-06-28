@@ -52,7 +52,7 @@ namespace OloEngine::Audio::SoundGraph
         explicit ADEnvelope(const char* dbgName, UUID id) : NodeProcessor(dbgName, id)
         {
             // Phase 4: the trigger handler records the event's frame offset within
-            // the block (docs/soundgraph-metasounds-refactor.md); Process() starts
+            // the block (docs/design/soundgraph-metasounds.md); Process() starts
             // the attack at that exact frame. A block-boundary event fires at frame 0.
             AddInEvent(IDs::s_Trigger, [this](float v, i32 sampleOffset)
                        { (void)v; m_TriggerInput.Fire(sampleOffset); });

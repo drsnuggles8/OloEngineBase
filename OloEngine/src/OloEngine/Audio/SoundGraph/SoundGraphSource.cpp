@@ -941,7 +941,7 @@ namespace OloEngine::Audio::SoundGraph
             // [SGSDiag] effective-rate telemetry: every 100 callbacks, snapshot how
             // fast we are actually producing audio relative to wall time. This is
             // the metric the block-execution refactor is gated on
-            // (docs/soundgraph-metasounds-refactor.md): effectiveRateHz must stay
+            // (docs/design/soundgraph-metasounds.md): effectiveRateHz must stay
             // within 10% of the configured sample rate in a Debug build. The audio
             // thread only counts and publishes plain atomics — the formatted log
             // call (allocation/IO, not RT-safe) happens in Update() on the main

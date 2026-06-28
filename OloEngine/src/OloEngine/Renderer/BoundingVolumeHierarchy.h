@@ -16,7 +16,7 @@ namespace OloEngine
     // ray-vs-mesh queries (closest hit + any hit).
     //
     // This is the general-purpose ray-vs-mesh accelerator the engine was missing
-    // (see docs/GPU_INSTANCING_FUTURE_IMPROVEMENTS.md §1.2). It is pure CPU/glm —
+    // (see docs/design/GPU_INSTANCING_FUTURE_IMPROVEMENTS.md §1.2). It is pure CPU/glm —
     // no GL context, no Jolt — so it can back editor tools that need world
     // raycasts: the scatter brush's mesh-surface placement, gizmo snapping,
     // click-to-select on mesh backings, debug raycast viz.

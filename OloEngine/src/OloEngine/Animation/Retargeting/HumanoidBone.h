@@ -21,7 +21,7 @@ namespace OloEngine::Animation
      * values are contiguous in [0, Count) so a role can index a fixed-size array;
      * None is the unassigned sentinel and is deliberately outside that range.
      *
-     * @see docs/animation-retargeting.md
+     * @see docs/design/animation-retargeting.md
      */
     enum class HumanoidBone : i32
     {

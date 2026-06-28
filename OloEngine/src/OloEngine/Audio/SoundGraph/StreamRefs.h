@@ -8,7 +8,7 @@
 namespace OloEngine::Audio::SoundGraph
 {
     //==============================================================================
-    // Phase 2 typed connections (docs/soundgraph-metasounds-refactor.md).
+    // Phase 2 typed connections (docs/design/soundgraph-metasounds.md).
     //
     // A connection is a raw pointer from a consumer's input ref into a producer's
     // output storage, patched once at wire time. The audio thread reads through the
@@ -42,7 +42,7 @@ namespace OloEngine::Audio::SoundGraph
     /// is stable for the node's lifetime — consumers capture the raw pointer at wire
     /// time. The producer writes the first numFrames samples each Process call.
     ///
-    /// Storage modes (Phase 3 contiguous pool, docs/soundgraph-metasounds-refactor.md):
+    /// Storage modes (Phase 3 contiguous pool, docs/design/soundgraph-metasounds.md):
     ///   * Default — self-owned fallback vector. Used by graph ramp buffers, directly
     ///     constructed nodes (tests), and any buffer the graph chooses not to pool.
     ///   * Pooled — after AdoptPoolStorage(slot), Data() points into the graph's one
@@ -182,7 +182,7 @@ namespace OloEngine::Audio::SoundGraph
                                                                           : EStreamType::Bool;
 
     //==============================================================================
-    /// Sample-accurate trigger (Phase 4 — docs/soundgraph-metasounds-refactor.md).
+    /// Sample-accurate trigger (Phase 4 — docs/design/soundgraph-metasounds.md).
     ///
     /// Carries the frame offset within the current block at which a trigger fires.
     /// kNotFired (-1) means "did not fire this block". Trigger-consuming nodes

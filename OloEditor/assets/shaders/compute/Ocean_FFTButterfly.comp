@@ -2,7 +2,7 @@
 
 // ============================================================================
 // Ocean_FFTButterfly.comp — Tessendorf FFT ocean, radix-2 butterfly pass
-// (docs/WATER_FUTURE_IMPROVEMENTS.md §1.2).
+// (docs/design/WATER_FUTURE_IMPROVEMENTS.md §1.2).
 //
 // One pass of the iterative Cooley-Tukey *inverse* FFT (e^{+i2πkn/N} kernel),
 // the same algorithm as the CPU reference in OceanFFT.cpp so the two outputs

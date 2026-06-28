@@ -19,7 +19,7 @@ using namespace OloEngine; // NOLINT(google-build-using-namespace) — test file
 //
 // This pins the contract for BoundingVolumeHierarchy and the Ray.h intersection
 // helpers that back it (Möller–Trumbore ray/triangle + Kay–Kajiya ray/AABB slab).
-// Pure CPU/glm math, no GL context — see docs/GPU_INSTANCING_FUTURE_IMPROVEMENTS.md
+// Pure CPU/glm math, no GL context — see docs/design/GPU_INSTANCING_FUTURE_IMPROVEMENTS.md
 // §1.2 for why this accelerator exists (scatter-brush mesh raycast, gizmo
 // snapping, click-to-select).
 //

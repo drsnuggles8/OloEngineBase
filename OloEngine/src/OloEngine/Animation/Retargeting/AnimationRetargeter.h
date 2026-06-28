@@ -24,7 +24,7 @@ namespace OloEngine::Animation
         // height) from source to target, scaled by RootTranslationScale. Every
         // OTHER bone's translation and scale is taken from the target's rest pose,
         // so the target keeps its own proportions. Full per-bone translation
-        // retargeting is deferred (see docs/animation-retargeting.md).
+        // retargeting is deferred (see docs/design/animation-retargeting.md).
         bool RetargetRootTranslation = true;
 
         // Uniform scale applied to the transferred root translation delta. Use
@@ -50,7 +50,7 @@ namespace OloEngine::Animation
      * from the target rest pose, preserving the target's proportions; only the root
      * translation is optionally transferred.
      *
-     * @see docs/animation-retargeting.md for what ships in this slice vs. deferred.
+     * @see docs/design/animation-retargeting.md for what ships in this slice vs. deferred.
      */
     class AnimationRetargeter
     {

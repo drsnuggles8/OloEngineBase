@@ -16,7 +16,7 @@ namespace OloEngine::Ocean
 {
     // =========================================================================
     // GPU compute butterfly port of the Tessendorf FFT ocean *generation*
-    // (docs/WATER_FUTURE_IMPROVEMENTS.md §1.2, the §6.4 transition path).
+    // (docs/design/WATER_FUTURE_IMPROVEMENTS.md §1.2, the §6.4 transition path).
     //
     // Per Evaluate() it dispatches, entirely on the GPU:
     //   1. Ocean_SpectrumEvolve.comp — time-evolve h0(k) into 8 complex

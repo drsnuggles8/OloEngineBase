@@ -11,7 +11,7 @@ namespace OloEngine::Ocean
 {
     // =========================================================================
     // CPU Tessendorf ocean spectrum + field evaluation
-    // (docs/WATER_FUTURE_IMPROVEMENTS.md §1.1 / §1.4).
+    // (docs/design/WATER_FUTURE_IMPROVEMENTS.md §1.1 / §1.4).
     //
     // Pipeline (all on the CPU, the reference for the GPU compute port and the
     // physics/buoyancy sampler):

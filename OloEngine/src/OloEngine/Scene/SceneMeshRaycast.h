@@ -39,7 +39,7 @@ namespace OloEngine
     // backed by lazily built, cached per-mesh BoundingVolumeHierarchy trees.
     //
     // This is the editor-tool raycast the BVH was built for (see
-    // docs/GPU_INSTANCING_FUTURE_IMPROVEMENTS.md §1.2): the instance scatter
+    // docs/design/GPU_INSTANCING_FUTURE_IMPROVEMENTS.md §1.2): the instance scatter
     // brush queries it every frame to place instances on mesh surfaces, and any
     // future tool that needs "what mesh does this ray hit" (gizmo snapping,
     // click-to-select on mesh backings) can share the same instance and cache.

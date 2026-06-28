@@ -2,7 +2,7 @@
 // OceanFFTGpuContractTest.cpp
 //
 // GPU-vs-CPU contract tests for the compute butterfly FFT ocean port
-// (docs/WATER_FUTURE_IMPROVEMENTS.md §1.2). The CPU pipeline in
+// (docs/design/WATER_FUTURE_IMPROVEMENTS.md §1.2). The CPU pipeline in
 // OceanSpectrum/OceanFFT is the validated reference (OceanFFTSpectrumTest);
 // these tests read the GPU results back and compare within float tolerance,
 // from the riskiest math outward:

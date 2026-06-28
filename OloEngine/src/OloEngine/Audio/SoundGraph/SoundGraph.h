@@ -500,7 +500,7 @@ namespace OloEngine::Audio::SoundGraph
         /// Connect Input Event to Input Event
         void AddRoute(InputEvent& source, InputEvent& destination) const noexcept
         {
-            // Phase 4 (docs/soundgraph-metasounds-refactor.md): forward the sample
+            // Phase 4 (docs/design/soundgraph-metasounds.md): forward the sample
             // offset so a graph-input trigger fired at frame N reaches the destination
             // node's trigger input at frame N instead of being quantised to the block
             // boundary. This is the hop an *external* (game-code) trigger takes —
@@ -812,7 +812,7 @@ namespace OloEngine::Audio::SoundGraph
             RebuildRuntimeCaches();
         }
 
-        /// Phase 3 contiguous output-buffer pool (docs/soundgraph-metasounds-refactor.md).
+        /// Phase 3 contiguous output-buffer pool (docs/design/soundgraph-metasounds.md).
         /// Gathers every node's audio-output AudioBuffer into one contiguous allocation
         /// so the per-node output buffers live in a single block (cache locality, one
         /// allocation) instead of N scattered kMaxAudioBlockFrames vectors.
@@ -880,7 +880,7 @@ namespace OloEngine::Audio::SoundGraph
         // connections carrying whole blocks between nodes. This replaces the Phase 1
         // per-sample node walk (numFrames=1, 48 000 node sweeps/sec) that scalar
         // ValueView wiring forced, and with it the Debug-build real-time deficit
-        // documented in docs/soundgraph-metasounds-refactor.md.
+        // documented in docs/design/soundgraph-metasounds.md.
         void Process(u32 numFrames) final
         {
             // Block-rate entry point (~100 Hz at 48 kHz / 480-frame block).
@@ -1189,7 +1189,7 @@ namespace OloEngine::Audio::SoundGraph
 
         /// Lower the topological node order (m_ProcessOrder) to a flat array of
         /// operator handles — the "compiled execution plan" (Phase 3,
-        /// docs/soundgraph-metasounds-refactor.md). Each op pairs a node's
+        /// docs/design/soundgraph-metasounds.md). Each op pairs a node's
         /// devirtualized ProcessFn (set by the factory; vtable fallback otherwise)
         /// with the node instance, so the audio-thread walk in ProcessChunk is a
         /// straight-line sweep over a contiguous vector of {fn, state} pairs — no

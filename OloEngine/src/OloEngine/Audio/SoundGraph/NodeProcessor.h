@@ -51,7 +51,7 @@ namespace OloEngine::Audio::SoundGraph
         virtual ~NodeProcessor() = default;
 
         //==============================================================================
-        /// Compiled-plan dispatch (Phase 3 — docs/soundgraph-metasounds-refactor.md)
+        /// Compiled-plan dispatch (Phase 3 — docs/design/soundgraph-metasounds.md)
         ///
         /// A free-function thunk that invokes a node's Process *non-virtually*.
         /// SoundGraph::CompileExecutionPlan snapshots one per node into a flat
@@ -113,7 +113,7 @@ namespace OloEngine::Audio::SoundGraph
         {
             using EventFunction = std::function<void(f32)>;
             // Phase 4: sample-accurate handler — receives the trigger's frame
-            // offset within the block (docs/soundgraph-metasounds-refactor.md).
+            // offset within the block (docs/design/soundgraph-metasounds.md).
             // Trigger-consuming nodes register one of these so they can Fire their
             // TriggerRef at the exact offset; value-only handlers ignore the offset.
             using OffsetEventFunction = std::function<void(f32, i32)>;
@@ -225,7 +225,7 @@ namespace OloEngine::Audio::SoundGraph
         }
 
         //==============================================================================
-        /// Typed stream endpoints (Phase 2 — docs/soundgraph-metasounds-refactor.md)
+        /// Typed stream endpoints (Phase 2 — docs/design/soundgraph-metasounds.md)
         ///
         /// Inputs register a pointer to the node's ref member (AudioBufferRef /
         /// ValueRef<T>); outputs register a pointer to the node's output storage

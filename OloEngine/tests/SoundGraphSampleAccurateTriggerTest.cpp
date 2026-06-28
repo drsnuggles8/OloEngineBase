@@ -3,7 +3,7 @@
 
 // =============================================================================
 // SoundGraphSampleAccurateTriggerTest — Phase 4 sample-accurate triggers
-// (docs/soundgraph-metasounds-refactor.md)
+// (docs/design/soundgraph-metasounds.md)
 //
 // Phase 4 makes trigger-consuming nodes split their per-frame Process() at the
 // frame offset a trigger carries, so an event that arrives mid-block takes
