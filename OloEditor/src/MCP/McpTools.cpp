@@ -7,6 +7,7 @@
 #include "MCP/McpGoldenCompare.h"
 #include "MCP/McpPhysicsExplain.h"
 #include "MCP/McpRenderExplain.h"
+#include "MCP/McpRenderGraphTopology.h"
 #include "MCP/McpRenderOverrides.h"
 #include "MCP/McpSetCollisionLayer.h"
 #include "MCP/McpShaderReload.h"
@@ -1643,6 +1644,20 @@ namespace OloEngine::MCP
             return "Unknown";
         }
 
+        const char* PassWorkTypeName(RenderGraphPassWorkType type)
+        {
+            switch (type)
+            {
+                case RenderGraphPassWorkType::Graphics:
+                    return "Graphics";
+                case RenderGraphPassWorkType::Compute:
+                    return "Compute";
+                case RenderGraphPassWorkType::Copy:
+                    return "Copy";
+            }
+            return "Graphics";
+        }
+
         // ---- olo_render_list_targets (main-marshaled) --------------------------
         ToolResult Handle_RenderListTargets(McpServer& server, const Json& /*args*/)
         {
@@ -1681,6 +1696,83 @@ namespace OloEngine::MCP
             if (result.is_object() && result.contains("__error"))
                 return ToolResult::Error(result["__error"].get<std::string>());
             return ToolResult::Text(result.dump(2));
+        }
+
+        // ---- olo_render_graph_topology_export (main-marshaled) -----------------
+        // Read-only structured export of the live RenderGraph topology — passes,
+        // execution order, pass-dependency edges, and resources with their
+        // producers/consumers — so an agent can reason about the render pipeline
+        // (#316 Part 4, "LLM-analysis exports"). The RenderGraph is main-thread
+        // state, so the enumeration runs inside MarshalRead; the JSON / Mermaid
+        // shaping is the pure, unit-tested RenderGraphTopology core.
+        ToolResult Handle_RenderGraphTopologyExport(McpServer& server, const Json& args)
+        {
+            std::string format = "json";
+            if (args.contains("format") && args["format"].is_string())
+            {
+                format = args["format"].get<std::string>();
+                if (format != "json" && format != "mermaid")
+                    return ToolResult::Error("format must be \"json\" or \"mermaid\".");
+            }
+
+            Json transport = server.MarshalRead([format]() -> Json
+                                                {
+                const Ref<RenderGraph>& graph = RenderGraphDebugRuntime::GetActiveGraph();
+                if (!graph)
+                    return Json{ { "__error", "No active render graph (the editor is not in 3D mode, or no frame has been rendered yet)." } };
+
+                RenderGraphTopology::Snapshot snap;
+                snap.FinalPass = graph->GetFinalPassName();
+
+                const auto& culled = graph->GetCulledPasses();
+                const std::unordered_set<std::string> culledSet(culled.begin(), culled.end());
+
+                for (const auto& info : graph->GetNodeSubmissionInfo())
+                {
+                    RenderGraphTopology::PassInfo pass;
+                    pass.Name = info.NodeName;
+                    pass.WorkType = PassWorkTypeName(info.WorkType);
+                    pass.DeclaresResources = info.DeclaresResources;
+                    pass.AsyncComputeCandidate = info.AsyncComputeCandidate;
+                    pass.Culled = culledSet.contains(info.NodeName);
+                    pass.IsFinalPass = !snap.FinalPass.empty() && info.NodeName == snap.FinalPass;
+                    snap.Passes.push_back(std::move(pass));
+                }
+
+                snap.ExecutionOrder = graph->GetExecutionOrder();
+
+                for (const auto& connection : graph->GetConnections())
+                    snap.Edges.push_back(RenderGraphTopology::EdgeInfo{ connection.OutputPass, connection.InputPass });
+
+                for (const auto& resource : graph->GetRegisteredResources())
+                {
+                    RenderGraphTopology::ResourceInfo info;
+                    info.Name = resource.Name;
+                    info.Kind = std::string(ToString(resource.Desc.Kind));
+                    if (resource.Desc.Format != RGResourceFormat::Unknown)
+                        info.Format = RGFormatName(resource.Desc.Format);
+                    info.Width = resource.Desc.Width;
+                    info.Height = resource.Desc.Height;
+                    info.Samples = resource.Desc.Samples;
+                    info.Imported = resource.Desc.Imported;
+                    info.HasExternalBacking = resource.HasExternalBacking;
+                    info.Producers = resource.Producers;
+                    info.Consumers = resource.Consumers;
+                    snap.Resources.push_back(std::move(info));
+                }
+
+                // Mermaid is a pure transform of the snapshot, but the snapshot can
+                // only be gathered on the main thread, so build the text here and
+                // ferry it out under a sentinel key.
+                if (format == "mermaid")
+                    return Json{ { "__text", RenderGraphTopology::BuildMermaid(snap) } };
+                return RenderGraphTopology::BuildJson(snap); });
+
+            if (transport.is_object() && transport.contains("__error"))
+                return ToolResult::Error(transport["__error"].get<std::string>());
+            if (transport.is_object() && transport.contains("__text"))
+                return ToolResult::Text(transport["__text"].get<std::string>());
+            return ToolResult::Text(transport.dump(2));
         }
 
         // ---- olo_render_capture_target (main-marshaled; GL readback) -----------
@@ -4183,6 +4275,32 @@ namespace OloEngine::MCP
             tool.InputSchema = Schema::EmptyObject();
             tool.MainMarshaled = true;
             tool.Handler = Handle_RenderListTargets;
+            server.RegisterTool(std::move(tool));
+        }
+
+        {
+            ToolDef tool;
+            tool.Name = "olo_render_graph_topology_export";
+            tool.Toolset = "render";
+            tool.Title = "Export render graph topology";
+            tool.Annotations = ReadOnlyAnnotations();
+            tool.Description =
+                "Export the live render graph's topology as structured data for reasoning about the render "
+                "pipeline — the passes, their topologically-sorted execution order, the pass-to-pass "
+                "dependency edges, and every registered resource (texture/framebuffer/buffer) with the passes "
+                "that produce and consume it. Each pass reports its work type (Graphics/Compute/Copy), whether "
+                "it declares resources, whether it is an async-compute candidate, whether it was culled "
+                "(unreachable from the final pass this frame), and whether it is the final/output pass. Use "
+                "format:\"mermaid\" for a flowchart DAG of the pass graph instead of JSON. Read-only; requires "
+                "the editor to be rendering in 3D mode.";
+            tool.InputSchema = Schema::Object()
+                                   .Prop("format", Schema::String()
+                                                       .Enum({ "json", "mermaid" })
+                                                       .Desc("'json' (default): full structured topology (passes, executionOrder, edges, resources). "
+                                                             "'mermaid': a flowchart-LR DAG of the pass dependency graph."))
+                                   .NoAdditional();
+            tool.MainMarshaled = true;
+            tool.Handler = Handle_RenderGraphTopologyExport;
             server.RegisterTool(std::move(tool));
         }
 
