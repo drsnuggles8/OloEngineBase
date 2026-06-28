@@ -73,6 +73,14 @@ jobs:
         uses: SonarSource/sonarqube-scan-action@713881670b6b3676cda39549040e2d88c70d582e # v8.2.0
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          # Raise the scanner JVM heap. The C-family analysis of this 312k-LOC engine
+          # OOMed ("java.lang.OutOfMemoryError: Java heap space") on a *cold* full scan —
+          # the scan cache is invalidated whenever the C++ Extended quality profile
+          # changes, which forces a from-scratch re-analysis that exceeds the scanner's
+          # default heap. windows-latest has 16 GB; 6 GB leaves ample headroom for the
+          # forked analyzer subprocess. SONAR_SCANNER_JAVA_OPTS is the correct knob for
+          # sonar-scanner-cli >= 6.0 (older releases used SONAR_SCANNER_OPTS).
+          SONAR_SCANNER_JAVA_OPTS: "-Xmx6g"
         with:
           args: >
             --define sonar.cfamily.build-wrapper-output=${{ env.BUILD_WRAPPER_OUT_DIR }}
