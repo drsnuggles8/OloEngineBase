@@ -127,7 +127,7 @@ vec3 fresnelSchlickRoughness(float cosTheta, vec3 F0, float roughness)
 // (A spherical-Gaussian Fresnel approximation lived here. It was never wired up,
 //  and now that Schlick uses the Pow5 multiply chain it would be slower — its
 //  exp2 costs more than five MULs — so it was removed rather than kept as dead
-//  code. See docs/shader-performance-audit-262.md.)
+//  code. See issue #262 — shader performance review.)
 
 // =============================================================================
 // DISTRIBUTION FUNCTIONS

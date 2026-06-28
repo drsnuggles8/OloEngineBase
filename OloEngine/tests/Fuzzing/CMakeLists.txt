@@ -1,5 +1,6 @@
 # =============================================================================
-# OloEngine Fuzzing Targets (Layer 11 / §11 of renderer-testing-strategy.md)
+# OloEngine Fuzzing Targets (Layer 11 of the renderer testing pyramid —
+# docs/agent-rules/testing-architecture.md, row "L11 Sanitizers & fuzzing")
 #
 # Enabled by `-DOLO_ENABLE_FUZZING=ON`. Requires a fuzzer-capable compiler:
 #   - Clang / ClangCL with `-fsanitize=fuzzer,address`

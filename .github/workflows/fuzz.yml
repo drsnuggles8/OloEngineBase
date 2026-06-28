@@ -1,6 +1,7 @@
 name: Fuzz Smoke
 
-# Layer 11 (renderer-testing-strategy.md §11) — build the libFuzzer
+# Layer 11 of the renderer testing pyramid (docs/agent-rules/testing-architecture.md,
+# row "L11 Sanitizers & fuzzing") — build the libFuzzer
 # harnesses with Clang, run each for ~30s against the checked-in corpus,
 # and upload any crashers as artifacts. This is a continuous safety net
 # for the data-ingestion code paths (mesh / animation / input action YAML /

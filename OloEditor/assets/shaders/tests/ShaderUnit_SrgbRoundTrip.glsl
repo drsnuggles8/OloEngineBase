@@ -12,8 +12,8 @@
 //   1. Round-trip error < 1 LSB (linear → sRGB → linear) for all inputs
 //   2. sRGB(0) == 0 and sRGB(1) == 1 (endpoints preserved)
 //
-// This is the canonical "Approach A: Compute Shader Harness" from
-// docs/renderer-testing-strategy.md §2.
+// This is the canonical L2 shader-unit compute-shader harness — the renderer
+// testing pyramid's "L2 Shader unit" (docs/agent-rules/testing-architecture.md).
 // =============================================================================
 
 layout(local_size_x = 64) in;
