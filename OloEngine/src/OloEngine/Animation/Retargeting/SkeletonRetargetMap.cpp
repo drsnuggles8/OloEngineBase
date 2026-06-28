@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Animation/Retargeting/SkeletonRetargetMap.h"
+#include "OloEngine/Animation/Retargeting/HumanoidBoneMap.h"
 
 #include <algorithm>
 #include <locale>
@@ -64,6 +65,52 @@ namespace OloEngine::Animation
         }
 
         return map;
+    }
+
+    SkeletonRetargetMap SkeletonRetargetMap::BuildByHumanoidRole(const SkeletonData& source,
+                                                                 const SkeletonData& target,
+                                                                 const HumanoidBoneMap& sourceRoles,
+                                                                 const HumanoidBoneMap& targetRoles)
+    {
+        SkeletonRetargetMap map;
+        map.m_TargetToSource.assign(target.m_BoneNames.size(), kUnmapped);
+
+        for (sizet r = 0; r < HumanoidBoneCount; ++r)
+        {
+            const auto role = static_cast<HumanoidBone>(r);
+            const int sourceBone = sourceRoles.GetBone(role);
+            const int targetBone = targetRoles.GetBone(role);
+            if (sourceBone == HumanoidBoneMap::kUnassigned || targetBone == HumanoidBoneMap::kUnassigned)
+                continue;
+
+            // Defensive: a role map could reference a bone outside the skeleton it was
+            // (or wasn't) built from. Skip rather than write out of bounds / record a
+            // mapping the retargeter would have to re-validate anyway.
+            if (targetBone < 0 || static_cast<sizet>(targetBone) >= map.m_TargetToSource.size())
+                continue;
+            if (sourceBone < 0 || static_cast<sizet>(sourceBone) >= source.m_BoneNames.size())
+                continue;
+
+            map.m_TargetToSource[static_cast<sizet>(targetBone)] = sourceBone;
+        }
+
+        return map;
+    }
+
+    SkeletonRetargetMap SkeletonRetargetMap::BuildByHumanoidRole(const SkeletonData& source, const SkeletonData& target)
+    {
+        return BuildByHumanoidRole(source, target, HumanoidBoneMap::AutoDetect(source),
+                                   HumanoidBoneMap::AutoDetect(target));
+    }
+
+    void SkeletonRetargetMap::FillUnmappedFrom(const SkeletonRetargetMap& fallback)
+    {
+        const sizet count = std::min(m_TargetToSource.size(), fallback.m_TargetToSource.size());
+        for (sizet t = 0; t < count; ++t)
+        {
+            if (m_TargetToSource[t] == kUnmapped)
+                m_TargetToSource[t] = fallback.m_TargetToSource[t];
+        }
     }
 
     void SkeletonRetargetMap::SetBoneMapping(int targetBoneIndex, int sourceBoneIndex)
