@@ -1601,7 +1601,12 @@ namespace OloEngine
         OLO_PROPERTY()
         f32 m_Range = 10.0f; // Falloff range
         OLO_PROPERTY()
-        bool m_CastShadows = false; // Soft shadows from area lights are a follow-up
+        // Opt-in hard shadows: the emitter is treated as a point at its centre
+        // (representative point) and borrows a slot from the point-light cubemap
+        // shadow pool (max 4, shared with point lights). Soft penumbra sized from
+        // m_Radius (PCSS) is a Phase-2 follow-up. Like point/spot shadows, the
+        // shadow only applies on the non-Forward+ shading path (<8 active lights).
+        bool m_CastShadows = false;
 
         SphereAreaLightComponent() = default;
         SphereAreaLightComponent(const SphereAreaLightComponent&) = default;

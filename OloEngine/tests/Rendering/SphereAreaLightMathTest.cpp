@@ -45,7 +45,9 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/constants.hpp>
 
+#include <algorithm>
 #include <cmath>
+#include <vector>
 
 namespace OloEngine::Tests
 {
@@ -96,6 +98,37 @@ namespace OloEngine::Tests
                 0.0f, 1.0f);
             const f32 ratio = alpha / std::max(alphaPrime, kShaderEpsilon);
             return ratio * ratio;
+        }
+
+        // --- Sphere-area-light SHADOW math (issue: area-light shadows) ---
+        //
+        // Shadow-casting sphere area lights reuse the point-light cubemap pool:
+        // the emitter is treated as a point at its centre and an omnidirectional
+        // depth cubemap is rendered with the light's RANGE as the far plane
+        // (Scene.cpp :: SetPointLightShadow(idx, centre, range)). Sampling mirrors
+        // `calculatePointShadowFactor` in PBRCommon.glsl:
+        //
+        //   currentDepth = length(worldPos - lightCentre) / farPlane;   // [0,1]
+        //   lit  ⟺  currentDepth - bias <= storedOccluderDepth
+        //
+        // where storedOccluderDepth is the nearest occluder along worldPos's
+        // direction from the centre, in the same normalised [0,1] units. These
+        // helpers pin that normalisation + compare so a regression (e.g. dividing
+        // by radius instead of range, or flipping the compare) breaks here before
+        // it can produce a wrong frame on the GPU.
+
+        // Normalised linear cubemap depth a fragment writes/tests against — mirrors
+        // `currentDepth = length(fragToLight) / farPlane`.
+        f32 PointShadowDepth(const glm::vec3& worldPos, const glm::vec3& lightCentre, f32 farPlane)
+        {
+            return glm::length(worldPos - lightCentre) / std::max(farPlane, kShaderEpsilon);
+        }
+
+        // Hardware samplerCubeShadow GL_LEQUAL result: 1.0 = lit, 0.0 = shadowed.
+        // Matches `texture(cube, vec4(dir, currentDepth - bias))`.
+        f32 PointShadowCompare(f32 currentDepth, f32 storedOccluderDepth, f32 bias)
+        {
+            return ((currentDepth - bias) <= storedOccluderDepth) ? 1.0f : 0.0f;
         }
     } // namespace
 
@@ -291,5 +324,147 @@ namespace OloEngine::Tests
         const f32 n = SphereAreaNormalization(0.5f, 5.0f, 1.0f);
         const f32 expected = (25.0f / 49.0f);
         EXPECT_NEAR(n, expected, 1e-5f);
+    }
+
+    // -------------------------------------------------------------------------
+    // Representative-point shadow depth-compare (point-cubemap reuse)
+    // -------------------------------------------------------------------------
+
+    TEST(SphereAreaLightShadowMath, OccluderBetweenCentreAndReceiverShadowsReceiver)
+    {
+        // Area light centre 5 units above the floor, range = far plane = 25.
+        // An occluder sits 2 units below the centre (3 above the floor), directly
+        // on the centre→receiver ray. The cubemap therefore records the occluder's
+        // normalised depth along that direction; the floor receiver is further, so
+        // its currentDepth exceeds the stored depth → shadowed.
+        const glm::vec3 lightCentre{ 0.0f, 5.0f, 0.0f };
+        constexpr f32 range = 25.0f;
+        constexpr f32 bias = 0.005f;
+
+        const glm::vec3 occluder{ 0.0f, 3.0f, 0.0f }; // 2 units from centre
+        const glm::vec3 receiver{ 0.0f, 0.0f, 0.0f }; // 5 units from centre, behind occluder
+
+        const f32 storedDepth = PointShadowDepth(occluder, lightCentre, range);  // 2/25 = 0.08
+        const f32 currentDepth = PointShadowDepth(receiver, lightCentre, range); // 5/25 = 0.20
+
+        EXPECT_GT(currentDepth, storedDepth) << "receiver must be farther than the occluder it hides behind";
+        EXPECT_FLOAT_EQ(PointShadowCompare(currentDepth, storedDepth, bias), 0.0f)
+            << "a receiver behind an occluder relative to the area-light centre must be in shadow";
+    }
+
+    TEST(SphereAreaLightShadowMath, ClearLineOfSightLeavesReceiverLit)
+    {
+        // Same light, but a receiver with no occluder on its centre→receiver ray.
+        // The nearest blocker along that direction is the receiver itself, so the
+        // stored depth equals the receiver's own depth and the GL_LEQUAL compare
+        // (minus bias) keeps it lit.
+        const glm::vec3 lightCentre{ 0.0f, 5.0f, 0.0f };
+        constexpr f32 range = 25.0f;
+        constexpr f32 bias = 0.005f;
+
+        const glm::vec3 receiver{ 6.0f, 0.0f, 0.0f };
+        const f32 currentDepth = PointShadowDepth(receiver, lightCentre, range);
+        const f32 storedDepth = currentDepth; // no closer blocker along this ray
+
+        EXPECT_FLOAT_EQ(PointShadowCompare(currentDepth, storedDepth, bias), 1.0f)
+            << "a receiver with clear line of sight to the area-light centre must be lit";
+    }
+
+    TEST(SphereAreaLightShadowMath, DepthUsesRangeNotRadiusAsFarPlane)
+    {
+        // The far plane is the area light's RANGE, independent of the emitter
+        // RADIUS. Mixing the two up (a tempting bug, since both are "size" knobs
+        // on the component) would rescale every depth and break the compare. Pin
+        // that PointShadowDepth ignores radius entirely: two lights at the same
+        // centre/range yield identical normalised depth regardless of emitter size.
+        const glm::vec3 lightCentre{ 0.0f, 8.0f, 0.0f };
+        const glm::vec3 receiver{ 0.0f, 0.0f, 0.0f };
+        constexpr f32 range = 20.0f;
+
+        const f32 depth = PointShadowDepth(receiver, lightCentre, range); // 8/20 = 0.4
+        EXPECT_NEAR(depth, 0.4f, 1e-5f);
+        // In [0,1] for a receiver inside range; would blow past 1.0 if a small
+        // radius were ever substituted for the far plane.
+        EXPECT_GE(depth, 0.0f);
+        EXPECT_LE(depth, 1.0f);
+    }
+
+    // -------------------------------------------------------------------------
+    // Point-shadow pool sharing invariant (Scene.cpp index assignment)
+    // -------------------------------------------------------------------------
+    //
+    // Casting sphere area lights are assigned cubemap slots AFTER point lights,
+    // sharing one pool of MAX_POINT_SHADOWS (= 4). The shader reads the slot from
+    // each light's direction.w. The two contracts that must hold for the upload
+    // loop and the shadow-setup loop to agree on which cubemap a light samples:
+    //   (1) area-light slots never collide with point-light slots, and
+    //   (2) the pool is capped — the 5th+ casting light gets no shadow (slot -1).
+    namespace
+    {
+        // Mirrors the shared-counter assignment in Scene::ProcessScene3DSharedLogic
+        // (both the light-upload loop and the shadow-setup loop run this same
+        // logic against the same MAX). Returns each light's assigned slot, with
+        // -1 meaning "no shadow" (cap reached or not a caster).
+        constexpr i32 kMaxPointShadows = 4; // ShadowMap::MAX_POINT_SHADOWS
+
+        std::vector<i32> AssignPool(const std::vector<bool>& pointCasters,
+                                    const std::vector<bool>& areaCasters)
+        {
+            std::vector<i32> slots;
+            i32 next = 0;
+            for (bool casts : pointCasters)
+                slots.push_back((casts && next < kMaxPointShadows) ? next++ : -1);
+            for (bool casts : areaCasters)
+                slots.push_back((casts && next < kMaxPointShadows) ? next++ : -1);
+            return slots;
+        }
+    } // namespace
+
+    TEST(SphereAreaLightShadowMath, AreaSlotsNeverCollideWithPointSlots)
+    {
+        // 2 casting point lights + 2 casting area lights → point lights take 0,1;
+        // area lights take 2,3. No overlap, all within the pool.
+        const auto slots = AssignPool({ true, true }, { true, true });
+        ASSERT_EQ(slots.size(), 4u);
+        EXPECT_EQ(slots[0], 0);
+        EXPECT_EQ(slots[1], 1);
+        EXPECT_EQ(slots[2], 2);
+        EXPECT_EQ(slots[3], 3);
+
+        // No two casters share a slot.
+        std::vector<i32> used;
+        for (i32 s : slots)
+            if (s >= 0)
+            {
+                EXPECT_EQ(std::count(used.begin(), used.end(), s), 0) << "slot " << s << " reused";
+                used.push_back(s);
+            }
+    }
+
+    TEST(SphereAreaLightShadowMath, PoolCapDropsExcessAreaCasters)
+    {
+        // 3 casting point lights consume slots 0,1,2; the first area light takes
+        // the last slot (3); every further casting area light gets -1 (no shadow).
+        const auto slots = AssignPool({ true, true, true }, { true, true, true });
+        ASSERT_EQ(slots.size(), 6u);
+        EXPECT_EQ(slots[0], 0);
+        EXPECT_EQ(slots[1], 1);
+        EXPECT_EQ(slots[2], 2);
+        EXPECT_EQ(slots[3], 3);  // first area light grabs the final slot
+        EXPECT_EQ(slots[4], -1); // pool exhausted
+        EXPECT_EQ(slots[5], -1);
+    }
+
+    TEST(SphereAreaLightShadowMath, NonCastersConsumeNoSlots)
+    {
+        // A non-casting point light in the middle must not consume a slot, so the
+        // casting area light after it still gets a low index. Pins that the cap
+        // counts CASTERS, not light ordinals.
+        const auto slots = AssignPool({ true, false, true }, { true });
+        ASSERT_EQ(slots.size(), 4u);
+        EXPECT_EQ(slots[0], 0);
+        EXPECT_EQ(slots[1], -1); // non-caster
+        EXPECT_EQ(slots[2], 1);
+        EXPECT_EQ(slots[3], 2); // area light, third caster overall
     }
 } // namespace OloEngine::Tests
