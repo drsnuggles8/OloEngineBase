@@ -352,22 +352,30 @@ namespace OloEngine::Tests
             << "a receiver behind an occluder relative to the area-light centre must be in shadow";
     }
 
-    TEST(SphereAreaLightShadowMath, ClearLineOfSightLeavesReceiverLit)
+    TEST(SphereAreaLightShadowMath, BlockerBehindReceiverLeavesReceiverLit)
     {
-        // Same light, but a receiver with no occluder on its centre→receiver ray.
-        // The nearest blocker along that direction is the receiver itself, so the
-        // stored depth equals the receiver's own depth and the GL_LEQUAL compare
-        // (minus bias) keeps it lit.
+        // A blocker FARTHER from the light than the receiver must NOT shadow it.
+        // Both depths are computed INDEPENDENTLY from real positions (not
+        // storedDepth := currentDepth, which would be tautological — it would hold
+        // for any bias regardless of whether PointShadowDepth is correct). The
+        // receiver is 5 units below the centre; a wall behind it sits 9 units below
+        // on the same straight-down ray. currentDepth (receiver, nearer) is less
+        // than storedDepth (wall, farther), so the GL_LEQUAL compare keeps the
+        // receiver lit. This pins both PointShadowDepth's near/far ordering and the
+        // compare's "foreground stays lit" property.
         const glm::vec3 lightCentre{ 0.0f, 5.0f, 0.0f };
         constexpr f32 range = 25.0f;
         constexpr f32 bias = 0.005f;
 
-        const glm::vec3 receiver{ 6.0f, 0.0f, 0.0f };
-        const f32 currentDepth = PointShadowDepth(receiver, lightCentre, range);
-        const f32 storedDepth = currentDepth; // no closer blocker along this ray
+        const glm::vec3 receiver{ 0.0f, 0.0f, 0.0f };    // 5 units from centre
+        const glm::vec3 wallBehind{ 0.0f, -4.0f, 0.0f }; // 9 units from centre, same ray
 
+        const f32 currentDepth = PointShadowDepth(receiver, lightCentre, range);  // 5/25 = 0.20
+        const f32 storedDepth = PointShadowDepth(wallBehind, lightCentre, range); // 9/25 = 0.36
+
+        EXPECT_LT(currentDepth, storedDepth) << "receiver must be nearer the light than the blocker behind it";
         EXPECT_FLOAT_EQ(PointShadowCompare(currentDepth, storedDepth, bias), 1.0f)
-            << "a receiver with clear line of sight to the area-light centre must be lit";
+            << "a receiver in front of (nearer than) the only blocker must stay lit";
     }
 
     TEST(SphereAreaLightShadowMath, DepthUsesRangeNotRadiusAsFarPlane)
@@ -405,6 +413,13 @@ namespace OloEngine::Tests
         // (both the light-upload loop and the shadow-setup loop run this same
         // logic against the same MAX). Returns each light's assigned slot, with
         // -1 meaning "no shadow" (cap reached or not a caster).
+        //
+        // SCOPE: this models ONLY the shadow-slot cap (MAX_POINT_SHADOWS). The real
+        // upload loop also has a SEPARATE MultiLightUBO MAX_LIGHTS (256) cap that
+        // `continue`s before encoding direction.w; a casting light past 256 total
+        // lights gets no UBO entry at all. That cap is irrelevant to these
+        // ≤4-light invariants, so it's deliberately not mirrored here — don't reuse
+        // AssignPool as a full model of Scene.cpp's assignment at high light counts.
         constexpr i32 kMaxPointShadows = 4; // ShadowMap::MAX_POINT_SHADOWS
 
         std::vector<i32> AssignPool(const std::vector<bool>& pointCasters,
