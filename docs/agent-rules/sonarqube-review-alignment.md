@@ -1,0 +1,117 @@
+# SonarQube ↔ local `/code-review` alignment
+
+Read this before running `/code-review` (or any review pass) on this repo, so local
+review **matches the SonarCloud scan** instead of fighting it: don't re-flag what we
+deliberately suppress, use the same thresholds, and pre-empt the high-severity rules the
+slow cloud scan (~1.5–2 h) would otherwise catch first.
+
+The authoritative *rationale* for every suppression lives in
+[../sonarqube-rule-suggestions.md](../sonarqube-rule-suggestions.md); the path-scoped
+exclusions are enforced in [`sonar-project.properties`](../../sonar-project.properties).
+This file is the **operational digest** for a reviewer.
+
+**Profile:** `C++ Extended` (cpp) — **579 active rules** (83 BLOCKER / 132 CRITICAL /
+240 MAJOR / 116 MINOR / 8 INFO). Source of truth is the SonarCloud Quality Profile
+(*Quality Profiles → C++ Extended*); a point-in-time export lives at the repo root as
+`c++ extended profile.xml` (it predates the S5536/S1271/S1712 deactivation below, so it
+still lists 582 — those three are the entire 582 → 579 delta. The fourth rule deactivated
+below, `cpp:S909`, was *already* inactive when the export was taken, so it is counted in
+neither 582 nor 579). Editing that XML changes nothing until it is re-imported in the
+SonarCloud UI — treat it as read-only reference.
+
+---
+
+## 1. Do NOT flag these — deliberate suppressions (don't fight the config)
+
+These fire in idiomatic OloEngine code where the rule's concern doesn't apply. They are
+**scoped out per-path** in `sonar-project.properties` (so they stay active everywhere
+else) — a local reviewer must not raise them inside the listed scopes:
+
+| Rule | Scope (don't flag here) | Why |
+|---|---|---|
+| `cpp:S5443` writable temp dir | `OloEngine/tests/**` | GoogleTest fixtures legitimately use `temp_directory_path()`; the multi-user-race model doesn't apply on CI/dev. |
+| `cpp:S3656` protected members | `OloEngine/tests/**` | `TEST_F` fixtures require subclass-accessible (protected) members. |
+| `cpp:S997` declare in namespace | `OloEngine/tests/**` | GoogleTest fixture classes are conventionally file-scoped. |
+| `cpp:S1001` using-directive | `OloEngine/tests/**` | `using namespace OloEngine;` is the established test-suite convention. |
+| `cpp:S5000` `==` for non-trivially-copyable | `OloEngine/src/OloEngine/Math/Math.h` | `Math::BitwiseEqual` is `static_assert`-guarded `std::is_trivially_copyable_v<T>`; misuse is a compile error. |
+| `cpp:S1067` ≤3 conditional operators | `OloEngine/src/OloEngine/Scene/**` | ECS `HasComponent<>()` predicate chains / serializer dispatch are intrinsically long; naming each sub-predicate just restates it. |
+| `cpp:S963` parenthesize macro params | `OloEngine/src/OloEngine/Scene/Prefab.cpp` | X-macro pastes component types into `<CompType>` template-arg lists where the grammar forbids parentheses. |
+| `cpp:S1244` float `==` | `Scene/Components.h`, `Renderer/Commands/RenderCommand.h` | Defaulted/field-wise **bit-exact** equality is the intended change-detection (undo-redo / render-command dedup) semantics — **only in these two files**; real float-`==` bugs elsewhere stay flagged. |
+
+CPD (copy-paste) is excluded on `OloEngine/tests/**` — the scaffold-uniform math/visual
+test harness is structurally same by design, not copy-paste rot. **Don't propose
+"deduplicate these tests".**
+
+**Deactivated profile-wide** (not just scoped) — never raise these at all:
+
+- `cpp:S5536` "unused functions should be removed" — an engine is a *library codebase*; public API is invoked by games / scripts / reflection / serialization / tests the analyzer can't see. (`cpp:S1144`, unused *private* members, stays **active** — those are real dead code.)
+- `cpp:S1271` "use `::` to access globals" — huge churn across a 312k-LOC engine for negligible gain.
+- `cpp:S1712` "no default parameters" — default arguments are idiomatic C++.
+- `cpp:S909` "no `continue`" — MISRA-style; `continue` is idiomatic here.
+
+---
+
+## 2. Use THESE thresholds — not stricter
+
+The profile relaxes many size/complexity limits to fit a real-time engine. Match these
+when judging "too long / too complex"; don't hold code to tighter defaults:
+
+| Rule | Limit | |
+|---|---|---|
+| `S103` line length | **≤ 230** chars | (engine has wide signatures) |
+| `S104` file length | **≤ 1000** LOC | |
+| `S3776` cognitive complexity | **≤ 40** / function | renderer/serialiser state machines are branchy by nature |
+| `S107` function parameters | **≤ 7** | |
+| `S1142` returns / function | **≤ 3** | |
+| `S1479` switch cases | **≤ 30** | |
+| `S1448` methods / class | **≤ 35** | |
+| `S1820` fields / class | **≤ 20** | |
+| `S110` inheritance depth | **≤ 5** | |
+| `S1151` switch-case body lines | **≤ 15** | |
+| `S1188` lambda lines | **≤ 20** | |
+| `S6184` coroutine lines | **≤ 100** | |
+| `S6192` / `S6194` coroutine cyclomatic / cognitive | **≤ 10 / ≤ 25** | |
+| `S924` `break`/`goto` per loop | **≤ 1** (MISRA) | so a loop with 2+ `break`s *will* be flagged by Sonar |
+| `S1707` `TODO`/`FIXME` | needs an attribution `(name)` after it | bare `// TODO` is flagged (MINOR) |
+
+Secret/credential detection is active and worth a local pass: `S2068` (hardcoded
+password — hints `password,passwd,pwd,passphrase`), `S6418` (hardcoded secrets — hints
+`apikey,api_key,auth,credential,secret,token`).
+
+---
+
+## 3. Pre-empt these — high-severity rules the cloud scan enforces
+
+Catching these locally saves a full scan cycle. All are BLOCKER unless noted; the list is
+representative (83 BLOCKERs total — query the profile or `show_rule cpp:<key>` for the
+rest). Most relevant to OloEngine's C/C++-interop, asset I/O, networking and memory code:
+
+**Memory / reliability (BUG):**
+- `S3519` — memory access must be explicitly bounded (buffer overflow / off-by-one; prefer `std::array`/`std::vector`/`std::string`).
+- `S3590` — don't `free`/`delete` stack-allocated or non-owned (static/const/code) memory.
+- `S2095` — resources (`fopen`/`open`, handles) must be closed; prefer RAII. (`S3588`: no use-after-`fclose`.)
+- `S2275` — `printf`-style format string must match args (UB otherwise); prefer C++23 `std::print`/`std::format`.
+- `S5267` — a `[[noreturn]]` function must not actually return.
+- `S3584` — memory leak (allocation never released on some path). *(Note: one known FP in `ClosableMpscQueue.h` is annotated — see the suggestions doc.)*
+- `S2259` (MAJOR) — null-pointer dereference. *(Analyzer can't always correlate a `bool` guard with the pointer — verify before raising.)*
+
+**Security (VULNERABILITY):**
+- `S2076` — OS command injection (avoid `system()`/`popen()` with untrusted data; validate + use `exec*`/`posix_spawn`).
+- `S2083` — path-traversal injection (canonicalize with `std::filesystem::canonical` and confirm the result stays under the base dir).
+- `S5782` — POSIX buffer-size args must not exceed the buffer (`memchr(buf,c,sizeof buf)`).
+- `S2755` — XXE (disable external entities in XML parsing).
+
+When you raise one of these, prefer **fix in code** over suppression. The suggestions doc
+records which historical hits were genuine fixes vs. analyzer false-positives — check it
+before assuming a finding is new.
+
+---
+
+## 4. How to use this in a review
+
+1. Skim §1 — silently drop any finding that lands in a suppressed scope.
+2. Apply §2 thresholds when judging length/complexity — don't invent stricter limits.
+3. Actively look for §3 classes in changed C/C++ (especially C-interop, file/network I/O,
+   manual buffer/pointer work). Pin genuine ones with a code fix.
+4. For anything ambiguous, the rationale and prior triage are in
+   [../sonarqube-rule-suggestions.md](../sonarqube-rule-suggestions.md).

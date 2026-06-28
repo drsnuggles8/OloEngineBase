@@ -338,26 +338,71 @@ Scope `cpp:S1771` (and the related `cpp:S1067` on defaulted comparisons) out for
 
 ---
 
-## High-volume rules to deactivate or scope (full-corpus histogram)
+## 10. Analysis-setup hygiene — `sonar.tests` / coverage / Python version (#411, slice 1)
 
-A full-corpus facet query (≈31,800 open issues) surfaced four very high-count rules that are **MISRA / stylistic rules fighting idiomatic modern C++**. These dwarf everything else and are the reason the raw issue count looks alarming. "Fixing" them mechanically would be harmful or pointless; the right move is to deactivate (or tightly scope) them in the C++ Quality Profile.
+These are **analysis-pipeline configuration** fixes, not rule tuning — they change how
+SonarCloud is *told to analyse* the project, not which rules fire. Applied in
+`sonar-project.properties`:
 
-| rule | count | why it's a poor fit |
+- **`sonar.tests=OloEngine/tests`** (#411 item 2) — silences the warning that files under
+  `OloEngine/tests` "look like test code but `sonar.tests` is not configured; rules targeting
+  production code were not executed on these files." Declaring the test root makes the
+  classification explicit.
+- **`sonar.exclusions=OloEngine/tests/**/*`** — **mandatory companion** to the above.
+  `sonar.sources` defaults to `.` (the whole tree), so without this carve-out the test files
+  match **both** the source set and the test set and the scan **fails hard** with
+  `File ... can't be indexed twice`. The exclusion removes them from the production-source set,
+  leaving them indexed only as tests. (This is the documented SonarQube remedy for a
+  `sonar.sources=.` + `sonar.tests` overlap — keep them disjoint.)
+- **`sonar.coverage.exclusions=OloEngine/tests/**/*`** (#411 item 4) — test files must never
+  count toward production-code coverage. No coverage report is imported in CI yet (see the
+  0%-coverage note under Open items), so this is a no-op today — kept as correct hygiene.
+- **`sonar.python.version=3.10`** — kills the "analysed as compatible with all Python 3
+  versions" warning. All repo Python lives under `OloEngine/tests`; CI installs 3.10.
+
+Note: SCM-ignored paths (`build/`, `OloEngine/vendor/*`, the generated `compile_commands.json`)
+are dropped from indexing automatically by SonarQube's default SCM-exclusion, so no
+`**/vendor/**` / `**/build/**` `sonar.exclusions` were needed.
+
+### Deferred: build-wrapper → `sonar.cfamily.compile-commands` migration (#411 item B) — **do NOT do the naive swap**
+
+The scan warns that `sonar.cfamily.build-wrapper-output` is deprecated in favour of
+`sonar.cfamily.compile-commands`. **The naive migration is broken** and was deliberately *not*
+shipped in this slice:
+
+- `SonarCloud.yml`'s build step runs `cmake -S . -B build` with **no `-G`** → the default
+  **Visual Studio (MSBuild) generator**.
+- **`CMAKE_EXPORT_COMPILE_COMMANDS` is implemented only by the Makefile and Ninja generators;
+  the Visual Studio generator silently ignores it** (confirmed against the latest CMake docs:
+  *"This option is implemented only by Makefile Generators and Ninja Generators. It is ignored
+  on other generators."*). So the `-DCMAKE_EXPORT_COMPILE_COMMANDS=ON` already passed in the
+  workflow is a **no-op today — `build/compile_commands.json` is never produced.**
+- Pointing `sonar.cfamily.compile-commands` at that non-existent file → the C-family analyzer
+  sees **zero translation units** → the C++ issue count **craters**. That is exactly the
+  "near-empty C++ analysis" outcome the migration is meant to avoid.
+
+A *correct* migration requires switching the SonarCloud build to **Ninja** (install Ninja + set
+up the MSVC dev-environment so `cl.exe` is on PATH, as `Windows.yml` already does) and
+configuring with `-G "Ninja Multi-Config" -DCMAKE_EXPORT_COMPILE_COMMANDS=ON`. That is a
+substantial, fragile rewrite of a ~2 h CI job that cannot be validated locally and must be
+proven via a `workflow_dispatch` run before merge. Until then, **keep the working `build-wrapper`
+path** — the deprecation is only a warning and the current analysis is correct. This remains an
+open part of #411.
+
+---
+
+## High-volume rules — deactivated in the C++ Extended profile ✅
+
+A full-corpus facet query (≈31,800 open issues) surfaced four MISRA / stylistic rules fighting idiomatic modern C++ that dwarfed every other finding (≈6,800 issues between them — roughly a fifth of the raw count, ≈21%). All four are now **deactivated** in the C++ Extended Quality Profile (SonarCloud UI, 2026-06-27), so they no longer fire:
+
+| rule | was (count) | why it was a poor fit |
 |---|---|---|
-| `cpp:S5536` | 2,981 | "Remove unused functions." The rule text itself exempts *library codebases* — and an engine **is** one. Vast amounts of public API are invoked by games, scripts, reflection, serialization, and tests, none of which the analyzer sees. "Fixing" = deleting live API. |
-| `cpp:S1271` | 2,004 | "Use `::` to access globals." Prefixing every free-function/global access with `::` across a 312k-LOC engine is enormous churn for negligible readability gain. |
-| `cpp:S1712` | 1,017 | "No default parameters." Default arguments are idiomatic, well-understood C++; the rule wants you to hand-write overload chains instead. High-risk refactor, negative ergonomics. |
-| `cpp:S909` | 797 | "No `continue`." MISRA C:2004 14.5. `continue` is a normal, often *more* readable control-flow tool; restructuring 797 loops risks behavior changes. |
+| `cpp:S5536` | "remove unused functions" (2,981) | An engine is a *library codebase* (the rule's own exemption): public API is invoked by games, scripts, reflection, serialization and tests the analyzer can't see, so it flagged live API as dead. **`cpp:S1144`** (unused *private* members) is kept **active** — those are genuinely dead code. |
+| `cpp:S1271` | "use `::` to access globals" (2,004) | Prefixing every free-function/global access with `::` across a 312k-LOC engine is enormous churn for negligible readability gain. |
+| `cpp:S1712` | "no default parameters" (1,017) | Default arguments are idiomatic, well-understood C++; the rule wants hand-written overload chains instead. |
+| `cpp:S909` | "no `continue`", MISRA C:2004 14.5 (797) | `continue` is a normal, often *more* readable control-flow tool. |
 
-### `cpp:S5536` — "remove unused functions"
-
-The single biggest contributor (2,981). Per its own description: *"Unless you are in a library codebase context, functions that are declared but never executed are dead code."* OloEngine ships a static library (`OloEngine`) consumed by `OloEditor`, `OloRuntime`, `OloServer`, the test binary, C#/Lua scripting bindings, and `OLO_PROPERTY` reflection. The analyzer only sees intra-TU call graphs, so it flags huge swaths of legitimately-public API.
-
-**Action:** deactivate `cpp:S5536` in the Quality Profile. (Its subset `cpp:S1144` — unused *private* members — is safer and could stay active; private members genuinely unused within their own class are real dead code.)
-
-### `cpp:S1271`, `cpp:S1712`, `cpp:S909`
-
-**Action:** deactivate all three in the Quality Profile. They encode MISRA safety-critical-C conventions that don't match this codebase's modern-C++23 style. If any are wanted for a *specific* safety-critical subsystem later, scope them narrowly rather than project-wide.
+If any are wanted for a *specific* safety-critical subsystem later, scope them narrowly there rather than re-enabling project-wide.
 
 ---
 
@@ -374,8 +419,7 @@ For completeness, some rules that *look* noisy but are worth keeping at their cu
 
 ## Open items
 
-- Full-corpus histogram (≈31,800 open issues) obtained via the SonarCloud `facets=rules` API. The four rules in the "High-volume" section above account for ≈6,800 issues on their own; deactivating them would roughly halve the raw count without touching a line of code.
+- Full-corpus histogram (≈31,800 open issues) obtained via the SonarCloud `facets=rules` API. The four high-volume rules above (≈6,800 issues, ≈21% of the raw count) are now **deactivated** in the C++ Extended profile — done in the SonarCloud UI (not as a `**/*` properties scope), where project-wide deactivation stays reviewable.
 - `cpp:S6004` (if/switch init-statement, 835 hits) was swept and fixed in bulk — it aligns with the project's own [coding standard §1](agent-rules/cpp-coding-quality.md) rather than being a false positive.
 - ✅ The recommended path-scopes (`fp_s5000` / `ecs_s1067` / `xmacro_s963`, plus the pre-existing `tst_*`) are now applied in `sonar-project.properties`. Re-run the quality-gate check to confirm the false-positive concentration in `Math.h`, `Scene/**`, `Prefab.cpp`, and `tests/**` has dropped.
-- The four high-volume rules in the section above (`cpp:S5536`, `cpp:S1271`, `cpp:S1712`, `cpp:S909`, ≈6,800 issues) are **not** applied here — they remain a Quality-Profile (UI) action as recommended, since project-wide deactivation is better reviewed there than buried in a `**/*` properties scope. Doing so would roughly halve the raw count.
 - Coverage is reported as **0%** in SonarCloud despite an extensive GoogleTest suite. The CI scan isn't picking up coverage XML — separate problem from rule tuning, but worth fixing for the maintainability dashboard to make sense.
