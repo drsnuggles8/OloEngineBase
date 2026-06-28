@@ -8,6 +8,7 @@
 #include "OloEngine/Asset/Asset.h" // For AssetHandle
 #include <glm/glm.hpp>
 #include <string>
+#include <string_view>
 #include <functional>
 #include <utility>
 #include <vector>
@@ -115,6 +116,16 @@ namespace OloEngine
                     InitializeFromGraph / InitializeDataSource overloads. Exposed publicly so
                     Scene::InitAudioRuntime (and other owners) can drive the lifecycle. */
                 bool InitializeAudioCallback();
+
+                /** Allocate the internal SoundGraphSource WITHOUT attaching it to the live
+                    ma_engine (contrast InitializeAudioCallback). A detached source still
+                    processes its graph and applies parameter writes — so SetVolume / SetPitch /
+                    SetParameter take effect on the graph's input cells — but produces no audible
+                    output because it is never wired into miniaudio's node graph. Used for
+                    headless graph evaluation and for unit-testing the parameter-routing path
+                    without an audio device. Returns true (no failure mode); replaces any
+                    existing source. Follow with InitializeFromGraph as usual. */
+                bool InitializeDetachedSource();
 
                 /** Initialize from SoundGraph instance */
                 bool InitializeFromGraph(const Ref<Audio::SoundGraph::SoundGraph>& soundGraph);
@@ -228,6 +239,18 @@ namespace OloEngine
                 i32 StopNow(StopOptions options = StopOptions::None);
 
                 void InitializeEffects(const Ref<SoundConfig>& config);
+
+                /* Push a high-level control value into the live graph as a conventionally-named
+                   graph input parameter (see the kXxxParam names in the .cpp). Best-effort: a
+                   graph that doesn't expose the endpoint simply ignores the write, and the call
+                   is a no-op until a source + graph are installed. */
+                void RouteFloatParameter(std::string_view parameterName, f32 value);
+                void RouteBoolParameter(std::string_view parameterName, bool value);
+
+                /* Re-push every stored high-level control (volume / pitch / looping / filters)
+                   into the current graph. Called after a graph is installed so a value set
+                   before the graph existed (or before a graph swap) still takes effect. */
+                void SyncControlParametersToGraph();
 
                 // Audio frequency conversion utilities
                 static f32 NormalizedToFrequency(f32 normalizedValue);

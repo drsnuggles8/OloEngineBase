@@ -448,10 +448,10 @@ namespace OloEngine::Audio::SoundGraph
         m_DataSources.UninitializeAll();
     }
 
-    void SoundGraphSource::ReplaceGraph(const Ref<SoundGraph>& newGraph)
+    bool SoundGraphSource::ReplaceGraph(const Ref<SoundGraph>& newGraph)
     {
         if (newGraph == m_Graph)
-            return;
+            return true; // already the installed graph — nothing to do, treat as success
 
         // Swap the live graph reference under the suspend protocol so we don't tear it out
         // from under an in-flight ProcessSamples on the audio thread. SuspendProcessing
@@ -515,6 +515,10 @@ namespace OloEngine::Audio::SoundGraph
         {
             SuspendProcessing(false);
         }
+
+        // True only when the swap actually took effect; false means we timed out and left
+        // m_Graph untouched, so callers must not mark the new graph installed.
+        return suspendAcked;
     }
 
     //==============================================================================
