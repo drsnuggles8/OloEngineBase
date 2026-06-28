@@ -8,6 +8,7 @@
 #include "MCP/McpPhysicsExplain.h"
 #include "MCP/McpRenderExplain.h"
 #include "MCP/McpRenderOverrides.h"
+#include "MCP/McpSetCollisionLayer.h"
 #include "MCP/McpShaderReload.h"
 #include "MCP/McpEventStream.h"
 
@@ -3179,6 +3180,48 @@ namespace OloEngine::MCP
             return ToolResult::Text(result.dump(2));
         }
 
+        // ---- olo_set_collision_layer (main-marshaled; PROJECT WRITE) -----------
+        // The first consented, undoable write tool (#306 item C, first slice): set an
+        // entity's physics-body collision layer through the editor's undo stack, so an
+        // agent can try a fix the user can Ctrl-Z. The mutation is gated at dispatch by
+        // the "Allow writes" session toggle (ToolDef::ProjectWrite); the shared apply
+        // logic lives in McpSetCollisionLayer.h so it is unit-tested at the dispatch
+        // seam without this TU. The command is built + executed inside the MarshalRead
+        // job, i.e. on the main thread, since it touches the EnTT registry and the
+        // editor command stack.
+        ToolResult Handle_SetCollisionLayer(McpServer& server, const Json& args)
+        {
+            if (!server.Context().GetActiveScene || !server.Context().GetCommandHistory)
+                return ToolResult::Error("Project writes are not available in this editor build.");
+
+            u64 entityUuid = 0;
+            u32 layer = 0;
+            if (const auto error = SetCollisionLayer::ParseArgs(args, entityUuid, layer))
+                return ToolResult::Error(*error);
+
+            const Json result = server.MarshalRead([&server, entityUuid, layer]() -> Json
+                                                   {
+                const Ref<Scene> scene = server.Context().GetActiveScene
+                                             ? server.Context().GetActiveScene()
+                                             : nullptr;
+                CommandHistory* history = server.Context().GetCommandHistory
+                                              ? server.Context().GetCommandHistory()
+                                              : nullptr;
+                if (!scene)
+                    return Json{ { "__error", "No active scene." } };
+                if (!history)
+                    return Json{ { "__error", "No editor command history available." } };
+
+                const SetCollisionLayer::ApplyResult applied = SetCollisionLayer::Apply(scene, *history, entityUuid, layer);
+                if (!applied.Ok)
+                    return Json{ { "__error", applied.Error } };
+                return applied.Data; });
+
+            if (result.is_object() && result.contains("__error"))
+                return ToolResult::Error(result["__error"].get<std::string>());
+            return ToolResult::Text(result.dump(2));
+        }
+
         // ---- olo_render_why_not_visible (main-marshaled) -----------------------
         // The rendering counterpart of olo_physics_why_no_collision: explain why an
         // entity isn't on screen. Gathers the render-relevant facts off the live
@@ -4444,6 +4487,31 @@ namespace OloEngine::MCP
                                    .NoAdditional();
             tool.MainMarshaled = true;
             tool.Handler = Handle_PhysicsWhyNoCollision;
+            server.RegisterTool(std::move(tool));
+        }
+
+        {
+            ToolDef tool;
+            tool.Name = "olo_set_collision_layer";
+            tool.Toolset = "physics";
+            tool.Title = "Set collision layer (undoable)";
+            // The first project-WRITE tool: gated behind the session "Allow writes"
+            // toggle and routed through the editor undo stack. readOnlyHint:false (not
+            // idempotent — each call snapshots the prior layer into a distinct undo
+            // command; not destructive — fully reversible via Ctrl-Z / undo).
+            tool.ProjectWrite = true;
+            tool.Annotations = MutatingAnnotations(/*idempotent*/ false);
+            tool.Description =
+                "Set the collision layer of an entity's physics body — the undoable fix half of the "
+                "olo_physics_* debugging story (e.g. after olo_physics_why_no_collision blames the layer "
+                "filter). Targets the entity's Rigidbody3DComponent (or CharacterController3DComponent) "
+                "'m_LayerID'. The change is applied through the editor's undo stack, so it is a single "
+                "Ctrl-Z. This is a WRITE tool: it is refused unless 'Allow writes' is enabled in the "
+                "editor's MCP Server panel (off by default). Discover valid layer ids with "
+                "olo_physics_layer_matrix.";
+            tool.InputSchema = SetCollisionLayer::InputSchema();
+            tool.MainMarshaled = true;
+            tool.Handler = Handle_SetCollisionLayer;
             server.RegisterTool(std::move(tool));
         }
 

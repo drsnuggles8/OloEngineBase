@@ -361,6 +361,12 @@ namespace OloEngine
                 }
                 m_McpViewportSizeOverride = { width, height };
             };
+            // Consented, undoable project writes (#306 item C). The write tools run
+            // their mutation through the same undo stack as the editor's own edits,
+            // so an agent's change is a single Ctrl-Z. Main-thread-only, like the
+            // readers above (the MCP server calls it from a MarshalRead job).
+            mcpContext.GetCommandHistory = [this]() -> CommandHistory*
+            { return &m_CommandHistory; };
             mcpContext.GetFrameIndex = [this]() -> u64
             { return m_FrameIndex; };
             mcpContext.IsCaptureUnready = [this]() -> bool

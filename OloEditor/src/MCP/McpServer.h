@@ -51,6 +51,15 @@ namespace httplib
     struct Response;
 } // namespace httplib
 
+namespace OloEngine
+{
+    // The editor's undo/redo stack (OloEditor/src/UndoRedo/EditorCommand.h). Only
+    // forward-declared here: EditorMcpContext exposes a pointer to it so consented
+    // write tools (issue #306 item C) can route their mutation through a single
+    // undoable command, without this header pulling in the editor command classes.
+    class CommandHistory;
+} // namespace OloEngine
+
 namespace OloEngine::MCP
 {
     using Json = nlohmann::json;
@@ -119,6 +128,13 @@ namespace OloEngine::MCP
         std::string Toolset;
         ToolHandler Handler;
         bool MainMarshaled = false;
+        // True for a tool that MUTATES the user's project (scene / ECS components /
+        // assets) — as opposed to the read-only diagnostics and the ephemeral
+        // editor-only camera/viewport/render-override tools. A project-write tool is
+        // gated behind the session "Allow writes" toggle: HandleToolsCall rejects it
+        // with a clean JSON-RPC error when writes are disabled (the default). Issue
+        // #306 item C; should be paired with `readOnlyHint:false` annotations.
+        bool ProjectWrite = false;
     };
 
     // Snapshot of the editor camera's full pose, returned by GetCameraPose and
@@ -182,6 +198,14 @@ namespace OloEngine::MCP
         // rendered before capturing.
         std::function<u64()> GetFrameIndex;
         std::function<bool()> IsCaptureUnready;
+
+        // ---- Consented, undoable project writes (issue #306 item C) ------------
+        // The editor's undo/redo stack, so a write tool can apply its mutation as a
+        // single undoable command (a Ctrl-Z). Main-thread-only, like the readers
+        // above — call it from inside a MarshalRead job, alongside GetActiveScene.
+        // Null in a build that does not back the server with an editor (the dispatch
+        // tests), and gated at dispatch by the "Allow writes" session toggle.
+        std::function<CommandHistory*()> GetCommandHistory;
     };
 
     // An MCP resource: a passive, addressable blob (vs. an active tool). The reader
@@ -254,6 +278,22 @@ namespace OloEngine::MCP
         [[nodiscard]] bool RedactPaths() const
         {
             return m_RedactPaths.load(std::memory_order_relaxed);
+        }
+
+        // Session-level write gate (issue #306 item C). OFF by default and NOT
+        // persisted, so every editor launch starts read-only and the user opts in
+        // for the session via the MCP panel. Distinct from the enabled + bearer-token
+        // gate: even an authenticated agent cannot mutate the project until this is
+        // on. When off, HandleToolsCall rejects any tool flagged ToolDef::ProjectWrite
+        // with a clean JSON-RPC error. The read-only / ephemeral-editor-state tools
+        // are unaffected.
+        void SetAllowWrites(bool enabled)
+        {
+            m_AllowWrites.store(enabled, std::memory_order_relaxed);
+        }
+        [[nodiscard]] bool AllowWrites() const
+        {
+            return m_AllowWrites.load(std::memory_order_relaxed);
         }
         [[nodiscard]] const EditorMcpContext& Context() const
         {
@@ -422,6 +462,10 @@ namespace OloEngine::MCP
         std::string m_Token;
 
         std::atomic<bool> m_RedactPaths{ false };
+
+        // Session write gate (issue #306 item C); see SetAllowWrites. Default OFF,
+        // never persisted — every launch starts read-only.
+        std::atomic<bool> m_AllowWrites{ false };
 
         // Count of live GET /mcp SSE push streams (issue #306 item B). Bumped while a
         // stream's content provider runs; surfaced via ActiveStreamCount().
