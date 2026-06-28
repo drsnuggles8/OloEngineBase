@@ -103,13 +103,6 @@ namespace OloEngine::MCP::Schema
             return *this;
         }
 
-        // Array element schema (alternative to the Array(elem) factory).
-        Node& Items(const Node& elem)
-        {
-            m_Json["items"] = elem.ToJson();
-            return *this;
-        }
-
         // ---- object modifiers --------------------------------------------------
 
         // Add one named property, lazily creating the `properties` map. An object
@@ -147,14 +140,6 @@ namespace OloEngine::MCP::Schema
         Node& Pagination(std::string_view pageSizeDesc)
         {
             return Prop("page", IntMin0Page()).Prop("pageSize", PageSize(pageSizeDesc));
-        }
-
-        // Escape hatch: set an arbitrary keyword (e.g. a multi-type `type`). Kept so
-        // a one-off shape never forces a literal back into McpTools.cpp.
-        Node& Set(std::string_view keyword, Json value)
-        {
-            m_Json[std::string(keyword)] = std::move(value);
-            return *this;
         }
 
         [[nodiscard]] const Json& ToJson() const
