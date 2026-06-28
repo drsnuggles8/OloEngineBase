@@ -444,6 +444,7 @@ TEST(AnimationRetarget, HumanoidClassifyAcrossNamingConventions)
     EXPECT_EQ(classify("ik_hand_l"), HB::None) << "IK helper is not the hand";
     EXPECT_EQ(classify("Tail"), HB::None) << "non-humanoid bone has no role";
     EXPECT_EQ(classify("UpperArm"), HB::None) << "a limb with no detectable side can't be placed";
+    EXPECT_EQ(classify("L_eyeball"), HB::None) << "'ball' must start the key (toe), not over-match mid-word";
 
     EXPECT_EQ(ToString(HB::LeftUpperArm), "leftUpperArm");
     EXPECT_EQ(ToString(HB::None), "none");

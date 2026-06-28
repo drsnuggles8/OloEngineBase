@@ -174,7 +174,9 @@ namespace OloEngine::Animation
             if (Contains(key, "calf") || Contains(key, "shin") || Contains(key, "lowerleg") ||
                 Contains(key, "loleg"))
                 return WithSide(side, HumanoidBone::LeftLowerLeg, HumanoidBone::RightLowerLeg);
-            if (Contains(key, "toe") || Contains(key, "ball"))
+            // "ball" must START the key (UE toe bone "ball_l" -> key "ball") rather than
+            // appear anywhere, or a sided bone like "L_eyeball" would mis-map to Toes.
+            if (Contains(key, "toe") || key.starts_with("ball"))
                 return WithSide(side, HumanoidBone::LeftToes, HumanoidBone::RightToes);
             if (Contains(key, "foot") || Contains(key, "ankle"))
                 return WithSide(side, HumanoidBone::LeftFoot, HumanoidBone::RightFoot);
@@ -260,7 +262,6 @@ namespace OloEngine::Animation
             int Number;
         };
         std::vector<SpineCandidate> spines;
-        bool explicitChest = false;
 
         const sizet boneCount = skeleton.m_BoneNames.size();
         for (sizet i = 0; i < boneCount; ++i)
@@ -276,9 +277,6 @@ namespace OloEngine::Animation
                 continue; // resolved together in the post-pass below
             }
 
-            if (role == HumanoidBone::Chest)
-                explicitChest = true;
-
             // First bone to claim a role keeps it (stable for duplicate-named rigs).
             if (map.m_RoleToBone[RoleIndex(role)] == kUnassigned)
                 map.m_RoleToBone[RoleIndex(role)] = static_cast<int>(i);
@@ -286,7 +284,9 @@ namespace OloEngine::Animation
 
         // Resolve the spine column: lowest-numbered spine -> Spine; absent an explicit
         // chest, the highest of >=2 spine bones -> Chest. Intermediate spine bones are
-        // left unassigned (a name/identity fallback can still pick them up).
+        // left unassigned (a name/identity fallback can still pick them up). An explicit
+        // "chest" bone already filled the Chest slot in the loop, so the kUnassigned
+        // guard below is exactly "no explicit chest" — no separate flag needed.
         if (!spines.empty())
         {
             std::ranges::sort(spines,
@@ -300,8 +300,7 @@ namespace OloEngine::Animation
             if (map.m_RoleToBone[RoleIndex(HumanoidBone::Spine)] == kUnassigned)
                 map.m_RoleToBone[RoleIndex(HumanoidBone::Spine)] = spines.front().BoneIndex;
 
-            if (!explicitChest && spines.size() >= 2 &&
-                map.m_RoleToBone[RoleIndex(HumanoidBone::Chest)] == kUnassigned)
+            if (spines.size() >= 2 && map.m_RoleToBone[RoleIndex(HumanoidBone::Chest)] == kUnassigned)
                 map.m_RoleToBone[RoleIndex(HumanoidBone::Chest)] = spines.back().BoneIndex;
         }
 
