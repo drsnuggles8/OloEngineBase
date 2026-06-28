@@ -1,6 +1,7 @@
 #include "OloEnginePCH.h"
 #include "MCP/McpTools.h"
 #include "MCP/McpServer.h"
+#include "MCP/McpSchemaBuilder.h"
 #include "MCP/McpScriptApi.h"
 #include "MCP/McpFrameBreakdown.h"
 #include "MCP/McpGoldenCompare.h"
@@ -3534,18 +3535,11 @@ namespace OloEngine::MCP
                 "Return the most recent engine log messages from OloEditor's in-memory ring buffer "
                 "(up to 200 lines). Use this to see what the engine just logged — warnings, errors, "
                 "and tagged messages from asset/scene/physics/script/renderer subsystems.";
-            tool.InputSchema = Json{
-                { "type", "object" },
-                { "properties",
-                  { { "count",
-                      { { "type", "integer" }, { "minimum", 1 }, { "maximum", 200 }, { "description", "How many of the most recent matching log lines to return (default 50)." } } },
-                    { "minLevel",
-                      { { "type", "string" }, { "enum", Json::array({ "trace", "debug", "info", "warn", "error", "critical" }) }, { "description", "Only return lines at this severity or higher." } } },
-                    { "tag",
-                      { { "type", "string" },
-                        { "description", "Only return lines whose [Tag] matches exactly (e.g. Physics, Scene, Script)." } } } } },
-                { "additionalProperties", false }
-            };
+            tool.InputSchema = Schema::Object()
+                                   .Prop("count", Schema::Int().Min(1).Max(200).Desc("How many of the most recent matching log lines to return (default 50)."))
+                                   .Prop("minLevel", Schema::String().Enum({ "trace", "debug", "info", "warn", "error", "critical" }).Desc("Only return lines at this severity or higher."))
+                                   .Prop("tag", Schema::String().Desc("Only return lines whose [Tag] matches exactly (e.g. Physics, Scene, Script)."))
+                                   .NoAdditional();
             tool.MainMarshaled = false;
             tool.Handler = Handle_LogTail;
             server.RegisterTool(std::move(tool));
@@ -3561,21 +3555,14 @@ namespace OloEngine::MCP
                 "Summarise the active scene currently open in the editor: its name, whether the game "
                 "is playing or paused, whether a scene is loaded, and the total entity count. Read "
                 "directly from the live ECS on the editor's main thread (a consistent frame snapshot).";
-            tool.InputSchema = Json{
-                { "type", "object" },
-                { "properties", Json::object() },
-                { "additionalProperties", false }
-            };
-            tool.OutputSchema = Json{
-                { "type", "object" },
-                { "properties",
-                  { { "hasActiveScene", { { "type", "boolean" }, { "description", "Whether a scene is currently loaded." } } },
-                    { "isPlaying", { { "type", "boolean" }, { "description", "Whether the game is in Play mode." } } },
-                    { "name", { { "type", "string" }, { "description", "Active scene name (only when a scene is loaded)." } } },
-                    { "isPaused", { { "type", "boolean" }, { "description", "Whether the playing scene is paused (only when a scene is loaded)." } } },
-                    { "entityCount", { { "type", "integer" }, { "minimum", 0 }, { "description", "Total entity count (only when a scene is loaded)." } } } } },
-                { "required", Json::array({ "hasActiveScene", "isPlaying" }) }
-            };
+            tool.InputSchema = Schema::EmptyObject();
+            tool.OutputSchema = Schema::Object()
+                                    .Prop("hasActiveScene", Schema::Bool().Desc("Whether a scene is currently loaded."))
+                                    .Prop("isPlaying", Schema::Bool().Desc("Whether the game is in Play mode."))
+                                    .Prop("name", Schema::String().Desc("Active scene name (only when a scene is loaded)."))
+                                    .Prop("isPaused", Schema::Bool().Desc("Whether the playing scene is paused (only when a scene is loaded)."))
+                                    .Prop("entityCount", Schema::Int().Min(0).Desc("Total entity count (only when a scene is loaded)."))
+                                    .Required({ "hasActiveScene", "isPlaying" });
             tool.MainMarshaled = true;
             tool.Handler = Handle_SceneSummary;
             server.RegisterTool(std::move(tool));
@@ -3591,14 +3578,10 @@ namespace OloEngine::MCP
                 "List entities in the active scene (paginated). Each entry has the entity's UUID, name, "
                 "parent UUID (if any), and child count. Optionally filter by a name substring. Use this "
                 "to find an entity, then call olo_scene_get_entity with its id for full component data.";
-            tool.InputSchema = Json{
-                { "type", "object" },
-                { "properties",
-                  { { "namePattern", { { "type", "string" }, { "description", "Case-sensitive substring to match against entity names." } } },
-                    { "page", { { "type", "integer" }, { "minimum", 0 }, { "description", "Zero-based page index (default 0)." } } },
-                    { "pageSize", { { "type", "integer" }, { "minimum", 1 }, { "maximum", 200 }, { "description", "Entities per page (default 50, max 200)." } } } } },
-                { "additionalProperties", false }
-            };
+            tool.InputSchema = Schema::Object()
+                                   .Prop("namePattern", Schema::String().Desc("Case-sensitive substring to match against entity names."))
+                                   .Pagination("Entities per page (default 50, max 200).")
+                                   .NoAdditional();
             tool.MainMarshaled = true;
             tool.Handler = Handle_SceneListEntities;
             server.RegisterTool(std::move(tool));
@@ -3614,24 +3597,18 @@ namespace OloEngine::MCP
                 "Get the full component data of one entity by UUID, serialized from the live scene (YAML "
                 "in 'componentsYaml', plus structured id/name/parent/children). Pair with "
                 "olo_scene_list_entities or olo_scene_summary to obtain the UUID.";
-            tool.InputSchema = Json{
-                { "type", "object" },
-                { "properties",
-                  { { "id", { { "type", "string" }, { "description", "Entity UUID (as a string; also accepts a number)." } } } } },
-                { "required", Json::array({ "id" }) },
-                { "additionalProperties", false }
-            };
-            tool.OutputSchema = Json{
-                { "type", "object" },
-                { "properties",
-                  { { "found", { { "type", "boolean" }, { "description", "True when the entity exists (a miss is returned as isError instead)." } } },
-                    { "id", { { "type", "string" }, { "description", "Entity UUID." } } },
-                    { "name", { { "type", "string" }, { "description", "Entity tag/name (empty when it has no TagComponent)." } } },
-                    { "parent", { { "type", "string" }, { "description", "Parent entity UUID; omitted when the entity has no parent." } } },
-                    { "children", { { "type", "array" }, { "items", { { "type", "string" } } }, { "description", "Child entity UUIDs." } } },
-                    { "componentsYaml", { { "type", "string" }, { "description", "All components serialized as scene YAML." } } } } },
-                { "required", Json::array({ "found", "id", "name", "children", "componentsYaml" }) }
-            };
+            tool.InputSchema = Schema::Object()
+                                   .Prop("id", Schema::EntityId())
+                                   .Required({ "id" })
+                                   .NoAdditional();
+            tool.OutputSchema = Schema::Object()
+                                    .Prop("found", Schema::Bool().Desc("True when the entity exists (a miss is returned as isError instead)."))
+                                    .Prop("id", Schema::String().Desc("Entity UUID."))
+                                    .Prop("name", Schema::String().Desc("Entity tag/name (empty when it has no TagComponent)."))
+                                    .Prop("parent", Schema::String().Desc("Parent entity UUID; omitted when the entity has no parent."))
+                                    .Prop("children", Schema::Array(Schema::String()).Desc("Child entity UUIDs."))
+                                    .Prop("componentsYaml", Schema::String().Desc("All components serialized as scene YAML."))
+                                    .Required({ "found", "id", "name", "children", "componentsYaml" });
             tool.MainMarshaled = true;
             tool.Handler = Handle_SceneGetEntity;
             server.RegisterTool(std::move(tool));
@@ -3647,29 +3624,18 @@ namespace OloEngine::MCP
                 "Renderer GPU/CPU memory usage: total bytes/MB, a per-resource-type breakdown (vertex/index/"
                 "uniform/storage buffers, textures, framebuffers, shaders, render targets), and the count of "
                 "suspected leaks. Read from the engine's mutex-guarded memory tracker.";
-            tool.InputSchema = Json{
-                { "type", "object" },
-                { "properties", Json::object() },
-                { "additionalProperties", false }
-            };
-            tool.OutputSchema = Json{
-                { "type", "object" },
-                { "properties",
-                  { { "totalBytes", { { "type", "integer" }, { "minimum", 0 }, { "description", "Total tracked renderer memory, bytes." } } },
-                    { "totalMB", { { "type", "number" }, { "description", "Total tracked renderer memory, MB." } } },
-                    { "byType",
-                      { { "type", "array" },
-                        { "description", "Per-resource-type breakdown; only non-empty types are listed." },
-                        { "items",
-                          { { "type", "object" },
-                            { "properties",
-                              { { "type", { { "type", "string" } } },
-                                { "bytes", { { "type", "integer" }, { "minimum", 0 } } },
-                                { "mb", { { "type", "number" } } },
-                                { "count", { { "type", "integer" }, { "minimum", 0 } } } } } } } } },
-                    { "suspectedLeakCount", { { "type", "integer" }, { "minimum", 0 }, { "description", "Number of suspected leaks detected." } } } } },
-                { "required", Json::array({ "totalBytes", "totalMB", "byType", "suspectedLeakCount" }) }
-            };
+            tool.InputSchema = Schema::EmptyObject();
+            tool.OutputSchema = Schema::Object()
+                                    .Prop("totalBytes", Schema::Int().Min(0).Desc("Total tracked renderer memory, bytes."))
+                                    .Prop("totalMB", Schema::Number().Desc("Total tracked renderer memory, MB."))
+                                    .Prop("byType", Schema::Array(Schema::Object()
+                                                                      .Prop("type", Schema::String())
+                                                                      .Prop("bytes", Schema::Int().Min(0))
+                                                                      .Prop("mb", Schema::Number())
+                                                                      .Prop("count", Schema::Int().Min(0)))
+                                                        .Desc("Per-resource-type breakdown; only non-empty types are listed."))
+                                    .Prop("suspectedLeakCount", Schema::Int().Min(0).Desc("Number of suspected leaks detected."))
+                                    .Required({ "totalBytes", "totalMB", "byType", "suspectedLeakCount" });
             tool.MainMarshaled = false;
             tool.Handler = Handle_MemoryReport;
             server.RegisterTool(std::move(tool));
@@ -3685,28 +3651,25 @@ namespace OloEngine::MCP
                 "Current-frame renderer performance: fps, frame/CPU/GPU time (ms), draw calls, instanced "
                 "draw calls, triangles, state/shader/texture binds. Server-computed snapshot from the live "
                 "profiler. Map a low fps back to draw calls / lack of instancing.";
-            tool.InputSchema = Json{ { "type", "object" }, { "properties", Json::object() }, { "additionalProperties", false } };
-            tool.OutputSchema = Json{
-                { "type", "object" },
-                { "properties",
-                  { { "fps", { { "type", "number" } } },
-                    { "frameTimeMs", { { "type", "number" } } },
-                    { "cpuMs", { { "type", "number" } } },
-                    { "gpuMs", { { "type", "number" } } },
-                    { "drawCalls", { { "type", "integer" }, { "minimum", 0 } } },
-                    { "instancedDrawCalls", { { "type", "integer" }, { "minimum", 0 } } },
-                    { "instancesRendered", { { "type", "integer" }, { "minimum", 0 } } },
-                    { "instancesBatched", { { "type", "integer" }, { "minimum", 0 } } },
-                    { "triangles", { { "type", "integer" }, { "minimum", 0 } } },
-                    { "vertices", { { "type", "integer" }, { "minimum", 0 } } },
-                    { "stateChanges", { { "type", "integer" }, { "minimum", 0 } } },
-                    { "shaderBinds", { { "type", "integer" }, { "minimum", 0 } } },
-                    { "textureBinds", { { "type", "integer" }, { "minimum", 0 } } },
-                    { "commandPackets", { { "type", "integer" }, { "minimum", 0 } } },
-                    { "sortingMs", { { "type", "number" } } },
-                    { "cullingMs", { { "type", "number" } } } } },
-                { "required", Json::array({ "fps", "frameTimeMs", "cpuMs", "gpuMs", "drawCalls", "triangles" }) }
-            };
+            tool.InputSchema = Schema::EmptyObject();
+            tool.OutputSchema = Schema::Object()
+                                    .Prop("fps", Schema::Number())
+                                    .Prop("frameTimeMs", Schema::Number())
+                                    .Prop("cpuMs", Schema::Number())
+                                    .Prop("gpuMs", Schema::Number())
+                                    .Prop("drawCalls", Schema::Int().Min(0))
+                                    .Prop("instancedDrawCalls", Schema::Int().Min(0))
+                                    .Prop("instancesRendered", Schema::Int().Min(0))
+                                    .Prop("instancesBatched", Schema::Int().Min(0))
+                                    .Prop("triangles", Schema::Int().Min(0))
+                                    .Prop("vertices", Schema::Int().Min(0))
+                                    .Prop("stateChanges", Schema::Int().Min(0))
+                                    .Prop("shaderBinds", Schema::Int().Min(0))
+                                    .Prop("textureBinds", Schema::Int().Min(0))
+                                    .Prop("commandPackets", Schema::Int().Min(0))
+                                    .Prop("sortingMs", Schema::Number())
+                                    .Prop("cullingMs", Schema::Number())
+                                    .Required({ "fps", "frameTimeMs", "cpuMs", "gpuMs", "drawCalls", "triangles" });
             tool.MainMarshaled = true;
             tool.Handler = Handle_PerfSnapshot;
             server.RegisterTool(std::move(tool));
@@ -3721,7 +3684,7 @@ namespace OloEngine::MCP
             tool.Description =
                 "The engine's automatic bottleneck analysis: which of CPU/GPU/Memory/IO is limiting the "
                 "frame, a confidence score, a human description, and concrete recommendations.";
-            tool.InputSchema = Json{ { "type", "object" }, { "properties", Json::object() }, { "additionalProperties", false } };
+            tool.InputSchema = Schema::EmptyObject();
             tool.MainMarshaled = true;
             tool.Handler = Handle_PerfBottlenecks;
             server.RegisterTool(std::move(tool));
@@ -3736,11 +3699,9 @@ namespace OloEngine::MCP
             tool.Description =
                 "A downsampled time series of recent frames (frameTimeMs, fps, drawCalls) from the profiler's "
                 "ring buffer, for spotting spikes/trends. The server downsamples to 'points' samples.";
-            tool.InputSchema = Json{
-                { "type", "object" },
-                { "properties", { { "points", { { "type", "integer" }, { "minimum", 1 }, { "maximum", 300 }, { "description", "Number of downsampled points to return (default 60)." } } } } },
-                { "additionalProperties", false }
-            };
+            tool.InputSchema = Schema::Object()
+                                   .Prop("points", Schema::Int().Min(1).Max(300).Desc("Number of downsampled points to return (default 60)."))
+                                   .NoAdditional();
             tool.MainMarshaled = true;
             tool.Handler = Handle_PerfFrameHistory;
             server.RegisterTool(std::move(tool));
@@ -3758,11 +3719,9 @@ namespace OloEngine::MCP
                 "Capture the current frame and return its breakdown: frame totals, render passes, and the "
                 "top-K draw calls by GPU time. Per-pass detail requires the editor's frame-capture "
                 "instrumentation; frame-level totals are always returned.";
-            tool.InputSchema = Json{
-                { "type", "object" },
-                { "properties", { { "topK", { { "type", "integer" }, { "minimum", 1 }, { "maximum", 50 }, { "description", "How many of the most expensive draw calls to return (default 10)." } } } } },
-                { "additionalProperties", false }
-            };
+            tool.InputSchema = Schema::Object()
+                                   .Prop("topK", Schema::Int().Min(1).Max(50).Desc("How many of the most expensive draw calls to return (default 10)."))
+                                   .NoAdditional();
             tool.MainMarshaled = true;
             tool.Handler = Handle_PerfCaptureFrame;
             server.RegisterTool(std::move(tool));
@@ -3784,31 +3743,22 @@ namespace OloEngine::MCP
                 "GPU time, plus a command-type histogram. Use format:\"markdown\" for the Command Bucket "
                 "Inspector's LLM-analysis report (sort displacement, state-change deltas, batching analysis, "
                 "optimization hints) instead of JSON.";
-            tool.InputSchema = Json{
-                { "type", "object" },
-                { "properties",
-                  { { "viewMode",
-                      { { "type", "string" },
-                        { "enum", { "presort", "postsort", "postbatch" } },
-                        { "description",
-                          "(json format only) Pipeline stage to list: 'presort' (submission order), 'postsort' "
-                          "(after the radix sort), or 'postbatch' (what actually executed; default). Falls back "
-                          "to an earlier, populated stage when the requested one is empty." } } },
-                    { "maxCommands",
-                      { { "type", "integer" },
-                        { "minimum", 1 },
-                        { "maximum", 5000 },
-                        { "description",
-                          "(json format only) Cap on commands returned (default 200). The full count and a "
-                          "'truncated' flag are always reported." } } },
-                    { "format",
-                      { { "type", "string" },
-                        { "enum", { "json", "markdown" } },
-                        { "description",
-                          "'json' (default): structured per-command breakdown shaped by viewMode/maxCommands. "
-                          "'markdown': the human/LLM analysis report (covers all stages and commands)." } } } } },
-                { "additionalProperties", false }
-            };
+            tool.InputSchema = Schema::Object()
+                                   .Prop("viewMode", Schema::String()
+                                                         .Enum({ "presort", "postsort", "postbatch" })
+                                                         .Desc("(json format only) Pipeline stage to list: 'presort' (submission order), 'postsort' "
+                                                               "(after the radix sort), or 'postbatch' (what actually executed; default). Falls back "
+                                                               "to an earlier, populated stage when the requested one is empty."))
+                                   .Prop("maxCommands", Schema::Int()
+                                                            .Min(1)
+                                                            .Max(5000)
+                                                            .Desc("(json format only) Cap on commands returned (default 200). The full count and a "
+                                                                  "'truncated' flag are always reported."))
+                                   .Prop("format", Schema::String()
+                                                       .Enum({ "json", "markdown" })
+                                                       .Desc("'json' (default): structured per-command breakdown shaped by viewMode/maxCommands. "
+                                                             "'markdown': the human/LLM analysis report (covers all stages and commands)."))
+                                   .NoAdditional();
             tool.MainMarshaled = true;
             tool.Handler = Handle_RenderFrameBreakdown;
             server.RegisterTool(std::move(tool));
@@ -3823,7 +3773,7 @@ namespace OloEngine::MCP
             tool.Description =
                 "Shaders that currently have compile/link errors, with the error message. Empty when all "
                 "shaders compiled cleanly.";
-            tool.InputSchema = Json{ { "type", "object" }, { "properties", Json::object() }, { "additionalProperties", false } };
+            tool.InputSchema = Schema::EmptyObject();
             tool.MainMarshaled = true;
             tool.Handler = Handle_ShaderErrors;
             server.RegisterTool(std::move(tool));
@@ -3838,14 +3788,11 @@ namespace OloEngine::MCP
             tool.Description =
                 "Details of one shader by name or numeric id: instruction count, compile time, uniforms, "
                 "uniform buffers, samplers, reload count, and (with includeGlsl) the cross-compiled GLSL per stage.";
-            tool.InputSchema = Json{
-                { "type", "object" },
-                { "properties",
-                  { { "name", { { "type", "string" }, { "description", "Shader name (as shown by olo_shader_errors / the shader debugger)." } } },
-                    { "id", { { "type", "integer" }, { "description", "GL program id (alternative to name)." } } },
-                    { "includeGlsl", { { "type", "boolean" }, { "description", "Include the cross-compiled GLSL source per stage (default false)." } } } } },
-                { "additionalProperties", false }
-            };
+            tool.InputSchema = Schema::Object()
+                                   .Prop("name", Schema::String().Desc("Shader name (as shown by olo_shader_errors / the shader debugger)."))
+                                   .Prop("id", Schema::Int().Desc("GL program id (alternative to name)."))
+                                   .Prop("includeGlsl", Schema::Bool().Desc("Include the cross-compiled GLSL source per stage (default false)."))
+                                   .NoAdditional();
             tool.MainMarshaled = true;
             tool.Handler = Handle_ShaderGet;
             server.RegisterTool(std::move(tool));
@@ -3860,7 +3807,7 @@ namespace OloEngine::MCP
             tool.Description =
                 "Inventory of all registered shaders (id, name, hasErrors, instruction count). Use it to "
                 "discover a shader name/id to pass to olo_shader_get.";
-            tool.InputSchema = Json{ { "type", "object" }, { "properties", Json::object() }, { "additionalProperties", false } };
+            tool.InputSchema = Schema::EmptyObject();
             tool.MainMarshaled = true;
             tool.Handler = Handle_ShaderList;
             server.RegisterTool(std::move(tool));
@@ -3888,13 +3835,10 @@ namespace OloEngine::MCP
                 "button) — the call then times out and can crash the editor, so reserve this for edits you "
                 "expect to compile; to inspect a shader's existing errors without recompiling, use "
                 "olo_shader_errors / olo_shader_get instead.";
-            tool.InputSchema = Json{
-                { "type", "object" },
-                { "properties",
-                  { { "name", { { "type", "string" }, { "description", "Shader name to reload (as shown by olo_shader_list)." } } } } },
-                { "required", Json::array({ "name" }) },
-                { "additionalProperties", false }
-            };
+            tool.InputSchema = Schema::Object()
+                                   .Prop("name", Schema::String().Desc("Shader name to reload (as shown by olo_shader_list)."))
+                                   .Required({ "name" })
+                                   .NoAdditional();
             tool.MainMarshaled = true;
             tool.Handler = Handle_ShaderReload;
             server.RegisterTool(std::move(tool));
@@ -3909,14 +3853,10 @@ namespace OloEngine::MCP
             tool.Description =
                 "List the project's registered assets (paginated): handle, type, project-relative path, and "
                 "filename. Optionally filter by asset type (e.g. Texture2D, Mesh, Material, Scene, Script).";
-            tool.InputSchema = Json{
-                { "type", "object" },
-                { "properties",
-                  { { "typeFilter", { { "type", "string" }, { "description", "Asset type name to filter by (e.g. 'Texture2D'). Omit for all types." } } },
-                    { "page", { { "type", "integer" }, { "minimum", 0 }, { "description", "Zero-based page index (default 0)." } } },
-                    { "pageSize", { { "type", "integer" }, { "minimum", 1 }, { "maximum", 200 }, { "description", "Assets per page (default 50, max 200)." } } } } },
-                { "additionalProperties", false }
-            };
+            tool.InputSchema = Schema::Object()
+                                   .Prop("typeFilter", Schema::String().Desc("Asset type name to filter by (e.g. 'Texture2D'). Omit for all types."))
+                                   .Pagination("Assets per page (default 50, max 200).")
+                                   .NoAdditional();
             tool.MainMarshaled = true;
             tool.Handler = Handle_AssetsList;
             server.RegisterTool(std::move(tool));
@@ -3931,7 +3871,7 @@ namespace OloEngine::MCP
             tool.Description =
                 "List assets that failed to load or are missing/invalid (handle, type, path, status). The "
                 "first thing to check when something references an asset that isn't showing up.";
-            tool.InputSchema = Json{ { "type", "object" }, { "properties", Json::object() }, { "additionalProperties", false } };
+            tool.InputSchema = Schema::EmptyObject();
             tool.MainMarshaled = true;
             tool.Handler = Handle_AssetsProblems;
             server.RegisterTool(std::move(tool));
@@ -3946,7 +3886,7 @@ namespace OloEngine::MCP
             tool.Description =
                 "List crash reports written by the engine (crash_<timestamp>.txt under CrashReports/). Each "
                 "entry has an id and size. Use olo_crash_get to read one.";
-            tool.InputSchema = Json{ { "type", "object" }, { "properties", Json::object() }, { "additionalProperties", false } };
+            tool.InputSchema = Schema::EmptyObject();
             tool.MainMarshaled = false;
             tool.Handler = Handle_CrashList;
             server.RegisterTool(std::move(tool));
@@ -3961,12 +3901,10 @@ namespace OloEngine::MCP
             tool.Description =
                 "Read a crash report's full text (exception, system info, last 200 log lines) by its id from "
                 "olo_crash_list. Useful for an AI-summarised, shareable bug report.";
-            tool.InputSchema = Json{
-                { "type", "object" },
-                { "properties", { { "id", { { "type", "string" }, { "description", "Crash report filename (e.g. crash_20260606_143025_123.txt) from olo_crash_list." } } } } },
-                { "required", Json::array({ "id" }) },
-                { "additionalProperties", false }
-            };
+            tool.InputSchema = Schema::Object()
+                                   .Prop("id", Schema::String().Desc("Crash report filename (e.g. crash_20260606_143025_123.txt) from olo_crash_list."))
+                                   .Required({ "id" })
+                                   .NoAdditional();
             tool.MainMarshaled = false;
             tool.Handler = Handle_CrashGet;
             server.RegisterTool(std::move(tool));
@@ -3983,13 +3921,10 @@ namespace OloEngine::MCP
                 "(OloEngine-ScriptCore); language='lua' lists the Sol2 usertypes. Without typeFilter you get "
                 "the type index; with a typeFilter substring you get matching types and their members. Use "
                 "this to answer 'how do I ...' questions grounded in the actual engine API.";
-            tool.InputSchema = Json{
-                { "type", "object" },
-                { "properties",
-                  { { "language", { { "type", "string" }, { "enum", Json::array({ "csharp", "lua" }) }, { "description", "Scripting language (default csharp)." } } },
-                    { "typeFilter", { { "type", "string" }, { "description", "Case-insensitive substring; matching types are returned with their members." } } } } },
-                { "additionalProperties", false }
-            };
+            tool.InputSchema = Schema::Object()
+                                   .Prop("language", Schema::String().Enum({ "csharp", "lua" }).Desc("Scripting language (default csharp)."))
+                                   .Prop("typeFilter", Schema::String().Desc("Case-insensitive substring; matching types are returned with their members."))
+                                   .NoAdditional();
             tool.MainMarshaled = false;
             tool.Handler = Handle_ScriptGetApi;
             server.RegisterTool(std::move(tool));
@@ -4005,12 +3940,9 @@ namespace OloEngine::MCP
                 "Return the most recent C# (Mono) and Lua (Sol2) script exceptions captured by the engine "
                 "(message, originating script/method, entity UUID when known, timestamp). This is the #1 "
                 "thing to check when a game's scripts misbehave. Empty if no script errors have occurred.";
-            tool.InputSchema = Json{
-                { "type", "object" },
-                { "properties",
-                  { { "count", { { "type", "integer" }, { "minimum", 1 }, { "maximum", 64 }, { "description", "How many of the most recent errors to return (default 20)." } } } } },
-                { "additionalProperties", false }
-            };
+            tool.InputSchema = Schema::Object()
+                                   .Prop("count", Schema::Int().Min(1).Max(64).Desc("How many of the most recent errors to return (default 20)."))
+                                   .NoAdditional();
             tool.MainMarshaled = false;
             tool.Handler = Handle_ScriptGetLastErrors;
             server.RegisterTool(std::move(tool));
@@ -4029,19 +3961,14 @@ namespace OloEngine::MCP
                 "INCREMENTAL POLLING: do an action, then pass the previous call's 'lastId' as 'sinceId' to "
                 "get only what happened since. Filter with 'categories'. Bulk churn (scene-copy on Play, "
                 "deserialize on load) is collapsed into single scene_load/play events, not per-entity spam.";
-            tool.InputSchema = Json{
-                { "type", "object" },
-                { "properties",
-                  { { "count",
-                      { { "type", "integer" }, { "minimum", 1 }, { "maximum", 500 }, { "description", "How many of the most recent matching events to return (default 50)." } } },
-                    { "sinceId",
-                      { { "type", Json::array({ "integer", "string" }) }, { "minimum", 0 }, { "description", "Only return events with id greater than this. Accepts the id as a number or its string form (for large cursors beyond JSON integer precision). Pass back the previous response's 'lastId' for incremental polling." } } },
-                    { "categories",
-                      { { "type", "array" },
-                        { "items", { { "type", "string" }, { "enum", Json::array({ "scene_load", "play", "stop", "entity_spawn", "entity_destroy", "asset_reload", "script_error" }) } } },
-                        { "description", "Only return events whose category is in this list. Omit for all categories." } } } } },
-                { "additionalProperties", false }
-            };
+            tool.InputSchema = Schema::Object()
+                                   .Prop("count", Schema::Int().Min(1).Max(500).Desc("How many of the most recent matching events to return (default 50)."))
+                                   .Prop("sinceId", Schema::Raw(Json{ { "type", Json::array({ "integer", "string" }) } })
+                                                        .Min(0)
+                                                        .Desc("Only return events with id greater than this. Accepts the id as a number or its string form (for large cursors beyond JSON integer precision). Pass back the previous response's 'lastId' for incremental polling."))
+                                   .Prop("categories", Schema::Array(Schema::String().Enum({ "scene_load", "play", "stop", "entity_spawn", "entity_destroy", "asset_reload", "script_error" }))
+                                                           .Desc("Only return events whose category is in this list. Omit for all categories."))
+                                   .NoAdditional();
             tool.MainMarshaled = false;
             tool.Handler = Handle_EventsTail;
             server.RegisterTool(std::move(tool));
@@ -4066,19 +3993,12 @@ namespace OloEngine::MCP
                 "rendered ('settleFrames' frames, default 2, for TAA/temporal effects to settle), the "
                 "frame is captured, and the user's camera is restored — so multiple angles can be "
                 "captured without disturbing the viewport.";
-            tool.InputSchema = Json{
-                { "type", "object" },
-                { "properties",
-                  { { "maxWidth", { { "type", "integer" }, { "minimum", 16 }, { "maximum", 4096 }, { "description", "Max output width in pixels (default 1024); aspect ratio preserved." } } },
-                    { "camera",
-                      { { "type", "object" },
-                        { "description", "Capture from this pose, then restore the prior camera. Same shape as olo_camera_set_pose: position [x,y,z] plus target [x,y,z] or yaw/pitch (degrees); optional fov." } } },
-                    { "orbit",
-                      { { "type", "object" },
-                        { "description", "Capture from this orbit pose, then restore. Same shape as olo_camera_orbit: target [x,y,z], yaw/pitch (degrees), distance; optional fov." } } },
-                    { "settleFrames", { { "type", "integer" }, { "minimum", 1 }, { "maximum", 30 }, { "description", "Frames to render at the new pose before capturing (default 2). Raise for temporal effects (TAA, fog history) to settle." } } } } },
-                { "additionalProperties", false }
-            };
+            tool.InputSchema = Schema::Object()
+                                   .Prop("maxWidth", Schema::Int().Min(16).Max(4096).Desc("Max output width in pixels (default 1024); aspect ratio preserved."))
+                                   .Prop("camera", Schema::Object().Desc("Capture from this pose, then restore the prior camera. Same shape as olo_camera_set_pose: position [x,y,z] plus target [x,y,z] or yaw/pitch (degrees); optional fov."))
+                                   .Prop("orbit", Schema::Object().Desc("Capture from this orbit pose, then restore. Same shape as olo_camera_orbit: target [x,y,z], yaw/pitch (degrees), distance; optional fov."))
+                                   .Prop("settleFrames", Schema::Int().Min(1).Max(30).Desc("Frames to render at the new pose before capturing (default 2). Raise for temporal effects (TAA, fog history) to settle."))
+                                   .NoAdditional();
             tool.MainMarshaled = true;
             tool.Handler = Handle_Screenshot;
             server.RegisterTool(std::move(tool));
@@ -4097,7 +4017,7 @@ namespace OloEngine::MCP
                 "(degrees), orbit distance, FOV, near/far clip, and the viewport size in logical pixels. "
                 "Read this before moving the camera so you can put it back, or to reason about what the "
                 "viewport is looking at.";
-            tool.InputSchema = Json{ { "type", "object" }, { "properties", Json::object() }, { "additionalProperties", false } };
+            tool.InputSchema = Schema::EmptyObject();
             tool.MainMarshaled = true;
             tool.Handler = Handle_CameraGet;
             server.RegisterTool(std::move(tool));
@@ -4115,17 +4035,14 @@ namespace OloEngine::MCP
                 "project). Give 'position' plus either 'target' (a point to look at) or 'yaw'/'pitch' in "
                 "degrees; optional 'fov' (vertical, degrees). Returns the resulting pose. The viewport "
                 "renders the new pose from the next frame.";
-            tool.InputSchema = Json{
-                { "type", "object" },
-                { "properties",
-                  { { "position", { { "type", "array" }, { "items", Json{ { "type", "number" } } }, { "minItems", 3 }, { "maxItems", 3 }, { "description", "Camera eye position [x, y, z] (world units)." } } },
-                    { "target", { { "type", "array" }, { "items", Json{ { "type", "number" } } }, { "minItems", 3 }, { "maxItems", 3 }, { "description", "Point to look at [x, y, z]. Alternative to yaw/pitch." } } },
-                    { "yaw", { { "type", "number" }, { "description", "Yaw in degrees (0 looks along -Z; positive turns right). Alternative to target." } } },
-                    { "pitch", { { "type", "number" }, { "description", "Pitch in degrees (positive looks down). Alternative to target." } } },
-                    { "fov", { { "type", "number" }, { "minimum", 1 }, { "maximum", 170 }, { "description", "Vertical field of view in degrees (omit to keep current)." } } } } },
-                { "required", Json::array({ "position" }) },
-                { "additionalProperties", false }
-            };
+            tool.InputSchema = Schema::Object()
+                                   .Prop("position", Schema::Vec3("Camera eye position [x, y, z] (world units)."))
+                                   .Prop("target", Schema::Vec3("Point to look at [x, y, z]. Alternative to yaw/pitch."))
+                                   .Prop("yaw", Schema::Number().Desc("Yaw in degrees (0 looks along -Z; positive turns right). Alternative to target."))
+                                   .Prop("pitch", Schema::Number().Desc("Pitch in degrees (positive looks down). Alternative to target."))
+                                   .Prop("fov", Schema::Number().Min(1).Max(170).Desc("Vertical field of view in degrees (omit to keep current)."))
+                                   .Required({ "position" })
+                                   .NoAdditional();
             tool.MainMarshaled = true;
             tool.Handler = Handle_CameraSetPose;
             server.RegisterTool(std::move(tool));
@@ -4142,17 +4059,14 @@ namespace OloEngine::MCP
                 "'distance' from 'target' looking at it, with 'yaw'/'pitch' in degrees (positive pitch "
                 "looks down). Keeps a live orbit pivot so subsequent user orbiting feels natural. "
                 "Returns the resulting pose.";
-            tool.InputSchema = Json{
-                { "type", "object" },
-                { "properties",
-                  { { "target", { { "type", "array" }, { "items", Json{ { "type", "number" } } }, { "minItems", 3 }, { "maxItems", 3 }, { "description", "Orbit centre [x, y, z] (world units)." } } },
-                    { "yaw", { { "type", "number" }, { "description", "Orbit yaw in degrees (default 0)." } } },
-                    { "pitch", { { "type", "number" }, { "description", "Orbit pitch in degrees, positive looks down (default 30)." } } },
-                    { "distance", { { "type", "number" }, { "exclusiveMinimum", 0 }, { "description", "Distance from the target in world units (default 10)." } } },
-                    { "fov", { { "type", "number" }, { "minimum", 1 }, { "maximum", 170 }, { "description", "Vertical field of view in degrees (omit to keep current)." } } } } },
-                { "required", Json::array({ "target" }) },
-                { "additionalProperties", false }
-            };
+            tool.InputSchema = Schema::Object()
+                                   .Prop("target", Schema::Vec3("Orbit centre [x, y, z] (world units)."))
+                                   .Prop("yaw", Schema::Number().Desc("Orbit yaw in degrees (default 0)."))
+                                   .Prop("pitch", Schema::Number().Desc("Orbit pitch in degrees, positive looks down (default 30)."))
+                                   .Prop("distance", Schema::Number().ExclusiveMin(0).Desc("Distance from the target in world units (default 10)."))
+                                   .Prop("fov", Schema::Number().Min(1).Max(170).Desc("Vertical field of view in degrees (omit to keep current)."))
+                                   .Required({ "target" })
+                                   .NoAdditional();
             tool.MainMarshaled = true;
             tool.Handler = Handle_CameraOrbit;
             server.RegisterTool(std::move(tool));
@@ -4169,13 +4083,10 @@ namespace OloEngine::MCP
                 "in a DCC tool). Uses the entity's mesh/model/terrain bounds when available, otherwise its "
                 "transform scale. Keeps the current view direction. Get the UUID from "
                 "olo_scene_list_entities. Returns the resulting pose.";
-            tool.InputSchema = Json{
-                { "type", "object" },
-                { "properties",
-                  { { "id", { { "type", "string" }, { "description", "Entity UUID (as a string; also accepts a number)." } } } } },
-                { "required", Json::array({ "id" }) },
-                { "additionalProperties", false }
-            };
+            tool.InputSchema = Schema::Object()
+                                   .Prop("id", Schema::EntityId())
+                                   .Required({ "id" })
+                                   .NoAdditional();
             tool.MainMarshaled = true;
             tool.Handler = Handle_CameraFrameEntity;
             server.RegisterTool(std::move(tool));
@@ -4192,14 +4103,11 @@ namespace OloEngine::MCP
                 "(e.g. 1280x720 golden-image comparisons), independent of the panel layout. Pass "
                 "'reset': true to return control to the ImGui panel size. The override persists until "
                 "reset — reset it when you are done capturing.";
-            tool.InputSchema = Json{
-                { "type", "object" },
-                { "properties",
-                  { { "width", { { "type", "integer" }, { "minimum", 64 }, { "maximum", 8192 }, { "description", "Viewport width in logical pixels." } } },
-                    { "height", { { "type", "integer" }, { "minimum", 64 }, { "maximum", 8192 }, { "description", "Viewport height in logical pixels." } } },
-                    { "reset", { { "type", "boolean" }, { "description", "true = clear the override and use the panel size again." } } } } },
-                { "additionalProperties", false }
-            };
+            tool.InputSchema = Schema::Object()
+                                   .Prop("width", Schema::Int().Min(64).Max(8192).Desc("Viewport width in logical pixels."))
+                                   .Prop("height", Schema::Int().Min(64).Max(8192).Desc("Viewport height in logical pixels."))
+                                   .Prop("reset", Schema::Bool().Desc("true = clear the override and use the panel size again."))
+                                   .NoAdditional();
             tool.MainMarshaled = true;
             tool.Handler = Handle_ViewportSetSize;
             server.RegisterTool(std::move(tool));
@@ -4219,7 +4127,7 @@ namespace OloEngine::MCP
                 "water/OIT buffers, etc. Each entry has the canonical resource name (pass to "
                 "olo_render_capture_target), kind, format, size, and producing passes. Requires the "
                 "editor to be rendering in 3D mode.";
-            tool.InputSchema = Json{ { "type", "object" }, { "properties", Json::object() }, { "additionalProperties", false } };
+            tool.InputSchema = Schema::EmptyObject();
             tool.MainMarshaled = true;
             tool.Handler = Handle_RenderListTargets;
             server.RegisterTool(std::move(tool));
@@ -4240,17 +4148,14 @@ namespace OloEngine::MCP
                 "GBufferNormal, ShadowMapCSM, AOBuffer, BloomColor). Float/HDR sources are clamped to "
                 "[0,1]; depth is min-max normalised by default ('normalize' overrides). Returns metadata "
                 "(format, size, value range) plus the image.";
-            tool.InputSchema = Json{
-                { "type", "object" },
-                { "properties",
-                  { { "name", { { "type", "string" }, { "description", "Render-graph resource name (see olo_render_list_targets)." } } },
-                    { "mip", { { "type", "integer" }, { "minimum", 0 }, { "maximum", 16 }, { "description", "Mip level to capture (default 0)." } } },
-                    { "face", { { "type", "integer" }, { "minimum", 0 }, { "maximum", 64 }, { "description", "Cubemap face (0..5 = +X,-X,+Y,-Y,+Z,-Z) or texture-array layer (default 0)." } } },
-                    { "normalize", { { "type", "boolean" }, { "description", "Min-max normalise float values to [0,1] before encoding (default: true for depth, false otherwise)." } } },
-                    { "maxWidth", { { "type", "integer" }, { "minimum", 16 }, { "maximum", 4096 }, { "description", "Max output width in pixels (default 1024); aspect ratio preserved." } } } } },
-                { "required", Json::array({ "name" }) },
-                { "additionalProperties", false }
-            };
+            tool.InputSchema = Schema::Object()
+                                   .Prop("name", Schema::String().Desc("Render-graph resource name (see olo_render_list_targets)."))
+                                   .Prop("mip", Schema::Int().Min(0).Max(16).Desc("Mip level to capture (default 0)."))
+                                   .Prop("face", Schema::Int().Min(0).Max(64).Desc("Cubemap face (0..5 = +X,-X,+Y,-Y,+Z,-Z) or texture-array layer (default 0)."))
+                                   .Prop("normalize", Schema::Bool().Desc("Min-max normalise float values to [0,1] before encoding (default: true for depth, false otherwise)."))
+                                   .Prop("maxWidth", Schema::Int().Min(16).Max(4096).Desc("Max output width in pixels (default 1024); aspect ratio preserved."))
+                                   .Required({ "name" })
+                                   .NoAdditional();
             tool.MainMarshaled = true;
             tool.Handler = Handle_RenderCaptureTarget;
             server.RegisterTool(std::move(tool));
@@ -4275,13 +4180,10 @@ namespace OloEngine::MCP
                 "— a 'note' flags these. The change is EPHEMERAL: it edits the renderer's session-global "
                 "settings, not the scene, so it is never saved and a scene reload restores it. Call with no "
                 "arguments to list every pass with its current enabled state.";
-            tool.InputSchema = Json{
-                { "type", "object" },
-                { "properties",
-                  { { "name", { { "type", "string" }, { "description", "Pass token (e.g. 'bloom', 'ssao', 'ssr', 'fog', 'godrays'). Omit to list all passes + state." } } },
-                    { "enabled", { { "type", "boolean" }, { "description", "Desired state. Omit to toggle (flip the current value)." } } } } },
-                { "additionalProperties", false }
-            };
+            tool.InputSchema = Schema::Object()
+                                   .Prop("name", Schema::String().Desc("Pass token (e.g. 'bloom', 'ssao', 'ssr', 'fog', 'godrays'). Omit to list all passes + state."))
+                                   .Prop("enabled", Schema::Bool().Desc("Desired state. Omit to toggle (flip the current value)."))
+                                   .NoAdditional();
             tool.MainMarshaled = true;
             tool.Handler = Handle_RenderTogglePass;
             server.RegisterTool(std::move(tool));
@@ -4303,13 +4205,10 @@ namespace OloEngine::MCP
                 "first with olo_render_toggle_pass). The change is EPHEMERAL: it edits the renderer's "
                 "session-global settings, not the scene, so it is never saved and a scene reload restores "
                 "it. Call with no arguments to list the modes + current state.";
-            tool.InputSchema = Json{
-                { "type", "object" },
-                { "properties",
-                  { { "mode", { { "type", "string" }, { "enum", Json::array({ "none", "ssao", "gtao", "ssr", "ssgi" }) }, { "description", "Debug view to show. 'none' clears all. Omit to list modes + state." } } },
-                    { "enabled", { { "type", "boolean" }, { "description", "Set false as an alias for mode:'none' (clear all debug views)." } } } } },
-                { "additionalProperties", false }
-            };
+            tool.InputSchema = Schema::Object()
+                                   .Prop("mode", Schema::String().Enum({ "none", "ssao", "gtao", "ssr", "ssgi" }).Desc("Debug view to show. 'none' clears all. Omit to list modes + state."))
+                                   .Prop("enabled", Schema::Bool().Desc("Set false as an alias for mode:'none' (clear all debug views)."))
+                                   .NoAdditional();
             tool.MainMarshaled = true;
             tool.Handler = Handle_RenderSetDebugView;
             server.RegisterTool(std::move(tool));
@@ -4334,13 +4233,10 @@ namespace OloEngine::MCP
                 "so it is never saved and resets on scene reload, play-stop, server-stop, or 'clear':true. "
                 "Pass 'clear':true to restore the authored sun; call with no arguments to read the current "
                 "override state.";
-            tool.InputSchema = Json{
-                { "type", "object" },
-                { "properties",
-                  { { "hours", { { "type", "number" }, { "minimum", 0 }, { "maximum", 24 }, { "description", "Time of day on a 24-hour clock (0=midnight, 6=sunrise, 12=noon, 18=sunset). Omit to read current state." } } },
-                    { "clear", { { "type", "boolean" }, { "description", "Set true to remove the override and restore the scene's authored sun direction." } } } } },
-                { "additionalProperties", false }
-            };
+            tool.InputSchema = Schema::Object()
+                                   .Prop("hours", Schema::Number().Min(0).Max(24).Desc("Time of day on a 24-hour clock (0=midnight, 6=sunrise, 12=noon, 18=sunset). Omit to read current state."))
+                                   .Prop("clear", Schema::Bool().Desc("Set true to remove the override and restore the scene's authored sun direction."))
+                                   .NoAdditional();
             tool.MainMarshaled = true;
             tool.Handler = Handle_SceneSetTimeOfDay;
             server.RegisterTool(std::move(tool));
@@ -4365,14 +4261,11 @@ namespace OloEngine::MCP
                 "so it is never saved and resets on scene reload, play-stop, server-stop, or 'clear':true. "
                 "Pass 'clear':true to restore the authored sun; call with no arguments to read the current "
                 "override state.";
-            tool.InputSchema = Json{
-                { "type", "object" },
-                { "properties",
-                  { { "yaw", { { "type", "number" }, { "description", "Azimuth in degrees (0=+Z, 90=+X/east, 180=-Z, 270=-X/west). Required together with 'pitch' to set." } } },
-                    { "pitch", { { "type", "number" }, { "minimum", -90 }, { "maximum", 90 }, { "description", "Elevation in degrees above the horizon (90=up, 0=horizon, negative=below). Required together with 'yaw' to set." } } },
-                    { "clear", { { "type", "boolean" }, { "description", "Set true to remove the override and restore the scene's authored sun direction." } } } } },
-                { "additionalProperties", false }
-            };
+            tool.InputSchema = Schema::Object()
+                                   .Prop("yaw", Schema::Number().Desc("Azimuth in degrees (0=+Z, 90=+X/east, 180=-Z, 270=-X/west). Required together with 'pitch' to set."))
+                                   .Prop("pitch", Schema::Number().Min(-90).Max(90).Desc("Elevation in degrees above the horizon (90=up, 0=horizon, negative=below). Required together with 'yaw' to set."))
+                                   .Prop("clear", Schema::Bool().Desc("Set true to remove the override and restore the scene's authored sun direction."))
+                                   .NoAdditional();
             tool.MainMarshaled = true;
             tool.Handler = Handle_SceneSetSunAngle;
             server.RegisterTool(std::move(tool));
@@ -4401,23 +4294,16 @@ namespace OloEngine::MCP
                 "override the default cascade. Use the SAME capture size when creating and comparing "
                 "(set one with olo_viewport_set_size) or the dimensions will mismatch. Returns the "
                 "verdict JSON plus the captured frame as an image block.";
-            tool.InputSchema = Json{
-                { "type", "object" },
-                { "properties",
-                  { { "goldenPath", { { "type", "string" }, { "description", "Golden PNG path under assets/tests/visual/ (e.g. 'water_side.png'). A '.png' extension is added if missing. Relative only — no '..' or absolute paths." } } },
-                    { "threshold", { { "type", "number" }, { "minimum", 0 }, { "maximum", 1 }, { "description", "Minimum SSIM similarity in [0,1] to pass (1 = identical). Omit to use the suite's RMSE→SSIM cascade verdict (the default, consistent with the golden test suite)." } } },
-                    { "rebase", { { "type", "boolean" }, { "description", "true = overwrite the golden with the current capture instead of comparing (re-baseline after a deliberate visual change). A missing golden is always created regardless." } } },
-                    { "camera",
-                      { { "type", "object" },
-                        { "description", "Capture from this pose, then restore the prior camera. Same shape as olo_camera_set_pose: position [x,y,z] plus target [x,y,z] or yaw/pitch (degrees); optional fov." } } },
-                    { "orbit",
-                      { { "type", "object" },
-                        { "description", "Capture from this orbit pose, then restore. Same shape as olo_camera_orbit: target [x,y,z], yaw/pitch (degrees), distance; optional fov." } } },
-                    { "settleFrames", { { "type", "integer" }, { "minimum", 1 }, { "maximum", 30 }, { "description", "Frames to render at the new pose before capturing (default 2). Raise for temporal effects (TAA, fog history) to settle." } } },
-                    { "maxWidth", { { "type", "integer" }, { "minimum", 16 }, { "maximum", 4096 }, { "description", "Max capture width in pixels (default 1024); aspect ratio preserved. Must match between create and compare." } } } } },
-                { "required", Json::array({ "goldenPath" }) },
-                { "additionalProperties", false }
-            };
+            tool.InputSchema = Schema::Object()
+                                   .Prop("goldenPath", Schema::String().Desc("Golden PNG path under assets/tests/visual/ (e.g. 'water_side.png'). A '.png' extension is added if missing. Relative only — no '..' or absolute paths."))
+                                   .Prop("threshold", Schema::Number().Min(0).Max(1).Desc("Minimum SSIM similarity in [0,1] to pass (1 = identical). Omit to use the suite's RMSE→SSIM cascade verdict (the default, consistent with the golden test suite)."))
+                                   .Prop("rebase", Schema::Bool().Desc("true = overwrite the golden with the current capture instead of comparing (re-baseline after a deliberate visual change). A missing golden is always created regardless."))
+                                   .Prop("camera", Schema::Object().Desc("Capture from this pose, then restore the prior camera. Same shape as olo_camera_set_pose: position [x,y,z] plus target [x,y,z] or yaw/pitch (degrees); optional fov."))
+                                   .Prop("orbit", Schema::Object().Desc("Capture from this orbit pose, then restore. Same shape as olo_camera_orbit: target [x,y,z], yaw/pitch (degrees), distance; optional fov."))
+                                   .Prop("settleFrames", Schema::Int().Min(1).Max(30).Desc("Frames to render at the new pose before capturing (default 2). Raise for temporal effects (TAA, fog history) to settle."))
+                                   .Prop("maxWidth", Schema::Int().Min(16).Max(4096).Desc("Max capture width in pixels (default 1024); aspect ratio preserved. Must match between create and compare."))
+                                   .Required({ "goldenPath" })
+                                   .NoAdditional();
             tool.MainMarshaled = true; // reads main-thread-only camera/viewport state (like olo_screenshot)
             tool.Handler = Handle_RenderCompareGolden;
             server.RegisterTool(std::move(tool));
@@ -4436,7 +4322,7 @@ namespace OloEngine::MCP
                 "Jolt object layers (NON_MOVING, MOVING, TRIGGER, CHARACTER, DEBRIS) plus every user-defined "
                 "physics layer, with the pairwise collide/no-collide result from the real layer filter. Use "
                 "this to confirm whether two layers are even allowed to collide. Works in Edit mode too.";
-            tool.InputSchema = Json{ { "type", "object" }, { "properties", Json::object() }, { "additionalProperties", false } };
+            tool.InputSchema = Schema::EmptyObject();
             tool.MainMarshaled = false;
             tool.Handler = Handle_PhysicsLayerMatrix;
             server.RegisterTool(std::move(tool));
@@ -4453,13 +4339,9 @@ namespace OloEngine::MCP
                 "(Static/Dynamic/Kinematic), collision layer id, trigger flag, and collider shape(s). When "
                 "physics is running, also reports the live body's object layer, world position, and "
                 "awake/asleep state. Pair with olo_physics_why_no_collision to debug missing collisions.";
-            tool.InputSchema = Json{
-                { "type", "object" },
-                { "properties",
-                  { { "page", { { "type", "integer" }, { "minimum", 0 }, { "description", "Zero-based page index (default 0)." } } },
-                    { "pageSize", { { "type", "integer" }, { "minimum", 1 }, { "maximum", 200 }, { "description", "Entities per page (default 50, max 200)." } } } } },
-                { "additionalProperties", false }
-            };
+            tool.InputSchema = Schema::Object()
+                                   .Pagination("Entities per page (default 50, max 200).")
+                                   .NoAdditional();
             tool.MainMarshaled = true;
             tool.Handler = Handle_PhysicsListColliders;
             server.RegisterTool(std::move(tool));
@@ -4475,12 +4357,9 @@ namespace OloEngine::MCP
                 "List the entity pairs whose physics bodies are touching right now (live active-contact set, "
                 "deduplicated per pair). Requires Play mode. Use this to confirm a collision/trigger is "
                 "actually being detected by the engine.";
-            tool.InputSchema = Json{
-                { "type", "object" },
-                { "properties",
-                  { { "maxResults", { { "type", "integer" }, { "minimum", 1 }, { "maximum", 2000 }, { "description", "Max contact pairs to return (default 200)." } } } } },
-                { "additionalProperties", false }
-            };
+            tool.InputSchema = Schema::Object()
+                                   .Prop("maxResults", Schema::Int().Min(1).Max(2000).Desc("Max contact pairs to return (default 200)."))
+                                   .NoAdditional();
             tool.MainMarshaled = true;
             tool.Handler = Handle_PhysicsContacts;
             server.RegisterTool(std::move(tool));
@@ -4497,40 +4376,28 @@ namespace OloEngine::MCP
                 "either 'direction' (a vector) or 'to' (an end point). Returns the closest hit by default, or "
                 "up to 'maxHits' ordered hits, each with the hit entity, world position, surface normal, and "
                 "distance. Requires Play mode.";
-            tool.InputSchema = Json{
-                { "type", "object" },
-                { "properties",
-                  { { "origin", { { "type", "array" }, { "description", "Ray start [x, y, z]." } } },
-                    { "direction", { { "type", "array" }, { "description", "Ray direction [x, y, z] (need not be normalised). Provide this or 'to'." } } },
-                    { "to", { { "type", "array" }, { "description", "Ray end point [x, y, z]; sets direction and distance. Provide this or 'direction'." } } },
-                    { "maxDistance", { { "type", "number" }, { "description", "Max ray length when using 'direction' (default 500)." } } },
-                    { "maxHits", { { "type", "integer" }, { "minimum", 1 }, { "maximum", 64 }, { "description", "Return up to N ordered hits (default 1 = closest only)." } } } } },
-                { "required", Json::array({ "origin" }) },
-                { "additionalProperties", false }
-            };
-            tool.OutputSchema = Json{
-                { "type", "object" },
-                { "properties",
-                  { { "origin", { { "type", "array" }, { "items", { { "type", "number" } } }, { "description", "Resolved ray origin [x, y, z]." } } },
-                    { "direction", { { "type", "array" }, { "items", { { "type", "number" } } }, { "description", "Resolved normalised ray direction [x, y, z]." } } },
-                    { "maxDistance", { { "type", "number" }, { "description", "Resolved ray length." } } },
-                    { "hitCount", { { "type", "integer" }, { "minimum", 0 }, { "description", "Number of hits returned." } } },
-                    { "hits",
-                      { { "type", "array" },
-                        { "description", "Hits ordered nearest-first." },
-                        { "items",
-                          { { "type", "object" },
-                            { "properties",
-                              { { "entity",
-                                  { { "type", "object" },
-                                    { "properties",
-                                      { { "id", { { "type", "string" } } },
-                                        { "name", { { "type", "string" } } } } } } },
-                                { "position", { { "type", "array" }, { "items", { { "type", "number" } } } } },
-                                { "normal", { { "type", "array" }, { "items", { { "type", "number" } } } } },
-                                { "distance", { { "type", "number" } } } } } } } } } } },
-                { "required", Json::array({ "origin", "direction", "maxDistance", "hitCount", "hits" }) }
-            };
+            tool.InputSchema = Schema::Object()
+                                   .Prop("origin", Schema::Array().Desc("Ray start [x, y, z]."))
+                                   .Prop("direction", Schema::Array().Desc("Ray direction [x, y, z] (need not be normalised). Provide this or 'to'."))
+                                   .Prop("to", Schema::Array().Desc("Ray end point [x, y, z]; sets direction and distance. Provide this or 'direction'."))
+                                   .Prop("maxDistance", Schema::Number().Desc("Max ray length when using 'direction' (default 500)."))
+                                   .Prop("maxHits", Schema::Int().Min(1).Max(64).Desc("Return up to N ordered hits (default 1 = closest only)."))
+                                   .Required({ "origin" })
+                                   .NoAdditional();
+            tool.OutputSchema = Schema::Object()
+                                    .Prop("origin", Schema::Array(Schema::Number()).Desc("Resolved ray origin [x, y, z]."))
+                                    .Prop("direction", Schema::Array(Schema::Number()).Desc("Resolved normalised ray direction [x, y, z]."))
+                                    .Prop("maxDistance", Schema::Number().Desc("Resolved ray length."))
+                                    .Prop("hitCount", Schema::Int().Min(0).Desc("Number of hits returned."))
+                                    .Prop("hits", Schema::Array(Schema::Object()
+                                                                    .Prop("entity", Schema::Object()
+                                                                                        .Prop("id", Schema::String())
+                                                                                        .Prop("name", Schema::String()))
+                                                                    .Prop("position", Schema::Array(Schema::Number()))
+                                                                    .Prop("normal", Schema::Array(Schema::Number()))
+                                                                    .Prop("distance", Schema::Number()))
+                                                      .Desc("Hits ordered nearest-first."))
+                                    .Required({ "origin", "direction", "maxDistance", "hitCount", "hits" });
             tool.MainMarshaled = true;
             tool.Handler = Handle_PhysicsRaycast;
             server.RegisterTool(std::move(tool));
@@ -4546,16 +4413,13 @@ namespace OloEngine::MCP
                 "Find the physics bodies overlapping a shape at a world point. Pass 'origin' plus 'radius' "
                 "for a sphere (the default), or 'halfExtents' [x,y,z] for a box. Returns the overlapping "
                 "entities and their positions. Requires Play mode.";
-            tool.InputSchema = Json{
-                { "type", "object" },
-                { "properties",
-                  { { "origin", { { "type", "array" }, { "description", "Query centre [x, y, z]." } } },
-                    { "radius", { { "type", "number" }, { "description", "Sphere radius (default 0.5; ignored if 'halfExtents' is given)." } } },
-                    { "halfExtents", { { "type", "array" }, { "description", "Box half-extents [x, y, z]; selects a box query instead of a sphere." } } },
-                    { "maxHits", { { "type", "integer" }, { "minimum", 1 }, { "maximum", 256 }, { "description", "Max overlapping bodies to return (default 32)." } } } } },
-                { "required", Json::array({ "origin" }) },
-                { "additionalProperties", false }
-            };
+            tool.InputSchema = Schema::Object()
+                                   .Prop("origin", Schema::Array().Desc("Query centre [x, y, z]."))
+                                   .Prop("radius", Schema::Number().Desc("Sphere radius (default 0.5; ignored if 'halfExtents' is given)."))
+                                   .Prop("halfExtents", Schema::Array().Desc("Box half-extents [x, y, z]; selects a box query instead of a sphere."))
+                                   .Prop("maxHits", Schema::Int().Min(1).Max(256).Desc("Max overlapping bodies to return (default 32)."))
+                                   .Required({ "origin" })
+                                   .NoAdditional();
             tool.MainMarshaled = true;
             tool.Handler = Handle_PhysicsOverlap;
             server.RegisterTool(std::move(tool));
@@ -4573,14 +4437,11 @@ namespace OloEngine::MCP
                 "exist, both have a rigidbody + collider + live body, not both Static, their collision layers "
                 "are allowed to collide, neither is a trigger, and their bounds overlap. Returns the root-cause "
                 "reasonCode, a human summary, the ordered checks performed, and the raw facts for each entity.";
-            tool.InputSchema = Json{
-                { "type", "object" },
-                { "properties",
-                  { { "a", { { "type", "string" }, { "description", "First entity UUID (string; also accepts a number)." } } },
-                    { "b", { { "type", "string" }, { "description", "Second entity UUID (string; also accepts a number)." } } } } },
-                { "required", Json::array({ "a", "b" }) },
-                { "additionalProperties", false }
-            };
+            tool.InputSchema = Schema::Object()
+                                   .Prop("a", Schema::String().Desc("First entity UUID (string; also accepts a number)."))
+                                   .Prop("b", Schema::String().Desc("Second entity UUID (string; also accepts a number)."))
+                                   .Required({ "a", "b" })
+                                   .NoAdditional();
             tool.MainMarshaled = true;
             tool.Handler = Handle_PhysicsWhyNoCollision;
             server.RegisterTool(std::move(tool));
@@ -4601,13 +4462,10 @@ namespace OloEngine::MCP
                 "camera) it is in front of the camera and inside the view frustum. Returns the root-cause "
                 "reasonCode, a human summary, the ordered checks, and the raw facts. Note: per-frame occlusion "
                 "(HZB) and LOD culling are not queryable from the editor and are reported as not-observable.";
-            tool.InputSchema = Json{
-                { "type", "object" },
-                { "properties",
-                  { { "entity", { { "type", "string" }, { "description", "Entity UUID (string; also accepts a number)." } } } } },
-                { "required", Json::array({ "entity" }) },
-                { "additionalProperties", false }
-            };
+            tool.InputSchema = Schema::Object()
+                                   .Prop("entity", Schema::String().Desc("Entity UUID (string; also accepts a number)."))
+                                   .Required({ "entity" })
+                                   .NoAdditional();
             tool.MainMarshaled = true;
             tool.Handler = Handle_RenderWhyNotVisible;
             server.RegisterTool(std::move(tool));
