@@ -644,8 +644,11 @@ void main()
                 lightContrib *= shadow;
             }
         }
-        else if (lightType == POINT_LIGHT)
+        else if (lightType == POINT_LIGHT || lightType == SPHERE_AREA_LIGHT)
         {
+            // Sphere area lights reuse the point-light cubemap shadow pool
+            // (hard shadow from the emitter centre / representative point);
+            // direction.w carries the shared point-shadow slot (Scene.cpp).
             int pointShadowIdx = int(u_Lights[i].direction.w);
             if (pointShadowIdx >= 0 && pointShadowIdx < u_PointShadowCount)
             {

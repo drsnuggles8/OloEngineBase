@@ -143,8 +143,13 @@ vec3 ComputeDeferredLit(
                 lightContrib *= shadow;
             }
         }
-        else if (lightType == POINT_LIGHT)
+        else if (lightType == POINT_LIGHT || lightType == SPHERE_AREA_LIGHT)
         {
+            // Sphere area lights cast hard shadows from their centre (the
+            // representative point), so they reuse the point-light cubemap pool:
+            // Scene.cpp tags direction.w with a shared point-shadow slot and
+            // registers a cubemap there, so the identical lookup below works for
+            // both. Soft penumbra from the emitter radius is a Phase-2 follow-up.
             int pointShadowIdx = int(u_Lights[i].direction.w);
             if (pointShadowIdx >= 0 && pointShadowIdx < u_PointShadowCount)
             {

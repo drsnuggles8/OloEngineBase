@@ -3705,10 +3705,27 @@ namespace OloEngine
 
                 auto& data = multiLightData.Lights[lightIndex];
                 data.Position = glm::vec4(transform.Translation, 3.0f); // w=3 for sphere area
-                data.Direction = glm::vec4(0.0f, -1.0f, 0.0f, -1.0f);   // no shadow path yet
                 data.Color = glm::vec4(areaLight.m_Color, areaLight.m_Intensity);
                 data.AttenuationParams = glm::vec4(1.0f, 0.0f, 0.0f, areaLight.m_Range);
                 data.SpotParams = glm::vec4(0.0f, 0.0f, areaLight.m_Radius, 3.0f); // type = SPHERE_AREA_LIGHT = 3
+
+                // Sphere area lights cast hard shadows by treating the emitter as a
+                // point light at its centre (the representative point), so they
+                // borrow a slot from the SAME point-light cubemap pool — hence the
+                // shared pointShadowIndex counter, continued after the point lights
+                // above. The shadow index rides in direction.w exactly like point
+                // lights; the shader's POINT_LIGHT||SPHERE_AREA_LIGHT branch samples
+                // u_ShadowMapPointN with it. The setup loop below registers the
+                // matching cubemap via SetPointLightShadow at the same index.
+                if (areaLight.m_CastShadows && pointShadowIndex < ShadowMap::MAX_POINT_SHADOWS)
+                {
+                    data.Direction = glm::vec4(0.0f, -1.0f, 0.0f, static_cast<f32>(pointShadowIndex));
+                    ++pointShadowIndex;
+                }
+                else
+                {
+                    data.Direction = glm::vec4(0.0f, -1.0f, 0.0f, -1.0f); // no shadow
+                }
 
                 ++lightIndex;
             }
@@ -3856,6 +3873,35 @@ namespace OloEngine
                         pointLight.m_Range);
                     ++pointIdx;
                 }
+
+                // Sphere area lights share the point-light cubemap shadow pool:
+                // continue the SAME pointIdx so each casting area light gets a
+                // cubemap at the index its direction.w was tagged with in the
+                // light-upload loop above. Treated as a point at the sphere
+                // centre with the area light's range as the cubemap far plane —
+                // a hard representative-point shadow (soft penumbra from the
+                // emitter radius is a Phase-2 follow-up).
+                for (auto entity : sphereAreaLightView)
+                {
+                    if (pointIdx >= ShadowMap::MAX_POINT_SHADOWS)
+                    {
+                        break;
+                    }
+
+                    const auto& [transform, areaLight] =
+                        sphereAreaLightView.get<TransformComponent, SphereAreaLightComponent>(entity);
+                    if (!areaLight.m_CastShadows)
+                    {
+                        continue;
+                    }
+
+                    shadowMap.SetPointLightShadow(
+                        pointIdx,
+                        transform.Translation,
+                        areaLight.m_Range);
+                    ++pointIdx;
+                }
+
                 shadowMap.SetPointShadowCount(static_cast<i32>(pointIdx));
             }
 

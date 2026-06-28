@@ -1,0 +1,113 @@
+Scene: SphereAreaLightShadowTest.olo
+# ─────────────────────────────────────────────────────────────────────────────
+# Sphere area-light SHADOW demo scene.
+#
+# A neutral grey floor with a cube resting on it, lit by a single bright sphere
+# area light up and to the LEFT (-X). With the light's "Cast Shadows" ON, the
+# cube casts a hard shadow onto the floor on its RIGHT (+X) side — the area
+# light is treated as a point at its centre (the representative point) and
+# borrows a slot from the point-light cubemap shadow pool.
+#
+# Toggle the sphere area light's "Cast Shadows" off/on in the inspector to
+# compare: off → the floor is uniformly lit by the area light; on → a shadow
+# appears in the cube's lee. Soft penumbra sized from the emitter radius (PCSS)
+# is a Phase-2 follow-up, so the shadow edge is hard here.
+#
+# A dim skybox IBL provides a little ambient so the shadowed (area-light-less)
+# floor reads as a darker grey rather than pure black.
+# ─────────────────────────────────────────────────────────────────────────────
+PostProcessSettings:
+  TonemapOperator: 2
+  Exposure: 1
+  Gamma: 2.2
+  BloomEnabled: false
+  ColorGradingEnabled: false
+  FXAAEnabled: true
+  SSAOEnabled: false
+  GTAOEnabled: false
+  SSREnabled: false
+  SSGIEnabled: false
+  ContactShadowEnabled: false
+Entities:
+  # -- Camera: above the floor, looking down across the cube --
+  - Entity: 830000000000001
+    TagComponent:
+      Tag: Camera
+    TransformComponent:
+      Translation: [0, 6, 14]
+      Rotation: [-0.32, 0, 0]
+      Scale: [1, 1, 1]
+    CameraComponent:
+      Camera:
+        ProjectionType: 0
+        PerspectiveFOV: 0.785398185
+        PerspectiveNear: 0.01
+        PerspectiveFar: 1000
+        OrthographicSize: 10
+        OrthographicNear: -1
+        OrthographicFar: 1
+      Primary: true
+      FixedAspectRatio: false
+  # -- Skybox + dim IBL (so the shadowed floor reads as dark grey, not black) --
+  - Entity: 830000000000002
+    TagComponent:
+      Tag: Skybox
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    EnvironmentMapComponent:
+      FilePath: assets/textures/hdr/newport_loft.hdr
+      IsCubemapFolder: false
+      EnableSkybox: true
+      Rotation: 0
+      Exposure: 0.4
+      BlurAmount: 0
+      EnableIBL: true
+      IBLIntensity: 0.15
+      Tint: [1, 1, 1]
+  # -- Bright sphere area light, up and to the LEFT. Cast Shadows ON: the cube
+  #    casts a hard shadow onto the +X floor. High intensity offsets the
+  #    inverse-square area-light falloff so the floor is clearly lit. --
+  - Entity: 830000000000003
+    TagComponent:
+      Tag: AreaLight
+    TransformComponent:
+      Translation: [-5, 6, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    SphereAreaLightComponent:
+      Color: [1, 0.97, 0.92]
+      Intensity: 120
+      Radius: 0.5
+      Range: 30
+      CastShadows: true
+  # -- Neutral grey floor (the shadow receiver) --
+  - Entity: 830000000000004
+    TagComponent:
+      Tag: GreyFloor
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [40, 1, 40]
+    MeshComponent:
+      Primitive: 3
+    MaterialComponent:
+      AlbedoColor: [0.72, 0.72, 0.72]
+      Metallic: 0
+      Roughness: 1
+  # -- Cube resting on the floor (unit cube spans -0.5..0.5, so scale-3 centred
+  #    at y=1.5 puts its base on y=0). It occludes the area light. --
+  - Entity: 830000000000005
+    TagComponent:
+      Tag: Occluder
+    TransformComponent:
+      Translation: [0, 1.5, 0]
+      Rotation: [0, 0, 0]
+      Scale: [3, 3, 3]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.8, 0.8, 0.82]
+      Metallic: 0
+      Roughness: 1

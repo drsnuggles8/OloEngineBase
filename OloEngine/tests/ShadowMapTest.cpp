@@ -355,6 +355,48 @@ TEST_F(ShadowMapMatrixTest, PointLightFaceMatricesProject90DegreeFOV)
     EXPECT_LT(ndc.z, 1.0f);
 }
 
+// Sphere area-light shadows reuse the SAME point-light cubemap pool: Scene.cpp
+// registers a casting area light via SetPointLightShadow at an index that
+// continues after the point lights, with the area light's range as the far
+// plane. This pins that the reuse path stores independent, valid data for a
+// point light at slot 0 and an area light at slot 1 — no aliasing between the
+// two, and the area light's range round-trips as the cubemap far plane.
+TEST_F(ShadowMapMatrixTest, SphereAreaLightReusesPointPoolAtNextSlot)
+{
+    const glm::vec3 pointPos(0.0f, 5.0f, 0.0f);
+    constexpr f32 pointRange = 25.0f;
+    const glm::vec3 areaCentre(8.0f, 4.0f, -2.0f);
+    constexpr f32 areaRange = 12.0f;
+
+    // Slot 0: a point light. Slot 1: a sphere area light (centre + range),
+    // exactly the calls Scene.cpp makes for the shared pool.
+    shadowMap.SetPointLightShadow(0, pointPos, pointRange);
+    shadowMap.SetPointLightShadow(1, areaCentre, areaRange);
+
+    // The area light's params round-trip independently of the point light's.
+    const glm::vec4& areaParams = shadowMap.GetPointShadowParams(1);
+    EXPECT_FLOAT_EQ(areaParams.x, areaCentre.x);
+    EXPECT_FLOAT_EQ(areaParams.y, areaCentre.y);
+    EXPECT_FLOAT_EQ(areaParams.z, areaCentre.z);
+    EXPECT_FLOAT_EQ(areaParams.w, areaRange) << "area-light range must drive the cubemap far plane";
+
+    // Slot 0 is untouched by the slot-1 write (no aliasing).
+    const glm::vec4& pointParams = shadowMap.GetPointShadowParams(0);
+    EXPECT_FLOAT_EQ(pointParams.x, pointPos.x);
+    EXPECT_FLOAT_EQ(pointParams.w, pointRange);
+
+    // The area light gets its own 6 distinct, non-trivial face matrices, and
+    // they differ from the point light's (different centre).
+    for (u32 face = 0; face < 6; ++face)
+    {
+        const glm::mat4& m = shadowMap.GetPointFaceMatrix(1, face);
+        EXPECT_NE(m, glm::mat4(0.0f)) << "area-light face " << face << " is zero";
+        EXPECT_NE(m, glm::mat4(1.0f)) << "area-light face " << face << " is identity";
+        EXPECT_NE(m, shadowMap.GetPointFaceMatrix(0, face))
+            << "area-light face " << face << " aliases the point light's face";
+    }
+}
+
 // =============================================================================
 // ShadowMap Per-Frame State Tests
 // =============================================================================
