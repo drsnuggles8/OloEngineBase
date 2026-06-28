@@ -33,7 +33,7 @@ namespace OloEngine
         bool Loop = false; ///< restart from 0 when the playhead reaches the end
 
         OLO_PROPERTY()
-        f32 PlaybackSpeed = 1.0f; ///< time scale (>= 0; reverse playback is future work)
+        f32 PlaybackSpeed = 1.0f; ///< time scale; negative plays the sequence backward, 0 holds the playhead
 
         // ----- Runtime state (never serialized) -----
         /// Resolved sequence. Set directly for code/tests, or lazily loaded

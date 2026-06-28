@@ -2542,7 +2542,7 @@ namespace OloEngine
                                              "playOnStart", &CinematicComponent::PlayOnStart,
                                              "playbackSpeed", sol::property([](const CinematicComponent& c)
                                                                             { return c.PlaybackSpeed; }, [](CinematicComponent& c, f32 v)
-                                                                            { if (std::isfinite(v) && v >= 0.0f) c.PlaybackSpeed = v; }),
+                                                                            { if (std::isfinite(v)) c.PlaybackSpeed = v; }), // negative = reverse playback, 0 = hold
                                              "isPlaying", sol::readonly(&CinematicComponent::Playing),
                                              "time", sol::readonly(&CinematicComponent::Time),
                                              "isFinished", sol::readonly(&CinematicComponent::Finished));

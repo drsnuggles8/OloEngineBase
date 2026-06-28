@@ -10,6 +10,7 @@
 #include "OloEngine/Scene/Scene.h"
 #include "OloEngine/Scene/Components.h"
 
+#include <cmath>
 #include <optional>
 
 namespace OloEngine
@@ -99,6 +100,29 @@ namespace OloEngine
     void CinematicSystem::Advance(Scene& scene, CinematicComponent& component, CinematicSequence& sequence, f32 dt)
     {
         OLO_PROFILE_FUNCTION();
+
+        // Direction-aware start. Play() / PlayFromStart() / PlayOnStart / Stop()
+        // all leave the playhead at the forward start (Time == 0, PreviousTime
+        // == -1 sentinel) — but Time == 0 is the *finish* line for reverse, so a
+        // negative-speed run from there would JustFinish on its first step
+        // having played nothing. When a fresh sequence is set to play backward,
+        // seed it to the end so it actually plays the timeline in reverse. The
+        // sentinel (PreviousTime < 0) only holds at a fresh start; resuming after
+        // a pause keeps a real PreviousTime >= 0 and is left untouched. Set
+        // PreviousTime to `duration` (not the -1 sentinel) so the first backward
+        // step's event window is [newTime, duration) — there is no t==duration
+        // sentinel, mirroring how forward has no "fire t==0 again" on resume.
+        if (component.PlaybackSpeed < 0.0f && component.PreviousTime < 0.0f)
+        {
+            const f32 startDuration = sequence.GetEffectiveDuration();
+            // isfinite rejects a corrupt +Inf duration (NaN already fails > 0)
+            // so a bad asset can't poison the playhead before Tick/ApplyAtTime.
+            if (std::isfinite(startDuration) && startDuration > 0.0f)
+            {
+                component.Time = startDuration;
+                component.PreviousTime = startDuration;
+            }
+        }
 
         const CinematicPlayer::TickResult tick =
             CinematicPlayer::Tick(sequence, component.Time, component.PreviousTime, dt, component.PlaybackSpeed, component.Loop);

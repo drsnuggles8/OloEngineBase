@@ -3068,8 +3068,9 @@ namespace OloEngine
             cine.Sequence = cinematicComponent["Sequence"].as<u64>(0);
             cine.PlayOnStart = cinematicComponent["PlayOnStart"].as<bool>(cine.PlayOnStart);
             cine.Loop = cinematicComponent["Loop"].as<bool>(cine.Loop);
+            // Negative is valid (reverse playback); only reject non-finite.
             if (const f32 speed = cinematicComponent["PlaybackSpeed"].as<f32>(cine.PlaybackSpeed);
-                std::isfinite(speed) && speed >= 0.0f)
+                std::isfinite(speed))
             {
                 cine.PlaybackSpeed = speed;
             }

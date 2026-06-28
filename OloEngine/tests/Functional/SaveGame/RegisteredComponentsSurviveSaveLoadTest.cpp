@@ -220,7 +220,7 @@ class RegisteredComponentsSurviveSaveLoadTest : public FunctionalTest
             cine.Sequence = AssetHandle{ 55 };
             cine.PlayOnStart = true;
             cine.Loop = true;
-            cine.PlaybackSpeed = 2.0f;
+            cine.PlaybackSpeed = -2.0f; // negative = reverse; must survive the save-game clamp
         }
 
         // --- AI (blackboards are the save-game-specific payload: they hold
@@ -534,7 +534,7 @@ TEST_F(RegisteredComponentsSurviveSaveLoadTest, PreviouslyDroppedComponentsRound
                                    EXPECT_EQ(static_cast<u64>(cine.Sequence), 55u);
                                    EXPECT_TRUE(cine.PlayOnStart);
                                    EXPECT_TRUE(cine.Loop);
-                                   EXPECT_FLOAT_EQ(cine.PlaybackSpeed, 2.0f);
+                                   EXPECT_FLOAT_EQ(cine.PlaybackSpeed, -2.0f); // reverse speed round-trips
                                });
 
     Verify<BehaviorTreeComponent>(restored, "BehaviorTreeComponent",

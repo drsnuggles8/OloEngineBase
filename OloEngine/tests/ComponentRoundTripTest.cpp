@@ -1969,6 +1969,45 @@ namespace OloEngine::Tests
     }
 
     // -------------------------------------------------------------------------
+    // CinematicComponent — authoring fields, with a NEGATIVE PlaybackSpeed to
+    // prove reverse playback survives the scene round-trip. The deserializer
+    // historically rejected speed < 0 (forward-only); reverse playback widened
+    // the valid range, so the read path must accept (only) finite negatives.
+    // -------------------------------------------------------------------------
+    TEST(ComponentRoundTrip, CinematicComponentReverseSpeedSurvivesYAMLRoundTrip)
+    {
+        const u64 expectedSequence = 4242u;
+        const bool expectedPlayOnStart = true;
+        const bool expectedLoop = true;
+        const f32 expectedPlaybackSpeed = -1.5f; // reverse
+
+        std::string yaml;
+        {
+            auto scene = Scene::Create();
+            Entity entity = scene->CreateEntity(kTestTag);
+            auto& cine = entity.AddComponent<CinematicComponent>();
+            cine.Sequence = AssetHandle{ expectedSequence };
+            cine.PlayOnStart = expectedPlayOnStart;
+            cine.Loop = expectedLoop;
+            cine.PlaybackSpeed = expectedPlaybackSpeed;
+            yaml = SceneSerializer(scene).SerializeToYAML();
+        }
+
+        auto reloaded = Scene::Create();
+        ASSERT_TRUE(SceneSerializer(reloaded).DeserializeFromYAML(yaml));
+
+        Entity restored = FindByTag(*reloaded, kTestTag);
+        ASSERT_TRUE(static_cast<bool>(restored));
+        ASSERT_TRUE(restored.HasComponent<CinematicComponent>());
+
+        const auto& cine = restored.GetComponent<CinematicComponent>();
+        EXPECT_EQ(static_cast<u64>(cine.Sequence), expectedSequence);
+        EXPECT_EQ(cine.PlayOnStart, expectedPlayOnStart);
+        EXPECT_EQ(cine.Loop, expectedLoop);
+        EXPECT_NEAR(cine.PlaybackSpeed, expectedPlaybackSpeed, kFloatEpsilon);
+    }
+
+    // -------------------------------------------------------------------------
     // NetworkIdentityComponent — owner / authority / replicated flag.
     // -------------------------------------------------------------------------
     TEST(ComponentRoundTrip, NetworkIdentityComponentSurvivesYAMLRoundTrip)

@@ -123,9 +123,11 @@ with `std::isfinite`.
   the four interp modes (incl. the Bezier tangent ease and its
   smoothstep/linear anchor identities), quat slerp/normalization, degenerate-
   segment safety, visibility step semantics.
-- `CinematicPlayerTest` (unit) — time advance (normal / clamp / loop-wrap /
-  zero-duration / non-negative speed), half-open event windows, and the
-  composite `Tick` (t==0 firing, no double-fire, loop wrap).
+- `CinematicPlayerTest` (unit) — time advance (forward / reverse / clamp /
+  finish-at-0 / loop-wrap both directions / zero-duration / zero-speed hold /
+  forward-backward symmetry), half-open event windows (ascending and the
+  reverse descending mirror), and the composite `Tick` (t==0 firing,
+  no double-fire, loop wrap forward and backward).
 - `CinematicSerializerTest` (unit) — full `.olocine` round-trip across every
   track/channel + malformed-input guard + Bezier tangent round-trip and the v1
   back-compat path (legacy files with no tangent fields load flat).
@@ -206,12 +208,35 @@ extension — add a struct in `CinematicTrack.h`, a `std::vector` on
 coverage. EventTracks already provide a generic escape hatch (fire a named
 event, handle it in script) for cases that don't yet have a dedicated track.
 
-### Reverse / variable-rate playback
+### Variable-rate playback
 
-`PlaybackSpeed` is clamped to ≥ 0 today (negative is treated as a hold).
-Reverse playback needs symmetric event-edge handling (fire on the
-descending crossing) — straightforward but untested, so it's gated off
-rather than shipped half-working.
+`PlaybackSpeed` is a free time scale: positive plays forward, **negative
+plays the sequence backward**, and `0` holds the playhead (a live "pause"
+without clearing `Playing`). It round-trips through both scene YAML and
+save-games — the deserializers accept any finite value (the save-game path
+clamps to the inspector's symmetric `[-16, 16]` authoring range). Reverse
+playback mirrors the forward semantics — the playhead recedes toward `0`,
+finishes at `0` when not looping, and wraps `0 -> duration` when looping.
+Event firing flips to the descending crossing
+(`CinematicPlayer::CollectEventsReverse`, the `[lo, hi)` mirror of the
+forward `(lo, hi]` window), so cues fire in the order a receding playhead
+reaches them and never double-fire across a direction change.
+
+**Direction-aware start.** `Play()` / `PlayFromStart()` / `PlayOnStart` /
+`Stop()` all leave the playhead at the *forward* start (`Time = 0`), which is
+the *finish* line for reverse. `CinematicSystem::Advance` detects a fresh
+negative-speed start (the `PreviousTime = -1` sentinel still set) and seeds
+the playhead to `duration` on the first tick, so a backward sequence plays the
+whole timeline instead of finishing instantly at `0`. Resuming after a pause
+keeps a real `PreviousTime >= 0` and is left untouched.
+
+One asymmetry worth knowing: just as scrubbing/`PlayFromStart` to `t == 0`
+and playing forward only fires the `t == 0` cue via the `PreviousTime = -1`
+sentinel, there is no symmetric "start from the end" sentinel — the reverse
+seed sets `PreviousTime = duration`, so a cue authored at exactly
+`t == duration` is *not* fired on the first backward step (the playhead leaves
+it without crossing it). Variable *rate* beyond a constant scale (ease-in/out
+of the time scale) is still future work.
 
 ### Sequence blending & layering
 

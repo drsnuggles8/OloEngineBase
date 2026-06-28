@@ -4309,7 +4309,7 @@ namespace OloEngine
             ImGui::Checkbox("Play On Start##Cinematic", &component.PlayOnStart);
             ImGui::SameLine();
             ImGui::Checkbox("Loop##Cinematic", &component.Loop);
-            ImGui::DragFloat("Speed##Cinematic", &component.PlaybackSpeed, 0.05f, 0.0f, 16.0f);
+            ImGui::DragFloat("Speed##Cinematic", &component.PlaybackSpeed, 0.05f, -16.0f, 16.0f); // negative = reverse, 0 = hold
 
             // Resolve for preview without committing to RuntimeSequence.
             Ref<CinematicSequence> seq = component.RuntimeSequence;
