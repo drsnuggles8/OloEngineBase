@@ -29,6 +29,7 @@
 
 #include <nlohmann/json.hpp>
 
+#include <algorithm>
 #include <memory>
 #include <optional>
 #include <string>
@@ -37,15 +38,19 @@ namespace OloEngine::MCP::SetCollisionLayer
 {
     using Json = nlohmann::json;
 
-    // Upper bound on a user-defined physics layer id. The engine maps a layer id to
-    // the Jolt object layer `ObjectLayers::NUM_LAYERS + id`, capped at
-    // Physics3DSystem::sMaxLayers (32) total layers; 31 is a generous, overflow-safe
-    // ceiling for the authored `m_LayerID` field (a u32). The actual set of *valid*
+    // Upper bound on a user-defined physics layer id. The engine maps a user layer id
+    // to the Jolt object layer `ObjectLayers::NUM_LAYERS + id`, and the whole
+    // object-layer budget is `JoltUtils::kMaxJoltLayers` (32). So the largest authored
+    // `m_LayerID` (a u32) that still maps to a valid object-layer slot is
+    // `kMaxJoltLayers - ObjectLayers::NUM_LAYERS - 1` = 32 - 5 - 1 = 26 — anything above
+    // would overflow the object-layer arrays. This header stays Jolt-free (it compiles
+    // into the test binary), so the value is written out here and McpTools.cpp
+    // `static_assert`s it against the live engine constants: if the budget changes, that
+    // fails the build instead of silently over-permitting. The actual set of *valid*
     // layers is project-defined — an agent discovers them via olo_physics_layer_matrix;
-    // we don't cross-check the live registry here (its contents depend on the loaded
-    // project, and layer 0 is the always-present default), so this is a sanity bound,
-    // not a validity guarantee.
-    inline constexpr u32 kMaxLayerId = 31;
+    // we don't cross-check the live registry here (layer 0 is the always-present
+    // default), so this is the budget ceiling, not a per-project validity guarantee.
+    inline constexpr u32 kMaxLayerId = 26;
 
     // The tool's inputSchema, authored with the schema-builder DSL. Shared by the real
     // registration (McpTools.cpp) and the dispatch-seam test so the test validates the
@@ -54,7 +59,7 @@ namespace OloEngine::MCP::SetCollisionLayer
     [[nodiscard]] inline Json InputSchema()
     {
         return Schema::Object()
-            .Prop("entity", Schema::EntityId("UUID of the entity whose physics body collision layer to set (string; also accepts a number)."))
+            .Prop("entity", Schema::EntityId("UUID of the entity whose physics body collision layer to set (a decimal-digit string)."))
             .Prop("layer", Schema::Int().Min(0).Max(static_cast<std::int64_t>(kMaxLayerId)).Desc("Collision layer id to assign to the body (a user-defined physics layer; 0 is the default. Use olo_physics_layer_matrix to discover valid ids)."))
             .Required({ "entity", "layer" })
             .NoAdditional();
@@ -62,39 +67,31 @@ namespace OloEngine::MCP::SetCollisionLayer
 
     // Parse + validate the tool arguments into native values. The server validates
     // `args` against InputSchema() before the handler runs, but this stays defensive
-    // (it is also reached directly from tests) and converts the UUID string — which
-    // exceeds JSON's safe-integer range — exactly like McpTools::ParseUuid. Returns a
-    // human-readable error, or std::nullopt on success.
+    // (it is also reached directly from tests). Returns a human-readable error, or
+    // std::nullopt on success.
     [[nodiscard]] inline std::optional<std::string> ParseArgs(const Json& args, u64& entityUuid, u32& layer)
     {
         if (!args.contains("entity"))
             return "Missing required argument 'entity' (entity UUID).";
         const Json& entityValue = args["entity"];
-        if (entityValue.is_string())
+        // UUIDs exceed JSON's safe-integer range, so they travel as a decimal string
+        // (the inputSchema declares `entity` a string). Require the WHOLE string to be
+        // decimal digits before converting: std::stoull would otherwise accept a leading
+        // '-' (wrapping to a huge u64) or stop at the first non-digit ("42abc" -> 42).
+        if (!entityValue.is_string())
+            return "Invalid 'entity': expected a UUID as a decimal-digit string.";
+        const std::string entityStr = entityValue.get<std::string>();
+        if (entityStr.empty() ||
+            !std::all_of(entityStr.begin(), entityStr.end(), [](unsigned char c)
+                         { return c >= '0' && c <= '9'; }))
+            return "Invalid 'entity': expected a UUID as a decimal-digit string.";
+        try
         {
-            try
-            {
-                entityUuid = std::stoull(entityValue.get<std::string>());
-            }
-            catch (...)
-            {
-                return "Invalid 'entity': expected a UUID as a string or number.";
-            }
+            entityUuid = std::stoull(entityStr);
         }
-        else if (entityValue.is_number_unsigned())
+        catch (...) // std::out_of_range — value exceeds u64
         {
-            entityUuid = entityValue.get<u64>();
-        }
-        else if (entityValue.is_number_integer())
-        {
-            const long long signedId = entityValue.get<long long>();
-            if (signedId < 0)
-                return "Invalid 'entity': expected a non-negative UUID.";
-            entityUuid = static_cast<u64>(signedId);
-        }
-        else
-        {
-            return "Invalid 'entity': expected a UUID as a string or number.";
+            return "Invalid 'entity': UUID value is out of range.";
         }
 
         if (!args.contains("layer"))

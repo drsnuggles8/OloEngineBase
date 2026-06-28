@@ -366,7 +366,14 @@ namespace OloEngine
             // so an agent's change is a single Ctrl-Z. Main-thread-only, like the
             // readers above (the MCP server calls it from a MarshalRead job).
             mcpContext.GetCommandHistory = [this]() -> CommandHistory*
-            { return &m_CommandHistory; };
+            {
+                // Only expose the undo stack in Edit mode. In Play / Simulate the
+                // runtime scene is a transient copy the editor undo stack does not
+                // track, so a write there would be unsound (and discarded on stop) —
+                // hand out nullptr so the write handler refuses ("no editor command
+                // history available") rather than mutating the runtime scene.
+                return m_SceneState == SceneState::Edit ? &m_CommandHistory : nullptr;
+            };
             mcpContext.GetFrameIndex = [this]() -> u64
             { return m_FrameIndex; };
             mcpContext.IsCaptureUnready = [this]() -> bool

@@ -3180,6 +3180,16 @@ namespace OloEngine::MCP
             return ToolResult::Text(result.dump(2));
         }
 
+        // Keep the schema's layer cap aligned with the engine's object-layer budget.
+        // A user layer id maps to the Jolt object layer ObjectLayers::NUM_LAYERS + id,
+        // and the whole budget is JoltUtils::kMaxJoltLayers; the largest authored id
+        // that still fits a valid slot is kMaxJoltLayers - NUM_LAYERS - 1. The shared
+        // header keeps kMaxLayerId Jolt-free (it compiles into the test binary), so pin
+        // it here — where the engine constants are in scope — and fail the build if the
+        // budget ever changes rather than silently letting an out-of-budget layer through.
+        static_assert(SetCollisionLayer::kMaxLayerId == JoltUtils::kMaxJoltLayers - ObjectLayers::NUM_LAYERS - 1,
+                      "olo_set_collision_layer layer cap is out of sync with the Jolt object-layer budget");
+
         // ---- olo_set_collision_layer (main-marshaled; PROJECT WRITE) -----------
         // The first consented, undoable write tool (#306 item C, first slice): set an
         // entity's physics-body collision layer through the editor's undo stack, so an

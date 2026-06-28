@@ -177,7 +177,9 @@ TEST_F(McpConsentedWriteTest, SchemaRejectsLayerBelowMinimum)
 TEST_F(McpConsentedWriteTest, SchemaRejectsLayerAboveMaximum)
 {
     m_Server.SetAllowWrites(true);
-    const Json resp = m_Server.HandleMessage(MakeCallRequest(4, Json{ { "entity", std::to_string(m_EntityUuid) }, { "layer", 999 } }));
+    // Derive the over-limit value from the shared cap so this stays valid if it changes.
+    const int overMax = static_cast<int>(SetCollisionLayer::kMaxLayerId) + 1;
+    const Json resp = m_Server.HandleMessage(MakeCallRequest(4, Json{ { "entity", std::to_string(m_EntityUuid) }, { "layer", overMax } }));
     ASSERT_TRUE(resp.contains("error"));
     EXPECT_EQ(resp["error"]["code"], kInvalidParams);
 }
@@ -315,21 +317,34 @@ TEST(McpSetCollisionLayerParse, AcceptsStringUuidAndLayer)
     EXPECT_EQ(layer, 7u);
 }
 
-TEST(McpSetCollisionLayerParse, AcceptsNumericUuid)
+// The entity contract is a decimal-digit STRING (matching the inputSchema, which the
+// server enforces before the handler runs). A numeric entity is rejected — passing a
+// u64 UUID as a JSON number would also lose precision above 2^53.
+TEST(McpSetCollisionLayerParse, RejectsNumericUuid)
 {
     u64 entity = 0;
     u32 layer = 0;
-    const auto error = SetCollisionLayer::ParseArgs(Json{ { "entity", 42 }, { "layer", 0 } }, entity, layer);
-    EXPECT_FALSE(error.has_value());
-    EXPECT_EQ(entity, 42u);
+    EXPECT_TRUE(SetCollisionLayer::ParseArgs(Json{ { "entity", 42 }, { "layer", 0 } }, entity, layer).has_value());
+}
+
+// std::stoull would otherwise silently accept these; require the whole string to be digits.
+TEST(McpSetCollisionLayerParse, RejectsPartialOrSignedUuidString)
+{
+    u64 entity = 0;
+    u32 layer = 0;
+    EXPECT_TRUE(SetCollisionLayer::ParseArgs(Json{ { "entity", "42abc" }, { "layer", 1 } }, entity, layer).has_value());
+    EXPECT_TRUE(SetCollisionLayer::ParseArgs(Json{ { "entity", "-1" }, { "layer", 1 } }, entity, layer).has_value());
+    EXPECT_TRUE(SetCollisionLayer::ParseArgs(Json{ { "entity", "" }, { "layer", 1 } }, entity, layer).has_value());
+    EXPECT_TRUE(SetCollisionLayer::ParseArgs(Json{ { "entity", " 42" }, { "layer", 1 } }, entity, layer).has_value());
 }
 
 TEST(McpSetCollisionLayerParse, RejectsOutOfRangeAndMissing)
 {
     u64 entity = 0;
     u32 layer = 0;
+    const int overMax = static_cast<int>(SetCollisionLayer::kMaxLayerId) + 1;
     EXPECT_TRUE(SetCollisionLayer::ParseArgs(Json{ { "entity", "1" }, { "layer", -1 } }, entity, layer).has_value());
-    EXPECT_TRUE(SetCollisionLayer::ParseArgs(Json{ { "entity", "1" }, { "layer", 9999 } }, entity, layer).has_value());
+    EXPECT_TRUE(SetCollisionLayer::ParseArgs(Json{ { "entity", "1" }, { "layer", overMax } }, entity, layer).has_value());
     EXPECT_TRUE(SetCollisionLayer::ParseArgs(Json{ { "layer", 1 } }, entity, layer).has_value());
     EXPECT_TRUE(SetCollisionLayer::ParseArgs(Json{ { "entity", "1" } }, entity, layer).has_value());
     EXPECT_TRUE(SetCollisionLayer::ParseArgs(Json{ { "entity", "not-a-number" }, { "layer", 1 } }, entity, layer).has_value());
