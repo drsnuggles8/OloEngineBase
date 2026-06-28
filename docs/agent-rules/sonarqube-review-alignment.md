@@ -14,7 +14,9 @@ This file is the **operational digest** for a reviewer.
 240 MAJOR / 116 MINOR / 8 INFO). Source of truth is the SonarCloud Quality Profile
 (*Quality Profiles → C++ Extended*); a point-in-time export lives at the repo root as
 `c++ extended profile.xml` (it predates the S5536/S1271/S1712 deactivation below, so it
-still lists 582). Editing that XML changes nothing until it is re-imported in the
+still lists 582 — those three are the entire 582 → 579 delta. The fourth rule deactivated
+below, `cpp:S909`, was *already* inactive when the export was taken, so it is counted in
+neither 582 nor 579). Editing that XML changes nothing until it is re-imported in the
 SonarCloud UI — treat it as read-only reference.
 
 ---
@@ -33,7 +35,7 @@ else) — a local reviewer must not raise them inside the listed scopes:
 | `cpp:S1001` using-directive | `OloEngine/tests/**` | `using namespace OloEngine;` is the established test-suite convention. |
 | `cpp:S5000` `==` for non-trivially-copyable | `OloEngine/src/OloEngine/Math/Math.h` | `Math::BitwiseEqual` is `static_assert`-guarded `std::is_trivially_copyable_v<T>`; misuse is a compile error. |
 | `cpp:S1067` ≤3 conditional operators | `OloEngine/src/OloEngine/Scene/**` | ECS `HasComponent<>()` predicate chains / serializer dispatch are intrinsically long; naming each sub-predicate just restates it. |
-| `cpp:S963` parenthesise macro params | `OloEngine/src/OloEngine/Scene/Prefab.cpp` | X-macro pastes component types into `<CompType>` template-arg lists where the grammar forbids parentheses. |
+| `cpp:S963` parenthesize macro params | `OloEngine/src/OloEngine/Scene/Prefab.cpp` | X-macro pastes component types into `<CompType>` template-arg lists where the grammar forbids parentheses. |
 | `cpp:S1244` float `==` | `Scene/Components.h`, `Renderer/Commands/RenderCommand.h` | Defaulted/field-wise **bit-exact** equality is the intended change-detection (undo-redo / render-command dedup) semantics — **only in these two files**; real float-`==` bugs elsewhere stay flagged. |
 
 CPD (copy-paste) is excluded on `OloEngine/tests/**` — the scaffold-uniform math/visual
@@ -95,7 +97,7 @@ rest). Most relevant to OloEngine's C/C++-interop, asset I/O, networking and mem
 
 **Security (VULNERABILITY):**
 - `S2076` — OS command injection (avoid `system()`/`popen()` with untrusted data; validate + use `exec*`/`posix_spawn`).
-- `S2083` — path-traversal injection (canonicalise with `std::filesystem::canonical` and confirm the result stays under the base dir).
+- `S2083` — path-traversal injection (canonicalize with `std::filesystem::canonical` and confirm the result stays under the base dir).
 - `S5782` — POSIX buffer-size args must not exceed the buffer (`memchr(buf,c,sizeof buf)`).
 - `S2755` — XXE (disable external entities in XML parsing).
 

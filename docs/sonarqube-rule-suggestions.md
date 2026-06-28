@@ -393,7 +393,7 @@ open part of #411.
 
 ## High-volume rules — deactivated in the C++ Extended profile ✅
 
-A full-corpus facet query (≈31,800 open issues) surfaced four MISRA / stylistic rules fighting idiomatic modern C++ that dwarfed every other finding (≈6,800 issues between them — about half the raw count). All four are now **deactivated** in the C++ Extended Quality Profile (SonarCloud UI, 2026-06-27), so they no longer fire:
+A full-corpus facet query (≈31,800 open issues) surfaced four MISRA / stylistic rules fighting idiomatic modern C++ that dwarfed every other finding (≈6,800 issues between them — roughly a fifth of the raw count, ≈21%). All four are now **deactivated** in the C++ Extended Quality Profile (SonarCloud UI, 2026-06-27), so they no longer fire:
 
 | rule | was (count) | why it was a poor fit |
 |---|---|---|
@@ -419,7 +419,7 @@ For completeness, some rules that *look* noisy but are worth keeping at their cu
 
 ## Open items
 
-- Full-corpus histogram (≈31,800 open issues) obtained via the SonarCloud `facets=rules` API. The four high-volume rules above (≈6,800 issues, ~half the raw count) are now **deactivated** in the C++ Extended profile — done in the SonarCloud UI (not as a `**/*` properties scope), where project-wide deactivation stays reviewable.
+- Full-corpus histogram (≈31,800 open issues) obtained via the SonarCloud `facets=rules` API. The four high-volume rules above (≈6,800 issues, ≈21% of the raw count) are now **deactivated** in the C++ Extended profile — done in the SonarCloud UI (not as a `**/*` properties scope), where project-wide deactivation stays reviewable.
 - `cpp:S6004` (if/switch init-statement, 835 hits) was swept and fixed in bulk — it aligns with the project's own [coding standard §1](agent-rules/cpp-coding-quality.md) rather than being a false positive.
 - ✅ The recommended path-scopes (`fp_s5000` / `ecs_s1067` / `xmacro_s963`, plus the pre-existing `tst_*`) are now applied in `sonar-project.properties`. Re-run the quality-gate check to confirm the false-positive concentration in `Math.h`, `Scene/**`, `Prefab.cpp`, and `tests/**` has dropped.
 - Coverage is reported as **0%** in SonarCloud despite an extensive GoogleTest suite. The CI scan isn't picking up coverage XML — separate problem from rule tuning, but worth fixing for the maintainability dashboard to make sense.
