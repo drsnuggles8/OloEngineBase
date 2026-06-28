@@ -59,8 +59,9 @@ namespace OloEngine::Animation
          */
         [[nodiscard]] static HumanoidBone ClassifyBoneName(std::string_view boneName);
 
-        /// Assign @p boneIndex to @p role (a negative index, or HumanoidBone::None /
-        /// out-of-range role, clears it).
+        /// Assign @p boneIndex to @p role. A negative @p boneIndex clears the role's
+        /// mapping; a HumanoidBone::None or out-of-range @p role is ignored (it owns no
+        /// array slot to assign or clear).
         void SetBone(HumanoidBone role, int boneIndex);
 
         /// Bone index assigned to @p role, or kUnassigned.
