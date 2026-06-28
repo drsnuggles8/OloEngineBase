@@ -1391,6 +1391,12 @@ namespace OloEngine
         {
             water.m_SSREnabled = ssrEnabled.as<bool>(water.m_SSREnabled);
         }
+        if (auto const planarEnabled = waterComponent["PlanarReflectionsEnabled"])
+        {
+            water.m_PlanarReflectionsEnabled = planarEnabled.as<bool>(water.m_PlanarReflectionsEnabled);
+        }
+        water.m_PlanarReflectionIntensity = waterComponent["PlanarReflectionIntensity"].as<f32>(water.m_PlanarReflectionIntensity);
+        water.m_PlanarReflectionDistortion = waterComponent["PlanarReflectionDistortion"].as<f32>(water.m_PlanarReflectionDistortion);
         if (auto const tessEnabled = waterComponent["TessellationEnabled"])
         {
             water.m_TessellationEnabled = tessEnabled.as<bool>(water.m_TessellationEnabled);
@@ -5451,6 +5457,9 @@ namespace OloEngine
             out << YAML::Key << "SSRMaxDistance" << YAML::Value << water.m_SSRMaxDistance;
             out << YAML::Key << "SSRThickness" << YAML::Value << water.m_SSRThickness;
             out << YAML::Key << "SSREnabled" << YAML::Value << water.m_SSREnabled;
+            out << YAML::Key << "PlanarReflectionsEnabled" << YAML::Value << water.m_PlanarReflectionsEnabled;
+            out << YAML::Key << "PlanarReflectionIntensity" << YAML::Value << water.m_PlanarReflectionIntensity;
+            out << YAML::Key << "PlanarReflectionDistortion" << YAML::Value << water.m_PlanarReflectionDistortion;
             out << YAML::Key << "TessellationEnabled" << YAML::Value << water.m_TessellationEnabled;
             out << YAML::Key << "TessellationFactor" << YAML::Value << water.m_TessellationFactor;
             out << YAML::Key << "TessMinDistance" << YAML::Value << water.m_TessMinDistance;

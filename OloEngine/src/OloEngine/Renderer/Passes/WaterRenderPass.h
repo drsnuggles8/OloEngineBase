@@ -2,6 +2,7 @@
 
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Renderer/Framebuffer.h"
+#include "OloEngine/Renderer/UniformBuffer.h"
 #include "OloEngine/Renderer/Passes/CommandBufferRenderPass.h"
 
 namespace OloEngine
@@ -33,9 +34,19 @@ namespace OloEngine
         void ResizeFramebuffer(u32 width, u32 height) override;
         void OnReset() override;
 
+        // Binding-43 UBO owned by PlanarReflectionRenderPass (mirror VP + enable
+        // / intensity / distortion). Rebound before the water draw so Water.glsl
+        // can sample the planar reflection target. Null = no planar reflection.
+        void SetPlanarReflectionUBO(const Ref<UniformBuffer>& ubo) noexcept
+        {
+            m_PlanarReflectionUBO = ubo;
+        }
+
         Ref<Framebuffer> m_SceneFramebuffer;
 
       private:
+        Ref<UniformBuffer> m_PlanarReflectionUBO;
+
         RGTextureHandle m_SelectedSceneColorTexture{};
         RGTextureHandle m_SelectedSceneDepthTexture{};
         RGTextureHandle m_SelectedSceneNormalsTexture{};

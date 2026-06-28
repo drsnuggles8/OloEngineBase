@@ -63,6 +63,13 @@ namespace OloEngine
         static void SetPrevViewProjectionMatrix(const glm::mat4& prevVP);
         static void SetViewPosition(const glm::vec3& viewPos);
 
+        // Push the current CommandDispatch camera matrices (the Set* values above)
+        // into the shared CameraUBO buffer and (re)bind it at UBO_CAMERA — the
+        // same upload the terrain / voxel dispatch paths do inline. Exposed so a
+        // pass that re-renders the opaque scene from an alternate camera (the
+        // planar reflection) can swap the camera, replay the bucket, and restore.
+        static void UploadCameraUBO();
+
         // Shadow texture binding — set per-frame from Renderer3D/Scene.
         // The *Raw ids are the comparison-OFF views of the CSM / spot arrays used
         // by the PCSS blocker search (0 = none; bound only when non-zero).

@@ -589,6 +589,29 @@ namespace OloEngine
         {
             return s_Data.WaterSurfaceDepthTextureID;
         }
+        // Planar-reflection colour texture published by PlanarReflectionRenderPass
+        // each frame (0 when reflection is disabled / unavailable). Sampled by
+        // WaterRenderPass at TEX_WATER_PLANAR_REFLECTION.
+        static void SetPlanarReflectionTextureID(RendererID id)
+        {
+            s_Data.PlanarReflectionTextureID = id;
+        }
+        [[nodiscard]] static RendererID GetPlanarReflectionTextureID()
+        {
+            return s_Data.PlanarReflectionTextureID;
+        }
+        // Per-frame planar-reflection state, pushed from Scene.cpp during water
+        // submission and forwarded to PlanarReflectionRenderPass at EndScene.
+        // `plane` is the world-space reflection plane vec4(n.xyz, d); `enabled`
+        // is the combined gate (a reflective water surface exists AND the active
+        // path supports the replay).
+        static void SetPlanarReflectionState(const glm::vec4& plane, bool enabled, f32 intensity, f32 distortion)
+        {
+            s_Data.PlanarReflectionPlane = plane;
+            s_Data.PlanarReflectionEnabled = enabled;
+            s_Data.PlanarReflectionIntensity = intensity;
+            s_Data.PlanarReflectionDistortion = distortion;
+        }
         [[nodiscard]] static f32 GetGlobalIBLIntensity()
         {
             return s_Data.GlobalIBLIntensity;
@@ -1423,6 +1446,17 @@ namespace OloEngine
             // Nearest water-surface depth texture for underwater fog (§7.2);
             // published by WaterRenderPass, consumed by ToneMap. 0 = no water.
             RendererID WaterSurfaceDepthTextureID = 0;
+
+            // Planar-reflection colour texture published by
+            // PlanarReflectionRenderPass, sampled by WaterRenderPass. 0 = none.
+            RendererID PlanarReflectionTextureID = 0;
+
+            // Per-frame planar-reflection request from Scene.cpp (dominant water
+            // surface), forwarded to PlanarReflectionRenderPass at EndScene.
+            glm::vec4 PlanarReflectionPlane{ 0.0f, 1.0f, 0.0f, 0.0f };
+            bool PlanarReflectionEnabled = false;
+            f32 PlanarReflectionIntensity = 1.0f;
+            f32 PlanarReflectionDistortion = 0.0f;
 
             // Parallel submission state
             ParallelSceneContext ParallelContext;

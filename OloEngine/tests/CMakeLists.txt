@@ -82,6 +82,7 @@ add_executable(OloEngine-Tests
 		Rendering/BoundingVolumeTest.cpp
 		Rendering/FrustumCullingTest.cpp
 		Rendering/ReflectionProbeSelectionTest.cpp
+		Rendering/PlanarReflectionMathTest.cpp
 		Rendering/LODTest.cpp
 		Rendering/MeshOptimizationTest.cpp
 		Rendering/MeshSourceBoundsTest.cpp
@@ -132,6 +133,7 @@ add_executable(OloEngine-Tests
 		Rendering/DeccerCubesLoadingTest.cpp
 		# Rendering property tests (require GL 4.5+ context; skip gracefully if unavailable)
 		Rendering/PropertyTests/RenderPropertyTest.cpp
+		Rendering/PropertyTests/PlanarReflectionVisualEvidenceTest.cpp
 		Rendering/PropertyTests/HZBGeneratorResizeTest.cpp
 		Rendering/PropertyTests/OceanFFTGpuContractTest.cpp
 		Rendering/PropertyTests/OceanFFTSpectrumTest.cpp

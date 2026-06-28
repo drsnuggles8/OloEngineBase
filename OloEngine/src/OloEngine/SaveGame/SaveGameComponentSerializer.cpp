@@ -1825,6 +1825,21 @@ namespace OloEngine
             ar << c.m_FFTJonswapGamma << c.m_FFTJonswapFetch;
         }
 
+        // Planar (mirror) reflections (Phase 7) appended after the spectrum block
+        // — same trailing-AtEnd() probe so archives written before it fall back to
+        // the component defaults (planar reflections off).
+        if (ar.IsLoading() && ar.AtEnd())
+        {
+            c.m_PlanarReflectionsEnabled = false;
+            c.m_PlanarReflectionIntensity = 1.0f;
+            c.m_PlanarReflectionDistortion = 0.02f;
+        }
+        else
+        {
+            ar << c.m_PlanarReflectionsEnabled;
+            ar << c.m_PlanarReflectionIntensity << c.m_PlanarReflectionDistortion;
+        }
+
         if (ar.IsLoading())
         {
             auto sanitize = [](f32& v, f32 lo, f32 hi, f32 fallback)
