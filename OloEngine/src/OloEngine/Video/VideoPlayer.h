@@ -83,69 +83,69 @@ namespace OloEngine
         /// frame shown via the same overlay path as video. Replaces any loaded video.
         void PresentImage(const u8* rgba, u32 width, u32 height);
 
-        [[nodiscard]] bool IsLoaded() const
+        [[nodiscard("loaded state must be used")]] bool IsLoaded() const
         {
             return m_Loaded;
         }
-        [[nodiscard]] bool IsPlaying() const
+        [[nodiscard("playing state must be used")]] bool IsPlaying() const
         {
             return m_State == VideoPlaybackState::Playing;
         }
-        [[nodiscard]] bool IsPaused() const
+        [[nodiscard("paused state must be used")]] bool IsPaused() const
         {
             return m_State == VideoPlaybackState::Paused;
         }
-        [[nodiscard]] bool IsStopped() const
+        [[nodiscard("stopped state must be used")]] bool IsStopped() const
         {
             return m_State == VideoPlaybackState::Stopped;
         }
-        [[nodiscard]] bool IsFinished() const
+        [[nodiscard("finished state must be used")]] bool IsFinished() const
         {
             return m_Finished;
         }
-        [[nodiscard]] VideoPlaybackState GetState() const
+        [[nodiscard("playback state must be used")]] VideoPlaybackState GetState() const
         {
             return m_State;
         }
 
-        [[nodiscard]] f64 GetCurrentTime() const
+        [[nodiscard("current time must be used")]] f64 GetCurrentTime() const
         {
             return m_CurrentTime.load();
         }
-        [[nodiscard]] f64 GetDuration() const
+        [[nodiscard("duration must be used")]] f64 GetDuration() const
         {
             return m_Duration;
         }
-        [[nodiscard]] f32 GetPlaybackSpeed() const
+        [[nodiscard("playback speed must be used")]] f32 GetPlaybackSpeed() const
         {
             return m_PlaybackSpeed;
         }
-        [[nodiscard]] f32 GetVolume() const
+        [[nodiscard("volume must be used")]] f32 GetVolume() const
         {
             return m_Volume;
         }
-        [[nodiscard]] bool IsLooping() const
+        [[nodiscard("looping state must be used")]] bool IsLooping() const
         {
             return m_Looping;
         }
-        [[nodiscard]] u32 GetWidth() const
+        [[nodiscard("width must be used")]] u32 GetWidth() const
         {
             return m_Width;
         }
-        [[nodiscard]] u32 GetHeight() const
+        [[nodiscard("height must be used")]] u32 GetHeight() const
         {
             return m_Height;
         }
-        [[nodiscard]] f64 GetFrameRate() const
+        [[nodiscard("frame rate must be used")]] f64 GetFrameRate() const
         {
             return m_FrameRate;
         }
 
-        [[nodiscard]] const VideoTexture& GetTexture() const
+        [[nodiscard("texture must be used")]] const VideoTexture& GetTexture() const
         {
             return m_Texture;
         }
-        [[nodiscard]] VideoTexture& GetTexture()
+        [[nodiscard("texture must be used")]] VideoTexture& GetTexture()
         {
             return m_Texture;
         }

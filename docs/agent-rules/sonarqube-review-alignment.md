@@ -115,3 +115,58 @@ before assuming a finding is new.
    manual buffer/pointer work). Pin genuine ones with a code fix.
 4. For anything ambiguous, the rationale and prior triage are in
    [../sonarqube-rule-suggestions.md](../sonarqube-rule-suggestions.md).
+
+---
+
+## 5. Per-subsystem MAINTAINABILITY cleanups — fix patterns & recurring false-positives
+
+The merged per-subsystem code-smell sweeps (#406 Animation, #407 Audio, #415 Gameplay,
+#418 Physics3D, Video) converged on a consistent bar. Reuse it for the next subsystem.
+
+**The scan can be stale relative to HEAD.** Issues carry the line numbers from the scan
+that created them; a later commit shifts them. **Verify every finding against the *current*
+file** — don't trust the reported line. Some findings are already fixed (e.g. a rule-of-5
+added after the scan); some moved.
+
+**Fix these (mechanical, semantics-preserving):**
+- `S6166` add `[[nodiscard]]` message → `[[nodiscard("<thing> must be used")]]` (only on
+  *existing* attributes — adding new `[[nodiscard]]` creates *new* findings).
+- `S6004` / `S5523` declare-then-assign → if/for **init-statement**, or an immediately-invoked
+  lambda when a lock scopes the assignment: `const bool x = [this]{ std::scoped_lock l(m_M); return …; }();`.
+- `S126` if/else-if with no trailing `else` → add a **commented** empty `else { /* … */ }`
+  (the comment keeps `S108` "empty block" quiet).
+- `S5421` global → `const` **only when never mutated** (a vtable/table, yes; mutable module
+  state, no — see below).
+- `S1067` >3 `&&`/`||`/`?:` in one expression → hoist a sub-predicate into a named `const bool`.
+- `S3630` `reinterpret_cast` → `static_cast` when the source is genuinely a `void*` (e.g. a C
+  handle `typedef`'d to `void`, like miniaudio's `ma_data_source`).
+- `S3624` rule-of-5 → for a class with a **custom destructor that frees a raw resource**, declare
+  the copy/move members (delete them for a `Scope`/`unique_ptr`-held, never-copied object). This
+  is a genuine double-free guard, not noise.
+- `S926` name unnamed prototype params; `S5350` read-only local pointer → pointer-to-const.
+
+**Deliberately defer / don't fight (note in the PR, leave the code):**
+- `S8417` explicit `std::memory_order_*` — usually a *deliberate* `relaxed` on a counter/flag;
+  "fixing" to `seq_cst` is a behaviour/perf change and a real risk. Deferred as noise in Audio + Video.
+- `S4136` group overloaded members — judgement/format churn; deferred in Audio + Video.
+- `S6168` `std::thread` → `std::jthread` — changes join/stop semantics ⇒ **behaviour change**.
+- `S1142` (>3 returns), `S1820` (>20 fields), `S5414` (mixed public/private members) — invasive
+  structural refactors, not mechanical; leave for a dedicated change.
+
+**Recurring false-positives in C-ABI / pImpl / interop code (don't "fix", optionally mark won't-fix):**
+- `S5008` `void*` → meaningful type — false when the `void*` is mandated by a C callback
+  signature (e.g. a miniaudio `ma_data_source_vtable` callback) or a `void**` C API
+  (`ma_pcm_rb_acquire_read/write`). Can't change without breaking the ABI.
+- `S5421` global → const — false for genuinely **mutable** module state (e.g. Video's
+  `s_FullscreenPlayer` / `s_FullscreenSkippable`, reassigned at runtime).
+- `S3624` rule-of-5 — false for a **pImpl** class that already declares move-only semantics with
+  an out-of-line `= default` destructor (the idiom *requires* defaulted-but-out-of-line specials;
+  SonarCpp wants a non-defaulted body it can't have).
+- `S859` / `M23_090` `const_cast` removing const — often forced by a **downstream API that isn't
+  const-correct** (e.g. `Texture2D::SetData(void*)` called with a `const u8*` frame). The real fix
+  is const-correcting that API; out of scope for a one-subsystem sweep.
+- `S988` remove a libc include — **false on a vendored single-header amalgam wrapper.**
+  `OloEngine/src/OloEngine/Video/PlMpeg.cpp` is the pl_mpeg TU (`#define PL_MPEG_IMPLEMENTATION`);
+  its `#include <stdio.h>` is **required and documented** (pl_mpeg's `FILE*` API needs it before the
+  impl, and the no-PCH cacheable build can't force-include it). Treat that file like `vendor/` — don't
+  clean it; only its first-party wrapper `PlMpegBackend.cpp` and the rest of `Video/` are fair game.

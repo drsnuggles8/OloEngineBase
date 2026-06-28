@@ -21,7 +21,8 @@ namespace OloEngine
 
         // Request audio decoding so we can drive A/V sync; the decoder reports whether the
         // file actually carries an audio stream.
-        if (!m_Decoder.Open(filePath, /*decodeAudio=*/true))
+        constexpr bool decodeAudio = true;
+        if (!m_Decoder.Open(filePath, decodeAudio))
             return false;
 
         m_Width = m_Decoder.GetWidth();
@@ -183,6 +184,10 @@ namespace OloEngine
             m_CurrentTime = m_AudioStream->ClockSeconds();
         else if (std::isfinite(dt) && dt > 0.0f)
             m_CurrentTime = m_CurrentTime.load() + static_cast<f64>(dt) * static_cast<f64>(m_PlaybackSpeed);
+        else
+        {
+            // Paused or a non-finite/zero dt: hold the clock at its current value.
+        }
 
         const f64 now = m_CurrentTime.load();
 
@@ -207,11 +212,11 @@ namespace OloEngine
         }
 
         // End-of-stream handling: decoder exhausted and every decoded frame consumed.
-        bool queueEmpty;
+        const bool queueEmpty = [this]
         {
             std::scoped_lock lock(m_QueueMutex);
-            queueEmpty = m_FrameQueue.empty();
-        }
+            return m_FrameQueue.empty();
+        }();
 
         if (m_DecoderAtEnd.load() && queueEmpty)
         {
@@ -233,6 +238,10 @@ namespace OloEngine
                         m_AudioStream->Stop();
                     if (OnFinished)
                         OnFinished();
+                }
+                else
+                {
+                    // Already finished and not looping: nothing more to do.
                 }
             }
         }
@@ -310,11 +319,11 @@ namespace OloEngine
             }
 
             // 3. Keep the video frame queue topped up.
-            bool videoRoom;
+            const bool videoRoom = [this]
             {
                 std::scoped_lock lock(m_QueueMutex);
-                videoRoom = m_FrameQueue.size() < s_MaxQueuedFrames;
-            }
+                return m_FrameQueue.size() < s_MaxQueuedFrames;
+            }();
             if (!m_DecoderAtEnd.load() && videoRoom)
             {
                 if (m_Decoder.DecodeNextFrame(scratch.Data, info))

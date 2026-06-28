@@ -39,16 +39,16 @@ namespace OloEngine
         sizet Write(const f32* interleaved, sizet frameCount);
 
         /// Free space available to Write right now, in frames.
-        [[nodiscard]] sizet WritableFrames() const;
+        [[nodiscard("writable frame count must be used")]] sizet WritableFrames() const;
 
         /// Master clock: seconds of audio the device has consumed (+ last seek base).
-        [[nodiscard]] f64 ClockSeconds() const;
+        [[nodiscard("clock value must be used")]] f64 ClockSeconds() const;
 
-        [[nodiscard]] bool IsActive() const
+        [[nodiscard("active state must be used")]] bool IsActive() const
         {
             return m_Active;
         }
-        [[nodiscard]] u32 GetSampleRate() const
+        [[nodiscard("sample rate must be used")]] u32 GetSampleRate() const
         {
             return m_SampleRate;
         }
