@@ -15,6 +15,7 @@
 #include "MCP/McpServer.h"
 #include "MCP/McpSchemaBuilder.h"
 
+#include <limits>
 #include <optional>
 #include <string>
 #include <utility>
@@ -114,6 +115,25 @@ TEST(McpInputValidation, NumberAcceptsIntegerAndFloatAndEnforcesExclusiveMin)
                               "'distance' must be > 0"));
     EXPECT_TRUE(ErrorContains(McpServer::ValidateArguments(schema, Json{ { "distance", -3.0 } }),
                               "'distance' must be > 0"));
+}
+
+TEST(McpInputValidation, NonFiniteNumbersAreRejected)
+{
+    // NaN passes every relational bound check (all NaN comparisons are false) and
+    // +Inf clears a schema with no `maximum`, so a finite check is what actually
+    // rejects them — a non-finite number is never valid input.
+    const Json schema = Schema::Object()
+                            .Prop("distance", Schema::Number().ExclusiveMin(0))
+                            .NoAdditional();
+    EXPECT_TRUE(ErrorContains(
+        McpServer::ValidateArguments(schema, Json{ { "distance", std::numeric_limits<double>::quiet_NaN() } }),
+        "'distance' must be a finite number"));
+    EXPECT_TRUE(ErrorContains(
+        McpServer::ValidateArguments(schema, Json{ { "distance", std::numeric_limits<double>::infinity() } }),
+        "'distance' must be a finite number"));
+    EXPECT_TRUE(ErrorContains(
+        McpServer::ValidateArguments(schema, Json{ { "distance", -std::numeric_limits<double>::infinity() } }),
+        "'distance' must be a finite number"));
 }
 
 TEST(McpInputValidation, EnumRejectsValuesOutsideTheClosedSet)
@@ -287,6 +307,28 @@ TEST_F(McpInputValidationDispatch, NoSchemaToolSkipsValidation)
 {
     const Json resp = m_Server.HandleMessage(
         MakeRequest(2, "tools/call", Json{ { "name", "fake_open" }, { "arguments", { { "whatever", 123 } } } }));
+    ASSERT_TRUE(resp.contains("result"));
+    EXPECT_FALSE(resp["result"]["isError"]);
+}
+
+// A present-but-non-object `arguments` is malformed and must be rejected, not
+// silently coerced to {} (which would validate against an empty object and hide the
+// mismatch). Even the no-schema tool rejects it, since the check precedes validation.
+TEST_F(McpInputValidationDispatch, PresentNonObjectArgumentsIsInvalidParams)
+{
+    const Json resp = m_Server.HandleMessage(
+        MakeRequest(3, "tools/call", Json{ { "name", "fake_open" }, { "arguments", Json::array({ 1, 2, 3 }) } }));
+    ASSERT_TRUE(resp.contains("error"));
+    EXPECT_FALSE(resp.contains("result"));
+    EXPECT_EQ(resp["error"]["code"], -32602);
+    EXPECT_NE(resp["error"]["message"].get<std::string>().find("'arguments' must be an object"),
+              std::string::npos);
+}
+
+// A truly-absent `arguments` still defaults to {} and reaches the handler.
+TEST_F(McpInputValidationDispatch, AbsentArgumentsDefaultsToEmptyObject)
+{
+    const Json resp = m_Server.HandleMessage(MakeRequest(4, "tools/call", Json{ { "name", "fake_open" } }));
     ASSERT_TRUE(resp.contains("result"));
     EXPECT_FALSE(resp["result"]["isError"]);
 }

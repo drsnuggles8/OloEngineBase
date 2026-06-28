@@ -18,6 +18,7 @@
 #include <cctype>
 #include <charconv>
 #include <chrono>
+#include <cmath>
 #include <cstdint>
 #include <cstdlib>
 #include <filesystem>
@@ -197,6 +198,12 @@ namespace OloEngine::MCP
             if (!value.is_number())
                 return std::nullopt;
             const double n = value.get<double>();
+            // A non-finite number (NaN / ±Inf) slips past the relational bound checks
+            // below — every comparison against NaN is false, and +Inf clears any
+            // schema without a `maximum` — and is never valid input. Reject it up
+            // front (the project rule to isfinite-validate floats from JSON/network).
+            if (!std::isfinite(n))
+                return FieldSubject(label) + " must be a finite number";
             if (const auto it = schema.find("minimum"); it != schema.end() && it->is_number() && n < it->get<double>())
                 return FieldSubject(label) + " must be >= " + it->dump();
             if (const auto it = schema.find("maximum"); it != schema.end() && it->is_number() && n > it->get<double>())
@@ -1150,9 +1157,13 @@ namespace OloEngine::MCP
         if (tool == nullptr)
             return MakeError(id, kInvalidParams, "Unknown tool: " + name);
 
-        const Json arguments = (params.contains("arguments") && params["arguments"].is_object())
-                                   ? params["arguments"]
-                                   : Json::object();
+        // `arguments` is optional, but when present it MUST be an object (MCP spec).
+        // A present-but-non-object payload is malformed: coercing it to {} would
+        // validate against an empty object and hide the mismatch, so reject it. Only
+        // a truly-absent field defaults to {}.
+        if (params.contains("arguments") && !params["arguments"].is_object())
+            return MakeError(id, kInvalidParams, "Invalid params: 'arguments' must be an object");
+        const Json arguments = params.contains("arguments") ? params["arguments"] : Json::object();
 
         // Enforce the tool's declared inputSchema before the handler runs, so a
         // malformed call fails with a clean, field-naming kInvalidParams instead of
