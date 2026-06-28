@@ -286,3 +286,47 @@ TEST(SoundGraphControlRouting, GraphWithoutEndpointIgnoresControlGracefully)
     EXPECT_FLOAT_EQ(rig.m_Sound.GetPitch(), 3.0f);
     EXPECT_FALSE(rig.m_Graph->m_EndpointInputStreams.contains(Identifier(kVolume)));
 }
+
+// A detached source has no graph until InitializeFromGraph installs one — Play() must not
+// succeed until then, and InitializeDetachedSource must clear readiness, not leave a stale
+// flag that lets Play() fire on the graphless source.
+TEST(SoundGraphControlRouting, PlayBlockedUntilGraphInstalled)
+{
+    ControlRig rig;
+    ASSERT_TRUE(rig.m_Sound.InitializeDetachedSource());
+    EXPECT_FALSE(rig.m_Sound.IsReadyToPlay());
+    EXPECT_FALSE(rig.m_Sound.Play()) << "Play must fail on a source with no graph installed";
+
+    rig.m_Graph = MakeControlGraph({ kVolume }, {}, kVolume, &rig.m_Capture);
+    ASSERT_TRUE(rig.m_Sound.InitializeFromGraph(rig.m_Graph));
+    EXPECT_TRUE(rig.m_Sound.IsReadyToPlay());
+    EXPECT_TRUE(rig.m_Sound.Play()) << "Play must succeed once the graph is installed";
+}
+
+// Re-creating the source after the sound was ready must drop readiness — the new source is
+// graphless again, so a stale ready flag must not carry over.
+TEST(SoundGraphControlRouting, ReadinessClearedWhenSourceReplaced)
+{
+    ControlRig rig;
+    rig.m_Graph = MakeControlGraph({ kVolume }, {}, kVolume, &rig.m_Capture);
+    InstallGraph(rig, rig.m_Graph);
+    ASSERT_TRUE(rig.m_Sound.IsReadyToPlay());
+
+    ASSERT_TRUE(rig.m_Sound.InitializeDetachedSource()); // swap in a fresh, graphless source
+    EXPECT_FALSE(rig.m_Sound.IsReadyToPlay());
+    EXPECT_FALSE(rig.m_Sound.Play());
+}
+
+// ReplaceGraph reports whether the swap took effect — the contract InitializeFromGraph
+// relies on to decide readiness. A device-free (uninitialized) source swaps synchronously,
+// so it always reports success; installing the same graph again is a success no-op. (The
+// false/timeout path needs a starved audio thread and isn't reproducible headlessly.)
+TEST(SoundGraphControlRouting, ReplaceGraphReportsSuccessForDeviceFreeSwap)
+{
+    CaptureNode* cap = nullptr;
+    auto graph = MakeControlGraph({ kVolume }, {}, kVolume, &cap);
+
+    sg::SoundGraphSource source;
+    EXPECT_TRUE(source.ReplaceGraph(graph)) << "an uninitialized source swaps synchronously";
+    EXPECT_TRUE(source.ReplaceGraph(graph)) << "re-installing the same graph is a success no-op";
+}

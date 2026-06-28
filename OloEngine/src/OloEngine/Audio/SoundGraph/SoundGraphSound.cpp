@@ -58,6 +58,9 @@ namespace OloEngine::Audio::SoundGraph
     bool SoundGraphSound::InitializeAudioCallback()
     {
         OLO_PROFILE_FUNCTION();
+        // Replacing the source invalidates readiness (a graph must be re-installed before
+        // Play() may succeed); keep the invariant uniform with InitializeDetachedSource.
+        m_IsReadyToPlay = false;
         m_Source = CreateScope<Audio::SoundGraph::SoundGraphSource>();
 
         // Hook the source's custom ma_node into miniaudio's node graph using the live
@@ -96,6 +99,10 @@ namespace OloEngine::Audio::SoundGraph
     bool SoundGraphSound::InitializeDetachedSource()
     {
         OLO_PROFILE_FUNCTION();
+        // Swapping in a fresh, graphless source invalidates any prior readiness: it can't
+        // play until InitializeFromGraph installs a graph. Clear the flag so a stale
+        // m_IsReadyToPlay from a previous source can't let Play() fire on this one.
+        m_IsReadyToPlay = false;
         // Mirror InitializeAudioCallback's source allocation but skip the ma_engine
         // attachment: the source can still drive its graph and apply parameter writes,
         // it just never feeds miniaudio's output. See the header for the rationale.
@@ -123,8 +130,15 @@ namespace OloEngine::Audio::SoundGraph
         // Wire the sound graph into the source
         try
         {
-            m_Source->ReplaceGraph(soundGraph);
-            // Only set ready state if the source accepted the graph successfully
+            // ReplaceGraph can decline the swap (audio thread didn't quiesce in time) without
+            // throwing. Only mark ready / push controls when the swap actually took — otherwise
+            // m_Graph still holds the old (or no) graph and we'd report a sound that isn't there.
+            if (!m_Source->ReplaceGraph(soundGraph))
+            {
+                OLO_CORE_ERROR("SoundGraphSound::InitializeFromGraph - graph swap did not take effect; not ready");
+                m_IsReadyToPlay = false;
+                return false;
+            }
             m_IsReadyToPlay = true;
             // Apply any controls set before the graph existed (volume/pitch/looping/filters).
             SyncControlParametersToGraph();
@@ -187,7 +201,14 @@ namespace OloEngine::Audio::SoundGraph
         // Wire the sound graph into the source
         try
         {
-            m_Source->ReplaceGraph(soundGraph);
+            // See InitializeFromGraph: a declined swap (no throw) must not be reported ready.
+            if (!m_Source->ReplaceGraph(soundGraph))
+            {
+                OLO_CORE_ERROR("SoundGraphSound::InitializeDataSource - graph swap did not take effect; not ready");
+                m_Source->UninitializeDataSources();
+                m_IsReadyToPlay = false;
+                return false;
+            }
             // Only set ready state if both operations succeeded
             m_IsReadyToPlay = true;
             // Apply any controls set before the graph existed (volume/pitch/looping/filters).

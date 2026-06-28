@@ -101,8 +101,12 @@ namespace OloEngine::Audio::SoundGraph
         bool InitializeDataSources(const std::vector<AssetHandle>& dataSources);
         void UninitializeDataSources();
 
-        /** Replace current graph with new one. Called when a new graph has been compiled. */
-        void ReplaceGraph(const Ref<SoundGraph>& newGraph);
+        /** Replace current graph with new one. Called when a new graph has been compiled.
+            Returns true if the swap took effect (or newGraph is already the installed graph);
+            returns false if the swap was skipped because the audio thread did not acknowledge
+            the suspend within the timeout — in that case m_Graph is left unchanged and the
+            caller must not treat the new graph as installed. */
+        bool ReplaceGraph(const Ref<SoundGraph>& newGraph);
         Ref<SoundGraph> GetGraph() const
         {
             return m_Graph;
