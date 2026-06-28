@@ -3,10 +3,20 @@
 
 #include <glm/gtc/matrix_inverse.hpp>
 
+#include <cmath>
+
 namespace OloEngine::PlanarReflection
 {
     glm::vec4 NormalizePlane(const glm::vec4& plane)
     {
+        // Reject non-finite input (NaN/Inf) before it can propagate through the
+        // reflection / oblique-projection matrices into the camera UBO. Fall
+        // back to a valid horizontal plane so a degenerate transform upstream
+        // can never publish a non-finite matrix.
+        if (!std::isfinite(plane.x) || !std::isfinite(plane.y) ||
+            !std::isfinite(plane.z) || !std::isfinite(plane.w))
+            return glm::vec4(0.0f, 1.0f, 0.0f, 0.0f);
+
         const f32 lengthSq = plane.x * plane.x + plane.y * plane.y + plane.z * plane.z;
         // Degenerate normal — nothing sensible to normalize against; hand it
         // back unchanged so callers never divide by zero / produce NaNs.

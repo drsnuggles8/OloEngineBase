@@ -112,8 +112,10 @@ namespace OloEngine
         f32 m_Intensity = 1.0f;
         f32 m_Distortion = 0.0f;
 
-        // Reflections can render at reduced resolution; the surface perturbation
-        // hides the softness. Half-res keeps the second opaque pass affordable.
+        // Resolution divisor for the reflection target. Currently 1u — the
+        // second opaque pass replays at FULL scene resolution. Raise this
+        // (e.g. 2u for half-res) to trade reflection sharpness for a cheaper
+        // replay; the surface perturbation hides most of the added softness.
         static constexpr u32 kResolutionDivisor = 1u;
 
         u32 m_Width = 0;

@@ -4493,18 +4493,30 @@ namespace OloEngine
                     glm::mat4 modelMat = transform.GetTransform();
 
                     // Planar reflection: the largest reflective surface wins the
-                    // single global reflection plane. The plane is horizontal at
-                    // the surface's world Y, normal up (kept half-space = above
-                    // water). Float-validate the height so a NaN transform can't
-                    // poison the mirror matrices.
+                    // single global reflection plane. Derive the plane from the
+                    // FULL water transform so a rotated / scaled water entity
+                    // mirrors across its true world surface — the grid is built
+                    // in XZ with +Y up, so the world surface normal is the
+                    // transformed up axis (modelMat column 1) and the surface
+                    // centre is the translation (column 3). The "largest surface"
+                    // comparison uses the transformed in-plane extents, not the
+                    // raw component sizes. Float-validate so a NaN / degenerate
+                    // transform can't poison the mirror matrices.
                     if (water.m_PlanarReflectionsEnabled)
                     {
-                        const f32 planeHeight = modelMat[3].y;
-                        const f32 area = std::abs(water.m_WorldSizeX * water.m_WorldSizeZ);
-                        if (std::isfinite(planeHeight) && area > bestPlanarArea)
+                        const glm::vec3 surfaceNormal(modelMat[1]);
+                        const glm::vec3 surfaceCenter(modelMat[3]);
+                        const f32 normalLenSq = glm::dot(surfaceNormal, surfaceNormal);
+                        const f32 area = std::abs(water.m_WorldSizeX * glm::length(glm::vec3(modelMat[0]))) *
+                                         std::abs(water.m_WorldSizeZ * glm::length(glm::vec3(modelMat[2])));
+                        const glm::vec3 n = surfaceNormal * glm::inversesqrt(normalLenSq);
+                        const glm::vec4 candidatePlane(n, -glm::dot(n, surfaceCenter));
+                        const bool planeFinite = std::isfinite(normalLenSq) && normalLenSq > 1e-12f &&
+                                                 std::isfinite(candidatePlane.w) && std::isfinite(area);
+                        if (planeFinite && area > bestPlanarArea)
                         {
                             bestPlanarArea = area;
-                            planarReflectionPlane = glm::vec4(0.0f, 1.0f, 0.0f, -planeHeight);
+                            planarReflectionPlane = candidatePlane;
                             planarReflectionActive = true;
                             planarReflectionIntensity = std::isfinite(water.m_PlanarReflectionIntensity)
                                                             ? std::clamp(water.m_PlanarReflectionIntensity, 0.0f, 1.0f)

@@ -73,11 +73,13 @@ namespace OloEngine
         builder.DependsOnPass("ScenePass");
         builder.DependsOnPass("ShadowPass");
 
-        if (!m_Enabled)
-            return;
-
         // The replayed bucket samples the shadow maps and IBL — declare the reads
-        // so the graph keeps them alive and orders us correctly.
+        // UNCONDITIONALLY (not gated on m_Enabled). As above, the graph topology
+        // is hashed on settings, not on this pass's per-frame enable flag, so
+        // Setup may not re-run when the flag flips. Declaring the reads every
+        // frame keeps those resources alive and orders us after their producers
+        // whenever the pass DOES replay, even if the flip happened on a frame
+        // that reused the cached graph.
         if (blackboard.Shadows.ShadowMapCSM.IsValid())
         {
             [[maybe_unused]] const auto r = builder.Read(blackboard.Shadows.ShadowMapCSM, RGReadUsage::ShaderSample);
