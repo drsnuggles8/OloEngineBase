@@ -1165,6 +1165,18 @@ namespace OloEngine::MCP
             return MakeError(id, kInvalidParams, "Invalid params: 'arguments' must be an object");
         const Json arguments = params.contains("arguments") ? params["arguments"] : Json::object();
 
+        // Session write gate (issue #306 item C): a project-mutating tool is refused
+        // unless the user has turned on "Allow writes" in the MCP panel (default off,
+        // never persisted). This is distinct from — and stacks on top of — the
+        // enabled + bearer-token gate: even an authenticated agent stays read-only
+        // w.r.t. the project until the user opts in for the session. Read-only and
+        // ephemeral editor-state tools (camera / viewport / render overrides) are not
+        // ProjectWrite, so they are unaffected.
+        if (tool->ProjectWrite && !AllowWrites())
+            return MakeError(id, kInvalidParams,
+                             "Write tools are disabled. Enable \"Allow writes\" in the editor's MCP "
+                             "Server panel to permit this mutation (it is off by default).");
+
         // Enforce the tool's declared inputSchema before the handler runs, so a
         // malformed call fails with a clean, field-naming kInvalidParams instead of
         // depending on whatever ad-hoc checks that one handler happens to do (issue

@@ -355,6 +355,13 @@ add_executable(OloEngine-Tests
 		# Exercises the McpServer.cpp TU already pulled in above plus the header-only
 		# schema-builder DSL; no extra editor TU is needed.
 		MCP/McpInputValidationTest.cpp
+		# First consented, undoable MCP WRITE tool: olo_set_collision_layer (#306
+		# item C, first slice). Exercises the session write gate + inputSchema
+		# enforcement at the McpServer.cpp dispatch seam, and the shared apply core
+		# (MCP/McpSetCollisionLayer.h). Header-only on the editor side (the schema
+		# DSL + the header-only UndoRedo CommandHistory), so no extra editor TU is
+		# pulled in — it links the engine Scene/ECS already in the test binary.
+		MCP/McpConsentedWriteTest.cpp
 		# Lua Binding Tests
 		Lua/LuaBindingTest.cpp
 		# Functional / cross-subsystem world-tick tests (see ADR 0001).

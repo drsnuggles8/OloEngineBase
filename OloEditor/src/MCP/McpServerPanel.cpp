@@ -105,11 +105,26 @@ namespace OloEngine::MCP
         ImGui::SameLine();
         ImGui::TextDisabled("(scrubs absolute paths before they leave the process)");
 
+        // Session write gate (issue #306 item C). OFF by default and not persisted, so
+        // every launch starts read-only; the user opts in here for the session. While
+        // off, any project-mutating tool (e.g. olo_set_collision_layer) is refused with
+        // a clean JSON-RPC error even for an authenticated agent. Writes route through
+        // the editor undo stack, so an agent's change is a single Ctrl-Z.
+        if (bool allowWrites = server.AllowWrites(); ImGui::Checkbox("Allow writes (undoable)", &allowWrites))
+            server.SetAllowWrites(allowWrites);
+        ImGui::SameLine();
+        if (server.AllowWrites())
+            ImGui::TextColored(ImVec4(0.85f, 0.60f, 0.30f, 1.0f),
+                               "(agents may MUTATE the scene via the undo stack — Ctrl-Z to revert)");
+        else
+            ImGui::TextDisabled("(off: write tools are refused; read-only. Not persisted — resets each launch)");
+
         ImGui::Checkbox("Start automatically when the editor launches", &autoStart);
         ImGui::SameLine();
         ImGui::TextDisabled("(persisted; default off)");
 
-        ImGui::Text("Exposed (read-only): %d tools, %d resources, %d prompts",
+        ImGui::Text("Exposed (%s): %d tools, %d resources, %d prompts",
+                    server.AllowWrites() ? "writes ON" : "read-only",
                     static_cast<int>(server.Tools().size()),
                     static_cast<int>(server.Resources().size()),
                     static_cast<int>(server.Prompts().size()));
