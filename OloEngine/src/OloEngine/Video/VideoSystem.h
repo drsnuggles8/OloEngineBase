@@ -31,15 +31,15 @@ namespace OloEngine
         /// the same overlay path as video. Width*height*4 bytes; the buffer is copied.
         static void ShowFullscreenImage(const u8* rgba, u32 width, u32 height);
         static void StopFullscreen();
-        [[nodiscard]] static bool IsFullscreenPlaying();
-        [[nodiscard]] static Ref<VideoPlayer> GetFullscreenPlayer();
+        [[nodiscard("playing state must be used")]] static bool IsFullscreenPlaying();
+        [[nodiscard("fullscreen player must be used")]] static Ref<VideoPlayer> GetFullscreenPlayer();
         /// Stop a skippable fullscreen video early (fires its OnFinished). No-op otherwise.
         static void SkipFullscreen();
         static void SetFullscreenSkippable(bool skippable);
-        [[nodiscard]] static bool IsFullscreenSkippable();
+        [[nodiscard("skippable state must be used")]] static bool IsFullscreenSkippable();
 
         // --- World-space ---
         /// Create a standalone player for binding to a mesh material. Returns null on failure.
-        [[nodiscard]] static Ref<VideoPlayer> CreateWorldPlayer(const std::string& filePath);
+        [[nodiscard("created player must be used")]] static Ref<VideoPlayer> CreateWorldPlayer(const std::string& filePath);
     };
 } // namespace OloEngine

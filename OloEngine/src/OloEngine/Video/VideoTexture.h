@@ -37,20 +37,20 @@ namespace OloEngine
 
         void Bind(u32 slot = 0) const;
 
-        [[nodiscard]] bool IsInitialized() const
+        [[nodiscard("initialized state must be used")]] bool IsInitialized() const
         {
             return m_Texture != nullptr;
         }
-        [[nodiscard]] u32 GetRendererID() const;
-        [[nodiscard]] u32 GetWidth() const
+        [[nodiscard("renderer ID must be used")]] u32 GetRendererID() const;
+        [[nodiscard("width must be used")]] u32 GetWidth() const
         {
             return m_Width;
         }
-        [[nodiscard]] u32 GetHeight() const
+        [[nodiscard("height must be used")]] u32 GetHeight() const
         {
             return m_Height;
         }
-        [[nodiscard]] const Ref<Texture2D>& GetTexture() const
+        [[nodiscard("texture must be used")]] const Ref<Texture2D>& GetTexture() const
         {
             return m_Texture;
         }

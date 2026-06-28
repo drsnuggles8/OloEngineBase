@@ -33,8 +33,8 @@ namespace OloEngine
 
         VideoDecoder(const VideoDecoder&) = delete;
         VideoDecoder& operator=(const VideoDecoder&) = delete;
-        VideoDecoder(VideoDecoder&&) noexcept;
-        VideoDecoder& operator=(VideoDecoder&&) noexcept;
+        VideoDecoder(VideoDecoder&& other) noexcept;
+        VideoDecoder& operator=(VideoDecoder&& other) noexcept;
 
         /// Open a media file for decoding.
         /// @param filePath  Absolute or working-directory-relative path to the file.
@@ -45,14 +45,14 @@ namespace OloEngine
         bool Open(const std::string& filePath, bool decodeAudio = false);
         void Close();
 
-        [[nodiscard]] bool IsOpen() const;
-        [[nodiscard]] f64 GetDuration() const; // Total seconds (0 if unknown).
-        [[nodiscard]] u32 GetWidth() const;
-        [[nodiscard]] u32 GetHeight() const;
-        [[nodiscard]] f64 GetFrameRate() const;       // Frames per second.
-        [[nodiscard]] bool HasAudio() const;          // True if the file carries an audio stream.
-        [[nodiscard]] u32 GetAudioSampleRate() const; // Hz (0 if no audio).
-        [[nodiscard]] u32 GetAudioChannels() const;   // Output channel count (backends output stereo: 2).
+        [[nodiscard("open state must be used")]] bool IsOpen() const;
+        [[nodiscard("duration must be used")]] f64 GetDuration() const; // Total seconds (0 if unknown).
+        [[nodiscard("width must be used")]] u32 GetWidth() const;
+        [[nodiscard("height must be used")]] u32 GetHeight() const;
+        [[nodiscard("frame rate must be used")]] f64 GetFrameRate() const;        // Frames per second.
+        [[nodiscard("audio-presence flag must be used")]] bool HasAudio() const;  // True if the file carries an audio stream.
+        [[nodiscard("sample rate must be used")]] u32 GetAudioSampleRate() const; // Hz (0 if no audio).
+        [[nodiscard("channel count must be used")]] u32 GetAudioChannels() const; // Output channel count (backends output stereo: 2).
 
         /// Decode the next video frame into @p outRGBA (resized to width*height*4).
         /// @return false at end-of-stream or when no decoder is open.
@@ -69,7 +69,7 @@ namespace OloEngine
         bool Seek(f64 timeSeconds);
 
         /// True once the end of the video stream has been reached.
-        [[nodiscard]] bool IsEndOfStream() const;
+        [[nodiscard("end-of-stream flag must be used")]] bool IsEndOfStream() const;
 
       private:
         struct Impl;

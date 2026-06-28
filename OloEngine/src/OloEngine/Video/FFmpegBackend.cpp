@@ -29,10 +29,18 @@ namespace OloEngine
         class FFmpegBackend final : public IVideoDecoderBackend
         {
           public:
+            FFmpegBackend() = default;
             ~FFmpegBackend() override
             {
                 Cleanup();
             }
+
+            // Owns raw libav contexts/packets/frames — non-copyable and non-movable
+            // (it is only ever held by a Scope).
+            FFmpegBackend(const FFmpegBackend&) = delete;
+            FFmpegBackend& operator=(const FFmpegBackend&) = delete;
+            FFmpegBackend(FFmpegBackend&&) = delete;
+            FFmpegBackend& operator=(FFmpegBackend&&) = delete;
 
             bool Open(const std::string& filePath, bool decodeAudio) override
             {

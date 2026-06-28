@@ -11,7 +11,7 @@
 namespace OloEngine
 {
     // The ma_data_source_base MUST be the first member so a ma_data_source* handed to the
-    // vtable callbacks can be reinterpret_cast straight back to this struct.
+    // vtable callbacks (it is really a void*) can be static_cast straight back to this struct.
     struct VideoAudioStream::Impl
     {
         ma_data_source_base DataSource{};
@@ -29,7 +29,7 @@ namespace OloEngine
     {
         VideoAudioStream::Impl* ImplFrom(ma_data_source* pDataSource)
         {
-            return reinterpret_cast<VideoAudioStream::Impl*>(pDataSource);
+            return static_cast<VideoAudioStream::Impl*>(pDataSource);
         }
 
         ma_result VideoDS_OnRead(ma_data_source* pDataSource, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead)
@@ -72,7 +72,7 @@ namespace OloEngine
 
         ma_result VideoDS_OnGetDataFormat(ma_data_source* pDataSource, ma_format* pFormat, ma_uint32* pChannels, ma_uint32* pSampleRate, ma_channel* pChannelMap, size_t channelMapCap)
         {
-            auto* impl = ImplFrom(pDataSource);
+            const auto* impl = ImplFrom(pDataSource);
             if (pFormat)
                 *pFormat = ma_format_f32;
             if (pChannels)
@@ -86,20 +86,20 @@ namespace OloEngine
 
         ma_result VideoDS_OnGetCursor(ma_data_source* pDataSource, ma_uint64* pCursor)
         {
-            auto* impl = ImplFrom(pDataSource);
+            const auto* impl = ImplFrom(pDataSource);
             if (pCursor)
                 *pCursor = impl->FramesConsumed.load(std::memory_order_relaxed);
             return MA_SUCCESS;
         }
 
-        ma_data_source_vtable g_VideoDataSourceVtable = {
+        const ma_data_source_vtable g_VideoDataSourceVtable = {
             VideoDS_OnRead,
             VideoDS_OnSeek,
             VideoDS_OnGetDataFormat,
             VideoDS_OnGetCursor,
-            /*onGetLength*/ nullptr, // unknown / infinite
-            /*onSetLooping*/ nullptr,
-            /*flags*/ 0
+            nullptr, // onGetLength: unknown / infinite
+            nullptr, // onSetLooping
+            0        // flags
         };
     } // namespace
 
@@ -215,7 +215,8 @@ namespace OloEngine
 
     sizet VideoAudioStream::Write(const f32* interleaved, sizet frameCount)
     {
-        if (!m_Active || !m_Impl || !m_Impl->RingInit || !interleaved || frameCount == 0)
+        const bool ready = m_Active && m_Impl && m_Impl->RingInit;
+        if (!ready || !interleaved || frameCount == 0)
             return 0;
 
         sizet written = 0;

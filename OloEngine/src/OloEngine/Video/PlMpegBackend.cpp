@@ -12,11 +12,18 @@ namespace OloEngine
         class PlMpegBackend final : public IVideoDecoderBackend
         {
           public:
+            PlMpegBackend() = default;
             ~PlMpegBackend() override
             {
                 if (m_Plm)
                     plm_destroy(m_Plm);
             }
+
+            // Owns a raw plm_t* — non-copyable and non-movable (it is only ever held by a Scope).
+            PlMpegBackend(const PlMpegBackend&) = delete;
+            PlMpegBackend& operator=(const PlMpegBackend&) = delete;
+            PlMpegBackend(PlMpegBackend&&) = delete;
+            PlMpegBackend& operator=(PlMpegBackend&&) = delete;
 
             bool Open(const std::string& filePath, bool decodeAudio) override
             {
@@ -111,8 +118,7 @@ namespace OloEngine
 
                 const u32 w = frame->width;
                 const u32 h = frame->height;
-                const sizet byteCount = static_cast<sizet>(w) * h * 4u;
-                if (outRGBA.size() != byteCount)
+                if (const sizet byteCount = static_cast<sizet>(w) * h * 4u; outRGBA.size() != byteCount)
                     outRGBA.resize(byteCount);
 
                 plm_frame_to_rgba(frame, outRGBA.data(), static_cast<int>(w * 4u));
@@ -143,7 +149,8 @@ namespace OloEngine
             {
                 if (!m_Plm)
                     return false;
-                const int ok = plm_seek(m_Plm, timeSeconds, 1 /*seek_exact*/);
+                constexpr int seekExact = 1;
+                const int ok = plm_seek(m_Plm, timeSeconds, seekExact);
                 if (ok)
                     m_EndOfStream = false;
                 return ok != 0;

@@ -2,8 +2,6 @@
 #include "OloEngine/Video/VideoDecoder.h"
 #include "OloEngine/Video/VideoDecoderBackend.h"
 
-#include <algorithm>
-#include <cctype>
 #include <filesystem>
 #include <utility>
 
@@ -28,8 +26,13 @@ namespace OloEngine
         bool IsMpeg1Extension(const std::string& filePath)
         {
             std::string ext = std::filesystem::path(filePath).extension().string();
-            std::ranges::transform(ext, ext.begin(), [](unsigned char c)
-                                   { return static_cast<char>(std::tolower(c)); });
+            // ASCII-lowercase in place; file extensions are ASCII, so this avoids the
+            // locale-dependent <cctype> functions (and their narrow-char UB pitfalls).
+            for (char& ch : ext)
+            {
+                if (ch >= 'A' && ch <= 'Z')
+                    ch = static_cast<char>(ch - 'A' + 'a');
+            }
             return ext == ".mpg" || ext == ".mpeg" || ext == ".m1v" || ext == ".mpg1";
         }
     } // namespace
