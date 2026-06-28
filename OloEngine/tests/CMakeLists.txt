@@ -345,6 +345,10 @@ add_executable(OloEngine-Tests
 		# HandleToolsList / HandleToolsCall / ToolResult::Structured in the McpServer.cpp
 		# TU already pulled in above; no extra editor TU is needed.
 		MCP/McpStructuredOutputTest.cpp
+		# JSON-Schema builder DSL + byte-identical equivalence with the migrated tool
+		# schema literals (#357 Tier 2 P4). Header-only (MCP/McpSchemaBuilder.h,
+		# nlohmann::json + stdlib only), so no extra editor TU is pulled in.
+		MCP/McpSchemaBuilderTest.cpp
 		# Lua Binding Tests
 		Lua/LuaBindingTest.cpp
 		# Functional / cross-subsystem world-tick tests (see ADR 0001).
