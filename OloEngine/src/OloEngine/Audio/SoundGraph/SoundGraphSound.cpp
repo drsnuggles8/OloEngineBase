@@ -7,6 +7,8 @@
 
 #include <choc/containers/choc_Value.h>
 #include <algorithm>
+#include <cmath>
+#include <string_view>
 // AudioEngine.h forward-declares ma_engine; we need the full miniaudio API surface here
 // for ma_engine_get_sample_rate (and the implicit pointer arithmetic on ma_engine*).
 #include <miniaudio.h>
@@ -14,6 +16,22 @@
 namespace OloEngine::Audio::SoundGraph
 {
     using EPlayState = SoundPlayState;
+
+    namespace
+    {
+        // Conventional graph-input parameter names the high-level Sound controls route to.
+        // A SoundGraph opts a control in by exposing a graph input stream of the matching
+        // name + type — float for Volume / Pitch / LowPass / HighPass, bool for Loop — and
+        // routing it to the node it should drive (e.g. a Gain node's amplitude, or a
+        // WavePlayer's "Loop" input). A graph that omits an endpoint simply ignores that
+        // control: the routed write no-ops (SoundGraphSource::SetParameter returns false).
+        // "Loop" matches WavePlayer's loop endpoint so a pass-through graph input lines up.
+        constexpr std::string_view kVolumeParam = "Volume";
+        constexpr std::string_view kPitchParam = "Pitch";
+        constexpr std::string_view kLoopParam = "Loop";
+        constexpr std::string_view kLowPassParam = "LowPass";
+        constexpr std::string_view kHighPassParam = "HighPass";
+    } // namespace
 
     //==============================================================================
     SoundGraphSound::SoundGraphSound()
@@ -75,6 +93,16 @@ namespace OloEngine::Audio::SoundGraph
         return true;
     }
 
+    bool SoundGraphSound::InitializeDetachedSource()
+    {
+        OLO_PROFILE_FUNCTION();
+        // Mirror InitializeAudioCallback's source allocation but skip the ma_engine
+        // attachment: the source can still drive its graph and apply parameter writes,
+        // it just never feeds miniaudio's output. See the header for the rationale.
+        m_Source = CreateScope<Audio::SoundGraph::SoundGraphSource>();
+        return true;
+    }
+
     // Additional overload to match header declaration
     bool SoundGraphSound::InitializeFromGraph(const Ref<Audio::SoundGraph::SoundGraph>& soundGraph)
     {
@@ -98,6 +126,8 @@ namespace OloEngine::Audio::SoundGraph
             m_Source->ReplaceGraph(soundGraph);
             // Only set ready state if the source accepted the graph successfully
             m_IsReadyToPlay = true;
+            // Apply any controls set before the graph existed (volume/pitch/looping/filters).
+            SyncControlParametersToGraph();
             return true;
         }
         catch (const std::exception& e)
@@ -160,6 +190,8 @@ namespace OloEngine::Audio::SoundGraph
             m_Source->ReplaceGraph(soundGraph);
             // Only set ready state if both operations succeeded
             m_IsReadyToPlay = true;
+            // Apply any controls set before the graph existed (volume/pitch/looping/filters).
+            SyncControlParametersToGraph();
             return true;
         }
         catch (const std::exception& e)
@@ -253,16 +285,31 @@ namespace OloEngine::Audio::SoundGraph
     {
         OLO_PROFILE_FUNCTION();
 
+        // Volume can arrive from script / YAML / network (Scene forwards the component's
+        // VolumeMultiplier here); reject a non-finite value rather than letting std::clamp
+        // pass NaN straight through to the graph.
+        if (!std::isfinite(newVolume))
+        {
+            OLO_CORE_WARN("SoundGraphSound::SetVolume - ignoring non-finite volume; keeping {}", m_Volume);
+            return;
+        }
+
         m_Volume = std::clamp(newVolume, 0.0f, 1.0f);
-        // Note: Actual volume control would be implemented via SoundGraph parameters
+        RouteFloatParameter(kVolumeParam, m_Volume);
     }
 
     void SoundGraphSound::SetPitch(f32 newPitch)
     {
         OLO_PROFILE_FUNCTION();
 
+        if (!std::isfinite(newPitch))
+        {
+            OLO_CORE_WARN("SoundGraphSound::SetPitch - ignoring non-finite pitch; keeping {}", m_Pitch);
+            return;
+        }
+
         m_Pitch = std::clamp(newPitch, 0.1f, 4.0f);
-        // Note: Actual pitch control would be implemented via SoundGraph parameters
+        RouteFloatParameter(kPitchParam, m_Pitch);
     }
 
     void SoundGraphSound::SetLooping(bool looping)
@@ -270,7 +317,7 @@ namespace OloEngine::Audio::SoundGraph
         OLO_PROFILE_FUNCTION();
 
         m_IsLooping = looping;
-        // Note: Actual looping would be implemented via SoundGraph parameters
+        RouteBoolParameter(kLoopParam, m_IsLooping);
     }
 
     f32 SoundGraphSound::GetVolume() const
@@ -291,16 +338,56 @@ namespace OloEngine::Audio::SoundGraph
     {
         OLO_PROFILE_FUNCTION();
 
+        if (!std::isfinite(value))
+        {
+            OLO_CORE_WARN("SoundGraphSound::SetLowPassFilter - ignoring non-finite value; keeping {}", m_LowPassValue);
+            return;
+        }
+
         m_LowPassValue = std::clamp(value, 0.0f, 1.0f);
-        // Note: Actual filtering would be implemented via SoundGraph parameters
+        RouteFloatParameter(kLowPassParam, m_LowPassValue);
     }
 
     void SoundGraphSound::SetHighPassFilter(f32 value)
     {
         OLO_PROFILE_FUNCTION();
 
+        if (!std::isfinite(value))
+        {
+            OLO_CORE_WARN("SoundGraphSound::SetHighPassFilter - ignoring non-finite value; keeping {}", m_HighPassValue);
+            return;
+        }
+
         m_HighPassValue = std::clamp(value, 0.0f, 1.0f);
-        // Note: Actual filtering would be implemented via SoundGraph parameters
+        RouteFloatParameter(kHighPassParam, m_HighPassValue);
+    }
+
+    void SoundGraphSound::RouteFloatParameter(std::string_view parameterName, f32 value)
+    {
+        // Best-effort routing into the live graph. SoundGraphSource::SetParameter(name)
+        // hashes the name, checks the graph exposes a matching input endpoint, and applies
+        // the value synchronously; it returns false (no-op) when there's no graph yet or the
+        // endpoint isn't exposed, so this is safe to call before init and on every graph.
+        if (m_Source)
+            m_Source->SetParameter(parameterName, choc::value::createFloat32(value));
+    }
+
+    void SoundGraphSound::RouteBoolParameter(std::string_view parameterName, bool value)
+    {
+        if (m_Source)
+            m_Source->SetParameter(parameterName, choc::value::createBool(value));
+    }
+
+    void SoundGraphSound::SyncControlParametersToGraph()
+    {
+        // Re-push every stored control so a value set before the graph was installed (or
+        // before a graph swap) still lands. Each routes to a conventional endpoint name and
+        // is ignored by a graph that doesn't expose it.
+        RouteFloatParameter(kVolumeParam, m_Volume);
+        RouteFloatParameter(kPitchParam, m_Pitch);
+        RouteBoolParameter(kLoopParam, m_IsLooping);
+        RouteFloatParameter(kLowPassParam, m_LowPassValue);
+        RouteFloatParameter(kHighPassParam, m_HighPassValue);
     }
 
     //==============================================================================
@@ -336,7 +423,7 @@ namespace OloEngine::Audio::SoundGraph
             }
             catch (...)
             {
-                // Ignore errors - this is a stub implementation
+                OLO_CORE_WARN("SoundGraphSound: SetParameter(int) threw unexpectedly for parameterID {}", parameterID);
             }
         }
     }
@@ -353,7 +440,7 @@ namespace OloEngine::Audio::SoundGraph
             }
             catch (...)
             {
-                // Ignore errors - this is a stub implementation
+                OLO_CORE_WARN("SoundGraphSound: SetParameter(bool) threw unexpectedly for parameterID {}", parameterID);
             }
         }
     }
@@ -393,7 +480,15 @@ namespace OloEngine::Audio::SoundGraph
     }
 
     //==============================================================================
-    /// 3D Audio - Stub implementations that just store values
+    /// 3D Audio
+    ///
+    /// These store the spatial state and back GetLocation()/GetVelocity(), but do not
+    /// yet feed a spatializer: SoundGraphSource attaches its bare ma_node straight to the
+    /// engine endpoint, whereas Audio::DSP::Spatializer (AudioEngine::GetSpatializer)
+    /// inserts per-source panning nodes after an ma_engine_node and is wired only into the
+    /// ma_sound-based AudioSource path. Routing a SoundGraph voice through the spatializer
+    /// is real new infrastructure (per-voice node insertion + listener/source registration),
+    /// not a parameter route, so it is deferred — tracked in issue #424.
 
     void SoundGraphSound::SetLocation(const glm::vec3& location)
     {
@@ -446,15 +541,15 @@ namespace OloEngine::Audio::SoundGraph
             }
         }
 
-        // Update source if available, but handle the fact that methods might not exist
+        // Pump the source (drains its audio→main-thread event/message queues) and pick up
+        // a natural-finish transition. Guarded defensively: a throw from the source must not
+        // propagate out of the per-frame Update.
         if (m_Source)
         {
-            // Try to call Update - our SoundGraphSource does have this method
             try
             {
                 m_Source->Update(static_cast<f64>(deltaTime));
 
-                // Try to check if finished - our SoundGraphSource does have this method
                 if (m_Source->IsFinished() && !m_IsFinished)
                 {
                     m_IsFinished = true;
@@ -464,7 +559,7 @@ namespace OloEngine::Audio::SoundGraph
             }
             catch (...)
             {
-                // Ignore errors - this is a stub implementation
+                OLO_CORE_WARN("SoundGraphSound::Update - source update threw unexpectedly");
             }
         }
     }
@@ -507,7 +602,7 @@ namespace OloEngine::Audio::SoundGraph
     }
 
     //==============================================================================
-    /// Private Methods - All stub implementations
+    /// Private Methods
 
     bool SoundGraphSound::StopFade(u64 numSamples)
     {
@@ -566,7 +661,9 @@ namespace OloEngine::Audio::SoundGraph
                 m_OnPlaybackComplete();
         }
 
-        return 0; // Return dummy voice ID
+        // A SoundGraphSound owns a single voice — there is no voice pool to return an ID
+        // from. 0 is the non-negative success sentinel StopFade()'s `>= 0` check expects.
+        return 0;
     }
 
     f32 SoundGraphSound::NormalizedToFrequency(f32 normalizedValue)
