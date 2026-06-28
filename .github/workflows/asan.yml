@@ -189,7 +189,17 @@ jobs:
       #   WorkerRestartTest — a tight 100-iteration worker-pool teardown/recreate
       #     stress test that exceeds the 120 s timeout under sanitizer
       #     instrumentation; excluded on every sanitizer job.
-      run: ctest -C Release --output-on-failure --timeout 120 --exclude-regex '^NetworkIntegrationTest\.|^WorkerRestartTest\.'
+      #
+      # --parallel 2: every gtest case is its own ctest entry (gtest_discover_tests),
+      # so serial execution pays the engine's full static-init cost ~3,600× back-to-
+      # back — the same win Windows.yml's non-sanitizer job banks with `--parallel 4`.
+      # The suite is parallel-safe by construction: tests key their temp paths by
+      # PID / gtest case name, and the handful that share the engine's repo-relative
+      # mesh cache are serialized against each other with a ctest RESOURCE_LOCK
+      # (OloEngine/tests/CMakeLists.txt). Capped at 2 (not 4) because MSVC ASan
+      # shadow memory inflates each test process's resident footprint; 2-wide stays
+      # comfortably inside the windows-latest ~16 GB budget.
+      run: ctest --parallel 2 -C Release --output-on-failure --timeout 120 --exclude-regex '^NetworkIntegrationTest\.|^WorkerRestartTest\.'
       env:
         ASAN_OPTIONS: halt_on_error=1
         GTEST_OUTPUT: xml:${{github.workspace}}/test_results/
@@ -327,7 +337,27 @@ jobs:
       # bindings. Under ASan instrumentation shaderc is 3-5× slower per
       # compile, and the cumulative work blows past the default 120 s.
       # 600 s gives reasonable headroom without masking actual hangs.
-      run: ctest --output-on-failure --timeout 600 --exclude-regex '^NetworkIntegrationTest\.|^WorkerRestartTest\.'
+      #
+      # --parallel 2: gtest_discover_tests registers every gtest case as its own
+      # ctest entry (one OloEngine-Tests process per case), so serial execution pays
+      # the engine's full static-init cost ~3,600× back-to-back — a large chunk of
+      # this job's wall-clock. Windows.yml already banks this win with
+      # `ctest --parallel 4`. The suite is parallel-safe by construction: tests key
+      # their temp paths by PID / gtest case name, and the handful that share the
+      # engine's repo-relative mesh cache are serialized against each other with a
+      # ctest RESOURCE_LOCK (OloEngine/tests/CMakeLists.txt).
+      #
+      # Why 2 here, not Windows' 4: these are SANITIZER-instrumented test processes
+      # with a much larger *resident* footprint (ASan shadow memory; TSan
+      # happens-before metadata), and the ubuntu runners have only ~16 GB / 4 vCPU.
+      # Two concurrent instrumented processes stay comfortably inside that budget;
+      # 4-wide risks the OOM reaper killing the runner mid-test.
+      #
+      # NOTE: this is unrelated to the build step's `--parallel 2` above. That pin is
+      # a *compile-time* constraint (~3 GB per TU under clang+sanitizer) and does NOT
+      # transfer to the test phase — don't "reconcile" the two numbers; they bound
+      # different resources (peak compiler RSS vs. peak instrumented-test RSS).
+      run: ctest --parallel 2 --output-on-failure --timeout 600 --exclude-regex '^NetworkIntegrationTest\.|^WorkerRestartTest\.'
       env:
         ASAN_OPTIONS: halt_on_error=1:detect_leaks=1
         LSAN_OPTIONS: suppressions=${{github.workspace}}/.github/sanitizer-suppressions/lsan.txt
@@ -445,7 +475,14 @@ jobs:
       # --timeout 600: same rationale as the ASan + LSan step above —
       # ShaderReflectionBinding compiles ~100 shaders × ~3 stages via
       # shaderc, which is 3-5× slower under UBSan instrumentation.
-      run: ctest --output-on-failure --timeout 600 --exclude-regex '^NetworkIntegrationTest\.|^NetworkManagerTest\.|^NetworkThreadDispatchTest\.|^TaskConcurrencyLimiterTest\.|^LowLevelTaskUserDataTest\.|^WorkerRestartTest\.'
+      #
+      # --parallel 2: see the ASan + LSan run step above for the full rationale —
+      # one ctest entry per gtest case makes serial execution pay engine static-init
+      # ~3,600× over; the suite is parallel-safe (PID/case-name temp paths + a mesh-
+      # cache RESOURCE_LOCK), and 2 (not Windows' 4) keeps two sanitizer-instrumented
+      # processes inside the ~16 GB / 4-vCPU runner. Independent of the build step's
+      # compile-time `--parallel 2` — that bounds compiler RSS, this bounds test RSS.
+      run: ctest --parallel 2 --output-on-failure --timeout 600 --exclude-regex '^NetworkIntegrationTest\.|^NetworkManagerTest\.|^NetworkThreadDispatchTest\.|^TaskConcurrencyLimiterTest\.|^LowLevelTaskUserDataTest\.|^WorkerRestartTest\.'
       env:
         UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
         GTEST_OUTPUT: xml:${{github.workspace}}/test_results/
@@ -567,7 +604,18 @@ jobs:
       #      especially heavy — even 300 s wasn't enough in practice.
       # Every other test finishes in single-digit seconds, so the headroom
       # only bites the known-slow cases — not a fig leaf over hangs.
-      run: ctest --output-on-failure --timeout 600 --exclude-regex '^NetworkIntegrationTest\.|^WorkerRestartTest\.'
+      #
+      # --parallel 2: see the ASan + LSan run step above for the full rationale
+      # (one ctest entry per case → engine static-init paid ~3,600× serially; the
+      # suite is parallel-safe via PID/case-name temp paths + a mesh-cache
+      # RESOURCE_LOCK). TSan is the most memory-heavy sanitizer — its happens-before
+      # shadow gives each test process the largest resident footprint of the three —
+      # so 2 is deliberately conservative. But two TSan test processes still sit well
+      # within the ~16 GB / 4-vCPU runner (each runs a single short-lived gtest case,
+      # not the whole suite at once), so 2-wide is safe rather than left serial.
+      # Independent of the build step's compile-time `--parallel 2`: that bounds
+      # peak compiler RSS, this bounds peak instrumented-test RSS.
+      run: ctest --parallel 2 --output-on-failure --timeout 600 --exclude-regex '^NetworkIntegrationTest\.|^WorkerRestartTest\.'
       env:
         TSAN_OPTIONS: halt_on_error=1:second_deadlock_stack=1
         GTEST_OUTPUT: xml:${{github.workspace}}/test_results/
