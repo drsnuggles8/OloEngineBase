@@ -349,6 +349,12 @@ add_executable(OloEngine-Tests
 		# schema literals (#357 Tier 2 P4). Header-only (MCP/McpSchemaBuilder.h,
 		# nlohmann::json + stdlib only), so no extra editor TU is pulled in.
 		MCP/McpSchemaBuilderTest.cpp
+		# Server-side inputSchema enforcement for tools/call: McpServer::ValidateArguments
+		# (the pure validator) + HandleToolsCall rejecting malformed calls with a
+		# field-naming kInvalidParams (#357 conformance / #306 item D hardening).
+		# Exercises the McpServer.cpp TU already pulled in above plus the header-only
+		# schema-builder DSL; no extra editor TU is needed.
+		MCP/McpInputValidationTest.cpp
 		# Lua Binding Tests
 		Lua/LuaBindingTest.cpp
 		# Functional / cross-subsystem world-tick tests (see ADR 0001).
