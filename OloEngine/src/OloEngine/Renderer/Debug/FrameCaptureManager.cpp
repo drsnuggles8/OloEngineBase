@@ -84,6 +84,14 @@ namespace OloEngine
         m_CaptureGeneration.fetch_add(1, std::memory_order_release);
     }
 
+    void FrameCaptureManager::SetSourcePass(std::string_view passName)
+    {
+        if (!IsCapturing())
+            return;
+
+        m_PendingFrame.SourcePassName = passName;
+    }
+
     void FrameCaptureManager::OnPreSort(const CommandBucket& bucket)
     {
         OLO_PROFILE_FUNCTION();

@@ -7,6 +7,7 @@
 #include <atomic>
 #include <deque>
 #include <optional>
+#include <string_view>
 
 namespace OloEngine
 {
@@ -48,6 +49,12 @@ namespace OloEngine
         {
             return m_MaxCapturedFrames.load(std::memory_order_acquire);
         }
+
+        // Records the name of the render-graph pass driving the in-progress
+        // capture (the pass whose command bucket feeds OnPreSort/OnPostSort/
+        // OnPostBatch). No-op when not capturing. Lets the breakdown attribute
+        // captured commands to a real graph pass instead of a hard-coded label.
+        void SetSourcePass(std::string_view passName);
 
         // Capture hooks — called from SceneRenderPass::Execute()
         void OnPreSort(const CommandBucket& bucket);

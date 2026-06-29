@@ -34,6 +34,7 @@
 #include "OloEngine/Renderer/Mesh.h"
 #include "OloEngine/Renderer/MeshSource.h"
 #include "OloEngine/Renderer/Model.h"
+#include "OloEngine/Renderer/Passes/CommandBufferRenderPass.h"
 #include "OloEngine/Renderer/RenderGraph.h"
 #include "OloEngine/Renderer/Renderer2D.h"
 #include "OloEngine/Renderer/Renderer3D.h"
@@ -74,6 +75,7 @@
 #include <stdexcept>
 #include <string>
 #include <thread>
+#include <unordered_map>
 #include <unordered_set>
 #include <utility>
 #include <vector>
@@ -598,12 +600,20 @@ namespace OloEngine::MCP
             return ToolResult::Text(o.dump(2));
         }
 
+        // Defined further down (next to the topology export handler that shares it);
+        // forward-declared so the frame-breakdown handler can reuse the same
+        // enum -> string mapping the topology export uses.
+        const char* PassWorkTypeName(RenderGraphPassWorkType type);
+
         // ---- olo_render_frame_breakdown (main-marshaled) -----------------------
         // The per-command / per-pipeline-stage structural view olo_perf_capture_frame
         // omits. Same capture-then-poll trigger as Handle_PerfCaptureFrame, then the
         // freshly captured frame is shaped by the pure FrameBreakdown::BuildBreakdown
         // (JSON) or CommandPacketDebugger::BuildMarkdownReport (the Command Bucket
-        // Inspector's LLM-analysis report). Pure read — no override / mutation.
+        // Inspector's LLM-analysis report). After capture, the live render graph is
+        // read once more to attribute the captured bucket to its owning pass and place
+        // it in the whole-graph command-bucket landscape (#316 Part 4). Pure read — no
+        // override / mutation.
         ToolResult Handle_RenderFrameBreakdown(McpServer& server, const Json& args)
         {
             const bool explicitViewMode = args.contains("viewMode");
@@ -665,7 +675,48 @@ namespace OloEngine::MCP
             if (format == "markdown")
                 return ToolResult::Text(CommandPacketDebugger::BuildMarkdownReport(cap));
 
-            const Json o = FrameBreakdown::BuildBreakdown(cap, requested, maxCommands);
+            // Gather the live render graph's command-bucket landscape so the
+            // captured single-pass bucket can be placed in the whole-graph picture
+            // (#316 Part 4). The graph is main-thread state, so the walk runs inside
+            // MarshalRead; the shaping stays in the pure FrameBreakdown core. A
+            // missing graph (2D mode / no frame yet) just omits the attribution.
+            FrameBreakdown::GraphAttribution attribution;
+            attribution.CaptureSourcePass = cap.SourcePassName;
+            const Json gathered = server.MarshalRead([&attribution]() -> Json
+                                                     {
+                const Ref<RenderGraph>& graph = RenderGraphDebugRuntime::GetActiveGraph();
+                if (!graph)
+                    return Json{ { "haveGraph", false } };
+
+                const std::vector<std::string>& order = graph->GetExecutionOrder();
+                std::unordered_map<std::string, int> executionIndex;
+                executionIndex.reserve(order.size());
+                for (int i = 0; i < static_cast<int>(order.size()); ++i)
+                    executionIndex.emplace(order[i], i);
+
+                const auto& culled = graph->GetCulledPasses();
+                const std::unordered_set<std::string> culledSet(culled.begin(), culled.end());
+                const std::string& finalPass = graph->GetFinalPassName();
+
+                for (const auto& info : graph->GetNodeSubmissionInfo())
+                {
+                    FrameBreakdown::GraphPassInfo pass;
+                    pass.Name = info.NodeName;
+                    pass.WorkType = PassWorkTypeName(info.WorkType);
+                    // A pass owns a command bucket iff it is a CommandBufferRenderPass
+                    // (Ref::As uses dynamic_cast, so this is an exact type test).
+                    pass.UsesCommandBucket = graph->GetNode<CommandBufferRenderPass>(info.NodeName) != nullptr;
+                    pass.Culled = culledSet.contains(info.NodeName);
+                    pass.IsFinalPass = !finalPass.empty() && info.NodeName == finalPass;
+                    if (const auto it = executionIndex.find(info.NodeName); it != executionIndex.end())
+                        pass.ExecutionIndex = it->second;
+                    attribution.Passes.push_back(std::move(pass));
+                }
+                return Json{ { "haveGraph", true } }; });
+
+            const bool haveGraph = gathered.is_object() && gathered.value("haveGraph", false);
+            const Json o = FrameBreakdown::BuildBreakdown(cap, requested, maxCommands,
+                                                          haveGraph ? &attribution : nullptr);
             return ToolResult::Text(o.dump(2));
         }
 
@@ -3881,13 +3932,17 @@ namespace OloEngine::MCP
             tool.Annotations = ReadOnlyAnnotations();
             tool.Description =
                 "Capture the current frame and return its per-command / per-pipeline-stage structural "
-                "breakdown — the granularity olo_perf_capture_frame omits. Triggers a one-frame capture of "
-                "the scene render command bucket and returns the pipeline stats plus the ordered command list "
-                "for the chosen stage: each command's type, debug-name pass label, draw key "
-                "(shader/material/depth/view-layer/render-mode), group id, execution order, static flag and "
-                "GPU time, plus a command-type histogram. Use format:\"markdown\" for the Command Bucket "
-                "Inspector's LLM-analysis report (sort displacement, state-change deltas, batching analysis, "
-                "optimization hints) instead of JSON.";
+                "breakdown — the granularity olo_perf_capture_frame omits. Triggers a one-frame capture of one "
+                "render-graph pass's command bucket ('sourcePass', the scene render pass) and returns the "
+                "pipeline stats plus the ordered command list for the chosen stage: each command's type, "
+                "debug-name pass label, draw key (shader/material/depth/view-layer/render-mode), group id, "
+                "execution order, static flag and GPU time, plus a command-type histogram. A 'graphAttribution' "
+                "block places that bucket in the whole live render graph: every pass, which ones own a command "
+                "bucket, which one is the capture source, and each pass's work type / cull state / execution "
+                "order — so you can see which pass emitted the captured commands and which other passes emit "
+                "commands that are not yet per-command attributed. Use format:\"markdown\" for the Command "
+                "Bucket Inspector's LLM-analysis report (sort displacement, state-change deltas, batching "
+                "analysis, optimization hints) instead of JSON.";
             tool.InputSchema = Schema::Object()
                                    .Prop("viewMode", Schema::String()
                                                          .Enum({ "presort", "postsort", "postbatch" })
@@ -3904,6 +3959,43 @@ namespace OloEngine::MCP
                                                        .Desc("'json' (default): structured per-command breakdown shaped by viewMode/maxCommands. "
                                                              "'markdown': the human/LLM analysis report (covers all stages and commands)."))
                                    .NoAdditional();
+            // outputSchema (#357-P2) describes the json format only; markdown returns
+            // free text, which an outputSchema cannot constrain.
+            tool.OutputSchema = Schema::Object()
+                                    .Prop("frameNumber", Schema::Int().Min(0).Desc("Captured frame counter."))
+                                    .Prop("sourcePass", Schema::String().Desc("Render-graph pass whose command bucket these commands were emitted by."))
+                                    .Prop("viewMode", Schema::String().Desc("Pipeline stage actually listed (after empty-stage fallback)."))
+                                    .Prop("commandCount", Schema::Int().Min(0).Desc("Total commands in the listed stage (pre-truncation)."))
+                                    .Prop("returnedCommands", Schema::Int().Min(0).Desc("Commands actually included in 'commands' (<= maxCommands)."))
+                                    .Prop("truncated", Schema::Bool().Desc("True when maxCommands capped the returned list."))
+                                    .Prop("stats", Schema::Object().Desc("Aggregate frame stats (draw calls, state changes, sort/batch/execute ms, ...)."))
+                                    .Prop("stageCounts", Schema::Object().Desc("Command counts at the preSort / postSort / postBatch stages."))
+                                    .Prop("commandTypeHistogram", Schema::Object().Desc("Count of each command type over the full listed stage."))
+                                    .Prop("commands", Schema::Array(Schema::Object()
+                                                                        .Prop("index", Schema::Int())
+                                                                        .Prop("type", Schema::String())
+                                                                        .Prop("debugName", Schema::String())
+                                                                        .Prop("isDraw", Schema::Bool())
+                                                                        .Prop("executionOrder", Schema::Int())
+                                                                        .Prop("drawKey", Schema::Object())
+                                                                        .Prop("gpuMs", Schema::Number()))
+                                                          .Desc("Ordered commands for the listed stage."))
+                                    .Prop("graphAttribution", Schema::Object()
+                                                                  .Prop("captureSourcePass", Schema::String().Desc("Pass whose bucket the per-command breakdown describes."))
+                                                                  .Prop("passCount", Schema::Int().Min(0).Desc("Total passes in the live graph."))
+                                                                  .Prop("commandBucketPassCount", Schema::Int().Min(0).Desc("Passes that own a command bucket."))
+                                                                  .Prop("capturedPassCount", Schema::Int().Min(0).Desc("Command-bucket passes actually captured (currently 0 or 1)."))
+                                                                  .Prop("passes", Schema::Array(Schema::Object()
+                                                                                                    .Prop("name", Schema::String())
+                                                                                                    .Prop("workType", Schema::String())
+                                                                                                    .Prop("usesCommandBucket", Schema::Bool())
+                                                                                                    .Prop("isCaptureSource", Schema::Bool())
+                                                                                                    .Prop("culled", Schema::Bool())
+                                                                                                    .Prop("isFinalPass", Schema::Bool())
+                                                                                                    .Prop("executionIndex", Schema::Int()))
+                                                                                      .Desc("Every pass in the live render graph."))
+                                                                  .Desc("Whole-graph command-bucket landscape (omitted when no active render graph)."))
+                                    .Required({ "frameNumber", "sourcePass", "commandCount", "commands" });
             tool.MainMarshaled = true;
             tool.Handler = Handle_RenderFrameBreakdown;
             server.RegisterTool(std::move(tool));

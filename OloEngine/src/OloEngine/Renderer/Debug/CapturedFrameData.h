@@ -191,6 +191,15 @@ namespace OloEngine
         u32 FrameNumber = 0;
         f64 TimestampSeconds = 0.0;
 
+        // Name of the render-graph pass that drove this capture — i.e. the pass
+        // whose command bucket the PreSort/PostSort/PostBatch lists were copied
+        // from (SceneRenderPass today; recorded rather than hard-coded so the
+        // olo_render_frame_breakdown MCP tool can attribute every captured command
+        // to a real graph pass, and so a future per-pass capture can stamp each
+        // pass's own name). Empty when the capture was produced outside a named
+        // pass (e.g. a synthetic test frame).
+        std::string SourcePassName;
+
         // Commands at different pipeline stages
         std::vector<CapturedCommandData> PreSortCommands;   // Submission order
         std::vector<CapturedCommandData> PostSortCommands;  // After radix sort
