@@ -137,6 +137,13 @@ namespace OloEngine
 
                 //==============================================================================
                 /// 3D Audio
+                ///
+                /// These now drive the per-voice 3D spatializer (issue #424): each setter
+                /// stores the spatial state AND, once a spatializer node is hosted by the
+                /// source, pushes the combined transform/velocity into
+                /// Audio::DSP::Spatializer::UpdateSourcePosition. They no-op gracefully before
+                /// the source/spatializer exists (the value is still stored, so the getters and
+                /// a later registration stay correct).
                 void SetLocation(const glm::vec3& location);
                 void SetVelocity(const glm::vec3& velocity);
                 void SetOrientation(const glm::vec3& forward, const glm::vec3& up);
@@ -149,6 +156,28 @@ namespace OloEngine
                 {
                     return m_Velocity;
                 }
+
+                /// Whether this voice is routed through the 3D spatializer. Owned here at
+                /// runtime (the AudioSoundGraphComponent has no serialized spatialization flag
+                /// yet — see issue #424); defaults to enabled so a SoundGraph voice on an entity
+                /// is positioned. Must be set BEFORE InitializeAudioCallback to take effect, as
+                /// that is where the spatializer node is registered.
+                void SetSpatializationEnabled(bool enabled)
+                {
+                    m_SpatializationEnabled = enabled;
+                }
+                bool IsSpatializationEnabled() const
+                {
+                    return m_SpatializationEnabled;
+                }
+
+                /// True once the source actually hosts a spatializer node (false if disabled,
+                /// the source is detached, or the engine spatializer was unavailable).
+                bool IsSpatialized() const;
+
+                /// The spatializer sourceID for this voice (0 when not spatialized). Lets
+                /// callers/tests query Audio::DSP::Spatializer's per-source getters.
+                u32 GetSpatializerSourceID() const;
 
                 //==============================================================================
                 /// Status
@@ -256,6 +285,11 @@ namespace OloEngine
                 static f32 NormalizedToFrequency(f32 normalizedValue);
                 static f32 FrequencyToNormalized(f32 frequency);
 
+                /* Push the current spatial state (position/orientation/up + velocity) into the
+                   source's spatializer node. No-op until the source hosts one. Called from each
+                   3D setter. */
+                void SyncSpatialPositionToSource();
+
               private:
                 friend class AudioEngine;
                 friend class SourceManager;
@@ -291,8 +325,10 @@ namespace OloEngine
 
                 // Spatial audio properties
                 glm::vec3 m_Position{ 0.0f };
-                glm::vec3 m_Orientation{ 0.0f, 0.0f, 1.0f };
+                glm::vec3 m_Orientation{ 0.0f, 0.0f, -1.0f }; // forward; matches Audio::Transform default
+                glm::vec3 m_Up{ 0.0f, 1.0f, 0.0f };
                 glm::vec3 m_Velocity{ 0.0f };
+                bool m_SpatializationEnabled = true; // 3D spatializer routing on by default (issue #424)
 
                 // Status flags
                 bool m_IsReadyToPlay = false;

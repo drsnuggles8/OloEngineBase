@@ -91,6 +91,9 @@
 #include "OloEngine/Audio/AudioEvents/AudioEventsManager.h"
 #include "OloEngine/Audio/AudioEvents/AudioCommandRegistry.h"
 #include "OloEngine/Audio/AudioEvents/AudioPlayback.h"
+#include "OloEngine/Audio/AudioEngine.h"
+#include "OloEngine/Audio/AudioTransform.h"
+#include "OloEngine/Audio/DSP/Spatializer/Spatializer.h"
 #include "OloEngine/Project/Project.h"
 
 #include <glm/glm.hpp>
@@ -132,6 +135,18 @@ namespace OloEngine
         const glm::vec4 surfaceWorld = modelMat * glm::vec4(localCam.x, 0.0f, localCam.z, 1.0f);
         outGap = surfaceWorld.y - cameraPos.y;
         return true;
+    }
+
+    // Audio listener/source orientation comes from columns of an entity's inverse local
+    // transform. A singular (zero-scale) or non-finite transform makes glm::inverse emit
+    // NaN/Inf, and normalizing a zero/NaN vector yields NaN — which would poison the 3D
+    // spatializer's lookAt/length math (issue #424). Fall back to the canonical axis (what
+    // an identity transform yields) when the basis vector is degenerate.
+    static glm::vec3 SafeAudioBasis(const glm::vec3& basis, const glm::vec3& fallback)
+    {
+        if (std::isfinite(basis.x) && std::isfinite(basis.y) && std::isfinite(basis.z) && glm::length(basis) > 1e-4f)
+            return glm::normalize(basis);
+        return fallback;
     }
 
     static void DrawTextWithShadow(const TextComponent& text, const TransformComponent& transform, int entityID)
@@ -595,10 +610,21 @@ namespace OloEngine
             if (ac.Active)
             {
                 const glm::mat4 inverted = glm::inverse(Entity(e, this).GetLocalTransform());
-                const glm::vec3 forward = normalize(glm::vec3(inverted[2]));
+                const glm::vec3 forward = SafeAudioBasis(glm::vec3(inverted[2]), glm::vec3(0.0f, 0.0f, 1.0f));
                 ac.Listener->SetConfig(ac.Config);
                 ac.Listener->SetPosition(tc.Translation);
                 ac.Listener->SetDirection(-forward);
+                // Seed the 3D spatializer's listener pose so SoundGraph voices registered just
+                // below (InitializeAudioSoundGraph) compute their initial relative position
+                // against the real listener, not the default origin (issue #424).
+                if (auto* spatializer = AudioEngine::GetSpatializer())
+                {
+                    Audio::Transform listenerTransform;
+                    listenerTransform.Position = tc.Translation;
+                    listenerTransform.Orientation = -forward;
+                    listenerTransform.Up = SafeAudioBasis(glm::vec3(inverted[1]), glm::vec3(0.0f, 1.0f, 0.0f));
+                    spatializer->UpdateListener(listenerTransform);
+                }
                 break;
             }
         }
@@ -625,7 +651,7 @@ namespace OloEngine
             if (ac.Source)
             {
                 const glm::mat4 inverted = glm::inverse(Entity(e, this).GetLocalTransform());
-                const glm::vec3 forward = normalize(glm::vec3(inverted[2]));
+                const glm::vec3 forward = SafeAudioBasis(glm::vec3(inverted[2]), glm::vec3(0.0f, 0.0f, 1.0f));
                 ac.Source->SetConfig(ac.Config);
                 ac.Source->SetPosition(tc.Translation);
                 ac.Source->SetDirection(forward);
@@ -1566,9 +1592,19 @@ namespace OloEngine
                 if (ac.Active)
                 {
                     const glm::mat4 inverted = glm::inverse(Entity(e, this).GetLocalTransform());
-                    const glm::vec3 forward = normalize(glm::vec3(inverted[2]));
+                    const glm::vec3 forward = SafeAudioBasis(glm::vec3(inverted[2]), glm::vec3(0.0f, 0.0f, 1.0f));
                     ac.Listener->SetPosition(tc.Translation);
                     ac.Listener->SetDirection(-forward);
+                    // Keep the 3D spatializer's listener in sync each frame so SoundGraph voices
+                    // pan/attenuate relative to the live listener pose (issue #424).
+                    if (auto* spatializer = AudioEngine::GetSpatializer())
+                    {
+                        Audio::Transform listenerTransform;
+                        listenerTransform.Position = tc.Translation;
+                        listenerTransform.Orientation = -forward;
+                        listenerTransform.Up = SafeAudioBasis(glm::vec3(inverted[1]), glm::vec3(0.0f, 1.0f, 0.0f));
+                        spatializer->UpdateListener(listenerTransform);
+                    }
                     break;
                 }
             }
@@ -1580,9 +1616,24 @@ namespace OloEngine
                 {
                     Entity entity = { e, this };
                     const glm::mat4 inverted = glm::inverse(entity.GetLocalTransform());
-                    const glm::vec3 forward = normalize(glm::vec3(inverted[2]));
+                    const glm::vec3 forward = SafeAudioBasis(glm::vec3(inverted[2]), glm::vec3(0.0f, 0.0f, 1.0f));
                     ac.Source->SetPosition(tc.Translation);
                     ac.Source->SetDirection(forward);
+                }
+            }
+
+            // Drive 3D position/orientation for SoundGraph voices (issue #424). Mirrors the
+            // AudioSource loop above; SetLocation/SetOrientation route into the per-voice
+            // spatializer node, which no-ops until the voice actually hosts one.
+            for (auto sgView = m_Registry.view<AudioSoundGraphComponent, TransformComponent>(); auto&& [e, sgc, tc] : sgView.each())
+            {
+                if (sgc.Sound)
+                {
+                    const glm::mat4 inverted = glm::inverse(Entity(e, this).GetLocalTransform());
+                    const glm::vec3 forward = SafeAudioBasis(glm::vec3(inverted[2]), glm::vec3(0.0f, 0.0f, 1.0f));
+                    const glm::vec3 up = SafeAudioBasis(glm::vec3(inverted[1]), glm::vec3(0.0f, 1.0f, 0.0f));
+                    sgc.Sound->SetLocation(tc.Translation);
+                    sgc.Sound->SetOrientation(forward, up);
                 }
             }
 

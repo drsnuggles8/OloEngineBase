@@ -1,9 +1,12 @@
 #include "OloEnginePCH.h"
 #include "SoundGraphSource.h"
 #include "OloEngine/Audio/AudioLoader.h"
+#include "OloEngine/Audio/DSP/Spatializer/Spatializer.h"
 #include "OloEngine/Asset/AssetManager.h"
+#include "OloEngine/Math/Math.h" // Math::IsFinite
 #include "OloEngine/Core/Hash.h"
 #include "OloEngine/Project/Project.h"
+#include <atomic>
 #include <chrono>
 #include <thread>
 #include <variant>
@@ -58,6 +61,11 @@ namespace OloEngine::Audio::SoundGraph
             1,       // 1 output bus
             0        // flags
         };
+
+        // Process-wide monotonic source-ID allocator for the shared Audio::DSP::Spatializer
+        // (AudioEngine::GetSpatializer()): every SoundGraph voice registers under a unique key
+        // in the spatializer's source map. Starts at 1 so 0 stays a "not registered" sentinel.
+        std::atomic<u32> s_NextSpatializerSourceID{ 1 };
     } // namespace
 
     //==============================================================================
@@ -317,6 +325,11 @@ namespace OloEngine::Audio::SoundGraph
 
         UninitializeDataSources();
 
+        // Tear the spatializer node out (re-routes m_Node straight back to the endpoint and
+        // frees the inserted node) BEFORE we uninit m_Node — ReleaseSource reads m_Node's
+        // output bus to find the downstream it should reattach to.
+        UnregisterSpatializer();
+
         ::ma_node_uninit(&m_Node.m_Base, nullptr);
         m_Node.m_Owner = nullptr;
 
@@ -326,6 +339,69 @@ namespace OloEngine::Audio::SoundGraph
         m_PresetIsInitialized = false;
 
         OLO_CORE_INFO("[SoundGraphSource] Shutdown complete");
+    }
+
+    //==============================================================================
+    /// 3D Spatialization (issue #424)
+
+    bool SoundGraphSource::RegisterSpatializer(Audio::DSP::Spatializer* spatializer, const AudioSourceConfig& config)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        if (!m_IsInitialized)
+        {
+            // The spatializer node inserts itself between m_Node and m_Node's current
+            // downstream (the endpoint), so m_Node must already be attached. A detached
+            // source (InitializeDetachedSource) never attaches and so can't be spatialized.
+            OLO_CORE_WARN("[SoundGraphSource] RegisterSpatializer called before Initialize; ignoring");
+            return false;
+        }
+        if (!spatializer)
+            return false;
+        if (m_SpatializerRegistered)
+            return true; // idempotent
+
+        const u32 sourceID = s_NextSpatializerSourceID.fetch_add(1, std::memory_order_relaxed);
+        if (!spatializer->InitSource(sourceID, &m_Node.m_Base, config))
+        {
+            OLO_CORE_WARN("[SoundGraphSource] Spatializer::InitSource failed for sourceID {}", sourceID);
+            return false;
+        }
+
+        m_Spatializer = spatializer;
+        m_SpatializerSourceID = sourceID;
+        m_SpatializerRegistered = true;
+        OLO_CORE_TRACE("[SoundGraphSource] Registered spatializer source {}", sourceID);
+        return true;
+    }
+
+    void SoundGraphSource::UnregisterSpatializer()
+    {
+        if (!m_SpatializerRegistered || !m_Spatializer)
+            return;
+
+        m_Spatializer->ReleaseSource(m_SpatializerSourceID);
+        m_Spatializer = nullptr;
+        m_SpatializerSourceID = 0;
+        m_SpatializerRegistered = false;
+    }
+
+    void SoundGraphSource::UpdateSpatialPosition(const Audio::Transform& transform, glm::vec3 velocity)
+    {
+        if (!m_SpatializerRegistered || !m_Spatializer)
+            return;
+
+        // Guard the spatializer boundary: a non-finite position/velocity, or a non-finite or
+        // degenerate (zero-length) orientation/up basis, would feed NaN into the lookAt and
+        // length math in Spatializer::UpdateSourcePosition and corrupt panning (issue #424).
+        if (!Math::IsFinite(transform.Position) || !Math::IsFinite(velocity))
+            return;
+        if (!Math::IsFinite(transform.Orientation) || !Math::IsFinite(transform.Up))
+            return;
+        if (glm::length(transform.Orientation) < 1e-4f || glm::length(transform.Up) < 1e-4f)
+            return;
+
+        m_Spatializer->UpdateSourcePosition(m_SpatializerSourceID, transform, velocity);
     }
 
     void SoundGraphSource::SuspendProcessing(bool shouldBeSuspended)

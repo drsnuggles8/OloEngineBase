@@ -51,6 +51,7 @@ add_executable(OloEngine-Tests
 		AudioEventQueueTest.cpp
 		AudioDSPTest.cpp
 		AudioSpatializerTest.cpp
+		AudioSoundGraphSpatializerTest.cpp
 		VideoPlaybackTest.cpp
 		Audio/CommandIDTest.cpp
 		Audio/AudioCommandRegistryTest.cpp
