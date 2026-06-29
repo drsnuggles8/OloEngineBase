@@ -74,6 +74,7 @@ namespace OloEngine
         void DeregisterDependency(AssetHandle handle, AssetHandle dependency) override;
         void DeregisterDependencies(AssetHandle handle) override;
         std::unordered_set<AssetHandle> GetDependencies(AssetHandle handle) const override;
+        std::unordered_map<AssetHandle, std::unordered_set<AssetHandle>> GetAllDependencies() const override;
 
         void SyncWithAssetThread() noexcept override;
 
@@ -159,6 +160,11 @@ namespace OloEngine
 
         // Simplified dependency tracking for runtime
         std::unordered_map<AssetHandle, std::unordered_set<AssetHandle>> m_AssetDependencies;
+
+        // Handles for which a valid-but-unresolvable warning has already been logged,
+        // so a corrupt asset substituted with a placeholder warns once, not per call.
+        // Guarded by m_AssetsMutex (only touched while it is held exclusively).
+        std::unordered_set<AssetHandle> m_WarnedUnresolvableHandles;
 
         // Async asset loading system
         Ref<RuntimeAssetSystem> m_AssetThread;

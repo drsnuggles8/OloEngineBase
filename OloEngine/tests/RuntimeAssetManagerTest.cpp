@@ -4,11 +4,13 @@
 #include "OloEngine/Asset/AssetManager/RuntimeAssetManager.h"
 #include "OloEngine/Asset/AssetMetadata.h"
 #include "OloEngine/Asset/AssetTypes.h"
+#include "OloEngine/Asset/PlaceholderAsset.h"
 #include "OloEngine/Serialization/AssetPackFile.h"
 #include "OloEngine/Serialization/FileStream.h"
 
 #include <filesystem>
 #include <string>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -209,4 +211,107 @@ TEST_F(RuntimeAssetManagerTest, MetadataSurvivesUntilExplicitUnload)
 
     EXPECT_TRUE(manager.IsAssetHandleValid(handle));
     EXPECT_EQ(manager.GetAssetType(handle), AssetType::Texture2D);
+}
+
+// ============================================================================
+// Asset-reference validation + placeholder fallback (issue #455)
+//
+// These use AssetType::Terrain, which has no registered asset-pack serializer:
+// the pack indexes the handle (so it is "valid"), but LoadAssetFromPack fails to
+// deserialize it cleanly (returns null), and the matching placeholder is a
+// GenericPlaceholder that needs no GL context. That makes the valid-but-
+// unresolvable path exercisable headless without a GPU.
+// ============================================================================
+
+TEST_F(RuntimeAssetManagerTest, ValidButUnresolvableHandleReturnsPlaceholderNotNull)
+{
+    const AssetHandle handle = 303;
+    WritePack({ { handle, AssetType::Terrain } });
+
+    RuntimeAssetManager manager(/*autoLoadDefaultPack=*/false);
+    ASSERT_TRUE(manager.LoadAssetPack(m_TempPath));
+
+    // The handle is indexed (so AssetExistsInPacks is true) but its payload can't be
+    // deserialized. Before #455 this returned null; now it returns a placeholder.
+    Ref<Asset> asset = manager.GetAsset(handle);
+    ASSERT_TRUE(asset);
+    EXPECT_TRUE(PlaceholderAssetManager::IsPlaceholderAsset(asset));
+
+    // The substituted placeholder is cached, so a second call returns the same one
+    // (no repeated deserialize attempt, no log spam).
+    EXPECT_EQ(manager.GetAsset(handle).Raw(), asset.Raw());
+}
+
+TEST_F(RuntimeAssetManagerTest, ZeroHandleReturnsNullNotPlaceholder)
+{
+    RuntimeAssetManager manager(/*autoLoadDefaultPack=*/false);
+    // A zero handle is a legitimate empty reference, never a placeholder.
+    EXPECT_FALSE(manager.GetAsset(0));
+}
+
+TEST_F(RuntimeAssetManagerTest, AbsentHandleReturnsNullForFacadeToSubstitute)
+{
+    const AssetHandle known = 11;
+    WritePack({ { known, AssetType::Terrain } });
+
+    RuntimeAssetManager manager(/*autoLoadDefaultPack=*/false);
+    ASSERT_TRUE(manager.LoadAssetPack(m_TempPath));
+
+    // A handle with no pack metadata has unknown type here, so the manager leaves it
+    // null; the typed AssetManager::GetAsset<T>() facade substitutes by T.
+    EXPECT_FALSE(manager.GetAsset(404));
+}
+
+TEST_F(RuntimeAssetManagerTest, ValidateReferencesReportsDanglingDependency)
+{
+    const AssetHandle a = 1;
+    const AssetHandle b = 2;
+    const AssetHandle missing = 999;
+    WritePack({ { a, AssetType::Terrain }, { b, AssetType::Terrain } });
+
+    RuntimeAssetManager manager(/*autoLoadDefaultPack=*/false);
+    ASSERT_TRUE(manager.LoadAssetPack(m_TempPath));
+
+    manager.RegisterDependency(a, b);       // a -> b (resolvable)
+    manager.RegisterDependency(a, missing); // a -> missing (dangling)
+
+    const AssetReferenceValidationReport report = manager.ValidateReferences();
+    EXPECT_FALSE(report.IsValid());
+    EXPECT_EQ(report.CheckedReferenceCount, 2u);
+    ASSERT_EQ(report.DanglingCount(), 1u);
+    EXPECT_EQ(report.DanglingReferences[0].Reference, missing);
+    EXPECT_EQ(report.DanglingReferences[0].Referencer, a);
+}
+
+TEST_F(RuntimeAssetManagerTest, ValidateReferencesCleanWhenAllResolvable)
+{
+    const AssetHandle a = 1;
+    const AssetHandle b = 2;
+    WritePack({ { a, AssetType::Terrain }, { b, AssetType::Terrain } });
+
+    RuntimeAssetManager manager(/*autoLoadDefaultPack=*/false);
+    ASSERT_TRUE(manager.LoadAssetPack(m_TempPath));
+
+    manager.RegisterDependency(a, b);
+
+    const AssetReferenceValidationReport report = manager.ValidateReferences();
+    EXPECT_TRUE(report.IsValid());
+    EXPECT_EQ(report.DanglingCount(), 0u);
+    EXPECT_EQ(report.CheckedReferenceCount, 1u);
+}
+
+TEST_F(RuntimeAssetManagerTest, ValidateExplicitHandleSetReportsMissingAndSkipsZero)
+{
+    const AssetHandle present = 1;
+    WritePack({ { present, AssetType::Terrain } });
+
+    RuntimeAssetManager manager(/*autoLoadDefaultPack=*/false);
+    ASSERT_TRUE(manager.LoadAssetPack(m_TempPath));
+
+    const std::unordered_set<AssetHandle> refs = { present, AssetHandle(777), AssetHandle(0) };
+    const AssetReferenceValidationReport report = manager.ValidateReferences(refs);
+
+    EXPECT_EQ(report.CheckedReferenceCount, 2u); // the zero handle is skipped
+    ASSERT_EQ(report.DanglingCount(), 1u);
+    EXPECT_EQ(report.DanglingReferences[0].Reference, AssetHandle(777));
 }

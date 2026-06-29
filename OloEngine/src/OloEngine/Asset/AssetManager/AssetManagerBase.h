@@ -12,12 +12,47 @@
 #include <unordered_set>
 #include <unordered_map>
 #include <functional>
+#include <vector>
 
 namespace OloEngine
 {
     // Forward declarations
     template<typename T>
     struct AsyncAssetResult;
+
+    /**
+     * @brief One unresolvable asset reference discovered by a validation sweep
+     *
+     * A reference is "dangling" when the referenced handle has no resolvable
+     * backing (file missing / not present in any loaded pack / handle unknown).
+     */
+    struct DanglingAssetReference
+    {
+        AssetHandle Referencer = 0;                ///< Asset holding the reference (0 when checked from an explicit handle set)
+        AssetHandle Reference = 0;                 ///< The unresolvable handle being referenced
+        AssetType ReferenceType = AssetType::None; ///< Best-effort type of the reference (None if no longer known)
+    };
+
+    /**
+     * @brief Result of an asset-reference validation sweep
+     *
+     * Produced by AssetManagerBase::ValidateReferences(). Lists every dangling
+     * reference found and how many references were checked.
+     */
+    struct AssetReferenceValidationReport
+    {
+        std::vector<DanglingAssetReference> DanglingReferences;
+        u32 CheckedReferenceCount = 0;
+
+        [[nodiscard]] bool IsValid() const noexcept
+        {
+            return DanglingReferences.empty();
+        }
+        [[nodiscard]] sizet DanglingCount() const noexcept
+        {
+            return DanglingReferences.size();
+        }
+    };
     /**
      * @brief Abstract base class for asset management implementations
      *
@@ -195,6 +230,68 @@ namespace OloEngine
          * @return Set of handles that this asset depends on
          */
         virtual std::unordered_set<AssetHandle> GetDependencies(AssetHandle handle) const = 0;
+
+        /**
+         * @brief Get a snapshot of every registered dependency edge
+         * @return Copy of the dependency registry: referencer handle -> the handles it references
+         *
+         * Used by ValidateReferences() to sweep the whole dependency graph. The base
+         * returns an empty map; file-/pack-backed managers override it with their
+         * tracked dependencies. Returns a copy so callers can iterate lock-free.
+         */
+        virtual std::unordered_map<AssetHandle, std::unordered_set<AssetHandle>> GetAllDependencies() const
+        {
+            return {};
+        }
+
+        /**
+         * @brief Validate every registered asset reference and report the dangling ones
+         * @return Report listing each unresolvable reference and how many were checked
+         *
+         * Walks the dependency registry (GetAllDependencies()) and flags any referenced
+         * handle whose backing is gone (IsAssetMissing()). This is the runtime
+         * asset-reference validation sweep: a broken/moved/deleted reference surfaces
+         * here as a dangling entry instead of failing silently at load time.
+         */
+        [[nodiscard]] AssetReferenceValidationReport ValidateReferences() const
+        {
+            AssetReferenceValidationReport report;
+            const auto dependencies = GetAllDependencies();
+            for (const auto& [referencer, references] : dependencies)
+            {
+                for (AssetHandle reference : references)
+                {
+                    if (reference == 0)
+                        continue;
+                    ++report.CheckedReferenceCount;
+                    if (IsAssetMissing(reference))
+                        report.DanglingReferences.push_back({ referencer, reference, GetAssetType(reference) });
+                }
+            }
+            return report;
+        }
+
+        /**
+         * @brief Validate an explicit set of referenced handles
+         * @param handles Handles to check (e.g. every asset a freshly loaded scene refers to)
+         * @return Report listing the unresolvable handles among @p handles
+         *
+         * Complements the registry sweep for callers that know which handles a given
+         * artifact references but haven't registered them as dependencies.
+         */
+        [[nodiscard]] AssetReferenceValidationReport ValidateReferences(const std::unordered_set<AssetHandle>& handles) const
+        {
+            AssetReferenceValidationReport report;
+            for (AssetHandle reference : handles)
+            {
+                if (reference == 0)
+                    continue;
+                ++report.CheckedReferenceCount;
+                if (IsAssetMissing(reference))
+                    report.DanglingReferences.push_back({ 0, reference, GetAssetType(reference) });
+            }
+            return report;
+        }
 
         /**
          * @brief Synchronize with the asset loading thread

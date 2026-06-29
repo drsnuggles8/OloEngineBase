@@ -83,6 +83,7 @@ namespace OloEngine
         void DeregisterDependency(AssetHandle handle, AssetHandle dependency) override;
         void DeregisterDependencies(AssetHandle handle) override;
         std::unordered_set<AssetHandle> GetDependencies(AssetHandle handle) const override;
+        std::unordered_map<AssetHandle, std::unordered_set<AssetHandle>> GetAllDependencies() const override;
 
         void SyncWithAssetThread() noexcept override;
 
