@@ -60,6 +60,12 @@ namespace
         params.Frequency = kProcFrequency;
         params.Lacunarity = kProcLacunarity;
         params.Persistence = kProcPersistence;
+        // Mirror every field BuildTerrainCollisionBody copies off the component so the
+        // reconstructed field can't silently drift from the one the body was built
+        // from. The test terrain authors neither, so these stay at the component's
+        // defaults (identity shaping, no erosion) — set explicitly to keep it that way.
+        params.Shaping = TerrainHeightShaping{};
+        params.ErosionIterations = 0;
         return params;
     }
 
@@ -258,4 +264,31 @@ TEST_F(TerrainCollisionProceduralTest, RaycastHitsTerrainSurface)
     const f32 surfaceY = ExpectedSurfaceY(kProbeX, kProbeZ);
     EXPECT_NEAR(hit.m_Position.y, surfaceY, 0.5f)
         << "ray hit the terrain at the wrong height; hit=" << hit.m_Position.y << " surface=" << surfaceY;
+}
+
+TEST_F(TerrainCollisionProceduralTest, DestroyingTerrainEntityRemovesCollision)
+{
+    auto* joltScene = GetScene().GetPhysicsScene();
+    ASSERT_NE(joltScene, nullptr) << "scene has no JoltScene after EnablePhysics3D";
+
+    constexpr f32 kProbeX = 16.0f;
+    constexpr f32 kProbeZ = 16.0f;
+    RayCastInfo ray;
+    ray.m_Origin = { kProbeX, kProcHeightScale + 50.0f, kProbeZ };
+    ray.m_Direction = { 0.0f, -1.0f, 0.0f };
+    ray.m_MaxDistance = 100.0f;
+
+    // Collision exists while the terrain entity does.
+    SceneQueryHit before;
+    ASSERT_TRUE(joltScene->CastRay(ray, before) && before.HasHit()) << "terrain collision missing before destroy";
+    ASSERT_EQ(before.m_HitEntity, m_Terrain.GetUUID());
+
+    // Destroying the terrain entity mid-runtime must tear down its raw static body
+    // (it has no Rigidbody3DComponent, so only the new DestroyEntity hook covers it).
+    GetScene().DestroyEntity(m_Terrain);
+
+    SceneQueryHit after;
+    const bool stillHits = joltScene->CastRay(ray, after);
+    EXPECT_FALSE(stillHits && after.HasHit())
+        << "terrain collision body leaked after the entity was destroyed";
 }

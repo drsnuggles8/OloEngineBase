@@ -157,6 +157,7 @@ namespace OloEngine::Tests
             "VideoSurfaceComponent",
             "SpringBoneComponent",
             "NoiseAnimationComponent",
+            "TerrainComponent",
         };
 
         // The full universe of declared `struct *Component`, reconstructed as

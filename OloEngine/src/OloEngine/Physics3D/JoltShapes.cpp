@@ -35,6 +35,7 @@
 #include <Jolt/Physics/Collision/Shape/Shape.h>
 
 #include <algorithm>
+#include <cmath>
 #include <limits>
 
 namespace OloEngine
@@ -475,6 +476,18 @@ namespace OloEngine
             return nullptr;
         }
 
+        // Fail closed on non-finite inputs (a corrupt R32F heightmap, or a NaN/Inf
+        // terrain size / entity scale from a script) rather than forwarding them into
+        // Jolt's quantization math, which would assert or bake a garbage surface.
+        // Scalars first; each height is checked in the copy loop below.
+        if (!std::isfinite(worldSizeX) || !std::isfinite(worldSizeZ) || !std::isfinite(heightScale) ||
+            !std::isfinite(scale.x) || !std::isfinite(scale.y) || !std::isfinite(scale.z))
+        {
+            OLO_CORE_ERROR("CreateTerrainHeightFieldShape: non-finite size/scale input (worldSize=({0},{1}) heightScale={2} scale=({3},{4},{5}))",
+                           worldSizeX, worldSizeZ, heightScale, scale.x, scale.y, scale.z);
+            return nullptr;
+        }
+
         // Jolt stores samples in cache-friendly blocks and requires the sample count to
         // be a multiple of the block size (and at least 2 blocks per edge). Use the
         // default block size of 2 and pad an odd resolution up by one edge-replicated
@@ -490,8 +503,14 @@ namespace OloEngine
             for (u32 x = 0; x < sampleCount; ++x)
             {
                 const u32 srcX = std::min(x, resolution - 1);
+                const f32 h = heights[static_cast<sizet>(srcZ) * resolution + srcX];
+                if (!std::isfinite(h))
+                {
+                    OLO_CORE_ERROR("CreateTerrainHeightFieldShape: non-finite height sample at ({0},{1})", srcX, srcZ);
+                    return nullptr;
+                }
                 // Jolt sample layout matches TerrainData: row-major, index = z*N + x.
-                samples[static_cast<sizet>(z) * sampleCount + x] = heights[static_cast<sizet>(srcZ) * resolution + srcX];
+                samples[static_cast<sizet>(z) * sampleCount + x] = h;
             }
         }
 

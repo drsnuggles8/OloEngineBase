@@ -524,6 +524,21 @@ namespace OloEngine
             m_JoltScene->DestroyCharacterController(entity);
         }
 
+        // Terrain collision is a raw static body keyed by entity UUID (no
+        // Rigidbody3DComponent), so it isn't covered by the cleanup above. Drop it
+        // here too, else JoltScene keeps a live body + BodyID→entity mapping for a
+        // destroyed entity until shutdown (m_Registry.destroy() doesn't fire
+        // OnComponentRemoved<TerrainComponent>).
+        if (m_JoltScene && entity.HasComponent<TerrainComponent>())
+        {
+            auto& terrain = entity.GetComponent<TerrainComponent>();
+            if (terrain.m_RuntimeCollisionBodyToken != 0)
+            {
+                m_JoltScene->DestroyTerrainBody(entityUUID);
+                terrain.m_RuntimeCollisionBodyToken = 0;
+            }
+        }
+
         m_Registry.destroy(entity);
         m_EntityMap.Remove(entityUUID);
 
@@ -2317,6 +2332,22 @@ namespace OloEngine
         }
     }
 
+    // Specialisation: when a TerrainComponent is detached at runtime, release the
+    // static height-field collision body it owns (issue #428). That body is a raw
+    // JPH body keyed by entity UUID, outside the Rigidbody3D/vehicle/character
+    // teardown, so without this hook it (and its BodyID→entity mapping) leaks until
+    // JoltScene shutdown. Entity destruction routes through Scene::DestroyEntity,
+    // which does the same explicitly because m_Registry.destroy() never fires this.
+    template<>
+    void Scene::OnComponentRemoved<TerrainComponent>(Entity entity, TerrainComponent& component)
+    {
+        if (m_JoltScene && component.m_RuntimeCollisionBodyToken != 0)
+        {
+            m_JoltScene->DestroyTerrainBody(entity.GetUUID());
+            component.m_RuntimeCollisionBodyToken = 0;
+        }
+    }
+
     template<>
     void Scene::OnComponentAdded<PhysicsJoint3DComponent>(Entity entity, PhysicsJoint3DComponent& /*component*/)
     {
@@ -2714,6 +2745,14 @@ namespace OloEngine
         // produces the identical field the render path's GenerateHeightmap would.
         void BuildTerrainCollisionBody(JoltScene& joltScene, Entity entity, TerrainComponent& terrain)
         {
+            // Drop any prior terrain body first, so every early-out below (collision
+            // disabled, streaming, no CPU heights, shape build failure) leaves a
+            // consistent "no collision body" state instead of a stale body on the old
+            // surface. The success path re-creates fresh (CreateTerrainBody is itself
+            // idempotent, so the duplicate destroy is a cheap no-op).
+            joltScene.DestroyTerrainBody(entity.GetUUID());
+            terrain.m_RuntimeCollisionBodyToken = 0;
+
             if (!terrain.m_CollisionEnabled || terrain.m_StreamingEnabled)
                 return;
 
