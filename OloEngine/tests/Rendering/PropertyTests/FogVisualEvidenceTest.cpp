@@ -48,6 +48,7 @@
 #include "OloEngine/Renderer/Mesh.h"
 #include "OloEngine/Renderer/MeshPrimitives.h"
 #include "OloEngine/Renderer/PostProcessSettings.h"
+#include "OloEngine/Renderer/ShaderBindingLayout.h"
 #include "OloEngine/Renderer/Camera/EditorCamera.h"
 #include "OloEngine/Scene/Entity.h"
 #include "OloEngine/Scene/Components.h"
@@ -324,5 +325,99 @@ namespace OloEngine::Tests
         EXPECT_GT(farOn.B, nearOn.B + 10.0)
             << "No fog gradient with distance (near.B=" << nearOn.B << " far.B=" << farOn.B
             << "). See Fog_On.png";
+    }
+
+    // Deterministic regression guard for #446. In the full suite, cross-test GPU
+    // buffer churn left UBO binding 17 (the Fog UBO) bound to 0 — deleting any
+    // buffer GL currently has bound at a slot reverts that slot — so the late
+    // post-process fog pass read an all-zero FogData (u_FogFlags.x == 0), took
+    // its disabled early-out, and produced a frame byte-identical with fog OFF.
+    // The pass only bound the UBO in its constructor; the fix re-binds the Fog /
+    // FogVolumes UBOs on every per-frame upload. Here we reproduce the corrupt
+    // binding state deterministically (no reliance on suite order): knock binding
+    // 17 to 0, render with fog ON, and assert the distant band is STILL fogged.
+    // Without the re-bind in RenderPipeline this fails exactly like the flake.
+    TEST_F(FogVisualEvidenceTest, ReappliesFogAfterFogUboBindingKnockedOut)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+
+        struct ScopedMockTime
+        {
+            explicit ScopedMockTime(f32 t)
+            {
+                Time::SetMockTime(t);
+            }
+            ~ScopedMockTime()
+            {
+                Time::ClearMockTime();
+            }
+        } scopedMockTime(kCaptureTime);
+
+        // Snapshot + RAII-restore the scene-level fog settings so enabling fog
+        // here cannot leak into later GPU tests (mirrors the main test).
+        struct ScopedFogSettings
+        {
+            FogSettings Saved;
+            ScopedFogSettings() : Saved(Renderer3D::GetFogSettings()) {}
+            ~ScopedFogSettings()
+            {
+                Renderer3D::GetFogSettings() = Saved;
+            }
+        } scopedFog;
+
+        // Analytical (non-volumetric) blue distance fog — same params as the
+        // main test's fog-ON capture.
+        {
+            auto& fog = Renderer3D::GetFogSettings();
+            fog.Enabled = true;
+            fog.Mode = FogMode::ExponentialSquared;
+            fog.Color = glm::vec3(0.20f, 0.40f, 0.90f);
+            fog.Density = 0.02f;
+            fog.HeightFalloff = 0.0f;
+            fog.HeightOffset = 0.0f;
+            fog.MaxOpacity = 1.0f;
+            fog.EnableScattering = false;
+            fog.EnableVolumetric = false;
+            fog.EnableNoise = false;
+            fog.EnableLightShafts = false;
+        }
+
+        const glm::vec3 pos{ 0.0f, 5.0f, 10.0f };
+        constexpr f32 yaw = 0.0f;
+        constexpr f32 pitch = 0.32f;
+
+        // Reproduce the #446 hazard deterministically: leave the Fog UBO's slot
+        // unbound right before the frame. The per-frame fog upload MUST rebind
+        // it, or the fog pass renders an all-zero FogData and skips fog entirely.
+        glBindBufferBase(GL_UNIFORM_BUFFER, ShaderBindingLayout::UBO_FOG, 0);
+
+        std::vector<u8> onPixels;
+        Capture("KnockoutOn", pos, yaw, pitch, onPixels);
+        if (::testing::Test::HasFatalFailure())
+            return;
+
+        // Direct invariant: the frame's upload must have re-established binding 17.
+        GLint boundFogUbo = 0;
+        glGetIntegeri_v(GL_UNIFORM_BUFFER_BINDING, ShaderBindingLayout::UBO_FOG, &boundFogUbo);
+        EXPECT_NE(boundFogUbo, 0)
+            << "Fog UBO (binding " << ShaderBindingLayout::UBO_FOG
+            << ") left unbound after the frame — the per-frame re-bind regressed; "
+               "the fog shader would read zeroed fog params and skip fog (#446).";
+
+        // Pixel-level proof the re-bind worked: distant geometry still tends to
+        // the blue fog colour (blue-dominant), with a gradient vs the near band.
+        constexpr f32 nx0 = 0.30f, nx1 = 0.70f, ny0 = 0.80f, ny1 = 0.93f;
+        constexpr f32 fx0 = 0.30f, fx1 = 0.70f, fy0 = 0.20f, fy1 = 0.34f;
+        const BandStats nearOn = SampleBand(onPixels, nx0, nx1, ny0, ny1);
+        const BandStats farOn = SampleBand(onPixels, fx0, fx1, fy0, fy1);
+
+        EXPECT_GT(farOn.R + farOn.G + farOn.B, 5.0) << "Frame rendered (near-)black";
+        EXPECT_GT(farOn.B, farOn.R + 10.0)
+            << "Distant band not blue-dominant after binding-17 knockout (R=" << farOn.R
+            << " G=" << farOn.G << " B=" << farOn.B
+            << ") — fog UBO re-bind missing, fog not applied (#446). See Fog_KnockoutOn.png";
+        EXPECT_GT(farOn.B, nearOn.B + 10.0)
+            << "No fog gradient after binding-17 knockout (near.B=" << nearOn.B
+            << " far.B=" << farOn.B << "). See Fog_KnockoutOn.png";
     }
 } // namespace OloEngine::Tests

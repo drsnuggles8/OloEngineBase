@@ -47,3 +47,4 @@ so keep references in sync when moving a file (`git grep "docs/<name>"` before a
 
 ## bug-investigations/ — postmortems & deep-dives
 - [bug-investigations/rendergraph-ghosting-investigation.md](bug-investigations/rendergraph-ghosting-investigation.md) — render-graph ghosting investigation.
+- [bug-investigations/fog-ubo-binding-knockout-investigation.md](bug-investigations/fog-ubo-binding-knockout-investigation.md) — flaky `FogVisualEvidenceTest` (#446): a persistent UBO bound only in its ctor gets its slot knocked to 0 by cross-test buffer churn; re-bind on upload.
