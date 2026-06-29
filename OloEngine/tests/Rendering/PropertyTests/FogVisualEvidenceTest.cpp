@@ -48,6 +48,7 @@
 #include "OloEngine/Renderer/Mesh.h"
 #include "OloEngine/Renderer/MeshPrimitives.h"
 #include "OloEngine/Renderer/PostProcessSettings.h"
+#include "OloEngine/Renderer/ShaderBindingLayout.h"
 #include "OloEngine/Renderer/Camera/EditorCamera.h"
 #include "OloEngine/Scene/Entity.h"
 #include "OloEngine/Scene/Components.h"
@@ -113,6 +114,12 @@ namespace OloEngine::Tests
     class FogVisualEvidenceTest : public RendererAttachedTest
     {
       protected:
+        // Whole-scene world-space offset. Derived fixtures set this in their
+        // constructor (before SetUp -> BuildScene runs) to place the identical
+        // scene far from the origin — which is where a wrong/OOB u_CameraPosition
+        // stops being benign. Defaults to the origin for the normal tests.
+        glm::vec3 m_WorldOffset{ 0.0f };
+
         void BuildScene() override
         {
             Scene& scene = GetScene();
@@ -123,7 +130,7 @@ namespace OloEngine::Tests
             {
                 Entity light = scene.CreateEntity("Sun");
                 auto& tc = light.GetComponent<TransformComponent>();
-                tc.Translation = { 0.0f, 30.0f, 0.0f };
+                tc.Translation = glm::vec3{ 0.0f, 30.0f, 0.0f } + m_WorldOffset;
                 auto& dl = light.AddComponent<DirectionalLightComponent>();
                 dl.m_Direction = glm::normalize(glm::vec3(-0.3f, -0.8f, -0.5f));
                 dl.m_Color = glm::vec3(1.0f, 0.97f, 0.92f);
@@ -152,12 +159,12 @@ namespace OloEngine::Tests
             // Warm floor receding into the distance (near camera → far wall).
             // Warm albedo (orange-ish) so the shift toward the BLUE fog colour
             // in the distance is unambiguous (R-dominant near, B-dominant far).
-            addMesh("Floor", MeshPrimitive::Plane, { 0.0f, -1.0f, -100.0f }, { 400.0f, 1.0f, 400.0f },
-                    { 0.75f, 0.6f, 0.45f });
+            addMesh("Floor", MeshPrimitive::Plane, glm::vec3{ 0.0f, -1.0f, -100.0f } + m_WorldOffset,
+                    { 400.0f, 1.0f, 400.0f }, { 0.75f, 0.6f, 0.45f });
             // Distant back wall so the far band always has solid geometry to fog
             // (≈170 units away → fully fogged at the chosen density).
-            addMesh("BackWall", MeshPrimitive::Cube, { 0.0f, 25.0f, -160.0f }, { 400.0f, 80.0f, 4.0f },
-                    { 0.75f, 0.6f, 0.45f });
+            addMesh("BackWall", MeshPrimitive::Cube, glm::vec3{ 0.0f, 25.0f, -160.0f } + m_WorldOffset,
+                    { 400.0f, 80.0f, 4.0f }, { 0.75f, 0.6f, 0.45f });
         }
 
         // Render the current scene/settings from the given pose, read back the
@@ -324,5 +331,217 @@ namespace OloEngine::Tests
         EXPECT_GT(farOn.B, nearOn.B + 10.0)
             << "No fog gradient with distance (near.B=" << nearOn.B << " far.B=" << farOn.B
             << "). See Fog_On.png";
+    }
+
+    // Deterministic regression guard for #446. In the full suite, cross-test GPU
+    // buffer churn left UBO binding 17 (the Fog UBO) bound to 0 — deleting any
+    // buffer GL currently has bound at a slot reverts that slot — so the late
+    // post-process fog pass read an all-zero FogData (u_FogFlags.x == 0), took
+    // its disabled early-out, and produced a frame byte-identical with fog OFF.
+    // The pass only bound the UBO in its constructor; the fix re-binds the Fog /
+    // FogVolumes UBOs on every per-frame upload. Here we reproduce the corrupt
+    // binding state deterministically (no reliance on suite order): knock binding
+    // 17 to 0, render with fog ON, and assert the distant band is STILL fogged.
+    // Without the re-bind in RenderPipeline this fails exactly like the flake.
+    TEST_F(FogVisualEvidenceTest, ReappliesFogAfterFogUboBindingKnockedOut)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+
+        struct ScopedMockTime
+        {
+            explicit ScopedMockTime(f32 t)
+            {
+                Time::SetMockTime(t);
+            }
+            ~ScopedMockTime()
+            {
+                Time::ClearMockTime();
+            }
+        } scopedMockTime(kCaptureTime);
+
+        // Snapshot + RAII-restore the scene-level fog settings so enabling fog
+        // here cannot leak into later GPU tests (mirrors the main test).
+        struct ScopedFogSettings
+        {
+            FogSettings Saved;
+            ScopedFogSettings() : Saved(Renderer3D::GetFogSettings()) {}
+            ~ScopedFogSettings()
+            {
+                Renderer3D::GetFogSettings() = Saved;
+            }
+        } scopedFog;
+
+        // Analytical (non-volumetric) blue distance fog — same params as the
+        // main test's fog-ON capture.
+        {
+            auto& fog = Renderer3D::GetFogSettings();
+            fog.Enabled = true;
+            fog.Mode = FogMode::ExponentialSquared;
+            fog.Color = glm::vec3(0.20f, 0.40f, 0.90f);
+            fog.Density = 0.02f;
+            fog.HeightFalloff = 0.0f;
+            fog.HeightOffset = 0.0f;
+            fog.MaxOpacity = 1.0f;
+            fog.EnableScattering = false;
+            fog.EnableVolumetric = false;
+            fog.EnableNoise = false;
+            fog.EnableLightShafts = false;
+        }
+
+        const glm::vec3 pos{ 0.0f, 5.0f, 10.0f };
+        constexpr f32 yaw = 0.0f;
+        constexpr f32 pitch = 0.32f;
+
+        // Reproduce the #446 hazard deterministically: leave the Fog UBO's slot
+        // unbound right before the frame. The per-frame fog upload MUST rebind
+        // it, or the fog pass renders an all-zero FogData and skips fog entirely.
+        // RAII-restore the original binding 17 so this deliberate global-GL-state
+        // corruption cannot leak into later GPU tests — including on a fatal
+        // failure / early return below (GLStateGuard does not restore per-slot
+        // UBO bindings).
+        struct ScopedUboBinding
+        {
+            GLuint Slot;
+            GLint Saved = 0;
+            explicit ScopedUboBinding(GLuint slot) : Slot(slot)
+            {
+                glGetIntegeri_v(GL_UNIFORM_BUFFER_BINDING, slot, &Saved);
+            }
+            ~ScopedUboBinding()
+            {
+                glBindBufferBase(GL_UNIFORM_BUFFER, Slot, static_cast<GLuint>(Saved));
+            }
+        } scopedFogUboBinding(ShaderBindingLayout::UBO_FOG);
+
+        glBindBufferBase(GL_UNIFORM_BUFFER, ShaderBindingLayout::UBO_FOG, 0);
+
+        std::vector<u8> onPixels;
+        Capture("KnockoutOn", pos, yaw, pitch, onPixels);
+        if (::testing::Test::HasFatalFailure())
+            return;
+
+        // Direct invariant: the frame's upload must have re-established binding 17.
+        GLint boundFogUbo = 0;
+        glGetIntegeri_v(GL_UNIFORM_BUFFER_BINDING, ShaderBindingLayout::UBO_FOG, &boundFogUbo);
+        EXPECT_NE(boundFogUbo, 0)
+            << "Fog UBO (binding " << ShaderBindingLayout::UBO_FOG
+            << ") left unbound after the frame — the per-frame re-bind regressed; "
+               "the fog shader would read zeroed fog params and skip fog (#446).";
+
+        // Pixel-level proof the re-bind worked: distant geometry still tends to
+        // the blue fog colour (blue-dominant), with a gradient vs the near band.
+        constexpr f32 nx0 = 0.30f, nx1 = 0.70f, ny0 = 0.80f, ny1 = 0.93f;
+        constexpr f32 fx0 = 0.30f, fx1 = 0.70f, fy0 = 0.20f, fy1 = 0.34f;
+        const BandStats nearOn = SampleBand(onPixels, nx0, nx1, ny0, ny1);
+        const BandStats farOn = SampleBand(onPixels, fx0, fx1, fy0, fy1);
+
+        EXPECT_GT(farOn.R + farOn.G + farOn.B, 5.0) << "Frame rendered (near-)black";
+        EXPECT_GT(farOn.B, farOn.R + 10.0)
+            << "Distant band not blue-dominant after binding-17 knockout (R=" << farOn.R
+            << " G=" << farOn.G << " B=" << farOn.B
+            << ") — fog UBO re-bind missing, fog not applied (#446). See Fog_KnockoutOn.png";
+        EXPECT_GT(farOn.B, nearOn.B + 10.0)
+            << "No fog gradient after binding-17 knockout (near.B=" << nearOn.B
+            << " far.B=" << farOn.B << "). See Fog_KnockoutOn.png";
+    }
+
+    // Whole-scene world-space offset large enough that an out-of-bounds
+    // u_CameraPosition stops being benign: |worldPos| from the origin (~1000)
+    // dwarfs the true camera->fragment distances (~12 near, ~175 far).
+    const glm::vec3 kFogWorldOffset{ 0.0f, 0.0f, 1000.0f };
+
+    class FogVisualEvidenceOffOriginTest : public FogVisualEvidenceTest
+    {
+      public:
+        FogVisualEvidenceOffOriginTest()
+        {
+            // Set before SetUp() -> BuildScene() runs so the scene is built at
+            // the offset; the test poses the camera by the same offset.
+            m_WorldOffset = kFogWorldOffset;
+        }
+    };
+
+    // Regression guard for the binding-0 out-of-bounds camera-position read.
+    // The fog shaders read the full CameraMatrices layout (u_CameraPosition at
+    // std140 offset 192) from UBO binding 0, but an earlier stage can leave a
+    // smaller 64-byte ViewProjection-only camera UBO bound there, making the read
+    // OOB. Origin-centred scenes survive because robust-access OOB reads return
+    // 0 ≈ the true camera; an off-origin scene does not. FogRenderPass now
+    // re-binds the full camera UBO before drawing — without that, the near floor
+    // (here ~1000 units from the origin but only ~12 from the true camera) gets
+    // flooded with distance fog. Asserts the near floor stays warm/unfogged.
+    TEST_F(FogVisualEvidenceOffOriginTest, NearStaysClearWhenSceneIsFarFromOrigin)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+
+        struct ScopedMockTime
+        {
+            explicit ScopedMockTime(f32 t)
+            {
+                Time::SetMockTime(t);
+            }
+            ~ScopedMockTime()
+            {
+                Time::ClearMockTime();
+            }
+        } scopedMockTime(kCaptureTime);
+
+        struct ScopedFogSettings
+        {
+            FogSettings Saved;
+            ScopedFogSettings() : Saved(Renderer3D::GetFogSettings()) {}
+            ~ScopedFogSettings()
+            {
+                Renderer3D::GetFogSettings() = Saved;
+            }
+        } scopedFog;
+
+        {
+            auto& fog = Renderer3D::GetFogSettings();
+            fog.Enabled = true;
+            fog.Mode = FogMode::ExponentialSquared;
+            fog.Color = glm::vec3(0.20f, 0.40f, 0.90f);
+            fog.Density = 0.02f;
+            fog.HeightFalloff = 0.0f;
+            fog.HeightOffset = 0.0f;
+            fog.MaxOpacity = 1.0f;
+            fog.EnableScattering = false;
+            fog.EnableVolumetric = false;
+            fog.EnableNoise = false;
+            fog.EnableLightShafts = false;
+        }
+
+        // Same view as the origin test, shifted by the scene's world offset.
+        const glm::vec3 pos = glm::vec3{ 0.0f, 5.0f, 10.0f } + kFogWorldOffset;
+        constexpr f32 yaw = 0.0f;
+        constexpr f32 pitch = 0.32f;
+
+        std::vector<u8> onPixels;
+        Capture("OffOriginOn", pos, yaw, pitch, onPixels);
+        if (::testing::Test::HasFatalFailure())
+            return;
+
+        constexpr f32 nx0 = 0.30f, nx1 = 0.70f, ny0 = 0.80f, ny1 = 0.93f;
+        constexpr f32 fx0 = 0.30f, fx1 = 0.70f, fy0 = 0.20f, fy1 = 0.34f;
+        const BandStats nearOn = SampleBand(onPixels, nx0, nx1, ny0, ny1);
+        const BandStats farOn = SampleBand(onPixels, fx0, fx1, fy0, fy1);
+
+        EXPECT_GT(nearOn.R + nearOn.G + nearOn.B, 5.0) << "Frame rendered (near-)black";
+
+        // The proof: the near floor stays WARM (red-dominant). With an OOB
+        // u_CameraPosition (== 0) the near floor reads ~1000 units from the
+        // "camera" and floods blue — so this fails without the binding-0 re-bind.
+        EXPECT_GT(nearOn.R, nearOn.B)
+            << "Near floor went blue in an off-origin scene (R=" << nearOn.R << " B=" << nearOn.B
+            << ") — u_CameraPosition read out-of-bounds at binding 0. See Fog_OffOriginOn.png";
+
+        // Fog still applies correctly with distance: far band is blue-dominant
+        // and bluer than the (clear, warm) near band.
+        EXPECT_GT(farOn.B, farOn.R)
+            << "Distant band not blue-dominant off-origin (R=" << farOn.R << " B=" << farOn.B
+            << "). See Fog_OffOriginOn.png";
+        EXPECT_GT(farOn.B, nearOn.B + 10.0)
+            << "No fog gradient with distance off-origin (near.B=" << nearOn.B
+            << " far.B=" << farOn.B << "). See Fog_OffOriginOn.png";
     }
 } // namespace OloEngine::Tests

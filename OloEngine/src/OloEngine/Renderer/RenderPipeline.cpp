@@ -647,6 +647,10 @@ namespace OloEngine
         {
             PostProcessPasses.Fog->SetEnabled(data.Fog.Enabled);
             PostProcessPasses.Fog->SetPostProcessUBO(data.PostProcessGPU.PostProcess);
+            // Full 272-byte camera UBO so the fog shaders' u_CameraPosition /
+            // u_Projection reads stay in-bounds even if an earlier stage left a
+            // smaller ViewProjection-only camera UBO bound at slot 0.
+            PostProcessPasses.Fog->SetCameraUBO(data.SharedSceneUBOs.Camera);
         }
 
         if (PostProcessPasses.ChromAberration)
@@ -932,8 +936,24 @@ namespace OloEngine
             data.SceneEffectsGPU.Fog->SetData(&gpu, FogUBOData::GetSize());
         }
 
+        // Re-establish the binding-17 / binding-20 bindings every upload, for the
+        // same reason the motion-blur UBO re-binds binding 8 below: the Fog and
+        // FogVolumes UBOs are bound once in their constructor and then only ever
+        // have their *contents* updated via SetData. The late post-process fog
+        // pass (PostProcess_Fog.glsl, FogData @17 / FogVolumes @20) reads them
+        // relying on that constructor bind — but deleting *any* buffer that GL
+        // currently has bound at a slot reverts the slot to 0 (the standalone
+        // FogRenderPass owns neither UBO and so can't rebind them itself). Across
+        // a long process (e.g. the full test suite) that left binding 17 reading
+        // an unbound buffer: zero fog params -> u_FogFlags.x == 0 -> the shader's
+        // disabled early-out -> fog silently not applied, byte-identical with
+        // fog OFF (issue #446). Re-binding here keeps the slot pinned to the
+        // real UBO regardless of cross-frame / cross-test buffer churn.
+        data.SceneEffectsGPU.Fog->Bind();
+
         // Upload fog volumes (collected by the scene)
         data.SceneEffectsGPU.FogVolumes->SetData(&data.SceneEffectsGPU.FogVolumesData, FogVolumesUBOData::GetSize());
+        data.SceneEffectsGPU.FogVolumes->Bind();
 
         // Update wind system (regenerate 3D wind field, upload wind UBO)
         {
