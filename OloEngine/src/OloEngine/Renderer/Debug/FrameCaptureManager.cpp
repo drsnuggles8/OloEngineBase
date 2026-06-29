@@ -23,9 +23,7 @@ namespace OloEngine
         if (m_State.compare_exchange_strong(expected, CaptureState::CaptureNextFrame, std::memory_order_acq_rel))
         {
             m_PendingFrame = CapturedFrameData{};
-            m_HasPendingPreSort = false;
-            m_HasPendingPostSort = false;
-            m_HasPendingPostBatch = false;
+            m_CurrentPassIndex = -1;
         }
     }
 
@@ -35,9 +33,7 @@ namespace OloEngine
         if (m_State.compare_exchange_strong(expected, CaptureState::Recording, std::memory_order_acq_rel))
         {
             m_PendingFrame = CapturedFrameData{};
-            m_HasPendingPreSort = false;
-            m_HasPendingPostSort = false;
-            m_HasPendingPostBatch = false;
+            m_CurrentPassIndex = -1;
         }
     }
 
@@ -92,15 +88,36 @@ namespace OloEngine
         m_PendingFrame.SourcePassName = passName;
     }
 
+    CapturedPassData& FrameCaptureManager::EnsureCurrentPass()
+    {
+        if (m_CurrentPassIndex < 0 || m_CurrentPassIndex >= static_cast<i32>(m_PendingFrame.Passes.size()))
+        {
+            m_PendingFrame.Passes.emplace_back();
+            m_CurrentPassIndex = static_cast<i32>(m_PendingFrame.Passes.size()) - 1;
+        }
+        return m_PendingFrame.Passes[static_cast<sizet>(m_CurrentPassIndex)];
+    }
+
+    void FrameCaptureManager::BeginPass(std::string_view passName)
+    {
+        if (!IsCapturing())
+            return;
+
+        m_PendingFrame.Passes.emplace_back();
+        m_CurrentPassIndex = static_cast<i32>(m_PendingFrame.Passes.size()) - 1;
+        m_PendingFrame.Passes[static_cast<sizet>(m_CurrentPassIndex)].PassName = passName;
+    }
+
     void FrameCaptureManager::OnPreSort(const CommandBucket& bucket)
     {
         OLO_PROFILE_FUNCTION();
         if (!IsCapturing())
             return;
 
-        m_PendingFrame.PreSortCommands.clear();
-        DeepCopyCommands(bucket, m_PendingFrame.PreSortCommands, false);
-        m_HasPendingPreSort = true;
+        CapturedPassData& pass = EnsureCurrentPass();
+        pass.PreSortCommands.clear();
+        DeepCopyCommands(bucket, pass.PreSortCommands, false);
+        pass.HasPreSort = true;
     }
 
     void FrameCaptureManager::OnPostSort(const CommandBucket& bucket)
@@ -109,9 +126,10 @@ namespace OloEngine
         if (!IsCapturing())
             return;
 
-        m_PendingFrame.PostSortCommands.clear();
-        DeepCopyCommands(bucket, m_PendingFrame.PostSortCommands, true);
-        m_HasPendingPostSort = true;
+        CapturedPassData& pass = EnsureCurrentPass();
+        pass.PostSortCommands.clear();
+        DeepCopyCommands(bucket, pass.PostSortCommands, true);
+        pass.HasPostSort = true;
     }
 
     void FrameCaptureManager::OnPostBatch(const CommandBucket& bucket)
@@ -120,9 +138,31 @@ namespace OloEngine
         if (!IsCapturing())
             return;
 
-        m_PendingFrame.PostBatchCommands.clear();
-        DeepCopyCommands(bucket, m_PendingFrame.PostBatchCommands, true);
-        m_HasPendingPostBatch = true;
+        CapturedPassData& pass = EnsureCurrentPass();
+        pass.PostBatchCommands.clear();
+        DeepCopyCommands(bucket, pass.PostBatchCommands, true);
+        pass.HasPostBatch = true;
+    }
+
+    void FrameCaptureManager::RecordPassTimings(f64 sortTimeMs, f64 batchTimeMs, f64 executeTimeMs)
+    {
+        if (!IsCapturing())
+            return;
+
+        CapturedPassData& pass = EnsureCurrentPass();
+        pass.Stats.SortTimeMs = sortTimeMs;
+        pass.Stats.BatchTimeMs = batchTimeMs;
+        pass.Stats.ExecuteTimeMs = executeTimeMs;
+        pass.Stats.TotalFrameTimeMs = sortTimeMs + batchTimeMs + executeTimeMs;
+    }
+
+    void FrameCaptureManager::CommitFrame()
+    {
+        OLO_PROFILE_FUNCTION();
+        if (!IsCapturing())
+            return;
+
+        CommitPendingFrame(++m_CommittedFrameCounter);
     }
 
     void FrameCaptureManager::OnFrameEnd(u32 frameNumber, f64 sortTimeMs, f64 batchTimeMs, f64 executeTimeMs)
@@ -131,20 +171,79 @@ namespace OloEngine
         if (!IsCapturing())
             return;
 
+        // Legacy single-pass entrypoint: stash the timings on the current/implicit
+        // pass, then commit with the caller-supplied frame number.
+        RecordPassTimings(sortTimeMs, batchTimeMs, executeTimeMs);
+        CommitPendingFrame(frameNumber);
+    }
+
+    void FrameCaptureManager::CommitPendingFrame(u32 frameNumber)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        // Pick the source / primary pass whose stage lists become the top-level
+        // (legacy) view consumed by the markdown report, olo_perf_capture_frame and
+        // the single-pass tests. Prefer the recorded SourcePassName; fall back to
+        // the first captured pass (the implicit entry the direct-API hooks create
+        // when no BeginPass() was issued).
+        CapturedPassData* source = nullptr;
+        if (!m_PendingFrame.SourcePassName.empty())
+        {
+            for (auto& pass : m_PendingFrame.Passes)
+            {
+                if (pass.PassName == m_PendingFrame.SourcePassName)
+                {
+                    source = &pass;
+                    break;
+                }
+            }
+        }
+        if (!source && !m_PendingFrame.Passes.empty())
+            source = &m_PendingFrame.Passes.front();
+
+        bool hasPostSort = false;
+        bool hasPostBatch = false;
+        FrameCaptureStats sourceStats;
+        if (source)
+        {
+            // Apply GPU timing to the source pass's execution-order list FIRST, so
+            // both the per-pass entry and the derived top-level list carry GPU times.
+            if (const auto& gpuTimer = GPUTimerQueryPool::GetInstance(); gpuTimer.IsInitialized() && gpuTimer.GetReadableQueryCount() > 0)
+            {
+                auto& timedCommands = source->HasPostBatch
+                                          ? source->PostBatchCommands
+                                          : (source->HasPostSort ? source->PostSortCommands : source->PreSortCommands);
+                for (u32 i = 0; i < static_cast<u32>(timedCommands.size()) && i < gpuTimer.GetReadableQueryCount(); ++i)
+                    timedCommands[i].SetGpuTimeMs(gpuTimer.GetQueryResultMs(i));
+            }
+
+            m_PendingFrame.PreSortCommands = source->PreSortCommands;
+            m_PendingFrame.PostSortCommands = source->PostSortCommands;
+            m_PendingFrame.PostBatchCommands = source->PostBatchCommands;
+            hasPostSort = source->HasPostSort;
+            hasPostBatch = source->HasPostBatch;
+            sourceStats = source->Stats;
+
+            // Legacy implicit pass (no BeginPass/SetSourcePass): adopt its name so
+            // the breakdown still labels the bucket.
+            if (m_PendingFrame.SourcePassName.empty())
+                m_PendingFrame.SourcePassName = source->PassName;
+        }
+
         m_PendingFrame.FrameNumber = frameNumber;
         m_PendingFrame.TimestampSeconds =
             std::chrono::duration<f64>(std::chrono::high_resolution_clock::now().time_since_epoch()).count();
 
         m_PendingFrame.Stats.TotalCommands = static_cast<u32>(m_PendingFrame.PreSortCommands.size());
-        m_PendingFrame.Stats.SortTimeMs = sortTimeMs;
-        m_PendingFrame.Stats.BatchTimeMs = batchTimeMs;
-        m_PendingFrame.Stats.ExecuteTimeMs = executeTimeMs;
-        m_PendingFrame.Stats.TotalFrameTimeMs = sortTimeMs + batchTimeMs + executeTimeMs;
+        m_PendingFrame.Stats.SortTimeMs = sourceStats.SortTimeMs;
+        m_PendingFrame.Stats.BatchTimeMs = sourceStats.BatchTimeMs;
+        m_PendingFrame.Stats.ExecuteTimeMs = sourceStats.ExecuteTimeMs;
+        m_PendingFrame.Stats.TotalFrameTimeMs = sourceStats.SortTimeMs + sourceStats.BatchTimeMs + sourceStats.ExecuteTimeMs;
 
         // Count draw calls and state changes from post-batch (or post-sort) commands
-        const auto& finalCommands = m_HasPendingPostBatch
+        const auto& finalCommands = hasPostBatch
                                         ? m_PendingFrame.PostBatchCommands
-                                        : (m_HasPendingPostSort ? m_PendingFrame.PostSortCommands : m_PendingFrame.PreSortCommands);
+                                        : (hasPostSort ? m_PendingFrame.PostSortCommands : m_PendingFrame.PreSortCommands);
 
         u32 drawCalls = 0;
         u32 stateChanges = 0;
@@ -162,23 +261,8 @@ namespace OloEngine
         m_PendingFrame.Stats.DrawCalls = drawCalls;
         m_PendingFrame.Stats.StateChanges = stateChanges;
 
-        // Populate GPU timing from the previous frame's readback
-        // (GPU timer uses double-buffered queries; results lag by one frame)
-        if (const auto& gpuTimer = GPUTimerQueryPool::GetInstance(); gpuTimer.IsInitialized() && gpuTimer.GetReadableQueryCount() > 0)
-        {
-            // Apply to post-sort commands (the execution order)
-            auto& timedCommands = m_HasPendingPostBatch
-                                      ? m_PendingFrame.PostBatchCommands
-                                      : (m_HasPendingPostSort ? m_PendingFrame.PostSortCommands : m_PendingFrame.PreSortCommands);
-
-            for (u32 i = 0; i < static_cast<u32>(timedCommands.size()) && i < gpuTimer.GetReadableQueryCount(); ++i)
-            {
-                timedCommands[i].SetGpuTimeMs(gpuTimer.GetQueryResultMs(i));
-            }
-        }
-
         // Count batched commands (difference between post-sort and post-batch)
-        if (m_HasPendingPostSort && m_HasPendingPostBatch)
+        if (hasPostSort && hasPostBatch)
         {
             i32 diff = static_cast<i32>(m_PendingFrame.PostSortCommands.size()) - static_cast<i32>(m_PendingFrame.PostBatchCommands.size());
             m_PendingFrame.Stats.BatchedCommands = diff > 0 ? static_cast<u32>(diff) : 0;
@@ -222,15 +306,14 @@ namespace OloEngine
             m_CaptureGeneration.fetch_add(1, std::memory_order_release);
         }
 
-        // State machine transition
+        // State machine transition (single-frame capture returns to Idle; recording
+        // stays in Recording for the next frame).
         auto expected = CaptureState::CaptureNextFrame;
         m_State.compare_exchange_strong(expected, CaptureState::Idle, std::memory_order_acq_rel);
 
         // Re-init pending frame for the next capture
         m_PendingFrame = CapturedFrameData{};
-        m_HasPendingPreSort = false;
-        m_HasPendingPostSort = false;
-        m_HasPendingPostBatch = false;
+        m_CurrentPassIndex = -1;
     }
 
     void FrameCaptureManager::DeepCopyCommands(const CommandBucket& bucket,

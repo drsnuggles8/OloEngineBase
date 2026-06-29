@@ -185,6 +185,34 @@ namespace OloEngine
         f64 m_GpuTimeMs = 0.0;
     };
 
+    // One render-graph pass's captured command bucket. The whole-frame capture
+    // accumulates one of these per command-bucket pass that executed this frame
+    // (SceneRenderPass, WaterRenderPass, FoliageRenderPass, DecalRenderPass,
+    // ForwardOverlayPass), so olo_render_frame_breakdown can list every pass's
+    // commands rather than only the scene pass's (issue #463 / #316 Part 4).
+    //
+    // PassName is the graph node's GetName(); the three stage lists mirror
+    // CapturedFrameData's own top-level lists (which remain the *source* / scene
+    // pass for backward compatibility). The Has* flags distinguish "stage
+    // captured, zero commands" from "stage not captured" — an empty PostBatch can
+    // mean either, and the stats derivation at commit needs to tell them apart.
+    // Stats carries this pass's own sort/batch/execute timings (zero when the
+    // pass did not record them — only the scene pass does today).
+    struct CapturedPassData
+    {
+        std::string PassName;
+
+        std::vector<CapturedCommandData> PreSortCommands;   // Submission order
+        std::vector<CapturedCommandData> PostSortCommands;  // After radix sort
+        std::vector<CapturedCommandData> PostBatchCommands; // After batching
+
+        bool HasPreSort = false;
+        bool HasPostSort = false;
+        bool HasPostBatch = false;
+
+        FrameCaptureStats Stats;
+    };
+
     // A fully captured frame with commands at different pipeline stages
     struct CapturedFrameData
     {
@@ -192,18 +220,26 @@ namespace OloEngine
         f64 TimestampSeconds = 0.0;
 
         // Name of the render-graph pass that drove this capture — i.e. the pass
-        // whose command bucket the PreSort/PostSort/PostBatch lists were copied
-        // from (SceneRenderPass today; recorded rather than hard-coded so the
+        // whose command bucket the top-level PreSort/PostSort/PostBatch lists were
+        // copied from (SceneRenderPass today; recorded rather than hard-coded so the
         // olo_render_frame_breakdown MCP tool can attribute every captured command
-        // to a real graph pass, and so a future per-pass capture can stamp each
-        // pass's own name). Empty when the capture was produced outside a named
-        // pass (e.g. a synthetic test frame).
+        // to a real graph pass). Empty when the capture was produced outside a named
+        // pass (e.g. a synthetic test frame). The top-level lists describe THIS
+        // (source) pass; `Passes` below holds every captured pass including this one.
         std::string SourcePassName;
 
-        // Commands at different pipeline stages
+        // Commands at different pipeline stages (the SOURCE / scene pass — kept as
+        // the top-level view for backward compatibility with olo_perf_capture_frame,
+        // the Command Bucket Inspector markdown report, and the single-pass tests).
         std::vector<CapturedCommandData> PreSortCommands;   // Submission order
         std::vector<CapturedCommandData> PostSortCommands;  // After radix sort
         std::vector<CapturedCommandData> PostBatchCommands; // After batching
+
+        // Per-pass captured command buckets for the whole render graph (issue
+        // #463 / #316 Part 4). One entry per command-bucket pass that executed
+        // this frame, in execution order. Empty for a legacy single-pass capture
+        // (the top-level lists above are then the only view).
+        std::vector<CapturedPassData> Passes;
 
         // Deep-copied snapshots of per-frame render state and material data tables.
         // These are captured at frame-end so that the debugger can inspect the exact

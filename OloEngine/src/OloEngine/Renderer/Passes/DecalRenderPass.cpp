@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Renderer/Passes/DecalRenderPass.h"
+#include "OloEngine/Renderer/Debug/FrameCaptureManager.h"
 #include "OloEngine/Renderer/Debug/GLStateGuard.h"
 #include "OloEngine/Renderer/GBuffer.h"
 #include "OloEngine/Renderer/RGBuilder.h"
@@ -102,6 +103,21 @@ namespace OloEngine
     void DecalRenderPass::Execute(RGCommandContext& context)
     {
         OLO_PROFILE_FUNCTION();
+
+        // Per-pass command capture (issue #463): register this pass and snapshot its
+        // submission-order bucket BEFORE any early-return below, so the decal pass
+        // always appears in the frame breakdown's per-pass list. In the deferred
+        // path the opaque decals were already drained into the G-Buffer by the
+        // separate DeferredOpaqueDecalPass node (which resets the bucket when no
+        // transparent decals remain), so this capture sees only the still-queued
+        // (transparent) decals — captured under this pass's single name.
+        auto& captureManager = FrameCaptureManager::GetInstance();
+        const bool capturing = captureManager.IsCapturing();
+        if (capturing)
+        {
+            captureManager.BeginPass(GetName());
+            captureManager.OnPreSort(m_CommandBucket);
+        }
 
         // Resolve the setup-selected scene framebuffer instead of replaying
         // a blackboard lookup ladder at execute time.
@@ -219,6 +235,8 @@ namespace OloEngine
             context.BindTexture(ShaderBindingLayout::TEX_POSTPROCESS_DEPTH, depthTextureID);
 
             m_CommandBucket.SortCommands();
+            if (capturing)
+                captureManager.OnPostSort(m_CommandBucket);
             auto& rendererAPI = RenderCommand::GetRendererAPI();
             for (const auto* packet : m_CommandBucket.GetPackets())
             {
@@ -249,6 +267,9 @@ namespace OloEngine
 
         // Sort and dispatch decal commands through the command bucket
         m_CommandBucket.SortCommands();
+
+        if (capturing)
+            captureManager.OnPostSort(m_CommandBucket);
 
         auto& rendererAPI = RenderCommand::GetRendererAPI();
         for (const auto* packet : m_CommandBucket.GetPackets())

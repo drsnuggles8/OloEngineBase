@@ -11,12 +11,14 @@
 // attach loop; this pins the per-command / per-stage breakdown shape.
 #include "MCP/McpFrameBreakdown.h"
 
+#include <initializer_list>
 #include <string>
 
 namespace
 {
     using OloEngine::CapturedCommandData;
     using OloEngine::CapturedFrameData;
+    using OloEngine::CapturedPassData;
     using OloEngine::CommandType;
     using OloEngine::DrawKey;
     using OloEngine::RenderMode;
@@ -269,8 +271,12 @@ TEST(McpFrameBreakdown, GraphAttributionEnumeratesPassesAndFlagsCaptureSource)
     const Json& g = j["graphAttribution"];
     EXPECT_EQ("SceneRenderPass", g["captureSourcePass"].get<std::string>());
     EXPECT_EQ(6u, g["passCount"].get<u32>());
-    // ShadowPass + Composite lack buckets -> 4 command-bucket passes.
-    EXPECT_EQ(4u, g["commandBucketPassCount"].get<u32>());
+    // ShadowPass + Composite lack buckets; DisabledFogPass owns a bucket but is
+    // culled. commandBucketPassCount counts only command-bucket passes that RAN
+    // (non-culled) -> Scene + Water + ForwardOverlay = 3.
+    EXPECT_EQ(3u, g["commandBucketPassCount"].get<u32>());
+    // This frame has no per-pass captures (legacy single-pass MakeFrame), so the
+    // captured count falls back to the source-pass-only count of 1.
     EXPECT_EQ(1u, g["capturedPassCount"].get<u32>());
 
     const Json& passes = g["passes"];
@@ -317,4 +323,171 @@ TEST(McpFrameBreakdown, CaptureSourceFallsBackToAttributionWhenFrameUnset)
     const Json& passes = j["graphAttribution"]["passes"];
     EXPECT_TRUE(passes[1]["isCaptureSource"].get<bool>());
     EXPECT_FALSE(passes[2]["isCaptureSource"].get<bool>());
+}
+
+// ---- full per-pass command capture (#463 / #316 Part 4) ---------------------
+
+namespace
+{
+    // One captured per-pass entry with `drawNames.size()` DrawMesh commands in
+    // both submission (presort) and sorted (postsort) order — mirrors what the
+    // secondary command-bucket passes (Water / Foliage / Decal / ForwardOverlay)
+    // accumulate: sorted but not batched.
+    CapturedPassData MakePassEntry(const char* name, std::initializer_list<const char*> drawNames)
+    {
+        CapturedPassData pass;
+        pass.PassName = name;
+        u32 idx = 0;
+        for (const char* dn : drawNames)
+        {
+            pass.PreSortCommands.push_back(MakeCmd(CommandType::DrawMesh, dn, 1, idx, idx * 10, idx, idx, false, idx));
+            pass.PostSortCommands.push_back(MakeCmd(CommandType::DrawMesh, dn, 1, idx, idx * 10, idx, idx, false, idx));
+            ++idx;
+        }
+        pass.HasPreSort = true;
+        pass.HasPostSort = true;
+        return pass;
+    }
+
+    // A multi-pass captured frame: the scene pass (also the source, with a batched
+    // post-batch stage) plus the four secondary command-bucket passes, each with
+    // its own commands. The top-level lists mirror the scene/source pass.
+    CapturedFrameData MakeMultiPassFrame()
+    {
+        CapturedFrameData frame;
+        frame.FrameNumber = 7;
+        frame.SourcePassName = "SceneRenderPass";
+
+        CapturedPassData scene = MakePassEntry("SceneRenderPass", { "cube", "sphere", "plane" });
+        scene.PostBatchCommands = scene.PostSortCommands; // pretend batching collapsed nothing
+        scene.HasPostBatch = true;
+        frame.Passes.push_back(scene);
+        frame.Passes.push_back(MakePassEntry("FoliageRenderPass", { "grass" }));
+        frame.Passes.push_back(MakePassEntry("WaterRenderPass", { "waterA", "waterB" }));
+        frame.Passes.push_back(MakePassEntry("DecalRenderPass", { "decal" }));
+        frame.Passes.push_back(MakePassEntry("ForwardOverlayPass", { "skybox", "grid" }));
+
+        // Top-level (legacy) view = the source/scene pass's lists.
+        frame.PreSortCommands = frame.Passes[0].PreSortCommands;
+        frame.PostSortCommands = frame.Passes[0].PostSortCommands;
+        frame.PostBatchCommands = frame.Passes[0].PostBatchCommands;
+        return frame;
+    }
+
+    // Attribution for the multi-pass frame: a shadow pass (no bucket), the five
+    // command-bucket passes (all non-culled, so all RAN), and a final composite
+    // (no bucket). Mirrors a frame where every command-bucket pass executed.
+    GraphAttribution MakeMultiPassAttribution()
+    {
+        GraphAttribution attr;
+        attr.CaptureSourcePass = "SceneRenderPass";
+        attr.Passes.push_back(GraphPassInfo{ "ShadowPass", "Graphics", false, false, false, 0 });
+        attr.Passes.push_back(GraphPassInfo{ "SceneRenderPass", "Graphics", true, false, false, 1 });
+        attr.Passes.push_back(GraphPassInfo{ "FoliageRenderPass", "Graphics", true, false, false, 2 });
+        attr.Passes.push_back(GraphPassInfo{ "WaterRenderPass", "Graphics", true, false, false, 3 });
+        attr.Passes.push_back(GraphPassInfo{ "DecalRenderPass", "Graphics", true, false, false, 4 });
+        attr.Passes.push_back(GraphPassInfo{ "ForwardOverlayPass", "Graphics", true, false, false, 5 });
+        attr.Passes.push_back(GraphPassInfo{ "CompositePass", "Graphics", false, false, true, 6 });
+        return attr;
+    }
+} // namespace
+
+TEST(McpFrameBreakdown, PerPassBreakdownListsEveryCapturedPassWithCommands)
+{
+    const CapturedFrameData frame = MakeMultiPassFrame();
+
+    // No attribution needed: passBreakdowns is driven purely by the captured frame.
+    const Json j = BuildBreakdown(frame, ViewMode::PostBatch, 200);
+
+    ASSERT_TRUE(j.contains("passBreakdowns"));
+    const Json& passes = j["passBreakdowns"];
+    ASSERT_EQ(5u, passes.size());
+
+    // Order preserved (execution order); each tagged with its pass name + commands.
+    EXPECT_EQ("SceneRenderPass", passes[0]["name"].get<std::string>());
+    EXPECT_TRUE(passes[0]["isCaptureSource"].get<bool>());
+    EXPECT_EQ(3u, passes[0]["commandCount"].get<sizet>());
+    // Scene batched -> the post-batch stage is what's listed.
+    EXPECT_EQ("postbatch", passes[0]["viewMode"].get<std::string>());
+
+    EXPECT_EQ("FoliageRenderPass", passes[1]["name"].get<std::string>());
+    EXPECT_FALSE(passes[1]["isCaptureSource"].get<bool>());
+    EXPECT_EQ(1u, passes[1]["commandCount"].get<sizet>());
+    // Secondary passes only sort (no batch) -> post-batch empty, falls back to post-sort.
+    EXPECT_EQ("postsort", passes[1]["viewMode"].get<std::string>());
+
+    EXPECT_EQ("WaterRenderPass", passes[2]["name"].get<std::string>());
+    EXPECT_EQ(2u, passes[2]["commandCount"].get<sizet>());
+    EXPECT_EQ("waterA", passes[2]["commands"][0]["debugName"].get<std::string>());
+    EXPECT_EQ("waterB", passes[2]["commands"][1]["debugName"].get<std::string>());
+
+    EXPECT_EQ("DecalRenderPass", passes[3]["name"].get<std::string>());
+    EXPECT_EQ(1u, passes[3]["commandCount"].get<sizet>());
+
+    EXPECT_EQ("ForwardOverlayPass", passes[4]["name"].get<std::string>());
+    EXPECT_EQ(2u, passes[4]["commandCount"].get<sizet>());
+
+    // Top-level view is unchanged (the scene/source pass's bucket).
+    EXPECT_EQ("SceneRenderPass", j["sourcePass"].get<std::string>());
+    EXPECT_EQ(3u, j["commandCount"].get<sizet>());
+}
+
+TEST(McpFrameBreakdown, CapturedPassCountEqualsCommandBucketPassCountForFullFrame)
+{
+    const CapturedFrameData frame = MakeMultiPassFrame();
+    const GraphAttribution attr = MakeMultiPassAttribution();
+
+    const Json j = BuildBreakdown(frame, ViewMode::PostBatch, 200, &attr);
+
+    ASSERT_TRUE(j.contains("graphAttribution"));
+    const Json& g = j["graphAttribution"];
+
+    // Every command-bucket pass ran and was captured — the headline invariant.
+    EXPECT_EQ(5u, g["commandBucketPassCount"].get<u32>());
+    EXPECT_EQ(5u, g["capturedPassCount"].get<u32>());
+    EXPECT_EQ(g["commandBucketPassCount"].get<u32>(), g["capturedPassCount"].get<u32>());
+
+    // Each graph pass is flagged captured iff it has a per-pass capture entry.
+    const Json& passes = g["passes"];
+    ASSERT_EQ(7u, passes.size());
+    for (const auto& p : passes)
+    {
+        const bool usesBucket = p["usesCommandBucket"].get<bool>();
+        EXPECT_EQ(usesBucket, p["captured"].get<bool>())
+            << "pass " << p["name"].get<std::string>() << " captured flag should match bucket ownership";
+    }
+
+    // The shadow/composite passes own no bucket and aren't captured.
+    EXPECT_FALSE(passes[0]["captured"].get<bool>()); // ShadowPass
+    EXPECT_FALSE(passes[6]["captured"].get<bool>()); // CompositePass
+}
+
+TEST(McpFrameBreakdown, CulledCommandBucketPassIsExcludedFromRunningCount)
+{
+    // A frame that captured Scene + Water (2 passes), with a graph where a third
+    // bucket pass (Foliage) was culled. The running command-bucket count excludes
+    // the culled pass, so it still matches the captured count.
+    CapturedFrameData frame;
+    frame.SourcePassName = "SceneRenderPass";
+    frame.Passes.push_back(MakePassEntry("SceneRenderPass", { "cube" }));
+    frame.Passes.push_back(MakePassEntry("WaterRenderPass", { "waterA" }));
+    frame.PreSortCommands = frame.Passes[0].PreSortCommands;
+    frame.PostSortCommands = frame.Passes[0].PostSortCommands;
+
+    GraphAttribution attr;
+    attr.CaptureSourcePass = "SceneRenderPass";
+    attr.Passes.push_back(GraphPassInfo{ "SceneRenderPass", "Graphics", true, false, false, 0 });
+    attr.Passes.push_back(GraphPassInfo{ "WaterRenderPass", "Graphics", true, false, false, 1 });
+    attr.Passes.push_back(GraphPassInfo{ "FoliageRenderPass", "Graphics", true, /*culled*/ true, false, -1 });
+
+    const Json j = BuildBreakdown(frame, ViewMode::PostSort, 200, &attr);
+    const Json& g = j["graphAttribution"];
+
+    EXPECT_EQ(2u, g["commandBucketPassCount"].get<u32>()); // Foliage culled -> excluded
+    EXPECT_EQ(2u, g["capturedPassCount"].get<u32>());
+
+    // The culled foliage pass is listed but flagged not-captured.
+    const Json& passes = g["passes"];
+    EXPECT_TRUE(passes[2]["culled"].get<bool>());
+    EXPECT_FALSE(passes[2]["captured"].get<bool>());
 }

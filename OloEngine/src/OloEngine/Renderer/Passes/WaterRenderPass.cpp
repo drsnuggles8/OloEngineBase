@@ -4,6 +4,7 @@
 #include "OloEngine/Renderer/Passes/WaterRenderPass.h"
 #include "OloEngine/Renderer/Commands/CommandDispatch.h"
 #include "OloEngine/Renderer/Commands/RenderCommand.h"
+#include "OloEngine/Renderer/Debug/FrameCaptureManager.h"
 #include "OloEngine/Renderer/Debug/GLStateGuard.h"
 #include "OloEngine/Renderer/Renderer.h"
 #include "OloEngine/Renderer/Renderer3D.h"
@@ -84,6 +85,17 @@ namespace OloEngine
     void WaterRenderPass::Execute(RGCommandContext& context)
     {
         OLO_PROFILE_FUNCTION();
+
+        // Per-pass command capture (issue #463): register this pass and snapshot its
+        // submission-order bucket BEFORE any early-return below, so even an empty
+        // water frame appears in the frame breakdown's per-pass list.
+        auto& captureManager = FrameCaptureManager::GetInstance();
+        const bool capturing = captureManager.IsCapturing();
+        if (capturing)
+        {
+            captureManager.BeginPass(GetName());
+            captureManager.OnPreSort(m_CommandBucket);
+        }
 
         // Clear any previously-published water-surface depth up front so the
         // underwater fog never samples a stale texture if this pass early-exits
@@ -178,6 +190,9 @@ namespace OloEngine
 
         // Sort and dispatch water commands through the command bucket
         m_CommandBucket.SortCommands();
+
+        if (capturing)
+            captureManager.OnPostSort(m_CommandBucket);
 
         auto& rendererAPI = RenderCommand::GetRendererAPI();
 

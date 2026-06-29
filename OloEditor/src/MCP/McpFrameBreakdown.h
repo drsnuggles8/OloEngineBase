@@ -15,21 +15,22 @@
 // CommandPacketDebugger.h (which pulls in ImGui). This mirrors the sibling pattern
 // of McpRenderExplain.h / McpGoldenCompare.h.
 //
-// Graph attribution (issue #316 Part 4, "graph-wide command-bucket attribution").
-// Every command FrameCaptureManager captures still comes from a SINGLE pass's
-// command bucket — SceneRenderPass's — because that pass alone drives the capture
-// state machine (it both begins the pending frame at OnPreSort and commits it at
-// OnFrameEnd, before the other command-bucket passes run). The frame records which
-// pass that was (CapturedFrameData::SourcePassName), so BuildBreakdown attributes
-// every captured command to a real render-graph pass rather than a hard-coded
-// label. To place that single bucket in the whole-graph picture, the MCP handler
-// also gathers a GraphAttribution off the live RenderGraph (every pass, which ones
-// own a command bucket, which is the capture source, culled/final/work-type) and
-// passes it here. Per-command capture of the OTHER command-bucket passes (water /
-// foliage / decal / forward-overlay) requires relocating the capture commit out of
-// SceneRenderPass into a central frame-end hook — the unbounded alternative this
-// slice defers (tracked as a follow-up); those passes are enumerated here so the
-// gap is visible, not silently scoped away.
+// Graph attribution + full per-pass capture (issue #316 Part 4 / issue #463).
+// FrameCaptureManager now captures EVERY command-bucket pass that runs in the
+// frame, not just SceneRenderPass's: each pass (Scene, Water, Foliage, Decal,
+// ForwardOverlay) registers itself and snapshots its own bucket, and the commit
+// is a single central hook in Renderer3D::EndScene AFTER the whole graph executes
+// (relocated out of SceneRenderPass::OnFrameEnd, which used to commit mid-graph
+// before the other passes ran). The captured frame therefore carries one
+// CapturedPassData per command-bucket pass (CapturedFrameData::Passes); the
+// top-level lists remain the SOURCE pass (SourcePassName, the scene pass) for
+// backward compatibility. BuildBreakdown emits a `passBreakdowns` array — one
+// per-command list per pass, each tagged with its graph pass name. To place those
+// buckets in the whole-graph picture, the MCP handler also gathers a
+// GraphAttribution off the live RenderGraph (every pass, which own a command
+// bucket, which is the capture source, culled/final/work-type) and passes it here;
+// when capture covered every command-bucket pass that ran,
+// graphAttribution.capturedPassCount == graphAttribution.commandBucketPassCount.
 //
 // GraphAttribution is a plain, engine-free input struct (the handler pre-resolves
 // every graph enum to a string / bool), so this header still unit-tests against a
@@ -44,6 +45,7 @@
 #include <algorithm>
 #include <cmath>
 #include <map>
+#include <set>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -87,42 +89,54 @@ namespace OloEngine::MCP::FrameBreakdown
         }
     }
 
-    // Pick the command vector for the requested stage, falling back to an earlier,
-    // populated stage when the requested one is empty (PostBatch -> PostSort ->
-    // PreSort; PostSort -> PreSort). This matches CommandPacketDebugger's own
-    // "use post-batch if not empty else post-sort" behaviour so the tool never
-    // silently reports an empty list when an earlier stage has the commands. The
-    // stage actually returned is written to `usedMode`.
-    [[nodiscard]] inline const std::vector<CapturedCommandData>& SelectCommands(const CapturedFrameData& frame, ViewMode requested, ViewMode& usedMode)
+    // Pick the command vector for the requested stage out of one bucket's three
+    // stage lists, falling back to an earlier, populated stage when the requested
+    // one is empty (PostBatch -> PostSort -> PreSort; PostSort -> PreSort). This
+    // matches CommandPacketDebugger's own "use post-batch if not empty else
+    // post-sort" behaviour so the tool never silently reports an empty list when an
+    // earlier stage has the commands. The stage actually returned is written to
+    // `usedMode`. Used by both the top-level (source-pass) breakdown and each
+    // per-pass entry (CapturedPassData has the same three stage lists).
+    [[nodiscard]] inline const std::vector<CapturedCommandData>& SelectStage(
+        const std::vector<CapturedCommandData>& preSort,
+        const std::vector<CapturedCommandData>& postSort,
+        const std::vector<CapturedCommandData>& postBatch,
+        ViewMode requested, ViewMode& usedMode)
     {
         switch (requested)
         {
             case ViewMode::PreSort:
                 usedMode = ViewMode::PreSort;
-                return frame.PreSortCommands;
+                return preSort;
             case ViewMode::PostSort:
-                if (!frame.PostSortCommands.empty())
+                if (!postSort.empty())
                 {
                     usedMode = ViewMode::PostSort;
-                    return frame.PostSortCommands;
+                    return postSort;
                 }
                 usedMode = ViewMode::PreSort;
-                return frame.PreSortCommands;
+                return preSort;
             case ViewMode::PostBatch:
             default:
-                if (!frame.PostBatchCommands.empty())
+                if (!postBatch.empty())
                 {
                     usedMode = ViewMode::PostBatch;
-                    return frame.PostBatchCommands;
+                    return postBatch;
                 }
-                if (!frame.PostSortCommands.empty())
+                if (!postSort.empty())
                 {
                     usedMode = ViewMode::PostSort;
-                    return frame.PostSortCommands;
+                    return postSort;
                 }
                 usedMode = ViewMode::PreSort;
-                return frame.PreSortCommands;
+                return preSort;
         }
+    }
+
+    // Convenience overload selecting from a frame's top-level (source-pass) lists.
+    [[nodiscard]] inline const std::vector<CapturedCommandData>& SelectCommands(const CapturedFrameData& frame, ViewMode requested, ViewMode& usedMode)
+    {
+        return SelectStage(frame.PreSortCommands, frame.PostSortCommands, frame.PostBatchCommands, requested, usedMode);
     }
 
     // One render-graph pass as seen by the command-attribution view. The MCP
@@ -138,14 +152,16 @@ namespace OloEngine::MCP::FrameBreakdown
         int ExecutionIndex = -1;           // 0-based position in the topological run order; -1 if not scheduled
     };
 
-    // The whole-graph command-bucket landscape joined to a captured frame. The
-    // capture today covers exactly one pass's bucket (CaptureSourcePass); the other
-    // command-bucket passes are enumerated so an agent sees which passes emit draw
-    // commands and which are not yet per-command attributed.
+    // The whole-graph command-bucket landscape joined to a captured frame. Every
+    // command-bucket pass that ran is now captured per-command (see
+    // CapturedFrameData::Passes / `passBreakdowns`); CaptureSourcePass names the one
+    // whose bucket is ALSO the top-level view. The full pass list lets the breakdown
+    // flag which graph passes were captured and compute capturedPassCount /
+    // commandBucketPassCount.
     struct GraphAttribution
     {
         std::vector<GraphPassInfo> Passes;
-        std::string CaptureSourcePass; // graph pass whose bucket the per-command breakdown describes
+        std::string CaptureSourcePass; // graph pass whose bucket is the top-level (source) per-command breakdown
     };
 
     namespace Detail
@@ -185,27 +201,25 @@ namespace OloEngine::MCP::FrameBreakdown
         }
     } // namespace Detail
 
-    // Build the structured per-command / per-stage breakdown for one captured
-    // frame. `requested` is the stage the caller asked for; `maxCommands` (>= 1)
-    // caps the returned command array — the full count and a `truncated` flag are
-    // ALWAYS reported, so the cap is never a silent truncation.
-    //
-    // `attribution` (optional) is the live-graph command-bucket landscape gathered
-    // by the MCP handler. When supplied, a `graphAttribution` block enumerates every
-    // graph pass and flags the capture source; when null (e.g. unit tests, or no
-    // active graph), only the frame-recorded `sourcePass` is reported.
-    [[nodiscard]] inline Json BuildBreakdown(const CapturedFrameData& frame, ViewMode requested, int maxCommands,
-                                             const GraphAttribution* attribution = nullptr)
+    // Shape one command bucket's three stage lists into the common per-bucket JSON
+    // fields (requestedViewMode, viewMode, stageCounts, commandTypeHistogram,
+    // commandCount, returnedCommands, truncated, commands). Shared by the top-level
+    // (source-pass) breakdown and every per-pass entry so both views are identical
+    // in shape. The histogram covers the FULL selected stage (not just the returned
+    // slice) so it stays accurate under truncation; `commandCount` is always the
+    // full count and `truncated` flags the cap, so the maxCommands limit is never a
+    // silent truncation.
+    [[nodiscard]] inline Json ShapeBucket(const std::vector<CapturedCommandData>& preSort,
+                                          const std::vector<CapturedCommandData>& postSort,
+                                          const std::vector<CapturedCommandData>& postBatch,
+                                          ViewMode requested, int maxCommands)
     {
         ViewMode usedMode = requested;
-        const std::vector<CapturedCommandData>& commands = SelectCommands(frame, requested, usedMode);
+        const std::vector<CapturedCommandData>& commands = SelectStage(preSort, postSort, postBatch, requested, usedMode);
 
         const sizet total = commands.size();
         const sizet limit = maxCommands < 1 ? total : std::min<sizet>(total, static_cast<sizet>(maxCommands));
 
-        // Histogram of command types over the FULL selected stage (not just the
-        // returned slice), so it stays accurate under truncation. std::map keeps
-        // the keys ordered for stable output.
         std::map<std::string, u32> histogram;
         for (const auto& cmd : commands)
             ++histogram[cmd.GetCommandTypeString()];
@@ -218,26 +232,51 @@ namespace OloEngine::MCP::FrameBreakdown
         for (sizet i = 0; i < limit; ++i)
             cmdArray.push_back(Detail::CommandToJson(i, commands[i]));
 
+        Json out;
+        out["requestedViewMode"] = ViewModeName(requested);
+        out["viewMode"] = ViewModeName(usedMode);
+        out["stageCounts"] = Json{ { "preSort", preSort.size() },
+                                   { "postSort", postSort.size() },
+                                   { "postBatch", postBatch.size() } };
+        out["commandTypeHistogram"] = std::move(typeHistogram);
+        out["commandCount"] = total;
+        out["returnedCommands"] = limit;
+        out["truncated"] = limit < total;
+        out["commands"] = std::move(cmdArray);
+        return out;
+    }
+
+    // Build the structured per-command / per-stage breakdown for one captured
+    // frame. `requested` is the stage the caller asked for; `maxCommands` (>= 1)
+    // caps the returned command array — the full count and a `truncated` flag are
+    // ALWAYS reported, so the cap is never a silent truncation.
+    //
+    // `attribution` (optional) is the live-graph command-bucket landscape gathered
+    // by the MCP handler. When supplied, a `graphAttribution` block enumerates every
+    // graph pass and flags the capture source; when null (e.g. unit tests, or no
+    // active graph), only the frame-recorded `sourcePass` is reported.
+    [[nodiscard]] inline Json BuildBreakdown(const CapturedFrameData& frame, ViewMode requested, int maxCommands,
+                                             const GraphAttribution* attribution = nullptr)
+    {
+        // Shape the top-level (source / scene pass) bucket — backward-compatible
+        // with the single-pass breakdown.
+        Json out = ShapeBucket(frame.PreSortCommands, frame.PostSortCommands, frame.PostBatchCommands,
+                               requested, maxCommands);
+
         const FrameCaptureStats& stats = frame.Stats;
 
-        // The pass these captured commands were emitted by. Prefer the name the
+        // The pass these top-level commands were emitted by. Prefer the name the
         // capture recorded on the frame; fall back to the attribution's source
         // (same value, kept for callers that only populate the attribution).
         std::string sourcePass = frame.SourcePassName;
         if (sourcePass.empty() && attribution != nullptr)
             sourcePass = attribution->CaptureSourcePass;
 
-        Json out;
         out["frameNumber"] = frame.FrameNumber;
         out["timestampSeconds"] = Detail::Round(frame.TimestampSeconds, 3);
         out["sourcePass"] = sourcePass;
         out["bucket"] = sourcePass.empty() ? std::string("scene render command bucket")
                                            : sourcePass + " command bucket";
-        out["requestedViewMode"] = ViewModeName(requested);
-        out["viewMode"] = ViewModeName(usedMode);
-        out["stageCounts"] = Json{ { "preSort", frame.PreSortCommands.size() },
-                                   { "postSort", frame.PostSortCommands.size() },
-                                   { "postBatch", frame.PostBatchCommands.size() } };
         out["stats"] = Json{ { "totalCommands", stats.TotalCommands },
                              { "drawCalls", stats.DrawCalls },
                              { "batchedCommands", stats.BatchedCommands },
@@ -248,26 +287,59 @@ namespace OloEngine::MCP::FrameBreakdown
                              { "batchMs", Detail::Round(stats.BatchTimeMs, 3) },
                              { "executeMs", Detail::Round(stats.ExecuteTimeMs, 3) },
                              { "totalMs", Detail::Round(stats.TotalFrameTimeMs, 3) } };
-        out["commandTypeHistogram"] = std::move(typeHistogram);
-        out["commandCount"] = total;
-        out["returnedCommands"] = limit;
-        out["truncated"] = limit < total;
-        out["commands"] = std::move(cmdArray);
 
-        // Graph-wide command-bucket attribution: place the captured single-pass
-        // bucket in the context of the whole render graph (issue #316 Part 4).
+        // Per-pass command breakdown (issue #463 / #316 Part 4). One entry per
+        // command-bucket pass that executed this frame (Scene, Water, Foliage,
+        // Decal, ForwardOverlay), each tagged with its graph pass name and shaped
+        // identically to the top-level bucket. The capture is no longer limited to
+        // the single scene-pass bucket. Empty for a legacy single-pass capture.
+        if (!frame.Passes.empty())
+        {
+            Json passBreakdowns = Json::array();
+            for (const auto& pass : frame.Passes)
+            {
+                Json entry = ShapeBucket(pass.PreSortCommands, pass.PostSortCommands, pass.PostBatchCommands,
+                                         requested, maxCommands);
+                entry["name"] = pass.PassName;
+                entry["isCaptureSource"] = !sourcePass.empty() && pass.PassName == sourcePass;
+                passBreakdowns.push_back(std::move(entry));
+            }
+            out["passBreakdowns"] = std::move(passBreakdowns);
+        }
+
+        // Names of the passes actually captured this frame — used to flag each
+        // graph pass below as captured / not, and to size capturedPassCount.
+        std::set<std::string> capturedPassNames;
+        for (const auto& pass : frame.Passes)
+            capturedPassNames.insert(pass.PassName);
+
+        // capturedPassCount is the number of per-pass command captures this frame.
+        // Falls back to the legacy single-pass count (0/1) for an old-style frame
+        // that has no per-pass entries.
+        const u32 capturedPassCount = frame.Passes.empty()
+                                          ? (sourcePass.empty() ? 0u : 1u)
+                                          : static_cast<u32>(frame.Passes.size());
+
+        // Graph-wide command-bucket attribution: place the captured per-pass
+        // buckets in the context of the whole render graph (issue #316 Part 4).
         if (attribution != nullptr)
         {
+            // Command-bucket passes that RAN this frame (non-culled). This is the
+            // denominator the capture is expected to cover: with full per-pass
+            // capture, capturedPassCount == commandBucketPassCount for a frame in
+            // which every command-bucket pass executed. Culled passes own a bucket
+            // but emit nothing, so they are excluded from the running count.
             u32 bucketPassCount = 0;
             Json passes = Json::array();
             for (const auto& p : attribution->Passes)
             {
-                if (p.UsesCommandBucket)
+                if (p.UsesCommandBucket && !p.Culled)
                     ++bucketPassCount;
                 passes.push_back(Json{ { "name", p.Name },
                                        { "workType", p.WorkType },
                                        { "usesCommandBucket", p.UsesCommandBucket },
                                        { "isCaptureSource", !sourcePass.empty() && p.Name == sourcePass },
+                                       { "captured", capturedPassNames.contains(p.Name) },
                                        { "culled", p.Culled },
                                        { "isFinalPass", p.IsFinalPass },
                                        { "executionIndex", p.ExecutionIndex } });
@@ -277,23 +349,25 @@ namespace OloEngine::MCP::FrameBreakdown
             graph["captureSourcePass"] = sourcePass;
             graph["passCount"] = static_cast<u32>(attribution->Passes.size());
             graph["commandBucketPassCount"] = bucketPassCount;
-            graph["capturedPassCount"] = sourcePass.empty() ? 0u : 1u;
+            graph["capturedPassCount"] = capturedPassCount;
             graph["passes"] = std::move(passes);
             graph["note"] = "Every pass in the live render graph. 'usesCommandBucket' passes emit sortable draw "
-                            "commands; exactly one of them ('isCaptureSource' / captureSourcePass) had its bucket "
-                            "captured and broken down per-command above. The other command-bucket passes are "
-                            "listed but not yet per-command attributed — full per-pass capture is deferred "
-                            "(it needs the capture commit moved out of SceneRenderPass into a frame-end hook). "
+                            "commands; each that ran this frame had its bucket captured and broken down per-command "
+                            "in 'passBreakdowns' (flagged here with 'captured'). 'isCaptureSource' marks the pass "
+                            "whose bucket is ALSO the top-level 'commands'/'stats' view (the scene pass). "
+                            "'commandBucketPassCount' counts command-bucket passes that RAN (non-culled); when "
+                            "capture covered them all, capturedPassCount == commandBucketPassCount. "
                             "'executionIndex' is the topological run order; 'culled' passes were skipped this frame.";
             out["graphAttribution"] = std::move(graph);
         }
 
-        out["note"] = "Per-command breakdown of one render-graph pass's command bucket ('sourcePass'). GPU times "
-                      "come from the renderer's double-buffered timer-query pool (previous-frame readback, "
-                      "approximate). 'debugName' is the per-command label within that bucket. See "
-                      "'graphAttribution' for where this bucket sits in the whole graph and which other passes "
-                      "emit commands. Use format:\"markdown\" for the Command Bucket Inspector's full "
-                      "sort/state-change/batching analysis.";
+        out["note"] = "Top-level 'commands'/'stats' describe the source pass's bucket ('sourcePass', the scene "
+                      "pass). 'passBreakdowns' lists EVERY command-bucket pass that ran this frame (Scene, Water, "
+                      "Foliage, Decal, ForwardOverlay) with its own per-command list, each tagged by pass name. "
+                      "GPU times come from the renderer's double-buffered timer-query pool (previous-frame "
+                      "readback, approximate) and are populated for the source pass only. See 'graphAttribution' "
+                      "for where these buckets sit in the whole graph. Use format:\"markdown\" for the Command "
+                      "Bucket Inspector's full sort/state-change/batching analysis.";
         return out;
     }
 } // namespace OloEngine::MCP::FrameBreakdown

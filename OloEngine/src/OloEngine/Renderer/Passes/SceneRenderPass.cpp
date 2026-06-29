@@ -200,8 +200,12 @@ namespace OloEngine
 
         if (capturing)
         {
-            // Stamp the capture with this pass's graph name so the breakdown can
-            // attribute every captured command to a real render-graph pass.
+            // Open this pass's per-pass capture entry, and mark it the SOURCE pass
+            // (its bucket becomes the frame's top-level / legacy view). The frame
+            // is no longer committed here — Renderer3D::EndScene commits it after
+            // the whole graph runs, so Water / Foliage / Decal / ForwardOverlay can
+            // accumulate their own per-pass buckets first (issue #463).
+            captureManager.BeginPass(GetName());
             captureManager.SetSourcePass(GetName());
             captureManager.OnPreSort(m_CommandBucket);
         }
@@ -322,8 +326,10 @@ namespace OloEngine
 
         if (capturing)
         {
-            captureManager.OnFrameEnd(
-                m_FrameCounter,
+            // Record this (source) pass's timings into its per-pass entry; they
+            // become the committed frame's top-level Stats. The commit itself runs
+            // centrally in Renderer3D::EndScene after the whole graph executes.
+            captureManager.RecordPassTimings(
                 m_CommandBucket.GetLastSortTimeMs(),
                 m_CommandBucket.GetLastBatchTimeMs(),
                 m_CommandBucket.GetLastExecuteTimeMs());
