@@ -4441,6 +4441,16 @@ namespace OloEngine
 
             // Submit water surface draw commands to the WaterRenderPass command bucket
             {
+                // Planar reflections use a single global reflection plane per
+                // frame (first slice). Track the largest reflective water surface
+                // as the dominant plane and forward it to
+                // PlanarReflectionRenderPass after the loop.
+                glm::vec4 planarReflectionPlane{ 0.0f, 1.0f, 0.0f, 0.0f };
+                bool planarReflectionActive = false;
+                f32 planarReflectionIntensity = 1.0f;
+                f32 planarReflectionDistortion = 0.02f;
+                f32 bestPlanarArea = -1.0f;
+
                 auto waterView = m_Registry.view<TransformComponent, WaterComponent>();
                 for (auto entity : waterView)
                 {
@@ -4450,15 +4460,21 @@ namespace OloEngine
                         continue;
                     }
 
+                    // Sanitize the configured surface extents once — clamp to the
+                    // mesh-build range so both the generated grid and the planar-
+                    // reflection area metric below agree on the surface size. A raw
+                    // out-of-range value would otherwise build a clamped mesh but
+                    // compare an un-clamped area when picking the dominant reflector.
+                    auto const sizeX = std::isfinite(water.m_WorldSizeX)
+                                           ? std::clamp(water.m_WorldSizeX, 0.1f, 10000.0f)
+                                           : 100.0f;
+                    auto const sizeZ = std::isfinite(water.m_WorldSizeZ)
+                                           ? std::clamp(water.m_WorldSizeZ, 0.1f, 10000.0f)
+                                           : 100.0f;
+
                     // Lazy mesh initialization / rebuild
                     if (water.m_NeedsRebuild || !water.m_WaterMesh)
                     {
-                        auto const sizeX = std::isfinite(water.m_WorldSizeX)
-                                               ? std::clamp(water.m_WorldSizeX, 0.1f, 10000.0f)
-                                               : 100.0f;
-                        auto const sizeZ = std::isfinite(water.m_WorldSizeZ)
-                                               ? std::clamp(water.m_WorldSizeZ, 0.1f, 10000.0f)
-                                               : 100.0f;
                         const u32 resX = std::clamp(water.m_GridResolutionX, 1u, 1024u);
                         const u32 resZ = std::clamp(water.m_GridResolutionZ, 1u, 1024u);
                         water.m_WaterMesh = MeshPrimitives::CreateWaterGrid(
@@ -4481,6 +4497,41 @@ namespace OloEngine
 
                     i32 entityID = static_cast<i32>(std::to_underlying(entity));
                     glm::mat4 modelMat = transform.GetTransform();
+
+                    // Planar reflection: the largest reflective surface wins the
+                    // single global reflection plane. Derive the plane from the
+                    // FULL water transform so a rotated / scaled water entity
+                    // mirrors across its true world surface — the grid is built
+                    // in XZ with +Y up, so the world surface normal is the
+                    // transformed up axis (modelMat column 1) and the surface
+                    // centre is the translation (column 3). The "largest surface"
+                    // comparison uses the transformed in-plane extents, not the
+                    // raw component sizes. Float-validate so a NaN / degenerate
+                    // transform can't poison the mirror matrices.
+                    if (water.m_PlanarReflectionsEnabled)
+                    {
+                        const glm::vec3 surfaceNormal(modelMat[1]);
+                        const glm::vec3 surfaceCenter(modelMat[3]);
+                        const f32 normalLenSq = glm::dot(surfaceNormal, surfaceNormal);
+                        const f32 area = std::abs(sizeX * glm::length(glm::vec3(modelMat[0]))) *
+                                         std::abs(sizeZ * glm::length(glm::vec3(modelMat[2])));
+                        const glm::vec3 n = surfaceNormal * glm::inversesqrt(normalLenSq);
+                        const glm::vec4 candidatePlane(n, -glm::dot(n, surfaceCenter));
+                        const bool planeFinite = std::isfinite(normalLenSq) && normalLenSq > 1e-12f &&
+                                                 std::isfinite(candidatePlane.w) && std::isfinite(area);
+                        if (planeFinite && area > bestPlanarArea)
+                        {
+                            bestPlanarArea = area;
+                            planarReflectionPlane = candidatePlane;
+                            planarReflectionActive = true;
+                            planarReflectionIntensity = std::isfinite(water.m_PlanarReflectionIntensity)
+                                                            ? std::clamp(water.m_PlanarReflectionIntensity, 0.0f, 1.0f)
+                                                            : 1.0f;
+                            planarReflectionDistortion = std::isfinite(water.m_PlanarReflectionDistortion)
+                                                             ? std::clamp(water.m_PlanarReflectionDistortion, 0.0f, 0.25f)
+                                                             : 0.02f;
+                        }
+                    }
 
                     // Pack component fields into WaterDrawParams
                     Renderer3D::WaterDrawParams waterParams;
@@ -4773,6 +4824,15 @@ namespace OloEngine
                         Renderer3D::SubmitWaterPacket(packet);
                     }
                 }
+
+                // Hand the dominant reflective surface (or "disabled") to the
+                // planar reflection pass. The pass / EndScene handoff gates this
+                // to the forward path and refreshes the binding-43 enable flag
+                // every frame, so a disabled state can never leave a stale mirror.
+                Renderer3D::SetPlanarReflectionState(planarReflectionPlane,
+                                                     planarReflectionActive,
+                                                     planarReflectionIntensity,
+                                                     planarReflectionDistortion);
             }
 
             // Underwater fog (WATER_FUTURE_IMPROVEMENTS.md §7.2). The tone-map

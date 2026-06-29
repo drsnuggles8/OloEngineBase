@@ -166,6 +166,16 @@ namespace OloEngine
         // Bind scene view-space normals for SSR ray marching
         context.BindTexture(ShaderBindingLayout::TEX_SCENE_NORMALS, normalsTextureID);
 
+        // Planar reflection (mirror) — bind the reflection colour target produced
+        // by PlanarReflectionRenderPass and rebind its binding-43 UBO so the shader
+        // has a live mirror VP + enable flag. The UBO's enable flag (set to 0 when
+        // the pass is disabled / the texture id is 0) gates the shader, so a stale
+        // texture is never sampled as a reflection.
+        context.BindTexture(ShaderBindingLayout::TEX_WATER_PLANAR_REFLECTION,
+                            Renderer3D::GetPlanarReflectionTextureID());
+        if (m_PlanarReflectionUBO)
+            m_PlanarReflectionUBO->Bind();
+
         // Sort and dispatch water commands through the command bucket
         m_CommandBucket.SortCommands();
 
@@ -214,6 +224,7 @@ namespace OloEngine
         context.BindTexture(ShaderBindingLayout::TEX_WATER_DEPTH, 0);
         context.BindTexture(ShaderBindingLayout::TEX_SCENE_NORMALS, 0);
         context.BindTexture(ShaderBindingLayout::TEX_WATER_REFRACTION, 0);
+        context.BindTexture(ShaderBindingLayout::TEX_WATER_PLANAR_REFLECTION, 0);
 
         m_SceneFramebuffer->Unbind();
 

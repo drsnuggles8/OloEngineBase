@@ -374,7 +374,7 @@ disturbances into the water surface:
 
 ## 6. Performance (Variable Impact / Medium Effort)
 
-### 6.1 Planar Reflections
+### 6.1 Planar Reflections — ✅ implemented (first slice)
 
 SSR has artifacts (missing data outside screen). For important water surfaces,
 render a mirrored scene pass below the water plane into a reflection texture.
@@ -382,6 +382,28 @@ Use oblique near-plane clipping to avoid rendering underwater geometry.
 
 Expensive (extra draw calls) but produces perfect reflections. Can be
 resolution-scaled (half or quarter res) and updated at reduced frequency.
+
+**Done:** `PlanarReflectionRenderPass`
+(`Renderer/Passes/PlanarReflectionRenderPass.{h,cpp}`) runs after `ScenePass`
+and before `WaterPass`. It swaps the shared `CameraUBO` to a camera mirrored
+across the water plane (Householder reflection + Lengyel oblique near-clip — the
+pure math is `Renderer/PlanarReflection.{h,cpp}`, pinned by
+`PlanarReflectionMathTest`), flips front-face winding, and **re-executes
+`ScenePass`'s already-batched opaque command bucket** into an owned RGBA16F+depth
+target — so the reflection is shaded by the exact same PBR/lighting/shadow/IBL
+path as the main view for free. The mirror VP + enable/intensity/distortion ride
+a binding-43 UBO (`UBO_PLANAR_REFLECTION`); `Water.glsl` samples the result
+(`TEX_WATER_PLANAR_REFLECTION` = slot 52) projectively and blends it over the
+cubemap/SSR fallback by Fresnel × edge-fade. Enabled per surface via
+`WaterComponent::m_PlanarReflectionsEnabled`.
+
+First-slice limitations (future work): **forward / forward+ path only** — the
+deferred opaque bucket writes a G-Buffer, not lit colour, so a single-target
+replay can't capture it (deferred would need its own mini lighting resolve);
+**one global reflection plane per frame** (the largest reflective surface), so
+multiple water heights aren't independently reflected; full-resolution + every
+frame (no resolution-scale / reduced-frequency update yet). Forward+ reflections
+re-use the main view's tiled light culling, so reflected lighting is approximate.
 
 ### 6.2 Reflection Probe Blending
 

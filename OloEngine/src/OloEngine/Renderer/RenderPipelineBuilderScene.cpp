@@ -37,6 +37,15 @@ namespace OloEngine::RenderPipelineBuilderInternal
         graph.AddNode(PrepareGraphNode("ShadowPass", inputs.Passes->Shadow));
         AddExistingNode(graph, inputs.Passes->Scene);
 
+        // Planar reflection replays ScenePass's batched opaque bucket from the
+        // mirrored camera into its own target (forward path only; self-disables
+        // otherwise). Registered right after ScenePass so the bucket is batched;
+        // runs before the render-stream WaterPass that samples the result.
+        if (inputs.Passes->PlanarReflection)
+        {
+            graph.AddNode(PrepareGraphNode("PlanarReflectionPass", inputs.Passes->PlanarReflection));
+        }
+
         // DeferredOpaqueDecalPass writes G-Buffer attachments (incl. SceneNormals)
         // so it must finish before AO reads those normals. Register it BEFORE AO
         // so the AO pass's `builder.Read(SceneNormals)` resolves to the final

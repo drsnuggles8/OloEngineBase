@@ -650,6 +650,7 @@ namespace OloEngine
         static constexpr u32 UBO_SSGI = 40;                 // Screen-space global illumination parameters (camera matrices + hemisphere ray-march settings)
         static constexpr u32 UBO_CONTACT_SHADOW = 41;       // Screen-space contact shadows parameters (camera matrices + toward-light dir + ray-march settings)
         static constexpr u32 UBO_MOTION_BLUR_PARAMS = 42;   // Motion-blur per-pass flags (hasVelocity gate: per-pixel velocity vs camera-only reconstruction)
+        static constexpr u32 UBO_PLANAR_REFLECTION = 43;    // Planar-reflection mirror view-projection + plane/enable params (sampled by Water.glsl)
 
         // =============================================================================
         // TEXTURE SAMPLER BINDINGS
@@ -727,7 +728,12 @@ namespace OloEngine
         // a = foam; and rgb = normal, a = Jacobian respectively).
         static constexpr u32 TEX_WATER_FFT_DISPLACEMENT = 50; // dx, height, dz, foam
         static constexpr u32 TEX_WATER_FFT_DERIVATIVES = 51;  // normal.xyz, jacobian
-        static constexpr u32 TEX_SHADER_GRAPH_0 = 52;         // First shader graph user texture slot (must be after all engine-reserved slots)
+        // Planar-reflection color target (the opaque scene re-rendered from the
+        // mirrored camera) sampled projectively by Water.glsl. Sits right after
+        // the FFT cascade slots so all water inputs stay contiguous; the
+        // shader-graph user base shifts up by one to keep "after engine slots".
+        static constexpr u32 TEX_WATER_PLANAR_REFLECTION = 52;
+        static constexpr u32 TEX_SHADER_GRAPH_0 = 53; // First shader graph user texture slot (must be after all engine-reserved slots)
 
         // Tracker capacity for CommandDispatchData::BoundTextureIDs. Must be
         // strictly greater than the highest engine-reserved slot so redundant-
@@ -892,6 +898,8 @@ namespace OloEngine
                     return name.contains("ContactShadow") || name.contains("contactShadow");
                 case UBO_MOTION_BLUR_PARAMS:
                     return name.contains("MotionBlur") || name.contains("motionBlur");
+                case UBO_PLANAR_REFLECTION:
+                    return name.contains("PlanarReflection") || name.contains("planarReflection");
                 default:
                     return false;
             }
@@ -977,6 +985,8 @@ namespace OloEngine
                 case TEX_WATER_SSR:
                     return name.contains("SSR") || name.contains("ssr") ||
                            (name.contains("Screen") && name.contains("Reflection"));
+                case TEX_WATER_PLANAR_REFLECTION:
+                    return name.contains("PlanarReflection") || name.contains("planarReflection");
                 case TEX_WATER_FFT_DISPLACEMENT:
                 case TEX_WATER_FFT_DERIVATIVES:
                     // FFT ocean cascade textures: Water.glsl binds

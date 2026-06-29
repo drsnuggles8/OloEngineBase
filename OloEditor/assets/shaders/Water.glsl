@@ -558,6 +558,46 @@ layout(binding = 41) uniform sampler2D u_FoamTexture;
 // Scene view-space normals for SSR (bound by WaterRenderPass)
 layout(binding = 22) uniform sampler2D u_SceneNormals;
 
+// Planar reflection — the opaque scene re-rendered from a mirrored, oblique-
+// clipped camera by PlanarReflectionRenderPass. u_PlanarReflectionVP projects a
+// world position into that target; Params.x gates the whole feature so a stale
+// texture is never sampled when the reflection pass is disabled.
+layout(std140, binding = 43) uniform PlanarReflectionParams
+{
+    mat4 u_PlanarReflectionVP;   // world -> mirrored reflection clip space
+    vec4 u_PlanarReflectionData; // x = enabled (0/1), y = intensity, z = distortion, w = unused
+};
+layout(binding = 52) uniform sampler2D u_PlanarReflectionTexture;
+
+// Sample the planar reflection at this surface point, perturbing the projected
+// UV by the surface normal so ripples break up the mirror. Returns rgb in .rgb
+// and a [0,1] confidence in .a (0 when disabled or the sample falls off-screen).
+vec4 samplePlanarReflection(vec3 worldPos, vec3 normal)
+{
+    if (u_PlanarReflectionData.x < 0.5)
+        return vec4(0.0);
+
+    vec4 clip = u_PlanarReflectionVP * vec4(worldPos, 1.0);
+    if (clip.w <= 0.0)
+        return vec4(0.0);
+
+    vec2 reflUV = (clip.xy / clip.w) * 0.5 + 0.5;
+    // The reflection target is rendered with a mirrored camera, so its X is
+    // already flipped relative to the main view — no extra flip needed.
+    reflUV += normal.xz * u_PlanarReflectionData.z;
+
+    // Fade out toward the screen edge so the mirror doesn't smear where the
+    // reflected geometry runs off the reflection viewport.
+    vec2 edge = smoothstep(vec2(0.0), vec2(0.06), reflUV) *
+                (1.0 - smoothstep(vec2(0.94), vec2(1.0), reflUV));
+    float confidence = edge.x * edge.y;
+    if (confidence <= 0.0)
+        return vec4(0.0);
+
+    vec3 reflColor = texture(u_PlanarReflectionTexture, clamp(reflUV, vec2(0.001), vec2(0.999))).rgb;
+    return vec4(reflColor, confidence * clamp(u_PlanarReflectionData.y, 0.0, 1.0));
+}
+
 // Linearize a depth buffer value to view-space depth
 float linearizeDepth(float d, float nearPlane, float farPlane)
 {
@@ -868,6 +908,12 @@ void main()
         // Blend SSR with cubemap fallback based on confidence
         reflectionColor = mix(cubemapReflection, ssrResult.rgb, ssrResult.a);
     }
+
+    // Planar (mirror) reflection takes priority where available — it is a true
+    // re-render of the scene, not a screen-space / cubemap approximation. Blend
+    // it over the cubemap/SSR result by its confidence (edge fade) and intensity.
+    vec4 planar = samplePlanarReflection(v_WorldPos, normal);
+    reflectionColor = mix(reflectionColor, planar.rgb, planar.a);
 
     // Blend shallow and deep water colors based on view angle + depth
     vec3 shallowColor = u_WaterColor.rgb;

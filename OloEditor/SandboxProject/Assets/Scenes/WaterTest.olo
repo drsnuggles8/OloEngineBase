@@ -114,6 +114,9 @@ Entities:
       GridResolutionX: 128
       GridResolutionZ: 128
       Enabled: true
+      PlanarReflectionsEnabled: true
+      PlanarReflectionIntensity: 1
+      PlanarReflectionDistortion: 0.02
       UnderwaterFogColor: [0.04, 0.18, 0.3]
       UnderwaterFogDensity: 0.08
       RenderFromBelow: true

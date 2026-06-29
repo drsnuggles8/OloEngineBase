@@ -20,6 +20,7 @@
 #include "OloEngine/Renderer/Passes/OITPrepareRenderPass.h"
 #include "OloEngine/Renderer/Passes/OITResolveRenderPass.h"
 #include "OloEngine/Renderer/Passes/ParticleRenderPass.h"
+#include "OloEngine/Renderer/Passes/PlanarReflectionRenderPass.h"
 #include "OloEngine/Renderer/Passes/PrecipitationRenderPass.h"
 #include "OloEngine/Renderer/Passes/SceneRenderPass.h"
 #include "OloEngine/Renderer/Passes/SelectionOutlineRenderPass.h"
@@ -89,6 +90,7 @@ namespace OloEngine
     {
         Ref<DeferredLightingPass> DeferredLighting;
         Ref<DeferredOpaqueDecalPass> DeferredOpaqueDecal;
+        Ref<PlanarReflectionRenderPass> PlanarReflection;
         Ref<SSAORenderPass> SSAO;
         Ref<GTAORenderPass> GTAO;
         Ref<ParticleRenderPass> Particle;
@@ -99,6 +101,7 @@ namespace OloEngine
         {
             DeferredLighting.Reset();
             DeferredOpaqueDecal.Reset();
+            PlanarReflection.Reset();
             SSAO.Reset();
             GTAO.Reset();
             Particle.Reset();

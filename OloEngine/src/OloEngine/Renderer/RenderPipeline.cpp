@@ -530,6 +530,24 @@ namespace OloEngine
                 data.PostProcessGPU.SSR->Bind();
             }
         }
+        // Wire the planar reflection pass: forward the dominant-water-surface
+        // reflection request from Scene.cpp, gated to the forward / forward+ path
+        // (the deferred opaque bucket writes a G-Buffer, not lit colour, so a
+        // single-target replay can't capture a usable reflection — water falls
+        // back to its cubemap / SSR reflection there). Hand the binding-43 UBO to
+        // the water pass so it can rebind it before its draw.
+        if (SceneCompositePasses.PlanarReflection)
+        {
+            const bool forwardPath = data.Settings.Path != RenderingPath::Deferred;
+            SceneCompositePasses.PlanarReflection->SetReflectionState(
+                data.PlanarReflectionPlane,
+                data.PlanarReflectionEnabled && forwardPath,
+                data.PlanarReflectionIntensity,
+                data.PlanarReflectionDistortion);
+
+            if (RenderStreamPasses.Water)
+                RenderStreamPasses.Water->SetPlanarReflectionUBO(SceneCompositePasses.PlanarReflection->GetReflectionUBO());
+        }
         // Wire ContactShadowPass (screen-space contact shadows) before Bloom in
         // the dynamic post chain. Deferred-only: when the path is forward /
         // forward+ the ContactShadowColor resource is never declared (see
@@ -2235,6 +2253,7 @@ namespace OloEngine
         inputs.Passes.Shadow = FrameCorePasses.Shadow.Raw();
         inputs.Passes.DeferredLighting = SceneCompositePasses.DeferredLighting.Raw();
         inputs.Passes.DeferredOpaqueDecal = SceneCompositePasses.DeferredOpaqueDecal.Raw();
+        inputs.Passes.PlanarReflection = SceneCompositePasses.PlanarReflection.Raw();
         inputs.Passes.ForwardOverlay = RenderStreamPasses.ForwardOverlay.Raw();
         inputs.Passes.Foliage = RenderStreamPasses.Foliage.Raw();
         inputs.Passes.Water = RenderStreamPasses.Water.Raw();
@@ -2297,6 +2316,14 @@ namespace OloEngine
         SceneCompositePasses.DeferredOpaqueDecal = Ref<DeferredOpaqueDecalPass>::Create();
         SceneCompositePasses.DeferredOpaqueDecal->SetName("DeferredOpaqueDecalPass");
         SceneCompositePasses.DeferredOpaqueDecal->Init(scenePassSpec);
+
+        // Planar reflection — runs after ScenePass (replays its batched opaque
+        // bucket from the mirrored camera) and before WaterPass (which samples
+        // the result). Holds a borrowed pointer to ScenePass for the replay.
+        SceneCompositePasses.PlanarReflection = Ref<PlanarReflectionRenderPass>::Create();
+        SceneCompositePasses.PlanarReflection->SetName("PlanarReflectionPass");
+        SceneCompositePasses.PlanarReflection->Init(scenePassSpec);
+        SceneCompositePasses.PlanarReflection->SetScenePass(FrameCorePasses.Scene.Raw());
 
         // Forward overlay pass — runs after DeferredLightingPass in Deferred
         // mode to render skybox / terrain / voxel terrain / infinite grid /

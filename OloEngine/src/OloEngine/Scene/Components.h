@@ -2663,6 +2663,16 @@ namespace OloEngine
         f32 m_SSRMaxDistance = 50.0f;
         f32 m_SSRThickness = 0.5f;
 
+        // Planar (mirror) reflections (Phase 7) — a true second render of the
+        // opaque scene from a camera mirrored across this surface, produced by
+        // PlanarReflectionRenderPass and sampled projectively in the shader.
+        // Forward / forward+ path only; one reflective surface drives the single
+        // global reflection plane per frame. Intensity scales the contribution;
+        // distortion perturbs the projected UV by the surface normal for ripples.
+        bool m_PlanarReflectionsEnabled = false;
+        f32 m_PlanarReflectionIntensity = 1.0f;
+        f32 m_PlanarReflectionDistortion = 0.02f;
+
         // Tessellation (Phase 5)
         f32 m_TessellationFactor = 8.0f;
         bool m_TessellationEnabled = false;
@@ -2787,6 +2797,8 @@ namespace OloEngine
                 && blkEq(m_FoamHeightStart, m_SSSIntensity)    // f32*6 + vec3 + f32
                 && m_SSREnabled == o.m_SSREnabled
                 && blkEq(m_SSRMaxSteps, m_SSRThickness)        // f32*4
+                && m_PlanarReflectionsEnabled == o.m_PlanarReflectionsEnabled
+                && blkEq(m_PlanarReflectionIntensity, m_PlanarReflectionDistortion) // f32*2
                 && blkEq(m_TessellationFactor, m_TessellationFactor) // f32
                 && m_TessellationEnabled == o.m_TessellationEnabled
                 && blkEq(m_TessMinDistance, m_TessMaxDistance) // f32*2

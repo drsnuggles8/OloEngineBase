@@ -1825,6 +1825,21 @@ namespace OloEngine
             ar << c.m_FFTJonswapGamma << c.m_FFTJonswapFetch;
         }
 
+        // Planar (mirror) reflections (Phase 7) appended after the spectrum block
+        // — same trailing-AtEnd() probe so archives written before it fall back to
+        // the component defaults (planar reflections off).
+        if (ar.IsLoading() && ar.AtEnd())
+        {
+            c.m_PlanarReflectionsEnabled = false;
+            c.m_PlanarReflectionIntensity = 1.0f;
+            c.m_PlanarReflectionDistortion = 0.02f;
+        }
+        else
+        {
+            ar << c.m_PlanarReflectionsEnabled;
+            ar << c.m_PlanarReflectionIntensity << c.m_PlanarReflectionDistortion;
+        }
+
         if (ar.IsLoading())
         {
             auto sanitize = [](f32& v, f32 lo, f32 hi, f32 fallback)
@@ -1870,6 +1885,12 @@ namespace OloEngine
             sanitize(c.m_SSRStepSize, 0.01f, 1.0f, 0.1f);
             sanitize(c.m_SSRMaxDistance, 1.0f, 200.0f, 50.0f);
             sanitize(c.m_SSRThickness, 0.01f, 5.0f, 0.5f);
+            // Planar reflections — match the scene-YAML clamp ranges/defaults
+            // (Scene.cpp water submission). The AtEnd() fallback above only
+            // covers missing data; sanitize here also rejects NaN/Inf and
+            // out-of-range values from a corrupt or hand-edited archive.
+            sanitize(c.m_PlanarReflectionIntensity, 0.0f, 1.0f, 1.0f);
+            sanitize(c.m_PlanarReflectionDistortion, 0.0f, 0.25f, 0.02f);
             sanitize(c.m_TessellationFactor, 1.0f, 64.0f, 8.0f);
             sanitize(c.m_TessMinDistance, 1.0f, 500.0f, 10.0f);
             sanitize(c.m_TessMaxDistance, 10.0f, 1000.0f, 200.0f);

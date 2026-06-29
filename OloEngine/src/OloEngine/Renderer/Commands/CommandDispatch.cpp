@@ -819,6 +819,26 @@ namespace OloEngine
         s_Data.ViewPos = viewPos;
     }
 
+    void CommandDispatch::UploadCameraUBO()
+    {
+        if (!s_Data.CameraUBO)
+            return;
+
+        // Same packing as the terrain/voxel inline uploads — derive Projection
+        // from VP * inverse(View) so callers only have to set the three matrices
+        // + position via Set*. PrevViewProjection comes from the true previous
+        // frame propagated by Renderer3D (no aliasing of the current VP).
+        ShaderBindingLayout::CameraUBO cameraData{};
+        cameraData.ViewProjection = s_Data.ViewProjectionMatrix;
+        cameraData.View = s_Data.ViewMatrix;
+        cameraData.Projection = s_Data.ViewProjectionMatrix * glm::inverse(s_Data.ViewMatrix);
+        cameraData.Position = s_Data.ViewPos;
+        cameraData._padding0 = 0.0f;
+        cameraData.PrevViewProjection = s_Data.PrevViewProjectionMatrix;
+        s_Data.CameraUBO->SetData(&cameraData, ShaderBindingLayout::CameraUBO::GetSize());
+        BindUBOIfNeeded(ShaderBindingLayout::UBO_CAMERA, s_Data.CameraUBO->GetRendererID());
+    }
+
     void CommandDispatch::SetShadowTextureIDs(u32 csmTextureID, u32 spotTextureID,
                                               u32 csmRawTextureID, u32 spotRawTextureID)
     {
