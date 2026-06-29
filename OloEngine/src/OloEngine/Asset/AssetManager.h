@@ -202,7 +202,12 @@ namespace OloEngine
             // dangling non-zero reference. ResolveAssetOrPlaceholder() unwraps a
             // placeholder to a visible stand-in, substitutes one for a dangling handle
             // (warning once), or surfaces a genuine wrong-type cast warning.
-            return ResolveAssetOrPlaceholder(assetHandle, asset, T::GetStaticType()).As<T>();
+            //
+            // Bind to a concrete Ref<Asset> first: a T::GetStaticType() argument makes the
+            // call expression type-dependent, so calling .As<T>() directly on it would need
+            // the `template` keyword under Clang (MSVC is lenient). The local sidesteps that.
+            Ref<Asset> resolved = ResolveAssetOrPlaceholder(assetHandle, asset, T::GetStaticType());
+            return resolved.As<T>();
         }
 
         /**
