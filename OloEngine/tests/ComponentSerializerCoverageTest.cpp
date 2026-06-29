@@ -49,6 +49,22 @@ namespace OloEngine::Tests
             buf << f.rdbuf();
             return buf.str();
         }
+
+        // The scene-serializer codegen (issue #380) moves the trivial-component
+        // serialize/deserialize blocks out of SceneSerializer.cpp into two generated
+        // .inl files (OloHeaderTool emits one block per all-trivial component). The
+        // coverage corpus must therefore include those generated files, or every
+        // migrated component would read as "not plumbed through the serializer".
+        fs::path GeneratedSerializeInl()
+        {
+            return RepoRoot() / "OloEngine" / "src" / "OloEngine" / "Scene" /
+                   "Generated" / "SceneSerializeComponents.Generated.inl";
+        }
+        fs::path GeneratedDeserializeInl()
+        {
+            return RepoRoot() / "OloEngine" / "src" / "OloEngine" / "Scene" /
+                   "Generated" / "SceneDeserializeComponents.Generated.inl";
+        }
     } // namespace
 
     TEST(ComponentSerializerCoverage, EveryDeclaredComponentIsHandledBySceneSerializer)
@@ -59,9 +75,17 @@ namespace OloEngine::Tests
                                        "OloEngine" / "Scene" / "SceneSerializer.cpp";
         ASSERT_TRUE(fs::exists(componentsHeader));
         ASSERT_TRUE(fs::exists(serializerCpp));
+        ASSERT_TRUE(fs::exists(GeneratedSerializeInl()))
+            << "Generated serialize .inl missing — build GenerateBindings first.";
+        ASSERT_TRUE(fs::exists(GeneratedDeserializeInl()))
+            << "Generated deserialize .inl missing — build GenerateBindings first.";
 
         const std::string headerSrc = ReadFile(componentsHeader);
-        const std::string serializerSrc = ReadFile(serializerCpp);
+        // Corpus = the hand-written serializer PLUS the two OloHeaderTool-generated
+        // .inl files. A component handled by either path counts as plumbed-through.
+        const std::string serializerSrc = ReadFile(serializerCpp) +
+                                          ReadFile(GeneratedSerializeInl()) +
+                                          ReadFile(GeneratedDeserializeInl());
 
         // Find every `struct <Name>Component` declaration in the header.
         // No `^` anchor: `std::regex`'s ECMAScript mode doesn't enable
@@ -139,7 +163,12 @@ namespace OloEngine::Tests
         ASSERT_TRUE(fs::exists(serializerCpp));
 
         const std::string headerSrc = ReadFile(componentsHeader);
-        const std::string serializerSrc = ReadFile(serializerCpp);
+        // Same combined corpus as the forward test: scan the hand-written serializer
+        // AND the generated .inl so a renamed/removed component is caught wherever
+        // its serialization lives.
+        const std::string serializerSrc = ReadFile(serializerCpp) +
+                                          ReadFile(GeneratedSerializeInl()) +
+                                          ReadFile(GeneratedDeserializeInl());
 
         // Components.h includes other component headers transitively
         // (Animation, UI, Streaming, …). We also need to consult those
@@ -218,6 +247,73 @@ namespace OloEngine::Tests
             oss << "\nEither remove the dead serializer branch, or — if the "
                 << "component is declared in a header not in this test's search "
                 << "list — append that header path to `componentHeaderRoots` above.\n";
+            FAIL() << oss.str();
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Disjointness: a component must be serialized by EXACTLY ONE of the
+    // hand-written SceneSerializer.cpp or the OloHeaderTool-generated .inl —
+    // never both. The scene serializer codegen (issue #380) generates a block
+    // for every all-trivial component NOT in the generator's
+    // kComponentsCustomSerialize set; if a component is BOTH generated AND left
+    // hand-written, the two `if (entity.HasComponent<T>())` blocks both run —
+    // serialize emits a duplicate YAML key and deserialize calls AddComponent<T>
+    // twice (an EnTT assert/throw). This catches that double-emit at test time
+    // instead of letting it ship as a runtime corruption.
+    // -------------------------------------------------------------------------
+    TEST(ComponentSerializerCoverage, NoComponentIsBothHandWrittenAndGenerated)
+    {
+        const fs::path serializerCpp = RepoRoot() / "OloEngine" / "src" /
+                                       "OloEngine" / "Scene" / "SceneSerializer.cpp";
+        ASSERT_TRUE(fs::exists(serializerCpp));
+        ASSERT_TRUE(fs::exists(GeneratedSerializeInl()))
+            << "Generated serialize .inl missing — build GenerateBindings first.";
+
+        const std::string handWrittenSrc = ReadFile(serializerCpp);
+        const std::string generatedSrc = ReadFile(GeneratedSerializeInl());
+
+        // Hand-written serialize blocks open with `out << YAML::Key << "X";`;
+        // generated ones with `entity.HasComponent<X>()`. Collect the component
+        // name from each and intersect.
+        const std::regex handPat{ R"(out << YAML::Key << \"(\w+Component)\";)" };
+        const std::regex genPat{ R"(entity\.HasComponent<(\w+Component)>\(\))" };
+
+        std::set<std::string> handWritten;
+        for (auto it = std::sregex_iterator(handWrittenSrc.begin(), handWrittenSrc.end(), handPat);
+             it != std::sregex_iterator(); ++it)
+        {
+            handWritten.insert((*it)[1].str());
+        }
+        std::set<std::string> generated;
+        for (auto it = std::sregex_iterator(generatedSrc.begin(), generatedSrc.end(), genPat);
+             it != std::sregex_iterator(); ++it)
+        {
+            generated.insert((*it)[1].str());
+        }
+        ASSERT_FALSE(generated.empty())
+            << "Generated serialize .inl produced no HasComponent<> blocks — the "
+               "codegen or this test's pattern is stale.";
+
+        std::vector<std::string> both;
+        for (const auto& name : generated)
+        {
+            if (handWritten.contains(name))
+                both.push_back(name);
+        }
+
+        if (!both.empty())
+        {
+            std::ostringstream oss;
+            oss << both.size()
+                << " component(s) serialized BOTH by hand in SceneSerializer.cpp AND "
+                << "by the generated .inl (double-emit → duplicate YAML key / double "
+                << "AddComponent):\n";
+            for (const auto& n : both)
+                oss << "  - " << n << "\n";
+            oss << "\nRemove the hand-written block, or add the component to "
+                << "kComponentsCustomSerialize in tools/OloHeaderTool/main.cpp so the "
+                << "generator skips it.\n";
             FAIL() << oss.str();
         }
     }

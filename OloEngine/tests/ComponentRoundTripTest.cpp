@@ -3000,4 +3000,118 @@ namespace OloEngine::Tests
         EXPECT_NEAR(nmb.m_Links[1].m_Radius, 1.25f, kFloatEpsilon);
         EXPECT_TRUE(nmb.m_Links[1].m_Bidirectional);
     }
+
+    // -------------------------------------------------------------------------
+    // The components below are serialized by the OloHeaderTool-generated
+    // Scene{Serialize,Deserialize}Components.Generated.inl (issue #380) rather
+    // than a hand-written block. Their round-trips exercise the generated
+    // string / i32 / mixed-vec read paths that the lighting tests above (vec3 /
+    // f32 / bool) don't, so a regression in the codegen's per-type emit fails here.
+    // -------------------------------------------------------------------------
+
+    // LuaScriptComponent — the lone std::string field. Guards the generated
+    // `.as<std::string>(default)` deserialize path.
+    TEST(ComponentRoundTrip, LuaScriptComponentSurvivesYAMLRoundTrip)
+    {
+        const std::string expectedScriptFile = "Scripts/Enemies/patrol_guard.lua";
+
+        std::string yaml;
+        {
+            auto scene = Scene::Create();
+            Entity entity = scene->CreateEntity(kTestTag);
+            entity.AddComponent<LuaScriptComponent>().ScriptFile = expectedScriptFile;
+            yaml = SceneSerializer(scene).SerializeToYAML();
+        }
+
+        auto reloaded = Scene::Create();
+        ASSERT_TRUE(SceneSerializer(reloaded).DeserializeFromYAML(yaml));
+
+        Entity restored = FindByTag(*reloaded, kTestTag);
+        ASSERT_TRUE(static_cast<bool>(restored));
+        ASSERT_TRUE(restored.HasComponent<LuaScriptComponent>())
+            << "LuaScriptComponent dropped during round-trip.";
+        EXPECT_EQ(restored.GetComponent<LuaScriptComponent>().ScriptFile, expectedScriptFile);
+    }
+
+    // PerceptibleComponent — an i32 + a bool. Guards the generated
+    // `.as<i32>(default)` read path (distinct from the u32 LayerID path).
+    TEST(ComponentRoundTrip, PerceptibleComponentSurvivesYAMLRoundTrip)
+    {
+        const i32 expectedTeam = -7;              // non-default, negative to catch sign loss
+        const bool expectedIsPerceptible = false; // non-default
+
+        std::string yaml;
+        {
+            auto scene = Scene::Create();
+            Entity entity = scene->CreateEntity(kTestTag);
+            auto& perc = entity.AddComponent<PerceptibleComponent>();
+            perc.Team = expectedTeam;
+            perc.IsPerceptible = expectedIsPerceptible;
+            yaml = SceneSerializer(scene).SerializeToYAML();
+        }
+
+        auto reloaded = Scene::Create();
+        ASSERT_TRUE(SceneSerializer(reloaded).DeserializeFromYAML(yaml));
+
+        Entity restored = FindByTag(*reloaded, kTestTag);
+        ASSERT_TRUE(static_cast<bool>(restored));
+        ASSERT_TRUE(restored.HasComponent<PerceptibleComponent>())
+            << "PerceptibleComponent dropped during round-trip.";
+
+        const auto& perc = restored.GetComponent<PerceptibleComponent>();
+        EXPECT_EQ(perc.Team, expectedTeam);
+        EXPECT_EQ(perc.IsPerceptible, expectedIsPerceptible);
+    }
+
+    // NameplateComponent — the widest generated component: bools, a vec2, a vec3,
+    // three vec4 colours and an f32. A per-type emit bug (wrong key, dropped
+    // field, vec arity) surfaces here.
+    TEST(ComponentRoundTrip, NameplateComponentSurvivesYAMLRoundTrip)
+    {
+        const glm::vec3 expectedWorldOffset{ 0.25f, 3.5f, -1.5f };
+        const glm::vec2 expectedBarSize{ 200.0f, 18.0f };
+        const glm::vec4 expectedHealthColor{ 0.9f, 0.1f, 0.2f, 0.95f };
+        const glm::vec4 expectedManaColor{ 0.15f, 0.35f, 0.85f, 0.9f };
+        const glm::vec4 expectedBgColor{ 0.05f, 0.06f, 0.07f, 0.8f };
+        const f32 expectedManaBarGap = 5.5f;
+
+        std::string yaml;
+        {
+            auto scene = Scene::Create();
+            Entity entity = scene->CreateEntity(kTestTag);
+            auto& nc = entity.AddComponent<NameplateComponent>();
+            nc.m_Enabled = false;       // non-default
+            nc.m_ShowHealthBar = false; // non-default
+            nc.m_ShowManaBar = true;    // non-default
+            nc.m_WorldOffset = expectedWorldOffset;
+            nc.m_BarSize = expectedBarSize;
+            nc.m_HealthBarColor = expectedHealthColor;
+            nc.m_ManaBarColor = expectedManaColor;
+            nc.m_BarBackgroundColor = expectedBgColor;
+            nc.m_ManaBarGap = expectedManaBarGap;
+            yaml = SceneSerializer(scene).SerializeToYAML();
+        }
+
+        auto reloaded = Scene::Create();
+        ASSERT_TRUE(SceneSerializer(reloaded).DeserializeFromYAML(yaml));
+
+        Entity restored = FindByTag(*reloaded, kTestTag);
+        ASSERT_TRUE(static_cast<bool>(restored));
+        ASSERT_TRUE(restored.HasComponent<NameplateComponent>())
+            << "NameplateComponent dropped during round-trip.";
+
+        const auto& nc = restored.GetComponent<NameplateComponent>();
+        EXPECT_FALSE(nc.m_Enabled);
+        EXPECT_FALSE(nc.m_ShowHealthBar);
+        EXPECT_TRUE(nc.m_ShowManaBar);
+        EXPECT_NEAR(nc.m_WorldOffset.y, expectedWorldOffset.y, kFloatEpsilon);
+        EXPECT_NEAR(nc.m_WorldOffset.z, expectedWorldOffset.z, kFloatEpsilon);
+        EXPECT_NEAR(nc.m_BarSize.x, expectedBarSize.x, kFloatEpsilon);
+        EXPECT_NEAR(nc.m_BarSize.y, expectedBarSize.y, kFloatEpsilon);
+        EXPECT_NEAR(nc.m_HealthBarColor.r, expectedHealthColor.r, kFloatEpsilon);
+        EXPECT_NEAR(nc.m_HealthBarColor.a, expectedHealthColor.a, kFloatEpsilon);
+        EXPECT_NEAR(nc.m_ManaBarColor.b, expectedManaColor.b, kFloatEpsilon);
+        EXPECT_NEAR(nc.m_BarBackgroundColor.g, expectedBgColor.g, kFloatEpsilon);
+        EXPECT_NEAR(nc.m_ManaBarGap, expectedManaBarGap, kFloatEpsilon);
+    }
 } // namespace OloEngine::Tests

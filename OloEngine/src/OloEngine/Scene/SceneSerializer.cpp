@@ -1678,12 +1678,6 @@ namespace OloEngine
             }
         }
 
-        if (auto const& luaScript = entity["LuaScriptComponent"])
-        {
-            auto& lsc = deserializedEntity.AddComponent<LuaScriptComponent>();
-            TrySet(lsc.ScriptFile, luaScript["ScriptFile"]);
-        }
-
         if (const auto& audioSourceComponent = entity["AudioSourceComponent"])
         {
             auto& src = deserializedEntity.AddComponent<AudioSourceComponent>();
@@ -1802,14 +1796,6 @@ namespace OloEngine
             }
         }
 
-        if (auto circleRendererComponent = entity["CircleRendererComponent"]; circleRendererComponent)
-        {
-            auto& crc = deserializedEntity.AddComponent<CircleRendererComponent>();
-            crc.Color = circleRendererComponent["Color"].as<glm::vec4>();
-            crc.Thickness = circleRendererComponent["Thickness"].as<f32>();
-            crc.Fade = circleRendererComponent["Fade"].as<f32>();
-        }
-
         if (auto rigidbody2DComponent = entity["Rigidbody2DComponent"]; rigidbody2DComponent)
         {
             auto& rb2d = deserializedEntity.AddComponent<Rigidbody2DComponent>();
@@ -1863,13 +1849,6 @@ namespace OloEngine
                 if (!std::isfinite(tc.ShadowColor[ci]))
                     tc.ShadowColor[ci] = (ci == 3) ? 1.0f : 0.0f;
             }
-        }
-
-        if (auto localizedTextComponent = entity["LocalizedTextComponent"]; localizedTextComponent)
-        {
-            auto& ltc = deserializedEntity.AddComponent<LocalizedTextComponent>();
-            if (localizedTextComponent["LocalizationKey"])
-                ltc.LocalizationKey = localizedTextComponent["LocalizationKey"].as<std::string>();
         }
 
         if (auto meshComponent = entity["MeshComponent"]; meshComponent)
@@ -2175,47 +2154,6 @@ namespace OloEngine
             }
         }
 
-        if (auto dirLightComponent = entity["DirectionalLightComponent"]; dirLightComponent)
-        {
-            auto& dirLight = deserializedEntity.AddComponent<DirectionalLightComponent>();
-            dirLight.m_Direction = dirLightComponent["Direction"].as<glm::vec3>(dirLight.m_Direction);
-            dirLight.m_Color = dirLightComponent["Color"].as<glm::vec3>(dirLight.m_Color);
-            dirLight.m_Intensity = dirLightComponent["Intensity"].as<f32>(dirLight.m_Intensity);
-            dirLight.m_CastShadows = dirLightComponent["CastShadows"].as<bool>(dirLight.m_CastShadows);
-            dirLight.m_ShadowBias = dirLightComponent["ShadowBias"].as<f32>(dirLight.m_ShadowBias);
-            dirLight.m_ShadowNormalBias = dirLightComponent["ShadowNormalBias"].as<f32>(dirLight.m_ShadowNormalBias);
-            dirLight.m_MaxShadowDistance = dirLightComponent["MaxShadowDistance"].as<f32>(dirLight.m_MaxShadowDistance);
-            dirLight.m_CascadeSplitLambda = dirLightComponent["CascadeSplitLambda"].as<f32>(dirLight.m_CascadeSplitLambda);
-            dirLight.m_CascadeDebugVisualization = dirLightComponent["CascadeDebugVisualization"].as<bool>(dirLight.m_CascadeDebugVisualization);
-        }
-
-        if (auto pointLightComponent = entity["PointLightComponent"]; pointLightComponent)
-        {
-            auto& pointLight = deserializedEntity.AddComponent<PointLightComponent>();
-            pointLight.m_Color = pointLightComponent["Color"].as<glm::vec3>(pointLight.m_Color);
-            pointLight.m_Intensity = pointLightComponent["Intensity"].as<f32>(pointLight.m_Intensity);
-            pointLight.m_Range = pointLightComponent["Range"].as<f32>(pointLight.m_Range);
-            pointLight.m_Attenuation = pointLightComponent["Attenuation"].as<f32>(pointLight.m_Attenuation);
-            pointLight.m_CastShadows = pointLightComponent["CastShadows"].as<bool>(pointLight.m_CastShadows);
-            pointLight.m_ShadowBias = pointLightComponent["ShadowBias"].as<f32>(pointLight.m_ShadowBias);
-            pointLight.m_ShadowNormalBias = pointLightComponent["ShadowNormalBias"].as<f32>(pointLight.m_ShadowNormalBias);
-        }
-
-        if (auto spotLightComponent = entity["SpotLightComponent"]; spotLightComponent)
-        {
-            auto& spotLight = deserializedEntity.AddComponent<SpotLightComponent>();
-            spotLight.m_Direction = spotLightComponent["Direction"].as<glm::vec3>(spotLight.m_Direction);
-            spotLight.m_Color = spotLightComponent["Color"].as<glm::vec3>(spotLight.m_Color);
-            spotLight.m_Intensity = spotLightComponent["Intensity"].as<f32>(spotLight.m_Intensity);
-            spotLight.m_Range = spotLightComponent["Range"].as<f32>(spotLight.m_Range);
-            spotLight.m_InnerCutoff = spotLightComponent["InnerCutoff"].as<f32>(spotLight.m_InnerCutoff);
-            spotLight.m_OuterCutoff = spotLightComponent["OuterCutoff"].as<f32>(spotLight.m_OuterCutoff);
-            spotLight.m_Attenuation = spotLightComponent["Attenuation"].as<f32>(spotLight.m_Attenuation);
-            spotLight.m_CastShadows = spotLightComponent["CastShadows"].as<bool>(spotLight.m_CastShadows);
-            spotLight.m_ShadowBias = spotLightComponent["ShadowBias"].as<f32>(spotLight.m_ShadowBias);
-            spotLight.m_ShadowNormalBias = spotLightComponent["ShadowNormalBias"].as<f32>(spotLight.m_ShadowNormalBias);
-        }
-
         if (auto sphereAreaLightComponent = entity["SphereAreaLightComponent"]; sphereAreaLightComponent)
         {
             auto& areaLight = deserializedEntity.AddComponent<SphereAreaLightComponent>();
@@ -2457,18 +2395,6 @@ namespace OloEngine
                 tmc3d.m_Material.SetDynamicFriction(tmc3dComponent["DynamicFriction"].as<f32>());
             if (tmc3dComponent["Restitution"])
                 tmc3d.m_Material.SetRestitution(tmc3dComponent["Restitution"].as<f32>());
-        }
-
-        if (auto cc3dComponent = entity["CharacterController3DComponent"]; cc3dComponent)
-        {
-            auto& cc3d = deserializedEntity.AddComponent<CharacterController3DComponent>();
-            cc3d.m_SlopeLimitDeg = cc3dComponent["SlopeLimitDeg"].as<f32>(cc3d.m_SlopeLimitDeg);
-            cc3d.m_StepOffset = cc3dComponent["StepOffset"].as<f32>(cc3d.m_StepOffset);
-            cc3d.m_JumpPower = cc3dComponent["JumpPower"].as<f32>(cc3d.m_JumpPower);
-            cc3d.m_LayerID = cc3dComponent["LayerID"].as<u32>(cc3d.m_LayerID);
-            cc3d.m_DisableGravity = cc3dComponent["DisableGravity"].as<bool>(cc3d.m_DisableGravity);
-            cc3d.m_ControlMovementInAir = cc3dComponent["ControlMovementInAir"].as<bool>(cc3d.m_ControlMovementInAir);
-            cc3d.m_ControlRotationInAir = cc3dComponent["ControlRotationInAir"].as<bool>(cc3d.m_ControlRotationInAir);
         }
 
         if (auto jointComponent = entity["PhysicsJoint3DComponent"]; jointComponent)
@@ -2759,18 +2685,6 @@ namespace OloEngine
             TrySet(canvas.m_ReferenceResolution, uiCanvasComponent["ReferenceResolution"]);
         }
 
-        if (auto uiRectTransformComponent = entity["UIRectTransformComponent"]; uiRectTransformComponent)
-        {
-            auto& rt = deserializedEntity.AddComponent<UIRectTransformComponent>();
-            TrySet(rt.m_AnchorMin, uiRectTransformComponent["AnchorMin"]);
-            TrySet(rt.m_AnchorMax, uiRectTransformComponent["AnchorMax"]);
-            TrySet(rt.m_AnchoredPosition, uiRectTransformComponent["AnchoredPosition"]);
-            TrySet(rt.m_SizeDelta, uiRectTransformComponent["SizeDelta"]);
-            TrySet(rt.m_Pivot, uiRectTransformComponent["Pivot"]);
-            TrySet(rt.m_Rotation, uiRectTransformComponent["Rotation"]);
-            TrySet(rt.m_Scale, uiRectTransformComponent["Scale"]);
-        }
-
         if (auto uiImageComponent = entity["UIImageComponent"]; uiImageComponent)
         {
             auto& image = deserializedEntity.AddComponent<UIImageComponent>();
@@ -2828,16 +2742,6 @@ namespace OloEngine
             TrySet(slider.m_FillColor, uiSliderComponent["FillColor"]);
             TrySet(slider.m_HandleColor, uiSliderComponent["HandleColor"]);
             TrySet(slider.m_Interactable, uiSliderComponent["Interactable"]);
-        }
-
-        if (auto uiCheckboxComponent = entity["UICheckboxComponent"]; uiCheckboxComponent)
-        {
-            auto& checkbox = deserializedEntity.AddComponent<UICheckboxComponent>();
-            TrySet(checkbox.m_IsChecked, uiCheckboxComponent["IsChecked"]);
-            TrySet(checkbox.m_UncheckedColor, uiCheckboxComponent["UncheckedColor"]);
-            TrySet(checkbox.m_CheckedColor, uiCheckboxComponent["CheckedColor"]);
-            TrySet(checkbox.m_CheckmarkColor, uiCheckboxComponent["CheckmarkColor"]);
-            TrySet(checkbox.m_Interactable, uiCheckboxComponent["Interactable"]);
         }
 
         if (auto uiProgressBarComponent = entity["UIProgressBarComponent"]; uiProgressBarComponent)
@@ -2922,16 +2826,6 @@ namespace OloEngine
             TrySetEnum(grid.m_StartCorner, uiGridLayoutComponent["StartCorner"]);
             TrySetEnum(grid.m_StartAxis, uiGridLayoutComponent["StartAxis"]);
             TrySet(grid.m_ConstraintCount, uiGridLayoutComponent["ConstraintCount"]);
-        }
-
-        if (auto uiToggleComponent = entity["UIToggleComponent"]; uiToggleComponent)
-        {
-            auto& toggle = deserializedEntity.AddComponent<UIToggleComponent>();
-            TrySet(toggle.m_IsOn, uiToggleComponent["IsOn"]);
-            TrySet(toggle.m_OffColor, uiToggleComponent["OffColor"]);
-            TrySet(toggle.m_OnColor, uiToggleComponent["OnColor"]);
-            TrySet(toggle.m_KnobColor, uiToggleComponent["KnobColor"]);
-            TrySet(toggle.m_Interactable, uiToggleComponent["Interactable"]);
         }
 
         if (auto particleComponent = entity["ParticleSystemComponent"]; particleComponent)
@@ -3211,13 +3105,6 @@ namespace OloEngine
             TrySet(nic.IsReplicated, networkIdentityComponent["IsReplicated"]);
         }
 
-        if (auto networkInterestComponent = entity["NetworkInterestComponent"]; networkInterestComponent)
-        {
-            auto& nic = deserializedEntity.AddComponent<NetworkInterestComponent>();
-            TrySet(nic.RelevanceRadius, networkInterestComponent["RelevanceRadius"]);
-            TrySet(nic.InterestGroup, networkInterestComponent["InterestGroup"]);
-        }
-
         if (auto phaseComponent = entity["PhaseComponent"]; phaseComponent)
         {
             auto& pc = deserializedEntity.AddComponent<PhaseComponent>();
@@ -3314,13 +3201,6 @@ namespace OloEngine
         {
             auto& gac = deserializedEntity.AddComponent<GoapAgentComponent>();
             TrySet(gac.Enabled, goapAgentComponent["Enabled"]);
-        }
-
-        if (auto perceptibleComponent = entity["PerceptibleComponent"]; perceptibleComponent)
-        {
-            auto& perc = deserializedEntity.AddComponent<PerceptibleComponent>();
-            TrySet(perc.Team, perceptibleComponent["Team"]);
-            TrySet(perc.IsPerceptible, perceptibleComponent["IsPerceptible"]);
         }
 
         if (auto perceptionComponent = entity["PerceptionComponent"]; perceptionComponent)
@@ -3788,20 +3668,6 @@ namespace OloEngine
             }
         }
 
-        if (auto nameplateNode = entity["NameplateComponent"]; nameplateNode)
-        {
-            auto& nc = deserializedEntity.AddComponent<NameplateComponent>();
-            TrySet(nc.m_Enabled, nameplateNode["Enabled"]);
-            TrySet(nc.m_ShowHealthBar, nameplateNode["ShowHealthBar"]);
-            TrySet(nc.m_ShowManaBar, nameplateNode["ShowManaBar"]);
-            TrySet(nc.m_WorldOffset, nameplateNode["WorldOffset"]);
-            TrySet(nc.m_BarSize, nameplateNode["BarSize"]);
-            TrySet(nc.m_HealthBarColor, nameplateNode["HealthBarColor"]);
-            TrySet(nc.m_ManaBarColor, nameplateNode["ManaBarColor"]);
-            TrySet(nc.m_BarBackgroundColor, nameplateNode["BarBackgroundColor"]);
-            TrySet(nc.m_ManaBarGap, nameplateNode["ManaBarGap"]);
-        }
-
         if (auto ikNode = entity["IKTargetComponent"]; ikNode)
         {
             auto& ik = deserializedEntity.AddComponent<IKTargetComponent>();
@@ -3903,6 +3769,11 @@ namespace OloEngine
             SanitizeFloat(noise.Gain, 0.0f, 1.0f, 0.5f);
             SanitizeFloat(noise.Weight, 0.0f, 1.0f, 1.0f);
         }
+
+        // Auto-generated trivial-component deserialize blocks (OloHeaderTool, issue
+        // #380) — the read-side complement of SceneSerializeComponents.Generated.inl.
+        // Floats are validated with std::isfinite; a missing key keeps the default.
+#include "OloEngine/Scene/Generated/SceneDeserializeComponents.Generated.inl"
     }
 
     SceneSerializer::SceneSerializer(const Ref<Scene>& scene)
@@ -4025,15 +3896,6 @@ namespace OloEngine
             out << YAML::EndMap;
         }
 
-        if (entity.HasComponent<LuaScriptComponent>())
-        {
-            auto const& luaScript = entity.GetComponent<LuaScriptComponent>();
-            out << YAML::Key << "LuaScriptComponent";
-            out << YAML::BeginMap;
-            out << YAML::Key << "ScriptFile" << YAML::Value << luaScript.ScriptFile;
-            out << YAML::EndMap;
-        }
-
         if (entity.HasComponent<AudioSourceComponent>())
         {
             out << YAML::Key << "AudioSourceComponent";
@@ -4148,19 +4010,6 @@ namespace OloEngine
             out << YAML::EndMap; // SpriteRendererComponent
         }
 
-        if (entity.HasComponent<CircleRendererComponent>())
-        {
-            out << YAML::Key << "CircleRendererComponent";
-            out << YAML::BeginMap; // CircleRendererComponent
-
-            auto const& circleRendererComponent = entity.GetComponent<CircleRendererComponent>();
-            out << YAML::Key << "Color" << YAML::Value << circleRendererComponent.Color;
-            out << YAML::Key << "Thickness" << YAML::Value << circleRendererComponent.Thickness;
-            out << YAML::Key << "Fade" << YAML::Value << circleRendererComponent.Fade;
-
-            out << YAML::EndMap; // CircleRendererComponent
-        }
-
         if (entity.HasComponent<Rigidbody2DComponent>())
         {
             out << YAML::Key << "Rigidbody2DComponent";
@@ -4225,15 +4074,6 @@ namespace OloEngine
             out << YAML::Key << "ShadowColor" << YAML::Value << textComponent.ShadowColor;
 
             out << YAML::EndMap; // TextComponent
-        }
-
-        if (entity.HasComponent<LocalizedTextComponent>())
-        {
-            out << YAML::Key << "LocalizedTextComponent";
-            out << YAML::BeginMap;
-            const auto& ltc = entity.GetComponent<LocalizedTextComponent>();
-            out << YAML::Key << "LocalizationKey" << YAML::Value << ltc.LocalizationKey;
-            out << YAML::EndMap;
         }
 
         if (entity.HasComponent<MeshComponent>())
@@ -4390,62 +4230,6 @@ namespace OloEngine
                 out << YAML::Key << "ShaderGraphHandle" << YAML::Value << static_cast<u64>(matComponent.m_ShaderGraphHandle);
 
             out << YAML::EndMap; // MaterialComponent
-        }
-
-        if (entity.HasComponent<DirectionalLightComponent>())
-        {
-            out << YAML::Key << "DirectionalLightComponent";
-            out << YAML::BeginMap; // DirectionalLightComponent
-
-            auto const& dirLight = entity.GetComponent<DirectionalLightComponent>();
-            out << YAML::Key << "Direction" << YAML::Value << dirLight.m_Direction;
-            out << YAML::Key << "Color" << YAML::Value << dirLight.m_Color;
-            out << YAML::Key << "Intensity" << YAML::Value << dirLight.m_Intensity;
-            out << YAML::Key << "CastShadows" << YAML::Value << dirLight.m_CastShadows;
-            out << YAML::Key << "ShadowBias" << YAML::Value << dirLight.m_ShadowBias;
-            out << YAML::Key << "ShadowNormalBias" << YAML::Value << dirLight.m_ShadowNormalBias;
-            out << YAML::Key << "MaxShadowDistance" << YAML::Value << dirLight.m_MaxShadowDistance;
-            out << YAML::Key << "CascadeSplitLambda" << YAML::Value << dirLight.m_CascadeSplitLambda;
-            out << YAML::Key << "CascadeDebugVisualization" << YAML::Value << dirLight.m_CascadeDebugVisualization;
-
-            out << YAML::EndMap; // DirectionalLightComponent
-        }
-
-        if (entity.HasComponent<PointLightComponent>())
-        {
-            out << YAML::Key << "PointLightComponent";
-            out << YAML::BeginMap; // PointLightComponent
-
-            auto const& pointLight = entity.GetComponent<PointLightComponent>();
-            out << YAML::Key << "Color" << YAML::Value << pointLight.m_Color;
-            out << YAML::Key << "Intensity" << YAML::Value << pointLight.m_Intensity;
-            out << YAML::Key << "Range" << YAML::Value << pointLight.m_Range;
-            out << YAML::Key << "Attenuation" << YAML::Value << pointLight.m_Attenuation;
-            out << YAML::Key << "CastShadows" << YAML::Value << pointLight.m_CastShadows;
-            out << YAML::Key << "ShadowBias" << YAML::Value << pointLight.m_ShadowBias;
-            out << YAML::Key << "ShadowNormalBias" << YAML::Value << pointLight.m_ShadowNormalBias;
-
-            out << YAML::EndMap; // PointLightComponent
-        }
-
-        if (entity.HasComponent<SpotLightComponent>())
-        {
-            out << YAML::Key << "SpotLightComponent";
-            out << YAML::BeginMap; // SpotLightComponent
-
-            auto const& spotLight = entity.GetComponent<SpotLightComponent>();
-            out << YAML::Key << "Direction" << YAML::Value << spotLight.m_Direction;
-            out << YAML::Key << "Color" << YAML::Value << spotLight.m_Color;
-            out << YAML::Key << "Intensity" << YAML::Value << spotLight.m_Intensity;
-            out << YAML::Key << "Range" << YAML::Value << spotLight.m_Range;
-            out << YAML::Key << "InnerCutoff" << YAML::Value << spotLight.m_InnerCutoff;
-            out << YAML::Key << "OuterCutoff" << YAML::Value << spotLight.m_OuterCutoff;
-            out << YAML::Key << "Attenuation" << YAML::Value << spotLight.m_Attenuation;
-            out << YAML::Key << "CastShadows" << YAML::Value << spotLight.m_CastShadows;
-            out << YAML::Key << "ShadowBias" << YAML::Value << spotLight.m_ShadowBias;
-            out << YAML::Key << "ShadowNormalBias" << YAML::Value << spotLight.m_ShadowNormalBias;
-
-            out << YAML::EndMap; // SpotLightComponent
         }
 
         if (entity.HasComponent<SphereAreaLightComponent>())
@@ -4687,23 +4471,6 @@ namespace OloEngine
             out << YAML::EndMap; // TriangleMeshCollider3DComponent
         }
 
-        if (entity.HasComponent<CharacterController3DComponent>())
-        {
-            out << YAML::Key << "CharacterController3DComponent";
-            out << YAML::BeginMap; // CharacterController3DComponent
-
-            auto const& cc3dComponent = entity.GetComponent<CharacterController3DComponent>();
-            out << YAML::Key << "SlopeLimitDeg" << YAML::Value << cc3dComponent.m_SlopeLimitDeg;
-            out << YAML::Key << "StepOffset" << YAML::Value << cc3dComponent.m_StepOffset;
-            out << YAML::Key << "JumpPower" << YAML::Value << cc3dComponent.m_JumpPower;
-            out << YAML::Key << "LayerID" << YAML::Value << cc3dComponent.m_LayerID;
-            out << YAML::Key << "DisableGravity" << YAML::Value << cc3dComponent.m_DisableGravity;
-            out << YAML::Key << "ControlMovementInAir" << YAML::Value << cc3dComponent.m_ControlMovementInAir;
-            out << YAML::Key << "ControlRotationInAir" << YAML::Value << cc3dComponent.m_ControlRotationInAir;
-
-            out << YAML::EndMap; // CharacterController3DComponent
-        }
-
         if (entity.HasComponent<PhysicsJoint3DComponent>())
         {
             out << YAML::Key << "PhysicsJoint3DComponent";
@@ -4852,23 +4619,6 @@ namespace OloEngine
             out << YAML::EndMap; // UICanvasComponent
         }
 
-        if (entity.HasComponent<UIRectTransformComponent>())
-        {
-            out << YAML::Key << "UIRectTransformComponent";
-            out << YAML::BeginMap; // UIRectTransformComponent
-
-            auto const& rt = entity.GetComponent<UIRectTransformComponent>();
-            out << YAML::Key << "AnchorMin" << YAML::Value << rt.m_AnchorMin;
-            out << YAML::Key << "AnchorMax" << YAML::Value << rt.m_AnchorMax;
-            out << YAML::Key << "AnchoredPosition" << YAML::Value << rt.m_AnchoredPosition;
-            out << YAML::Key << "SizeDelta" << YAML::Value << rt.m_SizeDelta;
-            out << YAML::Key << "Pivot" << YAML::Value << rt.m_Pivot;
-            out << YAML::Key << "Rotation" << YAML::Value << rt.m_Rotation;
-            out << YAML::Key << "Scale" << YAML::Value << rt.m_Scale;
-
-            out << YAML::EndMap; // UIRectTransformComponent
-        }
-
         if (entity.HasComponent<UIImageComponent>())
         {
             out << YAML::Key << "UIImageComponent";
@@ -4951,21 +4701,6 @@ namespace OloEngine
             out << YAML::Key << "Interactable" << YAML::Value << slider.m_Interactable;
 
             out << YAML::EndMap; // UISliderComponent
-        }
-
-        if (entity.HasComponent<UICheckboxComponent>())
-        {
-            out << YAML::Key << "UICheckboxComponent";
-            out << YAML::BeginMap; // UICheckboxComponent
-
-            auto const& checkbox = entity.GetComponent<UICheckboxComponent>();
-            out << YAML::Key << "IsChecked" << YAML::Value << checkbox.m_IsChecked;
-            out << YAML::Key << "UncheckedColor" << YAML::Value << checkbox.m_UncheckedColor;
-            out << YAML::Key << "CheckedColor" << YAML::Value << checkbox.m_CheckedColor;
-            out << YAML::Key << "CheckmarkColor" << YAML::Value << checkbox.m_CheckmarkColor;
-            out << YAML::Key << "Interactable" << YAML::Value << checkbox.m_Interactable;
-
-            out << YAML::EndMap; // UICheckboxComponent
         }
 
         if (entity.HasComponent<UIProgressBarComponent>())
@@ -5077,21 +4812,6 @@ namespace OloEngine
             out << YAML::Key << "ConstraintCount" << YAML::Value << grid.m_ConstraintCount;
 
             out << YAML::EndMap; // UIGridLayoutComponent
-        }
-
-        if (entity.HasComponent<UIToggleComponent>())
-        {
-            out << YAML::Key << "UIToggleComponent";
-            out << YAML::BeginMap; // UIToggleComponent
-
-            auto const& toggle = entity.GetComponent<UIToggleComponent>();
-            out << YAML::Key << "IsOn" << YAML::Value << toggle.m_IsOn;
-            out << YAML::Key << "OffColor" << YAML::Value << toggle.m_OffColor;
-            out << YAML::Key << "OnColor" << YAML::Value << toggle.m_OnColor;
-            out << YAML::Key << "KnobColor" << YAML::Value << toggle.m_KnobColor;
-            out << YAML::Key << "Interactable" << YAML::Value << toggle.m_Interactable;
-
-            out << YAML::EndMap; // UIToggleComponent
         }
 
         if (entity.HasComponent<ParticleSystemComponent>())
@@ -5765,18 +5485,6 @@ namespace OloEngine
             out << YAML::EndMap; // NetworkIdentityComponent
         }
 
-        if (entity.HasComponent<NetworkInterestComponent>())
-        {
-            out << YAML::Key << "NetworkInterestComponent";
-            out << YAML::BeginMap;
-
-            auto const& nic = entity.GetComponent<NetworkInterestComponent>();
-            out << YAML::Key << "RelevanceRadius" << YAML::Value << nic.RelevanceRadius;
-            out << YAML::Key << "InterestGroup" << YAML::Value << nic.InterestGroup;
-
-            out << YAML::EndMap; // NetworkInterestComponent
-        }
-
         if (entity.HasComponent<PhaseComponent>())
         {
             out << YAML::Key << "PhaseComponent";
@@ -5898,18 +5606,6 @@ namespace OloEngine
             out << YAML::Key << "Enabled" << YAML::Value << gac.Enabled;
 
             out << YAML::EndMap; // GoapAgentComponent
-        }
-
-        if (entity.HasComponent<PerceptibleComponent>())
-        {
-            out << YAML::Key << "PerceptibleComponent";
-            out << YAML::BeginMap;
-
-            auto const& perc = entity.GetComponent<PerceptibleComponent>();
-            out << YAML::Key << "Team" << YAML::Value << perc.Team;
-            out << YAML::Key << "IsPerceptible" << YAML::Value << perc.IsPerceptible;
-
-            out << YAML::EndMap; // PerceptibleComponent
         }
 
         if (entity.HasComponent<PerceptionComponent>())
@@ -6378,25 +6074,6 @@ namespace OloEngine
             out << YAML::EndMap; // AbilityComponent
         }
 
-        if (entity.HasComponent<NameplateComponent>())
-        {
-            out << YAML::Key << "NameplateComponent";
-            out << YAML::BeginMap;
-
-            auto const& nc = entity.GetComponent<NameplateComponent>();
-            out << YAML::Key << "Enabled" << YAML::Value << nc.m_Enabled;
-            out << YAML::Key << "ShowHealthBar" << YAML::Value << nc.m_ShowHealthBar;
-            out << YAML::Key << "ShowManaBar" << YAML::Value << nc.m_ShowManaBar;
-            out << YAML::Key << "WorldOffset" << YAML::Value << nc.m_WorldOffset;
-            out << YAML::Key << "BarSize" << YAML::Value << nc.m_BarSize;
-            out << YAML::Key << "HealthBarColor" << YAML::Value << nc.m_HealthBarColor;
-            out << YAML::Key << "ManaBarColor" << YAML::Value << nc.m_ManaBarColor;
-            out << YAML::Key << "BarBackgroundColor" << YAML::Value << nc.m_BarBackgroundColor;
-            out << YAML::Key << "ManaBarGap" << YAML::Value << nc.m_ManaBarGap;
-
-            out << YAML::EndMap; // NameplateComponent
-        }
-
         if (entity.HasComponent<IKTargetComponent>())
         {
             out << YAML::Key << "IKTargetComponent";
@@ -6478,6 +6155,12 @@ namespace OloEngine
 
             out << YAML::EndMap; // NoiseAnimationComponent
         }
+
+        // Auto-generated trivial-component serialize blocks (OloHeaderTool, issue #380).
+        // One `if (entity.HasComponent<T>()) { … }` per all-trivial component not in
+        // the generator's kComponentsCustomSerialize set. Editing the touch-point out
+        // of this file: a new trivial component is serialized with zero edits here.
+#include "OloEngine/Scene/Generated/SceneSerializeComponents.Generated.inl"
 
         out << YAML::EndMap; // Entity
     }

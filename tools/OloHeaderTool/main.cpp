@@ -30,16 +30,30 @@
 //      declaration-only, so a component added/removed without a specialization
 //      is an engine/editor link error — this collapses the touch-point while
 //      keeping that link error as the safety net for anything mis-excluded.
+//   8. The Scene serializer per-component serialize/deserialize blocks
+//      (Scene{Serialize,Deserialize}Components.Generated.inl in the same
+//      Scene/Generated dir) — one `if (entity.HasComponent<T>()) { … }` /
+//      `if (auto node = entity["T"]; node) { … }` block per component whose
+//      EVERY data member is a primitive / glm::vec* / std::string (a separate
+//      full data-member scan, NOT the OLO_PROPERTY scan — the serializer
+//      persists every field, not just script-exposed ones), minus the
+//      kComponentsCustomSerialize exclusion set. #include'd by
+//      SceneSerializer.cpp. A component with any non-trivial field (enum,
+//      AssetHandle, Ref<T>, std::vector, nested struct, …) is classified
+//      non-trivial and stays hand-written. Collapses the last big *unguarded*
+//      ECS touch-point — a forgotten field was silent scene-data loss.
 //
 // Usage:
 //   OloHeaderTool <scan_dir> <cpp_out_dir> <cs_out_dir> <scene_out_dir> <savegame_out_dir>
 
 #include <algorithm>
+#include <cctype>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <iterator>
 #include <map>
+#include <regex>
 #include <set>
 #include <sstream>
 #include <string>
@@ -750,6 +764,48 @@ static const std::set<std::string> kComponentsCustomOnRemove = {
     "NoiseAnimationComponent",
 };
 
+// Components that ARE all-trivial-fields (every data member is a primitive /
+// glm::vec* / std::string — see SceneSerType) yet are deliberately kept
+// HAND-WRITTEN in SceneSerializer.cpp rather than auto-generated. The scene
+// serialize/deserialize codegen (issue #380, this slice) emits a block for every
+// all-trivial component EXCEPT these; anything with a non-trivial field (enum,
+// AssetHandle, Ref<T>, std::vector, nested struct, glm::quat/mat/ivec, …) is
+// classified non-trivial by the parser and skipped automatically without needing
+// an entry here.
+//
+// Each entry is a trivial component whose hand-written block does something the
+// plain round-trip generator must NOT silently drop:
+//   * BuoyancyComponent / SphereAreaLightComponent / SpringBoneComponent /
+//     NoiseAnimationComponent — deserialize clamps / Sanitize()s float ranges;
+//     auto-generating would relax those guards.
+//   * SnowDeformerComponent — serialize/deserialize delegate to a hand-written
+//     helper (Serialize/DeserializeSnowDeformerComponent), not a flat field list.
+//   * ScriptComponent — serializes the C# ScriptField map owned by ScriptEngine,
+//     not just its ClassName member (the parser only sees ClassName).
+//   * VehicleComponent — has a runtime-only RuntimeVehicleToken field the
+//     hand-written serializer deliberately omits (auto-gen would persist it).
+//   * TagComponent — entity identity, hand-copied; not a normal sub-map.
+//   * PhaseComponent — animation phase runtime state (kRuntimeOnly in the
+//     coverage test); its persistence is intentionally hand-managed.
+//   * UIResolvedRectComponent — per-tick layout-resolved rect, never serialized.
+//
+// DISJOINTNESS is guarded by ComponentSerializerCoverageTest: a component must be
+// handled by EXACTLY ONE of the generated .inl or the hand-written serializer —
+// listing one here while ALSO leaving (or removing) its hand-written block is a
+// loud test failure, never a silent double-emit / drop.
+static const std::set<std::string> kComponentsCustomSerialize = {
+    "BuoyancyComponent",
+    "NoiseAnimationComponent",
+    "PhaseComponent",
+    "ScriptComponent",
+    "SnowDeformerComponent",
+    "SphereAreaLightComponent",
+    "SpringBoneComponent",
+    "TagComponent",
+    "UIResolvedRectComponent",
+    "VehicleComponent",
+};
+
 // Collect the name of every `struct *Component` *definition* under the scan dir.
 // This is the input to the generated AllComponents tuple — independent of the
 // OLO_PROPERTY scan above, since most components have no scripting properties.
@@ -824,6 +880,402 @@ static std::set<std::string> CollectComponentStructs(const fs::path& scanDir)
     }
 
     return names;
+}
+
+// ─── Component Field Collector (for SceneSerializer serialize/deserialize codegen) ─
+
+// A single auto-serializable data member of a component.
+struct SerField
+{
+    std::string member; // C++ member name, e.g. "m_Intensity" or "Color"
+    std::string key;    // YAML key, e.g. "Intensity" / "Color" (member minus m_)
+    PropType type{ PropType::Unknown };
+};
+
+// Per-component result of the field scan.
+struct ComponentSerInfo
+{
+    std::vector<SerField> fields;
+    bool trivial{ false }; // every member is a trivial serializable type, non-empty
+};
+
+// The serialize-codegen-trivial field types. A component is auto-serializable iff
+// EVERY data member maps to one of these. Anything else — enum, AssetHandle, UUID,
+// Ref<T>, std::vector, nested struct, glm::quat/mat/ivec, raw pointer, u8/u16, … —
+// returns Unknown, marking the component non-trivial so it stays hand-written in
+// SceneSerializer.cpp (handled by a future #380 slice). DELIBERATELY narrower than
+// the scripting CppTypeToPropType (which maps AssetHandle→U64): asset-handle /
+// Ref / nested serialization is the epic's hard 40%, explicitly out of this slice.
+static PropType SceneSerType(const std::string& t)
+{
+    if (t == "f32" || t == "float")
+        return PropType::Float;
+    if (t == "bool")
+        return PropType::Bool;
+    if (t == "i32" || t == "int")
+        return PropType::Int;
+    if (t == "u32")
+        return PropType::UInt;
+    if (t == "u64")
+        return PropType::U64;
+    if (t == "glm::vec2")
+        return PropType::Vec2;
+    if (t == "glm::vec3")
+        return PropType::Vec3;
+    if (t == "glm::vec4")
+        return PropType::Vec4;
+    if (t == "std::string")
+        return PropType::String;
+    return PropType::Unknown;
+}
+
+static bool IsIdentifier(const std::string& s)
+{
+    if (s.empty())
+        return false;
+    if (!(std::isalpha(static_cast<unsigned char>(s[0])) || s[0] == '_'))
+        return false;
+    for (char c : s)
+    {
+        if (!(std::isalnum(static_cast<unsigned char>(c)) || c == '_'))
+            return false;
+    }
+    return true;
+}
+
+// Strip // line- and /* */ block-comments from a whole source string, while
+// respecting "..." and '...' literals so a `//` or `/*` inside a string default
+// initializer is not treated as a comment. Used only by the field collector.
+static std::string StripComments(const std::string& src)
+{
+    std::string out;
+    out.reserve(src.size());
+    enum class State
+    {
+        Code,
+        Line,
+        Block,
+        Str,
+        Chr
+    } state = State::Code;
+    for (size_t i = 0; i < src.size(); ++i)
+    {
+        char c = src[i];
+        char n = (i + 1 < src.size()) ? src[i + 1] : '\0';
+        switch (state)
+        {
+            case State::Code:
+                if (c == '/' && n == '/')
+                {
+                    state = State::Line;
+                    ++i;
+                }
+                else if (c == '/' && n == '*')
+                {
+                    state = State::Block;
+                    ++i;
+                }
+                else
+                {
+                    if (c == '"')
+                        state = State::Str;
+                    else if (c == '\'')
+                        state = State::Chr;
+                    out += c;
+                }
+                break;
+            case State::Line:
+                if (c == '\n')
+                {
+                    state = State::Code;
+                    out += c;
+                }
+                break;
+            case State::Block:
+                if (c == '*' && n == '/')
+                {
+                    state = State::Code;
+                    ++i;
+                }
+                else if (c == '\n')
+                {
+                    out += c; // keep line structure
+                }
+                break;
+            case State::Str:
+                out += c;
+                if (c == '\\')
+                {
+                    if (n != '\0')
+                    {
+                        out += n;
+                        ++i;
+                    }
+                }
+                else if (c == '"')
+                {
+                    state = State::Code;
+                }
+                break;
+            case State::Chr:
+                out += c;
+                if (c == '\\')
+                {
+                    if (n != '\0')
+                    {
+                        out += n;
+                        ++i;
+                    }
+                }
+                else if (c == '\'')
+                {
+                    state = State::Code;
+                }
+                break;
+        }
+    }
+    return out;
+}
+
+// Remove every balanced `MACRO( ... )` call (e.g. OLO_PROPERTY(...) annotations)
+// from a struct body so the macro — which expands to nothing — does not merge into
+// the following field's declaration and get mis-parsed as a function (it has '(').
+static std::string StripBalancedMacro(const std::string& s, const std::string& macro)
+{
+    std::string out;
+    out.reserve(s.size());
+    size_t i = 0;
+    while (i < s.size())
+    {
+        bool atBoundary = (i == 0) ||
+                          !(std::isalnum(static_cast<unsigned char>(s[i - 1])) || s[i - 1] == '_');
+        if (atBoundary && s.compare(i, macro.size(), macro) == 0)
+        {
+            size_t j = i + macro.size();
+            while (j < s.size() && (s[j] == ' ' || s[j] == '\t'))
+                ++j;
+            if (j < s.size() && s[j] == '(')
+            {
+                int depth = 0;
+                size_t k = j;
+                for (; k < s.size(); ++k)
+                {
+                    if (s[k] == '(')
+                        ++depth;
+                    else if (s[k] == ')')
+                    {
+                        --depth;
+                        if (depth == 0)
+                        {
+                            ++k;
+                            break;
+                        }
+                    }
+                }
+                i = k; // skip the whole macro call
+                continue;
+            }
+        }
+        out += s[i++];
+    }
+    return out;
+}
+
+// Parse the top-level data members of a `struct *Component { ... }` body and
+// classify the component as auto-serializable or not. A member is collected only
+// when it is unambiguously a `<trivial-type> <name>` field declaration. Anything
+// the parser cannot confidently classify as a trivial field — a non-trivial type,
+// a pointer/reference/template/array/bitfield, a const member — marks the whole
+// component non-trivial so it is left hand-written (ambiguity always fails safe).
+static ComponentSerInfo ParseComponentFields(std::string body)
+{
+    ComponentSerInfo info;
+    bool ambiguous = false;
+
+    // OLO_PROPERTY(...) annotations expand to nothing — drop them (paren-balanced)
+    // before statement splitting so they never merge into the next field's line.
+    body = StripBalancedMacro(body, "OLO_PROPERTY");
+
+    // Split the body into top-level statements at ';' (brace-depth 0). Nested
+    // braces — initializer lists, method bodies — are kept inside one statement.
+    std::vector<std::string> statements;
+    {
+        int depth = 0;
+        std::string buf;
+        for (char c : body)
+        {
+            if (c == '{')
+            {
+                ++depth;
+                buf += c;
+            }
+            else if (c == '}')
+            {
+                --depth;
+                buf += c;
+            }
+            else if (c == ';' && depth == 0)
+            {
+                statements.push_back(buf);
+                buf.clear();
+            }
+            else
+            {
+                buf += c;
+            }
+        }
+    }
+
+    for (auto const& raw : statements)
+    {
+        std::string s = Trim(raw);
+        if (s.empty())
+            continue;
+
+        // The declarator is everything before the first '=' (default initializer)
+        // or '{' (braced initializer / method body).
+        size_t cut = s.size();
+        if (auto k = s.find('='); k != std::string::npos)
+            cut = std::min(cut, k);
+        if (auto k = s.find('{'); k != std::string::npos)
+            cut = std::min(cut, k);
+        std::string decl = Trim(s.substr(0, cut));
+        if (decl.empty())
+            continue;
+
+        std::string first;
+        {
+            std::istringstream ts(decl);
+            ts >> first;
+        }
+        // Skip non-data-member constructs (these are not silent drops — a method /
+        // static / using is genuinely not a serialized field).
+        static const std::set<std::string> kSkipFirst = {
+            "static", "constexpr", "inline", "friend", "using", "typedef",
+            "struct", "class", "enum", "union", "template", "return",
+            "public:", "private:", "protected:", "mutable"
+        };
+        if (kSkipFirst.contains(first))
+            continue;
+        if (decl[0] == '~' || decl.find("operator") != std::string::npos)
+            continue;
+        if (decl.find('(') != std::string::npos) // function / constructor / destructor
+            continue;
+
+        // A complex declarator — pointer/reference/template/array/bitfield/multi —
+        // is a member we cannot trivially serialize: fail the whole component safe.
+        // ('::' in glm::vec3 / std::string is legitimate; strip it before the test.)
+        std::string declNoScope = ReplaceAll(decl, "::", "");
+        if (declNoScope.find_first_of("*&<>[],:") != std::string::npos)
+        {
+            ambiguous = true;
+            continue;
+        }
+
+        std::vector<std::string> toks;
+        {
+            std::istringstream ts(decl);
+            std::string w;
+            while (ts >> w)
+                toks.push_back(w);
+        }
+        if (toks.size() < 2)
+            continue; // a lone token (macro, label) — not a field
+
+        std::string name = toks.back();
+        std::string type;
+        for (size_t i = 0; i + 1 < toks.size(); ++i)
+        {
+            if (i)
+                type += ' ';
+            type += toks[i];
+        }
+        if (!IsIdentifier(name))
+        {
+            ambiguous = true;
+            continue;
+        }
+
+        PropType pt = SceneSerType(type);
+        if (pt == PropType::Unknown)
+        {
+            ambiguous = true; // an unrecognised type — keep the component hand-written
+            continue;
+        }
+
+        SerField f;
+        f.member = name;
+        f.key = StripPrefix(name, "m_");
+        f.type = pt;
+        info.fields.push_back(f);
+    }
+
+    info.trivial = !ambiguous && !info.fields.empty();
+    return info;
+}
+
+// Scan every header for `struct *Component` definitions and parse each one's data
+// members. Mirrors CollectComponentStructs' discrimination (definitions only, the
+// first definition of a given name wins) but extracts the full member list rather
+// than just the type name, so the scene serializer codegen can emit per-field
+// read/writes. Returns a name → ComponentSerInfo map (std::map for deterministic,
+// alphabetical emit order).
+static std::map<std::string, ComponentSerInfo> CollectComponentFields(const fs::path& scanDir)
+{
+    std::map<std::string, ComponentSerInfo> result;
+    static const std::regex structRe(R"(\bstruct\s+([A-Za-z_]\w*Component)\b)");
+
+    for (auto const& entry : fs::recursive_directory_iterator(scanDir))
+    {
+        if (!entry.is_regular_file())
+            continue;
+        if (auto ext = entry.path().extension().string(); ext != ".h" && ext != ".hpp")
+            continue;
+
+        std::ifstream file(entry.path());
+        if (!file.is_open())
+            continue;
+        std::string raw((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+        if (raw.find("Component") == std::string::npos)
+            continue;
+
+        std::string content = StripComments(raw);
+        for (auto it = std::sregex_iterator(content.begin(), content.end(), structRe);
+             it != std::sregex_iterator(); ++it)
+        {
+            std::string name = (*it)[1].str();
+            size_t p = static_cast<size_t>(it->position()) + static_cast<size_t>(it->length());
+            // Skip to the body-opening '{' or a ';' (forward declaration).
+            while (p < content.size() && content[p] != '{' && content[p] != ';')
+                ++p;
+            if (p >= content.size() || content[p] == ';')
+                continue; // forward decl — no body
+
+            // Brace-match the body.
+            int depth = 0;
+            size_t start = p;
+            size_t q = p;
+            for (; q < content.size(); ++q)
+            {
+                if (content[q] == '{')
+                    ++depth;
+                else if (content[q] == '}')
+                {
+                    --depth;
+                    if (depth == 0)
+                        break;
+                }
+            }
+            if (q >= content.size())
+                continue; // unbalanced — skip
+
+            if (result.contains(name))
+                continue; // first definition wins (matches CollectComponentStructs)
+            result.emplace(name, ParseComponentFields(content.substr(start + 1, q - start - 1)));
+        }
+    }
+
+    return result;
 }
 
 // ─── AllComponents Tuple Emitter ─────────────────────────────────────────────────
@@ -951,6 +1403,109 @@ static void EmitOnComponentRemovedNoops(std::ostream& out, const std::set<std::s
         if (kComponentsCustomOnRemove.contains(name))
             continue;
         out << "OLO_ON_COMPONENT_REMOVED_NOOP(" << name << ")\n";
+    }
+}
+
+// ─── Scene Serializer Serialize/Deserialize Block Emitters ────────────────────
+
+// Shared doc header for the two scene-serializer generated files. `verb` is the
+// human label ("serialize" / "deserialize"); `func` names the SceneSerializer.cpp
+// member function the file is #include'd into; `locals` documents the in-scope
+// locals the generated code references.
+static void EmitSceneSerializerHeader(std::ostream& out, const char* verb, const char* func, const char* locals)
+{
+    out << "// Auto-generated by OloHeaderTool — DO NOT EDIT MANUALLY\n";
+    out << "// Re-generate with: cmake --build build --target GenerateBindings\n";
+    out << "//\n";
+    out << "// Per-component scene-YAML " << verb << " blocks — one block per\n";
+    out << "// `struct *Component` whose every data member is a primitive / glm::vec* /\n";
+    out << "// std::string (the generator's SceneSerType), minus the kComponentsCustomSerialize\n";
+    out << "// exclusion set (trivial components deliberately kept hand-written). A component\n";
+    out << "// with any non-trivial field (enum, AssetHandle, Ref<T>, std::vector, nested\n";
+    out << "// struct, …) is classified non-trivial and stays hand-written in SceneSerializer.cpp.\n";
+    out << "//\n";
+    out << "// #include'd inside SceneSerializer::" << func << ", where " << locals << "\n";
+    out << "// are in scope. Floats are validated with std::isfinite via TryReadFiniteF32 /\n";
+    out << "// the glm Decode helpers (NaN/Inf in YAML keeps the constructor default).\n";
+    out << "//\n";
+    out << "// Each component is handled by EXACTLY ONE of this file or the hand-written\n";
+    out << "// serializer — ComponentSerializerCoverageTest fails loudly on a drop or a\n";
+    out << "// double-emit, so a new trivial component is auto-serialized and a new complex\n";
+    out << "// one fails the coverage test until hand-written.\n\n";
+}
+
+// SerializeEntity: `if (entity.HasComponent<T>()) { out << YAML::Key << "T"; … }`.
+static void EmitSceneSerializeBlocks(std::ostream& out, const std::map<std::string, ComponentSerInfo>& comps)
+{
+    EmitSceneSerializerHeader(out, "serialize", "SerializeEntity", "`out` (YAML::Emitter&) and `entity` (Entity)");
+    for (auto const& [name, info] : comps)
+    {
+        if (!info.trivial || kComponentsCustomSerialize.contains(name))
+            continue;
+        out << "if (entity.HasComponent<" << name << ">())\n";
+        out << "{\n";
+        out << "    out << YAML::Key << \"" << name << "\";\n";
+        out << "    out << YAML::BeginMap; // " << name << "\n";
+        out << "    auto const& comp = entity.GetComponent<" << name << ">();\n";
+        for (auto const& f : info.fields)
+            out << "    out << YAML::Key << \"" << f.key << "\" << YAML::Value << comp." << f.member << ";\n";
+        out << "    out << YAML::EndMap; // " << name << "\n";
+        out << "}\n\n";
+    }
+}
+
+// DeserializeEntityComponents: `if (auto node = entity["T"]; node) { … }`.
+static void EmitSceneDeserializeBlocks(std::ostream& out, const std::map<std::string, ComponentSerInfo>& comps)
+{
+    EmitSceneSerializerHeader(out, "deserialize", "DeserializeEntityComponents",
+                              "`entity` (const YAML::Node&) and `deserializedEntity` (Entity&)");
+    for (auto const& [name, info] : comps)
+    {
+        if (!info.trivial || kComponentsCustomSerialize.contains(name))
+            continue;
+        out << "if (auto node = entity[\"" << name << "\"]; node)\n";
+        out << "{\n";
+        out << "    auto& comp = deserializedEntity.AddComponent<" << name << ">();\n";
+        for (auto const& f : info.fields)
+        {
+            const std::string lhs = "comp." + f.member;
+            const std::string key = "node[\"" + f.key + "\"]";
+            switch (f.type)
+            {
+                case PropType::Float:
+                    // Validate finiteness; NaN/Inf or a missing key keeps the default.
+                    out << "    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(" << key << ", v))\n";
+                    out << "        " << lhs << " = v;\n";
+                    break;
+                case PropType::Vec2:
+                    out << "    " << lhs << " = " << key << ".as<glm::vec2>(" << lhs << ");\n";
+                    break;
+                case PropType::Vec3:
+                    out << "    " << lhs << " = " << key << ".as<glm::vec3>(" << lhs << ");\n";
+                    break;
+                case PropType::Vec4:
+                    out << "    " << lhs << " = " << key << ".as<glm::vec4>(" << lhs << ");\n";
+                    break;
+                case PropType::Bool:
+                    out << "    " << lhs << " = " << key << ".as<bool>(" << lhs << ");\n";
+                    break;
+                case PropType::Int:
+                    out << "    " << lhs << " = " << key << ".as<i32>(" << lhs << ");\n";
+                    break;
+                case PropType::UInt:
+                    out << "    " << lhs << " = " << key << ".as<u32>(" << lhs << ");\n";
+                    break;
+                case PropType::U64:
+                    out << "    " << lhs << " = " << key << ".as<u64>(" << lhs << ");\n";
+                    break;
+                case PropType::String:
+                    out << "    " << lhs << " = " << key << ".as<std::string>(" << lhs << ");\n";
+                    break;
+                default:
+                    break;
+            }
+        }
+        out << "}\n\n";
     }
 }
 
@@ -1353,6 +1908,43 @@ static bool WriteSceneComponentHandlerLists(const fs::path& sceneOutDir, const s
     return addedOk && removedOk;
 }
 
+// Emit the scene-serializer per-component serialize/deserialize blocks to
+// <scene_out_dir>/Scene{Serialize,Deserialize}Components.Generated.inl (the same
+// Scene/Generated dir as the tuple), #include'd by SceneSerializer.cpp. Returns
+// false on a write failure OR if the field scan produced zero auto-serializable
+// components — an empty file would silently drop the hand-written blocks that were
+// migrated into it, so (like the empty-tuple guard) we refuse and fail loudly.
+static bool WriteSceneSerializerBlocks(const fs::path& sceneOutDir, const std::map<std::string, ComponentSerInfo>& componentFields)
+{
+    size_t trivialEmitted = 0;
+    for (auto const& [name, info] : componentFields)
+    {
+        if (info.trivial && !kComponentsCustomSerialize.contains(name))
+            ++trivialEmitted;
+    }
+    if (trivialEmitted == 0)
+    {
+        std::cerr << "ERROR: scene-serializer codegen found 0 auto-serializable components — "
+                     "the field parser almost certainly broke. Refusing to overwrite "
+                     "Scene{Serialize,Deserialize}Components.Generated.inl with empty blocks "
+                     "(would silently drop the migrated hand-written serialization).\n";
+        return false;
+    }
+    std::cout << "OloHeaderTool: scene-serializer codegen — " << trivialEmitted
+              << " auto-serializable components ("
+              << kComponentsCustomSerialize.size() << " trivial components kept hand-written)\n";
+
+    std::ostringstream serSs;
+    EmitSceneSerializeBlocks(serSs, componentFields);
+    const bool serOk = ReportWrite(sceneOutDir / "SceneSerializeComponents.Generated.inl", serSs.str());
+
+    std::ostringstream deserSs;
+    EmitSceneDeserializeBlocks(deserSs, componentFields);
+    const bool deserOk = ReportWrite(sceneOutDir / "SceneDeserializeComponents.Generated.inl", deserSs.str());
+
+    return serOk && deserOk;
+}
+
 int main(int argc, char* argv[])
 {
     if (argc < 6)
@@ -1412,6 +2004,11 @@ int main(int argc, char* argv[])
         // OnComponentAdded/Removed specialization → a wall of engine/editor link
         // errors. Written to the same Scene/Generated dir as the tuple.
         if (!WriteSceneComponentHandlerLists(sceneOutDir, componentStructs))
+            errors = true;
+        // Scene-serializer per-component serialize/deserialize blocks. Driven by a
+        // full data-member scan (CollectComponentFields), not the OLO_PROPERTY scan
+        // — the serializer persists every field, not just script-exposed ones.
+        if (!WriteSceneSerializerBlocks(sceneOutDir, CollectComponentFields(scanDir)))
             errors = true;
     }
 
