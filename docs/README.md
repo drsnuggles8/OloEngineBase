@@ -25,6 +25,9 @@ so keep references in sync when moving a file (`git grep "docs/<name>"` before a
 
 > Roadmap docs describe intended/future work — verify "doneness" against the **code**, not these files.
 
+## process/ — how we run the project
+- [process/issue-scoring.md](process/issue-scoring.md) — the rubric for rating issues/tasks (WSJF-derived, engine-tuned: Capability/Craft/Stability/Decay over Effort, plus Learning/Fun). Drives `/start-work` task picking; raw axes live in an `olo-score` block in each issue body, ranked on demand by `scripts/issue_scores.py` (nothing derived is stored).
+
 ## analysis/ — quality & code-health reports
 - [analysis/dead-code.md](analysis/dead-code.md) — dead-code analysis.
 - [analysis/sonarqube-rules.md](analysis/sonarqube-rules.md) — SonarQube rule suggestions & high-volume-rule decisions.
