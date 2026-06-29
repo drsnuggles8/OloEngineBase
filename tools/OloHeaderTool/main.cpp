@@ -71,6 +71,12 @@ enum class PropType
     Int,
     UInt,
     U64,
+    AssetHandle, // AssetHandle / UUID — a u64 wrapper. Scene-serializer-only:
+                 // round-trips as a u64 (static_cast<u64> on write, .as<u64> on
+                 // read) but is emitted distinctly from a plain u64 so the
+                 // serializer codegen knows to bridge the UUID<->u64 conversion.
+                 // The scripting path never produces this (CppTypeToPropType maps
+                 // AssetHandle -> U64), so only SceneSerType emits it.
     Vec2,
     Vec3,
     Vec4,
@@ -765,19 +771,22 @@ static const std::set<std::string> kComponentsCustomOnRemove = {
 };
 
 // Components that ARE all-trivial-fields (every data member is a primitive /
-// glm::vec* / std::string — see SceneSerType) yet are deliberately kept
-// HAND-WRITTEN in SceneSerializer.cpp rather than auto-generated. The scene
-// serialize/deserialize codegen (issue #380, this slice) emits a block for every
-// all-trivial component EXCEPT these; anything with a non-trivial field (enum,
-// AssetHandle, Ref<T>, std::vector, nested struct, glm::quat/mat/ivec, …) is
-// classified non-trivial by the parser and skipped automatically without needing
-// an entry here.
+// glm::vec* / std::string / AssetHandle / UUID — see SceneSerType) yet are
+// deliberately kept HAND-WRITTEN in SceneSerializer.cpp rather than auto-generated.
+// The scene serialize/deserialize codegen (issue #380; AssetHandle/UUID added by
+// the #451 first slice) emits a block for every all-trivial component EXCEPT these;
+// anything with a still-unhandled non-trivial field (enum, Ref<T>, std::vector,
+// nested struct, glm::quat/mat/ivec, …) is classified non-trivial by the parser and
+// skipped automatically without needing an entry here.
 //
 // Each entry is a trivial component whose hand-written block does something the
 // plain round-trip generator must NOT silently drop:
 //   * BuoyancyComponent / SphereAreaLightComponent / SpringBoneComponent /
-//     NoiseAnimationComponent — deserialize clamps / Sanitize()s float ranges;
-//     auto-generating would relax those guards.
+//     NoiseAnimationComponent / DialogueComponent / PerceptionComponent /
+//     IKTargetComponent — deserialize clamps / Sanitize()s float (or u32 chain-
+//     length / vector) ranges; auto-generating would relax those guards.
+//     (PerceptionComponent also intentionally does NOT restore its runtime-derived
+//     fields — HasVisibleTarget / VisibleTarget / LastKnownPosition / … — on load.)
 //   * SnowDeformerComponent — serialize/deserialize delegate to a hand-written
 //     helper (Serialize/DeserializeSnowDeformerComponent), not a flat field list.
 //   * ScriptComponent — serializes the C# ScriptField map owned by ScriptEngine,
@@ -785,6 +794,14 @@ static const std::set<std::string> kComponentsCustomOnRemove = {
 //   * VehicleComponent — has a runtime-only RuntimeVehicleToken field the
 //     hand-written serializer deliberately omits (auto-gen would persist it).
 //   * TagComponent — entity identity, hand-copied; not a normal sub-map.
+//   * IDComponent — entity identity: its UUID is serialized once as the top-level
+//     `Entity: <uuid>` line and re-applied via CreateEntityWithUUID on load, never
+//     as a component sub-map. Now that UUID is a SceneSerType the parser sees it as
+//     all-trivial, so it MUST be excluded here — auto-generating a block would emit
+//     a bogus IDComponent sub-map AND call AddComponent<IDComponent> on an entity
+//     that already has one (an EnTT double-add). The coverage test's kRuntimeOnly
+//     set hides it from the existence check but does NOT guard this, so the
+//     exclusion is the only safety net.
 //   * PhaseComponent — animation phase runtime state (kRuntimeOnly in the
 //     coverage test); its persistence is intentionally hand-managed.
 //   * UIResolvedRectComponent — per-tick layout-resolved rect, never serialized.
@@ -795,7 +812,11 @@ static const std::set<std::string> kComponentsCustomOnRemove = {
 // loud test failure, never a silent double-emit / drop.
 static const std::set<std::string> kComponentsCustomSerialize = {
     "BuoyancyComponent",
+    "DialogueComponent",
+    "IDComponent",
+    "IKTargetComponent",
     "NoiseAnimationComponent",
+    "PerceptionComponent",
     "PhaseComponent",
     "ScriptComponent",
     "SnowDeformerComponent",
@@ -900,12 +921,14 @@ struct ComponentSerInfo
 };
 
 // The serialize-codegen-trivial field types. A component is auto-serializable iff
-// EVERY data member maps to one of these. Anything else — enum, AssetHandle, UUID,
+// EVERY data member maps to one of these. AssetHandle / UUID (a u64 wrapper with an
+// implicit operator u64() / implicit ctor(u64)) round-trips as a u64 — issue #451's
+// first slice brought it in scope, since "missing AssetHandle block ⇒ silent
+// scene-data loss" was the single most pervasive instance of the footgun (materials,
+// meshes, colliders, dialogue, streaming, …). Anything still unhandled — enum,
 // Ref<T>, std::vector, nested struct, glm::quat/mat/ivec, raw pointer, u8/u16, … —
 // returns Unknown, marking the component non-trivial so it stays hand-written in
-// SceneSerializer.cpp (handled by a future #380 slice). DELIBERATELY narrower than
-// the scripting CppTypeToPropType (which maps AssetHandle→U64): asset-handle /
-// Ref / nested serialization is the epic's hard 40%, explicitly out of this slice.
+// SceneSerializer.cpp (handled by a future #451 slice).
 static PropType SceneSerType(const std::string& t)
 {
     if (t == "f32" || t == "float")
@@ -918,6 +941,8 @@ static PropType SceneSerType(const std::string& t)
         return PropType::UInt;
     if (t == "u64")
         return PropType::U64;
+    if (t == "AssetHandle" || t == "UUID")
+        return PropType::AssetHandle;
     if (t == "glm::vec2")
         return PropType::Vec2;
     if (t == "glm::vec3")
@@ -1448,7 +1473,15 @@ static void EmitSceneSerializeBlocks(std::ostream& out, const std::map<std::stri
         out << "    out << YAML::BeginMap; // " << name << "\n";
         out << "    auto const& comp = entity.GetComponent<" << name << ">();\n";
         for (auto const& f : info.fields)
-            out << "    out << YAML::Key << \"" << f.key << "\" << YAML::Value << comp." << f.member << ";\n";
+        {
+            // AssetHandle / UUID has an implicit operator u64() but YAML::Emitter has
+            // no UUID overload, so emit the explicit u64 cast (matches every existing
+            // hand-written AssetHandle block, e.g. SoundConfigHandle / ColliderAsset).
+            if (f.type == PropType::AssetHandle)
+                out << "    out << YAML::Key << \"" << f.key << "\" << YAML::Value << static_cast<u64>(comp." << f.member << ");\n";
+            else
+                out << "    out << YAML::Key << \"" << f.key << "\" << YAML::Value << comp." << f.member << ";\n";
+        }
         out << "    out << YAML::EndMap; // " << name << "\n";
         out << "}\n\n";
     }
@@ -1497,6 +1530,12 @@ static void EmitSceneDeserializeBlocks(std::ostream& out, const std::map<std::st
                     break;
                 case PropType::U64:
                     out << "    " << lhs << " = " << key << ".as<u64>(" << lhs << ");\n";
+                    break;
+                case PropType::AssetHandle:
+                    // Read as u64, bridge back through the implicit UUID(u64) ctor; a
+                    // missing key keeps the constructor default (cast it to u64 for the
+                    // yaml-cpp fallback overload). Matches the hand-written blocks.
+                    out << "    " << lhs << " = " << key << ".as<u64>(static_cast<u64>(" << lhs << "));\n";
                     break;
                 case PropType::String:
                     out << "    " << lhs << " = " << key << ".as<std::string>(" << lhs << ");\n";

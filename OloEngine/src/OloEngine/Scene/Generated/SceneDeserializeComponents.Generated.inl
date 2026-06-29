@@ -174,3 +174,10 @@ if (auto node = entity["UIToggleComponent"]; node)
     comp.m_KnobColor = node["KnobColor"].as<glm::vec4>(comp.m_KnobColor);
     comp.m_Interactable = node["Interactable"].as<bool>(comp.m_Interactable);
 }
+
+if (auto node = entity["UIWorldAnchorComponent"]; node)
+{
+    auto& comp = deserializedEntity.AddComponent<UIWorldAnchorComponent>();
+    comp.m_TargetEntity = node["TargetEntity"].as<u64>(static_cast<u64>(comp.m_TargetEntity));
+    comp.m_WorldOffset = node["WorldOffset"].as<glm::vec3>(comp.m_WorldOffset);
+}

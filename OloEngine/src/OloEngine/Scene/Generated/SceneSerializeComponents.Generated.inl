@@ -188,3 +188,13 @@ if (entity.HasComponent<UIToggleComponent>())
     out << YAML::Key << "Interactable" << YAML::Value << comp.m_Interactable;
     out << YAML::EndMap; // UIToggleComponent
 }
+
+if (entity.HasComponent<UIWorldAnchorComponent>())
+{
+    out << YAML::Key << "UIWorldAnchorComponent";
+    out << YAML::BeginMap; // UIWorldAnchorComponent
+    auto const& comp = entity.GetComponent<UIWorldAnchorComponent>();
+    out << YAML::Key << "TargetEntity" << YAML::Value << static_cast<u64>(comp.m_TargetEntity);
+    out << YAML::Key << "WorldOffset" << YAML::Value << comp.m_WorldOffset;
+    out << YAML::EndMap; // UIWorldAnchorComponent
+}

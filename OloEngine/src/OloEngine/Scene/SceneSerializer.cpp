@@ -2761,12 +2761,9 @@ namespace OloEngine
             TrySet(progress.m_FillColor, uiProgressBarComponent["FillColor"]);
         }
 
-        if (auto uiWorldAnchorComponent = entity["UIWorldAnchorComponent"]; uiWorldAnchorComponent)
-        {
-            auto& anchor = deserializedEntity.AddComponent<UIWorldAnchorComponent>();
-            TrySet(anchor.m_TargetEntity, uiWorldAnchorComponent["TargetEntity"]);
-            TrySet(anchor.m_WorldOffset, uiWorldAnchorComponent["WorldOffset"]);
-        }
+        // UIWorldAnchorComponent — auto-generated (all-trivial: a UUID entity
+        // reference + a glm::vec3 offset). Its serialize/deserialize blocks live in
+        // Scene{Serialize,Deserialize}Components.Generated.inl (issue #451).
 
         if (auto uiInputFieldComponent = entity["UIInputFieldComponent"]; uiInputFieldComponent)
         {
@@ -4725,17 +4722,8 @@ namespace OloEngine
             out << YAML::EndMap; // UIProgressBarComponent
         }
 
-        if (entity.HasComponent<UIWorldAnchorComponent>())
-        {
-            out << YAML::Key << "UIWorldAnchorComponent";
-            out << YAML::BeginMap; // UIWorldAnchorComponent
-
-            auto const& anchor = entity.GetComponent<UIWorldAnchorComponent>();
-            out << YAML::Key << "TargetEntity" << YAML::Value << anchor.m_TargetEntity;
-            out << YAML::Key << "WorldOffset" << YAML::Value << anchor.m_WorldOffset;
-
-            out << YAML::EndMap; // UIWorldAnchorComponent
-        }
+        // UIWorldAnchorComponent — auto-generated (see the matching note in
+        // DeserializeEntityComponents); block lives in the generated .inl (issue #451).
 
         if (entity.HasComponent<UIInputFieldComponent>())
         {
