@@ -510,6 +510,12 @@ namespace OloEngine::Audio::DSP
 
         VBAP::ClearVBAP(source.SpatializerNode.vbap.get());
 
+        // Free the VBAP channel converter's internal heap. InitSourceInternal builds it with
+        // ma_channel_converter_init (default allocator → pass nullptr to match); without this it
+        // leaks ~72 bytes per source (caught by LSan once a source is actually released). Safe on
+        // a never-initialized (zeroed) converter — uninit no-ops when it owns no heap.
+        ::ma_channel_converter_uninit(&source.Converter, nullptr);
+
         source.bInitialPositionSet = false;
         source.bInitialized = false;
 
