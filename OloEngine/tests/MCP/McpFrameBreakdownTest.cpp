@@ -22,6 +22,8 @@ namespace
     using OloEngine::RenderMode;
     using OloEngine::ViewLayerType;
     using OloEngine::MCP::FrameBreakdown::BuildBreakdown;
+    using OloEngine::MCP::FrameBreakdown::GraphAttribution;
+    using OloEngine::MCP::FrameBreakdown::GraphPassInfo;
     using OloEngine::MCP::FrameBreakdown::ParseViewMode;
     using OloEngine::MCP::FrameBreakdown::ViewMode;
     using Json = OloEngine::MCP::FrameBreakdown::Json;
@@ -209,4 +211,110 @@ TEST(McpFrameBreakdown, StatsAndStageCountsPassThrough)
     EXPECT_EQ(3u, stage["preSort"].get<sizet>());
     EXPECT_EQ(3u, stage["postSort"].get<sizet>());
     EXPECT_EQ(0u, stage["postBatch"].get<sizet>());
+}
+
+// ---- graph-wide command-bucket attribution (#316 Part 4) --------------------
+
+namespace
+{
+    // A synthetic multi-pass graph mirroring a typical deferred path: a shadow
+    // pass (no bucket), the scene pass (bucket + capture source), water and
+    // forward-overlay (bucket, not captured), a culled pass, and the final
+    // composite (no bucket).
+    GraphAttribution MakeGraphAttribution()
+    {
+        GraphAttribution attr;
+        attr.CaptureSourcePass = "SceneRenderPass";
+        attr.Passes.push_back(GraphPassInfo{ "ShadowPass", "Graphics", /*bucket*/ false, /*culled*/ false, /*final*/ false, /*idx*/ 0 });
+        attr.Passes.push_back(GraphPassInfo{ "SceneRenderPass", "Graphics", true, false, false, 1 });
+        attr.Passes.push_back(GraphPassInfo{ "WaterRenderPass", "Graphics", true, false, false, 2 });
+        attr.Passes.push_back(GraphPassInfo{ "ForwardOverlayPass", "Graphics", true, false, false, 3 });
+        attr.Passes.push_back(GraphPassInfo{ "DisabledFogPass", "Graphics", true, /*culled*/ true, false, -1 });
+        attr.Passes.push_back(GraphPassInfo{ "CompositePass", "Graphics", false, false, /*final*/ true, 4 });
+        return attr;
+    }
+} // namespace
+
+TEST(McpFrameBreakdown, SourcePassReportedFromFrameWithoutAttribution)
+{
+    CapturedFrameData frame = MakeFrame();
+    frame.SourcePassName = "SceneRenderPass";
+
+    // No attribution supplied -> sourcePass from the frame, no graph block.
+    const Json j = BuildBreakdown(frame, ViewMode::PostSort, 200);
+    EXPECT_EQ("SceneRenderPass", j["sourcePass"].get<std::string>());
+    EXPECT_EQ("SceneRenderPass command bucket", j["bucket"].get<std::string>());
+    EXPECT_FALSE(j.contains("graphAttribution"));
+}
+
+TEST(McpFrameBreakdown, EmptySourcePassFallsBackToGenericBucketLabel)
+{
+    // A synthetic frame (no recorded pass) keeps an empty sourcePass and the
+    // generic bucket label, so existing callers/tests are unaffected.
+    const CapturedFrameData frame = MakeFrame();
+    const Json j = BuildBreakdown(frame, ViewMode::PostSort, 200);
+    EXPECT_EQ("", j["sourcePass"].get<std::string>());
+    EXPECT_EQ("scene render command bucket", j["bucket"].get<std::string>());
+}
+
+TEST(McpFrameBreakdown, GraphAttributionEnumeratesPassesAndFlagsCaptureSource)
+{
+    CapturedFrameData frame = MakeFrame();
+    frame.SourcePassName = "SceneRenderPass";
+    const GraphAttribution attr = MakeGraphAttribution();
+
+    const Json j = BuildBreakdown(frame, ViewMode::PostSort, 200, &attr);
+
+    ASSERT_TRUE(j.contains("graphAttribution"));
+    const Json& g = j["graphAttribution"];
+    EXPECT_EQ("SceneRenderPass", g["captureSourcePass"].get<std::string>());
+    EXPECT_EQ(6u, g["passCount"].get<u32>());
+    // ShadowPass + Composite lack buckets -> 4 command-bucket passes.
+    EXPECT_EQ(4u, g["commandBucketPassCount"].get<u32>());
+    EXPECT_EQ(1u, g["capturedPassCount"].get<u32>());
+
+    const Json& passes = g["passes"];
+    ASSERT_EQ(6u, passes.size());
+
+    // Order is preserved from the attribution (submission order).
+    EXPECT_EQ("ShadowPass", passes[0]["name"].get<std::string>());
+    EXPECT_FALSE(passes[0]["usesCommandBucket"].get<bool>());
+    EXPECT_FALSE(passes[0]["isCaptureSource"].get<bool>());
+
+    // The scene pass is the one capture source and owns a bucket.
+    const Json& scene = passes[1];
+    EXPECT_EQ("SceneRenderPass", scene["name"].get<std::string>());
+    EXPECT_TRUE(scene["usesCommandBucket"].get<bool>());
+    EXPECT_TRUE(scene["isCaptureSource"].get<bool>());
+    EXPECT_EQ(1, scene["executionIndex"].get<int>());
+
+    // Water owns a bucket but is NOT the capture source (the deferred gap).
+    const Json& water = passes[2];
+    EXPECT_TRUE(water["usesCommandBucket"].get<bool>());
+    EXPECT_FALSE(water["isCaptureSource"].get<bool>());
+
+    // The culled pass carries its cull flag and an unscheduled execution index.
+    const Json& fog = passes[4];
+    EXPECT_EQ("DisabledFogPass", fog["name"].get<std::string>());
+    EXPECT_TRUE(fog["culled"].get<bool>());
+    EXPECT_EQ(-1, fog["executionIndex"].get<int>());
+
+    // The final pass is flagged.
+    EXPECT_TRUE(passes[5]["isFinalPass"].get<bool>());
+}
+
+TEST(McpFrameBreakdown, CaptureSourceFallsBackToAttributionWhenFrameUnset)
+{
+    // Frame has no recorded source pass, but the attribution carries one — the
+    // breakdown still attributes to it and flags the matching pass.
+    CapturedFrameData frame = MakeFrame();
+    frame.SourcePassName.clear();
+    const GraphAttribution attr = MakeGraphAttribution();
+
+    const Json j = BuildBreakdown(frame, ViewMode::PostSort, 200, &attr);
+    EXPECT_EQ("SceneRenderPass", j["sourcePass"].get<std::string>());
+
+    const Json& passes = j["graphAttribution"]["passes"];
+    EXPECT_TRUE(passes[1]["isCaptureSource"].get<bool>());
+    EXPECT_FALSE(passes[2]["isCaptureSource"].get<bool>());
 }

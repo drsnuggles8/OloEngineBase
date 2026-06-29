@@ -199,7 +199,12 @@ namespace OloEngine
         const bool capturing = captureManager.IsCapturing();
 
         if (capturing)
+        {
+            // Stamp the capture with this pass's graph name so the breakdown can
+            // attribute every captured command to a real render-graph pass.
+            captureManager.SetSourcePass(GetName());
             captureManager.OnPreSort(m_CommandBucket);
+        }
 
         // BatchCommands uses hash-table grouping (O(n)) which doesn't require
         // pre-sorted input, and sorts internally afterward. Skipping the separate
