@@ -1,6 +1,7 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Renderer/Passes/FoliageRenderPass.h"
 #include "OloEngine/Renderer/Commands/CommandDispatch.h"
+#include "OloEngine/Renderer/Debug/FrameCaptureManager.h"
 #include "OloEngine/Renderer/RGBuilder.h"
 #include "OloEngine/Renderer/RGCommandContext.h"
 #include "OloEngine/Renderer/Renderer.h"
@@ -41,6 +42,17 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
+        // Per-pass command capture (issue #463): register this pass and snapshot its
+        // submission-order bucket BEFORE any early-return below, so even an empty
+        // foliage frame appears in the frame breakdown's per-pass list.
+        auto& captureManager = FrameCaptureManager::GetInstance();
+        const bool capturing = captureManager.IsCapturing();
+        if (capturing)
+        {
+            captureManager.BeginPass(GetName());
+            captureManager.OnPreSort(m_CommandBucket);
+        }
+
         // Resolve the setup-selected scene framebuffer instead of replaying
         // a blackboard lookup ladder at execute time.
         if (const auto sceneHandle = GetPrimaryInputFramebufferHandle(); sceneHandle.IsValid())
@@ -66,6 +78,9 @@ namespace OloEngine
 
         // Sort and dispatch foliage commands through the command bucket
         m_CommandBucket.SortCommands();
+
+        if (capturing)
+            captureManager.OnPostSort(m_CommandBucket);
 
         auto& rendererAPI = RenderCommand::GetRendererAPI();
         m_CommandBucket.Execute(rendererAPI);

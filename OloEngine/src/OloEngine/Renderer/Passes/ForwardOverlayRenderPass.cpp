@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Renderer/Passes/ForwardOverlayRenderPass.h"
+#include "OloEngine/Renderer/Debug/FrameCaptureManager.h"
 #include "OloEngine/Renderer/Debug/GLStateGuard.h"
 #include "OloEngine/Renderer/RGBuilder.h"
 #include "OloEngine/Renderer/RGCommandContext.h"
@@ -50,6 +51,17 @@ namespace OloEngine
     void ForwardOverlayRenderPass::Execute(RGCommandContext& context)
     {
         OLO_PROFILE_FUNCTION();
+
+        // Per-pass command capture (issue #463): register this pass and snapshot its
+        // submission-order bucket BEFORE any early-return below, so even an empty
+        // overlay frame appears in the frame breakdown's per-pass list.
+        auto& captureManager = FrameCaptureManager::GetInstance();
+        const bool capturing = captureManager.IsCapturing();
+        if (capturing)
+        {
+            captureManager.BeginPass(GetName());
+            captureManager.OnPreSort(m_CommandBucket);
+        }
 
         // Resolve the setup-selected scene framebuffer instead of replaying
         // a blackboard lookup ladder at execute time.
@@ -128,6 +140,8 @@ namespace OloEngine
         if (m_CommandBucket.GetCommandCount() > 0)
         {
             m_CommandBucket.SortCommands();
+            if (capturing)
+                captureManager.OnPostSort(m_CommandBucket);
             m_CommandBucket.Execute(rendererAPI);
         }
 

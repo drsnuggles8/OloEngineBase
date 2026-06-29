@@ -3,6 +3,7 @@
 #include "OloEngine/Renderer/Renderer3DInternal.h"
 #include "OloEngine/Core/PerformanceProfiler.h"
 #include "OloEngine/Renderer/Commands/FrameResourceManager.h"
+#include "OloEngine/Renderer/Debug/FrameCaptureManager.h"
 #include "OloEngine/Renderer/Debug/RendererProfiler.h"
 #include "OloEngine/Renderer/Occlusion/OcclusionQueryPool.h"
 
@@ -134,6 +135,15 @@ namespace OloEngine
         }
 
         s_Data.RGraph->Execute();
+
+        // Central frame-capture commit (issue #463 / #316 Part 4). The whole render
+        // graph has now executed, so every command-bucket pass (Scene, Water,
+        // Foliage, Decal, ForwardOverlay) has accumulated its own per-pass bucket
+        // into the pending capture. Commit it here — relocated out of
+        // SceneRenderPass::OnFrameEnd, which used to commit mid-graph (before the
+        // other passes ran) and thus only ever captured the scene pass's bucket.
+        // No-op when not capturing.
+        FrameCaptureManager::GetInstance().CommitFrame();
 
         // End occlusion query frame after render graph execution
         if (s_Data.OcclusionCullingEnabled)
