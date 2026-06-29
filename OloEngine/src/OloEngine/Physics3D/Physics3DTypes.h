@@ -71,6 +71,7 @@ namespace OloEngine
         Capsule,
         ConvexMesh,
         TriangleMesh,
+        HeightField,
         CompoundShape,
         MutableCompoundShape,
         LAST
@@ -98,6 +99,8 @@ namespace OloEngine
                     return "ConvexMesh";
                 case ShapeType::TriangleMesh:
                     return "TriangleMesh";
+                case ShapeType::HeightField:
+                    return "HeightField";
                 case ShapeType::LAST:
                     break;
             }

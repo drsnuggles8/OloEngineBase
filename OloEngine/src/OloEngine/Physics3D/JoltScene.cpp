@@ -28,6 +28,7 @@
 #include <Jolt/Physics/Collision/CollisionCollectorImpl.h>
 #include <Jolt/Physics/Collision/CollideShape.h>
 #include <Jolt/Physics/Body/Body.h>
+#include <Jolt/Physics/Body/BodyCreationSettings.h>
 #include <Jolt/Physics/Body/BodyLockMulti.h>
 #include <Jolt/Physics/Constraints/TwoBodyConstraint.h>
 #include <Jolt/Physics/Constraints/FixedConstraint.h>
@@ -104,6 +105,9 @@ namespace OloEngine
 
         // Remove constraints before the bodies they reference are destroyed.
         DestroyAllConstraints();
+
+        // Remove static terrain height-field bodies while m_JoltSystem is still alive.
+        DestroyAllTerrainBodies();
 
         // Destroy all bodies
         for (const auto& [entityID, body] : m_Bodies)
@@ -324,6 +328,86 @@ namespace OloEngine
         return Entity{};
     }
 
+    JPH::BodyID JoltScene::CreateTerrainBody(Entity entity, const JPH::Ref<JPH::Shape>& shape,
+                                             const glm::vec3& position, const glm::quat& rotation)
+    {
+        if (!m_Initialized || !m_JoltSystem)
+        {
+            OLO_CORE_ERROR("CreateTerrainBody: physics not initialized");
+            return JPH::BodyID();
+        }
+        if (!entity || !shape)
+        {
+            OLO_CORE_ERROR("CreateTerrainBody: invalid entity or null shape");
+            return JPH::BodyID();
+        }
+
+        const UUID entityID = entity.GetUUID();
+
+        // Idempotent: drop any prior terrain body for this entity (rebuild / regenerate).
+        DestroyTerrainBody(entityID);
+
+        // Static world geometry → NON_MOVING object layer (collides with moving bodies
+        // and characters; never with other static geometry). DontActivate: a static
+        // body never simulates, it just sits in the broadphase for queries/contacts.
+        JPH::BodyCreationSettings settings(
+            shape,
+            JoltUtils::ToJoltVector(position),
+            JoltUtils::ToJoltQuat(rotation),
+            JPH::EMotionType::Static,
+            ObjectLayers::NON_MOVING);
+        settings.mUserData = static_cast<u64>(entityID);
+        // Grippy ground so characters/vehicles don't slide on slopes; no bounce.
+        settings.mFriction = 0.8f;
+        settings.mRestitution = 0.0f;
+
+        JPH::BodyID bodyID = m_JoltSystem->GetBodyInterface().CreateAndAddBody(settings, JPH::EActivation::DontActivate);
+        if (bodyID.IsInvalid())
+        {
+            OLO_CORE_ERROR("CreateTerrainBody: Jolt failed to create body for terrain entity {0}", (u64)entityID);
+            return JPH::BodyID();
+        }
+
+        m_TerrainBodies[entityID] = bodyID;
+        m_BodyIDToEntity[bodyID] = entityID;
+
+        OLO_CORE_TRACE("Created terrain collision body for entity {0}, BodyID: {1}", (u64)entityID, bodyID.GetIndex());
+        return bodyID;
+    }
+
+    void JoltScene::DestroyTerrainBody(UUID entityID)
+    {
+        auto it = m_TerrainBodies.find(entityID);
+        if (it == m_TerrainBodies.end())
+            return;
+
+        const JPH::BodyID bodyID = it->second;
+        m_BodyIDToEntity.erase(bodyID);
+        if (m_JoltSystem)
+        {
+            auto& bodyInterface = m_JoltSystem->GetBodyInterface();
+            bodyInterface.RemoveBody(bodyID);
+            bodyInterface.DestroyBody(bodyID);
+        }
+        m_TerrainBodies.erase(it);
+        OLO_CORE_TRACE("Destroyed terrain collision body for entity {0}", (u64)entityID);
+    }
+
+    void JoltScene::DestroyAllTerrainBodies()
+    {
+        if (m_JoltSystem)
+        {
+            auto& bodyInterface = m_JoltSystem->GetBodyInterface();
+            for (const auto& [entityID, bodyID] : m_TerrainBodies)
+            {
+                m_BodyIDToEntity.erase(bodyID);
+                bodyInterface.RemoveBody(bodyID);
+                bodyInterface.DestroyBody(bodyID);
+            }
+        }
+        m_TerrainBodies.clear();
+    }
+
     Ref<JoltCharacterController> JoltScene::CreateCharacterController(Entity entity, const ContactCallbackFn& contactCallback)
     {
         if (!entity || !m_Initialized)
@@ -407,6 +491,9 @@ namespace OloEngine
         // destroyed (vehicles also unregister their step listeners here).
         DestroyAllVehicles();
         DestroyAllConstraints();
+
+        // Remove static terrain height-field bodies while m_JoltSystem is still alive.
+        DestroyAllTerrainBodies();
 
         // Destroy all bodies — the JoltBody destructors run as clear() releases
         // each Ref; the reverse-lookup and sync sets are dropped with them.

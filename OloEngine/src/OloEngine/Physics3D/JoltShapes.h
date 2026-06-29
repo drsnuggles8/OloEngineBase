@@ -102,6 +102,29 @@ namespace OloEngine
         static JPH::Ref<JPH::Shape> CreateConvexMeshShape(const ConvexMeshCollider3DComponent& component, const glm::vec3& scale = glm::vec3(1.0f));
         static JPH::Ref<JPH::Shape> CreateTriangleMeshShape(const TriangleMeshCollider3DComponent& component, const glm::vec3& scale = glm::vec3(1.0f));
 
+        // @brief Build a static Jolt HeightFieldShape from a terrain's CPU height field.
+        //
+        // Maps the engine's terrain placement (TerrainComponent / TerrainData) onto a
+        // JPH::HeightFieldShape so the collision surface coincides exactly with the
+        // rendered terrain mesh. Inputs:
+        //   - `heights`     : row-major normalized [0,1] field, `resolution`×`resolution`
+        //                     (TerrainData::GetHeightData() layout: index = z*resolution + x).
+        //   - `resolution`  : heightmap edge length in samples (>= 2).
+        //   - worldSizeX/Z  : local-space terrain extent in X / Z (the field spans
+        //                     [0, worldSizeX] × [0, worldSizeZ] before the entity transform).
+        //   - heightScale   : multiplier that turns a normalized height into local-space Y.
+        //   - scale         : the terrain entity's TransformComponent scale, baked into the
+        //                     shape so the body itself carries only translation + rotation.
+        //
+        // The shape's local origin is (0,0,0) — the caller places it at the entity's world
+        // translation/rotation. Jolt requires the sample count to be a multiple of the
+        // block size, so an odd resolution is padded up by one row/column (edge-replicated),
+        // which extends collision a negligible fraction past the far edge. Returns nullptr on
+        // invalid input or Jolt build error.
+        static JPH::Ref<JPH::Shape> CreateTerrainHeightFieldShape(const std::vector<f32>& heights, u32 resolution,
+                                                                  f32 worldSizeX, f32 worldSizeZ, f32 heightScale,
+                                                                  const glm::vec3& scale = glm::vec3(1.0f));
+
         // Create compound shapes
         static JPH::Ref<JPH::Shape> CreateCompoundShape(Entity entity, bool isMutable = false);
 

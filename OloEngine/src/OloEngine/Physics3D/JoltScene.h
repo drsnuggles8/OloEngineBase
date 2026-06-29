@@ -69,6 +69,23 @@ namespace OloEngine
         // Entity lookup by body ID (for character controller integration)
         Entity GetEntityByBodyID(const JPH::BodyID& bodyID);
 
+        // Terrain collision (static height-field bodies). A terrain entity carries no
+        // Rigidbody3DComponent / JoltBody wrapper, so its collision is a raw static JPH
+        // body tracked separately, keyed by the owning TerrainComponent entity. The
+        // caller (Scene) builds the JPH::HeightFieldShape from the terrain's CPU heights
+        // and the entity transform, then hands it here. The body's UserData is the entity
+        // UUID and it is registered in the BodyID→entity reverse map, so raycasts and
+        // contacts resolve back to the terrain entity. CreateTerrainBody is idempotent —
+        // it replaces any existing terrain body for the entity. Returns the new BodyID
+        // (invalid on failure). DestroyTerrainBody removes it by entity UUID.
+        JPH::BodyID CreateTerrainBody(Entity entity, const JPH::Ref<JPH::Shape>& shape,
+                                      const glm::vec3& position, const glm::quat& rotation);
+        void DestroyTerrainBody(UUID entityID);
+        bool HasTerrainBody(UUID entityID) const
+        {
+            return m_TerrainBodies.contains(entityID);
+        }
+
         // Two-body constraint (joint) management. CreateConstraint builds the
         // Jolt constraint for the PhysicsJoint3DComponent on `entity` (both
         // endpoint bodies must already exist) and sets the component's
@@ -233,6 +250,9 @@ namespace OloEngine
         // Remove and release every tracked constraint. Must run before the
         // bodies they reference are destroyed.
         void DestroyAllConstraints();
+        // Remove every tracked static terrain height-field body. Called on runtime
+        // stop / shutdown while m_JoltSystem is still alive.
+        void DestroyAllTerrainBodies();
         // Second pass after CreateRigidBodies(): build every authored vehicle's
         // Jolt VehicleConstraint now that the chassis bodies exist.
         void CreateVehicles();
@@ -307,6 +327,12 @@ namespace OloEngine
         std::unordered_map<UUID, Ref<JoltBody>> m_Bodies;
         std::unordered_map<JPH::BodyID, UUID> m_BodyIDToEntity; // Reverse lookup for efficient GetEntityByBodyID
         std::vector<Ref<JoltBody>> m_BodiesToSync;
+
+        // Static terrain height-field collision bodies, keyed by the owning
+        // TerrainComponent entity. These are raw JPH bodies (no JoltBody wrapper), so
+        // they live outside m_Bodies; they are still entered in m_BodyIDToEntity so
+        // queries resolve them. Created/destroyed by Create/DestroyTerrainBody.
+        std::unordered_map<UUID, JPH::BodyID> m_TerrainBodies;
 
         // Joints (two-body constraints), keyed by the owning entity (the one
         // carrying the PhysicsJoint3DComponent). The JPH::Ref keeps the

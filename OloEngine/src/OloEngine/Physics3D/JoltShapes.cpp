@@ -31,7 +31,11 @@
 #include <Jolt/Physics/Collision/Shape/MutableCompoundShape.h>
 #include <Jolt/Physics/Collision/Shape/DecoratedShape.h>
 #include <Jolt/Physics/Collision/Shape/ScaledShape.h>
+#include <Jolt/Physics/Collision/Shape/HeightFieldShape.h>
 #include <Jolt/Physics/Collision/Shape/Shape.h>
+
+#include <algorithm>
+#include <limits>
 
 namespace OloEngine
 {
@@ -451,6 +455,82 @@ namespace OloEngine
         return shape != nullptr;
     }
 
+    JPH::Ref<JPH::Shape> JoltShapes::CreateTerrainHeightFieldShape(const std::vector<f32>& heights, u32 resolution,
+                                                                   f32 worldSizeX, f32 worldSizeZ, f32 heightScale,
+                                                                   const glm::vec3& scale)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        // A height field needs at least a 2x2 grid of samples (1 quad) to enclose any
+        // surface. Jolt additionally requires (sampleCount / blockSize) >= 2.
+        if (resolution < 2)
+        {
+            OLO_CORE_ERROR("CreateTerrainHeightFieldShape: resolution {0} too small (need >= 2)", resolution);
+            return nullptr;
+        }
+        if (heights.size() != static_cast<sizet>(resolution) * resolution)
+        {
+            OLO_CORE_ERROR("CreateTerrainHeightFieldShape: height count {0} does not match resolution {1}x{1}",
+                           heights.size(), resolution);
+            return nullptr;
+        }
+
+        // Jolt stores samples in cache-friendly blocks and requires the sample count to
+        // be a multiple of the block size (and at least 2 blocks per edge). Use the
+        // default block size of 2 and pad an odd resolution up by one edge-replicated
+        // row/column so the count is always even — the pad sits a fraction of a cell
+        // beyond the far edge and is collision-inert for anything inside the terrain.
+        constexpr JPH::uint kBlockSize = 2;
+        const u32 sampleCount = (resolution % kBlockSize == 0) ? resolution : resolution + (kBlockSize - resolution % kBlockSize);
+
+        std::vector<f32> samples(static_cast<sizet>(sampleCount) * sampleCount);
+        for (u32 z = 0; z < sampleCount; ++z)
+        {
+            const u32 srcZ = std::min(z, resolution - 1);
+            for (u32 x = 0; x < sampleCount; ++x)
+            {
+                const u32 srcX = std::min(x, resolution - 1);
+                // Jolt sample layout matches TerrainData: row-major, index = z*N + x.
+                samples[static_cast<sizet>(z) * sampleCount + x] = heights[static_cast<sizet>(srcZ) * resolution + srcX];
+            }
+        }
+
+        // Map a grid sample (x, z) to its local-space position. Jolt computes
+        //   pos = offset + scale * (x, sample, z)
+        // so to reproduce the terrain mesh (local X in [0,worldSizeX], local Z in
+        // [0,worldSizeZ], local Y = sample * heightScale) the per-axis scale is the
+        // world span divided by the number of cells (resolution-1), with the entity's
+        // own TransformComponent scale baked in (the body then carries only T*R).
+        const f32 cells = static_cast<f32>(resolution - 1);
+        const JPH::Vec3 joltOffset = JPH::Vec3::sZero();
+        const JPH::Vec3 joltScale(
+            (worldSizeX / cells) * scale.x,
+            heightScale * scale.y,
+            (worldSizeZ / cells) * scale.z);
+
+        JPH::HeightFieldShapeSettings settings(samples.data(), joltOffset, joltScale, sampleCount);
+        settings.mBlockSize = kBlockSize;
+
+        // Pick the sample precision adaptively: target ~2 cm of world-space height error.
+        // Samples are normalized [0,1] and multiplied by the Y scale, so the per-sample
+        // error budget is (worldError / worldHeightScale). Flat fields need very few bits;
+        // tall, detailed terrain gets up to the 16-bit ceiling.
+        constexpr f32 kTargetWorldError = 0.02f;
+        const f32 worldHeightScale = std::max(std::abs(joltScale.GetY()), 1.0e-3f);
+        const f32 sampleError = std::clamp(kTargetWorldError / worldHeightScale, 1.0e-5f, 1.0f);
+        const JPH::uint bits = settings.CalculateBitsPerSampleForError(sampleError);
+        settings.mBitsPerSample = std::clamp<JPH::uint>(bits, 1, 16);
+
+        JPH::ShapeSettings::ShapeResult result = settings.Create();
+        if (result.HasError())
+        {
+            OLO_CORE_ERROR("CreateTerrainHeightFieldShape: Jolt failed to build height field: {0}", result.GetError().c_str());
+            return nullptr;
+        }
+
+        return result.Get();
+    }
+
     ShapeType JoltShapes::GetShapeType(const JPH::Shape* shape)
     {
         if (!shape)
@@ -539,8 +619,7 @@ namespace OloEngine
                 }
             }
             case JPH::EShapeType::HeightField:
-                OLO_CORE_WARN("GetShapeType: HeightField shape type {0} not supported, defaulting to Box", (i32)shape->GetType());
-                return ShapeType::Box;
+                return ShapeType::HeightField;
             case JPH::EShapeType::SoftBody:
                 OLO_CORE_WARN("GetShapeType: SoftBody shape type {0} not supported, defaulting to Box", (i32)shape->GetType());
                 return ShapeType::Box;

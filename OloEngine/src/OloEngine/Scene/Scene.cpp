@@ -38,6 +38,7 @@
 #include "OloEngine/Renderer/MeshSource.h"
 #include "OloEngine/Renderer/MeshPrimitives.h"
 #include "OloEngine/Physics3D/JoltScene.h"
+#include "OloEngine/Physics3D/JoltShapes.h"
 #include "OloEngine/Physics3D/BuoyancySystem.h"
 #include "OloEngine/UI/UILayoutSystem.h"
 #include "OloEngine/UI/UIRenderer.h"
@@ -2701,6 +2702,75 @@ namespace OloEngine
         }
     }
 
+    namespace
+    {
+        // Build (or rebuild) the static height-field collision body for a single-tile
+        // terrain entity from its CPU height field (issue #428). Skips streamed terrains
+        // (per-tile collision is a follow-up). Caller guarantees physics is initialized.
+        //
+        // The heights are taken from the already-built TerrainData when present (editor /
+        // runtime render path); otherwise they are generated GPU-free so headless runtimes
+        // (dedicated server, functional tests) still get collision — GenerateHeightField
+        // produces the identical field the render path's GenerateHeightmap would.
+        void BuildTerrainCollisionBody(JoltScene& joltScene, Entity entity, TerrainComponent& terrain)
+        {
+            if (!terrain.m_CollisionEnabled || terrain.m_StreamingEnabled)
+                return;
+
+            u32 resolution = 0;
+            const std::vector<f32>* heightsPtr = nullptr;
+            std::vector<f32> generated;
+
+            if (terrain.m_TerrainData && terrain.m_TerrainData->GetResolution() > 0)
+            {
+                resolution = terrain.m_TerrainData->GetResolution();
+                heightsPtr = &terrain.m_TerrainData->GetHeightData();
+            }
+            else if (terrain.m_ProceduralEnabled)
+            {
+                TerrainGenerator::HeightParams params;
+                params.Resolution = terrain.m_ProceduralResolution;
+                params.Seed = terrain.m_ProceduralSeed;
+                params.Octaves = terrain.m_ProceduralOctaves;
+                params.Frequency = terrain.m_ProceduralFrequency;
+                params.Lacunarity = terrain.m_ProceduralLacunarity;
+                params.Persistence = terrain.m_ProceduralPersistence;
+                params.Shaping = terrain.m_HeightShaping;
+                params.ErosionIterations = terrain.m_ProceduralErosionIterations;
+                TerrainGenerator::GenerateHeightField(generated, params);
+                resolution = terrain.m_ProceduralResolution;
+                heightsPtr = &generated;
+            }
+            else if (terrain.m_HeightmapPath.empty())
+            {
+                // Flat terrain — mirrors the render path's CreateFlat(256, 0).
+                resolution = 256;
+                generated.assign(static_cast<sizet>(resolution) * resolution, 0.0f);
+                heightsPtr = &generated;
+            }
+            else
+            {
+                // Heightmap-file terrain whose CPU heights aren't built yet (headless).
+                // File loading is GPU-coupled today; the render-built TerrainData path
+                // covers editor/runtime. Headless heightmap-file collision is a follow-up.
+                OLO_CORE_WARN("Terrain collision: heightmap-file terrain has no CPU heights yet; skipping collision for entity {0}", (u64)entity.GetUUID());
+                return;
+            }
+
+            const auto& transform = entity.GetComponent<TransformComponent>();
+            JPH::Ref<JPH::Shape> shape = JoltShapes::CreateTerrainHeightFieldShape(
+                *heightsPtr, resolution, terrain.m_WorldSizeX, terrain.m_WorldSizeZ, terrain.m_HeightScale, transform.Scale);
+            if (!shape)
+            {
+                terrain.m_RuntimeCollisionBodyToken = 0;
+                return;
+            }
+
+            JPH::BodyID bodyID = joltScene.CreateTerrainBody(entity, shape, transform.Translation, transform.GetRotation());
+            terrain.m_RuntimeCollisionBodyToken = bodyID.IsInvalid() ? 0 : static_cast<u64>(bodyID.GetIndexAndSequenceNumber());
+        }
+    } // namespace
+
     void Scene::OnPhysics3DStart()
     {
         // Ensure JoltScene was properly initialized in constructor
@@ -2774,6 +2844,16 @@ namespace OloEngine
             Entity ent = { entity, this };
             (void)m_JoltScene->CreateVehicle(ent);
         }
+
+        // Terrain collision pass: give every opted-in single-tile terrain a static
+        // height-field body so characters/vehicles rest on it and raycasts hit it
+        // (issue #428). Runs last — independent of the rigidbody/joint/vehicle graph.
+        auto terrainView = m_Registry.view<TransformComponent, TerrainComponent>();
+        for (auto entity : terrainView)
+        {
+            Entity ent = { entity, this };
+            BuildTerrainCollisionBody(*m_JoltScene, ent, ent.GetComponent<TerrainComponent>());
+        }
     }
 
     void Scene::OnPhysics3DStop()
@@ -2840,6 +2920,20 @@ namespace OloEngine
         {
             Entity ent = { entity, this };
             m_JoltScene->DestroyCharacterController(ent);
+        }
+
+        // Tear down terrain collision bodies and clear their runtime tokens (Shutdown
+        // also sweeps any stragglers, but clearing tokens keeps the components clean).
+        auto terrainView = m_Registry.view<TerrainComponent>();
+        for (auto entity : terrainView)
+        {
+            Entity ent = { entity, this };
+            auto& terrain = ent.GetComponent<TerrainComponent>();
+            if (terrain.m_RuntimeCollisionBodyToken != 0)
+            {
+                m_JoltScene->DestroyTerrainBody(ent.GetUUID());
+                terrain.m_RuntimeCollisionBodyToken = 0;
+            }
         }
 
         m_JoltScene->Shutdown();
@@ -4069,6 +4163,16 @@ namespace OloEngine
                         // The height field changed, so any auto-material splatmap
                         // (derived from height/slope) must be regenerated too.
                         terrain.m_AutoSplatNeedsRebuild = true;
+
+                        // Keep collision in sync with the freshly (re)built height field
+                        // when running (e.g. a script Regenerate() during play). In edit
+                        // mode m_JoltScene is null, so this is a no-op there; the initial
+                        // build at OnPhysics3DStart covers terrain that built before play.
+                        if (m_JoltScene && m_JoltScene->IsInitialized())
+                        {
+                            Entity terrainEnt = { entity, this };
+                            BuildTerrainCollisionBody(*m_JoltScene, terrainEnt, terrain);
+                        }
                     }
 
                     // Build / rebuild terrain material texture arrays

@@ -1593,6 +1593,11 @@ namespace OloEngine
         // pre-v5 archive is rejected by the header check before reaching here.
         ar << c.m_ProceduralErosionIterations;
 
+        // ── Format v6: static height-field collision toggle (issue #428) ──
+        // Appended at the end; kSaveGameFormatVersion was bumped 5→6, so any
+        // pre-v6 archive is rejected by the header check before reaching here.
+        ar << c.m_CollisionEnabled;
+
         if (ar.IsLoading())
         {
             // Sanitize untrusted on-disk values so corrupt save data can't poison
