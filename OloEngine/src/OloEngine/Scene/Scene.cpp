@@ -4460,15 +4460,21 @@ namespace OloEngine
                         continue;
                     }
 
+                    // Sanitize the configured surface extents once — clamp to the
+                    // mesh-build range so both the generated grid and the planar-
+                    // reflection area metric below agree on the surface size. A raw
+                    // out-of-range value would otherwise build a clamped mesh but
+                    // compare an un-clamped area when picking the dominant reflector.
+                    auto const sizeX = std::isfinite(water.m_WorldSizeX)
+                                           ? std::clamp(water.m_WorldSizeX, 0.1f, 10000.0f)
+                                           : 100.0f;
+                    auto const sizeZ = std::isfinite(water.m_WorldSizeZ)
+                                           ? std::clamp(water.m_WorldSizeZ, 0.1f, 10000.0f)
+                                           : 100.0f;
+
                     // Lazy mesh initialization / rebuild
                     if (water.m_NeedsRebuild || !water.m_WaterMesh)
                     {
-                        auto const sizeX = std::isfinite(water.m_WorldSizeX)
-                                               ? std::clamp(water.m_WorldSizeX, 0.1f, 10000.0f)
-                                               : 100.0f;
-                        auto const sizeZ = std::isfinite(water.m_WorldSizeZ)
-                                               ? std::clamp(water.m_WorldSizeZ, 0.1f, 10000.0f)
-                                               : 100.0f;
                         const u32 resX = std::clamp(water.m_GridResolutionX, 1u, 1024u);
                         const u32 resZ = std::clamp(water.m_GridResolutionZ, 1u, 1024u);
                         water.m_WaterMesh = MeshPrimitives::CreateWaterGrid(
@@ -4507,8 +4513,8 @@ namespace OloEngine
                         const glm::vec3 surfaceNormal(modelMat[1]);
                         const glm::vec3 surfaceCenter(modelMat[3]);
                         const f32 normalLenSq = glm::dot(surfaceNormal, surfaceNormal);
-                        const f32 area = std::abs(water.m_WorldSizeX * glm::length(glm::vec3(modelMat[0]))) *
-                                         std::abs(water.m_WorldSizeZ * glm::length(glm::vec3(modelMat[2])));
+                        const f32 area = std::abs(sizeX * glm::length(glm::vec3(modelMat[0]))) *
+                                         std::abs(sizeZ * glm::length(glm::vec3(modelMat[2])));
                         const glm::vec3 n = surfaceNormal * glm::inversesqrt(normalLenSq);
                         const glm::vec4 candidatePlane(n, -glm::dot(n, surfaceCenter));
                         const bool planeFinite = std::isfinite(normalLenSq) && normalLenSq > 1e-12f &&

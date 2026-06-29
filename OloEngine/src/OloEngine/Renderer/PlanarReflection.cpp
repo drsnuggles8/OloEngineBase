@@ -18,10 +18,13 @@ namespace OloEngine::PlanarReflection
             return glm::vec4(0.0f, 1.0f, 0.0f, 0.0f);
 
         const f32 lengthSq = plane.x * plane.x + plane.y * plane.y + plane.z * plane.z;
-        // Degenerate normal — nothing sensible to normalize against; hand it
-        // back unchanged so callers never divide by zero / produce NaNs.
+        // Degenerate normal (zero / near-zero length) — there is nothing sensible
+        // to normalize against, and handing it back unchanged still lets a
+        // zero-normal plane drive MakeObliqueProjection's dot-product divisor to
+        // zero (→ NaN/Inf in the projection matrix and camera UBO). Fall back to
+        // the same safe horizontal plane the non-finite branch uses.
         if (lengthSq <= 1e-12f)
-            return plane;
+            return glm::vec4(0.0f, 1.0f, 0.0f, 0.0f);
         const f32 invLength = 1.0f / glm::sqrt(lengthSq);
         return plane * invLength;
     }

@@ -106,13 +106,18 @@ TEST(PlanarReflectionMathTest, NormalizePlaneScalesNormalToUnitLength)
     EXPECT_NEAR(n.w, -2.0f, 1e-6f);
 }
 
-TEST(PlanarReflectionMathTest, NormalizePlaneLeavesDegenerateNormalUntouched)
+TEST(PlanarReflectionMathTest, NormalizePlaneFallsBackForDegenerateNormal)
 {
-    // Zero normal — no division by zero, returned unchanged.
+    // Zero / near-zero normal — there is nothing to normalize against, and
+    // returning it unchanged would still let MakeObliqueProjection divide by a
+    // zero dot-product (→ NaN/Inf in the projection matrix). Fall back to the
+    // same safe horizontal plane the non-finite branch uses.
     const glm::vec4 degenerate{ 0.0f, 0.0f, 0.0f, 5.0f };
     const glm::vec4 n = PlanarReflection::NormalizePlane(degenerate);
-    EXPECT_FLOAT_EQ(n.w, 5.0f);
-    EXPECT_FALSE(std::isnan(n.x));
+    EXPECT_NEAR(n.x, 0.0f, 1e-6f);
+    EXPECT_NEAR(n.y, 1.0f, 1e-6f);
+    EXPECT_NEAR(n.z, 0.0f, 1e-6f);
+    EXPECT_NEAR(n.w, 0.0f, 1e-6f);
 }
 
 // --- Mirror view & reflected camera position -------------------------------
