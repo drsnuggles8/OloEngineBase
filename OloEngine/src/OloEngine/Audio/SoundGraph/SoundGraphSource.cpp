@@ -3,6 +3,7 @@
 #include "OloEngine/Audio/AudioLoader.h"
 #include "OloEngine/Audio/DSP/Spatializer/Spatializer.h"
 #include "OloEngine/Asset/AssetManager.h"
+#include "OloEngine/Math/Math.h" // Math::IsFinite
 #include "OloEngine/Core/Hash.h"
 #include "OloEngine/Project/Project.h"
 #include <atomic>
@@ -387,8 +388,20 @@ namespace OloEngine::Audio::SoundGraph
 
     void SoundGraphSource::UpdateSpatialPosition(const Audio::Transform& transform, glm::vec3 velocity)
     {
-        if (m_SpatializerRegistered && m_Spatializer)
-            m_Spatializer->UpdateSourcePosition(m_SpatializerSourceID, transform, velocity);
+        if (!m_SpatializerRegistered || !m_Spatializer)
+            return;
+
+        // Guard the spatializer boundary: a non-finite position/velocity, or a non-finite or
+        // degenerate (zero-length) orientation/up basis, would feed NaN into the lookAt and
+        // length math in Spatializer::UpdateSourcePosition and corrupt panning (issue #424).
+        if (!Math::IsFinite(transform.Position) || !Math::IsFinite(velocity))
+            return;
+        if (!Math::IsFinite(transform.Orientation) || !Math::IsFinite(transform.Up))
+            return;
+        if (glm::length(transform.Orientation) < 1e-4f || glm::length(transform.Up) < 1e-4f)
+            return;
+
+        m_Spatializer->UpdateSourcePosition(m_SpatializerSourceID, transform, velocity);
     }
 
     void SoundGraphSource::SuspendProcessing(bool shouldBeSuspended)

@@ -199,7 +199,10 @@ TEST_F(SoundGraphSpatializerTest, UnregisterReleasesSource)
     EXPECT_EQ(m_Source.GetSpatializerSourceID(), 0u);
     EXPECT_FALSE(m_Spatializer.IsInitialized(id)) << "the released sourceID is gone from the map";
 
-    // Re-registering after release works and yields a fresh (different) sourceID.
+    // Re-registering after release works and yields a fresh sourceID — distinct from the
+    // one we just released (id), so the allocator can't silently recycle it.
     ASSERT_TRUE(m_Source.RegisterSpatializer(&m_Spatializer, config));
-    EXPECT_NE(m_Source.GetSpatializerSourceID(), 0u);
+    const u32 reusedID = m_Source.GetSpatializerSourceID();
+    EXPECT_NE(reusedID, 0u);
+    EXPECT_NE(reusedID, id) << "the re-registered source must not reuse the released sourceID";
 }

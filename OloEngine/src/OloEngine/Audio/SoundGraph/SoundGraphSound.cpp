@@ -6,6 +6,7 @@
 #include "OloEngine/Audio/AudioSource.h"    // AudioSourceConfig
 #include "OloEngine/Audio/AudioTransform.h" // Audio::Transform
 #include "OloEngine/Asset/AssetManager.h"
+#include "OloEngine/Math/Math.h" // Math::IsFinite
 
 #include <choc/containers/choc_Value.h>
 #include <algorithm>
@@ -532,6 +533,11 @@ namespace OloEngine::Audio::SoundGraph
     void SoundGraphSound::SetLocation(const glm::vec3& location)
     {
         OLO_PROFILE_FUNCTION();
+        // Reject non-finite positions before they reach the cache (the getters / a later
+        // registration observe it) or the spatializer's lookAt/length math, where a NaN
+        // silently corrupts panning for the voice (issue #424).
+        if (!Math::IsFinite(location))
+            return;
         m_Position = location;
         SyncSpatialPositionToSource();
     }
@@ -539,6 +545,8 @@ namespace OloEngine::Audio::SoundGraph
     void SoundGraphSound::SetVelocity(const glm::vec3& velocity)
     {
         OLO_PROFILE_FUNCTION();
+        if (!Math::IsFinite(velocity))
+            return;
         m_Velocity = velocity;
         SyncSpatialPositionToSource();
     }
@@ -546,6 +554,13 @@ namespace OloEngine::Audio::SoundGraph
     void SoundGraphSound::SetOrientation(const glm::vec3& forward, const glm::vec3& up)
     {
         OLO_PROFILE_FUNCTION();
+        // The forward/up basis feeds glm::lookAt inside the spatializer; a non-finite or
+        // degenerate (zero-length) vector makes lookAt produce NaN, so cache only a valid
+        // facing (issue #424).
+        if (!Math::IsFinite(forward) || !Math::IsFinite(up))
+            return;
+        if (glm::length(forward) < 1e-4f || glm::length(up) < 1e-4f)
+            return;
         m_Orientation = forward;
         m_Up = up;
         SyncSpatialPositionToSource();
