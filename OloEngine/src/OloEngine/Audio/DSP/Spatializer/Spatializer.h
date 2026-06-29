@@ -36,8 +36,18 @@ namespace OloEngine::Audio::DSP
         [[nodiscard("attenuation value must be used")]] float GetCurrentConeAngleAttenuation(u32 sourceID) const;
         [[nodiscard("distance must be used")]] float GetCurrentDistance(u32 sourceID) const;
 
-        // Spatialized Sources
+        // Spatialized Sources.
+        //
+        // Two flavours of upstream node can host a per-source spatializer node:
+        //   * ma_engine_node — the ma_sound path (AudioSource). Carries a built-in
+        //     ma_spatializer whose dopplerPitch we drive for the Doppler effect.
+        //   * ma_node_base   — a bare custom node (e.g. SoundGraphSource's node, which
+        //     attaches straight to the engine endpoint). There is no engine node to host
+        //     Doppler, so Doppler is skipped for this flavour; VBAP panning + distance /
+        //     cone attenuation are computed entirely inside the spatializer node and behave
+        //     identically for both. See issue #424.
         bool InitSource(u32 sourceID, ma_engine_node* nodeToInsertAfter, const AudioSourceConfig& config);
+        bool InitSource(u32 sourceID, ma_node_base* nodeToInsertAfter, const AudioSourceConfig& config);
         bool ReleaseSource(u32 sourceID);
         void UpdateSourcePosition(u32 sourceID, const Audio::Transform& position,
                                   glm::vec3 velocity = { 0.0f, 0.0f, 0.0f });
@@ -48,6 +58,14 @@ namespace OloEngine::Audio::DSP
 
       private:
         struct Source;
+
+        // Shared core for both InitSource overloads. `sourceNode` is the upstream node the
+        // spatializer is inserted after (for the engine overload this is &engineNode->baseNode);
+        // `sourceChannels` is the source's channel count for the VBAP source channel map;
+        // `dopplerSink` is the ma_engine_node whose built-in spatializer receives the Doppler
+        // pitch, or nullptr for a bare node (Doppler disabled).
+        bool InitSourceInternal(u32 sourceID, ma_node_base* sourceNode, u32 sourceChannels,
+                                ma_engine_node* dopplerSink, const AudioSourceConfig& config);
 
         static float GetSpreadFromSourceSize(float sourceSize, float distance);
         static void UpdatePositionalData(Source& source, const ma_spatializer_listener* listener, glm::vec3 listenerVelocity);
@@ -66,6 +84,12 @@ namespace OloEngine::Audio::DSP
             ma_node_base base{};
             u32 channelsIn = 0;
             u32 channelsOut = 0;
+            // Upstream node the spatializer was inserted after — used to re-route on release.
+            // Stored as the generic node base so a bare custom node (SoundGraphSource) works
+            // alongside an ma_engine_node.
+            ma_node_base* attachedNode = nullptr;
+            // ma_engine_node hosting the built-in spatializer we drive for Doppler pitch, or
+            // nullptr for a bare node (no Doppler). See InitSource.
             ma_engine_node* targetEngineNode = nullptr;
 
             Scope<VBAPData> vbap;

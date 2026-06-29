@@ -3,6 +3,8 @@
 #include "SoundGraphSource.h"
 #include "SoundGraph.h"
 #include "OloEngine/Audio/AudioEngine.h"
+#include "OloEngine/Audio/AudioSource.h"    // AudioSourceConfig
+#include "OloEngine/Audio/AudioTransform.h" // Audio::Transform
 #include "OloEngine/Asset/AssetManager.h"
 
 #include <choc/containers/choc_Value.h>
@@ -92,6 +94,24 @@ namespace OloEngine::Audio::SoundGraph
             OLO_CORE_ERROR("SoundGraphSound::InitializeAudioCallback - SoundGraphSource::Initialize failed");
             m_Source.reset();
             return false;
+        }
+
+        // Insert a per-voice 3D spatializer node between the SoundGraph node and the engine
+        // endpoint (issue #424). Best-effort: if spatialization is disabled, or the engine has
+        // no spatializer, the voice simply plays non-positional. A previously-set position is
+        // pushed straight away so the spatializer starts at the right place (its node otherwise
+        // stays muted until the first UpdateSourcePosition).
+        if (m_SpatializationEnabled)
+        {
+            if (auto* spatializer = AudioEngine::GetSpatializer())
+            {
+                AudioSourceConfig spatialConfig;
+                spatialConfig.Spatialization = true;
+                if (m_Source->RegisterSpatializer(spatializer, spatialConfig))
+                {
+                    SyncSpatialPositionToSource();
+                }
+            }
         }
         return true;
     }
@@ -503,31 +523,56 @@ namespace OloEngine::Audio::SoundGraph
     //==============================================================================
     /// 3D Audio
     ///
-    /// These store the spatial state and back GetLocation()/GetVelocity(), but do not
-    /// yet feed a spatializer: SoundGraphSource attaches its bare ma_node straight to the
-    /// engine endpoint, whereas Audio::DSP::Spatializer (AudioEngine::GetSpatializer)
-    /// inserts per-source panning nodes after an ma_engine_node and is wired only into the
-    /// ma_sound-based AudioSource path. Routing a SoundGraph voice through the spatializer
-    /// is real new infrastructure (per-voice node insertion + listener/source registration),
-    /// not a parameter route, so it is deferred — tracked in issue #424.
+    /// Each setter stores the spatial state (backing GetLocation()/GetVelocity()) and routes
+    /// it into the source's per-voice spatializer node via Spatializer::UpdateSourcePosition
+    /// (issue #424). The push no-ops until the source hosts a spatializer node (disabled, a
+    /// detached source, or no engine spatializer), so the stored value is what a later
+    /// registration / the getters observe.
 
     void SoundGraphSound::SetLocation(const glm::vec3& location)
     {
         OLO_PROFILE_FUNCTION();
         m_Position = location;
+        SyncSpatialPositionToSource();
     }
 
     void SoundGraphSound::SetVelocity(const glm::vec3& velocity)
     {
         OLO_PROFILE_FUNCTION();
         m_Velocity = velocity;
+        SyncSpatialPositionToSource();
     }
 
     void SoundGraphSound::SetOrientation(const glm::vec3& forward, const glm::vec3& up)
     {
         OLO_PROFILE_FUNCTION();
-        (void)up;
         m_Orientation = forward;
+        m_Up = up;
+        SyncSpatialPositionToSource();
+    }
+
+    void SoundGraphSound::SyncSpatialPositionToSource()
+    {
+        if (!m_Source)
+            return;
+
+        // The spatializer expects a position, a look direction (orientation), and an up
+        // vector; we keep all three so cone-angle attenuation has a meaningful source facing.
+        Audio::Transform transform;
+        transform.Position = m_Position;
+        transform.Orientation = m_Orientation;
+        transform.Up = m_Up;
+        m_Source->UpdateSpatialPosition(transform, m_Velocity);
+    }
+
+    bool SoundGraphSound::IsSpatialized() const
+    {
+        return m_Source && m_Source->IsSpatialized();
+    }
+
+    u32 SoundGraphSound::GetSpatializerSourceID() const
+    {
+        return m_Source ? m_Source->GetSpatializerSourceID() : 0;
     }
 
     //==============================================================================

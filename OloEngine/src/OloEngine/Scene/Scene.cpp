@@ -90,6 +90,9 @@
 #include "OloEngine/Audio/AudioEvents/AudioEventsManager.h"
 #include "OloEngine/Audio/AudioEvents/AudioCommandRegistry.h"
 #include "OloEngine/Audio/AudioEvents/AudioPlayback.h"
+#include "OloEngine/Audio/AudioEngine.h"
+#include "OloEngine/Audio/AudioTransform.h"
+#include "OloEngine/Audio/DSP/Spatializer/Spatializer.h"
 #include "OloEngine/Project/Project.h"
 
 #include <glm/glm.hpp>
@@ -583,6 +586,17 @@ namespace OloEngine
                 ac.Listener->SetConfig(ac.Config);
                 ac.Listener->SetPosition(tc.Translation);
                 ac.Listener->SetDirection(-forward);
+                // Seed the 3D spatializer's listener pose so SoundGraph voices registered just
+                // below (InitializeAudioSoundGraph) compute their initial relative position
+                // against the real listener, not the default origin (issue #424).
+                if (auto* spatializer = AudioEngine::GetSpatializer())
+                {
+                    Audio::Transform listenerTransform;
+                    listenerTransform.Position = tc.Translation;
+                    listenerTransform.Orientation = -forward;
+                    listenerTransform.Up = normalize(glm::vec3(inverted[1]));
+                    spatializer->UpdateListener(listenerTransform);
+                }
                 break;
             }
         }
@@ -1553,6 +1567,16 @@ namespace OloEngine
                     const glm::vec3 forward = normalize(glm::vec3(inverted[2]));
                     ac.Listener->SetPosition(tc.Translation);
                     ac.Listener->SetDirection(-forward);
+                    // Keep the 3D spatializer's listener in sync each frame so SoundGraph voices
+                    // pan/attenuate relative to the live listener pose (issue #424).
+                    if (auto* spatializer = AudioEngine::GetSpatializer())
+                    {
+                        Audio::Transform listenerTransform;
+                        listenerTransform.Position = tc.Translation;
+                        listenerTransform.Orientation = -forward;
+                        listenerTransform.Up = normalize(glm::vec3(inverted[1]));
+                        spatializer->UpdateListener(listenerTransform);
+                    }
                     break;
                 }
             }
@@ -1567,6 +1591,21 @@ namespace OloEngine
                     const glm::vec3 forward = normalize(glm::vec3(inverted[2]));
                     ac.Source->SetPosition(tc.Translation);
                     ac.Source->SetDirection(forward);
+                }
+            }
+
+            // Drive 3D position/orientation for SoundGraph voices (issue #424). Mirrors the
+            // AudioSource loop above; SetLocation/SetOrientation route into the per-voice
+            // spatializer node, which no-ops until the voice actually hosts one.
+            for (auto sgView = m_Registry.view<AudioSoundGraphComponent, TransformComponent>(); auto&& [e, sgc, tc] : sgView.each())
+            {
+                if (sgc.Sound)
+                {
+                    const glm::mat4 inverted = glm::inverse(Entity(e, this).GetLocalTransform());
+                    const glm::vec3 forward = normalize(glm::vec3(inverted[2]));
+                    const glm::vec3 up = normalize(glm::vec3(inverted[1]));
+                    sgc.Sound->SetLocation(tc.Translation);
+                    sgc.Sound->SetOrientation(forward, up);
                 }
             }
 

@@ -131,7 +131,12 @@ namespace OloEngine::Audio::DSP
                 }
             }
 
-            pEngineNode->spatializer.dopplerPitch = node->DopplerPitch;
+            // Doppler is hosted by the upstream ma_engine_node's built-in spatializer; a bare
+            // node (SoundGraphSource) has none, so skip the write when there's no engine node.
+            if (pEngineNode != nullptr)
+            {
+                pEngineNode->spatializer.dopplerPitch = node->DopplerPitch;
+            }
         }
 
         // Apply panning to output
@@ -305,8 +310,9 @@ namespace OloEngine::Audio::DSP
 
         glm::vec3 listenerVel = listenerVelocity;
 
-        // Doppler effect
-        if (source.DopplerFactor > 0.0f && listener != nullptr)
+        // Doppler effect — only meaningful when an upstream ma_engine_node hosts the built-in
+        // spatializer that consumes the pitch (the bare-node SoundGraph path has no engine node).
+        if (source.DopplerFactor > 0.0f && listener != nullptr && pEngineNode != nullptr)
         {
             ma_vec3f lpos = ::ma_spatializer_listener_get_position(listener);
             glm::vec3 lp(lpos.x, lpos.y, lpos.z);
@@ -315,6 +321,7 @@ namespace OloEngine::Audio::DSP
         }
         else
         {
+            // No engine node (bare custom node) or Doppler disabled — leave pitch neutral.
             source.SpatializerNode.DopplerPitch = 1.0f;
         }
     }
@@ -337,6 +344,23 @@ namespace OloEngine::Audio::DSP
 
     bool Spatializer::InitSource(u32 sourceID, ma_engine_node* nodeToInsertAfter, const AudioSourceConfig& config)
     {
+        // ma_sound path: insert after the engine node's base, and drive its built-in
+        // spatializer for Doppler. resampler.channels is the engine node's source channel count.
+        return InitSourceInternal(sourceID, &nodeToInsertAfter->baseNode,
+                                  nodeToInsertAfter->resampler.channels, nodeToInsertAfter, config);
+    }
+
+    bool Spatializer::InitSource(u32 sourceID, ma_node_base* nodeToInsertAfter, const AudioSourceConfig& config)
+    {
+        // Bare-node path (SoundGraphSource): no engine node, so no Doppler sink. The source
+        // channel count is the node's output channel count.
+        const u32 sourceChannels = ::ma_node_get_output_channels(nodeToInsertAfter, 0);
+        return InitSourceInternal(sourceID, nodeToInsertAfter, sourceChannels, /*dopplerSink=*/nullptr, config);
+    }
+
+    bool Spatializer::InitSourceInternal(u32 sourceID, ma_node_base* sourceNode, u32 sourceChannels,
+                                         ma_engine_node* dopplerSink, const AudioSourceConfig& config)
+    {
         OLO_CORE_ASSERT(m_Sources.find(sourceID) == m_Sources.end());
 
         auto [it, success] = m_Sources.try_emplace(sourceID);
@@ -358,8 +382,7 @@ namespace OloEngine::Audio::DSP
         // Base node setup
         source.InternalChannelCount = 4; // Quad virtual speaker layout
 
-        const u32 sourceChannels = nodeToInsertAfter->resampler.channels;
-        const u32 sourceNodeChannels = ::ma_node_get_output_channels(nodeToInsertAfter, 0);
+        const u32 sourceNodeChannels = ::ma_node_get_output_channels(sourceNode, 0);
 
         const u32 numInputChannels[1]{ sourceNodeChannels };
         const u32 numOutputChannels[1]{ sourceNodeChannels };
@@ -379,7 +402,8 @@ namespace OloEngine::Audio::DSP
 
         source.SpatializerNode.channelsIn = numInputChannels[0];
         source.SpatializerNode.channelsOut = numOutputChannels[0];
-        source.SpatializerNode.targetEngineNode = nodeToInsertAfter;
+        source.SpatializerNode.attachedNode = sourceNode;
+        source.SpatializerNode.targetEngineNode = dopplerSink;
 
         // VBAP channel converter
         ::ma_channel_map_init_standard(ma_standard_channel_map_default, source.InternalChannelMap,
@@ -423,9 +447,9 @@ namespace OloEngine::Audio::DSP
             return false;
         }
 
-        // Routing: insert spatializer between nodeToInsertAfter and its current output
-        auto* output = nodeToInsertAfter->baseNode.pOutputBuses->pInputNode;
-        ma_uint8 downstreamInputBus = nodeToInsertAfter->baseNode.pOutputBuses->inputNodeInputBusIndex;
+        // Routing: insert spatializer between sourceNode and its current output
+        auto* output = sourceNode->pOutputBuses->pInputNode;
+        ma_uint8 downstreamInputBus = sourceNode->pOutputBuses->inputNodeInputBusIndex;
 
         result = ::ma_node_attach_output_bus(&source.SpatializerNode, 0, output, downstreamInputBus);
         if (abortIfFailed(result, "Spatializer output attach failed"))
@@ -433,7 +457,7 @@ namespace OloEngine::Audio::DSP
             return false;
         }
 
-        result = ::ma_node_attach_output_bus(nodeToInsertAfter, 0, &source.SpatializerNode, 0);
+        result = ::ma_node_attach_output_bus(sourceNode, 0, &source.SpatializerNode, 0);
         if (abortIfFailed(result, "Spatializer input attach failed"))
         {
             return false;
@@ -460,7 +484,7 @@ namespace OloEngine::Audio::DSP
         if (source.bInitialized)
         {
             auto* output = source.SpatializerNode.base.pOutputBuses->pInputNode;
-            auto* input = source.SpatializerNode.targetEngineNode;
+            auto* input = source.SpatializerNode.attachedNode;
 
             ma_result result = ::ma_node_attach_output_bus(input, 0, output, source.DownstreamInputBus);
             if (result != MA_SUCCESS)
@@ -480,6 +504,7 @@ namespace OloEngine::Audio::DSP
                 allocationCallbacks = nullptr;
             }
             ::ma_node_uninit(&source.SpatializerNode, allocationCallbacks);
+            source.SpatializerNode.attachedNode = nullptr;
             source.SpatializerNode.targetEngineNode = nullptr;
         }
 

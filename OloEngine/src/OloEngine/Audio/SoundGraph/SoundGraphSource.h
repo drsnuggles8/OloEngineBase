@@ -3,10 +3,13 @@
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Core/Ref.h"
 #include "OloEngine/Asset/Asset.h"
+#include "OloEngine/Audio/AudioSource.h"    // AudioSourceConfig + Audio::DSP::Spatializer fwd-decl
+#include "OloEngine/Audio/AudioTransform.h" // Audio::Transform
 #include "OloEngine/Audio/SoundGraph/SoundGraph.h"
 #include "OloEngine/Audio/SoundGraph/SoundGraphPatchPreset.h"
 #include "OloEngine/Audio/LockFreeEventQueue.h"
 #include <choc/containers/choc_Value.h>
+#include <glm/vec3.hpp>
 #include "WaveSource.h"
 
 #include <miniaudio.h>
@@ -214,6 +217,43 @@ namespace OloEngine::Audio::SoundGraph
         }
 
         //==============================================================================
+        /// 3D Spatialization
+        ///
+        /// The source can host a per-voice spatializer node inserted between its SoundGraph
+        /// node and the engine endpoint (issue #424). The owner (SoundGraphSound) wires this
+        /// to AudioEngine::GetSpatializer(); the Spatializer pointer is injected so a test can
+        /// drive a device-free spatializer. Requires Initialize() to have attached the node
+        /// first (a detached source has nothing to insert before).
+
+        /** Insert and register a spatializer node for this source's output, assigning a
+            process-wide unique sourceID. Idempotent (a second call while registered is a
+            no-op success). Returns false if the source isn't initialized, `spatializer` is
+            null, or the spatializer's InitSource failed. */
+        bool RegisterSpatializer(Audio::DSP::Spatializer* spatializer, const AudioSourceConfig& config);
+
+        /** Release the spatializer node (re-routing the SoundGraph node straight to its prior
+            output) and drop the registration. Safe to call when not registered. Called from
+            Shutdown so cleanup is guaranteed even if the owner forgets. */
+        void UnregisterSpatializer();
+
+        /** Push a new world position/orientation (+ velocity) for this voice into the
+            spatializer. No-op when not registered. */
+        void UpdateSpatialPosition(const Audio::Transform& transform, glm::vec3 velocity = glm::vec3(0.0f));
+
+        /** True if a spatializer node is currently hosted for this source. */
+        bool IsSpatialized() const
+        {
+            return m_SpatializerRegistered;
+        }
+
+        /** The spatializer sourceID assigned at RegisterSpatializer (0 when not registered).
+            Exposed so callers/tests can query the Spatializer's per-source getters. */
+        u32 GetSpatializerSourceID() const
+        {
+            return m_SpatializerSourceID;
+        }
+
+        //==============================================================================
         /// Event Callbacks (set by SoundGraphPlayer or other managers)
 
         using OnGraphMessageCallback = std::function<void(u64 frameIndex, const char* message)>;
@@ -291,6 +331,14 @@ namespace OloEngine::Audio::SoundGraph
         u32 m_SampleRate = 0;
         u32 m_BlockSize = 0;
         u32 m_ChannelCount = 2;
+
+        //============================================
+        /// 3D spatialization (issue #424). The spatializer node lives between m_Node and the
+        /// engine endpoint. m_Spatializer is non-owning (the global AudioEngine spatializer, or
+        /// a test-injected one). sourceID is assigned by RegisterSpatializer.
+        Audio::DSP::Spatializer* m_Spatializer = nullptr;
+        u32 m_SpatializerSourceID = 0;
+        bool m_SpatializerRegistered = false;
 
         //============================================
         /// Playback state
