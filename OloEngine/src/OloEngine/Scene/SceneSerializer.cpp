@@ -1173,6 +1173,7 @@ namespace OloEngine
         terrain.m_WorldSizeX = terrainComponent["WorldSizeX"].as<f32>(terrain.m_WorldSizeX);
         terrain.m_WorldSizeZ = terrainComponent["WorldSizeZ"].as<f32>(terrain.m_WorldSizeZ);
         terrain.m_HeightScale = terrainComponent["HeightScale"].as<f32>(terrain.m_HeightScale);
+        terrain.m_CollisionEnabled = terrainComponent["CollisionEnabled"].as<bool>(terrain.m_CollisionEnabled);
 
         // Procedural generation settings
         terrain.m_ProceduralEnabled = terrainComponent["ProceduralEnabled"].as<bool>(terrain.m_ProceduralEnabled);
@@ -4979,6 +4980,7 @@ namespace OloEngine
             out << YAML::Key << "WorldSizeX" << YAML::Value << terrain.m_WorldSizeX;
             out << YAML::Key << "WorldSizeZ" << YAML::Value << terrain.m_WorldSizeZ;
             out << YAML::Key << "HeightScale" << YAML::Value << terrain.m_HeightScale;
+            out << YAML::Key << "CollisionEnabled" << YAML::Value << terrain.m_CollisionEnabled;
 
             // Procedural generation settings
             out << YAML::Key << "ProceduralEnabled" << YAML::Value << terrain.m_ProceduralEnabled;

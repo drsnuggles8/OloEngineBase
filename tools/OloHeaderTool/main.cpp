@@ -768,6 +768,7 @@ static const std::set<std::string> kComponentsCustomOnRemove = {
     "VideoSurfaceComponent",
     "SpringBoneComponent",
     "NoiseAnimationComponent",
+    "TerrainComponent",
 };
 
 // Components that ARE all-trivial-fields (every data member is a primitive /

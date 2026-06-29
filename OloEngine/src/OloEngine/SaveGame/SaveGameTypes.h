@@ -51,7 +51,7 @@ namespace OloEngine
     // ========================================================================
 
     static constexpr u32 kSaveGameMagic = 0x4F4C4F53; // "OLOS" in little-endian
-    static constexpr u32 kSaveGameFormatVersion = 5;  // v5: TerrainComponent gained the erosion-iterations generation post-pass field
+    static constexpr u32 kSaveGameFormatVersion = 6;  // v6: TerrainComponent gained the static height-field collision toggle (issue #428)
     static constexpr u32 kSaveGameHeaderSize = 128;
 
     // Compression flags (stored in Header.Flags)

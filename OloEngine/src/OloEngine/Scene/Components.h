@@ -2397,6 +2397,14 @@ namespace OloEngine
         OLO_PROPERTY()
         f32 m_HeightScale = 64.0f;
 
+        // Static collision (serialized). When true, runtime start builds a Jolt
+        // HeightFieldShape static body from the terrain's CPU heights so characters,
+        // vehicles, and raycasts interact with the surface (issue #428). Default on —
+        // terrain without collision is a fall-through gap for any FPS/gameplay scene.
+        // Streamed terrains (m_StreamingEnabled) are not yet covered (per-tile bodies
+        // are a follow-up); single-tile procedural / flat / heightmap terrains are.
+        bool m_CollisionEnabled = true;
+
         // Procedural generation settings (serialized, used when m_HeightmapPath is empty).
         // Exposed to C#/Lua via OLO_PROPERTY so gameplay scripts can drive procedural
         // world generation at runtime (pick a seed per run, regenerate on a level
@@ -2477,9 +2485,13 @@ namespace OloEngine
         bool m_MaterialNeedsRebuild = true;
         bool m_AutoSplatNeedsRebuild = true; // Regenerate the auto-material splatmap on next tick
 
+        // Runtime token of the static Jolt height-field collision body (0 = none).
+        // Set by Scene physics start, cleared on stop. NOT serialized, NOT copied.
+        u64 m_RuntimeCollisionBodyToken = 0;
+
         TerrainComponent() = default;
         TerrainComponent(const TerrainComponent& other)
-            : m_HeightmapPath(other.m_HeightmapPath), m_WorldSizeX(other.m_WorldSizeX), m_WorldSizeZ(other.m_WorldSizeZ), m_HeightScale(other.m_HeightScale), m_ProceduralEnabled(other.m_ProceduralEnabled), m_ProceduralSeed(other.m_ProceduralSeed), m_ProceduralResolution(other.m_ProceduralResolution), m_ProceduralOctaves(other.m_ProceduralOctaves), m_ProceduralFrequency(other.m_ProceduralFrequency), m_ProceduralLacunarity(other.m_ProceduralLacunarity), m_ProceduralPersistence(other.m_ProceduralPersistence), m_ProceduralErosionIterations(other.m_ProceduralErosionIterations), m_HeightShaping(other.m_HeightShaping), m_AutoMaterial(other.m_AutoMaterial), m_LayerRules(other.m_LayerRules), m_SplatmapGenResolution(other.m_SplatmapGenResolution), m_TessellationEnabled(other.m_TessellationEnabled), m_TargetTriangleSize(other.m_TargetTriangleSize), m_MorphRegion(other.m_MorphRegion), m_StreamingEnabled(other.m_StreamingEnabled), m_TileDirectory(other.m_TileDirectory), m_TileFilePattern(other.m_TileFilePattern), m_TileWorldSize(other.m_TileWorldSize), m_TileResolution(other.m_TileResolution), m_StreamingLoadRadius(other.m_StreamingLoadRadius), m_StreamingMaxTiles(other.m_StreamingMaxTiles), m_VoxelEnabled(other.m_VoxelEnabled), m_VoxelSize(other.m_VoxelSize)
+            : m_HeightmapPath(other.m_HeightmapPath), m_WorldSizeX(other.m_WorldSizeX), m_WorldSizeZ(other.m_WorldSizeZ), m_HeightScale(other.m_HeightScale), m_CollisionEnabled(other.m_CollisionEnabled), m_ProceduralEnabled(other.m_ProceduralEnabled), m_ProceduralSeed(other.m_ProceduralSeed), m_ProceduralResolution(other.m_ProceduralResolution), m_ProceduralOctaves(other.m_ProceduralOctaves), m_ProceduralFrequency(other.m_ProceduralFrequency), m_ProceduralLacunarity(other.m_ProceduralLacunarity), m_ProceduralPersistence(other.m_ProceduralPersistence), m_ProceduralErosionIterations(other.m_ProceduralErosionIterations), m_HeightShaping(other.m_HeightShaping), m_AutoMaterial(other.m_AutoMaterial), m_LayerRules(other.m_LayerRules), m_SplatmapGenResolution(other.m_SplatmapGenResolution), m_TessellationEnabled(other.m_TessellationEnabled), m_TargetTriangleSize(other.m_TargetTriangleSize), m_MorphRegion(other.m_MorphRegion), m_StreamingEnabled(other.m_StreamingEnabled), m_TileDirectory(other.m_TileDirectory), m_TileFilePattern(other.m_TileFilePattern), m_TileWorldSize(other.m_TileWorldSize), m_TileResolution(other.m_TileResolution), m_StreamingLoadRadius(other.m_StreamingLoadRadius), m_StreamingMaxTiles(other.m_StreamingMaxTiles), m_VoxelEnabled(other.m_VoxelEnabled), m_VoxelSize(other.m_VoxelSize)
         {
             // Runtime state intentionally NOT copied — force rebuild
         }
@@ -2491,6 +2503,7 @@ namespace OloEngine
                 m_WorldSizeX = other.m_WorldSizeX;
                 m_WorldSizeZ = other.m_WorldSizeZ;
                 m_HeightScale = other.m_HeightScale;
+                m_CollisionEnabled = other.m_CollisionEnabled;
                 m_ProceduralEnabled = other.m_ProceduralEnabled;
                 m_ProceduralSeed = other.m_ProceduralSeed;
                 m_ProceduralResolution = other.m_ProceduralResolution;
@@ -2525,6 +2538,7 @@ namespace OloEngine
                 m_NeedsRebuild = true;
                 m_MaterialNeedsRebuild = true;
                 m_AutoSplatNeedsRebuild = true;
+                m_RuntimeCollisionBodyToken = 0;
             }
             return *this;
         }
@@ -2556,7 +2570,7 @@ namespace OloEngine
         // so it's intentionally not considered for undo equality.
         auto operator==(const TerrainComponent& other) const -> bool
         {
-            return m_HeightmapPath == other.m_HeightmapPath && Math::BitwiseEqual(m_WorldSizeX, other.m_WorldSizeX) && Math::BitwiseEqual(m_WorldSizeZ, other.m_WorldSizeZ) && Math::BitwiseEqual(m_HeightScale, other.m_HeightScale) && m_ProceduralEnabled == other.m_ProceduralEnabled && m_ProceduralSeed == other.m_ProceduralSeed && m_ProceduralResolution == other.m_ProceduralResolution && m_ProceduralOctaves == other.m_ProceduralOctaves && Math::BitwiseEqual(m_ProceduralFrequency, other.m_ProceduralFrequency) && Math::BitwiseEqual(m_ProceduralLacunarity, other.m_ProceduralLacunarity) && Math::BitwiseEqual(m_ProceduralPersistence, other.m_ProceduralPersistence) && m_ProceduralErosionIterations == other.m_ProceduralErosionIterations && m_HeightShaping == other.m_HeightShaping && m_AutoMaterial == other.m_AutoMaterial && m_LayerRules == other.m_LayerRules && m_SplatmapGenResolution == other.m_SplatmapGenResolution && m_TessellationEnabled == other.m_TessellationEnabled && Math::BitwiseEqual(m_TargetTriangleSize, other.m_TargetTriangleSize) && Math::BitwiseEqual(m_MorphRegion, other.m_MorphRegion) && m_StreamingEnabled == other.m_StreamingEnabled && m_TileDirectory == other.m_TileDirectory && m_TileFilePattern == other.m_TileFilePattern && Math::BitwiseEqual(m_TileWorldSize, other.m_TileWorldSize) && m_TileResolution == other.m_TileResolution && m_StreamingLoadRadius == other.m_StreamingLoadRadius && m_StreamingMaxTiles == other.m_StreamingMaxTiles && m_VoxelEnabled == other.m_VoxelEnabled && Math::BitwiseEqual(m_VoxelSize, other.m_VoxelSize);
+            return m_HeightmapPath == other.m_HeightmapPath && Math::BitwiseEqual(m_WorldSizeX, other.m_WorldSizeX) && Math::BitwiseEqual(m_WorldSizeZ, other.m_WorldSizeZ) && Math::BitwiseEqual(m_HeightScale, other.m_HeightScale) && m_CollisionEnabled == other.m_CollisionEnabled && m_ProceduralEnabled == other.m_ProceduralEnabled && m_ProceduralSeed == other.m_ProceduralSeed && m_ProceduralResolution == other.m_ProceduralResolution && m_ProceduralOctaves == other.m_ProceduralOctaves && Math::BitwiseEqual(m_ProceduralFrequency, other.m_ProceduralFrequency) && Math::BitwiseEqual(m_ProceduralLacunarity, other.m_ProceduralLacunarity) && Math::BitwiseEqual(m_ProceduralPersistence, other.m_ProceduralPersistence) && m_ProceduralErosionIterations == other.m_ProceduralErosionIterations && m_HeightShaping == other.m_HeightShaping && m_AutoMaterial == other.m_AutoMaterial && m_LayerRules == other.m_LayerRules && m_SplatmapGenResolution == other.m_SplatmapGenResolution && m_TessellationEnabled == other.m_TessellationEnabled && Math::BitwiseEqual(m_TargetTriangleSize, other.m_TargetTriangleSize) && Math::BitwiseEqual(m_MorphRegion, other.m_MorphRegion) && m_StreamingEnabled == other.m_StreamingEnabled && m_TileDirectory == other.m_TileDirectory && m_TileFilePattern == other.m_TileFilePattern && Math::BitwiseEqual(m_TileWorldSize, other.m_TileWorldSize) && m_TileResolution == other.m_TileResolution && m_StreamingLoadRadius == other.m_StreamingLoadRadius && m_StreamingMaxTiles == other.m_StreamingMaxTiles && m_VoxelEnabled == other.m_VoxelEnabled && Math::BitwiseEqual(m_VoxelSize, other.m_VoxelSize);
         }
     };
 
