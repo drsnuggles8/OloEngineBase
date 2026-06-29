@@ -65,7 +65,7 @@ namespace OloEngine
         {
             return m_FogShader && m_FogShader->IsReady() &&
                    m_FogUpsampleShader && m_FogUpsampleShader->IsReady() &&
-                   m_PostProcessUBO;
+                   m_PostProcessUBO && m_CameraUBO;
         }
 
         void SetPostProcessUBO(const Ref<UniformBuffer>& ubo) noexcept

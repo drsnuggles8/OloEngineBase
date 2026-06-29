@@ -395,6 +395,24 @@ namespace OloEngine::Tests
         // Reproduce the #446 hazard deterministically: leave the Fog UBO's slot
         // unbound right before the frame. The per-frame fog upload MUST rebind
         // it, or the fog pass renders an all-zero FogData and skips fog entirely.
+        // RAII-restore the original binding 17 so this deliberate global-GL-state
+        // corruption cannot leak into later GPU tests — including on a fatal
+        // failure / early return below (GLStateGuard does not restore per-slot
+        // UBO bindings).
+        struct ScopedUboBinding
+        {
+            GLuint Slot;
+            GLint Saved = 0;
+            explicit ScopedUboBinding(GLuint slot) : Slot(slot)
+            {
+                glGetIntegeri_v(GL_UNIFORM_BUFFER_BINDING, slot, &Saved);
+            }
+            ~ScopedUboBinding()
+            {
+                glBindBufferBase(GL_UNIFORM_BUFFER, Slot, static_cast<GLuint>(Saved));
+            }
+        } scopedFogUboBinding(ShaderBindingLayout::UBO_FOG);
+
         glBindBufferBase(GL_UNIFORM_BUFFER, ShaderBindingLayout::UBO_FOG, 0);
 
         std::vector<u8> onPixels;
