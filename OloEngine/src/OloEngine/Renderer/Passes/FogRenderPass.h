@@ -73,6 +73,17 @@ namespace OloEngine
             m_PostProcessUBO = ubo;
         }
 
+        // The full 272-byte shared camera UBO (binding 0). The fog shaders read
+        // u_CameraPosition (std140 offset 192) and u_Projection (offset 128) from
+        // it, but an earlier stage can leave a *smaller* (64-byte, ViewProjection-
+        // only) camera UBO bound at slot 0 — making those reads out-of-bounds.
+        // FogRenderPass re-binds this at Execute start to guarantee the full
+        // layout is present (mirrors the binding-7 PostProcess UBO re-bind).
+        void SetCameraUBO(const Ref<UniformBuffer>& ubo) noexcept
+        {
+            m_CameraUBO = ubo;
+        }
+
       private:
         void CreateFramebuffers(u32 width, u32 height);
 
@@ -85,6 +96,7 @@ namespace OloEngine
         Ref<Shader> m_FogUpsampleShader; // Pass B: bilateral upsample + composite
 
         Ref<UniformBuffer> m_PostProcessUBO;
+        Ref<UniformBuffer> m_CameraUBO; // full shared camera UBO (binding 0)
         RGFramebufferHandle m_SelectedFogHalfResFramebuffer{};
         RGTextureHandle m_SelectedFogHistoryTexture{};
         RGTextureHandle m_SelectedSceneDepthTexture{};

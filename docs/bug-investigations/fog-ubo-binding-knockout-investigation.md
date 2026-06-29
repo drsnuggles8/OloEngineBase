@@ -129,12 +129,34 @@ like the suite flake — even in isolation. (L8, SKIPs without a GL 4.6 context.
 * **Don't trust a "stale camera position" theory for near-clear + far-underfogged.**
   It is geometrically impossible (a displaced camera also fogs the near band).
 
-## 8. Latent finding (out of scope for #446, not fixed)
+## 8. Second finding — binding-0 out-of-bounds camera read (also fixed)
 
-The read-back showed binding 0 during the fog pass is a **< 208-byte** buffer, so
-`u_CameraPosition` (std140 offset 192 in `PostProcess_Fog.glsl`) reads
-**out-of-bounds**. Benign for origin-centred scenes (the OOB read ≈ 0 ≈ the true
-camera, which is why this test still passed in isolation), but it would mis-fog a
-scene whose camera is far from the world origin. Suggested follow-up: re-bind the
-full 272-byte shared camera UBO before the post-process chain (same pattern as
-binding 8), so `u_CameraPosition` is in-range.
+The same read-back exposed a separate, latent bug: during the fog pass **binding 0
+holds a 64-byte `ViewProjection`-only camera UBO** (confirmed: `GL_BUFFER_SIZE ==
+64`, carrying the scene VP — `vpRow0 == projection[0][0]`), not the full 272-byte
+`CameraUBO`. Both fog shaders read past it: `u_CameraPosition` (std140 offset 192,
+`PostProcess_Fog.glsl`) and `u_Projection` (offset 128, `PostProcess_FogUpsample
+.glsl`). It is **not** the #446 differentiator — the 64-byte buffer is bound in
+*both* the passing and failing runs — and origin-centred scenes survive only
+because NVIDIA's robust-buffer-access returns **0** for OOB reads, and `cameraPos
+≈ (0,0,0) ≈` the true camera there. OOB UBO reads are *undefined* per the GL spec,
+and any scene whose camera sits far from the world origin fogs wrong.
+
+**Cause:** several subsystems create their own camera UBO at binding 0 with
+different sizes (`Renderer2D` and `ParticleBatchRenderer` use a 64-byte
+`mat4 ViewProjection`-only layout; ShadowMap/IBL/sky/the shared UBO use the full
+272 bytes). The post-process passes that read binding 0 inherit whatever the last
+stage left bound, and no one guarantees the full camera UBO is bound before the
+chain runs.
+
+**Fix:** `FogRenderPass::Execute` now re-binds the full shared camera UBO
+(`data.SharedSceneUBOs.Camera`, plumbed via `SetCameraUBO`) at slot 0 before
+drawing — exactly like its existing binding-7 PostProcess UBO re-bind. Re-binding
+at the *upload* site (à la binding 17) would **not** work here, because a later
+scene stage re-binds the 64-byte buffer *after* that point; the re-bind has to be
+inside the pass.
+
+**Regression guard:** `FogVisualEvidenceOffOriginTest.NearStaysClearWhenSceneIsFar
+FromOrigin` builds the identical scene ~1000 units from the origin. Empirically,
+without the re-bind the near floor floods blue (`nearOn.R=113 B=182`); with it the
+near floor stays warm and only the distance fogs. (L8, SKIPs without a GL context.)

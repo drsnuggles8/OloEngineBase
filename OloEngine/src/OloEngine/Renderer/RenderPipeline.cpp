@@ -629,6 +629,10 @@ namespace OloEngine
         {
             PostProcessPasses.Fog->SetEnabled(data.Fog.Enabled);
             PostProcessPasses.Fog->SetPostProcessUBO(data.PostProcessGPU.PostProcess);
+            // Full 272-byte camera UBO so the fog shaders' u_CameraPosition /
+            // u_Projection reads stay in-bounds even if an earlier stage left a
+            // smaller ViewProjection-only camera UBO bound at slot 0.
+            PostProcessPasses.Fog->SetCameraUBO(data.SharedSceneUBOs.Camera);
         }
 
         if (PostProcessPasses.ChromAberration)

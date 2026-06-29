@@ -177,6 +177,17 @@ namespace OloEngine
         if (m_PostProcessUBO)
             m_PostProcessUBO->Bind();
 
+        // Re-bind the full shared camera UBO at binding 0. Both fog shaders read
+        // the full CameraMatrices layout — u_CameraPosition (std140 offset 192,
+        // PostProcess_Fog.glsl) and u_Projection (offset 128, PostProcess_Fog-
+        // Upsample.glsl) — but an earlier 64-byte ViewProjection-only camera UBO
+        // (Renderer2D / ParticleBatchRenderer style) can be left bound at slot 0,
+        // which makes those reads out-of-bounds (origin-centred scenes survive
+        // only because robust-access OOB reads return 0 ≈ the true camera). Pin
+        // the full 272-byte UBO here so off-origin worlds fog correctly.
+        if (m_CameraUBO)
+            m_CameraUBO->Bind();
+
         // ----------------------------------------------------------------
         // Pass A — Half-resolution ray-march.
         // Output: RGBA16F (RGB = accumulated inscatter, A = transmittance).
