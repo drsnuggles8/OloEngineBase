@@ -169,7 +169,16 @@ namespace OloEngine
          * @brief Get an asset synchronously with type safety
          * @tparam T Asset type to retrieve
          * @param assetHandle Handle of the asset
-         * @return Typed reference to the asset, or nullptr if not found/invalid
+         * @return Typed reference to the asset; a visible placeholder for a
+         *         dangling/unresolvable reference; nullptr for an empty (0) handle
+         *
+         * Robustness contract (issue #455): a broken/moved/deleted reference must not
+         * fail silently with null (which downstream code dereferences and crashes).
+         * - A zero handle is a legitimate unset slot and stays null.
+         * - A non-zero handle that resolves to nothing, or to a placeholder a manager
+         *   substituted on load (missing file / corrupt payload), yields the matching
+         *   PlaceholderAsset unwrapped to T (e.g. a magenta texture / cube mesh) and a
+         *   one-time warning, so the frame shows a stand-in instead of null/crash.
          */
         template<typename T>
         static Ref<T> GetAsset(AssetHandle assetHandle)
@@ -178,16 +187,22 @@ namespace OloEngine
                           "GetAsset only works for types derived from Asset");
 
             Ref<Asset> asset = GetActiveManager()->GetAsset(assetHandle);
-            if (!asset)
-                return nullptr;
-
-            Ref<T> castedAsset = asset.As<T>();
-            if (!castedAsset)
+            if (asset)
             {
-                OLO_CORE_WARN("AssetManager::GetAsset - Failed to cast asset {} from type {} to requested type {}",
-                              assetHandle, AssetUtils::AssetTypeToString(asset->GetAssetType()), typeid(T).name());
+                if (Ref<T> castedAsset = asset.As<T>())
+                    return castedAsset;
             }
-            return castedAsset;
+            else if (assetHandle == 0)
+            {
+                // A zero handle is a legitimate unset slot, not a dangling reference.
+                return nullptr;
+            }
+
+            // Either the handle resolved to a placeholder / wrong-type asset, or it is a
+            // dangling non-zero reference. ResolveAssetOrPlaceholder() unwraps a
+            // placeholder to a visible stand-in, substitutes one for a dangling handle
+            // (warning once), or surfaces a genuine wrong-type cast warning.
+            return ResolveAssetOrPlaceholder(assetHandle, asset, T::GetStaticType()).As<T>();
         }
 
         /**
@@ -328,6 +343,37 @@ namespace OloEngine
             OLO_CORE_ASSERT(manager, "Asset manager not initialized");
             return manager;
         }
+
+        /**
+         * @brief Return the inner usable asset wrapped by a PlaceholderAsset
+         * @param asset Candidate asset (may be a placeholder wrapper or anything else)
+         * @return The wrapped Texture2D/MaterialAsset/Mesh as Ref<Asset>, or nullptr
+         *
+         * Placeholders wrap a real renderable (PlaceholderTexture -> Texture2D, ...);
+         * this unwraps that inner asset so GetAsset<T>() can hand back a usable T.
+         * Returns nullptr for non-placeholders and for placeholders with no inner
+         * asset (generic / audio). Defined in the .cpp to keep the heavy
+         * placeholder/renderer includes out of this widely-included header.
+         */
+        static Ref<Asset> UnwrapPlaceholder(const Ref<Asset>& asset);
+
+        /**
+         * @brief Resolve a non-direct-cast GetAsset<T>() outcome to a usable asset
+         * @param assetHandle The requested handle (used to warn once per dangling handle)
+         * @param resolved What the active manager returned (null, a placeholder, or a wrong-type asset)
+         * @param type The statically-requested asset type
+         * @return An asset to cast to T: an unwrapped placeholder, a freshly substituted
+         *         placeholder for a dangling handle, or nullptr
+         *
+         * Centralises the placeholder-fallback policy so the template stays thin and the
+         * heavy placeholder/renderer includes stay in the .cpp:
+         * - @p resolved is a placeholder a manager substituted on load -> unwrap to a
+         *   visible inner asset (nullptr for generic placeholders; no log spam).
+         * - @p resolved is a genuine wrong-type asset -> warn about the cast, return null.
+         * - @p resolved is null and @p assetHandle is non-zero -> dangling reference:
+         *   substitute the type-correct placeholder and warn once.
+         */
+        static Ref<Asset> ResolveAssetOrPlaceholder(AssetHandle assetHandle, const Ref<Asset>& resolved, AssetType type);
     };
 
 } // namespace OloEngine

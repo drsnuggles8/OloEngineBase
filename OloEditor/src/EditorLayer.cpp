@@ -1022,6 +1022,13 @@ namespace OloEngine
 
             ImGui::Separator();
 
+            if (ImGui::MenuItem("Validate Asset References"))
+            {
+                ValidateAssetReferences();
+            }
+
+            ImGui::Separator();
+
             if (ImGui::MenuItem("Asset Pack Builder", nullptr, &m_ShowAssetPackBuilder))
             {
                 // Toggle panel visibility
@@ -3833,6 +3840,48 @@ namespace OloEngine
         else
         {
             OLO_CORE_ERROR("Shader Pack build failed");
+        }
+    }
+
+    void EditorLayer::ValidateAssetReferences() const
+    {
+        OLO_PROFILE_FUNCTION();
+
+        auto project = Project::GetActive();
+        if (!project)
+        {
+            OLO_CORE_WARN("Validate Asset References: no active project");
+            return;
+        }
+
+        Ref<AssetManagerBase> assetManager = project->GetAssetManager();
+        if (!assetManager)
+        {
+            OLO_CORE_WARN("Validate Asset References: no active asset manager");
+            return;
+        }
+
+        const AssetReferenceValidationReport report = assetManager->ValidateReferences();
+
+        if (report.IsValid())
+        {
+            OLO_CORE_INFO("Validate Asset References: checked {} reference(s); no dangling references found.",
+                          report.CheckedReferenceCount);
+            return;
+        }
+
+        OLO_CORE_WARN("Validate Asset References: checked {} reference(s); found {} dangling reference(s):",
+                      report.CheckedReferenceCount, report.DanglingCount());
+        for (const auto& dangling : report.DanglingReferences)
+        {
+            const AssetMetadata referencerMeta = assetManager->GetAssetMetadata(dangling.Referencer);
+            const std::string referencerLabel = referencerMeta.FilePath.empty()
+                                                    ? std::to_string(static_cast<u64>(dangling.Referencer))
+                                                    : referencerMeta.FilePath.string();
+            OLO_CORE_WARN("  - '{}' references missing asset {} ({})",
+                          referencerLabel,
+                          static_cast<u64>(dangling.Reference),
+                          AssetUtils::AssetTypeToString(dangling.ReferenceType));
         }
     }
 

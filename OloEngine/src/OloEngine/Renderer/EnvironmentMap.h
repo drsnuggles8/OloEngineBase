@@ -136,7 +136,9 @@ namespace OloEngine
 
         Ref<TextureCubemap> ConvertEquirectangularToCubemap(const std::string& filePath);
 
-        // Asset interface
+      public:
+        // Asset interface — must be public so AssetManager::GetAsset<EnvironmentMap>() /
+        // GetAllAssetsWithType<T>() can read the static type tag.
         static AssetType GetStaticType()
         {
             return AssetType::EnvMap;

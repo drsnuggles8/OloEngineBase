@@ -662,6 +662,12 @@ namespace OloEngine
         return (it != m_AssetDependencies.end()) ? it->second : std::unordered_set<AssetHandle>{};
     }
 
+    std::unordered_map<AssetHandle, std::unordered_set<AssetHandle>> EditorAssetManager::GetAllDependencies() const
+    {
+        TSharedLock<FSharedMutex> lock(m_DependenciesMutex);
+        return m_AssetDependencies; // copy under lock for lock-free iteration by the caller
+    }
+
     std::unordered_set<AssetHandle> EditorAssetManager::GetAllAssetsWithType(AssetType type) const
     {
         std::unordered_set<AssetHandle> result;

@@ -4,6 +4,7 @@
 #include "OloEngine/Asset/AssetImporter.h"
 #include "OloEngine/Asset/AssetManager.h"
 #include "OloEngine/Asset/AssetPack.h"
+#include "OloEngine/Asset/PlaceholderAsset.h"
 #include "OloEngine/Containers/Array.h"
 #include "OloEngine/Core/Events/EditorEvents.h"
 #include "OloEngine/Scene/Scene.h"
@@ -27,6 +28,10 @@ namespace OloEngine
 #endif
 
         AssetImporter::Init();
+        // Shipping builds need the same placeholder set as the editor so a
+        // broken/moved/deleted reference resolves to a visible stand-in instead of
+        // null (issue #455). Reference-counted, so overlapping manager lifetimes are safe.
+        PlaceholderAssetManager::Initialize();
         OLO_CORE_INFO("RuntimeAssetManager initialized");
 
         if (!autoLoadDefaultPack)
@@ -78,9 +83,14 @@ namespace OloEngine
         m_LoadedPacks.clear();
         m_AssetMetadata.clear();
         m_AssetDependencies.clear();
+        m_WarnedUnresolvableHandles.clear();
 
         // Shutdown AssetImporter to release serializer resources
         AssetImporter::Shutdown();
+
+        // Release this manager's reference to the shared placeholder set (ref-counted;
+        // the last live manager tears it down).
+        PlaceholderAssetManager::Shutdown();
     }
 
     AssetType RuntimeAssetManager::GetAssetType(AssetHandle assetHandle) const noexcept
@@ -155,21 +165,43 @@ namespace OloEngine
             lock.Unlock();
             Ref<Asset> asset = LoadAssetFromPack(assetHandle);
 
+            // Re-acquire the lock to publish either the loaded asset or a placeholder fallback.
+            lock.Lock();
+
+            // Final check: another thread may have loaded (or substituted) it meanwhile.
+            if (auto finalIt = m_LoadedAssets.find(assetHandle); finalIt != m_LoadedAssets.end())
+                return finalIt->second;
+
             if (asset)
             {
-                // Re-acquire lock to insert the loaded asset
-                lock.Lock();
-
-                // Final check: ensure no other thread loaded it while we were loading
-                if (auto finalIt = m_LoadedAssets.find(assetHandle); finalIt != m_LoadedAssets.end())
-                {
-                    // Another thread loaded it, return that instance
-                    return finalIt->second;
-                }
-
                 // Safe to insert our loaded asset
                 m_LoadedAssets[assetHandle] = asset;
                 return asset;
+            }
+
+            // Load failed. If the handle is valid-but-unresolvable (the pack indexes it,
+            // so its type is known, but its payload could not be deserialized), substitute
+            // the matching placeholder + warn once so a corrupt/partial asset shows a
+            // visible stand-in instead of null (issue #455) and is not re-deserialized every
+            // call. A handle with no pack metadata is a truly-dangling reference whose type
+            // we cannot know here; leave it null and let the typed AssetManager::GetAsset<T>()
+            // facade substitute a placeholder by the requested type T.
+            // AssetExistsInPacks()/GetAssetTypeFromPacks() take m_PacksMutex (shared); the
+            // m_AssetsMutex -> m_PacksMutex order matches Shutdown()/UnloadAssetPack().
+            if (AssetExistsInPacks(assetHandle))
+            {
+                const AssetType type = GetAssetTypeFromPacks(assetHandle);
+                if (Ref<Asset> placeholder = PlaceholderAssetManager::GetPlaceholderAsset(type))
+                {
+                    m_LoadedAssets[assetHandle] = placeholder;
+                    if (m_WarnedUnresolvableHandles.insert(assetHandle).second)
+                    {
+                        OLO_CORE_WARN("RuntimeAssetManager::GetAsset - Asset {} ({}) is indexed but could not be "
+                                      "loaded from any pack; substituting a placeholder.",
+                                      assetHandle, AssetUtils::AssetTypeToString(type));
+                    }
+                    return placeholder;
+                }
             }
         }
 
@@ -358,6 +390,12 @@ namespace OloEngine
         TSharedLock<FSharedMutex> lock(m_DependenciesMutex);
         auto it = m_AssetDependencies.find(handle);
         return (it != m_AssetDependencies.end()) ? it->second : std::unordered_set<AssetHandle>{};
+    }
+
+    std::unordered_map<AssetHandle, std::unordered_set<AssetHandle>> RuntimeAssetManager::GetAllDependencies() const
+    {
+        TSharedLock<FSharedMutex> lock(m_DependenciesMutex);
+        return m_AssetDependencies; // copy under lock for lock-free iteration by the caller
     }
 
     void RuntimeAssetManager::SyncWithAssetThread() noexcept

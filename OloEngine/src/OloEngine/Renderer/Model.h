@@ -130,7 +130,9 @@ namespace OloEngine
             return nullMaterial;
         }
 
-        // Asset interface
+      public:
+        // Asset interface — must be public so AssetManager::GetAsset<Model>() /
+        // GetAllAssetsWithType<T>() can read the static type tag.
         constexpr static AssetType GetStaticType()
         {
             return AssetType::Model;

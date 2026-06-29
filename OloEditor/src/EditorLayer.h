@@ -120,6 +120,11 @@ namespace OloEngine
         // Bundles all compiled SPIR-V into a single binary file for distribution builds
         void BuildShaderPack() const;
 
+        // Asset reference validation (issue #455)
+        // Sweeps the active asset manager's dependency registry for dangling
+        // (missing/moved/deleted) references and logs a report to the console.
+        void ValidateAssetReferences() const;
+
         // Build status and progress queries
         bool IsBuildInProgress() const
         {
