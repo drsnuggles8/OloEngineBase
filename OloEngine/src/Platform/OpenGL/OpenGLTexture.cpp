@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 #include "Platform/OpenGL/OpenGLTexture.h"
+#include "Platform/OpenGL/OpenGLUtilities.h"
 #include "OloEngine/Renderer/Commands/CommandDispatch.h"
 #include "OloEngine/Renderer/Commands/FrameResourceManager.h"
 #include "OloEngine/Renderer/Debug/RendererMemoryTracker.h"
@@ -757,13 +758,9 @@ namespace OloEngine
         sizet dataSize = static_cast<sizet>(mipWidth) * mipHeight * bytesPerPixel;
         outData.resize(dataSize);
 
-        // Drain any GL error leaked in by an earlier, unrelated operation so the
-        // check below reflects only this readback (see
-        // OpenGLTextureCubemap::GetFaceData for the spurious-failure this prevents).
-        // The guard bounds the drain against a lost context.
-        for (int guard = 0; guard < 64 && glGetError() != GL_NO_ERROR; ++guard)
-        {
-        }
+        // Drain leaked GL errors so the check below reflects only this readback
+        // (see OpenGLTextureCubemap::GetFaceData for the spurious-failure this prevents).
+        Utils::DrainGLErrors();
 
         // Use DSA glGetTextureImage for readback
         glGetTextureImage(m_RendererID, static_cast<GLint>(mipLevel), m_DataFormat, dataType,

@@ -163,12 +163,14 @@ namespace OloEngine
             return m_FixedTimeStep;
         }
 
-        // Seed for the deterministic gameplay RNG stream (RandomUtils global
-        // generator). Applied at every Scene::OnRuntimeStart — i.e. each Play /
-        // runtime launch — so the same seed plus the same inputs reproduce a
-        // run. The default is a fixed constant, so runs are deterministic out of
-        // the box; set a per-session seed for roguelike-style variety. Setting
-        // it also re-seeds the current thread's stream immediately.
+        // Seed for the deterministic gameplay RNG stream (the game-thread
+        // RandomUtils generator). Stored here and applied by Scene::OnRuntimeStart
+        // at every Play / runtime launch, so the same seed plus the same inputs
+        // reproduce a run. The default is a fixed constant, so runs are
+        // deterministic out of the box; set a per-session seed for roguelike-style
+        // variety. Takes effect at the next OnRuntimeStart (it does not re-seed
+        // mid-run — the RNG is thread_local, so an eager seed would only touch the
+        // calling thread).
         void SetRandomSeed(u64 seed);
         [[nodiscard("Store this!")]] u64 GetRandomSeed() const
         {

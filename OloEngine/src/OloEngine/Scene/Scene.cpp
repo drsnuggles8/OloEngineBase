@@ -770,14 +770,18 @@ namespace OloEngine
         m_IsRunning = true;
 
         // Deterministic run setup (issue #452): reset the fixed-timestep tick
-        // counter / accumulator and re-seed the gameplay RNG from the
-        // application's configured seed. Doing it here — the single authoritative
-        // "entered Play mode" point for both the editor and OloRuntime — means
-        // every play-through starts from an identical RNG state and tick 0, so a
-        // run replays identically given the same seed and inputs. Loot rolls,
-        // particle jitter, and every other RandomUtils consumer ride this stream.
+        // counter / accumulator / animation clock and re-seed the gameplay RNG
+        // from the application's configured seed. Doing it here — the single
+        // authoritative "entered Play mode" point for both the editor and
+        // OloRuntime — means every play-through starts from an identical RNG
+        // state, tick 0, and time 0, so a run replays identically given the same
+        // seed and inputs. This seeds the GAME THREAD's RandomUtils stream — the
+        // one game-thread gameplay (loot rolls, particle jitter, …) consumes. The
+        // generator is thread_local, so RNG drawn on worker/job threads rides a
+        // separate, time-seeded stream and is NOT reproducible (a #452 follow-up).
         m_SimulationTick = 0;
         m_FixedTimeAccumulator = 0.0f;
+        m_SimulationTime = 0.0f;
         RandomUtils::SetGlobalSeed(Application::Get().GetRandomSeed());
 
         // Unified diagnostics timeline (#306 item B): the single authoritative fire for
@@ -1284,6 +1288,19 @@ namespace OloEngine
 
         UpdateStreaming();
 
+        // Sanitize the incoming frame delta before it ever reaches the
+        // accumulator. A non-finite (NaN/Inf) or negative value must not get in:
+        // NaN compares false against every threshold, so it would neither clamp
+        // nor step — it would stick in m_FixedTimeAccumulator forever and
+        // permanently freeze the simulation (while RenderRuntime kept drawing).
+        // The original OnUpdateRuntime carried no state and self-corrected the
+        // next frame; the accumulator does not, so guard it here.
+        f32 safeFrameTs = static_cast<f32>(frameTs);
+        if (!std::isfinite(safeFrameTs) || safeFrameTs < 0.0f)
+        {
+            safeFrameTs = 0.0f;
+        }
+
         // A non-positive fixedDt would loop forever / divide the wall clock by
         // zero — treat it as "no simulation this frame" and just render.
         if (fixedDt > 0.0f)
@@ -1302,13 +1319,17 @@ namespace OloEngine
             }
             else
             {
-                m_FixedTimeAccumulator += static_cast<f32>(frameTs);
+                m_FixedTimeAccumulator += safeFrameTs;
 
                 // Spiral-of-death guard: if a hitch left more than the cap's
                 // worth of time queued, clamp and drop the excess so the sim
                 // slows rather than freezing the host while it tries to catch
                 // up. Mirrors Application::s_MaxTimestep and JoltScene's own
-                // accumulator clamp.
+                // accumulator clamp. Note the determinism guarantee this enables
+                // is "same fixed-tick sequence + same inputs => same state"
+                // (what rollback/replay drive off), NOT "two wall-clock runs that
+                // hitch differently end identically" — a hitch past the cap drops
+                // real time on the real-time presentation path by design.
                 if (const f32 maxAccumulator = static_cast<f32>(s_MaxFixedStepsPerFrame) * fixedDt;
                     m_FixedTimeAccumulator > maxAccumulator)
                 {
@@ -1325,7 +1346,7 @@ namespace OloEngine
             }
         }
 
-        RenderRuntime(frameTs);
+        RenderRuntime(safeFrameTs);
     }
 
     void Scene::UpdateStreaming()
@@ -1349,6 +1370,12 @@ namespace OloEngine
     void Scene::SimulateRuntimeStep(Timestep const ts)
     {
         ++m_SimulationTick;
+        // Deterministic simulation clock: advances by exactly `ts` each tick, so
+        // time-driven physics (buoyancy wave phase) is a function of the tick
+        // sequence rather than the wall clock — reproducible across frame pacings
+        // and rollback re-sim (issue #452). At a steady frame rate this tracks
+        // wall-time, so wall-clock water visuals and floating bodies stay in sync.
+        m_SimulationTime += static_cast<f32>(ts);
         {
             // Update scripts
             {
@@ -1579,10 +1606,19 @@ namespace OloEngine
                 if (m_JoltScene)
                 {
                     // Buoyancy forces must be queued BEFORE the step so Jolt
-                    // integrates them this frame. Time::GetTime() matches the clock
-                    // the water shader uses, so floating bodies track the rendered
+                    // integrates them this frame. Drive the wave phase from the
+                    // deterministic m_SimulationTime (NOT wall-clock Time::GetTime),
+                    // so buoyant bodies are reproducible across frame pacings and
+                    // rollback re-sim (issue #452). At a steady frame rate this
+                    // equals wall-time, so floating bodies still track the rendered
                     // wave crests (Physics3D/BuoyancySystem, WATER §5.1).
-                    BuoyancySystem::OnUpdate(this, Time::GetTime(), ts.GetSeconds());
+                    BuoyancySystem::OnUpdate(this, m_SimulationTime, ts.GetSeconds());
+                    // JoltScene::Simulate runs its OWN fixed-step accumulator at a
+                    // hardcoded 1/60. This is 1:1 with one gameplay tick only when
+                    // the canonical fixed dt (Application::GetFixedTimeStep) equals
+                    // 1/60 — the production case. If they ever diverge, 3D physics
+                    // and scripts/animation/2D-physics tick at different rates; keep
+                    // them equal (issue #452 follow-up: single shared fixed step).
                     m_JoltScene->Simulate(ts.GetSeconds());
                 }
 
@@ -1768,10 +1804,10 @@ namespace OloEngine
                 }
             }
 
-            // Update video playback: ticks the global fullscreen overlay plus every
-            // VideoOverlay/VideoSurface component (lazy player creation, frame decode + GPU
-            // upload, material albedo binding for world surfaces).
-            VideoSystem::OnUpdate(this, static_cast<f32>(ts));
+            // Video playback is a presentation concern (frame decode + GPU upload +
+            // material albedo binding), not simulation: it is advanced once per
+            // displayed frame at display rate by RenderRuntime, frozen while paused,
+            // rather than 0..N times here in the fixed-step body (issue #452).
 
             // Process snow deformer entities — submit deformation stamps and emit ejecta
             ProcessSnowDeformers(ts, m_RuntimeSnowPrevPositions);
@@ -1780,6 +1816,17 @@ namespace OloEngine
 
     void Scene::RenderRuntime(Timestep const ts)
     {
+        // Advance video playback once per displayed frame at the display rate
+        // (frozen while paused). This is a presentation concern moved out of the
+        // fixed-step sim body so it runs exactly once per frame instead of 0..N
+        // times — no high-fps stutter, no wasted decode/upload during catch-up
+        // (issue #452). It does not affect simulation state, so display-rate
+        // timing here does not break determinism.
+        if (!m_IsPaused)
+        {
+            VideoSystem::OnUpdate(this, static_cast<f32>(ts));
+        }
+
         // Find the primary camera
         Camera const* mainCamera = nullptr;
         glm::mat4 cameraTransform;
@@ -1791,7 +1838,14 @@ namespace OloEngine
 
                 if (camera.Primary)
                 {
-                    // FPS fly-camera controls: WASD/QE movement + mouse look
+                    // FPS fly-camera controls: WASD/QE movement + mouse look.
+                    // This is an opt-in debug/free-fly camera driven by live input
+                    // and the variable frame delta (`ts`), so it runs here in the
+                    // display-rate render stage, NOT the fixed-step sim — it is a
+                    // viewing aid, deliberately outside the deterministic state the
+                    // gameplay simulation reproduces (issue #452). Gameplay cameras
+                    // moved by scripts/physics live in SimulateRuntimeStep and stay
+                    // frame-rate-independent.
                     if (camera.RuntimeControl)
                     {
                         const glm::vec2 mouse{ Input::GetMouseX(), Input::GetMouseY() };
@@ -2009,6 +2063,9 @@ namespace OloEngine
         OLO_PERF_SCOPE("Scene::OnUpdateSimulation", perfProfiler);
         if (!m_IsPaused || m_StepFrames-- > 0)
         {
+            // Advance the deterministic simulation clock so the buoyancy wave
+            // phase below is tick-driven (see SimulateRuntimeStep).
+            m_SimulationTime += static_cast<f32>(ts);
 
             // Physics
             {
@@ -2027,10 +2084,19 @@ namespace OloEngine
                 if (m_JoltScene)
                 {
                     // Buoyancy forces must be queued BEFORE the step so Jolt
-                    // integrates them this frame. Time::GetTime() matches the clock
-                    // the water shader uses, so floating bodies track the rendered
+                    // integrates them this frame. Drive the wave phase from the
+                    // deterministic m_SimulationTime (NOT wall-clock Time::GetTime),
+                    // so buoyant bodies are reproducible across frame pacings and
+                    // rollback re-sim (issue #452). At a steady frame rate this
+                    // equals wall-time, so floating bodies still track the rendered
                     // wave crests (Physics3D/BuoyancySystem, WATER §5.1).
-                    BuoyancySystem::OnUpdate(this, Time::GetTime(), ts.GetSeconds());
+                    BuoyancySystem::OnUpdate(this, m_SimulationTime, ts.GetSeconds());
+                    // JoltScene::Simulate runs its OWN fixed-step accumulator at a
+                    // hardcoded 1/60. This is 1:1 with one gameplay tick only when
+                    // the canonical fixed dt (Application::GetFixedTimeStep) equals
+                    // 1/60 — the production case. If they ever diverge, 3D physics
+                    // and scripts/animation/2D-physics tick at different rates; keep
+                    // them equal (issue #452 follow-up: single shared fixed step).
                     m_JoltScene->Simulate(ts.GetSeconds());
                 }
 
@@ -3040,8 +3106,14 @@ namespace OloEngine
 
     void Scene::OnPhysics3DStop()
     {
-        // Early return if JoltScene is null to avoid null dereference
-        if (!m_JoltScene)
+        // Idempotent: m_JoltScene is a lifetime member (created in the ctor and
+        // never nulled), so guard on whether physics is actually *running*, not on
+        // the pointer. A second OnPhysics3DStop (e.g. a manual stop followed by a
+        // harness TearDown stop) then early-returns cleanly instead of re-running
+        // the whole body/vehicle/joint/terrain teardown against an already-shut
+        // Jolt system — which would dereference dead state once the scene has
+        // physics entities. Shutdown() flips IsInitialized() to false.
+        if (!m_JoltScene || !m_JoltScene->IsInitialized())
         {
             return;
         }

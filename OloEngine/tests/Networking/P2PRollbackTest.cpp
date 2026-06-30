@@ -182,6 +182,24 @@ TEST_F(RollbackManagerTest, MaxRollbackGetSet)
 
 // ── Cross-peer rollback determinism (issue #452 acceptance criterion 3) ──
 
+// What this validates (and what it deliberately does not): the property that
+// keeps lockstep peers in sync is *deterministic reconstruction* — restoring a
+// snapshot at tick T and replaying the agreed inputs T+1..N must reproduce the
+// exact state a peer that never rolled back computed. That is what this test
+// pins: any non-determinism in EntitySnapshot capture/restore or in the apply
+// re-sim (unstable iteration order, unseeded RNG, wall-clock reads) would make
+// the rolled-back peer diverge from the straight-through peer.
+//
+// It does NOT exercise a *mispredicted* input being corrected to a different
+// value: the late input here carries the SAME value already applied in the
+// forward pass, so the re-sim replays an identical sequence. That is intentional
+// — RollbackManager::Rollback restores the snapshot AT toTick (which already
+// folded in toTick's input) and re-applies from toTick+1, so a corrected toTick
+// value would not be re-applied; testing a divergent correction would assert
+// against that simplified semantic rather than determinism. Pinning the
+// reconstruction property is the part that matters for "stays in sync"; a
+// divergent-correction test belongs with a RollbackManager semantics change
+// (issue #452 follow-up), not here.
 TEST(P2PRollbackDeterminismTest, RollbackResimReconstructsIdenticalCrossPeerState)
 {
     constexpr u32 kTicks = 6;

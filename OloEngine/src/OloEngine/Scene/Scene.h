@@ -570,6 +570,11 @@ namespace OloEngine
         // once per SimulateRuntimeStep.
         f32 m_FixedTimeAccumulator = 0.0f;
         u64 m_SimulationTick = 0;
+        // Deterministic simulation clock (seconds), advanced by exactly `ts` per
+        // sim tick, used for time-driven physics (buoyancy wave phase) so it is
+        // reproducible across frame pacings / rollback instead of wall-clock.
+        // Reset to 0 at OnRuntimeStart.
+        f32 m_SimulationTime = 0.0f;
         // Spiral-of-death cap: most fixed steps a single frame may run before
         // the accumulator is clamped and excess wall-time dropped. 15 mirrors
         // Application::s_MaxTimestep (0.25 s) at the 60 Hz default.

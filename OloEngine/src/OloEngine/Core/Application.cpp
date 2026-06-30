@@ -1,7 +1,6 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Core/Application.h"
 #include "OloEngine/Audio/AudioEngine.h"
-#include "OloEngine/Core/FastRandom.h"
 #include "OloEngine/Core/GamepadManager.h"
 #include "OloEngine/Core/Input.h"
 #include "OloEngine/Core/InputActionManager.h"
@@ -232,11 +231,13 @@ namespace OloEngine
 
     void Application::SetRandomSeed(u64 seed)
     {
+        // Store-only: the seed is applied to the game-thread gameplay RNG by
+        // Scene::OnRuntimeStart at every Play / runtime launch. We deliberately do
+        // NOT eagerly call RandomUtils::SetGlobalSeed here — the RNG is
+        // thread_local, so an eager call would only seed whatever thread happened
+        // to call this setter (e.g. a config-load thread), not the game thread,
+        // and would be overwritten at OnRuntimeStart anyway (issue #452).
         m_RandomSeed = seed;
-        // Re-seed the current thread's gameplay RNG stream now, and let
-        // Scene::OnRuntimeStart re-apply m_RandomSeed at each Play / runtime
-        // launch so a run replays identically (issue #452).
-        RandomUtils::SetGlobalSeed(seed);
     }
 
     void Application::OnEvent(Event& e)

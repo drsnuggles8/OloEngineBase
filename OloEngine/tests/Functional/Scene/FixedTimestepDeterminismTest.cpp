@@ -49,6 +49,16 @@ namespace
     // Exactly representable in f32, so fixedDt and its power-of-two multiples
     // accumulate without rounding error — the cross-pacing step counts are then
     // provably equal rather than "equal within float slop".
+    //
+    // NOTE: this is 1/64, NOT the production canonical step (1/60 ==
+    // Application::GetFixedTimeStep == JoltScene's internal fixed step). 1/60 is
+    // not exactly representable, which would make the exact step-count assertions
+    // below flaky. The trade-off is that at 1/64 each SimulateRuntimeStep feeds
+    // Jolt 1/64 into its own 1/60 accumulator, so 3D physics steps are not 1:1
+    // with gameplay ticks here — the falling-ball result is still deterministic
+    // because all three pacings feed Jolt the identical 1/64 sequence. The
+    // production 1:1 alignment (fixedDt == Jolt's step) is exercised by the
+    // DeterministicReplayProducesSameStateTest, which runs at 1/60.
     constexpr f32 kFixedDt = 1.0f / 64.0f;
 
     struct RunResult
@@ -219,4 +229,10 @@ TEST_F(FixedTimestepDeterminismTest, SeededRngReplaysIdenticallyFromASeed)
 
     const std::vector<u32> other = drawSequence(0xBADF00DULL);
     EXPECT_NE(first, other) << "a different seed produced the same stream — seeding has no effect";
+
+    // Restore the process-global RNG to a time-based seed so this test does not
+    // pin a fixed seed onto later tests that draw from the RandomUtils global
+    // stream (the generator is thread_local and process-lived — leaking the
+    // 0xBADF00D seed would couple their output to test/shuffle order).
+    RandomUtils::SetGlobalSeed(RandomUtils::GetTimeBasedSeed());
 }
