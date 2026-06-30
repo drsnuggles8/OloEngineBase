@@ -28,9 +28,10 @@ namespace OloEngine
     // Output:
     //   * UpscalerColor (RGBA16Float, carrying LDR values)
     //
-    // Passthrough semantics: when disabled the pass no-ops and GetTarget()
-    // returns the input framebuffer so downstream stages fall back to
-    // ToneMapColor.
+    // Passthrough semantics: when disabled the pass no-ops, declares no
+    // UpscalerColor output, and leaves m_Target null (so GetTarget() returns
+    // null). Downstream stages then resolve their input by name and naturally
+    // fall back past the absent UpscalerColor to ToneMapColor.
     class UpscalerRenderPass : public RenderGraphNode
     {
       public:

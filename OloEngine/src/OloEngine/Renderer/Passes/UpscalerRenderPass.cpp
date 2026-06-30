@@ -79,6 +79,11 @@ namespace OloEngine
 
     void UpscalerRenderPass::CreateFramebuffer(u32 width, u32 height)
     {
+        // The output framebuffer (UpscalerColor) is graph-owned: it is declared
+        // in PopulateBlackboard and resolved per-frame in Execute via
+        // GetPrimaryOutputFramebufferHandle. This pass never allocates one, so
+        // m_Target stays null here and is only set in Execute. The dimension
+        // guard just logs an obviously-bad spec (mirrors MotionBlur/TAA).
         if (width == 0 || height == 0)
         {
             OLO_CORE_WARN("UpscalerRenderPass::CreateFramebuffer: Invalid dimensions {}x{}", width, height);

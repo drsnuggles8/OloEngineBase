@@ -519,7 +519,11 @@ namespace OloEngine
 
             if (settings.CASEnabled)
             {
-                ImGui::DragFloat("Sharpness", &settings.CASSharpness, 0.01f, 0.0f, 1.0f, "%.2f");
+                // DragFloat's min/max bound the drag but not manual (Ctrl+click)
+                // text entry, so re-run the shared sanitizer on edit to keep a
+                // typed out-of-range / NaN value out of the UBO.
+                if (ImGui::DragFloat("Sharpness", &settings.CASSharpness, 0.01f, 0.0f, 1.0f, "%.2f"))
+                    SanitizeCAS(settings);
                 ImGui::TextWrapped("Contrast Adaptive Sharpening (FidelityFX). Runs after tone mapping on the LDR image; sharpens low-contrast edges while backing off on high-contrast ones to avoid ringing. First slice of the FSR1 spatial upscaler.");
             }
 
