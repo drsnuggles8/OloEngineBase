@@ -76,17 +76,22 @@ namespace OloEngine
 
     SceneSpatialIndex::SceneSpatialIndex(f32 cellSize)
     {
-        // Reject non-positive AND non-finite sizes: a NaN slips past `<= 0`
-        // (all NaN comparisons are false) and would make m_InvCellSize NaN,
-        // poisoning every floor()/cast in the grid math (UB). Clamp to a safe
-        // default instead.
-        if (!(std::isfinite(cellSize) && cellSize > 0.0f))
+        // Reject non-positive, non-finite, AND tiny-positive sizes whose
+        // reciprocal overflows to +inf: a NaN slips past `<= 0` (all NaN
+        // comparisons are false), and a denormal-tiny but finite & positive
+        // cellSize (e.g. FLT_DENORM_MIN) yields a non-finite m_InvCellSize —
+        // either poisons every floor()/cast in the grid math (UB / TryWorldToCell
+        // then rejects every insert). Validate the reciprocal too, then clamp.
+        const f32 invCellSize = 1.0f / cellSize;
+        if (!(std::isfinite(cellSize) && cellSize > 0.0f && std::isfinite(invCellSize)))
         {
             OLO_CORE_WARN("SceneSpatialIndex: invalid cellSize {}, clamping to 1.0f", cellSize);
-            cellSize = 1.0f;
+            m_CellSize = 1.0f;
+            m_InvCellSize = 1.0f;
+            return;
         }
         m_CellSize = cellSize;
-        m_InvCellSize = 1.0f / cellSize;
+        m_InvCellSize = invCellSize;
     }
 
     void SceneSpatialIndex::Clear()
@@ -152,7 +157,12 @@ namespace OloEngine
             return;
         }
 
-        const f32 radiusSq = radius * radius;
+        // Distance test in f64: for a huge-but-finite radius/position both the
+        // radius² and an entry's distance² overflow f32 to +inf, and `inf <= inf`
+        // would report a false hit. f64 keeps both finite (f32 max² ~1.2e77 fits
+        // f64's ~1.8e308 range), so the comparison stays exact.
+        const f64 radiusSq = static_cast<f64>(radius) * static_cast<f64>(radius);
+        const glm::dvec3 centerD(center);
 
         // Only the cells overlapping the query sphere's bounding box can hold a
         // hit — visit those and distance-test each occupant exactly.
@@ -173,7 +183,7 @@ namespace OloEngine
         {
             for (const Entry& entry : m_Entries)
             {
-                if (glm::distance2(center, entry.Position) <= radiusSq)
+                if (glm::distance2(centerD, glm::dvec3(entry.Position)) <= radiusSq)
                 {
                     out.push_back(entry.Id);
                 }
@@ -196,7 +206,7 @@ namespace OloEngine
                     for (u32 index : cellIt->second)
                     {
                         const Entry& entry = m_Entries[index];
-                        if (glm::distance2(center, entry.Position) <= radiusSq)
+                        if (glm::distance2(centerD, glm::dvec3(entry.Position)) <= radiusSq)
                         {
                             out.push_back(entry.Id);
                         }
@@ -300,13 +310,19 @@ namespace OloEngine
         // cell range anyway, so scan the flat entry list directly — same O(n)
         // cost without the cell-iteration overhead. "Unbounded" = the FLT_MAX
         // sentinel default OR a literal +inf radius (both mean "search all").
-        std::vector<std::pair<f32, UUID>> candidates;
+        //
+        // Distances are stored/compared in f64 so a huge-but-finite radius/
+        // position can't overflow distance² (or maxRadius²) to +inf — that would
+        // both report false hits (inf <= inf) and collapse the nearest-first
+        // ordering of all faraway candidates into a UUID tiebreak. See QueryRadius.
+        std::vector<std::pair<f64, UUID>> candidates;
+        const glm::dvec3 centerD(center);
 
         const bool bounded = std::isfinite(maxRadius) &&
                              maxRadius != std::numeric_limits<f32>::max();
         if (bounded)
         {
-            const f32 maxRadiusSq = maxRadius * maxRadius;
+            const f64 maxRadiusSq = static_cast<f64>(maxRadius) * static_cast<f64>(maxRadius);
 
             i32 minX = 0, maxX = 0, minY = 0, maxY = 0, minZ = 0, maxZ = 0;
             const bool representable =
@@ -323,7 +339,7 @@ namespace OloEngine
                 // Box dwarfs the entry count → scan entries, still range-gated.
                 for (const Entry& entry : m_Entries)
                 {
-                    const f32 distSq = glm::distance2(center, entry.Position);
+                    const f64 distSq = glm::distance2(centerD, glm::dvec3(entry.Position));
                     if (distSq <= maxRadiusSq)
                     {
                         candidates.emplace_back(distSq, entry.Id);
@@ -346,7 +362,7 @@ namespace OloEngine
                             for (u32 index : cellIt->second)
                             {
                                 const Entry& entry = m_Entries[index];
-                                const f32 distSq = glm::distance2(center, entry.Position);
+                                const f64 distSq = glm::distance2(centerD, glm::dvec3(entry.Position));
                                 if (distSq <= maxRadiusSq)
                                 {
                                     candidates.emplace_back(distSq, entry.Id);
@@ -362,7 +378,7 @@ namespace OloEngine
             candidates.reserve(m_Entries.size());
             for (const Entry& entry : m_Entries)
             {
-                candidates.emplace_back(glm::distance2(center, entry.Position), entry.Id);
+                candidates.emplace_back(glm::distance2(centerD, glm::dvec3(entry.Position)), entry.Id);
             }
         }
 
@@ -371,7 +387,7 @@ namespace OloEngine
         // candidate when only the closest n are wanted. Compare on distance,
         // then UUID, so equidistant entries order deterministically.
         std::partial_sort(candidates.begin(), candidates.begin() + n, candidates.end(),
-                          [](const std::pair<f32, UUID>& a, const std::pair<f32, UUID>& b)
+                          [](const std::pair<f64, UUID>& a, const std::pair<f64, UUID>& b)
                           {
                               if (a.first != b.first)
                               {
@@ -390,8 +406,12 @@ namespace OloEngine
 
     void SceneSpatialIndex::SetCellSize(f32 cellSize)
     {
-        // Ignore non-positive / non-finite sizes (a NaN would poison the grid).
-        if (!(std::isfinite(cellSize) && cellSize > 0.0f))
+        // Ignore non-positive / non-finite sizes (a NaN would poison the grid),
+        // and tiny-positive sizes whose reciprocal overflows to +inf — m_InvCellSize
+        // must stay finite or TryWorldToCell rejects every entity (same guard as
+        // the constructor).
+        const f32 invCellSize = 1.0f / cellSize;
+        if (!(std::isfinite(cellSize) && cellSize > 0.0f && std::isfinite(invCellSize)))
         {
             return;
         }
@@ -401,7 +421,7 @@ namespace OloEngine
         }
 
         m_CellSize = cellSize;
-        m_InvCellSize = 1.0f / cellSize;
+        m_InvCellSize = invCellSize;
 
         // Re-bin every existing entry under the new resolution.
         auto entries = std::move(m_Entries);

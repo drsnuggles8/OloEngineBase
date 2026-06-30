@@ -406,23 +406,38 @@ TEST(SpatialAccelerationTest, HugeQueryOnFineGridUsesFallbackAndMatchesBruteForc
 }
 
 // A NaN/Inf/non-positive cell size must never reach the grid math (it would
-// make m_InvCellSize NaN and UB every floor()/cast). The constructor clamps to
-// a safe default; SetCellSize ignores it and keeps the prior resolution.
+// make m_InvCellSize NaN and UB every floor()/cast). A tiny-but-finite positive
+// size (FLT_DENORM_MIN) is just as dangerous: it passes `isfinite && > 0` yet its
+// reciprocal overflows to +inf, leaving m_InvCellSize non-finite so TryWorldToCell
+// would reject every insert. All of these clamp (ctor) / are ignored (SetCellSize).
 TEST(SpatialAccelerationTest, InvalidCellSizeIsClampedOrIgnored)
 {
     const f32 nan = std::numeric_limits<f32>::quiet_NaN();
     const f32 inf = std::numeric_limits<f32>::infinity();
+    const f32 tiny = std::numeric_limits<f32>::denorm_min(); // 1/tiny overflows to +inf
 
     EXPECT_FLOAT_EQ(SceneSpatialIndex(nan).GetCellSize(), 1.0f);
     EXPECT_FLOAT_EQ(SceneSpatialIndex(inf).GetCellSize(), 1.0f);
     EXPECT_FLOAT_EQ(SceneSpatialIndex(0.0f).GetCellSize(), 1.0f);
     EXPECT_FLOAT_EQ(SceneSpatialIndex(-5.0f).GetCellSize(), 1.0f);
+    EXPECT_FLOAT_EQ(SceneSpatialIndex(tiny).GetCellSize(), 1.0f);
+
+    // A grid built from the clamped tiny size must still index normally — proves
+    // m_InvCellSize stayed finite (an inf reciprocal would drop the insert).
+    {
+        SceneSpatialIndex clamped(tiny);
+        clamped.Insert(UUID(1), { 1, 1, 1 });
+        EXPECT_EQ(clamped.GetEntityCount(), 1u);
+        EXPECT_EQ(clamped.QueryRadius({ 1, 1, 1 }, 1.0f).size(), 1u);
+    }
 
     SceneSpatialIndex index(10.0f);
     index.Insert(UUID(1), { 1, 1, 1 });
     index.SetCellSize(nan);
     EXPECT_FLOAT_EQ(index.GetCellSize(), 10.0f);
     index.SetCellSize(inf);
+    EXPECT_FLOAT_EQ(index.GetCellSize(), 10.0f);
+    index.SetCellSize(tiny);
     EXPECT_FLOAT_EQ(index.GetCellSize(), 10.0f);
     // The index is still healthy after the rejected resizes.
     EXPECT_EQ(index.QueryRadius({ 1, 1, 1 }, 1.0f).size(), 1u);
@@ -454,6 +469,43 @@ TEST(SpatialAccelerationTest, ExtremeFiniteCoordinatesAreHandledSafely)
               (std::vector<u64>{ 2, 3 }));
     // Extreme finite maxRadius in the bounded NearestN path → fallback.
     EXPECT_EQ(index.NearestN({ 0, 0, 0 }, 5, huge).size(), 2u);
+}
+
+// Squared-distance overflow guard. A faraway-but-representable entity is inserted
+// (a large cell size keeps coord/cellSize inside i32 range, so it is *not*
+// skipped), then queried with a large-but-smaller finite radius. The radius is
+// chosen so radius² overflows f32 to +inf, and the entity's distance² overflows
+// too — so an `inf <= inf` comparison in f32 would falsely report a hit. The
+// distance predicates run in f64, keeping both finite, so the entity is correctly
+// excluded while a genuinely near entity is still returned. Covers QueryRadius,
+// QueryAABB (containment, not distance², but shares the fallback scan), and the
+// bounded NearestN path — all reach the linear fallback here (box ≫ entry count).
+TEST(SpatialAccelerationTest, OverflowingSquaredDistanceDoesNotFalsePositive)
+{
+    // cellSize 1e12 → faraway 1e20 maps to cell 1e8 (< 2^31): representable, so
+    // Insert keeps it rather than skipping it as an unrepresentable cell.
+    SceneSpatialIndex index(1.0e12f);
+    index.Insert(UUID(1), { 5, 0, 0 });       // genuinely near the origin
+    index.Insert(UUID(2), { 1.0e20f, 0, 0 }); // faraway, but a representable cell
+    EXPECT_EQ(index.GetEntityCount(), 2u);
+
+    // radius² = (2e19)² = 4e38 overflows f32 (max ~3.4e38) → +inf, and entity 2's
+    // distance² (1e40) overflows too → +inf. f32 would keep it (inf <= inf); f64
+    // drops it (1e40 > 4e38). Entity 1 (distance 5) is a true hit either way.
+    const f32 radius = 2.0e19f;
+    ASSERT_FALSE(std::isfinite(radius * radius)); // the f32 radius² really does overflow
+    EXPECT_EQ(ToSortedU64(index.QueryRadius({ 0, 0, 0 }, radius)),
+              (std::vector<u64>{ 1 }));
+
+    // AABB reaching toward — not past — the faraway entity: it must stay excluded.
+    EXPECT_EQ(ToSortedU64(index.QueryAABB({ -radius, -radius, -radius },
+                                          { radius, radius, radius })),
+              (std::vector<u64>{ 1 }));
+
+    // Same overflowing finite maxRadius in the bounded NearestN path.
+    const auto nearest = index.NearestN({ 0, 0, 0 }, 5, radius);
+    ASSERT_EQ(nearest.size(), 1u);
+    EXPECT_EQ(static_cast<u64>(nearest[0]), 1u);
 }
 
 TEST(SpatialAccelerationTest, ClearAllowsRebuildWithFreshContents)
