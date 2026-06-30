@@ -95,19 +95,24 @@ namespace OloEngine::Tests
                 return -1; // padding '=' or whitespace
             };
             std::vector<u8> out;
-            int buffer = 0;
+            // Unsigned accumulator: signed left-shift overflows after a few sextets
+            // (>32 bits) and that is UB. After each emitted byte, mask off the
+            // consumed high bits so `buffer` only ever retains the `bits` leftover
+            // low bits of base64 state.
+            u32 buffer = 0;
             int bits = 0;
             for (const char c : in)
             {
                 const int v = value(c);
                 if (v < 0)
                     continue;
-                buffer = (buffer << 6) | v;
+                buffer = (buffer << 6) | static_cast<u32>(v);
                 bits += 6;
                 if (bits >= 8)
                 {
                     bits -= 8;
-                    out.push_back(static_cast<u8>((buffer >> bits) & 0xFF));
+                    out.push_back(static_cast<u8>((buffer >> bits) & 0xFFu));
+                    buffer &= (1u << bits) - 1u;
                 }
             }
             return out;

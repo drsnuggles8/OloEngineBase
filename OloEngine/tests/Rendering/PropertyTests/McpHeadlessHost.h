@@ -222,10 +222,12 @@ namespace OloEngine::Tests
             }
         }
 
-        // ---- PNG capture (mirrors EditorLayer::CaptureFramebufferPng) -----------
+        // ---- PNG capture (after EditorLayer::CaptureFramebufferPng) -------------
         // Read back colour attachment 0 of `framebuffer` (RGBA8), flip to PNG
-        // top-down orientation, optionally downscale so the width is <= maxWidth,
-        // and encode a PNG in memory. MUST run on the GL thread. Empty on failure.
+        // top-down orientation, optionally downscale so the LONG EDGE is <= maxWidth
+        // (the EditorMcpContext::CaptureViewportPng contract — clamps the longer of
+        // width/height, not width alone, so a portrait target is bounded too), and
+        // encode a PNG in memory. MUST run on the GL thread. Empty on failure.
         [[nodiscard]] static std::vector<u8> CaptureFramebufferPng(const Ref<Framebuffer>& framebuffer, int maxWidth)
         {
             if (!framebuffer)
@@ -254,10 +256,22 @@ namespace OloEngine::Tests
             u32 outH = height;
             const std::vector<u8>* src = &flipped;
             std::vector<u8> scaled;
-            if (maxWidth > 0 && width > static_cast<u32>(maxWidth))
+            const u32 longEdge = std::max(width, height);
+            if (maxWidth > 0 && longEdge > static_cast<u32>(maxWidth))
             {
-                outW = static_cast<u32>(maxWidth);
-                outH = std::max<u32>(1, static_cast<u32>((static_cast<u64>(height) * outW) / width));
+                // Clamp the LONGER edge to maxWidth, preserving aspect ratio, so a
+                // portrait target is bounded too (not just width).
+                const u32 cap = static_cast<u32>(maxWidth);
+                if (width >= height)
+                {
+                    outW = cap;
+                    outH = std::max<u32>(1, static_cast<u32>((static_cast<u64>(height) * cap) / width));
+                }
+                else
+                {
+                    outH = cap;
+                    outW = std::max<u32>(1, static_cast<u32>((static_cast<u64>(width) * cap) / height));
+                }
                 scaled.assign(static_cast<sizet>(outW) * outH * 4, 0);
                 for (u32 y = 0; y < outH; ++y)
                 {
