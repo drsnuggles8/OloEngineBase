@@ -208,6 +208,21 @@ namespace OloEngine
     {
         EnsureInitialized();
         entry.Id = HashName(entry.Name);
+
+        // Reject duplicates: a second entry sharing a wire id (or name) would make
+        // EntitySnapshot emit both copies while FindById/FindByName only ever resolve
+        // the first — keep exactly one visible registration per component. (Matching
+        // ids on different names is a hash collision, which would also corrupt the
+        // wire format, so reject that too.)
+        for (const auto& existing : s_Entries)
+        {
+            if (existing.Id == entry.Id || existing.Name == entry.Name)
+            {
+                OLO_CORE_WARN("[ComponentInterpolationRegistry] Ignoring duplicate registration for '{}' (id {} collides with already-registered '{}')", entry.Name, entry.Id, existing.Name);
+                return;
+            }
+        }
+
         s_Entries.push_back(std::move(entry));
     }
 

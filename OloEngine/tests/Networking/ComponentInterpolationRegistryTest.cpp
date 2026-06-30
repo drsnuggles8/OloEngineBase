@@ -97,6 +97,24 @@ TEST_F(RegistryMutationTest, CustomRegistrationAppendsAfterDefaults)
     EXPECT_EQ(found->Id, ComponentInterpolationRegistry::HashName("MyGameplayStateComponent"));
 }
 
+TEST_F(RegistryMutationTest, DuplicateRegistrationIsIgnored)
+{
+    const sizet before = ComponentInterpolationRegistry::GetEntries().size();
+
+    // Re-registering an existing name (here a default) must be a no-op — otherwise
+    // snapshots would emit two copies while FindBy* only resolve the first.
+    InterpolationEntry dup;
+    dup.Name = "TransformComponent";
+    dup.Policy = EInterpolationPolicy::Step; // deliberately wrong, to prove it's rejected
+    ComponentInterpolationRegistry::Register(std::move(dup));
+
+    EXPECT_EQ(ComponentInterpolationRegistry::GetEntries().size(), before);
+    // The original Transform entry (Lerp) is retained, not the Step duplicate.
+    const auto* transform = ComponentInterpolationRegistry::FindByName("TransformComponent");
+    ASSERT_NE(transform, nullptr);
+    EXPECT_EQ(transform->Policy, EInterpolationPolicy::Lerp);
+}
+
 // ── Multi-component snapshot round-trip ──────────────────────────────────
 
 TEST(ComponentInterpolationRegistryTest, SnapshotRoundTripsTransformRigidbodyAndAnimation)

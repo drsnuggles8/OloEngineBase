@@ -6,6 +6,7 @@
 #include "OloEngine/Scene/Components.h"
 #include "OloEngine/Serialization/Archive.h"
 
+#include <limits>
 #include <utility>
 
 namespace OloEngine
@@ -51,10 +52,19 @@ namespace OloEngine
             }
 
             writer << uuid;
+            // The wire format stores the component count in a u16 and each component's
+            // byte length in a u32. These come from server-local data (registry size /
+            // a single component's serialized bytes) so they cannot realistically
+            // exceed the limits, but a silent narrowing here would truncate the field
+            // and de-sync the reader for the rest of the buffer — assert the invariant.
+            OLO_CORE_ASSERT(comps.size() <= static_cast<sizet>(std::numeric_limits<u16>::max()),
+                            "Entity has more replicated components than the u16 snapshot count field can hold");
             u16 count = static_cast<u16>(comps.size());
             writer << count;
             for (const auto& sc : comps)
             {
+                OLO_CORE_ASSERT(sc.Bytes.size() <= static_cast<sizet>(std::numeric_limits<u32>::max()),
+                                "Serialized component exceeds the u32 snapshot length field");
                 u32 id = sc.Id;
                 u32 len = static_cast<u32>(sc.Bytes.size());
                 writer << id << len;

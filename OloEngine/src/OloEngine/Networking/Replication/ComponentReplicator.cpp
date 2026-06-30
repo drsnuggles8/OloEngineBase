@@ -99,8 +99,15 @@ namespace OloEngine
         ar << component.m_IsPlaying;
         if (ar.IsLoading())
         {
-            component.m_State = static_cast<AnimationStateComponent::State>(state);
-            // Untrusted wire data: a clip index is never negative; the cursor must be finite.
+            // Untrusted wire data: clamp the selector enum to its valid range so an
+            // out-of-range payload can't drive the state machine into a bogus case;
+            // fall back to Idle. The clip index is floored at 0 — its upper bound is
+            // the client's local (non-replicated) m_AvailableClips count, so the
+            // consuming animation system must still bounds-check before indexing.
+            constexpr i32 maxState = static_cast<i32>(AnimationStateComponent::State::Custom);
+            component.m_State = (state >= 0 && state <= maxState)
+                                    ? static_cast<AnimationStateComponent::State>(state)
+                                    : AnimationStateComponent::State::Idle;
             if (component.m_CurrentClipIndex < 0)
             {
                 component.m_CurrentClipIndex = 0;
