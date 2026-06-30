@@ -2683,14 +2683,9 @@ namespace OloEngine
             }
         }
 
-        if (auto uiCanvasComponent = entity["UICanvasComponent"]; uiCanvasComponent)
-        {
-            auto& canvas = deserializedEntity.AddComponent<UICanvasComponent>();
-            TrySetEnum(canvas.m_RenderMode, uiCanvasComponent["RenderMode"]);
-            TrySetEnum(canvas.m_ScaleMode, uiCanvasComponent["ScaleMode"]);
-            TrySet(canvas.m_SortOrder, uiCanvasComponent["SortOrder"]);
-            TrySet(canvas.m_ReferenceResolution, uiCanvasComponent["ReferenceResolution"]);
-        }
+        // UICanvasComponent — auto-generated (all-trivial: two enums + an i32 +
+        // a glm::vec2). Its serialize/deserialize blocks live in
+        // Scene{Serialize,Deserialize}Components.Generated.inl (issue #451 enum slice).
 
         if (auto uiImageComponent = entity["UIImageComponent"]; uiImageComponent)
         {
@@ -2751,16 +2746,9 @@ namespace OloEngine
             TrySet(slider.m_Interactable, uiSliderComponent["Interactable"]);
         }
 
-        if (auto uiProgressBarComponent = entity["UIProgressBarComponent"]; uiProgressBarComponent)
-        {
-            auto& progress = deserializedEntity.AddComponent<UIProgressBarComponent>();
-            TrySet(progress.m_Value, uiProgressBarComponent["Value"]);
-            TrySet(progress.m_MinValue, uiProgressBarComponent["MinValue"]);
-            TrySet(progress.m_MaxValue, uiProgressBarComponent["MaxValue"]);
-            TrySetEnum(progress.m_FillMethod, uiProgressBarComponent["FillMethod"]);
-            TrySet(progress.m_BackgroundColor, uiProgressBarComponent["BackgroundColor"]);
-            TrySet(progress.m_FillColor, uiProgressBarComponent["FillColor"]);
-        }
+        // UIProgressBarComponent — auto-generated (all-trivial: three f32s, a
+        // FillMethod enum, two glm::vec4 colors). Block lives in the generated .inl
+        // (issue #451 enum slice).
 
         // UIWorldAnchorComponent — auto-generated (all-trivial: a UUID entity
         // reference + a glm::vec3 offset). Its serialize/deserialize blocks live in
@@ -2783,18 +2771,9 @@ namespace OloEngine
             TrySet(input.m_Interactable, uiInputFieldComponent["Interactable"]);
         }
 
-        if (auto uiScrollViewComponent = entity["UIScrollViewComponent"]; uiScrollViewComponent)
-        {
-            auto& scrollView = deserializedEntity.AddComponent<UIScrollViewComponent>();
-            TrySet(scrollView.m_ScrollPosition, uiScrollViewComponent["ScrollPosition"]);
-            TrySet(scrollView.m_ContentSize, uiScrollViewComponent["ContentSize"]);
-            TrySetEnum(scrollView.m_ScrollDirection, uiScrollViewComponent["ScrollDirection"]);
-            TrySet(scrollView.m_ScrollSpeed, uiScrollViewComponent["ScrollSpeed"]);
-            TrySet(scrollView.m_ShowHorizontalScrollbar, uiScrollViewComponent["ShowHorizontalScrollbar"]);
-            TrySet(scrollView.m_ShowVerticalScrollbar, uiScrollViewComponent["ShowVerticalScrollbar"]);
-            TrySet(scrollView.m_ScrollbarColor, uiScrollViewComponent["ScrollbarColor"]);
-            TrySet(scrollView.m_ScrollbarTrackColor, uiScrollViewComponent["ScrollbarTrackColor"]);
-        }
+        // UIScrollViewComponent — auto-generated (all-trivial: two glm::vec2s, a
+        // ScrollDirection enum, a f32, two bools, two glm::vec4 colors). Block lives
+        // in the generated .inl (issue #451 enum slice).
 
         if (auto uiDropdownComponent = entity["UIDropdownComponent"]; uiDropdownComponent)
         {
@@ -2821,16 +2800,9 @@ namespace OloEngine
             TrySet(dropdown.m_Interactable, uiDropdownComponent["Interactable"]);
         }
 
-        if (auto uiGridLayoutComponent = entity["UIGridLayoutComponent"]; uiGridLayoutComponent)
-        {
-            auto& grid = deserializedEntity.AddComponent<UIGridLayoutComponent>();
-            TrySet(grid.m_CellSize, uiGridLayoutComponent["CellSize"]);
-            TrySet(grid.m_Spacing, uiGridLayoutComponent["Spacing"]);
-            TrySet(grid.m_Padding, uiGridLayoutComponent["Padding"]);
-            TrySetEnum(grid.m_StartCorner, uiGridLayoutComponent["StartCorner"]);
-            TrySetEnum(grid.m_StartAxis, uiGridLayoutComponent["StartAxis"]);
-            TrySet(grid.m_ConstraintCount, uiGridLayoutComponent["ConstraintCount"]);
-        }
+        // UIGridLayoutComponent — auto-generated (all-trivial: two glm::vec2s, a
+        // glm::vec4, two enums StartCorner/StartAxis, an i32). Block lives in the
+        // generated .inl (issue #451 enum slice).
 
         if (auto particleComponent = entity["ParticleSystemComponent"]; particleComponent)
         {
@@ -3101,13 +3073,9 @@ namespace OloEngine
             sv.UnloadRadius = std::max(sv.UnloadRadius, sv.LoadRadius + 1.0f);
         }
 
-        if (auto networkIdentityComponent = entity["NetworkIdentityComponent"]; networkIdentityComponent)
-        {
-            auto& nic = deserializedEntity.AddComponent<NetworkIdentityComponent>();
-            TrySet(nic.OwnerClientID, networkIdentityComponent["OwnerClientID"]);
-            TrySetEnum(nic.Authority, networkIdentityComponent["Authority"]);
-            TrySet(nic.IsReplicated, networkIdentityComponent["IsReplicated"]);
-        }
+        // NetworkIdentityComponent — auto-generated (all-trivial: a u32 OwnerClientID,
+        // an Authority enum, an IsReplicated bool). Block lives in the generated .inl
+        // (issue #451 enum slice).
 
         if (auto phaseComponent = entity["PhaseComponent"]; phaseComponent)
         {
@@ -3123,11 +3091,8 @@ namespace OloEngine
             TrySet(ipc.MaxPlayers, instancePortalComponent["MaxPlayers"]);
         }
 
-        if (auto networkLODComponent = entity["NetworkLODComponent"]; networkLODComponent)
-        {
-            auto& nlc = deserializedEntity.AddComponent<NetworkLODComponent>();
-            TrySetEnum(nlc.Level, networkLODComponent["Level"]);
-        }
+        // NetworkLODComponent — auto-generated (all-trivial: a single Level enum).
+        // Block lives in the generated .inl (issue #451 enum slice).
 
         if (auto dialogueComponent = entity["DialogueComponent"]; dialogueComponent)
         {
@@ -4609,19 +4574,8 @@ namespace OloEngine
             out << YAML::EndMap; // RelationshipComponent
         }
 
-        if (entity.HasComponent<UICanvasComponent>())
-        {
-            out << YAML::Key << "UICanvasComponent";
-            out << YAML::BeginMap; // UICanvasComponent
-
-            auto const& canvas = entity.GetComponent<UICanvasComponent>();
-            out << YAML::Key << "RenderMode" << YAML::Value << static_cast<int>(std::to_underlying(canvas.m_RenderMode));
-            out << YAML::Key << "ScaleMode" << YAML::Value << static_cast<int>(std::to_underlying(canvas.m_ScaleMode));
-            out << YAML::Key << "SortOrder" << YAML::Value << canvas.m_SortOrder;
-            out << YAML::Key << "ReferenceResolution" << YAML::Value << canvas.m_ReferenceResolution;
-
-            out << YAML::EndMap; // UICanvasComponent
-        }
+        // UICanvasComponent serialize — auto-generated (issue #451 enum slice); see
+        // the matching note in DeserializeEntityComponents.
 
         if (entity.HasComponent<UIImageComponent>())
         {
@@ -4707,21 +4661,8 @@ namespace OloEngine
             out << YAML::EndMap; // UISliderComponent
         }
 
-        if (entity.HasComponent<UIProgressBarComponent>())
-        {
-            out << YAML::Key << "UIProgressBarComponent";
-            out << YAML::BeginMap; // UIProgressBarComponent
-
-            auto const& progress = entity.GetComponent<UIProgressBarComponent>();
-            out << YAML::Key << "Value" << YAML::Value << progress.m_Value;
-            out << YAML::Key << "MinValue" << YAML::Value << progress.m_MinValue;
-            out << YAML::Key << "MaxValue" << YAML::Value << progress.m_MaxValue;
-            out << YAML::Key << "FillMethod" << YAML::Value << static_cast<int>(std::to_underlying(progress.m_FillMethod));
-            out << YAML::Key << "BackgroundColor" << YAML::Value << progress.m_BackgroundColor;
-            out << YAML::Key << "FillColor" << YAML::Value << progress.m_FillColor;
-
-            out << YAML::EndMap; // UIProgressBarComponent
-        }
+        // UIProgressBarComponent serialize — auto-generated (issue #451 enum slice);
+        // see the matching note in DeserializeEntityComponents.
 
         // UIWorldAnchorComponent — auto-generated (see the matching note in
         // DeserializeEntityComponents); block lives in the generated .inl (issue #451).
@@ -4748,23 +4689,8 @@ namespace OloEngine
             out << YAML::EndMap; // UIInputFieldComponent
         }
 
-        if (entity.HasComponent<UIScrollViewComponent>())
-        {
-            out << YAML::Key << "UIScrollViewComponent";
-            out << YAML::BeginMap; // UIScrollViewComponent
-
-            auto const& scrollView = entity.GetComponent<UIScrollViewComponent>();
-            out << YAML::Key << "ScrollPosition" << YAML::Value << scrollView.m_ScrollPosition;
-            out << YAML::Key << "ContentSize" << YAML::Value << scrollView.m_ContentSize;
-            out << YAML::Key << "ScrollDirection" << YAML::Value << static_cast<int>(std::to_underlying(scrollView.m_ScrollDirection));
-            out << YAML::Key << "ScrollSpeed" << YAML::Value << scrollView.m_ScrollSpeed;
-            out << YAML::Key << "ShowHorizontalScrollbar" << YAML::Value << scrollView.m_ShowHorizontalScrollbar;
-            out << YAML::Key << "ShowVerticalScrollbar" << YAML::Value << scrollView.m_ShowVerticalScrollbar;
-            out << YAML::Key << "ScrollbarColor" << YAML::Value << scrollView.m_ScrollbarColor;
-            out << YAML::Key << "ScrollbarTrackColor" << YAML::Value << scrollView.m_ScrollbarTrackColor;
-
-            out << YAML::EndMap; // UIScrollViewComponent
-        }
+        // UIScrollViewComponent serialize — auto-generated (issue #451 enum slice);
+        // see the matching note in DeserializeEntityComponents.
 
         if (entity.HasComponent<UIDropdownComponent>())
         {
@@ -4793,21 +4719,8 @@ namespace OloEngine
             out << YAML::EndMap; // UIDropdownComponent
         }
 
-        if (entity.HasComponent<UIGridLayoutComponent>())
-        {
-            out << YAML::Key << "UIGridLayoutComponent";
-            out << YAML::BeginMap; // UIGridLayoutComponent
-
-            auto const& grid = entity.GetComponent<UIGridLayoutComponent>();
-            out << YAML::Key << "CellSize" << YAML::Value << grid.m_CellSize;
-            out << YAML::Key << "Spacing" << YAML::Value << grid.m_Spacing;
-            out << YAML::Key << "Padding" << YAML::Value << grid.m_Padding;
-            out << YAML::Key << "StartCorner" << YAML::Value << static_cast<int>(std::to_underlying(grid.m_StartCorner));
-            out << YAML::Key << "StartAxis" << YAML::Value << static_cast<int>(std::to_underlying(grid.m_StartAxis));
-            out << YAML::Key << "ConstraintCount" << YAML::Value << grid.m_ConstraintCount;
-
-            out << YAML::EndMap; // UIGridLayoutComponent
-        }
+        // UIGridLayoutComponent serialize — auto-generated (issue #451 enum slice);
+        // see the matching note in DeserializeEntityComponents.
 
         if (entity.HasComponent<ParticleSystemComponent>())
         {
@@ -5471,18 +5384,8 @@ namespace OloEngine
             out << YAML::EndMap; // StreamingVolumeComponent
         }
 
-        if (entity.HasComponent<NetworkIdentityComponent>())
-        {
-            out << YAML::Key << "NetworkIdentityComponent";
-            out << YAML::BeginMap;
-
-            auto const& nic = entity.GetComponent<NetworkIdentityComponent>();
-            out << YAML::Key << "OwnerClientID" << YAML::Value << nic.OwnerClientID;
-            out << YAML::Key << "Authority" << YAML::Value << static_cast<i32>(std::to_underlying(nic.Authority));
-            out << YAML::Key << "IsReplicated" << YAML::Value << nic.IsReplicated;
-
-            out << YAML::EndMap; // NetworkIdentityComponent
-        }
+        // NetworkIdentityComponent serialize — auto-generated (issue #451 enum slice);
+        // see the matching note in DeserializeEntityComponents.
 
         if (entity.HasComponent<PhaseComponent>())
         {
@@ -5508,16 +5411,8 @@ namespace OloEngine
             out << YAML::EndMap; // InstancePortalComponent
         }
 
-        if (entity.HasComponent<NetworkLODComponent>())
-        {
-            out << YAML::Key << "NetworkLODComponent";
-            out << YAML::BeginMap;
-
-            auto const& nlc = entity.GetComponent<NetworkLODComponent>();
-            out << YAML::Key << "Level" << YAML::Value << static_cast<i32>(std::to_underlying(nlc.Level));
-
-            out << YAML::EndMap; // NetworkLODComponent
-        }
+        // NetworkLODComponent serialize — auto-generated (issue #451 enum slice); see
+        // the matching note in DeserializeEntityComponents.
 
         if (entity.HasComponent<DialogueComponent>())
         {

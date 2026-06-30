@@ -3,10 +3,11 @@
 //
 // Per-component scene-YAML serialize blocks — one block per
 // `struct *Component` whose every data member is a primitive / glm::vec* /
-// std::string (the generator's SceneSerType), minus the kComponentsCustomSerialize
-// exclusion set (trivial components deliberately kept hand-written). A component
-// with any non-trivial field (enum, AssetHandle, Ref<T>, std::vector, nested
-// struct, …) is classified non-trivial and stays hand-written in SceneSerializer.cpp.
+// std::string / AssetHandle / enum (the generator's SceneSerType plus the
+// enum-type check), minus the kComponentsCustomSerialize exclusion set (trivial
+// components deliberately kept hand-written). A component with any still-unhandled
+// non-trivial field (Ref<T>, std::vector, nested struct, …) is classified
+// non-trivial and stays hand-written in SceneSerializer.cpp.
 //
 // #include'd inside SceneSerializer::SerializeEntity, where `out` (YAML::Emitter&) and `entity` (Entity)
 // are in scope. Floats are validated with std::isfinite via TryReadFiniteF32 /
@@ -95,6 +96,17 @@ if (entity.HasComponent<NameplateComponent>())
     out << YAML::EndMap; // NameplateComponent
 }
 
+if (entity.HasComponent<NetworkIdentityComponent>())
+{
+    out << YAML::Key << "NetworkIdentityComponent";
+    out << YAML::BeginMap; // NetworkIdentityComponent
+    auto const& comp = entity.GetComponent<NetworkIdentityComponent>();
+    out << YAML::Key << "OwnerClientID" << YAML::Value << comp.OwnerClientID;
+    out << YAML::Key << "Authority" << YAML::Value << static_cast<int>(comp.Authority);
+    out << YAML::Key << "IsReplicated" << YAML::Value << comp.IsReplicated;
+    out << YAML::EndMap; // NetworkIdentityComponent
+}
+
 if (entity.HasComponent<NetworkInterestComponent>())
 {
     out << YAML::Key << "NetworkInterestComponent";
@@ -103,6 +115,15 @@ if (entity.HasComponent<NetworkInterestComponent>())
     out << YAML::Key << "RelevanceRadius" << YAML::Value << comp.RelevanceRadius;
     out << YAML::Key << "InterestGroup" << YAML::Value << comp.InterestGroup;
     out << YAML::EndMap; // NetworkInterestComponent
+}
+
+if (entity.HasComponent<NetworkLODComponent>())
+{
+    out << YAML::Key << "NetworkLODComponent";
+    out << YAML::BeginMap; // NetworkLODComponent
+    auto const& comp = entity.GetComponent<NetworkLODComponent>();
+    out << YAML::Key << "Level" << YAML::Value << static_cast<int>(comp.Level);
+    out << YAML::EndMap; // NetworkLODComponent
 }
 
 if (entity.HasComponent<PerceptibleComponent>())
@@ -148,6 +169,18 @@ if (entity.HasComponent<SpotLightComponent>())
     out << YAML::EndMap; // SpotLightComponent
 }
 
+if (entity.HasComponent<UICanvasComponent>())
+{
+    out << YAML::Key << "UICanvasComponent";
+    out << YAML::BeginMap; // UICanvasComponent
+    auto const& comp = entity.GetComponent<UICanvasComponent>();
+    out << YAML::Key << "RenderMode" << YAML::Value << static_cast<int>(comp.m_RenderMode);
+    out << YAML::Key << "ScaleMode" << YAML::Value << static_cast<int>(comp.m_ScaleMode);
+    out << YAML::Key << "SortOrder" << YAML::Value << comp.m_SortOrder;
+    out << YAML::Key << "ReferenceResolution" << YAML::Value << comp.m_ReferenceResolution;
+    out << YAML::EndMap; // UICanvasComponent
+}
+
 if (entity.HasComponent<UICheckboxComponent>())
 {
     out << YAML::Key << "UICheckboxComponent";
@@ -159,6 +192,34 @@ if (entity.HasComponent<UICheckboxComponent>())
     out << YAML::Key << "CheckmarkColor" << YAML::Value << comp.m_CheckmarkColor;
     out << YAML::Key << "Interactable" << YAML::Value << comp.m_Interactable;
     out << YAML::EndMap; // UICheckboxComponent
+}
+
+if (entity.HasComponent<UIGridLayoutComponent>())
+{
+    out << YAML::Key << "UIGridLayoutComponent";
+    out << YAML::BeginMap; // UIGridLayoutComponent
+    auto const& comp = entity.GetComponent<UIGridLayoutComponent>();
+    out << YAML::Key << "CellSize" << YAML::Value << comp.m_CellSize;
+    out << YAML::Key << "Spacing" << YAML::Value << comp.m_Spacing;
+    out << YAML::Key << "Padding" << YAML::Value << comp.m_Padding;
+    out << YAML::Key << "StartCorner" << YAML::Value << static_cast<int>(comp.m_StartCorner);
+    out << YAML::Key << "StartAxis" << YAML::Value << static_cast<int>(comp.m_StartAxis);
+    out << YAML::Key << "ConstraintCount" << YAML::Value << comp.m_ConstraintCount;
+    out << YAML::EndMap; // UIGridLayoutComponent
+}
+
+if (entity.HasComponent<UIProgressBarComponent>())
+{
+    out << YAML::Key << "UIProgressBarComponent";
+    out << YAML::BeginMap; // UIProgressBarComponent
+    auto const& comp = entity.GetComponent<UIProgressBarComponent>();
+    out << YAML::Key << "Value" << YAML::Value << comp.m_Value;
+    out << YAML::Key << "MinValue" << YAML::Value << comp.m_MinValue;
+    out << YAML::Key << "MaxValue" << YAML::Value << comp.m_MaxValue;
+    out << YAML::Key << "FillMethod" << YAML::Value << static_cast<int>(comp.m_FillMethod);
+    out << YAML::Key << "BackgroundColor" << YAML::Value << comp.m_BackgroundColor;
+    out << YAML::Key << "FillColor" << YAML::Value << comp.m_FillColor;
+    out << YAML::EndMap; // UIProgressBarComponent
 }
 
 if (entity.HasComponent<UIRectTransformComponent>())
@@ -174,6 +235,22 @@ if (entity.HasComponent<UIRectTransformComponent>())
     out << YAML::Key << "Rotation" << YAML::Value << comp.m_Rotation;
     out << YAML::Key << "Scale" << YAML::Value << comp.m_Scale;
     out << YAML::EndMap; // UIRectTransformComponent
+}
+
+if (entity.HasComponent<UIScrollViewComponent>())
+{
+    out << YAML::Key << "UIScrollViewComponent";
+    out << YAML::BeginMap; // UIScrollViewComponent
+    auto const& comp = entity.GetComponent<UIScrollViewComponent>();
+    out << YAML::Key << "ScrollPosition" << YAML::Value << comp.m_ScrollPosition;
+    out << YAML::Key << "ContentSize" << YAML::Value << comp.m_ContentSize;
+    out << YAML::Key << "ScrollDirection" << YAML::Value << static_cast<int>(comp.m_ScrollDirection);
+    out << YAML::Key << "ScrollSpeed" << YAML::Value << comp.m_ScrollSpeed;
+    out << YAML::Key << "ShowHorizontalScrollbar" << YAML::Value << comp.m_ShowHorizontalScrollbar;
+    out << YAML::Key << "ShowVerticalScrollbar" << YAML::Value << comp.m_ShowVerticalScrollbar;
+    out << YAML::Key << "ScrollbarColor" << YAML::Value << comp.m_ScrollbarColor;
+    out << YAML::Key << "ScrollbarTrackColor" << YAML::Value << comp.m_ScrollbarTrackColor;
+    out << YAML::EndMap; // UIScrollViewComponent
 }
 
 if (entity.HasComponent<UIToggleComponent>())

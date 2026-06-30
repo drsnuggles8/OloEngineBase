@@ -81,6 +81,14 @@ enum class PropType
     Vec3,
     Vec4,
     String,
+    Enum, // An `enum` / `enum class` type. Scene-serializer-only: round-trips as
+          // an int (static_cast<int> on write, .as<int> on read), cast back to the
+          // field's own type via decltype so a nested enum (e.g.
+          // AnimationStateComponent::State) needs no qualified spelling at the
+          // SceneSerializer level. Detected by name against the collected enum-type
+          // set (see CollectEnumTypes) in ParseComponentFields, not by SceneSerType
+          // (which only knows built-in type names). The scripting path never produces
+          // this — only the scene serializer codegen emits it.
     Unknown
 };
 
@@ -772,13 +780,14 @@ static const std::set<std::string> kComponentsCustomOnRemove = {
 };
 
 // Components that ARE all-trivial-fields (every data member is a primitive /
-// glm::vec* / std::string / AssetHandle / UUID — see SceneSerType) yet are
-// deliberately kept HAND-WRITTEN in SceneSerializer.cpp rather than auto-generated.
+// glm::vec* / std::string / AssetHandle / UUID / enum — see SceneSerType and the
+// CollectEnumTypes-driven enum check in ParseComponentFields) yet are deliberately
+// kept HAND-WRITTEN in SceneSerializer.cpp rather than auto-generated.
 // The scene serialize/deserialize codegen (issue #380; AssetHandle/UUID added by
-// the #451 first slice) emits a block for every all-trivial component EXCEPT these;
-// anything with a still-unhandled non-trivial field (enum, Ref<T>, std::vector,
-// nested struct, glm::quat/mat/ivec, …) is classified non-trivial by the parser and
-// skipped automatically without needing an entry here.
+// the #451 first slice, enums by the #451 enum slice) emits a block for every
+// all-trivial component EXCEPT these; anything with a still-unhandled non-trivial
+// field (Ref<T>, std::vector, nested struct, glm::quat/mat/ivec, …) is classified
+// non-trivial by the parser and skipped automatically without needing an entry here.
 //
 // Each entry is a trivial component whose hand-written block does something the
 // plain round-trip generator must NOT silently drop:
@@ -794,6 +803,22 @@ static const std::set<std::string> kComponentsCustomOnRemove = {
 //     not just its ClassName member (the parser only sees ClassName).
 //   * VehicleComponent — has a runtime-only RuntimeVehicleToken field the
 //     hand-written serializer deliberately omits (auto-gen would persist it).
+//   * Rigidbody3DComponent — (a) its enum is keyed "BodyType" not "Type" (the
+//     m_-stripped default), so on-disk compatibility needs the hand-written key;
+//     (b) the hand-written serializer deliberately omits m_LayerID, m_LockedAxes,
+//     the initial/max velocities, and the runtime-only m_RuntimeBodyToken — auto-
+//     gen would persist all of them (the runtime token included).
+//   * StreamingVolumeComponent — (a) the runtime-only `IsLoaded` bool is omitted by
+//     the hand-written serializer (auto-gen would persist it); (b) deserialize range-
+//     clamps ActivationMode and the load/unload radii.
+//   * FogVolumeComponent — deserialize delegates to a hand-written helper that
+//     clamps the Shape enum (0..2), Priority (-100..100), and Sanitize()s extents /
+//     color / density / falloff / blend-weight; auto-gen would relax those guards.
+//   * UIButtonComponent — has a runtime-only interaction `m_State` (Normal/Hovered/
+//     Pressed/Disabled) the hand-written serializer omits (auto-gen would persist a
+//     transient hover/press state).
+//   * UISliderComponent — has a runtime-only `m_IsDragging` flag the hand-written
+//     serializer omits (auto-gen would persist a transient drag state).
 //   * TagComponent — entity identity, hand-copied; not a normal sub-map.
 //   * IDComponent — entity identity: its UUID is serialized once as the top-level
 //     `Entity: <uuid>` line and re-applied via CreateEntityWithUUID on load, never
@@ -814,17 +839,22 @@ static const std::set<std::string> kComponentsCustomOnRemove = {
 static const std::set<std::string> kComponentsCustomSerialize = {
     "BuoyancyComponent",
     "DialogueComponent",
+    "FogVolumeComponent",
     "IDComponent",
     "IKTargetComponent",
     "NoiseAnimationComponent",
     "PerceptionComponent",
     "PhaseComponent",
+    "Rigidbody3DComponent",
     "ScriptComponent",
     "SnowDeformerComponent",
     "SphereAreaLightComponent",
     "SpringBoneComponent",
+    "StreamingVolumeComponent",
     "TagComponent",
+    "UIButtonComponent",
     "UIResolvedRectComponent",
+    "UISliderComponent",
     "VehicleComponent",
 };
 
@@ -926,10 +956,14 @@ struct ComponentSerInfo
 // implicit operator u64() / implicit ctor(u64)) round-trips as a u64 — issue #451's
 // first slice brought it in scope, since "missing AssetHandle block ⇒ silent
 // scene-data loss" was the single most pervasive instance of the footgun (materials,
-// meshes, colliders, dialogue, streaming, …). Anything still unhandled — enum,
-// Ref<T>, std::vector, nested struct, glm::quat/mat/ivec, raw pointer, u8/u16, … —
-// returns Unknown, marking the component non-trivial so it stays hand-written in
-// SceneSerializer.cpp (handled by a future #451 slice).
+// meshes, colliders, dialogue, streaming, …). Enum / enum-class members round-trip
+// as an int — issue #451's enum slice — but are NOT detected here: an enum type name
+// is user-defined, so SceneSerType can't recognise it by spelling. ParseComponentFields
+// classifies a member PropType::Enum by matching its type against the collected
+// enum-type set (CollectEnumTypes) AFTER this returns Unknown. Anything still unhandled
+// — Ref<T>, std::vector, nested struct, glm::quat/mat/ivec, raw pointer, u8/u16, … —
+// returns Unknown and (being neither a built-in nor an enum) marks the component
+// non-trivial so it stays hand-written in SceneSerializer.cpp (a future #451 slice).
 static PropType SceneSerType(const std::string& t)
 {
     if (t == "f32" || t == "float")
@@ -1107,13 +1141,78 @@ static std::string StripBalancedMacro(const std::string& s, const std::string& m
     return out;
 }
 
+// Collect the *leaf* name of every `enum` / `enum class` / `enum struct`
+// definition under the scan dir, used by the scene-serializer field parser to
+// recognise an enum-typed member (a SceneSerType the built-in type table can't
+// know about, since enum type names are user-defined). Leaf == the part after
+// the last "::": a field is always declared in (or relative to) the enum's
+// scope, so an unqualified `State m_State` and a qualified
+// `AnimationStateComponent::State` both match the collected leaf "State".
+//
+// We intentionally store leaf names only:
+//   * Most enum members are declared unqualified (same scope as the enum) or
+//     with a leading qualifier the field strips down to the same leaf, so leaf
+//     matching covers both without tracking enclosing scope.
+//   * A false positive — a non-enum value field whose type's leaf coincides
+//     with some enum name — only flips an otherwise-trivial component to "enum",
+//     which then emits `static_cast<int>(structValue)` and FAILS TO COMPILE
+//     loudly (caught at build time), never a silent data issue. A false
+//     negative just leaves the component hand-written (status quo). Both fail
+//     safe, so leaf matching is acceptable.
+//
+// Forward declarations (`enum class Foo : u8;`) are collected too — harmless,
+// the name still denotes an enum type. Anonymous enums (`enum { A, B };`) have
+// no name and are skipped by the regex.
+static std::set<std::string> CollectEnumTypes(const fs::path& scanDir)
+{
+    std::set<std::string> names;
+    // `enum`, optional `class`/`struct`, then the type name. The name must be a
+    // plain identifier; an opaque-enum colon (`: u8`), `{`, or `;` ends it.
+    static const std::regex enumRe(R"(\benum\s+(?:class\s+|struct\s+)?([A-Za-z_]\w*))");
+
+    for (auto const& entry : fs::recursive_directory_iterator(scanDir))
+    {
+        if (!entry.is_regular_file())
+            continue;
+        if (auto ext = entry.path().extension().string(); ext != ".h" && ext != ".hpp")
+            continue;
+
+        std::ifstream file(entry.path());
+        if (!file.is_open())
+            continue;
+        std::string raw((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+        if (raw.find("enum") == std::string::npos)
+            continue;
+
+        std::string content = StripComments(raw);
+        for (auto it = std::sregex_iterator(content.begin(), content.end(), enumRe);
+             it != std::sregex_iterator(); ++it)
+        {
+            names.insert((*it)[1].str());
+        }
+    }
+
+    return names;
+}
+
+// The leaf identifier of a (possibly qualified) type name — everything after
+// the last "::". `BodyType3D` → `BodyType3D`; `Ocean::SpectrumType` →
+// `SpectrumType`. Used to match a component field's enum type against the
+// CollectEnumTypes leaf set.
+static std::string LeafTypeName(const std::string& type)
+{
+    if (auto pos = type.rfind("::"); pos != std::string::npos)
+        return type.substr(pos + 2);
+    return type;
+}
+
 // Parse the top-level data members of a `struct *Component { ... }` body and
 // classify the component as auto-serializable or not. A member is collected only
 // when it is unambiguously a `<trivial-type> <name>` field declaration. Anything
 // the parser cannot confidently classify as a trivial field — a non-trivial type,
 // a pointer/reference/template/array/bitfield, a const member — marks the whole
 // component non-trivial so it is left hand-written (ambiguity always fails safe).
-static ComponentSerInfo ParseComponentFields(std::string body)
+static ComponentSerInfo ParseComponentFields(std::string body, const std::set<std::string>& enumTypes)
 {
     ComponentSerInfo info;
     bool ambiguous = false;
@@ -1223,6 +1322,8 @@ static ComponentSerInfo ParseComponentFields(std::string body)
         }
 
         PropType pt = SceneSerType(type);
+        if (pt == PropType::Unknown && enumTypes.contains(LeafTypeName(type)))
+            pt = PropType::Enum; // an enum-typed member — round-trips as an int
         if (pt == PropType::Unknown)
         {
             ambiguous = true; // an unrecognised type — keep the component hand-written
@@ -1246,7 +1347,8 @@ static ComponentSerInfo ParseComponentFields(std::string body)
 // than just the type name, so the scene serializer codegen can emit per-field
 // read/writes. Returns a name → ComponentSerInfo map (std::map for deterministic,
 // alphabetical emit order).
-static std::map<std::string, ComponentSerInfo> CollectComponentFields(const fs::path& scanDir)
+static std::map<std::string, ComponentSerInfo> CollectComponentFields(const fs::path& scanDir,
+                                                                      const std::set<std::string>& enumTypes)
 {
     std::map<std::string, ComponentSerInfo> result;
     static const std::regex structRe(R"(\bstruct\s+([A-Za-z_]\w*Component)\b)");
@@ -1297,7 +1399,7 @@ static std::map<std::string, ComponentSerInfo> CollectComponentFields(const fs::
 
             if (result.contains(name))
                 continue; // first definition wins (matches CollectComponentStructs)
-            result.emplace(name, ParseComponentFields(content.substr(start + 1, q - start - 1)));
+            result.emplace(name, ParseComponentFields(content.substr(start + 1, q - start - 1), enumTypes));
         }
     }
 
@@ -1445,10 +1547,11 @@ static void EmitSceneSerializerHeader(std::ostream& out, const char* verb, const
     out << "//\n";
     out << "// Per-component scene-YAML " << verb << " blocks — one block per\n";
     out << "// `struct *Component` whose every data member is a primitive / glm::vec* /\n";
-    out << "// std::string (the generator's SceneSerType), minus the kComponentsCustomSerialize\n";
-    out << "// exclusion set (trivial components deliberately kept hand-written). A component\n";
-    out << "// with any non-trivial field (enum, AssetHandle, Ref<T>, std::vector, nested\n";
-    out << "// struct, …) is classified non-trivial and stays hand-written in SceneSerializer.cpp.\n";
+    out << "// std::string / AssetHandle / enum (the generator's SceneSerType plus the\n";
+    out << "// enum-type check), minus the kComponentsCustomSerialize exclusion set (trivial\n";
+    out << "// components deliberately kept hand-written). A component with any still-unhandled\n";
+    out << "// non-trivial field (Ref<T>, std::vector, nested struct, …) is classified\n";
+    out << "// non-trivial and stays hand-written in SceneSerializer.cpp.\n";
     out << "//\n";
     out << "// #include'd inside SceneSerializer::" << func << ", where " << locals << "\n";
     out << "// are in scope. Floats are validated with std::isfinite via TryReadFiniteF32 /\n";
@@ -1480,6 +1583,11 @@ static void EmitSceneSerializeBlocks(std::ostream& out, const std::map<std::stri
             // hand-written AssetHandle block, e.g. SoundConfigHandle / ColliderAsset).
             if (f.type == PropType::AssetHandle)
                 out << "    out << YAML::Key << \"" << f.key << "\" << YAML::Value << static_cast<u64>(comp." << f.member << ");\n";
+            // An enum has no YAML::Emitter overload — write its integer value
+            // (matches the hand-written `static_cast<i32>(std::to_underlying(...))`
+            // blocks; round-tripped through .as<int>() on the deserialize side).
+            else if (f.type == PropType::Enum)
+                out << "    out << YAML::Key << \"" << f.key << "\" << YAML::Value << static_cast<int>(comp." << f.member << ");\n";
             else
                 out << "    out << YAML::Key << \"" << f.key << "\" << YAML::Value << comp." << f.member << ";\n";
         }
@@ -1537,6 +1645,15 @@ static void EmitSceneDeserializeBlocks(std::ostream& out, const std::map<std::st
                     // missing key keeps the constructor default (cast it to u64 for the
                     // yaml-cpp fallback overload). Matches the hand-written blocks.
                     out << "    " << lhs << " = " << key << ".as<u64>(static_cast<u64>(" << lhs << "));\n";
+                    break;
+                case PropType::Enum:
+                    // Read as int, cast back to the member's own enum type via
+                    // decltype — robust to nested enums (e.g. Component::State) that
+                    // aren't in scope by their unqualified name at the SceneSerializer
+                    // level. A missing key keeps the default (cast it to int for the
+                    // yaml-cpp fallback overload). Mirrors the TrySetEnum helper.
+                    out << "    " << lhs << " = static_cast<decltype(" << lhs << ")>(" << key
+                        << ".as<int>(static_cast<int>(" << lhs << ")));\n";
                     break;
                 case PropType::String:
                     out << "    " << lhs << " = " << key << ".as<std::string>(" << lhs << ");\n";
@@ -2047,8 +2164,11 @@ int main(int argc, char* argv[])
             errors = true;
         // Scene-serializer per-component serialize/deserialize blocks. Driven by a
         // full data-member scan (CollectComponentFields), not the OLO_PROPERTY scan
-        // — the serializer persists every field, not just script-exposed ones.
-        if (!WriteSceneSerializerBlocks(sceneOutDir, CollectComponentFields(scanDir)))
+        // — the serializer persists every field, not just script-exposed ones. The
+        // enum-type set lets the field parser recognise enum-typed members (which
+        // round-trip as an int) instead of treating them as unknown non-trivial.
+        auto enumTypes = CollectEnumTypes(scanDir);
+        if (!WriteSceneSerializerBlocks(sceneOutDir, CollectComponentFields(scanDir, enumTypes)))
             errors = true;
     }
 
