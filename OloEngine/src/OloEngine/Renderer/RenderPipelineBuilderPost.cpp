@@ -50,6 +50,15 @@ namespace OloEngine::RenderPipelineBuilderInternal
                                        inputs.Passes->ColorGrading));
         graph.AddNode(PrepareGraphNode("ToneMapPass",
                                        inputs.Passes->ToneMap));
+        // Spatial upscaler / CAS sharpening. Runs on the tonemapped (LDR) image
+        // — CAS's contrast term assumes the [0,1] display range — so it sits
+        // right after ToneMap and before Vignette. Self-skips when CAS is
+        // disabled (its UpscalerColor resource is never declared).
+        if (inputs.Passes->Upscaler)
+        {
+            graph.AddNode(PrepareGraphNode("UpscalerPass",
+                                           inputs.Passes->Upscaler));
+        }
         graph.AddNode(PrepareGraphNode("VignettePass",
                                        inputs.Passes->Vignette));
         if (inputs.Passes->FXAA)

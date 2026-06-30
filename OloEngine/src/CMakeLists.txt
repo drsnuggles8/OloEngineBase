@@ -747,6 +747,8 @@
 		"OloEngine/Renderer/Passes/ColorGradingRenderPass.cpp"
 		"OloEngine/Renderer/Passes/ToneMapRenderPass.h"
 		"OloEngine/Renderer/Passes/ToneMapRenderPass.cpp"
+		"OloEngine/Renderer/Passes/UpscalerRenderPass.h"
+		"OloEngine/Renderer/Passes/UpscalerRenderPass.cpp"
 		"OloEngine/Renderer/Passes/VignetteRenderPass.h"
 		"OloEngine/Renderer/Passes/VignetteRenderPass.cpp"
 		"OloEngine/Renderer/Passes/TAARenderPass.h"

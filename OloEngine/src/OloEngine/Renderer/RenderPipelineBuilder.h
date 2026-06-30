@@ -46,6 +46,7 @@ namespace OloEngine
         RenderGraphNode* ChromAberration = nullptr;
         RenderGraphNode* ColorGrading = nullptr;
         RenderGraphNode* ToneMap = nullptr;
+        RenderGraphNode* Upscaler = nullptr;
         RenderGraphNode* Vignette = nullptr;
         RenderGraphNode* FXAA = nullptr;
         RenderGraphNode* SelectionOutline = nullptr;

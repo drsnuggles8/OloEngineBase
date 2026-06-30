@@ -102,6 +102,9 @@ namespace OloEngine
             AppendChange(changes, "TAAFeedback", before.TAAFeedback, after.TAAFeedback);
             AppendChange(changes, "TAASharpness", before.TAASharpness, after.TAASharpness);
 
+            AppendChange(changes, "CASEnabled", before.CASEnabled, after.CASEnabled);
+            AppendChange(changes, "CASSharpness", before.CASSharpness, after.CASSharpness);
+
             AppendChange(changes, "ColorGradingEnabled", before.ColorGradingEnabled, after.ColorGradingEnabled);
 
             if (before.ActiveAOTechnique != after.ActiveAOTechnique)
@@ -192,6 +195,7 @@ namespace OloEngine
         DrawColorGradingSection();
         DrawFXAASection();
         DrawTAASection();
+        DrawCASSection();
         DrawDOFSection();
         DrawMotionBlurSection();
 
@@ -497,6 +501,26 @@ namespace OloEngine
                 ImGui::DragFloat("History Feedback", &settings.TAAFeedback, 0.01f, 0.0f, 0.98f, "%.2f");
                 ImGui::DragFloat("Sharpness", &settings.TAASharpness, 0.01f, 0.0f, 1.0f, "%.2f");
                 ImGui::TextWrapped("Deferred: consumes G-Buffer velocity (RT3). Forward / Forward+: reconstructs camera-motion velocity from depth \u2014 moving objects will ghost. Projection jitter is not injected; sub-pixel AA quality is reduced but temporal stability still works.");
+            }
+
+            ImGui::Unindent();
+        }
+    }
+
+    void PostProcessSettingsPanel::DrawCASSection() const
+    {
+        auto& settings = Renderer3D::GetPostProcessSettings();
+
+        if (ImGui::CollapsingHeader("Sharpening (CAS)"))
+        {
+            ImGui::Indent();
+
+            ImGui::Checkbox("Enable##CAS", &settings.CASEnabled);
+
+            if (settings.CASEnabled)
+            {
+                ImGui::DragFloat("Sharpness", &settings.CASSharpness, 0.01f, 0.0f, 1.0f, "%.2f");
+                ImGui::TextWrapped("Contrast Adaptive Sharpening (FidelityFX). Runs after tone mapping on the LDR image; sharpens low-contrast edges while backing off on high-contrast ones to avoid ringing. First slice of the FSR1 spatial upscaler.");
             }
 
             ImGui::Unindent();
