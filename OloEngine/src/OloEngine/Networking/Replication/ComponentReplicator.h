@@ -12,6 +12,7 @@ namespace OloEngine
     struct TransformComponent;
     struct Rigidbody2DComponent;
     struct Rigidbody3DComponent;
+    struct AnimationStateComponent;
 
     // Type-erased component serialization function.
     // The void* MUST point to the concrete component type matching the registered name.
@@ -27,6 +28,10 @@ namespace OloEngine
         static void Serialize(FArchive& ar, TransformComponent& component);
         static void Serialize(FArchive& ar, Rigidbody2DComponent& component);
         static void Serialize(FArchive& ar, Rigidbody3DComponent& component);
+        // Networked subset of the animation state (discrete clip selection +
+        // playback cursor) — the heavy Ref<AnimationClip> / bone-entity fields
+        // are local/asset-bound and never replicated.
+        static void Serialize(FArchive& ar, AnimationStateComponent& component);
 
         // Register the three built-in component serializers.
         static void RegisterDefaults();

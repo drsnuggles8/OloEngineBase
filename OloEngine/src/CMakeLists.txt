@@ -1025,6 +1025,8 @@
 		"OloEngine/Networking/Transport/NetworkClient.cpp"
 		"OloEngine/Networking/Replication/ComponentReplicator.h"
 		"OloEngine/Networking/Replication/ComponentReplicator.cpp"
+		"OloEngine/Networking/Replication/ComponentInterpolationRegistry.h"
+		"OloEngine/Networking/Replication/ComponentInterpolationRegistry.cpp"
 		"OloEngine/Networking/Replication/EntitySnapshot.h"
 		"OloEngine/Networking/Replication/EntitySnapshot.cpp"
 		"OloEngine/Networking/Replication/SnapshotBuffer.h"

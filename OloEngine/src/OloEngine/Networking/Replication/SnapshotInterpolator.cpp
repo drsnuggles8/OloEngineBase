@@ -1,44 +1,32 @@
 #include "OloEnginePCH.h"
 #include "SnapshotInterpolator.h"
 #include "EntitySnapshot.h"
-#include "ComponentReplicator.h"
+#include "ComponentInterpolationRegistry.h"
 #include "OloEngine/Scene/Scene.h"
 #include "OloEngine/Scene/Entity.h"
 #include "OloEngine/Scene/Components.h"
-#include "OloEngine/Serialization/Archive.h"
 
 #include <algorithm>
 #include <cmath>
-#include <unordered_map>
-
-#include <glm/gtc/quaternion.hpp>
 
 namespace OloEngine
 {
-    // Parse a snapshot buffer into a map of UUID → TransformComponent.
-    static std::unordered_map<u64, TransformComponent> ParseSnapshot(const std::vector<u8>& data)
+    namespace
     {
-        std::unordered_map<u64, TransformComponent> result;
-        if (data.empty())
+        // Locate a component's serialized bytes within a parsed entity record by
+        // its wire id. Few components per entity, so a linear scan is cheapest.
+        [[nodiscard]] const std::vector<u8>* FindComponentBytes(const SnapshotEntity& comps, u32 id)
         {
-            return result;
+            for (const auto& sc : comps)
+            {
+                if (sc.Id == id)
+                {
+                    return &sc.Bytes;
+                }
+            }
+            return nullptr;
         }
-
-        FMemoryReader reader(data);
-        reader.ArIsNetArchive = true;
-
-        while (reader.Tell() < reader.TotalSize() && !reader.IsError())
-        {
-            u64 uuid = 0;
-            reader << uuid;
-
-            TransformComponent transform;
-            ComponentReplicator::Serialize(reader, transform);
-            result[uuid] = transform;
-        }
-
-        return result;
-    }
+    } // namespace
 
     SnapshotInterpolator::SnapshotInterpolator(u32 bufferCapacity)
         : m_Buffer(bufferCapacity)
@@ -100,22 +88,24 @@ namespace OloEngine
         f32 const tickRange = static_cast<f32>(after->Tick - before->Tick);
         f32 const alpha = std::clamp((renderTick - static_cast<f32>(before->Tick)) / tickRange, 0.0f, 1.0f);
 
-        // Parse both snapshots (with caching)
+        // Parse both snapshots into per-entity, per-component byte-blobs (cached
+        // by tick so a static bracket isn't re-parsed every frame).
         if (before->Tick != m_CachedBeforeTick)
         {
-            m_CachedBefore = ParseSnapshot(before->Data);
+            m_CachedBefore = EntitySnapshot::Parse(before->Data);
             m_CachedBeforeTick = before->Tick;
         }
         if (after->Tick != m_CachedAfterTick)
         {
-            m_CachedAfter = ParseSnapshot(after->Data);
+            m_CachedAfter = EntitySnapshot::Parse(after->Data);
             m_CachedAfterTick = after->Tick;
         }
 
         const auto& beforeEntities = m_CachedBefore;
         const auto& afterEntities = m_CachedAfter;
+        const auto& entries = ComponentInterpolationRegistry::GetEntries();
 
-        // Interpolate and apply to the scene
+        // Interpolate the registered component set and apply to the scene.
         auto view = scene.GetAllEntitiesWith<NetworkIdentityComponent, TransformComponent>();
         for (auto entityHandle : view)
         {
@@ -136,34 +126,35 @@ namespace OloEngine
 
             auto itBefore = beforeEntities.find(uuid);
             auto itAfter = afterEntities.find(uuid);
-
-            if (itBefore != beforeEntities.end() && itAfter != afterEntities.end())
+            const SnapshotEntity* beforeComps = (itBefore != beforeEntities.end()) ? &itBefore->second : nullptr;
+            const SnapshotEntity* afterComps = (itAfter != afterEntities.end()) ? &itAfter->second : nullptr;
+            if (beforeComps == nullptr && afterComps == nullptr)
             {
-                auto& transform = entity.GetComponent<TransformComponent>();
-                const auto& tb = itBefore->second;
-                const auto& ta = itAfter->second;
-
-                // Lerp translation
-                transform.Translation = glm::mix(tb.Translation, ta.Translation, alpha);
-                // Slerp rotation via quaternion for correct spherical interpolation
-                glm::quat const qBefore = tb.GetRotation();
-                glm::quat const qAfter = ta.GetRotation();
-                glm::quat const qInterp = glm::slerp(qBefore, qAfter, alpha);
-                transform.SetRotation(qInterp);
-                // Lerp scale
-                transform.Scale = glm::mix(tb.Scale, ta.Scale, alpha);
+                continue;
             }
-            else if (itAfter != afterEntities.end())
+
+            for (const auto& entry : entries)
             {
-                // Entity only exists in the newer snapshot — snap to it
-                auto& transform = entity.GetComponent<TransformComponent>();
-                transform.Translation = itAfter->second.Translation;
-                transform.SetRotationEuler(itAfter->second.GetRotationEuler());
-                transform.Scale = itAfter->second.Scale;
-            }
-            else
-            {
-                // No additional handling required.
+                if (entry.Has == nullptr || !entry.Has(entity))
+                {
+                    continue;
+                }
+
+                const std::vector<u8>* beforeBytes = (beforeComps != nullptr) ? FindComponentBytes(*beforeComps, entry.Id) : nullptr;
+                const std::vector<u8>* afterBytes = (afterComps != nullptr) ? FindComponentBytes(*afterComps, entry.Id) : nullptr;
+
+                if (beforeBytes != nullptr && afterBytes != nullptr && entry.Interpolate != nullptr)
+                {
+                    // Both brackets carry it — blend per the component's policy.
+                    entry.Interpolate(entity, *beforeBytes, *afterBytes, alpha);
+                }
+                else if (afterBytes != nullptr && entry.Snap != nullptr)
+                {
+                    // Only the newer snapshot has it — snap to it.
+                    entry.Snap(entity, *afterBytes);
+                }
+                // Only the older snapshot has it (entity leaving the newer one) —
+                // keep the last-known value, matching the prior transform behaviour.
             }
         }
     }
