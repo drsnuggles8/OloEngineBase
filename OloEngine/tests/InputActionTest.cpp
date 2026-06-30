@@ -744,3 +744,242 @@ TEST_F(InputStateTransitionTest, StaleStateCleanedAfterActionRemoval)
     EXPECT_FALSE(InputActionManager::IsActionPressed("Jump"));
     EXPECT_FALSE(InputActionManager::IsActionJustReleased("Jump"));
 }
+
+// ============================================================================
+// Input context (action-map) tests — multiple named contexts, single-active
+// switching, and held-key carry-over suppression on switch.
+// ============================================================================
+
+class InputContextTest : public ::testing::Test
+{
+  protected:
+    MockInputProvider m_Mock;
+
+    static InputActionMap MakeGameplayMap()
+    {
+        InputActionMap map;
+        map.Name = "Gameplay";
+        map.AddAction({ "Fire", { InputBinding::Key(Key::Space) } });
+        map.AddAction({ "Reload", { InputBinding::Key(Key::R) } });
+        return map;
+    }
+
+    static InputActionMap MakeMenuMap()
+    {
+        InputActionMap map;
+        map.Name = "Menu";
+        map.AddAction({ "Confirm", { InputBinding::Key(Key::Enter) } });
+        // Deliberately reuse Space (Gameplay's "Fire" key) so the carry-over
+        // suppression test can prove a held key doesn't leak across the switch.
+        map.AddAction({ "Back", { InputBinding::Key(Key::Space) } });
+        return map;
+    }
+
+    void SetUp() override
+    {
+        InputActionManager::Init();
+        InputActionManager::SetInputProvider(&m_Mock);
+    }
+
+    void TearDown() override
+    {
+        InputActionManager::SetInputProvider(nullptr); // restore default
+        InputActionManager::Shutdown();
+    }
+};
+
+TEST_F(InputContextTest, DefaultContextIsGameplay)
+{
+    EXPECT_EQ(InputActionManager::GetInputContext(), InputContextType::Gameplay);
+}
+
+TEST_F(InputContextTest, SetInputContextChangesActiveContext)
+{
+    InputActionManager::SetInputContext(InputContextType::Menu);
+    EXPECT_EQ(InputActionManager::GetInputContext(), InputContextType::Menu);
+
+    InputActionManager::SetInputContext(InputContextType::Vehicle);
+    EXPECT_EQ(InputActionManager::GetInputContext(), InputContextType::Vehicle);
+}
+
+TEST_F(InputContextTest, SwitchingContextActivatesDifferentMap)
+{
+    InputActionManager::SetActionMap(InputContextType::Gameplay, MakeGameplayMap());
+    InputActionManager::SetActionMap(InputContextType::Menu, MakeMenuMap());
+
+    // Active context is Gameplay: Space drives "Fire"; "Confirm" is unknown here.
+    m_Mock.PressKey(Key::Space);
+    InputActionManager::Update();
+    EXPECT_TRUE(InputActionManager::IsActionPressed("Fire"));
+    EXPECT_FALSE(InputActionManager::IsActionPressed("Confirm"));
+
+    // Switch to Menu: Enter drives "Confirm"; "Fire" no longer exists.
+    m_Mock.ReleaseAll();
+    InputActionManager::SetInputContext(InputContextType::Menu);
+    m_Mock.PressKey(Key::Enter);
+    InputActionManager::Update();
+    EXPECT_TRUE(InputActionManager::IsActionPressed("Confirm"));
+    EXPECT_FALSE(InputActionManager::IsActionPressed("Fire"));
+}
+
+TEST_F(InputContextTest, MapsArePreservedAcrossContextRoundTrip)
+{
+    InputActionManager::SetActionMap(InputContextType::Gameplay, MakeGameplayMap());
+    InputActionManager::SetActionMap(InputContextType::Menu, MakeMenuMap());
+
+    EXPECT_EQ(InputActionManager::GetActionMap().Name, "Gameplay");
+    EXPECT_TRUE(InputActionManager::GetActionMap().HasAction("Fire"));
+
+    InputActionManager::SetInputContext(InputContextType::Menu);
+    EXPECT_EQ(InputActionManager::GetActionMap().Name, "Menu");
+    EXPECT_TRUE(InputActionManager::GetActionMap().HasAction("Confirm"));
+
+    InputActionManager::SetInputContext(InputContextType::Gameplay);
+    EXPECT_EQ(InputActionManager::GetActionMap().Name, "Gameplay");
+    EXPECT_TRUE(InputActionManager::GetActionMap().HasAction("Reload"));
+}
+
+TEST_F(InputContextTest, GetActionMapByContextReadsInactiveContext)
+{
+    InputActionManager::SetActionMap(InputContextType::Gameplay, MakeGameplayMap());
+    InputActionManager::SetActionMap(InputContextType::Menu, MakeMenuMap());
+
+    // Gameplay is active; read the inactive Menu map without switching to it.
+    const auto& menu = InputActionManager::GetActionMap(InputContextType::Menu);
+    EXPECT_EQ(menu.Name, "Menu");
+    EXPECT_TRUE(menu.HasAction("Confirm"));
+
+    // The active-context overload routes back to the live map.
+    const auto& gameplay = InputActionManager::GetActionMap(InputContextType::Gameplay);
+    EXPECT_EQ(gameplay.Name, "Gameplay");
+}
+
+TEST_F(InputContextTest, HeldKeyDoesNotFireSameKeyActionAfterSwitch)
+{
+    InputActionManager::SetActionMap(InputContextType::Gameplay, MakeGameplayMap());
+    InputActionManager::SetActionMap(InputContextType::Menu, MakeMenuMap());
+
+    // Hold Space in Gameplay — "Fire" fires.
+    m_Mock.PressKey(Key::Space);
+    InputActionManager::Update();
+    EXPECT_TRUE(InputActionManager::IsActionJustPressed("Fire"));
+
+    // Switch to Menu while Space is still held. Menu's "Back" is also bound to Space.
+    InputActionManager::SetInputContext(InputContextType::Menu);
+    InputActionManager::Update();
+
+    // "Back" is pressed (the key is down) but must NOT be just-pressed — the press
+    // carried over from the previous context and should be ignored for one frame.
+    EXPECT_TRUE(InputActionManager::IsActionPressed("Back"));
+    EXPECT_FALSE(InputActionManager::IsActionJustPressed("Back"));
+
+    // Release then re-press → now it registers as a fresh just-pressed.
+    m_Mock.ReleaseKey(Key::Space);
+    InputActionManager::Update();
+    EXPECT_TRUE(InputActionManager::IsActionJustReleased("Back"));
+
+    m_Mock.PressKey(Key::Space);
+    InputActionManager::Update();
+    EXPECT_TRUE(InputActionManager::IsActionJustPressed("Back"));
+}
+
+TEST_F(InputContextTest, SwitchingToSameContextIsNoOp)
+{
+    InputActionManager::SetActionMap(InputContextType::Gameplay, MakeGameplayMap());
+
+    m_Mock.PressKey(Key::Space);
+    InputActionManager::Update();
+    InputActionManager::Update(); // held across two frames → no longer "just" pressed
+    EXPECT_TRUE(InputActionManager::IsActionPressed("Fire"));
+    EXPECT_FALSE(InputActionManager::IsActionJustPressed("Fire"));
+
+    // Switching to the already-active context must not reset cached state.
+    InputActionManager::SetInputContext(InputContextType::Gameplay);
+    EXPECT_EQ(InputActionManager::GetInputContext(), InputContextType::Gameplay);
+    EXPECT_TRUE(InputActionManager::IsActionPressed("Fire"));
+}
+
+TEST_F(InputContextTest, DefaultContextDepthIsOne)
+{
+    EXPECT_EQ(InputActionManager::GetContextDepth(), sizet{ 1 });
+}
+
+TEST_F(InputContextTest, PushContextActivatesAndPopRestores)
+{
+    InputActionManager::SetActionMap(InputContextType::Gameplay, MakeGameplayMap());
+    InputActionManager::SetActionMap(InputContextType::Menu, MakeMenuMap());
+
+    EXPECT_EQ(InputActionManager::GetInputContext(), InputContextType::Gameplay);
+
+    // Push Menu over Gameplay — Menu becomes active, depth grows.
+    InputActionManager::PushContext(InputContextType::Menu);
+    EXPECT_EQ(InputActionManager::GetInputContext(), InputContextType::Menu);
+    EXPECT_EQ(InputActionManager::GetContextDepth(), sizet{ 2 });
+    EXPECT_TRUE(InputActionManager::GetActionMap().HasAction("Confirm"));
+
+    // Pop — Gameplay is restored, including its (still-present) map.
+    EXPECT_TRUE(InputActionManager::PopContext());
+    EXPECT_EQ(InputActionManager::GetInputContext(), InputContextType::Gameplay);
+    EXPECT_EQ(InputActionManager::GetContextDepth(), sizet{ 1 });
+    EXPECT_TRUE(InputActionManager::GetActionMap().HasAction("Fire"));
+}
+
+TEST_F(InputContextTest, PopContextNeverPopsBaseContext)
+{
+    // At depth 1, PopContext is a no-op that reports failure.
+    EXPECT_EQ(InputActionManager::GetContextDepth(), sizet{ 1 });
+    EXPECT_FALSE(InputActionManager::PopContext());
+    EXPECT_EQ(InputActionManager::GetContextDepth(), sizet{ 1 });
+    EXPECT_EQ(InputActionManager::GetInputContext(), InputContextType::Gameplay);
+}
+
+TEST_F(InputContextTest, PushContextNestsMultipleLevels)
+{
+    InputActionManager::PushContext(InputContextType::Menu);
+    InputActionManager::PushContext(InputContextType::Vehicle);
+    EXPECT_EQ(InputActionManager::GetContextDepth(), sizet{ 3 });
+    EXPECT_EQ(InputActionManager::GetInputContext(), InputContextType::Vehicle);
+
+    EXPECT_TRUE(InputActionManager::PopContext());
+    EXPECT_EQ(InputActionManager::GetInputContext(), InputContextType::Menu);
+
+    EXPECT_TRUE(InputActionManager::PopContext());
+    EXPECT_EQ(InputActionManager::GetInputContext(), InputContextType::Gameplay);
+    EXPECT_EQ(InputActionManager::GetContextDepth(), sizet{ 1 });
+}
+
+TEST_F(InputContextTest, SetInputContextCollapsesTheStack)
+{
+    InputActionManager::PushContext(InputContextType::Menu);
+    InputActionManager::PushContext(InputContextType::Vehicle);
+    EXPECT_EQ(InputActionManager::GetContextDepth(), sizet{ 3 });
+
+    // A hard switch flattens any nesting back to a single active context.
+    InputActionManager::SetInputContext(InputContextType::Gameplay);
+    EXPECT_EQ(InputActionManager::GetContextDepth(), sizet{ 1 });
+    EXPECT_EQ(InputActionManager::GetInputContext(), InputContextType::Gameplay);
+}
+
+TEST_F(InputContextTest, PushAndPopSuppressHeldKeyCarryOver)
+{
+    InputActionManager::SetActionMap(InputContextType::Gameplay, MakeGameplayMap());
+    InputActionManager::SetActionMap(InputContextType::Menu, MakeMenuMap());
+
+    // Hold Space in Gameplay — "Fire" fires.
+    m_Mock.PressKey(Key::Space);
+    InputActionManager::Update();
+    EXPECT_TRUE(InputActionManager::IsActionJustPressed("Fire"));
+
+    // Push Menu while Space is still held. Menu's "Back" shares the Space binding,
+    // but the carried-over press must not register as a fresh just-pressed.
+    InputActionManager::PushContext(InputContextType::Menu);
+    InputActionManager::Update();
+    EXPECT_TRUE(InputActionManager::IsActionPressed("Back"));
+    EXPECT_FALSE(InputActionManager::IsActionJustPressed("Back"));
+
+    // Pop back to Gameplay with Space still held — same suppression on the way back.
+    EXPECT_TRUE(InputActionManager::PopContext());
+    InputActionManager::Update();
+    EXPECT_TRUE(InputActionManager::IsActionPressed("Fire"));
+    EXPECT_FALSE(InputActionManager::IsActionJustPressed("Fire"));
+}

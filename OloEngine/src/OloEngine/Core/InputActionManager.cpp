@@ -156,32 +156,38 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        s_ActiveMap = {};
+        s_ContextStack.assign(1, InputContextType::Gameplay);
+        s_ContextMaps.clear();
         s_CurrentState.clear();
         s_PreviousState.clear();
         s_AxisValues.clear();
+        s_SuppressTransientOnNextUpdate = false;
     }
 
     void InputActionManager::Shutdown()
     {
         OLO_PROFILE_FUNCTION();
 
-        s_ActiveMap = {};
+        s_ContextStack.assign(1, InputContextType::Gameplay);
+        s_ContextMaps.clear();
         s_CurrentState.clear();
         s_PreviousState.clear();
         s_AxisValues.clear();
+        s_SuppressTransientOnNextUpdate = false;
     }
 
     void InputActionManager::Update()
     {
         OLO_PROFILE_FUNCTION();
 
+        const InputActionMap& activeMap = ActiveMap();
+
         s_PreviousState = s_CurrentState;
 
         // Prune stale entries for actions that no longer exist in the map
         for (auto it = s_CurrentState.begin(); it != s_CurrentState.end();)
         {
-            if (!s_ActiveMap.Actions.contains(it->first))
+            if (!activeMap.Actions.contains(it->first))
             {
                 it = s_CurrentState.erase(it);
             }
@@ -192,7 +198,7 @@ namespace OloEngine
         }
         for (auto it = s_PreviousState.begin(); it != s_PreviousState.end();)
         {
-            if (!s_ActiveMap.Actions.contains(it->first))
+            if (!activeMap.Actions.contains(it->first))
             {
                 it = s_PreviousState.erase(it);
             }
@@ -202,7 +208,7 @@ namespace OloEngine
             }
         }
 
-        for (const auto& [actionName, action] : s_ActiveMap.Actions)
+        for (const auto& [actionName, action] : activeMap.Actions)
         {
             bool pressed = false;
             for (const auto& binding : action.Bindings)
@@ -282,6 +288,15 @@ namespace OloEngine
             }
             s_AxisValues[actionName] = bestAxisValue;
         }
+
+        // First frame after a context switch: align previous to current so no action
+        // reports just-pressed/just-released from input that was already held. From the
+        // next frame on, transitions are detected normally.
+        if (s_SuppressTransientOnNextUpdate)
+        {
+            s_PreviousState = s_CurrentState;
+            s_SuppressTransientOnNextUpdate = false;
+        }
     }
 
     bool InputActionManager::IsActionPressed(std::string_view actionName)
@@ -315,12 +330,86 @@ namespace OloEngine
         return prevIt != s_PreviousState.end() && prevIt->second;
     }
 
-    void InputActionManager::SetActionMap(const InputActionMap& map)
+    void InputActionManager::ResetStateForContextChange()
     {
-        s_ActiveMap = map;
+        // Clear cached press/axis state and suppress just-pressed/just-released on the
+        // next Update(), so a key still held from the previous context doesn't fire a
+        // same-key action in the newly-activated context (e.g. Escape opening a menu
+        // shouldn't instantly trigger the menu's Escape-bound "Back").
         s_CurrentState.clear();
         s_PreviousState.clear();
         s_AxisValues.clear();
+        s_SuppressTransientOnNextUpdate = true;
+    }
+
+    void InputActionManager::SetActionMap(const InputActionMap& map)
+    {
+        ActiveMap() = map;
+        s_CurrentState.clear();
+        s_PreviousState.clear();
+        s_AxisValues.clear();
+    }
+
+    void InputActionManager::SetActionMap(InputContextType ctx, const InputActionMap& map)
+    {
+        const bool isActive = (ctx == s_ContextStack.back());
+        s_ContextMaps[ctx] = map;
+        if (isActive)
+        {
+            s_CurrentState.clear();
+            s_PreviousState.clear();
+            s_AxisValues.clear();
+        }
+    }
+
+    void InputActionManager::SetInputContext(InputContextType ctx)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        // Hard switch: collapse the stack to a single entry. No-op when ctx is
+        // already the sole active context, so cached state is preserved.
+        if (s_ContextStack.size() == 1 && s_ContextStack.back() == ctx)
+        {
+            return;
+        }
+
+        const bool activeChanged = (s_ContextStack.back() != ctx);
+        s_ContextStack.assign(1, ctx);
+        if (activeChanged)
+        {
+            ResetStateForContextChange();
+        }
+    }
+
+    void InputActionManager::PushContext(InputContextType ctx)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        const bool activeChanged = (s_ContextStack.back() != ctx);
+        s_ContextStack.push_back(ctx);
+        if (activeChanged)
+        {
+            ResetStateForContextChange();
+        }
+    }
+
+    bool InputActionManager::PopContext()
+    {
+        OLO_PROFILE_FUNCTION();
+
+        // Never pop the base context — there must always be an active context.
+        if (s_ContextStack.size() <= 1)
+        {
+            return false;
+        }
+
+        const InputContextType popped = s_ContextStack.back();
+        s_ContextStack.pop_back();
+        if (s_ContextStack.back() != popped)
+        {
+            ResetStateForContextChange();
+        }
+        return true;
     }
 
     void InputActionManager::SetInputProvider(IInputProvider* provider)
