@@ -53,6 +53,61 @@ The `run-oloengine` skill's `attach` action automates this end-to-end: it picks 
 per-worktree port + `OLO_MCP_DISCOVERY_FILE`, launches the editor with the server
 auto-started, then runs `claude mcp add` so the `olo_*` tools attach to the session.
 
+## Headless attach — the offscreen framebuffer (issue #316)
+
+The editor host above reads a **live viewport**. But the renderer's real verification
+happens **headless**: the test harness renders into an *offscreen* render-graph
+framebuffer (`RendererAttachedTest::RunEditorFrames` → the `UIComposite` RT the visual
+evidence tests read back — `WaterVisualEvidenceTest`, `SceneRenderEvidenceTest`). CLAUDE.md
+requires every rendering change to be *visually* verified, and a renderer worktree often has
+no editor running — just the test binary. The **headless attach** path makes the read-only
+visual tools (`olo_screenshot`, `olo_shader_errors`, and `olo_render_capture_target`) work
+against that offscreen framebuffer, so an agent can screenshot exactly what the headless
+pipeline drew.
+
+The seam is that `McpServer` is already decoupled from the editor — it only reads an
+`EditorMcpContext` (a struct of hooks) and marshals main-thread work onto the engine
+**GameThread** task queue. The test-side host
+([`OloEngine/tests/Rendering/PropertyTests/McpHeadlessHost.h`](../../OloEngine/tests/Rendering/PropertyTests/McpHeadlessHost.h))
+wires that context to the offscreen composite framebuffer + an `EditorCamera`, starts the
+server, and **pumps the GameThread queue itself** (`FNamedThreadManager::ProcessTasks`) from
+the GL-context thread while a tool call runs on a worker thread — preserving the
+`MarshalRead` contract (handlers run on a non-game thread; the pumping thread services their
+jobs). It captures the same `UIComposite` RT0 the editor viewport samples, so the screenshot
+is byte-for-byte the headless frame.
+
+Two entry points, both in
+[`McpHeadlessAttachTest.cpp`](../../OloEngine/tests/Rendering/PropertyTests/McpHeadlessAttachTest.cpp):
+
+- **`ScreenshotAndShaderErrorsOverMcp`** — the CI regression guard. Renders a lit cube into
+  the offscreen FB, hosts the server in-process, issues real JSON-RPC `tools/call`
+  dispatches, and asserts `olo_screenshot` returns a decodable PNG of the offscreen frame
+  and `olo_shader_errors` a well-formed report. It **SKIPs** (not fails) without a GL 4.6
+  context, exactly like the other visual-evidence tests.
+- **`HostUntilDetached`** — the interactive headless-attach mode. It **SKIPs** in normal CI;
+  set `OLO_MCP_HEADLESS_ATTACH=1` (plus the usual `OLO_MCP_PORT` / `OLO_MCP_DISCOVERY_FILE`)
+  and it renders + hosts the server live, pumping until a stop signal, so an external agent
+  attached over the bound socket can screenshot the offscreen FB from a renderer worktree's
+  headless loop:
+
+  ```bash
+  # Host the offscreen frame over MCP from the test binary (port + discovery file
+  # land where `claude mcp add` expects them):
+  OLO_MCP_HEADLESS_ATTACH=1 OLO_MCP_PORT=21000 \
+  OLO_MCP_DISCOVERY_FILE="$TMPDIR/oloengine-mcp-21000.json" \
+    build/OloEngine/tests/Debug/OloEngine-Tests.exe \
+    --gtest_filter='McpHeadlessAttachTest.HostUntilDetached'
+  # …then `claude mcp add` with the token from the discovery file (see "Attaching an agent").
+  ```
+
+  The session runs for `OLO_MCP_ATTACH_SECONDS` (default 600, capped 7200), or stops early
+  when the sentinel file `<discovery-file>.stop` is created and then removed.
+
+Honesty boundary: the headless host wires the read-only/inspection hooks only —
+`olo_camera_frame_entity`, `olo_viewport_set_size`, and the consented project-write tools
+return a clean "not available" because the test owns no editor undo stack / panel viewport.
+The screenshot, shader, scene, perf, physics, and render-capture/override tools all work.
+
 ## Attaching an agent
 
 ### Claude Code

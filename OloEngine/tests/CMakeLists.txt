@@ -179,6 +179,12 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/RendererAttachedTest.cpp
 		Rendering/PropertyTests/RendererAttachedSmokeTest.cpp
 		Rendering/PropertyTests/SceneRenderEvidenceTest.cpp
+		# Headless-attach stretch of issue #316: hosts the read-only MCP server
+		# inside the test binary against the offscreen render-graph FB so
+		# olo_screenshot / olo_shader_errors work in the headless visual-verify
+		# loop. Header-only host helper (McpHeadlessHost.h); pulls in the real MCP
+		# tools (McpTools.cpp + McpScriptApi.cpp) added to the source list below.
+		Rendering/PropertyTests/McpHeadlessAttachTest.cpp
 		Rendering/PropertyTests/VideoOverlayVisualEvidenceTest.cpp
 		Rendering/PropertyTests/AutoExposureEvidenceTest.cpp
 		Rendering/PropertyTests/TestFailureCapture.cpp
@@ -311,10 +317,17 @@ add_executable(OloEngine-Tests
 		# MCP JSON-RPC dispatch / framing tests (issue #306 item D). The dispatch
 		# core lives in the OloEditor target, so pull its single httplib-free-at-
 		# the-seam translation unit into the test binary (cpp_httplib is linked
-		# below). McpServerPanel.* (ImGui) and McpTools.* (real tools) are NOT
-		# needed — the test registers fake tools/resources/prompts.
+		# below). McpServerPanel.* (ImGui) is NOT needed.
 		MCP/McpDispatchTest.cpp
 		${CMAKE_SOURCE_DIR}/OloEditor/src/MCP/McpServer.cpp
+		# Headless-attach stretch (issue #316): McpHeadlessAttachTest hosts the
+		# REAL tool surface (RegisterBuiltinTools) against the offscreen FB, so it
+		# needs the actual tool TUs too. These are editor-decoupled — they include
+		# only OloEngine headers + the header-only MCP/* helpers — so they compile
+		# cleanly into the test binary (which links OloEngine). McpScriptApi.cpp
+		# supplies BuildScriptApiDigest, referenced by McpTools.cpp.
+		${CMAKE_SOURCE_DIR}/OloEditor/src/MCP/McpTools.cpp
+		${CMAKE_SOURCE_DIR}/OloEditor/src/MCP/McpScriptApi.cpp
 		# Pure reasoning behind olo_physics_why_no_collision (#306 item A). Header-
 		# only (MCP/McpPhysicsExplain.h), so no extra editor TU is pulled in.
 		MCP/McpPhysicsExplainTest.cpp
