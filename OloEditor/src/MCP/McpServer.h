@@ -155,6 +155,21 @@ namespace OloEngine::MCP
         u32 ViewportHeight = 0;
     };
 
+    // Outcome of a consented script reload (issue #306 item C), returned by
+    // EditorMcpContext::ReloadScriptAssembly. `Available` is false when C# scripting
+    // is not compiled into this build or the engine has no core assembly loaded — the
+    // tool then reports that honestly instead of pretending it reloaded. `Ok` is true
+    // only when the reload actually ran; `ScriptClassCount` is how many entity-script
+    // classes are registered afterwards (a non-zero signal the app assembly loaded).
+    struct McpScriptReloadResult
+    {
+        bool Available = false;
+        bool Ok = false;
+        std::string Language = "csharp";
+        u32 ScriptClassCount = 0;
+        std::string Message;
+    };
+
     // Editor state the main-marshaled tools read. EditorLayer fills these in; the
     // std::function bodies are ONLY safe to call on the main (game) thread, i.e.
     // from inside a MarshalRead() job.
@@ -206,6 +221,16 @@ namespace OloEngine::MCP
         // Null in a build that does not back the server with an editor (the dispatch
         // tests), and gated at dispatch by the "Allow writes" session toggle.
         std::function<CommandHistory*()> GetCommandHistory;
+
+        // Reload the C# script assembly — the editor's Script ▸ Reload assembly
+        // (Ctrl+R) path, ScriptEngine::ReloadAssembly(), so an agent can iterate on
+        // C# scripts over MCP without restarting the editor. Like GetCommandHistory
+        // this is a consented project-write tool: gated at dispatch by "Allow writes"
+        // (reloading runs the user's freshly-built assembly code). Main-thread-only
+        // (touches the Mono domain), so call it from inside a MarshalRead job. Null in
+        // a headless host that owns no script engine — the tool then reports "not
+        // available".
+        std::function<McpScriptReloadResult()> ReloadScriptAssembly;
     };
 
     // An MCP resource: a passive, addressable blob (vs. an active tool). The reader
