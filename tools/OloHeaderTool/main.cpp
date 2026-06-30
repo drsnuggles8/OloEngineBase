@@ -1783,17 +1783,19 @@ static void EmitSceneDeserializeBlocks(std::ostream& out, const std::map<std::st
             const std::string lhs = "comp." + f.member;
             const std::string key = "node[\"" + f.key + "\"]";
             // std::vector<E> — rebuild the sequence element-by-element. A missing key
-            // or non-sequence node leaves the (cleared) vector empty. Each element is
-            // validated: floats via TryReadFiniteF32, enums via an int round-trip,
+            // or non-sequence node leaves the vector at its constructor default (the
+            // .clear() happens only inside the IsSequence() guard, matching the scalar
+            // path's `.as<T>(default)` keep-default-on-absent semantics). Each element
+            // is validated: floats via TryReadFiniteF32, enums via an int decode,
             // everything else via the element type's YAML::convert<> (the glm Decode
-            // helpers finiteness-validate; a malformed element is dropped, not pushed
-            // as garbage). `decltype(lhs)::value_type` spells the element type without
+            // helpers finiteness-validate); a malformed element is dropped, not pushed
+            // as garbage. `decltype(lhs)::value_type` spells the element type without
             // tracking it textually (robust to nested enums / type aliases).
             if (f.isVector)
             {
-                out << "    " << lhs << ".clear();\n";
                 out << "    if (auto seqNode = " << key << "; seqNode && seqNode.IsSequence())\n";
                 out << "    {\n";
+                out << "        " << lhs << ".clear();\n";
                 out << "        for (auto const& e : seqNode)\n";
                 if (f.type == PropType::Float)
                 {
@@ -1802,8 +1804,9 @@ static void EmitSceneDeserializeBlocks(std::ostream& out, const std::map<std::st
                 }
                 else if (f.type == PropType::Enum)
                 {
-                    out << "            " << lhs << ".push_back(static_cast<decltype(" << lhs
-                        << ")::value_type>(e.as<int>(0)));\n";
+                    out << "            if (int ev; ::YAML::convert<int>::decode(e, ev))\n";
+                    out << "                " << lhs << ".push_back(static_cast<decltype(" << lhs
+                        << ")::value_type>(ev));\n";
                 }
                 else
                 {

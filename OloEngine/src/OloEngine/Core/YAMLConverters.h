@@ -364,8 +364,11 @@ namespace YAML
         return out;
     }
 
-    // mat3 / mat4 emitted as a flat row-major flow sequence (9 / 16 floats) —
-    // matches EncodeMat3 / EncodeMat4, which iterate m[i][j] in the same order.
+    // mat3 / mat4 emitted as a flat flow sequence of 9 / 16 floats in glm's native
+    // column-major order: glm::mat* is column-major, so m[i] is column i and the
+    // m[i][j] loop walks column-by-column. Matches EncodeMat3 / EncodeMat4 (same
+    // iteration) and DecodeMat3 / DecodeMat4 (which read node[i*N+j] back into
+    // m[i][j]), so the round-trip is order-consistent.
     inline Emitter& operator<<(Emitter& out, const glm::mat3& m)
     {
         out << Flow << BeginSeq;

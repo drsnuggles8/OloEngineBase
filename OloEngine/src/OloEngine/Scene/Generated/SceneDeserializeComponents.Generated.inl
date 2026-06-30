@@ -148,16 +148,16 @@ if (auto node = entity["PointLightComponent"]; node)
 if (auto node = entity["QuestGiverComponent"]; node)
 {
     auto& comp = deserializedEntity.AddComponent<QuestGiverComponent>();
-    comp.OfferedQuestIDs.clear();
     if (auto seqNode = node["OfferedQuestIDs"]; seqNode && seqNode.IsSequence())
     {
+        comp.OfferedQuestIDs.clear();
         for (auto const& e : seqNode)
             if (decltype(comp.OfferedQuestIDs)::value_type v{}; ::YAML::convert<decltype(comp.OfferedQuestIDs)::value_type>::decode(e, v))
                 comp.OfferedQuestIDs.push_back(v);
     }
-    comp.TurnInQuestIDs.clear();
     if (auto seqNode = node["TurnInQuestIDs"]; seqNode && seqNode.IsSequence())
     {
+        comp.TurnInQuestIDs.clear();
         for (auto const& e : seqNode)
             if (decltype(comp.TurnInQuestIDs)::value_type v{}; ::YAML::convert<decltype(comp.TurnInQuestIDs)::value_type>::decode(e, v))
                 comp.TurnInQuestIDs.push_back(v);
@@ -169,9 +169,9 @@ if (auto node = entity["RelationshipComponent"]; node)
 {
     auto& comp = deserializedEntity.AddComponent<RelationshipComponent>();
     comp.m_ParentHandle = node["ParentHandle"].as<u64>(static_cast<u64>(comp.m_ParentHandle));
-    comp.m_Children.clear();
     if (auto seqNode = node["Children"]; seqNode && seqNode.IsSequence())
     {
+        comp.m_Children.clear();
         for (auto const& e : seqNode)
             if (decltype(comp.m_Children)::value_type v{}; ::YAML::convert<decltype(comp.m_Children)::value_type>::decode(e, v))
                 comp.m_Children.push_back(v);
