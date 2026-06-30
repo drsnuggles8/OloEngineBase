@@ -71,6 +71,16 @@ enum class PropType
     Int,
     UInt,
     U64,
+    // Small integer members (u8/u16/i8/i16). Scene-serializer-only: written as a
+    // wider int (static_cast<u32>/<i32> on emit) so yaml-cpp does NOT serialize a
+    // u8/i8 as a raw character (its convert<unsigned char>::encode does `stream <<
+    // rhs`, emitting the byte as a char); read back via .as<decltype(member)>,
+    // whose char-type decode special-case parses the numeric string and range-
+    // checks before narrowing. Matches the hand-written `static_cast<u32>(...)`
+    // blocks (e.g. InstancePortalComponent::InstanceType). The scripting path never
+    // produces these (CppTypeToPropType doesn't map them) — only SceneSerType does.
+    SmallUInt,   // u8 / u16
+    SmallInt,    // i8 / i16
     AssetHandle, // AssetHandle / UUID — a u64 wrapper. Scene-serializer-only:
                  // round-trips as a u64 (static_cast<u64> on write, .as<u64> on
                  // read) but is emitted distinctly from a plain u64 so the
@@ -80,6 +90,18 @@ enum class PropType
     Vec2,
     Vec3,
     Vec4,
+    // glm integer-vector / quaternion / matrix members. Scene-serializer-only:
+    // round-trip through the glm Encode/Decode helpers in Core/YAMLConverters.h
+    // (Emitter<< on write, .as<glm::T>(default) on read — float components are
+    // finiteness-validated by the Decode helpers, integers need no check). The
+    // scripting path never produces these (CppTypeToPropType doesn't map them) —
+    // only SceneSerType does.
+    IVec2,
+    IVec3,
+    IVec4,
+    Quat,
+    Mat3,
+    Mat4,
     String,
     Enum, // An `enum` / `enum class` type. Scene-serializer-only: round-trips as
           // an int (static_cast<int> on write, .as<int> on read), cast back to the
@@ -780,14 +802,17 @@ static const std::set<std::string> kComponentsCustomOnRemove = {
 };
 
 // Components that ARE all-trivial-fields (every data member is a primitive /
-// glm::vec* / std::string / AssetHandle / UUID / enum — see SceneSerType and the
-// CollectEnumTypes-driven enum check in ParseComponentFields) yet are deliberately
+// small-int / glm::vec*/ivec*/quat/mat* / std::string / AssetHandle / UUID / enum /
+// std::vector<one-of-those> — see SceneSerType, the CollectEnumTypes-driven enum
+// check, and the std::vector handling in ParseComponentFields) yet are deliberately
 // kept HAND-WRITTEN in SceneSerializer.cpp rather than auto-generated.
 // The scene serialize/deserialize codegen (issue #380; AssetHandle/UUID added by
-// the #451 first slice, enums by the #451 enum slice) emits a block for every
+// the #451 first slice, enums by the #451 enum slice, glm-math + small-int +
+// std::vector<primitive> by the #451 glm/vector slice) emits a block for every
 // all-trivial component EXCEPT these; anything with a still-unhandled non-trivial
-// field (Ref<T>, std::vector, nested struct, glm::quat/mat/ivec, …) is classified
-// non-trivial by the parser and skipped automatically without needing an entry here.
+// field (Ref<T>, std::unordered_map/set, nested struct, std::vector of struct, or a
+// non-public data member) is classified non-trivial by the parser and skipped
+// automatically without needing an entry here.
 //
 // Each entry is a trivial component whose hand-written block does something the
 // plain round-trip generator must NOT silently drop:
@@ -819,6 +844,23 @@ static const std::set<std::string> kComponentsCustomOnRemove = {
 //     transient hover/press state).
 //   * UISliderComponent — has a runtime-only `m_IsDragging` flag the hand-written
 //     serializer omits (auto-gen would persist a transient drag state).
+//   * LightProbeVolumeComponent — (a) the runtime-only `m_Dirty` (set by property
+//     setters, cleared by the bake) and editor-only `m_ShowDebugProbes` are omitted
+//     by the hand-written serializer (now that glm::ivec3 m_Resolution is a
+//     SceneSerType the parser sees it as all-trivial); (b) deserialize Sanitize()s
+//     Spacing / Intensity, clamps Resolution to >= 1, and orders the bounds — auto-
+//     gen would persist the runtime fields and relax those guards. (#451 glm slice.)
+//   * NavAgentComponent — the hand-written serializer persists only the 7 authored
+//     agent params (Radius … LockYAxis); m_TargetPosition / m_HasTarget / m_HasPath /
+//     m_PathCorners / m_CurrentCornerIndex / m_CrowdAgentId are runtime pathfinding
+//     state. Now that std::vector<glm::vec3> m_PathCorners is serializable the parser
+//     sees it as all-trivial, so auto-gen would persist all the runtime state.
+//     (#451 vector slice.)
+//   * PhysicsJoint3DComponent — has a runtime-only `m_RuntimeConstraintToken` the
+//     hand-written serializer omits, and its deserialize clamps/Sanitize()s dozens of
+//     joint limits/spring params. Now that its enum + std::vector<glm::vec3> path
+//     fields are serializable the parser sees it as all-trivial; auto-gen would
+//     persist the runtime token and relax every clamp. (#451 glm/vector slice.)
 //   * TagComponent — entity identity, hand-copied; not a normal sub-map.
 //   * IDComponent — entity identity: its UUID is serialized once as the top-level
 //     `Entity: <uuid>` line and re-applied via CreateEntityWithUUID on load, never
@@ -842,9 +884,12 @@ static const std::set<std::string> kComponentsCustomSerialize = {
     "FogVolumeComponent",
     "IDComponent",
     "IKTargetComponent",
+    "LightProbeVolumeComponent",
+    "NavAgentComponent",
     "NoiseAnimationComponent",
     "PerceptionComponent",
     "PhaseComponent",
+    "PhysicsJoint3DComponent",
     "Rigidbody3DComponent",
     "ScriptComponent",
     "SnowDeformerComponent",
@@ -942,6 +987,9 @@ struct SerField
     std::string member; // C++ member name, e.g. "m_Intensity" or "Color"
     std::string key;    // YAML key, e.g. "Intensity" / "Color" (member minus m_)
     PropType type{ PropType::Unknown };
+    // When true the member is a std::vector<E> serialized as a YAML sequence; `type`
+    // holds the ELEMENT PropType E (which must itself be a trivial serializer type).
+    bool isVector{ false };
 };
 
 // Per-component result of the field scan.
@@ -956,14 +1004,19 @@ struct ComponentSerInfo
 // implicit operator u64() / implicit ctor(u64)) round-trips as a u64 — issue #451's
 // first slice brought it in scope, since "missing AssetHandle block ⇒ silent
 // scene-data loss" was the single most pervasive instance of the footgun (materials,
-// meshes, colliders, dialogue, streaming, …). Enum / enum-class members round-trip
-// as an int — issue #451's enum slice — but are NOT detected here: an enum type name
-// is user-defined, so SceneSerType can't recognise it by spelling. ParseComponentFields
-// classifies a member PropType::Enum by matching its type against the collected
-// enum-type set (CollectEnumTypes) AFTER this returns Unknown. Anything still unhandled
-// — Ref<T>, std::vector, nested struct, glm::quat/mat/ivec, raw pointer, u8/u16, … —
-// returns Unknown and (being neither a built-in nor an enum) marks the component
-// non-trivial so it stays hand-written in SceneSerializer.cpp (a future #451 slice).
+// meshes, colliders, dialogue, streaming, …). Small ints (u8/u16/i8/i16) and the glm
+// integer-vector / quaternion / matrix types (ivec2/3/4, quat, mat3/mat4) are detected
+// here too — #451's glm/small-int slice — using the Encode/Decode helpers in
+// Core/YAMLConverters.h (small ints widened to u32/i32 on emit to dodge yaml-cpp's
+// raw-char encode). Enum / enum-class members round-trip as an int — issue #451's enum
+// slice — but are NOT detected here: an enum type name is user-defined, so SceneSerType
+// can't recognise it by spelling. ParseComponentFields classifies a member
+// PropType::Enum by matching its type against the collected enum-type set
+// (CollectEnumTypes), and a std::vector<E> by parsing its element type, both AFTER this
+// returns Unknown. Anything still unhandled — Ref<T>, std::unordered_map/set, nested
+// struct, std::vector of struct, raw pointer, … — returns Unknown and (being neither a
+// built-in, an enum, nor a recognised vector) marks the component non-trivial so it
+// stays hand-written in SceneSerializer.cpp (a future #451 slice).
 static PropType SceneSerType(const std::string& t)
 {
     if (t == "f32" || t == "float")
@@ -976,6 +1029,10 @@ static PropType SceneSerType(const std::string& t)
         return PropType::UInt;
     if (t == "u64")
         return PropType::U64;
+    if (t == "u8" || t == "u16" || t == "uint8_t" || t == "uint16_t")
+        return PropType::SmallUInt;
+    if (t == "i8" || t == "i16" || t == "int8_t" || t == "int16_t")
+        return PropType::SmallInt;
     if (t == "AssetHandle" || t == "UUID")
         return PropType::AssetHandle;
     if (t == "glm::vec2")
@@ -984,6 +1041,18 @@ static PropType SceneSerType(const std::string& t)
         return PropType::Vec3;
     if (t == "glm::vec4")
         return PropType::Vec4;
+    if (t == "glm::ivec2")
+        return PropType::IVec2;
+    if (t == "glm::ivec3")
+        return PropType::IVec3;
+    if (t == "glm::ivec4")
+        return PropType::IVec4;
+    if (t == "glm::quat")
+        return PropType::Quat;
+    if (t == "glm::mat3" || t == "glm::mat3x3")
+        return PropType::Mat3;
+    if (t == "glm::mat4" || t == "glm::mat4x4")
+        return PropType::Mat4;
     if (t == "std::string")
         return PropType::String;
     return PropType::Unknown;
@@ -1216,6 +1285,13 @@ static ComponentSerInfo ParseComponentFields(std::string body, const std::set<st
 {
     ComponentSerInfo info;
     bool ambiguous = false;
+    // Current access level. A struct defaults to public; a `private:` / `protected:`
+    // label flips it off. A non-public data member cannot be referenced as
+    // `comp.member` by the generated serializer, so it marks the component
+    // non-trivial (fail-safe: keep it hand-written rather than emit code that won't
+    // compile — or, if the field is glued to the label in the same ;-statement,
+    // silently drop it).
+    bool publicSection = true;
 
     // OLO_PROPERTY(...) annotations expand to nothing — drop them (paren-balanced)
     // before statement splitting so they never merge into the next field's line.
@@ -1257,6 +1333,29 @@ static ComponentSerInfo ParseComponentFields(std::string body, const std::set<st
         if (s.empty())
             continue;
 
+        // Peel any leading access-specifier label(s), tracking the current access
+        // level. A label can be glued to the following member in the same ;-statement
+        // (e.g. "private: glm::quat Rotation"), so loop until none remain. The actual
+        // public/non-public decision is applied where a field would be collected.
+        for (bool peeled = true; peeled;)
+        {
+            peeled = false;
+            for (auto const& [label, makesPublic] : std::initializer_list<std::pair<const char*, bool>>{
+                     { "public:", true }, { "private:", false }, { "protected:", false } })
+            {
+                const std::string lbl = label;
+                if (s.rfind(lbl, 0) == 0)
+                {
+                    publicSection = makesPublic;
+                    s = Trim(s.substr(lbl.size()));
+                    peeled = true;
+                    break;
+                }
+            }
+        }
+        if (s.empty())
+            continue; // the statement was nothing but access-specifier label(s)
+
         // The declarator is everything before the first '=' (default initializer)
         // or '{' (braced initializer / method body).
         size_t cut = s.size();
@@ -1286,6 +1385,40 @@ static ComponentSerInfo ParseComponentFields(std::string body, const std::set<st
             continue;
         if (decl.find('(') != std::string::npos) // function / constructor / destructor
             continue;
+
+        // std::vector<E> member — serialized as a YAML sequence. Handled before the
+        // generic complex-declarator rejection below (which bans '<' / '>'). A vector
+        // whose element E is itself a trivial serializer type (scalar / small-int /
+        // glm / string / AssetHandle / enum) is auto-serializable; anything else
+        // (vector of struct / Ref / nested template, or any non-vector template such
+        // as Ref<T> / std::unordered_map) marks the component non-trivial and is left
+        // hand-written. Only single-level vectors are accepted (a nested '<' in the
+        // element type fails safe to non-trivial).
+        if (auto lt = decl.find('<'); lt != std::string::npos &&
+                                      Trim(decl.substr(0, lt)) == "std::vector")
+        {
+            auto gt = decl.rfind('>');
+            std::string inner = (gt != std::string::npos && gt > lt) ? Trim(decl.substr(lt + 1, gt - lt - 1)) : "";
+            std::string rest = (gt != std::string::npos) ? Trim(decl.substr(gt + 1)) : "";
+            PropType ept = SceneSerType(inner);
+            if (ept == PropType::Unknown && enumTypes.contains(LeafTypeName(inner)))
+                ept = PropType::Enum; // a vector of enum — each element round-trips as an int
+            if (inner.find('<') != std::string::npos || ept == PropType::Unknown || !IsIdentifier(rest) ||
+                !publicSection)
+            {
+                // vector of struct / Ref / nested template / bad name, or a non-public
+                // member the serializer can't reach as comp.member — non-trivial.
+                ambiguous = true;
+                continue;
+            }
+            SerField f;
+            f.member = rest;
+            f.key = StripPrefix(rest, "m_");
+            f.type = ept; // element type
+            f.isVector = true;
+            info.fields.push_back(f);
+            continue;
+        }
 
         // A complex declarator — pointer/reference/template/array/bitfield/multi —
         // is a member we cannot trivially serialize: fail the whole component safe.
@@ -1327,6 +1460,14 @@ static ComponentSerInfo ParseComponentFields(std::string body, const std::set<st
         if (pt == PropType::Unknown)
         {
             ambiguous = true; // an unrecognised type — keep the component hand-written
+            continue;
+        }
+        if (!publicSection)
+        {
+            // A non-public data member can't be reached as comp.member by the
+            // generated serializer (and emitting it would not compile) — keep the
+            // whole component hand-written.
+            ambiguous = true;
             continue;
         }
 
@@ -1546,11 +1687,13 @@ static void EmitSceneSerializerHeader(std::ostream& out, const char* verb, const
     out << "// Re-generate with: cmake --build build --target GenerateBindings\n";
     out << "//\n";
     out << "// Per-component scene-YAML " << verb << " blocks — one block per\n";
-    out << "// `struct *Component` whose every data member is a primitive / glm::vec* /\n";
-    out << "// std::string / AssetHandle / enum (the generator's SceneSerType plus the\n";
-    out << "// enum-type check), minus the kComponentsCustomSerialize exclusion set (trivial\n";
-    out << "// components deliberately kept hand-written). A component with any still-unhandled\n";
-    out << "// non-trivial field (Ref<T>, std::vector, nested struct, …) is classified\n";
+    out << "// `struct *Component` whose every data member is a primitive / small-int /\n";
+    out << "// glm::vec*/ivec*/quat/mat* / std::string / AssetHandle / enum, or a\n";
+    out << "// std::vector of one of those (the generator's SceneSerType plus the enum-type\n";
+    out << "// and std::vector handling), minus the kComponentsCustomSerialize exclusion set\n";
+    out << "// (trivial components deliberately kept hand-written). A component with any\n";
+    out << "// still-unhandled non-trivial field (Ref<T>, std::unordered_map/set, nested\n";
+    out << "// struct, std::vector of struct, or a non-public member) is classified\n";
     out << "// non-trivial and stays hand-written in SceneSerializer.cpp.\n";
     out << "//\n";
     out << "// #include'd inside SceneSerializer::" << func << ", where " << locals << "\n";
@@ -1561,6 +1704,27 @@ static void EmitSceneSerializerHeader(std::ostream& out, const char* verb, const
     out << "// serializer — ComponentSerializerCoverageTest fails loudly on a drop or a\n";
     out << "// double-emit, so a new trivial component is auto-serialized and a new complex\n";
     out << "// one fails the coverage test until hand-written.\n\n";
+}
+
+// The streamed write expression for a single trivial value `expr` of PropType `t`.
+// Used for both scalar field writes and per-element writes inside a std::vector
+// sequence. AssetHandle / enum / small-int need a cast (no/ wrong YAML::Emitter
+// overload); everything else streams directly via an existing Emitter<< overload.
+static std::string SceneWriteExpr(PropType t, const std::string& expr)
+{
+    switch (t)
+    {
+        case PropType::AssetHandle:
+            return "static_cast<u64>(" + expr + ")";
+        case PropType::Enum:
+            return "static_cast<int>(" + expr + ")";
+        case PropType::SmallUInt:
+            return "static_cast<u32>(" + expr + ")";
+        case PropType::SmallInt:
+            return "static_cast<i32>(" + expr + ")";
+        default:
+            return expr;
+    }
 }
 
 // SerializeEntity: `if (entity.HasComponent<T>()) { out << YAML::Key << "T"; … }`.
@@ -1578,18 +1742,24 @@ static void EmitSceneSerializeBlocks(std::ostream& out, const std::map<std::stri
         out << "    auto const& comp = entity.GetComponent<" << name << ">();\n";
         for (auto const& f : info.fields)
         {
+            // std::vector<E> — a YAML flow/block sequence. Each element uses the same
+            // per-value write expression (cast for handle/enum/small-int) as a scalar.
+            if (f.isVector)
+            {
+                out << "    out << YAML::Key << \"" << f.key << "\" << YAML::Value << YAML::BeginSeq;\n";
+                out << "    for (auto const& e : comp." << f.member << ")\n";
+                out << "        out << " << SceneWriteExpr(f.type, "e") << ";\n";
+                out << "    out << YAML::EndSeq;\n";
+                continue;
+            }
             // AssetHandle / UUID has an implicit operator u64() but YAML::Emitter has
             // no UUID overload, so emit the explicit u64 cast (matches every existing
             // hand-written AssetHandle block, e.g. SoundConfigHandle / ColliderAsset).
-            if (f.type == PropType::AssetHandle)
-                out << "    out << YAML::Key << \"" << f.key << "\" << YAML::Value << static_cast<u64>(comp." << f.member << ");\n";
-            // An enum has no YAML::Emitter overload — write its integer value
-            // (matches the hand-written `static_cast<i32>(std::to_underlying(...))`
-            // blocks; round-tripped through .as<int>() on the deserialize side).
-            else if (f.type == PropType::Enum)
-                out << "    out << YAML::Key << \"" << f.key << "\" << YAML::Value << static_cast<int>(comp." << f.member << ");\n";
-            else
-                out << "    out << YAML::Key << \"" << f.key << "\" << YAML::Value << comp." << f.member << ";\n";
+            // Enum / u8 / u16 likewise need a cast (no / wrong Emitter overload) —
+            // SceneWriteExpr encapsulates the per-type choice, everything else streams
+            // directly via an existing Emitter<< overload.
+            out << "    out << YAML::Key << \"" << f.key << "\" << YAML::Value << "
+                << SceneWriteExpr(f.type, "comp." + f.member) << ";\n";
         }
         out << "    out << YAML::EndMap; // " << name << "\n";
         out << "}\n\n";
@@ -1612,6 +1782,38 @@ static void EmitSceneDeserializeBlocks(std::ostream& out, const std::map<std::st
         {
             const std::string lhs = "comp." + f.member;
             const std::string key = "node[\"" + f.key + "\"]";
+            // std::vector<E> — rebuild the sequence element-by-element. A missing key
+            // or non-sequence node leaves the (cleared) vector empty. Each element is
+            // validated: floats via TryReadFiniteF32, enums via an int round-trip,
+            // everything else via the element type's YAML::convert<> (the glm Decode
+            // helpers finiteness-validate; a malformed element is dropped, not pushed
+            // as garbage). `decltype(lhs)::value_type` spells the element type without
+            // tracking it textually (robust to nested enums / type aliases).
+            if (f.isVector)
+            {
+                out << "    " << lhs << ".clear();\n";
+                out << "    if (auto seqNode = " << key << "; seqNode && seqNode.IsSequence())\n";
+                out << "    {\n";
+                out << "        for (auto const& e : seqNode)\n";
+                if (f.type == PropType::Float)
+                {
+                    out << "            if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(e, v))\n";
+                    out << "                " << lhs << ".push_back(v);\n";
+                }
+                else if (f.type == PropType::Enum)
+                {
+                    out << "            " << lhs << ".push_back(static_cast<decltype(" << lhs
+                        << ")::value_type>(e.as<int>(0)));\n";
+                }
+                else
+                {
+                    out << "            if (decltype(" << lhs << ")::value_type v{}; ::YAML::convert<decltype("
+                        << lhs << ")::value_type>::decode(e, v))\n";
+                    out << "                " << lhs << ".push_back(v);\n";
+                }
+                out << "    }\n";
+                continue;
+            }
             switch (f.type)
             {
                 case PropType::Float:
@@ -1628,6 +1830,26 @@ static void EmitSceneDeserializeBlocks(std::ostream& out, const std::map<std::st
                 case PropType::Vec4:
                     out << "    " << lhs << " = " << key << ".as<glm::vec4>(" << lhs << ");\n";
                     break;
+                case PropType::IVec2:
+                    out << "    " << lhs << " = " << key << ".as<glm::ivec2>(" << lhs << ");\n";
+                    break;
+                case PropType::IVec3:
+                    out << "    " << lhs << " = " << key << ".as<glm::ivec3>(" << lhs << ");\n";
+                    break;
+                case PropType::IVec4:
+                    out << "    " << lhs << " = " << key << ".as<glm::ivec4>(" << lhs << ");\n";
+                    break;
+                case PropType::Quat:
+                    // DecodeQuat finiteness-validates all four components; NaN/Inf or
+                    // a missing key keeps the default. Decode does NOT normalize.
+                    out << "    " << lhs << " = " << key << ".as<glm::quat>(" << lhs << ");\n";
+                    break;
+                case PropType::Mat3:
+                    out << "    " << lhs << " = " << key << ".as<glm::mat3>(" << lhs << ");\n";
+                    break;
+                case PropType::Mat4:
+                    out << "    " << lhs << " = " << key << ".as<glm::mat4>(" << lhs << ");\n";
+                    break;
                 case PropType::Bool:
                     out << "    " << lhs << " = " << key << ".as<bool>(" << lhs << ");\n";
                     break;
@@ -1636,6 +1858,14 @@ static void EmitSceneDeserializeBlocks(std::ostream& out, const std::map<std::st
                     break;
                 case PropType::UInt:
                     out << "    " << lhs << " = " << key << ".as<u32>(" << lhs << ");\n";
+                    break;
+                case PropType::SmallUInt:
+                case PropType::SmallInt:
+                    // u8/u16/i8/i16: read via .as<decltype(member)> — yaml-cpp's
+                    // char-type decode special-case parses the numeric string and
+                    // range-checks before narrowing (an out-of-range / missing value
+                    // keeps the default). Pairs with the static_cast<u32>/<i32> emit.
+                    out << "    " << lhs << " = " << key << ".as<decltype(" << lhs << ")>(" << lhs << ");\n";
                     break;
                 case PropType::U64:
                     out << "    " << lhs << " = " << key << ".as<u64>(" << lhs << ");\n";

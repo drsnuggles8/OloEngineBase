@@ -2669,19 +2669,9 @@ namespace OloEngine
             SanitizeFloat(ragdoll.m_TwistLimitDeg, 0.0f, 180.0f, 45.0f);
         }
 
-        if (auto relComponent = entity["RelationshipComponent"]; relComponent)
-        {
-            auto& rel = deserializedEntity.AddComponent<RelationshipComponent>();
-            if (relComponent["ParentHandle"])
-                rel.m_ParentHandle = relComponent["ParentHandle"].as<u64>();
-            if (auto children = relComponent["Children"]; children)
-            {
-                for (auto child : children)
-                {
-                    rel.m_Children.push_back(child.as<u64>());
-                }
-            }
-        }
+        // RelationshipComponent — auto-generated (all-trivial: a UUID parent handle +
+        // a std::vector<UUID> children list). Block lives in the generated .inl
+        // (issue #451 vector slice).
 
         // UICanvasComponent — auto-generated (all-trivial: two enums + an i32 +
         // a glm::vec2). Its serialize/deserialize blocks live in
@@ -3083,13 +3073,9 @@ namespace OloEngine
             TrySet(pc.PhaseID, phaseComponent["PhaseID"]);
         }
 
-        if (auto instancePortalComponent = entity["InstancePortalComponent"]; instancePortalComponent)
-        {
-            auto& ipc = deserializedEntity.AddComponent<InstancePortalComponent>();
-            TrySet(ipc.TargetZoneID, instancePortalComponent["TargetZoneID"]);
-            TrySet(ipc.InstanceType, instancePortalComponent["InstanceType"]);
-            TrySet(ipc.MaxPlayers, instancePortalComponent["MaxPlayers"]);
-        }
+        // InstancePortalComponent — auto-generated (all-trivial: two u32 + a u8
+        // InstanceType, the u8 round-tripped via static_cast<u32>). Block lives in the
+        // generated .inl (issue #451 small-int slice).
 
         // NetworkLODComponent — auto-generated (all-trivial: a single Level enum).
         // Block lives in the generated .inl (issue #451 enum slice).
@@ -3538,27 +3524,9 @@ namespace OloEngine
             }
         }
 
-        if (auto questGiverComponent = entity["QuestGiverComponent"]; questGiverComponent)
-        {
-            auto& qgc = deserializedEntity.AddComponent<QuestGiverComponent>();
-            TrySet(qgc.QuestMarkerIcon, questGiverComponent["QuestMarkerIcon"]);
-
-            if (auto offered = questGiverComponent["OfferedQuestIDs"]; offered && offered.IsSequence())
-            {
-                for (auto const& node : offered)
-                {
-                    qgc.OfferedQuestIDs.push_back(node.as<std::string>(""));
-                }
-            }
-
-            if (auto turnIn = questGiverComponent["TurnInQuestIDs"]; turnIn && turnIn.IsSequence())
-            {
-                for (auto const& node : turnIn)
-                {
-                    qgc.TurnInQuestIDs.push_back(node.as<std::string>(""));
-                }
-            }
-        }
+        // QuestGiverComponent — auto-generated (all-trivial: two std::vector<std::string>
+        // quest-ID lists + a std::string marker icon). Block lives in the generated
+        // .inl (issue #451 vector slice).
 
         if (auto abilityComponentNode = entity["AbilityComponent"]; abilityComponentNode)
         {
@@ -4557,22 +4525,8 @@ namespace OloEngine
             out << YAML::EndMap; // RagdollComponent
         }
 
-        if (entity.HasComponent<RelationshipComponent>())
-        {
-            out << YAML::Key << "RelationshipComponent";
-            out << YAML::BeginMap; // RelationshipComponent
-
-            auto const& relComponent = entity.GetComponent<RelationshipComponent>();
-            out << YAML::Key << "ParentHandle" << YAML::Value << relComponent.m_ParentHandle;
-            out << YAML::Key << "Children" << YAML::Value << YAML::BeginSeq;
-            for (const auto& childUUID : relComponent.m_Children)
-            {
-                out << childUUID;
-            }
-            out << YAML::EndSeq;
-
-            out << YAML::EndMap; // RelationshipComponent
-        }
+        // RelationshipComponent — auto-generated; see the generated serialize .inl
+        // (issue #451 vector slice).
 
         // UICanvasComponent serialize — auto-generated (issue #451 enum slice); see
         // the matching note in DeserializeEntityComponents.
@@ -5398,18 +5352,8 @@ namespace OloEngine
             out << YAML::EndMap; // PhaseComponent
         }
 
-        if (entity.HasComponent<InstancePortalComponent>())
-        {
-            out << YAML::Key << "InstancePortalComponent";
-            out << YAML::BeginMap;
-
-            auto const& ipc = entity.GetComponent<InstancePortalComponent>();
-            out << YAML::Key << "TargetZoneID" << YAML::Value << ipc.TargetZoneID;
-            out << YAML::Key << "InstanceType" << YAML::Value << static_cast<u32>(ipc.InstanceType);
-            out << YAML::Key << "MaxPlayers" << YAML::Value << ipc.MaxPlayers;
-
-            out << YAML::EndMap; // InstancePortalComponent
-        }
+        // InstancePortalComponent — auto-generated; see the generated serialize .inl
+        // (issue #451 small-int slice).
 
         // NetworkLODComponent serialize — auto-generated (issue #451 enum slice); see
         // the matching note in DeserializeEntityComponents.
@@ -5870,30 +5814,8 @@ namespace OloEngine
             out << YAML::EndMap; // QuestJournalComponent
         }
 
-        if (entity.HasComponent<QuestGiverComponent>())
-        {
-            out << YAML::Key << "QuestGiverComponent";
-            out << YAML::BeginMap;
-
-            auto const& qgc = entity.GetComponent<QuestGiverComponent>();
-            out << YAML::Key << "QuestMarkerIcon" << YAML::Value << qgc.QuestMarkerIcon;
-
-            out << YAML::Key << "OfferedQuestIDs" << YAML::Value << YAML::BeginSeq;
-            for (auto const& id : qgc.OfferedQuestIDs)
-            {
-                out << id;
-            }
-            out << YAML::EndSeq;
-
-            out << YAML::Key << "TurnInQuestIDs" << YAML::Value << YAML::BeginSeq;
-            for (auto const& id : qgc.TurnInQuestIDs)
-            {
-                out << id;
-            }
-            out << YAML::EndSeq;
-
-            out << YAML::EndMap; // QuestGiverComponent
-        }
+        // QuestGiverComponent — auto-generated; see the generated serialize .inl
+        // (issue #451 vector slice).
 
         if (entity.HasComponent<AbilityComponent>())
         {

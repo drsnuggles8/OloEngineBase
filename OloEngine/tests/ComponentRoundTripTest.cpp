@@ -40,9 +40,11 @@
 #include "OloEngine/Scene/SceneSerializer.h"
 #include "OloEngine/Scene/Entity.h"
 #include "OloEngine/Scene/Components.h"
+#include "OloEngine/Core/YAMLConverters.h"
 
 #include <glm/glm.hpp>
 #include <glm/gtc/quaternion.hpp>
+#include <yaml-cpp/yaml.h>
 
 #include <cmath>
 #include <regex>
@@ -1933,6 +1935,38 @@ namespace OloEngine::Tests
     }
 
     // -------------------------------------------------------------------------
+    // InstancePortalComponent — exercises the GENERATED small-int (u8) serializer
+    // path (#451 small-int slice). InstanceType is a u8; the codegen widens it to
+    // u32 on emit so yaml-cpp writes the number, not a raw char. Use a value > 127
+    // so a signed-char misread would corrupt it.
+    // -------------------------------------------------------------------------
+    TEST(ComponentRoundTrip, InstancePortalComponentSurvivesYAMLRoundTrip)
+    {
+        std::string yaml;
+        {
+            auto scene = Scene::Create();
+            Entity entity = scene->CreateEntity(kTestTag);
+            auto& ipc = entity.AddComponent<InstancePortalComponent>();
+            ipc.TargetZoneID = 4242u;
+            ipc.InstanceType = static_cast<u8>(200); // > 127: catches a signed-char misread
+            ipc.MaxPlayers = 32u;
+            yaml = SceneSerializer(scene).SerializeToYAML();
+        }
+
+        auto reloaded = Scene::Create();
+        ASSERT_TRUE(SceneSerializer(reloaded).DeserializeFromYAML(yaml));
+
+        Entity restored = FindByTag(*reloaded, kTestTag);
+        ASSERT_TRUE(static_cast<bool>(restored));
+        ASSERT_TRUE(restored.HasComponent<InstancePortalComponent>());
+
+        const auto& ipc = restored.GetComponent<InstancePortalComponent>();
+        EXPECT_EQ(ipc.TargetZoneID, 4242u);
+        EXPECT_EQ(ipc.InstanceType, static_cast<u8>(200));
+        EXPECT_EQ(ipc.MaxPlayers, 32u);
+    }
+
+    // -------------------------------------------------------------------------
     // ParticleSystemComponent — header playback fields + a handful of
     // emitter scalars. The component's Texture / ParticleMesh refs and
     // ChildSystems sub-emitters are out of scope (Refs would couple to
@@ -3129,6 +3163,101 @@ namespace OloEngine::Tests
         EXPECT_NEAR(nc.m_ManaBarColor.b, expectedManaColor.b, kFloatEpsilon);
         EXPECT_NEAR(nc.m_BarBackgroundColor.g, expectedBgColor.g, kFloatEpsilon);
         EXPECT_NEAR(nc.m_ManaBarGap, expectedManaBarGap, kFloatEpsilon);
+    }
+
+    // =========================================================================
+    // YAML converters for the glm integer-vector / quaternion / matrix types
+    // (#451 glm slice). No shipping component is all-trivial-plus-glm-math (the
+    // only candidates — TransformComponent / LightProbeVolumeComponent — are kept
+    // hand-written), so the GENERATED emit path for these types isn't exercised by
+    // a component round-trip. These tests cover the converters the generated code
+    // would call, so the machinery is not dead/untested: each value must survive an
+    // Encode → string → parse → Decode round-trip, and Decode must reject NaN/Inf
+    // for the float-backed types (quat / mat) per the finiteness mandate.
+    // =========================================================================
+    namespace
+    {
+        // Emit a single value as YAML via the Emitter<< overload, parse it back, and
+        // Decode through convert<T>. Mirrors how the generated serializer writes
+        // (out << value) and reads (node.as<T>()).
+        template<typename T>
+        T GlmYamlRoundTrip(const T& value)
+        {
+            YAML::Emitter out;
+            out << value;
+            return YAML::Load(out.c_str()).as<T>();
+        }
+    } // namespace
+
+    TEST(YAMLConverters, GlmQuatSurvivesRoundTrip)
+    {
+        const glm::quat q = glm::normalize(glm::quat(0.5f, -0.25f, 0.75f, 0.1f));
+        const glm::quat r = GlmYamlRoundTrip(q);
+        EXPECT_NEAR(r.w, q.w, kFloatEpsilon);
+        EXPECT_NEAR(r.x, q.x, kFloatEpsilon);
+        EXPECT_NEAR(r.y, q.y, kFloatEpsilon);
+        EXPECT_NEAR(r.z, q.z, kFloatEpsilon);
+    }
+
+    TEST(YAMLConverters, GlmIVec2SurvivesRoundTrip)
+    {
+        const glm::ivec2 v{ -7, 123456 };
+        const glm::ivec2 r = GlmYamlRoundTrip(v);
+        EXPECT_EQ(r, v);
+    }
+
+    TEST(YAMLConverters, GlmIVec4SurvivesRoundTrip)
+    {
+        const glm::ivec4 v{ -7, 0, 123456, -987654 };
+        const glm::ivec4 r = GlmYamlRoundTrip(v);
+        EXPECT_EQ(r, v);
+    }
+
+    TEST(YAMLConverters, GlmMat3SurvivesRoundTrip)
+    {
+        glm::mat3 m{ 0.0f };
+        for (i32 i = 0; i < 3; ++i)
+            for (i32 j = 0; j < 3; ++j)
+                m[i][j] = static_cast<f32>(i * 3 + j) + 0.5f;
+        const glm::mat3 r = GlmYamlRoundTrip(m);
+        for (i32 i = 0; i < 3; ++i)
+            for (i32 j = 0; j < 3; ++j)
+                EXPECT_NEAR(r[i][j], m[i][j], kFloatEpsilon);
+    }
+
+    TEST(YAMLConverters, GlmMat4SurvivesRoundTrip)
+    {
+        glm::mat4 m{ 0.0f };
+        for (i32 i = 0; i < 4; ++i)
+            for (i32 j = 0; j < 4; ++j)
+                m[i][j] = static_cast<f32>(i * 4 + j) - 3.25f;
+        const glm::mat4 r = GlmYamlRoundTrip(m);
+        for (i32 i = 0; i < 4; ++i)
+            for (i32 j = 0; j < 4; ++j)
+                EXPECT_NEAR(r[i][j], m[i][j], kFloatEpsilon);
+    }
+
+    // Decode must fail-closed on a non-finite float component (per the finiteness
+    // mandate) so a corrupt scene value keeps the field's prior/default value via
+    // the .as<T>(fallback) overload rather than poisoning it with NaN/Inf.
+    TEST(YAMLConverters, GlmQuatDecodeRejectsNonFinite)
+    {
+        const glm::quat fallback(1.0f, 0.0f, 0.0f, 0.0f);
+        const YAML::Node node = YAML::Load("[.nan, 0.0, 0.0, 1.0]");
+        const glm::quat r = node.as<glm::quat>(fallback);
+        EXPECT_EQ(r.w, fallback.w);
+        EXPECT_EQ(r.x, fallback.x);
+    }
+
+    TEST(YAMLConverters, GlmMat4DecodeRejectsNonFinite)
+    {
+        glm::mat4 fallback{ 1.0f };
+        YAML::Node node;
+        node.SetStyle(YAML::EmitterStyle::Flow);
+        for (i32 k = 0; k < 16; ++k)
+            node.push_back(k == 5 ? std::string(".inf") : std::string("0.0"));
+        const glm::mat4 r = node.as<glm::mat4>(fallback);
+        EXPECT_NEAR(r[0][0], fallback[0][0], kFloatEpsilon); // unchanged → fallback used
     }
 
 } // namespace OloEngine::Tests
