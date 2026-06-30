@@ -370,6 +370,13 @@ add_executable(OloEngine-Tests
 		# DSL + the header-only UndoRedo CommandHistory), so no extra editor TU is
 		# pulled in — it links the engine Scene/ECS already in the test binary.
 		MCP/McpConsentedWriteTest.cpp
+		# Generic consented, undoable MCP WRITE tool: olo_entity_set_field + its read
+		# companion olo_entity_list_fields (#306 item C, second slice). Same seams as
+		# McpConsentedWriteTest.cpp — the session write gate + inputSchema enforcement
+		# at the McpServer.cpp dispatch seam, and the shared reflect+coerce+apply core
+		# (MCP/McpGenericFieldWrite.h). Header-only on the editor side, so no extra
+		# editor TU is pulled in.
+		MCP/McpGenericFieldWriteTest.cpp
 		# Lua Binding Tests
 		Lua/LuaBindingTest.cpp
 		# Functional / cross-subsystem world-tick tests (see ADR 0001).
