@@ -9,6 +9,7 @@
 #include "MCP/McpRenderExplain.h"
 #include "MCP/McpRenderGraphTopology.h"
 #include "MCP/McpRenderOverrides.h"
+#include "MCP/McpGenericFieldWrite.h"
 #include "MCP/McpSetCollisionLayer.h"
 #include "MCP/McpShaderReload.h"
 #include "MCP/McpEventStream.h"
@@ -3375,6 +3376,80 @@ namespace OloEngine::MCP
             return ToolResult::Text(result.dump(2));
         }
 
+        // ---- olo_entity_set_field (main-marshaled; PROJECT WRITE) --------------
+        // The GENERIC consented, undoable write tool (#306 item C, second slice):
+        // set ANY registered component field by (component, field, value) through the
+        // editor's undo stack — the catch-all successor to olo_set_collision_layer's
+        // one-tool-per-field shape. Gated at dispatch by the "Allow writes" session
+        // toggle (ToolDef::ProjectWrite); the shared reflect+coerce+apply core lives
+        // in McpGenericFieldWrite.h so it is unit-tested at the dispatch seam without
+        // this TU. The command is built + executed inside the MarshalRead job, i.e.
+        // on the main thread, since it touches the EnTT registry and command stack.
+        ToolResult Handle_EntitySetField(McpServer& server, const Json& args)
+        {
+            if (!server.Context().GetActiveScene || !server.Context().GetCommandHistory)
+                return ToolResult::Error("Project writes are not available in this editor build.");
+
+            u64 entityUuid = 0;
+            std::string component;
+            std::string field;
+            Json value;
+            if (const auto error = GenericFieldWrite::ParseArgs(args, entityUuid, component, field, value))
+                return ToolResult::Error(*error);
+
+            const Json result = server.MarshalRead([&server, entityUuid, component, field, value]() -> Json
+                                                   {
+                const Ref<Scene> scene = server.Context().GetActiveScene
+                                             ? server.Context().GetActiveScene()
+                                             : nullptr;
+                CommandHistory* history = server.Context().GetCommandHistory
+                                              ? server.Context().GetCommandHistory()
+                                              : nullptr;
+                if (!scene)
+                    return Json{ { "__error", "No active scene." } };
+                if (!history)
+                    return Json{ { "__error", "No editor command history available." } };
+
+                const GenericFieldWrite::ApplyResult applied =
+                    GenericFieldWrite::Apply(scene, *history, entityUuid, component, field, value);
+                if (!applied.Ok)
+                    return Json{ { "__error", applied.Error } };
+                return applied.Data; });
+
+            if (result.is_object() && result.contains("__error"))
+                return ToolResult::Error(result["__error"].get<std::string>());
+            return ToolResult::Text(result.dump(2));
+        }
+
+        // ---- olo_entity_list_fields (main-marshaled; read-only) ----------------
+        // The discovery half of olo_entity_set_field: for one entity, list the
+        // writable component fields (those the entity actually has) with their type
+        // and current value, so an agent learns the exact (component, field) names +
+        // value shapes before issuing a write. Read-only (not ProjectWrite).
+        ToolResult Handle_EntityListFields(McpServer& server, const Json& args)
+        {
+            if (!server.Context().GetActiveScene)
+                return ToolResult::Error("Scene reads are not available in this editor build.");
+
+            if (!args.contains("entity"))
+                return ToolResult::Error("Missing required argument 'entity' (entity UUID).");
+            u64 entityUuid = 0;
+            if (!ParseUuid(args["entity"], entityUuid))
+                return ToolResult::Error("Invalid 'entity': expected a UUID as a string or number.");
+            const std::string componentFilter =
+                (args.contains("component") && args["component"].is_string()) ? args["component"].get<std::string>() : std::string();
+
+            const Json result = server.MarshalRead([&server, entityUuid, componentFilter]() -> Json
+                                                   {
+                const Ref<Scene> scene = server.Context().GetActiveScene
+                                             ? server.Context().GetActiveScene()
+                                             : nullptr;
+                bool entityFound = false;
+                return GenericFieldWrite::ListFields(scene, entityUuid, componentFilter, entityFound); });
+
+            return ToolResult::Text(result.dump(2));
+        }
+
         // ---- olo_render_why_not_visible (main-marshaled) -----------------------
         // The rendering counterpart of olo_physics_why_no_collision: explain why an
         // entity isn't on screen. Gathers the render-relevant facts off the live
@@ -4732,6 +4807,51 @@ namespace OloEngine::MCP
             tool.InputSchema = SetCollisionLayer::InputSchema();
             tool.MainMarshaled = true;
             tool.Handler = Handle_SetCollisionLayer;
+            server.RegisterTool(std::move(tool));
+        }
+
+        {
+            ToolDef tool;
+            tool.Name = "olo_entity_list_fields";
+            tool.Toolset = "scene";
+            tool.Title = "List entity writable fields";
+            tool.Annotations = ReadOnlyAnnotations();
+            tool.Description =
+                "List the writable component fields of one entity, with each field's type and current value — "
+                "the read-only discovery half of olo_entity_set_field. Only components the entity actually has "
+                "(and that expose writable fields) are returned, so the result is exactly what you can write "
+                "right now. Pass an optional 'component' to restrict the listing. Field names match the keys "
+                "shown in olo_scene_get_entity's YAML.";
+            tool.InputSchema = GenericFieldWrite::ListInputSchema();
+            tool.MainMarshaled = true;
+            tool.Handler = Handle_EntityListFields;
+            server.RegisterTool(std::move(tool));
+        }
+
+        {
+            ToolDef tool;
+            tool.Name = "olo_entity_set_field";
+            tool.Toolset = "scene";
+            tool.Title = "Set component field (undoable)";
+            // The generic project-WRITE tool (#306 item C, second slice): gated behind
+            // the session "Allow writes" toggle and routed through the editor undo
+            // stack. readOnlyHint:false (not idempotent — each call snapshots the prior
+            // value into a distinct undo command; not destructive — fully reversible
+            // via Ctrl-Z / undo).
+            tool.ProjectWrite = true;
+            tool.Annotations = MutatingAnnotations(/*idempotent*/ false);
+            tool.Description =
+                "Set a single component field on an entity by (component, field, value) — the generic, "
+                "undoable successor to olo_set_collision_layer that mutates ANY registered field (transform "
+                "translation/scale, light color/intensity/range/shadows, sprite/circle color, camera flags, "
+                "tag, ...). The value type must match the field: a boolean, a number, a string, or an array "
+                "of numbers for a vector (e.g. [r,g,b] for a vec3 color). The change is applied through the "
+                "editor's undo stack, so it is a single Ctrl-Z. This is a WRITE tool: it is refused unless "
+                "'Allow writes' is enabled in the editor's MCP Server panel (off by default). Discover the "
+                "exact writable (component, field) names + value shapes for an entity with olo_entity_list_fields.";
+            tool.InputSchema = GenericFieldWrite::InputSchema();
+            tool.MainMarshaled = true;
+            tool.Handler = Handle_EntitySetField;
             server.RegisterTool(std::move(tool));
         }
 
