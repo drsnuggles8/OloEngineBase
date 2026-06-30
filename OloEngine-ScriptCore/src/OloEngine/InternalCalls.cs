@@ -78,6 +78,16 @@ namespace OloEngine
         internal static extern bool Input_IsActionJustReleased(string actionName);
         [MethodImpl(MethodImplOptions.InternalCall)]
         internal static extern float Input_GetActionAxisValue(string actionName);
+        [MethodImpl(MethodImplOptions.InternalCall)]
+        internal static extern void Input_SetInputContext(int context);
+        [MethodImpl(MethodImplOptions.InternalCall)]
+        internal static extern int Input_GetInputContext();
+        [MethodImpl(MethodImplOptions.InternalCall)]
+        internal static extern void Input_PushInputContext(int context);
+        [MethodImpl(MethodImplOptions.InternalCall)]
+        internal static extern bool Input_PopInputContext();
+        [MethodImpl(MethodImplOptions.InternalCall)]
+        internal static extern int Input_GetInputContextDepth();
         #endregion
 
         #region AudioSourceComponent (hand-written action methods only)

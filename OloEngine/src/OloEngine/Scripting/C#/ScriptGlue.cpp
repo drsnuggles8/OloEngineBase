@@ -2060,6 +2060,41 @@ namespace OloEngine
         return result;
     }
 
+    static void Input_SetInputContext(i32 context)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        InputActionManager::SetInputContext(static_cast<InputContextType>(context));
+    }
+
+    static i32 Input_GetInputContext()
+    {
+        OLO_PROFILE_FUNCTION();
+
+        return static_cast<i32>(InputActionManager::GetInputContext());
+    }
+
+    static void Input_PushInputContext(i32 context)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        InputActionManager::PushContext(static_cast<InputContextType>(context));
+    }
+
+    static bool Input_PopInputContext()
+    {
+        OLO_PROFILE_FUNCTION();
+
+        return InputActionManager::PopContext();
+    }
+
+    static i32 Input_GetInputContextDepth()
+    {
+        OLO_PROFILE_FUNCTION();
+
+        return static_cast<i32>(InputActionManager::GetContextDepth());
+    }
+
     template<typename... Component>
     static void RegisterComponent()
     {
@@ -3298,6 +3333,11 @@ namespace OloEngine
         OLO_ADD_INTERNAL_CALL(Input_IsActionJustPressed);
         OLO_ADD_INTERNAL_CALL(Input_IsActionJustReleased);
         OLO_ADD_INTERNAL_CALL(Input_GetActionAxisValue);
+        OLO_ADD_INTERNAL_CALL(Input_SetInputContext);
+        OLO_ADD_INTERNAL_CALL(Input_GetInputContext);
+        OLO_ADD_INTERNAL_CALL(Input_PushInputContext);
+        OLO_ADD_INTERNAL_CALL(Input_PopInputContext);
+        OLO_ADD_INTERNAL_CALL(Input_GetInputContextDepth);
 
         ///////////////////////////////////////////////////////////////
         // Audio Source ///////////////////////////////////////////////

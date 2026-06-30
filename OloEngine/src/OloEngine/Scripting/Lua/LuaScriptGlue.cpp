@@ -2367,6 +2367,29 @@ namespace OloEngine
         {
             return InputActionManager::GetActionAxisValue(name);
         };
+        // Action-map contexts (gameplay/menu/vehicle). Pass an InputContext.* constant.
+        // Switching contexts swaps the active action map and resets transient press state.
+        // SetInputContext is a hard switch; Push/Pop nest (e.g. push Menu over Gameplay).
+        inputTable["SetInputContext"] = [](i32 context)
+        {
+            InputActionManager::SetInputContext(static_cast<InputContextType>(context));
+        };
+        inputTable["GetInputContext"] = []() -> i32
+        {
+            return static_cast<i32>(InputActionManager::GetInputContext());
+        };
+        inputTable["PushInputContext"] = [](i32 context)
+        {
+            InputActionManager::PushContext(static_cast<InputContextType>(context));
+        };
+        inputTable["PopInputContext"] = []() -> bool
+        {
+            return InputActionManager::PopContext();
+        };
+        inputTable["GetInputContextDepth"] = []() -> i32
+        {
+            return static_cast<i32>(InputActionManager::GetContextDepth());
+        };
         inputTable["GetMousePosition"] = []() -> std::tuple<f32, f32>
         {
             auto pos = Input::GetMousePosition();
@@ -2506,6 +2529,15 @@ namespace OloEngine
             cursorTable["Normal"] = static_cast<i32>(CursorMode::Normal);
             cursorTable["Hidden"] = static_cast<i32>(CursorMode::Hidden);
             cursorTable["Locked"] = static_cast<i32>(CursorMode::Locked);
+        }
+
+        // --- InputContext constants (for Input.SetInputContext — action-map contexts) ---
+        {
+            auto inputContextTable = lua.create_named_table("InputContext");
+            inputContextTable["Gameplay"] = static_cast<i32>(InputContextType::Gameplay);
+            inputContextTable["Menu"] = static_cast<i32>(InputContextType::Menu);
+            inputContextTable["Vehicle"] = static_cast<i32>(InputContextType::Vehicle);
+            inputContextTable["Custom"] = static_cast<i32>(InputContextType::Custom);
         }
 
         // --- DialogueComponent ---
