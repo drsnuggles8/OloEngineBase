@@ -1,5 +1,5 @@
 #include "OloEnginePCH.h"
-#include "OloEngine/Renderer/Passes/FXAARenderPass.h"
+#include "OloEngine/Renderer/Passes/UpscalerRenderPass.h"
 
 #include "OloEngine/Renderer/Framebuffer.h"
 #include "OloEngine/Renderer/MeshPrimitives.h"
@@ -7,27 +7,31 @@
 #include "OloEngine/Renderer/RenderCommand.h"
 #include "OloEngine/Renderer/RenderPipelineBuilderInternal.h"
 #include "OloEngine/Renderer/ResourceHandle.h"
+#include "OloEngine/Renderer/ShaderBindingLayout.h"
 
 #include <glad/gl.h>
 
+#include <algorithm>
+#include <span>
+
 namespace OloEngine
 {
-    FXAARenderPass::FXAARenderPass()
+    UpscalerRenderPass::UpscalerRenderPass()
     {
-        SetName("FXAAPass");
+        SetName("UpscalerPass");
     }
 
-    void FXAARenderPass::Setup(RGBuilder& builder, FrameBlackboard& blackboard)
+    void UpscalerRenderPass::Setup(RGBuilder& builder, FrameBlackboard& blackboard)
     {
         RenderGraphNode::Setup(builder, blackboard);
 
-        (void)blackboard;
+        // Runs post-tonemap: prefer the freshest LDR colour. The candidate list
+        // mirrors VignettePass (the stage that used to follow ToneMap directly),
+        // so when CAS is disabled the chain naturally falls back to ToneMapColor.
         [[maybe_unused]] const auto input = RenderPipelineBuilderInternal::ReadFirstValidVersionedInputForPass(
             builder,
             this,
             {
-                RenderPipelineBuilderInternal::MakeCandidateBaseNames(ResourceNames::VignetteColor, ResourceNames::VignetteColorTexture),
-                RenderPipelineBuilderInternal::MakeCandidateBaseNames(ResourceNames::UpscalerColor, ResourceNames::UpscalerColorTexture),
                 RenderPipelineBuilderInternal::MakeCandidateBaseNames(ResourceNames::ToneMapColor, ResourceNames::ToneMapColorTexture),
                 RenderPipelineBuilderInternal::MakeCandidateBaseNames(ResourceNames::ColorGradingColor, ResourceNames::ColorGradingColorTexture),
                 RenderPipelineBuilderInternal::MakeCandidateBaseNames(ResourceNames::ChromAbColor, ResourceNames::ChromAbColorTexture),
@@ -43,23 +47,23 @@ namespace OloEngine
         if (!m_Enabled)
             return;
 
-        if (blackboard.Post.FXAAColor.IsValid())
+        if (blackboard.Post.UpscalerColor.IsValid())
         {
-            constexpr std::string_view fxaaVersionTag = "FXAAPass";
-            const auto outputHandle = builder.WriteNewVersion(blackboard.Post.FXAAColor, RGWriteUsage::RenderTarget, fxaaVersionTag);
+            constexpr std::string_view upscalerVersionTag = "UpscalerPass";
+            const auto outputHandle = builder.WriteNewVersion(blackboard.Post.UpscalerColor, RGWriteUsage::RenderTarget, upscalerVersionTag);
             if (!outputHandle.IsValid())
                 return;
 
             SetPrimaryOutputFramebufferHandle(outputHandle);
             SetPrimaryOutputTextureHandle(
-                builder.CreateFramebufferAttachmentView(std::string(ResourceNames::FXAAColorTexture) + "@" +
-                                                            std::string(fxaaVersionTag),
+                builder.CreateFramebufferAttachmentView(std::string(ResourceNames::UpscalerColorTexture) + "@" +
+                                                            std::string(upscalerVersionTag),
                                                         outputHandle,
                                                         0u));
         }
     }
 
-    void FXAARenderPass::Init(const FramebufferSpecification& spec)
+    void UpscalerRenderPass::Init(const FramebufferSpecification& spec)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -67,16 +71,22 @@ namespace OloEngine
 
         CreateFramebuffer(spec.Width, spec.Height);
 
-        m_FXAAShader = Shader::Create("assets/shaders/PostProcess_FXAA.glsl");
+        m_CASShader = Shader::Create("assets/shaders/PostProcess_CAS.glsl");
+        m_CASUBO = UniformBuffer::Create(CASUBOData::GetSize(), ShaderBindingLayout::UBO_UPSCALER);
 
-        OLO_CORE_INFO("FXAARenderPass: Initialized with viewport {}x{}", spec.Width, spec.Height);
+        OLO_CORE_INFO("UpscalerRenderPass: Initialized with viewport {}x{}", spec.Width, spec.Height);
     }
 
-    void FXAARenderPass::CreateFramebuffer(u32 width, u32 height)
+    void UpscalerRenderPass::CreateFramebuffer(u32 width, u32 height)
     {
+        // The output framebuffer (UpscalerColor) is graph-owned: it is declared
+        // in PopulateBlackboard and resolved per-frame in Execute via
+        // GetPrimaryOutputFramebufferHandle. This pass never allocates one, so
+        // m_Target stays null here and is only set in Execute. The dimension
+        // guard just logs an obviously-bad spec (mirrors MotionBlur/TAA).
         if (width == 0 || height == 0)
         {
-            OLO_CORE_WARN("FXAARenderPass::CreateFramebuffer: Invalid dimensions {}x{}", width, height);
+            OLO_CORE_WARN("UpscalerRenderPass::CreateFramebuffer: Invalid dimensions {}x{}", width, height);
             m_Target = nullptr;
             return;
         }
@@ -84,7 +94,7 @@ namespace OloEngine
         m_Target = nullptr;
     }
 
-    void FXAARenderPass::Execute(RGCommandContext& context)
+    void UpscalerRenderPass::Execute(RGCommandContext& context)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -97,8 +107,8 @@ namespace OloEngine
         Ref<Framebuffer> outputFramebuffer;
         if (const auto outputHandle = GetPrimaryOutputFramebufferHandle(); outputHandle.IsValid())
         {
-            if (auto fb = context.ResolveFramebuffer(outputHandle))
-                outputFramebuffer = fb;
+            if (auto resolvedOutput = context.ResolveFramebuffer(outputHandle))
+                outputFramebuffer = resolvedOutput;
         }
 
         if (!m_Enabled)
@@ -107,7 +117,7 @@ namespace OloEngine
             return;
         }
 
-        if (inputColorTextureID == 0u || !outputFramebuffer || !m_FXAAShader)
+        if (inputColorTextureID == 0u || !outputFramebuffer || !m_CASShader || !m_CASUBO)
         {
             m_Target = nullptr;
             return;
@@ -115,23 +125,10 @@ namespace OloEngine
 
         m_Target = outputFramebuffer;
 
-        // PostProcessUBO (binding 7) is uploaded once per frame by Renderer3D
-        // before the post-process chain runs. SetData() does not restore
-        // the indexed binding and other passes (IBL precompute, bloom mip
-        // updates) bind binding 7 transiently, so re-bind here so the FXAA
-        // shader reads the expected `u_TexelSize` / gamma values.
-        if (m_PostProcessUBO)
-            m_PostProcessUBO->Bind();
-
         outputFramebuffer->Bind();
 
         const auto& outSpec = outputFramebuffer->GetSpecification();
         context.SetViewport(0, 0, outSpec.Width, outSpec.Height);
-        // Mirror the shared fullscreen colour-pass state setup — prefer
-        // RGCommandContext setters where available (so graph hazard tracking
-        // stays accurate) and fall back to RenderCommand for state the
-        // context does not currently expose (stencil / scissor / polygon
-        // mode / colour mask).
         context.SetDepthTest(false);
         context.SetDepthMask(false);
         context.SetBlendState(false);
@@ -147,10 +144,19 @@ namespace OloEngine
         context.SetClearColor({ 0.0f, 0.0f, 0.0f, 1.0f });
         context.Clear();
 
-        m_FXAAShader->Bind();
+        m_CASShader->Bind();
 
         context.BindTexture(0, inputColorTextureID);
-        m_FXAAShader->SetInt("u_Texture", 0);
+        m_CASShader->SetInt("u_Texture", 0);
+
+        CASUBOData casData;
+        casData.Params = glm::vec4(
+            std::clamp(m_Settings.CASSharpness, 0.0f, 1.0f),
+            outSpec.Width > 0u ? 1.0f / static_cast<f32>(outSpec.Width) : 0.0f,
+            outSpec.Height > 0u ? 1.0f / static_cast<f32>(outSpec.Height) : 0.0f,
+            0.0f);
+        m_CASUBO->SetData(&casData, CASUBOData::GetSize());
+        m_CASUBO->Bind();
 
         const auto va = MeshPrimitives::GetFullscreenTriangle();
         va->Bind();
@@ -160,14 +166,14 @@ namespace OloEngine
         outputFramebuffer->Unbind();
     }
 
-    void FXAARenderPass::SetupFramebuffer(u32 width, u32 height)
+    void UpscalerRenderPass::SetupFramebuffer(u32 width, u32 height)
     {
         m_FramebufferSpec.Width = width;
         m_FramebufferSpec.Height = height;
         CreateFramebuffer(width, height);
     }
 
-    void FXAARenderPass::ResizeFramebuffer(u32 width, u32 height)
+    void UpscalerRenderPass::ResizeFramebuffer(u32 width, u32 height)
     {
         if (width == 0 || height == 0)
             return;
@@ -176,7 +182,7 @@ namespace OloEngine
         CreateFramebuffer(width, height);
     }
 
-    void FXAARenderPass::OnReset()
+    void UpscalerRenderPass::OnReset()
     {
         m_Target = nullptr;
     }

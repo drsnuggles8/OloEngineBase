@@ -31,6 +31,7 @@ namespace OloEngine
         void DrawColorGradingSection() const;
         void DrawFXAASection() const;
         void DrawTAASection() const;
+        void DrawCASSection() const;
         void DrawDOFSection() const;
         void DrawMotionBlurSection() const;
         void DrawAOSection() const;

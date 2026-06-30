@@ -85,6 +85,37 @@ namespace OloEngine
         }
     }
 
+    void ComponentReplicator::Serialize(FArchive& ar, AnimationStateComponent& component)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        // Discrete state + clip selection + playback cursor. The discrete fields
+        // step (no blend); the cursor is replicated so the client can resync, but
+        // the client's own animation system advances it between snapshots.
+        i32 state = static_cast<i32>(component.m_State);
+        ar << state;
+        ar << component.m_CurrentClipIndex;
+        ar << component.m_CurrentTime;
+        ar << component.m_IsPlaying;
+        if (ar.IsLoading())
+        {
+            // Untrusted wire data: clamp the selector enum to its valid range so an
+            // out-of-range payload can't drive the state machine into a bogus case;
+            // fall back to Idle. The clip index is floored at 0 — its upper bound is
+            // the client's local (non-replicated) m_AvailableClips count, so the
+            // consuming animation system must still bounds-check before indexing.
+            constexpr i32 maxState = static_cast<i32>(AnimationStateComponent::State::Custom);
+            component.m_State = (state >= 0 && state <= maxState)
+                                    ? static_cast<AnimationStateComponent::State>(state)
+                                    : AnimationStateComponent::State::Idle;
+            if (component.m_CurrentClipIndex < 0)
+            {
+                component.m_CurrentClipIndex = 0;
+            }
+            component.m_CurrentTime = SanitizeWireFloat(component.m_CurrentTime, 0.0f);
+        }
+    }
+
     std::unordered_map<std::string, ComponentSerializeFn> ComponentReplicator::s_Registry;
 
     void ComponentReplicator::RegisterDefaults()

@@ -88,6 +88,20 @@ namespace OloEngine
         f32 TAAFeedback = 0.9f;   // History blend weight (0..1); higher = smoother, slower response
         f32 TAASharpness = 0.25f; // Post-TAA sharpen amount to offset blur (0 = off)
 
+        // Contrast Adaptive Sharpening (CAS) — first slice of the FSR1 spatial
+        // upscaler (#432). A FidelityFX contrast-adaptive sharpen kernel applied
+        // to the tonemapped (LDR) image: it boosts edge contrast where local
+        // contrast is low and backs off on already-high-contrast edges, so the
+        // image looks crisper without the ringing/haloing of a naive unsharp
+        // mask. Runs AFTER tone mapping (the [0,1] display range the CAS contrast
+        // term assumes), i.e. between ToneMap and Vignette in the dynamic chain.
+        // The math lives in PostProcess_CAS.glsl, mirrored on the CPU by
+        // CASMathTest, and the frame is checked by CASVisualEvidenceTest. The
+        // EASU/RCAS spatial-upscale (render below display res, then upscale) is a
+        // deferred follow-up tracked under #432.
+        bool CASEnabled = false;
+        f32 CASSharpness = 0.5f; // 0 = subtle, 1 = maximum sharpening (remapped to the CAS peak coefficient)
+
         // Color Grading
         bool ColorGradingEnabled = false;
 
@@ -366,6 +380,37 @@ namespace OloEngine
             return sizeof(TAAUBOData);
         }
     };
+
+    // GPU-side UBO layout for CAS / spatial-upscaler parameters (std140, binding 44).
+    // Set by UpscalerRenderPass each frame. Mirrored on the CPU by CASMathTest so
+    // the contrast-adaptive sharpening contract is pinned without a GL context.
+    struct CASUBOData
+    {
+        // x = sharpness in [0,1] (remapped to the CAS peak coefficient in-shader),
+        // y = 1/textureWidth, z = 1/textureHeight, w = pad.
+        glm::vec4 Params = glm::vec4(0.5f, 0.0f, 0.0f, 0.0f);
+
+        static constexpr u32 GetSize()
+        {
+            return sizeof(CASUBOData);
+        }
+    };
+
+    static_assert(sizeof(CASUBOData) % 16 == 0, "CASUBOData must be 16-byte aligned for std140");
+    static_assert(sizeof(CASUBOData) == 16, "CASUBOData std140 size drifted — update PostProcess_CAS.glsl layout");
+
+    // Clamp the CAS parameters to a finite, sane range. Call after loading
+    // settings from disk (scene YAML / save-game), per the CLAUDE.md rule that
+    // floats read from external data are validated with std::isfinite. The shader
+    // also clamps sharpness at use-time, but persisted/edited settings should
+    // never carry NaN/Inf.
+    inline void SanitizeCAS(PostProcessSettings& s) noexcept
+    {
+        const auto finite = [](f32 v, f32 fallback) noexcept
+        { return std::isfinite(v) ? v : fallback; };
+
+        s.CASSharpness = std::clamp(finite(s.CASSharpness, 0.5f), 0.0f, 1.0f);
+    }
 
     // GPU-side UBO layout for Dynamic Resolution Scaling parameters (std140, binding 33).
     // RenderScaleBounds.xy = (renderWidth / physicalWidth, renderHeight / physicalHeight).

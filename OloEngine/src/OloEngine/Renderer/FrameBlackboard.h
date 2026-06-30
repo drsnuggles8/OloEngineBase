@@ -220,6 +220,8 @@ namespace OloEngine
             RGTextureHandle ColorGradingColorTexture;     // Color attachment view of ColorGradingColor
             RGFramebufferHandle ToneMapColor;             // After tone mapping (always valid when ToneMapPass exists)
             RGTextureHandle ToneMapColorTexture;          // Color attachment view of ToneMapColor
+            RGFramebufferHandle UpscalerColor;            // After CAS sharpening (only valid when CAS is enabled; runs post-tonemap on LDR)
+            RGTextureHandle UpscalerColorTexture;         // Color attachment view of UpscalerColor
             RGFramebufferHandle VignetteColor;            // After vignette (only valid when Vignette enabled)
             RGTextureHandle VignetteColorTexture;         // Color attachment view of VignetteColor
             RGFramebufferHandle FXAAColor;                // Anti-aliased post-process output (only valid when FXAA enabled)

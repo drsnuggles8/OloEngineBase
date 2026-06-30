@@ -90,6 +90,8 @@ namespace OloEngine::Tests
               { s.MotionBlurEnabled = !s.MotionBlurEnabled; } },
             { "TAAEnabled", [](PostProcessSettings& s)
               { s.TAAEnabled = !s.TAAEnabled; } },
+            { "CASEnabled", [](PostProcessSettings& s)
+              { s.CASEnabled = !s.CASEnabled; } },
             { "ChromaticAberrationEnabled", [](PostProcessSettings& s)
               { s.ChromaticAberrationEnabled = !s.ChromaticAberrationEnabled; } },
             { "ColorGradingEnabled", [](PostProcessSettings& s)

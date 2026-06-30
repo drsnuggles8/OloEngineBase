@@ -689,6 +689,13 @@ namespace OloEngine
             s_LastAutoExposureTime = aeNow;
             PostProcessPasses.ToneMap->SetAutoExposure(ae);
         }
+
+        if (PostProcessPasses.Upscaler)
+        {
+            PostProcessPasses.Upscaler->SetEnabled(data.PostProcess.CASEnabled);
+            PostProcessPasses.Upscaler->SetSettings(data.PostProcess);
+        }
+
         if (PostProcessPasses.Vignette)
         {
             PostProcessPasses.Vignette->SetEnabled(data.PostProcess.VignetteEnabled);
@@ -1104,6 +1111,7 @@ namespace OloEngine
         HashBool(h, data.PostProcess.TAAEnabled);
         HashBool(h, data.PostProcess.ChromaticAberrationEnabled);
         HashBool(h, data.PostProcess.ColorGradingEnabled);
+        HashBool(h, data.PostProcess.CASEnabled);
         HashBool(h, data.PostProcess.VignetteEnabled);
         HashBool(h, data.PostProcess.FXAAEnabled);
 
@@ -1164,6 +1172,7 @@ namespace OloEngine
         HashPassState(h, PostProcessPasses.ChromAberration);
         HashPassState(h, PostProcessPasses.ColorGrading);
         HashPassState(h, PostProcessPasses.ToneMap);
+        HashPassState(h, PostProcessPasses.Upscaler);
         HashPassState(h, PostProcessPasses.Vignette);
         HashPassState(h, PostProcessPasses.FXAA);
         HashPassState(h, PostProcessPasses.SelectionOutline);
@@ -2082,6 +2091,20 @@ namespace OloEngine
             board.Post.ToneMapColor = toneMapOutput.Framebuffer;
             board.Post.ToneMapColorTexture = toneMapOutput.Texture;
         }
+
+        // UpscalerColor (CAS sharpening) is declared only when CAS is enabled.
+        // It runs post-tonemap on the LDR image; carries LDR values in an
+        // RGBA16Float target to match the ToneMapColor it consumes.
+        if (pipeline.PostProcessPasses.Upscaler && data.PostProcess.CASEnabled &&
+            pipeline.PostProcessPasses.Upscaler->IsReadyForExecution())
+        {
+            const auto upscalerOutput = declareGraphOnlyPostProcessOutput(
+                ResourceNames::UpscalerColor,
+                ResourceNames::UpscalerColorTexture,
+                RGResourceFormat::RGBA16Float);
+            board.Post.UpscalerColor = upscalerOutput.Framebuffer;
+            board.Post.UpscalerColorTexture = upscalerOutput.Texture;
+        }
         if (pipeline.PostProcessPasses.Vignette && data.PostProcess.VignetteEnabled &&
             pipeline.PostProcessPasses.Vignette->IsReadyForExecution())
         {
@@ -2297,6 +2320,7 @@ namespace OloEngine
         inputs.Passes.ChromAberration = PostProcessPasses.ChromAberration.Raw();
         inputs.Passes.ColorGrading = PostProcessPasses.ColorGrading.Raw();
         inputs.Passes.ToneMap = PostProcessPasses.ToneMap.Raw();
+        inputs.Passes.Upscaler = PostProcessPasses.Upscaler.Raw();
         inputs.Passes.Vignette = PostProcessPasses.Vignette.Raw();
         inputs.Passes.FXAA = PostProcessPasses.FXAA.Raw();
         inputs.Passes.SelectionOutline = PostProcessPasses.SelectionOutline.Raw();
@@ -2477,6 +2501,12 @@ namespace OloEngine
         PostProcessPasses.ToneMap = Ref<ToneMapRenderPass>::Create();
         PostProcessPasses.ToneMap->SetName("ToneMapPass");
         PostProcessPasses.ToneMap->Init(finalPassSpec);
+
+        // Spatial upscaler / CAS sharpening pass.
+        // Sits between ToneMap and Vignette (operates on the tonemapped LDR image).
+        PostProcessPasses.Upscaler = Ref<UpscalerRenderPass>::Create();
+        PostProcessPasses.Upscaler->SetName("UpscalerPass");
+        PostProcessPasses.Upscaler->Init(finalPassSpec);
 
         PostProcessPasses.Vignette = Ref<VignetteRenderPass>::Create();
         PostProcessPasses.Vignette->SetName("VignettePass");

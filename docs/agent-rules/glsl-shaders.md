@@ -202,3 +202,28 @@ Available headers in `OloEditor/assets/shaders/include/`:
 4. **`vec3` without padding** in UBOs → misaligned reads. Use `vec4` or add explicit padding.
 5. **Binding-slot collision** → two resources fighting for the same slot. Check the tables above.
 6. **Integer literal in float context** → SPIR-V error. Use `1.0` not `1`, `vec3(0.0)` not `vec3(0)`.
+
+---
+
+## 9. Display-range vs HDR-linear post-process ordering
+
+Some post-process kernels are written against the **[0,1] display range** and break
+in unbounded HDR-linear space. The clearest example is **Contrast Adaptive
+Sharpening** (`PostProcess_CAS.glsl`, `UpscalerRenderPass`): its contrast-headroom
+term `min(mn, 2.0 - mx) / mx` and final `saturate()` both treat `1.0` as white. In
+HDR-linear (pre-tonemap) the `2.0 - mx` term goes **negative** for any pixel brighter
+than mid-grey, so amplitude clamps to 0 and *bright regions never sharpen* — the
+effect silently disappears on exactly the highlights you most want crisp.
+
+So CAS (and any sharpen / display-referred filter) runs **after `ToneMapPass`**, on
+the LDR image (between `ToneMapPass` and `VignettePass` in the dynamic chain), not in
+the HDR pre-tonemap band where MotionBlur/TAA/DOF live. When you insert a stage into
+the post chain, every **downstream** consumer's `ReadFirstValidVersionedInputForPass`
+candidate list must gain the new resource name *above* the stage it follows (CAS sits
+above `ToneMapColor` in `VignettePass`/`FXAAPass`/`SelectionOutlinePass`/`UICompositePass`/`FinalPass`),
+or the chain falls back past it and the stage's output is dropped. Placing CAS late
+also means **fewer** candidate-list edits than the HDR band (5 consumers vs 11).
+
+Future FSR1 EASU/RCAS *spatial upscale* (render below display res, then upscale) is
+the opposite: EASU must run **early** (before display-res post), so when it lands it
+splits — EASU pre-post, RCAS/CAS sharpen post-tonemap.
