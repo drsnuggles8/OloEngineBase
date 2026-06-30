@@ -238,18 +238,23 @@ TEST(SpatialAccelerationTest, RadiusQueryMatchesBruteForceAcrossCellSizes)
         { 0, 0, 0 }, { 50, -30, 20 }, { -120, 80, -60 }, { 300, 300, 300 }
     };
     const std::vector<f32> radii = { 0.0f, 5.0f, 25.0f, 75.0f, 500.0f };
+    // Includes cellSize 1.0 paired with radius 500 — that combo's bounding box
+    // is ~10^9 cells, which exercises the linear-scan fallback (without it the
+    // query iterates a billion empty cells and times out under TSan; see #430).
     const std::vector<f32> cellSizes = { 1.0f, 10.0f, 33.0f, 100.0f, 250.0f };
 
-    for (const glm::vec3& center : centers)
+    // Build the index once per cell size (it depends only on cell size), then
+    // sweep every center/radius against it — the result must be invariant.
+    // Building inside the innermost loop would rebuild it 100× for no reason.
+    for (f32 cellSize : cellSizes)
     {
-        for (f32 radius : radii)
+        SceneSpatialIndex index = BuildIndex(points, cellSize);
+        for (const glm::vec3& center : centers)
         {
-            const auto expected = BruteForceRadius(points, center, radius);
-            for (f32 cellSize : cellSizes)
+            for (f32 radius : radii)
             {
-                SceneSpatialIndex index = BuildIndex(points, cellSize);
-                const auto got = ToSortedU64(index.QueryRadius(center, radius));
-                EXPECT_EQ(got, expected)
+                EXPECT_EQ(ToSortedU64(index.QueryRadius(center, radius)),
+                          BruteForceRadius(points, center, radius))
                     << "mismatch at center(" << center.x << "," << center.y << "," << center.z
                     << ") radius " << radius << " cellSize " << cellSize;
             }
@@ -283,6 +288,112 @@ TEST(SpatialAccelerationTest, NearestNMatchesBruteForceOrdering)
     {
         EXPECT_EQ(static_cast<u64>(got[i]), ranked[i].second) << "rank " << i;
     }
+}
+
+// A non-finite query input must be rejected before any cell math runs (an
+// integer cast of NaN/Inf is UB, and an Inf radius would floor to a near-
+// infinite cell loop). Every query entry point returns empty, never hangs.
+TEST(SpatialAccelerationTest, NonFiniteQueryInputsReturnEmpty)
+{
+    SceneSpatialIndex index(10.0f);
+    index.Insert(UUID(1), { 0, 0, 0 });
+    index.Insert(UUID(2), { 3, 4, 0 });
+
+    const f32 nan = std::numeric_limits<f32>::quiet_NaN();
+    const f32 inf = std::numeric_limits<f32>::infinity();
+
+    // QueryRadius: bad center, bad radius.
+    EXPECT_TRUE(index.QueryRadius({ nan, 0, 0 }, 100.0f).empty());
+    EXPECT_TRUE(index.QueryRadius({ 0, inf, 0 }, 100.0f).empty());
+    EXPECT_TRUE(index.QueryRadius({ 0, 0, 0 }, inf).empty());
+    EXPECT_TRUE(index.QueryRadius({ 0, 0, 0 }, nan).empty());
+
+    // QueryAABB: bad bounds.
+    EXPECT_TRUE(index.QueryAABB({ nan, -1, -1 }, { 1, 1, 1 }).empty());
+    EXPECT_TRUE(index.QueryAABB({ -1, -1, -1 }, { 1, inf, 1 }).empty());
+
+    // NearestN: bad center, bad maxRadius.
+    EXPECT_TRUE(index.NearestN({ nan, 0, 0 }, 5).empty());
+    EXPECT_TRUE(index.NearestN({ 0, 0, 0 }, 5, nan).empty());
+
+    // A finite query still works after the rejected ones (no corrupted state).
+    EXPECT_EQ(index.QueryRadius({ 0, 0, 0 }, 100.0f).size(), 2u);
+}
+
+// A literal +inf maxRadius means "search everything", same as the FLT_MAX
+// sentinel default — it falls through to the unbounded flat scan, not the
+// bounded cell walk (which would floor inf to a garbage range).
+TEST(SpatialAccelerationTest, NearestNInfiniteRadiusSearchesAll)
+{
+    SceneSpatialIndex index(8.0f);
+    index.Insert(UUID(1), { 2, 0, 0 });
+    index.Insert(UUID(2), { 200, 0, 0 });
+    index.Insert(UUID(3), { -50, 30, 10 });
+
+    const f32 inf = std::numeric_limits<f32>::infinity();
+    EXPECT_EQ(index.NearestN({ 0, 0, 0 }, 10, inf).size(), 3u);
+    // Nearest is still correctly ranked.
+    const auto got = index.NearestN({ 0, 0, 0 }, 1, inf);
+    ASSERT_EQ(got.size(), 1u);
+    EXPECT_EQ(static_cast<u64>(got[0]), 1u);
+}
+
+// Rebuild many times while entities roam across many distinct cells. Beyond
+// correctness, this exercises the Clear()-drops-dead-cell-keys path (an earlier
+// Clear left empty keys behind, growing m_Cells without bound).
+TEST(SpatialAccelerationTest, RepeatedRebuildStaysCorrectAsEntitiesRoam)
+{
+    SceneSpatialIndex index(5.0f);
+    for (u32 tick = 0; tick < 50; ++tick)
+    {
+        index.Clear();
+        // Two entities march far across the world each tick → new cells. Entity
+        // 2 keeps a large constant offset so it never lands within entity 1's
+        // query radius (they'd otherwise coincide at the origin at tick 0).
+        const f32 t = static_cast<f32>(tick);
+        index.Insert(UUID(1), { t * 13.0f, 0, 0 });
+        index.Insert(UUID(2), { -500.0f - t * 7.0f, t * 3.0f, 50.0f });
+
+        EXPECT_EQ(index.GetEntityCount(), 2u);
+        const auto near1 = index.QueryRadius({ t * 13.0f, 0, 0 }, 1.0f);
+        ASSERT_EQ(near1.size(), 1u) << "tick " << tick;
+        EXPECT_EQ(static_cast<u64>(near1[0]), 1u);
+        // The other entity is far away and must not appear in this query.
+        EXPECT_TRUE(index.QueryRadius({ 9999.0f, 9999.0f, 9999.0f }, 1.0f).empty());
+    }
+}
+
+// A query whose cell bounding box vastly exceeds the entry count (a large
+// radius / box on a fine grid) must take the linear entry-scan fallback rather
+// than iterating ~10^9 empty cells. This pins both correctness *and* that the
+// query returns promptly — without the fallback this case times out (it caused
+// the TSan CI timeout that motivated the fallback). All three query kinds.
+TEST(SpatialAccelerationTest, HugeQueryOnFineGridUsesFallbackAndMatchesBruteForce)
+{
+    // Fine 1-unit grid, a handful of points spread across a large world.
+    const std::vector<Point> points = {
+        { UUID(1), { 0, 0, 0 } },
+        { UUID(2), { 250, -100, 50 } },
+        { UUID(3), { -400, 300, -200 } },
+        { UUID(4), { 100, 100, 100 } },
+    };
+    SceneSpatialIndex index = BuildIndex(points, 1.0f);
+
+    // Radius 2000 around the origin: box would be 4001^3 ≈ 6.4x10^10 cells.
+    const glm::vec3 center{ 0, 0, 0 };
+    const f32 radius = 2000.0f;
+    EXPECT_EQ(ToSortedU64(index.QueryRadius(center, radius)),
+              BruteForceRadius(points, center, radius));
+
+    // AABB covering the whole world on the same fine grid.
+    const auto aabb = ToSortedU64(index.QueryAABB({ -1000, -1000, -1000 }, { 1000, 1000, 1000 }));
+    EXPECT_EQ(aabb, (std::vector<u64>{ 1, 2, 3, 4 }));
+
+    // NearestN with a large finite maxRadius → bounded path takes the fallback.
+    const auto nearest = index.NearestN(center, 2, 5000.0f);
+    ASSERT_EQ(nearest.size(), 2u);
+    EXPECT_EQ(static_cast<u64>(nearest[0]), 1u); // origin point is closest
+    EXPECT_EQ(static_cast<u64>(nearest[1]), 4u); // (100,100,100) next
 }
 
 TEST(SpatialAccelerationTest, ClearAllowsRebuildWithFreshContents)

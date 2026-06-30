@@ -783,6 +783,14 @@ namespace OloEngine
         // foliage shaders that consume PrevAnimationTime.
         m_LastAnimationTime = -1.0f;
 
+        // Seed the spatial index empty for this session. It is only rebuilt
+        // inside OnUpdateRuntime, so without this a Scene that is run, stopped,
+        // and run again would expose the previous session's entity positions to
+        // any query made between OnRuntimeStart and the first tick. Empty is a
+        // valid answer; stale is not. UpdateSpatialIndex remains the sole
+        // per-tick rebuild path.
+        m_SpatialIndex.Clear();
+
         // In headless mode, disable rendering
         if (Application::Get().IsHeadless())
         {

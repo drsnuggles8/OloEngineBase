@@ -141,14 +141,17 @@ namespace OloEngine
                     continue; // a sensor never senses itself
                 }
 
-                Entity targetEntity = scene->GetEntityByUUID(candidateUUID);
-                // The index holds every transformed entity; only those tagged
-                // PerceptibleComponent are sight targets. A missing entity
-                // (stale index entry) is likewise skipped defensively.
-                if (!targetEntity || !targetEntity.HasComponent<PerceptibleComponent>())
+                // Resolve via the non-asserting lookup: GetEntityByUUID would
+                // assert on a UUID that's no longer live, so it can't be used to
+                // *skip* a disappeared entity. The index holds every transformed
+                // entity; only those still present and tagged
+                // PerceptibleComponent are sight targets.
+                auto targetOpt = scene->TryGetEntityWithUUID(candidateUUID);
+                if (!targetOpt || !targetOpt->HasComponent<PerceptibleComponent>())
                 {
                     continue;
                 }
+                Entity targetEntity = *targetOpt;
 
                 const auto& perceptible = targetEntity.GetComponent<PerceptibleComponent>();
                 if (!perceptible.IsPerceptible)
