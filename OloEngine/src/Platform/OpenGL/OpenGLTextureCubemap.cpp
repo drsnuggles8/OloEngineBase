@@ -540,6 +540,18 @@ namespace OloEngine
         sizet faceSize = static_cast<sizet>(mipWidth) * mipHeight * formatInfo.BytesPerPixel;
         outData.resize(faceSize);
 
+        // Drain any GL error leaked in by an earlier, unrelated operation before
+        // the readback, so the glGetError() check afterward reflects only THIS
+        // glGetTextureSubImage call. Without this, an inherited error (e.g. one a
+        // previous render left pending in the same context) is misattributed to
+        // the readback: GetFaceData wrongly returns false, and callers such as
+        // IBLPrecompute::ProjectCubemapToSH then see a spurious "black" cubemap.
+        // The guard bounds the drain so a lost context (glGetError stuck on
+        // GL_CONTEXT_LOST) can't spin forever.
+        for (int guard = 0; guard < 64 && glGetError() != GL_NO_ERROR; ++guard)
+        {
+        }
+
         // For cubemap face readback, we need to use glGetTextureSubImage (OpenGL 4.5+)
         // which allows reading a single layer/face from a cubemap
         glGetTextureSubImage(

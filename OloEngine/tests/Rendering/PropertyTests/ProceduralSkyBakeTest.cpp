@@ -35,6 +35,7 @@
 #include "OloEngine/Renderer/SphericalHarmonics.h"
 #include "OloEngine/Renderer/TextureCubemap.h"
 
+#include <glad/gl.h>
 #include <glm/glm.hpp>
 
 namespace OloEngine::Tests
@@ -134,5 +135,49 @@ namespace OloEngine::Tests
 
         EXPECT_GT(hazyLum, clearLum)
             << "Higher turbidity must brighten the average sky radiance.";
+    }
+
+    TEST_F(ProceduralSkyBakeTest, CubemapReadbackToleratesLeakedGLError)
+    {
+        // Regression for the cross-suite flake: an earlier test left a pending GL
+        // error in the context (a shadow pass's GL_INVALID_OPERATION). When
+        // IBLPrecompute::ProjectCubemapToSH read the baked cubemap,
+        // OpenGLTextureCubemap::GetFaceData checked glGetError() *without* first
+        // draining that stale error, misattributed it to its own readback, and
+        // returned false — so the SH projection saw a spurious all-black cubemap
+        // (dcMagnitude == 0) even though the bake was fine. It "self-healed" after
+        // one read because GetFaceData's own glGetError() consumed the leaked
+        // error, which is why only the first sky read in the suite ever failed.
+        //
+        // Reproduce deterministically: bake a known-good sky, leak a GL error,
+        // then read it back. The readback must drain the stale error and still
+        // return the real (non-black) radiance.
+        PreethamParameters params;
+        params.SunDirection = glm::normalize(glm::vec3(0.3f, 0.7f, 0.4f));
+        params.Turbidity = 3.0f;
+        params.Exposure = 0.05f;
+        params.ShowSunDisk = true;
+
+        auto envMap = ProceduralSky::Generate(params, 64);
+        ASSERT_TRUE(envMap && envMap->GetEnvironmentMap()) << "sky bake failed";
+
+        // Leak a pending GL error, simulating an unrelated earlier operation.
+        // GL_FLOAT is not a valid glEnable capability → GL_INVALID_ENUM. Do NOT
+        // call glGetError() afterward — that would clear the very error the
+        // readback must now tolerate.
+        glEnable(GL_FLOAT);
+
+        const SHCoefficients sh = IBLPrecompute::ProjectCubemapToSH(envMap->GetEnvironmentMap());
+
+        // Scrub any residual error so this test leaks nothing onward.
+        while (glGetError() != GL_NO_ERROR)
+        {
+        }
+
+        const glm::vec3 dc = sh.Coefficients[0];
+        EXPECT_GT(dc.r + dc.g + dc.b, 0.0f)
+            << "a leaked GL error was misattributed to the cubemap readback — "
+               "OpenGLTextureCubemap::GetFaceData must drain stale errors before "
+               "its own glGetError() check";
     }
 } // namespace OloEngine::Tests
