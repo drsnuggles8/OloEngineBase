@@ -715,6 +715,8 @@
 		"OloEngine/Renderer/Passes/FoliageRenderPass.cpp"
 		"OloEngine/Renderer/Passes/ForwardOverlayRenderPass.h"
 		"OloEngine/Renderer/Passes/ForwardOverlayRenderPass.cpp"
+		"OloEngine/Renderer/Passes/GPUDrivenOcclusionPass.h"
+		"OloEngine/Renderer/Passes/GPUDrivenOcclusionPass.cpp"
 		"OloEngine/Renderer/Passes/PlanarReflectionRenderPass.h"
 		"OloEngine/Renderer/Passes/PlanarReflectionRenderPass.cpp"
 		"OloEngine/Renderer/Passes/WaterRenderPass.h"

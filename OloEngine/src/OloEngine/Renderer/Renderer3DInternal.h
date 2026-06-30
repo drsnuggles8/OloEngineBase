@@ -15,6 +15,7 @@
 #include "OloEngine/Renderer/Passes/FoliageRenderPass.h"
 #include "OloEngine/Renderer/Passes/ForwardOverlayRenderPass.h"
 #include "OloEngine/Renderer/Passes/FXAARenderPass.h"
+#include "OloEngine/Renderer/Passes/GPUDrivenOcclusionPass.h"
 #include "OloEngine/Renderer/Passes/GTAORenderPass.h"
 #include "OloEngine/Renderer/Passes/MotionBlurRenderPass.h"
 #include "OloEngine/Renderer/Passes/OITPrepareRenderPass.h"
@@ -128,6 +129,7 @@ namespace OloEngine
         Ref<FoliageRenderPass> Foliage;
         Ref<WaterRenderPass> Water;
         Ref<DecalRenderPass> Decal;
+        Ref<GPUDrivenOcclusionPass> GPUOcclusion;
 
         void Reset()
         {
@@ -135,6 +137,7 @@ namespace OloEngine
             Foliage.Reset();
             Water.Reset();
             Decal.Reset();
+            GPUOcclusion.Reset();
         }
     };
 
@@ -163,6 +166,8 @@ namespace OloEngine
                     return RenderStreamPasses.Water.Raw();
                 case RenderStreamType::Decal:
                     return RenderStreamPasses.Decal.Raw();
+                case RenderStreamType::GPUOcclusion:
+                    return RenderStreamPasses.GPUOcclusion.Raw();
             }
 
             return nullptr;
@@ -176,6 +181,7 @@ namespace OloEngine
             func(GetRenderStreamNode(RenderStreamType::Foliage));
             func(GetRenderStreamNode(RenderStreamType::Water));
             func(GetRenderStreamNode(RenderStreamType::Decal));
+            func(GetRenderStreamNode(RenderStreamType::GPUOcclusion));
         }
 
         void Setup(Renderer3DData& data,

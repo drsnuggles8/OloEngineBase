@@ -15,6 +15,7 @@
 #include "OloEngine/Renderer/StorageBuffer.h"
 #include "OloEngine/Renderer/Instancing/InstanceBuffer.h"
 #include "OloEngine/Renderer/Instancing/GPUFrustumCuller.h"
+#include "OloEngine/Renderer/HZBGenerator.h"
 #include "OloEngine/Wind/WindSystem.h"
 #include "OloEngine/Snow/SnowAccumulationSystem.h"
 #include "OloEngine/Snow/SnowEjectaSystem.h"
@@ -38,6 +39,7 @@ namespace OloEngine
     class Shader;
     class VertexArray;
     class Framebuffer;
+    class GPUDrivenOcclusionPass;
     class RenderCommand;
     class UniformBuffer;
     class CommandBucket;
@@ -138,6 +140,10 @@ namespace OloEngine
             Foliage,
             Water,
             Decal,
+            // GPU-driven two-phase occlusion cull for dense instanced statics
+            // (#431). Routed to GPUDrivenOcclusionPass, which draws after
+            // ScenePass in Forward / Forward+.
+            GPUOcclusion,
         };
 
         struct Statistics
@@ -653,9 +659,18 @@ namespace OloEngine
         static void EnableDepthPrepass(bool enable);
         static bool IsDepthPrepassEnabled();
 
-        // Occlusion culling control
+        // Occlusion culling control (legacy CPU hardware-query path).
         static void EnableOcclusionCulling(bool enable);
         static bool IsOcclusionCullingEnabled();
+
+        // GPU Hi-Z occlusion culling for instanced static geometry (#431).
+        // Independent of the legacy query path above: this drives the compute
+        // cull's HZB occlusion test against the previous frame's retained depth
+        // pyramid. Off by default. SetHZBOcclusionDepthBias tunes the device-Z
+        // slack (larger = more conservative, fewer false culls).
+        static void EnableHZBOcclusionCulling(bool enable);
+        static bool IsHZBOcclusionCullingEnabled();
+        static void SetHZBOcclusionDepthBias(f32 bias);
 
         // Forward+ light culling control
         static TiledForwardPlus& GetForwardPlus()
@@ -1263,6 +1278,32 @@ namespace OloEngine
                                                        const Material& material, bool isStatic,
                                                        u64 ownerKey);
 
+        // Regenerate the persistent Hi-Z occlusion pyramid (#431) from this
+        // frame's scene depth. Called at the tail of EndScene() once the render
+        // graph has executed (so geometry depth is final). No-op when HZB
+        // occlusion is disabled or the scene depth is unavailable. The pyramid
+        // is consumed by next frame's GPU instance cull.
+        static void GenerateOcclusionHZB();
+
+        // Two-phase occlusion (#431 Stage 2), driven by GPUDrivenOcclusionPass at
+        // execute time:
+        //   * BuildCurrentOcclusionHZB rebuilds the occlusion pyramid from THIS
+        //     frame's partial depth (occluders + phase-1 survivors) and returns
+        //     the inputs (reprojected with the CURRENT view-projection) for the
+        //     phase-2 re-test. Returns a disabled struct if it can't build.
+        //   * DispatchOcclusionPhase2 re-tests one batch's reject list against it.
+        //   * GetGPUOcclusionPass exposes the pass for submission-side routing.
+        // The first two are public because GPUDrivenOcclusionPass::Execute calls
+        // them; GetGPUOcclusionPass stays private (only SubmitGPUCulledInstanced
+        // uses it).
+      public:
+        static GPUFrustumCuller::HZBOcclusionInputs BuildCurrentOcclusionHZB(u32 depthTextureID, u32 width, u32 height);
+        static void DispatchOcclusionPhase2(const GPUFrustumCuller::TwoPhaseCullResult& cull,
+                                            const GPUFrustumCuller::HZBOcclusionInputs& currentHZB);
+
+      private:
+        static GPUDrivenOcclusionPass* GetGPUOcclusionPass();
+
       private:
         struct Renderer3DData
         {
@@ -1314,6 +1355,27 @@ namespace OloEngine
             // submission through the GPU cull path. Below this, the CPU
             // loop wins on launch overhead.
             u32 GPUCullThreshold = 1024;
+
+            // Persistent Hi-Z occlusion pyramid (#431). A max-reduction depth
+            // pyramid regenerated at the end of every EndScene from this frame's
+            // scene depth and RETAINED across frames, so the GPU instance cull —
+            // dispatched at submission time, before this frame's depth exists —
+            // can additionally reject instances hidden behind last frame's
+            // depth. Value-owned (lifetime = engine); Initialize()/Shutdown()
+            // bracket the GL context in Renderer3D::Init / Shutdown.
+            HZBGenerator OcclusionHZB;
+            // Master toggle for the HZB occlusion path. Off by default: it
+            // trades a one-frame-latent, conservative occlusion test for the
+            // possibility of transient disocclusion popping on fast camera cuts
+            // (the two-pass refinement that removes the popping is a documented
+            // follow-up). Mirrors RendererSettings::HZBOcclusionCullingEnabled.
+            bool HZBOcclusionCullingEnabled = false;
+            // True once OcclusionHZB has been generated at least once — guards
+            // the first frame, where no retained depth exists yet.
+            bool OcclusionHZBValid = false;
+            // Device-Z slack subtracted before an instance is rejected as
+            // occluded. Larger = more conservative (fewer false culls).
+            f32 HZBOcclusionDepthBias = 0.0f;
             PostProcessGPUState PostProcessGPU;
             Ref<UniformBuffer> TerrainUBO;
             Ref<UniformBuffer> FoliageUBO;

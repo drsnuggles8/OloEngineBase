@@ -1,0 +1,244 @@
+#version 450 core
+
+// GPU per-instance frustum + Hi-Z occlusion culling pre-pass (#431).
+//
+// A superset of InstanceFrustumCull.comp: every instance first runs the
+// identical six-plane frustum test, and survivors are then tested against a
+// Hierarchical-Z (HZB) depth pyramid built from the PREVIOUS frame's scene
+// depth. Instances whose screen-space bounding rectangle is entirely behind
+// the nearest recorded occluder are rejected before the indirect draw, so the
+// rasteriser never touches fully-hidden static geometry.
+//
+// Input  (SSBO 16): full InstanceData[] uploaded by Renderer3D.
+// Output (SSBO 15): compacted InstanceData[] — frustum-visible AND not occluded.
+// Indirect (SSBO 17): DrawElementsIndirectCommand whose `instanceCount`
+//                     atomic-counts survivors.
+//
+// HZB occlusion details
+// ---------------------
+// The HZB is a max-reduction pyramid (each coarse texel holds the FARTHEST of
+// the four nearest-surface depths beneath it — HZBGenerator ReduceMode::Max),
+// in OpenGL device-Z [0,1] where smaller = nearer. We retain the pyramid built
+// from the previous frame's scene depth, so the cull (dispatched at submission
+// time, before this frame's depth exists) tests against the most recent depth
+// available. Because the pyramid is in LAST frame's screen space, bounds are
+// reprojected with `u_PrevViewProjection`.
+//
+// Conservatism is deliberate — a false survivor only wastes a draw, but a false
+// cull punches a visible hole. So every ambiguous case keeps the instance:
+//   * any bounding-box corner at/behind the camera (clip.w <= 0) -> keep
+//   * a degenerate / off-screen reprojected rectangle              -> keep
+//   * occlusion disabled or HZB not yet valid (frame 0)            -> keep
+// and a small `u_OcclusionDepthBias` is required before a reject fires.
+//
+// The frustum math is kept byte-for-byte identical to InstanceFrustumCull.comp
+// and Frustum.cpp; the occlusion math is pinned by GPUOcclusionCullParityTest.
+
+layout(local_size_x = 256) in;
+
+// Layout mirrors OloEngine::InstanceData (Renderer/Instancing/InstanceData.h,
+// 224 B std430). Pinned by InstanceDataLayoutTest.
+struct InstanceData {
+    mat4 Transform;
+    mat4 Normal;
+    mat4 PrevTransform;
+    vec4 Color;
+    int  EntityID;
+    float Custom;
+    int  _instancePad0;
+    int  _instancePad1;
+};
+
+layout(std430, binding = 16) readonly buffer InstanceCullInput {
+    InstanceData inputInstances[];
+};
+
+layout(std430, binding = 15) writeonly buffer InstanceCullOutput {
+    InstanceData outputInstances[];
+};
+
+layout(std430, binding = 17) buffer InstanceCullIndirect {
+    uint count;
+    uint instanceCount;
+    uint firstIndex;
+    uint baseVertex;
+    uint baseInstance;
+    uint _indirectPad0;
+    uint _indirectPad1;
+    uint _indirectPad2;
+} indirect;
+
+// Two-phase reject list (#431 Stage 2). In PHASE 1 (u_WriteRejected != 0), an
+// instance that passes the frustum test but is occluded by the PREVIOUS frame's
+// HZB is appended here (instead of dropped) and its count atomic-incremented, so
+// PHASE 2 can re-test it against the CURRENT frame's HZB and recover the ones
+// that turned out visible this frame — eliminating one-frame disocclusion pops.
+// In phase 2 this buffer is bound as the input (binding 16) and its length is
+// read from `rejectedCount` to bound the dispatch.
+layout(std430, binding = 18) writeonly buffer InstanceCullRejected {
+    InstanceData rejectedInstances[];
+};
+layout(std430, binding = 19) buffer InstanceCullRejectedCount {
+    uint rejectedCount;
+};
+
+layout(std140, binding = 0) uniform CameraMatrices
+{
+    mat4 u_ViewProjection;
+    mat4 u_View;
+    mat4 u_Projection;
+    vec3 u_CameraPosition;
+    float _padding0;
+};
+
+// Max-reduction HZB pyramid from the previous frame's scene depth.
+layout(binding = 0) uniform sampler2D u_HZB;
+
+uniform uint u_InstanceCount;
+uniform vec4 u_LocalBoundingSphere; // xyz = center, w = radius (pre-expansion)
+uniform float u_RadiusExpansion;    // 1.3 × 1.05 = 1.365 for static draws
+
+// Occlusion controls. When u_OcclusionEnabled == 0 the shader behaves exactly
+// like InstanceFrustumCull.comp (frustum only).
+uniform int  u_OcclusionEnabled;        // 0 = frustum only, 1 = + HZB occlusion
+uniform mat4 u_PrevViewProjection;      // last frame's VP — matches the retained HZB
+uniform vec2 u_HZBSize;                 // HZB texture size in texels (power-of-2)
+uniform vec2 u_HZBUVFactor;             // viewport / HZB size — screenUV -> HZB UV
+uniform int  u_HZBMipCount;             // mip levels in the HZB
+uniform float u_OcclusionDepthBias;     // device-Z slack before a reject fires
+
+// Two-phase controls (#431 Stage 2). Default 0 → the single-phase behaviour
+// (frustum [+ occlusion] only), so existing callers and the GL contract test
+// need no changes.
+uniform int  u_WriteRejected; // phase 1: append occluded survivors to the reject list (binding 18/19)
+uniform int  u_Phase2;        // phase 2: bound the dispatch by `rejectedCount` (the reject-list length)
+
+// Extract a single frustum plane from a row-of-VP combination.
+vec4 extractPlane(int col, float colSign)
+{
+    vec4 p = vec4(
+        u_ViewProjection[0][3] + colSign * u_ViewProjection[0][col],
+        u_ViewProjection[1][3] + colSign * u_ViewProjection[1][col],
+        u_ViewProjection[2][3] + colSign * u_ViewProjection[2][col],
+        u_ViewProjection[3][3] + colSign * u_ViewProjection[3][col]
+    );
+    float len = length(p.xyz);
+    return p / len;
+}
+
+// Returns true when the world-space sphere (center, radius) is fully hidden by
+// the retained HZB, i.e. safe to cull. Conservative: returns false whenever the
+// projection is unreliable.
+bool isOccluded(vec3 worldCenter, float worldRadius)
+{
+    // Screen-space rectangle + nearest device-Z of the sphere's world AABB,
+    // reprojected with last frame's VP. Eight corners keep the bound tight
+    // without a full analytic sphere-screen-extent derivation.
+    vec2 rectMin = vec2( 1e30);
+    vec2 rectMax = vec2(-1e30);
+    float nearestZ = 1e30;
+    for (int i = 0; i < 8; ++i)
+    {
+        vec3 corner = worldCenter + worldRadius * vec3(
+            (i & 1) != 0 ? 1.0 : -1.0,
+            (i & 2) != 0 ? 1.0 : -1.0,
+            (i & 4) != 0 ? 1.0 : -1.0);
+        vec4 clip = u_PrevViewProjection * vec4(corner, 1.0);
+        if (clip.w <= 0.0)
+            return false; // straddles / behind camera — cannot project safely.
+        vec3 ndc = clip.xyz / clip.w;
+        vec2 uv = ndc.xy * 0.5 + 0.5;
+        float deviceZ = ndc.z * 0.5 + 0.5;
+        rectMin = min(rectMin, uv);
+        rectMax = max(rectMax, uv);
+        nearestZ = min(nearestZ, deviceZ);
+    }
+
+    // Reject only when the whole rectangle was on-screen last frame; a
+    // partially off-screen box has no reliable HZB coverage, so keep it.
+    if (rectMin.x < 0.0 || rectMin.y < 0.0 || rectMax.x > 1.0 || rectMax.y > 1.0)
+        return false;
+    if (rectMax.x <= rectMin.x || rectMax.y <= rectMin.y)
+        return false;
+
+    // Map the screen rect into the HZB's valid sub-rect (the pyramid only
+    // covers viewport pixels; screenUV * UVFactor lands inside it).
+    vec2 hzbMin = rectMin * u_HZBUVFactor;
+    vec2 hzbMax = rectMax * u_HZBUVFactor;
+
+    // Pick the mip where the rectangle spans at most ~2 texels, so a 4-corner
+    // fetch covers it. Width/height measured in mip-0 texels.
+    vec2 sizeTexels = (hzbMax - hzbMin) * u_HZBSize;
+    float maxSide = max(sizeTexels.x, sizeTexels.y);
+    float mip = ceil(log2(max(maxSide, 1.0)));
+    mip = clamp(mip, 0.0, float(u_HZBMipCount - 1));
+
+    // Farthest occluder depth across the rectangle = max of the four corners.
+    float occluderZ = textureLod(u_HZB, vec2(hzbMin.x, hzbMin.y), mip).r;
+    occluderZ = max(occluderZ, textureLod(u_HZB, vec2(hzbMax.x, hzbMin.y), mip).r);
+    occluderZ = max(occluderZ, textureLod(u_HZB, vec2(hzbMin.x, hzbMax.y), mip).r);
+    occluderZ = max(occluderZ, textureLod(u_HZB, vec2(hzbMax.x, hzbMax.y), mip).r);
+
+    // Occluded when the object's nearest point is still behind every occluder
+    // in the rectangle (with a small bias so borderline cases survive).
+    return nearestZ > occluderZ + u_OcclusionDepthBias;
+}
+
+void main()
+{
+    uint idx = gl_GlobalInvocationID.x;
+    // Phase 2 re-tests only the reject list, whose live length lives in
+    // `rejectedCount`; the dispatch is sized to the worst case (the whole batch)
+    // so the bound has to come from the buffer, not u_InstanceCount. The read of
+    // `rejectedCount` (binding 19) is kept inside the u_Phase2 branch so the
+    // single-phase / frustum-only callers — which bind neither 18 nor 19 — never
+    // touch those buffers.
+    uint maxIdx = u_InstanceCount;
+    if (u_Phase2 != 0)
+        maxIdx = min(maxIdx, rejectedCount);
+    if (idx >= maxIdx)
+        return;
+
+    // World-space bounding sphere for this instance.
+    mat4 t = inputInstances[idx].Transform;
+    vec4 wc4 = t * vec4(u_LocalBoundingSphere.xyz, 1.0);
+    vec3 worldCenter = wc4.xyz / wc4.w;
+    float maxColumnScale = max(max(length(t[0].xyz), length(t[1].xyz)), length(t[2].xyz));
+    float worldRadius = u_LocalBoundingSphere.w * maxColumnScale * u_RadiusExpansion;
+
+    // Six frustum planes — same indexing as Frustum::Update().
+    vec4 planes[6];
+    planes[0] = extractPlane(0,  1.0); // Left
+    planes[1] = extractPlane(0, -1.0); // Right
+    planes[2] = extractPlane(1,  1.0); // Bottom
+    planes[3] = extractPlane(1, -1.0); // Top
+    planes[4] = extractPlane(2,  1.0); // Near
+    planes[5] = extractPlane(2, -1.0); // Far
+
+    for (int i = 0; i < 6; ++i)
+    {
+        float signedDistance = dot(planes[i].xyz, worldCenter) + planes[i].w;
+        if (signedDistance < -worldRadius)
+            return; // Culled — outside this plane.
+    }
+
+    // HZB occlusion test. Phase 1 reprojects against the PREVIOUS frame's
+    // pyramid; phase 2 tests against the CURRENT frame's pyramid (the C++ side
+    // sets u_PrevViewProjection + u_HZB accordingly).
+    if (u_OcclusionEnabled != 0 && u_HZBMipCount > 0 && isOccluded(worldCenter, worldRadius))
+    {
+        // Phase 1: an occluded-but-frustum-visible instance is deferred to the
+        // reject list so phase 2 can re-test it against current depth. Phase 2
+        // (and single-phase) simply drop it.
+        if (u_WriteRejected != 0)
+        {
+            uint r = atomicAdd(rejectedCount, 1u);
+            rejectedInstances[r] = inputInstances[idx];
+        }
+        return; // Culled — hidden behind recorded depth (kept for phase 2 if writing rejects).
+    }
+
+    // Survivor — atomic-append into the compacted output.
+    uint outIdx = atomicAdd(indirect.instanceCount, 1);
+    outputInstances[outIdx] = inputInstances[idx];
+}

@@ -252,6 +252,27 @@ namespace OloEngine
         return s_Data.OcclusionCullingEnabled;
     }
 
+    void Renderer3D::EnableHZBOcclusionCulling(bool enable)
+    {
+        // GPU Hi-Z occlusion cull for instanced static geometry (#431). When
+        // toggled off, the persistent pyramid is invalidated so a later
+        // re-enable starts cleanly from this frame's depth rather than stale
+        // data — and the GPU cull immediately falls back to frustum-only.
+        s_Data.HZBOcclusionCullingEnabled = enable;
+        if (!enable)
+            s_Data.OcclusionHZBValid = false;
+    }
+
+    bool Renderer3D::IsHZBOcclusionCullingEnabled()
+    {
+        return s_Data.HZBOcclusionCullingEnabled;
+    }
+
+    void Renderer3D::SetHZBOcclusionDepthBias(f32 bias)
+    {
+        s_Data.HZBOcclusionDepthBias = bias;
+    }
+
     Renderer3D::Statistics& Renderer3D::GetStats()
     {
         return s_Data.Stats;
@@ -302,6 +323,7 @@ namespace OloEngine
         // Sync culling toggles
         EnableFrustumCulling(settings.FrustumCullingEnabled);
         EnableOcclusionCulling(settings.OcclusionCullingEnabled);
+        EnableHZBOcclusionCulling(settings.HZBOcclusionCullingEnabled);
 
         // Sync Forward+ settings
         auto& fplus = s_Data.ForwardPlus;

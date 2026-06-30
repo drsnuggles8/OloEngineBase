@@ -6,6 +6,10 @@
 #include "OloEngine/Renderer/Debug/FrameCaptureManager.h"
 #include "OloEngine/Renderer/Debug/RendererProfiler.h"
 #include "OloEngine/Renderer/Occlusion/OcclusionQueryPool.h"
+#include "OloEngine/Renderer/Passes/SceneRenderPass.h"
+#include "OloEngine/Renderer/GBuffer.h"
+#include "OloEngine/Renderer/Framebuffer.h"
+#include "OloEngine/Renderer/Instancing/GPUFrustumCuller.h"
 
 #include <cstdlib>
 
@@ -39,6 +43,90 @@ namespace OloEngine
     void Renderer3D::SetSelectionOutlineEntityIDs(const std::vector<i32>& ids)
     {
         s_Data.SelectionOutlineEntityIDs = ids;
+    }
+
+    void Renderer3D::GenerateOcclusionHZB()
+    {
+        OLO_PROFILE_FUNCTION();
+
+        if (!s_Data.HZBOcclusionCullingEnabled)
+            return;
+
+        const Ref<SceneRenderPass>& scenePass = s_Data.Pipeline->FrameCorePasses.Scene;
+        if (!scenePass)
+            return;
+
+        // Scene depth source: the G-Buffer depth in Deferred, the forward scene
+        // target's depth attachment otherwise — mirrors SceneRenderPass's own
+        // export resolution (SceneRenderPass.cpp). The depth attachment holds
+        // the final geometry depth now that the whole graph has executed.
+        u32 depthTexID = 0;
+        if (const Ref<GBuffer>& gbuffer = scenePass->GetGBuffer())
+        {
+            depthTexID = gbuffer->GetDepthAttachmentID();
+        }
+        else if (Ref<Framebuffer> target = scenePass->GetTarget())
+        {
+            depthTexID = target->GetDepthAttachmentRendererID();
+        }
+
+        const auto& spec = scenePass->GetFramebufferSpecification();
+        if (depthTexID == 0 || spec.Width == 0 || spec.Height == 0)
+            return;
+
+        // Resize is a cheap no-op once the power-of-2 bucket is stable. Max
+        // reduction was selected once at Init (conservative occlusion: each
+        // coarse texel keeps the FARTHEST nearest-surface depth beneath it).
+        s_Data.OcclusionHZB.Resize(spec.Width, spec.Height);
+        if (!s_Data.OcclusionHZB.IsValid())
+            return;
+
+        s_Data.OcclusionHZB.Generate(depthTexID);
+        // Valid from here on — next frame's instance cull may sample it.
+        s_Data.OcclusionHZBValid = true;
+    }
+
+    GPUFrustumCuller::HZBOcclusionInputs Renderer3D::BuildCurrentOcclusionHZB(u32 depthTextureID, u32 width, u32 height)
+    {
+        GPUFrustumCuller::HZBOcclusionInputs inputs; // Enabled = false by default
+
+        if (depthTextureID == 0 || width == 0 || height == 0)
+            return inputs;
+
+        // Rebuild the persistent pyramid from THIS frame's partial depth
+        // (occluders + phase-1 survivors). This overwrites the previous-frame
+        // pyramid, which phase 1 already consumed at submission; the tail-of-
+        // EndScene GenerateOcclusionHZB() rebuilds it again from the final depth
+        // for next frame's phase 1.
+        s_Data.OcclusionHZB.Resize(width, height);
+        if (!s_Data.OcclusionHZB.IsValid())
+            return inputs;
+        s_Data.OcclusionHZB.Generate(depthTextureID);
+
+        inputs.Enabled = true;
+        inputs.HZBTextureID = s_Data.OcclusionHZB.GetHZBTextureID();
+        inputs.MipCount = s_Data.OcclusionHZB.GetMipCount();
+        // Current-frame pyramid → reproject phase-2 bounds with the CURRENT VP.
+        inputs.PrevViewProjection = s_Data.ViewProjectionMatrix;
+        inputs.HZBSize = glm::vec2(static_cast<f32>(s_Data.OcclusionHZB.GetHZBWidth()),
+                                   static_cast<f32>(s_Data.OcclusionHZB.GetHZBHeight()));
+        inputs.HZBUVFactor = s_Data.OcclusionHZB.GetUVFactor();
+        inputs.DepthBias = s_Data.HZBOcclusionDepthBias;
+        return inputs;
+    }
+
+    void Renderer3D::DispatchOcclusionPhase2(const GPUFrustumCuller::TwoPhaseCullResult& cull,
+                                             const GPUFrustumCuller::HZBOcclusionInputs& currentHZB)
+    {
+        if (s_Data.GPUFrustumCuller)
+            s_Data.GPUFrustumCuller->DispatchPhase2(cull, currentHZB);
+    }
+
+    GPUDrivenOcclusionPass* Renderer3D::GetGPUOcclusionPass()
+    {
+        if (!s_Data.Pipeline)
+            return nullptr;
+        return s_Data.Pipeline->RenderStreamPasses.GPUOcclusion.Raw();
     }
 
     void Renderer3D::EndScene()
@@ -135,6 +223,12 @@ namespace OloEngine
         }
 
         s_Data.RGraph->Execute();
+
+        // Rebuild the persistent Hi-Z occlusion pyramid (#431) from this frame's
+        // final scene depth and retain it for next frame's GPU instance cull.
+        // Runs after Execute() so geometry depth is complete; no-op when HZB
+        // occlusion is disabled.
+        GenerateOcclusionHZB();
 
         // Central frame-capture commit (issue #463 / #316 Part 4). The whole render
         // graph has now executed, so every command-bucket pass (Scene, Water,

@@ -100,6 +100,7 @@ add_executable(OloEngine-Tests
 		Rendering/FrameDataBufferTest.cpp
 		Rendering/InstanceDataLayoutTest.cpp
 		Rendering/GPUFrustumCullParityTest.cpp
+		Rendering/GPUOcclusionCullParityTest.cpp
 		Rendering/ScatterBrushMathTest.cpp
 		Rendering/SphereAreaLightMathTest.cpp
 		Rendering/ProceduralSkyMathTest.cpp
@@ -136,6 +137,8 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/RenderPropertyTest.cpp
 		Rendering/PropertyTests/PlanarReflectionVisualEvidenceTest.cpp
 		Rendering/PropertyTests/HZBGeneratorResizeTest.cpp
+		Rendering/PropertyTests/GPUOcclusionCullGPUTest.cpp
+		Rendering/PropertyTests/OcclusionCullVisualEvidenceTest.cpp
 		Rendering/PropertyTests/OceanFFTGpuContractTest.cpp
 		Rendering/PropertyTests/OceanFFTSpectrumTest.cpp
 		Rendering/PropertyTests/PostProcessPropertyTests.cpp
