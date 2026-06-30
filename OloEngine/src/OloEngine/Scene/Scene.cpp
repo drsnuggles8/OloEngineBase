@@ -769,6 +769,17 @@ namespace OloEngine
     {
         m_IsRunning = true;
 
+        // Deterministic run setup (issue #452): reset the fixed-timestep tick
+        // counter / accumulator and re-seed the gameplay RNG from the
+        // application's configured seed. Doing it here — the single authoritative
+        // "entered Play mode" point for both the editor and OloRuntime — means
+        // every play-through starts from an identical RNG state and tick 0, so a
+        // run replays identically given the same seed and inputs. Loot rolls,
+        // particle jitter, and every other RandomUtils consumer ride this stream.
+        m_SimulationTick = 0;
+        m_FixedTimeAccumulator = 0.0f;
+        RandomUtils::SetGlobalSeed(Application::Get().GetRandomSeed());
+
         // Unified diagnostics timeline (#306 item B): the single authoritative fire for
         // "entered Play mode" — the editor copies the scene then calls this; OloRuntime
         // calls it on game start. OnSimulationStart deliberately does not record (it is
@@ -1244,6 +1255,81 @@ namespace OloEngine
             perfProfiler = app->GetPerformanceProfiler();
         }
         OLO_PERF_SCOPE("Scene::OnUpdateRuntime", perfProfiler);
+
+        UpdateStreaming();
+
+        // Advance the gameplay simulation by exactly `ts`. This single-step
+        // contract is relied on by the Functional-test harness, the headless
+        // server, and any caller that hand-feeds a timestep. Real-time windowed
+        // hosts call OnUpdateRuntimeFixed instead, which drives this same step
+        // at a fixed dt via an accumulator. The pause / single-step gate is the
+        // original `m_StepFrames-- > 0` post-decrement — only evaluated while
+        // paused — so frame-by-frame editor scrubbing is unchanged.
+        if (!m_IsPaused || m_StepFrames-- > 0)
+        {
+            SimulateRuntimeStep(ts);
+        }
+
+        RenderRuntime(ts);
+    }
+
+    void Scene::OnUpdateRuntimeFixed(Timestep const frameTs, f32 const fixedDt)
+    {
+        PerformanceProfiler* perfProfiler = nullptr;
+        if (auto* app = Application::TryGet())
+        {
+            perfProfiler = app->GetPerformanceProfiler();
+        }
+        OLO_PERF_SCOPE("Scene::OnUpdateRuntimeFixed", perfProfiler);
+
+        UpdateStreaming();
+
+        // A non-positive fixedDt would loop forever / divide the wall clock by
+        // zero — treat it as "no simulation this frame" and just render.
+        if (fixedDt > 0.0f)
+        {
+            if (m_IsPaused)
+            {
+                // Frame-by-frame stepping while paused: one queued step advances
+                // exactly one fixed tick (mirrors OnUpdateRuntime's gate). Real
+                // wall-time is intentionally not accumulated while paused, so the
+                // accumulator can't dump a burst of catch-up steps on un-pause.
+                if (m_StepFrames > 0)
+                {
+                    --m_StepFrames;
+                    SimulateRuntimeStep(fixedDt);
+                }
+            }
+            else
+            {
+                m_FixedTimeAccumulator += static_cast<f32>(frameTs);
+
+                // Spiral-of-death guard: if a hitch left more than the cap's
+                // worth of time queued, clamp and drop the excess so the sim
+                // slows rather than freezing the host while it tries to catch
+                // up. Mirrors Application::s_MaxTimestep and JoltScene's own
+                // accumulator clamp.
+                if (const f32 maxAccumulator = static_cast<f32>(s_MaxFixedStepsPerFrame) * fixedDt;
+                    m_FixedTimeAccumulator > maxAccumulator)
+                {
+                    m_FixedTimeAccumulator = maxAccumulator;
+                }
+
+                u32 steps = 0;
+                while (m_FixedTimeAccumulator >= fixedDt && steps < s_MaxFixedStepsPerFrame)
+                {
+                    SimulateRuntimeStep(fixedDt);
+                    m_FixedTimeAccumulator -= fixedDt;
+                    ++steps;
+                }
+            }
+        }
+
+        RenderRuntime(frameTs);
+    }
+
+    void Scene::UpdateStreaming()
+    {
         // Refresh LocalizedTextComponent → TextComponent.TextString if the
         // active locale changed since last frame. Cheap when no change.
         LocalizationSystem::UpdateLocalizedText(*this);
@@ -1258,8 +1344,11 @@ namespace OloEngine
             ++m_StreamingFrameCounter;
             m_SceneStreamer->Update(camPos, m_StreamingFrameCounter);
         }
+    }
 
-        if (!m_IsPaused || m_StepFrames-- > 0)
+    void Scene::SimulateRuntimeStep(Timestep const ts)
+    {
+        ++m_SimulationTick;
         {
             // Update scripts
             {
@@ -1687,7 +1776,10 @@ namespace OloEngine
             // Process snow deformer entities — submit deformation stamps and emit ejecta
             ProcessSnowDeformers(ts, m_RuntimeSnowPrevPositions);
         }
+    }
 
+    void Scene::RenderRuntime(Timestep const ts)
+    {
         // Find the primary camera
         Camera const* mainCamera = nullptr;
         glm::mat4 cameraTransform;

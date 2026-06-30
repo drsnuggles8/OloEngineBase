@@ -1,6 +1,7 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Core/Application.h"
 #include "OloEngine/Audio/AudioEngine.h"
+#include "OloEngine/Core/FastRandom.h"
 #include "OloEngine/Core/GamepadManager.h"
 #include "OloEngine/Core/Input.h"
 #include "OloEngine/Core/InputActionManager.h"
@@ -227,6 +228,15 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
 
         m_Running = true;
+    }
+
+    void Application::SetRandomSeed(u64 seed)
+    {
+        m_RandomSeed = seed;
+        // Re-seed the current thread's gameplay RNG stream now, and let
+        // Scene::OnRuntimeStart re-apply m_RandomSeed at each Play / runtime
+        // launch so a run replays identically (issue #452).
+        RandomUtils::SetGlobalSeed(seed);
     }
 
     void Application::OnEvent(Event& e)

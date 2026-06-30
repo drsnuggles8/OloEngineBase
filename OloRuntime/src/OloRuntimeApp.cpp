@@ -168,8 +168,10 @@ namespace OloEngine
                 }
             }
 
-            // Update the scene (physics, scripts, rendering)
-            m_ActiveScene->OnUpdateRuntime(ts);
+            // Update the scene (physics, scripts, rendering). Deterministic
+            // fixed-timestep tick (issue #452): the raw frame delta `ts` is
+            // accumulated and gameplay advances in fixed dt steps, rendering once.
+            m_ActiveScene->OnUpdateRuntimeFixed(ts, Application::Get().GetFixedTimeStep());
 
             // Handle script-triggered scene reload (e.g., death/respawn)
             if (m_ActiveScene->GetPendingReload())

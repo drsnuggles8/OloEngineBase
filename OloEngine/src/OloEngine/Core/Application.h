@@ -152,6 +152,29 @@ namespace OloEngine
             return m_TimeScale;
         }
 
+        // Canonical simulation timestep, in seconds. The deterministic windowed
+        // loop advances gameplay + physics in discrete steps of this size via a
+        // frame-delta accumulator (Scene::OnUpdateRuntimeFixed), so a run is
+        // frame-rate-independent and reproducible (issue #452); rendering still
+        // happens once per displayed frame. 60 Hz matches JoltScene's internal
+        // fixed step and the Functional-test harness default.
+        [[nodiscard("Store this!")]] f32 GetFixedTimeStep() const
+        {
+            return m_FixedTimeStep;
+        }
+
+        // Seed for the deterministic gameplay RNG stream (RandomUtils global
+        // generator). Applied at every Scene::OnRuntimeStart — i.e. each Play /
+        // runtime launch — so the same seed plus the same inputs reproduce a
+        // run. The default is a fixed constant, so runs are deterministic out of
+        // the box; set a per-session seed for roguelike-style variety. Setting
+        // it also re-seeds the current thread's stream immediately.
+        void SetRandomSeed(u64 seed);
+        [[nodiscard("Store this!")]] u64 GetRandomSeed() const
+        {
+            return m_RandomSeed;
+        }
+
         [[nodiscard("Store this!")]] f32 GetUnscaledDeltaTime() const
         {
             return m_UnscaledDeltaTime;
@@ -196,9 +219,14 @@ namespace OloEngine
         bool m_Minimized = false;
         LayerStack m_LayerStack;
         static constexpr f32 s_MaxTimestep = 0.25f;
+        // Golden-ratio-derived constant; an arbitrary but fixed default so runs
+        // are reproducible without an explicit SetRandomSeed call.
+        static constexpr u64 s_DefaultRandomSeed = 0x9E3779B97F4A7C15ULL;
         f32 m_LastFrameTime = 0.0f;
         f32 m_TimeScale = 1.0f;
         f32 m_UnscaledDeltaTime = 0.0f;
+        f32 m_FixedTimeStep = 1.0f / 60.0f;
+        u64 m_RandomSeed = s_DefaultRandomSeed;
         u32 m_SmokeTestTicksCompleted = 0; // see SmokeTestTickLimit / IsSmokeTest
         PerformanceProfiler m_PerformanceProfiler;
 
