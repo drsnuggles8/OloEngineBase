@@ -8,11 +8,13 @@
 #include "OloEngine/Renderer/Camera/EditorCamera.h"
 #include "OloEngine/Renderer/PostProcessSettings.h"
 #include "OloEngine/Scene/Streaming/StreamingSettings.h"
+#include "OloEngine/Scene/SpatialAcceleration.h"
 #include "OloEngine/Dialogue/DialogueVariables.h"
 #include "OloEngine/Navigation/NavMesh.h"
 #include "OloEngine/Navigation/NavMeshQuery.h"
 #include "OloEngine/Navigation/CrowdManager.h"
 
+#include <limits>
 #include <optional>
 #include <unordered_map>
 #include <vector>
@@ -451,6 +453,45 @@ namespace OloEngine
             return m_CrowdManager.get();
         }
 
+        // Spatial acceleration — a uniform grid over every entity's
+        // TransformComponent position, rebuilt once per runtime tick (inside
+        // OnUpdateRuntime, after scripts/physics/navigation have moved entities
+        // and before query consumers like AI perception run). Gameplay systems
+        // use it for proximity queries instead of an O(n) scan over all
+        // entities. The index is runtime-only — it reflects the most recent
+        // tick and is empty before the first OnUpdateRuntime call.
+        [[nodiscard]] const SceneSpatialIndex& GetSpatialIndex() const
+        {
+            return m_SpatialIndex;
+        }
+
+        // Convenience forwarders so gameplay code can query without reaching
+        // through GetSpatialIndex(). Results are entity UUIDs; resolve them with
+        // GetEntityByUUID. See SceneSpatialIndex for ordering / edge-case
+        // semantics. These read the index as last rebuilt — they do NOT re-scan
+        // the registry, so a query reflects positions as of the previous
+        // UpdateSpatialIndex (i.e. this tick's, when called from a system that
+        // runs after it).
+        [[nodiscard]] std::vector<UUID> QueryEntitiesInRadius(const glm::vec3& center, f32 radius) const
+        {
+            return m_SpatialIndex.QueryRadius(center, radius);
+        }
+        [[nodiscard]] std::vector<UUID> QueryEntitiesInAABB(const glm::vec3& min, const glm::vec3& max) const
+        {
+            return m_SpatialIndex.QueryAABB(min, max);
+        }
+        [[nodiscard]] std::vector<UUID> QueryNearestEntities(const glm::vec3& center, u32 count,
+                                                             f32 maxRadius = std::numeric_limits<f32>::max()) const
+        {
+            return m_SpatialIndex.NearestN(center, count, maxRadius);
+        }
+
+        // Rebuild the spatial index from the live TransformComponent positions.
+        // Called automatically once per OnUpdateRuntime tick; exposed so headless
+        // harnesses / tools can refresh it after mutating transforms outside the
+        // tick (e.g. a unit test that places entities then queries immediately).
+        void UpdateSpatialIndex();
+
         // Audio Events
         [[nodiscard]] Audio::AudioCommandRegistry* GetAudioCommandRegistry()
         {
@@ -571,6 +612,10 @@ namespace OloEngine
         Ref<NavMesh> m_NavMesh;
         std::unique_ptr<NavMeshQuery> m_NavMeshQuery;
         std::unique_ptr<CrowdManager> m_CrowdManager;
+
+        // Spatial acceleration (runtime-only; rebuilt each OnUpdateRuntime tick,
+        // never serialized/copied). See GetSpatialIndex / UpdateSpatialIndex.
+        SceneSpatialIndex m_SpatialIndex;
 
         // Audio Events
         std::unique_ptr<Audio::AudioCommandRegistry> m_AudioCommandRegistry;

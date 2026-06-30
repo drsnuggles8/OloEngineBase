@@ -14,6 +14,7 @@
 
 #include <cmath>
 #include <limits>
+#include <vector>
 
 namespace OloEngine
 {
@@ -99,7 +100,12 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
 
         auto perceivers = scene->GetAllEntitiesWith<PerceptionComponent, TransformComponent>();
-        auto targets = scene->GetAllEntitiesWith<PerceptibleComponent, TransformComponent>();
+
+        // Reused across perceivers so the per-perceiver proximity query doesn't
+        // allocate. The spatial index (rebuilt earlier this tick in
+        // Scene::OnUpdateRuntime) lets each perceiver inspect only entities
+        // within its sight range instead of scanning every perceptible entity.
+        std::vector<UUID> candidates;
 
         for (auto perceiverId : perceivers)
         {
@@ -120,14 +126,30 @@ namespace OloEngine
             glm::vec3 bestTargetPos = { 0.0f, 0.0f, 0.0f };
             f32 bestDistSq = std::numeric_limits<f32>::max();
 
-            for (auto targetId : targets)
+            // Only entities within the sight range can possibly be inside the
+            // cone (the cone test gates on the same range), so a radius query
+            // around the eye returns a superset of the visible candidates —
+            // identical results to the old full scan, but bounded by local
+            // density instead of the total perceptible-entity count.
+            candidates.clear();
+            scene->GetSpatialIndex().QueryRadius(eye, pc.SightRange, candidates);
+
+            for (UUID candidateUUID : candidates)
             {
-                if (targetId == perceiverId)
+                if (candidateUUID == perceiverUUID)
                 {
                     continue; // a sensor never senses itself
                 }
 
-                Entity targetEntity = { targetId, scene };
+                Entity targetEntity = scene->GetEntityByUUID(candidateUUID);
+                // The index holds every transformed entity; only those tagged
+                // PerceptibleComponent are sight targets. A missing entity
+                // (stale index entry) is likewise skipped defensively.
+                if (!targetEntity || !targetEntity.HasComponent<PerceptibleComponent>())
+                {
+                    continue;
+                }
+
                 const auto& perceptible = targetEntity.GetComponent<PerceptibleComponent>();
                 if (!perceptible.IsPerceptible)
                 {
@@ -153,14 +175,14 @@ namespace OloEngine
 
                 // Optional line-of-sight raycast.
                 if (pc.RequireLineOfSight &&
-                    IsOccluded(scene, eye, targetPos, perceiverUUID, targetEntity.GetUUID()))
+                    IsOccluded(scene, eye, targetPos, perceiverUUID, candidateUUID))
                 {
                     continue; // a wall blocks the view
                 }
 
                 found = true;
                 bestDistSq = distSq;
-                bestTarget = targetEntity.GetUUID();
+                bestTarget = candidateUUID;
                 bestTargetPos = targetPos;
             }
 

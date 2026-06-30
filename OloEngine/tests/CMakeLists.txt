@@ -273,6 +273,8 @@ add_executable(OloEngine-Tests
 		AI/GoapTest.cpp
 		# AI Sight-Perception Tests
 		AI/PerceptionMathTest.cpp
+		# Scene spatial acceleration structure (#430)
+		SpatialAccelerationTest.cpp
 		# Inventory Tests
 		InventoryTest.cpp
 		ItemDatabaseFloatValidationTest.cpp
@@ -467,6 +469,7 @@ add_executable(OloEngine-Tests
 		Functional/Dialogue/DialogueSelectChoiceBranchesToTargetTest.cpp
 		Functional/Dialogue/DialogueAcceptsQuestAndGatesOnStateTest.cpp
 		Functional/AI/BehaviorTreeSequenceShortCircuitsOnFailureTest.cpp
+		Functional/AI/PerceptionMatchesBruteForceViaSpatialIndexTest.cpp
 		Functional/Scripting/LuaReadsTransformOfAnotherEntityTest.cpp
 		Functional/SaveGame/InventoryComponentSceneYAMLRoundTripTest.cpp
 		Functional/SaveGame/HierarchyPreservedAcrossSaveLoadTest.cpp
