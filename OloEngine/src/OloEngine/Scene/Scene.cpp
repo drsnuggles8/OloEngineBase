@@ -783,6 +783,14 @@ namespace OloEngine
         // foliage shaders that consume PrevAnimationTime.
         m_LastAnimationTime = -1.0f;
 
+        // Seed the spatial index empty for this session. It is only rebuilt
+        // inside OnUpdateRuntime, so without this a Scene that is run, stopped,
+        // and run again would expose the previous session's entity positions to
+        // any query made between OnRuntimeStart and the first tick. Empty is a
+        // valid answer; stale is not. UpdateSpatialIndex remains the sole
+        // per-tick rebuild path.
+        m_SpatialIndex.Clear();
+
         // In headless mode, disable rendering
         if (Application::Get().IsHeadless())
         {
@@ -1236,6 +1244,22 @@ namespace OloEngine
         morphComp.WasMorphActive = true;
     }
 
+    void Scene::UpdateSpatialIndex()
+    {
+        OLO_PROFILE_FUNCTION();
+
+        // Full rebuild from scratch each call: entities move every frame, so an
+        // incremental update would re-bin nearly all of them anyway, and a clean
+        // rebuild drops destroyed entities for free (no stale-handle bookkeeping).
+        // Read IDComponent + TransformComponent together so we get the UUID
+        // without an Entity-wrapper round-trip per entity.
+        m_SpatialIndex.Clear();
+        for (auto&& [e, id, transform] : m_Registry.view<IDComponent, TransformComponent>().each())
+        {
+            m_SpatialIndex.Insert(id.ID, transform.Translation);
+        }
+    }
+
     void Scene::OnUpdateRuntime(Timestep const ts)
     {
         PerformanceProfiler* perfProfiler = nullptr;
@@ -1570,8 +1594,17 @@ namespace OloEngine
             // Update navigation / pathfinding
             NavigationSystem::OnUpdate(this, ts.GetSeconds());
 
+            // Rebuild the spatial acceleration structure now that scripts,
+            // physics and navigation have finished moving entities this tick,
+            // but before any query consumer runs. Keep this a single helper call
+            // so the insertion point stays obvious if a later fixed-timestep
+            // change (issue #452) reshuffles the tick ordering.
+            UpdateSpatialIndex();
+
             // Refresh AI sight perception before AI decisions so behavior trees /
-            // FSMs / GOAP see fresh sensor data the same frame.
+            // FSMs / GOAP see fresh sensor data the same frame. Uses the spatial
+            // index above for an O(local) proximity query instead of an O(n)
+            // scan over every perceptible entity.
             PerceptionSystem::OnUpdate(this, ts.GetSeconds());
 
             // Update AI (behavior trees and state machines)
