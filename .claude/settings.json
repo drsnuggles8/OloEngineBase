@@ -32,7 +32,9 @@
       "Bash(git -C D:/repos/OloEngineBaseBase branch -a)",
       "Bash(git -C D:/repos/OloEngineBaseBase log --oneline -20)",
       "Bash(git fetch *)",
-      "Bash(build\\OloEngine\\tests\\Debug\\OloEngine-Tests.exe *)"
+      "Bash(build\\OloEngine\\tests\\Debug\\OloEngine-Tests.exe *)",
+      "Bash(./build/OloEngine/tests/Debug/OloEngine-Tests.exe)",
+      "Bash(./build/OloEngine/tests/Debug/OloEngine-Tests.exe *)"
     ],
     "additionalDirectories": [
       "\\tmp"
