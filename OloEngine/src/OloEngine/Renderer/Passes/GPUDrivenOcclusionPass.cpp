@@ -166,6 +166,11 @@ namespace OloEngine
             // Unbind so the depth attachment can be sampled by the Hi-Z compute
             // without an attachment/sampler feedback loop.
             m_SceneFramebuffer->Unbind();
+            // The phase-1 draws just wrote this depth via the fixed-function
+            // pipeline; the Hi-Z build samples it as a texture. Order the
+            // framebuffer-write → texture-fetch (UE gets this from RDG; here it
+            // is an explicit GL 4.5 texture barrier).
+            ::glTextureBarrier();
 
             const GPUFrustumCuller::HZBOcclusionInputs currentHZB =
                 Renderer3D::BuildCurrentOcclusionHZB(depthTexID, sceneSpec.Width, sceneSpec.Height);

@@ -103,6 +103,10 @@ namespace OloEngine::Tests
             {
                 InstanceData inst;
                 inst.Transform = glm::translate(glm::mat4(1.0f), glm::vec3(x, 0.0f, z));
+                // Static instances: previous transform == current. The occlusion
+                // cull reprojects phase-1 / single-phase bounds with PrevTransform
+                // (matching the previous-frame HZB), so it must be populated.
+                inst.PrevTransform = inst.Transform;
                 out.push_back(inst);
             };
             for (u32 i = 0; i < behind; ++i)

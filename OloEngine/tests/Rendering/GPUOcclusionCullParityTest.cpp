@@ -51,10 +51,10 @@ namespace OloEngine::Tests
             f32 DepthBias = 0.0f;
         };
 
-        // A synthetic HZB sampler: given an HZB-space UV and a mip, return the
+        // A synthetic HZB sampler: given an integer HZB texel + mip, return the
         // device-Z occluder depth. Re-implementations below treat it exactly as
-        // `textureLod(u_HZB, uv, mip).r` does in the shader.
-        using HZBSampler = std::function<f32(glm::vec2 hzbUV, f32 mip)>;
+        // `texelFetch(u_HZB, texel, mip).r` does in the shader (point sampling).
+        using HZBSampler = std::function<f32(glm::ivec2 texel, int mip)>;
 
         // Byte-for-byte re-implementation of InstanceOcclusionCull.comp's
         // isOccluded(). Returns true when it is safe to cull the sphere.
@@ -86,18 +86,28 @@ namespace OloEngine::Tests
             if (rectMax.x <= rectMin.x || rectMax.y <= rectMin.y)
                 return false;
 
-            const glm::vec2 hzbMin = rectMin * p.HZBUVFactor;
-            const glm::vec2 hzbMax = rectMax * p.HZBUVFactor;
+            const glm::vec2 rectMinTexel = (rectMin * p.HZBUVFactor) * p.HZBSize;
+            const glm::vec2 rectMaxTexel = (rectMax * p.HZBUVFactor) * p.HZBSize;
 
-            const glm::vec2 sizeTexels = (hzbMax - hzbMin) * p.HZBSize;
+            const glm::vec2 sizeTexels = rectMaxTexel - rectMinTexel;
             const f32 maxSide = glm::max(sizeTexels.x, sizeTexels.y);
-            f32 mip = glm::ceil(glm::log2(glm::max(maxSide, 1.0f)));
-            mip = glm::clamp(mip, 0.0f, static_cast<f32>(p.MipCount - 1));
+            const int mip = glm::clamp(static_cast<int>(glm::ceil(glm::log2(glm::max(maxSide, 1.0f)))),
+                                       0, p.MipCount - 1);
 
-            f32 occluderZ = sampleHZB(glm::vec2(hzbMin.x, hzbMin.y), mip);
-            occluderZ = glm::max(occluderZ, sampleHZB(glm::vec2(hzbMax.x, hzbMin.y), mip));
-            occluderZ = glm::max(occluderZ, sampleHZB(glm::vec2(hzbMin.x, hzbMax.y), mip));
-            occluderZ = glm::max(occluderZ, sampleHZB(glm::vec2(hzbMax.x, hzbMax.y), mip));
+            const int mipW = glm::max(static_cast<int>(p.HZBSize.x) >> mip, 1);
+            const int mipH = glm::max(static_cast<int>(p.HZBSize.y) >> mip, 1);
+            glm::ivec2 lo{ static_cast<int>(glm::floor(rectMinTexel.x)) >> mip,
+                           static_cast<int>(glm::floor(rectMinTexel.y)) >> mip };
+            glm::ivec2 hi{ static_cast<int>(glm::floor(rectMaxTexel.x)) >> mip,
+                           static_cast<int>(glm::floor(rectMaxTexel.y)) >> mip };
+            hi = glm::min(hi, lo + glm::ivec2(1));
+            lo = glm::clamp(lo, glm::ivec2(0), glm::ivec2(mipW - 1, mipH - 1));
+            hi = glm::clamp(hi, glm::ivec2(0), glm::ivec2(mipW - 1, mipH - 1));
+
+            f32 occluderZ = 0.0f;
+            for (int y = lo.y; y <= hi.y; ++y)
+                for (int x = lo.x; x <= hi.x; ++x)
+                    occluderZ = glm::max(occluderZ, sampleHZB(glm::ivec2(x, y), mip));
 
             return nearestZ > occluderZ + p.DepthBias;
         }
@@ -131,7 +141,7 @@ namespace OloEngine::Tests
         p.PrevViewProjection = MakeViewProjection();
 
         const f32 wallZ = DeviceZForDistance(10.0f); // occluder 10 units ahead
-        const HZBSampler flatWall = [wallZ](glm::vec2, f32)
+        const HZBSampler flatWall = [wallZ](glm::ivec2, int)
         { return wallZ; };
 
         // Small sphere directly ahead, well behind the wall (25 units): occluded.
@@ -165,7 +175,7 @@ namespace OloEngine::Tests
     {
         OcclusionParams p;
         p.PrevViewProjection = MakeViewProjection();
-        const HZBSampler emptyDepth = [](glm::vec2, f32)
+        const HZBSampler emptyDepth = [](glm::ivec2, int)
         { return 1.0f; };
 
         for (f32 dist : { 2.0f, 10.0f, 50.0f, 95.0f })
@@ -185,7 +195,7 @@ namespace OloEngine::Tests
         OcclusionParams p;
         p.PrevViewProjection = MakeViewProjection();
         const f32 wallZ = DeviceZForDistance(10.0f);
-        const HZBSampler flatWall = [wallZ](glm::vec2, f32)
+        const HZBSampler flatWall = [wallZ](glm::ivec2, int)
         { return wallZ; };
 
         // Far off to the side: rectangle exits the screen -> keep.
@@ -214,7 +224,7 @@ namespace OloEngine::Tests
         p.PrevViewProjection = MakeViewProjection();
 
         const f32 wallZ = DeviceZForDistance(10.0f);
-        const HZBSampler flatWall = [wallZ](glm::vec2, f32)
+        const HZBSampler flatWall = [wallZ](glm::ivec2, int)
         { return wallZ; };
 
         const glm::vec3 center{ 0.0f, 0.0f, -12.0f };                // just behind the wall
@@ -240,7 +250,7 @@ namespace OloEngine::Tests
         OcclusionParams p;
         p.PrevViewProjection = MakeViewProjection();
         const f32 wallZ = DeviceZForDistance(15.0f);
-        const HZBSampler flatWall = [wallZ](glm::vec2, f32)
+        const HZBSampler flatWall = [wallZ](glm::ivec2, int)
         { return wallZ; };
 
         // 50 instances behind the wall in a tight on-screen column, 20 in front.
@@ -267,5 +277,47 @@ namespace OloEngine::Tests
             << "Occlusion must cull all instances hidden behind the wall and keep the front ones.";
         EXPECT_LT(survivors, kBehind + kFront)
             << "Occlusion must produce a measurable reduction vs frustum-only.";
+    }
+
+    // -------------------------------------------------------------------------
+    // The footprint-coverage contract (UE NaniteHZBCull §2, OloEngine #5). The
+    // test samples a point-fetched texel BLOCK covering the object's footprint
+    // and takes the furthest (max) depth. Proof: with an all-near occluder the
+    // object is culled, but flipping a SINGLE texel in that block to the far
+    // plane must flip the decision to "kept" — only possible if the gather
+    // actually covers the footprint and max-reduces it (a 4-corner / bilinear
+    // under-sample could miss that texel and wrongly over-cull → a visible hole).
+    // -------------------------------------------------------------------------
+    TEST(GPUOcclusionCullParity, BlockGatherTakesMaxOverFootprint)
+    {
+        OcclusionParams p;
+        p.PrevViewProjection = MakeViewProjection();
+        p.HZBSize = glm::vec2(1024.0f);
+        p.HZBUVFactor = glm::vec2(1.0f);
+        p.MipCount = 11;
+
+        const glm::vec3 center{ 0.0f, 0.0f, -25.0f }; // on-screen, behind any near occluder
+        constexpr f32 radius = 1.0f;
+
+        // 1. Record the texel block the footprint gathers (all-near occluder).
+        std::vector<glm::ivec2> sampled;
+        const HZBSampler recorder = [&sampled](glm::ivec2 texel, int)
+        {
+            sampled.push_back(texel);
+            return 0.05f; // very near
+        };
+        const bool culledAllNear = IsOccluded_GLSLEquivalent(center, radius, p, recorder);
+        ASSERT_FALSE(sampled.empty()) << "the block gather must sample at least one texel";
+        EXPECT_TRUE(culledAllNear) << "an object behind an all-near occluder must be culled";
+
+        // 2. One far-plane texel anywhere in that block must keep the object.
+        const glm::ivec2 farTexel = sampled.front();
+        const HZBSampler oneFar = [farTexel](glm::ivec2 texel, int)
+        {
+            return (texel.x == farTexel.x && texel.y == farTexel.y) ? 1.0f : 0.05f;
+        };
+        EXPECT_FALSE(IsOccluded_GLSLEquivalent(center, radius, p, oneFar))
+            << "a single far-plane texel in the footprint must keep the object — the gather "
+               "covers the footprint and max-reduces (no over-cull from under-sampling).";
     }
 } // namespace OloEngine::Tests
