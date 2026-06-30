@@ -3,10 +3,11 @@
 //
 // Per-component scene-YAML deserialize blocks — one block per
 // `struct *Component` whose every data member is a primitive / glm::vec* /
-// std::string (the generator's SceneSerType), minus the kComponentsCustomSerialize
-// exclusion set (trivial components deliberately kept hand-written). A component
-// with any non-trivial field (enum, AssetHandle, Ref<T>, std::vector, nested
-// struct, …) is classified non-trivial and stays hand-written in SceneSerializer.cpp.
+// std::string / AssetHandle / enum (the generator's SceneSerType plus the
+// enum-type check), minus the kComponentsCustomSerialize exclusion set (trivial
+// components deliberately kept hand-written). A component with any still-unhandled
+// non-trivial field (Ref<T>, std::vector, nested struct, …) is classified
+// non-trivial and stays hand-written in SceneSerializer.cpp.
 //
 // #include'd inside SceneSerializer::DeserializeEntityComponents, where `entity` (const YAML::Node&) and `deserializedEntity` (Entity&)
 // are in scope. Floats are validated with std::isfinite via TryReadFiniteF32 /
@@ -88,12 +89,26 @@ if (auto node = entity["NameplateComponent"]; node)
         comp.m_ManaBarGap = v;
 }
 
+if (auto node = entity["NetworkIdentityComponent"]; node)
+{
+    auto& comp = deserializedEntity.AddComponent<NetworkIdentityComponent>();
+    comp.OwnerClientID = node["OwnerClientID"].as<u32>(comp.OwnerClientID);
+    comp.Authority = static_cast<decltype(comp.Authority)>(node["Authority"].as<int>(static_cast<int>(comp.Authority)));
+    comp.IsReplicated = node["IsReplicated"].as<bool>(comp.IsReplicated);
+}
+
 if (auto node = entity["NetworkInterestComponent"]; node)
 {
     auto& comp = deserializedEntity.AddComponent<NetworkInterestComponent>();
     if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["RelevanceRadius"], v))
         comp.RelevanceRadius = v;
     comp.InterestGroup = node["InterestGroup"].as<u32>(comp.InterestGroup);
+}
+
+if (auto node = entity["NetworkLODComponent"]; node)
+{
+    auto& comp = deserializedEntity.AddComponent<NetworkLODComponent>();
+    comp.Level = static_cast<decltype(comp.Level)>(node["Level"].as<int>(static_cast<int>(comp.Level)));
 }
 
 if (auto node = entity["PerceptibleComponent"]; node)
@@ -142,6 +157,15 @@ if (auto node = entity["SpotLightComponent"]; node)
         comp.m_ShadowNormalBias = v;
 }
 
+if (auto node = entity["UICanvasComponent"]; node)
+{
+    auto& comp = deserializedEntity.AddComponent<UICanvasComponent>();
+    comp.m_RenderMode = static_cast<decltype(comp.m_RenderMode)>(node["RenderMode"].as<int>(static_cast<int>(comp.m_RenderMode)));
+    comp.m_ScaleMode = static_cast<decltype(comp.m_ScaleMode)>(node["ScaleMode"].as<int>(static_cast<int>(comp.m_ScaleMode)));
+    comp.m_SortOrder = node["SortOrder"].as<i32>(comp.m_SortOrder);
+    comp.m_ReferenceResolution = node["ReferenceResolution"].as<glm::vec2>(comp.m_ReferenceResolution);
+}
+
 if (auto node = entity["UICheckboxComponent"]; node)
 {
     auto& comp = deserializedEntity.AddComponent<UICheckboxComponent>();
@@ -150,6 +174,31 @@ if (auto node = entity["UICheckboxComponent"]; node)
     comp.m_CheckedColor = node["CheckedColor"].as<glm::vec4>(comp.m_CheckedColor);
     comp.m_CheckmarkColor = node["CheckmarkColor"].as<glm::vec4>(comp.m_CheckmarkColor);
     comp.m_Interactable = node["Interactable"].as<bool>(comp.m_Interactable);
+}
+
+if (auto node = entity["UIGridLayoutComponent"]; node)
+{
+    auto& comp = deserializedEntity.AddComponent<UIGridLayoutComponent>();
+    comp.m_CellSize = node["CellSize"].as<glm::vec2>(comp.m_CellSize);
+    comp.m_Spacing = node["Spacing"].as<glm::vec2>(comp.m_Spacing);
+    comp.m_Padding = node["Padding"].as<glm::vec4>(comp.m_Padding);
+    comp.m_StartCorner = static_cast<decltype(comp.m_StartCorner)>(node["StartCorner"].as<int>(static_cast<int>(comp.m_StartCorner)));
+    comp.m_StartAxis = static_cast<decltype(comp.m_StartAxis)>(node["StartAxis"].as<int>(static_cast<int>(comp.m_StartAxis)));
+    comp.m_ConstraintCount = node["ConstraintCount"].as<i32>(comp.m_ConstraintCount);
+}
+
+if (auto node = entity["UIProgressBarComponent"]; node)
+{
+    auto& comp = deserializedEntity.AddComponent<UIProgressBarComponent>();
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["Value"], v))
+        comp.m_Value = v;
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["MinValue"], v))
+        comp.m_MinValue = v;
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["MaxValue"], v))
+        comp.m_MaxValue = v;
+    comp.m_FillMethod = static_cast<decltype(comp.m_FillMethod)>(node["FillMethod"].as<int>(static_cast<int>(comp.m_FillMethod)));
+    comp.m_BackgroundColor = node["BackgroundColor"].as<glm::vec4>(comp.m_BackgroundColor);
+    comp.m_FillColor = node["FillColor"].as<glm::vec4>(comp.m_FillColor);
 }
 
 if (auto node = entity["UIRectTransformComponent"]; node)
@@ -163,6 +212,20 @@ if (auto node = entity["UIRectTransformComponent"]; node)
     if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["Rotation"], v))
         comp.m_Rotation = v;
     comp.m_Scale = node["Scale"].as<glm::vec2>(comp.m_Scale);
+}
+
+if (auto node = entity["UIScrollViewComponent"]; node)
+{
+    auto& comp = deserializedEntity.AddComponent<UIScrollViewComponent>();
+    comp.m_ScrollPosition = node["ScrollPosition"].as<glm::vec2>(comp.m_ScrollPosition);
+    comp.m_ContentSize = node["ContentSize"].as<glm::vec2>(comp.m_ContentSize);
+    comp.m_ScrollDirection = static_cast<decltype(comp.m_ScrollDirection)>(node["ScrollDirection"].as<int>(static_cast<int>(comp.m_ScrollDirection)));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["ScrollSpeed"], v))
+        comp.m_ScrollSpeed = v;
+    comp.m_ShowHorizontalScrollbar = node["ShowHorizontalScrollbar"].as<bool>(comp.m_ShowHorizontalScrollbar);
+    comp.m_ShowVerticalScrollbar = node["ShowVerticalScrollbar"].as<bool>(comp.m_ShowVerticalScrollbar);
+    comp.m_ScrollbarColor = node["ScrollbarColor"].as<glm::vec4>(comp.m_ScrollbarColor);
+    comp.m_ScrollbarTrackColor = node["ScrollbarTrackColor"].as<glm::vec4>(comp.m_ScrollbarTrackColor);
 }
 
 if (auto node = entity["UIToggleComponent"]; node)

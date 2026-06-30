@@ -1526,6 +1526,13 @@ namespace OloEngine::Tests
     // -------------------------------------------------------------------------
     TEST(ComponentRoundTrip, UICanvasComponentSurvivesYAMLRoundTrip)
     {
+        // RenderMode / ScaleMode are u8-backed enums — they exercise the
+        // OloHeaderTool-generated enum serializer path (issue #451 enum slice):
+        // both round-trip as ints through Scene{Serialize,Deserialize}Components
+        // .Generated.inl, cast back via decltype. Set them non-default so a wrong
+        // key / lost cast / dropped field surfaces here.
+        const auto expectedRenderMode = UICanvasRenderMode::WorldSpace;        // default ScreenSpaceOverlay
+        const auto expectedScaleMode = UICanvasScaleMode::ScaleWithScreenSize; // default ConstantPixelSize
         const i32 expectedSortOrder = 42;
         const glm::vec2 expectedReferenceResolution{ 1280.0f, 720.0f };
 
@@ -1534,6 +1541,8 @@ namespace OloEngine::Tests
             auto scene = Scene::Create();
             Entity entity = scene->CreateEntity(kTestTag);
             auto& c = entity.AddComponent<UICanvasComponent>();
+            c.m_RenderMode = expectedRenderMode;
+            c.m_ScaleMode = expectedScaleMode;
             c.m_SortOrder = expectedSortOrder;
             c.m_ReferenceResolution = expectedReferenceResolution;
             yaml = SceneSerializer(scene).SerializeToYAML();
@@ -1547,6 +1556,8 @@ namespace OloEngine::Tests
         ASSERT_TRUE(restored.HasComponent<UICanvasComponent>());
 
         const auto& c = restored.GetComponent<UICanvasComponent>();
+        EXPECT_EQ(c.m_RenderMode, expectedRenderMode);
+        EXPECT_EQ(c.m_ScaleMode, expectedScaleMode);
         EXPECT_EQ(c.m_SortOrder, expectedSortOrder);
         EXPECT_NEAR(c.m_ReferenceResolution.x, expectedReferenceResolution.x, kFloatEpsilon);
         EXPECT_NEAR(c.m_ReferenceResolution.y, expectedReferenceResolution.y, kFloatEpsilon);
@@ -3119,4 +3130,5 @@ namespace OloEngine::Tests
         EXPECT_NEAR(nc.m_BarBackgroundColor.g, expectedBgColor.g, kFloatEpsilon);
         EXPECT_NEAR(nc.m_ManaBarGap, expectedManaBarGap, kFloatEpsilon);
     }
+
 } // namespace OloEngine::Tests
