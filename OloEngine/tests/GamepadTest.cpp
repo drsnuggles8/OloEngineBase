@@ -8,6 +8,7 @@
 #include "OloEngine/Core/InputActionSerializer.h"
 
 #include <filesystem>
+#include <optional>
 
 using namespace OloEngine;
 
@@ -274,9 +275,15 @@ TEST(GamepadSerializationTest, RoundTrip)
     map.AddAction({ "MoveX", { InputBinding::GamepadAx(GamepadAxis::LeftX, 0.4f, true) } });
 
     std::filesystem::path tempPath = std::filesystem::temp_directory_path() / "gamepad_test_actions.yaml";
-    ASSERT_TRUE(InputActionSerializer::Serialize(map, tempPath));
+    InputActionSerializer::ContextMaps contexts;
+    contexts[InputContextType::Gameplay] = map;
+    ASSERT_TRUE(InputActionSerializer::SerializeContexts(contexts, tempPath));
 
-    auto loaded = InputActionSerializer::Deserialize(tempPath);
+    auto loadedContexts = InputActionSerializer::DeserializeContexts(tempPath);
+    ASSERT_TRUE(loadedContexts.has_value());
+    auto loadedIt = loadedContexts->find(InputContextType::Gameplay);
+    ASSERT_NE(loadedIt, loadedContexts->end());
+    std::optional<InputActionMap> loaded = loadedIt->second;
     ASSERT_TRUE(loaded.has_value());
 
     EXPECT_EQ(loaded->Name, "GamepadTestMap");

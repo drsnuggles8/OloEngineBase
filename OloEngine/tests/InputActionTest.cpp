@@ -8,6 +8,7 @@
 #include <cmath>
 #include <filesystem>
 #include <fstream>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <unordered_set>
@@ -19,6 +20,29 @@
 #endif
 
 using namespace OloEngine;
+
+// The production read/write path is the multi-context API. These adapters let the
+// single-map round-trip and parser-robustness tests below exercise it through the
+// Gameplay context with minimal noise: write one Gameplay map, read it back.
+// (Legacy *on-disk* single-map files are tested explicitly in
+// LegacySingleMapLoadsAsGameplay, which hand-writes that format.)
+static bool SerializeGameplayMap(const InputActionMap& map, const std::filesystem::path& path)
+{
+    InputActionSerializer::ContextMaps contexts;
+    contexts[InputContextType::Gameplay] = map;
+    return InputActionSerializer::SerializeContexts(contexts, path);
+}
+
+static std::optional<InputActionMap> DeserializeGameplayMap(const std::filesystem::path& path)
+{
+    auto contexts = InputActionSerializer::DeserializeContexts(path);
+    if (!contexts)
+        return std::nullopt;
+    auto it = contexts->find(InputContextType::Gameplay);
+    if (it == contexts->end())
+        return std::nullopt;
+    return it->second;
+}
 
 // ============================================================================
 // InputBinding tests
@@ -257,9 +281,9 @@ TEST_F(InputActionSerializerTest, RoundTrip)
     original.AddAction({ "Interact", { InputBinding::Key(Key::E) } });
 
     auto filepath = m_TempDir / "test_actions.yaml";
-    ASSERT_TRUE(InputActionSerializer::Serialize(original, filepath));
+    ASSERT_TRUE(SerializeGameplayMap(original, filepath));
 
-    auto result = InputActionSerializer::Deserialize(filepath);
+    auto result = DeserializeGameplayMap(filepath);
     ASSERT_TRUE(result.has_value());
 
     const auto& loaded = *result;
@@ -287,9 +311,9 @@ TEST_F(InputActionSerializerTest, EmptyMap)
     original.Name = "Empty";
 
     auto filepath = m_TempDir / "empty.yaml";
-    ASSERT_TRUE(InputActionSerializer::Serialize(original, filepath));
+    ASSERT_TRUE(SerializeGameplayMap(original, filepath));
 
-    auto result = InputActionSerializer::Deserialize(filepath);
+    auto result = DeserializeGameplayMap(filepath);
     ASSERT_TRUE(result.has_value());
     EXPECT_EQ(result->Name, "Empty");
     EXPECT_TRUE(result->Actions.empty());
@@ -297,7 +321,7 @@ TEST_F(InputActionSerializerTest, EmptyMap)
 
 TEST_F(InputActionSerializerTest, InvalidFile)
 {
-    auto result = InputActionSerializer::Deserialize(m_TempDir / "nonexistent.yaml");
+    auto result = DeserializeGameplayMap(m_TempDir / "nonexistent.yaml");
     EXPECT_FALSE(result.has_value());
 }
 
@@ -309,7 +333,7 @@ TEST_F(InputActionSerializerTest, MalformedYAML)
         fout << "{{{{ not valid yaml !@#$";
     }
 
-    auto result = InputActionSerializer::Deserialize(filepath);
+    auto result = DeserializeGameplayMap(filepath);
     EXPECT_FALSE(result.has_value());
 }
 
@@ -334,7 +358,7 @@ InputActionMap:
 )";
     }
 
-    auto result = InputActionSerializer::Deserialize(filepath);
+    auto result = DeserializeGameplayMap(filepath);
     ASSERT_TRUE(result.has_value());
     EXPECT_EQ(result->Name, "Partial");
 
@@ -365,7 +389,7 @@ InputActionMap:
 )";
     }
 
-    auto result = InputActionSerializer::Deserialize(filepath);
+    auto result = DeserializeGameplayMap(filepath);
     ASSERT_TRUE(result.has_value());
 
     auto* action = result->GetAction("TestAction");
@@ -400,7 +424,7 @@ TEST_F(InputActionSerializerTest, FuzzRegression_RootIsScalar)
     // pre-fix code hit a TypedBadConversion deeper in. Now logs and returns.
     auto filepath = m_TempDir / "scalar_root.yaml";
     WriteBytes(filepath, "just a string");
-    auto result = InputActionSerializer::Deserialize(filepath);
+    auto result = DeserializeGameplayMap(filepath);
     EXPECT_FALSE(result.has_value());
 }
 
@@ -408,7 +432,7 @@ TEST_F(InputActionSerializerTest, FuzzRegression_RootIsSequence)
 {
     auto filepath = m_TempDir / "seq_root.yaml";
     WriteBytes(filepath, "[a, b, c]\n");
-    auto result = InputActionSerializer::Deserialize(filepath);
+    auto result = DeserializeGameplayMap(filepath);
     EXPECT_FALSE(result.has_value());
 }
 
@@ -416,7 +440,7 @@ TEST_F(InputActionSerializerTest, FuzzRegression_InputActionMapIsNull)
 {
     auto filepath = m_TempDir / "null_root.yaml";
     WriteBytes(filepath, "InputActionMap: ~\n");
-    auto result = InputActionSerializer::Deserialize(filepath);
+    auto result = DeserializeGameplayMap(filepath);
     EXPECT_FALSE(result.has_value());
 }
 
@@ -424,7 +448,7 @@ TEST_F(InputActionSerializerTest, FuzzRegression_InputActionMapIsScalar)
 {
     auto filepath = m_TempDir / "scalar_iam.yaml";
     WriteBytes(filepath, "InputActionMap: not_a_map\n");
-    auto result = InputActionSerializer::Deserialize(filepath);
+    auto result = DeserializeGameplayMap(filepath);
     EXPECT_FALSE(result.has_value());
 }
 
@@ -443,7 +467,7 @@ TEST_F(InputActionSerializerTest, FuzzRegression_ActionsContainsNonMap)
                "      Bindings:\n"
                "        - Type: Keyboard\n"
                "          Code: 65\n");
-    auto result = InputActionSerializer::Deserialize(filepath);
+    auto result = DeserializeGameplayMap(filepath);
     ASSERT_TRUE(result.has_value());
     EXPECT_EQ(result->Name, "Test");
     EXPECT_EQ(result->Actions.size(), 1u);
@@ -462,7 +486,7 @@ TEST_F(InputActionSerializerTest, FuzzRegression_ActionNameIsMap)
                "      Bindings:\n"
                "        - Type: Keyboard\n"
                "          Code: 65\n");
-    auto result = InputActionSerializer::Deserialize(filepath);
+    auto result = DeserializeGameplayMap(filepath);
     ASSERT_TRUE(result.has_value());
     // The broken action is skipped, but the map still loads.
     EXPECT_EQ(result->Name, "Test");
@@ -479,7 +503,7 @@ TEST_F(InputActionSerializerTest, FuzzRegression_BindingTypeIsSequence)
                "      Bindings:\n"
                "        - Type: [Keyboard, Mouse]\n"
                "          Code: 65\n");
-    auto result = InputActionSerializer::Deserialize(filepath);
+    auto result = DeserializeGameplayMap(filepath);
     ASSERT_TRUE(result.has_value());
     auto* action = result->GetAction("Foo");
     ASSERT_NE(action, nullptr);
@@ -497,7 +521,7 @@ TEST_F(InputActionSerializerTest, FuzzRegression_CodeFieldIsNonScalar)
                "      Bindings:\n"
                "        - Type: Keyboard\n"
                "          Code: {x: 1}\n");
-    auto result = InputActionSerializer::Deserialize(filepath);
+    auto result = DeserializeGameplayMap(filepath);
     ASSERT_TRUE(result.has_value());
     auto* action = result->GetAction("Foo");
     ASSERT_NE(action, nullptr);
@@ -517,7 +541,7 @@ TEST_F(InputActionSerializerTest, FuzzRegression_AxisThresholdIsNaN)
                "          Axis: LeftX\n"
                "          Threshold: .nan\n"
                "          Positive: true\n");
-    auto result = InputActionSerializer::Deserialize(filepath);
+    auto result = DeserializeGameplayMap(filepath);
     ASSERT_TRUE(result.has_value());
     auto* action = result->GetAction("Move");
     ASSERT_NE(action, nullptr);
@@ -532,7 +556,146 @@ TEST_F(InputActionSerializerTest, FuzzRegression_RawGarbage)
     // either way the deserializer must not crash.
     auto filepath = m_TempDir / "garbage.yaml";
     WriteBytes(filepath, std::string_view("\x00\x01\x02\xff\xfe garbage \n\t \r", 18));
-    auto result = InputActionSerializer::Deserialize(filepath);
+    auto result = DeserializeGameplayMap(filepath);
+    EXPECT_FALSE(result.has_value());
+}
+
+// ============================================================================
+// Multi-context serialization round-trip + legacy back-compat (issue #476).
+// ============================================================================
+
+TEST(InputContextTypeStringTest, RoundTrip)
+{
+    for (const auto ctx : AllInputContextTypes)
+    {
+        auto parsed = StringToInputContextType(InputContextTypeToString(ctx));
+        ASSERT_TRUE(parsed.has_value());
+        EXPECT_EQ(*parsed, ctx);
+    }
+    EXPECT_FALSE(StringToInputContextType("NotAContext").has_value());
+}
+
+TEST_F(InputActionSerializerTest, ContextsRoundTrip)
+{
+    InputActionSerializer::ContextMaps contexts;
+
+    InputActionMap gameplay;
+    gameplay.Name = "Gameplay";
+    gameplay.AddAction({ "Fire", { InputBinding::Key(Key::Space) } });
+    gameplay.AddAction({ "Aim", { InputBinding::GamepadAx(GamepadAxis::RightTrigger, 0.25f, true) } });
+    contexts[InputContextType::Gameplay] = gameplay;
+
+    InputActionMap menu;
+    menu.Name = "Menu";
+    menu.AddAction({ "Confirm", { InputBinding::Key(Key::Enter) } });
+    menu.AddAction({ "Back", { InputBinding::Key(Key::Escape), InputBinding::GamepadBtn(GamepadButton::East) } });
+    contexts[InputContextType::Menu] = menu;
+
+    InputActionMap vehicle;
+    vehicle.Name = "Vehicle";
+    vehicle.AddAction({ "Accelerate", { InputBinding::Key(Key::W) } });
+    contexts[InputContextType::Vehicle] = vehicle;
+
+    auto filepath = m_TempDir / "contexts.yaml";
+    ASSERT_TRUE(InputActionSerializer::SerializeContexts(contexts, filepath));
+
+    auto result = InputActionSerializer::DeserializeContexts(filepath);
+    ASSERT_TRUE(result.has_value());
+    EXPECT_EQ(result->size(), contexts.size());
+
+    for (const auto& [ctx, original] : contexts)
+    {
+        auto it = result->find(ctx);
+        ASSERT_NE(it, result->end()) << "Missing context: " << InputContextTypeToString(ctx);
+        const auto& loaded = it->second;
+        EXPECT_EQ(loaded.Name, original.Name);
+        ASSERT_EQ(loaded.Actions.size(), original.Actions.size());
+        for (const auto& [name, action] : original.Actions)
+        {
+            const auto* loadedAction = loaded.GetAction(name);
+            ASSERT_NE(loadedAction, nullptr) << "Missing action " << name << " in context " << InputContextTypeToString(ctx);
+            ASSERT_EQ(loadedAction->Bindings.size(), action.Bindings.size());
+            for (sizet i = 0; i < action.Bindings.size(); ++i)
+            {
+                EXPECT_EQ(loadedAction->Bindings[i], action.Bindings[i]) << "Binding mismatch in " << name;
+            }
+        }
+    }
+}
+
+TEST_F(InputActionSerializerTest, LegacySingleMapLoadsAsGameplay)
+{
+    // A pre-existing file in the old single-map format (an "InputActionMap" root
+    // node, no contexts) must still load, mapped to the Gameplay context. Written
+    // by hand so the test pins the legacy on-disk shape, not whatever the current
+    // writer emits. Codes: Space = 32, LeftControl = 341 (GLFW key codes).
+    auto filepath = m_TempDir / "legacy.yaml";
+    WriteBytes(filepath,
+               "InputActionMap:\n"
+               "  Name: LegacyMap\n"
+               "  Actions:\n"
+               "    - Name: Jump\n"
+               "      Bindings:\n"
+               "        - Type: Keyboard\n"
+               "          Code: 32\n"
+               "    - Name: Crouch\n"
+               "      Bindings:\n"
+               "        - Type: Keyboard\n"
+               "          Code: 341\n");
+
+    auto result = InputActionSerializer::DeserializeContexts(filepath);
+    ASSERT_TRUE(result.has_value());
+    ASSERT_EQ(result->size(), 1u);
+
+    auto it = result->find(InputContextType::Gameplay);
+    ASSERT_NE(it, result->end());
+    EXPECT_EQ(it->second.Name, "LegacyMap");
+    EXPECT_TRUE(it->second.HasAction("Jump"));
+    EXPECT_TRUE(it->second.HasAction("Crouch"));
+}
+
+TEST_F(InputActionSerializerTest, ContextsEmptyCollectionRoundTrips)
+{
+    InputActionSerializer::ContextMaps contexts;
+    auto filepath = m_TempDir / "empty_contexts.yaml";
+    ASSERT_TRUE(InputActionSerializer::SerializeContexts(contexts, filepath));
+
+    auto result = InputActionSerializer::DeserializeContexts(filepath);
+    ASSERT_TRUE(result.has_value());
+    EXPECT_TRUE(result->empty());
+}
+
+TEST_F(InputActionSerializerTest, ContextsSkipUnknownContextName)
+{
+    // An unknown context name is skipped; valid sibling contexts still load.
+    auto filepath = m_TempDir / "unknown_context.yaml";
+    WriteBytes(filepath,
+               "InputActionContexts:\n"
+               "  - Context: Bogus\n"
+               "    Map:\n"
+               "      Name: Ignored\n"
+               "      Actions: []\n"
+               "  - Context: Menu\n"
+               "    Map:\n"
+               "      Name: Menu\n"
+               "      Actions:\n"
+               "        - Name: Confirm\n"
+               "          Bindings:\n"
+               "            - Type: Keyboard\n"
+               "              Code: 257\n");
+    auto result = InputActionSerializer::DeserializeContexts(filepath);
+    ASSERT_TRUE(result.has_value());
+    EXPECT_EQ(result->size(), 1u);
+    auto it = result->find(InputContextType::Menu);
+    ASSERT_NE(it, result->end());
+    EXPECT_TRUE(it->second.HasAction("Confirm"));
+}
+
+TEST_F(InputActionSerializerTest, DeserializeContextsRejectsGarbage)
+{
+    auto filepath = m_TempDir / "ctx_garbage.yaml";
+    WriteBytes(filepath, "just a scalar root\n");
+    auto result = InputActionSerializer::DeserializeContexts(filepath);
     EXPECT_FALSE(result.has_value());
 }
 

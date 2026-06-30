@@ -31,6 +31,7 @@ namespace OloEngine
 
         ImGui::Begin(title.c_str(), p_open);
 
+        DrawContextSelector();
         DrawActionMapHeader();
 
         ImGui::Separator();
@@ -98,6 +99,34 @@ namespace OloEngine
                                                      { return OnMouseButtonPressed(event); });
     }
 
+    void InputSettingsPanel::DrawContextSelector()
+    {
+        // Selects which context's action map the panel edits. Each context owns its
+        // own map (gameplay/menu/vehicle/custom); switching here makes GetActionMap()
+        // return that context's live map so every Draw* below operates on it.
+        const InputContextType current = InputActionManager::GetInputContext();
+
+        ImGui::TextUnformatted("Context:");
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(160.0f);
+        if (ImGui::BeginCombo("##InputContext", InputContextTypeToString(current)))
+        {
+            for (const auto ctx : AllInputContextTypes)
+            {
+                const bool selected = (ctx == current);
+                if (ImGui::Selectable(InputContextTypeToString(ctx), selected) && ctx != current)
+                {
+                    InputActionManager::SetInputContext(ctx);
+                }
+                if (selected)
+                {
+                    ImGui::SetItemDefaultFocus();
+                }
+            }
+            ImGui::EndCombo();
+        }
+    }
+
     void InputSettingsPanel::DrawActionMapHeader()
     {
         const auto& map = InputActionManager::GetActionMap();
@@ -113,7 +142,9 @@ namespace OloEngine
             if (hasProject)
             {
                 auto path = Project::GetInputActionMapPath();
-                if (InputActionSerializer::Serialize(map, path))
+                // Persist every authored context's map, not just the active one, so
+                // per-context bindings survive a reload.
+                if (InputActionSerializer::SerializeContexts(InputActionManager::GetAllContextMaps(), path))
                 {
                     m_Dirty = false;
                 }
@@ -134,10 +165,13 @@ namespace OloEngine
             if (hasProject)
             {
                 auto path = Project::GetInputActionMapPath();
-                auto loaded = InputActionSerializer::Deserialize(path);
-                if (loaded)
+                // Restore every context (legacy single-map files load as Gameplay).
+                if (auto loaded = InputActionSerializer::DeserializeContexts(path))
                 {
-                    InputActionManager::SetActionMap(*loaded);
+                    for (const auto& [ctx, ctxMap] : *loaded)
+                    {
+                        InputActionManager::SetActionMap(ctx, ctxMap);
+                    }
                     m_Dirty = false;
                 }
             }

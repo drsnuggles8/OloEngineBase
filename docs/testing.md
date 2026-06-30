@@ -706,7 +706,7 @@ checked-in corpus; the aggregate target is `OloEngine-FuzzSmoke`.
 
 - `FuzzAnimationBinary` → `AnimationBinarySerializer::Read`.
 - `FuzzMeshBinary` → `MeshBinarySerializer::Read`.
-- `FuzzInputActionYaml` → `InputActionSerializer::Deserialize`.
+- `FuzzInputActionYaml` → `InputActionSerializer::DeserializeContexts`.
 - `FuzzImageDecoder` → `stb_image`'s decode paths (PNG / JPG / BMP /
   TGA / PSD / GIF / HDR).
 - `FuzzSceneYaml` → `SceneSerializer::DeserializeFromYAML`.

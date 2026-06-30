@@ -28,6 +28,7 @@ namespace OloEngine
         }
 
       private:
+        void DrawContextSelector();
         void DrawActionMapHeader();
         void DrawAction(InputAction& action);
         void DrawBinding(InputAction& action, sizet bindingIndex);

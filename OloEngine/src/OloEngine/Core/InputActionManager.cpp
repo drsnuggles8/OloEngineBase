@@ -37,6 +37,37 @@ namespace OloEngine
     static GlfwInputProvider s_DefaultProvider;
     IInputProvider* InputActionManager::s_InputProvider = &s_DefaultProvider;
 
+    // --- InputContextType <-> string (serialization / editor selector) ---
+
+    const char* InputContextTypeToString(InputContextType ctx)
+    {
+        switch (ctx)
+        {
+            case InputContextType::Gameplay:
+                return "Gameplay";
+            case InputContextType::Menu:
+                return "Menu";
+            case InputContextType::Vehicle:
+                return "Vehicle";
+            case InputContextType::Custom:
+                return "Custom";
+        }
+        return "Gameplay";
+    }
+
+    std::optional<InputContextType> StringToInputContextType(std::string_view str)
+    {
+        if (str == "Gameplay")
+            return InputContextType::Gameplay;
+        if (str == "Menu")
+            return InputContextType::Menu;
+        if (str == "Vehicle")
+            return InputContextType::Vehicle;
+        if (str == "Custom")
+            return InputContextType::Custom;
+        return std::nullopt;
+    }
+
     // --- InputBinding helpers (defined here to keep the header lean) ---
 
     std::string InputBinding::GetDisplayName() const

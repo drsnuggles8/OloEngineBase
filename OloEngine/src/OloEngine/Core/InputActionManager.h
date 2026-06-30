@@ -4,6 +4,8 @@
 #include "OloEngine/Core/InputAction.h"
 #include "OloEngine/Core/TransparentStringHash.h"
 
+#include <array>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -30,6 +32,16 @@ namespace OloEngine
         Vehicle,
         Custom
     };
+
+    // The full set of input contexts, in enum order. Used for deterministic
+    // iteration when serializing every context's map and for the editor selector.
+    inline constexpr std::array<InputContextType, 4> AllInputContextTypes{ InputContextType::Gameplay, InputContextType::Menu, InputContextType::Vehicle,
+                                                                           InputContextType::Custom };
+
+    // Stable string names for the contexts — used as YAML keys when persisting
+    // per-context action maps. Round-trips via StringToInputContextType.
+    [[nodiscard]] const char* InputContextTypeToString(InputContextType ctx);
+    [[nodiscard]] std::optional<InputContextType> StringToInputContextType(std::string_view str);
 
     class InputActionManager
     {
@@ -100,6 +112,13 @@ namespace OloEngine
         [[nodiscard]] static const InputActionMap& GetActionMap(InputContextType ctx)
         {
             return s_ContextMaps[ctx];
+        }
+
+        // All authored context maps, keyed by context. Only contexts that have been
+        // set or accessed are present. Used to persist every context's map at once.
+        [[nodiscard]] static const std::unordered_map<InputContextType, InputActionMap>& GetAllContextMaps()
+        {
+            return s_ContextMaps;
         }
 
       private:
