@@ -1,18 +1,18 @@
 #pragma once
 
 #include "OloEngine/Core/Base.h"
+#include "OloEngine/Networking/Replication/EntitySnapshot.h"
 #include "OloEngine/Networking/Replication/SnapshotBuffer.h"
-#include "OloEngine/Scene/Components.h"
-
-#include <unordered_map>
 
 namespace OloEngine
 {
     class Scene;
 
     // Client-side snapshot interpolation.
-    // Buffers incoming server snapshots and smoothly interpolates entity transforms
-    // between the two surrounding tick states with a configurable render delay.
+    // Buffers incoming server snapshots and smoothly interpolates the registered
+    // set of interpolatable components (ComponentInterpolationRegistry) between the
+    // two surrounding tick states with a configurable render delay — each component
+    // blends per its own policy (lerp / slerp / step).
     class SnapshotInterpolator
     {
       public:
@@ -45,10 +45,11 @@ namespace OloEngine
         u32 m_ServerTickRate = 20; // ticks per second
         u32 m_LatestReceivedTick = 0;
 
-        // Parsed snapshot cache to avoid re-parsing every frame
+        // Parsed snapshot cache to avoid re-parsing every frame. Each entry is a
+        // UUID → per-component byte-blob map (the registry-driven snapshot format).
         u32 m_CachedBeforeTick = UINT32_MAX;
         u32 m_CachedAfterTick = UINT32_MAX;
-        std::unordered_map<u64, TransformComponent> m_CachedBefore;
-        std::unordered_map<u64, TransformComponent> m_CachedAfter;
+        ParsedSnapshot m_CachedBefore;
+        ParsedSnapshot m_CachedAfter;
     };
 } // namespace OloEngine
