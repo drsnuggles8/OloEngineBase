@@ -355,6 +355,15 @@ TEST(SpatialAccelerationTest, RepeatedRebuildStaysCorrectAsEntitiesRoam)
         index.Insert(UUID(2), { -500.0f - t * 7.0f, t * 3.0f, 50.0f });
 
         EXPECT_EQ(index.GetEntityCount(), 2u);
+
+        // The two entities are always far apart → exactly two occupied cells.
+        // This is the regression guard for Clear(): if it freed the per-cell
+        // lists but leaked their (empty) keys, GetCellCount() would climb tick
+        // after tick (toward 100+) while GetEntityCount() stayed at 2. A correct
+        // rebuild never holds more cells than entries.
+        EXPECT_EQ(index.GetCellCount(), 2u) << "leaked dead cell keys at tick " << tick;
+        EXPECT_LE(index.GetCellCount(), index.GetEntityCount());
+
         const auto near1 = index.QueryRadius({ t * 13.0f, 0, 0 }, 1.0f);
         ASSERT_EQ(near1.size(), 1u) << "tick " << tick;
         EXPECT_EQ(static_cast<u64>(near1[0]), 1u);
@@ -394,6 +403,57 @@ TEST(SpatialAccelerationTest, HugeQueryOnFineGridUsesFallbackAndMatchesBruteForc
     ASSERT_EQ(nearest.size(), 2u);
     EXPECT_EQ(static_cast<u64>(nearest[0]), 1u); // origin point is closest
     EXPECT_EQ(static_cast<u64>(nearest[1]), 4u); // (100,100,100) next
+}
+
+// A NaN/Inf/non-positive cell size must never reach the grid math (it would
+// make m_InvCellSize NaN and UB every floor()/cast). The constructor clamps to
+// a safe default; SetCellSize ignores it and keeps the prior resolution.
+TEST(SpatialAccelerationTest, InvalidCellSizeIsClampedOrIgnored)
+{
+    const f32 nan = std::numeric_limits<f32>::quiet_NaN();
+    const f32 inf = std::numeric_limits<f32>::infinity();
+
+    EXPECT_FLOAT_EQ(SceneSpatialIndex(nan).GetCellSize(), 1.0f);
+    EXPECT_FLOAT_EQ(SceneSpatialIndex(inf).GetCellSize(), 1.0f);
+    EXPECT_FLOAT_EQ(SceneSpatialIndex(0.0f).GetCellSize(), 1.0f);
+    EXPECT_FLOAT_EQ(SceneSpatialIndex(-5.0f).GetCellSize(), 1.0f);
+
+    SceneSpatialIndex index(10.0f);
+    index.Insert(UUID(1), { 1, 1, 1 });
+    index.SetCellSize(nan);
+    EXPECT_FLOAT_EQ(index.GetCellSize(), 10.0f);
+    index.SetCellSize(inf);
+    EXPECT_FLOAT_EQ(index.GetCellSize(), 10.0f);
+    // The index is still healthy after the rejected resizes.
+    EXPECT_EQ(index.QueryRadius({ 1, 1, 1 }, 1.0f).size(), 1u);
+}
+
+// A finite but enormous coordinate makes coord/cellSize exceed the i32 range, so
+// the float->int cell cast would be UB. Insert skips such a position; queries
+// with extreme finite center/radius/bounds fall back to the linear scan. The
+// point of this test is that none of it triggers UB (UBSan would flag the cast).
+TEST(SpatialAccelerationTest, ExtremeFiniteCoordinatesAreHandledSafely)
+{
+    SceneSpatialIndex index(1.0f);
+    const f32 huge = 1e30f; // huge / cellSize(1) overflows the i32 cell range
+
+    index.Insert(UUID(1), { huge, 0, 0 }); // unrepresentable cell → skipped
+    EXPECT_EQ(index.GetEntityCount(), 0u);
+
+    index.Insert(UUID(2), { 1, 2, 3 });
+    index.Insert(UUID(3), { -4, 5, -6 });
+    EXPECT_EQ(index.GetEntityCount(), 2u);
+
+    // Enormous finite radius → fallback scan, returns the in-range entities.
+    EXPECT_EQ(ToSortedU64(index.QueryRadius({ 0, 0, 0 }, huge)),
+              (std::vector<u64>{ 2, 3 }));
+    // Centered at an extreme coordinate → fallback, nothing in range, no UB.
+    EXPECT_TRUE(index.QueryRadius({ huge, huge, huge }, 1.0f).empty());
+    // Extreme AABB bounds → fallback scan.
+    EXPECT_EQ(ToSortedU64(index.QueryAABB({ -huge, -huge, -huge }, { huge, huge, huge })),
+              (std::vector<u64>{ 2, 3 }));
+    // Extreme finite maxRadius in the bounded NearestN path → fallback.
+    EXPECT_EQ(index.NearestN({ 0, 0, 0 }, 5, huge).size(), 2u);
 }
 
 TEST(SpatialAccelerationTest, ClearAllowsRebuildWithFreshContents)

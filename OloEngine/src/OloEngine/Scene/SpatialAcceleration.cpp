@@ -22,6 +22,25 @@ namespace OloEngine
             return std::isfinite(v.x) && std::isfinite(v.y) && std::isfinite(v.z);
         }
 
+        // Convert one world-axis coordinate to its integer cell index. Returns
+        // false when the result is not representable as i32 — a finite but
+        // enormous coordinate (|coord| / cellSize beyond ~2^31), or a value that
+        // overflowed to +/-inf during the multiply. A float->int cast of an
+        // out-of-range (or NaN/Inf) value is UB, so callers must skip the entity
+        // (Insert) or fall back to a flat scan (queries) rather than cast.
+        [[nodiscard]] bool TryWorldToCell(f32 world, f32 invCellSize, i32& outCell)
+        {
+            const f32 c = std::floor(world * invCellSize);
+            // i32 range as reals is [-2^31, 2^31). The bounded form below is
+            // also false for NaN/Inf, so it rejects every unsafe cast.
+            if (!(c >= -2147483648.0f && c < 2147483648.0f))
+            {
+                return false;
+            }
+            outCell = static_cast<i32>(c);
+            return true;
+        }
+
         // True if walking the [min,max] cell box would visit strictly more cells
         // than there are entries. The cell walk costs O(box volume) regardless of
         // occupancy, so when the box dwarfs the entry count — a large query
@@ -57,7 +76,11 @@ namespace OloEngine
 
     SceneSpatialIndex::SceneSpatialIndex(f32 cellSize)
     {
-        if (cellSize <= 0.0f)
+        // Reject non-positive AND non-finite sizes: a NaN slips past `<= 0`
+        // (all NaN comparisons are false) and would make m_InvCellSize NaN,
+        // poisoning every floor()/cast in the grid math (UB). Clamp to a safe
+        // default instead.
+        if (!(std::isfinite(cellSize) && cellSize > 0.0f))
         {
             OLO_CORE_WARN("SceneSpatialIndex: invalid cellSize {}, clamping to 1.0f", cellSize);
             cellSize = 1.0f;
@@ -90,9 +113,24 @@ namespace OloEngine
             return;
         }
 
+        // Map to a cell via the checked conversion: a finite but enormous
+        // position whose cell index overflows i32 is skipped rather than risking
+        // a UB float->int cast. Such a position is unreachable by any well-formed
+        // query anyway (queries near it would also overflow and fall back to the
+        // entry scan, which won't contain a skipped entity — consistent).
+        i32 cellX = 0;
+        i32 cellY = 0;
+        i32 cellZ = 0;
+        if (!TryWorldToCell(position.x, m_InvCellSize, cellX) ||
+            !TryWorldToCell(position.y, m_InvCellSize, cellY) ||
+            !TryWorldToCell(position.z, m_InvCellSize, cellZ))
+        {
+            return;
+        }
+
         const u32 index = static_cast<u32>(m_Entries.size());
         m_Entries.push_back(Entry{ id, position });
-        m_Cells[PositionToCell(position)].push_back(index);
+        m_Cells[CellKey{ cellX, cellY, cellZ }].push_back(index);
     }
 
     std::vector<UUID> SceneSpatialIndex::QueryRadius(const glm::vec3& center, f32 radius) const
@@ -118,16 +156,20 @@ namespace OloEngine
 
         // Only the cells overlapping the query sphere's bounding box can hold a
         // hit — visit those and distance-test each occupant exactly.
-        const i32 minX = static_cast<i32>(std::floor((center.x - radius) * m_InvCellSize));
-        const i32 maxX = static_cast<i32>(std::floor((center.x + radius) * m_InvCellSize));
-        const i32 minY = static_cast<i32>(std::floor((center.y - radius) * m_InvCellSize));
-        const i32 maxY = static_cast<i32>(std::floor((center.y + radius) * m_InvCellSize));
-        const i32 minZ = static_cast<i32>(std::floor((center.z - radius) * m_InvCellSize));
-        const i32 maxZ = static_cast<i32>(std::floor((center.z + radius) * m_InvCellSize));
+        i32 minX = 0, maxX = 0, minY = 0, maxY = 0, minZ = 0, maxZ = 0;
+        const bool representable =
+            TryWorldToCell(center.x - radius, m_InvCellSize, minX) &&
+            TryWorldToCell(center.x + radius, m_InvCellSize, maxX) &&
+            TryWorldToCell(center.y - radius, m_InvCellSize, minY) &&
+            TryWorldToCell(center.y + radius, m_InvCellSize, maxY) &&
+            TryWorldToCell(center.z - radius, m_InvCellSize, minZ) &&
+            TryWorldToCell(center.z + radius, m_InvCellSize, maxZ);
 
-        // When the radius bounding box spans more cells than there are entries,
-        // a flat entry scan is cheaper than visiting (mostly empty) cells.
-        if (CellBoxLargerThanEntries(minX, maxX, minY, maxY, minZ, maxZ, m_Entries.size()))
+        // Flat entry scan when the cell box is unrepresentable (a huge finite
+        // center/radius) or would span more cells than there are entries — both
+        // make the cell walk either UB or pointlessly expensive.
+        if (!representable ||
+            CellBoxLargerThanEntries(minX, maxX, minY, maxY, minZ, maxZ, m_Entries.size()))
         {
             for (const Entry& entry : m_Entries)
             {
@@ -184,12 +226,14 @@ namespace OloEngine
             return; // degenerate / inverted box holds nothing
         }
 
-        const i32 minX = static_cast<i32>(std::floor(min.x * m_InvCellSize));
-        const i32 maxX = static_cast<i32>(std::floor(max.x * m_InvCellSize));
-        const i32 minY = static_cast<i32>(std::floor(min.y * m_InvCellSize));
-        const i32 maxY = static_cast<i32>(std::floor(max.y * m_InvCellSize));
-        const i32 minZ = static_cast<i32>(std::floor(min.z * m_InvCellSize));
-        const i32 maxZ = static_cast<i32>(std::floor(max.z * m_InvCellSize));
+        i32 minX = 0, maxX = 0, minY = 0, maxY = 0, minZ = 0, maxZ = 0;
+        const bool representable =
+            TryWorldToCell(min.x, m_InvCellSize, minX) &&
+            TryWorldToCell(max.x, m_InvCellSize, maxX) &&
+            TryWorldToCell(min.y, m_InvCellSize, minY) &&
+            TryWorldToCell(max.y, m_InvCellSize, maxY) &&
+            TryWorldToCell(min.z, m_InvCellSize, minZ) &&
+            TryWorldToCell(max.z, m_InvCellSize, maxZ);
 
         const auto contains = [&](const glm::vec3& p)
         {
@@ -198,9 +242,10 @@ namespace OloEngine
                    p.z >= min.z && p.z <= max.z;
         };
 
-        // Same cells-vs-entries trade-off as QueryRadius: a huge box over a fine
-        // grid is cheaper to answer by scanning the entries directly.
-        if (CellBoxLargerThanEntries(minX, maxX, minY, maxY, minZ, maxZ, m_Entries.size()))
+        // Same cells-vs-entries trade-off as QueryRadius, plus the unrepresentable
+        // guard: a huge or far-flung box is answered by scanning the entries.
+        if (!representable ||
+            CellBoxLargerThanEntries(minX, maxX, minY, maxY, minZ, maxZ, m_Entries.size()))
         {
             for (const Entry& entry : m_Entries)
             {
@@ -263,14 +308,17 @@ namespace OloEngine
         {
             const f32 maxRadiusSq = maxRadius * maxRadius;
 
-            const i32 minX = static_cast<i32>(std::floor((center.x - maxRadius) * m_InvCellSize));
-            const i32 maxX = static_cast<i32>(std::floor((center.x + maxRadius) * m_InvCellSize));
-            const i32 minY = static_cast<i32>(std::floor((center.y - maxRadius) * m_InvCellSize));
-            const i32 maxY = static_cast<i32>(std::floor((center.y + maxRadius) * m_InvCellSize));
-            const i32 minZ = static_cast<i32>(std::floor((center.z - maxRadius) * m_InvCellSize));
-            const i32 maxZ = static_cast<i32>(std::floor((center.z + maxRadius) * m_InvCellSize));
+            i32 minX = 0, maxX = 0, minY = 0, maxY = 0, minZ = 0, maxZ = 0;
+            const bool representable =
+                TryWorldToCell(center.x - maxRadius, m_InvCellSize, minX) &&
+                TryWorldToCell(center.x + maxRadius, m_InvCellSize, maxX) &&
+                TryWorldToCell(center.y - maxRadius, m_InvCellSize, minY) &&
+                TryWorldToCell(center.y + maxRadius, m_InvCellSize, maxY) &&
+                TryWorldToCell(center.z - maxRadius, m_InvCellSize, minZ) &&
+                TryWorldToCell(center.z + maxRadius, m_InvCellSize, maxZ);
 
-            if (CellBoxLargerThanEntries(minX, maxX, minY, maxY, minZ, maxZ, m_Entries.size()))
+            if (!representable ||
+                CellBoxLargerThanEntries(minX, maxX, minY, maxY, minZ, maxZ, m_Entries.size()))
             {
                 // Box dwarfs the entry count → scan entries, still range-gated.
                 for (const Entry& entry : m_Entries)
@@ -342,7 +390,8 @@ namespace OloEngine
 
     void SceneSpatialIndex::SetCellSize(f32 cellSize)
     {
-        if (cellSize <= 0.0f)
+        // Ignore non-positive / non-finite sizes (a NaN would poison the grid).
+        if (!(std::isfinite(cellSize) && cellSize > 0.0f))
         {
             return;
         }
@@ -362,12 +411,5 @@ namespace OloEngine
         {
             Insert(entry.Id, entry.Position);
         }
-    }
-
-    SceneSpatialIndex::CellKey SceneSpatialIndex::PositionToCell(const glm::vec3& pos) const
-    {
-        return { static_cast<i32>(std::floor(pos.x * m_InvCellSize)),
-                 static_cast<i32>(std::floor(pos.y * m_InvCellSize)),
-                 static_cast<i32>(std::floor(pos.z * m_InvCellSize)) };
     }
 } // namespace OloEngine

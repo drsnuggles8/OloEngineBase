@@ -74,6 +74,17 @@ namespace OloEngine
             return static_cast<u32>(m_Entries.size());
         }
 
+        // Number of distinct occupied cells. Primarily an introspection /
+        // test hook: a correct rebuild holds at most one cell per entity, so
+        // this never exceeds GetEntityCount(). It catches a Clear() that frees
+        // the per-cell lists but leaks their (now-empty) keys — m_Cells would
+        // then grow without bound across rebuilds while GetEntityCount() stays
+        // flat. Also useful as a coarse occupancy / cell-size tuning signal.
+        [[nodiscard]] u32 GetCellCount() const
+        {
+            return static_cast<u32>(m_Cells.size());
+        }
+
         [[nodiscard]] f32 GetCellSize() const
         {
             return m_CellSize;
@@ -116,8 +127,6 @@ namespace OloEngine
             UUID Id;
             glm::vec3 Position;
         };
-
-        [[nodiscard]] CellKey PositionToCell(const glm::vec3& pos) const;
 
         f32 m_CellSize = 10.0f;
         f32 m_InvCellSize = 1.0f / 10.0f;
