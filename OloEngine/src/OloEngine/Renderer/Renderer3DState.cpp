@@ -265,6 +265,11 @@ namespace OloEngine
 
     bool Renderer3D::IsHZBOcclusionCullingEnabled()
     {
+        // Honour the global debug override, same as IsFrustumCullingEnabled() /
+        // IsDynamicCullingEnabled() — "all culling forcibly disabled" must also
+        // turn off the HZB occlusion path.
+        if (s_ForceDisableCulling)
+            return false;
         return s_Data.HZBOcclusionCullingEnabled;
     }
 

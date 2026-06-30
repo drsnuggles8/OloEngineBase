@@ -157,6 +157,29 @@ namespace OloEngine::Tests
                     inst.Transform = glm::scale(
                         glm::translate(glm::mat4(1.0f), glm::vec3(x, y, -20.0f)),
                         glm::vec3(0.15f));
+                    inst.PrevTransform = inst.Transform; // static — prev == current
+                    imc.Instances.push_back(inst);
+                }
+            }
+
+            // Sentinels: a few instances IN FRONT of the wall (z = +5, between
+            // the camera at z=10 and the wall at z=2) that are genuinely visible
+            // and MUST survive occlusion. Without them every instance is hidden
+            // behind the wall, so even a (wrong) full cull would leave the
+            // visible frame unchanged and the diff below would not detect a false
+            // cull. With them, a false cull punches a visible hole the diff sees.
+            for (i32 sy = 0; sy < 4; ++sy)
+            {
+                for (i32 sx = 0; sx < 4; ++sx)
+                {
+                    const f32 x = (static_cast<f32>(sx) / 3.0f - 0.5f) * 4.0f;
+                    const f32 y = (static_cast<f32>(sy) / 3.0f - 0.5f) * 4.0f;
+                    InstanceData inst;
+                    inst.Transform = glm::scale(
+                        glm::translate(glm::mat4(1.0f), glm::vec3(x, y, 5.0f)),
+                        glm::vec3(0.3f));
+                    inst.PrevTransform = inst.Transform;
+                    inst.Color = glm::vec4(1.0f, 0.3f, 0.2f, 1.0f); // distinct from the wall
                     imc.Instances.push_back(inst);
                 }
             }
@@ -165,9 +188,22 @@ namespace OloEngine::Tests
         }
     };
 
+    // RAII: restore the process-wide HZB occlusion toggle on scope exit so a
+    // failing ASSERT (which returns out of the test mid-flow) can't leave it
+    // enabled for later tests in the same process.
+    struct HZBOcclusionRestore
+    {
+        bool m_Prev = Renderer3D::IsHZBOcclusionCullingEnabled();
+        ~HZBOcclusionRestore()
+        {
+            Renderer3D::EnableHZBOcclusionCulling(m_Prev);
+        }
+    };
+
     TEST_F(OccludedInstanceFieldScene, OcclusionDoesNotCorruptOrHoleTheFrame)
     {
         OLO_ENSURE_GPU_OR_SKIP();
+        const HZBOcclusionRestore hzbRestore;
 
         // Baseline: HZB occlusion OFF. Frustum culling stays on (the instanced
         // field still routes through the GPU frustum cull). A few frames warm
@@ -216,6 +252,6 @@ namespace OloEngine::Tests
         EXPECT_GT(LuminanceSpread(occluded), 0.05f)
             << "occlusion-on frame went flat — the pipeline may have broken; see " << out.string();
 
-        Renderer3D::EnableHZBOcclusionCulling(false);
+        // (HZB occlusion toggle restored by hzbRestore on scope exit.)
     }
 } // namespace OloEngine::Tests

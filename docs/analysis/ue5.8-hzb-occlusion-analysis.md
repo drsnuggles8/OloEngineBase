@@ -77,21 +77,25 @@ All GPU paths funnel through `NaniteHZBCull.ush`. For one bounding box:
 2. **NDC rect → screen rect → pick a mip.** `GetScreenRect` (`:71`) then
    `MipLevelForRect` (`:40`) picks **the smallest mip where the footprint fits in a
    4×4 texel block**:
+
    ```hlsl
    int2 MipLevelXY = firstbithigh(RectPixels.zw - RectPixels.xy); // full-rate vs quarter-rate log2
    int MipLevel = max(max(MipLevelXY.x, MipLevelXY.y) - MipOffset, 0);
    MipLevel += any((RectPixels.zw >> MipLevel) - (RectPixels.xy >> MipLevel) > MaxPixelOffset) ? 1 : 0;
    ```
+
    This is the crux of *hierarchical* Z: big object → coarse mip (few samples),
    small object → fine mip. Always a bounded read.
 3. **Sample & compare.** `GetMinDepthFromHZB` (`:135`) gathers the 4×4 (via
    `GatherLODRed`), takes the **min** (furthest) of the block:
+
    ```hlsl
    bool IsVisibleHZB(FScreenRect Rect, bool bSample4x4) {
        const float MinDepth = GetMinDepthFromHZB(Rect, bSample4x4);
        return Rect.Depth >= MinDepth;     // inverted Z: object's nearest vs furthest occluder
    }
    ```
+
    In inverted-Z, `Rect.Depth` (object's closest point) `>=` HZB-min (furthest thing
    previously drawn over that footprint) ⇒ **at least part of the box is in front ⇒
    visible**. Min-over-block + nearest-corner depth ⇒ **conservative** (never wrongly
@@ -192,7 +196,7 @@ page; `IsVisibleMaskedHZB` against page flags).
 The temporal trick works because of *where* each piece sits in
 `FDeferredShadingSceneRenderer::Render` (`DeferredShadingRenderer.cpp`):
 
-```
+```text
 RenderPrePass()    (2464)  → non-Nanite depth prepass
 RenderNanite()     (2485)  → Nanite VisBuffer: runs the 2-pass cull above,
                              reading View.PrevViewInfo.HZB, writing its depth
@@ -218,6 +222,7 @@ builds from the VisBuffer — same `BuildHZB` code, different source & lifetime.
 build is gated by `r.SceneDepthHZBAsyncCompute`.
 
 ### First frame / camera cuts
+
 With no `PrevHZB`, Nanite falls back to `CULLING_PASS_NO_OCCLUSION` (frustum only).
 There is an **HZB priming** path (`DeferredShadingRenderer.cpp:1660`,
 `r.Nanite.PrimeHZB...`) that does a cheap throwaway Nanite raster purely to bootstrap
@@ -255,6 +260,7 @@ back next frame** to fill `FPrimitiveVisibilityMap`. `r.HZBOcclusion`: `0` = HW
 queries, `1` = HZB software test (default), `2` = force HZB.
 
 ### From cull to draw calls
+
 The regular path doesn't reorder meshes — it rewrites *indirect args*. The cull
 compute (`InstanceCullBuildInstanceIdBufferCS`) appends survivors to
 `InstanceIdsBufferOut` and atomically bumps `InstanceCount` (word [1]) of that draw's
@@ -325,4 +331,3 @@ two deliberate scope cuts the design accepted up front**: **#10** — no HZB *pr
 camera cuts (expect a one-frame overdraw spike on cuts), and **#17** — the two-phase pass
 is **Forward / Forward+ only**; Deferred runs the single-phase frustum+HZB cull through
 the G-Buffer bucket. Both are tracked follow-ups, not correctness gaps.
-```

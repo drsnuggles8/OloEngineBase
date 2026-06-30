@@ -709,7 +709,7 @@ namespace OloEngine
         // appends occluded survivors to a reject list; both the phase-1 draw and
         // a phase-2 draw are routed to GPUDrivenOcclusionPass, which re-tests the
         // reject list against this frame's depth after the phase-1 draws.
-        if (GPUDrivenOcclusionPass* occlusionPass = (s_Data.HZBOcclusionCullingEnabled &&
+        if (GPUDrivenOcclusionPass* occlusionPass = (IsHZBOcclusionCullingEnabled() &&
                                                      GetRendererSettings().Path != RenderingPath::Deferred)
                                                         ? GetGPUOcclusionPass()
                                                         : nullptr)

@@ -52,9 +52,15 @@ namespace OloEngine
         if (!s_Data.HZBOcclusionCullingEnabled)
             return;
 
+        // Any path that fails to regenerate the pyramid must invalidate it:
+        // leaving OcclusionHZBValid true would let next frame's phase-1 sample a
+        // stale pyramid (older than PrevViewProjectionMatrix) and mis-cull.
         const Ref<SceneRenderPass>& scenePass = s_Data.Pipeline->FrameCorePasses.Scene;
         if (!scenePass)
+        {
+            s_Data.OcclusionHZBValid = false;
             return;
+        }
 
         // Scene depth source: the G-Buffer depth in Deferred, the forward scene
         // target's depth attachment otherwise — mirrors SceneRenderPass's own
@@ -72,14 +78,20 @@ namespace OloEngine
 
         const auto& spec = scenePass->GetFramebufferSpecification();
         if (depthTexID == 0 || spec.Width == 0 || spec.Height == 0)
+        {
+            s_Data.OcclusionHZBValid = false;
             return;
+        }
 
         // Resize is a cheap no-op once the power-of-2 bucket is stable. Max
         // reduction was selected once at Init (conservative occlusion: each
         // coarse texel keeps the FARTHEST nearest-surface depth beneath it).
         s_Data.OcclusionHZB.Resize(spec.Width, spec.Height);
         if (!s_Data.OcclusionHZB.IsValid())
+        {
+            s_Data.OcclusionHZBValid = false;
             return;
+        }
 
         s_Data.OcclusionHZB.Generate(depthTexID);
         // Valid from here on — next frame's instance cull may sample it.

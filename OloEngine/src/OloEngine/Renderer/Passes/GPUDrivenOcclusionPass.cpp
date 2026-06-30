@@ -97,6 +97,12 @@ namespace OloEngine
 
         if (!m_SceneFramebuffer || m_CommandBucket.GetCommandCount() == 0)
         {
+            // Drop any phase-2 work too — its packets are frame-allocator
+            // CommandPacket*s that go stale next frame. (In practice phase-2 is
+            // empty here, since phase-1 + phase-2 are submitted together, but
+            // bail-out paths must not leave dangling references.)
+            m_Phase2Packets.clear();
+            m_Phase2Culls.clear();
             ResetCommandBucket();
             return;
         }
@@ -258,6 +264,9 @@ namespace OloEngine
 
     void GPUDrivenOcclusionPass::OnReset()
     {
-        // No own framebuffer to reset.
+        // No own framebuffer to reset, but drop any queued phase-2 packets so a
+        // graph reset / asset reload leaves no dangling frame-allocator pointers.
+        m_Phase2Packets.clear();
+        m_Phase2Culls.clear();
     }
 } // namespace OloEngine
