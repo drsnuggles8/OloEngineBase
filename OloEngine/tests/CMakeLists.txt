@@ -109,6 +109,8 @@ add_executable(OloEngine-Tests
 		Rendering/ScreenSpaceGIMathTest.cpp
 		Rendering/ContactShadowMathTest.cpp
 		Rendering/CASMathTest.cpp
+		Rendering/EASUMathTest.cpp
+		Rendering/RCASMathTest.cpp
 		Rendering/SSAOMathTest.cpp
 		Rendering/BloomMathTest.cpp
 		Rendering/FogMathTest.cpp

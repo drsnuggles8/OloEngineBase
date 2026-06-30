@@ -651,7 +651,8 @@ namespace OloEngine
         static constexpr u32 UBO_CONTACT_SHADOW = 41;       // Screen-space contact shadows parameters (camera matrices + toward-light dir + ray-march settings)
         static constexpr u32 UBO_MOTION_BLUR_PARAMS = 42;   // Motion-blur per-pass flags (hasVelocity gate: per-pixel velocity vs camera-only reconstruction)
         static constexpr u32 UBO_PLANAR_REFLECTION = 43;    // Planar-reflection mirror view-projection + plane/enable params (sampled by Water.glsl)
-        static constexpr u32 UBO_UPSCALER = 44;             // Spatial upscaler / CAS sharpening params (sharpness + texel size) — PostProcess_CAS.glsl
+        static constexpr u32 UBO_UPSCALER = 44;             // Spatial upscaler / CAS·RCAS sharpening params (sharpness + texel size) — PostProcess_CAS.glsl / PostProcess_RCAS.glsl
+        static constexpr u32 UBO_EASU = 45;                 // FSR1 EASU upscale constants (input/output size + tap texel + DRS bounds) — PostProcess_EASU.glsl
 
         // =============================================================================
         // TEXTURE SAMPLER BINDINGS
@@ -903,7 +904,10 @@ namespace OloEngine
                     return name.contains("PlanarReflection") || name.contains("planarReflection");
                 case UBO_UPSCALER:
                     return name.contains("CAS") || name.contains("cas") ||
+                           name.contains("RCAS") || name.contains("rcas") ||
                            name.contains("Upscaler") || name.contains("upscaler");
+                case UBO_EASU:
+                    return name.contains("EASU") || name.contains("easu");
                 default:
                     return false;
             }
