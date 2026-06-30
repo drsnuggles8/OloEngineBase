@@ -6134,6 +6134,8 @@ namespace OloEngine
             out << YAML::Key << "AutoExposureCompensation" << YAML::Value << pp.AutoExposureCompensation;
             out << YAML::Key << "AutoExposureMinExposure" << YAML::Value << pp.AutoExposureMinExposure;
             out << YAML::Key << "AutoExposureMaxExposure" << YAML::Value << pp.AutoExposureMaxExposure;
+            out << YAML::Key << "CASEnabled" << YAML::Value << pp.CASEnabled;
+            out << YAML::Key << "CASSharpness" << YAML::Value << pp.CASSharpness;
         }
         out << YAML::EndMap;
 
@@ -6333,12 +6335,15 @@ namespace OloEngine
                 TrySet(pp.AutoExposureCompensation, ppNode["AutoExposureCompensation"]);
                 TrySet(pp.AutoExposureMinExposure, ppNode["AutoExposureMinExposure"]);
                 TrySet(pp.AutoExposureMaxExposure, ppNode["AutoExposureMaxExposure"]);
+                TrySet(pp.CASEnabled, ppNode["CASEnabled"]);
+                TrySet(pp.CASSharpness, ppNode["CASSharpness"]);
 
                 // Floats read from YAML must be finite and ordered (min<=max).
                 SanitizeAutoExposure(pp);
                 SanitizeSSR(pp);
                 SanitizeSSGI(pp);
                 SanitizeContactShadow(pp);
+                SanitizeCAS(pp);
             }
 
             DeserializeSnowSettings(data, m_Scene->GetSnowSettings());
@@ -6513,6 +6518,8 @@ namespace OloEngine
             out << YAML::Key << "AutoExposureCompensation" << YAML::Value << pp.AutoExposureCompensation;
             out << YAML::Key << "AutoExposureMinExposure" << YAML::Value << pp.AutoExposureMinExposure;
             out << YAML::Key << "AutoExposureMaxExposure" << YAML::Value << pp.AutoExposureMaxExposure;
+            out << YAML::Key << "CASEnabled" << YAML::Value << pp.CASEnabled;
+            out << YAML::Key << "CASSharpness" << YAML::Value << pp.CASSharpness;
         }
         out << YAML::EndMap;
 
@@ -6662,12 +6669,15 @@ namespace OloEngine
                 TrySet(pp.AutoExposureCompensation, ppNode["AutoExposureCompensation"]);
                 TrySet(pp.AutoExposureMinExposure, ppNode["AutoExposureMinExposure"]);
                 TrySet(pp.AutoExposureMaxExposure, ppNode["AutoExposureMaxExposure"]);
+                TrySet(pp.CASEnabled, ppNode["CASEnabled"]);
+                TrySet(pp.CASSharpness, ppNode["CASSharpness"]);
 
                 // Floats read from YAML must be finite and ordered (min<=max).
                 SanitizeAutoExposure(pp);
                 SanitizeSSR(pp);
                 SanitizeSSGI(pp);
                 SanitizeContactShadow(pp);
+                SanitizeCAS(pp);
             }
 
             DeserializeSnowSettings(data, m_Scene->GetSnowSettings());

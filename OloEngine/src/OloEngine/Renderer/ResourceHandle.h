@@ -386,6 +386,8 @@ namespace OloEngine::ResourceNames
     inline constexpr std::string_view ColorGradingColorTexture = "ColorGradingColorTexture";         // Color attachment view of ColorGradingColor
     inline constexpr std::string_view ToneMapColor = "ToneMapColor";                                 // After tone mapping (HDR→LDR boundary)
     inline constexpr std::string_view ToneMapColorTexture = "ToneMapColorTexture";                   // Color attachment view of ToneMapColor
+    inline constexpr std::string_view UpscalerColor = "UpscalerColor";                               // After CAS sharpening / spatial upscale (only valid when CAS is enabled) — runs post-tonemap on LDR
+    inline constexpr std::string_view UpscalerColorTexture = "UpscalerColorTexture";                 // Color attachment view of UpscalerColor
     inline constexpr std::string_view VignetteColor = "VignetteColor";                               // After vignette
     inline constexpr std::string_view VignetteColorTexture = "VignetteColorTexture";                 // Color attachment view of VignetteColor
     inline constexpr std::string_view FXAAColor = "FXAAColor";                                       // Anti-aliased post-process output

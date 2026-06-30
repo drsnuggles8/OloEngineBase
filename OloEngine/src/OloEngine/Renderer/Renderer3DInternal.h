@@ -31,6 +31,7 @@
 #include "OloEngine/Renderer/Passes/SSSRenderPass.h"
 #include "OloEngine/Renderer/Passes/TAARenderPass.h"
 #include "OloEngine/Renderer/Passes/ToneMapRenderPass.h"
+#include "OloEngine/Renderer/Passes/UpscalerRenderPass.h"
 #include "OloEngine/Renderer/Passes/UICompositeRenderPass.h"
 #include "OloEngine/Renderer/Passes/VignetteRenderPass.h"
 #include "OloEngine/Renderer/Passes/WaterRenderPass.h"
@@ -56,6 +57,7 @@ namespace OloEngine
         Ref<ChromaticAberrationRenderPass> ChromAberration;
         Ref<ColorGradingRenderPass> ColorGrading;
         Ref<ToneMapRenderPass> ToneMap;
+        Ref<UpscalerRenderPass> Upscaler;
         Ref<VignetteRenderPass> Vignette;
         Ref<FXAARenderPass> FXAA;
         Ref<SelectionOutlineRenderPass> SelectionOutline;
@@ -78,6 +80,7 @@ namespace OloEngine
             ChromAberration.Reset();
             ColorGrading.Reset();
             ToneMap.Reset();
+            Upscaler.Reset();
             Vignette.Reset();
             FXAA.Reset();
             SelectionOutline.Reset();
