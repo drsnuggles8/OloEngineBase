@@ -108,8 +108,16 @@ if [ -f ffbuild/config.mak ] && [ "$MODE" != "configure-only" ] && [ "${OLO_FFMP
     echo "=== already configured (ffbuild/config.mak present) — skipping configure ==="
 else
     if [ "$OLO_OS" = windows ]; then
+        # --disable-inline-asm is mandatory for the MSVC toolchain: cl.exe cannot
+        # compile FFmpeg's GNU (AT&T) inline asm at all. FFmpeg's configure is
+        # *supposed* to reach the same conclusion via its runtime check_inline_asm
+        # probe, but the msvc branch never hard-disables it, and on newer cl
+        # versions that probe can flake and leave HAVE_INLINE_ASM=1 — which then
+        # fails the build with C2143 in libavcodec/x86/mathops.h on a fresh tree.
+        # Forcing it off makes the Windows build deterministic (matches every
+        # correctly-configured tree, which all have HAVE_INLINE_ASM=0).
         # shellcheck disable=SC2086
-        ./configure --prefix="$(cygpath -w "$PREFIX")" --toolchain=msvc --target-os=win64 --arch=x86_64 $CODEC_FLAGS 2>&1 | tail -40
+        ./configure --prefix="$(cygpath -w "$PREFIX")" --toolchain=msvc --target-os=win64 --arch=x86_64 --disable-inline-asm $CODEC_FLAGS 2>&1 | tail -40
     else
         # shellcheck disable=SC2086
         ./configure --prefix="$PREFIX" $CODEC_FLAGS 2>&1 | tail -40

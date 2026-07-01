@@ -221,6 +221,65 @@ namespace OloEngine
         {
             ImGui::SetTooltip("Rendering is skipped when the previous frame\nexceeded this duration. Lower values throttle more\naggressively. 33.3 ms = ~30 FPS threshold.");
         }
+
+        ImGui::Spacing();
+        ImGui::Text("Frame-Rate Limiter");
+        ImGui::Separator();
+        ImGui::TextWrapped("Cap the windowed main loop to a target frame rate (sleep + short spin). "
+                           "Composes with vsync — the limiter only sleeps for time vsync didn't "
+                           "already consume, so it never double-throttles.");
+        ImGui::Spacing();
+
+        static const char* const kCapLabels[] = { "Off", "60 FPS", "120 FPS", "144 FPS", "Custom" };
+        static constexpr u32 kCapValues[] = { 0u, 60u, 120u, 144u };
+        constexpr int kCustomIndex = 4;
+
+        int capIndex = kCustomIndex; // any non-preset value shows as "Custom"
+        for (int i = 0; i < kCustomIndex; ++i)
+        {
+            if (m_Draft.FrameRateCap == kCapValues[i])
+            {
+                capIndex = i;
+                break;
+            }
+        }
+
+        if (ImGui::Combo("Frame Cap", &capIndex, kCapLabels, IM_ARRAYSIZE(kCapLabels)))
+        {
+            // Seed Custom with a non-preset value so the selection sticks.
+            m_Draft.FrameRateCap = (capIndex < kCustomIndex) ? kCapValues[capIndex] : 90u;
+        }
+        if (capIndex == kCustomIndex)
+        {
+            int customFps = static_cast<int>(m_Draft.FrameRateCap);
+            if (ImGui::DragInt("Custom FPS", &customFps, 1.0f, 1, 1000, "%d FPS"))
+            {
+                m_Draft.FrameRateCap = static_cast<u32>(std::clamp(customFps, 1, 1000));
+            }
+        }
+
+        ImGui::Spacing();
+        ImGui::Text("Frame-Time Smoothing");
+        ImGui::Separator();
+        ImGui::TextWrapped("Damp frame-time jitter with an exponential moving average on the "
+                           "delta handed to gameplay/camera. Off by default.");
+        ImGui::Spacing();
+
+        bool smoothingOn = m_Draft.FrameTimeSmoothing < 1.0f;
+        if (ImGui::Checkbox("Smooth frame delta (EMA)", &smoothingOn))
+        {
+            m_Draft.FrameTimeSmoothing = smoothingOn ? 0.2f : 1.0f;
+        }
+        if (smoothingOn)
+        {
+            ImGui::DragFloat("Smoothing (alpha)", &m_Draft.FrameTimeSmoothing, 0.01f, 0.01f, 0.99f, "%.2f");
+            ImGui::SameLine();
+            ImGui::TextDisabled("(?)");
+            if (ImGui::IsItemHovered())
+            {
+                ImGui::SetTooltip("EMA weight for the newest frame's delta.\nLower = smoother but laggier. 1.0 disables smoothing.");
+            }
+        }
     }
 
     std::filesystem::path EditorPreferencesPanel::GetPrefsPath(const std::filesystem::path& projectDir)
@@ -248,6 +307,8 @@ namespace OloEngine
         out << YAML::Key << "ThrottleEditMode" << YAML::Value << prefs.ThrottleEditMode;
         out << YAML::Key << "ThrottlePlayMode" << YAML::Value << prefs.ThrottlePlayMode;
         out << YAML::Key << "RenderBudgetMs" << YAML::Value << prefs.RenderBudgetMs;
+        out << YAML::Key << "FrameRateCap" << YAML::Value << prefs.FrameRateCap;
+        out << YAML::Key << "FrameTimeSmoothing" << YAML::Value << prefs.FrameTimeSmoothing;
         out << YAML::Key << "EnableAutoSave" << YAML::Value << prefs.EnableAutoSave;
         out << YAML::Key << "AutoSaveIntervalSeconds" << YAML::Value << prefs.AutoSaveIntervalSeconds;
         out << YAML::Key << "McpAutoStart" << YAML::Value << prefs.McpAutoStart;
@@ -353,6 +414,11 @@ namespace OloEngine
             if (node["RenderBudgetMs"])
                 if (f32 v = node["RenderBudgetMs"].as<f32>(); std::isfinite(v))
                     prefs.RenderBudgetMs = std::clamp(v, 8.0f, 100.0f);
+            if (node["FrameRateCap"])
+                prefs.FrameRateCap = std::min(node["FrameRateCap"].as<u32>(), 1000u);
+            if (node["FrameTimeSmoothing"])
+                if (f32 v = node["FrameTimeSmoothing"].as<f32>(); std::isfinite(v))
+                    prefs.FrameTimeSmoothing = std::clamp(v, 0.01f, 1.0f);
             if (node["EnableAutoSave"])
                 prefs.EnableAutoSave = node["EnableAutoSave"].as<bool>();
             if (node["AutoSaveIntervalSeconds"])
