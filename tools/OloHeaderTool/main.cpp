@@ -427,6 +427,81 @@ static std::map<std::string, std::string> ParseMetadata(const std::string& conte
     return result;
 }
 
+// ─── OLO_SERIALIZE(...) marker helpers ───────────────────────────────────────
+
+// If `s` begins with an `OLO_SERIALIZE(...)` marker (optionally whitespace before
+// the '('), peel it: `args` receives the text inside the outer parens (no parens)
+// and `rest` the leading-trimmed remainder after the closing ')', and returns
+// true. Otherwise returns false and leaves `args`/`rest` untouched. Shared by the
+// OLO_PROPERTY scanner (ParseHeaders — to peel a marker glued onto a field's
+// anchor line) and the scene-serializer field scan (ParseComponentFields — to
+// honour Skip), so both treat the glued and own-line forms identically. An
+// unterminated marker (no matching ')') yields an empty `rest` so the field is
+// safely skipped rather than mis-parsed; such source fails to compile anyway.
+static bool PeelSerializeMarker(const std::string& s, std::string& args, std::string& rest)
+{
+    static const std::string kMarker = "OLO_SERIALIZE";
+    if (s.rfind(kMarker, 0) != 0)
+        return false;
+    size_t j = kMarker.size();
+    while (j < s.size() && (s[j] == ' ' || s[j] == '\t'))
+        ++j;
+    if (j >= s.size() || s[j] != '(')
+        return false; // a bare identifier starting with OLO_SERIALIZE, not a call
+
+    int depth = 0;
+    size_t closeParen = std::string::npos;
+    for (size_t k = j; k < s.size(); ++k)
+    {
+        if (s[k] == '(')
+            ++depth;
+        else if (s[k] == ')' && --depth == 0)
+        {
+            closeParen = k;
+            break;
+        }
+    }
+    if (closeParen == std::string::npos)
+    {
+        args = s.substr(j + 1);
+        rest.clear();
+        return true;
+    }
+    args = s.substr(j + 1, closeParen - (j + 1));
+    rest = Trim(s.substr(closeParen + 1));
+    return true;
+}
+
+// True iff an OLO_SERIALIZE argument list contains a bare `Skip` token, or
+// `Skip = true`. Whole-word / whole-argument match: comma-split the args and
+// compare the key (the part before any '=') exactly, so `NoSkip` / `SkipCount`
+// do NOT count and a genuine `Skip` after another argument is still found;
+// `Skip = false` is not a skip. `args` is the text inside the parens.
+static bool SerializeArgsHaveSkip(const std::string& args)
+{
+    for (size_t start = 0; start <= args.size();)
+    {
+        size_t comma = args.find(',', start);
+        const size_t end = (comma == std::string::npos) ? args.size() : comma;
+        std::string part = Trim(args.substr(start, end - start));
+
+        std::string key = part;
+        std::string value;
+        if (auto eq = part.find('='); eq != std::string::npos)
+        {
+            key = Trim(part.substr(0, eq));
+            value = Trim(part.substr(eq + 1));
+        }
+        if (key == "Skip")
+            return value.empty() || value.rfind("false", 0) != 0;
+
+        if (comma == std::string::npos)
+            break;
+        start = comma + 1;
+    }
+    return false;
+}
+
 // ─── Header Parser ─────────────────────────────────────────────────────────────
 
 static std::vector<ComponentDef> ParseHeaders(const fs::path& scanDir)
@@ -603,17 +678,26 @@ static std::vector<ComponentDef> ParseHeaders(const fs::path& scanDir)
                 }
 
                 // Skip access specifiers, comments, blank lines — retry on next line.
-                // An OLO_SERIALIZE(...) marker between the OLO_PROPERTY and its field is
-                // skipped too (it is a scene-serializer directive, not a script binding,
-                // and must not be mistaken for the field anchor — which would drop the
-                // property). Placing it above OLO_PROPERTY already works because pending
-                // is empty there; this handles the below-placement ordering as well.
                 if (trimmed.starts_with("//") || trimmed.starts_with("/*") ||
                     trimmed.starts_with("private:") || trimmed.starts_with("public:") ||
-                    trimmed.starts_with("protected:") || trimmed.starts_with("OLO_SERIALIZE(") ||
-                    trimmed.empty())
+                    trimmed.starts_with("protected:") || trimmed.empty())
                 {
                     continue; // pendingMetadataList stays populated for next line
+                }
+
+                // Peel a leading OLO_SERIALIZE(...) scene-serializer directive off the
+                // anchor line. It is not a script binding, so it must not be mistaken for
+                // the field anchor (which would drop the pending OLO_PROPERTY and re-bind
+                // it to a later field). On its own line the remainder is empty → retry on
+                // the next line. Glued to the field (`OLO_SERIALIZE(Skip) f32 m_X = 1;`)
+                // the remainder IS the field declaration — parse it as the anchor, so the
+                // marker/field on one line works exactly as the scene-serializer scan
+                // (ParseComponentFields) already handles it.
+                if (std::string sArgs, sRest; PeelSerializeMarker(trimmed, sArgs, sRest))
+                {
+                    if (sRest.empty())
+                        continue; // marker alone on its line — pending stays for next line
+                    trimmed = sRest;
                 }
 
                 // Parse field type and name from anchor line, e.g.:
@@ -1373,44 +1457,13 @@ static ComponentSerInfo ParseComponentFields(std::string body, const std::set<st
         // field inside one statement; OLO_PROPERTY was already stripped above, so
         // OLO_SERIALIZE is the statement prefix here. A non-`Skip` OLO_SERIALIZE (a
         // future Clamp/Min/Max) is peeled off and the field then serializes normally.
-        if (s.rfind("OLO_SERIALIZE", 0) == 0)
+        if (std::string serArgs, serRest; PeelSerializeMarker(s, serArgs, serRest))
         {
-            size_t j = std::string_view("OLO_SERIALIZE").size();
-            while (j < s.size() && (s[j] == ' ' || s[j] == '\t'))
-                ++j;
-            if (j < s.size() && s[j] == '(')
-            {
-                int pdepth = 0;
-                size_t k = j;
-                for (; k < s.size(); ++k)
-                {
-                    if (s[k] == '(')
-                        ++pdepth;
-                    else if (s[k] == ')' && --pdepth == 0)
-                    {
-                        ++k;
-                        break;
-                    }
-                }
-                const std::string args = s.substr(j, k - j); // includes the parens
-                // `Skip` / `Skip = true` ⇒ drop the field; `Skip = false` (or no Skip
-                // token at all) ⇒ keep it. Only the bare token after a `(`/`,`/`=` counts
-                // so a substring like `SkipFoo` is not mistaken for it.
-                bool skip = false;
-                if (auto sp = args.find("Skip"); sp != std::string::npos)
-                {
-                    const std::string after = Trim(args.substr(sp + 4));
-                    if (after.empty() || after[0] == ')' || after[0] == ',')
-                        skip = true;
-                    else if (after[0] == '=')
-                        skip = Trim(after.substr(1)).rfind("false", 0) != 0;
-                }
-                if (skip)
-                    continue;          // runtime-only field — not serialized, not non-trivial
-                s = Trim(s.substr(k)); // peel a non-Skip annotation; serialize the field
-                if (s.empty())
-                    continue;
-            }
+            if (SerializeArgsHaveSkip(serArgs))
+                continue; // runtime-only field — not serialized, not non-trivial
+            s = serRest;  // peel a non-Skip annotation; serialize the field normally
+            if (s.empty())
+                continue;
         }
 
         // The declarator is everything before the first '=' (default initializer)
