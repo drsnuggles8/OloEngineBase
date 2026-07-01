@@ -582,6 +582,22 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
 			target_compile_options(${_vendor_target} PRIVATE -Wno-error -Wno-padded)
 		endif()
 	endforeach()
+
+	# ClangCL: assimp ships a version resource (code/res/assimp.rc). Building it
+	# routes through cmcldeps, which runs clang-cl to scan the .rc's #includes and
+	# passes the RC flags along — including the toolchain's `/C 1252` code-page flag
+	# (ClangCLToolchain.cmake). clang-cl reads `/C` as its own "keep comments" option
+	# (which takes no argument) and then treats `1252` as an input file, failing with
+	# "no such file or directory: '1252'". assimp is a static lib and doesn't need a
+	# version resource, so strip the .rc source — the same fix already applied to the
+	# protobuf targets above.
+	if(TARGET assimp)
+		get_target_property(_assimp_srcs assimp SOURCES)
+		if(_assimp_srcs)
+			list(FILTER _assimp_srcs EXCLUDE REGEX "\\.rc$")
+			set_target_properties(assimp PROPERTIES SOURCES "${_assimp_srcs}")
+		endif()
+	endif()
 endif()
 
 #======================================
