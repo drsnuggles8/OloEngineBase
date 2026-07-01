@@ -462,6 +462,25 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
 	endforeach()
 endif()
 
+# ClangCL + ASan: do NOT instrument the vendored protobuf / host tools. protoc is a
+# build-time code generator (it runs during the build to emit GNS's .pb.cc), not
+# something we test. Under clang-cl's ASan runtime — stricter than MSVC's — an
+# instrumented protoc aborts mid-build on findings inside vendored protobuf we can't
+# patch: first an ODR false positive on its "." / L"." string-literal globals, then a
+# global-buffer-overflow (which, unlike ODR, has no ASAN_OPTIONS off-switch). De-
+# instrumenting these targets makes protoc run clean. The only cost is that the test
+# exe links a non-instrumented protobuf — third-party code that's out of our ASan
+# scope anyway (the engine, GNS, and the tests stay instrumented). Target-level
+# -fno-sanitize=address overrides the directory-inherited /fsanitize=address that
+# cmake/Sanitizers.cmake applies (for clang the last -f{no-,}sanitize flag wins).
+if(OLO_ENABLE_ASAN AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+	foreach(_proto_target libprotobuf libprotobuf-lite libprotoc protoc)
+		if(TARGET ${_proto_target})
+			target_compile_options(${_proto_target} PRIVATE -fno-sanitize=address)
+		endif()
+	endforeach()
+endif()
+
 # Make protobuf_generate_cpp available (from CMake's built-in FindProtobuf)
 # GNS calls find_package(Protobuf) which needs this function
 set(Protobuf_FOUND TRUE CACHE BOOL "" FORCE)
@@ -563,6 +582,22 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
 			target_compile_options(${_vendor_target} PRIVATE -Wno-error -Wno-padded)
 		endif()
 	endforeach()
+
+	# ClangCL: assimp ships a version resource (code/res/assimp.rc). Building it
+	# routes through cmcldeps, which runs clang-cl to scan the .rc's #includes and
+	# passes the RC flags along — including the toolchain's `/C 1252` code-page flag
+	# (ClangCLToolchain.cmake). clang-cl reads `/C` as its own "keep comments" option
+	# (which takes no argument) and then treats `1252` as an input file, failing with
+	# "no such file or directory: '1252'". assimp is a static lib and doesn't need a
+	# version resource, so strip the .rc source — the same fix already applied to the
+	# protobuf targets above.
+	if(TARGET assimp)
+		get_target_property(_assimp_srcs assimp SOURCES)
+		if(_assimp_srcs)
+			list(FILTER _assimp_srcs EXCLUDE REGEX "\\.rc$")
+			set_target_properties(assimp PROPERTIES SOURCES "${_assimp_srcs}")
+		endif()
+	endif()
 endif()
 
 #======================================
