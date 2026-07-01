@@ -48,26 +48,41 @@ jobs:
       - name: Setup Vulkan SDK
         uses: ./.github/actions/setup-vulkan
       
+      # cl.exe + Windows SDK include/lib paths on the job env for the Ninja
+      # generator used by the build-wrapper step below. No sccache here (see that
+      # step) — this is only to make Ninja + cl.exe work.
+      - name: Setup MSVC dev environment
+        uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1.13.0
+        with:
+          arch: x64
+
       - name: Install Build Wrapper
         uses: SonarSource/sonarqube-scan-action/install-build-wrapper@713881670b6b3676cda39549040e2d88c70d582e # v8.2.0
 
       - name: Run build-wrapper
-        # NO sccache here, on purpose (issue #304). Two independent blockers:
-        #   1. This uses CMake's default Visual Studio (MSBuild) generator, which
-        #      IGNORES CMAKE_<LANG>_COMPILER_LAUNCHER — sccache would never engage
-        #      (cmake/CompilerCache.cmake even warns in that case). Windows.yml had
-        #      to switch to Ninja Multi-Config for the launcher to take effect.
-        #   2. More fundamentally, sccache is INCOMPATIBLE with SonarQube's
-        #      build-wrapper even on Ninja: build-wrapper analyses C/C++ by
-        #      capturing each real compiler invocation. A warm sccache cache
-        #      serves objects WITHOUT invoking the compiler, so those translation
-        #      units would silently vanish from the analysis — a worse outcome
-        #      than a slow build. Caching is therefore deliberately omitted; the
-        #      cold build is the correct behaviour for this job.
+        # NO sccache here, on purpose (issue #304): sccache is INCOMPATIBLE with
+        # SonarQube's build-wrapper. build-wrapper analyses C/C++ by capturing each
+        # real compiler invocation; a warm cache serves objects WITHOUT invoking
+        # the compiler, so those TUs would silently vanish from the analysis — a
+        # worse outcome than a slow build. The cold build is correct for this job.
+        #
+        # We DO use Ninja + `--parallel` (not the default VS/MSBuild generator):
+        # build-wrapper wraps whatever build command it's given, so it captures a
+        # Ninja build just fine, and a parallel Ninja clean build is faster than
+        # MSBuild here. cl.exe comes from the msvc-dev-cmd step above. (Trade-off,
+        # same as Windows.yml: Ninja doesn't build the C# ScriptCore project, but
+        # the C-family analyzer doesn't analyse C# anyway.)
+        #
+        # -DBUILD_TESTS=OFF: the 398 test TUs are ~43% of the build and are
+        # declared as test sources (sonar.tests), so production rules don't run on
+        # them — building + parsing them was ~40% of this job's cost for near-zero
+        # production-analysis value. Dropping them shrinks BOTH the build and the
+        # C-family scan. (Test code is no longer analysed; it was already heavily
+        # rule-excluded — see sonar-project.properties tst_* ignores.)
         run: |
           New-Item -ItemType directory -Path build
-          cmake -S . -B build -DPython_EXECUTABLE="${{ env.pythonLocation }}/python.exe" -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -DOLO_VIDEO_FFMPEG=OFF
-          build-wrapper-win-x86-64 --out-dir ${{ env.BUILD_WRAPPER_OUT_DIR }} cmake --build build/ --config Release
+          cmake -S . -B build -G "Ninja Multi-Config" -DCMAKE_C_COMPILER=cl -DCMAKE_CXX_COMPILER=cl -DPython_EXECUTABLE="${{ env.pythonLocation }}/python.exe" -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -DOLO_VIDEO_FFMPEG=OFF -DBUILD_TESTS=OFF
+          build-wrapper-win-x86-64 --out-dir ${{ env.BUILD_WRAPPER_OUT_DIR }} cmake --build build/ --config Release --parallel
 
       - name: SonarQube Scan
         uses: SonarSource/sonarqube-scan-action@713881670b6b3676cda39549040e2d88c70d582e # v8.2.0
@@ -82,5 +97,10 @@ jobs:
           # sonar-scanner-cli >= 6.0 (older releases used SONAR_SCANNER_OPTS).
           SONAR_SCANNER_JAVA_OPTS: "-Xmx6g"
         with:
+          # sonar.cfamily.threads=4: parallelise the C-family analysis across the
+          # runner's 4 vCPUs (windows-latest). The analyzer is the ~51-min half of
+          # this job; threading it is the biggest single scan-time lever. The
+          # -Xmx6g heap above has headroom for the parallel workers.
           args: >
             --define sonar.cfamily.build-wrapper-output=${{ env.BUILD_WRAPPER_OUT_DIR }}
+            --define sonar.cfamily.threads=4

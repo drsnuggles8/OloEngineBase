@@ -22,10 +22,19 @@ concurrency:
 
 env:
   BUILD_TYPE: Release
-  # Route sccache at its GitHub Actions cache backend (set up by the
-  # mozilla-actions/sccache-action step below). Object files are then reused
-  # across CI runs, so a push only recompiles the TUs that actually changed.
-  SCCACHE_GHA_ENABLED: "true"
+  # sccache uses a LOCAL-DISK cache (SCCACHE_DIR), persisted across runs as a
+  # SINGLE actions/cache entry (see the "Cache sccache storage" step below).
+  # We deliberately do NOT use sccache's GitHub Actions cache backend
+  # (SCCACHE_GHA_ENABLED): it stores one cache entry PER OBJECT FILE, which
+  # flooded the repo's 10 GB Actions-cache cap with 20k+ tiny entries and made
+  # EVERY write fail (observed 0% hit rate, write-errors == misses on every
+  # job). One bounded local-disk dir wrapped in actions/cache stays under the
+  # cap and actually warms between runs.
+  SCCACHE_DIR: ${{ github.workspace }}/.sccache
+  # Bound the on-disk cache so the saved actions/cache entry stays small — every
+  # cache (this, Vulkan, FFmpeg, the sanitizer jobs' sccache dirs) shares the
+  # repo's single 10 GB Actions-cache cap.
+  SCCACHE_CACHE_SIZE: "2G"
 
 jobs:
   build:
@@ -99,6 +108,18 @@ jobs:
       uses: mozilla-actions/sccache-action@9e7fa8a12102821edf02ca5dbea1acd0f89a2696 # v0.0.10
       with:
         version: "v0.15.0"
+
+    # Persist sccache's local-disk cache (SCCACHE_DIR) as a single actions/cache
+    # entry. The key is unique per run (run_id) so the post-job save always
+    # writes a fresh, updated snapshot; restore-keys falls back to the most
+    # recent prior snapshot, so each run starts warm and saves the superset.
+    - name: Cache sccache storage
+      uses: actions/cache@2c8a9bd7457de244a408f35966fab2fb45fda9c8 # v6.0.0
+      with:
+        path: ${{ env.SCCACHE_DIR }}
+        key: sccache-windows-release-${{ github.run_id }}
+        restore-keys: |
+          sccache-windows-release-
 
     - name: Configure CMake
       # On a cache hit, point CMake at the prebuilt FFmpeg (ffmpeg.cmake's OLO_FFMPEG_PREFIX

@@ -50,7 +50,12 @@ concurrency:
 
 env:
   BUILD_TYPE: Release
-  SCCACHE_GHA_ENABLED: "true"
+  # Local-disk sccache cache persisted as a single actions/cache entry (NOT the
+  # per-object GHA backend, which saturated the repo's 10 GB cap). This is a
+  # manual repro job, so it gets its own small budget and warms from its own
+  # prior runs only. See Windows.yml for the full rationale.
+  SCCACHE_DIR: ${{ github.workspace }}/.sccache
+  SCCACHE_CACHE_SIZE: "2G"
 
 jobs:
   hunt:
@@ -93,6 +98,14 @@ jobs:
       uses: mozilla-actions/sccache-action@9e7fa8a12102821edf02ca5dbea1acd0f89a2696 # v0.0.10
       with:
         version: "v0.15.0"
+
+    - name: Cache sccache storage
+      uses: actions/cache@2c8a9bd7457de244a408f35966fab2fb45fda9c8 # v6.0.0
+      with:
+        path: ${{ env.SCCACHE_DIR }}
+        key: sccache-flaky-281-${{ github.run_id }}
+        restore-keys: |
+          sccache-flaky-281-
 
     # Mirror Windows.yml's fast Ninja+sccache build. /Z7 (embedded debug info,
     # via the compiler-cache path) keeps objects cacheable AND lets the linker
