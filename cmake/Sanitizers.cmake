@@ -145,14 +145,17 @@ if(OLO_ENABLE_ASAN)
 
             # We exclude the vendored protobuf host tools from ASan (see
             # OloEngine/vendor/CMakeLists.txt), so one binary links both instrumented
-            # (engine/tests) and non-instrumented (protobuf) TUs. MSVC's STL emits a
-            # `#pragma detect_mismatch("annotate_string"/"annotate_vector", "1")` only in
-            # ASan TUs, so lld-link then fails with `/failifmismatch: mismatch detected
-            # for 'annotate_string'`. Disable the STL container-overflow annotations
-            # build-wide so every TU agrees. The cost is a minor ASan coverage reduction
-            # (reads past a string/vector's size but within its capacity), the accepted
-            # trade-off for mixing instrumented and non-instrumented objects.
-            add_compile_definitions(_DISABLE_STRING_ANNOTATION=1 _DISABLE_VECTOR_ANNOTATION=1)
+            # (engine/tests) and non-instrumented (protobuf) TUs. MSVC's STL stamps each
+            # object with `#pragma detect_mismatch("annotate_<container>", "0"|"1")` — "1"
+            # in ASan TUs, "0" otherwise — so lld-link fails with `/failifmismatch:
+            # mismatch detected for 'annotate_string'` (then vector, optional, …).
+            # _DISABLE_STL_ANNOTATION is the STL's umbrella switch that turns off every
+            # container annotation (string/vector/optional and any future ones — see
+            # __msvc_sanitizer_annotate_container.hpp), so all TUs stamp "0" and agree.
+            # The cost is a minor ASan coverage reduction (reads past a container's size
+            # but within capacity), the accepted trade-off for mixing instrumented and
+            # non-instrumented objects.
+            add_compile_definitions(_DISABLE_STL_ANNOTATION)
         endif()
 
         message(STATUS "  MSVC ASan: /fsanitize=address /MD (no leak detection on Windows)")
