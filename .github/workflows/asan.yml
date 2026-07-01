@@ -259,7 +259,23 @@ jobs:
       # (OloEngine/tests/CMakeLists.txt). Capped at 2 (not 4) because ASan
       # shadow memory inflates each test process's resident footprint; 2-wide stays
       # comfortably inside the windows-latest ~16 GB budget.
-      run: ctest --parallel 2 -C Release --output-on-failure --timeout 120 --exclude-regex '^NetworkIntegrationTest\.|^WorkerRestartTest\.'
+      # The trailing 9 excludes are all tests that trigger a real C++ throw+catch
+      # (malformed-input robustness + MCP error handling). clang-cl + ASan miscompiles
+      # MSVC-style C++ exception handling — ASan puts redzones on the compiler-emitted
+      # EH metadata globals (_ThrowInfo / _CatchableTypeArray / type descriptors) and
+      # the MSVC EH runtime reads across them, so any throw that unwinds into a catch
+      # crashes (global-buffer-overflow / 0xC0000005). It reproduces with a 3-line
+      # `try { throw std::runtime_error{}; } catch (...) {}` under clang-cl /fsanitize=
+      # address, and no compile/link/runtime flag fixes it (verified: -asan-globals=0,
+      # -fno-strict-aliasing, /Od, detect_stack_use_after_return=0, driver-vs-lld-link).
+      # It is an LLVM toolchain bug, not an engine defect — the old MSVC-cl.exe ASan job
+      # passed all 9, and these paths are covered there / on the Linux ASan job. Excluded
+      # here so the clang-cl job (which gives the real MSVC-ABI + Windows-only coverage)
+      # stays green; revisit if a future LLVM fixes clang-cl ASan exception handling.
+      # Tracking: https://github.com/drsnuggles8/OloEngineBase/issues/497.
+      run: >
+        ctest --parallel 2 -C Release --output-on-failure --timeout 120
+        --exclude-regex '^NetworkIntegrationTest\.|^WorkerRestartTest\.|^SceneSerializerFuzzRegression\.UnterminatedFlowMap$|^SceneSerializerFuzzRegression\.SinglePrintableChar$|^EngineSubsystemSmoke\.ProjectLoadMissingPathFailsCleanly$|^StreamingRegionSerializer\.ParseInvalidYAML$|^InputActionSerializerTest\.MalformedYAML$|^ShaderGraphSerializationTest\.DeserializeInvalidYAMLReturnsFalse$|^CinematicSerializerTest\.MalformedYamlReturnsNullWithoutCrashing$|^McpDispatchTest\.ToolsCallHandlerThrowIsCaughtAsToolError$|^McpStructuredOutput\.ToolsCallErrorHasNoStructuredContent$'
       env:
         # detect_odr_violation=0 must be repeated here — a step-level ASAN_OPTIONS
         # replaces the job-level one rather than merging (see the job `env` above).
