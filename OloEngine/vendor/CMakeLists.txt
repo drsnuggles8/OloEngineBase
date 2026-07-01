@@ -158,7 +158,7 @@ FetchContent_Declare(
 FetchContent_Declare(
 	protobuf
 	GIT_REPOSITORY	https://github.com/protocolbuffers/protobuf.git
-	GIT_TAG			v3.21.12
+	GIT_TAG			v35.1
 	GIT_SHALLOW		TRUE
 	EXCLUDE_FROM_ALL
 )
