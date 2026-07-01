@@ -269,6 +269,22 @@ TEST(McpRendererSettingsApply, NoOpWhenValueUnchanged)
     EXPECT_FALSE(result.PathChanged);
 }
 
+// Apply is a public seam callable independently of ParseArgs, so it must reject an
+// out-of-range integer rather than casting it blindly into the engine enum: it
+// returns a failure ApplyResult and leaves the settings untouched.
+TEST(McpRendererSettingsApply, RejectsOutOfRangeValueAndMutatesNothing)
+{
+    PostProcessSettings pp;
+    pp.Upscale = UpscaleMode::Quality;
+    RendererSettings rs;
+
+    const auto result = RS::Apply(RS::Setting::Upscale, 999, pp, rs);
+    EXPECT_FALSE(result.Ok);
+    EXPECT_FALSE(result.Error.empty());
+    EXPECT_TRUE(result.Data.is_null());
+    EXPECT_EQ(pp.Upscale, UpscaleMode::Quality); // unchanged
+}
+
 // ---- the shared arg parser + token resolution ------------------------------
 
 TEST(McpRendererSettingsParse, ResolvesSettingAndValueCaseAndSeparatorInsensitive)

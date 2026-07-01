@@ -206,7 +206,7 @@ the server, so update the config (or re-copy from the panel) accordingly.
 
 ### Toolsets & on-demand tool discovery (`tools/search`)
 
-The tool surface is large enough (42 tools) that paging the whole flat `tools/list`
+The tool surface is large enough (47 tools) that paging the whole flat `tools/list`
 to find the right one is wasteful. Every tool is tagged with a **toolset** (grouping
 category), and a custom `tools/search` JSON-RPC method lets an agent discover tools by
 keyword and/or category instead of pulling the entire list:
@@ -216,7 +216,7 @@ keyword and/or category instead of pulling the entire list:
 | `diagnostics` | `olo_log_tail`, `olo_events_tail`, `olo_crash_list`, `olo_crash_get` |
 | `scene` | `olo_scene_summary`, `olo_scene_list_entities`, `olo_scene_get_entity` |
 | `perf` | `olo_memory_report`, `olo_perf_snapshot`, `olo_perf_bottlenecks`, `olo_perf_frame_history`, `olo_perf_capture_frame` |
-| `render` | `olo_render_frame_breakdown`, `olo_render_list_targets`, `olo_render_capture_target`, `olo_render_toggle_pass`, `olo_render_set_debug_view`, `olo_renderer_settings_set`, `olo_scene_set_time_of_day`, `olo_scene_set_sun_angle`, `olo_render_compare_golden`, `olo_render_why_not_visible` |
+| `render` | `olo_render_frame_breakdown`, `olo_render_list_targets`, `olo_render_graph_topology_export`, `olo_render_capture_target`, `olo_render_toggle_pass`, `olo_render_set_debug_view`, `olo_renderer_settings_set`, `olo_scene_set_time_of_day`, `olo_scene_set_sun_angle`, `olo_render_compare_golden`, `olo_render_why_not_visible` |
 | `shader` | `olo_shader_list`, `olo_shader_errors`, `olo_shader_get`, `olo_shader_reload` |
 | `assets` | `olo_assets_list`, `olo_assets_problems` |
 | `scripting` | `olo_script_get_api`, `olo_script_get_last_errors`, `olo_reload_script` |

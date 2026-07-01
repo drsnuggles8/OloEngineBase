@@ -43,6 +43,7 @@
 
 #include <nlohmann/json.hpp>
 
+#include <algorithm>
 #include <array>
 #include <cctype>
 #include <optional>
@@ -293,29 +294,57 @@ namespace OloEngine::MCP::RendererSettings
         bool PathChanged = false;
     };
 
+    // Read the current engine-enum integer of `setting` from the live settings. The
+    // single per-setting READ mapping, shared by Apply (the prior value) and Describe
+    // (the current value) so the mapping lives in one place and can't drift when a
+    // setting is added. NOTE: `OloEngine::RendererSettings` is spelled fully qualified
+    // — unqualified `RendererSettings` names THIS namespace, not the engine struct.
+    [[nodiscard]] inline i32 CurrentValue(Setting setting, const PostProcessSettings& pp, const ::OloEngine::RendererSettings& rs)
+    {
+        switch (setting)
+        {
+            case Setting::Upscale:
+                return static_cast<i32>(pp.Upscale);
+            case Setting::Tonemap:
+                return static_cast<i32>(pp.Tonemap);
+            case Setting::RenderPath:
+                return static_cast<i32>(rs.Path);
+        }
+        return 0;
+    }
+
     // Apply `value` (an engine enum integer) to `setting`, mutating the matching
     // field of `pp` / `rs` and reporting the prior value so the change can be
     // restored by setting it back (restore-prior-value, no undo stack). MUST run on
     // the main (game) thread — the caller passes the live Renderer3D settings.
-    // NOTE: the engine struct `OloEngine::RendererSettings` must be spelled fully
-    // qualified here — unqualified `RendererSettings` would name THIS namespace
-    // (OloEngine::MCP::RendererSettings), not the type.
     [[nodiscard]] inline ApplyResult Apply(Setting setting, i32 value, PostProcessSettings& pp, ::OloEngine::RendererSettings& rs)
     {
         ApplyResult result;
-        i32 previous = 0;
+
+        // Validate the value against the setting's allowed set BEFORE mutating. Apply
+        // is a public seam callable independently of ParseArgs (e.g. from tests / a
+        // future caller), so it must not blindly cast an arbitrary integer into an
+        // engine enum — reject an out-of-range value and leave pp / rs untouched.
+        const auto allowed = SettingValues(setting);
+        if (std::none_of(allowed.begin(), allowed.end(),
+                         [value](const EnumValue& v)
+                         { return v.Value == value; }))
+        {
+            result.Error = "Invalid value " + std::to_string(value) + " for setting '" +
+                           std::string(SettingToken(setting)) + "'. Valid values: " + JoinValueTokens(setting) + ".";
+            return result;
+        }
+
+        const i32 previous = CurrentValue(setting, pp, rs);
         switch (setting)
         {
             case Setting::Upscale:
-                previous = static_cast<i32>(pp.Upscale);
                 pp.Upscale = static_cast<UpscaleMode>(value);
                 break;
             case Setting::Tonemap:
-                previous = static_cast<i32>(pp.Tonemap);
                 pp.Tonemap = static_cast<TonemapOperator>(value);
                 break;
             case Setting::RenderPath:
-                previous = static_cast<i32>(rs.Path);
                 rs.Path = static_cast<RenderingPath>(static_cast<u8>(value));
                 break;
         }
@@ -346,19 +375,7 @@ namespace OloEngine::MCP::RendererSettings
         Json arr = Json::array();
         for (const auto& info : kSettings)
         {
-            i32 current = 0;
-            switch (info.Id)
-            {
-                case Setting::Upscale:
-                    current = static_cast<i32>(pp.Upscale);
-                    break;
-                case Setting::Tonemap:
-                    current = static_cast<i32>(pp.Tonemap);
-                    break;
-                case Setting::RenderPath:
-                    current = static_cast<i32>(rs.Path);
-                    break;
-            }
+            const i32 current = CurrentValue(info.Id, pp, rs);
 
             Json values = Json::array();
             for (const auto& v : SettingValues(info.Id))
