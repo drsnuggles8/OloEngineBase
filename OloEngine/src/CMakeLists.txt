@@ -1102,6 +1102,8 @@
 		"OloEngine/UI/UIRenderer.cpp"
 		"OloEngine/UI/UIInputSystem.h"
 		"OloEngine/UI/UIInputSystem.cpp"
+		"OloEngine/UI/UINavigationSystem.h"
+		"OloEngine/UI/UINavigationSystem.cpp"
 
 		"OloEngine/Video/PlMpeg.cpp"
 		"OloEngine/Video/VideoDecoder.h"

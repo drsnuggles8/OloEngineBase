@@ -43,6 +43,7 @@
 #include "OloEngine/UI/UILayoutSystem.h"
 #include "OloEngine/UI/UIRenderer.h"
 #include "OloEngine/UI/UIInputSystem.h"
+#include "OloEngine/UI/UINavigationSystem.h"
 #include "OloEngine/Dialogue/DialogueSystem.h"
 #include "OloEngine/Localization/LocalizationSystem.h"
 #include "OloEngine/Localization/LocalizedTextComponent.h"
@@ -177,7 +178,8 @@ namespace OloEngine
     }
 
     Scene::Scene()
-        : m_JoltScene(std::make_unique<JoltScene>(this)), m_GameplayEventBus(std::make_unique<GameplayEventBus>())
+        : m_JoltScene(std::make_unique<JoltScene>(this)), m_GameplayEventBus(std::make_unique<GameplayEventBus>()),
+          m_UINavigation(std::make_unique<UINavigation>())
     {
     }
 
@@ -207,6 +209,16 @@ namespace OloEngine
     const GameplayEventBus& Scene::GetGameplayEvents() const
     {
         return *m_GameplayEventBus;
+    }
+
+    UINavigation& Scene::GetUINavigation()
+    {
+        return *m_UINavigation;
+    }
+
+    const UINavigation& Scene::GetUINavigation() const
+    {
+        return *m_UINavigation;
     }
 
     Ref<Scene> Scene::Create()
@@ -1032,6 +1044,13 @@ namespace OloEngine
         if (m_GameplayEventBus)
         {
             m_GameplayEventBus->Clear();
+        }
+
+        // Drop UI focus + widget-event delegates so a stop/play cycle starts with
+        // a clean focus state and no stale callbacks (scripts/UI re-register on start).
+        if (m_UINavigation)
+        {
+            m_UINavigation->Clear();
         }
 
         // Drop any ephemeral MCP sun-direction override (#316 Part 4) so leaving
@@ -1985,6 +2004,12 @@ namespace OloEngine
             keyboard.m_Home = Input::IsKeyJustPressed(Key::Home);
             keyboard.m_End = Input::IsKeyJustPressed(Key::End);
             UIInputSystem::ProcessInput(*this, mousePos, mouseDown, mousePressed, 0.0f, 0.0f, keyboard);
+
+            // Gamepad / keyboard focus navigation + widget event delegates. Runs
+            // after ProcessInput so mouse-driven state changes are visible to the
+            // change-detection pass, and reads the active input context's menu
+            // actions (live only while InputContextType::Menu is active).
+            UINavigationSystem::Update(*this, UINavigationSystem::PollActions());
         }
 
         if (mainCamera && m_RenderingEnabled)

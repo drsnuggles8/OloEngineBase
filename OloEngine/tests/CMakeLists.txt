@@ -412,6 +412,7 @@ add_executable(OloEngine-Tests
 		Lua/LuaBindingTest.cpp
 		# Functional / cross-subsystem world-tick tests (see ADR 0001).
 		Functional/FunctionalTest.cpp
+		Functional/UI/UINavigationTest.cpp
 		Functional/Cinematic/CinematicDrivesEntitiesTest.cpp
 		Functional/Cinematic/CinematicAssetPlaybackTest.cpp
 		Functional/AnimationPhysics/FreeFallLandingTest.cpp
