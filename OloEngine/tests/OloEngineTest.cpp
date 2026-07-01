@@ -2,6 +2,7 @@
 #include <gtest/gtest.h>
 #include "OloEngine/Core/Log.h"
 #include "OloEngine/Renderer/Renderer.h"
+#include "Rendering/PropertyTests/GLErrorStateCheck.h"
 #include "Rendering/PropertyTests/TestFailureCapture.h"
 
 #include <cstdlib>
@@ -21,6 +22,10 @@ int main(int argc, char** argv)
     OloEngine::Log::Initialize();
     ::testing::InitGoogleTest(&argc, argv);
     OloEngine::Tests::TestFailureCapture::RegisterFailureListener();
+    // Assert a clean glGetError() state after every test so a test that
+    // pollutes the shared, process-wide GL context is pinned to its source
+    // rather than misattributed to a later unrelated GPU test (issue #485).
+    OloEngine::Tests::GLErrorState::RegisterListener();
     const int result = ::RUN_ALL_TESTS();
 
     // Tests lazily initialize the renderer (e.g. through Scene rendering) but

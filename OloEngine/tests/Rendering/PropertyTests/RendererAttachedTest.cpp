@@ -8,8 +8,54 @@
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/ResourceHandle.h"
 
+#include "GLErrorStateCheck.h"
+
+#include <glad/gl.h>
+
+#include <functional>
+
 namespace OloEngine::Tests
 {
+    namespace
+    {
+        // Drive one full-pipeline render tick with the GL-state + GL-error
+        // hygiene this fixture guarantees, so a render here cannot poison a
+        // later GPU test in the shared process-wide context (issue #485 / #505):
+        //   1. Surface any GL error already pending BEFORE the tick — a
+        //      setup / test-body leak the per-tick drain must not silently mask.
+        //   2. Run `tick` inside a GLStateGuard(Restore) so global fixed-function
+        //      / binding state (blend / stencil / viewport / program / VAO / FBO)
+        //      is contained. Per-slot texture / UBO bindings are intentionally
+        //      NOT restored by GLStateGuard (see its class comment).
+        //   3. Drain the errors THIS tick produced, but only treat the known
+        //      benign GL_INVALID_OPERATION stray as expected (the #505 stale-
+        //      handle bind — correct pixels, dirty error queue). Any OTHER error
+        //      class is a genuine render-side regression and is surfaced, not
+        //      swallowed. (A *new* GL_INVALID_OPERATION render bug is
+        //      indistinguishable from #505 by enum and remains contained until
+        //      #505 is fixed — the residual coverage gap tracked there.)
+        void RunGuardedRenderTick(const char* label, const std::function<void()>& tick)
+        {
+            if (const u32 preErr = GLErrorState::DrainAndGetFirstError(); preErr != 0u)
+                ADD_FAILURE() << "GL error pending before " << label
+                              << " render tick (setup/test-body leak, not this render): "
+                              << GLErrorState::GlErrorString(preErr);
+
+            {
+                GLStateGuard guard(label, GLStateGuard::Policy::Restore);
+                tick();
+            }
+
+            if (const u32 tickErr =
+                    GLErrorState::DrainAndGetFirstUnexpected(static_cast<u32>(GL_INVALID_OPERATION));
+                tickErr != 0u)
+                ADD_FAILURE() << label << " render tick left an unexpected GL error: "
+                              << GLErrorState::GlErrorString(tickErr)
+                              << " (only the benign #505 GL_INVALID_OPERATION stray is contained here; "
+                                 "the whole error queue is drained regardless).";
+        }
+    } // namespace
+
     // The process-wide renderer is brought up lazily (see SetUp). We dedup on
     // the authoritative `Renderer3D::IsInitialized()` rather than a private
     // static so that *any* suite which brings the renderer up — this fixture
@@ -109,24 +155,13 @@ namespace OloEngine::Tests
         for (u32 i = 0; i < count; ++i)
         {
             if (m_RenderingEnabled)
-            {
-                // Contain global GL state the full pipeline leaves behind
-                // (blend / stencil / viewport / active program / VAO / FBO)
-                // so a render in this fixture cannot poison the fixed-function
-                // state of the next GPU test in the same process. Per-slot
-                // texture / UBO bindings are intentionally NOT restored by
-                // GLStateGuard (see its class comment) — they are benign here
-                // because downstream GPU tests bind their own resources before
-                // drawing.
-                GLStateGuard guard("RendererAttachedTest::RunFrames", GLStateGuard::Policy::Restore);
-                m_Scene->OnUpdateRuntime(ts);
-            }
+                RunGuardedRenderTick("RendererAttachedTest::RunFrames",
+                                     [this, ts]()
+                                     { m_Scene->OnUpdateRuntime(ts); });
             else
-            {
                 // Rendering disabled: the tick issues no draws, so there is no
                 // GL state to contain — skip the guard's per-frame snapshots.
                 m_Scene->OnUpdateRuntime(ts);
-            }
         }
     }
 
@@ -135,22 +170,17 @@ namespace OloEngine::Tests
         const Timestep ts{ dtSeconds };
         for (u32 i = 0; i < count; ++i)
         {
+            // Same hygiene as RunFrames — the editor render path
+            // (OnUpdateEditor -> RenderScene3D -> EndScene) drives the same full
+            // render graph. Containing it here is what lets an editor-camera
+            // visual test (e.g. WaterVisualEvidenceTest) run in the normal suite
+            // without poisoning the GPU tests that follow it.
             if (m_RenderingEnabled)
-            {
-                // Same GL-state hygiene as RunFrames: the editor render path
-                // (OnUpdateEditor -> RenderScene3D -> EndScene) drives the full
-                // render graph and leaves the same global fixed-function /
-                // binding state behind. Containing it here is what lets an
-                // editor-camera visual test (e.g. WaterVisualEvidenceTest) run
-                // in the normal suite without poisoning the GPU tests that
-                // follow it in the same process.
-                GLStateGuard guard("RendererAttachedTest::RunEditorFrames", GLStateGuard::Policy::Restore);
-                m_Scene->OnUpdateEditor(ts, camera);
-            }
+                RunGuardedRenderTick("RendererAttachedTest::RunEditorFrames",
+                                     [this, ts, &camera]()
+                                     { m_Scene->OnUpdateEditor(ts, camera); });
             else
-            {
                 m_Scene->OnUpdateEditor(ts, camera);
-            }
         }
     }
 

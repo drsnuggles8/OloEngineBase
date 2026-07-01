@@ -49,6 +49,38 @@ namespace OloEngine::Tests
                                    { return d.rfind(prefix, 0) == 0; });
     }
 
+    // Create a minimal LINKED GL program. A bare `glCreateProgram()` is
+    // unlinked, and glUseProgram rejects an unlinked program with
+    // GL_INVALID_OPERATION while leaving GL_CURRENT_PROGRAM unchanged — so it
+    // can never make the current program non-zero and can't exercise the
+    // guard's program-restore path. A trivially-linked program can. Caller owns
+    // the returned program (glDeleteProgram).
+    GLuint MakeMinimalLinkedProgram()
+    {
+        const char* const vsSrc = "#version 450 core\nvoid main() { gl_Position = vec4(0.0); }";
+        const char* const fsSrc = "#version 450 core\nout vec4 o_Color;\nvoid main() { o_Color = vec4(1.0); }";
+
+        const GLuint vs = ::glCreateShader(GL_VERTEX_SHADER);
+        ::glShaderSource(vs, 1, &vsSrc, nullptr);
+        ::glCompileShader(vs);
+        const GLuint fs = ::glCreateShader(GL_FRAGMENT_SHADER);
+        ::glShaderSource(fs, 1, &fsSrc, nullptr);
+        ::glCompileShader(fs);
+
+        const GLuint program = ::glCreateProgram();
+        ::glAttachShader(program, vs);
+        ::glAttachShader(program, fs);
+        ::glLinkProgram(program);
+
+        // Shaders are no longer needed once linked; detach + delete so only the
+        // program handle outlives this call.
+        ::glDetachShader(program, vs);
+        ::glDetachShader(program, fs);
+        ::glDeleteShader(vs);
+        ::glDeleteShader(fs);
+        return program;
+    }
+
     // =========================================================================
     // No-op: a guard over an empty region must report zero leaks.
     // =========================================================================
@@ -270,10 +302,17 @@ namespace OloEngine::Tests
         spec.Attachments = { FramebufferTextureFormat::RGBA8 };
         auto fb = Framebuffer::Create(spec);
 
-        // Real (empty) GL program + VAO so the guard has non-zero values to
+        // Real (linked) GL program + VAO so the guard has non-zero values to
         // restore back to zero. Otherwise glUseProgram(0)/glBindVertexArray(0)
-        // inside ApplyCore() is a no-op against an entry of zero.
-        const GLuint program = ::glCreateProgram();
+        // inside ApplyCore() is a no-op against an entry of zero. The program
+        // MUST be linked: glUseProgram rejects an unlinked program and leaves
+        // GL_CURRENT_PROGRAM at 0, so the restore path below would pass
+        // vacuously (and raise a stray GL_INVALID_OPERATION).
+        const GLuint program = MakeMinimalLinkedProgram();
+        GLint linkStatus = GL_FALSE;
+        ::glGetProgramiv(program, GL_LINK_STATUS, &linkStatus);
+        ASSERT_EQ(linkStatus, GL_TRUE)
+            << "minimal program must link so GL_CURRENT_PROGRAM can be set non-zero";
         GLuint vao = 0;
         ::glGenVertexArrays(1, &vao);
 
