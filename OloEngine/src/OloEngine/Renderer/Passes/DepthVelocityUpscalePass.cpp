@@ -131,10 +131,12 @@ namespace OloEngine
 
         m_Shader->Bind();
 
-        context.BindTexture(0, depthTextureID);
-        m_Shader->SetInt("u_Depth", 0);
-        context.BindTexture(1, velocityTextureID);
-        m_Shader->SetInt("u_Velocity", 1);
+        // Slots match the shader's layout bindings + the engine reuse
+        // conventions: depth on slot 1, velocity on slot 2.
+        context.BindTexture(1, depthTextureID);
+        m_Shader->SetInt("u_Depth", 1);
+        context.BindTexture(2, velocityTextureID);
+        m_Shader->SetInt("u_Velocity", 2);
 
         const f32 scale = std::clamp(m_RenderScale, 0.25f, 1.0f);
         const auto renderW = std::max(1u, static_cast<u32>(std::floor(static_cast<f32>(outW) * scale)));

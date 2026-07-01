@@ -39,8 +39,13 @@ layout(location = 1) out vec2 o_Velocity;  // RG16F — reduced velocity, neares
 
 layout(location = 0) in vec2 v_TexCoord;
 
-layout(binding = 0) uniform sampler2D u_Depth;    // Reduced-res scene depth (sampled .r)
-layout(binding = 1) uniform sampler2D u_Velocity; // Reduced-res motion vectors (RG)
+// Binding slots follow the engine's post-process reuse conventions
+// (ShaderBindingLayout::IsKnownTextureBinding): slot 1 (TEX_SPECULAR) is the
+// depth-reuse slot for post/particle passes, slot 2 (TEX_NORMAL) is the
+// velocity-reuse slot for TAA / motion-blur — matching the passes that read
+// these buffers.
+layout(binding = 1) uniform sampler2D u_Depth;    // Reduced-res scene depth (sampled .r)
+layout(binding = 2) uniform sampler2D u_Velocity; // Reduced-res motion vectors (RG)
 
 // Reduced (rendered) scene size in pixels. Reuses the EASU params UBO layout
 // (binding 45): InputSizeAndTexel.xy = reduced width/height.
