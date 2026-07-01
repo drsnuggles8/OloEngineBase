@@ -513,6 +513,8 @@ add_executable(OloEngine-Tests
 		Functional/SaveGame/HierarchyPreservedAcrossSaveLoadTest.cpp
 		Functional/Scene/EntityNameMapStaysConsistentTest.cpp
 		Functional/Diagnostics/EmptyTickReproTest.cpp
+		# FramePacer: frame-rate cap sleep/spin math + EMA delta smoothing (#456)
+		FramePacerTest.cpp
 )
 target_link_libraries(OloEngine-Tests
 	OloEngine

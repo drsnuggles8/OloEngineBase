@@ -1826,6 +1826,10 @@ namespace OloEngine
         m_ThrottlePlayMode = m_Prefs.ThrottlePlayMode;
         m_RenderBudgetMs = m_Prefs.RenderBudgetMs;
 
+        // Push frame pacing to the main loop (#456).
+        Application::Get().SetFrameRateCap(m_Prefs.FrameRateCap);
+        Application::Get().SetFrameTimeSmoothing(m_Prefs.FrameTimeSmoothing);
+
         auto& physicsSettings = Physics3DSystem::GetSettings();
         physicsSettings.m_CaptureOnPlay = m_Prefs.CapturePhysicsOnPlay;
 
@@ -1870,6 +1874,10 @@ namespace OloEngine
         m_Prefs.ThrottleEditMode = m_ThrottleEditMode;
         m_Prefs.ThrottlePlayMode = m_ThrottlePlayMode;
         m_Prefs.RenderBudgetMs = m_RenderBudgetMs;
+
+        // Frame pacing lives on the Application; read the live values back (#456).
+        m_Prefs.FrameRateCap = Application::Get().GetFrameRateCap();
+        m_Prefs.FrameTimeSmoothing = Application::Get().GetFrameTimeSmoothing();
 
         // MCP: port + auto-start are edited in place by the panel; sync redaction
         // (which lives on the server) back so it persists. (#285)

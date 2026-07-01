@@ -47,6 +47,13 @@ namespace OloEngine
         bool ThrottlePlayMode = false;
         f32 RenderBudgetMs = 33.3f;
 
+        // Frame pacing (#456). FrameRateCap: 0 = uncapped, else the target FPS
+        // the windowed main loop paces itself to (off / 60 / 120 / 144 / custom).
+        // FrameTimeSmoothing: EMA weight for the delta handed to layers, in
+        // (0, 1]; 1.0 disables smoothing.
+        u32 FrameRateCap = 0;
+        f32 FrameTimeSmoothing = 1.0f;
+
         // Physics debug
         bool CapturePhysicsOnPlay = false;
 

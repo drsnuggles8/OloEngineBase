@@ -298,6 +298,8 @@
 		"OloEngine/Core/FileSystem.cpp"
 		"OloEngine/Core/FileSystem.h"
 		"OloEngine/Core/FilesystemUtils.h"
+		"OloEngine/Core/FramePacer.cpp"
+		"OloEngine/Core/FramePacer.h"
 		"OloEngine/Core/IInputProvider.h"
 		"OloEngine/Core/Input.h"
 		"OloEngine/Core/InputAction.h"

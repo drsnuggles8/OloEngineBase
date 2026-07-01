@@ -278,7 +278,11 @@ namespace OloEngine
             const auto timeNow = Time::GetTime();
             const f32 rawDelta = timeNow - m_LastFrameTime;
             m_UnscaledDeltaTime = rawDelta;
-            const Timestep timestep = std::min(rawDelta, s_MaxTimestep) * m_TimeScale;
+            // EMA-smooth the delta handed to layers to damp frame-time jitter
+            // (issue #456). With smoothing disabled (default) this returns the
+            // raw delta unchanged, so behaviour is identical until opted in.
+            const f32 smoothedDelta = m_FramePacer.SmoothDelta(rawDelta);
+            const Timestep timestep = std::min(smoothedDelta, s_MaxTimestep) * m_TimeScale;
             m_LastFrameTime = timeNow;
 
             // Poll OS events first so GLFW key state is fresh for this frame
@@ -334,6 +338,13 @@ namespace OloEngine
             OLO_PROFILE_FRAMEMARK_START("Window SwapBuffers");
             m_Window->SwapBuffers();
             OLO_PROFILE_FRAMEMARK_END("Window SwapBuffers");
+
+            // Frame-rate cap (issue #456). Placed AFTER SwapBuffers so it only
+            // sleeps for the budget vsync (if on) didn't already consume — no
+            // double-throttle. Measured from this frame's start (timeNow).
+            OLO_PROFILE_FRAMEMARK_START("FramePacer LimitFrameRate");
+            m_FramePacer.LimitFrameRate(timeNow);
+            OLO_PROFILE_FRAMEMARK_END("FramePacer LimitFrameRate");
 
             // Snapshot per-function performance data for this frame
             m_PerformanceProfiler.EndFrame();
