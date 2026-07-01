@@ -89,6 +89,20 @@ jobs:
       contents: read
       checks: write
 
+    env:
+      # Disable ASan's ODR-violation checker for every instrumented binary run in
+      # this job. Vendored protobuf trips a known false positive — its narrow and
+      # wide "." string-literal globals (`"."` vs `L"."`, io_win32.cc vs
+      # command_line_interface.cc) get flagged as an odr-violation — which aborts
+      # protoc.exe when it runs during the build to generate GNS's .pb.cc, and would
+      # likewise abort the instrumented test exe (and its gtest_discover_tests probe)
+      # at startup. clang-cl's ASan runtime enforces this check more strictly than
+      # MSVC's did, so it only surfaced after #490 switched this job to clang-cl. All
+      # other ASan checks (use-after-free, overflow, …) stay on. Steps that set their
+      # own ASAN_OPTIONS must re-include detect_odr_violation=0 (step env overrides,
+      # it does not merge).
+      ASAN_OPTIONS: detect_odr_violation=0
+
     steps:
     - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
@@ -247,7 +261,9 @@ jobs:
       # comfortably inside the windows-latest ~16 GB budget.
       run: ctest --parallel 2 -C Release --output-on-failure --timeout 120 --exclude-regex '^NetworkIntegrationTest\.|^WorkerRestartTest\.'
       env:
-        ASAN_OPTIONS: halt_on_error=1
+        # detect_odr_violation=0 must be repeated here — a step-level ASAN_OPTIONS
+        # replaces the job-level one rather than merging (see the job `env` above).
+        ASAN_OPTIONS: halt_on_error=1:detect_odr_violation=0
         GTEST_OUTPUT: xml:${{github.workspace}}/test_results/
 
     - name: Test report
