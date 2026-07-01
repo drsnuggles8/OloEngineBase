@@ -1,6 +1,7 @@
 #pragma once
 
 #include "OloEngine/Core/InputAction.h"
+#include "OloEngine/Core/InputActionManager.h"
 #include "OloEngine/Events/Event.h"
 #include "OloEngine/Events/KeyEvent.h"
 #include "OloEngine/Events/MouseEvent.h"
@@ -28,6 +29,12 @@ namespace OloEngine
         }
 
       private:
+        // The context the panel is currently authoring. Decoupled from the runtime
+        // active context (InputActionManager::GetInputContext) so editing bindings in
+        // the editor never switches / resets the live gameplay input context.
+        InputActionMap& EditMap();
+
+        void DrawContextSelector();
         void DrawActionMapHeader();
         void DrawAction(InputAction& action);
         void DrawBinding(InputAction& action, sizet bindingIndex);
@@ -56,6 +63,9 @@ namespace OloEngine
 
         // Dirty tracking
         bool m_Dirty = false;
+
+        // Which context the panel edits (see EditMap()). Defaults to Gameplay.
+        InputContextType m_EditContext = InputContextType::Gameplay;
 
         // Undo/redo
         CommandHistory* m_CommandHistory = nullptr;

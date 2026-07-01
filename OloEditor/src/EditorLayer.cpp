@@ -2484,15 +2484,20 @@ namespace OloEngine
             m_BuildGamePanel->SetSaveSceneCallback([this]()
                                                    { return SaveScene(); });
 
-            // Load input action map if one exists for this project
+            // Load this project's per-context input action maps, replacing any maps left
+            // over from a previously-open project so they can't leak across projects
+            // (InputActionManager is init'd once at app startup, not per project). A
+            // project with no input config resets to empty. DeserializeContexts also
+            // accepts the legacy single-map format (restored as the Gameplay context).
+            InputActionSerializer::ContextMaps projectInputContexts;
             if (auto inputMapPath = Project::GetInputActionMapPath(); std::filesystem::exists(inputMapPath))
             {
-                auto loadedMap = InputActionSerializer::Deserialize(inputMapPath);
-                if (loadedMap)
+                if (auto loadedContexts = InputActionSerializer::DeserializeContexts(inputMapPath))
                 {
-                    InputActionManager::SetActionMap(*loadedMap);
+                    projectInputContexts = std::move(*loadedContexts);
                 }
             }
+            InputActionManager::ReplaceAllContextMaps(projectInputContexts);
 
             // Load editor preferences
             m_EditorPreferencesPanel.Load(m_Prefs, Project::GetProjectDirectory());

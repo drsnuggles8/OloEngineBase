@@ -4,6 +4,8 @@
 #include "OloEngine/Core/InputAction.h"
 #include "OloEngine/Core/TransparentStringHash.h"
 
+#include <array>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -30,6 +32,16 @@ namespace OloEngine
         Vehicle,
         Custom
     };
+
+    // The full set of input contexts, in enum order. Used for deterministic
+    // iteration when serializing every context's map and for the editor selector.
+    inline constexpr std::array<InputContextType, 4> AllInputContextTypes{ InputContextType::Gameplay, InputContextType::Menu, InputContextType::Vehicle,
+                                                                           InputContextType::Custom };
+
+    // Stable string names for the contexts — used as YAML keys when persisting
+    // per-context action maps. Round-trips via StringToInputContextType.
+    [[nodiscard]] const char* InputContextTypeToString(InputContextType ctx);
+    [[nodiscard]] std::optional<InputContextType> StringToInputContextType(std::string_view str);
 
     class InputActionManager
     {
@@ -95,12 +107,35 @@ namespace OloEngine
             return ActiveMap();
         }
 
-        // Read/author access to any context's map (the active context returns the live map).
-        // A context that was never set is created empty.
+        // Read-only access to any context's map. A context that was never set reads
+        // back as a shared empty map WITHOUT being inserted, so a read never
+        // fabricates a context (use GetActionMapMutable to author one).
         [[nodiscard]] static const InputActionMap& GetActionMap(InputContextType ctx)
+        {
+            static const InputActionMap s_Empty;
+            auto it = s_ContextMaps.find(ctx);
+            return it != s_ContextMaps.end() ? it->second : s_Empty;
+        }
+
+        // Mutable access to a specific context's map for editor authoring. Unlike the
+        // read-only overload this DOES create the context if absent (editing it implies
+        // authoring it). Does not change the active context.
+        [[nodiscard]] static InputActionMap& GetActionMapMutable(InputContextType ctx)
         {
             return s_ContextMaps[ctx];
         }
+
+        // All context maps that currently exist, keyed by context. Only contexts that
+        // have been set or authored are present. Used to persist every context at once.
+        [[nodiscard]] static const std::unordered_map<InputContextType, InputActionMap>& GetAllContextMaps()
+        {
+            return s_ContextMaps;
+        }
+
+        // Replace ALL context maps wholesale (used when loading a project / reverting to
+        // disk). Clears any contexts not in `maps` so state can't leak across projects,
+        // and resets cached press/axis state since the active map may have changed.
+        static void ReplaceAllContextMaps(const std::unordered_map<InputContextType, InputActionMap>& maps);
 
       private:
         // The active context is always the top of the stack; its map lives in s_ContextMaps.

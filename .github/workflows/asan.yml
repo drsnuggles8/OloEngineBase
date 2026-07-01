@@ -89,6 +89,20 @@ jobs:
       contents: read
       checks: write
 
+    env:
+      # Disable ASan's ODR-violation checker for every instrumented binary run in
+      # this job. Vendored protobuf trips a known false positive — its narrow and
+      # wide "." string-literal globals (`"."` vs `L"."`, io_win32.cc vs
+      # command_line_interface.cc) get flagged as an odr-violation — which aborts
+      # protoc.exe when it runs during the build to generate GNS's .pb.cc, and would
+      # likewise abort the instrumented test exe (and its gtest_discover_tests probe)
+      # at startup. clang-cl's ASan runtime enforces this check more strictly than
+      # MSVC's did, so it only surfaced after #490 switched this job to clang-cl. All
+      # other ASan checks (use-after-free, overflow, …) stay on. Steps that set their
+      # own ASAN_OPTIONS must re-include detect_odr_violation=0 (step env overrides,
+      # it does not merge).
+      ASAN_OPTIONS: detect_odr_violation=0
+
     steps:
     - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
@@ -169,6 +183,34 @@ jobs:
         -DOLO_ENABLE_ASAN=ON
         -DBUILD_TESTS=ON
 
+    - name: Add clang-cl ASan runtime to PATH
+      shell: pwsh
+      # clang-cl links the dynamic ASan runtime, so anything built with ASan needs
+      # clang_rt.asan_dynamic-x86_64.dll on PATH when it RUNS — including instrumented
+      # vendored host tools that execute during the build itself (e.g. protobuf's
+      # protoc.exe, run to generate .pb.cc). GITHUB_PATH only affects later steps, so
+      # this must run BEFORE Build, not just before the tests. The DLL ships next to
+      # the clang-cl used for the build; `clang-cl -print-runtime-dir` (LLVM >= 16)
+      # reports that directory. Use the same clang-cl that PATH resolves to (the one
+      # CMake built with) so the DLL version matches the instrumented objects.
+      run: |
+        $dll = 'clang_rt.asan_dynamic-x86_64.dll'
+        # -print-runtime-dir is the intended query, but newer LLVM reports a
+        # per-target dir (lib/<triple>) that may not exist, while older LLVM
+        # reports lib/windows. Probe both and use whichever actually holds the DLL
+        # (mirrors the same resolution in cmake/Sanitizers.cmake).
+        $candidates = @(
+          (& clang-cl -print-runtime-dir).Trim(),
+          (Join-Path (& clang-cl -print-resource-dir).Trim() 'lib/windows')
+        )
+        $rtDir = $candidates | Where-Object { $_ -and (Test-Path (Join-Path $_ $dll)) } | Select-Object -First 1
+        if (-not $rtDir) {
+          Write-Error "ASan runtime DLL '$dll' not found. Checked: $($candidates -join '; ')"
+          exit 1
+        }
+        Write-Host "clang-cl ASan runtime dir: $rtDir"
+        echo "$rtDir" >> $env:GITHUB_PATH
+
     - name: Build (Release)
       run: cmake --build build --config Release --target OloEngine-Tests --parallel
 
@@ -182,22 +224,6 @@ jobs:
     - name: Create test results directory
       run: New-Item -ItemType Directory -Force -Path "${{github.workspace}}/test_results"
       shell: pwsh
-
-    - name: Add clang-cl ASan runtime to PATH
-      shell: pwsh
-      # clang-cl links the dynamic ASan runtime, so the test exe needs
-      # clang_rt.asan_dynamic-x86_64.dll on PATH at run time. It ships next to
-      # the clang-cl used for the build; `clang-cl -print-runtime-dir` (LLVM >= 16)
-      # reports that directory. Use the same clang-cl that PATH resolves to (the
-      # one CMake built with) so the DLL version matches the instrumented objects.
-      run: |
-        $rtDir = (& clang-cl -print-runtime-dir).Trim()
-        Write-Host "clang-cl runtime dir: $rtDir"
-        if (-not (Test-Path (Join-Path $rtDir 'clang_rt.asan_dynamic-x86_64.dll'))) {
-          Write-Error "ASan runtime DLL not found in $rtDir"
-          exit 1
-        }
-        echo "$rtDir" >> $env:GITHUB_PATH
 
     - name: Run tests under ASan
       working-directory: ${{github.workspace}}/build/OloEngine/tests
@@ -235,7 +261,9 @@ jobs:
       # comfortably inside the windows-latest ~16 GB budget.
       run: ctest --parallel 2 -C Release --output-on-failure --timeout 120 --exclude-regex '^NetworkIntegrationTest\.|^WorkerRestartTest\.'
       env:
-        ASAN_OPTIONS: halt_on_error=1
+        # detect_odr_violation=0 must be repeated here — a step-level ASAN_OPTIONS
+        # replaces the job-level one rather than merging (see the job `env` above).
+        ASAN_OPTIONS: halt_on_error=1:detect_odr_violation=0
         GTEST_OUTPUT: xml:${{github.workspace}}/test_results/
 
     - name: Test report

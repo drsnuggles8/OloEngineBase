@@ -37,6 +37,37 @@ namespace OloEngine
     static GlfwInputProvider s_DefaultProvider;
     IInputProvider* InputActionManager::s_InputProvider = &s_DefaultProvider;
 
+    // --- InputContextType <-> string (serialization / editor selector) ---
+
+    const char* InputContextTypeToString(InputContextType ctx)
+    {
+        switch (ctx)
+        {
+            case InputContextType::Gameplay:
+                return "Gameplay";
+            case InputContextType::Menu:
+                return "Menu";
+            case InputContextType::Vehicle:
+                return "Vehicle";
+            case InputContextType::Custom:
+                return "Custom";
+        }
+        return "Gameplay";
+    }
+
+    std::optional<InputContextType> StringToInputContextType(std::string_view str)
+    {
+        if (str == "Gameplay")
+            return InputContextType::Gameplay;
+        if (str == "Menu")
+            return InputContextType::Menu;
+        if (str == "Vehicle")
+            return InputContextType::Vehicle;
+        if (str == "Custom")
+            return InputContextType::Custom;
+        return std::nullopt;
+    }
+
     // --- InputBinding helpers (defined here to keep the header lean) ---
 
     std::string InputBinding::GetDisplayName() const
@@ -360,6 +391,17 @@ namespace OloEngine
             s_PreviousState.clear();
             s_AxisValues.clear();
         }
+    }
+
+    void InputActionManager::ReplaceAllContextMaps(const std::unordered_map<InputContextType, InputActionMap>& maps)
+    {
+        // Wholesale replace: assignment drops any context not present in `maps`, so maps
+        // authored under a previously-loaded project can't linger into the new one.
+        s_ContextMaps = maps;
+        // The active context's map may have changed (or vanished) — reset cached state.
+        s_CurrentState.clear();
+        s_PreviousState.clear();
+        s_AxisValues.clear();
     }
 
     void InputActionManager::SetInputContext(InputContextType ctx)

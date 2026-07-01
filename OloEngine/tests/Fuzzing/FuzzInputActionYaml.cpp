@@ -1,7 +1,7 @@
 // =============================================================================
 // FuzzInputActionYaml.cpp
 //
-// libFuzzer harness for `InputActionSerializer::Deserialize`. The input
+// libFuzzer harness for `InputActionSerializer::DeserializeContexts`. The input
 // action map is YAML and goes through yaml-cpp before reaching our schema
 // code — both layers must be robust to arbitrary bytes. yaml-cpp has a
 // documented history of OOM/stack-overflow on deeply-nested inputs; the
@@ -61,7 +61,7 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size)
             out.write(reinterpret_cast<const char*>(data), static_cast<std::streamsize>(size));
     }
 
-    (void)OloEngine::InputActionSerializer::Deserialize(path);
+    (void)OloEngine::InputActionSerializer::DeserializeContexts(path);
 
     std::error_code ec;
     std::filesystem::remove(path, ec);
