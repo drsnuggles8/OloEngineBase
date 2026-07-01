@@ -2123,7 +2123,9 @@ namespace OloEngine
         OLO_PROPERTY()
         bool m_Interactable = true;
 
-        // Runtime state — not serialized
+        // Runtime state — not serialized (scripts can still read/write it via
+        // OLO_PROPERTY; OLO_SERIALIZE(Skip) keeps it out of scene YAML).
+        OLO_SERIALIZE(Skip)
         OLO_PROPERTY(Name = "State", Type = "int", Get = "static_cast<int>(comp.m_State)", Set = "comp.m_State = static_cast<UIButtonState>({v})")
         UIButtonState m_State = UIButtonState::Normal;
 
@@ -2157,6 +2159,7 @@ namespace OloEngine
         bool m_Interactable = true;
 
         // Runtime state — not serialized
+        OLO_SERIALIZE(Skip)
         bool m_IsDragging = false;
 
         UISliderComponent() = default;

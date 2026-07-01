@@ -27,6 +27,33 @@
 //           (used when OLO_PROPERTY carries only metadata for custom PROP)
 // =============================================================================
 
+// Scene-serializer field directive, parsed by OloHeaderTool's scene-serializer
+// codegen (the full data-member scan, NOT the OLO_PROPERTY scan). Controls how the
+// generated Scene{Serialize,Deserialize}Components.Generated.inl treats the member
+// it precedes.
+//
+// Usage:
+//   struct SomeComponent
+//   {
+//       glm::vec4 m_Color = { 1, 1, 1, 1 };   // authored — round-trips normally
+//
+//       // Runtime state — not serialized
+//       OLO_SERIALIZE(Skip)
+//       SomeState m_State = SomeState::Idle;   // omitted from scene YAML, kept at ctor default on load
+//   };
+//
+// Supported metadata keys:
+//   Skip — If present (or "= true"), the field is dropped from generated scene
+//          serialize/deserialize AND does not mark the component non-trivial. This
+//          lets an otherwise all-trivial component with one runtime-only field be
+//          fully generated instead of hand-written + kComponentsCustomSerialize.
+//          (Future keys — Clamp/Min/Max — will emit validation; #451.)
+//
+// May co-exist with OLO_PROPERTY on the same field (e.g. a runtime field exposed to
+// scripts but not serialized); order between the two markers does not matter.
+
 // These macros expand to nothing — they are markers for OloHeaderTool.
 // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
 #define OLO_PROPERTY(...)
+// NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
+#define OLO_SERIALIZE(...)

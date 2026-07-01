@@ -200,6 +200,16 @@ if (auto node = entity["SpotLightComponent"]; node)
         comp.m_ShadowNormalBias = v;
 }
 
+if (auto node = entity["UIButtonComponent"]; node)
+{
+    auto& comp = deserializedEntity.AddComponent<UIButtonComponent>();
+    comp.m_NormalColor = node["NormalColor"].as<glm::vec4>(comp.m_NormalColor);
+    comp.m_HoveredColor = node["HoveredColor"].as<glm::vec4>(comp.m_HoveredColor);
+    comp.m_PressedColor = node["PressedColor"].as<glm::vec4>(comp.m_PressedColor);
+    comp.m_DisabledColor = node["DisabledColor"].as<glm::vec4>(comp.m_DisabledColor);
+    comp.m_Interactable = node["Interactable"].as<bool>(comp.m_Interactable);
+}
+
 if (auto node = entity["UICanvasComponent"]; node)
 {
     auto& comp = deserializedEntity.AddComponent<UICanvasComponent>();
@@ -269,6 +279,22 @@ if (auto node = entity["UIScrollViewComponent"]; node)
     comp.m_ShowVerticalScrollbar = node["ShowVerticalScrollbar"].as<bool>(comp.m_ShowVerticalScrollbar);
     comp.m_ScrollbarColor = node["ScrollbarColor"].as<glm::vec4>(comp.m_ScrollbarColor);
     comp.m_ScrollbarTrackColor = node["ScrollbarTrackColor"].as<glm::vec4>(comp.m_ScrollbarTrackColor);
+}
+
+if (auto node = entity["UISliderComponent"]; node)
+{
+    auto& comp = deserializedEntity.AddComponent<UISliderComponent>();
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["Value"], v))
+        comp.m_Value = v;
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["MinValue"], v))
+        comp.m_MinValue = v;
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["MaxValue"], v))
+        comp.m_MaxValue = v;
+    comp.m_Direction = static_cast<decltype(comp.m_Direction)>(node["Direction"].as<int>(static_cast<int>(comp.m_Direction)));
+    comp.m_BackgroundColor = node["BackgroundColor"].as<glm::vec4>(comp.m_BackgroundColor);
+    comp.m_FillColor = node["FillColor"].as<glm::vec4>(comp.m_FillColor);
+    comp.m_HandleColor = node["HandleColor"].as<glm::vec4>(comp.m_HandleColor);
+    comp.m_Interactable = node["Interactable"].as<bool>(comp.m_Interactable);
 }
 
 if (auto node = entity["UIToggleComponent"]; node)

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "OloEngine/Core/Base.h"
+#include "OloEngine/Core/FramePacer.h"
 #include "OloEngine/Core/LayerStack.h"
 #include "OloEngine/Core/PerformanceProfiler.h"
 #include "OloEngine/Core/Timestep.h"
@@ -182,6 +183,38 @@ namespace OloEngine
             return m_UnscaledDeltaTime;
         }
 
+        // Frame-rate limiter (issue #456). 0 disables the cap; any positive value
+        // is the target FPS the windowed loop paces itself to (off / 60 / 120 /
+        // 144 / custom). Composes with vsync — the limiter only sleeps for time
+        // vsync didn't already consume, so it never double-throttles.
+        void SetFrameRateCap(u32 fps)
+        {
+            m_FramePacer.SetTargetFPS(fps);
+        }
+        [[nodiscard("Store this!")]] u32 GetFrameRateCap() const
+        {
+            return m_FramePacer.GetTargetFPS();
+        }
+
+        // EMA smoothing weight for the frame delta handed to layers, in (0, 1].
+        // 1.0 (default) disables smoothing; smaller values smooth more heavily.
+        void SetFrameTimeSmoothing(f32 alpha)
+        {
+            m_FramePacer.SetSmoothingFactor(alpha);
+        }
+        [[nodiscard("Store this!")]] f32 GetFrameTimeSmoothing() const
+        {
+            return m_FramePacer.GetSmoothingFactor();
+        }
+
+        // The EMA-smoothed frame delta (seconds), unscaled by time scale. Equals
+        // the raw delta when smoothing is disabled. This is the value the loop
+        // feeds to Layer::OnUpdate (after clamping + time scale).
+        [[nodiscard("Store this!")]] f32 GetSmoothedDeltaTime() const
+        {
+            return m_FramePacer.GetSmoothedDelta();
+        }
+
         [[nodiscard("Store this!")]] PerformanceProfiler* GetPerformanceProfiler()
         {
             return &m_PerformanceProfiler;
@@ -230,6 +263,7 @@ namespace OloEngine
         f32 m_FixedTimeStep = 1.0f / 60.0f;
         u64 m_RandomSeed = kDefaultRandomSeed;
         u32 m_SmokeTestTicksCompleted = 0; // see SmokeTestTickLimit / IsSmokeTest
+        FramePacer m_FramePacer;           // frame-rate cap + delta smoothing (#456)
         PerformanceProfiler m_PerformanceProfiler;
 
       private:
