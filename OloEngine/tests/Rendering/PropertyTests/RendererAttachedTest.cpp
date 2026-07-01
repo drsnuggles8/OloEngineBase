@@ -8,7 +8,7 @@
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/ResourceHandle.h"
 
-#include "Platform/OpenGL/OpenGLUtilities.h"
+#include "GLErrorStateCheck.h"
 
 namespace OloEngine::Tests
 {
@@ -120,23 +120,38 @@ namespace OloEngine::Tests
                 // GLStateGuard (see its class comment) — they are benign here
                 // because downstream GPU tests bind their own resources before
                 // drawing.
+                // Surface any GL error pending BEFORE this render tick — from
+                // BuildScene / fixture setup or earlier test-body GL. The
+                // per-tick drain below contains only what the RENDER produces;
+                // a pre-existing error is a genuine setup leak that draining
+                // would otherwise mask from the #485 listener, so report it here
+                // where the source is unambiguous.
+                {
+                    u32 preCount = 0;
+                    if (const u32 preErr = GLErrorState::DrainAndGetFirstError(preCount); preErr != 0u)
+                        ADD_FAILURE() << "GL error pending before RunFrames render tick "
+                                         "(setup/test-body leak, not this render): "
+                                      << GLErrorState::GlErrorString(preErr);
+                }
+
                 {
                     GLStateGuard guard("RendererAttachedTest::RunFrames", GLStateGuard::Policy::Restore);
                     m_Scene->OnUpdateRuntime(ts);
                 }
-                // Drain the GL error queue this render tick produced. The full
+                // Drain the GL error queue THIS render tick produced. The full
                 // pipeline is known to emit benign stray GL errors (e.g.
                 // GL_INVALID_OPERATION binding a texture whose handle went stale
                 // across cross-test render-graph/asset churn — correct pixels,
-                // dirty error queue; tracked separately). Draining here extends
-                // the GLStateGuard "a render leaves no global GL state behind"
+                // dirty error queue; tracked in #505). Draining here extends the
+                // GLStateGuard "a render leaves no global GL state behind"
                 // contract to the error queue — the same containment the #485
                 // production fix applied in the readback helpers (69aa9357) — so
                 // a render in this fixture cannot poison the shared context of a
                 // later GPU test. The process-wide #485 listener still guards
                 // every non-render tick and any error a test body leaks outside a
                 // RunFrames call.
-                Utils::DrainGLErrors();
+                u32 tickCount = 0;
+                (void)GLErrorState::DrainAndGetFirstError(tickCount);
             }
             else
             {
@@ -161,13 +176,24 @@ namespace OloEngine::Tests
                 // editor-camera visual test (e.g. WaterVisualEvidenceTest) run
                 // in the normal suite without poisoning the GPU tests that
                 // follow it in the same process.
+                // Surface a pre-existing (setup/test-body) GL error — see the
+                // note in RunFrames.
+                {
+                    u32 preCount = 0;
+                    if (const u32 preErr = GLErrorState::DrainAndGetFirstError(preCount); preErr != 0u)
+                        ADD_FAILURE() << "GL error pending before RunEditorFrames render tick "
+                                         "(setup/test-body leak, not this render): "
+                                      << GLErrorState::GlErrorString(preErr);
+                }
+
                 {
                     GLStateGuard guard("RendererAttachedTest::RunEditorFrames", GLStateGuard::Policy::Restore);
                     m_Scene->OnUpdateEditor(ts, camera);
                 }
                 // Same error-queue containment as RunFrames — see the note there
-                // (issue #485).
-                Utils::DrainGLErrors();
+                // (issue #485 / #505).
+                u32 tickCount = 0;
+                (void)GLErrorState::DrainAndGetFirstError(tickCount);
             }
             else
             {
