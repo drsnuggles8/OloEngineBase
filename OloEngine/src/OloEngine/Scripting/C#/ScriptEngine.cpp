@@ -336,7 +336,7 @@ namespace OloEngine
         return true;
     }
 
-    void ScriptEngine::ReloadAssembly()
+    bool ScriptEngine::ReloadAssembly()
     {
         ::mono_domain_set(::mono_get_root_domain(), false);
 
@@ -350,8 +350,11 @@ namespace OloEngine
         LoadAssembly(s_Data->CoreAssemblyFilepath);
         if (!LoadAppAssembly(s_Data->AppAssemblyFilepath))
         {
+            // The app assembly did not load: the entity-class registry keeps its stale
+            // pre-reload contents (LoadAssemblyClasses ran only on the success path), so
+            // report the failure to the caller rather than pretending the reload worked.
             OLO_CORE_ERROR("[ScriptEngine] Failed to reload app assembly: {}", s_Data->AppAssemblyFilepath.string());
-            return;
+            return false;
         }
         LoadAssemblyClasses();
 
@@ -359,6 +362,7 @@ namespace OloEngine
 
         // Retrieve and instantiate class
         s_Data->EntityClass = Ref<ScriptClass>::Create("OloEngine", "Entity", true);
+        return true;
     }
 
     void ScriptEngine::OnRuntimeStart(Scene* scene)
@@ -704,7 +708,10 @@ namespace OloEngine
     {
         return false;
     }
-    void ScriptEngine::ReloadAssembly() {}
+    bool ScriptEngine::ReloadAssembly()
+    {
+        return false;
+    }
     void ScriptEngine::OnRuntimeStart(Scene* scene)
     {
         s_SceneContext = scene;

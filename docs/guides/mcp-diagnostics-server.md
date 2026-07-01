@@ -180,6 +180,7 @@ the server, so update the config (or re-copy from the panel) accordingly.
 | `olo_assets_problems` | assets that failed to load or are missing/invalid |
 | `olo_script_get_api` | C# / Lua scripting API digest (types + members), with a type filter |
 | `olo_script_get_last_errors` | recent C# (Mono) / Lua (Sol2) script exceptions |
+| `olo_reload_script` | **(consented write)** reload the C# script assembly — the editor's *Script ▸ Reload assembly* (Ctrl+R) path — so a rebuilt game assembly is picked up without restarting the editor; reports whether scripting is available, whether the reload ran, and the post-reload script-class count. Gated behind "Allow writes" |
 | `olo_crash_list` / `olo_crash_get` | crash reports under `CrashReports/` |
 | `olo_screenshot` | the viewport rendered to a PNG image block; optional one-shot camera pose (`camera`/`orbit` + `settleFrames`) with automatic save/restore of the user's camera |
 | `olo_camera_get` | the editor camera's pose (position, focal point, yaw/pitch, FOV, clips, viewport size) |
@@ -217,7 +218,7 @@ keyword and/or category instead of pulling the entire list:
 | `render` | `olo_render_frame_breakdown`, `olo_render_list_targets`, `olo_render_capture_target`, `olo_render_toggle_pass`, `olo_render_set_debug_view`, `olo_scene_set_time_of_day`, `olo_scene_set_sun_angle`, `olo_render_compare_golden`, `olo_render_why_not_visible` |
 | `shader` | `olo_shader_list`, `olo_shader_errors`, `olo_shader_get`, `olo_shader_reload` |
 | `assets` | `olo_assets_list`, `olo_assets_problems` |
-| `scripting` | `olo_script_get_api`, `olo_script_get_last_errors` |
+| `scripting` | `olo_script_get_api`, `olo_script_get_last_errors`, `olo_reload_script` |
 | `camera` | `olo_screenshot`, `olo_camera_get`, `olo_camera_set_pose`, `olo_camera_orbit`, `olo_camera_frame_entity`, `olo_viewport_set_size` |
 | `physics` | `olo_physics_layer_matrix`, `olo_physics_list_colliders`, `olo_physics_contacts`, `olo_physics_raycast`, `olo_physics_overlap`, `olo_physics_why_no_collision` |
 
@@ -347,6 +348,43 @@ editor can crash. So reserve `olo_shader_reload` for applying an edit you **expe
 compile** (the normal inner-loop case — confirm the result `status` is `ready`, then
 screenshot); to inspect a shader that you know is broken, read `olo_shader_errors` /
 `olo_shader_get` rather than recompiling it.
+
+### The scripting inner loop (`olo_reload_script`)
+
+The scripting counterpart of `olo_shader_reload`: reload the **C# script assembly**
+without restarting the editor, so an agent can run the tight scripting loop — **edit a
+C# script → rebuild the game assembly → `olo_reload_script` → observe the new behaviour
+→ repeat.** It drives the exact `ScriptEngine::ReloadAssembly()` path the editor's
+*Script ▸ Reload assembly* (Ctrl+R) menu uses: it unloads the app domain and re-loads
+the core + app assemblies, rediscovers the entity-script classes, and re-registers the
+component bindings.
+
+```jsonc
+// 1) … edit your C# script + rebuild the game assembly (the .dll the editor loads) …
+// 2) olo_reload_script {}
+{ "language": "csharp", "available": true, "ok": true,
+  "scriptClassCount": 7, "message": "Reloaded the C# app assembly (7 script class(es) registered)." }
+```
+
+- **It is a consented WRITE tool** (issue #306 item C): like the other writes it is
+  refused unless **"Allow writes"** is enabled in the editor's MCP panel (off by
+  default). Reloading runs the user's freshly-built assembly code, so it deliberately
+  crosses the read-only line — hence the gate.
+- **Whole-assembly, no arguments.** C# reload has no per-script granularity (the editor
+  reloads the entire app assembly), so the tool takes no parameters — exactly mirroring
+  the parameterless Ctrl+R.
+- **Honest about availability.** When C# scripting is **disabled in the build** (no Mono
+  on this platform) or **not yet initialized** (no core assembly loaded), the call still
+  *succeeds* but reports `available: false` with an explanatory `message`, rather than
+  pretending a reload happened. `scriptClassCount` is the number of entity-script classes
+  registered after the reload — a non-zero value confirms the app assembly loaded.
+- **Honest about failure.** `ok` reports whether the reload actually **succeeded**: if the
+  freshly-built app assembly fails to load (e.g. a C# compile error, or a missing/locked
+  `.dll`), the tool returns `available: true, ok: false` with a `message` pointing you at
+  the engine log — the entity-class registry then keeps its stale pre-reload contents, so
+  don't trust `scriptClassCount` on a failed reload. Rebuild the game assembly and retry.
+- **Lua is not reloaded here.** This tool targets the C# (Mono) app assembly; Lua scripts
+  re-execute per entity on play and have no single global reload entry point.
 
 ### Render override A/B (`olo_render_toggle_pass` / `olo_render_set_debug_view`)
 

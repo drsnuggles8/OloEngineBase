@@ -10,6 +10,7 @@
 #include "MCP/McpRenderGraphTopology.h"
 #include "MCP/McpRenderOverrides.h"
 #include "MCP/McpGenericFieldWrite.h"
+#include "MCP/McpReloadScript.h"
 #include "MCP/McpSetCollisionLayer.h"
 #include "MCP/McpShaderReload.h"
 #include "MCP/McpEventStream.h"
@@ -3450,6 +3451,34 @@ namespace OloEngine::MCP
             return ToolResult::Text(result.dump(2));
         }
 
+        // ---- olo_reload_script (main-marshaled; PROJECT WRITE) -----------------
+        // Reload the C# script assembly — the scripting counterpart of
+        // olo_shader_reload's inner loop: build the game assembly, reload it over MCP,
+        // and the editor picks up the new script code without a restart. Drives the
+        // exact ScriptEngine::ReloadAssembly() path the editor's Script ▸ Reload
+        // assembly (Ctrl+R) uses, via the ReloadScriptAssembly context hook (so the
+        // engine/Mono call stays out of the test binary and a headless host can leave
+        // it null). Gated at dispatch by the "Allow writes" session toggle
+        // (ToolDef::ProjectWrite): reloading runs the user's freshly-built assembly
+        // code, so it crosses the read-only line by design. The reload runs inside the
+        // MarshalRead job, i.e. on the main thread, since it touches the Mono domain.
+        ToolResult Handle_ReloadScript(McpServer& server, const Json&)
+        {
+            if (!server.Context().ReloadScriptAssembly)
+                return ToolResult::Error("Script reload is not available in this editor build.");
+
+            const Json result = server.MarshalRead([&server]() -> Json
+                                                   {
+                if (!server.Context().ReloadScriptAssembly)
+                    return Json{ { "__error", "Script reload is not available in this editor build." } };
+                const McpScriptReloadResult reloaded = server.Context().ReloadScriptAssembly();
+                return ReloadScript::ToJson(reloaded); });
+
+            if (result.is_object() && result.contains("__error"))
+                return ToolResult::Error(result["__error"].get<std::string>());
+            return ToolResult::Text(result.dump(2));
+        }
+
         // ---- olo_render_why_not_visible (main-marshaled) -----------------------
         // The rendering counterpart of olo_physics_why_no_collision: explain why an
         // entity isn't on screen. Gathers the render-relevant facts off the live
@@ -4852,6 +4881,36 @@ namespace OloEngine::MCP
             tool.InputSchema = GenericFieldWrite::InputSchema();
             tool.MainMarshaled = true;
             tool.Handler = Handle_EntitySetField;
+            server.RegisterTool(std::move(tool));
+        }
+
+        {
+            ToolDef tool;
+            tool.Name = "olo_reload_script";
+            tool.Toolset = "scripting";
+            tool.Title = "Reload script assembly";
+            // A project-WRITE tool (#306 item C): reloading swaps in the user's
+            // freshly-built C# assembly and runs its code, so it is gated behind the
+            // session "Allow writes" toggle, like the other writes. readOnlyHint:false
+            // (not idempotent — each reload re-reads from disk into a fresh app domain;
+            // not destructive — it overwrites no project data, the source files are
+            // untouched).
+            tool.ProjectWrite = true;
+            tool.Annotations = MutatingAnnotations(/*idempotent*/ false);
+            tool.Description =
+                "Reload the C# script assembly — the scripting inner loop: build the game assembly, reload it "
+                "here, and the editor runs the new script code without restarting. Drives the same "
+                "ScriptEngine::ReloadAssembly() path as the editor's Script menu Reload assembly (Ctrl+R), so "
+                "the reload is whole-assembly (C# has no per-script granularity) and the tool takes no "
+                "arguments. Returns whether scripting is available in this build, whether the reload SUCCEEDED "
+                "(ok:false when the freshly-built app assembly fails to load — e.g. a compile error — see the "
+                "engine log), and how many entity-script classes are registered afterwards. This is a WRITE tool: it is refused "
+                "unless 'Allow writes' is enabled in the editor's MCP Server panel (off by default), because "
+                "reloading executes the freshly-built assembly. If C# scripting is disabled or uninitialized "
+                "the call still succeeds but reports available:false.";
+            tool.InputSchema = ReloadScript::InputSchema();
+            tool.MainMarshaled = true;
+            tool.Handler = Handle_ReloadScript;
             server.RegisterTool(std::move(tool));
         }
 

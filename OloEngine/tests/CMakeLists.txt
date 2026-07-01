@@ -398,6 +398,13 @@ add_executable(OloEngine-Tests
 		# (MCP/McpGenericFieldWrite.h). Header-only on the editor side, so no extra
 		# editor TU is pulled in.
 		MCP/McpGenericFieldWriteTest.cpp
+		# Consented MCP WRITE tool: olo_reload_script (#306 item C) — reload the C#
+		# script assembly. Same dispatch seam (session write gate + inputSchema
+		# enforcement at McpServer.cpp) and shared shaping (MCP/McpReloadScript.h:
+		# schema + McpScriptReloadResult->JSON). The reload ACTION is a context hook
+		# (ScriptEngine/Mono in the editor), so the test injects a fake hook and never
+		# touches Mono. Header-only on the editor side, so no extra editor TU.
+		MCP/McpReloadScriptTest.cpp
 		# Lua Binding Tests
 		Lua/LuaBindingTest.cpp
 		# Functional / cross-subsystem world-tick tests (see ADR 0001).
