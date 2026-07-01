@@ -72,6 +72,7 @@ namespace OloEngine
         CreateFramebuffer(spec.Width, spec.Height);
 
         m_CASShader = Shader::Create("assets/shaders/PostProcess_CAS.glsl");
+        m_RCASShader = Shader::Create("assets/shaders/PostProcess_RCAS.glsl");
         m_CASUBO = UniformBuffer::Create(CASUBOData::GetSize(), ShaderBindingLayout::UBO_UPSCALER);
 
         OLO_CORE_INFO("UpscalerRenderPass: Initialized with viewport {}x{}", spec.Width, spec.Height);
@@ -144,14 +145,22 @@ namespace OloEngine
         context.SetClearColor({ 0.0f, 0.0f, 0.0f, 1.0f });
         context.Clear();
 
-        m_CASShader->Bind();
+        // FSR1 pairs EASU with RCAS: when spatial upscaling is active, sharpen
+        // with the RCAS kernel (and its RCASSharpness); otherwise use the native
+        // CAS kernel (CASSharpness). Both share the binding-44 UBO. Fall back to
+        // CAS if RCAS failed to load.
+        const bool useRcas = m_Settings.Upscale != UpscaleMode::Off && m_RCASShader && m_RCASShader->IsReady();
+        const Ref<Shader>& activeShader = useRcas ? m_RCASShader : m_CASShader;
+        const f32 sharpness = useRcas ? m_Settings.RCASSharpness : m_Settings.CASSharpness;
+
+        activeShader->Bind();
 
         context.BindTexture(0, inputColorTextureID);
-        m_CASShader->SetInt("u_Texture", 0);
+        activeShader->SetInt("u_Texture", 0);
 
         CASUBOData casData;
         casData.Params = glm::vec4(
-            std::clamp(m_Settings.CASSharpness, 0.0f, 1.0f),
+            std::clamp(sharpness, 0.0f, 1.0f),
             outSpec.Width > 0u ? 1.0f / static_cast<f32>(outSpec.Width) : 0.0f,
             outSpec.Height > 0u ? 1.0f / static_cast<f32>(outSpec.Height) : 0.0f,
             0.0f);

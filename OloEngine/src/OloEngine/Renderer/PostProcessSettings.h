@@ -27,6 +27,43 @@ namespace OloEngine
         GTAO = 2
     };
 
+    // FSR1 spatial-upscale quality preset (#480 / #432). Selects the render-scale
+    // factor: the scene (and the HDR/screen-space band up to the EASU stage)
+    // renders below display resolution, and FSR1 EASU edge-adaptively upscales
+    // the HDR scene colour back to display res EARLY (before Bloom/DOF). Off ==
+    // native resolution (render scale 1.0, no EASU). The factors are FSR1's
+    // canonical presets (Quality 1.5x area, Balanced 1.7x, Performance 2.0x,
+    // Ultra Performance 3.0x); see UpscaleModeToRenderScale.
+    enum class UpscaleMode : i32
+    {
+        Off = 0,              // Native resolution, no upscale (render scale 1.0)
+        Quality = 1,          // 0.667x linear render scale (FSR1 "Quality")
+        Balanced = 2,         // 0.59x  linear render scale (FSR1 "Balanced")
+        Performance = 3,      // 0.5x   linear render scale (FSR1 "Performance")
+        UltraPerformance = 4, // 0.333x linear render scale (FSR1 "Ultra Performance")
+    };
+
+    // Map an UpscaleMode preset to its linear render-scale factor in (0, 1].
+    // Off (and any out-of-range value) is native 1.0. Mirrors the FSR1 presets;
+    // pinned by EASUMathTest.
+    [[nodiscard]] inline constexpr f32 UpscaleModeToRenderScale(UpscaleMode mode) noexcept
+    {
+        switch (mode)
+        {
+            case UpscaleMode::Quality:
+                return 0.667f;
+            case UpscaleMode::Balanced:
+                return 0.59f;
+            case UpscaleMode::Performance:
+                return 0.5f;
+            case UpscaleMode::UltraPerformance:
+                return 0.333f;
+            case UpscaleMode::Off:
+            default:
+                return 1.0f;
+        }
+    }
+
     struct PostProcessSettings
     {
         // Tone mapping (always active)
@@ -101,6 +138,20 @@ namespace OloEngine
         // deferred follow-up tracked under #432.
         bool CASEnabled = false;
         f32 CASSharpness = 0.5f; // 0 = subtle, 1 = maximum sharpening (remapped to the CAS peak coefficient)
+
+        // FSR1 EASU/RCAS spatial upscale (#480 — completes the #432 upscaler epic).
+        // When Upscale != Off the scene renders below display resolution at the
+        // preset's render-scale factor (UpscaleModeToRenderScale) and FSR1 EASU
+        // edge-adaptively upscales the HDR scene colour to display res EARLY
+        // (before Bloom/DOF, in EASURenderPass). RCAS is the paired late sharpen
+        // applied post-tonemap by UpscalerRenderPass — it replaces the CAS kernel
+        // on the upscale path (FSR1 pairs EASU with RCAS, not CAS). The math lives
+        // in PostProcess_EASU.glsl / PostProcess_RCAS.glsl, mirrored on the CPU by
+        // EASUMathTest / RCASMathTest, and the frame is checked by
+        // EASUVisualEvidenceTest. RCASSharpness: 0 = subtle, 1 = maximum (mapped to
+        // the FSR1 RCAS attenuation in-shader, where higher UI value = sharper).
+        UpscaleMode Upscale = UpscaleMode::Off;
+        f32 RCASSharpness = 0.5f;
 
         // Color Grading
         bool ColorGradingEnabled = false;
@@ -410,6 +461,50 @@ namespace OloEngine
         { return std::isfinite(v) ? v : fallback; };
 
         s.CASSharpness = std::clamp(finite(s.CASSharpness, 0.5f), 0.0f, 1.0f);
+    }
+
+    // GPU-side UBO layout for FSR1 EASU upscale constants (std140, binding 45).
+    // Uploaded by EASURenderPass each frame from the render-resolution input and
+    // the display-resolution output. EASU samples its 12-tap kernel in the source
+    // texture: InputSizeAndTexel.xy is the actually-rendered region size in pixels
+    // (renderWidth, renderHeight — output UV maps into this), and .zw is the
+    // source texel size (1 / physicalTextureWidth, 1 / physicalTextureHeight)
+    // since the DRS-rendered region lives in the corner of a full-size target.
+    // SampleBounds.xy clamps tap UVs to the rendered region (= DRSUBOData
+    // RenderScaleBounds) so EASU never samples uninitialised texels. Mirrored on
+    // the CPU by EASUMathTest.
+    struct EASUUBOData
+    {
+        // x = render viewport width, y = render viewport height (rendered region,
+        // px); z = 1/physicalTextureWidth, w = 1/physicalTextureHeight (tap texel).
+        glm::vec4 InputSizeAndTexel = glm::vec4(0.0f);
+        // x = max U, y = max V (DRS bounds; clamp taps), z = sharpness/unused, w = pad.
+        glm::vec4 SampleBounds = glm::vec4(1.0f, 1.0f, 0.0f, 0.0f);
+
+        static constexpr u32 GetSize()
+        {
+            return sizeof(EASUUBOData);
+        }
+    };
+
+    static_assert(sizeof(EASUUBOData) % 16 == 0, "EASUUBOData must be 16-byte aligned for std140");
+    static_assert(sizeof(EASUUBOData) == 32, "EASUUBOData std140 size drifted — update PostProcess_EASU.glsl layout");
+
+    // Clamp the FSR1 upscale parameters to a finite, sane range. Call after
+    // loading settings from disk (scene YAML / save-game), per the CLAUDE.md rule
+    // that floats read from external data are validated with std::isfinite. The
+    // EASU/RCAS shaders also clamp at use-time, but persisted/edited settings
+    // should never carry NaN/Inf or an out-of-range enum.
+    inline void SanitizeUpscale(PostProcessSettings& s) noexcept
+    {
+        const auto finite = [](f32 v, f32 fallback) noexcept
+        { return std::isfinite(v) ? v : fallback; };
+
+        const i32 mode = static_cast<i32>(s.Upscale);
+        if (mode < static_cast<i32>(UpscaleMode::Off) || mode > static_cast<i32>(UpscaleMode::UltraPerformance))
+            s.Upscale = UpscaleMode::Off;
+
+        s.RCASSharpness = std::clamp(finite(s.RCASSharpness, 0.5f), 0.0f, 1.0f);
     }
 
     // GPU-side UBO layout for Dynamic Resolution Scaling parameters (std140, binding 33).

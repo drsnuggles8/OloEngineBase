@@ -32,6 +32,24 @@ namespace OloEngine::RenderPipelineBuilderInternal
         {
             graph.AddNode(PrepareGraphNode("ContactShadowPass", inputs.Passes->ContactShadow));
         }
+        // FSR1 EASU spatial upscale (#480). Runs right after the screen-space
+        // band and BEFORE Bloom: it upscales the reduced-resolution HDR scene
+        // colour to display res so every downstream display-res post stage runs
+        // at full resolution. Self-skips when Upscale == Off (its EASUColor
+        // resource is never declared).
+        if (inputs.Passes->EASU)
+        {
+            graph.AddNode(PrepareGraphNode("EASUPass", inputs.Passes->EASU));
+        }
+        // FSR1 depth+velocity upscale (#480). Runs right after EASU (before the
+        // display-res post band): nearest-upscales the reduced depth + velocity to
+        // full res and swaps the blackboard SceneDepth/Velocity handles so DOF /
+        // Fog / MotionBlur / TAA / ToneMap read full-res depth. Self-skips when
+        // Upscale == Off (its output resource is never declared).
+        if (inputs.Passes->DepthVelocityUpscale)
+        {
+            graph.AddNode(PrepareGraphNode("DepthVelocityUpscalePass", inputs.Passes->DepthVelocityUpscale));
+        }
         graph.AddNode(PrepareGraphNode("BloomPass",
                                        inputs.Passes->Bloom));
         graph.AddNode(PrepareGraphNode("DOFPass",

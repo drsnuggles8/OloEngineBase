@@ -105,6 +105,10 @@ namespace OloEngine
             AppendChange(changes, "CASEnabled", before.CASEnabled, after.CASEnabled);
             AppendChange(changes, "CASSharpness", before.CASSharpness, after.CASSharpness);
 
+            if (before.Upscale != after.Upscale)
+                AppendChange(changes, "Upscale", static_cast<i32>(before.Upscale), static_cast<i32>(after.Upscale));
+            AppendChange(changes, "RCASSharpness", before.RCASSharpness, after.RCASSharpness);
+
             AppendChange(changes, "ColorGradingEnabled", before.ColorGradingEnabled, after.ColorGradingEnabled);
 
             if (before.ActiveAOTechnique != after.ActiveAOTechnique)
@@ -195,6 +199,7 @@ namespace OloEngine
         DrawColorGradingSection();
         DrawFXAASection();
         DrawTAASection();
+        DrawUpscaleSection();
         DrawCASSection();
         DrawDOFSection();
         DrawMotionBlurSection();
@@ -501,6 +506,44 @@ namespace OloEngine
                 ImGui::DragFloat("History Feedback", &settings.TAAFeedback, 0.01f, 0.0f, 0.98f, "%.2f");
                 ImGui::DragFloat("Sharpness", &settings.TAASharpness, 0.01f, 0.0f, 1.0f, "%.2f");
                 ImGui::TextWrapped("Deferred: consumes G-Buffer velocity (RT3). Forward / Forward+: reconstructs camera-motion velocity from depth \u2014 moving objects will ghost. Projection jitter is not injected; sub-pixel AA quality is reduced but temporal stability still works.");
+            }
+
+            ImGui::Unindent();
+        }
+    }
+
+    void PostProcessSettingsPanel::DrawUpscaleSection() const
+    {
+        auto& settings = Renderer3D::GetPostProcessSettings();
+
+        if (ImGui::CollapsingHeader("Spatial Upscale (FSR1)"))
+        {
+            ImGui::Indent();
+
+            // FSR1 EASU/RCAS: render the scene below display resolution, then
+            // edge-adaptively upscale (EASU) + sharpen (RCAS) to display res.
+            constexpr const char* kModeNames[] = { "Off (Native)", "Quality", "Balanced", "Performance", "Ultra Performance" };
+            int mode = static_cast<int>(settings.Upscale);
+            if (mode < 0 || mode > static_cast<int>(UpscaleMode::UltraPerformance))
+                mode = 0;
+            if (ImGui::Combo("Mode##FSR1", &mode, kModeNames, IM_ARRAYSIZE(kModeNames)))
+            {
+                settings.Upscale = static_cast<UpscaleMode>(mode);
+                SanitizeUpscale(settings);
+            }
+
+            if (settings.Upscale != UpscaleMode::Off)
+            {
+                const f32 scale = UpscaleModeToRenderScale(settings.Upscale);
+                ImGui::Text("Render scale: %.0f%% (%.2fx)", scale * 100.0f, scale);
+
+                // DragFloat's min/max bound the drag but not manual entry, so
+                // re-sanitize on edit (keeps a typed out-of-range value valid).
+                if (ImGui::DragFloat("RCAS Sharpness", &settings.RCASSharpness, 0.01f, 0.0f, 1.0f, "%.2f"))
+                    SanitizeUpscale(settings);
+                ImGui::TextWrapped("FSR1 (FidelityFX Super Resolution 1). The scene renders at the reduced "
+                                   "render scale; EASU reconstructs display resolution early (before Bloom/DOF) "
+                                   "and RCAS sharpens after tone mapping. Trades a little image quality for GPU time.");
             }
 
             ImGui::Unindent();

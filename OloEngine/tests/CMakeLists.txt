@@ -110,6 +110,8 @@ add_executable(OloEngine-Tests
 		Rendering/ScreenSpaceGIMathTest.cpp
 		Rendering/ContactShadowMathTest.cpp
 		Rendering/CASMathTest.cpp
+		Rendering/EASUMathTest.cpp
+		Rendering/RCASMathTest.cpp
 		Rendering/SSAOMathTest.cpp
 		Rendering/BloomMathTest.cpp
 		Rendering/FogMathTest.cpp
@@ -167,6 +169,7 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/SSGIVisualEvidenceTest.cpp
 		Rendering/PropertyTests/ContactShadowVisualEvidenceTest.cpp
 		Rendering/PropertyTests/CASVisualEvidenceTest.cpp
+		Rendering/PropertyTests/EASUVisualEvidenceTest.cpp
 		Rendering/PropertyTests/SSAOVisualEvidenceTest.cpp
 		Rendering/PropertyTests/PCSSVisualEvidenceTest.cpp
 		Rendering/PropertyTests/WaterSurfaceSamplerTest.cpp

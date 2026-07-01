@@ -34,6 +34,10 @@ namespace OloEngine
             builder,
             this,
             {
+                // FSR1 EASU (when upscaling) is the freshest pre-Bloom source and
+                // the only full-display-resolution one — it must sit above the
+                // reduced-resolution SS-band colours it already consumed.
+                RenderPipelineBuilderInternal::MakeCandidateBaseNames(ResourceNames::EASUColor, ResourceNames::EASUColorTexture),
                 RenderPipelineBuilderInternal::MakeCandidateBaseNames(ResourceNames::ContactShadowColor, ResourceNames::ContactShadowColorTexture),
                 RenderPipelineBuilderInternal::MakeCandidateBaseNames(ResourceNames::SSRColor, ResourceNames::SSRColorTexture),
                 RenderPipelineBuilderInternal::MakeCandidateBaseNames(ResourceNames::AOApplyColor, ResourceNames::AOApplyColorTexture),

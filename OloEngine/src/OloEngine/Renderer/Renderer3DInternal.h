@@ -33,6 +33,8 @@
 #include "OloEngine/Renderer/Passes/TAARenderPass.h"
 #include "OloEngine/Renderer/Passes/ToneMapRenderPass.h"
 #include "OloEngine/Renderer/Passes/UpscalerRenderPass.h"
+#include "OloEngine/Renderer/Passes/EASURenderPass.h"
+#include "OloEngine/Renderer/Passes/DepthVelocityUpscalePass.h"
 #include "OloEngine/Renderer/Passes/UICompositeRenderPass.h"
 #include "OloEngine/Renderer/Passes/VignetteRenderPass.h"
 #include "OloEngine/Renderer/Passes/WaterRenderPass.h"
@@ -49,6 +51,8 @@ namespace OloEngine
         Ref<SSGIRenderPass> SSGI;
         Ref<SSRRenderPass> SSR;
         Ref<ContactShadowRenderPass> ContactShadow;
+        Ref<EASURenderPass> EASU;
+        Ref<DepthVelocityUpscalePass> DepthVelocityUpscale;
         Ref<BloomRenderPass> Bloom;
         Ref<DOFRenderPass> DOF;
         Ref<MotionBlurRenderPass> MotionBlur;
@@ -72,6 +76,8 @@ namespace OloEngine
             SSGI.Reset();
             SSR.Reset();
             ContactShadow.Reset();
+            EASU.Reset();
+            DepthVelocityUpscale.Reset();
             Bloom.Reset();
             DOF.Reset();
             MotionBlur.Reset();

@@ -6058,6 +6058,8 @@ namespace OloEngine
             out << YAML::Key << "AutoExposureMaxExposure" << YAML::Value << pp.AutoExposureMaxExposure;
             out << YAML::Key << "CASEnabled" << YAML::Value << pp.CASEnabled;
             out << YAML::Key << "CASSharpness" << YAML::Value << pp.CASSharpness;
+            out << YAML::Key << "Upscale" << YAML::Value << std::to_underlying(pp.Upscale);
+            out << YAML::Key << "RCASSharpness" << YAML::Value << pp.RCASSharpness;
         }
         out << YAML::EndMap;
 
@@ -6259,6 +6261,8 @@ namespace OloEngine
                 TrySet(pp.AutoExposureMaxExposure, ppNode["AutoExposureMaxExposure"]);
                 TrySet(pp.CASEnabled, ppNode["CASEnabled"]);
                 TrySet(pp.CASSharpness, ppNode["CASSharpness"]);
+                TrySetEnum(pp.Upscale, ppNode["Upscale"]);
+                TrySet(pp.RCASSharpness, ppNode["RCASSharpness"]);
 
                 // Floats read from YAML must be finite and ordered (min<=max).
                 SanitizeAutoExposure(pp);
@@ -6266,6 +6270,7 @@ namespace OloEngine
                 SanitizeSSGI(pp);
                 SanitizeContactShadow(pp);
                 SanitizeCAS(pp);
+                SanitizeUpscale(pp);
             }
 
             DeserializeSnowSettings(data, m_Scene->GetSnowSettings());
@@ -6442,6 +6447,8 @@ namespace OloEngine
             out << YAML::Key << "AutoExposureMaxExposure" << YAML::Value << pp.AutoExposureMaxExposure;
             out << YAML::Key << "CASEnabled" << YAML::Value << pp.CASEnabled;
             out << YAML::Key << "CASSharpness" << YAML::Value << pp.CASSharpness;
+            out << YAML::Key << "Upscale" << YAML::Value << std::to_underlying(pp.Upscale);
+            out << YAML::Key << "RCASSharpness" << YAML::Value << pp.RCASSharpness;
         }
         out << YAML::EndMap;
 
@@ -6593,6 +6600,8 @@ namespace OloEngine
                 TrySet(pp.AutoExposureMaxExposure, ppNode["AutoExposureMaxExposure"]);
                 TrySet(pp.CASEnabled, ppNode["CASEnabled"]);
                 TrySet(pp.CASSharpness, ppNode["CASSharpness"]);
+                TrySetEnum(pp.Upscale, ppNode["Upscale"]);
+                TrySet(pp.RCASSharpness, ppNode["RCASSharpness"]);
 
                 // Floats read from YAML must be finite and ordered (min<=max).
                 SanitizeAutoExposure(pp);
@@ -6600,6 +6609,7 @@ namespace OloEngine
                 SanitizeSSGI(pp);
                 SanitizeContactShadow(pp);
                 SanitizeCAS(pp);
+                SanitizeUpscale(pp);
             }
 
             DeserializeSnowSettings(data, m_Scene->GetSnowSettings());
