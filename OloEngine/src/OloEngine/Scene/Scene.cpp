@@ -1036,8 +1036,15 @@ namespace OloEngine
     void Scene::OnSimulationStart()
     {
         // Same reset as OnRuntimeStart — simulation mode also re-baselines the
-        // animation clock so first-frame velocity reprojection isn't bogus.
+        // animation clock so first-frame velocity reprojection isn't bogus, and
+        // zeroes the deterministic fixed-timestep clock so each Simulate session
+        // starts from tick 0 / time 0. Without the m_SimulationTime reset the
+        // buoyancy wave phase would keep accumulating across Simulate start/stop
+        // cycles (issue #452).
         m_LastAnimationTime = -1.0f;
+        m_SimulationTick = 0;
+        m_FixedTimeAccumulator = 0.0f;
+        m_SimulationTime = 0.0f;
 
         OnPhysics2DStart();
         OnPhysics3DStart();
@@ -1367,6 +1374,109 @@ namespace OloEngine
         }
     }
 
+    void Scene::StepPhysics(Timestep const ts)
+    {
+        const i32 velocityIterations = 6;
+        // const i32 positionIterations = 2; // TODO: Use this parameter when implementing position iterations
+        // Guard against ticking before OnPhysics2DStart created a world —
+        // the Jolt path below already does this; matching it keeps the
+        // tick safe for headless tests / minimal scenes that never opt
+        // in to 2D physics.
+        if (b2World_IsValid(m_PhysicsWorld))
+        {
+            b2World_Step(m_PhysicsWorld, ts.GetSeconds(), velocityIterations);
+        }
+
+        // Update 3D physics
+        if (m_JoltScene)
+        {
+            // Buoyancy forces must be queued BEFORE the step so Jolt
+            // integrates them this frame. Drive the wave phase from the
+            // deterministic m_SimulationTime (NOT wall-clock Time::GetTime),
+            // so buoyant bodies are reproducible across frame pacings and
+            // rollback re-sim (issue #452). At a steady frame rate this
+            // equals wall-time, so floating bodies still track the rendered
+            // wave crests (Physics3D/BuoyancySystem, WATER §5.1).
+            BuoyancySystem::OnUpdate(this, m_SimulationTime, ts.GetSeconds());
+            // JoltScene::Simulate runs its OWN fixed-step accumulator at a
+            // hardcoded 1/60. This is 1:1 with one gameplay tick only when
+            // the canonical fixed dt (Application::GetFixedTimeStep) equals
+            // 1/60 — the production case. If they ever diverge, 3D physics
+            // and scripts/animation/2D-physics tick at different rates; keep
+            // them equal (issue #452 follow-up: single shared fixed step).
+            m_JoltScene->Simulate(ts.GetSeconds());
+        }
+
+        // Retrieve transform from Box2D
+        if (b2World_IsValid(m_PhysicsWorld))
+        {
+            for (const auto view = m_Registry.view<Rigidbody2DComponent>(); const auto e : view)
+            {
+                Entity entity = { e, this };
+                auto& transform = entity.GetComponent<TransformComponent>();
+                const auto& rb2d = entity.GetComponent<Rigidbody2DComponent>();
+
+                // Runtime-added Rigidbody2DComponent has RuntimeBody ==
+                // b2_nullBodyId until OnPhysics2DStart creates one.
+                // Skip rather than calling Box2D with an invalid handle.
+                if (!b2Body_IsValid(rb2d.RuntimeBody))
+                    continue;
+
+                b2Vec2 position = b2Body_GetPosition(rb2d.RuntimeBody);
+                b2Rot rotation = b2Body_GetRotation(rb2d.RuntimeBody);
+
+                transform.Translation.x = position.x;
+                transform.Translation.y = position.y;
+                {
+                    glm::vec3 euler = transform.GetRotationEuler();
+                    euler.z = b2Rot_GetAngle(rotation);
+                    transform.SetRotationEuler(euler);
+                }
+            }
+        }
+
+        // Retrieve transforms from Jolt 3D physics
+        for (const auto view = m_Registry.view<Rigidbody3DComponent, TransformComponent>(); const auto e : view)
+        {
+            Entity entity = { e, this };
+            auto& transform = entity.GetComponent<TransformComponent>();
+            const auto& rb3d = entity.GetComponent<Rigidbody3DComponent>();
+
+            if (rb3d.m_RuntimeBodyToken != 0 && rb3d.m_Type != BodyType3D::Static && m_JoltScene)
+            {
+                // Get the body from JoltScene and sync transforms
+                auto body = m_JoltScene->GetBody(entity);
+                if (body)
+                {
+                    auto pos = body->GetPosition();
+                    auto rot = body->GetRotation();
+
+                    transform.Translation = pos;
+                    transform.SetRotation(glm::normalize(rot));
+                }
+            }
+        }
+
+        // Retrieve transforms from Jolt character controllers — without
+        // this loop the controller's CharacterVirtual moves internally
+        // but the entity's TransformComponent never updates, so the
+        // character "walks" only inside Jolt while ECS thinks it never
+        // moved. Mirrors the rigid-body sync above.
+        if (m_JoltScene)
+        {
+            for (const auto view = m_Registry.view<CharacterController3DComponent, TransformComponent>(); const auto e : view)
+            {
+                Entity entity = { e, this };
+                if (auto controller = m_JoltScene->GetCharacterController(entity))
+                {
+                    auto& transform = entity.GetComponent<TransformComponent>();
+                    transform.Translation = controller->GetTranslation();
+                    transform.SetRotation(controller->GetRotation());
+                }
+            }
+        }
+    }
+
     void Scene::SimulateRuntimeStep(Timestep const ts)
     {
         ++m_SimulationTick;
@@ -1589,108 +1699,9 @@ namespace OloEngine
                 }
             }
 
-            // Physics
-            {
-                const i32 velocityIterations = 6;
-                // const i32 positionIterations = 2; // TODO: Use this parameter when implementing position iterations
-                // Guard against ticking before OnPhysics2DStart created a world —
-                // the Jolt path below already does this; matching it keeps the
-                // tick safe for headless tests / minimal scenes that never opt
-                // in to 2D physics.
-                if (b2World_IsValid(m_PhysicsWorld))
-                {
-                    b2World_Step(m_PhysicsWorld, ts.GetSeconds(), velocityIterations);
-                }
-
-                // Update 3D physics
-                if (m_JoltScene)
-                {
-                    // Buoyancy forces must be queued BEFORE the step so Jolt
-                    // integrates them this frame. Drive the wave phase from the
-                    // deterministic m_SimulationTime (NOT wall-clock Time::GetTime),
-                    // so buoyant bodies are reproducible across frame pacings and
-                    // rollback re-sim (issue #452). At a steady frame rate this
-                    // equals wall-time, so floating bodies still track the rendered
-                    // wave crests (Physics3D/BuoyancySystem, WATER §5.1).
-                    BuoyancySystem::OnUpdate(this, m_SimulationTime, ts.GetSeconds());
-                    // JoltScene::Simulate runs its OWN fixed-step accumulator at a
-                    // hardcoded 1/60. This is 1:1 with one gameplay tick only when
-                    // the canonical fixed dt (Application::GetFixedTimeStep) equals
-                    // 1/60 — the production case. If they ever diverge, 3D physics
-                    // and scripts/animation/2D-physics tick at different rates; keep
-                    // them equal (issue #452 follow-up: single shared fixed step).
-                    m_JoltScene->Simulate(ts.GetSeconds());
-                }
-
-                // Retrieve transform from Box2D
-                if (b2World_IsValid(m_PhysicsWorld))
-                {
-                    for (const auto view = m_Registry.view<Rigidbody2DComponent>(); const auto e : view)
-                    {
-                        Entity entity = { e, this };
-                        auto& transform = entity.GetComponent<TransformComponent>();
-                        const auto& rb2d = entity.GetComponent<Rigidbody2DComponent>();
-
-                        // Runtime-added Rigidbody2DComponent has RuntimeBody ==
-                        // b2_nullBodyId until OnPhysics2DStart creates one.
-                        // Skip rather than calling Box2D with an invalid handle.
-                        if (!b2Body_IsValid(rb2d.RuntimeBody))
-                            continue;
-
-                        b2Vec2 position = b2Body_GetPosition(rb2d.RuntimeBody);
-                        b2Rot rotation = b2Body_GetRotation(rb2d.RuntimeBody);
-
-                        transform.Translation.x = position.x;
-                        transform.Translation.y = position.y;
-                        {
-                            glm::vec3 euler = transform.GetRotationEuler();
-                            euler.z = b2Rot_GetAngle(rotation);
-                            transform.SetRotationEuler(euler);
-                        }
-                    }
-                }
-
-                // Retrieve transforms from Jolt 3D physics
-                for (const auto view = m_Registry.view<Rigidbody3DComponent, TransformComponent>(); const auto e : view)
-                {
-                    Entity entity = { e, this };
-                    auto& transform = entity.GetComponent<TransformComponent>();
-                    const auto& rb3d = entity.GetComponent<Rigidbody3DComponent>();
-
-                    if (rb3d.m_RuntimeBodyToken != 0 && rb3d.m_Type != BodyType3D::Static && m_JoltScene)
-                    {
-                        // Get the body from JoltScene and sync transforms
-                        auto body = m_JoltScene->GetBody(entity);
-                        if (body)
-                        {
-                            auto pos = body->GetPosition();
-                            auto rot = body->GetRotation();
-
-                            transform.Translation = pos;
-                            transform.SetRotation(glm::normalize(rot));
-                        }
-                    }
-                }
-
-                // Retrieve transforms from Jolt character controllers — without
-                // this loop the controller's CharacterVirtual moves internally
-                // but the entity's TransformComponent never updates, so the
-                // character "walks" only inside Jolt while ECS thinks it never
-                // moved. Mirrors the rigid-body sync above.
-                if (m_JoltScene)
-                {
-                    for (const auto view = m_Registry.view<CharacterController3DComponent, TransformComponent>(); const auto e : view)
-                    {
-                        Entity entity = { e, this };
-                        if (auto controller = m_JoltScene->GetCharacterController(entity))
-                        {
-                            auto& transform = entity.GetComponent<TransformComponent>();
-                            transform.Translation = controller->GetTranslation();
-                            transform.SetRotation(controller->GetRotation());
-                        }
-                    }
-                }
-            }
+            // Physics: 2D + 3D step and transform sync (shared with the other
+            // runtime/simulate tick — see Scene::StepPhysics).
+            StepPhysics(ts);
 
             // Update navigation / pathfinding
             NavigationSystem::OnUpdate(this, ts.GetSeconds());
@@ -2067,108 +2078,9 @@ namespace OloEngine
             // phase below is tick-driven (see SimulateRuntimeStep).
             m_SimulationTime += static_cast<f32>(ts);
 
-            // Physics
-            {
-                const i32 velocityIterations = 6;
-                // const i32 positionIterations = 2; // TODO: Use this parameter when implementing position iterations
-                // Guard against ticking before OnPhysics2DStart created a world —
-                // the Jolt path below already does this; matching it keeps the
-                // tick safe for headless tests / minimal scenes that never opt
-                // in to 2D physics.
-                if (b2World_IsValid(m_PhysicsWorld))
-                {
-                    b2World_Step(m_PhysicsWorld, ts.GetSeconds(), velocityIterations);
-                }
-
-                // Update 3D physics
-                if (m_JoltScene)
-                {
-                    // Buoyancy forces must be queued BEFORE the step so Jolt
-                    // integrates them this frame. Drive the wave phase from the
-                    // deterministic m_SimulationTime (NOT wall-clock Time::GetTime),
-                    // so buoyant bodies are reproducible across frame pacings and
-                    // rollback re-sim (issue #452). At a steady frame rate this
-                    // equals wall-time, so floating bodies still track the rendered
-                    // wave crests (Physics3D/BuoyancySystem, WATER §5.1).
-                    BuoyancySystem::OnUpdate(this, m_SimulationTime, ts.GetSeconds());
-                    // JoltScene::Simulate runs its OWN fixed-step accumulator at a
-                    // hardcoded 1/60. This is 1:1 with one gameplay tick only when
-                    // the canonical fixed dt (Application::GetFixedTimeStep) equals
-                    // 1/60 — the production case. If they ever diverge, 3D physics
-                    // and scripts/animation/2D-physics tick at different rates; keep
-                    // them equal (issue #452 follow-up: single shared fixed step).
-                    m_JoltScene->Simulate(ts.GetSeconds());
-                }
-
-                // Retrieve transform from Box2D
-                if (b2World_IsValid(m_PhysicsWorld))
-                {
-                    for (const auto view = m_Registry.view<Rigidbody2DComponent>(); const auto e : view)
-                    {
-                        Entity entity = { e, this };
-                        auto& transform = entity.GetComponent<TransformComponent>();
-                        const auto& rb2d = entity.GetComponent<Rigidbody2DComponent>();
-
-                        // Runtime-added Rigidbody2DComponent has RuntimeBody ==
-                        // b2_nullBodyId until OnPhysics2DStart creates one.
-                        // Skip rather than calling Box2D with an invalid handle.
-                        if (!b2Body_IsValid(rb2d.RuntimeBody))
-                            continue;
-
-                        b2Vec2 position = b2Body_GetPosition(rb2d.RuntimeBody);
-                        b2Rot rotation = b2Body_GetRotation(rb2d.RuntimeBody);
-
-                        transform.Translation.x = position.x;
-                        transform.Translation.y = position.y;
-                        {
-                            glm::vec3 euler = transform.GetRotationEuler();
-                            euler.z = b2Rot_GetAngle(rotation);
-                            transform.SetRotationEuler(euler);
-                        }
-                    }
-                }
-
-                // Retrieve transforms from Jolt 3D physics
-                for (const auto view = m_Registry.view<Rigidbody3DComponent, TransformComponent>(); const auto e : view)
-                {
-                    Entity entity = { e, this };
-                    auto& transform = entity.GetComponent<TransformComponent>();
-                    const auto& rb3d = entity.GetComponent<Rigidbody3DComponent>();
-
-                    if (rb3d.m_RuntimeBodyToken != 0 && rb3d.m_Type != BodyType3D::Static && m_JoltScene)
-                    {
-                        // Get the body from JoltScene and sync transforms
-                        auto body = m_JoltScene->GetBody(entity);
-                        if (body)
-                        {
-                            auto pos = body->GetPosition();
-                            auto rot = body->GetRotation();
-
-                            transform.Translation = pos;
-                            transform.SetRotation(glm::normalize(rot));
-                        }
-                    }
-                }
-
-                // Retrieve transforms from Jolt character controllers — without
-                // this loop the controller's CharacterVirtual moves internally
-                // but the entity's TransformComponent never updates, so the
-                // character "walks" only inside Jolt while ECS thinks it never
-                // moved. Mirrors the rigid-body sync above.
-                if (m_JoltScene)
-                {
-                    for (const auto view = m_Registry.view<CharacterController3DComponent, TransformComponent>(); const auto e : view)
-                    {
-                        Entity entity = { e, this };
-                        if (auto controller = m_JoltScene->GetCharacterController(entity))
-                        {
-                            auto& transform = entity.GetComponent<TransformComponent>();
-                            transform.Translation = controller->GetTranslation();
-                            transform.SetRotation(controller->GetRotation());
-                        }
-                    }
-                }
-            }
+            // Physics: 2D + 3D step and transform sync (shared with the other
+            // runtime/simulate tick — see Scene::StepPhysics).
+            StepPhysics(ts);
         }
 
         // Render based on mode

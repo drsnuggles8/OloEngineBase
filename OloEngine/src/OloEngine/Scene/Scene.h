@@ -552,6 +552,13 @@ namespace OloEngine
         void UpdateStreaming();
         void SimulateRuntimeStep(Timestep ts);
         void RenderRuntime(Timestep ts);
+        // Step 2D (Box2D) + 3D (Jolt, incl. m_SimulationTime-driven buoyancy)
+        // physics one tick and sync the results back onto the ECS transforms
+        // (Rigidbody2D / Rigidbody3D / CharacterController3D). Shared by the
+        // runtime tick (SimulateRuntimeStep) and editor Simulate-mode tick
+        // (OnUpdateSimulation) so the two never drift. The caller advances
+        // m_SimulationTime before calling.
+        void StepPhysics(Timestep ts);
 
       private:
         entt::registry m_Registry;
