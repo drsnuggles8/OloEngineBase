@@ -163,6 +163,149 @@ TEST(TransformComponent, SetTransformRoundTrip)
 }
 
 // =============================================================================
+// World-matrix cache (issue #442) -- cached path must equal a fresh recompute,
+// and any TRS mutation (via setter OR direct public-field write) must invalidate.
+// =============================================================================
+
+namespace
+{
+    // Reference recompute, matching GetTransform()'s formula exactly.
+    glm::mat4 FreshTransform(const TransformComponent& tc)
+    {
+        return glm::translate(glm::mat4(1.0f), tc.Translation) * glm::toMat4(tc.GetRotation()) * glm::scale(glm::mat4(1.0f), tc.Scale);
+    }
+
+    void ExpectMatNear(const glm::mat4& a, const glm::mat4& b, f32 eps = 1e-5f)
+    {
+        for (int col = 0; col < 4; ++col)
+            for (int row = 0; row < 4; ++row)
+                EXPECT_NEAR(a[col][row], b[col][row], eps) << "mismatch at [" << col << "][" << row << "]";
+    }
+} // namespace
+
+TEST(TransformComponentCache, RepeatedCallsAreBitIdenticalAndMatchFreshRecompute)
+{
+    TransformComponent tc;
+    tc.Translation = { 1.5f, -2.0f, 3.25f };
+    tc.SetRotationEuler({ 0.3f, -0.7f, 0.9f });
+    tc.Scale = { 2.0f, 0.5f, 1.25f };
+
+    const glm::mat4 first = tc.GetTransform();
+    // The reference recompute must agree with the (now cached) first result.
+    ExpectMatNear(first, FreshTransform(tc));
+
+    // Subsequent reads without any mutation must return the byte-identical cache.
+    for (int i = 0; i < 5; ++i)
+        EXPECT_TRUE(OloEngine::Math::BitwiseEqual(tc.GetTransform(), first));
+}
+
+TEST(TransformComponentCache, DirectTranslationWriteInvalidatesCache)
+{
+    TransformComponent tc;
+    tc.Translation = { 1.0f, 0.0f, 0.0f };
+    (void)tc.GetTransform(); // prime the cache
+
+    tc.Translation = { 9.0f, -4.0f, 2.0f }; // direct public-field mutation
+    ExpectMatNear(tc.GetTransform(), FreshTransform(tc));
+    EXPECT_NEAR(tc.GetTransform()[3][0], 9.0f, 1e-5f);
+    EXPECT_NEAR(tc.GetTransform()[3][1], -4.0f, 1e-5f);
+    EXPECT_NEAR(tc.GetTransform()[3][2], 2.0f, 1e-5f);
+}
+
+TEST(TransformComponentCache, DirectScaleWriteInvalidatesCache)
+{
+    TransformComponent tc;
+    (void)tc.GetTransform(); // prime with identity scale
+
+    tc.Scale = { 3.0f, 4.0f, 5.0f }; // direct public-field mutation
+    ExpectMatNear(tc.GetTransform(), FreshTransform(tc));
+    EXPECT_NEAR(glm::length(glm::vec3(tc.GetTransform()[0])), 3.0f, 1e-5f);
+    EXPECT_NEAR(glm::length(glm::vec3(tc.GetTransform()[1])), 4.0f, 1e-5f);
+    EXPECT_NEAR(glm::length(glm::vec3(tc.GetTransform()[2])), 5.0f, 1e-5f);
+}
+
+TEST(TransformComponentCache, RotationSettersInvalidateCache)
+{
+    TransformComponent tc;
+    (void)tc.GetTransform(); // prime with identity rotation
+
+    tc.SetRotationEuler({ 0.4f, 0.5f, -0.6f });
+    ExpectMatNear(tc.GetTransform(), FreshTransform(tc));
+
+    (void)tc.GetTransform();
+    tc.SetRotation(glm::quat(glm::vec3(-0.2f, 0.8f, 0.1f)));
+    ExpectMatNear(tc.GetTransform(), FreshTransform(tc));
+}
+
+TEST(TransformComponentCache, SetTransformInvalidatesCache)
+{
+    TransformComponent tc;
+    tc.Translation = { 1.0f, 1.0f, 1.0f };
+    (void)tc.GetTransform(); // prime
+
+    const glm::mat4 target = glm::translate(glm::mat4(1.0f), glm::vec3(4.0f, -2.0f, 6.0f)) * glm::toMat4(glm::quat(glm::vec3(0.1f, 0.2f, 0.3f))) * glm::scale(glm::mat4(1.0f), glm::vec3(2.0f));
+    tc.SetTransform(target);
+    ExpectMatNear(tc.GetTransform(), FreshTransform(tc), 1e-4f);
+}
+
+TEST(TransformComponentCache, CopyCarriesValidCache)
+{
+    TransformComponent src;
+    src.Translation = { 2.0f, 3.0f, 4.0f };
+    src.SetRotationEuler({ 0.2f, 0.4f, 0.6f });
+    src.Scale = { 1.5f, 2.5f, 0.5f };
+    const glm::mat4 srcMat = src.GetTransform(); // prime src cache
+
+    TransformComponent dst = src; // copy includes the cache
+    ExpectMatNear(dst.GetTransform(), srcMat);
+
+    // Mutating the copy must not affect the source and must invalidate dst's cache.
+    dst.Translation = { -1.0f, -1.0f, -1.0f };
+    ExpectMatNear(dst.GetTransform(), FreshTransform(dst));
+    ExpectMatNear(src.GetTransform(), srcMat);
+}
+
+TEST(TransformComponentCache, OperatorEqualsIgnoresCacheState)
+{
+    TransformComponent primed;
+    primed.Translation = { 1.0f, 2.0f, 3.0f };
+    primed.SetRotationEuler({ 0.1f, 0.2f, 0.3f });
+    (void)primed.GetTransform(); // primed has a valid cache
+
+    TransformComponent fresh;
+    fresh.Translation = { 1.0f, 2.0f, 3.0f };
+    fresh.SetRotationEuler({ 0.1f, 0.2f, 0.3f }); // identical TRS, cache never built
+
+    EXPECT_TRUE(primed == fresh) << "equality must depend only on authored TRS, not cache state";
+
+    fresh.Translation.x += 1.0f;
+    EXPECT_FALSE(primed == fresh);
+}
+
+TEST(TransformComponentCache, OperatorEqualsIgnoresEulerRepresentationWhenQuatMatches)
+{
+    // Reach the same quaternion via two different Euler histories: SetRotation()
+    // picks among equivalent Euler angles for gizmo continuity, so RotationEuler
+    // can differ while the Rotation quat (and thus GetTransform()) is identical.
+    const glm::quat q = glm::quat(glm::vec3(glm::pi<float>() + 0.05f, 0.0f, 0.0f));
+
+    TransformComponent fromZero;
+    fromZero.SetRotation(q); // continuity relative to euler (0,0,0)
+
+    TransformComponent fromNearPi;
+    fromNearPi.SetRotationEuler({ glm::pi<float>() - 0.05f, 0.0f, 0.0f });
+    fromNearPi.SetRotation(q); // continuity relative to euler near +pi
+
+    // Quats are bit-identical (both glm::normalize of the same q)...
+    ASSERT_TRUE(OloEngine::Math::BitwiseEqual(fromZero.GetRotation(), fromNearPi.GetRotation()));
+    // ...but the continuity-adjusted Euler representations differ.
+    ASSERT_FALSE(OloEngine::Math::BitwiseEqual(fromZero.GetRotationEuler(), fromNearPi.GetRotationEuler()));
+
+    // Equality must follow the authored transform (the quat), not the display Euler.
+    EXPECT_TRUE(fromZero == fromNearPi) << "differing RotationEuler must not cause false inequality when Rotation matches";
+}
+
+// =============================================================================
 // Copy semantics
 // =============================================================================
 

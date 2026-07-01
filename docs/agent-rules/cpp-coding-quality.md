@@ -177,6 +177,28 @@ When the component contains a type without `operator==` (e.g., `Material`), writ
 
 `UUID` has implicit `operator u64()`. That causes **C2666 ambiguity** with any member `operator==`. In a manual `operator==`, compare UUIDs via `static_cast<u64>()` to disambiguate.
 
+### Mutable caches must be excluded from `operator==` (and routed off the memcmp undo path)
+
+If a component holds a `mutable` runtime-only cache (e.g. `TransformComponent`'s local-matrix
+cache from issue #442), do **not** leave `operator==` as `= default`: the defaulted comparison
+includes the cache fields, so two components with identical authored data compare **unequal**
+when one has a populated cache and the other doesn't — breaking round-trip tests and undo
+change-detection. Write a manual `operator==` (trailing-return form) that compares only the
+authored fields via `Math::BitwiseEqual`. Additionally, because the cache is `mutable`, a render
+pass can repopulate it between the editor undo snapshot and the compare — so the whole-struct
+`memcmp` path in `SceneHierarchyPanel::DrawComponent` would see spurious byte diffs. Opt the
+component into the value-comparison path with `PreferValueComparison<T> : std::true_type` so undo
+uses the cache-agnostic `operator==` instead.
+
+### Prefer input-snapshot validation over a setter dirty-flag when the inputs are public
+
+A dirty flag only works if **every** mutation goes through a setter. `TransformComponent.Translation`
+/`.Scale` are public and mutated in-place in hundreds of call sites, so a setter-invalidated flag
+would silently miss direct writes. Instead cache the computed result **plus** a bit-copy of the
+inputs it was built from, and on read compare the current inputs (`Math::BitwiseEqual`) against the
+cached inputs — any mutation path (setter or raw field write) invalidates correctly, with no
+call-site changes. Seed a `bool m_CacheValid = false` so the first read always computes.
+
 ---
 
 ## 8. Prefer structured bindings and range-for
