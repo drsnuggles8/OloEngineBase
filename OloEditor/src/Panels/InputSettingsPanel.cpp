@@ -2,6 +2,7 @@
 #include "InputSettingsPanel.h"
 #include "OloEngine/Core/InputActionManager.h"
 #include "OloEngine/Core/InputActionSerializer.h"
+#include "OloEngine/Core/InputRebindController.h"
 #include "OloEngine/Core/KeyCodes.h"
 #include "OloEngine/Core/MouseCodes.h"
 #include "OloEngine/Core/GamepadCodes.h"
@@ -402,35 +403,12 @@ namespace OloEngine
         auto oldMap = EditMap();
 
         auto& map = EditMap();
-        if (auto* action = map.GetAction(m_RebindActionName); action)
+        if (map.GetAction(m_RebindActionName))
         {
-            // Conflict detection — remove this binding from any other action
-            for (auto& [name, act] : map.Actions)
-            {
-                if (name == m_RebindActionName)
-                {
-                    continue;
-                }
-                auto it = std::ranges::find(act.Bindings, newBinding);
-                if (it != act.Bindings.end())
-                {
-                    act.Bindings.erase(it);
-                }
-            }
-
-            // Apply the binding
-            if (m_RebindIsNewBinding)
-            {
-                action->Bindings.push_back(newBinding);
-            }
-            else if (m_RebindBindingIndex < action->Bindings.size())
-            {
-                action->Bindings[m_RebindBindingIndex] = newBinding;
-            }
-            else
-            {
-                // No additional handling required.
-            }
+            // Apply via the shared controller helper: it removes the binding from any other
+            // action (editor policy: silent auto-replace) and assigns it to the target slot.
+            InputRebindController::ApplyBinding(map, m_RebindActionName, m_RebindBindingIndex, m_RebindIsNewBinding, newBinding,
+                                                /*removeFromConflicts=*/true);
             m_Dirty = true;
 
             if (m_CommandHistory)

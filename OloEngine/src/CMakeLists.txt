@@ -307,6 +307,8 @@
 		"OloEngine/Core/InputActionManager.cpp"
 		"OloEngine/Core/InputActionSerializer.h"
 		"OloEngine/Core/InputActionSerializer.cpp"
+		"OloEngine/Core/InputRebindController.h"
+		"OloEngine/Core/InputRebindController.cpp"
 		"OloEngine/Core/Gamepad.h"
 		"OloEngine/Core/Gamepad.cpp"
 		"OloEngine/Core/GamepadCodes.h"
@@ -1106,6 +1108,8 @@
 		"OloEngine/UI/UIInputSystem.cpp"
 		"OloEngine/UI/UINavigationSystem.h"
 		"OloEngine/UI/UINavigationSystem.cpp"
+		"OloEngine/UI/RuntimeInputRebindMenu.h"
+		"OloEngine/UI/RuntimeInputRebindMenu.cpp"
 
 		"OloEngine/Video/PlMpeg.cpp"
 		"OloEngine/Video/VideoDecoder.h"
