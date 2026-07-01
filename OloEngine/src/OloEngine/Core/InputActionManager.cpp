@@ -393,6 +393,17 @@ namespace OloEngine
         }
     }
 
+    void InputActionManager::ReplaceAllContextMaps(const std::unordered_map<InputContextType, InputActionMap>& maps)
+    {
+        // Wholesale replace: assignment drops any context not present in `maps`, so maps
+        // authored under a previously-loaded project can't linger into the new one.
+        s_ContextMaps = maps;
+        // The active context's map may have changed (or vanished) — reset cached state.
+        s_CurrentState.clear();
+        s_PreviousState.clear();
+        s_AxisValues.clear();
+    }
+
     void InputActionManager::SetInputContext(InputContextType ctx)
     {
         OLO_PROFILE_FUNCTION();

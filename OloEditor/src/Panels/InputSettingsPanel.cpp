@@ -36,7 +36,7 @@ namespace OloEngine
 
         ImGui::Separator();
 
-        auto& map = InputActionManager::GetActionMap();
+        auto& map = EditMap();
 
         // Sort action names for stable display order
         std::vector<std::string> actionNames;
@@ -99,24 +99,30 @@ namespace OloEngine
                                                      { return OnMouseButtonPressed(event); });
     }
 
+    InputActionMap& InputSettingsPanel::EditMap()
+    {
+        // Author the selected context's map directly, without touching the runtime
+        // active context. GetActionMapMutable creates the context on first edit.
+        return InputActionManager::GetActionMapMutable(m_EditContext);
+    }
+
     void InputSettingsPanel::DrawContextSelector()
     {
-        // Selects which context's action map the panel edits. Each context owns its
-        // own map (gameplay/menu/vehicle/custom); switching here makes GetActionMap()
-        // return that context's live map so every Draw* below operates on it.
-        const InputContextType current = InputActionManager::GetInputContext();
-
+        // Selects which context's action map the panel edits. Each context owns its own
+        // map (gameplay/menu/vehicle/custom). This only changes the editor's edit target
+        // (m_EditContext) — it does NOT call SetInputContext, so it never collapses the
+        // runtime context stack or resets live input state during Play.
         ImGui::TextUnformatted("Context:");
         ImGui::SameLine();
         ImGui::SetNextItemWidth(160.0f);
-        if (ImGui::BeginCombo("##InputContext", InputContextTypeToString(current)))
+        if (ImGui::BeginCombo("##InputContext", InputContextTypeToString(m_EditContext)))
         {
             for (const auto ctx : AllInputContextTypes)
             {
-                const bool selected = (ctx == current);
-                if (ImGui::Selectable(InputContextTypeToString(ctx), selected) && ctx != current)
+                const bool selected = (ctx == m_EditContext);
+                if (ImGui::Selectable(InputContextTypeToString(ctx), selected))
                 {
-                    InputActionManager::SetInputContext(ctx);
+                    m_EditContext = ctx;
                 }
                 if (selected)
                 {
@@ -129,7 +135,7 @@ namespace OloEngine
 
     void InputSettingsPanel::DrawActionMapHeader()
     {
-        const auto& map = InputActionManager::GetActionMap();
+        const auto& map = EditMap();
 
         ImGui::Text("Action Map: %s", map.Name.empty() ? "(unnamed)" : map.Name.c_str());
         ImGui::SameLine();
@@ -143,8 +149,18 @@ namespace OloEngine
             {
                 auto path = Project::GetInputActionMapPath();
                 // Persist every authored context's map, not just the active one, so
-                // per-context bindings survive a reload.
-                if (InputActionSerializer::SerializeContexts(InputActionManager::GetAllContextMaps(), path))
+                // per-context bindings survive a reload. Skip empty maps so a context
+                // merely selected in the combo (which lazily creates an empty map) isn't
+                // written out as a spurious empty context.
+                InputActionSerializer::ContextMaps toSave;
+                for (const auto& [ctx, ctxMap] : InputActionManager::GetAllContextMaps())
+                {
+                    if (!ctxMap.Actions.empty())
+                    {
+                        toSave[ctx] = ctxMap;
+                    }
+                }
+                if (InputActionSerializer::SerializeContexts(toSave, path))
                 {
                     m_Dirty = false;
                 }
@@ -165,13 +181,13 @@ namespace OloEngine
             if (hasProject)
             {
                 auto path = Project::GetInputActionMapPath();
-                // Restore every context (legacy single-map files load as Gameplay).
+                // Revert to disk: replace ALL contexts wholesale so in-memory contexts
+                // absent from the file are dropped (a true revert, not a merge). Legacy
+                // single-map files load as the Gameplay context.
                 if (auto loaded = InputActionSerializer::DeserializeContexts(path))
                 {
-                    for (const auto& [ctx, ctxMap] : *loaded)
-                    {
-                        InputActionManager::SetActionMap(ctx, ctxMap);
-                    }
+                    InputActionManager::ReplaceAllContextMaps(*loaded);
+                    m_EditContext = InputContextType::Gameplay;
                     m_Dirty = false;
                 }
             }
@@ -180,13 +196,13 @@ namespace OloEngine
         ImGui::SameLine();
         if (ImGui::Button("Reset to Empty"))
         {
-            auto oldMap = InputActionManager::GetActionMap();
-            InputActionManager::SetActionMap({});
+            auto oldMap = EditMap();
+            InputActionManager::SetActionMap(m_EditContext, {});
             m_Dirty = true;
             if (m_CommandHistory)
             {
                 m_CommandHistory->PushAlreadyExecuted(
-                    std::make_unique<InputActionMapChangeCommand>(std::move(oldMap), InputActionManager::GetActionMap(), "Reset Input Map",
+                    std::make_unique<InputActionMapChangeCommand>(m_EditContext, std::move(oldMap), EditMap(), "Reset Input Map",
                                                                   [this]()
                                                                   { m_Dirty = true; }));
             }
@@ -203,13 +219,13 @@ namespace OloEngine
         ImGui::SameLine(ImGui::GetWindowWidth() - 80.0f);
         if (ImGui::SmallButton("Remove"))
         {
-            auto oldMap = InputActionManager::GetActionMap();
-            InputActionManager::GetActionMap().RemoveAction(action.Name);
+            auto oldMap = EditMap();
+            EditMap().RemoveAction(action.Name);
             m_Dirty = true;
             if (m_CommandHistory)
             {
                 m_CommandHistory->PushAlreadyExecuted(
-                    std::make_unique<InputActionMapChangeCommand>(std::move(oldMap), InputActionManager::GetActionMap(), "Remove Action",
+                    std::make_unique<InputActionMapChangeCommand>(m_EditContext, std::move(oldMap), EditMap(), "Remove Action",
                                                                   [this]()
                                                                   { m_Dirty = true; }));
             }
@@ -286,13 +302,13 @@ namespace OloEngine
         ImGui::SameLine();
         if (ImGui::SmallButton("X"))
         {
-            auto oldMap = InputActionManager::GetActionMap();
+            auto oldMap = EditMap();
             action.Bindings.erase(action.Bindings.begin() + static_cast<std::ptrdiff_t>(bindingIndex));
             m_Dirty = true;
             if (m_CommandHistory)
             {
                 m_CommandHistory->PushAlreadyExecuted(
-                    std::make_unique<InputActionMapChangeCommand>(std::move(oldMap), InputActionManager::GetActionMap(), "Remove Binding",
+                    std::make_unique<InputActionMapChangeCommand>(m_EditContext, std::move(oldMap), EditMap(), "Remove Binding",
                                                                   [this]()
                                                                   { m_Dirty = true; }));
             }
@@ -347,7 +363,7 @@ namespace OloEngine
             ImGui::InputText("##NewActionName", m_NewActionNameBuffer, sizeof(m_NewActionNameBuffer));
 
             bool nameEmpty = (m_NewActionNameBuffer[0] == '\0');
-            bool duplicate = InputActionManager::GetActionMap().HasAction(m_NewActionNameBuffer);
+            bool duplicate = EditMap().HasAction(m_NewActionNameBuffer);
 
             if (duplicate)
             {
@@ -356,15 +372,15 @@ namespace OloEngine
 
             if (ImGui::Button("Create") && !nameEmpty && !duplicate)
             {
-                auto oldMap = InputActionManager::GetActionMap();
+                auto oldMap = EditMap();
                 InputAction newAction;
                 newAction.Name = m_NewActionNameBuffer;
-                InputActionManager::GetActionMap().AddAction(std::move(newAction));
+                EditMap().AddAction(std::move(newAction));
                 m_Dirty = true;
                 if (m_CommandHistory)
                 {
                     m_CommandHistory->PushAlreadyExecuted(
-                        std::make_unique<InputActionMapChangeCommand>(std::move(oldMap), InputActionManager::GetActionMap(), "Add Action",
+                        std::make_unique<InputActionMapChangeCommand>(m_EditContext, std::move(oldMap), EditMap(), "Add Action",
                                                                       [this]()
                                                                       { m_Dirty = true; }));
                 }
@@ -383,9 +399,9 @@ namespace OloEngine
 
     void InputSettingsPanel::ApplyNewBinding(InputBinding newBinding)
     {
-        auto oldMap = InputActionManager::GetActionMap();
+        auto oldMap = EditMap();
 
-        auto& map = InputActionManager::GetActionMap();
+        auto& map = EditMap();
         if (auto* action = map.GetAction(m_RebindActionName); action)
         {
             // Conflict detection — remove this binding from any other action
@@ -420,7 +436,7 @@ namespace OloEngine
             if (m_CommandHistory)
             {
                 m_CommandHistory->PushAlreadyExecuted(
-                    std::make_unique<InputActionMapChangeCommand>(std::move(oldMap), InputActionManager::GetActionMap(),
+                    std::make_unique<InputActionMapChangeCommand>(m_EditContext, std::move(oldMap), EditMap(),
                                                                   m_RebindIsNewBinding ? "Add Binding" : "Rebind",
                                                                   [this]()
                                                                   { m_Dirty = true; }));
@@ -506,16 +522,16 @@ namespace OloEngine
             {
                 if (ImGui::Selectable(axisNames[i]))
                 {
-                    auto& map = InputActionManager::GetActionMap();
+                    auto& map = EditMap();
                     if (auto* action = map.GetAction(m_GamepadAxisActionName); action)
                     {
-                        auto oldMap = InputActionManager::GetActionMap();
+                        auto oldMap = EditMap();
                         action->Bindings.push_back(InputBinding::GamepadAx(axes[i], 0.5f, true));
                         m_Dirty = true;
                         if (m_CommandHistory)
                         {
                             m_CommandHistory->PushAlreadyExecuted(
-                                std::make_unique<InputActionMapChangeCommand>(std::move(oldMap), InputActionManager::GetActionMap(), "Add Gamepad Axis",
+                                std::make_unique<InputActionMapChangeCommand>(m_EditContext, std::move(oldMap), EditMap(), "Add Gamepad Axis",
                                                                               [this]()
                                                                               { m_Dirty = true; }));
                         }

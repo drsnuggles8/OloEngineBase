@@ -283,8 +283,7 @@ TEST(GamepadSerializationTest, RoundTrip)
     ASSERT_TRUE(loadedContexts.has_value());
     auto loadedIt = loadedContexts->find(InputContextType::Gameplay);
     ASSERT_NE(loadedIt, loadedContexts->end());
-    std::optional<InputActionMap> loaded = loadedIt->second;
-    ASSERT_TRUE(loaded.has_value());
+    const InputActionMap* loaded = &loadedIt->second;
 
     EXPECT_EQ(loaded->Name, "GamepadTestMap");
 

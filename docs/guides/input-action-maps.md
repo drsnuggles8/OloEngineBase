@@ -45,10 +45,25 @@ InputActionContexts:
 ```
 
 **Back-compat:** a file written in the old single-map format (an `InputActionMap`
-root node, no contexts) still loads — `DeserializeContexts` maps it to the
-`Gameplay` context. Legacy `Serialize` / `Deserialize` (single map) remain for that
-on-disk shape; the contexts always emit the same per-map shape via the shared
-`EmitActionMapNode` / `ParseActionMapNode` helpers.
+root node, no contexts) still loads — `DeserializeContexts` reads that shape and
+maps it to the `Gameplay` context. The old single-map `Serialize`/`Deserialize`
+public methods were removed; only the legacy *read* branch survives, and every
+per-map read/write goes through the shared `EmitActionMapNode` / `ParseActionMapNode`
+helpers so the on-disk per-map shape is identical for both paths.
+
+**Loading is a wholesale replace.** Project open and the editor's "Load from Disk"
+both call `InputActionManager::ReplaceAllContextMaps`, which drops any context not
+in the file — so maps never leak from a previously-open project and "Load from Disk"
+is a true revert (a project with no input config resets to empty). Save persists
+only non-empty context maps, so a context merely selected in the editor combo (which
+lazily creates an empty map) is not written out.
+
+**Editor edit target vs. runtime active context are separate.** The Input Settings
+panel authors a chosen context via `InputActionManager::GetActionMapMutable(ctx)`
+(tracked in a panel-local `m_EditContext`); it does **not** call `SetInputContext`,
+so selecting a context to edit never collapses the runtime context stack or resets
+live input state during Play. `SetInputContext` / `PushContext` / `PopContext` remain
+purely a runtime/gameplay concern.
 
 All floats read back from YAML are validated with `std::isfinite` (a `NaN`
 `Threshold` falls back to `0.5`); unknown context names, malformed entries, and

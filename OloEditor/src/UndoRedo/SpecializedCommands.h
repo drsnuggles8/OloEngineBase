@@ -427,16 +427,17 @@ namespace OloEngine
       public:
         using NotifyFn = std::function<void()>;
 
-        InputActionMapChangeCommand(InputActionMap oldMap, InputActionMap newMap,
+        InputActionMapChangeCommand(InputContextType context, InputActionMap oldMap, InputActionMap newMap,
                                     std::string description = "Input Settings Change",
                                     NotifyFn onApply = nullptr)
-            : m_OldMap(std::move(oldMap)), m_NewMap(std::move(newMap)), m_Description(std::move(description)), m_OnApply(std::move(onApply))
+            : m_Context(context), m_OldMap(std::move(oldMap)), m_NewMap(std::move(newMap)), m_Description(std::move(description)),
+              m_OnApply(std::move(onApply))
         {
         }
 
         void Execute() override
         {
-            InputActionManager::SetActionMap(m_NewMap);
+            InputActionManager::SetActionMap(m_Context, m_NewMap);
             if (m_OnApply)
             {
                 m_OnApply();
@@ -445,7 +446,7 @@ namespace OloEngine
 
         void Undo() override
         {
-            InputActionManager::SetActionMap(m_OldMap);
+            InputActionManager::SetActionMap(m_Context, m_OldMap);
             if (m_OnApply)
             {
                 m_OnApply();
@@ -458,6 +459,7 @@ namespace OloEngine
         }
 
       private:
+        InputContextType m_Context;
         InputActionMap m_OldMap;
         InputActionMap m_NewMap;
         std::string m_Description;

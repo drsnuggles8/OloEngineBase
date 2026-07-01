@@ -42,8 +42,8 @@ namespace OloEngine
     }
 
     // Emit the body of a single action map (a YAML map node holding Name + Actions).
-    // Shared by both the legacy single-map and the multi-context serializers so the
-    // on-disk per-map shape stays byte-identical between them.
+    // The per-map writer used by SerializeContexts for each context; paired with
+    // ParseActionMapNode, which reads back the same shape (including for legacy files).
     static void EmitActionMapNode(YAML::Emitter& out, const InputActionMap& map)
     {
         // Collect and sort action names for deterministic output
@@ -305,28 +305,24 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        // Emit contexts in enum order for deterministic output regardless of the
-        // unordered_map's internal ordering.
-        std::vector<InputContextType> sortedContexts;
-        sortedContexts.reserve(contexts.size());
-        for (const auto& [ctx, _] : contexts)
-        {
-            sortedContexts.push_back(ctx);
-        }
-        std::ranges::sort(sortedContexts, [](InputContextType a, InputContextType b)
-                          { return std::to_underlying(a) < std::to_underlying(b); });
-
         YAML::Emitter out;
         out << YAML::BeginMap;
         out << YAML::Key << "InputActionContexts" << YAML::Value;
         {
             out << YAML::BeginSeq;
-            for (const auto ctx : sortedContexts)
+            // Iterate the compile-time enum-ordered list for deterministic output,
+            // regardless of the unordered_map's internal ordering.
+            for (const auto ctx : AllInputContextTypes)
             {
+                auto it = contexts.find(ctx);
+                if (it == contexts.end())
+                {
+                    continue;
+                }
                 out << YAML::BeginMap;
                 out << YAML::Key << "Context" << YAML::Value << InputContextTypeToString(ctx);
                 out << YAML::Key << "Map" << YAML::Value;
-                EmitActionMapNode(out, contexts.at(ctx));
+                EmitActionMapNode(out, it->second);
                 out << YAML::EndMap;
             }
             out << YAML::EndSeq;
