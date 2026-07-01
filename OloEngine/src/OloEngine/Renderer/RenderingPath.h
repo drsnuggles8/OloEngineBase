@@ -75,6 +75,11 @@ namespace OloEngine
         // --- Culling ---
         bool FrustumCullingEnabled = true;
         bool OcclusionCullingEnabled = false;
+        // GPU Hi-Z occlusion cull for instanced static geometry (#431). Rejects
+        // instances hidden behind the previous frame's depth pyramid before the
+        // indirect draw. Off by default — one-frame-latent, so fast camera cuts
+        // can briefly pop until the two-pass refinement lands.
+        bool HZBOcclusionCullingEnabled = false;
 
         // --- Depth pre-pass ---
         bool DepthPrepassEnabled = false;

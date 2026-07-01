@@ -343,3 +343,61 @@ TEST(ComponentReplicatorTest, Rigidbody3DRejectsZeroMass)
     EXPECT_TRUE(std::isfinite(loaded.m_Mass));
     EXPECT_GT(loaded.m_Mass, 0.0f);
 }
+
+// ── AnimationState networked-subset wire hardening ───────────────────────
+// Wire layout (net archive): i32 state, i32 clipIndex, f32 currentTime, bool isPlaying.
+
+TEST(ComponentReplicatorTest, AnimationStateClampsOutOfRangeEnumToIdle)
+{
+    using namespace OloEngine;
+
+    // An out-of-range selector (valid range is Idle..Custom = 0..2) must not drive
+    // the state machine into a bogus case — it falls back to Idle. The other fields
+    // round-trip untouched.
+    std::vector<u8> buffer;
+    {
+        FMemoryWriter writer(buffer);
+        writer.ArIsNetArchive = true;
+        i32 state = 999;
+        i32 clipIndex = 5;
+        f32 time = 0.5f;
+        bool playing = true;
+        writer << state << clipIndex << time << playing;
+    }
+
+    AnimationStateComponent loaded;
+    FMemoryReader reader(buffer);
+    reader.ArIsNetArchive = true;
+    ComponentReplicator::Serialize(reader, loaded);
+
+    EXPECT_FALSE(reader.IsError());
+    EXPECT_EQ(loaded.m_State, AnimationStateComponent::State::Idle);
+    EXPECT_EQ(loaded.m_CurrentClipIndex, 5);
+    EXPECT_FLOAT_EQ(loaded.m_CurrentTime, 0.5f);
+    EXPECT_TRUE(loaded.m_IsPlaying);
+}
+
+TEST(ComponentReplicatorTest, AnimationStateFloorsNegativeClipIndexAndKeepsValidEnum)
+{
+    using namespace OloEngine;
+
+    std::vector<u8> buffer;
+    {
+        FMemoryWriter writer(buffer);
+        writer.ArIsNetArchive = true;
+        i32 state = 1; // Bounce — valid, must survive
+        i32 clipIndex = -3;
+        f32 time = 0.0f;
+        bool playing = false;
+        writer << state << clipIndex << time << playing;
+    }
+
+    AnimationStateComponent loaded;
+    FMemoryReader reader(buffer);
+    reader.ArIsNetArchive = true;
+    ComponentReplicator::Serialize(reader, loaded);
+
+    EXPECT_FALSE(reader.IsError());
+    EXPECT_EQ(loaded.m_State, AnimationStateComponent::State::Bounce);
+    EXPECT_EQ(loaded.m_CurrentClipIndex, 0); // floored
+}

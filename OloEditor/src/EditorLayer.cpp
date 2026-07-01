@@ -374,6 +374,39 @@ namespace OloEngine
                 // history available") rather than mutating the runtime scene.
                 return m_SceneState == SceneState::Edit ? &m_CommandHistory : nullptr;
             };
+            // olo_reload_script: reload the C# app assembly — the same path as the
+            // Script ▸ Reload assembly menu (Ctrl+R). Main-thread-only (Mono domain),
+            // so the MCP server calls it from a MarshalRead job. Reports honestly when
+            // C# scripting is disabled in this build or not yet initialized, rather
+            // than pretending a reload happened.
+            mcpContext.ReloadScriptAssembly = []() -> MCP::McpScriptReloadResult
+            {
+                MCP::McpScriptReloadResult result;
+                result.Language = "csharp";
+#if OLO_ENABLE_CSHARP_SCRIPTING
+                if (ScriptEngine::GetCoreAssemblyImage() == nullptr)
+                {
+                    result.Message = "C# scripting is not initialized (no core assembly loaded).";
+                    return result;
+                }
+                // Available: scripting is initialized so a reload could be attempted.
+                // Ok: whether the assembly actually loaded (false when the freshly-built
+                // app assembly fails to load — e.g. a compile error — leaving the entity
+                // classes stale). Report both distinctly rather than always claiming success.
+                const bool reloaded = ScriptEngine::ReloadAssembly();
+                result.Available = true;
+                result.Ok = reloaded;
+                result.ScriptClassCount = static_cast<u32>(ScriptEngine::GetEntityClasses().size());
+                result.Message = reloaded
+                                     ? "Reloaded the C# app assembly (" + std::to_string(result.ScriptClassCount) +
+                                           " script class(es) registered)."
+                                     : "Reload failed: the C# app assembly did not load (see the engine log). "
+                                       "Rebuild the game assembly and retry.";
+#else
+                result.Message = "C# scripting is disabled in this build (Mono not available on this platform).";
+#endif
+                return result;
+            };
             mcpContext.GetFrameIndex = [this]() -> u64
             { return m_FrameIndex; };
             mcpContext.IsCaptureUnready = [this]() -> bool

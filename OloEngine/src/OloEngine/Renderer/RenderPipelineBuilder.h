@@ -23,6 +23,7 @@ namespace OloEngine
         RenderGraphNode* DeferredLighting = nullptr;
         RenderGraphNode* DeferredOpaqueDecal = nullptr;
         RenderGraphNode* PlanarReflection = nullptr;
+        RenderGraphNode* GPUOcclusion = nullptr;
         RenderGraphNode* ForwardOverlay = nullptr;
         RenderGraphNode* Foliage = nullptr;
         RenderGraphNode* Water = nullptr;

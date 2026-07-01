@@ -105,6 +105,7 @@ namespace OloEngine
 
             AppendChange(changes, "FrustumCulling", before.FrustumCullingEnabled, after.FrustumCullingEnabled);
             AppendChange(changes, "OcclusionCulling", before.OcclusionCullingEnabled, after.OcclusionCullingEnabled);
+            AppendChange(changes, "HZBOcclusionCulling", before.HZBOcclusionCullingEnabled, after.HZBOcclusionCullingEnabled);
             AppendChange(changes, "DepthPrepass", before.DepthPrepassEnabled, after.DepthPrepassEnabled);
 
             AppendChange(changes, "ForwardPlusAutoSwitch", before.ForwardPlusAutoSwitch, after.ForwardPlusAutoSwitch);
@@ -559,6 +560,17 @@ namespace OloEngine
             if (ImGui::Checkbox("Occlusion Culling", &settings.OcclusionCullingEnabled))
             {
                 Renderer3D::ApplyRendererSettings();
+            }
+
+            if (ImGui::Checkbox("GPU Hi-Z Occlusion Cull (instanced)", &settings.HZBOcclusionCullingEnabled))
+            {
+                Renderer3D::ApplyRendererSettings();
+            }
+            if (ImGui::IsItemHovered())
+            {
+                ImGui::SetTooltip("Rejects instanced static meshes hidden behind the previous frame's\n"
+                                  "depth pyramid before the indirect draw (#431). One-frame-latent;\n"
+                                  "only affects dense instanced submissions above the GPU-cull threshold.");
             }
 
             // Depth pre-pass is forced on when Forward+ is selected

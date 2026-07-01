@@ -1,12 +1,14 @@
 #include "OloEnginePCH.h"
 #include "ClientPrediction.h"
+#include "OloEngine/Networking/Replication/ComponentInterpolationRegistry.h"
 #include "OloEngine/Scene/Scene.h"
 #include "OloEngine/Scene/Entity.h"
 #include "OloEngine/Scene/Components.h"
+#include "OloEngine/Serialization/Archive.h"
 #include "OloEngine/Debug/Profiler.h"
 
-#include <glm/glm.hpp>
-#include <unordered_map>
+#include <algorithm>
+#include <vector>
 
 namespace OloEngine
 {
@@ -36,53 +38,87 @@ namespace OloEngine
 
         // The server snapshot has already been applied to the scene (via SnapshotInterpolator or Apply).
         // Now re-simulate all unconfirmed inputs on top of the server state.
-        if (m_ApplyCallback)
+        if (!m_ApplyCallback)
         {
-            auto unconfirmed = m_InputBuffer.GetUnconfirmedInputs(lastProcessedInputTick);
+            return;
+        }
 
-            // Capture server-authoritative transforms before resimulation for smoothing
-            struct PreReconcileTransform
+        auto unconfirmed = m_InputBuffer.GetUnconfirmedInputs(lastProcessedInputTick);
+
+        // Reconciliation smoothing generalizes beyond TransformComponent: capture
+        // each predicted entity's server-authoritative (pre-resim) state for every
+        // registered interpolatable component that opts into smoothing, then ease
+        // the resimulated state back toward it per the component's Smooth fn (issue
+        // #462). Step components leave Smooth null and are skipped.
+        const bool smooth = m_SmoothingRate < 1.0f;
+        const auto& entries = ComponentInterpolationRegistry::GetEntries();
+
+        // Unique predicted entities (an entity can drive several unconfirmed
+        // inputs; capture/smooth it once to avoid double-applying the blend).
+        std::vector<u64> predictedEntities;
+        for (const auto* input : unconfirmed)
+        {
+            if (std::find(predictedEntities.begin(), predictedEntities.end(), input->EntityUUID) == predictedEntities.end())
             {
-                glm::vec3 Translation;
-                glm::quat Rotation;
-                glm::vec3 Scale;
-            };
-            std::unordered_map<u64, PreReconcileTransform> preReconcileTransforms;
-            for (const auto* input : unconfirmed)
+                predictedEntities.push_back(input->EntityUUID);
+            }
+        }
+
+        struct PreReconcileState
+        {
+            u64 EntityUUID;
+            const InterpolationEntry* Entry;
+            std::vector<u8> Bytes;
+        };
+        std::vector<PreReconcileState> preStates;
+        if (smooth)
+        {
+            for (u64 const entityUUID : predictedEntities)
             {
-                auto entityOpt = scene.TryGetEntityWithUUID(UUID(input->EntityUUID));
-                if (entityOpt.has_value() && entityOpt->HasComponent<TransformComponent>())
+                auto entityOpt = scene.TryGetEntityWithUUID(UUID(entityUUID));
+                if (!entityOpt.has_value())
                 {
-                    auto const& tc = entityOpt->GetComponent<TransformComponent>();
-                    preReconcileTransforms[input->EntityUUID] = { tc.Translation, tc.GetRotation(), tc.Scale };
+                    continue;
                 }
-            }
-
-            for (const auto* input : unconfirmed)
-            {
-                m_ApplyCallback(scene, input->EntityUUID, input->Data.data(),
-                                static_cast<u32>(input->Data.size()));
-            }
-
-            // Blend between pre-reconciliation and post-resimulation transforms
-            if (m_SmoothingRate < 1.0f)
-            {
-                for (const auto& [entityUUID, preTransform] : preReconcileTransforms)
+                Entity entity = *entityOpt;
+                for (const auto& entry : entries)
                 {
-                    auto entityOpt = scene.TryGetEntityWithUUID(UUID(entityUUID));
-                    if (entityOpt.has_value() && entityOpt->HasComponent<TransformComponent>())
+                    if (entry.Smooth == nullptr || entry.Capture == nullptr || entry.Has == nullptr || !entry.Has(entity))
                     {
-                        auto& transform = entityOpt->GetComponent<TransformComponent>();
-                        if (f32 const error = glm::length(transform.Translation - preTransform.Translation); m_HardSnapThreshold > 0.0f && error >= m_HardSnapThreshold)
-                        {
-                            // Error exceeds threshold — keep the post-resimulation state (hard snap)
-                            continue;
-                        }
-                        transform.Translation = glm::mix(preTransform.Translation, transform.Translation, m_SmoothingRate);
-                        transform.SetRotation(glm::slerp(preTransform.Rotation, transform.GetRotation(), m_SmoothingRate));
-                        transform.Scale = glm::mix(preTransform.Scale, transform.Scale, m_SmoothingRate);
+                        continue;
                     }
+                    std::vector<u8> bytes;
+                    FMemoryWriter writer(bytes);
+                    writer.ArIsNetArchive = true;
+                    entry.Capture(writer, entity);
+                    preStates.push_back({ entityUUID, &entry, std::move(bytes) });
                 }
+            }
+        }
+
+        for (const auto* input : unconfirmed)
+        {
+            m_ApplyCallback(scene, input->EntityUUID, input->Data.data(),
+                            static_cast<u32>(input->Data.size()));
+        }
+
+        // Blend between the captured pre-reconciliation state and the
+        // post-resimulation state, per component.
+        if (smooth)
+        {
+            for (const auto& ps : preStates)
+            {
+                auto entityOpt = scene.TryGetEntityWithUUID(UUID(ps.EntityUUID));
+                if (!entityOpt.has_value())
+                {
+                    continue;
+                }
+                Entity entity = *entityOpt;
+                if (!ps.Entry->Has(entity))
+                {
+                    continue;
+                }
+                ps.Entry->Smooth(entity, ps.Bytes, m_SmoothingRate, m_HardSnapThreshold);
             }
         }
     }

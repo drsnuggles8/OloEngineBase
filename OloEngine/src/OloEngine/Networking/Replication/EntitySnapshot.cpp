@@ -1,16 +1,94 @@
 #include "OloEnginePCH.h"
 #include "EntitySnapshot.h"
-#include "ComponentReplicator.h"
+#include "ComponentInterpolationRegistry.h"
 #include "OloEngine/Scene/Scene.h"
 #include "OloEngine/Scene/Entity.h"
 #include "OloEngine/Scene/Components.h"
 #include "OloEngine/Serialization/Archive.h"
 
-#include <cstring>
-#include <unordered_map>
+#include <limits>
+#include <utility>
 
 namespace OloEngine
 {
+    namespace
+    {
+        // Serialize the registry-driven set of present components for one entity,
+        // in registration order. Empty if the entity carries no replicated component.
+        SnapshotEntity CollectComponents(Entity& entity)
+        {
+            SnapshotEntity comps;
+            for (const auto& entry : ComponentInterpolationRegistry::GetEntries())
+            {
+                if (entry.Has == nullptr || entry.Capture == nullptr || !entry.Has(entity))
+                {
+                    continue;
+                }
+                std::vector<u8> bytes;
+                FMemoryWriter compWriter(bytes);
+                compWriter.ArIsNetArchive = true;
+                entry.Capture(compWriter, entity);
+                comps.push_back({ entry.Id, std::move(bytes) });
+            }
+            return comps;
+        }
+
+        // Append a raw byte run to a writer. FMemoryWriter::Serialize only *reads*
+        // from the source when saving, so the const_cast is sound.
+        void WriteBytes(FMemoryWriter& writer, const std::vector<u8>& bytes)
+        {
+            if (!bytes.empty())
+            {
+                writer.Serialize(const_cast<u8*>(bytes.data()), static_cast<i64>(bytes.size()));
+            }
+        }
+
+        // Emit one entity record: [uuid][count] then [id][len][bytes] per component.
+        void WriteEntity(FMemoryWriter& writer, u64 uuid, const SnapshotEntity& comps)
+        {
+            if (comps.empty())
+            {
+                return;
+            }
+
+            writer << uuid;
+            // The wire format stores the component count in a u16 and each component's
+            // byte length in a u32. These come from server-local data (registry size /
+            // a single component's serialized bytes) so they cannot realistically
+            // exceed the limits, but a silent narrowing here would truncate the field
+            // and de-sync the reader for the rest of the buffer — assert the invariant.
+            OLO_CORE_ASSERT(comps.size() <= static_cast<sizet>(std::numeric_limits<u16>::max()),
+                            "Entity has more replicated components than the u16 snapshot count field can hold");
+            u16 count = static_cast<u16>(comps.size());
+            writer << count;
+            for (const auto& sc : comps)
+            {
+                OLO_CORE_ASSERT(sc.Bytes.size() <= static_cast<sizet>(std::numeric_limits<u32>::max()),
+                                "Serialized component exceeds the u32 snapshot length field");
+                u32 id = sc.Id;
+                u32 len = static_cast<u32>(sc.Bytes.size());
+                writer << id << len;
+                WriteBytes(writer, sc.Bytes);
+            }
+        }
+
+        [[nodiscard]] bool ComponentsEqual(const SnapshotEntity& a, const SnapshotEntity& b)
+        {
+            if (a.size() != b.size())
+            {
+                return false;
+            }
+            for (sizet i = 0; i < a.size(); ++i)
+            {
+                if (a[i].Id != b[i].Id || a[i].Bytes != b[i].Bytes)
+                {
+                    return false;
+                }
+            }
+            return true;
+        }
+    } // namespace
+
     std::vector<u8> EntitySnapshot::Capture(Scene& scene)
     {
         OLO_PROFILE_FUNCTION();
@@ -29,13 +107,72 @@ namespace OloEngine
             }
 
             u64 uuid = static_cast<u64>(entity.GetUUID());
-            writer << uuid;
-
-            auto& transform = entity.GetComponent<TransformComponent>();
-            ComponentReplicator::Serialize(writer, transform);
+            WriteEntity(writer, uuid, CollectComponents(entity));
         }
 
         return buffer;
+    }
+
+    ParsedSnapshot EntitySnapshot::Parse(const std::vector<u8>& data)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        ParsedSnapshot result;
+        if (data.empty())
+        {
+            return result;
+        }
+
+        FMemoryReader reader(data);
+        reader.ArIsNetArchive = true;
+
+        while (reader.Tell() < reader.TotalSize() && !reader.IsError())
+        {
+            u64 uuid = 0;
+            reader << uuid;
+
+            u16 count = 0;
+            reader << count;
+            if (reader.IsError())
+            {
+                break;
+            }
+
+            SnapshotEntity comps;
+            comps.reserve(count);
+            for (u16 i = 0; i < count && !reader.IsError(); ++i)
+            {
+                u32 id = 0;
+                u32 len = 0;
+                reader << id << len;
+                if (reader.IsError())
+                {
+                    break;
+                }
+
+                // Reject a corrupt / hostile length that would run past the buffer.
+                if (reader.Tell() + static_cast<i64>(len) > reader.TotalSize())
+                {
+                    reader.SetError();
+                    break;
+                }
+
+                std::vector<u8> bytes(len);
+                if (len > 0)
+                {
+                    reader.Serialize(bytes.data(), static_cast<i64>(len));
+                }
+                comps.push_back({ id, std::move(bytes) });
+            }
+
+            if (reader.IsError())
+            {
+                break;
+            }
+            result[uuid] = std::move(comps);
+        }
+
+        return result;
     }
 
     void EntitySnapshot::Apply(Scene& scene, const std::vector<u8>& data)
@@ -47,33 +184,27 @@ namespace OloEngine
             return;
         }
 
-        FMemoryReader reader(data);
-        reader.ArIsNetArchive = true;
-
-        while (reader.Tell() < reader.TotalSize() && !reader.IsError())
+        const ParsedSnapshot parsed = Parse(data);
+        for (const auto& [uuid, comps] : parsed)
         {
-            u64 uuid = 0;
-            reader << uuid;
-
             Entity entity = scene.GetEntityByUUID(UUID(uuid));
             if (!entity)
             {
-                // Entity not found — skip the transform data
-                TransformComponent dummy;
-                ComponentReplicator::Serialize(reader, dummy);
                 continue;
             }
 
-            if (entity.HasComponent<TransformComponent>())
+            for (const auto& sc : comps)
             {
-                auto& transform = entity.GetComponent<TransformComponent>();
-                ComponentReplicator::Serialize(reader, transform);
-            }
-            else
-            {
-                // Entity exists but lacks TransformComponent — skip the transform data
-                TransformComponent dummy;
-                ComponentReplicator::Serialize(reader, dummy);
+                const auto* entry = ComponentInterpolationRegistry::FindById(sc.Id);
+                if (entry == nullptr || entry->Snap == nullptr || entry->Has == nullptr)
+                {
+                    continue;
+                }
+                if (!entry->Has(entity))
+                {
+                    continue;
+                }
+                entry->Snap(entity, sc.Bytes);
             }
         }
     }
@@ -82,43 +213,11 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        // Parse baseline into a map of UUID → serialized transform bytes
-        // Each transform is 9 floats = 36 bytes.
-        static constexpr u32 kTransformBytes = 9 * sizeof(f32);
+        const ParsedSnapshot baselineMap = Parse(baseline);
 
-        std::unordered_map<u64, const u8*> baselineMap;
-        if (!baseline.empty())
-        {
-            FMemoryReader baseReader(baseline);
-            baseReader.ArIsNetArchive = true;
-
-            while (baseReader.Tell() < baseReader.TotalSize() && !baseReader.IsError())
-            {
-                u64 uuid = 0;
-                baseReader << uuid;
-
-                i64 const transformStart = baseReader.Tell();
-                if (transformStart + kTransformBytes > baseReader.TotalSize())
-                {
-                    break;
-                }
-
-                baselineMap[uuid] = baseline.data() + transformStart;
-
-                // Skip past the transform data
-                TransformComponent dummy;
-                ComponentReplicator::Serialize(baseReader, dummy);
-            }
-        }
-
-        // Capture only entities whose serialized transform differs from baseline
         std::vector<u8> buffer;
         FMemoryWriter writer(buffer);
         writer.ArIsNetArchive = true;
-
-        // Reusable buffer for per-entity transform serialization
-        std::vector<u8> currentTransformBuf;
-        currentTransformBuf.reserve(kTransformBytes);
 
         auto view = scene.GetAllEntitiesWith<NetworkIdentityComponent, TransformComponent>();
         for (auto entityHandle : view)
@@ -130,28 +229,21 @@ namespace OloEngine
             }
 
             u64 uuid = static_cast<u64>(entity.GetUUID());
+            SnapshotEntity comps = CollectComponents(entity);
+            if (comps.empty())
+            {
+                continue;
+            }
 
-            // Serialize the current transform to the reusable buffer for comparison
-            currentTransformBuf.clear();
-            FMemoryWriter tmpWriter(currentTransformBuf);
-            tmpWriter.ArIsNetArchive = true;
-            auto& transform = entity.GetComponent<TransformComponent>();
-            ComponentReplicator::Serialize(tmpWriter, transform);
-
-            // Compare with baseline
             bool changed = true;
             if (auto it = baselineMap.find(uuid); it != baselineMap.end())
             {
-                if (currentTransformBuf.size() == kTransformBytes)
-                {
-                    changed = (std::memcmp(it->second, currentTransformBuf.data(), kTransformBytes) != 0);
-                }
+                changed = !ComponentsEqual(comps, it->second);
             }
 
             if (changed)
             {
-                writer << uuid;
-                ComponentReplicator::Serialize(writer, transform);
+                WriteEntity(writer, uuid, comps);
             }
         }
 

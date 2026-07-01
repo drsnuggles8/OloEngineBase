@@ -4,6 +4,7 @@
 #include "OloEngine/Asset/Asset.h"
 
 #include <glm/glm.hpp>
+#include <glm/gtc/quaternion.hpp>
 #include <yaml-cpp/yaml.h>
 
 #include <cmath>
@@ -121,6 +122,59 @@ namespace OloEngine::YAMLUtils
         return true;
     }
 
+    // glm::quat conversion functions. Serialized as a 4-element flow sequence in
+    // scalar-first [w, x, y, z] order — matching glm's quat(w, x, y, z) constructor
+    // argument order (the .x/.y/.z/.w members store the imaginary-first layout, but
+    // the on-disk order is the human-readable constructor order). All four
+    // components are validated finite; decode does NOT normalize — leave that to the
+    // component (e.g. TransformComponent::SetRotation), which has bespoke handling.
+    inline YAML::Node EncodeQuat(const glm::quat& q)
+    {
+        YAML::Node node;
+        node.push_back(q.w);
+        node.push_back(q.x);
+        node.push_back(q.y);
+        node.push_back(q.z);
+        node.SetStyle(YAML::EmitterStyle::Flow);
+        return node;
+    }
+
+    inline bool DecodeQuat(const YAML::Node& node, glm::quat& q)
+    {
+        if ((!node.IsSequence()) || (node.size() != 4))
+            return false;
+
+        if (!TryReadFiniteF32(node[0], q.w))
+            return false;
+        if (!TryReadFiniteF32(node[1], q.x))
+            return false;
+        if (!TryReadFiniteF32(node[2], q.y))
+            return false;
+        if (!TryReadFiniteF32(node[3], q.z))
+            return false;
+        return true;
+    }
+
+    // glm::ivec2 conversion functions (integers — no finiteness check needed)
+    inline YAML::Node EncodeIVec2(const glm::ivec2& v)
+    {
+        YAML::Node node;
+        node.push_back(v.x);
+        node.push_back(v.y);
+        node.SetStyle(YAML::EmitterStyle::Flow);
+        return node;
+    }
+
+    inline bool DecodeIVec2(const YAML::Node& node, glm::ivec2& v)
+    {
+        if ((!node.IsSequence()) || (node.size() != 2))
+            return false;
+
+        v.x = node[0].as<i32>();
+        v.y = node[1].as<i32>();
+        return true;
+    }
+
     // glm::ivec3 conversion functions
     inline YAML::Node EncodeIVec3(const glm::ivec3& v)
     {
@@ -140,6 +194,30 @@ namespace OloEngine::YAMLUtils
         v.x = node[0].as<i32>();
         v.y = node[1].as<i32>();
         v.z = node[2].as<i32>();
+        return true;
+    }
+
+    // glm::ivec4 conversion functions (integers — no finiteness check needed)
+    inline YAML::Node EncodeIVec4(const glm::ivec4& v)
+    {
+        YAML::Node node;
+        node.push_back(v.x);
+        node.push_back(v.y);
+        node.push_back(v.z);
+        node.push_back(v.w);
+        node.SetStyle(YAML::EmitterStyle::Flow);
+        return node;
+    }
+
+    inline bool DecodeIVec4(const YAML::Node& node, glm::ivec4& v)
+    {
+        if ((!node.IsSequence()) || (node.size() != 4))
+            return false;
+
+        v.x = node[0].as<i32>();
+        v.y = node[1].as<i32>();
+        v.z = node[2].as<i32>();
+        v.w = node[3].as<i32>();
         return true;
     }
 
@@ -264,6 +342,53 @@ namespace YAML
         return out;
     }
 
+    inline Emitter& operator<<(Emitter& out, const glm::ivec2& v)
+    {
+        out << Flow;
+        out << BeginSeq << v.x << v.y << EndSeq;
+        return out;
+    }
+
+    inline Emitter& operator<<(Emitter& out, const glm::ivec4& v)
+    {
+        out << Flow;
+        out << BeginSeq << v.x << v.y << v.z << v.w << EndSeq;
+        return out;
+    }
+
+    // Scalar-first [w, x, y, z] order — matches EncodeQuat / DecodeQuat.
+    inline Emitter& operator<<(Emitter& out, const glm::quat& q)
+    {
+        out << Flow;
+        out << BeginSeq << q.w << q.x << q.y << q.z << EndSeq;
+        return out;
+    }
+
+    // mat3 / mat4 emitted as a flat flow sequence of 9 / 16 floats in glm's native
+    // column-major order: glm::mat* is column-major, so m[i] is column i and the
+    // m[i][j] loop walks column-by-column. Matches EncodeMat3 / EncodeMat4 (same
+    // iteration) and DecodeMat3 / DecodeMat4 (which read node[i*N+j] back into
+    // m[i][j]), so the round-trip is order-consistent.
+    inline Emitter& operator<<(Emitter& out, const glm::mat3& m)
+    {
+        out << Flow << BeginSeq;
+        for (i32 i = 0; i < 3; ++i)
+            for (i32 j = 0; j < 3; ++j)
+                out << m[i][j];
+        out << EndSeq;
+        return out;
+    }
+
+    inline Emitter& operator<<(Emitter& out, const glm::mat4& m)
+    {
+        out << Flow << BeginSeq;
+        for (i32 i = 0; i < 4; ++i)
+            for (i32 j = 0; j < 4; ++j)
+                out << m[i][j];
+        out << EndSeq;
+        return out;
+    }
+
 #endif
 
 #ifndef OLOENGINE_YAML_VEC2_DEFINED
@@ -317,6 +442,23 @@ namespace YAML
     };
 #endif
 
+#ifndef OLOENGINE_YAML_IVEC2_DEFINED
+#define OLOENGINE_YAML_IVEC2_DEFINED
+    template<>
+    struct convert<glm::ivec2>
+    {
+        static Node encode(const glm::ivec2& v)
+        {
+            return OloEngine::YAMLUtils::EncodeIVec2(v);
+        }
+
+        static bool decode(const Node& node, glm::ivec2& v)
+        {
+            return OloEngine::YAMLUtils::DecodeIVec2(node, v);
+        }
+    };
+#endif
+
 #ifndef OLOENGINE_YAML_IVEC3_DEFINED
 #define OLOENGINE_YAML_IVEC3_DEFINED
     template<>
@@ -330,6 +472,40 @@ namespace YAML
         static bool decode(const Node& node, glm::ivec3& v)
         {
             return OloEngine::YAMLUtils::DecodeIVec3(node, v);
+        }
+    };
+#endif
+
+#ifndef OLOENGINE_YAML_IVEC4_DEFINED
+#define OLOENGINE_YAML_IVEC4_DEFINED
+    template<>
+    struct convert<glm::ivec4>
+    {
+        static Node encode(const glm::ivec4& v)
+        {
+            return OloEngine::YAMLUtils::EncodeIVec4(v);
+        }
+
+        static bool decode(const Node& node, glm::ivec4& v)
+        {
+            return OloEngine::YAMLUtils::DecodeIVec4(node, v);
+        }
+    };
+#endif
+
+#ifndef OLOENGINE_YAML_QUAT_DEFINED
+#define OLOENGINE_YAML_QUAT_DEFINED
+    template<>
+    struct convert<glm::quat>
+    {
+        static Node encode(const glm::quat& q)
+        {
+            return OloEngine::YAMLUtils::EncodeQuat(q);
+        }
+
+        static bool decode(const Node& node, glm::quat& q)
+        {
+            return OloEngine::YAMLUtils::DecodeQuat(node, q);
         }
     };
 #endif

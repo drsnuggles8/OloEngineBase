@@ -332,6 +332,11 @@ namespace OloEngine
         // first cull dispatch so a stripped-down embedded build that doesn't
         // ship the compute shaders can still drive the CPU path.
         s_Data.GPUFrustumCuller = Ref<GPUFrustumCuller>::Create();
+        // Persistent Hi-Z occlusion pyramid (#431). Loads the HZB compute
+        // shader now (GL context is live); the pyramid texture is sized lazily
+        // on the first GenerateOcclusionHZB() call from the scene dimensions.
+        s_Data.OcclusionHZB.Initialize();
+        s_Data.OcclusionHZB.SetReduceMode(HZBGenerator::ReduceMode::Max);
         s_Data.BoneMatricesUBO = UniformBuffer::Create(ShaderBindingLayout::AnimationUBO::GetSize(), ShaderBindingLayout::UBO_ANIMATION);
         s_Data.PrevBoneMatricesUBO = UniformBuffer::Create(ShaderBindingLayout::AnimationUBO::GetSize(), ShaderBindingLayout::UBO_ANIMATION_PREV);
         s_Data.TerrainUBO = UniformBuffer::Create(ShaderBindingLayout::TerrainUBO::GetSize(), ShaderBindingLayout::UBO_TERRAIN);
@@ -435,6 +440,9 @@ namespace OloEngine
         OcclusionCuller::GetInstance().Shutdown();
         OcclusionQueryPool::GetInstance().Shutdown();
         OcclusionStateManager::GetInstance().Clear();
+        // Release the persistent Hi-Z occlusion pyramid (#431).
+        s_Data.OcclusionHZB.Shutdown();
+        s_Data.OcclusionHZBValid = false;
 
         // Shutdown wind system
         WindSystem::Shutdown();

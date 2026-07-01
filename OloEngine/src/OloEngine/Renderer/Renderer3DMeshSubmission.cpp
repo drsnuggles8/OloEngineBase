@@ -649,63 +649,91 @@ namespace OloEngine
         constexpr f32 kRadiusExpansion = 1.3f * 1.05f;
         const glm::vec4 sphereUniform{ localSphere.Center, localSphere.Radius };
 
-        auto cullResult = s_Data.GPUFrustumCuller->Cull(
-            packed,
-            mesh->GetIndexCount(),
-            mesh->GetBaseIndex(),
-            sphereUniform,
-            kRadiusExpansion);
-
-        // Build the DrawMeshInstancedCommand. The dispatcher takes the
-        // indirect-draw branch because `cullIndirectBufferID` is non-zero —
-        // it skips the FrameDataBuffer-driven scratch loop entirely and
-        // binds `cullOutputInstanceBufferID` at SSBO_INSTANCE_DATA before
-        // calling DrawElementsIndirectRaw.
         Ref<Shader> shaderToUse = material.GetShader() ? material.GetShader() : s_Data.DefaultForwardShader;
         const u32 vertexArrayID = mesh->GetVertexArray()->GetRendererID();
         const u32 shaderRendererID = shaderToUse->GetRendererID();
         if (!ValidateDrawMeshRendererIDs("Renderer3D::SubmitGPUCulledInstanced", vertexArrayID, shaderRendererID))
             return nullptr;
 
-        CommandPacket* packet = CreateDrawCall<DrawMeshInstancedCommand>();
-        if (!packet)
-            return nullptr;
-        auto* cmd = packet->GetCommandData<DrawMeshInstancedCommand>();
-        cmd->header.type = CommandType::DrawMeshInstanced;
-        cmd->meshHandle = mesh->GetHandle();
-        cmd->vertexArrayID = vertexArrayID;
-        cmd->indexCount = mesh->GetIndexCount();
-        cmd->baseIndex = mesh->GetBaseIndex();
-        // `transformCount` carries the pre-cull count so the profiler reports
-        // the input size; the GPU determines the actual survivor count at
-        // draw time via the indirect command.
-        cmd->transformCount = static_cast<u32>(transforms.size());
-        cmd->instanceCount = static_cast<u32>(transforms.size());
-        cmd->shaderHandle = shaderToUse->GetHandle();
-        cmd->materialDataIndex = FrameDataBufferManager::Get().AllocateMaterialData(
+        // Material / render state allocated once; both phase-1 and phase-2
+        // packets reference the same indices.
+        const u32 materialDataIndex = FrameDataBufferManager::Get().AllocateMaterialData(
             CreatePODMaterialDataForMaterial(material, shaderRendererID));
-        cmd->renderStateIndex = FrameDataBufferManager::Get().AllocateRenderState(CreatePODRenderStateForMaterial(material));
-        cmd->isAnimatedMesh = false;
-        cmd->cullOutputInstanceBufferID = cullResult.OutputBuffer->GetStorage()->GetRendererID();
-        cmd->cullIndirectBufferID = cullResult.IndirectBuffer->GetRendererID();
+        const u32 renderStateIndex = FrameDataBufferManager::Get().AllocateRenderState(CreatePODRenderStateForMaterial(material));
 
-        packet->SetCommandType(cmd->header.type);
-        packet->SetDispatchFunction(CommandDispatch::GetDispatchFunction(cmd->header.type));
+        const u32 shaderID = shaderRendererID & 0xFFFF;
+        const u32 materialID = ComputeMaterialID(material);
+        const u32 sortDepth = transforms.empty() ? 0 : ComputeDepthForSortKey(transforms[0]);
 
-        // Sort key — same convention as the CPU path: use the first
-        // transform's depth so the bucket sorter places this near other
-        // submissions at roughly the same depth.
-        PacketMetadata metadata = packet->GetMetadata();
-        u32 shaderID = shaderRendererID & 0xFFFF;
-        u32 materialID = ComputeMaterialID(material);
-        u32 depth = transforms.empty() ? 0 : ComputeDepthForSortKey(transforms[0]);
-        if (material.GetFlag(MaterialFlag::Blend))
-            metadata.m_SortKey = DrawKey::CreateTransparent(0, ViewLayerType::ThreeD, shaderID, materialID, depth);
-        else
-            metadata.m_SortKey = DrawKey::CreateOpaque(0, ViewLayerType::ThreeD, shaderID, materialID, depth);
-        metadata.m_IsStatic = isStatic;
-        packet->SetMetadata(metadata);
-        return packet;
+        // Build one DrawMeshInstancedCommand packet over a (survivors, indirect)
+        // buffer pair. The dispatcher takes the indirect-draw branch because
+        // `cullIndirectBufferID` is non-zero — skipping the FrameDataBuffer
+        // scratch loop and binding the pre-culled survivors at SSBO_INSTANCE_DATA.
+        const auto buildPacket = [&](u32 outputInstanceBufferID, u32 indirectBufferID) -> CommandPacket*
+        {
+            CommandPacket* packet = CreateDrawCall<DrawMeshInstancedCommand>();
+            if (!packet)
+                return nullptr;
+            auto* cmd = packet->GetCommandData<DrawMeshInstancedCommand>();
+            cmd->header.type = CommandType::DrawMeshInstanced;
+            cmd->meshHandle = mesh->GetHandle();
+            cmd->vertexArrayID = vertexArrayID;
+            cmd->indexCount = mesh->GetIndexCount();
+            cmd->baseIndex = mesh->GetBaseIndex();
+            // Pre-cull count for the profiler; the GPU determines the real
+            // survivor count at draw time via the indirect command.
+            cmd->transformCount = static_cast<u32>(transforms.size());
+            cmd->instanceCount = static_cast<u32>(transforms.size());
+            cmd->shaderHandle = shaderToUse->GetHandle();
+            cmd->materialDataIndex = materialDataIndex;
+            cmd->renderStateIndex = renderStateIndex;
+            cmd->isAnimatedMesh = false;
+            cmd->cullOutputInstanceBufferID = outputInstanceBufferID;
+            cmd->cullIndirectBufferID = indirectBufferID;
+
+            packet->SetCommandType(cmd->header.type);
+            packet->SetDispatchFunction(CommandDispatch::GetDispatchFunction(cmd->header.type));
+
+            PacketMetadata metadata = packet->GetMetadata();
+            if (material.GetFlag(MaterialFlag::Blend))
+                metadata.m_SortKey = DrawKey::CreateTransparent(0, ViewLayerType::ThreeD, shaderID, materialID, sortDepth);
+            else
+                metadata.m_SortKey = DrawKey::CreateOpaque(0, ViewLayerType::ThreeD, shaderID, materialID, sortDepth);
+            metadata.m_IsStatic = isStatic;
+            packet->SetMetadata(metadata);
+            return packet;
+        };
+
+        // Two-phase GPU-driven occlusion (#431 Stage 2): Forward / Forward+ with
+        // HZB occlusion on. Phase 1 culls against the previous frame's HZB and
+        // appends occluded survivors to a reject list; both the phase-1 draw and
+        // a phase-2 draw are routed to GPUDrivenOcclusionPass, which re-tests the
+        // reject list against this frame's depth after the phase-1 draws.
+        if (GPUDrivenOcclusionPass* occlusionPass = (IsHZBOcclusionCullingEnabled() &&
+                                                     GetRendererSettings().Path != RenderingPath::Deferred)
+                                                        ? GetGPUOcclusionPass()
+                                                        : nullptr)
+        {
+            auto twoPhase = s_Data.GPUFrustumCuller->CullTwoPhasePhase1(
+                packed, mesh->GetIndexCount(), mesh->GetBaseIndex(), sphereUniform, kRadiusExpansion);
+
+            CommandPacket* phase1Packet = buildPacket(twoPhase.Phase1Output->GetStorage()->GetRendererID(),
+                                                      twoPhase.Phase1Indirect->GetRendererID());
+            CommandPacket* phase2Packet = buildPacket(twoPhase.Phase2Output->GetStorage()->GetRendererID(),
+                                                      twoPhase.Phase2Indirect->GetRendererID());
+            if (phase1Packet)
+                SubmitRenderStreamPacket(RenderStreamType::GPUOcclusion, phase1Packet);
+            if (phase2Packet)
+                occlusionPass->SubmitPhase2(phase2Packet, twoPhase);
+            return nullptr; // both phases handled by the pass; caller's SubmitPacket is a no-op
+        }
+
+        // Single-phase path: frustum-only (occlusion off) or Deferred single-phase
+        // occlusion — drawn through the normal ScenePass / G-Buffer bucket.
+        auto cullResult = s_Data.GPUFrustumCuller->Cull(
+            packed, mesh->GetIndexCount(), mesh->GetBaseIndex(), sphereUniform, kRadiusExpansion);
+        return buildPacket(cullResult.OutputBuffer->GetStorage()->GetRendererID(),
+                           cullResult.IndirectBuffer->GetRendererID());
     }
 
     CommandPacket* Renderer3D::DrawAnimatedMesh(const Ref<Mesh>& mesh, const glm::mat4& modelMatrix, const Material& material, const std::vector<glm::mat4>& boneMatrices, bool isStatic, i32 entityID)

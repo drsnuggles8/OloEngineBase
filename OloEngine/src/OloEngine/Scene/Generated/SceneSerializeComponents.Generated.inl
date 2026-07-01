@@ -2,11 +2,13 @@
 // Re-generate with: cmake --build build --target GenerateBindings
 //
 // Per-component scene-YAML serialize blocks — one block per
-// `struct *Component` whose every data member is a primitive / glm::vec* /
-// std::string / AssetHandle / enum (the generator's SceneSerType plus the
-// enum-type check), minus the kComponentsCustomSerialize exclusion set (trivial
-// components deliberately kept hand-written). A component with any still-unhandled
-// non-trivial field (Ref<T>, std::vector, nested struct, …) is classified
+// `struct *Component` whose every data member is a primitive / small-int /
+// glm::vec*/ivec*/quat/mat* / std::string / AssetHandle / enum, or a
+// std::vector of one of those (the generator's SceneSerType plus the enum-type
+// and std::vector handling), minus the kComponentsCustomSerialize exclusion set
+// (trivial components deliberately kept hand-written). A component with any
+// still-unhandled non-trivial field (Ref<T>, std::unordered_map/set, nested
+// struct, std::vector of struct, or a non-public member) is classified
 // non-trivial and stays hand-written in SceneSerializer.cpp.
 //
 // #include'd inside SceneSerializer::SerializeEntity, where `out` (YAML::Emitter&) and `entity` (Entity)
@@ -59,6 +61,17 @@ if (entity.HasComponent<DirectionalLightComponent>())
     out << YAML::Key << "CascadeSplitLambda" << YAML::Value << comp.m_CascadeSplitLambda;
     out << YAML::Key << "CascadeDebugVisualization" << YAML::Value << comp.m_CascadeDebugVisualization;
     out << YAML::EndMap; // DirectionalLightComponent
+}
+
+if (entity.HasComponent<InstancePortalComponent>())
+{
+    out << YAML::Key << "InstancePortalComponent";
+    out << YAML::BeginMap; // InstancePortalComponent
+    auto const& comp = entity.GetComponent<InstancePortalComponent>();
+    out << YAML::Key << "TargetZoneID" << YAML::Value << comp.TargetZoneID;
+    out << YAML::Key << "InstanceType" << YAML::Value << static_cast<u32>(comp.InstanceType);
+    out << YAML::Key << "MaxPlayers" << YAML::Value << comp.MaxPlayers;
+    out << YAML::EndMap; // InstancePortalComponent
 }
 
 if (entity.HasComponent<LocalizedTextComponent>())
@@ -149,6 +162,36 @@ if (entity.HasComponent<PointLightComponent>())
     out << YAML::Key << "ShadowBias" << YAML::Value << comp.m_ShadowBias;
     out << YAML::Key << "ShadowNormalBias" << YAML::Value << comp.m_ShadowNormalBias;
     out << YAML::EndMap; // PointLightComponent
+}
+
+if (entity.HasComponent<QuestGiverComponent>())
+{
+    out << YAML::Key << "QuestGiverComponent";
+    out << YAML::BeginMap; // QuestGiverComponent
+    auto const& comp = entity.GetComponent<QuestGiverComponent>();
+    out << YAML::Key << "OfferedQuestIDs" << YAML::Value << YAML::BeginSeq;
+    for (auto const& e : comp.OfferedQuestIDs)
+        out << e;
+    out << YAML::EndSeq;
+    out << YAML::Key << "TurnInQuestIDs" << YAML::Value << YAML::BeginSeq;
+    for (auto const& e : comp.TurnInQuestIDs)
+        out << e;
+    out << YAML::EndSeq;
+    out << YAML::Key << "QuestMarkerIcon" << YAML::Value << comp.QuestMarkerIcon;
+    out << YAML::EndMap; // QuestGiverComponent
+}
+
+if (entity.HasComponent<RelationshipComponent>())
+{
+    out << YAML::Key << "RelationshipComponent";
+    out << YAML::BeginMap; // RelationshipComponent
+    auto const& comp = entity.GetComponent<RelationshipComponent>();
+    out << YAML::Key << "ParentHandle" << YAML::Value << static_cast<u64>(comp.m_ParentHandle);
+    out << YAML::Key << "Children" << YAML::Value << YAML::BeginSeq;
+    for (auto const& e : comp.m_Children)
+        out << static_cast<u64>(e);
+    out << YAML::EndSeq;
+    out << YAML::EndMap; // RelationshipComponent
 }
 
 if (entity.HasComponent<SpotLightComponent>())
