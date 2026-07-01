@@ -41,6 +41,7 @@ namespace OloEngine
     struct AudioSoundGraphComponent;
     class DialogueSystem;
     class GameplayEventBus;
+    class UINavigation;
 
     namespace Animation
     {
@@ -525,6 +526,14 @@ namespace OloEngine
         [[nodiscard]] GameplayEventBus& GetGameplayEvents();
         [[nodiscard]] const GameplayEventBus& GetGameplayEvents() const;
 
+        // Runtime UI navigation + widget-event state (focus target, OnClick /
+        // OnValueChanged / OnSubmit delegates). Runtime-only — never serialized
+        // or copied, Clear()ed on OnRuntimeStop. Driven by UINavigationSystem
+        // each OnUpdateRuntime tick. Always non-null (constructed in the ctor).
+        // Defined out-of-line so Scene.h only needs the forward declaration.
+        [[nodiscard]] UINavigation& GetUINavigation();
+        [[nodiscard]] const UINavigation& GetUINavigation() const;
+
         // Recover the entity that owns a component instance stored in this
         // scene's registry. Returns a null Entity if `component` is not one of
         // this registry's T components. Used by the scripting glue, which binds
@@ -678,6 +687,9 @@ namespace OloEngine
 
         // Gameplay event dispatcher (runtime-only; never serialized/copied)
         std::unique_ptr<GameplayEventBus> m_GameplayEventBus;
+
+        // Runtime UI navigation state (runtime-only; never serialized/copied)
+        std::unique_ptr<UINavigation> m_UINavigation;
 
         // Entity UUID -> entt::entity lookup map
         // Using TMap for O(1) lookup with better cache locality
