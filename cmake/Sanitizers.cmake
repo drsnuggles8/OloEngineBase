@@ -142,6 +142,17 @@ if(OLO_ENABLE_ASAN)
             unset(_olo_res_dir)
             unset(_olo_asan_runtime_dir)
             unset(_olo_cand)
+
+            # We exclude the vendored protobuf host tools from ASan (see
+            # OloEngine/vendor/CMakeLists.txt), so one binary links both instrumented
+            # (engine/tests) and non-instrumented (protobuf) TUs. MSVC's STL emits a
+            # `#pragma detect_mismatch("annotate_string"/"annotate_vector", "1")` only in
+            # ASan TUs, so lld-link then fails with `/failifmismatch: mismatch detected
+            # for 'annotate_string'`. Disable the STL container-overflow annotations
+            # build-wide so every TU agrees. The cost is a minor ASan coverage reduction
+            # (reads past a string/vector's size but within its capacity), the accepted
+            # trade-off for mixing instrumented and non-instrumented objects.
+            add_compile_definitions(_DISABLE_STRING_ANNOTATION=1 _DISABLE_VECTOR_ANNOTATION=1)
         endif()
 
         message(STATUS "  MSVC ASan: /fsanitize=address /MD (no leak detection on Windows)")
