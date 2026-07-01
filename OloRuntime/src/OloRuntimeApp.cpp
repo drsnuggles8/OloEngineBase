@@ -197,6 +197,8 @@ namespace OloEngine
 
         void OnDetach() override
         {
+            // Tear the menu down before the scene it built into goes away.
+            CloseRebindMenu();
             if (m_ActiveScene)
             {
                 m_ActiveScene->OnRuntimeStop();
@@ -427,6 +429,10 @@ namespace OloEngine
         void ReloadScene()
         {
             OLO_CORE_INFO("[Runtime] Reloading scene: {}", m_ScenePath.string());
+
+            // Close the rebind menu first — it holds a Scene* / entity handles into the scene
+            // we are about to destroy, which would dangle on the next OnUpdate.
+            CloseRebindMenu();
 
             // Reset time scale in case we were paused
             Application::Get().SetTimeScale(1.0f);

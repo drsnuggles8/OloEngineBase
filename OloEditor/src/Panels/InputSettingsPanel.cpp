@@ -148,20 +148,10 @@ namespace OloEngine
         {
             if (hasProject)
             {
-                auto path = Project::GetInputActionMapPath();
-                // Persist every authored context's map, not just the active one, so
-                // per-context bindings survive a reload. Skip empty maps so a context
-                // merely selected in the combo (which lazily creates an empty map) isn't
-                // written out as a spurious empty context.
-                InputActionSerializer::ContextMaps toSave;
-                for (const auto& [ctx, ctxMap] : InputActionManager::GetAllContextMaps())
-                {
-                    if (!ctxMap.Actions.empty())
-                    {
-                        toSave[ctx] = ctxMap;
-                    }
-                }
-                if (InputActionSerializer::SerializeContexts(toSave, path))
+                // Persist every authored (non-empty) context map via the shared helper, so a
+                // context merely selected in the combo (which lazily creates an empty map) isn't
+                // written out as a spurious empty context. Same path the runtime menu saves to.
+                if (InputRebindController::Save(Project::GetInputActionMapPath()))
                 {
                     m_Dirty = false;
                 }

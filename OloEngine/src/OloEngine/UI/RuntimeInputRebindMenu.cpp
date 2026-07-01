@@ -67,6 +67,34 @@ namespace OloEngine
             }
             return out;
         }
+
+        // Destroy an entity and all its descendants. Scene::DestroyEntity does NOT cascade to
+        // children, so a plain DestroyEntity(canvas) would orphan every widget the menu built.
+        // Children are collected before destroying so handles stay valid, then destroyed
+        // depth-first (leaves before parents).
+        void DestroyUITree(Scene& scene, Entity root)
+        {
+            if (!root)
+            {
+                return;
+            }
+            std::vector<Entity> children;
+            if (root.HasComponent<RelationshipComponent>())
+            {
+                for (const UUID childUUID : root.GetComponent<RelationshipComponent>().m_Children)
+                {
+                    if (const auto childOpt = scene.TryGetEntityWithUUID(childUUID))
+                    {
+                        children.emplace_back(static_cast<entt::entity>(*childOpt), &scene);
+                    }
+                }
+            }
+            for (Entity child : children)
+            {
+                DestroyUITree(scene, child);
+            }
+            scene.DestroyEntity(root);
+        }
     } // namespace
 
     Entity RuntimeInputRebindMenu::MakePanel(Entity parent, glm::vec2 anchorMin, glm::vec2 anchorMax, glm::vec2 anchoredPos, glm::vec2 size, glm::vec4 color)
@@ -244,8 +272,8 @@ namespace OloEngine
     {
         if (m_Scene && m_Canvas)
         {
-            // Destroying the canvas cascades to its UI children.
-            m_Scene->DestroyEntity(m_Canvas);
+            // Scene::DestroyEntity does not cascade, so tear down the whole canvas subtree.
+            DestroyUITree(*m_Scene, m_Canvas);
         }
         m_Canvas = {};
         m_Rows.clear();
@@ -385,6 +413,27 @@ namespace OloEngine
 
         SetActive(m_CaptureOverlay, capturing);
         SetActive(m_ConflictOverlay, conflict);
+
+        // The overlays are visually modal, but the ECS UI input system has no z-order —
+        // an overlay panel does not block the row/footer buttons behind it, and a click on
+        // an overlay button that overlaps a row button can be consumed by the row button
+        // instead. Gate interaction explicitly: while any overlay is up, disable every button,
+        // then re-enable only the conflict-resolution buttons during a pending conflict.
+        const bool overlayActive = capturing || conflict;
+        for (Entity button : m_AllButtons)
+        {
+            if (button && button.HasComponent<UIButtonComponent>())
+            {
+                button.GetComponent<UIButtonComponent>().m_Interactable = !overlayActive;
+            }
+        }
+        for (Entity button : { m_ReplaceButton, m_SwapButton, m_CancelButton })
+        {
+            if (button && button.HasComponent<UIButtonComponent>())
+            {
+                button.GetComponent<UIButtonComponent>().m_Interactable = conflict;
+            }
+        }
 
         if (capturing && m_CaptureLabel)
         {

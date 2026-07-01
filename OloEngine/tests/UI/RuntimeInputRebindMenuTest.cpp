@@ -120,3 +120,43 @@ TEST_F(RuntimeInputRebindMenuTest, ClickingResetAllRestoresDefaultsThroughTheMen
     EXPECT_TRUE(JumpHasKey(Key::Space)); // default restored
     EXPECT_FALSE(JumpHasKey(Key::J));
 }
+
+TEST_F(RuntimeInputRebindMenuTest, CloseDestroysEntireCanvasSubtreeNoOrphans)
+{
+    // Scene::DestroyEntity does not cascade, so Close() must tear down the whole subtree.
+    auto uiEntityCount = [this]
+    {
+        auto view = m_Scene->GetAllEntitiesWith<UIRectTransformComponent>();
+        sizet n = 0;
+        for ([[maybe_unused]] const auto e : view)
+        {
+            ++n;
+        }
+        return n;
+    };
+
+    EXPECT_GT(uiEntityCount(), 0u); // the menu built its widgets in SetUp
+    m_Menu.Close();
+    EXPECT_EQ(uiEntityCount(), 0u); // no orphaned children left behind
+}
+
+TEST_F(RuntimeInputRebindMenuTest, ConflictOverlayDisablesRowButtonsAndEnablesResolutionButtons)
+{
+    // Force a conflict: rebind Jump's primary to E, which Interact already owns.
+    m_Menu.Controller().BeginRebind("Jump", 0, /*gamepad=*/false);
+    m_Menu.Controller().OnKeyPressed(Key::E);
+    ASSERT_TRUE(m_Menu.Controller().HasPendingConflict());
+
+    // One UI frame (mouse parked off-screen, no clicks) so RefreshOverlays runs.
+    Frame({ -100.0f, -100.0f }, /*down=*/false, /*pressed=*/false);
+
+    Entity rebind = FindButton("Rebind");
+    Entity cancel = FindButton("Cancel");
+    ASSERT_TRUE(rebind);
+    ASSERT_TRUE(cancel);
+
+    // Row buttons behind the modal overlay are disabled so they can't steal the click;
+    // the conflict-resolution buttons stay interactable.
+    EXPECT_FALSE(rebind.GetComponent<UIButtonComponent>().m_Interactable);
+    EXPECT_TRUE(cancel.GetComponent<UIButtonComponent>().m_Interactable);
+}
