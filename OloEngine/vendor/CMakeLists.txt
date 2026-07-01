@@ -462,6 +462,25 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
 	endforeach()
 endif()
 
+# ClangCL + ASan: do NOT instrument the vendored protobuf / host tools. protoc is a
+# build-time code generator (it runs during the build to emit GNS's .pb.cc), not
+# something we test. Under clang-cl's ASan runtime — stricter than MSVC's — an
+# instrumented protoc aborts mid-build on findings inside vendored protobuf we can't
+# patch: first an ODR false positive on its "." / L"." string-literal globals, then a
+# global-buffer-overflow (which, unlike ODR, has no ASAN_OPTIONS off-switch). De-
+# instrumenting these targets makes protoc run clean. The only cost is that the test
+# exe links a non-instrumented protobuf — third-party code that's out of our ASan
+# scope anyway (the engine, GNS, and the tests stay instrumented). Target-level
+# -fno-sanitize=address overrides the directory-inherited /fsanitize=address that
+# cmake/Sanitizers.cmake applies (for clang the last -f{no-,}sanitize flag wins).
+if(OLO_ENABLE_ASAN AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+	foreach(_proto_target libprotobuf libprotobuf-lite libprotoc protoc)
+		if(TARGET ${_proto_target})
+			target_compile_options(${_proto_target} PRIVATE -fno-sanitize=address)
+		endif()
+	endforeach()
+endif()
+
 # Make protobuf_generate_cpp available (from CMake's built-in FindProtobuf)
 # GNS calls find_package(Protobuf) which needs this function
 set(Protobuf_FOUND TRUE CACHE BOOL "" FORCE)
