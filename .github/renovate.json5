@@ -12,6 +12,13 @@
   // Renovate runs ONLY the custom managers here, so the two never double-PR.
   $schema: "https://docs.renovatebot.com/renovate-schema.json",
   extends: ["config:recommended"],
+  // config:recommended pulls in :ignoreModulesAndTests, whose ignorePaths includes
+  // "**/vendor/**" — which silently skips our ONLY tracked file,
+  // OloEngine/vendor/CMakeLists.txt, before the custom managers ever run (the file
+  // extraction reported fileCount:0 / depCount:0). Clear the inherited ignore list;
+  // the custom regex managers below are already scoped to that one file via
+  // managerFilePatterns, so nothing else gets scanned.
+  ignorePaths: [],
   enabledManagers: ["custom.regex"],
 
   // The vendored deps move as a batch (note the shared "# <branch> @ <date>"
