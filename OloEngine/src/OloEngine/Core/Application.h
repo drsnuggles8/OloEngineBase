@@ -223,12 +223,12 @@ namespace OloEngine
         static constexpr f32 s_MaxTimestep = 0.25f;
         // Golden-ratio-derived constant; an arbitrary but fixed default so runs
         // are reproducible without an explicit SetRandomSeed call.
-        static constexpr u64 s_DefaultRandomSeed = 0x9E3779B97F4A7C15ULL;
+        static constexpr u64 kDefaultRandomSeed = 0x9E3779B97F4A7C15ULL;
         f32 m_LastFrameTime = 0.0f;
         f32 m_TimeScale = 1.0f;
         f32 m_UnscaledDeltaTime = 0.0f;
         f32 m_FixedTimeStep = 1.0f / 60.0f;
-        u64 m_RandomSeed = s_DefaultRandomSeed;
+        u64 m_RandomSeed = kDefaultRandomSeed;
         u32 m_SmokeTestTicksCompleted = 0; // see SmokeTestTickLimit / IsSmokeTest
         PerformanceProfiler m_PerformanceProfiler;
 

@@ -578,7 +578,7 @@ namespace OloEngine
         // Spiral-of-death cap: most fixed steps a single frame may run before
         // the accumulator is clamped and excess wall-time dropped. 15 mirrors
         // Application::s_MaxTimestep (0.25 s) at the 60 Hz default.
-        static constexpr u32 s_MaxFixedStepsPerFrame = 15;
+        static constexpr u32 kMaxFixedStepsPerFrame = 15;
         // Last-observed LocalizationManager generation. LocalizationSystem
         // compares against this to skip the LocalizedTextComponent sweep when
         // nothing's changed. Starts at 0 so the first tick always refreshes.

@@ -13,7 +13,12 @@ namespace OloEngine::Utils
     // lost context (glGetError stuck on GL_CONTEXT_LOST) from spinning forever.
     inline void DrainGLErrors() noexcept
     {
-        for (int guard = 0; guard < 64 && glGetError() != GL_NO_ERROR; ++guard)
+        // Hoist the iteration cap out of the condition. GL only ever queues a
+        // handful of distinct error flags, so this is unreachable in normal
+        // operation; it exists only so a lost context (glGetError stuck on
+        // GL_CONTEXT_LOST) cannot spin forever.
+        constexpr int kMaxDrainIterations = 64;
+        for (int guard = 0; guard < kMaxDrainIterations && glGetError() != GL_NO_ERROR; ++guard)
         {
         }
     }

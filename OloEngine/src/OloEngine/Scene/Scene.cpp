@@ -1330,14 +1330,14 @@ namespace OloEngine
                 // (what rollback/replay drive off), NOT "two wall-clock runs that
                 // hitch differently end identically" — a hitch past the cap drops
                 // real time on the real-time presentation path by design.
-                if (const f32 maxAccumulator = static_cast<f32>(s_MaxFixedStepsPerFrame) * fixedDt;
+                if (const f32 maxAccumulator = static_cast<f32>(kMaxFixedStepsPerFrame) * fixedDt;
                     m_FixedTimeAccumulator > maxAccumulator)
                 {
                     m_FixedTimeAccumulator = maxAccumulator;
                 }
 
                 u32 steps = 0;
-                while (m_FixedTimeAccumulator >= fixedDt && steps < s_MaxFixedStepsPerFrame)
+                while (m_FixedTimeAccumulator >= fixedDt && steps < kMaxFixedStepsPerFrame)
                 {
                     SimulateRuntimeStep(fixedDt);
                     m_FixedTimeAccumulator -= fixedDt;

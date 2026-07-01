@@ -34,6 +34,7 @@
 #include "OloEngine/Renderer/IBLPrecompute.h"
 #include "OloEngine/Renderer/SphericalHarmonics.h"
 #include "OloEngine/Renderer/TextureCubemap.h"
+#include "Platform/OpenGL/OpenGLUtilities.h"
 
 #include <glad/gl.h>
 #include <glm/glm.hpp>
@@ -169,10 +170,9 @@ namespace OloEngine::Tests
 
         const SHCoefficients sh = IBLPrecompute::ProjectCubemapToSH(envMap->GetEnvironmentMap());
 
-        // Scrub any residual error so this test leaks nothing onward.
-        while (glGetError() != GL_NO_ERROR)
-        {
-        }
+        // Scrub any residual error so this test leaks nothing onward (bounded
+        // helper — no hand-rolled unbounded drain loop).
+        Utils::DrainGLErrors();
 
         const glm::vec3 dc = sh.Coefficients[0];
         EXPECT_GT(dc.r + dc.g + dc.b, 0.0f)
