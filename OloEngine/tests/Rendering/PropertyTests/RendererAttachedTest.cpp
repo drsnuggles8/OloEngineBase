@@ -46,11 +46,13 @@ namespace OloEngine::Tests
                 tick();
             }
 
-            if (const u32 tickErr = GLErrorState::DrainAndGetFirstError();
-                tickErr != 0u && tickErr != static_cast<u32>(GL_INVALID_OPERATION))
+            if (const u32 tickErr =
+                    GLErrorState::DrainAndGetFirstUnexpected(static_cast<u32>(GL_INVALID_OPERATION));
+                tickErr != 0u)
                 ADD_FAILURE() << label << " render tick left an unexpected GL error: "
                               << GLErrorState::GlErrorString(tickErr)
-                              << " (only the benign #505 GL_INVALID_OPERATION stray is contained here).";
+                              << " (only the benign #505 GL_INVALID_OPERATION stray is contained here; "
+                                 "the whole error queue is drained regardless).";
         }
     } // namespace
 
