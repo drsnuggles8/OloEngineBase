@@ -25,6 +25,7 @@
 #include "OloEngine/Renderer/Framebuffer.h"
 #include "OloEngine/Renderer/UniformBuffer.h"
 #include "OloEngine/Core/Log.h"
+#include "Platform/OpenGL/OpenGLUtilities.h"
 
 #define GLFW_INCLUDE_NONE
 #include <glad/gl.h>
@@ -465,6 +466,13 @@ namespace OloEngine::Tests
         // Cleanup the program + VAO created above.
         ::glDeleteProgram(program);
         ::glDeleteVertexArrays(1, &vao);
+
+        // `glUseProgram(program)` above bound an intentionally-unlinked program
+        // (glCreateProgram without a link) to give the guard a non-zero program
+        // to restore — that raises GL_INVALID_OPERATION. Drain it so this test
+        // leaves a clean glGetError() state and the #485 GL-error-state listener
+        // doesn't (correctly) flag it as context pollution.
+        Utils::DrainGLErrors();
     }
 
     // =========================================================================

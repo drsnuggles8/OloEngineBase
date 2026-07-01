@@ -169,6 +169,20 @@ namespace OloEngine::Tests
             IndirectCommand result{};
             ::glGetNamedBufferSubData(indirectBuf, 0, sizeof(IndirectCommand), &result);
 
+            // Unbind everything this dispatch bound BEFORE freeing the objects,
+            // so nothing is left bound to a slot when its backing object is
+            // deleted. A binding left dangling here pollutes the shared,
+            // process-wide GL context and surfaces as a spurious
+            // GL_INVALID_OPERATION in an unrelated later GPU test — exactly the
+            // cross-test pollution the #485 GL-error-state listener catches (this
+            // test was its first confirmed source).
+            ::glBindTextureUnit(0, 0);
+            ::glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 15, 0);
+            ::glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 16, 0);
+            ::glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 17, 0);
+            ::glBindBufferBase(GL_UNIFORM_BUFFER, 0, 0);
+            ::glUseProgram(0);
+
             ::glDeleteBuffers(1, &inBuf);
             ::glDeleteBuffers(1, &outBuf);
             ::glDeleteBuffers(1, &indirectBuf);
@@ -351,6 +365,15 @@ namespace OloEngine::Tests
             << "Phase 2 must recover every disoccluded cube (the wall is gone this frame) — no popping.";
         EXPECT_EQ(p1.InstanceCount + p2.InstanceCount, kFront + kBehind)
             << "Across both phases every visible instance must be drawn exactly once.";
+
+        // Unbind everything both phases bound before freeing it, so no slot is
+        // left referencing a deleted object into the next test's shared GL
+        // context (see the note in RunCull and issue #485).
+        ::glBindTextureUnit(0, 0);
+        for (const u32 slot : { 15u, 16u, 17u, 18u, 19u })
+            ::glBindBufferBase(GL_SHADER_STORAGE_BUFFER, slot, 0);
+        ::glBindBufferBase(GL_UNIFORM_BUFFER, 0, 0);
+        ::glUseProgram(0);
 
         const std::array<GLuint, 8> buffers{ inBuf, p1Out, rejBuf, p2Out, p1Ind, p2Ind, rejCnt, camUBO };
         ::glDeleteBuffers(static_cast<GLsizei>(buffers.size()), buffers.data());

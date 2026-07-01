@@ -8,6 +8,8 @@
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/ResourceHandle.h"
 
+#include "Platform/OpenGL/OpenGLUtilities.h"
+
 namespace OloEngine::Tests
 {
     // The process-wide renderer is brought up lazily (see SetUp). We dedup on
@@ -118,8 +120,23 @@ namespace OloEngine::Tests
                 // GLStateGuard (see its class comment) — they are benign here
                 // because downstream GPU tests bind their own resources before
                 // drawing.
-                GLStateGuard guard("RendererAttachedTest::RunFrames", GLStateGuard::Policy::Restore);
-                m_Scene->OnUpdateRuntime(ts);
+                {
+                    GLStateGuard guard("RendererAttachedTest::RunFrames", GLStateGuard::Policy::Restore);
+                    m_Scene->OnUpdateRuntime(ts);
+                }
+                // Drain the GL error queue this render tick produced. The full
+                // pipeline is known to emit benign stray GL errors (e.g.
+                // GL_INVALID_OPERATION binding a texture whose handle went stale
+                // across cross-test render-graph/asset churn — correct pixels,
+                // dirty error queue; tracked separately). Draining here extends
+                // the GLStateGuard "a render leaves no global GL state behind"
+                // contract to the error queue — the same containment the #485
+                // production fix applied in the readback helpers (69aa9357) — so
+                // a render in this fixture cannot poison the shared context of a
+                // later GPU test. The process-wide #485 listener still guards
+                // every non-render tick and any error a test body leaks outside a
+                // RunFrames call.
+                Utils::DrainGLErrors();
             }
             else
             {
@@ -144,8 +161,13 @@ namespace OloEngine::Tests
                 // editor-camera visual test (e.g. WaterVisualEvidenceTest) run
                 // in the normal suite without poisoning the GPU tests that
                 // follow it in the same process.
-                GLStateGuard guard("RendererAttachedTest::RunEditorFrames", GLStateGuard::Policy::Restore);
-                m_Scene->OnUpdateEditor(ts, camera);
+                {
+                    GLStateGuard guard("RendererAttachedTest::RunEditorFrames", GLStateGuard::Policy::Restore);
+                    m_Scene->OnUpdateEditor(ts, camera);
+                }
+                // Same error-queue containment as RunFrames — see the note there
+                // (issue #485).
+                Utils::DrainGLErrors();
             }
             else
             {

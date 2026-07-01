@@ -195,6 +195,11 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/AutoExposureEvidenceTest.cpp
 		Rendering/PropertyTests/TestFailureCapture.cpp
 		Rendering/PropertyTests/TestFailureCaptureTest.cpp
+		# Cross-test GL-error-state guard (issue #485): a global gtest listener
+		# that drains + asserts a clean glGetError() after every test, pinning
+		# GL-context pollution to its source. Registered from OloEngineTest.cpp.
+		Rendering/PropertyTests/GLErrorStateCheck.cpp
+		Rendering/PropertyTests/GLErrorStateCheckTest.cpp
 		Rendering/PropertyTests/ModelLoadDeterminismTest.cpp
 		Rendering/PropertyTests/DrawIndexedRawOffsetTest.cpp
 		Rendering/PropertyTests/TextureSaveRoundTripTest.cpp
