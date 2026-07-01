@@ -225,9 +225,71 @@ TEST(TextureCompression, ContainerBlobRoundTripIsBitExact)
     EXPECT_EQ(restored.Width, original.Width);
     EXPECT_EQ(restored.Height, original.Height);
     EXPECT_EQ(restored.SRGB, original.SRGB);
+    EXPECT_EQ(restored.HasAlpha, original.HasAlpha);
     ASSERT_EQ(restored.MipLevels(), original.MipLevels());
     for (u32 level = 0; level < original.MipLevels(); ++level)
         EXPECT_EQ(restored.Mips[level], original.Mips[level]) << "mip " << level << " block bytes differ";
+}
+
+TEST(TextureCompression, BC7RecordsAlphaFromSourceChannelCount)
+{
+    constexpr u32 kW = 8;
+    constexpr u32 kH = 8;
+    // 4-channel source -> alpha present.
+    const std::vector<u8> rgba = MakeGradientRGBA(kW, kH);
+    const CompressedTextureImage withAlpha = TextureCompression::EncodeBC7(rgba.data(), kW, kH, 4, false, false);
+    EXPECT_TRUE(withAlpha.HasAlpha);
+
+    // 3-channel source -> opaque, must NOT report alpha (else opaque albedo is
+    // mis-sorted into the transparent pass).
+    std::vector<u8> rgb(static_cast<sizet>(kW) * kH * 3);
+    for (sizet i = 0; i < rgb.size(); ++i)
+        rgb[i] = static_cast<u8>(i);
+    const CompressedTextureImage noAlpha = TextureCompression::EncodeBC7(rgb.data(), kW, kH, 3, false, false);
+    EXPECT_FALSE(noAlpha.HasAlpha);
+}
+
+TEST(TextureCompression, BC5RejectsSingleChannelSource)
+{
+    constexpr u32 kW = 8;
+    constexpr u32 kH = 8;
+    std::vector<u8> gray(static_cast<sizet>(kW) * kH, 128);
+    // 1 channel is meaningless for a two-channel (R,G) format — must be rejected.
+    const CompressedTextureImage image = TextureCompression::EncodeBC5(gray.data(), kW, kH, 1, false);
+    EXPECT_FALSE(image.IsValid());
+}
+
+TEST(TextureCompression, DeserializeRejectsHostileHeaderFields)
+{
+    // Build a valid blob, then corrupt the header fields to hostile values and confirm
+    // deserialize rejects them BEFORE any large allocation (mipCount / dimensions).
+    const std::vector<u8> source = MakeGradientRGBA(16, 16);
+    const CompressedTextureImage good = TextureCompression::EncodeBC7(source.data(), 16, 16, 4, false, false);
+    std::vector<u8> blob = TextureCompression::SerializeToBlob(good);
+    ASSERT_GE(blob.size(), 28u);
+
+    // Header layout (little-endian u32 after the 4-byte magic):
+    // [4]=version [8]=format [12]=width [16]=height [20]=flags [24]=mipCount
+    const auto patchU32 = [](std::vector<u8>& b, sizet off, u32 v)
+    {
+        b[off + 0] = static_cast<u8>(v & 0xFF);
+        b[off + 1] = static_cast<u8>((v >> 8) & 0xFF);
+        b[off + 2] = static_cast<u8>((v >> 16) & 0xFF);
+        b[off + 3] = static_cast<u8>((v >> 24) & 0xFF);
+    };
+
+    {
+        std::vector<u8> hostile = blob;
+        patchU32(hostile, 24, 0xFFFFFFFFu); // absurd mipCount -> must not reserve ~100GB
+        CompressedTextureImage out;
+        EXPECT_FALSE(TextureCompression::DeserializeFromBlob(hostile, out));
+    }
+    {
+        std::vector<u8> hostile = blob;
+        patchU32(hostile, 12, 0xFFFFFFFEu); // absurd width
+        CompressedTextureImage out;
+        EXPECT_FALSE(TextureCompression::DeserializeFromBlob(hostile, out));
+    }
 }
 
 TEST(TextureCompression, SRGBFlagSurvivesContainerRoundTrip)

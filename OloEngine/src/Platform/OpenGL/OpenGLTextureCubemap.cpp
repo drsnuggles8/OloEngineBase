@@ -32,6 +32,14 @@ namespace OloEngine
                     return GL_RGBA;
                 case ImageFormat::DEPTH24STENCIL8:
                     return GL_DEPTH_STENCIL;
+                case ImageFormat::BC7:
+                case ImageFormat::BC5:
+                    // Block-compressed cubemaps aren't produced by the cook path; a
+                    // compressed face would need glCompressedTextureSubImage3D. Return 0
+                    // (unsupported) explicitly so a stray value is a defined error, not an
+                    // out-of-range assert fall-through.
+                    OLO_CORE_ASSERT(false, "Block-compressed cubemaps are not supported");
+                    return 0;
             }
 
             OLO_CORE_ASSERT(false, "Unknown ImageFormat!");
@@ -58,6 +66,11 @@ namespace OloEngine
                     return GL_RGBA32F;
                 case ImageFormat::DEPTH24STENCIL8:
                     return GL_DEPTH24_STENCIL8;
+                case ImageFormat::BC7:
+                case ImageFormat::BC5:
+                    // Block-compressed cubemaps aren't produced by the cook path.
+                    OLO_CORE_ASSERT(false, "Block-compressed cubemaps are not supported");
+                    return 0;
             }
 
             OLO_CORE_ASSERT(false, "Unknown ImageFormat!");

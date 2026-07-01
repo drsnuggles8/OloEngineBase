@@ -115,21 +115,6 @@ namespace OloEngine
             return 0;
         }
 
-        // GL internal format for a block-compressed cook format.
-        [[nodiscard("Store this!")]] static GLenum CompressionFormatToGLInternalFormat(TextureCompressionFormat format, bool srgb)
-        {
-            switch (format)
-            {
-                case TextureCompressionFormat::BC7:
-                    return srgb ? GL_COMPRESSED_SRGB_ALPHA_BPTC_UNORM : GL_COMPRESSED_RGBA_BPTC_UNORM;
-                case TextureCompressionFormat::BC5:
-                    return GL_COMPRESSED_RG_RGTC2;
-                case TextureCompressionFormat::None:
-                    return 0;
-            }
-            return 0;
-        }
-
         // Whether the current GL context can accept the given compressed format.
         // BPTC (BC7) is core since GL 4.2, RGTC (BC5) since GL 3.0 — both guaranteed on
         // the engine's required 4.6 context. Still queried so a degraded context (or a
@@ -342,10 +327,12 @@ namespace OloEngine
 
         m_Width = image.Width;
         m_Height = image.Height;
+        m_Path = image.SourcePath; // so GetPath() works (pack serializer re-reads the .olotex)
         m_Specification.Width = image.Width;
         m_Specification.Height = image.Height;
         m_Specification.SRGB = image.SRGB;
         m_Specification.Format = (image.Format == TextureCompressionFormat::BC5) ? ImageFormat::BC5 : ImageFormat::BC7;
+        m_CompressedHasAlpha = image.HasAlpha;
         m_MipLevels = image.MipLevels();
         m_Specification.MipLevels = m_MipLevels;
         m_Specification.GenerateMips = m_MipLevels > 1u;
@@ -360,7 +347,9 @@ namespace OloEngine
             return;
         }
 
-        m_InternalFormat = Utils::CompressionFormatToGLInternalFormat(image.Format, image.SRGB);
+        // Reuse the single ImageFormat->GL internal-format mapping (m_Specification.Format
+        // is already BC7/BC5) rather than a second parallel switch.
+        m_InternalFormat = Utils::OloEngineImageFormatToGLInternalFormat(m_Specification.Format, image.SRGB);
         m_DataFormat = 0; // compressed: no client pixel format
 
         glCreateTextures(GL_TEXTURE_2D, 1, &m_RendererID);
@@ -368,6 +357,7 @@ namespace OloEngine
                            static_cast<GLsizei>(m_Width), static_cast<GLsizei>(m_Height));
 
         sizet totalBytes = 0;
+        u32 uploadedLevels = 0;
         for (u32 level = 0; level < m_MipLevels; ++level)
         {
             const u32 mipWidth = std::max(1u, m_Width >> level);
@@ -385,6 +375,7 @@ namespace OloEngine
                                           static_cast<GLsizei>(mipWidth), static_cast<GLsizei>(mipHeight),
                                           m_InternalFormat, static_cast<GLsizei>(blocks.size()), blocks.data());
             totalBytes += blocks.size();
+            ++uploadedLevels;
         }
 
         OLO_TRACK_GPU_ALLOC(this, totalBytes, RendererMemoryTracker::ResourceType::Texture2D, "OpenGL Texture2D (compressed)");
@@ -395,7 +386,11 @@ namespace OloEngine
         glTextureParameteri(m_RendererID, GL_TEXTURE_WRAP_S, GL_REPEAT);
         glTextureParameteri(m_RendererID, GL_TEXTURE_WRAP_T, GL_REPEAT);
 
-        m_IsLoaded = true;
+        // Only report loaded if at least one mip actually reached the GPU — otherwise a
+        // truncated/mismatched blob would masquerade as a successfully loaded texture.
+        m_IsLoaded = (uploadedLevels > 0);
+        if (!m_IsLoaded)
+            OLO_CORE_ERROR("OpenGLTexture2D: compressed upload produced no valid mip levels");
     }
 
     void OpenGLTexture2D::UploadDecompressedFallback(const CompressedTextureImage& image)
@@ -466,6 +461,14 @@ namespace OloEngine
     void OpenGLTexture2D::Resize(u32 width, u32 height)
     {
         OLO_PROFILE_FUNCTION();
+
+        // Block-compressed textures carry no re-uploadable client data — a resize would
+        // recreate empty compressed storage (undefined mips). Reject rather than corrupt.
+        if (IsCompressedFormat(m_Specification.Format))
+        {
+            OLO_CORE_ERROR("OpenGLTexture2D::Resize: not supported for block-compressed textures");
+            return;
+        }
 
         if (width == 0 || height == 0)
         {
@@ -576,6 +579,12 @@ namespace OloEngine
     void OpenGLTexture2D::SetData(void* const data, const u32 size)
     {
         OLO_PROFILE_FUNCTION();
+
+        if (IsCompressedFormat(m_Specification.Format))
+        {
+            OLO_CORE_ERROR("OpenGLTexture2D::SetData: not supported for block-compressed textures (upload via the CompressedTextureImage ctor)");
+            return;
+        }
 
         if (m_Specification.Samples > 1u)
         {
@@ -688,6 +697,12 @@ namespace OloEngine
     void OpenGLTexture2D::SubImage(u32 x, u32 y, u32 width, u32 height, const void* data, [[maybe_unused]] u32 dataSize)
     {
         OLO_PROFILE_FUNCTION();
+
+        if (IsCompressedFormat(m_Specification.Format))
+        {
+            OLO_CORE_ERROR("OpenGLTexture2D::SubImage: not supported for block-compressed textures");
+            return;
+        }
 
         if (m_Specification.Samples > 1u)
         {

@@ -34,12 +34,19 @@ namespace OloEngine
     struct CompressedTextureImage
     {
         TextureCompressionFormat Format = TextureCompressionFormat::None;
-        u32 Width = 0;     // base-level width in texels
-        u32 Height = 0;    // base-level height in texels
-        bool SRGB = false; // source colour space; selects the sRGB GL internal format on upload
+        u32 Width = 0;         // base-level width in texels
+        u32 Height = 0;        // base-level height in texels
+        bool SRGB = false;     // source colour space; selects the sRGB GL internal format on upload
+        bool HasAlpha = false; // true if the source carried a meaningful alpha channel (BC7 from
+                               // 4-channel input); drives Texture::HasAlphaChannel() so an opaque
+                               // BC7 albedo isn't mis-sorted into the transparent pass.
         // One entry per mip level (mip 0 = full resolution). Each holds the tightly
         // packed BCn blocks for that level: ceil(w/4) * ceil(h/4) * BlockSizeBytes.
         std::vector<std::vector<u8>> Mips;
+        // Runtime-only: the source .olotex path, set by the asset loader (NOT persisted
+        // by SerializeToBlob). Lets the GPU texture report GetPath() so the asset-pack
+        // serializer can re-read + embed the container. Empty for test/procedural images.
+        std::string SourcePath;
 
         [[nodiscard]] bool IsValid() const
         {
@@ -51,6 +58,17 @@ namespace OloEngine
             return static_cast<u32>(Mips.size());
         }
     };
+
+    namespace TextureCompression
+    {
+        // Filename -> "is this a colour (sRGB) texture?" heuristic. Single source of
+        // truth shared by the offline cook and the asset loader
+        // (TextureSerializer::IsLikelyColorTextureByName delegates here) so the two can
+        // never disagree on the same filename. Data-texture keywords (normal / metallic /
+        // roughness / AO / height / ...) veto colour keywords (albedo / diffuse / base
+        // color / emissive). Returns true for colour.
+        [[nodiscard]] bool IsLikelyColorTexture(std::string_view filename);
+    } // namespace TextureCompression
 
     namespace TextureCompression
     {

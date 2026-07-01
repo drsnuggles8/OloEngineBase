@@ -51,8 +51,13 @@ namespace OloEngine
 
         [[nodiscard("Use for transparency")]] bool HasAlphaChannel() const override
         {
+            // For compressed textures the source's alpha presence is recorded at cook
+            // time (m_CompressedHasAlpha) rather than inferred from the GL data format,
+            // so an opaque BC7 albedo isn't mis-reported as alpha-bearing.
+            if (IsCompressedFormat(m_Specification.Format))
+                return m_CompressedHasAlpha;
             return m_DataFormat == GL_RGBA || m_Specification.Format == ImageFormat::RGBA8 ||
-                   m_Specification.Format == ImageFormat::RGBA32F || m_Specification.Format == ImageFormat::BC7;
+                   m_Specification.Format == ImageFormat::RGBA32F;
         }
 
         bool GetData(std::vector<u8>& outData, u32 mipLevel = 0) const override;
@@ -83,6 +88,9 @@ namespace OloEngine
         u32 m_RendererID{};
         GLenum m_InternalFormat{};
         GLenum m_DataFormat{};
+        // For block-compressed textures only: whether the source carried a meaningful
+        // alpha channel (see HasAlphaChannel()). Ignored for uncompressed formats.
+        bool m_CompressedHasAlpha = false;
 
         // Double-buffered Pixel Buffer Objects for streaming uploads (see
         // TextureSpecification::Streaming). Created lazily on the first SetData and

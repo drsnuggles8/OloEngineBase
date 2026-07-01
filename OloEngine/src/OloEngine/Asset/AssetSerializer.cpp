@@ -76,79 +76,9 @@ namespace OloEngine
 
     bool TextureSerializer::IsLikelyColorTextureByName(std::string_view filename)
     {
-        std::string lower(filename);
-        std::ranges::transform(lower, lower.begin(),
-                               [](unsigned char c)
-                               { return static_cast<char>(std::tolower(c)); });
-
-        // Data-texture keywords trump colour keywords — e.g. "Diffuse_AO.png"
-        // is an AO map even though it carries "Diffuse" in the name, because
-        // the explicit "_AO" suffix is the meaningful tag.
-        constexpr std::string_view dataKeywords[] = {
-            "normal",
-            "_n.",
-            "_n_",
-            "norm",
-            "metal",
-            "_m.",
-            "_m_",
-            "metallic",
-            "rough",
-            "_r.",
-            "_r_",
-            "roughness",
-            "_ao.",
-            "_ao_",
-            "ambient_occlusion",
-            "ambientocclusion",
-            "occlusion",
-            "height",
-            "_h.",
-            "_h_",
-            "displace",
-            "disp",
-            "spec",
-            "_s.",
-            "bump",
-            "_orm.",
-            "_arm.",
-            "_orm_",
-            "_arm_",
-        };
-        for (const auto& kw : dataKeywords)
-        {
-            if (lower.find(kw) != std::string::npos)
-                return false;
-        }
-
-        constexpr std::string_view colorKeywords[] = {
-            "albedo",
-            "_a.",
-            "_a_",
-            "basecolor",
-            "base_color",
-            "diffuse",
-            "_d.",
-            "_d_",
-            "color",
-            "colour",
-            "emissive",
-            "emission",
-            "_e.",
-            "_e_",
-        };
-        for (const auto& kw : colorKeywords)
-        {
-            if (lower.find(kw) != std::string::npos)
-                return true;
-        }
-
-        // Ambiguous filename: be conservative and treat as linear. The model
-        // loader's per-aiTextureType path already tags colour textures
-        // explicitly, so the asset-pipeline path only kicks in for standalone
-        // .png drag-drops where the safer default is "do not double-decode
-        // gamma."
-        return false;
+        // Single source of truth for the colour/linear heuristic, shared with the
+        // offline cook (Renderer/TextureCompression) so the two can't diverge (#440).
+        return TextureCompression::IsLikelyColorTexture(filename);
     }
 
     bool TextureSerializer::TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const
@@ -163,6 +93,7 @@ namespace OloEngine
                 OLO_CORE_ERROR("TextureSerializer::TryLoadData - Failed to read .olotex: {}", metadata.FilePath.string());
                 return false;
             }
+            image.SourcePath = metadata.FilePath.string(); // so GetPath() -> pack re-read works
             Ref<Texture2D> texture = Texture2D::Create(image);
             if (!texture || !texture->IsLoaded())
             {
@@ -211,6 +142,7 @@ namespace OloEngine
                 OLO_CORE_ERROR("TextureSerializer::TryLoadRawData - Failed to read .olotex: {}", metadata.FilePath.string());
                 return false;
             }
+            image.SourcePath = metadata.FilePath.string(); // so GetPath() -> pack re-read works
             outRawData = std::move(image);
             return true;
         }
@@ -391,6 +323,41 @@ namespace OloEngine
         // GL_SRGB8_ALPHA8 conversion.
         stream.WriteRaw<bool>(spec.SRGB);
 
+        // Block-compressed textures (#440) cannot be re-created from the path via
+        // stb_image, and the spec-only path produces empty storage — so embed the whole
+        // .olotex container blob here, making the pack self-contained. The bytes are the
+        // exact on-disk container; re-read them from the source path (set as GetPath()
+        // by the .olotex loader). Appended AFTER srgb so the legacy record layout for
+        // uncompressed textures is byte-identical.
+        if (IsCompressedFormat(spec.Format))
+        {
+            const std::string& oloTexPath = texture->GetPath();
+            std::vector<u8> blob;
+            if (!oloTexPath.empty())
+            {
+                std::ifstream file(oloTexPath, std::ios::binary | std::ios::ate);
+                if (file)
+                {
+                    const std::streamsize sz = file.tellg();
+                    if (sz > 0)
+                    {
+                        blob.resize(static_cast<sizet>(sz));
+                        file.seekg(0);
+                        file.read(reinterpret_cast<char*>(blob.data()), sz);
+                        if (!file)
+                            blob.clear();
+                    }
+                }
+            }
+            if (blob.empty())
+            {
+                OLO_CORE_ERROR("TextureSerializer::SerializeToAssetPack - could not read .olotex blob for '{}'; packed texture would be empty", oloTexPath);
+                return false;
+            }
+            stream.WriteRaw<u64>(static_cast<u64>(blob.size()));
+            stream.WriteData(reinterpret_cast<const char*>(blob.data()), blob.size());
+        }
+
         outInfo.Size = stream.GetStreamPosition() - outInfo.Offset;
         return true;
     }
@@ -447,6 +414,39 @@ namespace OloEngine
         else
         {
             // No additional handling required.
+        }
+
+        // Block-compressed textures (#440) embed the whole .olotex container blob after
+        // the srgb byte (see SerializeToAssetPack). Reconstruct the GPU texture straight
+        // from the embedded blob — self-contained, no dependency on the loose file.
+        if (IsCompressedFormat(format))
+        {
+            u64 blobSize = 0;
+            stream.ReadRaw(blobSize);
+            const u64 recordEnd = packedEndOverflows ? std::numeric_limits<u64>::max()
+                                                     : assetInfo.PackedOffset + assetInfo.PackedSize;
+            if (blobSize == 0 || stream.GetStreamPosition() + blobSize > recordEnd)
+            {
+                OLO_CORE_ERROR("TextureSerializer::DeserializeFromAssetPack - compressed blob size {} out of record bounds", blobSize);
+                return nullptr;
+            }
+            std::vector<u8> blob(static_cast<sizet>(blobSize));
+            stream.ReadData(reinterpret_cast<char*>(blob.data()), blob.size());
+
+            CompressedTextureImage image;
+            if (!TextureCompression::DeserializeFromBlob(blob, image))
+            {
+                OLO_CORE_ERROR("TextureSerializer::DeserializeFromAssetPack - failed to parse embedded .olotex blob");
+                return nullptr;
+            }
+            Ref<Texture2D> compressed = Texture2D::Create(image);
+            if (!compressed || !compressed->IsLoaded())
+            {
+                OLO_CORE_ERROR("TextureSerializer::DeserializeFromAssetPack - failed to create compressed texture");
+                return nullptr;
+            }
+            compressed->SetHandle(assetInfo.Handle);
+            return compressed;
         }
 
         // Create texture specification

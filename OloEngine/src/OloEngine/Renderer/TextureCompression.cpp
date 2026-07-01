@@ -177,28 +177,66 @@ namespace OloEngine
         constexpr std::array<u8, 4> kOloTexMagic = { 'O', 'T', 'E', 'X' };
         constexpr u32 kOloTexVersion = 1;
 
-        // Minimal filename heuristic mirroring TextureSerializer::IsLikelyColorTextureByName,
-        // duplicated here so the Renderer-layer cook stays independent of the Asset layer.
-        // Colour textures (albedo / diffuse / basecolor / emissive) want sRGB BC7.
-        bool IsLikelyColorTextureByName(std::string_view filename)
+        // Container header flag bits (persisted in the .olotex blob).
+        constexpr u32 kFlagSRGB = 0x1u;
+        constexpr u32 kFlagHasAlpha = 0x2u;
+
+        // Hard ceiling for a deserialized .olotex header — a malformed/hostile file must
+        // not drive an unbounded allocation or an illegal GL level count. 16384 is well
+        // above any real shipped texture and keeps block math inside u32.
+        constexpr u32 kMaxTextureDimension = 16384;
+
+        // Highest legitimate mip level count for the given dimensions: floor(log2(max))+1.
+        u32 MaxMipLevels(u32 width, u32 height)
         {
-            std::string lower(filename);
-            std::ranges::transform(lower, lower.begin(), [](unsigned char c)
-                                   { return static_cast<char>(std::tolower(c)); });
-            constexpr std::array<std::string_view, 6> kColorKeywords = {
-                "albedo", "diffuse", "basecolor", "base_color", "emissive", "_col"
-            };
-            for (auto keyword : kColorKeywords)
+            u32 dim = std::max(width, height);
+            u32 levels = 1;
+            while (dim > 1)
             {
-                if (lower.find(keyword) != std::string::npos)
-                    return true;
+                dim >>= 1;
+                ++levels;
             }
-            return false;
+            return levels;
         }
     } // namespace
 
     namespace TextureCompression
     {
+        bool IsLikelyColorTexture(std::string_view filename)
+        {
+            std::string lower(filename);
+            std::ranges::transform(lower, lower.begin(), [](unsigned char c)
+                                   { return static_cast<char>(std::tolower(c)); });
+
+            // Data-texture keywords trump colour keywords — e.g. "Diffuse_AO.png" is an
+            // AO map even though it carries "Diffuse", because the "_AO" suffix is the
+            // meaningful tag. (Kept in sync with the tests in SRGBTextureSupportTest.)
+            constexpr std::string_view dataKeywords[] = {
+                "normal", "_n.", "_n_", "norm", "metal", "_m.", "_m_", "metallic",
+                "rough", "_r.", "_r_", "roughness", "_ao.", "_ao_", "ambient_occlusion",
+                "ambientocclusion", "occlusion", "height", "_h.", "_h_", "displace",
+                "disp", "spec", "_s.", "bump", "_orm.", "_arm.", "_orm_", "_arm_"
+            };
+            for (std::string_view kw : dataKeywords)
+            {
+                if (lower.find(kw) != std::string::npos)
+                    return false;
+            }
+
+            constexpr std::string_view colorKeywords[] = {
+                "albedo", "_a.", "_a_", "basecolor", "base_color", "diffuse", "_d.",
+                "_d_", "color", "colour", "emissive", "emission", "_e.", "_e_"
+            };
+            for (std::string_view kw : colorKeywords)
+            {
+                if (lower.find(kw) != std::string::npos)
+                    return true;
+            }
+
+            // Ambiguous: be conservative and treat as linear (avoid double gamma decode).
+            return false;
+        }
+
         u32 BlockSizeBytes(TextureCompressionFormat format)
         {
             switch (format)
@@ -256,6 +294,10 @@ namespace OloEngine
             image.Width = width;
             image.Height = height;
             image.SRGB = srgb;
+            // A 4-channel source carries alpha; 1/3-channel sources get a constant
+            // alpha=255 from ExpandToRGBA8, which is opaque — so don't report alpha for
+            // those (keeps opaque BC7 albedo out of the transparent render pass).
+            image.HasAlpha = (channels == 4);
 
             std::vector<u8> level = ExpandToRGBA8(pixels, width, height, channels);
             u32 mw = width;
@@ -279,9 +321,11 @@ namespace OloEngine
             OLO_PROFILE_FUNCTION();
 
             CompressedTextureImage image;
-            if (!pixels || width == 0 || height == 0 || channels == 0 || channels > 4)
+            // BC5 encodes two channels (R,G) — a single-channel source would silently
+            // duplicate R into G and produce a meaningless "normal" map, so require >= 2.
+            if (!pixels || width == 0 || height == 0 || channels < 2 || channels > 4)
             {
-                OLO_CORE_ERROR("TextureCompression::EncodeBC5 - invalid input ({}x{}, {} ch)", width, height, channels);
+                OLO_CORE_ERROR("TextureCompression::EncodeBC5 - invalid input ({}x{}, {} ch; needs 2-4 channels)", width, height, channels);
                 return image;
             }
 
@@ -386,12 +430,25 @@ namespace OloEngine
             if (!image.IsValid())
                 return blob;
 
+            // Total size is fully known up front (28-byte header + per-mip 4-byte length
+            // + block bytes); reserve once so the appends don't repeatedly realloc.
+            sizet total = 4 + 6 * sizeof(u32);
+            for (const std::vector<u8>& mip : image.Mips)
+                total += sizeof(u32) + mip.size();
+            blob.reserve(total);
+
+            u32 flags = 0;
+            if (image.SRGB)
+                flags |= kFlagSRGB;
+            if (image.HasAlpha)
+                flags |= kFlagHasAlpha;
+
             blob.insert(blob.end(), kOloTexMagic.begin(), kOloTexMagic.end());
             AppendU32(blob, kOloTexVersion);
             AppendU32(blob, static_cast<u32>(image.Format));
             AppendU32(blob, image.Width);
             AppendU32(blob, image.Height);
-            AppendU32(blob, image.SRGB ? 1u : 0u);
+            AppendU32(blob, flags);
             AppendU32(blob, image.MipLevels());
             for (const std::vector<u8>& mip : image.Mips)
             {
@@ -440,13 +497,29 @@ namespace OloEngine
                 OLO_CORE_ERROR("TextureCompression::DeserializeFromBlob - degenerate dimensions/mips");
                 return false;
             }
+            // Bound header fields BEFORE any allocation: a hostile/corrupt .olotex must
+            // not drive an OOM (unbounded Mips.reserve) or an over-long mip chain that
+            // later trips glTextureStorage2D. width/height are capped, and mipCount can't
+            // exceed the chain length the dimensions allow.
+            if (width > kMaxTextureDimension || height > kMaxTextureDimension)
+            {
+                OLO_CORE_ERROR("TextureCompression::DeserializeFromBlob - dimensions {}x{} exceed max {}", width, height, kMaxTextureDimension);
+                return false;
+            }
+            if (mipCount > MaxMipLevels(width, height))
+            {
+                OLO_CORE_ERROR("TextureCompression::DeserializeFromBlob - mipCount {} exceeds max {} for {}x{}",
+                               mipCount, MaxMipLevels(width, height), width, height);
+                return false;
+            }
 
             CompressedTextureImage image;
             image.Format = static_cast<TextureCompressionFormat>(formatInt);
             image.Width = width;
             image.Height = height;
-            image.SRGB = (flags & 0x1u) != 0;
-            image.Mips.reserve(mipCount);
+            image.SRGB = (flags & kFlagSRGB) != 0;
+            image.HasAlpha = (flags & kFlagHasAlpha) != 0;
+            image.Mips.reserve(mipCount); // now bounded by MaxMipLevels above
 
             for (u32 i = 0; i < mipCount; ++i)
             {
@@ -533,7 +606,7 @@ namespace OloEngine
             if (options.AutoSRGBFromName && format == TextureCompressionFormat::BC7)
             {
                 const std::string filename = std::filesystem::path(srcImagePath).filename().string();
-                srgb = IsLikelyColorTextureByName(filename);
+                srgb = IsLikelyColorTexture(filename);
             }
 
             // Match the runtime texture loader's vertical flip so the stored blocks
