@@ -74,6 +74,76 @@ if(OLO_ENABLE_ASAN)
         string(REPLACE "/ZI" "/Zi" CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG}")
         add_link_options(/INCREMENTAL:NO)
 
+        # clang-cl reports as MSVC, so it takes this branch. But unlike cl.exe — whose
+        # `/fsanitize=address` embeds `/defaultlib:clang_rt.asan*` directives that
+        # link.exe auto-resolves from the `LIB` env var — clang-cl neither embeds those
+        # directives nor gets its compiler-rt runtime dir onto the search path when CMake
+        # drives the link with lld-link directly (the MSVC linker model). So every
+        # `__asan_*` symbol comes up undefined (first surfaces linking the vendored
+        # protobuf `protoc.exe`). Fix both halves below: locate clang's runtime dir and
+        # name the runtime libs explicitly, exactly as the clang driver would.
+        #
+        # Resolving that dir is version-dependent: `-print-runtime-dir` is the intended
+        # query, but newer LLVM (e.g. 21) reports the per-target layout
+        # (lib/<triple>) that doesn't exist on installs still shipping the legacy
+        # lib/windows layout, while older LLVM reports lib/windows directly. Probe both
+        # (runtime-dir, then resource-dir/lib/windows) and pick whichever actually holds
+        # the ASan import lib, so it works regardless of the LLVM version on PATH.
+        if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+            set(_olo_asan_import_lib "clang_rt.asan_dynamic-x86_64.lib")
+            set(_olo_asan_candidates "")
+
+            execute_process(
+                COMMAND "${CMAKE_CXX_COMPILER}" -print-runtime-dir
+                OUTPUT_VARIABLE _olo_rt_dir OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
+            if(_olo_rt_dir)
+                file(TO_CMAKE_PATH "${_olo_rt_dir}" _olo_rt_dir)
+                list(APPEND _olo_asan_candidates "${_olo_rt_dir}")
+            endif()
+
+            execute_process(
+                COMMAND "${CMAKE_CXX_COMPILER}" -print-resource-dir
+                OUTPUT_VARIABLE _olo_res_dir OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
+            if(_olo_res_dir)
+                file(TO_CMAKE_PATH "${_olo_res_dir}" _olo_res_dir)
+                list(APPEND _olo_asan_candidates "${_olo_res_dir}/lib/windows")
+            endif()
+
+            set(_olo_asan_runtime_dir "")
+            foreach(_olo_cand IN LISTS _olo_asan_candidates)
+                if(EXISTS "${_olo_cand}/${_olo_asan_import_lib}")
+                    set(_olo_asan_runtime_dir "${_olo_cand}")
+                    break()
+                endif()
+            endforeach()
+
+            if(_olo_asan_runtime_dir)
+                # Unlike cl.exe, clang-cl does NOT embed a `/defaultlib:clang_rt.asan*`
+                # directive in its objects, so putting the dir on the search path isn't
+                # enough — the runtime must be named explicitly, exactly as the clang
+                # driver does when IT links: the dynamic ASan import lib, plus the
+                # per-module thunk force-included with /wholearchive (it supplies module
+                # globals like __asan_shadow_memory_dynamic_address).
+                add_link_options(
+                    "/LIBPATH:${_olo_asan_runtime_dir}"
+                    "clang_rt.asan_dynamic-x86_64.lib"
+                    "/wholearchive:clang_rt.asan_dynamic_runtime_thunk-x86_64.lib"
+                )
+                message(STATUS "  clang-cl ASan runtime linked from: ${_olo_asan_runtime_dir}")
+            else()
+                message(WARNING
+                    "clang-cl ASan: could not locate ${_olo_asan_import_lib} (checked: ${_olo_asan_candidates}). "
+                    "Linking may fail with undefined __asan_* symbols.")
+            endif()
+
+            unset(_olo_asan_import_lib)
+            unset(_olo_asan_candidates)
+            unset(_olo_rt_dir)
+            unset(_olo_res_dir)
+            unset(_olo_asan_runtime_dir)
+            unset(_olo_cand)
+        endif()
+
         message(STATUS "  MSVC ASan: /fsanitize=address /MD (no leak detection on Windows)")
     elseif(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
         add_compile_options(-fsanitize=address -fno-omit-frame-pointer)
