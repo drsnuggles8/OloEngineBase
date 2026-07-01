@@ -602,10 +602,16 @@ static std::vector<ComponentDef> ParseHeaders(const fs::path& scanDir)
                     continue;
                 }
 
-                // Skip access specifiers, comments, blank lines — retry on next line
+                // Skip access specifiers, comments, blank lines — retry on next line.
+                // An OLO_SERIALIZE(...) marker between the OLO_PROPERTY and its field is
+                // skipped too (it is a scene-serializer directive, not a script binding,
+                // and must not be mistaken for the field anchor — which would drop the
+                // property). Placing it above OLO_PROPERTY already works because pending
+                // is empty there; this handles the below-placement ordering as well.
                 if (trimmed.starts_with("//") || trimmed.starts_with("/*") ||
                     trimmed.starts_with("private:") || trimmed.starts_with("public:") ||
-                    trimmed.starts_with("protected:") || trimmed.empty())
+                    trimmed.starts_with("protected:") || trimmed.starts_with("OLO_SERIALIZE(") ||
+                    trimmed.empty())
                 {
                     continue; // pendingMetadataList stays populated for next line
                 }
@@ -839,11 +845,11 @@ static const std::set<std::string> kComponentsCustomOnRemove = {
 //   * FogVolumeComponent — deserialize delegates to a hand-written helper that
 //     clamps the Shape enum (0..2), Priority (-100..100), and Sanitize()s extents /
 //     color / density / falloff / blend-weight; auto-gen would relax those guards.
-//   * UIButtonComponent — has a runtime-only interaction `m_State` (Normal/Hovered/
-//     Pressed/Disabled) the hand-written serializer omits (auto-gen would persist a
-//     transient hover/press state).
-//   * UISliderComponent — has a runtime-only `m_IsDragging` flag the hand-written
-//     serializer omits (auto-gen would persist a transient drag state).
+//   * UIButtonComponent / UISliderComponent — MIGRATED off this set in the #451
+//     OLO_SERIALIZE(Skip) slice: their only reason to stay hand-written was a single
+//     runtime-only field (m_State / m_IsDragging), now marked OLO_SERIALIZE(Skip) so
+//     the generated block omits it while round-tripping every authored field. Left
+//     here as a breadcrumb for the migration pattern; both are fully generated now.
 //   * LightProbeVolumeComponent — (a) the runtime-only `m_Dirty` (set by property
 //     setters, cleared by the bake) and editor-only `m_ShowDebugProbes` are omitted
 //     by the hand-written serializer (now that glm::ivec3 m_Resolution is a
@@ -897,9 +903,7 @@ static const std::set<std::string> kComponentsCustomSerialize = {
     "SpringBoneComponent",
     "StreamingVolumeComponent",
     "TagComponent",
-    "UIButtonComponent",
     "UIResolvedRectComponent",
-    "UISliderComponent",
     "VehicleComponent",
 };
 
@@ -1355,6 +1359,59 @@ static ComponentSerInfo ParseComponentFields(std::string body, const std::set<st
         }
         if (s.empty())
             continue; // the statement was nothing but access-specifier label(s)
+
+        // A leading OLO_SERIALIZE(...) annotation controls how the scene-serializer
+        // codegen treats this member (issue #451). Only `Skip` is honoured today:
+        // OLO_SERIALIZE(Skip) drops the member from the generated serialize/deserialize
+        // — a runtime-only field the round-trip must NOT persist (e.g.
+        // UIButtonComponent::m_State, UISliderComponent::m_IsDragging) — and, crucially,
+        // does NOT mark the component non-trivial. So an otherwise all-trivial component
+        // with one runtime field is now fully generated instead of being kept
+        // hand-written via kComponentsCustomSerialize (per-field control replacing the
+        // old all-or-nothing-per-component exclusion). The macro expands to nothing (see
+        // Scene/ComponentReflection.h) and has no ';', so it is glued to the annotated
+        // field inside one statement; OLO_PROPERTY was already stripped above, so
+        // OLO_SERIALIZE is the statement prefix here. A non-`Skip` OLO_SERIALIZE (a
+        // future Clamp/Min/Max) is peeled off and the field then serializes normally.
+        if (s.rfind("OLO_SERIALIZE", 0) == 0)
+        {
+            size_t j = std::string_view("OLO_SERIALIZE").size();
+            while (j < s.size() && (s[j] == ' ' || s[j] == '\t'))
+                ++j;
+            if (j < s.size() && s[j] == '(')
+            {
+                int pdepth = 0;
+                size_t k = j;
+                for (; k < s.size(); ++k)
+                {
+                    if (s[k] == '(')
+                        ++pdepth;
+                    else if (s[k] == ')' && --pdepth == 0)
+                    {
+                        ++k;
+                        break;
+                    }
+                }
+                const std::string args = s.substr(j, k - j); // includes the parens
+                // `Skip` / `Skip = true` ⇒ drop the field; `Skip = false` (or no Skip
+                // token at all) ⇒ keep it. Only the bare token after a `(`/`,`/`=` counts
+                // so a substring like `SkipFoo` is not mistaken for it.
+                bool skip = false;
+                if (auto sp = args.find("Skip"); sp != std::string::npos)
+                {
+                    const std::string after = Trim(args.substr(sp + 4));
+                    if (after.empty() || after[0] == ')' || after[0] == ',')
+                        skip = true;
+                    else if (after[0] == '=')
+                        skip = Trim(after.substr(1)).rfind("false", 0) != 0;
+                }
+                if (skip)
+                    continue;          // runtime-only field — not serialized, not non-trivial
+                s = Trim(s.substr(k)); // peel a non-Skip annotation; serialize the field
+                if (s.empty())
+                    continue;
+            }
+        }
 
         // The declarator is everything before the first '=' (default initializer)
         // or '{' (braced initializer / method body).

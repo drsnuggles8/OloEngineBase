@@ -1315,7 +1315,10 @@ namespace OloEngine::Tests
     }
 
     // -------------------------------------------------------------------------
-    // UIButtonComponent — 4-state colour palette + Interactable.
+    // UIButtonComponent — 4-state colour palette + Interactable. Auto-generated
+    // via the OLO_SERIALIZE(Skip) slice (#451): the runtime-only m_State is marked
+    // Skip, so it must round-trip every authored field but NOT persist m_State
+    // (which stays at its constructor default on load even when set before save).
     // -------------------------------------------------------------------------
     TEST(ComponentRoundTrip, UIButtonComponentSurvivesYAMLRoundTrip)
     {
@@ -1335,8 +1338,15 @@ namespace OloEngine::Tests
             b.m_PressedColor = pressed;
             b.m_DisabledColor = disabled;
             b.m_Interactable = expectedInteractable;
+            // Runtime-only field set to a non-default value — OLO_SERIALIZE(Skip)
+            // must keep it OUT of the YAML so it reloads at the ctor default.
+            b.m_State = UIButtonState::Pressed;
             yaml = SceneSerializer(scene).SerializeToYAML();
         }
+
+        // The skipped runtime field must never appear in the serialized scene.
+        EXPECT_EQ(yaml.find("State:"), std::string::npos)
+            << "UIButtonComponent::m_State (OLO_SERIALIZE(Skip)) leaked into scene YAML.";
 
         auto reloaded = Scene::Create();
         ASSERT_TRUE(SceneSerializer(reloaded).DeserializeFromYAML(yaml));
@@ -1351,16 +1361,22 @@ namespace OloEngine::Tests
         EXPECT_NEAR(b.m_PressedColor.b, pressed.b, kFloatEpsilon);
         EXPECT_NEAR(b.m_DisabledColor.a, disabled.a, kFloatEpsilon);
         EXPECT_EQ(b.m_Interactable, expectedInteractable);
+        // Skipped: not serialized, so it comes back as the constructor default.
+        EXPECT_EQ(b.m_State, UIButtonState::Normal)
+            << "m_State was persisted despite OLO_SERIALIZE(Skip).";
     }
 
     // -------------------------------------------------------------------------
-    // UISliderComponent
+    // UISliderComponent — auto-generated via the OLO_SERIALIZE(Skip) slice (#451).
+    // Covers the Direction enum round-trip and asserts the runtime-only m_IsDragging
+    // (marked Skip) is not persisted.
     // -------------------------------------------------------------------------
     TEST(ComponentRoundTrip, UISliderComponentSurvivesYAMLRoundTrip)
     {
         const f32 expectedValue = 0.625f;
         const f32 expectedMin = 0.0f;
         const f32 expectedMax = 100.0f;
+        const auto expectedDirection = UISliderDirection::RightToLeft; // non-default
         const bool expectedInteractable = false;
 
         std::string yaml;
@@ -1371,9 +1387,15 @@ namespace OloEngine::Tests
             s.m_Value = expectedValue;
             s.m_MinValue = expectedMin;
             s.m_MaxValue = expectedMax;
+            s.m_Direction = expectedDirection;
             s.m_Interactable = expectedInteractable;
+            // Runtime-only drag flag set true — OLO_SERIALIZE(Skip) must drop it.
+            s.m_IsDragging = true;
             yaml = SceneSerializer(scene).SerializeToYAML();
         }
+
+        EXPECT_EQ(yaml.find("IsDragging:"), std::string::npos)
+            << "UISliderComponent::m_IsDragging (OLO_SERIALIZE(Skip)) leaked into scene YAML.";
 
         auto reloaded = Scene::Create();
         ASSERT_TRUE(SceneSerializer(reloaded).DeserializeFromYAML(yaml));
@@ -1386,7 +1408,11 @@ namespace OloEngine::Tests
         EXPECT_NEAR(s.m_Value, expectedValue, kFloatEpsilon);
         EXPECT_NEAR(s.m_MinValue, expectedMin, kFloatEpsilon);
         EXPECT_NEAR(s.m_MaxValue, expectedMax, kFloatEpsilon);
+        EXPECT_EQ(s.m_Direction, expectedDirection);
         EXPECT_EQ(s.m_Interactable, expectedInteractable);
+        // Skipped: reloads at the constructor default (false).
+        EXPECT_FALSE(s.m_IsDragging)
+            << "m_IsDragging was persisted despite OLO_SERIALIZE(Skip).";
     }
 
     // -------------------------------------------------------------------------

@@ -2713,28 +2713,12 @@ namespace OloEngine
             TrySet(text.m_LineSpacing, uiTextComponent["LineSpacing"]);
         }
 
-        if (auto uiButtonComponent = entity["UIButtonComponent"]; uiButtonComponent)
-        {
-            auto& button = deserializedEntity.AddComponent<UIButtonComponent>();
-            TrySet(button.m_NormalColor, uiButtonComponent["NormalColor"]);
-            TrySet(button.m_HoveredColor, uiButtonComponent["HoveredColor"]);
-            TrySet(button.m_PressedColor, uiButtonComponent["PressedColor"]);
-            TrySet(button.m_DisabledColor, uiButtonComponent["DisabledColor"]);
-            TrySet(button.m_Interactable, uiButtonComponent["Interactable"]);
-        }
+        // UIButtonComponent — auto-generated. All authored fields are trivial; the
+        // runtime-only m_State is marked OLO_SERIALIZE(Skip), so the generated block
+        // round-trips everything but m_State (issue #451 OLO_SERIALIZE(Skip) slice).
 
-        if (auto uiSliderComponent = entity["UISliderComponent"]; uiSliderComponent)
-        {
-            auto& slider = deserializedEntity.AddComponent<UISliderComponent>();
-            TrySet(slider.m_Value, uiSliderComponent["Value"]);
-            TrySet(slider.m_MinValue, uiSliderComponent["MinValue"]);
-            TrySet(slider.m_MaxValue, uiSliderComponent["MaxValue"]);
-            TrySetEnum(slider.m_Direction, uiSliderComponent["Direction"]);
-            TrySet(slider.m_BackgroundColor, uiSliderComponent["BackgroundColor"]);
-            TrySet(slider.m_FillColor, uiSliderComponent["FillColor"]);
-            TrySet(slider.m_HandleColor, uiSliderComponent["HandleColor"]);
-            TrySet(slider.m_Interactable, uiSliderComponent["Interactable"]);
-        }
+        // UISliderComponent — auto-generated. Same story: authored fields are trivial,
+        // the runtime-only m_IsDragging is OLO_SERIALIZE(Skip).
 
         // UIProgressBarComponent — auto-generated (all-trivial: three f32s, a
         // FillMethod enum, two glm::vec4 colors). Block lives in the generated .inl
@@ -4582,38 +4566,10 @@ namespace OloEngine
             out << YAML::EndMap; // UITextComponent
         }
 
-        if (entity.HasComponent<UIButtonComponent>())
-        {
-            out << YAML::Key << "UIButtonComponent";
-            out << YAML::BeginMap; // UIButtonComponent
-
-            auto const& button = entity.GetComponent<UIButtonComponent>();
-            out << YAML::Key << "NormalColor" << YAML::Value << button.m_NormalColor;
-            out << YAML::Key << "HoveredColor" << YAML::Value << button.m_HoveredColor;
-            out << YAML::Key << "PressedColor" << YAML::Value << button.m_PressedColor;
-            out << YAML::Key << "DisabledColor" << YAML::Value << button.m_DisabledColor;
-            out << YAML::Key << "Interactable" << YAML::Value << button.m_Interactable;
-
-            out << YAML::EndMap; // UIButtonComponent
-        }
-
-        if (entity.HasComponent<UISliderComponent>())
-        {
-            out << YAML::Key << "UISliderComponent";
-            out << YAML::BeginMap; // UISliderComponent
-
-            auto const& slider = entity.GetComponent<UISliderComponent>();
-            out << YAML::Key << "Value" << YAML::Value << slider.m_Value;
-            out << YAML::Key << "MinValue" << YAML::Value << slider.m_MinValue;
-            out << YAML::Key << "MaxValue" << YAML::Value << slider.m_MaxValue;
-            out << YAML::Key << "Direction" << YAML::Value << static_cast<int>(std::to_underlying(slider.m_Direction));
-            out << YAML::Key << "BackgroundColor" << YAML::Value << slider.m_BackgroundColor;
-            out << YAML::Key << "FillColor" << YAML::Value << slider.m_FillColor;
-            out << YAML::Key << "HandleColor" << YAML::Value << slider.m_HandleColor;
-            out << YAML::Key << "Interactable" << YAML::Value << slider.m_Interactable;
-
-            out << YAML::EndMap; // UISliderComponent
-        }
+        // UIButtonComponent / UISliderComponent — auto-generated. Their runtime-only
+        // fields (m_State / m_IsDragging) carry OLO_SERIALIZE(Skip); every authored
+        // field is trivial, so both serialize blocks live in the generated .inl
+        // (issue #451 OLO_SERIALIZE(Skip) slice).
 
         // UIProgressBarComponent serialize — auto-generated (issue #451 enum slice);
         // see the matching note in DeserializeEntityComponents.

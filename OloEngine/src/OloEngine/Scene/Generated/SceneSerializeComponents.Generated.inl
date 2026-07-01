@@ -212,6 +212,19 @@ if (entity.HasComponent<SpotLightComponent>())
     out << YAML::EndMap; // SpotLightComponent
 }
 
+if (entity.HasComponent<UIButtonComponent>())
+{
+    out << YAML::Key << "UIButtonComponent";
+    out << YAML::BeginMap; // UIButtonComponent
+    auto const& comp = entity.GetComponent<UIButtonComponent>();
+    out << YAML::Key << "NormalColor" << YAML::Value << comp.m_NormalColor;
+    out << YAML::Key << "HoveredColor" << YAML::Value << comp.m_HoveredColor;
+    out << YAML::Key << "PressedColor" << YAML::Value << comp.m_PressedColor;
+    out << YAML::Key << "DisabledColor" << YAML::Value << comp.m_DisabledColor;
+    out << YAML::Key << "Interactable" << YAML::Value << comp.m_Interactable;
+    out << YAML::EndMap; // UIButtonComponent
+}
+
 if (entity.HasComponent<UICanvasComponent>())
 {
     out << YAML::Key << "UICanvasComponent";
@@ -294,6 +307,22 @@ if (entity.HasComponent<UIScrollViewComponent>())
     out << YAML::Key << "ScrollbarColor" << YAML::Value << comp.m_ScrollbarColor;
     out << YAML::Key << "ScrollbarTrackColor" << YAML::Value << comp.m_ScrollbarTrackColor;
     out << YAML::EndMap; // UIScrollViewComponent
+}
+
+if (entity.HasComponent<UISliderComponent>())
+{
+    out << YAML::Key << "UISliderComponent";
+    out << YAML::BeginMap; // UISliderComponent
+    auto const& comp = entity.GetComponent<UISliderComponent>();
+    out << YAML::Key << "Value" << YAML::Value << comp.m_Value;
+    out << YAML::Key << "MinValue" << YAML::Value << comp.m_MinValue;
+    out << YAML::Key << "MaxValue" << YAML::Value << comp.m_MaxValue;
+    out << YAML::Key << "Direction" << YAML::Value << static_cast<int>(comp.m_Direction);
+    out << YAML::Key << "BackgroundColor" << YAML::Value << comp.m_BackgroundColor;
+    out << YAML::Key << "FillColor" << YAML::Value << comp.m_FillColor;
+    out << YAML::Key << "HandleColor" << YAML::Value << comp.m_HandleColor;
+    out << YAML::Key << "Interactable" << YAML::Value << comp.m_Interactable;
+    out << YAML::EndMap; // UISliderComponent
 }
 
 if (entity.HasComponent<UIToggleComponent>())
