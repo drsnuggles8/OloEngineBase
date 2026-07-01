@@ -195,6 +195,18 @@ namespace OloEngine
         glm::vec3 RotationEuler = { 0.0f, 0.0f, 0.0f };
         glm::quat Rotation = { 1.0f, 0.0f, 0.0f, 0.0f };
 
+        // Runtime-only cache of the local TRS matrix. NOT serialized and excluded
+        // from operator== (see below): purely a perf accelerator for GetTransform().
+        // Because Translation/Scale are public and mutated in-place across the code
+        // base, a setter-invalidated dirty flag would miss those writes; instead the
+        // cache validates itself by bit-comparing the current TRS inputs against the
+        // inputs it was built from, so any mutation path invalidates it correctly.
+        mutable glm::mat4 m_CachedTransform{ 1.0f };
+        mutable glm::vec3 m_CachedTranslation{ 0.0f, 0.0f, 0.0f };
+        mutable glm::quat m_CachedRotation{ 1.0f, 0.0f, 0.0f, 0.0f };
+        mutable glm::vec3 m_CachedScale{ 1.0f, 1.0f, 1.0f };
+        mutable bool m_CacheValid = false;
+
       public:
         TransformComponent() = default;
         TransformComponent(const TransformComponent& other) = default;
@@ -288,10 +300,30 @@ namespace OloEngine
 
         [[nodiscard("Store this!")]] glm::mat4 GetTransform() const
         {
-            return glm::translate(glm::mat4(1.0f), Translation) * glm::toMat4(Rotation) * glm::scale(glm::mat4(1.0f), Scale);
+            // O(1) cache hit when the local TRS inputs are bit-identical to the last
+            // build; otherwise rebuild once and remember the inputs. Bit-exact compare
+            // is intentional (cpp-coding-quality §2b): identical bits reproduce an
+            // identical matrix, and any real edit differs in at least one bit.
+            if (m_CacheValid && Math::BitwiseEqual(m_CachedTranslation, Translation) && Math::BitwiseEqual(m_CachedRotation, Rotation) && Math::BitwiseEqual(m_CachedScale, Scale))
+            {
+                return m_CachedTransform;
+            }
+
+            m_CachedTransform = glm::translate(glm::mat4(1.0f), Translation) * glm::toMat4(Rotation) * glm::scale(glm::mat4(1.0f), Scale);
+            m_CachedTranslation = Translation;
+            m_CachedRotation = Rotation;
+            m_CachedScale = Scale;
+            m_CacheValid = true;
+            return m_CachedTransform;
         }
 
-        auto operator==(const TransformComponent&) const -> bool = default;
+        // Excludes the runtime-only cache fields from equality: two transforms with
+        // identical authored TRS must compare equal regardless of cache state (undo
+        // change-detection and round-trip tests rely on this). Bit-exact per §2a/§7.
+        auto operator==(const TransformComponent& other) const -> bool
+        {
+            return Math::BitwiseEqual(Translation, other.Translation) && Math::BitwiseEqual(Scale, other.Scale) && Math::BitwiseEqual(RotationEuler, other.RotationEuler) && Math::BitwiseEqual(Rotation, other.Rotation);
+        }
     };
 
     struct SpriteRendererComponent
