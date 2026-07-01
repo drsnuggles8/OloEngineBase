@@ -72,6 +72,10 @@ namespace OloEngine
         PostProcessSettings m_Settings;
 
         Ref<Shader> m_CASShader;
+        // FSR1 RCAS late-sharpen kernel (#480). Selected over CAS whenever spatial
+        // upscaling is active (m_Settings.Upscale != Off) — FSR1 pairs EASU with
+        // RCAS. Shares the binding-44 UBO with CAS (sharpness + texel size).
+        Ref<Shader> m_RCASShader;
         Ref<UniformBuffer> m_CASUBO;
     };
 } // namespace OloEngine

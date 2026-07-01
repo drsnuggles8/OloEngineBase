@@ -365,6 +365,8 @@ namespace OloEngine::ResourceNames
     inline constexpr std::string_view SSRColorTexture = "SSRColorTexture";                           // Color attachment view of SSRColor
     inline constexpr std::string_view ContactShadowColor = "ContactShadowColor";                     // After screen-space contact-shadow composite (only valid when ContactShadow is enabled, deferred path)
     inline constexpr std::string_view ContactShadowColorTexture = "ContactShadowColorTexture";       // Color attachment view of ContactShadowColor
+    inline constexpr std::string_view EASUColor = "EASUColor";                                       // After FSR1 EASU spatial upscale (only valid when Upscale != Off) — display-res HDR, runs early before Bloom
+    inline constexpr std::string_view EASUColorTexture = "EASUColorTexture";                         // Color attachment view of EASUColor
     inline constexpr std::string_view PostProcessColor = "PostProcessColor";                         // Alias for the latest upstream full-resolution post-chain source (ContactShadow, SSR, AOApply, SSS, or SceneColor)
     inline constexpr std::string_view PostProcessColorTexture = "PostProcessColorTexture";           // Color attachment view alias matching PostProcessColor
     inline constexpr std::string_view BloomColor = "BloomColor";                                     // After Bloom composite (only valid when Bloom is enabled)

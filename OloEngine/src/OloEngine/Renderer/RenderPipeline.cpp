@@ -690,9 +690,20 @@ namespace OloEngine
             PostProcessPasses.ToneMap->SetAutoExposure(ae);
         }
 
+        if (PostProcessPasses.EASU)
+        {
+            PostProcessPasses.EASU->SetEnabled(data.PostProcess.Upscale != UpscaleMode::Off);
+            PostProcessPasses.EASU->SetSettings(data.PostProcess);
+            PostProcessPasses.EASU->SetRenderScale(UpscaleModeToRenderScale(data.PostProcess.Upscale));
+        }
+
         if (PostProcessPasses.Upscaler)
         {
-            PostProcessPasses.Upscaler->SetEnabled(data.PostProcess.CASEnabled);
+            // The late sharpen pass runs for CAS (native) OR RCAS (FSR1 upscale):
+            // enable it whenever either is active. UpscalerRenderPass picks the
+            // RCAS kernel over CAS when upscaling.
+            PostProcessPasses.Upscaler->SetEnabled(data.PostProcess.CASEnabled ||
+                                                   data.PostProcess.Upscale != UpscaleMode::Off);
             PostProcessPasses.Upscaler->SetSettings(data.PostProcess);
         }
 
@@ -1859,6 +1870,22 @@ namespace OloEngine
             }
         }
 
+        // EASUColor (FSR1 spatial upscale) is declared only when upscaling is
+        // active. It is a full display-resolution HDR target (declareGraphOnly...
+        // sizes it at the physical post-process dimensions): EASU upscales the
+        // reduced-resolution pre-Bloom scene colour into it, and every downstream
+        // display-res post stage reads it instead of the reduced SceneColor chain.
+        if (pipeline.PostProcessPasses.EASU && data.PostProcess.Upscale != UpscaleMode::Off &&
+            pipeline.PostProcessPasses.EASU->IsReadyForExecution())
+        {
+            const auto easuOutput = declareGraphOnlyPostProcessOutput(
+                ResourceNames::EASUColor,
+                ResourceNames::EASUColorTexture,
+                RGResourceFormat::RGBA16Float);
+            board.Post.EASUColor = easuOutput.Framebuffer;
+            board.Post.EASUColorTexture = easuOutput.Texture;
+        }
+
         // PostProcessColor is an alias handle to the latest upstream graph
         // resource in the dynamic chain, NOT a separate imported resource.
         // This preserves declaration-derived reachability:
@@ -1876,7 +1903,18 @@ namespace OloEngine
         // every possible chain source explicitly in their candidate arrays.
         std::string_view postProcessTargetFramebuffer;
         std::string_view postProcessTargetTexture;
-        if (board.Post.ContactShadowColor.IsValid())
+        if (board.Post.EASUColor.IsValid())
+        {
+            // FSR1 EASU ran: its full-display-resolution upscale of the reduced
+            // scene colour is THE freshest pre-Bloom source, and the one every
+            // downstream display-res pass must read (the reduced SS-band colours
+            // below it are now stale low-res inputs that EASU already consumed).
+            board.Post.PostProcessColor = board.Post.EASUColor;
+            board.Post.PostProcessColorTexture = board.Post.EASUColorTexture;
+            postProcessTargetFramebuffer = ResourceNames::EASUColor;
+            postProcessTargetTexture = ResourceNames::EASUColorTexture;
+        }
+        else if (board.Post.ContactShadowColor.IsValid())
         {
             // ContactShadow runs after SSR (last in the screen-space chain), so
             // its contact-shadow composite is the freshest pre-Bloom colour. Keep
@@ -2092,10 +2130,12 @@ namespace OloEngine
             board.Post.ToneMapColorTexture = toneMapOutput.Texture;
         }
 
-        // UpscalerColor (CAS sharpening) is declared only when CAS is enabled.
+        // UpscalerColor (CAS / RCAS sharpening) is declared when CAS is enabled OR
+        // FSR1 upscaling is active (which uses the RCAS kernel in the same pass).
         // It runs post-tonemap on the LDR image; carries LDR values in an
         // RGBA16Float target to match the ToneMapColor it consumes.
-        if (pipeline.PostProcessPasses.Upscaler && data.PostProcess.CASEnabled &&
+        if (pipeline.PostProcessPasses.Upscaler &&
+            (data.PostProcess.CASEnabled || data.PostProcess.Upscale != UpscaleMode::Off) &&
             pipeline.PostProcessPasses.Upscaler->IsReadyForExecution())
         {
             const auto upscalerOutput = declareGraphOnlyPostProcessOutput(
@@ -2311,6 +2351,7 @@ namespace OloEngine
         inputs.Passes.SSGI = PostProcessPasses.SSGI.Raw();
         inputs.Passes.SSR = PostProcessPasses.SSR.Raw();
         inputs.Passes.ContactShadow = PostProcessPasses.ContactShadow.Raw();
+        inputs.Passes.EASU = PostProcessPasses.EASU.Raw();
         inputs.Passes.Bloom = PostProcessPasses.Bloom.Raw();
         inputs.Passes.DOF = PostProcessPasses.DOF.Raw();
         inputs.Passes.MotionBlur = PostProcessPasses.MotionBlur.Raw();
@@ -2450,6 +2491,15 @@ namespace OloEngine
         PostProcessPasses.ContactShadow = Ref<ContactShadowRenderPass>::Create();
         PostProcessPasses.ContactShadow->SetName("ContactShadowPass");
         PostProcessPasses.ContactShadow->Init(finalPassSpec);
+
+        // FSR1 EASU spatial-upscale pass (#480). Sits between the screen-space
+        // band and Bloom: it upscales the reduced-resolution HDR scene colour to
+        // display res so every downstream display-res post stage runs at full
+        // resolution. EASU itself is the upscale, so it does NOT participate in
+        // render-scale (always full viewport).
+        PostProcessPasses.EASU = Ref<EASURenderPass>::Create();
+        PostProcessPasses.EASU->SetName("EASUPass");
+        PostProcessPasses.EASU->Init(finalPassSpec);
 
         // Bloom standalone pass.
         // Sits between PostProcess and DOF.

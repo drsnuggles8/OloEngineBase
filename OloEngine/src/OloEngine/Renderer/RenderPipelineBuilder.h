@@ -37,6 +37,7 @@ namespace OloEngine
         RenderGraphNode* SSGI = nullptr;
         RenderGraphNode* SSR = nullptr;
         RenderGraphNode* ContactShadow = nullptr;
+        RenderGraphNode* EASU = nullptr;
         RenderGraphNode* Bloom = nullptr;
         RenderGraphNode* DOF = nullptr;
         RenderGraphNode* MotionBlur = nullptr;

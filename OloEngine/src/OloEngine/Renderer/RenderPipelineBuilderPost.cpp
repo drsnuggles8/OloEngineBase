@@ -32,6 +32,15 @@ namespace OloEngine::RenderPipelineBuilderInternal
         {
             graph.AddNode(PrepareGraphNode("ContactShadowPass", inputs.Passes->ContactShadow));
         }
+        // FSR1 EASU spatial upscale (#480). Runs right after the screen-space
+        // band and BEFORE Bloom: it upscales the reduced-resolution HDR scene
+        // colour to display res so every downstream display-res post stage runs
+        // at full resolution. Self-skips when Upscale == Off (its EASUColor
+        // resource is never declared).
+        if (inputs.Passes->EASU)
+        {
+            graph.AddNode(PrepareGraphNode("EASUPass", inputs.Passes->EASU));
+        }
         graph.AddNode(PrepareGraphNode("BloomPass",
                                        inputs.Passes->Bloom));
         graph.AddNode(PrepareGraphNode("DOFPass",

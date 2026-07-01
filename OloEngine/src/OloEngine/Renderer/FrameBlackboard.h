@@ -200,6 +200,8 @@ namespace OloEngine
             RGTextureHandle SSRColorTexture;              // Color attachment view of SSRColor
             RGFramebufferHandle ContactShadowColor;       // After contact-shadow composite (only valid when ContactShadow is enabled, deferred path)
             RGTextureHandle ContactShadowColorTexture;    // Color attachment view of ContactShadowColor
+            RGFramebufferHandle EASUColor;                // After FSR1 EASU spatial upscale (only valid when Upscale != Off; display-res HDR, runs early before Bloom)
+            RGTextureHandle EASUColorTexture;             // Color attachment view of EASUColor
             RGFramebufferHandle PostProcessColor;         // Alias for the latest upstream full-resolution post-chain source (ContactShadow, SSR, AOApply, SSS, or SceneColor)
             RGTextureHandle PostProcessColorTexture;      // Color attachment view alias matching PostProcessColor
             RGFramebufferHandle BloomColor;               // After Bloom composite (only valid when Bloom is enabled)
