@@ -427,6 +427,81 @@ static std::map<std::string, std::string> ParseMetadata(const std::string& conte
     return result;
 }
 
+// ─── OLO_SERIALIZE(...) marker helpers ───────────────────────────────────────
+
+// If `s` begins with an `OLO_SERIALIZE(...)` marker (optionally whitespace before
+// the '('), peel it: `args` receives the text inside the outer parens (no parens)
+// and `rest` the leading-trimmed remainder after the closing ')', and returns
+// true. Otherwise returns false and leaves `args`/`rest` untouched. Shared by the
+// OLO_PROPERTY scanner (ParseHeaders — to peel a marker glued onto a field's
+// anchor line) and the scene-serializer field scan (ParseComponentFields — to
+// honour Skip), so both treat the glued and own-line forms identically. An
+// unterminated marker (no matching ')') yields an empty `rest` so the field is
+// safely skipped rather than mis-parsed; such source fails to compile anyway.
+static bool PeelSerializeMarker(const std::string& s, std::string& args, std::string& rest)
+{
+    static const std::string kMarker = "OLO_SERIALIZE";
+    if (s.rfind(kMarker, 0) != 0)
+        return false;
+    size_t j = kMarker.size();
+    while (j < s.size() && (s[j] == ' ' || s[j] == '\t'))
+        ++j;
+    if (j >= s.size() || s[j] != '(')
+        return false; // a bare identifier starting with OLO_SERIALIZE, not a call
+
+    int depth = 0;
+    size_t closeParen = std::string::npos;
+    for (size_t k = j; k < s.size(); ++k)
+    {
+        if (s[k] == '(')
+            ++depth;
+        else if (s[k] == ')' && --depth == 0)
+        {
+            closeParen = k;
+            break;
+        }
+    }
+    if (closeParen == std::string::npos)
+    {
+        args = s.substr(j + 1);
+        rest.clear();
+        return true;
+    }
+    args = s.substr(j + 1, closeParen - (j + 1));
+    rest = Trim(s.substr(closeParen + 1));
+    return true;
+}
+
+// True iff an OLO_SERIALIZE argument list contains a bare `Skip` token, or
+// `Skip = true`. Whole-word / whole-argument match: comma-split the args and
+// compare the key (the part before any '=') exactly, so `NoSkip` / `SkipCount`
+// do NOT count and a genuine `Skip` after another argument is still found;
+// `Skip = false` is not a skip. `args` is the text inside the parens.
+static bool SerializeArgsHaveSkip(const std::string& args)
+{
+    for (size_t start = 0; start <= args.size();)
+    {
+        size_t comma = args.find(',', start);
+        const size_t end = (comma == std::string::npos) ? args.size() : comma;
+        std::string part = Trim(args.substr(start, end - start));
+
+        std::string key = part;
+        std::string value;
+        if (auto eq = part.find('='); eq != std::string::npos)
+        {
+            key = Trim(part.substr(0, eq));
+            value = Trim(part.substr(eq + 1));
+        }
+        if (key == "Skip")
+            return value.empty() || value.rfind("false", 0) != 0;
+
+        if (comma == std::string::npos)
+            break;
+        start = comma + 1;
+    }
+    return false;
+}
+
 // ─── Header Parser ─────────────────────────────────────────────────────────────
 
 static std::vector<ComponentDef> ParseHeaders(const fs::path& scanDir)
@@ -602,12 +677,27 @@ static std::vector<ComponentDef> ParseHeaders(const fs::path& scanDir)
                     continue;
                 }
 
-                // Skip access specifiers, comments, blank lines — retry on next line
+                // Skip access specifiers, comments, blank lines — retry on next line.
                 if (trimmed.starts_with("//") || trimmed.starts_with("/*") ||
                     trimmed.starts_with("private:") || trimmed.starts_with("public:") ||
                     trimmed.starts_with("protected:") || trimmed.empty())
                 {
                     continue; // pendingMetadataList stays populated for next line
+                }
+
+                // Peel a leading OLO_SERIALIZE(...) scene-serializer directive off the
+                // anchor line. It is not a script binding, so it must not be mistaken for
+                // the field anchor (which would drop the pending OLO_PROPERTY and re-bind
+                // it to a later field). On its own line the remainder is empty → retry on
+                // the next line. Glued to the field (`OLO_SERIALIZE(Skip) f32 m_X = 1;`)
+                // the remainder IS the field declaration — parse it as the anchor, so the
+                // marker/field on one line works exactly as the scene-serializer scan
+                // (ParseComponentFields) already handles it.
+                if (std::string sArgs, sRest; PeelSerializeMarker(trimmed, sArgs, sRest))
+                {
+                    if (sRest.empty())
+                        continue; // marker alone on its line — pending stays for next line
+                    trimmed = sRest;
                 }
 
                 // Parse field type and name from anchor line, e.g.:
@@ -839,11 +929,11 @@ static const std::set<std::string> kComponentsCustomOnRemove = {
 //   * FogVolumeComponent — deserialize delegates to a hand-written helper that
 //     clamps the Shape enum (0..2), Priority (-100..100), and Sanitize()s extents /
 //     color / density / falloff / blend-weight; auto-gen would relax those guards.
-//   * UIButtonComponent — has a runtime-only interaction `m_State` (Normal/Hovered/
-//     Pressed/Disabled) the hand-written serializer omits (auto-gen would persist a
-//     transient hover/press state).
-//   * UISliderComponent — has a runtime-only `m_IsDragging` flag the hand-written
-//     serializer omits (auto-gen would persist a transient drag state).
+//   * UIButtonComponent / UISliderComponent — MIGRATED off this set in the #451
+//     OLO_SERIALIZE(Skip) slice: their only reason to stay hand-written was a single
+//     runtime-only field (m_State / m_IsDragging), now marked OLO_SERIALIZE(Skip) so
+//     the generated block omits it while round-tripping every authored field. Left
+//     here as a breadcrumb for the migration pattern; both are fully generated now.
 //   * LightProbeVolumeComponent — (a) the runtime-only `m_Dirty` (set by property
 //     setters, cleared by the bake) and editor-only `m_ShowDebugProbes` are omitted
 //     by the hand-written serializer (now that glm::ivec3 m_Resolution is a
@@ -897,9 +987,7 @@ static const std::set<std::string> kComponentsCustomSerialize = {
     "SpringBoneComponent",
     "StreamingVolumeComponent",
     "TagComponent",
-    "UIButtonComponent",
     "UIResolvedRectComponent",
-    "UISliderComponent",
     "VehicleComponent",
 };
 
@@ -1355,6 +1443,28 @@ static ComponentSerInfo ParseComponentFields(std::string body, const std::set<st
         }
         if (s.empty())
             continue; // the statement was nothing but access-specifier label(s)
+
+        // A leading OLO_SERIALIZE(...) annotation controls how the scene-serializer
+        // codegen treats this member (issue #451). Only `Skip` is honoured today:
+        // OLO_SERIALIZE(Skip) drops the member from the generated serialize/deserialize
+        // — a runtime-only field the round-trip must NOT persist (e.g.
+        // UIButtonComponent::m_State, UISliderComponent::m_IsDragging) — and, crucially,
+        // does NOT mark the component non-trivial. So an otherwise all-trivial component
+        // with one runtime field is now fully generated instead of being kept
+        // hand-written via kComponentsCustomSerialize (per-field control replacing the
+        // old all-or-nothing-per-component exclusion). The macro expands to nothing (see
+        // Scene/ComponentReflection.h) and has no ';', so it is glued to the annotated
+        // field inside one statement; OLO_PROPERTY was already stripped above, so
+        // OLO_SERIALIZE is the statement prefix here. A non-`Skip` OLO_SERIALIZE (a
+        // future Clamp/Min/Max) is peeled off and the field then serializes normally.
+        if (std::string serArgs, serRest; PeelSerializeMarker(s, serArgs, serRest))
+        {
+            if (SerializeArgsHaveSkip(serArgs))
+                continue; // runtime-only field — not serialized, not non-trivial
+            s = serRest;  // peel a non-Skip annotation; serialize the field normally
+            if (s.empty())
+                continue;
+        }
 
         // The declarator is everything before the first '=' (default initializer)
         // or '{' (braced initializer / method body).
