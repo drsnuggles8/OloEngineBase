@@ -19,15 +19,22 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' || github.event_name == 'push' }}
 
 env:
-  # Route sccache at its GitHub Actions cache backend (provisioned by the
-  # mozilla-actions/sccache-action step in each job below). Object files are
-  # then reused across CI runs, so a per-PR push only recompiles the TUs that
-  # actually changed instead of building OloEngine-Tests cold every run.
-  # Mirrors the Windows.yml pattern landed in #319. The -fsanitize=address|
-  # undefined|thread flag is part of each compile command line (and so part of
-  # sccache's hash), so the per-sanitizer object sets are distinct cache
-  # entries — a single shared backend cannot collide across jobs.
-  SCCACHE_GHA_ENABLED: "true"
+  # sccache uses a LOCAL-DISK cache (SCCACHE_DIR), persisted across runs as a
+  # SINGLE actions/cache entry PER JOB (see each job's "Cache sccache storage"
+  # step). We deliberately do NOT use sccache's GitHub Actions cache backend
+  # (SCCACHE_GHA_ENABLED): it stores one cache entry PER OBJECT FILE, which
+  # flooded the repo's 10 GB Actions-cache cap with 20k+ tiny entries and made
+  # EVERY write fail (observed write-errors == misses on all four jobs, hit rate
+  # then frozen/decaying). One bounded local-disk dir per job stays under the
+  # cap. The -fsanitize=address|undefined|thread flag is part of each compile
+  # command line (and so part of sccache's hash), so the per-sanitizer object
+  # sets stay distinct; the actions/cache KEY below is also per-sanitizer so the
+  # four jobs never clobber each other's snapshot.
+  SCCACHE_DIR: ${{ github.workspace }}/.sccache
+  # Bound the on-disk cache so each saved actions/cache entry stays small — all
+  # caches (the four sccache dirs here, Windows.yml's, Vulkan, FFmpeg) share the
+  # repo's single 10 GB Actions-cache cap.
+  SCCACHE_CACHE_SIZE: "1500M"
 
 permissions:
   contents: read
@@ -71,7 +78,7 @@ jobs:
             - '.github/sanitizer-suppressions/**'
 
   asan-windows:
-    name: ASan (Windows/MSVC)
+    name: ASan (Windows/clang-cl)
     needs: detect-changes
     if: ${{ github.event_name == 'workflow_dispatch' || needs.detect-changes.outputs.native == 'true' }}
     runs-on: windows-latest
@@ -99,15 +106,20 @@ jobs:
     - name: Setup Vulkan SDK
       uses: ./.github/actions/setup-vulkan
 
-    # We build with the Ninja generator (not the default Visual Studio
-    # generator) so CMAKE_<LANG>_COMPILER_LAUNCHER engages — the VS/MSBuild
-    # generator IGNORES it, so sccache would never run there
-    # (cmake/CompilerCache.cmake even emits a warning in that case). Ninja needs
-    # cl.exe + the Windows SDK include/lib paths on the job env; ilammy/msvc-dev-cmd
-    # runs vcvars and exports them to every subsequent step. Mirrors Windows.yml.
+    # This job builds with clang-cl (Clang front-end, MSVC ABI) via the
+    # cmake/ClangCLToolchain.cmake toolchain — the same one the local
+    # `clangcl-asan` preset uses. clang-cl gives the genuinely Windows-specific
+    # coverage that justifies a Windows ASan job (MSVC ABI + MSVC STL + the
+    # Windows-only Platform/* code) but runs Clang's more complete ASan runtime
+    # instead of MSVC's, and its /Z7 objects cache under sccache (MSVC cl.exe ASan
+    # objects did not — see issue #304). clang-cl still needs the MSVC headers,
+    # libs, and Windows SDK on the env; ilammy/msvc-dev-cmd runs vcvars and
+    # exports them, and also puts the VS-bundled LLVM (clang-cl, lld-link) on PATH.
+    # We build with Ninja (not the VS generator) so the sccache compiler launcher
+    # engages — the VS/MSBuild generator IGNORES CMAKE_<LANG>_COMPILER_LAUNCHER.
     # (Trade-off, same as Windows.yml: the Ninja path does not build the C#
-    # OloEngine-ScriptCore project — it is gated on the VS generator — but the
-    # OloEngine-Tests build never links that assembly, so ASan coverage is intact.)
+    # OloEngine-ScriptCore project, but OloEngine-Tests never links that
+    # assembly, so ASan coverage is intact.)
     - name: Setup MSVC dev environment
       uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1.13.0
       with:
@@ -122,21 +134,34 @@ jobs:
       with:
         version: "v0.15.0"
 
+    # Persist sccache's local-disk cache as one actions/cache entry (unique key
+    # per run so the post-job save always writes a fresh snapshot; restore-keys
+    # warms from the most recent prior one). Key is per-sanitizer.
+    - name: Cache sccache storage
+      uses: actions/cache@2c8a9bd7457de244a408f35966fab2fb45fda9c8 # v6.0.0
+      with:
+        path: ${{ env.SCCACHE_DIR }}
+        key: sccache-asan-windows-${{ github.run_id }}
+        restore-keys: |
+          sccache-asan-windows-
+
     - name: Configure CMake (ASan enabled)
+      # --toolchain cmake/ClangCLToolchain.cmake: build with clang-cl + lld-link
+      #   (Clang front-end, MSVC ABI) — same toolchain as the local clangcl-asan
+      #   preset. CMake reports clang-cl as MSVC, so cmake/Sanitizers.cmake takes
+      #   the /fsanitize=address + /MD + /INCREMENTAL:NO path automatically.
       # -G "Ninja Multi-Config": required for the sccache compiler launcher to
-      #   engage (see the MSVC dev-env step above). The build/ctest steps still
-      #   select Release via --config / -C Release, exactly as the VS generator did.
-      # -DCMAKE_*_COMPILER=cl: force MSVC cl.exe (msvc-dev-cmd put it on PATH) so
-      #   Ninja doesn't auto-pick a clang/gcc that may also be on the runner.
+      #   engage. The build/ctest steps still select Release via --config / -C.
       # -DOLO_ENABLE_COMPILER_CACHE=ON: wires sccache as the launcher and switches
-      #   MSVC debug info to /Z7 (Embedded) so objects are cacheable.
-      # -DOLO_ENABLE_LTO=OFF: this is a Release build, where LTO is on by default;
-      #   its /GL flag makes objects non-cacheable (and /GL + ASan is unsupported).
-      #   CI binaries are for testing, not shipping, so dropping LTO is free here.
+      #   debug info to /Z7 (Embedded) so clang-cl objects are cacheable (unlike
+      #   the old MSVC cl.exe ASan objects, which never cached — issue #304).
+      # -DOLO_ENABLE_LTO=OFF: Release defaults LTO on; its /GL makes objects
+      #   non-cacheable (and /GL + ASan is unsupported). CI binaries are for
+      #   testing, not shipping, so dropping LTO is free here.
       run: >
         cmake -S . -B build
         -G "Ninja Multi-Config"
-        -DCMAKE_C_COMPILER=cl -DCMAKE_CXX_COMPILER=cl
+        --toolchain "${{ github.workspace }}/cmake/ClangCLToolchain.cmake"
         -DOLO_VIDEO_FFMPEG=OFF
         -DOLO_ENABLE_COMPILER_CACHE=ON
         -DOLO_ENABLE_LTO=OFF
@@ -158,14 +183,21 @@ jobs:
       run: New-Item -ItemType Directory -Force -Path "${{github.workspace}}/test_results"
       shell: pwsh
 
-    - name: Add MSVC ASan runtime to PATH
+    - name: Add clang-cl ASan runtime to PATH
       shell: pwsh
+      # clang-cl links the dynamic ASan runtime, so the test exe needs
+      # clang_rt.asan_dynamic-x86_64.dll on PATH at run time. It ships next to
+      # the clang-cl used for the build; `clang-cl -print-runtime-dir` (LLVM >= 16)
+      # reports that directory. Use the same clang-cl that PATH resolves to (the
+      # one CMake built with) so the DLL version matches the instrumented objects.
       run: |
-        $vsPath = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath
-        $msvcDir = Get-ChildItem "$vsPath\VC\Tools\MSVC" -Directory | Sort-Object Name -Descending | Select-Object -First 1
-        $binDir = "$($msvcDir.FullName)\bin\Hostx64\x64"
-        Write-Host "Adding MSVC bin to PATH: $binDir"
-        echo "$binDir" >> $env:GITHUB_PATH
+        $rtDir = (& clang-cl -print-runtime-dir).Trim()
+        Write-Host "clang-cl runtime dir: $rtDir"
+        if (-not (Test-Path (Join-Path $rtDir 'clang_rt.asan_dynamic-x86_64.dll'))) {
+          Write-Error "ASan runtime DLL not found in $rtDir"
+          exit 1
+        }
+        echo "$rtDir" >> $env:GITHUB_PATH
 
     - name: Run tests under ASan
       working-directory: ${{github.workspace}}/build/OloEngine/tests
@@ -176,7 +208,9 @@ jobs:
       # `pugi::xpath_*`). That is now fixed at the source: NetworkManager::Init
       # skips the live GameNetworkingSockets_Init under ASan (OLO_ASAN_ENABLED),
       # so every suite that merely constructs/uses NetworkManager runs clean.
-      # (Upstream GNS bug: ValveSoftware/GameNetworkingSockets#418.)
+      # (Upstream GNS bug: ValveSoftware/GameNetworkingSockets#418.) The gate is
+      # keyed on OLO_ASAN_ENABLED, not the compiler, so it applies identically
+      # now that this job builds with clang-cl ASan instead of MSVC cl.exe ASan.
       #
       # The Task* and Shader* suites were excluded here on a since-disproven "the
       # task system starts the Steam service thread" theory — they never touched
@@ -196,7 +230,7 @@ jobs:
       # The suite is parallel-safe by construction: tests key their temp paths by
       # PID / gtest case name, and the handful that share the engine's repo-relative
       # mesh cache are serialized against each other with a ctest RESOURCE_LOCK
-      # (OloEngine/tests/CMakeLists.txt). Capped at 2 (not 4) because MSVC ASan
+      # (OloEngine/tests/CMakeLists.txt). Capped at 2 (not 4) because ASan
       # shadow memory inflates each test process's resident footprint; 2-wide stays
       # comfortably inside the windows-latest ~16 GB budget.
       run: ctest --parallel 2 -C Release --output-on-failure --timeout 120 --exclude-regex '^NetworkIntegrationTest\.|^WorkerRestartTest\.'
@@ -285,6 +319,17 @@ jobs:
       uses: mozilla-actions/sccache-action@9e7fa8a12102821edf02ca5dbea1acd0f89a2696 # v0.0.10
       with:
         version: "v0.15.0"
+
+    # Persist sccache's local-disk cache as one actions/cache entry (unique key
+    # per run so the post-job save always writes a fresh snapshot; restore-keys
+    # warms from the most recent prior one). Key is per-sanitizer.
+    - name: Cache sccache storage
+      uses: actions/cache@2c8a9bd7457de244a408f35966fab2fb45fda9c8 # v6.0.0
+      with:
+        path: ${{ env.SCCACHE_DIR }}
+        key: sccache-asan-lsan-linux-${{ github.run_id }}
+        restore-keys: |
+          sccache-asan-lsan-linux-
 
     - name: Configure CMake (ASan + LSan)
       # -fuse-ld=lld: the default GNU BFD ld holds the entire Debug +
@@ -434,6 +479,17 @@ jobs:
       with:
         version: "v0.15.0"
 
+    # Persist sccache's local-disk cache as one actions/cache entry (unique key
+    # per run so the post-job save always writes a fresh snapshot; restore-keys
+    # warms from the most recent prior one). Key is per-sanitizer.
+    - name: Cache sccache storage
+      uses: actions/cache@2c8a9bd7457de244a408f35966fab2fb45fda9c8 # v6.0.0
+      with:
+        path: ${{ env.SCCACHE_DIR }}
+        key: sccache-ubsan-linux-${{ github.run_id }}
+        restore-keys: |
+          sccache-ubsan-linux-
+
     - name: Configure CMake (UBSan)
       # -fuse-ld=lld: see the ASan + LSan configure step above — BFD ld can
       # OOM the runner during the final OloEngine-Tests link.
@@ -558,6 +614,17 @@ jobs:
       uses: mozilla-actions/sccache-action@9e7fa8a12102821edf02ca5dbea1acd0f89a2696 # v0.0.10
       with:
         version: "v0.15.0"
+
+    # Persist sccache's local-disk cache as one actions/cache entry (unique key
+    # per run so the post-job save always writes a fresh snapshot; restore-keys
+    # warms from the most recent prior one). Key is per-sanitizer.
+    - name: Cache sccache storage
+      uses: actions/cache@2c8a9bd7457de244a408f35966fab2fb45fda9c8 # v6.0.0
+      with:
+        path: ${{ env.SCCACHE_DIR }}
+        key: sccache-tsan-linux-${{ github.run_id }}
+        restore-keys: |
+          sccache-tsan-linux-
 
     - name: Configure CMake (TSan)
       # -fuse-ld=lld: see the ASan + LSan configure step above — BFD ld can
