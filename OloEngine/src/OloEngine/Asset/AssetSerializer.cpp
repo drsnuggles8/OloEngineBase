@@ -9,6 +9,7 @@
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Debug/Instrumentor.h"
 #include "OloEngine/Renderer/Texture.h"
+#include "OloEngine/Renderer/TextureCompression.h"
 #include "OloEngine/Renderer/Font.h"
 #include "OloEngine/Renderer/Material.h"
 #include "OloEngine/Renderer/MaterialAsset.h"
@@ -50,11 +51,25 @@
 #include <cctype>
 #include <cmath>
 #include <cstring>
+#include <filesystem>
 #include <fstream>
 #include <limits>
 
 namespace OloEngine
 {
+    namespace
+    {
+        // True for the offline block-compressed container (.olotex, #440), matched
+        // case-insensitively on the extension.
+        bool IsOloTexPath(const std::filesystem::path& path)
+        {
+            std::string ext = path.extension().string();
+            std::ranges::transform(ext, ext.begin(), [](unsigned char c)
+                                   { return static_cast<char>(std::tolower(c)); });
+            return ext == ".olotex";
+        }
+    } // namespace
+
     //////////////////////////////////////////////////////////////////////////////////
     // TextureSerializer
     //////////////////////////////////////////////////////////////////////////////////
@@ -138,6 +153,27 @@ namespace OloEngine
 
     bool TextureSerializer::TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const
     {
+        // Offline block-compressed container (#440): read the BCn mip chain and upload
+        // it straight into a GPU-compressed texture.
+        if (IsOloTexPath(metadata.FilePath))
+        {
+            CompressedTextureImage image;
+            if (!TextureCompression::ReadFile(metadata.FilePath.string(), image))
+            {
+                OLO_CORE_ERROR("TextureSerializer::TryLoadData - Failed to read .olotex: {}", metadata.FilePath.string());
+                return false;
+            }
+            Ref<Texture2D> texture = Texture2D::Create(image);
+            if (!texture || !texture->IsLoaded())
+            {
+                OLO_CORE_ERROR("TextureSerializer::TryLoadData - Failed to create compressed texture: {}", metadata.FilePath.string());
+                return false;
+            }
+            texture->m_Handle = metadata.Handle;
+            asset = texture;
+            return true;
+        }
+
         const std::string filename = metadata.FilePath.filename().string();
         const bool srgb = IsLikelyColorTextureByName(filename);
         Ref<Texture2D> texture = Texture2D::Create(metadata.FilePath.string(), srgb);
@@ -164,6 +200,20 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
 
         // This method is safe to call from any thread - no GPU/GL calls here
+
+        // Offline block-compressed container (#440): reading the .olotex blob is pure
+        // CPU work, so it belongs on the worker thread; GPU upload happens in Finalize.
+        if (IsOloTexPath(metadata.FilePath))
+        {
+            CompressedTextureImage image;
+            if (!TextureCompression::ReadFile(metadata.FilePath.string(), image))
+            {
+                OLO_CORE_ERROR("TextureSerializer::TryLoadRawData - Failed to read .olotex: {}", metadata.FilePath.string());
+                return false;
+            }
+            outRawData = std::move(image);
+            return true;
+        }
 
         std::string path = metadata.FilePath.string();
 
@@ -223,6 +273,20 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
 
         // This method MUST be called from the main thread - creates GPU resources
+
+        // Offline block-compressed container (#440): upload the BCn mip chain.
+        if (std::holds_alternative<CompressedTextureImage>(rawData))
+        {
+            const auto& image = std::get<CompressedTextureImage>(rawData);
+            Ref<Texture2D> texture = Texture2D::Create(image);
+            if (!texture || !texture->IsLoaded())
+            {
+                OLO_CORE_ERROR("TextureSerializer::FinalizeFromRawData - Failed to create compressed texture");
+                return false;
+            }
+            asset = texture;
+            return true;
+        }
 
         if (!std::holds_alternative<RawTextureData>(rawData))
         {

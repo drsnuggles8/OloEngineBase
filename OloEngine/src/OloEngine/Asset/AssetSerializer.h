@@ -9,7 +9,8 @@
 
 #include "OloEngine/Serialization/FileStream.h"
 #include "OloEngine/Serialization/AssetPackFile.h"
-#include "OloEngine/Renderer/GPUResourceQueue.h" // For RawTextureData, RawShaderData
+#include "OloEngine/Renderer/GPUResourceQueue.h"   // For RawTextureData, RawShaderData
+#include "OloEngine/Renderer/TextureCompression.h" // For CompressedTextureImage (.olotex)
 
 // Forward declarations
 namespace YAML
@@ -50,9 +51,10 @@ namespace OloEngine
      * and main thread finalizes GPU resources.
      */
     using RawAssetData = std::variant<
-        std::monostate, // Empty/invalid
-        RawTextureData, // Decoded pixel data
-        RawShaderData   // Shader source code
+        std::monostate,        // Empty/invalid
+        RawTextureData,        // Decoded pixel data
+        RawShaderData,         // Shader source code
+        CompressedTextureImage // Offline BCn mip chain (.olotex, #440)
         // Add more types as needed (RawMeshData, etc.)
         >;
 

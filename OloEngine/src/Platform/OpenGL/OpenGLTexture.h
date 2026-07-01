@@ -11,6 +11,9 @@ namespace OloEngine
       public:
         explicit OpenGLTexture2D(const TextureSpecification& specification);
         explicit OpenGLTexture2D(const std::string& path, bool srgb = false);
+        // Upload an offline block-compressed (BC7/BC5) mip chain (#440). Falls back to
+        // CPU-decompressed RGBA8 when the driver lacks BPTC/RGTC support.
+        explicit OpenGLTexture2D(const CompressedTextureImage& compressedImage);
         ~OpenGLTexture2D() override;
 
         const TextureSpecification& GetSpecification() const override
@@ -48,7 +51,8 @@ namespace OloEngine
 
         [[nodiscard("Use for transparency")]] bool HasAlphaChannel() const override
         {
-            return m_DataFormat == GL_RGBA || m_Specification.Format == ImageFormat::RGBA8 || m_Specification.Format == ImageFormat::RGBA32F;
+            return m_DataFormat == GL_RGBA || m_Specification.Format == ImageFormat::RGBA8 ||
+                   m_Specification.Format == ImageFormat::RGBA32F || m_Specification.Format == ImageFormat::BC7;
         }
 
         bool GetData(std::vector<u8>& outData, u32 mipLevel = 0) const override;
@@ -62,6 +66,9 @@ namespace OloEngine
 
       private:
         void InvalidateImpl(std::string_view path, u32 width, u32 height, const void* data, u32 channels);
+        // CPU-decompress a block-compressed image and upload it as an uncompressed
+        // RGBA8 texture (used when the driver lacks BPTC/RGTC support).
+        void UploadDecompressedFallback(const CompressedTextureImage& image);
         void CreateStorage();
         [[nodiscard]] static u32 CalculateFullMipCount(u32 width, u32 height);
 

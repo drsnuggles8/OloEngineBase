@@ -114,6 +114,9 @@ namespace OloEngine
         s_ExtensionMap["jpeg"] = AssetType::Texture2D;
         s_ExtensionMap["tga"] = AssetType::Texture2D;
         s_ExtensionMap["bmp"] = AssetType::Texture2D;
+        // Offline block-compressed (BC7/BC5) texture container (#440). Loaded straight
+        // into a GPU-compressed texture by TextureSerializer.
+        s_ExtensionMap["olotex"] = AssetType::Texture2D;
         s_ExtensionMap["hdr"] = AssetType::EnvMap;
         s_ExtensionMap["exr"] = AssetType::EnvMap;
 

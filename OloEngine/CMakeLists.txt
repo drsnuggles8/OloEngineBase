@@ -148,6 +148,7 @@ target_include_directories(OloEngine PRIVATE
 # Cross-platform link libraries
 target_link_libraries(OloEngine
 	assimp
+	bc7enc
 	box2d
 	choc
 	Detour
