@@ -193,6 +193,7 @@ the server, so update the config (or re-copy from the panel) accordingly.
 | `olo_render_compare_golden` | capture the viewport (optional `camera`/`orbit` pose) and diff it against a golden PNG (`goldenPath`): returns a numeric `similarity`/`rmse`/`ssim` + `pass` verdict; missing golden or `rebase`:true writes the capture as the new baseline (the `OLOENGINE_GOLDEN_REBASE` workflow) |
 | `olo_render_toggle_pass` | flip a post-process / fog feature on/off (`name` + optional `enabled`) — the ephemeral A/B loop: toggle off → `olo_screenshot` → toggle on → `olo_screenshot`. No `name` lists every pass + its live state |
 | `olo_render_set_debug_view` | switch the viewport to a raw AO/SSR/SSGI buffer (`mode`: none/ssao/gtao/ssr/ssgi); reports whether the backing pass is actually running. No `mode` lists the modes + current state |
+| `olo_renderer_settings_set` | **(consented write)** set a multi-valued, session-global renderer / post-process setting — `upscale` (FSR1 spatial-upscale mode), `tonemap` (operator), `renderpath` (forward/forward+/deferred) — to verify a rendering feature live at each value. The enum-valued sibling of `olo_render_toggle_pass`; reports `previousValue` for restore-prior-value (no undo stack). No args lists every setting + current value + allowed values. Gated behind "Allow writes" |
 | `olo_scene_set_time_of_day` | move the procedural sky's sun to a 24-hour clock time (`hours` 0–24) for lighting iteration — ephemeral session override of the sun direction, never written to the scene. `clear`:true restores the authored sun; no args reports the current override |
 | `olo_scene_set_sun_angle` | aim the procedural sky's sun directly from a `yaw` (azimuth) / `pitch` (elevation) pair — the precise sibling of `olo_scene_set_time_of_day`, same ephemeral session override. `clear`:true restores; no args reports state |
 | `olo_render_why_not_visible` | explain why one entity (`entity`) is NOT on screen — the "why can't I see my mesh?" debugger: root-cause `reasonCode`, summary, ordered checks, and the raw render facts |
@@ -205,7 +206,7 @@ the server, so update the config (or re-copy from the panel) accordingly.
 
 ### Toolsets & on-demand tool discovery (`tools/search`)
 
-The tool surface is large enough (41 tools) that paging the whole flat `tools/list`
+The tool surface is large enough (42 tools) that paging the whole flat `tools/list`
 to find the right one is wasteful. Every tool is tagged with a **toolset** (grouping
 category), and a custom `tools/search` JSON-RPC method lets an agent discover tools by
 keyword and/or category instead of pulling the entire list:
@@ -215,7 +216,7 @@ keyword and/or category instead of pulling the entire list:
 | `diagnostics` | `olo_log_tail`, `olo_events_tail`, `olo_crash_list`, `olo_crash_get` |
 | `scene` | `olo_scene_summary`, `olo_scene_list_entities`, `olo_scene_get_entity` |
 | `perf` | `olo_memory_report`, `olo_perf_snapshot`, `olo_perf_bottlenecks`, `olo_perf_frame_history`, `olo_perf_capture_frame` |
-| `render` | `olo_render_frame_breakdown`, `olo_render_list_targets`, `olo_render_capture_target`, `olo_render_toggle_pass`, `olo_render_set_debug_view`, `olo_scene_set_time_of_day`, `olo_scene_set_sun_angle`, `olo_render_compare_golden`, `olo_render_why_not_visible` |
+| `render` | `olo_render_frame_breakdown`, `olo_render_list_targets`, `olo_render_capture_target`, `olo_render_toggle_pass`, `olo_render_set_debug_view`, `olo_renderer_settings_set`, `olo_scene_set_time_of_day`, `olo_scene_set_sun_angle`, `olo_render_compare_golden`, `olo_render_why_not_visible` |
 | `shader` | `olo_shader_list`, `olo_shader_errors`, `olo_shader_get`, `olo_shader_reload` |
 | `assets` | `olo_assets_list`, `olo_assets_problems` |
 | `scripting` | `olo_script_get_api`, `olo_script_get_last_errors`, `olo_reload_script` |
@@ -445,6 +446,53 @@ when it is not:
 So the usual debug-view flow is two steps: `olo_render_toggle_pass { name: "ssao",
 enabled: true }` then `olo_render_set_debug_view { mode: "ssao" }`. Calling the tool
 with no `mode` lists the modes + the current state.
+
+### Multi-valued renderer settings (`olo_renderer_settings_set`)
+
+The **enum-valued** counterpart of `olo_render_toggle_pass`: where the toggle flips
+an on/off pass, this selects one of several named values a boolean can't express, so
+an agent can verify a rendering feature **live at each setting** over MCP. It exists
+because the read-only server couldn't drive #480's FSR1 "Spatial Upscale" dropdown —
+so multi-setting / multi-angle rendering verification of a new feature wasn't
+possible from a session.
+
+It is a **consented WRITE tool** (issue #306 item C): like the other writes it is
+refused unless **"Allow writes"** is enabled in the MCP panel (off by default). A
+settings change crosses the read-only line — but it is **session-scoped and
+restorable, never a project mutation**: the tool mutates only the renderer's
+session-global `PostProcessSettings` / `RendererSettings` (the same structs
+`olo_render_toggle_pass` edits), so the change is visible next frame, is never
+written to disk, and a **scene reload restores it**.
+
+The settings:
+
+- **`upscale`** — FSR1 spatial-upscale mode: `off` | `quality` | `balanced` |
+  `performance` | `ultraperformance` (the #480 motivating case).
+- **`tonemap`** — tone-map operator: `none` | `reinhard` | `aces` | `uncharted2`.
+- **`renderpath`** — rendering path: `forward` | `forwardplus` | `deferred`.
+  Switching **rebuilds the render-graph topology**, and `deferred` is required for
+  SSR / SSGI.
+
+**Restore is restore-PRIOR-VALUE, not CommandHistory.** Unlike the entity field
+writes (`olo_set_collision_layer` / `olo_entity_set_field`), which push an undoable
+`ComponentChangeCommand` onto the editor's undo stack, these are **global renderer
+settings, not scene/ECS data** — an undo-stack entry would be wrong. So the response
+reports `previousValue` (and a convenience `restoreWith`) and you revert by calling
+again with that token. The A/B loop:
+
+```jsonc
+// 1) olo_renderer_settings_set { "setting": "upscale", "value": "performance" }
+{ "setting": "upscale", "previousValue": "off", "value": "performance",
+  "changed": true, "restoreWith": "off" }
+// 2) olo_screenshot { … }                          -> the upscaled frame
+// 3) olo_renderer_settings_set { "setting": "upscale", "value": "off" }
+{ "setting": "upscale", "previousValue": "performance", "value": "off", … }
+// 4) olo_screenshot { … }                          -> the native-res reference
+```
+
+Calling the tool with **no arguments** lists every setting with its live
+`currentValue` and the full allowed-value catalogue (still behind the write gate,
+since the whole tool is a write tool).
 
 ### Sun / time-of-day override (`olo_scene_set_time_of_day` / `olo_scene_set_sun_angle`)
 

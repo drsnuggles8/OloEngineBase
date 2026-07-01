@@ -9,6 +9,7 @@
 #include "MCP/McpRenderExplain.h"
 #include "MCP/McpRenderGraphTopology.h"
 #include "MCP/McpRenderOverrides.h"
+#include "MCP/McpRendererSettings.h"
 #include "MCP/McpGenericFieldWrite.h"
 #include "MCP/McpReloadScript.h"
 #include "MCP/McpSetCollisionLayer.h"
@@ -3479,6 +3480,62 @@ namespace OloEngine::MCP
             return ToolResult::Text(result.dump(2));
         }
 
+        // ---- olo_renderer_settings_set (main-marshaled; PROJECT WRITE) ---------
+        // Set a multi-valued, session-global renderer / post-process setting — the
+        // FSR1 spatial-upscale mode, the tone-map operator, or the rendering path —
+        // so an agent can verify a rendering feature LIVE at each setting over MCP
+        // (the motivating case is #480's FSR1 "Spatial Upscale" dropdown, which the
+        // read-only server couldn't drive). It is the ENUM-valued sibling of the
+        // boolean olo_render_toggle_pass. Gated at dispatch by the "Allow writes"
+        // session toggle (ToolDef::ProjectWrite): a settings write crosses the
+        // read-only line, though it is session-scoped and restorable, never a
+        // project mutation. Restore is restore-PRIOR-VALUE, NOT CommandHistory —
+        // these are global renderer settings, not scene/ECS data, so the tool
+        // reports `previousValue` and the agent reverts by setting it back (a scene
+        // reload also restores them). The shared schema + parse + apply core lives
+        // in McpRendererSettings.h so it is unit-tested at the dispatch seam without
+        // this TU; the render-path switch's render-graph rebuild
+        // (Renderer3D::ApplyRendererSettings) stays here, on the main thread.
+        ToolResult Handle_RendererSettingsSet(McpServer& server, const Json& args)
+        {
+            using namespace RendererSettings;
+
+            bool introspect = false;
+            Setting setting{};
+            i32 value = 0;
+            if (const auto error = ParseArgs(args, introspect, setting, value))
+                return ToolResult::Error(*error);
+
+            // Introspection: no `setting` -> list every setting with its live current
+            // value and the allowed-value catalogue.
+            if (introspect)
+            {
+                const Json result = server.MarshalRead([]() -> Json
+                                                       { return Describe(Renderer3D::GetPostProcessSettings(), Renderer3D::GetRendererSettings()); });
+                return ToolResult::Text(result.dump(2));
+            }
+
+            const Json result = server.MarshalRead([setting, value]() -> Json
+                                                   {
+                PostProcessSettings& pp = Renderer3D::GetPostProcessSettings();
+                // Fully qualified: `using namespace RendererSettings` is in scope, so
+                // unqualified `RendererSettings` would name that MCP namespace, not the
+                // engine struct.
+                ::OloEngine::RendererSettings& rs = Renderer3D::GetRendererSettings();
+                const ApplyResult applied = Apply(setting, value, pp, rs);
+                if (!applied.Ok)
+                    return Json{ { "__error", applied.Error } };
+                // A render-path switch changes the registered pass list, so the
+                // render-graph topology must be rebuilt for the new value to render.
+                if (applied.PathChanged)
+                    Renderer3D::ApplyRendererSettings();
+                return applied.Data; });
+
+            if (result.is_object() && result.contains("__error"))
+                return ToolResult::Error(result["__error"].get<std::string>());
+            return ToolResult::Text(result.dump(2));
+        }
+
         // ---- olo_render_why_not_visible (main-marshaled) -----------------------
         // The rendering counterpart of olo_physics_why_no_collision: explain why an
         // entity isn't on screen. Gathers the render-relevant facts off the live
@@ -4911,6 +4968,35 @@ namespace OloEngine::MCP
             tool.InputSchema = ReloadScript::InputSchema();
             tool.MainMarshaled = true;
             tool.Handler = Handle_ReloadScript;
+            server.RegisterTool(std::move(tool));
+        }
+
+        {
+            ToolDef tool;
+            tool.Name = "olo_renderer_settings_set";
+            tool.Toolset = "render";
+            tool.Title = "Set renderer / post-process setting";
+            // A project-WRITE tool (#306 item C): it mutates the session-global
+            // renderer settings, which crosses the read-only line, so it is gated
+            // behind the "Allow writes" session toggle like the other writes.
+            // readOnlyHint:false; idempotent (setting a value twice leaves the same
+            // state — the enum-valued sibling of the flip-based toggle_pass); not
+            // destructive (fully reversible by setting the reported previousValue).
+            tool.ProjectWrite = true;
+            tool.Annotations = MutatingAnnotations(/*idempotent*/ true);
+            tool.Description =
+                "Set a multi-valued renderer / post-process setting to verify a rendering feature LIVE at each value — "
+                "the enum-valued sibling of the on/off olo_render_toggle_pass. Settings: 'upscale' (FSR1 spatial-upscale "
+                "mode: off|quality|balanced|performance|ultraperformance — the #480 case), 'tonemap' (none|reinhard|aces|"
+                "uncharted2), 'renderpath' (forward|forwardplus|deferred; switching rebuilds the render graph, and "
+                "Deferred is required for SSR/SSGI). Call with NO arguments to list every setting with its current value "
+                "and allowed values. The change is session-global and ephemeral (a scene reload restores it); the "
+                "response reports 'previousValue' so you can restore by calling again with that token — this is "
+                "restore-prior-value, NOT an undo-stack entry (unlike olo_entity_set_field). This is a WRITE tool: it is "
+                "refused unless 'Allow writes' is enabled in the editor's MCP Server panel (off by default).";
+            tool.InputSchema = RendererSettings::InputSchema();
+            tool.MainMarshaled = true;
+            tool.Handler = Handle_RendererSettingsSet;
             server.RegisterTool(std::move(tool));
         }
 

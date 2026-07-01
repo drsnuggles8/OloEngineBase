@@ -408,6 +408,14 @@ add_executable(OloEngine-Tests
 		# (ScriptEngine/Mono in the editor), so the test injects a fake hook and never
 		# touches Mono. Header-only on the editor side, so no extra editor TU.
 		MCP/McpReloadScriptTest.cpp
+		# Consented MCP WRITE tool: olo_renderer_settings_set (#306 item C) — set a
+		# multi-valued, session-global renderer / post-process setting (FSR1 upscale
+		# mode, tone-map operator, rendering path). Same dispatch seam (session write
+		# gate + inputSchema enforcement at McpServer.cpp) and shared core
+		# (MCP/McpRendererSettings.h: schema + parse + apply against the POD settings
+		# structs, restore-prior-value not CommandHistory). Renderer-light header, so
+		# no extra editor TU is pulled in.
+		MCP/McpRendererSettingsTest.cpp
 		# Lua Binding Tests
 		Lua/LuaBindingTest.cpp
 		# Functional / cross-subsystem world-tick tests (see ADR 0001).
