@@ -174,7 +174,29 @@ namespace OloEngine
         // frame. Buffers stay allocated (lifetime = engine, not frame) so
         // steady-state scatter scenes don't re-allocate on every frame.
         if (data.GPUFrustumCuller)
+        {
             data.GPUFrustumCuller->BeginFrame();
+
+            // Hand the GPU instance cull this frame's Hi-Z occlusion inputs
+            // (#431). The retained occlusion pyramid still holds LAST frame's
+            // depth at this point (it is regenerated at the tail of EndScene),
+            // so bounds are reprojected with `PrevViewProjectionMatrix` — which
+            // is likewise still last frame's VP until EndScene rotates it. The
+            // OcclusionHZBValid guard skips frame 0, where no depth exists yet.
+            if (data.HZBOcclusionCullingEnabled && data.OcclusionHZBValid && data.OcclusionHZB.IsValid())
+            {
+                GPUFrustumCuller::HZBOcclusionInputs occ;
+                occ.Enabled = true;
+                occ.HZBTextureID = data.OcclusionHZB.GetHZBTextureID();
+                occ.MipCount = data.OcclusionHZB.GetMipCount();
+                occ.PrevViewProjection = data.PrevViewProjectionMatrix;
+                occ.HZBSize = glm::vec2(static_cast<f32>(data.OcclusionHZB.GetHZBWidth()),
+                                        static_cast<f32>(data.OcclusionHZB.GetHZBHeight()));
+                occ.HZBUVFactor = data.OcclusionHZB.GetUVFactor();
+                occ.DepthBias = data.HZBOcclusionDepthBias;
+                data.GPUFrustumCuller->SetOcclusion(occ);
+            }
+        }
 
         // Get main-thread allocator for this frame (already reset by BeginFrame).
         CommandAllocator* frameAllocator = FrameResourceManager::Get().GetMainAllocator();
@@ -2297,6 +2319,7 @@ namespace OloEngine
         inputs.Passes.DeferredLighting = SceneCompositePasses.DeferredLighting.Raw();
         inputs.Passes.DeferredOpaqueDecal = SceneCompositePasses.DeferredOpaqueDecal.Raw();
         inputs.Passes.PlanarReflection = SceneCompositePasses.PlanarReflection.Raw();
+        inputs.Passes.GPUOcclusion = RenderStreamPasses.GPUOcclusion.Raw();
         inputs.Passes.ForwardOverlay = RenderStreamPasses.ForwardOverlay.Raw();
         inputs.Passes.Foliage = RenderStreamPasses.Foliage.Raw();
         inputs.Passes.Water = RenderStreamPasses.Water.Raw();
@@ -2368,6 +2391,15 @@ namespace OloEngine
         SceneCompositePasses.PlanarReflection->SetName("PlanarReflectionPass");
         SceneCompositePasses.PlanarReflection->Init(scenePassSpec);
         SceneCompositePasses.PlanarReflection->SetScenePass(FrameCorePasses.Scene.Raw());
+
+        // GPU-driven two-phase occlusion cull pass (#431) — runs right after
+        // ScenePass in Forward / Forward+, drawing occlusion-culled instanced
+        // statics into the scene framebuffer. No-ops in Deferred (those batches
+        // stay on the SceneRenderPass G-Buffer path) and when no dense instanced
+        // batches were routed to it.
+        RenderStreamPasses.GPUOcclusion = Ref<GPUDrivenOcclusionPass>::Create();
+        RenderStreamPasses.GPUOcclusion->SetName("GPUDrivenOcclusionPass");
+        RenderStreamPasses.GPUOcclusion->Init(scenePassSpec);
 
         // Forward overlay pass — runs after DeferredLightingPass in Deferred
         // mode to render skybox / terrain / voxel terrain / infinite grid /

@@ -37,6 +37,15 @@ namespace OloEngine::RenderPipelineBuilderInternal
         graph.AddNode(PrepareGraphNode("ShadowPass", inputs.Passes->Shadow));
         AddExistingNode(graph, inputs.Passes->Scene);
 
+        // GPU-driven occlusion cull (#431) — runs right after ScenePass so the
+        // non-instanced opaque occluders are already in the scene depth, and
+        // BEFORE the AO pass so it is the first SceneColor writer in the
+        // post-Scene chain. Self-disables in Deferred / when no batches routed.
+        if (inputs.Passes->GPUOcclusion)
+        {
+            graph.AddNode(PrepareGraphNode("GPUDrivenOcclusionPass", inputs.Passes->GPUOcclusion));
+        }
+
         // Planar reflection replays ScenePass's batched opaque bucket from the
         // mirrored camera into its own target (forward path only; self-disables
         // otherwise). Registered right after ScenePass so the bucket is batched;
