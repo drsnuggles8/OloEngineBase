@@ -10,8 +10,50 @@
 
 #include "GLErrorStateCheck.h"
 
+#include <glad/gl.h>
+
+#include <functional>
+
 namespace OloEngine::Tests
 {
+    namespace
+    {
+        // Drive one full-pipeline render tick with the GL-state + GL-error
+        // hygiene this fixture guarantees, so a render here cannot poison a
+        // later GPU test in the shared process-wide context (issue #485 / #505):
+        //   1. Surface any GL error already pending BEFORE the tick — a
+        //      setup / test-body leak the per-tick drain must not silently mask.
+        //   2. Run `tick` inside a GLStateGuard(Restore) so global fixed-function
+        //      / binding state (blend / stencil / viewport / program / VAO / FBO)
+        //      is contained. Per-slot texture / UBO bindings are intentionally
+        //      NOT restored by GLStateGuard (see its class comment).
+        //   3. Drain the errors THIS tick produced, but only treat the known
+        //      benign GL_INVALID_OPERATION stray as expected (the #505 stale-
+        //      handle bind — correct pixels, dirty error queue). Any OTHER error
+        //      class is a genuine render-side regression and is surfaced, not
+        //      swallowed. (A *new* GL_INVALID_OPERATION render bug is
+        //      indistinguishable from #505 by enum and remains contained until
+        //      #505 is fixed — the residual coverage gap tracked there.)
+        void RunGuardedRenderTick(const char* label, const std::function<void()>& tick)
+        {
+            if (const u32 preErr = GLErrorState::DrainAndGetFirstError(); preErr != 0u)
+                ADD_FAILURE() << "GL error pending before " << label
+                              << " render tick (setup/test-body leak, not this render): "
+                              << GLErrorState::GlErrorString(preErr);
+
+            {
+                GLStateGuard guard(label, GLStateGuard::Policy::Restore);
+                tick();
+            }
+
+            if (const u32 tickErr = GLErrorState::DrainAndGetFirstError();
+                tickErr != 0u && tickErr != static_cast<u32>(GL_INVALID_OPERATION))
+                ADD_FAILURE() << label << " render tick left an unexpected GL error: "
+                              << GLErrorState::GlErrorString(tickErr)
+                              << " (only the benign #505 GL_INVALID_OPERATION stray is contained here).";
+        }
+    } // namespace
+
     // The process-wide renderer is brought up lazily (see SetUp). We dedup on
     // the authoritative `Renderer3D::IsInitialized()` rather than a private
     // static so that *any* suite which brings the renderer up — this fixture
@@ -111,54 +153,13 @@ namespace OloEngine::Tests
         for (u32 i = 0; i < count; ++i)
         {
             if (m_RenderingEnabled)
-            {
-                // Contain global GL state the full pipeline leaves behind
-                // (blend / stencil / viewport / active program / VAO / FBO)
-                // so a render in this fixture cannot poison the fixed-function
-                // state of the next GPU test in the same process. Per-slot
-                // texture / UBO bindings are intentionally NOT restored by
-                // GLStateGuard (see its class comment) — they are benign here
-                // because downstream GPU tests bind their own resources before
-                // drawing.
-                // Surface any GL error pending BEFORE this render tick — from
-                // BuildScene / fixture setup or earlier test-body GL. The
-                // per-tick drain below contains only what the RENDER produces;
-                // a pre-existing error is a genuine setup leak that draining
-                // would otherwise mask from the #485 listener, so report it here
-                // where the source is unambiguous.
-                {
-                    u32 preCount = 0;
-                    if (const u32 preErr = GLErrorState::DrainAndGetFirstError(preCount); preErr != 0u)
-                        ADD_FAILURE() << "GL error pending before RunFrames render tick "
-                                         "(setup/test-body leak, not this render): "
-                                      << GLErrorState::GlErrorString(preErr);
-                }
-
-                {
-                    GLStateGuard guard("RendererAttachedTest::RunFrames", GLStateGuard::Policy::Restore);
-                    m_Scene->OnUpdateRuntime(ts);
-                }
-                // Drain the GL error queue THIS render tick produced. The full
-                // pipeline is known to emit benign stray GL errors (e.g.
-                // GL_INVALID_OPERATION binding a texture whose handle went stale
-                // across cross-test render-graph/asset churn — correct pixels,
-                // dirty error queue; tracked in #505). Draining here extends the
-                // GLStateGuard "a render leaves no global GL state behind"
-                // contract to the error queue — the same containment the #485
-                // production fix applied in the readback helpers (69aa9357) — so
-                // a render in this fixture cannot poison the shared context of a
-                // later GPU test. The process-wide #485 listener still guards
-                // every non-render tick and any error a test body leaks outside a
-                // RunFrames call.
-                u32 tickCount = 0;
-                (void)GLErrorState::DrainAndGetFirstError(tickCount);
-            }
+                RunGuardedRenderTick("RendererAttachedTest::RunFrames",
+                                     [this, ts]()
+                                     { m_Scene->OnUpdateRuntime(ts); });
             else
-            {
                 // Rendering disabled: the tick issues no draws, so there is no
                 // GL state to contain — skip the guard's per-frame snapshots.
                 m_Scene->OnUpdateRuntime(ts);
-            }
         }
     }
 
@@ -167,38 +168,17 @@ namespace OloEngine::Tests
         const Timestep ts{ dtSeconds };
         for (u32 i = 0; i < count; ++i)
         {
+            // Same hygiene as RunFrames — the editor render path
+            // (OnUpdateEditor -> RenderScene3D -> EndScene) drives the same full
+            // render graph. Containing it here is what lets an editor-camera
+            // visual test (e.g. WaterVisualEvidenceTest) run in the normal suite
+            // without poisoning the GPU tests that follow it.
             if (m_RenderingEnabled)
-            {
-                // Same GL-state hygiene as RunFrames: the editor render path
-                // (OnUpdateEditor -> RenderScene3D -> EndScene) drives the full
-                // render graph and leaves the same global fixed-function /
-                // binding state behind. Containing it here is what lets an
-                // editor-camera visual test (e.g. WaterVisualEvidenceTest) run
-                // in the normal suite without poisoning the GPU tests that
-                // follow it in the same process.
-                // Surface a pre-existing (setup/test-body) GL error — see the
-                // note in RunFrames.
-                {
-                    u32 preCount = 0;
-                    if (const u32 preErr = GLErrorState::DrainAndGetFirstError(preCount); preErr != 0u)
-                        ADD_FAILURE() << "GL error pending before RunEditorFrames render tick "
-                                         "(setup/test-body leak, not this render): "
-                                      << GLErrorState::GlErrorString(preErr);
-                }
-
-                {
-                    GLStateGuard guard("RendererAttachedTest::RunEditorFrames", GLStateGuard::Policy::Restore);
-                    m_Scene->OnUpdateEditor(ts, camera);
-                }
-                // Same error-queue containment as RunFrames — see the note there
-                // (issue #485 / #505).
-                u32 tickCount = 0;
-                (void)GLErrorState::DrainAndGetFirstError(tickCount);
-            }
+                RunGuardedRenderTick("RendererAttachedTest::RunEditorFrames",
+                                     [this, ts, &camera]()
+                                     { m_Scene->OnUpdateEditor(ts, camera); });
             else
-            {
                 m_Scene->OnUpdateEditor(ts, camera);
-            }
         }
     }
 

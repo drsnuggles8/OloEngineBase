@@ -45,6 +45,10 @@ namespace OloEngine::Tests::GLErrorState
     // Safe to call with no GL context: returns 0 without touching GL.
     u32 DrainAndGetFirstError(u32& outCount);
 
+    // Convenience overload for callers that want to drain + know the first
+    // error but don't care how many were pending (avoids a throwaway count).
+    u32 DrainAndGetFirstError();
+
     // Human-readable name for a GL error enum (e.g. "GL_INVALID_OPERATION").
     // Pure; needs no GL context.
     const char* GlErrorString(u32 err);

@@ -44,6 +44,8 @@ namespace OloEngine::Tests::GLErrorState
                 return "GL_STACK_UNDERFLOW";
             case GL_STACK_OVERFLOW:
                 return "GL_STACK_OVERFLOW";
+            case GL_CONTEXT_LOST:
+                return "GL_CONTEXT_LOST";
             default:
                 return "GL_<unknown error>";
         }
@@ -72,6 +74,12 @@ namespace OloEngine::Tests::GLErrorState
         return first;
     }
 
+    u32 DrainAndGetFirstError()
+    {
+        u32 ignoredCount = 0;
+        return DrainAndGetFirstError(ignoredCount);
+    }
+
     // =========================================================================
     // GoogleTest listener — asserts a clean GL error queue after every test.
     // =========================================================================
@@ -82,15 +90,20 @@ namespace OloEngine::Tests::GLErrorState
           public:
             void OnTestEnd(const ::testing::TestInfo& info) override
             {
-                // A skipped test never ran (headless CI SKIPs every GL test);
-                // there may be no context and nothing to check.
-                const ::testing::TestResult* result = info.result();
-                if (result != nullptr && result->Skipped())
-                    return;
-
+                // Always drain first — even for a SKIPPED test. A test that did
+                // GL work and then skipped mid-body would otherwise leak its
+                // error into the next test (the very cross-test pollution this
+                // guard exists to prevent). On headless CI (no context) the
+                // drain is a no-op, so this can't fabricate a skip failure.
                 u32 count = 0;
                 const u32 err = DrainAndGetFirstError(count);
                 if (err == GL_NO_ERROR)
+                    return;
+
+                // A skip is not a failure: we drained above so nothing leaks
+                // onward, but we don't fail a test the harness chose to skip.
+                const ::testing::TestResult* result = info.result();
+                if (result != nullptr && result->Skipped())
                     return;
 
                 // This test returned with a pending GL error, leaving the
@@ -101,7 +114,10 @@ namespace OloEngine::Tests::GLErrorState
                 //
                 // OnTestEnd fires in reverse listener order, so this failure is
                 // recorded before the result printer's OnTestEnd reads the
-                // result — the test correctly prints [ FAILED ].
+                // result — the test correctly prints [ FAILED ]. Attribute the
+                // failure to the polluting test's own source location (the TEST
+                // macro), not this listener file, so IDE/CI "jump to failure"
+                // and XML location fields point at the culprit.
                 std::string message = "GL error state not clean after test: left ";
                 message += GlErrorString(err);
                 if (count > 1)
@@ -114,7 +130,9 @@ namespace OloEngine::Tests::GLErrorState
                            "(see issue #485). Fix the source test to leave a clean "
                            "glGetError() state.";
 
-                ADD_FAILURE_AT(__FILE__, __LINE__) << message;
+                const char* const file = info.file() != nullptr ? info.file() : __FILE__;
+                const int line = info.file() != nullptr ? info.line() : __LINE__;
+                ADD_FAILURE_AT(file, line) << message;
             }
         };
 
