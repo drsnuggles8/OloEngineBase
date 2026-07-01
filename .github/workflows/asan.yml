@@ -152,7 +152,7 @@ jobs:
     # per run so the post-job save always writes a fresh snapshot; restore-keys
     # warms from the most recent prior one). Key is per-sanitizer.
     - name: Cache sccache storage
-      uses: actions/cache@2c8a9bd7457de244a408f35966fab2fb45fda9c8 # v6.0.0
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: ${{ env.SCCACHE_DIR }}
         key: sccache-asan-windows-${{ github.run_id }}
@@ -352,7 +352,7 @@ jobs:
     # per run so the post-job save always writes a fresh snapshot; restore-keys
     # warms from the most recent prior one). Key is per-sanitizer.
     - name: Cache sccache storage
-      uses: actions/cache@2c8a9bd7457de244a408f35966fab2fb45fda9c8 # v6.0.0
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: ${{ env.SCCACHE_DIR }}
         key: sccache-asan-lsan-linux-${{ github.run_id }}
@@ -511,7 +511,7 @@ jobs:
     # per run so the post-job save always writes a fresh snapshot; restore-keys
     # warms from the most recent prior one). Key is per-sanitizer.
     - name: Cache sccache storage
-      uses: actions/cache@2c8a9bd7457de244a408f35966fab2fb45fda9c8 # v6.0.0
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: ${{ env.SCCACHE_DIR }}
         key: sccache-ubsan-linux-${{ github.run_id }}
@@ -647,7 +647,7 @@ jobs:
     # per run so the post-job save always writes a fresh snapshot; restore-keys
     # warms from the most recent prior one). Key is per-sanitizer.
     - name: Cache sccache storage
-      uses: actions/cache@2c8a9bd7457de244a408f35966fab2fb45fda9c8 # v6.0.0
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: ${{ env.SCCACHE_DIR }}
         key: sccache-tsan-linux-${{ github.run_id }}
