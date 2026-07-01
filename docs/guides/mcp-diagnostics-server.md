@@ -378,6 +378,11 @@ component bindings.
   *succeeds* but reports `available: false` with an explanatory `message`, rather than
   pretending a reload happened. `scriptClassCount` is the number of entity-script classes
   registered after the reload — a non-zero value confirms the app assembly loaded.
+- **Honest about failure.** `ok` reports whether the reload actually **succeeded**: if the
+  freshly-built app assembly fails to load (e.g. a C# compile error, or a missing/locked
+  `.dll`), the tool returns `available: true, ok: false` with a `message` pointing you at
+  the engine log — the entity-class registry then keeps its stale pre-reload contents, so
+  don't trust `scriptClassCount` on a failed reload. Rebuild the game assembly and retry.
 - **Lua is not reloaded here.** This tool targets the C# (Mono) app assembly; Lua scripts
   re-execute per entity on play and have no single global reload entry point.
 

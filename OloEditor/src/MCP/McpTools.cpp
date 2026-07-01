@@ -4902,8 +4902,9 @@ namespace OloEngine::MCP
                 "here, and the editor runs the new script code without restarting. Drives the same "
                 "ScriptEngine::ReloadAssembly() path as the editor's Script menu Reload assembly (Ctrl+R), so "
                 "the reload is whole-assembly (C# has no per-script granularity) and the tool takes no "
-                "arguments. Returns whether scripting is available in this build, whether the reload ran, and "
-                "how many entity-script classes are registered afterwards. This is a WRITE tool: it is refused "
+                "arguments. Returns whether scripting is available in this build, whether the reload SUCCEEDED "
+                "(ok:false when the freshly-built app assembly fails to load — e.g. a compile error — see the "
+                "engine log), and how many entity-script classes are registered afterwards. This is a WRITE tool: it is refused "
                 "unless 'Allow writes' is enabled in the editor's MCP Server panel (off by default), because "
                 "reloading executes the freshly-built assembly. If C# scripting is disabled or uninitialized "
                 "the call still succeeds but reports available:false.";

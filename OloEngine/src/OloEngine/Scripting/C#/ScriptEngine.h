@@ -187,7 +187,11 @@ namespace OloEngine
         static bool LoadAssembly(const std::filesystem::path& filepath);
         static bool LoadAppAssembly(const std::filesystem::path& filepath);
 
-        static void ReloadAssembly();
+        // Reload the app (and core) assemblies into a fresh app domain. Returns true
+        // on a clean reload, false if an assembly failed to load (the app domain is
+        // then left without a usable app assembly — see the engine log). The editor's
+        // Ctrl+R menu discards the result; olo_reload_script surfaces it.
+        static bool ReloadAssembly();
 
         static void OnRuntimeStart(Scene* scene);
         static void OnRuntimeStop();

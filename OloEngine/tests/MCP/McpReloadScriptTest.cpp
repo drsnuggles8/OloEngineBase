@@ -126,6 +126,29 @@ TEST_F(McpReloadScriptTest, GateOnInvokesReloadAndReturnsResult)
     EXPECT_EQ(payload["scriptClassCount"], 7);
 }
 
+// A failed reload (scripting available, but the freshly-built app assembly did not
+// load) is reported as available:true, ok:false — the call SUCCEEDS at the protocol
+// level (it is not a tool error), but ok distinguishes the real outcome so an agent
+// isn't told a broken reload worked.
+TEST_F(McpReloadScriptTest, FailedReloadReportsOkFalse)
+{
+    m_Server.SetAllowWrites(true);
+    m_FakeResult.Available = true;
+    m_FakeResult.Ok = false;
+    m_FakeResult.Message = "Reload failed: the C# app assembly did not load (see the engine log).";
+
+    const Json resp = m_Server.HandleMessage(MakeCallRequest(9, Json::object()));
+
+    ASSERT_TRUE(resp.contains("result"));
+    EXPECT_FALSE(resp["result"]["isError"]);
+    EXPECT_EQ(m_ReloadCount, 1);
+
+    const std::string text = resp["result"]["content"][0]["text"].get<std::string>();
+    const Json payload = Json::parse(text);
+    EXPECT_TRUE(payload["available"].get<bool>());
+    EXPECT_FALSE(payload["ok"].get<bool>());
+}
+
 // When C# scripting is unavailable (disabled in the build / not initialized) the
 // call still SUCCEEDS — it is a clean, honest result reporting available:false, not
 // a tool error. The agent learns scripting is off rather than getting a generic fail.
