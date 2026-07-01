@@ -1161,6 +1161,15 @@ namespace OloEngine
     {
     };
 
+    // TransformComponent carries a mutable runtime-only local-matrix cache that a
+    // render pass can repopulate between the undo snapshot and the compare. Its
+    // operator== deliberately ignores those cache fields, so use value-comparison
+    // to avoid spurious undo entries from stale cache bytes in the memcmp path.
+    template<>
+    struct PreferValueComparison<TransformComponent> : std::true_type
+    {
+    };
+
     template<typename T, typename UIFunction>
     static void DrawComponent(const std::string& name, Entity entity, UIFunction uiFunction)
     {
