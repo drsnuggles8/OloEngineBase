@@ -37,8 +37,8 @@ namespace OloEngine
         // stage self-skips in the shader when the camera is above water.
         if (blackboard.Scene.SceneDepth.IsValid())
         {
-            m_SelectedSceneDepthTexture = blackboard.Scene.SceneDepth;
-            [[maybe_unused]] const auto sceneDepthRead = builder.Read(blackboard.Scene.SceneDepth, RGReadUsage::ShaderSample);
+            m_SelectedSceneDepthTexture = blackboard.Post.UpscaledSceneDepthTexture.IsValid() ? blackboard.Post.UpscaledSceneDepthTexture : blackboard.Scene.SceneDepth;
+            [[maybe_unused]] const auto sceneDepthRead = builder.Read(m_SelectedSceneDepthTexture, RGReadUsage::ShaderSample);
         }
 
         [[maybe_unused]] const auto input = RenderPipelineBuilderInternal::ReadFirstValidVersionedInputForPass(

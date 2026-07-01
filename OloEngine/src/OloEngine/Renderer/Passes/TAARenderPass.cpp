@@ -43,13 +43,13 @@ namespace OloEngine
 
         if (blackboard.Scene.SceneDepth.IsValid())
         {
-            m_SelectedSceneDepthTexture = blackboard.Scene.SceneDepth;
-            [[maybe_unused]] const auto sceneDepthRead = builder.Read(blackboard.Scene.SceneDepth, RGReadUsage::ShaderSample);
+            m_SelectedSceneDepthTexture = blackboard.Post.UpscaledSceneDepthTexture.IsValid() ? blackboard.Post.UpscaledSceneDepthTexture : blackboard.Scene.SceneDepth;
+            [[maybe_unused]] const auto sceneDepthRead = builder.Read(m_SelectedSceneDepthTexture, RGReadUsage::ShaderSample);
         }
         if (blackboard.GBuffer.Velocity.IsValid())
         {
-            m_SelectedVelocityTexture = blackboard.GBuffer.Velocity;
-            [[maybe_unused]] const auto velocityRead = builder.Read(blackboard.GBuffer.Velocity, RGReadUsage::ShaderSample);
+            m_SelectedVelocityTexture = blackboard.Post.UpscaledVelocityTexture.IsValid() ? blackboard.Post.UpscaledVelocityTexture : blackboard.GBuffer.Velocity;
+            [[maybe_unused]] const auto velocityRead = builder.Read(m_SelectedVelocityTexture, RGReadUsage::ShaderSample);
         }
         if (blackboard.Temporal.TAAHistory.IsValid())
         {

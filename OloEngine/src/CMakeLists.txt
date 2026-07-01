@@ -751,6 +751,8 @@
 		"OloEngine/Renderer/Passes/UpscalerRenderPass.cpp"
 		"OloEngine/Renderer/Passes/EASURenderPass.h"
 		"OloEngine/Renderer/Passes/EASURenderPass.cpp"
+		"OloEngine/Renderer/Passes/DepthVelocityUpscalePass.h"
+		"OloEngine/Renderer/Passes/DepthVelocityUpscalePass.cpp"
 		"OloEngine/Renderer/Passes/VignetteRenderPass.h"
 		"OloEngine/Renderer/Passes/VignetteRenderPass.cpp"
 		"OloEngine/Renderer/Passes/TAARenderPass.h"

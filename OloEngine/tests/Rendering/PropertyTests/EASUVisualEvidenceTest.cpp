@@ -315,4 +315,72 @@ namespace OloEngine::Tests
         settings.Path = savedPath; // restore for later tests
         Renderer3D::ApplyRendererSettings();
     }
+
+    // Depth-of-field (a DEPTH-driven post effect) with FSR1 upscale active. This
+    // exercises DepthVelocityUpscalePass: DOF runs at full display res and reads
+    // the nearest-upscaled full-res depth. The frame must render and DOF must
+    // actually alter it (depth-based blur) vs the no-DOF upscaled frame — if the
+    // full-res depth were black/broken, DOF would blur uniformly or not at all.
+    // The PNG (EASU_DOF_*.png) is inspected for a correct near-focus/far-blur look.
+    TEST_F(EASUVisualEvidenceTest, DepthOfFieldConsumesUpscaledDepth)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+
+        struct ScopedMockTime
+        {
+            explicit ScopedMockTime(f32 t)
+            {
+                Time::SetMockTime(t);
+            }
+            ~ScopedMockTime()
+            {
+                Time::ClearMockTime();
+            }
+        } scopedMockTime(kCaptureTime);
+
+        const glm::vec3 pos = { 0.0f, 7.0f, 16.0f };
+        constexpr f32 yaw = 0.0f;
+        constexpr f32 pitch = 0.32f;
+
+        auto& pp = Renderer3D::GetPostProcessSettings();
+        pp.Upscale = UpscaleMode::Performance;
+        pp.RCASSharpness = 0.6f;
+
+        pp.DOFEnabled = false;
+        std::vector<u8> noDofPixels;
+        Capture("DOF_Off", pos, yaw, pitch, noDofPixels);
+        if (::testing::Test::HasFatalFailure())
+            return;
+
+        // Focus on the near cluster (~10-14 units), heavily blur the far floor.
+        pp.DOFEnabled = true;
+        pp.DOFFocusDistance = 12.0f;
+        pp.DOFFocusRange = 4.0f;
+        pp.DOFBokehRadius = 6.0f;
+        std::vector<u8> dofPixels;
+        Capture("DOF_On", pos, yaw, pitch, dofPixels);
+        if (::testing::Test::HasFatalFailure())
+            return;
+
+        pp.DOFEnabled = false;
+        pp.Upscale = UpscaleMode::Off; // restore
+
+        EXPECT_GT(MeanLuma(dofPixels), 20.0) << "DOF+upscale frame rendered (near-)black";
+
+        // DOF must change the frame (depth-driven blur read the upscaled depth).
+        const f64 diff = MeanAbsDiff(noDofPixels, dofPixels);
+        EXPECT_GT(diff, 0.5)
+            << "DOF did not alter the upscaled frame (mean abs luma diff=" << diff
+            << ") — the full-res depth may not be reaching DOF. See EASU_DOF_*.png";
+
+        // Depth-based blur removes high-frequency detail from the defocused
+        // region, so the DOF frame must have LESS gradient energy than the sharp
+        // no-DOF frame (a broken all-near/all-far depth would blur uniformly or
+        // not at all — this still catches a no-op).
+        const f64 sharpEnergy = GradientEnergy(noDofPixels);
+        const f64 dofEnergy = GradientEnergy(dofPixels);
+        EXPECT_LT(dofEnergy, sharpEnergy)
+            << "DOF did not reduce high-frequency detail (sharp=" << sharpEnergy
+            << " dof=" << dofEnergy << ") — depth-driven defocus may be failing. See EASU_DOF_*.png";
+    }
 } // namespace OloEngine::Tests

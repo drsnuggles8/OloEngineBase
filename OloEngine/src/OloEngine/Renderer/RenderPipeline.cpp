@@ -697,6 +697,12 @@ namespace OloEngine
             PostProcessPasses.EASU->SetRenderScale(UpscaleModeToRenderScale(data.PostProcess.Upscale));
         }
 
+        if (PostProcessPasses.DepthVelocityUpscale)
+        {
+            PostProcessPasses.DepthVelocityUpscale->SetEnabled(data.PostProcess.Upscale != UpscaleMode::Off);
+            PostProcessPasses.DepthVelocityUpscale->SetRenderScale(UpscaleModeToRenderScale(data.PostProcess.Upscale));
+        }
+
         if (PostProcessPasses.Upscaler)
         {
             // The late sharpen pass runs for CAS (native) OR RCAS (FSR1 upscale):
@@ -1957,6 +1963,27 @@ namespace OloEngine
                 RGResourceFormat::RGBA16Float);
             board.Post.EASUColor = easuOutput.Framebuffer;
             board.Post.EASUColorTexture = easuOutput.Texture;
+
+            // Companion full-res depth+velocity target for DepthVelocityUpscalePass
+            // (RT0 = R32F depth, RT1 = RG16F velocity), full display resolution.
+            // The pass nearest-upscales the reduced depth/velocity into it and
+            // swaps the blackboard handles so the post band reads full-res depth.
+            if (pipeline.PostProcessPasses.DepthVelocityUpscale &&
+                pipeline.PostProcessPasses.DepthVelocityUpscale->IsReadyForExecution())
+            {
+                RGResourceDesc dvDesc;
+                dvDesc.Kind = ResourceHandle::Kind::Framebuffer;
+                dvDesc.Width = postProcessWidth;
+                dvDesc.Height = postProcessHeight;
+                dvDesc.Attachments = { RGResourceFormat::R32Float, RGResourceFormat::RG16Float };
+                dvDesc.DebugName = std::string(ResourceNames::UpscaledDepthVelocity);
+                // Only declare the FBO here; DepthVelocityUpscalePass creates the
+                // RT0/RT1 attachment views (and publishes them to board.Post) in
+                // its Setup, so board.Post.Upscaled*Texture is valid ONLY when the
+                // pass actually ran — consumers gate on .IsValid() and fall back to
+                // the reduced depth/velocity otherwise.
+                board.Post.UpscaledDepthVelocity = graph.DeclareTransientFramebuffer(ResourceNames::UpscaledDepthVelocity, dvDesc);
+            }
         }
 
         // PostProcessColor is an alias handle to the latest upstream graph
@@ -2425,6 +2452,7 @@ namespace OloEngine
         inputs.Passes.SSR = PostProcessPasses.SSR.Raw();
         inputs.Passes.ContactShadow = PostProcessPasses.ContactShadow.Raw();
         inputs.Passes.EASU = PostProcessPasses.EASU.Raw();
+        inputs.Passes.DepthVelocityUpscale = PostProcessPasses.DepthVelocityUpscale.Raw();
         inputs.Passes.Bloom = PostProcessPasses.Bloom.Raw();
         inputs.Passes.DOF = PostProcessPasses.DOF.Raw();
         inputs.Passes.MotionBlur = PostProcessPasses.MotionBlur.Raw();
@@ -2573,6 +2601,13 @@ namespace OloEngine
         PostProcessPasses.EASU = Ref<EASURenderPass>::Create();
         PostProcessPasses.EASU->SetName("EASUPass");
         PostProcessPasses.EASU->Init(finalPassSpec);
+
+        // FSR1 depth+velocity upscale (#480). Runs right after EASU: brings the
+        // reduced-res depth + motion vectors up to display res so the full-res
+        // post band (DOF/Fog/MotionBlur/TAA/underwater) reads full-res depth.
+        PostProcessPasses.DepthVelocityUpscale = Ref<DepthVelocityUpscalePass>::Create();
+        PostProcessPasses.DepthVelocityUpscale->SetName("DepthVelocityUpscalePass");
+        PostProcessPasses.DepthVelocityUpscale->Init(finalPassSpec);
 
         // Bloom standalone pass.
         // Sits between PostProcess and DOF.
