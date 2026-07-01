@@ -156,6 +156,16 @@ if(OLO_ENABLE_ASAN)
             # but within capacity), the accepted trade-off for mixing instrumented and
             # non-instrumented objects.
             add_compile_definitions(_DISABLE_STL_ANNOTATION)
+
+            # ASan and identical-COMDAT-folding don't compose. Release defaults to
+            # /OPT:ICF, so lld-link folds identical string-literal globals across TUs
+            # (e.g. the empty ""/u"" constants in assimp + tests) onto one address next
+            # to a larger global. ASan gives each a redzone, so an instrumented read of
+            # a folded constant lands in a neighbour's redzone and reports a bogus
+            # global-buffer-overflow at startup. Turn ICF off (keep /OPT:REF) so every
+            # global keeps its own address and redzone. link.exe (the old MSVC ASan job)
+            # didn't fold these; lld-link does.
+            add_link_options(/OPT:NOICF)
         endif()
 
         message(STATUS "  MSVC ASan: /fsanitize=address /MD (no leak detection on Windows)")
