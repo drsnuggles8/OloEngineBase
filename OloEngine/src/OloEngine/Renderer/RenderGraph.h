@@ -180,6 +180,18 @@ namespace OloEngine
             return m_RenderScale;
         }
 
+        // Physical (display) framebuffer size from the last Resize(). This is the
+        // full output resolution, independent of any FSR1 reduced-size scene band,
+        // so callers can size the display-res post chain / EASU output correctly.
+        [[nodiscard]] u32 GetPhysicalWidth() const
+        {
+            return m_PhysicalWidth;
+        }
+        [[nodiscard]] u32 GetPhysicalHeight() const
+        {
+            return m_PhysicalHeight;
+        }
+
         // Return (renderWidth / physicalWidth, renderHeight / physicalHeight).
         // Shaders can use this to clamp UV coordinates so screen-space passes
         // that read from a DRS-scaled buffer don't sample uninitialized texels.

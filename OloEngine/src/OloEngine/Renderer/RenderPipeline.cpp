@@ -1123,6 +1123,11 @@ namespace OloEngine
         HashBool(h, data.PostProcess.ChromaticAberrationEnabled);
         HashBool(h, data.PostProcess.ColorGradingEnabled);
         HashBool(h, data.PostProcess.CASEnabled);
+        // FSR1 (#480): the upscale preset gates EASUColor declaration AND the
+        // reduced scene-band sizing, so it MUST be hashed — otherwise toggling
+        // upscale on/off leaves the blackboard cache stale (EASUColor never
+        // (re)declared, scene band never re-sized).
+        HashU32(h, static_cast<u32>(std::to_underlying(data.PostProcess.Upscale)));
         HashBool(h, data.PostProcess.VignetteEnabled);
         HashBool(h, data.PostProcess.FXAAEnabled);
 
@@ -1209,6 +1214,38 @@ namespace OloEngine
 
         auto& graph = *data.RGraph;
         auto& pipeline = *this;
+
+        // ------------------------------------------------------------------
+        // FSR1 render-scale (#480): size the scene band below display res.
+        // ------------------------------------------------------------------
+        // When an FSR1 upscale preset is active, resize the Scene pass (and its
+        // G-buffer, which SceneRenderPass::ResizeFramebuffer keeps in lockstep)
+        // plus SSAO to the reduced render resolution. This cascades to SceneColor
+        // / SceneDepth / SceneNormals / Velocity and the screen-space band (all
+        // derive from the Scene pass spec); EASURenderPass then upscales the
+        // result to full display res while the post chain below stays full. Run
+        // BEFORE the fingerprint so the reduced sceneSpec is what gets hashed and
+        // declared; guarded on a real size change so steady-state frames never
+        // reallocate. The display size comes from the graph's physical size,
+        // which is unaffected by this reduced scene resize.
+        if (pipeline.FrameCorePasses.Scene)
+        {
+            const u32 displayW = graph.GetPhysicalWidth();
+            const u32 displayH = graph.GetPhysicalHeight();
+            if (displayW > 0u && displayH > 0u)
+            {
+                const f32 renderScale = UpscaleModeToRenderScale(data.PostProcess.Upscale);
+                const u32 sceneW = std::max(1u, static_cast<u32>(glm::floor(static_cast<f32>(displayW) * renderScale)));
+                const u32 sceneH = std::max(1u, static_cast<u32>(glm::floor(static_cast<f32>(displayH) * renderScale)));
+                if (const auto& curSpec = pipeline.FrameCorePasses.Scene->GetFramebufferSpecification();
+                    curSpec.Width != sceneW || curSpec.Height != sceneH)
+                {
+                    pipeline.FrameCorePasses.Scene->ResizeFramebuffer(sceneW, sceneH);
+                    if (pipeline.SceneCompositePasses.SSAO)
+                        pipeline.SceneCompositePasses.SSAO->ResizeFramebuffer(sceneW, sceneH);
+                }
+            }
+        }
 
         // ------------------------------------------------------------------
         // Cache short-circuit
@@ -1617,13 +1654,26 @@ namespace OloEngine
         // histories and scratch resources (for example TAA / fog history)
         // remain owned by the passes that manage them.
         // ------------------------------------------------------------------
+        // FSR1 (#480): the post chain runs at FULL display resolution because
+        // EASU upscales into it, so post targets are sized from the graph's
+        // physical size — NOT the (possibly reduced) Scene pass spec. The
+        // screen-space band that feeds EASU is sized separately at the reduced
+        // scene resolution (sceneBandWidth/Height). With Upscale == Off the two
+        // are equal, so this is identical to the previous behaviour.
         u32 postProcessWidth = 1u;
         u32 postProcessHeight = 1u;
+        u32 sceneBandWidth = 1u;
+        u32 sceneBandHeight = 1u;
         if (pipeline.FrameCorePasses.Scene)
         {
             const auto& sceneSpec = pipeline.FrameCorePasses.Scene->GetFramebufferSpecification();
-            postProcessWidth = sceneSpec.Width > 0 ? sceneSpec.Width : 1u;
-            postProcessHeight = sceneSpec.Height > 0 ? sceneSpec.Height : 1u;
+            sceneBandWidth = sceneSpec.Width > 0 ? sceneSpec.Width : 1u;
+            sceneBandHeight = sceneSpec.Height > 0 ? sceneSpec.Height : 1u;
+
+            const u32 pw = graph.GetPhysicalWidth();
+            const u32 ph = graph.GetPhysicalHeight();
+            postProcessWidth = pw > 0u ? pw : sceneBandWidth;
+            postProcessHeight = ph > 0u ? ph : sceneBandHeight;
         }
 
         auto declareGraphOnlyFramebuffer =
@@ -1662,6 +1712,29 @@ namespace OloEngine
                                                      const RGResourceFormat fmt) -> GraphOnlyPostProcessOutput
         {
             const auto framebuffer = declareGraphOnlyPostProcessFB(framebufferName, fmt);
+            const auto texture = framebuffer.IsValid()
+                                     ? graph.CreateFramebufferAttachmentView(textureName, framebuffer, 0u)
+                                     : RGTextureHandle{};
+            return GraphOnlyPostProcessOutput{ .Framebuffer = framebuffer, .Texture = texture };
+        };
+
+        // FSR1 (#480): the screen-space band (SSS / AOApply / SSGI / SSR /
+        // ContactShadow) reads the reduced-resolution G-buffer and is consumed by
+        // EASU, so its targets are sized at the reduced scene resolution — unlike
+        // the full-res post chain above. With Upscale == Off sceneBand == post, so
+        // these collapse to the same size as before.
+        auto declareSceneBandOutput =
+            [&sceneBandWidth, &sceneBandHeight, &declareGraphOnlyFramebuffer, &graph](
+                std::string_view framebufferName, std::string_view textureName,
+                const RGResourceFormat fmt) -> GraphOnlyPostProcessOutput
+        {
+            RGResourceDesc desc;
+            desc.Kind = ResourceHandle::Kind::Framebuffer;
+            desc.Width = sceneBandWidth;
+            desc.Height = sceneBandHeight;
+            desc.Format = fmt;
+            desc.DebugName = std::string(framebufferName);
+            const auto framebuffer = declareGraphOnlyFramebuffer(framebufferName, desc);
             const auto texture = framebuffer.IsValid()
                                      ? graph.CreateFramebufferAttachmentView(textureName, framebuffer, 0u)
                                      : RGTextureHandle{};
@@ -1780,7 +1853,7 @@ namespace OloEngine
             data.Snow.SSSBlurEnabled &&
             pipeline.PostProcessPasses.SSS->IsReadyForExecution())
         {
-            const auto sssOutput = declareGraphOnlyPostProcessOutput(
+            const auto sssOutput = declareSceneBandOutput(
                 ResourceNames::SSSColor,
                 ResourceNames::SSSColorTexture,
                 RGResourceFormat::RGBA16Float);
@@ -1798,7 +1871,7 @@ namespace OloEngine
                 board.AO.AOBuffer.IsValid() &&
                 board.Scene.SceneDepth.IsValid())
             {
-                const auto aoApplyOutput = declareGraphOnlyPostProcessOutput(
+                const auto aoApplyOutput = declareSceneBandOutput(
                     ResourceNames::AOApplyColor,
                     ResourceNames::AOApplyColorTexture,
                     RGResourceFormat::RGBA16Float);
@@ -1819,7 +1892,7 @@ namespace OloEngine
                 board.GBuffer.GBufferNormal.IsValid() &&
                 board.GBuffer.GBufferAlbedo.IsValid())
             {
-                const auto ssgiOutput = declareGraphOnlyPostProcessOutput(
+                const auto ssgiOutput = declareSceneBandOutput(
                     ResourceNames::SSGIColor,
                     ResourceNames::SSGIColorTexture,
                     RGResourceFormat::RGBA16Float);
@@ -1840,7 +1913,7 @@ namespace OloEngine
                 board.GBuffer.GBufferNormal.IsValid() &&
                 board.GBuffer.GBufferAlbedo.IsValid())
             {
-                const auto ssrOutput = declareGraphOnlyPostProcessOutput(
+                const auto ssrOutput = declareSceneBandOutput(
                     ResourceNames::SSRColor,
                     ResourceNames::SSRColorTexture,
                     RGResourceFormat::RGBA16Float);
@@ -1861,7 +1934,7 @@ namespace OloEngine
                 board.Scene.SceneDepth.IsValid() &&
                 board.GBuffer.GBufferNormal.IsValid())
             {
-                const auto contactShadowOutput = declareGraphOnlyPostProcessOutput(
+                const auto contactShadowOutput = declareSceneBandOutput(
                     ResourceNames::ContactShadowColor,
                     ResourceNames::ContactShadowColorTexture,
                     RGResourceFormat::RGBA16Float);

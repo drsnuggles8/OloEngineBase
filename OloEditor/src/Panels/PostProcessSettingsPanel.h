@@ -32,6 +32,7 @@ namespace OloEngine
         void DrawFXAASection() const;
         void DrawTAASection() const;
         void DrawCASSection() const;
+        void DrawUpscaleSection() const;
         void DrawDOFSection() const;
         void DrawMotionBlurSection() const;
         void DrawAOSection() const;
