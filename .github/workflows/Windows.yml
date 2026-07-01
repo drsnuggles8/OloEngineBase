@@ -89,7 +89,7 @@ jobs:
     # Cache the built FFmpeg so only the first (or post-bump) run pays the ~10-15 min build.
     - name: Cache FFmpeg build
       id: ffcache
-      uses: actions/cache@2c8a9bd7457de244a408f35966fab2fb45fda9c8 # v6.0.0
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: OloEngine/vendor/ffmpeg-install
         key: ffmpeg-${{ runner.os }}-n7.1-${{ hashFiles('scripts/build-ffmpeg.sh') }}
@@ -114,7 +114,7 @@ jobs:
     # writes a fresh, updated snapshot; restore-keys falls back to the most
     # recent prior snapshot, so each run starts warm and saves the superset.
     - name: Cache sccache storage
-      uses: actions/cache@2c8a9bd7457de244a408f35966fab2fb45fda9c8 # v6.0.0
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: ${{ env.SCCACHE_DIR }}
         key: sccache-windows-release-${{ github.run_id }}
