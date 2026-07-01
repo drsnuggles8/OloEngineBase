@@ -171,6 +171,18 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
+        // Block-compressed formats have no population path through the spec ctor: it would
+        // allocate empty compressed storage and report IsLoaded, producing a garbage
+        // texture. They MUST be created via the CompressedTextureImage overload.
+        if (IsCompressedFormat(m_Specification.Format))
+        {
+            OLO_CORE_ERROR("OpenGLTexture2D: block-compressed format {} cannot be created from a TextureSpecification — use the CompressedTextureImage overload",
+                           static_cast<u32>(m_Specification.Format));
+            m_RendererID = 0;
+            m_IsLoaded = false;
+            return;
+        }
+
         m_Specification.Samples = std::max(m_Specification.Samples, 1u);
         m_InternalFormat = Utils::OloEngineImageFormatToGLInternalFormat(m_Specification.Format, m_Specification.SRGB);
         m_DataFormat = Utils::OloEngineImageFormatToGLDataFormat(m_Specification.Format);
@@ -357,7 +369,7 @@ namespace OloEngine
                            static_cast<GLsizei>(m_Width), static_cast<GLsizei>(m_Height));
 
         sizet totalBytes = 0;
-        u32 uploadedLevels = 0;
+        bool baseLevelUploaded = false;
         for (u32 level = 0; level < m_MipLevels; ++level)
         {
             const u32 mipWidth = std::max(1u, m_Width >> level);
@@ -375,7 +387,8 @@ namespace OloEngine
                                           static_cast<GLsizei>(mipWidth), static_cast<GLsizei>(mipHeight),
                                           m_InternalFormat, static_cast<GLsizei>(blocks.size()), blocks.data());
             totalBytes += blocks.size();
-            ++uploadedLevels;
+            if (level == 0)
+                baseLevelUploaded = true;
         }
 
         OLO_TRACK_GPU_ALLOC(this, totalBytes, RendererMemoryTracker::ResourceType::Texture2D, "OpenGL Texture2D (compressed)");
@@ -386,11 +399,12 @@ namespace OloEngine
         glTextureParameteri(m_RendererID, GL_TEXTURE_WRAP_S, GL_REPEAT);
         glTextureParameteri(m_RendererID, GL_TEXTURE_WRAP_T, GL_REPEAT);
 
-        // Only report loaded if at least one mip actually reached the GPU — otherwise a
-        // truncated/mismatched blob would masquerade as a successfully loaded texture.
-        m_IsLoaded = (uploadedLevels > 0);
+        // Require the base level (mip 0) specifically — a texture whose full-resolution
+        // level never uploaded is unusable even if a smaller mip happened to succeed, so a
+        // truncated/mismatched blob must not masquerade as a successfully loaded texture.
+        m_IsLoaded = baseLevelUploaded;
         if (!m_IsLoaded)
-            OLO_CORE_ERROR("OpenGLTexture2D: compressed upload produced no valid mip levels");
+            OLO_CORE_ERROR("OpenGLTexture2D: compressed upload did not produce a valid base mip level");
     }
 
     void OpenGLTexture2D::UploadDecompressedFallback(const CompressedTextureImage& image)
@@ -407,7 +421,11 @@ namespace OloEngine
 
         const bool wantMips = image.MipLevels() > 1u;
         m_MipLevels = wantMips ? CalculateFullMipCount(w, h) : 1u;
-        m_Specification.Format = ImageFormat::RGBA8;
+        // Keep m_Specification.Format as the compressed (BC7/BC5) identity — the physical
+        // GL upload format lives in m_InternalFormat/m_DataFormat below. Overwriting it
+        // with RGBA8 would defeat HasAlphaChannel() (an opaque BC7 / BC5 normal would then
+        // report alpha and mis-sort into the transparent pass), unguard Resize/SetData/
+        // SubImage, and make the asset-pack serializer treat the texture as uncompressed.
         m_Specification.MipLevels = m_MipLevels;
         m_Specification.GenerateMips = wantMips;
         m_InternalFormat = image.SRGB ? GL_SRGB8_ALPHA8 : GL_RGBA8;

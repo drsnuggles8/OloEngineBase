@@ -68,10 +68,7 @@ namespace OloEngine
         // roughness / AO / height / ...) veto colour keywords (albedo / diffuse / base
         // color / emissive). Returns true for colour.
         [[nodiscard]] bool IsLikelyColorTexture(std::string_view filename);
-    } // namespace TextureCompression
 
-    namespace TextureCompression
-    {
         // ---- Block geometry ---------------------------------------------------
         // Bytes per 4x4 block (BC5 and BC7 are both 16). 0 for None.
         [[nodiscard]] u32 BlockSizeBytes(TextureCompressionFormat format);

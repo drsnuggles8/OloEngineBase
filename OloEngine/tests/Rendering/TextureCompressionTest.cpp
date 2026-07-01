@@ -290,6 +290,38 @@ TEST(TextureCompression, DeserializeRejectsHostileHeaderFields)
         CompressedTextureImage out;
         EXPECT_FALSE(TextureCompression::DeserializeFromBlob(hostile, out));
     }
+    {
+        std::vector<u8> hostile = blob;
+        patchU32(hostile, 20, 0x4u); // flags: an undefined bit set -> non-canonical
+        CompressedTextureImage out;
+        EXPECT_FALSE(TextureCompression::DeserializeFromBlob(hostile, out));
+    }
+    {
+        std::vector<u8> trailing = blob;
+        trailing.push_back(0x00); // extra byte after the final mip -> not fully consumed
+        CompressedTextureImage out;
+        EXPECT_FALSE(TextureCompression::DeserializeFromBlob(trailing, out));
+    }
+}
+
+TEST(TextureCompression, DeserializeRejectsBC5WithColorFlags)
+{
+    // BC5 (two-channel normal data) must carry neither sRGB nor alpha. A blob that
+    // claims otherwise is corrupt/version-skewed and must be rejected.
+    constexpr u32 kW = 8;
+    constexpr u32 kH = 8;
+    std::vector<u8> rg(static_cast<sizet>(kW) * kH * 2);
+    for (sizet i = 0; i < rg.size(); ++i)
+        rg[i] = static_cast<u8>(i * 3);
+    const CompressedTextureImage bc5 = TextureCompression::EncodeBC5(rg.data(), kW, kH, 2, false);
+    ASSERT_TRUE(bc5.IsValid());
+    std::vector<u8> blob = TextureCompression::SerializeToBlob(bc5);
+    ASSERT_GE(blob.size(), 28u);
+
+    // Patch the flags field (offset 20) to set the sRGB bit — illegal for BC5.
+    blob[20] = 0x1u;
+    CompressedTextureImage out;
+    EXPECT_FALSE(TextureCompression::DeserializeFromBlob(blob, out));
 }
 
 TEST(TextureCompression, SRGBFlagSurvivesContainerRoundTrip)

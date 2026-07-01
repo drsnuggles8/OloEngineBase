@@ -186,6 +186,13 @@ namespace OloEngine
         // above any real shipped texture and keeps block math inside u32.
         constexpr u32 kMaxTextureDimension = 16384;
 
+        // Upper bound on a legitimate serialized .olotex payload, used to reject an
+        // oversized/corrupt file before allocating a read buffer from its reported size.
+        // Worst case is BC7/BC5 (1 byte/texel) at the max dimension with a full mip chain
+        // (<4/3 x the base level); 2 x W x H plus a small header slop covers it generously.
+        constexpr sizet kMaxSerializedBlobSize =
+            2ull * kMaxTextureDimension * kMaxTextureDimension + 4096ull;
+
         // Highest legitimate mip level count for the given dimensions: floor(log2(max))+1.
         u32 MaxMipLevels(u32 width, u32 height)
         {
@@ -497,6 +504,20 @@ namespace OloEngine
                 OLO_CORE_ERROR("TextureCompression::DeserializeFromBlob - degenerate dimensions/mips");
                 return false;
             }
+            // Reject non-canonical metadata: only the two defined flag bits may be set,
+            // and BC5 (two-channel normal data) can carry neither sRGB nor alpha — a blob
+            // claiming otherwise is corrupt or version-skewed, not something we produced.
+            if ((flags & ~(kFlagSRGB | kFlagHasAlpha)) != 0)
+            {
+                OLO_CORE_ERROR("TextureCompression::DeserializeFromBlob - unknown flag bits set ({:#x})", flags);
+                return false;
+            }
+            if (static_cast<TextureCompressionFormat>(formatInt) == TextureCompressionFormat::BC5 &&
+                (flags & (kFlagSRGB | kFlagHasAlpha)) != 0)
+            {
+                OLO_CORE_ERROR("TextureCompression::DeserializeFromBlob - BC5 must not set sRGB/alpha flags ({:#x})", flags);
+                return false;
+            }
             // Bound header fields BEFORE any allocation: a hostile/corrupt .olotex must
             // not drive an OOM (unbounded Mips.reserve) or an over-long mip chain that
             // later trips glTextureStorage2D. width/height are capped, and mipCount can't
@@ -546,6 +567,14 @@ namespace OloEngine
                 cursor += mipSize;
             }
 
+            // The blob must be fully consumed: trailing bytes mean a malformed or
+            // version-skewed payload that merely happened to parse up to the last mip.
+            if (cursor != blob.size())
+            {
+                OLO_CORE_ERROR("TextureCompression::DeserializeFromBlob - {} trailing byte(s) after final mip", blob.size() - cursor);
+                return false;
+            }
+
             out = std::move(image);
             return true;
         }
@@ -580,6 +609,14 @@ namespace OloEngine
             if (size <= 0)
             {
                 OLO_CORE_ERROR("TextureCompression::ReadFile - empty file '{}'", path);
+                return false;
+            }
+            // Reject an implausibly large file BEFORE allocating from its size — a corrupt
+            // or hostile .olotex must not drive a multi-gigabyte allocation off tellg().
+            if (static_cast<u64>(size) > kMaxSerializedBlobSize)
+            {
+                OLO_CORE_ERROR("TextureCompression::ReadFile - file '{}' size {} exceeds max serialized size {}",
+                               path, static_cast<u64>(size), kMaxSerializedBlobSize);
                 return false;
             }
             std::vector<u8> blob(static_cast<sizet>(size));
