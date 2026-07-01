@@ -317,12 +317,17 @@ namespace OloEngine
             return m_CachedTransform;
         }
 
-        // Excludes the runtime-only cache fields from equality: two transforms with
-        // identical authored TRS must compare equal regardless of cache state (undo
+        // Compares only the fields that actually define the transform: Translation,
+        // Scale, and the Rotation quat used by GetTransform(). RotationEuler is a
+        // history-dependent display representation (SetRotation() picks among
+        // equivalent Euler angles for gizmo continuity), so two identical rotations
+        // can hold different Euler values — including it would report false
+        // inequality on SetRotation() paths. The runtime-only cache fields are
+        // likewise excluded so cache state never affects equality (undo
         // change-detection and round-trip tests rely on this). Bit-exact per §2a/§7.
         auto operator==(const TransformComponent& other) const -> bool
         {
-            return Math::BitwiseEqual(Translation, other.Translation) && Math::BitwiseEqual(Scale, other.Scale) && Math::BitwiseEqual(RotationEuler, other.RotationEuler) && Math::BitwiseEqual(Rotation, other.Rotation);
+            return Math::BitwiseEqual(Translation, other.Translation) && Math::BitwiseEqual(Scale, other.Scale) && Math::BitwiseEqual(Rotation, other.Rotation);
         }
     };
 

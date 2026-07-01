@@ -282,6 +282,29 @@ TEST(TransformComponentCache, OperatorEqualsIgnoresCacheState)
     EXPECT_FALSE(primed == fresh);
 }
 
+TEST(TransformComponentCache, OperatorEqualsIgnoresEulerRepresentationWhenQuatMatches)
+{
+    // Reach the same quaternion via two different Euler histories: SetRotation()
+    // picks among equivalent Euler angles for gizmo continuity, so RotationEuler
+    // can differ while the Rotation quat (and thus GetTransform()) is identical.
+    const glm::quat q = glm::quat(glm::vec3(glm::pi<float>() + 0.05f, 0.0f, 0.0f));
+
+    TransformComponent fromZero;
+    fromZero.SetRotation(q); // continuity relative to euler (0,0,0)
+
+    TransformComponent fromNearPi;
+    fromNearPi.SetRotationEuler({ glm::pi<float>() - 0.05f, 0.0f, 0.0f });
+    fromNearPi.SetRotation(q); // continuity relative to euler near +pi
+
+    // Quats are bit-identical (both glm::normalize of the same q)...
+    ASSERT_TRUE(OloEngine::Math::BitwiseEqual(fromZero.GetRotation(), fromNearPi.GetRotation()));
+    // ...but the continuity-adjusted Euler representations differ.
+    ASSERT_FALSE(OloEngine::Math::BitwiseEqual(fromZero.GetRotationEuler(), fromNearPi.GetRotationEuler()));
+
+    // Equality must follow the authored transform (the quat), not the display Euler.
+    EXPECT_TRUE(fromZero == fromNearPi) << "differing RotationEuler must not cause false inequality when Rotation matches";
+}
+
 // =============================================================================
 // Copy semantics
 // =============================================================================
