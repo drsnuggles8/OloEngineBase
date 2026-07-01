@@ -84,9 +84,29 @@ namespace OloEngine
         void OnSimulationStop();
 
         void OnUpdateRuntime(Timestep ts);
+        // Deterministic real-time entry for windowed hosts (editor Play,
+        // OloRuntime): accumulate the raw frame delta `frameTs` and advance the
+        // gameplay simulation in fixed `fixedDt` steps (N catch-up steps,
+        // clamped against a spiral of death), then render once at the display
+        // rate. This decouples the simulation rate from the frame rate, which is
+        // what makes a run reproducible and unlocks rollback/replay (issue
+        // #452). Headless hosts and tests that need exact single-step control
+        // keep calling OnUpdateRuntime(ts) directly. Both paths funnel through
+        // the same SimulateRuntimeStep, so they advance identical state.
+        void OnUpdateRuntimeFixed(Timestep frameTs, f32 fixedDt);
         void OnUpdateSimulation(Timestep ts, EditorCamera const& camera);
         void OnUpdateEditor(Timestep ts, EditorCamera const& camera);
         void OnViewportResize(u32 width, u32 height);
+
+        // Count of fixed simulation steps executed since the scene started
+        // ticking (one per gameplay tick). The addressable tick index that
+        // rollback/replay netcode keys off, and the signal frame-rate-
+        // independence tests use to assert two differently-paced runs took the
+        // same number of steps. Reset to 0 at OnRuntimeStart.
+        [[nodiscard("Store this!")]] u64 GetSimulationTick() const
+        {
+            return m_SimulationTick;
+        }
 
         [[nodiscard]] u32 GetViewportWidth() const
         {
@@ -560,6 +580,27 @@ namespace OloEngine
         void RenderUIOverlay();
         void ProcessSnowDeformers(Timestep ts, TMap<u64, glm::vec3>& prevPositions);
 
+        // Sub-stages of the runtime tick, shared by OnUpdateRuntime (single
+        // step) and OnUpdateRuntimeFixed (accumulated fixed steps). Splitting
+        // them lets the windowed loop run the simulation N times per displayed
+        // frame while rendering exactly once (issue #452).
+        //   UpdateStreaming     — locale refresh + scene streaming; once per frame.
+        //   SimulateRuntimeStep — one gameplay tick (scripts, physics, AI, …);
+        //                         advances by exactly `ts` and bumps the tick
+        //                         counter. The pause / single-step gate lives in
+        //                         the callers, not here.
+        //   RenderRuntime       — camera resolve + UI layout + draw; once per frame.
+        void UpdateStreaming();
+        void SimulateRuntimeStep(Timestep ts);
+        void RenderRuntime(Timestep ts);
+        // Step 2D (Box2D) + 3D (Jolt, incl. m_SimulationTime-driven buoyancy)
+        // physics one tick and sync the results back onto the ECS transforms
+        // (Rigidbody2D / Rigidbody3D / CharacterController3D). Shared by the
+        // runtime tick (SimulateRuntimeStep) and editor Simulate-mode tick
+        // (OnUpdateSimulation) so the two never drift. The caller advances
+        // m_SimulationTime before calling.
+        void StepPhysics(Timestep ts);
+
       private:
         entt::registry m_Registry;
         u32 m_ViewportWidth = 0;
@@ -572,6 +613,20 @@ namespace OloEngine
         int m_StepFrames = 0;
         u64 m_TerrainFrameCounter = 0;
         u64 m_StreamingFrameCounter = 0;
+        // Fixed-timestep accumulator for OnUpdateRuntimeFixed: leftover real
+        // time (< fixedDt) carried into the next frame. Tick counter increments
+        // once per SimulateRuntimeStep.
+        f32 m_FixedTimeAccumulator = 0.0f;
+        u64 m_SimulationTick = 0;
+        // Deterministic simulation clock (seconds), advanced by exactly `ts` per
+        // sim tick, used for time-driven physics (buoyancy wave phase) so it is
+        // reproducible across frame pacings / rollback instead of wall-clock.
+        // Reset to 0 at OnRuntimeStart.
+        f32 m_SimulationTime = 0.0f;
+        // Spiral-of-death cap: most fixed steps a single frame may run before
+        // the accumulator is clamped and excess wall-time dropped. 15 mirrors
+        // Application::s_MaxTimestep (0.25 s) at the 60 Hz default.
+        static constexpr u32 kMaxFixedStepsPerFrame = 15;
         // Last-observed LocalizationManager generation. LocalizationSystem
         // compares against this to skip the LocalizedTextComponent sweep when
         // nothing's changed. Starts at 0 so the first tick always refreshes.

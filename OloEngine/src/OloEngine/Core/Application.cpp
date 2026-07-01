@@ -229,6 +229,17 @@ namespace OloEngine
         m_Running = true;
     }
 
+    void Application::SetRandomSeed(u64 seed)
+    {
+        // Store-only: the seed is applied to the game-thread gameplay RNG by
+        // Scene::OnRuntimeStart at every Play / runtime launch. We deliberately do
+        // NOT eagerly call RandomUtils::SetGlobalSeed here — the RNG is
+        // thread_local, so an eager call would only seed whatever thread happened
+        // to call this setter (e.g. a config-load thread), not the game thread,
+        // and would be overwritten at OnRuntimeStart anyway (issue #452).
+        m_RandomSeed = seed;
+    }
+
     void Application::OnEvent(Event& e)
     {
         OLO_PROFILE_FUNCTION();

@@ -668,7 +668,9 @@ namespace OloEngine
             case SceneState::Play:
             {
                 m_ActiveScene->SetIs3DModeEnabled(m_Is3DMode);
-                m_ActiveScene->OnUpdateRuntime(ts);
+                // Deterministic fixed-timestep tick (issue #452): advance gameplay
+                // in fixed dt steps from the variable frame delta, render once.
+                m_ActiveScene->OnUpdateRuntimeFixed(ts, Application::Get().GetFixedTimeStep());
                 SaveGameManager::Tick(ts, *m_ActiveScene);
 
                 // Handle script-triggered scene reload

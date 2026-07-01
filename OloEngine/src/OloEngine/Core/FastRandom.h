@@ -746,6 +746,21 @@ namespace OloEngine
             return s_GlobalRandom;
         }
 
+        /// Re-seed the calling thread's global generator deterministically.
+        ///
+        /// This is the seam for reproducible gameplay RNG (issue #452): call it
+        /// at the start of a deterministic run — Scene::OnRuntimeStart does so
+        /// with Application::GetRandomSeed() — so loot rolls, particle jitter,
+        /// and any other consumer of the RandomUtils convenience functions
+        /// (Int32 / Float32 / GetGlobalRandom) replay identically given the same
+        /// seed and the same call sequence. The generator is thread_local, so
+        /// this only seeds the thread it runs on (the game thread for gameplay);
+        /// off-thread RNG streams must be seeded on their own thread.
+        inline void SetGlobalSeed(u64 seed) noexcept
+        {
+            GetGlobalRandom().SetSeed(seed);
+        }
+
         //==============================================================================
         /// Convenience functions using global generator - 8-bit types
         inline i8 Int8(i8 low, i8 high) noexcept

@@ -98,10 +98,15 @@ namespace OloEngine
             // Process console commands
             m_Console.ProcessInput();
 
-            // Update active scene simulation
+            // Update active scene simulation at the canonical fixed timestep so
+            // the authoritative server advances gameplay at the same rate clients
+            // do (Application::GetFixedTimeStep), independent of the server's
+            // configured tick rate — the lockstep determinism the feature exists
+            // for (issue #452). RunHeadless already feeds a fixed `ts` per tick;
+            // the accumulator then steps the canonical fixed dt.
             if (m_ActiveScene)
             {
-                m_ActiveScene->OnUpdateRuntime(ts);
+                m_ActiveScene->OnUpdateRuntimeFixed(ts, Application::Get().GetFixedTimeStep());
             }
 
             const f32 tickDuration = tickTimer.Elapsed();

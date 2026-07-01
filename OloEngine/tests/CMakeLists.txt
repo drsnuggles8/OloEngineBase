@@ -446,6 +446,7 @@ add_executable(OloEngine-Tests
 		Functional/AnimationPhysics/TriggerVolumeFiresOverlapEventTest.cpp
 		Functional/Scene/SceneStepAdvancesOneFrameTest.cpp
 		Functional/Scene/DeterministicReplayProducesSameStateTest.cpp
+		Functional/Scene/FixedTimestepDeterminismTest.cpp
 		Functional/Scene/PrimaryCameraResolutionTest.cpp
 		Functional/Scene/EntityCreateWithUUIDTest.cpp
 		Functional/AnimationPhysics/AnimationContinuesAfterPauseResumeTest.cpp
