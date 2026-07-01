@@ -11,6 +11,7 @@
 
 #include <cmath>
 #include <limits>
+#include <unordered_set>
 #include <vector>
 
 namespace OloEngine
@@ -139,9 +140,13 @@ namespace OloEngine
     void UINavigationSystem::ActivateFocused(Scene& scene, UINavigation& nav)
     {
         const UUID focused = nav.GetFocus();
-        Entity entity = scene.GetEntityByUUID(focused);
-        if (!entity)
+        // TryGetEntityWithUUID, NOT GetEntityByUUID: focus can point at an entity
+        // destroyed since last frame, and GetEntityByUUID asserts / does a checked
+        // lookup (UB) on a missing UUID rather than returning a null Entity.
+        auto entityOpt = scene.TryGetEntityWithUUID(focused);
+        if (!entityOpt)
             return;
+        Entity entity = *entityOpt;
 
         if (entity.HasComponent<UIButtonComponent>())
         {
@@ -168,11 +173,11 @@ namespace OloEngine
     // consumed as an adjustment rather than a focus move).
     bool UINavigationSystem::AdjustFocusedSlider(Scene& scene, UINavigation& nav, const UINavInput& input)
     {
-        Entity entity = scene.GetEntityByUUID(nav.GetFocus());
-        if (!entity || !entity.HasComponent<UISliderComponent>())
+        auto entityOpt = scene.TryGetEntityWithUUID(nav.GetFocus());
+        if (!entityOpt || !entityOpt->HasComponent<UISliderComponent>())
             return false;
 
-        auto& slider = entity.GetComponent<UISliderComponent>();
+        auto& slider = entityOpt->GetComponent<UISliderComponent>();
         if (!slider.m_Interactable)
             return true; // still a slider — swallow Left/Right, just don't move
 
@@ -206,19 +211,32 @@ namespace OloEngine
 
     // Fire OnValueChanged / OnClick for changes since last frame, regardless of
     // whether the source was the mouse (UIInputSystem) or this navigation pass.
+    //
+    // Delegates are arbitrary user callbacks that may mutate the registry (add /
+    // remove a UI component, destroy an entity). So the changes are collected
+    // during view iteration and the callbacks are fired only AFTER every view has
+    // been walked — firing mid-iteration would invalidate the entt view iterator
+    // (the hazard documented in GameplayEventBus.h). Snapshot entries for widgets
+    // that no longer exist are pruned in the same passes so the maps don't grow
+    // unbounded across a runtime session.
     void UINavigationSystem::DispatchChanges(Scene& scene, UINavigation& nav)
     {
         constexpr f32 epsilon = 1e-6f;
 
+        std::vector<std::pair<UUID, f32>> pendingValueChanged;
+        std::vector<UUID> pendingClicks;
+        std::unordered_set<u64> liveSliders, liveCheckboxes, liveToggles, liveButtons;
+
         for (const auto view = scene.GetAllEntitiesWith<UISliderComponent>(); const auto e : view)
         {
             const UUID uuid = Entity{ e, &scene }.GetUUID();
+            liveSliders.insert(static_cast<u64>(uuid));
             const f32 cur = view.get<UISliderComponent>(e).m_Value;
             if (auto it = nav.m_PrevSlider.find(static_cast<u64>(uuid)); it != nav.m_PrevSlider.end())
             {
                 if (std::abs(cur - it->second) > epsilon)
                 {
-                    nav.FireValueChanged(uuid, cur);
+                    pendingValueChanged.emplace_back(uuid, cur);
                     it->second = cur;
                 }
             }
@@ -226,39 +244,59 @@ namespace OloEngine
         for (const auto view = scene.GetAllEntitiesWith<UICheckboxComponent>(); const auto e : view)
         {
             const UUID uuid = Entity{ e, &scene }.GetUUID();
+            liveCheckboxes.insert(static_cast<u64>(uuid));
             const bool cur = view.get<UICheckboxComponent>(e).m_IsChecked;
             if (auto it = nav.m_PrevCheckbox.find(static_cast<u64>(uuid)); it != nav.m_PrevCheckbox.end() && it->second != cur)
             {
-                nav.FireValueChanged(uuid, cur ? 1.0f : 0.0f);
+                pendingValueChanged.emplace_back(uuid, cur ? 1.0f : 0.0f);
                 it->second = cur;
             }
         }
         for (const auto view = scene.GetAllEntitiesWith<UIToggleComponent>(); const auto e : view)
         {
             const UUID uuid = Entity{ e, &scene }.GetUUID();
+            liveToggles.insert(static_cast<u64>(uuid));
             const bool cur = view.get<UIToggleComponent>(e).m_IsOn;
             if (auto it = nav.m_PrevToggle.find(static_cast<u64>(uuid)); it != nav.m_PrevToggle.end() && it->second != cur)
             {
-                nav.FireValueChanged(uuid, cur ? 1.0f : 0.0f);
+                pendingValueChanged.emplace_back(uuid, cur ? 1.0f : 0.0f);
                 it->second = cur;
             }
         }
         // Mouse-driven button click: a press-then-release-over transition shows up
         // as Pressed -> Hovered between two frames. Gamepad Activate fires click
-        // directly (above) without touching m_State, so it never double-fires here.
+        // directly (in ActivateFocused, outside iteration) without touching
+        // m_State, so it never double-fires here.
         for (const auto view = scene.GetAllEntitiesWith<UIButtonComponent>(); const auto e : view)
         {
             const UUID uuid = Entity{ e, &scene }.GetUUID();
+            liveButtons.insert(static_cast<u64>(uuid));
             const auto cur = static_cast<u8>(view.get<UIButtonComponent>(e).m_State);
             if (auto it = nav.m_PrevButtonState.find(static_cast<u64>(uuid)); it != nav.m_PrevButtonState.end())
             {
                 if (it->second == static_cast<u8>(UIButtonState::Pressed) && cur == static_cast<u8>(UIButtonState::Hovered))
-                {
-                    nav.FireClick(uuid);
-                    nav.FireSubmit(uuid);
-                }
+                    pendingClicks.push_back(uuid);
                 it->second = cur;
             }
+        }
+
+        // Prune snapshots for widgets that vanished since they were seeded.
+        std::erase_if(nav.m_PrevSlider, [&](const auto& kv)
+                      { return !liveSliders.contains(kv.first); });
+        std::erase_if(nav.m_PrevCheckbox, [&](const auto& kv)
+                      { return !liveCheckboxes.contains(kv.first); });
+        std::erase_if(nav.m_PrevToggle, [&](const auto& kv)
+                      { return !liveToggles.contains(kv.first); });
+        std::erase_if(nav.m_PrevButtonState, [&](const auto& kv)
+                      { return !liveButtons.contains(kv.first); });
+
+        // Fire outside all view iteration — a handler may now safely mutate the scene.
+        for (const auto& [uuid, value] : pendingValueChanged)
+            nav.FireValueChanged(uuid, value);
+        for (const UUID uuid : pendingClicks)
+        {
+            nav.FireClick(uuid);
+            nav.FireSubmit(uuid);
         }
     }
 
@@ -276,11 +314,12 @@ namespace OloEngine
         CollectNavItems(scene, items);
 
         // Drop focus that no longer points at a navigable widget (destroyed /
-        // made non-interactable since last frame).
+        // made non-interactable since last frame). TryGetEntityWithUUID returns
+        // nullopt for a stale UUID; GetEntityByUUID would assert / UB instead.
         if (nav.HasFocus())
         {
-            Entity current = scene.GetEntityByUUID(nav.GetFocus());
-            if (!current || !IsNavigable(current))
+            auto current = scene.TryGetEntityWithUUID(nav.GetFocus());
+            if (!current || !IsNavigable(*current))
                 nav.ClearFocus();
         }
 
@@ -298,24 +337,33 @@ namespace OloEngine
             const bool sliderConsumed = AdjustFocusedSlider(scene, nav, input);
 
             glm::vec2 fromCenter{ 0.0f, 0.0f };
+            bool focusInItems = false;
             for (const auto& item : items)
             {
                 if (static_cast<u64>(item.Id) == static_cast<u64>(nav.GetFocus()))
                 {
                     fromCenter = item.Center;
+                    focusInItems = true;
                     break;
                 }
             }
 
+            // Only move focus directionally when the focused widget's on-screen
+            // rect is known this frame. A focused widget with no resolved rect
+            // (spawned pre-layout) is absent from `items`; navigating from a
+            // {0,0} origin would jump to whatever sits nearest the screen corner.
             UUID target{ 0 };
-            if (input.NavUp)
-                target = BestInDirection(items, fromCenter, { 0.0f, -1.0f });
-            else if (input.NavDown)
-                target = BestInDirection(items, fromCenter, { 0.0f, 1.0f });
-            else if (input.NavLeft && !sliderConsumed)
-                target = BestInDirection(items, fromCenter, { -1.0f, 0.0f });
-            else if (input.NavRight && !sliderConsumed)
-                target = BestInDirection(items, fromCenter, { 1.0f, 0.0f });
+            if (focusInItems)
+            {
+                if (input.NavUp)
+                    target = BestInDirection(items, fromCenter, { 0.0f, -1.0f });
+                else if (input.NavDown)
+                    target = BestInDirection(items, fromCenter, { 0.0f, 1.0f });
+                else if (input.NavLeft && !sliderConsumed)
+                    target = BestInDirection(items, fromCenter, { -1.0f, 0.0f });
+                else if (input.NavRight && !sliderConsumed)
+                    target = BestInDirection(items, fromCenter, { 1.0f, 0.0f });
+            }
 
             if (static_cast<u64>(target) != 0)
                 nav.SetFocus(target);
@@ -327,11 +375,14 @@ namespace OloEngine
         if (input.Cancel)
             nav.ClearFocus();
 
-        // 2. Reflect focus onto button visuals via the existing hover state.
-        ReflectFocusOnButtons(scene, nav);
-
-        // 3. Dispatch value/click delegates for changes from any source.
+        // 2. Dispatch value/click delegates for changes from any source. Runs
+        //    BEFORE focus reflection so the mouse-click detector reads the honest
+        //    UIInputSystem button state, not the focus-highlight overlay this
+        //    system paints on in step 3.
         DispatchChanges(scene, nav);
+
+        // 3. Reflect focus onto button visuals via the existing hover state.
+        ReflectFocusOnButtons(scene, nav);
     }
 
     UINavInput UINavigationSystem::PollActions()

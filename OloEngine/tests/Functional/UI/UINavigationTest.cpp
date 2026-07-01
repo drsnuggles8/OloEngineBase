@@ -215,3 +215,40 @@ TEST_F(UINavigationTest, CancelClearsFocus)
 
     EXPECT_FALSE(nav.HasFocus());
 }
+
+// Focus pointing at an entity destroyed since last frame must not crash: the
+// stale-UUID lookup has to be find-or-null, not the asserting GetEntityByUUID.
+TEST_F(UINavigationTest, StaleFocusAfterEntityDestroyedDoesNotCrash)
+{
+    UINavigation& nav = GetScene().GetUINavigation();
+    nav.SetFocus(m_Button1.GetUUID());
+    ASSERT_TRUE(nav.HasFocus());
+
+    GetScene().DestroyEntity(m_Button1); // focus now dangles
+
+    UINavInput activate; // exercises the ActivateFocused stale path too
+    activate.Activate = true;
+    UINavigationSystem::Update(GetScene(), activate); // must not assert / crash
+
+    EXPECT_FALSE(nav.HasFocus()) << "focus on a destroyed widget should be dropped";
+}
+
+// A value-changed delegate that destroys another widget must be safe: delegates
+// fire after view iteration completes, so the registry mutation can't invalidate
+// a live entt iterator mid-dispatch.
+TEST_F(UINavigationTest, DelegateMutatingSceneDuringDispatchIsSafe)
+{
+    UINavigation& nav = GetScene().GetUINavigation();
+    Entity victim = m_Button2;
+    const UUID victimId = victim.GetUUID(); // capture before destruction (handle goes stale)
+    nav.OnValueChanged(m_Slider.GetUUID(), [this, victim]([[maybe_unused]] f32 v) mutable
+                       { GetScene().DestroyEntity(victim); });
+    nav.SetFocus(m_Slider.GetUUID());
+
+    UINavInput right;
+    right.NavRight = true;
+    UINavigationSystem::Update(GetScene(), right); // slider change -> handler destroys Button2
+
+    EXPECT_FALSE(GetScene().TryGetEntityWithUUID(victimId).has_value())
+        << "the delegate should have run and destroyed the victim widget";
+}
