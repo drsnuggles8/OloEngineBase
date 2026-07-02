@@ -212,22 +212,33 @@ namespace OloEngine
                 // are not readable yet (the GPU is still executing the frame).
                 // Park the pending frame and resolve+commit on a later
                 // CommitFrame call instead of committing all-zero timings.
+                // CAS rather than store: a concurrent StopRecording() may have
+                // cancelled the capture since the switch loaded the state — an
+                // unconditional store would resurrect it.
                 m_GpuResolveWaitFrames = 0;
-                m_State.store(CaptureState::AwaitingGpuResults, std::memory_order_release);
+                auto expected = CaptureState::CaptureNextFrame;
+                m_State.compare_exchange_strong(expected, CaptureState::AwaitingGpuResults, std::memory_order_acq_rel);
                 break;
             }
             case CaptureState::AwaitingGpuResults:
             {
+                const auto& gpuTimer = GPUTimerQueryPool::GetInstance();
                 std::vector<f64> resultsMs;
-                const bool resolved = GPUTimerQueryPool::GetInstance().TryGetIssuedQueryResultsMs(resultsMs);
-                ++m_GpuResolveWaitFrames;
-                if (!resolved && m_GpuResolveWaitFrames < kMaxGpuResolveWaitFrames)
-                    return; // try again next frame
+                bool resolved = false;
+                if (gpuTimer.IsInitialized())
+                {
+                    resolved = gpuTimer.TryGetIssuedQueryResultsMs(resultsMs);
+                    ++m_GpuResolveWaitFrames;
+                    if (!resolved && m_GpuResolveWaitFrames < kMaxGpuResolveWaitFrames)
+                        return; // try again next frame
+                }
+                // Pool never initialized (the capture frame issued no queries):
+                // nothing will ever resolve — commit immediately without timings.
 
                 if (resolved)
                     ApplyGpuTimingsToSource(resultsMs);
                 else
-                    OLO_CORE_WARN("FrameCaptureManager: GPU timer results not readable after {} frames — committing capture without per-draw GPU times", kMaxGpuResolveWaitFrames);
+                    OLO_CORE_WARN("FrameCaptureManager: GPU timer results not available — committing capture without per-draw GPU times");
 
                 CommitPendingFrame(++m_CommittedFrameCounter);
                 break;

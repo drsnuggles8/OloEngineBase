@@ -1435,7 +1435,7 @@ namespace OloEngine
         else
             metadata.m_SortKey = DrawKey::CreateOpaque(0, ViewLayerType::ThreeD, shaderID, materialID, depthKey);
         metadata.m_IsStatic = isStatic;
-        metadata.m_DebugName = GetMeshDebugName(mesh);
+        metadata.m_DebugName = GetMeshDebugName(meshToUse);
         packet->SetMetadata(metadata);
 
         if (overlayReroute)
