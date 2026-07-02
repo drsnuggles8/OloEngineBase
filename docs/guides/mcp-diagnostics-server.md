@@ -180,7 +180,7 @@ the server, so update the config (or re-copy from the panel) accordingly.
 | `olo_assets_problems` | assets that failed to load or are missing/invalid |
 | `olo_script_get_api` | C# / Lua scripting API digest (types + members), with a type filter |
 | `olo_script_get_last_errors` | recent C# (Mono) / Lua (Sol2) script exceptions |
-| `olo_reload_script` | **(consented write)** reload the C# script assembly — the editor's *Script ▸ Reload assembly* (Ctrl+R) path — so a rebuilt game assembly is picked up without restarting the editor; reports whether scripting is available, whether the reload ran, and the post-reload script-class count. Gated behind "Allow writes" |
+| `olo_reload_script` | **(consented write)** reload the C# script assembly — the editor's *Script ▸ Reload assembly* (Ctrl+R) path — so a rebuilt game assembly is picked up without restarting the editor; reports whether scripting is available, whether the reload ran, and the post-reload script-class count. Gated behind **Agent writes** (Disabled/Prompt/Allow all) |
 | `olo_crash_list` / `olo_crash_get` | crash reports under `CrashReports/` |
 | `olo_screenshot` | the viewport rendered to a PNG image block; optional one-shot camera pose (`camera`/`orbit` + `settleFrames`) with automatic save/restore of the user's camera |
 | `olo_camera_get` | the editor camera's pose (position, focal point, yaw/pitch, FOV, clips, viewport size) |
@@ -193,7 +193,7 @@ the server, so update the config (or re-copy from the panel) accordingly.
 | `olo_render_compare_golden` | capture the viewport (optional `camera`/`orbit` pose) and diff it against a golden PNG (`goldenPath`): returns a numeric `similarity`/`rmse`/`ssim` + `pass` verdict; missing golden or `rebase`:true writes the capture as the new baseline (the `OLOENGINE_GOLDEN_REBASE` workflow) |
 | `olo_render_toggle_pass` | flip a post-process / fog feature on/off (`name` + optional `enabled`) — the ephemeral A/B loop: toggle off → `olo_screenshot` → toggle on → `olo_screenshot`. No `name` lists every pass + its live state |
 | `olo_render_set_debug_view` | switch the viewport to a raw AO/SSR/SSGI buffer (`mode`: none/ssao/gtao/ssr/ssgi); reports whether the backing pass is actually running. No `mode` lists the modes + current state |
-| `olo_renderer_settings_set` | **(consented write)** set a multi-valued, session-global renderer / post-process setting — `upscale` (FSR1 spatial-upscale mode), `tonemap` (operator), `renderpath` (forward/forward+/deferred) — to verify a rendering feature live at each value. The enum-valued sibling of `olo_render_toggle_pass`; reports `previousValue` for restore-prior-value (no undo stack). No args lists every setting + current value + allowed values. Gated behind "Allow writes" |
+| `olo_renderer_settings_set` | **(consented write)** set a multi-valued, session-global renderer / post-process setting — `upscale` (FSR1 spatial-upscale mode), `tonemap` (operator), `renderpath` (forward/forward+/deferred) — to verify a rendering feature live at each value. The enum-valued sibling of `olo_render_toggle_pass`; reports `previousValue` for restore-prior-value (no undo stack). No args lists every setting + current value + allowed values. Gated behind **Agent writes** (Disabled/Prompt/Allow all) |
 | `olo_scene_set_time_of_day` | move the procedural sky's sun to a 24-hour clock time (`hours` 0–24) for lighting iteration — ephemeral session override of the sun direction, never written to the scene. `clear`:true restores the authored sun; no args reports the current override |
 | `olo_scene_set_sun_angle` | aim the procedural sky's sun directly from a `yaw` (azimuth) / `pitch` (elevation) pair — the precise sibling of `olo_scene_set_time_of_day`, same ephemeral session override. `clear`:true restores; no args reports state |
 | `olo_render_why_not_visible` | explain why one entity (`entity`) is NOT on screen — the "why can't I see my mesh?" debugger: root-cause `reasonCode`, summary, ordered checks, and the raw render facts |
@@ -203,6 +203,40 @@ the server, so update the config (or re-copy from the panel) accordingly.
 | `olo_physics_raycast` | cast a ray (`origin` + `direction`\|`to`) through the live physics world: closest hit, or up to `maxHits` ordered hits (entity, position, normal, distance) |
 | `olo_physics_overlap` | bodies overlapping a sphere (`radius`) or box (`halfExtents`) at `origin`; requires Play mode |
 | `olo_physics_why_no_collision` | explain why two entities (`a`, `b`) are NOT colliding — the "player falls through the floor" debugger: root-cause `reasonCode`, summary, ordered checks, and per-entity facts |
+
+### Write consent — Disabled / Prompt / Allow all (issue #306 item C)
+
+Every project-mutating tool (`olo_set_collision_layer`, `olo_entity_set_field`,
+`olo_reload_script`, `olo_renderer_settings_set` — anything marked **(consented
+write)** above) is gated in the MCP panel by a three-way **Agent writes** control.
+It is **off by default and never persisted**, so every editor launch starts read-only
+and the human at the editor opts in for the session:
+
+- **Disabled** (default) — a write tool is refused at dispatch with a clean JSON-RPC
+  error; the server is read-only with respect to your project. The read-only
+  diagnostics and the ephemeral editor-only tools (camera / viewport / render
+  overrides) are unaffected by this control.
+- **Prompt** — each write pops a **per-action consent modal** in the editor showing the
+  tool and the exact arguments the agent wants to apply. The agent's `tools/call`
+  **blocks** until you click **Approve** (apply this one), **Deny** (reject it — the
+  call returns a "denied by the editor user" error), or **Approve all this session**
+  (apply it and switch to *Allow all* for the rest of the session). An unanswered
+  prompt times out (120 s) and the call returns a timeout error. The modal renders even
+  when the MCP panel window is closed, so a write is never left silently blocked.
+- **Allow all** — writes auto-apply for the session with no prompt (the legacy
+  "Allow writes" behaviour). Use it when you're actively driving a batch of edits and
+  don't want to click through each one.
+
+Every entity/component write still routes through the editor's **undo stack** — an
+approved change is a single **Ctrl-Z** — so *Prompt* and *Allow all* differ only in
+whether you confirm each action up front, not in reversibility. (The renderer-settings
+and sun/time-of-day writes are session-global and restore-prior-value instead; see
+those sections.)
+
+Threading: the write handler runs on a cpp-httplib worker thread and blocks there
+while the main (UI) thread renders the modal and records your decision — the same
+main-thread-marshal discipline the read tools use, so the editor's render loop never
+blocks on an agent.
 
 ### Toolsets & on-demand tool discovery (`tools/search`)
 
@@ -368,9 +402,11 @@ component bindings.
 ```
 
 - **It is a consented WRITE tool** (issue #306 item C): like the other writes it is
-  refused unless **"Allow writes"** is enabled in the editor's MCP panel (off by
-  default). Reloading runs the user's freshly-built assembly code, so it deliberately
-  crosses the read-only line — hence the gate.
+  refused while **Agent writes** is *Disabled* in the editor's MCP panel (the default),
+  prompts for per-action consent in *Prompt* mode, and applies directly in *Allow all*
+  — see [Write consent](#write-consent--disabled--prompt--allow-all-issue-306-item-c).
+  Reloading runs the user's freshly-built assembly code, so it deliberately crosses the
+  read-only line — hence the gate.
 - **Whole-assembly, no arguments.** C# reload has no per-script granularity (the editor
   reloads the entire app assembly), so the tool takes no parameters — exactly mirroring
   the parameterless Ctrl+R.
@@ -457,7 +493,8 @@ so multi-setting / multi-angle rendering verification of a new feature wasn't
 possible from a session.
 
 It is a **consented WRITE tool** (issue #306 item C): like the other writes it is
-refused unless **"Allow writes"** is enabled in the MCP panel (off by default). A
+refused while **Agent writes** is *Disabled* in the MCP panel (the default), prompts
+per-action in *Prompt* mode, and applies directly in *Allow all*. A
 settings change crosses the read-only line — but it is **session-scoped and
 restorable, never a project mutation**: the tool mutates only the renderer's
 session-global `PostProcessSettings` / `RendererSettings` (the same structs

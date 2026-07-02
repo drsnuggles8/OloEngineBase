@@ -1625,6 +1625,14 @@ namespace OloEngine
             MCP::RenderMcpServerPanel(*m_McpServer, m_Prefs.McpPort, m_Prefs.McpAutoStart, &m_ShowMcpPanel);
         }
 
+        // MCP per-action write-consent modal (issue #306 item C). Rendered every frame
+        // regardless of the panel's visibility so an agent's write in Prompt mode is
+        // never left blocked because the user closed the panel. A no-op when idle.
+        if (m_McpServer)
+        {
+            MCP::RenderMcpConsentModal(*m_McpServer);
+        }
+
         // Thread Inspector Panel
         if (m_ShowThreadInspector)
         {

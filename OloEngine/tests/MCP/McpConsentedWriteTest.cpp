@@ -33,8 +33,11 @@
 #include "OloEngine/Scene/Scene.h"
 
 #include <algorithm>
+#include <chrono>
+#include <future>
 #include <optional>
 #include <string>
+#include <thread>
 
 // OLO_TEST_LAYER: unit
 
@@ -47,10 +50,12 @@ namespace
     using OloEngine::Ref;
     using OloEngine::Rigidbody3DComponent;
     using OloEngine::Scene;
+    using OloEngine::MCP::ConsentDecision;
     using OloEngine::MCP::EditorMcpContext;
     using OloEngine::MCP::McpServer;
     using OloEngine::MCP::ToolDef;
     using OloEngine::MCP::ToolResult;
+    using OloEngine::MCP::WriteConsentMode;
     using Json = OloEngine::MCP::Json;
     namespace SetCollisionLayer = OloEngine::MCP::SetCollisionLayer;
 
@@ -109,6 +114,21 @@ namespace
                 .m_LayerID;
         }
 
+        // Spin (main test thread) until a worker thread has parked a consent prompt,
+        // then return its id — or 0 if none appears within the budget. Mirrors what
+        // the editor's main-thread panel poll does each frame.
+        [[nodiscard]] u64 WaitForPendingConsent()
+        {
+            for (int i = 0; i < 400; ++i)
+            {
+                const auto pending = m_Server.PendingConsents();
+                if (!pending.empty())
+                    return pending.front().Id;
+                std::this_thread::sleep_for(std::chrono::milliseconds(5));
+            }
+            return 0;
+        }
+
         static constexpr u32 kInitialLayer = 0;
 
         Ref<Scene> m_Scene;
@@ -160,6 +180,108 @@ TEST_F(McpConsentedWriteTest, GateOnAppliesUndoableWrite)
     EXPECT_FALSE(m_History.CanUndo());
 
     m_History.Redo();
+    EXPECT_EQ(CurrentLayer(), 3u);
+}
+
+// ---- the per-action consent dialog (Prompt mode) ---------------------------
+// The write reaches HandleToolsCall on a "worker" thread that BLOCKS in
+// RequestConsent until the main test thread resolves the prompt — the same
+// handshake the editor's panel drives on its UI thread. AllowSession (== the old
+// gate-on) still applies straight through with no prompt (asserted separately).
+
+// Prompt mode surfaces a pending request; Approve applies the undoable write.
+TEST_F(McpConsentedWriteTest, PromptModeApproveAppliesWrite)
+{
+    m_Server.SetWriteConsentMode(WriteConsentMode::Prompt);
+
+    std::future<Json> call = std::async(std::launch::async, [this]
+                                        { return m_Server.HandleMessage(
+                                              MakeCallRequest(10, Json{ { "entity", std::to_string(m_EntityUuid) }, { "layer", 3 } })); });
+
+    const u64 id = WaitForPendingConsent();
+    ASSERT_NE(id, 0u) << "no consent prompt surfaced";
+    // The write must NOT have applied while the prompt is unresolved.
+    EXPECT_EQ(CurrentLayer(), kInitialLayer);
+    m_Server.ResolveConsent(id, ConsentDecision::Approve);
+
+    const Json resp = call.get();
+    ASSERT_TRUE(resp.contains("result"));
+    EXPECT_FALSE(resp["result"]["isError"]);
+    EXPECT_EQ(CurrentLayer(), 3u);
+    EXPECT_TRUE(m_History.CanUndo());
+}
+
+// Deny rejects the call with a JSON-RPC error and mutates nothing.
+TEST_F(McpConsentedWriteTest, PromptModeDenyRejectsWrite)
+{
+    m_Server.SetWriteConsentMode(WriteConsentMode::Prompt);
+
+    std::future<Json> call = std::async(std::launch::async, [this]
+                                        { return m_Server.HandleMessage(
+                                              MakeCallRequest(11, Json{ { "entity", std::to_string(m_EntityUuid) }, { "layer", 3 } })); });
+
+    const u64 id = WaitForPendingConsent();
+    ASSERT_NE(id, 0u);
+    m_Server.ResolveConsent(id, ConsentDecision::Deny);
+
+    const Json resp = call.get();
+    ASSERT_TRUE(resp.contains("error"));
+    EXPECT_EQ(resp["error"]["code"], kInvalidParams);
+    EXPECT_EQ(CurrentLayer(), kInitialLayer);
+    EXPECT_FALSE(m_History.CanUndo());
+}
+
+// "Approve all this session" applies the current write AND flips the mode to
+// AllowSession, so a subsequent write applies with no prompt.
+TEST_F(McpConsentedWriteTest, ApproveAllFlipsToAllowSession)
+{
+    m_Server.SetWriteConsentMode(WriteConsentMode::Prompt);
+
+    std::future<Json> first = std::async(std::launch::async, [this]
+                                         { return m_Server.HandleMessage(
+                                               MakeCallRequest(12, Json{ { "entity", std::to_string(m_EntityUuid) }, { "layer", 3 } })); });
+    const u64 id = WaitForPendingConsent();
+    ASSERT_NE(id, 0u);
+    m_Server.ResolveConsent(id, ConsentDecision::ApproveAll);
+
+    ASSERT_TRUE(first.get()["result"].is_object());
+    EXPECT_EQ(CurrentLayer(), 3u);
+    EXPECT_EQ(m_Server.GetWriteConsentMode(), WriteConsentMode::AllowSession);
+
+    // The next write runs with no prompt outstanding (synchronous — no waiter needed).
+    const Json second = m_Server.HandleMessage(
+        MakeCallRequest(13, Json{ { "entity", std::to_string(m_EntityUuid) }, { "layer", 7 } }));
+    ASSERT_TRUE(second.contains("result"));
+    EXPECT_FALSE(second["result"]["isError"]);
+    EXPECT_TRUE(m_Server.PendingConsents().empty());
+    EXPECT_EQ(CurrentLayer(), 7u);
+}
+
+// No answer within the deadline is a clean timeout error, and nothing is mutated.
+TEST_F(McpConsentedWriteTest, PromptModeTimesOutWhenUnanswered)
+{
+    m_Server.SetWriteConsentMode(WriteConsentMode::Prompt);
+    m_Server.SetConsentTimeout(std::chrono::milliseconds(40));
+
+    // Runs on this thread: RequestConsent blocks ~40ms, then returns Timeout.
+    const Json resp = m_Server.HandleMessage(
+        MakeCallRequest(14, Json{ { "entity", std::to_string(m_EntityUuid) }, { "layer", 3 } }));
+
+    ASSERT_TRUE(resp.contains("error"));
+    EXPECT_EQ(resp["error"]["code"], kInvalidParams);
+    EXPECT_EQ(CurrentLayer(), kInitialLayer);
+    EXPECT_FALSE(m_History.CanUndo());
+}
+
+// AllowSession (== the legacy gate-on) never prompts — the queue stays empty.
+TEST_F(McpConsentedWriteTest, AllowSessionAppliesWithoutPrompt)
+{
+    m_Server.SetWriteConsentMode(WriteConsentMode::AllowSession);
+    const Json resp = m_Server.HandleMessage(
+        MakeCallRequest(15, Json{ { "entity", std::to_string(m_EntityUuid) }, { "layer", 3 } }));
+    ASSERT_TRUE(resp.contains("result"));
+    EXPECT_FALSE(resp["result"]["isError"]);
+    EXPECT_TRUE(m_Server.PendingConsents().empty());
     EXPECT_EQ(CurrentLayer(), 3u);
 }
 
