@@ -102,8 +102,10 @@ namespace OloEngine::Tests
         /// Tick `count` frames at `dtSeconds` per frame. Each tick is a
         /// full `Scene::OnUpdateRuntime` call, which (with rendering
         /// enabled) drives the entire Renderer3D pipeline. Each tick is
-        /// wrapped in a `GLStateGuard` (restore policy) so the render
-        /// leaves no global GL state behind for the next test.
+        /// wrapped in a `GLStateGuard` (restore policy) and its GL error
+        /// queue is drained afterward, so the render leaves no global GL
+        /// state — bindings OR pending errors — behind for the next test
+        /// (issue #485).
         void RunFrames(u32 count, f32 dtSeconds = 1.0f / 60.0f);
 
         /// Tick `count` frames through the EDITOR render path

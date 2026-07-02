@@ -80,6 +80,7 @@ add_executable(OloEngine-Tests
 
 		# Rendering subsystem tests (Tiers 1-5)
 		Rendering/DrawKeyTest.cpp
+		Rendering/TextureCompressionTest.cpp
 		Rendering/BoundingVolumeTest.cpp
 		Rendering/FrustumCullingTest.cpp
 		Rendering/ReflectionProbeSelectionTest.cpp
@@ -160,6 +161,7 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/StarNestSkyVisualTest.cpp
 		Rendering/PropertyTests/StarNestReflectionEvidenceTest.cpp
 		Rendering/PropertyTests/WaterVisualEvidenceTest.cpp
+		Rendering/PropertyTests/CompressedTextureVisualEvidenceTest.cpp
 		Rendering/PropertyTests/OceanFFTVisualEvidenceTest.cpp
 		Rendering/PropertyTests/UnderwaterCausticsVisualTest.cpp
 		Rendering/PropertyTests/SSRVisualEvidenceTest.cpp
@@ -196,6 +198,11 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/AutoExposureEvidenceTest.cpp
 		Rendering/PropertyTests/TestFailureCapture.cpp
 		Rendering/PropertyTests/TestFailureCaptureTest.cpp
+		# Cross-test GL-error-state guard (issue #485): a global gtest listener
+		# that drains + asserts a clean glGetError() after every test, pinning
+		# GL-context pollution to its source. Registered from OloEngineTest.cpp.
+		Rendering/PropertyTests/GLErrorStateCheck.cpp
+		Rendering/PropertyTests/GLErrorStateCheckTest.cpp
 		Rendering/PropertyTests/ModelLoadDeterminismTest.cpp
 		Rendering/PropertyTests/DrawIndexedRawOffsetTest.cpp
 		Rendering/PropertyTests/TextureSaveRoundTripTest.cpp

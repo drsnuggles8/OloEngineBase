@@ -158,7 +158,7 @@ FetchContent_Declare(
 FetchContent_Declare(
 	protobuf
 	GIT_REPOSITORY	https://github.com/protocolbuffers/protobuf.git
-	GIT_TAG			v3.21.12
+	GIT_TAG			v35.1
 	GIT_SHALLOW		TRUE
 	EXCLUDE_FROM_ALL
 )
@@ -364,6 +364,39 @@ CPMAddPackage(NAME cpp_httplib
 if(cpp_httplib_ADDED)
 	add_library(cpp_httplib INTERFACE)
 	target_include_directories(cpp_httplib SYSTEM INTERFACE ${cpp_httplib_SOURCE_DIR})
+endif()
+
+# bc7enc_rdo: Rich Geldreich's BC1-7 / BC6H block-compression encoders + decoders.
+# Used by the offline texture-compression cook (Renderer/TextureCompression.cpp) to
+# encode base-color -> BC7 and normal maps -> BC5 (#440). Dual MIT / public-domain
+# licensed for the core sources we use (bc7enc / rgbcx / bc7decomp); we deliberately
+# skip bc7e.ispc (Apache + needs the ISPC compiler), lodepng, miniz, and the RDO
+# post-processor — none are needed for a straight CPU encode. DOWNLOAD_ONLY because
+# the repo's own CMakeLists builds a test exe that requires ISPC; we compile just the
+# three self-contained TUs into our own static lib, mirroring the imgui / lua pattern.
+# Pinned to a fixed commit SHA for reproducible builds (#294 convention).
+CPMAddPackage(NAME bc7enc_rdo
+  GIT_REPOSITORY https://github.com/richgel999/bc7enc_rdo.git
+  GIT_TAG dbe416d28a5530b4e8cc45b14bf034dc6b96bbde  # master @ 2026-02-27
+  GIT_SHALLOW FALSE
+  DOWNLOAD_ONLY YES)
+if(bc7enc_rdo_ADDED)
+	add_library(bc7enc STATIC
+		"${bc7enc_rdo_SOURCE_DIR}/bc7enc.cpp"
+		"${bc7enc_rdo_SOURCE_DIR}/bc7decomp.cpp"
+		"${bc7enc_rdo_SOURCE_DIR}/rgbcx.cpp")
+	# SYSTEM so the encoder's own warnings don't count against OloEngine's /W4-ish flags.
+	target_include_directories(bc7enc SYSTEM PUBLIC "${bc7enc_rdo_SOURCE_DIR}")
+	set_target_properties(bc7enc PROPERTIES FOLDER "Utilities/bc7enc"
+		ARCHIVE_OUTPUT_DIRECTORY "${PROJECT_SOURCE_DIR}/vendor/bc7enc-build"
+		LIBRARY_OUTPUT_DIRECTORY "${PROJECT_SOURCE_DIR}/vendor/bc7enc-build"
+		RUNTIME_OUTPUT_DIRECTORY "${PROJECT_SOURCE_DIR}/vendor/bc7enc-build")
+	# clang-cl maps our /WX onto -Werror; the vendored encoder trips a raft of
+	# Clang-only warnings (unused, sign-compare, ...). Suppress -Werror on it only,
+	# same treatment already applied to Jolt / assimp / box2d below.
+	if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+		target_compile_options(bc7enc PRIVATE -Wno-error -Wno-everything)
+	endif()
 endif()
 
 set_target_properties(assimp PROPERTIES FOLDER "Utilities/assimp")
