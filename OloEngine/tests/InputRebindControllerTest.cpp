@@ -153,6 +153,20 @@ TEST_F(InputRebindControllerTest, ResolveSwapExchangesBindings)
     EXPECT_FALSE(ActionHasKey("Interact", Key::E));
 }
 
+TEST_F(InputRebindControllerTest, ResolveKeepLeavesBothActionsBoundToTheBinding)
+{
+    // Keep deliberately allows the duplicate: the target gets the binding and the
+    // conflicting action keeps it too.
+    m_Ctrl.BeginRebind("Jump", 0, /*gamepad=*/false);
+    m_Ctrl.OnKeyPressed(Key::E);
+    ASSERT_TRUE(m_Ctrl.HasPendingConflict());
+
+    m_Ctrl.ResolveConflict(RebindResolution::Keep);
+    EXPECT_FALSE(m_Ctrl.HasPendingConflict());
+    EXPECT_TRUE(ActionHasKey("Jump", Key::E));     // target now bound to E
+    EXPECT_TRUE(ActionHasKey("Interact", Key::E)); // conflicting action still bound to E (duplicate kept)
+}
+
 // --- Reset to default ----------------------------------------------------------
 
 TEST_F(InputRebindControllerTest, ResetActionRestoresDefaultBindings)

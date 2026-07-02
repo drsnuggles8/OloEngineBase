@@ -46,17 +46,15 @@ namespace OloEngine
         if (removeFromConflicts)
         {
             // Erase the binding from every OTHER action so it maps to exactly one action.
+            // Remove ALL occurrences (not just the first) so a pre-existing duplicate in a
+            // malformed map can't survive and re-trigger the same conflict.
             for (auto& [name, act] : map.Actions)
             {
                 if (name == actionName)
                 {
                     continue;
                 }
-                const auto it = std::ranges::find(act.Bindings, binding);
-                if (it != act.Bindings.end())
-                {
-                    act.Bindings.erase(it);
-                }
+                std::erase(act.Bindings, binding);
             }
         }
 
@@ -250,30 +248,34 @@ namespace OloEngine
             }
             case RebindResolution::Swap:
             {
-                // Give the conflicting action the target slot's OLD binding, then assign the new one.
-                // When the target slot has no old binding (a fresh binding), swap degenerates to
-                // replace — the conflicting action simply loses the binding.
-                std::optional<InputBinding> oldBinding;
-                if (!pending.IsNewBinding)
+                // Only swap if the target action still exists. If it was removed between capture
+                // and resolution, mutating the conflicting action would drop its binding while the
+                // target can't receive anything — so leave both untouched instead.
+                auto* target = map.GetAction(pending.ActionName);
+                if (!target)
                 {
-                    if (const auto* target = map.GetAction(pending.ActionName); target && pending.BindingIndex < target->Bindings.size())
-                    {
-                        oldBinding = target->Bindings[pending.BindingIndex];
-                    }
+                    break;
                 }
 
-                if (auto* conflictAction = map.GetAction(pending.Conflict.ConflictingAction); conflictAction)
+                // Give the conflicting action the target slot's OLD binding, then assign the new
+                // one. When the target slot has no old binding (a fresh binding), swap degenerates
+                // to replace — the conflicting action simply loses the binding.
+                std::optional<InputBinding> oldBinding;
+                if (!pending.IsNewBinding && pending.BindingIndex < target->Bindings.size())
                 {
-                    if (pending.Conflict.ConflictingBindingIndex < conflictAction->Bindings.size())
+                    oldBinding = target->Bindings[pending.BindingIndex];
+                }
+
+                if (auto* conflictAction = map.GetAction(pending.Conflict.ConflictingAction);
+                    conflictAction && pending.Conflict.ConflictingBindingIndex < conflictAction->Bindings.size())
+                {
+                    if (oldBinding.has_value())
                     {
-                        if (oldBinding.has_value())
-                        {
-                            conflictAction->Bindings[pending.Conflict.ConflictingBindingIndex] = *oldBinding;
-                        }
-                        else
-                        {
-                            conflictAction->Bindings.erase(conflictAction->Bindings.begin() + static_cast<std::ptrdiff_t>(pending.Conflict.ConflictingBindingIndex));
-                        }
+                        conflictAction->Bindings[pending.Conflict.ConflictingBindingIndex] = *oldBinding;
+                    }
+                    else
+                    {
+                        conflictAction->Bindings.erase(conflictAction->Bindings.begin() + static_cast<std::ptrdiff_t>(pending.Conflict.ConflictingBindingIndex));
                     }
                 }
 

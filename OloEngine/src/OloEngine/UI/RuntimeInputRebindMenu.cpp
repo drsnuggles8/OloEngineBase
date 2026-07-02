@@ -288,6 +288,9 @@ namespace OloEngine
         m_Controller.CancelCapture();
         m_Open = false;
         m_CloseRequested = false;
+        // Drop the scene reference last — after teardown that needs it — so a closed menu
+        // never holds a pointer to a scene that may be destroyed next.
+        m_Scene = nullptr;
     }
 
     void RuntimeInputRebindMenu::OnUpdate()
@@ -345,21 +348,31 @@ namespace OloEngine
                     m_Controller.ResetActionToDefault(row.Action);
                     m_StatusLabel.GetComponent<UITextComponent>().m_Text = "Reset '" + row.Action + "' to default.";
                 }
+
+                // A rebind/pad click begins capture; stop here so a second click this frame
+                // can't overwrite the capture we just started (and skip the footer below).
+                if (m_Controller.IsCapturing())
+                {
+                    break;
+                }
             }
 
-            if (Clicked(m_ResetAllButton))
+            if (!m_Controller.IsCapturing())
             {
-                m_Controller.ResetTargetMapToDefault();
-                m_StatusLabel.GetComponent<UITextComponent>().m_Text = "Reset all actions to default.";
-            }
-            else if (Clicked(m_SaveButton))
-            {
-                const bool ok = !m_SavePath.empty() && InputRebindController::Save(m_SavePath);
-                m_StatusLabel.GetComponent<UITextComponent>().m_Text = ok ? "Saved input bindings." : "Save failed (no project path).";
-            }
-            else if (Clicked(m_CloseButton))
-            {
-                m_CloseRequested = true;
+                if (Clicked(m_ResetAllButton))
+                {
+                    m_Controller.ResetTargetMapToDefault();
+                    m_StatusLabel.GetComponent<UITextComponent>().m_Text = "Reset all actions to default.";
+                }
+                else if (Clicked(m_SaveButton))
+                {
+                    const bool ok = !m_SavePath.empty() && InputRebindController::Save(m_SavePath);
+                    m_StatusLabel.GetComponent<UITextComponent>().m_Text = ok ? "Saved input bindings." : "Save failed (no project path).";
+                }
+                else if (Clicked(m_CloseButton))
+                {
+                    m_CloseRequested = true;
+                }
             }
         }
 

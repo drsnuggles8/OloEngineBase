@@ -144,12 +144,25 @@ namespace OloEngine
         // has a populated Gameplay map to remap.
         void LoadInputActions()
         {
-            if (std::filesystem::exists(s_InputActionsPath))
+            if (std::filesystem::exists(kInputActionsPath))
             {
-                if (auto loaded = InputActionSerializer::DeserializeContexts(s_InputActionsPath); loaded && !loaded->empty())
+                if (auto loaded = InputActionSerializer::DeserializeContexts(kInputActionsPath); loaded && !loaded->empty())
                 {
                     InputActionManager::ReplaceAllContextMaps(*loaded);
-                    OLO_CORE_INFO("[Runtime] Loaded input bindings from {}", s_InputActionsPath.string());
+
+                    // Guarantee playable bindings: if the saved config carried no Gameplay
+                    // actions (that context emptied, or never written because Save skips empty
+                    // maps), seed the defaults so the game — and the rebind menu, which edits
+                    // Gameplay — still has something to bind.
+                    if (InputActionManager::GetActionMap(InputContextType::Gameplay).Actions.empty())
+                    {
+                        InputActionManager::SetActionMap(InputContextType::Gameplay, CreateDefaultGameActions());
+                        OLO_CORE_WARN("[Runtime] Saved input bindings had no Gameplay map — seeded default game actions");
+                    }
+                    else
+                    {
+                        OLO_CORE_INFO("[Runtime] Loaded input bindings from {}", kInputActionsPath.string());
+                    }
                     return;
                 }
             }
@@ -178,7 +191,7 @@ namespace OloEngine
                 // The panel needs a visible cursor to click; restore the game's cursor on close.
                 m_PrevCursorMode = Input::GetCursorMode();
                 Input::SetCursorMode(CursorMode::Normal);
-                m_RebindMenu.Open(*m_ActiveScene, InputContextType::Gameplay, s_InputActionsPath);
+                m_RebindMenu.Open(*m_ActiveScene, InputContextType::Gameplay, kInputActionsPath);
             }
         }
 
@@ -245,12 +258,12 @@ namespace OloEngine
             if (m_RebindMenu.IsOpen())
             {
                 m_RebindMenu.OnUpdate();
-                // The menu may have closed itself via its Close button — restore context/cursor.
-                if (m_MenuContextPushed && !m_RebindMenu.IsOpen())
+                // The menu may have closed itself via its Close button — route through the same
+                // teardown as an F1 close so context/cursor restore isn't duplicated. Close() is a
+                // no-op on the already-closed menu; CloseRebindMenu only pops if it pushed.
+                if (!m_RebindMenu.IsOpen())
                 {
-                    InputActionManager::PopContext();
-                    m_MenuContextPushed = false;
-                    Input::SetCursorMode(m_PrevCursorMode);
+                    CloseRebindMenu();
                 }
             }
 
@@ -310,6 +323,11 @@ namespace OloEngine
 
         bool OnKeyPressed(KeyPressedEvent const& e)
         {
+            // Ignore auto-repeat so holding F1 doesn't flip the menu open/closed every frame.
+            if (e.IsRepeat())
+            {
+                return false;
+            }
             // F1 toggles the in-game input rebind menu.
             if (e.GetKeyCode() == Key::F1)
             {
@@ -420,11 +438,11 @@ namespace OloEngine
         u32 m_ViewportWidth = 0;
         u32 m_ViewportHeight = 0;
 
-        // In-game input rebind menu (issue #475). Toggled with F1; persists to s_InputActionsPath.
+        // In-game input rebind menu (issue #475). Toggled with F1; persists to kInputActionsPath.
         RuntimeInputRebindMenu m_RebindMenu;
         bool m_MenuContextPushed = false;
         CursorMode m_PrevCursorMode = CursorMode::Normal;
-        static inline const std::filesystem::path s_InputActionsPath{ "Config/InputActions.yaml" };
+        static inline const std::filesystem::path kInputActionsPath{ "Config/InputActions.yaml" };
 
         void ReloadScene()
         {

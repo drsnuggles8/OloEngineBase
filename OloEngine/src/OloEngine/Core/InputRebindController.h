@@ -1,5 +1,6 @@
 #pragma once
 
+#include "OloEngine/Core/Assert.h"
 #include "OloEngine/Core/InputAction.h"
 #include "OloEngine/Core/InputActionManager.h"
 #include "OloEngine/Core/KeyCodes.h"
@@ -115,6 +116,7 @@ namespace OloEngine
         }
         [[nodiscard]] const RebindConflict& GetPendingConflict() const
         {
+            OLO_CORE_ASSERT(HasPendingConflict(), "GetPendingConflict() called with no pending conflict — guard with HasPendingConflict()");
             return m_Pending->Conflict;
         }
         // Resolve the pending conflict per the chosen policy. No-op if nothing is pending.
