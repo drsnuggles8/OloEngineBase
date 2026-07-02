@@ -164,6 +164,27 @@ TEST_F(InputRebindControllerTest, SwapWithStaleTargetSlotLeavesBothActionsUntouc
     m_Ctrl.ResolveConflict(RebindResolution::Swap);
     EXPECT_TRUE(ActionHasKey("Interact", Key::E)); // conflicting binding preserved (not erased)
     EXPECT_FALSE(ActionHasKey("Jump", Key::E));    // swap skipped — Jump not given E
+    EXPECT_TRUE(ActionHasKey("Jump", Key::Space)); // Jump's original binding is untouched
+}
+
+TEST_F(InputRebindControllerTest, SwapSkipsWhenConflictingSlotChangedUnderneath)
+{
+    // Interact owns E. Begin a Swap of Jump slot 0 -> E, but mutate Interact away from E before
+    // resolving. The conflicting slot no longer holds E, so Swap must skip entirely rather than
+    // overwrite/erase whatever Interact holds now.
+    m_Ctrl.BeginRebind("Jump", 0, /*gamepad=*/false);
+    m_Ctrl.OnKeyPressed(Key::E);
+    ASSERT_TRUE(m_Ctrl.HasPendingConflict());
+
+    // Simulate the map changing under us: Interact loses E.
+    InputAction* interact = InputActionManager::GetActionMapMutable(InputContextType::Gameplay).GetAction("Interact");
+    ASSERT_NE(interact, nullptr);
+    std::erase(interact->Bindings, InputBinding::Key(Key::E));
+
+    m_Ctrl.ResolveConflict(RebindResolution::Swap);
+    EXPECT_TRUE(ActionHasKey("Jump", Key::Space));  // Jump untouched (swap skipped)
+    EXPECT_FALSE(ActionHasKey("Jump", Key::E));     // Jump did not receive E
+    EXPECT_FALSE(ActionHasKey("Interact", Key::E)); // Interact still without E (not re-added)
 }
 
 TEST_F(InputRebindControllerTest, ResolveKeepLeavesBothActionsBoundToTheBinding)

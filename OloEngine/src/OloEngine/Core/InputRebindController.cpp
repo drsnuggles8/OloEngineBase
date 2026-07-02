@@ -265,26 +265,26 @@ namespace OloEngine
                     break;
                 }
 
-                // Give the conflicting action the target slot's OLD binding, then assign the new
-                // one. When there is no old binding (a fresh binding), swap degenerates to replace —
-                // the conflicting action simply loses the binding.
-                std::optional<InputBinding> oldBinding;
-                if (!pending.IsNewBinding)
+                // The conflicting slot must still hold the exact binding we detected at capture
+                // time. If the map changed under us (slot now out of range, or holding a different
+                // binding), don't overwrite/erase an unrelated binding — leave both actions
+                // untouched and skip the swap.
+                auto* conflictAction = map.GetAction(pending.Conflict.ConflictingAction);
+                if (!conflictAction || pending.Conflict.ConflictingBindingIndex >= conflictAction->Bindings.size() || conflictAction->Bindings[pending.Conflict.ConflictingBindingIndex] != pending.Binding)
                 {
-                    oldBinding = target->Bindings[pending.BindingIndex]; // slot validated above
+                    break;
                 }
 
-                if (auto* conflictAction = map.GetAction(pending.Conflict.ConflictingAction);
-                    conflictAction && pending.Conflict.ConflictingBindingIndex < conflictAction->Bindings.size())
+                // Hand the conflicting action the target slot's OLD binding, then assign the new
+                // one to the target. When the target has no old binding (a fresh binding), swap
+                // degenerates to replace — the conflicting action simply loses the binding.
+                if (!pending.IsNewBinding)
                 {
-                    if (oldBinding.has_value())
-                    {
-                        conflictAction->Bindings[pending.Conflict.ConflictingBindingIndex] = *oldBinding;
-                    }
-                    else
-                    {
-                        conflictAction->Bindings.erase(conflictAction->Bindings.begin() + static_cast<std::ptrdiff_t>(pending.Conflict.ConflictingBindingIndex));
-                    }
+                    conflictAction->Bindings[pending.Conflict.ConflictingBindingIndex] = target->Bindings[pending.BindingIndex];
+                }
+                else
+                {
+                    conflictAction->Bindings.erase(conflictAction->Bindings.begin() + static_cast<std::ptrdiff_t>(pending.Conflict.ConflictingBindingIndex));
                 }
 
                 ApplyBinding(map, pending.ActionName, pending.BindingIndex, pending.IsNewBinding, pending.Binding, /*removeFromConflicts=*/false);
