@@ -104,7 +104,11 @@ namespace OloEngine
             if (m_Is3DMode)
             {
                 // Initialize 3D rendering systems (render graph, UBOs, IBL, etc.)
-                if (!Renderer3D::IsInitialized())
+                // Guard on HasInitialized() ("Init ran"), not IsInitialized()
+                // ("render graph ready"): if Init already ran at a 0x0 size the
+                // graph isn't built yet, but re-running Init would double-init the
+                // one-shot singletons. The OnWindowResize below completes the build.
+                if (!Renderer3D::HasInitialized())
                 {
                     Renderer3D::Init(&Application::Get().GetWindow());
                 }

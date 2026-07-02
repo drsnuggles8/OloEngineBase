@@ -44,8 +44,12 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
 
         // Renderer3D may have been lazily initialized (e.g. EditorLayer 3D mode)
-        // regardless of the preferred renderer type — always shut it down if active.
-        if (Renderer3D::IsInitialized())
+        // regardless of the preferred renderer type — always shut it down if init
+        // ran. Guard on HasInitialized() ("Init ran"), not IsInitialized()
+        // ("render graph ready"): a renderer that initialized at a 0x0 size (never
+        // completed its graph build) still allocated one-shot singletons that must
+        // be torn down, or FrameDataBufferManager leaks and asserts on next launch.
+        if (Renderer3D::HasInitialized())
             Renderer3D::Shutdown();
 
         // Renderer2D is always initialized (either as the preferred renderer, or

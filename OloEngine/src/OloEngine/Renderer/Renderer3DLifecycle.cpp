@@ -81,6 +81,22 @@ namespace OloEngine
     void Renderer3D::Init(Window* loadingWindow)
     {
         OLO_PROFILE_FUNCTION();
+
+        // Idempotency guard. Init() may be reached twice on the editor's
+        // OnAttach path: once from OpenProject()->ApplyPreferences() (with a
+        // still-0x0 window framebuffer, so the render graph is only partially
+        // built and IsInitialized() stays false) and once directly from
+        // OnAttach(). Without this guard the second call re-runs
+        // FrameDataBufferManager::Init() and trips its "already initialized"
+        // assert. The deferred SetupRenderGraph in OnWindowResize() finishes the
+        // graph build once a real framebuffer size arrives.
+        if (s_Data.CoreInitialized)
+        {
+            OLO_CORE_TRACE("Renderer3D::Init called while already initialized — ignoring re-entry.");
+            return;
+        }
+        s_Data.CoreInitialized = true;
+
         OLO_CORE_INFO("Initializing Renderer3D.");
 
         RendererProfiler::GetInstance().Initialize();
@@ -423,7 +439,12 @@ namespace OloEngine
 
     bool Renderer3D::IsInitialized()
     {
-        return s_Data.RGraph != nullptr && s_Data.Pipeline->FrameCorePasses.Scene != nullptr;
+        return s_Data.RGraph != nullptr && s_Data.Pipeline && s_Data.Pipeline->FrameCorePasses.Scene != nullptr;
+    }
+
+    bool Renderer3D::HasInitialized()
+    {
+        return s_Data.CoreInitialized;
     }
 
     void Renderer3D::Shutdown()
@@ -509,6 +530,8 @@ namespace OloEngine
         // (both are idempotent, but no need to call them twice).
 
         RendererProfiler::GetInstance().Shutdown();
+
+        s_Data.CoreInitialized = false;
 
         OLO_CORE_INFO("Renderer3D shutdown complete.");
     }
