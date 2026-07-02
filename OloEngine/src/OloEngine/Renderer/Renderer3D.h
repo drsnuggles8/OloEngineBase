@@ -185,7 +185,17 @@ namespace OloEngine
         //                       flushed synchronously without UI.
         static void Init(Window* loadingWindow = nullptr);
         static void Shutdown();
+        // True once the render graph is fully built (Scene pass exists) and the
+        // renderer is ready to draw. May be false immediately after Init() when
+        // Init ran against a 0x0 framebuffer — see HasInitialized() for the
+        // "Init() has run at all" query that init/shutdown guards want.
         static bool IsInitialized();
+        // True once Init() has run (and allocated its one-shot singletons),
+        // regardless of whether the deferred render-graph build has completed.
+        // Use this — not IsInitialized() — to guard against double-Init and to
+        // decide whether Shutdown() must run; IsInitialized() is for "ready to
+        // render" gates only.
+        static bool HasInitialized();
 
         // Asset hot-reload handler — ensures next frame picks up new RendererIDs
         static void OnAssetReloaded(const AssetReloadedEvent& e);
@@ -1429,6 +1439,18 @@ namespace OloEngine
 
             Ref<RenderGraph> RGraph;
             std::unique_ptr<RenderPipeline> Pipeline;
+
+            // True once Init() has allocated the renderer's one-shot singletons
+            // (FrameDataBufferManager, FrameResourceManager, command dispatch, …).
+            // Distinct from IsInitialized(): Init() can legitimately run with a
+            // 0x0 framebuffer (window not yet sized on the editor's OnAttach path),
+            // in which case SetupRenderGraph early-outs and the Scene pass — and
+            // therefore IsInitialized() — stays false until the first real
+            // OnWindowResize completes the deferred graph build. This flag guards
+            // Init() against being re-entered in that window, which would otherwise
+            // re-run FrameDataBufferManager::Init() and trip its "already
+            // initialized" assert. Reset in Shutdown().
+            bool CoreInitialized = false;
 
             // Shadow mapping
             ShadowMap Shadow;

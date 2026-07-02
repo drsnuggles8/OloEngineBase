@@ -1784,7 +1784,7 @@ namespace OloEngine
 
     void EditorLayer::TryInitialize3DMode()
     {
-        if (!m_Is3DMode || Renderer3D::IsInitialized())
+        if (!m_Is3DMode || Renderer3D::HasInitialized())
         {
             return;
         }
@@ -1851,7 +1851,7 @@ namespace OloEngine
             Renderer3D::GetShadowMap().SetSettings(shadowCopy);
         }
 
-        if (m_Is3DMode && !Renderer3D::IsInitialized())
+        if (m_Is3DMode && !Renderer3D::HasInitialized())
         {
             TryInitialize3DMode();
         }
