@@ -46,6 +46,26 @@ if (entity.HasComponent<CircleRendererComponent>())
     out << YAML::EndMap; // CircleRendererComponent
 }
 
+if (entity.HasComponent<ClothComponent>())
+{
+    out << YAML::Key << "ClothComponent";
+    out << YAML::BeginMap; // ClothComponent
+    auto const& comp = entity.GetComponent<ClothComponent>();
+    out << YAML::Key << "Columns" << YAML::Value << comp.m_Columns;
+    out << YAML::Key << "Rows" << YAML::Value << comp.m_Rows;
+    out << YAML::Key << "Width" << YAML::Value << comp.m_Width;
+    out << YAML::Key << "Height" << YAML::Value << comp.m_Height;
+    out << YAML::Key << "Mass" << YAML::Value << comp.m_Mass;
+    out << YAML::Key << "Compliance" << YAML::Value << comp.m_Compliance;
+    out << YAML::Key << "BendCompliance" << YAML::Value << comp.m_BendCompliance;
+    out << YAML::Key << "LinearDamping" << YAML::Value << comp.m_LinearDamping;
+    out << YAML::Key << "Pressure" << YAML::Value << comp.m_Pressure;
+    out << YAML::Key << "Iterations" << YAML::Value << comp.m_Iterations;
+    out << YAML::Key << "Attachment" << YAML::Value << static_cast<int>(comp.m_Attachment);
+    out << YAML::Key << "Enabled" << YAML::Value << comp.m_Enabled;
+    out << YAML::EndMap; // ClothComponent
+}
+
 if (entity.HasComponent<DirectionalLightComponent>())
 {
     out << YAML::Key << "DirectionalLightComponent";

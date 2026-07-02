@@ -33,6 +33,7 @@
 #include <Jolt/Physics/Collision/Shape/ScaledShape.h>
 #include <Jolt/Physics/Collision/Shape/HeightFieldShape.h>
 #include <Jolt/Physics/Collision/Shape/Shape.h>
+#include <Jolt/Physics/SoftBody/SoftBodySharedSettings.h>
 
 #include <algorithm>
 #include <cmath>
@@ -550,6 +551,125 @@ namespace OloEngine
         return result.Get();
     }
 
+    JPH::Ref<JPH::SoftBodySharedSettings> JoltShapes::CreateClothSharedSettings(
+        u32 columns, u32 rows, f32 width, f32 height, f32 totalMass,
+        f32 compliance, f32 bendCompliance, ClothAttachment attachment, const glm::mat4& worldTransform)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        // Clamp the grid so a corrupt/scripted resolution can never explode the particle
+        // count (128×128 = 16384 particles is already a heavy cloth). Need >= 2 per axis
+        // to form a single quad.
+        columns = std::clamp(columns, 2u, 128u);
+        rows = std::clamp(rows, 2u, 128u);
+
+        // Fail closed on non-finite authored inputs rather than baking NaNs into Jolt.
+        if (!std::isfinite(width) || !std::isfinite(height) || !std::isfinite(totalMass) ||
+            !std::isfinite(compliance) || !std::isfinite(bendCompliance))
+        {
+            OLO_CORE_ERROR("CreateClothSharedSettings: non-finite input (width={0} height={1} mass={2} compliance={3} bend={4})",
+                           width, height, totalMass, compliance, bendCompliance);
+            return nullptr;
+        }
+        for (i32 i = 0; i < 4; ++i)
+        {
+            const glm::vec4& col = worldTransform[i];
+            if (!std::isfinite(col.x) || !std::isfinite(col.y) || !std::isfinite(col.z) || !std::isfinite(col.w))
+            {
+                OLO_CORE_ERROR("CreateClothSharedSettings: non-finite world transform");
+                return nullptr;
+            }
+        }
+
+        const u32 vertexCount = columns * rows;
+
+        // Distribute the total mass evenly over the free particles: per-particle inverse
+        // mass = freeCount / totalMass. Pinned particles get inverse mass 0 (immovable).
+        // Guard a non-positive mass so we never divide by zero (treat as 1 kg).
+        const f32 safeMass = (totalMass > 1.0e-4f) ? totalMass : 1.0f;
+
+        // A particle is pinned when it sits on the attached edge/corner. rows run along
+        // local +Z, columns along local +X; row 0 is the "top" (max +Z) edge.
+        auto isPinned = [&](u32 col, u32 row) -> bool
+        {
+            switch (attachment)
+            {
+                case ClothAttachment::None:
+                    return false;
+                case ClothAttachment::TopEdge:
+                    return row == 0;
+                case ClothAttachment::TopCorners:
+                    return row == 0 && (col == 0 || col == columns - 1);
+                case ClothAttachment::LeftEdge:
+                    return col == 0;
+            }
+            return false;
+        };
+
+        u32 freeCount = 0;
+        for (u32 row = 0; row < rows; ++row)
+            for (u32 col = 0; col < columns; ++col)
+                if (!isPinned(col, row))
+                    ++freeCount;
+        // Per-free-particle inverse mass. If every particle is pinned (degenerate) this
+        // is unused, so a fallback of 1 is fine.
+        const f32 invMass = (freeCount > 0) ? (static_cast<f32>(freeCount) / safeMass) : 1.0f;
+
+        JPH::Ref<JPH::SoftBodySharedSettings> settings = new JPH::SoftBodySharedSettings();
+        settings->mVertices.reserve(vertexCount);
+
+        // Lay the grid out centred on the local origin in the X–Z plane, then bake the
+        // entity's world transform into each particle's initial position so the soft body
+        // is created directly in world space (the body itself is placed at the origin with
+        // identity rotation — see JoltScene::CreateClothBody). Local Z maps to the row.
+        const f32 halfW = 0.5f * width;
+        const f32 halfH = 0.5f * height;
+        const f32 dx = width / static_cast<f32>(columns - 1);
+        const f32 dz = height / static_cast<f32>(rows - 1);
+
+        for (u32 row = 0; row < rows; ++row)
+        {
+            const f32 localZ = -halfH + dz * static_cast<f32>(row);
+            for (u32 col = 0; col < columns; ++col)
+            {
+                const f32 localX = -halfW + dx * static_cast<f32>(col);
+                const glm::vec4 world = worldTransform * glm::vec4(localX, 0.0f, localZ, 1.0f);
+
+                JPH::SoftBodySharedSettings::Vertex v;
+                v.mPosition = JPH::Float3(world.x, world.y, world.z);
+                v.mInvMass = isPinned(col, row) ? 0.0f : invMass;
+                settings->mVertices.push_back(v);
+            }
+        }
+
+        // Two triangles per grid cell. Winding is chosen so the front face normal points
+        // up (+Y) for an untransformed grid; the render mesh recomputes smooth normals
+        // per frame anyway, this only sets the soft-body face orientation for pressure.
+        for (u32 row = 0; row + 1 < rows; ++row)
+        {
+            for (u32 col = 0; col + 1 < columns; ++col)
+            {
+                const u32 i0 = row * columns + col;
+                const u32 i1 = i0 + 1;
+                const u32 i2 = i0 + columns;
+                const u32 i3 = i2 + 1;
+                settings->AddFace(JPH::SoftBodySharedSettings::Face(i0, i2, i1));
+                settings->AddFace(JPH::SoftBodySharedSettings::Face(i1, i2, i3));
+            }
+        }
+
+        // Auto-generate the stretch/shear/bend constraints from the face topology. A
+        // finite bend compliance gives a cloth-like fold; FLT_MAX would disable bending.
+        JPH::SoftBodySharedSettings::VertexAttributes attributes;
+        attributes.mCompliance = compliance;
+        attributes.mShearCompliance = compliance;
+        attributes.mBendCompliance = bendCompliance;
+        settings->CreateConstraints(&attributes, 1, JPH::SoftBodySharedSettings::EBendType::Distance);
+        settings->Optimize();
+
+        return settings;
+    }
+
     ShapeType JoltShapes::GetShapeType(const JPH::Shape* shape)
     {
         if (!shape)
@@ -640,8 +760,9 @@ namespace OloEngine
             case JPH::EShapeType::HeightField:
                 return ShapeType::HeightField;
             case JPH::EShapeType::SoftBody:
-                OLO_CORE_WARN("GetShapeType: SoftBody shape type {0} not supported, defaulting to Box", (i32)shape->GetType());
-                return ShapeType::Box;
+                // Cloth / soft-body geometry (issue #460). A soft body carries a
+                // JPH::SoftBodyShape; report it as such instead of defaulting to Box.
+                return ShapeType::SoftBody;
             case JPH::EShapeType::User1:
             case JPH::EShapeType::User2:
             case JPH::EShapeType::User3:

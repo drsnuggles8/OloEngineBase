@@ -1222,6 +1222,77 @@ namespace OloEngine
         }
     };
 
+    // Cloth / soft-body simulation (issue #460, first slice). A procedural grid of
+    // particles is created as a Jolt soft body at runtime start; it simulates under
+    // gravity and collides with the static/rigid world, and the deformed vertices are
+    // read back each frame to drive a live render mesh. Every field is authored data —
+    // no runtime handles live here (the Jolt soft body lives in JoltScene::m_Cloths and
+    // the deforming render mesh in Scene's cloth-runtime map, both keyed by entity UUID,
+    // mirroring how the terrain height-field body is kept out of TerrainComponent). That
+    // keeps the component trivially copyable so scene-copy / prefab / serialization all
+    // round-trip it automatically (OloHeaderTool generates the tuple + scene YAML + save
+    // capture; only the SaveGame Serialize() overload and Lua binding are hand-written).
+    //
+    // Skeleton attachment (skinned capes) and WindSystem coupling are follow-up slices.
+    struct ClothComponent
+    {
+        // Grid resolution: particle counts along the local X (columns) and Z (rows)
+        // axes. Clamped to [2, 128] in JoltShapes::CreateClothSharedSettings, so a
+        // corrupt value can never blow up the vertex count.
+        OLO_PROPERTY()
+        u32 m_Columns = 16;
+        OLO_PROPERTY()
+        u32 m_Rows = 16;
+
+        // Cloth extent in local space (metres), spanning [-Width/2, Width/2] × [-Height/2,
+        // Height/2] in the local X–Z plane before the entity transform is applied.
+        OLO_PROPERTY()
+        f32 m_Width = 2.0f;
+        OLO_PROPERTY()
+        f32 m_Height = 2.0f;
+
+        // Total cloth mass (kg), spread evenly across the free (unpinned) particles.
+        OLO_PROPERTY()
+        f32 m_Mass = 1.0f;
+
+        // Edge (stretch/shear) compliance — inverse stiffness in m/N. 0 = inextensible;
+        // larger values let the cloth stretch. Bend compliance controls how easily the
+        // sheet folds (FLT_MAX in Jolt means "no bend constraint"; a small finite value
+        // gives a soft, cloth-like fold).
+        OLO_PROPERTY()
+        f32 m_Compliance = 0.0f;
+        OLO_PROPERTY()
+        f32 m_BendCompliance = 0.001f;
+
+        // Linear damping applied to particle velocities each step (Jolt default 0.1).
+        OLO_PROPERTY()
+        f32 m_LinearDamping = 0.1f;
+
+        // Internal pressure: 0 = a flat sheet of cloth; > 0 inflates the closed surface
+        // like a balloon (n·R·T, see JPH::SoftBodyCreationSettings::mPressure).
+        OLO_PROPERTY()
+        f32 m_Pressure = 0.0f;
+
+        // Constraint solver iterations per physics step (Jolt default 5). More = stiffer
+        // and more stable, at higher cost. Clamped to [1, 32] at build.
+        OLO_PROPERTY()
+        u32 m_Iterations = 5;
+
+        // Which particles are pinned to the world (zero inverse mass) so the cloth hangs.
+        OLO_PROPERTY()
+        ClothAttachment m_Attachment = ClothAttachment::TopEdge;
+
+        // Build the soft body at runtime start when true (mirrors RagdollComponent::m_Enabled).
+        OLO_PROPERTY()
+        bool m_Enabled = true;
+
+        ClothComponent() = default;
+        ClothComponent(const ClothComponent&) = default;
+
+        // Trivially copyable (all authored primitives / enum), so the editor undo path
+        // uses the byte-level memcmp tier — no operator== needed. Kept implicit.
+    };
+
     struct TextComponent
     {
         OLO_PROPERTY(Name = "Text", Type = "string")

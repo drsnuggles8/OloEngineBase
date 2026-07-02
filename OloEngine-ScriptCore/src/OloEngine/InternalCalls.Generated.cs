@@ -264,6 +264,53 @@ namespace OloEngine
 		internal static extern void CircleRendererComponent_SetFade(ulong entityID, float value);
 		#endregion
 
+		#region ClothComponent
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern uint ClothComponent_GetColumns(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void ClothComponent_SetColumns(ulong entityID, uint value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern uint ClothComponent_GetRows(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void ClothComponent_SetRows(ulong entityID, uint value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float ClothComponent_GetWidth(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void ClothComponent_SetWidth(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float ClothComponent_GetHeight(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void ClothComponent_SetHeight(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float ClothComponent_GetMass(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void ClothComponent_SetMass(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float ClothComponent_GetCompliance(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void ClothComponent_SetCompliance(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float ClothComponent_GetBendCompliance(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void ClothComponent_SetBendCompliance(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float ClothComponent_GetLinearDamping(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void ClothComponent_SetLinearDamping(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float ClothComponent_GetPressure(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void ClothComponent_SetPressure(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern uint ClothComponent_GetIterations(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void ClothComponent_SetIterations(ulong entityID, uint value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool ClothComponent_GetEnabled(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void ClothComponent_SetEnabled(ulong entityID, bool value);
+		#endregion
+
 		#region DirectionalLightComponent
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern void DirectionalLightComponent_GetColor(ulong entityID, out Vector3 value);

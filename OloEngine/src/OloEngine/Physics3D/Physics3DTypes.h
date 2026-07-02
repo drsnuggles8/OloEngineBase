@@ -72,10 +72,23 @@ namespace OloEngine
         ConvexMesh,
         TriangleMesh,
         HeightField,
+        SoftBody,
         CompoundShape,
         MutableCompoundShape,
         LAST
     }; // sentinel: not a valid ShapeType — MUST remain last
+
+    // Which vertices of a cloth grid are pinned (given zero inverse mass) so the
+    // cloth hangs from the world instead of free-falling. Consumed by
+    // JoltShapes::CreateClothSharedSettings and authored on ClothComponent
+    // (issue #460, soft-body first slice). Serialized as an int via the enum bridge.
+    enum class ClothAttachment
+    {
+        None = 0,   // Every vertex free — the cloth falls and drapes over whatever it lands on.
+        TopEdge,    // The whole first row (max local Z) is pinned — a hanging curtain.
+        TopCorners, // Only the two far corners of the first row are pinned — a sagging banner.
+        LeftEdge    // The first column (min local X) is pinned — a flag on a pole.
+    };
 
     namespace ShapeUtils
     {
@@ -101,6 +114,8 @@ namespace OloEngine
                     return "TriangleMesh";
                 case ShapeType::HeightField:
                     return "HeightField";
+                case ShapeType::SoftBody:
+                    return "SoftBody";
                 case ShapeType::LAST:
                     break;
             }

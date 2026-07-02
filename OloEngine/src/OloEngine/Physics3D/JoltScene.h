@@ -30,8 +30,9 @@
 
 namespace JPH
 {
-    class VehicleConstraint; // Forward declaration — full type only needed in JoltScene.cpp
-}
+    class VehicleConstraint;      // Forward declaration — full type only needed in JoltScene.cpp
+    class SoftBodySharedSettings; // Cloth soft body — full type only needed in JoltScene.cpp
+} // namespace JPH
 
 namespace OloEngine
 {
@@ -85,6 +86,34 @@ namespace OloEngine
         {
             return m_TerrainBodies.contains(entityID);
         }
+
+        // Cloth / soft-body management (issue #460). Like terrain bodies, a cloth entity
+        // carries no Rigidbody3DComponent / JoltBody wrapper — its Jolt soft body is a raw
+        // JPH body tracked separately, keyed by the owning ClothComponent entity. The caller
+        // (Scene) builds the JPH::SoftBodySharedSettings from the cloth grid + entity
+        // transform (JoltShapes::CreateClothSharedSettings), then hands it here. The body's
+        // UserData is the entity UUID and it is registered in the BodyID→entity reverse map.
+        // CreateClothBody is idempotent — it replaces any existing cloth body for the entity.
+        // Returns the new BodyID (invalid on failure). The soft body is created on the MOVING
+        // layer so it falls under gravity and collides with static/rigid geometry.
+        JPH::BodyID CreateClothBody(Entity entity, const JPH::Ref<JPH::SoftBodySharedSettings>& settings,
+                                    u32 iterations, f32 linearDamping, f32 pressure);
+        void DestroyClothBody(UUID entityID);
+        bool HasClothBody(UUID entityID) const
+        {
+            return m_Cloths.contains(entityID);
+        }
+        [[nodiscard("cloth count query result must be used")]] u32 GetClothCount() const
+        {
+            return static_cast<u32>(m_Cloths.size());
+        }
+        // Read the current world-space particle positions of a cloth soft body into
+        // outWorldPositions (row-major, same order as the generating grid). GPU-free — runs
+        // headless / on the dedicated server. Returns false if there is no cloth body for the
+        // entity or the body lock fails; on success outWorldPositions has one entry per
+        // particle. Called each frame by Scene to drive the deforming render mesh and by the
+        // functional tests to assert the cloth drapes / rests on the floor.
+        [[nodiscard("cloth vertex readback result must be used")]] bool GetClothVertices(UUID entityID, std::vector<glm::vec3>& outWorldPositions) const;
 
         // Two-body constraint (joint) management. CreateConstraint builds the
         // Jolt constraint for the PhysicsJoint3DComponent on `entity` (both
@@ -253,6 +282,9 @@ namespace OloEngine
         // Remove every tracked static terrain height-field body. Called on runtime
         // stop / shutdown while m_JoltSystem is still alive.
         void DestroyAllTerrainBodies();
+        // Remove every tracked cloth soft body. Called on runtime stop / shutdown while
+        // m_JoltSystem is still alive (before the bodies' shared settings are released).
+        void DestroyAllClothBodies();
         // Second pass after CreateRigidBodies(): build every authored vehicle's
         // Jolt VehicleConstraint now that the chassis bodies exist.
         void CreateVehicles();
@@ -333,6 +365,18 @@ namespace OloEngine
         // they live outside m_Bodies; they are still entered in m_BodyIDToEntity so
         // queries resolve them. Created/destroyed by Create/DestroyTerrainBody.
         std::unordered_map<UUID, JPH::BodyID> m_TerrainBodies;
+
+        // Cloth soft bodies (issue #460), keyed by the owning ClothComponent entity. Like
+        // terrain bodies these are raw JPH bodies (no JoltBody wrapper), so they live
+        // outside m_Bodies; they are still entered in m_BodyIDToEntity so queries resolve
+        // them. The JPH::Ref keeps the SoftBodySharedSettings alive for the body's lifetime.
+        // Created/destroyed by Create/DestroyClothBody.
+        struct ClothRuntime
+        {
+            JPH::BodyID m_BodyID;
+            JPH::Ref<JPH::SoftBodySharedSettings> m_Settings;
+        };
+        std::unordered_map<UUID, ClothRuntime> m_Cloths;
 
         // Joints (two-body constraints), keyed by the owning entity (the one
         // carrying the PhysicsJoint3DComponent). The JPH::Ref keeps the

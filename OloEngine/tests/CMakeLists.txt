@@ -187,6 +187,7 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/RendererAttachedTest.cpp
 		Rendering/PropertyTests/RendererAttachedSmokeTest.cpp
 		Rendering/PropertyTests/SceneRenderEvidenceTest.cpp
+		Rendering/PropertyTests/ClothVisualEvidenceTest.cpp
 		Rendering/PropertyTests/RebindMenuVisualEvidenceTest.cpp
 		# Headless-attach stretch of issue #316: hosts the read-only MCP server
 		# inside the test binary against the offscreen render-graph FB so
@@ -319,6 +320,8 @@ add_executable(OloEngine-Tests
 		TransformComponentTest.cpp
 		# Physics3D mesh mass-properties (divergence-theorem volume + centroid)
 		JoltShapesMeshMassPropertiesTest.cpp
+		# Physics3D cloth soft-body shared-settings contract (issue #460)
+		ClothSharedSettingsTest.cpp
 		# Physics3D mesh collider cache invalidation
 		MeshCookingFactoryCacheTest.cpp
 		# StaticMesh GenerateColliders flag -> generated MeshColliderAsset (cook + raycast)
@@ -440,6 +443,7 @@ add_executable(OloEngine-Tests
 		Functional/Cinematic/CinematicAssetPlaybackTest.cpp
 		Functional/AnimationPhysics/FreeFallLandingTest.cpp
 		Functional/AnimationPhysics/TerrainCollisionTest.cpp
+		Functional/AnimationPhysics/ClothSimulationTest.cpp
 		Functional/AnimationPhysics/PhysicsJoint3DTest.cpp
 		Functional/AnimationPhysics/PhysicsJointCollideConnectedTest.cpp
 		Functional/AnimationPhysics/VehicleTest.cpp

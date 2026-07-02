@@ -1299,6 +1299,244 @@ static void CircleRendererComponent_SetFade(UUID entityID, float value)
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////
+// ClothComponent                                                                 //
+///////////////////////////////////////////////////////////////////////////////////////////
+
+static unsigned int ClothComponent_GetColumns(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<ClothComponent>();
+    return comp.m_Columns;
+}
+
+static void ClothComponent_SetColumns(UUID entityID, unsigned int value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<ClothComponent>();
+    comp.m_Columns = value;
+}
+
+static unsigned int ClothComponent_GetRows(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<ClothComponent>();
+    return comp.m_Rows;
+}
+
+static void ClothComponent_SetRows(UUID entityID, unsigned int value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<ClothComponent>();
+    comp.m_Rows = value;
+}
+
+static float ClothComponent_GetWidth(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<ClothComponent>();
+    return comp.m_Width;
+}
+
+static void ClothComponent_SetWidth(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<ClothComponent>();
+    comp.m_Width = value;
+}
+
+static float ClothComponent_GetHeight(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<ClothComponent>();
+    return comp.m_Height;
+}
+
+static void ClothComponent_SetHeight(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<ClothComponent>();
+    comp.m_Height = value;
+}
+
+static float ClothComponent_GetMass(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<ClothComponent>();
+    return comp.m_Mass;
+}
+
+static void ClothComponent_SetMass(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<ClothComponent>();
+    comp.m_Mass = value;
+}
+
+static float ClothComponent_GetCompliance(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<ClothComponent>();
+    return comp.m_Compliance;
+}
+
+static void ClothComponent_SetCompliance(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<ClothComponent>();
+    comp.m_Compliance = value;
+}
+
+static float ClothComponent_GetBendCompliance(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<ClothComponent>();
+    return comp.m_BendCompliance;
+}
+
+static void ClothComponent_SetBendCompliance(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<ClothComponent>();
+    comp.m_BendCompliance = value;
+}
+
+static float ClothComponent_GetLinearDamping(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<ClothComponent>();
+    return comp.m_LinearDamping;
+}
+
+static void ClothComponent_SetLinearDamping(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<ClothComponent>();
+    comp.m_LinearDamping = value;
+}
+
+static float ClothComponent_GetPressure(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<ClothComponent>();
+    return comp.m_Pressure;
+}
+
+static void ClothComponent_SetPressure(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<ClothComponent>();
+    comp.m_Pressure = value;
+}
+
+static unsigned int ClothComponent_GetIterations(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<ClothComponent>();
+    return comp.m_Iterations;
+}
+
+static void ClothComponent_SetIterations(UUID entityID, unsigned int value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<ClothComponent>();
+    comp.m_Iterations = value;
+}
+
+static bool ClothComponent_GetEnabled(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<ClothComponent>();
+    return comp.m_Enabled;
+}
+
+static void ClothComponent_SetEnabled(UUID entityID, bool value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<ClothComponent>();
+    comp.m_Enabled = value;
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////
 // DirectionalLightComponent                                                      //
 ///////////////////////////////////////////////////////////////////////////////////////////
 

@@ -29,6 +29,7 @@ SAVE_COMPONENT(CharacterController3DComponent, entity, writer);
 SAVE_COMPONENT(CinematicComponent, entity, writer);
 SAVE_COMPONENT(CircleCollider2DComponent, entity, writer);
 SAVE_COMPONENT(CircleRendererComponent, entity, writer);
+SAVE_COMPONENT(ClothComponent, entity, writer);
 SAVE_COMPONENT(ConvexMeshCollider3DComponent, entity, writer);
 SAVE_COMPONENT(DecalComponent, entity, writer);
 SAVE_COMPONENT(DialogueComponent, entity, writer);
