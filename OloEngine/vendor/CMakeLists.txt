@@ -495,21 +495,49 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
 	endforeach()
 endif()
 
-# ClangCL + ASan: do NOT instrument the vendored protobuf / host tools. protoc is a
+# ClangCL + ASan: do NOT instrument the vendored protobuf tool-chain. protoc is a
 # build-time code generator (it runs during the build to emit GNS's .pb.cc), not
-# something we test. Under clang-cl's ASan runtime — stricter than MSVC's — an
-# instrumented protoc aborts mid-build on findings inside vendored protobuf we can't
-# patch: first an ODR false positive on its "." / L"." string-literal globals, then a
-# global-buffer-overflow (which, unlike ODR, has no ASAN_OPTIONS off-switch). De-
-# instrumenting these targets makes protoc run clean. The only cost is that the test
-# exe links a non-instrumented protobuf — third-party code that's out of our ASan
-# scope anyway (the engine, GNS, and the tests stay instrumented). Target-level
-# -fno-sanitize=address overrides the directory-inherited /fsanitize=address that
-# cmake/Sanitizers.cmake applies (for clang the last -f{no-,}sanitize flag wins).
+# something we test. Under clang's ASan an instrumented protoc aborts mid-build on
+# findings inside vendored code we can't patch: an ODR false positive / global-buffer-
+# overflow in protobuf itself, and — after protobuf pulled in abseil + upb — a SEGV
+# inside abseil's swiss-table (absl/container/internal/container_memory.h) while
+# building the descriptor pool. protoc must be instrumentation-CONSISTENT, so it's not
+# enough to de-instrument the four core protobuf targets (as we first did): every
+# target it links must match, or the mismatch crashes it. De-instrument protoc's WHOLE
+# dependency closure by source tree — protobuf (which also contains upb + utf8_range)
+# and abseil — so a protobuf bump that adds targets stays covered automatically. The
+# only cost is the test exe links a non-instrumented protobuf/abseil — third-party code
+# out of our ASan scope anyway (the engine, GNS, and the tests stay instrumented).
+# Target-level -fno-sanitize=address overrides the directory-inherited /fsanitize=address
+# that cmake/Sanitizers.cmake applies (for clang the last -f{no-,}sanitize flag wins).
 if(OLO_ENABLE_ASAN AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
-	foreach(_proto_target libprotobuf libprotobuf-lite libprotoc protoc)
-		if(TARGET ${_proto_target})
-			target_compile_options(${_proto_target} PRIVATE -fno-sanitize=address)
+	# Recursively gather every target defined under a directory subtree.
+	function(olo_collect_subtree_targets _dir _out)
+		get_property(_acc DIRECTORY "${_dir}" PROPERTY BUILDSYSTEM_TARGETS)
+		get_property(_subs DIRECTORY "${_dir}" PROPERTY SUBDIRECTORIES)
+		foreach(_sub ${_subs})
+			olo_collect_subtree_targets("${_sub}" _sub_out)
+			list(APPEND _acc ${_sub_out})
+		endforeach()
+		set(${_out} "${_acc}" PARENT_SCOPE)
+	endfunction()
+
+	set(_asan_exclude_targets "")
+	foreach(_tree_dir "${protobuf_SOURCE_DIR}" "${absl_SOURCE_DIR}")
+		if(_tree_dir AND IS_DIRECTORY "${_tree_dir}")
+			olo_collect_subtree_targets("${_tree_dir}" _tree_targets)
+			list(APPEND _asan_exclude_targets ${_tree_targets})
+		endif()
+	endforeach()
+	if(_asan_exclude_targets)
+		list(REMOVE_DUPLICATES _asan_exclude_targets)
+	endif()
+
+	foreach(_t ${_asan_exclude_targets})
+		get_target_property(_t_type ${_t} TYPE)
+		# Compile options only apply to targets that actually compile sources.
+		if(_t_type AND NOT _t_type STREQUAL "INTERFACE_LIBRARY" AND NOT _t_type STREQUAL "UTILITY")
+			target_compile_options(${_t} PRIVATE -fno-sanitize=address)
 		endif()
 	endforeach()
 endif()
