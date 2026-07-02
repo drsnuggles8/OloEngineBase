@@ -139,45 +139,37 @@ jobs:
       with:
         arch: x64
 
-    # Provisions sccache and wires it to the GitHub Actions cache backend
-    # (SCCACHE_GHA_ENABLED above). Must run before Configure so the launcher
-    # resolves on PATH. See asan-lsan-linux for the action/sccache version-pin
-    # rationale (older builds hit the decommissioned legacy cache API and fail).
-    - name: Setup sccache
-      uses: mozilla-actions/sccache-action@9e7fa8a12102821edf02ca5dbea1acd0f89a2696 # v0.0.10
-      with:
-        version: "v0.15.0"
-
-    # Persist sccache's local-disk cache as one actions/cache entry (unique key
-    # per run so the post-job save always writes a fresh snapshot; restore-keys
-    # warms from the most recent prior one). Key is per-sanitizer.
-    - name: Cache sccache storage
-      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-      with:
-        path: ${{ env.SCCACHE_DIR }}
-        key: sccache-asan-windows-${{ github.run_id }}
-        restore-keys: |
-          sccache-asan-windows-
+    # NOTE: this job deliberately does NOT use sccache (unlike the Linux sanitizer jobs).
+    # The Windows sccache server reliably crashes — "sccache: error: failed to execute
+    # compile … An existing connection was forcibly closed by the remote host. (os error
+    # 10054)" — while compiling the largest ASan-instrumented GameNetworkingSockets TUs
+    # (steamnetworkingsockets_*.cpp, tier0/dbg.cpp). It hits a different TU each attempt, so
+    # bounded retries never clear it (observed: three attempts, three different TUs). Building
+    # WITHOUT the sccache launcher — the compiler runs directly — removes the crash entirely
+    # (verified locally: a clang-cl ASan build of GNS completes with no cache). The cost is a
+    # full cold compile every run, acceptable for a job that otherwise never goes green. If a
+    # future sccache release fixes the Windows large-object crash, restore the Setup sccache +
+    # Cache steps and re-add -DOLO_ENABLE_COMPILER_CACHE=ON below.
 
     - name: Configure CMake (ASan enabled)
       # --toolchain cmake/ClangCLToolchain.cmake: build with clang-cl + lld-link
       #   (Clang front-end, MSVC ABI) — same toolchain as the local clangcl-asan
       #   preset. CMake reports clang-cl as MSVC, so cmake/Sanitizers.cmake takes
       #   the /fsanitize=address + /MD + /INCREMENTAL:NO path automatically.
-      # -G "Ninja Multi-Config": required for the sccache compiler launcher to
-      #   engage. The build/ctest steps still select Release via --config / -C.
-      # -DOLO_ENABLE_COMPILER_CACHE=ON: wires sccache as the launcher and switches
-      #   debug info to /Z7 (Embedded) so clang-cl objects are cacheable (unlike
-      #   the old MSVC cl.exe ASan objects, which never cached — issue #304).
-      # -DOLO_ENABLE_LTO=OFF: Release defaults LTO on; its /GL makes objects
-      #   non-cacheable (and /GL + ASan is unsupported). CI binaries are for
-      #   testing, not shipping, so dropping LTO is free here.
+      # -G "Ninja Multi-Config": the build/ctest steps select Release via --config / -C.
+      #   (Also avoids the VS/MSBuild generator, which would drag in the C# ScriptCore
+      #   project; OloEngine-Tests never links it, so ASan coverage is intact.)
+      # OLO_ENABLE_COMPILER_CACHE is intentionally OMITTED here — see the note above the
+      #   (removed) sccache steps: the Windows sccache server crashes on large ASan TUs, so
+      #   this job compiles directly. debug info stays /Zi (a PDB), which is fine without a
+      #   cache to key on.
+      # -DOLO_ENABLE_LTO=OFF: Release defaults LTO on; /GL + ASan is unsupported. CI binaries
+      #   are for testing, not shipping, so dropping LTO is free here.
       run: >
         cmake -S . -B build
         -G "Ninja Multi-Config"
         --toolchain "${{ github.workspace }}/cmake/ClangCLToolchain.cmake"
         -DOLO_VIDEO_FFMPEG=OFF
-        -DOLO_ENABLE_COMPILER_CACHE=ON
         -DOLO_ENABLE_LTO=OFF
         -DPython_EXECUTABLE="${{ steps.py.outputs.python-path }}"
         -DOLO_ENABLE_ASAN=ON
@@ -212,48 +204,11 @@ jobs:
         echo "$rtDir" >> $env:GITHUB_PATH
 
     - name: Build (Release)
-      # --parallel 2 matches the Linux sanitizer jobs: clang-cl under ASan uses several GB
-      # per translation unit, and full concurrency exhausts runner memory on the largest
-      # instrumented TUs (GameNetworkingSockets' steamnetworkingsockets_*.cpp).
-      #
-      # Retry wrapper: even at --parallel 2 the Windows sccache server intermittently drops a
-      # single in-flight compile — "sccache: error: failed to execute compile … An existing
-      # connection was forcibly closed by the remote host. (os error 10054)" — which fails the
-      # build. It's transient (a different TU each run, not reproducible locally) and the build
-      # continues past it, so it's an sccache-server flake, not our code. Because the build is
-      # incremental, a retry resumes with everything-but-the-dropped-TU already built and gets
-      # past it while keeping the sccache cache.
-      #
-      # The retry is gated on that exact signature ("os error 10054"): a build that fails WITHOUT
-      # it is a real compile/link error and must fail fast, not loop three times. Bounded to 3.
-      shell: pwsh
-      run: |
-        # Native-command stderr must not abort the retry loop under GitHub's default 'Stop'.
-        $ErrorActionPreference = 'Continue'
-        $attempts = 3
-        $signature = 'os error 10054'
-        for ($i = 1; $i -le $attempts; $i++) {
-          $log = "asan-build-attempt-$i.log"
-          cmake --build build --config Release --target OloEngine-Tests --parallel 2 2>&1 | Tee-Object -FilePath $log
-          $code = $LASTEXITCODE
-          if ($code -eq 0) { break }
-          if (-not (Select-String -Path $log -Pattern $signature -SimpleMatch -Quiet)) {
-            Write-Host "::error::Build failed (exit $code) with no transient sccache signature — real compile/link error, not retrying."
-            exit $code
-          }
-          if ($i -eq $attempts) {
-            Write-Host "::error::Build failed after $attempts attempts (last exit $code) — transient sccache drops ('$signature') did not clear."
-            exit $code
-          }
-          Write-Host "::warning::Build attempt $i hit a transient sccache drop ('$signature'); retrying ($($i + 1)/$attempts)..."
-        }
-
-    # Read the cache hit rate. A cold cache (first run / after a real source
-    # change) is mostly misses + writes; a warm cache shows a high hit rate,
-    # meaning the build step recompiled almost nothing.
-    - name: Show sccache stats
-      if: always()
-      run: sccache --show-stats
+      # --parallel 2 matches the Linux sanitizer jobs: clang-cl under ASan uses several GB per
+      # translation unit, and full concurrency exhausts runner memory on the largest instrumented
+      # TUs (GameNetworkingSockets' steamnetworkingsockets_*.cpp). Direct compile, no sccache
+      # (see the note above the removed sccache steps) — so a plain build, no retry needed.
+      run: cmake --build build --config Release --target OloEngine-Tests --parallel 2
 
     - name: Create test results directory
       run: New-Item -ItemType Directory -Force -Path "${{github.workspace}}/test_results"
