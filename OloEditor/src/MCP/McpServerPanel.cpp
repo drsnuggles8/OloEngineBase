@@ -105,19 +105,44 @@ namespace OloEngine::MCP
         ImGui::SameLine();
         ImGui::TextDisabled("(scrubs absolute paths before they leave the process)");
 
-        // Session write gate (issue #306 item C). OFF by default and not persisted, so
-        // every launch starts read-only; the user opts in here for the session. While
-        // off, any project-mutating tool (e.g. olo_set_collision_layer) is refused with
-        // a clean JSON-RPC error even for an authenticated agent. Writes route through
-        // the editor undo stack, so an agent's change is a single Ctrl-Z.
-        if (bool allowWrites = server.AllowWrites(); ImGui::Checkbox("Allow writes (undoable)", &allowWrites))
-            server.SetAllowWrites(allowWrites);
+        // Session write consent (issue #306 item C). Disabled by default and not
+        // persisted, so every launch starts read-only; the user opts in here for the
+        // session. Three modes compose the session gate with the per-action dialog:
+        //   Disabled  — project-mutating tools are refused with a clean JSON-RPC error.
+        //   Prompt    — each write pops a modal the user Approves/Denies (see below).
+        //   Allow all — writes auto-apply for the session, no prompt.
+        // Writes route through the editor undo stack, so an agent's change is a Ctrl-Z.
+        ImGui::TextUnformatted("Agent writes:");
         ImGui::SameLine();
-        if (server.AllowWrites())
-            ImGui::TextColored(ImVec4(0.85f, 0.60f, 0.30f, 1.0f),
-                               "(agents may MUTATE the scene via the undo stack — Ctrl-Z to revert)");
-        else
-            ImGui::TextDisabled("(off: write tools are refused; read-only. Not persisted — resets each launch)");
+        const WriteConsentMode mode = server.GetWriteConsentMode();
+        if (ImGui::RadioButton("Disabled", mode == WriteConsentMode::Disabled))
+            server.SetWriteConsentMode(WriteConsentMode::Disabled);
+        ImGui::SameLine();
+        if (ImGui::RadioButton("Prompt", mode == WriteConsentMode::Prompt))
+            server.SetWriteConsentMode(WriteConsentMode::Prompt);
+        ImGui::SameLine();
+        if (ImGui::RadioButton("Allow all", mode == WriteConsentMode::AllowSession))
+            server.SetWriteConsentMode(WriteConsentMode::AllowSession);
+
+        switch (mode)
+        {
+            case WriteConsentMode::Disabled:
+                ImGui::TextDisabled("(read-only: write tools are refused. Not persisted — resets each launch)");
+                break;
+            case WriteConsentMode::Prompt:
+                ImGui::TextColored(ImVec4(0.85f, 0.60f, 0.30f, 1.0f),
+                                   "(each agent write asks you to Approve/Deny — Ctrl-Z reverts an approved one)");
+                break;
+            case WriteConsentMode::AllowSession:
+                ImGui::TextColored(ImVec4(0.90f, 0.45f, 0.30f, 1.0f),
+                                   "(agents may MUTATE the scene WITHOUT asking — Ctrl-Z to revert)");
+                break;
+            default:
+                // Unknown / future mode: fail safe to a neutral note rather than an
+                // unlabeled state (also satisfies -Wswitch-default / SonarQube S131).
+                ImGui::TextDisabled("(unknown write-consent mode)");
+                break;
+        }
 
         ImGui::Checkbox("Start automatically when the editor launches", &autoStart);
         ImGui::SameLine();
@@ -130,5 +155,79 @@ namespace OloEngine::MCP
                     static_cast<int>(server.Prompts().size()));
 
         ImGui::End();
+    }
+
+    void RenderMcpConsentModal(McpServer& server)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        // One prompt at a time (oldest first): a second concurrent write parks in the
+        // queue and surfaces on the next frame once this one is resolved.
+        const std::vector<McpServer::PendingConsent> pending = server.PendingConsents();
+        if (pending.empty())
+            return;
+        const McpServer::PendingConsent& request = pending.front();
+
+        constexpr const char* kPopupId = "MCP write request##mcp_consent";
+        if (!ImGui::IsPopupOpen(kPopupId))
+            ImGui::OpenPopup(kPopupId);
+
+        // Center on first appearance; let the user drag it afterwards.
+        const ImVec2 center = ImGui::GetMainViewport()->GetCenter();
+        ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+
+        if (ImGui::BeginPopupModal(kPopupId, nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+        {
+            ImGui::TextColored(ImVec4(0.90f, 0.45f, 0.30f, 1.0f),
+                               "An MCP agent wants to MODIFY your scene.");
+            ImGui::Separator();
+
+            ImGui::Text("Tool: %s", request.ToolTitle.c_str());
+            if (request.ToolName != request.ToolTitle)
+                ImGui::TextDisabled("(%s)", request.ToolName.c_str());
+
+            ImGui::Spacing();
+            ImGui::TextUnformatted("Requested change:");
+            // Bound the (agent-supplied) summary: a long field value or many-line
+            // argument list would otherwise widen/lengthen the AlwaysAutoResize popup
+            // until the Approve/Deny buttons are pushed off-screen. Wrap it in a
+            // fixed-width, height-capped scrolling child so the modal always fits.
+            constexpr float kSummaryWidth = 440.0f;
+            const float maxSummaryHeight = ImGui::GetTextLineHeightWithSpacing() * 10.0f;
+            const ImVec2 summarySize =
+                ImGui::CalcTextSize(request.Summary.c_str(), nullptr, false, kSummaryWidth);
+            const float summaryHeight = std::min(summarySize.y, maxSummaryHeight) + ImGui::GetStyle().FramePadding.y * 2.0f;
+            ImGui::BeginChild("##mcp_consent_summary", ImVec2(kSummaryWidth, summaryHeight), ImGuiChildFlags_Borders);
+            ImGui::PushTextWrapPos(0.0f);
+            ImGui::TextUnformatted(request.Summary.c_str());
+            ImGui::PopTextWrapPos();
+            ImGui::EndChild();
+
+            ImGui::Spacing();
+            ImGui::TextDisabled("Approving applies the change through the undo stack (Ctrl-Z to revert).");
+            if (const int extra = static_cast<int>(pending.size()) - 1; extra > 0)
+                ImGui::TextDisabled("(%d more request%s waiting)", extra, extra == 1 ? "" : "s");
+            ImGui::Separator();
+
+            if (ImGui::Button("Approve"))
+            {
+                server.ResolveConsent(request.Id, ConsentDecision::Approve);
+                ImGui::CloseCurrentPopup();
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Deny"))
+            {
+                server.ResolveConsent(request.Id, ConsentDecision::Deny);
+                ImGui::CloseCurrentPopup();
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Approve all this session"))
+            {
+                server.ResolveConsent(request.Id, ConsentDecision::ApproveAll);
+                ImGui::CloseCurrentPopup();
+            }
+
+            ImGui::EndPopup();
+        }
     }
 } // namespace OloEngine::MCP

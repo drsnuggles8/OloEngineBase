@@ -33,6 +33,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <condition_variable>
 #include <functional>
 #include <mutex>
 #include <optional>
@@ -66,6 +67,30 @@ namespace OloEngine::MCP
 
     // Default localhost port the MCP server binds to. Configurable in the panel.
     inline constexpr u16 DefaultPort = 7345;
+
+    // How a project-mutating (ToolDef::ProjectWrite) tool call is authorized at
+    // dispatch (issue #306 item C). Supersedes the old binary "Allow writes" gate,
+    // which maps onto the two extremes (Disabled / AllowSession); the middle mode
+    // adds the per-action consent DIALOG. OFF by default and never persisted, so
+    // every editor launch starts read-only and the human opts in for the session.
+    enum class WriteConsentMode : u8
+    {
+        Disabled = 0,     // writes refused outright (default) — the read-only posture.
+        Prompt = 1,       // each write pops a consent dialog the human approves/denies.
+        AllowSession = 2, // writes auto-approved for the rest of the session (no prompt).
+    };
+
+    // The resolution of one consent prompt. Pending until the human (or a mode
+    // change / server shutdown) resolves it. Approve/Deny/ApproveAll are the three
+    // buttons the panel offers; Timeout is set internally when no answer arrives.
+    enum class ConsentDecision : u8
+    {
+        Pending = 0,
+        Approve = 1,
+        Deny = 2,
+        ApproveAll = 3, // approve THIS one and flip the session to AllowSession.
+        Timeout = 4,
+    };
 
     // Result of a tool invocation. `Content` is the MCP content array
     // (e.g. [{ "type": "text", "text": "..." }]); `IsError` maps to the
@@ -305,20 +330,65 @@ namespace OloEngine::MCP
             return m_RedactPaths.load(std::memory_order_relaxed);
         }
 
-        // Session-level write gate (issue #306 item C). OFF by default and NOT
-        // persisted, so every editor launch starts read-only and the user opts in
-        // for the session via the MCP panel. Distinct from the enabled + bearer-token
-        // gate: even an authenticated agent cannot mutate the project until this is
-        // on. When off, HandleToolsCall rejects any tool flagged ToolDef::ProjectWrite
-        // with a clean JSON-RPC error. The read-only / ephemeral-editor-state tools
-        // are unaffected.
+        // Session-level write consent (issue #306 item C). OFF by default (Disabled)
+        // and NOT persisted, so every editor launch starts read-only and the user
+        // opts in for the session via the MCP panel. Distinct from the enabled +
+        // bearer-token gate: even an authenticated agent cannot mutate the project
+        // until the human raises this. Read-only / ephemeral-editor-state tools
+        // (camera / viewport / render overrides) are never ProjectWrite, so they are
+        // unaffected by any mode.
+        //
+        // In Prompt mode a ProjectWrite dispatch calls RequestConsent, which BLOCKS
+        // the handler (worker) thread until the human resolves the modal the panel
+        // renders on the main thread — see ResolveConsent / PendingConsents. Setting
+        // the mode drains any in-flight prompts: AllowSession approves them, Disabled
+        // denies them. Defined in the .cpp (touches the consent queue).
+        void SetWriteConsentMode(WriteConsentMode mode);
+        [[nodiscard]] WriteConsentMode GetWriteConsentMode() const
+        {
+            return m_ConsentMode.load();
+        }
+
+        // Back-compat binary gate over the mode: true maps to AllowSession (writes go
+        // straight through, no prompt), false to Disabled. `AllowWrites()` is "any
+        // mode that permits a write" (Prompt or AllowSession). Kept so the existing
+        // dispatch tests and any external caller need not learn the tri-state.
         void SetAllowWrites(bool enabled)
         {
-            m_AllowWrites.store(enabled, std::memory_order_relaxed);
+            SetWriteConsentMode(enabled ? WriteConsentMode::AllowSession : WriteConsentMode::Disabled);
         }
         [[nodiscard]] bool AllowWrites() const
         {
-            return m_AllowWrites.load(std::memory_order_relaxed);
+            return m_ConsentMode.load() != WriteConsentMode::Disabled;
+        }
+
+        // A consent prompt awaiting a human decision, as a snapshot for the panel to
+        // render. The panel polls PendingConsents() each frame; when non-empty it
+        // shows the modal and calls ResolveConsent() on a button press. Main-thread
+        // (UI) side of the RequestConsent handshake.
+        struct PendingConsent
+        {
+            u64 Id = 0;
+            std::string ToolName;  // e.g. "olo_entity_set_field"
+            std::string ToolTitle; // display title (falls back to ToolName)
+            std::string Summary;   // human-readable arguments (one "key = value" per line)
+        };
+
+        // Snapshot of every prompt currently awaiting a decision, oldest first.
+        // Cheap + lock-guarded; safe to call every frame from the main thread.
+        [[nodiscard]] std::vector<PendingConsent> PendingConsents() const;
+
+        // Resolve one pending prompt by id (main thread, from the panel). Approve /
+        // Deny apply to that prompt only; ApproveAll additionally flips the session
+        // to AllowSession and approves every currently-pending prompt. Wakes the
+        // blocked handler thread(s). A no-op if the id is already gone.
+        void ResolveConsent(u64 id, ConsentDecision decision);
+
+        // How long RequestConsent waits for a human before giving up (Timeout ->
+        // dispatch returns a clean error). Default 120s; exposed for tests.
+        void SetConsentTimeout(std::chrono::milliseconds timeout)
+        {
+            m_ConsentTimeoutMs.store(timeout.count());
         }
         [[nodiscard]] const EditorMcpContext& Context() const
         {
@@ -470,6 +540,14 @@ namespace OloEngine::MCP
         [[nodiscard]] Json HandlePromptsList(const Json& id) const;
         [[nodiscard]] Json HandlePromptsGet(const Json& id, const Json& params) const;
 
+        // Prompt-mode consent handshake (issue #306 item C). Called from
+        // HandleToolsCall on a worker thread for a ProjectWrite tool when the mode is
+        // Prompt: enqueue a prompt, block until the panel resolves it (or the timeout
+        // / a mode change / shutdown intervenes), and return the decision. MUST run on
+        // a handler thread — it blocks on the main thread rendering the modal, so
+        // calling it from the game thread would deadlock.
+        [[nodiscard]] ConsentDecision RequestConsent(const ToolDef& tool, const Json& arguments);
+
         [[nodiscard]] const ToolDef* FindTool(const std::string& name) const;
         [[nodiscard]] const ResourceDef* FindResource(const std::string& uri) const;
         [[nodiscard]] const PromptDef* FindPrompt(const std::string& name) const;
@@ -488,9 +566,30 @@ namespace OloEngine::MCP
 
         std::atomic<bool> m_RedactPaths{ false };
 
-        // Session write gate (issue #306 item C); see SetAllowWrites. Default OFF,
-        // never persisted — every launch starts read-only.
-        std::atomic<bool> m_AllowWrites{ false };
+        // Session write consent mode (issue #306 item C); see SetWriteConsentMode.
+        // Default Disabled (read-only), never persisted — every launch starts safe.
+        std::atomic<WriteConsentMode> m_ConsentMode{ WriteConsentMode::Disabled };
+
+        // Prompt-mode consent handshake state. RequestConsent (worker thread) pushes
+        // an entry and waits on m_ConsentCv; the panel (main thread) mutates the
+        // entry's Decision via ResolveConsent and notifies. m_ConsentAborting is
+        // raised by Stop()/the destructor to release any blocked worker as a Deny —
+        // distinct from m_Running so the dispatch tests (which never Start the server)
+        // can still exercise the handshake.
+        mutable std::mutex m_ConsentMutex;
+        std::condition_variable m_ConsentCv;
+        struct ConsentEntry
+        {
+            u64 Id = 0;
+            std::string ToolName;
+            std::string ToolTitle;
+            std::string Summary;
+            ConsentDecision Decision = ConsentDecision::Pending;
+        };
+        std::vector<ConsentEntry> m_ConsentQueue;      // guarded by m_ConsentMutex
+        u64 m_NextConsentId = 1;                       // guarded by m_ConsentMutex
+        bool m_ConsentAborting = false;                // guarded by m_ConsentMutex
+        std::atomic<i64> m_ConsentTimeoutMs{ 120000 }; // human-response deadline
 
         // Count of live GET /mcp SSE push streams (issue #306 item B). Bumped while a
         // stream's content provider runs; surfaced via ActiveStreamCount().

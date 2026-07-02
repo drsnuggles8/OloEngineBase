@@ -597,6 +597,13 @@ namespace OloEngine::MCP
         if (m_Running.load(std::memory_order_acquire))
             return false;
 
+        // Clear any consent-abort latch left by a prior Stop() so this fresh session
+        // can prompt again (the queue was already drained as the old workers unblocked).
+        {
+            std::lock_guard lock(m_ConsentMutex);
+            m_ConsentAborting = false;
+        }
+
         m_Token = GenerateHexToken(16);
 
         m_Http = CreateScope<httplib::Server>();
@@ -665,6 +672,15 @@ namespace OloEngine::MCP
         // Signal first so any handler blocked in MarshalRead aborts promptly
         // instead of deadlocking against this thread (Stop runs on the game thread).
         m_Running.store(false, std::memory_order_release);
+
+        // Release any worker blocked in RequestConsent as a Deny BEFORE joining the
+        // http worker pool below — otherwise the join would wait forever on a thread
+        // parked on a consent that the (now-gone) editor UI can never resolve.
+        {
+            std::lock_guard lock(m_ConsentMutex);
+            m_ConsentAborting = true;
+        }
+        m_ConsentCv.notify_all();
 
         m_Http->stop();
         if (m_ListenThread.joinable())
@@ -749,6 +765,161 @@ namespace OloEngine::MCP
 
             if (std::chrono::steady_clock::now() >= deadline)
                 throw std::runtime_error("Timed out waiting for the editor main thread (is the editor responsive?)");
+        }
+    }
+
+    namespace
+    {
+        // A compact, human-readable rendering of a tool's arguments for the consent
+        // modal: one "key = value" per line (strings unquoted, everything else via a
+        // compact JSON dump). Generic over any ProjectWrite tool's argument shape, so
+        // the dialog needs no per-tool knowledge.
+        std::string BuildConsentSummary(const Json& arguments)
+        {
+            if (!arguments.is_object() || arguments.empty())
+                return "(no arguments)";
+
+            std::string out;
+            for (auto it = arguments.begin(); it != arguments.end(); ++it)
+            {
+                out += it.key();
+                out += " = ";
+                const Json& value = it.value();
+                out += value.is_string() ? value.get<std::string>() : value.dump();
+                out += '\n';
+            }
+            if (!out.empty() && out.back() == '\n')
+                out.pop_back();
+            return out;
+        }
+    } // namespace
+
+    void McpServer::SetWriteConsentMode(WriteConsentMode mode)
+    {
+        m_ConsentMode.store(mode);
+
+        // Drain any in-flight prompts to match the new mode: AllowSession approves
+        // them (the human just said "allow everything"), Disabled denies them. Prompt
+        // leaves them awaiting a per-action decision. Either way, wake the waiters.
+        if (mode == WriteConsentMode::Prompt)
+            return;
+
+        const ConsentDecision resolution =
+            (mode == WriteConsentMode::AllowSession) ? ConsentDecision::Approve : ConsentDecision::Deny;
+        {
+            std::lock_guard lock(m_ConsentMutex);
+            for (ConsentEntry& entry : m_ConsentQueue)
+            {
+                if (entry.Decision == ConsentDecision::Pending)
+                    entry.Decision = resolution;
+            }
+        }
+        m_ConsentCv.notify_all();
+    }
+
+    std::vector<McpServer::PendingConsent> McpServer::PendingConsents() const
+    {
+        std::vector<PendingConsent> pending;
+        std::lock_guard lock(m_ConsentMutex);
+        for (const ConsentEntry& entry : m_ConsentQueue)
+        {
+            if (entry.Decision != ConsentDecision::Pending)
+                continue; // already resolved, waiting to be reaped by its handler thread
+            pending.push_back(PendingConsent{ entry.Id, entry.ToolName, entry.ToolTitle, entry.Summary });
+        }
+        return pending;
+    }
+
+    void McpServer::ResolveConsent(u64 id, ConsentDecision decision)
+    {
+        // ApproveAll flips the whole session to auto-approve, which also resolves this
+        // prompt and every other pending one — route it through SetWriteConsentMode so
+        // the mode change and the drain happen atomically together. But only when `id`
+        // still names a live pending prompt: a stale/missing id is a no-op (same
+        // contract as the Approve/Deny path), so a late click on an already-reaped
+        // request can't silently disable consent for the rest of the session.
+        if (decision == ConsentDecision::ApproveAll)
+        {
+            {
+                std::lock_guard lock(m_ConsentMutex);
+                const bool present = std::any_of(m_ConsentQueue.begin(), m_ConsentQueue.end(),
+                                                 [id](const ConsentEntry& entry)
+                                                 { return entry.Id == id && entry.Decision == ConsentDecision::Pending; });
+                if (!present)
+                    return;
+            }
+            SetWriteConsentMode(WriteConsentMode::AllowSession);
+            return;
+        }
+
+        {
+            std::lock_guard lock(m_ConsentMutex);
+            for (ConsentEntry& entry : m_ConsentQueue)
+            {
+                if (entry.Id == id && entry.Decision == ConsentDecision::Pending)
+                {
+                    entry.Decision = decision;
+                    break;
+                }
+            }
+        }
+        m_ConsentCv.notify_all();
+    }
+
+    ConsentDecision McpServer::RequestConsent(const ToolDef& tool, const Json& arguments)
+    {
+        const auto timeout = std::chrono::milliseconds(m_ConsentTimeoutMs.load());
+
+        u64 myId = 0;
+        {
+            std::unique_lock lock(m_ConsentMutex);
+            if (m_ConsentAborting)
+                return ConsentDecision::Deny;
+            // A concurrent mode change may have already settled the outcome before we
+            // enqueue anything — honour it without prompting.
+            const WriteConsentMode mode = m_ConsentMode.load();
+            if (mode == WriteConsentMode::AllowSession)
+                return ConsentDecision::Approve;
+            if (mode == WriteConsentMode::Disabled)
+                return ConsentDecision::Deny;
+
+            myId = m_NextConsentId++;
+            ConsentEntry entry;
+            entry.Id = myId;
+            entry.ToolName = tool.Name;
+            entry.ToolTitle = tool.Title.empty() ? tool.Name : tool.Title;
+            entry.Summary = BuildConsentSummary(arguments);
+            m_ConsentQueue.push_back(std::move(entry));
+
+            const bool resolved = m_ConsentCv.wait_for(lock, timeout, [this, myId]
+                                                       {
+                                                           if (m_ConsentAborting)
+                                                               return true;
+                                                           for (const ConsentEntry& e : m_ConsentQueue)
+                                                           {
+                                                               if (e.Id == myId)
+                                                                   return e.Decision != ConsentDecision::Pending;
+                                                           }
+                                                           return true; // entry vanished => treat as resolved
+                                                       });
+
+            // Reap our entry and read its decision under the same lock.
+            ConsentDecision decision = ConsentDecision::Pending;
+            for (auto it = m_ConsentQueue.begin(); it != m_ConsentQueue.end(); ++it)
+            {
+                if (it->Id == myId)
+                {
+                    decision = it->Decision;
+                    m_ConsentQueue.erase(it);
+                    break;
+                }
+            }
+
+            if (m_ConsentAborting)
+                return ConsentDecision::Deny;
+            if (!resolved || decision == ConsentDecision::Pending)
+                return ConsentDecision::Timeout;
+            return decision;
         }
     }
 
@@ -1165,25 +1336,55 @@ namespace OloEngine::MCP
             return MakeError(id, kInvalidParams, "Invalid params: 'arguments' must be an object");
         const Json arguments = params.contains("arguments") ? params["arguments"] : Json::object();
 
-        // Session write gate (issue #306 item C): a project-mutating tool is refused
-        // unless the user has turned on "Allow writes" in the MCP panel (default off,
-        // never persisted). This is distinct from — and stacks on top of — the
-        // enabled + bearer-token gate: even an authenticated agent stays read-only
-        // w.r.t. the project until the user opts in for the session. Read-only and
-        // ephemeral editor-state tools (camera / viewport / render overrides) are not
-        // ProjectWrite, so they are unaffected.
-        if (tool->ProjectWrite && !AllowWrites())
-            return MakeError(id, kInvalidParams,
-                             "Write tools are disabled. Enable \"Allow writes\" in the editor's MCP "
-                             "Server panel to permit this mutation (it is off by default).");
-
-        // Enforce the tool's declared inputSchema before the handler runs, so a
-        // malformed call fails with a clean, field-naming kInvalidParams instead of
+        // Enforce the tool's declared inputSchema BEFORE anything else user-visible, so
+        // a malformed call fails with a clean, field-naming kInvalidParams instead of
         // depending on whatever ad-hoc checks that one handler happens to do (issue
         // #357 conformance / #306 item D hardening). A permissive (empty / non-object)
-        // schema validates nothing.
+        // schema validates nothing. This must precede the consent gate below: a
+        // malformed write should never raise the per-action consent modal (the human
+        // would be asked to approve a call that can't run) — validate first, prompt only
+        // for a well-formed mutation.
         if (const auto error = ValidateArguments(tool->InputSchema, arguments))
             return MakeError(id, kInvalidParams, "Invalid arguments for tool '" + name + "': " + *error);
+
+        // Session write consent (issue #306 item C): a project-mutating tool is gated
+        // by the WriteConsentMode the user set in the MCP panel (default Disabled,
+        // never persisted). This stacks on top of the enabled + bearer-token gate:
+        // even an authenticated agent stays read-only w.r.t. the project until the
+        // human opts in for the session. Read-only / ephemeral editor-state tools
+        // (camera / viewport / render overrides) are not ProjectWrite, so no mode
+        // affects them.
+        //
+        //   Disabled     -> refuse outright.
+        //   Prompt       -> block this worker thread on RequestConsent until the human
+        //                   approves/denies the per-action modal (or it times out).
+        //   AllowSession -> proceed (the human already approved everything).
+        if (tool->ProjectWrite)
+        {
+            const WriteConsentMode mode = m_ConsentMode.load();
+            if (mode == WriteConsentMode::Disabled)
+                return MakeError(id, kInvalidParams,
+                                 "Write tools are disabled. Set writes to \"Prompt\" or \"Allow all\" in the "
+                                 "editor's MCP Server panel to permit this mutation (they are off by default).");
+            if (mode == WriteConsentMode::Prompt)
+            {
+                switch (RequestConsent(*tool, arguments))
+                {
+                    case ConsentDecision::Approve:
+                    case ConsentDecision::ApproveAll:
+                        break; // human approved — fall through to the handler.
+                    case ConsentDecision::Timeout:
+                        return MakeError(id, kInvalidParams,
+                                         "Write consent request timed out with no response from the editor user.");
+                    case ConsentDecision::Deny:
+                    case ConsentDecision::Pending:
+                    default:
+                        return MakeError(id, kInvalidParams,
+                                         "The editor user denied this write. Ask them to Approve it (or switch writes "
+                                         "to \"Allow all\") in the editor's MCP Server panel.");
+                }
+            }
+        }
 
         ToolResult result;
         try
