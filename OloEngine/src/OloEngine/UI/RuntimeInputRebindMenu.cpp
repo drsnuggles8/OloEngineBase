@@ -5,6 +5,7 @@
 #include "OloEngine/Events/MouseEvent.h"
 #include "OloEngine/Scene/Components.h"
 #include "OloEngine/Scene/Scene.h"
+#include "OloEngine/UI/UINavigationSystem.h"
 
 #include <algorithm>
 #include <vector>
@@ -264,6 +265,10 @@ namespace OloEngine
         m_CancelButton = MakeButton(conflictPanel, "Cancel", { 380.0f, 120.0f }, { 150.0f, 40.0f });
 
         m_Open = true;
+        // This panel is a self-contained modal that handles its own input; suppress UI
+        // navigation while it is open so a gamepad/keyboard press during capture is grabbed
+        // only by the rebind controller and does not also drive menu navigation.
+        m_Scene->GetUINavigation().SetInputSuppressed(true);
         RefreshLabels();
         RefreshOverlays();
     }
@@ -274,6 +279,7 @@ namespace OloEngine
         {
             // Scene::DestroyEntity does not cascade, so tear down the whole canvas subtree.
             DestroyUITree(*m_Scene, m_Canvas);
+            m_Scene->GetUINavigation().SetInputSuppressed(false);
         }
         m_Canvas = {};
         m_Rows.clear();

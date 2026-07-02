@@ -19,6 +19,7 @@
 #include "OloEngine/UI/RuntimeInputRebindMenu.h"
 #include "OloEngine/UI/UIInputSystem.h"
 #include "OloEngine/UI/UILayoutSystem.h"
+#include "OloEngine/UI/UINavigationSystem.h"
 
 #include <glm/glm.hpp>
 
@@ -159,4 +160,13 @@ TEST_F(RuntimeInputRebindMenuTest, ConflictOverlayDisablesRowButtonsAndEnablesRe
     // the conflict-resolution buttons stay interactable.
     EXPECT_FALSE(rebind.GetComponent<UIButtonComponent>().m_Interactable);
     EXPECT_TRUE(cancel.GetComponent<UIButtonComponent>().m_Interactable);
+}
+
+TEST_F(RuntimeInputRebindMenuTest, OpenSuppressesUINavigationAndCloseRestoresIt)
+{
+    // The menu is opened in SetUp — it must suppress UI navigation so a gamepad/keyboard
+    // press during capture is grabbed only by the rebind controller, not menu navigation.
+    EXPECT_TRUE(m_Scene->GetUINavigation().IsInputSuppressed());
+    m_Menu.Close();
+    EXPECT_FALSE(m_Scene->GetUINavigation().IsInputSuppressed());
 }

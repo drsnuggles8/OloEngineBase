@@ -306,6 +306,12 @@ namespace OloEngine
 
         UINavigation& nav = scene.GetUINavigation();
 
+        // A modal that captures raw input for itself (e.g. the rebind menu's
+        // "press a button…" mode) suppresses navigation: ignore this frame's
+        // directional/activate/cancel input so the press is not double-handled.
+        // Mouse-driven delegate dispatch (step 2) still runs.
+        const UINavInput navInput = nav.IsInputSuppressed() ? UINavInput{} : input;
+
         // 0. Baseline snapshots for change detection (pre-navigation values).
         SeedSnapshots(scene, nav);
 
@@ -323,7 +329,7 @@ namespace OloEngine
                 nav.ClearFocus();
         }
 
-        const bool anyDir = input.NavUp || input.NavDown || input.NavLeft || input.NavRight;
+        const bool anyDir = navInput.NavUp || navInput.NavDown || navInput.NavLeft || navInput.NavRight;
 
         if (!nav.HasFocus())
         {
@@ -334,7 +340,7 @@ namespace OloEngine
         else
         {
             // Left/Right adjusts a focused slider instead of moving focus.
-            const bool sliderConsumed = AdjustFocusedSlider(scene, nav, input);
+            const bool sliderConsumed = AdjustFocusedSlider(scene, nav, navInput);
 
             glm::vec2 fromCenter{ 0.0f, 0.0f };
             bool focusInItems = false;
@@ -355,24 +361,24 @@ namespace OloEngine
             UUID target{ 0 };
             if (focusInItems)
             {
-                if (input.NavUp)
+                if (navInput.NavUp)
                     target = BestInDirection(items, fromCenter, { 0.0f, -1.0f });
-                else if (input.NavDown)
+                else if (navInput.NavDown)
                     target = BestInDirection(items, fromCenter, { 0.0f, 1.0f });
-                else if (input.NavLeft && !sliderConsumed)
+                else if (navInput.NavLeft && !sliderConsumed)
                     target = BestInDirection(items, fromCenter, { -1.0f, 0.0f });
-                else if (input.NavRight && !sliderConsumed)
+                else if (navInput.NavRight && !sliderConsumed)
                     target = BestInDirection(items, fromCenter, { 1.0f, 0.0f });
             }
 
             if (static_cast<u64>(target) != 0)
                 nav.SetFocus(target);
 
-            if (input.Activate)
+            if (navInput.Activate)
                 ActivateFocused(scene, nav);
         }
 
-        if (input.Cancel)
+        if (navInput.Cancel)
             nav.ClearFocus();
 
         // 2. Dispatch value/click delegates for changes from any source. Runs

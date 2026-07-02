@@ -61,6 +61,21 @@ namespace OloEngine
             return static_cast<u64>(m_Focused) != 0;
         }
 
+        // --- Input suppression ---
+        // When set, UINavigationSystem::Update ignores this frame's directional /
+        // activate / cancel input (mouse-driven delegate dispatch still runs). An
+        // in-game modal that captures raw input for itself — e.g. the rebind menu's
+        // "press a button…" mode — sets this so a gamepad/keyboard press is grabbed
+        // only by the modal and does not also drive menu navigation.
+        void SetInputSuppressed(bool suppressed)
+        {
+            m_InputSuppressed = suppressed;
+        }
+        [[nodiscard]] bool IsInputSuppressed() const
+        {
+            return m_InputSuppressed;
+        }
+
         // --- Event delegates (data binding) ---
         // Registering a handler for a widget replaces any previous one for the
         // same event. Pass an empty std::function to unbind.
@@ -100,6 +115,7 @@ namespace OloEngine
         void Clear()
         {
             m_Focused = UUID(0);
+            m_InputSuppressed = false;
             m_OnClick.clear();
             m_OnSubmit.clear();
             m_OnValueChanged.clear();
@@ -112,7 +128,8 @@ namespace OloEngine
       private:
         friend class UINavigationSystem;
 
-        UUID m_Focused{ 0 }; // 0 == nothing focused
+        UUID m_Focused{ 0 };            // 0 == nothing focused
+        bool m_InputSuppressed = false; // ignore directional/activate/cancel input this frame
 
         // Delegates keyed by widget entity UUID (raw u64 to avoid UUID's implicit
         // u64 conversion tripping map-internal operator== ambiguity, C2666).
