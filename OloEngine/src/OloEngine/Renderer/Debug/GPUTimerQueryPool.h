@@ -39,6 +39,14 @@ namespace OloEngine
         /// @return Time in milliseconds, or 0.0 if not available.
         f64 GetQueryResultMs(u32 commandIndex) const;
 
+        /// @brief Non-blocking readback of the queries issued in the most recent
+        /// BeginFrame/EndFrame cycle, WITHOUT swapping buffers. Used by
+        /// FrameCaptureManager's deferred one-shot commit: the capture frame
+        /// issues the queries, then a later frame (when the GPU has caught up)
+        /// resolves them straight out of the write buffer before the capture is
+        /// committed. Returns false while the results are still pending.
+        bool TryGetIssuedQueryResultsMs(std::vector<f64>& outResultsMs) const;
+
         /// @brief Number of queries issued in the previous (now-readable) frame.
         u32 GetReadableQueryCount() const
         {

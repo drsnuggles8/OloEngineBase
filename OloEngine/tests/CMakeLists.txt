@@ -358,6 +358,10 @@ add_executable(OloEngine-Tests
 		# olo_render_frame_breakdown (#306 item D, bullet 2). Header-only
 		# (MCP/McpFrameBreakdown.h), no extra editor TU pulled in.
 		MCP/McpFrameBreakdownTest.cpp
+		# Pure per-pass GPU/CPU timings shaping behind olo_perf_pass_timings
+		# (#316: split whole-frame GPU time by render-graph pass). Header-only
+		# (MCP/McpPassTimings.h), no extra editor TU pulled in.
+		MCP/McpPassTimingsTest.cpp
 		# Pure JSON / Mermaid topology shaping behind olo_render_graph_topology_export
 		# (#316 Part 4, LLM-analysis exports). Header-only (MCP/McpRenderGraphTopology.h),
 		# no extra editor TU pulled in.

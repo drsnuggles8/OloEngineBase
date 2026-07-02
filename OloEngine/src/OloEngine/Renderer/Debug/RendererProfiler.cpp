@@ -81,6 +81,7 @@ namespace OloEngine
         m_LastFrameTime = m_FrameStartTime;
 
         // Reset frame counters
+        m_CurrentFrame.m_GPUWaitTime = 0.0;
         m_CurrentFrame.m_DrawCalls = 0;
         m_CurrentFrame.m_StateChanges = 0;
         m_CurrentFrame.m_ShaderBinds = 0;
@@ -106,9 +107,13 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        // Calculate CPU frame time
+        // Calculate CPU frame time. The BeginFrame->EndFrame bracket is wall
+        // time and includes any glClientWaitSync fence waits (accumulated into
+        // m_GPUWaitTime via AddGPUWaitTime); subtract them so m_CPUTime reflects
+        // actual CPU work — the wait is GPU-bound stall time, not CPU cost.
         auto frameEndTime = std::chrono::high_resolution_clock::now();
-        m_CurrentFrame.m_CPUTime = std::chrono::duration<f64, std::milli>(frameEndTime - m_FrameStartTime).count();
+        const f64 wallMs = std::chrono::duration<f64, std::milli>(frameEndTime - m_FrameStartTime).count();
+        m_CurrentFrame.m_CPUTime = std::max(0.0, wallMs - m_CurrentFrame.m_GPUWaitTime);
 
         // Store frame data in history
         m_FrameHistory[m_HistoryIndex] = m_CurrentFrame;
@@ -118,6 +123,7 @@ namespace OloEngine
         m_Counters[MetricType::FrameTime].AddSample(m_CurrentFrame.m_FrameTime);
         m_Counters[MetricType::CPUTime].AddSample(m_CurrentFrame.m_CPUTime);
         m_Counters[MetricType::GPUTime].AddSample(m_CurrentFrame.m_GPUTime);
+        m_Counters[MetricType::GPUWaitTime].AddSample(m_CurrentFrame.m_GPUWaitTime);
         m_Counters[MetricType::DrawCalls].AddSample(m_CurrentFrame.m_DrawCalls);
         m_Counters[MetricType::StateChanges].AddSample(m_CurrentFrame.m_StateChanges);
         m_Counters[MetricType::ShaderBinds].AddSample(m_CurrentFrame.m_ShaderBinds);
@@ -203,6 +209,9 @@ namespace OloEngine
         {
             case MetricType::GPUTime:
                 m_CurrentFrame.m_GPUTime = value;
+                break;
+            case MetricType::GPUWaitTime:
+                m_CurrentFrame.m_GPUWaitTime = value;
                 break;
             default:
                 break;
@@ -566,10 +575,10 @@ namespace OloEngine
     {
         BottleneckInfo info;
 
-        // Simple heuristic-based analysis
-        f64 frameTime = m_CurrentFrame.m_FrameTime;
-        f64 cpuTime = m_CurrentFrame.m_CPUTime;
-        f64 gpuTime = m_CurrentFrame.m_GPUTime;
+        const f64 frameTime = m_CurrentFrame.m_FrameTime;
+        const f64 cpuTime = m_CurrentFrame.m_CPUTime; // fence waits already subtracted (EndFrame)
+        const f64 gpuTime = m_CurrentFrame.m_GPUTime; // measured by GPUPassTimerPool, lags 1-3 frames
+        const f64 gpuWait = m_CurrentFrame.m_GPUWaitTime;
 
         if (frameTime <= 0.0)
         {
@@ -579,58 +588,77 @@ namespace OloEngine
             return info;
         }
 
-        f64 cpuUtilization = cpuTime / frameTime;
-        f64 gpuUtilization = gpuTime / frameTime;
+        const f64 cpuUtilization = cpuTime / frameTime;
+        const f64 gpuUtilization = gpuTime / frameTime;
+        const f64 waitShare = gpuWait / frameTime;
 
-        // Determine primary bottleneck
-        if (!m_EnableGPUTiming || gpuTime <= 0.0)
+        const auto formatShares = [&]
         {
-            // Can't determine GPU usage, assume CPU bound if frame time is high
-            if (frameTime > (1000.0 / m_TargetFrameRate))
+            std::ostringstream oss;
+            oss << std::fixed << std::setprecision(1)
+                << " (cpu " << cpuTime << " ms, gpu " << gpuTime
+                << " ms, gpuWait " << gpuWait << " ms, frame " << frameTime << " ms)";
+            return oss.str();
+        };
+
+        // The explicit fence wait (glClientWaitSync on the frame-resource fence)
+        // is the most direct signal: the CPU finished its work and sat blocked
+        // until the GPU caught up.
+        const bool significantWait = waitShare > 0.15;
+
+        if (gpuTime <= 0.0)
+        {
+            // No GPU timer results yet (first frames, or timer unavailable).
+            if (significantWait)
+            {
+                info.m_Type = BottleneckInfo::GPU_Bound;
+                info.m_Confidence = (f32)std::min(0.6 + waitShare, 1.0);
+                info.m_Description = "CPU spends a large share of the frame blocked on GPU fences." + formatShares();
+            }
+            else if (frameTime > (1000.0 / m_TargetFrameRate) && cpuUtilization > 0.8)
             {
                 info.m_Type = BottleneckInfo::CPU_Bound;
-                info.m_Confidence = 0.7f;
-                info.m_Description = "Frame time exceeds target. Enable GPU timing for better analysis.";
+                info.m_Confidence = 0.6f;
+                info.m_Description = "Frame time exceeds target and CPU accounts for most of it; no GPU timing data yet." + formatShares();
             }
             else
             {
                 info.m_Type = BottleneckInfo::Balanced;
-                info.m_Confidence = 0.8f;
-                info.m_Description = "Performance appears balanced.";
+                info.m_Confidence = 0.3f;
+                info.m_Description = "No GPU timing data yet; nothing indicates a bottleneck." + formatShares();
             }
+            return info;
+        }
+
+        if (significantWait || (gpuUtilization > 0.8 && gpuTime > cpuTime))
+        {
+            info.m_Type = BottleneckInfo::GPU_Bound;
+            info.m_Confidence = (f32)std::min(std::max(gpuUtilization, 0.6 + waitShare), 1.0);
+            info.m_Description = "GPU is the primary bottleneck." + formatShares();
+            info.m_Recommendations = {
+                "Optimize shader performance (fragment cost scales with resolution)",
+                "Reduce texture resolution or use compression",
+                "Implement level-of-detail (LOD) systems",
+                "Use occlusion culling"
+            };
+        }
+        else if (cpuUtilization > 0.8 && cpuTime > gpuTime)
+        {
+            info.m_Type = BottleneckInfo::CPU_Bound;
+            info.m_Confidence = (f32)std::min(cpuUtilization, 1.0);
+            info.m_Description = "CPU is the primary bottleneck." + formatShares();
+            info.m_Recommendations = {
+                "Reduce draw calls through batching",
+                "Optimize culling algorithms",
+                "Minimize state changes",
+                "Use instanced rendering for similar objects"
+            };
         }
         else
         {
-            if (cpuUtilization > 0.8 && cpuUtilization > gpuUtilization)
-            {
-                info.m_Type = BottleneckInfo::CPU_Bound;
-                info.m_Confidence = (f32)std::min(cpuUtilization, 1.0);
-                info.m_Description = "CPU is the primary bottleneck. Consider optimizing CPU-side rendering logic.";
-                info.m_Recommendations = {
-                    "Reduce draw calls through batching",
-                    "Optimize culling algorithms",
-                    "Minimize state changes",
-                    "Use instanced rendering for similar objects"
-                };
-            }
-            else if (gpuUtilization > 0.8 && gpuUtilization > cpuUtilization)
-            {
-                info.m_Type = BottleneckInfo::GPU_Bound;
-                info.m_Confidence = (f32)std::min(gpuUtilization, 1.0);
-                info.m_Description = "GPU is the primary bottleneck. Consider optimizing shaders or reducing scene complexity.";
-                info.m_Recommendations = {
-                    "Optimize shader performance",
-                    "Reduce texture resolution or compression",
-                    "Implement level-of-detail (LOD) systems",
-                    "Use occlusion culling"
-                };
-            }
-            else
-            {
-                info.m_Type = BottleneckInfo::Balanced;
-                info.m_Confidence = 0.8f;
-                info.m_Description = "CPU and GPU utilization appears balanced.";
-            }
+            info.m_Type = BottleneckInfo::Balanced;
+            info.m_Confidence = 0.8f;
+            info.m_Description = "CPU and GPU utilization appears balanced." + formatShares();
         }
 
         return info;
@@ -658,6 +686,8 @@ namespace OloEngine
                 return "CPU Time";
             case MetricType::GPUTime:
                 return "GPU Time";
+            case MetricType::GPUWaitTime:
+                return "GPU Wait";
             case MetricType::DrawCalls:
                 return "Draw Calls";
             case MetricType::StateChanges:
@@ -696,6 +726,7 @@ namespace OloEngine
             case MetricType::FrameTime:
             case MetricType::CPUTime:
             case MetricType::GPUTime:
+            case MetricType::GPUWaitTime:
             case MetricType::SortingTime:
             case MetricType::CullingTime:
                 return "ms";
@@ -714,6 +745,8 @@ namespace OloEngine
                 return ImVec4(0.2f, 0.8f, 0.2f, 1.0f);
             case MetricType::GPUTime:
                 return ImVec4(0.8f, 0.2f, 0.2f, 1.0f);
+            case MetricType::GPUWaitTime:
+                return ImVec4(0.9f, 0.4f, 0.1f, 1.0f);
             case MetricType::DrawCalls:
                 return ImVec4(0.2f, 0.6f, 0.8f, 1.0f);
             case MetricType::StateChanges:
@@ -750,7 +783,7 @@ namespace OloEngine
                 return false;
 
             // CSV header
-            file << "Frame,FrameTime,CPUTime,GPUTime,DrawCalls,StateChanges,ShaderBinds,TextureBinds,BufferBinds,Vertices,Triangles,CommandPackets,SortingTime,CullingTime\n";
+            file << "Frame,FrameTime,CPUTime,GPUTime,GPUWaitTime,DrawCalls,StateChanges,ShaderBinds,TextureBinds,BufferBinds,Vertices,Triangles,CommandPackets,SortingTime,CullingTime\n";
 
             // Export frame history
             for (u32 i = 0; i < OLO_FRAME_HISTORY_SIZE; ++i)
@@ -762,6 +795,7 @@ namespace OloEngine
                      << frame.m_FrameTime << ","
                      << frame.m_CPUTime << ","
                      << frame.m_GPUTime << ","
+                     << frame.m_GPUWaitTime << ","
                      << frame.m_DrawCalls << ","
                      << frame.m_StateChanges << ","
                      << frame.m_ShaderBinds << ","

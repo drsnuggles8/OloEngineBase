@@ -7,6 +7,7 @@
 #include "OloEngine/Renderer/Commands/CommandDispatch.h"
 #include "OloEngine/Renderer/Commands/FrameDataBuffer.h"
 #include "OloEngine/Renderer/Commands/FrameResourceManager.h"
+#include "OloEngine/Renderer/Debug/GPUPassTimerPool.h"
 #include "OloEngine/Renderer/Debug/RendererProfiler.h"
 #include "OloEngine/Renderer/Framebuffer.h"
 #include "OloEngine/Renderer/GBuffer.h"
@@ -132,6 +133,14 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
+        // Open the profiler bracket before any per-frame work so the wall
+        // bracket covers the whole render section, including the fence wait
+        // inside FrameResourceManager::BeginFrame below. The wait itself is
+        // measured and handed to AddGPUWaitTime, and EndFrame subtracts it so
+        // the CPUTime metric reflects actual CPU work.
+        auto& profiler = RendererProfiler::GetInstance();
+        profiler.BeginFrame();
+
         // Process any pending GPU resource creation commands from async loaders.
         GPUResourceQueue::ProcessAll();
 
@@ -147,10 +156,18 @@ namespace OloEngine
             }
         }
 
-        // Begin new frame for double-buffered resources.
+        // Begin new frame for double-buffered resources. May block on the
+        // frame fence when the GPU is behind — that wait IS the gpuWait metric.
         FrameResourceManager::Get().BeginFrame();
+        profiler.AddGPUWaitTime(FrameResourceManager::Get().GetLastBeginFrameWaitMs());
 
-        RendererProfiler::GetInstance().BeginFrame();
+        // Advance the always-on GPU frame/pass timers: resolve a completed
+        // earlier frame's timestamps (non-blocking) and stamp this frame's
+        // begin. Feed the resolved whole-frame GPU time to the profiler — it
+        // lags 1-3 frames, which is fine for steady-state metrics.
+        auto& gpuTimers = GPUPassTimerPool::GetInstance();
+        gpuTimers.BeginFrame();
+        profiler.SetValue(RendererProfiler::MetricType::GPUTime, gpuTimers.GetLastFrameGpuMs());
 
         if (!FrameCorePasses.Scene)
         {

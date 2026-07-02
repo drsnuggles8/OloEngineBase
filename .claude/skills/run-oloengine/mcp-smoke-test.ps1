@@ -153,6 +153,7 @@ Show-Tool 'olo_perf_snapshot' @{} | Out-Null
 Show-Tool 'olo_perf_bottlenecks' @{} | Out-Null
 Show-Tool 'olo_perf_frame_history' @{ points = 8 } | Out-Null
 Show-Tool 'olo_perf_capture_frame' @{ topK = 5 } | Out-Null
+Show-Tool 'olo_perf_pass_timings' @{} | Out-Null
 
 # 19-20. Shader tools (olo_shader_list discovers a real name for olo_shader_get)
 Show-Tool 'olo_shader_errors' @{} | Out-Null

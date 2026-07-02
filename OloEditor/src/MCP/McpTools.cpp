@@ -5,6 +5,7 @@
 #include "MCP/McpScriptApi.h"
 #include "MCP/McpFrameBreakdown.h"
 #include "MCP/McpGoldenCompare.h"
+#include "MCP/McpPassTimings.h"
 #include "MCP/McpPhysicsExplain.h"
 #include "MCP/McpRenderExplain.h"
 #include "MCP/McpRenderGraphTopology.h"
@@ -26,6 +27,7 @@
 #include "OloEngine/Renderer/Debug/CapturedFrameData.h"
 #include "OloEngine/Renderer/Debug/CommandPacketDebugger.h"
 #include "OloEngine/Renderer/Debug/FrameCaptureManager.h"
+#include "OloEngine/Renderer/Debug/GPUPassTimerPool.h"
 #include "OloEngine/Renderer/Debug/GPUResourceInspector.h"
 #include "OloEngine/Renderer/Debug/RenderGraphDebugRuntime.h"
 #include "OloEngine/Renderer/Debug/RendererMemoryTracker.h"
@@ -466,6 +468,7 @@ namespace OloEngine::MCP
                 o["frameTimeMs"] = Round2(f.m_FrameTime);
                 o["cpuMs"] = Round2(f.m_CPUTime);
                 o["gpuMs"] = Round2(f.m_GPUTime);
+                o["gpuWaitMs"] = Round2(f.m_GPUWaitTime);
                 o["drawCalls"] = f.m_DrawCalls;
                 o["instancedDrawCalls"] = f.m_InstancedDrawCalls;
                 o["instancesRendered"] = f.m_InstancesRendered;
@@ -601,6 +604,43 @@ namespace OloEngine::MCP
                         "renderer's timer-query pool. For the per-command / per-stage structural breakdown "
                         "(command list, draw keys, sort/batch analysis), use olo_render_frame_breakdown.";
             return ToolResult::Text(o.dump(2));
+        }
+
+        // ---- olo_perf_pass_timings (main-marshaled) -----------------------------
+        // Per-render-graph-pass GPU/CPU times: GPU from the always-on
+        // GPUPassTimerPool (GL_TIMESTAMP pairs around each executed pass, resolved
+        // 1-3 frames after issue), CPU from the live graph's last execution
+        // timings, frame totals from the profiler. Shaping lives in the pure
+        // McpPassTimings.h so it unit-tests without this TU.
+        ToolResult Handle_PerfPassTimings(McpServer& server, const Json& /*args*/)
+        {
+            Json j = server.MarshalRead([]() -> Json
+                                        {
+                const auto& pool = GPUPassTimerPool::GetInstance();
+
+                std::vector<PassTimings::GpuPassEntry> gpuPasses;
+                for (const auto& timing : pool.GetLastPassTimingsCopy())
+                    gpuPasses.push_back(PassTimings::GpuPassEntry{ timing.Name, timing.GpuMs });
+
+                std::vector<PassTimings::CpuPassEntry> cpuPasses;
+                if (const Ref<RenderGraph>& graph = RenderGraphDebugRuntime::GetActiveGraph())
+                {
+                    for (const auto& timing : graph->GetLastExecutionTimings())
+                        cpuPasses.push_back(PassTimings::CpuPassEntry{ timing.NodeName, timing.CpuMs });
+                }
+
+                const RendererProfiler::FrameData& f = RendererProfiler::GetInstance().GetCurrentFrameData();
+                PassTimings::FrameTotals totals;
+                totals.FrameTimeMs = f.m_FrameTime;
+                totals.CpuMs = f.m_CPUTime;
+                totals.GpuMs = f.m_GPUTime;
+                totals.GpuWaitMs = f.m_GPUWaitTime;
+                totals.GpuResultsAgeFrames =
+                    (pool.GetLastResolvedFrameNumber() > 0 && pool.GetCurrentFrameNumber() >= pool.GetLastResolvedFrameNumber())
+                        ? pool.GetCurrentFrameNumber() - pool.GetLastResolvedFrameNumber()
+                        : 0;
+                return PassTimings::BuildPassTimings(gpuPasses, cpuPasses, totals); });
+            return ToolResult::Structured(j);
         }
 
         // Defined further down (next to the topology export handler that shares it);
@@ -4026,6 +4066,7 @@ namespace OloEngine::MCP
                                     .Prop("commandPackets", Schema::Int().Min(0))
                                     .Prop("sortingMs", Schema::Number())
                                     .Prop("cullingMs", Schema::Number())
+                                    .Prop("gpuWaitMs", Schema::Number().Desc("CPU ms spent blocked on the GPU frame fence — high values mean GPU-bound."))
                                     .Required({ "fps", "frameTimeMs", "cpuMs", "gpuMs", "drawCalls", "triangles" });
             tool.MainMarshaled = true;
             tool.Handler = Handle_PerfSnapshot;
@@ -4081,6 +4122,38 @@ namespace OloEngine::MCP
                                    .NoAdditional();
             tool.MainMarshaled = true;
             tool.Handler = Handle_PerfCaptureFrame;
+            server.RegisterTool(std::move(tool));
+        }
+
+        {
+            ToolDef tool;
+            tool.Name = "olo_perf_pass_timings";
+            tool.Toolset = "perf";
+            tool.Title = "Per-pass GPU timings";
+            tool.Annotations = ReadOnlyAnnotations();
+            tool.Description =
+                "Whole-frame GPU time split by render-graph pass (Shadow vs Scene vs GTAO vs Bloom vs "
+                "ToneMap...). Each pass carries its GPU time (always-on timestamp queries, resolved a few "
+                "frames after issue) and its CPU dispatch time from the live graph. Frame totals include "
+                "gpuWaitMs (CPU blocked on the GPU fence — the direct GPU-bound signal); unattributedGpuMs "
+                "is frame GPU time spent between/outside the timed passes.";
+            tool.InputSchema = Schema::EmptyObject();
+            tool.OutputSchema = Schema::Object()
+                                    .Prop("frame", Schema::Object()
+                                                       .Prop("frameTimeMs", Schema::Number())
+                                                       .Prop("cpuMs", Schema::Number())
+                                                       .Prop("gpuMs", Schema::Number())
+                                                       .Prop("gpuWaitMs", Schema::Number()))
+                                    .Prop("passes", Schema::Array(Schema::Object()
+                                                                      .Prop("pass", Schema::String())
+                                                                      .Prop("gpuMs", Schema::Number())
+                                                                      .Prop("cpuMs", Schema::Number())))
+                                    .Prop("passGpuTotalMs", Schema::Number())
+                                    .Prop("unattributedGpuMs", Schema::Number())
+                                    .Prop("gpuResultsAgeFrames", Schema::Int().Min(0).Desc("How many frames old the GPU numbers are (results resolve 1-3 frames after issue)."))
+                                    .Required({ "frame", "passes", "passGpuTotalMs" });
+            tool.MainMarshaled = true;
+            tool.Handler = Handle_PerfPassTimings;
             server.RegisterTool(std::move(tool));
         }
 

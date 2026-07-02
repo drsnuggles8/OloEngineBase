@@ -3,6 +3,8 @@
 
 #include <glad/gl.h>
 
+#include <chrono>
+
 namespace OloEngine
 {
     FrameResourceManager& FrameResourceManager::Get()
@@ -80,11 +82,14 @@ namespace OloEngine
         }
 
         u32 currentIndex = m_CurrentFrameIndex.load(std::memory_order_acquire);
+        m_LastBeginFrameWaitMs = 0.0;
 
         // When double-buffering, we need to wait for the frame we're about to reuse
         if (m_DoubleBufferingEnabled && m_TotalFrameCount >= NUM_BUFFERED_FRAMES)
         {
+            const auto waitStart = std::chrono::steady_clock::now();
             WaitForFrame(currentIndex);
+            m_LastBeginFrameWaitMs = std::chrono::duration<f64, std::milli>(std::chrono::steady_clock::now() - waitStart).count();
 
             // Only reset allocators if the GPU fence was actually signaled;
             // otherwise the GPU may still be reading this frame's data.

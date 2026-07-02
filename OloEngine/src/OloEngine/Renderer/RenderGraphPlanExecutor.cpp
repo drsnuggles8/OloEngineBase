@@ -2,6 +2,7 @@
 #include "OloEngine/Renderer/RenderGraphPlanExecutor.h"
 
 #include "OloEngine/Debug/Profiler.h"
+#include "OloEngine/Renderer/Debug/GPUPassTimerPool.h"
 
 #include <chrono>
 
@@ -53,9 +54,17 @@ namespace OloEngine::RenderGraphPlanExecutor
                         break;
 
                     input.Context.BeginPass(cmd.NodeName);
+                    // Always-on per-pass GPU timestamps (GL_TIMESTAMP pairs, so
+                    // they coexist with the capture path's per-draw
+                    // GL_TIME_ELAPSED scopes inside the pass). Resolved a few
+                    // frames later by GPUPassTimerPool::BeginFrame; surfaced via
+                    // the olo_perf_pass_timings MCP tool.
+                    auto& gpuTimers = GPUPassTimerPool::GetInstance();
+                    gpuTimers.BeginPass(cmd.NodeName);
                     const auto executeStart = std::chrono::steady_clock::now();
                     cmd.NodePointer->Execute(input.Context);
                     const auto executeEnd = std::chrono::steady_clock::now();
+                    gpuTimers.EndPass();
                     input.Context.EndPass();
 
                     const auto elapsedMs = std::chrono::duration<f64, std::milli>(executeEnd - executeStart).count();

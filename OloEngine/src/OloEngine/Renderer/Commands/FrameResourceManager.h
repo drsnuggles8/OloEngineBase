@@ -102,6 +102,15 @@ namespace OloEngine
             return m_TotalFrameCount;
         }
 
+        // CPU time (ms) the most recent BeginFrame() spent blocked on the GPU
+        // fence (glClientWaitSync). 0.0 when the fence was already signaled.
+        // This is the direct "CPU waited for the GPU" measure — feed it to
+        // RendererProfiler::AddGPUWaitTime so cpu/gpuWait metrics stay honest.
+        f64 GetLastBeginFrameWaitMs() const
+        {
+            return m_LastBeginFrameWaitMs;
+        }
+
         // Check if GPU has finished a specific frame
         bool IsFrameComplete(u32 frameIndex) const;
 
@@ -141,6 +150,7 @@ namespace OloEngine
         // Atomic frame index: main thread writes with release, worker threads read with acquire
         std::atomic<u32> m_CurrentFrameIndex{ 0 };
         u64 m_TotalFrameCount = 0;
+        f64 m_LastBeginFrameWaitMs = 0.0;
         bool m_DoubleBufferingEnabled = true;
         bool m_Initialized = false;
     };

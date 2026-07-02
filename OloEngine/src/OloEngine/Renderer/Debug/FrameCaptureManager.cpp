@@ -48,7 +48,18 @@ namespace OloEngine
 
         // Also stop from CaptureNextFrame state
         expected = CaptureState::CaptureNextFrame;
-        m_State.compare_exchange_strong(expected, CaptureState::Idle, std::memory_order_acq_rel);
+        if (m_State.compare_exchange_strong(expected, CaptureState::Idle, std::memory_order_acq_rel))
+        {
+            return;
+        }
+
+        // And from AwaitingGpuResults — the parked one-shot frame is dropped.
+        expected = CaptureState::AwaitingGpuResults;
+        if (m_State.compare_exchange_strong(expected, CaptureState::Idle, std::memory_order_acq_rel))
+        {
+            m_PendingFrame = CapturedFrameData{};
+            m_CurrentPassIndex = -1;
+        }
     }
 
     std::optional<CapturedFrameData> FrameCaptureManager::GetSelectedFrame() const
@@ -156,13 +167,92 @@ namespace OloEngine
         pass.Stats.TotalFrameTimeMs = sortTimeMs + batchTimeMs + executeTimeMs;
     }
 
+    CapturedPassData* FrameCaptureManager::FindSourcePass()
+    {
+        if (!m_PendingFrame.SourcePassName.empty())
+        {
+            for (auto& pass : m_PendingFrame.Passes)
+            {
+                if (pass.PassName == m_PendingFrame.SourcePassName)
+                    return &pass;
+            }
+        }
+        return m_PendingFrame.Passes.empty() ? nullptr : &m_PendingFrame.Passes.front();
+    }
+
+    void FrameCaptureManager::ApplyGpuTimingsToSource(const std::vector<f64>& resultsMs)
+    {
+        if (resultsMs.empty())
+            return;
+
+        CapturedPassData* source = FindSourcePass();
+        if (!source)
+            return;
+
+        // The query index is the command's execution-order position in the
+        // bucket ExecuteWithGPUTiming ran, so apply positionally onto the
+        // final (executed) list.
+        auto& timedCommands = source->HasPostBatch
+                                  ? source->PostBatchCommands
+                                  : (source->HasPostSort ? source->PostSortCommands : source->PreSortCommands);
+        const u32 count = std::min(static_cast<u32>(timedCommands.size()), static_cast<u32>(resultsMs.size()));
+        for (u32 i = 0; i < count; ++i)
+            timedCommands[i].SetGpuTimeMs(resultsMs[i]);
+    }
+
     void FrameCaptureManager::CommitFrame()
     {
         OLO_PROFILE_FUNCTION();
-        if (!IsCapturing())
-            return;
 
-        CommitPendingFrame(++m_CommittedFrameCounter);
+        switch (m_State.load(std::memory_order_acquire))
+        {
+            case CaptureState::CaptureNextFrame:
+            {
+                // The per-draw GL_TIME_ELAPSED queries this frame just issued
+                // are not readable yet (the GPU is still executing the frame).
+                // Park the pending frame and resolve+commit on a later
+                // CommitFrame call instead of committing all-zero timings.
+                m_GpuResolveWaitFrames = 0;
+                m_State.store(CaptureState::AwaitingGpuResults, std::memory_order_release);
+                break;
+            }
+            case CaptureState::AwaitingGpuResults:
+            {
+                std::vector<f64> resultsMs;
+                const bool resolved = GPUTimerQueryPool::GetInstance().TryGetIssuedQueryResultsMs(resultsMs);
+                ++m_GpuResolveWaitFrames;
+                if (!resolved && m_GpuResolveWaitFrames < kMaxGpuResolveWaitFrames)
+                    return; // try again next frame
+
+                if (resolved)
+                    ApplyGpuTimingsToSource(resultsMs);
+                else
+                    OLO_CORE_WARN("FrameCaptureManager: GPU timer results not readable after {} frames — committing capture without per-draw GPU times", kMaxGpuResolveWaitFrames);
+
+                CommitPendingFrame(++m_CommittedFrameCounter);
+                break;
+            }
+            case CaptureState::Recording:
+            {
+                // Continuous recording: ExecuteWithGPUTiming ticks the query pool
+                // every frame, so the pool's readable results (from the PREVIOUS
+                // frame's near-identical command list) are the best available
+                // approximation without holding every frame back.
+                const auto& gpuTimer = GPUTimerQueryPool::GetInstance();
+                if (gpuTimer.IsInitialized() && gpuTimer.GetReadableQueryCount() > 0)
+                {
+                    std::vector<f64> resultsMs(gpuTimer.GetReadableQueryCount());
+                    for (u32 i = 0; i < gpuTimer.GetReadableQueryCount(); ++i)
+                        resultsMs[i] = gpuTimer.GetQueryResultMs(i);
+                    ApplyGpuTimingsToSource(resultsMs);
+                }
+                CommitPendingFrame(++m_CommittedFrameCounter);
+                break;
+            }
+            case CaptureState::Idle:
+            default:
+                break;
+        }
     }
 
     void FrameCaptureManager::OnFrameEnd(u32 frameNumber, f64 sortTimeMs, f64 batchTimeMs, f64 executeTimeMs)
@@ -172,8 +262,16 @@ namespace OloEngine
             return;
 
         // Legacy single-pass entrypoint: stash the timings on the current/implicit
-        // pass, then commit with the caller-supplied frame number.
+        // pass, then commit with the caller-supplied frame number. GPU timings use
+        // the pool's readable (previous-tick) results, matching the old behaviour.
         RecordPassTimings(sortTimeMs, batchTimeMs, executeTimeMs);
+        if (const auto& gpuTimer = GPUTimerQueryPool::GetInstance(); gpuTimer.IsInitialized() && gpuTimer.GetReadableQueryCount() > 0)
+        {
+            std::vector<f64> resultsMs(gpuTimer.GetReadableQueryCount());
+            for (u32 i = 0; i < gpuTimer.GetReadableQueryCount(); ++i)
+                resultsMs[i] = gpuTimer.GetQueryResultMs(i);
+            ApplyGpuTimingsToSource(resultsMs);
+        }
         CommitPendingFrame(frameNumber);
     }
 
@@ -185,38 +283,17 @@ namespace OloEngine
         // (legacy) view consumed by the markdown report, olo_perf_capture_frame and
         // the single-pass tests. Prefer the recorded SourcePassName; fall back to
         // the first captured pass (the implicit entry the direct-API hooks create
-        // when no BeginPass() was issued).
-        CapturedPassData* source = nullptr;
-        if (!m_PendingFrame.SourcePassName.empty())
-        {
-            for (auto& pass : m_PendingFrame.Passes)
-            {
-                if (pass.PassName == m_PendingFrame.SourcePassName)
-                {
-                    source = &pass;
-                    break;
-                }
-            }
-        }
-        if (!source && !m_PendingFrame.Passes.empty())
-            source = &m_PendingFrame.Passes.front();
+        // when no BeginPass() was issued). Per-command GPU timings have already
+        // been applied by ApplyGpuTimingsToSource (deferred one-shot resolve, or
+        // previous-tick results for Recording / the legacy OnFrameEnd path), so
+        // the copies below carry them into the top-level view.
+        CapturedPassData* source = FindSourcePass();
 
         bool hasPostSort = false;
         bool hasPostBatch = false;
         FrameCaptureStats sourceStats;
         if (source)
         {
-            // Apply GPU timing to the source pass's execution-order list FIRST, so
-            // both the per-pass entry and the derived top-level list carry GPU times.
-            if (const auto& gpuTimer = GPUTimerQueryPool::GetInstance(); gpuTimer.IsInitialized() && gpuTimer.GetReadableQueryCount() > 0)
-            {
-                auto& timedCommands = source->HasPostBatch
-                                          ? source->PostBatchCommands
-                                          : (source->HasPostSort ? source->PostSortCommands : source->PreSortCommands);
-                for (u32 i = 0; i < static_cast<u32>(timedCommands.size()) && i < gpuTimer.GetReadableQueryCount(); ++i)
-                    timedCommands[i].SetGpuTimeMs(gpuTimer.GetQueryResultMs(i));
-            }
-
             m_PendingFrame.PreSortCommands = source->PreSortCommands;
             m_PendingFrame.PostSortCommands = source->PostSortCommands;
             m_PendingFrame.PostBatchCommands = source->PostBatchCommands;
@@ -306,10 +383,15 @@ namespace OloEngine
             m_CaptureGeneration.fetch_add(1, std::memory_order_release);
         }
 
-        // State machine transition (single-frame capture returns to Idle; recording
-        // stays in Recording for the next frame).
+        // State machine transition (a one-shot capture — committed either directly
+        // via the legacy OnFrameEnd path or from the deferred AwaitingGpuResults
+        // hold — returns to Idle; recording stays in Recording for the next frame).
         auto expected = CaptureState::CaptureNextFrame;
-        m_State.compare_exchange_strong(expected, CaptureState::Idle, std::memory_order_acq_rel);
+        if (!m_State.compare_exchange_strong(expected, CaptureState::Idle, std::memory_order_acq_rel))
+        {
+            expected = CaptureState::AwaitingGpuResults;
+            m_State.compare_exchange_strong(expected, CaptureState::Idle, std::memory_order_acq_rel);
+        }
 
         // Re-init pending frame for the next capture
         m_PendingFrame = CapturedFrameData{};

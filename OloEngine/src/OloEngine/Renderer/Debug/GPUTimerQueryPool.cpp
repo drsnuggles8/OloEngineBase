@@ -132,4 +132,28 @@ namespace OloEngine
             return m_Results[commandIndex];
         return 0.0;
     }
+
+    bool GPUTimerQueryPool::TryGetIssuedQueryResultsMs(std::vector<f64>& outResultsMs) const
+    {
+        if (!m_Initialized || m_WriteQueryCount == 0)
+            return false;
+
+        const auto& queries = m_QueryObjects[m_WriteBuffer];
+
+        // Queries complete in submission order, so the last issued query being
+        // available implies every earlier one is readable too.
+        GLint available = GL_FALSE;
+        glGetQueryObjectiv(queries[m_WriteQueryCount - 1], GL_QUERY_RESULT_AVAILABLE, &available);
+        if (!available)
+            return false;
+
+        outResultsMs.resize(m_WriteQueryCount);
+        for (u32 i = 0; i < m_WriteQueryCount; ++i)
+        {
+            GLuint64 timeNs = 0;
+            glGetQueryObjectui64v(queries[i], GL_QUERY_RESULT, &timeNs);
+            outResultsMs[i] = static_cast<f64>(timeNs) / 1'000'000.0;
+        }
+        return true;
+    }
 } // namespace OloEngine
