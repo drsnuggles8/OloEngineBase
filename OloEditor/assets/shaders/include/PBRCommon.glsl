@@ -264,8 +264,16 @@ vec3 cookTorranceBRDFEnhanced(vec3 N, vec3 V, vec3 L, vec3 albedo, float metalli
 // Get normal from normal map using derivative method
 vec3 getNormalFromMap(sampler2D normalMap, vec2 texCoords, vec3 worldPos, vec3 normal, float normalScale)
 {
-    vec3 tangentNormal = texture(normalMap, texCoords).xyz * 2.0 - 1.0;
-    tangentNormal.xy *= normalScale;
+    // Reconstruct z from xy rather than sampling the blue channel. A tangent-space
+    // unit normal always has z = sqrt(1 - x^2 - y^2), so this is correct for ordinary
+    // 3-channel (RGB) normal maps AND required for 2-channel BC5/RGTC2 normal maps,
+    // whose blue channel is 0 on the GPU (sampling it would give z = -1 and invert the
+    // normal). Reconstruction is done after the xy intensity scale so the result stays
+    // unit length. (#440)
+    vec2 nxy = texture(normalMap, texCoords).xy * 2.0 - 1.0;
+    nxy *= normalScale;
+    float nz = sqrt(max(0.0, 1.0 - min(1.0, dot(nxy, nxy))));
+    vec3 tangentNormal = vec3(nxy, nz);
 
     vec3 Q1 = dFdx(worldPos);
     vec3 Q2 = dFdy(worldPos);

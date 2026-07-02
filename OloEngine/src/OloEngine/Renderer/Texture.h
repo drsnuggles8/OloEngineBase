@@ -10,6 +10,9 @@
 
 namespace OloEngine
 {
+    // Defined in Renderer/TextureCompression.h — a mip chain of BCn block bytes.
+    struct CompressedTextureImage;
+
     enum class ImageFormat
     {
         None = 0,
@@ -27,9 +30,21 @@ namespace OloEngine
         DEPTH24STENCIL8,
         RG16F, // Keep appended to preserve legacy serialized enum values
         R32I,
-        RG8 // 2-channel 8-bit (normal-map xy, two-channel masks). Appended to
-            // preserve legacy serialised enum integer values used in asset packs.
+        RG8, // 2-channel 8-bit (normal-map xy, two-channel masks). Appended to
+             // preserve legacy serialised enum integer values used in asset packs.
+        // Block-compressed formats (#440). Uploaded via glCompressedTextureSubImage2D
+        // rather than a client pixel format; the sRGB variant of BC7 is selected from
+        // TextureSpecification::SRGB. Appended to preserve legacy serialised values.
+        BC7, // BPTC RGBA — base color / albedo / emissive
+        BC5  // RGTC2 two-channel — tangent-space normal xy
     };
+
+    // True for the block-compressed ImageFormat values, which take the
+    // glCompressedTextureSubImage2D upload path instead of a client pixel format.
+    [[nodiscard]] constexpr bool IsCompressedFormat(ImageFormat format) noexcept
+    {
+        return format == ImageFormat::BC7 || format == ImageFormat::BC5;
+    }
 
     struct TextureSpecification
     {
@@ -111,6 +126,11 @@ namespace OloEngine
         virtual void Resize(u32 width, u32 height) = 0;
 
         static Ref<Texture2D> Create(const TextureSpecification& specification);
+        // Create a GPU texture from an offline block-compressed (BC7/BC5) mip chain,
+        // uploaded via glCompressedTextureSubImage2D. On hardware lacking the required
+        // BPTC/RGTC support the blocks are decompressed on the CPU and uploaded as an
+        // uncompressed RGBA8 texture so nothing breaks (#440).
+        static Ref<Texture2D> Create(const CompressedTextureImage& compressedImage);
         // Load a texture from disk. Pass srgb=true for color textures (albedo,
         // emissive, UI) so the GPU converts samples from sRGB to linear on
         // read. Leave srgb=false (default) for data textures (normal map,

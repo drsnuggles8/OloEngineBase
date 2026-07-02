@@ -32,6 +32,14 @@ namespace OloEngine
                     return GL_RGBA;
                 case ImageFormat::DEPTH24STENCIL8:
                     return GL_DEPTH_STENCIL;
+                case ImageFormat::BC7:
+                case ImageFormat::BC5:
+                    // Block-compressed cubemaps aren't produced by the cook path; a
+                    // compressed face would need glCompressedTextureSubImage3D. Return 0
+                    // (unsupported) explicitly so a stray value is a defined error, not an
+                    // out-of-range assert fall-through.
+                    OLO_CORE_ASSERT(false, "Block-compressed cubemaps are not supported");
+                    return 0;
             }
 
             OLO_CORE_ASSERT(false, "Unknown ImageFormat!");
@@ -58,6 +66,11 @@ namespace OloEngine
                     return GL_RGBA32F;
                 case ImageFormat::DEPTH24STENCIL8:
                     return GL_DEPTH24_STENCIL8;
+                case ImageFormat::BC7:
+                case ImageFormat::BC5:
+                    // Block-compressed cubemaps aren't produced by the cook path.
+                    OLO_CORE_ASSERT(false, "Block-compressed cubemaps are not supported");
+                    return 0;
             }
 
             OLO_CORE_ASSERT(false, "Unknown ImageFormat!");
@@ -128,6 +141,19 @@ namespace OloEngine
         m_Specification.Height = m_CubemapSpecification.Height;
         m_Specification.Format = m_CubemapSpecification.Format;
         m_Specification.GenerateMips = m_CubemapSpecification.GenerateMips;
+
+        // Block-compressed cubemaps aren't produced by the cook path; the format->GL
+        // helpers below return 0 for them (an assert in debug, but silently in release).
+        // Bail before any GL call so glTextureStorage2D never sees an invalid internal
+        // format — GetFormatInfo() further down would otherwise be the only line to catch it.
+        if (IsCompressedFormat(m_CubemapSpecification.Format))
+        {
+            OLO_CORE_ERROR("OpenGLTextureCubemap: block-compressed format {} is not supported for cubemaps",
+                           static_cast<u32>(m_CubemapSpecification.Format));
+            m_RendererID = 0;
+            m_IsLoaded = false;
+            return;
+        }
 
         m_InternalFormat = Utils::OloEngineImageFormatToGLInternalFormat(m_CubemapSpecification.Format);
         m_DataFormat = Utils::OloEngineImageFormatToGLDataFormat(m_CubemapSpecification.Format);

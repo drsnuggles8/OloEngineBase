@@ -585,6 +585,8 @@
 		"OloEngine/Renderer/ShaderWarmup.h"
 		"OloEngine/Renderer/Texture.cpp"
 		"OloEngine/Renderer/Texture.h"
+		"OloEngine/Renderer/TextureCompression.cpp"
+		"OloEngine/Renderer/TextureCompression.h"
 		"OloEngine/Renderer/TextureCubemap.cpp"
 		"OloEngine/Renderer/TextureCubemap.h"
 		"OloEngine/Renderer/EnvironmentMap.cpp"
