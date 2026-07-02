@@ -166,10 +166,11 @@ the server, so update the config (or re-copy from the panel) accordingly.
 | `olo_scene_summary` | active scene name, play state, entity count |
 | `olo_scene_list_entities` | paginated entity list (id, name, parent, child count) + name filter |
 | `olo_scene_get_entity` | one entity's full component data (YAML) by UUID |
-| `olo_perf_snapshot` | fps, frame/CPU/GPU time, draw calls, instancing, triangles |
-| `olo_perf_bottlenecks` | CPU/GPU/Memory/IO bottleneck + confidence + recommendations |
+| `olo_perf_snapshot` | fps, frame/CPU/GPU time (real whole-frame GPU timer), `gpuWaitMs` (CPU blocked on the GPU fence — the direct GPU-bound signal), draw calls, instancing, triangles |
+| `olo_perf_bottlenecks` | CPU/GPU/Memory/IO bottleneck + confidence + recommendations (uses real cpu/gpu/gpuWait numbers) |
 | `olo_perf_frame_history` | downsampled recent-frame time series |
-| `olo_perf_capture_frame` | triggers a real frame capture: stats + top-K draw commands by GPU time |
+| `olo_perf_capture_frame` | triggers a real frame capture: stats + top-K draw commands by GPU time (per-draw times resolve via a deferred commit one-plus frames after the capture; draws carry their submesh debug names) |
+| `olo_perf_pass_timings` | whole-frame GPU time split by render-graph pass (Shadow vs Scene vs GTAO vs Bloom vs ToneMap…): per-pass GPU (always-on timestamp queries) + CPU dispatch ms, frame totals incl. `gpuWaitMs`, and `unattributedGpuMs` |
 | `olo_render_frame_breakdown` | triggers a real frame capture and returns its **per-command / per-pipeline-stage** structural breakdown (the granularity `olo_perf_capture_frame` omits): pipeline stats + the ordered command list (type, debug-name pass label, draw key shader/material/depth, group, execution order, static flag, GPU time) + a command-type histogram, at the chosen `viewMode` (`presort`/`postsort`/`postbatch`); `format:"markdown"` returns the Command Bucket Inspector's LLM-analysis report (sort/state-change/batching analysis + optimization hints) |
 | `olo_memory_report` | GPU/CPU memory total + per-type breakdown + suspected leaks |
 | `olo_shader_list` | inventory of all registered shaders (id, name, hasErrors) |
@@ -240,7 +241,7 @@ blocks on an agent.
 
 ### Toolsets & on-demand tool discovery (`tools/search`)
 
-The tool surface is large enough (47 tools) that paging the whole flat `tools/list`
+The tool surface is large enough (48 tools) that paging the whole flat `tools/list`
 to find the right one is wasteful. Every tool is tagged with a **toolset** (grouping
 category), and a custom `tools/search` JSON-RPC method lets an agent discover tools by
 keyword and/or category instead of pulling the entire list:
@@ -249,7 +250,7 @@ keyword and/or category instead of pulling the entire list:
 |---|---|
 | `diagnostics` | `olo_log_tail`, `olo_events_tail`, `olo_crash_list`, `olo_crash_get` |
 | `scene` | `olo_scene_summary`, `olo_scene_list_entities`, `olo_scene_get_entity` |
-| `perf` | `olo_memory_report`, `olo_perf_snapshot`, `olo_perf_bottlenecks`, `olo_perf_frame_history`, `olo_perf_capture_frame` |
+| `perf` | `olo_memory_report`, `olo_perf_snapshot`, `olo_perf_bottlenecks`, `olo_perf_frame_history`, `olo_perf_capture_frame`, `olo_perf_pass_timings` |
 | `render` | `olo_render_frame_breakdown`, `olo_render_list_targets`, `olo_render_graph_topology_export`, `olo_render_capture_target`, `olo_render_toggle_pass`, `olo_render_set_debug_view`, `olo_renderer_settings_set`, `olo_scene_set_time_of_day`, `olo_scene_set_sun_angle`, `olo_render_compare_golden`, `olo_render_why_not_visible` |
 | `shader` | `olo_shader_list`, `olo_shader_errors`, `olo_shader_get`, `olo_shader_reload` |
 | `assets` | `olo_assets_list`, `olo_assets_problems` |

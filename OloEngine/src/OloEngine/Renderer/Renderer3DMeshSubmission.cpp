@@ -25,6 +25,32 @@
 
 namespace OloEngine
 {
+    namespace
+    {
+        // Stable per-draw debug label for frame capture / olo_perf_capture_frame:
+        // the submesh's node (or mesh) name. Returns a pointer into the
+        // MeshSource's own strings — valid for the mesh's lifetime, which spans
+        // the frame the packet lives in (PacketMetadata::m_DebugName is a
+        // non-owning const char*).
+        const char* GetMeshDebugName(const Ref<Mesh>& mesh)
+        {
+            if (!mesh || !mesh->GetMeshSource())
+                return nullptr;
+
+            const auto& submeshes = mesh->GetMeshSource()->GetSubmeshes();
+            const u32 submeshIndex = mesh->GetSubmeshIndex();
+            if (submeshIndex >= static_cast<u32>(submeshes.Num()))
+                return nullptr;
+
+            const Submesh& submesh = submeshes[submeshIndex];
+            if (!submesh.m_NodeName.empty())
+                return submesh.m_NodeName.c_str();
+            if (!submesh.m_MeshName.empty())
+                return submesh.m_MeshName.c_str();
+            return nullptr;
+        }
+    } // namespace
+
     auto Renderer3D::ValidateDrawMeshRendererIDs(const char* context, const u32 vaoID, const u32 shaderID) -> bool
     {
         if (vaoID != 0 && shaderID != 0)
@@ -339,6 +365,7 @@ namespace OloEngine
         else
             metadata.m_SortKey = DrawKey::CreateOpaque(0, ViewLayerType::ThreeD, shaderID, materialID, depth);
         metadata.m_IsStatic = isStatic;
+        metadata.m_DebugName = GetMeshDebugName(meshToUse);
         packet->SetMetadata(metadata);
 
         if (overlayRoute)
@@ -513,6 +540,7 @@ namespace OloEngine
         else
             metadata.m_SortKey = DrawKey::CreateOpaque(0, ViewLayerType::ThreeD, shaderID, materialID, depth);
         metadata.m_IsStatic = isStatic;
+        metadata.m_DebugName = GetMeshDebugName(mesh);
         packet->SetMetadata(metadata);
 
         return packet;
@@ -700,6 +728,7 @@ namespace OloEngine
             else
                 metadata.m_SortKey = DrawKey::CreateOpaque(0, ViewLayerType::ThreeD, shaderID, materialID, sortDepth);
             metadata.m_IsStatic = isStatic;
+            metadata.m_DebugName = GetMeshDebugName(mesh);
             packet->SetMetadata(metadata);
             return packet;
         };
@@ -969,6 +998,7 @@ namespace OloEngine
         else
             metadata.m_SortKey = DrawKey::CreateOpaque(0, ViewLayerType::ThreeD, shaderID, materialID, depth);
         metadata.m_IsStatic = isStatic;
+        metadata.m_DebugName = GetMeshDebugName(mesh);
         packet->SetMetadata(metadata);
 
         if (overlayRoute)
@@ -1405,6 +1435,7 @@ namespace OloEngine
         else
             metadata.m_SortKey = DrawKey::CreateOpaque(0, ViewLayerType::ThreeD, shaderID, materialID, depthKey);
         metadata.m_IsStatic = isStatic;
+        metadata.m_DebugName = GetMeshDebugName(meshToUse);
         packet->SetMetadata(metadata);
 
         if (overlayReroute)
@@ -1606,6 +1637,7 @@ namespace OloEngine
         else
             metadata.m_SortKey = DrawKey::CreateOpaque(0, ViewLayerType::ThreeD, shaderID, materialID, depthKey);
         metadata.m_IsStatic = isStatic;
+        metadata.m_DebugName = GetMeshDebugName(mesh);
         packet->SetMetadata(metadata);
 
         return packet;

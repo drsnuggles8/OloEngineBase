@@ -34,6 +34,7 @@
 
 #include <chrono>
 #include "OloEngine/Renderer/Commands/CommandDispatch.h"
+#include "OloEngine/Renderer/Debug/GPUPassTimerPool.h"
 #include "OloEngine/Renderer/Debug/RenderGraphDebugRuntime.h"
 #include "OloEngine/Renderer/Debug/RendererProfiler.h"
 #include "OloEngine/Renderer/Occlusion/OcclusionQueryPool.h"
@@ -100,6 +101,7 @@ namespace OloEngine
         OLO_CORE_INFO("Initializing Renderer3D.");
 
         RendererProfiler::GetInstance().Initialize();
+        GPUPassTimerPool::GetInstance().Initialize();
 
         // Query driver MSAA caps once so the settings panel and the
         // ApplyRendererSettings clamp logic have the true max the GPU
@@ -529,6 +531,7 @@ namespace OloEngine
         // Boot/fallback shader shutdown is handled by Renderer::Shutdown()
         // (both are idempotent, but no need to call them twice).
 
+        GPUPassTimerPool::GetInstance().Shutdown();
         RendererProfiler::GetInstance().Shutdown();
 
         s_Data.CoreInitialized = false;

@@ -22,6 +22,7 @@ namespace OloEngine
             FrameTime = 0,
             CPUTime,
             GPUTime,
+            GPUWaitTime, // CPU time spent blocked on GPU fences (glClientWaitSync) — the direct "GPU-bound" signal
             DrawCalls,
             StateChanges,
             ShaderBinds,
@@ -79,6 +80,7 @@ namespace OloEngine
             f64 m_FrameTime = 0.0;
             f64 m_CPUTime = 0.0;
             f64 m_GPUTime = 0.0;
+            f64 m_GPUWaitTime = 0.0;
             u32 m_DrawCalls = 0;
             u32 m_StateChanges = 0;
             u32 m_ShaderBinds = 0;
@@ -195,6 +197,14 @@ namespace OloEngine
 
         // @brief Set a value metric
         void SetValue(MetricType type, f64 value);
+
+        // @brief Accumulate CPU time spent blocked on a GPU fence this frame.
+        // EndFrame() subtracts the total from m_CPUTime so cpu time reflects
+        // actual CPU work, and publishes it as the GPUWaitTime metric.
+        void AddGPUWaitTime(f64 timeMs)
+        {
+            m_CurrentFrame.m_GPUWaitTime += timeMs;
+        }
 
         // @brief Render the profiler UI
         void RenderUI(bool* open = nullptr);
@@ -368,7 +378,7 @@ namespace OloEngine
 
         // Configuration
         f32 m_TargetFrameRate = 60.0f;
-        bool m_EnableGPUTiming = false; // Requires GPU timing queries
+        bool m_EnableGPUTiming = true; // GPUPassTimerPool feeds GPUTime every frame; toggle only hides the UI plot
         bool m_ShowAdvancedMetrics = false;
         bool m_AutoAnalyzeBottlenecks = true;
         // UI state

@@ -4,6 +4,7 @@
 #include "OloEngine/Core/PerformanceProfiler.h"
 #include "OloEngine/Renderer/Commands/FrameResourceManager.h"
 #include "OloEngine/Renderer/Debug/FrameCaptureManager.h"
+#include "OloEngine/Renderer/Debug/GPUPassTimerPool.h"
 #include "OloEngine/Renderer/Debug/RendererProfiler.h"
 #include "OloEngine/Renderer/Occlusion/OcclusionQueryPool.h"
 #include "OloEngine/Renderer/Passes/SceneRenderPass.h"
@@ -268,6 +269,10 @@ namespace OloEngine
                 node->SetCommandAllocator(nullptr);
         };
         pipeline.ForEachRenderStreamNode(clearRenderStreamAllocator);
+
+        // Stamp the whole-frame GPU end timestamp after all of this frame's GPU
+        // work has been submitted (graph execute, HZB rebuild, capture commit).
+        GPUPassTimerPool::GetInstance().EndFrame();
 
         RendererProfiler::GetInstance().EndFrame();
 

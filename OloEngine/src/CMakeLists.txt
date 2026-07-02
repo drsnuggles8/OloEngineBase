@@ -682,6 +682,8 @@
 		"OloEngine/Renderer/Debug/FrameCaptureManager.cpp"
 		"OloEngine/Renderer/Debug/GPUTimerQueryPool.h"
 		"OloEngine/Renderer/Debug/GPUTimerQueryPool.cpp"
+		"OloEngine/Renderer/Debug/GPUPassTimerPool.h"
+		"OloEngine/Renderer/Debug/GPUPassTimerPool.cpp"
 		"OloEngine/Renderer/Debug/RendererMemoryTracker.h"
 		"OloEngine/Renderer/Debug/RendererMemoryTracker.cpp"
 		"OloEngine/Renderer/Debug/RendererProfiler.h"
