@@ -8,6 +8,7 @@
 #include "OloEngine/Renderer/Passes/ContactShadowRenderPass.h"
 #include "OloEngine/Renderer/Passes/DOFRenderPass.h"
 #include "OloEngine/Renderer/Passes/DecalRenderPass.h"
+#include "OloEngine/Renderer/Passes/DeferredGPUOcclusionPass.h"
 #include "OloEngine/Renderer/Passes/DeferredLightingPass.h"
 #include "OloEngine/Renderer/Passes/DeferredOpaqueDecalPass.h"
 #include "OloEngine/Renderer/Passes/FinalRenderPass.h"
@@ -100,6 +101,7 @@ namespace OloEngine
     {
         Ref<DeferredLightingPass> DeferredLighting;
         Ref<DeferredOpaqueDecalPass> DeferredOpaqueDecal;
+        Ref<DeferredGPUOcclusionPass> DeferredGPUOcclusion;
         Ref<PlanarReflectionRenderPass> PlanarReflection;
         Ref<SSAORenderPass> SSAO;
         Ref<GTAORenderPass> GTAO;
@@ -111,6 +113,7 @@ namespace OloEngine
         {
             DeferredLighting.Reset();
             DeferredOpaqueDecal.Reset();
+            DeferredGPUOcclusion.Reset();
             PlanarReflection.Reset();
             SSAO.Reset();
             GTAO.Reset();

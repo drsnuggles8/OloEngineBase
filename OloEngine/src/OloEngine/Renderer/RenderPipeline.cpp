@@ -784,6 +784,18 @@ namespace OloEngine
             SceneCompositePasses.DeferredOpaqueDecal->SetPerSampleLighting(deferred && data.Settings.Deferred.PerSampleLighting);
         }
 
+        // Wire the deferred two-phase occlusion pass (#486): in Deferred mode it
+        // rebuilds the HZB from this frame's G-Buffer depth and draws the
+        // disoccluded instanced statics into the G-Buffer before AO / lighting.
+        // Null G-Buffer (Forward paths) makes it a no-op. Safe to update
+        // unconditionally.
+        if (SceneCompositePasses.DeferredGPUOcclusion && FrameCorePasses.Scene)
+        {
+            const bool deferred = (data.Settings.Path == RenderingPath::Deferred);
+            SceneCompositePasses.DeferredGPUOcclusion->SetGBuffer(deferred ? FrameCorePasses.Scene->GetGBuffer() : nullptr);
+            SceneCompositePasses.DeferredGPUOcclusion->SetPerSampleLighting(deferred && data.Settings.Deferred.PerSampleLighting);
+        }
+
         // Phase 6: propagate OIT toggle to transparent passes that still
         // participate in the WB-OIT path, plus the prepare/resolve passes,
         // every frame so UI changes take effect immediately.
@@ -1193,6 +1205,7 @@ namespace OloEngine
         HashPassState(h, FrameCorePasses.Scene);
         HashPassState(h, SceneCompositePasses.DeferredLighting);
         HashPassState(h, SceneCompositePasses.DeferredOpaqueDecal);
+        HashPassState(h, SceneCompositePasses.DeferredGPUOcclusion);
         HashPassState(h, SceneCompositePasses.SSAO);
         HashPassState(h, SceneCompositePasses.GTAO);
         HashPassState(h, SceneCompositePasses.Particle);
@@ -2458,6 +2471,7 @@ namespace OloEngine
         inputs.Passes.Shadow = FrameCorePasses.Shadow.Raw();
         inputs.Passes.DeferredLighting = SceneCompositePasses.DeferredLighting.Raw();
         inputs.Passes.DeferredOpaqueDecal = SceneCompositePasses.DeferredOpaqueDecal.Raw();
+        inputs.Passes.DeferredGPUOcclusion = SceneCompositePasses.DeferredGPUOcclusion.Raw();
         inputs.Passes.PlanarReflection = SceneCompositePasses.PlanarReflection.Raw();
         inputs.Passes.GPUOcclusion = RenderStreamPasses.GPUOcclusion.Raw();
         inputs.Passes.ForwardOverlay = RenderStreamPasses.ForwardOverlay.Raw();
@@ -2525,6 +2539,15 @@ namespace OloEngine
         SceneCompositePasses.DeferredOpaqueDecal = Ref<DeferredOpaqueDecalPass>::Create();
         SceneCompositePasses.DeferredOpaqueDecal->SetName("DeferredOpaqueDecalPass");
         SceneCompositePasses.DeferredOpaqueDecal->Init(scenePassSpec);
+
+        // Deferred two-phase occlusion phase-2 pass (#486) — runs after
+        // ScenePass in Deferred, rebuilding the HZB from this frame's G-Buffer
+        // depth and drawing the disoccluded instanced statics into the G-Buffer
+        // before DeferredOpaqueDecal / AO / DeferredLighting. No-ops in Forward /
+        // Forward+ (no G-Buffer) and when no phase-2 reject set was routed to it.
+        SceneCompositePasses.DeferredGPUOcclusion = Ref<DeferredGPUOcclusionPass>::Create();
+        SceneCompositePasses.DeferredGPUOcclusion->SetName("DeferredGPUOcclusionPass");
+        SceneCompositePasses.DeferredGPUOcclusion->Init(scenePassSpec);
 
         // Planar reflection — runs after ScenePass (replays its batched opaque
         // bucket from the mirrored camera) and before WaterPass (which samples

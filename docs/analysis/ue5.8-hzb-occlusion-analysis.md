@@ -316,7 +316,7 @@ divergence · ❓ unverified — confirm against live code.
 | 14 | **Downstream consumers (AO/SSR/SSAO) see the culled geometry's depth/normals** | ✅ | **Closed (Stage 3).** `GPUDrivenOcclusionPass` re-copies the live framebuffer depth + view-normals into `SceneDepth`/`SceneNormals` (`glCopyImageSubData`) after its draws, declared as a plain `Write(TransferDest)` (same pattern as `DeferredOpaqueDecalPass`) so the graph orders the AO reader after it. |
 | 15 | **GPU sync between cull write → indirect draw, and phase-1 → phase-2** | ✅ | **Verified.** `MemoryBarrier(ShaderStorage \| Command)` after every cull dispatch (cull→draw, phase-2-cull→phase-2-draw); `glTextureBarrier()` before the mid-frame HZB build (phase-1-draw → HZB sample); `HZBGenerator::Generate` issues `TextureFetch \| ShaderImageAccess` (HZB → phase-2 sample). |
 | 16 | **Per-frame counters reset** (`instanceCount`, `rejectedCount` zeroed each dispatch) | ✅ | **Verified.** `CullTwoPhasePhase1` seeds the phase-1 indirect `instanceCount = 0` and `rejectedCount = 0`; `DispatchPhase2` seeds the phase-2 indirect `instanceCount = 0`. Per dispatch, every frame. |
-| 17 | **Path coverage** | ⚠️ | UE applies HZB occlusion broadly. OloEngine's two-phase pass is **Forward/Forward+ only**; Deferred runs the (same, hardened) single-phase frustum+HZB cull through the G-Buffer bucket. **The one genuine remaining follow-up — tracked in #486.** Extending two-phase to Deferred means mirroring `DeferredOpaqueDecalPass`'s G-Buffer integration — MSAA + resolved attachment variants, ~9 `Write(TransferDest)` declarations, per-sample resolve, `GetFramebuffer()`/`GetSamplingFramebuffer()` targeting, ordering before `DeferredLightingPass` — plus a deferred visual test. Substantial deferred-specific work; deferred occlusion is still *correct* today (single-phase), just not disocclusion-corrected. |
+| 17 | **Path coverage** | ✅ | **Closed (#486).** Two-phase now runs on **both** Forward/Forward+ (via `GPUDrivenOcclusionPass`, into the scene FB) **and** Deferred (via `DeferredGPUOcclusionPass`, into the G-Buffer). On Deferred the phase-1 draws stay on the normal ScenePass G-Buffer bucket (the phase-1 cull already ran against the previous frame's HZB), and `DeferredGPUOcclusionPass` runs after ScenePass / before `DeferredOpaqueDecalPass` + AO + `DeferredLightingPass`: it rebuilds the HZB from this frame's resolved G-Buffer depth (occluders + phase-1 survivors), re-tests the reject list, draws the disoccluded instances into the G-Buffer, resolves MSAA (per-sample mode), and re-exports the G-Buffer attachments (SceneDepth / SceneNormals / GBuffer{Albedo,Normal,Emissive} / Velocity + MSAA companions) — mirroring `DeferredOpaqueDecalPass`'s G-Buffer publication so AO / lighting / SSR see the recovered geometry. Registration order (Scene → DeferredGPUOcclusion → DeferredOpaqueDecal → AO → DeferredLighting) derives the correct `SceneDepth`/`SceneNormals`/`GBufferAlbedo` ordering edges; verified hazard-free. Pinned by `DeferredTwoPhaseOcclusionTest` (disocclusion decision math) + `OcclusionCullDeferredVisualEvidenceTest` (real deferred pipeline, no false hole / no corruption vs the occlusion-off baseline). |
 
 **How to read this for review:** rows 6, 9, 11, 13 show the *architecture* is faithful
 to UE's two-phase standard — that's the hard part and it's right.
@@ -326,8 +326,8 @@ to UE's two-phase standard — that's the hard part and it's right.
 `BlockGatherTakesMaxOverFootprint`) and **#14 downstream depth** (Stage-3 SceneDepth/
 SceneNormals re-export). The faithfulness items #4 (mip alignment), #7 (prev-transform
 reprojection) and #8 (phase-2 skip-frustum) are now ✅, and the mechanical checks #15
-(barriers) / #16 (counter resets) are verified. The **only remaining divergences are the
-two deliberate scope cuts the design accepted up front**: **#10** — no HZB *priming* on
-camera cuts (expect a one-frame overdraw spike on cuts), and **#17** — the two-phase pass
-is **Forward / Forward+ only**; Deferred runs the single-phase frustum+HZB cull through
-the G-Buffer bucket. Both are tracked follow-ups, not correctness gaps.
+(barriers) / #16 (counter resets) are verified. **#17 (path coverage) is now closed** —
+two-phase runs on Deferred as well via `DeferredGPUOcclusionPass` (#486). The **only
+remaining divergence is the single deliberate scope cut the design accepted up front**:
+**#10** — no HZB *priming* on camera cuts (expect a one-frame overdraw spike on cuts), a
+tracked follow-up, not a correctness gap.

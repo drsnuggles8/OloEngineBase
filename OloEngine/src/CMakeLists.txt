@@ -737,6 +737,8 @@
 		"OloEngine/Renderer/Passes/DeferredLightingPass.cpp"
 		"OloEngine/Renderer/Passes/DeferredOpaqueDecalPass.h"
 		"OloEngine/Renderer/Passes/DeferredOpaqueDecalPass.cpp"
+		"OloEngine/Renderer/Passes/DeferredGPUOcclusionPass.h"
+		"OloEngine/Renderer/Passes/DeferredGPUOcclusionPass.cpp"
 		"OloEngine/Renderer/Passes/ShadowRenderPass.h"
 		"OloEngine/Renderer/Passes/ShadowRenderPass.cpp"
 		"OloEngine/Renderer/Passes/AOApplyRenderPass.h"

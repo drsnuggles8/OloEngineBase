@@ -141,6 +141,13 @@ namespace OloEngine
         return s_Data.Pipeline->RenderStreamPasses.GPUOcclusion.Raw();
     }
 
+    DeferredGPUOcclusionPass* Renderer3D::GetDeferredGPUOcclusionPass()
+    {
+        if (!s_Data.Pipeline)
+            return nullptr;
+        return s_Data.Pipeline->SceneCompositePasses.DeferredGPUOcclusion.Raw();
+    }
+
     void Renderer3D::EndScene()
     {
         OLO_PROFILE_FUNCTION();
