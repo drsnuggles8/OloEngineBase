@@ -593,7 +593,11 @@ jobs:
     name: TSan (Linux/Clang)
     needs: detect-changes
     if: ${{ github.event_name == 'workflow_dispatch' || needs.detect-changes.outputs.native == 'true' }}
-    timeout-minutes: 90
+    # 120, not 90: a cold sccache restore (concurrent runs evict each other under
+    # the 10 GB repo cache cap) makes the instrumented TSan build alone take ~78
+    # minutes, and a cancelled job skips the cache save — so 90 produced a chronic
+    # cold → timeout → no-save → cold loop across unrelated branches.
+    timeout-minutes: 120
     # See asan-lsan-linux above for why this pins the distro codename.
     runs-on: ubuntu-24.04
     permissions:
@@ -648,14 +652,20 @@ jobs:
       with:
         version: "v0.15.0"
 
-    # Persist sccache's local-disk cache as one actions/cache entry (unique key
-    # per run so the post-job save always writes a fresh snapshot; restore-keys
-    # warms from the most recent prior one). Key is per-sanitizer.
-    - name: Cache sccache storage
-      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+    # Persist sccache's local-disk cache. Explicit restore + save steps instead of
+    # the combined actions/cache action: the combined action saves in a POST-JOB
+    # step, and post-job steps are skipped when the job is cancelled — so a run
+    # that hit `timeout-minutes` saved nothing and left the next run just as cold
+    # (the cold → timeout → no-save → cold loop, see the timeout comment above).
+    # The explicit save below runs `if: always()`, which DOES execute on a
+    # timeout-cancel, banking even a partial build's objects. Key is unique per
+    # attempt so every save writes a fresh snapshot; restore-keys warms from the
+    # most recent prior one. Key is per-sanitizer.
+    - name: Restore sccache storage
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: ${{ env.SCCACHE_DIR }}
-        key: sccache-tsan-linux-${{ github.run_id }}
+        key: sccache-tsan-linux-${{ github.run_id }}-${{ github.run_attempt }}
         restore-keys: |
           sccache-tsan-linux-
 
@@ -687,6 +697,17 @@ jobs:
     - name: Show sccache stats
       if: always()
       run: sccache --show-stats
+
+    # Deliberately BEFORE the test step (and `if: always()`): the tests don't
+    # write compile-cache entries, and saving here means a run whose TEST step
+    # later times out has already banked its build cache — while a cancel during
+    # the BUILD step still saves the partial objects via always().
+    - name: Save sccache storage
+      if: always()
+      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ env.SCCACHE_DIR }}
+        key: sccache-tsan-linux-${{ github.run_id }}-${{ github.run_attempt }}
 
     - name: Create test results directory
       run: mkdir -p "${GITHUB_WORKSPACE}/test_results"
