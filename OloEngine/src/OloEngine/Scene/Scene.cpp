@@ -1510,11 +1510,11 @@ namespace OloEngine
         // Retrieve transforms from Jolt 3D physics. Partial-owning group: owns
         // Rigidbody3DComponent, borrows TransformComponent (owned by the sprite
         // loop) — see the ownership map at the top of this file (issue #443).
-        for (const auto rbGroup = m_Registry.group<Rigidbody3DComponent>(entt::get<TransformComponent>); const auto e : rbGroup)
+        for (auto rbGroup = m_Registry.group<Rigidbody3DComponent>(entt::get<TransformComponent>); const auto e : rbGroup)
         {
             Entity entity = { e, this };
-            auto& transform = entity.GetComponent<TransformComponent>();
-            const auto& rb3d = entity.GetComponent<Rigidbody3DComponent>();
+            auto& transform = rbGroup.get<TransformComponent>(e);
+            const auto& rb3d = rbGroup.get<Rigidbody3DComponent>(e);
 
             if (rb3d.m_RuntimeBodyToken != 0 && rb3d.m_Type != BodyType3D::Static && m_JoltScene)
             {
@@ -3060,7 +3060,7 @@ namespace OloEngine
             auto body = m_JoltScene->CreateBody(ent);
             if (body)
             {
-                auto& rb3d = ent.GetComponent<Rigidbody3DComponent>();
+                auto& rb3d = rbGroup.get<Rigidbody3DComponent>(entity);
                 // Store only the body token for safe runtime access
                 rb3d.m_RuntimeBodyToken = static_cast<std::uint64_t>(body->GetBodyID().GetIndexAndSequenceNumber());
             }
