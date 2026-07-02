@@ -137,6 +137,34 @@ TEST_F(UINavigationTest, ActivateFiresButtonClickAndSubmit)
     EXPECT_EQ(submits, 1);
 }
 
+// When input is suppressed (e.g. the rebind menu is capturing a key/button for
+// itself), Update ignores directional/activate/cancel input so the press is not
+// double-handled as navigation. Clearing suppression restores normal behaviour.
+TEST_F(UINavigationTest, InputSuppressionIgnoresNavigationAndActivation)
+{
+    int clicks = 0;
+    UINavigation& nav = GetScene().GetUINavigation();
+    nav.OnClick(m_Button1.GetUUID(), [&clicks]
+                { ++clicks; });
+    nav.SetFocus(m_Button1.GetUUID());
+    nav.SetInputSuppressed(true);
+
+    UINavInput activate;
+    activate.Activate = true;
+    UINavigationSystem::Update(GetScene(), activate);
+    EXPECT_EQ(clicks, 0);                           // activation ignored while suppressed
+    EXPECT_EQ(nav.GetFocus(), m_Button1.GetUUID()); // focus unchanged
+
+    // A directional press is likewise ignored (focus does not move).
+    UINavigationSystem::Update(GetScene(), NavDown());
+    EXPECT_EQ(nav.GetFocus(), m_Button1.GetUUID());
+
+    // Unsuppress: activation works again.
+    nav.SetInputSuppressed(false);
+    UINavigationSystem::Update(GetScene(), activate);
+    EXPECT_EQ(clicks, 1);
+}
+
 // Left/Right on a focused slider nudges its value by one step and fires
 // OnValueChanged with the new value — not a focus move.
 TEST_F(UINavigationTest, SliderRightAdjustsValueAndFiresValueChanged)

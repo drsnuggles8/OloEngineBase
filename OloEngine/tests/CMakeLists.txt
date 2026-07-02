@@ -187,6 +187,7 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/RendererAttachedTest.cpp
 		Rendering/PropertyTests/RendererAttachedSmokeTest.cpp
 		Rendering/PropertyTests/SceneRenderEvidenceTest.cpp
+		Rendering/PropertyTests/RebindMenuVisualEvidenceTest.cpp
 		# Headless-attach stretch of issue #316: hosts the read-only MCP server
 		# inside the test binary against the offscreen render-graph FB so
 		# olo_screenshot / olo_shader_errors work in the headless visual-verify
@@ -207,6 +208,8 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/TextureSaveRoundTripTest.cpp
 		Streaming/SceneStreamingTest.cpp
 		InputActionTest.cpp
+		InputRebindControllerTest.cpp
+		UI/RuntimeInputRebindMenuTest.cpp
 		GamepadTest.cpp
 		Networking/NetworkMessageTest.cpp
 		Networking/NetworkMessageDispatcherTest.cpp

@@ -69,3 +69,38 @@ All floats read back from YAML are validated with `std::isfinite` (a `NaN`
 `Threshold` falls back to `0.5`); unknown context names, malformed entries, and
 bad bindings are skipped with a warning rather than aborting the load (see the
 fuzz-regression and multi-context tests in `OloEngine/tests/InputActionTest.cpp`).
+
+## In-game rebinding (issue #475)
+
+A player can remap bindings from inside a running game. The rebind workflow is
+factored into a **UI-agnostic controller** so both the editor panel and the
+runtime menu share it:
+
+- **`InputRebindController`** (`Core/InputRebindController.{h,cpp}`) — the
+  "listen for input" state machine: `BeginCapture` / `BeginRebind` →
+  `OnKeyPressed` / `OnMouseButtonPressed` / `PollGamepad` capture the next input.
+  A captured binding that collides with another action is **surfaced, not
+  applied** (`HasPendingConflict` / `GetPendingConflict`); the UI then calls
+  `ResolveConflict(Replace | Swap | Keep | Cancel)`. `ResetActionToDefault` /
+  `ResetTargetMapToDefault` restore `CreateDefaultGameActions`, and
+  `Save(path)` persists every context via `InputActionSerializer`. The static
+  helpers (`FindConflict` / `ApplyBinding` / `Reset*`) are the reusable pure
+  logic — the editor's `InputSettingsPanel::ApplyNewBinding` calls `ApplyBinding`
+  instead of duplicating the conflict scan.
+- **`RuntimeInputRebindMenu`** (`UI/RuntimeInputRebindMenu.{h,cpp}`) — the
+  in-game panel, built on the ECS UI toolkit (canvas / panel / text / button
+  entities). `Open()` builds one row per action (bindings + Rebind / Pad / Reset
+  buttons) plus Reset-All / Save / Close and modal Capture / Conflict overlays;
+  `OnUpdate()` (called after the scene's UI input pass) polls button clicks and
+  gamepad capture; `OnEvent()` feeds keyboard/mouse capture.
+- **Runtime wiring** — `OloRuntime` toggles the menu with **F1**, pushes the
+  `Menu` context while it is open (so gameplay input is suppressed; the menu
+  always edits the *Gameplay* map regardless), and loads/saves
+  `Config/InputActions.yaml` so a rebind **survives a restart**.
+
+Runtime-UI gotchas worth knowing: ECS UI buttons expose only `m_State` (no
+callbacks) — poll it and edge-detect clicks (the menu fires on the press→release
+edge); a framebuffer readback (visual-evidence PNG) is Y-flipped vs. the live
+frame. Tests: `InputRebindControllerTest` (logic + persist round-trip),
+`UI/RuntimeInputRebindMenuTest` (headless click→capture through the real UI
+systems), and `RebindMenuVisualEvidenceTest` (renders the panel to a PNG).
