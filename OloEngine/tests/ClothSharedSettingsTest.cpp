@@ -24,6 +24,8 @@
 #include <glm/gtc/matrix_transform.hpp>
 
 #include <Jolt/Jolt.h>
+#include <Jolt/RegisterTypes.h>
+#include <Jolt/Core/Factory.h>
 #include <Jolt/Physics/SoftBody/SoftBodySharedSettings.h>
 
 #include <cmath>
@@ -44,7 +46,43 @@ namespace
     }
 } // namespace
 
-TEST(ClothSharedSettingsTest, ParticleAndFaceCountsMatchGrid)
+// CreateClothSharedSettings builds JPH::Array containers and runs CreateConstraints /
+// Optimize, which need Jolt's process-global default allocator + Factory + registered
+// RTTI. The engine bootstraps that through JoltScene under a refcount; here we set it up
+// once for the suite, but only if no live JoltScene already did — and tear down only what
+// we created, leaving global Jolt state exactly as we found it (mirrors
+// StaticMeshColliderGenerationTest).
+class ClothSharedSettingsTest : public ::testing::Test
+{
+  protected:
+    static void SetUpTestSuite()
+    {
+        if (JPH::Factory::sInstance == nullptr)
+        {
+            JPH::RegisterDefaultAllocator();
+            JPH::Factory::sInstance = new JPH::Factory();
+            JPH::RegisterTypes();
+            s_OwnsJolt = true;
+        }
+    }
+
+    static void TearDownTestSuite()
+    {
+        if (s_OwnsJolt)
+        {
+            JPH::UnregisterTypes();
+            delete JPH::Factory::sInstance;
+            JPH::Factory::sInstance = nullptr;
+            s_OwnsJolt = false;
+        }
+    }
+
+    static bool s_OwnsJolt;
+};
+
+bool ClothSharedSettingsTest::s_OwnsJolt = false;
+
+TEST_F(ClothSharedSettingsTest, ParticleAndFaceCountsMatchGrid)
 {
     constexpr u32 kCols = 8, kRows = 5;
     auto settings = JoltShapes::CreateClothSharedSettings(
@@ -56,7 +94,7 @@ TEST(ClothSharedSettingsTest, ParticleAndFaceCountsMatchGrid)
     EXPECT_EQ(settings->mFaces.size(), static_cast<sizet>(kCols - 1) * (kRows - 1) * 2);
 }
 
-TEST(ClothSharedSettingsTest, GridResolutionClampedToValidRange)
+TEST_F(ClothSharedSettingsTest, GridResolutionClampedToValidRange)
 {
     // Below the minimum (needs >= 2 per axis to form a quad) is clamped up.
     auto tiny = JoltShapes::CreateClothSharedSettings(
@@ -71,7 +109,7 @@ TEST(ClothSharedSettingsTest, GridResolutionClampedToValidRange)
     EXPECT_EQ(huge->mVertices.size(), static_cast<sizet>(128) * 128);
 }
 
-TEST(ClothSharedSettingsTest, AttachmentPinsTheRightParticles)
+TEST_F(ClothSharedSettingsTest, AttachmentPinsTheRightParticles)
 {
     constexpr u32 kCols = 6, kRows = 4;
 
@@ -95,7 +133,7 @@ TEST(ClothSharedSettingsTest, AttachmentPinsTheRightParticles)
     EXPECT_EQ(CountPinned(*leftEdge), kRows) << "LeftEdge pins the whole first column";
 }
 
-TEST(ClothSharedSettingsTest, FreeParticlesShareTotalMass)
+TEST_F(ClothSharedSettingsTest, FreeParticlesShareTotalMass)
 {
     constexpr u32 kCols = 5, kRows = 5;
     constexpr f32 kMass = 4.0f;
@@ -111,7 +149,7 @@ TEST(ClothSharedSettingsTest, FreeParticlesShareTotalMass)
     EXPECT_NEAR(accumulated, kMass, 1.0e-3f);
 }
 
-TEST(ClothSharedSettingsTest, WorldTransformIsBakedIntoRestPositions)
+TEST_F(ClothSharedSettingsTest, WorldTransformIsBakedIntoRestPositions)
 {
     constexpr u32 kCols = 2, kRows = 2;
     constexpr f32 kW = 2.0f, kH = 4.0f;
@@ -135,7 +173,7 @@ TEST(ClothSharedSettingsTest, WorldTransformIsBakedIntoRestPositions)
     EXPECT_NEAR(v3.z, kOffset.z + kH * 0.5f, 1.0e-4f);
 }
 
-TEST(ClothSharedSettingsTest, NonFiniteInputFailsClosed)
+TEST_F(ClothSharedSettingsTest, NonFiniteInputFailsClosed)
 {
     const f32 nan = std::numeric_limits<f32>::quiet_NaN();
     const f32 inf = std::numeric_limits<f32>::infinity();

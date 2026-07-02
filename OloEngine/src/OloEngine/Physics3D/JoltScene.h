@@ -21,6 +21,10 @@
 #include <Jolt/Physics/Body/BodyType.h>
 #include <Jolt/Physics/Constraints/Constraint.h>
 #include <Jolt/Physics/Collision/GroupFilterTable.h>
+// Full type (not a forward decl): ClothRuntime holds a JPH::Ref<SoftBodySharedSettings>
+// member, so its implicit destructor instantiates ~Ref → Release(), which Clang requires
+// the complete type for wherever this header is included (issue #460).
+#include <Jolt/Physics/SoftBody/SoftBodySharedSettings.h>
 
 #include <memory>
 #include <unordered_map>
@@ -30,8 +34,7 @@
 
 namespace JPH
 {
-    class VehicleConstraint;      // Forward declaration — full type only needed in JoltScene.cpp
-    class SoftBodySharedSettings; // Cloth soft body — full type only needed in JoltScene.cpp
+    class VehicleConstraint; // Forward declaration — full type only needed in JoltScene.cpp
 } // namespace JPH
 
 namespace OloEngine
