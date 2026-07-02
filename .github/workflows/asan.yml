@@ -212,7 +212,41 @@ jobs:
         echo "$rtDir" >> $env:GITHUB_PATH
 
     - name: Build (Release)
-      run: cmake --build build --config Release --target OloEngine-Tests --parallel
+      # --parallel 2 matches the Linux sanitizer jobs: clang-cl under ASan uses several GB
+      # per translation unit, and full concurrency exhausts runner memory on the largest
+      # instrumented TUs (GameNetworkingSockets' steamnetworkingsockets_*.cpp).
+      #
+      # Retry wrapper: even at --parallel 2 the Windows sccache server intermittently drops a
+      # single in-flight compile — "sccache: error: failed to execute compile … An existing
+      # connection was forcibly closed by the remote host. (os error 10054)" — which fails the
+      # build. It's transient (a different TU each run, not reproducible locally) and the build
+      # continues past it, so it's an sccache-server flake, not our code. Because the build is
+      # incremental, a retry resumes with everything-but-the-dropped-TU already built and gets
+      # past it while keeping the sccache cache.
+      #
+      # The retry is gated on that exact signature ("os error 10054"): a build that fails WITHOUT
+      # it is a real compile/link error and must fail fast, not loop three times. Bounded to 3.
+      shell: pwsh
+      run: |
+        # Native-command stderr must not abort the retry loop under GitHub's default 'Stop'.
+        $ErrorActionPreference = 'Continue'
+        $attempts = 3
+        $signature = 'os error 10054'
+        for ($i = 1; $i -le $attempts; $i++) {
+          $log = "asan-build-attempt-$i.log"
+          cmake --build build --config Release --target OloEngine-Tests --parallel 2 2>&1 | Tee-Object -FilePath $log
+          $code = $LASTEXITCODE
+          if ($code -eq 0) { break }
+          if (-not (Select-String -Path $log -Pattern $signature -SimpleMatch -Quiet)) {
+            Write-Host "::error::Build failed (exit $code) with no transient sccache signature — real compile/link error, not retrying."
+            exit $code
+          }
+          if ($i -eq $attempts) {
+            Write-Host "::error::Build failed after $attempts attempts (last exit $code) — transient sccache drops ('$signature') did not clear."
+            exit $code
+          }
+          Write-Host "::warning::Build attempt $i hit a transient sccache drop ('$signature'); retrying ($($i + 1)/$attempts)..."
+        }
 
     # Read the cache hit rate. A cold cache (first run / after a real source
     # change) is mostly misses + writes; a warm cache shows a high hit rate,

@@ -5,6 +5,12 @@
 #include "OloEngine/Asset/AssetManager.h"
 #include "OloEngine/Asset/AssetManager/RuntimeAssetManager.h"
 #include "OloEngine/Asset/AssetPack.h"
+#include "OloEngine/Core/Input.h"
+#include "OloEngine/Core/InputAction.h"
+#include "OloEngine/Core/InputActionManager.h"
+#include "OloEngine/Core/InputActionSerializer.h"
+#include "OloEngine/Core/KeyCodes.h"
+#include "OloEngine/Events/KeyEvent.h"
 #include "OloEngine/Project/Project.h"
 #include "OloEngine/Scene/Scene.h"
 #include "OloEngine/Scene/SceneSerializer.h"
@@ -12,6 +18,7 @@
 #include "OloEngine/Scripting/Lua/LuaScriptEngine.h"
 #include "OloEngine/Renderer/Renderer.h"
 #include "OloEngine/Renderer/RenderCommand.h"
+#include "OloEngine/UI/RuntimeInputRebindMenu.h"
 
 #include <filesystem>
 #include <imgui.h>
@@ -127,11 +134,95 @@ namespace OloEngine
             }
             m_ActiveScene->OnRuntimeStart();
 
+            LoadInputActions();
+
             OLO_CORE_INFO("[Runtime] Game started successfully");
+        }
+
+        // Restore saved key bindings so a rebind persists across restarts (issue #475). Falls
+        // back to CreateDefaultGameActions so the in-game rebind menu (toggle with F1) always
+        // has a populated Gameplay map to remap.
+        void LoadInputActions()
+        {
+            if (std::filesystem::exists(kInputActionsPath))
+            {
+                if (auto loaded = InputActionSerializer::DeserializeContexts(kInputActionsPath); loaded && !loaded->empty())
+                {
+                    InputActionManager::ReplaceAllContextMaps(*loaded);
+
+                    // Merge any MISSING default Gameplay actions into the loaded map while keeping
+                    // the player's saved rebinds. This covers a fully-empty Gameplay context (never
+                    // written because Save skips empty maps) AND a partially-populated one (a
+                    // default action added in a newer build that the old save predates), so the
+                    // game — and the rebind menu, which edits Gameplay — always sees the full set.
+                    InputActionMap& gameplay = InputActionManager::GetActionMapMutable(InputContextType::Gameplay);
+                    const InputActionMap defaults = CreateDefaultGameActions();
+                    u32 addedDefaults = 0;
+                    for (const auto& [name, action] : defaults.Actions)
+                    {
+                        if (!gameplay.HasAction(name))
+                        {
+                            gameplay.AddAction(action);
+                            ++addedDefaults;
+                        }
+                    }
+                    if (addedDefaults > 0)
+                    {
+                        OLO_CORE_WARN("[Runtime] Merged {} missing default Gameplay action(s) into loaded input bindings", addedDefaults);
+                    }
+                    else
+                    {
+                        OLO_CORE_INFO("[Runtime] Loaded input bindings from {}", kInputActionsPath.string());
+                    }
+                    return;
+                }
+            }
+
+            InputActionManager::SetActionMap(InputContextType::Gameplay, CreateDefaultGameActions());
+            OLO_CORE_INFO("[Runtime] No saved input bindings — seeded default game actions");
+        }
+
+        void ToggleRebindMenu()
+        {
+            if (!m_ActiveScene)
+            {
+                return;
+            }
+
+            if (m_RebindMenu.IsOpen())
+            {
+                CloseRebindMenu();
+            }
+            else
+            {
+                // Suppress gameplay input while remapping by pushing the Menu context; the menu
+                // itself always edits the Gameplay map regardless of the active context.
+                InputActionManager::PushContext(InputContextType::Menu);
+                m_MenuContextPushed = true;
+                // The panel needs a visible cursor to click; restore the game's cursor on close.
+                m_PrevCursorMode = Input::GetCursorMode();
+                Input::SetCursorMode(CursorMode::Normal);
+                m_RebindMenu.Open(*m_ActiveScene, InputContextType::Gameplay, kInputActionsPath);
+            }
+        }
+
+        // Close the menu and undo the context/cursor changes made when it opened. Safe to call
+        // whether the menu was closed by F1 or by its own Close button.
+        void CloseRebindMenu()
+        {
+            m_RebindMenu.Close();
+            if (m_MenuContextPushed)
+            {
+                InputActionManager::PopContext();
+                m_MenuContextPushed = false;
+                Input::SetCursorMode(m_PrevCursorMode);
+            }
         }
 
         void OnDetach() override
         {
+            // Tear the menu down before the scene it built into goes away.
+            CloseRebindMenu();
             if (m_ActiveScene)
             {
                 m_ActiveScene->OnRuntimeStop();
@@ -173,6 +264,20 @@ namespace OloEngine
             // accumulated and gameplay advances in fixed dt steps, rendering once.
             m_ActiveScene->OnUpdateRuntimeFixed(ts, Application::Get().GetFixedTimeStep());
 
+            // Drive the in-game rebind menu AFTER the scene's UI input pass so its button
+            // states and captured gamepad input are current this frame.
+            if (m_RebindMenu.IsOpen())
+            {
+                m_RebindMenu.OnUpdate();
+                // The menu may have closed itself via its Close button — route through the same
+                // teardown as an F1 close so context/cursor restore isn't duplicated. Close() is a
+                // no-op on the already-closed menu; CloseRebindMenu only pops if it pushed.
+                if (!m_RebindMenu.IsOpen())
+                {
+                    CloseRebindMenu();
+                }
+            }
+
             // Handle script-triggered scene reload (e.g., death/respawn)
             if (m_ActiveScene->GetPendingReload())
             {
@@ -183,8 +288,16 @@ namespace OloEngine
 
         void OnEvent(Event& e) override
         {
+            // Feed keyboard/mouse into an active rebind capture first so it consumes the input.
+            if (m_RebindMenu.OnEvent(e))
+            {
+                e.Handled = true;
+                return;
+            }
+
             EventDispatcher dispatcher(e);
             dispatcher.Dispatch<WindowResizeEvent>(OLO_BIND_EVENT_FN(RuntimeLayer::OnWindowResize));
+            dispatcher.Dispatch<KeyPressedEvent>(OLO_BIND_EVENT_FN(RuntimeLayer::OnKeyPressed));
         }
 
       private:
@@ -216,6 +329,22 @@ namespace OloEngine
             m_ViewportWidth = width;
             m_ViewportHeight = height;
 
+            return false;
+        }
+
+        bool OnKeyPressed(KeyPressedEvent const& e)
+        {
+            // Ignore auto-repeat so holding F1 doesn't flip the menu open/closed every frame.
+            if (e.IsRepeat())
+            {
+                return false;
+            }
+            // F1 toggles the in-game input rebind menu.
+            if (e.GetKeyCode() == Key::F1)
+            {
+                ToggleRebindMenu();
+                return true;
+            }
             return false;
         }
 
@@ -320,9 +449,19 @@ namespace OloEngine
         u32 m_ViewportWidth = 0;
         u32 m_ViewportHeight = 0;
 
+        // In-game input rebind menu (issue #475). Toggled with F1; persists to kInputActionsPath.
+        RuntimeInputRebindMenu m_RebindMenu;
+        bool m_MenuContextPushed = false;
+        CursorMode m_PrevCursorMode = CursorMode::Normal;
+        static inline const std::filesystem::path kInputActionsPath{ "Config/InputActions.yaml" };
+
         void ReloadScene()
         {
             OLO_CORE_INFO("[Runtime] Reloading scene: {}", m_ScenePath.string());
+
+            // Close the rebind menu first — it holds a Scene* / entity handles into the scene
+            // we are about to destroy, which would dangle on the next OnUpdate.
+            CloseRebindMenu();
 
             // Reset time scale in case we were paused
             Application::Get().SetTimeScale(1.0f);
