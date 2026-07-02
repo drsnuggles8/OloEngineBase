@@ -3,13 +3,13 @@
 //
 // Per-component scene-YAML deserialize blocks — one block per
 // `struct *Component` whose every data member is a primitive / small-int /
-// glm::vec*/ivec*/quat/mat* / std::string / AssetHandle / enum, or a
-// std::vector of one of those (the generator's SceneSerType plus the enum-type
-// and std::vector handling), minus the kComponentsCustomSerialize exclusion set
-// (trivial components deliberately kept hand-written). A component with any
-// still-unhandled non-trivial field (Ref<T>, std::unordered_map/set, nested
-// struct, std::vector of struct, or a non-public member) is classified
-// non-trivial and stays hand-written in SceneSerializer.cpp.
+// glm::vec*/ivec*/quat/mat* / std::string / AssetHandle / enum, an all-trivial
+// nested struct, or a std::vector of one of those (the generator's SceneSerType
+// plus the enum-type, nested-struct, and std::vector handling), minus the
+// kComponentsCustomSerialize exclusion set (trivial components deliberately kept
+// hand-written). A component with any still-unhandled non-trivial field (Ref<T>,
+// std::unordered_map/set, std::array, a vector-of-non-trivial-struct, or a
+// non-public member) is classified non-trivial and stays hand-written.
 //
 // #include'd inside SceneSerializer::DeserializeEntityComponents, where `entity` (const YAML::Node&) and `deserializedEntity` (Entity&)
 // are in scope. Floats are validated with std::isfinite via TryReadFiniteF32 /

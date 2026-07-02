@@ -261,6 +261,7 @@ add_executable(OloEngine-Tests
 		Serialization/SoundConfigSerializerTest.cpp
 		Serialization/EnvironmentSerializerTest.cpp
 		Serialization/FontAssetPackSerializerTest.cpp
+		Serialization/NestedStructSerializerCodegenTest.cpp
 		# SaveGame Tests
 		SaveGame/SaveGameFileTest.cpp
 		SaveGame/SaveGameManagerTest.cpp
