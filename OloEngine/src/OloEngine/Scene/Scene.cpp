@@ -109,6 +109,35 @@
 
 namespace OloEngine
 {
+    // ── EnTT owning-group ownership map (issue #443) ──────────────────────────
+    // EnTT v4 rule (registry.hpp:1064 assertion "Conflicting groups"): a
+    // component may be *owned* by at most ONE owning group; a component owned by
+    // one group may still be *observed* (entt::get<>) by any number of others.
+    // The hottest per-frame multi-component loops below use owning / partial-
+    // owning groups so their owned pools iterate as a tight packed range. Keep
+    // this table current — creating a group that owns an already-owned component
+    // is a runtime assert, not a compile error:
+    //
+    //   OWNED component            GROUP (owner)                         OBSERVED (get)
+    //   -----------------------    ----------------------------------    ---------------
+    //   TransformComponent         2D sprite draw loop                   SpriteRendererComponent
+    //   AudioListenerComponent     audio listener sync                   TransformComponent
+    //   AudioSourceComponent       audio source sync                     TransformComponent
+    //   Rigidbody3DComponent       physics 3D transform sync (#443)      TransformComponent
+    //   ParticleSystemComponent    particle system update/render (#443)  TransformComponent
+    //   AnimationStateComponent }  animation update (full-owning, #443)  — (none)
+    //   SkeletonComponent       }
+    //
+    // TransformComponent is already owned by the sprite loop, so physics and
+    // particles CANNOT own it — they partial-own their unique component and
+    // borrow Transform via entt::get<>, matching the existing audio groups.
+    // Animation owns both AnimationStateComponent + SkeletonComponent (neither
+    // is shared with another hot loop), giving a full-owning group. Views over
+    // these components elsewhere (morph-only anim, skeleton mesh, single-
+    // component particle draws) are unaffected — views never conflict with
+    // ownership; the group only reorders the owned pools.
+    // ──────────────────────────────────────────────────────────────────────────
+
     // Underwater test (WATER_FUTURE_IMPROVEMENTS.md §7.2). True when `cameraPos`
     // lies inside the water plane's XZ footprint; writes the signed vertical gap
     // (still-surface Y − camera Y; positive = camera below the surface) to
@@ -1478,8 +1507,10 @@ namespace OloEngine
             }
         }
 
-        // Retrieve transforms from Jolt 3D physics
-        for (const auto view = m_Registry.view<Rigidbody3DComponent, TransformComponent>(); const auto e : view)
+        // Retrieve transforms from Jolt 3D physics. Partial-owning group: owns
+        // Rigidbody3DComponent, borrows TransformComponent (owned by the sprite
+        // loop) — see the ownership map at the top of this file (issue #443).
+        for (const auto rbGroup = m_Registry.group<Rigidbody3DComponent>(entt::get<TransformComponent>); const auto e : rbGroup)
         {
             Entity entity = { e, this };
             auto& transform = entity.GetComponent<TransformComponent>();
@@ -1563,9 +1594,11 @@ namespace OloEngine
                 m_DialogueSystem->Update(ts);
             }
 
-            // Update animations
+            // Update animations. Full-owning group over AnimationStateComponent +
+            // SkeletonComponent (neither is shared with the physics/particle hot
+            // loops, so both pools are owned — issue #443 ownership map).
             {
-                auto animView = m_Registry.view<AnimationStateComponent, SkeletonComponent>();
+                auto animView = m_Registry.group<AnimationStateComponent, SkeletonComponent>();
                 for (auto e : animView)
                 {
                     auto& animState = animView.get<AnimationStateComponent>(e);
@@ -1845,10 +1878,12 @@ namespace OloEngine
                     }
                 }
 
-                for (auto view = m_Registry.view<TransformComponent, ParticleSystemComponent>(); auto entity : view)
+                // Partial-owning group: owns ParticleSystemComponent, borrows
+                // TransformComponent (issue #443 ownership map).
+                for (auto psGroup = m_Registry.group<ParticleSystemComponent>(entt::get<TransformComponent>); auto entity : psGroup)
                 {
-                    const auto& transform = view.get<TransformComponent>(entity);
-                    auto& psc = view.get<ParticleSystemComponent>(entity);
+                    const auto& transform = psGroup.get<TransformComponent>(entity);
+                    auto& psc = psGroup.get<ParticleSystemComponent>(entity);
                     // Provide Jolt scene for raycast collision
                     psc.System.SetJoltScene(m_JoltScene.get());
                     psc.System.UpdateLOD(camPos, transform.Translation);
@@ -2188,10 +2223,11 @@ namespace OloEngine
         // Update particle systems so they preview in the editor
         {
             const glm::vec3 camPos = camera.GetPosition();
-            for (auto view = m_Registry.view<TransformComponent, ParticleSystemComponent>(); auto entity : view)
+            // Reuses the ParticleSystemComponent owning group (issue #443).
+            for (auto psGroup = m_Registry.group<ParticleSystemComponent>(entt::get<TransformComponent>); auto entity : psGroup)
             {
-                const auto& transform = view.get<TransformComponent>(entity);
-                auto& psc = view.get<ParticleSystemComponent>(entity);
+                const auto& transform = psGroup.get<TransformComponent>(entity);
+                auto& psc = psGroup.get<ParticleSystemComponent>(entity);
                 psc.System.UpdateLOD(camPos, transform.Translation);
                 psc.System.Update(ts, transform.Translation, glm::vec3(0.0f), transform.GetRotation());
 
@@ -2203,9 +2239,10 @@ namespace OloEngine
         // Process snow deformer entities in editor preview
         ProcessSnowDeformers(ts, m_EditorSnowPrevPositions);
 
-        // Update animations so they preview in the editor (IK responds to target movement)
+        // Update animations so they preview in the editor (IK responds to target movement).
+        // Reuses the AnimationStateComponent + SkeletonComponent owning group (issue #443).
         {
-            auto animView = m_Registry.view<AnimationStateComponent, SkeletonComponent>();
+            auto animView = m_Registry.group<AnimationStateComponent, SkeletonComponent>();
             for (auto e : animView)
             {
                 auto& animState = animView.get<AnimationStateComponent>(e);
@@ -3010,9 +3047,12 @@ namespace OloEngine
             return;
         }
 
-        // Create physics bodies for all entities with Rigidbody3DComponent
-        auto view = m_Registry.view<Rigidbody3DComponent, TransformComponent>();
-        for (auto entity : view)
+        // Create physics bodies for all entities with Rigidbody3DComponent.
+        // Establishing the Rigidbody3D owning group here front-loads its one-time
+        // packing pass at physics-start, before the per-step transform-sync loop
+        // in OnPhysics3DUpdate reuses it (issue #443 ownership map).
+        auto rbGroup = m_Registry.group<Rigidbody3DComponent>(entt::get<TransformComponent>);
+        for (auto entity : rbGroup)
         {
             Entity ent = { entity, this };
 
@@ -6313,10 +6353,12 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        // Sort particle systems back-to-front for correct alpha blending
-        auto psView = m_Registry.view<TransformComponent, ParticleSystemComponent>();
+        // Sort particle systems back-to-front for correct alpha blending.
+        // Reuses the ParticleSystemComponent owning group (issue #443); a group
+        // exposes an exact size(), so reserve is precise (not a hint).
+        auto psView = m_Registry.group<ParticleSystemComponent>(entt::get<TransformComponent>);
         std::vector<std::pair<f32, entt::entity>> sortedSystems;
-        sortedSystems.reserve(psView.size_hint());
+        sortedSystems.reserve(psView.size());
         for (auto entity : psView)
         {
             const auto& tc = psView.get<TransformComponent>(entity);
