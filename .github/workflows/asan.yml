@@ -212,14 +212,29 @@ jobs:
         echo "$rtDir" >> $env:GITHUB_PATH
 
     - name: Build (Release)
-      # Pinned to --parallel 2, matching the Linux sanitizer jobs: clang-cl under
-      # ASan instrumentation uses several GB per translation unit, and at the default
-      # full concurrency the runner's memory is exhausted while compiling the largest
-      # instrumented TUs (GameNetworkingSockets' steamnetworkingsockets_*.cpp). On
-      # Windows that surfaces as the sccache server being killed mid-compile —
-      # "sccache: error: failed to execute compile … An existing connection was
-      # forcibly closed by the remote host. (os error 10054)" — failing the build.
-      run: cmake --build build --config Release --target OloEngine-Tests --parallel 2
+      # --parallel 2 matches the Linux sanitizer jobs: clang-cl under ASan uses several GB
+      # per translation unit, and full concurrency exhausts runner memory on the largest
+      # instrumented TUs (GameNetworkingSockets' steamnetworkingsockets_*.cpp).
+      #
+      # Retry wrapper: even at --parallel 2 the Windows sccache server intermittently drops a
+      # single in-flight compile — "sccache: error: failed to execute compile … An existing
+      # connection was forcibly closed by the remote host. (os error 10054)" — which fails the
+      # build. It's transient (a different TU each run, not reproducible locally) and the build
+      # continues past it, so it's an sccache-server flake, not our code. Because the build is
+      # incremental, a retry resumes with everything-but-the-dropped-TU already built and gets
+      # past it while keeping the sccache cache. Bounded to 3 attempts.
+      shell: pwsh
+      run: |
+        $attempts = 3
+        for ($i = 1; $i -le $attempts; $i++) {
+          cmake --build build --config Release --target OloEngine-Tests --parallel 2
+          if ($LASTEXITCODE -eq 0) { break }
+          if ($i -eq $attempts) {
+            Write-Host "::error::Build failed after $attempts attempts (exit code $LASTEXITCODE)."
+            exit $LASTEXITCODE
+          }
+          Write-Host "::warning::Build attempt $i failed (exit $LASTEXITCODE) — likely a transient sccache server drop; retrying ($($i + 1)/$attempts)..."
+        }
 
     # Read the cache hit rate. A cold cache (first run / after a real source
     # change) is mostly misses + writes; a warm cache shows a high hit rate,
