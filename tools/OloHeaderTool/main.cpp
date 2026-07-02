@@ -53,6 +53,7 @@
 #include <iostream>
 #include <iterator>
 #include <map>
+#include <optional>
 #include <regex>
 #include <set>
 #include <sstream>
@@ -103,14 +104,22 @@ enum class PropType
     Mat3,
     Mat4,
     String,
-    Enum, // An `enum` / `enum class` type. Scene-serializer-only: round-trips as
-          // an int (static_cast<int> on write, .as<int> on read), cast back to the
-          // field's own type via decltype so a nested enum (e.g.
-          // AnimationStateComponent::State) needs no qualified spelling at the
-          // SceneSerializer level. Detected by name against the collected enum-type
-          // set (see CollectEnumTypes) in ParseComponentFields, not by SceneSerType
-          // (which only knows built-in type names). The scripting path never produces
-          // this — only the scene serializer codegen emits it.
+    Enum,   // An `enum` / `enum class` type. Scene-serializer-only: round-trips as
+            // an int (static_cast<int> on write, .as<int> on read), cast back to the
+            // field's own type via decltype so a nested enum (e.g.
+            // AnimationStateComponent::State) needs no qualified spelling at the
+            // SceneSerializer level. Detected by name against the collected enum-type
+            // set (see CollectEnumTypes) in ParseComponentFields, not by SceneSerType
+            // (which only knows built-in type names). The scripting path never produces
+            // this — only the scene serializer codegen emits it.
+    Struct, // A nested `struct` (or `std::vector<struct>`) whose every member is
+            // itself a serializer-trivial type (recursively). Scene-serializer-only:
+            // round-trips as a nested YAML sub-map (scalar member) or a sequence of
+            // sub-maps (vector member). The sub-struct's fields are carried in
+            // SerField::subFields; SerField::isVector distinguishes the two shapes.
+            // Detected by recursively parsing the member type's struct definition
+            // (see CollectStructBodies / ClassifyStruct in ParseComponentFields);
+            // #451's nested-struct slice. The scripting path never produces this.
     Unknown
 };
 
@@ -898,11 +907,12 @@ static const std::set<std::string> kComponentsCustomOnRemove = {
 // kept HAND-WRITTEN in SceneSerializer.cpp rather than auto-generated.
 // The scene serialize/deserialize codegen (issue #380; AssetHandle/UUID added by
 // the #451 first slice, enums by the #451 enum slice, glm-math + small-int +
-// std::vector<primitive> by the #451 glm/vector slice) emits a block for every
-// all-trivial component EXCEPT these; anything with a still-unhandled non-trivial
-// field (Ref<T>, std::unordered_map/set, nested struct, std::vector of struct, or a
-// non-public data member) is classified non-trivial by the parser and skipped
-// automatically without needing an entry here.
+// std::vector<primitive> by the #451 glm/vector slice, and an all-trivial nested
+// struct / std::vector<struct> — recursively — by the #451 nested-struct slice)
+// emits a block for every all-trivial component EXCEPT these; anything with a
+// still-unhandled non-trivial field (Ref<T>, std::unordered_map/set, std::array, a
+// std::vector<Ref<T>> / vector-of-non-trivial-struct, or a non-public data member) is
+// classified non-trivial by the parser and skipped automatically without an entry here.
 //
 // Each entry is a trivial component whose hand-written block does something the
 // plain round-trip generator must NOT silently drop:
@@ -963,6 +973,32 @@ static const std::set<std::string> kComponentsCustomOnRemove = {
 //   * PhaseComponent — animation phase runtime state (kRuntimeOnly in the
 //     coverage test); its persistence is intentionally hand-managed.
 //   * UIResolvedRectComponent — per-tick layout-resolved rect, never serialized.
+//   * LODGroupComponent — the #451 nested-struct slice made its `LODGroup m_LODGroup`
+//     member (a nested struct wrapping a std::vector<LODLevel> + Bias) serializable,
+//     so the parser now sees the whole component as all-trivial. But the hand-written
+//     serializer (a) FLATTENS the sub-struct — it emits top-level `Bias` / `Levels`
+//     keys, not a nested `LODGroup:` sub-map, so auto-gen changes the on-disk format;
+//     and (b) omits the runtime-baked `m_GeneratedLODHandles` vector that auto-gen
+//     would persist. Kept hand-written for on-disk compatibility. (#451 nested slice.)
+//   * NavMeshBoundsComponent — the #451 nested-struct slice made its
+//     `std::vector<OffMeshLink> m_Links` (a vector of an all-trivial struct)
+//     serializable → the parser sees it all-trivial. But deserialize SanitizeVec3()s
+//     Min/Max, orders Min<=Max per axis, and drops links with non-finite endpoints /
+//     clamps each link Radius — guards auto-gen would relax. Kept hand-written.
+//     (#451 nested/vector-of-struct slice.)
+//   * DialogueStateComponent — active dialogue progression (kRuntimeOnly in the
+//     coverage test). The #451 nested-struct slice made its
+//     `std::vector<DialogueChoice> m_AvailableChoices` serializable, flipping it to
+//     all-trivial; it MUST be excluded so this per-tick runtime state is not written
+//     into scene files (same blind-spot as IDComponent — it has no hand-written block,
+//     so the disjointness test can't catch an unwanted auto-generation).
+//   * NoiseAnimationStateComponent / SpringBoneStateComponent — per-tick runtime
+//     simulation state (a `*StateComponent`; excluded from the AllComponents tuple as
+//     runtime-derived). The #451 nested-struct slice made their nested `State` member
+//     (Animation::NoiseAnimationState / Animation::SpringBoneState — the latter carries
+//     std::vector<glm::vec3> position buffers) serializable, flipping them all-trivial.
+//     Excluded so the runtime state is never persisted; like DialogueStateComponent
+//     they have no hand-written block, so nothing else guards against the drift.
 //
 // DISJOINTNESS is guarded by ComponentSerializerCoverageTest: a component must be
 // handled by EXACTLY ONE of the generated .inl or the hand-written serializer —
@@ -971,12 +1007,16 @@ static const std::set<std::string> kComponentsCustomOnRemove = {
 static const std::set<std::string> kComponentsCustomSerialize = {
     "BuoyancyComponent",
     "DialogueComponent",
+    "DialogueStateComponent",
     "FogVolumeComponent",
     "IDComponent",
     "IKTargetComponent",
+    "LODGroupComponent",
     "LightProbeVolumeComponent",
     "NavAgentComponent",
+    "NavMeshBoundsComponent",
     "NoiseAnimationComponent",
+    "NoiseAnimationStateComponent",
     "PerceptionComponent",
     "PhaseComponent",
     "PhysicsJoint3DComponent",
@@ -985,6 +1025,7 @@ static const std::set<std::string> kComponentsCustomSerialize = {
     "SnowDeformerComponent",
     "SphereAreaLightComponent",
     "SpringBoneComponent",
+    "SpringBoneStateComponent",
     "StreamingVolumeComponent",
     "TagComponent",
     "UIResolvedRectComponent",
@@ -1077,7 +1118,13 @@ struct SerField
     PropType type{ PropType::Unknown };
     // When true the member is a std::vector<E> serialized as a YAML sequence; `type`
     // holds the ELEMENT PropType E (which must itself be a trivial serializer type).
+    // For a std::vector<struct>, type == PropType::Struct and subFields holds the
+    // element struct's fields.
     bool isVector{ false };
+    // Populated only when type == PropType::Struct: the recursively-classified
+    // fields of the nested struct (scalar member) or the vector's element struct
+    // (isVector). Empty for every scalar / primitive / enum type.
+    std::vector<SerField> subFields;
 };
 
 // Per-component result of the field scan.
@@ -1101,10 +1148,13 @@ struct ComponentSerInfo
 // can't recognise it by spelling. ParseComponentFields classifies a member
 // PropType::Enum by matching its type against the collected enum-type set
 // (CollectEnumTypes), and a std::vector<E> by parsing its element type, both AFTER this
-// returns Unknown. Anything still unhandled — Ref<T>, std::unordered_map/set, nested
-// struct, std::vector of struct, raw pointer, … — returns Unknown and (being neither a
-// built-in, an enum, nor a recognised vector) marks the component non-trivial so it
-// stays hand-written in SceneSerializer.cpp (a future #451 slice).
+// returns Unknown. A member that names an all-trivial nested struct (or a
+// std::vector<struct> of one) is classified PropType::Struct by ClassifyStruct —
+// #451's nested-struct slice — also AFTER this returns Unknown. Anything still
+// unhandled — Ref<T>, std::unordered_map/set, std::array, a vector-of-non-trivial-
+// struct, raw pointer, … — returns Unknown and (being neither a built-in, an enum, a
+// recognised vector, nor a trivial nested struct) marks the component non-trivial so
+// it stays hand-written in SceneSerializer.cpp (a future #451 slice).
 static PropType SceneSerType(const std::string& t)
 {
     if (t == "f32" || t == "float")
@@ -1363,13 +1413,55 @@ static std::string LeafTypeName(const std::string& type)
     return type;
 }
 
-// Parse the top-level data members of a `struct *Component { ... }` body and
-// classify the component as auto-serializable or not. A member is collected only
-// when it is unambiguously a `<trivial-type> <name>` field declaration. Anything
-// the parser cannot confidently classify as a trivial field — a non-trivial type,
-// a pointer/reference/template/array/bitfield, a const member — marks the whole
-// component non-trivial so it is left hand-written (ambiguity always fails safe).
-static ComponentSerInfo ParseComponentFields(std::string body, const std::set<std::string>& enumTypes)
+// Forward declaration: ParseComponentFields and ClassifyStruct are mutually
+// recursive (a component member of struct type is classified by re-parsing that
+// struct's body, which may itself contain nested-struct members).
+static ComponentSerInfo ParseComponentFields(std::string body,
+                                             const std::set<std::string>& enumTypes,
+                                             const std::map<std::string, std::string>& structDefs,
+                                             std::set<std::string> visited);
+
+// Classify a nested struct member type by its leaf name (issue #451 nested-struct
+// slice). Returns the recursively-classified field list iff `leaf` names a struct
+// (in the CollectStructBodies registry) whose EVERY member is itself a
+// serializer-trivial type — a primitive / small-int / glm / string / AssetHandle /
+// enum / std::vector<one-of-those> / a further nested-trivial-struct — and all
+// members are public. Returns std::nullopt otherwise (unknown type, any non-trivial
+// or non-public member, an empty struct, or a re-entrant type via `visited`).
+//
+// `visited` carries the chain of struct leaf names currently being classified. A
+// value member can't form a real cycle in C++ (A-by-value-in-A won't compile), but
+// the guard makes the recursion provably terminating and tolerates a
+// pointer/reference back-edge (already non-trivial, so it fails safe anyway).
+static std::optional<std::vector<SerField>> ClassifyStruct(
+    const std::string& leaf,
+    const std::set<std::string>& enumTypes,
+    const std::map<std::string, std::string>& structDefs,
+    std::set<std::string> visited)
+{
+    if (visited.contains(leaf))
+        return std::nullopt; // defensive cycle break
+    auto it = structDefs.find(leaf);
+    if (it == structDefs.end())
+        return std::nullopt; // not a known struct (e.g. Ref<T>, std::array, a class)
+    visited.insert(leaf);
+    ComponentSerInfo sub = ParseComponentFields(it->second, enumTypes, structDefs, std::move(visited));
+    if (!sub.trivial)
+        return std::nullopt; // a member of the nested struct is itself non-trivial
+    return sub.fields;
+}
+
+// Parse the top-level data members of a `struct { ... }` body and classify it as
+// auto-serializable or not — used for both `struct *Component` bodies and (via
+// ClassifyStruct) nested struct member types. A member is collected only when it is
+// unambiguously a `<trivial-type> <name>` field declaration. Anything the parser
+// cannot confidently classify as a trivial field — a non-trivial type, a
+// pointer/reference/template/array/bitfield, a const member — marks the whole
+// struct non-trivial so it is left hand-written (ambiguity always fails safe).
+static ComponentSerInfo ParseComponentFields(std::string body,
+                                             const std::set<std::string>& enumTypes,
+                                             const std::map<std::string, std::string>& structDefs,
+                                             std::set<std::string> visited)
 {
     ComponentSerInfo info;
     bool ambiguous = false;
@@ -1385,8 +1477,19 @@ static ComponentSerInfo ParseComponentFields(std::string body, const std::set<st
     // before statement splitting so they never merge into the next field's line.
     body = StripBalancedMacro(body, "OLO_PROPERTY");
 
-    // Split the body into top-level statements at ';' (brace-depth 0). Nested
-    // braces — initializer lists, method bodies — are kept inside one statement.
+    // Split the body into top-level statements at ';' (brace-depth 0) AND at the
+    // `}` that returns to brace-depth 0. The extra `}` split isolates an inline
+    // method body — `void Foo() { ... }` carries no trailing ';', so without this
+    // it would MERGE forward into the next member's statement, dropping that member
+    // and (worse) swallowing an intervening `private:` label so a private member is
+    // mis-seen as public. Flushing at the balancing `}` makes the method its own
+    // statement (skipped later — it has '('), and the following member / access
+    // label parses cleanly. Braced default-initializers (`glm::vec3 v = { … };`,
+    // `T x{};`) also flush at their closing `}`, but the declarator is taken before
+    // the first '=' / '{', so they still classify correctly; the leftover ';' just
+    // yields an empty statement that Trim() drops. This robustness is what lets a
+    // nested struct with inline methods + private members (e.g. ColliderMaterial)
+    // be correctly classified non-trivial instead of emitting private-access code.
     std::vector<std::string> statements;
     {
         int depth = 0;
@@ -1400,8 +1503,14 @@ static ComponentSerInfo ParseComponentFields(std::string body, const std::set<st
             }
             else if (c == '}')
             {
-                --depth;
+                if (depth > 0)
+                    --depth;
                 buf += c;
+                if (depth == 0)
+                {
+                    statements.push_back(buf);
+                    buf.clear();
+                }
             }
             else if (c == ';' && depth == 0)
             {
@@ -1513,11 +1622,22 @@ static ComponentSerInfo ParseComponentFields(std::string body, const std::set<st
             PropType ept = SceneSerType(inner);
             if (ept == PropType::Unknown && enumTypes.contains(LeafTypeName(inner)))
                 ept = PropType::Enum; // a vector of enum — each element round-trips as an int
+            // A vector whose element is itself an all-trivial nested struct — each
+            // element round-trips as a YAML sub-map (issue #451 nested-struct slice).
+            // Guarded by inner.find('<') == npos so a vector<vector<…>> / vector<Ref<T>>
+            // stays non-trivial (nested templates aren't parsed here).
+            std::optional<std::vector<SerField>> elemStruct;
+            if (ept == PropType::Unknown && inner.find('<') == std::string::npos)
+            {
+                elemStruct = ClassifyStruct(LeafTypeName(inner), enumTypes, structDefs, visited);
+                if (elemStruct)
+                    ept = PropType::Struct;
+            }
             if (inner.find('<') != std::string::npos || ept == PropType::Unknown || !IsIdentifier(rest) ||
                 !publicSection)
             {
-                // vector of struct / Ref / nested template / bad name, or a non-public
-                // member the serializer can't reach as comp.member — non-trivial.
+                // vector of Ref / nested template / non-trivial struct / bad name, or a
+                // non-public member the serializer can't reach as comp.member — non-trivial.
                 ambiguous = true;
                 continue;
             }
@@ -1526,6 +1646,8 @@ static ComponentSerInfo ParseComponentFields(std::string body, const std::set<st
             f.key = StripPrefix(rest, "m_");
             f.type = ept; // element type
             f.isVector = true;
+            if (ept == PropType::Struct)
+                f.subFields = std::move(*elemStruct);
             info.fields.push_back(f);
             continue;
         }
@@ -1567,6 +1689,18 @@ static ComponentSerInfo ParseComponentFields(std::string body, const std::set<st
         PropType pt = SceneSerType(type);
         if (pt == PropType::Unknown && enumTypes.contains(LeafTypeName(type)))
             pt = PropType::Enum; // an enum-typed member — round-trips as an int
+        // A scalar member whose type is an all-trivial nested struct — round-trips as
+        // a YAML sub-map (issue #451 nested-struct slice). Tried after the built-in
+        // and enum checks; `type` here has already passed the complex-declarator
+        // rejection above (no '*'/'&'/'<'/'['), so a Ref<T> / std::array never reaches
+        // this point.
+        std::optional<std::vector<SerField>> nested;
+        if (pt == PropType::Unknown)
+        {
+            nested = ClassifyStruct(LeafTypeName(type), enumTypes, structDefs, visited);
+            if (nested)
+                pt = PropType::Struct;
+        }
         if (pt == PropType::Unknown)
         {
             ambiguous = true; // an unrecognised type — keep the component hand-written
@@ -1585,6 +1719,8 @@ static ComponentSerInfo ParseComponentFields(std::string body, const std::set<st
         f.member = name;
         f.key = StripPrefix(name, "m_");
         f.type = pt;
+        if (pt == PropType::Struct)
+            f.subFields = std::move(*nested);
         info.fields.push_back(f);
     }
 
@@ -1592,17 +1728,17 @@ static ComponentSerInfo ParseComponentFields(std::string body, const std::set<st
     return info;
 }
 
-// Scan every header for `struct *Component` definitions and parse each one's data
-// members. Mirrors CollectComponentStructs' discrimination (definitions only, the
-// first definition of a given name wins) but extracts the full member list rather
-// than just the type name, so the scene serializer codegen can emit per-field
-// read/writes. Returns a name → ComponentSerInfo map (std::map for deterministic,
-// alphabetical emit order).
-static std::map<std::string, ComponentSerInfo> CollectComponentFields(const fs::path& scanDir,
-                                                                      const std::set<std::string>& enumTypes)
+// Scan every header for `struct <Name> { ... }` *definitions* and return a
+// leaf-name → body-text registry (the text between the outermost braces). This is
+// the input to the nested-struct classifier (ClassifyStruct re-parses a member's
+// struct body). It covers ALL structs, not just `*Component`, since a component's
+// nested member type (LODGroup, OffMeshLink, …) is an ordinary struct. First
+// definition of a given name wins; forward declarations and unbalanced bodies are
+// skipped — mirrors CollectComponentFields' old discrimination so the two agree.
+static std::map<std::string, std::string> CollectStructBodies(const fs::path& scanDir)
 {
-    std::map<std::string, ComponentSerInfo> result;
-    static const std::regex structRe(R"(\bstruct\s+([A-Za-z_]\w*Component)\b)");
+    std::map<std::string, std::string> result;
+    static const std::regex structRe(R"(\bstruct\s+([A-Za-z_]\w*)\b)");
 
     for (auto const& entry : fs::recursive_directory_iterator(scanDir))
     {
@@ -1615,7 +1751,7 @@ static std::map<std::string, ComponentSerInfo> CollectComponentFields(const fs::
         if (!file.is_open())
             continue;
         std::string raw((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
-        if (raw.find("Component") == std::string::npos)
+        if (raw.find("struct") == std::string::npos)
             continue;
 
         std::string content = StripComments(raw);
@@ -1650,10 +1786,29 @@ static std::map<std::string, ComponentSerInfo> CollectComponentFields(const fs::
 
             if (result.contains(name))
                 continue; // first definition wins (matches CollectComponentStructs)
-            result.emplace(name, ParseComponentFields(content.substr(start + 1, q - start - 1), enumTypes));
+            result.emplace(name, content.substr(start + 1, q - start - 1));
         }
     }
 
+    return result;
+}
+
+// Parse each `struct *Component`'s data members into a ComponentSerInfo, so the
+// scene serializer codegen can emit per-field read/writes. Built on the shared
+// struct-body registry (CollectStructBodies), which also feeds the nested-struct
+// classifier. Returns a name → ComponentSerInfo map (std::map for deterministic,
+// alphabetical emit order).
+static std::map<std::string, ComponentSerInfo> CollectComponentFields(const fs::path& scanDir,
+                                                                      const std::set<std::string>& enumTypes)
+{
+    const std::map<std::string, std::string> structDefs = CollectStructBodies(scanDir);
+    std::map<std::string, ComponentSerInfo> result;
+    for (auto const& [name, body] : structDefs)
+    {
+        if (!name.ends_with("Component"))
+            continue;
+        result.emplace(name, ParseComponentFields(body, enumTypes, structDefs, {}));
+    }
     return result;
 }
 
@@ -1798,13 +1953,13 @@ static void EmitSceneSerializerHeader(std::ostream& out, const char* verb, const
     out << "//\n";
     out << "// Per-component scene-YAML " << verb << " blocks — one block per\n";
     out << "// `struct *Component` whose every data member is a primitive / small-int /\n";
-    out << "// glm::vec*/ivec*/quat/mat* / std::string / AssetHandle / enum, or a\n";
-    out << "// std::vector of one of those (the generator's SceneSerType plus the enum-type\n";
-    out << "// and std::vector handling), minus the kComponentsCustomSerialize exclusion set\n";
-    out << "// (trivial components deliberately kept hand-written). A component with any\n";
-    out << "// still-unhandled non-trivial field (Ref<T>, std::unordered_map/set, nested\n";
-    out << "// struct, std::vector of struct, or a non-public member) is classified\n";
-    out << "// non-trivial and stays hand-written in SceneSerializer.cpp.\n";
+    out << "// glm::vec*/ivec*/quat/mat* / std::string / AssetHandle / enum, an all-trivial\n";
+    out << "// nested struct, or a std::vector of one of those (the generator's SceneSerType\n";
+    out << "// plus the enum-type, nested-struct, and std::vector handling), minus the\n";
+    out << "// kComponentsCustomSerialize exclusion set (trivial components deliberately kept\n";
+    out << "// hand-written). A component with any still-unhandled non-trivial field (Ref<T>,\n";
+    out << "// std::unordered_map/set, std::array, a vector-of-non-trivial-struct, or a\n";
+    out << "// non-public member) is classified non-trivial and stays hand-written.\n";
     out << "//\n";
     out << "// #include'd inside SceneSerializer::" << func << ", where " << locals << "\n";
     out << "// are in scope. Floats are validated with std::isfinite via TryReadFiniteF32 /\n";
@@ -1837,6 +1992,236 @@ static std::string SceneWriteExpr(PropType t, const std::string& expr)
     }
 }
 
+// The element loop / temp variable base name for depth `d`. Depth 0 keeps the
+// legacy names (`e`, `seqNode`) so the generated .inl for the pre-existing
+// scalar/primitive-vector components is byte-for-byte unchanged; deeper nesting
+// (introduced by the #451 nested-struct slice) suffixes the depth to stay unique
+// and dodge -Wshadow across nested loops.
+static std::string ElemVar(int depth)
+{
+    return depth == 0 ? "e" : "e" + std::to_string(depth);
+}
+static std::string SeqVar(int depth)
+{
+    return depth == 0 ? "seqNode" : "seqNode" + std::to_string(depth);
+}
+
+// Recursively emit the YAML writes for `fields` of a struct instance reached via
+// `inst` (e.g. "comp", "comp.m_LODGroup", or an element loop var). A PropType::Struct
+// member recurses: a scalar nested struct as a YAML sub-map, a std::vector<struct> as
+// a sequence of sub-maps. `indent` is the leading whitespace; `depth` uniquifies the
+// element loop variable across nesting levels.
+static void EmitSerializeFields(std::ostream& out, const std::vector<SerField>& fields,
+                                const std::string& inst, const std::string& indent, int depth)
+{
+    for (auto const& f : fields)
+    {
+        const std::string access = inst + "." + f.member;
+        if (f.type == PropType::Struct)
+        {
+            if (f.isVector)
+            {
+                const std::string ev = ElemVar(depth);
+                out << indent << "out << YAML::Key << \"" << f.key << "\" << YAML::Value << YAML::BeginSeq;\n";
+                out << indent << "for (auto const& " << ev << " : " << access << ")\n";
+                out << indent << "{\n";
+                out << indent << "    out << YAML::BeginMap;\n";
+                EmitSerializeFields(out, f.subFields, ev, indent + "    ", depth + 1);
+                out << indent << "    out << YAML::EndMap;\n";
+                out << indent << "}\n";
+                out << indent << "out << YAML::EndSeq;\n";
+            }
+            else
+            {
+                // Scalar nested struct — a YAML sub-map keyed by the member name.
+                out << indent << "out << YAML::Key << \"" << f.key << "\" << YAML::Value << YAML::BeginMap;\n";
+                EmitSerializeFields(out, f.subFields, access, indent, depth);
+                out << indent << "out << YAML::EndMap;\n";
+            }
+            continue;
+        }
+        // std::vector<E> of a trivial element — a YAML sequence. Each element uses the
+        // same per-value write expression (cast for handle/enum/small-int) as a scalar.
+        if (f.isVector)
+        {
+            const std::string ev = ElemVar(depth);
+            out << indent << "out << YAML::Key << \"" << f.key << "\" << YAML::Value << YAML::BeginSeq;\n";
+            out << indent << "for (auto const& " << ev << " : " << access << ")\n";
+            out << indent << "    out << " << SceneWriteExpr(f.type, ev) << ";\n";
+            out << indent << "out << YAML::EndSeq;\n";
+            continue;
+        }
+        // AssetHandle / UUID has an implicit operator u64() but YAML::Emitter has no
+        // UUID overload, so emit the explicit u64 cast (matches every existing
+        // hand-written AssetHandle block). Enum / u8 / u16 likewise need a cast (no /
+        // wrong Emitter overload) — SceneWriteExpr encapsulates the per-type choice,
+        // everything else streams directly via an existing Emitter<< overload.
+        out << indent << "out << YAML::Key << \"" << f.key << "\" << YAML::Value << "
+            << SceneWriteExpr(f.type, access) << ";\n";
+    }
+}
+
+// Recursively emit the YAML reads for `fields` into a struct instance reached via
+// `inst`, from the YAML node `node`. Mirrors EmitSerializeFields: a scalar nested
+// struct reads from its sub-map; a std::vector<struct> rebuilds each element from a
+// sub-map. Floats are finiteness-validated; a missing key keeps the constructor
+// default (the instance was default-constructed by AddComponent / value_type{}).
+static void EmitDeserializeFields(std::ostream& out, const std::vector<SerField>& fields,
+                                  const std::string& inst, const std::string& node,
+                                  const std::string& indent, int depth)
+{
+    for (auto const& f : fields)
+    {
+        const std::string lhs = inst + "." + f.member;
+        const std::string key = node + "[\"" + f.key + "\"]";
+        if (f.type == PropType::Struct)
+        {
+            if (f.isVector)
+            {
+                // Rebuild the sequence element-by-element. A missing / non-sequence
+                // node keeps the constructor-default vector (.clear() is inside the
+                // IsSequence guard). Each element is a fresh default-constructed
+                // value_type populated from its sub-map, then appended.
+                const std::string sv = SeqVar(depth);
+                const std::string el = ElemVar(depth);
+                const std::string tmp = "tmp" + std::to_string(depth);
+                out << indent << "if (auto " << sv << " = " << key << "; " << sv << " && " << sv << ".IsSequence())\n";
+                out << indent << "{\n";
+                out << indent << "    " << lhs << ".clear();\n";
+                out << indent << "    for (auto const& " << el << " : " << sv << ")\n";
+                out << indent << "    {\n";
+                out << indent << "        decltype(" << lhs << ")::value_type " << tmp << "{};\n";
+                EmitDeserializeFields(out, f.subFields, tmp, el, indent + "        ", depth + 1);
+                out << indent << "        " << lhs << ".push_back(" << tmp << ");\n";
+                out << indent << "    }\n";
+                out << indent << "}\n";
+            }
+            else
+            {
+                // Scalar nested struct — read its members from the sub-map if present.
+                const std::string sn = "sub" + std::to_string(depth);
+                out << indent << "if (auto " << sn << " = " << key << "; " << sn << ")\n";
+                out << indent << "{\n";
+                EmitDeserializeFields(out, f.subFields, lhs, sn, indent + "    ", depth + 1);
+                out << indent << "}\n";
+            }
+            continue;
+        }
+        // std::vector<E> of a trivial element — rebuild the sequence element-by-element.
+        // A missing key / non-sequence node leaves the vector at its default (.clear()
+        // is inside the IsSequence guard, matching the scalar path's keep-default-on-
+        // absent). Each element is validated: floats via TryReadFiniteF32, enums via an
+        // int decode, everything else via the element type's YAML::convert<> (the glm
+        // Decode helpers finiteness-validate); a malformed element is dropped, not
+        // pushed as garbage. decltype(lhs)::value_type spells the element type without
+        // tracking it textually (robust to nested enums / type aliases).
+        if (f.isVector)
+        {
+            const std::string sv = SeqVar(depth);
+            const std::string el = ElemVar(depth);
+            out << indent << "if (auto " << sv << " = " << key << "; " << sv << " && " << sv << ".IsSequence())\n";
+            out << indent << "{\n";
+            out << indent << "    " << lhs << ".clear();\n";
+            out << indent << "    for (auto const& " << el << " : " << sv << ")\n";
+            if (f.type == PropType::Float)
+            {
+                out << indent << "        if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(" << el << ", v))\n";
+                out << indent << "            " << lhs << ".push_back(v);\n";
+            }
+            else if (f.type == PropType::Enum)
+            {
+                out << indent << "        if (int ev; ::YAML::convert<int>::decode(" << el << ", ev))\n";
+                out << indent << "            " << lhs << ".push_back(static_cast<decltype(" << lhs
+                    << ")::value_type>(ev));\n";
+            }
+            else
+            {
+                out << indent << "        if (decltype(" << lhs << ")::value_type v{}; ::YAML::convert<decltype("
+                    << lhs << ")::value_type>::decode(" << el << ", v))\n";
+                out << indent << "            " << lhs << ".push_back(v);\n";
+            }
+            out << indent << "}\n";
+            continue;
+        }
+        switch (f.type)
+        {
+            case PropType::Float:
+                // Validate finiteness; NaN/Inf or a missing key keeps the default.
+                out << indent << "if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(" << key << ", v))\n";
+                out << indent << "    " << lhs << " = v;\n";
+                break;
+            case PropType::Vec2:
+                out << indent << lhs << " = " << key << ".as<glm::vec2>(" << lhs << ");\n";
+                break;
+            case PropType::Vec3:
+                out << indent << lhs << " = " << key << ".as<glm::vec3>(" << lhs << ");\n";
+                break;
+            case PropType::Vec4:
+                out << indent << lhs << " = " << key << ".as<glm::vec4>(" << lhs << ");\n";
+                break;
+            case PropType::IVec2:
+                out << indent << lhs << " = " << key << ".as<glm::ivec2>(" << lhs << ");\n";
+                break;
+            case PropType::IVec3:
+                out << indent << lhs << " = " << key << ".as<glm::ivec3>(" << lhs << ");\n";
+                break;
+            case PropType::IVec4:
+                out << indent << lhs << " = " << key << ".as<glm::ivec4>(" << lhs << ");\n";
+                break;
+            case PropType::Quat:
+                // DecodeQuat finiteness-validates all four components; NaN/Inf or a
+                // missing key keeps the default. Decode does NOT normalize.
+                out << indent << lhs << " = " << key << ".as<glm::quat>(" << lhs << ");\n";
+                break;
+            case PropType::Mat3:
+                out << indent << lhs << " = " << key << ".as<glm::mat3>(" << lhs << ");\n";
+                break;
+            case PropType::Mat4:
+                out << indent << lhs << " = " << key << ".as<glm::mat4>(" << lhs << ");\n";
+                break;
+            case PropType::Bool:
+                out << indent << lhs << " = " << key << ".as<bool>(" << lhs << ");\n";
+                break;
+            case PropType::Int:
+                out << indent << lhs << " = " << key << ".as<i32>(" << lhs << ");\n";
+                break;
+            case PropType::UInt:
+                out << indent << lhs << " = " << key << ".as<u32>(" << lhs << ");\n";
+                break;
+            case PropType::SmallUInt:
+            case PropType::SmallInt:
+                // u8/u16/i8/i16: read via .as<decltype(member)> — yaml-cpp's char-type
+                // decode special-case parses the numeric string and range-checks before
+                // narrowing (an out-of-range / missing value keeps the default). Pairs
+                // with the static_cast<u32>/<i32> emit.
+                out << indent << lhs << " = " << key << ".as<decltype(" << lhs << ")>(" << lhs << ");\n";
+                break;
+            case PropType::U64:
+                out << indent << lhs << " = " << key << ".as<u64>(" << lhs << ");\n";
+                break;
+            case PropType::AssetHandle:
+                // Read as u64, bridge back through the implicit UUID(u64) ctor; a
+                // missing key keeps the constructor default (cast it to u64 for the
+                // yaml-cpp fallback overload). Matches the hand-written blocks.
+                out << indent << lhs << " = " << key << ".as<u64>(static_cast<u64>(" << lhs << "));\n";
+                break;
+            case PropType::Enum:
+                // Read as int, cast back to the member's own enum type via decltype —
+                // robust to nested enums (e.g. Component::State) that aren't in scope by
+                // their unqualified name at the SceneSerializer level. A missing key
+                // keeps the default (cast it to int for the yaml-cpp fallback overload).
+                out << indent << lhs << " = static_cast<decltype(" << lhs << ")>(" << key
+                    << ".as<int>(static_cast<int>(" << lhs << ")));\n";
+                break;
+            case PropType::String:
+                out << indent << lhs << " = " << key << ".as<std::string>(" << lhs << ");\n";
+                break;
+            default:
+                break;
+        }
+    }
+}
+
 // SerializeEntity: `if (entity.HasComponent<T>()) { out << YAML::Key << "T"; … }`.
 static void EmitSceneSerializeBlocks(std::ostream& out, const std::map<std::string, ComponentSerInfo>& comps)
 {
@@ -1850,27 +2235,7 @@ static void EmitSceneSerializeBlocks(std::ostream& out, const std::map<std::stri
         out << "    out << YAML::Key << \"" << name << "\";\n";
         out << "    out << YAML::BeginMap; // " << name << "\n";
         out << "    auto const& comp = entity.GetComponent<" << name << ">();\n";
-        for (auto const& f : info.fields)
-        {
-            // std::vector<E> — a YAML flow/block sequence. Each element uses the same
-            // per-value write expression (cast for handle/enum/small-int) as a scalar.
-            if (f.isVector)
-            {
-                out << "    out << YAML::Key << \"" << f.key << "\" << YAML::Value << YAML::BeginSeq;\n";
-                out << "    for (auto const& e : comp." << f.member << ")\n";
-                out << "        out << " << SceneWriteExpr(f.type, "e") << ";\n";
-                out << "    out << YAML::EndSeq;\n";
-                continue;
-            }
-            // AssetHandle / UUID has an implicit operator u64() but YAML::Emitter has
-            // no UUID overload, so emit the explicit u64 cast (matches every existing
-            // hand-written AssetHandle block, e.g. SoundConfigHandle / ColliderAsset).
-            // Enum / u8 / u16 likewise need a cast (no / wrong Emitter overload) —
-            // SceneWriteExpr encapsulates the per-type choice, everything else streams
-            // directly via an existing Emitter<< overload.
-            out << "    out << YAML::Key << \"" << f.key << "\" << YAML::Value << "
-                << SceneWriteExpr(f.type, "comp." + f.member) << ";\n";
-        }
+        EmitSerializeFields(out, info.fields, "comp", "    ", 0);
         out << "    out << YAML::EndMap; // " << name << "\n";
         out << "}\n\n";
     }
@@ -1888,123 +2253,7 @@ static void EmitSceneDeserializeBlocks(std::ostream& out, const std::map<std::st
         out << "if (auto node = entity[\"" << name << "\"]; node)\n";
         out << "{\n";
         out << "    auto& comp = deserializedEntity.AddComponent<" << name << ">();\n";
-        for (auto const& f : info.fields)
-        {
-            const std::string lhs = "comp." + f.member;
-            const std::string key = "node[\"" + f.key + "\"]";
-            // std::vector<E> — rebuild the sequence element-by-element. A missing key
-            // or non-sequence node leaves the vector at its constructor default (the
-            // .clear() happens only inside the IsSequence() guard, matching the scalar
-            // path's `.as<T>(default)` keep-default-on-absent semantics). Each element
-            // is validated: floats via TryReadFiniteF32, enums via an int decode,
-            // everything else via the element type's YAML::convert<> (the glm Decode
-            // helpers finiteness-validate); a malformed element is dropped, not pushed
-            // as garbage. `decltype(lhs)::value_type` spells the element type without
-            // tracking it textually (robust to nested enums / type aliases).
-            if (f.isVector)
-            {
-                out << "    if (auto seqNode = " << key << "; seqNode && seqNode.IsSequence())\n";
-                out << "    {\n";
-                out << "        " << lhs << ".clear();\n";
-                out << "        for (auto const& e : seqNode)\n";
-                if (f.type == PropType::Float)
-                {
-                    out << "            if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(e, v))\n";
-                    out << "                " << lhs << ".push_back(v);\n";
-                }
-                else if (f.type == PropType::Enum)
-                {
-                    out << "            if (int ev; ::YAML::convert<int>::decode(e, ev))\n";
-                    out << "                " << lhs << ".push_back(static_cast<decltype(" << lhs
-                        << ")::value_type>(ev));\n";
-                }
-                else
-                {
-                    out << "            if (decltype(" << lhs << ")::value_type v{}; ::YAML::convert<decltype("
-                        << lhs << ")::value_type>::decode(e, v))\n";
-                    out << "                " << lhs << ".push_back(v);\n";
-                }
-                out << "    }\n";
-                continue;
-            }
-            switch (f.type)
-            {
-                case PropType::Float:
-                    // Validate finiteness; NaN/Inf or a missing key keeps the default.
-                    out << "    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(" << key << ", v))\n";
-                    out << "        " << lhs << " = v;\n";
-                    break;
-                case PropType::Vec2:
-                    out << "    " << lhs << " = " << key << ".as<glm::vec2>(" << lhs << ");\n";
-                    break;
-                case PropType::Vec3:
-                    out << "    " << lhs << " = " << key << ".as<glm::vec3>(" << lhs << ");\n";
-                    break;
-                case PropType::Vec4:
-                    out << "    " << lhs << " = " << key << ".as<glm::vec4>(" << lhs << ");\n";
-                    break;
-                case PropType::IVec2:
-                    out << "    " << lhs << " = " << key << ".as<glm::ivec2>(" << lhs << ");\n";
-                    break;
-                case PropType::IVec3:
-                    out << "    " << lhs << " = " << key << ".as<glm::ivec3>(" << lhs << ");\n";
-                    break;
-                case PropType::IVec4:
-                    out << "    " << lhs << " = " << key << ".as<glm::ivec4>(" << lhs << ");\n";
-                    break;
-                case PropType::Quat:
-                    // DecodeQuat finiteness-validates all four components; NaN/Inf or
-                    // a missing key keeps the default. Decode does NOT normalize.
-                    out << "    " << lhs << " = " << key << ".as<glm::quat>(" << lhs << ");\n";
-                    break;
-                case PropType::Mat3:
-                    out << "    " << lhs << " = " << key << ".as<glm::mat3>(" << lhs << ");\n";
-                    break;
-                case PropType::Mat4:
-                    out << "    " << lhs << " = " << key << ".as<glm::mat4>(" << lhs << ");\n";
-                    break;
-                case PropType::Bool:
-                    out << "    " << lhs << " = " << key << ".as<bool>(" << lhs << ");\n";
-                    break;
-                case PropType::Int:
-                    out << "    " << lhs << " = " << key << ".as<i32>(" << lhs << ");\n";
-                    break;
-                case PropType::UInt:
-                    out << "    " << lhs << " = " << key << ".as<u32>(" << lhs << ");\n";
-                    break;
-                case PropType::SmallUInt:
-                case PropType::SmallInt:
-                    // u8/u16/i8/i16: read via .as<decltype(member)> — yaml-cpp's
-                    // char-type decode special-case parses the numeric string and
-                    // range-checks before narrowing (an out-of-range / missing value
-                    // keeps the default). Pairs with the static_cast<u32>/<i32> emit.
-                    out << "    " << lhs << " = " << key << ".as<decltype(" << lhs << ")>(" << lhs << ");\n";
-                    break;
-                case PropType::U64:
-                    out << "    " << lhs << " = " << key << ".as<u64>(" << lhs << ");\n";
-                    break;
-                case PropType::AssetHandle:
-                    // Read as u64, bridge back through the implicit UUID(u64) ctor; a
-                    // missing key keeps the constructor default (cast it to u64 for the
-                    // yaml-cpp fallback overload). Matches the hand-written blocks.
-                    out << "    " << lhs << " = " << key << ".as<u64>(static_cast<u64>(" << lhs << "));\n";
-                    break;
-                case PropType::Enum:
-                    // Read as int, cast back to the member's own enum type via
-                    // decltype — robust to nested enums (e.g. Component::State) that
-                    // aren't in scope by their unqualified name at the SceneSerializer
-                    // level. A missing key keeps the default (cast it to int for the
-                    // yaml-cpp fallback overload). Mirrors the TrySetEnum helper.
-                    out << "    " << lhs << " = static_cast<decltype(" << lhs << ")>(" << key
-                        << ".as<int>(static_cast<int>(" << lhs << ")));\n";
-                    break;
-                case PropType::String:
-                    out << "    " << lhs << " = " << key << ".as<std::string>(" << lhs << ");\n";
-                    break;
-                default:
-                    break;
-            }
-        }
+        EmitDeserializeFields(out, info.fields, "comp", "node", "    ", 0);
         out << "}\n\n";
     }
 }
