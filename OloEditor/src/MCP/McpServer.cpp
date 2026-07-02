@@ -796,7 +796,7 @@ namespace OloEngine::MCP
 
     void McpServer::SetWriteConsentMode(WriteConsentMode mode)
     {
-        m_ConsentMode.store(mode, std::memory_order_relaxed);
+        m_ConsentMode.store(mode);
 
         // Drain any in-flight prompts to match the new mode: AllowSession approves
         // them (the human just said "allow everything"), Disabled denies them. Prompt
@@ -834,9 +834,20 @@ namespace OloEngine::MCP
     {
         // ApproveAll flips the whole session to auto-approve, which also resolves this
         // prompt and every other pending one — route it through SetWriteConsentMode so
-        // the mode change and the drain happen atomically together.
+        // the mode change and the drain happen atomically together. But only when `id`
+        // still names a live pending prompt: a stale/missing id is a no-op (same
+        // contract as the Approve/Deny path), so a late click on an already-reaped
+        // request can't silently disable consent for the rest of the session.
         if (decision == ConsentDecision::ApproveAll)
         {
+            {
+                std::lock_guard lock(m_ConsentMutex);
+                const bool present = std::any_of(m_ConsentQueue.begin(), m_ConsentQueue.end(),
+                                                 [id](const ConsentEntry& entry)
+                                                 { return entry.Id == id && entry.Decision == ConsentDecision::Pending; });
+                if (!present)
+                    return;
+            }
             SetWriteConsentMode(WriteConsentMode::AllowSession);
             return;
         }
@@ -857,7 +868,7 @@ namespace OloEngine::MCP
 
     ConsentDecision McpServer::RequestConsent(const ToolDef& tool, const Json& arguments)
     {
-        const auto timeout = std::chrono::milliseconds(m_ConsentTimeoutMs.load(std::memory_order_relaxed));
+        const auto timeout = std::chrono::milliseconds(m_ConsentTimeoutMs.load());
 
         u64 myId = 0;
         {
@@ -866,7 +877,7 @@ namespace OloEngine::MCP
                 return ConsentDecision::Deny;
             // A concurrent mode change may have already settled the outcome before we
             // enqueue anything — honour it without prompting.
-            const WriteConsentMode mode = m_ConsentMode.load(std::memory_order_relaxed);
+            const WriteConsentMode mode = m_ConsentMode.load();
             if (mode == WriteConsentMode::AllowSession)
                 return ConsentDecision::Approve;
             if (mode == WriteConsentMode::Disabled)
@@ -1325,6 +1336,17 @@ namespace OloEngine::MCP
             return MakeError(id, kInvalidParams, "Invalid params: 'arguments' must be an object");
         const Json arguments = params.contains("arguments") ? params["arguments"] : Json::object();
 
+        // Enforce the tool's declared inputSchema BEFORE anything else user-visible, so
+        // a malformed call fails with a clean, field-naming kInvalidParams instead of
+        // depending on whatever ad-hoc checks that one handler happens to do (issue
+        // #357 conformance / #306 item D hardening). A permissive (empty / non-object)
+        // schema validates nothing. This must precede the consent gate below: a
+        // malformed write should never raise the per-action consent modal (the human
+        // would be asked to approve a call that can't run) — validate first, prompt only
+        // for a well-formed mutation.
+        if (const auto error = ValidateArguments(tool->InputSchema, arguments))
+            return MakeError(id, kInvalidParams, "Invalid arguments for tool '" + name + "': " + *error);
+
         // Session write consent (issue #306 item C): a project-mutating tool is gated
         // by the WriteConsentMode the user set in the MCP panel (default Disabled,
         // never persisted). This stacks on top of the enabled + bearer-token gate:
@@ -1339,7 +1361,7 @@ namespace OloEngine::MCP
         //   AllowSession -> proceed (the human already approved everything).
         if (tool->ProjectWrite)
         {
-            const WriteConsentMode mode = m_ConsentMode.load(std::memory_order_relaxed);
+            const WriteConsentMode mode = m_ConsentMode.load();
             if (mode == WriteConsentMode::Disabled)
                 return MakeError(id, kInvalidParams,
                                  "Write tools are disabled. Set writes to \"Prompt\" or \"Allow all\" in the "
@@ -1363,14 +1385,6 @@ namespace OloEngine::MCP
                 }
             }
         }
-
-        // Enforce the tool's declared inputSchema before the handler runs, so a
-        // malformed call fails with a clean, field-naming kInvalidParams instead of
-        // depending on whatever ad-hoc checks that one handler happens to do (issue
-        // #357 conformance / #306 item D hardening). A permissive (empty / non-object)
-        // schema validates nothing.
-        if (const auto error = ValidateArguments(tool->InputSchema, arguments))
-            return MakeError(id, kInvalidParams, "Invalid arguments for tool '" + name + "': " + *error);
 
         ToolResult result;
         try

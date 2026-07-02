@@ -116,15 +116,20 @@ namespace
 
         // Spin (main test thread) until a worker thread has parked a consent prompt,
         // then return its id — or 0 if none appears within the budget. Mirrors what
-        // the editor's main-thread panel poll does each frame.
-        [[nodiscard]] u64 WaitForPendingConsent()
+        // the editor's main-thread panel poll does each frame. The budget is generous
+        // (default ~30 s) so a heavily-loaded CI box that is slow to schedule the
+        // worker onto RequestConsent doesn't spuriously fail ASSERT_NE(id, 0u); callers
+        // resolve the prompt the instant it appears, so the ceiling is never reached in
+        // the happy path.
+        [[nodiscard]] u64 WaitForPendingConsent(std::chrono::milliseconds budget = std::chrono::seconds(30))
         {
-            for (int i = 0; i < 400; ++i)
+            constexpr auto step = std::chrono::milliseconds(5);
+            for (auto waited = std::chrono::milliseconds(0); waited < budget; waited += step)
             {
                 const auto pending = m_Server.PendingConsents();
                 if (!pending.empty())
                     return pending.front().Id;
-                std::this_thread::sleep_for(std::chrono::milliseconds(5));
+                std::this_thread::sleep_for(step);
             }
             return 0;
         }

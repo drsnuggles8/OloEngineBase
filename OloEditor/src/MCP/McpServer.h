@@ -346,7 +346,7 @@ namespace OloEngine::MCP
         void SetWriteConsentMode(WriteConsentMode mode);
         [[nodiscard]] WriteConsentMode GetWriteConsentMode() const
         {
-            return m_ConsentMode.load(std::memory_order_relaxed);
+            return m_ConsentMode.load();
         }
 
         // Back-compat binary gate over the mode: true maps to AllowSession (writes go
@@ -359,7 +359,7 @@ namespace OloEngine::MCP
         }
         [[nodiscard]] bool AllowWrites() const
         {
-            return m_ConsentMode.load(std::memory_order_relaxed) != WriteConsentMode::Disabled;
+            return m_ConsentMode.load() != WriteConsentMode::Disabled;
         }
 
         // A consent prompt awaiting a human decision, as a snapshot for the panel to
@@ -388,7 +388,7 @@ namespace OloEngine::MCP
         // dispatch returns a clean error). Default 120s; exposed for tests.
         void SetConsentTimeout(std::chrono::milliseconds timeout)
         {
-            m_ConsentTimeoutMs.store(timeout.count(), std::memory_order_relaxed);
+            m_ConsentTimeoutMs.store(timeout.count());
         }
         [[nodiscard]] const EditorMcpContext& Context() const
         {

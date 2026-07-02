@@ -137,6 +137,11 @@ namespace OloEngine::MCP
                 ImGui::TextColored(ImVec4(0.90f, 0.45f, 0.30f, 1.0f),
                                    "(agents may MUTATE the scene WITHOUT asking — Ctrl-Z to revert)");
                 break;
+            default:
+                // Unknown / future mode: fail safe to a neutral note rather than an
+                // unlabeled state (also satisfies -Wswitch-default / SonarQube S131).
+                ImGui::TextDisabled("(unknown write-consent mode)");
+                break;
         }
 
         ImGui::Checkbox("Start automatically when the editor launches", &autoStart);
@@ -183,9 +188,20 @@ namespace OloEngine::MCP
 
             ImGui::Spacing();
             ImGui::TextUnformatted("Requested change:");
-            ImGui::Indent();
+            // Bound the (agent-supplied) summary: a long field value or many-line
+            // argument list would otherwise widen/lengthen the AlwaysAutoResize popup
+            // until the Approve/Deny buttons are pushed off-screen. Wrap it in a
+            // fixed-width, height-capped scrolling child so the modal always fits.
+            constexpr float kSummaryWidth = 440.0f;
+            const float maxSummaryHeight = ImGui::GetTextLineHeightWithSpacing() * 10.0f;
+            const ImVec2 summarySize =
+                ImGui::CalcTextSize(request.Summary.c_str(), nullptr, false, kSummaryWidth);
+            const float summaryHeight = std::min(summarySize.y, maxSummaryHeight) + ImGui::GetStyle().FramePadding.y * 2.0f;
+            ImGui::BeginChild("##mcp_consent_summary", ImVec2(kSummaryWidth, summaryHeight), ImGuiChildFlags_Borders);
+            ImGui::PushTextWrapPos(0.0f);
             ImGui::TextUnformatted(request.Summary.c_str());
-            ImGui::Unindent();
+            ImGui::PopTextWrapPos();
+            ImGui::EndChild();
 
             ImGui::Spacing();
             ImGui::TextDisabled("Approving applies the change through the undo stack (Ctrl-Z to revert).");
