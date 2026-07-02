@@ -150,14 +150,25 @@ namespace OloEngine
                 {
                     InputActionManager::ReplaceAllContextMaps(*loaded);
 
-                    // Guarantee playable bindings: if the saved config carried no Gameplay
-                    // actions (that context emptied, or never written because Save skips empty
-                    // maps), seed the defaults so the game — and the rebind menu, which edits
-                    // Gameplay — still has something to bind.
-                    if (InputActionManager::GetActionMap(InputContextType::Gameplay).Actions.empty())
+                    // Merge any MISSING default Gameplay actions into the loaded map while keeping
+                    // the player's saved rebinds. This covers a fully-empty Gameplay context (never
+                    // written because Save skips empty maps) AND a partially-populated one (a
+                    // default action added in a newer build that the old save predates), so the
+                    // game — and the rebind menu, which edits Gameplay — always sees the full set.
+                    InputActionMap& gameplay = InputActionManager::GetActionMapMutable(InputContextType::Gameplay);
+                    const InputActionMap defaults = CreateDefaultGameActions();
+                    u32 addedDefaults = 0;
+                    for (const auto& [name, action] : defaults.Actions)
                     {
-                        InputActionManager::SetActionMap(InputContextType::Gameplay, CreateDefaultGameActions());
-                        OLO_CORE_WARN("[Runtime] Saved input bindings had no Gameplay map — seeded default game actions");
+                        if (!gameplay.HasAction(name))
+                        {
+                            gameplay.AddAction(action);
+                            ++addedDefaults;
+                        }
+                    }
+                    if (addedDefaults > 0)
+                    {
+                        OLO_CORE_WARN("[Runtime] Merged {} missing default Gameplay action(s) into loaded input bindings", addedDefaults);
                     }
                     else
                     {

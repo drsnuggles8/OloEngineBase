@@ -153,6 +153,19 @@ TEST_F(InputRebindControllerTest, ResolveSwapExchangesBindings)
     EXPECT_FALSE(ActionHasKey("Interact", Key::E));
 }
 
+TEST_F(InputRebindControllerTest, SwapWithStaleTargetSlotLeavesBothActionsUntouched)
+{
+    // A stale / out-of-range target slot on a rebind must NOT turn Swap into a destructive
+    // replace that drops the conflicting action's binding — both are left untouched.
+    m_Ctrl.BeginRebind("Jump", 99, /*gamepad=*/false); // slot 99 does not exist
+    m_Ctrl.OnKeyPressed(Key::E);                       // E is owned by Interact -> conflict
+    ASSERT_TRUE(m_Ctrl.HasPendingConflict());
+
+    m_Ctrl.ResolveConflict(RebindResolution::Swap);
+    EXPECT_TRUE(ActionHasKey("Interact", Key::E)); // conflicting binding preserved (not erased)
+    EXPECT_FALSE(ActionHasKey("Jump", Key::E));    // swap skipped — Jump not given E
+}
+
 TEST_F(InputRebindControllerTest, ResolveKeepLeavesBothActionsBoundToTheBinding)
 {
     // Keep deliberately allows the duplicate: the target gets the binding and the

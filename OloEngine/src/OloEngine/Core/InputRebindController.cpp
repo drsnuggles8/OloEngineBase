@@ -257,13 +257,21 @@ namespace OloEngine
                     break;
                 }
 
-                // Give the conflicting action the target slot's OLD binding, then assign the new
-                // one. When the target slot has no old binding (a fresh binding), swap degenerates
-                // to replace — the conflicting action simply loses the binding.
-                std::optional<InputBinding> oldBinding;
-                if (!pending.IsNewBinding && pending.BindingIndex < target->Bindings.size())
+                // For a rebind (not a fresh binding), a stale / out-of-range slot index means the
+                // map changed under us. Don't silently turn Swap into a destructive Replace that
+                // drops the conflicting binding — leave both actions untouched instead.
+                if (!pending.IsNewBinding && pending.BindingIndex >= target->Bindings.size())
                 {
-                    oldBinding = target->Bindings[pending.BindingIndex];
+                    break;
+                }
+
+                // Give the conflicting action the target slot's OLD binding, then assign the new
+                // one. When there is no old binding (a fresh binding), swap degenerates to replace —
+                // the conflicting action simply loses the binding.
+                std::optional<InputBinding> oldBinding;
+                if (!pending.IsNewBinding)
+                {
+                    oldBinding = target->Bindings[pending.BindingIndex]; // slot validated above
                 }
 
                 if (auto* conflictAction = map.GetAction(pending.Conflict.ConflictingAction);

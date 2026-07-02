@@ -531,6 +531,14 @@ if(OLO_ENABLE_ASAN AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
 	endforeach()
 	if(_asan_exclude_targets)
 		list(REMOVE_DUPLICATES _asan_exclude_targets)
+	else()
+		# The collector found nothing — protobuf/abseil would stay instrumented and
+		# protoc would abort mid-build (the very failure this block exists to prevent).
+		# Fail loudly at configure rather than let that recur silently.
+		message(FATAL_ERROR
+			"ASan de-instrumentation found no protobuf/abseil targets under "
+			"protobuf_SOURCE_DIR='${protobuf_SOURCE_DIR}' / absl_SOURCE_DIR='${absl_SOURCE_DIR}'. "
+			"protoc would be built instrumented and crash generating .pb files.")
 	endif()
 
 	foreach(_t ${_asan_exclude_targets})
