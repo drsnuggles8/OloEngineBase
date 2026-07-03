@@ -179,6 +179,7 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/EASUVisualEvidenceTest.cpp
 		Rendering/PropertyTests/SSAOVisualEvidenceTest.cpp
 		Rendering/PropertyTests/PCSSVisualEvidenceTest.cpp
+		Rendering/PropertyTests/ShadowEarlyOutVisualEvidenceTest.cpp
 		Rendering/PropertyTests/WaterSurfaceSamplerTest.cpp
 		Rendering/PropertyTests/WaterBuoyancyVisualEvidenceTest.cpp
 		Rendering/PropertyTests/ShadowTerrainPropertyTests.cpp

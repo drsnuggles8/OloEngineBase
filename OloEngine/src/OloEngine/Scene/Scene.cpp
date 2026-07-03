@@ -4663,7 +4663,12 @@ namespace OloEngine
             {
                 auto terrainShader = Renderer3D::GetTerrainPBRShader();
                 auto voxelShader = Renderer3D::GetVoxelPBRShader();
-                const bool hasActiveShadows = Renderer3D::IsShadowPassAvailable() && Renderer3D::GetShadowMap().IsEnabled();
+                // Gate on AnyShadowsRequested() so caster lists stay empty when no
+                // light casts shadows this frame — the ShadowRenderPass then early-outs
+                // instead of re-submitting every caster ×N cascades/faces against stale
+                // (identity) CSM matrices. See issue #522.
+                const bool hasActiveShadows = Renderer3D::IsShadowPassAvailable() && Renderer3D::GetShadowMap().IsEnabled() &&
+                                              Renderer3D::GetShadowMap().AnyShadowsRequested();
 
                 auto terrainRenderView = m_Registry.view<TransformComponent, TerrainComponent>();
                 for (auto entity : terrainRenderView)
@@ -5563,8 +5568,11 @@ namespace OloEngine
             }
         }
 
-        // Shadow pass setup for mesh entity traversal
-        const bool meshHasActiveShadows = Renderer3D::IsShadowPassAvailable() && Renderer3D::GetShadowMap().IsEnabled();
+        // Shadow pass setup for mesh entity traversal. Gate on AnyShadowsRequested()
+        // (not just the global IsEnabled() toggle) so no casters are built when no
+        // light casts shadows this frame — see issue #522 and the terrain block above.
+        const bool meshHasActiveShadows = Renderer3D::IsShadowPassAvailable() && Renderer3D::GetShadowMap().IsEnabled() &&
+                                          Renderer3D::GetShadowMap().AnyShadowsRequested();
 
         // Draw mesh entities (skip animated entities - they're rendered separately)
         {
