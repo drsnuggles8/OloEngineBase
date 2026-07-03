@@ -28,6 +28,7 @@ using AllComponents = ComponentGroup<
     CinematicComponent,
     CircleCollider2DComponent,
     CircleRendererComponent,
+    ClothComponent,
     ConvexMeshCollider3DComponent,
     DecalComponent,
     DialogueComponent,

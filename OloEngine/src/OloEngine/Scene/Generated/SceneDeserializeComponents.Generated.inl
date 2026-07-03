@@ -45,6 +45,30 @@ if (auto node = entity["CircleRendererComponent"]; node)
         comp.Fade = v;
 }
 
+if (auto node = entity["ClothComponent"]; node)
+{
+    auto& comp = deserializedEntity.AddComponent<ClothComponent>();
+    comp.m_Columns = node["Columns"].as<u32>(comp.m_Columns);
+    comp.m_Rows = node["Rows"].as<u32>(comp.m_Rows);
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["Width"], v))
+        comp.m_Width = v;
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["Height"], v))
+        comp.m_Height = v;
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["Mass"], v))
+        comp.m_Mass = v;
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["Compliance"], v))
+        comp.m_Compliance = v;
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["BendCompliance"], v))
+        comp.m_BendCompliance = v;
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["LinearDamping"], v))
+        comp.m_LinearDamping = v;
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["Pressure"], v))
+        comp.m_Pressure = v;
+    comp.m_Iterations = node["Iterations"].as<u32>(comp.m_Iterations);
+    comp.m_Attachment = static_cast<decltype(comp.m_Attachment)>(node["Attachment"].as<int>(static_cast<int>(comp.m_Attachment)));
+    comp.m_Enabled = node["Enabled"].as<bool>(comp.m_Enabled);
+}
+
 if (auto node = entity["DirectionalLightComponent"]; node)
 {
     auto& comp = deserializedEntity.AddComponent<DirectionalLightComponent>();

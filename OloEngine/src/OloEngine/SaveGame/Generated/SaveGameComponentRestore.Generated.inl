@@ -29,6 +29,7 @@ TRY_LOAD_COMPONENT(CharacterController3DComponent);
 TRY_LOAD_COMPONENT(CinematicComponent);
 TRY_LOAD_COMPONENT(CircleCollider2DComponent);
 TRY_LOAD_COMPONENT(CircleRendererComponent);
+TRY_LOAD_COMPONENT(ClothComponent);
 TRY_LOAD_COMPONENT(ConvexMeshCollider3DComponent);
 TRY_LOAD_COMPONENT(DecalComponent);
 TRY_LOAD_COMPONENT(DialogueComponent);

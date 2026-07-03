@@ -402,6 +402,75 @@ namespace OloEngine
 		}
 	}
 
+	public partial class ClothComponent : Component
+	{
+		public uint Columns
+		{
+			get => InternalCalls.ClothComponent_GetColumns(Entity.ID);
+			set => InternalCalls.ClothComponent_SetColumns(Entity.ID, value);
+		}
+
+		public uint Rows
+		{
+			get => InternalCalls.ClothComponent_GetRows(Entity.ID);
+			set => InternalCalls.ClothComponent_SetRows(Entity.ID, value);
+		}
+
+		public float Width
+		{
+			get => InternalCalls.ClothComponent_GetWidth(Entity.ID);
+			set => InternalCalls.ClothComponent_SetWidth(Entity.ID, value);
+		}
+
+		public float Height
+		{
+			get => InternalCalls.ClothComponent_GetHeight(Entity.ID);
+			set => InternalCalls.ClothComponent_SetHeight(Entity.ID, value);
+		}
+
+		public float Mass
+		{
+			get => InternalCalls.ClothComponent_GetMass(Entity.ID);
+			set => InternalCalls.ClothComponent_SetMass(Entity.ID, value);
+		}
+
+		public float Compliance
+		{
+			get => InternalCalls.ClothComponent_GetCompliance(Entity.ID);
+			set => InternalCalls.ClothComponent_SetCompliance(Entity.ID, value);
+		}
+
+		public float BendCompliance
+		{
+			get => InternalCalls.ClothComponent_GetBendCompliance(Entity.ID);
+			set => InternalCalls.ClothComponent_SetBendCompliance(Entity.ID, value);
+		}
+
+		public float LinearDamping
+		{
+			get => InternalCalls.ClothComponent_GetLinearDamping(Entity.ID);
+			set => InternalCalls.ClothComponent_SetLinearDamping(Entity.ID, value);
+		}
+
+		public float Pressure
+		{
+			get => InternalCalls.ClothComponent_GetPressure(Entity.ID);
+			set => InternalCalls.ClothComponent_SetPressure(Entity.ID, value);
+		}
+
+		public uint Iterations
+		{
+			get => InternalCalls.ClothComponent_GetIterations(Entity.ID);
+			set => InternalCalls.ClothComponent_SetIterations(Entity.ID, value);
+		}
+
+		public bool Enabled
+		{
+			get => InternalCalls.ClothComponent_GetEnabled(Entity.ID);
+			set => InternalCalls.ClothComponent_SetEnabled(Entity.ID, value);
+		}
+	}
+
 	public partial class DirectionalLightComponent : Component
 	{
 		public Vector3 Color

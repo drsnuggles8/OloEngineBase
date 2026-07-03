@@ -49,6 +49,9 @@
 #include <Jolt/Physics/Vehicle/WheeledVehicleController.h>
 #include <Jolt/Physics/Vehicle/VehicleCollisionTester.h>
 #include <Jolt/Physics/Body/BodyLock.h>
+#include <Jolt/Physics/SoftBody/SoftBodySharedSettings.h>
+#include <Jolt/Physics/SoftBody/SoftBodyCreationSettings.h>
+#include <Jolt/Physics/SoftBody/SoftBodyMotionProperties.h>
 
 #include <glm/gtc/constants.hpp>
 #include <glm/gtc/quaternion.hpp> // glm::inverse(quat) for ragdoll bone-local anchors
@@ -108,6 +111,9 @@ namespace OloEngine
 
         // Remove static terrain height-field bodies while m_JoltSystem is still alive.
         DestroyAllTerrainBodies();
+
+        // Remove cloth soft bodies while m_JoltSystem is still alive.
+        DestroyAllClothBodies();
 
         // Destroy all bodies
         for (const auto& [entityID, body] : m_Bodies)
@@ -408,6 +414,122 @@ namespace OloEngine
         m_TerrainBodies.clear();
     }
 
+    JPH::BodyID JoltScene::CreateClothBody(Entity entity, const JPH::Ref<JPH::SoftBodySharedSettings>& settings,
+                                           u32 iterations, f32 linearDamping, f32 pressure)
+    {
+        if (!m_Initialized || !m_JoltSystem)
+        {
+            OLO_CORE_ERROR("CreateClothBody: physics not initialized");
+            return JPH::BodyID();
+        }
+        if (!entity || !settings || settings->mVertices.empty())
+        {
+            OLO_CORE_ERROR("CreateClothBody: invalid entity or empty soft-body settings");
+            return JPH::BodyID();
+        }
+
+        const UUID entityID = entity.GetUUID();
+
+        // Idempotent: drop any prior cloth body for this entity (rebuild / regenerate).
+        DestroyClothBody(entityID);
+
+        // The particles already carry their world-space rest positions (JoltShapes baked the
+        // entity transform in), so the body is created at the origin with identity rotation
+        // on the MOVING layer — it falls under gravity and collides with static/rigid bodies.
+        JPH::SoftBodyCreationSettings creation(settings.GetPtr(), JPH::RVec3::sZero(), JPH::Quat::sIdentity(), ObjectLayers::MOVING);
+        creation.mUserData = static_cast<u64>(entityID);
+        creation.mNumIterations = std::clamp<JPH::uint32>(iterations, 1, 32);
+        creation.mLinearDamping = std::isfinite(linearDamping) ? std::max(0.0f, linearDamping) : 0.1f;
+        creation.mPressure = std::isfinite(pressure) ? std::max(0.0f, pressure) : 0.0f;
+        // A small particle radius keeps the cloth a hair off surfaces it rests on, avoiding
+        // z-fighting and reducing tunnelling through thin colliders.
+        creation.mVertexRadius = 0.01f;
+
+        JPH::BodyID bodyID = m_JoltSystem->GetBodyInterface().CreateAndAddSoftBody(creation, JPH::EActivation::Activate);
+        if (bodyID.IsInvalid())
+        {
+            OLO_CORE_ERROR("CreateClothBody: Jolt failed to create soft body for entity {0}", (u64)entityID);
+            return JPH::BodyID();
+        }
+
+        m_Cloths[entityID] = ClothRuntime{ bodyID, settings };
+        m_BodyIDToEntity[bodyID] = entityID;
+
+        OLO_CORE_TRACE("Created cloth soft body for entity {0}, BodyID: {1}, particles: {2}",
+                       (u64)entityID, bodyID.GetIndex(), settings->mVertices.size());
+        return bodyID;
+    }
+
+    void JoltScene::DestroyClothBody(UUID entityID)
+    {
+        auto it = m_Cloths.find(entityID);
+        if (it == m_Cloths.end())
+            return;
+
+        const JPH::BodyID bodyID = it->second.m_BodyID;
+        m_BodyIDToEntity.erase(bodyID);
+        if (m_JoltSystem && !bodyID.IsInvalid())
+        {
+            auto& bodyInterface = m_JoltSystem->GetBodyInterface();
+            bodyInterface.RemoveBody(bodyID);
+            bodyInterface.DestroyBody(bodyID);
+        }
+        m_Cloths.erase(it);
+        OLO_CORE_TRACE("Destroyed cloth soft body for entity {0}", (u64)entityID);
+    }
+
+    void JoltScene::DestroyAllClothBodies()
+    {
+        if (m_JoltSystem)
+        {
+            auto& bodyInterface = m_JoltSystem->GetBodyInterface();
+            for (const auto& [entityID, cloth] : m_Cloths)
+            {
+                m_BodyIDToEntity.erase(cloth.m_BodyID);
+                if (!cloth.m_BodyID.IsInvalid())
+                {
+                    bodyInterface.RemoveBody(cloth.m_BodyID);
+                    bodyInterface.DestroyBody(cloth.m_BodyID);
+                }
+            }
+        }
+        m_Cloths.clear();
+    }
+
+    bool JoltScene::GetClothVertices(UUID entityID, std::vector<glm::vec3>& outWorldPositions) const
+    {
+        outWorldPositions.clear();
+
+        auto it = m_Cloths.find(entityID);
+        if (it == m_Cloths.end() || !m_JoltSystem)
+            return false;
+
+        // Lock the body read-only and pull the current particle positions out of its
+        // SoftBodyMotionProperties. Each particle position is stored relative to the body's
+        // centre of mass, so transform it by the centre-of-mass transform to get world space.
+        JPH::BodyLockRead lock(m_JoltSystem->GetBodyLockInterface(), it->second.m_BodyID);
+        if (!lock.Succeeded())
+            return false;
+
+        const JPH::Body& body = lock.GetBody();
+        if (!body.IsSoftBody())
+            return false;
+
+        const auto* motion = static_cast<const JPH::SoftBodyMotionProperties*>(body.GetMotionProperties());
+        if (!motion)
+            return false;
+
+        const JPH::RMat44 comTransform = body.GetCenterOfMassTransform();
+        const auto& vertices = motion->GetVertices();
+        outWorldPositions.reserve(vertices.size());
+        for (const auto& vertex : vertices)
+        {
+            const JPH::RVec3 world = comTransform * vertex.mPosition;
+            outWorldPositions.emplace_back(JoltUtils::FromJoltRVec3(world));
+        }
+        return true;
+    }
+
     Ref<JoltCharacterController> JoltScene::CreateCharacterController(Entity entity, const ContactCallbackFn& contactCallback)
     {
         if (!entity || !m_Initialized)
@@ -494,6 +616,9 @@ namespace OloEngine
 
         // Remove static terrain height-field bodies while m_JoltSystem is still alive.
         DestroyAllTerrainBodies();
+
+        // Remove cloth soft bodies while m_JoltSystem is still alive.
+        DestroyAllClothBodies();
 
         // Destroy all bodies — the JoltBody destructors run as clear() releases
         // each Ref; the reverse-lookup and sync sets are dropped with them.
