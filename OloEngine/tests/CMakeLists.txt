@@ -83,6 +83,7 @@ add_executable(OloEngine-Tests
 		Rendering/TextureCompressionTest.cpp
 		Rendering/BoundingVolumeTest.cpp
 		Rendering/FrustumCullingTest.cpp
+		Rendering/RendererSettingsBootstrapTest.cpp
 		Rendering/ReflectionProbeSelectionTest.cpp
 		Rendering/PlanarReflectionMathTest.cpp
 		Rendering/LODTest.cpp
