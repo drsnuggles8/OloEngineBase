@@ -157,6 +157,18 @@ namespace OloEngine
         {
             return m_UBOData.PointShadowCount;
         }
+        // True when at least one light requested shadows THIS frame — the
+        // directional CSM (set by ComputeCSMCascades), any spot, or any point.
+        // Populated during Scene shadow setup and reset by BeginFrame(), so it
+        // is a per-frame signal, distinct from the global IsEnabled() toggle.
+        // Used to skip the entire ShadowRenderPass (and its ×N cascade/face
+        // re-submission) when no light casts shadows — see issue #522.
+        [[nodiscard]] bool AnyShadowsRequested() const
+        {
+            return m_UBOData.DirectionalShadowEnabled != 0 ||
+                   m_UBOData.SpotShadowCount > 0 ||
+                   m_UBOData.PointShadowCount > 0;
+        }
         [[nodiscard]] const glm::mat4& GetPointFaceMatrix(u32 lightIndex, u32 face) const
         {
             return m_PointLightFaceMatrices[lightIndex][face];

@@ -113,9 +113,18 @@ namespace OloEngine
                                 !m_TerrainCasters.empty() || !m_VoxelCasters.empty() ||
                                 !m_FoliageCasters.empty();
 
-        if (!m_ShadowMap || !m_ShadowMap->IsEnabled() || !hasCasters)
+        // Root-cause early-out for issue #522: when no light requested shadows this
+        // frame the CSM/spot/point matrices are stale (identity), so rendering any
+        // caster against them is pure waste (GPU + ×N cascade/face re-submission).
+        // Scene already skips caster submission in this case, but gate here too so a
+        // caster leaking through any other path can never paint a stale shadow map.
+        const bool shadowsRequested = m_ShadowMap && m_ShadowMap->AnyShadowsRequested();
+
+        if (!m_ShadowMap || !m_ShadowMap->IsEnabled() || !shadowsRequested || !hasCasters)
         {
-            if (!m_WarnedOnce && !hasCasters && m_ShadowMap && m_ShadowMap->IsEnabled())
+            // Only warn about the genuinely suspicious case: shadows enabled AND
+            // requested by a light, yet nothing was submitted to cast them.
+            if (!m_WarnedOnce && shadowsRequested && !hasCasters && m_ShadowMap && m_ShadowMap->IsEnabled())
             {
                 OLO_CORE_WARN("ShadowRenderPass::Execute skipped: no shadow casters submitted");
                 m_WarnedOnce = true;

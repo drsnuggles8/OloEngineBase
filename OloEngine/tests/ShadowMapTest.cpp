@@ -413,6 +413,76 @@ TEST_F(ShadowMapMatrixTest, BeginFrameResetsPerFrameState)
     EXPECT_EQ(shadowMap.GetPointShadowCount(), 0);
 }
 
+// =============================================================================
+// AnyShadowsRequested() — the per-frame "did any light request shadows" signal
+// that drives the ShadowRenderPass early-out (issue #522). Scene gates caster
+// submission on this, and ShadowRenderPass::Execute gates the whole pass on it,
+// so if it ever mis-reports true→false the ×N cascade/face re-submission fires
+// against stale (identity) matrices; false→true silently kills real shadows.
+// =============================================================================
+
+TEST_F(ShadowMapMatrixTest, AnyShadowsRequestedFalseWhenNoLightCasts)
+{
+    // A freshly-begun frame with no directional/spot/point request must report
+    // "no shadows this frame" — this is the state that lets the pass early-out.
+    shadowMap.BeginFrame();
+    EXPECT_FALSE(shadowMap.AnyShadowsRequested());
+}
+
+TEST_F(ShadowMapMatrixTest, AnyShadowsRequestedTrueForDirectional)
+{
+    shadowMap.BeginFrame();
+    shadowMap.SetDirectionalShadowEnabled(true);
+    EXPECT_TRUE(shadowMap.AnyShadowsRequested());
+}
+
+TEST_F(ShadowMapMatrixTest, AnyShadowsRequestedTrueForSpot)
+{
+    shadowMap.BeginFrame();
+    shadowMap.SetSpotShadowCount(1);
+    EXPECT_TRUE(shadowMap.AnyShadowsRequested());
+}
+
+TEST_F(ShadowMapMatrixTest, AnyShadowsRequestedTrueForPoint)
+{
+    shadowMap.BeginFrame();
+    shadowMap.SetPointShadowCount(1);
+    EXPECT_TRUE(shadowMap.AnyShadowsRequested());
+}
+
+TEST_F(ShadowMapMatrixTest, ComputeCSMCascadesRequestsDirectionalShadow)
+{
+    // This mirrors the real Scene path: a directional light with CastShadows
+    // drives ComputeCSMCascades, which is what flips DirectionalShadowEnabled on.
+    // Without this, gating caster submission on AnyShadowsRequested() would drop
+    // directional shadows entirely.
+    shadowMap.BeginFrame();
+    EXPECT_FALSE(shadowMap.AnyShadowsRequested());
+
+    const glm::vec3 lightDir(0.0f, -1.0f, 0.0f);
+    const glm::mat4 view = glm::lookAt(glm::vec3(0, 5, 10), glm::vec3(0, 0, 0), glm::vec3(0, 1, 0));
+    const glm::mat4 proj = glm::perspective(glm::radians(60.0f), 16.0f / 9.0f, 0.1f, 1000.0f);
+    shadowMap.ComputeCSMCascades(lightDir, view, proj, 0.1f, 1000.0f);
+
+    EXPECT_TRUE(shadowMap.AnyShadowsRequested())
+        << "ComputeCSMCascades must mark the directional shadow as requested";
+}
+
+TEST_F(ShadowMapMatrixTest, BeginFrameClearsShadowsRequested)
+{
+    shadowMap.SetDirectionalShadowEnabled(true);
+    shadowMap.SetSpotShadowCount(3);
+    shadowMap.SetPointShadowCount(2);
+    EXPECT_TRUE(shadowMap.AnyShadowsRequested());
+
+    // BeginFrame must clear ALL three request sources — including the
+    // directional flag, which has no dedicated getter — so a frame that stops
+    // casting shadows correctly early-outs the pass instead of re-using last
+    // frame's stale request.
+    shadowMap.BeginFrame();
+    EXPECT_FALSE(shadowMap.AnyShadowsRequested());
+}
+
 TEST_F(ShadowMapMatrixTest, CascadeDebugToggle)
 {
     EXPECT_FALSE(shadowMap.IsCascadeDebugEnabled());
