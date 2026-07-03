@@ -157,6 +157,14 @@ A **global gtest listener** ([`GLErrorStateCheck.{h,cpp}`](../../OloEngine/tests
 
 When you write a raw-GL test, the discipline is: **unbind what you bound and drain what you provoked, at the end of the test.** The listener will pin any slip to its source with a `[ FAILED ]` naming the leaked GL enum — fix the named test, don't drain in its victim.
 
+### 6.5 Lazy-loaded GPU resources: a headless first-touch must not cache a non-renderable state (issue #520)
+
+A process-global **lazy singleton that owns a GPU resource** is a second class of cross-test state leak — one that §6.4's GL-error listener and `GLStateGuard` cannot see, because the corruption is at the *asset* layer, not the GL-binding layer. The trap: a headless test (no GL context) *first touches* the singleton before any GPU test brings the context up. If the loader correctly skips GPU-resource creation when no context is bound (it must — `glCreate*` through a null glad pointer segfaults) **but caches the result as fully loaded**, every later GPU test reuses a permanently non-renderable resource. It passes in isolation (there the singleton is first loaded *with* a context) and fails only in a full-suite ordering — deterministically, which reads like a state leak rather than timing flake.
+
+The worked case: `Font::GetDefault()` caches a `static Ref<Font>`; `SlugFontProcessor::Process` skips curve/band texture creation when `glad_glCreateTextures == nullptr`. `FontMeasureLineTest` (a plain metrics-only `TEST`) called `GetDefault()` first in the full-suite order, caching a **textureless** font; `RebindMenuScene.RendersRebindPanelAndProducesPng` then rendered its labels through that cached font (UI text falls back to `Font::GetDefault()`) and every glyph silently dropped — `maxLum 0.269`, the button-fill grey, no near-white text.
+
+The fix is **not** a test-ordering workaround: make the resource *upgradeable*. Retain the CPU-side data when the GPU upload is deferred and upload it lazily the first time the resource is used with a context bound (`SlugFontProcessor::EnsureGpuTextures`, called from `Font::GetCurveTexture()`/`GetBandTexture()`), freeing the CPU copy afterward. **Guard rule for any new lazy GPU-resource loader: if you skip GPU creation because no context is bound, do not cache the result as final — either retain enough to finish the upload later, or don't cache until the upload succeeds.** Deterministic guard: `SlugDeferredUploadTest.EnsureGpuTexturesUploadsRetainedData` drives the upgrade path directly; the `RebindMenuScene` visual test remains the full-suite integration guard.
+
 ---
 
 ## 7. Relevant files

@@ -72,6 +72,27 @@ namespace OloEngine
         Ref<Texture2D> CurveTexture; // RGBA16F — control point data
         Ref<Texture2D> BandTexture;  // RG16UI  — band headers + curve lists
 
+        // Deferred GPU upload.
+        //
+        // A font parsed without a live GL context (a headless metrics-only load
+        // — e.g. Font::GetDefault() called from a unit test before the renderer
+        // is up, or an asset preprocessor) cannot create its curve/band textures
+        // yet. Rather than caching the font as permanently non-renderable, the
+        // processor retains the already-packed, already-padded texel data here
+        // and the GPU textures are uploaded lazily the first time a texture is
+        // requested with a context bound (SlugFontProcessor::EnsureGpuTextures).
+        // The CPU copies are freed once uploaded, so a font that does eventually
+        // render pays no lasting memory cost. Without this, a font first touched
+        // before the renderer exists would silently drop all its text on every
+        // later render even once a context is live (issue #520).
+        bool GpuUploadPending = false;
+        std::vector<f32> PendingCurveTexels; // RGBA16F, padded to Width*Height*4 floats
+        std::vector<u16> PendingBandTexels;  // RG16UI,  padded to Width*Height*2 u16s
+        u32 PendingCurveWidth = 0;
+        u32 PendingCurveHeight = 0;
+        u32 PendingBandWidth = 0;
+        u32 PendingBandHeight = 0;
+
         [[nodiscard]] const SlugGlyphData* GetGlyph(u32 codepoint) const
         {
             if (auto const it = Glyphs.find(codepoint); it != Glyphs.end())

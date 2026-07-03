@@ -288,6 +288,25 @@ else()
 		Threads::Threads
 		${CMAKE_DL_LIBS}
 	)
+
+	# std::stacktrace runtime. Platform/OpenGL/OpenGLDebug.cpp calls
+	# std::stacktrace::current() behind __has_include(<stacktrace>). On GCC's
+	# libstdc++ (GCC 12+) that implementation lives in a SEPARATE archive,
+	# libstdc++exp.a, which is NOT linked by default — so on Linux/Clang (the
+	# sanitizer CI) and GCC the OpenGLDebug.cpp.o references are undefined at
+	# every executable link:
+	#   ld.lld: error: undefined symbol: std::__stacktrace_impl::_S_current(...)
+	#   ld.lld: error: undefined symbol: std::stacktrace_entry::_Info::_M_populate(...)
+	# MSVC's STL resolves std::stacktrace via DbgHelp (linked in the MSVC branch
+	# above), and libc++ gates the header out, so this is a libstdc++-only need.
+	# check_linker_flag adds the lib only where it actually exists (a no-op on
+	# libc++ / toolchains without it), and as an OloEngine link dep CMake orders
+	# it after libOloEngine.a so the static-archive references resolve.
+	include(CheckLinkerFlag)
+	check_linker_flag(CXX "-lstdc++exp" OLO_HAVE_LIBSTDCXXEXP)
+	if(OLO_HAVE_LIBSTDCXXEXP)
+		target_link_libraries(OloEngine stdc++exp)
+	endif()
 endif()
 
 # When fuzzing is enabled, instrument OloEngine with ASan/UBSan. Helper is

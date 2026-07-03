@@ -25,6 +25,14 @@ namespace OloEngine
         // emScale converts from font units to em-space (1.0 / unitsPerEm).
         static void Process(const stbtt_fontinfo& fontInfo, f32 emScale, SlugFontData& fontData);
 
+        // Upload the curve/band textures deferred by a headless Process() call
+        // (SlugFontData::GpuUploadPending). No-op when nothing is pending or when
+        // a GL context still isn't bound; frees the retained CPU texel data once
+        // uploaded. Called by Font::GetCurveTexture()/GetBandTexture() so a font
+        // first parsed before the renderer came up becomes renderable on the
+        // first draw that needs it (issue #520).
+        static void EnsureGpuTextures(SlugFontData& fontData);
+
       private:
         static constexpr u32 kBandTextureWidth = 4096;
         static constexpr u32 kLogBandTextureWidth = 12;

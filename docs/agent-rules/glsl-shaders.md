@@ -194,6 +194,29 @@ Available headers in `OloEditor/assets/shaders/include/`:
 
 ---
 
+## 7a. Depth-prepass position invariance
+
+The scene depth prepass binds minimal depth-only programs (`DepthPrepass*.glsl`)
+in place of the four standard mesh programs (`PBR_MultiLight{,_Skinned}`,
+`PBR_GBuffer{,_Skinned}`), then the color pass re-draws with
+`glDepthFunc(GL_LEQUAL)` and depth writes off (see
+`CommandDispatch::ResolveDepthPrepassShader`). Any rounding difference between
+the two programs' `gl_Position` fails the depth test and punches pixel holes. So:
+
+- The depth-prepass shaders replicate the standard programs' position math
+  **expression-for-expression** (world position first, then view-projection;
+  the same bone-accumulation loop for skinned).
+- All of these vertex stages declare `invariant gl_Position;`.
+- If you change position math in any standard mesh vertex stage, make the same
+  change in the matching `DepthPrepass*.glsl` — and vice versa.
+- A new mesh-drawing shader with different vertex math must NOT be added to the
+  swap whitelist unless it gets its own matching depth-only variant; unswapped
+  shaders safely run in full during the prepass.
+
+MASK materials use `DepthPrepass_Mask{,Skinned}.glsl`, which must keep the exact
+glTF alpha test from `PBR_MultiLight.glsl` (`baseColorFactor.a * albedo.a <
+cutoff → discard`) so the prepass depth coverage matches the color pass.
+
 ## 8. Common mistakes
 
 1. **Bare non-opaque uniform outside a block** → SPIR-V compile error. Wrap in a UBO block; only opaque types (samplers, images) may be standalone.
