@@ -6,6 +6,7 @@
 		"GameManager.cs"
 		"GamepadPlayer.cs"
 		"GoblinAI.cs"
+		"PerfBob.cs"
 		"Player.cs"
 		"PlayerController.cs"
 		"SaveLoadTestPlayer.cs"

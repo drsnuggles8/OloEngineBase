@@ -517,6 +517,21 @@ namespace OloEngine
         m_ActiveScene->OnViewportResize(static_cast<u32>(m_ViewportSize.x), static_cast<u32>(m_ViewportSize.y));
         m_ActiveScene->SetViewportOffset(m_ViewportBounds[0]);
 
+        // Headless-automation opt-in (same spirit as OLO_MCP_AUTOSTART): enter
+        // Play mode once the editor is up, so drivers that measure runtime
+        // behaviour (physics/scripts/animation) over MCP don't need to click
+        // the toolbar. A few frames of settle lets the first viewport
+        // resize/shader warmup finish before OnScenePlay copies the scene.
+        if (m_SceneState == SceneState::Edit && m_FrameIndex == 30)
+        {
+            if (const char* autoplay = std::getenv("OLO_EDITOR_AUTOPLAY");
+                autoplay != nullptr && *autoplay != '\0' && std::string_view(autoplay) != "0")
+            {
+                OLO_CORE_INFO("OLO_EDITOR_AUTOPLAY set - entering Play mode");
+                OnScenePlay();
+            }
+        }
+
         const f64 epsilon = 1e-5;
 
         // Scale framebuffer dimensions by HiDPI factor so we render at native pixel resolution.

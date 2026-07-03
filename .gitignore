@@ -92,6 +92,11 @@ OloEditor/cmake_test_discovery_*.json
 skills-lock.json
 docs/agents/
 
+# Generated performance stress scenes (potentially 40+ MB of YAML at 200k
+# instances). Only the generator is committed; regenerate on demand with
+# OloEngine/tests/scripts/generate_perf_scenes.py.
+OloEditor/SandboxProject/Assets/Scenes/PerfStress/
+
 # Generated per-file test catalogues. Rendered from test_catalogue.json + in-file
 # // OLO_TEST_LAYER markers by OloEngine/tests/scripts/generate_test_catalogue.py.
 # Deliberately NOT committed: the tables change on essentially every test, and a
