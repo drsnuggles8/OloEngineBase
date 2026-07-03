@@ -30,7 +30,7 @@ namespace OloEngine
         // small for the advertised 65536 max bodies, letting Jolt's contact-constraint
         // buffer overflow and bodies tunnel through static geometry in dense piles well
         // under that body count). NOTE: raising this requires JoltScene's temp allocator to
-        // scale with it (see JoltScene.h's s_BaselineTempAllocatorSize) — Jolt's per-step
+        // scale with it (see JoltScene.h's kBaselineTempAllocatorSize) — Jolt's per-step
         // scratch usage scales with the constraint capacity, and handing Jolt a bigger
         // capacity without a proportionally bigger fixed-size scratch buffer corrupts
         // memory. Do not raise this default without checking that scaling is still wired up.

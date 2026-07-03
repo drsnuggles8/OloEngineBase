@@ -105,7 +105,9 @@ TEST_F(ContactConstraintLimitsHonouredTest, DensePileSettlesOnFloorInsteadOfTunn
 
     constexpr f32 kFloorTop = 0.0f;
     constexpr f32 kBoxHalfExtent = 0.5f;
-    constexpr u32 kBodyCount = 40;
+    constexpr u32 kGridX = 5;
+    constexpr u32 kGridZ = 4;
+    constexpr u32 kBodyCount = 80;
 
     CreateFloor(GetScene(), kFloorTop);
 
@@ -115,10 +117,13 @@ TEST_F(ContactConstraintLimitsHonouredTest, DensePileSettlesOnFloorInsteadOfTunn
     {
         // Stack in a tight grid a little above the floor so most bodies are
         // in simultaneous mutual contact once they land — the scenario that
-        // overflowed the old undersized contact-constraint buffer.
-        const f32 x = static_cast<f32>(i % 5) * (kBoxHalfExtent * 2.0f);
-        const f32 z = static_cast<f32>(i / 5 % 8) * (kBoxHalfExtent * 2.0f);
-        const f32 y = 2.0f + static_cast<f32>(i / 40) * (kBoxHalfExtent * 2.0f);
+        // overflowed the old undersized contact-constraint buffer. The grid
+        // footprint (kGridX * kGridZ) is smaller than kBodyCount so the pile
+        // wraps into additional vertical layers instead of staying flat.
+        const u32 layerSize = kGridX * kGridZ;
+        const f32 x = static_cast<f32>(i % kGridX) * (kBoxHalfExtent * 2.0f);
+        const f32 z = static_cast<f32>(i / kGridX % kGridZ) * (kBoxHalfExtent * 2.0f);
+        const f32 y = 2.0f + static_cast<f32>(i / layerSize) * (kBoxHalfExtent * 2.0f);
 
         Entity box = GetScene().CreateEntity("PileBox");
         box.GetComponent<TransformComponent>().Translation = { x, y, z };

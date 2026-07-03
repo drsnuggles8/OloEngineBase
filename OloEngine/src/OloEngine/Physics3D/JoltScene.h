@@ -447,7 +447,7 @@ namespace OloEngine
 
         // Throttling state for the JPH::EPhysicsUpdateError overflow log (see Step()):
         // logs immediately on the first occurrence / on an error-type transition, then
-        // only every s_PhysicsUpdateErrorLogInterval steps while the same error persists,
+        // only every kPhysicsUpdateErrorLogInterval steps while the same error persists,
         // instead of spamming every fixed step (issue #523).
         JPH::EPhysicsUpdateError m_LastPhysicsUpdateError = JPH::EPhysicsUpdateError::None;
         u32 m_PhysicsUpdateErrorRepeatCount = 0;
@@ -476,12 +476,12 @@ namespace OloEngine
         // still at 10 MB crashed JoltScene::Step with SEH 0xc0000005, even in a trivial
         // 2-body test). InitializeJolt() scales the actual allocator size against this
         // baseline — see the maxContactConstraints ratio there. Issue #523.
-        static constexpr u32 s_BaselineTempAllocatorSize = 10 * 1024 * 1024; // 10 MB
-        static constexpr u32 s_BaselineMaxContactConstraints = 10240;
+        static constexpr u32 kBaselineTempAllocatorSize = 10 * 1024 * 1024; // 10 MB
+        static constexpr u32 kBaselineMaxContactConstraints = 10240;
         static constexpr u32 s_JobSystemMaxJobs = 2048;
         static constexpr u32 s_JobSystemMaxBarriers = 8;
         // How often (in fixed steps) to re-log a persisting physics update error.
-        static constexpr u32 s_PhysicsUpdateErrorLogInterval = 300; // ~5s at a 60Hz fixed step
+        static constexpr u32 kPhysicsUpdateErrorLogInterval = 300; // ~5s at a 60Hz fixed step
     };
 
 } // namespace OloEngine

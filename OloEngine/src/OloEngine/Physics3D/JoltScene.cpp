@@ -219,12 +219,12 @@ namespace OloEngine
         {
             // Throttle: an overflow (e.g. ContactConstraintsFull) otherwise re-logs every
             // fixed step for as long as it persists. Log immediately on the first hit / on
-            // a transition to a different error, then only every s_PhysicsUpdateErrorLogInterval
+            // a transition to a different error, then only every kPhysicsUpdateErrorLogInterval
             // steps while it repeats (issue #523).
             const bool isNewError = error != m_LastPhysicsUpdateError;
             if (isNewError)
                 m_PhysicsUpdateErrorRepeatCount = 0;
-            if (isNewError || m_PhysicsUpdateErrorRepeatCount % s_PhysicsUpdateErrorLogInterval == 0)
+            if (isNewError || m_PhysicsUpdateErrorRepeatCount % kPhysicsUpdateErrorLogInterval == 0)
             {
                 OLO_CORE_ERROR("Jolt physics update error: {0} - raise the matching PhysicsSettings limit "
                                "(m_MaxContactConstraints / m_MaxBodyPairs / m_MaxBodies)",
@@ -2521,18 +2521,28 @@ namespace OloEngine
         const PhysicsSettings& settings = Physics3DSystem::GetSettings();
         const u32 maxBodies = std::max(settings.m_MaxBodies, 1u);
         const u32 maxBodyPairs = std::max(settings.m_MaxBodyPairs, 1u);
-        const u32 maxContactConstraints = std::max(settings.m_MaxContactConstraints, 1u);
+
+        // Create temp allocator, scaled against kBaselineTempAllocatorSize (see its
+        // comment): Jolt's per-step scratch usage scales with maxContactConstraints, and
+        // TempAllocatorImpl is a fixed-size ring buffer, so a bigger constraint capacity
+        // needs a proportionally bigger scratch buffer or Jolt silently corrupts memory.
+        // Cap maxContactConstraints itself to whatever the 512 MB scratch-buffer ceiling
+        // can support *before* it reaches PhysicsSystem::Init — Physics3DSystem::SetSettings()
+        // has no validating caller other than ProjectSerializer, so a direct caller (test,
+        // script) could otherwise hand Jolt a constraint capacity the scratch buffer can't
+        // back, corrupting memory instead of just under-allocating.
+        constexpr u64 kMaxTempAllocatorSize = 512ull * 1024 * 1024;
+        const u64 maxSafeContactConstraints =
+            (static_cast<u64>(kBaselineMaxContactConstraints) * kMaxTempAllocatorSize) / kBaselineTempAllocatorSize;
+        const u32 maxContactConstraints = static_cast<u32>(
+            std::clamp<u64>(std::max(settings.m_MaxContactConstraints, 1u), 1ull, maxSafeContactConstraints));
         m_AppliedMaxBodies = maxBodies;
         m_AppliedMaxBodyPairs = maxBodyPairs;
         m_AppliedMaxContactConstraints = maxContactConstraints;
 
-        // Create temp allocator, scaled against s_BaselineTempAllocatorSize (see its
-        // comment): Jolt's per-step scratch usage scales with maxContactConstraints, and
-        // TempAllocatorImpl is a fixed-size ring buffer, so a bigger constraint capacity
-        // needs a proportionally bigger scratch buffer or Jolt silently corrupts memory.
-        const u64 scaledTempAllocatorSize = (static_cast<u64>(s_BaselineTempAllocatorSize) * maxContactConstraints) / s_BaselineMaxContactConstraints;
+        const u64 scaledTempAllocatorSize = (static_cast<u64>(kBaselineTempAllocatorSize) * maxContactConstraints) / kBaselineMaxContactConstraints;
         const u32 tempAllocatorSize = static_cast<u32>(
-            std::clamp<u64>(scaledTempAllocatorSize, s_BaselineTempAllocatorSize, 512ull * 1024 * 1024));
+            std::clamp<u64>(scaledTempAllocatorSize, kBaselineTempAllocatorSize, kMaxTempAllocatorSize));
         m_TempAllocator = std::make_unique<JPH::TempAllocatorImpl>(tempAllocatorSize);
 
         // Create job system adapter that wraps FScheduler
