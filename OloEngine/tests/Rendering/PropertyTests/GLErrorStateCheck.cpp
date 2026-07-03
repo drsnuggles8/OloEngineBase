@@ -80,27 +80,6 @@ namespace OloEngine::Tests::GLErrorState
         return DrainAndGetFirstError(ignoredCount);
     }
 
-    u32 DrainAndGetFirstUnexpected(u32 allowedError)
-    {
-        if (glad_glGetError == nullptr || !HasGlContext())
-            return GL_NO_ERROR;
-
-        // Drain the WHOLE queue (so nothing leaks onward regardless), but skip
-        // the one allowed class when picking the error to report. 64-iteration
-        // bound as in DrainAndGetFirstError.
-        constexpr u32 kMaxDrainIterations = 64;
-        u32 firstUnexpected = GL_NO_ERROR;
-        for (u32 i = 0; i < kMaxDrainIterations; ++i)
-        {
-            const GLenum e = ::glGetError();
-            if (e == GL_NO_ERROR)
-                break;
-            if (e != allowedError && firstUnexpected == GL_NO_ERROR)
-                firstUnexpected = e;
-        }
-        return firstUnexpected;
-    }
-
     // =========================================================================
     // GoogleTest listener — asserts a clean GL error queue after every test.
     // =========================================================================

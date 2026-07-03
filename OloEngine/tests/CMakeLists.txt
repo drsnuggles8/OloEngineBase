@@ -163,6 +163,7 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/StarNestSkyVisualTest.cpp
 		Rendering/PropertyTests/StarNestReflectionEvidenceTest.cpp
 		Rendering/PropertyTests/WaterVisualEvidenceTest.cpp
+		Rendering/PropertyTests/WaterStaleTexturePublicationTest.cpp
 		Rendering/PropertyTests/CompressedTextureVisualEvidenceTest.cpp
 		Rendering/PropertyTests/OceanFFTVisualEvidenceTest.cpp
 		Rendering/PropertyTests/UnderwaterCausticsVisualTest.cpp
