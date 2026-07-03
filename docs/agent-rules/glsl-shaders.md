@@ -180,6 +180,31 @@ Slots 0–8 are reserved (particles, foliage instances, light probes, snow defor
 
 ---
 
+## 6a. Instancing is shader-transparent — don't write a separate `*_Instanced` variant
+
+Every mesh-rendering vertex/fragment stage — forward (`PBR_MultiLight*.glsl`) and
+deferred (`PBR_GBuffer*.glsl`) alike — reads its per-draw model transform from the
+`InstanceData[]` SSBO at `layout(std430, binding = 15)` via
+`include/InstanceBlock_Vertex.glsl` (vertex stage, indexed by `gl_InstanceIndex`)
+and `include/InstanceBlock.glsl` (fragment stage, indexed by the flat
+`v_InstanceIndex` varying forwarded by `OLO_INSTANCE_FORWARD()`). A non-instanced
+draw uploads a length-1 buffer and `gl_InstanceIndex` is always 0, so the exact
+same shader binary handles both `glDrawElements` and
+`glDrawElementsInstanced`/indirect-instanced draws with zero source changes.
+
+Practical consequence (issue #515): when an instanced submission path picks the
+wrong *existing* shader (e.g. always falling back to the forward default instead
+of routing PBR materials to `PBRGBufferShader` on the Deferred path), the fix is
+pure C++ shader-selection routing in `Renderer3DMeshSubmission.cpp` — mirror the
+non-instanced `DrawMesh` routing logic exactly. Do **not** reach for a new
+`PBR_GBuffer_Instanced.glsl` variant (the way `PBR_GBuffer_Skinned.glsl` exists
+for skinning, which *does* need new vertex-stage bone-palette logic); the
+existing `PBR_GBuffer.glsl` is already instancing-capable and adding a
+duplicate variant would just be two copies of the same fragment logic to keep in
+sync.
+
+---
+
 ## 7. Include system
 
 `#include` is resolved by the engine with cycle detection:
