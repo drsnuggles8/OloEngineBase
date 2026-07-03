@@ -164,6 +164,8 @@ the server, so update the config (or re-copy from the panel) accordingly.
 | `olo_log_tail` | recent engine log lines, filterable by `minLevel` and `tag` |
 | `olo_events_tail` | unified "what just happened?" timeline — scene load, play/stop, entity spawn/destroy, asset reload, script error — newest last with a monotonic `id`; incremental polling via `sinceId`, plus a `categories` filter |
 | `olo_scene_summary` | active scene name, play state, entity count |
+| `olo_scene_open` | **(consented write)** open / switch the active scene by `path` (a `.olo`/`.scene` file, relative paths resolve against the project asset directory) — the scriptable scene switch. Loads directly, bypassing the auto-save recovery modal a remote agent can't click; stops Play mode first. Reports the loaded scene name + entity count. Gated behind **Agent writes** |
+| `olo_scene_play` / `olo_scene_stop` | **(consented write)** enter / leave Play mode — the same as the editor's Play/Stop buttons, so an agent can verify anything that only runs in Play (physics, cloth, scripts). Transient + fully reversible (stop restores the authored scene); idempotent (`changed:false` when already in that state); `olo_scene_summary` reports `isPlaying` to confirm. Gated behind **Agent writes** |
 | `olo_scene_list_entities` | paginated entity list (id, name, parent, child count) + name filter |
 | `olo_scene_get_entity` | one entity's full component data (YAML) by UUID |
 | `olo_perf_snapshot` | fps, frame/CPU/GPU time (real whole-frame GPU timer), `gpuWaitMs` (CPU blocked on the GPU fence — the direct GPU-bound signal), draw calls, instancing, triangles, plus `renderWidth`/`renderHeight` — the ACTUAL SceneColor render resolution; cross-check it against any `olo_viewport_set_size` override before trusting timings |
@@ -208,8 +210,9 @@ the server, so update the config (or re-copy from the panel) accordingly.
 ### Write consent — Disabled / Prompt / Allow all (issue #306 item C)
 
 Every project-mutating tool (`olo_set_collision_layer`, `olo_entity_set_field`,
-`olo_reload_script`, `olo_renderer_settings_set` — anything marked **(consented
-write)** above) is gated in the MCP panel by a three-way **Agent writes** control.
+`olo_reload_script`, `olo_renderer_settings_set`, `olo_scene_open`,
+`olo_scene_play`, `olo_scene_stop` — anything marked **(consented write)** above)
+is gated in the MCP panel by a three-way **Agent writes** control.
 It is **off by default and never persisted**, so every editor launch starts read-only
 and the human at the editor opts in for the session:
 
@@ -241,7 +244,7 @@ blocks on an agent.
 
 ### Toolsets & on-demand tool discovery (`tools/search`)
 
-The tool surface is large enough (48 tools) that paging the whole flat `tools/list`
+The tool surface is large enough (51 tools) that paging the whole flat `tools/list`
 to find the right one is wasteful. Every tool is tagged with a **toolset** (grouping
 category), and a custom `tools/search` JSON-RPC method lets an agent discover tools by
 keyword and/or category instead of pulling the entire list:
@@ -249,7 +252,7 @@ keyword and/or category instead of pulling the entire list:
 | Toolset | Tools |
 |---|---|
 | `diagnostics` | `olo_log_tail`, `olo_events_tail`, `olo_crash_list`, `olo_crash_get` |
-| `scene` | `olo_scene_summary`, `olo_scene_list_entities`, `olo_scene_get_entity` |
+| `scene` | `olo_scene_summary`, `olo_scene_list_entities`, `olo_scene_get_entity`, `olo_entity_list_fields`, `olo_entity_set_field`, `olo_scene_open`, `olo_scene_play`, `olo_scene_stop` |
 | `perf` | `olo_memory_report`, `olo_perf_snapshot`, `olo_perf_bottlenecks`, `olo_perf_frame_history`, `olo_perf_capture_frame`, `olo_perf_pass_timings` |
 | `render` | `olo_render_frame_breakdown`, `olo_render_list_targets`, `olo_render_graph_topology_export`, `olo_render_capture_target`, `olo_render_toggle_pass`, `olo_render_set_debug_view`, `olo_renderer_settings_set`, `olo_scene_set_time_of_day`, `olo_scene_set_sun_angle`, `olo_render_compare_golden`, `olo_render_why_not_visible` |
 | `shader` | `olo_shader_list`, `olo_shader_errors`, `olo_shader_get`, `olo_shader_reload` |
@@ -423,6 +426,76 @@ component bindings.
   don't trust `scriptClassCount` on a failed reload. Rebuild the game assembly and retry.
 - **Lua is not reloaded here.** This tool targets the C# (Mono) app assembly; Lua scripts
   re-execute per entity on play and have no single global reload entry point.
+
+### Scriptable scene control (`olo_scene_open` / `olo_scene_play` / `olo_scene_stop`)
+
+The **scriptable repro setup** (issue #316 Part 5): switch which scene is loaded and
+toggle the runtime, so an agent can set up and drive a repro over MCP instead of the
+old manual dance — editing `Sandbox.oloproj`'s `StartScene` + relaunching the editor
+per target scene, and `OLO_EDITOR_AUTOPLAY=1` + a relaunch to reach Play.
+
+- **`olo_scene_open { path }`** opens / switches the active scene. `path` is a
+  `.olo` / `.scene` file; a relative path resolves against the project's asset
+  directory (e.g. `"Scenes/Sandbox.olo"`), an absolute path also works, and `..`
+  traversal is rejected. It loads the scene **directly** — the same install path as
+  the editor's *File ▸ Open Scene*, but **without the auto-save recovery modal** (a
+  remote agent can't click it; see below) and without a file dialog. If Play mode is
+  running it is stopped first. The response reports whether the scene loaded (`ok`),
+  the resolved `path`, and the new `sceneName` + `entityCount`.
+- **`olo_scene_play {}` / `olo_scene_stop {}`** enter / leave Play mode — the same
+  `OnScenePlay` / `OnSceneStop` the editor's Play / Stop toolbar buttons drive. This
+  is what lets an agent verify anything that **only runs in Play**: physics,
+  cloth/soft-body, scripts, animation (an edit-mode `olo_screenshot` shows none of
+  it). Entering Play copies the authored scene and starts the runtime; **stopping
+  restores the authored scene**, so the toggle is transient and fully reversible.
+  Both are **idempotent** — a redundant call is a no-op reported as `changed:false`.
+  Entering Play can fail if the scene has no primary `CameraComponent`; then
+  `ok:false` and the editor stays in Edit (see the `message`).
+
+All three are **consented WRITE tools** (issue #306 item C): refused while **Agent
+writes** is *Disabled* in the MCP panel (the default), prompted per-action in
+*Prompt* mode, applied directly in *Allow all*. They cross the read-only line
+because `olo_scene_open` discards the current in-memory scene and `olo_scene_play`
+executes the user's game scripts — but neither writes a project file (the scene
+`.olo` on disk is never modified).
+
+```jsonc
+// 1) olo_scene_open { "path": "Scenes/Sandbox.olo" }
+{ "available": true, "ok": true, "path": ".../Assets/Scenes/Sandbox.olo",
+  "sceneName": "Sandbox", "entityCount": 42, "message": "Opened scene 'Sandbox' (42 entities)." }
+// 2) olo_scene_play {}
+{ "available": true, "ok": true, "playing": true, "changed": true,
+  "sceneName": "Sandbox", "message": "Entered Play mode." }
+// 3) olo_scene_summary {}          -> confirm "isPlaying": true
+// 4) olo_screenshot { … }          -> see the simulating frame (cloth settling, physics, …)
+// 5) olo_scene_stop {}
+{ "available": true, "ok": true, "playing": false, "changed": true,
+  "sceneName": "Sandbox", "message": "Stopped Play mode; restored the authored scene." }
+```
+
+The scene-control actions run on the editor's main thread (marshaled at a frame
+boundary, like the other scene tools); a headless test host that owns no editor
+scene reports a clean *"not available"*.
+
+#### The auto-save recovery modal — headless dismissal (`OLO_EDITOR_AUTOSAVE_RECOVERY`)
+
+When the editor opens a scene whose `.olo.auto` auto-save is newer than the saved
+scene, it raises a **"Recover Auto-Save?"** modal. That modal is un-dismissible
+remotely — synthetic Win32 clicks don't reach ImGui — so a headless / agent launch
+with a stray `.auto` file would wedge at a popup it can never answer, blocking
+`olo_scene_open` (and everything else) from ever reaching a usable state.
+
+Set **`OLO_EDITOR_AUTOSAVE_RECOVERY`** before launching the editor to pre-answer it:
+
+- `autosave` (aliases `recover` / `auto`) — load the newer `.auto` (the recovered work).
+- `original` (aliases `keep` / `saved`) — load the saved scene, leaving the `.auto`.
+- `discard` (aliases `delete`) — delete the `.auto`, then load the saved scene.
+
+Unset / empty / unrecognized keeps the interactive modal, so this never changes a
+human's editor. The `run-oloengine` skill's `attach` action sets it (typically
+`original`) so an agent session always boots straight to a usable editor.
+`olo_scene_open` itself never raises the modal — it loads the requested file
+directly, since an agent explicitly asked for that scene.
 
 ### Render override A/B (`olo_render_toggle_pass` / `olo_render_set_debug_view`)
 
