@@ -5,7 +5,9 @@
 # OloEngine/tests/scripts/generate_perf_scenes.py) this script:
 #
 #   1. points Sandbox.oloproj's StartScene at the scene (RESTORED afterwards —
-#      no olo_scene_open MCP tool exists yet; logged on #306),
+#      no olo_scene_open MCP tool exists yet; logged on #306. When that tool
+#      lands, rework this loop to keep ONE editor instance alive and switch
+#      scenes + play state over MCP instead of relaunching per scene),
 #   2. launches OloEditor (default -Config Dist) with OLO_MCP_AUTOSTART=1 on a
 #      dedicated port, and OLO_EDITOR_AUTOPLAY=1 when the scene needs Play mode
 #      (physics/scripts/animation don't tick in Edit mode),
