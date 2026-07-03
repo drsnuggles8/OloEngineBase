@@ -158,6 +158,14 @@ namespace OloEngine
         void SyncPrefsFromMembers();
 
         void SetEditorScene(const Ref<Scene>& scene);
+        // Push the live RendererSettings (rendering path, culling, Forward+/depth-prepass
+        // derivation) into the render graph / pass state — the same call the settings
+        // panel and the MCP write tool make on every edit (#534). Nothing else calls it
+        // at editor startup or scene-load, so without this the config/scene defaults
+        // (depth-prepass, Forward+ auto-switch) silently never apply until a human toggles
+        // a panel setting. Guarded on HasInitialized() and MUST run post-render-graph-build
+        // on the main thread — see Renderer3D::ApplyRendererSettings.
+        void ApplyRendererSettingsToGraph();
         void SyncWindowTitle() const;
         void BindContentBrowserSelectionCallback();
 

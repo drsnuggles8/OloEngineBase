@@ -306,6 +306,13 @@ namespace OloEngine
         // never run against an uninitialized renderer when m_Is3DMode is true.
         TryInitialize3DMode();
 
+        // Apply the config's renderer settings to the freshly-built render graph
+        // (#534). TryInitialize3DMode ran Renderer3D::Init, which builds the graph
+        // from the real window size, so the graph exists here — but nothing had yet
+        // pushed the RendererSettings defaults (depth-prepass / Forward+ auto-switch)
+        // into it, so the editor booted with those silently off until a panel toggle.
+        ApplyRendererSettingsToGraph();
+
         // Frame the start scene's terrain AFTER TryInitialize3DMode: it calls
         // ApplyDefault3DCameraPose, which would otherwise clobber the framing.
         // (OpenProject() opened the start scene before the camera reconstruction
@@ -2727,6 +2734,10 @@ namespace OloEngine
         Ref<Scene> newScene = Ref<Scene>::Create();
         SetEditorScene(newScene);
         m_EditorScenePath = std::filesystem::path();
+
+        // Re-apply renderer settings after the scene swap so the graph reflects the
+        // current config (#534) — mirrors the scene-load finalizers below.
+        ApplyRendererSettingsToGraph();
     }
 
     void EditorLayer::OpenScene()
@@ -2838,6 +2849,13 @@ namespace OloEngine
             ApplyTieringToSettings(project->GetConfig().QualityTiering, Renderer3D::GetPostProcessSettings(), shadowCopy);
             Renderer3D::GetShadowMap().SetSettings(shadowCopy);
         }
+
+        // Push the (now scene-loaded + quality-tiered) settings into the render graph
+        // (#534). Runs AFTER the PostProcessSettings copy above because
+        // ApplyRendererSettings rebuilds the graph on an AO-technique change, so the
+        // scene's ActiveAOTechnique must already be live. Covers OpenScene, MCP
+        // olo_scene_open, and the auto-save pre-answered paths that share this finalizer.
+        ApplyRendererSettingsToGraph();
 
         m_TimeSinceLastAutoSave = 0.0f;
         return true;
@@ -3049,6 +3067,11 @@ namespace OloEngine
             ApplyTieringToSettings(project->GetConfig().QualityTiering, Renderer3D::GetPostProcessSettings(), shadowCopy);
             Renderer3D::GetShadowMap().SetSettings(shadowCopy);
         }
+
+        // Same rationale as LoadEditorSceneFile (#534): apply after the scene's
+        // settings are live so the graph reflects them. This finalizer backs the
+        // auto-save recovery modal's load paths.
+        ApplyRendererSettingsToGraph();
 
         return true;
     }
@@ -3332,6 +3355,22 @@ namespace OloEngine
         Renderer3D::ClearSunDirectionOverride();
 
         SyncWindowTitle();
+    }
+
+    void EditorLayer::ApplyRendererSettingsToGraph()
+    {
+        // No renderer to configure until 3D mode has brought Renderer3D up (the
+        // render graph is built inside Renderer3D::Init). In 2D mode this is a
+        // no-op; the call re-runs when 3D mode initializes.
+        if (!Renderer3D::HasInitialized())
+            return;
+
+        // Mirror the settings-panel / MCP-write call sites: this pushes the config's
+        // rendering path, culling toggles, and the Forward+/depth-prepass derivation
+        // into the live graph. Safe to re-run (idempotent); must be on the main thread
+        // after the graph exists — both guaranteed here (post-TryInitialize3DMode at
+        // startup, and inside the main-thread scene-load finalizers).
+        Renderer3D::ApplyRendererSettings();
     }
 
     void EditorLayer::SyncWindowTitle() const
