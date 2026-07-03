@@ -29,7 +29,6 @@
 #include "RendererAttachedTest.h"
 #include "RenderPropertyTest.h"
 
-#include "OloEngine/Core/Log.h"
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/ResourceHandle.h"
 #include "OloEngine/Renderer/Framebuffer.h"
@@ -39,6 +38,7 @@
 #include "OloEngine/Scene/Entity.h"
 #include "OloEngine/Scene/Components.h"
 #include "OloEngine/Utils/PlatformUtils.h"
+#include "Platform/OpenGL/OpenGLDebug.h"
 
 #include <glad/gl.h>
 #include <gtest/gtest.h>
@@ -416,15 +416,38 @@ namespace OloEngine::Tests
             }
         } scopedMockTime(kCaptureTime);
 
+        // GTAO is not the default AOTechnique (SSAO is) — this restores it
+        // unconditionally via RAII so a fatal ASSERT/EXPECT failure inside
+        // Capture() below (which returns early) can't leave global renderer
+        // state mutated for later tests in the suite.
+        struct ScopedAOTechnique
+        {
+            PostProcessSettings& Settings;
+            AOTechnique SavedTechnique;
+            bool SavedGtaoEnabled;
+
+            explicit ScopedAOTechnique(PostProcessSettings& settings)
+                : Settings(settings), SavedTechnique(settings.ActiveAOTechnique), SavedGtaoEnabled(settings.GTAOEnabled)
+            {
+                Settings.ActiveAOTechnique = AOTechnique::GTAO;
+                Settings.GTAOEnabled = true;
+            }
+            ~ScopedAOTechnique()
+            {
+                Settings.ActiveAOTechnique = SavedTechnique;
+                Settings.GTAOEnabled = SavedGtaoEnabled;
+            }
+        } scopedAOTechnique(Renderer3D::GetPostProcessSettings());
+
         const glm::vec3 pos = { 0.0f, 7.0f, 16.0f };
         constexpr f32 yaw = 0.0f;
         constexpr f32 pitch = 0.32f;
 
         auto& pp = Renderer3D::GetPostProcessSettings();
-        const AOTechnique savedTechnique = pp.ActiveAOTechnique;
-        const bool savedGtaoEnabled = pp.GTAOEnabled;
-        pp.ActiveAOTechnique = AOTechnique::GTAO;
-        pp.GTAOEnabled = true;
+
+        // Reset the GL debug callback's error counter so only errors from this
+        // test's captures (not earlier tests in the suite) count below.
+        ResetGLErrorCount();
 
         pp.Upscale = UpscaleMode::Off;
         std::vector<u8> nativePixels;
@@ -441,31 +464,17 @@ namespace OloEngine::Tests
         Capture("GTAOPerformance", pos, yaw, pitch, upscaledPixels);
 
         pp.Upscale = UpscaleMode::Off; // restore
-        pp.ActiveAOTechnique = savedTechnique;
-        pp.GTAOEnabled = savedGtaoEnabled;
 
         if (::testing::Test::HasFatalFailure())
             return;
 
         // The statistical contract in RunUpscaleContract can pass even with
         // GL_INVALID_VALUE spam (a corrupted corner of the frame doesn't
-        // necessarily fail loose mean-luma/energy thresholds), so check the log
-        // directly for the GL debug callback's error record.
-        const auto recent = Log::Get().GetRecentLogMessages(2000);
-        int glErrorCount = 0;
-        std::string firstGlError;
-        for (const auto& line : recent)
-        {
-            if (line.find("OpenGL debug message") != std::string::npos &&
-                line.find("type: ERROR") != std::string::npos)
-            {
-                ++glErrorCount;
-                if (firstGlError.empty())
-                    firstGlError = line;
-            }
-        }
-        EXPECT_EQ(glErrorCount, 0) << "GL error(s) after switching Upscale to Performance with GTAO active: "
-                                   << firstGlError;
+        // necessarily fail loose mean-luma/energy thresholds), so check the
+        // GL debug callback's own error counter directly instead of parsing
+        // log text.
+        EXPECT_EQ(GetGLErrorCount(), 0u)
+            << "GL error(s) after switching Upscale to Performance with GTAO active — see OloEngine.log for detail";
 
         // Deliberately NOT asserting on absolute brightness here (unlike
         // RunUpscaleContract's native-vs-upscaled checks above): GTAO's
@@ -476,8 +485,9 @@ namespace OloEngine::Tests
         // Upscale == Off, so it predates and is unrelated to this fix) that
         // makes GTAO-lit scenes render too dark to use as a brightness oracle.
         // Tracked as #533; out of scope here. The switch-safety contract
-        // this test exists for is the GL-error scan above and the "upscaled
-        // isn't darker than native" check below, which both hold regardless.
+        // this test exists for is the GL-error-counter check above and the
+        // "upscaled isn't darker than native" check below, which both hold
+        // regardless.
         const f64 nativeMean = MeanLuma(nativePixels);
         const f64 upMean = MeanLuma(upscaledPixels);
         EXPECT_GE(upMean, nativeMean * 0.5)
