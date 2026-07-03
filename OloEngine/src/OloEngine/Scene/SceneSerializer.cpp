@@ -835,50 +835,6 @@ namespace OloEngine
         }
     }
 
-    static void DeserializeSnowDeformerComponent(Entity& entity, const YAML::Node& node)
-    {
-        OLO_PROFILE_FUNCTION();
-
-        auto& sd = entity.AddComponent<SnowDeformerComponent>();
-        TrySet(sd.m_DeformRadius, node["DeformRadius"]);
-        TrySet(sd.m_DeformDepth, node["DeformDepth"]);
-        TrySet(sd.m_FalloffExponent, node["FalloffExponent"]);
-        TrySet(sd.m_CompactionFactor, node["CompactionFactor"]);
-        TrySet(sd.m_EmitEjecta, node["EmitEjecta"]);
-
-        // Validate — sanitize NaN/Inf then clamp
-        SanitizeFloat(sd.m_DeformRadius, 0.01f, 50.0f, 0.5f);
-        SanitizeFloat(sd.m_DeformDepth, 0.0f, 10.0f, 0.1f);
-        SanitizeFloat(sd.m_FalloffExponent, 0.1f, 10.0f, 2.0f);
-        SanitizeFloat(sd.m_CompactionFactor, 0.0f, 1.0f, 0.5f);
-    }
-
-    static void DeserializeFogVolumeComponent(Entity& entity, const YAML::Node& node)
-    {
-        OLO_PROFILE_FUNCTION();
-
-        auto& fv = entity.AddComponent<FogVolumeComponent>();
-        i32 shape = std::to_underlying(fv.m_Shape);
-        TrySet(shape, node["Shape"]);
-        fv.m_Shape = static_cast<FogVolumeShape>(std::clamp(shape, 0, 2));
-        TrySet(fv.m_Extents, node["Extents"]);
-        TrySet(fv.m_Color, node["Color"]);
-        TrySet(fv.m_Density, node["Density"]);
-        TrySet(fv.m_FalloffDistance, node["FalloffDistance"]);
-        TrySet(fv.m_Priority, node["Priority"]);
-        TrySet(fv.m_BlendWeight, node["BlendWeight"]);
-        TrySet(fv.m_Enabled, node["Enabled"]);
-        TrySet(fv.m_AffectTransparent, node["AffectTransparent"]);
-
-        // Validate
-        SanitizeVec3(fv.m_Extents, glm::vec3(5.0f));
-        SanitizeVec3(fv.m_Color, glm::vec3(0.6f, 0.65f, 0.7f));
-        SanitizeFloat(fv.m_Density, 0.0f, 100.0f, 0.5f);
-        SanitizeFloat(fv.m_FalloffDistance, 0.0f, 100.0f, 1.0f);
-        SanitizeFloat(fv.m_BlendWeight, 0.0f, 1.0f, 1.0f);
-        fv.m_Priority = std::clamp(fv.m_Priority, -100, 100);
-    }
-
     static void DeserializeDecalComponent(Entity& entity, const YAML::Node& node)
     {
         OLO_PROFILE_FUNCTION();
@@ -2822,16 +2778,6 @@ namespace OloEngine
             SanitizeFloat(buoyancy.m_SubmergenceRamp, 0.001f, 100.0f, 0.25f);
         }
 
-        if (auto snowDeformerComponent = entity["SnowDeformerComponent"]; snowDeformerComponent)
-        {
-            DeserializeSnowDeformerComponent(deserializedEntity, snowDeformerComponent);
-        }
-
-        if (auto fogVolumeComponent = entity["FogVolumeComponent"]; fogVolumeComponent)
-        {
-            DeserializeFogVolumeComponent(deserializedEntity, fogVolumeComponent);
-        }
-
         if (auto decalComponent = entity["DecalComponent"]; decalComponent)
         {
             DeserializeDecalComponent(deserializedEntity, decalComponent);
@@ -3105,23 +3051,6 @@ namespace OloEngine
                     nmb.m_Links.push_back(link);
                 }
             }
-        }
-
-        if (auto navAgentComponent = entity["NavAgentComponent"]; navAgentComponent)
-        {
-            auto& nac = deserializedEntity.AddComponent<NavAgentComponent>();
-            TrySet(nac.m_Radius, navAgentComponent["Radius"]);
-            SanitizeFloat(nac.m_Radius, 0.01f, 100.0f, 0.5f);
-            TrySet(nac.m_Height, navAgentComponent["Height"]);
-            SanitizeFloat(nac.m_Height, 0.01f, 100.0f, 2.0f);
-            TrySet(nac.m_MaxSpeed, navAgentComponent["MaxSpeed"]);
-            SanitizeFloat(nac.m_MaxSpeed, 0.0f, 1000.0f, 3.5f);
-            TrySet(nac.m_Acceleration, navAgentComponent["Acceleration"]);
-            SanitizeFloat(nac.m_Acceleration, 0.0f, 1000.0f, 8.0f);
-            TrySet(nac.m_StoppingDistance, navAgentComponent["StoppingDistance"]);
-            SanitizeFloat(nac.m_StoppingDistance, 0.0f, 100.0f, 0.1f);
-            TrySet(nac.m_AvoidancePriority, navAgentComponent["AvoidancePriority"]);
-            TrySet(nac.m_LockYAxis, navAgentComponent["LockYAxis"]);
         }
 
         if (auto behaviorTreeComponent = entity["BehaviorTreeComponent"]; behaviorTreeComponent)
@@ -3644,25 +3573,6 @@ namespace OloEngine
             SanitizeFloat(ik.LimbWeight, 0.0f, 1.0f, 1.0f);
             SanitizeFloat(ik.ChainTolerance, 0.0f, 10.0f, 0.001f);
             SanitizeFloat(ik.ChainWeight, 0.0f, 1.0f, 1.0f);
-        }
-
-        if (auto springNode = entity["SpringBoneComponent"]; springNode)
-        {
-            auto& spring = deserializedEntity.AddComponent<SpringBoneComponent>();
-            TrySet(spring.Enabled, springNode["Enabled"]);
-            TrySet(spring.EndBoneIndex, springNode["EndBoneIndex"]);
-            TrySet(spring.ChainLength, springNode["ChainLength"]);
-            TrySet(spring.Stiffness, springNode["Stiffness"]);
-            TrySet(spring.Damping, springNode["Damping"]);
-            TrySet(spring.Gravity, springNode["Gravity"]);
-            TrySet(spring.Weight, springNode["Weight"]);
-
-            // Sanitize float/vector fields — replace NaN/Inf with defaults and clamp to valid ranges
-            spring.ChainLength = std::max(2u, spring.ChainLength);
-            SanitizeFloat(spring.Stiffness, 0.0f, 1e6f, 80.0f);
-            SanitizeFloat(spring.Damping, 0.0f, 1e6f, 12.0f);
-            SanitizeVec3(spring.Gravity, glm::vec3(0.0f, -9.81f, 0.0f));
-            SanitizeFloat(spring.Weight, 0.0f, 1.0f, 1.0f);
         }
 
         if (auto noiseNode = entity["NoiseAnimationComponent"]; noiseNode)
@@ -5053,40 +4963,6 @@ namespace OloEngine
             out << YAML::EndMap; // BuoyancyComponent
         }
 
-        if (entity.HasComponent<SnowDeformerComponent>())
-        {
-            out << YAML::Key << "SnowDeformerComponent";
-            out << YAML::BeginMap;
-
-            auto const& sd = entity.GetComponent<SnowDeformerComponent>();
-            out << YAML::Key << "DeformRadius" << YAML::Value << sd.m_DeformRadius;
-            out << YAML::Key << "DeformDepth" << YAML::Value << sd.m_DeformDepth;
-            out << YAML::Key << "FalloffExponent" << YAML::Value << sd.m_FalloffExponent;
-            out << YAML::Key << "CompactionFactor" << YAML::Value << sd.m_CompactionFactor;
-            out << YAML::Key << "EmitEjecta" << YAML::Value << sd.m_EmitEjecta;
-
-            out << YAML::EndMap; // SnowDeformerComponent
-        }
-
-        if (entity.HasComponent<FogVolumeComponent>())
-        {
-            out << YAML::Key << "FogVolumeComponent";
-            out << YAML::BeginMap;
-
-            auto const& fv = entity.GetComponent<FogVolumeComponent>();
-            out << YAML::Key << "Shape" << YAML::Value << std::to_underlying(fv.m_Shape);
-            out << YAML::Key << "Extents" << YAML::Value << fv.m_Extents;
-            out << YAML::Key << "Color" << YAML::Value << fv.m_Color;
-            out << YAML::Key << "Density" << YAML::Value << fv.m_Density;
-            out << YAML::Key << "FalloffDistance" << YAML::Value << fv.m_FalloffDistance;
-            out << YAML::Key << "Priority" << YAML::Value << fv.m_Priority;
-            out << YAML::Key << "BlendWeight" << YAML::Value << fv.m_BlendWeight;
-            out << YAML::Key << "Enabled" << YAML::Value << fv.m_Enabled;
-            out << YAML::Key << "AffectTransparent" << YAML::Value << fv.m_AffectTransparent;
-
-            out << YAML::EndMap; // FogVolumeComponent
-        }
-
         if (entity.HasComponent<DecalComponent>())
         {
             out << YAML::Key << "DecalComponent";
@@ -5350,23 +5226,6 @@ namespace OloEngine
             out << YAML::EndSeq;
 
             out << YAML::EndMap; // NavMeshBoundsComponent
-        }
-
-        if (entity.HasComponent<NavAgentComponent>())
-        {
-            out << YAML::Key << "NavAgentComponent";
-            out << YAML::BeginMap;
-
-            auto const& nac = entity.GetComponent<NavAgentComponent>();
-            out << YAML::Key << "Radius" << YAML::Value << nac.m_Radius;
-            out << YAML::Key << "Height" << YAML::Value << nac.m_Height;
-            out << YAML::Key << "MaxSpeed" << YAML::Value << nac.m_MaxSpeed;
-            out << YAML::Key << "Acceleration" << YAML::Value << nac.m_Acceleration;
-            out << YAML::Key << "StoppingDistance" << YAML::Value << nac.m_StoppingDistance;
-            out << YAML::Key << "AvoidancePriority" << YAML::Value << nac.m_AvoidancePriority;
-            out << YAML::Key << "LockYAxis" << YAML::Value << nac.m_LockYAxis;
-
-            out << YAML::EndMap; // NavAgentComponent
         }
 
         if (entity.HasComponent<BehaviorTreeComponent>())
@@ -5888,23 +5747,6 @@ namespace OloEngine
             }
 
             out << YAML::EndMap; // IKTargetComponent
-        }
-
-        if (entity.HasComponent<SpringBoneComponent>())
-        {
-            out << YAML::Key << "SpringBoneComponent";
-            out << YAML::BeginMap;
-
-            auto const& spring = entity.GetComponent<SpringBoneComponent>();
-            out << YAML::Key << "Enabled" << YAML::Value << spring.Enabled;
-            out << YAML::Key << "EndBoneIndex" << YAML::Value << spring.EndBoneIndex;
-            out << YAML::Key << "ChainLength" << YAML::Value << spring.ChainLength;
-            out << YAML::Key << "Stiffness" << YAML::Value << spring.Stiffness;
-            out << YAML::Key << "Damping" << YAML::Value << spring.Damping;
-            out << YAML::Key << "Gravity" << YAML::Value << spring.Gravity;
-            out << YAML::Key << "Weight" << YAML::Value << spring.Weight;
-
-            out << YAML::EndMap; // SpringBoneComponent
         }
 
         if (entity.HasComponent<NoiseAnimationComponent>())
