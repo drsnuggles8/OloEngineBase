@@ -104,6 +104,17 @@ function Invoke-Rpc([string]$method, $params, [int]$timeoutSec = 60) {
 
 function Invoke-Tool([string]$name, $arguments, [int]$timeoutSec = 60) {
     $r = Invoke-Rpc 'tools/call' @{ name = $name; arguments = $arguments } $timeoutSec
+    # A JSON-RPC response is either {result} or {error} (protocol-level failure —
+    # e.g. write consent disabled, unknown tool), never both. {result.isError} is
+    # a DIFFERENT, MCP-specific thing: the call succeeded but the tool itself
+    # reports failure. Checking only result.isError silently missed the
+    # protocol-level case ($r.result is $null, so $r.result.isError is $null too)
+    # — Get-ToolJson still ended up returning $null either way, but with no
+    # warning explaining why (e.g. "Write tools are disabled...").
+    if ($r.error) {
+        Write-Warning "$name -> error $($r.error.code): $($r.error.message)"
+        return $null
+    }
     if ($r.result.isError) {
         Write-Warning "$name -> isError: $($r.result.content[0].text)"
         return $null
@@ -184,7 +195,17 @@ try {
     $proc = [System.Diagnostics.Process]::Start($psi)
     Write-Host "Launching $exePath (pid=$($proc.Id))..." -ForegroundColor Cyan
     $discovery = Wait-Discovery $discoveryPath $StartupTimeoutSeconds $proc
-} finally {
+}
+catch {
+    # Wait-Discovery throws if the editor exits early OR if it's still running
+    # but never wrote the discovery file (MCP autostart failed to bind, hung
+    # init, etc.) — the latter case previously orphaned OloEditor.exe, since
+    # the only other place this script kills $proc is the per-scene loop's
+    # finally block below, which this failure never reaches.
+    if ($proc -and -not $proc.HasExited) { $proc.Kill(); $proc.WaitForExit(5000) | Out-Null }
+    throw
+}
+finally {
     Remove-Item Env:OLO_MCP_AUTOSTART, Env:OLO_MCP_PORT, Env:OLO_MCP_DISCOVERY_FILE, Env:OLO_MCP_ALLOW_WRITES, Env:OLO_EDITOR_AUTOSAVE_RECOVERY -ErrorAction SilentlyContinue
 }
 Write-Host "MCP ready: $($discovery.url)" -ForegroundColor Cyan
@@ -229,7 +250,14 @@ try {
             #    already stopped any PREVIOUS scene's Play mode, so no
             #    explicit olo_scene_stop is needed between scenes.
             if ($job.NeedsPlay) {
-                $played = Get-ToolJson 'olo_scene_play' @{}
+                # Same reasoning as olo_scene_open above: the server's internal
+                # watchdog (kSceneControlTimeout, McpTools.cpp) is 120s, so a
+                # shorter CLIENT-side timeout here would give up before the server
+                # does, throw, and this job's catch would move on to the NEXT
+                # scene's olo_scene_open while Play-mode setup for THIS scene is
+                # still running on the game thread — reintroducing the same
+                # single-threaded backlog the olo_scene_open timeout fix closed.
+                $played = Get-ToolJson 'olo_scene_play' @{} $SceneOpenTimeoutSeconds
                 if (-not $played -or -not $played.ok) {
                     $msg = if ($played) { $played.message } else { 'olo_scene_play returned no result' }
                     throw "scene play failed: $msg"

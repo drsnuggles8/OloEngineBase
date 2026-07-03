@@ -3654,7 +3654,14 @@ namespace OloEngine::MCP
             if (!server.Context().OpenSceneFromMcp)
                 return ToolResult::Error("Scene open is not available in this editor build.");
 
-            const Json result = server.MarshalRead([&server, &path]() -> Json
+            // path is captured BY VALUE: MarshalRead's caller-side wait can time out
+            // (kSceneControlTimeout) while the job it enqueued is still running on
+            // the game thread — nothing dequeues an abandoned job. A by-reference
+            // capture of this function-local string would dangle once
+            // Handle_SceneOpen's stack frame unwinds on that timeout; server is a
+            // long-lived object (owned by EditorLayer for the whole session) so a
+            // reference capture there is safe.
+            const Json result = server.MarshalRead([&server, path]() -> Json
                                                    {
                 if (!server.Context().OpenSceneFromMcp)
                     return Json{ { "__error", "Scene open is not available in this editor build." } };

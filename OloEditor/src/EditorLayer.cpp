@@ -577,20 +577,26 @@ namespace OloEngine
                         port = static_cast<u16>(parsed);
                 }
                 if (m_McpServer->Start(port))
+                {
                     m_ShowMcpPanel = true; // surface the panel so the token is visible
 
-                // Session write consent (issue #306 item C) defaults to Disabled and
-                // is never persisted, so a headless launch would otherwise refuse
-                // every olo_scene_open/olo_scene_play/olo_scene_stop call with no way
-                // to click the MCP panel's radio buttons. OLO_MCP_ALLOW_WRITES is the
-                // explicit, opt-in escape hatch for a deliberately-launched automated
-                // session (e.g. scripts/perf/run-perf-battery.ps1) — same spirit as
-                // OLO_MCP_AUTOSTART, and still off by default for an interactive user.
-                const char* allowWritesEnv = std::getenv("OLO_MCP_ALLOW_WRITES");
-                if (allowWritesEnv != nullptr && *allowWritesEnv != '\0' && std::string_view(allowWritesEnv) != "0")
-                {
-                    OLO_CORE_INFO("OLO_MCP_ALLOW_WRITES set - MCP write consent = AllowSession");
-                    m_McpServer->SetAllowWrites(true);
+                    // Session write consent (issue #306 item C) defaults to Disabled
+                    // and is never persisted, so a headless launch would otherwise
+                    // refuse every olo_scene_open/olo_scene_play/olo_scene_stop call
+                    // with no way to click the MCP panel's radio buttons.
+                    // OLO_MCP_ALLOW_WRITES is the explicit, opt-in escape hatch for a
+                    // deliberately-launched automated session (e.g.
+                    // scripts/perf/run-perf-battery.ps1) — same spirit as
+                    // OLO_MCP_AUTOSTART, and still off by default for an interactive
+                    // user. Gated on Start() succeeding: arming write consent on a
+                    // server that never actually started listening is meaningless at
+                    // best and misleading state to carry if it's started later.
+                    const char* allowWritesEnv = std::getenv("OLO_MCP_ALLOW_WRITES");
+                    if (allowWritesEnv != nullptr && *allowWritesEnv != '\0' && std::string_view(allowWritesEnv) != "0")
+                    {
+                        OLO_CORE_INFO("OLO_MCP_ALLOW_WRITES set - MCP write consent = AllowSession");
+                        m_McpServer->SetAllowWrites(true);
+                    }
                 }
             }
         }
