@@ -557,6 +557,30 @@ namespace OloEngine
             }
         }
 
+        // Compute final texture dimensions and pad the packed texel buffers up
+        // to a full width*height block. This is cheap CPU work and is done
+        // regardless of whether a GL context is currently bound, so the padded
+        // data is ready either for an immediate upload or a deferred one.
+        u32 curveWidth = 0;
+        u32 curveHeight = 0;
+        if (curveTexelCount > 0)
+        {
+            curveWidth = std::min(curveTexelCount, kBandTextureWidth);
+            curveHeight = (curveTexelCount + kBandTextureWidth - 1) / kBandTextureWidth;
+            auto totalTexels = static_cast<sizet>(curveWidth) * curveHeight;
+            curveTexelData.resize(totalTexels * 4, 0.0f); // RGBA16F: 4 floats/texel
+        }
+
+        u32 bandWidth = 0;
+        u32 bandHeight = 0;
+        if (bandTexelCount > 0)
+        {
+            bandWidth = std::min(bandTexelCount, kBandTextureWidth);
+            bandHeight = (bandTexelCount + kBandTextureWidth - 1) / kBandTextureWidth;
+            auto totalTexels = static_cast<sizet>(bandWidth) * bandHeight;
+            bandTexelData.resize(totalTexels * 2, 0); // RG16UI: 2 u16s/texel
+        }
+
         // Create GPU textures only if a live GL context is bound. Headless
         // harnesses (Functional tests, asset preprocessors) load fonts for
         // their metrics + glyph data without ever rendering them; calling
@@ -564,52 +588,101 @@ namespace OloEngine
         // through the null glad function pointer. Probing one DSA entry point
         // is sufficient because glad resolves them as a batch — if any one is
         // non-null, a context exists and the rest do too.
-        const bool hasGLContext = (glad_glCreateTextures != nullptr);
-
-        if (hasGLContext && curveTexelCount > 0)
+        //
+        // When NO context is bound we do NOT discard the packed data: it is
+        // retained on the SlugFontData so EnsureGpuTextures() can upload it the
+        // first time the font is rendered. Without this, a font first loaded
+        // headless (e.g. Font::GetDefault() from a metrics-only unit test) would
+        // be cached as permanently textureless and silently drop its text on
+        // every later render even once a context exists — issue #520.
+        if (const bool hasGLContext = (glad_glCreateTextures != nullptr); hasGLContext)
         {
-            auto curveWidth = std::min(curveTexelCount, kBandTextureWidth);
-            auto curveHeight = (curveTexelCount + kBandTextureWidth - 1) / kBandTextureWidth;
-
-            // Pad curve data to fill full texture dimensions (width * height * 4 floats).
-            auto totalTexels = static_cast<sizet>(curveWidth) * curveHeight;
-            curveTexelData.resize(totalTexels * 4, 0.0f);
-
-            TextureSpecification curveSpec;
-            curveSpec.Width = curveWidth;
-            curveSpec.Height = curveHeight;
-            curveSpec.Format = ImageFormat::RGBA16F;
-            curveSpec.GenerateMips = false;
-            fontData.CurveTexture = Texture2D::Create(curveSpec);
-            fontData.CurveTexture->SetData(curveTexelData.data(),
-                                           static_cast<u32>(totalTexels * 4 * sizeof(f32)));
+            if (curveWidth > 0)
+            {
+                TextureSpecification curveSpec;
+                curveSpec.Width = curveWidth;
+                curveSpec.Height = curveHeight;
+                curveSpec.Format = ImageFormat::RGBA16F;
+                curveSpec.GenerateMips = false;
+                fontData.CurveTexture = Texture2D::Create(curveSpec);
+                fontData.CurveTexture->SetData(curveTexelData.data(),
+                                               static_cast<u32>(curveTexelData.size() * sizeof(f32)));
+            }
+            if (bandWidth > 0)
+            {
+                TextureSpecification bandSpec;
+                bandSpec.Width = bandWidth;
+                bandSpec.Height = bandHeight;
+                bandSpec.Format = ImageFormat::RG16UI;
+                bandSpec.GenerateMips = false;
+                fontData.BandTexture = Texture2D::Create(bandSpec);
+                fontData.BandTexture->SetData(bandTexelData.data(),
+                                              static_cast<u32>(bandTexelData.size() * sizeof(u16)));
+            }
         }
-
-        if (hasGLContext && bandTexelCount > 0)
+        else if (curveWidth > 0 || bandWidth > 0)
         {
-            auto bandWidth = std::min(bandTexelCount, kBandTextureWidth);
-            auto bandHeight = (bandTexelCount + kBandTextureWidth - 1) / kBandTextureWidth;
-
-            auto totalTexels = static_cast<sizet>(bandWidth) * bandHeight;
-            bandTexelData.resize(totalTexels * 2, 0);
-
-            TextureSpecification bandSpec;
-            bandSpec.Width = bandWidth;
-            bandSpec.Height = bandHeight;
-            bandSpec.Format = ImageFormat::RG16UI;
-            bandSpec.GenerateMips = false;
-            fontData.BandTexture = Texture2D::Create(bandSpec);
-            fontData.BandTexture->SetData(bandTexelData.data(),
-                                          static_cast<u32>(totalTexels * 2 * sizeof(u16)));
-        }
-
-        if (!hasGLContext)
-        {
-            OLO_CORE_TRACE("SlugFontProcessor: no GL context — skipping curve/band texture upload (metrics-only load).");
+            fontData.GpuUploadPending = true;
+            fontData.PendingCurveTexels = std::move(curveTexelData);
+            fontData.PendingCurveWidth = curveWidth;
+            fontData.PendingCurveHeight = curveHeight;
+            fontData.PendingBandTexels = std::move(bandTexelData);
+            fontData.PendingBandWidth = bandWidth;
+            fontData.PendingBandHeight = bandHeight;
+            OLO_CORE_TRACE("SlugFontProcessor: no GL context — deferring curve/band texture upload for lazy creation on first render.");
         }
 
         OLO_CORE_INFO("SlugFontProcessor: processed {} glyphs, {} curve texels, {} band texels",
                       processedGlyphs, curveTexelCount, bandTexelCount);
+    }
+
+    // -------------------------------------------------------------------------
+    // Deferred GPU upload
+    // -------------------------------------------------------------------------
+
+    void SlugFontProcessor::EnsureGpuTextures(SlugFontData& fontData)
+    {
+        if (!fontData.GpuUploadPending)
+        {
+            return;
+        }
+
+        // Still no context — leave the data pending for a later attempt.
+        if (glad_glCreateTextures == nullptr)
+        {
+            return;
+        }
+
+        if (fontData.PendingCurveWidth > 0 && fontData.PendingCurveHeight > 0)
+        {
+            TextureSpecification curveSpec;
+            curveSpec.Width = fontData.PendingCurveWidth;
+            curveSpec.Height = fontData.PendingCurveHeight;
+            curveSpec.Format = ImageFormat::RGBA16F;
+            curveSpec.GenerateMips = false;
+            fontData.CurveTexture = Texture2D::Create(curveSpec);
+            fontData.CurveTexture->SetData(fontData.PendingCurveTexels.data(),
+                                           static_cast<u32>(fontData.PendingCurveTexels.size() * sizeof(f32)));
+        }
+
+        if (fontData.PendingBandWidth > 0 && fontData.PendingBandHeight > 0)
+        {
+            TextureSpecification bandSpec;
+            bandSpec.Width = fontData.PendingBandWidth;
+            bandSpec.Height = fontData.PendingBandHeight;
+            bandSpec.Format = ImageFormat::RG16UI;
+            bandSpec.GenerateMips = false;
+            fontData.BandTexture = Texture2D::Create(bandSpec);
+            fontData.BandTexture->SetData(fontData.PendingBandTexels.data(),
+                                          static_cast<u32>(fontData.PendingBandTexels.size() * sizeof(u16)));
+        }
+
+        // Font is now renderable — free the retained CPU copies and clear the flag.
+        fontData.PendingCurveTexels = std::vector<f32>{};
+        fontData.PendingBandTexels = std::vector<u16>{};
+        fontData.PendingCurveWidth = fontData.PendingCurveHeight = 0;
+        fontData.PendingBandWidth = fontData.PendingBandHeight = 0;
+        fontData.GpuUploadPending = false;
     }
 
 } // namespace OloEngine
