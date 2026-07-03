@@ -380,9 +380,68 @@ namespace OloEngine
         return packet;
     }
 
+    Renderer3D::InstancedShaderRouting Renderer3D::SelectInstancedShaderRouting(const Material& material)
+    {
+        // Deferred G-Buffer routing — mirrors DrawMesh() exactly (see its
+        // comment for the full rationale). Instanced draws share the same
+        // InstanceBlock_Vertex.glsl / SSBO_INSTANCE_DATA mechanism as
+        // non-instanced draws (gl_InstanceIndex resolves to 0 for a
+        // single-instance draw), so PBRGBufferShader (PBR_GBuffer.glsl) is
+        // already instancing-capable — no separate shader variant needed.
+        // Shared by DrawMeshInstanced's CPU-cull path and
+        // SubmitGPUCulledInstanced's GPU-cull path so the two can't drift
+        // apart the way the pre-#515 routing bug did.
+        InstancedShaderRouting routing;
+        if (material.GetShader())
+        {
+            routing.ShaderToUse = material.GetShader();
+            // Forward-only override on the Deferred path would alias its
+            // output locations onto G-Buffer slots. Reroute to
+            // ForwardOverlayPass so the override gets the forward FB layout
+            // it was authored against.
+            if (s_Data.Settings.Path == RenderingPath::Deferred && s_Data.Pipeline->RenderStreamPasses.ForwardOverlay &&
+                !IsDeferredCapableShader(routing.ShaderToUse))
+            {
+                routing.OverlayRoute = true;
+            }
+        }
+        else if (material.GetType() == MaterialType::PBR)
+        {
+            if (s_Data.Settings.Path == RenderingPath::Deferred && s_Data.PBRGBufferShader)
+                routing.ShaderToUse = s_Data.PBRGBufferShader;
+            else
+                routing.ShaderToUse = s_Data.PBRShader;
+        }
+        else
+        {
+            routing.ShaderToUse = s_Data.DefaultForwardShader;
+            if (s_Data.Settings.Path == RenderingPath::Deferred && s_Data.Pipeline->RenderStreamPasses.ForwardOverlay)
+                routing.OverlayRoute = true;
+        }
+        return routing;
+    }
+
     CommandPacket* Renderer3D::DrawMeshInstanced(const Ref<Mesh>& mesh, const std::vector<glm::mat4>& transforms, const Material& material, bool isStatic, u64 ownerKey)
     {
         OLO_PROFILE_FUNCTION();
+        bool overlayRoute = false;
+        CommandPacket* packet = BuildDrawMeshInstancedPacket(mesh, transforms, material, isStatic, ownerKey, overlayRoute);
+        if (packet && overlayRoute)
+        {
+            // Submit to the overlay bucket directly; return nullptr so the
+            // caller's follow-up SubmitPacket(packet) becomes a safe no-op
+            // (same pattern DrawMesh uses).
+            SubmitForwardOverlayPacket(packet);
+            return nullptr;
+        }
+        return packet;
+    }
+
+    CommandPacket* Renderer3D::BuildDrawMeshInstancedPacket(const Ref<Mesh>& mesh, const std::vector<glm::mat4>& transforms,
+                                                            const Material& material, bool isStatic, u64 ownerKey,
+                                                            bool& outOverlayRoute)
+    {
+        outOverlayRoute = false;
         if (!s_Data.Pipeline->FrameCorePasses.Scene)
         {
             OLO_CORE_ERROR("Renderer3D::DrawMeshInstanced: ScenePass is null!");
@@ -405,6 +464,10 @@ namespace OloEngine
             transforms.size() >= static_cast<sizet>(s_Data.GPUCullThreshold) &&
             mesh)
         {
+            // SubmitGPUCulledInstanced owns its shader routing and
+            // ForwardOverlayPass submission end-to-end (overlay or not);
+            // `outOverlayRoute` stays false here so callers never try to
+            // submit its result a second time.
             return SubmitGPUCulledInstanced(mesh, transforms, material, isStatic, ownerKey);
         }
 
@@ -493,60 +556,30 @@ namespace OloEngine
             }
         }
 
-        // Deferred G-Buffer routing — mirrors DrawMesh() exactly (see its
-        // comment for the full rationale). Instanced draws share the same
-        // InstanceBlock_Vertex.glsl / SSBO_INSTANCE_DATA mechanism as
-        // non-instanced draws (gl_InstanceIndex resolves to 0 for a
-        // single-instance draw), so PBRGBufferShader (PBR_GBuffer.glsl) is
-        // already instancing-capable — no separate shader variant needed.
-        Ref<Shader> shaderToUse;
-        bool overlayRoute = false;
-        if (material.GetShader())
-        {
-            shaderToUse = material.GetShader();
-            // Forward-only override on the Deferred path would alias its
-            // output locations onto G-Buffer slots. Reroute to
-            // ForwardOverlayPass so the override gets the forward FB layout
-            // it was authored against.
-            if (s_Data.Settings.Path == RenderingPath::Deferred && s_Data.Pipeline->RenderStreamPasses.ForwardOverlay &&
-                !IsDeferredCapableShader(shaderToUse))
-            {
-                overlayRoute = true;
-            }
-        }
-        else if (material.GetType() == MaterialType::PBR)
-        {
-            if (s_Data.Settings.Path == RenderingPath::Deferred && s_Data.PBRGBufferShader)
-                shaderToUse = s_Data.PBRGBufferShader;
-            else
-                shaderToUse = s_Data.PBRShader;
-        }
-        else
-        {
-            shaderToUse = s_Data.DefaultForwardShader;
-            if (s_Data.Settings.Path == RenderingPath::Deferred && s_Data.Pipeline->RenderStreamPasses.ForwardOverlay)
-                overlayRoute = true;
-        }
-
+        const InstancedShaderRouting routing = SelectInstancedShaderRouting(material);
+        const Ref<Shader>& shaderToUse = routing.ShaderToUse;
         if (!shaderToUse)
         {
             OLO_CORE_ERROR("Renderer3D::DrawMeshInstanced: No shader available!");
             return nullptr;
         }
 
+        // Validate before allocating a packet so an invalid draw doesn't
+        // consume packet-arena storage it will never submit (matches
+        // DrawMesh's ordering).
+        const u32 vertexArrayID = mesh->GetVertexArray()->GetRendererID();
+        const u32 shaderRendererID = shaderToUse->GetRendererID();
+        if (!ValidateDrawMeshRendererIDs("Renderer3D::DrawMeshInstanced", vertexArrayID, shaderRendererID))
+            return nullptr;
+
         // Create POD command.
-        CommandPacket* packet = overlayRoute
+        CommandPacket* packet = routing.OverlayRoute
                                     ? CreateForwardOverlayDrawCall<DrawMeshInstancedCommand>()
                                     : CreateDrawCall<DrawMeshInstancedCommand>();
         if (!packet)
             return nullptr;
         auto* cmd = packet->GetCommandData<DrawMeshInstancedCommand>();
         cmd->header.type = CommandType::DrawMeshInstanced;
-
-        const u32 vertexArrayID = mesh->GetVertexArray()->GetRendererID();
-        const u32 shaderRendererID = shaderToUse->GetRendererID();
-        if (!ValidateDrawMeshRendererIDs("Renderer3D::DrawMeshInstanced", vertexArrayID, shaderRendererID))
-            return nullptr;
 
         // Store asset handles and renderer IDs (POD).
         cmd->meshHandle = mesh->GetHandle();
@@ -586,15 +619,13 @@ namespace OloEngine
         metadata.m_DebugName = GetMeshDebugName(mesh);
         packet->SetMetadata(metadata);
 
-        if (overlayRoute)
-        {
-            // Submit to the overlay bucket directly; return nullptr so the
-            // caller's follow-up SubmitPacket(packet) becomes a safe no-op
-            // (same pattern DrawMesh uses).
-            SubmitForwardOverlayPacket(packet);
-            return nullptr;
-        }
-
+        // Report the routing decision rather than submitting here: the
+        // std::span<const InstanceData> overload needs to patch
+        // Color/Custom/EntityID onto this packet before it is handed off to
+        // ForwardOverlayPass, so the transform-only public overload performs
+        // the actual submission once it (or the InstanceData overload) is
+        // done with the packet.
+        outOverlayRoute = routing.OverlayRoute;
         return packet;
     }
 
@@ -602,8 +633,9 @@ namespace OloEngine
     // (frustum cull, FrameDataBuffer allocation, prev-transform history,
     // command construction) then patches the resulting packet with per-instance
     // EntityID / Color / Custom streams pulled straight from the InstanceData
-    // span. Keeps the single source of truth for instancing logic in the
-    // transform-only overload.
+    // span, before performing any ForwardOverlayPass submission the CPU-cull
+    // path's routing decided on. Keeps the single source of truth for
+    // instancing logic in BuildDrawMeshInstancedPacket.
     CommandPacket* Renderer3D::DrawMeshInstanced(const Ref<Mesh>& mesh, std::span<const InstanceData> instances, const Material& material, bool isStatic, u64 ownerKey)
     {
         OLO_PROFILE_FUNCTION();
@@ -615,9 +647,14 @@ namespace OloEngine
         for (const auto& inst : instances)
             transforms.push_back(inst.Transform);
 
-        CommandPacket* packet = DrawMeshInstanced(mesh, transforms, material, isStatic, ownerKey);
+        // Called directly rather than through the public transform-only
+        // overload so the packet isn't submitted to ForwardOverlayPass until
+        // the Color/Custom/EntityID streams below are patched onto it (see
+        // BuildDrawMeshInstancedPacket's comment).
+        bool overlayRoute = false;
+        CommandPacket* packet = BuildDrawMeshInstancedPacket(mesh, transforms, material, isStatic, ownerKey, overlayRoute);
         if (!packet)
-            return nullptr; // entirely culled or alloc failure
+            return nullptr; // entirely culled, alloc failure, or the GPU-cull path already fully handled submission
 
         // Post-cull instance count from the produced packet — the transform-only
         // overload may have filtered out frustum-culled instances. We only
@@ -626,7 +663,14 @@ namespace OloEngine
         auto* cmd = packet->GetCommandData<DrawMeshInstancedCommand>();
         const u32 visibleCount = cmd->instanceCount;
         if (visibleCount == 0)
+        {
+            if (overlayRoute)
+            {
+                SubmitForwardOverlayPacket(packet);
+                return nullptr;
+            }
             return packet;
+        }
 
         // The transform-only overload doesn't expose its post-cull index map,
         // so we re-run frustum culling with the same parameters to know which
@@ -684,6 +728,16 @@ namespace OloEngine
             cmd->entityIDBufferOffset = entityIDOffset;
         }
 
+        if (overlayRoute)
+        {
+            // Submit to the overlay bucket now that Color/Custom/EntityID
+            // are patched onto the packet; return nullptr so the caller's
+            // follow-up SubmitPacket(packet) becomes a safe no-op (same
+            // pattern DrawMesh/DrawMeshInstanced(transforms) use).
+            SubmitForwardOverlayPacket(packet);
+            return nullptr;
+        }
+
         return packet;
     }
 
@@ -730,33 +784,11 @@ namespace OloEngine
         const glm::vec4 sphereUniform{ localSphere.Center, localSphere.Radius };
 
         // Deferred G-Buffer routing — mirrors DrawMeshInstanced()/DrawMesh().
-        // See DrawMeshInstanced() for why PBRGBufferShader needs no separate
-        // instanced shader variant.
-        Ref<Shader> shaderToUse;
-        bool overlayRoute = false;
-        if (material.GetShader())
-        {
-            shaderToUse = material.GetShader();
-            if (s_Data.Settings.Path == RenderingPath::Deferred && s_Data.Pipeline->RenderStreamPasses.ForwardOverlay &&
-                !IsDeferredCapableShader(shaderToUse))
-            {
-                overlayRoute = true;
-            }
-        }
-        else if (material.GetType() == MaterialType::PBR)
-        {
-            if (s_Data.Settings.Path == RenderingPath::Deferred && s_Data.PBRGBufferShader)
-                shaderToUse = s_Data.PBRGBufferShader;
-            else
-                shaderToUse = s_Data.PBRShader;
-        }
-        else
-        {
-            shaderToUse = s_Data.DefaultForwardShader;
-            if (s_Data.Settings.Path == RenderingPath::Deferred && s_Data.Pipeline->RenderStreamPasses.ForwardOverlay)
-                overlayRoute = true;
-        }
-
+        // See SelectInstancedShaderRouting for why PBRGBufferShader needs no
+        // separate instanced shader variant.
+        const InstancedShaderRouting routing = SelectInstancedShaderRouting(material);
+        const Ref<Shader>& shaderToUse = routing.ShaderToUse;
+        const bool overlayRoute = routing.OverlayRoute;
         if (!shaderToUse)
         {
             OLO_CORE_ERROR("Renderer3D::SubmitGPUCulledInstanced: No shader available!");

@@ -1325,6 +1325,36 @@ namespace OloEngine
         static auto ValidateDrawMeshRendererIDs(const char* context, u32 vaoID, u32 shaderID) -> bool;
         static auto CreatePODMaterialDataForMaterial(const Material& material, RendererID shaderRendererID) -> PODMaterialData;
 
+        // Shared Deferred-vs-forward-overlay shader routing decision for the
+        // instanced submission paths (DrawMeshInstanced's CPU-cull path and
+        // SubmitGPUCulledInstanced's GPU-cull path). Mirrors DrawMesh's
+        // routing exactly; a single implementation keeps the two instanced
+        // paths from drifting apart the way the pre-#515 routing bug did.
+        struct InstancedShaderRouting
+        {
+            Ref<Shader> ShaderToUse;
+            bool OverlayRoute = false;
+        };
+        static InstancedShaderRouting SelectInstancedShaderRouting(const Material& material);
+
+        // Builds the DrawMeshInstancedCommand packet for DrawMeshInstanced's
+        // CPU-cull path (frustum cull, FrameDataBuffer transform allocation,
+        // prev-transform history, shader routing, command construction) OR
+        // delegates to SubmitGPUCulledInstanced when the input count crosses
+        // `s_Data.GPUCullThreshold`. Does NOT perform the final
+        // ForwardOverlayPass submission for the CPU-cull path — instead
+        // reports the routing decision via `outOverlayRoute` so the
+        // std::span<const InstanceData> overload can patch the packet's
+        // Color/Custom/EntityID streams before it is handed off. For the
+        // GPU-cull delegate case `outOverlayRoute` is always false: that path
+        // fully owns its own submission (overlay or not) and its returned
+        // packet is either ready for the caller's normal SubmitPacket or
+        // already null because SubmitGPUCulledInstanced handled everything
+        // internally.
+        static CommandPacket* BuildDrawMeshInstancedPacket(const Ref<Mesh>& mesh, const std::vector<glm::mat4>& transforms,
+                                                           const Material& material, bool isStatic, u64 ownerKey,
+                                                           bool& outOverlayRoute);
+
         // GPU-cull submission helper called from DrawMeshInstanced when the
         // input count exceeds `s_Data.GPUCullThreshold`. Builds the full
         // pre-cull InstanceData[], hands it to the GPUFrustumCuller, then
