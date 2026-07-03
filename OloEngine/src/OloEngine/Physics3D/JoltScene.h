@@ -267,6 +267,22 @@ namespace OloEngine
         {
             return m_JoltSystem ? m_JoltSystem->GetNumActiveBodies(JPH::EBodyType::RigidBody) : 0;
         }
+        // The system limits InitializeJolt() actually passed to JPH::PhysicsSystem::Init,
+        // read from PhysicsSettings at init time (0 before Initialize()). Exposed so tests
+        // can verify a custom PhysicsSettings is honoured rather than silently ignored in
+        // favor of a hardcoded constant (issue #523).
+        u32 GetMaxBodies() const
+        {
+            return m_AppliedMaxBodies;
+        }
+        u32 GetMaxBodyPairs() const
+        {
+            return m_AppliedMaxBodyPairs;
+        }
+        u32 GetMaxContactConstraints() const
+        {
+            return m_AppliedMaxContactConstraints;
+        }
 
         // Read-only snapshot of the entity pairs whose bodies are currently in
         // contact, deduplicated per entity pair. Empty when the contact listener
@@ -429,19 +445,43 @@ namespace OloEngine
         i32 m_CollisionSteps = 1;
         i32 m_IntegrationSubSteps = 1;
 
+        // Throttling state for the JPH::EPhysicsUpdateError overflow log (see Step()):
+        // logs immediately on the first occurrence / on an error-type transition, then
+        // only every s_PhysicsUpdateErrorLogInterval steps while the same error persists,
+        // instead of spamming every fixed step (issue #523).
+        JPH::EPhysicsUpdateError m_LastPhysicsUpdateError = JPH::EPhysicsUpdateError::None;
+        u32 m_PhysicsUpdateErrorRepeatCount = 0;
+
+        // System limits actually passed to JPH::PhysicsSystem::Init (from PhysicsSettings),
+        // cached for the GetMax*() diagnostics accessors above.
+        u32 m_AppliedMaxBodies = 0;
+        u32 m_AppliedMaxBodyPairs = 0;
+        u32 m_AppliedMaxContactConstraints = 0;
+
         // Constants
         // CollisionGroup group id reserved for joint "collide connected" filtering.
         // The engine uses CollisionGroup for nothing else, so every filtered body
         // shares this group id and a unique sub-group id (see ApplyJointCollisionFilters).
         static constexpr u32 s_JointCollisionGroupID = 0;
-        static constexpr u32 s_MaxBodies = 65536;
-        static constexpr u32 s_NumBodyMutexes = 0; // Autodetect
-        static constexpr u32 s_MaxBodyPairs = 65536;
+        static constexpr u32 s_NumBodyMutexes = 0;    // Autodetect
         static constexpr u32 s_MaxStepsPerFrame = 10; // Prevent "spiral of death" in fixed timestep
-        static constexpr u32 s_MaxContactConstraints = 10240;
-        static constexpr u32 s_TempAllocatorSize = 10 * 1024 * 1024; // 10 MB
+        // Baseline temp-allocator scratch size, tuned for the *old* hardcoded
+        // s_MaxContactConstraints (10240) that used to be the only value Jolt ever saw.
+        // Jolt's per-step scratch allocations (contact-constraint solving buffers etc.)
+        // scale with the constraint capacity passed to PhysicsSystem::Init, and
+        // JPH::TempAllocatorImpl is a fixed-size ring buffer — handing Jolt a bigger
+        // maxContactConstraints without growing this proportionally silently corrupts
+        // memory the moment a step's scratch usage exceeds the buffer (reproduced: raising
+        // PhysicsSettings::m_MaxContactConstraints from 10240 to 32768 with this constant
+        // still at 10 MB crashed JoltScene::Step with SEH 0xc0000005, even in a trivial
+        // 2-body test). InitializeJolt() scales the actual allocator size against this
+        // baseline — see the maxContactConstraints ratio there. Issue #523.
+        static constexpr u32 s_BaselineTempAllocatorSize = 10 * 1024 * 1024; // 10 MB
+        static constexpr u32 s_BaselineMaxContactConstraints = 10240;
         static constexpr u32 s_JobSystemMaxJobs = 2048;
         static constexpr u32 s_JobSystemMaxBarriers = 8;
+        // How often (in fixed steps) to re-log a persisting physics update error.
+        static constexpr u32 s_PhysicsUpdateErrorLogInterval = 300; // ~5s at a 60Hz fixed step
     };
 
 } // namespace OloEngine

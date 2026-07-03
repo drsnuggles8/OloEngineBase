@@ -4,6 +4,7 @@
 #include "SceneQueries.h"
 #include "JoltShapes.h"
 #include "PhysicsEvents.h"
+#include "Physics3DSystem.h" // Physics3DSystem::GetSettings() - single source of truth for PhysicsSettings (issue #523)
 #include "OloEngine/Core/Log.h"
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Scene/Scene.h"
@@ -216,7 +217,26 @@ namespace OloEngine
 
         if (error != JPH::EPhysicsUpdateError::None)
         {
-            OLO_CORE_ERROR("Jolt physics update error: {0}", static_cast<i32>(error));
+            // Throttle: an overflow (e.g. ContactConstraintsFull) otherwise re-logs every
+            // fixed step for as long as it persists. Log immediately on the first hit / on
+            // a transition to a different error, then only every s_PhysicsUpdateErrorLogInterval
+            // steps while it repeats (issue #523).
+            const bool isNewError = error != m_LastPhysicsUpdateError;
+            if (isNewError)
+                m_PhysicsUpdateErrorRepeatCount = 0;
+            if (isNewError || m_PhysicsUpdateErrorRepeatCount % s_PhysicsUpdateErrorLogInterval == 0)
+            {
+                OLO_CORE_ERROR("Jolt physics update error: {0} - raise the matching PhysicsSettings limit "
+                               "(m_MaxContactConstraints / m_MaxBodyPairs / m_MaxBodies)",
+                               static_cast<i32>(error));
+            }
+            ++m_PhysicsUpdateErrorRepeatCount;
+            m_LastPhysicsUpdateError = error;
+        }
+        else
+        {
+            m_LastPhysicsUpdateError = JPH::EPhysicsUpdateError::None;
+            m_PhysicsUpdateErrorRepeatCount = 0;
         }
 
         // Post-simulate character controllers
@@ -2492,8 +2512,28 @@ namespace OloEngine
             JPH::RegisterTypes();
         }
 
-        // Create temp allocator
-        m_TempAllocator = std::make_unique<JPH::TempAllocatorImpl>(s_TempAllocatorSize);
+        // Route the system limits through PhysicsSettings (the same source
+        // Physics3DSystem::Init reads) instead of hardcoding them, so a project can
+        // actually raise them past the old fixed constants (issue #523). Clamp to a
+        // sane minimum defensively: Physics3DSystem::SetSettings() has no validating
+        // caller other than ProjectSerializer, so a test or script that sets the
+        // settings directly could otherwise hand Jolt a zero-sized Init().
+        const PhysicsSettings& settings = Physics3DSystem::GetSettings();
+        const u32 maxBodies = std::max(settings.m_MaxBodies, 1u);
+        const u32 maxBodyPairs = std::max(settings.m_MaxBodyPairs, 1u);
+        const u32 maxContactConstraints = std::max(settings.m_MaxContactConstraints, 1u);
+        m_AppliedMaxBodies = maxBodies;
+        m_AppliedMaxBodyPairs = maxBodyPairs;
+        m_AppliedMaxContactConstraints = maxContactConstraints;
+
+        // Create temp allocator, scaled against s_BaselineTempAllocatorSize (see its
+        // comment): Jolt's per-step scratch usage scales with maxContactConstraints, and
+        // TempAllocatorImpl is a fixed-size ring buffer, so a bigger constraint capacity
+        // needs a proportionally bigger scratch buffer or Jolt silently corrupts memory.
+        const u64 scaledTempAllocatorSize = (static_cast<u64>(s_BaselineTempAllocatorSize) * maxContactConstraints) / s_BaselineMaxContactConstraints;
+        const u32 tempAllocatorSize = static_cast<u32>(
+            std::clamp<u64>(scaledTempAllocatorSize, s_BaselineTempAllocatorSize, 512ull * 1024 * 1024));
+        m_TempAllocator = std::make_unique<JPH::TempAllocatorImpl>(tempAllocatorSize);
 
         // Create job system adapter that wraps FScheduler
         m_JobSystem = std::make_unique<JoltJobSystemAdapter>(JPH::cMaxPhysicsJobs, JPH::cMaxPhysicsBarriers);
@@ -2505,7 +2545,7 @@ namespace OloEngine
 
         // Create physics system
         m_JoltSystem = std::make_unique<JPH::PhysicsSystem>();
-        m_JoltSystem->Init(s_MaxBodies, s_NumBodyMutexes, s_MaxBodyPairs, s_MaxContactConstraints,
+        m_JoltSystem->Init(maxBodies, s_NumBodyMutexes, maxBodyPairs, maxContactConstraints,
                            *m_BroadPhaseLayerInterface, *m_ObjectVsBroadPhaseLayerFilter, *m_ObjectLayerPairFilter);
 
         // Create contact listener
@@ -2515,8 +2555,9 @@ namespace OloEngine
         // Set default gravity
         m_JoltSystem->SetGravity(JPH::Vec3(0.0f, -9.81f, 0.0f));
 
-        OLO_CORE_INFO("Jolt Physics initialized - MaxBodies: {0}, MaxBodyPairs: {1}, MaxContactConstraints: {2}",
-                      s_MaxBodies, s_MaxBodyPairs, s_MaxContactConstraints);
+        OLO_CORE_INFO("Jolt Physics initialized - MaxBodies: {0}, MaxBodyPairs: {1}, MaxContactConstraints: {2}, "
+                      "TempAllocatorSize: {3} bytes",
+                      maxBodies, maxBodyPairs, maxContactConstraints, tempAllocatorSize);
     }
 
     void JoltScene::ShutdownJolt()
