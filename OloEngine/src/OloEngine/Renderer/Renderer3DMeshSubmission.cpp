@@ -742,9 +742,8 @@ namespace OloEngine
             auto twoPhase = s_Data.GPUFrustumCuller->CullTwoPhasePhase1(
                 packed, mesh->GetIndexCount(), mesh->GetBaseIndex(), sphereUniform, kRadiusExpansion);
 
-            CommandPacket* phase2Packet = buildPacket(twoPhase.Phase2Output->GetStorage()->GetRendererID(),
-                                                      twoPhase.Phase2Indirect->GetRendererID());
-            if (phase2Packet)
+            if (CommandPacket* phase2Packet = buildPacket(twoPhase.Phase2Output->GetStorage()->GetRendererID(),
+                                                          twoPhase.Phase2Indirect->GetRendererID()))
                 deferredOcclusionPass->SubmitPhase2(phase2Packet, twoPhase);
 
             // Phase 1 → caller → ScenePass G-Buffer bucket.

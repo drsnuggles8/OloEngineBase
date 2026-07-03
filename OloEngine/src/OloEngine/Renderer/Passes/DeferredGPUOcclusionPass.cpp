@@ -204,7 +204,13 @@ namespace OloEngine
             copyExport(m_SelectedGBufferNormalExport, normalID, GL_TEXTURE_2D);
             copyExport(m_SelectedGBufferEmissiveExport, emissiveID, GL_TEXTURE_2D);
 
-            if (m_GBuffer->GetSampleCount() > 1u)
+            // Only re-export the multisample attachments when phase-2 actually
+            // rasterized into them (per-sample MSAA path). Non-per-sample mode
+            // drew straight into the resolved FBO and left the MS attachments
+            // untouched, so the MS exports already carry ScenePass's data and a
+            // re-copy here would be redundant. Matches the perSampleMSAA-gated
+            // Resolve() above.
+            if (perSampleMSAA)
             {
                 copyExport(m_SelectedGBufferAlbedoMSExport, m_GBuffer->GetMSColorAttachmentID(GBuffer::Albedo), GL_TEXTURE_2D_MULTISAMPLE);
                 copyExport(m_SelectedGBufferNormalMSExport, m_GBuffer->GetMSColorAttachmentID(GBuffer::Normal), GL_TEXTURE_2D_MULTISAMPLE);

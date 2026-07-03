@@ -1313,11 +1313,11 @@ namespace OloEngine
                                             const GPUFrustumCuller::HZBOcclusionInputs& currentHZB);
 
       private:
-        static GPUDrivenOcclusionPass* GetGPUOcclusionPass();
+        [[nodiscard]] static GPUDrivenOcclusionPass* GetGPUOcclusionPass();
         // Deferred two-phase occlusion (#486). Exposes the deferred phase-2 pass
         // for submission-side routing; mirrors GetGPUOcclusionPass for the
         // forward path.
-        static DeferredGPUOcclusionPass* GetDeferredGPUOcclusionPass();
+        [[nodiscard]] static DeferredGPUOcclusionPass* GetDeferredGPUOcclusionPass();
 
       private:
         struct Renderer3DData
